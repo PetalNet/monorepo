@@ -1,8 +1,11 @@
 import { createEffectApi } from "@petalnet/effect-api";
+import { Effect } from "effect";
 import { globalFontFaces } from "fontless/runtime";
 
 import favicon from "../assets/favicon.svg";
 import { enrollAgentSelfOperation } from "./actors/api";
+import { withRestInvocation } from "./invocation";
+import { McpAuthentication } from "./mcp/ingress";
 import { projectOperations } from "./projects/api";
 
 import groveTheme from "../../theme.css?inline";
@@ -14,6 +17,8 @@ export const groveApi = createEffectApi({
 	version: "1.0.0",
 	basePath: "/api/v1",
 	operations: [enrollAgentSelfOperation, ...projectOperations],
+	restMiddleware: withRestInvocation,
+	mcpMiddleware: (next) => Effect.flatMap(McpAuthentication, (authenticate) => authenticate(next)),
 	scalar: {
 		theme: "none",
 		withDefaultFonts: false,

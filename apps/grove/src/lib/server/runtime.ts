@@ -19,6 +19,8 @@ import { GroveAuthBuildLayer } from "#lib/server/auth.ts";
 
 import { groveApi } from "./api";
 import type { AuthenticationRequired } from "./authorization";
+import { groveMcpIngress } from "./mcp-oauth-runtime";
+import { McpAuthentication } from "./mcp/ingress";
 import type { ProjectError, ProjectService } from "./projects/service";
 import { ProjectServiceLayer, ProjectServiceBuildLayer } from "./projects/service";
 
@@ -66,36 +68,45 @@ function makeRuntime() {
 		);
 	}
 
-	return makeEffectSvelteKitRuntime(Layer.orDie(Layer.merge(GroveServicesLayer, groveApi.layer)), {
-		mapFailure: (failure: GroveFailure) =>
-			Match.value(failure).pipe(
-				Match.tags({
-					AuthenticationRequired: ({ message }) => ({ status: 401, message }),
-					BetterAuthApiError: ({ statusCode, message }) => ({
-						status: statusCode,
-						message: statusCode >= 500 ? "Browser authentication is unavailable" : message,
-						log: statusCode >= 500,
-					}),
-					BrowserAuthDatabaseError: ({ message }) => ({ status: 503, message, log: true }),
-					ActorDenied: ({ message }) => ({ status: 403, message }),
-					ActorNotCurrent: ({ message }) => ({ status: 403, message }),
-					ActorDatabaseError: () => ({
-						status: 503,
-						message: "Actor authority is unavailable",
-						log: true,
-					}),
-					CommandConflict: ({ message }) => ({ status: 409, message }),
-					FenceConflict: ({ message }) => ({ status: 409, message }),
-					ProjectDatabaseError: ({ message }) => ({ status: 503, message, log: true }),
-				}),
-				Match.orElse(() => undefined),
+	return makeEffectSvelteKitRuntime(
+		Layer.orDie(
+			Layer.mergeAll(
+				GroveServicesLayer,
+				groveApi.layer,
+				Layer.succeed(McpAuthentication, (next) => groveMcpIngress().middleware(next)),
 			),
-	});
+		),
+		{
+			mapFailure: (failure: GroveFailure) =>
+				Match.value(failure).pipe(
+					Match.tags({
+						AuthenticationRequired: ({ message }) => ({ status: 401, message }),
+						BetterAuthApiError: ({ statusCode, message }) => ({
+							status: statusCode,
+							message: statusCode >= 500 ? "Browser authentication is unavailable" : message,
+							log: statusCode >= 500,
+						}),
+						BrowserAuthDatabaseError: ({ message }) => ({ status: 503, message, log: true }),
+						ActorDenied: ({ message }) => ({ status: 403, message }),
+						ActorNotCurrent: ({ message }) => ({ status: 403, message }),
+						ActorDatabaseError: () => ({
+							status: 503,
+							message: "Actor authority is unavailable",
+							log: true,
+						}),
+						CommandConflict: ({ message }) => ({ status: 409, message }),
+						FenceConflict: ({ message }) => ({ status: 409, message }),
+						ProjectDatabaseError: ({ message }) => ({ status: 503, message, log: true }),
+					}),
+					Match.orElse(() => undefined),
+				),
+		},
+	);
 }
 
 let runtime:
 	| EffectSvelteKitRuntime<
-			GroveAuth | ActorAuthority | ProjectService | HttpRouter.HttpRouter,
+			GroveAuth | ActorAuthority | ProjectService | HttpRouter.HttpRouter | McpAuthentication,
 			GroveFailure
 	  >
 	| undefined;

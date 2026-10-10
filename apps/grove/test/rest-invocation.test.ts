@@ -1,6 +1,7 @@
 import { SvelteKitRequestEvent } from "@petalnet/effect-sveltekit";
 import type { RequestEvent } from "@sveltejs/kit";
 import { Effect } from "effect";
+import { HttpServerResponse } from "effect/http";
 import { describe, expect, it } from "vitest";
 
 import {
@@ -46,14 +47,14 @@ describe("REST invocation", () => {
 
 	it("keeps unauthenticated failures in the REST error envelope", async () => {
 		const response = await Effect.runPromise(
-			withRestInvocation(Effect.succeed(new Response("unreachable"))).pipe(
+			withRestInvocation(Effect.succeed(HttpServerResponse.text("unreachable"))).pipe(
 				Effect.provideService(SvelteKitRequestEvent, eventFor(null)),
 			),
 		);
 
 		expect(response.status).toBe(401);
 
-		expect(await response.json()).toEqual({
+		expect(await HttpServerResponse.toWeb(response).json()).toEqual({
 			error: { code: "operation_failed", message: "Authentication required" },
 		});
 	});
@@ -67,10 +68,10 @@ describe("REST invocation", () => {
 		};
 		const response = await Effect.runPromise(
 			withRestInvocation(
-				Effect.map(InvocationContext, (invocation) => Response.json(invocation)),
+				Effect.map(InvocationContext, (invocation) => HttpServerResponse.jsonUnsafe(invocation)),
 			).pipe(Effect.provideService(SvelteKitRequestEvent, eventFor(actor))),
 		);
 
-		expect(await response.json()).toEqual({ principal: actor });
+		expect(await HttpServerResponse.toWeb(response).json()).toEqual({ principal: actor });
 	});
 });

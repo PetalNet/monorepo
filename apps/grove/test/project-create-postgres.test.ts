@@ -1,5 +1,6 @@
 import * as PgClient from "@effect/sql-pg/PgClient";
-import { http } from "@petalnet/effect-sveltekit";
+import { http, SvelteKitRequestEvent } from "@petalnet/effect-sveltekit";
+import type { RequestEvent } from "@sveltejs/kit";
 import { Effect, Layer, ManagedRuntime, Redacted } from "effect";
 import { HttpServerRequest } from "effect/http";
 import { expect, it } from "vitest";
@@ -41,7 +42,11 @@ it("creates through REST, binds replay to current authority, preserves Versions 
 						body: JSON.stringify(input),
 					}),
 				),
-			).pipe(Effect.provideService(InvocationContext, { principal: owner })),
+			).pipe(
+				Effect.provideService(SvelteKitRequestEvent, {
+					locals: { actor: owner },
+				} as RequestEvent),
+			),
 		);
 
 		expect(response.status).toBe(200);

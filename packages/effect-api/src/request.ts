@@ -1,4 +1,15 @@
-import { Context } from "effect";
+import { Context, Effect, type Types } from "effect";
+import type { HttpMiddleware, HttpServerResponse } from "effect/http";
+
+export type RequestMiddleware = HttpMiddleware.HttpMiddleware.Applied<
+	Effect.Effect<HttpServerResponse.HttpServerResponse, Types.unhandled, unknown>,
+	Types.unhandled,
+	unknown
+>;
+
+/** The host supplies request services; native router dispatch erases their requirements. */
+export const inHostRequest = <A, E, R>(effect: Effect.Effect<A, E, R>): Effect.Effect<A, E> =>
+	Effect.updateContext(effect, (context: Context.Context<never>) => context as Context.Context<R>);
 
 export interface McpPermissions {
 	readonly listed: ReadonlySet<string>;

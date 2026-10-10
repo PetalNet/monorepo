@@ -10,7 +10,7 @@ import {
 	SchemaTransformation,
 } from "effect";
 import { HttpRouter, HttpServerError, HttpServerRequest, HttpServerResponse } from "effect/http";
-import { OpenApi } from "effect/http-api";
+import type { OpenApi } from "effect/http-api";
 import { afterAll, afterEach, describe, expect, it, vi } from "vitest";
 
 import {
@@ -19,11 +19,25 @@ import {
 	type EffectApiConfig,
 	type HttpMethod,
 	type McpPermissions,
+	type RequestMiddleware,
 	operation,
 } from "../src/index.js";
 
 const createOpenApi = <R>(config: EffectApiConfig<R>) =>
-	OpenApi.fromApi(createApplication(config).api);
+	readOpenApi(createEffectApi(config), config.basePath);
+
+const readOpenApi = async (
+	application: { fetch: (request: Request) => Effect.Effect<Response, unknown> },
+	basePath: string,
+) => {
+	const response = await Effect.runPromise(
+		application.fetch(new Request(`https://x${basePath.replace(/\/$/u, "")}/openapi.json`)),
+	);
+
+	expect(response.status).toBe(200);
+
+	return (await response.json()) as OpenApi.OpenAPISpec;
+};
 
 const requestEffect = Effect.fnUntraced(function* (
 	request: Request | HttpServerRequest.HttpServerRequest,
@@ -57,7 +71,7 @@ function createEffectApi<R>(config: EffectApiConfig<R>) {
 
 	const fetch = (...args: Parameters<typeof requestEffect>) =>
 		Effect.gen(function* () {
-			const services = yield* Effect.context<R>();
+			const services = yield* Effect.context();
 			const exit = yield* Effect.promise(() =>
 				runtime.runPromiseExit(
 					requestEffect(...args).pipe(Effect.provide(services)),
@@ -70,7 +84,7 @@ function createEffectApi<R>(config: EffectApiConfig<R>) {
 				: Effect.failCause(exit.cause);
 		});
 
-	return { ...application, fetch, mcp: fetch, openapi: OpenApi.fromApi(application.api) };
+	return { ...application, fetch, mcp: fetch };
 }
 
 const Id = Schema.Struct({ id: Schema.String });
@@ -167,6 +181,231 @@ const operationForMethod = (method: HttpMethod) =>
 afterEach(() => vi.restoreAllMocks());
 
 describe("createEffectApi", () => {
+	it("publishes declared 403, 409 and 503 response schemas through the native router", async () => {
+		const docs = await createOpenApi({
+			title: "Declared errors",
+			version: "1",
+			basePath: "/api",
+			operations: [
+				operation({
+					name: "declared",
+					description: "Declared",
+					method: "GET",
+					path: "/declared",
+					input: Schema.Struct({}),
+					output: Schema.Unknown,
+					handler: (): Effect.Effect<
+						never,
+						{ _tag: "Denied" } | { _tag: "Conflict"; message: string } | { _tag: "Unavailable" }
+					> => Effect.fail({ _tag: "Denied" }),
+					errors: {
+						Denied: { status: 403, message: "Forbidden" },
+						Conflict: { status: 409, message: (error) => error.message },
+						Unavailable: { status: 503 },
+					},
+				}),
+			],
+		});
+		const responses = docs.paths["/api/declared"]?.get?.responses;
+
+		for (const status of [403, 409, 503]) {
+			const schema = responses?.[status]?.content?.["application/json"]?.schema;
+			const resolved =
+				typeof schema?.["$ref"] === "string"
+					? docs.components.schemas[schema["$ref"].replace("#/components/schemas/", "")]
+					: schema;
+
+			expect(resolved).toMatchObject({
+				properties: {
+					error: {
+						properties: {
+							code: { enum: ["operation_failed"] },
+							message: status === 403 ? { enum: ["Forbidden"] } : { type: "string" },
+						},
+					},
+				},
+			});
+		}
+	});
+
+	it("projects nonempty POST input from query when body is explicitly false", async () => {
+		const application = createEffectApi({
+			title: "Query POST",
+			version: "1",
+			basePath: "/api",
+			operations: [
+				operation({
+					name: "query",
+					description: "Query",
+					method: "POST",
+					path: "/items/:id",
+					body: false,
+					input: Schema.Struct({ id: Schema.String, count: Schema.FiniteFromString }),
+					output: Schema.Unknown,
+					handler: Effect.succeed,
+				}),
+			],
+		});
+		const docs = await readOpenApi(application, "/api");
+
+		expect(docs.paths["/api/items/{id}"]?.post).not.toHaveProperty("requestBody");
+
+		expect(docs.paths["/api/items/{id}"]?.post?.parameters).toMatchObject([
+			{ name: "id", in: "path" },
+			{ name: "count", in: "query" },
+		]);
+
+		const result = await runJson(
+			application.fetch(
+				new Request("https://x/api/items/path?count=21", {
+					method: "POST",
+					headers: { "content-type": "application/json" },
+					body: JSON.stringify({ id: "body", count: "99" }),
+				}),
+			),
+		);
+
+		expect(result).toMatchObject({ response: { status: 200 }, body: { id: "path", count: 21 } });
+	});
+
+	it("isolates REST/MCP middleware, captures authenticated services and permissions, and leaves docs public", async () => {
+		const Caller = Context.Service<string>("MiddlewareCaller");
+		const middleware =
+			(transport: string): RequestMiddleware =>
+			(downstream) =>
+				Effect.gen(function* () {
+					const request = yield* HttpServerRequest.HttpServerRequest;
+					const caller = request.headers["x-caller"];
+
+					if (!caller) {
+						return HttpServerResponse.empty({ status: 401 });
+					}
+
+					return yield* downstream.pipe(
+						Effect.provideService(Caller, `${transport}:${caller}`),
+						Effect.provideService(McpAccess, {
+							listed: new Set([caller]),
+							callable: new Set([caller]),
+						}),
+					);
+				});
+		const restMiddleware = middleware("rest");
+		const mcpMiddleware = middleware("mcp");
+		const handler = () => Effect.map(Caller, (caller) => caller);
+		const application = createEffectApi({
+			title: "Middleware",
+			version: "1",
+			basePath: "/api",
+			restMiddleware,
+			mcpMiddleware,
+			operations: ["alpha", "beta"].map((name) =>
+				operation({
+					name,
+					description: name,
+					method: "GET",
+					path: `/${name}`,
+					input: Schema.Struct({}),
+					output: Schema.String,
+					handler,
+				}),
+			),
+		});
+
+		await readOpenApi(application, "/api");
+
+		expect(
+			(await runJson(application.fetch(new Request("https://x/api/docs")))).response.status,
+		).toBe(200);
+
+		expect(
+			(await runJson(application.fetch(new Request("https://x/api/alpha")))).response.status,
+		).toBe(401);
+
+		expect(
+			(await runJson(application.mcp(modernMcpRequest(1, "tools/list")))).response.status,
+		).toBe(401);
+
+		await Promise.all(
+			["alpha", "beta"].map(async (caller, index) => {
+				const request = (method: string, params: Record<string, unknown> = {}) => {
+					const incoming = modernMcpRequest(index + 2, method, params);
+
+					incoming.headers.set("x-caller", caller);
+
+					return incoming;
+				};
+
+				expect((await runJson(application.mcp(request("tools/list")))).body).toMatchObject({
+					result: { tools: [{ name: caller }] },
+				});
+
+				const denied = await runJson(
+					application.mcp(
+						request("tools/call", { name: caller === "alpha" ? "beta" : "alpha", arguments: {} }),
+					),
+				);
+
+				expect(denied.body).toMatchObject({ error: { code: -32602 } });
+
+				expect(
+					(await runJson(application.mcp(request("tools/call", { name: caller, arguments: {} }))))
+						.body,
+				).toMatchObject({ result: { structuredContent: `mcp:${caller}` } });
+
+				expect(
+					(
+						await runJson(
+							application.fetch(
+								new Request(`https://x/api/${caller}`, { headers: { "x-caller": caller } }),
+							),
+						)
+					).body,
+				).toBe(`rest:${caller}`);
+			}),
+		);
+
+		expect(
+			(await runJson(application.mcp(modernMcpRequest(9, "tools/list")))).response.status,
+		).toBe(401);
+	});
+
+	it("preserves downstream interruption through REST middleware", async () => {
+		const after = vi.fn();
+		const finalized = vi.fn(() => undefined);
+		const logCause = vi.fn();
+		const middleware: RequestMiddleware = (downstream) =>
+			downstream.pipe(
+				Effect.tap(() => Effect.sync(after)),
+				Effect.ensuring(Effect.sync(finalized)),
+			);
+		const application = createEffectApi({
+			title: "Interrupted middleware",
+			version: "1",
+			basePath: "/api",
+			logCause,
+			restMiddleware: middleware,
+			mcpMiddleware: middleware,
+			operations: [
+				operation({
+					name: "interrupt",
+					description: "Interrupt",
+					method: "GET",
+					path: "/interrupt",
+					input: Schema.Struct({}),
+					output: Schema.Unknown,
+					handler: () => Effect.interrupt,
+				}),
+			],
+		});
+		const request = new Request("https://x/api/interrupt");
+		const exit = await Effect.runPromiseExit(application.fetch(request));
+
+		expect(Exit.isFailure(exit) && Cause.hasInterruptsOnly(exit.cause)).toBe(true);
+		expect(after).not.toHaveBeenCalled();
+		expect(finalized).toHaveBeenCalledOnce();
+		expect(logCause).not.toHaveBeenCalled();
+	});
+
 	it("builds and registers one server for concurrent REST/MCP calls and finalizes its persistent scope", async () => {
 		const registration = vi.fn(() => "Shared operation");
 		const finalized = vi.fn(() => undefined);
@@ -204,6 +443,9 @@ describe("createEffectApi", () => {
 				},
 			],
 		});
+
+		expect(Object.keys(shared)).toEqual(["layer"]);
+
 		const runtime = ManagedRuntime.make(
 			shared.layer.pipe(
 				Layer.tap(() =>
@@ -623,20 +865,30 @@ describe("createEffectApi", () => {
 		await expect(response.json()).resolves.toEqual({ id: "example", ok: true });
 	});
 
-	it("infers transport inputs according to Effect's HTTP method policy", () => {
-		for (const method of ["GET", "OPTIONS", "POST", "DELETE", "QUERY"] as const) {
-			const application = createApplication({
+	it.each(["GET", "OPTIONS", "POST", "DELETE", "QUERY"] as const)(
+		"infers %s transport inputs according to Effect's HTTP method policy",
+		async (method) => {
+			const application = createEffectApi({
 				title: "Methods",
 				version: "1",
 				basePath: "/api",
 				operations: [operationForMethod(method)],
 			});
-			const endpoint = application.api.groups.operations.endpoints[method];
 
-			expect(endpoint?.payload.size).toBe(["POST", "DELETE", "QUERY"].includes(method) ? 1 : 0);
-			expect(endpoint?.query !== undefined).toBe(["GET", "OPTIONS"].includes(method));
-		}
-	});
+			expect(operationForMethod(method).rest?.body).toBe(
+				["POST", "DELETE", "QUERY"].includes(method),
+			);
+
+			const docs = await readOpenApi(application, "/api");
+
+			// QUERY follows the native body policy but is not an OpenAPI method key.
+			if (method !== "QUERY") {
+				expect(
+					Object.values(docs.paths)[0]?.[method.toLowerCase() as "get"]?.requestBody !== undefined,
+				).toBe(["POST", "DELETE"].includes(method));
+			}
+		},
+	);
 
 	it("derives REST and MCP exposure from one mixed operation catalog", async () => {
 		const machineOnly = vi.fn(({ id }: { readonly id: string }) =>
@@ -666,7 +918,7 @@ describe("createEffectApi", () => {
 			],
 		});
 
-		expect(Object.keys(mixed.openapi.paths)).toEqual(["/api/shared/{id}"]);
+		expect(Object.keys((await readOpenApi(mixed, "/api")).paths)).toEqual(["/api/shared/{id}"]);
 
 		const rejected = await runJson(
 			mixed.fetch(
@@ -990,7 +1242,7 @@ describe("createEffectApi", () => {
 	});
 
 	it("derives matching OpenAPI and MCP surfaces", async () => {
-		expect(api.openapi.paths["/api/v1/items/{id}"]?.get).toMatchObject({
+		expect((await readOpenApi(api, "/api/v1")).paths["/api/v1/items/{id}"]?.get).toMatchObject({
 			operationId: "items.get",
 		});
 
@@ -1023,7 +1275,9 @@ describe("createEffectApi", () => {
 			],
 		});
 
-		expect(documented.openapi.paths["/items/{id}"]?.post).toMatchObject({
+		const documentedOpenApi = await readOpenApi(documented, "/");
+
+		expect(documentedOpenApi.paths["/items/{id}"]?.post).toMatchObject({
 			parameters: [
 				{
 					name: "id",
@@ -1042,7 +1296,7 @@ describe("createEffectApi", () => {
 			},
 		});
 
-		expect(documented.openapi.paths["/items/optional"]?.post).not.toHaveProperty(
+		expect(documentedOpenApi.paths["/items/optional"]?.post).not.toHaveProperty(
 			"requestBody.content.application/json.schema.required",
 		);
 
@@ -1088,8 +1342,6 @@ describe("createEffectApi", () => {
 					// Deliberately exercise sanitization of an untagged third-party error.
 					// oxlint-disable-next-line effecttsgo/global-error-in-effect-failure
 					handler: () => Effect.fail(new Error("database connection details")),
-					statusForError: () => 503,
-					messageForError: () => "Service temporarily unavailable",
 				}),
 			],
 		});
@@ -1098,10 +1350,10 @@ describe("createEffectApi", () => {
 			failing.fetch(new Request("https://grove.test/api/v1/failure")),
 		);
 
-		expect(response.status).toBe(503);
+		expect(response.status).toBe(500);
 
 		await expect(response.json()).resolves.toEqual({
-			error: { code: "operation_failed", message: "Service temporarily unavailable" },
+			error: { code: "operation_failed", message: "The operation failed" },
 		});
 
 		const mcpFailure = await runJson(
@@ -1113,12 +1365,12 @@ describe("createEffectApi", () => {
 				resultType: "complete",
 				isError: true,
 				structuredContent: {
-					error: { code: "operation_failed", message: "Service temporarily unavailable" },
+					error: { code: "operation_failed", message: "The operation failed" },
 				},
 				content: [
 					{
 						type: "text",
-						text: '{"error":{"code":"operation_failed","message":"Service temporarily unavailable"}}',
+						text: '{"error":{"code":"operation_failed","message":"The operation failed"}}',
 					},
 				],
 			},
@@ -1142,9 +1394,8 @@ describe("createEffectApi", () => {
 					path: "/mapped",
 					input: Schema.Struct({}),
 					output: Schema.Unknown,
-					handler: () => Effect.fail("private-4xx"),
-					statusForError: () => 422,
-					messageForError: () => "Public message",
+					handler: () => Effect.fail({ _tag: "Rejected" as const, message: "private-4xx" }),
+					errors: { Rejected: { status: 422, message: "Public message" } },
 				}),
 				operation({
 					name: "unmapped",
@@ -1191,7 +1442,7 @@ describe("createEffectApi", () => {
 
 	it("gives fatal causes precedence and contains invalid or defecting error mappers", async () => {
 		const logged: [string, Cause.Cause<unknown>][] = [];
-		const mixedMapper = vi.fn(() => 404);
+		const mixedMapper = vi.fn(() => "Public message");
 		const unsafe = createEffectApi({
 			title: "Unsafe",
 			version: "1",
@@ -1206,8 +1457,10 @@ describe("createEffectApi", () => {
 					input: Schema.Struct({}),
 					output: Schema.Unknown,
 					handler: () =>
-						Effect.failCause(Cause.combine(Cause.fail("expected"), Cause.die("defect"))),
-					statusForError: mixedMapper,
+						Effect.failCause(
+							Cause.combine(Cause.fail({ _tag: "Expected" as const }), Cause.die("defect")),
+						),
+					errors: { Expected: { status: 404, message: mixedMapper } },
 				}),
 				operation({
 					name: "multiple",
@@ -1227,7 +1480,7 @@ describe("createEffectApi", () => {
 					output: Schema.Unknown,
 					handler: () => Effect.interrupt,
 				}),
-				...[NaN, 399, 600].map((status, index) =>
+				...[undefined, 42, null].map((message, index) =>
 					operation({
 						name: `invalid-${String(index)}`,
 						description: "",
@@ -1235,21 +1488,19 @@ describe("createEffectApi", () => {
 						path: `/invalid-${String(index)}`,
 						input: Schema.Struct({}),
 						output: Schema.Unknown,
-						handler: () => Effect.fail("private"),
-						statusForError: () => status,
+						handler: () => Effect.fail({ _tag: "Expected" as const }),
+						errors: { Expected: { status: 400, message: () => message as unknown as string } },
 					}),
 				),
 				operation({
-					name: "status-defect",
+					name: "message-invalid",
 					description: "",
 					method: "GET",
-					path: "/status-defect",
+					path: "/message-invalid",
 					input: Schema.Struct({}),
 					output: Schema.Unknown,
-					handler: () => Effect.fail("private"),
-					statusForError: () => {
-						throw new Error("status mapper defect");
-					},
+					handler: () => Effect.fail({ _tag: "Expected" as const }),
+					errors: { Expected: { status: 400, message: () => ({}) as unknown as string } },
 				}),
 				operation({
 					name: "message-defect",
@@ -1258,10 +1509,14 @@ describe("createEffectApi", () => {
 					path: "/message-defect",
 					input: Schema.Struct({}),
 					output: Schema.Unknown,
-					handler: () => Effect.fail("private"),
-					statusForError: () => 400,
-					messageForError: () => {
-						throw new Error("message mapper defect");
+					handler: () => Effect.fail({ _tag: "Expected" as const }),
+					errors: {
+						Expected: {
+							status: 400,
+							message: () => {
+								throw new Error("message mapper defect");
+							},
+						},
 					},
 				}),
 			],
@@ -1272,7 +1527,7 @@ describe("createEffectApi", () => {
 			"invalid-0",
 			"invalid-1",
 			"invalid-2",
-			"status-defect",
+			"message-invalid",
 			"message-defect",
 		];
 		const interrupted = await Effect.runPromiseExit(
@@ -1295,7 +1550,7 @@ describe("createEffectApi", () => {
 		expect(mixedMapper).not.toHaveBeenCalled();
 		expect(logged.map(([name]) => name)).toEqual(paths);
 
-		expect(logged.at(-2)?.[1].reasons).toEqual(
+		expect(logged.at(-1)?.[1].reasons).toEqual(
 			expect.arrayContaining([
 				expect.objectContaining({ _tag: "Die", defect: expect.any(Error) as unknown }),
 			]),
@@ -1331,14 +1586,14 @@ describe("createEffectApi", () => {
 
 	it.each(["__proto__", "constructor", "toString"])(
 		"treats OpenAPI path %s as an own data key",
-		(path) => {
+		async (path) => {
 			const target = Reflect.get({}, path) as object;
 			const previous = Object.getOwnPropertyDescriptor(target, "get");
 			let current: PropertyDescriptor | undefined;
-			let docs: ReturnType<typeof createOpenApi>;
+			let docs: Awaited<ReturnType<typeof createOpenApi>>;
 
 			try {
-				docs = createOpenApi({
+				docs = await createOpenApi({
 					title: "Untrusted path",
 					version: "1",
 					basePath: "/api",
@@ -1372,7 +1627,7 @@ describe("createEffectApi", () => {
 
 	it("rejects invalid method keys from untyped callers before generating OpenAPI", () => {
 		expect(() =>
-			createOpenApi({
+			createApplication({
 				title: "Untyped caller",
 				version: "1",
 				basePath: "/api",
@@ -1391,8 +1646,8 @@ describe("createEffectApi", () => {
 		).toThrow(/Unsupported HTTP method/);
 	});
 
-	it("documents every OpenAPI path/body/parameter branch and shared path methods", () => {
-		const docs = createEffectApi({
+	it("documents every OpenAPI path/body/parameter branch and shared path methods", async () => {
+		const docs = await createOpenApi({
 			title: "Docs",
 			version: "2",
 			basePath: "/v2",
@@ -1425,7 +1680,7 @@ describe("createEffectApi", () => {
 					handler: () => Effect.never,
 				}),
 			],
-		}).openapi;
+		});
 
 		expect(docs).toMatchObject({
 			openapi: "3.1.0",
@@ -1452,7 +1707,7 @@ describe("createEffectApi", () => {
 		expect(docs.paths["/v2/plain"]?.get).not.toHaveProperty("requestBody");
 	});
 
-	it("resolves named schemas across path, query, body, and response documentation", () => {
+	it("resolves named schemas across path, query, body, and response documentation", async () => {
 		const Details = Schema.Struct({ count: Schema.FiniteFromString }).annotate({
 			identifier: "Details",
 		});
@@ -1460,7 +1715,7 @@ describe("createEffectApi", () => {
 			id: Schema.String.check(Schema.isPattern(/^item-/u)),
 			details: Details,
 		}).annotate({ identifier: "Update" });
-		const docs = createOpenApi({
+		const docs = await createOpenApi({
 			title: "References",
 			version: "1",
 			basePath: "/api",
@@ -1550,7 +1805,7 @@ describe("createEffectApi", () => {
 				}),
 			],
 		});
-		const docs = application.openapi;
+		const docs = await readOpenApi(application, "/api");
 
 		for (const method of ["post", "delete"] as const) {
 			expect(docs.paths["/api/items/{id}"]?.[method]).not.toHaveProperty("requestBody");

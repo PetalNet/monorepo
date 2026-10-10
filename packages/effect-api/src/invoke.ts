@@ -1,4 +1,4 @@
-import { Cause, Data, Effect, Schema } from "effect";
+import { Cause, Data, Effect, Predicate, Schema } from "effect";
 
 import type { ApiOperation, LogCause } from "./operation.js";
 
@@ -36,13 +36,25 @@ const handleCause = Effect.fnUntraced(function* <R>(
 
 		if (phase === "handler") {
 			const mapped = yield* Effect.sync(() => {
-				const status = operation.statusForError?.(failure.error) ?? 500;
+				const error = failure.error;
+				const tag =
+					Predicate.isReadonlyObject(error) && typeof error["_tag"] === "string"
+						? error["_tag"]
+						: undefined;
+				const declared =
+					tag !== undefined && operation.errors && Object.hasOwn(operation.errors, tag)
+						? operation.errors[tag]
+						: undefined;
+				const status = declared?.status ?? 500;
 
 				if (!Number.isInteger(status) || status < 400 || status > 599) {
 					return operationFailed();
 				}
 
-				const message = operation.messageForError?.(failure.error) ?? "The operation failed";
+				const message =
+					typeof declared?.message === "function"
+						? declared.message(error)
+						: (declared?.message ?? "The operation failed");
 
 				return typeof message === "string" ? operationFailed(status, message) : operationFailed();
 			}).pipe(

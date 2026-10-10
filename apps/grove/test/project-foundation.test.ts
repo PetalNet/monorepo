@@ -1,7 +1,8 @@
 import { createHash } from "node:crypto";
 
 import * as PgClient from "@effect/sql-pg/PgClient";
-import { http } from "@petalnet/effect-sveltekit";
+import { http, SvelteKitRequestEvent } from "@petalnet/effect-sveltekit";
+import type { RequestEvent } from "@sveltejs/kit";
 import { Effect, Layer, ManagedRuntime, Redacted } from "effect";
 import type { HttpRouter } from "effect/http";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
@@ -13,6 +14,7 @@ import {
 } from "../src/lib/server/actors/authority";
 import { groveApi } from "../src/lib/server/api";
 import { InvocationContext } from "../src/lib/server/invocation";
+import { McpAuthentication } from "../src/lib/server/mcp/ingress";
 import { canonicalDigest } from "../src/lib/server/projects/canonical";
 import type { ProjectService } from "../src/lib/server/projects/service";
 import { ProjectServiceLayer } from "../src/lib/server/projects/service";
@@ -116,7 +118,11 @@ describe("Grove project foundation and #401 REST/MCP loop", () => {
 					headers: { "content-type": "application/json" },
 					...(body ? { body: JSON.stringify(body) } : {}),
 				}),
-			).pipe(Effect.provideService(InvocationContext, { principal })),
+			).pipe(
+				Effect.provideService(SvelteKitRequestEvent, {
+					locals: { actor: principal },
+				} as RequestEvent),
+			),
 		);
 
 		expect(response.status).toBe(status);
@@ -154,7 +160,11 @@ describe("Grove project foundation and #401 REST/MCP loop", () => {
 						},
 					}),
 				}),
-			).pipe(Effect.provideService(InvocationContext, { principal })),
+			).pipe(
+				Effect.provideService(InvocationContext, { principal }),
+				// This loop tests domain parity with an already-resolved principal.
+				Effect.provideService(McpAuthentication, (next) => next),
+			),
 		);
 
 		expect(response.status).toBe(200);

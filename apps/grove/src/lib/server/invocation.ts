@@ -1,5 +1,6 @@
 import { SvelteKitRequestEvent } from "@petalnet/effect-sveltekit";
 import { Context, Effect } from "effect";
+import { HttpServerResponse } from "effect/http";
 
 import type { ActorPrincipal, MachinePrincipal } from "./actors/authority";
 import { AuthenticationRequired } from "./authorization";
@@ -28,13 +29,15 @@ export const withBrowserInvocation = <A, E, R>(effect: Effect.Effect<A, E, R>) =
 		);
 	});
 
-export const withRestInvocation = <E, R>(effect: Effect.Effect<Response, E, R>) =>
+export const withRestInvocation = <E, R>(
+	effect: Effect.Effect<HttpServerResponse.HttpServerResponse, E, R>,
+) =>
 	withBrowserInvocation(effect).pipe(
 		Effect.catchIf(
 			(error): error is AuthenticationRequired => error instanceof AuthenticationRequired,
 			(error) =>
 				Effect.succeed(
-					Response.json(
+					HttpServerResponse.jsonUnsafe(
 						{ error: { code: "operation_failed", message: error.message } },
 						{ status: 401 },
 					),

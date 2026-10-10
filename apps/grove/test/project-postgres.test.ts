@@ -1,7 +1,8 @@
 import { setTimeout as delay } from "node:timers/promises";
 
 import * as PgClient from "@effect/sql-pg/PgClient";
-import { http } from "@petalnet/effect-sveltekit";
+import { http, SvelteKitRequestEvent } from "@petalnet/effect-sveltekit";
+import type { RequestEvent } from "@sveltejs/kit";
 import { Effect, Layer, ManagedRuntime, Redacted } from "effect";
 import { HttpServerRequest, type HttpRouter } from "effect/http";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
@@ -370,7 +371,11 @@ describe("ProjectService durable actor PostgreSQL integration", () => {
 							body: JSON.stringify(publication),
 						}),
 					),
-				).pipe(Effect.provideService(InvocationContext, { principal: agent })),
+				).pipe(
+					Effect.provideService(SvelteKitRequestEvent, {
+						locals: { actor: agent },
+					} as RequestEvent),
+				),
 			);
 		const response = await rest();
 

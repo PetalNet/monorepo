@@ -1,21 +1,20 @@
 import { isUtf8 } from "node:buffer";
 
 import { createMcpProtectedRequestHandler } from "@better-auth/mcp";
-import { McpAccess } from "@petalnet/effect-api";
-import { http } from "@petalnet/effect-sveltekit";
-import { Cause, Data, Effect, Exit, Fiber, Stream } from "effect";
+import { McpAccess, type RequestMiddleware } from "@petalnet/effect-api";
+import { Cause, Context, Data, Effect, Exit, Fiber, Stream, type Types } from "effect";
 import {
 	HttpClientRequest,
+	HttpEffect,
 	HttpServerRequest,
+	HttpServerResponse,
 	type HttpMethod,
-	type HttpRouter,
 } from "effect/http";
 import type { JWTPayload } from "jose";
 
 import type { ActorDatabaseError } from "../actors/authority";
 import { ActorAuthority, type AuthorityError, type MachineIdentity } from "../actors/authority";
 import { InvocationContext } from "../invocation";
-import type { ProjectService } from "../projects/service";
 
 const MCP_SCOPE = "grove:mcp";
 const MCP_MAX_REQUEST_BYTES = 1024 * 1024;
@@ -33,20 +32,18 @@ export interface McpIngress {
 		readonly bearer_methods_supported: readonly string[];
 		readonly scopes_supported: readonly string[];
 	};
-	readonly handle: (
-		request: Request,
-	) => Effect.Effect<
-		Response,
-		AuthorityError,
-		ActorAuthority | ProjectService | HttpRouter.HttpRouter
-	>;
+	readonly middleware: RequestMiddleware;
 }
+
+export class McpAuthentication extends Context.Service<McpAuthentication, RequestMiddleware>()(
+	"grove/McpAuthentication",
+) {}
 
 class McpRejected extends Data.TaggedError("McpRejected")<{ readonly response: Response }> {}
 
 /** Carries the original Effect cause through Better Auth's Promise callback unchanged. */
 class McpInvocationFailed extends Data.TaggedError("McpInvocationFailed")<{
-	readonly cause: Cause.Cause<AuthorityError>;
+	readonly cause: Cause.Cause<AuthorityError | Types.unhandled>;
 }> {}
 
 class McpDependencyFailed extends Data.TaggedError("McpDependencyFailed")<{
@@ -208,7 +205,11 @@ export const makeMcpIngress = (input: McpIngressConfig): McpIngress => {
 	const config = validatedConfig(input);
 
 	const dispatch = Effect.fnUntraced(
-		function* (request: Request, identity: MachineIdentity) {
+		function* (
+			request: Request,
+			identity: MachineIdentity,
+			next: Effect.Effect<HttpServerResponse.HttpServerResponse, Types.unhandled, unknown>,
+		) {
 			const authority = yield* ActorAuthority;
 			const principal = yield* authority.resolveMachineIdentity(identity);
 			const incoming = yield* readRequest(request);
@@ -221,7 +222,15 @@ export const makeMcpIngress = (input: McpIngressConfig): McpIngress => {
 				callable.add("agents.enrollSelf");
 			}
 
-			return yield* http(incoming).pipe(
+			return yield* next.pipe(
+				Effect.flatMap((response) =>
+					Effect.contextWith((context) =>
+						Effect.succeed(
+							HttpServerResponse.toWeb(HttpEffect.scopeTransferToStream(response), { context }),
+						),
+					),
+				),
+				Effect.provideService(HttpServerRequest.HttpServerRequest, incoming),
 				Effect.provideService(McpAccess, { listed, callable }),
 				Effect.provideService(InvocationContext, {
 					principal,
@@ -243,66 +252,82 @@ export const makeMcpIngress = (input: McpIngressConfig): McpIngress => {
 
 	return {
 		metadata: () => mcpProtectedResourceMetadata(config),
-		handle: Effect.fnUntraced(function* (request: Request) {
-			const services = yield* Effect.context<
-				ActorAuthority | ProjectService | HttpRouter.HttpRouter
-			>();
-			const scope = yield* Effect.scope;
+		middleware: Effect.fnUntraced(
+			function* (
+				next: Effect.Effect<HttpServerResponse.HttpServerResponse, Types.unhandled, unknown>,
+			) {
+				const nativeRequest = yield* HttpServerRequest.HttpServerRequest;
+				const request = yield* HttpServerRequest.toWeb(nativeRequest);
+				const services = yield* Effect.context<unknown>();
+				const scope = yield* Effect.scope;
 
-			return yield* Effect.tryPromise({
-				try: (signal) =>
-					createMcpProtectedRequestHandler(
-						{
-							issuer: config.issuer,
-							audience: resource(config),
-							jwksUrl: config.jwksUrl,
-							jwtVerifyOptions: {
-								algorithms: ["RS256", "ES256"],
-								requiredClaims: ["sub", "exp", "iat"],
+				return yield* Effect.tryPromise({
+					try: (signal) =>
+						createMcpProtectedRequestHandler(
+							{
+								issuer: config.issuer,
+								audience: resource(config),
+								jwksUrl: config.jwksUrl,
+								jwtVerifyOptions: {
+									algorithms: ["RS256", "ES256"],
+									requiredClaims: ["sub", "exp", "iat"],
+								},
+								requiredScopes: [MCP_SCOPE],
 							},
-							requiredScopes: [MCP_SCOPE],
-						},
-						async (incoming: Request, claims: JWTPayload) => {
-							// Better Auth cannot cancel JWKS fetching; do not start work after it was abandoned.
-							if (signal.aborted || incoming.signal.aborted) {
-								throw new McpInvocationFailed({ cause: Cause.interrupt() });
-							}
+							async (incoming: Request, claims: JWTPayload) => {
+								// Better Auth cannot cancel JWKS fetching; do not start work after it was abandoned.
+								if (signal.aborted || incoming.signal.aborted) {
+									throw new McpInvocationFailed({ cause: Cause.interrupt() });
+								}
 
-							if (typeof claims.sub !== "string" || claims.sub.length === 0) {
-								return new Response(null, {
-									status: 401,
-									headers: {
-										"WWW-Authenticate": `Bearer resource_metadata="${metadataUrl(config)}"`,
-									},
-								});
-							}
+								if (typeof claims.sub !== "string" || claims.sub.length === 0) {
+									return new Response(null, {
+										status: 401,
+										headers: {
+											"WWW-Authenticate": `Bearer resource_metadata="${metadataUrl(config)}"`,
+										},
+									});
+								}
 
-							// Reuse this request's services and interruption; do not create another ManagedRuntime.
-							const exit = await Effect.runPromiseExitWith(services)(
-								dispatch(incoming, {
-									issuer: config.issuer,
-									subject: claims.sub,
-									// Better Auth has already validated the scope grammar and admission scope.
-									scopes: new Set((claims.scope as string).split(" ")),
-								}).pipe(Effect.forkIn(scope), Effect.flatMap(Fiber.join)),
-								{ signal: AbortSignal.any([signal, incoming.signal]) },
-							);
+								// Reuse this request's services and interruption; do not create another ManagedRuntime.
+								const exit = await Effect.runPromiseExitWith(services)(
+									dispatch(
+										incoming,
+										{
+											issuer: config.issuer,
+											subject: claims.sub,
+											// Better Auth has already validated the scope grammar and admission scope.
+											scopes: new Set((claims.scope as string).split(" ")),
+										},
+										next,
+									).pipe(Effect.forkIn(scope), Effect.flatMap(Fiber.join)),
+									{ signal: AbortSignal.any([signal, incoming.signal]) },
+								);
 
-							if (Exit.isFailure(exit)) {
-								throw new McpInvocationFailed({ cause: exit.cause });
-							}
+								if (Exit.isFailure(exit)) {
+									throw new McpInvocationFailed({ cause: exit.cause });
+								}
 
-							return exit.value;
-						},
-					)(request),
-				catch: (error) =>
-					error instanceof McpInvocationFailed ? error : new McpDependencyFailed({ cause: error }),
-			}).pipe(
-				Effect.catchTags({
-					McpInvocationFailed: (error) => Effect.failCause(error.cause),
-					McpDependencyFailed: (error) => Effect.succeed(dependencyUnavailable(error.cause)),
-				}),
-			);
-		}, Effect.scoped),
+								return exit.value;
+							},
+						)(request),
+					catch: (error) =>
+						error instanceof McpInvocationFailed
+							? error
+							: new McpDependencyFailed({ cause: error }),
+				}).pipe(
+					Effect.catchTags({
+						McpInvocationFailed: (error) => Effect.failCause(error.cause),
+						McpDependencyFailed: (error) => Effect.succeed(dependencyUnavailable(error.cause)),
+					}),
+					Effect.map(HttpServerResponse.fromWeb),
+				);
+			},
+			(effect) =>
+				effect.pipe(
+					// Residual failures belong to native HTTP handling; keep their original values.
+					Effect.mapError((error) => error as Types.unhandled),
+				),
+		),
 	};
 };

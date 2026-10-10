@@ -41,6 +41,7 @@
 					"effect/http-api/OpenApi#fromApi",
 					"effect/http-api/OpenApi#Description",
 					"effect/http-api/OpenApi#Title",
+					"effect/http-api/OpenApi#OpenAPISpec",
 					"effect/http-api/OpenApi#Version"
 				]
 			}

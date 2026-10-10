@@ -12,14 +12,15 @@ import {
 
 import { invokeOperation } from "./invoke.js";
 import type { ApiOperation, LogCause } from "./operation.js";
-import { ApiRequest } from "./request.js";
+import { inHostRequest, type RequestMiddleware } from "./request.js";
 
-interface RestConfig {
+interface RestConfig<R> {
 	readonly title: string;
 	readonly version: string;
 	readonly basePath: string;
 	readonly openapiPath: `/${string}`;
-	readonly operations: readonly ApiOperation<unknown>[];
+	readonly operations: readonly ApiOperation<R>[];
+	readonly restMiddleware?: RequestMiddleware;
 	readonly logCause: LogCause;
 }
 
@@ -77,17 +78,21 @@ const makeEndpoint = (
 
 	return HttpApiEndpoint.make(rest.method)(operation.name, rest.path, {
 		...(pathKeys.length > 0 ? { params } : {}),
-		...(empty
-			? {}
-			: HttpMethod.hasBody(rest.method)
-				? { payload: remaining }
-				: { query: remaining }),
+		...(empty ? {} : rest.body ? { payload: remaining } : { query: remaining }),
 		success: Schema.make<Schema.Codec<unknown>>(operation.output.ast),
+		error: Object.values(operation.errors ?? {}).map(({ status, message }) =>
+			Schema.Struct({
+				error: Schema.Struct({
+					code: Schema.Literal("operation_failed"),
+					message: typeof message === "string" ? Schema.Literal(message) : Schema.String,
+				}),
+			}).annotate({ httpApiStatus: status }),
+		),
 	}).annotate(OpenApi.Description, operation.description);
 };
 
 /** Generate the contract and native handlers from the same operation catalog. */
-export const createRestApi = (config: RestConfig) => {
+export const createRestApi = <R>(config: RestConfig<R>) => {
 	const registrations = config.operations.flatMap((operation) =>
 		operation.rest ? [{ operation, endpoint: makeEndpoint(operation, operation.rest) }] : [],
 	);
@@ -112,19 +117,12 @@ export const createRestApi = (config: RestConfig) => {
 						readonly query?: unknown;
 						readonly payload?: unknown;
 					}) {
-						const current = yield* Effect.serviceOption(ApiRequest);
-
-						if (Option.isNone(current)) {
-							return yield* Effect.die("Missing API request context");
-						}
-
 						const input = "payload" in request ? request.payload : (request.query ?? {});
 						const merged = Predicate.isReadonlyObject(input)
 							? { ...input, ...(Predicate.isReadonlyObject(request.params) ? request.params : {}) }
 							: input;
 
-						return yield* invokeOperation(operation, merged, config.logCause).pipe(
-							Effect.provide(current.value.services),
+						return yield* inHostRequest(invokeOperation(operation, merged, config.logCause)).pipe(
 							Effect.catchTag("InvocationFailure", (failure) =>
 								Effect.succeed(
 									HttpServerResponse.jsonUnsafe(
@@ -139,8 +137,8 @@ export const createRestApi = (config: RestConfig) => {
 			),
 		),
 	);
-	const boundary = Layer.succeed(OperationBoundary, (httpEffect, { endpoint }) =>
-		httpEffect.pipe(
+	const boundary = Layer.succeed(OperationBoundary, (httpEffect, { endpoint }) => {
+		const handled = httpEffect.pipe(
 			Effect.catchCause((cause) => {
 				if (Cause.hasInterruptsOnly(cause)) {
 					return Effect.failCause(cause as Cause.Cause<never>);
@@ -172,8 +170,10 @@ export const createRestApi = (config: RestConfig) => {
 					),
 				);
 			}),
-		),
-	);
+		);
+
+		return inHostRequest(config.restMiddleware ? config.restMiddleware(handled) : handled);
+	});
 	const layer = HttpApiBuilder.layer(api, { openapiPath: config.openapiPath }).pipe(
 		Layer.provide(implementations),
 		Layer.provide(boundary),
