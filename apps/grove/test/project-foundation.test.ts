@@ -1,8 +1,10 @@
 import { createHash } from "node:crypto";
 
 import * as PgClient from "@effect/sql-pg/PgClient";
-import type { ApiServer } from "@petalnet/effect-api";
+import { http, SvelteKitRequestEvent } from "@petalnet/effect-sveltekit";
+import type { RequestEvent } from "@sveltejs/kit";
 import { Effect, Layer, ManagedRuntime, Redacted } from "effect";
+import type { HttpRouter } from "effect/http";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 
 import {
@@ -12,6 +14,7 @@ import {
 } from "../src/lib/server/actors/authority";
 import { groveApi } from "../src/lib/server/api";
 import { InvocationContext } from "../src/lib/server/invocation";
+import { McpAuthentication } from "../src/lib/server/mcp/ingress";
 import { canonicalDigest } from "../src/lib/server/projects/canonical";
 import type { ProjectService } from "../src/lib/server/projects/service";
 import { ProjectServiceLayer } from "../src/lib/server/projects/service";
@@ -44,7 +47,7 @@ interface Receipt {
 
 describe("Grove project foundation and #401 REST/MCP loop", () => {
 	let runtime: ManagedRuntime.ManagedRuntime<
-		ActorAuthority | ProjectService | ApiServer | PgClient.PgClient,
+		ActorAuthority | ProjectService | HttpRouter.HttpRouter | PgClient.PgClient,
 		unknown
 	>;
 	let database: ManagedRuntime.ManagedRuntime<PgClient.PgClient, unknown>;
@@ -109,15 +112,17 @@ describe("Grove project foundation and #401 REST/MCP loop", () => {
 
 	const rest = async (principal: ActorPrincipal, path: string, body?: object, status = 200) => {
 		const response = await runtime.runPromise(
-			groveApi
-				.fetch(
-					new Request(`https://grove.test/api/v1${path}`, {
-						method: body ? "POST" : "GET",
-						headers: { "content-type": "application/json" },
-						...(body ? { body: JSON.stringify(body) } : {}),
-					}),
-				)
-				.pipe(Effect.provideService(InvocationContext, { principal })),
+			http(
+				new Request(`https://grove.test/api/v1${path}`, {
+					method: body ? "POST" : "GET",
+					headers: { "content-type": "application/json" },
+					...(body ? { body: JSON.stringify(body) } : {}),
+				}),
+			).pipe(
+				Effect.provideService(SvelteKitRequestEvent, {
+					locals: { actor: principal },
+				} as RequestEvent),
+			),
 		);
 
 		expect(response.status).toBe(status);
@@ -127,37 +132,39 @@ describe("Grove project foundation and #401 REST/MCP loop", () => {
 
 	const mcp = async <A = Receipt>(principal: ActorPrincipal, name: string, args: object) => {
 		const response = await runtime.runPromise(
-			groveApi
-				.mcp(
-					new Request("https://grove.test/mcp", {
-						method: "POST",
-						headers: {
-							"content-type": "application/json",
-							accept: "application/json, text/event-stream",
-							"mcp-protocol-version": "2026-07-28",
-							"mcp-method": "tools/call",
-							"mcp-name": name,
-						},
-						body: JSON.stringify({
-							jsonrpc: "2.0",
-							id: 1,
-							method: "tools/call",
-							params: {
-								name,
-								arguments: args,
-								_meta: {
-									"io.modelcontextprotocol/protocolVersion": "2026-07-28",
-									"io.modelcontextprotocol/clientInfo": {
-										name: "project-loop-test",
-										version: "1.0.0",
-									},
-									"io.modelcontextprotocol/clientCapabilities": {},
+			http(
+				new Request("https://grove.test/mcp", {
+					method: "POST",
+					headers: {
+						"content-type": "application/json",
+						accept: "application/json, text/event-stream",
+						"mcp-protocol-version": "2026-07-28",
+						"mcp-method": "tools/call",
+						"mcp-name": name,
+					},
+					body: JSON.stringify({
+						jsonrpc: "2.0",
+						id: 1,
+						method: "tools/call",
+						params: {
+							name,
+							arguments: args,
+							_meta: {
+								"io.modelcontextprotocol/protocolVersion": "2026-07-28",
+								"io.modelcontextprotocol/clientInfo": {
+									name: "project-loop-test",
+									version: "1.0.0",
 								},
+								"io.modelcontextprotocol/clientCapabilities": {},
 							},
-						}),
+						},
 					}),
-				)
-				.pipe(Effect.provideService(InvocationContext, { principal })),
+				}),
+			).pipe(
+				Effect.provideService(InvocationContext, { principal }),
+				// This loop tests domain parity with an already-resolved principal.
+				Effect.provideService(McpAuthentication, (next) => next),
+			),
 		);
 
 		expect(response.status).toBe(200);
@@ -181,12 +188,20 @@ describe("Grove project foundation and #401 REST/MCP loop", () => {
 	});
 
 	it("exposes eleven operations and executes a mixed REST and enrolled-agent MCP loop", async () => {
+		const document = await runtime.runPromise(
+			http(new Request("https://grove.test/api/v1/openapi.json")),
+		);
+
+		expect(document.status).toBe(200);
+		const openapi = await document.text();
+
 		for (const operation of operations) {
-			expect(JSON.stringify(groveApi.openapi)).toContain(operation);
+			expect(openapi).toContain(operation);
 		}
 
-		expect(JSON.stringify(groveApi.openapi)).not.toContain("sprouts");
+		expect(openapi).not.toContain("sprouts");
 		await rest(owner, "/sprouts", undefined, 404);
+		expect(openapi).not.toContain("agents.enrollSelf");
 
 		const project = (await (
 			await rest(owner, "/projects", {

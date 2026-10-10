@@ -1,6 +1,6 @@
-import { Cause, Context, Effect, Layer, Option, Schema } from "effect";
+import { Cause, Context, Effect, Layer, Option, Predicate, Schema, Stream } from "effect";
 import { McpProtocol, McpSchema, McpServer, Tool } from "effect/ai";
-import { HttpServerRequest } from "effect/http";
+import { HttpRouter, HttpServerRequest, HttpServerResponse } from "effect/http";
 
 import { invokeOperation } from "./invoke.js";
 import type { ApiOperation, LogCause } from "./operation.js";
@@ -59,6 +59,14 @@ const protocol: McpProtocol.ProtocolAdapter = {
 };
 
 const encodeJson = Schema.encodeEffect(Schema.fromJsonString(Schema.Json));
+
+const ParseErrorResponse = Schema.fromJsonString(
+	Schema.Struct({
+		jsonrpc: Schema.Literal("2.0"),
+		id: Schema.Null,
+		error: Schema.Struct({ code: Schema.Literal(-32700) }),
+	}),
+);
 
 const contentFor = Effect.fnUntraced(function* (value: Schema.Json, isError: boolean) {
 	const text = yield* encodeJson(value);
@@ -127,12 +135,39 @@ export const createMcpLayer = <R>(config: McpConfig<R>) =>
 			}
 		}),
 	).pipe(
-		Layer.provide(
+		Layer.provideMerge(
 			McpServer.layerHttp({
 				name: config.title,
 				version: config.version,
 				path: config.path,
 				protocols: [protocol],
 			}),
+		),
+		Layer.provide(
+			HttpRouter.middleware((httpEffect) =>
+				Effect.gen(function* () {
+					const response = yield* httpEffect;
+
+					// The preview protocol reports parse errors in a successful HTTP envelope.
+					if (
+						response.status === 200 &&
+						Predicate.isTagged(response.body, "Uint8Array") &&
+						response.body.contentType === "application/json" &&
+						(yield* Stream.make(response.body.body).pipe(
+							Stream.decodeText,
+							Stream.runFold(
+								() => "",
+								(text, chunk) => text + chunk,
+							),
+							Effect.flatMap(Schema.decodeUnknownEffect(ParseErrorResponse)),
+							Effect.isSuccess,
+						))
+					) {
+						return HttpServerResponse.setStatus(response, 400);
+					}
+
+					return response;
+				}),
+			).layer,
 		),
 	);

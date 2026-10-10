@@ -1,9 +1,10 @@
 import { setTimeout as delay } from "node:timers/promises";
 
 import * as PgClient from "@effect/sql-pg/PgClient";
-import type { ApiServer } from "@petalnet/effect-api";
+import { http, SvelteKitRequestEvent } from "@petalnet/effect-sveltekit";
+import type { RequestEvent } from "@sveltejs/kit";
 import { Effect, Layer, ManagedRuntime, Redacted } from "effect";
-import { HttpServerRequest } from "effect/http";
+import { HttpServerRequest, type HttpRouter } from "effect/http";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 
 import {
@@ -35,7 +36,7 @@ const input = () => ({
 
 describe("ProjectService durable actor PostgreSQL integration", () => {
 	let runtime: ManagedRuntime.ManagedRuntime<
-		ProjectService | ActorAuthority | PgClient.PgClient | ApiServer,
+		ProjectService | ActorAuthority | PgClient.PgClient | HttpRouter.HttpRouter,
 		unknown
 	>;
 	let database: ManagedRuntime.ManagedRuntime<PgClient.PgClient, unknown>;
@@ -362,17 +363,19 @@ describe("ProjectService durable actor PostgreSQL integration", () => {
 		};
 		const rest = () =>
 			runtime.runPromise(
-				groveApi
-					.fetch(
-						HttpServerRequest.fromWeb(
-							new Request(`https://grove.example/api/v1/attempts/${claim.attemptId}/outputs`, {
-								method: "POST",
-								headers: { "content-type": "application/json" },
-								body: JSON.stringify(publication),
-							}),
-						),
-					)
-					.pipe(Effect.provideService(InvocationContext, { principal: agent })),
+				http(
+					HttpServerRequest.fromWeb(
+						new Request(`https://grove.example/api/v1/attempts/${claim.attemptId}/outputs`, {
+							method: "POST",
+							headers: { "content-type": "application/json" },
+							body: JSON.stringify(publication),
+						}),
+					),
+				).pipe(
+					Effect.provideService(SvelteKitRequestEvent, {
+						locals: { actor: agent },
+					} as RequestEvent),
+				),
 			);
 		const response = await rest();
 

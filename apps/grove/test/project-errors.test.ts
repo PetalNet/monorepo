@@ -20,9 +20,17 @@ it.each([
 	],
 ] as const)("classifies %s by tag", (failure, status, publicMessage) => {
 	const operation = projectOperations[0];
+	const { _tag: tag } = failure;
 
-	expect(operation.statusForError?.(failure)).toBe(status);
-	expect(operation.messageForError?.(failure)).toBe(publicMessage);
+	const declaration = operation.errors?.[tag];
+
+	expect(declaration?.status).toBe(status);
+
+	expect(
+		typeof declaration?.message === "function"
+			? declaration.message(failure)
+			: declaration?.message,
+	).toBe(publicMessage);
 });
 
 it.effect("command conflicts are yieldable tagged errors", () =>

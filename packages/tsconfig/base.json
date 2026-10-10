@@ -31,7 +31,18 @@
 					"effect/sql",
 					"effect/http-api/HttpApiScalar",
 					"effect/http-api/HttpApi#make",
-					"effect/http-api/OpenApi#Override"
+					"effect/http-api/HttpApiBuilder#group",
+					"effect/http-api/HttpApiBuilder#layer",
+					"effect/http-api/HttpApiEndpoint#make",
+					"effect/http-api/HttpApiError#HttpApiSchemaError",
+					"effect/http-api/HttpApiGroup#make",
+					"effect/http-api/HttpApiGroup#HttpApiGroup",
+					"effect/http-api/HttpApiMiddleware#Service",
+					"effect/http-api/OpenApi#fromApi",
+					"effect/http-api/OpenApi#Description",
+					"effect/http-api/OpenApi#Title",
+					"effect/http-api/OpenApi#OpenAPISpec",
+					"effect/http-api/OpenApi#Version"
 				]
 			}
 		]

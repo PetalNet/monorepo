@@ -2,8 +2,9 @@ import { createServer } from "node:http";
 
 import * as PgClient from "@effect/sql-pg/PgClient";
 import { it } from "@effect/vitest";
-import type { ApiServer } from "@petalnet/effect-api";
-import { Cause, Effect, Exit, Layer, ManagedRuntime, Redacted, Schema } from "effect";
+import { http } from "@petalnet/effect-sveltekit";
+import { Cause, Effect, Exit, Layer, ManagedRuntime, Redacted, Schema, Stream } from "effect";
+import { HttpServerResponse, type HttpRouter } from "effect/http";
 import { exportJWK, generateKeyPair, SignJWT, type JWK, type JWTPayload } from "jose";
 import { afterAll, beforeAll, describe, expect, vi } from "vitest";
 
@@ -21,7 +22,8 @@ import {
 	type PersonPrincipal,
 } from "../src/lib/server/actors/authority";
 import { groveApi } from "../src/lib/server/api";
-import { makeMcpIngress, type McpIngress } from "../src/lib/server/mcp/ingress";
+import { InvocationContext } from "../src/lib/server/invocation";
+import { makeMcpIngress, McpAuthentication, type McpIngress } from "../src/lib/server/mcp/ingress";
 import type { ProjectService } from "../src/lib/server/projects/service";
 import { ProjectServiceLayer, ProjectServiceBuildLayer } from "../src/lib/server/projects/service";
 import { startGrovePostgres, stopGrovePostgres } from "./postgres";
@@ -66,10 +68,12 @@ const json = async (response: Response) => (await responseJson(response)) as Mcp
 
 describe("MCP protected-resource ingress", () => {
 	let runtime: ManagedRuntime.ManagedRuntime<
-		ActorAuthority | ProjectService | ApiServer | PgClient.PgClient,
+		ActorAuthority | ProjectService | HttpRouter.HttpRouter | PgClient.PgClient,
 		unknown
 	>;
 	let ingress: McpIngress;
+	const handle = (incoming: Request, target = ingress) =>
+		http(incoming).pipe(Effect.provideService(McpAuthentication, target.middleware));
 	let privateKey: CryptoKey;
 	let owner: PersonPrincipal;
 	let keys: JWK[] = [];
@@ -210,12 +214,13 @@ describe("MCP protected-resource ingress", () => {
 		}
 
 		return runtime.runPromise(
-			target.handle(
+			handle(
 				new Request(`${config.resourceOrigin}/mcp`, {
 					method: "POST",
 					headers,
 					body,
 				}),
+				target,
 			),
 		);
 	};
@@ -303,8 +308,52 @@ describe("MCP protected-resource ingress", () => {
 		expect((await json(response)).result.tools).toEqual([]);
 	});
 
+	it("keeps authenticated services and request resources alive until a streamed response ends", async () => {
+		let closed = false;
+		const release = Promise.withResolvers<undefined>();
+		const streaming: McpIngress = {
+			...ingress,
+			middleware: () =>
+				ingress.middleware(
+					Effect.gen(function* () {
+						const services = yield* Effect.context<InvocationContext>();
+
+						yield* Effect.addFinalizer(() =>
+							Effect.sync(() => {
+								closed = true;
+							}),
+						);
+
+						return HttpServerResponse.stream(
+							Stream.fromEffect(
+								Effect.promise(() => release.promise).pipe(
+									Effect.flatMap(() =>
+										Effect.map(InvocationContext, ({ principal }) =>
+											new TextEncoder().encode(principal.kind),
+										),
+									),
+								),
+							).pipe(Stream.provideContext(services)),
+						);
+					}),
+				),
+		};
+		const response = await request(
+			await token("stream-reader", ["grove:mcp"]),
+			rpc(33, "tools/list"),
+			undefined,
+			streaming,
+		);
+
+		expect(response.status).toBe(200);
+		expect(closed).toBe(false);
+		release.resolve(undefined);
+		expect(await response.text()).toBe("unbound");
+		expect(closed).toBe(true);
+	});
+
 	it.each(["failure", "defect"] as const)(
-		"preserves a domain %s across the Promise adapter",
+		"passes a domain %s from the Promise adapter to native HTTP handling",
 		async (kind) => {
 			const failure = new ActorNotCurrent({ actorId: "agent-test" });
 			const authority = await runtime.runPromise(ActorAuthority);
@@ -312,7 +361,7 @@ describe("MCP protected-resource ingress", () => {
 				headers: { authorization: `Bearer ${await token("runtime-error", ["grove:mcp"])}` },
 			});
 			const exit = await runtime.runPromiseExit(
-				ingress.handle(incoming).pipe(
+				handle(incoming).pipe(
 					Effect.provideService(ActorAuthority, {
 						...authority,
 						resolveMachineIdentity: () =>
@@ -321,12 +370,19 @@ describe("MCP protected-resource ingress", () => {
 				),
 			);
 
-			expect(Exit.isFailure(exit)).toBe(true);
+			if (kind === "failure") {
+				expect(Exit.isSuccess(exit)).toBe(true);
 
-			if (Exit.isFailure(exit)) {
-				expect(exit.cause.reasons).toContainEqual(
-					expect.objectContaining(kind === "failure" ? { error: failure } : { defect: failure }),
-				);
+				if (Exit.isSuccess(exit)) {
+					expect(exit.value.status).toBe(500);
+					expect(await exit.value.text()).not.toContain(failure.message);
+				}
+			} else {
+				expect(Exit.isFailure(exit)).toBe(true);
+			}
+
+			if (kind === "defect" && Exit.isFailure(exit)) {
+				expect(exit.cause.reasons).toContainEqual(expect.objectContaining({ defect: failure }));
 			}
 		},
 	);
@@ -342,9 +398,9 @@ describe("MCP protected-resource ingress", () => {
 		const authority = await runtime.runPromise(ActorAuthority);
 		const resolveMachineIdentity = vi.fn(authority.resolveMachineIdentity);
 		const exit = await runtime.runPromiseExit(
-			ingress
-				.handle(incoming)
-				.pipe(Effect.provideService(ActorAuthority, { ...authority, resolveMachineIdentity })),
+			handle(incoming).pipe(
+				Effect.provideService(ActorAuthority, { ...authority, resolveMachineIdentity }),
+			),
 		);
 
 		expect(Exit.isFailure(exit) && Cause.hasInterruptsOnly(exit.cause)).toBe(true);
@@ -363,7 +419,7 @@ describe("MCP protected-resource ingress", () => {
 		let completed = false;
 		const pending = runtime
 			.runPromiseExit(
-				ingress.handle(incoming).pipe(
+				handle(incoming).pipe(
 					Effect.provideService(ActorAuthority, {
 						...authority,
 						resolveMachineIdentity: () =>
@@ -871,7 +927,7 @@ describe("MCP protected-resource ingress", () => {
 			body,
 			duplex: "half",
 		} as RequestInit);
-		const pending = runtime.runPromiseExit(ingress.handle(incoming), { signal: controller.signal });
+		const pending = runtime.runPromiseExit(handle(incoming), { signal: controller.signal });
 
 		await pulled.promise;
 		controller.abort();
@@ -936,7 +992,7 @@ describe("MCP protected-resource ingress", () => {
 					body,
 					duplex: "half",
 				} as RequestInit);
-				const response = await runtime.runPromise(ingress.handle(incoming));
+				const response = await runtime.runPromise(handle(incoming));
 
 				expect(response.status).toBe(status);
 
@@ -1031,7 +1087,7 @@ describe("MCP protected-resource ingress", () => {
 
 		try {
 			const response = await failingRuntime.runPromise(
-				ingress.handle(
+				handle(
 					new Request(`${config.resourceOrigin}/mcp`, {
 						method: "POST",
 						headers: {

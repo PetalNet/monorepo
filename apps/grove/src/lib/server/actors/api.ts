@@ -29,6 +29,11 @@ export const enrollAgentSelfOperation = operation({
 				ownerPersonId: enrolled.ownerPersonId,
 			};
 		}),
-	statusForError: () => 403,
-	messageForError: (error) => error.message,
+	errors: {
+		ActorDenied: { status: 403, message: (error) => error.message },
+		ActorNotCurrent: { status: 403, message: (error) => error.message },
+		ActorDatabaseError: { status: 403, message: (error) => error.message },
+		HomeOwnerUnbound: { status: 403, message: (error) => error.message },
+		CapabilityContainmentConflict: { status: 403, message: (error) => error.message },
+	},
 });

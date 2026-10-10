@@ -1,7 +1,6 @@
 import { building } from "$app/env";
 import { DATABASE_URL, GROVE_HOME_OWNER_ISSUER, GROVE_HOME_OWNER_SUBJECT } from "$app/env/private";
 import * as PgClient from "@effect/sql-pg/PgClient";
-import type { ApiServer } from "@petalnet/effect-api";
 import type { SvelteKitRequestEvent } from "@petalnet/effect-sveltekit";
 import {
 	makeEffectSvelteKitRuntime,
@@ -10,6 +9,7 @@ import {
 import type { RequestEvent } from "@sveltejs/kit";
 import type { Effect } from "effect";
 import { Layer, Match, Redacted } from "effect";
+import type { HttpRouter } from "effect/http";
 
 import type { ActorAuthority } from "#lib/server/actors/authority.ts";
 import { ActorAuthorityBuildLayer, ActorAuthorityLayer } from "#lib/server/actors/authority.ts";
@@ -19,6 +19,8 @@ import { GroveAuthBuildLayer } from "#lib/server/auth.ts";
 
 import { groveApi } from "./api";
 import type { AuthenticationRequired } from "./authorization";
+import { groveMcpIngress } from "./mcp-oauth-runtime";
+import { McpAuthentication } from "./mcp/ingress";
 import type { ProjectError, ProjectService } from "./projects/service";
 import { ProjectServiceLayer, ProjectServiceBuildLayer } from "./projects/service";
 
@@ -66,42 +68,59 @@ function makeRuntime() {
 		);
 	}
 
-	return makeEffectSvelteKitRuntime(Layer.orDie(Layer.merge(GroveServicesLayer, groveApi.layer)), {
-		mapFailure: (failure: GroveFailure) =>
-			Match.value(failure).pipe(
-				Match.tags({
-					AuthenticationRequired: ({ message }) => ({ status: 401, message }),
-					BetterAuthApiError: ({ statusCode, message }) => ({
-						status: statusCode,
-						message: statusCode >= 500 ? "Browser authentication is unavailable" : message,
-						log: statusCode >= 500,
-					}),
-					BrowserAuthDatabaseError: ({ message }) => ({ status: 503, message, log: true }),
-					ActorDenied: ({ message }) => ({ status: 403, message }),
-					ActorNotCurrent: ({ message }) => ({ status: 403, message }),
-					ActorDatabaseError: () => ({
-						status: 503,
-						message: "Actor authority is unavailable",
-						log: true,
-					}),
-					CommandConflict: ({ message }) => ({ status: 409, message }),
-					FenceConflict: ({ message }) => ({ status: 409, message }),
-					ProjectDatabaseError: ({ message }) => ({ status: 503, message, log: true }),
-				}),
-				Match.orElse(() => undefined),
+	return makeEffectSvelteKitRuntime(
+		Layer.orDie(
+			Layer.mergeAll(
+				GroveServicesLayer,
+				groveApi.layer,
+				Layer.succeed(McpAuthentication, (next) => groveMcpIngress().middleware(next)),
 			),
-	});
+		),
+		{
+			mapFailure: (failure: GroveFailure) =>
+				Match.value(failure).pipe(
+					Match.tags({
+						AuthenticationRequired: ({ message }) => ({ status: 401, message }),
+						BetterAuthApiError: ({ statusCode, message }) => ({
+							status: statusCode,
+							message: statusCode >= 500 ? "Browser authentication is unavailable" : message,
+							log: statusCode >= 500,
+						}),
+						BrowserAuthDatabaseError: ({ message }) => ({ status: 503, message, log: true }),
+						ActorDenied: ({ message }) => ({ status: 403, message }),
+						ActorNotCurrent: ({ message }) => ({ status: 403, message }),
+						ActorDatabaseError: () => ({
+							status: 503,
+							message: "Actor authority is unavailable",
+							log: true,
+						}),
+						CommandConflict: ({ message }) => ({ status: 409, message }),
+						FenceConflict: ({ message }) => ({ status: 409, message }),
+						ProjectDatabaseError: ({ message }) => ({ status: 503, message, log: true }),
+					}),
+					Match.orElse(() => undefined),
+				),
+		},
+	);
 }
 
 let runtime:
-	| EffectSvelteKitRuntime<GroveAuth | ActorAuthority | ProjectService | ApiServer, GroveFailure>
+	| EffectSvelteKitRuntime<
+			GroveAuth | ActorAuthority | ProjectService | HttpRouter.HttpRouter | McpAuthentication,
+			GroveFailure
+	  >
 	| undefined;
 
 export const initializeGroveRuntime = () => (runtime ??= makeRuntime());
 
 export const runGrove = <
 	A,
-	R extends GroveAuth | ActorAuthority | ProjectService | SvelteKitRequestEvent | ApiServer,
+	R extends
+		| GroveAuth
+		| ActorAuthority
+		| ProjectService
+		| SvelteKitRequestEvent
+		| HttpRouter.HttpRouter,
 >(
 	effect: Effect.Effect<A, GroveFailure, R>,
 	event: RequestEvent,
