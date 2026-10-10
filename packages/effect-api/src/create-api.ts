@@ -17,7 +17,6 @@ export interface EffectApiConfig<R> {
 	readonly mcpPath?: `/${string}`;
 	/** Scalar reference path. Defaults to <basePath>/docs. */
 	readonly docsPath?: `/${string}`;
-	// oxlint-disable-next-line effecttsgo/unstable-api-usage -- Expose Scalar's configuration without duplicating its type.
 	readonly scalar?: HttpApiScalar.ScalarConfig;
 	readonly logCause?: LogCause;
 }
@@ -57,7 +56,6 @@ export function createEffectApi<R>(config: EffectApiConfig<R>) {
 			operations: mcpOperations,
 			logCause,
 		}),
-		// oxlint-disable-next-line effecttsgo/unstable-api-usage -- Effect's Scalar layer requires the unstable HttpApi integration.
 		HttpApiScalar.layer(HttpApi.make(config.title).annotate(OpenApi.Override, openapi), {
 			path: config.docsPath ?? (`${config.basePath.replace(/\/$/, "")}/docs` as `/${string}`),
 			...(config.scalar ? { scalar: config.scalar } : {}),
