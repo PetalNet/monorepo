@@ -44,31 +44,36 @@ const entries = (excludes?.items ?? []).map((item, index) => {
 
 const cutoff = Date.now() - age * 60_000;
 const removed = [];
-const metadata = new Map();
+const names = [...new Set(entries.map(({ name }) => name))];
+const metadata = new Map(
+	await Promise.all(
+		names.map(async (name) => {
+			try {
+				const url = new URL(encodeURIComponent(name), `${registry.href.replace(/\/$/u, "")}/`);
+				const response = await fetch(url, { signal: AbortSignal.timeout(30_000) });
+
+				if (!response.ok) {
+					throw new Error(`HTTP ${response.status}`);
+				}
+
+				return [name, await response.json()];
+			} catch {
+				console.warn(`Keeping exceptions for ${name}: registry metadata unavailable`);
+
+				return [name, null];
+			}
+		}),
+	),
+);
 
 for (let index = entries.length - 1; index >= 0; index--) {
 	const { entry, name, version } = entries[index];
 
-	if (!metadata.has(name)) {
-		try {
-			const url = new URL(encodeURIComponent(name), `${registry.href.replace(/\/$/u, "")}/`);
-			const response = await fetch(url, { signal: AbortSignal.timeout(30_000) });
-
-			if (!response.ok) {
-				throw new Error(`HTTP ${response.status}`);
-			}
-
-			metadata.set(name, await response.json());
-		} catch {
-			console.warn(`Keeping exceptions for ${name}: registry metadata unavailable`);
-			metadata.set(name, null);
-		}
-	}
-
 	const timestamp = metadata.get(name)?.time?.[version];
 	const published = typeof timestamp === "string" ? Date.parse(timestamp) : NaN;
 
-	if (!Number.isFinite(published)) {
+	// Registry publish times use canonical ISO dates; Date.parse alone normalizes invalid dates.
+	if (!Number.isFinite(published) || new Date(published).toISOString() !== timestamp) {
 		console.warn(`Keeping ${entry}: publish time unavailable`);
 
 		continue;

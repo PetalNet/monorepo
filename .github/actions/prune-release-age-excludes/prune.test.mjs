@@ -5,10 +5,10 @@ import { createServer } from "node:http";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { test } from "node:test";
+import { fileURLToPath } from "node:url";
 import { promisify } from "node:util";
 
 const execute = promisify(execFile);
-const now = Date.parse("2026-10-09T12:00:00.000Z");
 
 async function run(t, source, packages = {}) {
 	const directory = await mkdtemp(path.join(tmpdir(), "prune-release-age-"));
@@ -23,21 +23,29 @@ async function run(t, source, packages = {}) {
 		response.end(JSON.stringify(metadata ?? {}));
 	});
 
-	await new Promise((resolve) => server.listen(0, "127.0.0.1", resolve));
-	t.after(() => new Promise((resolve) => server.close(resolve)));
+	await new Promise((resolve) => {
+		server.listen(0, "127.0.0.1", resolve);
+	});
+
+	t.after(
+		() =>
+			new Promise((resolve) => {
+				server.close(resolve);
+			}),
+	);
 
 	const file = path.join(directory, "pnpm-workspace.yaml");
 	const output = path.join(directory, "output");
 
 	await writeFile(file, source);
 
-	const script = new URL("./prune.mjs", import.meta.url).href;
+	const script = fileURLToPath(new URL("prune.mjs", import.meta.url));
 	const command = execute(
 		process.execPath,
 		[
-			"--input-type=module",
-			"--eval",
-			`Date.now = () => ${now}; await import(${JSON.stringify(script)});`,
+			"--import",
+			'data:text/javascript,Date.now=()=>Date.parse("2026-10-09T12:00:00.000Z")',
+			script,
 		],
 		{
 			env: {
@@ -64,20 +72,30 @@ minimumReleaseAgeExclude:
   - '@scope/pkg@2.0.0-beta.1+build.7'
   - boundary@3.0.0
   - young@4.0.0 # still needed
+  - old@1.2.4
   - missing@1.0.0
   - invalid@1.0.0
+  - ambiguous@1.0.0
+  - impossible@1.0.0
   - unavailable@1.0.0
 
 catalog:
   old: '1.2.3' # unrelated
 `;
 	const result = await run(t, source, {
-		old: { time: { "1.2.3": "2026-10-08T12:00:00.000Z" } },
+		old: {
+			time: {
+				"1.2.3": "2026-10-08T12:00:00.000Z",
+				"1.2.4": "2026-10-10T12:00:00.000Z",
+			},
+		},
 		"@scope/pkg": { time: { "2.0.0-beta.1+build.7": "2026-10-09T09:00:00.000Z" } },
 		boundary: { time: { "3.0.0": "2026-10-09T10:00:00.000Z" } },
 		young: { time: { "4.0.0": "2026-10-09T10:00:00.001Z" } },
 		missing: { time: {} },
 		invalid: { time: { "1.0.0": "not a timestamp" } },
+		ambiguous: { time: { "1.0.0": "0" } },
+		impossible: { time: { "1.0.0": "2026-02-30T12:00:00.000Z" } },
 	});
 
 	await result.command;
@@ -116,49 +134,53 @@ test("uses pnpm's one-day default and leaves a no-op file byte-identical", async
 });
 
 test("handles an absent list and refuses invalid configuration without editing", async (t) => {
-	for (const source of [
-		"packages: [apps/*]\n",
-		"minimumReleaseAge: -1\nminimumReleaseAgeExclude: [old@1.0.0]\n",
-		"minimumReleaseAgeExclude: old@1.0.0\n",
-		"minimumReleaseAgeExclude: [\n",
-	]) {
-		const result = await run(t, source);
+	await Promise.all(
+		[
+			"packages: [apps/*]\n",
+			"minimumReleaseAge: -1\nminimumReleaseAgeExclude: [old@1.0.0]\n",
+			"minimumReleaseAgeExclude: old@1.0.0\n",
+			"minimumReleaseAgeExclude: [\n",
+		].map(async (source) => {
+			const result = await run(t, source);
 
-		if (source.startsWith("packages:")) {
-			await result.command;
-			assert.equal(await result.output(), "changed=false\nremoved=[]\n");
-		} else {
-			await assert.rejects(result.command);
-		}
+			if (source.startsWith("packages:")) {
+				await result.command;
+				assert.equal(await result.output(), "changed=false\nremoved=[]\n");
+			} else {
+				await assert.rejects(result.command);
+			}
 
-		assert.equal(await result.file(), source);
-	}
+			assert.equal(await result.file(), source);
+		}),
+	);
 });
 
 test("requires exact versions throughout the list without partially pruning", async (t) => {
-	for (const entry of [
-		"old",
-		"@scope/pkg",
-		"@scope/*",
-		"old@^1.0.0",
-		"old@1.2.3 || 2.0.0",
-		"old@latest",
-		"old@1.0.0-01",
-		"old@1.0.0-beta..1",
-	]) {
-		const source = `minimumReleaseAgeExclude:\n  - '${entry}'\n  - old@1.0.0\n`;
-		const result = await run(t, source, {
-			old: { time: { "1.0.0": "2026-10-01T00:00:00.000Z" } },
-		});
+	await Promise.all(
+		[
+			"old",
+			"@scope/pkg",
+			"@scope/*",
+			"old@^1.0.0",
+			"old@1.2.3 || 2.0.0",
+			"old@latest",
+			"old@1.0.0-01",
+			"old@1.0.0-beta..1",
+		].map(async (entry) => {
+			const source = `minimumReleaseAgeExclude:\n  - '${entry}'\n  - old@1.0.0\n`;
+			const result = await run(t, source, {
+				old: { time: { "1.0.0": "2026-10-01T00:00:00.000Z" } },
+			});
 
-		await assert.rejects(result.command, (error) => {
-			assert.match(error.stderr, /must use an exact version/u);
-			assert.match(error.stderr, /Replace package-wide entries/u);
+			await assert.rejects(result.command, (error) => {
+				assert.match(error.stderr, /must use an exact version/u);
+				assert.match(error.stderr, /Replace package-wide entries/u);
 
-			return true;
-		});
+				return true;
+			});
 
-		assert.equal(await result.file(), source);
-		await assert.rejects(result.output(), { code: "ENOENT" });
-	}
+			assert.equal(await result.file(), source);
+			await assert.rejects(result.output(), { code: "ENOENT" });
+		}),
+	);
 });

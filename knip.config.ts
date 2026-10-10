@@ -11,7 +11,19 @@ export default {
 	],
 	ignoreExportsUsedInFile: { type: true, interface: true },
 	treatConfigHintsAsErrors: true,
+	// This action's production entry is explicit; the Actions plugin marks it optional in strict mode.
+	"github-actions": {
+		config: [
+			".github/workflows/*.{yml,yaml}",
+			".github/**/action.{yml,yaml}",
+			"!.github/actions/prune-release-age-excludes/action.{yml,yaml}",
+		],
+	},
 	workspaces: {
+		".github/actions/prune-release-age-excludes": {
+			entry: ["prune.mjs!"],
+			project: ["*.mjs"],
+		},
 		tools: {
 			// Repository-only operations are invoked by agents and build scripts, not imported.
 			// The enrollment client is development-only; build scripts own the production verifier.

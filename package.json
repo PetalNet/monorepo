@@ -18,7 +18,7 @@
 		"lint:impeccable": "impeccable detect --no-advisory apps packages",
 		"lint:knip": "knip --dependencies --exports --files --cycles --exclude nsExports,nsTypes",
 		"lint:knip:prod": "knip --strict --dependencies --exports --files --cycles --exclude nsExports,nsTypes",
-		"lint:oxlint": "oxlint --max-warnings=0",
+		"lint:oxlint": "oxlint --max-warnings=0 && oxlint --config .github/actions/prune-release-age-excludes/oxlint.config.mjs .github/actions/prune-release-age-excludes/*.mjs --max-warnings=0",
 		"manypkg": "manypkg check",
 		"prepare": "effect-tsgo patch --oxlint",
 		"test": "turbo run test --filter=@petalnet/*",

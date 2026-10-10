@@ -12,8 +12,9 @@ and version lists fail the action with a request to use exact versions. The enti
 list is validated before any registry requests or file edits.
 
 Entries whose registry request fails or whose publish time is missing or invalid
-are kept. Comments on retained entries survive the YAML rewrite. An unchanged file
-is not rewritten; an emptied list is kept as `[]`.
+are kept. Publish times must be canonical ISO UTC timestamps with milliseconds,
+such as `2026-10-09T12:00:00.000Z`. Comments on retained entries survive the YAML
+rewrite. An unchanged file is not rewritten; an emptied list is kept as `[]`.
 
 ## Usage
 
