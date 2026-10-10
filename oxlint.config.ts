@@ -201,6 +201,8 @@ export const lintConfig = {
 	],
 	ignorePatterns: [
 		".agents/skills/impeccable/**",
+		// lint:oxlint checks the standalone JS action with the same non-type-aware policy.
+		".github/actions/prune-release-age-excludes/*.mjs",
 		// ESLint owns framework/template-aware checking.
 		"**/*.svelte",
 		"**/dist/**",

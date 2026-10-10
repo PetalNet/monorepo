@@ -1,0 +1,13 @@
+{
+	"name": "prune-release-age-excludes",
+	"version": "0.0.0",
+	"private": true,
+	"type": "module",
+	"scripts": {
+		"test": "node --test prune.test.mjs"
+	},
+	"dependencies": {
+		"semver": "7.8.5",
+		"yaml": "2.9.1"
+	}
+}

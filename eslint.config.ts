@@ -100,6 +100,14 @@ export default defineConfig([
 		},
 	},
 	{
+		// Composite actions are standalone JavaScript packages outside the TS workspace.
+		files: [".github/actions/**/*.mjs"],
+		extends: [tseslint.configs.disableTypeChecked],
+		languageOptions: {
+			parserOptions: { projectService: false },
+		},
+	},
+	{
 		files: ["apps/{collegemap,grove,slide,storybook,whoami}/**/*.svelte"],
 		extends: svelte.configs.recommended,
 		languageOptions: {
@@ -161,6 +169,13 @@ export default defineConfig([
 		plugins: { json },
 		language: "json/json",
 		extends: [json.configs.recommended],
+	},
+	{
+		files: [".github/actions/**/package-lock.json"],
+		rules: {
+			// npm uses an empty key for the root package's lockfile entry.
+			"json/no-empty-keys": "off",
+		},
 	},
 	{
 		files: ["**/package.json"],
