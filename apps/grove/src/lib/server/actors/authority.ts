@@ -54,18 +54,7 @@ const AgentOwnerRow = Schema.Struct({ owner_person_id: Schema.String });
 const decodeRows = <S extends Schema.Top, A, E>(schema: S, query: Effect.Effect<A, E>) =>
 	query.pipe(Effect.flatMap(Schema.decodeUnknownEffect(Schema.Array(schema))));
 
-const SPROUT_CAPABILITIES = [
-	"sprouts.list",
-	"sprouts.get",
-	"sprouts.create",
-	"sprouts.water",
-	"sprouts.remove",
-] as const;
-const isSproutCapability = (capability: string) =>
-	(SPROUT_CAPABILITIES as readonly string[]).includes(capability);
-
 const DEFAULT_CAPABILITIES = [
-	...SPROUT_CAPABILITIES,
 	"project.create",
 	"project.plan",
 	"task.claim",
@@ -767,6 +756,32 @@ export const ActorAuthorityLayer = (config: ActorAuthorityConfig) =>
 				);
 			};
 
+			const assertAgentCurrent = (principal: AgentPrincipal) =>
+				Effect.gen(function* () {
+					const rows = yield* decodeRows(
+						AgentCurrentRow,
+						agentCurrentQuery()
+							.innerJoin(identities, eq(agents.actor_id, identities.actor_id))
+							.where(
+								and(
+									eq(identities.actor_id, principal.actorId),
+									eq(identities.issuer, principal.issuer),
+									eq(identities.subject, principal.subject),
+									eq(identities.use, "machine"),
+								),
+							)
+							.for("share", { of: [agentActor, ownerActor, hosts] }),
+					);
+					const row = rows.at(0);
+
+					if (
+						row?.agent_lifecycle !== "active" ||
+						row.owner_lifecycle !== "active" ||
+						row.host_owner_id !== principal.ownerPersonId
+					) {
+						return yield* new ActorNotCurrent({ actorId: principal.actorId });
+					}
+				});
 			const authorizeActor = (principal: ActorPrincipal, operation: string) =>
 				asDatabaseError(
 					Effect.gen(function* () {
@@ -812,29 +827,7 @@ export const ActorAuthorityLayer = (config: ActorAuthorityConfig) =>
 							return;
 						}
 
-						const rows = yield* decodeRows(
-							AgentCurrentRow,
-							agentCurrentQuery()
-								.innerJoin(identities, eq(agents.actor_id, identities.actor_id))
-								.where(
-									and(
-										eq(identities.actor_id, principal.actorId),
-										eq(identities.issuer, principal.issuer),
-										eq(identities.subject, principal.subject),
-										eq(identities.use, "machine"),
-									),
-								)
-								.for("share", { of: [agentActor, ownerActor, hosts] }),
-						);
-						const row = rows.at(0);
-
-						if (
-							row?.agent_lifecycle !== "active" ||
-							row.owner_lifecycle !== "active" ||
-							row.host_owner_id !== principal.ownerPersonId
-						) {
-							return yield* new ActorNotCurrent({ actorId: principal.actorId });
-						}
+						yield* assertAgentCurrent(principal);
 
 						const granted = yield* decodeRows(
 							CapabilityRow,
@@ -866,7 +859,7 @@ export const ActorAuthorityLayer = (config: ActorAuthorityConfig) =>
 
 				return asDatabaseError(
 					pg.withTransaction(
-						authorizeActor(principal, "sprouts.list").pipe(
+						assertAgentCurrent(principal).pipe(
 							Effect.andThen(capabilitiesFor(principal.actorId)),
 							Effect.map((rows) => rows.map((row) => row.capability)),
 						),
@@ -1022,16 +1015,8 @@ export const ActorAuthorityLayer = (config: ActorAuthorityConfig) =>
 
 					yield* insertCapability(agentIdValue, capability);
 				});
-			const removePersonCapability = (personIdValue: string, capability: string) => {
-				if (isSproutCapability(capability)) {
-					return Effect.fail(
-						new ActorDenied({
-							reason: "Sprout compatibility capabilities apply to every active actor",
-						}),
-					);
-				}
-
-				return serializeContainment(
+			const removePersonCapability = (personIdValue: string, capability: string) =>
+				serializeContainment(
 					Effect.gen(function* () {
 						const rows = yield* decodeRows(
 							ContainedAgentRow,
@@ -1083,7 +1068,6 @@ export const ActorAuthorityLayer = (config: ActorAuthorityConfig) =>
 						yield* deleteCapability(personIdValue, capability);
 					}),
 				);
-			};
 
 			const applyContainmentFix = (fix: Omit<ContainmentFix, "available" | "reason">) => {
 				switch (fix.action) {
@@ -1148,14 +1132,6 @@ export const ActorAuthorityLayer = (config: ActorAuthorityConfig) =>
 								.where(and(eq(access.agent_id, fix.agentId), eq(access.person_id, fix.personId)));
 						});
 					case "remove-agent-capability":
-						if (isSproutCapability(fix.capability)) {
-							return Effect.fail(
-								new ActorDenied({
-									reason: "Sprout compatibility capabilities apply to every active actor",
-								}),
-							);
-						}
-
 						return deleteCapability(fix.agentId, fix.capability);
 				}
 			};

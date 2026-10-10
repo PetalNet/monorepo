@@ -3,6 +3,7 @@ import { fileURLToPath } from "node:url";
 import adapter from "@sveltejs/adapter-node";
 import { sveltekit } from "@sveltejs/kit/vite";
 import tailwindcss from "@tailwindcss/vite";
+import { fontless } from "fontless";
 import { defineConfig, type Plugin } from "vite";
 
 export const excludeGroveDevModules = (): Plugin => {
@@ -61,6 +62,12 @@ export default defineConfig(({ command }) => ({
 	plugins: [
 		...(command === "build" ? [excludeGroveDevModules()] : []),
 		tailwindcss(),
+		fontless({
+			families: [
+				{ name: "Schibsted Grotesk", provider: "fontsource", weights: [400, 500, 600] },
+				{ name: "IBM Plex Mono", provider: "fontsource", weights: [400] },
+			],
+		}),
 		sveltekit({
 			compilerOptions: {
 				// Force runes mode for the project, except for libraries. Can be removed in svelte 6.

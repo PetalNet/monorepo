@@ -31,6 +31,10 @@ interface BetterAuthShape {
 		body: { readonly provider: string; readonly callbackURL: string },
 	) => Effect.Effect<Headers, BetterAuthApiError>;
 	readonly signOut: (headers: Headers) => Effect.Effect<Headers, BetterAuthApiError>;
+	readonly updateUser: (
+		headers: Headers,
+		body: { readonly name: string },
+	) => Effect.Effect<void, BetterAuthApiError>;
 	readonly handler: (request: Request) => Effect.Effect<Response>;
 }
 
@@ -69,6 +73,8 @@ export const BetterAuthLayer = (options: BetterAuthOptions) =>
 
 			return BetterAuth.of({
 				getSession: (headers) => apiCall(() => auth.api.getSession({ headers })),
+				updateUser: (headers, body) =>
+					apiCall(() => auth.api.updateUser({ headers, body })).pipe(Effect.asVoid),
 				signInSocial: (headers, body) =>
 					apiCall(() =>
 						auth.api.signInSocial({

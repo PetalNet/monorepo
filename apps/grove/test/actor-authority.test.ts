@@ -11,7 +11,7 @@ import {
 	type MachineIdentity,
 } from "../src/lib/server/actors/authority";
 import { InvocationContext } from "../src/lib/server/invocation";
-import { SproutCommands, SproutCommandsLayer } from "../src/lib/server/sprouts/service";
+import { ProjectService, ProjectServiceLayer } from "../src/lib/server/projects/service";
 import { startGrovePostgres, stopGrovePostgres } from "./postgres";
 
 const ownerIdentity = {
@@ -34,7 +34,7 @@ const actorInvocation = <A, E, R>(principal: AgentPrincipal, effect: Effect.Effe
 
 describe("actor authority", () => {
 	let runtime: ManagedRuntime.ManagedRuntime<
-		ActorAuthority | PgClient.PgClient | SproutCommands,
+		ActorAuthority | PgClient.PgClient | ProjectService,
 		unknown
 	>;
 	let databaseRuntime: ManagedRuntime.ManagedRuntime<PgClient.PgClient, unknown>;
@@ -50,7 +50,7 @@ describe("actor authority", () => {
 			homeOwner: ownerIdentity,
 		}).pipe(Layer.provideMerge(PgClient.layer({ url: Redacted.make(postgres.databaseUrl) })));
 
-		runtime = ManagedRuntime.make(SproutCommandsLayer.pipe(Layer.provideMerge(actors)));
+		runtime = ManagedRuntime.make(ProjectServiceLayer.pipe(Layer.provideMerge(actors)));
 	}, 60_000);
 
 	afterAll(async () => {
@@ -59,7 +59,7 @@ describe("actor authority", () => {
 	});
 
 	const run = <A, E>(
-		effect: Effect.Effect<A, E, ActorAuthority | PgClient.PgClient | SproutCommands>,
+		effect: Effect.Effect<A, E, ActorAuthority | PgClient.PgClient | ProjectService>,
 	) => runtime.runPromise(effect);
 	const waitForDatabaseLock = async (
 		queryFragment: string,
@@ -267,16 +267,6 @@ describe("actor authority", () => {
 			),
 		);
 
-		const compatibilityPolicy = await run(
-			authority((service) =>
-				service
-					.removePersonCapabilityAs(actors.guest, actors.guest.actorId, "sprouts.water")
-					.pipe(Effect.flip),
-			),
-		);
-
-		expect(compatibilityPolicy).toMatchObject({ _tag: "ActorDenied" });
-
 		await Promise.all(
 			[actors.owner, actors.guest].map((person) =>
 				run(
@@ -349,7 +339,7 @@ describe("actor authority", () => {
 		await run(authority((service) => service.suspendAgentAs(actors.owner, agent.actorId)));
 
 		const stale = await run(
-			authority((service) => service.authorizeActor(agent, "sprouts.list").pipe(Effect.flip)),
+			authority((service) => service.authorizeActor(agent, "work.ready").pipe(Effect.flip)),
 		);
 
 		expect(stale).toMatchObject({ _tag: "ActorNotCurrent", actorId: agent.actorId });
@@ -477,7 +467,7 @@ describe("actor authority", () => {
 		const blocker = databaseRuntime.runPromise(
 			Effect.flatMap(PgClient.PgClient, (sql) =>
 				sql.withTransaction(
-					sql.unsafe("lock table grove_demo_sprouts in access exclusive mode").pipe(
+					sql.unsafe("lock table grove_objects in access exclusive mode").pipe(
 						Effect.tap(() =>
 							Effect.sync(() => {
 								acquired.resolve(undefined);
@@ -495,8 +485,13 @@ describe("actor authority", () => {
 		const write = run(
 			actorInvocation(
 				agent,
-				Effect.flatMap(SproutCommands, (commands) =>
-					commands.create({ name: "Write before suspension" }),
+				Effect.flatMap(ProjectService, (service) =>
+					service.create({
+						commandId: crypto.randomUUID(),
+						scope: "home",
+						title: "Write before suspension",
+						ask: "Verify transaction ordering",
+					}),
 				),
 			),
 		).then((created) => {
@@ -505,7 +500,7 @@ describe("actor authority", () => {
 			return created;
 		});
 
-		await waitForDatabaseLock("grove_demo_sprouts");
+		await waitForDatabaseLock("grove_objects");
 
 		const suspension = run(
 			authority((service) => service.suspendAgentAs(owner, agent.actorId)),
@@ -528,79 +523,17 @@ describe("actor authority", () => {
 
 		const [created] = await Promise.all([write, suspension]);
 
-		expect(created.name).toBe("Write before suspension");
+		expect(
+			await databaseRuntime.runPromise(
+				Effect.flatMap(
+					PgClient.PgClient,
+					(sql) =>
+						sql`select payload->>'title' as title, actor_id from grove_object_versions where id=${created.versionId}`,
+				),
+			),
+		).toEqual([{ title: "Write before suspension", actor_id: agent.actorId }]);
+
 		expect(completionOrder).toEqual(["write", "suspension"]);
-	});
-
-	it("retries a stale watering without losing either increment", async () => {
-		const agent = await run(
-			authority((service) =>
-				service.enrollSelf(machine("https://machine.example", "concurrent-watering"), {
-					name: "Watering Agent",
-				}),
-			),
-		);
-		const planted = await run(
-			actorInvocation(
-				agent,
-				Effect.flatMap(SproutCommands, (commands) => commands.create({ name: "Thirsty fern" })),
-			),
-		);
-
-		expect(planted.waterings).toBe(0);
-		const acquired = Promise.withResolvers<undefined>();
-		const release = Promise.withResolvers<undefined>();
-		const blocker = databaseRuntime.runPromise(
-			Effect.flatMap(PgClient.PgClient, (sql) =>
-				sql.withTransaction(
-					sql
-						.unsafe("select id from grove_demo_sprouts where id = $1 for update", [
-							planted.id.slice("sprout-".length),
-						])
-						.pipe(
-							Effect.tap(() =>
-								Effect.sync(() => {
-									acquired.resolve(undefined);
-								}),
-							),
-							Effect.andThen(Effect.promise(() => release.promise)),
-						),
-				),
-			),
-		);
-
-		await acquired.promise;
-
-		const water = () =>
-			run(
-				actorInvocation(
-					agent,
-					Effect.flatMap(SproutCommands, (commands) => commands.water(planted.id)),
-				),
-			);
-		const waterings = Promise.all([water(), water()]);
-
-		try {
-			// Both operations read the same counter and block on its conditional update.
-			await waitForDatabaseLock("grove_demo_sprouts", 0, 2);
-		} finally {
-			release.resolve(undefined);
-			await blocker;
-		}
-
-		expect((await waterings).map((sprout) => sprout.waterings).toSorted((a, b) => a - b)).toEqual([
-			1, 2,
-		]);
-
-		const stored = await run(
-			actorInvocation(
-				agent,
-				Effect.flatMap(SproutCommands, (commands) => commands.get(planted.id)),
-			),
-		);
-
-		expect(stored.waterings).toBe(2);
-		expect(stored.lastActorId).toBe(agent.actorId);
 	});
 
 	it("serializes capability removal after an authorized operation", async () => {
@@ -725,6 +658,44 @@ describe("actor authority", () => {
 				}),
 			),
 		);
+
+		await run(
+			authority((service) =>
+				Effect.flatMap(service.authorizedOperations(agent), (capabilities) =>
+					Effect.forEach(
+						capabilities.filter((capability) => capability !== "library.search"),
+						(capability) =>
+							service.applyContainmentFixAs(owner, {
+								action: "remove-agent-capability",
+								agentId: agent.actorId,
+								personId: owner.actorId,
+								capability,
+							}),
+						{ discard: true },
+					),
+				),
+			),
+		);
+
+		expect(await run(authority((service) => service.authorizedOperations(agent)))).toEqual([
+			"library.search",
+		]);
+
+		await run(
+			authority((service) => service.requestAgentCapability(owner, agent.actorId, "work.ready")),
+		);
+
+		await run(
+			authority((service) =>
+				service.applyContainmentFixAs(owner, {
+					action: "remove-agent-capability",
+					agentId: agent.actorId,
+					personId: owner.actorId,
+					capability: "library.search",
+				}),
+			),
+		);
+
 		const acquired = Promise.withResolvers<undefined>();
 		const release = Promise.withResolvers<undefined>();
 		const blocker = databaseRuntime.runPromise(
@@ -781,7 +752,7 @@ describe("actor authority", () => {
 			throw lockError;
 		}
 
-		expect(visibleBefore).toContain("sprouts.list");
+		expect(visibleBefore).toEqual(["work.ready"]);
 		expect(completionOrder).toEqual(["listing", "suspension"]);
 		expect(await run(authority((service) => service.authorizedOperations(agent)))).toEqual([]);
 	});

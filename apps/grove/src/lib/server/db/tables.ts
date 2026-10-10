@@ -8,8 +8,6 @@ import {
 	index,
 	foreignKey,
 	check,
-	bigint,
-	integer,
 	type PgTableExtraConfigValue,
 	jsonb,
 	uuid,
@@ -144,31 +142,6 @@ const grove_agents = pgTable(
 			name: "grove_agents_owner_person_id_fkey",
 		}).onDelete("restrict"),
 		unique("grove_agents_acting_runtime_id_key").on(table.acting_runtime_id),
-	],
-);
-
-const grove_demo_sprouts = pgTable(
-	"grove_demo_sprouts",
-	{
-		id: bigint({ mode: "string" }).primaryKey().generatedAlwaysAsIdentity(),
-		name: text().notNull(),
-		planted_at: timestamp({ withTimezone: true, mode: "string" }).defaultNow().notNull(),
-		waterings: integer().default(0).notNull(),
-		created_by_actor_id: text(),
-		last_actor_id: text(),
-	},
-	(table) => [
-		foreignKey({
-			columns: [table.created_by_actor_id],
-			foreignColumns: [grove_actors.id],
-			name: "grove_demo_sprouts_created_by_actor_id_fkey",
-		}).onDelete("restrict"),
-		foreignKey({
-			columns: [table.last_actor_id],
-			foreignColumns: [grove_actors.id],
-			name: "grove_demo_sprouts_last_actor_id_fkey",
-		}).onDelete("restrict"),
-		check("grove_demo_sprouts_waterings_nonnegative", sql`waterings >= 0`),
 	],
 );
 
@@ -770,7 +743,6 @@ export {
 	grove_persons as persons,
 	grove_hosts as hosts,
 	grove_agents as agents,
-	grove_demo_sprouts as sprouts,
 	grove_actor_capabilities as capabilities,
 	grove_external_identities as identities,
 	grove_agent_access as access,

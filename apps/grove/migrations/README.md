@@ -24,7 +24,7 @@ From `apps/grove`, with `DATABASE_URL` set:
    directories containing `snapshot.json` and `migration.sql`, not a meta journal.
    Generation with unchanged definitions must report no schema changes.
 4. Review the staged SQL in `generated/`, then copy the forward SQL into the next
-   root migration (`0005_<change>.sql` initially), with `-- effect-db:up` and a
+   root migration (`0006_<change>.sql`), with `-- effect-db:up` and a
    reviewed `-- effect-db:down` section. Retain generated snapshot directories for
    the next diff, but only root numbered SQL files are executable history.
    Preserve data with renames/backfills rather than generated drop/add pairs.
@@ -47,7 +47,7 @@ tweaks, not a custom generator or dependency patch.
 
 The migration test exercises the runner's fresh install, repeat install, rollback,
 reinstall and failed procedural SQL. It compares PostgreSQL-normalized catalogs
-against a disposable reference schema generated from Drizzle across all 23 tables:
+against a disposable reference schema generated from Drizzle across all 22 tables:
 columns, identities, defaults, constraints, indexes and foreign keys. The outbox
 deferred FK is supplied as reviewed SQL in the reference, and domain trigger
 behavior is checked separately. No reference schema is applied to a real database.
@@ -81,3 +81,7 @@ dependents; explicit completion appends a Version citing the accepted Attempt,
 output, and Review. Historical library citations survive later heads. Review,
 output, and completion provenance is immutable, and downgrade refuses to erase
 review history. These domain triggers are exercised separately from schema diff.
+
+`0005_remove_sprouts.sql` drops the Sprouts demo table and removes its five
+capability grants. Project data and unrelated grants are preserved. Rollback
+restores the empty demo schema and default grants, not discarded demo data.

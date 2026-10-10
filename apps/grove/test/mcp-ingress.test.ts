@@ -21,11 +21,9 @@ import {
 	type PersonPrincipal,
 } from "../src/lib/server/actors/authority";
 import { groveApi } from "../src/lib/server/api";
-import { InvocationContext } from "../src/lib/server/invocation";
 import { makeMcpIngress, type McpIngress } from "../src/lib/server/mcp/ingress";
 import type { ProjectService } from "../src/lib/server/projects/service";
 import { ProjectServiceLayer, ProjectServiceBuildLayer } from "../src/lib/server/projects/service";
-import { SproutCommands, SproutCommandsLayer } from "../src/lib/server/sprouts/service";
 import { startGrovePostgres, stopGrovePostgres } from "./postgres";
 
 const config = {
@@ -68,7 +66,7 @@ const json = async (response: Response) => (await responseJson(response)) as Mcp
 
 describe("MCP protected-resource ingress", () => {
 	let runtime: ManagedRuntime.ManagedRuntime<
-		ActorAuthority | SproutCommands | ProjectService | ApiServer,
+		ActorAuthority | ProjectService | ApiServer | PgClient.PgClient,
 		unknown
 	>;
 	let ingress: McpIngress;
@@ -93,9 +91,7 @@ describe("MCP protected-resource ingress", () => {
 		const actors = ActorAuthorityLayer({ homeOwner: ownerIdentity }).pipe(
 			Layer.provideMerge(database),
 		);
-		const domain = Layer.merge(SproutCommandsLayer, ProjectServiceLayer).pipe(
-			Layer.provideMerge(actors),
-		);
+		const domain = ProjectServiceLayer.pipe(Layer.provideMerge(actors));
 
 		runtime = ManagedRuntime.make(Layer.merge(domain, groveApi.layer));
 
@@ -536,11 +532,6 @@ describe("MCP protected-resource ingress", () => {
 		const listedAfter = await json(await request(accessToken, rpc(4, "tools/list")));
 
 		expect(listedAfter.result.tools.map((tool: { name: string }) => tool.name)).toEqual([
-			"sprouts.list",
-			"sprouts.get",
-			"sprouts.create",
-			"sprouts.water",
-			"sprouts.remove",
 			"project.create",
 			"project.plan",
 			"task.claim",
@@ -730,48 +721,57 @@ describe("MCP protected-resource ingress", () => {
 
 	it("executes bearer-only tools/call and never confuses an attached browser cookie for the actor", async () => {
 		const accessToken = await token("janet-machine", ["grove:mcp", "grove:agent:enroll"]);
+		const enrolled = await json(
+			await request(
+				accessToken,
+				rpc(50, "tools/call", {
+					name: "agents.enrollSelf",
+					arguments: { name: "Bearer project Agent" },
+				}),
+			),
+		);
+
+		expect(enrolled.result.isError).toBe(false);
+
 		const created = await json(
 			await request(
 				accessToken,
 				rpc(5, "tools/call", {
-					name: "sprouts.create",
-					arguments: { name: "Bearer-grown fern" },
+					name: "project.create",
+					arguments: {
+						commandId: crypto.randomUUID(),
+						scope: "bearer-attribution",
+						title: "Bearer-created project",
+						ask: "Verify durable Agent attribution",
+					},
 				}),
 				{ cookie: "better-auth.session_token=owner-browser-session" },
 			),
 		);
 
-		expect(created.result).toMatchObject({
-			isError: false,
-			structuredContent: {
-				name: "Bearer-grown fern",
-			},
-		});
+		expect(created.result.isError).toBe(false);
 
-		const createdBy = created.result.structuredContent.createdByActorId;
-		const lastActor = created.result.structuredContent.lastActorId;
-
-		expect(createdBy).toEqual(expect.any(String));
-		expect(lastActor).toEqual(expect.any(String));
-
-		if (typeof createdBy !== "string" || typeof lastActor !== "string") {
-			throw new TypeError("Expected Agent actor IDs");
-		}
-
-		expect(createdBy).toMatch(/^agent-/);
-		expect(lastActor).toBe(createdBy);
-
-		const listedForBrowserActor = await runtime.runPromise(
-			Effect.flatMap(SproutCommands, (commands) => commands.list).pipe(
-				Effect.provideService(InvocationContext, {
-					principal: owner,
-				}),
+		const receipt = Schema.decodeUnknownSync(ProjectCreateReceipt)(
+			created.result.structuredContent,
+		);
+		const versions = await runtime.runPromise(
+			Effect.flatMap(
+				PgClient.PgClient,
+				(sql) =>
+					sql<{
+						actor_id: string;
+						actor_kind: string;
+					}>`select actor_id, actor_kind from grove_object_versions where id = ${receipt.versionId} and object_id = ${receipt.objectId}`,
 			),
 		);
 
-		expect(listedForBrowserActor).toEqual(
-			expect.arrayContaining([expect.objectContaining(created.result.structuredContent)]),
-		);
+		expect(enrolled.result.structuredContent.actorId).toEqual(expect.any(String));
+
+		expect(versions).toEqual([
+			{ actor_id: enrolled.result.structuredContent.actorId, actor_kind: "agent" },
+		]);
+
+		expect(versions[0].actor_id).not.toBe(owner.actorId);
 	});
 
 	it("reauthorizes enrollment retries after Agent suspension", async () => {
@@ -1017,16 +1017,16 @@ describe("MCP protected-resource ingress", () => {
 
 	it("sanitizes actor-authority dependency failures at the ingress boundary", async () => {
 		const authority = await runtime.runPromise(ActorAuthority);
-		const commands = await runtime.runPromise(SproutCommands);
 		const failingRuntime = ManagedRuntime.make(
-			Layer.merge(
+			Layer.mergeAll(
 				Layer.succeed(ActorAuthority, {
 					...authority,
 					resolveMachineIdentity: () =>
 						Effect.fail(new ActorDatabaseError({ cause: new Error("simulated database outage") })),
 				}),
-				Layer.succeed(SproutCommands, commands),
-			).pipe(Layer.merge(groveApi.layer), Layer.merge(ProjectServiceBuildLayer)),
+				groveApi.layer,
+				ProjectServiceBuildLayer,
+			),
 		);
 
 		try {

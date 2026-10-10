@@ -116,6 +116,10 @@ interface GroveAuthShape {
 		headers: Headers,
 		returnTo: string,
 	) => Effect.Effect<Response, BetterAuthApiError>;
+	readonly updateAccount: (
+		headers: Headers,
+		name: string,
+	) => Effect.Effect<void, BetterAuthApiError>;
 	readonly readiness: ActorAuthority["Service"]["homeReadiness"];
 }
 
@@ -168,6 +172,7 @@ export const GroveAuthLayer = (configuredIssuer: string) =>
 				});
 
 			return GroveAuth.of({
+				updateAccount: (headers, name) => auth.updateUser(headers, { name }),
 				isBrowserAuthRoute: (url) => Effect.sync(() => isBrowserAuthPath(url)),
 				inspectSession: (headers) =>
 					Effect.gen(function* () {
@@ -253,5 +258,6 @@ export const GroveAuthBuildLayer = Layer.succeed(GroveAuth, {
 	dispatch: unavailableDuringBuild,
 	beginLogin: unavailableDuringBuild,
 	endSession: unavailableDuringBuild,
+	updateAccount: unavailableDuringBuild,
 	readiness: unavailableDuringBuild(),
 });
