@@ -88,7 +88,7 @@
 	<h1 class="mt-1 text-5xl font-bold tracking-tight sm:text-7xl">Grove sprouts</h1>
 	<p class="text-base-content/70 mt-4 max-w-2xl leading-relaxed">
 		These controls use SvelteKit Remote Functions. The same Effect operations are also exposed as
-		<a class="link link-primary" href="/api/v1/openapi.json">REST/OpenAPI</a> and MCP at
+		<a class="link link-primary" href="/api/v1/docs">REST/OpenAPI</a> and MCP at
 		<code class="bg-base-300 rounded px-1.5 py-0.5">/mcp</code>.
 	</p>
 

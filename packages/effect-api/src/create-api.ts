@@ -1,5 +1,6 @@
 import { Context, Effect, Layer, Predicate, Schema, Stream, type Scope } from "effect";
 import { HttpRouter, HttpServerError, HttpServerRequest, HttpServerResponse } from "effect/http";
+import { HttpApi, HttpApiScalar, OpenApi } from "effect/http-api";
 
 import { createMcpLayer } from "./mcp.js";
 import { createOpenApi } from "./openapi.js";
@@ -14,6 +15,10 @@ export interface EffectApiConfig<R> {
 	readonly operations: readonly ApiOperation<R>[];
 	readonly mcpOperations?: readonly ApiOperation<R>[];
 	readonly mcpPath?: `/${string}`;
+	/** Scalar reference path. Defaults to <basePath>/docs. */
+	readonly docsPath?: `/${string}`;
+	// oxlint-disable-next-line effecttsgo/unstable-api-usage -- Expose Scalar's configuration without duplicating its type.
+	readonly scalar?: HttpApiScalar.ScalarConfig;
 	readonly logCause?: LogCause;
 }
 
@@ -42,7 +47,8 @@ export function createEffectApi<R>(config: EffectApiConfig<R>) {
 	const logCause = config.logCause ?? defaultLogCause;
 	const mcpOperations = config.mcpOperations ?? config.operations;
 	const all = new Set(mcpOperations.map((operation) => operation.name));
-	const routes = Layer.merge(
+	const openapi = createOpenApi(config);
+	const routes = Layer.mergeAll(
 		createRestLayer({ basePath: config.basePath, operations: config.operations, logCause }),
 		createMcpLayer({
 			title: config.title,
@@ -50,6 +56,11 @@ export function createEffectApi<R>(config: EffectApiConfig<R>) {
 			path: config.mcpPath ?? "/mcp",
 			operations: mcpOperations,
 			logCause,
+		}),
+		// oxlint-disable-next-line effecttsgo/unstable-api-usage -- Effect's Scalar layer requires the unstable HttpApi integration.
+		HttpApiScalar.layer(HttpApi.make(config.title).annotate(OpenApi.Override, openapi), {
+			path: config.docsPath ?? (`${config.basePath.replace(/\/$/, "")}/docs` as `/${string}`),
+			...(config.scalar ? { scalar: config.scalar } : {}),
 		}),
 	);
 	const layer = Layer.effect(
@@ -120,5 +131,5 @@ export function createEffectApi<R>(config: EffectApiConfig<R>) {
 		return HttpServerResponse.toWeb(response);
 	}, Effect.scoped);
 
-	return { layer, fetch, mcp: fetch, openapi: createOpenApi(config) } as const;
+	return { layer, fetch, mcp: fetch, openapi } as const;
 }
