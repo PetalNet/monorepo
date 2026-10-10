@@ -186,6 +186,7 @@ catalog:
   "@effect/vitest": 4.0.1
   drizzle-orm: 1.0.0-rc.5-5935859
   drizzle-kit: 1.0.0-rc.5-5935859
+  fontless: ^1.2.1
 # Kit's programmatic API requires a matching ORM installation.
 packageExtensions:
   "drizzle-kit@1.0.0-rc.5-5935859":

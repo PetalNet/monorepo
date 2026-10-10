@@ -6,9 +6,7 @@ import * as NodeServices from "@effect/platform-node/NodeServices";
 import * as PgClient from "@effect/sql-pg/PgClient";
 import { PostgreSqlContainer } from "@testcontainers/postgresql";
 import { generateDrizzleJson, generateMigration } from "drizzle-kit/api-postgres";
-import { eq } from "drizzle-orm";
 import { getTableConfig, PgTable } from "drizzle-orm/pg-core";
-import { drizzle } from "drizzle-orm/pg-proxy";
 import { Effect, Layer, ManagedRuntime, Redacted } from "effect";
 import { expect, it } from "vitest";
 
@@ -108,7 +106,7 @@ it("migrates a fresh stable auth schema idempotently and rolls back failed multi
 	try {
 		await migrate(container.getConnectionUri());
 		await migrate(container.getConnectionUri());
-		await migrate(container.getConnectionUri(), "down", 4);
+		await migrate(container.getConnectionUri(), "down", 5);
 
 		expect(
 			await runtime.runPromise(
@@ -140,7 +138,6 @@ it("migrates a fresh stable auth schema idempotently and rolls back failed multi
 			"grove_attempts",
 			"grove_claims",
 			"grove_command_receipts",
-			"grove_demo_sprouts",
 			"grove_external_identities",
 			"grove_hosts",
 			"grove_object_versions",
@@ -215,8 +212,8 @@ it("migrates a fresh stable auth schema idempotently and rolls back failed multi
 					{ id: "host-local", runner_id: "runner-local", owner_person_id: null },
 				]);
 
-				expect(yield* sql`select name, waterings from grove_demo_sprouts`).toEqual([
-					{ name: "Example fern", waterings: 0 },
+				expect(yield* sql`select to_regclass('public.grove_demo_sprouts') as table_name`).toEqual([
+					{ table_name: null },
 				]);
 
 				expect(yield* sql`select name from effect_qb_migrations order by name`).toEqual(
@@ -279,17 +276,6 @@ it("migrates a fresh stable auth schema idempotently and rolls back failed multi
 	}
 }, 60_000);
 
-it("omits generated bigint identities from inserts and binds string identities losslessly", () => {
-	const id = "9223372036854775807";
-	const db = drizzle(() => Promise.resolve({ rows: [] }));
-
-	expect(db.insert(tables.sprouts).values({ name: "Fern" }).toSQL().sql).not.toContain(id);
-
-	expect(db.select().from(tables.sprouts).where(eq(tables.sprouts.id, id)).toSQL().params).toEqual([
-		id,
-	]);
-});
-
 it("upgrades a durable 0002 project receipt with exact service replay and current authority", async () => {
 	const { ActorAuthority, ActorAuthorityLayer } =
 		await import("../src/lib/server/actors/authority");
@@ -307,7 +293,7 @@ it("upgrades a durable 0002 project receipt with exact service replay and curren
 
 	try {
 		await migrate(url);
-		await migrate(url, "down", 2);
+		await migrate(url, "down", 3);
 
 		const owner = await runtime.runPromise(
 			Effect.flatMap(ActorAuthority, (authority) =>
@@ -344,8 +330,10 @@ it("upgrades a durable 0002 project receipt with exact service replay and curren
 			Effect.gen(function* () {
 				const sql = yield* PgClient.PgClient;
 
-				// Simulate the defaults in the immutable first slice, not the new runtime defaults.
+				// The upgrade fixture uses the immutable first-slice defaults.
 				yield* sql`delete from grove_actor_capabilities where capability in ('project.plan','work.ready','task.claim','claim.renew','claim.release','attempt.publish','review.submit','task.complete','library.search','library.getVersion')`;
+				yield* sql`insert into grove_actor_capabilities(actor_id,capability) select ${owner.actorId}, capability from (values ('sprouts.list'),('sprouts.get'),('sprouts.create'),('sprouts.water'),('sprouts.remove'),('agents.observe')) legacy(capability)`;
+				yield* sql`insert into grove_demo_sprouts(name,waterings,created_by_actor_id,last_actor_id) values ('Legacy fern',7,${owner.actorId},${owner.actorId})`;
 				yield* sql`insert into grove_objects(id,kind,scope) values ('project','task',${command.scope})`;
 				yield* sql`insert into grove_object_versions(id,object_id,payload,digest,actor_id,actor_kind) values ('version','project',${JSON.stringify(payload)}::jsonb,${receipt.versionDigest},${owner.actorId},'person')`;
 				yield* sql`update grove_objects set current_version_id='version' where id='project'`;
@@ -385,6 +373,18 @@ it("upgrades a durable 0002 project receipt with exact service replay and curren
 				expect(
 					yield* sql`select count(*)::int count from grove_actor_capabilities where actor_id=${owner.actorId} and capability in ('review.submit','task.complete','library.search','library.getVersion')`,
 				).toEqual([{ count: 4 }]);
+
+				expect(yield* sql`select to_regclass('public.grove_demo_sprouts') as table_name`).toEqual([
+					{ table_name: null },
+				]);
+
+				expect(
+					yield* sql`select capability from grove_actor_capabilities where capability like 'sprouts.%'`,
+				).toEqual([]);
+
+				expect(
+					yield* sql`select capability from grove_actor_capabilities where actor_id=${owner.actorId} and capability='agents.observe'`,
+				).toEqual([{ capability: "agents.observe" }]);
 			}),
 		);
 
@@ -411,7 +411,7 @@ it("upgrades a durable 0002 project receipt with exact service replay and curren
 		await assertSchemaParity(url);
 		// Representable project history survives a round-trip; execution history
 		// refuses downgrade atomically rather than silently discarding provenance.
-		await migrate(url, "down", 2);
+		await migrate(url, "down", 3);
 
 		await runtime.runPromise(
 			Effect.gen(function* () {
@@ -435,7 +435,7 @@ it("upgrades a durable 0002 project receipt with exact service replay and curren
 			}),
 		);
 
-		await migrate(url, "down");
+		await migrate(url, "down", 2);
 		await expect(migrate(url, "down")).rejects.toThrow();
 
 		await runtime.runPromise(
@@ -459,7 +459,7 @@ it("upgrades populated Objects and enforces independent immutable review/complet
 
 	try {
 		await migrate(url);
-		await migrate(url, "down", 3);
+		await migrate(url, "down", 4);
 
 		await runtime.runPromise(
 			Effect.gen(function* () {
@@ -471,7 +471,7 @@ it("upgrades populated Objects and enforces independent immutable review/complet
 		);
 
 		await migrate(url);
-		await migrate(url, "down", 2);
+		await migrate(url, "down", 3);
 
 		await runtime.runPromise(
 			Effect.gen(function* () {
@@ -604,6 +604,7 @@ it("upgrades populated Objects and enforces independent immutable review/complet
 			}),
 		);
 
+		await migrate(url, "down");
 		await expect(migrate(url, "down")).rejects.toThrow();
 
 		await runtime.runPromise(

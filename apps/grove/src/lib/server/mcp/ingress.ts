@@ -11,7 +11,6 @@ import { ActorAuthority, type AuthorityError, type MachineIdentity } from "../ac
 import { groveApi } from "../api";
 import { InvocationContext } from "../invocation";
 import type { ProjectService } from "../projects/service";
-import type { SproutCommands } from "../sprouts/service";
 
 const MCP_SCOPE = "grove:mcp";
 const MCP_MAX_REQUEST_BYTES = 1024 * 1024;
@@ -31,11 +30,7 @@ export interface McpIngress {
 	};
 	readonly handle: (
 		request: Request,
-	) => Effect.Effect<
-		Response,
-		AuthorityError,
-		ActorAuthority | SproutCommands | ProjectService | ApiServer
-	>;
+	) => Effect.Effect<Response, AuthorityError, ActorAuthority | ProjectService | ApiServer>;
 }
 
 class McpRejected extends Data.TaggedError("McpRejected")<{ readonly response: Response }> {}
@@ -239,9 +234,7 @@ export const makeMcpIngress = (input: McpIngressConfig): McpIngress => {
 	return {
 		metadata: () => mcpProtectedResourceMetadata(config),
 		handle: Effect.fnUntraced(function* (request: Request) {
-			const services = yield* Effect.context<
-				ActorAuthority | SproutCommands | ProjectService | ApiServer
-			>();
+			const services = yield* Effect.context<ActorAuthority | ProjectService | ApiServer>();
 			const scope = yield* Effect.scope;
 
 			return yield* Effect.tryPromise({

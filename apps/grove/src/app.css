@@ -23,11 +23,16 @@
 	--color-info: light-dark(#4a6f93, #8fb0cc);
 	--color-success: light-dark(#2f8f5b, #4caf7d);
 	--color-warning: light-dark(#c77d11, #d99520);
-	--color-error: light-dark(#c5374b, #e2576b);
-	--radius-selector: 999px;
-	--radius-field: 0.5rem;
+	--color-error: light-dark(#8c2735, #f2929f);
+	--radius-selector: 0.125rem;
+	--radius-field: 0.125rem;
 	--radius-box: 0.125rem;
-	--border: 1px;
+	--border: 0;
+}
+
+@theme {
+	--font-sans: "Schibsted Grotesk", sans-serif;
+	--font-mono: "IBM Plex Mono", monospace;
 }
 
 html,
@@ -39,4 +44,34 @@ body {
 body {
 	min-height: 100vh;
 	margin: 0;
+	font-family: var(--font-sans);
+}
+
+.btn {
+	min-height: 44px;
+	font-weight: 500;
+	box-shadow: none;
+}
+
+.menu :is(a, button),
+summary {
+	min-block-size: 44px;
+}
+
+.menu :is(a, button) {
+	align-content: center;
+}
+
+:is(button, a, input, textarea, select, summary):focus-visible {
+	outline: 2px solid var(--color-primary);
+	outline-offset: 2px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+	*,
+	*::before,
+	*::after {
+		animation-duration: 0.01ms !important;
+		transition-duration: 0.01ms !important;
+	}
 }
