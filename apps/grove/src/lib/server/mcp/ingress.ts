@@ -1,14 +1,19 @@
 import { isUtf8 } from "node:buffer";
 
 import { createMcpProtectedRequestHandler } from "@better-auth/mcp";
-import type { ApiServer } from "@petalnet/effect-api";
+import { McpAccess } from "@petalnet/effect-api";
+import { http } from "@petalnet/effect-sveltekit";
 import { Cause, Data, Effect, Exit, Fiber, Stream } from "effect";
-import { HttpClientRequest, HttpServerRequest, type HttpMethod } from "effect/http";
+import {
+	HttpClientRequest,
+	HttpServerRequest,
+	type HttpMethod,
+	type HttpRouter,
+} from "effect/http";
 import type { JWTPayload } from "jose";
 
 import type { ActorDatabaseError } from "../actors/authority";
 import { ActorAuthority, type AuthorityError, type MachineIdentity } from "../actors/authority";
-import { groveApi } from "../api";
 import { InvocationContext } from "../invocation";
 import type { ProjectService } from "../projects/service";
 
@@ -30,7 +35,11 @@ export interface McpIngress {
 	};
 	readonly handle: (
 		request: Request,
-	) => Effect.Effect<Response, AuthorityError, ActorAuthority | ProjectService | ApiServer>;
+	) => Effect.Effect<
+		Response,
+		AuthorityError,
+		ActorAuthority | ProjectService | HttpRouter.HttpRouter
+	>;
 }
 
 class McpRejected extends Data.TaggedError("McpRejected")<{ readonly response: Response }> {}
@@ -212,7 +221,8 @@ export const makeMcpIngress = (input: McpIngressConfig): McpIngress => {
 				callable.add("agents.enrollSelf");
 			}
 
-			return yield* groveApi.fetch(incoming, { listed, callable }).pipe(
+			return yield* http(incoming).pipe(
+				Effect.provideService(McpAccess, { listed, callable }),
 				Effect.provideService(InvocationContext, {
 					principal,
 				}),
@@ -234,7 +244,9 @@ export const makeMcpIngress = (input: McpIngressConfig): McpIngress => {
 	return {
 		metadata: () => mcpProtectedResourceMetadata(config),
 		handle: Effect.fnUntraced(function* (request: Request) {
-			const services = yield* Effect.context<ActorAuthority | ProjectService | ApiServer>();
+			const services = yield* Effect.context<
+				ActorAuthority | ProjectService | HttpRouter.HttpRouter
+			>();
 			const scope = yield* Effect.scope;
 
 			return yield* Effect.tryPromise({

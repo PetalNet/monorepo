@@ -2,8 +2,8 @@ import { createServer } from "node:http";
 
 import * as PgClient from "@effect/sql-pg/PgClient";
 import { it } from "@effect/vitest";
-import type { ApiServer } from "@petalnet/effect-api";
 import { Cause, Effect, Exit, Layer, ManagedRuntime, Redacted, Schema } from "effect";
+import type { HttpRouter } from "effect/http";
 import { exportJWK, generateKeyPair, SignJWT, type JWK, type JWTPayload } from "jose";
 import { afterAll, beforeAll, describe, expect, vi } from "vitest";
 
@@ -66,7 +66,7 @@ const json = async (response: Response) => (await responseJson(response)) as Mcp
 
 describe("MCP protected-resource ingress", () => {
 	let runtime: ManagedRuntime.ManagedRuntime<
-		ActorAuthority | ProjectService | ApiServer | PgClient.PgClient,
+		ActorAuthority | ProjectService | HttpRouter.HttpRouter | PgClient.PgClient,
 		unknown
 	>;
 	let ingress: McpIngress;

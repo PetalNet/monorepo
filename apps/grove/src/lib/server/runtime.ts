@@ -1,7 +1,6 @@
 import { building } from "$app/env";
 import { DATABASE_URL, GROVE_HOME_OWNER_ISSUER, GROVE_HOME_OWNER_SUBJECT } from "$app/env/private";
 import * as PgClient from "@effect/sql-pg/PgClient";
-import type { ApiServer } from "@petalnet/effect-api";
 import type { SvelteKitRequestEvent } from "@petalnet/effect-sveltekit";
 import {
 	makeEffectSvelteKitRuntime,
@@ -10,6 +9,7 @@ import {
 import type { RequestEvent } from "@sveltejs/kit";
 import type { Effect } from "effect";
 import { Layer, Match, Redacted } from "effect";
+import type { HttpRouter } from "effect/http";
 
 import type { ActorAuthority } from "#lib/server/actors/authority.ts";
 import { ActorAuthorityBuildLayer, ActorAuthorityLayer } from "#lib/server/actors/authority.ts";
@@ -94,14 +94,22 @@ function makeRuntime() {
 }
 
 let runtime:
-	| EffectSvelteKitRuntime<GroveAuth | ActorAuthority | ProjectService | ApiServer, GroveFailure>
+	| EffectSvelteKitRuntime<
+			GroveAuth | ActorAuthority | ProjectService | HttpRouter.HttpRouter,
+			GroveFailure
+	  >
 	| undefined;
 
 export const initializeGroveRuntime = () => (runtime ??= makeRuntime());
 
 export const runGrove = <
 	A,
-	R extends GroveAuth | ActorAuthority | ProjectService | SvelteKitRequestEvent | ApiServer,
+	R extends
+		| GroveAuth
+		| ActorAuthority
+		| ProjectService
+		| SvelteKitRequestEvent
+		| HttpRouter.HttpRouter,
 >(
 	effect: Effect.Effect<A, GroveFailure, R>,
 	event: RequestEvent,

@@ -1,22 +1,20 @@
 import type { Effect, Schema } from "effect";
 import { Cause } from "effect";
-import { HttpMethod as HttpMethods, type HttpRouter } from "effect/http";
+import type { HttpMethod as HttpMethods } from "effect/http";
 
-export type HttpMethod = Exclude<Parameters<HttpRouter.HttpRouter["add"]>[0], "*">;
+export type HttpMethod = HttpMethods.HttpMethod;
 
 interface RestBinding {
 	readonly method: HttpMethod;
-	readonly path: string;
-	/** Read JSON input, merging path and query fields. Defaults to Effect's HTTP method body policy. */
-	readonly body?: boolean;
+	readonly path: `/${string}`;
 }
 
 export interface ApiOperation<R> {
 	readonly name: string;
 	readonly description: string;
-	readonly rest?: Required<RestBinding>;
+	readonly rest?: RestBinding;
 	readonly input: Schema.ConstraintDecoder<unknown>;
-	readonly output: Schema.ConstraintDecoder<unknown>;
+	readonly output: Schema.ConstraintCodec<unknown, unknown>;
 	readonly handle: (input: unknown) => Effect.Effect<unknown, unknown, R>;
 	readonly statusForError?: (error: unknown) => number;
 	readonly messageForError?: (error: unknown) => string;
@@ -26,11 +24,11 @@ export type OperationConfig<I, A, E, R> = {
 	readonly name: string;
 	readonly description: string;
 	readonly input: Schema.ConstraintDecoder<I>;
-	readonly output: Schema.ConstraintCodec<A>;
+	readonly output: Schema.ConstraintCodec<A, unknown>;
 	readonly handler: (input: I) => Effect.Effect<A, E, R>;
 	readonly statusForError?: (error: E) => number;
 	readonly messageForError?: (error: E) => string;
-} & (RestBinding | { readonly method?: never; readonly path?: never; readonly body?: never });
+} & (RestBinding | { readonly method?: never; readonly path?: never });
 
 export type LogCause = (operationName: string, cause: Cause.Cause<unknown>) => void;
 
@@ -49,7 +47,6 @@ export function operation<I, A, E, R>(config: OperationConfig<I, A, E, R>): ApiO
 					rest: {
 						method: config.method,
 						path: config.path,
-						body: config.body ?? HttpMethods.hasBody(config.method),
 					},
 				}),
 		input: config.input,

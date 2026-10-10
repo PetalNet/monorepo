@@ -1,4 +1,5 @@
 import * as PgClient from "@effect/sql-pg/PgClient";
+import { http } from "@petalnet/effect-sveltekit";
 import { Effect, Layer, ManagedRuntime, Redacted } from "effect";
 import { HttpServerRequest } from "effect/http";
 import { expect, it } from "vitest";
@@ -32,17 +33,15 @@ it("creates through REST, binds replay to current authority, preserves Versions 
 		);
 		const input = { commandId: crypto.randomUUID(), scope: "home", title: "Title", ask: "Ask" };
 		const response = await runtime.runPromise(
-			groveApi
-				.fetch(
-					HttpServerRequest.fromWeb(
-						new Request("http://grove.example/api/v1/projects", {
-							method: "POST",
-							headers: { "content-type": "application/json" },
-							body: JSON.stringify(input),
-						}),
-					),
-				)
-				.pipe(Effect.provideService(InvocationContext, { principal: owner })),
+			http(
+				HttpServerRequest.fromWeb(
+					new Request("http://grove.example/api/v1/projects", {
+						method: "POST",
+						headers: { "content-type": "application/json" },
+						body: JSON.stringify(input),
+					}),
+				),
+			).pipe(Effect.provideService(InvocationContext, { principal: owner })),
 		);
 
 		expect(response.status).toBe(200);

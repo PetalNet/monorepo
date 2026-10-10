@@ -5,6 +5,11 @@ export interface McpPermissions {
 	readonly callable: ReadonlySet<string>;
 }
 
+/** Per-request tool discovery and invocation permissions. */
+export class McpAccess extends Context.Service<McpAccess, McpPermissions>()(
+	"@petalnet/effect-api/McpAccess",
+) {}
+
 /** Installed by the HTTP boundary, never captured while registering routes or tools. */
 export class ApiRequest extends Context.Service<
 	ApiRequest,

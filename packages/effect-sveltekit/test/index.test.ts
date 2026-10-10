@@ -1,8 +1,9 @@
 import { isHttpError, type RequestEvent } from "@sveltejs/kit";
-import { Cause, Context, Effect, Layer } from "effect";
+import { Cause, Context, Effect, Layer, Stream } from "effect";
+import { HttpRouter, HttpServerResponse } from "effect/http";
 import { afterEach, describe, expect, expectTypeOf, it, vi } from "vitest";
 
-import { makeEffectSvelteKitRuntime, SvelteKitRequestEvent } from "../src/index.js";
+import { http, makeEffectSvelteKitRuntime, SvelteKitRequestEvent } from "../src/index.js";
 
 const eventFor = (signal = new AbortController().signal, path = "/example") =>
 	({ request: new Request(`https://grove.test${path}`, { signal }) }) as RequestEvent;
@@ -23,6 +24,58 @@ const expectHttpError = async (result: Promise<unknown>, status: number, message
 };
 
 afterEach(() => vi.restoreAllMocks());
+
+describe("http", () => {
+	it("preserves streamed request services and resources until consumption, and omits HEAD bodies", async () => {
+		let releases = 0;
+		const consume = deferred();
+		const route = HttpRouter.add(
+			"GET",
+			"/example",
+			Effect.gen(function* () {
+				yield* Effect.acquireRelease(Effect.void, () =>
+					Effect.sync(() => {
+						releases++;
+					}),
+				);
+
+				return HttpServerResponse.stream(
+					Stream.fromEffect(
+						Effect.promise(() => consume.promise).pipe(
+							Effect.andThen(SvelteKitRequestEvent.useSync((event) => event.request.url)),
+						),
+					).pipe(Stream.encodeText),
+					{ status: 202, headers: { "x-adapter": "native" } },
+				).pipe(HttpServerResponse.setCookieUnsafe("session", "example", { httpOnly: true }));
+			}),
+		).pipe(Layer.provideMerge(HttpRouter.layer));
+		const runtime = makeEffectSvelteKitRuntime(route);
+
+		try {
+			const event = eventFor();
+			const response = await runtime.run(http(event.request), event);
+
+			expect(response.status).toBe(202);
+			expect(response.headers.get("x-adapter")).toBe("native");
+			expect(response.headers.get("set-cookie")).toContain("session=example");
+			expect(releases).toBe(0);
+			consume.resolve();
+			expect(await response.text()).toBe("https://grove.test/example");
+			expect(releases).toBe(1);
+			const head = { ...event, request: new Request(event.request.url, { method: "HEAD" }) };
+			const headResponse = await runtime.run(http(head.request), head);
+
+			expect(headResponse.status).toBe(202);
+			expect(headResponse.body).toBeNull();
+			expect(releases).toBe(2);
+			const missing = eventFor(undefined, "/missing");
+
+			expect((await runtime.run(http(missing.request), missing)).status).toBe(404);
+		} finally {
+			await runtime.dispose();
+		}
+	});
+});
 
 describe("makeEffectSvelteKitRuntime", () => {
 	it("shares initialization, reuses its managed layer, and releases it exactly once", async () => {
@@ -91,15 +144,23 @@ describe("makeEffectSvelteKitRuntime", () => {
 	});
 
 	it("interrupts on request abort, preserves its exact reason, and finishes cleanup first", async () => {
-		const runtime = makeEffectSvelteKitRuntime(Layer.empty, { logCause: vi.fn() });
 		const controller = new AbortController();
 		const reason = new DOMException("client left", "AbortError");
 		let finalized = false;
-		const result = runtime.run(
-			Effect.never.pipe(Effect.ensuring(Effect.sync(() => void (finalized = true)))),
-			eventFor(controller.signal),
-		);
+		const started = deferred();
+		const route = HttpRouter.add(
+			"GET",
+			"/example",
+			Effect.sync(started.resolve).pipe(
+				Effect.andThen(Effect.never),
+				Effect.ensuring(Effect.sync(() => void (finalized = true))),
+			),
+		).pipe(Layer.provideMerge(HttpRouter.layer));
+		const runtime = makeEffectSvelteKitRuntime(route, { logCause: vi.fn() });
+		const event = eventFor(controller.signal);
+		const result = runtime.run(http(event.request), event);
 
+		await started.promise;
 		controller.abort(reason);
 		await expect(result).rejects.toBe(reason);
 		expect(finalized).toBe(true);

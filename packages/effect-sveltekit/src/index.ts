@@ -1,7 +1,58 @@
 import { error } from "@sveltejs/kit";
 import type { RequestEvent } from "@sveltejs/kit";
 import type { Handle } from "@sveltejs/kit/hooks";
-import { Cause, Context, Effect, Exit, Fiber, ManagedRuntime, type Layer } from "effect";
+import { Cause, Context, Effect, Exit, Fiber, ManagedRuntime, Option, type Layer } from "effect";
+import {
+	HttpEffect,
+	HttpRouter,
+	HttpServerError,
+	HttpServerRequest,
+	HttpServerResponse,
+} from "effect/http";
+
+/** Dispatch through the application's router inside the SvelteKit request runtime. */
+export const http = Effect.fnUntraced(function* (
+	request: Request | HttpServerRequest.HttpServerRequest,
+): Effect.fn.Return<Response, never, HttpRouter.HttpRouter> {
+	const router = yield* HttpRouter.HttpRouter;
+	const incoming = request instanceof Request ? HttpServerRequest.fromWeb(request) : request;
+	let result!: Response;
+
+	const handler = router
+		.asHttpEffect()
+		.pipe(
+			Effect.catch((failure) =>
+				Effect.map(HttpServerError.causeResponse(Cause.fail(failure)), ([response]) => response),
+			),
+		);
+
+	yield* HttpEffect.toHandled(handler, (currentRequest, response) =>
+		Effect.contextWith((context: Context.Context<never>) =>
+			Effect.sync(() => {
+				const withoutBody = currentRequest.method === "HEAD";
+
+				result = HttpServerResponse.toWeb(
+					HttpServerResponse.omitsBody(response, withoutBody)
+						? response
+						: HttpEffect.scopeTransferToStream(response),
+					{ withoutBody, context },
+				);
+			}),
+		),
+	).pipe(
+		Effect.provideService(HttpServerRequest.HttpServerRequest, incoming),
+		Effect.catchCause((cause) => {
+			// Native handling annotates failed causes with the response it sent.
+			// Preserve the original cause for the host runtime, especially interruption.
+			const [, remaining] = HttpServerError.causeResponseStripped(cause);
+
+			return Option.isSome(remaining) ? Effect.failCause(remaining.value) : Effect.void;
+		}),
+		Effect.uninterruptible,
+	);
+
+	return result;
+});
 
 /** The current SvelteKit request, provided only to the fiber handling that request. */
 export class SvelteKitRequestEvent extends Context.Service<SvelteKitRequestEvent, RequestEvent>()(
