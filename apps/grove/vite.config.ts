@@ -59,13 +59,19 @@ export default defineConfig(({ command }) => ({
 	server: {
 		allowedHosts: [".e2b.app", ".onamp.dev"],
 	},
+	ssr: { noExternal: ["fontless/runtime"] },
 	plugins: [
 		...(command === "build" ? [excludeGroveDevModules()] : []),
 		tailwindcss(),
 		fontless({
 			families: [
-				{ name: "Schibsted Grotesk", provider: "fontsource", weights: [400, 500, 600] },
-				{ name: "IBM Plex Mono", provider: "fontsource", weights: [400] },
+				{
+					name: "Schibsted Grotesk",
+					provider: "fontsource",
+					weights: [400, 500, 600],
+					global: true,
+				},
+				{ name: "IBM Plex Mono", provider: "fontsource", weights: [400], global: true },
 			],
 		}),
 		sveltekit({
