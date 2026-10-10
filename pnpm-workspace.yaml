@@ -64,6 +64,7 @@ minimumReleaseAgeExclude:
   - "@effect/tsgo@0.50.0"
   - drizzle-orm@1.0.0-rc.5-5935859
   - drizzle-kit@1.0.0-rc.5-5935859
+  - impeccable@4.5.2
 
 # Allow native-binding and codegen builds, deny unused scripts, and approve skills.
 permissions:
@@ -108,7 +109,7 @@ catalogs:
     # Keep the ESLint compatibility rules aligned with standalone Oxlint.
     eslint-plugin-oxlint: 1.87.0
     eslint-plugin-package-json: ^1.2.0
-    impeccable: ^3.4.0
+    impeccable: ^4.5.2
     knip: ^6.31.0
     oxfmt: 0.61.0
     oxlint: 1.87.0
