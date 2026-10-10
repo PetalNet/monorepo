@@ -7,6 +7,11 @@ packages:
 # pnpm must not provision a second package manager.
 pmOnFail: ignore
 
+# Link approved dependency skills into the shared agent directory.
+skills:
+  dirs:
+    - .agents/skills
+
 # Grove uses Drizzle and Better Auth's minimal runtime. Kysely and unrelated
 # built-in adapters are unused.
 overrides:
@@ -35,7 +40,7 @@ peerDependencyRules:
 catalogMode: strict
 
 # Retain the existing release-age exceptions and pnpm's default age gate.
-# allowBuilds below limits dependency lifecycle scripts. Renovate separately
+# permissions below limits dependency lifecycle scripts. Renovate separately
 # waits seven days.
 minimumReleaseAgeExclude:
   - eslint
@@ -60,19 +65,30 @@ minimumReleaseAgeExclude:
   - drizzle-orm@1.0.0-rc.5-5935859
   - drizzle-kit@1.0.0-rc.5-5935859
 
-# Why: pnpm sandboxes post-install scripts by default; these have legitimate
-# native-binding or codegen needs.
-allowBuilds:
-  "@prisma/client": true
-  "@prisma/engines": true
-  better-sqlite3: true
-  esbuild: true
-  msgpackr-extract: false
-  prisma: true
-  protobufjs: false
-  puppeteer: false
-  cpu-features: false
-  ssh2: false
+# Allow native-binding and codegen builds, deny unused scripts, and approve skills.
+permissions:
+  "@prisma/client":
+    build: true
+  "@prisma/engines":
+    build: true
+  antislop-ai:
+    skills: true
+  better-sqlite3:
+    build: true
+  esbuild:
+    build: true
+  msgpackr-extract:
+    build: false
+  prisma:
+    build: true
+  protobufjs:
+    build: false
+  puppeteer:
+    build: false
+  cpu-features:
+    build: false
+  ssh2:
+    build: false
 
 catalogs:
   dev:
@@ -112,6 +128,7 @@ catalogs:
     vite: ^8.3.3
     vitest: 5.0.3
     "@stylistic/eslint-plugin": ^5.10.0
+    antislop-ai: ^3.2.20
 
   types:
     "@types/leaflet": ^1.9.21

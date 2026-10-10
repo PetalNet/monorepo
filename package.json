@@ -38,6 +38,7 @@
 		"@stylistic/eslint-plugin": "catalog:dev",
 		"@types/node": "catalog:types",
 		"@typescript/native": "catalog:dev",
+		"antislop-ai": "catalog:dev",
 		"eslint": "catalog:dev",
 		"eslint-plugin-oxlint": "catalog:dev",
 		"eslint-plugin-package-json": "catalog:dev",
@@ -60,7 +61,7 @@
 			"version": "26.5.0"
 		}
 	},
-	"packageManager": "pnpm@12.9.1",
+	"packageManager": "pnpm@12.11.0",
 	"typesync": {
 		"ignoreProjects": [
 			"apps/box-agent",
