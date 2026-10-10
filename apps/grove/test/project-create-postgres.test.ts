@@ -8,7 +8,6 @@ import { groveApi } from "../src/lib/server/api";
 import { InvocationContext } from "../src/lib/server/invocation";
 import { canonicalDigest } from "../src/lib/server/projects/canonical";
 import { ProjectService, ProjectServiceLayer } from "../src/lib/server/projects/service";
-import { SproutCommandsBuildLayer } from "../src/lib/server/sprouts/service";
 import { startGrovePostgres, stopGrovePostgres } from "./postgres";
 
 it("creates through REST, binds replay to current authority, preserves Versions and rolls back the whole command", async () => {
@@ -17,11 +16,7 @@ it("creates through REST, binds replay to current authority, preserves Versions 
 	const identity = { issuer: "https://owner.example", subject: "owner" };
 	const actors = ActorAuthorityLayer({ homeOwner: identity }).pipe(Layer.provideMerge(database));
 	const runtime = ManagedRuntime.make(
-		Layer.mergeAll(
-			ProjectServiceLayer.pipe(Layer.provideMerge(actors)),
-			groveApi.layer,
-			SproutCommandsBuildLayer,
-		),
+		Layer.mergeAll(ProjectServiceLayer.pipe(Layer.provideMerge(actors)), groveApi.layer),
 	);
 
 	try {

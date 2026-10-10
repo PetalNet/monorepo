@@ -10,7 +10,7 @@ import {
 } from "../src/lib/server/invocation";
 
 const eventFor = (actor: App.Locals["actor"]) => {
-	const request = new Request("https://grove.example/api/v1/sprouts");
+	const request = new Request("https://grove.example/api/v1/projects");
 
 	return {
 		request,

@@ -9,8 +9,8 @@
 body,
 .light-mode,
 .dark-mode {
-	--scalar-font: system-ui, sans-serif;
-	--scalar-font-code: ui-monospace, monospace;
+	--scalar-font: var(--font-sans);
+	--scalar-font-code: var(--font-mono);
 	--scalar-radius: var(--radius-box);
 	--scalar-radius-lg: var(--radius-box);
 	--scalar-radius-xl: var(--radius-box);

@@ -23,8 +23,6 @@ import {
 	ProjectServiceLayer,
 	type ProjectServiceShape,
 } from "../src/lib/server/projects/service";
-import type { SproutCommands } from "../src/lib/server/sprouts/service";
-import { SproutCommandsBuildLayer } from "../src/lib/server/sprouts/service";
 import { startGrovePostgres, stopGrovePostgres } from "./postgres";
 
 const identity = { issuer: "https://identity.example/projects", subject: "owner" };
@@ -37,7 +35,7 @@ const input = () => ({
 
 describe("ProjectService durable actor PostgreSQL integration", () => {
 	let runtime: ManagedRuntime.ManagedRuntime<
-		ProjectService | ActorAuthority | PgClient.PgClient | ApiServer | SproutCommands,
+		ProjectService | ActorAuthority | PgClient.PgClient | ApiServer,
 		unknown
 	>;
 	let database: ManagedRuntime.ManagedRuntime<PgClient.PgClient, unknown>;
@@ -55,11 +53,7 @@ describe("ProjectService durable actor PostgreSQL integration", () => {
 		);
 
 		runtime = ManagedRuntime.make(
-			Layer.mergeAll(
-				ProjectServiceLayer.pipe(Layer.provideMerge(actors)),
-				groveApi.layer,
-				SproutCommandsBuildLayer,
-			),
+			Layer.mergeAll(ProjectServiceLayer.pipe(Layer.provideMerge(actors)), groveApi.layer),
 		);
 
 		owner = await runtime.runPromise(

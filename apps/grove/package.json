@@ -41,6 +41,7 @@
 		"@testcontainers/postgresql": "catalog:",
 		"@types/node": "catalog:types",
 		"drizzle-kit": "catalog:",
+		"fontless": "catalog:",
 		"svelte-check": "catalog:dev",
 		"typescript": "catalog:dev",
 		"vite": "catalog:dev",

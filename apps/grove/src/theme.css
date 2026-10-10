@@ -17,9 +17,14 @@
 	--color-info: light-dark(#4a6f93, #8fb0cc);
 	--color-success: light-dark(#2f8f5b, #4caf7d);
 	--color-warning: light-dark(#c77d11, #d99520);
-	--color-error: light-dark(#c5374b, #e2576b);
-	--radius-selector: 999px;
-	--radius-field: 0.5rem;
+	--color-error: light-dark(#8c2735, #f2929f);
+	--radius-selector: 0.125rem;
+	--radius-field: 0.125rem;
 	--radius-box: 0.125rem;
-	--border: 1px;
+	--border: 0;
+}
+
+@theme static {
+	--font-sans: "Schibsted Grotesk", sans-serif;
+	--font-mono: "IBM Plex Mono", monospace;
 }

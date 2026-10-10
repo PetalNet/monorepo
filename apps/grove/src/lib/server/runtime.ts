@@ -16,15 +16,13 @@ import { ActorAuthorityBuildLayer, ActorAuthorityLayer } from "#lib/server/actor
 import { GroveAuthLive } from "#lib/server/auth-runtime.ts";
 import type { BrowserSessionError, GroveAuth } from "#lib/server/auth.ts";
 import { GroveAuthBuildLayer } from "#lib/server/auth.ts";
-import type { SproutCommands, SproutError } from "#lib/server/sprouts/service.ts";
-import { SproutCommandsBuildLayer, SproutCommandsLayer } from "#lib/server/sprouts/service.ts";
 
 import { groveApi } from "./api";
 import type { AuthenticationRequired } from "./authorization";
 import type { ProjectError, ProjectService } from "./projects/service";
 import { ProjectServiceLayer, ProjectServiceBuildLayer } from "./projects/service";
 
-type GroveFailure = AuthenticationRequired | ProjectError | SproutError | BrowserSessionError;
+type GroveFailure = AuthenticationRequired | ProjectError | BrowserSessionError;
 
 const required = (value: unknown, name: string) => {
 	if (typeof value !== "string" || value.length === 0) {
@@ -41,7 +39,6 @@ function makeRuntime() {
 		GroveServicesLayer = Layer.mergeAll(
 			GroveAuthBuildLayer,
 			ActorAuthorityBuildLayer,
-			SproutCommandsBuildLayer,
 			ProjectServiceBuildLayer,
 		);
 	} else {
@@ -55,7 +52,7 @@ function makeRuntime() {
 				subject: required(GROVE_HOME_OWNER_SUBJECT, "GROVE_HOME_OWNER_SUBJECT"),
 			},
 		});
-		const consumers = Layer.mergeAll(GroveAuthLive, SproutCommandsLayer, ProjectServiceLayer).pipe(
+		const consumers = Layer.merge(GroveAuthLive, ProjectServiceLayer).pipe(
 			Layer.provide(actorAuthority),
 		);
 
@@ -87,15 +84,9 @@ function makeRuntime() {
 						message: "Actor authority is unavailable",
 						log: true,
 					}),
-					SproutNotFound: ({ message }) => ({ status: 404, message }),
 					CommandConflict: ({ message }) => ({ status: 409, message }),
 					FenceConflict: ({ message }) => ({ status: 409, message }),
 					ProjectDatabaseError: ({ message }) => ({ status: 503, message, log: true }),
-					SproutDatabaseError: () => ({
-						status: 503,
-						message: "The sprout database is unavailable",
-						log: true,
-					}),
 				}),
 				Match.orElse(() => undefined),
 			),
@@ -103,23 +94,14 @@ function makeRuntime() {
 }
 
 let runtime:
-	| EffectSvelteKitRuntime<
-			GroveAuth | ActorAuthority | SproutCommands | ProjectService | ApiServer,
-			GroveFailure
-	  >
+	| EffectSvelteKitRuntime<GroveAuth | ActorAuthority | ProjectService | ApiServer, GroveFailure>
 	| undefined;
 
 export const initializeGroveRuntime = () => (runtime ??= makeRuntime());
 
 export const runGrove = <
 	A,
-	R extends
-		| GroveAuth
-		| ActorAuthority
-		| SproutCommands
-		| ProjectService
-		| SvelteKitRequestEvent
-		| ApiServer,
+	R extends GroveAuth | ActorAuthority | ProjectService | SvelteKitRequestEvent | ApiServer,
 >(
 	effect: Effect.Effect<A, GroveFailure, R>,
 	event: RequestEvent,

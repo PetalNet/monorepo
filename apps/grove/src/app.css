@@ -14,4 +14,34 @@ body {
 body {
 	min-height: 100vh;
 	margin: 0;
+	font-family: var(--font-sans);
+}
+
+.btn {
+	min-height: 44px;
+	font-weight: 500;
+	box-shadow: none;
+}
+
+.menu :is(a, button),
+summary {
+	min-block-size: 44px;
+}
+
+.menu :is(a, button) {
+	align-content: center;
+}
+
+:is(button, a, input, textarea, select, summary):focus-visible {
+	outline: 2px solid var(--color-primary);
+	outline-offset: 2px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+	*,
+	*::before,
+	*::after {
+		animation-duration: 0.01ms !important;
+		transition-duration: 0.01ms !important;
+	}
 }

@@ -15,8 +15,6 @@ import { InvocationContext } from "../src/lib/server/invocation";
 import { canonicalDigest } from "../src/lib/server/projects/canonical";
 import type { ProjectService } from "../src/lib/server/projects/service";
 import { ProjectServiceLayer } from "../src/lib/server/projects/service";
-import type { SproutCommands } from "../src/lib/server/sprouts/service";
-import { SproutCommandsLayer } from "../src/lib/server/sprouts/service";
 import { startGrovePostgres, stopGrovePostgres } from "./postgres";
 
 const operations = [
@@ -46,7 +44,7 @@ interface Receipt {
 
 describe("Grove project foundation and #401 REST/MCP loop", () => {
 	let runtime: ManagedRuntime.ManagedRuntime<
-		ActorAuthority | ProjectService | SproutCommands | ApiServer | PgClient.PgClient,
+		ActorAuthority | ProjectService | ApiServer | PgClient.PgClient,
 		unknown
 	>;
 	let database: ManagedRuntime.ManagedRuntime<PgClient.PgClient, unknown>;
@@ -62,9 +60,7 @@ describe("Grove project foundation and #401 REST/MCP loop", () => {
 		const actors = ActorAuthorityLayer({ homeOwner: identity }).pipe(
 			Layer.provideMerge(PgClient.layer({ url: Redacted.make(postgres.databaseUrl) })),
 		);
-		const domain = Layer.merge(ProjectServiceLayer, SproutCommandsLayer).pipe(
-			Layer.provideMerge(actors),
-		);
+		const domain = ProjectServiceLayer.pipe(Layer.provideMerge(actors));
 
 		runtime = ManagedRuntime.make(Layer.merge(domain, groveApi.layer));
 
@@ -188,6 +184,9 @@ describe("Grove project foundation and #401 REST/MCP loop", () => {
 		for (const operation of operations) {
 			expect(JSON.stringify(groveApi.openapi)).toContain(operation);
 		}
+
+		expect(JSON.stringify(groveApi.openapi)).not.toContain("sprouts");
+		await rest(owner, "/sprouts", undefined, 404);
 
 		const project = (await (
 			await rest(owner, "/projects", {

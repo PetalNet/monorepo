@@ -39,7 +39,7 @@ export const requestAgentCapability = form(AgentCapabilityValidator, (input) =>
 	),
 );
 
-export const resolveContainmentConflict = form(ContainmentFixValidator, (input) =>
+export const resolveContainmentConflict = form(ContainmentFixValidator, ({ fix }) =>
 	runGrove(
 		withBrowserInvocation(
 			Effect.gen(function* () {
@@ -51,9 +51,9 @@ export const resolveContainmentConflict = form(ContainmentFixValidator, (input) 
 
 				const authority = yield* ActorAuthority;
 
-				yield* authority.applyContainmentFixAs(principal, input);
+				yield* authority.applyContainmentFixAs(principal, fix);
 
-				return { ok: true as const };
+				return { ok: true as const, agentId: fix.agentId, capability: fix.capability };
 			}),
 		),
 		getRequestEvent(),

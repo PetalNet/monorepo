@@ -2,12 +2,14 @@ import { Cause, Effect, Exit } from "effect";
 import { describe, expect, it } from "vitest";
 
 import { InvocationContext } from "../src/lib/server/invocation";
-import { SproutCommands, SproutCommandsBuildLayer } from "../src/lib/server/sprouts/service";
+import { ProjectService, ProjectServiceBuildLayer } from "../src/lib/server/projects/service";
 
-describe("SproutCommandsBuildLayer", () => {
+describe("ProjectServiceBuildLayer", () => {
 	it("initializes for prerender but defects if build code touches the database", async () => {
-		const useService = Effect.flatMap(SproutCommands, (commands) => commands.list).pipe(
-			Effect.provide(SproutCommandsBuildLayer),
+		const useService = Effect.flatMap(ProjectService, (service) =>
+			service.ready({ projectId: "build" }),
+		).pipe(
+			Effect.provide(ProjectServiceBuildLayer),
 			Effect.provideService(InvocationContext, {
 				principal: {
 					kind: "unbound",

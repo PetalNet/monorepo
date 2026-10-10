@@ -1,0 +1,1 @@
+DROP TABLE "grove_demo_sprouts";

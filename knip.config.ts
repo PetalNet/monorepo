@@ -6,6 +6,8 @@ export default {
 	// Strict Knip only resolves production dependencies, including script binaries.
 	ignoreBinaries: ["eslint!", "vite!", "vitest!", "storybook!"],
 	ignoreDependencies: [
+		// pnpm links agent skills; they are not imported by application code.
+		"antislop-ai",
 		// Virtual tsconfig plugin provided by the patched @effect/tsgo compiler.
 		"@effect/language-service",
 	],

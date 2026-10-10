@@ -167,7 +167,7 @@ describe("production Grove browser auth composition", () => {
 		});
 
 		const { loginResponse: login, url: authorizationUrl } =
-			await beginAuthorization("/sprouts?view=agent");
+			await beginAuthorization("/?view=agent");
 
 		expect(login.status).toBe(302);
 		expect(authorizationUrl.searchParams.get("response_type")).toBe("code");
@@ -190,7 +190,7 @@ describe("production Grove browser auth composition", () => {
 
 		const callback = await completeAuthorization(login, authorizationUrl);
 
-		expect(callback.headers.get("location")).toBe("/sprouts?view=agent");
+		expect(callback.headers.get("location")).toBe("/?view=agent");
 
 		const sessionCookies = callback.headers
 			.getSetCookie()
@@ -266,11 +266,15 @@ describe("production Grove browser auth composition", () => {
 		expect(accounts[0]?.idToken).toBeNull();
 		const beforeBoundPreflightInspection = await authorityState();
 
+		activeEvent = eventFor(
+			new Request(`${origin}/settings`, { headers: { cookie: sessionCookies } }),
+		);
+
 		await runtime.runPromise(
-			sql.unsafe('update "user" set "name" = $2 where "id" = $1', [
-				hydrated?.user.id,
+			browserAuth.updateAccount(
+				new Headers({ cookie: sessionCookies }),
 				"Renamed Better Auth Operator",
-			]),
+			),
 		);
 
 		const inspectedBound = await runtime.runPromise(
@@ -308,6 +312,12 @@ describe("production Grove browser auth composition", () => {
 		await expect(
 			runtime.runPromise(browserAuth.hydrateSession(new Headers({ cookie: sessionCookies }))),
 		).resolves.toBeNull();
+
+		await expect(
+			runtime.runPromise(
+				browserAuth.updateAccount(new Headers({ cookie: sessionCookies }), "Unauthorized rename"),
+			),
+		).rejects.toThrow();
 
 		includeIssuedAt = false;
 		const missingIssuedAt = await beginAuthorization();

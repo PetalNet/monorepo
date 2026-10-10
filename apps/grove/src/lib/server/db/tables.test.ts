@@ -5,7 +5,7 @@ import { afterAll, beforeAll, expect, it } from "vitest";
 
 import { startGrovePostgres, stopGrovePostgres } from "../../../../test/postgres";
 import { makeAuthDatabase, makeDatabase } from "./client";
-import { accounts, sprouts, users } from "./tables";
+import { accounts, grove_objects as objects, users } from "./tables";
 
 let runtime: ManagedRuntime.ManagedRuntime<PgClient.PgClient, unknown>;
 
@@ -18,25 +18,28 @@ afterAll(async () => {
 	await stopGrovePostgres();
 });
 
-it("round-trips lossless domain identities and nullable auth Dates through the live clients", async () => {
+it("round-trips domain timestamps and nullable auth Dates through the live clients", async () => {
 	const pg = await runtime.runPromise(PgClient.PgClient);
 	const db = await runtime.runPromise(makeDatabase(pg));
 	const user = (id: string) => ({ id, name: id, email: `${id}@example.com`, emailVerified: true });
-	const id = "9223372036854775807";
+	const id = "domain-codec";
 	const date = new Date("2026-10-09T12:34:56.789Z");
 
 	await runtime.runPromise(
 		pg.withTransaction(
 			Effect.gen(function* () {
-				yield* pg`insert into grove_demo_sprouts (id, name, planted_at) overriding system value
-					values (${id}, 'Codec fern', ${date.toISOString()})`;
+				yield* db.insert(objects).values({
+					id,
+					kind: "artifact",
+					scope: "private",
+					created_at: date.toISOString(),
+				});
 
-				const rows = yield* db.select().from(sprouts).where(eq(sprouts.id, id));
+				const rows = yield* db.select().from(objects).where(eq(objects.id, id));
 
-				expect(rows).toMatchObject([{ id, name: "Codec fern", waterings: 0 }]);
-				expect(typeof rows[0]?.planted_at).toBe("string");
-				expect(new Date(rows[0]?.planted_at ?? "")).toEqual(date);
-				expect(JSON.stringify(rows)).toContain('"id":"9223372036854775807"');
+				expect(rows).toMatchObject([{ id, kind: "artifact", scope: "private" }]);
+				expect(typeof rows[0]?.created_at).toBe("string");
+				expect(new Date(rows[0]?.created_at ?? "")).toEqual(date);
 
 				yield* db.insert(users).values({ ...user("native-codec"), createdAt: date });
 
@@ -48,7 +51,7 @@ it("round-trips lossless domain identities and nullable auth Dates through the l
 				).toEqual([{ date }]);
 
 				yield* db.delete(users).where(eq(users.id, "native-codec"));
-				yield* db.delete(sprouts).where(eq(sprouts.id, id));
+				yield* db.delete(objects).where(eq(objects.id, id));
 			}),
 		),
 	);
