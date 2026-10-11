@@ -1,5 +1,11 @@
 import { Cause, Effect, Layer, Option, Predicate, Schema, SchemaAST } from "effect";
-import { HttpMethod, HttpServer, HttpServerResponse } from "effect/http";
+import {
+	HttpMethod,
+	HttpRouter,
+	HttpServer,
+	HttpServerRequest,
+	HttpServerResponse,
+} from "effect/http";
 import {
 	HttpApi,
 	HttpApiBuilder,
@@ -38,6 +44,38 @@ class OperationBoundary extends HttpApiMiddleware.Service<OperationBoundary>()(
 	},
 ) {}
 
+const projectInput = (
+	ast: SchemaAST.AST,
+	pathKeys: readonly string[],
+	pathTypes = new Map<string, SchemaAST.AST[]>(),
+): SchemaAST.AST => {
+	if (SchemaAST.isUnion(ast)) {
+		return new SchemaAST.Union(
+			ast.types.map((member) => projectInput(member, pathKeys, pathTypes)),
+			ast.options,
+		);
+	}
+
+	if (!SchemaAST.isObjects(ast)) {
+		return ast;
+	}
+
+	for (const key of pathKeys) {
+		const types = pathTypes.get(key) ?? [];
+
+		types.push(
+			ast.propertySignatures.find((property) => property.name === key)?.type ?? Schema.String.ast,
+		);
+
+		pathTypes.set(key, types);
+	}
+
+	return new SchemaAST.Objects(
+		ast.propertySignatures.filter((property) => !pathKeys.includes(String(property.name))),
+		ast.indexSignatures,
+	);
+};
+
 const makeEndpoint = (
 	operation: ApiOperation<unknown>,
 	rest: NonNullable<ApiOperation<unknown>["rest"]>,
@@ -51,33 +89,10 @@ const makeEndpoint = (
 	const input = Schema.toEncoded(operation.input);
 	const pathKeys = [...rest.path.matchAll(/:[^/]+/gu)].map((match) => match[0].slice(1));
 	const pathTypes = new Map<string, SchemaAST.AST[]>();
-	const project = (ast: SchemaAST.AST): SchemaAST.AST => {
-		if (SchemaAST.isUnion(ast)) {
-			return new SchemaAST.Union(ast.types.map(project), ast.options);
-		}
-
-		if (!SchemaAST.isObjects(ast)) {
-			return ast;
-		}
-
-		for (const key of pathKeys) {
-			const types = pathTypes.get(key) ?? [];
-
-			types.push(
-				ast.propertySignatures.find((property) => property.name === key)?.type ?? Schema.String.ast,
-			);
-
-			pathTypes.set(key, types);
-		}
-
-		return new SchemaAST.Objects(
-			ast.propertySignatures.filter((property) => !pathKeys.includes(String(property.name))),
-			ast.indexSignatures,
-		);
-	};
-
 	const remaining =
-		pathKeys.length > 0 ? Schema.make<Schema.Codec<unknown>>(project(input.ast)) : input;
+		pathKeys.length > 0
+			? Schema.make<Schema.Codec<unknown>>(projectInput(input.ast, pathKeys, pathTypes))
+			: input;
 	const params = Schema.Struct(
 		Object.fromEntries(
 			pathKeys.map((key) => {
@@ -135,27 +150,65 @@ export const createRestApi = <R>(config: RestConfig<R>) => {
 			Object.fromEntries(
 				registrations.map(({ operation }) => [
 					operation.name,
-					Effect.fnUntraced(function* (request: {
-						readonly params?: unknown;
-						readonly query?: unknown;
-						readonly payload?: unknown;
-					}) {
-						const input = "payload" in request ? request.payload : (request.query ?? {});
-						const merged = Predicate.isReadonlyObject(input)
-							? { ...input, ...(Predicate.isReadonlyObject(request.params) ? request.params : {}) }
-							: input;
+					Effect.fnUntraced(
+						function* (request: {
+							readonly params?: unknown;
+							readonly query?: unknown;
+							readonly payload?: unknown;
+							readonly request: HttpServerRequest.HttpServerRequest;
+						}) {
+							let input = "payload" in request ? request.payload : (request.query ?? {});
+							const encoded = Schema.toEncoded(operation.input);
 
-						return yield* inHostRequest(invokeOperation(operation, merged, config.logCause)).pipe(
-							Effect.catchTag("InvocationFailure", (failure) =>
-								Effect.succeed(
-									HttpServerResponse.jsonUnsafe(
-										{ error: { code: failure.code, message: failure.message } },
-										{ status: failure.status },
+							// Projected union members can overlap without their path discriminator.
+							// Preserve the wire input until the complete schema selects a member.
+							if (request.params && SchemaAST.isUnion(encoded.ast)) {
+								if ("payload" in request) {
+									input = yield* request.request.json;
+								} else {
+									const query = yield* HttpServerRequest.ParsedSearchParams;
+									const route = yield* HttpRouter.RouteContext;
+									const wireSchema = Schema.toCodecArrayFromSingle(
+										Schema.toCodecStringTree(
+											Schema.make<Schema.Codec<unknown>>(projectInput(encoded.ast, [])),
+										),
+									);
+
+									input = yield* HttpApiError.HttpApiSchemaError.wrap(
+										"Query",
+										Schema.decodeEffect(wireSchema)({ ...query, ...route.params }),
+									);
+								}
+							}
+
+							const merged = Predicate.isReadonlyObject(input)
+								? {
+										...input,
+										...(Predicate.isReadonlyObject(request.params) ? request.params : {}),
+									}
+								: input;
+
+							return yield* inHostRequest(invokeOperation(operation, merged, config.logCause)).pipe(
+								Effect.catchTag("InvocationFailure", (failure) =>
+									Effect.succeed(
+										HttpServerResponse.jsonUnsafe(
+											{ error: { code: failure.code, message: failure.message } },
+											{ status: failure.status },
+										),
 									),
 								),
+							);
+						},
+						Effect.catchTag("HttpApiSchemaError", (failure) =>
+							Effect.succeed(
+								HttpServerResponse.jsonUnsafe(
+									{ error: { code: "invalid_input", message: failure.cause.message } },
+									{ status: 400 },
+								),
 							),
-						);
-					}),
+						),
+						Effect.orDie,
+					),
 				]),
 			),
 		),

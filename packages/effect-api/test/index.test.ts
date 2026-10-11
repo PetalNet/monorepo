@@ -855,6 +855,72 @@ describe("createEffectApi", () => {
 		expect(JSON.stringify(endpoint?.requestBody)).not.toContain('"id"');
 	});
 
+	it.each([
+		["POST", false],
+		["POST", true],
+		["GET", false],
+		["GET", true],
+	] as const)(
+		"retains overlapping %s union fields with required label %s until path selection",
+		async (method, required) => {
+			const application = createEffectApi({
+				title: "Overlapping variants",
+				version: "1",
+				basePath: "/api",
+				operations: [
+					operation({
+						name: "overlapping",
+						description: "Select a variant by path",
+						method,
+						path: "/items/:id",
+						input: Schema.Union([
+							Schema.Struct({ id: Schema.Literal("left"), count: Schema.optional(Schema.Finite) }),
+							Schema.Struct({
+								id: Schema.Literal("right"),
+								count: Schema.optional(Schema.String),
+								label: required ? Schema.String : Schema.optional(Schema.String),
+							}),
+						]),
+						output: Schema.Unknown,
+						handler: Effect.succeed,
+					}),
+				],
+			});
+			const bodies = [
+				{ label: "hello" },
+				{ id: "left", label: "world" },
+				{ count: "007", label: "numeric string" },
+			];
+			const results = await Promise.all(
+				bodies.map((body) =>
+					runJson(
+						application.fetch(
+							new Request(
+								`https://x/api/items/right${method === "GET" ? `?${new URLSearchParams(body)}` : ""}`,
+								{
+									method,
+									...(method === "POST"
+										? {
+												headers: { "content-type": "application/json" },
+												body: JSON.stringify(body),
+											}
+										: {}),
+								},
+							),
+						),
+					),
+				),
+			);
+
+			for (const [index, result] of results.entries()) {
+				expect(result).toMatchObject({
+					response: { status: 200 },
+					body: { ...bodies[index], id: "right" },
+				});
+			}
+		},
+	);
+
 	it("serves MCP independently without reading REST publication metadata", async () => {
 		const { mcp } = createEffectApi({
 			title: "MCP only",
