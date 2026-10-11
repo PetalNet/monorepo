@@ -1,3 +1,4 @@
+import "./api-env";
 import { createHash } from "node:crypto";
 
 import * as PgClient from "@effect/sql-pg/PgClient";
@@ -13,8 +14,8 @@ import {
 	ActorAuthorityLayer,
 	type ActorPrincipal,
 } from "../src/lib/server/actors/authority";
+import { CurrentPrincipal } from "../src/lib/server/actors/authority";
 import { groveApi } from "../src/lib/server/api";
-import { InvocationContext } from "../src/lib/server/invocation";
 import { McpAuthentication } from "../src/lib/server/mcp/ingress";
 import { canonicalDigest } from "../src/lib/server/projects/canonical";
 import type { ProjectService } from "../src/lib/server/projects/service";
@@ -162,7 +163,7 @@ describe("Grove project foundation and #401 REST/MCP loop", () => {
 					}),
 				}),
 			).pipe(
-				Effect.provideService(InvocationContext, { principal }),
+				Effect.provideService(CurrentPrincipal, principal),
 				// This loop tests domain parity with an already-resolved principal.
 				Effect.provideService(McpAuthentication, (next) => next),
 			),

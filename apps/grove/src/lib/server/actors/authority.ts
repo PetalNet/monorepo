@@ -103,6 +103,11 @@ export interface UnboundMachinePrincipal extends MachineIdentity {
 export type MachinePrincipal = AgentPrincipal | BootstrapPrincipal | UnboundMachinePrincipal;
 export type ActorPrincipal = PersonPrincipal | AgentPrincipal;
 
+export class CurrentPrincipal extends Context.Service<
+	CurrentPrincipal,
+	ActorPrincipal | MachinePrincipal
+>()("grove/CurrentPrincipal") {}
+
 export class ActorDatabaseError extends Data.TaggedError("ActorDatabaseError")<{
 	readonly cause: unknown;
 }> {

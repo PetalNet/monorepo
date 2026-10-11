@@ -17,8 +17,19 @@ import {
 } from "effect/http-api";
 
 import { invokeOperation } from "./invoke.js";
-import type { ApiOperation, LogCause } from "./operation.js";
+import { operationErrorSchemas, type ApiOperation, type LogCause } from "./operation.js";
 import { inHostRequest, type RequestMiddleware } from "./request.js";
+
+/** Encode only the declared public fields, never the underlying failure or cause. */
+export const failureResponse = ({
+	status,
+	message,
+	code = "operation_failed",
+}: {
+	readonly status: number;
+	readonly message: string;
+	readonly code?: string;
+}) => HttpServerResponse.jsonUnsafe({ error: { code, message } }, { status });
 
 interface RestConfig<R> {
 	readonly title: string;
@@ -105,14 +116,7 @@ const makeEndpoint = (
 		...(pathKeys.length > 0 ? { params } : {}),
 		...(isEmpty(remaining.ast) ? {} : rest.body ? { payload: remaining } : { query: remaining }),
 		success: Schema.make<Schema.Codec<unknown>>(operation.output.ast),
-		error: Object.values(operation.errors ?? {}).map(({ status, message }) =>
-			Schema.Struct({
-				error: Schema.Struct({
-					code: Schema.Literal("operation_failed"),
-					message: typeof message === "string" ? Schema.Literal(message) : Schema.String,
-				}),
-			}).annotate({ httpApiStatus: status }),
-		),
+		error: operationErrorSchemas(operation.errors ?? {}),
 	}).annotate(OpenApi.Description, operation.description);
 };
 
@@ -195,21 +199,17 @@ export const createRestApi = <R>(config: RestConfig<R>) => {
 
 							return yield* inHostRequest(invokeOperation(operation, merged, config.logCause)).pipe(
 								Effect.catchTag("InvocationFailure", (failure) =>
-									Effect.succeed(
-										HttpServerResponse.jsonUnsafe(
-											{ error: { code: failure.code, message: failure.message } },
-											{ status: failure.status },
-										),
-									),
+									Effect.succeed(failureResponse(failure)),
 								),
 							);
 						},
 						Effect.catchTag("HttpApiSchemaError", (failure) =>
 							Effect.succeed(
-								HttpServerResponse.jsonUnsafe(
-									{ error: { code: "invalid_input", message: failure.cause.message } },
-									{ status: 400 },
-								),
+								failureResponse({
+									code: "invalid_input",
+									message: failure.cause.message,
+									status: 400,
+								}),
 							),
 						),
 						Effect.orDie,
@@ -235,21 +235,17 @@ export const createRestApi = <R>(config: RestConfig<R>) => {
 					failure.value.kind !== "ResponseHeaders"
 				) {
 					return Effect.succeed(
-						HttpServerResponse.jsonUnsafe(
-							{ error: { code: "invalid_input", message: failure.value.cause.message } },
-							{ status: 400 },
-						),
+						failureResponse({
+							code: "invalid_input",
+							message: failure.value.cause.message,
+							status: 400,
+						}),
 					);
 				}
 
 				config.logCause(endpoint.identifier, cause);
 
-				return Effect.succeed(
-					HttpServerResponse.jsonUnsafe(
-						{ error: { code: "operation_failed", message: "The operation failed" } },
-						{ status: 500 },
-					),
-				);
+				return Effect.succeed(failureResponse({ message: "The operation failed", status: 500 }));
 			}),
 		);
 

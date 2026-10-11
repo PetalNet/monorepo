@@ -11,8 +11,8 @@ import { Effect, Layer, ManagedRuntime, Redacted } from "effect";
 import { expect, it } from "vitest";
 
 import { applyMigrationFiles, readMigrationFilesEffect } from "../migrations/runner.ts";
+import { CurrentPrincipal } from "../src/lib/server/actors/authority";
 import * as tables from "../src/lib/server/db/tables.ts";
-import { InvocationContext } from "../src/lib/server/invocation";
 import { canonicalDigest } from "../src/lib/server/projects/canonical";
 
 const reviewPayload = (id: string, kind: string) =>
@@ -348,7 +348,7 @@ it("upgrades a durable 0002 project receipt with exact service replay and curren
 		const replay = () =>
 			runtime.runPromise(
 				Effect.flatMap(ProjectService, (service) => service.create(command)).pipe(
-					Effect.provideService(InvocationContext, { principal: owner }),
+					Effect.provideService(CurrentPrincipal, owner),
 				),
 			);
 

@@ -1,3 +1,4 @@
+import "./api-env";
 import { setTimeout as delay } from "node:timers/promises";
 
 import * as PgClient from "@effect/sql-pg/PgClient";
@@ -13,8 +14,8 @@ import {
 	type ActorPrincipal,
 	type PersonPrincipal,
 } from "../src/lib/server/actors/authority";
+import { CurrentPrincipal } from "../src/lib/server/actors/authority";
 import { groveApi } from "../src/lib/server/api";
-import { InvocationContext } from "../src/lib/server/invocation";
 import { canonicalDigest } from "../src/lib/server/projects/canonical";
 import {
 	CommandConflict,
@@ -102,11 +103,11 @@ describe("ProjectService durable actor PostgreSQL integration", () => {
 
 	const call = <A, E>(
 		principal: ActorPrincipal,
-		invoke: (service: ProjectServiceShape) => Effect.Effect<A, E, InvocationContext>,
+		invoke: (service: ProjectServiceShape) => Effect.Effect<A, E, CurrentPrincipal>,
 	) =>
 		runtime.runPromise(
 			Effect.flatMap(ProjectService, invoke).pipe(
-				Effect.provideService(InvocationContext, { principal }),
+				Effect.provideService(CurrentPrincipal, principal),
 			),
 		);
 	const query = <Row extends object = Record<string, unknown>>(
@@ -955,7 +956,7 @@ describe("ProjectService durable actor PostgreSQL integration", () => {
 		await expect(
 			runtime.runPromise(
 				Effect.flatMap(ProjectService, (s) => s.create(input())).pipe(
-					Effect.provideService(InvocationContext, { principal: machine }),
+					Effect.provideService(CurrentPrincipal, machine),
 				),
 			),
 		).rejects.toMatchObject({ _tag: "ActorDenied" });

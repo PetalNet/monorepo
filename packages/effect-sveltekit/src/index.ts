@@ -1,7 +1,17 @@
+import {
+	createEffectApi,
+	defaultLogCause as logOperationCause,
+	failureResponse,
+	mapOperationErrors,
+	operationErrorSchemas,
+	type EffectApiConfig,
+	type OperationErrors,
+	type RequestMiddleware,
+} from "@petalnet/effect-api";
 import { error } from "@sveltejs/kit";
 import type { RequestEvent } from "@sveltejs/kit";
 import type { Handle } from "@sveltejs/kit/hooks";
-import { Cause, Context, Effect, Exit, Fiber, ManagedRuntime, Option, type Layer } from "effect";
+import { Cause, Context, Effect, Exit, Fiber, Layer, ManagedRuntime, Option } from "effect";
 import {
 	HttpEffect,
 	HttpRouter,
@@ -262,4 +272,68 @@ export function makeEffectSvelteKitRuntime<R, ER, E = unknown>(
 	};
 
 	return { initialize, run, handle, dispose } as const;
+}
+
+/** One server owns HTTP transports and authenticated Effects in the same request runtime. */
+export function createServer<R, ER, E, Auth, AuthError>(
+	config: Omit<EffectApiConfig, "restMiddleware" | "restMiddlewareErrors" | "mcpMiddleware"> & {
+		readonly services: Layer.Layer<R, ER>;
+		readonly auth: {
+			readonly browser: Effect.Effect<Context.Context<Auth>, AuthError, R | SvelteKitRequestEvent>;
+			readonly errors: OperationErrors<AuthError>;
+			readonly mcp: RequestMiddleware;
+		};
+		readonly mapFailure?: EffectSvelteKitOptions<E | AuthError>["mapFailure"];
+	},
+) {
+	const mapAuthentication = mapOperationErrors(config.auth.errors);
+	const logCause = config.logCause ?? logOperationCause;
+	const application = createEffectApi({
+		...config,
+		restMiddlewareErrors: operationErrorSchemas(config.auth.errors),
+		mcpMiddleware: config.auth.mcp,
+		restMiddleware: (next) =>
+			config.auth.browser.pipe(
+				Effect.matchEffect({
+					onFailure: (failure) =>
+						Effect.sync(() => {
+							const exposed = mapAuthentication(failure) ?? {
+								status: 500,
+								message: "The operation failed",
+								log: true,
+							};
+
+							if (exposed.log) {
+								logCause("authentication", Cause.fail(failure));
+							}
+
+							return failureResponse(exposed);
+						}),
+					onSuccess: (services) => Effect.provide(next, services),
+				}),
+			),
+	});
+	const runtime = makeEffectSvelteKitRuntime<R | HttpRouter.HttpRouter, never, E | AuthError>(
+		Layer.orDie(Layer.merge(config.services, application.layer)),
+		{
+			mapFailure: (failure) => config.mapFailure?.(failure) ?? mapAuthentication(failure),
+			logCause: (cause) => {
+				logCause("request", cause);
+			},
+		},
+	);
+
+	return {
+		layer: application.layer,
+		initialize: runtime.initialize,
+		dispose: runtime.dispose,
+		handle: runtime.handle,
+		runRaw: runtime.run,
+		run: <A>(effect: Effect.Effect<A, E, R | Auth | SvelteKitRequestEvent>, event: RequestEvent) =>
+			runtime.run(
+				Effect.flatMap(config.auth.browser, (services) => Effect.provide(effect, services)),
+				event,
+			),
+		http: (event: RequestEvent) => runtime.run(http(event.request), event),
+	};
 }

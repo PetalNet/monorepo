@@ -14,7 +14,7 @@ import {
 	HomeOwnerUnbound,
 	CapabilityContainmentConflict,
 } from "../src/lib/server/actors/authority";
-import { InvocationContext } from "../src/lib/server/invocation";
+import { CurrentPrincipal } from "../src/lib/server/actors/authority";
 import { projectErrors, projectOperations } from "../src/lib/server/projects/api";
 import {
 	CommandConflict,
@@ -143,13 +143,11 @@ it.each(authorityFailures)(
 						...authority,
 						enrollSelf: () => Effect.fail(failure),
 					}),
-					Effect.provideService(InvocationContext, {
-						principal: {
-							kind: "bootstrap",
-							issuer: "https://id.example",
-							subject: "machine",
-							scopes: new Set(["grove:agent:enroll"]),
-						},
+					Effect.provideService(CurrentPrincipal, {
+						kind: "bootstrap",
+						issuer: "https://id.example",
+						subject: "machine",
+						scopes: new Set(["grove:agent:enroll"]),
 					}),
 				),
 			);

@@ -1,3 +1,4 @@
+import "./api-env";
 import { createServer } from "node:http";
 
 import * as PgClient from "@effect/sql-pg/PgClient";
@@ -24,8 +25,8 @@ import {
 	HomeOwnerUnbound,
 	type PersonPrincipal,
 } from "../src/lib/server/actors/authority";
+import { CurrentPrincipal } from "../src/lib/server/actors/authority";
 import { groveApi } from "../src/lib/server/api";
-import { InvocationContext } from "../src/lib/server/invocation";
 import { makeMcpIngress, McpAuthentication, type McpIngress } from "../src/lib/server/mcp/ingress";
 import type { ProjectService } from "../src/lib/server/projects/service";
 import { ProjectServiceLayer, ProjectServiceBuildLayer } from "../src/lib/server/projects/service";
@@ -319,7 +320,7 @@ describe("MCP protected-resource ingress", () => {
 			middleware: () =>
 				ingress.middleware(
 					Effect.gen(function* () {
-						const services = yield* Effect.context<InvocationContext>();
+						const services = yield* Effect.context<CurrentPrincipal>();
 
 						yield* Effect.addFinalizer(() =>
 							Effect.sync(() => {
@@ -331,7 +332,7 @@ describe("MCP protected-resource ingress", () => {
 							Stream.fromEffect(
 								Effect.promise(() => release.promise).pipe(
 									Effect.flatMap(() =>
-										Effect.map(InvocationContext, ({ principal }) =>
+										Effect.map(CurrentPrincipal, (principal) =>
 											new TextEncoder().encode(principal.kind),
 										),
 									),

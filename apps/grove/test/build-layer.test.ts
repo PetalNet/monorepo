@@ -1,7 +1,7 @@
 import { Cause, Effect, Exit } from "effect";
 import { describe, expect, it } from "vitest";
 
-import { InvocationContext } from "../src/lib/server/invocation";
+import { CurrentPrincipal } from "../src/lib/server/actors/authority";
 import { ProjectService, ProjectServiceBuildLayer } from "../src/lib/server/projects/service";
 
 describe("ProjectServiceBuildLayer", () => {
@@ -10,13 +10,11 @@ describe("ProjectServiceBuildLayer", () => {
 			service.ready({ projectId: "build" }),
 		).pipe(
 			Effect.provide(ProjectServiceBuildLayer),
-			Effect.provideService(InvocationContext, {
-				principal: {
-					kind: "unbound",
-					issuer: "https://machine.example",
-					subject: "build",
-					scopes: new Set<string>(),
-				},
+			Effect.provideService(CurrentPrincipal, {
+				kind: "unbound",
+				issuer: "https://machine.example",
+				subject: "build",
+				scopes: new Set<string>(),
 			}),
 			Effect.exit,
 		);

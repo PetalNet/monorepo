@@ -2,8 +2,7 @@ import { operation, type OperationErrors } from "@petalnet/effect-api";
 import { Effect } from "effect";
 
 import { EnrollAgentSelf, EnrolledAgent } from "../../actors/schema";
-import { InvocationContext } from "../invocation";
-import { ActorAuthority, ActorDenied, type AuthorityError } from "./authority";
+import { ActorAuthority, ActorDenied, CurrentPrincipal, type AuthorityError } from "./authority";
 
 export const authorityErrors = {
 	ActorDenied: { status: 403, message: (error) => error.message },
@@ -26,7 +25,7 @@ export const enrollAgentSelfOperation = operation({
 	output: EnrolledAgent,
 	handler: (input) =>
 		Effect.gen(function* () {
-			const { principal } = yield* InvocationContext;
+			const principal = yield* CurrentPrincipal;
 
 			if (principal.kind !== "bootstrap" && principal.kind !== "agent") {
 				return yield* new ActorDenied({ reason: "A machine enrollment identity is required" });

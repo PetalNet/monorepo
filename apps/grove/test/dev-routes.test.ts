@@ -3,9 +3,11 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 
 vi.mock("#lib/server/auth.ts", () => ({ GroveAuth: {} }));
 
-vi.mock("#lib/server/runtime.ts", () => ({
-	runGrove: () => {
-		throw new Error("A disabled development route must not enter the Grove runtime");
+vi.mock("#lib/server/api.ts", () => ({
+	groveApi: {
+		runRaw: () => {
+			throw new Error("A disabled development route must not enter the Grove runtime");
+		},
 	},
 }));
 

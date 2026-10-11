@@ -13,8 +13,12 @@ import {
 } from "effect/http";
 import type { JWTPayload } from "jose";
 
-import { ActorAuthority, type AuthorityError, type MachineIdentity } from "../actors/authority";
-import { InvocationContext } from "../invocation";
+import {
+	ActorAuthority,
+	CurrentPrincipal,
+	type AuthorityError,
+	type MachineIdentity,
+} from "../actors/authority";
 
 const MCP_SCOPE = "grove:mcp";
 const MCP_MAX_REQUEST_BYTES = 1024 * 1024;
@@ -232,9 +236,7 @@ export const makeMcpIngress = (input: McpIngressConfig): McpIngress => {
 				),
 				Effect.provideService(HttpServerRequest.HttpServerRequest, incoming),
 				Effect.provideService(McpAccess, { listed, callable }),
-				Effect.provideService(InvocationContext, {
-					principal,
-				}),
+				Effect.provideService(CurrentPrincipal, principal),
 			);
 		},
 		Effect.catchTags({

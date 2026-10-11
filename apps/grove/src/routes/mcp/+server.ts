@@ -1,7 +1,3 @@
-import { http } from "@petalnet/effect-sveltekit";
+import { groveApi } from "#lib/server/api.ts";
 
-import { runGrove } from "#lib/server/runtime.ts";
-
-import type { RequestHandler } from "./$types";
-
-export const POST: RequestHandler = (event) => runGrove(http(event.request), event);
+export const POST = groveApi.http;

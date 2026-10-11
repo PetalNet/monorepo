@@ -11,27 +11,26 @@ import {
 	ReviewOutputValidator,
 } from "./projects/forms";
 import { LibraryGetVersion, LibrarySearch, WorkReady } from "./projects/schema";
-import { withBrowserInvocation } from "./server/invocation";
+import { groveApi } from "./server/api";
 import { ProjectService } from "./server/projects/service";
-import { runGrove } from "./server/runtime";
 
 export const readyWork = query(Schema.toStandardSchemaV1(WorkReady), (input) =>
-	runGrove(
-		withBrowserInvocation(Effect.flatMap(ProjectService, (service) => service.ready(input))),
+	groveApi.run(
+		Effect.flatMap(ProjectService, (service) => service.ready(input)),
 		getRequestEvent(),
 	),
 );
 
 export const searchLibrary = query(Schema.toStandardSchemaV1(LibrarySearch), (input) =>
-	runGrove(
-		withBrowserInvocation(Effect.flatMap(ProjectService, (service) => service.search(input))),
+	groveApi.run(
+		Effect.flatMap(ProjectService, (service) => service.search(input)),
 		getRequestEvent(),
 	),
 );
 
 export const getArtifactVersion = query(Schema.toStandardSchemaV1(LibraryGetVersion), (input) =>
-	runGrove(
-		withBrowserInvocation(Effect.flatMap(ProjectService, (service) => service.getVersion(input))),
+	groveApi.run(
+		Effect.flatMap(ProjectService, (service) => service.getVersion(input)),
 		getRequestEvent(),
 	),
 );
@@ -49,8 +48,8 @@ export const refreshWork = form(Schema.toStandardSchemaV1(WorkReady), async (inp
 });
 
 export const createProject = form(CreateProjectValidator, async (input) => {
-	const receipt = await runGrove(
-		withBrowserInvocation(Effect.flatMap(ProjectService, (service) => service.create(input))),
+	const receipt = await groveApi.run(
+		Effect.flatMap(ProjectService, (service) => service.create(input)),
 		getRequestEvent(),
 	);
 
@@ -64,24 +63,22 @@ export const createProject = form(CreateProjectValidator, async (input) => {
 
 export const planTask = form(PlanTaskValidator, async (input) => {
 	const { commandId, projectId, expectedVersionId, title, objective } = input;
-	const receipt = await runGrove(
-		withBrowserInvocation(
-			Effect.flatMap(ProjectService, (service) =>
-				service.plan({
-					commandId,
-					projectId,
-					expectedVersionId,
-					tasks: [
-						{
-							key: "work",
-							title,
-							objective,
-							completionContract: { requiredOutputs: ["artifact"], reviewRequired: true },
-						},
-					],
-					dependencies: [],
-				}),
-			),
+	const receipt = await groveApi.run(
+		Effect.flatMap(ProjectService, (service) =>
+			service.plan({
+				commandId,
+				projectId,
+				expectedVersionId,
+				tasks: [
+					{
+						key: "work",
+						title,
+						objective,
+						completionContract: { requiredOutputs: ["artifact"], reviewRequired: true },
+					},
+				],
+				dependencies: [],
+			}),
 		),
 		getRequestEvent(),
 	);
@@ -96,19 +93,17 @@ export const planTask = form(PlanTaskValidator, async (input) => {
 
 export const reviewOutput = form(ReviewOutputValidator, async (input) => {
 	const { commandId, taskId, attemptId, objectId, versionId, outcome, comments } = input;
-	const receipt = await runGrove(
-		withBrowserInvocation(
-			Effect.flatMap(ProjectService, (service) =>
-				service.review({
-					commandId,
-					taskId,
-					attemptId,
-					objectId,
-					versionId,
-					outcome,
-					...(comments === "" ? {} : { comments }),
-				}),
-			),
+	const receipt = await groveApi.run(
+		Effect.flatMap(ProjectService, (service) =>
+			service.review({
+				commandId,
+				taskId,
+				attemptId,
+				objectId,
+				versionId,
+				outcome,
+				...(comments === "" ? {} : { comments }),
+			}),
 		),
 		getRequestEvent(),
 	);
@@ -124,11 +119,9 @@ export const reviewOutput = form(ReviewOutputValidator, async (input) => {
 
 export const completeTask = form(CompleteTaskValidator, async (input) => {
 	const { commandId, taskId, expectedVersionId } = input;
-	const receipt = await runGrove(
-		withBrowserInvocation(
-			Effect.flatMap(ProjectService, (service) =>
-				service.complete({ commandId, taskId, expectedVersionId }),
-			),
+	const receipt = await groveApi.run(
+		Effect.flatMap(ProjectService, (service) =>
+			service.complete({ commandId, taskId, expectedVersionId }),
 		),
 		getRequestEvent(),
 	);

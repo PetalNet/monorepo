@@ -1,5 +1,5 @@
-import type { Effect, Schema } from "effect";
-import { Cause, Predicate } from "effect";
+import type { Effect } from "effect";
+import { Cause, Predicate, Schema } from "effect";
 import { HttpMethod as HttpMethods, type HttpRouter } from "effect/http";
 
 export type HttpMethod = Exclude<Parameters<HttpRouter.HttpRouter["add"]>[0], "*">;
@@ -21,6 +21,17 @@ export type OperationErrors<E> = {
 		? ErrorTag
 		: never]: OperationError<Extract<E, { readonly _tag: Tag }>>;
 };
+
+/** Native response contracts for declared public operation or authentication failures. */
+export const operationErrorSchemas = <E>(errors: OperationErrors<E>) =>
+	(Object.values(errors) as readonly OperationError[]).map(({ status, message }) =>
+		Schema.Struct({
+			error: Schema.Struct({
+				code: Schema.Literal("operation_failed"),
+				message: typeof message === "string" ? Schema.Literal(message) : Schema.String,
+			}),
+		}).annotate({ httpApiStatus: status }),
+	);
 
 /** Resolve declared public failures without exposing unknown errors. */
 export const mapOperationErrors = <E>(errors: OperationErrors<E>) => {
