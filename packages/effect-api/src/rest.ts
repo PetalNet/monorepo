@@ -27,22 +27,9 @@ interface RestConfig<R> {
 	readonly openapiPath: `/${string}`;
 	readonly operations: readonly ApiOperation<R>[];
 	readonly restMiddleware?: RequestMiddleware;
+	readonly restMiddlewareErrors?: readonly Schema.Codec<unknown>[];
 	readonly logCause: LogCause;
 }
-
-class OperationBoundary extends HttpApiMiddleware.Service<OperationBoundary>()(
-	"@petalnet/effect-api/OperationBoundary",
-	{
-		error: [
-			Schema.Struct({
-				error: Schema.Struct({ code: Schema.Literal("invalid_input"), message: Schema.String }),
-			}).annotate({ httpApiStatus: 400 }),
-			Schema.Struct({
-				error: Schema.Struct({ code: Schema.Literal("operation_failed"), message: Schema.String }),
-			}).annotate({ httpApiStatus: 500 }),
-		],
-	},
-) {}
 
 const projectInput = (
 	ast: SchemaAST.AST,
@@ -131,6 +118,24 @@ const makeEndpoint = (
 
 /** Generate the contract and native handlers from the same operation catalog. */
 export const createRestApi = <R>(config: RestConfig<R>) => {
+	class OperationBoundary extends HttpApiMiddleware.Service<OperationBoundary>()(
+		"@petalnet/effect-api/OperationBoundary",
+		{
+			error: [
+				Schema.Struct({
+					error: Schema.Struct({ code: Schema.Literal("invalid_input"), message: Schema.String }),
+				}).annotate({ httpApiStatus: 400 }),
+				Schema.Struct({
+					error: Schema.Struct({
+						code: Schema.Literal("operation_failed"),
+						message: Schema.String,
+					}),
+				}).annotate({ httpApiStatus: 500 }),
+				...(config.restMiddlewareErrors ?? []),
+			],
+		},
+	) {}
+
 	const registrations = config.operations.flatMap((operation) =>
 		operation.rest ? [{ operation, endpoint: makeEndpoint(operation, operation.rest) }] : [],
 	);

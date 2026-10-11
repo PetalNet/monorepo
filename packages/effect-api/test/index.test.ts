@@ -208,6 +208,8 @@ describe("createEffectApi", () => {
 		});
 		const responses = docs.paths["/api/declared"]?.get?.responses;
 
+		expect(responses).not.toHaveProperty("401");
+
 		for (const status of [403, 409, 503]) {
 			const schema = responses?.[status]?.content?.["application/json"]?.schema;
 			const resolved =
@@ -297,6 +299,7 @@ describe("createEffectApi", () => {
 			version: "1",
 			basePath: "/api",
 			restMiddleware,
+			restMiddlewareErrors: [Schema.Void.annotate({ httpApiStatus: 401 })],
 			mcpMiddleware,
 			operations: ["alpha", "beta"].map((name) =>
 				operation({
@@ -311,7 +314,11 @@ describe("createEffectApi", () => {
 			),
 		});
 
-		await readOpenApi(application, "/api");
+		const specification = await readOpenApi(application, "/api");
+
+		for (const name of ["alpha", "beta"]) {
+			expect(specification.paths[`/api/${name}`]?.get?.responses["401"]).toBeDefined();
+		}
 
 		expect(
 			(await runJson(application.fetch(new Request("https://x/api/docs")))).response.status,

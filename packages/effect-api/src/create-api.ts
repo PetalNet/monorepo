@@ -1,4 +1,4 @@
-import { Effect, Layer, Option } from "effect";
+import { Effect, Layer, Option, type Schema } from "effect";
 import { HttpRouter } from "effect/http";
 import { HttpApiScalar } from "effect/http-api";
 
@@ -18,6 +18,8 @@ export interface EffectApiConfig<R = unknown> {
 	readonly docsPath?: `/${string}`;
 	readonly scalar?: HttpApiScalar.ScalarConfig;
 	readonly restMiddleware?: RequestMiddleware;
+	/** REST middleware response schemas, annotated with `httpApiStatus`. */
+	readonly restMiddlewareErrors?: readonly Schema.Codec<unknown>[];
 	readonly mcpMiddleware?: RequestMiddleware;
 	readonly logCause?: LogCause;
 }

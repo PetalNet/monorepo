@@ -4,7 +4,7 @@ import { globalFontFaces } from "fontless/runtime";
 
 import favicon from "../assets/favicon.svg";
 import { enrollAgentSelfOperation } from "./actors/api";
-import { withRestInvocation } from "./invocation";
+import { RestAuthenticationFailure, withRestInvocation } from "./invocation";
 import { McpAuthentication } from "./mcp/ingress";
 import { projectOperations } from "./projects/api";
 
@@ -18,6 +18,7 @@ export const groveApi = createEffectApi({
 	basePath: "/api/v1",
 	operations: [enrollAgentSelfOperation, ...projectOperations],
 	restMiddleware: withRestInvocation,
+	restMiddlewareErrors: [RestAuthenticationFailure],
 	mcpMiddleware: (next) => Effect.flatMap(McpAuthentication, (authenticate) => authenticate(next)),
 	scalar: {
 		theme: "none",

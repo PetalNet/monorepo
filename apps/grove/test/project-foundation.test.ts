@@ -5,6 +5,7 @@ import { http, SvelteKitRequestEvent } from "@petalnet/effect-sveltekit";
 import type { RequestEvent } from "@sveltejs/kit";
 import { Effect, Layer, ManagedRuntime, Redacted } from "effect";
 import type { HttpRouter } from "effect/http";
+import type { OpenApi } from "effect/http-api";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 
 import {
@@ -194,6 +195,41 @@ describe("Grove project foundation and #401 REST/MCP loop", () => {
 
 		expect(document.status).toBe(200);
 		const openapi = await document.text();
+		const specification = JSON.parse(openapi) as OpenApi.OpenAPISpec;
+
+		for (const path of Object.values(specification.paths)) {
+			for (const method of [
+				"get",
+				"post",
+				"put",
+				"patch",
+				"delete",
+				"head",
+				"options",
+				"trace",
+			] as const) {
+				const endpoint = path[method];
+
+				if (!endpoint) {
+					continue;
+				}
+
+				expect(endpoint.responses["401"]?.content?.["application/json"]?.schema).toMatchObject({
+					type: "object",
+					required: ["error"],
+					properties: {
+						error: {
+							type: "object",
+							required: ["code", "message"],
+							properties: {
+								code: { enum: ["operation_failed"] },
+								message: { enum: ["Authentication required"] },
+							},
+						},
+					},
+				});
+			}
+		}
 
 		for (const operation of operations) {
 			expect(openapi).toContain(operation);

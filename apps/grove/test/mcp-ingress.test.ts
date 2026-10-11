@@ -18,7 +18,10 @@ import {
 	ActorAuthority,
 	ActorAuthorityLayer,
 	ActorDatabaseError,
+	ActorDenied,
 	ActorNotCurrent,
+	CapabilityContainmentConflict,
+	HomeOwnerUnbound,
 	type PersonPrincipal,
 } from "../src/lib/server/actors/authority";
 import { groveApi } from "../src/lib/server/api";
@@ -353,7 +356,7 @@ describe("MCP protected-resource ingress", () => {
 	});
 
 	it.each(["failure", "defect"] as const)(
-		"passes a domain %s from the Promise adapter to native HTTP handling",
+		"handles a domain %s through the Promise adapter without exposing private details",
 		async (kind) => {
 			const failure = new ActorNotCurrent({ actorId: "agent-test" });
 			const authority = await runtime.runPromise(ActorAuthority);
@@ -374,7 +377,7 @@ describe("MCP protected-resource ingress", () => {
 				expect(Exit.isSuccess(exit)).toBe(true);
 
 				if (Exit.isSuccess(exit)) {
-					expect(exit.value.status).toBe(500);
+					expect(exit.value.status).toBe(403);
 					expect(await exit.value.text()).not.toContain(failure.message);
 				}
 			} else {
@@ -1071,42 +1074,56 @@ describe("MCP protected-resource ingress", () => {
 		}
 	});
 
-	it("sanitizes actor-authority dependency failures at the ingress boundary", async () => {
+	it.each([
+		{
+			error: new ActorDatabaseError({ cause: new Error("simulated database outage") }),
+			status: 503,
+		},
+		{ error: new ActorDenied({ reason: "private denial details" }), status: 403 },
+		{ error: new ActorNotCurrent({ actorId: "private-actor-id" }), status: 403 },
+		{ error: new HomeOwnerUnbound({ configuredIdentity: ownerIdentity }), status: 503 },
+		{ error: new CapabilityContainmentConflict({ conflicts: [], fixes: [] }), status: 503 },
+	])("sanitizes $error._tag at both authority ingress boundaries", async ({ error, status }) => {
 		const authority = await runtime.runPromise(ActorAuthority);
-		const failingRuntime = ManagedRuntime.make(
-			Layer.mergeAll(
-				Layer.succeed(ActorAuthority, {
-					...authority,
-					resolveMachineIdentity: () =>
-						Effect.fail(new ActorDatabaseError({ cause: new Error("simulated database outage") })),
-				}),
-				groveApi.layer,
-				ProjectServiceBuildLayer,
-			),
+
+		await Promise.all(
+			(["resolveMachineIdentity", "authorizedOperations"] as const).map(async (stage) => {
+				const failingRuntime = ManagedRuntime.make(
+					Layer.mergeAll(
+						Layer.succeed(ActorAuthority, {
+							...authority,
+							[stage]: () => Effect.fail(error),
+						}),
+						groveApi.layer,
+						ProjectServiceBuildLayer,
+					),
+				);
+
+				try {
+					const response = await failingRuntime.runPromise(
+						handle(
+							new Request(`${config.resourceOrigin}/mcp`, {
+								method: "POST",
+								headers: {
+									"content-type": "application/json",
+									authorization: `Bearer ${await token("authority-failure", ["grove:mcp"])}`,
+								},
+								body: rpc(13, "tools/list"),
+							}),
+						),
+					);
+
+					expect(response.status).toBe(status);
+
+					expect(await json(response)).toEqual(
+						status === 503
+							? { error: "authority_unavailable", message: "MCP actor resolution is unavailable" }
+							: { error: "access_denied", message: "MCP identity is not eligible" },
+					);
+				} finally {
+					await failingRuntime.dispose();
+				}
+			}),
 		);
-
-		try {
-			const response = await failingRuntime.runPromise(
-				handle(
-					new Request(`${config.resourceOrigin}/mcp`, {
-						method: "POST",
-						headers: {
-							"content-type": "application/json",
-							authorization: `Bearer ${await token("authority-failure", ["grove:mcp"])}`,
-						},
-						body: rpc(13, "tools/list"),
-					}),
-				),
-			);
-
-			expect(response.status).toBe(503);
-
-			expect(await json(response)).toEqual({
-				error: "authority_unavailable",
-				message: "MCP actor resolution is unavailable",
-			});
-		} finally {
-			await failingRuntime.dispose();
-		}
 	});
 });

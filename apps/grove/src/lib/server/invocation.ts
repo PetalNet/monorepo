@@ -1,5 +1,5 @@
 import { SvelteKitRequestEvent } from "@petalnet/effect-sveltekit";
-import { Context, Effect } from "effect";
+import { Context, Effect, Schema } from "effect";
 import { HttpServerResponse } from "effect/http";
 
 import type { ActorPrincipal, MachinePrincipal } from "./actors/authority";
@@ -12,6 +12,13 @@ export interface Invocation {
 export class InvocationContext extends Context.Service<InvocationContext, Invocation>()(
 	"grove/InvocationContext",
 ) {}
+
+export const RestAuthenticationFailure = Schema.Struct({
+	error: Schema.Struct({
+		code: Schema.Literal("operation_failed"),
+		message: Schema.Literal(new AuthenticationRequired().message),
+	}),
+}).annotate({ httpApiStatus: 401 });
 
 export const withBrowserInvocation = <A, E, R>(effect: Effect.Effect<A, E, R>) =>
 	Effect.gen(function* () {
@@ -38,7 +45,9 @@ export const withRestInvocation = <E, R>(
 
 		if (!principal) {
 			return HttpServerResponse.jsonUnsafe(
-				{ error: { code: "operation_failed", message: new AuthenticationRequired().message } },
+				RestAuthenticationFailure.make({
+					error: { code: "operation_failed", message: new AuthenticationRequired().message },
+				}),
 				{ status: 401 },
 			);
 		}
