@@ -1,5 +1,5 @@
 import type { Effect, Schema } from "effect";
-import { Cause } from "effect";
+import { Cause, Predicate } from "effect";
 import { HttpMethod as HttpMethods, type HttpRouter } from "effect/http";
 
 export type HttpMethod = Exclude<Parameters<HttpRouter.HttpRouter["add"]>[0], "*">;
@@ -20,6 +20,39 @@ export type OperationErrors<E> = {
 	readonly [Tag in E extends { readonly _tag: infer ErrorTag extends string }
 		? ErrorTag
 		: never]: OperationError<Extract<E, { readonly _tag: Tag }>>;
+};
+
+/** Resolve declared public failures without exposing unknown errors. */
+export const mapOperationErrors = <E>(errors: OperationErrors<E>) => {
+	const declarations = errors as Readonly<Record<string, OperationError>>;
+
+	return (error: unknown): { status: number; message: string; log: boolean } | undefined => {
+		if (!Predicate.isReadonlyObject(error) || typeof error["_tag"] !== "string") {
+			return undefined;
+		}
+
+		const declared = Object.hasOwn(declarations, error["_tag"])
+			? declarations[error["_tag"]]
+			: undefined;
+
+		if (
+			!declared ||
+			!Number.isInteger(declared.status) ||
+			declared.status < 400 ||
+			declared.status > 599
+		) {
+			return undefined;
+		}
+
+		const message =
+			typeof declared.message === "function"
+				? declared.message(error)
+				: (declared.message ?? "The operation failed");
+
+		return typeof message === "string"
+			? { status: declared.status, message, log: declared.status >= 500 }
+			: undefined;
+	};
 };
 
 export interface ApiOperation<R> {

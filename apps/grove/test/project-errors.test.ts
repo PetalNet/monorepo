@@ -1,9 +1,23 @@
 import { expect, it } from "@effect/vitest";
-import { Effect } from "effect";
+import { mapOperationErrors } from "@petalnet/effect-api";
+import { makeEffectSvelteKitRuntime } from "@petalnet/effect-sveltekit";
+import type { RequestEvent } from "@sveltejs/kit";
+import { Cause, Effect, Layer } from "effect";
 
-import { ActorDenied, ActorNotCurrent } from "../src/lib/server/actors/authority";
-import { projectOperations } from "../src/lib/server/projects/api";
-import { CommandConflict, ProjectDatabaseError } from "../src/lib/server/projects/service";
+import {
+	ActorDatabaseError,
+	ActorDenied,
+	ActorNotCurrent,
+	HomeOwnerUnbound,
+	CapabilityContainmentConflict,
+} from "../src/lib/server/actors/authority";
+import { projectErrors, projectOperations } from "../src/lib/server/projects/api";
+import {
+	CommandConflict,
+	FenceConflict,
+	ProjectDatabaseError,
+	type ProjectError,
+} from "../src/lib/server/projects/service";
 
 it.each([
 	[new CommandConflict({ message: "Conflicting command" }), 409, "Conflicting command"],
@@ -18,20 +32,61 @@ it.each([
 		503,
 		"The project database is unavailable",
 	],
-] as const)("classifies %s by tag", (failure, status, publicMessage) => {
-	const operation = projectOperations[0];
-	const { _tag: tag } = failure;
+	[new FenceConflict({ message: "Stale claim" }), 409, "Stale claim"],
+	[
+		new ActorDatabaseError({ cause: "Private authority detail" }),
+		503,
+		"The project database is unavailable",
+	],
+	[
+		new HomeOwnerUnbound({
+			configuredIdentity: { issuer: "https://id.example", subject: "owner" },
+		}),
+		503,
+		"The project database is unavailable",
+	],
+	[
+		new CapabilityContainmentConflict({ conflicts: [], fixes: [] }),
+		503,
+		"The project database is unavailable",
+	],
+] as const)(
+	"shares the public policy for %s between operations and SvelteKit",
+	async (failure, status, publicMessage) => {
+		const operation = projectOperations[0];
+		const { _tag: tag } = failure;
 
-	const declaration = operation.errors?.[tag];
+		const declaration = operation.errors?.[tag];
 
-	expect(declaration?.status).toBe(status);
+		expect(declaration?.status).toBe(status);
 
-	expect(
-		typeof declaration?.message === "function"
-			? declaration.message(failure)
-			: declaration?.message,
-	).toBe(publicMessage);
-});
+		expect(
+			typeof declaration?.message === "function"
+				? declaration.message(failure)
+				: declaration?.message,
+		).toBe(publicMessage);
+
+		const logged: Cause.Cause<unknown>[] = [];
+		const runtime = makeEffectSvelteKitRuntime(Layer.empty, {
+			mapFailure: mapOperationErrors<ProjectError>(projectErrors),
+			logCause: (cause) => {
+				logged.push(cause);
+			},
+		});
+
+		try {
+			await expect(
+				runtime.run(Effect.fail(failure), {
+					request: new Request("https://grove.example/"),
+				} as RequestEvent),
+			).rejects.toMatchObject({ status, body: { message: publicMessage } });
+
+			expect(logged).toEqual(status >= 500 ? [Cause.fail(failure)] : []);
+		} finally {
+			await runtime.dispose();
+		}
+	},
+);
 
 it.effect("command conflicts are yieldable tagged errors", () =>
 	Effect.gen(function* () {

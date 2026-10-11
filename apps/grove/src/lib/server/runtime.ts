@@ -1,6 +1,7 @@
 import { building } from "$app/env";
 import { DATABASE_URL, GROVE_HOME_OWNER_ISSUER, GROVE_HOME_OWNER_SUBJECT } from "$app/env/private";
 import * as PgClient from "@effect/sql-pg/PgClient";
+import { mapOperationErrors } from "@petalnet/effect-api";
 import type { SvelteKitRequestEvent } from "@petalnet/effect-sveltekit";
 import {
 	makeEffectSvelteKitRuntime,
@@ -21,6 +22,7 @@ import { groveApi } from "./api";
 import type { AuthenticationRequired } from "./authorization";
 import { groveMcpIngress } from "./mcp-oauth-runtime";
 import { McpAuthentication } from "./mcp/ingress";
+import { projectErrors } from "./projects/api";
 import type { ProjectError, ProjectService } from "./projects/service";
 import { ProjectServiceLayer, ProjectServiceBuildLayer } from "./projects/service";
 
@@ -87,18 +89,8 @@ function makeRuntime() {
 							log: statusCode >= 500,
 						}),
 						BrowserAuthDatabaseError: ({ message }) => ({ status: 503, message, log: true }),
-						ActorDenied: ({ message }) => ({ status: 403, message }),
-						ActorNotCurrent: ({ message }) => ({ status: 403, message }),
-						ActorDatabaseError: () => ({
-							status: 503,
-							message: "Actor authority is unavailable",
-							log: true,
-						}),
-						CommandConflict: ({ message }) => ({ status: 409, message }),
-						FenceConflict: ({ message }) => ({ status: 409, message }),
-						ProjectDatabaseError: ({ message }) => ({ status: 503, message, log: true }),
 					}),
-					Match.orElse(() => undefined),
+					Match.orElse(mapOperationErrors<ProjectError>(projectErrors)),
 				),
 		},
 	);

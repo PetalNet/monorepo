@@ -1,6 +1,7 @@
 import { Cause, Effect, Exit, Schema, SchemaTransformation } from "effect";
 import { describe, expect, it, vi } from "vitest";
 
+import { mapOperationErrors } from "../src/index.js";
 import { InvocationFailure, invokeOperation } from "../src/invoke.js";
 import { type ApiOperation, operation } from "../src/operation.js";
 
@@ -33,6 +34,39 @@ const failureOf = (exit: Exit.Exit<unknown, InvocationFailure>) => {
 };
 
 describe("invokeOperation", () => {
+	it("derives host failure mappings and leaves unknown errors to the host boundary", () => {
+		type Failure =
+			| { readonly _tag: "Conflict"; readonly detail: string }
+			| { readonly _tag: "Unavailable" };
+
+		const mapFailure = mapOperationErrors<Failure>({
+			Conflict: { status: 409, message: (error) => error.detail },
+			Unavailable: { status: 503 },
+		});
+
+		expect(mapFailure({ _tag: "Conflict", detail: "Conflicting version" })).toEqual({
+			status: 409,
+			message: "Conflicting version",
+			log: false,
+		});
+
+		expect(mapFailure({ _tag: "Unavailable", cause: "private" })).toEqual({
+			status: 503,
+			message: "The operation failed",
+			log: true,
+		});
+
+		for (const error of [
+			null,
+			"private",
+			{ message: "private" },
+			{ _tag: "Unknown" },
+			{ _tag: "toString" },
+		]) {
+			expect(mapFailure(error)).toBeUndefined();
+		}
+	});
+
 	it.each([NaN, Infinity, 399, 600, 400.5])(
 		"rejects invalid static status %s at declaration",
 		(status) => {

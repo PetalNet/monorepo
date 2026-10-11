@@ -1,6 +1,6 @@
-import { Cause, Data, Effect, Predicate, Schema } from "effect";
+import { Cause, Data, Effect, Schema } from "effect";
 
-import type { ApiOperation, LogCause } from "./operation.js";
+import { mapOperationErrors, type ApiOperation, type LogCause } from "./operation.js";
 
 export class InvocationFailure extends Data.TaggedError("InvocationFailure")<{
 	readonly status: number;
@@ -36,27 +36,9 @@ const handleCause = Effect.fnUntraced(function* <R>(
 
 		if (phase === "handler") {
 			const mapped = yield* Effect.sync(() => {
-				const error = failure.error;
-				const tag =
-					Predicate.isReadonlyObject(error) && typeof error["_tag"] === "string"
-						? error["_tag"]
-						: undefined;
-				const declared =
-					tag !== undefined && operation.errors && Object.hasOwn(operation.errors, tag)
-						? operation.errors[tag]
-						: undefined;
-				const status = declared?.status ?? 500;
+				const exposed = mapOperationErrors(operation.errors ?? {})(failure.error);
 
-				if (!Number.isInteger(status) || status < 400 || status > 599) {
-					return operationFailed();
-				}
-
-				const message =
-					typeof declared?.message === "function"
-						? declared.message(error)
-						: (declared?.message ?? "The operation failed");
-
-				return typeof message === "string" ? operationFailed(status, message) : operationFailed();
+				return exposed ? operationFailed(exposed.status, exposed.message) : operationFailed();
 			}).pipe(
 				Effect.catchCause((mapperCause) => {
 					logCause(operation.name, Cause.combine(cause, mapperCause));

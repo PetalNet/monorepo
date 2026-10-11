@@ -26,7 +26,7 @@ import {
 } from "../../projects/schema";
 import { ProjectService, type ProjectError } from "./service";
 
-const errors = {
+export const projectErrors = {
 	ActorDenied: { status: 403, message: (error) => error.message },
 	ActorNotCurrent: { status: 403, message: (error) => error.message },
 	CommandConflict: { status: 409, message: (error) => error.message },
@@ -46,7 +46,7 @@ export const projectOperations = [
 		input: ProjectCreate,
 		output: ProjectCreateReceipt,
 		handler: (input) => Effect.flatMap(ProjectService, (service) => service.create(input)),
-		errors,
+		errors: projectErrors,
 	}),
 	operation({
 		name: "project.plan",
@@ -56,7 +56,7 @@ export const projectOperations = [
 		input: ProjectPlan,
 		output: ProjectPlanReceipt,
 		handler: (input) => Effect.flatMap(ProjectService, (service) => service.plan(input)),
-		errors,
+		errors: projectErrors,
 	}),
 	operation({
 		name: "task.claim",
@@ -66,7 +66,7 @@ export const projectOperations = [
 		input: TaskClaim,
 		output: ClaimReceipt,
 		handler: (input) => Effect.flatMap(ProjectService, (service) => service.claim(input)),
-		errors,
+		errors: projectErrors,
 	}),
 	operation({
 		name: "claim.renew",
@@ -76,7 +76,7 @@ export const projectOperations = [
 		input: ClaimRenew,
 		output: ClaimMutationReceipt,
 		handler: (input) => Effect.flatMap(ProjectService, (service) => service.renew(input)),
-		errors,
+		errors: projectErrors,
 	}),
 	operation({
 		name: "claim.release",
@@ -86,7 +86,7 @@ export const projectOperations = [
 		input: ClaimRelease,
 		output: ClaimMutationReceipt,
 		handler: (input) => Effect.flatMap(ProjectService, (service) => service.release(input)),
-		errors,
+		errors: projectErrors,
 	}),
 	operation({
 		name: "attempt.publish",
@@ -96,7 +96,7 @@ export const projectOperations = [
 		input: AttemptPublish,
 		output: PublishReceipt,
 		handler: (input) => Effect.flatMap(ProjectService, (service) => service.publish(input)),
-		errors,
+		errors: projectErrors,
 	}),
 	operation({
 		name: "work.ready",
@@ -106,7 +106,7 @@ export const projectOperations = [
 		input: WorkReady,
 		output: ReadyTasks,
 		handler: (input) => Effect.flatMap(ProjectService, (service) => service.ready(input)),
-		errors,
+		errors: projectErrors,
 	}),
 	operation({
 		name: "review.submit",
@@ -116,7 +116,7 @@ export const projectOperations = [
 		input: ReviewSubmit,
 		output: ReviewReceipt,
 		handler: (input) => Effect.flatMap(ProjectService, (service) => service.review(input)),
-		errors,
+		errors: projectErrors,
 	}),
 	operation({
 		name: "task.complete",
@@ -126,7 +126,7 @@ export const projectOperations = [
 		input: TaskComplete,
 		output: TaskCompleteReceipt,
 		handler: (input) => Effect.flatMap(ProjectService, (service) => service.complete(input)),
-		errors,
+		errors: projectErrors,
 	}),
 	operation({
 		name: "library.search",
@@ -136,7 +136,7 @@ export const projectOperations = [
 		input: LibrarySearch,
 		output: LibrarySearchResults,
 		handler: (input) => Effect.flatMap(ProjectService, (service) => service.search(input)),
-		errors,
+		errors: projectErrors,
 	}),
 	operation({
 		name: "library.getVersion",
@@ -146,6 +146,6 @@ export const projectOperations = [
 		input: LibraryGetVersion,
 		output: LibraryVersion,
 		handler: (input) => Effect.flatMap(ProjectService, (service) => service.getVersion(input)),
-		errors,
+		errors: projectErrors,
 	}),
 ] as const;
