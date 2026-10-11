@@ -39,18 +39,15 @@ export const withBrowserInvocation = <A, E, R>(effect: Effect.Effect<A, E, R>) =
 export const withRestInvocation = <E, R>(
 	effect: Effect.Effect<HttpServerResponse.HttpServerResponse, E, R>,
 ) =>
-	Effect.gen(function* () {
-		const event = yield* SvelteKitRequestEvent;
-		const principal = event.locals.actor;
-
-		if (!principal) {
-			return HttpServerResponse.jsonUnsafe(
-				RestAuthenticationFailure.make({
-					error: { code: "operation_failed", message: new AuthenticationRequired().message },
-				}),
-				{ status: 401 },
-			);
-		}
-
-		return yield* Effect.provideService(effect, InvocationContext, { principal });
-	});
+	withBrowserInvocation(InvocationContext).pipe(
+		Effect.matchEffect({
+			onFailure: ({ message }) =>
+				Effect.succeed(
+					HttpServerResponse.jsonUnsafe(
+						RestAuthenticationFailure.make({ error: { code: "operation_failed", message } }),
+						{ status: 401 },
+					),
+				),
+			onSuccess: (invocation) => Effect.provideService(effect, InvocationContext, invocation),
+		}),
+	);

@@ -1,16 +1,20 @@
 import { expect, it } from "@effect/vitest";
-import { mapOperationErrors } from "@petalnet/effect-api";
-import { makeEffectSvelteKitRuntime } from "@petalnet/effect-sveltekit";
+import { createEffectApi, mapOperationErrors } from "@petalnet/effect-api";
+import { http, makeEffectSvelteKitRuntime } from "@petalnet/effect-sveltekit";
 import type { RequestEvent } from "@sveltejs/kit";
-import { Cause, Effect, Layer } from "effect";
+import { Cause, Effect, Layer, ManagedRuntime, Option } from "effect";
 
+import { enrollAgentSelfOperation } from "../src/lib/server/actors/api";
 import {
+	ActorAuthority,
+	ActorAuthorityBuildLayer,
 	ActorDatabaseError,
 	ActorDenied,
 	ActorNotCurrent,
 	HomeOwnerUnbound,
 	CapabilityContainmentConflict,
 } from "../src/lib/server/actors/authority";
+import { InvocationContext } from "../src/lib/server/invocation";
 import { projectErrors, projectOperations } from "../src/lib/server/projects/api";
 import {
 	CommandConflict,
@@ -19,8 +23,7 @@ import {
 	type ProjectError,
 } from "../src/lib/server/projects/service";
 
-it.each([
-	[new CommandConflict({ message: "Conflicting command" }), 409, "Conflicting command"],
+const authorityFailures = [
 	[new ActorDenied({ reason: "Capability revoked" }), 403, "Capability revoked"],
 	[
 		new ActorNotCurrent({ actorId: "suspended-agent" }),
@@ -28,28 +31,33 @@ it.each([
 		"Actor suspended-agent is not current",
 	],
 	[
-		new ProjectDatabaseError({ cause: "Private database detail" }),
-		503,
-		"The project database is unavailable",
-	],
-	[new FenceConflict({ message: "Stale claim" }), 409, "Stale claim"],
-	[
 		new ActorDatabaseError({ cause: "Private authority detail" }),
 		503,
-		"The project database is unavailable",
+		"Actor authority is unavailable",
 	],
 	[
 		new HomeOwnerUnbound({
 			configuredIdentity: { issuer: "https://id.example", subject: "owner" },
 		}),
 		503,
-		"The project database is unavailable",
+		"The configured Home Host owner has not completed a verified browser login",
 	],
 	[
 		new CapabilityContainmentConflict({ conflicts: [], fixes: [] }),
+		409,
+		"Agent capability containment would be violated",
+	],
+] as const;
+
+it.each([
+	...authorityFailures,
+	[new CommandConflict({ message: "Conflicting command" }), 409, "Conflicting command"],
+	[
+		new ProjectDatabaseError({ cause: "Private database detail" }),
 		503,
 		"The project database is unavailable",
 	],
+	[new FenceConflict({ message: "Stale claim" }), 409, "Stale claim"],
 ] as const)(
 	"shares the public policy for %s between operations and SvelteKit",
 	async (failure, status, publicMessage) => {
@@ -82,6 +90,84 @@ it.each([
 			).rejects.toMatchObject({ status, body: { message: publicMessage } });
 
 			expect(logged).toEqual(status >= 500 ? [Cause.fail(failure)] : []);
+		} finally {
+			await runtime.dispose();
+		}
+	},
+);
+
+it.each(authorityFailures)(
+	"exposes safe enrollment failures and logs server outages for %s",
+	async (failure, status, publicMessage) => {
+		const { _tag: tag } = failure;
+		const logged: Cause.Cause<unknown>[] = [];
+		const application = createEffectApi({
+			title: "Enrollment",
+			version: "1",
+			basePath: "/api",
+			operations: [enrollAgentSelfOperation],
+			logCause: (_operation, cause) => logged.push(cause),
+		});
+		const runtime = ManagedRuntime.make(Layer.merge(ActorAuthorityBuildLayer, application.layer));
+
+		try {
+			const authority = await runtime.runPromise(ActorAuthority);
+			const response = await runtime.runPromise(
+				http(
+					new Request("https://grove.example/mcp", {
+						method: "POST",
+						headers: {
+							"content-type": "application/json",
+							accept: "application/json, text/event-stream",
+							"mcp-protocol-version": "2026-07-28",
+							"mcp-method": "tools/call",
+							"mcp-name": "agents.enrollSelf",
+						},
+						body: JSON.stringify({
+							jsonrpc: "2.0",
+							id: 1,
+							method: "tools/call",
+							params: {
+								name: "agents.enrollSelf",
+								arguments: { name: "Enrollment policy" },
+								_meta: {
+									"io.modelcontextprotocol/protocolVersion": "2026-07-28",
+									"io.modelcontextprotocol/clientInfo": { name: "policy-test", version: "1" },
+									"io.modelcontextprotocol/clientCapabilities": {},
+								},
+							},
+						}),
+					}),
+				).pipe(
+					Effect.provideService(ActorAuthority, {
+						...authority,
+						enrollSelf: () => Effect.fail(failure),
+					}),
+					Effect.provideService(InvocationContext, {
+						principal: {
+							kind: "bootstrap",
+							issuer: "https://id.example",
+							subject: "machine",
+							scopes: new Set(["grove:agent:enroll"]),
+						},
+					}),
+				),
+			);
+
+			expect(response.status).toBe(200);
+
+			expect(await response.json()).toMatchObject({
+				result: {
+					isError: true,
+					structuredContent: { error: { code: "operation_failed", message: publicMessage } },
+				},
+			});
+
+			expect(enrollAgentSelfOperation.errors?.[tag]?.status).toBe(status);
+
+			expect(logged.map(Cause.findErrorOption)).toEqual(
+				status >= 500 ? [Option.some(failure)] : [],
+			);
 		} finally {
 			await runtime.dispose();
 		}

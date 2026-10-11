@@ -24,16 +24,13 @@ import {
 	LibraryGetVersion,
 	LibraryVersion,
 } from "../../projects/schema";
+import { authorityErrors } from "../actors/api";
 import { ProjectService, type ProjectError } from "./service";
 
 export const projectErrors = {
-	ActorDenied: { status: 403, message: (error) => error.message },
-	ActorNotCurrent: { status: 403, message: (error) => error.message },
+	...authorityErrors,
 	CommandConflict: { status: 409, message: (error) => error.message },
 	FenceConflict: { status: 409, message: (error) => error.message },
-	ActorDatabaseError: { status: 503, message: "The project database is unavailable" },
-	HomeOwnerUnbound: { status: 503, message: "The project database is unavailable" },
-	CapabilityContainmentConflict: { status: 503, message: "The project database is unavailable" },
 	ProjectDatabaseError: { status: 503, message: "The project database is unavailable" },
 } satisfies OperationErrors<ProjectError>;
 

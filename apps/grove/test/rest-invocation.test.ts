@@ -48,9 +48,9 @@ describe("REST invocation", () => {
 
 	it("keeps unauthenticated failures in the REST error envelope", async () => {
 		const response = await Effect.runPromise(
-			withRestInvocation(Effect.succeed(HttpServerResponse.text("unreachable"))).pipe(
-				Effect.provideService(SvelteKitRequestEvent, eventFor(null)),
-			),
+			withRestInvocation(
+				Effect.die(new Error("Unauthenticated requests must not execute operations")),
+			).pipe(Effect.provideService(SvelteKitRequestEvent, eventFor(null))),
 		);
 
 		expect(response.status).toBe(401);
