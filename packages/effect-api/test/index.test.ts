@@ -759,6 +759,102 @@ describe("createEffectApi", () => {
 		expect(decode).toHaveBeenCalledTimes(2);
 	});
 
+	it("projects union path fields without losing variant checks or whole-input transformations", async () => {
+		const variants = Schema.Union([
+			Schema.Struct({
+				id: Schema.Literal("left"),
+				kind: Schema.Literal("a"),
+				count: Schema.Finite,
+			}),
+			Schema.Struct({
+				id: Schema.Literal("right"),
+				kind: Schema.Literal("b"),
+				label: Schema.String,
+			}),
+		]);
+		const input = variants.pipe(
+			Schema.decodeTo(
+				Schema.String,
+				SchemaTransformation.transform<string, typeof variants.Type>({
+					decode: (value) =>
+						value.kind === "a"
+							? `${value.id}:${String(value.count)}`
+							: `${value.id}:${value.label}`,
+					encode: () => ({ id: "left", kind: "a", count: 0 }),
+				}),
+			),
+		);
+		const application = createEffectApi({
+			title: "Union projection",
+			version: "1",
+			basePath: "/api",
+			operations: [
+				operation({
+					name: "items.union",
+					description: "Project a union input",
+					method: "POST",
+					path: "/items/:id",
+					input,
+					output: Schema.String,
+					handler: Effect.succeed,
+				}),
+			],
+		});
+		const post = (id: string, body: unknown) =>
+			runJson(
+				application.fetch(
+					new Request(`https://x/api/items/${id}`, {
+						method: "POST",
+						headers: { "content-type": "application/json" },
+						body: JSON.stringify(body),
+					}),
+				),
+			);
+
+		expect(await post("left", { kind: "a", count: 7 })).toMatchObject({
+			response: { status: 200 },
+			body: "left:7",
+		});
+
+		expect(await post("right", { kind: "b", label: "hello" })).toMatchObject({
+			response: { status: 200 },
+			body: "right:hello",
+		});
+
+		const rejected = await Promise.all(
+			(
+				[
+					["right", { kind: "a", count: 7 }],
+					["left", { kind: "b", label: "hello" }],
+					["other", { kind: "a", count: 7 }],
+					["left", { kind: "a", count: "wrong" }],
+				] as const
+			).map(([id, body]) => post(id, body)),
+		);
+
+		for (const rejection of rejected) {
+			expect(rejection).toMatchObject({
+				response: { status: 400 },
+				body: { error: { code: "invalid_input" } },
+			});
+		}
+
+		const endpoint = (await readOpenApi(application, "/api")).paths["/api/items/{id}"]?.post;
+
+		expect(endpoint?.parameters).toMatchObject([
+			{ name: "id", in: "path", required: true, schema: { enum: ["left", "right"] } },
+		]);
+
+		expect(endpoint?.requestBody?.content["application/json"]?.schema).toMatchObject({
+			anyOf: [
+				{ required: ["kind", "count"], properties: { kind: { enum: ["a"] } } },
+				{ required: ["kind", "label"], properties: { kind: { enum: ["b"] } } },
+			],
+		});
+
+		expect(JSON.stringify(endpoint?.requestBody)).not.toContain('"id"');
+	});
+
 	it("serves MCP independently without reading REST publication metadata", async () => {
 		const { mcp } = createEffectApi({
 			title: "MCP only",
@@ -1799,7 +1895,10 @@ describe("createEffectApi", () => {
 					description: "Post",
 					method: "POST",
 					path: "/items/:id",
-					input: Id,
+					input: Schema.Union([
+						Schema.Struct({ id: Schema.Literal("item-7") }),
+						Schema.Struct({ id: Schema.Literal("item-8") }),
+					]),
 					output: Schema.Unknown,
 					handler: Effect.succeed,
 				}),

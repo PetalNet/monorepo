@@ -1,9 +1,10 @@
 import { SvelteKitRequestEvent } from "@petalnet/effect-sveltekit";
 import type { RequestEvent } from "@sveltejs/kit";
-import { Effect } from "effect";
+import { Effect, Exit } from "effect";
 import { HttpServerResponse } from "effect/http";
 import { describe, expect, it } from "vitest";
 
+import { AuthenticationRequired } from "../src/lib/server/authorization";
 import {
 	InvocationContext,
 	withBrowserInvocation,
@@ -73,5 +74,14 @@ describe("REST invocation", () => {
 		);
 
 		expect(await HttpServerResponse.toWeb(response).json()).toEqual({ principal: actor });
+
+		const downstreamFailure = new AuthenticationRequired();
+		const exit = await Effect.runPromiseExit(
+			withRestInvocation(Effect.fail(downstreamFailure)).pipe(
+				Effect.provideService(SvelteKitRequestEvent, eventFor(actor)),
+			),
+		);
+
+		expect(exit).toEqual(Exit.fail(downstreamFailure));
 	});
 });

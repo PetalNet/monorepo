@@ -1,6 +1,7 @@
 import { Context, Effect, type Types } from "effect";
 import type { HttpMiddleware, HttpServerResponse } from "effect/http";
 
+/** HttpRouter uses `Types.unhandled` to track downstream errors middleware must preserve. */
 export type RequestMiddleware = HttpMiddleware.HttpMiddleware.Applied<
 	Effect.Effect<HttpServerResponse.HttpServerResponse, Types.unhandled, unknown>,
 	Types.unhandled,

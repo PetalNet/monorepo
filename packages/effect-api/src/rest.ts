@@ -50,35 +50,58 @@ const makeEndpoint = (
 	// complete operation input, including whole-object checks and transformations.
 	const input = Schema.toEncoded(operation.input);
 	const pathKeys = [...rest.path.matchAll(/:[^/]+/gu)].map((match) => match[0].slice(1));
-	const ast = input.ast;
-	const properties = SchemaAST.isObjects(ast) ? ast.propertySignatures : [];
+	const pathTypes = new Map<string, SchemaAST.AST[]>();
+	const project = (ast: SchemaAST.AST): SchemaAST.AST => {
+		if (SchemaAST.isUnion(ast)) {
+			return new SchemaAST.Union(ast.types.map(project), ast.options);
+		}
+
+		if (!SchemaAST.isObjects(ast)) {
+			return ast;
+		}
+
+		for (const key of pathKeys) {
+			const types = pathTypes.get(key) ?? [];
+
+			types.push(
+				ast.propertySignatures.find((property) => property.name === key)?.type ?? Schema.String.ast,
+			);
+
+			pathTypes.set(key, types);
+		}
+
+		return new SchemaAST.Objects(
+			ast.propertySignatures.filter((property) => !pathKeys.includes(String(property.name))),
+			ast.indexSignatures,
+		);
+	};
+
+	const remaining =
+		pathKeys.length > 0 ? Schema.make<Schema.Codec<unknown>>(project(input.ast)) : input;
 	const params = Schema.Struct(
 		Object.fromEntries(
-			pathKeys.map((key) => [
-				key,
-				Schema.make<Schema.Codec<unknown>>(
-					properties.find((property) => property.name === key)?.type ?? Schema.String.ast,
-				),
-			]),
+			pathKeys.map((key) => {
+				const [first = Schema.String.ast, ...others] = pathTypes.get(key) ?? [];
+
+				return [
+					key,
+					Schema.make<Schema.Codec<unknown>>(
+						others.length === 0 ? first : new SchemaAST.Union([first, ...others]),
+					),
+				];
+			}),
 		),
 	);
-	const remaining =
-		pathKeys.length > 0 && SchemaAST.isObjects(ast)
-			? Schema.make<Schema.Codec<unknown>>(
-					new SchemaAST.Objects(
-						properties.filter((property) => !pathKeys.includes(String(property.name))),
-						ast.indexSignatures,
-					),
-				)
-			: input;
-	const empty =
-		SchemaAST.isObjects(remaining.ast) &&
-		remaining.ast.propertySignatures.length === 0 &&
-		remaining.ast.indexSignatures.length === 0;
+	const isEmpty = (ast: SchemaAST.AST): boolean =>
+		SchemaAST.isUnion(ast)
+			? ast.types.every(isEmpty)
+			: SchemaAST.isObjects(ast) &&
+				ast.propertySignatures.length === 0 &&
+				ast.indexSignatures.length === 0;
 
 	return HttpApiEndpoint.make(rest.method)(operation.name, rest.path, {
 		...(pathKeys.length > 0 ? { params } : {}),
-		...(empty ? {} : rest.body ? { payload: remaining } : { query: remaining }),
+		...(isEmpty(remaining.ast) ? {} : rest.body ? { payload: remaining } : { query: remaining }),
 		success: Schema.make<Schema.Codec<unknown>>(operation.output.ast),
 		error: Object.values(operation.errors ?? {}).map(({ status, message }) =>
 			Schema.Struct({
