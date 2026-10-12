@@ -9,6 +9,7 @@ import {
 	inHostRequest,
 	McpAccess,
 	McpAuthentication,
+	McpEndpoint,
 	type RequestMiddleware,
 } from "./request.js";
 import { createRestApi } from "./rest.js";
@@ -77,5 +78,8 @@ export function createEffectApi(config: EffectApiConfig) {
 			: Layer.mergeAll(mcp, config.mcpAuthentication ?? Layer.empty),
 	);
 
-	return routes.pipe(Layer.provideMerge(HttpRouter.layer));
+	return routes.pipe(
+		Layer.provide(Layer.succeed(McpEndpoint, config.mcpPath ?? "/mcp")),
+		Layer.provideMerge(HttpRouter.layer),
+	);
 }

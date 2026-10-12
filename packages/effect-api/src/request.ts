@@ -32,6 +32,11 @@ export class McpAuthentication extends Context.Service<McpAuthentication, McpAut
 	"@petalnet/effect-api/McpAuthentication",
 ) {}
 
+/** Shared transport endpoint for authentication resource URLs and discovery. */
+export const McpEndpoint = Context.Reference("@petalnet/effect-api/McpEndpoint", {
+	defaultValue: (): `/${string}` => "/mcp",
+});
+
 /** Per-request tool discovery and invocation permissions. */
 export class McpAccess extends Context.Service<McpAccess, McpPermissions>()(
 	"@petalnet/effect-api/McpAccess",

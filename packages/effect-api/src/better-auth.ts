@@ -21,7 +21,7 @@ import {
 	type HttpMethod,
 } from "effect/http";
 
-import { inHostRequest, McpAuthentication, type McpAuthBoundary } from "./request.js";
+import { inHostRequest, McpAuthentication, McpEndpoint, type McpAuthBoundary } from "./request.js";
 
 const MCP_MAX_REQUEST_BYTES = 1024 * 1024;
 
@@ -91,10 +91,6 @@ const validatedConfig = <Auth>(
 	jwksUrl: canonicalUrl(config.jwksUrl, "jwksUrl"),
 	resourceOrigin: canonicalUrl(config.resourceOrigin, "resourceOrigin", true),
 });
-
-const resource = (config: McpAuthenticationConfig) => `${config.resourceOrigin}/mcp`;
-const metadataUrl = (config: McpAuthenticationConfig) =>
-	`${config.resourceOrigin}/.well-known/oauth-protected-resource/mcp`;
 
 const dependencyUnavailable = (error: unknown) => {
 	console.error("MCP JWKS dependency unavailable", error);
@@ -188,8 +184,13 @@ const readRequest = Effect.fnUntraced(function* (request: Request, method: HttpM
 	);
 });
 
-const makeMcpAuthentication = <Auth>(input: McpAuthenticationConfig<Auth>): McpAuthBoundary => {
+const makeMcpAuthentication = <Auth>(
+	input: McpAuthenticationConfig<Auth>,
+	path: `/${string}`,
+): McpAuthBoundary => {
 	const config = validatedConfig(input);
+	const resource = `${config.resourceOrigin}${path}`;
+	const metadataUrl = `${config.resourceOrigin}/.well-known/oauth-protected-resource${path}`;
 
 	const dispatch = Effect.fnUntraced(
 		function* (
@@ -224,7 +225,7 @@ const makeMcpAuthentication = <Auth>(input: McpAuthenticationConfig<Auth>): McpA
 
 	return {
 		metadata: () => ({
-			resource: resource(config),
+			resource,
 			authorization_servers: [config.issuer],
 			bearer_methods_supported: ["header"],
 			scopes_supported: config.scopesSupported,
@@ -250,7 +251,7 @@ const makeMcpAuthentication = <Auth>(input: McpAuthenticationConfig<Auth>): McpA
 					createMcpProtectedRequestHandler(
 						{
 							issuer: config.issuer,
-							audience: resource(config),
+							audience: resource,
 							jwksUrl: config.jwksUrl,
 							jwtVerifyOptions: {
 								algorithms: ["RS256", "ES256"],
@@ -269,7 +270,7 @@ const makeMcpAuthentication = <Auth>(input: McpAuthenticationConfig<Auth>): McpA
 									new Response(null, {
 										status: 401,
 										headers: {
-											"WWW-Authenticate": `Bearer resource_metadata="${metadataUrl(config)}"`,
+											"WWW-Authenticate": `Bearer resource_metadata="${metadataUrl}"`,
 										},
 									}),
 								);
@@ -318,14 +319,16 @@ export const createMcpAuthentication = <Auth>(
 	config: Effect.Effect<McpAuthenticationConfig<Auth>>,
 ) =>
 	Layer.unwrap(
-		Effect.map(config, (input) => {
-			const authentication = makeMcpAuthentication(input);
+		Effect.gen(function* () {
+			const input = yield* config;
+			const path = yield* McpEndpoint;
+			const authentication = makeMcpAuthentication(input, path);
 
 			return Layer.merge(
 				Layer.succeed(McpAuthentication, authentication),
 				HttpRouter.add(
 					"GET",
-					"/.well-known/oauth-protected-resource/mcp",
+					`/.well-known/oauth-protected-resource${path}`,
 					inHostRequest(
 						Effect.map(McpAuthentication, (auth) =>
 							HttpServerResponse.jsonUnsafe(auth.metadata(), {

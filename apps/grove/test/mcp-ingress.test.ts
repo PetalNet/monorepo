@@ -3,10 +3,24 @@ import { createServer } from "node:http";
 
 import * as PgClient from "@effect/sql-pg/PgClient";
 import { it } from "@effect/vitest";
-import { McpAuthentication, type McpAuthBoundary as McpIngress } from "@petalnet/effect-api";
+import {
+	createEffectApi,
+	McpAuthentication,
+	type McpAuthBoundary as McpIngress,
+} from "@petalnet/effect-api";
 import { createMcpAuthentication } from "@petalnet/effect-api/better-auth";
 import { http } from "@petalnet/effect-sveltekit";
-import { Cause, Effect, Exit, Layer, ManagedRuntime, Redacted, Schema, Stream } from "effect";
+import {
+	Cause,
+	Context,
+	Effect,
+	Exit,
+	Layer,
+	ManagedRuntime,
+	Redacted,
+	Schema,
+	Stream,
+} from "effect";
 import { HttpServerResponse, HttpRouter } from "effect/http";
 import { exportJWK, generateKeyPair, SignJWT, type JWK, type JWTPayload } from "jose";
 import { afterAll, beforeAll, describe, expect, vi } from "vitest";
@@ -270,6 +284,78 @@ describe("MCP protected-resource ingress", () => {
 				resourceOrigin: "https://grove.example/not-an-origin",
 			}),
 		).rejects.toThrow("resourceOrigin must be a canonical origin");
+	});
+
+	it("binds discovery and token admission to the configured MCP endpoint", async () => {
+		const custom = ManagedRuntime.make(
+			createEffectApi({
+				title: "Custom MCP",
+				version: "1",
+				basePath: "/api",
+				mcpPath: "/agents/custom-mcp",
+				operations: [],
+				mcpAuthentication: createMcpAuthentication(
+					Effect.succeed({
+						...config,
+						requiredScopes: ["grove:mcp"],
+						scopesSupported: ["grove:mcp"],
+						authenticate: () => Effect.succeed(Context.empty()),
+					}),
+				),
+			}),
+		);
+		const send = (accessToken?: string) =>
+			custom.runPromise(
+				http(
+					new Request("https://grove.example/agents/custom-mcp", {
+						method: "POST",
+						headers: {
+							"content-type": "application/json",
+							accept: "application/json, text/event-stream",
+							"mcp-method": "tools/list",
+							"mcp-protocol-version": MCP_PROTOCOL_VERSION,
+							...(accessToken ? { authorization: `Bearer ${accessToken}` } : {}),
+						},
+						body: rpc(1, "tools/list"),
+					}),
+				),
+			);
+
+		try {
+			const discovery = await custom.runPromise(
+				http(
+					new Request(
+						"https://grove.example/.well-known/oauth-protected-resource/agents/custom-mcp",
+					),
+				),
+			);
+
+			expect(discovery.status).toBe(200);
+
+			expect(await discovery.json()).toMatchObject({
+				resource: "https://grove.example/agents/custom-mcp",
+			});
+
+			const challenge = await send();
+
+			expect(challenge.status).toBe(401);
+
+			expect(challenge.headers.get("www-authenticate")).toContain(
+				'resource_metadata="https://grove.example/.well-known/oauth-protected-resource/agents/custom-mcp"',
+			);
+
+			const accepted = await send(
+				await token("custom-agent", ["grove:mcp"], "mcp-test", {
+					aud: "https://grove.example/agents/custom-mcp",
+				}),
+			);
+
+			expect(accepted.status).toBe(200);
+			expect(await accepted.json()).toMatchObject({ result: { tools: [] } });
+			expect((await send(await token("custom-agent", ["grove:mcp"]))).status).toBe(401);
+		} finally {
+			await custom.dispose();
+		}
 	});
 
 	it("uses bearer identity only and challenges cookie-only requests", async () => {
