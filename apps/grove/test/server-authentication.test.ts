@@ -1,12 +1,12 @@
 import { operation } from "@petalnet/effect-api";
 import { createServer } from "@petalnet/effect-sveltekit";
-import type { RequestEvent } from "@sveltejs/kit";
 import { Effect, Layer, Schema } from "effect";
 import { afterAll, describe, expect, it } from "vitest";
 
 import { CurrentPrincipal } from "../src/lib/server/actors/authority";
 import { authenticationErrors, browserAuthentication } from "../src/lib/server/authentication";
 import { AuthenticationRequired } from "../src/lib/server/authorization";
+import { requestEvent } from "./request-event";
 
 const server = createServer({
 	title: "Authentication",
@@ -39,15 +39,8 @@ const server = createServer({
 
 afterAll(() => server.dispose());
 
-const eventFor = (actor: App.Locals["actor"], path = "/api/v1/projects") => {
-	const request = new Request(`https://grove.example${path}`);
-
-	return {
-		request,
-		url: new URL(request.url),
-		locals: { actor, session: null, user: null },
-	} as RequestEvent;
-};
+const eventFor = (actor: App.Locals["actor"], path = "/api/v1/projects") =>
+	requestEvent(new Request(`https://grove.example${path}`), actor);
 
 describe("Server authentication", () => {
 	it("does not expose MCP or resource metadata when the transport is disabled", async () => {

@@ -4,7 +4,6 @@ import { createHash } from "node:crypto";
 import * as PgClient from "@effect/sql-pg/PgClient";
 import { McpAuthentication } from "@petalnet/effect-api";
 import { http, SvelteKitRequestEvent } from "@petalnet/effect-sveltekit";
-import type { RequestEvent } from "@sveltejs/kit";
 import { Effect, Layer, ManagedRuntime, Redacted } from "effect";
 import type { HttpRouter } from "effect/http";
 import type { OpenApi } from "effect/http-api";
@@ -14,6 +13,7 @@ import {
 	ActorAuthority,
 	ActorAuthorityLayer,
 	type ActorPrincipal,
+	type PersonPrincipal,
 } from "../src/lib/server/actors/authority";
 import { CurrentPrincipal } from "../src/lib/server/actors/authority";
 import { groveApi } from "../src/lib/server/api";
@@ -21,6 +21,7 @@ import { canonicalDigest } from "../src/lib/server/projects/canonical";
 import type { ProjectService } from "../src/lib/server/projects/service";
 import { ProjectServiceLayer } from "../src/lib/server/projects/service";
 import { startGrovePostgres, stopGrovePostgres } from "./postgres";
+import { requestEvent } from "./request-event";
 
 const operations = [
 	"project.create",
@@ -53,8 +54,8 @@ describe("Grove project foundation and #401 REST/MCP loop", () => {
 		unknown
 	>;
 	let database: ManagedRuntime.ManagedRuntime<PgClient.PgClient, unknown>;
-	let owner: ActorPrincipal;
-	let reviewer: ActorPrincipal;
+	let owner: PersonPrincipal;
+	let reviewer: PersonPrincipal;
 	let agent: ActorPrincipal;
 
 	beforeAll(async () => {
@@ -112,19 +113,17 @@ describe("Grove project foundation and #401 REST/MCP loop", () => {
 		await stopGrovePostgres();
 	});
 
-	const rest = async (principal: ActorPrincipal, path: string, body?: object, status = 200) => {
+	const rest = async (principal: PersonPrincipal, path: string, body?: object, status = 200) => {
+		const event = requestEvent(
+			new Request(`https://grove.test/api/v1${path}`, {
+				method: body ? "POST" : "GET",
+				headers: { "content-type": "application/json" },
+				...(body ? { body: JSON.stringify(body) } : {}),
+			}),
+			principal,
+		);
 		const response = await runtime.runPromise(
-			http(
-				new Request(`https://grove.test/api/v1${path}`, {
-					method: body ? "POST" : "GET",
-					headers: { "content-type": "application/json" },
-					...(body ? { body: JSON.stringify(body) } : {}),
-				}),
-			).pipe(
-				Effect.provideService(SvelteKitRequestEvent, {
-					locals: { actor: principal },
-				} as RequestEvent),
-			),
+			http(event.request).pipe(Effect.provideService(SvelteKitRequestEvent, event)),
 		);
 
 		expect(response.status).toBe(status);

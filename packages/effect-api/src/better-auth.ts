@@ -123,7 +123,7 @@ const requestTooLarge = () =>
 		{ status: 413 },
 	);
 
-const readRequest = Effect.fnUntraced(function* (request: Request) {
+const readRequest = Effect.fnUntraced(function* (request: Request, method: HttpMethod.HttpMethod) {
 	const mediaType = request.headers.get("content-type")?.split(";", 1)[0]?.trim().toLowerCase();
 
 	if (mediaType !== "application/json") {
@@ -151,7 +151,7 @@ const readRequest = Effect.fnUntraced(function* (request: Request) {
 		onError: () => new McpRejected({ response: parseError() }),
 	}).pipe(
 		Stream.runFoldEffect(
-			() => ({ chunks: [] as Uint8Array[], byteLength: 0 }),
+			() => ({ chunks: new Array<Uint8Array>(), byteLength: 0 }),
 			(state, chunk) => {
 				state.byteLength += chunk.byteLength;
 
@@ -181,7 +181,7 @@ const readRequest = Effect.fnUntraced(function* (request: Request) {
 	});
 
 	return HttpServerRequest.fromClientRequest(
-		HttpClientRequest.make(request.method as HttpMethod.HttpMethod)(request.url).pipe(
+		HttpClientRequest.make(method)(request.url).pipe(
 			HttpClientRequest.bodyUint8Array(bytes),
 			HttpClientRequest.setHeaders(request.headers),
 		),
@@ -196,6 +196,7 @@ const makeMcpAuthentication = <Auth>(input: McpAuthenticationConfig<Auth>): McpA
 			request: Request,
 			identity: McpIdentity,
 			next: Effect.Effect<HttpServerResponse.HttpServerResponse, Types.unhandled, unknown>,
+			method: HttpMethod.HttpMethod,
 		) {
 			const authentication = yield* Effect.result(config.authenticate(identity));
 
@@ -204,7 +205,7 @@ const makeMcpAuthentication = <Auth>(input: McpAuthenticationConfig<Auth>): McpA
 			}
 
 			return yield* Effect.gen(function* () {
-				const incoming = yield* readRequest(request);
+				const incoming = yield* readRequest(request, method);
 
 				return yield* next.pipe(
 					Effect.flatMap((response) =>
@@ -287,6 +288,7 @@ const makeMcpAuthentication = <Auth>(input: McpAuthenticationConfig<Auth>): McpA
 										),
 									},
 									next,
+									nativeRequest.method,
 								).pipe(Effect.forkIn(scope), Effect.flatMap(Fiber.join)),
 								{ signal: AbortSignal.any([signal, incoming.signal]) },
 							).then((exit) => {

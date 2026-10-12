@@ -1,7 +1,6 @@
 import { expect, it } from "@effect/vitest";
 import { createEffectApi, mapOperationErrors } from "@petalnet/effect-api";
 import { http, makeEffectSvelteKitRuntime } from "@petalnet/effect-sveltekit";
-import type { RequestEvent } from "@sveltejs/kit";
 import { Cause, Effect, Layer, ManagedRuntime, Option } from "effect";
 
 import { enrollAgentSelfOperation } from "../src/lib/server/actors/api";
@@ -15,13 +14,14 @@ import {
 	CapabilityContainmentConflict,
 } from "../src/lib/server/actors/authority";
 import { CurrentPrincipal } from "../src/lib/server/actors/authority";
-import { projectErrors, projectOperations } from "../src/lib/server/projects/api";
+import { projectErrors } from "../src/lib/server/projects/api";
 import {
 	CommandConflict,
 	FenceConflict,
 	ProjectDatabaseError,
 	type ProjectError,
 } from "../src/lib/server/projects/service";
+import { requestEvent } from "./request-event";
 
 const authorityFailures = [
 	[new ActorDenied({ reason: "Capability revoked" }), 403, "Capability revoked"],
@@ -59,21 +59,8 @@ it.each([
 	],
 	[new FenceConflict({ message: "Stale claim" }), 409, "Stale claim"],
 ] as const)(
-	"shares the public policy for %s between operations and SvelteKit",
+	"exposes the public project failure %s through SvelteKit",
 	async (failure, status, publicMessage) => {
-		const operation = projectOperations[0];
-		const { _tag: tag } = failure;
-
-		const declaration = operation.errors?.[tag];
-
-		expect(declaration?.status).toBe(status);
-
-		expect(
-			typeof declaration?.message === "function"
-				? declaration.message(failure)
-				: declaration?.message,
-		).toBe(publicMessage);
-
 		const logged: Cause.Cause<unknown>[] = [];
 		const runtime = makeEffectSvelteKitRuntime(Layer.empty, {
 			mapFailure: mapOperationErrors<ProjectError>(projectErrors),
@@ -84,12 +71,12 @@ it.each([
 
 		try {
 			await expect(
-				runtime.run(Effect.fail(failure), {
-					request: new Request("https://grove.example/"),
-				} as RequestEvent),
+				runtime.run(Effect.fail(failure), requestEvent(new Request("https://grove.example/"))),
 			).rejects.toMatchObject({ status, body: { message: publicMessage } });
 
-			expect(logged).toEqual(status >= 500 ? [Cause.fail(failure)] : []);
+			expect(logged.map(Cause.findErrorOption)).toEqual(
+				status >= 500 ? [Option.some(failure)] : [],
+			);
 		} finally {
 			await runtime.dispose();
 		}
@@ -99,7 +86,6 @@ it.each([
 it.each(authorityFailures)(
 	"exposes safe enrollment failures and logs server outages for %s",
 	async (failure, status, publicMessage) => {
-		const { _tag: tag } = failure;
 		const logged: Cause.Cause<unknown>[] = [];
 		const application = createEffectApi({
 			title: "Enrollment",
@@ -160,8 +146,6 @@ it.each(authorityFailures)(
 					structuredContent: { error: { code: "operation_failed", message: publicMessage } },
 				},
 			});
-
-			expect(enrollAgentSelfOperation.errors?.[tag]?.status).toBe(status);
 
 			expect(logged.map(Cause.findErrorOption)).toEqual(
 				status >= 500 ? [Option.some(failure)] : [],

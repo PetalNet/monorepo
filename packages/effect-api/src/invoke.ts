@@ -19,7 +19,9 @@ const handleCause = Effect.fnUntraced(function* <R>(
 ): Effect.fn.Return<never, InvocationFailure> {
 	// Pure interruption is control flow, not a public operation failure.
 	if (Cause.hasInterrupts(cause) && !Cause.hasFails(cause) && !Cause.hasDies(cause)) {
-		return yield* Effect.failCause(cause as Cause.Cause<never>);
+		return yield* Effect.failCause(
+			Cause.fromReasons<never>(cause.reasons.filter(Cause.isInterruptReason)),
+		);
 	}
 
 	const failures = cause.reasons.filter(Cause.isFailReason);

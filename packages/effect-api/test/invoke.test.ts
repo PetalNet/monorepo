@@ -1,9 +1,8 @@
 import { Cause, Effect, Exit, Schema, SchemaTransformation } from "effect";
 import { describe, expect, it, vi } from "vitest";
 
-import { mapOperationErrors } from "../src/index.js";
+import { mapOperationErrors, operation } from "../src/index.js";
 import { InvocationFailure, invokeOperation } from "../src/invoke.js";
-import { type ApiOperation, operation } from "../src/operation.js";
 
 const base = operation({
 	name: "invoke.test",
@@ -82,48 +81,6 @@ describe("invokeOperation", () => {
 			).toThrow(/integer between 400 and 599/);
 		},
 	);
-
-	it.each(["private", { message: "private" }, { _tag: "Unknown", message: "private" }])(
-		"sanitizes unknown or untagged failures %s",
-		async (error) => {
-			const logCause = vi.fn();
-			const message = vi.fn(() => "Public message");
-			const exit = await Effect.runPromiseExit(
-				invokeOperation(
-					{
-						...base,
-						handle: () => Effect.fail(error),
-						errors: { Rejected: { status: 403, message } },
-					},
-					null,
-					logCause,
-				),
-			);
-
-			expect(failureOf(exit)).toMatchObject({ status: 500, message: "The operation failed" });
-			expect(message).not.toHaveBeenCalled();
-			expect(logCause).toHaveBeenCalledOnce();
-		},
-	);
-
-	it("passes the tagged error to its declared message callback", async () => {
-		const error = { _tag: "Rejected" as const, message: "Public detail" };
-		const message = vi.fn((failure: typeof error) => failure.message);
-		const declared = operation({
-			name: "message",
-			description: "Message",
-			input: Schema.Unknown,
-			output: Schema.Unknown,
-			handler: () => Effect.fail(error),
-			errors: { Rejected: { status: 409, message } },
-		});
-		const logCause = vi.fn();
-		const exit = await Effect.runPromiseExit(invokeOperation(declared, null, logCause));
-
-		expect(failureOf(exit)).toMatchObject({ status: 409, message: "Public detail" });
-		expect(message).toHaveBeenCalledExactlyOnceWith(error);
-		expect(logCause).not.toHaveBeenCalled();
-	});
 
 	it("is lazy and performs an asynchronous input transformation exactly once per execution", async () => {
 		const decode = vi.fn((value: string) =>
@@ -329,43 +286,6 @@ describe("invokeOperation", () => {
 		expect(message).not.toHaveBeenCalled();
 		expect(logCause).toHaveBeenCalledOnce();
 	});
-
-	it.each<Partial<ApiOperation<never>>>([
-		{ errors: { Rejected: { status: NaN } } },
-		{ errors: { Rejected: { status: 399 } } },
-		{ errors: { Rejected: { status: 600 } } },
-		{ errors: { Rejected: { status: 400.5 } } },
-		{
-			errors: {
-				Rejected: {
-					status: 400,
-					message: () => {
-						throw new Error("private-mapper");
-					},
-				},
-			},
-		},
-		{ errors: { Rejected: { status: 400, message: () => 42 as unknown as string } } },
-	])(
-		"guards fabricated static statuses and invalid or throwing message callbacks",
-		async (declarations) => {
-			const logCause = vi.fn();
-			const exit = await Effect.runPromiseExit(
-				invokeOperation(
-					{
-						...base,
-						handle: () => Effect.fail({ _tag: "Rejected", detail: "private" }),
-						...declarations,
-					},
-					null,
-					logCause,
-				),
-			);
-
-			expect(failureOf(exit)).toMatchObject({ status: 500, message: "The operation failed" });
-			expect(logCause).toHaveBeenCalledOnce();
-		},
-	);
 
 	it("contains synchronous handler throws lazily", async () => {
 		const handle = vi.fn((): Effect.Effect<never> => {

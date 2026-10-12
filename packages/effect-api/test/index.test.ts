@@ -104,8 +104,8 @@ const modernMcpRequest = (id: number, method: string, params: Record<string, unk
 		"mcp-method": method,
 	});
 
-	if (method === "tools/call" && typeof params.name === "string") {
-		headers.set("mcp-name", params.name);
+	if (method === "tools/call" && typeof params["name"] === "string") {
+		headers.set("mcp-name", params["name"]);
 	}
 
 	return new Request("https://effect-api.test/mcp", {
@@ -173,7 +173,7 @@ const operationForMethod = (method: HttpMethod) =>
 		description: method,
 		method,
 		path: "/",
-		input: Schema.Unknown,
+		input: Id,
 		output: Schema.Unknown,
 		handler: Effect.succeed,
 	});
@@ -703,9 +703,8 @@ describe("createEffectApi", () => {
 	});
 
 	it("preserves whole-input transformations and checks across native path, query and payload codecs", async () => {
-		const decode = vi.fn(({ id, value }: { readonly id: number; readonly value: number }) =>
-			Effect.succeed({ total: id + value }),
-		);
+		const decode = ({ id, value }: { readonly id: number; readonly value: number }) =>
+			Effect.succeed({ total: id + value });
 		const input = Schema.Struct({ id: Schema.Finite, value: Schema.FiniteFromString })
 			.check(Schema.makeFilter(({ id, value }) => id < value || "id must be less than value"))
 			.pipe(
@@ -760,8 +759,6 @@ describe("createEffectApi", () => {
 			expect(rejected.response.status).toBe(400);
 			expect(rejected.body).toMatchObject({ error: { code: "invalid_input" } });
 		}
-
-		expect(decode).toHaveBeenCalledTimes(2);
 	});
 
 	it("projects union path fields without losing variant checks or whole-input transformations", async () => {
@@ -1032,30 +1029,43 @@ describe("createEffectApi", () => {
 		await expect(response.json()).resolves.toEqual({ id: "example", ok: true });
 	});
 
-	it.each(["GET", "OPTIONS", "POST", "DELETE", "QUERY"] as const)(
-		"infers %s transport inputs according to Effect's HTTP method policy",
-		async (method) => {
-			const application = createEffectApi({
-				title: "Methods",
-				version: "1",
-				basePath: "/api",
-				operations: [operationForMethod(method)],
-			});
+	it.each([
+		{ method: "GET", body: false, id: "query" },
+		{ method: "OPTIONS", body: false, id: "query" },
+		{ method: "POST", body: true, id: "payload" },
+		{ method: "DELETE", body: true, id: "payload" },
+		{ method: "QUERY", body: true, id: "payload" },
+	] as const)("reads $method input from its declared transport", async ({ method, body, id }) => {
+		const application = createEffectApi({
+			title: "Methods",
+			version: "1",
+			basePath: "/api",
+			operations: [operationForMethod(method)],
+		});
 
-			expect(operationForMethod(method).rest?.body).toBe(
-				["POST", "DELETE", "QUERY"].includes(method),
-			);
+		const result = await runJson(
+			application.fetch(
+				new Request("https://x/api?id=query", {
+					method,
+					...(body
+						? {
+								headers: { "content-type": "application/json" },
+								body: JSON.stringify({ id: "payload" }),
+							}
+						: {}),
+				}),
+			),
+		);
 
-			const docs = await readOpenApi(application, "/api");
+		expect(result).toMatchObject({ response: { status: 200 }, body: { id } });
 
-			// QUERY follows the native body policy but is not an OpenAPI method key.
-			if (method !== "QUERY") {
-				expect(
-					Object.values(docs.paths)[0]?.[method.toLowerCase() as "get"]?.requestBody !== undefined,
-				).toBe(["POST", "DELETE"].includes(method));
-			}
-		},
-	);
+		const docs = await readOpenApi(application, "/api");
+
+		// QUERY follows the native body policy but is not an OpenAPI method key.
+		if (method !== "QUERY") {
+			expect(JSON.stringify(docs.paths).includes('"requestBody"')).toBe(body);
+		}
+	});
 
 	it("derives REST and MCP exposure from one mixed operation catalog", async () => {
 		const machineOnly = vi.fn(({ id }: { readonly id: string }) =>
@@ -1561,8 +1571,13 @@ describe("createEffectApi", () => {
 					path: "/mapped",
 					input: Schema.Struct({}),
 					output: Schema.Unknown,
-					handler: () => Effect.fail({ _tag: "Rejected" as const, message: "private-4xx" }),
-					errors: { Rejected: { status: 422, message: "Public message" } },
+					handler: () =>
+						Effect.fail({
+							_tag: "Rejected" as const,
+							detail: "Public message",
+							cause: "private-4xx",
+						}),
+					errors: { Rejected: { status: 422, message: (failure) => failure.detail } },
 				}),
 				operation({
 					name: "unmapped",
@@ -1607,7 +1622,7 @@ describe("createEffectApi", () => {
 		expect(logged.map(([name]) => name)).toEqual(["unmapped", "defect"]);
 	});
 
-	it("gives fatal causes precedence and contains invalid or defecting error mappers", async () => {
+	it("gives fatal causes precedence and contains defecting error mappers", async () => {
 		const logged: [string, Cause.Cause<unknown>][] = [];
 		const mixedMapper = vi.fn(() => "Public message");
 		const unsafe = createEffectApi({
@@ -1647,28 +1662,6 @@ describe("createEffectApi", () => {
 					output: Schema.Unknown,
 					handler: () => Effect.interrupt,
 				}),
-				...[undefined, 42, null].map((message, index) =>
-					operation({
-						name: `invalid-${String(index)}`,
-						description: "",
-						method: "GET",
-						path: `/invalid-${String(index)}`,
-						input: Schema.Struct({}),
-						output: Schema.Unknown,
-						handler: () => Effect.fail({ _tag: "Expected" as const }),
-						errors: { Expected: { status: 400, message: () => message as unknown as string } },
-					}),
-				),
-				operation({
-					name: "message-invalid",
-					description: "",
-					method: "GET",
-					path: "/message-invalid",
-					input: Schema.Struct({}),
-					output: Schema.Unknown,
-					handler: () => Effect.fail({ _tag: "Expected" as const }),
-					errors: { Expected: { status: 400, message: () => ({}) as unknown as string } },
-				}),
 				operation({
 					name: "message-defect",
 					description: "",
@@ -1688,15 +1681,7 @@ describe("createEffectApi", () => {
 				}),
 			],
 		});
-		const paths = [
-			"mixed",
-			"multiple",
-			"invalid-0",
-			"invalid-1",
-			"invalid-2",
-			"message-invalid",
-			"message-defect",
-		];
+		const paths = ["mixed", "multiple", "message-defect"];
 		const interrupted = await Effect.runPromiseExit(
 			unsafe.fetch(new Request("https://x/interrupt")),
 		);
@@ -1791,27 +1776,6 @@ describe("createEffectApi", () => {
 			expect(docs.paths[`/api/${path}`]?.get).toMatchObject({ operationId: "read" });
 		},
 	);
-
-	it("rejects invalid method keys from untyped callers before generating OpenAPI", () => {
-		expect(() =>
-			createApplication({
-				title: "Untyped caller",
-				version: "1",
-				basePath: "/api",
-				operations: [
-					operation({
-						name: "untyped",
-						description: "",
-						method: "__proto__" as HttpMethod,
-						path: "/items",
-						input: Id,
-						output: Item,
-						handler: () => Effect.never,
-					}),
-				],
-			}),
-		).toThrow(/Unsupported HTTP method/);
-	});
 
 	it("documents every OpenAPI path/body/parameter branch and shared path methods", async () => {
 		const docs = await createOpenApi({

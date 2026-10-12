@@ -3,7 +3,6 @@ import { setTimeout as delay } from "node:timers/promises";
 
 import * as PgClient from "@effect/sql-pg/PgClient";
 import { http, SvelteKitRequestEvent } from "@petalnet/effect-sveltekit";
-import type { RequestEvent } from "@sveltejs/kit";
 import { Effect, Layer, ManagedRuntime, Redacted } from "effect";
 import { HttpServerRequest, type HttpRouter } from "effect/http";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
@@ -26,6 +25,7 @@ import {
 	type ProjectServiceShape,
 } from "../src/lib/server/projects/service";
 import { startGrovePostgres, stopGrovePostgres } from "./postgres";
+import { requestEvent } from "./request-event";
 
 const identity = { issuer: "https://identity.example/projects", subject: "owner" };
 const input = () => ({
@@ -351,7 +351,7 @@ describe("ProjectService durable actor PostgreSQL integration", () => {
 			{ taskId, title: "First", dependencyTaskIds: [] },
 		]);
 
-		const claim = await call(agent, (s) =>
+		const claim = await call(owner, (s) =>
 			s.claim({ commandId: crypto.randomUUID(), taskId, leaseSeconds: 60 }),
 		);
 		const publication = {
@@ -362,26 +362,27 @@ describe("ProjectService durable actor PostgreSQL integration", () => {
 			title: "Artifact",
 			content: "Output, not completion",
 		};
-		const rest = () =>
-			runtime.runPromise(
-				http(
-					HttpServerRequest.fromWeb(
-						new Request(`https://grove.example/api/v1/attempts/${claim.attemptId}/outputs`, {
-							method: "POST",
-							headers: { "content-type": "application/json" },
-							body: JSON.stringify(publication),
-						}),
-					),
-				).pipe(
-					Effect.provideService(SvelteKitRequestEvent, {
-						locals: { actor: agent },
-					} as RequestEvent),
+		const rest = () => {
+			const event = requestEvent(
+				new Request(`https://grove.example/api/v1/attempts/${claim.attemptId}/outputs`, {
+					method: "POST",
+					headers: { "content-type": "application/json" },
+					body: JSON.stringify(publication),
+				}),
+				owner,
+			);
+
+			return runtime.runPromise(
+				http(HttpServerRequest.fromWeb(event.request)).pipe(
+					Effect.provideService(SvelteKitRequestEvent, event),
 				),
 			);
+		};
+
 		const response = await rest();
 
 		expect(response.status).toBe(200);
-		const published = await call(agent, (s) => s.publish(publication));
+		const published = await call(owner, (s) => s.publish(publication));
 
 		expect(published.replayed).toBe(true);
 		expect((await rest()).status).toBe(200);

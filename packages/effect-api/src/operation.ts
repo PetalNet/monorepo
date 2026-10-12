@@ -24,7 +24,7 @@ export type OperationErrors<E> = {
 
 /** Native response contracts for declared public operation or authentication failures. */
 export const operationErrorSchemas = <E>(errors: OperationErrors<E>) =>
-	(Object.values(errors) as readonly OperationError[]).map(({ status, message }) =>
+	Object.values<OperationError<never>>(errors).map(({ status, message }) =>
 		Schema.Struct({
 			error: Schema.Struct({
 				code: Schema.Literal("operation_failed"),
@@ -93,7 +93,7 @@ export const defaultLogCause: LogCause = (operationName, cause) => {
 
 /** Declare an Effect operation. Omit method/path for MCP-only exposure. */
 export function operation<I, A, E, R>(config: OperationConfig<I, A, E, R>): ApiOperation<R> {
-	for (const error of Object.values(config.errors ?? {}) as readonly OperationError[]) {
+	for (const error of Object.values<OperationError<never>>(config.errors ?? {})) {
 		if (!Number.isInteger(error.status) || error.status < 400 || error.status > 599) {
 			throw new TypeError("Operation error status must be an integer between 400 and 599");
 		}

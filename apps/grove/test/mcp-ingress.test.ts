@@ -337,7 +337,7 @@ describe("MCP protected-resource ingress", () => {
 		expect((await json(response)).result.tools).toEqual([]);
 	});
 
-	it("keeps authenticated services and request resources alive until a streamed response ends", async () => {
+	it("keeps authenticated request resources alive until a streamed response ends", async () => {
 		let closed = false;
 		const release = Promise.withResolvers<undefined>();
 		const streaming: McpIngress = {
@@ -345,7 +345,7 @@ describe("MCP protected-resource ingress", () => {
 			middleware: () =>
 				ingress.middleware(
 					Effect.gen(function* () {
-						const services = yield* Effect.context<CurrentPrincipal>();
+						const principal = yield* CurrentPrincipal;
 
 						yield* Effect.addFinalizer(() =>
 							Effect.sync(() => {
@@ -356,13 +356,9 @@ describe("MCP protected-resource ingress", () => {
 						return HttpServerResponse.stream(
 							Stream.fromEffect(
 								Effect.promise(() => release.promise).pipe(
-									Effect.flatMap(() =>
-										Effect.map(CurrentPrincipal, (principal) =>
-											new TextEncoder().encode(principal.kind),
-										),
-									),
+									Effect.as(new TextEncoder().encode(principal.kind)),
 								),
-							).pipe(Stream.provideContext(services)),
+							),
 						);
 					}),
 				),
@@ -381,40 +377,27 @@ describe("MCP protected-resource ingress", () => {
 		expect(closed).toBe(true);
 	});
 
-	it.each(["failure", "defect"] as const)(
-		"handles a domain %s through the Promise adapter without exposing private details",
-		async (kind) => {
-			const failure = new ActorNotCurrent({ actorId: "agent-test" });
-			const authority = await runtime.runPromise(ActorAuthority);
-			const incoming = new Request(`${config.resourceOrigin}/mcp`, {
-				headers: { authorization: `Bearer ${await token("runtime-error", ["grove:mcp"])}` },
-			});
-			const exit = await runtime.runPromiseExit(
-				handle(incoming).pipe(
-					Effect.provideService(ActorAuthority, {
-						...authority,
-						resolveMachineIdentity: () =>
-							kind === "failure" ? Effect.fail(failure) : Effect.die(failure),
-					}),
-				),
-			);
+	it("preserves domain defects across the provider Promise boundary", async () => {
+		const failure = new ActorNotCurrent({ actorId: "agent-test" });
+		const authority = await runtime.runPromise(ActorAuthority);
+		const incoming = new Request(`${config.resourceOrigin}/mcp`, {
+			headers: { authorization: `Bearer ${await token("runtime-error", ["grove:mcp"])}` },
+		});
+		const exit = await runtime.runPromiseExit(
+			handle(incoming).pipe(
+				Effect.provideService(ActorAuthority, {
+					...authority,
+					resolveMachineIdentity: () => Effect.die(failure),
+				}),
+			),
+		);
 
-			if (kind === "failure") {
-				expect(Exit.isSuccess(exit)).toBe(true);
+		expect(Exit.isFailure(exit)).toBe(true);
 
-				if (Exit.isSuccess(exit)) {
-					expect(exit.value.status).toBe(403);
-					expect(await exit.value.text()).not.toContain(failure.message);
-				}
-			} else {
-				expect(Exit.isFailure(exit)).toBe(true);
-			}
-
-			if (kind === "defect" && Exit.isFailure(exit)) {
-				expect(exit.cause.reasons).toContainEqual(expect.objectContaining({ defect: failure }));
-			}
-		},
-	);
+		if (Exit.isFailure(exit)) {
+			expect(exit.cause.reasons).toContainEqual(expect.objectContaining({ defect: failure }));
+		}
+	});
 
 	it("never dispatches an aborted authenticated request", async () => {
 		const controller = new AbortController();

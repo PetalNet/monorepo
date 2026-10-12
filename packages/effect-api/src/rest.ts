@@ -34,7 +34,7 @@ export const failureResponse = ({
 interface RestConfig<R> {
 	readonly title: string;
 	readonly version: string;
-	readonly basePath: string;
+	readonly basePath: `/${string}`;
 	readonly openapiPath: `/${string}`;
 	readonly operations: readonly ApiOperation<R>[];
 	readonly restMiddleware?: RequestMiddleware;
@@ -145,12 +145,13 @@ export const createRestApi = <R>(config: RestConfig<R>) => {
 	);
 	const emptyGroup = HttpApiGroup.make("operations", { topLevel: true });
 	const [first, ...rest] = registrations;
+	// Dynamic catalogs can be empty; HttpApiGroup's endpoint parameter is invariant.
 	const group = (
 		first ? emptyGroup.add(first.endpoint, ...rest.map(({ endpoint }) => endpoint)) : emptyGroup
 	) as HttpApiGroup.HttpApiGroup<"operations", ReturnType<typeof makeEndpoint>, true>;
 	const api = HttpApi.make("effect-api")
 		.add(group)
-		.prefix(config.basePath.replace(/\/$/u, "") as `/${string}`)
+		.prefix(config.basePath)
 		.middleware(OperationBoundary)
 		.annotate(OpenApi.Title, config.title)
 		.annotate(OpenApi.Version, config.version);
@@ -222,7 +223,9 @@ export const createRestApi = <R>(config: RestConfig<R>) => {
 		const handled = httpEffect.pipe(
 			Effect.catchCause((cause) => {
 				if (Cause.hasInterruptsOnly(cause)) {
-					return Effect.failCause(cause as Cause.Cause<never>);
+					return Effect.failCause(
+						Cause.fromReasons<never>(cause.reasons.filter(Cause.isInterruptReason)),
+					);
 				}
 
 				const failure = Cause.findErrorOption(cause);
