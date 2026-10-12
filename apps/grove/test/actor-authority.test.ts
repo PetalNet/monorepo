@@ -10,7 +10,7 @@ import {
 	type AgentPrincipal,
 	type MachineIdentity,
 } from "../src/lib/server/actors/authority";
-import { InvocationContext } from "../src/lib/server/invocation";
+import { CurrentPrincipal } from "../src/lib/server/actors/authority";
 import { ProjectService, ProjectServiceLayer } from "../src/lib/server/projects/service";
 import { startGrovePostgres, stopGrovePostgres } from "./postgres";
 
@@ -26,11 +26,7 @@ const machine = (issuer: string, subject: string, enrollment = true): MachineIde
 const authority = <A, E>(use: (service: ActorAuthority["Service"]) => Effect.Effect<A, E>) =>
 	Effect.flatMap(ActorAuthority, use);
 const actorInvocation = <A, E, R>(principal: AgentPrincipal, effect: Effect.Effect<A, E, R>) =>
-	effect.pipe(
-		Effect.provideService(InvocationContext, {
-			principal,
-		}),
-	);
+	effect.pipe(Effect.provideService(CurrentPrincipal, principal));
 
 describe("actor authority", () => {
 	let runtime: ManagedRuntime.ManagedRuntime<

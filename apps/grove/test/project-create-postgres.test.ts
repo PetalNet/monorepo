@@ -1,14 +1,17 @@
+import "./api-env";
 import * as PgClient from "@effect/sql-pg/PgClient";
+import { http, SvelteKitRequestEvent } from "@petalnet/effect-sveltekit";
 import { Effect, Layer, ManagedRuntime, Redacted } from "effect";
 import { HttpServerRequest } from "effect/http";
 import { expect, it } from "vitest";
 
 import { ActorAuthority, ActorAuthorityLayer } from "../src/lib/server/actors/authority";
+import { CurrentPrincipal } from "../src/lib/server/actors/authority";
 import { groveApi } from "../src/lib/server/api";
-import { InvocationContext } from "../src/lib/server/invocation";
 import { canonicalDigest } from "../src/lib/server/projects/canonical";
 import { ProjectService, ProjectServiceLayer } from "../src/lib/server/projects/service";
 import { startGrovePostgres, stopGrovePostgres } from "./postgres";
+import { requestEvent } from "./request-event";
 
 it("creates through REST, binds replay to current authority, preserves Versions and rolls back the whole command", async () => {
 	const postgres = await startGrovePostgres();
@@ -31,25 +34,25 @@ it("creates through REST, binds replay to current authority, preserves Versions 
 			),
 		);
 		const input = { commandId: crypto.randomUUID(), scope: "home", title: "Title", ask: "Ask" };
+		const event = requestEvent(
+			new Request("http://grove.example/api/v1/projects", {
+				method: "POST",
+				headers: { "content-type": "application/json" },
+				body: JSON.stringify(input),
+			}),
+			owner,
+		);
 		const response = await runtime.runPromise(
-			groveApi
-				.fetch(
-					HttpServerRequest.fromWeb(
-						new Request("http://grove.example/api/v1/projects", {
-							method: "POST",
-							headers: { "content-type": "application/json" },
-							body: JSON.stringify(input),
-						}),
-					),
-				)
-				.pipe(Effect.provideService(InvocationContext, { principal: owner })),
+			http(HttpServerRequest.fromWeb(event.request)).pipe(
+				Effect.provideService(SvelteKitRequestEvent, event),
+			),
 		);
 
 		expect(response.status).toBe(200);
 
 		const receipt = await runtime.runPromise(
 			Effect.flatMap(ProjectService, (service) => service.create(input)).pipe(
-				Effect.provideService(InvocationContext, { principal: owner }),
+				Effect.provideService(CurrentPrincipal, owner),
 			),
 		);
 
@@ -58,7 +61,7 @@ it("creates through REST, binds replay to current authority, preserves Versions 
 		const conflicting = await runtime.runPromiseExit(
 			Effect.flatMap(ProjectService, (service) =>
 				service.create({ ...input, ask: "Different" }),
-			).pipe(Effect.provideService(InvocationContext, { principal: owner })),
+			).pipe(Effect.provideService(CurrentPrincipal, owner)),
 		);
 
 		expect(conflicting).toMatchObject({ _tag: "Failure" });
@@ -76,7 +79,7 @@ it("creates through REST, binds replay to current authority, preserves Versions 
 		);
 		const stolen = await runtime.runPromiseExit(
 			Effect.flatMap(ProjectService, (service) => service.create(input)).pipe(
-				Effect.provideService(InvocationContext, { principal: other }),
+				Effect.provideService(CurrentPrincipal, other),
 			),
 		);
 
@@ -86,7 +89,7 @@ it("creates through REST, binds replay to current authority, preserves Versions 
 			Array.from({ length: 4 }, () =>
 				runtime.runPromise(
 					Effect.flatMap(ProjectService, (service) => service.create(input)).pipe(
-						Effect.provideService(InvocationContext, { principal: owner }),
+						Effect.provideService(CurrentPrincipal, owner),
 					),
 				),
 			),
@@ -143,7 +146,7 @@ it("creates through REST, binds replay to current authority, preserves Versions 
 		const failed = await runtime.runPromiseExit(
 			Effect.flatMap(ProjectService, (service) =>
 				service.create({ ...input, commandId: crypto.randomUUID() }),
-			).pipe(Effect.provideService(InvocationContext, { principal: owner })),
+			).pipe(Effect.provideService(CurrentPrincipal, owner)),
 		);
 
 		expect(failed).toMatchObject({ _tag: "Failure" });
@@ -174,7 +177,7 @@ it("creates through REST, binds replay to current authority, preserves Versions 
 
 		const denied = await runtime.runPromiseExit(
 			Effect.flatMap(ProjectService, (service) => service.create(input)).pipe(
-				Effect.provideService(InvocationContext, { principal: owner }),
+				Effect.provideService(CurrentPrincipal, owner),
 			),
 		);
 
@@ -203,7 +206,7 @@ it("creates through REST, binds replay to current authority, preserves Versions 
 			runtime.runPromise(
 				Effect.flatMap(ProjectService, (service) =>
 					service.create({ ...input, commandId: crypto.randomUUID() }),
-				).pipe(Effect.provideService(InvocationContext, { principal: agent })),
+				).pipe(Effect.provideService(CurrentPrincipal, agent)),
 			),
 		).rejects.toMatchObject({ _tag: "ActorDenied" });
 	} finally {

@@ -1,7 +1,7 @@
 import { Effect } from "effect";
 
+import { groveApi } from "#lib/server/api.ts";
 import { GroveAuth } from "#lib/server/auth.ts";
-import { runGrove } from "#lib/server/runtime.ts";
 
 import type { PageServerLoad } from "./$types";
 
@@ -12,7 +12,7 @@ export const load: PageServerLoad = async (event) => ({
 				name: event.locals.actor.name,
 			}
 		: null,
-	readiness: await runGrove(
+	readiness: await groveApi.runRaw(
 		Effect.flatMap(GroveAuth, (auth) => auth.readiness),
 		event,
 	),

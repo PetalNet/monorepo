@@ -4,23 +4,18 @@ import { building } from "$app/env";
 import type { ServerInit } from "@sveltejs/kit/hooks";
 import { Effect } from "effect";
 
+import { groveApi } from "#lib/server/api.ts";
 import { GroveAuth } from "#lib/server/auth.ts";
-import { groveMcpIngress } from "#lib/server/mcp-oauth-runtime.ts";
-import { disposeGroveRuntime, handleGrove, initializeGroveRuntime } from "#lib/server/runtime.ts";
 
 export const init: ServerInit = async () => {
-	if (!building) {
-		groveMcpIngress();
-	}
-
-	await initializeGroveRuntime().initialize();
+	await groveApi.initialize();
 
 	process.once("sveltekit:shutdown", () => {
-		void disposeGroveRuntime();
+		void groveApi.dispose();
 	});
 };
 
-export const handle = handleGrove(({ event, resolve }) =>
+export const handle = groveApi.handle(({ event, resolve }) =>
 	Effect.gen(function* () {
 		if (building) {
 			return yield* Effect.promise(() => Promise.resolve(resolve(event)));

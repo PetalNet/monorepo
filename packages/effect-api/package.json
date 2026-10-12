@@ -8,6 +8,10 @@
 		".": {
 			"types": "./src/index.ts",
 			"default": "./src/index.ts"
+		},
+		"./better-auth": {
+			"types": "./src/better-auth.ts",
+			"default": "./src/better-auth.ts"
 		}
 	},
 	"scripts": {
@@ -19,10 +23,19 @@
 		"effect": "catalog:"
 	},
 	"devDependencies": {
+		"@better-auth/mcp": "catalog:",
 		"@modelcontextprotocol/client": "catalog:",
 		"@petalnet/tsconfig": "workspace:*",
 		"@vitest/coverage-v8": "catalog:dev",
 		"typescript": "catalog:dev",
 		"vitest": "catalog:dev"
+	},
+	"peerDependencies": {
+		"@better-auth/mcp": "catalog:"
+	},
+	"peerDependenciesMeta": {
+		"@better-auth/mcp": {
+			"optional": true
+		}
 	}
 }

@@ -28,7 +28,12 @@ import type {
 	LibraryGetVersion,
 	LibraryVersion,
 } from "../../projects/schema";
-import { ActorAuthority, ActorDenied, type AuthorityError } from "../actors/authority";
+import {
+	ActorAuthority,
+	ActorDenied,
+	CurrentPrincipal,
+	type AuthorityError,
+} from "../actors/authority";
 import { makeDatabase } from "../db/client";
 import {
 	grove_objects as objects,
@@ -43,7 +48,6 @@ import {
 	grove_task_completions as completions,
 	grove_command_receipts as receipts,
 } from "../db/tables";
-import { InvocationContext } from "../invocation";
 import { canonicalDigest } from "./canonical";
 
 const responseSchema = Schema.Record(Schema.String, Schema.Unknown);
@@ -64,7 +68,7 @@ export class ProjectDatabaseError extends Data.TaggedError("ProjectDatabaseError
 }
 export type ProjectError = AuthorityError | CommandConflict | FenceConflict | ProjectDatabaseError;
 type PersistenceError = ProjectError | SqlError | EffectDrizzleQueryError | Schema.SchemaError;
-type RequestEffect<A> = Effect.Effect<A, ProjectError, InvocationContext>;
+type RequestEffect<A> = Effect.Effect<A, ProjectError, CurrentPrincipal>;
 export interface ProjectServiceShape {
 	readonly create: (input: ProjectCreate) => RequestEffect<ProjectCreateReceipt>;
 	readonly plan: (input: ProjectPlan) => RequestEffect<ProjectPlanReceipt>;
@@ -78,7 +82,7 @@ export interface ProjectServiceShape {
 	readonly search: (input: LibrarySearch) => RequestEffect<LibrarySearchResults>;
 	readonly getVersion: (input: LibraryGetVersion) => RequestEffect<LibraryVersion>;
 }
-/** @effect-expect-leaking InvocationContext */
+/** @effect-expect-leaking CurrentPrincipal */
 export class ProjectService extends Context.Service<ProjectService, ProjectServiceShape>()(
 	"grove/ProjectService",
 ) {}
@@ -112,7 +116,7 @@ interface Principal {
 	kind: "person" | "agent";
 }
 
-const requireProjectActor = Effect.flatMap(InvocationContext, ({ principal }) =>
+const requireProjectActor = Effect.flatMap(CurrentPrincipal, (principal) =>
 	principal.kind === "person" || principal.kind === "agent"
 		? Effect.succeed({ id: principal.actorId, kind: principal.kind })
 		: Effect.fail(new ActorDenied({ reason: "An enrolled actor is required" })),
@@ -131,7 +135,7 @@ export const ProjectServiceLayer = Layer.effect(
 
 		const authority = yield* ActorAuthority;
 		const authorize = (operation: string) =>
-			Effect.flatMap(InvocationContext, ({ principal }) =>
+			Effect.flatMap(CurrentPrincipal, (principal) =>
 				principal.kind === "person" || principal.kind === "agent"
 					? authority.authorizeActor(principal, operation)
 					: Effect.fail(new ActorDenied({ reason: "An enrolled actor is required" })),
@@ -142,7 +146,7 @@ export const ProjectServiceLayer = Layer.effect(
 			principal: Principal,
 			work: (commandId: string) => Effect.Effect<A | CommittedConflict, PersistenceError>,
 			hashPayload?: unknown,
-		): Effect.Effect<A, PersistenceError, InvocationContext> => {
+		): Effect.Effect<A, PersistenceError, CurrentPrincipal> => {
 			const commandId = input.commandId.toLowerCase();
 			const hashInput: Record<string, unknown> = { ...input };
 
@@ -226,7 +230,7 @@ export const ProjectServiceLayer = Layer.effect(
 		};
 
 		const guarded = <A>(
-			effect: Effect.Effect<A, PersistenceError, InvocationContext>,
+			effect: Effect.Effect<A, PersistenceError, CurrentPrincipal>,
 			readOperation?: string,
 		) =>
 			// Commands own their transaction in execute; wrapping them here would

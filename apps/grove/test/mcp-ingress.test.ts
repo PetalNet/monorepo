@@ -1,9 +1,27 @@
+import "./api-env";
 import { createServer } from "node:http";
 
 import * as PgClient from "@effect/sql-pg/PgClient";
 import { it } from "@effect/vitest";
-import type { ApiServer } from "@petalnet/effect-api";
-import { Cause, Effect, Exit, Layer, ManagedRuntime, Redacted, Schema } from "effect";
+import {
+	createEffectApi,
+	McpAuthentication,
+	type McpAuthBoundary as McpIngress,
+} from "@petalnet/effect-api";
+import { createMcpAuthentication } from "@petalnet/effect-api/better-auth";
+import { http } from "@petalnet/effect-sveltekit";
+import {
+	Cause,
+	Context,
+	Effect,
+	Exit,
+	Layer,
+	ManagedRuntime,
+	Redacted,
+	Schema,
+	Stream,
+} from "effect";
+import { HttpServerResponse, HttpRouter } from "effect/http";
 import { exportJWK, generateKeyPair, SignJWT, type JWK, type JWTPayload } from "jose";
 import { afterAll, beforeAll, describe, expect, vi } from "vitest";
 
@@ -17,11 +35,15 @@ import {
 	ActorAuthority,
 	ActorAuthorityLayer,
 	ActorDatabaseError,
+	ActorDenied,
 	ActorNotCurrent,
+	CapabilityContainmentConflict,
+	HomeOwnerUnbound,
 	type PersonPrincipal,
 } from "../src/lib/server/actors/authority";
+import { CurrentPrincipal } from "../src/lib/server/actors/authority";
 import { groveApi } from "../src/lib/server/api";
-import { makeMcpIngress, type McpIngress } from "../src/lib/server/mcp/ingress";
+import { authenticateMachine } from "../src/lib/server/mcp/ingress";
 import type { ProjectService } from "../src/lib/server/projects/service";
 import { ProjectServiceLayer, ProjectServiceBuildLayer } from "../src/lib/server/projects/service";
 import { startGrovePostgres, stopGrovePostgres } from "./postgres";
@@ -66,10 +88,28 @@ const json = async (response: Response) => (await responseJson(response)) as Mcp
 
 describe("MCP protected-resource ingress", () => {
 	let runtime: ManagedRuntime.ManagedRuntime<
-		ActorAuthority | ProjectService | ApiServer | PgClient.PgClient,
+		ActorAuthority | ProjectService | HttpRouter.HttpRouter | PgClient.PgClient,
 		unknown
 	>;
 	let ingress: McpIngress;
+	const handle = (incoming: Request, target = ingress) =>
+		http(incoming).pipe(Effect.provideService(McpAuthentication, target));
+	const makeMcpIngress = (settings: typeof config) =>
+		runtime.runPromise(
+			Effect.scoped(
+				Effect.provide(
+					McpAuthentication,
+					createMcpAuthentication(
+						Effect.succeed({
+							...settings,
+							requiredScopes: ["grove:mcp"],
+							scopesSupported: ["grove:mcp", "grove:agent:enroll"],
+							authenticate: authenticateMachine,
+						}),
+					).pipe(Layer.provide(Layer.fresh(HttpRouter.layer))),
+				),
+			),
+		);
 	let privateKey: CryptoKey;
 	let owner: PersonPrincipal;
 	let keys: JWK[] = [];
@@ -124,7 +164,7 @@ describe("MCP protected-resource ingress", () => {
 		}
 
 		config.jwksUrl = `http://127.0.0.1:${String(address.port)}/jwks`;
-		ingress = makeMcpIngress(config);
+		ingress = await makeMcpIngress(config);
 	}, 60_000);
 
 	afterAll(async () => {
@@ -210,18 +250,26 @@ describe("MCP protected-resource ingress", () => {
 		}
 
 		return runtime.runPromise(
-			target.handle(
+			handle(
 				new Request(`${config.resourceOrigin}/mcp`, {
 					method: "POST",
 					headers,
 					body,
 				}),
+				target,
 			),
 		);
 	};
 
-	it("publishes the existing RFC 9728 resource metadata", () => {
-		expect(ingress.metadata()).toEqual({
+	it("publishes public RFC 9728 resource metadata through the shared router", async () => {
+		const response = await runtime.runPromise(
+			handle(new Request("https://grove.example/.well-known/oauth-protected-resource/mcp")),
+		);
+
+		expect(response.status).toBe(200);
+		expect(response.headers.get("cache-control")).toBe("public, max-age=300");
+
+		expect(await response.json()).toEqual({
 			resource: "https://grove.example/mcp",
 			authorization_servers: [config.issuer],
 			bearer_methods_supported: ["header"],
@@ -229,13 +277,85 @@ describe("MCP protected-resource ingress", () => {
 		});
 	});
 
-	it("rejects invalid protected-resource configuration during construction", () => {
-		expect(() =>
+	it("rejects invalid protected-resource configuration during acquisition", async () => {
+		await expect(
 			makeMcpIngress({
 				...config,
 				resourceOrigin: "https://grove.example/not-an-origin",
 			}),
-		).toThrow("GROVE_MCP_RESOURCE must be a canonical origin");
+		).rejects.toThrow("resourceOrigin must be a canonical origin");
+	});
+
+	it("binds discovery and token admission to the configured MCP endpoint", async () => {
+		const custom = ManagedRuntime.make(
+			createEffectApi({
+				title: "Custom MCP",
+				version: "1",
+				basePath: "/api",
+				mcpPath: "/agents/custom-mcp",
+				operations: [],
+				mcpAuthentication: createMcpAuthentication(
+					Effect.succeed({
+						...config,
+						requiredScopes: ["grove:mcp"],
+						scopesSupported: ["grove:mcp"],
+						authenticate: () => Effect.succeed(Context.empty()),
+					}),
+				),
+			}),
+		);
+		const send = (accessToken?: string) =>
+			custom.runPromise(
+				http(
+					new Request("https://grove.example/agents/custom-mcp", {
+						method: "POST",
+						headers: {
+							"content-type": "application/json",
+							accept: "application/json, text/event-stream",
+							"mcp-method": "tools/list",
+							"mcp-protocol-version": MCP_PROTOCOL_VERSION,
+							...(accessToken ? { authorization: `Bearer ${accessToken}` } : {}),
+						},
+						body: rpc(1, "tools/list"),
+					}),
+				),
+			);
+
+		try {
+			const discovery = await custom.runPromise(
+				http(
+					new Request(
+						"https://grove.example/.well-known/oauth-protected-resource/agents/custom-mcp",
+					),
+				),
+			);
+
+			expect(discovery.status).toBe(200);
+
+			expect(await discovery.json()).toMatchObject({
+				resource: "https://grove.example/agents/custom-mcp",
+			});
+
+			const challenge = await send();
+
+			expect(challenge.status).toBe(401);
+
+			expect(challenge.headers.get("www-authenticate")).toContain(
+				'resource_metadata="https://grove.example/.well-known/oauth-protected-resource/agents/custom-mcp"',
+			);
+
+			const accepted = await send(
+				await token("custom-agent", ["grove:mcp"], "mcp-test", {
+					aud: "https://grove.example/agents/custom-mcp",
+				}),
+			);
+
+			expect(accepted.status).toBe(200);
+			expect(await accepted.json()).toMatchObject({ result: { tools: [] } });
+			expect((await send(await token("custom-agent", ["grove:mcp"]))).status).toBe(401);
+		} finally {
+			await custom.dispose();
+		}
 	});
 
 	it("uses bearer identity only and challenges cookie-only requests", async () => {
@@ -303,33 +423,67 @@ describe("MCP protected-resource ingress", () => {
 		expect((await json(response)).result.tools).toEqual([]);
 	});
 
-	it.each(["failure", "defect"] as const)(
-		"preserves a domain %s across the Promise adapter",
-		async (kind) => {
-			const failure = new ActorNotCurrent({ actorId: "agent-test" });
-			const authority = await runtime.runPromise(ActorAuthority);
-			const incoming = new Request(`${config.resourceOrigin}/mcp`, {
-				headers: { authorization: `Bearer ${await token("runtime-error", ["grove:mcp"])}` },
-			});
-			const exit = await runtime.runPromiseExit(
-				ingress.handle(incoming).pipe(
-					Effect.provideService(ActorAuthority, {
-						...authority,
-						resolveMachineIdentity: () =>
-							kind === "failure" ? Effect.fail(failure) : Effect.die(failure),
+	it("keeps authenticated request resources alive until a streamed response ends", async () => {
+		let closed = false;
+		const release = Promise.withResolvers<undefined>();
+		const streaming: McpIngress = {
+			...ingress,
+			middleware: () =>
+				ingress.middleware(
+					Effect.gen(function* () {
+						const principal = yield* CurrentPrincipal;
+
+						yield* Effect.addFinalizer(() =>
+							Effect.sync(() => {
+								closed = true;
+							}),
+						);
+
+						return HttpServerResponse.stream(
+							Stream.fromEffect(
+								Effect.promise(() => release.promise).pipe(
+									Effect.as(new TextEncoder().encode(principal.kind)),
+								),
+							),
+						);
 					}),
 				),
-			);
+		};
+		const response = await request(
+			await token("stream-reader", ["grove:mcp"]),
+			rpc(33, "tools/list"),
+			undefined,
+			streaming,
+		);
 
-			expect(Exit.isFailure(exit)).toBe(true);
+		expect(response.status).toBe(200);
+		expect(closed).toBe(false);
+		release.resolve(undefined);
+		expect(await response.text()).toBe("unbound");
+		expect(closed).toBe(true);
+	});
 
-			if (Exit.isFailure(exit)) {
-				expect(exit.cause.reasons).toContainEqual(
-					expect.objectContaining(kind === "failure" ? { error: failure } : { defect: failure }),
-				);
-			}
-		},
-	);
+	it("preserves domain defects across the provider Promise boundary", async () => {
+		const failure = new ActorNotCurrent({ actorId: "agent-test" });
+		const authority = await runtime.runPromise(ActorAuthority);
+		const incoming = new Request(`${config.resourceOrigin}/mcp`, {
+			headers: { authorization: `Bearer ${await token("runtime-error", ["grove:mcp"])}` },
+		});
+		const exit = await runtime.runPromiseExit(
+			handle(incoming).pipe(
+				Effect.provideService(ActorAuthority, {
+					...authority,
+					resolveMachineIdentity: () => Effect.die(failure),
+				}),
+			),
+		);
+
+		expect(Exit.isFailure(exit)).toBe(true);
+
+		if (Exit.isFailure(exit)) {
+			expect(exit.cause.reasons).toContainEqual(expect.objectContaining({ defect: failure }));
+		}
+	});
 
 	it("never dispatches an aborted authenticated request", async () => {
 		const controller = new AbortController();
@@ -342,9 +496,9 @@ describe("MCP protected-resource ingress", () => {
 		const authority = await runtime.runPromise(ActorAuthority);
 		const resolveMachineIdentity = vi.fn(authority.resolveMachineIdentity);
 		const exit = await runtime.runPromiseExit(
-			ingress
-				.handle(incoming)
-				.pipe(Effect.provideService(ActorAuthority, { ...authority, resolveMachineIdentity })),
+			handle(incoming).pipe(
+				Effect.provideService(ActorAuthority, { ...authority, resolveMachineIdentity }),
+			),
 		);
 
 		expect(Exit.isFailure(exit) && Cause.hasInterruptsOnly(exit.cause)).toBe(true);
@@ -363,7 +517,7 @@ describe("MCP protected-resource ingress", () => {
 		let completed = false;
 		const pending = runtime
 			.runPromiseExit(
-				ingress.handle(incoming).pipe(
+				handle(incoming).pipe(
 					Effect.provideService(ActorAuthority, {
 						...authority,
 						resolveMachineIdentity: () =>
@@ -871,7 +1025,7 @@ describe("MCP protected-resource ingress", () => {
 			body,
 			duplex: "half",
 		} as RequestInit);
-		const pending = runtime.runPromiseExit(ingress.handle(incoming), { signal: controller.signal });
+		const pending = runtime.runPromiseExit(handle(incoming), { signal: controller.signal });
 
 		await pulled.promise;
 		controller.abort();
@@ -936,7 +1090,7 @@ describe("MCP protected-resource ingress", () => {
 					body,
 					duplex: "half",
 				} as RequestInit);
-				const response = await runtime.runPromise(ingress.handle(incoming));
+				const response = await runtime.runPromise(handle(incoming));
 
 				expect(response.status).toBe(status);
 
@@ -973,7 +1127,7 @@ describe("MCP protected-resource ingress", () => {
 
 		expect(unknownKid.status).toBe(401);
 
-		const unavailable = makeMcpIngress({
+		const unavailable = await makeMcpIngress({
 			...config,
 			jwksUrl: new URL("/unavailable", config.jwksUrl).href,
 		});
@@ -994,7 +1148,7 @@ describe("MCP protected-resource ingress", () => {
 		const dependencyToken = await token("dependency-failure", ["grove:mcp"]);
 		const failures = await Promise.all(
 			["/unavailable", "/malformed", "/disconnect"].map(async (path) => {
-				const failedDependency = makeMcpIngress({
+				const failedDependency = await makeMcpIngress({
 					...config,
 					jwksUrl: new URL(path, config.jwksUrl).href,
 				});
@@ -1015,42 +1169,56 @@ describe("MCP protected-resource ingress", () => {
 		}
 	});
 
-	it("sanitizes actor-authority dependency failures at the ingress boundary", async () => {
+	it.each([
+		{
+			error: new ActorDatabaseError({ cause: new Error("simulated database outage") }),
+			status: 503,
+		},
+		{ error: new ActorDenied({ reason: "private denial details" }), status: 403 },
+		{ error: new ActorNotCurrent({ actorId: "private-actor-id" }), status: 403 },
+		{ error: new HomeOwnerUnbound({ configuredIdentity: ownerIdentity }), status: 503 },
+		{ error: new CapabilityContainmentConflict({ conflicts: [], fixes: [] }), status: 503 },
+	])("sanitizes $error._tag at both authority ingress boundaries", async ({ error, status }) => {
 		const authority = await runtime.runPromise(ActorAuthority);
-		const failingRuntime = ManagedRuntime.make(
-			Layer.mergeAll(
-				Layer.succeed(ActorAuthority, {
-					...authority,
-					resolveMachineIdentity: () =>
-						Effect.fail(new ActorDatabaseError({ cause: new Error("simulated database outage") })),
-				}),
-				groveApi.layer,
-				ProjectServiceBuildLayer,
-			),
+
+		await Promise.all(
+			(["resolveMachineIdentity", "authorizedOperations"] as const).map(async (stage) => {
+				const failingRuntime = ManagedRuntime.make(
+					Layer.mergeAll(
+						Layer.succeed(ActorAuthority, {
+							...authority,
+							[stage]: () => Effect.fail(error),
+						}),
+						groveApi.layer,
+						ProjectServiceBuildLayer,
+					),
+				);
+
+				try {
+					const response = await failingRuntime.runPromise(
+						handle(
+							new Request(`${config.resourceOrigin}/mcp`, {
+								method: "POST",
+								headers: {
+									"content-type": "application/json",
+									authorization: `Bearer ${await token("authority-failure", ["grove:mcp"])}`,
+								},
+								body: rpc(13, "tools/list"),
+							}),
+						),
+					);
+
+					expect(response.status).toBe(status);
+
+					expect(await json(response)).toEqual(
+						status === 503
+							? { error: "authority_unavailable", message: "MCP actor resolution is unavailable" }
+							: { error: "access_denied", message: "MCP identity is not eligible" },
+					);
+				} finally {
+					await failingRuntime.dispose();
+				}
+			}),
 		);
-
-		try {
-			const response = await failingRuntime.runPromise(
-				ingress.handle(
-					new Request(`${config.resourceOrigin}/mcp`, {
-						method: "POST",
-						headers: {
-							"content-type": "application/json",
-							authorization: `Bearer ${await token("authority-failure", ["grove:mcp"])}`,
-						},
-						body: rpc(13, "tools/list"),
-					}),
-				),
-			);
-
-			expect(response.status).toBe(503);
-
-			expect(await json(response)).toEqual({
-				error: "authority_unavailable",
-				message: "MCP actor resolution is unavailable",
-			});
-		} finally {
-			await failingRuntime.dispose();
-		}
 	});
 });

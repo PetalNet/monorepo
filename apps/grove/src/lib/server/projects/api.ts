@@ -1,5 +1,5 @@
-import { operation } from "@petalnet/effect-api";
-import { Effect, Match } from "effect";
+import { operation, operationError, type OperationErrors } from "@petalnet/effect-api";
+import { Effect } from "effect";
 
 import {
 	AttemptPublish,
@@ -24,34 +24,30 @@ import {
 	LibraryGetVersion,
 	LibraryVersion,
 } from "../../projects/schema";
-import { ProjectService, type ProjectError } from "./service";
+import { authorityErrors } from "../actors/api";
+import {
+	ProjectService,
+	CommandConflict,
+	FenceConflict,
+	ProjectDatabaseError,
+	type ProjectError,
+} from "./service";
 
-const statusForError = (error: ProjectError): number =>
-	Match.value(error).pipe(
-		Match.tagsExhaustive({
-			ActorDenied: () => 403,
-			ActorNotCurrent: () => 403,
-			CommandConflict: () => 409,
-			FenceConflict: () => 409,
-			ActorDatabaseError: () => 503,
-			HomeOwnerUnbound: () => 503,
-			CapabilityContainmentConflict: () => 503,
-			ProjectDatabaseError: () => 503,
-		}),
-	);
-const messageForError = (error: ProjectError): string =>
-	Match.value(error).pipe(
-		Match.tagsExhaustive({
-			ActorDenied: (failure) => failure.message,
-			ActorNotCurrent: (failure) => failure.message,
-			CommandConflict: (failure) => failure.message,
-			FenceConflict: (failure) => failure.message,
-			ActorDatabaseError: () => "The project database is unavailable",
-			HomeOwnerUnbound: () => "The project database is unavailable",
-			CapabilityContainmentConflict: () => "The project database is unavailable",
-			ProjectDatabaseError: () => "The project database is unavailable",
-		}),
-	);
+export const projectErrors = {
+	...authorityErrors,
+	CommandConflict: operationError(CommandConflict, {
+		status: 409,
+		message: (error) => error.message,
+	}),
+	FenceConflict: operationError(FenceConflict, {
+		status: 409,
+		message: (error) => error.message,
+	}),
+	ProjectDatabaseError: operationError(ProjectDatabaseError, {
+		status: 503,
+		message: "The project database is unavailable",
+	}),
+} satisfies OperationErrors<ProjectError>;
 
 export const projectOperations = [
 	operation({
@@ -62,8 +58,7 @@ export const projectOperations = [
 		input: ProjectCreate,
 		output: ProjectCreateReceipt,
 		handler: (input) => Effect.flatMap(ProjectService, (service) => service.create(input)),
-		statusForError,
-		messageForError,
+		errors: projectErrors,
 	}),
 	operation({
 		name: "project.plan",
@@ -73,8 +68,7 @@ export const projectOperations = [
 		input: ProjectPlan,
 		output: ProjectPlanReceipt,
 		handler: (input) => Effect.flatMap(ProjectService, (service) => service.plan(input)),
-		statusForError,
-		messageForError,
+		errors: projectErrors,
 	}),
 	operation({
 		name: "task.claim",
@@ -84,8 +78,7 @@ export const projectOperations = [
 		input: TaskClaim,
 		output: ClaimReceipt,
 		handler: (input) => Effect.flatMap(ProjectService, (service) => service.claim(input)),
-		statusForError,
-		messageForError,
+		errors: projectErrors,
 	}),
 	operation({
 		name: "claim.renew",
@@ -95,8 +88,7 @@ export const projectOperations = [
 		input: ClaimRenew,
 		output: ClaimMutationReceipt,
 		handler: (input) => Effect.flatMap(ProjectService, (service) => service.renew(input)),
-		statusForError,
-		messageForError,
+		errors: projectErrors,
 	}),
 	operation({
 		name: "claim.release",
@@ -106,8 +98,7 @@ export const projectOperations = [
 		input: ClaimRelease,
 		output: ClaimMutationReceipt,
 		handler: (input) => Effect.flatMap(ProjectService, (service) => service.release(input)),
-		statusForError,
-		messageForError,
+		errors: projectErrors,
 	}),
 	operation({
 		name: "attempt.publish",
@@ -117,8 +108,7 @@ export const projectOperations = [
 		input: AttemptPublish,
 		output: PublishReceipt,
 		handler: (input) => Effect.flatMap(ProjectService, (service) => service.publish(input)),
-		statusForError,
-		messageForError,
+		errors: projectErrors,
 	}),
 	operation({
 		name: "work.ready",
@@ -128,8 +118,7 @@ export const projectOperations = [
 		input: WorkReady,
 		output: ReadyTasks,
 		handler: (input) => Effect.flatMap(ProjectService, (service) => service.ready(input)),
-		statusForError,
-		messageForError,
+		errors: projectErrors,
 	}),
 	operation({
 		name: "review.submit",
@@ -139,8 +128,7 @@ export const projectOperations = [
 		input: ReviewSubmit,
 		output: ReviewReceipt,
 		handler: (input) => Effect.flatMap(ProjectService, (service) => service.review(input)),
-		statusForError,
-		messageForError,
+		errors: projectErrors,
 	}),
 	operation({
 		name: "task.complete",
@@ -150,8 +138,7 @@ export const projectOperations = [
 		input: TaskComplete,
 		output: TaskCompleteReceipt,
 		handler: (input) => Effect.flatMap(ProjectService, (service) => service.complete(input)),
-		statusForError,
-		messageForError,
+		errors: projectErrors,
 	}),
 	operation({
 		name: "library.search",
@@ -161,8 +148,7 @@ export const projectOperations = [
 		input: LibrarySearch,
 		output: LibrarySearchResults,
 		handler: (input) => Effect.flatMap(ProjectService, (service) => service.search(input)),
-		statusForError,
-		messageForError,
+		errors: projectErrors,
 	}),
 	operation({
 		name: "library.getVersion",
@@ -172,7 +158,6 @@ export const projectOperations = [
 		input: LibraryGetVersion,
 		output: LibraryVersion,
 		handler: (input) => Effect.flatMap(ProjectService, (service) => service.getVersion(input)),
-		statusForError,
-		messageForError,
+		errors: projectErrors,
 	}),
 ] as const;

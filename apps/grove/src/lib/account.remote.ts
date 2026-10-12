@@ -3,9 +3,8 @@ import { form, getRequestEvent, query } from "$app/server";
 import { error, redirect } from "@sveltejs/kit";
 import { Effect, Schema } from "effect";
 
+import { groveApi } from "./server/api";
 import { GroveAuth } from "./server/auth";
-import { withBrowserInvocation } from "./server/invocation";
-import { runGrove } from "./server/runtime";
 
 const accountEvent = () => {
 	const event = getRequestEvent();
@@ -30,10 +29,8 @@ const AccountInput = Schema.toStandardSchemaV1(
 export const updateAccount = form(AccountInput, async ({ name }) => {
 	const { event, user } = accountEvent();
 
-	await runGrove(
-		withBrowserInvocation(
-			Effect.flatMap(GroveAuth, (auth) => auth.updateAccount(event.request.headers, name)),
-		),
+	await groveApi.run(
+		Effect.flatMap(GroveAuth, (auth) => auth.updateAccount(event.request.headers, name)),
 		event,
 	);
 
@@ -51,7 +48,7 @@ export const signOut = form(async () => {
 		error(403, "Invalid request origin");
 	}
 
-	await runGrove(
+	await groveApi.runRaw(
 		Effect.flatMap(GroveAuth, (auth) => auth.endSession(event.request.headers, "/")),
 		event,
 	);
