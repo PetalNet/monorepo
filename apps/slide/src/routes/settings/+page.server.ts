@@ -40,6 +40,7 @@ export const actions: Actions = {
 			return { success: true, message: "Name updated successfully" };
 		} catch (error) {
 			console.error("Error updating name:", error);
+
 			return fail(500, { error: "Failed to update name" });
 		}
 	},
@@ -59,6 +60,7 @@ export const actions: Actions = {
 
 		// Validate email format
 		const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+
 		if (!emailRegex.test(email)) {
 			return fail(400, { error: "Invalid email format" });
 		}
@@ -97,6 +99,7 @@ export const actions: Actions = {
 			return { success: true, message: "Email updated successfully" };
 		} catch (error) {
 			console.error("Error updating email:", error);
+
 			return fail(500, { error: "Failed to update email" });
 		}
 	},
@@ -151,6 +154,7 @@ export const actions: Actions = {
 			return { success: true, message: "Password updated successfully" };
 		} catch (error) {
 			console.error("Error updating password:", error);
+
 			return fail(500, { error: "Failed to update password" });
 		}
 	},
@@ -183,6 +187,7 @@ export const actions: Actions = {
 			throw redirect(303, "/");
 		} catch (error) {
 			console.error("Error deleting account:", error);
+
 			return fail(500, { error: "Failed to delete account" });
 		}
 	},

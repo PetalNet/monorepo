@@ -69,6 +69,7 @@
 
 	$effect(() => {
 		const ctx = { alive: true };
+
 		carried = readCarriedRef();
 		siblingHost = typeof window !== "undefined" ? SIBLINGS[window.location.host] : undefined;
 
@@ -78,9 +79,11 @@
 				fetchTrace(),
 				detectExtensions(),
 			]);
+
 			if (!ctx.alive) {
 				return;
 			}
+
 			signals = sigs;
 			hash = linkabilityHash(sigs);
 			trace = tr;
@@ -89,6 +92,7 @@
 			selectedId = sigs[0]?.id ?? "";
 
 			const n = navigator;
+
 			contradictions = checkConsistency(data.server, tr, {
 				userAgent: n.userAgent,
 				language: n.language,
@@ -101,10 +105,13 @@
 				timezone: sigs.find((s) => s.id === "intl.timeZone")?.value ?? "",
 				utcOffsetMin: new Date().getTimezoneOffset(),
 			});
+
 			verdict = verdictOf(contradictions);
+
 			if (carried) {
 				linkResult = compareHashes(hash, carried.hash);
 			}
+
 			ready = true;
 			queueMicrotask(() => screen?.focus());
 		})();
@@ -116,11 +123,13 @@
 
 	const grouped = $derived.by(() => {
 		const order: SignalCategory[] = [];
+
 		for (const s of signals) {
 			if (!order.includes(s.category)) {
 				order.push(s.category);
 			}
 		}
+
 		return order.map((cat): [SignalCategory, Signal[]] => [
 			cat,
 			signals.filter((s) => s.category === cat),
@@ -139,18 +148,23 @@
 		if (s.reproducibility === "randomized") {
 			return "randomized";
 		}
+
 		if (s.reproducibility === "standardized") {
 			return "standardized";
 		}
+
 		if (s.reproducibility === "volatile") {
 			return "volatile";
 		}
+
 		if (s.entropy >= 3) {
 			return "dangerous";
 		}
+
 		if (s.entropy >= 1) {
 			return "linking";
 		}
+
 		return "common";
 	}
 
@@ -159,15 +173,19 @@
 	}
 	function tag(s: Signal): string {
 		const r = s.reproducibility;
+
 		if (r === "stable") {
 			return UNVERIFIED.has(s.id) ? "STABLE?" : "STABLE";
 		}
+
 		if (r === "randomized") {
 			return "RAND";
 		}
+
 		if (r === "standardized") {
 			return "STD";
 		}
+
 		return "VOL";
 	}
 	const REPRO_TITLE: Record<Repro, string> = {
@@ -181,6 +199,7 @@
 		if (s.reproducibility === "stable" && UNVERIFIED.has(s.id)) {
 			return "a single page load can't tell if this is randomised (FPP keeps it stable within a session) — run the linkability test to find out";
 		}
+
 		return REPRO_TITLE[s.reproducibility];
 	}
 
@@ -206,7 +225,9 @@
 		if (!flatIds.length) {
 			return;
 		}
+
 		const i = flatIds.indexOf(selectedId);
+
 		if (e.key === "ArrowDown" || e.key === "j") {
 			e.preventDefault();
 			selectedId = flatIds[Math.min(i + 1, flatIds.length - 1)];

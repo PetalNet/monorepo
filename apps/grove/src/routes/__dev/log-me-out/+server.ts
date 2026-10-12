@@ -10,7 +10,9 @@ export const GET: RequestHandler = async (event) => {
 	if (!import.meta.env.DEV || !groveOrbDevAuthFlagEnabled()) {
 		return devRouteNotFound();
 	}
+
 	const returnTo = event.url.searchParams.get("returnTo") ?? "/";
+
 	return runGrove(
 		Effect.flatMap(GroveAuth, (auth) => auth.endSession(event.request.headers, returnTo)),
 		event,

@@ -38,9 +38,11 @@
 
 		// Validate categories
 		const validCategories = categories.filter((c) => c.name.trim() !== "");
+
 		if (validCategories.length === 0) {
 			error = "Please add at least one rating category";
 			loading = false;
+
 			return;
 		}
 
@@ -63,9 +65,11 @@
 
 		if (response.ok) {
 			const data = await response.json();
+
 			goto(`/night/${data.joinCode}`);
 		} else {
 			const data = await response.json();
+
 			error = data.error || "An error occurred";
 			loading = false;
 		}

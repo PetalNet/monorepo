@@ -16,9 +16,11 @@ import * as schema from "./db/schema";
 /** A lookup that fails the test loudly instead of asserting non-null and reading undefined. */
 function resolvedId(resolved: Map<string, string>, school: string): string {
 	const id = resolved.get(school);
+
 	if (id === undefined) {
 		throw new Error(`test setup: ${school} did not resolve`);
 	}
+
 	return id;
 }
 
@@ -39,9 +41,12 @@ const SUMMER_LABEL =
 /** Day arithmetic done independently of the helper the importer uses, so both cannot agree wrongly. */
 function dayBefore(iso: string): string {
 	const at = new Date(`${iso}T00:00:00Z`);
+
 	at.setUTCDate(at.getUTCDate() - 1);
+
 	return at.toISOString().slice(0, 10);
 }
+
 const DERIVED_SPANS = [
 	["Cornell University", "2026-12-20", "2027-01-24"],
 	["Kennesaw State University", "2026-12-15", "2027-01-10"],
@@ -59,12 +64,15 @@ let databasePath: string;
 beforeEach(async () => {
 	databasePath = path.join(tmpdir(), `collegemap-breaks-${crypto.randomUUID()}.db`);
 	client = createClient({ url: `file:${databasePath}` });
+
 	await client.executeMultiple(`
 		CREATE TABLE colleges (id text PRIMARY KEY NOT NULL, name text NOT NULL, kind text NOT NULL DEFAULT 'college', latitude real NOT NULL, longitude real NOT NULL, is_custom integer NOT NULL DEFAULT false);
 		CREATE TABLE college_breaks (id text PRIMARY KEY NOT NULL, college_id text NOT NULL, label text NOT NULL, start_date text NOT NULL, end_date text NOT NULL, kind text NOT NULL, derivation text NOT NULL, source_url text, quote text, academic_year text NOT NULL, created_at integer NOT NULL, FOREIGN KEY (college_id) REFERENCES colleges(id));
 		CREATE UNIQUE INDEX college_breaks_identity_unique ON college_breaks (college_id, label, start_date, academic_year);
 	`);
+
 	db = drizzle(client, { schema });
+
 	await Promise.all(
 		Object.values(COLLEGE_NAME_MAP).map((name, index) =>
 			client.execute({
@@ -84,6 +92,7 @@ describe("institutional college-break import", () => {
 	it("resolves every source school exactly once, including the explicit WashU name mapping", async () => {
 		expect(COLLEGE_NAME_MAP[WASHU_JSON_NAME]).toBe("Washington University in St Louis");
 		const resolved = await resolveCollegeIds(db);
+
 		expect(resolved).toHaveLength(14);
 		expect(resolved.get(WASHU_JSON_NAME)).toBeDefined();
 	});
@@ -95,7 +104,9 @@ describe("institutional college-break import", () => {
 			sql: "INSERT INTO colleges (id, name, kind, latitude, longitude, is_custom) VALUES (?, ?, 'work', 0, 0, 0)",
 			args: ["work-cornell", "Cornell University"],
 		});
+
 		const resolved = await resolveCollegeIds(db);
+
 		expect(resolved).toHaveLength(14);
 		expect(resolved.get("Cornell University")).not.toBe("work-cornell");
 	});
@@ -128,10 +139,12 @@ describe("institutional college-break import", () => {
 			),
 		);
 		const rendered = await getRenderedCollegeBreaks(db);
+
 		for (const [index, [school, startDate, endDate]] of DERIVED_SPANS.entries()) {
 			expect(found[index]).toEqual([
 				expect.objectContaining({ startDate, endDate, derivation: "derived" }),
 			]);
+
 			// Deriving a span and rendering it are one claim. A derived row that something else still
 			// forces to `unknown` satisfies the pin above and then never reaches a calendar.
 			expect(
@@ -154,11 +167,13 @@ describe("institutional college-break import", () => {
 			.from(collegeBreaks)
 			.where(eq(collegeBreaks.collegeId, resolvedId(resolved, KCAI)));
 		const transcribed = rows.filter((row) => !row.label.startsWith(SUMMER_LABEL_PREFIX));
+
 		expect(rows).toHaveLength(15);
 		expect(transcribed).toHaveLength(14);
 		expect(transcribed.filter((row) => row.derivation !== "quoted")).toEqual([]);
 		expect(rows.filter((row) => row.kind === "exam")).toEqual([]);
 		expect(rows.filter((row) => row.quote === null || row.sourceUrl === null)).toEqual([]);
+
 		expect(
 			rows
 				.filter((row) => row.kind === "break" || row.kind === "holiday")
@@ -194,6 +209,7 @@ describe("rows the source calendar never published as an event", () => {
 			.where(
 				and(eq(collegeBreaks.collegeId, collegeId), eq(collegeBreaks.label, "Thanksgiving break")),
 			);
+
 		expect(stored).toEqual([
 			expect.objectContaining({
 				startDate: "2026-11-24",
@@ -202,11 +218,13 @@ describe("rows the source calendar never published as an event", () => {
 				derivation: "derived",
 			}),
 		]);
+
 		// An inferred span still has to say what it was inferred from.
 		expect(stored.at(0)?.sourceUrl).toContain("rose-hulman.edu");
 		expect(stored.at(0)?.quote).toContain("Fall Term Ends");
 
 		const rendered = await getRenderedCollegeBreaks(db, collegeId);
+
 		expect(rendered.map((row) => row.label)).toContain("Thanksgiving break");
 	});
 
@@ -223,6 +241,7 @@ describe("rows the source calendar never published as an event", () => {
 					eq(collegeBreaks.label, "Spring 2027 commencement"),
 				),
 			);
+
 		// `unknown`, not the `commencement` the classifier would otherwise give it: the row is still
 		// being forced, so the mechanism is intact rather than merely unused.
 		expect(stored).toEqual([
@@ -235,6 +254,7 @@ describe("rows the source calendar never published as an event", () => {
 		]);
 
 		const rendered = await getRenderedCollegeBreaks(db, collegeId);
+
 		expect(rendered.length).toBeGreaterThan(0); // Positive control: an empty query is not success.
 		expect(rendered.map((row) => row.label)).not.toContain("Spring 2027 commencement");
 	});
@@ -260,8 +280,10 @@ describe("derived summer break spans", () => {
 		await importCollegeBreaks(db);
 		const resolved = await resolveCollegeIds(db);
 		const rows = await db.select().from(collegeBreaks);
+
 		return [...resolved].map(([school, collegeId]) => {
 			const mine = rows.filter((row) => row.collegeId === collegeId);
+
 			return {
 				school,
 				summer: mine.filter((row) => row.label.startsWith(SUMMER_LABEL_PREFIX)),
@@ -276,17 +298,21 @@ describe("derived summer break spans", () => {
 
 	it("gives every school exactly one summer span, ending the day before its own fall start", async () => {
 		const checks = await importAndCollect();
+
 		expect(checks).toHaveLength(14);
+
 		// Positive control: without a fall-start row on every school the comparison below has nothing
 		// to compare against and would pass on an empty dataset.
 		expect(checks.filter((entry) => entry.fallStart === undefined).map((e) => e.school)).toEqual(
 			[],
 		);
+
 		expect(
 			checks
 				.filter((entry) => entry.summer.length !== 1)
 				.map((entry) => `${entry.school} -> ${String(entry.summer.length)} summer spans`),
 		).toEqual([]);
+
 		expect(
 			checks
 				.filter((entry) => entry.summer.at(0)?.endDate !== dayBefore(entry.fallStart ?? ""))
@@ -301,6 +327,7 @@ describe("derived summer break spans", () => {
 		const checks = await importAndCollect();
 		const endOf = (school: string) =>
 			checks.find((entry) => entry.school === school)?.summer.at(0)?.endDate;
+
 		expect(endOf(ROSE_HULMAN)).toBe("2026-09-02");
 		expect(endOf("Missouri State University-Springfield")).toBe("2026-08-16");
 	});
@@ -311,6 +338,7 @@ describe("derived summer break spans", () => {
 		// nothing about that changes where its summer closes.
 		const checks = await importAndCollect();
 		const kcai = checks.find((entry) => entry.school === KCAI);
+
 		expect(kcai?.fallStart).toBe("2026-08-24");
 		expect(kcai?.summer.at(0)?.endDate).toBe("2026-08-23");
 	});
@@ -318,6 +346,7 @@ describe("derived summer break spans", () => {
 	it("opens every summer span on the academic-year boundary, says so in the label, and renders", async () => {
 		const checks = await importAndCollect();
 		const rendered = await getRenderedCollegeBreaks(db);
+
 		for (const entry of checks) {
 			expect(entry.summer).toEqual([
 				expect.objectContaining({
@@ -327,7 +356,9 @@ describe("derived summer break spans", () => {
 					derivation: "derived",
 				}),
 			]);
+
 			const row = entry.summer.at(0);
+
 			// Provenance: the row has to point at the published boundary it was derived from.
 			expect(row?.quote).toContain(String(entry.fallStart));
 			expect(row?.sourceUrl).toMatch(/^https:\/\//);
@@ -341,6 +372,7 @@ describe("derived summer break spans", () => {
 		// Missouri Baptist starts evening classes 2026-08-24 and day classes 2026-08-26.
 		const checks = await importAndCollect();
 		const mbu = checks.find((entry) => entry.school === "Missouri Baptist University");
+
 		expect(mbu?.summer.at(0)?.endDate).toBe("2026-08-23");
 		expect(mbu?.summer.at(0)?.quote).toContain("evening classes");
 	});
@@ -351,6 +383,7 @@ describe("rendered institutional breaks", () => {
 		await importCollegeBreaks(db);
 		const resolved = await resolveCollegeIds(db);
 		const cornellId = resolvedId(resolved, "Cornell University");
+
 		await db.insert(collegeBreaks).values(
 			["term_boundary", "exam", "commencement", "admin", "unknown"].map((kind, index) => ({
 				collegeId: cornellId,
@@ -364,6 +397,7 @@ describe("rendered institutional breaks", () => {
 		);
 
 		const rows = await getRenderedCollegeBreaks(db, cornellId);
+
 		expect(rows.length).toBeGreaterThan(0); // Positive control: an empty query is not success.
 		expect(rows.every((row) => row.kind === "break" || row.kind === "holiday")).toBe(true);
 		expect(rows.map((row) => row.label)).not.toContain("Hidden unknown");
@@ -407,12 +441,15 @@ describe("rendered breaks against academic obligations", () => {
 		const resolved = await resolveCollegeIds(db);
 		const rows = await db.select().from(collegeBreaks);
 		const byCollege = new Map<string, typeof rows>();
+
 		for (const row of rows) {
 			byCollege.set(row.collegeId, [...(byCollege.get(row.collegeId) ?? []), row]);
 		}
+
 		return [...resolved].map(([school, collegeId]) => {
 			const dated = (byCollege.get(collegeId) ?? []).filter(hasRealDates);
 			const rendered = dated.filter((row) => RENDERED_KINDS.has(row.kind));
+
 			return {
 				school,
 				obligations: dated.filter((row) => OBLIGATION_KINDS.has(row.kind)),
@@ -425,9 +462,11 @@ describe("rendered breaks against academic obligations", () => {
 	it("gives every school obligations, rendered rows and one winter span to check", async () => {
 		// Without this the collision sweep below passes just as happily over an empty dataset.
 		const schools = await importAndGroup();
+
 		expect(schools).toHaveLength(14);
 		expect(schools.filter((entry) => entry.obligations.length === 0)).toEqual([]);
 		expect(schools.filter((entry) => entry.rendered.length === 0)).toEqual([]);
+
 		expect(
 			schools
 				.filter((entry) => entry.winter.length !== 1)
@@ -441,9 +480,11 @@ describe("rendered breaks against academic obligations", () => {
 		const schools = await importAndGroup();
 		const undetected = schools.filter(({ obligations, winter }) => {
 			const span = winter.at(0);
+
 			if (!span) {
 				return true;
 			}
+
 			const ends = obligations
 				.filter((row) => row.endDate < span.startDate)
 				.map((row) => row.endDate);
@@ -452,12 +493,16 @@ describe("rendered breaks against academic obligations", () => {
 				.map((row) => row.startDate);
 			const lastFall = ends.toSorted().at(-1);
 			const firstSpring = starts.toSorted().at(0);
+
 			if (lastFall === undefined || firstSpring === undefined) {
 				return true;
 			}
+
 			const stretched = { label: span.label, startDate: lastFall, endDate: firstSpring };
+
 			return !obligations.some((row) => collides(stretched, row));
 		});
+
 		expect(undetected.map((entry) => entry.school)).toEqual([]);
 	});
 
@@ -473,6 +518,7 @@ describe("rendered breaks against academic obligations", () => {
 					),
 			),
 		);
+
 		expect(collisions).toEqual([]);
 	});
 });

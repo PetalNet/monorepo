@@ -12,7 +12,9 @@ export const init: ServerInit = async () => {
 	if (!building) {
 		groveMcpIngress();
 	}
+
 	await initializeGroveRuntime().initialize();
+
 	process.once("sveltekit:shutdown", () => {
 		void disposeGroveRuntime();
 	});
@@ -27,16 +29,19 @@ export const handle = handleGrove(({ event, resolve }) =>
 		event.locals.actor = null;
 		event.locals.session = null;
 		event.locals.user = null;
+
 		if (event.url.pathname === "/mcp") {
 			return yield* Effect.promise(() => Promise.resolve(resolve(event)));
 		}
 
 		const auth = yield* GroveAuth;
+
 		if (
 			event.url.pathname !== "/__dev/preflight" &&
 			!(yield* auth.isBrowserAuthRoute(event.url.toString()))
 		) {
 			const session = yield* auth.hydrateSession(event.request.headers);
+
 			event.locals.actor = session?.actor ?? null;
 			event.locals.session = session?.session ?? null;
 			event.locals.user = session?.user ?? null;

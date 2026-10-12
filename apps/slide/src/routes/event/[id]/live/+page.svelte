@@ -82,6 +82,7 @@
 		if (timerInterval) {
 			clearInterval(timerInterval);
 		}
+
 		if (pollInterval) {
 			clearInterval(pollInterval);
 		}
@@ -91,15 +92,19 @@
 		if (timerRunning) {
 			return;
 		}
+
 		timerRunning = true;
+
 		timerInterval = setInterval(() => {
 			if (timerSeconds === 0) {
 				if (timerMinutes === 0) {
 					stopTimer();
 					// Timer ended!
 					alert("Time is up!");
+
 					return;
 				}
+
 				timerMinutes--;
 				timerSeconds = 59;
 			} else {
@@ -110,6 +115,7 @@
 
 	function pauseTimer() {
 		timerRunning = false;
+
 		if (timerInterval) {
 			clearInterval(timerInterval);
 			timerInterval = null;

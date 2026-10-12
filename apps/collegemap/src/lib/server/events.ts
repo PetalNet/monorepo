@@ -10,6 +10,7 @@ export function unsubscribe(controller: ReadableStreamDefaultController) {
 
 export function emit(event: string, data: unknown) {
 	const payload = `event: ${event}\ndata: ${JSON.stringify(data)}\n\n`;
+
 	for (const controller of controllers) {
 		try {
 			controller.enqueue(new TextEncoder().encode(payload));

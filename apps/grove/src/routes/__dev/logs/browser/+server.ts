@@ -6,6 +6,8 @@ export const POST: RequestHandler = async (event) => {
 	if (!import.meta.env.DEV || !groveOrbDevAuthFlagEnabled()) {
 		return devRouteNotFound();
 	}
+
 	const { ingestDevBrowserLogs } = await import("#lib/server/dev/browser-logs.ts");
+
 	return ingestDevBrowserLogs(event.request);
 };

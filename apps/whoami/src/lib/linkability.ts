@@ -26,16 +26,22 @@ export function readCarriedRef(): CarriedRef | null {
 	if (typeof window === "undefined") {
 		return null;
 	}
+
 	const frag = window.location.hash.replace(/^#/, "");
+
 	if (!frag) {
 		return null;
 	}
+
 	const params = new URLSearchParams(frag);
 	const hash = params.get("ref");
+
 	if (!hash) {
 		return null;
 	}
+
 	const fromHost = params.get("from");
+
 	return {
 		hash,
 		fromHost,
@@ -52,10 +58,12 @@ export function buildJumpUrl(myHash: string, siblingHost?: string): string {
 	if (typeof window === "undefined") {
 		return "#";
 	}
+
 	const origin = siblingHost
 		? `${window.location.protocol}//${siblingHost}`
 		: window.location.origin;
 	const frag = new URLSearchParams({ ref: myHash, from: window.location.host });
+
 	return `${origin}${window.location.pathname}#${frag.toString()}`;
 }
 

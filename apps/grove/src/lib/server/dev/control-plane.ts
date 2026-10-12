@@ -92,6 +92,7 @@ const stringArray = (value: unknown): string[] | undefined => {
 	if (!Array.isArray(value)) {
 		return undefined;
 	}
+
 	return value.every((entry: unknown): entry is string => typeof entry === "string")
 		? value
 		: undefined;
@@ -99,15 +100,18 @@ const stringArray = (value: unknown): string[] | undefined => {
 
 const authorizationServerMetadataUrl = (issuer: string) => {
 	const parsed = new URL(issuer);
+
 	return `${parsed.origin}/.well-known/oauth-authorization-server${parsed.pathname}`;
 };
 
 const fetchMetadata = async (fetcher: typeof fetch, url: string) => {
 	try {
 		const response = await fetcher(url, { signal: AbortSignal.timeout(5_000) });
+
 		if (!response.ok) {
 			return undefined;
 		}
+
 		return record(await response.json());
 	} catch {
 		return undefined;
@@ -118,6 +122,7 @@ const endpointHasOrigin = (value: unknown, origin: string) => {
 	if (typeof value !== "string") {
 		return false;
 	}
+
 	try {
 		return new URL(value).origin === origin;
 	} catch {
@@ -151,6 +156,7 @@ const homeOwnerCheck = (readiness: HomeReadiness | undefined): DevPreflightCheck
 			repair: "Repair database/runtime readiness before inspecting the Home Host owner.",
 		};
 	}
+
 	if (readiness.status === "owner-unbound") {
 		return {
 			id: "home-host-owner",
@@ -161,6 +167,7 @@ const homeOwnerCheck = (readiness: HomeReadiness | undefined): DevPreflightCheck
 			details: { configuredIdentity: readiness.configuredIdentity },
 		};
 	}
+
 	if (readiness.status === "owner-config-mismatch") {
 		return {
 			id: "home-host-owner",
@@ -175,6 +182,7 @@ const homeOwnerCheck = (readiness: HomeReadiness | undefined): DevPreflightCheck
 			},
 		};
 	}
+
 	if (readiness.status === "owner-not-current") {
 		return {
 			id: "home-host-owner",
@@ -188,6 +196,7 @@ const homeOwnerCheck = (readiness: HomeReadiness | undefined): DevPreflightCheck
 			},
 		};
 	}
+
 	return {
 		id: "home-host-owner",
 		required: true,
@@ -211,6 +220,7 @@ const browserSessionCheck = (
 			details: { authenticated: false, actor: null },
 		};
 	}
+
 	if (!browserSession.actor) {
 		return {
 			id: "browser-session",
@@ -222,6 +232,7 @@ const browserSessionCheck = (
 			details: { authenticated: true, actor: null },
 		};
 	}
+
 	return {
 		id: "browser-session",
 		required: false,
@@ -391,6 +402,7 @@ export const runDevPreflight = async (input: DevPreflightInput) => {
 				},
 	];
 	const requiredHealthy = checks.every((check) => !check.required || check.status === "pass");
+
 	return {
 		status: requiredHealthy ? ("ready" as const) : ("not-ready" as const),
 		readyForLogin: requiredHealthy,

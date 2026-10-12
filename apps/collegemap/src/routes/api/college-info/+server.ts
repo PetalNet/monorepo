@@ -15,6 +15,7 @@ interface WikipediaSummary {
 
 export const GET: RequestHandler = async ({ url }) => {
 	const name = url.searchParams.get("name");
+
 	if (!name) {
 		return json({ collegeName: "", description: null, thumbnailUrl: null }, { status: 400 });
 	}
@@ -49,10 +50,12 @@ export const GET: RequestHandler = async ({ url }) => {
 
 		if (resp.ok) {
 			const data = (await resp.json()) as WikipediaSummary;
+
 			description =
 				typeof data.extract === "string" && data.extract.length > 0
 					? data.extract.slice(0, 500)
 					: null;
+
 			thumbnailUrl = typeof data.thumbnail?.source === "string" ? data.thumbnail.source : null;
 		}
 	} catch {

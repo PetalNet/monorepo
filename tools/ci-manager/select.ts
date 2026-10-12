@@ -40,11 +40,13 @@ const affectedPackages = Effect.fn("affectedPackages")(function* (base: string) 
 			"HEAD",
 		]),
 	);
+
 	if (graph.errors?.length) {
 		return yield* new TurboQueryFailed({
 			message: graph.errors.map((error) => error.message).join("\n"),
 		});
 	}
+
 	return graph.data.affectedPackages.items;
 });
 
@@ -57,6 +59,7 @@ const comparisonPlan = Effect.fn("comparisonPlan")(function* (base: string) {
 		],
 		{ concurrency: 2 },
 	);
+
 	return {
 		...selectJobs(
 			diff.split("\0").filter(Boolean),
@@ -93,6 +96,7 @@ export const select: Effect.Effect<
 	const lines = Object.entries(outputs)
 		.map(([key, value]) => `${key}=${String(value)}`)
 		.join("\n");
+
 	yield* Console.log(lines);
 	yield* fs.writeFileString(outputPath, `${lines}\n`, { flag: "a" });
 });

@@ -1,5 +1,6 @@
 import { Context, Effect, Layer, Predicate, Schema, Stream, type Scope } from "effect";
 import { HttpRouter, HttpServerError, HttpServerRequest, HttpServerResponse } from "effect/http";
+import { HttpApi, HttpApiScalar, OpenApi } from "effect/http-api";
 
 import { createMcpLayer } from "./mcp.js";
 import { createOpenApi } from "./openapi.js";
@@ -14,6 +15,9 @@ export interface EffectApiConfig<R> {
 	readonly operations: readonly ApiOperation<R>[];
 	readonly mcpOperations?: readonly ApiOperation<R>[];
 	readonly mcpPath?: `/${string}`;
+	/** Scalar reference path. Defaults to <basePath>/docs. */
+	readonly docsPath?: `/${string}`;
+	readonly scalar?: HttpApiScalar.ScalarConfig;
 	readonly logCause?: LogCause;
 }
 
@@ -42,7 +46,8 @@ export function createEffectApi<R>(config: EffectApiConfig<R>) {
 	const logCause = config.logCause ?? defaultLogCause;
 	const mcpOperations = config.mcpOperations ?? config.operations;
 	const all = new Set(mcpOperations.map((operation) => operation.name));
-	const routes = Layer.merge(
+	const openapi = createOpenApi(config);
+	const routes = Layer.mergeAll(
 		createRestLayer({ basePath: config.basePath, operations: config.operations, logCause }),
 		createMcpLayer({
 			title: config.title,
@@ -50,6 +55,10 @@ export function createEffectApi<R>(config: EffectApiConfig<R>) {
 			path: config.mcpPath ?? "/mcp",
 			operations: mcpOperations,
 			logCause,
+		}),
+		HttpApiScalar.layer(HttpApi.make(config.title).annotate(OpenApi.Override, openapi), {
+			path: config.docsPath ?? (`${config.basePath.replace(/\/$/, "")}/docs` as `/${string}`),
+			...(config.scalar ? { scalar: config.scalar } : {}),
 		}),
 	);
 	const layer = Layer.effect(
@@ -84,17 +93,20 @@ export function createEffectApi<R>(config: EffectApiConfig<R>) {
 						const abort = () => {
 							resume(Effect.interrupt);
 						};
+
 						if (request.signal.aborted) {
 							abort();
 						} else {
 							request.signal.addEventListener("abort", abort, { once: true });
 						}
+
 						return Effect.sync(() => {
 							request.signal.removeEventListener("abort", abort);
 						});
 					}),
 				)
 			: handled;
+
 		// Normalize the preview's parse-error status at the response boundary.
 		if (
 			new URL(incoming.originalUrl).pathname === (config.mcpPath ?? "/mcp") &&
@@ -113,7 +125,9 @@ export function createEffectApi<R>(config: EffectApiConfig<R>) {
 		) {
 			return HttpServerResponse.toWeb(HttpServerResponse.setStatus(response, 400));
 		}
+
 		return HttpServerResponse.toWeb(response);
 	}, Effect.scoped);
-	return { layer, fetch, mcp: fetch, openapi: createOpenApi(config) } as const;
+
+	return { layer, fetch, mcp: fetch, openapi } as const;
 }

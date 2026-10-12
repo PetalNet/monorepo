@@ -105,9 +105,11 @@
 		if (group.status === "submitted") {
 			return { text: "✅ Submitted", color: "bg-green-900/30 border-green-500/30 text-green-300" };
 		}
+
 		if ((data.event as any).submissionsClosed || data.deadlinePassed) {
 			return { text: "🔒 Closed", color: "bg-yellow-900/30 border-yellow-500/30 text-yellow-300" };
 		}
+
 		return { text: "⏳ Pending", color: "bg-gray-800 border-gray-700 text-gray-400" };
 	}
 
@@ -118,12 +120,15 @@
 				color: "bg-gradient-to-r from-yellow-500 to-purple-600 text-white font-bold",
 			};
 		}
+
 		if (isLeader) {
 			return { text: "⭐ Leader", color: "bg-theater-purple text-white" };
 		}
+
 		if (isYou) {
 			return { text: "🎤 You", color: "bg-blue-600 text-white font-semibold" };
 		}
+
 		return { text: "👤 Member", color: "bg-gray-700 text-gray-300" };
 	}
 
@@ -169,6 +174,7 @@
 						order: cat.order,
 					}))
 				: [{ name: "", description: "", order: 0 }];
+
 		showCategoriesModal = true;
 	}
 
@@ -199,6 +205,7 @@
 				editingCategories[index - 1],
 				editingCategories[index],
 			];
+
 			editingCategories.forEach((cat, idx) => (cat.order = idx));
 			editingCategories = [...editingCategories];
 		}
@@ -210,6 +217,7 @@
 				editingCategories[index + 1],
 				editingCategories[index],
 			];
+
 			editingCategories.forEach((cat, idx) => (cat.order = idx));
 			editingCategories = [...editingCategories];
 		}
@@ -217,6 +225,7 @@
 
 	async function saveCategories() {
 		const formData = new FormData();
+
 		formData.append("categories", JSON.stringify(editingCategories));
 
 		const response = await fetch(`/night/${data.event.joinCode}?/updateCategories`, {
@@ -237,11 +246,13 @@
 
 		// Reorder the array
 		const [movedItem] = orderedGroupIds.splice(oldIndex, 1);
+
 		orderedGroupIds.splice(newIndex, 0, movedItem);
 
 		// Update the presentation order in the data immediately (optimistic update)
 		orderedGroupIds.forEach((groupId, index) => {
 			const group = data.event.groups.find((g: any) => g.id === groupId);
+
 			if (group) {
 				group.presentationOrder = index;
 			}
@@ -252,6 +263,7 @@
 
 		// Save to server in background
 		const formData = new FormData();
+
 		formData.append("orderedGroupIds", JSON.stringify(orderedGroupIds));
 
 		fetch(`/night/${data.event.joinCode}?/reorderPresentations`, {
@@ -848,12 +860,15 @@
 			{@const sortedGroups = [...data.event.groups].sort((a, b) => {
 				const aIsUser = userGroupIds.has(a.id);
 				const bIsUser = userGroupIds.has(b.id);
+
 				if (aIsUser && !bIsUser) {
 					return -1;
 				}
+
 				if (!aIsUser && bIsUser) {
 					return 1;
 				}
+
 				return 0;
 			})}
 
@@ -1000,6 +1015,7 @@
 								const value = e.currentTarget.value;
 								const segmenter = new Intl.Segmenter("en", { granularity: "grapheme" });
 								const segments = Array.from(segmenter.segment(value));
+
 								if (segments.length > 1) {
 									e.currentTarget.value = segments[0].segment;
 									selectedEmoji = segments[0].segment;
@@ -1375,6 +1391,7 @@
 													const value = e.currentTarget.value;
 													const segmenter = new Intl.Segmenter("en", { granularity: "grapheme" });
 													const segments = Array.from(segmenter.segment(value));
+
 													if (segments.length > 1) {
 														e.currentTarget.value = segments[0].segment;
 														editEmoji = segments[0].segment;

@@ -12,6 +12,7 @@ const cli = new URL("main.ts", import.meta.url).pathname;
 
 test("affected namespace execution includes dependents, excludes unrelated packages and native tasks", () => {
 	const root = mkdtempSync(join(tmpdir(), "ci-turbo-"));
+
 	try {
 		const run = (command: string, args: string[], env = {}) => {
 			const result = spawnSync(command, args, {
@@ -19,20 +20,27 @@ test("affected namespace execution includes dependents, excludes unrelated packa
 				encoding: "utf8",
 				env: { ...process.env, TURBO_TELEMETRY_DISABLED: "1", ...env },
 			});
+
 			assert.equal(result.status, 0, result.stderr);
+
 			return result.stdout;
 		};
+
 		writeFileSync(
 			join(root, "package.json"),
 			JSON.stringify({ private: true, packageManager: "pnpm@12.9.1" }),
 		);
+
 		writeFileSync(join(root, "pnpm-workspace.yaml"), "packages:\n  - packages/*\n");
+
 		writeFileSync(
 			join(root, "turbo.json"),
 			JSON.stringify({ tasks: { check: {}, build: {}, test: {} } }),
 		);
+
 		for (const name of ["source", "consumer", "unrelated", "native"]) {
 			mkdirSync(join(root, "packages", name), { recursive: true });
+
 			writeFileSync(
 				join(root, "packages", name, "package.json"),
 				JSON.stringify({
@@ -43,8 +51,10 @@ test("affected namespace execution includes dependents, excludes unrelated packa
 				}),
 			);
 		}
+
 		run("git", ["init", "-q"]);
 		run("git", ["add", "."]);
+
 		run("git", [
 			"-c",
 			"user.name=Test",
@@ -54,6 +64,7 @@ test("affected namespace execution includes dependents, excludes unrelated packa
 			"-qm",
 			"fixture",
 		]);
+
 		const env = {
 			TURBO_SCM_BASE: run("git", ["rev-parse", "HEAD"]).trim(),
 			TURBO_SCM_HEAD: "HEAD",
@@ -81,10 +92,12 @@ test("affected namespace execution includes dependents, excludes unrelated packa
 					env,
 				),
 			);
+
 		assert.deepEqual(plan().tasks, []);
 		writeFileSync(join(root, "packages/source/source.ts"), "export const value = 1;\n");
 		writeFileSync(join(root, "packages/native/source.rs"), "// native change\n");
 		run("git", ["add", "."]);
+
 		run("git", [
 			"-c",
 			"user.name=Test",
@@ -94,6 +107,7 @@ test("affected namespace execution includes dependents, excludes unrelated packa
 			"-qm",
 			"source change",
 		]);
+
 		assert.deepEqual(
 			plan()
 				.tasks.filter((task) => task.command !== "<NONEXISTENT>")
@@ -117,8 +131,10 @@ test.each([false, true])(
 	"selector only queries ownership and fails on Turbo errors=%s",
 	(error) => {
 		const root = mkdtempSync(join(tmpdir(), "ci-select-"));
+
 		try {
 			mkdirSync(join(root, "bin"));
+
 			for (const command of ["git", "pnpm"]) {
 				const output =
 					command === "pnpm"
@@ -129,16 +145,19 @@ test.each([false, true])(
 								...(error ? { errors: [{ message: "planning failed" }] } : {}),
 							})
 						: "apps/grove/src/routes/+page.svelte\0";
+
 				writeFileSync(
 					join(root, "bin", command),
 					`#!${process.execPath}\nrequire("node:fs").appendFileSync("commands", JSON.stringify([${JSON.stringify(command)}, ...process.argv.slice(2)]) + "\\n");\nprocess.stdout.write(${JSON.stringify(output)});\n`,
 					{ mode: 0o755 },
 				);
 			}
+
 			writeFileSync(
 				join(root, "event.json"),
 				JSON.stringify({ pull_request: { base: { sha: "base-sha" } } }),
 			);
+
 			const result = spawnSync(process.execPath, [cli, "select"], {
 				cwd: root,
 				encoding: "utf8",
@@ -149,11 +168,14 @@ test.each([false, true])(
 					GITHUB_OUTPUT: join(root, "outputs"),
 				},
 			});
+
 			assert.equal(result.status === 0, !error, result.stderr);
+
 			const commands = readFileSync(join(root, "commands"), "utf8")
 				.trim()
 				.split("\n")
 				.map((line) => JSON.parse(line) as string[]);
+
 			assert.deepEqual(
 				commands.filter(([command]) => command === "pnpm"),
 				[
@@ -171,6 +193,7 @@ test.each([false, true])(
 					],
 				],
 			);
+
 			if (!error) {
 				assert.match(readFileSync(join(root, "outputs"), "utf8"), /js=true\n/u);
 				assert.match(readFileSync(join(root, "outputs"), "utf8"), /base=base-sha\n/u);

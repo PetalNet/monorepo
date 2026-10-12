@@ -43,11 +43,14 @@ export function mergeRanges(ranges: DayRange[]): DayRange[] {
 	if (ranges.length === 0) {
 		return [];
 	}
+
 	const sorted = ranges.toSorted((a, b) => a.start - b.start || a.end - b.end);
 	const merged: DayRange[] = [{ ...sorted[0] }];
+
 	for (let i = 1; i < sorted.length; i++) {
 		const next = sorted[i];
 		const last = merged[merged.length - 1];
+
 		if (next.start <= last.end + 1) {
 			if (next.end > last.end) {
 				last.end = next.end;
@@ -56,6 +59,7 @@ export function mergeRanges(ranges: DayRange[]): DayRange[] {
 			merged.push({ ...next });
 		}
 	}
+
 	return merged;
 }
 
@@ -64,10 +68,12 @@ function covers(ranges: DayRange[], day: number): boolean {
 		if (day < r.start) {
 			return false;
 		}
+
 		if (day <= r.end) {
 			return true;
 		}
 	}
+
 	return false;
 }
 
@@ -91,12 +97,14 @@ function computeWindows(participants: Participant[]): FreeWindow[] {
 		.filter((p) => p.ranges.length > 0);
 
 	const boundarySet = new Set<number>();
+
 	for (const p of active) {
 		for (const r of p.ranges) {
 			boundarySet.add(r.start);
 			boundarySet.add(r.end + 1);
 		}
 	}
+
 	const boundaries = [...boundarySet].toSorted((a, b) => a - b);
 
 	interface Segment {
@@ -110,24 +118,32 @@ function computeWindows(participants: Participant[]): FreeWindow[] {
 	for (let i = 0; i < boundaries.length - 1; i++) {
 		const start = boundaries[i];
 		const end = boundaries[i + 1] - 1;
+
 		if (end < start) {
 			continue;
 		}
+
 		const freeIds = active.filter((p) => covers(p.ranges, start)).map((p) => p.id);
+
 		segments.push({ start, end, freeIds, key: freeIds.join("\u0000") });
 	}
 
 	const windows: FreeWindow[] = [];
+
 	for (const seg of segments) {
 		const prev = windows.at(-1);
 		const prevKey = prev ? prev.freeIds.join("\u0000") : null;
+
 		if (prev && prevKey === seg.key && prev.endDay + 1 === seg.start) {
 			prev.endDay = seg.end;
 			prev.end = fromDay(seg.end);
 			prev.days = dayCount(prev.startDay, prev.endDay);
+
 			continue;
 		}
+
 		const freeSet = new Set(seg.freeIds);
+
 		windows.push({
 			startDay: seg.start,
 			endDay: seg.end,

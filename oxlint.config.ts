@@ -45,6 +45,29 @@ export const lintConfig = {
 		"prefer-object-spread": "error",
 		"prefer-regex-literals": "error",
 		"eslint/eqeqeq": ["error", "smart"],
+		"eslint/no-underscore-dangle": "error",
+		"eslint/no-restricted-imports": [
+			"error",
+			{
+				patterns: [
+					{
+						group: ["crypto", "node:crypto"],
+						importNames: ["default", "randomUUID", "getRandomValues", "webcrypto"],
+						message: "Use the global crypto object.",
+					},
+					{
+						group: ["util", "node:util"],
+						importNames: ["default", "TextEncoder", "TextDecoder"],
+						message: "Use the Web globals TextEncoder and TextDecoder.",
+					},
+					{
+						group: ["url", "node:url"],
+						importNames: ["default", "URL", "URLSearchParams"],
+						message: "Use the Web globals URL and URLSearchParams.",
+					},
+				],
+			},
+		],
 		"unicorn/import-style": "error",
 		"eslint/curly": ["error", "all"],
 		// Domain failures use Effect error classes and schema-aware checks.
@@ -134,13 +157,17 @@ export const lintConfig = {
 			// Effect owns asynchronous control flow; framework Promise adapters stay at the boundary.
 			files: [
 				"apps/grove/dev-oidc.ts",
-				"apps/grove/src/lib/server/{actors,sprouts}/**",
+				"apps/grove/src/lib/server/{actors,sprouts,projects}/**",
 				"packages/effect-api/src/**",
 			],
 			rules: {
 				"effecttsgo/async-function": "error",
 				"effecttsgo/new-promise": "error",
 			},
+		},
+		{
+			files: ["apps/grove/src/lib/server/projects/**"],
+			rules: { "effecttsgo/prefer-schema-over-json": "error" },
 		},
 		{
 			files: ["apps/grove/dev-oidc.ts"],

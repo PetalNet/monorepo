@@ -35,6 +35,7 @@ export const actions: Actions = {
 
 		// Check if user already exists
 		const existing = await findUserByName(firstName, lastName);
+
 		if (existing) {
 			return fail(400, {
 				error: "An account with this name already exists",

@@ -63,6 +63,7 @@ export async function validateSession(sessionId: string) {
 		await prisma.session.delete({
 			where: { id: sessionId },
 		});
+
 		return null;
 	}
 

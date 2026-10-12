@@ -11,6 +11,7 @@ export const load: LayoutServerLoad = async ({ cookies }) => {
 	}
 
 	const adminEmail = process.env.ADMIN_EMAIL;
+
 	console.log("Admin check - User email:", session.user.email);
 	console.log("Admin check - ADMIN_EMAIL env:", adminEmail);
 	console.log("Admin check - Match:", session.user.email === adminEmail);

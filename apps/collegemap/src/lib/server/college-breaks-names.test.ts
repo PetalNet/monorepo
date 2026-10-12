@@ -14,6 +14,7 @@ describe("COLLEGE_NAME_MAP", () => {
 		const unknown = Object.entries(COLLEGE_NAME_MAP)
 			.filter(([, dbName]) => !canonical.has(dbName))
 			.map(([source, dbName]) => `${source} -> ${dbName}`);
+
 		expect(unknown).toEqual([]);
 	});
 
@@ -26,6 +27,7 @@ describe("COLLEGE_NAME_MAP", () => {
 
 	it("maps every source school exactly once", () => {
 		const values = Object.values(COLLEGE_NAME_MAP);
+
 		expect(new Set(values).size).toBe(values.length);
 	});
 });

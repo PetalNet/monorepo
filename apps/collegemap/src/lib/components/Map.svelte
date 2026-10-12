@@ -50,18 +50,22 @@
 		if (count >= 10) {
 			return 46;
 		}
+
 		if (count >= 3) {
 			return 38;
 		}
+
 		return 30;
 	}
 
 	function setTiles() {
 		const leaflet = L;
 		const leafletMap = map;
+
 		if (!leafletMap || !leaflet) {
 			return;
 		}
+
 		if (tileLayer) {
 			tileLayer.remove();
 		}
@@ -82,6 +86,7 @@
 
 		const init = async () => {
 			const LModule = await import("leaflet");
+
 			// Both plugins extend L, so they load after it and before anything touches the map.
 			await import("leaflet.markercluster");
 			await import("leaflet.heat");
@@ -89,6 +94,7 @@
 			if (teardown.signal.aborted) {
 				return;
 			}
+
 			L = LModule.default;
 
 			if (!mapContainer) {
@@ -116,9 +122,11 @@
 	function getClusterTotalCount(cluster: import("leaflet").MarkerCluster): number {
 		let total = 0;
 		const childMarkers = cluster.getAllChildMarkers();
+
 		for (const m of childMarkers) {
 			total += (m.options as CollegeMarkerOptions).collegeCount ?? 1;
 		}
+
 		return total;
 	}
 
@@ -127,6 +135,7 @@
 		// view of the async-loaded Leaflet module and map.
 		const leaflet = L;
 		const leafletMap = map;
+
 		if (!leaflet || !leafletMap) {
 			return;
 		}
@@ -144,6 +153,7 @@
 			iconCreateFunction: (cluster) => {
 				const totalCount = getClusterTotalCount(cluster);
 				const size = totalCount >= 50 ? 56 : totalCount >= 20 ? 48 : 40;
+
 				return leaflet.divIcon({
 					className: "college-cluster",
 					html: `<div class="cluster-dot" style="width:${size.toString()}px;height:${size.toString()}px">
@@ -215,28 +225,35 @@
 
 			const loadPopupMeta = async () => {
 				const metaEl = document.getElementById(`popup-meta-${group.college.id}`);
+
 				if (!metaEl || metaEl.dataset.loaded) {
 					return;
 				}
 
 				// Check client-side cache first
 				const cached = collegeInfoCache.get(group.college.name);
+
 				if (cached) {
 					if (cached.description) {
 						metaEl.innerHTML = `<div class="popup-description">${cached.description.slice(0, 150)}...</div>`;
 					}
+
 					metaEl.dataset.loaded = "true";
 					marker.getPopup()?.update();
+
 					return;
 				}
 
 				metaEl.innerHTML = '<div class="popup-meta-loading">Loading info...</div>';
+
 				try {
 					const resp = await fetch(
 						`/api/college-info?name=${encodeURIComponent(group.college.name)}`,
 					);
 					const info = (await resp.json()) as CollegeInfo;
+
 					collegeInfoCache.set(group.college.name, info);
+
 					if (info.description) {
 						metaEl.innerHTML = `<div class="popup-description">${info.description.slice(0, 150)}...</div>`;
 					} else {
@@ -245,6 +262,7 @@
 				} catch {
 					metaEl.innerHTML = "";
 				}
+
 				metaEl.dataset.loaded = "true";
 				marker.getPopup()?.update();
 			};
@@ -282,6 +300,7 @@
 
 	function applyViewMode() {
 		const leafletMap = map;
+
 		if (!leafletMap || !clusterGroup || !heatLayer) {
 			return;
 		}
@@ -290,6 +309,7 @@
 			if (leafletMap.hasLayer(clusterGroup)) {
 				leafletMap.removeLayer(clusterGroup);
 			}
+
 			if (!leafletMap.hasLayer(heatLayer)) {
 				heatLayer.addTo(leafletMap);
 			}
@@ -297,6 +317,7 @@
 			if (leafletMap.hasLayer(heatLayer)) {
 				leafletMap.removeLayer(heatLayer);
 			}
+
 			if (!leafletMap.hasLayer(clusterGroup)) {
 				clusterGroup.addTo(leafletMap);
 			}
@@ -307,6 +328,7 @@
 	// unconditionally or the effect would stop tracking it before the map finishes loading.
 	$effect(() => {
 		void users;
+
 		if (map) {
 			updateMarkers();
 		}
@@ -321,11 +343,13 @@
 	// React to selectedCollege - fly to it
 	$effect(() => {
 		const leafletMap = map;
+
 		if (!selectedCollege || !leafletMap || !clusterGroup) {
 			return;
 		}
 
 		const marker = markersByCollege.get(selectedCollege.name);
+
 		if (marker) {
 			clusterGroup.zoomToShowLayer(marker, () => {
 				marker.openPopup();

@@ -16,6 +16,7 @@
 
 	function openDialog(dialog: HTMLDialogElement) {
 		dialog.showModal();
+
 		return { destroy: () => dialog.close() };
 	}
 
@@ -48,12 +49,14 @@
 
 	function handleDragOver(e: DragEvent, index: number) {
 		e.preventDefault();
+
 		if (draggedIndex === null || draggedIndex === index) {
 			return;
 		}
 
 		const newCategories = [...categories];
 		const draggedItem = newCategories[draggedIndex];
+
 		newCategories.splice(draggedIndex, 1);
 		newCategories.splice(index, 0, draggedItem);
 
@@ -123,6 +126,7 @@
 				color: "bg-green-900/30 text-green-300 border-green-700",
 			},
 		};
+
 		return badges[status as keyof typeof badges] || badges.setup;
 	}
 

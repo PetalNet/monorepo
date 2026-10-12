@@ -36,9 +36,11 @@ function token(name: string, theme: (typeof THEMES)[number]): string {
 	const found = [...css.matchAll(new RegExp(`--${name}:\\s*(#[0-9a-f]{6})\\s*;`, "gu"))].map(
 		(m) => m[1],
 	);
+
 	// Positive control: a token that got renamed or dropped fails here, rather than quietly making
 	// every ratio below unmeasurable and therefore green.
 	expect(found, `--${name} should be declared once per theme`).toHaveLength(THEMES.length);
+
 	return found[THEMES.indexOf(theme)];
 }
 
@@ -48,6 +50,7 @@ function channel(value: number): number {
 
 function luminance(hex: string): number {
 	const n = Number.parseInt(hex.slice(1), 16);
+
 	return (
 		0.2126 * channel(((n >> 16) & 255) / 255) +
 		0.7152 * channel(((n >> 8) & 255) / 255) +
@@ -57,6 +60,7 @@ function luminance(hex: string): number {
 
 function ratio(a: string, b: string): number {
 	const [la, lb] = [luminance(a), luminance(b)];
+
 	return (Math.max(la, lb) + 0.05) / (Math.min(la, lb) + 0.05);
 }
 
@@ -147,6 +151,7 @@ describe("calendar contrast", () => {
 
 			it("gives every season its own colour rather than four names for one", () => {
 				const marks = SEASONS.map((s) => token(`season-${s}-mark`, theme));
+
 				expect(new Set(marks).size).toBe(SEASONS.length);
 			});
 		});
@@ -156,46 +161,58 @@ describe("calendar contrast", () => {
 /** Every declaration of one property across the calendar surface, value only. */
 function declarations(property: RegExp): { file: string; decl: string }[] {
 	const found: { file: string; decl: string }[] = [];
+
 	for (const file of SURFACE) {
 		const source = readFileSync(file, "utf8");
 		// Comments talk about borders and radii in prose; only declarations count.
 		const style = source.slice(source.indexOf("<style>")).replace(/\/\*[\s\S]*?\*\//gu, "");
+
 		for (const match of style.matchAll(property)) {
 			found.push({ file: path.basename(file), decl: match[0].trim() });
 		}
 	}
+
 	return found;
 }
 
 describe("calendar shape and surfaces", () => {
 	it("rounds every corner to the one radius token, or to a circle", () => {
 		const radii = declarations(/border-radius:[^;]+;/gu);
+
 		// Positive control: if the scrape found nothing, an empty "no offenders" list would be a
 		// silent pass.
 		expect(radii.length).toBeGreaterThan(10);
 		const offenders = radii.filter((r) => !/border-radius:\s*(var\(--radius\)|50%);/u.test(r.decl));
+
 		expect(offenders).toEqual([]);
 	});
 
 	it("draws no borders, only hairline rules between two surfaces", () => {
 		const borders = declarations(/border(?!-radius)[a-z-]*:[^;]+;/gu);
+
 		expect(borders.length).toBeGreaterThan(5);
+
 		const offenders = borders.filter(
 			(b) =>
 				!/^border:\s*none;$/u.test(b.decl) &&
 				!/^border-block-(start|end):\s*1px solid var\(--cal-rule\);$/u.test(b.decl),
 		);
+
 		expect(offenders).toEqual([]);
 	});
 
 	it("spaces everything on the 8pt grid, through the scale and nothing else", () => {
 		const spacing = declarations(/(?:^|\s)(?:margin|padding|gap)[a-z-]*:[^;]+;/gu);
+
 		expect(spacing.length).toBeGreaterThan(40);
+
 		const offenders = spacing.filter((s) => {
 			const value = s.decl.slice(s.decl.indexOf(":") + 1, -1).trim();
+
 			// 0, auto and a 1px hairline are not spacing decisions; everything else is a token.
 			return !value.split(/\s+/u).every((part) => /^(0|auto|1px|var\(--space-\d\))$/u.test(part));
 		});
+
 		expect(offenders).toEqual([]);
 	});
 
@@ -203,6 +220,7 @@ describe("calendar shape and surfaces", () => {
 		const physical = declarations(
 			/(?:^|\s)(?:margin|padding|border|inset)?-?(?:top|right|bottom|left):[^;]+;/gu,
 		);
+
 		expect(physical).toEqual([]);
 	});
 });

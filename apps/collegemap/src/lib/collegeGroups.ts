@@ -29,6 +29,7 @@ export function groupUsersByCollege(sourceUsers: UserWithCollege[]): CollegeGrou
 
 	for (const user of sourceUsers) {
 		const existing = groups.get(user.college.id);
+
 		if (existing) {
 			existing.users.push({ firstName: user.firstName, lastName: user.lastName });
 		} else {

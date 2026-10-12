@@ -81,16 +81,21 @@
 	// Determine which podium places exist
 	const existingPlaces = $derived(() => {
 		const places = [];
+
 		if (topPresentations.third.length > 0) {
 			places.push({ step: 1, label: "🥉 Reveal 3rd Place" });
 		}
+
 		if (topPresentations.second.length > 0) {
 			places.push({ step: 2, label: "🥈 Reveal 2nd Place" });
 		}
+
 		if (topPresentations.first.length > 0) {
 			places.push({ step: 3, label: "🥇 Reveal 1st Place" });
 		}
+
 		places.push({ step: 4, label: "🎉 Show Confetti!" });
+
 		return places;
 	});
 
@@ -98,6 +103,7 @@
 	const nextRevealStep = $derived(() => {
 		const places = existingPlaces();
 		const currentIndex = places.findIndex((p) => p.step > winnersRevealStep);
+
 		return currentIndex >= 0 ? places[currentIndex] : null;
 	});
 
@@ -116,14 +122,17 @@
 		if (winnersRevealStep >= 1 && topPresentations.third.length > 1) {
 			return true;
 		}
+
 		// Second place revealed and has tie
 		if (winnersRevealStep >= 2 && topPresentations.second.length > 1) {
 			return true;
 		}
+
 		// First place revealed and has tie
 		if (winnersRevealStep >= 3 && topPresentations.first.length > 1) {
 			return true;
 		}
+
 		return false;
 	});
 
@@ -166,6 +175,7 @@
 		if (lastPresentationId === null && isInitialized) {
 			lastPresentationId = currentId;
 			loadRatingsForPresentation();
+
 			return;
 		}
 
@@ -173,6 +183,7 @@
 		if (isInitialized && currentId !== lastPresentationId) {
 			// Trigger transition
 			isTransitioning = true;
+
 			setTimeout(() => {
 				lastPresentationId = currentId;
 				loadRatingsForPresentation();
@@ -185,6 +196,7 @@
 	function loadRatingsForPresentation() {
 		untrack(() => {
 			const currentId = event.currentPresentationId;
+
 			if (currentId && existingVotes[currentId]) {
 				ratings = { ...existingVotes[currentId] };
 			} else {
@@ -201,6 +213,7 @@
 		if (typeof window === "undefined") {
 			return "";
 		}
+
 		return `${window.location.origin}/night/${event.joinCode}/live`;
 	});
 
@@ -209,6 +222,7 @@
 		if (!event.currentPresentationId) {
 			return null;
 		}
+
 		return localOrderedGroups.find((g: any) => g.id === event.currentPresentationId) || null;
 	});
 
@@ -218,9 +232,11 @@
 	// Check if the current presentation is the user's own presentation
 	const isOwnPresentation = $derived(() => {
 		const pres = currentPresentation();
+
 		if (!pres || !userGroupIds) {
 			return false;
 		}
+
 		return userGroupIds.includes(pres.id);
 	});
 
@@ -232,9 +248,11 @@
 	// Current presentation index
 	const currentPresentationIndex = $derived(() => {
 		const pres = currentPresentation();
+
 		if (!pres) {
 			return -1;
 		}
+
 		return localOrderedGroups.findIndex((g: any) => g.id === pres.id);
 	});
 
@@ -252,6 +270,7 @@
 			try {
 				const QRCode = (await import("qrcode")).default;
 				const url = votingUrl();
+
 				if (url) {
 					qrCodeUrl = await QRCode.toDataURL(url, {
 						width: 300,
@@ -272,6 +291,7 @@
 		if (isHost && presentationListElement) {
 			try {
 				const Sortable = (await import("sortablejs")).default;
+
 				sortableInstance = new Sortable(presentationListElement, {
 					animation: 150,
 					handle: ".drag-handle",
@@ -308,6 +328,7 @@
 		if (pollInterval) {
 			clearInterval(pollInterval);
 		}
+
 		if (sortableInstance) {
 			sortableInstance.destroy();
 		}
@@ -325,6 +346,7 @@
 		// Only shoot if the count has increased (skip initial load)
 		if (lastConfettiCount > 0 && currentCount > lastConfettiCount) {
 			const countDiff = currentCount - lastConfettiCount;
+
 			console.log("New confetti triggers detected! Count:", currentCount, "Diff:", countDiff);
 
 			// Trigger up to 5 confetti bursts with delays
@@ -378,6 +400,7 @@
 			timerDisplay = "00:00";
 			timerExpired = false;
 			timerPaused = false;
+
 			return;
 		}
 
@@ -387,8 +410,10 @@
 			const remaining = timerPausedRemaining || 0;
 			const minutes = Math.floor(remaining / 60);
 			const seconds = remaining % 60;
+
 			timerDisplay = `${String(minutes).padStart(2, "0")}:${String(seconds).padStart(2, "0")}`;
 			timerExpired = remaining <= 0;
+
 			return;
 		}
 
@@ -412,6 +437,7 @@
 
 			const minutes = Math.floor(remaining / 60);
 			const seconds = remaining % 60;
+
 			timerDisplay = `${String(minutes).padStart(2, "0")}:${String(seconds).padStart(2, "0")}`;
 			timerExpired = remaining <= 0;
 		}
@@ -430,6 +456,7 @@
 			clearInterval(timerInterval);
 			timerInterval = null;
 		}
+
 		if (pollInterval) {
 			clearInterval(pollInterval);
 			pollInterval = null;
@@ -442,6 +469,7 @@
 			} catch (e) {
 				// Ignore errors during cleanup
 			}
+
 			sortableInstance = null;
 		}
 	});
@@ -472,7 +500,9 @@
 
 			// Save to server in background
 			const formData = new FormData();
+
 			formData.append("order", JSON.stringify(newOrder));
+
 			fetch("?/reorderPresentations", {
 				method: "POST",
 				body: formData,
@@ -495,15 +525,19 @@
 
 		// Reset ratings
 		const newRatings: Record<string, number> = {};
+
 		event.categories.forEach((cat: any) => {
 			newRatings[cat.id] = 0;
 		});
+
 		ratings = newRatings;
 
 		// Wait for fade out to complete before updating
 		setTimeout(() => {
 			const formData = new FormData();
+
 			formData.append("groupId", groupId);
+
 			fetch("?/setCurrentPresentation", {
 				method: "POST",
 				body: formData,
@@ -529,6 +563,7 @@
 
 			// Show winners without confirmation
 			const formData = new FormData();
+
 			await fetch("?/showWinners", {
 				method: "POST",
 				body: formData,
@@ -543,6 +578,7 @@
 
 	async function previousPresentation() {
 		const idx = currentPresentationIndex();
+
 		if (idx > 0) {
 			await startPresentation(localOrderedGroups[idx - 1].id);
 		}
@@ -556,7 +592,9 @@
 		// Wait for fade out to complete before updating
 		setTimeout(() => {
 			const formData = new FormData();
+
 			formData.append("groupId", "");
+
 			fetch("?/setCurrentPresentation", {
 				method: "POST",
 				body: formData,
@@ -579,7 +617,9 @@
 		}
 
 		const formData = new FormData();
+
 		formData.append("userId", userId);
+
 		fetch("?/removeParticipant", {
 			method: "POST",
 			body: formData,
@@ -592,7 +632,9 @@
 		}
 
 		const formData = new FormData();
+
 		formData.append("sessionId", sessionId);
+
 		fetch("?/removeVotingSession", {
 			method: "POST",
 			body: formData,
@@ -603,6 +645,7 @@
 		// Prevent voting on own presentation
 		if (isOwnPresentation()) {
 			alert("You cannot vote on your own presentation!");
+
 			return;
 		}
 
@@ -610,12 +653,14 @@
 
 		// Auto-save the rating
 		const currentPres = currentPresentation();
+
 		if (!currentPres) {
 			return;
 		}
 
 		savingRating = true;
 		const formData = new FormData();
+
 		formData.append("groupId", currentPres.id);
 		formData.append("categoryId", categoryId);
 		formData.append("stars", stars.toString());
@@ -630,11 +675,14 @@
 			);
 
 			const result = await response.json();
+
 			if (result?.error) {
 				alert(result.error);
 				// Clear the rating on error
 				const { [categoryId]: _, ...rest } = ratings;
+
 				ratings = rest;
+
 				return;
 			}
 
@@ -654,6 +702,7 @@
 
 	function clearHoveredStars(categoryId: string) {
 		const { [categoryId]: _, ...rest } = hoveredStars;
+
 		hoveredStars = rest;
 	}
 
@@ -665,6 +714,7 @@
 		}
 
 		const formData = new FormData();
+
 		await fetch("?/resetVotes", {
 			method: "POST",
 			body: formData,
@@ -675,6 +725,7 @@
 
 	async function handleLogout() {
 		const response = await fetch("/auth/logout", { method: "POST" });
+
 		if (response.ok) {
 			goto("/");
 		}
@@ -683,6 +734,7 @@
 	// Timer control functions
 	async function startTimer() {
 		const formData = new FormData();
+
 		formData.append("minutes", timerMinutes.toString());
 
 		showTimerModal = false;
@@ -699,41 +751,49 @@
 
 	async function pauseTimer() {
 		const formData = new FormData();
+
 		await fetch("?/pauseTimer", {
 			method: "POST",
 			body: formData,
 		});
+
 		await invalidateAll();
 	}
 
 	async function resumeTimer() {
 		const formData = new FormData();
+
 		await fetch("?/resumeTimer", {
 			method: "POST",
 			body: formData,
 		});
+
 		await invalidateAll();
 	}
 
 	async function stopTimer() {
 		// Optimistically clear timer for immediate feedback (stopping should be instant)
 		const evt = event as any;
+
 		evt.timerStartedAt = null;
 		evt.timerDuration = null;
 		evt.timerPausedAt = null;
 		evt.timerPausedRemaining = null;
 
 		const formData = new FormData();
+
 		await fetch("?/stopTimer", {
 			method: "POST",
 			body: formData,
 		});
+
 		await invalidateAll();
 	}
 
 	// Close dropdown when clicking outside
 	function handleClickOutside(e: MouseEvent) {
 		const target = e.target as HTMLElement;
+
 		if (!target.closest(".account-dropdown")) {
 			accountDropdownOpen = false;
 		}
@@ -745,6 +805,7 @@
 		}
 
 		const formData = new FormData();
+
 		await fetch("?/showWinners", {
 			method: "POST",
 			body: formData,
@@ -756,11 +817,13 @@
 
 	async function revealNextWinner() {
 		const next = nextRevealStep();
+
 		if (!next) {
 			return;
 		}
 
 		const formData = new FormData();
+
 		formData.append("step", String(next.step));
 
 		await fetch("?/revealWinner", {
@@ -784,10 +847,12 @@
 
 			// Reset reveal step to 0
 			const formData = new FormData();
+
 			formData.append("step", "0");
 			await fetch("?/revealWinner", { method: "POST", body: formData });
 
 			await invalidateAll();
+
 			return;
 		}
 
@@ -798,6 +863,7 @@
 
 		const prevStep = prevPlace ? prevPlace.step - 1 : winnersRevealStep - 1;
 		const formData = new FormData();
+
 		formData.append("step", String(Math.max(0, prevStep)));
 
 		await fetch("?/revealWinner", {
@@ -852,6 +918,7 @@
 			if (!response.ok) {
 				console.error("Failed to trigger confetti:", response.status, response.statusText);
 				const text = await response.text();
+
 				console.error("Response body:", text);
 			} else {
 				console.log("Confetti triggered successfully!");
@@ -1358,6 +1425,7 @@
 						onclick={async () => {
 							showWinnersScreen = false;
 							const formData = new FormData();
+
 							formData.append("step", "0");
 							await fetch("?/revealWinner", { method: "POST", body: formData });
 							await invalidateAll();
@@ -2148,6 +2216,7 @@
 					return async ({ result }) => {
 						if (result.type === "success" && result.data?.sessionCode) {
 							showJoinModal = false;
+
 							if (typeof window !== "undefined") {
 								window.location.href = `?session=${result.data.sessionCode}`;
 							}

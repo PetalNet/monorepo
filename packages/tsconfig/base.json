@@ -25,7 +25,14 @@
 			{
 				"name": "@effect/language-service",
 				"diagnostics": false,
-				"allowedUnstableApis": ["effect/http", "effect/ai", "effect/sql"]
+				"allowedUnstableApis": [
+					"effect/http",
+					"effect/ai",
+					"effect/sql",
+					"effect/http-api/HttpApiScalar",
+					"effect/http-api/HttpApi#make",
+					"effect/http-api/OpenApi#Override"
+				]
 			}
 		]
 	}

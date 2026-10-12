@@ -37,8 +37,10 @@ describe("merging user breaks with institutional ones", () => {
 	it("keeps every user-entered break", () => {
 		const rows = mergeBreakRows(PEOPLE, USER_BREAKS, COLLEGE_BREAKS);
 		const own = rows.filter((row) => row.source === "user");
+
 		// Pinned by id, not by count: an institutional row leaking in as `user` must not pass.
 		expect(own.map((row) => row.id).toSorted()).toEqual(["u1", "u2"]);
+
 		expect(own.find((row) => row.id === "u1")).toMatchObject({
 			userId: "ana",
 			label: "Ski trip",
@@ -50,6 +52,7 @@ describe("merging user breaks with institutional ones", () => {
 	it("still shows a user break for someone with no college", () => {
 		const rows = mergeBreakRows(PEOPLE, USER_BREAKS, COLLEGE_BREAKS);
 		const dee = rows.filter((row) => row.userId === "dee");
+
 		expect(dee).toHaveLength(1);
 		expect(dee[0]).toMatchObject({ id: "u2", source: "user" });
 	});
@@ -57,21 +60,26 @@ describe("merging user breaks with institutional ones", () => {
 	it("gives every person at a college its institutional breaks, and nobody else", () => {
 		const rows = mergeBreakRows(PEOPLE, [], COLLEGE_BREAKS);
 		const thanksgiving = rows.filter((row) => row.label === "Thanksgiving break");
+
 		expect(thanksgiving.map((row) => row.userId).toSorted()).toEqual(["ana", "ben"]);
+
 		expect(rows.filter((row) => row.userId === "cass").map((row) => row.label)).toEqual([
 			"Spring break",
 		]);
+
 		expect(rows.filter((row) => row.userId === "dee")).toEqual([]);
 	});
 
 	it("marks institutional rows as such so the editor cannot offer to delete them", () => {
 		const rows = mergeBreakRows(PEOPLE, USER_BREAKS, COLLEGE_BREAKS);
 		const anas = rows.filter((row) => row.userId === "ana");
+
 		expect(anas.map((row) => row.source).toSorted()).toEqual(["college", "user"]);
 	});
 
 	it("gives every row a unique id, since one institutional row is emitted per person", () => {
 		const rows = mergeBreakRows(PEOPLE, USER_BREAKS, COLLEGE_BREAKS);
+
 		expect(new Set(rows.map((row) => row.id)).size).toBe(rows.length);
 	});
 
@@ -105,6 +113,7 @@ function assumedFor(id: string, rows: ReturnType<typeof mergeBreakRows>) {
 describe("federal holidays are a default for work and military", () => {
 	it("fills in all eleven holidays per year for a job and for a unit", () => {
 		const rows = mergeBreakRows(AFFILIATED, [], [], [2026, 2027]);
+
 		expect(assumedFor("emp", rows)).toHaveLength(22);
 		expect(assumedFor("sgt", rows)).toHaveLength(22);
 	});
@@ -113,6 +122,7 @@ describe("federal holidays are a default for work and military", () => {
 		// A college has a real published calendar; `other` asked for nothing to be assumed; a person
 		// with no affiliation has said nothing the app could act on.
 		const rows = mergeBreakRows(AFFILIATED, [], [], [2026, 2027]);
+
 		expect(assumedFor("ana", rows)).toEqual([]);
 		expect(assumedFor("oth", rows)).toEqual([]);
 		expect(assumedFor("none", rows)).toEqual([]);
@@ -128,6 +138,7 @@ describe("federal holidays are a default for work and military", () => {
 		// The whole point. A federal holiday dressed up as `user` or `college` is the app claiming
 		// somebody is off when nobody said so.
 		const rows = mergeBreakRows(AFFILIATED, [], [], [2026]);
+
 		expect(rows.every((row) => row.source === "default")).toBe(true);
 		expect(rows).toHaveLength(22);
 	});
@@ -138,6 +149,7 @@ describe("federal holidays are a default for work and military", () => {
 		const independence = assumedFor("emp", rows).find((row) =>
 			row.label.startsWith("Independence"),
 		);
+
 		expect(independence).toMatchObject({
 			label: "Independence Day (observed)",
 			startDate: "2026-07-03",
@@ -157,6 +169,7 @@ describe("federal holidays are a default for work and military", () => {
 			[2026],
 		);
 		const labels = assumedFor("emp", rows).map((row) => row.label);
+
 		expect(labels).not.toContain("Thanksgiving Day");
 		expect(labels).toHaveLength(10);
 		// And only for that person: the sergeant said nothing, so the default still stands for him.
@@ -166,6 +179,7 @@ describe("federal holidays are a default for work and military", () => {
 	it("gives every filled-in row an id of its own", () => {
 		// One holiday becomes one row per person across three years, and the grid is keyed by id.
 		const rows = mergeBreakRows(AFFILIATED, [], [], [2026, 2027, 2028]);
+
 		expect(new Set(rows.map((row) => row.id)).size).toBe(rows.length);
 	});
 });
@@ -179,7 +193,9 @@ function ownBreak(startDate: string, endDate: string) {
 		[{ id: "u1", userId: "ana", label: "Break", startDate, endDate }],
 		[],
 	);
+
 	expect(rows).toHaveLength(1);
+
 	return rows[0];
 }
 
@@ -270,6 +286,7 @@ describe("a break that touches a weekend covers the whole of it", () => {
 			],
 		);
 		const thanksgiving = rows.filter((row) => row.label === "Thanksgiving break");
+
 		expect(thanksgiving.map((row) => `${row.userId}:${row.endDate}`).toSorted()).toEqual([
 			"ana:2026-11-29",
 			"ben:2026-11-29",
@@ -281,6 +298,7 @@ describe("a break that touches a weekend covers the whole of it", () => {
 		// Kennesaw's spring break runs Mon 2027-03-15 to Fri 2027-03-19, so both weekends are part
 		// of it.
 		const rows = mergeBreakRows([{ id: "cass", collegeId: "kennesaw" }], [], [COLLEGE_BREAKS[1]]);
+
 		expect(rows.map((row) => `${row.startDate}..${row.endDate}`)).toEqual([
 			"2027-03-13..2027-03-21",
 		]);
@@ -302,6 +320,7 @@ describe("a break that touches a weekend covers the whole of it", () => {
 				},
 			],
 		);
+
 		expect(rows.map((row) => `${row.startDate}..${row.endDate}`)).toEqual([
 			"2027-03-16..2027-03-17",
 		]);
@@ -366,6 +385,7 @@ describe("a single day off is a single day off", () => {
 				},
 			],
 		);
+
 		expect(rows.map((row) => `${row.startDate}..${row.endDate}`)).toEqual([
 			"2026-09-07..2026-09-07",
 		]);
@@ -379,7 +399,9 @@ function collegeBreak(startDate: string, endDate: string, label = "Closed") {
 		[],
 		[{ id: "c1", collegeId: "kcai", label, startDate, endDate }],
 	);
+
 	expect(rows).toHaveLength(1);
+
 	return rows[0];
 }
 
@@ -518,6 +540,7 @@ describe("a person off twice over is still one person", () => {
 	it("counts the doubled-up person once on the extended days", () => {
 		const view = buildMonthView(toParticipants(people, overlapping), "2026-11-01");
 		const cells = new Map(view.weeks.flat().map((cell) => [cell.iso, cell]));
+
 		expect(view.countedIds).toEqual(["ana", "ben"]);
 		expect(cells.get("2026-11-28")).toMatchObject({ freeCount: 2, allFree: true });
 		expect(cells.get("2026-11-29")).toMatchObject({ freeCount: 2, allFree: true });
@@ -528,6 +551,7 @@ describe("a person off twice over is still one person", () => {
 		const view = buildMonthView(toParticipants(people, overlapping), "2026-11-01");
 		const daysOff = (id: string) =>
 			view.weeks.flat().filter((cell) => cell.inMonth && cell.freeIds.includes(id)).length;
+
 		expect(daysOff("ana")).toBe(5);
 		expect(daysOff("ben")).toBe(5);
 	});
@@ -553,16 +577,19 @@ const MANY_YEARS = Array.from({ length: 41 }, (_, index) => 2000 + index);
 
 function landsOnAWeekend(row: { startDate: string }): boolean {
 	const weekday = weekdayOf(toDay(row.startDate));
+
 	return weekday === 0 || weekday === 6;
 }
 
 describe("the weekend rule and the filled-in holidays", () => {
 	it("never fills in a holiday longer than a single day", () => {
 		const rows = mergeBreakRows(WORKER, [], [], MANY_YEARS);
+
 		// The denominator, so an empty result below means "looked and found none" rather than
 		// "looked at nothing": eleven holidays a year, for every year asked for.
 		expect(rows).toHaveLength(11 * MANY_YEARS.length);
 		const multiDay = rows.filter((row) => row.startDate !== row.endDate);
+
 		expect(multiDay.map((row) => `${row.label} ${row.startDate}..${row.endDate}`)).toEqual([]);
 
 		// And the control for the filter itself, which has to be able to find one: a person's own
@@ -573,6 +600,7 @@ describe("the weekend rule and the filled-in holidays", () => {
 			[],
 			[2026],
 		);
+
 		expect(withOwn.filter((row) => row.startDate !== row.endDate).map((row) => row.label)).toEqual([
 			"Leave",
 		]);
@@ -583,6 +611,7 @@ describe("the weekend rule and the filled-in holidays", () => {
 		// the Friday before and a Sunday one to the Monday after, and this pins that the generator
 		// really does it, for every holiday of every year the app could ask for.
 		const rows = mergeBreakRows(WORKER, [], [], MANY_YEARS);
+
 		expect(rows).toHaveLength(11 * MANY_YEARS.length);
 		expect(rows.filter(landsOnAWeekend).map((row) => `${row.label} ${row.startDate}`)).toEqual([]);
 
@@ -601,6 +630,7 @@ describe("the weekend rule and the filled-in holidays", () => {
 			[],
 			[2026],
 		);
+
 		expect(withSaturday.filter(landsOnAWeekend).map((row) => row.label)).toEqual(["Saturday"]);
 	});
 
@@ -615,6 +645,7 @@ describe("the weekend rule and the filled-in holidays", () => {
 		const spans = rows
 			.filter((row) => ["2026-06-19", "2026-07-03", "2026-12-25"].includes(row.startDate))
 			.map((row) => `${row.label} ${row.startDate}..${row.endDate}`);
+
 		expect(spans).toEqual([
 			"Juneteenth National Independence Day 2026-06-19..2026-06-19",
 			"Independence Day (observed) 2026-07-03..2026-07-03",
@@ -636,6 +667,7 @@ describe("the weekend rule and the filled-in holidays", () => {
 			[],
 			[2026],
 		);
+
 		expect(alsoOwn.find((row) => row.id === "u1")).toMatchObject({
 			startDate: "2026-07-01",
 			endDate: "2026-07-05",
@@ -653,13 +685,16 @@ describe("the weekend rule and the filled-in holidays", () => {
 			[],
 			[2026],
 		);
+
 		// The positive control, in the same call: the break really was stretched, so what follows is
 		// about the holiday surviving and not about the rule being switched off.
 		expect(rows.find((row) => row.id === "u1")).toMatchObject({
 			startDate: "2026-07-04",
 			endDate: "2026-07-08",
 		});
+
 		const assumed = rows.filter((row) => row.source === "default");
+
 		expect(assumed.map((row) => row.label)).toContain("Independence Day (observed)");
 		expect(assumed).toHaveLength(11);
 	});
@@ -675,6 +710,7 @@ describe("the weekend rule and the filled-in holidays", () => {
 			[2026],
 		);
 		const assumed = rows.filter((row) => row.source === "default");
+
 		expect(assumed.map((row) => row.label)).not.toContain("Independence Day (observed)");
 		expect(assumed).toHaveLength(10);
 	});
@@ -691,8 +727,10 @@ describe("the weekend rule and the filled-in holidays", () => {
 		);
 		const spanOf = (id: string) => {
 			const row = rows.find((candidate) => candidate.id === id);
+
 			return row && `${row.source} ${row.startDate}..${row.endDate}`;
 		};
+
 		// A person's own Mon-to-Fri week reaches both weekends; the college's spring break does the
 		// same; and Christmas Day 2026, a Friday, does not move at all.
 		expect(spanOf("u1")).toBe("user 2026-12-12..2026-12-20");

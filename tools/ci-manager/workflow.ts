@@ -1,6 +1,7 @@
 import { Schema } from "effect";
 
 const Enabled = Schema.Literals(["true", "false"]);
+
 export const Selection = Schema.Struct({
 	"manager-rust": Enabled,
 	"courier-rust": Enabled,

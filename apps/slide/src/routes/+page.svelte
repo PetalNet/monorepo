@@ -28,6 +28,7 @@
 
 		// Create particles - reduced count for better performance
 		const particleCount = 20;
+
 		particles = Array.from({ length: particleCount }, (_, i) => ({
 			id: i,
 			x: Math.random() * 100,
@@ -44,6 +45,7 @@
 
 		const updateBeams = () => {
 			frameCount++;
+
 			if (frameCount % 3 === 0 && spot1El && spot2El) {
 				const rect1 = spot1El.getBoundingClientRect();
 				const rect2 = spot2El.getBoundingClientRect();
@@ -67,6 +69,7 @@
 				const dy1 = h + beamOffset - cy1;
 				const len1 = Math.sqrt(dx1 * dx1 + dy1 * dy1);
 				const angle1 = Math.atan2(dx1, dy1) * (180 / Math.PI);
+
 				beam1Style = `height: ${len1}px; transform: rotate(${angle1}deg);`;
 
 				// Beam 2: from bottom-right (with offset) to spotlight 2 center
@@ -74,6 +77,7 @@
 				const dy2 = h + beamOffset - cy2;
 				const len2 = Math.sqrt(dx2 * dx2 + dy2 * dy2);
 				const angle2 = Math.atan2(dx2, dy2) * (180 / Math.PI);
+
 				beam2Style = `height: ${len2}px; transform: rotate(${angle2}deg);`;
 
 				// Animate particles
@@ -85,12 +89,15 @@
 					if (newX < 0) {
 						newX = 100;
 					}
+
 					if (newX > 100) {
 						newX = 0;
 					}
+
 					if (newY < 0) {
 						newY = 100;
 					}
+
 					if (newY > 100) {
 						newY = 0;
 					}
@@ -98,6 +105,7 @@
 					return { ...p, x: newX, y: newY };
 				});
 			}
+
 			animationFrameId = requestAnimationFrame(updateBeams);
 		};
 
@@ -309,6 +317,7 @@
 						e.preventDefault();
 						const formData = new FormData(e.currentTarget);
 						const code = formData.get("code");
+
 						if (code) {
 							goto(`/night/${code}`);
 						}

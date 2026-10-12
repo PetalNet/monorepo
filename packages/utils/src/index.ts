@@ -7,6 +7,7 @@
 /** Coerce arbitrary input to a finite non-negative number, or fall back. */
 export const nonneg = (v: unknown, fallback = 0): number => {
 	const n = Number(v);
+
 	return Number.isFinite(n) && n >= 0 ? n : fallback;
 };
 

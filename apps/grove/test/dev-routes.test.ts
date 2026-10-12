@@ -2,17 +2,20 @@ import type { RequestEvent } from "@sveltejs/kit";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 vi.mock("#lib/server/auth.ts", () => ({ GroveAuth: {} }));
+
 vi.mock("#lib/server/runtime.ts", () => ({
 	runGrove: () => {
 		throw new Error("A disabled development route must not enter the Grove runtime");
 	},
 }));
+
 vi.mock("$app/env/private", () => ({
 	BETTER_AUTH_URL: "https://grove.test",
 	GROVE_MCP_ISSUER: "https://oidc.test/realms/grove-mcp",
 	GROVE_MCP_RESOURCE: "https://grove.test",
 	GROVE_OIDC_ISSUER: "https://oidc.test/realms/grove",
 }));
+
 vi.mock("#lib/server/mcp-oauth-runtime.ts", () => ({
 	groveMcpProtectedResourceMetadata: () => ({
 		resource: "https://grove.test/mcp",
@@ -32,6 +35,7 @@ import { GET as getPreflight } from "../src/routes/__dev/preflight/+server";
 const originalFlag = process.env.GROVE_ORB_DEV_AUTH;
 const eventFor = <Route extends RequestEvent["route"]["id"]>(path: string, route: Route) => {
 	const url = new URL(path, "https://grove.test");
+
 	return {
 		request: new Request(url),
 		route: { id: route },
@@ -69,6 +73,7 @@ describe("Grove development routes", () => {
 
 		expect(response.status).toBe(200);
 		expect(response.headers.get("content-type")).toContain("application/json");
+
 		await expect(response.json()).resolves.toMatchObject({
 			status: "development-only",
 			endpoints: {
@@ -88,6 +93,7 @@ describe("Grove development routes", () => {
 		);
 
 		expect(response.status).toBe(200);
+
 		await expect(response.json()).resolves.toEqual({
 			resource: "https://grove.test/mcp",
 			authorization_servers: ["https://oidc.test/realms/grove-mcp"],

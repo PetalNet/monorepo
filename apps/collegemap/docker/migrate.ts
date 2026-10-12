@@ -11,6 +11,7 @@ import { drizzle } from "drizzle-orm/libsql";
 import { migrate } from "drizzle-orm/libsql/migrator";
 
 const url = process.env.DATABASE_URL;
+
 if (url === undefined || url === "") {
 	console.error("migrate: DATABASE_URL is not set");
 	process.exit(2);

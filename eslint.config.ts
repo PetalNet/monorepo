@@ -3,6 +3,7 @@ import path from "node:path";
 import js from "@eslint/js";
 import json from "@eslint/json";
 import markdown from "@eslint/markdown";
+import stylistic from "@stylistic/eslint-plugin";
 import oxlint from "eslint-plugin-oxlint";
 import * as packageJson from "eslint-plugin-package-json/experimental";
 import svelte from "eslint-plugin-svelte";
@@ -13,6 +14,14 @@ import { lintConfig } from "./oxlint.config.ts";
 
 const root = import.meta.dirname;
 
+const multilineStatements = [
+	"multiline-block-like",
+	"multiline-expression",
+	"multiline-const",
+	"multiline-let",
+	"multiline-var",
+] as const;
+
 export default defineConfig([
 	includeIgnoreFile(path.join(root, ".gitignore"), {
 		gitignoreResolution: true,
@@ -22,6 +31,7 @@ export default defineConfig([
 	},
 	{
 		files: ["**/*.{js,cjs,mjs,jsx,ts,cts,mts,tsx,svelte}"],
+		plugins: { "@stylistic": stylistic },
 		extends: [
 			js.configs.recommended,
 			tseslint.configs.strictTypeChecked,
@@ -33,6 +43,50 @@ export default defineConfig([
 			},
 		},
 		rules: {
+			// Oxfmt preserves blank lines; ESLint enforces spacing around multiline statements.
+			"@stylistic/padding-line-between-statements": [
+				"error",
+				{
+					blankLine: "always",
+					prev: "*",
+					next: [...multilineStatements, "return", "break", "continue", "throw", "if"],
+				},
+				{ blankLine: "always", prev: [...multilineStatements, "const", "let"], next: "*" },
+				// Consecutive declarations form a group, including multiline declarations.
+				{ blankLine: "any", prev: ["const", "let", "var"], next: ["const", "let", "var"] },
+				// Adjacent switch labels share a branch; spacing can imply accidental fallthrough.
+				{ blankLine: "any", prev: ["case", "default"], next: ["case", "default"] },
+				// Block-bodied functions and control flow retain prettier-plugin-padding-lines spacing.
+				{
+					blankLine: "always",
+					prev: [
+						"do",
+						"for",
+						"function",
+						"if",
+						"switch",
+						"try",
+						"while",
+						{
+							selector:
+								'VariableDeclaration:has(> VariableDeclarator[init.type=/^(ArrowFunctionExpression|FunctionExpression)$/][init.body.type="BlockStatement"])',
+						},
+						{
+							selector:
+								'ExportNamedDeclaration:has(> VariableDeclaration:has(> VariableDeclarator[init.type=/^(ArrowFunctionExpression|FunctionExpression)$/][init.body.type="BlockStatement"]))',
+						},
+						{
+							selector:
+								':matches(ExportNamedDeclaration, ExportDefaultDeclaration)[declaration.type="FunctionDeclaration"]',
+						},
+						{
+							selector:
+								'ExpressionStatement[expression.type=/^(ArrowFunctionExpression|FunctionExpression)$/][expression.body.type="BlockStatement"]',
+						},
+					],
+					next: "*",
+				},
+			],
 			curly: ["error", "all"],
 			"no-undef": "off",
 			"no-constant-condition": "off",

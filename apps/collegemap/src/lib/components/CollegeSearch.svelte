@@ -51,25 +51,31 @@
 
 	function searchLocal(q: string): string[] {
 		const trimmed = q.trim();
+
 		if (!trimmed || q.length < 2) {
 			return [];
 		}
+
 		// There is no directory of every base and every employer in the country, and inventing a
 		// short one would just be a list to not be on. So for those kinds the only offer is what the
 		// person typed, geocoded the same way an off-list college already is.
 		if (!isCollege) {
 			return [trimmed];
 		}
+
 		const lower = q.toLowerCase();
+
 		return collegeNames.filter((name) => name.toLowerCase().includes(lower)).slice(0, 10);
 	}
 
 	async function geocodeCollege(name: string): Promise<{ lat: number; lng: number } | null> {
 		try {
 			const response = await fetch(`/api/geocode?q=${encodeURIComponent(name)}`);
+
 			if (response.ok) {
 				const data = (await response.json()) as { name: string; lat: number; lng: number }[];
 				const first = data.at(0);
+
 				if (first) {
 					return { lat: first.lat, lng: first.lng };
 				}
@@ -77,6 +83,7 @@
 		} catch (e) {
 			console.error("Geocoding failed:", e);
 		}
+
 		return null;
 	}
 
@@ -86,6 +93,7 @@
 
 		// Check pre-seeded coordinates first
 		const preseeded = preseededMap.get(name.toLowerCase());
+
 		if (preseeded) {
 			onselect({
 				name,
@@ -93,10 +101,12 @@
 				longitude: preseeded.lng,
 				isCustom: false,
 			});
+
 			query = name;
 			showResults = false;
 			results = [];
 			isGeocoding = false;
+
 			return;
 		}
 
@@ -110,6 +120,7 @@
 				longitude: coords.lng,
 				isCustom: false,
 			});
+
 			query = name;
 			showResults = false;
 			results = [];
@@ -150,6 +161,7 @@
 		oninput={handleInput}
 		onfocus={() => {
 			showResults = true;
+
 			if (query.trim()) {
 				results = searchLocal(query);
 			}

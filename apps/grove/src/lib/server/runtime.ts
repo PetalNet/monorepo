@@ -9,54 +9,53 @@ import {
 } from "@petalnet/effect-sveltekit";
 import type { RequestEvent } from "@sveltejs/kit";
 import type { Effect } from "effect";
-import { Layer, Redacted } from "effect";
+import { Layer, Match, Redacted } from "effect";
 
 import type { ActorAuthority } from "#lib/server/actors/authority.ts";
-import {
-	ActorAuthorityBuildLayer,
-	ActorDatabaseError,
-	ActorDenied,
-	ActorNotCurrent,
-	ActorAuthorityLayer,
-} from "#lib/server/actors/authority.ts";
-import { GroveAuthLayer } from "#lib/server/auth-runtime.ts";
-import type { GroveAuth } from "#lib/server/auth.ts";
+import { ActorAuthorityBuildLayer, ActorAuthorityLayer } from "#lib/server/actors/authority.ts";
+import { GroveAuthLive } from "#lib/server/auth-runtime.ts";
+import type { BrowserSessionError, GroveAuth } from "#lib/server/auth.ts";
 import { GroveAuthBuildLayer } from "#lib/server/auth.ts";
-import type { SproutCommands } from "#lib/server/sprouts/service.ts";
-import { SproutCommandsBuildLayer, SproutCommandsLayer } from "#lib/server/sprouts/service.ts";
 
 import { groveApi } from "./api";
-import { AuthenticationRequired } from "./authorization";
-import { SproutDatabaseError, SproutNotFound } from "./sprouts/service";
+import type { AuthenticationRequired } from "./authorization";
+import type { ProjectError, ProjectService } from "./projects/service";
+import { ProjectServiceLayer, ProjectServiceBuildLayer } from "./projects/service";
+
+type GroveFailure = AuthenticationRequired | ProjectError | BrowserSessionError;
 
 const required = (value: unknown, name: string) => {
 	if (typeof value !== "string" || value.length === 0) {
 		throw new Error(`${name} is required at runtime`);
 	}
+
 	return value;
 };
 
 function makeRuntime() {
 	let GroveServicesLayer;
+
 	if (building) {
 		GroveServicesLayer = Layer.mergeAll(
 			GroveAuthBuildLayer,
 			ActorAuthorityBuildLayer,
-			SproutCommandsBuildLayer,
+			ProjectServiceBuildLayer,
 		);
 	} else {
 		if (!DATABASE_URL) {
 			throw new Error("DATABASE_URL is required at runtime");
 		}
+
 		const actorAuthority = ActorAuthorityLayer({
 			homeOwner: {
 				issuer: required(GROVE_HOME_OWNER_ISSUER, "GROVE_HOME_OWNER_ISSUER").replace(/\/+$/, ""),
 				subject: required(GROVE_HOME_OWNER_SUBJECT, "GROVE_HOME_OWNER_SUBJECT"),
 			},
 		});
-		const consumers = Layer.merge(GroveAuthLayer, SproutCommandsLayer).pipe(
+		const consumers = Layer.merge(GroveAuthLive, ProjectServiceLayer).pipe(
 			Layer.provide(actorAuthority),
 		);
+
 		GroveServicesLayer = Layer.merge(actorAuthority, consumers).pipe(
 			Layer.provide(
 				PgClient.layer({
@@ -68,38 +67,43 @@ function makeRuntime() {
 	}
 
 	return makeEffectSvelteKitRuntime(Layer.orDie(Layer.merge(GroveServicesLayer, groveApi.layer)), {
-		mapFailure: (failure) => {
-			if (failure instanceof AuthenticationRequired) {
-				return { status: 401, message: failure.message };
-			}
-			if (failure instanceof ActorDenied || failure instanceof ActorNotCurrent) {
-				return { status: 403, message: failure.message };
-			}
-			if (failure instanceof ActorDatabaseError) {
-				return { status: 503, message: "Actor authority is unavailable", log: true };
-			}
-			if (failure instanceof SproutNotFound) {
-				return { status: 404, message: failure.message };
-			}
-			if (failure instanceof SproutDatabaseError) {
-				return { status: 503, message: "The sprout database is unavailable", log: true };
-			}
-		},
+		mapFailure: (failure: GroveFailure) =>
+			Match.value(failure).pipe(
+				Match.tags({
+					AuthenticationRequired: ({ message }) => ({ status: 401, message }),
+					BetterAuthApiError: ({ statusCode, message }) => ({
+						status: statusCode,
+						message: statusCode >= 500 ? "Browser authentication is unavailable" : message,
+						log: statusCode >= 500,
+					}),
+					BrowserAuthDatabaseError: ({ message }) => ({ status: 503, message, log: true }),
+					ActorDenied: ({ message }) => ({ status: 403, message }),
+					ActorNotCurrent: ({ message }) => ({ status: 403, message }),
+					ActorDatabaseError: () => ({
+						status: 503,
+						message: "Actor authority is unavailable",
+						log: true,
+					}),
+					CommandConflict: ({ message }) => ({ status: 409, message }),
+					FenceConflict: ({ message }) => ({ status: 409, message }),
+					ProjectDatabaseError: ({ message }) => ({ status: 503, message, log: true }),
+				}),
+				Match.orElse(() => undefined),
+			),
 	});
 }
 
 let runtime:
-	| EffectSvelteKitRuntime<GroveAuth | ActorAuthority | SproutCommands | ApiServer>
+	| EffectSvelteKitRuntime<GroveAuth | ActorAuthority | ProjectService | ApiServer, GroveFailure>
 	| undefined;
 
 export const initializeGroveRuntime = () => (runtime ??= makeRuntime());
 
 export const runGrove = <
 	A,
-	E,
-	R extends GroveAuth | ActorAuthority | SproutCommands | SvelteKitRequestEvent | ApiServer,
+	R extends GroveAuth | ActorAuthority | ProjectService | SvelteKitRequestEvent | ApiServer,
 >(
-	effect: Effect.Effect<A, E, R>,
+	effect: Effect.Effect<A, GroveFailure, R>,
 	event: RequestEvent,
 ) => initializeGroveRuntime().run(effect, event);
 

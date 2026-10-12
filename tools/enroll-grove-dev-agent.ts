@@ -19,11 +19,13 @@ const usage = () => {
 
 const option = (name: string) => {
 	const index = process.argv.indexOf(name);
+
 	return index === -1 ? undefined : process.argv[index + 1];
 };
 
 const subject = option("--subject")?.trim();
 const name = option("--name")?.trim();
+
 if (!subject || subject.length > 200 || !name || name.length > 80) {
 	usage();
 	process.exit(2);
@@ -33,6 +35,7 @@ const portal = async (service: string) => {
 	const manifest: unknown = JSON.parse(
 		await readFile(`${root}.amp/portals/${service}.json`, "utf8"),
 	);
+
 	if (
 		typeof manifest !== "object" ||
 		manifest === null ||
@@ -41,17 +44,22 @@ const portal = async (service: string) => {
 	) {
 		throw new Error(`${service} portal manifest has no links`);
 	}
+
 	const links: readonly unknown[] = manifest.links;
 	const first = links[0];
 	const value =
 		typeof first === "object" && first !== null && "url" in first ? first.url : undefined;
+
 	if (typeof value !== "string") {
 		throw new TypeError(`${service} portal manifest has no URL`);
 	}
+
 	const url = new URL(value);
+
 	if (url.protocol !== "https:" || url.username || url.password) {
 		throw new Error(`${service} portal manifest does not contain a safe HTTPS URL`);
 	}
+
 	return url;
 };
 
@@ -72,14 +80,17 @@ const client = new Client(
 
 try {
 	await client.connect(new StreamableHTTPClientTransport(endpoint, { authProvider }));
+
 	const enrolled = await client.callTool({
 		name: "agents.enrollSelf",
 		arguments: { name },
 	});
+
 	if (enrolled.isError) {
 		// oxlint-disable-next-line unicorn/prefer-type-error -- MCP's isError is an operation failure flag, not a type predicate.
 		throw new Error("Grove rejected Agent enrollment");
 	}
+
 	process.stdout.write(
 		`${JSON.stringify(
 			{

@@ -10,6 +10,7 @@
 	// Close dropdown when clicking outside
 	function handleClickOutside(event: MouseEvent) {
 		const target = event.target as HTMLElement;
+
 		if (!target.closest(".account-dropdown")) {
 			accountDropdownOpen = false;
 		}
@@ -17,6 +18,7 @@
 
 	async function handleLogout() {
 		const response = await fetch("/auth/logout", { method: "POST" });
+
 		if (response.ok) {
 			goto("/");
 		}

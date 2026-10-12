@@ -19,6 +19,7 @@ const shape = (w: { start: string; end: string; days: number; freeIds: string[] 
  */
 const windowsOf = (people: Participant[]) => {
 	const report = buildReport(people, { almostLimit: 1000 });
+
 	return [...report.everyone, ...report.almost].toSorted((a, b) => a.startDay - b.startDay);
 };
 
@@ -37,6 +38,7 @@ describe("mergeRanges", () => {
 
 	it("keeps a one-day gap separate", () => {
 		const input = [r("2026-12-19", "2026-12-24"), r("2026-12-26", "2026-12-31")];
+
 		expect(mergeRanges(input)).toHaveLength(2);
 	});
 
@@ -49,6 +51,7 @@ describe("mergeRanges", () => {
 	it("does not mutate its input", () => {
 		const input = [r("2026-12-19", "2026-12-28"), r("2026-12-24", "2027-01-04")];
 		const copy = structuredClone(input);
+
 		mergeRanges(input);
 		expect(input).toEqual(copy);
 	});
@@ -61,6 +64,7 @@ describe("the free windows a report surfaces", () => {
 			{ id: "b", ranges: [r("2026-12-19", "2027-01-10")] },
 		];
 		const both = windowsOf(people).filter((w) => w.freeIds.length === 2);
+
 		// Dec 19 through Jan 4 inclusive: 13 days in December (19..31) + 4 = 17.
 		expect(both.map(shape)).toEqual([["2026-12-19", "2027-01-04", 17, "a b"]]);
 	});
@@ -70,6 +74,7 @@ describe("the free windows a report surfaces", () => {
 			{ id: "a", ranges: [r("2026-11-21", "2026-11-29")] },
 			{ id: "b", ranges: [r("2026-12-19", "2027-01-10")] },
 		];
+
 		expect(windowsOf(people)).toEqual([]);
 	});
 
@@ -79,6 +84,7 @@ describe("the free windows a report surfaces", () => {
 			{ id: "a", ranges: [r("2026-12-10", "2026-12-18")] },
 			{ id: "b", ranges: [r("2026-12-19", "2027-01-10")] },
 		];
+
 		expect(windowsOf(people)).toEqual([]);
 	});
 
@@ -87,6 +93,7 @@ describe("the free windows a report surfaces", () => {
 			{ id: "a", ranges: [r("2026-12-10", "2026-12-19")] },
 			{ id: "b", ranges: [r("2026-12-19", "2027-01-10")] },
 		];
+
 		expect(windowsOf(people).map(shape)).toEqual([["2026-12-19", "2026-12-19", 1, "a b"]]);
 	});
 
@@ -95,6 +102,7 @@ describe("the free windows a report surfaces", () => {
 			{ id: "a", ranges: [r("2026-10-13", "2026-10-13")] },
 			{ id: "b", ranges: [r("2026-10-13", "2026-10-13")] },
 		];
+
 		expect(windowsOf(people).map(shape)).toEqual([["2026-10-13", "2026-10-13", 1, "a b"]]);
 	});
 
@@ -105,11 +113,13 @@ describe("the free windows a report surfaces", () => {
 			{ id: "c", ranges: [r("2026-12-20", "2026-12-30")] },
 		];
 		const windows = windowsOf(people);
+
 		expect(windows.map(shape)).toEqual([
 			["2026-12-15", "2026-12-19", 5, "a b"],
 			["2026-12-20", "2026-12-30", 11, "a b c"],
 			["2026-12-31", "2027-01-15", 16, "a b"],
 		]);
+
 		expect(windows[1].missingIds).toEqual([]);
 		expect(windows[0].missingIds).toEqual(["c"]);
 	});
@@ -119,6 +129,7 @@ describe("the free windows a report surfaces", () => {
 			{ id: "a", ranges: [r("2026-11-25", "2026-11-29"), r("2026-12-19", "2027-01-10")] },
 			{ id: "b", ranges: [r("2026-11-25", "2026-11-29"), r("2026-12-19", "2027-01-10")] },
 		];
+
 		expect(windowsOf(people).map(shape)).toEqual([
 			["2026-11-25", "2026-11-29", 5, "a b"],
 			["2026-12-19", "2027-01-10", 23, "a b"],
@@ -131,6 +142,7 @@ describe("the free windows a report surfaces", () => {
 			{ id: "b", ranges: [r("2026-12-19", "2027-01-10")] },
 		];
 		const [w] = windowsOf(people);
+
 		// December 19..31 is 13 days, January 1..10 is 10 days. 23 total.
 		expect(w.days).toBe(23);
 		expect([w.start, w.end]).toEqual(["2026-12-19", "2027-01-10"]);
@@ -143,6 +155,7 @@ describe("the free windows a report surfaces", () => {
 			{ id: "quiet", ranges: [] },
 		];
 		const [w] = windowsOf(people);
+
 		expect(w.freeIds).toEqual(["a", "b"]);
 		expect(w.missingIds).toEqual([]);
 	});
@@ -150,6 +163,7 @@ describe("the free windows a report surfaces", () => {
 	it("returns nothing for a group of one, or a group of none", () => {
 		expect(windowsOf([{ id: "a", ranges: [r("2026-12-19", "2027-01-10")] }])).toEqual([]);
 		expect(windowsOf([])).toEqual([]);
+
 		expect(
 			windowsOf([
 				{ id: "a", ranges: [] },
@@ -164,6 +178,7 @@ describe("the free windows a report surfaces", () => {
 			{ id: "b", ranges: [r("2026-03-07", "2026-03-15"), r("2026-05-01", "2026-08-25")] },
 			{ id: "c", ranges: [r("2026-03-21", "2026-03-29"), r("2026-06-01", "2026-07-31")] },
 		];
+
 		for (const w of windowsOf(people)) {
 			expect(w.endDay).toBeGreaterThanOrEqual(w.startDay);
 			expect(w.days).toBe(w.endDay - w.startDay + 1);
@@ -180,7 +195,9 @@ describe("the free windows a report surfaces", () => {
 			{ id: "c", ranges: [r("2027-03-01", "2027-03-08")] },
 		];
 		const windows = windowsOf(people);
+
 		expect(windows.map(shape)).toEqual([["2026-12-20", "2026-12-20", 1, "a b"]]);
+
 		for (const w of windows) {
 			expect(w.freeIds.length).toBeGreaterThanOrEqual(2);
 		}
@@ -207,16 +224,19 @@ describe("the free windows a report surfaces", () => {
 			const from = toDay("2026-11-01");
 			const to = toDay("2027-02-28");
 			const bruteByDay = new Map<number, string>();
+
 			for (let d = from; d <= to; d++) {
 				const free = people
 					.filter((p) => p.ranges.some((rr) => d >= rr.start && d <= rr.end))
 					.map((p) => p.id);
+
 				if (free.length >= floor) {
 					bruteByDay.set(d, free.join(" "));
 				}
 			}
 
 			const engineByDay = new Map<number, string>();
+
 			for (const w of windowsOf(people)) {
 				for (let d = w.startDay; d <= w.endDay; d++) {
 					expect(engineByDay.has(d)).toBe(false); // windows must not overlap
@@ -225,6 +245,7 @@ describe("the free windows a report surfaces", () => {
 			}
 
 			expect(engineByDay.size).toBeGreaterThan(0); // positive control
+
 			expect([...engineByDay.entries()].toSorted(([a], [b]) => a - b)).toEqual(
 				[...bruteByDay.entries()].toSorted(([a], [b]) => a - b),
 			);
@@ -247,6 +268,7 @@ describe("buildReport", () => {
 			],
 			{ todayIso: "2026-11-01" },
 		);
+
 		expect(report.everyone.map((w) => w.days)).toEqual([23, 5]);
 	});
 
@@ -254,6 +276,7 @@ describe("buildReport", () => {
 		const report = buildReport([...seasoned, { id: "quiet", ranges: [] }], {
 			todayIso: "2026-11-01",
 		});
+
 		expect(report.counted).toEqual(["a", "b", "c"]);
 		expect(report.silent).toEqual(["quiet"]);
 		expect(report.everyone).toHaveLength(1);
@@ -262,12 +285,16 @@ describe("buildReport", () => {
 
 	it("reports near misses with who is missing", () => {
 		const report = buildReport(seasoned, { todayIso: "2026-11-01" });
+
 		expect(report.almost.length).toBeGreaterThan(0);
+
 		for (const w of report.almost) {
 			expect(w.freeIds.length).toBe(2);
 			expect(w.missingIds).toHaveLength(1);
 		}
+
 		const best = report.almost[0];
+
 		// Dec 12..18 is a + missing, actually b and a from Dec 18. Longest 2-of-3
 		// stretch is Jan 5..11 (a and b, c already back) = 7 days.
 		expect(best.days).toBe(7);
@@ -276,6 +303,7 @@ describe("buildReport", () => {
 
 	it("drops windows that already finished", () => {
 		const past = buildReport(seasoned, { todayIso: "2027-06-01" });
+
 		expect(past.everyone).toEqual([]);
 		expect(past.almost).toEqual([]);
 		// Positive control: the same data before the cutoff does produce windows.
@@ -284,6 +312,7 @@ describe("buildReport", () => {
 
 	it("keeps a window that is happening right now", () => {
 		const now = buildReport(seasoned, { todayIso: "2026-12-28" });
+
 		expect(now.everyone.map((w) => w.start)).toEqual(["2026-12-19"]);
 	});
 
@@ -292,6 +321,7 @@ describe("buildReport", () => {
 			{ id: "a", ranges: [] },
 			{ id: "b", ranges: [] },
 		]);
+
 		expect(report).toEqual({ counted: [], silent: ["a", "b"], everyone: [], almost: [] });
 	});
 
@@ -303,6 +333,7 @@ describe("buildReport", () => {
 			],
 			{ todayIso: "2026-11-01" },
 		);
+
 		expect(report.counted).toHaveLength(2);
 		expect(report.everyone).toEqual([]);
 		expect(report.almost).toEqual([]);
@@ -313,11 +344,14 @@ describe("buildReport", () => {
 			id,
 			ranges: [r("2026-12-19", "2027-01-04")],
 		}));
+
 		five.push(
 			{ id: "d", ranges: [r("2026-12-27", "2027-01-04")] },
 			{ id: "e", ranges: [r("2026-12-27", "2027-01-04")] },
 		);
+
 		const report = buildReport(five, { todayIso: "2026-11-01" });
+
 		expect(report.everyone.map(shape)).toEqual([["2026-12-27", "2027-01-04", 9, "a b c d e"]]);
 		expect(report.almost.map(shape)).toEqual([["2026-12-19", "2026-12-26", 8, "a b c"]]);
 	});

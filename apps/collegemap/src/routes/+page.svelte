@@ -56,9 +56,11 @@
 
 	let searchResults = $derived.by(() => {
 		const q = searchQuery.trim().toLowerCase();
+
 		if (!q) {
 			return [];
 		}
+
 		return liveRankings.filter((c) => c.name.toLowerCase().includes(q)).slice(0, 8);
 	});
 
@@ -68,17 +70,21 @@
 
 	function selectCollege(college: { name: string; count: number }) {
 		const user = liveUsers.find((u) => u.college.name === college.name);
+
 		if (user) {
 			const target = {
 				name: college.name,
 				latitude: user.college.latitude,
 				longitude: user.college.longitude,
 			};
+
 			selectedCollege = null;
+
 			queueMicrotask(() => {
 				selectedCollege = target;
 			});
 		}
+
 		searchQuery = "";
 		searchFocused = false;
 		highlightedIndex = -1;
@@ -115,17 +121,20 @@
 	// SSE connection for real-time updates
 	onMount(() => {
 		const es = new EventSource("/api/events");
+
 		es.addEventListener("user-added", (e: MessageEvent<string>) => {
 			try {
 				const user = JSON.parse(e.data) as UserWithCollege;
 				// Replace if user already exists (college change), else append
 				const idx = liveUsers.findIndex((u) => u.id === user.id);
+
 				liveUsers =
 					idx >= 0 ? liveUsers.map((u, i) => (i === idx ? user : u)) : [...liveUsers, user];
 			} catch {
 				// ignore parse errors
 			}
 		});
+
 		return () => {
 			es.close();
 		};

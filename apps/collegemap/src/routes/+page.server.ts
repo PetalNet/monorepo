@@ -30,14 +30,17 @@ export const load: PageServerLoad = async ({ locals }) => {
 
 	// Build college rankings (sorted by student count descending)
 	const collegeCountMap = new Map<string, { name: string; count: number }>();
+
 	for (const u of usersWithColleges) {
 		const existing = collegeCountMap.get(u.college.id);
+
 		if (existing) {
 			existing.count++;
 		} else {
 			collegeCountMap.set(u.college.id, { name: u.college.name, count: 1 });
 		}
 	}
+
 	const collegeRankings = Array.from(collegeCountMap.values()).toSorted(
 		(a, b) => b.count - a.count,
 	);

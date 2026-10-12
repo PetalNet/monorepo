@@ -1,11 +1,18 @@
 import { createServer } from "node:http";
 
 import * as PgClient from "@effect/sql-pg/PgClient";
+import { it } from "@effect/vitest";
 import type { ApiServer } from "@petalnet/effect-api";
-import { Cause, Effect, Exit, Layer, ManagedRuntime, Redacted } from "effect";
+import { Cause, Effect, Exit, Layer, ManagedRuntime, Redacted, Schema } from "effect";
 import { exportJWK, generateKeyPair, SignJWT, type JWK, type JWTPayload } from "jose";
-import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
+import { afterAll, beforeAll, describe, expect, vi } from "vitest";
 
+import {
+	ClaimReceipt,
+	ProjectCreateReceipt,
+	ProjectPlanReceipt,
+	PublishReceipt,
+} from "../src/lib/projects/schema";
 import {
 	ActorAuthority,
 	ActorAuthorityLayer,
@@ -14,9 +21,9 @@ import {
 	type PersonPrincipal,
 } from "../src/lib/server/actors/authority";
 import { groveApi } from "../src/lib/server/api";
-import { InvocationContext } from "../src/lib/server/invocation";
 import { makeMcpIngress, type McpIngress } from "../src/lib/server/mcp/ingress";
-import { SproutCommands, SproutCommandsLayer } from "../src/lib/server/sprouts/service";
+import type { ProjectService } from "../src/lib/server/projects/service";
+import { ProjectServiceLayer, ProjectServiceBuildLayer } from "../src/lib/server/projects/service";
 import { startGrovePostgres, stopGrovePostgres } from "./postgres";
 
 const config = {
@@ -41,6 +48,7 @@ const rpc = (id: number, method: string, params?: object) =>
 		method,
 		params: { ...params, _meta: MCP_META },
 	});
+
 interface McpJson {
 	readonly result: {
 		readonly resultType: string;
@@ -57,7 +65,10 @@ const responseJson = (response: Response): Promise<unknown> => response.json() a
 const json = async (response: Response) => (await responseJson(response)) as McpJson;
 
 describe("MCP protected-resource ingress", () => {
-	let runtime: ManagedRuntime.ManagedRuntime<ActorAuthority | SproutCommands | ApiServer, unknown>;
+	let runtime: ManagedRuntime.ManagedRuntime<
+		ActorAuthority | ProjectService | ApiServer | PgClient.PgClient,
+		unknown
+	>;
 	let ingress: McpIngress;
 	let privateKey: CryptoKey;
 	let owner: PersonPrincipal;
@@ -80,7 +91,8 @@ describe("MCP protected-resource ingress", () => {
 		const actors = ActorAuthorityLayer({ homeOwner: ownerIdentity }).pipe(
 			Layer.provideMerge(database),
 		);
-		const domain = SproutCommandsLayer.pipe(Layer.provideMerge(actors));
+		const domain = ProjectServiceLayer.pipe(Layer.provideMerge(actors));
+
 		runtime = ManagedRuntime.make(Layer.merge(domain, groveApi.layer));
 
 		owner = await runtime.runPromise(
@@ -95,16 +107,22 @@ describe("MCP protected-resource ingress", () => {
 		);
 
 		const pair = await generateKeyPair("RS256");
+
 		privateKey = pair.privateKey;
 		const jwk = { ...(await exportJWK(pair.publicKey)), kid: "mcp-test", alg: "RS256", use: "sig" };
+
 		keys = [jwk];
+
 		await new Promise<void>((resolve) => {
 			jwksServer.listen(0, "127.0.0.1", resolve);
 		});
+
 		const address = jwksServer.address();
+
 		if (!address || typeof address === "string") {
 			throw new Error("Expected TCP listener");
 		}
+
 		config.jwksUrl = `http://127.0.0.1:${String(address.port)}/jwks`;
 		ingress = makeMcpIngress(config);
 	}, 60_000);
@@ -114,11 +132,14 @@ describe("MCP protected-resource ingress", () => {
 			jwksServer.close((error) => {
 				if (error) {
 					reject(error);
+
 					return;
 				}
+
 				resolve();
 			});
 		});
+
 		await runtime.dispose();
 		await stopGrovePostgres();
 	});
@@ -130,6 +151,7 @@ describe("MCP protected-resource ingress", () => {
 		claims: JWTPayload = {},
 	) => {
 		const now = Math.floor(Date.now() / 1000);
+
 		return new SignJWT({
 			scope: scopes.join(" "),
 			iss: config.issuer,
@@ -142,6 +164,7 @@ describe("MCP protected-resource ingress", () => {
 			.setProtectedHeader({ alg: "RS256", kid })
 			.sign(privateKey);
 	};
+
 	const request = async (
 		accessToken: string | undefined,
 		body: string,
@@ -150,34 +173,42 @@ describe("MCP protected-resource ingress", () => {
 		standardHeaders = true,
 	) => {
 		const headers = new Headers(extraHeaders);
+
 		if (!headers.has("content-type")) {
 			headers.set("content-type", "application/json");
 		}
+
 		if (!headers.has("accept")) {
 			headers.set("accept", "application/json, text/event-stream");
 		}
+
 		if (standardHeaders) {
 			try {
 				const parsed = JSON.parse(body) as {
 					readonly method?: unknown;
 					readonly params?: { readonly name?: unknown };
 				};
+
 				if (typeof parsed.method === "string" && !headers.has("mcp-method")) {
 					headers.set("mcp-method", parsed.method);
 				}
+
 				if (typeof parsed.params?.name === "string" && !headers.has("mcp-name")) {
 					headers.set("mcp-name", parsed.params.name);
 				}
 			} catch {
 				// Ingress parse-error tests deliberately send malformed JSON.
 			}
+
 			if (!headers.has("mcp-protocol-version")) {
 				headers.set("mcp-protocol-version", MCP_PROTOCOL_VERSION);
 			}
 		}
+
 		if (accessToken) {
 			headers.set("authorization", `Bearer ${accessToken}`);
 		}
+
 		return runtime.runPromise(
 			target.handle(
 				new Request(`${config.resourceOrigin}/mcp`, {
@@ -188,6 +219,7 @@ describe("MCP protected-resource ingress", () => {
 			),
 		);
 	};
+
 	it("publishes the existing RFC 9728 resource metadata", () => {
 		expect(ingress.metadata()).toEqual({
 			resource: "https://grove.example/mcp",
@@ -213,6 +245,7 @@ describe("MCP protected-resource ingress", () => {
 
 		expect(response.status).toBe(401);
 		expect(response.headers.get("www-authenticate")).toContain("resource_metadata=");
+
 		expect(await responseJson(response)).toMatchObject({
 			jsonrpc: "2.0",
 			id: null,
@@ -238,10 +271,13 @@ describe("MCP protected-resource ingress", () => {
 			await token("invalid-claims", ["grove:mcp"], "mcp-test", claims),
 			rpc(30, "tools/list"),
 		);
+
 		expect(response.status).toBe(status);
+
 		expect(response.headers.get("www-authenticate")).toContain(
 			'resource_metadata="https://grove.example/.well-known/oauth-protected-resource/mcp"',
 		);
+
 		if (status === 403) {
 			expect(response.headers.get("www-authenticate")).toContain('error="insufficient_scope"');
 		}
@@ -250,7 +286,9 @@ describe("MCP protected-resource ingress", () => {
 	it("refreshes cached JWKS when the issuer rotates to a new key", async () => {
 		await request(await token("before-rotation", ["grove:mcp"]), rpc(31, "tools/list"));
 		const pair = await generateKeyPair("ES256");
+
 		keys.push({ ...(await exportJWK(pair.publicKey)), kid: "rotated", alg: "ES256", use: "sig" });
+
 		const accessToken = await new SignJWT({ scope: "grove:mcp" })
 			.setProtectedHeader({ alg: "ES256", kid: "rotated" })
 			.setIssuer(config.issuer)
@@ -260,6 +298,7 @@ describe("MCP protected-resource ingress", () => {
 			.setExpirationTime("5m")
 			.sign(pair.privateKey);
 		const response = await request(accessToken, rpc(32, "tools/list"));
+
 		expect(response.status).toBe(200);
 		expect((await json(response)).result.tools).toEqual([]);
 	});
@@ -267,7 +306,7 @@ describe("MCP protected-resource ingress", () => {
 	it.each(["failure", "defect"] as const)(
 		"preserves a domain %s across the Promise adapter",
 		async (kind) => {
-			const failure = new ActorNotCurrent("agent-test");
+			const failure = new ActorNotCurrent({ actorId: "agent-test" });
 			const authority = await runtime.runPromise(ActorAuthority);
 			const incoming = new Request(`${config.resourceOrigin}/mcp`, {
 				headers: { authorization: `Bearer ${await token("runtime-error", ["grove:mcp"])}` },
@@ -281,7 +320,9 @@ describe("MCP protected-resource ingress", () => {
 					}),
 				),
 			);
+
 			expect(Exit.isFailure(exit)).toBe(true);
+
 			if (Exit.isFailure(exit)) {
 				expect(exit.cause.reasons).toContainEqual(
 					expect.objectContaining(kind === "failure" ? { error: failure } : { defect: failure }),
@@ -296,6 +337,7 @@ describe("MCP protected-resource ingress", () => {
 			headers: { authorization: `Bearer ${await token("aborted", ["grove:mcp"])}` },
 			signal: controller.signal,
 		});
+
 		controller.abort();
 		const authority = await runtime.runPromise(ActorAuthority);
 		const resolveMachineIdentity = vi.fn(authority.resolveMachineIdentity);
@@ -304,6 +346,7 @@ describe("MCP protected-resource ingress", () => {
 				.handle(incoming)
 				.pipe(Effect.provideService(ActorAuthority, { ...authority, resolveMachineIdentity })),
 		);
+
 		expect(Exit.isFailure(exit) && Cause.hasInterruptsOnly(exit.cause)).toBe(true);
 		expect(resolveMachineIdentity).not.toHaveBeenCalled();
 	});
@@ -326,11 +369,13 @@ describe("MCP protected-resource ingress", () => {
 						resolveMachineIdentity: () =>
 							Effect.gen(function* () {
 								started.resolve(undefined);
+
 								return yield* Effect.never;
 							}).pipe(
 								Effect.ensuring(
 									Effect.promise(() => {
 										cleaning.resolve(undefined);
+
 										return release.promise;
 									}),
 								),
@@ -341,34 +386,43 @@ describe("MCP protected-resource ingress", () => {
 			)
 			.then((exit) => {
 				completed = true;
+
 				return exit;
 			});
+
 		await started.promise;
 		controller.abort();
 		await cleaning.promise;
+
 		try {
 			await new Promise((resolve) => {
 				setTimeout(resolve, 10);
 			});
+
 			expect(completed).toBe(false);
 		} finally {
 			release.resolve(undefined);
 		}
+
 		const exit = await pending;
+
 		expect(Exit.isFailure(exit) && Cause.hasInterruptsOnly(exit.cause)).toBe(true);
 	});
 
 	it("serves modern discovery and lets Effect enforce the modern request envelope", async () => {
 		const accessToken = await token("modern-discovery", ["grove:mcp"]);
 		const discovered = await json(await request(accessToken, rpc(20, "server/discover")));
+
 		expect(discovered.result).toMatchObject({
 			resultType: "complete",
 			supportedVersions: [MCP_PROTOCOL_VERSION],
 			ttlMs: 0,
 			cacheScope: "private",
 		});
+
 		// Capabilities describe the shared server; tool discovery remains caller-specific.
 		expect(discovered.result).toHaveProperty("capabilities.tools");
+
 		expect((await json(await request(accessToken, rpc(21, "tools/list")))).result.tools).toEqual(
 			[],
 		);
@@ -380,10 +434,12 @@ describe("MCP protected-resource ingress", () => {
 			ingress,
 			false,
 		);
+
 		expect(missingVersion.status).toBe(400);
 		expect(await json(missingVersion)).toMatchObject({ error: { code: -32020 } });
 
 		const unknownMethod = await request(accessToken, rpc(23, "grove/not-a-method"));
+
 		expect(unknownMethod.status).toBe(404);
 		expect(await json(unknownMethod)).toMatchObject({ error: { code: -32601 } });
 	});
@@ -406,6 +462,7 @@ describe("MCP protected-resource ingress", () => {
 			ingress,
 			false,
 		);
+
 		expect(response.status).toBe(400);
 		expect(await json(response)).toHaveProperty("error");
 	});
@@ -413,11 +470,13 @@ describe("MCP protected-resource ingress", () => {
 	it("restricts bootstrap visibility, explicitly enrolls, and keeps retries idempotent", async () => {
 		const accessToken = await token("janet-machine", ["grove:mcp", "grove:agent:enroll"]);
 		const listedBefore = await json(await request(accessToken, rpc(1, "tools/list")));
+
 		expect(listedBefore.result).toMatchObject({
 			resultType: "complete",
 			ttlMs: 0,
 			cacheScope: "private",
 		});
+
 		expect(listedBefore.result.tools.map((tool: { name: string }) => tool.name)).toEqual([
 			"agents.enrollSelf",
 		]);
@@ -431,11 +490,13 @@ describe("MCP protected-resource ingress", () => {
 				}),
 			),
 		);
+
 		expect(enrolled.result).toMatchObject({
 			resultType: "complete",
 			isError: false,
 			structuredContent: { kind: "agent", name: "Janet", homeHostId: "host-local" },
 		});
+
 		expect(enrolled.result.structuredContent).toEqual({
 			kind: "agent",
 			actorId: expect.any(String) as unknown,
@@ -443,6 +504,7 @@ describe("MCP protected-resource ingress", () => {
 			homeHostId: "host-local",
 			ownerPersonId: owner.actorId,
 		});
+
 		const agentId = enrolled.result.structuredContent.actorId as string;
 
 		const repeated = await json(
@@ -454,6 +516,7 @@ describe("MCP protected-resource ingress", () => {
 				}),
 			),
 		);
+
 		expect(repeated.result.structuredContent.actorId).toBe(agentId);
 
 		const unscopedRetry = await json(
@@ -462,57 +525,253 @@ describe("MCP protected-resource ingress", () => {
 				rpc(15, "tools/call", { name: "agents.enrollSelf", arguments: { name: "Denied retry" } }),
 			),
 		);
+
 		expect(unscopedRetry).toMatchObject({ error: { code: -32602 } });
 		expect(unscopedRetry).not.toHaveProperty("result");
 
 		const listedAfter = await json(await request(accessToken, rpc(4, "tools/list")));
+
 		expect(listedAfter.result.tools.map((tool: { name: string }) => tool.name)).toEqual([
-			"sprouts.list",
-			"sprouts.get",
-			"sprouts.create",
-			"sprouts.water",
-			"sprouts.remove",
+			"project.create",
+			"project.plan",
+			"task.claim",
+			"claim.renew",
+			"claim.release",
+			"attempt.publish",
+			"work.ready",
+			"review.submit",
+			"task.complete",
+			"library.search",
+			"library.getVersion",
 		]);
+	});
+
+	it.live("creates and replays projects through authenticated MCP with current authority", () =>
+		Effect.gen(function* () {
+			const context = yield* runtime.contextEffect;
+			const accessToken = yield* Effect.promise(() =>
+				token("project-machine", ["grove:mcp", "grove:agent:enroll"]),
+			);
+			const enrolled = yield* Effect.promise(async () =>
+				json(
+					await request(
+						accessToken,
+						rpc(80, "tools/call", {
+							name: "agents.enrollSelf",
+							arguments: { name: "Project Agent" },
+						}),
+					),
+				),
+			);
+			const actorId = enrolled.result.structuredContent.actorId;
+
+			if (typeof actorId !== "string") {
+				throw new TypeError("Expected enrolled Actor");
+			}
+
+			const input = {
+				commandId: "b37797e1-5a79-4347-b3ae-d1e1c7cc7217",
+				scope: "home",
+				title: "Project",
+				ask: "Build it",
+			};
+			const created = yield* Effect.promise(async () =>
+				json(
+					await request(
+						accessToken,
+						rpc(81, "tools/call", { name: "project.create", arguments: input }),
+					),
+				),
+			);
+
+			expect(created.result.structuredContent).toMatchObject({
+				commandId: input.commandId,
+				replayed: false,
+			});
+
+			const repeated = yield* Effect.promise(async () =>
+				json(
+					await request(
+						accessToken,
+						rpc(82, "tools/call", { name: "project.create", arguments: input }),
+					),
+				),
+			);
+
+			expect(repeated.result.structuredContent).toEqual({
+				...created.result.structuredContent,
+				replayed: true,
+			});
+
+			yield* Effect.flatMap(ActorAuthority, (authority) =>
+				authority.suspendAgentAs(owner, actorId),
+			).pipe(Effect.provide(context));
+
+			const denied = yield* Effect.promise(async () =>
+				json(
+					await request(
+						accessToken,
+						rpc(83, "tools/call", { name: "project.create", arguments: input }),
+					),
+				),
+			);
+
+			expect(denied).toMatchObject({ error: { code: -32602 } });
+		}),
+	);
+
+	it("executes planning, readiness, fenced claim mutations and publication through authenticated MCP", async () => {
+		const accessToken = await token("execution-machine", ["grove:mcp", "grove:agent:enroll"]);
+		let id = 100;
+		const invoke = async (name: string, arguments_: object) => {
+			const response = await json(
+				await request(accessToken, rpc(id++, "tools/call", { name, arguments: arguments_ })),
+			);
+
+			expect(response.result.isError).toBe(false);
+
+			return response.result.structuredContent;
+		};
+
+		await invoke("agents.enrollSelf", { name: "Execution Agent" });
+
+		const project = Schema.decodeUnknownSync(ProjectCreateReceipt)(
+			await invoke("project.create", {
+				commandId: crypto.randomUUID(),
+				scope: "execution",
+				title: "Execution",
+				ask: "Produce an artifact",
+			}),
+		);
+		const planning = {
+			commandId: crypto.randomUUID(),
+			projectId: project.objectId,
+			expectedVersionId: project.versionId,
+			tasks: [
+				{
+					key: "first",
+					title: "First",
+					objective: "Produce",
+					completionContract: { requiredOutputs: ["artifact"], reviewRequired: true },
+				},
+			],
+			dependencies: [],
+		};
+		const plan = Schema.decodeUnknownSync(ProjectPlanReceipt)(
+			await invoke("project.plan", planning),
+		);
+
+		expect(await invoke("project.plan", planning)).toEqual({ ...plan, replayed: true });
+		await invoke("work.ready", { projectId: project.objectId });
+		const taskId = plan.taskIds.first;
+		const claim = Schema.decodeUnknownSync(ClaimReceipt)(
+			await invoke("task.claim", { commandId: crypto.randomUUID(), taskId, leaseSeconds: 60 }),
+		);
+
+		await invoke("claim.renew", {
+			commandId: crypto.randomUUID(),
+			claimId: claim.claimId,
+			fence: claim.fence,
+			leaseSeconds: 60,
+		});
+
+		await invoke("claim.release", {
+			commandId: crypto.randomUUID(),
+			claimId: claim.claimId,
+			fence: claim.fence,
+		});
+
+		const next = Schema.decodeUnknownSync(ClaimReceipt)(
+			await invoke("task.claim", { commandId: crypto.randomUUID(), taskId, leaseSeconds: 60 }),
+		);
+
+		expect(next.fence).not.toBe(claim.fence);
+
+		const publication = {
+			commandId: crypto.randomUUID(),
+			claimId: next.claimId,
+			fence: next.fence,
+			attemptId: next.attemptId,
+			title: "Artifact",
+			content: "Immutable output",
+		};
+		const published = Schema.decodeUnknownSync(PublishReceipt)(
+			await invoke("attempt.publish", publication),
+		);
+
+		expect(await invoke("attempt.publish", publication)).toEqual({ ...published, replayed: true });
+
+		const denied = await json(
+			await request(
+				accessToken,
+				rpc(id++, "tools/call", {
+					name: "claim.renew",
+					arguments: {
+						commandId: crypto.randomUUID(),
+						claimId: next.claimId,
+						fence: "wrong",
+						leaseSeconds: 60,
+					},
+				}),
+			),
+		);
+
+		expect(denied.result.isError).toBe(true);
 	});
 
 	it("executes bearer-only tools/call and never confuses an attached browser cookie for the actor", async () => {
 		const accessToken = await token("janet-machine", ["grove:mcp", "grove:agent:enroll"]);
+		const enrolled = await json(
+			await request(
+				accessToken,
+				rpc(50, "tools/call", {
+					name: "agents.enrollSelf",
+					arguments: { name: "Bearer project Agent" },
+				}),
+			),
+		);
+
+		expect(enrolled.result.isError).toBe(false);
+
 		const created = await json(
 			await request(
 				accessToken,
 				rpc(5, "tools/call", {
-					name: "sprouts.create",
-					arguments: { name: "Bearer-grown fern" },
+					name: "project.create",
+					arguments: {
+						commandId: crypto.randomUUID(),
+						scope: "bearer-attribution",
+						title: "Bearer-created project",
+						ask: "Verify durable Agent attribution",
+					},
 				}),
 				{ cookie: "better-auth.session_token=owner-browser-session" },
 			),
 		);
-		expect(created.result).toMatchObject({
-			isError: false,
-			structuredContent: {
-				name: "Bearer-grown fern",
-			},
-		});
-		const createdBy = created.result.structuredContent.createdByActorId;
-		const lastActor = created.result.structuredContent.lastActorId;
-		expect(createdBy).toEqual(expect.any(String));
-		expect(lastActor).toEqual(expect.any(String));
-		if (typeof createdBy !== "string" || typeof lastActor !== "string") {
-			throw new TypeError("Expected Agent actor IDs");
-		}
-		expect(createdBy).toMatch(/^agent-/);
-		expect(lastActor).toBe(createdBy);
 
-		const listedForBrowserActor = await runtime.runPromise(
-			Effect.flatMap(SproutCommands, (commands) => commands.list).pipe(
-				Effect.provideService(InvocationContext, {
-					principal: owner,
-				}),
+		expect(created.result.isError).toBe(false);
+
+		const receipt = Schema.decodeUnknownSync(ProjectCreateReceipt)(
+			created.result.structuredContent,
+		);
+		const versions = await runtime.runPromise(
+			Effect.flatMap(
+				PgClient.PgClient,
+				(sql) =>
+					sql<{
+						actor_id: string;
+						actor_kind: string;
+					}>`select actor_id, actor_kind from grove_object_versions where id = ${receipt.versionId} and object_id = ${receipt.objectId}`,
 			),
 		);
-		expect(listedForBrowserActor).toEqual(
-			expect.arrayContaining([expect.objectContaining(created.result.structuredContent)]),
-		);
+
+		expect(enrolled.result.structuredContent.actorId).toEqual(expect.any(String));
+
+		expect(versions).toEqual([
+			{ actor_id: enrolled.result.structuredContent.actorId, actor_kind: "agent" },
+		]);
+
+		expect(versions[0].actor_id).not.toBe(owner.actorId);
 	});
 
 	it("reauthorizes enrollment retries after Agent suspension", async () => {
@@ -527,6 +786,7 @@ describe("MCP protected-resource ingress", () => {
 			),
 		);
 		const agentId = enrolled.result.structuredContent.actorId as string;
+
 		await runtime.runPromise(
 			Effect.flatMap(ActorAuthority, (authority) => authority.suspendAgentAs(owner, agentId)),
 		);
@@ -540,6 +800,7 @@ describe("MCP protected-resource ingress", () => {
 				}),
 			),
 		);
+
 		expect(retried.result).toMatchObject({
 			isError: true,
 			structuredContent: { error: { code: "operation_failed" } },
@@ -568,6 +829,7 @@ describe("MCP protected-resource ingress", () => {
 		});
 
 		expect(response.status).toBe(415);
+
 		expect(await responseJson(response)).toEqual({
 			error: "unsupported_media_type",
 			message: "MCP requests must use application/json",
@@ -582,6 +844,7 @@ describe("MCP protected-resource ingress", () => {
 		);
 
 		expect(response.status).toBe(413);
+
 		expect(await responseJson(response)).toEqual({
 			error: "request_too_large",
 			message: "MCP requests must not exceed 1 MiB",
@@ -609,9 +872,11 @@ describe("MCP protected-resource ingress", () => {
 			duplex: "half",
 		} as RequestInit);
 		const pending = runtime.runPromiseExit(ingress.handle(incoming), { signal: controller.signal });
+
 		await pulled.promise;
 		controller.abort();
 		const exit = await pending;
+
 		expect(Exit.isFailure(exit) && Cause.hasInterruptsOnly(exit.cause)).toBe(true);
 		expect(cancel).toHaveBeenCalledOnce();
 	});
@@ -633,6 +898,7 @@ describe("MCP protected-resource ingress", () => {
 			{ chunks: [atLimit, encoder.encode(" ")], length: "1", status: 413 },
 			{ chunks: [new Uint8Array([0xc3, 0x28])], length: undefined, status: 400 },
 		];
+
 		await Promise.all(
 			cases.map(async ({ chunks, length, status }) => {
 				const cancel = vi.fn();
@@ -641,6 +907,7 @@ describe("MCP protected-resource ingress", () => {
 					{
 						pull(controller) {
 							const chunk = chunks.at(index++);
+
 							if (chunk) {
 								controller.enqueue(chunk);
 							} else {
@@ -658,9 +925,11 @@ describe("MCP protected-resource ingress", () => {
 					"mcp-protocol-version": MCP_PROTOCOL_VERSION,
 					"mcp-method": "tools/list",
 				});
+
 				if (length) {
 					headers.set("content-length", length);
 				}
+
 				const incoming = new Request(`${config.resourceOrigin}/mcp`, {
 					method: "POST",
 					headers,
@@ -668,13 +937,17 @@ describe("MCP protected-resource ingress", () => {
 					duplex: "half",
 				} as RequestInit);
 				const response = await runtime.runPromise(ingress.handle(incoming));
+
 				expect(response.status).toBe(status);
+
 				if (status === 200) {
 					expect(await json(response)).toMatchObject({ result: { tools: [] } });
 				}
+
 				if (status === 400) {
 					expect(await json(response)).toMatchObject({ error: { code: -32700 } });
 				}
+
 				if (status === 413) {
 					expect(await responseJson(response)).toMatchObject({ error: "request_too_large" });
 					expect(cancel).toHaveBeenCalledOnce();
@@ -690,12 +963,14 @@ describe("MCP protected-resource ingress", () => {
 			await token("scope-missing", ["grove:agent:enroll"]),
 			rpc(7, "tools/list"),
 		);
+
 		expect(insufficient.status).toBe(403);
 
 		const unknownKid = await request(
 			await token("unknown-key", ["grove:mcp"], "not-in-readable-jwks"),
 			rpc(8, "tools/list"),
 		);
+
 		expect(unknownKid.status).toBe(401);
 
 		const unavailable = makeMcpIngress({
@@ -708,7 +983,9 @@ describe("MCP protected-resource ingress", () => {
 			undefined,
 			unavailable,
 		);
+
 		expect(dependencyFailure.status).toBe(503);
+
 		expect(await json(dependencyFailure)).toEqual({
 			error: "identity_provider_unavailable",
 			message: "MCP identity validation is unavailable",
@@ -727,9 +1004,11 @@ describe("MCP protected-resource ingress", () => {
 					undefined,
 					failedDependency,
 				);
+
 				return { status: response.status, body: await json(response) };
 			}),
 		);
+
 		for (const failure of failures) {
 			expect(failure.status).toBe(503);
 			expect(failure.body).toMatchObject({ error: "identity_provider_unavailable" });
@@ -738,17 +1017,18 @@ describe("MCP protected-resource ingress", () => {
 
 	it("sanitizes actor-authority dependency failures at the ingress boundary", async () => {
 		const authority = await runtime.runPromise(ActorAuthority);
-		const commands = await runtime.runPromise(SproutCommands);
 		const failingRuntime = ManagedRuntime.make(
-			Layer.merge(
+			Layer.mergeAll(
 				Layer.succeed(ActorAuthority, {
 					...authority,
 					resolveMachineIdentity: () =>
-						Effect.fail(new ActorDatabaseError(new Error("simulated database outage"))),
+						Effect.fail(new ActorDatabaseError({ cause: new Error("simulated database outage") })),
 				}),
-				Layer.succeed(SproutCommands, commands),
-			).pipe(Layer.merge(groveApi.layer)),
+				groveApi.layer,
+				ProjectServiceBuildLayer,
+			),
 		);
+
 		try {
 			const response = await failingRuntime.runPromise(
 				ingress.handle(
@@ -762,7 +1042,9 @@ describe("MCP protected-resource ingress", () => {
 					}),
 				),
 			);
+
 			expect(response.status).toBe(503);
+
 			expect(await json(response)).toEqual({
 				error: "authority_unavailable",
 				message: "MCP actor resolution is unavailable",

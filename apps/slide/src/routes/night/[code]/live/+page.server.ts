@@ -67,6 +67,7 @@ export const load: PageServerLoad = async ({ params, locals, url }) => {
 
 	// Get ordered groups
 	let orderedGroups = event.presentationOrder.map((po) => po.group);
+
 	if (orderedGroups.length === 0) {
 		orderedGroups = event.groups;
 	}
@@ -173,6 +174,7 @@ export const load: PageServerLoad = async ({ params, locals, url }) => {
 	// Process votes into the existingVotes structure
 	for (const vote of userVotes) {
 		existingVotes[vote.groupId] = {};
+
 		for (const rating of vote.ratings) {
 			existingVotes[vote.groupId][rating.categoryId] = rating.stars;
 		}
@@ -191,6 +193,7 @@ export const load: PageServerLoad = async ({ params, locals, url }) => {
 				groupId: true,
 			},
 		});
+
 		userGroupIds = userGroups.map((g) => g.groupId);
 	}
 
@@ -207,6 +210,7 @@ export const load: PageServerLoad = async ({ params, locals, url }) => {
 		winners: { group: (typeof orderedGroups)[number]; score: number }[];
 		isTie: boolean;
 	}
+
 	let topPresentations: {
 		first: ScoredGroup[];
 		second: ScoredGroup[];
@@ -233,10 +237,12 @@ export const load: PageServerLoad = async ({ params, locals, url }) => {
 
 		// Group votes by groupId for fast lookup
 		const votesByGroup = new Map<string, (typeof allVotes)[number][]>();
+
 		for (const vote of allVotes) {
 			if (!votesByGroup.has(vote.groupId)) {
 				votesByGroup.set(vote.groupId, []);
 			}
+
 			votesByGroup.get(vote.groupId)!.push(vote);
 		}
 
@@ -259,6 +265,7 @@ export const load: PageServerLoad = async ({ params, locals, url }) => {
 
 			// Calculate category scores
 			const categoryScores: Record<string, number> = {};
+
 			for (const category of event.categories) {
 				const categoryRatings = completeVotes.flatMap((vote) =>
 					vote.ratings.filter((r) => r.categoryId === category.id),
@@ -267,6 +274,7 @@ export const load: PageServerLoad = async ({ params, locals, url }) => {
 					categoryRatings.length > 0
 						? categoryRatings.reduce((sum, r) => sum + r.stars, 0) / categoryRatings.length
 						: 0;
+
 				categoryScores[category.id] = categoryAvg;
 			}
 
@@ -284,6 +292,7 @@ export const load: PageServerLoad = async ({ params, locals, url }) => {
 			if (b.totalScore !== a.totalScore) {
 				return b.totalScore - a.totalScore;
 			}
+
 			return b.voteCount - a.voteCount;
 		});
 
@@ -410,9 +419,11 @@ export const actions: Actions = {
 			const session = await prisma.votingSession.findUnique({
 				where: { sessionCode },
 			});
+
 			if (session?.eventId !== event.id) {
 				return { error: "Invalid session" };
 			}
+
 			votingSessionId = session.id;
 		} else if (locals.user) {
 			userId = locals.user.id;
@@ -620,9 +631,11 @@ export const actions: Actions = {
 			const session = await prisma.votingSession.findUnique({
 				where: { sessionCode },
 			});
+
 			if (session?.eventId !== event.id) {
 				return { error: "Invalid session" };
 			}
+
 			votingSessionId = session.id;
 		} else if (locals.user) {
 			userId = locals.user.id;
@@ -681,6 +694,7 @@ export const actions: Actions = {
 			const vote = await prisma.vote.create({
 				data: voteData,
 			});
+
 			voteId = vote.id;
 		}
 

@@ -7,5 +7,6 @@
  */
 export function formText(data: FormData, field: string): string | undefined {
 	const value = data.get(field);
+
 	return typeof value === "string" ? value : undefined;
 }

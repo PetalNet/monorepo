@@ -23,10 +23,12 @@ const bundle = (code: string, specifier = devModule) =>
 					if (source === entry) {
 						return entry;
 					}
+
 					// Keep fixture JavaScript static; vary paths through Vite's resolver.
 					if (source === "boundary-test-target") {
 						return this.resolve(specifier, importer, { skipSelf: true });
 					}
+
 					return undefined;
 				},
 				load: (id) => (id === entry ? code : undefined),
@@ -63,6 +65,7 @@ describe("production development-module boundary", () => {
 		const output = await bundle(`
 			export const load = () => false ? import("boundary-test-target") : null;
 		`);
+
 		expect(output).toMatchObject([
 			{
 				output: [

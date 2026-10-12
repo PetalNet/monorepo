@@ -20,9 +20,12 @@ export const commandOutput = Effect.fn("commandOutput")(function* (
 	);
 	const output = yield* Stream.mkString(Stream.decodeText(handle.stdout));
 	const exitCode = yield* handle.exitCode;
+
 	if (exitCode !== 0) {
 		yield* Console.error(output);
+
 		return yield* new CommandFailed({ command, exitCode });
 	}
+
 	return output;
 }, Effect.scoped);

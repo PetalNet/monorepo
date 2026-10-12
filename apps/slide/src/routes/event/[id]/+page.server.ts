@@ -86,9 +86,11 @@ export const actions: Actions = {
 
 		// Parse and validate deadline
 		let parsedDeadline: Date | null = null;
+
 		if (submissionDeadline && submissionDeadline.trim().length > 0) {
 			try {
 				parsedDeadline = new Date(submissionDeadline);
+
 				if (isNaN(parsedDeadline.getTime())) {
 					return fail(400, { error: "Invalid submission deadline" });
 				}
@@ -99,8 +101,10 @@ export const actions: Actions = {
 
 		// Parse and validate max presentation time
 		let parsedMaxTime: number | null = null;
+
 		if (maxPresentationTime && maxPresentationTime.trim().length > 0) {
 			parsedMaxTime = parseInt(maxPresentationTime);
+
 			if (isNaN(parsedMaxTime) || parsedMaxTime < 1) {
 				return fail(400, {
 					error: "Max presentation time must be at least 1 minute",
@@ -124,6 +128,7 @@ export const actions: Actions = {
 			return { success: true };
 		} catch (e) {
 			console.error("Failed to update event:", e);
+
 			return fail(500, { error: "Failed to update event settings" });
 		}
 	},
@@ -151,7 +156,9 @@ export const actions: Actions = {
 			if (e instanceof Response) {
 				throw e; // Re-throw redirects
 			}
+
 			console.error("Failed to delete event:", e);
+
 			return fail(500, { error: "Failed to delete event" });
 		}
 	},

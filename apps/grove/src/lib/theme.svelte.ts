@@ -11,6 +11,7 @@ export class Theme {
 			!document.startViewTransition
 		) {
 			this.#applyToggle();
+
 			return;
 		}
 
@@ -22,6 +23,7 @@ export class Theme {
 
 	#applyToggle() {
 		const nextMode = this.dark ? "light" : "dark";
+
 		setMode(nextMode);
 	}
 }

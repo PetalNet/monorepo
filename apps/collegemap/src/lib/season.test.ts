@@ -18,30 +18,36 @@ describe("the season a break belongs to", () => {
 		expect(
 			deriveSeason("Winter break (fall exams end to spring classes begin)", "2026-12-11"),
 		).toBe("winter");
+
 		expect(
 			deriveSeason(
 				"Winter break (derived: last day of fall exams through first day of spring classes)",
 				"2026-12-15",
 			),
 		).toBe("winter");
+
 		expect(
 			deriveSeason(
 				"Winter break (gap between fall exams ending and spring classes starting; WashU publishes no named 'winter break' entry)",
 				"2026-12-17",
 			),
 		).toBe("winter");
+
 		expect(
 			deriveSeason("Winter break (fall semester close to spring classwork start)", "2026-12-19"),
 		).toBe("winter");
+
 		expect(
 			deriveSeason(
 				"Winter break (derived: last day of fall term through start of spring term)",
 				"2026-12-20",
 			),
 		).toBe("winter");
+
 		expect(deriveSeason("Spring student/faculty break (spring break)", "2027-03-08")).toBe(
 			"spring",
 		);
+
 		expect(deriveSeason("Fall student/faculty break", "2026-10-12")).toBe("autumn");
 	});
 
@@ -60,6 +66,7 @@ describe("the season a break belongs to", () => {
 		const byMonth = Array.from({ length: 12 }, (_, i) =>
 			deriveSeason("unnamed", `2027-${String(i + 1).padStart(2, "0")}-15`),
 		);
+
 		expect(byMonth).toEqual([
 			"winter",
 			"winter",
@@ -87,11 +94,13 @@ describe("the name a break goes by", () => {
 	it("drops the provenance a published label trails behind it", () => {
 		expect(breakName("Thanksgiving Break (no classes)")).toBe("Thanksgiving Break");
 		expect(breakName("Winter break (fall exams end to spring classes begin)")).toBe("Winter break");
+
 		expect(
 			breakName(
 				"Winter break (gap between fall exams ending and spring classes starting; WashU publishes no named 'winter break' entry)",
 			),
 		).toBe("Winter break");
+
 		expect(breakName("Labor Day - Holiday")).toBe("Labor Day");
 		expect(breakName("Otterbein: no classes")).toBe("Otterbein");
 	});
