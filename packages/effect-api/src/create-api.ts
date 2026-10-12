@@ -1,6 +1,6 @@
 import { Effect, Layer, Option, type Schema } from "effect";
 import { HttpRouter } from "effect/http";
-import { HttpApiScalar } from "effect/http-api";
+import type { HttpApiScalar } from "effect/http-api";
 
 import { createMcpLayer } from "./mcp.js";
 import { defaultLogCause, type ApiOperation, type LogCause } from "./operation.js";
@@ -40,7 +40,7 @@ export function createEffectApi(config: EffectApiConfig) {
 	const prefix = `${config.basePath}${config.basePath.endsWith("/") ? "" : "/"}` as const;
 	const openapiPath = `${prefix}openapi.json` as const;
 	const docsPath = config.docsPath ?? (`${prefix}docs` as const);
-	const rest = createRestApi({ ...config, openapiPath, logCause });
+	const rest = createRestApi({ ...config, openapiPath, docsPath, logCause });
 	const mcpOperations = config.mcpOperations ?? config.operations;
 	const all = new Set(mcpOperations.map((operation) => operation.name));
 	const mcp = createMcpLayer({
@@ -71,14 +71,10 @@ export function createEffectApi(config: EffectApiConfig) {
 		),
 	);
 	const routes = Layer.mergeAll(
-		rest.layer,
+		rest,
 		config.mcpAuthentication === false
 			? Layer.empty
 			: Layer.mergeAll(mcp, config.mcpAuthentication ?? Layer.empty),
-		HttpApiScalar.layer(rest.api, {
-			path: docsPath,
-			...(config.scalar ? { scalar: config.scalar } : {}),
-		}),
 	);
 
 	return routes.pipe(Layer.provideMerge(HttpRouter.layer));

@@ -21,6 +21,7 @@ import {
 	type McpPermissions,
 	type RequestMiddleware,
 	operation,
+	operationError,
 } from "../src/index.js";
 
 const createOpenApi = <R>(config: EffectApiConfig<R>) =>
@@ -181,6 +182,42 @@ const operationForMethod = (method: HttpMethod) =>
 afterEach(() => vi.restoreAllMocks());
 
 describe("createEffectApi", () => {
+	it.each(["empty", "MCP-only"])("serves public documentation for an %s catalog", async (kind) => {
+		const application = createEffectApi({
+			title: "No REST endpoints",
+			version: "1",
+			basePath: "/api",
+			operations:
+				kind === "empty"
+					? []
+					: [
+							operation({
+								name: "machine",
+								description: "Machine",
+								input: Id,
+								output: Item,
+								handler: ({ id }) => Effect.succeed({ id, ok: true }),
+							}),
+						],
+		});
+		const specification = await readOpenApi(application, "/api");
+
+		expect(specification.info.title).toBe("No REST endpoints");
+		expect(specification.paths).toEqual({});
+		const docs = await Effect.runPromise(application.fetch(new Request("https://x/api/docs")));
+
+		expect(docs.status).toBe(200);
+		expect(docs.headers.get("content-type")).toContain("text/html");
+
+		expect(
+			(await runJson(application.fetch(new Request("https://x/api/machine")))).response.status,
+		).toBe(404);
+
+		expect((await runJson(application.mcp(modernMcpRequest(1, "tools/list")))).body).toMatchObject({
+			result: { tools: kind === "empty" ? [] : [{ name: "machine" }] },
+		});
+	});
+
 	it("publishes declared 403, 409 and 503 response schemas through the native router", async () => {
 		const docs = await createOpenApi({
 			title: "Declared errors",
@@ -198,11 +235,17 @@ describe("createEffectApi", () => {
 						never,
 						{ _tag: "Denied" } | { _tag: "Conflict"; message: string } | { _tag: "Unavailable" }
 					> => Effect.fail({ _tag: "Denied" }),
-					errors: {
-						Denied: { status: 403, message: "Forbidden" },
-						Conflict: { status: 409, message: (error) => error.message },
-						Unavailable: { status: 503 },
-					},
+					errors: [
+						operationError(Schema.TaggedStruct("Denied", {}), {
+							status: 403,
+							message: "Forbidden",
+						}),
+						operationError(Schema.TaggedStruct("Conflict", { message: Schema.String }), {
+							status: 409,
+							message: (error) => error.message,
+						}),
+						operationError(Schema.TaggedStruct("Unavailable", {}), { status: 503 }),
+					],
 				}),
 			],
 		});
@@ -1573,11 +1616,15 @@ describe("createEffectApi", () => {
 					output: Schema.Unknown,
 					handler: () =>
 						Effect.fail({
-							_tag: "Rejected" as const,
 							detail: "Public message",
 							cause: "private-4xx",
 						}),
-					errors: { Rejected: { status: 422, message: (failure) => failure.detail } },
+					errors: [
+						operationError(Schema.Struct({ detail: Schema.String }), {
+							status: 422,
+							message: (failure) => failure.detail,
+						}),
+					],
 				}),
 				operation({
 					name: "unmapped",
@@ -1604,6 +1651,19 @@ describe("createEffectApi", () => {
 		expect(mapped).toMatchObject({
 			response: { status: 422 },
 			body: { error: { message: "Public message" } },
+		});
+
+		expect(
+			(
+				await runJson(
+					failures.mcp(modernMcpRequest(1, "tools/call", { name: "mapped", arguments: {} })),
+				)
+			).body,
+		).toMatchObject({
+			result: {
+				isError: true,
+				structuredContent: { error: { code: "operation_failed", message: "Public message" } },
+			},
 		});
 
 		expect(logged).toHaveLength(0);
@@ -1642,7 +1702,12 @@ describe("createEffectApi", () => {
 						Effect.failCause(
 							Cause.combine(Cause.fail({ _tag: "Expected" as const }), Cause.die("defect")),
 						),
-					errors: { Expected: { status: 404, message: mixedMapper } },
+					errors: [
+						operationError(Schema.TaggedStruct("Expected", {}), {
+							status: 404,
+							message: mixedMapper,
+						}),
+					],
 				}),
 				operation({
 					name: "multiple",
@@ -1670,14 +1735,14 @@ describe("createEffectApi", () => {
 					input: Schema.Struct({}),
 					output: Schema.Unknown,
 					handler: () => Effect.fail({ _tag: "Expected" as const }),
-					errors: {
-						Expected: {
+					errors: [
+						operationError(Schema.TaggedStruct("Expected", {}), {
 							status: 400,
 							message: () => {
 								throw new Error("message mapper defect");
 							},
-						},
-					},
+						}),
+					],
 				}),
 			],
 		});

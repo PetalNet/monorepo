@@ -1,5 +1,5 @@
-import { operation, type OperationErrors } from "@petalnet/effect-api";
-import { Effect } from "effect";
+import { operation, operationError } from "@petalnet/effect-api";
+import { Effect, Schema } from "effect";
 
 import {
 	AttemptPublish,
@@ -25,14 +25,23 @@ import {
 	LibraryVersion,
 } from "../../projects/schema";
 import { authorityErrors } from "../actors/api";
-import { ProjectService, type ProjectError } from "./service";
+import { ProjectService, CommandConflict, FenceConflict, ProjectDatabaseError } from "./service";
 
-export const projectErrors = {
+export const projectErrors = [
 	...authorityErrors,
-	CommandConflict: { status: 409, message: (error) => error.message },
-	FenceConflict: { status: 409, message: (error) => error.message },
-	ProjectDatabaseError: { status: 503, message: "The project database is unavailable" },
-} satisfies OperationErrors<ProjectError>;
+	operationError(Schema.instanceOf(CommandConflict), {
+		status: 409,
+		message: (error) => error.message,
+	}),
+	operationError(Schema.instanceOf(FenceConflict), {
+		status: 409,
+		message: (error) => error.message,
+	}),
+	operationError(Schema.instanceOf(ProjectDatabaseError), {
+		status: 503,
+		message: "The project database is unavailable",
+	}),
+];
 
 export const projectOperations = [
 	operation({

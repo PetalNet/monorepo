@@ -1,4 +1,4 @@
-import { operation } from "@petalnet/effect-api";
+import { operation, operationError } from "@petalnet/effect-api";
 import { createServer } from "@petalnet/effect-sveltekit";
 import { Effect, Layer, Schema } from "effect";
 import { afterAll, describe, expect, it } from "vitest";
@@ -32,7 +32,12 @@ const server = createServer({
 			input: Schema.Struct({}),
 			output: Schema.Unknown,
 			handler: () => Effect.fail(new AuthenticationRequired()),
-			errors: { AuthenticationRequired: { status: 409, message: "Domain authentication failure" } },
+			errors: [
+				operationError(Schema.instanceOf(AuthenticationRequired), {
+					status: 409,
+					message: "Domain authentication failure",
+				}),
+			],
 		}),
 	],
 });

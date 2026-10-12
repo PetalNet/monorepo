@@ -19,7 +19,6 @@ import {
 	CommandConflict,
 	FenceConflict,
 	ProjectDatabaseError,
-	type ProjectError,
 } from "../src/lib/server/projects/service";
 import { requestEvent } from "./request-event";
 
@@ -63,7 +62,7 @@ it.each([
 	async (failure, status, publicMessage) => {
 		const logged: Cause.Cause<unknown>[] = [];
 		const runtime = makeEffectSvelteKitRuntime(Layer.empty, {
-			mapFailure: mapOperationErrors<ProjectError>(projectErrors),
+			mapFailure: mapOperationErrors(projectErrors),
 			logCause: (cause) => {
 				logged.push(cause);
 			},

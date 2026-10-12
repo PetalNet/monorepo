@@ -13,6 +13,7 @@ import {
 	HttpApiError,
 	HttpApiGroup,
 	HttpApiMiddleware,
+	HttpApiScalar,
 	OpenApi,
 } from "effect/http-api";
 
@@ -36,6 +37,8 @@ interface RestConfig<R> {
 	readonly version: string;
 	readonly basePath: `/${string}`;
 	readonly openapiPath: `/${string}`;
+	readonly docsPath: `/${string}`;
+	readonly scalar?: HttpApiScalar.ScalarConfig;
 	readonly operations: readonly ApiOperation<R>[];
 	readonly restMiddleware?: RequestMiddleware;
 	readonly restMiddlewareErrors?: readonly Schema.Codec<unknown>[];
@@ -116,7 +119,7 @@ const makeEndpoint = (
 		...(pathKeys.length > 0 ? { params } : {}),
 		...(isEmpty(remaining.ast) ? {} : rest.body ? { payload: remaining } : { query: remaining }),
 		success: Schema.make<Schema.Codec<unknown>>(operation.output.ast),
-		error: operationErrorSchemas(operation.errors ?? {}),
+		error: operationErrorSchemas(operation.errors ?? []),
 	}).annotate(OpenApi.Description, operation.description);
 };
 
@@ -143,18 +146,29 @@ export const createRestApi = <R>(config: RestConfig<R>) => {
 	const registrations = config.operations.flatMap((operation) =>
 		operation.rest ? [{ operation, endpoint: makeEndpoint(operation, operation.rest) }] : [],
 	);
-	const emptyGroup = HttpApiGroup.make("operations", { topLevel: true });
 	const [first, ...rest] = registrations;
-	// Dynamic catalogs can be empty; HttpApiGroup's endpoint parameter is invariant.
-	const group = (
-		first ? emptyGroup.add(first.endpoint, ...rest.map(({ endpoint }) => endpoint)) : emptyGroup
-	) as HttpApiGroup.HttpApiGroup<"operations", ReturnType<typeof makeEndpoint>, true>;
-	const api = HttpApi.make("effect-api")
-		.add(group)
-		.prefix(config.basePath)
-		.middleware(OperationBoundary)
+	const baseApi = HttpApi.make("effect-api")
 		.annotate(OpenApi.Title, config.title)
 		.annotate(OpenApi.Version, config.version);
+	const scalarConfig = {
+		path: config.docsPath,
+		...(config.scalar ? { scalar: config.scalar } : {}),
+	};
+
+	if (!first) {
+		return Layer.merge(
+			HttpApiBuilder.layer(baseApi, { openapiPath: config.openapiPath }).pipe(
+				Layer.provide(HttpServer.layerServices),
+			),
+			HttpApiScalar.layer(baseApi, scalarConfig),
+		);
+	}
+
+	const group = HttpApiGroup.make("operations", { topLevel: true }).add(
+		first.endpoint,
+		...rest.map(({ endpoint }) => endpoint),
+	);
+	const api = baseApi.add(group).prefix(config.basePath).middleware(OperationBoundary);
 	const implementations = HttpApiBuilder.group(api, "operations", (handlers) =>
 		handlers.handleAll(
 			Object.fromEntries(
@@ -260,5 +274,5 @@ export const createRestApi = <R>(config: RestConfig<R>) => {
 		Layer.provide(HttpServer.layerServices),
 	);
 
-	return { api, layer };
+	return Layer.merge(layer, HttpApiScalar.layer(api, scalarConfig));
 };

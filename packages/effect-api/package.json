@@ -17,7 +17,7 @@
 	"scripts": {
 		"coverage": "vitest run --coverage --coverage.include=src/**/*.ts --coverage.thresholds.100",
 		"test": "vitest run",
-		"typecheck": "tsc -b && tsc -p test/tsconfig.json"
+		"typecheck": "tsc -b"
 	},
 	"dependencies": {
 		"effect": "catalog:"

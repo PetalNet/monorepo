@@ -1,7 +1,7 @@
 import { Cause, Effect, Exit, Schema, SchemaTransformation } from "effect";
 import { describe, expect, it, vi } from "vitest";
 
-import { mapOperationErrors, operation } from "../src/index.js";
+import { mapOperationErrors, operation, operationError } from "../src/index.js";
 import { InvocationFailure, invokeOperation } from "../src/invoke.js";
 
 const base = operation({
@@ -34,22 +34,21 @@ const failureOf = (exit: Exit.Exit<unknown, InvocationFailure>) => {
 
 describe("invokeOperation", () => {
 	it("derives host failure mappings and leaves unknown errors to the host boundary", () => {
-		type Failure =
-			| { readonly _tag: "Conflict"; readonly detail: string }
-			| { readonly _tag: "Unavailable" };
+		const mapFailure = mapOperationErrors([
+			operationError(Schema.Struct({ detail: Schema.String }), {
+				status: 409,
+				message: (error) => error.detail,
+			}),
+			operationError(Schema.Literal("unavailable"), { status: 503 }),
+		]);
 
-		const mapFailure = mapOperationErrors<Failure>({
-			Conflict: { status: 409, message: (error) => error.detail },
-			Unavailable: { status: 503 },
-		});
-
-		expect(mapFailure({ _tag: "Conflict", detail: "Conflicting version" })).toEqual({
+		expect(mapFailure({ detail: "Conflicting version" })).toEqual({
 			status: 409,
 			message: "Conflicting version",
 			log: false,
 		});
 
-		expect(mapFailure({ _tag: "Unavailable", cause: "private" })).toEqual({
+		expect(mapFailure("unavailable")).toEqual({
 			status: 503,
 			message: "The operation failed",
 			log: true,
@@ -61,6 +60,7 @@ describe("invokeOperation", () => {
 			{ message: "private" },
 			{ _tag: "Unknown" },
 			{ _tag: "toString" },
+			{ detail: 42 },
 		]) {
 			expect(mapFailure(error)).toBeUndefined();
 		}
@@ -69,16 +69,9 @@ describe("invokeOperation", () => {
 	it.each([NaN, Infinity, 399, 600, 400.5])(
 		"rejects invalid static status %s at declaration",
 		(status) => {
-			expect(() =>
-				operation({
-					name: "invalid",
-					description: "Invalid status",
-					input: Schema.Unknown,
-					output: Schema.Unknown,
-					handler: () => Effect.fail({ _tag: "Rejected" as const }),
-					errors: { Rejected: { status } },
-				}),
-			).toThrow(/integer between 400 and 599/);
+			expect(() => operationError(Schema.String, { status })).toThrow(
+				/integer between 400 and 599/,
+			);
 		},
 	);
 
@@ -208,7 +201,12 @@ describe("invokeOperation", () => {
 					{
 						...base,
 						output,
-						errors: { Rejected: { status: 400, message } },
+						errors: [
+							operationError(Schema.TaggedStruct("Rejected", {}), {
+								status: 400,
+								message,
+							}),
+						],
 						handle: () => Effect.succeed("private-output-marker"),
 					},
 					null,
@@ -240,7 +238,12 @@ describe("invokeOperation", () => {
 					{
 						...base,
 						handle: () => Effect.fail({ _tag: "Rejected", detail: "private" }),
-						errors: { Rejected: { status, message: "Public message" } },
+						errors: [
+							operationError(Schema.TaggedStruct("Rejected", {}), {
+								status,
+								message: "Public message",
+							}),
+						],
 					},
 					null,
 					logCause,
@@ -275,7 +278,12 @@ describe("invokeOperation", () => {
 				{
 					...base,
 					handle: () => Effect.failCause(cause),
-					errors: { Rejected: { status: 400, message } },
+					errors: [
+						operationError(Schema.TaggedStruct("Rejected", {}), {
+							status: 400,
+							message,
+						}),
+					],
 				},
 				null,
 				logCause,

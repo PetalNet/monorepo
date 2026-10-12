@@ -73,5 +73,5 @@ export const mapGroveFailure = (failure: GroveFailure) =>
 			}),
 			BrowserAuthDatabaseError: ({ message }) => ({ status: 503, message, log: true }),
 		}),
-		Match.orElse(mapOperationErrors<ProjectError>(projectErrors)),
+		Match.orElse(mapOperationErrors(projectErrors)),
 	);

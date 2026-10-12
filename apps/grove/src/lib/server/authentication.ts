@@ -1,12 +1,16 @@
+import { operationError } from "@petalnet/effect-api";
 import { SvelteKitRequestEvent } from "@petalnet/effect-sveltekit";
-import { Context, Effect } from "effect";
+import { Context, Effect, Schema } from "effect";
 
 import { CurrentPrincipal } from "./actors/authority";
 import { AuthenticationRequired } from "./authorization";
 
-export const authenticationErrors = {
-	AuthenticationRequired: { status: 401, message: "Authentication required" },
-};
+export const authenticationErrors = [
+	operationError(Schema.instanceOf(AuthenticationRequired), {
+		status: 401,
+		message: "Authentication required",
+	}),
+];
 
 /** Browser identity policy; the server supplies these services to authenticated work. */
 export const browserAuthentication = Effect.gen(function* () {

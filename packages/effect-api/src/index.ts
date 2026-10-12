@@ -9,6 +9,7 @@ export {
 export { failureResponse } from "./rest.js";
 export {
 	operation,
+	operationError,
 	mapOperationErrors,
 	operationErrorSchemas,
 	defaultLogCause,

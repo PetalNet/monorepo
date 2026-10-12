@@ -1,9 +1,10 @@
 {
 	"extends": "@petalnet/tsconfig/base.json",
 	"compilerOptions": {
-		"composite": false,
-		"noEmit": true,
-		"rootDir": ".."
+		"emitDeclarationOnly": true,
+		"rootDir": ".",
+		"outDir": "../node_modules/.cache/tsbuild/test"
 	},
-	"include": ["../src/**/*", "./**/*"]
+	"include": ["./**/*"],
+	"references": [{ "path": "../tsconfig.src.json" }]
 }

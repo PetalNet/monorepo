@@ -38,7 +38,7 @@ const handleCause = Effect.fnUntraced(function* <R>(
 
 		if (phase === "handler") {
 			const mapped = yield* Effect.sync(() => {
-				const exposed = mapOperationErrors(operation.errors ?? {})(failure.error);
+				const exposed = mapOperationErrors(operation.errors ?? [])(failure.error);
 
 				return exposed ? operationFailed(exposed.status, exposed.message) : operationFailed();
 			}).pipe(
