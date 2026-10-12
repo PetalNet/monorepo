@@ -108,7 +108,7 @@ it.each(authorityFailures)(
 			operations: [enrollAgentSelfOperation],
 			logCause: (_operation, cause) => logged.push(cause),
 		});
-		const runtime = ManagedRuntime.make(Layer.merge(ActorAuthorityBuildLayer, application.layer));
+		const runtime = ManagedRuntime.make(Layer.merge(ActorAuthorityBuildLayer, application));
 
 		try {
 			const authority = await runtime.runPromise(ActorAuthority);

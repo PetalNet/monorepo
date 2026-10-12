@@ -65,7 +65,7 @@ afterAll(async () => {
 // Each application owns one runtime. Only invocation services cross this test bridge.
 function createEffectApi<R>(config: EffectApiConfig<R>) {
 	const application = createApplication(config);
-	const runtime = ManagedRuntime.make(application.layer);
+	const runtime = ManagedRuntime.make(application);
 
 	disposals.push(() => runtime.dispose());
 
@@ -84,7 +84,7 @@ function createEffectApi<R>(config: EffectApiConfig<R>) {
 				: Effect.failCause(exit.cause);
 		});
 
-	return { ...application, fetch, mcp: fetch };
+	return { layer: application, fetch, mcp: fetch };
 }
 
 const Id = Schema.Struct({ id: Schema.String });
@@ -451,10 +451,8 @@ describe("createEffectApi", () => {
 			],
 		});
 
-		expect(Object.keys(shared)).toEqual(["layer"]);
-
 		const runtime = ManagedRuntime.make(
-			shared.layer.pipe(
+			shared.pipe(
 				Layer.tap(() =>
 					Effect.gen(function* () {
 						built();

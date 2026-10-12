@@ -62,7 +62,6 @@ export function createEffectApi(config: EffectApiConfig) {
 			...(config.scalar ? { scalar: config.scalar } : {}),
 		}),
 	);
-	const layer = routes.pipe(Layer.provideMerge(HttpRouter.layer));
 
-	return { layer };
+	return routes.pipe(Layer.provideMerge(HttpRouter.layer));
 }

@@ -244,7 +244,7 @@ describe("MCP protected-resource ingress", () => {
 				...config,
 				resourceOrigin: "https://grove.example/not-an-origin",
 			}),
-		).toThrow("GROVE_MCP_RESOURCE must be a canonical origin");
+		).toThrow("resourceOrigin must be a canonical origin");
 	});
 
 	it("uses bearer identity only and challenges cookie-only requests", async () => {

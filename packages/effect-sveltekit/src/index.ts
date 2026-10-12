@@ -314,7 +314,7 @@ export function createServer<R, ER, E, Auth, AuthError>(
 			),
 	});
 	const runtime = makeEffectSvelteKitRuntime<R | HttpRouter.HttpRouter, never, E | AuthError>(
-		Layer.orDie(Layer.merge(config.services, application.layer)),
+		Layer.orDie(Layer.merge(config.services, application)),
 		{
 			mapFailure: (failure) => config.mapFailure?.(failure) ?? mapAuthentication(failure),
 			logCause: (cause) => {
@@ -324,7 +324,7 @@ export function createServer<R, ER, E, Auth, AuthError>(
 	);
 
 	return {
-		layer: application.layer,
+		layer: application,
 		initialize: runtime.initialize,
 		dispose: runtime.dispose,
 		handle: runtime.handle,
