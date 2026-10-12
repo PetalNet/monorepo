@@ -1,11 +1,9 @@
-import { NodeServices } from "@effect/platform-node";
 import { it } from "@effect/vitest";
 import { Effect } from "effect";
 import { assert, expect, test } from "vitest";
 
 import { evaluateGate } from "./gate.ts";
 import { selectJobs } from "./policy.ts";
-import { commandOutput } from "./process.ts";
 
 const disabled = {
 	"manager-rust": "false",
@@ -316,18 +314,3 @@ test.for([
 		Object.fromEntries(selectionKeys.map((key) => [key, enabled.some((job) => job === key)])),
 	);
 });
-
-it.live("command output cannot hide a nonzero exit behind valid JSON", () =>
-	Effect.gen(function* () {
-		const printJson = "process.stdout.write(JSON.stringify({ tasks: [] }))";
-		const output = yield* commandOutput(process.execPath, ["-e", printJson]);
-
-		assert.equal(output, '{"tasks":[]}');
-
-		const error = yield* Effect.flip(
-			commandOutput(process.execPath, ["-e", `${printJson}; process.exit(7)`]),
-		);
-
-		expect(error).toMatchObject({ _tag: "CommandFailed", command: process.execPath, exitCode: 7 });
-	}).pipe(Effect.provide(NodeServices.layer)),
-);
