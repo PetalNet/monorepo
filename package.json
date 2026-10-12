@@ -5,8 +5,9 @@
 	"type": "module",
 	"scripts": {
 		"build": "turbo run build --filter=@petalnet/*",
-		"check": "pnpm check:code && pnpm fmt:check",
-		"check:code": "turbo run typecheck check lint:oxlint lint:eslint:root lint:eslint:apps lint:impeccable manypkg dedupe:check typesync:check lint:knip lint:knip:prod --filter=@petalnet/* --filter=// --continue=always --concurrency=2",
+		"check": "turbo run typecheck check fmt:check lint:oxlint lint:eslint:root lint:eslint:apps lint:impeccable manypkg dedupe:check typesync:check lint:knip lint:knip:prod --filter=@petalnet/* --filter=// --continue=always --concurrency=2",
+		"check:packages": "turbo run typecheck check --filter=@petalnet/* --continue=always",
+		"check:root": "turbo run typecheck fmt:check lint:oxlint lint:eslint:root lint:eslint:apps lint:impeccable manypkg dedupe:check typesync:check lint:knip lint:knip:prod --filter=// --continue=always --concurrency=2",
 		"ci-manager": "node tools/ci-manager/main.ts",
 		"dedupe:check": "pnpm dedupe --check --prefer-offline",
 		"dev": "pnpm -r --parallel run dev",

@@ -4,7 +4,6 @@ import { Effect } from "effect";
 import { Command } from "effect/cli";
 
 import { gate } from "./gate.ts";
-import { runTasks } from "./run.ts";
 import { select } from "./select.ts";
 
 const program = Command.make("ci-manager").pipe(
@@ -19,12 +18,6 @@ const program = Command.make("ci-manager").pipe(
 			Command.withDescription(
 				"Fail unless every job matches its selected success/skipped conclusion.",
 			),
-		),
-		Command.make("build", {}, () => runTasks("build")).pipe(
-			Command.withDescription("Build exactly the selected workspace packages."),
-		),
-		Command.make("test", {}, () => runTasks("test")).pipe(
-			Command.withDescription("Test exactly the selected workspace packages."),
 		),
 	]),
 );

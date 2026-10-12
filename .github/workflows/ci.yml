@@ -29,12 +29,9 @@ jobs:
       control-plane-rust: ${{ steps.select.outputs.control-plane-rust }}
       box-agent-rust: ${{ steps.select.outputs.box-agent-rust }}
       point: ${{ steps.select.outputs.point }}
-      point-rust: ${{ steps.select.outputs.point-rust }}
       rust: ${{ steps.select.outputs.rust }}
       js: ${{ steps.select.outputs.js }}
-      build: ${{ steps.select.outputs.build }}
-      test: ${{ steps.select.outputs.test }}
-      js-packages: ${{ steps.select.outputs.js-packages }}
+      base: ${{ steps.select.outputs.base }}
       actions: ${{ steps.select.outputs.actions }}
       codeql-js: ${{ steps.select.outputs.codeql-js }}
       codeql-python: ${{ steps.select.outputs.codeql-python }}
@@ -43,11 +40,12 @@ jobs:
       - uses: $/.github/actions/setup
         with:
           fetch-depth: 0
-      - uses: $/.github/actions/setup-turbo
+      - name: Install pinned toolchain for Cargo package discovery
+        run: rustup toolchain install
       - id: select
         run: pnpm ci-manager select
 
-  check:
+  root-check:
     runs-on: ubuntu-latest
     steps:
       - uses: $/.github/actions/setup
@@ -55,34 +53,60 @@ jobs:
         with:
           cache-prefix: turbo-${{ runner.os }}-${{ runner.arch }}-
           use-relative-cache-path: true
-      - run: pnpm check
+      - run: pnpm check:root
 
-  test:
+  check:
     needs: select
-    if: needs.select.outputs.test == 'true'
+    if: needs.select.outputs.js == 'true'
     runs-on: ubuntu-latest
     env:
-      JS_PACKAGES_JSON: ${{ needs.select.outputs.js-packages }}
+      TURBO_SCM_BASE: ${{ needs.select.outputs.base }}
+      TURBO_SCM_HEAD: HEAD
     steps:
       - uses: $/.github/actions/setup
+        with:
+          fetch-depth: 0
       - uses: rharkor/caching-for-turbo@2238fae6eb9a9936f92356f54cb3660200d105e7 # v2.5.1
         with:
           cache-prefix: turbo-${{ runner.os }}-${{ runner.arch }}-
           use-relative-cache-path: true
       - if: needs.select.outputs.affected == 'true'
-        run: pnpm ci-manager test
+        run: pnpm check:packages --affected
+      - if: needs.select.outputs.affected != 'true'
+        run: pnpm check:packages
+
+  test:
+    needs: select
+    if: needs.select.outputs.js == 'true'
+    runs-on: ubuntu-latest
+    env:
+      TURBO_SCM_BASE: ${{ needs.select.outputs.base }}
+      TURBO_SCM_HEAD: HEAD
+    steps:
+      - uses: $/.github/actions/setup
+        with:
+          fetch-depth: 0
+      - uses: rharkor/caching-for-turbo@2238fae6eb9a9936f92356f54cb3660200d105e7 # v2.5.1
+        with:
+          cache-prefix: turbo-${{ runner.os }}-${{ runner.arch }}-
+          use-relative-cache-path: true
+      - if: needs.select.outputs.affected == 'true'
+        run: pnpm test --affected
       - if: needs.select.outputs.affected != 'true'
         run: pnpm test
 
   build:
     needs: select
-    if: needs.select.outputs.build == 'true'
+    if: needs.select.outputs.js == 'true'
     runs-on: ubuntu-latest
     env:
       DATABASE_URL: "file:/tmp/build.db"
-      JS_PACKAGES_JSON: ${{ needs.select.outputs.js-packages }}
+      TURBO_SCM_BASE: ${{ needs.select.outputs.base }}
+      TURBO_SCM_HEAD: HEAD
     steps:
       - uses: $/.github/actions/setup
+        with:
+          fetch-depth: 0
       - uses: rharkor/caching-for-turbo@2238fae6eb9a9936f92356f54cb3660200d105e7 # v2.5.1
         with:
           cache-prefix: turbo-${{ runner.os }}-${{ runner.arch }}-
@@ -92,7 +116,7 @@ jobs:
           echo "DATABASE_URL=$DATABASE_URL" > apps/collegemap/.env
           echo "DATABASE_URL=$DATABASE_URL" > apps/grove/.env
       - if: needs.select.outputs.affected == 'true'
-        run: pnpm ci-manager build
+        run: pnpm build --affected
       - if: needs.select.outputs.affected != 'true'
         run: pnpm build
 
@@ -174,8 +198,6 @@ jobs:
     needs: select
     if: needs.select.outputs.point == 'true'
     uses: $/.github/workflows/point.yml
-    with:
-      skip-rust: ${{ needs.select.outputs.point-rust == 'false' }}
 
   zizmor:
     timeout-minutes: 2
@@ -262,6 +284,7 @@ jobs:
     if: always()
     needs:
       - select
+      - root-check
       - check
       - test
       - build
