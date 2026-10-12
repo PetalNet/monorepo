@@ -119,7 +119,7 @@ const makeEndpoint = (
 		...(pathKeys.length > 0 ? { params } : {}),
 		...(isEmpty(remaining.ast) ? {} : rest.body ? { payload: remaining } : { query: remaining }),
 		success: Schema.make<Schema.Codec<unknown>>(operation.output.ast),
-		error: operationErrorSchemas(operation.errors ?? []),
+		error: operationErrorSchemas(operation.errors ?? {}),
 	}).annotate(OpenApi.Description, operation.description);
 };
 

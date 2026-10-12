@@ -11,28 +11,32 @@ interface RestBinding {
 	readonly body?: boolean;
 }
 
-export interface OperationError {
+export interface OperationError<E extends Error = Error> {
+	readonly errorClass: abstract new (...args: never[]) => E;
 	readonly status: number;
 	readonly message?: string;
 	readonly map: (error: unknown) => { status: number; message: string; log: boolean } | undefined;
 }
 
-export type OperationErrors = readonly OperationError[];
+export type OperationErrors<E extends Error & { readonly _tag: string }> = {
+	readonly [Tag in E["_tag"]]: OperationError<Extract<E, { readonly _tag: Tag }>>;
+};
 
-/** Bind a public failure policy to a schema that narrows its message callback input. */
-export const operationError = <E>(
-	schema: Schema.ConstraintDecoder<E>,
+/** Bind a public failure policy to its error class. */
+export const operationError = <E extends Error>(
+	errorClass: abstract new (...args: never[]) => E,
 	config: { readonly status: number; readonly message?: string | ((error: E) => string) },
-): OperationError => {
+): OperationError<E> => {
 	const { status, message } = config;
 
 	if (!Number.isInteger(status) || status < 400 || status > 599) {
 		throw new TypeError("Operation error status must be an integer between 400 and 599");
 	}
 
-	const is = Schema.is(schema);
+	const is = Schema.is(Schema.instanceOf(errorClass));
 
 	return {
+		errorClass,
 		status,
 		...(typeof message === "string" ? { message } : {}),
 		map: (error) =>
@@ -48,8 +52,8 @@ export const operationError = <E>(
 };
 
 /** Native response contracts for declared public operation or authentication failures. */
-export const operationErrorSchemas = (errors: OperationErrors) =>
-	errors.map(({ status, message }) =>
+export const operationErrorSchemas = (errors: Readonly<Record<string, OperationError>>) =>
+	Object.values(errors).map(({ status, message }) =>
 		Schema.Struct({
 			error: Schema.Struct({
 				code: Schema.Literal("operation_failed"),
@@ -59,17 +63,18 @@ export const operationErrorSchemas = (errors: OperationErrors) =>
 	);
 
 /** Resolve declared public failures without exposing unknown errors. */
-export const mapOperationErrors = (errors: OperationErrors) => (error: unknown) => {
-	for (const declaration of errors) {
-		const mapped = declaration.map(error);
+export const mapOperationErrors =
+	(errors: Readonly<Record<string, OperationError>>) => (error: unknown) => {
+		for (const declaration of Object.values(errors)) {
+			const mapped = declaration.map(error);
 
-		if (mapped) {
-			return mapped;
+			if (mapped) {
+				return mapped;
+			}
 		}
-	}
 
-	return undefined;
-};
+		return undefined;
+	};
 
 export interface ApiOperation<R> {
 	readonly name: string;
@@ -78,7 +83,7 @@ export interface ApiOperation<R> {
 	readonly input: Schema.ConstraintDecoder<unknown>;
 	readonly output: Schema.ConstraintCodec<unknown, unknown>;
 	readonly handle: (input: unknown) => Effect.Effect<unknown, unknown, R>;
-	readonly errors?: OperationErrors;
+	readonly errors?: Readonly<Record<string, OperationError>>;
 }
 
 export type OperationConfig<I, A, E, R> = {
@@ -87,7 +92,7 @@ export type OperationConfig<I, A, E, R> = {
 	readonly input: Schema.ConstraintDecoder<I>;
 	readonly output: Schema.ConstraintCodec<A, unknown>;
 	readonly handler: (input: I) => Effect.Effect<A, E, R>;
-	readonly errors?: OperationErrors;
+	readonly errors?: OperationErrors<Extract<E, Error & { readonly _tag: string }>>;
 } & (RestBinding | { readonly method?: never; readonly path?: never; readonly body?: never });
 
 export type LogCause = (operationName: string, cause: Cause.Cause<unknown>) => void;

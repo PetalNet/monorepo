@@ -1,5 +1,5 @@
-import { operation, operationError } from "@petalnet/effect-api";
-import { Effect, Schema } from "effect";
+import { operation, operationError, type OperationErrors } from "@petalnet/effect-api";
+import { Effect } from "effect";
 
 import { EnrollAgentSelf, EnrolledAgent } from "../../actors/schema";
 import {
@@ -10,30 +10,31 @@ import {
 	HomeOwnerUnbound,
 	CapabilityContainmentConflict,
 	CurrentPrincipal,
+	type AuthorityError,
 } from "./authority";
 
-export const authorityErrors = [
-	operationError(Schema.instanceOf(ActorDenied), {
+export const authorityErrors = {
+	ActorDenied: operationError(ActorDenied, {
 		status: 403,
 		message: (error) => error.message,
 	}),
-	operationError(Schema.instanceOf(ActorNotCurrent), {
+	ActorNotCurrent: operationError(ActorNotCurrent, {
 		status: 403,
 		message: (error) => error.message,
 	}),
-	operationError(Schema.instanceOf(ActorDatabaseError), {
+	ActorDatabaseError: operationError(ActorDatabaseError, {
 		status: 503,
 		message: "Actor authority is unavailable",
 	}),
-	operationError(Schema.instanceOf(HomeOwnerUnbound), {
+	HomeOwnerUnbound: operationError(HomeOwnerUnbound, {
 		status: 503,
 		message: "The configured Home Host owner has not completed a verified browser login",
 	}),
-	operationError(Schema.instanceOf(CapabilityContainmentConflict), {
+	CapabilityContainmentConflict: operationError(CapabilityContainmentConflict, {
 		status: 409,
 		message: "Agent capability containment would be violated",
 	}),
-];
+} satisfies OperationErrors<AuthorityError>;
 
 export const enrollAgentSelfOperation = operation({
 	name: "agents.enrollSelf",

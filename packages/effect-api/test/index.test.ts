@@ -2,6 +2,7 @@ import { Client, StreamableHTTPClientTransport } from "@modelcontextprotocol/cli
 import {
 	Cause,
 	Context,
+	Data,
 	Effect,
 	Exit,
 	Layer,
@@ -23,6 +24,15 @@ import {
 	operation,
 	operationError,
 } from "../src/index.js";
+
+class Denied extends Data.TaggedError("Denied") {}
+class Conflict extends Data.TaggedError("Conflict")<{ readonly message: string }> {}
+class Unavailable extends Data.TaggedError("Unavailable") {}
+class Rejected extends Data.TaggedError("Rejected")<{
+	readonly detail: string;
+	readonly cause?: string;
+}> {}
+class Expected extends Data.TaggedError("Expected") {}
 
 const createOpenApi = <R>(config: EffectApiConfig<R>) =>
 	readOpenApi(createEffectApi(config), config.basePath);
@@ -231,21 +241,19 @@ describe("createEffectApi", () => {
 					path: "/declared",
 					input: Schema.Struct({}),
 					output: Schema.Unknown,
-					handler: (): Effect.Effect<
-						never,
-						{ _tag: "Denied" } | { _tag: "Conflict"; message: string } | { _tag: "Unavailable" }
-					> => Effect.fail({ _tag: "Denied" }),
-					errors: [
-						operationError(Schema.TaggedStruct("Denied", {}), {
+					handler: (): Effect.Effect<never, Denied | Conflict | Unavailable> =>
+						Effect.fail(new Denied()),
+					errors: {
+						Denied: operationError(Denied, {
 							status: 403,
 							message: "Forbidden",
 						}),
-						operationError(Schema.TaggedStruct("Conflict", { message: Schema.String }), {
+						Conflict: operationError(Conflict, {
 							status: 409,
 							message: (error) => error.message,
 						}),
-						operationError(Schema.TaggedStruct("Unavailable", {}), { status: 503 }),
-					],
+						Unavailable: operationError(Unavailable, { status: 503 }),
+					},
 				}),
 			],
 		});
@@ -1615,16 +1623,18 @@ describe("createEffectApi", () => {
 					input: Schema.Struct({}),
 					output: Schema.Unknown,
 					handler: () =>
-						Effect.fail({
-							detail: "Public message",
-							cause: "private-4xx",
-						}),
-					errors: [
-						operationError(Schema.Struct({ detail: Schema.String }), {
+						Effect.fail(
+							new Rejected({
+								detail: "Public message",
+								cause: "private-4xx",
+							}),
+						),
+					errors: {
+						Rejected: operationError(Rejected, {
 							status: 422,
 							message: (failure) => failure.detail,
 						}),
-					],
+					},
 				}),
 				operation({
 					name: "unmapped",
@@ -1699,15 +1709,13 @@ describe("createEffectApi", () => {
 					input: Schema.Struct({}),
 					output: Schema.Unknown,
 					handler: () =>
-						Effect.failCause(
-							Cause.combine(Cause.fail({ _tag: "Expected" as const }), Cause.die("defect")),
-						),
-					errors: [
-						operationError(Schema.TaggedStruct("Expected", {}), {
+						Effect.failCause(Cause.combine(Cause.fail(new Expected()), Cause.die("defect"))),
+					errors: {
+						Expected: operationError(Expected, {
 							status: 404,
 							message: mixedMapper,
 						}),
-					],
+					},
 				}),
 				operation({
 					name: "multiple",
@@ -1734,15 +1742,15 @@ describe("createEffectApi", () => {
 					path: "/message-defect",
 					input: Schema.Struct({}),
 					output: Schema.Unknown,
-					handler: () => Effect.fail({ _tag: "Expected" as const }),
-					errors: [
-						operationError(Schema.TaggedStruct("Expected", {}), {
+					handler: () => Effect.fail(new Expected()),
+					errors: {
+						Expected: operationError(Expected, {
 							status: 400,
 							message: () => {
 								throw new Error("message mapper defect");
 							},
 						}),
-					],
+					},
 				}),
 			],
 		});

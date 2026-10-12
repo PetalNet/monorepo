@@ -32,12 +32,12 @@ const server = createServer({
 			input: Schema.Struct({}),
 			output: Schema.Unknown,
 			handler: () => Effect.fail(new AuthenticationRequired()),
-			errors: [
-				operationError(Schema.instanceOf(AuthenticationRequired), {
+			errors: {
+				AuthenticationRequired: operationError(AuthenticationRequired, {
 					status: 409,
 					message: "Domain authentication failure",
 				}),
-			],
+			},
 		}),
 	],
 });

@@ -282,7 +282,7 @@ export function createServer<R, ER, E, Auth, AuthError>(
 		readonly services: Layer.Layer<R, ER>;
 		readonly auth: {
 			readonly browser: Effect.Effect<Context.Context<Auth>, AuthError, R | SvelteKitRequestEvent>;
-			readonly errors: OperationErrors;
+			readonly errors: OperationErrors<Extract<AuthError, Error & { readonly _tag: string }>>;
 			readonly mcp: NonNullable<EffectApiConfig["mcpAuthentication"]>;
 		};
 		readonly mapFailure?: EffectSvelteKitOptions<E | AuthError>["mapFailure"];
