@@ -1,15 +1,27 @@
 import { createMcpProtectedRequestHandler } from "@better-auth/mcp";
-import { Cause, Data, Effect, Exit, Fiber, Result, Stream, type Context, type Types } from "effect";
+import {
+	Cause,
+	Data,
+	Effect,
+	Exit,
+	Fiber,
+	Layer,
+	Result,
+	Stream,
+	type Context,
+	type Types,
+} from "effect";
 import {
 	HttpClientRequest,
 	HttpEffect,
 	HttpServerError,
 	HttpServerRequest,
 	HttpServerResponse,
+	HttpRouter,
 	type HttpMethod,
 } from "effect/http";
 
-import type { RequestMiddleware } from "./request.js";
+import { inHostRequest, McpAuthentication, type McpAuthBoundary } from "./request.js";
 
 const MCP_MAX_REQUEST_BYTES = 1024 * 1024;
 
@@ -28,16 +40,6 @@ export interface McpAuthenticationConfig<Auth = never> {
 	readonly authenticate: (
 		identity: McpIdentity,
 	) => Effect.Effect<Context.Context<Auth>, HttpServerResponse.HttpServerResponse, unknown>;
-}
-
-export interface McpAuthentication {
-	readonly metadata: () => {
-		readonly resource: string;
-		readonly authorization_servers: readonly string[];
-		readonly bearer_methods_supported: readonly string[];
-		readonly scopes_supported: readonly string[];
-	};
-	readonly middleware: RequestMiddleware;
 }
 
 class McpRejected extends Data.TaggedError("McpRejected")<{ readonly response: Response }> {}
@@ -186,9 +188,7 @@ const readRequest = Effect.fnUntraced(function* (request: Request) {
 	);
 });
 
-export const createMcpAuthentication = <Auth>(
-	input: McpAuthenticationConfig<Auth>,
-): McpAuthentication => {
+const makeMcpAuthentication = <Auth>(input: McpAuthenticationConfig<Auth>): McpAuthBoundary => {
 	const config = validatedConfig(input);
 
 	const dispatch = Effect.fnUntraced(
@@ -310,3 +310,28 @@ export const createMcpAuthentication = <Auth>(
 		}),
 	};
 };
+
+/** Acquire provider configuration and register public metadata in the server's router. */
+export const createMcpAuthentication = <Auth>(
+	config: Effect.Effect<McpAuthenticationConfig<Auth>>,
+) =>
+	Layer.unwrap(
+		Effect.map(config, (input) => {
+			const authentication = makeMcpAuthentication(input);
+
+			return Layer.merge(
+				Layer.succeed(McpAuthentication, authentication),
+				HttpRouter.add(
+					"GET",
+					"/.well-known/oauth-protected-resource/mcp",
+					inHostRequest(
+						Effect.map(McpAuthentication, (auth) =>
+							HttpServerResponse.jsonUnsafe(auth.metadata(), {
+								headers: { "cache-control": "public, max-age=300" },
+							}),
+						),
+					),
+				),
+			);
+		}),
+	);

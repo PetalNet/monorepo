@@ -4,7 +4,13 @@ import { HttpApiScalar } from "effect/http-api";
 
 import { createMcpLayer } from "./mcp.js";
 import { defaultLogCause, type ApiOperation, type LogCause } from "./operation.js";
-import { ApiRequest, inHostRequest, McpAccess, type RequestMiddleware } from "./request.js";
+import {
+	ApiRequest,
+	inHostRequest,
+	McpAccess,
+	McpAuthentication,
+	type RequestMiddleware,
+} from "./request.js";
 import { createRestApi } from "./rest.js";
 
 export interface EffectApiConfig<R = unknown> {
@@ -21,6 +27,10 @@ export interface EffectApiConfig<R = unknown> {
 	/** REST middleware response schemas, annotated with `httpApiStatus`. */
 	readonly restMiddlewareErrors?: readonly Schema.Codec<unknown>[];
 	readonly mcpMiddleware?: RequestMiddleware;
+	/** Set to false to disable MCP transport and authentication routes. */
+	readonly mcpAuthentication?:
+		| Layer.Layer<McpAuthentication, unknown, HttpRouter.HttpRouter>
+		| false;
 	readonly logCause?: LogCause;
 }
 
@@ -50,13 +60,21 @@ export function createEffectApi(config: EffectApiConfig) {
 					return yield* Effect.provideService(httpEffect, ApiRequest, { ...permissions, services });
 				});
 
-				return inHostRequest(config.mcpMiddleware ? config.mcpMiddleware(captured) : captured);
+				const authenticated = config.mcpAuthentication
+					? Effect.flatMap(McpAuthentication, (auth) => auth.middleware(captured))
+					: captured;
+
+				return inHostRequest(
+					config.mcpMiddleware ? config.mcpMiddleware(authenticated) : authenticated,
+				);
 			}).layer,
 		),
 	);
 	const routes = Layer.mergeAll(
 		rest.layer,
-		mcp,
+		config.mcpAuthentication === false
+			? Layer.empty
+			: Layer.mergeAll(mcp, config.mcpAuthentication ?? Layer.empty),
 		HttpApiScalar.layer(rest.api, {
 			path: docsPath,
 			...(config.scalar ? { scalar: config.scalar } : {}),

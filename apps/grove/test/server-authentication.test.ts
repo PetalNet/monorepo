@@ -13,7 +13,7 @@ const server = createServer({
 	version: "1",
 	basePath: "/api/v1",
 	services: Layer.empty,
-	auth: { browser: browserAuthentication, errors: authenticationErrors, mcp: (next) => next },
+	auth: { browser: browserAuthentication, errors: authenticationErrors, mcp: false },
 	operations: [
 		operation({
 			name: "principal",
@@ -50,6 +50,18 @@ const eventFor = (actor: App.Locals["actor"], path = "/api/v1/projects") => {
 };
 
 describe("Server authentication", () => {
+	it("does not expose MCP or resource metadata when the transport is disabled", async () => {
+		const responses = await Promise.all(
+			["/mcp", "/.well-known/oauth-protected-resource/mcp"].map((path) =>
+				server.http(eventFor(null, path)),
+			),
+		);
+
+		for (const response of responses) {
+			expect(response.status).toBe(404);
+		}
+	});
+
 	it("allows remote queries whose request event hides URL access", async () => {
 		const actor = {
 			kind: "person" as const,

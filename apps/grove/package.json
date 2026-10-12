@@ -17,6 +17,7 @@
 		"test": "vitest run"
 	},
 	"dependencies": {
+		"@better-auth/mcp": "catalog:",
 		"@effect/sql-pg": "catalog:",
 		"@lucide/svelte": "catalog:prod",
 		"@petalnet/effect-api": "workspace:*",

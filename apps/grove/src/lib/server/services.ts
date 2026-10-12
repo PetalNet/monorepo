@@ -10,8 +10,6 @@ import type { BrowserSessionError } from "#lib/server/auth.ts";
 import { GroveAuthBuildLayer } from "#lib/server/auth.ts";
 
 import type { AuthenticationRequired } from "./authorization";
-import { groveMcpIngress } from "./mcp-oauth-runtime";
-import { McpAuthentication } from "./mcp/ingress";
 import { projectErrors } from "./projects/api";
 import type { ProjectError } from "./projects/service";
 import { ProjectServiceLayer, ProjectServiceBuildLayer } from "./projects/service";
@@ -61,10 +59,7 @@ export const GroveServicesLayer = Layer.unwrap(
 			);
 		}
 
-		return Layer.merge(
-			domain,
-			Layer.succeed(McpAuthentication, (next) => groveMcpIngress().middleware(next)),
-		);
+		return domain;
 	}),
 );
 

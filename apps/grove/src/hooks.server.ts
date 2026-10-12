@@ -6,13 +6,8 @@ import { Effect } from "effect";
 
 import { groveApi } from "#lib/server/api.ts";
 import { GroveAuth } from "#lib/server/auth.ts";
-import { groveMcpIngress } from "#lib/server/mcp-oauth-runtime.ts";
 
 export const init: ServerInit = async () => {
-	if (!building) {
-		groveMcpIngress();
-	}
-
 	await groveApi.initialize();
 
 	process.once("sveltekit:shutdown", () => {

@@ -3,9 +3,11 @@ import { createServer } from "node:http";
 
 import * as PgClient from "@effect/sql-pg/PgClient";
 import { it } from "@effect/vitest";
+import { McpAuthentication, type McpAuthBoundary as McpIngress } from "@petalnet/effect-api";
+import { createMcpAuthentication } from "@petalnet/effect-api/better-auth";
 import { http } from "@petalnet/effect-sveltekit";
 import { Cause, Effect, Exit, Layer, ManagedRuntime, Redacted, Schema, Stream } from "effect";
-import { HttpServerResponse, type HttpRouter } from "effect/http";
+import { HttpServerResponse, HttpRouter } from "effect/http";
 import { exportJWK, generateKeyPair, SignJWT, type JWK, type JWTPayload } from "jose";
 import { afterAll, beforeAll, describe, expect, vi } from "vitest";
 
@@ -27,7 +29,7 @@ import {
 } from "../src/lib/server/actors/authority";
 import { CurrentPrincipal } from "../src/lib/server/actors/authority";
 import { groveApi } from "../src/lib/server/api";
-import { makeMcpIngress, McpAuthentication, type McpIngress } from "../src/lib/server/mcp/ingress";
+import { authenticateMachine } from "../src/lib/server/mcp/ingress";
 import type { ProjectService } from "../src/lib/server/projects/service";
 import { ProjectServiceLayer, ProjectServiceBuildLayer } from "../src/lib/server/projects/service";
 import { startGrovePostgres, stopGrovePostgres } from "./postgres";
@@ -77,7 +79,23 @@ describe("MCP protected-resource ingress", () => {
 	>;
 	let ingress: McpIngress;
 	const handle = (incoming: Request, target = ingress) =>
-		http(incoming).pipe(Effect.provideService(McpAuthentication, target.middleware));
+		http(incoming).pipe(Effect.provideService(McpAuthentication, target));
+	const makeMcpIngress = (settings: typeof config) =>
+		runtime.runPromise(
+			Effect.scoped(
+				Effect.provide(
+					McpAuthentication,
+					createMcpAuthentication(
+						Effect.succeed({
+							...settings,
+							requiredScopes: ["grove:mcp"],
+							scopesSupported: ["grove:mcp", "grove:agent:enroll"],
+							authenticate: authenticateMachine,
+						}),
+					).pipe(Layer.provide(Layer.fresh(HttpRouter.layer))),
+				),
+			),
+		);
 	let privateKey: CryptoKey;
 	let owner: PersonPrincipal;
 	let keys: JWK[] = [];
@@ -132,7 +150,7 @@ describe("MCP protected-resource ingress", () => {
 		}
 
 		config.jwksUrl = `http://127.0.0.1:${String(address.port)}/jwks`;
-		ingress = makeMcpIngress(config);
+		ingress = await makeMcpIngress(config);
 	}, 60_000);
 
 	afterAll(async () => {
@@ -229,8 +247,15 @@ describe("MCP protected-resource ingress", () => {
 		);
 	};
 
-	it("publishes the existing RFC 9728 resource metadata", () => {
-		expect(ingress.metadata()).toEqual({
+	it("publishes public RFC 9728 resource metadata through the shared router", async () => {
+		const response = await runtime.runPromise(
+			handle(new Request("https://grove.example/.well-known/oauth-protected-resource/mcp")),
+		);
+
+		expect(response.status).toBe(200);
+		expect(response.headers.get("cache-control")).toBe("public, max-age=300");
+
+		expect(await response.json()).toEqual({
 			resource: "https://grove.example/mcp",
 			authorization_servers: [config.issuer],
 			bearer_methods_supported: ["header"],
@@ -238,13 +263,13 @@ describe("MCP protected-resource ingress", () => {
 		});
 	});
 
-	it("rejects invalid protected-resource configuration during construction", () => {
-		expect(() =>
+	it("rejects invalid protected-resource configuration during acquisition", async () => {
+		await expect(
 			makeMcpIngress({
 				...config,
 				resourceOrigin: "https://grove.example/not-an-origin",
 			}),
-		).toThrow("resourceOrigin must be a canonical origin");
+		).rejects.toThrow("resourceOrigin must be a canonical origin");
 	});
 
 	it("uses bearer identity only and challenges cookie-only requests", async () => {
@@ -1033,7 +1058,7 @@ describe("MCP protected-resource ingress", () => {
 
 		expect(unknownKid.status).toBe(401);
 
-		const unavailable = makeMcpIngress({
+		const unavailable = await makeMcpIngress({
 			...config,
 			jwksUrl: new URL("/unavailable", config.jwksUrl).href,
 		});
@@ -1054,7 +1079,7 @@ describe("MCP protected-resource ingress", () => {
 		const dependencyToken = await token("dependency-failure", ["grove:mcp"]);
 		const failures = await Promise.all(
 			["/unavailable", "/malformed", "/disconnect"].map(async (path) => {
-				const failedDependency = makeMcpIngress({
+				const failedDependency = await makeMcpIngress({
 					...config,
 					jwksUrl: new URL(path, config.jwksUrl).href,
 				});

@@ -17,6 +17,21 @@ export interface McpPermissions {
 	readonly callable: ReadonlySet<string>;
 }
 
+export interface McpAuthBoundary {
+	readonly middleware: RequestMiddleware;
+	readonly metadata: () => {
+		readonly resource: string;
+		readonly authorization_servers: readonly string[];
+		readonly bearer_methods_supported: readonly string[];
+		readonly scopes_supported: readonly string[];
+	};
+}
+
+/** Provider-neutral MCP admission and protected-resource metadata. */
+export class McpAuthentication extends Context.Service<McpAuthentication, McpAuthBoundary>()(
+	"@petalnet/effect-api/McpAuthentication",
+) {}
+
 /** Per-request tool discovery and invocation permissions. */
 export class McpAccess extends Context.Service<McpAccess, McpPermissions>()(
 	"@petalnet/effect-api/McpAccess",

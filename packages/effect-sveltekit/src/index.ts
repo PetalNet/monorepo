@@ -6,7 +6,6 @@ import {
 	operationErrorSchemas,
 	type EffectApiConfig,
 	type OperationErrors,
-	type RequestMiddleware,
 } from "@petalnet/effect-api";
 import { error } from "@sveltejs/kit";
 import type { RequestEvent } from "@sveltejs/kit";
@@ -276,12 +275,15 @@ export function makeEffectSvelteKitRuntime<R, ER, E = unknown>(
 
 /** One server owns HTTP transports and authenticated Effects in the same request runtime. */
 export function createServer<R, ER, E, Auth, AuthError>(
-	config: Omit<EffectApiConfig, "restMiddleware" | "restMiddlewareErrors" | "mcpMiddleware"> & {
+	config: Omit<
+		EffectApiConfig,
+		"restMiddleware" | "restMiddlewareErrors" | "mcpMiddleware" | "mcpAuthentication"
+	> & {
 		readonly services: Layer.Layer<R, ER>;
 		readonly auth: {
 			readonly browser: Effect.Effect<Context.Context<Auth>, AuthError, R | SvelteKitRequestEvent>;
 			readonly errors: OperationErrors<AuthError>;
-			readonly mcp: RequestMiddleware;
+			readonly mcp: NonNullable<EffectApiConfig["mcpAuthentication"]>;
 		};
 		readonly mapFailure?: EffectSvelteKitOptions<E | AuthError>["mapFailure"];
 	},
@@ -291,7 +293,7 @@ export function createServer<R, ER, E, Auth, AuthError>(
 	const application = createEffectApi({
 		...config,
 		restMiddlewareErrors: operationErrorSchemas(config.auth.errors),
-		mcpMiddleware: config.auth.mcp,
+		mcpAuthentication: config.auth.mcp,
 		restMiddleware: (next) =>
 			config.auth.browser.pipe(
 				Effect.matchEffect({

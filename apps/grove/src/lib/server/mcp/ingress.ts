@@ -1,24 +1,13 @@
-import {
-	createMcpAuthentication,
-	McpAccess,
-	type McpAuthenticationConfig,
-	type McpAuthentication as McpIngress,
-	type RequestMiddleware,
-} from "@petalnet/effect-api";
+import { McpAccess } from "@petalnet/effect-api";
 import { Context, Effect } from "effect";
 import { HttpServerResponse } from "effect/http";
 
-import { ActorAuthority, CurrentPrincipal, type AuthorityError } from "../actors/authority";
-
-export type { McpAuthentication as McpIngress } from "@petalnet/effect-api";
-export type McpIngressConfig = Pick<
-	McpAuthenticationConfig,
-	"issuer" | "jwksUrl" | "resourceOrigin"
->;
-
-export class McpAuthentication extends Context.Service<McpAuthentication, RequestMiddleware>()(
-	"grove/McpAuthentication",
-) {}
+import {
+	ActorAuthority,
+	CurrentPrincipal,
+	type AuthorityError,
+	type MachineIdentity,
+} from "../actors/authority";
 
 const authorityUnavailable = (error: AuthorityError) => {
 	console.error("Grove MCP actor authority unavailable", error);
@@ -39,32 +28,26 @@ const accessDenied = () =>
 		),
 	);
 
-export const makeMcpIngress = (config: McpIngressConfig): McpIngress =>
-	createMcpAuthentication({
-		...config,
-		requiredScopes: ["grove:mcp"],
-		scopesSupported: ["grove:mcp", "grove:agent:enroll"],
-		authenticate: (identity) =>
-			Effect.gen(function* () {
-				const authority = yield* ActorAuthority;
-				const principal = yield* authority.resolveMachineIdentity(identity);
-				const listed = new Set(yield* authority.authorizedOperations(principal));
-				const callable = new Set(listed);
+export const authenticateMachine = (identity: MachineIdentity) =>
+	Effect.gen(function* () {
+		const authority = yield* ActorAuthority;
+		const principal = yield* authority.resolveMachineIdentity(identity);
+		const listed = new Set(yield* authority.authorizedOperations(principal));
+		const callable = new Set(listed);
 
-				if (principal.kind === "agent" && identity.scopes.has("grove:agent:enroll")) {
-					callable.add("agents.enrollSelf");
-				}
+		if (principal.kind === "agent" && identity.scopes.has("grove:agent:enroll")) {
+			callable.add("agents.enrollSelf");
+		}
 
-				return Context.make(CurrentPrincipal, principal).pipe(
-					Context.add(McpAccess, { listed, callable }),
-				);
-			}).pipe(
-				Effect.catchTags({
-					ActorDatabaseError: authorityUnavailable,
-					HomeOwnerUnbound: authorityUnavailable,
-					CapabilityContainmentConflict: authorityUnavailable,
-					ActorDenied: accessDenied,
-					ActorNotCurrent: accessDenied,
-				}),
-			),
-	});
+		return Context.make(CurrentPrincipal, principal).pipe(
+			Context.add(McpAccess, { listed, callable }),
+		);
+	}).pipe(
+		Effect.catchTags({
+			ActorDatabaseError: authorityUnavailable,
+			HomeOwnerUnbound: authorityUnavailable,
+			CapabilityContainmentConflict: authorityUnavailable,
+			ActorDenied: accessDenied,
+			ActorNotCurrent: accessDenied,
+		}),
+	);

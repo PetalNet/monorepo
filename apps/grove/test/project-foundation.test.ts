@@ -2,6 +2,7 @@ import "./api-env";
 import { createHash } from "node:crypto";
 
 import * as PgClient from "@effect/sql-pg/PgClient";
+import { McpAuthentication } from "@petalnet/effect-api";
 import { http, SvelteKitRequestEvent } from "@petalnet/effect-sveltekit";
 import type { RequestEvent } from "@sveltejs/kit";
 import { Effect, Layer, ManagedRuntime, Redacted } from "effect";
@@ -16,7 +17,6 @@ import {
 } from "../src/lib/server/actors/authority";
 import { CurrentPrincipal } from "../src/lib/server/actors/authority";
 import { groveApi } from "../src/lib/server/api";
-import { McpAuthentication } from "../src/lib/server/mcp/ingress";
 import { canonicalDigest } from "../src/lib/server/projects/canonical";
 import type { ProjectService } from "../src/lib/server/projects/service";
 import { ProjectServiceLayer } from "../src/lib/server/projects/service";
@@ -49,7 +49,7 @@ interface Receipt {
 
 describe("Grove project foundation and #401 REST/MCP loop", () => {
 	let runtime: ManagedRuntime.ManagedRuntime<
-		ActorAuthority | ProjectService | HttpRouter.HttpRouter | PgClient.PgClient,
+		ActorAuthority | ProjectService | HttpRouter.HttpRouter | PgClient.PgClient | McpAuthentication,
 		unknown
 	>;
 	let database: ManagedRuntime.ManagedRuntime<PgClient.PgClient, unknown>;
@@ -165,7 +165,10 @@ describe("Grove project foundation and #401 REST/MCP loop", () => {
 			).pipe(
 				Effect.provideService(CurrentPrincipal, principal),
 				// This loop tests domain parity with an already-resolved principal.
-				Effect.provideService(McpAuthentication, (next) => next),
+				Effect.provideService(McpAuthentication, {
+					...(await runtime.runPromise(McpAuthentication)),
+					middleware: (next) => next,
+				}),
 			),
 		);
 

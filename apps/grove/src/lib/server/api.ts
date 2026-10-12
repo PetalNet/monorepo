@@ -1,3 +1,6 @@
+import { building } from "$app/env";
+import { GROVE_MCP_ISSUER, GROVE_MCP_JWKS_URL, GROVE_MCP_RESOURCE } from "$app/env/private";
+import { createMcpAuthentication } from "@petalnet/effect-api/better-auth";
 import { createServer } from "@petalnet/effect-sveltekit";
 import { Effect } from "effect";
 import { globalFontFaces } from "fontless/runtime";
@@ -5,7 +8,7 @@ import { globalFontFaces } from "fontless/runtime";
 import favicon from "../assets/favicon.svg";
 import { enrollAgentSelfOperation } from "./actors/api";
 import { authenticationErrors, browserAuthentication } from "./authentication";
-import { McpAuthentication } from "./mcp/ingress";
+import { authenticateMachine } from "./mcp/ingress";
 import { projectOperations } from "./projects/api";
 import { GroveServicesLayer, mapGroveFailure } from "./services";
 
@@ -23,7 +26,18 @@ export const groveApi = createServer({
 	auth: {
 		browser: browserAuthentication,
 		errors: authenticationErrors,
-		mcp: (next) => Effect.flatMap(McpAuthentication, (authenticate) => authenticate(next)),
+		mcp: building
+			? false
+			: createMcpAuthentication(
+					Effect.sync(() => ({
+						issuer: GROVE_MCP_ISSUER ?? "",
+						jwksUrl: GROVE_MCP_JWKS_URL ?? "",
+						resourceOrigin: GROVE_MCP_RESOURCE ?? "",
+						requiredScopes: ["grove:mcp"],
+						scopesSupported: ["grove:mcp", "grove:agent:enroll"],
+						authenticate: authenticateMachine,
+					})),
+				),
 	},
 	scalar: {
 		theme: "none",
