@@ -1,8 +1,11 @@
-import { Cause, Effect, Exit, Schema, SchemaTransformation } from "effect";
+import { Cause, Data, Effect, Exit, Schema, SchemaTransformation } from "effect";
 import { describe, expect, it, vi } from "vitest";
 
+import { mapOperationErrors, operation, operationError } from "../src/index.js";
 import { InvocationFailure, invokeOperation } from "../src/invoke.js";
-import { type ApiOperation, operation } from "../src/operation.js";
+
+class Rejected extends Data.TaggedError("Rejected")<{ readonly detail: string }> {}
+class Unavailable extends Data.TaggedError("Unavailable") {}
 
 const base = operation({
 	name: "invoke.test",
@@ -33,6 +36,47 @@ const failureOf = (exit: Exit.Exit<unknown, InvocationFailure>) => {
 };
 
 describe("invokeOperation", () => {
+	it("derives host failure mappings and leaves unknown errors to the host boundary", () => {
+		const mapFailure = mapOperationErrors({
+			Rejected: operationError(Rejected, {
+				status: 409,
+				message: (error) => error.detail,
+			}),
+			Unavailable: operationError(Unavailable, { status: 503 }),
+		});
+
+		expect(mapFailure(new Rejected({ detail: "Conflicting version" }))).toEqual({
+			status: 409,
+			message: "Conflicting version",
+			log: false,
+		});
+
+		expect(mapFailure(new Unavailable())).toEqual({
+			status: 503,
+			message: "The operation failed",
+			log: true,
+		});
+
+		for (const error of [
+			null,
+			"private",
+			{ message: "private" },
+			{ _tag: "Unknown" },
+			{ _tag: "toString" },
+			{ detail: 42 },
+			{ _tag: "Rejected", detail: "Forged failure" },
+		]) {
+			expect(mapFailure(error)).toBeUndefined();
+		}
+	});
+
+	it.each([NaN, Infinity, 399, 600, 400.5])(
+		"rejects invalid static status %s at declaration",
+		(status) => {
+			expect(() => operationError(Rejected, { status })).toThrow(/integer between 400 and 599/);
+		},
+	);
+
 	it("is lazy and performs an asynchronous input transformation exactly once per execution", async () => {
 		const decode = vi.fn((value: string) =>
 			Effect.promise(async () => {
@@ -153,13 +197,18 @@ describe("invokeOperation", () => {
 				}),
 			);
 			const logCause = vi.fn();
-			const statusForError = vi.fn(() => 400);
+			const message = vi.fn(() => "Public message");
 			const exit = await Effect.runPromiseExit(
 				invokeOperation(
 					{
 						...base,
 						output,
-						statusForError,
+						errors: {
+							Rejected: operationError(Rejected, {
+								status: 400,
+								message,
+							}),
+						},
 						handle: () => Effect.succeed("private-output-marker"),
 					},
 					null,
@@ -168,7 +217,7 @@ describe("invokeOperation", () => {
 			);
 
 			expect(failureOf(exit)).toMatchObject({ status: 500, message: "The operation failed" });
-			expect(statusForError).not.toHaveBeenCalled();
+			expect(message).not.toHaveBeenCalled();
 			expect(logCause).toHaveBeenCalledOnce();
 			const logged = logCause.mock.calls[0]?.[1] as Cause.Cause<unknown>;
 
@@ -190,9 +239,13 @@ describe("invokeOperation", () => {
 				invokeOperation(
 					{
 						...base,
-						handle: () => Effect.fail("private"),
-						statusForError: () => status,
-						messageForError: () => "Public message",
+						handle: () => Effect.fail(new Rejected({ detail: "private" })),
+						errors: {
+							Rejected: operationError(Rejected, {
+								status,
+								message: "Public message",
+							}),
+						},
 					},
 					null,
 					logCause,
@@ -210,52 +263,37 @@ describe("invokeOperation", () => {
 	);
 
 	it.each([
-		Cause.combine(Cause.fail("private-first"), Cause.fail("private-second")),
-		Cause.combine(Cause.fail("private-failure"), Cause.die("private-defect")),
-		Cause.combine(Cause.fail("private-failure"), Cause.interrupt()),
+		Cause.combine(
+			Cause.fail({ _tag: "Rejected", detail: "private-first" }),
+			Cause.fail({ _tag: "Rejected", detail: "private-second" }),
+		),
+		Cause.combine(
+			Cause.fail({ _tag: "Rejected", detail: "private-failure" }),
+			Cause.die("private-defect"),
+		),
+		Cause.combine(Cause.fail({ _tag: "Rejected", detail: "private-failure" }), Cause.interrupt()),
 	])("sanitizes multiple and mixed causes before mapping", async (cause) => {
 		const logCause = vi.fn();
-		const statusForError = vi.fn(() => 400);
+		const message = vi.fn(() => "Public message");
 		const exit = await Effect.runPromiseExit(
 			invokeOperation(
-				{ ...base, handle: () => Effect.failCause(cause), statusForError },
+				{
+					...base,
+					handle: () => Effect.failCause(cause),
+					errors: {
+						Rejected: operationError(Rejected, {
+							status: 400,
+							message,
+						}),
+					},
+				},
 				null,
 				logCause,
 			),
 		);
 
 		expect(failureOf(exit)).toMatchObject({ status: 500, message: "The operation failed" });
-		expect(statusForError).not.toHaveBeenCalled();
-		expect(logCause).toHaveBeenCalledOnce();
-	});
-
-	it.each<Partial<ApiOperation<never>>>([
-		{ statusForError: () => NaN },
-		{ statusForError: () => 399 },
-		{ statusForError: () => 600 },
-		{ statusForError: () => 400.5 },
-		{
-			statusForError: () => {
-				throw new Error("private-mapper");
-			},
-		},
-		{
-			messageForError: () => {
-				throw new Error("private-mapper");
-			},
-		},
-		{ messageForError: () => 42 as unknown as string },
-	])("contains invalid and throwing mappers", async (mappers) => {
-		const logCause = vi.fn();
-		const exit = await Effect.runPromiseExit(
-			invokeOperation(
-				{ ...base, handle: () => Effect.fail("private"), ...mappers },
-				null,
-				logCause,
-			),
-		);
-
-		expect(failureOf(exit)).toMatchObject({ status: 500, message: "The operation failed" });
+		expect(message).not.toHaveBeenCalled();
 		expect(logCause).toHaveBeenCalledOnce();
 	});
 

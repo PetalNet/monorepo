@@ -3,9 +3,11 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 
 vi.mock("#lib/server/auth.ts", () => ({ GroveAuth: {} }));
 
-vi.mock("#lib/server/runtime.ts", () => ({
-	runGrove: () => {
-		throw new Error("A disabled development route must not enter the Grove runtime");
+vi.mock("#lib/server/api.ts", () => ({
+	groveApi: {
+		runRaw: () => {
+			throw new Error("A disabled development route must not enter the Grove runtime");
+		},
 	},
 }));
 
@@ -16,16 +18,6 @@ vi.mock("$app/env/private", () => ({
 	GROVE_OIDC_ISSUER: "https://oidc.test/realms/grove",
 }));
 
-vi.mock("#lib/server/mcp-oauth-runtime.ts", () => ({
-	groveMcpProtectedResourceMetadata: () => ({
-		resource: "https://grove.test/mcp",
-		authorization_servers: ["https://oidc.test/realms/grove-mcp"],
-		bearer_methods_supported: ["header"],
-		scopes_supported: ["grove:mcp", "grove:agent:enroll"],
-	}),
-}));
-
-import { GET as getProtectedResource } from "../src/routes/.well-known/oauth-protected-resource/mcp/+server";
 import { GET as getIndex } from "../src/routes/__dev/+server";
 import { GET as getLogin } from "../src/routes/__dev/log-me-in/operator/+server";
 import { GET as getLogout } from "../src/routes/__dev/log-me-out/+server";
@@ -81,24 +73,6 @@ describe("Grove development routes", () => {
 					href: "https://grove.test/__dev/log-me-in/operator?returnTo=/",
 				},
 			},
-		});
-	});
-
-	it("serves MCP protected-resource discovery independently from browser auth", async () => {
-		const response = await getProtectedResource(
-			eventFor(
-				"/.well-known/oauth-protected-resource/mcp",
-				"/.well-known/oauth-protected-resource/mcp",
-			),
-		);
-
-		expect(response.status).toBe(200);
-
-		await expect(response.json()).resolves.toEqual({
-			resource: "https://grove.test/mcp",
-			authorization_servers: ["https://oidc.test/realms/grove-mcp"],
-			bearer_methods_supported: ["header"],
-			scopes_supported: ["grove:mcp", "grove:agent:enroll"],
 		});
 	});
 });

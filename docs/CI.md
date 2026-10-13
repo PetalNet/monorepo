@@ -2,7 +2,7 @@
 
 | Work                              | PR / merge group                                              | Main / manual      |
 | --------------------------------- | ------------------------------------------------------------- | ------------------ |
-| JS build and test                 | Turbo affected graph                                          | Full graph         |
+| JS package checks, build and test | Turbo affected graph                                          | Full graph         |
 | App checks                        | Turbo owners/dependents and each workflow's input rules       | All app workflows  |
 | CodeQL                            | Independently selected JS/TS, Python, Actions and Rust inputs | All four languages |
 | Root checks, typos, links, zizmor | Full                                                          | Full               |
@@ -12,9 +12,16 @@ Failed Git/Turbo planning fails CI. Source-only packages and standalone scripts
 still select CodeQL even without build/test tasks. Shared CI inputs select all
 app checks and scans. Weekly `codeql-full` scans all four languages.
 
-The selector provisions Rust and queries affected packages once, then emits exact
-JS package filters. Build/test execution never uses `--affected` or unions subsets
-with a namespace-wide filter. Empty or malformed subset filters fail closed.
+The selector queries Turbo's affected package graph to select workflow jobs.
+Package checks, builds and tests run directly through Turbo with `--affected`
+and the event's base/head. The namespace filter intersects the affected graph.
+Turbo owns task dependencies and cache hits; the selector does not inspect task
+caches or execute tasks. Main/manual runs use the full graph.
+
+`pnpm check:packages` runs package typechecks and checks. `pnpm check:root` runs
+repository-wide lint, formatting and workspace validation. Root lint retains its
+generated-type dependencies in `turbo.json`. Separate checkouts isolate checks,
+tests and builds from concurrent framework generation.
 
 `workflow.ts` models selection outputs and required job conclusions; `policy.ts`
 maps each workflow to changed-file and affected-package rules. Point inputs select

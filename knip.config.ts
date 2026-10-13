@@ -6,6 +6,8 @@ export default {
 	// Strict Knip only resolves production dependencies, including script binaries.
 	ignoreBinaries: ["eslint!", "vite!", "vitest!", "storybook!"],
 	ignoreDependencies: [
+		// pnpm links agent skills; they are not imported by application code.
+		"antislop-ai",
 		// Virtual tsconfig plugin provided by the patched @effect/tsgo compiler.
 		"@effect/language-service",
 	],
@@ -38,11 +40,9 @@ export default {
 			entry: [
 				"dev-oidc.ts",
 				"src/lib/dev/browser-logs.ts",
-				"effectdb.config.ts!",
-				// effect-db discovers these exported tables from its source glob.
-				"src/lib/server/db/tables.ts!",
 				"src/env.ts!",
 				"test/**/*.ts",
+				"migrations/*.ts!",
 			],
 		},
 		"apps/slide": {
@@ -53,6 +53,10 @@ export default {
 		},
 		"packages/better-auth-effect-qb-adapter": {
 			entry: ["test/**/*.ts"],
+		},
+		"packages/effect-api": {
+			// Strict Knip excludes the provider subpath's optional peer supplied by consumers.
+			ignoreDependencies: ["@better-auth/mcp!"],
 		},
 	},
 } satisfies KnipConfig;

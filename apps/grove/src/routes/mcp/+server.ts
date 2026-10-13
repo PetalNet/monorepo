@@ -1,7 +1,3 @@
-import { groveMcpIngress } from "#lib/server/mcp-oauth-runtime.ts";
-import { runGrove } from "#lib/server/runtime.ts";
+import { groveApi } from "#lib/server/api.ts";
 
-import type { RequestHandler } from "./$types";
-
-export const POST: RequestHandler = async (event) =>
-	runGrove(groveMcpIngress().handle(event.request), event);
+export const POST = groveApi.http;

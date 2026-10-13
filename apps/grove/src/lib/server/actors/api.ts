@@ -1,9 +1,40 @@
-import { operation } from "@petalnet/effect-api";
+import { operation, operationError, type OperationErrors } from "@petalnet/effect-api";
 import { Effect } from "effect";
 
 import { EnrollAgentSelf, EnrolledAgent } from "../../actors/schema";
-import { InvocationContext } from "../invocation";
-import { ActorAuthority, ActorDenied } from "./authority";
+import {
+	ActorAuthority,
+	ActorDenied,
+	ActorNotCurrent,
+	ActorDatabaseError,
+	HomeOwnerUnbound,
+	CapabilityContainmentConflict,
+	CurrentPrincipal,
+	type AuthorityError,
+} from "./authority";
+
+export const authorityErrors = {
+	ActorDenied: operationError(ActorDenied, {
+		status: 403,
+		message: (error) => error.message,
+	}),
+	ActorNotCurrent: operationError(ActorNotCurrent, {
+		status: 403,
+		message: (error) => error.message,
+	}),
+	ActorDatabaseError: operationError(ActorDatabaseError, {
+		status: 503,
+		message: "Actor authority is unavailable",
+	}),
+	HomeOwnerUnbound: operationError(HomeOwnerUnbound, {
+		status: 503,
+		message: "The configured Home Host owner has not completed a verified browser login",
+	}),
+	CapabilityContainmentConflict: operationError(CapabilityContainmentConflict, {
+		status: 409,
+		message: "Agent capability containment would be violated",
+	}),
+} satisfies OperationErrors<AuthorityError>;
 
 export const enrollAgentSelfOperation = operation({
 	name: "agents.enrollSelf",
@@ -12,10 +43,10 @@ export const enrollAgentSelfOperation = operation({
 	output: EnrolledAgent,
 	handler: (input) =>
 		Effect.gen(function* () {
-			const { principal } = yield* InvocationContext;
+			const principal = yield* CurrentPrincipal;
 
 			if (principal.kind !== "bootstrap" && principal.kind !== "agent") {
-				return yield* new ActorDenied("A machine enrollment identity is required");
+				return yield* new ActorDenied({ reason: "A machine enrollment identity is required" });
 			}
 
 			const authority = yield* ActorAuthority;
@@ -29,6 +60,5 @@ export const enrollAgentSelfOperation = operation({
 				ownerPersonId: enrolled.ownerPersonId,
 			};
 		}),
-	statusForError: () => 403,
-	messageForError: (error) => error.message,
+	errors: authorityErrors,
 });

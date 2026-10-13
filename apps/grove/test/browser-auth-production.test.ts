@@ -1,18 +1,25 @@
 import * as PgClient from "@effect/sql-pg/PgClient";
-import { createEffectQbAdapter } from "@petalnet/better-auth-effect-qb-adapter";
 import type { RequestEvent } from "@sveltejs/kit";
 import { Effect, Layer, ManagedRuntime, Redacted } from "effect";
 import { exportJWK, generateKeyPair, SignJWT } from "jose";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 
-import { ActorAuthority, ActorAuthorityLayer } from "../src/lib/server/actors/authority";
-import { makeGroveBrowserAuth } from "../src/lib/server/auth";
+import { type ActorAuthority, ActorAuthorityLayer } from "../src/lib/server/actors/authority";
+import { GroveAuth, GroveAuthLayer, GroveBetterAuthLayer } from "../src/lib/server/auth";
+import { BetterAuth, BetterAuthInitializationError } from "../src/lib/server/better-auth";
 import { GROVE_OIDC_PROVIDER_ID } from "../src/lib/server/oidc";
 import { startGrovePostgres, stopGrovePostgres } from "./postgres";
 
 const issuer = "https://identity.example/realm/grove";
 const origin = "https://grove.example";
 const owner = { issuer, subject: "provider-owner-1" };
+const authConfig = {
+	baseUrl: origin,
+	secret: "production-composition-secret-at-least-32-characters",
+	issuer,
+	clientId: "grove-browser",
+	clientSecret: "browser-secret",
+};
 const eventFor = (request: Request) =>
 	({
 		request,
@@ -23,6 +30,7 @@ const eventFor = (request: Request) =>
 
 describe("production Grove browser auth composition", () => {
 	let runtime: ManagedRuntime.ManagedRuntime<ActorAuthority | PgClient.PgClient, unknown>;
+	let browserRuntime: ManagedRuntime.ManagedRuntime<GroveAuth, unknown> | undefined;
 	let originalFetch: typeof globalThis.fetch;
 
 	beforeAll(async () => {
@@ -36,6 +44,7 @@ describe("production Grove browser auth composition", () => {
 
 	afterAll(async () => {
 		globalThis.fetch = originalFetch;
+		await browserRuntime?.dispose();
 		await runtime.dispose();
 		await stopGrovePostgres();
 	});
@@ -107,20 +116,15 @@ describe("production Grove browser auth composition", () => {
 
 		let activeEvent: RequestEvent;
 		const sql = await runtime.runPromise(PgClient.PgClient);
-		const authority = await runtime.runPromise(ActorAuthority);
-		const browserAuth = await makeGroveBrowserAuth(
-			{
-				baseUrl: origin,
-				secret: "production-composition-secret-at-least-32-characters",
-				issuer,
-				clientId: "grove-browser",
-				clientSecret: "browser-secret",
-			},
-			createEffectQbAdapter({ runPromise: (effect) => runtime.runPromise(effect) }),
-			sql,
-			authority,
-			() => activeEvent,
+
+		browserRuntime = ManagedRuntime.make(
+			GroveAuthLayer(issuer).pipe(
+				Layer.provide(GroveBetterAuthLayer(authConfig, () => activeEvent)),
+				Layer.provide(Layer.succeedContext(await runtime.context())),
+			),
 		);
+
+		const browserAuth = await browserRuntime.runPromise(GroveAuth);
 
 		expect(
 			await Effect.runPromise(
@@ -163,7 +167,7 @@ describe("production Grove browser auth composition", () => {
 		});
 
 		const { loginResponse: login, url: authorizationUrl } =
-			await beginAuthorization("/sprouts?view=agent");
+			await beginAuthorization("/?view=agent");
 
 		expect(login.status).toBe(302);
 		expect(authorizationUrl.searchParams.get("response_type")).toBe("code");
@@ -186,7 +190,7 @@ describe("production Grove browser auth composition", () => {
 
 		const callback = await completeAuthorization(login, authorizationUrl);
 
-		expect(callback.headers.get("location")).toBe("/sprouts?view=agent");
+		expect(callback.headers.get("location")).toBe("/?view=agent");
 
 		const sessionCookies = callback.headers
 			.getSetCookie()
@@ -262,11 +266,15 @@ describe("production Grove browser auth composition", () => {
 		expect(accounts[0]?.idToken).toBeNull();
 		const beforeBoundPreflightInspection = await authorityState();
 
+		activeEvent = eventFor(
+			new Request(`${origin}/settings`, { headers: { cookie: sessionCookies } }),
+		);
+
 		await runtime.runPromise(
-			sql.unsafe('update "user" set "name" = $2 where "id" = $1', [
-				hydrated?.user.id,
+			browserAuth.updateAccount(
+				new Headers({ cookie: sessionCookies }),
 				"Renamed Better Auth Operator",
-			]),
+			),
 		);
 
 		const inspectedBound = await runtime.runPromise(
@@ -304,6 +312,12 @@ describe("production Grove browser auth composition", () => {
 		await expect(
 			runtime.runPromise(browserAuth.hydrateSession(new Headers({ cookie: sessionCookies }))),
 		).resolves.toBeNull();
+
+		await expect(
+			runtime.runPromise(
+				browserAuth.updateAccount(new Headers({ cookie: sessionCookies }), "Unauthorized rename"),
+			),
+		).rejects.toThrow();
 
 		includeIssuedAt = false;
 		const missingIssuedAt = await beginAuthorization();
@@ -356,22 +370,17 @@ describe("production Grove browser auth composition", () => {
 			);
 		};
 
-		const sql = await runtime.runPromise(PgClient.PgClient);
-		const authority = await runtime.runPromise(ActorAuthority);
+		const failure = await runtime.runPromise(
+			Effect.flip(BetterAuth.pipe(Effect.provide(GroveBetterAuthLayer(authConfig)))),
+		);
 
-		await expect(
-			makeGroveBrowserAuth(
-				{
-					baseUrl: origin,
-					secret: "production-composition-secret-at-least-32-characters",
-					issuer,
-					clientId: "grove-browser",
-					clientSecret: "browser-secret",
-				},
-				createEffectQbAdapter({ runPromise: (effect) => runtime.runPromise(effect) }),
-				sql,
-				authority,
-			),
-		).rejects.toThrow("pinned issuer");
+		expect(failure).toBeInstanceOf(BetterAuthInitializationError);
+		expect(failure.cause).toBeInstanceOf(Error);
+
+		if (!(failure.cause instanceof Error)) {
+			throw new TypeError("Expected discovery failure to retain its cause");
+		}
+
+		expect(failure.cause.message).toContain("pinned issuer");
 	});
 });

@@ -1,6 +1,6 @@
 import { Cause, Data, Effect, Schema } from "effect";
 
-import type { ApiOperation, LogCause } from "./operation.js";
+import { mapOperationErrors, type ApiOperation, type LogCause } from "./operation.js";
 
 export class InvocationFailure extends Data.TaggedError("InvocationFailure")<{
 	readonly status: number;
@@ -19,7 +19,9 @@ const handleCause = Effect.fnUntraced(function* <R>(
 ): Effect.fn.Return<never, InvocationFailure> {
 	// Pure interruption is control flow, not a public operation failure.
 	if (Cause.hasInterrupts(cause) && !Cause.hasFails(cause) && !Cause.hasDies(cause)) {
-		return yield* Effect.failCause(cause as Cause.Cause<never>);
+		return yield* Effect.failCause(
+			Cause.fromReasons<never>(cause.reasons.filter(Cause.isInterruptReason)),
+		);
 	}
 
 	const failures = cause.reasons.filter(Cause.isFailReason);
@@ -36,15 +38,9 @@ const handleCause = Effect.fnUntraced(function* <R>(
 
 		if (phase === "handler") {
 			const mapped = yield* Effect.sync(() => {
-				const status = operation.statusForError?.(failure.error) ?? 500;
+				const exposed = mapOperationErrors(operation.errors ?? {})(failure.error);
 
-				if (!Number.isInteger(status) || status < 400 || status > 599) {
-					return operationFailed();
-				}
-
-				const message = operation.messageForError?.(failure.error) ?? "The operation failed";
-
-				return typeof message === "string" ? operationFailed(status, message) : operationFailed();
+				return exposed ? operationFailed(exposed.status, exposed.message) : operationFailed();
 			}).pipe(
 				Effect.catchCause((mapperCause) => {
 					logCause(operation.name, Cause.combine(cause, mapperCause));
