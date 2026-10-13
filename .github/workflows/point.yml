@@ -18,6 +18,9 @@ permissions:
 
 jobs:
   rust:
+    permissions:
+      contents: read
+      id-token: write
     name: rust (fmt, clippy, build, test)
     runs-on: ubuntu-latest
     services:
