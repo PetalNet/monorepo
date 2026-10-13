@@ -111,10 +111,6 @@ jobs:
         with:
           cache-prefix: turbo-${{ runner.os }}-${{ runner.arch }}-
           use-relative-cache-path: true
-      - name: Write app env
-        run: |
-          echo "DATABASE_URL=$DATABASE_URL" > apps/collegemap/.env
-          echo "DATABASE_URL=$DATABASE_URL" > apps/grove/.env
       - if: needs.select.outputs.affected == 'true'
         run: pnpm build --affected
       - if: needs.select.outputs.affected != 'true'
