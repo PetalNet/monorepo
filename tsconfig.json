@@ -7,6 +7,8 @@
 		"noEmit": true
 	},
 	"references": [
+		{ "path": "./packages/effect-api" },
+		{ "path": "./packages/effect-sveltekit" },
 		{ "path": "./packages/ui" },
 		{ "path": "./packages/utils" },
 		{ "path": "./packages/types" }

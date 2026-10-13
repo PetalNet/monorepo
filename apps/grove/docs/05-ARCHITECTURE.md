@@ -59,7 +59,8 @@ The current architecture intentionally has:
 - one browser authentication and actor-authority spine;
 - transport-agnostic Effect services;
 - Effect Schema as the contract source;
-- stable `@effect/sql-pg` with effect-db migrations and effect-qb queries;
+- stable `@effect/sql-pg` owning transactions, Drizzle queries and schema generation,
+  and reviewed SQL migrations retaining the existing ledger;
 - shared REST/MCP adapters in `packages/effect-api`;
 - request-scoped Effect integration in `packages/effect-sveltekit`.
 
@@ -372,7 +373,7 @@ Browser OIDC and MCP machine OAuth terminate at separate protected-resource ingr
 
 The local Home Host owner is deployment-pinned by browser `(issuer, subject)`. Owner-unbound is a visible readiness state and does not disable login, so the configured owner can establish the binding. Configuration drift and a non-current bound owner are distinct non-ready states; changing configuration never transfers ownership implicitly. Agent placement and ownership remain stable when execution moves between Runners.
 
-Every transport stamps the invocation Actor and context before calling a named domain command. Commands reauthorize at invocation time. Agent capability changes and Person authority reductions preserve capability containment or return typed conflicts with explicit remediation choices; revocation and lifecycle safety still fail closed immediately. An in-flight authoritative transaction is ordered before a concurrent revocation completes, and retirement is terminal. The Sprout demo operations are a fixed first-slice compatibility policy for every active Actor and cannot be removed through authority mutation.
+Every transport stamps the invocation Actor and context before calling a named domain command. Commands reauthorize at invocation time. Agent capability changes and Person authority reductions preserve capability containment or return typed conflicts with explicit remediation choices; revocation and lifecycle safety still fail closed immediately. An in-flight authoritative transaction is ordered before a concurrent revocation completes, and retirement is terminal. Tool discovery checks current Agent and owner identity independently of individual capability grants.
 
 ## 9. Agent, Runtime, and host architecture
 

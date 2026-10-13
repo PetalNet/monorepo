@@ -31,4 +31,6 @@ const ContainmentFixInput = Schema.Struct({
 });
 
 export const AgentCapabilityValidator = Schema.toStandardSchemaV1(AgentCapability);
-export const ContainmentFixValidator = Schema.toStandardSchemaV1(ContainmentFixInput);
+export const ContainmentFixValidator = Schema.toStandardSchemaV1(
+	Schema.Struct({ fix: Schema.fromJsonString(ContainmentFixInput) }),
+);

@@ -16,6 +16,7 @@
 		"typecheck": "tsc -b"
 	},
 	"dependencies": {
+		"@petalnet/effect-api": "workspace:*",
 		"@sveltejs/kit": "catalog:",
 		"effect": "catalog:"
 	},

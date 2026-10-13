@@ -2,11 +2,6 @@ name: point
 
 on:
   workflow_call:
-    inputs:
-      skip-rust:
-        description: Skip the Rust checks when every Turbo task is cached.
-        type: boolean
-        default: false
   workflow_dispatch:
 
 env:
@@ -24,7 +19,6 @@ permissions:
 jobs:
   rust:
     name: rust (fmt, clippy, build, test)
-    if: ${{ !inputs.skip-rust }}
     runs-on: ubuntu-latest
     services:
       postgres:

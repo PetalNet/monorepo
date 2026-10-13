@@ -1,0 +1,11 @@
+{
+	"extends": "@petalnet/tsconfig/base.json",
+	"compilerOptions": {
+		"emitDeclarationOnly": true,
+		"outDir": "dist",
+		"rootDir": "src",
+		"tsBuildInfoFile": "node_modules/.cache/tsbuild/info.src.json"
+	},
+	"include": ["src/**/*"],
+	"exclude": ["dist", "node_modules"]
+}

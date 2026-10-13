@@ -1,1 +1,2 @@
 .agents/skills/impeccable/** linguist-vendored
+apps/grove/migrations/generated/** linguist-generated=true

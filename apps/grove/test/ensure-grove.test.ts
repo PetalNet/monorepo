@@ -300,7 +300,7 @@ describe("Grove supervised service startup", () => {
 		);
 
 		expect(await readFile(path.join(root, "pnpm.calls"), "utf8")).toBe(
-			"exec effectdb migrate up\nexec vite dev --host 0.0.0.0 --port 3000\n",
+			"migrate\nexec vite dev --host 0.0.0.0 --port 3000\n",
 		);
 	});
 
