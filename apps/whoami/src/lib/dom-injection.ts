@@ -126,110 +126,185 @@ export interface DomFinding {
 	preexisting: boolean;
 }
 
-const ANY_SELECTOR = INDICATORS.flatMap((i) => i.selectors).join(",");
+interface Marker {
+	indicatorId: string;
+	selector: string;
+	/** The one attribute the selector reads (`id` for `#x`, `class` for `.x`), or null for a bare tag. */
+	attribute: string | null;
+}
+
+function attributeOf(selector: string): string | null {
+	const names = [
+		...Array.from(selector.matchAll(/\[([\w-]+)/g), (m) => m[1]),
+		...(/#[\w-]/.test(selector) ? ["id"] : []),
+		...(/\.[\w-]/.test(selector) ? ["class"] : []),
+	];
+
+	if (names.length > 1) {
+		throw new Error(`indicator selector reads more than one attribute: ${selector}`);
+	}
+
+	return names[0] ?? null;
+}
+
+const MARKERS: readonly Marker[] = INDICATORS.flatMap((i) =>
+	i.selectors.map((selector) => ({
+		indicatorId: i.id,
+		selector,
+		attribute: attributeOf(selector),
+	})),
+);
+
+const ANY_SELECTOR = MARKERS.map((m) => m.selector).join(",");
 
 function isElement(node: Node): node is Element {
 	return node.nodeType === Node.ELEMENT_NODE;
 }
 
-function selectorHits(el: Element): DomHit[] {
-	return INDICATORS.flatMap((i) =>
-		i.selectors
-			.filter((selector) => el.matches(selector))
-			.map((evidence) => ({ indicatorId: i.id, evidence, element: el })),
-	);
-}
-
-/** Match an element and its whole subtree against the table. */
-function matchSubtree(el: Element): DomHit[] {
+/** `el` and its descendants that currently carry any marker. */
+function candidates(el: Element): Element[] {
 	const found = el.matches(ANY_SELECTOR) ? [el] : [];
 
 	found.push(...el.querySelectorAll(ANY_SELECTOR));
 
-	return found.flatMap(selectorHits);
+	return found;
 }
 
-function classifyRecord(record: MutationRecord): DomHit[] {
-	if (record.type === "childList") {
-		return Array.from(record.addedNodes).filter(isElement).flatMap(matchSubtree);
+/** Every marker present in `el`'s subtree right now. */
+function matchSubtree(el: Element): DomHit[] {
+	return candidates(el).flatMap((node) =>
+		MARKERS.filter((m) => node.matches(m.selector)).map((m) => ({
+			indicatorId: m.indicatorId,
+			evidence: m.selector,
+			element: node,
+		})),
+	);
+}
+
+// Probes live in an inert document: no custom-element registry, so building one never runs an
+// extension's element constructor.
+let inert: Document | null = null;
+
+/** Does `marker` match `el` when its attribute holds `value` (null: absent)? */
+function matchesWith(el: Element, marker: Marker, value: string | null): boolean {
+	if (marker.attribute === null) {
+		return el.matches(marker.selector);
 	}
 
-	if (record.type !== "attributes" || !isElement(record.target)) {
-		return [];
+	inert ??= document.implementation.createHTMLDocument("");
+
+	// Every selector reads only the tag plus `marker.attribute`, so that is all the probe needs.
+	const probe = inert.createElement(el.localName);
+
+	if (value !== null) {
+		probe.setAttribute(marker.attribute, value);
 	}
 
-	const target = record.target;
-	const root = target.ownerDocument.documentElement;
-
-	if (target === root && record.attributeName === "lang") {
-		const now = root.getAttribute("lang");
-
-		if (record.oldValue === null || now === null || now === record.oldValue) {
-			return [];
-		}
-
-		return INDICATORS.filter((i) => i.langRewrite).map((i) => ({
-			indicatorId: i.id,
-			evidence: `html[lang] rewritten "${record.oldValue ?? ""}" → "${now}"`,
-			element: null,
-		}));
-	}
-
-	// Only the element whose attribute changed; its subtree didn't change.
-	return selectorHits(target);
+	return probe.matches(marker.selector);
 }
 
 type Batch = readonly [t: number, records: readonly MutationRecord[]];
 type TimedHit = DomHit & { t: number };
 
 /**
- * Classify records in order. Matching reads the DOM as it is NOW, not as it was when the record
- * fired, so a buffered `<body>` insertion would otherwise take credit for everything injected into
- * body later. A hit is credited to the last record that touched its element, and a subtree hit is
- * dropped when some ancestor below the inserted node was itself inserted later (that later record
- * takes it).
+ * Classify records in order, crediting each marker to the record that made it appear.
+ *
+ * The DOM can only be read as it is now, so each record is judged against the attribute values it
+ * left behind: the next record's `oldValue` for that element and attribute, or the current value if
+ * none followed. An attribute record claims only markers that read that attribute and that it
+ * turned from non-matching to matching; unrelated writes claim nothing. An insertion claims markers
+ * that matched as inserted, but not nodes put under it later: a buffered `<body>` insertion must
+ * not take credit for what was injected into body afterwards.
  */
 function classifyBatches(batches: readonly Batch[]): TimedHit[] {
 	const flat = batches.flatMap(([t, records]) => records.map((r) => ({ t, r })));
-	const lastTouch = new Map<Node, number>();
 	const lastAdded = new Map<Node, number>();
+	const writes = new Map<Node, Map<string, { i: number; oldValue: string | null }[]>>();
 
 	for (const [i, { r }] of flat.entries()) {
-		if (r.type === "attributes") {
-			lastTouch.set(r.target, i);
+		for (const node of r.addedNodes) {
+			lastAdded.set(node, i);
 		}
 
-		for (const node of r.addedNodes) {
-			lastTouch.set(node, i);
-			lastAdded.set(node, i);
+		if (r.type === "attributes" && r.attributeName !== null) {
+			const byName =
+				writes.get(r.target) ?? new Map<string, { i: number; oldValue: string | null }[]>();
+			const list = byName.get(r.attributeName) ?? [];
+
+			list.push({ i, oldValue: r.oldValue });
+			byName.set(r.attributeName, list);
+			writes.set(r.target, byName);
 		}
 	}
 
-	return flat.flatMap(({ t, r }, i) =>
-		classifyRecord(r)
-			.filter(({ element }) => {
-				if (!element) {
-					return true;
-				}
+	function valueAfter(el: Element, name: string, i: number): string | null {
+		const next = writes
+			.get(el)
+			?.get(name)
+			?.find((w) => w.i > i);
 
-				if ((lastTouch.get(element) ?? i) > i) {
-					return false;
-				}
+		return next ? next.oldValue : el.getAttribute(name);
+	}
 
-				if (r.type !== "childList") {
-					return true;
-				}
+	function hits(el: Element, markers: readonly Marker[], keep: (m: Marker) => boolean): DomHit[] {
+		return markers
+			.filter((m) => keep(m))
+			.map((m) => ({ indicatorId: m.indicatorId, evidence: m.selector, element: el }));
+	}
 
-				for (let a = element.parentNode; a && a !== r.target; a = a.parentNode) {
-					if ((lastAdded.get(a) ?? i) > i) {
-						return false;
-					}
-				}
+	function classify(r: MutationRecord, i: number): DomHit[] {
+		if (r.type === "childList") {
+			return Array.from(r.addedNodes)
+				.filter(isElement)
+				.flatMap((added) =>
+					candidates(added)
+						.filter((el) => {
+							// Skip nodes that were put under `added` after this record.
+							for (let a: Node | null = el; a && a !== added; a = a.parentNode) {
+								if ((lastAdded.get(a) ?? i) > i) {
+									return false;
+								}
+							}
 
-				return true;
-			})
-			.map((hit) => ({ ...hit, t })),
-	);
+							return true;
+						})
+						.flatMap((el) =>
+							hits(el, MARKERS, (m) =>
+								matchesWith(el, m, m.attribute === null ? null : valueAfter(el, m.attribute, i)),
+							),
+						),
+				);
+		}
+
+		const name = r.attributeName;
+
+		if (r.type !== "attributes" || name === null || !isElement(r.target)) {
+			return [];
+		}
+
+		const target = r.target;
+		const after = valueAfter(target, name, i);
+
+		if (target === target.ownerDocument.documentElement && name === "lang") {
+			if (r.oldValue === null || after === null || after === r.oldValue) {
+				return [];
+			}
+
+			return INDICATORS.filter((ind) => ind.langRewrite).map((ind) => ({
+				indicatorId: ind.id,
+				evidence: `html[lang] rewritten "${r.oldValue ?? ""}" → "${after}"`,
+				element: null,
+			}));
+		}
+
+		return hits(
+			target,
+			MARKERS.filter((m) => m.attribute === name),
+			(m) => matchesWith(target, m, after) && !matchesWith(target, m, r.oldValue),
+		);
+	}
+
+	return flat.flatMap(({ t, r }, i) => classify(r, i).map((hit) => ({ ...hit, t })));
 }
 
 /** What app.html's inline bootstrap leaves on window. Keep in step with app.html. */

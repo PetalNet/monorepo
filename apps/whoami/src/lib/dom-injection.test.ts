@@ -400,6 +400,75 @@ describe("early observer from app.html", () => {
 		});
 	});
 
+	it("keeps first-seen when an unrelated attribute is written later", async () => {
+		bootstrapFromAppHtml();
+
+		const icon = el("div", { "data-lastpass-root": "" });
+
+		clock = 100;
+		stamp(document.body, "data-gr-ext-installed");
+		document.body.append(icon);
+		document.documentElement.classList.add("translated-ltr");
+		await flush();
+
+		clock = 800;
+		stamp(document.body, "data-theme", "dark");
+		stamp(icon, "style", "top: 4px");
+		// Same attribute the marker reads, but the marker was already there.
+		document.documentElement.classList.add("app-ready");
+		await flush();
+
+		clock = 1200;
+
+		const { latest } = start();
+
+		expect(watch?.early).toBe(true);
+
+		expect(latest().map((f) => [f.id, f.firstSeenMs, f.preexisting])).toEqual([
+			["grammarly", 100, false],
+			["lastpass", 100, false],
+			["google-translate", 100, false],
+		]);
+
+		// Same rule after take-over, on the live path.
+		clock = 1500;
+		stamp(document.body, "data-new-gr-c-s-check-loaded", "14.1");
+		stamp(document.body, "data-theme", "light");
+		await flush();
+
+		expect(latest().find((f) => f.id === "grammarly")).toMatchObject({
+			firstSeenMs: 100,
+			evidence: ["[data-gr-ext-installed]", "[data-new-gr-c-s-check-loaded]"],
+		});
+	});
+
+	it("keeps a preexisting marker preexisting through unrelated attribute writes", async () => {
+		clock = 3;
+		stamp(document.documentElement, "data-darkreader-scheme", "dark");
+		bootstrapFromAppHtml();
+
+		clock = 800;
+		document.documentElement.classList.add("app-ready");
+		stamp(document.documentElement, "data-theme", "dark");
+		await flush();
+
+		clock = 900;
+
+		const { latest } = start();
+
+		expect(watch?.early).toBe(true);
+
+		expect(latest()).toEqual([
+			{
+				id: "dark-reader",
+				name: "Dark Reader",
+				evidence: ["html[data-darkreader-scheme]"],
+				firstSeenMs: 900,
+				preexisting: true,
+			},
+		]);
+	});
+
 	it("marks what was in the DOM before the observer started as preexisting", async () => {
 		clock = 3;
 		stamp(document.documentElement, "data-darkreader-scheme", "dark");
