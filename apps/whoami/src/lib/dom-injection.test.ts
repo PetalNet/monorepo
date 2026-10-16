@@ -1,9 +1,8 @@
 // @vitest-environment happy-dom
-// @vitest-environment-options {"settings": {"enableJavaScriptEvaluation": true}}
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-import appHtml from "../app.html?raw";
 import { INDICATORS, watchDomInjection, type DomFinding, type DomWatch } from "./dom-injection";
+import { installDomWatch } from "./dom-watch-bootstrap";
 
 // One fixture per selector in the table, each doing what the extension does to a page.
 // Iframes get an empty srcdoc so happy-dom doesn't try to load them.
@@ -294,20 +293,6 @@ function start(): { latest: () => DomFinding[] } {
 	return { latest: () => last };
 }
 
-function bootstrapFromAppHtml() {
-	const script = /<script>([\s\S]*?)<\/script>/.exec(appHtml)?.[1];
-
-	if (!script) {
-		throw new Error("app.html has no inline bootstrap <script>");
-	}
-
-	// Run it the way the browser does: as an inline <script> in <head>.
-	const tag = document.createElement("script");
-
-	tag.textContent = script;
-	document.head.prepend(tag);
-}
-
 beforeEach(() => {
 	clock = 0;
 	vi.spyOn(performance, "now").mockImplementation(() => clock);
@@ -368,9 +353,17 @@ describe("indicator table", () => {
 	});
 });
 
-describe("early observer from app.html", () => {
+describe("early observer", () => {
+	it("does not mistake a restarted fallback observer for a pre-paint observer", () => {
+		start();
+		expect(watch?.early).toBe(false);
+		watch?.stop();
+		start();
+		expect(watch?.early).toBe(false);
+	});
+
 	it("credits each injection to when it happened, not to when its container was parsed", async () => {
-		bootstrapFromAppHtml();
+		installDomWatch();
 
 		const container = el("div", { id: "app" });
 
@@ -401,7 +394,7 @@ describe("early observer from app.html", () => {
 	});
 
 	it("keeps first-seen when an unrelated attribute is written later", async () => {
-		bootstrapFromAppHtml();
+		installDomWatch();
 
 		const icon = el("div", { "data-lastpass-root": "" });
 
@@ -445,7 +438,7 @@ describe("early observer from app.html", () => {
 	it("keeps a preexisting marker preexisting through unrelated attribute writes", async () => {
 		clock = 3;
 		stamp(document.documentElement, "data-darkreader-scheme", "dark");
-		bootstrapFromAppHtml();
+		installDomWatch();
 
 		clock = 800;
 		document.documentElement.classList.add("app-ready");
@@ -472,7 +465,7 @@ describe("early observer from app.html", () => {
 	it("marks what was in the DOM before the observer started as preexisting", async () => {
 		clock = 3;
 		stamp(document.documentElement, "data-darkreader-scheme", "dark");
-		bootstrapFromAppHtml();
+		installDomWatch();
 		clock = 900;
 
 		const { latest } = start();
@@ -501,7 +494,7 @@ describe("early observer from app.html", () => {
 	});
 
 	it("stops reporting after stop()", async () => {
-		bootstrapFromAppHtml();
+		installDomWatch();
 
 		const { latest } = start();
 

@@ -4,8 +4,8 @@
 // own <style> nodes, Google Translate rewrites classes and `lang`. Page JavaScript can
 // watch all of that with a MutationObserver.
 //
-// app.html starts the observer in <head>, before the body is parsed or painted, and
-// only buffers records. This module drains that buffer, classifies against
+// hooks.server.ts inlines $lib/dom-watch-bootstrap at the top of <head>, before
+// the body is parsed or painted. That observer only buffers records. This module drains that buffer, classifies against
 // INDICATORS, and keeps classifying for the life of the page, because most of these
 // extensions inject lazily (on focus of a text or password field, or after load).
 //
@@ -15,6 +15,8 @@
 // their contents. "Nothing seen" is not "nothing installed".
 //
 // Everything runs locally. Nothing is sent anywhere.
+
+import { installDomWatch } from "./dom-watch-bootstrap";
 
 export interface DomIndicator {
 	id: string;
@@ -307,31 +309,10 @@ function classifyBatches(batches: readonly Batch[]): TimedHit[] {
 	return flat.flatMap(({ t, r }, i) => classify(r, i).map((hit) => ({ ...hit, t })));
 }
 
-/** What app.html's inline bootstrap leaves on window. Keep in step with app.html. */
-interface EarlyDomWatch {
-	t0: number;
-	q: [number, MutationRecord[]][];
-	o: MutationObserver;
-	cb: ((records: MutationRecord[], t: number) => void) | null;
-}
-
-declare global {
-	interface Window {
-		whoamiDomWatch?: EarlyDomWatch;
-	}
-}
-
-const OBSERVE_OPTIONS: MutationObserverInit = {
-	childList: true,
-	subtree: true,
-	attributes: true,
-	attributeOldValue: true,
-};
-
 export interface DomWatch {
 	/** Performance.now() when the observer started. */
 	startedAt: number;
-	/** True when app.html's pre-paint observer was found; false means this module started late. */
+	/** True when the pre-paint observer from hooks.server.ts was running; false: started late. */
 	early: boolean;
 	stop: () => void;
 }
@@ -388,27 +369,13 @@ export function watchDomInjection(onChange: (findings: DomFinding[]) => void): D
 		}
 	}
 
-	const early = window.whoamiDomWatch;
-	let own: MutationObserver | null = null;
-	let startedAt: number;
+	const early = window.whoamiDomWatch !== undefined;
+	const watch = installDomWatch();
+	// takeRecords() hands over what the observer queued but hasn't delivered yet.
+	const pending: Batch = [performance.now(), watch.o.takeRecords()];
 
-	if (early) {
-		startedAt = early.t0;
-
-		// takeRecords() hands over what the observer queued but hasn't delivered yet.
-		const pending: Batch = [performance.now(), early.o.takeRecords()];
-
-		record(classifyBatches([...early.q.splice(0), pending]), false);
-		early.cb = handle;
-	} else {
-		startedAt = performance.now();
-
-		own = new MutationObserver((records) => {
-			handle(records, performance.now());
-		});
-
-		own.observe(document.documentElement, OBSERVE_OPTIONS);
-	}
+	record(classifyBatches([...watch.q.splice(0), pending]), false);
+	watch.cb = handle;
 
 	// Anything in the DOM now that no record accounted for was there before the
 	// observer started (a document_start content script can beat even an inline
@@ -423,15 +390,16 @@ export function watchDomInjection(onChange: (findings: DomFinding[]) => void): D
 	emit();
 
 	return {
-		startedAt,
-		early: early !== undefined,
+		startedAt: watch.t0,
+		early,
 		stop: () => {
-			// The early observer keeps running and goes back to buffering.
-			if (early) {
-				early.cb = null;
-			}
+			// Only the pre-paint observer keeps buffering between subscribers.
+			watch.cb = null;
 
-			own?.disconnect();
+			if (!early) {
+				watch.o.disconnect();
+				delete window.whoamiDomWatch;
+			}
 		},
 	};
 }

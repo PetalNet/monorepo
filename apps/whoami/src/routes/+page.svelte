@@ -244,6 +244,13 @@
 	}
 
 	function onKey(e: KeyboardEvent) {
+		if (
+			e.target instanceof HTMLElement &&
+			(e.target.matches("input, textarea") || e.target.isContentEditable)
+		) {
+			return;
+		}
+
 		if (!flatIds.length) {
 			return;
 		}
@@ -548,6 +555,50 @@
 				<BoxBottom />
 			</section>
 
+			<!-- method="dialog" prevents network submission even before hydration. -->
+			<section class="box">
+				<BoxTop title="test your extensions" />
+				<div class="bin">
+					<p class="muted sm">
+						password managers and writing assistants often wait for a login or text field. Focus
+						these fields and watch dom injection below. This page never reads, stores, or sends
+						their values. Use made-up details: your extensions may read what you type.
+					</p>
+					<form
+						class="bait"
+						method="dialog"
+						autocomplete="on"
+						onsubmit={(e) => {
+							e.preventDefault();
+						}}
+					>
+						<label class="srow"
+							><span class="sk">username</span><input
+								class="field"
+								name="username"
+								autocomplete="username"
+							/></label
+						>
+						<label class="srow"
+							><span class="sk">password</span><input
+								class="field"
+								name="password"
+								type="password"
+								autocomplete="current-password"
+							/></label
+						>
+						<label class="srow"
+							><span class="sk">text</span><textarea
+								class="field"
+								name="text"
+								rows="3"
+								spellcheck="true"></textarea></label
+						>
+					</form>
+				</div>
+				<BoxBottom />
+			</section>
+
 			<!-- DOM INJECTION -->
 			<section class="box">
 				<BoxTop title="dom injection" />
@@ -589,8 +640,8 @@
 					{:else}
 						<p class="muted sm">
 							no injected DOM seen. That doesn't mean no extensions: most never touch the page, and
-							password managers and Grammarly wait for a login or text field, which this page
-							doesn't have.
+							password managers and Grammarly usually wait until a login or text field is focused,
+							so click into the fields above first.
 						</p>
 					{/each}
 					<button
@@ -607,8 +658,9 @@
 							watches the whole document for injected elements and attributes, and keeps watching while
 							this tab is open, so rows can appear later. It knows {knownNames}. A clean result is
 							ambiguous: Bitwarden randomizes its inline-menu element names, closed shadow roots
-							hide their contents, and an extension can simply not write to the page. It runs in
-							this tab only and sends nothing.
+							hide their contents, some managers only act on sites you have saved logins for, and an
+							extension can simply not write to the page. It runs in this tab only and sends
+							nothing.
 						</p>
 					{/if}
 				</div>
@@ -955,6 +1007,24 @@
 	.ddev {
 		color: var(--muted);
 		margin-top: 0.2rem;
+	}
+
+	.bait {
+		margin: 0.4rem 0 0;
+	}
+	.field {
+		font: inherit;
+		color: var(--bright);
+		background: var(--bg);
+		border: 1px solid var(--dim);
+		padding: 0 0.5ch;
+		min-width: 0;
+		max-width: 40ch;
+		resize: vertical;
+	}
+	.field:focus-visible {
+		outline: 2px solid var(--fg);
+		outline-offset: 2px;
 	}
 
 	/* server */
