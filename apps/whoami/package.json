@@ -22,6 +22,7 @@
 		"@sveltejs/vite-plugin-svelte": "catalog:dev",
 		"@tailwindcss/vite": "catalog:dev",
 		"@types/node": "catalog:types",
+		"happy-dom": "catalog:dev",
 		"svelte-check": "catalog:dev",
 		"typescript": "catalog:dev",
 		"vite": "catalog:dev",

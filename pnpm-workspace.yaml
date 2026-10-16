@@ -109,6 +109,7 @@ catalogs:
     # Keep the ESLint compatibility rules aligned with standalone Oxlint.
     eslint-plugin-oxlint: 1.87.0
     eslint-plugin-package-json: ^1.2.0
+    happy-dom: ^21.0.1
     impeccable: ^4.5.2
     knip: ^6.31.0
     oxfmt: 0.61.0
