@@ -903,7 +903,7 @@
 	.row {
 		display: grid;
 		/* fixed bar + tag columns so every tag right-aligns in one clean column */
-		grid-template-columns: 3.5ch minmax(9ch, 15ch) minmax(0, 1fr) 5ch 9ch;
+		grid-template-columns: 3.5ch 18ch minmax(0, 1fr) 5ch 9ch;
 		align-items: baseline;
 		gap: 0 1ch;
 		padding: 0.05rem 0;
