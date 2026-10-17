@@ -736,57 +736,43 @@
 		margin: 0.4rem 0 0;
 	}
 
-	/* real box-drawing: glyph corners + a flex-filled ─ rule, thin sides join them */
+	/* One closed rule follows the terminal's glyph-cell inset at any size. */
 	.box {
+		--box-color: var(--dim);
 		margin-top: 0.8rem;
 		position: relative;
 	}
-	/* sides drawn as real │ glyphs at the exact corner columns (left:0 aligns
-	   with ┌/└, right:0 with ┐/┘) — same glyph cell as the corners, so the
-	   strokes line up. not a CSS border (that sat off the glyph stroke). */
-	.box::before,
-	.box::after {
-		content: "│\A│\A│\A│\A│\A│\A│\A│\A│\A│\A│\A│\A│\A│\A│\A│\A│\A│\A│\A│\A│\A│\A│\A│\A│\A│\A│\A│\A│\A│\A│\A│\A│\A│\A│\A│\A│\A│\A│\A│\A│\A│\A│\A│\A│\A│\A│\A│\A│\A│\A│\A│\A│\A│\A│\A│\A│\A│\A│\A│\A";
-		position: absolute;
-		top: 1.2em;
-		bottom: 1.2em;
-		white-space: pre;
-		line-height: 0.92;
-		color: var(--dim);
-		overflow: hidden;
-		pointer-events: none;
-	}
 	.box::before {
-		left: 0;
-	}
-	.box::after {
-		right: 0;
+		content: "";
+		position: absolute;
+		inset: 0.6em calc(0.5ch - 0.5px);
+		border: 1px solid var(--box-color);
+		pointer-events: none;
 	}
 	.box :global(.btop),
 	.box :global(.bbot) {
+		position: relative;
 		display: flex;
 		align-items: center;
-		color: var(--dim);
+		color: var(--box-color);
 		white-space: nowrap;
 	}
 	.box :global(.c) {
-		color: var(--dim);
+		/* Retain the corner cells' spacing; the continuous rule draws their strokes. */
+		visibility: hidden;
 	}
 	.box :global(.btt) {
 		text-transform: uppercase;
 		letter-spacing: 0.1em;
 		padding: 0 1ch;
-		color: var(--dim);
+		color: var(--box-color);
+		background: var(--bg);
 	}
 	.box :global(.bfill) {
 		flex: 1;
-		overflow: hidden;
-	}
-	.box :global(.bfill)::after {
-		content: "────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────";
 	}
 	.bin {
-		/* clears the │ glyph rails drawn by .box::before/::after */
+		/* Leave a character cell between the rails and the content. */
 		padding: 0.25rem 2ch 0.35rem;
 	}
 
@@ -903,9 +889,8 @@
 		background: var(--fg);
 		outline: none;
 	}
-	.box.match :global(.c),
-	.box.match :global(.btt) {
-		color: var(--red);
+	.box.match {
+		--box-color: var(--red);
 	}
 	.hot {
 		color: var(--red);
