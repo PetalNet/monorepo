@@ -16,6 +16,7 @@
 		type EdgeTrace,
 		type Verdict,
 	} from "$lib/consistency";
+	import { INDICATORS, watchDomInjection, type DomFinding } from "$lib/dom-injection";
 	import { detectExtensions, type ExtFinding } from "$lib/extensions";
 	import {
 		readCarriedRef,
@@ -38,6 +39,8 @@
 	let verdict = $state<Verdict>("coherent");
 	let extFindings = $state<ExtFinding[]>([]);
 	let extRan = $state(false);
+	let domFindings = $state<DomFinding[]>([]);
+	let domWatch = $state<{ startedAt: number; early: boolean } | null>(null);
 	let carried = $state<CarriedRef | null>(null);
 	let linkResult = $state<LinkResult | null>(null);
 	let ready = $state(false);
@@ -69,6 +72,11 @@
 
 	$effect(() => {
 		const ctx = { alive: true };
+		const dom = watchDomInjection((f) => {
+			domFindings = f;
+		});
+
+		domWatch = { startedAt: dom.startedAt, early: dom.early };
 
 		carried = readCarriedRef();
 		siblingHost = typeof window !== "undefined" ? SIBLINGS[window.location.host] : undefined;
@@ -118,6 +126,7 @@
 
 		return () => {
 			ctx.alive = false;
+			dom.stop();
 		};
 	});
 
@@ -137,7 +146,20 @@
 	});
 	// keyboard nav spans the signal inventory AND the extension rows, in visual
 	// order, so j/k selects extensions the same way as signals.
-	const flatIds = $derived([...signals.map((s) => s.id), ...extFindings.map((f) => f.id)]);
+	const flatIds = $derived([
+		...signals.map((s) => s.id),
+		...extFindings.map((f) => f.id),
+		...domFindings.map((f) => domRowId(f)),
+	]);
+
+	const knownNames = INDICATORS.map((i) => i.name).join(", ");
+
+	function domRowId(f: DomFinding): string {
+		return `dom:${f.id}`;
+	}
+	function ms(t: number): string {
+		return `+${String(Math.round(t))}ms`;
+	}
 
 	const entropySum = $derived(
 		Math.round(signals.reduce((a, s) => a + (s.reproducibility === "stable" ? s.entropy : 0), 0)),
@@ -222,6 +244,13 @@
 	}
 
 	function onKey(e: KeyboardEvent) {
+		if (
+			e.target instanceof HTMLElement &&
+			(e.target.matches("input, textarea") || e.target.isContentEditable)
+		) {
+			return;
+		}
+
 		if (!flatIds.length) {
 			return;
 		}
@@ -520,6 +549,118 @@
 							ambiguous (no extension, OR a defense reroutes getComputedStyle). And a userstyle
 							manager (Stylus, Zen) only injects on sites it targets, so one that doesn't target
 							this domain genuinely won't show here.
+						</p>
+					{/if}
+				</div>
+				<BoxBottom />
+			</section>
+
+			<!-- method="dialog" prevents network submission even before hydration. -->
+			<section class="box">
+				<BoxTop title="test your extensions" />
+				<div class="bin">
+					<p class="muted sm">
+						password managers and writing assistants often wait for a login or text field. Focus
+						these fields and watch dom injection below. This page never reads, stores, or sends
+						their values. Use made-up details: your extensions may read what you type.
+					</p>
+					<form
+						class="bait"
+						method="dialog"
+						autocomplete="on"
+						onsubmit={(e) => {
+							e.preventDefault();
+						}}
+					>
+						<label class="srow"
+							><span class="sk">username</span><input
+								class="field"
+								name="username"
+								autocomplete="username"
+							/></label
+						>
+						<label class="srow"
+							><span class="sk">password</span><input
+								class="field"
+								name="password"
+								type="password"
+								autocomplete="current-password"
+							/></label
+						>
+						<label class="srow"
+							><span class="sk">text</span><textarea
+								class="field"
+								name="text"
+								rows="3"
+								spellcheck="true"></textarea></label
+						>
+					</form>
+				</div>
+				<BoxBottom />
+			</section>
+
+			<!-- DOM INJECTION -->
+			<section class="box">
+				<BoxTop title="dom injection" />
+				<div class="bin">
+					{#each domFindings as f (f.id)}
+						{@const id = domRowId(f)}
+						<div
+							class="row"
+							class:sel={id === selectedId}
+							data-id={id}
+							role="button"
+							tabindex="0"
+							aria-expanded={expanded.has(id)}
+							onclick={() => {
+								selectRow(id);
+							}}
+							onkeydown={(e) => {
+								if (e.key === "Enter") {
+									selectRow(id);
+								}
+							}}
+						>
+							<span class="g" aria-hidden="true">{expanded.has(id) ? "[-]" : "[+]"}</span>
+							<span class="lab">{f.name}</span>
+							<span class="rt">{f.preexisting ? "pre-load" : ms(f.firstSeenMs)}</span>
+						</div>
+						{#if expanded.has(id)}
+							<div class="detail">
+								<div class="dnote">
+									matched {f.evidence.join(", ")}
+									<span class="muted"
+										>({f.preexisting
+											? "already in the page when the observer started"
+											: `seen ${ms(f.firstSeenMs)} after navigation start`})</span
+									>
+								</div>
+							</div>
+						{/if}
+					{:else}
+						<p class="muted sm">
+							no injected DOM seen. That doesn't mean no extensions: most never touch the page, and
+							password managers and Grammarly usually wait until a login or text field is focused,
+							so click into the fields above first.
+						</p>
+					{/each}
+					<button
+						class="tbtn"
+						onclick={() => {
+							toggle("why:dom");
+						}}>[ {expanded.has("why:dom") ? "-" : "?"} how ]</button
+					>
+					{#if expanded.has("why:dom")}
+						<p class="muted sm">
+							{domWatch?.early
+								? `A MutationObserver started in <head> at ${ms(domWatch.startedAt)}, before first paint,`
+								: "A MutationObserver started late, after the page loaded,"}
+							watches the whole document for injected elements and attributes, and keeps watching while
+							this tab is open, so rows can appear later. It knows {knownNames}. A clean result is
+							ambiguous: Bitwarden randomizes its inline-menu element names, closed shadow roots
+							hide their contents, some managers only act on sites you have saved logins for, and an
+							extension can simply not write to the page. It runs in this tab only and sends
+							nothing.
 						</p>
 					{/if}
 				</div>
@@ -866,6 +1007,24 @@
 	.ddev {
 		color: var(--muted);
 		margin-top: 0.2rem;
+	}
+
+	.bait {
+		margin: 0.4rem 0 0;
+	}
+	.field {
+		font: inherit;
+		color: var(--bright);
+		background: var(--bg);
+		border: 1px solid var(--dim);
+		padding: 0 0.5ch;
+		min-width: 0;
+		max-width: 40ch;
+		resize: vertical;
+	}
+	.field:focus-visible {
+		outline: 2px solid var(--fg);
+		outline-offset: 2px;
 	}
 
 	/* server */
