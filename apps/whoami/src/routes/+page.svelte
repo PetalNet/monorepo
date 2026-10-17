@@ -905,7 +905,7 @@
 		/* fixed bar + tag columns so every tag right-aligns in one clean column */
 		grid-template-columns: 3.5ch 18ch minmax(0, 1fr) 5ch 9ch;
 		align-items: baseline;
-		gap: 0 1ch;
+		gap: 0 2ch;
 		padding: 0.05rem 0;
 		cursor: pointer;
 		border: none;
