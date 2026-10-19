@@ -1,16 +1,11 @@
 /* oxlint-disable eslint/no-await-in-loop -- Sequential processing bounds resource use and preserves pacing, redirect and retry order. */
-import { execFile } from "node:child_process";
-import { mkdtempSync, writeFileSync, unlinkSync, rmdirSync } from "node:fs";
-import path from "node:path";
-import { promisify } from "node:util";
-
 import { z } from "zod";
 
 import { snapshot } from "./browser.ts";
 import { CaptureError, normalize } from "./model.ts";
 import type { Capture } from "./model.ts";
+import { decoded, original } from "./network.ts";
 import type { Network, Reply } from "./network.ts";
-const exec = promisify(execFile);
 
 const unpaywallEmail = "291627965+returnsvoidjanet@users.noreply.github.com";
 
@@ -22,48 +17,30 @@ const oaSchema = z.object({
 	best_oa_location: z.object({ url_for_pdf: z.string().nullable() }).nullable(),
 });
 
-async function pdf(reply: Reply, canonicalId: string, network: Network): Promise<Capture> {
-	if (!reply.body.subarray(0, 5).equals(Buffer.from("%PDF-"))) {
+function captured(reply: Reply, canonicalId: string): Capture {
+	return {
+		canonicalId,
+		url: reply.url,
+		title: canonicalId,
+		authors: [],
+		extractor: "http-original-v2",
+		artifacts: [original(reply)],
+	};
+}
+
+function pdf(reply: Reply, canonicalId: string): Capture {
+	if (!decoded(reply).subarray(0, 5).equals(Buffer.from("%PDF-"))) {
 		throw new CaptureError("INACCESSIBLE", "Expected PDF; received unavailable or gated content");
 	}
 
-	const dir = mkdtempSync(path.join(network.store.root, ".extract-"));
-	const filePath = path.join(dir, "source.pdf");
+	const capture = captured(reply, canonicalId);
+	const artifact = capture.artifacts[0];
 
-	try {
-		writeFileSync(filePath, reply.body, { mode: 0o600 });
-
-		// oxlint-disable-next-line unicorn/text-encoding-identifier-case -- Poppler names this encoding UTF-8.
-		const { stdout: text } = await exec("pdftotext", ["-enc", "UTF-8", filePath, "-"], {
-			timeout: 30_000,
-			maxBuffer: 16 * 1024 ** 2,
-		});
-		const { stdout: info } = await exec("pdfinfo", [filePath], {
-			timeout: 10_000,
-			maxBuffer: 65536,
-		});
-
-		if (!text.trim()) {
-			throw new CaptureError("FAILED", "PDF has no extractable text (OCR not configured)");
-		}
-
-		const pdfTitle = /^Title:[ \t]*([^\s][^\r\n]*)$/m.exec(info)?.[1]?.trim();
-		const title = pdfTitle ?? canonicalId;
-		const author = /^Author:[ \t]*([^\r\n]*)$/m.exec(info)?.[1]?.trim();
-
-		return {
-			canonicalId,
-			url: reply.url,
-			title,
-			authors: author ? [author] : [],
-			extractor: "poppler-pdftotext",
-			text,
-			artifacts: [{ data: reply.body, mime: "application/pdf" }],
-		};
-	} finally {
-		unlinkSync(filePath);
-		rmdirSync(dir);
+	if (artifact) {
+		artifact.mime = "application/pdf";
 	}
+
+	return capture;
 }
 
 async function github(url: URL, network: Network): Promise<Capture> {
@@ -89,53 +66,24 @@ async function github(url: URL, network: Network): Promise<Capture> {
 	);
 	const commit = z
 		.object({ sha: z.string().regex(/^[a-f0-9]{40}$/) })
-		.parse(JSON.parse(response.body.toString()));
+		.parse(JSON.parse(decoded(response).toString()));
 	const archive = await network.get(`https://codeload.github.com/${base}/tar.gz/${commit.sha}`);
 
-	if (archive.body[0] !== 0x1f || archive.body[1] !== 0x8b) {
+	if (decoded(archive)[0] !== 0x1f || decoded(archive)[1] !== 0x8b) {
 		throw new CaptureError("FAILED", "GitHub archive is not gzip");
 	}
 
-	const dir = mkdtempSync(path.join(network.store.root, ".archive-"));
-	const filePath = path.join(dir, "repo.tgz");
+	const capture = captured(archive, `github:${owner}/${repo}@${commit.sha}`);
 
-	try {
-		writeFileSync(filePath, archive.body, { mode: 0o600 });
+	capture.title = `${owner}/${repo} @ ${commit.sha}`;
+	capture.authors = [owner];
+	const artifact = capture.artifacts[0];
 
-		const { stdout: names } = await exec("tar", ["-tzf", filePath], {
-			timeout: 30_000,
-			maxBuffer: 2 * 1024 ** 2,
-		});
-		const files = names
-			.split("\n")
-			.filter((name) => /^[^/]+\/(?:README[^/]*|LICENSE[^/]*)$/i.test(name))
-			.slice(0, 10);
-		const texts = [];
-
-		for (const name of files) {
-			texts.push(
-				(
-					await exec("tar", ["-xOzf", filePath, "--", name], {
-						timeout: 10_000,
-						maxBuffer: 1024 ** 2,
-					})
-				).stdout,
-			);
-		}
-
-		return {
-			canonicalId: `github:${owner}/${repo}@${commit.sha}`,
-			url: `https://github.com/${base}/tree/${commit.sha}`,
-			title: `${owner}/${repo} @ ${commit.sha}`,
-			authors: [owner],
-			extractor: "tar-readme-v1",
-			text: texts.join("\n") || names,
-			artifacts: [{ data: archive.body, mime: "application/gzip" }],
-		};
-	} finally {
-		unlinkSync(filePath);
-		rmdirSync(dir);
+	if (artifact) {
+		artifact.mime = "application/gzip";
 	}
+
+	return capture;
 }
 
 export async function resolveSource(ref: string, network: Network): Promise<Capture> {
@@ -145,15 +93,15 @@ export async function resolveSource(ref: string, network: Network): Promise<Capt
 		const id = canonical.slice(6);
 
 		const abstract = await network.get(`https://arxiv.org/abs/${id}`);
-		const capture = await pdf(await network.get(`https://arxiv.org/pdf/${id}`), canonical, network);
+		const capture = pdf(await network.get(`https://arxiv.org/pdf/${id}`), canonical);
 
 		if (abstract.headers["content-type"]?.includes("text/html")) {
-			const metadata = arxivMetadata(abstract.body.toString());
+			const metadata = arxivMetadata(decoded(abstract).toString());
 
 			capture.title = metadata.title ?? capture.title;
-			capture.extractor = "poppler-pdftotext+arxiv-meta-v1";
+			capture.extractor = "http-original+arxiv-meta-v2";
 			capture.authors = metadata.authors.length > 0 ? metadata.authors : capture.authors;
-			capture.artifacts.push({ data: abstract.body, mime: "text/html" });
+			capture.artifacts.push(original(abstract));
 		}
 
 		return capture;
@@ -164,17 +112,13 @@ export async function resolveSource(ref: string, network: Network): Promise<Capt
 		const metadata = await network.get(
 			`https://api.unpaywall.org/v2/${encodeURIComponent(doi)}?email=${encodeURIComponent(unpaywallEmail)}`,
 		);
-		const oa = oaSchema.parse(JSON.parse(metadata.body.toString()));
+		const oa = oaSchema.parse(JSON.parse(decoded(metadata).toString()));
 
 		if (!oa.best_oa_location?.url_for_pdf) {
 			throw new CaptureError("INACCESSIBLE", "Unpaywall has no open-access PDF");
 		}
 
-		const capture = await pdf(
-			await network.get(oa.best_oa_location.url_for_pdf),
-			canonical,
-			network,
-		);
+		const capture = pdf(await network.get(oa.best_oa_location.url_for_pdf), canonical);
 
 		capture.title = oa.title ?? capture.title;
 
@@ -197,11 +141,11 @@ export async function resolveSource(ref: string, network: Network): Promise<Capt
 		reply.headers["content-type"]?.includes("application/pdf") ||
 		reply.body.subarray(0, 5).toString() === "%PDF-"
 	) {
-		return pdf(reply, canonical, network);
+		return pdf(reply, canonical);
 	}
 
 	if (!reply.headers["content-type"]?.includes("text/html")) {
-		throw new CaptureError("FAILED", "Unsupported source media type");
+		return captured(reply, canonical);
 	}
 
 	const capture = await snapshot(reply, network);
@@ -233,7 +177,7 @@ function arxivMetadata(html: string) {
 			continue;
 		}
 
-		const decoded = value.replace(
+		const decodedValue = value.replace(
 			/&(?:amp|lt|gt|quot|apos);/g,
 			(entity) =>
 				({ "&amp;": "&", "&lt;": "<", "&gt;": ">", "&quot;": '"', "&apos;": "'" })[entity] ??
@@ -241,11 +185,11 @@ function arxivMetadata(html: string) {
 		);
 
 		if (attributes.get("name") === "citation_title") {
-			title = decoded;
+			title = decodedValue;
 		}
 
 		if (attributes.get("name") === "citation_author") {
-			authors.push(decoded);
+			authors.push(decodedValue);
 		}
 	}
 

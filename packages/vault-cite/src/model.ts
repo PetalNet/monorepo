@@ -5,18 +5,34 @@ export const digest = z
 	.string()
 	.regex(/^[a-f0-9]{64}$/)
 	.brand<"Sha256">();
-export const artifactSchema = z.object({
+
+const retrievalSchema = z.object({
+	url: z.url(),
+	fetched_at: z.iso.datetime(),
+	final_url: z.url(),
+	http_status: z.number().int(),
+	content_type: z.string(),
+	content_encoding: z.string(),
+});
+
+const artifactFields = {
 	sha256: digest,
 	mime: z.string(),
 	path: z.string(),
 	bytes: z.number().int().nonnegative(),
-});
+};
+
+export const artifactSchema = z.discriminatedUnion("role", [
+	z.object({ ...artifactFields, role: z.literal("ORIGINAL"), retrieval: retrievalSchema }),
+	z.object({ ...artifactFields, role: z.literal("DERIVED"), original_sha256: digest }),
+]);
 export const sourceSchema = z.object({
-	schema_version: z.literal(1),
+	schema_version: z.literal(2),
 	layer: z.literal("EVIDENCE"),
 	source_type: z.literal("PRIMARY"),
 	id: z.string(),
-	url: z.string(),
+	url: z.url(),
+	citation_ref: z.string(),
 	canonical_id: z.string(),
 	title: z.string(),
 	authors: z.array(z.string()),
@@ -26,7 +42,12 @@ export const sourceSchema = z.object({
 	access_status: z.literal("SAVED"),
 	extractor: z.string(),
 	artifacts: z.array(artifactSchema).min(1),
-	text_path: z.string(),
+	retrieval_id: z.string(),
+	previous_retrieval_id: z.string().nullable(),
+	previous_sha256: digest.nullable(),
+	final_url: z.url(),
+	http_status: z.number().int(),
+	content_type: z.string(),
 });
 export type Source = z.infer<typeof sourceSchema>;
 export type Artifact = z.infer<typeof artifactSchema>;
@@ -36,8 +57,10 @@ export interface Capture {
 	title: string;
 	authors: string[];
 	extractor: string;
-	text: string;
-	artifacts: { data: Buffer; mime: string }[];
+	artifacts: ({ data: Buffer; mime: string } & (
+		| { role: "ORIGINAL"; retrieval: z.infer<typeof retrievalSchema> }
+		| { role: "DERIVED" }
+	))[];
 }
 export const jobSchema = z.object({
 	ref: z.string(),

@@ -3,7 +3,9 @@ import type * as fs from "node:fs";
 import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, rmSync } from "node:fs";
 import path from "node:path";
 
+import { chromium } from "playwright";
 import { afterEach, expect, it, vi } from "vitest";
+import { z } from "zod";
 
 import { Cite, Store } from "../src/index.ts";
 import { Network } from "../src/network.ts";
@@ -56,8 +58,27 @@ it.skipIf(!process.env["CITE_BROWSER_TESTS"])(
 			throw new Error("missing source");
 		}
 
-		expect(source.artifacts.map((a) => a.mime)).toEqual(["application/pdf", "text/html"]);
-		const htmlArtifact = source.artifacts[1];
+		expect(source.artifacts.map((a) => a.mime)).toEqual([
+			"text/html",
+			"application/pdf",
+			"text/html",
+		]);
+
+		expect(source.artifacts[0]?.role).toBe("ORIGINAL");
+
+		expect(readFileSync(path.join(cite.store.root, source.artifacts[0]?.path ?? ""), "utf8")).toBe(
+			page,
+		);
+
+		expect(
+			source.artifacts
+				.slice(1)
+				.every(
+					(artifact) => artifact.role === "DERIVED" && artifact.original_sha256 === source.sha256,
+				),
+		).toBe(true);
+
+		const htmlArtifact = source.artifacts[2];
 
 		if (!htmlArtifact) {
 			throw new Error("missing html");
@@ -69,6 +90,7 @@ it.skipIf(!process.env["CITE_BROWSER_TESTS"])(
 		expect(html).not.toContain("<script");
 		expect(html).not.toContain("<link");
 		expect(html).toContain("color:rgb(255, 0, 0)");
+		expect((await cite.derive()).saved).toBe(1);
 		expect(cite.store.search('"primary source text"')).toHaveLength(1);
 		expect(urls).not.toContain("https://private.example/");
 	},
@@ -103,7 +125,7 @@ it("pins GitHub archives to the resolved commit and extracts README text", async
 			url,
 			url.endsWith("robots.txt")
 				? ""
-				: url.includes("api.github.com")
+				: new URL(url).hostname === "api.github.com"
 					? JSON.stringify({ sha })
 					: archive,
 			"application/gzip",
@@ -118,6 +140,7 @@ it("pins GitHub archives to the resolved commit and extracts README text", async
 
 	expect(result.source?.canonical_id).toBe(`github:example/project@${sha}`);
 	expect(urls).toContain(`https://codeload.github.com/example/project/tar.gz/${sha}`);
+	expect((await cite.derive()).saved).toBe(1);
 	expect(cite.store.search("Immutable")).toHaveLength(1);
 });
 
@@ -151,3 +174,66 @@ vi.mock("node:fs", async (importOriginal) => ({
 	...(await importOriginal<typeof fs>()),
 	statfsSync: () => ({ bavail: 40 * 1024 ** 3, bsize: 1 }),
 }));
+
+it.skipIf(!process.env["CITE_BROWSER_TESTS"])(
+	"extracts native pages and locally OCRs scanned pages in a separate queued step",
+	async () => {
+		const browser = await chromium.launch({
+			...(process.env["CITE_CHROMIUM_EXECUTABLE"]
+				? { executablePath: process.env["CITE_CHROMIUM_EXECUTABLE"] }
+				: {}),
+			headless: true,
+		});
+		let pdf: Buffer;
+
+		try {
+			const page = await browser.newPage({ viewport: { width: 800, height: 200 } });
+
+			await page.setContent(
+				'<html><body><h1 style="font:40px Arial">Scanned Archive Evidence</h1></body></html>',
+			);
+
+			const scan = await page.screenshot();
+
+			await page.setContent(
+				`<html><body><div style="break-after:page"><h1>Native Evidence</h1></div><img width="800" src="data:image/png;base64,${scan.toString("base64")}"></body></html>`,
+			);
+
+			pdf = await page.pdf({ width: "900px", height: "600px" });
+		} finally {
+			await browser.close();
+		}
+
+		const cite = setup((url) =>
+			reply(url, url.endsWith("robots.txt") ? "" : pdf, "application/pdf"),
+		);
+		const result = await cite.add("https://publisher.example/scanned.pdf");
+
+		expect(result.source?.access_status).toBe("SAVED");
+		expect(cite.store.search("Archive")).toHaveLength(0);
+		expect((await cite.derive()).saved).toBe(1);
+		expect(cite.store.search("Archive")).toHaveLength(1);
+		const row = cite.store.derivation(result.source?.id ?? "");
+		const manifest = z.object({ manifest: z.string() }).parse(row);
+		const artifact = z
+			.object({ path: z.string(), original_sha256: z.string() })
+			.parse(JSON.parse(manifest.manifest));
+
+		expect(artifact.original_sha256).toBe(result.source?.sha256);
+		expect(artifact.path).toMatch(/^derived\//);
+
+		const output: unknown = JSON.parse(
+			readFileSync(path.join(cite.store.root, artifact.path), "utf8"),
+		);
+
+		expect(output).toMatchObject({
+			role: "DERIVED",
+			original_sha256: result.source?.sha256,
+			pages: [
+				{ page: 1, method: "pdftotext", text: "Native Evidence" },
+				{ page: 2, method: "tesseract-eng", text: "Scanned Archive Evidence" },
+			],
+		});
+	},
+	60_000,
+);

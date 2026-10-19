@@ -4,6 +4,7 @@ import { createHash } from "node:crypto";
 import type * as fs from "node:fs";
 import { mkdtempSync, readFileSync, rmSync, statSync } from "node:fs";
 import path from "node:path";
+import { gzipSync } from "node:zlib";
 
 import { afterEach, describe, expect, it, vi } from "vitest";
 
@@ -112,6 +113,9 @@ describe("capture and search", () => {
 			`source:: [[${source.id}]]`,
 		);
 
+		expect(cite.store.search("Deterministic")).toHaveLength(0);
+		expect(cite.store.derivation(source.id)).toMatchObject({ state: "PENDING" });
+		expect((await cite.derive()).saved).toBe(1);
 		expect(cite.store.search("Deterministic")).toHaveLength(1);
 		expect(statSync(cite.store.root).mode & 0o777).toBe(0o700);
 		expect(statSync(path.join(cite.store.root, artifact.path)).mode & 0o777).toBe(0o600);
@@ -173,7 +177,10 @@ describe("capture and search", () => {
 
 	it("follows the OA PDF and indexes authoritative metadata", async () => {
 		const cite = setup(async (url) => {
-			if (url.includes("api.unpaywall.org/v2/")) {
+			if (
+				new URL(url).hostname === "api.unpaywall.org" &&
+				new URL(url).pathname.startsWith("/v2/")
+			) {
 				return reply(
 					url,
 					JSON.stringify({
@@ -367,10 +374,159 @@ it("uses arXiv citation metadata and saves the metadata artifact with the PDF", 
 	expect(result.source).toMatchObject({
 		title: "A & B",
 		authors: ["Named author"],
-		extractor: "poppler-pdftotext+arxiv-meta-v1",
+		extractor: "http-original+arxiv-meta-v2",
 	});
+
 	expect(result.source?.artifacts.map((artifact) => artifact.mime)).toEqual([
 		"application/pdf",
 		"text/html",
 	]);
+});
+
+it("preserves changed URL versions and deduplicates unchanged original bytes", async () => {
+	let content = "First edition of durable original evidence";
+	const cite = setup((url) =>
+		reply(url, url.endsWith("robots.txt") ? "" : content, 200, {
+			"content-type": "text/plain; charset=utf-8",
+		}),
+	);
+	const ref = "https://publisher.example/evidence";
+	const first = await cite.add(ref);
+
+	content = "Second edition of durable original evidence";
+	const second = await cite.add(ref, true);
+	const repeated = await cite.add(ref, true);
+
+	expect(first.source?.sha256).not.toBe(second.source?.sha256);
+	expect(second.source?.previous_sha256).toBe(first.source?.sha256);
+	expect(second.source?.previous_retrieval_id).toBe(first.source?.retrieval_id);
+	expect(repeated.source?.sha256).toBe(second.source?.sha256);
+	expect(repeated.source?.retrieval_id).not.toBe(second.source?.retrieval_id);
+	expect(cite.store.history(ref)).toHaveLength(3);
+	expect(cite.store.db.prepare("SELECT * FROM sources").all()).toHaveLength(2);
+
+	expect(
+		readFileSync(path.join(cite.store.root, first.source?.artifacts[0]?.path ?? ""), "utf8"),
+	).toContain("First edition");
+
+	expect((await cite.derive()).saved).toBe(2);
+	expect(cite.store.search('"First edition"')).toHaveLength(1);
+	expect(cite.store.search('"Second edition"')).toHaveLength(1);
+});
+
+it("records redirects and exact response headers without changing original bytes", async () => {
+	const body = Buffer.from([0, 1, 2, 255, 13, 10]);
+	const cite = setup((url) =>
+		url.endsWith("robots.txt")
+			? reply(url, "")
+			: url.endsWith("/start")
+				? reply(url, "", 302, { location: "https://cdn.example/data" })
+				: reply(url, body, 200, { "content-type": "application/octet-stream; test=value" }),
+	);
+	const result = await cite.add("https://publisher.example/start");
+
+	expect(result.source).toMatchObject({
+		url: "https://publisher.example/start",
+		final_url: "https://cdn.example/data",
+		http_status: 200,
+		content_type: "application/octet-stream; test=value",
+	});
+
+	const artifact = result.source?.artifacts[0];
+
+	if (artifact?.role !== "ORIGINAL") {
+		throw new Error("Missing original");
+	}
+
+	expect(artifact.retrieval.fetched_at).toMatch(/^\d{4}-/);
+	expect(readFileSync(path.join(cite.store.root, artifact.path))).toEqual(body);
+	expect((await cite.derive()).blocked).toBe(1);
+	expect(cite.store.citation("https://publisher.example/start")).toMatchObject({ status: "SAVED" });
+
+	expect(cite.store.derivation(result.source?.id ?? "")).toMatchObject({
+		state: "BLOCKED",
+		reason: "No supported text extractor for this original",
+	});
+});
+
+it("reports citation status independently from internal worker states", async () => {
+	const cite = setup((url) => reply(url, "", 403));
+
+	cite.store.enqueue("https://publisher.example/pending");
+
+	expect(cite.store.citation("https://publisher.example/pending")).toMatchObject({
+		status: "PENDING",
+		source_id: null,
+	});
+
+	await cite.add("1706.03762");
+
+	expect(cite.store.citation("arxiv:1706.03762")).toMatchObject({
+		status: "INACCESSIBLE",
+		source_id: null,
+	});
+
+	const job = cite.store.claim("https://publisher.example/pending");
+
+	if (!job) {
+		throw new Error("Missing pending job");
+	}
+
+	cite.store.finish(job, "FAILED", "Permanent test failure");
+
+	expect(cite.store.citation(job.ref)).toMatchObject({
+		status: "BLOCKED",
+		reason: "Permanent test failure",
+		source_id: null,
+	});
+
+	expect(cite.store.db.prepare("SELECT * FROM citations WHERE status='SAVED'").all()).toHaveLength(
+		0,
+	);
+
+	expect(cite.store.status().counts).toEqual([
+		{ status: "BLOCKED", count: 1 },
+		{ status: "INACCESSIBLE", count: 1 },
+	]);
+});
+
+it("retains HTTP-encoded bytes while decoding only for derived search text", async () => {
+	const data = gzipSync("Encoded original evidence survives byte for byte");
+	const cite = setup((url) =>
+		url.endsWith("robots.txt")
+			? reply(url, "")
+			: reply(url, data, 200, { "content-type": "text/plain", "content-encoding": "gzip" }),
+	);
+	const result = await cite.add("https://publisher.example/compressed");
+	const artifact = result.source?.artifacts[0];
+
+	expect(readFileSync(path.join(cite.store.root, artifact?.path ?? ""))).toEqual(data);
+	expect(artifact).toMatchObject({ role: "ORIGINAL", retrieval: { content_encoding: "gzip" } });
+	expect((await cite.derive()).saved).toBe(1);
+	expect(cite.store.search("survives")).toHaveLength(1);
+});
+
+it("bounds queued extraction retries without losing a saved original", async () => {
+	const cite = setup((url) =>
+		url.endsWith("robots.txt")
+			? reply(url, "")
+			: reply(url, "%PDF-1.4\nBroken PDF", 200, { "content-type": "application/pdf" }),
+	);
+	const ref = "https://publisher.example/broken.pdf";
+	const result = await cite.add(ref);
+
+	for (let attempt = 0; attempt < 4; attempt++) {
+		cite.store.db.prepare("UPDATE derivations SET next_at=0").run();
+		await cite.derive();
+	}
+
+	expect(cite.store.citation(ref)).toMatchObject({ status: "SAVED" });
+
+	expect(cite.store.derivation(result.source?.id ?? "")).toMatchObject({
+		state: "BLOCKED",
+		attempts: 4,
+		reason: "Local extraction failed",
+	});
+
+	expect((await cite.add(ref)).counts.processed).toBe(0);
 });

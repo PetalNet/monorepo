@@ -20,7 +20,11 @@ try {
 				throw new Error("Usage: cite add <URL|DOI|arXiv ID>");
 			}
 
-			const result = await cite.add(argument);
+			if (option && option !== "--refresh") {
+				throw new Error("Usage: cite add <ref> [--refresh]");
+			}
+
+			const result = await cite.add(argument, option === "--refresh");
 
 			emit(result);
 
@@ -38,7 +42,14 @@ try {
 			const ref = argument.startsWith("src-") ? argument : normalize(argument);
 			const source = store.get(ref);
 
-			emit(source ?? store.job(ref) ?? { status: "NOT_FOUND" });
+			emit(
+				source
+					? { source, derivation: store.derivation(source.id), history: store.history(ref) }
+					: {
+							citation: store.citation(ref) ?? { status: "NOT_FOUND" },
+							history: store.history(ref),
+						},
+			);
 
 			if (!source) {
 				process.exitCode = 1;
@@ -58,6 +69,14 @@ try {
 			emit(store.status());
 
 			break;
+		case "derive":
+			emit(
+				await cite.derive(
+					argument ? z.coerce.number().int().min(1).max(1000).parse(argument) : 100,
+				),
+			);
+
+			break;
 		case "work":
 			emit(
 				await cite.work(
@@ -65,6 +84,8 @@ try {
 					argument ? z.coerce.number().int().min(1).max(1000).parse(argument) : 100,
 				),
 			);
+
+			emit(await cite.derive());
 
 			break;
 		case "backfill": {
@@ -74,6 +95,7 @@ try {
 
 			emit(cite.backfill(argument, option === "--rest" ? "rest" : "papers"));
 			emit(await cite.work());
+			emit(await cite.derive());
 
 			break;
 		}
@@ -103,10 +125,10 @@ try {
 			break;
 		}
 		case undefined: {
-			throw new Error("Not implemented yet: undefined case");
+			throw new Error("Usage: cite add|get|search|status|backfill|work|derive|hook");
 		}
 		default:
-			throw new Error("Usage: cite add|get|search|status|backfill|work|hook");
+			throw new Error("Usage: cite add|get|search|status|backfill|work|derive|hook");
 	}
 } catch (error) {
 	emit({ status: "FAILED", reason: error instanceof Error ? error.message : "Command failed" });

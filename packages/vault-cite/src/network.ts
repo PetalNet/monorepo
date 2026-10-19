@@ -1,8 +1,9 @@
-/* oxlint-disable eslint/no-await-in-loop -- Sequential processing bounds resource use and preserves pacing, redirect and retry order. */
 import { lookup } from "node:dns/promises";
 import { request as httpRequest } from "node:http";
 import { request as httpsRequest } from "node:https";
 import { setTimeout as sleep } from "node:timers/promises";
+/* oxlint-disable eslint/no-await-in-loop -- Sequential processing bounds resource use and preserves pacing, redirect and retry order. */
+import { gunzipSync, inflateSync, brotliDecompressSync } from "node:zlib";
 
 import ipaddr from "ipaddr.js";
 import robotsModule from "robots-parser";
@@ -21,6 +22,7 @@ const robotsParser = z
 	>((value) => typeof value === "function")
 	.parse(robotsModule);
 
+import type { Capture } from "./model.ts";
 import { CaptureError, httpUrl } from "./model.ts";
 import { diskGuard } from "./store.ts";
 import type { Store } from "./store.ts";
@@ -29,12 +31,48 @@ const agent = "VaultCite/0.1";
 const maxBytes = 32 * 1024 ** 2;
 
 export interface Reply {
+	fetchedAt?: string;
+	requestedUrl?: string;
 	url: string;
 	status: number;
 	headers: Record<string, string>;
 	body: Buffer;
 }
 export type Transport = (url: string) => Promise<Reply> | Reply;
+
+export function original(reply: Reply): Capture["artifacts"][number] {
+	return {
+		data: reply.body,
+		mime: reply.headers["content-type"]?.split(";")[0]?.trim() ?? "application/octet-stream",
+		role: "ORIGINAL",
+		retrieval: {
+			url: reply.requestedUrl ?? reply.url,
+			fetched_at: reply.fetchedAt ?? new Date().toISOString(),
+			final_url: reply.url,
+			http_status: reply.status,
+			content_type: reply.headers["content-type"] ?? "",
+			content_encoding: reply.headers["content-encoding"] ?? "identity",
+		},
+	};
+}
+
+export function decoded(reply: Reply): Buffer {
+	const encoding = reply.headers["content-encoding"]?.toLowerCase() ?? "identity";
+	const options = { maxOutputLength: maxBytes };
+
+	switch (encoding) {
+		case "identity":
+			return reply.body;
+		case "gzip":
+			return gunzipSync(reply.body, options);
+		case "deflate":
+			return inflateSync(reply.body, options);
+		case "br":
+			return brotliDecompressSync(reply.body, options);
+		default:
+			throw new CaptureError("FAILED", "Unsupported HTTP content encoding");
+	}
+}
 
 function publicAddress(address: string): boolean {
 	try {
@@ -136,6 +174,8 @@ export class Network {
 		await sleep(wait);
 		const reply = await this.transport(url);
 
+		reply.fetchedAt ??= new Date().toISOString();
+
 		if (reply.status === 429 || reply.status === 503) {
 			this.store.slot(host, Math.max(30_000, retryDelay(reply)));
 		}
@@ -179,8 +219,11 @@ export class Network {
 
 			if (response.status === 404 || response.status === 410) {
 				policy = robotsParser(`${origin}/robots.txt`, "");
-			} else if (response.status === 200 && !/<(?:html|!doctype)/i.test(response.body.toString())) {
-				policy = robotsParser(`${origin}/robots.txt`, response.body.toString());
+			} else if (
+				response.status === 200 &&
+				!/<(?:html|!doctype)/i.test(decoded(response).toString())
+			) {
+				policy = robotsParser(`${origin}/robots.txt`, decoded(response).toString());
 			} else {
 				throw new CaptureError(
 					response.status === 401 || response.status === 403 ? "INACCESSIBLE" : "RETRY",
@@ -235,6 +278,8 @@ export class Network {
 			if (response.status !== 200) {
 				throw new CaptureError("FAILED", `HTTP ${String(response.status)}`);
 			}
+
+			response.requestedUrl = httpUrl(url);
 
 			return response;
 		}

@@ -5,6 +5,7 @@ import { readFileSync } from "node:fs";
 import { parse } from "csv-parse/sync";
 import { z } from "zod";
 
+import { extract } from "./extract.ts";
 import { CaptureError, DiskFull, normalize } from "./model.ts";
 import type { Job } from "./model.ts";
 import { Network } from "./network.ts";
@@ -42,9 +43,9 @@ export class Cite {
 
 				try {
 					const capture = await resolveSource(job.ref, this.network);
-					const source = this.store.save(capture);
 
-					this.store.finish(job, "SAVED", null, source.id);
+					this.store.save(capture, job);
+
 					counts.saved++;
 				} catch (error) {
 					if (error instanceof DiskFull) {
@@ -98,13 +99,83 @@ export class Cite {
 
 		return counts;
 	}
-	async add(ref: string) {
+	async derive(limit = 100) {
+		const counts = { saved: 0, blocked: 0, retried: 0, processed: 0, stopped: false };
+
+		try {
+			for (let i = 0; i < limit; i++) {
+				diskGuard(this.store.root);
+				const job = this.store.claimDerivation();
+
+				if (!job) {
+					break;
+				}
+
+				try {
+					const source = this.store.get(job.source_id);
+
+					if (!source) {
+						throw new Error("Missing source for derivation");
+					}
+
+					this.store.saveDerivation(source, await extract(source, this.store), job.lease_until);
+					counts.saved++;
+				} catch (error) {
+					const disk = error instanceof DiskFull;
+					const retry = disk || (!(error instanceof CaptureError) && job.attempts < 4);
+					const reason = disk
+						? "Disk guard"
+						: error instanceof CaptureError
+							? error.message
+							: "Local extraction failed";
+
+					this.store.db
+						.prepare(
+							"UPDATE derivations SET state=?,reason=?,next_at=?,lease_until=0 WHERE source_id=? AND lease_until=?",
+						)
+						.run(
+							retry ? "PENDING" : "BLOCKED",
+							reason,
+							Date.now() + 30_000 * 2 ** Math.min(job.attempts, 6),
+							job.source_id,
+							job.lease_until,
+						);
+
+					if (disk) {
+						throw error;
+					}
+
+					if (retry) {
+						counts.retried++;
+					} else {
+						counts.blocked++;
+					}
+				}
+
+				counts.processed++;
+			}
+		} catch (error) {
+			if (error instanceof DiskFull) {
+				counts.stopped = true;
+			} else {
+				throw error;
+			}
+		}
+
+		return counts;
+	}
+	async add(ref: string, refresh = false) {
 		const canonical = normalize(ref);
 
-		this.store.enqueue(canonical);
+		this.store.enqueue(canonical, refresh);
 		const counts = await this.work(canonical, 1);
 
-		return { counts, job: this.store.job(canonical), source: this.store.get(canonical) };
+		return {
+			counts,
+			citation: this.store.citation(canonical),
+			job: this.store.job(canonical),
+			source: this.store.get(canonical),
+		};
 	}
 	async remember(text: string, ref: string) {
 		// A failed capture cannot create a memory with a URL masquerading as PRIMARY evidence.

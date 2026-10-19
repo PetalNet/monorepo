@@ -8,23 +8,30 @@ source notes. It makes no model calls. Loro ingestion and EPISODES are later wor
 
 Run from the workspace with `pnpm --filter @petalnet/vault-cite cite <command>`.
 The package also exposes the `cite` executable. Use the workspace's Node runtime;
-Poppler (`pdftotext`, `pdfinfo`) and GNU tar must be available on PATH.
+Poppler (`pdftotext`, `pdfinfo`, `pdftoppm`), Tesseract with English language data,
+and GNU tar must be available on PATH. OCR runs locally without inference APIs.
 
-| Command                 | Behavior                                                                                      |
-| ----------------------- | --------------------------------------------------------------------------------------------- |
-| `add <ref>`             | Capture a URL, DOI, or arXiv ID synchronously; repeat requests reuse the saved source.        |
-| `get <ref>`             | Return source metadata or the pending/inaccessible/failed job, also accepting `src-…` IDs.    |
-| `search <q>`            | Search metadata and text using FTS5 syntax; return up to 30 ranked hits.                      |
-| `status`                | Return durable queue counts by state.                                                         |
-| `work [limit]`          | Process due jobs, up to 100 by default, including expired worker leases.                      |
-| `backfill <csv>`        | Enqueue primary-scope papers from the inventory CSV and process up to 100 due jobs.           |
-| `backfill <csv> --rest` | Enqueue the remaining inventory rows and process due jobs.                                    |
-| `hook`                  | Read a Claude Code PreToolUse WebFetch event from stdin; capture before permitting the fetch. |
+| Command                 | Behavior                                                                                                         |
+| ----------------------- | ---------------------------------------------------------------------------------------------------------------- |
+| `add <ref>`             | Capture a URL, DOI, or arXiv ID synchronously; repeat requests reuse the saved source.                           |
+| `add <ref> --refresh`   | Fetch again, retaining the earlier original and linking an immutable retrieval receipt.                          |
+| `derive [limit]`        | Process queued page extraction and OCR separately from capture.                                                  |
+| `get <ref>`             | Return source metadata, extraction state and retrieval history, or citation status; accepts `src-…` IDs.         |
+| `search <q>`            | Search metadata and text using FTS5 syntax; return up to 30 ranked hits.                                         |
+| `status`                | Return citation counts and individual SAVED/PENDING/BLOCKED/INACCESSIBLE states, reasons, and extraction states. |
+| `work [limit]`          | Process due captures, then queued extraction; up to 100 of each by default.                                      |
+| `backfill <csv>`        | Enqueue primary-scope papers from the inventory CSV and process up to 100 due jobs.                              |
+| `backfill <csv> --rest` | Enqueue the remaining inventory rows and process due jobs.                                                       |
+| `hook`                  | Read a Claude Code PreToolUse WebFetch event from stdin; capture before permitting the fetch.                    |
 
 Mutation commands report saved/inaccessible/failed/retried counts. Queued retries
 remain visible in `status`; run `work` again after their `next_at` time. Four
 attempts exhaust transient retries. Terminal jobs are retained, not silently
-retried. A disk stop leaves the job resumable.
+retried. A disk stop leaves the job resumable. `add` saves and indexes metadata immediately;
+`derive` (also run by `work`) makes document text searchable. A failed extraction
+does not erase or demote a saved original. Capture failures appear as BLOCKED,
+and access restrictions as INACCESSIBLE; URL-only rows never appear as SAVED.
+Use `add --refresh` to explicitly retry a terminal capture.
 
 `CITE_ROOT` selects the private storage root. Its default is
 `/home/docker/vault-data/sources`; set it to the approved NAS mount at rollout.
@@ -35,14 +42,17 @@ For page capture, install Chromium with
 `pnpm --filter @petalnet/vault-cite exec playwright install chromium`, or point
 `CITE_CHROMIUM_EXECUTABLE` at the existing lab Chromium executable. Each capture
 uses a fresh context without cookies, credentials, persistent profiles, scripts,
-or service workers. The PDF and single-file HTML contain the static rendered
-page. Styles are flattened and fetched images are embedded; scripts, forms,
+or service workers. The raw HTTP HTML response is the ORIGINAL. The rendered PDF and single-file
+HTML snapshot are DERIVED artifacts linked to that original by SHA-256. Styles are flattened and fetched images are embedded; scripts, forms,
 frames, media and external style/font dependencies are removed. This is a static
 snapshot, not an interactive application archive. Pages requiring JavaScript,
 login, or subscription may be inaccessible. arXiv citation metadata supplies titles and authors; its original abstract page
 is retained as an additional artifact. Unknown PDF authors remain an empty
-array and missing titles fall back to the canonical reference; metadata is never invented. Scanned PDFs without extractable text fail
-until an OCR extractor is added.
+array and missing titles fall back to the canonical reference; metadata is never invented.
+Each PDF page is extracted by Poppler. Pages without native text are rasterized
+and passed to local Tesseract; page numbers and extraction methods are retained
+in a separate derived JSON artifact. OCR currently uses English language data;
+images embedded alongside native page text are not separately recognized.
 
 ## Built-in capture
 
@@ -83,21 +93,39 @@ arbitrary network traffic.
 
 ## Storage contract
 
-Artifacts live at `sha256/<2>/<2>/<full-hash>/artifact`. The primary artifact has
-`artifact.json` and `artifact.txt` sidecars. The JSON names every companion
-artifact, including the HTML snapshot, and records the schema version, evidence
-layer, source type, canonical ID, acquisition URL/time, title, authors, MIME,
-extractor, SHA-256 and access status. Acquisition receipts are keyed by canonical
-reference alongside the bytes. `notes/src-<20-hex>.md` is a projection with a
-`source:: [[src-…]]` link example; claim relations use `supports::`,
-`contradicts::` and `replaces::`. Nothing infers those claim relations.
+Original response bodies live at `originals/sha256/<2>/<2>/<full-hash>/artifact`.
+The body is saved without conversion, including HTTP content encoding if supplied;
+decoding occurs only for parsing and derivation. Unrecognized formats are saved
+as-is; an unsupported text extractor is reported separately as BLOCKED.
 
-Only successfully captured artifacts get `PRIMARY` source notes. `DIRECT`,
-`DERIVED` and `GUESS` are distinct source types reserved for the later memory
-layer. An inaccessible URL remains a queue record with a reason, not PRIMARY
-proof. SQLite holds the durable queue and the metadata/text search projection.
-The schema-versioned JSON and text sidecars allow a later Loro importer to rebuild
-the source index without treating SQLite as the CRDT authority.
+Derived snapshots, rendered PDFs and page-text/OCR JSON live under
+`derived/sha256/…`. Each derived sidecar references `original_sha256`; a rendered
+PDF is never the original HTML evidence. Originals have immutable `artifact.json`
+sidecars; browser derivatives use `artifact.<original-hash>.json` to preserve
+lineage even when derived bytes are shared by different originals. Page-text
+JSON includes the original hash, page number, text and native/OCR method.
+
+`retrievals/<uuid>.json` records each acquisition: citation reference, canonical
+ID, title, authors, retrieval date, requested and final URL, HTTP status, full
+Content-Type, content encoding, original hash, companion artifacts and access
+status. Receipts link `previous_retrieval_id` and `previous_sha256`. A refresh with
+different bytes creates a new source; identical bytes reuse the blob and retain
+a new receipt. Earlier originals and receipts are never overwritten. Repeated
+`add` without `--refresh` is idempotent and does not make another request.
+
+`notes/src-<20-hex>.md` projects saved originals with a `source:: [[src-…]]` link
+example; claim relations use `supports::`, `contradicts::` and `replaces::`.
+Nothing infers those claim relations. `PRIMARY` describes saved evidence, while
+artifact roles distinguish ORIGINAL and DERIVED. `DIRECT` and `GUESS` remain
+separate memory source types.
+
+SQLite `index-v2.sqlite` holds capture and derivation queues, an explicit
+`citations` status view, immutable source/receipt metadata and the FTS projection.
+Only captured originals enter source FTS. Metadata is searchable before page
+extraction completes. The schema-versioned sidecars support later Loro ingestion;
+SQLite is not the CRDT authority. Pre-review v1 `index.sqlite` and `sha256/` data
+are retained untouched and are not imported or relabelled as originals. Recapture
+those references with v2 to establish trustworthy original/derived provenance.
 
 All downloads, including browser assets and redirect destinations, pass through
 the same robots and domain pacing checks. A missing robots file (404/410) permits
@@ -113,6 +141,9 @@ working filesystems must retain 35 GiB free. This includes checking before netwo
 requests and file writes. Temporary extraction files stay under the private root.
 Artifacts are renamed into place before their source enters FTS. SQLite claims
 jobs atomically with a 15-minute lease, allowing recovery after worker crashes.
+Extraction has its own leases, bounded retries and backoff. PDF extraction is
+limited to 500 pages, a ten-minute budget and 16 MiB text; OCR rasterization is
+bounded to a 2400-pixel longest side and uses one temporary page at a time.
 
 ## Verification
 
@@ -125,6 +156,7 @@ An explicit live positive control is:
 
 ```sh
 pnpm --filter @petalnet/vault-cite cite add arxiv:2307.03172v1
+pnpm --filter @petalnet/vault-cite cite derive
 pnpm --filter @petalnet/vault-cite cite get arxiv:2307.03172v1
 pnpm --filter @petalnet/vault-cite cite search '"Lost in the Middle"'
 ```

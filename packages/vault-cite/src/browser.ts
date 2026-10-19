@@ -2,6 +2,7 @@ import { chromium } from "playwright";
 
 import { CaptureError } from "./model.ts";
 import type { Capture } from "./model.ts";
+import { decoded, original } from "./network.ts";
 import type { Network, Reply } from "./network.ts";
 
 export async function snapshot(reply: Reply, network: Network): Promise<Capture> {
@@ -13,7 +14,11 @@ export async function snapshot(reply: Reply, network: Network): Promise<Capture>
 	});
 
 	try {
-		const context = await browser.newContext({ serviceWorkers: "block", acceptDownloads: false });
+		const context = await browser.newContext({
+			serviceWorkers: "block",
+			acceptDownloads: false,
+			javaScriptEnabled: false,
+		});
 		const assets = new Map<string, Reply>([[reply.url, reply]]);
 		let bytes = reply.body.length;
 		let failure: Error | undefined;
@@ -44,7 +49,7 @@ export async function snapshot(reply: Reply, network: Network): Promise<Capture>
 
 				await route.fulfill({
 					status: 200,
-					body: response.body,
+					body: decoded(response),
 					contentType: response.headers["content-type"] ?? "application/octet-stream",
 				});
 			} catch (error) {
@@ -93,7 +98,7 @@ export async function snapshot(reply: Reply, network: Network): Promise<Capture>
 		for (const [url, asset] of assets) {
 			if (asset.headers["content-type"]?.startsWith("image/")) {
 				images[url] =
-					`data:${asset.headers["content-type"]};base64,${asset.body.toString("base64")}`;
+					`data:${asset.headers["content-type"]};base64,${decoded(asset).toString("base64")}`;
 			}
 		}
 
@@ -179,11 +184,11 @@ export async function snapshot(reply: Reply, network: Network): Promise<Capture>
 			url: reply.url,
 			title,
 			authors,
-			text,
 			extractor: "playwright-static-snapshot-v1",
 			artifacts: [
-				{ data: pdf, mime: "application/pdf" },
-				{ data: Buffer.from(html), mime: "text/html" },
+				original(reply),
+				{ data: pdf, mime: "application/pdf", role: "DERIVED" },
+				{ data: Buffer.from(html), mime: "text/html", role: "DERIVED" },
 			],
 		};
 	} finally {

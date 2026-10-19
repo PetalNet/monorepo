@@ -90,6 +90,8 @@ jobs:
         with:
           cache-prefix: turbo-${{ runner.os }}-${{ runner.arch }}-
           use-relative-cache-path: true
+      - name: Install vault extraction tools
+        run: sudo apt-get update -q && sudo apt-get install -y -q poppler-utils tesseract-ocr tesseract-ocr-eng
       - if: needs.select.outputs.affected == 'true'
         run: pnpm test --affected
       - if: needs.select.outputs.affected != 'true'
