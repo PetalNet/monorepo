@@ -1,7 +1,6 @@
 /* oxlint-disable eslint/no-await-in-loop -- Sequential processing bounds resource use and preserves pacing, redirect and retry order. */
 import { z } from "zod";
 
-import { snapshot } from "./browser.ts";
 import { CaptureError, normalize } from "./model.ts";
 import type { Capture } from "./model.ts";
 import { decoded, original } from "./network.ts";
@@ -148,6 +147,8 @@ export async function resolveSource(ref: string, network: Network): Promise<Capt
 		return captured(reply, canonical);
 	}
 
+	// Loaded on demand: Playwright is heavy, and the fetch hook never needs it.
+	const { snapshot } = await import("./browser.ts");
 	const capture = await snapshot(reply, network);
 
 	capture.canonicalId = canonical;
