@@ -728,3 +728,81 @@ it("projects PDF title and invisible author metadata without altering original r
 	expect(readFileSync(receiptPath)).toEqual(before);
 	expect(readFileSync(path.join(cite.store.root, source.artifacts[0]?.path ?? ""))).toEqual(bytes);
 });
+
+describe.each(["direct", "doi"])("%s capture first", (first) => {
+	it("keeps retrieval metadata isolated for shared PDF bytes", async (context) => {
+		requireTools(context, ["pdfinfo", "pdftotext"]);
+		const bytes = fixturePdf("Embedded Draft Title", "Draft Author");
+		const direct = "https://publisher.example/shared.pdf";
+		const doi = "doi:10.1234/shared";
+		const cite = setup((url) => {
+			if (new URL(url).pathname === "/robots.txt") {
+				return reply(url, "");
+			}
+
+			if (new URL(url).hostname === "api.unpaywall.org") {
+				return reply(
+					url,
+					JSON.stringify({
+						title: "Published Title",
+						z_authors: [{ given: "Published", family: "Author" }],
+						best_oa_location: { url_for_pdf: direct },
+					}),
+				);
+			}
+
+			return reply(url, bytes, 200, { "content-type": "application/pdf" });
+		});
+		const initial = await cite.add(first === "direct" ? direct : doi);
+		const receipt = initial.source;
+
+		if (!receipt) {
+			throw new Error("Missing source");
+		}
+
+		const receiptPath = path.join(cite.store.root, `retrievals/${receipt.retrieval_id}.json`);
+		const before = readFileSync(receiptPath);
+
+		expect((await cite.derive()).saved).toBe(1);
+		await cite.add(first === "direct" ? doi : direct);
+
+		expect(cite.store.get(doi)).toMatchObject({
+			title: "Published Title",
+			authors: ["Published Author"],
+		});
+
+		expect(cite.store.get(direct)).toMatchObject({
+			title: "Embedded Draft Title",
+			authors: ["Draft Author"],
+		});
+
+		expect(cite.store.get(doi)?.sha256).toBe(cite.store.get(direct)?.sha256);
+		expect(readFileSync(receiptPath)).toEqual(before);
+
+		expect(cite.store.history(doi)[0]).toMatchObject({
+			title: "Published Title",
+			authors: ["Published Author"],
+		});
+
+		expect(cite.store.history(direct)[0]).toMatchObject({ title: direct, authors: [] });
+
+		cite.store.db
+			.prepare("UPDATE source_projections SET metadata=? WHERE source_id=?")
+			.run(
+				JSON.stringify({ title: "Legacy merged title", authors: ["Legacy merged author"] }),
+				receipt.id,
+			);
+
+		expect(cite.store.get(doi)).toMatchObject({
+			title: "Published Title",
+			authors: ["Published Author"],
+		});
+
+		expect(cite.store.get(direct)).toMatchObject({
+			title: "Embedded Draft Title",
+			authors: ["Draft Author"],
+		});
+
+		expect(readFileSync(receiptPath)).toEqual(before);
+	});
+});

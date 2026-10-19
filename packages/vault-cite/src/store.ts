@@ -359,10 +359,6 @@ export class Store {
 		fields: { title: string | null; author: string | null },
 		lease: number,
 	) {
-		const projection = {
-			title: source.title === source.canonical_id ? (fields.title ?? source.title) : source.title,
-			authors: source.authors.length > 0 ? source.authors : fields.author ? [fields.author] : [],
-		};
 		const data = JSON.stringify({
 			role: "DERIVED",
 			original_sha256: source.sha256,
@@ -392,13 +388,15 @@ export class Store {
 					.prepare(
 						"INSERT INTO source_projections VALUES(?,?,?) ON CONFLICT(source_id) DO UPDATE SET metadata=excluded.metadata,artifact=excluded.artifact",
 					)
-					.run(source.id, JSON.stringify(projection), JSON.stringify(artifact));
+					.run(source.id, JSON.stringify(fields), JSON.stringify(artifact));
+
+				const projection = this.projected(source);
 
 				this.db
 					.prepare("UPDATE evidence SET title=?,authors=? WHERE id=?")
 					.run(projection.title, projection.authors.join("; "), source.id);
 
-				this.writeNote({ ...source, ...projection });
+				this.writeNote(projection);
 			}
 
 			this.db.exec("COMMIT");
@@ -410,18 +408,40 @@ export class Store {
 	}
 	private projected(source: Source): Source {
 		const row = this.db
-			.prepare("SELECT metadata FROM source_projections WHERE source_id=?")
+			.prepare("SELECT metadata,artifact FROM source_projections WHERE source_id=?")
 			.get(source.id);
 
 		if (!row) {
 			return source;
 		}
 
-		const fields = z
-			.object({ title: z.string(), authors: z.array(z.string()) })
-			.parse(JSON.parse(z.object({ metadata: z.string() }).parse(row).metadata));
+		const projection = z.object({ metadata: z.string(), artifact: z.string() }).parse(row);
+		const schema = z.object({ title: z.string().nullable(), author: z.string().nullable() });
+		const cached = schema.safeParse(JSON.parse(projection.metadata));
+		let fields;
 
-		return { ...source, ...fields };
+		if (cached.success) {
+			fields = cached.data;
+		} else {
+			// Older projections merged the first receipt's metadata. Recover only pdfinfo's raw fields.
+			const artifact = artifactSchema.parse(JSON.parse(projection.artifact));
+			const bytes = readFileSync(path.join(this.root, artifact.path));
+
+			if (hash(bytes) !== artifact.sha256) {
+				throw new Error("PDF metadata artifact hash mismatch");
+			}
+
+			fields = schema.parse(JSON.parse(bytes.toString()));
+		}
+
+		return {
+			...source,
+			title:
+				source.title && source.title !== source.canonical_id
+					? source.title
+					: (fields.title ?? source.title),
+			authors: source.authors.length > 0 ? source.authors : fields.author ? [fields.author] : [],
+		};
 	}
 
 	claimDerivation() {
