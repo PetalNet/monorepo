@@ -92,6 +92,14 @@ jobs:
           use-relative-cache-path: true
       - name: Install vault extraction tools
         run: sudo apt-get update -q && sudo apt-get install -y -q poppler-utils tesseract-ocr tesseract-ocr-eng
+      - name: Install vault test browser
+        run: pnpm --filter @petalnet/vault-cite exec playwright install --with-deps chromium
+      - name: Run vault PDF and OCR tests without task caching
+        env:
+          CITE_BROWSER_TESTS: "1"
+        run: |
+          command -v pdfinfo pdftotext pdftoppm tesseract
+          pnpm --filter @petalnet/vault-cite test --reporter=verbose
       - if: needs.select.outputs.affected == 'true'
         run: pnpm test --affected
       - if: needs.select.outputs.affected != 'true'
