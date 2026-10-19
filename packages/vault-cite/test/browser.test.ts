@@ -10,6 +10,7 @@ import { z } from "zod";
 import { Cite, Store } from "../src/index.ts";
 import { Network } from "../src/network.ts";
 import type { Reply, Transport } from "../src/network.ts";
+import { requireTools } from "./tools.ts";
 const stores: Store[] = [];
 
 function setup(transport: Transport) {
@@ -36,7 +37,9 @@ const reply = (url: string, body: string | Buffer, type = "text/html"): Reply =>
 
 it.skipIf(!process.env["CITE_BROWSER_TESTS"])(
 	"renders a self-contained inert HTML snapshot and matching PDF",
-	async () => {
+	async (context) => {
+		requireTools(context, ["pdfinfo", "pdftotext"]);
+
 		const page =
 			'<!doctype html><html><head><title>Static primary evidence</title><link rel="stylesheet" href="/style.css"></head><body><h1>Primary evidence</h1><p>This is the primary source text captured from the original page, with enough content to distinguish it from a login shell.</p><script>fetch("https://private.example/")</script></body></html>';
 		const urls: string[] = [];
@@ -177,7 +180,9 @@ vi.mock("node:fs", async (importOriginal) => ({
 
 it.skipIf(!process.env["CITE_BROWSER_TESTS"])(
 	"extracts native pages and locally OCRs scanned pages in a separate queued step",
-	async () => {
+	async (context) => {
+		requireTools(context, ["pdfinfo", "pdftotext", "pdftoppm", "tesseract"]);
+
 		const browser = await chromium.launch({
 			...(process.env["CITE_CHROMIUM_EXECUTABLE"]
 				? { executablePath: process.env["CITE_CHROMIUM_EXECUTABLE"] }
@@ -236,4 +241,38 @@ it.skipIf(!process.env["CITE_BROWSER_TESTS"])(
 		});
 	},
 	60_000,
+);
+
+it.skipIf(!process.env["CITE_BROWSER_TESTS"])(
+	"disables inline scripts and event handlers before navigation",
+	async () => {
+		const html = `<!doctype html><html><head><title>Original static title</title></head><body onload="document.querySelector('#handler').textContent='EVENT HANDLER EXECUTED'">
+ <p id="inline">Original inline control text remains visible in this static snapshot, captured before any untrusted code can replace it.</p>
+ <p id="handler">Original handler control text must remain unchanged after the load event.</p>
+ <p>This unaffected paragraph keeps the page eligible for capture even if both hostile controls execute, so admission checks cannot hide the JavaScript regression.</p>
+ <script>document.title='INLINE SCRIPT EXECUTED';document.querySelector('#inline').textContent='INLINE SCRIPT EXECUTED';</script>
+ </body></html>`;
+		const cite = setup((url) => reply(url, url.endsWith("robots.txt") ? "" : html));
+		const result = await cite.add("https://publisher.example/static-control");
+
+		expect(result.source?.title).toBe("Original static title");
+		const original = result.source?.artifacts.find((item) => item.role === "ORIGINAL");
+		const snapshot = result.source?.artifacts.find(
+			(item) => item.role === "DERIVED" && item.mime === "text/html",
+		);
+
+		if (!original || !snapshot) {
+			throw new Error("Missing capture artifacts");
+		}
+
+		expect(readFileSync(path.join(cite.store.root, original.path), "utf8")).toBe(html);
+		const derived = readFileSync(path.join(cite.store.root, snapshot.path), "utf8");
+
+		expect(derived).toContain("Original inline control text remains visible");
+		expect(derived).toContain("Original handler control text must remain unchanged");
+		expect(derived).not.toContain("INLINE SCRIPT EXECUTED");
+		expect(derived).not.toContain("EVENT HANDLER EXECUTED");
+		expect(derived).not.toContain("onload=");
+	},
+	30_000,
 );

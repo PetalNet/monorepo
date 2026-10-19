@@ -85,6 +85,15 @@ export class CaptureError extends Error {
 // oxlint-disable-next-line effecttsgo/extends-native-error -- Distinguishes a resumable disk stop from capture failures.
 export class DiskFull extends Error {}
 
+// oxlint-disable-next-line effecttsgo/extends-native-error -- Scheduling is not a capture failure and cannot consume its retry budget.
+export class PacingDeferred extends Error {
+	readonly until: number;
+	constructor(until: number) {
+		super("Domain pacing deferred");
+		this.until = until;
+	}
+}
+
 export function normalize(ref: string): string {
 	let value = ref.trim();
 

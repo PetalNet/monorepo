@@ -13,7 +13,7 @@ import type { Store } from "./store.ts";
 
 const exec = promisify(execFile);
 
-export async function extract(source: Source, store: Store) {
+export async function extract(source: Source, store: Store, lease: number) {
 	const original = source.artifacts[0];
 
 	if (original?.role !== "ORIGINAL") {
@@ -84,6 +84,14 @@ export async function extract(source: Source, store: Store) {
 		}
 
 		const { stdout: info } = await exec("pdfinfo", [input], { timeout: 10_000, maxBuffer: 65536 });
+
+		if (original.mime === "application/pdf") {
+			const title = /^Title:[ \t]*([^\s][^\r\n]*)$/m.exec(info)?.[1]?.trim();
+			const author = /^Author:[ \t]*([^\s][^\r\n]*)$/m.exec(info)?.[1]?.trim();
+
+			store.projectPdfMetadata(source, { title: title ?? null, author: author ?? null }, lease);
+		}
+
 		const count = Number(/^Pages:\s+(\d+)$/m.exec(info)?.[1]);
 
 		if (!Number.isSafeInteger(count) || count < 1 || count > 500) {

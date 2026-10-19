@@ -6,7 +6,7 @@ import { parse } from "csv-parse/sync";
 import { z } from "zod";
 
 import { extract } from "./extract.ts";
-import { CaptureError, DiskFull, normalize } from "./model.ts";
+import { CaptureError, DiskFull, PacingDeferred, normalize } from "./model.ts";
 import type { Job } from "./model.ts";
 import { Network } from "./network.ts";
 import { resolveSource } from "./resolver.ts";
@@ -25,6 +25,7 @@ export class Cite {
 	async work(ref?: string, limit = 100) {
 		const counts = {
 			saved: 0,
+			deferred: 0,
 			inaccessible: 0,
 			failed: 0,
 			retried: 0,
@@ -42,12 +43,20 @@ export class Cite {
 				}
 
 				try {
-					const capture = await resolveSource(job.ref, this.network);
+					const capture = await resolveSource(job.ref, this.network.forJob(job));
 
 					this.store.save(capture, job);
 
 					counts.saved++;
 				} catch (error) {
+					if (error instanceof PacingDeferred) {
+						this.store.defer(job, error.until);
+						counts.deferred++;
+						counts.processed++;
+
+						continue;
+					}
+
 					if (error instanceof DiskFull) {
 						this.store.finish(job, "QUEUED", "Disk guard", null, 60_000);
 
@@ -118,7 +127,12 @@ export class Cite {
 						throw new Error("Missing source for derivation");
 					}
 
-					this.store.saveDerivation(source, await extract(source, this.store), job.lease_until);
+					this.store.saveDerivation(
+						source,
+						await extract(source, this.store, job.lease_until),
+						job.lease_until,
+					);
+
 					counts.saved++;
 				} catch (error) {
 					const disk = error instanceof DiskFull;

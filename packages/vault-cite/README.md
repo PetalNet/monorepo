@@ -27,7 +27,8 @@ and GNU tar must be available on PATH. OCR runs locally without inference APIs.
 Mutation commands report saved/inaccessible/failed/retried counts. Queued retries
 remain visible in `status`; run `work` again after their `next_at` time. Four
 attempts exhaust transient retries. Terminal jobs are retained, not silently
-retried. A disk stop leaves the job resumable. `add` saves and indexes metadata immediately;
+retried. Domain pacing reports a separate `deferred` count, reschedules to the eligible
+time, and never consumes a retry attempt. A disk stop leaves the job resumable. `add` saves and indexes metadata immediately;
 `derive` (also run by `work`) makes document text searchable. A failed extraction
 does not erase or demote a saved original. Capture failures appear as BLOCKED,
 and access restrictions as INACCESSIBLE; URL-only rows never appear as SAVED.
@@ -141,7 +142,18 @@ working filesystems must retain 35 GiB free. This includes checking before netwo
 requests and file writes. Temporary extraction files stay under the private root.
 Artifacts are renamed into place before their source enters FTS. SQLite claims
 jobs atomically with a 15-minute lease, allowing recovery after worker crashes.
-Extraction has its own leases, bounded retries and backoff. PDF extraction is
+Deferring a request does not advance the host deadline. In-progress captures keep
+successful HTTP steps in a private, lease-fenced checkpoint (up to 128 MiB per
+job) so long crawl delays and worker restarts do not repeatedly fetch the first
+step. Terminal jobs clear these checkpoints. Robots policies expire after one
+hour and are shared across workers; request checkpoints do not cache robots
+responses or persist cookie headers.
+
+Extraction has its own leases, bounded retries and backoff. PDF title and author
+fields are extracted by `pdfinfo` into a separate hash-linked metadata artifact.
+They fill missing metadata in `get`, FTS and generated notes without changing
+original bytes or immutable acquisition receipts, even if later page extraction
+fails. PDF extraction is
 limited to 500 pages, a ten-minute budget and 16 MiB text; OCR rasterization is
 bounded to a 2400-pixel longest side and uses one temporary page at a time.
 
@@ -150,7 +162,10 @@ bounded to a 2400-pixel longest side and uses one temporary page at a time.
 `pnpm --filter @petalnet/vault-cite test` runs deterministic tests with synthetic
 HTTP responses and real SQLite, PDF extraction and tar processing. Browser tests
 also run when `CITE_BROWSER_TESTS=1`; they use real Chromium with intercepted
-synthetic HTTP responses. No test calls an inference service.
+synthetic HTTP responses. No test calls an inference service. PDF/OCR-dependent tests check their executable
+dependencies and skip with an explicit missing-tool reason when unavailable;
+original capture, queue and network-policy tests still run. CI installs Poppler
+and Tesseract so it exercises the PDF cases rather than skipping them.
 
 An explicit live positive control is:
 

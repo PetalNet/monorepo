@@ -12,6 +12,7 @@ import { Cite, Store } from "../src/index.ts";
 import { normalize } from "../src/model.ts";
 import { Network } from "../src/network.ts";
 import type { Reply, Transport } from "../src/network.ts";
+import { requireTools } from "./tools.ts";
 
 const stores: Store[] = [];
 
@@ -37,7 +38,7 @@ const reply = (
 	headers: Record<string, string> = {},
 ): Reply => ({ url, body: Buffer.from(body), status, headers });
 
-function fixturePdf() {
+function fixturePdf(title = "", author = "") {
 	const stream = "BT /F1 18 Tf 20 80 Td (Deterministic primary evidence) Tj ET";
 	const objects = [
 		"<< /Type /Catalog /Pages 2 0 R >>",
@@ -45,7 +46,7 @@ function fixturePdf() {
 		"<< /Type /Page /Parent 2 0 R /MediaBox [0 0 300 120] /Resources << /Font << /F1 4 0 R >> >> /Contents 5 0 R >>",
 		"<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>",
 		`<< /Length ${String(stream.length)} >>\nstream\n${stream}\nendstream`,
-		"<< /Title () /Author () /Subject () /Creator (Test converter) >>",
+		`<< /Title (${title}) /Author (${author}) /Subject () /Creator (Test converter) >>`,
 	];
 	let pdf = "%PDF-1.4\n";
 	const offsets = [0];
@@ -71,7 +72,8 @@ const pdfTransport: Transport = (url) =>
 		: reply(url, fixturePdf(), 200, { "content-type": "application/pdf" });
 
 describe("capture and search", () => {
-	it("saves hashed PDF, dated sidecar, note and an FTS hit; repeat is idempotent", async () => {
+	it("saves hashed PDF, dated sidecar, note and an FTS hit; repeat is idempotent", async (context) => {
+		requireTools(context, ["pdfinfo", "pdftotext"]);
 		let requests = 0;
 		const cite = setup(async (url) => {
 			requests++;
@@ -586,4 +588,143 @@ it("only dispatches the GitHub resolver for the exact parsed hostname", async ()
 	}
 
 	expect(urls.some((url) => new URL(url).hostname === "api.github.com")).toBe(false);
+});
+
+it("defers domain pacing without spending attempts and resumes multiple jobs after restart", async () => {
+	let now = 1_800_000_000_000;
+	const clock = vi.spyOn(Date, "now").mockImplementation(() => now);
+	const fetched: string[] = [];
+	const transport: Transport = (url) => {
+		fetched.push(url);
+
+		return url.endsWith("robots.txt")
+			? reply(url, "User-agent: *\nCrawl-delay: 120\n")
+			: reply(url, `Original evidence from ${url}`, 200, { "content-type": "text/plain" });
+	};
+
+	const cite = setup(transport);
+
+	try {
+		expect((await cite.add("https://publisher.example/first")).source).toBeDefined();
+		const second = "https://publisher.example/second";
+		const third = "https://publisher.example/third";
+
+		expect((await cite.add(second)).counts).toMatchObject({ deferred: 1, retried: 0, failed: 0 });
+		expect((await cite.add(third)).counts.deferred).toBe(1);
+		expect(cite.store.job(second)?.attempts).toBe(0);
+
+		// Competing legitimate requests keep this job waiting beyond the ordinary retry budget.
+		for (let i = 0; i < 6; i++) {
+			now = cite.store.job(second)?.next_at ?? now;
+			cite.store.cooldown("publisher.example", 120_000);
+			const counts = await cite.work(second, 1);
+
+			expect(counts).toMatchObject({ deferred: 1, retried: 0, failed: 0 });
+			expect(cite.store.job(second)).toMatchObject({ state: "QUEUED", attempts: 0 });
+		}
+
+		const restarted = new Store(cite.store.root);
+
+		try {
+			const worker = new Cite(restarted, new Network(restarted, transport, 0));
+
+			now = cite.store.job(second)?.next_at ?? now;
+			expect((await worker.work(second, 1)).saved).toBe(1);
+			expect((await worker.work(third, 1)).deferred).toBe(1);
+			now = restarted.job(third)?.next_at ?? now;
+			expect((await worker.work(third, 1)).saved).toBe(1);
+			expect(restarted.job(second)?.attempts).toBe(1);
+			expect(fetched.filter((url) => url.endsWith("robots.txt"))).toHaveLength(1);
+			expect(fetched.filter((url) => url === second)).toHaveLength(1);
+			expect(fetched.filter((url) => url === third)).toHaveLength(1);
+		} finally {
+			restarted.close();
+		}
+	} finally {
+		clock.mockRestore();
+	}
+});
+
+it("resumes a multi-request capture after pacing instead of fetching its first step again", async () => {
+	let now = 1_800_000_000_000;
+	const clock = vi.spyOn(Date, "now").mockImplementation(() => now);
+	const fetched: string[] = [];
+	const transport: Transport = (url) => {
+		fetched.push(url);
+
+		if (url.endsWith("robots.txt")) {
+			return reply(url, "User-agent: *\nCrawl-delay: 120\n");
+		}
+
+		if (new URL(url).pathname.startsWith("/abs/")) {
+			return reply(url, '<meta name="citation_title" content="Checkpointed paper">', 200, {
+				"content-type": "text/html",
+			});
+		}
+
+		return reply(url, fixturePdf(), 200, { "content-type": "application/pdf" });
+	};
+
+	const cite = setup(transport);
+
+	try {
+		const first = await cite.add("1706.03762");
+
+		expect(first.counts.deferred).toBe(1);
+		expect(first.job?.attempts).toBe(0);
+		now = first.job?.next_at ?? now;
+		const restarted = new Store(cite.store.root);
+
+		try {
+			const worker = new Cite(restarted, new Network(restarted, transport, 0));
+			const result = await worker.add("1706.03762");
+
+			expect(result.source?.title).toBe("Checkpointed paper");
+			expect(fetched.filter((url) => new URL(url).pathname.startsWith("/abs/"))).toHaveLength(1);
+			expect(fetched.filter((url) => new URL(url).pathname.startsWith("/pdf/"))).toHaveLength(1);
+			expect(restarted.db.prepare("SELECT * FROM request_cache").all()).toHaveLength(0);
+		} finally {
+			restarted.close();
+		}
+	} finally {
+		clock.mockRestore();
+	}
+});
+
+it("projects PDF title and invisible author metadata without altering original receipts", async (context) => {
+	requireTools(context, ["pdfinfo", "pdftotext"]);
+	const bytes = fixturePdf("Document Metadata Title", "Invisible Metadata Author");
+	const cite = setup((url) =>
+		url.endsWith("robots.txt")
+			? reply(url, "")
+			: reply(url, bytes, 200, { "content-type": "application/pdf" }),
+	);
+	const ref = "https://publisher.example/metadata.pdf";
+	const result = await cite.add(ref);
+	const source = result.source;
+
+	if (!source) {
+		throw new Error("Missing source");
+	}
+
+	const receiptPath = path.join(cite.store.root, `retrievals/${source.retrieval_id}.json`);
+	const before = readFileSync(receiptPath);
+
+	expect(source).toMatchObject({ title: ref, authors: [] });
+	expect((await cite.derive()).saved).toBe(1);
+
+	expect(cite.store.get(ref)).toMatchObject({
+		title: "Document Metadata Title",
+		authors: ["Invisible Metadata Author"],
+	});
+
+	expect(cite.store.get(source.id)?.title).toBe("Document Metadata Title");
+	expect(cite.store.search('"Invisible Metadata Author"')).toHaveLength(1);
+
+	expect(readFileSync(path.join(cite.store.root, `notes/${source.id}.md`), "utf8")).toContain(
+		"Document Metadata Title",
+	);
+
+	expect(readFileSync(receiptPath)).toEqual(before);
+	expect(readFileSync(path.join(cite.store.root, source.artifacts[0]?.path ?? ""))).toEqual(bytes);
 });

@@ -17,7 +17,14 @@ import { DatabaseSync } from "node:sqlite";
 
 import { z } from "zod";
 
-import { artifactSchema, digest, DiskFull, jobSchema, sourceSchema } from "./model.ts";
+import {
+	artifactSchema,
+	digest,
+	DiskFull,
+	PacingDeferred,
+	jobSchema,
+	sourceSchema,
+} from "./model.ts";
 import type { Artifact, Capture, Job, Source } from "./model.ts";
 
 const reserve = 35 * 1024 ** 3;
@@ -51,8 +58,11 @@ export class Store {
    CREATE TABLE IF NOT EXISTS jobs(ref TEXT PRIMARY KEY, state TEXT NOT NULL, attempts INTEGER NOT NULL DEFAULT 0, next_at REAL NOT NULL DEFAULT 0, lease_until REAL NOT NULL DEFAULT 0, source_id TEXT, reason TEXT);
    CREATE TABLE IF NOT EXISTS retrievals(id TEXT PRIMARY KEY, ref TEXT NOT NULL, metadata TEXT NOT NULL);
    CREATE TABLE IF NOT EXISTS derivations(source_id TEXT PRIMARY KEY REFERENCES sources(id), state TEXT NOT NULL DEFAULT 'PENDING', attempts INTEGER NOT NULL DEFAULT 0, next_at REAL NOT NULL DEFAULT 0, lease_until REAL NOT NULL DEFAULT 0, reason TEXT, manifest TEXT);
+   CREATE TABLE IF NOT EXISTS source_projections(source_id TEXT PRIMARY KEY REFERENCES sources(id), metadata TEXT NOT NULL, artifact TEXT NOT NULL);
    CREATE TABLE IF NOT EXISTS sources(id TEXT PRIMARY KEY, metadata TEXT NOT NULL);
    CREATE VIRTUAL TABLE IF NOT EXISTS evidence USING fts5(id UNINDEXED, title, authors, canonical_id, url, text);
+   CREATE TABLE IF NOT EXISTS request_cache(ref TEXT NOT NULL REFERENCES jobs(ref), url TEXT NOT NULL, metadata TEXT NOT NULL, body BLOB NOT NULL, PRIMARY KEY(ref,url));
+   CREATE TABLE IF NOT EXISTS robots(origin TEXT PRIMARY KEY, content TEXT NOT NULL, expires_at REAL NOT NULL);
    CREATE TABLE IF NOT EXISTS domains(host TEXT PRIMARY KEY, next_at REAL NOT NULL);
    CREATE VIEW IF NOT EXISTS citations AS SELECT ref, CASE WHEN state='SAVED' AND source_id IN (SELECT id FROM sources) THEN 'SAVED' WHEN state IN ('QUEUED','RUNNING') THEN 'PENDING' WHEN state='INACCESSIBLE' THEN 'INACCESSIBLE' ELSE 'BLOCKED' END AS status,reason,source_id FROM jobs;
    CREATE TABLE IF NOT EXISTS memories(id TEXT PRIMARY KEY, text TEXT NOT NULL, source_id TEXT NOT NULL REFERENCES sources(id));`);
@@ -62,11 +72,25 @@ export class Store {
 	}
 	enqueue(ref: string, refresh = false) {
 		if (refresh) {
-			this.db
-				.prepare(
-					"UPDATE jobs SET state='QUEUED', attempts=0, next_at=0, lease_until=0, source_id=NULL, reason=NULL WHERE ref=? AND state != 'RUNNING'",
-				)
-				.run(ref);
+			this.db.exec("BEGIN IMMEDIATE");
+
+			try {
+				const result = this.db
+					.prepare(
+						"UPDATE jobs SET state='QUEUED', attempts=0, next_at=0, lease_until=0, source_id=NULL, reason=NULL WHERE ref=? AND state != 'RUNNING'",
+					)
+					.run(ref);
+
+				if (result.changes) {
+					this.db.prepare("DELETE FROM request_cache WHERE ref=?").run(ref);
+				}
+
+				this.db.exec("COMMIT");
+			} catch (error) {
+				this.db.exec("ROLLBACK");
+
+				throw error;
+			}
 		}
 
 		return Number(
@@ -95,21 +119,49 @@ export class Store {
 		sourceId: string | null = null,
 		delay = 0,
 	) {
-		this.db
+		const result = this.db
 			.prepare(
 				"UPDATE jobs SET state=?,reason=?,source_id=?,next_at=?,lease_until=0 WHERE ref=? AND lease_until=?",
 			)
 			.run(state, reason, sourceId, Date.now() + delay, job.ref, job.lease_until);
+
+		if (result.changes && state !== "QUEUED") {
+			this.db.prepare("DELETE FROM request_cache WHERE ref=?").run(job.ref);
+		}
+	}
+	defer(job: Job, until: number) {
+		this.db
+			.prepare(
+				"UPDATE jobs SET state='QUEUED',reason='Domain pacing deferred',attempts=max(0,attempts-1),next_at=?,lease_until=0 WHERE ref=? AND lease_until=?",
+			)
+			.run(until, job.ref, job.lease_until);
+	}
+	cooldown(host: string, delay: number) {
+		this.db
+			.prepare(
+				"INSERT INTO domains VALUES(?,?) ON CONFLICT(host) DO UPDATE SET next_at=max(domains.next_at,excluded.next_at)",
+			)
+			.run(host, Date.now() + delay);
 	}
 	slot(host: string, interval: number): number {
+		const now = Date.now();
 		const row = this.db
 			.prepare(
-				`INSERT INTO domains(host,next_at) VALUES(?,?) ON CONFLICT(host) DO UPDATE SET next_at=max(domains.next_at,?)+? RETURNING next_at`,
+				`INSERT INTO domains(host,next_at) VALUES(?,?) ON CONFLICT(host) DO UPDATE SET next_at=max(domains.next_at,?)+? WHERE domains.next_at<=? RETURNING next_at`,
 			)
-			.get(host, Date.now() + interval, Date.now(), interval);
+			.get(host, now + interval, now, interval, now + 30_000);
 
-		return z.object({ next_at: z.number() }).parse(row).next_at - interval;
+		if (row) {
+			return z.object({ next_at: z.number() }).parse(row).next_at - interval;
+		}
+
+		const next = z
+			.object({ next_at: z.number() })
+			.parse(this.db.prepare("SELECT next_at FROM domains WHERE host=?").get(host)).next_at;
+
+		throw new PacingDeferred(next);
 	}
+
 	write(relative: string, data: Buffer | string) {
 		const target = path.join(this.root, relative);
 
@@ -285,14 +337,93 @@ export class Store {
 
 			this.db.prepare("INSERT INTO derivations(source_id) VALUES(?)").run(id);
 
-			this.write(
-				`notes/${id}.md`,
-				`---\n${JSON.stringify(metadata, null, 2)}\n---\n\n# ${capture.title.replace(/[\r\n]/g, " ")}\n\nSaved original. Retrieved ${metadata.fetched_at}.\n\nArtifact: [${first.sha256}](../${first.path})\n\nUse in a claim: \`source:: [[${id}]]\`\n\nClaim relations: \`supports:: [[claim-id]]\`, \`contradicts:: [[claim-id]]\`, \`replaces:: [[claim-id]]\`.\n`,
-			);
+			this.writeNote(metadata);
 		}
 
 		return metadata;
 	}
+	private writeNote(source: Source) {
+		const first = source.artifacts[0];
+
+		if (!first) {
+			throw new Error("Missing source artifact");
+		}
+
+		this.write(
+			`notes/${source.id}.md`,
+			`---\n${JSON.stringify(source, null, 2)}\n---\n\n# ${source.title.replace(/[\r\n]/g, " ")}\n\nSaved original. Retrieved ${source.fetched_at}.\n\nArtifact: [${first.sha256}](../${first.path})\n\nUse in a claim: \`source:: [[${source.id}]]\`\n\nClaim relations: \`supports:: [[claim-id]]\`, \`contradicts:: [[claim-id]]\`, \`replaces:: [[claim-id]]\`.\n`,
+		);
+	}
+	projectPdfMetadata(
+		source: Source,
+		fields: { title: string | null; author: string | null },
+		lease: number,
+	) {
+		const projection = {
+			title: source.title === source.canonical_id ? (fields.title ?? source.title) : source.title,
+			authors: source.authors.length > 0 ? source.authors : fields.author ? [fields.author] : [],
+		};
+		const data = JSON.stringify({
+			role: "DERIVED",
+			original_sha256: source.sha256,
+			extractor: "pdfinfo",
+			...fields,
+		});
+		const artifact = {
+			...this.blob(data, "DERIVED"),
+			role: "DERIVED",
+			original_sha256: source.sha256,
+			mime: "application/json",
+			extractor: "pdfinfo",
+		};
+
+		this.write(`${artifact.path}.json`, JSON.stringify(artifact, null, 2));
+		this.db.exec("BEGIN IMMEDIATE");
+
+		try {
+			if (
+				this.db
+					.prepare(
+						"SELECT 1 FROM derivations WHERE source_id=? AND state='RUNNING' AND lease_until=?",
+					)
+					.get(source.id, lease)
+			) {
+				this.db
+					.prepare(
+						"INSERT INTO source_projections VALUES(?,?,?) ON CONFLICT(source_id) DO UPDATE SET metadata=excluded.metadata,artifact=excluded.artifact",
+					)
+					.run(source.id, JSON.stringify(projection), JSON.stringify(artifact));
+
+				this.db
+					.prepare("UPDATE evidence SET title=?,authors=? WHERE id=?")
+					.run(projection.title, projection.authors.join("; "), source.id);
+
+				this.writeNote({ ...source, ...projection });
+			}
+
+			this.db.exec("COMMIT");
+		} catch (error) {
+			this.db.exec("ROLLBACK");
+
+			throw error;
+		}
+	}
+	private projected(source: Source): Source {
+		const row = this.db
+			.prepare("SELECT metadata FROM source_projections WHERE source_id=?")
+			.get(source.id);
+
+		if (!row) {
+			return source;
+		}
+
+		const fields = z
+			.object({ title: z.string(), authors: z.array(z.string()) })
+			.parse(JSON.parse(z.object({ metadata: z.string() }).parse(row).metadata));
+
+		return { ...source, ...fields };
+	}
+
 	claimDerivation() {
 		const now = Date.now();
 		const row = this.db
@@ -374,7 +505,9 @@ export class Store {
 				return undefined;
 			}
 
-			return this.history(ref).at(-1);
+			const source = this.history(ref).at(-1);
+
+			return source ? this.projected(source) : undefined;
 		}
 
 		const row = this.db.prepare("SELECT metadata FROM sources WHERE id=?").get(ref);
@@ -383,7 +516,9 @@ export class Store {
 			return undefined;
 		}
 
-		return sourceSchema.parse(JSON.parse(z.object({ metadata: z.string() }).parse(row).metadata));
+		return this.projected(
+			sourceSchema.parse(JSON.parse(z.object({ metadata: z.string() }).parse(row).metadata)),
+		);
 	}
 	search(query: string) {
 		return this.db
