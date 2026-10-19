@@ -90,6 +90,29 @@ jobs:
         with:
           cache-prefix: turbo-${{ runner.os }}-${{ runner.arch }}-
           use-relative-cache-path: true
+      # The PDF, OCR and browser controls need system tools; install them only
+      # when vault-cite or its dependencies change, to save CI minutes.
+      - id: vault
+        env:
+          AFFECTED: ${{ needs.select.outputs.affected }}
+          BASE: ${{ needs.select.outputs.base }}
+        run: |
+          if [ "$AFFECTED" != "true" ] || ! git diff --quiet "$BASE" HEAD -- packages/vault-cite pnpm-lock.yaml pnpm-workspace.yaml .github/workflows/ci.yml; then
+            echo "run=true" >> "$GITHUB_OUTPUT"
+          fi
+      - name: Install vault extraction tools
+        if: steps.vault.outputs.run == 'true'
+        run: sudo apt-get update -q && sudo apt-get install -y -q poppler-utils tesseract-ocr tesseract-ocr-eng
+      - name: Install vault test browser
+        if: steps.vault.outputs.run == 'true'
+        run: pnpm --filter @petalnet/vault-cite exec playwright install --with-deps chromium
+      - name: Run vault PDF and OCR tests without task caching
+        if: steps.vault.outputs.run == 'true'
+        env:
+          CITE_BROWSER_TESTS: "1"
+        run: |
+          command -v pdfinfo pdftotext pdftoppm tesseract
+          pnpm --filter @petalnet/vault-cite test --reporter=verbose
       - if: needs.select.outputs.affected == 'true'
         run: pnpm test --affected
       - if: needs.select.outputs.affected != 'true'

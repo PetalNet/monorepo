@@ -51,6 +51,9 @@ export default {
 		"packages/better-auth-effect-qb-adapter": {
 			entry: ["test/**/*.ts"],
 		},
+		"packages/vault-cite": {
+			entry: ["test/**/*.ts"],
+		},
 		"packages/effect-api": {
 			// Strict Knip excludes the provider subpath's optional peer supplied by consumers.
 			ignoreDependencies: ["@better-auth/mcp!"],

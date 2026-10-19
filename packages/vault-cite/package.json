@@ -1,0 +1,31 @@
+{
+	"name": "@petalnet/vault-cite",
+	"version": "0.0.0",
+	"private": true,
+	"bin": {
+		"cite": "./src/cli.ts"
+	},
+	"type": "module",
+	"exports": {
+		".": "./src/index.ts"
+	},
+	"scripts": {
+		"build": "tsc -b",
+		"typecheck": "tsc -b",
+		"test": "vitest run",
+		"cite": "node src/cli.ts"
+	},
+	"dependencies": {
+		"csv-parse": "catalog:",
+		"ipaddr.js": "catalog:",
+		"playwright": "catalog:",
+		"robots-parser": "catalog:",
+		"zod": "catalog:prod"
+	},
+	"devDependencies": {
+		"@petalnet/tsconfig": "workspace:*",
+		"@types/node": "catalog:types",
+		"typescript": "catalog:dev",
+		"vitest": "catalog:dev"
+	}
+}

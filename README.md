@@ -24,6 +24,7 @@ docs/         repository architecture and migration history
 
 - `@petalnet/better-auth-effect-qb-adapter`
 - `@petalnet/effect-api` and `@petalnet/effect-sveltekit`
+- `@petalnet/vault-cite` (primary-source capture and evidence search)
 - `@petalnet/tsconfig`, `@petalnet/types`, `@petalnet/ui`, and `@petalnet/utils`
 
 ## Toolchain

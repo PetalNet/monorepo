@@ -51,6 +51,9 @@ catalogs:
     better-auth:
       specifier: 1.7.7
       version: 1.7.7
+    csv-parse:
+      specifier: 7.0.3
+      version: 7.0.3
     drizzle-kit:
       specifier: 1.0.0-rc.5-5935859
       version: 1.0.0-rc.5-5935859
@@ -66,12 +69,21 @@ catalogs:
     fontless:
       specifier: ^1.2.1
       version: 1.2.1
+    ipaddr.js:
+      specifier: 2.5.0
+      version: 2.5.0
     jose:
       specifier: ^6.2.5
       version: 6.2.8
     mode-watcher:
       specifier: ^1.1.0
       version: 1.1.0
+    playwright:
+      specifier: 1.64.1
+      version: 1.64.1
+    robots-parser:
+      specifier: 3.0.1
+      version: 3.0.1
     storybook:
       specifier: 10.5.10
       version: 10.5.10
@@ -776,6 +788,37 @@ importers:
       typescript:
         specifier: catalog:dev
         version: '@typescript/typescript6@6.0.2'
+
+  packages/vault-cite:
+    dependencies:
+      csv-parse:
+        specifier: 'catalog:'
+        version: 7.0.3
+      ipaddr.js:
+        specifier: 'catalog:'
+        version: 2.5.0
+      playwright:
+        specifier: 'catalog:'
+        version: 1.64.1
+      robots-parser:
+        specifier: 'catalog:'
+        version: 3.0.1
+      zod:
+        specifier: catalog:prod
+        version: 4.6.5
+    devDependencies:
+      '@petalnet/tsconfig':
+        specifier: workspace:*
+        version: link:../tsconfig
+      '@types/node':
+        specifier: catalog:types
+        version: 25.9.4
+      typescript:
+        specifier: catalog:dev
+        version: '@typescript/typescript6@6.0.2'
+      vitest:
+        specifier: 5.0.3
+        version: 5.0.3(@opentelemetry/api@1.9.1)(@types/node@25.9.4)(@vitest/coverage-v8@5.0.3)(happy-dom@21.0.1)(vite@8.3.3(@types/node@25.9.4)(esbuild@0.28.1)(jiti@2.7.0)(tsx@4.22.4)(yaml@2.9.0))
 
   tools:
     devDependencies:
@@ -4031,6 +4074,9 @@ packages:
   csstype@3.2.3:
     resolution: {integrity: sha512-z1HGKcYy2xA8AGQfwrn0PAy+PB7X/GSj3UVJW9qKyn43xWa+gl5nXmU4qqLMRzWVLFC8KusUX8T/0kCiOYpAIQ==}
 
+  csv-parse@7.0.3:
+    resolution: {integrity: sha512-YFd3QM/yo17vH91L1IOZuvl09zM0zEEtdfTcOCKWcMdM++MNaQSyp09slXyFCLaPXvHstQFx/xC8myiFHSMUvw==}
+
   d3-queue@2.0.3:
     resolution: {integrity: sha512-ejbdHqZYEmk9ns/ljSbEcD6VRiuNwAkZMdFf6rsUb3vHROK5iMFd8xewDQnUVr6m/ba2BG63KmR/LySfsluxbg==}
 
@@ -4961,6 +5007,10 @@ packages:
   ipaddr.js@1.9.1:
     resolution: {integrity: sha512-0KI/607xoxSToH7GjN1FfSbLoU0+btTicjsQSWQlh/hZykN8KpmMf7uYwPW3R+akZ6R/w18ZlXSHBYXiYUPO3g==}
     engines: {node: '>= 0.10'}
+
+  ipaddr.js@2.5.0:
+    resolution: {integrity: sha512-aq+t5NAc+cS6rZQQVWC2x98CPqGtKKTMDd4Gaodv0wShnItdKg/51djkGJ1hqH+Oy0ivDftCbSLCQob8zso01w==}
+    engines: {node: '>= 10'}
 
   is-binary-path@2.1.0:
     resolution: {integrity: sha512-ZMERYes6pDydyuGidse7OsHxtbI7WVeUEozgR/g7rd0xUimYNlvZRE/K2MgZTjWy725IfelLeVcEM97mmtRGXw==}
@@ -6001,6 +6051,16 @@ packages:
     resolution: {integrity: sha512-wQ0b/W4Fr01qtpHlqSqspcj3EhBvimsdh0KlHhH8HRZnMsEa0ea2fTULOXOS9ccQr3om+GcGRk4e+isrZWV8qQ==}
     engines: {node: '>=16.20.0'}
 
+  playwright-core@1.64.1:
+    resolution: {integrity: sha512-BC4s8y6SEVA6Q1rSxZTto8hI1KUI3xXlHGZgvGqP4IqPdI/a6FX9H29IDNz7vKo9l21b6LfYosScPL6M3xxyDQ==}
+    engines: {node: '>=20'}
+    hasBin: true
+
+  playwright@1.64.1:
+    resolution: {integrity: sha512-HCrVhHr5QQuwYoswEUGTb7gGp522yflbv/ST8nF4sFWGuLjQCt17Q/EubpGGSNKYn1tsTCPZxqHhHCfVURu7UA==}
+    engines: {node: '>=20'}
+    hasBin: true
+
   pngjs@5.0.0:
     resolution: {integrity: sha512-40QW5YalBNfQo5yRYmiw7Yz6TKKVr3h6970B2YE+3fQpsWcrbj1PzJgxeJ19DRQjhMbKPIuMY8rFaXc8moolVw==}
     engines: {node: '>=10.13.0'}
@@ -6284,6 +6344,10 @@ packages:
   reusify@1.1.0:
     resolution: {integrity: sha512-g6QUff04oZpHs0eG5p83rFLhHeV00ug/Yf9nZM6fLeUrPguBTkTQOdpAWWspMh55TZfVQDPaN3NQJfbVRAxdIw==}
     engines: {iojs: '>=1.0.0', node: '>=0.10.0'}
+
+  robots-parser@3.0.1:
+    resolution: {integrity: sha512-s+pyvQeIKIZ0dx5iJiQk1tPLJAWln39+MI5jtM8wnyws+G5azk+dMnMX0qfbqNetKKNgcWWOdi0sfm+FbQbgdQ==}
+    engines: {node: '>=10.0.0'}
 
   rolldown@1.2.12:
     resolution: {integrity: sha512-8wafseiaG80xmXSfqidUNqZcylTlhmPZZt+za2m+js2sFZ8dTNlhIOV2WcbIPx2hgwPBJpEUGFAMZ9bgBBLTSQ==}
@@ -9749,6 +9813,8 @@ snapshots:
 
   csstype@3.2.3: {}
 
+  csv-parse@7.0.3: {}
+
   d3-queue@2.0.3: {}
 
   daisyui@5.6.18: {}
@@ -10620,6 +10686,8 @@ snapshots:
   ip-address@10.2.0: {}
 
   ipaddr.js@1.9.1: {}
+
+  ipaddr.js@2.5.0: {}
 
   is-binary-path@2.1.0:
     dependencies:
@@ -11769,6 +11837,12 @@ snapshots:
 
   pkce-challenge@5.0.1: {}
 
+  playwright-core@1.64.1: {}
+
+  playwright@1.64.1:
+    dependencies:
+      playwright-core: 1.64.1
+
   pngjs@5.0.0: {}
 
   postcss-import@15.1.0(postcss@8.5.29):
@@ -12067,6 +12141,8 @@ snapshots:
   retry@0.12.0: {}
 
   reusify@1.1.0: {}
+
+  robots-parser@3.0.1: {}
 
   rolldown@1.2.12:
     dependencies:
