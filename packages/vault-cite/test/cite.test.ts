@@ -530,3 +530,60 @@ it("bounds queued extraction retries without losing a saved original", async () 
 
 	expect((await cite.add(ref)).counts.processed).toBe(0);
 });
+
+it.each([
+	"https://arxiv.org.evil.example/abs/1706.03762",
+	"https://fake-arxiv.org/abs/1706.03762",
+	"https://doi.org.evil.example/10.1234/test",
+	"https://example.org/arxiv.org/abs/1706.03762",
+	"https://example.org/?source=https://doi.org/10.1234/test",
+	"https://example.org/sci-hub.se",
+	"https://example.org/?source=https://library.lol/",
+	"https://not-sci-hub.example/",
+])("does not treat URL substrings as source hostnames: %s", (ref) => {
+	expect(normalize(ref)).toBe(new URL(ref).href);
+});
+
+it.each([
+	"https://user:password@arxiv.org/abs/1706.03762",
+	"https://arxiv.org/abs/1706.03762?access_token=secret",
+	"https://doi.org/10.1234/test?api_key=secret",
+])("validates the original URL before canonicalizing a trusted hostname: %s", (ref) => {
+	expect(() => normalize(ref)).toThrow();
+});
+
+it.each([
+	"https://sci-hub.se/",
+	"https://www.sci-hub.se/",
+	"https://libgen.is/",
+	"https://annas-archive.org/",
+	"https://library.lol/",
+	"https://sub.library.lol/",
+])("preserves exact DNS-label shadow-library exclusions: %s", (ref) => {
+	expect(() => normalize(ref)).toThrow("Shadow-library source refused");
+});
+
+it("only dispatches the GitHub resolver for the exact parsed hostname", async () => {
+	const urls: string[] = [];
+	const cite = setup((url) => {
+		urls.push(url);
+
+		return reply(url, url.endsWith("robots.txt") ? "" : "Ordinary text evidence", 200, {
+			"content-type": "text/plain",
+		});
+	});
+
+	for (const ref of [
+		"https://github.com.evil.example/owner/repo",
+		"https://example.org/github.com/owner/repo",
+		"https://github.com@other.example/owner/repo",
+	]) {
+		if (new URL(ref).username) {
+			await expect(cite.add(ref)).rejects.toThrow("without credentials");
+		} else {
+			expect((await cite.add(ref)).source?.canonical_id).toBe(ref);
+		}
+	}
+
+	expect(urls.some((url) => new URL(url).hostname === "api.github.com")).toBe(false);
+});
