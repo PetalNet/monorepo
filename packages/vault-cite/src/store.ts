@@ -153,8 +153,12 @@ export class Store {
 			)
 			.run(host, Date.now() + delay);
 	}
-	/** Reserve one start time that satisfies both the host interval and the all-host spacing. */
-	slot(host: string, interval: number, spacing = 0): number {
+	/**
+	 * Reserve one start time that satisfies both the host interval and the all-host spacing. When the
+	 * host itself is the later constraint, nothing is reserved: holding an all-host slot until then
+	 * would stall every other host. The caller waits until `at` and asks again.
+	 */
+	slot(host: string, interval: number, spacing = 0): { at: number; reserved: boolean } {
 		const now = Date.now();
 		const nextAt = (key: string) => {
 			const row = this.db.prepare("SELECT next_at FROM domains WHERE host=?").get(key);
@@ -175,7 +179,15 @@ export class Store {
 				throw new PacingDeferred(hostNext);
 			}
 
-			const start = Math.max(now, hostNext, spacing ? nextAt(anyHost) : 0);
+			const anyNext = spacing ? nextAt(anyHost) : 0;
+
+			if (spacing && hostNext > Math.max(now, anyNext)) {
+				this.db.exec("COMMIT");
+
+				return { at: hostNext, reserved: false };
+			}
+
+			const start = Math.max(now, hostNext, anyNext);
 
 			upsert.run(host, start + interval);
 
@@ -185,7 +197,7 @@ export class Store {
 
 			this.db.exec("COMMIT");
 
-			return start;
+			return { at: start, reserved: true };
 		} catch (error) {
 			this.db.exec("ROLLBACK");
 

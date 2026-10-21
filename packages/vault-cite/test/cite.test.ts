@@ -269,6 +269,18 @@ describe("network policy and worker", () => {
 		expect((one[1]?.at ?? 0) - (one[0]?.at ?? 0)).toBeGreaterThanOrEqual(900);
 	}, 20_000);
 
+	it("does not hold other hosts behind a host that is still pacing", () => {
+		const cite = setup(pdfTransport);
+
+		cite.store.cooldown("slow.example", 20_000);
+		const slow = cite.store.slot("slow.example", 3000, 400);
+		const fast = cite.store.slot("fast.example", 3000, 400);
+
+		expect(slow.reserved).toBe(false);
+		expect(fast).toMatchObject({ reserved: true });
+		expect(fast.at).toBeLessThan(Date.now() + 1000);
+	});
+
 	it("spaces requests across different hosts", async () => {
 		const starts: number[] = [];
 		const store = new Store(mkdtempSync(path.join(process.cwd(), ".cite-test-")));
@@ -418,10 +430,10 @@ describe("network policy and worker", () => {
 		const other = new Store(cite.store.root);
 
 		try {
-			const first = cite.store.slot("example.org", 3000);
+			const first = cite.store.slot("example.org", 3000).at;
 
-			expect(other.slot("example.org", 3000) - first).toBeGreaterThanOrEqual(3000);
-			expect(other.slot("different.org", 3000)).toBeLessThan(first + 3000);
+			expect(other.slot("example.org", 3000).at - first).toBeGreaterThanOrEqual(3000);
+			expect(other.slot("different.org", 3000).at).toBeLessThan(first + 3000);
 		} finally {
 			other.close();
 		}
