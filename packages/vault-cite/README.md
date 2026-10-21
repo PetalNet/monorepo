@@ -135,7 +135,9 @@ the same robots and domain pacing checks. A robots client error other than 401, 
 410, or the 422 that Unpaywall's API returns) permits access, per RFC 9309.
 Authentication failures, rate limits, server errors, and disallows do not. Workers persist per-host pacing, defaulting to three seconds between request
 starts, and space requests across all hosts at least 400 ms apart. Requests send
-a `VaultCite/0.1` User-Agent that links to this package. Temporary failures use exponential backoff and Retry-After. Public DNS
+a `VaultCite/0.1` User-Agent that links to this package. Temporary failures use exponential backoff and Retry-After. A 429, or a 403
+carrying Retry-After or an exhausted `X-RateLimit-Remaining` (as GitHub sends),
+is a rate limit: the host cools down until the reset and the job retries. Public DNS
 addresses are validated and pinned for the connection. Private networks,
 credential-bearing URLs and shadow-library hosts are refused. There is no access
 bypass or alternate shadow-library resolver.

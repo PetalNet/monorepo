@@ -243,7 +243,7 @@ export class Network {
 
 		reply.fetchedAt ??= new Date().toISOString();
 
-		if (reply.status === 429 || reply.status === 503) {
+		if (rateLimited(reply) || reply.status === 503) {
 			this.store.cooldown(host, Math.max(30_000, retryDelay(reply)));
 		}
 
@@ -313,7 +313,9 @@ export class Network {
 				policy = robotsParser(`${origin}/robots.txt`, decoded(response).toString());
 			} else {
 				throw new CaptureError(
-					response.status === 401 || response.status === 403 ? "INACCESSIBLE" : "RETRY",
+					!rateLimited(response) && (response.status === 401 || response.status === 403)
+						? "INACCESSIBLE"
+						: "RETRY",
 					`Robots unavailable (HTTP ${String(response.status)})`,
 					retryDelay(response),
 				);
@@ -355,6 +357,14 @@ export class Network {
 				continue;
 			}
 
+			if (rateLimited(response)) {
+				throw new CaptureError(
+					"RETRY",
+					`Rate limited (HTTP ${String(response.status)})`,
+					retryDelay(response),
+				);
+			}
+
 			if ([401, 402, 403, 451].includes(response.status)) {
 				throw new CaptureError(
 					"INACCESSIBLE",
@@ -383,11 +393,22 @@ export class Network {
 	}
 }
 
+// GitHub signals an exhausted quota with 403 plus rate-limit headers, not only with 429.
+function rateLimited(reply: Reply): boolean {
+	return (
+		reply.status === 429 ||
+		(reply.status === 403 &&
+			(reply.headers["x-ratelimit-remaining"] === "0" || "retry-after" in reply.headers))
+	);
+}
+
 function retryDelay(reply: Reply): number {
 	const value = reply.headers["retry-after"];
 
 	if (!value) {
-		return 0;
+		const reset = Number(reply.headers["x-ratelimit-reset"]);
+
+		return Number.isFinite(reset) ? Math.max(0, reset * 1000 - Date.now()) : 0;
 	}
 
 	const seconds = Number(value);
