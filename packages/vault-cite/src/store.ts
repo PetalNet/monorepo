@@ -27,6 +27,7 @@ import {
 import type { Artifact, Capture, Job, Source } from "./model.ts";
 
 const reserve = 35 * 1024 ** 3;
+const anyHost = "*";
 
 export function diskGuard(root: string, incoming = 0): void {
 	for (const diskPath of new Set([root, process.cwd()])) {
@@ -50,7 +51,18 @@ export class Store {
 		// Modes apply only at creation; an existing root keeps its permissions, such as NFS ACLs that refuse chmod.
 		mkdirSync(this.root, { recursive: true, mode: 0o700 });
 		diskGuard(this.root);
-		this.db = new DatabaseSync(path.join(this.root, "index-v2.sqlite"));
+		const database = path.join(this.root, "index-v2.sqlite");
+
+		// SQLite would create the file with the umask mode; its WAL and journal inherit the main file's mode.
+		try {
+			closeSync(openSync(database, "wx", 0o600));
+		} catch (error) {
+			if (!(error instanceof Error && "code" in error && error.code === "EEXIST")) {
+				throw error;
+			}
+		}
+
+		this.db = new DatabaseSync(database);
 
 		this.db.exec(`PRAGMA foreign_keys=ON; PRAGMA journal_mode=WAL; PRAGMA busy_timeout=5000;
    CREATE TABLE IF NOT EXISTS jobs(ref TEXT PRIMARY KEY, state TEXT NOT NULL, attempts INTEGER NOT NULL DEFAULT 0, next_at REAL NOT NULL DEFAULT 0, lease_until REAL NOT NULL DEFAULT 0, source_id TEXT, reason TEXT);
@@ -141,23 +153,44 @@ export class Store {
 			)
 			.run(host, Date.now() + delay);
 	}
-	slot(host: string, interval: number): number {
+	/** Reserve one start time that satisfies both the host interval and the all-host spacing. */
+	slot(host: string, interval: number, spacing = 0): number {
 		const now = Date.now();
-		const row = this.db
-			.prepare(
-				`INSERT INTO domains(host,next_at) VALUES(?,?) ON CONFLICT(host) DO UPDATE SET next_at=max(domains.next_at,?)+? WHERE domains.next_at<=? RETURNING next_at`,
-			)
-			.get(host, now + interval, now, interval, now + 30_000);
+		const nextAt = (key: string) => {
+			const row = this.db.prepare("SELECT next_at FROM domains WHERE host=?").get(key);
 
-		if (row) {
-			return z.object({ next_at: z.number() }).parse(row).next_at - interval;
+			return row ? z.object({ next_at: z.number() }).parse(row).next_at : 0;
+		};
+
+		const upsert = this.db.prepare(
+			"INSERT INTO domains VALUES(?,?) ON CONFLICT(host) DO UPDATE SET next_at=excluded.next_at",
+		);
+
+		this.db.exec("BEGIN IMMEDIATE");
+
+		try {
+			const hostNext = nextAt(host);
+
+			if (hostNext > now + 30_000) {
+				throw new PacingDeferred(hostNext);
+			}
+
+			const start = Math.max(now, hostNext, spacing ? nextAt(anyHost) : 0);
+
+			upsert.run(host, start + interval);
+
+			if (spacing) {
+				upsert.run(anyHost, start + spacing);
+			}
+
+			this.db.exec("COMMIT");
+
+			return start;
+		} catch (error) {
+			this.db.exec("ROLLBACK");
+
+			throw error;
 		}
-
-		const next = z
-			.object({ next_at: z.number() })
-			.parse(this.db.prepare("SELECT next_at FROM domains WHERE host=?").get(host)).next_at;
-
-		throw new PacingDeferred(next);
 	}
 
 	write(relative: string, data: Buffer | string) {

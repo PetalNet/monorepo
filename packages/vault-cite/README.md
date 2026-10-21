@@ -36,8 +36,9 @@ Use `add --refresh` to explicitly retry a terminal capture.
 
 `CITE_ROOT` selects the private storage root. Its default is
 `/home/docker/vault-data/sources`; set it to the approved NAS mount at rollout.
-New files are created with mode 0600 and a new root with mode 0700. An existing
-root keeps its permissions, so an ACL-managed NFS share that refuses `chmod` works. This package does not configure
+New files, including a new `index-v2.sqlite` and its WAL, are created with mode
+0600 and a new root with mode 0700. An existing root or database keeps its
+permissions, so an ACL-managed NFS share that refuses `chmod` works. This package does not configure
 NAS mounts, services, cron, agent profiles, or production hooks.
 
 For page capture, install Chromium with

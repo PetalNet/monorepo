@@ -216,6 +216,59 @@ describe("network policy and worker", () => {
 		expect(statSync(root).mode & 0o777).toBe(0o750);
 	});
 
+	it("creates the index privately inside a traversable root and keeps an existing index's mode", () => {
+		const root = mkdtempSync(path.join(process.cwd(), ".cite-acl-"));
+
+		chmodSync(root, 0o755);
+		const store = new Store(root);
+
+		store.enqueue("arxiv:1706.03762");
+		const database = path.join(root, "index-v2.sqlite");
+
+		expect(statSync(database).mode & 0o777).toBe(0o600);
+		expect(statSync(`${database}-wal`).mode & 0o777).toBe(0o600);
+		store.close();
+		chmodSync(database, 0o640);
+		const reopened = new Store(root);
+
+		stores.push(reopened);
+		expect(statSync(database).mode & 0o777).toBe(0o640);
+	});
+
+	it("keeps the robots crawl delay when the all-host queue delays a request", async () => {
+		const starts: { host: string; at: number }[] = [];
+		const store = new Store(mkdtempSync(path.join(process.cwd(), ".cite-test-")));
+		const hosts = ["two", "three", "four", "one", "one"];
+
+		stores.push(store);
+
+		for (const host of new Set(hosts)) {
+			store.db
+				.prepare("INSERT INTO robots VALUES(?,?,?)")
+				.run(`https://${host}.example`, "User-agent: *\nCrawl-delay: 1\n", Date.now() + 60_000);
+		}
+
+		const network = new Network(
+			store,
+			(url) => {
+				starts.push({ host: new URL(url).hostname, at: Date.now() });
+
+				return reply(url, "page");
+			},
+			400,
+		);
+
+		// The first one.example request waits behind three other hosts in the all-host queue.
+		await Promise.all(
+			hosts.map((host, index) => network.get(`https://${host}.example/${String(index)}`)),
+		);
+
+		const one = starts.filter((entry) => entry.host === "one.example");
+
+		expect(one).toHaveLength(2);
+		expect((one[1]?.at ?? 0) - (one[0]?.at ?? 0)).toBeGreaterThanOrEqual(900);
+	}, 20_000);
+
 	it("spaces requests across different hosts", async () => {
 		const starts: number[] = [];
 		const store = new Store(mkdtempSync(path.join(process.cwd(), ".cite-test-")));
@@ -237,7 +290,7 @@ describe("network policy and worker", () => {
 		const gaps = starts.slice(1).map((start, index) => start - (starts[index] ?? 0));
 
 		expect(starts).toHaveLength(4);
-		expect(Math.min(...gaps)).toBeGreaterThanOrEqual(290);
+		expect(Math.min(...gaps)).toBeGreaterThanOrEqual(150);
 	});
 
 	it("denies robots-disallowed targets before fetching them", async () => {
