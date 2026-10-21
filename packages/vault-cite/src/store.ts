@@ -1,6 +1,5 @@
 import { createHash } from "node:crypto";
 import {
-	chmodSync,
 	openSync,
 	closeSync,
 	fsyncSync,
@@ -48,11 +47,10 @@ export class Store {
 	readonly db: DatabaseSync;
 	constructor(root: string) {
 		this.root = path.resolve(root);
+		// Modes apply only at creation; an existing root keeps its permissions, such as NFS ACLs that refuse chmod.
 		mkdirSync(this.root, { recursive: true, mode: 0o700 });
-		chmodSync(this.root, 0o700);
 		diskGuard(this.root);
 		this.db = new DatabaseSync(path.join(this.root, "index-v2.sqlite"));
-		chmodSync(path.join(this.root, "index-v2.sqlite"), 0o600);
 
 		this.db.exec(`PRAGMA foreign_keys=ON; PRAGMA journal_mode=WAL; PRAGMA busy_timeout=5000;
    CREATE TABLE IF NOT EXISTS jobs(ref TEXT PRIMARY KEY, state TEXT NOT NULL, attempts INTEGER NOT NULL DEFAULT 0, next_at REAL NOT NULL DEFAULT 0, lease_until REAL NOT NULL DEFAULT 0, source_id TEXT, reason TEXT);

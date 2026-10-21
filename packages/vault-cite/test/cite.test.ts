@@ -2,7 +2,7 @@ import { spawnSync } from "node:child_process";
 /* oxlint-disable eslint/no-await-in-loop -- Sequential processing bounds resource use and preserves pacing, redirect and retry order. */
 import { createHash } from "node:crypto";
 import type * as fs from "node:fs";
-import { mkdtempSync, readFileSync, rmSync, statSync } from "node:fs";
+import { chmodSync, mkdtempSync, readFileSync, rmSync, statSync } from "node:fs";
 import path from "node:path";
 import { gzipSync } from "node:zlib";
 
@@ -206,6 +206,40 @@ describe("capture and search", () => {
 });
 
 describe("network policy and worker", () => {
+	it("leaves an existing root's permissions alone", () => {
+		const root = mkdtempSync(path.join(process.cwd(), ".cite-acl-"));
+
+		chmodSync(root, 0o750);
+		const store = new Store(root);
+
+		stores.push(store);
+		expect(statSync(root).mode & 0o777).toBe(0o750);
+	});
+
+	it("spaces requests across different hosts", async () => {
+		const starts: number[] = [];
+		const store = new Store(mkdtempSync(path.join(process.cwd(), ".cite-test-")));
+
+		stores.push(store);
+
+		const network = new Network(
+			store,
+			(url) => {
+				starts.push(Date.now());
+
+				return reply(url, url.endsWith("/robots.txt") ? "" : "page");
+			},
+			300,
+		);
+
+		await network.get("https://one.example/a");
+		await network.get("https://two.example/b");
+		const gaps = starts.slice(1).map((start, index) => start - (starts[index] ?? 0));
+
+		expect(starts).toHaveLength(4);
+		expect(Math.min(...gaps)).toBeGreaterThanOrEqual(290);
+	});
+
 	it("denies robots-disallowed targets before fetching them", async () => {
 		const urls: string[] = [];
 		const cite = setup((url) => {
