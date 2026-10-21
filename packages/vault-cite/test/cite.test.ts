@@ -325,6 +325,29 @@ describe("network policy and worker", () => {
 		expect(urls.includes("https://api.example/v2/item")).toBe(permitted);
 	});
 
+	it("retries a GitHub-style 403 rate limit instead of recording it as restricted", async () => {
+		const reset = Math.ceil(Date.now() / 1000) + 600;
+		const cite = setup((url) =>
+			url.endsWith("/robots.txt")
+				? reply(url, "")
+				: reply(url, "{}", 403, {
+						"x-ratelimit-remaining": "0",
+						"x-ratelimit-reset": String(reset),
+					}),
+		);
+		const result = await cite.add("https://github.com/PetalNet/monorepo");
+
+		expect(result.counts.retried).toBe(1);
+		expect(result.job).toMatchObject({ state: "QUEUED", reason: "Rate limited (HTTP 403)" });
+		expect(result.job?.next_at).toBeGreaterThanOrEqual(reset * 1000 - 1000);
+
+		const cooldown = cite.store.db
+			.prepare("SELECT next_at FROM domains WHERE host='api.github.com'")
+			.get() as { next_at: number };
+
+		expect(cooldown.next_at).toBeGreaterThanOrEqual(reset * 1000 - 1000);
+	});
+
 	it("denies robots-disallowed targets before fetching them", async () => {
 		const urls: string[] = [];
 		const cite = setup((url) => {
