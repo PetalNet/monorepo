@@ -293,6 +293,38 @@ describe("network policy and worker", () => {
 		expect(Math.min(...gaps)).toBeGreaterThanOrEqual(150);
 	});
 
+	it.each([
+		[422, true],
+		[404, true],
+		[403, false],
+		[429, false],
+	])("treats a robots HTTP %i as permitting capture: %s", async (status, permitted) => {
+		const urls: string[] = [];
+		const store = new Store(mkdtempSync(path.join(process.cwd(), ".cite-test-")));
+
+		stores.push(store);
+
+		const network = new Network(
+			store,
+			(url) => {
+				urls.push(url);
+
+				return url.endsWith("/robots.txt") ? reply(url, "{}", status) : reply(url, "page");
+			},
+			0,
+		);
+		const result = network.get("https://api.example/v2/item").then(
+			(response) => response.status,
+			(error: unknown) => (error instanceof Error ? error.message : "error"),
+		);
+
+		await (permitted
+			? expect(result).resolves.toBe(200)
+			: expect(result).resolves.toContain(`Robots unavailable (HTTP ${String(status)})`));
+
+		expect(urls.includes("https://api.example/v2/item")).toBe(permitted);
+	});
+
 	it("denies robots-disallowed targets before fetching them", async () => {
 		const urls: string[] = [];
 		const cite = setup((url) => {

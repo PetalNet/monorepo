@@ -131,9 +131,9 @@ are retained untouched and are not imported or relabelled as originals. Recaptur
 those references with v2 to establish trustworthy original/derived provenance.
 
 All downloads, including browser assets and redirect destinations, pass through
-the same robots and domain pacing checks. A missing robots file (404/410) permits
-access; authentication failures, unavailable robots responses, and disallows do
-not. Workers persist per-host pacing, defaulting to three seconds between request
+the same robots and domain pacing checks. A robots client error other than 401, 403 or 429 (for example 404,
+410, or the 422 that Unpaywall's API returns) permits access, per RFC 9309.
+Authentication failures, rate limits, server errors, and disallows do not. Workers persist per-host pacing, defaulting to three seconds between request
 starts, and space requests across all hosts at least 400 ms apart. Requests send
 a `VaultCite/0.1` User-Agent that links to this package. Temporary failures use exponential backoff and Retry-After. Public DNS
 addresses are validated and pinned for the connection. Private networks,

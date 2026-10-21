@@ -298,7 +298,13 @@ export class Network {
 				throw new CaptureError("RETRY", "Robots unavailable");
 			}
 
-			if (response.status === 404 || response.status === 410) {
+			// RFC 9309 2.3.1.3: a 4xx robots response is unavailable, so access is allowed. Auth failures and
+			// rate limits stay closed. API hosts such as Unpaywall answer every unknown path with 422.
+			if (
+				response.status >= 400 &&
+				response.status < 500 &&
+				![401, 403, 429].includes(response.status)
+			) {
 				policy = robotsParser(`${origin}/robots.txt`, "");
 			} else if (
 				response.status === 200 &&
