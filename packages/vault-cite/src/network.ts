@@ -27,7 +27,7 @@ import { CaptureError, httpUrl } from "./model.ts";
 import { diskGuard } from "./store.ts";
 import type { Store } from "./store.ts";
 
-const agent = "VaultCite/0.1";
+const agent = "VaultCite/0.1 (+https://github.com/PetalNet/monorepo/tree/main/packages/vault-cite)";
 const maxBytes = 32 * 1024 ** 2;
 
 export interface Reply {
@@ -235,9 +235,10 @@ export class Network {
 		diskGuard(this.store.root, maxBytes);
 		const host = new URL(url).hostname;
 
-		const wait = Math.max(0, this.store.slot(host, delay) - Date.now());
+		// Per-host pacing alone lets a crawl over many hosts burst; cap the overall request rate too.
+		const start = this.store.slot(host, delay, Math.min(this.interval, 400));
 
-		await sleep(wait);
+		await sleep(Math.max(0, start - Date.now()));
 		const reply = await this.transport(url);
 
 		reply.fetchedAt ??= new Date().toISOString();

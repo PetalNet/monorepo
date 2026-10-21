@@ -36,7 +36,9 @@ Use `add --refresh` to explicitly retry a terminal capture.
 
 `CITE_ROOT` selects the private storage root. Its default is
 `/home/docker/vault-data/sources`; set it to the approved NAS mount at rollout.
-Files have mode 0600 and the root has mode 0700. This package does not configure
+New files, including a new `index-v2.sqlite` and its WAL, are created with mode
+0600 and a new root with mode 0700. An existing root or database keeps its
+permissions, so an ACL-managed NFS share that refuses `chmod` works. This package does not configure
 NAS mounts, services, cron, agent profiles, or production hooks.
 
 For page capture, install Chromium with
@@ -132,7 +134,8 @@ All downloads, including browser assets and redirect destinations, pass through
 the same robots and domain pacing checks. A missing robots file (404/410) permits
 access; authentication failures, unavailable robots responses, and disallows do
 not. Workers persist per-host pacing, defaulting to three seconds between request
-starts. Temporary failures use exponential backoff and Retry-After. Public DNS
+starts, and space requests across all hosts at least 400 ms apart. Requests send
+a `VaultCite/0.1` User-Agent that links to this package. Temporary failures use exponential backoff and Retry-After. Public DNS
 addresses are validated and pinned for the connection. Private networks,
 credential-bearing URLs and shadow-library hosts are refused. There is no access
 bypass or alternate shadow-library resolver.
