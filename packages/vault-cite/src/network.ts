@@ -236,14 +236,21 @@ export class Network {
 		const host = new URL(url).hostname;
 
 		// Per-host pacing alone lets a crawl over many hosts burst; cap the overall request rate too.
-		const start = this.store.slot(host, delay, Math.min(this.interval, 400));
+		for (;;) {
+			const slot = this.store.slot(host, delay, Math.min(this.interval, 400));
 
-		await sleep(Math.max(0, start - Date.now()));
+			await sleep(Math.max(0, slot.at - Date.now()));
+
+			if (slot.reserved) {
+				break;
+			}
+		}
+
 		const reply = await this.transport(url);
 
 		reply.fetchedAt ??= new Date().toISOString();
 
-		if (reply.status === 429 || reply.status === 503) {
+		if (rateLimited(reply) || reply.status === 503) {
 			this.store.cooldown(host, Math.max(30_000, retryDelay(reply)));
 		}
 
@@ -298,7 +305,13 @@ export class Network {
 				throw new CaptureError("RETRY", "Robots unavailable");
 			}
 
-			if (response.status === 404 || response.status === 410) {
+			// RFC 9309 2.3.1.3: a 4xx robots response is unavailable, so access is allowed. Auth failures and
+			// rate limits stay closed. API hosts such as Unpaywall answer every unknown path with 422.
+			if (
+				response.status >= 400 &&
+				response.status < 500 &&
+				![401, 403, 429].includes(response.status)
+			) {
 				policy = robotsParser(`${origin}/robots.txt`, "");
 			} else if (
 				response.status === 200 &&
@@ -307,7 +320,9 @@ export class Network {
 				policy = robotsParser(`${origin}/robots.txt`, decoded(response).toString());
 			} else {
 				throw new CaptureError(
-					response.status === 401 || response.status === 403 ? "INACCESSIBLE" : "RETRY",
+					!rateLimited(response) && (response.status === 401 || response.status === 403)
+						? "INACCESSIBLE"
+						: "RETRY",
 					`Robots unavailable (HTTP ${String(response.status)})`,
 					retryDelay(response),
 				);
@@ -349,6 +364,14 @@ export class Network {
 				continue;
 			}
 
+			if (rateLimited(response)) {
+				throw new CaptureError(
+					"RETRY",
+					`Rate limited (HTTP ${String(response.status)})`,
+					retryDelay(response),
+				);
+			}
+
 			if ([401, 402, 403, 451].includes(response.status)) {
 				throw new CaptureError(
 					"INACCESSIBLE",
@@ -377,11 +400,22 @@ export class Network {
 	}
 }
 
+// GitHub signals an exhausted quota with 403 plus rate-limit headers, not only with 429.
+function rateLimited(reply: Reply): boolean {
+	return (
+		reply.status === 429 ||
+		(reply.status === 403 &&
+			(reply.headers["x-ratelimit-remaining"] === "0" || "retry-after" in reply.headers))
+	);
+}
+
 function retryDelay(reply: Reply): number {
 	const value = reply.headers["retry-after"];
 
 	if (!value) {
-		return 0;
+		const reset = Number(reply.headers["x-ratelimit-reset"]);
+
+		return Number.isFinite(reset) ? Math.max(0, reset * 1000 - Date.now()) : 0;
 	}
 
 	const seconds = Number(value);

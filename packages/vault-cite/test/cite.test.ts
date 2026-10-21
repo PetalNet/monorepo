@@ -269,6 +269,18 @@ describe("network policy and worker", () => {
 		expect((one[1]?.at ?? 0) - (one[0]?.at ?? 0)).toBeGreaterThanOrEqual(900);
 	}, 20_000);
 
+	it("does not hold other hosts behind a host that is still pacing", () => {
+		const cite = setup(pdfTransport);
+
+		cite.store.cooldown("slow.example", 20_000);
+		const slow = cite.store.slot("slow.example", 3000, 400);
+		const fast = cite.store.slot("fast.example", 3000, 400);
+
+		expect(slow.reserved).toBe(false);
+		expect(fast).toMatchObject({ reserved: true });
+		expect(fast.at).toBeLessThan(Date.now() + 1000);
+	});
+
 	it("spaces requests across different hosts", async () => {
 		const starts: number[] = [];
 		const store = new Store(mkdtempSync(path.join(process.cwd(), ".cite-test-")));
@@ -291,6 +303,61 @@ describe("network policy and worker", () => {
 
 		expect(starts).toHaveLength(4);
 		expect(Math.min(...gaps)).toBeGreaterThanOrEqual(150);
+	});
+
+	it.each([
+		[422, true],
+		[404, true],
+		[403, false],
+		[429, false],
+	])("treats a robots HTTP %i as permitting capture: %s", async (status, permitted) => {
+		const urls: string[] = [];
+		const store = new Store(mkdtempSync(path.join(process.cwd(), ".cite-test-")));
+
+		stores.push(store);
+
+		const network = new Network(
+			store,
+			(url) => {
+				urls.push(url);
+
+				return url.endsWith("/robots.txt") ? reply(url, "{}", status) : reply(url, "page");
+			},
+			0,
+		);
+		const result = network.get("https://api.example/v2/item").then(
+			(response) => response.status,
+			(error: unknown) => (error instanceof Error ? error.message : "error"),
+		);
+
+		await (permitted
+			? expect(result).resolves.toBe(200)
+			: expect(result).resolves.toContain(`Robots unavailable (HTTP ${String(status)})`));
+
+		expect(urls.includes("https://api.example/v2/item")).toBe(permitted);
+	});
+
+	it("retries a GitHub-style 403 rate limit instead of recording it as restricted", async () => {
+		const reset = Math.ceil(Date.now() / 1000) + 600;
+		const cite = setup((url) =>
+			url.endsWith("/robots.txt")
+				? reply(url, "")
+				: reply(url, "{}", 403, {
+						"x-ratelimit-remaining": "0",
+						"x-ratelimit-reset": String(reset),
+					}),
+		);
+		const result = await cite.add("https://github.com/PetalNet/monorepo");
+
+		expect(result.counts.retried).toBe(1);
+		expect(result.job).toMatchObject({ state: "QUEUED", reason: "Rate limited (HTTP 403)" });
+		expect(result.job?.next_at).toBeGreaterThanOrEqual(reset * 1000 - 1000);
+
+		const cooldown = cite.store.db
+			.prepare("SELECT next_at FROM domains WHERE host='api.github.com'")
+			.get() as { next_at: number };
+
+		expect(cooldown.next_at).toBeGreaterThanOrEqual(reset * 1000 - 1000);
 	});
 
 	it("denies robots-disallowed targets before fetching them", async () => {
@@ -363,10 +430,10 @@ describe("network policy and worker", () => {
 		const other = new Store(cite.store.root);
 
 		try {
-			const first = cite.store.slot("example.org", 3000);
+			const first = cite.store.slot("example.org", 3000).at;
 
-			expect(other.slot("example.org", 3000) - first).toBeGreaterThanOrEqual(3000);
-			expect(other.slot("different.org", 3000)).toBeLessThan(first + 3000);
+			expect(other.slot("example.org", 3000).at - first).toBeGreaterThanOrEqual(3000);
+			expect(other.slot("different.org", 3000).at).toBeLessThan(first + 3000);
 		} finally {
 			other.close();
 		}
