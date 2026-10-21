@@ -236,9 +236,16 @@ export class Network {
 		const host = new URL(url).hostname;
 
 		// Per-host pacing alone lets a crawl over many hosts burst; cap the overall request rate too.
-		const start = this.store.slot(host, delay, Math.min(this.interval, 400));
+		for (;;) {
+			const slot = this.store.slot(host, delay, Math.min(this.interval, 400));
 
-		await sleep(Math.max(0, start - Date.now()));
+			await sleep(Math.max(0, slot.at - Date.now()));
+
+			if (slot.reserved) {
+				break;
+			}
+		}
+
 		const reply = await this.transport(url);
 
 		reply.fetchedAt ??= new Date().toISOString();
