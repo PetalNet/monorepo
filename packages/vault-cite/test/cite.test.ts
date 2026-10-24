@@ -337,6 +337,35 @@ describe("network policy and worker", () => {
 		expect(urls.includes("https://api.example/v2/item")).toBe(permitted);
 	});
 
+	it("parses an HTML robots page as having no rules", async () => {
+		const urls: string[] = [];
+		const store = new Store(mkdtempSync(path.join(process.cwd(), ".cite-test-")));
+
+		stores.push(store);
+
+		const network = new Network(
+			store,
+			(url) => {
+				urls.push(url);
+
+				return url.endsWith("/robots.txt")
+					? reply(
+							url,
+							"<!DOCTYPE html><html><head><title>App</title></head><body></body></html>",
+							200,
+							{
+								"content-type": "text/html",
+							},
+						)
+					: reply(url, "page");
+			},
+			0,
+		);
+
+		await expect(network.get("https://spa.example/jobs/1")).resolves.toMatchObject({ status: 200 });
+		expect(urls).toEqual(["https://spa.example/robots.txt", "https://spa.example/jobs/1"]);
+	});
+
 	it("retries a GitHub-style 403 rate limit instead of recording it as restricted", async () => {
 		const reset = Math.ceil(Date.now() / 1000) + 600;
 		const cite = setup((url) =>
