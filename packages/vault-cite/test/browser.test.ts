@@ -276,3 +276,114 @@ it.skipIf(!process.env["CITE_BROWSER_TESTS"])(
 	},
 	30_000,
 );
+
+it.skipIf(!process.env["CITE_BROWSER_TESTS"])(
+	"reproduces computed styles without repeating custom properties on every element",
+	async () => {
+		const tokens = Array.from(
+			{ length: 300 },
+			(_, index) => `--token-${String(index)}: "Design Token Font ${String(index)}", sans-serif;`,
+		).join("");
+		const css = `:root{${tokens}--brand:rgb(0, 128, 0)}
+body{font-family:Georgia,serif;color:var(--brand);line-height:1.6}
+h1{font-weight:400;color:rgb(255, 0, 0)}
+.card{border:2px solid rgb(0, 0, 255);padding:12px;text-underline-offset:4px}
+.card p{text-underline-offset:auto}
+em{font-style:normal}
+li{list-style-type:square}
+.row{display:block;margin:0}`;
+		const body = `<main><h1>Heading styled by tokens</h1><section class="card"><p>Primary source paragraph with <em>plain emphasis</em> and <a href="/next">a link</a>, long enough to pass admission.</p><ul><li>One</li><li>Two</li></ul></section><div>${'<span class="row">Row text</span>'.repeat(1500)}</div></main>`;
+		const page = `<!doctype html><html><head><title>Fidelity</title><link rel="stylesheet" href="/style.css"></head><body>${body}</body></html>`;
+		const cite = setup((url) =>
+			reply(
+				url,
+				url.endsWith("robots.txt") ? "" : url.endsWith("style.css") ? css : page,
+				url.endsWith("style.css") ? "text/css" : "text/html",
+			),
+		);
+		const result = await cite.add("https://publisher.example/tokens");
+
+		expect(result.job?.state, result.job?.reason ?? "").toBe("SAVED");
+		const snapshot = result.source?.artifacts.find(
+			(item) => item.role === "DERIVED" && item.mime === "text/html",
+		);
+
+		if (!snapshot) {
+			throw new Error("Missing snapshot");
+		}
+
+		const html = readFileSync(path.join(cite.store.root, snapshot.path), "utf8");
+
+		expect(html).not.toContain("--token-");
+		expect(html.length).toBeLessThan(1024 ** 2);
+
+		const browser = await chromium.launch({
+			...(process.env["CITE_CHROMIUM_EXECUTABLE"]
+				? { executablePath: process.env["CITE_CHROMIUM_EXECUTABLE"] }
+				: {}),
+			headless: true,
+		});
+
+		try {
+			const styles = async (content: string) => {
+				const tab = await browser.newPage();
+
+				await tab.setContent(content);
+
+				return tab.evaluate(() =>
+					[...document.body.querySelectorAll("*")].map((element) => {
+						const style = getComputedStyle(element);
+
+						return Object.fromEntries(
+							[...style]
+								.filter((key) => !key.startsWith("--"))
+								.map((key) => [
+									key,
+									// Inlined lengths re-snap to layout units; ignore sub-0.05px drift.
+									style
+										.getPropertyValue(key)
+										.replace(/\d+\.\d+/g, (number) => Number(number).toFixed(1)),
+								]),
+						);
+					}),
+				);
+			};
+			const expected = await styles(
+				page.replace('<link rel="stylesheet" href="/style.css">', `<style>${css}</style>`),
+			);
+			const actual = await styles(html);
+
+			expect(actual).toHaveLength(expected.length);
+			const mismatches = expected.flatMap((properties, index) =>
+				Object.entries(properties)
+					.filter(([key, value]) => actual[index]?.[key] !== value)
+					.map(
+						([key, value]) => `${String(index)} ${key}: ${value} -> ${actual[index]?.[key] ?? ""}`,
+					),
+			);
+
+			expect(mismatches).toEqual([]);
+		} finally {
+			await browser.close();
+		}
+	},
+	60_000,
+);
+
+it.skipIf(!process.env["CITE_BROWSER_TESTS"])(
+	"fails a page whose rendered snapshot exceeds the size limit",
+	async () => {
+		const image = Buffer.alloc(1024 ** 2, 1);
+		const page = `<!doctype html><html><head><title>Repeated image</title></head><body><p>Primary source text repeated alongside one large image used many times on the page.</p>${'<img src="/big.png">'.repeat(40)}</body></html>`;
+		const cite = setup((url) =>
+			url.endsWith("big.png")
+				? reply(url, image, "image/png")
+				: reply(url, url.endsWith("robots.txt") ? "" : page),
+		);
+		const result = await cite.add("https://publisher.example/repeated-image");
+
+		expect(result.job?.state).toBe("FAILED");
+		expect(result.job?.reason).toBe("Rendered snapshot exceeds 32 MiB limit");
+	},
+	60_000,
+);
