@@ -31,9 +31,11 @@ export type CellResult =
 
 export type Define = (id: CellId, expr: string) => CellOutcome;
 
-/** Cell-like names, in the grid or not, outside Numbat string literals. */
+/** Cell-like names, in the grid or not, in code and in `{...}` string interpolations. */
 function references(expr: string): string[] {
-	const code = expr.replace(/"(?:[^"\\]|\\.)*"/g, '""');
+	const code = expr.replace(/"(?:[^"\\]|\\.)*"/g, (literal) =>
+		(literal.match(/\{[^}]*\}/g) ?? []).join(" "),
+	);
 
 	return [...new Set(code.match(/\b[A-Z]+\d+\b/g))];
 }
