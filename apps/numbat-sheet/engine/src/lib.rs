@@ -28,6 +28,7 @@ impl Engine {
     pub fn session(&self) -> Session {
         Session {
             ctx: self.prelude.clone(),
+            probe: self.prelude.clone(),
         }
     }
 }
@@ -41,70 +42,106 @@ impl Default for Engine {
 #[wasm_bindgen]
 pub struct Session {
     ctx: Context,
+    /// A scope with no cells in it, where literals are checked.
+    probe: Context,
 }
 
 /// A value has no `code` and both renderings; an error has a `code` and Numbat's message as `text`.
+/// `missing` names a cell the expression uses that is not defined yet.
 #[wasm_bindgen(getter_with_clone)]
 pub struct CellOutcome {
     pub code: Option<String>,
     pub text: String,
     pub full: Option<String>,
+    pub missing: Option<String>,
+}
+
+enum Failure {
+    Numbat(Box<NumbatError>),
+    Function(String),
 }
 
 #[wasm_bindgen]
 impl Session {
+    /// Numbat's own name resolution finds the cells a formula uses, including inside string
+    /// interpolations, so the caller defines each `missing` cell and calls this again.
     pub fn define(&mut self, name: &str, expr: &str) -> CellOutcome {
-        match self.evaluate(name, expr) {
-            Ok((display, full)) => CellOutcome {
-                code: None,
-                text: display,
-                full: Some(full),
-            },
-            Err((code, message)) => CellOutcome {
-                code: Some(code.to_owned()),
-                text: message,
-                full: None,
-            },
+        outcome(evaluate(&mut self.ctx, name, expr))
+    }
+
+    /// A literal may not use cells, so it must evaluate in a scope that has none.
+    pub fn define_literal(&mut self, name: &str, expr: &str) -> CellOutcome {
+        match self.probe.interpret(expr, CodeSource::Text) {
+            Ok(_) => self.define(name, expr),
+            Err(error) => outcome(Err(Failure::Numbat(error))),
         }
     }
 }
 
-impl Session {
-    fn evaluate(
-        &mut self,
-        name: &str,
-        expr: &str,
-    ) -> Result<(String, String), (&'static str, String)> {
-        let numbat = |e: Box<NumbatError>| (code(&e), message(&e));
-        let _ = self
-            .ctx
-            .interpret(&format!("let {name} = {expr}"), CodeSource::Text)
-            .map_err(numbat)?;
-        let value = match self
-            .ctx
-            .interpret(name, CodeSource::Text)
-            .map_err(numbat)?
-            .1
-        {
-            InterpreterResult::Value(value) => value,
-            InterpreterResult::Continue => Value::String("".into()),
-        };
-        if let Value::FunctionReference(_) = value {
-            return Err(("#ERROR", format!("{expr} is a function, not a value")));
+fn evaluate(ctx: &mut Context, name: &str, expr: &str) -> Result<(String, String), Failure> {
+    let _ = ctx
+        .interpret(&format!("let {name} = {expr}"), CodeSource::Text)
+        .map_err(Failure::Numbat)?;
+    let value = match ctx
+        .interpret(name, CodeSource::Text)
+        .map_err(Failure::Numbat)?
+        .1
+    {
+        InterpreterResult::Value(value) => value,
+        InterpreterResult::Continue => Value::String("".into()),
+    };
+    if let Value::FunctionReference(_) = value {
+        return Err(Failure::Function(expr.to_owned()));
+    }
+    let show = |significant_digits| match &value {
+        Value::String(s) => s.to_string(),
+        value => PlainTextFormatter
+            .format(
+                &value.pretty_print_with(&FormatOptions {
+                    significant_digits,
+                    ..FormatOptions::default()
+                }),
+                false,
+            )
+            .to_string(),
+    };
+    Ok((show(6), show(15)))
+}
+
+fn outcome(result: Result<(String, String), Failure>) -> CellOutcome {
+    let error = |code: &str, text| CellOutcome {
+        code: Some(code.to_owned()),
+        text,
+        full: None,
+        missing: None,
+    };
+    match result {
+        Ok((display, full)) => CellOutcome {
+            code: None,
+            text: display,
+            full: Some(full),
+            missing: None,
+        },
+        Err(Failure::Function(expr)) => {
+            error("#ERROR", format!("{expr} is a function, not a value"))
         }
-        let show = |significant_digits| match &value {
-            Value::String(s) => s.to_string(),
-            value => PlainTextFormatter
-                .format(
-                    &value.pretty_print_with(&FormatOptions {
-                        significant_digits,
-                        ..FormatOptions::default()
-                    }),
-                    false,
-                )
-                .to_string(),
-        };
-        Ok((show(6), show(15)))
+        Err(Failure::Numbat(e)) => CellOutcome {
+            missing: missing_cell(&e),
+            ..error(code(&e), message(&e))
+        },
+    }
+}
+
+fn missing_cell(error: &NumbatError) -> Option<String> {
+    match error {
+        NumbatError::TypeCheckError(TypeCheckError::UnknownIdentifier(_, name, _)) => {
+            let digits = name.trim_start_matches(|c: char| c.is_ascii_uppercase());
+            let is_cell = digits.len() < name.len()
+                && !digits.is_empty()
+                && digits.bytes().all(|b| b.is_ascii_digit());
+            is_cell.then(|| name.clone())
+        }
+        _ => None,
     }
 }
 
@@ -187,6 +224,36 @@ mod tests {
                 "{expr}"
             );
         }
+    }
+
+    #[test]
+    fn missing_cells_come_from_numbat_name_resolution() {
+        let engine = Engine::new();
+        let mut s = engine.session();
+        for (expr, missing) in [
+            ("B1 * 2", Some("B1")),
+            (r#""{B1}""#, Some("B1")),
+            (r#""\{B1}""#, Some("B1")),
+            (r#""{{B1}} and {C1}""#, Some("C1")),
+            (r#""{{B1}}""#, None),
+            (r#""B1""#, None),
+            ("distance", None),
+        ] {
+            assert_eq!(s.define("A1", expr).missing.as_deref(), missing, "{expr}");
+        }
+    }
+
+    #[test]
+    fn literals_cannot_use_cells() {
+        let engine = Engine::new();
+        let mut s = engine.session();
+        let _ = s.define("B1", "3 m");
+        assert_eq!(s.define_literal("A1", "26.2 mi").text, "26.2 mi");
+        assert_eq!(s.define_literal("A2", "B1").code.as_deref(), Some("#NAME"));
+        assert_eq!(
+            s.define_literal("A3", r#""{B1}""#).code.as_deref(),
+            Some("#NAME")
+        );
     }
 
     #[test]

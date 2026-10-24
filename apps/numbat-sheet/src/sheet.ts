@@ -20,8 +20,10 @@ export const ERROR_CODES = [
 export type ErrorCode = (typeof ERROR_CODES)[number];
 
 export type CellOutcome =
-	| { ok: true; display: string; full: string }
-	| { ok: false; code: ErrorCode; message: string };
+	| { kind: "value"; display: string; full: string }
+	| { kind: "error"; code: ErrorCode; message: string }
+	/** The expression uses a cell-like name that is not defined yet. */
+	| { kind: "missing"; ref: string };
 
 export type CellResult =
 	| { kind: "value"; display: string; full: string }
@@ -29,58 +31,24 @@ export type CellResult =
 	| { kind: "error"; code: ErrorCode; message: string }
 	| { kind: "empty" };
 
-export type Define = (id: CellId, expr: string) => CellOutcome;
-
-/**
- * Cell-like names, in the grid or not, in code and in `{...}` string interpolations. Blanks out
- * string text the way Numbat's tokenizer reads it: `\\` escapes, `{{` and `}}` are literal braces.
- */
-function references(expr: string): string[] {
-	const modes: ("code" | "string")[] = ["code"];
-	let code = "";
-
-	for (let i = 0; i < expr.length; i++) {
-		const c = expr.charAt(i);
-
-		if (modes.at(-1) === "code") {
-			if (c === '"') {
-				modes.push("string");
-			} else if (c === "}" && modes.length > 1) {
-				modes.pop();
-			}
-
-			code += modes.at(-1) === "code" ? c : " ";
-		} else {
-			if (c === "\\" || ((c === "{" || c === "}") && expr.charAt(i + 1) === c)) {
-				i++;
-			} else if (c === '"') {
-				modes.pop();
-			} else if (c === "{") {
-				modes.push("code");
-			}
-
-			code += " ";
-		}
-	}
-
-	return [...new Set(code.match(/\b[A-Z]+\d+\b/g))];
+/** Defines cells in one Numbat scope. Numbat, not this module, finds the cells an expression uses. */
+export interface Numbat {
+	formula: (id: CellId, expr: string) => CellOutcome;
+	/** A literal cannot use cells, so it never reports one missing. */
+	literal: (id: CellId, expr: string) => CellOutcome;
 }
-
-const fromOutcome = (outcome: CellOutcome): CellResult =>
-	outcome.ok
-		? { kind: "value", display: outcome.display, full: outcome.full }
-		: { kind: "error", code: outcome.code, message: outcome.message };
 
 /**
  * Input starting with `=` is a formula and may reference cells. Anything else is a literal: a
- * Numbat expression without references if Numbat accepts it, and plain text otherwise.
+ * Numbat value if Numbat accepts it without any cells, and plain text otherwise.
  *
- * Evaluates every cell after the cells it references, so `define` sees each dependency already
- * bound. Cells in a cycle, or depending on an empty, text or failed cell, never reach `define`.
+ * A formula that names an undefined cell defines that cell first and retries, so `numbat` sees each
+ * dependency already bound. Cells in a cycle, or depending on an empty, text or failed cell, end
+ * without a value.
  */
 export function recalculate(
 	inputs: ReadonlyMap<CellId, string>,
-	define: Define,
+	numbat: Numbat,
 ): Map<CellId, CellResult> {
 	const results = new Map<CellId, CellResult>();
 	const path: CellId[] = [];
@@ -104,31 +72,43 @@ export function recalculate(
 		}
 	};
 
-	const evaluate = (id: CellId, input: string): CellResult => {
-		if (!input.startsWith("=")) {
-			const literal = references(input).length === 0 ? fromOutcome(define(id, input)) : undefined;
+	const formula = (id: CellId, expr: string): CellResult => {
+		const resolved = new Set<string>();
 
-			return literal?.kind === "value" ? literal : { kind: "text", text: input };
-		}
+		for (;;) {
+			const outcome = numbat.formula(id, expr);
 
-		const expr = input.slice(1).trim();
+			if (outcome.kind !== "missing") {
+				return outcome;
+			}
 
-		path.push(id);
+			if (resolved.has(outcome.ref)) {
+				return { kind: "error", code: "#ERROR", message: `${outcome.ref} did not resolve` };
+			}
 
-		for (const ref of references(expr)) {
-			const error = dependencyError(ref);
+			resolved.add(outcome.ref);
+			const error = dependencyError(outcome.ref);
 			const blocked = results.get(id) ?? error;
 
 			if (blocked) {
-				path.pop();
-
 				return blocked;
 			}
 		}
+	};
+
+	const evaluate = (id: CellId, input: string): CellResult => {
+		if (!input.startsWith("=")) {
+			const literal = numbat.literal(id, input);
+
+			return literal.kind === "value" ? literal : { kind: "text", text: input };
+		}
+
+		path.push(id);
+		const result = formula(id, input.slice(1).trim());
 
 		path.pop();
 
-		return fromOutcome(define(id, expr));
+		return result;
 	};
 
 	const visit = (id: CellId): CellResult => {

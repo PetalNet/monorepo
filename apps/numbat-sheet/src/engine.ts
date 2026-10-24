@@ -15,6 +15,7 @@ interface EngineModule {
 
 interface Session {
 	define: (name: string, expr: string) => WasmOutcome;
+	define_literal: (name: string, expr: string) => WasmOutcome;
 	free: () => void;
 }
 
@@ -22,6 +23,7 @@ interface WasmOutcome {
 	code: string | undefined;
 	text: string;
 	full: string | undefined;
+	missing: string | undefined;
 	free: () => void;
 }
 
@@ -43,12 +45,24 @@ function isEngineModule(module: unknown): module is EngineModule {
 const isErrorCode = (code: string): code is ErrorCode =>
 	(ERROR_CODES as readonly string[]).includes(code);
 
-function parseOutcome({ code, text, full }: WasmOutcome): CellOutcome {
-	if (code === undefined) {
-		return { ok: true, display: text, full: full ?? text };
+function parseOutcome({ code, text, full, missing }: WasmOutcome): CellOutcome {
+	if (missing !== undefined) {
+		return { kind: "missing", ref: missing };
 	}
 
-	return { ok: false, code: isErrorCode(code) ? code : "#ERROR", message: text };
+	if (code === undefined) {
+		return { kind: "value", display: text, full: full ?? text };
+	}
+
+	return { kind: "error", code: isErrorCode(code) ? code : "#ERROR", message: text };
+}
+
+function read(outcome: WasmOutcome): CellOutcome {
+	const parsed = parseOutcome(outcome);
+
+	outcome.free();
+
+	return parsed;
 }
 
 export async function loadEngine(): Promise<Evaluate> {
@@ -68,13 +82,9 @@ export async function loadEngine(): Promise<Evaluate> {
 		const session = engine.session();
 
 		try {
-			return recalculate(inputs, (id, expr) => {
-				const outcome = session.define(id, expr);
-				const parsed = parseOutcome(outcome);
-
-				outcome.free();
-
-				return parsed;
+			return recalculate(inputs, {
+				formula: (id, expr) => read(session.define(id, expr)),
+				literal: (id, expr) => read(session.define_literal(id, expr)),
 			});
 		} finally {
 			session.free();
