@@ -288,7 +288,13 @@ export class Network {
 			try {
 				reply = await this.transport(url);
 			} finally {
-				assetsInFlight.set(host, (assetsInFlight.get(host) ?? 1) - 1);
+				const left = (assetsInFlight.get(host) ?? 1) - 1;
+
+				if (left > 0) {
+					assetsInFlight.set(host, left);
+				} else {
+					assetsInFlight.delete(host);
+				}
 			}
 		} else {
 			// Per-host pacing alone lets a crawl over many hosts burst; cap the overall request rate too.
@@ -322,7 +328,19 @@ export class Network {
 
 		// Concurrent page assets on a new host wait for one robots fetch instead of each pacing their own.
 		for (let pending = robotsChecks.get(origin); pending; pending = robotsChecks.get(origin)) {
-			await pending.catch(() => undefined);
+			try {
+				await pending;
+			} catch (error) {
+				// A disallow of another URL still cached the policy. Any other failure is the origin's, so
+				// waiters share it instead of each fetching robots again.
+				const cached = this.store.db
+					.prepare("SELECT 1 FROM robots WHERE origin=? AND expires_at>?")
+					.get(origin, Date.now());
+
+				if (!cached) {
+					throw error;
+				}
+			}
 		}
 
 		const check = this.robots(url, origin);

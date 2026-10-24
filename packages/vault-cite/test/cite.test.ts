@@ -400,6 +400,30 @@ describe("network policy and worker", () => {
 		expect(urls.filter((url) => url.endsWith("/robots.txt"))).toHaveLength(1);
 	});
 
+	it("shares one failed robots fetch with concurrent assets", async () => {
+		const urls: string[] = [];
+		const store = new Store(mkdtempSync(path.join(process.cwd(), ".cite-test-")));
+
+		stores.push(store);
+
+		const network = new Network(
+			store,
+			async (url) => {
+				urls.push(url);
+				await new Promise((resolve) => setTimeout(resolve, 20));
+
+				return reply(url, "", 500);
+			},
+			0,
+		);
+		const results = await Promise.allSettled(
+			["a", "b", "c"].map((name) => network.get(`https://cdn.example/${name}.png`, true)),
+		);
+
+		expect(results.map((result) => result.status)).toEqual(["rejected", "rejected", "rejected"]);
+		expect(urls).toEqual(["https://cdn.example/robots.txt"]);
+	});
+
 	it("starts no page asset on a host cooling down after an asset's 429", async () => {
 		const urls: string[] = [];
 		const store = new Store(mkdtempSync(path.join(process.cwd(), ".cite-test-")));
