@@ -88,11 +88,15 @@ fn forget_last_result(ctx: &mut Context) {
     let _ = ctx.interpret(r#""""#, CodeSource::Text);
 }
 
-/// Binds `name` only once the value is accepted, so a rejected cell leaves nothing for dependents
-/// to use. The parentheses keep the input a single expression.
+/// Binds `name` in a scratch copy of the scope and commits it only once the value is accepted, so
+/// a rejected cell leaves nothing for dependents to use.
 fn evaluate(ctx: &mut Context, name: &str, expr: &str) -> Result<(String, String), Failure> {
-    let value = match ctx
-        .interpret(&format!("({expr})"), CodeSource::Text)
+    let mut scratch = ctx.clone();
+    let _ = scratch
+        .interpret(&format!("let {name} = {expr}"), CodeSource::Text)
+        .map_err(Failure::Numbat)?;
+    let value = match scratch
+        .interpret(name, CodeSource::Text)
         .map_err(Failure::Numbat)?
         .1
     {
@@ -101,9 +105,7 @@ fn evaluate(ctx: &mut Context, name: &str, expr: &str) -> Result<(String, String
         }
         InterpreterResult::Value(value) => value,
     };
-    let _ = ctx
-        .interpret(&format!("let {name} = ans"), CodeSource::Text)
-        .map_err(Failure::Numbat)?;
+    *ctx = scratch;
     let show = |significant_digits| match &value {
         Value::String(s) => s.to_string(),
         value => PlainTextFormatter
@@ -290,6 +292,14 @@ mod tests {
         let mut s = engine.session();
         let _ = s.define_literal("B1", "1 m");
         assert_ne!(s.define_literal("B2", "ans + 1 m").code, None);
+    }
+
+    #[test]
+    fn trailing_comments_are_allowed() {
+        let engine = Engine::new();
+        let mut s = engine.session();
+        assert_eq!(s.define_literal("A1", "3 m # distance").text, "3 m");
+        assert_eq!(s.define("A2", "A1 * 2 # doubled").text, "6 m");
     }
 
     #[test]
