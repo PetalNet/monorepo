@@ -32,6 +32,20 @@ const run = (
 		});
 	});
 
+const processState = async (pid: number) => {
+	try {
+		const stat = await readFile(path.join("/proc", String(pid), "stat"), "utf8");
+
+		return stat.slice(stat.lastIndexOf(")") + 2).split(" ", 1)[0];
+	} catch (error) {
+		if ((error as NodeJS.ErrnoException).code === "ENOENT") {
+			return "gone";
+		}
+
+		throw error;
+	}
+};
+
 const fixture = async (preflightStatus = "ready") => {
 	const root = await mkdtemp(path.join(tmpdir(), "ensure-grove-"));
 
@@ -281,6 +295,33 @@ describe("ensure Grove orb services", () => {
 			},
 		});
 	}, 10_000);
+
+	it("kills TERM-ignoring supervisor descendants when the ensure times out", async () => {
+		const { root, env } = await fixture();
+
+		await writeFile(
+			path.join(root, "bin/amp"),
+			`#!/usr/bin/env bash\n(trap '' TERM; exec sleep 30) &\nprintf '%s' "$!" > "$AMP_CHILD"\nwait\n`,
+		);
+
+		await chmod(path.join(root, "bin/amp"), 0o755);
+		const childPidFile = path.join(root, "amp.child");
+		const started = Date.now();
+
+		const ensured = await run(path.join(root, ".agents/ensure-grove"), [], {
+			cwd: root,
+			env: { ...env, AMP_CHILD: childPidFile, GROVE_ENSURE_TIMEOUT_SECONDS: "1" },
+		});
+
+		expect(Date.now() - started).toBeLessThan(3_000);
+		expect(ensured.code).toBe(124);
+		expect(JSON.parse(ensured.stdout)).toMatchObject({ error: { id: "service-ensure-timeout" } });
+		const childPid = Number(await readFile(childPidFile, "utf8"));
+
+		await expect
+			.poll(() => processState(childPid), { interval: 50, timeout: 1_000 })
+			.toMatch(/^(?:gone|Z)$/u);
+	}, 5_000);
 });
 
 describe("Grove supervised service startup", () => {
