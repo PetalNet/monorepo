@@ -32,6 +32,20 @@ const run = (
 		});
 	});
 
+const processState = async (pid: number) => {
+	try {
+		const stat = await readFile(path.join("/proc", String(pid), "stat"), "utf8");
+
+		return stat.slice(stat.lastIndexOf(")") + 2).split(" ", 1)[0];
+	} catch (error) {
+		if ((error as NodeJS.ErrnoException).code === "ENOENT") {
+			return "gone";
+		}
+
+		throw error;
+	}
+};
+
 const fixture = async (preflightStatus = "ready") => {
 	const root = await mkdtemp(path.join(tmpdir(), "ensure-grove-"));
 
@@ -304,7 +318,9 @@ describe("ensure Grove orb services", () => {
 		expect(JSON.parse(ensured.stdout)).toMatchObject({ error: { id: "service-ensure-timeout" } });
 		const childPid = Number(await readFile(childPidFile, "utf8"));
 
-		expect(() => process.kill(childPid, 0)).toThrow(expect.objectContaining({ code: "ESRCH" }));
+		await expect
+			.poll(() => processState(childPid), { interval: 50, timeout: 1_000 })
+			.toMatch(/^(?:gone|Z)$/u);
 	}, 5_000);
 });
 
