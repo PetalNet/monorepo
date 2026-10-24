@@ -1,0 +1,25 @@
+{
+	"name": "@petalnet/numbat-sheet",
+	"version": "0.0.1",
+	"private": true,
+	"type": "module",
+	"scripts": {
+		"build": "vite build",
+		"build:wasm": "cargo build --locked --release --target wasm32-unknown-unknown --manifest-path engine/Cargo.toml && wasm-bindgen --target web --out-dir public/engine \"${CARGO_TARGET_DIR:-engine/target}/wasm32-unknown-unknown/release/numbat_sheet_engine.wasm\"",
+		"dev": "vite dev",
+		"preview": "vite preview",
+		"test": "vitest run",
+		"typecheck": "svelte-check --tsconfig ./tsconfig.json"
+	},
+	"dependencies": {
+		"svelte": "catalog:prod"
+	},
+	"devDependencies": {
+		"@petalnet/tsconfig": "workspace:*",
+		"@sveltejs/vite-plugin-svelte": "catalog:dev",
+		"svelte-check": "catalog:dev",
+		"typescript": "catalog:dev",
+		"vite": "catalog:dev",
+		"vitest": "catalog:dev"
+	}
+}
