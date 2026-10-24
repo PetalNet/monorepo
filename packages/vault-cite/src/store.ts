@@ -43,6 +43,31 @@ function hash(data: Buffer | string) {
 	return digest.parse(createHash("sha256").update(data).digest("hex"));
 }
 
+/**
+ * Stores created before server cooldowns had their own deadline gain the column. The write lock
+ * makes a second process opening the store at the same time see the column instead of adding it
+ * again.
+ *
+ * @public Exported for the concurrent-migration test.
+ */
+export function migrateDomains(db: DatabaseSync): void {
+	db.exec("BEGIN IMMEDIATE");
+
+	try {
+		if (
+			!db.prepare("SELECT 1 FROM pragma_table_info('domains') WHERE name='cooldown_until'").get()
+		) {
+			db.exec("ALTER TABLE domains ADD COLUMN cooldown_until REAL NOT NULL DEFAULT 0");
+		}
+
+		db.exec("COMMIT");
+	} catch (error) {
+		db.exec("ROLLBACK");
+
+		throw error;
+	}
+}
+
 export class Store {
 	readonly root: string;
 	readonly db: DatabaseSync;
@@ -73,9 +98,11 @@ export class Store {
    CREATE VIRTUAL TABLE IF NOT EXISTS evidence USING fts5(id UNINDEXED, title, authors, canonical_id, url, text);
    CREATE TABLE IF NOT EXISTS request_cache(ref TEXT NOT NULL REFERENCES jobs(ref), url TEXT NOT NULL, metadata TEXT NOT NULL, body BLOB NOT NULL, PRIMARY KEY(ref,url));
    CREATE TABLE IF NOT EXISTS robots(origin TEXT PRIMARY KEY, content TEXT NOT NULL, expires_at REAL NOT NULL);
-   CREATE TABLE IF NOT EXISTS domains(host TEXT PRIMARY KEY, next_at REAL NOT NULL);
+   CREATE TABLE IF NOT EXISTS domains(host TEXT PRIMARY KEY, next_at REAL NOT NULL, cooldown_until REAL NOT NULL DEFAULT 0);
    CREATE VIEW IF NOT EXISTS citations AS SELECT ref, CASE WHEN state='SAVED' AND source_id IN (SELECT id FROM sources) THEN 'SAVED' WHEN state IN ('QUEUED','RUNNING') THEN 'PENDING' WHEN state='INACCESSIBLE' THEN 'INACCESSIBLE' ELSE 'BLOCKED' END AS status,reason,source_id FROM jobs;
    CREATE TABLE IF NOT EXISTS memories(id TEXT PRIMARY KEY, text TEXT NOT NULL, source_id TEXT NOT NULL REFERENCES sources(id));`);
+
+		migrateDomains(this.db);
 	}
 	close() {
 		this.db.close();
@@ -146,12 +173,18 @@ export class Store {
 			)
 			.run(until, job.ref, job.lease_until);
 	}
+	/** When the host's last server-directed cooldown (429, 503, rate limit) ends. */
+	cooldownUntil(host: string): number {
+		const row = this.db.prepare("SELECT cooldown_until FROM domains WHERE host=?").get(host);
+
+		return row ? z.object({ cooldown_until: z.number() }).parse(row).cooldown_until : 0;
+	}
 	cooldown(host: string, delay: number) {
 		this.db
 			.prepare(
-				"INSERT INTO domains VALUES(?,?) ON CONFLICT(host) DO UPDATE SET next_at=max(domains.next_at,excluded.next_at)",
+				"INSERT INTO domains(host,next_at,cooldown_until) VALUES(?,?,?) ON CONFLICT(host) DO UPDATE SET next_at=max(domains.next_at,excluded.next_at),cooldown_until=max(domains.cooldown_until,excluded.cooldown_until)",
 			)
-			.run(host, Date.now() + delay);
+			.run(host, Date.now() + delay, Date.now() + delay);
 	}
 	/**
 	 * Reserve one start time that satisfies both the host interval and the all-host spacing. When the
@@ -167,7 +200,7 @@ export class Store {
 		};
 
 		const upsert = this.db.prepare(
-			"INSERT INTO domains VALUES(?,?) ON CONFLICT(host) DO UPDATE SET next_at=excluded.next_at",
+			"INSERT INTO domains(host,next_at) VALUES(?,?) ON CONFLICT(host) DO UPDATE SET next_at=excluded.next_at",
 		);
 
 		this.db.exec("BEGIN IMMEDIATE");
