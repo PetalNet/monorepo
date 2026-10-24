@@ -133,9 +133,9 @@ those references with v2 to establish trustworthy original/derived provenance.
 All downloads, including browser assets and redirect destinations, pass through
 the same robots and domain pacing checks. A robots client error other than 401, 403 or 429 (for example 404,
 410, or the 422 that Unpaywall's API returns) permits access, per RFC 9309.
-A 200 robots response is parsed as served. An HTML page there, such as a
-single-page app shell or a soft 404 reached by redirect, has no rules and
-restricts nothing, as RFC 9309 and major crawlers treat it.
+A 200 robots response is parsed as served, as RFC 9309 and major crawlers do.
+An HTML page there, such as a single-page app shell or a soft 404 reached by
+redirect, normally has no directive lines, so it restricts nothing.
 Authentication failures, rate limits, server errors, and disallows do not. Workers persist per-host pacing, defaulting to three seconds between request
 starts, and space requests across all hosts at least 400 ms apart. Requests send
 a `VaultCite/0.1` User-Agent that links to this package. Temporary failures use exponential backoff and Retry-After. A 429, or a 403
