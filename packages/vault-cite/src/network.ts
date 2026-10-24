@@ -313,10 +313,9 @@ export class Network {
 				![401, 403, 429].includes(response.status)
 			) {
 				policy = robotsParser(`${origin}/robots.txt`, "");
-			} else if (
-				response.status === 200 &&
-				!/<(?:html|!doctype)/i.test(decoded(response).toString())
-			) {
+			} else if (response.status === 200) {
+				// RFC 9309 2.3.1.1: follow the parseable rules. An HTML page served here, such as an app shell or
+				// a soft 404 reached by redirect, has none, so it restricts nothing.
 				policy = robotsParser(`${origin}/robots.txt`, decoded(response).toString());
 			} else {
 				throw new CaptureError(
