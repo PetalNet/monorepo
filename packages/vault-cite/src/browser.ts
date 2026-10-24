@@ -97,7 +97,9 @@ async function render(browser: Browser, reply: Reply, network: Network): Promise
 				return;
 			}
 
-			const response = assets.get(request.url()) ?? (await network.get(request.url()));
+			const response =
+				assets.get(request.url()) ??
+				(await network.get(request.url(), request.resourceType() !== "document"));
 
 			if (!assets.has(request.url())) {
 				bytes += response.body.length;

@@ -17,14 +17,22 @@ ensure_timeout=${GROVE_ENSURE_TIMEOUT_SECONDS:-180}
 	printf 'GROVE_ENSURE_TIMEOUT_SECONDS must be a positive integer\n' >&2
 	exit 64
 }
+services_file=$(mktemp)
+trap 'rm -f "$services_file"' EXIT
 set +e
-services=$(timeout --kill-after=5s "${ensure_timeout}s" amp orb services ensure --json)
+timeout --kill-after=5s "${ensure_timeout}s" amp orb services ensure --json >"$services_file" &
+ensure_pid=$!
+wait "$ensure_pid"
 ensure_status=$?
 set -e
+services=$(<"$services_file")
 if ((ensure_status != 0)); then
 	error_id=service-ensure-failed
 	if ((ensure_status == 124 || ensure_status == 137)); then
 		error_id=service-ensure-timeout
+		# TERM-ignoring descendants outlive timeout. GNU timeout exits once its child dies, and uutils
+		# timeout (Ubuntu 26.04) sends the kill-after SIGKILL to its child only. timeout leads the group.
+		kill -KILL -- "-$ensure_pid" 2>/dev/null || true
 	fi
 	jq -n \
 		--arg status not-ready \

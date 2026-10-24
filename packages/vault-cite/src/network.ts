@@ -1,3 +1,4 @@
+import type { LookupAddress } from "node:dns";
 import { lookup } from "node:dns/promises";
 import { request as httpRequest } from "node:http";
 import { request as httpsRequest } from "node:https";
@@ -23,10 +24,15 @@ const robotsParser = z
 	.parse(robotsModule);
 
 import type { Capture, Job } from "./model.ts";
+import { PacingDeferred } from "./model.ts";
 import { CaptureError, httpUrl } from "./model.ts";
 import { diskGuard } from "./store.ts";
 import type { Store } from "./store.ts";
 
+// Page assets are capped like a browser's per-host connection pool instead of paced like documents.
+const assetsPerHost = 6;
+const assetsInFlight = new Map<string, number>();
+const robotsChecks = new Map<string, Promise<number>>();
 const agent = "VaultCite/0.1 (+https://github.com/PetalNet/monorepo/tree/main/packages/vault-cite)";
 const maxBytes = 32 * 1024 ** 2;
 
@@ -82,10 +88,29 @@ function publicAddress(address: string): boolean {
 	}
 }
 
+const lookups = new Map<string, Promise<LookupAddress[]>>();
+
+// Page assets reach a host several at a time, and bursts of concurrent lookups stall on some
+// resolvers. Requests share one lookup per host for a minute; a failed lookup is not kept.
+function resolveHost(host: string) {
+	let pending = lookups.get(host);
+
+	if (!pending) {
+		pending = lookup(host, { all: true });
+		lookups.set(host, pending);
+
+		pending
+			.then(() => setTimeout(() => lookups.delete(host), 60_000).unref())
+			.catch(() => lookups.delete(host));
+	}
+
+	return pending;
+}
+
 async function request(url: string): Promise<Reply> {
 	const target = new URL(httpUrl(url));
 	const host = target.hostname.replace(/^\[|\]$/g, "");
-	const addresses = await lookup(host, { all: true });
+	const addresses = await resolveHost(host);
 	const first = addresses[0];
 
 	if (!first || addresses.some((entry) => !publicAddress(entry.address))) {
@@ -225,7 +250,7 @@ export class Network {
 				this.job.lease_until,
 			);
 	}
-	private async paced(url: string, delay = this.interval, checkpoint = true) {
+	private async paced(url: string, delay = this.interval, checkpoint = true, asset = false) {
 		const cached = checkpoint ? this.cached(url) : undefined;
 
 		if (cached) {
@@ -234,19 +259,55 @@ export class Network {
 
 		diskGuard(this.store.root, maxBytes);
 		const host = new URL(url).hostname;
+		let reply: Reply;
 
-		// Per-host pacing alone lets a crawl over many hosts burst; cap the overall request rate too.
-		for (;;) {
-			const slot = this.store.slot(host, delay, Math.min(this.interval, 400));
+		if (asset) {
+			for (;;) {
+				while ((assetsInFlight.get(host) ?? 0) >= assetsPerHost) {
+					await sleep(25);
+				}
 
-			await sleep(Math.max(0, slot.at - Date.now()));
+				// Assets skip document pacing but not a server-directed cooldown.
+				const until = this.store.cooldownUntil(host);
 
-			if (slot.reserved) {
-				break;
+				if (until <= Date.now()) {
+					break;
+				}
+
+				if (until > Date.now() + 30_000) {
+					throw new PacingDeferred(until);
+				}
+
+				await sleep(until - Date.now());
 			}
-		}
 
-		const reply = await this.transport(url);
+			assetsInFlight.set(host, (assetsInFlight.get(host) ?? 0) + 1);
+
+			try {
+				reply = await this.transport(url);
+			} finally {
+				const left = (assetsInFlight.get(host) ?? 1) - 1;
+
+				if (left > 0) {
+					assetsInFlight.set(host, left);
+				} else {
+					assetsInFlight.delete(host);
+				}
+			}
+		} else {
+			// Per-host pacing alone lets a crawl over many hosts burst; cap the overall request rate too.
+			for (;;) {
+				const slot = this.store.slot(host, delay, Math.min(this.interval, 400));
+
+				await sleep(Math.max(0, slot.at - Date.now()));
+
+				if (slot.reserved) {
+					break;
+				}
+			}
+
+			reply = await this.transport(url);
+		}
 
 		reply.fetchedAt ??= new Date().toISOString();
 
@@ -261,8 +322,38 @@ export class Network {
 		return reply;
 	}
 	async allowed(url: string) {
-		httpUrl(url);
-		const origin = new URL(url).origin;
+		const origin = new URL(httpUrl(url)).origin;
+
+		// Concurrent page assets on a new host wait for one robots fetch instead of each pacing their own.
+		for (let pending = robotsChecks.get(origin); pending; pending = robotsChecks.get(origin)) {
+			try {
+				await pending;
+			} catch (error) {
+				// A disallow of another URL still cached the policy. Any other failure is the origin's, so
+				// waiters share it instead of each fetching robots again.
+				const cached = this.store.db
+					.prepare("SELECT 1 FROM robots WHERE origin=? AND expires_at>?")
+					.get(origin, Date.now());
+
+				if (!cached) {
+					throw error;
+				}
+			}
+		}
+
+		const check = this.robots(url, origin);
+
+		robotsChecks.set(origin, check);
+
+		try {
+			return await check;
+		} finally {
+			if (robotsChecks.get(origin) === check) {
+				robotsChecks.delete(origin);
+			}
+		}
+	}
+	private async robots(url: string, origin: string) {
 		let policy: ReturnType<typeof robotsParser> | undefined;
 		const stored = this.store.db
 			.prepare("SELECT content FROM robots WHERE origin=? AND expires_at>?")
@@ -344,12 +435,13 @@ export class Network {
 
 		return Math.max(this.interval, (policy.getCrawlDelay(agent) ?? 0) * 1000);
 	}
-	async get(url: string): Promise<Reply> {
+	/** An asset is a stylesheet, image or font a page loads; documents and robots files stay paced. */
+	async get(url: string, asset = false): Promise<Reply> {
 		let current = httpUrl(url);
 
 		for (let hop = 0; hop < 8; hop++) {
 			const delay = await this.allowed(current);
-			const response = await this.paced(current, delay);
+			const response = await this.paced(current, delay, true, asset);
 
 			if (response.status >= 300 && response.status < 400) {
 				const location = response.headers["location"];

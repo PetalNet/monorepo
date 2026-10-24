@@ -1,15 +1,16 @@
-import { spawnSync } from "node:child_process";
+import { spawn, spawnSync } from "node:child_process";
 /* oxlint-disable eslint/no-await-in-loop -- Sequential processing bounds resource use and preserves pacing, redirect and retry order. */
 import { createHash } from "node:crypto";
 import type * as fs from "node:fs";
-import { chmodSync, mkdtempSync, readFileSync, rmSync, statSync } from "node:fs";
+import { chmodSync, mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
 import path from "node:path";
+import { DatabaseSync } from "node:sqlite";
 import { gzipSync } from "node:zlib";
 
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { Cite, Store } from "../src/index.ts";
-import { normalize } from "../src/model.ts";
+import { PacingDeferred, normalize } from "../src/model.ts";
 import { Network } from "../src/network.ts";
 import type { Reply, Transport } from "../src/network.ts";
 import { requireTools } from "./tools.ts";
@@ -366,6 +367,180 @@ describe("network policy and worker", () => {
 		expect(urls).toEqual(["https://spa.example/robots.txt", "https://spa.example/jobs/1"]);
 	});
 
+	it("fetches page assets six at a time per host instead of pacing them", async () => {
+		let inFlight = 0;
+		let peak = 0;
+		const urls: string[] = [];
+		const store = new Store(mkdtempSync(path.join(process.cwd(), ".cite-test-")));
+
+		stores.push(store);
+
+		const network = new Network(
+			store,
+			async (url) => {
+				urls.push(url);
+				inFlight++;
+				peak = Math.max(peak, inFlight);
+
+				await new Promise((resolve) => {
+					setTimeout(resolve, 20);
+				});
+
+				inFlight--;
+
+				return reply(url, url.endsWith("/robots.txt") ? "" : "asset");
+			},
+			60_000,
+		);
+		const start = Date.now();
+
+		await Promise.all(
+			Array.from({ length: 18 }, (_, index) =>
+				network.get(`https://cdn.example/${String(index)}.png`, true),
+			),
+		);
+
+		expect(Date.now() - start).toBeLessThan(2000);
+		expect(peak).toBe(6);
+		expect(urls.filter((url) => url.endsWith("/robots.txt"))).toHaveLength(1);
+	});
+
+	it("holds assets for a cooldown shorter than the crawl delay", async () => {
+		const urls: string[] = [];
+		const store = new Store(mkdtempSync(path.join(process.cwd(), ".cite-test-")));
+
+		stores.push(store);
+
+		store.db
+			.prepare("INSERT INTO robots VALUES(?,?,?)")
+			.run("https://cdn.example", "User-agent: *\nCrawl-delay: 60\n", Date.now() + 60_000);
+
+		const network = new Network(
+			store,
+			(url) => {
+				urls.push(url);
+
+				return reply(url, "", 429, { "retry-after": "31" });
+			},
+			3000,
+		);
+
+		await expect(network.get("https://cdn.example/a.png", true)).rejects.toThrow("Rate limited");
+
+		await expect(network.get("https://cdn.example/b.png", true)).rejects.toBeInstanceOf(
+			PacingDeferred,
+		);
+
+		expect(urls).toEqual(["https://cdn.example/a.png"]);
+	});
+
+	it("starts no asset inside the final paced interval of a cooldown", async () => {
+		const starts: number[] = [];
+		const store = new Store(mkdtempSync(path.join(process.cwd(), ".cite-test-")));
+
+		stores.push(store);
+
+		store.db
+			.prepare("INSERT INTO robots VALUES(?,?,?)")
+			.run("https://cdn.example", "", Date.now() + 60_000);
+
+		store.cooldown("cdn.example", 500);
+		const until = store.cooldownUntil("cdn.example");
+
+		const network = new Network(
+			store,
+			(url) => {
+				starts.push(Date.now());
+
+				return reply(url, "asset");
+			},
+			3000,
+		);
+
+		await network.get("https://cdn.example/a.png", true);
+
+		expect(starts).toHaveLength(1);
+		expect(starts[0]).toBeGreaterThanOrEqual(until);
+	});
+
+	it("shares one DNS lookup per host and still refuses a private address", async () => {
+		const store = new Store(mkdtempSync(path.join(process.cwd(), ".cite-test-")));
+
+		stores.push(store);
+
+		store.db
+			.prepare("INSERT INTO robots VALUES(?,?,?)")
+			.run("https://private.example", "", Date.now() + 60_000);
+
+		dns.lookups = 0;
+		const network = new Network(store);
+		const results = await Promise.allSettled(
+			["a", "b", "c"].map((name) => network.get(`https://private.example/${name}.png`, true)),
+		);
+
+		expect(results.map((result) => result.status === "rejected" && String(result.reason))).toEqual(
+			Array.from({ length: 3 }, () => "Error: Non-public network destination refused"),
+		);
+
+		expect(dns.lookups).toBe(1);
+	});
+
+	it("shares one failed robots fetch with concurrent assets", async () => {
+		const urls: string[] = [];
+		const store = new Store(mkdtempSync(path.join(process.cwd(), ".cite-test-")));
+
+		stores.push(store);
+
+		const network = new Network(
+			store,
+			async (url) => {
+				urls.push(url);
+
+				await new Promise((resolve) => {
+					setTimeout(resolve, 20);
+				});
+
+				return reply(url, "", 500);
+			},
+			0,
+		);
+		const results = await Promise.allSettled(
+			["a", "b", "c"].map((name) => network.get(`https://cdn.example/${name}.png`, true)),
+		);
+
+		expect(results.map((result) => result.status)).toEqual(["rejected", "rejected", "rejected"]);
+		expect(urls).toEqual(["https://cdn.example/robots.txt"]);
+	});
+
+	it("starts no page asset on a host cooling down after an asset's 429", async () => {
+		const urls: string[] = [];
+		const store = new Store(mkdtempSync(path.join(process.cwd(), ".cite-test-")));
+
+		stores.push(store);
+
+		store.db
+			.prepare("INSERT INTO robots VALUES(?,?,?)")
+			.run("https://cdn.example", "", Date.now() + 60_000);
+
+		const network = new Network(
+			store,
+			(url) => {
+				urls.push(url);
+
+				return reply(url, "", 429, { "retry-after": "120" });
+			},
+			3000,
+		);
+
+		await expect(network.get("https://cdn.example/a.png", true)).rejects.toThrow("Rate limited");
+
+		await expect(network.get("https://cdn.example/b.png", true)).rejects.toBeInstanceOf(
+			PacingDeferred,
+		);
+
+		expect(urls).toEqual(["https://cdn.example/a.png"]);
+	});
+
 	it("retries a GitHub-style 403 rate limit instead of recording it as restricted", async () => {
 		const reset = Math.ceil(Date.now() / 1000) + 600;
 		const cite = setup((url) =>
@@ -494,6 +669,20 @@ describe("network policy and worker", () => {
 		expect(normalize("hep-th/9901001v2")).toBe("arxiv:hep-th/9901001v2");
 	});
 });
+
+const dns = vi.hoisted(() => ({ lookups: 0 }));
+
+vi.mock("node:dns/promises", () => ({
+	lookup: async () => {
+		dns.lookups++;
+
+		await new Promise((resolve) => {
+			setTimeout(resolve, 20);
+		});
+
+		return [{ address: "127.0.0.1", family: 4 }];
+	},
+}));
 
 vi.mock("node:fs", async (importOriginal) => ({
 	...(await importOriginal<typeof fs>()),
@@ -852,6 +1041,77 @@ describe("GitHub refs", () => {
 		expect(source?.artifacts).toHaveLength(1);
 	});
 });
+
+it("migrates domains once when several processes open an old store together", async () => {
+	const storeModule = path.resolve("src/store.ts");
+	// Each child loads and opens everything, reports ready, then spins until the go file exists, so
+	// all of them reach the migration together.
+	const migrate = (database: string, go: string, ready: () => void) =>
+		new Promise<string>((resolve) => {
+			const child = spawn(
+				process.execPath,
+				[
+					"--no-warnings",
+					"--input-type=module",
+					"-e",
+					`import { existsSync } from "node:fs";
+import { DatabaseSync } from "node:sqlite";
+const { migrateDomains } = await import(${JSON.stringify(storeModule)});
+const db = new DatabaseSync(${JSON.stringify(database)});
+db.exec("PRAGMA busy_timeout=5000");
+process.stdout.write("ready\\n");
+const deadline = Date.now() + 10_000;
+while (!existsSync(${JSON.stringify(go)})) if (Date.now() > deadline) throw new Error("barrier timeout");
+migrateDomains(db);`,
+				],
+				{ stdio: ["ignore", "pipe", "pipe"] },
+			);
+			let stderr = "";
+
+			child.stdout.once("data", ready);
+			child.stderr.on("data", (chunk: Buffer) => (stderr += chunk.toString()));
+
+			child.on("close", () => {
+				resolve(stderr);
+			});
+		});
+	const errors: string[] = [];
+
+	for (let trial = 0; trial < 4; trial++) {
+		const root = mkdtempSync(path.join(process.cwd(), ".cite-test-"));
+
+		try {
+			const database = path.join(root, "index-v2.sqlite");
+			const go = path.join(root, "go");
+			const old = new DatabaseSync(database);
+
+			old.exec(
+				"PRAGMA journal_mode=WAL; CREATE TABLE domains(host TEXT PRIMARY KEY, next_at REAL NOT NULL)",
+			);
+
+			old.close();
+			let waiting = 6;
+
+			errors.push(
+				...(await Promise.all(
+					Array.from({ length: 6 }, () =>
+						migrate(database, go, () => {
+							waiting--;
+
+							if (waiting === 0) {
+								writeFileSync(go, "");
+							}
+						}),
+					),
+				)),
+			);
+		} finally {
+			rmSync(root, { recursive: true, force: true });
+		}
+	}
+
+	expect(errors.filter(Boolean)).toEqual([]);
+}, 60_000);
 
 it("defers domain pacing without spending attempts and resumes multiple jobs after restart", async () => {
 	let now = 1_800_000_000_000;
