@@ -58,8 +58,9 @@ async function github(url: URL, network: Network): Promise<Capture> {
 	}
 
 	const base = `${encodeURIComponent(owner)}/${encodeURIComponent(repo.replace(/\.git$/, ""))}`;
+	// One file entry keeps the stored resolution small; only the commit SHA and metadata matter.
 	const resolution = await network.get(
-		`https://api.github.com/repos/${base}/commits/${encodeURIComponent(ref)}`,
+		`https://api.github.com/repos/${base}/commits/${encodeURIComponent(ref)}?per_page=1`,
 	);
 	const commit = z
 		.object({ sha: z.string().regex(/^[a-f0-9]{40}$/) })

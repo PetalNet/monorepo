@@ -771,7 +771,7 @@ describe("GitHub refs", () => {
 		const cite = setup(githubTransport(urls));
 		const { source } = await cite.add("https://github.com/owner/repo/blob/main/docs/My%20Notes.md");
 
-		expect(urls).toContain("https://api.github.com/repos/owner/repo/commits/main");
+		expect(urls).toContain("https://api.github.com/repos/owner/repo/commits/main?per_page=1");
 
 		expect(source).toMatchObject({
 			canonical_id: `github:owner/repo@${sha}/docs/My Notes.md`,
@@ -783,7 +783,7 @@ describe("GitHub refs", () => {
 			source?.artifacts.map((artifact) => artifact.role === "ORIGINAL" && artifact.retrieval.url),
 		).toEqual([
 			`https://raw.githubusercontent.com/owner/repo/${sha}/docs/My%20Notes.md`,
-			"https://api.github.com/repos/owner/repo/commits/main",
+			"https://api.github.com/repos/owner/repo/commits/main?per_page=1",
 		]);
 	});
 
