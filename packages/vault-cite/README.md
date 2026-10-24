@@ -46,7 +46,7 @@ For page capture, install Chromium with
 `CITE_CHROMIUM_EXECUTABLE` at the existing lab Chromium executable. Each capture
 uses a fresh context without cookies, credentials, persistent profiles, scripts,
 or service workers. The raw HTTP HTML response is the ORIGINAL. The rendered PDF and single-file
-HTML snapshot are DERIVED artifacts linked to that original by SHA-256. Styles are flattened and fetched images are embedded. Only computed styles that the snapshot would not reproduce from tag defaults and inheritance are inlined, and custom properties are dropped. A page fails when its render takes over 180 s or its snapshot exceeds 32 MiB. Scripts, forms,
+HTML snapshot are DERIVED artifacts linked to that original by SHA-256. Styles are flattened and fetched images are embedded. Only computed styles the snapshot would not reproduce on its own are inlined: a draft diffed against tag defaults and inheritance is rendered in a blank frame, and any property that renders differently from the page is added back. Custom properties are dropped. A page fails when its render takes over 180 s or its snapshot exceeds 32 MiB. Scripts, forms,
 frames, media and external style/font dependencies are removed. This is a static
 snapshot, not an interactive application archive. Pages requiring JavaScript,
 login, or subscription may be inaccessible. arXiv citation metadata supplies titles and authors; its original abstract page

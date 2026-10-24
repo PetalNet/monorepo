@@ -285,8 +285,9 @@ it.skipIf(!process.env["CITE_BROWSER_TESTS"])(
 			(_, index) => `--token-${String(index)}: "Design Token Font ${String(index)}", sans-serif;`,
 		).join("");
 		const css = `:root{${tokens}--brand:rgb(0, 128, 0)}
-body{font-family:Georgia,serif;color:var(--brand);line-height:1.6}
-h1{font-weight:400;color:rgb(255, 0, 0)}
+body{font-family:Georgia,serif;color:var(--brand);line-height:1.6;font-size:20px}
+h1{font-weight:400;color:rgb(255, 0, 0);font-size:32px}
+a{color:inherit}
 .card{border:2px solid rgb(0, 0, 255);padding:12px;text-underline-offset:4px}
 .card p{text-underline-offset:auto}
 em{font-style:normal}
@@ -315,6 +316,7 @@ li{list-style-type:square}
 		const html = readFileSync(path.join(cite.store.root, snapshot.path), "utf8");
 
 		expect(html).not.toContain("--token-");
+		expect(html).not.toContain("data-vault-cite-index");
 		expect(html.length).toBeLessThan(1024 ** 2);
 
 		const browser = await chromium.launch({

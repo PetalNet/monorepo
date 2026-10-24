@@ -115,7 +115,8 @@ async function render(browser: Browser, reply: Reply, network: Network): Promise
 			});
 		} catch (error) {
 			failure = error instanceof Error ? error : new Error("Browser resource capture failed");
-			await route.abort();
+			// The deadline may already have closed the browser.
+			await route.abort().catch(() => undefined);
 		}
 	});
 
@@ -177,10 +178,14 @@ async function render(browser: Browser, reply: Reply, network: Network): Promise
 			const sourceNodes = [...originals].slice(1);
 			// Inlining every computed property, custom properties included, multiplied large
 			// pages ~1000x and exhausted the renderer. Inline only what the snapshot would not
-			// reproduce on its own: a blank document supplies per-tag defaults and the root.
+			// reproduce on its own. Defaults from a blank document give a small first draft;
+			// rendering that draft in the same blank frame then corrects whatever it got wrong.
 			const frame = document.createElement("iframe");
 
-			frame.setAttribute("style", "position:absolute;left:-10000px;width:1024px;height:768px");
+			frame.setAttribute(
+				"style",
+				`position:absolute;left:-100000px;width:${String(innerWidth)}px;height:${String(innerHeight)}px;border:0`,
+			);
 			document.documentElement.append(frame);
 			const blank = frame.contentDocument;
 			const blankWindow = frame.contentWindow;
@@ -222,6 +227,9 @@ async function render(browser: Browser, reply: Reply, network: Network): Promise
 
 				return found;
 			};
+			const marker = "data-vault-cite-index";
+			const sourceStyles: CSSStyleDeclaration[] = [];
+			const inlineValue = (value: string) => value.replace(/url\([^)]*\)/g, "none");
 			let size = 0;
 
 			for (const [index, node] of copies.entries()) {
@@ -232,6 +240,9 @@ async function render(browser: Browser, reply: Reply, network: Network): Promise
 				}
 
 				const style = getComputedStyle(source);
+
+				sourceStyles[index] = style;
+				node.setAttribute(marker, String(index));
 				const parent =
 					source.parentElement && source.parentElement !== document.documentElement
 						? getComputedStyle(source.parentElement)
@@ -261,7 +272,7 @@ async function render(browser: Browser, reply: Reply, network: Network): Promise
 					}
 
 					if (!reproduced) {
-						declarations.push(`${key}:${value.replace(/url\([^)]*\)/g, "none")}`);
+						declarations.push(`${key}:${inlineValue(value)}`);
 					}
 				}
 
@@ -303,7 +314,6 @@ async function render(browser: Browser, reply: Reply, network: Network): Promise
 				}
 			}
 
-			frame.remove();
 			clone
 				.querySelectorAll(
 					"script,link,style,iframe,object,embed,video,audio,source,base,form,meta[http-equiv]",
@@ -320,8 +330,45 @@ async function render(browser: Browser, reply: Reply, network: Network): Promise
 				"default-src 'none'; img-src data:; style-src 'unsafe-inline'; base-uri 'none'; form-action 'none'";
 
 			clone.querySelector("head")?.prepend(policy);
+			blank.open();
+			blank.write(`<!doctype html>\n${clone.outerHTML}`);
+			blank.close();
 
-			return `<!doctype html>\n${clone.outerHTML}`;
+			// Document order corrects a parent before its descendants read what they inherit.
+			for (const node of blank.querySelectorAll<HTMLElement | SVGElement>(`[${marker}]`)) {
+				const style = sourceStyles[Number(node.getAttribute(marker))];
+
+				if (!style) {
+					continue;
+				}
+
+				const rendered = blankWindow.getComputedStyle(node);
+
+				for (const key of style) {
+					const value = inlineValue(style.getPropertyValue(key));
+
+					if (!key.startsWith("--") && rendered.getPropertyValue(key) !== value) {
+						node.style.setProperty(key, value);
+						size += key.length + value.length + 2;
+					}
+				}
+
+				if (size > limit) {
+					frame.remove();
+
+					return null;
+				}
+			}
+
+			for (const node of blank.querySelectorAll(`[${marker}]`)) {
+				node.removeAttribute(marker);
+			}
+
+			const html = `<!doctype html>\n${blank.documentElement.outerHTML}`;
+
+			frame.remove();
+
+			return html;
 		},
 		{ imageData: images, inheritedNames: inherited, limit: snapshotLimit },
 	);
