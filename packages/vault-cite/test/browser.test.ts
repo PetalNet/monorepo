@@ -305,6 +305,7 @@ li{list-style-type:square}
 		const result = await cite.add("https://publisher.example/tokens");
 
 		expect(result.job?.state, result.job?.reason ?? "").toBe("SAVED");
+
 		const snapshot = result.source?.artifacts.find(
 			(item) => item.role === "DERIVED" && item.mime === "text/html",
 		);
@@ -350,12 +351,14 @@ li{list-style-type:square}
 					}),
 				);
 			};
+
 			const expected = await styles(
 				page.replace('<link rel="stylesheet" href="/style.css">', `<style>${css}</style>`),
 			);
 			const actual = await styles(html);
 
 			expect(actual).toHaveLength(expected.length);
+
 			const mismatches = expected.flatMap((properties, index) =>
 				Object.entries(properties)
 					.filter(([key, value]) => actual[index]?.[key] !== value)

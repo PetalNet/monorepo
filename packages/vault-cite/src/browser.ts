@@ -186,6 +186,7 @@ async function render(browser: Browser, reply: Reply, network: Network): Promise
 				"style",
 				`position:absolute;left:-100000px;width:${String(innerWidth)}px;height:${String(innerHeight)}px;border:0`,
 			);
+
 			document.documentElement.append(frame);
 			const blank = frame.contentDocument;
 			const blankWindow = frame.contentWindow;
@@ -203,6 +204,7 @@ async function render(browser: Browser, reply: Reply, network: Network): Promise
 
 			tinted.setAttribute("style", "color:rgb(1, 2, 3)");
 			blank.body.append(tinted);
+
 			// Properties whose default is currentColor, such as border colors.
 			const followsColor = new Set(
 				[...values(blankWindow.getComputedStyle(tinted))]
@@ -227,6 +229,7 @@ async function render(browser: Browser, reply: Reply, network: Network): Promise
 
 				return found;
 			};
+
 			const marker = "data-vault-cite-index";
 			const sourceStyles: CSSStyleDeclaration[] = [];
 			const inlineValue = (value: string) => value.replace(/url\([^)]*\)/g, "none");
@@ -243,6 +246,7 @@ async function render(browser: Browser, reply: Reply, network: Network): Promise
 
 				sourceStyles[index] = style;
 				node.setAttribute(marker, String(index));
+
 				const parent =
 					source.parentElement && source.parentElement !== document.documentElement
 						? getComputedStyle(source.parentElement)
@@ -331,6 +335,7 @@ async function render(browser: Browser, reply: Reply, network: Network): Promise
 
 			clone.querySelector("head")?.prepend(policy);
 			blank.open();
+			// oxlint-disable-next-line typescript/no-deprecated -- Parses synchronously in standards mode, as the saved snapshot will be.
 			blank.write(`<!doctype html>\n${clone.outerHTML}`);
 			blank.close();
 
@@ -364,11 +369,11 @@ async function render(browser: Browser, reply: Reply, network: Network): Promise
 				node.removeAttribute(marker);
 			}
 
-			const html = `<!doctype html>\n${blank.documentElement.outerHTML}`;
+			const snapshotHtml = `<!doctype html>\n${blank.documentElement.outerHTML}`;
 
 			frame.remove();
 
-			return html;
+			return snapshotHtml;
 		},
 		{ imageData: images, inheritedNames: inherited, limit: snapshotLimit },
 	);
