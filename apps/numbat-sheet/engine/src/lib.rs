@@ -58,7 +58,7 @@ pub struct CellOutcome {
 
 enum Failure {
     Numbat(Box<NumbatError>),
-    Function(String),
+    NotAValue(String),
 }
 
 #[wasm_bindgen]
@@ -78,21 +78,22 @@ impl Session {
     }
 }
 
+/// Binds `name` only once the value is accepted, so a rejected cell leaves nothing for dependents
+/// to use. The parentheses keep the input a single expression.
 fn evaluate(ctx: &mut Context, name: &str, expr: &str) -> Result<(String, String), Failure> {
-    let _ = ctx
-        .interpret(&format!("let {name} = {expr}"), CodeSource::Text)
-        .map_err(Failure::Numbat)?;
     let value = match ctx
-        .interpret(name, CodeSource::Text)
+        .interpret(&format!("({expr})"), CodeSource::Text)
         .map_err(Failure::Numbat)?
         .1
     {
+        InterpreterResult::Value(Value::FunctionReference(_)) | InterpreterResult::Continue => {
+            return Err(Failure::NotAValue(expr.to_owned()));
+        }
         InterpreterResult::Value(value) => value,
-        InterpreterResult::Continue => Value::String("".into()),
     };
-    if let Value::FunctionReference(_) = value {
-        return Err(Failure::Function(expr.to_owned()));
-    }
+    let _ = ctx
+        .interpret(&format!("let {name} = ans"), CodeSource::Text)
+        .map_err(Failure::Numbat)?;
     let show = |significant_digits| match &value {
         Value::String(s) => s.to_string(),
         value => PlainTextFormatter
@@ -122,9 +123,7 @@ fn outcome(result: Result<(String, String), Failure>) -> CellOutcome {
             full: Some(full),
             missing: None,
         },
-        Err(Failure::Function(expr)) => {
-            error("#ERROR", format!("{expr} is a function, not a value"))
-        }
+        Err(Failure::NotAValue(expr)) => error("#ERROR", format!("{expr} is not a value")),
         Err(Failure::Numbat(e)) => CellOutcome {
             missing: missing_cell(&e),
             ..error(code(&e), message(&e))
@@ -254,6 +253,21 @@ mod tests {
             s.define_literal("A3", r#""{B1}""#).code.as_deref(),
             Some("#NAME")
         );
+    }
+
+    #[test]
+    fn rejected_cells_leave_no_binding() {
+        let engine = Engine::new();
+        let mut s = engine.session();
+        assert_eq!(
+            s.define_literal("A1", "abs").code.as_deref(),
+            Some("#ERROR")
+        );
+        assert_eq!(s.define("B1", "A1(-1)").missing.as_deref(), Some("A1"));
+        assert_eq!(s.define("A2", "sin").code.as_deref(), Some("#ERROR"));
+        assert_eq!(s.define("B2", "A2(1)").missing.as_deref(), Some("A2"));
+        assert_eq!(s.define("A3", "1 m + 1 s").code.as_deref(), Some("#UNIT"));
+        assert_eq!(s.define("B3", "A3").missing.as_deref(), Some("A3"));
     }
 
     #[test]
