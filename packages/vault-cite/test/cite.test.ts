@@ -1050,7 +1050,8 @@ const { migrateDomains } = await import(${JSON.stringify(storeModule)});
 const db = new DatabaseSync(${JSON.stringify(database)});
 db.exec("PRAGMA busy_timeout=5000");
 process.stdout.write("ready\\n");
-while (!existsSync(${JSON.stringify(go)}));
+const deadline = Date.now() + 10_000;
+while (!existsSync(${JSON.stringify(go)})) if (Date.now() > deadline) throw new Error("barrier timeout");
 migrateDomains(db);`,
 				],
 				{ stdio: ["ignore", "pipe", "pipe"] },
@@ -1068,32 +1069,35 @@ migrateDomains(db);`,
 
 	for (let trial = 0; trial < 4; trial++) {
 		const root = mkdtempSync(path.join(process.cwd(), ".cite-test-"));
-		const database = path.join(root, "index-v2.sqlite");
-		const go = path.join(root, "go");
-		const old = new DatabaseSync(database);
 
-		old.exec(
-			"PRAGMA journal_mode=WAL; CREATE TABLE domains(host TEXT PRIMARY KEY, next_at REAL NOT NULL)",
-		);
+		try {
+			const database = path.join(root, "index-v2.sqlite");
+			const go = path.join(root, "go");
+			const old = new DatabaseSync(database);
 
-		old.close();
-		let waiting = 6;
+			old.exec(
+				"PRAGMA journal_mode=WAL; CREATE TABLE domains(host TEXT PRIMARY KEY, next_at REAL NOT NULL)",
+			);
 
-		errors.push(
-			...(await Promise.all(
-				Array.from({ length: 6 }, () =>
-					migrate(database, go, () => {
-						waiting--;
+			old.close();
+			let waiting = 6;
 
-						if (waiting === 0) {
-							writeFileSync(go, "");
-						}
-					}),
-				),
-			)),
-		);
+			errors.push(
+				...(await Promise.all(
+					Array.from({ length: 6 }, () =>
+						migrate(database, go, () => {
+							waiting--;
 
-		rmSync(root, { recursive: true });
+							if (waiting === 0) {
+								writeFileSync(go, "");
+							}
+						}),
+					),
+				)),
+			);
+		} finally {
+			rmSync(root, { recursive: true, force: true });
+		}
 	}
 
 	expect(errors.filter(Boolean)).toEqual([]);
