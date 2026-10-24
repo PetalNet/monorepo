@@ -9,7 +9,7 @@ import { gzipSync } from "node:zlib";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { Cite, Store } from "../src/index.ts";
-import { normalize } from "../src/model.ts";
+import { PacingDeferred, normalize } from "../src/model.ts";
 import { Network } from "../src/network.ts";
 import type { Reply, Transport } from "../src/network.ts";
 import { requireTools } from "./tools.ts";
@@ -398,6 +398,35 @@ describe("network policy and worker", () => {
 		expect(Date.now() - start).toBeLessThan(2000);
 		expect(peak).toBe(6);
 		expect(urls.filter((url) => url.endsWith("/robots.txt"))).toHaveLength(1);
+	});
+
+	it("starts no page asset on a host cooling down after an asset's 429", async () => {
+		const urls: string[] = [];
+		const store = new Store(mkdtempSync(path.join(process.cwd(), ".cite-test-")));
+
+		stores.push(store);
+
+		store.db
+			.prepare("INSERT INTO robots VALUES(?,?,?)")
+			.run("https://cdn.example", "", Date.now() + 60_000);
+
+		const network = new Network(
+			store,
+			(url) => {
+				urls.push(url);
+
+				return reply(url, "", 429, { "retry-after": "120" });
+			},
+			3000,
+		);
+
+		await expect(network.get("https://cdn.example/a.png", true)).rejects.toThrow("Rate limited");
+
+		await expect(network.get("https://cdn.example/b.png", true)).rejects.toBeInstanceOf(
+			PacingDeferred,
+		);
+
+		expect(urls).toEqual(["https://cdn.example/a.png"]);
 	});
 
 	it("retries a GitHub-style 403 rate limit instead of recording it as restricted", async () => {

@@ -24,6 +24,7 @@ const robotsParser = z
 	.parse(robotsModule);
 
 import type { Capture, Job } from "./model.ts";
+import { PacingDeferred } from "./model.ts";
 import { CaptureError, httpUrl } from "./model.ts";
 import { diskGuard } from "./store.ts";
 import type { Store } from "./store.ts";
@@ -262,8 +263,24 @@ export class Network {
 		let reply: Reply;
 
 		if (asset) {
-			while ((assetsInFlight.get(host) ?? 0) >= assetsPerHost) {
-				await sleep(25);
+			for (;;) {
+				while ((assetsInFlight.get(host) ?? 0) >= assetsPerHost) {
+					await sleep(25);
+				}
+
+				// Assets skip document pacing, so a host time further out than one paced interval is a
+				// server-directed cooldown (429, 503, rate limit). Honor it as documents do.
+				const until = this.store.hostNext(host);
+
+				if (until <= Date.now() + delay) {
+					break;
+				}
+
+				if (until > Date.now() + 30_000) {
+					throw new PacingDeferred(until);
+				}
+
+				await sleep(until - Date.now());
 			}
 
 			assetsInFlight.set(host, (assetsInFlight.get(host) ?? 0) + 1);

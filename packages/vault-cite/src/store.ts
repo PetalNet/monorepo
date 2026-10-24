@@ -146,6 +146,12 @@ export class Store {
 			)
 			.run(until, job.ref, job.lease_until);
 	}
+	/** The earliest start for the host's next paced request, or a server-directed cooldown end. */
+	hostNext(host: string): number {
+		const row = this.db.prepare("SELECT next_at FROM domains WHERE host=?").get(host);
+
+		return row ? z.object({ next_at: z.number() }).parse(row).next_at : 0;
+	}
 	cooldown(host: string, delay: number) {
 		this.db
 			.prepare(
