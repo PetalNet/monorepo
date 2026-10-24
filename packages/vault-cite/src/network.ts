@@ -268,11 +268,10 @@ export class Network {
 					await sleep(25);
 				}
 
-				// Assets skip document pacing, so a host time further out than one paced interval is a
-				// server-directed cooldown (429, 503, rate limit). Honor it as documents do.
-				const until = this.store.hostNext(host);
+				// Assets skip document pacing but not a server-directed cooldown.
+				const until = this.store.cooldownUntil(host);
 
-				if (until <= Date.now() + delay) {
+				if (until <= Date.now()) {
 					break;
 				}
 

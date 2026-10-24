@@ -400,6 +400,64 @@ describe("network policy and worker", () => {
 		expect(urls.filter((url) => url.endsWith("/robots.txt"))).toHaveLength(1);
 	});
 
+	it("holds assets for a cooldown shorter than the crawl delay", async () => {
+		const urls: string[] = [];
+		const store = new Store(mkdtempSync(path.join(process.cwd(), ".cite-test-")));
+
+		stores.push(store);
+
+		store.db
+			.prepare("INSERT INTO robots VALUES(?,?,?)")
+			.run("https://cdn.example", "User-agent: *\nCrawl-delay: 60\n", Date.now() + 60_000);
+
+		const network = new Network(
+			store,
+			(url) => {
+				urls.push(url);
+
+				return reply(url, "", 429, { "retry-after": "31" });
+			},
+			3000,
+		);
+
+		await expect(network.get("https://cdn.example/a.png", true)).rejects.toThrow("Rate limited");
+
+		await expect(network.get("https://cdn.example/b.png", true)).rejects.toBeInstanceOf(
+			PacingDeferred,
+		);
+
+		expect(urls).toEqual(["https://cdn.example/a.png"]);
+	});
+
+	it("starts no asset inside the final paced interval of a cooldown", async () => {
+		const starts: number[] = [];
+		const store = new Store(mkdtempSync(path.join(process.cwd(), ".cite-test-")));
+
+		stores.push(store);
+
+		store.db
+			.prepare("INSERT INTO robots VALUES(?,?,?)")
+			.run("https://cdn.example", "", Date.now() + 60_000);
+
+		store.cooldown("cdn.example", 500);
+		const until = store.cooldownUntil("cdn.example");
+
+		const network = new Network(
+			store,
+			(url) => {
+				starts.push(Date.now());
+
+				return reply(url, "asset");
+			},
+			3000,
+		);
+
+		await network.get("https://cdn.example/a.png", true);
+
+		expect(starts).toHaveLength(1);
+		expect(starts[0]).toBeGreaterThanOrEqual(until);
+	});
+
 	it("shares one failed robots fetch with concurrent assets", async () => {
 		const urls: string[] = [];
 		const store = new Store(mkdtempSync(path.join(process.cwd(), ".cite-test-")));
