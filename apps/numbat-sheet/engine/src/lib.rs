@@ -66,16 +66,26 @@ impl Session {
     /// Numbat's own name resolution finds the cells a formula uses, including inside string
     /// interpolations, so the caller defines each `missing` cell and calls this again.
     pub fn define(&mut self, name: &str, expr: &str) -> CellOutcome {
-        outcome(evaluate(&mut self.ctx, name, expr))
+        let result = evaluate(&mut self.ctx, name, expr);
+        forget_last_result(&mut self.ctx);
+        outcome(result)
     }
 
     /// A literal may not use cells, so it must evaluate in a scope that has none.
     pub fn define_literal(&mut self, name: &str, expr: &str) -> CellOutcome {
-        match self.probe.interpret(expr, CodeSource::Text) {
+        let checked = self.probe.interpret(expr, CodeSource::Text);
+        forget_last_result(&mut self.probe);
+        match checked {
             Ok(_) => self.define(name, expr),
             Err(error) => outcome(Err(Failure::Numbat(error))),
         }
     }
+}
+
+/// Numbat keeps the last value in `ans` and `_`. Resetting them after every cell stops one cell
+/// from reading another through them, which would hide the dependency.
+fn forget_last_result(ctx: &mut Context) {
+    let _ = ctx.interpret(r#""""#, CodeSource::Text);
 }
 
 /// Binds `name` only once the value is accepted, so a rejected cell leaves nothing for dependents
@@ -268,6 +278,18 @@ mod tests {
         assert_eq!(s.define("B2", "A2(1)").missing.as_deref(), Some("A2"));
         assert_eq!(s.define("A3", "1 m + 1 s").code.as_deref(), Some("#UNIT"));
         assert_eq!(s.define("B3", "A3").missing.as_deref(), Some("A3"));
+    }
+
+    #[test]
+    fn cells_cannot_read_each_other_through_ans() {
+        let engine = Engine::new();
+        let mut s = engine.session();
+        let _ = s.define("A1", "1 m");
+        let _ = s.define("A2", "sin");
+        assert_ne!(s.define("A3", "ans(1)").code, None);
+        let mut s = engine.session();
+        let _ = s.define_literal("B1", "1 m");
+        assert_ne!(s.define_literal("B2", "ans + 1 m").code, None);
     }
 
     #[test]
