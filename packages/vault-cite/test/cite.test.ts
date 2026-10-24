@@ -458,6 +458,28 @@ describe("network policy and worker", () => {
 		expect(starts[0]).toBeGreaterThanOrEqual(until);
 	});
 
+	it("shares one DNS lookup per host and still refuses a private address", async () => {
+		const store = new Store(mkdtempSync(path.join(process.cwd(), ".cite-test-")));
+
+		stores.push(store);
+
+		store.db
+			.prepare("INSERT INTO robots VALUES(?,?,?)")
+			.run("https://private.example", "", Date.now() + 60_000);
+
+		dns.lookups = 0;
+		const network = new Network(store);
+		const results = await Promise.allSettled(
+			["a", "b", "c"].map((name) => network.get(`https://private.example/${name}.png`, true)),
+		);
+
+		expect(results.map((result) => result.status === "rejected" && String(result.reason))).toEqual(
+			Array.from({ length: 3 }, () => "Error: Non-public network destination refused"),
+		);
+
+		expect(dns.lookups).toBe(1);
+	});
+
 	it("shares one failed robots fetch with concurrent assets", async () => {
 		const urls: string[] = [];
 		const store = new Store(mkdtempSync(path.join(process.cwd(), ".cite-test-")));
@@ -639,6 +661,17 @@ describe("network policy and worker", () => {
 		expect(normalize("hep-th/9901001v2")).toBe("arxiv:hep-th/9901001v2");
 	});
 });
+
+const dns = vi.hoisted(() => ({ lookups: 0 }));
+
+vi.mock("node:dns/promises", () => ({
+	lookup: async () => {
+		dns.lookups++;
+		await new Promise((resolve) => setTimeout(resolve, 20));
+
+		return [{ address: "127.0.0.1", family: 4 }];
+	},
+}));
 
 vi.mock("node:fs", async (importOriginal) => ({
 	...(await importOriginal<typeof fs>()),
