@@ -42,12 +42,14 @@ function pdf(reply: Reply, canonicalId: string): Capture {
 	return capture;
 }
 
-async function github(url: URL, network: Network): Promise<Capture> {
+// Code URLs are pinned to a commit. Issues, pulls, releases, profiles and other GitHub pages return
+// undefined and are captured as ordinary pages.
+async function github(url: URL, network: Network): Promise<Capture | undefined> {
 	const parts = url.pathname.split("/").filter(Boolean);
 	const [owner, repo, kind, ...tail] = parts;
 
 	if (!owner || !repo || (kind && !["tree", "blob", "commit"].includes(kind))) {
-		throw new CaptureError("FAILED", "Expected GitHub repository, tree, blob or commit URL");
+		return undefined;
 	}
 
 	// A branch or tag containing "/" is indistinguishable from a path here; the first segment is the ref.
@@ -147,8 +149,10 @@ export async function resolveSource(ref: string, network: Network): Promise<Capt
 
 	const url = new URL(canonical);
 
-	if (url.hostname === "github.com") {
-		return github(url, network);
+	const code = url.hostname === "github.com" ? await github(url, network) : undefined;
+
+	if (code) {
+		return code;
 	}
 
 	const reply = await network.get(canonical);
