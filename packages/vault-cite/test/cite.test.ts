@@ -366,6 +366,40 @@ describe("network policy and worker", () => {
 		expect(urls).toEqual(["https://spa.example/robots.txt", "https://spa.example/jobs/1"]);
 	});
 
+	it("fetches page assets six at a time per host instead of pacing them", async () => {
+		let inFlight = 0;
+		let peak = 0;
+		const urls: string[] = [];
+		const store = new Store(mkdtempSync(path.join(process.cwd(), ".cite-test-")));
+
+		stores.push(store);
+
+		const network = new Network(
+			store,
+			async (url) => {
+				urls.push(url);
+				inFlight++;
+				peak = Math.max(peak, inFlight);
+				await new Promise((resolve) => setTimeout(resolve, 20));
+				inFlight--;
+
+				return reply(url, url.endsWith("/robots.txt") ? "" : "asset");
+			},
+			60_000,
+		);
+		const start = Date.now();
+
+		await Promise.all(
+			Array.from({ length: 18 }, (_, index) =>
+				network.get(`https://cdn.example/${String(index)}.png`, true),
+			),
+		);
+
+		expect(Date.now() - start).toBeLessThan(2000);
+		expect(peak).toBe(6);
+		expect(urls.filter((url) => url.endsWith("/robots.txt"))).toHaveLength(1);
+	});
+
 	it("retries a GitHub-style 403 rate limit instead of recording it as restricted", async () => {
 		const reset = Math.ceil(Date.now() / 1000) + 600;
 		const cite = setup((url) =>

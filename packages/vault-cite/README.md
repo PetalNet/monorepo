@@ -131,7 +131,9 @@ are retained untouched and are not imported or relabelled as originals. Recaptur
 those references with v2 to establish trustworthy original/derived provenance.
 
 All downloads, including browser assets and redirect destinations, pass through
-the same robots and domain pacing checks. A robots client error other than 401, 403 or 429 (for example 404,
+the same robots checks. Documents, robots files and redirects get domain pacing.
+A page's stylesheets, images and fonts are not paced: like a browser, a worker
+fetches at most six at a time per host, within the page's byte and render limits. A robots client error other than 401, 403 or 429 (for example 404,
 410, or the 422 that Unpaywall's API returns) permits access, per RFC 9309.
 A 200 robots response is parsed as served, as RFC 9309 and major crawlers do.
 An HTML page there, such as a single-page app shell or a soft 404 reached by
