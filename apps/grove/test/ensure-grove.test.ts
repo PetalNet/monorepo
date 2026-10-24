@@ -281,6 +281,31 @@ describe("ensure Grove orb services", () => {
 			},
 		});
 	}, 10_000);
+
+	it("kills TERM-ignoring supervisor descendants when the ensure times out", async () => {
+		const { root, env } = await fixture();
+
+		await writeFile(
+			path.join(root, "bin/amp"),
+			`#!/usr/bin/env bash\n(trap '' TERM; exec sleep 30) &\nprintf '%s' "$!" > "$AMP_CHILD"\nwait\n`,
+		);
+
+		await chmod(path.join(root, "bin/amp"), 0o755);
+		const childPidFile = path.join(root, "amp.child");
+		const started = Date.now();
+
+		const ensured = await run(path.join(root, ".agents/ensure-grove"), [], {
+			cwd: root,
+			env: { ...env, AMP_CHILD: childPidFile, GROVE_ENSURE_TIMEOUT_SECONDS: "1" },
+		});
+
+		expect(Date.now() - started).toBeLessThan(3_000);
+		expect(ensured.code).toBe(124);
+		expect(JSON.parse(ensured.stdout)).toMatchObject({ error: { id: "service-ensure-timeout" } });
+		const childPid = Number(await readFile(childPidFile, "utf8"));
+
+		expect(() => process.kill(childPid, 0)).toThrow(expect.objectContaining({ code: "ESRCH" }));
+	}, 5_000);
 });
 
 describe("Grove supervised service startup", () => {
