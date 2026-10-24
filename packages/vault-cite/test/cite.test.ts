@@ -1,9 +1,10 @@
-import { spawnSync } from "node:child_process";
+import { spawn, spawnSync } from "node:child_process";
 /* oxlint-disable eslint/no-await-in-loop -- Sequential processing bounds resource use and preserves pacing, redirect and retry order. */
 import { createHash } from "node:crypto";
 import type * as fs from "node:fs";
-import { chmodSync, mkdtempSync, readFileSync, rmSync, statSync } from "node:fs";
+import { chmodSync, mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
 import path from "node:path";
+import { DatabaseSync } from "node:sqlite";
 import { gzipSync } from "node:zlib";
 
 import { afterEach, describe, expect, it, vi } from "vitest";
@@ -1030,6 +1031,73 @@ describe("GitHub refs", () => {
 		expect(source?.artifacts).toHaveLength(1);
 	});
 });
+
+it("migrates domains once when several processes open an old store together", async () => {
+	const storeModule = path.resolve("src/store.ts");
+	// Each child loads and opens everything, reports ready, then spins until the go file exists, so
+	// all of them reach the migration together.
+	const migrate = (database: string, go: string, ready: () => void) =>
+		new Promise<string>((resolve) => {
+			const child = spawn(
+				process.execPath,
+				[
+					"--no-warnings",
+					"--input-type=module",
+					"-e",
+					`import { existsSync } from "node:fs";
+import { DatabaseSync } from "node:sqlite";
+const { migrateDomains } = await import(${JSON.stringify(storeModule)});
+const db = new DatabaseSync(${JSON.stringify(database)});
+db.exec("PRAGMA busy_timeout=5000");
+process.stdout.write("ready\\n");
+while (!existsSync(${JSON.stringify(go)}));
+migrateDomains(db);`,
+				],
+				{ stdio: ["ignore", "pipe", "pipe"] },
+			);
+			let stderr = "";
+
+			child.stdout.once("data", ready);
+			child.stderr.on("data", (chunk: Buffer) => (stderr += chunk.toString()));
+
+			child.on("close", () => {
+				resolve(stderr);
+			});
+		});
+	const errors: string[] = [];
+
+	for (let trial = 0; trial < 4; trial++) {
+		const root = mkdtempSync(path.join(process.cwd(), ".cite-test-"));
+		const database = path.join(root, "index-v2.sqlite");
+		const go = path.join(root, "go");
+		const old = new DatabaseSync(database);
+
+		old.exec(
+			"PRAGMA journal_mode=WAL; CREATE TABLE domains(host TEXT PRIMARY KEY, next_at REAL NOT NULL)",
+		);
+
+		old.close();
+		let waiting = 6;
+
+		errors.push(
+			...(await Promise.all(
+				Array.from({ length: 6 }, () =>
+					migrate(database, go, () => {
+						waiting--;
+
+						if (waiting === 0) {
+							writeFileSync(go, "");
+						}
+					}),
+				),
+			)),
+		);
+
+		rmSync(root, { recursive: true });
+	}
+
+	expect(errors.filter(Boolean)).toEqual([]);
+}, 60_000);
 
 it("defers domain pacing without spending attempts and resumes multiple jobs after restart", async () => {
 	let now = 1_800_000_000_000;

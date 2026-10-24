@@ -43,6 +43,31 @@ function hash(data: Buffer | string) {
 	return digest.parse(createHash("sha256").update(data).digest("hex"));
 }
 
+/**
+ * Stores created before server cooldowns had their own deadline gain the column. The write lock
+ * makes a second process opening the store at the same time see the column instead of adding it
+ * again.
+ *
+ * @public Exported for the concurrent-migration test.
+ */
+export function migrateDomains(db: DatabaseSync): void {
+	db.exec("BEGIN IMMEDIATE");
+
+	try {
+		if (
+			!db.prepare("SELECT 1 FROM pragma_table_info('domains') WHERE name='cooldown_until'").get()
+		) {
+			db.exec("ALTER TABLE domains ADD COLUMN cooldown_until REAL NOT NULL DEFAULT 0");
+		}
+
+		db.exec("COMMIT");
+	} catch (error) {
+		db.exec("ROLLBACK");
+
+		throw error;
+	}
+}
+
 export class Store {
 	readonly root: string;
 	readonly db: DatabaseSync;
@@ -77,25 +102,7 @@ export class Store {
    CREATE VIEW IF NOT EXISTS citations AS SELECT ref, CASE WHEN state='SAVED' AND source_id IN (SELECT id FROM sources) THEN 'SAVED' WHEN state IN ('QUEUED','RUNNING') THEN 'PENDING' WHEN state='INACCESSIBLE' THEN 'INACCESSIBLE' ELSE 'BLOCKED' END AS status,reason,source_id FROM jobs;
    CREATE TABLE IF NOT EXISTS memories(id TEXT PRIMARY KEY, text TEXT NOT NULL, source_id TEXT NOT NULL REFERENCES sources(id));`);
 
-		// Stores created before server cooldowns had their own deadline. The write lock makes a second
-		// process opening the store at the same time see the column instead of adding it again.
-		this.db.exec("BEGIN IMMEDIATE");
-
-		try {
-			if (
-				!this.db
-					.prepare("SELECT 1 FROM pragma_table_info('domains') WHERE name='cooldown_until'")
-					.get()
-			) {
-				this.db.exec("ALTER TABLE domains ADD COLUMN cooldown_until REAL NOT NULL DEFAULT 0");
-			}
-
-			this.db.exec("COMMIT");
-		} catch (error) {
-			this.db.exec("ROLLBACK");
-
-			throw error;
-		}
+		migrateDomains(this.db);
 	}
 	close() {
 		this.db.close();
