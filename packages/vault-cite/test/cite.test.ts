@@ -829,6 +829,19 @@ describe("GitHub refs", () => {
 		expect(source?.artifacts).toHaveLength(2);
 	});
 
+	it.each([
+		"https://github.com/colmap/colmap/issues/1358",
+		"https://github.com/loro-dev/loro/releases/tag/loro-crdt%401.16.0",
+		"https://github.com/kabouzeid",
+	])("captures the non-code GitHub page %s as a page", async (ref) => {
+		const urls: string[] = [];
+		const cite = setup(githubTransport(urls));
+		const { source } = await cite.add(ref);
+
+		expect(source).toMatchObject({ canonical_id: ref, url: ref });
+		expect(urls.some((url) => new URL(url).hostname === "api.github.com")).toBe(false);
+	});
+
 	it("records no moving ref for a commit permalink", async () => {
 		const cite = setup(githubTransport([]));
 		const { source } = await cite.add(
