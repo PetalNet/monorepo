@@ -42,6 +42,10 @@ export default {
 				"migrations/*.ts!",
 			],
 		},
+		"apps/numbat-sheet": {
+			// build:wasm needs the Rust wasm-bindgen CLI, which is not an npm package.
+			ignoreBinaries: ["wasm-bindgen"],
+		},
 		"apps/slide": {
 			ignoreBinaries: ["prisma!"],
 		},
