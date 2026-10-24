@@ -60,11 +60,18 @@ describe("recalculate", () => {
 	it("follows references inside string interpolation but not plain string text", () => {
 		const { calls, define } = recorder();
 		const results = recalculate(
-			sheet({ A1: '="{B1}"', B1: "3 m", C1: '="{C1}"', D1: '"{B1}"', E1: '="B1"' }),
+			sheet({
+				A1: '="{B1}"',
+				B1: "3 m",
+				C1: '="{C1}"',
+				D1: '"{B1}"',
+				E1: '="B1"',
+				F1: '="{{D9}} and {B1}"',
+			}),
 			define,
 		);
 
-		expect(calls).toEqual(["B1", "A1", "E1"]);
+		expect(calls).toEqual(["B1", "A1", "E1", "F1"]);
 		expect(at(results, "C1")).toMatchObject({ code: "#CIRC_REF" });
 		expect(at(results, "D1")).toEqual({ kind: "text", text: '"{B1}"' });
 	});

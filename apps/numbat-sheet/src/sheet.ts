@@ -31,11 +31,37 @@ export type CellResult =
 
 export type Define = (id: CellId, expr: string) => CellOutcome;
 
-/** Cell-like names, in the grid or not, in code and in `{...}` string interpolations. */
+/**
+ * Cell-like names, in the grid or not, in code and in `{...}` string interpolations. Blanks out
+ * string text the way Numbat's tokenizer reads it: `\\` escapes, `{{` and `}}` are literal braces.
+ */
 function references(expr: string): string[] {
-	const code = expr.replace(/"(?:[^"\\]|\\.)*"/g, (literal) =>
-		(literal.match(/\{[^}]*\}/g) ?? []).join(" "),
-	);
+	const modes: ("code" | "string")[] = ["code"];
+	let code = "";
+
+	for (let i = 0; i < expr.length; i++) {
+		const c = expr.charAt(i);
+
+		if (modes.at(-1) === "code") {
+			if (c === '"') {
+				modes.push("string");
+			} else if (c === "}" && modes.length > 1) {
+				modes.pop();
+			}
+
+			code += modes.at(-1) === "code" ? c : " ";
+		} else {
+			if (c === "\\" || ((c === "{" || c === "}") && expr.charAt(i + 1) === c)) {
+				i++;
+			} else if (c === '"') {
+				modes.pop();
+			} else if (c === "{") {
+				modes.push("code");
+			}
+
+			code += " ";
+		}
+	}
 
 	return [...new Set(code.match(/\b[A-Z]+\d+\b/g))];
 }
