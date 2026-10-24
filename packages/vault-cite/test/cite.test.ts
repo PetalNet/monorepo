@@ -381,7 +381,11 @@ describe("network policy and worker", () => {
 				urls.push(url);
 				inFlight++;
 				peak = Math.max(peak, inFlight);
-				await new Promise((resolve) => setTimeout(resolve, 20));
+
+				await new Promise((resolve) => {
+					setTimeout(resolve, 20);
+				});
+
 				inFlight--;
 
 				return reply(url, url.endsWith("/robots.txt") ? "" : "asset");
@@ -491,7 +495,10 @@ describe("network policy and worker", () => {
 			store,
 			async (url) => {
 				urls.push(url);
-				await new Promise((resolve) => setTimeout(resolve, 20));
+
+				await new Promise((resolve) => {
+					setTimeout(resolve, 20);
+				});
 
 				return reply(url, "", 500);
 			},
@@ -668,7 +675,10 @@ const dns = vi.hoisted(() => ({ lookups: 0 }));
 vi.mock("node:dns/promises", () => ({
 	lookup: async () => {
 		dns.lookups++;
-		await new Promise((resolve) => setTimeout(resolve, 20));
+
+		await new Promise((resolve) => {
+			setTimeout(resolve, 20);
+		});
 
 		return [{ address: "127.0.0.1", family: 4 }];
 	},

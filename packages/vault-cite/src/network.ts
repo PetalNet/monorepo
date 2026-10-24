@@ -99,10 +99,9 @@ function resolveHost(host: string) {
 		pending = lookup(host, { all: true });
 		lookups.set(host, pending);
 
-		pending.then(
-			() => setTimeout(() => lookups.delete(host), 60_000).unref(),
-			() => lookups.delete(host),
-		);
+		pending
+			.then(() => setTimeout(() => lookups.delete(host), 60_000).unref())
+			.catch(() => lookups.delete(host));
 	}
 
 	return pending;
