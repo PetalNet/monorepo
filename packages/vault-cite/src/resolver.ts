@@ -50,36 +50,52 @@ async function github(url: URL, network: Network): Promise<Capture> {
 		throw new CaptureError("FAILED", "Expected GitHub repository, tree, blob or commit URL");
 	}
 
-	if (
-		(kind === "tree" && tail.length > 1) ||
-		(kind === "blob" && !/^[a-f0-9]{40}$/.test(tail[0] ?? ""))
-	) {
-		throw new CaptureError("FAILED", "Use a commit permalink for GitHub file or nested tree paths");
+	// A branch or tag containing "/" is indistinguishable from a path here; the first segment is the ref.
+	const [ref = "HEAD", ...path] = tail.map((segment) => decodeURIComponent(segment));
+
+	if (kind === "blob" && path.length === 0) {
+		throw new CaptureError("FAILED", "Expected a file path in GitHub blob URL");
 	}
 
-	// Slash-containing branch names are ambiguous; use a commit permalink for those.
-	const ref = tail[0] ?? "HEAD";
 	const base = `${encodeURIComponent(owner)}/${encodeURIComponent(repo.replace(/\.git$/, ""))}`;
-	const response = await network.get(
+	const resolution = await network.get(
 		`https://api.github.com/repos/${base}/commits/${encodeURIComponent(ref)}`,
 	);
 	const commit = z
 		.object({ sha: z.string().regex(/^[a-f0-9]{40}$/) })
-		.parse(JSON.parse(decoded(response).toString()));
-	const archive = await network.get(`https://codeload.github.com/${base}/tar.gz/${commit.sha}`);
+		.parse(JSON.parse(decoded(resolution).toString()));
+	const pinned = `${owner}/${repo}@${commit.sha}${path.length > 0 ? `/${path.join("/")}` : ""}`;
+	let capture: Capture;
 
-	if (decoded(archive)[0] !== 0x1f || decoded(archive)[1] !== 0x8b) {
-		throw new CaptureError("FAILED", "GitHub archive is not gzip");
+	if (kind === "blob") {
+		capture = captured(
+			await network.get(
+				`https://raw.githubusercontent.com/${base}/${commit.sha}/${path.map(encodeURIComponent).join("/")}`,
+			),
+			`github:${pinned}`,
+		);
+	} else {
+		const archive = await network.get(`https://codeload.github.com/${base}/tar.gz/${commit.sha}`);
+
+		if (decoded(archive)[0] !== 0x1f || decoded(archive)[1] !== 0x8b) {
+			throw new CaptureError("FAILED", "GitHub archive is not gzip");
+		}
+
+		capture = captured(archive, `github:${pinned}`);
+		const artifact = capture.artifacts[0];
+
+		if (artifact) {
+			artifact.mime = "application/gzip";
+		}
 	}
 
-	const capture = captured(archive, `github:${owner}/${repo}@${commit.sha}`);
-
-	capture.title = `${owner}/${repo} @ ${commit.sha}`;
+	capture.title = pinned.replace("@", " @ ");
 	capture.authors = [owner];
-	const artifact = capture.artifacts[0];
 
-	if (artifact) {
-		artifact.mime = "application/gzip";
+	// The citation named a branch, tag or HEAD, which moves. Keep the dated API answer that pinned it.
+	if (!(/^[a-f0-9]{7,40}$/.test(ref) && commit.sha.startsWith(ref))) {
+		capture.title += ` (cited ref ${ref})`;
+		capture.artifacts.push(original(resolution));
 	}
 
 	return capture;

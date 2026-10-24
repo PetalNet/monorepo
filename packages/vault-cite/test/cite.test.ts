@@ -744,6 +744,73 @@ it("only dispatches the GitHub resolver for the exact parsed hostname", async ()
 	expect(urls.some((url) => new URL(url).hostname === "api.github.com")).toBe(false);
 });
 
+describe("GitHub refs", () => {
+	const sha = "a".repeat(40);
+	const githubTransport =
+		(urls: string[]): Transport =>
+		(url) => {
+			urls.push(url);
+
+			if (url.endsWith("/robots.txt")) {
+				return reply(url, "");
+			}
+
+			if (url.startsWith("https://api.github.com/")) {
+				return reply(url, JSON.stringify({ sha }), 200, { "content-type": "application/json" });
+			}
+
+			if (url.startsWith("https://codeload.github.com/")) {
+				return reply(url, gzipSync("archive"), 200, { "content-type": "application/x-gzip" });
+			}
+
+			return reply(url, `file at ${url}`, 200, { "content-type": "text/plain; charset=utf-8" });
+		};
+
+	it("pins a branch file URL to its current commit and keeps the dated resolution", async () => {
+		const urls: string[] = [];
+		const cite = setup(githubTransport(urls));
+		const { source } = await cite.add("https://github.com/owner/repo/blob/main/docs/My%20Notes.md");
+
+		expect(urls).toContain("https://api.github.com/repos/owner/repo/commits/main");
+
+		expect(source).toMatchObject({
+			canonical_id: `github:owner/repo@${sha}/docs/My Notes.md`,
+			title: `owner/repo @ ${sha}/docs/My Notes.md (cited ref main)`,
+			url: `https://raw.githubusercontent.com/owner/repo/${sha}/docs/My%20Notes.md`,
+		});
+
+		expect(
+			source?.artifacts.map((artifact) => artifact.role === "ORIGINAL" && artifact.retrieval.url),
+		).toEqual([
+			`https://raw.githubusercontent.com/owner/repo/${sha}/docs/My%20Notes.md`,
+			"https://api.github.com/repos/owner/repo/commits/main",
+		]);
+	});
+
+	it("archives a nested branch tree at its current commit", async () => {
+		const cite = setup(githubTransport([]));
+		const { source } = await cite.add("https://github.com/owner/repo/tree/master/test/specs");
+
+		expect(source).toMatchObject({
+			canonical_id: `github:owner/repo@${sha}/test/specs`,
+			mime: "application/gzip",
+			url: `https://codeload.github.com/owner/repo/tar.gz/${sha}`,
+		});
+
+		expect(source?.artifacts).toHaveLength(2);
+	});
+
+	it("records no moving ref for a commit permalink", async () => {
+		const cite = setup(githubTransport([]));
+		const { source } = await cite.add(
+			`https://github.com/owner/repo/blob/${sha.slice(0, 7)}/a.txt`,
+		);
+
+		expect(source?.title).toBe(`owner/repo @ ${sha}/a.txt`);
+		expect(source?.artifacts).toHaveLength(1);
+	});
+});
+
 it("defers domain pacing without spending attempts and resumes multiple jobs after restart", async () => {
 	let now = 1_800_000_000_000;
 	const clock = vi.spyOn(Date, "now").mockImplementation(() => now);
