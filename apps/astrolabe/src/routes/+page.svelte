@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { invalidate } from "$app/navigation";
+	import { invalidateAll } from "$app/navigation";
 	import Cloud from "@lucide/svelte/icons/cloud";
 	import Cpu from "@lucide/svelte/icons/cpu";
 	import Frown from "@lucide/svelte/icons/frown";
@@ -41,7 +41,7 @@
 	const moodIcon = (mood: string) => /sad|low|tired|bad/i.test(mood) ? Frown : /calm|quiet|neutral|fine/i.test(mood) ? Meh : Smile;
 
 	onMount(() => {
-		const interval = window.setInterval(() => void invalidate(() => true), 30_000);
+		const interval = window.setInterval(() => void invalidateAll(), 30_000);
 		return () => window.clearInterval(interval);
 	});
 </script>

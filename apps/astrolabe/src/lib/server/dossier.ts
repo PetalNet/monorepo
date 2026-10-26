@@ -212,6 +212,9 @@ FROM (
 
 const readHost = async (path: string): Promise<Omit<Dossier["host"], "stale">> => {
 	const raw = await parseJsonFile(path);
+	if (!("disk" in raw) && !("load" in raw) && !("swap" in raw) && !("containers" in raw)) {
+		throw new Error("expected at least one host-health field");
+	}
 	const disk = isRecord(raw.disk) ? raw.disk : {};
 	const rank = (level: string): number => level.startsWith("FAIL") ? 2 : level.startsWith("WARN") ? 1 : 0;
 	let diskWorst: { mount: string; level: string } | null = null;
@@ -264,8 +267,8 @@ export const buildDossier = async (): Promise<Dossier> => {
 		now,
 		sun: {
 			sunriseAt, sunsetAt, dawnAt, duskAt, solarNoonAt,
-			altitudeDeg: (sunPosition.altitude * 180) / Math.PI,
-			azimuthDeg: (sunPosition.azimuth * 180) / Math.PI,
+			altitudeDeg: sunPosition.altitude,
+			azimuthDeg: sunPosition.azimuth,
 			dayFraction,
 			phase: solarPhaseName({ dawnAt, sunriseAt, solarNoonAt, sunsetAt, duskAt }, now),
 		},

@@ -14,3 +14,10 @@ services:
       KUMA_DB: /kuma/kuma.db
       HOST_HEALTH_PATH: /shared/host-health-state.json
       MOOD_PATH: /shared/janet-mood.json
+    volumes:
+      - /home/docker/.claude/shared/janet-usage.json:/shared/janet-usage.json:ro
+      - /home/docker/.claude/shared/codex-usage.json:/shared/codex-usage.json:ro
+      - /home/docker/.claude/shared/host-health-state.json:/shared/host-health-state.json:ro
+      - /tmp/janet-mood.json:/shared/janet-mood.json:ro
+      - /home/docker/backup-offsite.log:/logs/backup-offsite.log:ro
+      - /var/lib/docker/volumes/uptime-kuma_uptime-kuma-data/_data:/kuma:ro
