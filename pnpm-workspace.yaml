@@ -98,7 +98,7 @@ catalogs:
     "@eslint/markdown": ^8.0.2
     "@manypkg/cli": ^0.25.1
     # Kit 2 apps (CollegeMap and Slide); Kit 3 consumers use the default catalog.
-    "@sveltejs/adapter-node": ^5.5.7
+    "@sveltejs/adapter-node": ^6.0.0
     "@sveltejs/vite-plugin-svelte": ^7.0.0
     "@tailwindcss/vite": ^4.3.3
     "@vitest/coverage-v8": 5.0.3
