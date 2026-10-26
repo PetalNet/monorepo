@@ -193,6 +193,8 @@ catalog:
   drizzle-orm: 1.0.0-rc.5-5935859
   drizzle-kit: 1.0.0-rc.5-5935859
   fontless: ^1.2.1
+  suncalc: ^2.1.1
+  '@types/suncalc': ^1.9.2
 # Kit's programmatic API requires a matching ORM installation.
 packageExtensions:
   "drizzle-kit@1.0.0-rc.5-5935859":

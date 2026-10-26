@@ -1,0 +1,16 @@
+services:
+  astrolabe:
+    build:
+      context: ../..
+      dockerfile: apps/astrolabe/Dockerfile
+    ports:
+      - "4731:3000"
+    environment:
+      LAB_LAT: ${LAB_LAT:-32.78}
+      LAB_LON: ${LAB_LON:--96.80}
+      USAGE_PATH: /shared/janet-usage.json
+      CODEX_USAGE_PATH: /shared/codex-usage.json
+      BACKUP_LOG: /logs/backup-offsite.log
+      KUMA_DB: /kuma/kuma.db
+      HOST_HEALTH_PATH: /shared/host-health-state.json
+      MOOD_PATH: /shared/janet-mood.json
