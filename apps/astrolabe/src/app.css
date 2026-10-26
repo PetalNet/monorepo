@@ -124,7 +124,7 @@ h1 { font-size: 1rem; font-weight: 600; line-height: 1.2; }
 .meters { display: grid; gap: var(--s3); }.meters.two-meters { grid-template-columns: 1fr 1fr; }
 .meter-label { display: flex; justify-content: space-between; margin-bottom: var(--s1); }.meter-label span:first-child { color: var(--text-mute); font-size: .75rem; }.meter-label .mono { font-size: .75rem; }
 .meter-track { background: var(--rule); border-radius: var(--radius-pill); height: .375rem; overflow: hidden; }.meter-fill { background: var(--petal); border-radius: inherit; display: block; height: 100%; transition: width var(--dur-base) var(--ease-standard), background var(--t); }
-.meter-reset { color: var(--text-soft); font-size: .6875rem; margin-top: var(--s1); transition: color var(--t); }
+.meter-reset { color: var(--text-mute); font-size: .6875rem; margin-top: var(--s1); transition: color var(--t); }
 .credits { align-items: baseline; border-top: 1px solid var(--rule); display: flex; justify-content: space-between; margin-top: var(--s3); padding-top: var(--s3); transition: border-color var(--t); }.credits strong { font-size: 1rem; font-weight: 500; }
 
 .detail-list { display: grid; gap: var(--s3); }.detail-list div { align-items: baseline; display: flex; gap: var(--s3); justify-content: space-between; }.detail-list strong { font-size: .8125rem; font-weight: 500; text-align: right; }.detail-list.compact { gap: var(--s2); }
