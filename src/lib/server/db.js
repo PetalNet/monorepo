@@ -238,6 +238,7 @@ function ensureColumns() {
     // Claude Corner merge: kind 'doc' (brief/ADR, body=writeup) and 'question' (async decision)
     options: "TEXT DEFAULT ''",             // JSON [{value,label}] for kind='question'
     answer: "TEXT DEFAULT ''",              // chosen value for kind='question'
+    answer_at: 'TEXT',                       // decision timestamp, kept apart from prose
     source: "TEXT DEFAULT ''",              // provenance for sync upserts, e.g. 'corner:post:42'
     owner: "TEXT DEFAULT ''",               // who created/owns it (authentik username; privacy)
     visibility: "TEXT DEFAULT 'shared'",    // shared | private (private = owner-only for humans)
@@ -662,16 +663,27 @@ export const allDocs = (me) => db.prepare(
 export const openQuestions = (p, me, a) => db.prepare(`SELECT * FROM tasks WHERE kind='question' AND (answer='' OR answer IS NULL) AND ${ACTIVE} ${where(p)} ${whoFilter(a)} ${vis(me)} ${NOTARCHIVED} ORDER BY priority, created_at`).all(qargs(p, me, a));
 // Answer a question: only valid for kind='question', and an empty answer is rejected (an
 // empty value would otherwise mark the question done with no recorded decision). task-302.
-export function answerQuestion(id, value) {
+export function answerQuestion(id, value, answerAt = null) {
   if (value == null || String(value).trim() === '') return { ok: false, reason: 'empty_answer', message: 'An answer value is required.' };
   const t = getTask(id);
   if (!t || t.kind !== 'question') return { ok: false, reason: 'not_a_question', message: 'answerQuestion only applies to kind=question.' };
-  return updateTask(id, { answer: value, status: 'done' });
+  return updateTask(id, { answer: value, status: 'done', ...(answerAt ? { answer_at: answerAt } : {}) });
 }
 export const createDoc = (project_id, title, body, created_by = '') => createTask({ kind: 'doc', title, body, status: 'todo', project_id, created_by });
+export const createPlanDoc = createDoc;
 export function createQuestion(project_id, title, context, options, created_by = '') {
   const id = createTask({ kind: 'question', title, body: context, status: 'todo', project_id, created_by });
   updateTask(id, { options: JSON.stringify(options || []) });
+  return id;
+}
+export function createDecision(project_id, plan_id, title, rationale, chosenOption, who, when) {
+  const id = createQuestion(project_id, title, rationale, [{ value: chosenOption, label: chosenOption }], who);
+  updateTask(id, { parent_id: plan_id, answer: chosenOption, answer_at: when, status: 'done' });
+  return id;
+}
+export function createPlanQuestion(project_id, plan_id, title, context = '', options = [], created_by = '') {
+  const id = createQuestion(project_id, title, context, options, created_by);
+  updateTask(id, { parent_id: plan_id });
   return id;
 }
 
@@ -726,6 +738,12 @@ export const children = (pid, me) => {
 export const childrenAll = (pid, me) => db.prepare(
   `SELECT id, title, kind, status, priority, assignee FROM tasks
    WHERE parent_id=@pid ${vis(me)} ${NOTARCHIVED} ORDER BY rank, priority, id`
+).all({ pid, ...(me ? { me } : {}) });
+
+// Plans keep their decision records as question children. This focused query makes
+// the plan route independent from the compact task-detail hierarchy projection.
+export const planQuestions = (pid, me) => db.prepare(
+  `SELECT * FROM tasks WHERE parent_id=@pid AND kind='question' ${vis(me)} ${NOTARCHIVED} ORDER BY rank, priority, id`
 ).all({ pid, ...(me ? { me } : {}) });
 
 // The parent row (for the "↳ part of #parent" up-link), visibility-gated so a private parent
@@ -811,7 +829,7 @@ export function createTask(t) {
 
 const PATCHABLE = ['title', 'body', 'status', 'priority', 'up_next', 'rank', 'parent_id', 'blocked_on', 'project_id', 'kind',
   'assignee', 'capability', 'type', 'handoff_context', 'acceptance_criteria', 'result_summary', 'verification_status',
-  'budget', 'max_children', 'claimed_by', 'claim_token', 'lease_expires_at', 'options', 'answer', 'source',
+  'budget', 'max_children', 'claimed_by', 'claim_token', 'lease_expires_at', 'options', 'answer', 'answer_at', 'source',
   'owner', 'visibility', 'responsible',
   // fleet execution hints + close-reason (Phase 1)
   'owner_machine', 'suggested_agent', 'effort', 'parallel_group', 'close_reason'];

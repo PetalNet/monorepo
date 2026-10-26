@@ -170,3 +170,12 @@ export function renderMd(src) {
   if (!src) return '';
   return String(processor.processSync(src));
 }
+
+// Plan headings carry their state in plain markdown, so authors can edit them in
+// any markdown editor. The marker becomes a semantic, visible pill only at render.
+export function renderPlanMd(src) {
+  return renderMd(src).replace(
+    /(<h[1-6]>)(.*?)(\s*\{status=(proposed|decided|done)\})(<\/h[1-6]>)/g,
+    (_match, open, title, _marker, status, close) => `${open}${title}<span class="plan-status plan-status-${status}">${status}</span>${close}`
+  );
+}
