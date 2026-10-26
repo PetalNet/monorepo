@@ -23,11 +23,18 @@ export interface UsageReadout {
 	awaiting: boolean;
 }
 
+export interface SolarEvent {
+	at: number | null;
+	kind: "sunrise" | "sunset" | null;
+}
+
 export interface Dossier {
 	now: number;
 	sun: {
 		sunriseAt: number | null;
 		sunsetAt: number | null;
+		nextDaySunriseAt: number | null;
+		nextEvent: SolarEvent;
 		dawnAt: number | null;
 		duskAt: number | null;
 		solarNoonAt: number | null;
@@ -106,6 +113,21 @@ export const solarPhaseName = (times: {
 	if (now < solarNoonAt + 60 * 60 * 1000) return "midday";
 	if (now < sunsetAt) return "afternoon";
 	return "dusk";
+};
+
+export const nextSolarEvent = (
+	times: { sunriseAt: number | null; sunsetAt: number | null; nextDaySunriseAt: number | null },
+	now: number,
+): SolarEvent => {
+	const candidates: SolarEvent[] = [
+		{ at: times.sunriseAt, kind: "sunrise" },
+		{ at: times.sunsetAt, kind: "sunset" },
+		{ at: times.nextDaySunriseAt, kind: "sunrise" },
+	];
+	for (const event of candidates) {
+		if (event.at !== null && event.at > now) return event;
+	}
+	return { at: null, kind: null };
 };
 
 const pct = (value: unknown): number | null => {
@@ -235,11 +257,15 @@ export const buildDossier = async (): Promise<Dossier> => {
 	const now = Date.now();
 	const nowSeconds = Math.floor(now / 1000);
 	const errors: string[] = [];
-	const lat = envNumber("LAB_LAT", 32.78);
-	const lon = envNumber("LAB_LON", -96.8);
+	// Royal Observatory, Greenwich. Deployments set LAB_LAT/LAB_LON.
+	const lat = envNumber("LAB_LAT", 51.4769);
+	const lon = envNumber("LAB_LON", -0.0005);
 	const solarTimes = SunCalc.getTimes(new Date(now), lat, lon);
+	const nextDaySolarTimes = SunCalc.getTimes(new Date(now + 24 * 60 * 60 * 1000), lat, lon);
 	const sunriseAt = timeOf(solarTimes.sunrise);
 	const sunsetAt = timeOf(solarTimes.sunset);
+	const nextDaySunriseAt = timeOf(nextDaySolarTimes.sunrise);
+	const nextEvent = nextSolarEvent({ sunriseAt, sunsetAt, nextDaySunriseAt }, now);
 	const dawnAt = timeOf(solarTimes.dawn);
 	const duskAt = timeOf(solarTimes.dusk);
 	const solarNoonAt = timeOf(solarTimes.solarNoon);
@@ -266,7 +292,7 @@ export const buildDossier = async (): Promise<Dossier> => {
 	return {
 		now,
 		sun: {
-			sunriseAt, sunsetAt, dawnAt, duskAt, solarNoonAt,
+			sunriseAt, sunsetAt, nextDaySunriseAt, nextEvent, dawnAt, duskAt, solarNoonAt,
 			altitudeDeg: sunPosition.altitude,
 			azimuthDeg: sunPosition.azimuth,
 			dayFraction,

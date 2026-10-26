@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { moonAgeDays, moonPhaseName, parseBackupLog, solarPhaseName, usageReadoutFrom } from "./dossier.js";
+import { moonAgeDays, moonPhaseName, nextSolarEvent, parseBackupLog, solarPhaseName, usageReadoutFrom } from "./dossier.js";
 
 describe("moon helpers", () => {
 	it("names lunar phases and scales age across one synodic month", () => {
@@ -21,6 +21,19 @@ describe("solar phase", () => {
 		expect(solarPhaseName(times, 500 * 60_000)).toBe("midday");
 		expect(solarPhaseName(times, 700 * 60_000)).toBe("afternoon");
 		expect(solarPhaseName(times, 850 * 60_000)).toBe("dusk");
+	});
+});
+
+describe("next solar event", () => {
+	it("uses tomorrow's sunrise for the verified evening instant", () => {
+		const now = Date.parse("2026-10-26T01:00:00Z");
+		const nextDaySunriseAt = Date.parse("2026-10-26T12:40:00Z"); // Today's 12:39Z sunrise plus one minute for normal day-to-day solar drift.
+		const result = nextSolarEvent({
+			sunriseAt: Date.parse("2026-10-25T12:39:00Z"),
+			sunsetAt: Date.parse("2026-10-25T23:42:00Z"),
+			nextDaySunriseAt,
+		}, now);
+		expect(result).toEqual({ kind: "sunrise", at: nextDaySunriseAt });
 	});
 });
 

@@ -6,8 +6,8 @@ services:
     ports:
       - "4731:3000"
     environment:
-      LAB_LAT: ${LAB_LAT:-32.78}
-      LAB_LON: ${LAB_LON:--96.80}
+      LAB_LAT: ${LAB_LAT:-51.4769}
+      LAB_LON: ${LAB_LON:--0.0005}
       USAGE_PATH: /shared/janet-usage.json
       CODEX_USAGE_PATH: /shared/codex-usage.json
       BACKUP_LOG: /logs/backup-offsite.log

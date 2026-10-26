@@ -31,11 +31,10 @@
 		if (minutes < 1_440) return `${Math.floor(minutes / 60)}h ago`;
 		return `${Math.floor(minutes / 1_440)}d ago`;
 	};
-	const nextSunLabel = (sunriseAt: number | null, sunsetAt: number | null, now: number): string => {
-		const next = sunriseAt !== null && sunriseAt > now ? sunriseAt : sunsetAt !== null && sunsetAt > now ? sunsetAt : null;
-		if (next === null) return "No sky reading";
-		const minutes = Math.max(0, Math.round((next - now) / 60_000));
-		return `${next === sunriseAt ? "Sunrise" : "Sunset"} in ${Math.floor(minutes / 60)}h ${minutes % 60}m`;
+	const nextSunLabel = (nextEvent: { at: number | null; kind: "sunrise" | "sunset" | null }, now: number): string => {
+		if (nextEvent.at === null || nextEvent.kind === null) return "No sky reading";
+		const minutes = Math.max(0, Math.round((nextEvent.at - now) / 60_000));
+		return `${nextEvent.kind === "sunrise" ? "Sunrise" : "Sunset"} in ${Math.floor(minutes / 60)}h ${minutes % 60}m`;
 	};
 	const titleCase = (value: string): string => value.slice(0, 1).toUpperCase() + value.slice(1);
 	const moodIcon = (mood: string) => /sad|low|tired|bad/i.test(mood) ? Frown : /calm|quiet|neutral|fine/i.test(mood) ? Meh : Smile;
@@ -57,7 +56,7 @@
 
 <main class="wrap">
 	<section class="sky-strip" aria-label="Sky conditions">
-		<div class="sky-reading"><Sun size={21} strokeWidth={1.7} /><div><span class="sky-label">Sun</span><strong>{titleCase(data.dossier.sun.phase)}</strong><p>{nextSunLabel(data.dossier.sun.sunriseAt, data.dossier.sun.sunsetAt, data.dossier.now)}</p></div></div>
+		<div class="sky-reading"><Sun size={21} strokeWidth={1.7} /><div><span class="sky-label">Sun</span><strong>{titleCase(data.dossier.sun.phase)}</strong><p>{nextSunLabel(data.dossier.sun.nextEvent, data.dossier.now)}</p></div></div>
 		<div class="sky-reading"><Moon size={21} strokeWidth={1.7} /><div><span class="sky-label">Moon</span><strong>{data.dossier.moon.phaseName}</strong><p class="mono">{Math.round(data.dossier.moon.illumination * 100)}% illuminated</p></div></div>
 	</section>
 
