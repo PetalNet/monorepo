@@ -1,6 +1,6 @@
 import { createHash } from "node:crypto";
 
-import { candidateSpans, scanBatch } from "./secrets.ts";
+import { matchKnownSecrets, scanBatch } from "./secrets.ts";
 
 export interface RedactedMessage {
 	id: string;
@@ -69,7 +69,7 @@ export function redactBatch(
 				continue;
 			}
 
-			const { spans, truncated } = candidateSpans(message.text);
+			const { spans, truncated } = matchKnownSecrets(message.text, knownHashes);
 
 			if (truncated) {
 				// Fail closed: this message's candidate coverage against the known-secret
@@ -81,7 +81,7 @@ export function redactBatch(
 			}
 
 			for (const value of spans) {
-				if (!valueRules.has(value) && knownHashes.has(sha256Hex(value))) {
+				if (!valueRules.has(value)) {
 					valueRules.set(value, "known-value");
 				}
 			}
