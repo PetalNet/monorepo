@@ -3,6 +3,7 @@ import { readFileSync } from "node:fs";
 
 import { z } from "zod";
 
+import { ingestRecallDb, verifyEpisodes, EpisodeStore } from "./episodes/index.ts";
 import { Cite, Store } from "./index.ts";
 import { normalize } from "./model.ts";
 
@@ -99,6 +100,47 @@ try {
 
 			break;
 		}
+		case "episodes": {
+			const [subcommand, subArgument, subOption] = process.argv.slice(3);
+
+			switch (subcommand) {
+				case "ingest": {
+					if (!subArgument) {
+						throw new Error("Usage: cite episodes ingest <recall-db-path> [batchSize]");
+					}
+
+					emit(
+						ingestRecallDb(
+							store,
+							subArgument,
+							subOption
+								? { batchSize: z.coerce.number().int().min(1).max(50_000).parse(subOption) }
+								: {},
+						),
+					);
+
+					break;
+				}
+				case "verify": {
+					const result = verifyEpisodes(new EpisodeStore(store));
+
+					emit(result);
+
+					if (result.hits > 0) {
+						process.exitCode = 1;
+					}
+
+					break;
+				}
+				case undefined: {
+					throw new Error("Usage: cite episodes ingest <recall-db-path> | cite episodes verify");
+				}
+				default:
+					throw new Error("Usage: cite episodes ingest <recall-db-path> | cite episodes verify");
+			}
+
+			break;
+		}
 		case "hook": {
 			const event = z
 				.object({ tool_name: z.string(), tool_input: z.object({ url: z.string() }) })
@@ -125,10 +167,10 @@ try {
 			break;
 		}
 		case undefined: {
-			throw new Error("Usage: cite add|get|search|status|backfill|work|derive|hook");
+			throw new Error("Usage: cite add|get|search|status|backfill|work|derive|hook|episodes");
 		}
 		default:
-			throw new Error("Usage: cite add|get|search|status|backfill|work|derive|hook");
+			throw new Error("Usage: cite add|get|search|status|backfill|work|derive|hook|episodes");
 	}
 } catch (error) {
 	emit({ status: "FAILED", reason: error instanceof Error ? error.message : "Command failed" });

@@ -1,0 +1,5 @@
+{
+	"_comment": "Example only. The real deny list lives outside this repo; point EPISODES_SCOPE_CONFIG at it. A message whose session/room id is in `rooms`, or whose text contains any `keywords` entry (case-insensitive substring), is dropped before redaction or indexing -- never partially redacted.",
+	"rooms": ["!example-room-id:example.org"],
+	"keywords": ["example-denylist-keyword"]
+}
