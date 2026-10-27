@@ -392,3 +392,180 @@ it.skipIf(!process.env["CITE_BROWSER_TESTS"])(
 	},
 	60_000,
 );
+
+const failedAsset = (url: string, status = 404): Reply => ({
+	url,
+	status,
+	body: Buffer.alloc(0),
+	headers: {},
+});
+
+it.skipIf(!process.env["CITE_BROWSER_TESTS"])(
+	"saves a page as PARTIAL with its missing assets recorded when one asset fails to fetch",
+	async () => {
+		const page =
+			'<!doctype html><html><head><title>Partial capture coverage</title><link rel="stylesheet" href="/broken.css"></head><body><p>Primary source text long enough to clear the eighty character admission check comfortably for this page.</p></body></html>';
+		const cite = setup((url) =>
+			url.endsWith("robots.txt")
+				? reply(url, "")
+				: url.endsWith("broken.css")
+					? failedAsset(url)
+					: reply(url, page),
+		);
+		const result = await cite.add("https://publisher.example/partial-asset");
+
+		expect(result.job?.state, result.job?.reason ?? "").toBe("SAVED");
+		const source = result.source;
+
+		if (!source) {
+			throw new Error("missing source");
+		}
+
+		expect(source.source_type).toBe("PRIMARY");
+		expect(source.completeness).toBe("PARTIAL");
+
+		expect(source.missing_assets).toEqual([
+			{ url: "https://publisher.example/broken.css", reason: "HTTP 404" },
+		]);
+
+		expect(cite.store.citation("https://publisher.example/partial-asset")).toMatchObject({
+			status: "SAVED_PARTIAL",
+		});
+
+		expect(cite.store.search("Partial capture coverage")).toEqual([
+			expect.objectContaining({ id: source.id, completeness: "PARTIAL" }),
+		]);
+	},
+	30_000,
+);
+
+it.skipIf(!process.env["CITE_BROWSER_TESTS"])(
+	"keeps a fully fetched page PRIMARY and COMPLETE with no missing assets",
+	async () => {
+		const page =
+			'<!doctype html><html><head><title>Complete capture coverage</title><link rel="stylesheet" href="/style.css"></head><body><p>Primary source text long enough to clear the eighty character admission check comfortably for this page.</p></body></html>';
+		const cite = setup((url) =>
+			url.endsWith("robots.txt")
+				? reply(url, "")
+				: url.endsWith("style.css")
+					? reply(url, "p{color:blue}", "text/css")
+					: reply(url, page),
+		);
+		const result = await cite.add("https://publisher.example/complete-asset");
+		const source = result.source;
+
+		if (!source) {
+			throw new Error("missing source");
+		}
+
+		expect(source.completeness).toBe("COMPLETE");
+		expect(source.missing_assets).toEqual([]);
+
+		expect(cite.store.citation("https://publisher.example/complete-asset")).toMatchObject({
+			status: "SAVED",
+		});
+
+		expect(cite.store.search("Complete capture coverage")).toEqual([
+			expect.objectContaining({ id: source.id, completeness: "COMPLETE" }),
+		]);
+	},
+	30_000,
+);
+
+it.skipIf(!process.env["CITE_BROWSER_TESTS"])(
+	"supersedes a partial save with a later refresh that fetches every asset",
+	async () => {
+		const page =
+			'<!doctype html><html><head><title>Recapture coverage</title><link rel="stylesheet" href="/flaky.css"></head><body><p>Primary source text long enough to clear the eighty character admission check comfortably for this page.</p></body></html>';
+		let assetAvailable = false;
+		const cite = setup((url) =>
+			url.endsWith("robots.txt")
+				? reply(url, "")
+				: url.endsWith("flaky.css")
+					? assetAvailable
+						? reply(url, "p{color:green}", "text/css")
+						: failedAsset(url)
+					: reply(url, page),
+		);
+		const ref = "https://publisher.example/recapture-asset";
+		const first = await cite.add(ref);
+
+		expect(first.source?.completeness).toBe("PARTIAL");
+
+		assetAvailable = true;
+		const second = await cite.add(ref, true);
+
+		expect(second.source?.completeness).toBe("COMPLETE");
+		expect(second.source?.missing_assets).toEqual([]);
+		expect(second.source?.id).toBe(first.source?.id);
+		expect(second.source?.previous_sha256).toBe(first.source?.sha256);
+		expect(second.source?.previous_retrieval_id).toBe(first.source?.retrieval_id);
+		expect(cite.store.history(ref)).toHaveLength(2);
+		expect(cite.store.db.prepare("SELECT * FROM sources").all()).toHaveLength(1);
+		expect(cite.store.citation(ref)).toMatchObject({ status: "SAVED" });
+	},
+	30_000,
+);
+
+it.skipIf(!process.env["CITE_BROWSER_TESTS"])(
+	"requeues derivation and clears stale search text when a partial save is superseded",
+	async (context) => {
+		requireTools(context, ["pdfinfo", "pdftotext"]);
+
+		const page =
+			'<!doctype html><html><head><title>Rederive coverage</title><link rel="stylesheet" href="/flaky2.css"></head><body><p>Primary source text long enough to clear the eighty character admission check comfortably for this page.</p></body></html>';
+		let assetAvailable = false;
+		const cite = setup((url) =>
+			url.endsWith("robots.txt")
+				? reply(url, "")
+				: url.endsWith("flaky2.css")
+					? assetAvailable
+						? reply(url, "p{color:teal}", "text/css")
+						: failedAsset(url)
+					: reply(url, page),
+		);
+		const ref = "https://publisher.example/rederive-asset";
+		const first = await cite.add(ref);
+
+		if (!first.source) {
+			throw new Error("missing source");
+		}
+
+		expect(first.source.completeness).toBe("PARTIAL");
+		expect((await cite.derive()).saved).toBe(1);
+		expect(cite.store.derivation(first.source.id)).toMatchObject({ state: "SAVED" });
+
+		expect(
+			cite.store.db.prepare("SELECT text FROM evidence WHERE id=?").get(first.source.id),
+		).not.toEqual({ text: "" });
+
+		assetAvailable = true;
+		const second = await cite.add(ref, true);
+
+		if (!second.source) {
+			throw new Error("missing upgraded source");
+		}
+
+		expect(second.source.id).toBe(first.source.id);
+		expect(second.source.completeness).toBe("COMPLETE");
+
+		// The upgrade must invalidate the stale derivation instead of leaving it pointed at the
+		// partial capture's now-replaced DERIVED artifacts, and clear the text it had extracted.
+		expect(cite.store.derivation(second.source.id)).toMatchObject({
+			state: "PENDING",
+			manifest: null,
+		});
+
+		expect(
+			cite.store.db.prepare("SELECT text FROM evidence WHERE id=?").get(second.source.id),
+		).toEqual({ text: "" });
+
+		expect((await cite.derive()).saved).toBe(1);
+		expect(cite.store.derivation(second.source.id)).toMatchObject({ state: "SAVED" });
+
+		expect(
+			cite.store.db.prepare("SELECT text FROM evidence WHERE id=?").get(second.source.id),
+		).not.toEqual({ text: "" });
+	},
+	30_000,
+);

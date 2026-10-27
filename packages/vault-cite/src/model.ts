@@ -26,6 +26,7 @@ export const artifactSchema = z.discriminatedUnion("role", [
 	z.object({ ...artifactFields, role: z.literal("ORIGINAL"), retrieval: retrievalSchema }),
 	z.object({ ...artifactFields, role: z.literal("DERIVED"), original_sha256: digest }),
 ]);
+export const missingAssetSchema = z.object({ url: z.url(), reason: z.string() });
 export const sourceSchema = z.object({
 	schema_version: z.literal(2),
 	layer: z.literal("EVIDENCE"),
@@ -41,6 +42,12 @@ export const sourceSchema = z.object({
 	mime: z.string(),
 	access_status: z.literal("SAVED"),
 	extractor: z.string(),
+	// Every schema_version 2 source saved before this field existed was saved only when the whole
+	// page, including its assets, fetched cleanly: the capture code had no other path to SAVED.
+	// Defaulting an old record to COMPLETE with no missing assets restates that fact; it does not
+	// guess one.
+	completeness: z.enum(["COMPLETE", "PARTIAL"]).default("COMPLETE"),
+	missing_assets: z.array(missingAssetSchema).default([]),
 	artifacts: z.array(artifactSchema).min(1),
 	retrieval_id: z.string(),
 	previous_retrieval_id: z.string().nullable(),
@@ -61,6 +68,8 @@ export interface Capture {
 		| { role: "ORIGINAL"; retrieval: z.infer<typeof retrievalSchema> }
 		| { role: "DERIVED" }
 	))[];
+	/** Page assets (images, CSS, scripts, linked PDFs) that failed to fetch during a browser capture. */
+	missingAssets?: z.infer<typeof missingAssetSchema>[];
 }
 export const jobSchema = z.object({
 	ref: z.string(),

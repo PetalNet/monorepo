@@ -99,10 +99,25 @@ export class Store {
    CREATE TABLE IF NOT EXISTS request_cache(ref TEXT NOT NULL REFERENCES jobs(ref), url TEXT NOT NULL, metadata TEXT NOT NULL, body BLOB NOT NULL, PRIMARY KEY(ref,url));
    CREATE TABLE IF NOT EXISTS robots(origin TEXT PRIMARY KEY, content TEXT NOT NULL, expires_at REAL NOT NULL);
    CREATE TABLE IF NOT EXISTS domains(host TEXT PRIMARY KEY, next_at REAL NOT NULL, cooldown_until REAL NOT NULL DEFAULT 0);
-   CREATE VIEW IF NOT EXISTS citations AS SELECT ref, CASE WHEN state='SAVED' AND source_id IN (SELECT id FROM sources) THEN 'SAVED' WHEN state IN ('QUEUED','RUNNING') THEN 'PENDING' WHEN state='INACCESSIBLE' THEN 'INACCESSIBLE' ELSE 'BLOCKED' END AS status,reason,source_id FROM jobs;
    CREATE TABLE IF NOT EXISTS memories(id TEXT PRIMARY KEY, text TEXT NOT NULL, source_id TEXT NOT NULL REFERENCES sources(id));`);
 
 		migrateDomains(this.db);
+
+		// A view, unlike a table, holds no data: recreating it on every open keeps its definition
+		// current without a migration. Completeness is read from the plain sources table, not the
+		// fts5 evidence table: this SQLite build refuses ALTER TABLE ADD COLUMN on a virtual table,
+		// so a schema change there would break every store that predates it.
+		this.db.exec(`DROP VIEW IF EXISTS citations;
+   CREATE VIEW citations AS SELECT ref,
+     CASE
+       WHEN state='SAVED' AND source_id IN (SELECT id FROM sources WHERE json_extract(metadata,'$.completeness')='PARTIAL') THEN 'SAVED_PARTIAL'
+       WHEN state='SAVED' AND source_id IN (SELECT id FROM sources) THEN 'SAVED'
+       WHEN state IN ('QUEUED','RUNNING') THEN 'PENDING'
+       WHEN state='INACCESSIBLE' THEN 'INACCESSIBLE'
+       ELSE 'BLOCKED'
+     END AS status,
+     reason, source_id
+   FROM jobs;`);
 	}
 	close() {
 		this.db.close();
@@ -340,6 +355,8 @@ export class Store {
 				)
 			: undefined;
 		const id = `src-${first.sha256.slice(0, 20)}`;
+		const missingAssets = capture.missingAssets ?? [];
+		const completeness = missingAssets.length > 0 ? "PARTIAL" : "COMPLETE";
 		const metadata = sourceSchema.parse({
 			schema_version: 2,
 			layer: "EVIDENCE",
@@ -354,6 +371,8 @@ export class Store {
 			mime: first.mime,
 			access_status: "SAVED",
 			extractor: capture.extractor,
+			completeness,
+			missing_assets: missingAssets,
 			artifacts,
 			retrieval_id: crypto.randomUUID(),
 			previous_retrieval_id: previous?.retrieval_id ?? null,
@@ -404,6 +423,10 @@ export class Store {
 			}
 		}
 
+		// A same-bytes retrieval that now gets every asset supersedes an earlier partial save of the
+		// same original: the stored record's completeness is allowed to improve, never to regress.
+		const upgrade = existing?.completeness === "PARTIAL" && completeness === "COMPLETE";
+
 		if (!existing) {
 			this.db.prepare("INSERT INTO sources VALUES(?,?)").run(id, JSON.stringify(metadata));
 
@@ -412,6 +435,23 @@ export class Store {
 				.run(id, capture.title, capture.authors.join("; "), capture.canonicalId, ref, "");
 
 			this.db.prepare("INSERT INTO derivations(source_id) VALUES(?)").run(id);
+
+			this.writeNote(metadata);
+		} else if (upgrade) {
+			this.db.prepare("UPDATE sources SET metadata=? WHERE id=?").run(JSON.stringify(metadata), id);
+
+			this.db
+				.prepare("UPDATE evidence SET title=?,authors=?,text='' WHERE id=?")
+				.run(capture.title, capture.authors.join("; "), id);
+
+			// The prior extraction (and its search text) was derived from the partial capture's own
+			// DERIVED artifacts, which this save replaces with newly complete ones at new hashes.
+			// Requeue derivation so `derive()` re-extracts from the artifact that actually got saved.
+			this.db
+				.prepare(
+					"UPDATE derivations SET state='PENDING',attempts=0,next_at=0,lease_until=0,reason=NULL,manifest=NULL WHERE source_id=?",
+				)
+				.run(id);
 
 			this.writeNote(metadata);
 		}
@@ -425,9 +465,14 @@ export class Store {
 			throw new Error("Missing source artifact");
 		}
 
+		const partial =
+			source.completeness === "PARTIAL"
+				? `\n\n**Incomplete capture:** ${String(source.missing_assets.length)} page asset(s) failed to fetch and are not in this snapshot. Not a complete primary source; a re-capture that fetches every asset will supersede it.\n\n${source.missing_assets.map((asset) => `- ${asset.url}: ${asset.reason}`).join("\n")}`
+				: "";
+
 		this.write(
 			`notes/${source.id}.md`,
-			`---\n${JSON.stringify(source, null, 2)}\n---\n\n# ${source.title.replace(/[\r\n]/g, " ")}\n\nSaved original. Retrieved ${source.fetched_at}.\n\nArtifact: [${first.sha256}](../${first.path})\n\nUse in a claim: \`source:: [[${source.id}]]\`\n\nClaim relations: \`supports:: [[claim-id]]\`, \`contradicts:: [[claim-id]]\`, \`replaces:: [[claim-id]]\`.\n`,
+			`---\n${JSON.stringify(source, null, 2)}\n---\n\n# ${source.title.replace(/[\r\n]/g, " ")}\n\nSaved original. Retrieved ${source.fetched_at}.${partial}\n\nArtifact: [${first.sha256}](../${first.path})\n\nUse in a claim: \`source:: [[${source.id}]]\`\n\nClaim relations: \`supports:: [[claim-id]]\`, \`contradicts:: [[claim-id]]\`, \`replaces:: [[claim-id]]\`.\n`,
 		);
 	}
 	projectPdfMetadata(
@@ -619,7 +664,11 @@ export class Store {
 	search(query: string) {
 		return this.db
 			.prepare(
-				"SELECT id,title,canonical_id,snippet(evidence,5,'[',']',' … ',24) AS snippet FROM evidence WHERE evidence MATCH ? ORDER BY rank LIMIT 30",
+				`SELECT evidence.id AS id, evidence.title AS title, evidence.canonical_id AS canonical_id,
+   coalesce(json_extract(sources.metadata,'$.completeness'),'COMPLETE') AS completeness,
+   snippet(evidence,5,'[',']',' … ',24) AS snippet
+ FROM evidence JOIN sources ON sources.id = evidence.id
+ WHERE evidence MATCH ? ORDER BY rank LIMIT 30`,
 			)
 			.all(query);
 	}
