@@ -1,0 +1,13 @@
+{
+	"extends": "@petalnet/tsconfig/base.json",
+	"compilerOptions": {
+		"strict": true,
+		"noEmit": true,
+		"composite": false,
+		"declaration": false,
+		"declarationMap": false,
+		"types": ["node"],
+		"lib": ["esnext", "dom", "dom.iterable"]
+	},
+	"include": ["*.ts", "../src/**/*.ts"]
+}
