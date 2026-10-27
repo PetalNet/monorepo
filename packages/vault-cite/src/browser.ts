@@ -111,10 +111,7 @@ async function render(browser: Browser, reply: Reply, network: Network): Promise
 						throw error;
 					}
 
-					missing.set(
-						request.url(),
-						error instanceof Error ? error.message : "Asset fetch failed",
-					);
+					missing.set(request.url(), error instanceof Error ? error.message : "Asset fetch failed");
 
 					await route.abort().catch(() => undefined);
 

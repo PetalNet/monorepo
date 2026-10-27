@@ -68,31 +68,6 @@ export function migrateDomains(db: DatabaseSync): void {
 	}
 }
 
-/**
- * Stores created before a partial asset capture could be saved gain the completeness column,
- * backfilled to COMPLETE: the old capture code had no path to a saved row with missing assets.
- *
- * @public Exported for the concurrent-migration test.
- */
-export function migrateEvidenceCompleteness(db: DatabaseSync): void {
-	db.exec("BEGIN IMMEDIATE");
-
-	try {
-		if (
-			!db.prepare("SELECT 1 FROM pragma_table_info('evidence') WHERE name='completeness'").get()
-		) {
-			db.exec("ALTER TABLE evidence ADD COLUMN completeness UNINDEXED");
-			db.exec("UPDATE evidence SET completeness='COMPLETE'");
-		}
-
-		db.exec("COMMIT");
-	} catch (error) {
-		db.exec("ROLLBACK");
-
-		throw error;
-	}
-}
-
 export class Store {
 	readonly root: string;
 	readonly db: DatabaseSync;
@@ -120,21 +95,22 @@ export class Store {
    CREATE TABLE IF NOT EXISTS derivations(source_id TEXT PRIMARY KEY REFERENCES sources(id), state TEXT NOT NULL DEFAULT 'PENDING', attempts INTEGER NOT NULL DEFAULT 0, next_at REAL NOT NULL DEFAULT 0, lease_until REAL NOT NULL DEFAULT 0, reason TEXT, manifest TEXT);
    CREATE TABLE IF NOT EXISTS source_projections(source_id TEXT PRIMARY KEY REFERENCES sources(id), metadata TEXT NOT NULL, artifact TEXT NOT NULL);
    CREATE TABLE IF NOT EXISTS sources(id TEXT PRIMARY KEY, metadata TEXT NOT NULL);
-   CREATE VIRTUAL TABLE IF NOT EXISTS evidence USING fts5(id UNINDEXED, title, authors, canonical_id, url, text, completeness UNINDEXED);
+   CREATE VIRTUAL TABLE IF NOT EXISTS evidence USING fts5(id UNINDEXED, title, authors, canonical_id, url, text);
    CREATE TABLE IF NOT EXISTS request_cache(ref TEXT NOT NULL REFERENCES jobs(ref), url TEXT NOT NULL, metadata TEXT NOT NULL, body BLOB NOT NULL, PRIMARY KEY(ref,url));
    CREATE TABLE IF NOT EXISTS robots(origin TEXT PRIMARY KEY, content TEXT NOT NULL, expires_at REAL NOT NULL);
    CREATE TABLE IF NOT EXISTS domains(host TEXT PRIMARY KEY, next_at REAL NOT NULL, cooldown_until REAL NOT NULL DEFAULT 0);
    CREATE TABLE IF NOT EXISTS memories(id TEXT PRIMARY KEY, text TEXT NOT NULL, source_id TEXT NOT NULL REFERENCES sources(id));`);
 
 		migrateDomains(this.db);
-		migrateEvidenceCompleteness(this.db);
 
 		// A view, unlike a table, holds no data: recreating it on every open keeps its definition
-		// current without a column-presence migration dance.
+		// current without a migration. Completeness is read from the plain sources table, not the
+		// fts5 evidence table: this SQLite build refuses ALTER TABLE ADD COLUMN on a virtual table,
+		// so a schema change there would break every store that predates it.
 		this.db.exec(`DROP VIEW IF EXISTS citations;
    CREATE VIEW citations AS SELECT ref,
      CASE
-       WHEN state='SAVED' AND source_id IN (SELECT id FROM evidence WHERE completeness='PARTIAL') THEN 'SAVED_PARTIAL'
+       WHEN state='SAVED' AND source_id IN (SELECT id FROM sources WHERE json_extract(metadata,'$.completeness')='PARTIAL') THEN 'SAVED_PARTIAL'
        WHEN state='SAVED' AND source_id IN (SELECT id FROM sources) THEN 'SAVED'
        WHEN state IN ('QUEUED','RUNNING') THEN 'PENDING'
        WHEN state='INACCESSIBLE' THEN 'INACCESSIBLE'
@@ -455,8 +431,8 @@ export class Store {
 			this.db.prepare("INSERT INTO sources VALUES(?,?)").run(id, JSON.stringify(metadata));
 
 			this.db
-				.prepare("INSERT INTO evidence VALUES(?,?,?,?,?,?,?)")
-				.run(id, capture.title, capture.authors.join("; "), capture.canonicalId, ref, "", completeness);
+				.prepare("INSERT INTO evidence VALUES(?,?,?,?,?,?)")
+				.run(id, capture.title, capture.authors.join("; "), capture.canonicalId, ref, "");
 
 			this.db.prepare("INSERT INTO derivations(source_id) VALUES(?)").run(id);
 
@@ -465,8 +441,17 @@ export class Store {
 			this.db.prepare("UPDATE sources SET metadata=? WHERE id=?").run(JSON.stringify(metadata), id);
 
 			this.db
-				.prepare("UPDATE evidence SET title=?,authors=?,completeness=? WHERE id=?")
-				.run(capture.title, capture.authors.join("; "), completeness, id);
+				.prepare("UPDATE evidence SET title=?,authors=?,text='' WHERE id=?")
+				.run(capture.title, capture.authors.join("; "), id);
+
+			// The prior extraction (and its search text) was derived from the partial capture's own
+			// DERIVED artifacts, which this save replaces with newly complete ones at new hashes.
+			// Requeue derivation so `derive()` re-extracts from the artifact that actually got saved.
+			this.db
+				.prepare(
+					"UPDATE derivations SET state='PENDING',attempts=0,next_at=0,lease_until=0,reason=NULL,manifest=NULL WHERE source_id=?",
+				)
+				.run(id);
 
 			this.writeNote(metadata);
 		}
@@ -679,7 +664,11 @@ export class Store {
 	search(query: string) {
 		return this.db
 			.prepare(
-				"SELECT id,title,canonical_id,completeness,snippet(evidence,5,'[',']',' … ',24) AS snippet FROM evidence WHERE evidence MATCH ? ORDER BY rank LIMIT 30",
+				`SELECT evidence.id AS id, evidence.title AS title, evidence.canonical_id AS canonical_id,
+   coalesce(json_extract(sources.metadata,'$.completeness'),'COMPLETE') AS completeness,
+   snippet(evidence,5,'[',']',' … ',24) AS snippet
+ FROM evidence JOIN sources ON sources.id = evidence.id
+ WHERE evidence MATCH ? ORDER BY rank LIMIT 30`,
 			)
 			.all(query);
 	}

@@ -506,3 +506,66 @@ it.skipIf(!process.env["CITE_BROWSER_TESTS"])(
 	},
 	30_000,
 );
+
+it.skipIf(!process.env["CITE_BROWSER_TESTS"])(
+	"requeues derivation and clears stale search text when a partial save is superseded",
+	async (context) => {
+		requireTools(context, ["pdfinfo", "pdftotext"]);
+
+		const page =
+			'<!doctype html><html><head><title>Rederive coverage</title><link rel="stylesheet" href="/flaky2.css"></head><body><p>Primary source text long enough to clear the eighty character admission check comfortably for this page.</p></body></html>';
+		let assetAvailable = false;
+		const cite = setup((url) =>
+			url.endsWith("robots.txt")
+				? reply(url, "")
+				: url.endsWith("flaky2.css")
+					? assetAvailable
+						? reply(url, "p{color:teal}", "text/css")
+						: failedAsset(url)
+					: reply(url, page),
+		);
+		const ref = "https://publisher.example/rederive-asset";
+		const first = await cite.add(ref);
+
+		if (!first.source) {
+			throw new Error("missing source");
+		}
+
+		expect(first.source.completeness).toBe("PARTIAL");
+		expect((await cite.derive()).saved).toBe(1);
+		expect(cite.store.derivation(first.source.id)).toMatchObject({ state: "SAVED" });
+
+		expect(
+			cite.store.db.prepare("SELECT text FROM evidence WHERE id=?").get(first.source.id),
+		).not.toEqual({ text: "" });
+
+		assetAvailable = true;
+		const second = await cite.add(ref, true);
+
+		if (!second.source) {
+			throw new Error("missing upgraded source");
+		}
+
+		expect(second.source.id).toBe(first.source.id);
+		expect(second.source.completeness).toBe("COMPLETE");
+
+		// The upgrade must invalidate the stale derivation instead of leaving it pointed at the
+		// partial capture's now-replaced DERIVED artifacts, and clear the text it had extracted.
+		expect(cite.store.derivation(second.source.id)).toMatchObject({
+			state: "PENDING",
+			manifest: null,
+		});
+
+		expect(
+			cite.store.db.prepare("SELECT text FROM evidence WHERE id=?").get(second.source.id),
+		).toEqual({ text: "" });
+
+		expect((await cite.derive()).saved).toBe(1);
+		expect(cite.store.derivation(second.source.id)).toMatchObject({ state: "SAVED" });
+
+		expect(
+			cite.store.db.prepare("SELECT text FROM evidence WHERE id=?").get(second.source.id),
+		).not.toEqual({ text: "" });
+	},
+	30_000,
+);
