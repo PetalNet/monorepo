@@ -1,7 +1,7 @@
 import { chromium } from "playwright";
 import type { Browser } from "playwright";
 
-import { CaptureError } from "./model.ts";
+import { CaptureError, PacingDeferred } from "./model.ts";
 import type { Capture } from "./model.ts";
 import { decoded, original } from "./network.ts";
 import type { Network, Reply } from "./network.ts";
@@ -83,6 +83,7 @@ async function render(browser: Browser, reply: Reply, network: Network): Promise
 	const assets = new Map<string, Reply>([[reply.url, reply]]);
 	let bytes = reply.body.length;
 	let failure: Error | undefined;
+	const missing = new Map<string, string>();
 
 	await context.route("**/*", async (route) => {
 		try {
@@ -97,11 +98,29 @@ async function render(browser: Browser, reply: Reply, network: Network): Promise
 				return;
 			}
 
-			const response =
-				assets.get(request.url()) ??
-				(await network.get(request.url(), request.resourceType() !== "document"));
+			let response = assets.get(request.url());
 
-			if (!assets.has(request.url())) {
+			if (!response) {
+				try {
+					response = await network.get(request.url(), request.resourceType() !== "document");
+				} catch (error) {
+					// A real fetch failure (404, blocked, timed out, …) on a page asset still leaves a
+					// usable page; it is recorded as missing rather than sinking the whole capture.
+					// Pacing is a schedule, not a failure, so it still fails the capture and retries whole.
+					if (error instanceof PacingDeferred) {
+						throw error;
+					}
+
+					missing.set(
+						request.url(),
+						error instanceof Error ? error.message : "Asset fetch failed",
+					);
+
+					await route.abort().catch(() => undefined);
+
+					return;
+				}
+
 				bytes += response.body.length;
 				assets.set(request.url(), response);
 			}
@@ -398,5 +417,6 @@ async function render(browser: Browser, reply: Reply, network: Network): Promise
 			{ data: pdf, mime: "application/pdf", role: "DERIVED" },
 			{ data: Buffer.from(html), mime: "text/html", role: "DERIVED" },
 		],
+		missingAssets: [...missing].map(([url, reason]) => ({ url, reason })),
 	};
 }

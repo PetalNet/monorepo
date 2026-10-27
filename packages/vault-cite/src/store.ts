@@ -68,6 +68,31 @@ export function migrateDomains(db: DatabaseSync): void {
 	}
 }
 
+/**
+ * Stores created before a partial asset capture could be saved gain the completeness column,
+ * backfilled to COMPLETE: the old capture code had no path to a saved row with missing assets.
+ *
+ * @public Exported for the concurrent-migration test.
+ */
+export function migrateEvidenceCompleteness(db: DatabaseSync): void {
+	db.exec("BEGIN IMMEDIATE");
+
+	try {
+		if (
+			!db.prepare("SELECT 1 FROM pragma_table_info('evidence') WHERE name='completeness'").get()
+		) {
+			db.exec("ALTER TABLE evidence ADD COLUMN completeness UNINDEXED");
+			db.exec("UPDATE evidence SET completeness='COMPLETE'");
+		}
+
+		db.exec("COMMIT");
+	} catch (error) {
+		db.exec("ROLLBACK");
+
+		throw error;
+	}
+}
+
 export class Store {
 	readonly root: string;
 	readonly db: DatabaseSync;
@@ -95,14 +120,28 @@ export class Store {
    CREATE TABLE IF NOT EXISTS derivations(source_id TEXT PRIMARY KEY REFERENCES sources(id), state TEXT NOT NULL DEFAULT 'PENDING', attempts INTEGER NOT NULL DEFAULT 0, next_at REAL NOT NULL DEFAULT 0, lease_until REAL NOT NULL DEFAULT 0, reason TEXT, manifest TEXT);
    CREATE TABLE IF NOT EXISTS source_projections(source_id TEXT PRIMARY KEY REFERENCES sources(id), metadata TEXT NOT NULL, artifact TEXT NOT NULL);
    CREATE TABLE IF NOT EXISTS sources(id TEXT PRIMARY KEY, metadata TEXT NOT NULL);
-   CREATE VIRTUAL TABLE IF NOT EXISTS evidence USING fts5(id UNINDEXED, title, authors, canonical_id, url, text);
+   CREATE VIRTUAL TABLE IF NOT EXISTS evidence USING fts5(id UNINDEXED, title, authors, canonical_id, url, text, completeness UNINDEXED);
    CREATE TABLE IF NOT EXISTS request_cache(ref TEXT NOT NULL REFERENCES jobs(ref), url TEXT NOT NULL, metadata TEXT NOT NULL, body BLOB NOT NULL, PRIMARY KEY(ref,url));
    CREATE TABLE IF NOT EXISTS robots(origin TEXT PRIMARY KEY, content TEXT NOT NULL, expires_at REAL NOT NULL);
    CREATE TABLE IF NOT EXISTS domains(host TEXT PRIMARY KEY, next_at REAL NOT NULL, cooldown_until REAL NOT NULL DEFAULT 0);
-   CREATE VIEW IF NOT EXISTS citations AS SELECT ref, CASE WHEN state='SAVED' AND source_id IN (SELECT id FROM sources) THEN 'SAVED' WHEN state IN ('QUEUED','RUNNING') THEN 'PENDING' WHEN state='INACCESSIBLE' THEN 'INACCESSIBLE' ELSE 'BLOCKED' END AS status,reason,source_id FROM jobs;
    CREATE TABLE IF NOT EXISTS memories(id TEXT PRIMARY KEY, text TEXT NOT NULL, source_id TEXT NOT NULL REFERENCES sources(id));`);
 
 		migrateDomains(this.db);
+		migrateEvidenceCompleteness(this.db);
+
+		// A view, unlike a table, holds no data: recreating it on every open keeps its definition
+		// current without a column-presence migration dance.
+		this.db.exec(`DROP VIEW IF EXISTS citations;
+   CREATE VIEW citations AS SELECT ref,
+     CASE
+       WHEN state='SAVED' AND source_id IN (SELECT id FROM evidence WHERE completeness='PARTIAL') THEN 'SAVED_PARTIAL'
+       WHEN state='SAVED' AND source_id IN (SELECT id FROM sources) THEN 'SAVED'
+       WHEN state IN ('QUEUED','RUNNING') THEN 'PENDING'
+       WHEN state='INACCESSIBLE' THEN 'INACCESSIBLE'
+       ELSE 'BLOCKED'
+     END AS status,
+     reason, source_id
+   FROM jobs;`);
 	}
 	close() {
 		this.db.close();
@@ -340,6 +379,8 @@ export class Store {
 				)
 			: undefined;
 		const id = `src-${first.sha256.slice(0, 20)}`;
+		const missingAssets = capture.missingAssets ?? [];
+		const completeness = missingAssets.length > 0 ? "PARTIAL" : "COMPLETE";
 		const metadata = sourceSchema.parse({
 			schema_version: 2,
 			layer: "EVIDENCE",
@@ -354,6 +395,8 @@ export class Store {
 			mime: first.mime,
 			access_status: "SAVED",
 			extractor: capture.extractor,
+			completeness,
+			missing_assets: missingAssets,
 			artifacts,
 			retrieval_id: crypto.randomUUID(),
 			previous_retrieval_id: previous?.retrieval_id ?? null,
@@ -404,14 +447,26 @@ export class Store {
 			}
 		}
 
+		// A same-bytes retrieval that now gets every asset supersedes an earlier partial save of the
+		// same original: the stored record's completeness is allowed to improve, never to regress.
+		const upgrade = existing?.completeness === "PARTIAL" && completeness === "COMPLETE";
+
 		if (!existing) {
 			this.db.prepare("INSERT INTO sources VALUES(?,?)").run(id, JSON.stringify(metadata));
 
 			this.db
-				.prepare("INSERT INTO evidence VALUES(?,?,?,?,?,?)")
-				.run(id, capture.title, capture.authors.join("; "), capture.canonicalId, ref, "");
+				.prepare("INSERT INTO evidence VALUES(?,?,?,?,?,?,?)")
+				.run(id, capture.title, capture.authors.join("; "), capture.canonicalId, ref, "", completeness);
 
 			this.db.prepare("INSERT INTO derivations(source_id) VALUES(?)").run(id);
+
+			this.writeNote(metadata);
+		} else if (upgrade) {
+			this.db.prepare("UPDATE sources SET metadata=? WHERE id=?").run(JSON.stringify(metadata), id);
+
+			this.db
+				.prepare("UPDATE evidence SET title=?,authors=?,completeness=? WHERE id=?")
+				.run(capture.title, capture.authors.join("; "), completeness, id);
 
 			this.writeNote(metadata);
 		}
@@ -425,9 +480,14 @@ export class Store {
 			throw new Error("Missing source artifact");
 		}
 
+		const partial =
+			source.completeness === "PARTIAL"
+				? `\n\n**Incomplete capture:** ${String(source.missing_assets.length)} page asset(s) failed to fetch and are not in this snapshot. Not a complete primary source; a re-capture that fetches every asset will supersede it.\n\n${source.missing_assets.map((asset) => `- ${asset.url}: ${asset.reason}`).join("\n")}`
+				: "";
+
 		this.write(
 			`notes/${source.id}.md`,
-			`---\n${JSON.stringify(source, null, 2)}\n---\n\n# ${source.title.replace(/[\r\n]/g, " ")}\n\nSaved original. Retrieved ${source.fetched_at}.\n\nArtifact: [${first.sha256}](../${first.path})\n\nUse in a claim: \`source:: [[${source.id}]]\`\n\nClaim relations: \`supports:: [[claim-id]]\`, \`contradicts:: [[claim-id]]\`, \`replaces:: [[claim-id]]\`.\n`,
+			`---\n${JSON.stringify(source, null, 2)}\n---\n\n# ${source.title.replace(/[\r\n]/g, " ")}\n\nSaved original. Retrieved ${source.fetched_at}.${partial}\n\nArtifact: [${first.sha256}](../${first.path})\n\nUse in a claim: \`source:: [[${source.id}]]\`\n\nClaim relations: \`supports:: [[claim-id]]\`, \`contradicts:: [[claim-id]]\`, \`replaces:: [[claim-id]]\`.\n`,
 		);
 	}
 	projectPdfMetadata(
@@ -619,7 +679,7 @@ export class Store {
 	search(query: string) {
 		return this.db
 			.prepare(
-				"SELECT id,title,canonical_id,snippet(evidence,5,'[',']',' … ',24) AS snippet FROM evidence WHERE evidence MATCH ? ORDER BY rank LIMIT 30",
+				"SELECT id,title,canonical_id,completeness,snippet(evidence,5,'[',']',' … ',24) AS snippet FROM evidence WHERE evidence MATCH ? ORDER BY rank LIMIT 30",
 			)
 			.all(query);
 	}

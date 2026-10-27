@@ -34,6 +34,15 @@ does not erase or demote a saved original. Capture failures appear as BLOCKED,
 and access restrictions as INACCESSIBLE; URL-only rows never appear as SAVED.
 Use `add --refresh` to explicitly retry a terminal capture.
 
+A page whose document fetched but whose assets (images, CSS, scripts, linked
+PDFs) partly failed to fetch is still SAVED, not failed: its `completeness` is
+`PARTIAL`, its `missing_assets` list each asset's URL and failure reason, and
+its note and `status`/`citation` rows report `SAVED_PARTIAL`. A fully fetched
+page is `COMPLETE`, unchanged from before. A later `add --refresh` that fetches
+every asset supersedes the partial save in place, through the same original
+hash and `previous_retrieval_id`/`previous_sha256` chain as any other refresh;
+a capture that regresses from COMPLETE to PARTIAL does not overwrite it.
+
 `CITE_ROOT` selects the private storage root. Its default is
 `/home/docker/vault-data/sources`; set it to the approved NAS mount at rollout.
 New files, including a new `index-v2.sqlite` and its WAL, are created with mode
@@ -120,7 +129,9 @@ a new receipt. Earlier originals and receipts are never overwritten. Repeated
 example; claim relations use `supports::`, `contradicts::` and `replaces::`.
 Nothing infers those claim relations. `PRIMARY` describes saved evidence, while
 artifact roles distinguish ORIGINAL and DERIVED. `DIRECT` and `GUESS` remain
-separate memory source types.
+separate memory source types. `completeness` (`COMPLETE` or `PARTIAL`) is a
+separate, narrower signal: a PARTIAL source is still PRIMARY saved evidence,
+just not a complete one, and its note says so alongside its `missing_assets`.
 
 SQLite `index-v2.sqlite` holds capture and derivation queues, an explicit
 `citations` status view, immutable source/receipt metadata and the FTS projection.
