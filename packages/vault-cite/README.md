@@ -2,7 +2,8 @@
 
 `@petalnet/vault-cite` provides the vault's EVIDENCE layer: saved bytes, SHA-256
 identity, acquisition metadata, extracted text, SQLite FTS5, and generated Obsidian
-source notes. It makes no model calls. Loro ingestion and EPISODES are later work.
+source notes. It makes no model calls. Loro ingestion is later work; the episodes slice
+below covers transcript EPISODES.
 
 ## Commands
 
@@ -11,18 +12,20 @@ The package also exposes the `cite` executable. Use the workspace's Node runtime
 Poppler (`pdftotext`, `pdfinfo`, `pdftoppm`), Tesseract with English language data,
 and GNU tar must be available on PATH. OCR runs locally without inference APIs.
 
-| Command                 | Behavior                                                                                                         |
-| ----------------------- | ---------------------------------------------------------------------------------------------------------------- |
-| `add <ref>`             | Capture a URL, DOI, or arXiv ID synchronously; repeat requests reuse the saved source.                           |
-| `add <ref> --refresh`   | Fetch again, retaining the earlier original and linking an immutable retrieval receipt.                          |
-| `derive [limit]`        | Process queued page extraction and OCR separately from capture.                                                  |
-| `get <ref>`             | Return source metadata, extraction state and retrieval history, or citation status; accepts `src-…` IDs.         |
-| `search <q>`            | Search metadata and text using FTS5 syntax; return up to 30 ranked hits.                                         |
-| `status`                | Return citation counts and individual SAVED/PENDING/BLOCKED/INACCESSIBLE states, reasons, and extraction states. |
-| `work [limit]`          | Process due captures, then queued extraction; up to 100 of each by default.                                      |
-| `backfill <csv>`        | Enqueue primary-scope papers from the inventory CSV and process up to 100 due jobs.                              |
-| `backfill <csv> --rest` | Enqueue the remaining inventory rows and process due jobs.                                                       |
-| `hook`                  | Read a Claude Code PreToolUse WebFetch event from stdin; capture before permitting the fetch.                    |
+| Command                            | Behavior                                                                                                         |
+| ---------------------------------- | ---------------------------------------------------------------------------------------------------------------- |
+| `add <ref>`                        | Capture a URL, DOI, or arXiv ID synchronously; repeat requests reuse the saved source.                           |
+| `add <ref> --refresh`              | Fetch again, retaining the earlier original and linking an immutable retrieval receipt.                          |
+| `derive [limit]`                   | Process queued page extraction and OCR separately from capture.                                                  |
+| `get <ref>`                        | Return source metadata, extraction state and retrieval history, or citation status; accepts `src-…` IDs.         |
+| `search <q>`                       | Search metadata and text using FTS5 syntax; return up to 30 ranked hits.                                         |
+| `status`                           | Return citation counts and individual SAVED/PENDING/BLOCKED/INACCESSIBLE states, reasons, and extraction states. |
+| `work [limit]`                     | Process due captures, then queued extraction; up to 100 of each by default.                                      |
+| `backfill <csv>`                   | Enqueue primary-scope papers from the inventory CSV and process up to 100 due jobs.                              |
+| `backfill <csv> --rest`            | Enqueue the remaining inventory rows and process due jobs.                                                       |
+| `hook`                             | Read a Claude Code PreToolUse WebFetch event from stdin; capture before permitting the fetch.                    |
+| `episodes ingest <db> [batchSize]` | Stream a recall-index SQLite db into immutable, redacted episode rows (see Episodes below).                      |
+| `episodes verify`                  | Re-scan indexed episode text for any known secret value's hash; exit non-zero on a hit.                          |
 
 Mutation commands report saved/inaccessible/failed/retried counts. Queued retries
 remain visible in `status`; run `work` again after their `next_at` time. Four
@@ -201,6 +204,102 @@ Backfill is an operator action after review. Run the papers phase first, drain i
 queue, and inspect counts before selecting `--rest`. Repeating either phase does
 not duplicate jobs. The inventory's existing SAVED labels do not substitute for
 a verified artifact in this store.
+
+## Episodes
+
+`episodes ingest <recall-db-path> [batchSize]` streams a recall-index SQLite
+db (the `messages` FTS5 table `~/.claude/bin/recall-index` writes) in batches
+(default 2000 rows, never the whole table at once) and writes immutable
+episode rows into `episodes` + an `episode_text` FTS5 table that mirrors
+`evidence`'s shape: a metadata-row table plus a parallel FTS5 text table, so a
+claim can cite an episode exactly like it cites a source. Re-running against
+the same db path only adds rows past the last-seen `rowid` (a per-source-path
+cursor), so it never duplicates.
+
+Redaction is **value-scoped and fail-closed**, not finding-scoped (plan
+`/plan/971` comment #58 found a finding-scoped approach lets the same secret
+value recur unmasked elsewhere): pass 1 scans every message in the batch
+(`gitleaks` via subprocess when it is on PATH, each message written to its
+own file so a finding's file name IS the message id — no line-offset
+arithmetic, eliminating the spike's offset-drift bug by construction;
+otherwise the built-in rules below) and collects every distinct secret value
+found anywhere in the batch, plus any value matching a previously-known
+secret hash (`candidateSpans`, a candidate-substring scan deliberately
+WIDER than any single rule's own grammar — see secrets.ts for exactly why:
+a strict superset in both length and character set is required, or a known
+secret can stay unmasked wherever a recurrence doesn't carry the original
+rule's triggering context). Pass 2 masks every occurrence of every collected
+value in **every** message of the batch as `[REDACTED:<rule>]`. A message
+with a finding whose value is empty or degenerate is dropped, never
+inserted raw. Only SHA-256 hashes of confirmed secret values are persisted,
+never the values themselves.
+
+Built-in rules (used when `gitleaks` is not on PATH): `aws-access-key-id`,
+`github-pat`, `slack-token`, `jwt`, `private-key-block`, `generic-api-key`
+(a `key=`/`token=`/`secret=`/`password=` assignment followed by a long
+opaque value). These mirror gitleaks' own rules of the same shapes; they are
+a floor, not a full replacement.
+
+`episodes verify` runs two INDEPENDENT checks over every indexed episode's
+text, neither of which shares code with the ingest-side matcher (the
+project's safety net must not inherit a blind spot from the matcher it
+exists to audit): it re-runs the same rule-based detectors ingest uses
+directly against the indexed text, and it separately re-derives candidates
+with its own span generator and checks them against `known_secret_hashes`.
+It exits non-zero if either check finds anything, proving zero FTS hits for
+every known secret rather than trusting the ingest counts. It never logs
+the matched value, only the episode id.
+
+The known-value hash set only grows forward across ascending rowids within a
+run, so a value whose only secret-shaped context arrives in a LATER batch
+can't protect an EARLIER episode that already has it bare. `ingestRecallDb`
+closes this gap itself: once the source db is fully drained (not stopped
+early by the disk guard), it runs `sweepResidualSecrets`, which re-checks
+every already-indexed episode against the final hash set and masks any
+residual value in place. This is the one controlled exception to episode
+immutability — it only ever narrows text (masks a value already proven
+secret), never changes an id, provenance, or anything else — and
+`IngestCounts.sweepMasked` reports how many episodes it touched.
+
+Candidate generation against the known-hash set (both the cross-batch pass
+during ingest and the sweep) is itself bounded: a pathological run with very
+many weak delimiters is capped rather than enumerated exhaustively, since
+doing so would be combinatorial. Hitting that cap is reported, never
+silently absorbed — if a value itself contains one of these delimiters
+(e.g. a secret with an embedded `-`), the one boundary pair that would
+reconstruct it byte-for-byte might not survive capping, so a run whose
+boundary count exceeds the cap is one this code CANNOT prove is free of a
+known secret. The redaction pass and the sweep both fail closed on this:
+redaction drops the message outright (same as an unmaskable finding);
+the sweep quarantines the already-indexed episode (text replaced with a
+quarantine marker, `scan_status` set to `QUARANTINED`,
+`IngestCounts.sweepQuarantined` counts them) rather than leaving it
+indexed on an unproven assumption of cleanliness. `episodes verify`'s own,
+independently-coded candidate generator applies the identical rule: hitting
+its cap counts as a hit, never as no match found.
+
+Scope is **default-deny**: `EPISODES_SCOPE_CONFIG` (or the `scopeConfigPath`
+option) points at a JSON file `{ "rooms": [...], "keywords": [...] }`. A
+message whose session/room id is in `rooms`, or whose text contains any
+`keywords` entry (case-insensitive substring), is dropped before redaction
+or indexing — never partially redacted, never written at all. This repo
+ships only `episodes.scope.example.json`; the real deny
+list lives outside the repo.
+
+An UNSET path is a deliberate no-config default: an empty deny list, with a
+loud stderr warning that no exclusions are active. A path that IS set but
+cannot be loaded (missing file, unmounted NAS share, invalid JSON) is a
+DIFFERENT situation and fails closed: `ingestRecallDb` throws before opening
+the source db or writing anything, so a broken configured path can never
+silently index content an operator intended to exclude, and can never
+advance the cursor past rows it never actually scoped.
+
+`VAULT_AGENT_ID` tags each episode's `agent_id` in metadata; defaults to
+`"unknown"`.
+
+Episode content is PRIVATE tier and belongs on the NAS alongside (but not
+mixed into) `vault-sources`, same as the rest of this package's storage
+contract.
 
 ## Backfill scripts
 

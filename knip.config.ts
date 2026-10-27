@@ -58,6 +58,9 @@ export default {
 		"packages/vault-cite": {
 			// The backfill ops scripts are production entrypoints an operator runs by hand, not imported.
 			entry: ["test/**/*.ts", "scripts/*.ts!"],
+			// gitleaks is an optional external scanner (not an npm package); episodes falls back
+			// to the built-in rules when it is not on PATH.
+			ignoreBinaries: ["gitleaks"],
 		},
 		"packages/effect-api": {
 			// Strict Knip excludes the provider subpath's optional peer supplied by consumers.
