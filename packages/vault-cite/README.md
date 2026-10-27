@@ -190,3 +190,38 @@ Backfill is an operator action after review. Run the papers phase first, drain i
 queue, and inspect counts before selecting `--rest`. Repeating either phase does
 not duplicate jobs. The inventory's existing SAVED labels do not substitute for
 a verified artifact in this store.
+
+## Backfill scripts
+
+`scripts/run.sh`, `scripts/worker.sh`, `scripts/guard.sh` and `scripts/diag.ts`
+are the operator scripts used to drive a large backfill against the inventory
+CSV. They are plain entrypoints, not imported by the package; run them from
+`packages/vault-cite` or directly by path.
+
+| Script                   | Behavior                                                                                                                                                         |
+| ------------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `scripts/run.sh`         | Enqueues the papers phase, drains the queue, then enqueues the rest of the inventory and drains again. Stops once free disk drops below `FLOOR_GIB`.             |
+| `scripts/worker.sh <id>` | An extra drain loop that shares the same queue and pacing as `run.sh`; run one per worker id to add parallelism.                                                 |
+| `scripts/guard.sh`       | Supervises one `worker.sh 1` loop and pauses it on real memory pressure (PSI, swap-in rate, available memory, load average), resuming after a few clean samples. |
+| `scripts/diag.ts`        | `node scripts/diag.ts <store-root> <ref>...` resolves each ref on a scratch store and logs which origin's robots check or request threw.                         |
+
+Each CLI call in `run.sh`/`worker.sh` runs as its own transient `systemd-run
+--user` service with a memory cap and no swap, so a runaway page render is
+OOM-killed inside its own cgroup instead of affecting the host.
+
+Env vars (all optional, same meaning across the four scripts):
+
+- `CITE_ROOT`: storage root; defaults to the same `/home/docker/vault-data/sources` default as the package.
+- `CITE_CHROMIUM_EXECUTABLE`: Chromium headless-shell binary; autodetected under `$HOME/.cache/ms-playwright` if unset.
+- `PKG`: path to this package; defaults to the scripts' own parent directory.
+- `CITE_WORKDIR`: working directory for the transient CLI service; defaults to `$CITE_ROOT/backfill`.
+- `CSV`: inventory CSV; defaults to `$CITE_ROOT/backfill/inventory-primary.csv`.
+- `LOG`: run log path; defaults to `$CITE_ROOT/backfill/run.log`.
+- `FLOOR_GIB`: free-disk stop threshold in GiB; defaults to 36 (30 inside `guard.sh`).
+
+To run a backfill: place the inventory CSV at `$CITE_ROOT/backfill/inventory-primary.csv`,
+then run `scripts/run.sh`. Add `scripts/worker.sh 2`, `scripts/worker.sh 3`, etc.
+for more parallelism, or run `scripts/guard.sh` instead of a bare `worker.sh 1`
+to get automatic pause/resume under memory pressure. Tail `$LOG` to watch
+progress; `pending` counts (visible in the log) going to zero means the queue
+is drained for that phase.
