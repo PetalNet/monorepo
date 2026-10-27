@@ -32,14 +32,18 @@ cd "$PKG" || exit 1
 
 stamp() { printf '%s %s\n' "$(date -Is)" "$*" >>"$LOG"; }
 free_gib() { df --output=avail -B1G / | tail -1 | tr -d ' '; }
+pending() { python3 "$SCRIPT_DIR/pending.py"; }
 
-pending() {
-	python3 - <<EOF
-import sqlite3
-db = sqlite3.connect("file:${CITE_ROOT}/index-v2.sqlite?mode=ro", uri=True)
-print(db.execute("SELECT count(*) FROM jobs WHERE state IN ('QUEUED','RUNNING')").fetchone()[0]
-      + db.execute("SELECT count(*) FROM derivations WHERE state='PENDING'").fetchone()[0])
-EOF
+# Runs the CLI pipeline and echoes its tr'd output, but returns the CLI's own
+# exit status instead of tr's: with pipefail set, $? after an `out=$(a | b)`
+# assignment already reflects that, so capture it immediately, before the
+# output is handed to `stamp`, or it is lost.
+cli_run() {
+	local out rc
+	out=$("${CLI[@]}" "$@" | tr '\n' ' ')
+	rc=$?
+	printf '%s' "$out"
+	return "$rc"
 }
 
 drain() {
@@ -48,7 +52,16 @@ drain() {
 			stamp "STOP free $(free_gib)G below ${FLOOR_GIB}G floor"
 			exit 3
 		fi
-		stamp "work $("${CLI[@]}" work 50 | tr '\n' ' ')"
+		local work_out rc
+		work_out=$(cli_run work 50)
+		rc=$?
+		if [ "$rc" -ne 0 ]; then
+			# A batch failing does not drain the queue; leases expire and due jobs
+			# are retried on the next loop iteration, so keep looping.
+			stamp "work FAILED rc=$rc $work_out"
+		else
+			stamp "work $work_out"
+		fi
 		left=$(pending)
 		stamp "pending=$left free=$(free_gib)G"
 		[ "$left" -eq 0 ] && return
@@ -58,8 +71,20 @@ drain() {
 }
 
 stamp "START free=$(free_gib)G"
-stamp "papers $("${CLI[@]}" backfill "$CSV" | tr '\n' ' ')"
+papers_out=$(cli_run backfill "$CSV")
+rc=$?
+stamp "papers $papers_out"
+if [ "$rc" -ne 0 ]; then
+	stamp "STOP papers enqueue failed rc=$rc"
+	exit "$rc"
+fi
 drain
-stamp "rest $("${CLI[@]}" backfill "$CSV" --rest | tr '\n' ' ')"
+rest_out=$(cli_run backfill "$CSV" --rest)
+rc=$?
+stamp "rest $rest_out"
+if [ "$rc" -ne 0 ]; then
+	stamp "STOP rest enqueue failed rc=$rc"
+	exit "$rc"
+fi
 drain
 stamp "DONE free=$(free_gib)G"
