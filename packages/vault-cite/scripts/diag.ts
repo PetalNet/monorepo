@@ -7,23 +7,29 @@ import { Store } from "../src/store.ts";
 
 const [root, ...refs] = process.argv.slice(2);
 const store = new Store(root ?? "");
+
 for (const ref of refs) {
 	const net = new Network(store);
 	const allowed = net.allowed.bind(net);
 	const seen: string[] = [];
+
 	net.allowed = async (u: string) => {
 		try {
 			return await allowed(u);
 		} catch (e) {
 			seen.push(`${new URL(u).origin} -> ${(e as Error).message}`);
+
 			throw e;
 		}
 	};
+
 	try {
 		const c = await resolveSource(ref, net);
+
 		console.log(JSON.stringify({ ref, ok: true, id: c.canonicalId, title: c.title }));
 	} catch (e) {
 		const err = e as Error;
+
 		console.log(
 			JSON.stringify({
 				ref,
