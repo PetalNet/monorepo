@@ -474,3 +474,56 @@ describe("scope config fails closed", () => {
 		expect(episodes.count()).toBe(1);
 	});
 });
+
+it("verification agrees with independent exhaustive hashing at delimiter and limit edges", () => {
+	const episodes = new EpisodeStore(newStore());
+	const value = `${"D".repeat(18)}-${"E".repeat(18)}`;
+	const knownHashes = new Set([sha256Hex(value), sha256Hex("F".repeat(15))]);
+
+	episodes.addKnownHashes([...knownHashes].map((hash) => ({ hash, rule: "known-value" })));
+
+	const texts = [
+		value,
+		`${value}X`,
+		`X${value}`,
+		...[".", "-", "/", "+", "../"].map(
+			(delimiter) => `prefix${delimiter}${value}${delimiter}suffix`,
+		),
+		...[46, 47, 48, 49, 50].map((count) => `prefix/${"a/".repeat(count)}${value}`),
+		"F".repeat(15),
+		"F".repeat(14),
+	];
+	const expected: string[] = [];
+
+	for (const [index, text] of texts.entries()) {
+		const id = `reference-${String(index)}`;
+
+		episodes.insert(id, metadata(id), text);
+		let hit = false;
+
+		for (const match of text.matchAll(/[A-Za-z0-9_\-/+.]{15,}/g)) {
+			const run = match[0];
+			const pieces = run.split(/([.\-/+])/);
+
+			if (pieces.length > 97 || knownHashes.has(sha256Hex(run))) {
+				hit = true;
+			}
+
+			for (let start = 0; start < pieces.length; start += 2) {
+				for (let end = start; end < pieces.length; end += 2) {
+					const candidate = pieces.slice(start, end + 1).join("");
+
+					if (candidate.length >= 15 && knownHashes.has(sha256Hex(candidate))) {
+						hit = true;
+					}
+				}
+			}
+		}
+
+		if (hit) {
+			expected.push(id);
+		}
+	}
+
+	expect(verifyEpisodes(episodes).hitEpisodeIds.toSorted()).toEqual(expected.toSorted());
+});
