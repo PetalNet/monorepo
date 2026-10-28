@@ -66,6 +66,7 @@
 	"typesync": {
 		"ignoreProjects": [
 			"apps/box-agent",
+			"apps/chatterbox-wyoming",
 			"apps/control-plane",
 			"apps/courier",
 			"apps/dispatcher",
