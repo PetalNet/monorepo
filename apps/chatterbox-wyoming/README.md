@@ -57,3 +57,12 @@ python chatterbox_wyoming.py --config /path/to/config.toml
 
 The log records each cold load, every synthesis with its real-time factor, and free
 VRAM.
+
+## Tests
+
+The tests replace torch and the runtime with fakes, so they need no GPU. Run them from
+this directory in an environment with the package's dependencies:
+
+```sh
+python -m unittest test_chatterbox_wyoming
+```

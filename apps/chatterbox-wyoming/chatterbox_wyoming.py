@@ -81,6 +81,10 @@ def gpu_stats(index: int) -> dict:
         return {"gpu_name": None, "free_vram_gb": None, "total_vram_gb": None, "gpu_error": repr(e)}
 
 
+class SynthesisError(RuntimeError):
+    """A failed synthesis, carrying the runtime's error as text rather than its traceback."""
+
+
 class Voice:
     """Owns the model. All model work runs on one worker thread, which serializes requests."""
 
@@ -100,50 +104,58 @@ class Voice:
         return self.worker.submit(self._speak, text)
 
     def _speak(self, text: str) -> np.ndarray:
-        import torch
-
         self.busy = True
         try:
-            if self.model is None:
-                free = gpu_stats(self.gpu_index)["free_vram_gb"]
-                start = time.perf_counter()
-                sys.path.insert(0, self.runtime)
-                from optimized_voice import OptimizedTurboVoice
-
-                self.model = OptimizedTurboVoice()
-                log.info(
-                    "cold load %.1fs (free VRAM %s GB before, %s GB after)",
-                    time.perf_counter() - start,
-                    free,
-                    gpu_stats(self.gpu_index)["free_vram_gb"],
-                )
-            torch.cuda.synchronize()
-            start = time.perf_counter()
-            audio = self.model.speak(text, seed=42)
-            torch.cuda.synchronize()
-            secs = time.perf_counter() - start
-            self.last_rtf = secs / (len(audio) / MODEL_RATE)
-            reserved = torch.cuda.memory_reserved() / 2**30
-            # Hand cached blocks back so a crowded GPU does not push the next new-length allocation into system RAM.
-            torch.cuda.empty_cache()
-            log.info(
-                "synth %d chars -> %.2fs audio in %.2fs (RTF %.2f, reserved %.2f GB, free VRAM %s GB)",
-                len(text),
-                len(audio) / MODEL_RATE,
-                secs,
-                self.last_rtf,
-                reserved,
-                gpu_stats(self.gpu_index)["free_vram_gb"],
-            )
-            return audio
-        except Exception:
+            try:
+                return self._synthesize(text)
+            except Exception as e:
+                log.exception("synthesis failed")
+                failure = repr(e)
+            # The runtime's traceback holds its frames, and through them the model and its tensors. Unload only once
+            # the except clause has dropped it, and give the future an error that does not carry it.
             self._unload("after error")
-            raise
+            raise SynthesisError(failure)
         finally:
             self.last_used = time.monotonic()
             self.busy = False
             with self.counter_lock:
                 self.pending -= 1
+
+    def _synthesize(self, text: str) -> np.ndarray:
+        import torch
+
+        if self.model is None:
+            free = gpu_stats(self.gpu_index)["free_vram_gb"]
+            start = time.perf_counter()
+            sys.path.insert(0, self.runtime)
+            from optimized_voice import OptimizedTurboVoice
+
+            self.model = OptimizedTurboVoice()
+            log.info(
+                "cold load %.1fs (free VRAM %s GB before, %s GB after)",
+                time.perf_counter() - start,
+                free,
+                gpu_stats(self.gpu_index)["free_vram_gb"],
+            )
+        torch.cuda.synchronize()
+        start = time.perf_counter()
+        audio = self.model.speak(text, seed=42)
+        torch.cuda.synchronize()
+        secs = time.perf_counter() - start
+        self.last_rtf = secs / (len(audio) / MODEL_RATE)
+        reserved = torch.cuda.memory_reserved() / 2**30
+        # Hand cached blocks back so a crowded GPU does not push the next new-length allocation into system RAM.
+        torch.cuda.empty_cache()
+        log.info(
+            "synth %d chars -> %.2fs audio in %.2fs (RTF %.2f, reserved %.2f GB, free VRAM %s GB)",
+            len(text),
+            len(audio) / MODEL_RATE,
+            secs,
+            self.last_rtf,
+            reserved,
+            gpu_stats(self.gpu_index)["free_vram_gb"],
+        )
+        return audio
 
     def unload_if_idle(self) -> None:
         if self.model is not None and time.monotonic() - self.last_used >= self.idle_unload:
