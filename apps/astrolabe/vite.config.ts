@@ -9,19 +9,11 @@ export default defineConfig({
 	plugins: [
 		tailwindcss(),
 		fontless({
+			// The faces are named only through --font-sans and --font-mono, so fontless must read custom properties.
+			processCSSVariables: true,
 			families: [
-				{
-					name: "Geist",
-					src: "https://cdn.jsdelivr.net/npm/geist@1.5.1/dist/fonts/geist-sans/Geist-Variable.woff2",
-					weight: "100 900",
-					global: true,
-				},
-				{
-					name: "Geist Mono",
-					src: "https://cdn.jsdelivr.net/npm/geist@1.5.1/dist/fonts/geist-mono/GeistMono-Variable.woff2",
-					weight: "100 900",
-					global: true,
-				},
+				{ name: "Geist", provider: "fontsource", weights: [400, 500, 600] },
+				{ name: "Geist Mono", provider: "fontsource", weights: [400, 500] },
 			],
 		}),
 		sveltekit({ adapter: adapter() }),
