@@ -1,6 +1,12 @@
 import { describe, expect, it } from "vitest";
 
-import { moonAgeDays, moonPhaseName, nextSolarEvent, parseBackupLog, solarPhaseName, usageReadoutFrom } from "./dossier.js";
+import {
+	moonAgeDays,
+	moonPhaseName,
+	parseBackupLog,
+	solarPhaseName,
+	usageReadoutFrom,
+} from "./dossier.js";
 
 describe("moon helpers", () => {
 	it("names lunar phases and scales age across one synodic month", () => {
@@ -13,7 +19,13 @@ describe("moon helpers", () => {
 });
 
 describe("solar phase", () => {
-	const times = { dawnAt: 100 * 60_000, sunriseAt: 200 * 60_000, solarNoonAt: 500 * 60_000, sunsetAt: 800 * 60_000, duskAt: 900 * 60_000 };
+	const times = {
+		dawnAt: 100 * 60_000,
+		sunriseAt: 200 * 60_000,
+		solarNoonAt: 500 * 60_000,
+		sunsetAt: 800 * 60_000,
+		duskAt: 900 * 60_000,
+	};
 	it("uses named daylight periods", () => {
 		expect(solarPhaseName(times, 50 * 60_000)).toBe("night");
 		expect(solarPhaseName(times, 150 * 60_000)).toBe("dawn");
@@ -24,22 +36,10 @@ describe("solar phase", () => {
 	});
 });
 
-describe("next solar event", () => {
-	it("uses tomorrow's sunrise for the verified evening instant", () => {
-		const now = Date.parse("2026-10-26T01:00:00Z");
-		const nextDaySunriseAt = Date.parse("2026-10-26T12:40:00Z"); // Today's 12:39Z sunrise plus one minute for normal day-to-day solar drift.
-		const result = nextSolarEvent({
-			sunriseAt: Date.parse("2026-10-25T12:39:00Z"),
-			sunsetAt: Date.parse("2026-10-25T23:42:00Z"),
-			nextDaySunriseAt,
-		}, now);
-		expect(result).toEqual({ kind: "sunrise", at: nextDaySunriseAt });
-	});
-});
-
 describe("backup parsing", () => {
 	it("reverse-scans the last attempt and success", () => {
-		const log = "[Wed Mar 12 04:03:27 UTC 2026] Starting offsite backup\n[Wed Mar 12 04:12:27 UTC 2026] Offsite backup complete\n[Thu Mar 13 04:03:27 UTC 2026] Starting offsite backup";
+		const log =
+			"[Wed Mar 12 04:03:27 UTC 2026] Starting offsite backup\n[Wed Mar 12 04:12:27 UTC 2026] Offsite backup complete\n[Thu Mar 13 04:03:27 UTC 2026] Starting offsite backup";
 		const parsed = parseBackupLog(log);
 		expect(parsed.lastSuccessAt).toBe(Date.parse("Wed Mar 12 04:12:27 UTC 2026"));
 		expect(parsed.lastAttemptAt).toBe(Date.parse("Thu Mar 13 04:03:27 UTC 2026"));
@@ -48,19 +48,59 @@ describe("backup parsing", () => {
 
 describe("usage readouts", () => {
 	it("keeps a missing Claude feed stale but not awaiting", () => {
-		const result = usageReadoutFrom({ slug: "janet-primary", label: "Claude", kind: "claude", data: null, nowSeconds: 1000 });
+		const result = usageReadoutFrom({
+			slug: "janet-primary",
+			label: "Claude",
+			kind: "claude",
+			data: null,
+			nowSeconds: 1000,
+		});
 		expect(result).toMatchObject({ awaiting: false, stale: true, fiveHourPct: null });
 	});
 
 	it("marks a missing Codex feed awaiting", () => {
-		const result = usageReadoutFrom({ slug: "codex", label: "Codex", kind: "codex", data: null, nowSeconds: 1000 });
+		const result = usageReadoutFrom({
+			slug: "codex",
+			label: "Codex",
+			kind: "codex",
+			data: null,
+			nowSeconds: 1000,
+		});
 		expect(result).toMatchObject({ awaiting: true, stale: false, fiveHourPct: null });
 	});
 
 	it("uses the Claude ISO reset while Codex stays epoch-based", () => {
-		const claude = usageReadoutFrom({ slug: "janet-primary", label: "Claude", kind: "claude", nowSeconds: 1000, data: { five_hour_pct: null, seven_day_pct: 40, seven_day_resets_at_iso: "1970-01-01T00:20:00Z", scraped_at: 995 } });
-		const codex = usageReadoutFrom({ slug: "codex", label: "Codex", kind: "codex", nowSeconds: 1000, data: { five_hour_pct: null, seven_day_pct: 40, seven_day_resets_at: 1200, credits_balance: 3000, scraped_at: 995 } });
+		const claude = usageReadoutFrom({
+			slug: "janet-primary",
+			label: "Claude",
+			kind: "claude",
+			nowSeconds: 1000,
+			data: {
+				five_hour_pct: null,
+				seven_day_pct: 40,
+				seven_day_resets_at_iso: "1970-01-01T00:20:00Z",
+				scraped_at: 995,
+			},
+		});
+		const codex = usageReadoutFrom({
+			slug: "codex",
+			label: "Codex",
+			kind: "codex",
+			nowSeconds: 1000,
+			data: {
+				five_hour_pct: null,
+				seven_day_pct: 40,
+				seven_day_resets_at: 1200,
+				credits_balance: 3000,
+				scraped_at: 995,
+			},
+		});
 		expect(claude.sevenDayResetsAt).toBe(1200);
-		expect(codex).toMatchObject({ fiveHourPct: null, creditsBalance: 3000, stale: false, awaiting: false });
+		expect(codex).toMatchObject({
+			fiveHourPct: null,
+			creditsBalance: 3000,
+			stale: false,
+			awaiting: false,
+		});
 	});
 });

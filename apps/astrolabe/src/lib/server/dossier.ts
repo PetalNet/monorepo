@@ -4,6 +4,8 @@ import { promisify } from "node:util";
 
 import * as SunCalc from "suncalc";
 
+import { nextSolarEvent, type SolarEvent } from "../sky.js";
+
 const execFileAsync = promisify(execFile);
 const FIFTEEN_MINUTES_SECONDS = 15 * 60;
 const BACKUP_STALE_AFTER_MS = 26 * 60 * 60 * 1000;
@@ -21,11 +23,6 @@ export interface UsageReadout {
 	scrapedAt: number | null;
 	stale: boolean;
 	awaiting: boolean;
-}
-
-export interface SolarEvent {
-	at: number | null;
-	kind: "sunrise" | "sunset" | null;
 }
 
 export interface Dossier {
@@ -113,21 +110,6 @@ export const solarPhaseName = (times: {
 	if (now < solarNoonAt + 60 * 60 * 1000) return "midday";
 	if (now < sunsetAt) return "afternoon";
 	return "dusk";
-};
-
-export const nextSolarEvent = (
-	times: { sunriseAt: number | null; sunsetAt: number | null; nextDaySunriseAt: number | null },
-	now: number,
-): SolarEvent => {
-	const candidates: SolarEvent[] = [
-		{ at: times.sunriseAt, kind: "sunrise" },
-		{ at: times.sunsetAt, kind: "sunset" },
-		{ at: times.nextDaySunriseAt, kind: "sunrise" },
-	];
-	for (const event of candidates) {
-		if (event.at !== null && event.at > now) return event;
-	}
-	return { at: null, kind: null };
 };
 
 const pct = (value: unknown): number | null => {

@@ -1,5 +1,6 @@
 <script lang="ts">
 	import type { Dossier } from "$lib/server/dossier";
+	import { solarCountdown } from "$lib/sky";
 	import SunIcon from "@lucide/svelte/icons/sun";
 	import { onMount } from "svelte";
 
@@ -143,19 +144,11 @@
 		}
 
 		const band = sky.bandAt(sky.now);
-		const ahead = (minute: number) =>
-			(((minute - sky.now) % MINUTES_PER_DAY) + MINUTES_PER_DAY) % MINUTES_PER_DAY;
-		const next =
-			sky.daylight === null
-				? null
-				: [
-						{ name: "Sunrise", in: ahead(sky.daylight.from) },
-						{ name: "Sunset", in: ahead(sky.daylight.to) },
-					].sort((a, b) => a.in - b.in)[0];
+		const next = solarCountdown(sun, now);
 		const detail =
-			next === undefined || next === null
+			next === null
 				? "No sunrise or sunset today"
-				: `${next.name} in ${duration(next.in)}`;
+				: `${next.kind === "sunrise" ? "Sunrise" : "Sunset"} in ${duration(next.minutes)}`;
 
 		return { minute: sky.now, time: timeLabel(sky.now), band, detail };
 	});
