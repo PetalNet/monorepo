@@ -1,0 +1,16 @@
+*
+!package.json
+!pnpm-lock.yaml
+!pnpm-workspace.yaml
+!patches/
+!apps/*/package.json
+!packages/*/package.json
+!tools/package.json
+!apps/petalboard/
+apps/petalboard/node_modules
+apps/petalboard/build
+apps/petalboard/.svelte-kit
+apps/petalboard/.env*
+apps/petalboard/**/*.db
+apps/petalboard/**/*.db-*
+apps/petalboard/src/lib/server/generated

@@ -1,0 +1,43 @@
+{
+	"name": "@petalnet/petalboard",
+	"version": "0.0.1",
+	"private": true,
+	"type": "module",
+	"scripts": {
+		"build": "vite build",
+		"check": "svelte-kit sync && svelte-check --tsconfig ./tsconfig.json",
+		"check:watch": "svelte-kit sync && svelte-check --tsconfig ./tsconfig.json --watch",
+		"dev": "vite dev",
+		"generate": "prisma generate",
+		"prepare": "svelte-kit sync && prisma generate",
+		"preview": "vite preview",
+		"test": "vitest run"
+	},
+	"dependencies": {
+		"@prisma/client": "catalog:prisma6",
+		"@sveltejs/kit": "catalog:prod",
+		"nanoid": "catalog:prod",
+		"nodemailer": "catalog:prod",
+		"remark": "catalog:prod",
+		"remark-gfm": "catalog:prod",
+		"remark-html": "catalog:prod",
+		"svelte": "catalog:prod",
+		"zod": "catalog:prod"
+	},
+	"devDependencies": {
+		"@sveltejs/adapter-node": "catalog:dev",
+		"@sveltejs/vite-plugin-svelte": "catalog:dev",
+		"@types/google.maps": "catalog:types",
+		"@types/node": "catalog:types",
+		"@types/nodemailer": "catalog:types",
+		"autoprefixer": "catalog:dev",
+		"happy-dom": "catalog:dev",
+		"postcss": "catalog:dev",
+		"prisma": "catalog:prisma6",
+		"svelte-check": "catalog:dev",
+		"tailwindcss": "catalog:legacy",
+		"typescript": "catalog:dev",
+		"vite": "catalog:dev",
+		"vitest": "catalog:dev"
+	}
+}
