@@ -102,11 +102,19 @@ h1 { font-size: 1rem; font-weight: 600; line-height: 1.2; }
 .theme-toggle:active { transform: scale(.96); }
 
 .wrap { margin: 0 auto; max-width: 55rem; padding: var(--s5) var(--s4) var(--s7); }
-.sky-strip { background: var(--surface); border-radius: var(--radius); display: grid; gap: var(--s2); grid-template-columns: 1fr 1fr; padding: var(--s3); transition: background var(--t); }
+.sky-strip { align-items: center; background: var(--surface); border-radius: var(--radius); display: grid; gap: var(--s3); grid-template-columns: auto 1fr 1fr; padding: var(--s3); transition: background var(--t); }
 .sky-reading { align-items: flex-start; color: var(--petal); display: flex; gap: var(--s2); min-width: 0; padding: var(--s1); }
 .sky-reading > div { min-width: 0; }
 .sky-label, .detail-list span, .stats-row span, .credits span { color: var(--text-mute); display: block; font-size: .75rem; transition: color var(--t); }
 .sky-reading strong { color: var(--text); display: block; font-size: .875rem; font-weight: 500; line-height: 1.35; transition: color var(--t); }
+.sky-clock { display: block; height: 7.5rem; width: 7.5rem; }
+.sky-clock-track { fill: none; stroke: var(--rule); stroke-width: 5; transition: stroke var(--t); }
+.sky-clock-twilight, .sky-clock-daylight { fill: none; stroke-width: 5; transition: stroke var(--t); }
+.sky-clock-twilight { stroke: var(--rule-strong); }.sky-clock-daylight { stroke: color-mix(in srgb, var(--petal) 35%, transparent); }
+.sky-clock-tick { stroke: var(--text-soft); stroke-width: .75; transition: stroke var(--t); }.sky-clock-tick.major { stroke: var(--text-mute); stroke-width: 1.25; }
+.sky-clock-numeral { dominant-baseline: central; fill: var(--text-mute); font-size: 6.5px; text-anchor: middle; transition: fill var(--t); }
+.sky-clock-hand { stroke: var(--text); stroke-linecap: round; transition: stroke var(--t); }.sky-clock-hand.hour { stroke-width: 2.5; }.sky-clock-hand.minute { stroke: var(--text-mute); stroke-width: 1.5; }.sky-clock-hand.second { stroke: var(--petal); stroke-width: .75; }
+.sky-clock-sun { fill: var(--petal); stroke: var(--surface); stroke-width: 1.5; transition: fill var(--t), stroke var(--t); }.sky-clock-cap { fill: var(--text); transition: fill var(--t); }
 .sky-reading p { color: var(--text-mute); font-size: .75rem; line-height: 1.4; overflow: hidden; text-overflow: ellipsis; transition: color var(--t); white-space: nowrap; }
 
 .section-block { margin-top: var(--s6); }
@@ -139,5 +147,5 @@ h1 { font-size: 1rem; font-weight: 600; line-height: 1.2; }
 .mood strong { display: block; font-size: 1rem; font-weight: 500; }.mood p { color: var(--text-mute); margin-top: var(--s2); }
 
 @media (min-width: 600px) { .dashboard-grid { grid-template-columns: 1fr 1fr; } }
-@media (max-width: 600px) { .top-inner { padding: var(--s3); }.wrap { padding: var(--s4) var(--s3) var(--s6); }.sky-strip { grid-template-columns: 1fr; }.sky-reading + .sky-reading { border-top: 1px solid var(--rule); padding-top: var(--s3); }.section-block { margin-top: var(--s5); }.meters.two-meters { grid-template-columns: 1fr; } }
+@media (max-width: 600px) { .top-inner { padding: var(--s3); }.wrap { padding: var(--s4) var(--s3) var(--s6); }.sky-strip { grid-template-columns: 1fr; }.sky-clock { justify-self: center; }.sky-reading + .sky-reading { border-top: 1px solid var(--rule); padding-top: var(--s3); }.section-block { margin-top: var(--s5); }.meters.two-meters { grid-template-columns: 1fr; } }
 @media (prefers-reduced-motion: reduce) { *, *::before, *::after { scroll-behavior: auto !important; transition-duration: .01ms !important; } }

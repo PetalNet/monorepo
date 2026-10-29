@@ -14,6 +14,7 @@
 
 	import AgentCard from "$lib/components/AgentCard.svelte";
 	import Card from "$lib/components/Card.svelte";
+	import SkyClock from "$lib/components/SkyClock.svelte";
 	import StatusPill from "$lib/components/StatusPill.svelte";
 	import ThemeToggle from "$lib/components/ThemeToggle.svelte";
 
@@ -56,6 +57,7 @@
 
 <main class="wrap">
 	<section class="sky-strip" aria-label="Sky conditions">
+		<SkyClock sun={data.dossier.sun} />
 		<div class="sky-reading"><Sun size={21} strokeWidth={1.7} /><div><span class="sky-label">Sun</span><strong>{titleCase(data.dossier.sun.phase)}</strong><p>{nextSunLabel(data.dossier.sun.nextEvent, data.dossier.now)}</p></div></div>
 		<div class="sky-reading"><Moon size={21} strokeWidth={1.7} /><div><span class="sky-label">Moon</span><strong>{data.dossier.moon.phaseName}</strong><p class="mono">{Math.round(data.dossier.moon.illumination * 100)}% illuminated</p></div></div>
 	</section>
