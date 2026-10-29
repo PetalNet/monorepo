@@ -23,7 +23,7 @@ without forcing guests to create accounts.
 
 ## Getting started
 
-1. **Install dependencies**
+1. **Install dependencies** from the repository root
 
    ```bash
    pnpm install
@@ -59,30 +59,22 @@ pnpm run preview      # Preview the production build
 pnpm exec prisma studio  # Inspect the database UI
 ```
 
-## Deploy with Docker
+## Docker image
 
-To build and run PetalBoard in a production-style container you only need Docker and PowerShell. The
-included `deploy.ps1` script clones the repository (if needed), builds the Docker image, and runs the
-container on a rarely used port (`4173`). Persistent SQLite data is stored in a `data/` directory next
-to the cloned repo so it survives restarts.
+Build the image from the repository root, since it installs from the workspace lockfile:
 
-```powershell
-git clone https://github.com/petalboard/petalboard.git
-cd petalboard
-./deploy.ps1
+```sh
+docker build -f apps/petalboard/Dockerfile --build-arg MONOREPO_SHA="$(git rev-parse HEAD)" -t petalboard .
 ```
 
-After the script finishes, visit <http://localhost:4173>. To stop and remove the container later, run:
-
-```powershell
-docker rm -f petalboard-app
-```
-
-You can change the published port by supplying `-Port <port>` to `deploy.ps1`.
+The container listens on port 4173, applies pending Prisma migrations on start, and keeps its
+SQLite database at `/app/data/dev.db`. Mount a volume at `/app/data`. Set `ORIGIN` to the public
+URL so form actions pass SvelteKit's CSRF check, and `APP_URL` to the same URL for email links.
+SMTP, Google Maps, and Spotify settings are listed in `.env.example`.
 
 ## Project structure
 
-```
+```text
 src/
   lib/
     server/    # Prisma client and validation helpers
