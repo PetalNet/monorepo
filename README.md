@@ -10,6 +10,7 @@ standalone.
 ```tree
 apps/         independently shipped applications and services
 packages/     shared TypeScript libraries and configuration
+skills/       the lab's own agent skills, linked into .agents/skills
 docs/         repository architecture and migration history
 ```
 
