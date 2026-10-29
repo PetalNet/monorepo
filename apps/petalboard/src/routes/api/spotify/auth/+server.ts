@@ -12,6 +12,7 @@ export const GET: RequestHandler = async ({ locals, cookies }) => {
 
 	// Generate state for CSRF protection
 	const state = randomBytes(16).toString("hex");
+
 	cookies.set("spotify_auth_state", state, {
 		path: "/",
 		httpOnly: true,
@@ -21,5 +22,6 @@ export const GET: RequestHandler = async ({ locals, cookies }) => {
 	});
 
 	const authUrl = getSpotifyAuthUrl(state);
+
 	throw redirect(302, authUrl);
 };

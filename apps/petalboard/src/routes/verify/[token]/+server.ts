@@ -1,5 +1,5 @@
 import { createSession } from "$lib/server/auth";
-import prisma from "$lib/server/prisma";
+import { prisma } from "$lib/server/prisma";
 import { error, redirect } from "@sveltejs/kit";
 
 export const GET = async ({ params, cookies }) => {
@@ -20,6 +20,7 @@ export const GET = async ({ params, cookies }) => {
 	if (user.emailVerified) {
 		// Already verified, just log them in
 		await createSession(user.id, cookies);
+
 		throw redirect(303, "/dashboard");
 	}
 
@@ -34,5 +35,6 @@ export const GET = async ({ params, cookies }) => {
 
 	// Create session and redirect to dashboard
 	await createSession(user.id, cookies);
+
 	throw redirect(303, "/dashboard");
 };

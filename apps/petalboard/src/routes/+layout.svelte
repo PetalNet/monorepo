@@ -4,7 +4,7 @@
 
 	import type { LayoutData } from "./$types";
 
-	let { children, data } = $props<{ children: any; data: LayoutData }>();
+	let { children, data }: { children: any; data: LayoutData } = $props();
 	const user = $derived(data.user);
 	let mobileNavOpen = $state(false);
 
@@ -31,6 +31,7 @@
 
 			// Re-check periodically for route changes
 			const observer = new MutationObserver(checkEventPage);
+
 			observer.observe(document.documentElement, {
 				attributes: true,
 				attributeFilter: ["data-event-page", "data-event-emoji", "data-event-title"],
@@ -46,14 +47,19 @@
 
 	function toggleDarkMode() {
 		darkMode = !darkMode;
+
 		if (typeof localStorage !== "undefined") {
 			localStorage.setItem("darkMode", darkMode ? "true" : "false");
 		}
+
 		applyDarkMode();
 	}
 
 	function applyDarkMode() {
-		if (typeof document === "undefined") return;
+		if (typeof document === "undefined") {
+			return;
+		}
+
 		document.documentElement.classList.toggle("dark", darkMode);
 	}
 
@@ -63,6 +69,7 @@
 
 		// Handle async font loading
 		const fontLink = document.querySelector('link[media="print"][href*="fonts.googleapis.com"]');
+
 		if (fontLink) {
 			fontLink.addEventListener("load", () => {
 				(fontLink as HTMLLinkElement).media = "all";
@@ -71,7 +78,10 @@
 	});
 
 	$effect(() => {
-		if (typeof document === "undefined") return;
+		if (typeof document === "undefined") {
+			return;
+		}
+
 		document.body.classList.toggle("no-scroll", mobileNavOpen);
 	});
 </script>

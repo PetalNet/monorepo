@@ -1,5 +1,5 @@
 import { verifyPassword, createSession } from "$lib/server/auth";
-import prisma from "$lib/server/prisma";
+import { prisma } from "$lib/server/prisma";
 import { loginSchema } from "$lib/server/validation";
 import { fail, redirect } from "@sveltejs/kit";
 
@@ -47,6 +47,7 @@ export const actions = {
 		}
 
 		await createSession(user.id, cookies);
+
 		throw redirect(303, "/dashboard");
 	},
 };

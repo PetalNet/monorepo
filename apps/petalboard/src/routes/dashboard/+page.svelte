@@ -1,11 +1,12 @@
 <script lang="ts">
 	import type { PageData } from "./$types";
 
-	const { data } = $props<{ data: PageData }>();
+	const { data }: { data: PageData } = $props();
 	const events = $derived(data.events);
 
 	function formatDate(dateString: string, timezone?: string) {
 		const date = new Date(dateString);
+
 		return new Intl.DateTimeFormat("en-US", {
 			weekday: "short",
 			month: "short",

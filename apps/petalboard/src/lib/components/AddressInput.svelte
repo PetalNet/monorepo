@@ -7,11 +7,11 @@
 		value = $bindable(""),
 		error = "",
 		name = "location",
-	} = $props<{
+	}: {
 		value?: string;
 		error?: string;
 		name?: string;
-	}>();
+	} = $props();
 
 	let inputElement = $state<HTMLInputElement>();
 	let mapElement = $state<HTMLDivElement>();
@@ -30,6 +30,7 @@
 	onMount(async () => {
 		if (!apiKey || apiKey === "your-google-maps-api-key") {
 			loadError = "Google Maps API key not configured";
+
 			return;
 		}
 
@@ -46,7 +47,9 @@
 	});
 
 	function initializeAutocomplete() {
-		if (!window.google?.maps?.places) return;
+		if (!window.google?.maps?.places) {
+			return;
+		}
 
 		// Create a new session token for autocomplete requests
 		sessionToken = new google.maps.places.AutocompleteSessionToken();
@@ -56,6 +59,7 @@
 		if (!value || value.length < 3) {
 			suggestions = [];
 			showSuggestions = false;
+
 			return;
 		}
 
@@ -81,26 +85,33 @@
 	}
 
 	function handleKeydown(event: KeyboardEvent) {
-		if (!showSuggestions || suggestions.length === 0) return;
+		if (!showSuggestions || suggestions.length === 0) {
+			return;
+		}
 
 		switch (event.key) {
 			case "ArrowDown":
 				event.preventDefault();
 				selectedIndex = Math.min(selectedIndex + 1, suggestions.length - 1);
+
 				break;
 			case "ArrowUp":
 				event.preventDefault();
 				selectedIndex = Math.max(selectedIndex - 1, -1);
+
 				break;
 			case "Enter":
 				event.preventDefault();
+
 				if (selectedIndex >= 0) {
 					selectSuggestion(suggestions[selectedIndex]);
 				}
+
 				break;
 			case "Escape":
 				showSuggestions = false;
 				selectedIndex = -1;
+
 				break;
 		}
 	}
@@ -116,11 +127,13 @@
 		// Get place details using the new Place API
 		try {
 			const place = suggestion.placePrediction.toPlace();
+
 			await place.fetchFields({
 				fields: ["displayName", "formattedAddress", "location"],
 			});
 
 			const location = place.location;
+
 			if (location) {
 				showMap = true;
 
@@ -128,10 +141,8 @@
 				await new Promise((resolve) => setTimeout(resolve, 0));
 
 				if (!map && mapElement) {
-					const { Map } = (await google.maps.importLibrary("maps")) as google.maps.MapsLibrary;
-					const { AdvancedMarkerElement } = (await google.maps.importLibrary(
-						"marker",
-					)) as google.maps.MarkerLibrary;
+					const { Map } = await google.maps.importLibrary("maps");
+					const { AdvancedMarkerElement } = await google.maps.importLibrary("marker");
 
 					map = new Map(mapElement, {
 						center: location,
@@ -161,13 +172,16 @@
 		showMap = false;
 		showSuggestions = false;
 		suggestions = [];
+
 		if (marker) {
 			marker.map = null;
 			marker = null;
 		}
+
 		if (map) {
 			map = null;
 		}
+
 		// Create new session token
 		sessionToken = new google.maps.places.AutocompleteSessionToken();
 	}
@@ -239,10 +253,14 @@
 						onfocus={() => (selectedIndex = index)}
 						onmouseenter={() => (selectedIndex = index)}
 						onblur={() => {
-							if (selectedIndex === index) selectedIndex = -1;
+							if (selectedIndex === index) {
+								selectedIndex = -1;
+							}
 						}}
 						onmouseleave={() => {
-							if (selectedIndex === index) selectedIndex = -1;
+							if (selectedIndex === index) {
+								selectedIndex = -1;
+							}
 						}}
 					>
 						<div class="mb-1 font-medium text-dark-900">{suggestion.placePrediction.text.text}</div>

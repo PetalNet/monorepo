@@ -38,11 +38,13 @@
 		if (!raw) {
 			selectedTracks = [];
 			initialTracks = new Set();
+
 			return;
 		}
 
 		try {
 			const parsed = JSON.parse(raw);
+
 			if (Array.isArray(parsed)) {
 				selectedTracks = parsed;
 				// Store initial track IDs
@@ -60,6 +62,7 @@
 	$effect(() => {
 		if (value !== lastValue) {
 			const next = value ?? "";
+
 			parseValue(next);
 			lastValue = next;
 		}
@@ -68,6 +71,7 @@
 	async function handleSearch() {
 		if (!searchQuery.trim() || searchQuery.length < 2) {
 			searchResults = [];
+
 			return;
 		}
 
@@ -80,8 +84,10 @@
 				: `/api/spotify/search?q=${encodeURIComponent(searchQuery)}`;
 
 			const response = await fetch(url);
+
 			if (response.ok) {
 				const data = await response.json();
+
 				searchResults = data.tracks.items;
 			} else {
 				searchResults = [];
@@ -98,6 +104,7 @@
 		if (searchTimeout) {
 			clearTimeout(searchTimeout);
 		}
+
 		searchTimeout = setTimeout(() => {
 			handleSearch();
 		}, 300);
@@ -111,6 +118,7 @@
 		if (!selectedTracks.some((selected) => selected.id === track.id)) {
 			selectedTracks = [...selectedTracks, track];
 		}
+
 		showResults = false;
 		searchQuery = "";
 		searchResults = [];
@@ -118,6 +126,7 @@
 
 	function removeTrack(trackId: string) {
 		const track = selectedTracks.find((t) => t.id === trackId);
+
 		selectedTracks = selectedTracks.filter((track) => track.id !== trackId);
 
 		// Only remove from Spotify if it was added in this session (not there initially)
@@ -149,6 +158,7 @@
 
 	function handleInputChange(event: Event) {
 		const target = event.target as HTMLInputElement;
+
 		searchQuery = target.value;
 		debounceSearch(target.value);
 	}
@@ -211,7 +221,9 @@
 				value={searchQuery}
 				oninput={handleInputChange}
 				onfocus={() => {
-					if (searchResults.length > 0) showResults = true;
+					if (searchResults.length > 0) {
+						showResults = true;
+					}
 				}}
 				disabled={limitReached}
 			/>

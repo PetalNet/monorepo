@@ -1,4 +1,4 @@
-import prisma from "$lib/server/prisma";
+import { prisma } from "$lib/server/prisma";
 import { removeTracksFromPlaylist, refreshAccessToken } from "$lib/server/spotify";
 import { json, error } from "@sveltejs/kit";
 
@@ -12,6 +12,7 @@ export const POST = async ({ request, locals }) => {
 
 		// Determine whose Spotify token to use
 		let userId: string;
+
 		if (eventCode) {
 			// Guest RSVP - use event host's token
 			const event = await prisma.event.findUnique({
@@ -47,9 +48,11 @@ export const POST = async ({ request, locals }) => {
 
 		// Check if token needs refresh
 		let accessToken = user.spotifyAccessToken;
+
 		if (user.spotifyTokenExpiry && new Date(user.spotifyTokenExpiry) <= new Date()) {
 			try {
 				const tokenData = await refreshAccessToken(user.spotifyRefreshToken);
+
 				accessToken = tokenData.access_token;
 
 				// Update tokens in database
@@ -63,6 +66,7 @@ export const POST = async ({ request, locals }) => {
 				});
 			} catch (err) {
 				console.error("Token refresh failed:", err);
+
 				throw error(500, "Failed to refresh Spotify token");
 			}
 		}
@@ -73,9 +77,11 @@ export const POST = async ({ request, locals }) => {
 		return json({ success: true });
 	} catch (err: any) {
 		console.error("Remove track error:", err);
+
 		if (err.status) {
 			throw err;
 		}
+
 		throw error(500, "Failed to remove track");
 	}
 };

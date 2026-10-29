@@ -1,4 +1,4 @@
-import prisma from "$lib/server/prisma";
+import { prisma } from "$lib/server/prisma";
 import { eventSchema, questionSchema } from "$lib/server/validation";
 import { parseLocalDateTimeInTimezone } from "$lib/utils/timezones";
 import { fail, error, redirect } from "@sveltejs/kit";
@@ -8,7 +8,6 @@ const questionUpdateSchema = questionSchema.extend({
 	questionId: z.string().cuid(),
 });
 const questionTargetSchema = z.object({ questionId: z.string().cuid() });
-const rsvpTargetSchema = z.object({ rsvpId: z.string().cuid() });
 
 async function getEventId(token: string) {
 	const event = await prisma.event.findUnique({
@@ -33,6 +32,7 @@ export const load = async ({ params, locals }) => {
 			description: true,
 			date: true,
 			endDate: true,
+			timezone: true,
 			location: true,
 			rsvpLimit: true,
 			publicCode: true,
@@ -84,7 +84,7 @@ export const load = async ({ params, locals }) => {
 	}
 
 	// Verify the user owns this event
-	if (!locals.user || locals.user.id !== event.userId) {
+	if (locals.user?.id !== event.userId) {
 		throw error(403, "You don't have permission to manage this event");
 	}
 
@@ -95,13 +95,14 @@ export const load = async ({ params, locals }) => {
 	});
 
 	return {
-		hasSpotifyConnected: !!user?.spotifyAccessToken,
+		hasSpotifyConnected: Boolean(user?.spotifyAccessToken),
 		event: {
 			id: event.id,
 			title: event.title,
 			description: event.description,
 			date: event.date,
 			endDate: event.endDate,
+			timezone: event.timezone,
 			location: event.location,
 			rsvpLimit: event.rsvpLimit,
 			publicCode: event.publicCode,
@@ -157,6 +158,7 @@ export const actions = {
 
 		if (!parsed.success) {
 			console.log("Validation errors:", parsed.error.flatten().fieldErrors);
+
 			return fail(400, {
 				success: false,
 				errors: parsed.error.flatten().fieldErrors,
@@ -214,9 +216,13 @@ export const actions = {
 		// Extract Spotify-specific fields
 		const spotifyPlaylistId = raw.spotifyPlaylistId || null;
 		const songsPerUser = (() => {
-			if (!raw.songsPerUser) return null;
-			const parsed = Number.parseInt(raw.songsPerUser, 10);
-			return Number.isNaN(parsed) || parsed <= 0 ? null : parsed;
+			if (!raw.songsPerUser) {
+				return null;
+			}
+
+			const count = Number.parseInt(raw.songsPerUser, 10);
+
+			return Number.isNaN(count) || count <= 0 ? null : count;
 		})();
 
 		// Get the highest order value for this event
@@ -286,14 +292,19 @@ export const actions = {
 		// Spotify-specific fields from form
 		const spotifyPlaylistId = raw.spotifyPlaylistId || null;
 		const songsPerUser = (() => {
-			if (!raw.songsPerUser) return null;
-			const parsed = Number.parseInt(raw.songsPerUser, 10);
-			return Number.isNaN(parsed) || parsed <= 0 ? null : parsed;
+			if (!raw.songsPerUser) {
+				return null;
+			}
+
+			const count = Number.parseInt(raw.songsPerUser, 10);
+
+			return Number.isNaN(count) || count <= 0 ? null : count;
 		})();
 
 		const question = await prisma.question.findFirst({
 			where: { id: questionId, eventId },
 		});
+
 		if (!question) {
 			return fail(404, {
 				success: false,
@@ -338,6 +349,7 @@ export const actions = {
 		const question = await prisma.question.findFirst({
 			where: { id: questionId, eventId },
 		});
+
 		if (!question) {
 			return fail(404, {
 				success: false,
@@ -369,6 +381,7 @@ export const actions = {
 		const rsvp = await prisma.rsvp.findFirst({
 			where: { id: rsvpId, eventId },
 		});
+
 		if (!rsvp) {
 			return fail(404, {
 				success: false,
@@ -381,7 +394,7 @@ export const actions = {
 
 		return { success: true, type: "deleteRsvp" } as const;
 	},
-	deleteEvent: async ({ params, locals }) => {
+	deleteEvent: async ({ params }) => {
 		const eventId = await getEventId(params.token);
 
 		// Delete the event (cascading deletes will handle questions and responses)

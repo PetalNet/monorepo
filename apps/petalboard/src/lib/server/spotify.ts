@@ -1,3 +1,4 @@
+/* oxlint-disable eslint/no-await-in-loop -- Spotify appends track chunks in order; parallel requests would shuffle the playlist. */
 import { env } from "$env/dynamic/private";
 
 const SPOTIFY_CLIENT_ID = env.SPOTIFY_CLIENT_ID || "";
@@ -8,10 +9,10 @@ const SPOTIFY_REDIRECT_URI =
 export interface SpotifyTrack {
 	id: string;
 	name: string;
-	artists: Array<{ name: string }>;
+	artists: { name: string }[];
 	album: {
 		name: string;
-		images: Array<{ url: string; height: number; width: number }>;
+		images: { url: string; height: number; width: number }[];
 	};
 	uri: string;
 	preview_url: string | null;
@@ -71,12 +72,16 @@ export async function exchangeCodeForToken(code: string): Promise<SpotifyTokenRe
 
 	if (!response.ok) {
 		const error = await response.text();
+
 		console.error("Spotify token exchange failed:", response.status, error);
+
 		throw new Error(`Failed to exchange code for token: ${response.status} - ${error}`);
 	}
 
-	const data = await response.json();
-	console.log("Token exchange successful, got access_token:", !!data.access_token);
+	const data = (await response.json()) as SpotifyTokenResponse;
+
+	console.log("Token exchange successful, got access_token:", Boolean(data.access_token));
+
 	return data;
 }
 
@@ -99,7 +104,7 @@ export async function refreshAccessToken(refreshToken: string): Promise<SpotifyT
 		throw new Error("Failed to refresh access token");
 	}
 
-	return response.json();
+	return (await response.json()) as SpotifyTokenResponse;
 }
 
 export async function searchTracks(
@@ -122,7 +127,7 @@ export async function searchTracks(
 		throw new Error("Failed to search tracks");
 	}
 
-	return response.json();
+	return (await response.json()) as SpotifySearchResult;
 }
 
 export async function createPlaylist(
@@ -148,10 +153,10 @@ export async function createPlaylist(
 		throw new Error("Failed to create playlist");
 	}
 
-	return response.json();
+	return (await response.json()) as { id: string; external_urls: { spotify: string } };
 }
 
-export async function addTracksToPlaylist(
+async function addTracksToPlaylist(
 	playlistId: string,
 	trackUris: string[],
 	accessToken: string,
@@ -222,6 +227,7 @@ export async function replacePlaylistTracks(
 
 	for (let index = 100; index < trackUris.length; index += 100) {
 		const chunk = trackUris.slice(index, index + 100);
+
 		await addTracksToPlaylist(playlistId, chunk, accessToken);
 	}
 }
@@ -239,7 +245,7 @@ export async function getSpotifyProfile(
 		throw new Error("Failed to get Spotify profile");
 	}
 
-	return response.json();
+	return (await response.json()) as { id: string; display_name: string; email: string };
 }
 
 export interface SpotifyPlaylist {
@@ -247,7 +253,7 @@ export interface SpotifyPlaylist {
 	name: string;
 	description: string | null;
 	external_urls: { spotify: string };
-	images: Array<{ url: string; height: number | null; width: number | null }>;
+	images: { url: string; height: number | null; width: number | null }[];
 	tracks: { total: number };
 }
 
@@ -262,23 +268,7 @@ export async function getUserPlaylists(accessToken: string): Promise<SpotifyPlay
 		throw new Error("Failed to get user playlists");
 	}
 
-	const data = await response.json();
+	const data = (await response.json()) as { items: SpotifyPlaylist[] };
+
 	return data.items;
-}
-
-export async function getPlaylist(
-	playlistId: string,
-	accessToken: string,
-): Promise<SpotifyPlaylist> {
-	const response = await fetch(`https://api.spotify.com/v1/playlists/${playlistId}`, {
-		headers: {
-			Authorization: `Bearer ${accessToken}`,
-		},
-	});
-
-	if (!response.ok) {
-		throw new Error("Failed to get playlist");
-	}
-
-	return response.json();
 }

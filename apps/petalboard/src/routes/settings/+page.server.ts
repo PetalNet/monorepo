@@ -58,9 +58,14 @@ export const actions = {
 
 		if (!result.success) {
 			const errors: Record<string, string[]> = {};
+
 			result.error.issues.forEach((err) => {
 				const field = err.path[0] as string;
-				if (!errors[field]) errors[field] = [];
+
+				if (!errors[field]) {
+					errors[field] = [];
+				}
+
 				errors[field].push(err.message);
 			});
 
@@ -76,6 +81,7 @@ export const actions = {
 			const existingUser = await prisma.user.findUnique({
 				where: { email },
 			});
+
 			if (existingUser) {
 				return fail(400, {
 					type: "updateProfile",
@@ -99,7 +105,7 @@ export const actions = {
 				success: true,
 				message: "Profile updated successfully",
 			};
-		} catch (error) {
+		} catch {
 			return fail(500, {
 				type: "updateProfile",
 				message: "Failed to update profile",
@@ -126,9 +132,14 @@ export const actions = {
 
 		if (!result.success) {
 			const errors: Record<string, string[]> = {};
+
 			result.error.issues.forEach((err) => {
 				const field = err.path[0] as string;
-				if (!errors[field]) errors[field] = [];
+
+				if (!errors[field]) {
+					errors[field] = [];
+				}
+
 				errors[field].push(err.message);
 			});
 
@@ -150,7 +161,8 @@ export const actions = {
 			});
 		}
 
-		const valid = await verifyPassword(currentPassword, user.passwordHash);
+		const valid = verifyPassword(currentPassword, user.passwordHash);
+
 		if (!valid) {
 			return fail(400, {
 				type: "changePassword",
@@ -167,7 +179,8 @@ export const actions = {
 		}
 
 		try {
-			const passwordHash = await hashPassword(newPassword);
+			const passwordHash = hashPassword(newPassword);
+
 			await prisma.user.update({
 				where: { id: locals.user.id },
 				data: { passwordHash },
@@ -178,7 +191,7 @@ export const actions = {
 				success: true,
 				message: "Password changed successfully",
 			};
-		} catch (error) {
+		} catch {
 			return fail(500, {
 				type: "changePassword",
 				message: "Failed to change password",
@@ -206,7 +219,8 @@ export const actions = {
 			});
 		}
 
-		const valid = await verifyPassword(password, user.passwordHash);
+		const valid = verifyPassword(password, user.passwordHash);
+
 		if (!valid) {
 			return fail(400, {
 				type: "deleteAccount",
@@ -228,6 +242,7 @@ export const actions = {
 			if (error?.status === 302) {
 				throw error;
 			}
+
 			return fail(500, {
 				type: "deleteAccount",
 				message: "Failed to delete account",
@@ -243,7 +258,7 @@ export const actions = {
 		console.log("=== DISCONNECT SPOTIFY called for user:", locals.user.id);
 
 		try {
-			const result = await prisma.user.update({
+			await prisma.user.update({
 				where: { id: locals.user.id },
 				data: {
 					spotifyAccessToken: null,
@@ -261,6 +276,7 @@ export const actions = {
 			};
 		} catch (error) {
 			console.error("=== DISCONNECT SPOTIFY error:", error);
+
 			return fail(500, {
 				type: "disconnectSpotify",
 				message: "Failed to disconnect Spotify",

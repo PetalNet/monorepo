@@ -31,6 +31,7 @@ export const GET: RequestHandler = async ({ url, locals }) => {
 		if (!locals.user) {
 			throw error(401, "Unauthorized");
 		}
+
 		userId = locals.user.id;
 	}
 
@@ -54,6 +55,7 @@ export const GET: RequestHandler = async ({ url, locals }) => {
 	if (user.spotifyTokenExpiry && new Date() >= user.spotifyTokenExpiry) {
 		try {
 			const tokenData = await refreshAccessToken(user.spotifyRefreshToken);
+
 			accessToken = tokenData.access_token;
 
 			// Update tokens in database
@@ -67,15 +69,18 @@ export const GET: RequestHandler = async ({ url, locals }) => {
 			});
 		} catch (err) {
 			console.error("Token refresh error:", err);
+
 			throw error(500, "Failed to refresh Spotify token");
 		}
 	}
 
 	try {
 		const results = await searchTracks(query, accessToken);
+
 		return json(results);
 	} catch (err) {
 		console.error("Search error:", err);
+
 		throw error(500, "Failed to search Spotify");
 	}
 };

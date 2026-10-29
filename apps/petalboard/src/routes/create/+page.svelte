@@ -4,11 +4,11 @@
 
 	import type { ActionData } from "./$types";
 
-	const { form } = $props<{ form: ActionData | null }>();
+	const { form }: { form: ActionData | null } = $props();
 	const errors = $derived<Record<string, string[]>>(
 		(form?.errors ?? {}) as Record<string, string[]>,
 	);
-	const values = $derived<Record<string, string>>((form?.values ?? {}) as Record<string, string>);
+	const values = $derived<Record<string, string>>(form?.values ?? {});
 	const message = $derived<string | null>(form?.message ?? null);
 
 	let locationValue = $state("");
@@ -189,8 +189,11 @@
 							<button
 								type="button"
 								onclick={() => {
-									const input = document.querySelector('input[name="emoji"]') as HTMLInputElement;
-									if (input) input.value = emoji;
+									const input = document.querySelector<HTMLInputElement>('input[name="emoji"]');
+
+									if (input) {
+										input.value = emoji;
+									}
 								}}
 								class="flex h-10 w-10 items-center justify-center rounded-lg text-2xl transition-colors hover:bg-primary-100"
 							>

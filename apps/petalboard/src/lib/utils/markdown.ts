@@ -10,19 +10,26 @@ import remarkHtml from "remark-html";
  * @returns HTML string
  */
 export function renderMarkdown(markdown: string): string {
-	if (!markdown) return "";
+	if (!markdown) {
+		return "";
+	}
 
 	try {
 		// Process markdown with remark
 		const result = remark()
 			.use(remarkGfm) // GitHub Flavored Markdown (tables, strikethrough, task lists, etc.)
-			.use(remarkHtml, { sanitize: false }) // Convert to HTML
+			.use(remarkHtml) // Convert to sanitized HTML
 			.processSync(markdown);
 
 		return String(result);
 	} catch (error) {
 		console.error("Error rendering markdown:", error);
-		// Fallback to plain text with line breaks preserved
-		return markdown.replace(/\n/g, "<br>");
+
+		// Fallback to escaped plain text with line breaks preserved
+		return markdown
+			.replaceAll("&", "&amp;")
+			.replaceAll("<", "&lt;")
+			.replaceAll(">", "&gt;")
+			.replaceAll("\n", "<br>");
 	}
 }

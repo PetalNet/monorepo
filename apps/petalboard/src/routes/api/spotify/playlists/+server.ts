@@ -28,6 +28,7 @@ export const GET: RequestHandler = async ({ locals }) => {
 	if (user.spotifyTokenExpiry && new Date(user.spotifyTokenExpiry) < new Date()) {
 		try {
 			const tokenData = await refreshAccessToken(user.spotifyRefreshToken);
+
 			accessToken = tokenData.access_token;
 
 			// Update tokens in database
@@ -39,16 +40,18 @@ export const GET: RequestHandler = async ({ locals }) => {
 					spotifyTokenExpiry: new Date(Date.now() + tokenData.expires_in * 1000),
 				},
 			});
-		} catch (error) {
+		} catch {
 			return json({ error: "Failed to refresh Spotify token" }, { status: 401 });
 		}
 	}
 
 	try {
 		const playlists = await getUserPlaylists(accessToken);
+
 		return json({ playlists });
 	} catch (error) {
 		console.error("Failed to fetch playlists:", error);
+
 		return json({ error: "Failed to fetch playlists" }, { status: 500 });
 	}
 };

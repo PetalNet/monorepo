@@ -1,6 +1,6 @@
-import { hashPassword, createSession } from "$lib/server/auth";
+import { hashPassword } from "$lib/server/auth";
 import { sendVerificationEmail } from "$lib/server/email";
-import prisma from "$lib/server/prisma";
+import { prisma } from "$lib/server/prisma";
 import { registerSchema } from "$lib/server/validation";
 import { Prisma } from "@prisma/client";
 import { fail, redirect } from "@sveltejs/kit";
@@ -15,7 +15,7 @@ export const load = async ({ locals }) => {
 };
 
 export const actions = {
-	default: async ({ request, cookies }) => {
+	default: async ({ request }) => {
 		const formData = await request.formData();
 		const raw = Object.fromEntries(formData) as Record<string, string>;
 		const parsed = registerSchema.safeParse(raw);
@@ -49,6 +49,7 @@ export const actions = {
 				console.error("Failed to send verification email:", emailError);
 				// Delete the user if we can't send the email
 				await prisma.user.delete({ where: { id: user.id } });
+
 				return fail(500, {
 					message: "Unable to send verification email. Please try again or contact support.",
 					values: { email, name },
@@ -69,6 +70,7 @@ export const actions = {
 			}
 
 			console.error("Registration error:", error);
+
 			return fail(500, {
 				message: "Unable to create account. Please try again.",
 				values: { email, name },

@@ -3,7 +3,7 @@
 
 	import type { ActionData, PageData } from "./$types";
 
-	let { data, form } = $props<{ data: PageData; form: ActionData | null }>();
+	let { data, form }: { data: PageData; form: ActionData | null } = $props();
 
 	const profileErrors = $derived<Record<string, string[]>>(
 		(form?.type === "updateProfile" && form.errors ? form.errors : {}) as Record<string, string[]>,
@@ -23,7 +23,10 @@
 
 	const successMessage = $derived<string | null>(
 		(() => {
-			if (!form?.success) return null;
+			if (!form?.success) {
+				return null;
+			}
+
 			return form.message || null;
 		})(),
 	);

@@ -7,7 +7,7 @@
 
 	import type { ActionData, PageData } from "./$types";
 
-	let { data, form } = $props<{ data: PageData; form: ActionData | null }>();
+	let { data, form }: { data: PageData; form: ActionData | null } = $props();
 
 	// Check if this is a newly created event
 	const isNewlyCreated = $derived($page.url.searchParams.has("new"));
@@ -25,23 +25,27 @@
 			if (form?.type === "updateQuestion" && form.errors && form.values?.questionId) {
 				return { [form.values.questionId]: form.errors as Record<string, string[]> };
 			}
+
 			return {};
 		})(),
 	);
 
 	const eventValues = $derived<Record<string, string>>(
-		(form?.type === "updateEvent" && form.values ? form.values : {}) as Record<string, string>,
+		form?.type === "updateEvent" && form.values ? form.values : {},
 	);
 
 	const addSlotValues = $derived<Record<string, string>>(
-		(form?.type === "addQuestion" && form.values ? form.values : {}) as Record<string, string>,
+		form?.type === "addQuestion" && form.values ? form.values : {},
 	);
 
 	const message = $derived<string | null>(form?.message ?? null);
 
 	const successMessage = $derived<string | null>(
 		(() => {
-			if (!form?.success) return null;
+			if (!form?.success) {
+				return null;
+			}
+
 			switch (form.type) {
 				case "updateEvent":
 					return "Event details updated";
@@ -59,12 +63,12 @@
 		})(),
 	);
 
-	const event = data.event;
-	const rsvps = data.rsvps;
+	const event = $derived(data.event);
+	const rsvps = $derived(data.rsvps);
 
 	// Make questions and rsvps reactive so we can update them
-	let questions = $state(data.event.questions);
-	let rsvpsList = $state(data.rsvps);
+	let questions = $derived(data.event.questions);
+	let rsvpsList = $derived(data.rsvps);
 
 	const manageTotalGuests = $derived(
 		rsvpsList.reduce((sum: number, r: (typeof rsvpsList)[number]) => sum + r.guestCount, 0),
@@ -88,12 +92,12 @@
 		manageMaybeRsvps.reduce((sum: number, r: (typeof rsvpsList)[number]) => sum + r.guestCount, 0),
 	);
 
-	let locationValue = $state(event.location ?? "");
+	let locationValue = $derived(event.location ?? "");
 	let questionType = $state<string>("text");
 	let optionsText = $state<string>("");
 	let showAddQuestionModal = $state(false);
 	let activeTab = $state<"management" | "rsvps">("management");
-	let playlists = $state<Array<{ id: string; name: string; tracks: { total: number } }>>([]);
+	let playlists = $state<{ id: string; name: string; tracks: { total: number } }[]>([]);
 	let loadingPlaylists = $state(false);
 	let selectedPlaylistId = $state<string>("");
 	let deletingQuestionId = $state<string | null>(null);
@@ -121,7 +125,10 @@
 
 	// Ensure playlists are available when editing existing Spotify questions
 	$effect(() => {
-		if (!data.hasSpotifyConnected || playlists.length > 0) return;
+		if (!data.hasSpotifyConnected || playlists.length > 0) {
+			return;
+		}
+
 		if (questions.some((question) => question.type === "spotify_playlist")) {
 			fetchPlaylists();
 		}
@@ -131,11 +138,15 @@
 		if (loadingPlaylists) {
 			return;
 		}
+
 		loadingPlaylists = true;
+
 		try {
 			const response = await fetch("/api/spotify/playlists");
+
 			if (response.ok) {
 				const data = await response.json();
+
 				playlists = data.playlists;
 			}
 		} catch (error) {
@@ -172,12 +183,12 @@
 					const name = typeof track.name === "string" ? track.name : "Unknown track";
 					const rawArtists = Array.isArray(track.artists)
 						? track.artists
-								.map((artist) =>
+								.map((artist: { name?: unknown } | null) =>
 									artist && typeof artist === "object" && typeof artist.name === "string"
 										? artist.name
 										: null,
 								)
-								.filter((artist): artist is string => Boolean(artist))
+								.filter((artist: string | null): artist is string => Boolean(artist))
 						: [];
 					const album =
 						track.album && typeof track.album === "object" && typeof track.album.name === "string"
@@ -212,6 +223,7 @@
 				.filter((track): track is ParsedSpotifyTrack => Boolean(track));
 		} catch (error) {
 			console.warn("Failed to parse Spotify response value", error);
+
 			return [];
 		}
 	}
@@ -547,12 +559,15 @@
 										action="?/deleteQuestion"
 										use:enhance={() => {
 											const questionId = question.id;
+
 											deletingQuestionId = questionId;
+
 											return async ({ result }) => {
 												if (result.type === "success") {
 													// Remove question from local state
 													questions = questions.filter((q) => q.id !== questionId);
 												}
+
 												deletingQuestionId = null;
 											};
 										}}
@@ -935,12 +950,15 @@
 									action="?/deleteRsvp"
 									use:enhance={() => {
 										const rsvpId = rsvp.id;
+
 										deletingRsvpId = rsvpId;
+
 										return async ({ result }) => {
 											if (result.type === "success") {
 												// Remove RSVP from local state
 												rsvpsList = rsvpsList.filter((r) => r.id !== rsvpId);
 											}
+
 											deletingRsvpId = null;
 										};
 									}}
@@ -1023,12 +1041,15 @@
 				use:enhance={() => {
 					return async ({ result, update }) => {
 						await update();
+
 						if (result.type === "success" && result.data) {
 							// Add the new question to the local state
 							const newQuestion = (result.data as any).question;
+
 							if (newQuestion) {
 								questions = [...questions, newQuestion];
 							}
+
 							questionType = "text";
 							optionsText = "";
 							showAddQuestionModal = false;

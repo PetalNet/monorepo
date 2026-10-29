@@ -1,7 +1,7 @@
 <script lang="ts">
 	import type { ActionData } from "./$types";
 
-	const { form } = $props<{ form: ActionData | null }>();
+	const { form }: { form: ActionData | null } = $props();
 	const errors = $derived<Record<string, string[]>>(
 		(form?.errors ?? {}) as Record<string, string[]>,
 	);

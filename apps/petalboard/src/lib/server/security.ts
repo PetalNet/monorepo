@@ -16,7 +16,10 @@ export function hashPin(pin: string): string {
 
 export function verifyPin(pin: string, hash: string): boolean {
 	const [saltHex, keyHex] = hash.split(":");
-	if (!saltHex || !keyHex) return false;
+
+	if (!saltHex || !keyHex) {
+		return false;
+	}
 
 	const salt = Buffer.from(saltHex, "hex");
 	const existing = Buffer.from(keyHex, "hex");

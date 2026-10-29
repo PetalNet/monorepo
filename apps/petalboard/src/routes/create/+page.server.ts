@@ -1,4 +1,5 @@
-import prisma from "$lib/server/prisma";
+/* oxlint-disable eslint/no-await-in-loop -- Each attempt retries the insert after a public-code collision. */
+import { prisma } from "$lib/server/prisma";
 import { eventSchema } from "$lib/server/validation";
 import { parseLocalDateTimeInTimezone } from "$lib/utils/timezones";
 import { Prisma } from "@prisma/client";
@@ -15,7 +16,7 @@ export const load = async ({ locals }) => {
 };
 
 export const actions = {
-	default: async ({ request, url, locals }) => {
+	default: async ({ request, locals }) => {
 		if (!locals.user) {
 			throw redirect(303, "/login");
 		}

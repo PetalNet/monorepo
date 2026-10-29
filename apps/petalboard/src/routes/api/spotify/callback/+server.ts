@@ -9,12 +9,15 @@ export const GET: RequestHandler = async ({ url, locals, cookies }) => {
 		throw redirect(302, "/login");
 	}
 
+	const userId = locals.user.id;
+
 	const code = url.searchParams.get("code");
 	const state = url.searchParams.get("state");
 	const error = url.searchParams.get("error");
 
 	// Verify state matches
 	const savedState = cookies.get("spotify_auth_state");
+
 	cookies.delete("spotify_auth_state", { path: "/" });
 
 	if (error) {
@@ -30,12 +33,13 @@ export const GET: RequestHandler = async ({ url, locals, cookies }) => {
 		const tokenData = await exchangeCodeForToken(code);
 
 		console.log("=== CALLBACK: Token exchange successful");
-		console.log("=== CALLBACK: Has access_token:", !!tokenData.access_token);
-		console.log("=== CALLBACK: Has refresh_token:", !!tokenData.refresh_token);
+		console.log("=== CALLBACK: Has access_token:", Boolean(tokenData.access_token));
+		console.log("=== CALLBACK: Has refresh_token:", Boolean(tokenData.refresh_token));
 		console.log("=== CALLBACK: Access token length:", tokenData.access_token?.length);
 		console.log("=== CALLBACK: Refresh token length:", tokenData.refresh_token?.length);
 
 		const expiryDate = new Date(Date.now() + tokenData.expires_in * 1000);
+
 		console.log("=== CALLBACK: Calculated expiry date:", expiryDate.toISOString());
 
 		console.log("=== CALLBACK: About to update user in database");
@@ -43,7 +47,7 @@ export const GET: RequestHandler = async ({ url, locals, cookies }) => {
 		// Use $transaction to ensure atomicity
 		const result = await prisma.$transaction(async (tx) => {
 			const updatedUser = await tx.user.update({
-				where: { id: locals.user.id },
+				where: { id: userId },
 				data: {
 					spotifyAccessToken: tokenData.access_token,
 					spotifyRefreshToken: tokenData.refresh_token,
@@ -52,10 +56,12 @@ export const GET: RequestHandler = async ({ url, locals, cookies }) => {
 			});
 
 			console.log("=== CALLBACK: Transaction update completed");
+
 			console.log(
 				"=== CALLBACK: Updated user has spotifyAccessToken:",
-				!!updatedUser.spotifyAccessToken,
+				Boolean(updatedUser.spotifyAccessToken),
 			);
+
 			console.log(
 				"=== CALLBACK: Updated user spotifyAccessToken length:",
 				updatedUser.spotifyAccessToken?.length,
@@ -63,10 +69,12 @@ export const GET: RequestHandler = async ({ url, locals, cookies }) => {
 
 			// Verify the update by reading it back
 			const verified = await tx.user.findUnique({
-				where: { id: locals.user.id },
+				where: { id: userId },
 				select: { spotifyAccessToken: true },
 			});
-			console.log("=== CALLBACK: Verification - has token:", !!verified?.spotifyAccessToken);
+
+			console.log("=== CALLBACK: Verification - has token:", Boolean(verified?.spotifyAccessToken));
+
 			console.log(
 				"=== CALLBACK: Verification - token length:",
 				verified?.spotifyAccessToken?.length,
@@ -76,9 +84,10 @@ export const GET: RequestHandler = async ({ url, locals, cookies }) => {
 		});
 
 		console.log("=== CALLBACK: Transaction committed successfully");
-		console.log("=== CALLBACK: Final result has token:", !!result.spotifyAccessToken);
+		console.log("=== CALLBACK: Final result has token:", Boolean(result.spotifyAccessToken));
 	} catch (err) {
 		console.error("=== CALLBACK ERROR:", err);
+
 		throw redirect(302, "/settings");
 	}
 

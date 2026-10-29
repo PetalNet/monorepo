@@ -9,9 +9,21 @@
 
 	import type { ActionData, PageData } from "./$types";
 
-	const { data, form } = $props<{ data: PageData; form: ActionData | null }>();
-	const event = data.event;
-	const isOwner = data.isOwner;
+	interface RsvpMutation {
+		success?: boolean;
+		rsvps?: PageData["rsvps"];
+		rsvpCount?: number;
+		totalGuests?: number;
+		questionResponseCounts?: Record<string, number>;
+	}
+
+	function toRsvpStatus(status: string): RsvpStatus {
+		return status === "maybe" || status === "not_attending" ? status : "attending";
+	}
+
+	const { data, form }: { data: PageData; form: ActionData | null } = $props();
+	const event = $derived(data.event);
+	const isOwner = $derived(data.isOwner);
 
 	// Color mapping from Tailwind
 	const colorMap: Record<
@@ -179,20 +191,28 @@
 
 	// Color utilities - handle both old hex values and new color names
 	const getPrimaryColor = () => {
-		if (!event.primaryColor) return "violet";
+		if (!event.primaryColor) {
+			return "violet";
+		}
+
 		// Check if it's a hex color (old format)
 		if (event.primaryColor.startsWith("#")) {
 			return hexToColorName[event.primaryColor] || "violet";
 		}
+
 		return event.primaryColor;
 	};
 
 	const getSecondaryColor = () => {
-		if (!event.secondaryColor) return "pink";
+		if (!event.secondaryColor) {
+			return "pink";
+		}
+
 		// Check if it's a hex color (old format)
 		if (event.secondaryColor.startsWith("#")) {
 			return hexToColorName[event.secondaryColor] || "pink";
 		}
+
 		return event.secondaryColor;
 	};
 
@@ -207,7 +227,8 @@
 		}
 
 		const normalized = String(value).trim();
-		const rgbMatch = normalized.match(/rgba?\(\s*(\d{1,3})\s*,\s*(\d{1,3})\s*,\s*(\d{1,3})/i);
+		const rgbMatch = /rgba?\(\s*(\d{1,3})\s*,\s*(\d{1,3})\s*,\s*(\d{1,3})/i.exec(normalized);
+
 		if (rgbMatch) {
 			return {
 				r: Number(rgbMatch[1]),
@@ -217,9 +238,11 @@
 		}
 
 		const trimmed = normalized.replace("#", "");
+
 		if (!/^[0-9a-fA-F]{3,8}$/.test(trimmed)) {
 			return { r: 255, g: 255, b: 255 };
 		}
+
 		const expanded =
 			trimmed.length === 3 || trimmed.length === 4
 				? trimmed
@@ -229,6 +252,7 @@
 				: trimmed.length >= 6
 					? trimmed.slice(0, 6)
 					: trimmed.padEnd(6, trimmed[trimmed.length - 1] ?? "0");
+
 		return {
 			r: parseInt(expanded.slice(0, 2), 16),
 			g: parseInt(expanded.slice(2, 4), 16),
@@ -238,6 +262,7 @@
 
 	const withAlpha = (color: string | null | undefined, alpha: number) => {
 		const { r, g, b } = hexToRgb(color);
+
 		return `rgba(${r}, ${g}, ${b}, ${alpha})`;
 	};
 
@@ -250,9 +275,11 @@
 		const g = Math.round(a.g * w + b.g * (1 - w));
 		const bl = Math.round(a.b * w + b.b * (1 - w));
 		const aFixed = Number(alpha.toFixed(3));
+
 		if (aFixed >= 1) {
 			return `rgb(${r}, ${g}, ${bl})`;
 		}
+
 		return `rgba(${r}, ${g}, ${bl}, ${aFixed})`;
 	};
 
@@ -270,15 +297,21 @@
 	const darkCanvasBase = "#0c0b11"; // Deep neutral black base
 	const pageBackgroundDark = "#0c0b11"; // Solid base for dark mode
 
-	const backgroundImage = event.backgroundImage ? `url("${event.backgroundImage}")` : "none";
-	const backgroundOverlayLight = event.backgroundImage
-		? `linear-gradient(to bottom, ${withAlpha("#ffffff", 0.92)}, ${withAlpha("#ffffff", 0.96)})`
-		: `radial-gradient(120% 120% at 20% -12%, ${withAlpha(primaryColors[100], 0.32)}, transparent 62%), radial-gradient(140% 140% at 92% 120%, ${withAlpha(secondaryColors[100], 0.18)}, transparent 70%)`;
-	const backgroundOverlayDark = event.backgroundImage
-		? `linear-gradient(to bottom, rgba(0,0,0,0.85), rgba(0,0,0,0.9))`
-		: `linear-gradient(135deg, ${mixColors("#0c0b11", primaryColors[900], 0.85, 1)} 0%, ${mixColors("#0c0b11", secondaryColors[900], 0.88, 1)} 100%), radial-gradient(120% 120% at 18% -14%, ${withAlpha(primaryColors[600], 0.18)}, transparent 58%), radial-gradient(140% 150% at 92% 125%, ${withAlpha(secondaryColors[600], 0.15)}, transparent 68%)`;
+	const backgroundImage = $derived(
+		event.backgroundImage ? `url("${event.backgroundImage}")` : "none",
+	);
+	const backgroundOverlayLight = $derived(
+		event.backgroundImage
+			? `linear-gradient(to bottom, ${withAlpha("#ffffff", 0.92)}, ${withAlpha("#ffffff", 0.96)})`
+			: `radial-gradient(120% 120% at 20% -12%, ${withAlpha(primaryColors[100], 0.32)}, transparent 62%), radial-gradient(140% 140% at 92% 120%, ${withAlpha(secondaryColors[100], 0.18)}, transparent 70%)`,
+	);
+	const backgroundOverlayDark = $derived(
+		event.backgroundImage
+			? `linear-gradient(to bottom, rgba(0,0,0,0.85), rgba(0,0,0,0.9))`
+			: `linear-gradient(135deg, ${mixColors("#0c0b11", primaryColors[900], 0.85, 1)} 0%, ${mixColors("#0c0b11", secondaryColors[900], 0.88, 1)} 100%), radial-gradient(120% 120% at 18% -14%, ${withAlpha(primaryColors[600], 0.18)}, transparent 58%), radial-gradient(140% 150% at 92% 125%, ${withAlpha(secondaryColors[600], 0.15)}, transparent 68%)`,
+	);
 
-	const themeVars = {
+	const themeVars = $derived({
 		"--event-primary-50": primaryColors[50],
 		"--event-primary-100": primaryColors[100],
 		"--event-primary-600": primaryColors[600],
@@ -351,19 +384,23 @@
 		"--event-text-secondary-dark": "#c9c9d4",
 		"--event-text-muted-dark": "#8b8b99",
 		"--event-divider-dark": withAlpha(secondaryColors[600], 0.22),
-	} satisfies Record<string, string>;
+	} satisfies Record<string, string>);
 
-	const colorStyles = Object.entries(themeVars)
-		.map(([key, value]) => `${key}: ${value};`)
-		.join("\n");
+	const colorStyles = $derived(
+		Object.entries(themeVars)
+			.map(([key, value]) => `${key}: ${value};`)
+			.join("\n"),
+	);
 
 	// Apply event colors to the document root for layout theming
 	$effect(() => {
 		if (typeof document !== "undefined") {
 			const root = document.documentElement;
+
 			for (const [key, value] of Object.entries(themeVars)) {
 				root.style.setProperty(key, value);
 			}
+
 			root.setAttribute("data-event-page", "true");
 			root.setAttribute("data-event-emoji", event.emoji || "");
 			root.setAttribute("data-event-title", event.title);
@@ -372,9 +409,11 @@
 		return () => {
 			if (typeof document !== "undefined") {
 				const root = document.documentElement;
+
 				root.removeAttribute("data-event-page");
 				root.removeAttribute("data-event-emoji");
 				root.removeAttribute("data-event-title");
+
 				for (const key of Object.keys(themeVars)) {
 					root.style.removeProperty(key);
 				}
@@ -383,23 +422,25 @@
 	});
 
 	// Make rsvps reactive so we can update without reload
-	let rsvps = $state(data.rsvps);
-	let rsvpCount = $state(data.event.rsvpCount);
-	let totalGuests = $state(data.event.totalGuests);
-	let questionResponseCounts = $state<Record<string, number>>(
+	let rsvps = $derived(data.rsvps);
+	let rsvpCount = $derived(data.event.rsvpCount);
+	let totalGuests = $derived(data.event.totalGuests);
+	let questionResponseCounts = $derived<Record<string, number>>(
 		Object.fromEntries(event.questions.map((q: any) => [q.id, q.responseCount])),
 	);
 
 	const errors = $derived<Record<string, string[]>>(
 		(form?.errors ?? {}) as Record<string, string[]>,
 	);
-	const values = $derived<Record<string, string>>((form?.values ?? {}) as Record<string, string>);
+	const values = $derived<Record<string, string>>(form?.values ?? {});
 	const message = $derived<string | null>(form?.message ?? null);
 	const success = $derived(form?.success ?? false);
 	const formType = $derived(form?.type ?? null);
 
 	// Initialize responses with required question IDs
-	const requiredQuestionIds = event.questions.filter((q: any) => q.required).map((q: any) => q.id);
+	const requiredQuestionIds = $derived(
+		event.questions.filter((q: any) => q.required).map((q: any) => q.id),
+	);
 
 	let responses = $state<Record<string, string>>({});
 	let showRsvpModal = $state(false);
@@ -410,9 +451,9 @@
 	let editingRsvpId = $state<string>("");
 	let pinInput = $state<string>("");
 	let pinError = $state<string>("");
-	let editingStatus = $state<"attending" | "maybe" | "not_attending">("attending");
+	let editingStatus = $state<RsvpStatus>("attending");
 	let editingGuestCount = $state(1);
-	let newRsvpStatus = $state<"attending" | "maybe" | "not_attending">("attending");
+	let newRsvpStatus = $state<RsvpStatus>("attending");
 	let newGuestCount = $state(1);
 	let showCancelConfirm = $state(false);
 
@@ -440,10 +481,14 @@
 	let mapLoadRequested = false;
 
 	const requestMapLoad = async () => {
-		if (mapLoadRequested) return;
+		if (mapLoadRequested) {
+			return;
+		}
+
 		mapLoadRequested = true;
 
 		const apiKey = env.PUBLIC_GOOGLE_MAPS_API_KEY;
+
 		if (!event.location || !apiKey || apiKey === "your-google-maps-api-key") {
 			return;
 		}
@@ -458,7 +503,9 @@
 
 	// Lazily initialize the map when it comes into view
 	onMount(() => {
-		if (!event.location) return;
+		if (!event.location) {
+			return;
+		}
 
 		let observer: IntersectionObserver | null = null;
 
@@ -467,6 +514,7 @@
 
 			if (typeof window === "undefined" || !mapElement) {
 				requestMapLoad();
+
 				return;
 			}
 
@@ -474,8 +522,10 @@
 				observer = new IntersectionObserver(
 					(entries) => {
 						const isVisible = entries.some((entry) => entry.isIntersecting);
+
 						if (isVisible) {
 							observer?.disconnect();
+
 							// Performance: Delay map loading slightly to prioritize LCP
 							if ("requestIdleCallback" in window) {
 								requestIdleCallback(() => requestMapLoad(), { timeout: 1000 });
@@ -499,7 +549,9 @@
 	});
 
 	async function initializeMap() {
-		if (!event.location || !mapElement) return;
+		if (!event.location || !mapElement) {
+			return;
+		}
 
 		try {
 			// Geocode the address
@@ -509,10 +561,8 @@
 			if (result.results[0]) {
 				const location = result.results[0].geometry.location;
 
-				const { Map } = (await google.maps.importLibrary("maps")) as google.maps.MapsLibrary;
-				const { AdvancedMarkerElement } = (await google.maps.importLibrary(
-					"marker",
-				)) as google.maps.MarkerLibrary;
+				const { Map } = await google.maps.importLibrary("maps");
+				const { AdvancedMarkerElement } = await google.maps.importLibrary("marker");
 
 				map = new Map(mapElement, {
 					center: location,
@@ -552,7 +602,7 @@
 	}
 
 	function buildPlaylistEntries(
-		responses: Array<{ name: string; status: string; value: string }>,
+		responses: { name: string; status: string; value: string }[],
 		status: RsvpStatus,
 	): PlaylistEntry[] {
 		if (!responses || responses.length === 0) {
@@ -638,6 +688,7 @@
 				.filter((track): track is ParsedSpotifyTrack => Boolean(track));
 		} catch (error) {
 			console.warn("Failed to parse Spotify response value", error);
+
 			return [];
 		}
 	}
@@ -647,14 +698,17 @@
 		const currentFormType = form?.type ?? null;
 
 		// Only process if form type changed
-		if (currentFormType === lastFormType) return;
+		if (currentFormType === lastFormType) {
+			return;
+		}
+
 		lastFormType = currentFormType;
 
 		// Handle lookup success
 		if (form?.type === "lookupRsvp" && form.success && form.rsvp) {
 			editingRsvp = form.rsvp;
 			responses = form.rsvp.responses || {};
-			editingStatus = form.rsvp.status || "attending";
+			editingStatus = toRsvpStatus(form.rsvp.status);
 			editingGuestCount = form.rsvp.guestCount ?? 1;
 			showEditModal = true;
 			pinInput = "";
@@ -725,9 +779,13 @@
 
 	async function submitPinLookup(e: Event) {
 		e.preventDefault();
-		if (!pinInput || !editingRsvpId) return;
+
+		if (!pinInput || !editingRsvpId) {
+			return;
+		}
 
 		const formData = new FormData();
+
 		formData.append("rsvpId", editingRsvpId);
 		formData.append("pin", pinInput);
 
@@ -784,6 +842,7 @@
 					<div
 						class="prose prose-sm md:prose-base my-4 max-w-none text-sm leading-relaxed text-dark-800 md:text-base"
 					>
+						<!-- eslint-disable-next-line svelte/no-at-html-tags -- renderMarkdown sanitizes its HTML. -->
 						{@html renderMarkdown(event.description)}
 					</div>
 				{/if}
@@ -1088,6 +1147,7 @@
 				</div>
 				{#if question.description}
 					<div class="prose prose-sm m-0 mb-6 max-w-none text-sm leading-relaxed text-dark-700">
+						<!-- eslint-disable-next-line svelte/no-at-html-tags -- renderMarkdown sanitizes its HTML. -->
 						{@html renderMarkdown(question.description)}
 					</div>
 				{/if}
@@ -1499,10 +1559,12 @@
 				use:enhance={() => {
 					// Store the PIN before submission
 					const submittedPin = pinInput;
+
 					return async ({ result, update }) => {
 						if (result.type === "success" && result.data?.success) {
 							currentPin = submittedPin;
 						}
+
 						await update();
 					};
 				}}
@@ -1581,23 +1643,27 @@
 				class="rsvp-form"
 				use:enhance={() => {
 					return async ({ result, update }) => {
-						if (result.type === "success" && result.data?.success) {
+						const payload =
+							result.type === "success" ? (result.data as RsvpMutation | undefined) : undefined;
+
+						if (payload?.success) {
 							// Update reactive state
-							if (result.data.rsvps) {
-								rsvps = result.data.rsvps;
+							if (payload.rsvps) {
+								rsvps = payload.rsvps;
 							}
-							if (result.data.totalGuests !== undefined) {
-								totalGuests = result.data.totalGuests;
+
+							if (payload.totalGuests !== undefined) {
+								totalGuests = payload.totalGuests;
 							}
-							if (result.data.questionResponseCounts) {
-								questionResponseCounts = result.data.questionResponseCounts as Record<
-									string,
-									number
-								>;
+
+							if (payload.questionResponseCounts) {
+								questionResponseCounts = payload.questionResponseCounts;
 							}
+
 							// Close modal
 							closeEditModal();
 						}
+
 						await update();
 					};
 				}}
@@ -1739,6 +1805,7 @@
 													onchange={(e) => {
 														const currentVals =
 															responses[question.id]?.split(",").filter(Boolean) ?? [];
+
 														if (e.currentTarget.checked) {
 															responses[question.id] = [...currentVals, option].join(",");
 														} else {
@@ -1819,22 +1886,27 @@
 				use:enhance={() => {
 					return async ({ result, update }) => {
 						showCancelConfirm = false;
-						if (result.type === "success" && result.data?.success) {
+
+						const payload =
+							result.type === "success" ? (result.data as RsvpMutation | undefined) : undefined;
+
+						if (payload?.success) {
 							// Update reactive state
-							rsvpCount = result.data.rsvpCount ?? rsvpCount - 1;
-							totalGuests = result.data.totalGuests ?? totalGuests - 1;
-							if (result.data.rsvps) {
-								rsvps = result.data.rsvps;
+							rsvpCount = payload.rsvpCount ?? rsvpCount - 1;
+							totalGuests = payload.totalGuests ?? totalGuests - 1;
+
+							if (payload.rsvps) {
+								rsvps = payload.rsvps;
 							}
-							if (result.data.questionResponseCounts) {
-								questionResponseCounts = result.data.questionResponseCounts as Record<
-									string,
-									number
-								>;
+
+							if (payload.questionResponseCounts) {
+								questionResponseCounts = payload.questionResponseCounts;
 							}
+
 							// Close modal
 							closeEditModal();
 						}
+
 						await update();
 					};
 				}}
@@ -1896,24 +1968,28 @@
 				class="rsvp-form"
 				use:enhance={() => {
 					return async ({ result, update }) => {
-						if (result.type === "success" && result.data?.success) {
+						const payload =
+							result.type === "success" ? (result.data as RsvpMutation | undefined) : undefined;
+
+						if (payload?.success) {
 							// Update reactive state
-							rsvpCount = result.data.rsvpCount ?? rsvpCount + 1;
-							totalGuests = result.data.totalGuests ?? totalGuests + 1;
-							if (result.data.rsvps) {
-								rsvps = result.data.rsvps;
+							rsvpCount = payload.rsvpCount ?? rsvpCount + 1;
+							totalGuests = payload.totalGuests ?? totalGuests + 1;
+
+							if (payload.rsvps) {
+								rsvps = payload.rsvps;
 							}
-							if (result.data.questionResponseCounts) {
-								questionResponseCounts = result.data.questionResponseCounts as Record<
-									string,
-									number
-								>;
+
+							if (payload.questionResponseCounts) {
+								questionResponseCounts = payload.questionResponseCounts;
 							}
+
 							// Close modal
 							showRsvpModal = false;
 							responses = {};
 							newGuestCount = 1;
 						}
+
 						await update();
 					};
 				}}
@@ -2033,7 +2109,9 @@
 
 						<div class="question-list">
 							{#each event.questions as question}
-								{@const isFull = question.quantity && question.responseCount >= question.quantity}
+								{@const isFull = Boolean(
+									question.quantity && question.responseCount >= question.quantity,
+								)}
 								{@const isRequired = question.required && !isFull}
 
 								{#if question.type === "text"}
@@ -2106,6 +2184,7 @@
 													onchange={(e) => {
 														const currentVals =
 															responses[question.id]?.split(",").filter(Boolean) ?? [];
+
 														if (e.currentTarget.checked) {
 															responses[question.id] = [...currentVals, option].join(",");
 														} else {

@@ -1,4 +1,5 @@
-import prisma from "$lib/server/prisma";
+/* oxlint-disable eslint/no-await-in-loop -- Playlist sync runs one question at a time against the same Spotify session. */
+import { prisma } from "$lib/server/prisma";
 import { hashPin, verifyPin } from "$lib/server/security";
 import {
 	refreshAccessToken,
@@ -9,7 +10,6 @@ import {
 import type { SpotifyTrack } from "$lib/server/spotify";
 import { rsvpSchema } from "$lib/server/validation";
 import { fail, error } from "@sveltejs/kit";
-import { z } from "zod";
 
 export const load = async ({ params, locals }) => {
 	const event = await prisma.event.findUnique({
@@ -152,17 +152,19 @@ function parseSpotifySelection(raw: string | null | undefined): SpotifyTrack[] {
 
 	try {
 		const parsed = JSON.parse(raw);
+
 		if (Array.isArray(parsed)) {
 			return parsed.filter(
 				(item): item is SpotifyTrack =>
 					typeof item === "object" && item !== null && typeof item.uri === "string",
 			);
 		}
+
 		if (typeof parsed === "object" && parsed !== null && "uri" in parsed) {
 			return [parsed as SpotifyTrack];
 		}
-	} catch (error) {
-		console.warn("Failed to parse Spotify response value", error);
+	} catch (cause) {
+		console.warn("Failed to parse Spotify response value", cause);
 	}
 
 	return [];
@@ -188,6 +190,7 @@ async function getSpotifyAccessTokenForUser(userId: string) {
 	if (user.spotifyTokenExpiry && new Date() >= user.spotifyTokenExpiry) {
 		try {
 			const refreshed = await refreshAccessToken(user.spotifyRefreshToken);
+
 			accessToken = refreshed.access_token;
 			refreshToken = refreshed.refresh_token ?? refreshToken;
 
@@ -199,8 +202,9 @@ async function getSpotifyAccessTokenForUser(userId: string) {
 					spotifyTokenExpiry: new Date(Date.now() + refreshed.expires_in * 1000),
 				},
 			});
-		} catch (error) {
-			console.error("Failed to refresh Spotify access token", error);
+		} catch (cause) {
+			console.error("Failed to refresh Spotify access token", cause);
+
 			return null;
 		}
 	}
@@ -234,6 +238,7 @@ async function syncSpotifyPlaylists(eventId: string) {
 	}
 
 	const spotifyAuth = await getSpotifyAccessTokenForUser(event.user.id);
+
 	if (!spotifyAuth) {
 		return;
 	}
@@ -245,6 +250,7 @@ async function syncSpotifyPlaylists(eventId: string) {
 			const collected = question.responses.flatMap((response) => {
 				const tracks = parseSpotifySelection(response.value);
 				const baseTime = new Date(response.createdAt).getTime();
+
 				return tracks.map((track, index) => ({
 					uri: track.uri,
 					order: baseTime + index / 10,
@@ -255,8 +261,12 @@ async function syncSpotifyPlaylists(eventId: string) {
 
 			const seen = new Set<string>();
 			const desiredUris: string[] = [];
+
 			for (const item of collected) {
-				if (!item.uri || seen.has(item.uri)) continue;
+				if (!item.uri || seen.has(item.uri)) {
+					continue;
+				}
+
 				seen.add(item.uri);
 				desiredUris.push(item.uri);
 			}
@@ -268,6 +278,7 @@ async function syncSpotifyPlaylists(eventId: string) {
 
 				if (!spotifyUserId) {
 					const profile = await getSpotifyProfile(spotifyAuth.accessToken);
+
 					spotifyUserId = profile.id;
 				}
 
@@ -295,8 +306,8 @@ async function syncSpotifyPlaylists(eventId: string) {
 					spotifyAuth.accessToken,
 				);
 			}
-		} catch (error) {
-			console.error(`Failed to sync Spotify playlist for question ${question.id}`, error);
+		} catch (cause) {
+			console.error(`Failed to sync Spotify playlist for question ${question.id}`, cause);
 		}
 	}
 }
@@ -341,6 +352,7 @@ export const actions = {
 		for (const [key, value] of formData.entries()) {
 			if (key.startsWith("response_")) {
 				const questionId = key.replace("response_", "");
+
 				responses[questionId] = value as string;
 			} else {
 				raw[key] = value as string;
@@ -368,6 +380,7 @@ export const actions = {
 				_sum: { guestCount: true },
 			});
 			const currentTotal = totalGuests._sum.guestCount ?? 0;
+
 			if (currentTotal + guestCount > event.rsvpLimit) {
 				return fail(400, {
 					success: false,
@@ -385,6 +398,7 @@ export const actions = {
 		for (const question of event.questions) {
 			if (responses[question.id] && question.quantity) {
 				const responseCount = question.responses.length;
+
 				if (responseCount >= question.quantity) {
 					return fail(400, {
 						success: false,
@@ -402,6 +416,7 @@ export const actions = {
 			}
 
 			const tracks = parseSpotifySelection(responses[question.id]);
+
 			if (tracks.length > question.songsPerUser) {
 				return fail(400, {
 					success: false,
@@ -421,6 +436,7 @@ export const actions = {
 			if (q.quantity && q.responses.length >= q.quantity) {
 				return false;
 			}
+
 			// Otherwise, check if it's answered
 			return !responses[q.id] || responses[q.id].trim() === "";
 		});
@@ -459,7 +475,7 @@ export const actions = {
 				eventId: event.id,
 				responses: {
 					create: Object.entries(responses)
-						.filter(([_, answer]) => answer && answer.trim() !== "")
+						.filter(([, answer]) => answer && answer.trim() !== "")
 						.map(([questionId, answer]) => ({
 							questionId,
 							value: answer,
@@ -506,8 +522,8 @@ export const actions = {
 		const updatedRsvpCount = updatedRsvps.length;
 		const updatedTotalGuests = updatedRsvps.reduce((sum, r) => sum + r.guestCount, 0);
 
-		await syncSpotifyPlaylists(event.id).catch((error) => {
-			console.error("Spotify sync failed after RSVP create", error);
+		await syncSpotifyPlaylists(event.id).catch((cause) => {
+			console.error("Spotify sync failed after RSVP create", cause);
 		});
 
 		return {
@@ -631,9 +647,11 @@ export const actions = {
 
 		// Parse responses from form data
 		const responses: Record<string, string> = {};
+
 		for (const [key, value] of formData.entries()) {
 			if (key.startsWith("response_")) {
 				const questionId = key.replace("response_", "");
+
 				responses[questionId] = value as string;
 			}
 		}
@@ -670,9 +688,11 @@ export const actions = {
 		for (const question of event.questions) {
 			if (responses[question.id] && question.quantity) {
 				const currentResponse = rsvp.responses.find((r) => r.questionId === question.id);
+
 				// If they weren't signed up before, check capacity
 				if (!currentResponse) {
 					const responseCount = question.responses.length;
+
 					if (responseCount >= question.quantity) {
 						return fail(400, {
 							success: false,
@@ -691,6 +711,7 @@ export const actions = {
 			}
 
 			const tracks = parseSpotifySelection(responses[question.id]);
+
 			if (tracks.length > question.songsPerUser) {
 				return fail(400, {
 					success: false,
@@ -711,6 +732,7 @@ export const actions = {
 				if (q.quantity && q.responses.length >= q.quantity) {
 					return false;
 				}
+
 				// Otherwise, check if it's answered
 				return !responses[q.id] || responses[q.id].trim() === "";
 			});
@@ -735,7 +757,7 @@ export const actions = {
 				responses: {
 					deleteMany: {},
 					create: Object.entries(responses)
-						.filter(([_, value]) => value && value.trim() !== "")
+						.filter(([, value]) => value && value.trim() !== "")
 						.map(([questionId, value]) => ({
 							questionId,
 							value,
@@ -783,8 +805,8 @@ export const actions = {
 			0,
 		);
 
-		await syncSpotifyPlaylists(event.id).catch((error) => {
-			console.error("Spotify sync failed after RSVP update", error);
+		await syncSpotifyPlaylists(event.id).catch((cause) => {
+			console.error("Spotify sync failed after RSVP update", cause);
 		});
 
 		return {
@@ -849,8 +871,8 @@ export const actions = {
 			where: { id: rsvp.id },
 		});
 
-		await syncSpotifyPlaylists(rsvp.eventId).catch((error) => {
-			console.error("Spotify sync failed after RSVP cancellation", error);
+		await syncSpotifyPlaylists(rsvp.eventId).catch((cause) => {
+			console.error("Spotify sync failed after RSVP cancellation", cause);
 		});
 
 		// Fetch updated data to return

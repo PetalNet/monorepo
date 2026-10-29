@@ -2,7 +2,7 @@ import { randomBytes, scryptSync, timingSafeEqual } from "node:crypto";
 
 import type { Cookies } from "@sveltejs/kit";
 
-import prisma from "./prisma";
+import { prisma } from "./prisma";
 
 const KEY_LENGTH = 64;
 const SESSION_COOKIE = "session";
@@ -22,7 +22,10 @@ export function hashPassword(password: string): string {
 
 export function verifyPassword(password: string, hash: string): boolean {
 	const [saltHex, keyHex] = hash.split(":");
-	if (!saltHex || !keyHex) return false;
+
+	if (!saltHex || !keyHex) {
+		return false;
+	}
 
 	const salt = Buffer.from(saltHex, "hex");
 	const existing = Buffer.from(keyHex, "hex");
@@ -59,7 +62,10 @@ export async function createSession(userId: string, cookies: Cookies): Promise<s
 
 export async function getSessionUser(cookies: Cookies) {
 	const sessionId = cookies.get(SESSION_COOKIE);
-	if (!sessionId) return null;
+
+	if (!sessionId) {
+		return null;
+	}
 
 	const session = await prisma.session.findUnique({
 		where: { id: sessionId },
@@ -70,7 +76,9 @@ export async function getSessionUser(cookies: Cookies) {
 		if (session) {
 			await prisma.session.delete({ where: { id: sessionId } });
 		}
+
 		cookies.delete(SESSION_COOKIE, { path: "/" });
+
 		return null;
 	}
 
@@ -79,8 +87,11 @@ export async function getSessionUser(cookies: Cookies) {
 
 export async function deleteSession(cookies: Cookies): Promise<void> {
 	const sessionId = cookies.get(SESSION_COOKIE);
+
 	if (sessionId) {
-		await prisma.session.delete({ where: { id: sessionId } }).catch(() => {});
+		// deleteMany tolerates a session that is already gone.
+		await prisma.session.deleteMany({ where: { id: sessionId } });
 	}
+
 	cookies.delete(SESSION_COOKIE, { path: "/" });
 }
