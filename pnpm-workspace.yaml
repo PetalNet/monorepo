@@ -116,7 +116,7 @@ catalogs:
     oxlint: 1.87.0
     oxlint-tsgolint: 7.0.2003
     postcss: ^8.4.49
-    prisma: ^5.22.0
+    prisma: ^7.0.0
     svelte-check: ^4.3.5
     # Keep the TS 6 API at the name ecosystem tooling imports. The native TS 7
     # compiler is installed alongside it under the official alias below.
@@ -175,7 +175,7 @@ catalogs:
   # the client into the app. tools/prisma-clients.test.ts keeps app clients apart.
   prisma6:
     "@prisma/client": ^6.18.0
-    prisma: ^6.18.0
+    prisma: ^7.0.0
 
 catalog:
   csv-parse: 7.0.3
