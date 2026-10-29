@@ -1,7 +1,12 @@
 <script lang="ts">
 	import type { Component, Snippet } from "svelte";
 
-	let { title, icon: Icon, status, children }: { title: string; icon: Component; status?: Snippet; children: Snippet } = $props();
+	let {
+		title,
+		icon: Icon,
+		status,
+		children,
+	}: { title: string; icon: Component; status?: Snippet; children: Snippet } = $props();
 </script>
 
 <section class="card">

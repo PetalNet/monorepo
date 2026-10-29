@@ -43,7 +43,10 @@ const windows = limitWindowsFrom([
 ]);
 const byId = (id: LimitWindow["id"]) => {
 	const window = windows.find((candidate) => candidate.id === id);
-	if (window === undefined) throw new Error(`missing ${id}`);
+
+	if (window === undefined) {
+		throw new Error(`missing ${id}`);
+	}
 
 	return window;
 };

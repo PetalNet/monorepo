@@ -26,6 +26,7 @@ describe("solar phase", () => {
 		sunsetAt: 800 * 60_000,
 		duskAt: 900 * 60_000,
 	};
+
 	it("uses named daylight periods", () => {
 		expect(solarPhaseName(times, 50 * 60_000)).toBe("night");
 		expect(solarPhaseName(times, 150 * 60_000)).toBe("dawn");
@@ -41,6 +42,7 @@ describe("backup parsing", () => {
 		const log =
 			"[Wed Mar 12 04:03:27 UTC 2026] Starting offsite backup\n[Wed Mar 12 04:12:27 UTC 2026] Offsite backup complete\n[Thu Mar 13 04:03:27 UTC 2026] Starting offsite backup";
 		const parsed = parseBackupLog(log);
+
 		expect(parsed.lastSuccessAt).toBe(Date.parse("Wed Mar 12 04:12:27 UTC 2026"));
 		expect(parsed.lastAttemptAt).toBe(Date.parse("Thu Mar 13 04:03:27 UTC 2026"));
 	});
@@ -55,6 +57,7 @@ describe("usage readouts", () => {
 			data: null,
 			nowSeconds: 1000,
 		});
+
 		expect(result).toMatchObject({ awaiting: false, stale: true, fiveHourUsedPct: null });
 	});
 
@@ -66,6 +69,7 @@ describe("usage readouts", () => {
 			data: null,
 			nowSeconds: 1000,
 		});
+
 		expect(result).toMatchObject({ awaiting: true, stale: false, fiveHourUsedPct: null });
 	});
 
@@ -95,7 +99,9 @@ describe("usage readouts", () => {
 				scraped_at: 995,
 			},
 		});
+
 		expect(claude.sevenDayResetsAt).toBe(1200);
+
 		expect(codex).toMatchObject({
 			fiveHourUsedPct: null,
 			creditsBalance: 3000,

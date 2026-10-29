@@ -13,7 +13,10 @@
 
 	const percent = (value: number) => `${String(Math.round(value))}%`;
 	const resetLabel = $derived.by(() => {
-		if (reading.resetsAt === null) return null;
+		if (reading.resetsAt === null) {
+			return null;
+		}
+
 		const format = new Intl.DateTimeFormat(
 			undefined,
 			reading.window.span === "5-hour"

@@ -21,7 +21,9 @@ export const nextSolarEvent = (times: SolarTimes, now: number): SolarEvent => {
 	];
 
 	for (const event of candidates) {
-		if (event.at !== null && event.at > now) return event;
+		if (event.at !== null && event.at > now) {
+			return event;
+		}
 	}
 
 	return { at: null, kind: null };

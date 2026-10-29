@@ -26,19 +26,35 @@
 					value,
 				);
 	const relative = (value: number | null, now: number): string => {
-		if (value === null) return "Awaiting data";
+		if (value === null) {
+			return "Awaiting data";
+		}
+
 		const minutes = Math.round(Math.abs(now - value) / 60_000);
-		if (minutes < 1) return "just now";
-		if (minutes < 60) return `${minutes}m ago`;
-		if (minutes < 1_440) return `${Math.floor(minutes / 60)}h ago`;
-		return `${Math.floor(minutes / 1_440)}d ago`;
+
+		if (minutes < 1) {
+			return "just now";
+		}
+
+		if (minutes < 60) {
+			return `${String(minutes)}m ago`;
+		}
+
+		if (minutes < 1_440) {
+			return `${String(Math.floor(minutes / 60))}h ago`;
+		}
+
+		return `${String(Math.floor(minutes / 1_440))}d ago`;
 	};
 	const moodIcon = (mood: string) =>
 		/sad|low|tired|bad/i.test(mood) ? Frown : /calm|quiet|neutral|fine/i.test(mood) ? Meh : Smile;
 
 	onMount(() => {
 		const interval = window.setInterval(() => void invalidateAll(), 30_000);
-		return () => window.clearInterval(interval);
+
+		return () => {
+			window.clearInterval(interval);
+		};
 	});
 </script>
 

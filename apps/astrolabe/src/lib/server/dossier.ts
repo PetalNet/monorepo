@@ -91,35 +91,68 @@ const numberOrNull = (value: unknown): number | null =>
 const stringOrNull = (value: unknown): string | null => (typeof value === "string" ? value : null);
 
 const epochSecondsFromIso = (value: unknown): number | null => {
-	if (typeof value !== "string") return null;
+	if (typeof value !== "string") {
+		return null;
+	}
+
 	const timestamp = Date.parse(value);
+
 	return Number.isFinite(timestamp) ? Math.floor(timestamp / 1000) : null;
 };
 
 const parseJsonFile = async (path: string): Promise<JsonRecord> => {
 	const contents = await readFile(path, "utf8");
 	const parsed: unknown = JSON.parse(contents);
-	if (!isRecord(parsed)) throw new Error("expected a JSON object");
+
+	if (!isRecord(parsed)) {
+		throw new Error("expected a JSON object");
+	}
+
 	return parsed;
 };
 
+/** @internal Exported for its tests; buildDossier is the module's interface. */
 export const moonPhaseName = (phase: number): MoonPhaseName => {
 	const normalized = ((phase % 1) + 1) % 1;
-	if (normalized < 0.03 || normalized >= 0.97) return "New moon";
-	if (normalized < 0.22) return "Waxing crescent";
-	if (normalized < 0.28) return "First quarter";
-	if (normalized < 0.47) return "Waxing gibbous";
-	if (normalized < 0.53) return "Full moon";
-	if (normalized < 0.72) return "Waning gibbous";
-	if (normalized < 0.78) return "Last quarter";
+
+	if (normalized < 0.03 || normalized >= 0.97) {
+		return "New moon";
+	}
+
+	if (normalized < 0.22) {
+		return "Waxing crescent";
+	}
+
+	if (normalized < 0.28) {
+		return "First quarter";
+	}
+
+	if (normalized < 0.47) {
+		return "Waxing gibbous";
+	}
+
+	if (normalized < 0.53) {
+		return "Full moon";
+	}
+
+	if (normalized < 0.72) {
+		return "Waning gibbous";
+	}
+
+	if (normalized < 0.78) {
+		return "Last quarter";
+	}
+
 	return "Waning crescent";
 };
 
+/** @internal Exported for its tests; buildDossier is the module's interface. */
 export const moonAgeDays = (phase: number): number => (((phase % 1) + 1) % 1) * SYNODIC_MONTH_DAYS;
 
 const timeOf = (date: Date | null): number | null =>
 	date !== null && Number.isFinite(date.getTime()) ? date.getTime() : null;
 
+/** @internal Exported for its tests; buildDossier is the module's interface. */
 export const solarPhaseName = (
 	times: {
 		dawnAt: number | null;
@@ -131,27 +164,47 @@ export const solarPhaseName = (
 	now: number,
 ): SolarPhase => {
 	const { dawnAt, sunriseAt, solarNoonAt, sunsetAt, duskAt } = times;
+
 	if (
 		dawnAt === null ||
 		sunriseAt === null ||
 		solarNoonAt === null ||
 		sunsetAt === null ||
 		duskAt === null
-	)
+	) {
 		return "night";
-	if (now < dawnAt || now >= duskAt) return "night";
-	if (now < sunriseAt) return "dawn";
-	if (now < solarNoonAt - 60 * 60 * 1000) return "morning";
-	if (now < solarNoonAt + 60 * 60 * 1000) return "midday";
-	if (now < sunsetAt) return "afternoon";
+	}
+
+	if (now < dawnAt || now >= duskAt) {
+		return "night";
+	}
+
+	if (now < sunriseAt) {
+		return "dawn";
+	}
+
+	if (now < solarNoonAt - 60 * 60 * 1000) {
+		return "morning";
+	}
+
+	if (now < solarNoonAt + 60 * 60 * 1000) {
+		return "midday";
+	}
+
+	if (now < sunsetAt) {
+		return "afternoon";
+	}
+
 	return "dusk";
 };
 
 const pct = (value: unknown): number | null => {
 	const parsed = numberOrNull(value);
+
 	return parsed === null ? null : Math.max(0, Math.min(100, parsed));
 };
 
+/** @internal Exported for its tests; buildDossier is the module's interface. */
 export const usageReadoutFrom = (input: {
 	slug: UsageReadout["slug"];
 	label: UsageReadout["label"];
@@ -186,34 +239,57 @@ export const usageReadoutFrom = (input: {
 	};
 };
 
+/** @internal Exported for its tests; buildDossier is the module's interface. */
 export const parseBackupLog = (
 	contents: string,
 ): { lastSuccessAt: number | null; lastAttemptAt: number | null } => {
 	let lastSuccessAt: number | null = null;
 	let lastAttemptAt: number | null = null;
+
 	for (const line of contents.split("\n").toReversed()) {
 		const match = /^\[([^\]]+)]\s+(.*)$/.exec(line);
-		if (!match) continue;
+
+		if (!match) {
+			continue;
+		}
+
 		const parsedAt = Date.parse(match[1]);
-		if (!Number.isFinite(parsedAt)) continue;
-		if (lastSuccessAt === null && match[2].includes("Offsite backup complete"))
+
+		if (!Number.isFinite(parsedAt)) {
+			continue;
+		}
+
+		if (lastSuccessAt === null && match[2].includes("Offsite backup complete")) {
 			lastSuccessAt = parsedAt;
-		if (lastAttemptAt === null && match[2].includes("Starting offsite backup"))
+		}
+
+		if (lastAttemptAt === null && match[2].includes("Starting offsite backup")) {
 			lastAttemptAt = parsedAt;
-		if (lastSuccessAt !== null && lastAttemptAt !== null) break;
+		}
+
+		if (lastSuccessAt !== null && lastAttemptAt !== null) {
+			break;
+		}
 	}
+
 	return { lastSuccessAt, lastAttemptAt };
 };
 
-export const nextBackupAt = (now: number): number => {
+const nextBackupAt = (now: number): number => {
 	const next = new Date(now);
+
 	next.setUTCHours(4, 0, 0, 0);
-	if (next.getTime() <= now) next.setUTCDate(next.getUTCDate() + 1);
+
+	if (next.getTime() <= now) {
+		next.setUTCDate(next.getUTCDate() + 1);
+	}
+
 	return next.getTime();
 };
 
 const envNumber = (name: string, fallback: number): number => {
 	const value = Number(process.env[name]);
+
 	return Number.isFinite(value) ? value : fallback;
 };
 
@@ -221,6 +297,7 @@ const reportFailure =
 	<T>(errors: string[], section: string, fallback: T): ((reason: unknown) => T) =>
 	() => {
 		errors.push(section);
+
 		return fallback;
 	};
 
@@ -228,11 +305,13 @@ const readUsage = async (
 	input: Parameters<typeof usageReadoutFrom>[0] & { path: string; errors: string[] },
 ): Promise<UsageReadout> => {
 	let data: JsonRecord | null = null;
+
 	try {
 		data = await parseJsonFile(input.path);
 	} catch {
 		input.errors.push(`${input.slug} usage`);
 	}
+
 	return usageReadoutFrom({ ...input, data });
 };
 
@@ -255,9 +334,12 @@ FROM (
 	const [up = "0", down = "0", pending = "0", total = "0"] = monitors.stdout.trim().split("|");
 	const asCount = (value: string): number => {
 		const count = Number(value);
+
 		return Number.isFinite(count) ? count : 0;
 	};
+
 	const [failedChecks = "0", failingServices = "0"] = recentFailures.stdout.trim().split("|");
+
 	return {
 		up: asCount(up),
 		down: asCount(down),
@@ -270,19 +352,26 @@ FROM (
 
 const readHost = async (path: string): Promise<Omit<Dossier["host"], "stale">> => {
 	const raw = await parseJsonFile(path);
+
 	if (!("disk" in raw) && !("load" in raw) && !("swap" in raw) && !("containers" in raw)) {
 		throw new Error("expected at least one host-health field");
 	}
+
 	const disk = isRecord(raw.disk) ? raw.disk : {};
 	const rank = (level: string): number =>
 		level.startsWith("FAIL") ? 2 : level.startsWith("WARN") ? 1 : 0;
 	let diskWorst: { mount: string; level: string } | null = null;
+
 	for (const [mount, rawLevel] of Object.entries(disk)) {
 		const level = stringOrNull(rawLevel);
-		if (level !== null && (diskWorst === null || rank(level) > rank(diskWorst.level)))
+
+		if (level !== null && (diskWorst === null || rank(level) > rank(diskWorst.level))) {
 			diskWorst = { mount, level };
+		}
 	}
+
 	const containers = isRecord(raw.containers) ? raw.containers : {};
+
 	return {
 		diskWorst,
 		load: stringOrNull(raw.load) ?? "Awaiting data",

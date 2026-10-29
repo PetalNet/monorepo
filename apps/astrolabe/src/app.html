@@ -5,10 +5,10 @@
 		<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
 		<script>
 			try {
-				const saved = localStorage.getItem('petalnet-theme');
+				const saved = localStorage.getItem("petalnet-theme");
 				document.documentElement.setAttribute(
-					'data-theme',
-					saved || (matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light')
+					"data-theme",
+					saved || (matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light"),
 				);
 			} catch {}
 		</script>

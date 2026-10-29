@@ -10,8 +10,13 @@ export const formatDuration = (milliseconds: number): string => {
 	const days = Math.floor(minutes / MINUTES_PER_DAY);
 	const hours = Math.floor((minutes % MINUTES_PER_DAY) / MINUTES_PER_HOUR);
 
-	if (days > 0) return `${String(days)}d ${String(hours)}h`;
-	if (hours > 0) return `${String(hours)}h ${String(minutes % MINUTES_PER_HOUR)}m`;
+	if (days > 0) {
+		return `${String(days)}d ${String(hours)}h`;
+	}
+
+	if (hours > 0) {
+		return `${String(hours)}h ${String(minutes % MINUTES_PER_HOUR)}m`;
+	}
 
 	return `${String(minutes)}m`;
 };
