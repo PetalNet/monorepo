@@ -1,5 +1,14 @@
 <script lang="ts">
-	import { arcPath, clockwise, dayAngle, polar, romanHour, tangentRotation } from "$lib/dial";
+	import {
+		arcPath,
+		clockwise,
+		dayAngle,
+		polar,
+		romanHour,
+		tangentRotation,
+		DAY_SCALE,
+		windowGeometry,
+	} from "$lib/dial";
 	import type { LimitReading } from "$lib/limits";
 	import type { Dossier } from "$lib/server/dossier";
 
@@ -41,14 +50,7 @@
 	const sunMarks = $derived(
 		[sun.sunriseAt, sun.sunsetAt].flatMap((at) => (at === null ? [] : [dayAngle(at)])),
 	);
-	const span = $derived(
-		reading.startsAt === null || reading.resetsAt === null
-			? null
-			: {
-					start: dayAngle(reading.startsAt),
-					arc: clockwise(dayAngle(reading.startsAt), dayAngle(reading.resetsAt)),
-				},
-	);
+	const geometry = $derived(windowGeometry(reading, now, DAY_SCALE));
 	const clock = $derived.by(() => {
 		const parts = new Intl.DateTimeFormat(undefined, {
 			hour: "numeric",
@@ -112,16 +114,8 @@
 		{/each}
 	</g>
 
-	{#if span}
-		<LimitRing
-			{reading}
-			radius={68}
-			width={16}
-			startDeg={span.start}
-			arcDeg={span.arc}
-			runsOutDeg={reading.runsOutAt === null ? null : dayAngle(reading.runsOutAt)}
-			label="Claude · five hours"
-		/>
+	{#if geometry}
+		<LimitRing {reading} radius={68} width={16} {geometry} label="Claude · five hours" />
 	{:else}
 		<text class="ring-empty" y="-62">Claude 5-hour: no window open</text>
 	{/if}

@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 
-import { limitWindowsFrom, readLimit, usageSweep, type LimitWindow } from "./limits.js";
+import { DAY_SCALE, windowGeometry } from "./dial.js";
+import { limitWindowsFrom, readLimit, type LimitWindow } from "./limits.js";
 import { usageReadoutFrom } from "./server/dossier.js";
 
 const at = (iso: string) => Date.parse(iso);
@@ -61,9 +62,13 @@ describe("used versus left", () => {
 	});
 
 	it("grows the fill with usage", () => {
-		expect(usageSweep(0, 360)).toBe(0);
-		expect(usageSweep(3, 360)).toBeLessThan(usageSweep(50, 360));
-		expect(usageSweep(100, 360)).toBe(360);
+		const reading = readLimit(byId("claude-5h"), now);
+		const fillAt = (usedPct: number) =>
+			windowGeometry({ ...reading, usedPct }, now, DAY_SCALE)?.fill;
+
+		expect(fillAt(0)).toBe(0);
+		expect(fillAt(3)).toBeLessThan(fillAt(50) ?? 0);
+		expect(fillAt(100)).toBeCloseTo(75, 5); // 5 hours of a 24-hour dial.
 	});
 });
 

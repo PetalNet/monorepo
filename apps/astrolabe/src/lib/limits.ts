@@ -112,10 +112,6 @@ export const readLimit = (window: LimitWindow, now: number): LimitReading => {
 	};
 };
 
-/** Degrees of a ring the usage fill covers. It grows with usage: 0% is empty, 100% is the whole arc. */
-export const usageSweep = (usedPct: number, arcDegrees: number): number =>
-	(clamp(usedPct, 0, 100) / 100) * arcDegrees;
-
 const ms = (seconds: number | null) => (seconds === null ? null : seconds * 1000);
 
 /** The three limits the dial shows: Claude's 5-hour and 7-day windows and Codex's 7-day window. */

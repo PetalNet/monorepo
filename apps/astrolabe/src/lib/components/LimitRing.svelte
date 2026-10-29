@@ -1,33 +1,32 @@
 <script lang="ts">
-	import { arcPath, polar, tangentRotation } from "$lib/dial";
-	import { usageSweep, type LimitReading } from "$lib/limits";
+	import { arcPath, polar, tangentRotation, type WindowGeometry } from "$lib/dial";
+	import type { LimitReading } from "$lib/limits";
 
 	let {
 		reading,
+		geometry,
 		radius,
 		width,
-		startDeg,
-		arcDeg,
-		runsOutDeg,
 		label,
 	}: {
 		reading: LimitReading;
+		/** Every point of the window as a local clock angle, from `windowGeometry`. */
+		geometry: WindowGeometry;
 		radius: number;
 		width: number;
-		/** Where the window began on this dial. */
-		startDeg: number;
-		/** How much of the dial the whole window covers. The reset sits at `startDeg + arcDeg`. */
-		arcDeg: number;
-		runsOutDeg: number | null;
 		label: string;
 	} = $props();
 
 	const outer = $derived(radius + width / 2);
 	const inner = $derived(radius - width / 2);
-	const fillSweep = $derived(reading.usedPct === null ? 0 : usageSweep(reading.usedPct, arcDeg));
-	const projectedSweep = $derived(
-		reading.projectedPct === null ? null : usageSweep(Math.min(reading.projectedPct, 100), arcDeg),
-	);
+	const startDeg = $derived(geometry.start);
+	const arcDeg = $derived(geometry.reset);
+	const fillSweep = $derived(geometry.fill);
+	const projectedSweep = $derived(geometry.projection);
+	const elapsedSweep = $derived(geometry.elapsed);
+	const runsOutDeg = $derived(geometry.runsOut);
+	// Degrees the landing label needs on this ring to clear the reset diamond: about 9 units of arc.
+	const labelClearance = $derived((9 / radius) * (180 / Math.PI) + 3);
 	const landing = $derived.by(() => {
 		if (
 			reading.projectedPct === null ||
@@ -35,13 +34,15 @@
 			reading.state === "limit-reached"
 		)
 			return null;
-		const at = polar(startDeg + projectedSweep, radius);
+		// An overshoot lands on the reset, so step back along the ring until the label clears the diamond.
+		const along = Math.min(projectedSweep, arcDeg - labelClearance);
+		const at = polar(startDeg + along, radius);
 
 		return {
 			text: `${String(Math.round(reading.projectedPct))}%`,
 			x: at.x,
 			y: at.y,
-			rotate: tangentRotation(startDeg + projectedSweep),
+			rotate: tangentRotation(startDeg + along),
 		};
 	});
 	// The engraved name starts at the window's start, which on a full-turn ring is also the reset.
@@ -49,7 +50,6 @@
 	const labelOffset = $derived(
 		projectedSweep !== null && (projectedSweep < 30 || projectedSweep > arcDeg - 18) ? 16 : 1.5,
 	);
-	const elapsedSweep = $derived(reading.elapsed === null ? 0 : reading.elapsed * arcDeg);
 	const alarm = $derived(reading.state === "overshoot" || reading.state === "limit-reached");
 	const resetDeg = $derived(startDeg + arcDeg);
 	const lozenge = (degrees: number, at: number, size: number) => {

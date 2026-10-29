@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { polar, tangentRotation, weekAngle } from "$lib/dial";
+	import { polar, tangentRotation, weekAngle, WEEK_SCALE, windowGeometry } from "$lib/dial";
 	import type { LimitReading } from "$lib/limits";
 
 	import DialFace from "./DialFace.svelte";
@@ -78,16 +78,9 @@
 
 	{#each rings as ring, index (ring.reading.window.id)}
 		{@const radius = RADII[index] ?? 40}
-		{#if ring.reading.resetsAt !== null}
-			<LimitRing
-				reading={ring.reading}
-				{radius}
-				width={15}
-				startDeg={weekAngle(ring.reading.resetsAt)}
-				arcDeg={360}
-				runsOutDeg={ring.reading.runsOutAt === null ? null : weekAngle(ring.reading.runsOutAt)}
-				label={ring.label}
-			/>
+		{@const geometry = windowGeometry(ring.reading, now, WEEK_SCALE)}
+		{#if geometry}
+			<LimitRing reading={ring.reading} {radius} width={15} {geometry} label={ring.label} />
 		{:else}
 			<circle class="groove empty" r={radius} stroke-width="15" />
 		{/if}

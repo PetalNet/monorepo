@@ -53,3 +53,73 @@ export const tangentRotation = (degrees: number): number => {
 
 	return normal > 90 && normal < 270 ? normal - 180 : normal;
 };
+
+/**
+ * How a dial turns: the local clock angle of an instant, and how far the dial turns per local
+ * minute.
+ */
+export interface DialScale {
+	angle: (epoch: number) => number;
+	degreesPerMinute: number;
+}
+
+export const DAY_SCALE: DialScale = { angle: dayAngle, degreesPerMinute: 360 / 1440 };
+export const WEEK_SCALE: DialScale = { angle: weekAngle, degreesPerMinute: 360 / (7 * 1440) };
+
+const utcOffsetMinutes = (epoch: number) => -new Date(epoch).getTimezoneOffset();
+
+/**
+ * Local wall-clock minutes between two instants. Across a DST change this differs from real minutes
+ * by the hour the clocks moved, which is exactly how far a clock hand moves differently.
+ */
+export const localMinutesBetween = (from: number, to: number): number =>
+	(to - from) / 60_000 + utcOffsetMinutes(to) - utcOffsetMinutes(from);
+
+export interface WindowGeometry {
+	/** Angle of the window's start. Every sweep below runs clockwise from here. */
+	start: number;
+	/** Sweep to the reset. A 7-day window on the week dial is a full turn give or take a DST hour. */
+	reset: number;
+	/** Sweep to now: the elapsed tip, which always lands on the hand. */
+	elapsed: number;
+	/** Sweep to the instant at which the usage share of the window would have passed. */
+	fill: number;
+	/** Sweep to where the burn rate lands, capped at the reset. */
+	projection: number | null;
+	/** Angle of the moment the burn rate hits 100%. */
+	runsOut: number | null;
+}
+
+/**
+ * Places a window on a dial. Each point is the local clock angle of its own instant; fractions are
+ * turned into instants in epoch time first, never multiplied by an arc of clock angles.
+ */
+export const windowGeometry = (
+	window: {
+		startsAt: number | null;
+		resetsAt: number | null;
+		usedPct: number | null;
+		projectedPct: number | null;
+		runsOutAt: number | null;
+	},
+	now: number,
+	scale: DialScale,
+): WindowGeometry | null => {
+	const { startsAt, resetsAt } = window;
+	if (startsAt === null || resetsAt === null) return null;
+
+	const instantAt = (pct: number) =>
+		startsAt + (Math.min(Math.max(pct, 0), 100) / 100) * (resetsAt - startsAt);
+	const sweepTo = (epoch: number) =>
+		localMinutesBetween(startsAt, Math.min(Math.max(epoch, startsAt), resetsAt)) *
+		scale.degreesPerMinute;
+
+	return {
+		start: scale.angle(startsAt),
+		reset: sweepTo(resetsAt),
+		elapsed: sweepTo(now),
+		fill: window.usedPct === null ? 0 : sweepTo(instantAt(window.usedPct)),
+		projection: window.projectedPct === null ? null : sweepTo(instantAt(window.projectedPct)),
+		runsOut: window.runsOutAt === null ? null : scale.angle(window.runsOutAt),
+	};
+};
