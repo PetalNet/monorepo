@@ -45,3 +45,6 @@
 **/.impeccable/live/deferred-svelte-component-accepts.json
 **/.impeccable/live/*.png
 # impeccable-ignore-end
+
+# PetalBoard generates its Prisma client into the app.
+/apps/petalboard/src/lib/server/generated/

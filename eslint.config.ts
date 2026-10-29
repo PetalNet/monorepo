@@ -100,7 +100,7 @@ export default defineConfig([
 		},
 	},
 	{
-		files: ["apps/{astrolabe,collegemap,grove,numbat-sheet,slide,storybook,whoami}/**/*.svelte"],
+		files: ["apps/{astrolabe,collegemap,grove,numbat-sheet,petalboard,slide,storybook,whoami}/**/*.svelte"],
 		extends: svelte.configs.recommended,
 		languageOptions: {
 			parserOptions: {
@@ -179,7 +179,8 @@ export default defineConfig([
 		extends: [json.configs.recommended],
 	},
 	{
-		files: ["apps/slide/**"],
+		// Slide and PetalBoard predate the monorepo and carry their type-safety debt in place.
+		files: ["apps/{petalboard,slide}/**"],
 		rules: {
 			"@typescript-eslint/no-base-to-string": "off",
 			"@typescript-eslint/no-confusing-void-expression": "off",

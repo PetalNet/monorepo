@@ -46,6 +46,10 @@ export default {
 			// build:wasm needs the Rust wasm-bindgen CLI, which is not an npm package.
 			ignoreBinaries: ["wasm-bindgen"],
 		},
+		"apps/petalboard": {
+			// Only the gitignored generated Prisma client imports @prisma/client/runtime.
+			ignoreDependencies: ["@prisma/client"],
+		},
 		"apps/slide": {
 			ignoreBinaries: ["prisma!"],
 		},
@@ -56,7 +60,11 @@ export default {
 			entry: ["test/**/*.ts"],
 		},
 		"packages/vault-cite": {
-			entry: ["test/**/*.ts"],
+			// The backfill ops scripts are production entrypoints an operator runs by hand, not imported.
+			entry: ["test/**/*.ts", "scripts/*.ts!"],
+			// gitleaks is an optional external scanner (not an npm package); episodes falls back
+			// to the built-in rules when it is not on PATH.
+			ignoreBinaries: ["gitleaks"],
 		},
 		"packages/effect-api": {
 			// Strict Knip excludes the provider subpath's optional peer supplied by consumers.

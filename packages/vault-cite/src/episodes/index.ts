@@ -1,0 +1,11 @@
+export { ingestRecallDb, sweepResidualSecrets } from "./ingest.ts";
+export type { IngestOptions } from "./ingest.ts";
+export { episodeMetadataSchema, scopeConfigSchema } from "./model.ts";
+export type { EpisodeMetadata, IngestCounts, ScopeConfig } from "./model.ts";
+export { maskAll, redactBatch, sha256Hex } from "./redact.ts";
+export type { RedactBatchResult, RedactedMessage } from "./redact.ts";
+export { EMPTY_SCOPE, isDenied, loadScopeConfig } from "./scope.ts";
+export { candidateSpans, scanBatch } from "./secrets.ts";
+export { EpisodeStore } from "./store.ts";
+export { verifyEpisodes } from "./verify.ts";
+export type { VerifyResult } from "./verify.ts";

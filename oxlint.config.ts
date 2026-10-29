@@ -182,8 +182,9 @@ export const lintConfig = {
 			},
 		},
 		{
-			files: ["apps/slide/**"],
-			// Slide's rewrite owns type-safety debt and deprecated framework configuration.
+			files: ["apps/{petalboard,slide}/**"],
+			// Slide and PetalBoard predate the monorepo; their rewrites own the type-safety debt
+			// and deprecated framework configuration.
 			rules: {
 				"typescript/no-base-to-string": "off",
 				"typescript/no-deprecated": "off",
@@ -197,6 +198,11 @@ export const lintConfig = {
 				"typescript/require-await": "off",
 				"typescript/restrict-template-expressions": "off",
 			},
+		},
+		{
+			files: ["apps/petalboard/**"],
+			// Prisma names its aggregate fields with a leading underscore.
+			rules: { "eslint/no-underscore-dangle": ["error", { allow: ["_count", "_sum"] }] },
 		},
 	],
 	ignorePatterns: [

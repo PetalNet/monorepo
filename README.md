@@ -15,7 +15,7 @@ docs/         repository architecture and migration history
 
 ### Applications
 
-- Web and Node: `clarity-mcp`, `collegemap`, `grove`, and `slide`
+- Web and Node: `clarity-mcp`, `collegemap`, `grove`, `petalboard`, and `slide`
 - Rust: `box-agent`, `control-plane`, `courier`, `dispatcher`, `manager`, and the
   Point server
 - Flutter: the Point client under `apps/point/app`
@@ -33,8 +33,8 @@ docs/         repository architecture and migration history
 - Turborepo for cached tasks, standalone Vite for builds, Vitest for tests, and Oxfmt for formatting
 - oxlint and ESLint for linting; Knip, manypkg, typesync, and
   update-ts-references for workspace hygiene
-- Tailwind CSS v4 for pnpm apps that use Tailwind, except `apps/slide`, which
-  remains on the shared Tailwind v3 legacy catalog
+- Tailwind CSS v4 for pnpm apps that use Tailwind, except `apps/petalboard` and
+  `apps/slide`, which remain on the shared Tailwind v3 legacy catalog
 - Cargo with root `rust-toolchain.toml`, `Cargo.toml`, and `Cargo.lock` for Rust
   services; Flutter tooling and a separate Cargo lock for Point's client bridge
 

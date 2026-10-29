@@ -76,6 +76,15 @@ Then, the things that bit slide:
   Source repo stays up (vestigial). The durable build and design record is
   `apps/point/DECISIONS.md`; the completed execution plan was removed.
 
+- `PetalBoard` → `apps/petalboard` — SvelteKit RSVP app (rsvp.petalcat.dev) on Kit 2,
+  Prisma 5 and SQLite, sharing the Slide catalogs and Tailwind v3 legacy catalog.
+  Imported from `PetalNet/PetalBoard` main with full history (an earlier attempt, #82,
+  was closed as stale). The open PetalBoard PR #2 was not carried over. Typing
+  `$props()` exposed a manage-page timezone bug and a `sanitize: false` markdown XSS
+  sink, both fixed. Shares Slide's per-app type-safety lint exceptions. The PowerShell
+  deploy script is gone; the Dockerfile builds from the repository root. Gitleaks over
+  the full history found nothing.
+
 _(populated as repos land — see issue #1 for the live checklist)_
 
 ## Excluded

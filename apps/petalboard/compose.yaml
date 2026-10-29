@@ -1,0 +1,33 @@
+# Deploy from a checkout of main after building the image there:
+#   docker build -f apps/petalboard/Dockerfile --build-arg MONOREPO_SHA="$SHA" -t "petalboard:$SHA" .
+#   MONOREPO_SHA="$SHA" PETALBOARD_ENV_FILE=/path/to/runtime.env \
+#     docker compose -f apps/petalboard/compose.yaml up -d
+name: petalboard
+services:
+  petalboard:
+    image: petalboard:${MONOREPO_SHA:?Set the monorepo main SHA the image was built from}
+    container_name: petalboard-app
+    restart: unless-stopped
+    env_file: ${PETALBOARD_ENV_FILE:?Set the private runtime environment file}
+    environment:
+      # The database must stay on the volume, whatever the env file says.
+      DATABASE_URL: file:/app/data/dev.db
+    # The default bridge avoids allocating a new network from the host's address pool.
+    network_mode: bridge
+    ports:
+      - "4173:4173"
+    volumes:
+      - petalboard-data:/app/data
+    healthcheck:
+      test:
+        - CMD
+        - node
+        - -e
+        - "fetch('http://127.0.0.1:4173/').then((r) => process.exit(r.ok ? 0 : 1), () => process.exit(1))"
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
+volumes:
+  petalboard-data:
+    name: petalboard-data

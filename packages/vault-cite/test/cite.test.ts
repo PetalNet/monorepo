@@ -1113,6 +1113,104 @@ migrateDomains(db);`,
 	expect(errors.filter(Boolean)).toEqual([]);
 }, 60_000);
 
+it("opens, searches, and backfills COMPLETE on a store created before completeness existed", () => {
+	// The evidence table is an fts5 virtual table: ALTER TABLE ADD COLUMN on it throws "virtual
+	// tables may not be altered" on this SQLite build, so completeness must never require altering
+	// it. This builds the exact pre-PR schema a real store has, with a saved row and no
+	// completeness anywhere, and checks the new code opens it, reads it, and searches it.
+	const root = mkdtempSync(path.join(process.cwd(), ".cite-test-"));
+
+	try {
+		const database = path.join(root, "index-v2.sqlite");
+		const old = new DatabaseSync(database);
+
+		old.exec(`
+			CREATE TABLE sources(id TEXT PRIMARY KEY, metadata TEXT NOT NULL);
+			CREATE VIRTUAL TABLE evidence USING fts5(id UNINDEXED, title, authors, canonical_id, url, text);
+			CREATE TABLE jobs(ref TEXT PRIMARY KEY, state TEXT NOT NULL, attempts INTEGER NOT NULL DEFAULT 0, next_at REAL NOT NULL DEFAULT 0, lease_until REAL NOT NULL DEFAULT 0, source_id TEXT, reason TEXT);
+		`);
+
+		const id = `src-${"b".repeat(20)}`;
+		const url = "https://pre-existing.example/page";
+		const metadata = {
+			schema_version: 2,
+			layer: "EVIDENCE",
+			source_type: "PRIMARY",
+			id,
+			url,
+			citation_ref: url,
+			canonical_id: url,
+			title: "Pre-existing evidence",
+			authors: [],
+			fetched_at: new Date().toISOString(),
+			sha256: "b".repeat(64),
+			mime: "text/html",
+			access_status: "SAVED",
+			extractor: "http-original-v2",
+			artifacts: [
+				{
+					sha256: "b".repeat(64),
+					mime: "text/html",
+					path: `originals/sha256/bb/bb/${"b".repeat(64)}/artifact`,
+					bytes: 4,
+					role: "ORIGINAL",
+					retrieval: {
+						url,
+						fetched_at: new Date().toISOString(),
+						final_url: url,
+						http_status: 200,
+						content_type: "text/html",
+						content_encoding: "identity",
+					},
+				},
+			],
+			retrieval_id: "r-1",
+			previous_retrieval_id: null,
+			previous_sha256: null,
+			final_url: url,
+			http_status: 200,
+			content_type: "text/html",
+		};
+
+		old.prepare("INSERT INTO sources VALUES(?,?)").run(id, JSON.stringify(metadata));
+
+		old
+			.prepare("INSERT INTO evidence VALUES(?,?,?,?,?,?)")
+			.run(id, metadata.title, "", metadata.canonical_id, url, "Durable premigration body text");
+
+		old.prepare("INSERT INTO jobs VALUES(?,?,?,?,?,?,?)").run(url, "SAVED", 1, 0, 0, id, null);
+		old.close();
+
+		const store = new Store(root);
+
+		try {
+			const source = store.get(id);
+
+			expect(source?.completeness).toBe("COMPLETE");
+			expect(source?.missing_assets).toEqual([]);
+
+			expect(store.search("Durable premigration")).toEqual([
+				expect.objectContaining({ id, completeness: "COMPLETE" }),
+			]);
+
+			expect(store.citation(url)).toMatchObject({ status: "SAVED" });
+		} finally {
+			store.close();
+		}
+
+		// Reopening the same files a second time must not fail or re-run any migration destructively.
+		const reopened = new Store(root);
+
+		try {
+			expect(reopened.get(id)?.completeness).toBe("COMPLETE");
+		} finally {
+			reopened.close();
+		}
+	} finally {
+		rmSync(root, { recursive: true, force: true });
+	}
+});
+
 it("defers domain pacing without spending attempts and resumes multiple jobs after restart", async () => {
 	let now = 1_800_000_000_000;
 	const clock = vi.spyOn(Date, "now").mockImplementation(() => now);
