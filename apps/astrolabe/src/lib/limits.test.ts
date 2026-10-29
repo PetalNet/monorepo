@@ -58,10 +58,22 @@ describe("used versus left", () => {
 		expect(reading).toMatchObject({ usedPct: 3, leftPct: 97 });
 	});
 
-	it("reads Codex's 100% as an exhausted limit, not a full one", () => {
+	it("reads Codex at 100% with credits as drawing on credits, not stopped", () => {
+		// The live snapshot: 100% of the 7-day window, 38,426 credits, rate_limit_reached_type null.
 		const reading = readLimit(byId("codex-7d"), now);
 
-		expect(reading).toMatchObject({ usedPct: 100, leftPct: 0, state: "limit-reached" });
+		expect(reading).toMatchObject({ usedPct: 100, leftPct: 0, state: "on-credits" });
+	});
+
+	it("keeps the alarm for a limit the provider says has stopped requests", () => {
+		const reading = readLimit({ ...byId("codex-7d"), blockedBy: "primary" }, now);
+
+		expect(reading.state).toBe("limit-reached");
+	});
+
+	it("keeps the alarm once the credits are spent", () => {
+		expect(readLimit({ ...byId("codex-7d"), credits: 0 }, now).state).toBe("limit-reached");
+		expect(readLimit({ ...byId("codex-7d"), credits: null }, now).state).toBe("limit-reached");
 	});
 
 	it("grows the fill with usage", () => {
@@ -94,6 +106,8 @@ describe("burn-rate projection", () => {
 				usedPct: 20,
 				resetsAt: at("2026-10-29T18:00:00Z"),
 				observedAt: at("2026-10-29T15:30:00Z"),
+				credits: null,
+				blockedBy: null,
 			},
 			at("2026-10-29T15:30:00Z"),
 		);
@@ -114,6 +128,8 @@ describe("burn-rate projection", () => {
 			usedPct: 50,
 			resetsAt: at("2026-11-05T00:00:00Z"),
 			observedAt: at("2026-10-31T00:00:00Z"),
+			credits: null,
+			blockedBy: null,
 		};
 
 		// 50% over the first 2 days observed: 175% at reset. Dividing by the 3 days to now would say 116.7%.

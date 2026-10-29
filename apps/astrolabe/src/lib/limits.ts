@@ -22,12 +22,17 @@ export interface LimitWindow {
 	resetsAt: number | null;
 	/** Epoch ms the usage figure was true at. Codex's figure can be hours older than its scrape. */
 	observedAt: number | null;
+	/** Prepaid credits that carry on past 100%. Null when the agent has none to draw on. */
+	credits: number | null;
+	/** The provider's own word that a limit has stopped requests, such as Codex's `primary`. */
+	blockedBy: string | null;
 }
 
 export type LimitState =
 	| "no-reading"
 	| "reset-since-reading"
 	| "limit-reached"
+	| "on-credits"
 	| "overshoot"
 	| "on-pace"
 	| "too-early";
@@ -88,7 +93,15 @@ export const readLimit = (window: LimitWindow, now: number): LimitReading => {
 	};
 
 	if (usedPct >= 100) {
-		return { ...reading, state: "limit-reached", projectedPct: 100, runsOutAt: null };
+		// Past the limit, credits keep requests going until the provider says it has stopped them.
+		const onCredits = window.blockedBy === null && window.credits !== null && window.credits > 0;
+
+		return {
+			...reading,
+			state: onCredits ? "on-credits" : "limit-reached",
+			projectedPct: 100,
+			runsOutAt: null,
+		};
 	}
 
 	// The burn rate is measured up to when the figure was observed, not up to now.
@@ -114,7 +127,6 @@ export const readLimit = (window: LimitWindow, now: number): LimitReading => {
 
 const ms = (seconds: number | null) => (seconds === null ? null : seconds * 1000);
 
-/** The three limits the dial shows: Claude's 5-hour and 7-day windows and Codex's 7-day window. */
 /** Claude's 5-hour and 7-day windows and Codex's 7-day window, in that order. */
 export const limitWindowsFrom = (
 	agents: readonly UsageReadout[],
@@ -140,6 +152,8 @@ export const limitWindowsFrom = (
 				? null
 				: ms(span === "5-hour" ? agent.fiveHourResetsAt : agent.sevenDayResetsAt),
 		observedAt: agent === undefined ? null : ms(agent.observedAt),
+		credits: agent?.creditsBalance ?? null,
+		blockedBy: agent?.limitReachedType ?? null,
 	});
 
 	return [

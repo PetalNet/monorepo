@@ -26,6 +26,8 @@ export interface UsageReadout {
 	sevenDayUsedPct: number | null;
 	sevenDayResetsAt: number | null;
 	creditsBalance: number | null;
+	/** Codex's `rate_limit_reached_type`: set only when a limit has actually stopped requests. */
+	limitReachedType: string | null;
 	scrapedAt: number | null;
 	/**
 	 * Epoch seconds the usage figures were true at. Codex reads a session snapshot older than the
@@ -232,6 +234,10 @@ export const usageReadoutFrom = (input: {
 		sevenDayUsedPct: data === null ? null : pct(data.seven_day_pct),
 		sevenDayResetsAt,
 		creditsBalance: kind === "codex" && data !== null ? numberOrNull(data.credits_balance) : null,
+		limitReachedType:
+			kind === "codex" && typeof data?.rate_limit_reached_type === "string"
+				? data.rate_limit_reached_type
+				: null,
 		scrapedAt,
 		observedAt: scrapedAt === null ? null : scrapedAt - (numberOrNull(data?.snapshot_age_sec) ?? 0),
 		stale: !awaiting && (scrapedAt === null || nowSeconds - scrapedAt > FIFTEEN_MINUTES_SECONDS),

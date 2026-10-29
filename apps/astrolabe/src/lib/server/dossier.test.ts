@@ -73,6 +73,49 @@ describe("usage readouts", () => {
 		expect(result).toMatchObject({ awaiting: true, stale: false, fiveHourUsedPct: null });
 	});
 
+	it("reads a Codex feed whose only window is the 7-day one as 7-day, with no 5-hour figure", () => {
+		// Codex reports the weekly window (window_minutes 10080) as `primary` with no `secondary`.
+		// codex-usage buckets by window length, so the feed carries it as seven_day_pct.
+		const codex = usageReadoutFrom({
+			slug: "codex",
+			label: "Codex",
+			kind: "codex",
+			nowSeconds: 1000,
+			data: {
+				five_hour_pct: null,
+				five_hour_resets_at: null,
+				seven_day_pct: 100,
+				seven_day_resets_at: 1200,
+				credits_balance: 38_426.39,
+				rate_limit_reached_type: null,
+				scraped_at: 995,
+			},
+		});
+
+		expect(codex).toMatchObject({
+			fiveHourUsedPct: null,
+			fiveHourResetsAt: null,
+			sevenDayUsedPct: 100,
+			creditsBalance: 38_426.39,
+			limitReachedType: null,
+		});
+	});
+
+	it("passes Codex's rate_limit_reached_type through, and ignores it for Claude", () => {
+		const data = { seven_day_pct: 100, rate_limit_reached_type: "primary", scraped_at: 995 };
+		const read = (kind: "claude" | "codex") =>
+			usageReadoutFrom({
+				slug: kind === "codex" ? "codex" : "janet-primary",
+				label: kind === "codex" ? "Codex" : "Claude",
+				kind,
+				nowSeconds: 1000,
+				data,
+			}).limitReachedType;
+
+		expect(read("codex")).toBe("primary");
+		expect(read("claude")).toBeNull();
+	});
+
 	it("uses the Claude ISO reset while Codex stays epoch-based", () => {
 		const claude = usageReadoutFrom({
 			slug: "janet-primary",

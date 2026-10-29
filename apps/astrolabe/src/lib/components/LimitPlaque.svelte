@@ -12,6 +12,9 @@
 	const STALE_AFTER_MS = 15 * 60 * 1000;
 
 	const percent = (value: number) => `${String(Math.round(value))}%`;
+	const creditsLeft = $derived(
+		credits === null ? null : new Intl.NumberFormat().format(Math.round(credits)),
+	);
 	const resetLabel = $derived.by(() => {
 		if (reading.resetsAt === null) {
 			return null;
@@ -36,6 +39,12 @@
 				return { text: "Too early to project", alarm: false };
 			case "limit-reached":
 				return { text: "Limit reached", alarm: true };
+			case "on-credits":
+				return {
+					text: "Using credits",
+					detail: creditsLeft === null ? undefined : `${creditsLeft} credits left`,
+					alarm: false,
+				};
 			case "on-pace":
 				return { text: `On pace for ${percent(reading.projectedPct ?? 0)} at reset`, alarm: false };
 			case "overshoot": {
@@ -59,9 +68,8 @@
 	const note = $derived(
 		[
 			age,
-			credits === null
-				? null
-				: `${new Intl.NumberFormat().format(Math.round(credits))} credits left`,
+			// While the plaque is drawing on credits, the verdict already carries the balance.
+			creditsLeft === null || reading.state === "on-credits" ? null : `${creditsLeft} credits left`,
 		]
 			.filter((part) => part !== null)
 			.join(" · "),
