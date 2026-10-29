@@ -44,7 +44,7 @@ const ROSTER = (() => {
         return { handle: handle.toLowerCase(), host: host || null };
       })
     : [
-        { handle: 'agent-a', host: '.14' },
+        { handle: 'agent-a', host: 'example-host' },
         { handle: 'agent-b', host: 'example-host' },
         { handle: 'agent-c', host: 'example-host' },
         { handle: 'codex', host: '.14' },
@@ -52,6 +52,20 @@ const ROSTER = (() => {
         { handle: 'agent-e', host: '.14' }
       ];
   return base;
+})();
+
+// Read-only terminal embedded in an agent's cockpit entry, keyed by handle. Override with
+// TASKS_FLEET_TERMS (CSV of `handle=url`). agent-a's is ttyd-ro on 202, reached through
+// term.example.com/ro (Authentik forward-auth, framable only by tasks.example.com).
+const TERMS = (() => {
+  const env = (process.env.TASKS_FLEET_TERMS || '').trim();
+  if (!env) return { agent-a: 'https://term.example.com/ro/' };
+  return Object.fromEntries(
+    env.split(',').map((s) => s.trim()).filter(Boolean).map((pair) => {
+      const i = pair.indexOf('=');
+      return [pair.slice(0, i).trim().toLowerCase(), pair.slice(i + 1).trim()];
+    })
+  );
 })();
 
 // status → sort weight (working first, then alive/idle, then offline last)
@@ -129,7 +143,8 @@ export function getFleet(me) {
       age_ms: Number.isFinite(age) ? age : null,
       session_id: f.session_id || null,
       focus, // [{id,title}] — the claimed task(s); focus[0] is the headline
-      started_at: f.started_at || null
+      started_at: f.started_at || null,
+      term_url: TERMS[f.handle] ?? null
     };
   });
 
@@ -150,6 +165,7 @@ export function getFleet(me) {
       session_id: null,
       focus: focusByAgent[r.handle] ?? [],
       started_at: null,
+      term_url: TERMS[r.handle] ?? null,
       never_seen: true // roster stub: this agent has never written a heartbeat
     });
   }
