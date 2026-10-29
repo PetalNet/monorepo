@@ -18,9 +18,9 @@ _Why it fails:_ "gets overwhelmed" invents a vague cause and drops KV-cache, con
 
 **✅ Humanized (precision kept)**
 
-> When many requests arrive at once, the model slows down. The bottleneck isn't raw compute. The system also has to manage the model's KV cache — a memory store it uses while generating text — and decide which requests get processed next. Under heavy load, those two jobs fight for the same resources.
+> When many requests arrive at once, the model slows down, for two reasons. First, KV-cache pressure: the KV cache, a memory store the model uses while generating text, comes under pressure. Second, scheduler contention: requests compete for the scheduler, the part that decides which request is processed next.
 
-_Why it works:_ latency, concurrency, KV cache, and scheduler contention all survive; the new term (KV cache) is defined in place; given-new flow ("When many requests arrive…" is the familiar setup; the bottleneck is the new point).
+_Why it works:_ latency, concurrency, KV-cache pressure, and scheduler contention all survive, and both stay causes; the new terms are defined in place; nothing is added about what is _not_ the cause; given-new flow ("When many requests arrive…" is the familiar setup; the two causes are the new point).
 
 ---
 
@@ -52,9 +52,9 @@ _Why it works:_ keeps the uncertainty markers and the scope limit, in plain word
 
 **✅ Humanized**
 
-> When the agent's working memory fills up, it doesn't just start forgetting. A scheduler watches how full the context window is, and once it crosses a set threshold, it spins off a helper — a forked subagent — whose only job is to summarize what mattered and file it into long-term memory.
+> The agent consolidates its memory on a trigger. The scheduler watches how full the context window (the agent's working memory) is. Once that crosses a configurable threshold, the scheduler invokes the consolidation routine, which forks a subagent, a helper split off from the main agent, to summarize and persist long-term memories.
 
-_Why it works:_ leads with the stakes ("doesn't just start forgetting"), then unpacks mechanism in order; "forked subagent" defined by its job; one idea per sentence; nothing invented.
+_Why it works:_ leads with the point (consolidation is triggered), then unpacks the mechanism in the source's order; "configurable" survives; "forked subagent" is defined in place; one idea per sentence; nothing invented: the source says what the subagent is forked to do, not that it does nothing else, so the rewrite doesn't say "only".
 
 ---
 
@@ -65,8 +65,8 @@ From the rewrites above, the glossary block would be:
 ```markdown
 ## Glossary
 
-- **KV cache** — a memory store the model uses while generating text; managing it adds overhead under load.
-- **scheduler contention** — the system competing with itself over which requests to process next.
+- **KV cache** — a memory store the model uses while generating text; it comes under pressure under high concurrency.
+- **scheduler contention** — requests competing for the scheduler, which decides which request is processed next.
 - **warm-cache path** — reusing an existing cache so a process starts "warm" instead of cold.
-- **forked subagent** — a helper agent split off from the main one, inheriting its context.
+- **forked subagent** — a helper agent split off from the main one.
 ```
