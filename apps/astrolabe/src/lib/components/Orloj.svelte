@@ -59,9 +59,19 @@
 
 		const next = solarCountdown(dossier.sun, now);
 
-		return `Sunrise ${time(dossier.sun.sunriseAt)} · sunset ${time(dossier.sun.sunsetAt)}${
-			next === null ? "" : ` · ${next.kind} in ${formatDuration(next.minutes * 60_000)}`
-		}`;
+		const sunrise = `Sunrise ${time(dossier.sun.sunriseAt)}`;
+		const sunset = `Sunset ${time(dossier.sun.sunsetAt)}`;
+
+		if (next === null) {
+			return `${sunrise}. ${sunset}.`;
+		}
+
+		// The next event goes last, with how long until it.
+		const until = `in ${formatDuration(next.minutes * 60_000)}`;
+
+		return next.kind === "sunset"
+			? `${sunrise}. ${sunset}, ${until}.`
+			: `${sunset}. ${sunrise}, ${until}.`;
 	});
 </script>
 
@@ -79,9 +89,10 @@
 				{/if}
 			</div>
 			<figcaption>
-				<strong>The day</strong>
+				<strong>Today</strong>
 				<span
-					>Claude's 5-hour window on the 24-hour clock{#if sunLine}. {sunLine}{/if}</span
+					>Claude's 5-hour limit.{#if sunLine}
+						{sunLine}{/if}</span
 				>
 			</figcaption>
 		</figure>
@@ -99,19 +110,14 @@
 				{/if}
 			</div>
 			<figcaption>
-				<strong>The week</strong>
+				<strong>This week</strong>
 				<span
-					>The 7-day windows: Claude outside, Codex inside. Moon {dossier.moon.phaseName.toLowerCase()},
-					{Math.round(dossier.moon.illumination * 100)}% lit</span
+					>Claude's and Codex's 7-day limits. {dossier.moon.phaseName},
+					{Math.round(dossier.moon.illumination * 100)}% lit.</span
 				>
 			</figcaption>
 		</figure>
 	</div>
-
-	<p class="orloj-key">
-		The coloured fill is usage. The gilt line is time gone, the diamond is the reset, and the beads
-		run to where the current pace lands at the reset.
-	</p>
 
 	<div class="orloj-plaques">
 		{#if readings && now !== null}

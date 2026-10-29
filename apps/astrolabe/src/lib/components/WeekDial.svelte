@@ -41,7 +41,7 @@
 			{ ...rings[1], radius: WEEK_RINGS.radii[1] },
 		].map((ring) => ({
 			...ring,
-			geometry: windowGeometry(ring.reading, now, WEEK_SCALE),
+			geometry: windowGeometry(ring.reading, WEEK_SCALE),
 			inner: ring.radius - WEEK_RINGS.width / 2,
 		})),
 	);

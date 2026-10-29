@@ -377,7 +377,6 @@ h1 {
 	--orloj-codex-7d: #6c3b6c;
 	--orloj-vermilion: #ad2e1a;
 	--orloj-vermilion-wash: #f3d9c8;
-	--orloj-plaque: #f7efdc;
 	--orloj-grain: 0.16;
 }
 
@@ -400,7 +399,6 @@ h1 {
 	--orloj-codex-7d: #dcaee0;
 	--orloj-vermilion: #ff8c6b;
 	--orloj-vermilion-wash: #3a1d16;
-	--orloj-plaque: #172238;
 	--orloj-grain: 0.1;
 }
 
@@ -447,15 +445,6 @@ h1 {
 	font-variant: small-caps;
 	font-weight: 500;
 	letter-spacing: 0.04em;
-	transition: color var(--t);
-}
-.orloj-key {
-	color: var(--text-mute);
-	font-size: 1rem;
-	font-style: italic;
-	margin: var(--s4) auto 0;
-	max-width: 34rem;
-	text-align: center;
 	transition: color var(--t);
 }
 
@@ -571,21 +560,11 @@ h1 {
 	fill: none;
 	stroke: var(--orloj-groove);
 }
-.dial-face .fill,
-.dial-face .projection {
+.dial-face .fill {
 	fill: none;
 }
 .dial-face .limit .fill {
 	stroke: var(--limit);
-}
-.dial-face .limit .projection {
-	stroke: var(--limit);
-	stroke-dasharray: 0 3.6;
-	stroke-linecap: round;
-	stroke-width: 2.6;
-}
-.dial-face .limit.alarm .projection {
-	stroke: var(--orloj-vermilion);
 }
 .dial-face .landing {
 	dominant-baseline: central;
@@ -607,15 +586,6 @@ h1 {
 	fill: none;
 	stroke: var(--orloj-vermilion);
 	stroke-width: 0.9;
-}
-.dial-face .elapsed {
-	fill: none;
-	stroke: var(--orloj-gilt);
-	stroke-linecap: round;
-	stroke-width: 1.4;
-}
-.dial-face .elapsed-tip {
-	fill: var(--orloj-gilt);
 }
 .dial-face .reset-rule {
 	stroke: var(--orloj-ink);
@@ -689,35 +659,67 @@ h1 {
 	grid-template-columns: repeat(3, 1fr);
 	margin-top: var(--s5);
 }
+/* A plaque is a small piece of the same clock: a brass frame (the bezel's gradient, with a rivet in
+   each corner) around a paper face with the dial's grain and a pair of engraved rules. */
 .plaque {
-	align-content: start;
-	background: var(--orloj-plaque);
-	border: 3px double var(--orloj-brass-lo);
+	--rivet: radial-gradient(circle, var(--orloj-brass-deep) 1.6px, transparent 2.2px);
+	background:
+		var(--rivet) top 1px left 1px / 9px 9px no-repeat,
+		var(--rivet) top 1px right 1px / 9px 9px no-repeat,
+		var(--rivet) bottom 1px left 1px / 9px 9px no-repeat,
+		var(--rivet) bottom 1px right 1px / 9px 9px no-repeat,
+		linear-gradient(
+			135deg,
+			var(--orloj-brass-hi),
+			var(--orloj-brass-lo) 35%,
+			var(--orloj-brass-hi) 55%,
+			var(--orloj-brass-deep)
+		);
 	border-radius: var(--radius-xs);
 	color: var(--orloj-ink);
+	padding: 9px;
+	transition: color var(--t);
+}
+.plaque-face {
+	align-content: start;
+	background: radial-gradient(
+		ellipse farthest-corner,
+		var(--orloj-paper) 60%,
+		color-mix(in oklab, var(--orloj-paper), var(--orloj-paper-edge) 35%)
+	);
 	display: grid;
 	gap: var(--s2);
+	height: 100%;
+	isolation: isolate;
 	padding: var(--s3);
-	transition:
-		background var(--t),
-		border-color var(--t),
-		color var(--t);
+	position: relative;
+}
+/* The engraved pair, as on the dial's chapter ring: a rule and a finer one just inside it. */
+.plaque-face::before {
+	border: 3px double var(--orloj-ink-mute);
+	content: "";
+	inset: 4px;
+	opacity: 0.6;
+	pointer-events: none;
+	position: absolute;
+}
+/* The dial's own grain filter, drawn as a texture behind the lettering. */
+.plaque-face::after {
+	background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='160' height='160'%3E%3Cfilter id='g'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.9' numOctaves='2' seed='7'/%3E%3CfeColorMatrix values='0 0 0 0 .32 0 0 0 0 .22 0 0 0 0 .1 0 0 0 .5 0'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23g)'/%3E%3C/svg%3E");
+	content: "";
+	inset: 0;
+	opacity: calc(var(--orloj-grain) * 2.5);
+	pointer-events: none;
+	position: absolute;
+	z-index: -1;
 }
 .plaque h3 {
-	align-items: center;
-	display: flex;
+	color: var(--limit);
 	font-size: 1.0625rem;
 	font-variant: small-caps;
 	font-weight: 600;
-	gap: var(--s2);
-	letter-spacing: 0.03em;
-}
-.plaque .swatch {
-	background: var(--limit);
-	border-radius: 50%;
-	flex: none;
-	height: 0.75rem;
-	width: 0.75rem;
+	letter-spacing: 0.1em;
+	transition: color var(--t);
 }
 .plaque-figure {
 	align-items: baseline;
@@ -754,7 +756,6 @@ h1 {
 	border-radius: var(--radius-xs);
 	color: var(--orloj-vermilion);
 	font-weight: 600;
-	margin-inline: calc(var(--s2) * -1);
 	padding: var(--s2);
 }
 .plaque.alarm .plaque-verdict svg {

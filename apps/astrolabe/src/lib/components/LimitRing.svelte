@@ -21,7 +21,6 @@
 	const arcDeg = $derived(geometry.reset);
 	const fillSweep = $derived(geometry.fill);
 	const projectedSweep = $derived(geometry.projection);
-	const elapsedSweep = $derived(geometry.elapsed);
 	const runsOutDeg = $derived(geometry.runsOut);
 	// Degrees the landing label needs on this ring to clear the reset diamond: about 9 units of arc.
 	const labelClearance = $derived((9 / radius) * (180 / Math.PI) + 3);
@@ -72,12 +71,6 @@
 	{#if fillSweep > 0}
 		<path class="fill" d={arcPath(startDeg, fillSweep, radius)} stroke-width={width - 3} />
 	{/if}
-	{#if projectedSweep !== null && projectedSweep > fillSweep}
-		<path
-			class="projection"
-			d={arcPath(startDeg + fillSweep, projectedSweep - fillSweep, radius)}
-		/>
-	{/if}
 	{#if landing}
 		<text
 			class="landing"
@@ -90,11 +83,6 @@
 	{#if alarm}
 		<path class="alarm-rule" d={arcPath(startDeg, arcDeg, outer + 0.6)} />
 		<path class="alarm-rule" d={arcPath(startDeg, arcDeg, inner - 0.6)} />
-	{/if}
-
-	{#if elapsedSweep > 0}
-		<path class="elapsed" d={arcPath(startDeg, elapsedSweep, outer + 3.2)} />
-		<path class="elapsed-tip" d={lozenge(startDeg + elapsedSweep, outer + 3.2, 2.4)} />
 	{/if}
 
 	<line class="reset-rule" {...across(resetDeg, inner - 1.5, outer + 6)} />

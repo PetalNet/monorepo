@@ -54,7 +54,7 @@
 	const sunMarks = $derived(
 		[sun.sunriseAt, sun.sunsetAt].flatMap((at) => (at === null ? [] : [dayAngle(at)])),
 	);
-	const geometry = $derived(windowGeometry(reading, now, DAY_SCALE));
+	const geometry = $derived(windowGeometry(reading, DAY_SCALE));
 	const clock = $derived.by(() => {
 		const parts = new Intl.DateTimeFormat(undefined, {
 			hour: "numeric",
@@ -130,9 +130,9 @@
 
 	{#if geometry}
 		<LimitRing {reading} radius={68} width={16} {geometry} />
-		<RingLabel id={reading.window.id} label="Claude · five hours" inner={60} />
+		<RingLabel id={reading.window.id} label="Claude" inner={60} />
 	{:else}
-		<text class="ring-empty" y="-62">Claude 5-hour: no window open</text>
+		<text class="ring-empty" y="-62">No 5-hour window open</text>
 	{/if}
 
 	<FiligreeHand angle={dayAngle(now)} length={91} sunAt={SKY_RADIUS} />

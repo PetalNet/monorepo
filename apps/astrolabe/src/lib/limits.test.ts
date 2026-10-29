@@ -66,8 +66,7 @@ describe("used versus left", () => {
 
 	it("grows the fill with usage", () => {
 		const reading = readLimit(byId("claude-5h"), now);
-		const fillAt = (usedPct: number) =>
-			windowGeometry({ ...reading, usedPct }, now, DAY_SCALE)?.fill;
+		const fillAt = (usedPct: number) => windowGeometry({ ...reading, usedPct }, DAY_SCALE)?.fill;
 
 		expect(fillAt(0)).toBe(0);
 		expect(fillAt(3)).toBeLessThan(fillAt(50) ?? 0);

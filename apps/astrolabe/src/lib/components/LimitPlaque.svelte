@@ -31,19 +31,17 @@
 			case "no-reading":
 				return { text: "No reading", alarm: false };
 			case "reset-since-reading":
-				return { text: "The window has reset since the last reading", alarm: false };
+				return { text: "Reset since the last reading", alarm: false };
 			case "too-early":
-				return { text: "Too early in the window to call a pace", alarm: false };
+				return { text: "Too early to project", alarm: false };
 			case "limit-reached":
-				return { text: "Limit reached", detail: "Nothing left until the reset", alarm: true };
+				return { text: "Limit reached", alarm: true };
 			case "on-pace":
 				return { text: `On pace for ${percent(reading.projectedPct ?? 0)} at reset`, alarm: false };
 			case "overshoot": {
 				const runsOut = reading.runsOutAt;
 				const detail =
-					runsOut === null || reading.resetsAt === null
-						? undefined
-						: `Runs out in ${formatDuration(runsOut - now)}, ${formatDuration(reading.resetsAt - runsOut)} before the reset`;
+					runsOut === null ? undefined : `Runs out in ${formatDuration(runsOut - now)}`;
 
 				return {
 					text: `On pace for ${percent(reading.projectedPct ?? 0)} at reset`,
@@ -55,7 +53,7 @@
 	});
 	const age = $derived(
 		reading.window.observedAt !== null && now - reading.window.observedAt > STALE_AFTER_MS
-			? `Reading from ${formatDuration(now - reading.window.observedAt)} ago`
+			? `Last read ${formatDuration(now - reading.window.observedAt)} ago`
 			: null,
 	);
 	const note = $derived(
@@ -71,22 +69,22 @@
 </script>
 
 <article class="plaque {reading.window.id}" class:alarm={verdict.alarm}>
-	<h3>
-		<span class="swatch" aria-hidden="true"></span>{reading.window.agent} · {reading.window.span} window
-	</h3>
-	{#if reading.usedPct !== null && reading.leftPct !== null}
-		<p class="plaque-figure">
-			<strong>{percent(reading.usedPct)} used</strong>
-			<span>· {percent(reading.leftPct)} left</span>
-		</p>
-	{/if}
-	{#if resetLabel}<p class="plaque-reset">{resetLabel}</p>{/if}
-	<div class="plaque-verdict">
-		{#if verdict.alarm}<TriangleAlert size={16} strokeWidth={2} aria-hidden="true" />{/if}
-		<p>
-			<span>{verdict.text}</span>
-			{#if verdict.detail}<span class="plaque-detail">{verdict.detail}</span>{/if}
-		</p>
+	<div class="plaque-face">
+		<h3>{reading.window.agent} · {reading.window.span}</h3>
+		{#if reading.usedPct !== null && reading.leftPct !== null}
+			<p class="plaque-figure">
+				<strong>{percent(reading.usedPct)} used</strong>
+				<span>· {percent(reading.leftPct)} left</span>
+			</p>
+		{/if}
+		{#if resetLabel}<p class="plaque-reset">{resetLabel}</p>{/if}
+		<div class="plaque-verdict">
+			{#if verdict.alarm}<TriangleAlert size={16} strokeWidth={2} aria-hidden="true" />{/if}
+			<p>
+				<span>{verdict.text}</span>
+				{#if verdict.detail}<span class="plaque-detail">{verdict.detail}</span>{/if}
+			</p>
+		</div>
+		{#if note}<p class="plaque-note">{note}</p>{/if}
 	</div>
-	{#if note}<p class="plaque-note">{note}</p>{/if}
 </article>

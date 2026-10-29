@@ -55,7 +55,7 @@ export const ringLabelBaseline = (inner: number): number =>
 
 /**
  * The week dial's two 7-day rings, Claude outside and Codex inside. The gap between them holds the
- * outer ring's name and the inner ring's elapsed line and reset mark, so it is wider than a band.
+ * outer ring's name and the inner ring's reset mark, so it is wider than a band.
  */
 export const WEEK_RINGS = { radii: [79, 50], width: 15 } as const;
 
@@ -145,8 +145,6 @@ export interface WindowGeometry {
 	start: number;
 	/** Sweep to the reset. A 7-day window on the week dial is a full turn give or take a DST hour. */
 	reset: number;
-	/** Sweep to now: the elapsed tip, which always lands on the hand. */
-	elapsed: number;
 	/** Sweep to the instant at which the usage share of the window would have passed. */
 	fill: number;
 	/** Sweep to where the burn rate lands, capped at the reset. */
@@ -167,7 +165,6 @@ export const windowGeometry = (
 		projectedPct: number | null;
 		runsOutAt: number | null;
 	},
-	now: number,
 	scale: DialScale,
 ): WindowGeometry | null => {
 	const { startsAt, resetsAt } = window;
@@ -185,7 +182,6 @@ export const windowGeometry = (
 	return {
 		start: scale.angle(startsAt),
 		reset: sweepTo(resetsAt),
-		elapsed: sweepTo(now),
 		fill: window.usedPct === null ? 0 : sweepTo(instantAt(window.usedPct)),
 		projection: window.projectedPct === null ? null : sweepTo(instantAt(window.projectedPct)),
 		runsOut: window.runsOutAt === null ? null : scale.angle(window.runsOutAt),
