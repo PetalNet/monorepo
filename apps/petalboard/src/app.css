@@ -1,0 +1,1727 @@
+/* Mobile modal fix v2.0 - Force rebuild */
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  * {
+    box-sizing: border-box;
+  }
+
+  html {
+    @apply w-full max-w-full overflow-x-hidden;
+  }
+
+  body {
+    @apply m-0 font-sans bg-app-gradient text-dark-900 min-h-screen w-full max-w-full overflow-x-hidden;
+  }
+
+  body.no-scroll {
+    @apply overflow-hidden;
+  }
+
+  a {
+    @apply text-inherit;
+  }
+}
+
+@layer components {
+  /* Form inputs */
+  .input-field {
+    @apply rounded-xl border border-primary-700 px-4 py-3 bg-white;
+    border-color: rgba(124, 93, 250, 0.25);
+    font-size: 16px; /* Prevent iOS zoom on focus */
+    width: 100%;
+    max-width: 100%;
+    box-sizing: border-box;
+  }
+
+  .input-field:focus {
+    @apply outline-none border-primary-700;
+    box-shadow: 0 0 0 3px rgba(124, 93, 250, 0.18);
+  }
+
+  /* Preserve formatting in textareas */
+  textarea.input-field {
+    white-space: pre-wrap;
+    font-family: inherit;
+  }
+
+  /* Mobile input adjustments */
+  @media (max-width: 640px) {
+    .input-field {
+      @apply py-3.5;
+      font-size: 16px; /* Prevent iOS zoom on focus */
+      padding-left: 0.75rem;
+      padding-right: 0.75rem;
+    }
+  }
+
+  /* Buttons */
+  .btn-primary {
+    @apply px-7 py-3 rounded-full border-none text-white font-semibold cursor-pointer;
+    background: linear-gradient(135deg, #7c5dfa, #9b6bff);
+    box-shadow: 0 18px 30px rgba(95, 61, 170, 0.25);
+    transition: transform 0.2s;
+    max-width: 100%;
+    box-sizing: border-box;
+    word-wrap: break-word;
+    overflow-wrap: break-word;
+    white-space: normal;
+  }
+
+  .btn-primary:hover {
+    transform: translateY(-1px);
+  }
+
+  .btn-secondary {
+    @apply px-7 py-3 rounded-full border-none font-semibold cursor-pointer;
+    background: rgba(124, 93, 250, 0.12);
+    color: #5533a5;
+    transition: transform 0.2s;
+    max-width: 100%;
+    box-sizing: border-box;
+    word-wrap: break-word;
+    overflow-wrap: break-word;
+    white-space: normal;
+  }
+
+  .btn-secondary:hover {
+    transform: translateY(-2px);
+  }
+
+  .btn-ghost {
+    @apply bg-transparent border-none font-inherit font-medium cursor-pointer p-0;
+    color: #7c5dfa;
+  }
+
+  .btn-ghost:hover {
+    @apply underline;
+  }
+
+  /* Cards */
+  .card {
+    @apply bg-white rounded-3xl p-6 lg:p-10;
+    box-shadow: 0 20px 40px rgba(60, 35, 110, 0.08);
+  }
+
+  /* Mobile card adjustments */
+  @media (max-width: 640px) {
+    .card {
+      @apply p-4 rounded-2xl;
+    }
+  }
+
+  .card-sm {
+    @apply bg-white p-6;
+    border-radius: 18px;
+    box-shadow: 0 18px 32px rgba(66, 32, 121, 0.08);
+  }
+
+  /* Mobile card-sm adjustments */
+  @media (max-width: 640px) {
+    .card-sm {
+      @apply p-4;
+      border-radius: 14px;
+    }
+  }
+
+  /* Form labels */
+  .form-label {
+    @apply grid gap-2 font-medium;
+    color: #40246b;
+    width: 100%;
+    max-width: 100%;
+  }
+
+  .form-label input,
+  .form-label textarea,
+  .form-label select {
+    width: 100%;
+    max-width: 100%;
+    box-sizing: border-box;
+  }
+
+  /* Error text */
+  .error-text {
+    @apply text-sm;
+    color: #c23b4b;
+  }
+
+  /* Banners */
+  .error-banner {
+    @apply rounded-2xl px-4 py-3;
+    background: rgba(194, 59, 75, 0.12);
+    color: #781728;
+  }
+
+  .success-banner {
+    @apply p-6 lg:p-8;
+    background: rgba(120, 94, 245, 0.12);
+    border-radius: 20px;
+  }
+
+  /* Mobile banner adjustments */
+  @media (max-width: 640px) {
+    .error-banner {
+      @apply px-3 py-2.5 text-sm;
+    }
+
+    .success-banner {
+      @apply p-4;
+      border-radius: 16px;
+    }
+
+    .success-banner h2 {
+      font-size: 1.125rem;
+    }
+
+    .success-banner p {
+      font-size: 0.875rem;
+    }
+  }
+
+  /* Status badges */
+  .badge-attending {
+    background: rgba(34, 197, 94, 0.1);
+    color: #15803d;
+  }
+
+  .badge-maybe {
+    background: rgba(251, 191, 36, 0.1);
+    color: #d97706;
+  }
+
+  .badge-not-attending {
+    background: rgba(239, 68, 68, 0.1);
+    color: #dc2626;
+  }
+
+  .badge-status {
+    @apply rounded-full px-4 py-2 text-sm font-semibold;
+    background: rgba(124, 93, 250, 0.14);
+    color: #5533a5;
+  }
+
+  /* Chevron animation for details/summary */
+  .chevron-icon {
+    @apply transition-transform duration-300 ease-in-out;
+  }
+
+  details[open] .chevron-icon {
+    @apply rotate-90;
+  }
+
+  /* Tab buttons */
+  .tab-btn {
+    @apply bg-transparent border-none px-6 py-4 text-base font-semibold cursor-pointer transition-all duration-200 flex items-center gap-2 -mb-0.5;
+    color: rgba(64, 36, 107, 0.6);
+    border-bottom: 3px solid transparent;
+  }
+
+  .tab-btn:hover {
+    @apply text-primary-600;
+    background: rgba(124, 93, 250, 0.05);
+  }
+
+  .tab-btn-active {
+    @apply text-primary-600;
+    border-bottom-color: #7c5dfa;
+  }
+
+  .tab-btn:not(.tab-btn-active) .badge-primary {
+    background: rgba(124, 93, 250, 0.3);
+  }
+
+  /* Mobile navigation */
+  .mobile-nav-toggle {
+    @apply relative flex flex-col justify-center items-center w-11 h-11 rounded-xl border border-[rgba(124,93,250,0.25)] bg-white shadow-sm cursor-pointer transition-all duration-200;
+  }
+
+  .mobile-nav-toggle span {
+    @apply block w-5 h-[2px] bg-dark-700 rounded-full transition-all duration-200;
+  }
+
+  .mobile-nav-toggle span:nth-child(2) {
+    @apply my-1;
+  }
+
+  .mobile-nav-toggle span.open:nth-child(1) {
+    transform: translateY(6px) rotate(45deg);
+  }
+
+  .mobile-nav-toggle span.open:nth-child(2) {
+    @apply opacity-0;
+  }
+
+  .mobile-nav-toggle span.open:nth-child(3) {
+    transform: translateY(-6px) rotate(-45deg);
+  }
+
+  .mobile-nav-overlay {
+    @apply fixed inset-0 bg-black/40 backdrop-blur-sm z-20 cursor-pointer border-none outline-none;
+  }
+
+  .mobile-nav-panel {
+    @apply md:hidden fixed top-[68px] inset-x-0 z-30 px-4 pb-8;
+  }
+
+  .mobile-nav-panel nav {
+    @apply bg-white/95 border border-[rgba(124,93,250,0.18)] rounded-3xl p-6 shadow-[0_18px_40px_rgba(60,35,110,0.12)];
+  }
+
+  .mobile-nav-link {
+    @apply block no-underline font-semibold text-dark-700 text-base px-4 py-3 rounded-2xl transition-colors duration-150;
+  }
+
+  .mobile-nav-link:hover {
+    background: rgba(124, 93, 250, 0.08);
+    color: #5b34b7;
+  }
+
+  .mobile-nav-meta {
+    @apply mt-4 pt-4 border-t border-[rgba(124,93,250,0.12)] text-sm text-dark-600;
+  }
+
+  .mobile-nav-meta span {
+    @apply block mb-3 font-medium;
+  }
+
+  .address-clear-btn {
+    @apply absolute right-3 top-1/2 -translate-y-1/2 w-6 h-6 rounded-full border-none text-primary-700 text-sm cursor-pointer flex items-center justify-center transition-transform duration-150 z-10 bg-[rgba(124,93,250,0.1)] focus:outline-none focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:ring-primary-500;
+  }
+
+  .address-clear-btn:hover {
+    @apply scale-110;
+    background-color: rgba(124, 93, 250, 0.2);
+  }
+
+  .address-suggestion-list {
+    @apply absolute top-[calc(100%+0.25rem)] left-0 right-0 bg-white border rounded-xl max-h-[300px] overflow-y-auto z-50 shadow-[0_8px_24px_rgba(60,35,110,0.12)];
+  }
+
+  .address-suggestion {
+    @apply p-3 px-4 border-none bg-transparent text-left w-full border-b transition-colors last:border-b-0 cursor-pointer;
+    border-color: rgba(124, 93, 250, 0.1);
+  }
+
+  .address-suggestion:hover,
+  .address-suggestion.selected,
+  .address-suggestion:focus-visible {
+    background-color: rgba(124, 93, 250, 0.08);
+  }
+
+  /* Markdown prose styling */
+  .prose {
+    @apply text-inherit;
+  }
+
+  .prose p {
+    @apply mb-4 last:mb-0;
+  }
+
+  .prose strong,
+  .prose b {
+    @apply font-semibold;
+  }
+
+  .prose em,
+  .prose i {
+    @apply italic;
+  }
+
+  .prose a {
+    @apply text-primary-700 underline hover:text-primary-800;
+  }
+
+  .prose ul,
+  .prose ol {
+    @apply ml-5 mb-4 last:mb-0;
+  }
+
+  .prose ul {
+    @apply list-disc;
+  }
+
+  .prose ol {
+    @apply list-decimal;
+  }
+
+  .prose li {
+    @apply mb-1;
+  }
+
+  .prose h1,
+  .prose h2,
+  .prose h3,
+  .prose h4,
+  .prose h5,
+  .prose h6 {
+    @apply font-bold mt-6 mb-3 first:mt-0;
+  }
+
+  .prose h1 {
+    @apply text-2xl;
+  }
+
+  .prose h2 {
+    @apply text-xl;
+  }
+
+  .prose h3 {
+    @apply text-lg;
+  }
+
+  .prose code {
+    @apply px-1.5 py-0.5 rounded text-sm;
+    background-color: rgba(124, 93, 250, 0.1);
+    color: #5533a5;
+  }
+
+  .prose pre {
+    @apply p-4 rounded-lg overflow-x-auto mb-4;
+    background-color: rgba(124, 93, 250, 0.05);
+  }
+
+  .prose pre code {
+    @apply p-0 bg-transparent;
+  }
+
+  .prose blockquote {
+    @apply border-l-4 pl-4 italic my-4;
+    border-color: rgba(124, 93, 250, 0.3);
+  }
+
+  .prose hr {
+    @apply my-6 border-t;
+    border-color: rgba(124, 93, 250, 0.2);
+  }
+}
+
+/* Modal styles */
+.modal-backdrop {
+  @apply fixed inset-0 flex items-center justify-center z-[1000] p-0 md:p-4;
+  background: rgba(0, 0, 0, 0.5);
+  animation: fadeIn 0.2s ease;
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
+}
+
+@keyframes fadeIn {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+.modal {
+  @apply bg-white rounded-2xl max-w-lg w-full my-auto mx-auto;
+  max-height: 100vh;
+  max-height: 100dvh; /* Use dynamic viewport height on mobile */
+  overflow-y: auto;
+  box-shadow: 0 20px 40px rgba(0, 0, 0, 0.2);
+  animation: slideUp 0.3s ease;
+}
+
+.modal.large {
+  @apply max-w-2xl;
+}
+
+/* On mobile, make modal full screen */
+@media (max-width: 768px) {
+  .modal-backdrop .modal,
+  div[role="dialog"].modal,
+  .modal {
+    border-radius: 0 !important;
+    max-height: 100vh !important;
+    max-height: 100dvh !important;
+    min-height: auto !important;
+    height: auto !important;
+    width: 100% !important;
+    max-width: 100vw !important;
+    margin: 0 !important;
+    box-sizing: border-box !important;
+    display: flex !important;
+    flex-direction: column !important;
+  }
+
+  /* Ensure form takes remaining space and scrolls */
+  .modal form,
+  div[role="dialog"] form {
+    flex: 1 1 auto !important;
+    min-height: 0 !important;
+    overflow-y: auto !important;
+    padding: 0.75rem 1rem !important;
+  }
+
+  /* Prevent header and actions from shrinking */
+  .modal-header {
+    flex-shrink: 0 !important;
+    padding: 0.75rem 1rem !important;
+  }
+
+  .modal-actions {
+    flex-shrink: 0 !important;
+    margin-top: 1rem !important;
+  }
+
+  /* Prevent any horizontal overflow */
+  .modal * {
+    max-width: 100%;
+    box-sizing: border-box;
+  }
+}
+
+@keyframes slideUp {
+  from {
+    transform: translateY(20px);
+    opacity: 0;
+  }
+  to {
+    transform: translateY(0);
+    opacity: 1;
+  }
+}
+
+.modal-header {
+  @apply flex justify-between items-center px-6 py-6 border-b;
+  border-color: rgba(42, 23, 72, 0.1);
+  gap: 1rem;
+  flex-shrink: 0 !important; /* Prevent header from shrinking */
+}
+
+/* Mobile adjustments for modal header */
+@media (max-width: 768px) {
+  div[role="dialog"] .modal-header,
+  .modal .modal-header,
+  .modal-header {
+    padding: 0.75rem 1rem !important;
+    position: sticky !important;
+    top: 0 !important;
+    z-index: 10 !important;
+    background-color: white !important;
+    gap: 0.5rem !important;
+  }
+
+  .modal-header h3 {
+    flex: 1;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+
+  .modal-header .close-btn {
+    flex-shrink: 0;
+  }
+}
+
+.modal-header h3 {
+  @apply m-0 text-dark-900 text-xl font-bold;
+  overflow-wrap: break-word;
+  word-wrap: break-word;
+  hyphens: auto;
+}
+
+/* Mobile font size adjustment */
+@media (max-width: 768px) {
+  .modal-header h3 {
+    @apply text-lg;
+  }
+}
+
+.close-btn {
+  @apply bg-none border-none text-4xl leading-none cursor-pointer p-0 w-8 h-8 flex items-center justify-center rounded-lg transition-all;
+  color: rgba(42, 23, 72, 0.5);
+}
+
+.close-btn:hover {
+  background: rgba(42, 23, 72, 0.1);
+  color: #2a1748;
+}
+
+.modal form {
+  @apply px-6 py-6;
+  overflow-y: auto;
+  flex: 1 1 auto !important;
+  min-height: 0 !important; /* Important for flex children to scroll */
+}
+
+/* Mobile adjustments for modal form */
+@media (max-width: 768px) {
+  div[role="dialog"] form,
+  .modal form,
+  .modal-backdrop .modal form {
+    padding: 0.75rem 1rem !important;
+  }
+
+  /* Ensure all form content fits and wraps properly */
+  .modal form * {
+    max-width: 100%;
+    word-wrap: break-word;
+    overflow-wrap: break-word;
+  }
+
+  .modal form input,
+  .modal form textarea,
+  .modal form select {
+    width: 100%;
+    box-sizing: border-box;
+  }
+}
+
+.modal-actions {
+  @apply flex gap-3 mt-6;
+  flex-shrink: 0 !important; /* Prevent buttons from shrinking */
+}
+
+/* Stack buttons vertically on mobile */
+@media (max-width: 640px) {
+  .modal-actions {
+    flex-direction: column;
+    margin-top: 1rem !important; /* Reduce top margin on mobile */
+  }
+}
+
+.modal-actions .btn-primary,
+.modal-actions .btn-secondary {
+  @apply flex-1;
+}
+
+/* Make buttons full width on mobile */
+@media (max-width: 640px) {
+  .modal-actions .btn-primary,
+  .modal-actions .btn-secondary {
+    width: 100%;
+  }
+
+  /* Reduce button padding on small screens to fit better */
+  .btn-primary,
+  .btn-secondary {
+    padding-left: 1.25rem;
+    padding-right: 1.25rem;
+    font-size: 0.9375rem;
+  }
+}
+
+/* Status options for radio buttons */
+.status-section {
+  @apply grid gap-2;
+}
+
+.status-label {
+  @apply font-medium text-dark-900;
+  font-size: 15px; /* Prevent iOS zoom */
+}
+
+.status-options {
+  @apply grid gap-2;
+}
+
+.status-option {
+  @apply flex items-center gap-3 p-4 border-2 rounded-xl cursor-pointer transition-all;
+  border-color: rgba(124, 93, 250, 0.2);
+  min-height: 56px; /* Better touch target on mobile */
+}
+
+.status-option span {
+  font-size: 15px; /* Prevent iOS zoom */
+}
+
+/* Mobile adjustments for status options */
+@media (max-width: 640px) {
+  .status-option {
+    @apply p-3 gap-2.5;
+    min-height: 48px;
+  }
+
+  .status-option span {
+    font-size: 14px;
+  }
+}
+
+.status-option:has(input:checked) {
+  @apply border-primary-700;
+  background: linear-gradient(
+    135deg,
+    rgba(124, 93, 250, 0.15),
+    rgba(155, 107, 255, 0.1)
+  );
+}
+
+.status-option input[type="radio"] {
+  @apply w-5 h-5 cursor-pointer;
+}
+
+.status-option span {
+  @apply text-dark-900 font-medium;
+}
+
+/* Form sections */
+.questions-section {
+  @apply mt-6;
+}
+
+.questions-section h3 {
+  @apply m-0 mb-4 text-dark-900 text-lg font-bold;
+}
+
+/* Mobile adjustments for questions section */
+@media (max-width: 640px) {
+  .questions-section {
+    margin-top: 1rem !important; /* Reduce top margin */
+  }
+
+  .questions-section h3 {
+    font-size: 1rem !important;
+    margin-bottom: 0.75rem !important; /* Reduce bottom margin */
+  }
+}
+
+.question-list {
+  @apply grid gap-5;
+}
+
+/* Mobile adjustments for question list */
+@media (max-width: 640px) {
+  .question-list {
+    gap: 0.75rem !important; /* Reduce gap between questions */
+  }
+}
+
+/* Radio and checkbox options */
+.radio-option,
+.checkbox-option {
+  @apply flex items-start gap-2 cursor-pointer;
+}
+
+.radio-option input,
+.checkbox-option input {
+  @apply mt-1 cursor-pointer;
+}
+
+.radio-option span,
+.checkbox-option span {
+  @apply flex-1 text-dark-900;
+}
+
+fieldset {
+  @apply grid gap-3 border-none p-0;
+  width: 100%;
+  max-width: 100%;
+  box-sizing: border-box;
+}
+
+legend {
+  @apply font-medium text-dark-900 mb-2;
+  font-size: 15px; /* Prevent iOS zoom */
+  width: 100%;
+  max-width: 100%;
+  overflow-wrap: break-word;
+  word-wrap: break-word;
+}
+
+fieldset small {
+  @apply text-sm text-dark-700 -mt-2;
+}
+
+label small {
+  @apply text-sm text-dark-700;
+}
+
+/* Ensure all form inputs and controls fit */
+input,
+textarea,
+select,
+button {
+  max-width: 100%;
+  box-sizing: border-box;
+}
+
+/* Mobile adjustments for form labels and fieldsets */
+@media (max-width: 640px) {
+  .form-label {
+    gap: 0.375rem !important;
+  }
+
+  .form-label > span {
+    font-size: 14px !important;
+    word-wrap: break-word;
+    overflow-wrap: break-word;
+  }
+
+  legend {
+    font-size: 14px !important;
+    word-wrap: break-word;
+    overflow-wrap: break-word;
+  }
+
+  fieldset small,
+  label small {
+    font-size: 12px;
+    line-height: 1.4;
+  }
+
+  .radio-option,
+  .checkbox-option {
+    gap: 0.5rem;
+  }
+
+  .radio-option span,
+  .checkbox-option span {
+    font-size: 14px;
+    word-wrap: break-word;
+    overflow-wrap: break-word;
+  }
+}
+
+.cancel-form {
+  @apply mt-8 pt-6 border-t;
+  border-color: rgba(123, 95, 250, 0.15);
+}
+
+.cancel-form h3 {
+  @apply text-red-700 mb-2;
+}
+
+.btn-danger {
+  @apply px-7 py-3 rounded-full border font-semibold cursor-pointer transition-all;
+  background: rgba(194, 59, 75, 0.12);
+  color: #c23b4b;
+  border-color: rgba(194, 59, 75, 0.3);
+}
+
+.btn-danger:hover {
+  background: rgba(194, 59, 75, 0.2);
+  border-color: #c23b4b;
+}
+
+/* Dark mode styles 
+ * Philosophy: Deep neutral base with vibrant accents
+ * - Background: Pure near-black base (#0c0b11) - allows page-specific themes to shine
+ * - Cards: Dark glass with subtle borders (rgba(28,28,35,0.85))
+ * - Text: High contrast white/light gray (#ffffff, #c9c9d4)
+ * - Accents: Bright saturated purple-pink (#8a3cff → #ff75d8)
+ * - Shadows: Deep blacks for premium feel
+ * Goal: Discord × Linear × Vercel aesthetic with dynamic theming
+ */
+html.dark {
+  color-scheme: dark;
+}
+
+html.dark body {
+  background: #0c0b11;
+  color: #ffffff;
+}
+
+html.dark .card,
+html.dark .card-sm {
+  background-color: rgba(28, 28, 35, 0.85);
+  color: #ffffff;
+  border: 1px solid rgba(255, 255, 255, 0.06);
+  box-shadow: 0 8px 30px rgba(0, 0, 0, 0.5);
+  backdrop-filter: blur(18px);
+}
+
+/* Only apply background to card/article headers, not page headers */
+html.dark article header,
+html.dark .card header {
+  background: rgba(20, 20, 28, 0.9) !important;
+  border-color: rgba(255, 255, 255, 0.08) !important;
+}
+
+html.dark .text-dark-900,
+html.dark .text-dark-800 {
+  color: #ffffff !important;
+}
+
+html.dark .text-dark-700,
+html.dark .text-dark-600 {
+  color: #c9c9d4 !important;
+}
+
+html.dark .text-dark-500 {
+  color: #a0a0b0 !important;
+}
+
+html.dark h1,
+html.dark h2,
+html.dark h3,
+html.dark h4,
+html.dark h5,
+html.dark h6 {
+  color: #ffffff !important;
+}
+
+html.dark p,
+html.dark span,
+html.dark div {
+  color: inherit;
+}
+
+html.dark input,
+html.dark textarea,
+html.dark select {
+  background-color: rgba(20, 20, 28, 0.9);
+  color: #ffffff;
+  border-color: rgba(255, 255, 255, 0.12);
+}
+
+html.dark input::placeholder,
+html.dark textarea::placeholder {
+  color: #6b6b7b;
+}
+
+html.dark input:focus,
+html.dark textarea:focus,
+html.dark select:focus {
+  background-color: rgba(25, 25, 35, 1);
+  border-color: #8a3cff;
+  box-shadow: 0 0 0 3px rgba(138, 60, 255, 0.2);
+}
+
+html.dark .btn-secondary {
+  background-color: rgba(139, 92, 246, 0.15);
+  color: #c4b5fd;
+}
+
+html.dark .btn-secondary:hover {
+  background-color: rgba(139, 92, 246, 0.25);
+}
+
+html.dark a {
+  color: #a78bfa;
+}
+
+html.dark a:hover {
+  color: #c4b5fd;
+}
+
+html.dark .mobile-nav-panel nav {
+  background: rgba(30, 30, 46, 0.95);
+  border-color: rgba(139, 92, 246, 0.3);
+  box-shadow: 0 18px 40px rgba(0, 0, 0, 0.4);
+  backdrop-filter: blur(10px);
+}
+
+html.dark .mobile-nav-link {
+  color: #e5e7eb;
+}
+
+html.dark .mobile-nav-link:hover {
+  background-color: rgba(139, 92, 246, 0.2);
+  color: #c4b5fd;
+}
+
+html.dark .mobile-nav-meta {
+  border-color: rgba(139, 92, 246, 0.2);
+  color: #9ca3af;
+}
+
+html.dark .mobile-nav-meta span {
+  color: #d1d5db;
+}
+
+html.dark .mobile-nav-toggle {
+  background: rgba(30, 30, 46, 0.9);
+  border-color: rgba(139, 92, 246, 0.3);
+}
+
+html.dark .mobile-nav-toggle span {
+  background-color: #e5e7eb;
+}
+
+html.dark .badge-status {
+  background-color: rgba(138, 60, 255, 0.25);
+  color: #a583ff;
+  border: 1px solid rgba(138, 60, 255, 0.3);
+}
+
+html.dark .error-banner {
+  background-color: rgba(239, 68, 68, 0.2);
+  color: #fca5a5;
+  border: 1px solid rgba(239, 68, 68, 0.4);
+}
+
+html.dark .success-banner {
+  background-color: rgba(34, 197, 94, 0.2);
+  color: #86efac;
+  border: 1px solid rgba(34, 197, 94, 0.4);
+}
+
+html.dark footer {
+  color: #6b6b7b;
+}
+
+html.dark .modal-backdrop {
+  background-color: rgba(0, 0, 0, 0.9);
+  backdrop-filter: blur(8px);
+}
+
+html.dark .modal {
+  background-color: rgba(20, 20, 28, 0.98) !important;
+  color: #ffffff;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  box-shadow: 0 25px 50px rgba(0, 0, 0, 0.7);
+}
+
+/* Dark mode mobile modal fixes */
+@media (max-width: 768px) {
+  html.dark .modal,
+  html.dark div[role="dialog"].modal {
+    display: flex !important;
+    flex-direction: column !important;
+    border-radius: 0 !important;
+    max-height: 100vh !important;
+    max-height: 100dvh !important;
+    min-height: auto !important;
+    height: auto !important;
+  }
+
+  html.dark .modal form,
+  html.dark div[role="dialog"] form {
+    flex: 1 1 auto !important;
+    min-height: 0 !important;
+    overflow-y: auto !important;
+    padding: 0.75rem 1rem !important;
+  }
+
+  html.dark .modal-header {
+    flex-shrink: 0 !important;
+    padding: 0.75rem 1rem !important;
+  }
+
+  html.dark .modal-actions {
+    flex-shrink: 0 !important;
+    margin-top: 1rem !important;
+  }
+}
+
+html.dark label {
+  color: #c9c9d4;
+}
+
+html.dark small {
+  color: #8b8b99;
+}
+
+html.dark code {
+  background-color: rgba(138, 60, 255, 0.15);
+  color: #a583ff;
+  padding: 2px 6px;
+  border-radius: 4px;
+}
+
+/* Override all bg-white classes */
+html.dark .bg-white,
+html.dark [class*="bg-white"] {
+  background-color: rgba(28, 28, 35, 0.85) !important;
+  color: #ffffff !important;
+  border-color: rgba(255, 255, 255, 0.08) !important;
+}
+
+/* Input fields */
+html.dark .input-field {
+  background-color: rgba(20, 20, 35, 0.8);
+  color: #e8e8e8;
+  border-color: rgba(139, 92, 246, 0.25);
+}
+
+/* Fix inputs with inline bg-white styles */
+html.dark input[class*="bg-white"],
+html.dark textarea[class*="bg-white"],
+html.dark select[class*="bg-white"] {
+  background-color: rgba(20, 20, 35, 0.9) !important;
+  color: #ffffff !important;
+  border-color: rgba(139, 92, 246, 0.25) !important;
+}
+
+/* Dropdown suggestions */
+html.dark .suggestions {
+  background-color: #2a2a3e;
+  border-color: rgba(139, 92, 246, 0.3);
+}
+
+html.dark .suggestion-item {
+  color: #f0f0f0;
+}
+
+html.dark .suggestion-item:hover {
+  background-color: rgba(138, 60, 255, 0.25);
+}
+
+/* Options list */
+html.dark .option-grid,
+html.dark .option-item {
+  background-color: transparent;
+  color: #ffffff;
+  border-color: rgba(255, 255, 255, 0.12);
+}
+
+html.dark .option-item:hover {
+  background-color: rgba(138, 60, 255, 0.15);
+  border-color: rgba(138, 60, 255, 0.4);
+}
+
+html.dark .option-item.selected {
+  background-color: rgba(138, 60, 255, 0.3);
+  border-color: #8a3cff;
+}
+
+/* Modal specific */
+html.dark .modal-header {
+  border-color: rgba(255, 255, 255, 0.08);
+}
+
+html.dark .close-btn {
+  color: #ffffff;
+}
+
+html.dark .close-btn:hover {
+  background-color: rgba(239, 68, 68, 0.25);
+}
+
+/* Tables and lists */
+html.dark table {
+  border-color: rgba(255, 255, 255, 0.1);
+}
+
+html.dark th {
+  background-color: rgba(138, 60, 255, 0.15);
+  color: #ffffff;
+}
+
+html.dark td {
+  border-color: rgba(255, 255, 255, 0.08);
+  color: #c9c9d4;
+}
+
+html.dark tr:hover {
+  background-color: rgba(138, 60, 255, 0.1);
+}
+
+/* Borders */
+html.dark [class*="border-"] {
+  border-color: rgba(255, 255, 255, 0.12) !important;
+}
+
+/* Text colors - more specific */
+html.dark .text-gray-500,
+html.dark .text-gray-600,
+html.dark .text-gray-700 {
+  color: #8b8b99 !important;
+}
+
+/* Form elements in cards */
+html.dark .card input,
+html.dark .card textarea,
+html.dark .card select {
+  background-color: rgba(15, 15, 22, 0.9);
+  color: #ffffff;
+  border-color: rgba(255, 255, 255, 0.12);
+}
+
+/* Mobile nav */
+html.dark .mobile-nav-meta {
+  color: #8b8b99;
+  border-color: rgba(255, 255, 255, 0.1);
+}
+
+/* Event page specific dark mode */
+html.dark [data-event-page] .event-page-wrapper {
+  background: linear-gradient(
+    135deg,
+    rgba(0, 0, 0, 0.3) 0%,
+    rgba(0, 0, 0, 0.15) 50%,
+    rgba(0, 0, 0, 0.3) 100%
+  );
+}
+
+html.dark .event-card {
+  background-color: rgba(30, 30, 46, 0.85) !important;
+  backdrop-filter: blur(12px);
+}
+
+html.dark .event-section {
+  background-color: rgba(20, 20, 35, 0.6) !important;
+}
+
+/* Event header when on event page */
+html.dark .top-nav.event-header {
+  background: linear-gradient(
+    135deg,
+    var(--event-primary-800, rgba(26, 26, 40, 0.95)),
+    var(--event-primary-900, rgba(20, 20, 35, 0.95))
+  ) !important;
+  border-color: rgba(139, 92, 246, 0.25) !important;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.4);
+}
+
+/* Top navigation bar - general dark mode */
+html.dark .top-nav {
+  background: rgba(20, 20, 36, 0.9) !important;
+  border-bottom-color: rgba(139, 92, 246, 0.26) !important;
+  color: #f6f5ff !important;
+  box-shadow: 0 16px 30px rgba(8, 8, 24, 0.3) !important;
+}
+
+html.dark .top-nav .brand-link {
+  color: #f6f5ff !important;
+}
+
+html.dark .top-nav .nav-link,
+html.dark .top-nav .nav-icon-button,
+html.dark .top-nav .nav-meta {
+  color: #f6f5ff !important;
+}
+
+html.dark .top-nav .nav-meta {
+  opacity: 0.8;
+}
+
+/* Event chip in top nav */
+html.dark .top-nav .event-chip {
+  background: rgba(24, 20, 44, 0.72) !important;
+  color: #ffffff !important;
+  border-color: rgba(139, 92, 246, 0.3) !important;
+  box-shadow: 0 16px 40px rgba(6, 6, 18, 0.35) !important;
+}
+
+/* Dark header variant (when explicitly set) */
+html.dark .top-nav.dark-header {
+  background: rgba(20, 20, 36, 0.9) !important;
+  border-bottom-color: rgba(139, 92, 246, 0.26) !important;
+  color: #f6f5ff !important;
+  box-shadow: 0 16px 30px rgba(8, 8, 24, 0.3) !important;
+}
+
+/* Event header with dark header */
+html.dark .top-nav.event-header.dark-header {
+  background: var(--event-header-bg-dark, rgba(34, 28, 64, 0.94)) !important;
+  border-bottom-color: var(
+    --event-header-border-dark,
+    rgba(139, 92, 246, 0.4)
+  ) !important;
+  color: var(--event-header-text-dark, #ffffff) !important;
+  box-shadow: 0 18px 36px rgba(8, 6, 28, 0.32) !important;
+}
+
+/* Better contrast for event details sections */
+html.dark details {
+  background-color: rgba(30, 30, 46, 0.6);
+}
+
+html.dark summary {
+  color: #e8e8e8 !important;
+}
+
+html.dark summary:hover {
+  background-color: rgba(139, 92, 246, 0.1);
+}
+
+/* Buttons - vibrant accent gradient for dark mode */
+html.dark .btn-primary {
+  background: linear-gradient(135deg, #8a3cff, #ff75d8);
+  color: #ffffff;
+  box-shadow: 0 4px 20px rgba(138, 60, 255, 0.4);
+}
+
+html.dark .btn-primary:hover {
+  background: linear-gradient(135deg, #9a4cff, #ff85e8);
+  box-shadow: 0 6px 30px rgba(138, 60, 255, 0.6);
+}
+
+html.dark .btn-secondary {
+  background: rgba(138, 60, 255, 0.15);
+  color: #a583ff;
+  border: 1px solid rgba(138, 60, 255, 0.3);
+}
+
+html.dark .btn-secondary:hover {
+  background: rgba(138, 60, 255, 0.25);
+  border-color: rgba(138, 60, 255, 0.5);
+}
+
+/* Shadow adjustments */
+html.dark .shadow-button,
+html.dark .shadow-card {
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.5);
+}
+
+/* Status indicators */
+html.dark .bg-green-50,
+html.dark .bg-green-100 {
+  background-color: rgba(34, 197, 94, 0.15) !important;
+}
+
+html.dark .bg-amber-50,
+html.dark .bg-amber-100 {
+  background-color: rgba(251, 191, 36, 0.15) !important;
+}
+
+html.dark .bg-red-50,
+html.dark .bg-red-100 {
+  background-color: rgba(239, 68, 68, 0.15) !important;
+}
+
+html.dark .text-green-700,
+html.dark .text-green-800 {
+  color: #86efac !important;
+}
+
+html.dark .text-amber-700,
+html.dark .text-amber-800 {
+  color: #fcd34d !important;
+}
+
+html.dark .text-red-700,
+html.dark .text-red-800 {
+  color: #fca5a5 !important;
+}
+
+/* Additional utility overrides */
+html.dark .bg-primary-gradient {
+  background: linear-gradient(135deg, #8b5cf6, #a78bfa);
+}
+
+html.dark [style*="background-color: rgba(124, 93, 250"] {
+  background-color: rgba(139, 92, 246, 0.2) !important;
+}
+
+html.dark [style*="border-color: rgba(124, 93, 250"] {
+  border-color: rgba(139, 92, 246, 0.3) !important;
+}
+
+/* Question/RSVP cards and sections */
+html.dark .question-card,
+html.dark .rsvp-card {
+  background-color: #2a2a3e;
+  border-color: rgba(139, 92, 246, 0.3);
+}
+
+/* Spotify/music note badge */
+html.dark [style*="background-color: rgba(124, 93, 250"] {
+  background-color: rgba(139, 92, 246, 0.3) !important;
+}
+
+/* Make sure all buttons are visible */
+html.dark button {
+  color: inherit;
+}
+
+html.dark .btn-secondary button {
+  color: #c4b5fd;
+}
+
+/* Status cards (Attending, Maybe, Not Attending) */
+html.dark .status-card {
+  opacity: 0.95;
+}
+
+/* Fix gear/settings icon visibility */
+html.dark [class*="text-gray"] {
+  color: #aaa !important;
+}
+
+/* Email and metadata text */
+html.dark .mobile-nav-meta span,
+html.dark [class*="italic"] {
+  color: #aaa;
+}
+
+/* Fix any remaining light text on light backgrounds */
+html.dark * {
+  border-color: rgba(139, 92, 246, 0.2);
+}
+
+/* Specific fix for management button */
+html.dark button[class*="Management"],
+html.dark a[href*="manage"] {
+  color: #f0f0f0 !important;
+}
+
+/* Fix tab indicators */
+html.dark [role="tab"],
+html.dark [class*="tab"] {
+  color: #e0e0e0;
+}
+
+html.dark .tab-btn {
+  color: #aaa;
+  border-bottom-color: transparent;
+}
+
+html.dark .tab-btn:hover {
+  color: #c4b5fd;
+  background: rgba(139, 92, 246, 0.15);
+}
+
+html.dark .tab-btn-active {
+  color: #c4b5fd !important;
+  border-bottom-color: #8b5cf6 !important;
+}
+
+html.dark [role="tab"][aria-selected="true"],
+html.dark [class*="tab"][class*="active"] {
+  color: #c4b5fd;
+  border-color: #8b5cf6 !important;
+}
+
+/* Question type badges and indicators */
+html.dark [class*="badge"] {
+  color: #c4b5fd;
+  border-color: rgba(139, 92, 246, 0.3);
+}
+
+html.dark .badge-primary {
+  background-color: rgba(139, 92, 246, 0.3);
+  color: #c4b5fd;
+}
+
+html.dark .badge-status {
+  background-color: rgba(139, 92, 246, 0.2);
+  color: #c4b5fd;
+}
+
+/* Public link box styling - exclude event page wrapper */
+html.dark
+  [style*="background: linear-gradient"]:not(.event-page-wrapper):not(
+    .event-page-wrapper *
+  ) {
+  background: linear-gradient(
+    135deg,
+    rgba(139, 92, 246, 0.15),
+    rgba(167, 139, 250, 0.15)
+  ) !important;
+}
+
+html.dark .text-primary-50,
+html.dark [class*="text-primary"] {
+  color: #e0e0e0 !important;
+}
+
+/* Strong/bold text visibility */
+html.dark strong {
+  color: #f5f5f5;
+}
+
+/* Small text (like timestamps, metadata) */
+html.dark small,
+html.dark .text-sm {
+  color: #aaa;
+}
+
+/* Playlist/song items */
+html.dark [class*="playlist"],
+html.dark [class*="track"] {
+  background-color: rgba(139, 92, 246, 0.1);
+  border-color: rgba(139, 92, 246, 0.2);
+}
+
+/* Fix select/option elements */
+html.dark option {
+  background-color: #1a1a2e;
+  color: #f0f0f0;
+}
+
+/* Ensure checkboxes and radio buttons are visible */
+html.dark input[type="checkbox"],
+html.dark input[type="radio"] {
+  accent-color: #8b5cf6;
+}
+
+/* Fix any gradient text or special styling */
+html.dark [class*="gradient"] {
+  color: #f0f0f0;
+}
+
+/* Artist/album/song names in Spotify sections */
+html.dark .track-name,
+html.dark .artist-name,
+html.dark .album-name {
+  color: #e0e0e0;
+}
+
+/* Public link and code displays */
+html.dark code,
+html.dark pre,
+html.dark [class*="code"] {
+  background-color: rgba(139, 92, 246, 0.15);
+  color: #c4b5fd;
+}
+
+/* "Remove" and delete buttons */
+html.dark .btn-danger,
+html.dark button[class*="remove"],
+html.dark button[class*="delete"] {
+  background-color: rgba(239, 68, 68, 0.2);
+  color: #fca5a5;
+  border-color: rgba(239, 68, 68, 0.3);
+}
+
+html.dark .btn-danger:hover,
+html.dark button[class*="remove"]:hover,
+html.dark button[class*="delete"]:hover {
+  background-color: rgba(239, 68, 68, 0.3);
+  border-color: #ef4444;
+}
+
+/* Question cards in manage page */
+html.dark article.bg-white {
+  background-color: rgba(28, 28, 35, 0.9) !important;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+html.dark article header {
+  border-bottom-color: rgba(255, 255, 255, 0.1) !important;
+}
+
+html.dark article header h3,
+html.dark article header p,
+html.dark article header span {
+  color: #ffffff !important;
+}
+
+/* Question text labels */
+html.dark .form-label > span {
+  color: #c9c9d4;
+}
+
+/* Gray text in questions (descriptions, helper text) */
+html.dark .text-gray-500,
+html.dark .text-gray-600 {
+  color: #aaa !important;
+}
+
+/* Header for question cards - remove any light backgrounds */
+html.dark article header[class*="bg-"] {
+  background-color: transparent !important;
+}
+
+/* Type badges in question cards */
+html.dark .bg-blue-100 {
+  background-color: rgba(59, 130, 246, 0.2) !important;
+}
+
+html.dark .text-blue-700 {
+  color: #93c5fd !important;
+}
+
+html.dark .bg-purple-100 {
+  background-color: rgba(139, 92, 246, 0.2) !important;
+}
+
+html.dark .text-purple-700 {
+  color: #c4b5fd !important;
+}
+
+html.dark .bg-green-100 {
+  background-color: rgba(34, 197, 94, 0.2) !important;
+}
+
+html.dark .text-green-700 {
+  color: #86efac !important;
+}
+
+html.dark .bg-emerald-100 {
+  background-color: rgba(16, 185, 129, 0.2) !important;
+}
+
+html.dark .text-emerald-700 {
+  color: #6ee7b7 !important;
+}
+
+html.dark .bg-orange-100 {
+  background-color: rgba(249, 115, 22, 0.2) !important;
+}
+
+html.dark .text-orange-700 {
+  color: #fdba74 !important;
+}
+
+/* Red text for danger/delete actions */
+html.dark .text-red-600,
+html.dark .text-red-700 {
+  color: #fca5a5 !important;
+}
+
+/* Spotify connection status boxes */
+html.dark .bg-gradient-to-br.from-green-50 {
+  background: rgba(34, 197, 94, 0.15) !important;
+}
+
+html.dark .border-green-200 {
+  border-color: rgba(34, 197, 94, 0.3) !important;
+}
+
+html.dark .bg-green-500 {
+  background-color: rgba(34, 197, 94, 0.4) !important;
+}
+
+html.dark .border-green-300 {
+  border-color: rgba(34, 197, 94, 0.4) !important;
+}
+
+html.dark .text-green-700 {
+  color: #86efac !important;
+}
+
+html.dark .hover\:bg-green-50:hover {
+  background-color: rgba(34, 197, 94, 0.1) !important;
+}
+
+/* Remove darker backgrounds from card headers - they should match card bg */
+html.dark article.bg-white header {
+  background-color: transparent !important;
+}
+
+/* Page headers - titles and descriptions */
+html.dark .text-dark-900 {
+  color: #f0f0f0 !important;
+}
+
+html.dark .text-dark-700,
+html.dark .text-dark-700\/70 {
+  color: #b0b0b0 !important;
+}
+
+html.dark .text-dark-800 {
+  color: #e0e0e0 !important;
+}
+
+/* Customize appearance button and collapsible sections */
+html.dark button[class*="text-dark-800"] {
+  color: #e0e0e0 !important;
+}
+
+html.dark button[class*="text-dark-800"]:hover {
+  color: #c4b5fd !important;
+}
+
+/* Border colors for gray variants */
+html.dark .border-gray-200,
+html.dark [class*="border-gray-200"] {
+  border-color: rgba(255, 255, 255, 0.1) !important;
+}
+
+html.dark .border-gray-300 {
+  border-color: rgba(255, 255, 255, 0.12) !important;
+}
+
+/* Gradient backgrounds */
+html.dark .from-primary-50,
+html.dark [class*="from-primary-50"] {
+  --tw-gradient-from: rgba(139, 92, 246, 0.15) var(--tw-gradient-from-position) !important;
+  --tw-gradient-to: rgba(139, 92, 246, 0) var(--tw-gradient-to-position) !important;
+  --tw-gradient-stops: var(--tw-gradient-from), var(--tw-gradient-to) !important;
+}
+
+html.dark .to-secondary-50,
+html.dark [class*="to-secondary-50"] {
+  --tw-gradient-to: rgba(167, 139, 250, 0.15) var(--tw-gradient-to-position) !important;
+}
+
+/* Hover states */
+html.dark .hover\:bg-primary-50:hover,
+html.dark [class*="hover:bg-primary-50"]:hover {
+  background-color: rgba(139, 92, 246, 0.1) !important;
+}
+
+html.dark .hover\:bg-secondary-50:hover,
+html.dark [class*="hover:bg-secondary-50"]:hover {
+  background-color: rgba(167, 139, 250, 0.1) !important;
+}
+
+html.dark .hover\:bg-gray-50:hover,
+html.dark [class*="hover:bg-gray-50"]:hover {
+  background-color: rgba(255, 255, 255, 0.05) !important;
+}
+
+html.dark .hover\:bg-gray-100:hover,
+html.dark [class*="hover:bg-gray-100"]:hover {
+  background-color: rgba(255, 255, 255, 0.08) !important;
+}
+
+/* Mobile nav */
+html.dark .mobile-nav-meta {
+  color: #aaa;
+  border-color: rgba(139, 92, 246, 0.2);
+}
+
+/* RSVP cards and response sections */
+html.dark .bg-primary-700\/5,
+html.dark [class*="bg-primary-700/5"] {
+  background-color: rgba(139, 92, 246, 0.1) !important;
+}
+
+html.dark .bg-emerald-50\/40,
+html.dark [class*="bg-emerald-50/40"] {
+  background-color: rgba(16, 185, 129, 0.15) !important;
+}
+
+html.dark .border-emerald-200,
+html.dark [class*="border-emerald-200"] {
+  border-color: rgba(16, 185, 129, 0.3) !important;
+}
+
+html.dark .bg-yellow-500\/15,
+html.dark [class*="bg-yellow-500/15"] {
+  background-color: rgba(234, 179, 8, 0.2) !important;
+}
+
+html.dark .text-yellow-700,
+html.dark [class*="text-yellow-700"] {
+  color: #fcd34d !important;
+}
+
+html.dark .bg-gray-500\/15,
+html.dark [class*="bg-gray-500/15"] {
+  background-color: rgba(255, 255, 255, 0.08) !important;
+}
+
+html.dark .text-gray-600,
+html.dark [class*="text-gray-600"] {
+  color: #9ca3af !important;
+}
+
+html.dark .text-primary-700,
+html.dark [class*="text-primary-700"] {
+  color: #c4b5fd !important;
+}
+
+html.dark .text-dark-500 {
+  color: #8b8b99 !important;
+}
+
+/* Dark mode prose/markdown styles */
+html.dark .prose a {
+  color: #a78bfa;
+}
+
+html.dark .prose a:hover {
+  color: #c4b5fd;
+}
+
+html.dark .prose code {
+  background-color: rgba(139, 92, 246, 0.2);
+  color: #c4b5fd;
+}
+
+html.dark .prose pre {
+  background-color: rgba(139, 92, 246, 0.1);
+}
+
+html.dark .prose blockquote {
+  border-color: rgba(139, 92, 246, 0.4);
+  color: #c9c9d4;
+}
+
+html.dark .prose hr {
+  border-color: rgba(139, 92, 246, 0.3);
+}
+
+html.dark .prose strong,
+html.dark .prose b {
+  color: #ffffff;
+}
