@@ -282,8 +282,8 @@ catalogs:
       specifier: ^25.9.1
       version: 25.9.4
     '@types/nodemailer':
-      specifier: ^7.0.3
-      version: 7.0.12
+      specifier: ^8.0.0
+      version: 8.0.2
     '@types/qrcode':
       specifier: ^1.5.5
       version: 1.5.6
@@ -633,7 +633,7 @@ importers:
         version: 25.9.4
       '@types/nodemailer':
         specifier: catalog:types
-        version: 7.0.12
+        version: 8.0.2
       autoprefixer:
         specifier: catalog:dev
         version: 10.5.0(postcss@8.5.29)
@@ -3456,8 +3456,8 @@ packages:
   '@types/node@25.9.4':
     resolution: {integrity: sha512-dszCsrKb5U7ZsVZBWiHFklTloVl0mSEnWH/iZXfZUlI4rzCUnsvGmgqfuVRHL54ugE7/wRuxEIXRa2iMZ+BG6g==}
 
-  '@types/nodemailer@7.0.12':
-    resolution: {integrity: sha512-80vKwiIsVSyFA1rRovH59jNPLBOuc6dRZIHEu40gXTkBkZnQv8vog1xSGEb9j5q/tdMAs5ivvDR2pLTU0hGHXA==}
+  '@types/nodemailer@8.0.2':
+    resolution: {integrity: sha512-c7M5ox8p0nEOfbJ2E9Qcmt8/QCu/VzsiAhzBiZbvky2PhKZDHpKB3sQHBM5MEZNkCfBOaS6S9//AGPRTNB7IaA==}
 
   '@types/pg@8.20.0':
     resolution: {integrity: sha512-bEPFOaMAHTEP1EzpvHTbmwR8UsFyHSKsRisLIHVMXnpNefSbGA1bD6CVy+qKjGSqmZqNqBDV2azOBo8TgkcVow==}
@@ -9386,7 +9386,7 @@ snapshots:
     dependencies:
       undici-types: 7.24.6
 
-  '@types/nodemailer@7.0.12':
+  '@types/nodemailer@8.0.2':
     dependencies:
       '@types/node': 25.9.4
 
