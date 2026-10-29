@@ -124,14 +124,15 @@ Replace the `<style>` block starting around line 600 with Tailwind classes. Use 
 
 ```svelte
 <button class="primary-btn">Click me</button>
+
 <style>
-  .primary-btn {
-    background: linear-gradient(135deg, #7c5dfa, #9b6bff);
-    color: white;
-    padding: 0.85rem 1.75rem;
-    border-radius: 999px;
-    /* ... */
-  }
+	.primary-btn {
+		background: linear-gradient(135deg, #7c5dfa, #9b6bff);
+		color: white;
+		padding: 0.85rem 1.75rem;
+		border-radius: 999px;
+		/* ... */
+	}
 </style>
 ```
 
@@ -140,8 +141,10 @@ Replace the `<style>` block starting around line 600 with Tailwind classes. Use 
 ```svelte
 <button class="btn-primary">Click me</button>
 <!-- OR with inline classes: -->
-<button class="px-7 py-3.5 rounded-full bg-primary-gradient text-white font-semibold cursor-pointer shadow-button hover:-translate-y-px">
-  Click me
+<button
+	class="px-7 py-3.5 rounded-full bg-primary-gradient text-white font-semibold cursor-pointer shadow-button hover:-translate-y-px"
+>
+	Click me
 </button>
 ```
 
@@ -151,12 +154,13 @@ Replace the `<style>` block starting around line 600 with Tailwind classes. Use 
 
 ```svelte
 <input type="text" name="title" />
+
 <style>
-  input {
-    border-radius: 12px;
-    border: 1px solid rgba(123, 95, 250, 0.25);
-    /* ... */
-  }
+	input {
+		border-radius: 12px;
+		border: 1px solid rgba(123, 95, 250, 0.25);
+		/* ... */
+	}
 </style>
 ```
 
@@ -165,7 +169,11 @@ Replace the `<style>` block starting around line 600 with Tailwind classes. Use 
 ```svelte
 <input type="text" name="title" class="input-field" />
 <!-- OR: -->
-<input type="text" name="title" class="rounded-xl border border-primary-700/25 px-4 py-3 font-inherit bg-white/90 focus:outline-none focus:border-primary-700 focus:ring-4 focus:ring-primary-700/18" />
+<input
+	type="text"
+	name="title"
+	class="rounded-xl border border-primary-700/25 px-4 py-3 font-inherit bg-white/90 focus:outline-none focus:border-primary-700 focus:ring-4 focus:ring-primary-700/18"
+/>
 ```
 
 ### Cards
@@ -174,13 +182,14 @@ Replace the `<style>` block starting around line 600 with Tailwind classes. Use 
 
 ```svelte
 <div class="card">Content</div>
+
 <style>
-  .card {
-    background: white;
-    border-radius: 20px;
-    padding: 2rem;
-    box-shadow: 0 20px 40px rgba(60, 35, 110, 0.08);
-  }
+	.card {
+		background: white;
+		border-radius: 20px;
+		padding: 2rem;
+		box-shadow: 0 20px 40px rgba(60, 35, 110, 0.08);
+	}
 </style>
 ```
 
@@ -198,20 +207,19 @@ Replace the `<style>` block starting around line 600 with Tailwind classes. Use 
 
 ```svelte
 <span class="badge attending">✓ Attending</span>
+
 <style>
-  .badge.attending {
-    background: rgba(34, 197, 94, 0.1);
-    color: #15803d;
-  }
+	.badge.attending {
+		background: rgba(34, 197, 94, 0.1);
+		color: #15803d;
+	}
 </style>
 ```
 
 **New:**
 
 ```svelte
-<span class="badge-attending px-3 py-1 rounded-full text-xs font-semibold">
-  ✓ Attending
-</span>
+<span class="badge-attending px-3 py-1 rounded-full text-xs font-semibold"> ✓ Attending </span>
 ```
 
 ## 🧪 Testing Checklist

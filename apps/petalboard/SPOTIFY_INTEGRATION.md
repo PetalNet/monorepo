@@ -89,16 +89,16 @@ When a question has `type: "spotify_playlist"`, the response `value` is stored a
 
 ```json
 {
-  "id": "spotify_track_id",
-  "name": "Song Name",
-  "artists": [{ "name": "Artist Name" }],
-  "album": {
-    "name": "Album Name",
-    "images": [{ "url": "image_url" }]
-  },
-  "uri": "spotify:track:xxx",
-  "preview_url": "preview_url_if_available",
-  "duration_ms": 240000
+	"id": "spotify_track_id",
+	"name": "Song Name",
+	"artists": [{ "name": "Artist Name" }],
+	"album": {
+		"name": "Album Name",
+		"images": [{ "url": "image_url" }]
+	},
+	"uri": "spotify:track:xxx",
+	"preview_url": "preview_url_if_available",
+	"duration_ms": 240000
 }
 ```
 

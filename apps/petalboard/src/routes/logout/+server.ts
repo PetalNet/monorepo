@@ -1,7 +1,7 @@
-import { redirect } from "@sveltejs/kit";
 import { deleteSession } from "$lib/server/auth";
+import { redirect } from "@sveltejs/kit";
 
 export const POST = async ({ cookies }) => {
-  await deleteSession(cookies);
-  throw redirect(303, "/");
+	await deleteSession(cookies);
+	throw redirect(303, "/");
 };
