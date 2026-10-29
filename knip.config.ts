@@ -46,6 +46,10 @@ export default {
 			// build:wasm needs the Rust wasm-bindgen CLI, which is not an npm package.
 			ignoreBinaries: ["wasm-bindgen"],
 		},
+		"apps/petalboard": {
+			// Only the gitignored generated Prisma client imports @prisma/client/runtime.
+			ignoreDependencies: ["@prisma/client"],
+		},
 		"apps/slide": {
 			ignoreBinaries: ["prisma!"],
 		},

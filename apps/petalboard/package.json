@@ -9,8 +9,9 @@
 		"check:watch": "svelte-kit sync && svelte-check --tsconfig ./tsconfig.json --watch",
 		"dev": "vite dev",
 		"generate": "prisma generate",
-		"prepare": "prisma generate && svelte-kit sync",
-		"preview": "vite preview"
+		"prepare": "svelte-kit sync && prisma generate",
+		"preview": "vite preview",
+		"test": "vitest run"
 	},
 	"dependencies": {
 		"@prisma/client": "catalog:prisma6",
@@ -30,11 +31,13 @@
 		"@types/node": "catalog:types",
 		"@types/nodemailer": "catalog:types",
 		"autoprefixer": "catalog:dev",
+		"happy-dom": "catalog:dev",
 		"postcss": "catalog:dev",
 		"prisma": "catalog:prisma6",
 		"svelte-check": "catalog:dev",
 		"tailwindcss": "catalog:legacy",
 		"typescript": "catalog:dev",
-		"vite": "catalog:dev"
+		"vite": "catalog:dev",
+		"vitest": "catalog:dev"
 	}
 }

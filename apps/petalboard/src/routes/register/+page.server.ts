@@ -1,8 +1,8 @@
 import { hashPassword } from "$lib/server/auth";
 import { sendVerificationEmail } from "$lib/server/email";
+import { Prisma } from "$lib/server/generated/prisma/client";
 import { prisma } from "$lib/server/prisma";
 import { registerSchema } from "$lib/server/validation";
-import { Prisma } from "@prisma/client";
 import { fail, redirect } from "@sveltejs/kit";
 import { customAlphabet } from "nanoid";
 

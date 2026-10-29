@@ -1,8 +1,8 @@
+import { Prisma } from "$lib/server/generated/prisma/client";
 /* oxlint-disable eslint/no-await-in-loop -- Each attempt retries the insert after a public-code collision. */
 import { prisma } from "$lib/server/prisma";
 import { eventSchema } from "$lib/server/validation";
 import { parseLocalDateTimeInTimezone } from "$lib/utils/timezones";
-import { Prisma } from "@prisma/client";
 import { fail, redirect } from "@sveltejs/kit";
 import { customAlphabet } from "nanoid";
 

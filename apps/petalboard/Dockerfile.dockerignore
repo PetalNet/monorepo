@@ -12,3 +12,5 @@ apps/petalboard/build
 apps/petalboard/.svelte-kit
 apps/petalboard/.env*
 apps/petalboard/**/*.db
+apps/petalboard/**/*.db-*
+apps/petalboard/src/lib/server/generated

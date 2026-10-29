@@ -22,7 +22,9 @@ COPY --from=build /workspace/apps/petalboard/node_modules /workspace/apps/petalb
 COPY --from=build /workspace/apps/petalboard/package.json /workspace/apps/petalboard/package.json
 COPY --from=build /workspace/apps/petalboard/prisma /workspace/apps/petalboard/prisma
 COPY --from=build /workspace/apps/petalboard/build /workspace/apps/petalboard/build
+# The bundled client loads its query engine from the generated directory.
+COPY --from=build /workspace/apps/petalboard/src/lib/server/generated /workspace/apps/petalboard/src/lib/server/generated
 WORKDIR /workspace/apps/petalboard
 RUN mkdir -p /app/data
 EXPOSE 4173
-CMD ["sh", "-c", "pnpm exec prisma migrate deploy && exec node build"]
+CMD ["sh", "-c", "node_modules/.bin/prisma migrate deploy && exec node build"]

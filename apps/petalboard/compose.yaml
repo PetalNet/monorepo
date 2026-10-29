@@ -8,9 +8,10 @@ services:
     image: petalboard:${MONOREPO_SHA:?Set the monorepo main SHA the image was built from}
     container_name: petalboard-app
     restart: unless-stopped
-    env_file:
-      - path: ${PETALBOARD_ENV_FILE:?Set the private runtime environment file}
-        format: raw
+    env_file: ${PETALBOARD_ENV_FILE:?Set the private runtime environment file}
+    environment:
+      # The database must stay on the volume, whatever the env file says.
+      DATABASE_URL: file:/app/data/dev.db
     # The default bridge avoids allocating a new network from the host's address pool.
     network_mode: bridge
     ports:
