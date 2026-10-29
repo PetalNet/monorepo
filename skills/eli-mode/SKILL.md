@@ -135,9 +135,8 @@ internal code, or restating what the PR does.
 
 ## Maintenance
 
-Evidence, eval and re-run steps: `~/.claude/shared/eli-mode/eval/README.md` (private). Change a rule only
-with evidence from his reviews, then re-run the eval on both holdout sets.
+Change a rule only with evidence from his reviews.
 The "Writing code" and "Directing work" additions from 2026-10-07 come from his public Amp threads
-(`~/.claude/shared/eli-mode/amp/`, 39 threads, 365 messages incl. his 16 curated highlights; his Amp "review" threads
+(39 threads, 365 messages incl. his 16 curated highlights; his Amp "review" threads
 are agent-driven and count as weak evidence only). Keep them out of the review rules until his PR
 reviews confirm them. The "infer, don't add an explicit type" quote (Flint caching design) is about rule metadata, not return types.

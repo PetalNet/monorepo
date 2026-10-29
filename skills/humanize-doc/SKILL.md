@@ -7,7 +7,7 @@ description: Rewrite a dense technical, research, or design document into clear,
 
 Turn a wall of dense technical prose into something a smart, busy non-specialist reads top-to-bottom without stalling — **without losing a single fact**. This is a controlled transformation: preserve the claim graph, change the reader experience. You are not "making it sound human"; you are managing four things separately — factual content, structure, explanation, and prose texture.
 
-Grounded in Gopen & Swan (_The Science of Scientific Writing_), Minto's Pyramid Principle, plain-language principles, and PLOS "Ten Simple Rules for Science Writing." Full research: `/home/docker/.claude/shared/research-agent-writing/agent-writing.clean.md`.
+Grounded in Gopen & Swan (_The Science of Scientific Writing_), Minto's Pyramid Principle, plain-language principles, and PLOS "Ten Simple Rules for Science Writing."
 
 ## Use when
 
