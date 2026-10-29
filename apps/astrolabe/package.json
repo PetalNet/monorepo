@@ -1,0 +1,32 @@
+{
+	"name": "@petalnet/astrolabe",
+	"version": "0.0.1",
+	"private": true,
+	"type": "module",
+	"scripts": {
+		"build": "vite build",
+		"check": "svelte-kit sync && svelte-check --tsconfig ./tsconfig.json",
+		"check:watch": "svelte-kit sync && svelte-check --tsconfig ./tsconfig.json --watch",
+		"dev": "vite dev",
+		"preview": "vite preview",
+		"test": "vitest run"
+	},
+	"dependencies": {
+		"@lucide/svelte": "catalog:prod",
+		"suncalc": "catalog:",
+		"svelte": "catalog:prod",
+		"tailwindcss": "catalog:prod"
+	},
+	"devDependencies": {
+		"@sveltejs/adapter-node": "catalog:dev",
+		"@sveltejs/kit": "catalog:prod",
+		"@sveltejs/vite-plugin-svelte": "catalog:dev",
+		"@tailwindcss/vite": "catalog:dev",
+		"@types/node": "catalog:types",
+		"fontless": "catalog:",
+		"svelte-check": "catalog:dev",
+		"typescript": "catalog:dev",
+		"vite": "catalog:dev",
+		"vitest": "catalog:dev"
+	}
+}

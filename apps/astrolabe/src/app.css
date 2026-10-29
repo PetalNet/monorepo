@@ -1,0 +1,706 @@
+@import "tailwindcss";
+
+/* Canonical PetalNet paper-ink tokens from design.petalcat.dev. */
+:root,
+[data-theme="light"] {
+	--bg: #ffffff;
+	--surface: #f6f5f3;
+	--elev: #fbfaf9;
+	--rule: #ececea;
+	--rule-strong: #d9d7d3;
+	--text: #161412;
+	--text-mute: #645f59;
+	--text-soft: #97928b;
+	--petal: #bc5638;
+	--on-petal: #ffffff;
+	--petal-soft-pct: 11%;
+	--success: #2f8f5b;
+	--warning: #c77d11;
+	--danger: #c5374b;
+	--success-text: #297c4f;
+	--warning-text: #9d620d;
+	--danger-text: #c5374b;
+}
+
+[data-theme="dark"] {
+	--bg: #0d0c0b;
+	--surface: #161413;
+	--elev: #1d1b19;
+	--rule: #262321;
+	--rule-strong: #36322f;
+	--text: #ece8e3;
+	--text-mute: #9a938b;
+	--text-soft: #645e57;
+	--petal: #e2725b;
+	--on-petal: #0d0c0b;
+	--petal-soft-pct: 15%;
+	--success-text: #329760;
+	--warning-text: #c77d11;
+	--danger-text: #d25d6e;
+}
+
+:root {
+	--petal-soft: rgba(188, 86, 56, 0.11);
+	--petal-wash: rgba(188, 86, 56, 0.055);
+	--petal-hover: #a14a30;
+	--petal-active: #8b3f29;
+	--petal-soft: color-mix(in srgb, var(--petal) var(--petal-soft-pct), transparent);
+	--petal-wash: color-mix(in srgb, var(--petal) calc(var(--petal-soft-pct) / 2), transparent);
+	--petal-hover: color-mix(in srgb, var(--petal) 86%, #000);
+	--petal-active: color-mix(in srgb, var(--petal) 74%, #000);
+	--font-sans: "Geist", "Geist Fallback", system-ui, -apple-system, sans-serif;
+	--font-serif: "EB Garamond", "EB Garamond Fallback", Garamond, Georgia, serif;
+	--ease-standard: cubic-bezier(0.2, 0, 0, 1);
+	--ease-emph-in: cubic-bezier(0.05, 0.7, 0.1, 1);
+	--ease-emph-out: cubic-bezier(0.3, 0, 0.8, 0.15);
+	--dur-fast: 120ms;
+	--dur-base: 160ms;
+	--dur-mid: 240ms;
+	--dur-slow: 360ms;
+	--t: var(--dur-base) var(--ease-standard);
+	--s1: 0.25rem;
+	--s2: 0.5rem;
+	--s3: 1rem;
+	--s4: 1.5rem;
+	--s5: 2rem;
+	--s6: 3rem;
+	--s7: 4rem;
+	--radius-xs: 0.125rem;
+	--radius-sm: 0.5rem;
+	--radius: 0.75rem;
+	--radius-lg: 1rem;
+	--radius-pill: 999px;
+}
+
+* {
+	box-sizing: border-box;
+	margin: 0;
+	padding: 0;
+}
+html {
+	-webkit-text-size-adjust: 100%;
+	scrollbar-gutter: stable;
+}
+body {
+	background: var(--bg);
+	color: var(--text);
+	font-family: var(--font-sans);
+	font-size: 0.875rem;
+	line-height: 1.6;
+	font-feature-settings:
+		"ss01" 1,
+		"cv01" 1,
+		"cv11" 1;
+	font-variant-ligatures: common-ligatures contextual;
+	-webkit-font-smoothing: antialiased;
+	text-wrap: pretty;
+	hanging-punctuation: first allow-end last;
+	transition:
+		background var(--t),
+		color var(--t);
+}
+h1,
+h2,
+h3 {
+	text-wrap: balance;
+}
+button {
+	font: inherit;
+}
+:focus-visible {
+	outline: 2px solid var(--petal);
+	outline-offset: 2px;
+	border-radius: var(--radius-xs);
+}
+::selection {
+	background: var(--petal-soft);
+	color: var(--text);
+}
+html.no-theme-transition,
+html.no-theme-transition *,
+html.no-theme-transition *::before,
+html.no-theme-transition *::after {
+	transition: none !important;
+}
+
+.top {
+	border-bottom: 1px solid var(--rule);
+	background: var(--bg);
+	transition:
+		border-color var(--t),
+		background var(--t);
+}
+.top-inner {
+	align-items: center;
+	display: flex;
+	justify-content: space-between;
+	margin: 0 auto;
+	max-width: 55rem;
+	padding: var(--s3) var(--s4);
+}
+h1 {
+	font-size: 1rem;
+	font-weight: 600;
+	line-height: 1.2;
+}
+.theme-toggle {
+	align-items: center;
+	background: var(--surface);
+	border: 0;
+	border-radius: var(--radius-sm);
+	color: var(--text-mute);
+	cursor: pointer;
+	display: inline-flex;
+	height: 2.25rem;
+	justify-content: center;
+	transition:
+		background var(--t),
+		color var(--t),
+		transform var(--dur-fast) var(--ease-standard);
+	width: 2.25rem;
+}
+.theme-toggle:hover {
+	background: var(--petal-soft);
+	color: var(--petal);
+}
+.theme-toggle:active {
+	transform: scale(0.96);
+}
+
+.wrap {
+	margin: 0 auto;
+	max-width: 55rem;
+	padding: var(--s5) var(--s4) var(--s7);
+}
+@media (max-width: 600px) {
+	.top-inner {
+		padding: var(--s3);
+	}
+	.wrap {
+		padding: var(--s4) var(--s3) var(--s6);
+	}
+}
+@media (prefers-reduced-motion: reduce) {
+	*,
+	*::before,
+	*::after {
+		scroll-behavior: auto !important;
+		transition-duration: 0.01ms !important;
+	}
+}
+
+/* The orloj: the usage-limit dials, after the Prague Orloj and the Grote Kerk tower clocks.
+   Light is an aged-paper dial in a brass bezel with sepia engraving; dark is the Orloj's
+   slate-blue enamel with gilt. Each limit keeps one enamel colour across dial and plaque. */
+:root,
+[data-theme="light"] {
+	--orloj-paper: #f4ead2;
+	--orloj-paper-edge: #dcc79b;
+	--orloj-chapter: #e9dcbc;
+	--orloj-ink: #3b2a17;
+	--orloj-ink-mute: #66502f;
+	--orloj-gilt: #74541a;
+	--orloj-brass-hi: #e6cb85;
+	--orloj-brass-lo: #9c7838;
+	--orloj-brass-deep: #6e5022;
+	--orloj-engraved: #2e1f0c;
+	--orloj-groove: #dcc796;
+	--orloj-sky-day: #f8efd6;
+	--orloj-sky-twilight: #c4935a;
+	--orloj-sky-night: #8d8070;
+	--orloj-claude-5h: #2c4c86;
+	--orloj-claude-7d: #2a6d5f;
+	--orloj-codex-7d: #6c3b6c;
+	--orloj-vermilion: #ad2e1a;
+	--orloj-vermilion-wash: #f3d9c8;
+	--orloj-grain: 0.16;
+}
+
+[data-theme="dark"] {
+	--orloj-paper: #1b2840;
+	--orloj-paper-edge: #0f1828;
+	--orloj-chapter: #142034;
+	--orloj-ink: #e6c67d;
+	--orloj-ink-mute: #c2a874;
+	--orloj-gilt: #e1bd6b;
+	--orloj-brass-hi: #d9b666;
+	--orloj-brass-lo: #7d5f27;
+	--orloj-brass-deep: #4c3814;
+	--orloj-engraved: #2e1f0c;
+	--orloj-groove: #26354f;
+	--orloj-sky-day: #5d8fae;
+	--orloj-sky-twilight: #a8743c;
+	--orloj-sky-night: #0b0f18;
+	--orloj-claude-5h: #9db9f2;
+	--orloj-claude-7d: #7fd0b5;
+	--orloj-codex-7d: #dcaee0;
+	--orloj-vermilion: #ff8c6b;
+	--orloj-vermilion-wash: #3a1d16;
+	--orloj-grain: 0.1;
+}
+
+.orloj {
+	font-family: var(--font-serif);
+	font-variant-numeric: lining-nums;
+	margin-inline: auto;
+}
+.dial-face text {
+	font-variant-numeric: lining-nums;
+}
+.orloj-dials {
+	display: grid;
+	gap: var(--s5);
+	grid-template-columns: 1fr 1fr;
+}
+.orloj-dial {
+	display: grid;
+	gap: var(--s3);
+	justify-items: center;
+}
+.dial-frame {
+	aspect-ratio: 1;
+	width: 100%;
+}
+.dial-face {
+	display: block;
+	height: 100%;
+	overflow: visible;
+	width: 100%;
+}
+.orloj-dial figcaption {
+	color: var(--text-mute);
+	font-size: 1rem;
+	line-height: 1.4;
+	max-width: 26rem;
+	text-align: center;
+	transition: color var(--t);
+}
+.orloj-dial figcaption strong {
+	color: var(--text);
+	display: block;
+	font-size: 1.25rem;
+	font-variant: small-caps;
+	font-weight: 500;
+	letter-spacing: 0.04em;
+	transition: color var(--t);
+}
+
+.dial-face .brass-hi {
+	stop-color: var(--orloj-brass-hi);
+}
+.dial-face .brass-lo {
+	stop-color: var(--orloj-brass-lo);
+}
+.dial-face .brass-deep {
+	stop-color: var(--orloj-brass-deep);
+}
+.dial-face .paper-mid {
+	stop-color: var(--orloj-paper);
+}
+/* Matte paper under the same light: one hue, a little darker away from it. */
+.dial-face .paper-far {
+	stop-color: color-mix(in oklab, var(--orloj-paper), var(--orloj-paper-edge) 50%);
+}
+.dial-face .bezel-rule {
+	fill: none;
+	stroke: var(--orloj-brass-deep);
+	stroke-width: 0.8;
+}
+.dial-face .bead {
+	fill: var(--orloj-brass-deep);
+	opacity: 0.7;
+}
+.dial-face .grain {
+	fill: #000;
+	opacity: var(--orloj-grain);
+	pointer-events: none;
+}
+.dial-face .chapter-band {
+	fill: none;
+	stroke: var(--orloj-chapter);
+}
+.dial-face .engraved {
+	fill: none;
+	stroke: var(--orloj-ink-mute);
+	stroke-width: 0.7;
+}
+.dial-face .engraved.fine {
+	stroke-width: 0.35;
+}
+.dial-face .numeral,
+.dial-face .weekday {
+	dominant-baseline: central;
+	fill: var(--orloj-ink);
+	font-family: var(--font-serif);
+	font-size: 8.6px;
+	font-weight: 500;
+	text-anchor: middle;
+}
+.dial-face .numeral.cardinal {
+	font-size: 10px;
+	font-weight: 600;
+}
+.dial-face .weekday {
+	font-size: 8.4px;
+	font-variant: small-caps;
+	letter-spacing: 0.06em;
+}
+.dial-face .weekday.today {
+	fill: var(--orloj-gilt);
+	font-weight: 600;
+}
+.dial-face .pip {
+	fill: var(--orloj-ink-mute);
+}
+
+.dial-face .sky-night,
+.dial-face .sky-twilight,
+.dial-face .sky-day {
+	fill: none;
+}
+.dial-face .sky-night {
+	stroke: var(--orloj-sky-night);
+}
+.dial-face .sky-twilight {
+	stroke: var(--orloj-sky-twilight);
+}
+.dial-face .sky-day {
+	stroke: var(--orloj-sky-day);
+}
+.dial-face .sky-mark {
+	stroke: var(--orloj-gilt);
+	stroke-width: 1.2;
+}
+
+.dial-face .lane {
+	fill: none;
+}
+/* Size lives on the element, next to the geometry that keeps the letters clear of the groove. */
+.dial-face .ring-label {
+	fill: var(--limit);
+	font-family: var(--font-serif);
+	font-variant: small-caps;
+	font-weight: 600;
+	letter-spacing: 0.1em;
+	paint-order: stroke;
+	stroke: var(--orloj-paper);
+	stroke-linejoin: round;
+	stroke-width: 2.4px;
+	text-anchor: middle;
+}
+.dial-face .ring-empty {
+	fill: var(--orloj-ink-mute);
+	font-size: 7px;
+	font-style: italic;
+	text-anchor: middle;
+}
+.dial-face .groove {
+	fill: none;
+	stroke: var(--orloj-groove);
+}
+.dial-face .fill {
+	fill: none;
+}
+.dial-face .limit .fill {
+	stroke: var(--limit);
+}
+/* The usage figure: ink on the bare groove, or paper when it sits inside the end of the fill. */
+.dial-face .usage {
+	dominant-baseline: central;
+	fill: var(--orloj-ink);
+	font-family: var(--font-serif);
+	font-size: 8px;
+	font-weight: 600;
+	text-anchor: middle;
+}
+.dial-face .usage.inside {
+	fill: var(--orloj-paper);
+}
+.dial-face .alarm-rule {
+	fill: none;
+	stroke: var(--orloj-vermilion);
+	stroke-width: 0.9;
+}
+.dial-face .reset-rule {
+	stroke: var(--orloj-ink);
+	stroke-width: 1.2;
+}
+.dial-face .reset-mark {
+	fill: var(--orloj-ink);
+	stroke: var(--orloj-paper);
+	stroke-width: 0.6;
+}
+.dial-face .runs-out {
+	stroke: var(--orloj-vermilion);
+	stroke-linecap: round;
+	stroke-width: 2.6;
+}
+.claude-5h {
+	--limit: var(--orloj-claude-5h);
+}
+.claude-7d {
+	--limit: var(--orloj-claude-7d);
+}
+.codex-7d {
+	--limit: var(--orloj-codex-7d);
+}
+
+.dial-face .hand {
+	transform-origin: 0 0;
+}
+.dial-face .hand-shaft,
+.dial-face .hand-spade {
+	fill: var(--orloj-gilt);
+	stroke: var(--orloj-brass-deep);
+	stroke-width: 0.4;
+}
+.dial-face .hand-knot circle,
+.dial-face .hand-weight {
+	fill: none;
+	stroke: var(--orloj-gilt);
+	stroke-width: 1.3;
+}
+.dial-face .hand-emblem path,
+.dial-face .hand-emblem circle {
+	fill: var(--orloj-gilt);
+	stroke: var(--orloj-brass-deep);
+	stroke-width: 0.4;
+}
+.dial-face .boss {
+	fill: var(--orloj-paper);
+	stroke: var(--orloj-gilt);
+	stroke-width: 1.2;
+}
+/* The boss lines sit on alphabetic baselines from stackBaselines, which also owns their sizes. */
+.dial-face .boss-time,
+.dial-face .boss-day {
+	fill: var(--orloj-ink);
+	font-family: var(--font-serif);
+	font-weight: 500;
+	text-anchor: middle;
+}
+.dial-face .boss-caption {
+	fill: var(--orloj-ink-mute);
+	font-family: var(--font-serif);
+	font-variant: small-caps;
+	letter-spacing: 0.06em;
+	text-anchor: middle;
+}
+
+.orloj-plaques {
+	display: grid;
+	gap: var(--s3);
+	grid-template-columns: repeat(3, 1fr);
+	margin-top: var(--s5);
+}
+/* Brass plates (the limit plaques and the lab plate) are cut from the same metal as the bezel, under the same light from the
+   upper left: the bezel's stops and specular band, held to the lighter part of their range so the
+   engraved lettering stays legible. Rivets and a double rule are struck in the bezel's deep brass. */
+.brass-plate {
+	--plate-shade: color-mix(in oklab, var(--orloj-brass-hi), var(--orloj-brass-lo) 40%);
+	--rivet: radial-gradient(circle, var(--orloj-brass-deep) 1.6px, transparent 2.2px);
+	background:
+		var(--rivet) top 2px left 2px / 9px 9px no-repeat,
+		var(--rivet) top 2px right 2px / 9px 9px no-repeat,
+		var(--rivet) bottom 2px left 2px / 9px 9px no-repeat,
+		var(--rivet) bottom 2px right 2px / 9px 9px no-repeat,
+		linear-gradient(
+			135deg,
+			var(--orloj-brass-hi),
+			color-mix(in oklab, var(--orloj-brass-hi), var(--orloj-brass-lo) 30%) 35%,
+			var(--orloj-brass-hi) 55%,
+			var(--plate-shade)
+		);
+	border-radius: var(--radius-xs);
+	color: var(--orloj-engraved);
+	padding: 9px;
+}
+.brass-plate-face {
+	align-content: start;
+	display: grid;
+	gap: var(--s2);
+	height: 100%;
+	padding: var(--s3);
+	position: relative;
+}
+/* The bezel's pair of rules, engraved into the plate. */
+.brass-plate-face::before {
+	border: 3px double var(--orloj-brass-deep);
+	content: "";
+	inset: 0;
+	pointer-events: none;
+	position: absolute;
+}
+/* The lab plate: Backup, Services, Host and Mood as sections of one brass surface, two by two on a
+   wide screen and stacked on a narrow one, divided by hairline rules in the bezel's deep brass. */
+.lab-plate {
+	font-family: var(--font-serif);
+	margin-top: var(--s5);
+}
+.lab-plate-face {
+	gap: 0;
+	grid-template-columns: 1fr;
+	padding: var(--s2);
+}
+.plate-section {
+	align-content: start;
+	display: grid;
+	gap: var(--s2);
+	min-width: 0;
+	padding: var(--s3);
+}
+.plate-section + .plate-section {
+	border-block-start: 1px solid var(--orloj-brass-deep);
+}
+.plate-section h2 {
+	align-items: baseline;
+	display: flex;
+	font-size: 1.0625rem;
+	font-variant: small-caps;
+	font-weight: 600;
+	gap: var(--s2);
+	justify-content: space-between;
+	letter-spacing: 0.1em;
+}
+.plate-status {
+	font-size: 0.9375rem;
+	font-style: italic;
+	font-variant: normal;
+	font-weight: 500;
+	letter-spacing: normal;
+}
+/* Anything wrong is an enamel inlay, the same as a limit plaque's alarm. */
+.plate-status.alarm,
+.plate-figures .alarm,
+.plate-note.alarm {
+	background: var(--orloj-vermilion-wash);
+	border-radius: var(--radius-xs);
+	color: var(--orloj-vermilion);
+	font-style: normal;
+	font-weight: 600;
+	padding: 0.125rem var(--s2);
+}
+.plate-rows {
+	display: grid;
+	gap: var(--s1) var(--s3);
+	grid-template-columns: auto 1fr;
+}
+.plate-rows div {
+	display: contents;
+}
+/* Values share the plate's serif; tabular lining figures keep the numbers aligned row to row. */
+.plate-rows dd {
+	font-variant-numeric: lining-nums tabular-nums;
+	overflow-wrap: anywhere;
+	text-align: end;
+}
+.plate-figures {
+	display: grid;
+	gap: var(--s2);
+	grid-template-columns: repeat(3, 1fr);
+}
+.plate-figures dd {
+	font-size: 1.75rem;
+	font-variant-numeric: lining-nums tabular-nums;
+	line-height: 1.1;
+}
+.plate-mood {
+	font-size: 1.25rem;
+	font-weight: 500;
+	text-transform: capitalize;
+}
+.plate-quote {
+	font-style: italic;
+	overflow-wrap: anywhere;
+}
+.plate-quote::before {
+	content: "\201C";
+}
+.plate-quote::after {
+	content: "\201D";
+}
+@media (min-width: 640px) {
+	.lab-plate-face {
+		grid-template-columns: 1fr 1fr;
+	}
+	/* Two by two: the right column takes a vertical rule, the second row a horizontal one. */
+	.plate-section + .plate-section {
+		border-block-start: none;
+	}
+	.plate-section:nth-child(even) {
+		border-inline-start: 1px solid var(--orloj-brass-deep);
+	}
+	.plate-section:nth-child(n + 3) {
+		border-block-start: 1px solid var(--orloj-brass-deep);
+	}
+}
+.plaque h3 {
+	align-items: center;
+	display: flex;
+	font-size: 1.0625rem;
+	font-variant: small-caps;
+	font-weight: 600;
+	gap: var(--s2);
+	letter-spacing: 0.1em;
+}
+/* An enamel pip in the limit's colour, ringed in deep brass so it holds against the plate. */
+.plaque .swatch {
+	background: var(--limit);
+	border: 1.5px solid var(--orloj-brass-deep);
+	border-radius: 50%;
+	flex: none;
+	height: 0.8rem;
+	width: 0.8rem;
+}
+.plaque-figure {
+	align-items: baseline;
+	display: flex;
+	flex-wrap: wrap;
+	gap: 0.35rem;
+}
+.plaque-figure strong {
+	font-size: 1.75rem;
+	font-weight: 500;
+	line-height: 1.1;
+}
+.plaque-figure span,
+.plaque-reset,
+.plaque-note {
+	font-size: 1rem;
+}
+.plaque-verdict {
+	align-items: flex-start;
+	display: flex;
+	font-size: 1.0625rem;
+	gap: var(--s2);
+	line-height: 1.35;
+}
+.plaque-verdict p {
+	display: grid;
+}
+.plaque-detail {
+	font-size: 0.9375rem;
+}
+.plaque.alarm .plaque-verdict {
+	background: var(--orloj-vermilion-wash);
+	border-radius: var(--radius-xs);
+	color: var(--orloj-vermilion);
+	font-weight: 600;
+	padding: var(--s2);
+}
+.plaque.alarm .plaque-verdict svg {
+	flex: none;
+	margin-top: 0.2rem;
+}
+.plaque.alarm .plaque-detail {
+	font-weight: 500;
+}
+
+@media (max-width: 760px) {
+	.orloj-dials {
+		grid-template-columns: 1fr;
+	}
+	.orloj-plaques {
+		grid-template-columns: 1fr;
+	}
+}

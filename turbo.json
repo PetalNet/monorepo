@@ -117,6 +117,7 @@
 				"@petalnet/effect-api#typecheck",
 				"@petalnet/effect-sveltekit#typecheck",
 				"@petalnet/better-auth-effect-qb-adapter#check",
+				"@petalnet/astrolabe#check",
 				"@petalnet/collegemap#check",
 				"@petalnet/grove#check",
 				"@petalnet/storybook#typecheck",
@@ -138,6 +139,7 @@
 		},
 		"//#lint:eslint:apps": {
 			"dependsOn": [
+				"@petalnet/astrolabe#check",
 				"@petalnet/collegemap#check",
 				"@petalnet/grove#check",
 				"@petalnet/slide#check",
