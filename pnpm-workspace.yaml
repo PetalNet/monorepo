@@ -169,7 +169,7 @@ catalogs:
 
   # Apps still on Tailwind v3 (consolidated to latest v3); not upgraded to v4 yet.
   legacy:
-    tailwindcss: ^3.4.17
+    tailwindcss: ^4.0.0
 
   # PetalBoard shipped on Prisma 6 and uses its `prisma-client` generator, which writes
   # the client into the app. tools/prisma-clients.test.ts keeps app clients apart.
