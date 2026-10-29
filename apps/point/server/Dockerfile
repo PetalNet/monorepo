@@ -1,6 +1,6 @@
 # Multi-stage build for the Point home-server.
 # Build context must be the repo root so all Cargo workspace members resolve.
-FROM rust:1.96-bookworm AS build
+FROM rust:1.96-bookworm@sha256:a339861ae23e9abb272cea45dfafde21760d2ce6577a70f8a926153677902663 AS build
 WORKDIR /build
 COPY Cargo.toml Cargo.lock rust-toolchain.toml ./
 # Cargo loads every workspace member, even when building only Point.
@@ -13,7 +13,7 @@ COPY apps/point/core/ apps/point/core/
 COPY apps/point/server/ apps/point/server/
 RUN cargo build --release --locked -p point-server --bin point-server
 
-FROM debian:bookworm-slim
+FROM debian:bookworm-slim@sha256:99c0b25c46d0214d5a2091092e7908907dcaecd6a962cde0ac700acee222b6f3
 RUN apt-get update \
     && apt-get install -y --no-install-recommends ca-certificates \
     && rm -rf /var/lib/apt/lists/*
