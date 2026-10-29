@@ -1042,14 +1042,8 @@
 					return async ({ result, update }) => {
 						await update();
 
-						if (result.type === "success" && result.data) {
-							// Add the new question to the local state
-							const newQuestion = (result.data as any).question;
-
-							if (newQuestion) {
-								questions = [...questions, newQuestion];
-							}
-
+						// update() reloads data, which already includes the new question.
+						if (result.type === "success") {
 							questionType = "text";
 							optionsText = "";
 							showAddQuestionModal = false;
