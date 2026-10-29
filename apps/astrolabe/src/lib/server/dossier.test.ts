@@ -55,7 +55,7 @@ describe("usage readouts", () => {
 			data: null,
 			nowSeconds: 1000,
 		});
-		expect(result).toMatchObject({ awaiting: false, stale: true, fiveHourPct: null });
+		expect(result).toMatchObject({ awaiting: false, stale: true, fiveHourUsedPct: null });
 	});
 
 	it("marks a missing Codex feed awaiting", () => {
@@ -66,7 +66,7 @@ describe("usage readouts", () => {
 			data: null,
 			nowSeconds: 1000,
 		});
-		expect(result).toMatchObject({ awaiting: true, stale: false, fiveHourPct: null });
+		expect(result).toMatchObject({ awaiting: true, stale: false, fiveHourUsedPct: null });
 	});
 
 	it("uses the Claude ISO reset while Codex stays epoch-based", () => {
@@ -97,7 +97,7 @@ describe("usage readouts", () => {
 		});
 		expect(claude.sevenDayResetsAt).toBe(1200);
 		expect(codex).toMatchObject({
-			fiveHourPct: null,
+			fiveHourUsedPct: null,
 			creditsBalance: 3000,
 			stale: false,
 			awaiting: false,

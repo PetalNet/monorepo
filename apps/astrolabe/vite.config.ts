@@ -14,6 +14,12 @@ export default defineConfig({
 			families: [
 				{ name: "Geist", provider: "fontsource", weights: [400, 500, 600] },
 				{ name: "Geist Mono", provider: "fontsource", weights: [400, 500] },
+				{
+					name: "EB Garamond",
+					provider: "fontsource",
+					weights: [400, 500, 600],
+					styles: ["normal", "italic"],
+				},
 			],
 		}),
 		sveltekit({ adapter: adapter() }),

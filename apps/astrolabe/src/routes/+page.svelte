@@ -1,10 +1,10 @@
 <script lang="ts">
 	import { invalidateAll } from "$app/navigation";
-	import AgentCard from "$lib/components/AgentCard.svelte";
 	import Card from "$lib/components/Card.svelte";
-	import SkyClock from "$lib/components/SkyClock.svelte";
+	import Orloj from "$lib/components/Orloj.svelte";
 	import StatusPill from "$lib/components/StatusPill.svelte";
 	import ThemeToggle from "$lib/components/ThemeToggle.svelte";
+	import { servicesSummary } from "$lib/services";
 	import Cloud from "@lucide/svelte/icons/cloud";
 	import Cpu from "@lucide/svelte/icons/cpu";
 	import Frown from "@lucide/svelte/icons/frown";
@@ -16,6 +16,8 @@
 	import type { PageProps } from "./$types";
 
 	let { data }: PageProps = $props();
+
+	const services = $derived(servicesSummary(data.dossier.services));
 
 	const dateTime = (value: number | null): string =>
 		value === null
@@ -52,19 +54,7 @@
 </header>
 
 <main class="wrap">
-	<SkyClock sun={data.dossier.sun} moon={data.dossier.moon} />
-
-	<section class="section-block" aria-labelledby="agents-heading">
-		<div class="section-heading">
-			<h2 id="agents-heading">Agents</h2>
-			<p>Usage windows and balance</p>
-		</div>
-		<div class="agent-grid">
-			{#each data.dossier.agents as agent (agent.slug)}
-				<AgentCard {agent} now={data.dossier.now} />
-			{/each}
-		</div>
-	</section>
+	<Orloj dossier={data.dossier} />
 
 	<section class="dashboard-grid" aria-label="Lab systems">
 		<Card title="Backup" icon={Cloud}>
@@ -86,19 +76,22 @@
 		</Card>
 
 		<Card title="Services" icon={Server}>
-			{#snippet status()}
-				{#if data.dossier.services.stale}<StatusPill label="Stale" tone="warn" />
-				{:else if data.dossier.services.down > 0}<StatusPill label="Needs attention" tone="down" />
-				{:else}<StatusPill label="Healthy" tone="ok" />{/if}
-			{/snippet}
-			<div class="stats-row">
-				<div><strong class="mono">{data.dossier.services.up}</strong><span>up</span></div>
-				<div><strong class="mono">{data.dossier.services.down}</strong><span>down</span></div>
-				<div><strong class="mono">{data.dossier.services.pending}</strong><span>pending</span></div>
-			</div>
-			{#if data.dossier.services.recentDownEvents1h > 0}<p class="state-copy">
-					<span class="sdot down"></span>{data.dossier.services.recentDownEvents1h} down in the last hour
-				</p>{:else}<p class="state-copy">All caught up.</p>{/if}
+			{#snippet status()}<StatusPill
+					label={services.pill.label}
+					tone={services.pill.tone}
+				/>{/snippet}
+			<dl class="stats-row">
+				{#each services.stats as stat (stat.label)}
+					<div class:alert={stat.alert}>
+						<dt>{stat.label}</dt>
+						<dd class="mono">{stat.count}</dd>
+					</div>
+				{/each}
+			</dl>
+			{#if services.recent}<p class="state-copy">
+					<span class="sdot down"></span>{services.recent}
+				</p>
+			{:else}<p class="state-copy">All caught up.</p>{/if}
 		</Card>
 
 		<Card title="Host" icon={Cpu}>
