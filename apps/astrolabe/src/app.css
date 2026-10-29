@@ -548,13 +548,18 @@ h1 {
 .dial-face .lane {
 	fill: none;
 }
+/* Size lives on the element, next to the geometry that keeps the letters clear of the groove. */
 .dial-face .ring-label {
-	fill: var(--orloj-ink);
+	fill: var(--limit);
 	font-family: var(--font-serif);
-	font-size: 6.4px;
 	font-variant: small-caps;
 	font-weight: 600;
-	letter-spacing: 0.08em;
+	letter-spacing: 0.1em;
+	paint-order: stroke;
+	stroke: var(--orloj-paper);
+	stroke-linejoin: round;
+	stroke-width: 2.4px;
+	text-anchor: middle;
 }
 .dial-face .ring-empty {
 	fill: var(--orloj-ink-mute);
@@ -662,23 +667,17 @@ h1 {
 	stroke: var(--orloj-gilt);
 	stroke-width: 1.2;
 }
+/* The boss lines sit on alphabetic baselines from stackBaselines, which also owns their sizes. */
 .dial-face .boss-time,
 .dial-face .boss-day {
-	dominant-baseline: central;
 	fill: var(--orloj-ink);
 	font-family: var(--font-serif);
-	font-size: 15px;
 	font-weight: 500;
 	text-anchor: middle;
 }
-.dial-face .boss-day {
-	font-size: 10.5px;
-}
 .dial-face .boss-caption {
-	dominant-baseline: central;
 	fill: var(--orloj-ink-mute);
 	font-family: var(--font-serif);
-	font-size: 7.4px;
 	font-variant: small-caps;
 	letter-spacing: 0.06em;
 	text-anchor: middle;

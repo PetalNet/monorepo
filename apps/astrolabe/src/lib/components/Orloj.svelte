@@ -16,6 +16,7 @@
 
 	onMount(() => {
 		now = Date.now();
+
 		const interval = window.setInterval(() => {
 			now = Date.now();
 		}, 1_000);
@@ -26,13 +27,17 @@
 	});
 
 	const readings = $derived.by(() => {
-		if (now === null) return null;
-		const at = now;
-		const [claude5h, claude7d, codex7d] = limitWindowsFrom(dossier.agents).map((window) =>
-			readLimit(window, at),
-		);
+		if (now === null) {
+			return null;
+		}
 
-		return claude5h && claude7d && codex7d ? { claude5h, claude7d, codex7d } : null;
+		const [claude5h, claude7d, codex7d] = limitWindowsFrom(dossier.agents);
+
+		return {
+			claude5h: readLimit(claude5h, now),
+			claude7d: readLimit(claude7d, now),
+			codex7d: readLimit(codex7d, now),
+		};
 	});
 	const codexCredits = $derived(
 		dossier.agents.find((agent) => agent.kind === "codex")?.creditsBalance ?? null,
@@ -48,8 +53,10 @@
 						: `, on pace for ${String(Math.round(reading.projectedPct))}% at reset`
 				}`;
 	const sunLine = $derived.by(() => {
-		if (now === null || dossier.sun.sunriseAt === null || dossier.sun.sunsetAt === null)
+		if (now === null || dossier.sun.sunriseAt === null || dossier.sun.sunsetAt === null) {
 			return null;
+		}
+
 		const next = solarCountdown(dossier.sun, now);
 
 		return `Sunrise ${time(dossier.sun.sunriseAt)} · sunset ${time(dossier.sun.sunsetAt)}${
@@ -83,8 +90,8 @@
 				{#if readings && now !== null}
 					<WeekDial
 						rings={[
-							{ reading: readings.claude7d, label: "Claude · seven days" },
-							{ reading: readings.codex7d, label: "Codex · seven days" },
+							{ reading: readings.claude7d, label: "Claude" },
+							{ reading: readings.codex7d, label: "Codex" },
 						]}
 						{now}
 						label="Week dial. {summary(readings.claude7d)}. {summary(readings.codex7d)}."

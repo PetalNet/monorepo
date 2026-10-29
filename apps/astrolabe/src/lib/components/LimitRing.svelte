@@ -7,14 +7,12 @@
 		geometry,
 		radius,
 		width,
-		label,
 	}: {
 		reading: LimitReading;
 		/** Every point of the window as a local clock angle, from `windowGeometry`. */
 		geometry: WindowGeometry;
 		radius: number;
 		width: number;
-		label: string;
 	} = $props();
 
 	const outer = $derived(radius + width / 2);
@@ -32,8 +30,10 @@
 			reading.projectedPct === null ||
 			projectedSweep === null ||
 			reading.state === "limit-reached"
-		)
+		) {
 			return null;
+		}
+
 		// An overshoot lands on the reset, so step back along the ring until the label clears the diamond.
 		const along = Math.min(projectedSweep, arcDeg - labelClearance);
 		const at = polar(startDeg + along, radius);
@@ -45,11 +45,6 @@
 			rotate: tangentRotation(startDeg + along),
 		};
 	});
-	// The engraved name starts at the window's start, which on a full-turn ring is also the reset.
-	// Slide it along when the projection's landing label would sit on top of it.
-	const labelOffset = $derived(
-		projectedSweep !== null && (projectedSweep < 30 || projectedSweep > arcDeg - 18) ? 16 : 1.5,
-	);
 	const alarm = $derived(reading.state === "overshoot" || reading.state === "limit-reached");
 	const resetDeg = $derived(startDeg + arcDeg);
 	const lozenge = (degrees: number, at: number, size: number) => {
@@ -58,7 +53,11 @@
 		const base = polar(degrees, at - size);
 		const right = polar(degrees + (size * 40) / at, at);
 
-		return `M ${tip.x} ${tip.y} L ${left.x} ${left.y} L ${base.x} ${base.y} L ${right.x} ${right.y} Z`;
+		const points = [tip, left, base, right].map(
+			(point) => `${point.x.toFixed(2)} ${point.y.toFixed(2)}`,
+		);
+
+		return `M ${points.join(" L ")} Z`;
 	};
 	const across = (degrees: number, from: number, to: number) => {
 		const a = polar(degrees, from);
@@ -69,13 +68,6 @@
 </script>
 
 <g class="limit {reading.window.id}" class:alarm>
-	<path
-		id="lane-{reading.window.id}"
-		class="lane"
-		d={arcPath(startDeg + labelOffset, Math.max(arcDeg - labelOffset - 1.5, 0), inner - 4.2)}
-	/>
-	<text class="ring-label"><textPath href="#lane-{reading.window.id}">{label}</textPath></text>
-
 	<path class="groove" d={arcPath(startDeg, arcDeg, radius)} stroke-width={width} />
 	{#if fillSweep > 0}
 		<path class="fill" d={arcPath(startDeg, fillSweep, radius)} stroke-width={width - 3} />

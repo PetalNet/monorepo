@@ -11,13 +11,78 @@ const fixed = (value: number) => value.toFixed(2);
 /** A clockwise arc of `sweep` degrees starting at `from`. A full turn is drawn as two halves. */
 export const arcPath = (from: number, sweep: number, radius: number): string => {
 	const clamped = Math.max(0, Math.min(360, sweep));
-	if (clamped === 0) return "";
-	if (clamped >= 359.99) return `${arcPath(from, 180, radius)} ${arcPath(from + 180, 180, radius)}`;
+
+	if (clamped === 0) {
+		return "";
+	}
+
+	if (clamped >= 359.99) {
+		return `${arcPath(from, 180, radius)} ${arcPath(from + 180, 180, radius)}`;
+	}
 
 	const start = polar(from, radius);
 	const end = polar(from + clamped, radius);
 
 	return `M ${fixed(start.x)} ${fixed(start.y)} A ${String(radius)} ${String(radius)} 0 ${clamped > 180 ? "1" : "0"} 1 ${fixed(end.x)} ${fixed(end.y)}`;
+};
+
+/**
+ * An arc that text on a `textPath` reads left to right along, centred on `centre` and `span`
+ * degrees long. On the upper half it runs clockwise with letter tops outward, on the lower half it
+ * runs anticlockwise with letter tops inward, so lettering follows the rim instead of a chord.
+ */
+export const readingArc = (centre: number, span: number, radius: number): string => {
+	const normal = ((centre % 360) + 360) % 360;
+	const lower = normal > 90 && normal < 270;
+	const start = polar(centre + (lower ? span / 2 : -span / 2), radius);
+	const end = polar(centre + (lower ? -span / 2 : span / 2), radius);
+
+	return `M ${fixed(start.x)} ${fixed(start.y)} A ${String(radius)} ${String(radius)} 0 ${span > 180 ? "1" : "0"} ${lower ? "0" : "1"} ${fixed(end.x)} ${fixed(end.y)}`;
+};
+
+/** EB Garamond's cap and figure height, in ems. */
+export const CAP_HEIGHT = 0.65;
+
+/** EB Garamond's ascender height (b, d, h, l), in ems. */
+export const ASCENDER_HEIGHT = 0.71;
+
+/** Ring names are lettered at this size, centred at twelve o'clock just inside their ring. */
+export const RING_LABEL_SIZE = 9;
+
+/** Baseline radius of a ring's name, leaving its cap tops 1.8 units clear of the ring's inner edge. */
+export const ringLabelBaseline = (inner: number): number =>
+	inner - 1.8 - RING_LABEL_SIZE * CAP_HEIGHT;
+
+/**
+ * The week dial's two 7-day rings, Claude outside and Codex inside. The gap between them holds the
+ * outer ring's name and the inner ring's elapsed line and reset mark, so it is wider than a band.
+ */
+export const WEEK_RINGS = { radii: [79, 50], width: 15 } as const;
+
+/** Radius of the centre boss that carries the date or time. */
+export const BOSS_RADIUS = 31;
+
+/** A line of text measured from its baseline to the top of its ink, `rise` ems above it. */
+export interface InkLine {
+	size: number;
+	rise: number;
+}
+
+/**
+ * Alphabetic baselines that centre a line, or a line and a caption under it, on the dial centre.
+ * The block spans the first line's ink top to the last line's baseline; descenders hang inside the
+ * stack or below it, as optical centring expects.
+ */
+export const stackBaselines = (
+	line: InkLine,
+	caption: InkLine | null,
+	gap: number,
+): { line: number; caption: number } => {
+	const lineHeight = line.size * line.rise;
+	const height = caption === null ? lineHeight : lineHeight + gap + caption.size * caption.rise;
+	const lineBaseline = lineHeight - height / 2;
+
+	return { line: lineBaseline, caption: height / 2 };
 };
 
 /** Degrees from `from` clockwise to `to`, in [0, 360). */
@@ -72,7 +137,7 @@ const utcOffsetMinutes = (epoch: number) => -new Date(epoch).getTimezoneOffset()
  * Local wall-clock minutes between two instants. Across a DST change this differs from real minutes
  * by the hour the clocks moved, which is exactly how far a clock hand moves differently.
  */
-export const localMinutesBetween = (from: number, to: number): number =>
+const localMinutesBetween = (from: number, to: number): number =>
 	(to - from) / 60_000 + utcOffsetMinutes(to) - utcOffsetMinutes(from);
 
 export interface WindowGeometry {
@@ -106,7 +171,10 @@ export const windowGeometry = (
 	scale: DialScale,
 ): WindowGeometry | null => {
 	const { startsAt, resetsAt } = window;
-	if (startsAt === null || resetsAt === null) return null;
+
+	if (startsAt === null || resetsAt === null) {
+		return null;
+	}
 
 	const instantAt = (pct: number) =>
 		startsAt + (Math.min(Math.max(pct, 0), 100) / 100) * (resetsAt - startsAt);

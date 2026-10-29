@@ -115,7 +115,10 @@ export const readLimit = (window: LimitWindow, now: number): LimitReading => {
 const ms = (seconds: number | null) => (seconds === null ? null : seconds * 1000);
 
 /** The three limits the dial shows: Claude's 5-hour and 7-day windows and Codex's 7-day window. */
-export const limitWindowsFrom = (agents: readonly UsageReadout[]): LimitWindow[] => {
+/** Claude's 5-hour and 7-day windows and Codex's 7-day window, in that order. */
+export const limitWindowsFrom = (
+	agents: readonly UsageReadout[],
+): [LimitWindow, LimitWindow, LimitWindow] => {
 	const claude = agents.find((agent) => agent.kind === "claude");
 	const codex = agents.find((agent) => agent.kind === "codex");
 	const window = (

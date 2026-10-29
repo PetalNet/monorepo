@@ -1,10 +1,13 @@
 <script lang="ts">
 	import {
 		arcPath,
+		BOSS_RADIUS,
+		CAP_HEIGHT,
 		clockwise,
 		dayAngle,
 		polar,
 		romanHour,
+		stackBaselines,
 		tangentRotation,
 		DAY_SCALE,
 		windowGeometry,
@@ -15,6 +18,7 @@
 	import DialFace from "./DialFace.svelte";
 	import FiligreeHand from "./FiligreeHand.svelte";
 	import LimitRing from "./LimitRing.svelte";
+	import RingLabel from "./RingLabel.svelte";
 
 	let {
 		sun,
@@ -66,6 +70,16 @@
 			period: parts.find((part) => part.type === "dayPeriod")?.value ?? "",
 		};
 	});
+	// The time is figures and the day period capitals, so both lines rise to the cap height. A 24-hour
+	// locale has no period, and the time alone is centred.
+	const BOSS = { time: 15, caption: 7.4 };
+	const baselines = $derived(
+		stackBaselines(
+			{ size: BOSS.time, rise: CAP_HEIGHT },
+			clock.period ? { size: BOSS.caption, rise: CAP_HEIGHT } : null,
+			4.6,
+		),
+	);
 </script>
 
 <DialFace id="day" {label}>
@@ -115,15 +129,18 @@
 	</g>
 
 	{#if geometry}
-		<LimitRing {reading} radius={68} width={16} {geometry} label="Claude · five hours" />
+		<LimitRing {reading} radius={68} width={16} {geometry} />
+		<RingLabel id={reading.window.id} label="Claude · five hours" inner={60} />
 	{:else}
 		<text class="ring-empty" y="-62">Claude 5-hour: no window open</text>
 	{/if}
 
 	<FiligreeHand angle={dayAngle(now)} length={91} sunAt={SKY_RADIUS} />
 
-	<circle class="boss" r="31" />
+	<circle class="boss" r={BOSS_RADIUS} />
 	<circle class="engraved" r="28.6" />
-	<text class="boss-time" y="2">{clock.time}</text>
-	<text class="boss-caption" y="14">{clock.period}</text>
+	<text class="boss-time" y={baselines.line} font-size={BOSS.time}>{clock.time}</text>
+	{#if clock.period}
+		<text class="boss-caption" y={baselines.caption} font-size={BOSS.caption}>{clock.period}</text>
+	{/if}
 </DialFace>

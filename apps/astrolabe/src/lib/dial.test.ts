@@ -1,6 +1,19 @@
 import { beforeAll, describe, expect, it } from "vitest";
 
-import { DAY_SCALE, WEEK_SCALE, type DialScale, windowGeometry } from "./dial.js";
+import {
+	ASCENDER_HEIGHT,
+	BOSS_RADIUS,
+	CAP_HEIGHT,
+	DAY_SCALE,
+	readingArc,
+	RING_LABEL_SIZE,
+	ringLabelBaseline,
+	stackBaselines,
+	WEEK_RINGS,
+	WEEK_SCALE,
+	type DialScale,
+	windowGeometry,
+} from "./dial.js";
 
 const at = (iso: string) => Date.parse(iso);
 const HOUR = 60 * 60 * 1000;
@@ -17,7 +30,10 @@ const place = (startsAt: number, resetsAt: number, now: number, scale: DialScale
 		now,
 		scale,
 	);
-	if (geometry === null) throw new Error("window did not place");
+
+	if (geometry === null) {
+		throw new Error("window did not place");
+	}
 
 	return {
 		tip: turn(geometry.start + geometry.elapsed),
@@ -98,6 +114,7 @@ describe("window geometry without DST", () => {
 
 		expect(geometry?.reset).toBeCloseTo(360, 5);
 		expect(geometry?.projection).toBeCloseTo(360, 5); // An overshoot is capped at the reset.
+
 		expect(turn((geometry?.start ?? 0) + (geometry?.elapsed ?? 0))).toBeCloseTo(
 			WEEK_SCALE.angle(at("2026-10-27T09:00:00Z")),
 			5,
@@ -112,5 +129,83 @@ describe("window geometry without DST", () => {
 				DAY_SCALE,
 			),
 		).toBeNull();
+	});
+});
+
+describe("centre boss lettering", () => {
+	// The dial is 240 units across and never drawn wider than about 420 px, so 0.5 units is under 1 px.
+	const HALF_PIXEL = 0.25;
+
+	it("centres a line and its caption on the dial centre", () => {
+		const line = { size: 10.5, rise: ASCENDER_HEIGHT };
+		const caption = { size: 7.4, rise: CAP_HEIGHT };
+		const baselines = stackBaselines(line, caption, 4.6);
+		const inkTop = baselines.line - line.size * line.rise;
+
+		expect((inkTop + baselines.caption) / 2).toBeCloseTo(0, 6);
+		expect(baselines.caption - baselines.line).toBeCloseTo(4.6 + caption.size * caption.rise, 6);
+	});
+
+	it("centres a lone line when a 24-hour locale has no day period", () => {
+		const line = { size: 15, rise: CAP_HEIGHT };
+		const { line: baseline } = stackBaselines(line, null, 4.6);
+
+		expect(Math.abs(baseline - (line.size * line.rise) / 2)).toBeLessThan(HALF_PIXEL);
+	});
+});
+
+describe("ring names", () => {
+	const [outerRadius, innerRadius] = WEEK_RINGS.radii;
+	const edges = (radius: number) => ({
+		inner: radius - WEEK_RINGS.width / 2,
+		outer: radius + WEEK_RINGS.width / 2,
+	});
+	const lettering = (ringInner: number) => {
+		const baseline = ringLabelBaseline(ringInner);
+
+		return { low: baseline, high: baseline + RING_LABEL_SIZE * CAP_HEIGHT };
+	};
+
+	const outer = edges(outerRadius);
+	const inner = edges(innerRadius);
+	const claude = lettering(outer.inner);
+	const codex = lettering(inner.inner);
+
+	it("letters both week rings at twelve o'clock without touching each other or a ring", () => {
+		// Both names are centred on the same angle, so they are apart exactly when their radii are.
+		expect(claude.high).toBeLessThan(outer.inner);
+		expect(claude.low).toBeGreaterThan(inner.outer);
+		expect(codex.high).toBeLessThan(inner.inner);
+		expect(codex.low).toBeGreaterThan(BOSS_RADIUS + 0.6);
+		expect(claude.low).toBeGreaterThan(codex.high);
+	});
+
+	it("keeps the outer name clear of the inner ring's elapsed line and its tip", () => {
+		// LimitRing draws the elapsed line 3.2 units outside the band, and its tip reaches 2.4 further.
+		expect(claude.low).toBeGreaterThan(inner.outer + 3.2 + 2.4);
+	});
+});
+
+describe("reading arcs", () => {
+	const start = (path: string) => {
+		const [, x, y] = path.split(" ");
+
+		return { x: Number(x), y: Number(y) };
+	};
+
+	it("runs clockwise across the top so letters stand upright", () => {
+		const path = readingArc(0, 60, 100);
+
+		expect(path).toContain(" 0 0 1 ");
+		expect(start(path).x).toBeLessThan(0);
+		expect(start(path).y).toBeLessThan(0);
+	});
+
+	it("runs anticlockwise across the bottom so letters read left to right", () => {
+		const path = readingArc(180, 60, 100);
+
+		expect(path).toContain(" 0 0 0 ");
+		expect(start(path).x).toBeLessThan(0);
+		expect(start(path).y).toBeGreaterThan(0);
 	});
 });
