@@ -13,7 +13,7 @@
 		"preview": "vite preview"
 	},
 	"dependencies": {
-		"@prisma/client": "catalog:prod",
+		"@prisma/client": "catalog:prisma6",
 		"@sveltejs/kit": "catalog:prod",
 		"nanoid": "catalog:prod",
 		"nodemailer": "catalog:prod",
@@ -31,7 +31,7 @@
 		"@types/nodemailer": "catalog:types",
 		"autoprefixer": "catalog:dev",
 		"postcss": "catalog:dev",
-		"prisma": "catalog:dev",
+		"prisma": "catalog:prisma6",
 		"svelte-check": "catalog:dev",
 		"tailwindcss": "catalog:legacy",
 		"typescript": "catalog:dev",

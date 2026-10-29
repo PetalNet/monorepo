@@ -171,6 +171,14 @@ catalogs:
   legacy:
     tailwindcss: ^3.4.17
 
+  # pnpm generates one Prisma client per @prisma/client instance, so two apps on the
+  # same Prisma version overwrite each other's generated client. PetalBoard stays on
+  # Prisma 6 to keep its client apart from Slide's until both move to Prisma 7, which
+  # generates into each app.
+  prisma6:
+    "@prisma/client": ^6.18.0
+    prisma: ^6.18.0
+
 catalog:
   csv-parse: 7.0.3
   ipaddr.js: 2.5.0
