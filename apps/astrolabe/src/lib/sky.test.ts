@@ -1,7 +1,7 @@
 import * as SunCalc from "suncalc";
 import { beforeAll, describe, expect, it } from "vitest";
 
-import { nextSolarEvent, solarCountdown } from "./sky.js";
+import { nextSolarEvent, solarCountdown, sunCaption } from "./sky.js";
 
 const DALLAS = { lat: 32.78, lon: -96.8 };
 const DAY_MS = 24 * 60 * 60 * 1000;
@@ -92,5 +92,34 @@ describe("solar countdown", () => {
 		expect(
 			solarCountdown({ sunriseAt: null, sunsetAt: null, nextDaySunriseAt: null }, 0),
 		).toBeNull();
+	});
+});
+
+describe("sun caption", () => {
+	const chicagoClock = (instant: number) =>
+		new Intl.DateTimeFormat("en-US", {
+			hour: "numeric",
+			minute: "2-digit",
+			timeZone: "America/Chicago",
+		})
+			.format(instant)
+			.replace(/\s/gu, " ");
+
+	it("prints tomorrow's sunrise after sunset, across the November fall-back", () => {
+		// 8:00 PM CDT on Oct 31. Clocks fall back overnight; Nov 1's sunrise is 6:45 AM CST, while
+		// Oct 31's own sunrise was 7:44 AM CDT.
+		const now = Date.parse("2026-11-01T01:00:00Z");
+
+		expect(sunCaption(solarTimesAt(now), now, chicagoClock)).toMatch(
+			/^Sunset 6:\d\d PM\. Sunrise 6:45 AM, in 11h \d+m\.$/u,
+		);
+	});
+
+	it("prints today's sunset during the day", () => {
+		const now = Date.parse("2026-10-29T18:00:00Z");
+
+		expect(sunCaption(solarTimesAt(now), now, chicagoClock)).toMatch(
+			/^Sunrise 7:\d\d AM\. Sunset 6:\d\d PM, in \d+h \d+m\.$/u,
+		);
 	});
 });

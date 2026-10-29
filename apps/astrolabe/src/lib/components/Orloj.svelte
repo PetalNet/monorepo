@@ -1,8 +1,7 @@
 <script lang="ts">
-	import { formatDuration } from "$lib/format";
 	import { limitWindowsFrom, readLimit } from "$lib/limits";
 	import type { Dossier } from "$lib/server/dossier";
-	import { solarCountdown } from "$lib/sky";
+	import { sunCaption } from "$lib/sky";
 	import { onMount } from "svelte";
 
 	import DayDial from "./DayDial.svelte";
@@ -52,27 +51,7 @@
 						? ""
 						: `, on pace for ${String(Math.round(reading.projectedPct))}% at reset`
 				}`;
-	const sunLine = $derived.by(() => {
-		if (now === null || dossier.sun.sunriseAt === null || dossier.sun.sunsetAt === null) {
-			return null;
-		}
-
-		const next = solarCountdown(dossier.sun, now);
-
-		const sunrise = `Sunrise ${time(dossier.sun.sunriseAt)}`;
-		const sunset = `Sunset ${time(dossier.sun.sunsetAt)}`;
-
-		if (next === null) {
-			return `${sunrise}. ${sunset}.`;
-		}
-
-		// The next event goes last, with how long until it.
-		const until = `in ${formatDuration(next.minutes * 60_000)}`;
-
-		return next.kind === "sunset"
-			? `${sunrise}. ${sunset}, ${until}.`
-			: `${sunset}. ${sunrise}, ${until}.`;
-	});
+	const sunLine = $derived(now === null ? null : sunCaption(dossier.sun, now, time));
 </script>
 
 <section class="orloj" aria-label="Usage limits">
