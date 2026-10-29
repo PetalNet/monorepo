@@ -138,7 +138,7 @@ catalogs:
     "@types/leaflet.heat": ^0.2.5
     "@types/leaflet.markercluster": ^1.5.6
     "@types/node": ^25.9.1
-    "@types/nodemailer": ^7.0.3
+    "@types/nodemailer": ^8.0.0
     "@types/qrcode": ^1.5.5
     "@types/sortablejs": ^1.15.8
 
