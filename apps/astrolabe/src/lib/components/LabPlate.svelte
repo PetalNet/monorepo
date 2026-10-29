@@ -86,11 +86,11 @@
 				</div>
 				<div>
 					<dt>Load</dt>
-					<dd class="mono">{dossier.host.load}</dd>
+					<dd>{dossier.host.load}</dd>
 				</div>
 				<div>
 					<dt>Swap</dt>
-					<dd class="mono">{dossier.host.swap}</dd>
+					<dd>{dossier.host.swap}</dd>
 				</div>
 			</dl>
 			{#if dossier.host.containerFails.length > 0}

@@ -49,7 +49,6 @@
 	--petal-hover: color-mix(in srgb, var(--petal) 86%, #000);
 	--petal-active: color-mix(in srgb, var(--petal) 74%, #000);
 	--font-sans: "Geist", "Geist Fallback", system-ui, -apple-system, sans-serif;
-	--font-mono: "Geist Mono", "Geist Mono Fallback", ui-monospace, monospace;
 	--font-serif: "EB Garamond", "EB Garamond Fallback", Garamond, Georgia, serif;
 	--ease-standard: cubic-bezier(0.2, 0, 0, 1);
 	--ease-emph-in: cubic-bezier(0.05, 0.7, 0.1, 1);
@@ -107,10 +106,6 @@ h3 {
 }
 button {
 	font: inherit;
-}
-.mono {
-	font-family: var(--font-mono);
-	font-feature-settings: "tnum" 1;
 }
 :focus-visible {
 	outline: 2px solid var(--petal);
@@ -593,7 +588,9 @@ h1 {
 .plate-rows div {
 	display: contents;
 }
+/* Values share the plate's serif; tabular lining figures keep the numbers aligned row to row. */
 .plate-rows dd {
+	font-variant-numeric: lining-nums tabular-nums;
 	overflow-wrap: anywhere;
 	text-align: end;
 }

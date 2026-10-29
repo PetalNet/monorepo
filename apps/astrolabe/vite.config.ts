@@ -8,11 +8,10 @@ export default defineConfig({
 	plugins: [
 		tailwindcss(),
 		fontless({
-			// The faces are named only through --font-sans and --font-mono, so fontless must read custom properties.
+			// The faces are named only through --font-sans and --font-serif, so fontless must read custom properties.
 			processCSSVariables: true,
 			families: [
 				{ name: "Geist", provider: "fontsource", weights: [400, 500, 600] },
-				{ name: "Geist Mono", provider: "fontsource", weights: [400, 500] },
 				{
 					name: "EB Garamond",
 					provider: "fontsource",
