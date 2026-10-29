@@ -70,7 +70,9 @@
 
 <article class="plaque {reading.window.id}" class:alarm={verdict.alarm}>
 	<div class="plaque-face">
-		<h3>{reading.window.agent} · {reading.window.span}</h3>
+		<h3>
+			<span class="swatch" aria-hidden="true"></span>{reading.window.agent} · {reading.window.span}
+		</h3>
 		{#if reading.usedPct !== null && reading.leftPct !== null}
 			<p class="plaque-figure">
 				<strong>{percent(reading.usedPct)} used</strong>

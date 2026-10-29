@@ -129,7 +129,7 @@
 	</g>
 
 	{#if geometry}
-		<LimitRing {reading} radius={68} width={16} {geometry} />
+		<LimitRing {reading} radius={68} width={16} {geometry} hand={dayAngle(now)} />
 		<RingLabel id={reading.window.id} label="Claude" inner={60} />
 	{:else}
 		<text class="ring-empty" y="-62">No 5-hour window open</text>

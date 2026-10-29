@@ -113,6 +113,7 @@
 				radius={ring.radius}
 				width={WEEK_RINGS.width}
 				geometry={ring.geometry}
+				hand={weekAngle(now)}
 			/>
 		{:else}
 			<circle class="groove empty" r={ring.radius} stroke-width={WEEK_RINGS.width} />

@@ -85,6 +85,47 @@ export const stackBaselines = (
 	return { line: lineBaseline, caption: height / 2 };
 };
 
+/** Smallest angle between two directions, in [0, 180]. */
+const separation = (a: number, b: number): number =>
+	Math.abs(((((a - b) % 360) + 540) % 360) - 180);
+
+/**
+ * Where a ring's usage figure goes: centred just past the end of the fill, on the bare groove, or
+ * just inside the fill's end when that spot would sit on the hand or the reset diamond, or stepped
+ * back inside a fill that runs up to the reset. `halfDeg` is half the figure's length along the
+ * ring, as degrees. Null when neither spot is clear.
+ */
+export const usageLabelAt = (input: {
+	start: number;
+	fill: number;
+	reset: number;
+	hand: number;
+	halfDeg: number;
+	radius: number;
+}): { angle: number; inside: boolean } | null => {
+	const { start, fill, reset, hand, halfDeg, radius } = input;
+	const degreesFor = (units: number) => (units / radius) * (180 / Math.PI);
+	// The hand is under 4 units wide at the rings; the reset diamond is about 5.
+	const clear = (angle: number) =>
+		separation(angle, hand) > halfDeg + degreesFor(3) &&
+		separation(angle, start + reset) > halfDeg + degreesFor(4);
+	// A fill that runs up to the reset gets its figure stepped back inside it, clear of the diamond.
+	const beforeReset = reset - halfDeg - degreesFor(4) - 0.5;
+	const candidates = [
+		{ angle: start + fill + halfDeg, inside: false, fits: fill + 2 * halfDeg <= reset },
+		{ angle: start + fill - halfDeg, inside: true, fits: fill >= 2 * halfDeg },
+		{
+			angle: start + beforeReset,
+			inside: true,
+			fits: beforeReset + halfDeg <= fill && beforeReset >= halfDeg,
+		},
+	];
+
+	const spot = candidates.find((candidate) => candidate.fits && clear(candidate.angle));
+
+	return spot === undefined ? null : { angle: spot.angle, inside: spot.inside };
+};
+
 /** Degrees from `from` clockwise to `to`, in [0, 360). */
 export const clockwise = (from: number, to: number): number => (((to - from) % 360) + 360) % 360;
 
@@ -145,6 +186,11 @@ export interface WindowGeometry {
 	start: number;
 	/** Sweep to the reset. A 7-day window on the week dial is a full turn give or take a DST hour. */
 	reset: number;
+	/**
+	 * Sweep of the groove. A window whose real length covers the whole dial gets the whole ring, so
+	 * the DST hour between its start and reset angles never leaves a wedge of bare paper.
+	 */
+	groove: number;
 	/** Sweep to the instant at which the usage share of the window would have passed. */
 	fill: number;
 	/** Sweep to where the burn rate lands, capped at the reset. */
@@ -182,6 +228,8 @@ export const windowGeometry = (
 	return {
 		start: scale.angle(startsAt),
 		reset: sweepTo(resetsAt),
+		groove:
+			((resetsAt - startsAt) / 60_000) * scale.degreesPerMinute >= 360 ? 360 : sweepTo(resetsAt),
 		fill: window.usedPct === null ? 0 : sweepTo(instantAt(window.usedPct)),
 		projection: window.projectedPct === null ? null : sweepTo(instantAt(window.projectedPct)),
 		runsOut: window.runsOutAt === null ? null : scale.angle(window.runsOutAt),

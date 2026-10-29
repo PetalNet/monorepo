@@ -368,6 +368,7 @@ h1 {
 	--orloj-brass-hi: #e6cb85;
 	--orloj-brass-lo: #9c7838;
 	--orloj-brass-deep: #6e5022;
+	--orloj-engraved: #2e1f0c;
 	--orloj-groove: #dcc796;
 	--orloj-sky-day: #f8efd6;
 	--orloj-sky-twilight: #c4935a;
@@ -390,6 +391,7 @@ h1 {
 	--orloj-brass-hi: #d9b666;
 	--orloj-brass-lo: #7d5f27;
 	--orloj-brass-deep: #4c3814;
+	--orloj-engraved: #2e1f0c;
 	--orloj-groove: #26354f;
 	--orloj-sky-day: #5d8fae;
 	--orloj-sky-twilight: #a8743c;
@@ -460,8 +462,9 @@ h1 {
 .dial-face .paper-mid {
 	stop-color: var(--orloj-paper);
 }
-.dial-face .paper-edge {
-	stop-color: var(--orloj-paper-edge);
+/* Matte paper under the same light: one hue, a little darker away from it. */
+.dial-face .paper-far {
+	stop-color: color-mix(in oklab, var(--orloj-paper), var(--orloj-paper-edge) 50%);
 }
 .dial-face .bezel-rule {
 	fill: none;
@@ -566,21 +569,17 @@ h1 {
 .dial-face .limit .fill {
 	stroke: var(--limit);
 }
-.dial-face .landing {
+/* The usage figure: ink on the bare groove, or paper when it sits inside the end of the fill. */
+.dial-face .usage {
 	dominant-baseline: central;
-	fill: var(--limit);
+	fill: var(--orloj-ink);
 	font-family: var(--font-serif);
-	font-size: 7.6px;
+	font-size: 8px;
 	font-weight: 600;
-	paint-order: stroke;
-	stroke: var(--orloj-groove);
-	stroke-linejoin: round;
-	stroke-width: 3.2px;
 	text-anchor: middle;
 }
-.dial-face .landing.over {
-	fill: var(--orloj-vermilion);
-	font-size: 9px;
+.dial-face .usage.inside {
+	fill: var(--orloj-paper);
 }
 .dial-face .alarm-rule {
 	fill: none;
@@ -659,67 +658,61 @@ h1 {
 	grid-template-columns: repeat(3, 1fr);
 	margin-top: var(--s5);
 }
-/* A plaque is a small piece of the same clock: a brass frame (the bezel's gradient, with a rivet in
-   each corner) around a paper face with the dial's grain and a pair of engraved rules. */
+/* A plaque is a brass plate cut from the same metal as the bezel, under the same light from the
+   upper left: the bezel's stops and specular band, held to the lighter part of their range so the
+   engraved lettering stays legible. Rivets and a double rule are struck in the bezel's deep brass. */
 .plaque {
+	--plate-shade: color-mix(in oklab, var(--orloj-brass-hi), var(--orloj-brass-lo) 40%);
 	--rivet: radial-gradient(circle, var(--orloj-brass-deep) 1.6px, transparent 2.2px);
 	background:
-		var(--rivet) top 1px left 1px / 9px 9px no-repeat,
-		var(--rivet) top 1px right 1px / 9px 9px no-repeat,
-		var(--rivet) bottom 1px left 1px / 9px 9px no-repeat,
-		var(--rivet) bottom 1px right 1px / 9px 9px no-repeat,
+		var(--rivet) top 2px left 2px / 9px 9px no-repeat,
+		var(--rivet) top 2px right 2px / 9px 9px no-repeat,
+		var(--rivet) bottom 2px left 2px / 9px 9px no-repeat,
+		var(--rivet) bottom 2px right 2px / 9px 9px no-repeat,
 		linear-gradient(
 			135deg,
 			var(--orloj-brass-hi),
-			var(--orloj-brass-lo) 35%,
+			color-mix(in oklab, var(--orloj-brass-hi), var(--orloj-brass-lo) 30%) 35%,
 			var(--orloj-brass-hi) 55%,
-			var(--orloj-brass-deep)
+			var(--plate-shade)
 		);
 	border-radius: var(--radius-xs);
-	color: var(--orloj-ink);
+	color: var(--orloj-engraved);
 	padding: 9px;
-	transition: color var(--t);
 }
 .plaque-face {
 	align-content: start;
-	background: radial-gradient(
-		ellipse farthest-corner,
-		var(--orloj-paper) 60%,
-		color-mix(in oklab, var(--orloj-paper), var(--orloj-paper-edge) 35%)
-	);
 	display: grid;
 	gap: var(--s2);
 	height: 100%;
-	isolation: isolate;
 	padding: var(--s3);
 	position: relative;
 }
-/* The engraved pair, as on the dial's chapter ring: a rule and a finer one just inside it. */
+/* The bezel's pair of rules, engraved into the plate. */
 .plaque-face::before {
-	border: 3px double var(--orloj-ink-mute);
-	content: "";
-	inset: 4px;
-	opacity: 0.6;
-	pointer-events: none;
-	position: absolute;
-}
-/* The dial's own grain filter, drawn as a texture behind the lettering. */
-.plaque-face::after {
-	background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='160' height='160'%3E%3Cfilter id='g'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.9' numOctaves='2' seed='7'/%3E%3CfeColorMatrix values='0 0 0 0 .32 0 0 0 0 .22 0 0 0 0 .1 0 0 0 .5 0'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23g)'/%3E%3C/svg%3E");
+	border: 3px double var(--orloj-brass-deep);
 	content: "";
 	inset: 0;
-	opacity: calc(var(--orloj-grain) * 2.5);
 	pointer-events: none;
 	position: absolute;
-	z-index: -1;
 }
 .plaque h3 {
-	color: var(--limit);
+	align-items: center;
+	display: flex;
 	font-size: 1.0625rem;
 	font-variant: small-caps;
 	font-weight: 600;
+	gap: var(--s2);
 	letter-spacing: 0.1em;
-	transition: color var(--t);
+}
+/* An enamel pip in the limit's colour, ringed in deep brass so it holds against the plate. */
+.plaque .swatch {
+	background: var(--limit);
+	border: 1.5px solid var(--orloj-brass-deep);
+	border-radius: 50%;
+	flex: none;
+	height: 0.8rem;
+	width: 0.8rem;
 }
 .plaque-figure {
 	align-items: baseline;
@@ -735,7 +728,6 @@ h1 {
 .plaque-figure span,
 .plaque-reset,
 .plaque-note {
-	color: var(--orloj-ink-mute);
 	font-size: 1rem;
 }
 .plaque-verdict {

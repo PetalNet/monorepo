@@ -46,11 +46,7 @@
 	const summary = (reading: NonNullable<typeof readings>["claude5h"]) =>
 		reading.usedPct === null
 			? `${reading.window.agent} ${reading.window.span}: no reading`
-			: `${reading.window.agent} ${reading.window.span}: ${String(Math.round(reading.usedPct))}% used${
-					reading.projectedPct === null
-						? ""
-						: `, on pace for ${String(Math.round(reading.projectedPct))}% at reset`
-				}`;
+			: `${reading.window.agent} ${reading.window.span}: ${String(Math.round(reading.usedPct))}% used`;
 	const sunLine = $derived(now === null ? null : sunCaption(dossier.sun, now, time));
 </script>
 
@@ -70,8 +66,7 @@
 			<figcaption>
 				<strong>Today</strong>
 				<span
-					>Claude's 5-hour limit.{#if sunLine}
-						{sunLine}{/if}</span
+					>Claude's 5-hour limit. {#if sunLine}{sunLine}{/if}</span
 				>
 			</figcaption>
 		</figure>

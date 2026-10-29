@@ -6,6 +6,7 @@ import {
 	CAP_HEIGHT,
 	DAY_SCALE,
 	readingArc,
+	usageLabelAt,
 	RING_LABEL_SIZE,
 	ringLabelBaseline,
 	stackBaselines,
@@ -189,5 +190,74 @@ describe("reading arcs", () => {
 		expect(path).toContain(" 0 0 0 ");
 		expect(start(path).x).toBeLessThan(0);
 		expect(start(path).y).toBeGreaterThan(0);
+	});
+});
+
+describe("groove", () => {
+	it("rings the whole week dial for a 7-day window across the fall-back", () => {
+		// 168 real hours are 167 on the wall clock, so the window's own sweep stops 2.14° short of its
+		// start and used to leave a wedge of bare paper beside the reset rule.
+		const resetsAt = at("2026-11-03T10:00:00Z");
+		const geometry = windowGeometry(
+			{
+				startsAt: resetsAt - 168 * HOUR,
+				resetsAt,
+				usedPct: 55,
+				projectedPct: null,
+				runsOutAt: null,
+			},
+			WEEK_SCALE,
+		);
+
+		expect(geometry?.reset).toBeCloseTo(357.86, 2);
+		expect(geometry?.groove).toBe(360);
+	});
+
+	it("runs a 5-hour window's groove only from its start to its reset", () => {
+		const resetsAt = at("2026-10-29T20:10:00Z");
+		const geometry = windowGeometry(
+			{ startsAt: resetsAt - 5 * HOUR, resetsAt, usedPct: 21, projectedPct: null, runsOutAt: null },
+			DAY_SCALE,
+		);
+
+		expect(geometry?.groove).toBeCloseTo(75, 5);
+		expect(geometry?.groove).toBeCloseTo(geometry?.reset ?? 0, 5);
+	});
+});
+
+describe("usage figure", () => {
+	const separation = (a: number, b: number) => Math.abs(((((a - b) % 360) + 540) % 360) - 180);
+	const ring = { start: 0, reset: 300, radius: 79, halfDeg: 6 };
+	// Degrees the hand and the reset diamond keep clear of the figure's edge, from usageLabelAt.
+	const handGap = (3 / 79) * (180 / Math.PI);
+	const resetGap = (4 / 79) * (180 / Math.PI);
+
+	it("sits just past the end of the fill when that spot is clear", () => {
+		expect(usageLabelAt({ ...ring, fill: 100, hand: 200 })).toEqual({ angle: 106, inside: false });
+	});
+
+	it("moves inside the fill's end when the hand is just past it", () => {
+		const spot = usageLabelAt({ ...ring, fill: 100, hand: 105 });
+
+		expect(spot).toEqual({ angle: 94, inside: true });
+		expect(separation(spot?.angle ?? 0, 105)).toBeGreaterThan(ring.halfDeg + handGap);
+	});
+
+	it("keeps clear of the reset diamond", () => {
+		const spot = usageLabelAt({ ...ring, fill: 292, hand: 100 });
+
+		expect(spot?.inside).toBe(true);
+		expect(separation(spot?.angle ?? 0, 300)).toBeGreaterThan(ring.halfDeg + resetGap);
+	});
+
+	it("steps back inside a full ring, clear of the reset diamond", () => {
+		const spot = usageLabelAt({ ...ring, fill: 300, hand: 100 });
+
+		expect(spot?.inside).toBe(true);
+		expect(separation(spot?.angle ?? 0, 300)).toBeGreaterThan(ring.halfDeg + resetGap);
+	});
+
+	it("gives up rather than sit on the hand or the reset", () => {
+		expect(usageLabelAt({ ...ring, fill: 4, hand: 8 })).toBeNull();
 	});
 });
