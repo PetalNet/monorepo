@@ -13,8 +13,8 @@ const kuma = {
 };
 
 describe("services summary", () => {
-	it("names what needs attention in the pill instead of a bare warning", () => {
-		expect(servicesSummary(kuma).pill).toEqual({ label: "5 down", tone: "down" });
+	it("names what needs attention in the status instead of a bare warning", () => {
+		expect(servicesSummary(kuma).status).toEqual({ label: "5 down", tone: "down" });
 	});
 
 	it("labels each count and highlights only down", () => {
@@ -40,12 +40,12 @@ describe("services summary", () => {
 	it("says all up when nothing is down or pending", () => {
 		const summary = servicesSummary({ ...kuma, down: 0, failedChecks1h: 0, failingServices1h: 0 });
 
-		expect(summary.pill).toEqual({ label: "All up", tone: "ok" });
+		expect(summary.status).toEqual({ label: "All up", tone: "ok" });
 		expect(summary.recent).toBeNull();
 	});
 
 	it("does not vouch for health it could not read", () => {
-		expect(servicesSummary({ ...kuma, stale: true }).pill).toEqual({
+		expect(servicesSummary({ ...kuma, stale: true }).status).toEqual({
 			label: "Stale",
 			tone: "warn",
 		});

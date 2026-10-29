@@ -15,11 +15,11 @@ const plural = (count: number, one: string, many: string) =>
 	`${String(count)} ${count === 1 ? one : many}`;
 
 /**
- * What the services card says. Every number carries its own label, and the pill names what is
- * wrong.
+ * What the lab plate's services section says. Every number carries its own label, and the status
+ * names what is wrong.
  */
 export const servicesSummary = (services: ServiceCounts) => {
-	const pill: { label: string; tone: Tone } = services.stale
+	const status: { label: string; tone: Tone } = services.stale
 		? { label: "Stale", tone: "warn" }
 		: services.down > 0
 			? { label: `${String(services.down)} down`, tone: "down" }
@@ -36,5 +36,5 @@ export const servicesSummary = (services: ServiceCounts) => {
 			? null
 			: `${plural(services.failedChecks1h, "failed check", "failed checks")} across ${plural(services.failingServices1h, "service", "services")} in the last hour`;
 
-	return { pill, stats, recent };
+	return { status, stats, recent };
 };

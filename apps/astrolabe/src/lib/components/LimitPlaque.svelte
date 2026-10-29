@@ -76,8 +76,8 @@
 	);
 </script>
 
-<article class="plaque {reading.window.id}" class:alarm={verdict.alarm}>
-	<div class="plaque-face">
+<article class="brass-plate plaque {reading.window.id}" class:alarm={verdict.alarm}>
+	<div class="brass-plate-face">
 		<h3>
 			<span class="swatch" aria-hidden="true"></span>{reading.window.agent} · {reading.window.span}
 		</h3>
