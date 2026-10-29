@@ -13,7 +13,8 @@ Lab stack: Tailwind + DaisyUI + SvelteKit + Svelte 5. It's **Material 3**, not M
 
 - **Borderless.** Separate surfaces with hairline rules + background/elevation — never a `border` or a faked `box-shadow: inset 0 0 0 1px`. Sole exception: one M3 _outlined_ tile.
 - **Material 3 cards** (filled/elevated/outlined) with M3-correct hover — real cards, not borderless mystery boxes.
-- **Flat.** Depth from elevation + hairline rules alone — no gradients, glow, cursor-light, parallax, reveal-on-scroll, or heavy shadows.
+- **Flat UI chrome.** Depth from elevation + hairline rules alone — no glow, cursor-light, parallax, reveal-on-scroll, or heavy shadows.
+- **Gradients are light, not decoration.** A gradient is fine only when it models real light on a real material (brass, paper, a lit sphere): one hue, lightness varying along one light direction, and every lit object on the screen shares that one light source. Banned: hue-to-hue (purple→green), same-hue two-tone "depth" (purple→darker purple), and adding fake depth to rescue something that looks corporate. Eli: "when it looks fake and corporate you don't fix that by adding fake depth, that's fraud." A surface meant to be a material must read as that material, matching the same material elsewhere on the page, not as a tinted border.
 - **Small ~2px radius** by default; pill radius only where the pattern demands it (e.g. chat bubbles).
 
 ## Layout & structure
