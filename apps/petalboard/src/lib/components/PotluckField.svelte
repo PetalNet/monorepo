@@ -17,6 +17,7 @@
 		value = "",
 		ownAnswer = null,
 		offeredOverride = null,
+		accentStyle = "",
 		onchange,
 	}: {
 		questionId: string;
@@ -27,6 +28,7 @@
 		value?: string;
 		ownAnswer?: PotluckAnswer | null;
 		offeredOverride?: string[] | null;
+		accentStyle?: string;
 		onchange: (raw: string) => void;
 	} = $props();
 
@@ -75,12 +77,12 @@
 </script>
 
 <fieldset>
-	<legend class="form-label">{label}{required ? " *" : ""}</legend>
+	<legend>{label}{required ? " *" : ""}</legend>
 	{#if description}
-		<small class="text-sm text-gray-600">{description}</small>
+		<small class="block text-sm text-gray-600">{description}</small>
 	{/if}
 	{#if view.config.providing}
-		<small class="text-sm text-gray-600"
+		<small class="block text-sm text-gray-600"
 			><strong>Hosts are providing:</strong> {view.config.providing}</small
 		>
 	{/if}
@@ -101,7 +103,11 @@
 				<span class="flex-1">
 					{s.category.label}
 					{#if s.category.id === neededMost}
-						<small class="badge-status ml-2 px-2 py-0.5 text-xs">Needed most</small>
+						<small
+							class="badge-status ml-2 px-2 py-0.5 text-xs"
+							data-tone="theme"
+							style={accentStyle}>Needed most</small
+						>
 					{/if}
 					<small class="mt-1 block text-sm text-gray-600"
 						>{s.count} so far{#if ideas.length > 0}. Ideas: {ideas.join(", ")}{/if}</small
@@ -109,6 +115,21 @@
 				</span>
 			</label>
 		{/each}
+		{#if !required}
+			<label class="status-option">
+				<input
+					type="radio"
+					name="potluck_category_{questionId}"
+					value=""
+					checked={category === ""}
+					onchange={() => {
+						category = "";
+						dish = "";
+					}}
+				/>
+				<span class="flex-1">Not bringing a dish</span>
+			</label>
+		{/if}
 	</div>
 
 	{#if full.length > 0}
@@ -126,6 +147,7 @@
 			maxlength="80"
 			bind:value={dish}
 			required={required || Boolean(category)}
+			disabled={!required && !category}
 			placeholder={category ? "What are you bringing?" : "Pick a category first"}
 		/>
 	</label>

@@ -165,6 +165,16 @@ export function slotStatuses(
 	}));
 }
 
+/** Overrides are set from the mix panel, so a config edit keeps each category's stored one. */
+export function keepOverrides(previous: PotluckConfig | null, next: PotluckConfig): PotluckConfig {
+	const forced = new Set(previous?.categories.filter((c) => c.forceOpen).map((c) => c.id));
+
+	return {
+		...next,
+		categories: next.categories.map((c) => ({ ...c, forceOpen: forced.has(c.id) })),
+	};
+}
+
 export function parsePotluckAnswer(raw: string | null | undefined): PotluckAnswer | null {
 	if (!raw) {
 		return null;

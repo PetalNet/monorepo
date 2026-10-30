@@ -1,5 +1,6 @@
 <script lang="ts">
 	import { enhance } from "$app/forms";
+	import { invalidateAll } from "$app/navigation";
 	import { env } from "$env/dynamic/public";
 	import PotluckField from "$lib/components/PotluckField.svelte";
 	import SpotifySongSelector from "$lib/components/SpotifySongSelector.svelte";
@@ -436,9 +437,15 @@
 	const potluckViews = $derived<Record<string, PotluckView>>(
 		Object.fromEntries(event.questions.flatMap((q: any) => (q.potluck ? [[q.id, q.potluck]] : []))),
 	);
-	const potluckRejection = $derived<{ questionId: string; offered: string[] } | null>(
-		(form as any)?.potluck ?? null,
-	);
+	const potluckRejection = $derived<{
+		formType: string;
+		questionId: string;
+		offered: string[];
+	} | null>((form as any)?.potluck ? { ...(form as any).potluck, formType: form?.type } : null);
+	const offeredAfterRejection = (formType: string, questionId: string) =>
+		potluckRejection?.formType === formType && potluckRejection.questionId === questionId
+			? potluckRejection.offered
+			: null;
 
 	const errors = $derived<Record<string, string[]>>(
 		(form?.errors ?? {}) as Record<string, string[]>,
@@ -1191,7 +1198,7 @@
 								{/if}
 							</span>
 						</div>
-						{#if dishes.length > 0}
+						{#if question.isPublic && dishes.length > 0}
 							<p class="m-0 mt-1 text-sm text-dark-700">
 								{dishes.map((d) => (d.name ? `${d.dish} (${d.name})` : d.dish)).join(", ")}
 							</p>
@@ -1753,6 +1760,10 @@
 						}
 
 						await update();
+
+						if (result.type === "failure" && result.data?.potluck) {
+							await invalidateAll();
+						}
 					};
 				}}
 			>
@@ -1936,10 +1947,11 @@
 										required={question.required}
 										view={potluckViews[question.id]}
 										value={responses[question.id] ?? ""}
-										ownAnswer={parsePotluckAnswer(editingRsvp.responses?.[question.id])}
-										offeredOverride={potluckRejection?.questionId === question.id
-											? potluckRejection.offered
-											: null}
+										ownAnswer={editingRsvp.status === "not_attending"
+											? null
+											: parsePotluckAnswer(editingRsvp.responses?.[question.id])}
+										accentStyle={`background-color: ${primaryColors[100]}; color: ${primaryColors[800]};`}
+										offeredOverride={offeredAfterRejection("updateRsvp", question.id)}
 										onchange={(raw) => (responses[question.id] = raw)}
 									/>
 								{:else if question.type === "spotify_playlist"}
@@ -2093,6 +2105,10 @@
 						}
 
 						await update();
+
+						if (result.type === "failure" && result.data?.potluck) {
+							await invalidateAll();
+						}
 					};
 				}}
 			>
@@ -2338,9 +2354,8 @@
 										required={question.required}
 										view={potluckViews[question.id]}
 										value={responses[question.id] ?? ""}
-										offeredOverride={potluckRejection?.questionId === question.id
-											? potluckRejection.offered
-											: null}
+										accentStyle={`background-color: ${primaryColors[100]}; color: ${primaryColors[800]};`}
+										offeredOverride={offeredAfterRejection("rsvp", question.id)}
 										onchange={(raw) => (responses[question.id] = raw)}
 									/>
 								{:else if question.type === "spotify_playlist"}

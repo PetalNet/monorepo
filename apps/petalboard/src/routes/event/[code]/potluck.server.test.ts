@@ -7,6 +7,7 @@ import { FRIENDSGIVING_POTLUCK, type PotluckConfig } from "$lib/potluck";
 import type * as PrismaModule from "$lib/server/prisma";
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 
+import type * as ManageServer from "../manage/[token]/+page.server";
 import type * as PageServer from "./+page.server";
 
 vi.mock("$env/dynamic/private", () => ({ env: process.env }));
@@ -27,6 +28,8 @@ type Prisma = typeof PrismaModule.prisma;
 let actions: Actions;
 let prisma: Prisma;
 let publicCode: string;
+let manageToken: string;
+let manageActions: typeof ManageServer.actions;
 let questionId: string;
 let pinSeq = 1000;
 
@@ -77,6 +80,7 @@ beforeAll(async () => {
 	});
 
 	({ actions } = await import("./+page.server"));
+	({ actions: manageActions } = await import("../manage/[token]/+page.server"));
 	({ prisma } = await import("$lib/server/prisma"));
 }, 60_000);
 
@@ -111,6 +115,7 @@ beforeEach(async () => {
 	});
 
 	publicCode = event.publicCode;
+	manageToken = event.manageToken;
 	questionId = event.questions[0].id;
 
 	const seed = { sides: 5, "apps-snacks": 2, desserts: 1, drinks: 1 };
@@ -233,6 +238,95 @@ describe("potluck signups", () => {
 
 		expect(edited.success).toBe(true);
 		expect(accepted((await signUp("desserts", "one more cake")).result)).toBe(false);
+	});
+
+	it("does not hold a slot for a guest who can't come, and does count a maybe", async () => {
+		await signUp("desserts", "pie a");
+		await signUp("desserts", "pie b");
+		expect(accepted((await signUp("desserts", "pie c")).result)).toBe(false);
+
+		const holder = await prisma.rsvp.findFirstOrThrow({ where: { name: "Seed desserts 0" } });
+
+		await prisma.rsvp.update({ where: { id: holder.id }, data: { status: "not_attending" } });
+		expect(accepted((await signUp("desserts", "pie c")).result)).toBe(true);
+
+		await prisma.rsvp.update({ where: { id: holder.id }, data: { status: "maybe" } });
+		expect(accepted((await signUp("desserts", "pie d")).result)).toBe(false);
+	});
+
+	it("removes a guest's dish when they choose not to bring one", async () => {
+		const { result, pin } = await signUp("desserts", "pie");
+
+		expect(accepted(result)).toBe(true);
+
+		const edited = await post("updateRsvp", {
+			rsvpId: result.rsvpId,
+			pin,
+			name: "Guest no dish",
+			status: "attending",
+			[`response_${questionId}`]: "",
+		});
+
+		expect(edited.success).toBe(true);
+		expect(await prisma.response.count({ where: { rsvpId: result.rsvpId } })).toBe(0);
+	});
+
+	it("keeps the host's force-open and its removal when the question is edited", async () => {
+		const update = (config: PotluckConfig) => {
+			const body = new FormData();
+
+			body.set("questionId", questionId);
+			body.set("type", "potluck");
+			body.set("label", "What are you bringing?");
+			body.set("description", "");
+			body.set("isPublic", "on");
+			body.set("potluckConfig", JSON.stringify(config));
+			const handler = manageActions.updateQuestion as (e: unknown) => Promise<any>;
+
+			return handler({
+				request: new Request("http://localhost/", { method: "POST", body }),
+				params: { token: manageToken },
+			});
+		};
+
+		const override = (forceOpen: boolean) => {
+			const body = new FormData();
+
+			body.set("questionId", questionId);
+			body.set("categoryId", "desserts");
+			body.set("forceOpen", String(forceOpen));
+			const handler = manageActions.setPotluckOverride as (e: unknown) => Promise<any>;
+
+			return handler({
+				request: new Request("http://localhost/", { method: "POST", body }),
+				params: { token: manageToken },
+			});
+		};
+
+		const dessertsForced = async () => {
+			const q = await prisma.question.findUniqueOrThrow({ where: { id: questionId } });
+
+			return (JSON.parse(q.potluckConfig ?? "{}") as PotluckConfig).categories.find(
+				(c) => c.id === "desserts",
+			)?.forceOpen;
+		};
+
+		const staleDraft = (forceOpen: boolean): PotluckConfig => ({
+			...strict,
+			providing: "Edited",
+			categories: strict.categories.map((c) => ({
+				...c,
+				forceOpen: c.id === "desserts" && forceOpen,
+			})),
+		});
+
+		expect(await override(true)).toMatchObject({ success: true });
+		expect((await update(staleDraft(false))).success).toBe(true);
+		expect(await dessertsForced()).toBe(true);
+
+		expect((await override(false)).success).toBe(true);
+		expect((await update(staleDraft(true))).success).toBe(true);
+		expect(await dessertsForced()).toBe(false);
 	});
 
 	it("rejects free text that is not a category and dish", async () => {

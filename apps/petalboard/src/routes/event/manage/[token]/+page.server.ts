@@ -1,4 +1,4 @@
-import { parsePotluckConfig, potluckConfigSchema } from "$lib/potluck";
+import { keepOverrides, parsePotluckConfig, potluckConfigSchema } from "$lib/potluck";
 import { potluckView } from "$lib/server/potluck";
 import { prisma } from "$lib/server/prisma";
 import { eventSchema, questionSchema } from "$lib/server/validation";
@@ -16,7 +16,7 @@ const potluckOverrideSchema = z.object({
 	forceOpen: z.enum(["true", "false"]).transform((v) => v === "true"),
 });
 
-function parsePotluckField(type: string, raw: string | undefined) {
+function parsePotluckField(type: string, raw: string | undefined, previous: string | null = null) {
 	if (type !== "potluck") {
 		return { ok: true, value: null } as const;
 	}
@@ -38,7 +38,9 @@ function parsePotluckField(type: string, raw: string | undefined) {
 		} as const;
 	}
 
-	return { ok: true, value: JSON.stringify(parsed.data) } as const;
+	const stored = previous ? parsePotluckConfig(previous) : null;
+
+	return { ok: true, value: JSON.stringify(keepOverrides(stored, parsed.data)) } as const;
 }
 
 async function getEventId(token: string) {
@@ -342,16 +344,6 @@ export const actions = {
 
 		const { questionId, type, label, description, required, options, quantity, isPublic } =
 			parsed.data;
-		const potluck = parsePotluckField(type, raw.potluckConfig);
-
-		if (!potluck.ok) {
-			return fail(400, {
-				success: false,
-				errors: potluck.errors,
-				values: raw,
-				type: "updateQuestion",
-			});
-		}
 
 		// Spotify-specific fields from form
 		const spotifyPlaylistId = raw.spotifyPlaylistId || null;
@@ -373,6 +365,17 @@ export const actions = {
 			return fail(404, {
 				success: false,
 				message: "Question not found.",
+				type: "updateQuestion",
+			});
+		}
+
+		const potluck = parsePotluckField(type, raw.potluckConfig, question.potluckConfig);
+
+		if (!potluck.ok) {
+			return fail(400, {
+				success: false,
+				errors: potluck.errors,
+				values: raw,
 				type: "updateQuestion",
 			});
 		}

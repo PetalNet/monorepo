@@ -1,5 +1,10 @@
 /* oxlint-disable eslint/no-await-in-loop -- Playlist sync runs one question at a time against the same Spotify session. */
-import { checkPotluckAnswers, potluckView } from "$lib/server/potluck";
+import {
+	BUSY_MESSAGE,
+	checkPotluckAnswers,
+	isBusyTransaction,
+	potluckView,
+} from "$lib/server/potluck";
 import { prisma } from "$lib/server/prisma";
 import { hashPin, verifyPin } from "$lib/server/security";
 import {
@@ -470,38 +475,50 @@ export const actions = {
 			});
 		}
 
-		const created = await prisma.$transaction(async (tx) => {
-			const rejection =
-				status === "not_attending"
-					? null
-					: await checkPotluckAnswers(tx, event.id, responses, null);
+		const created = await prisma
+			.$transaction(async (tx) => {
+				const rejection =
+					status === "not_attending"
+						? null
+						: await checkPotluckAnswers(tx, event.id, responses, null);
 
-			if (rejection) {
-				return { rejection, rsvp: null };
-			}
+				if (rejection) {
+					return { rejection, rsvp: null };
+				}
 
-			const rsvp = await tx.rsvp.create({
-				data: {
-					name,
-					email: email ?? null,
-					status,
-					guestCount,
-					pinHash,
-					eventId: event.id,
-					responses: {
-						create: Object.entries(responses)
-							.filter(([, answer]) => answer && answer.trim() !== "")
-							.map(([questionId, answer]) => ({
-								questionId,
-								value: answer,
-							})),
+				const rsvp = await tx.rsvp.create({
+					data: {
+						name,
+						email: email ?? null,
+						status,
+						guestCount,
+						pinHash,
+						eventId: event.id,
+						responses: {
+							create: Object.entries(responses)
+								.filter(([, answer]) => answer && answer.trim() !== "")
+								.map(([questionId, answer]) => ({
+									questionId,
+									value: answer,
+								})),
+						},
 					},
-				},
-				select: { id: true },
+					select: { id: true },
+				});
+
+				return { rejection: null, rsvp };
+			})
+			.catch((cause: unknown) => {
+				if (isBusyTransaction(cause)) {
+					return { rejection: null, rsvp: null, busy: true };
+				}
+
+				throw cause;
 			});
 
-			return { rejection: null, rsvp };
-		});
+		if ("busy" in created) {
+			return fail(503, { success: false, message: BUSY_MESSAGE, type: "rsvp", values: raw });
+		}
 
 		if (!created.rsvp) {
 			return fail(409, {
@@ -776,37 +793,49 @@ export const actions = {
 			}
 		}
 
-		const rejection = await prisma.$transaction(async (tx) => {
-			const found =
-				status === "not_attending"
-					? null
-					: await checkPotluckAnswers(tx, event.id, responses, rsvp.id);
+		const rejection = await prisma
+			.$transaction(async (tx) => {
+				const found =
+					status === "not_attending"
+						? null
+						: await checkPotluckAnswers(tx, event.id, responses, rsvp.id);
 
-			if (found) {
-				return found;
-			}
+				if (found) {
+					return found;
+				}
 
-			await tx.rsvp.update({
-				where: { id: rsvp.id },
-				data: {
-					name: name || undefined,
-					email: email || null,
-					status,
-					guestCount,
-					responses: {
-						deleteMany: {},
-						create: Object.entries(responses)
-							.filter(([, value]) => value && value.trim() !== "")
-							.map(([questionId, value]) => ({
-								questionId,
-								value,
-							})),
+				await tx.rsvp.update({
+					where: { id: rsvp.id },
+					data: {
+						name: name || undefined,
+						email: email || null,
+						status,
+						guestCount,
+						responses: {
+							deleteMany: {},
+							create: Object.entries(responses)
+								.filter(([, value]) => value && value.trim() !== "")
+								.map(([questionId, value]) => ({
+									questionId,
+									value,
+								})),
+						},
 					},
-				},
+				});
+
+				return null;
+			})
+			.catch((cause: unknown) => {
+				if (isBusyTransaction(cause)) {
+					return "busy" as const;
+				}
+
+				throw cause;
 			});
 
-			return null;
-		});
+		if (rejection === "busy") {
+			return fail(503, { success: false, message: BUSY_MESSAGE, type: "updateRsvp" });
+		}
 
 		if (rejection) {
 			return fail(409, {

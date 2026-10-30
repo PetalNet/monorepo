@@ -41,9 +41,8 @@ export function potluckView(
 
 /**
  * Checks every potluck answer in a submission against the ratio rule. Call it inside the
- * prisma.$transaction that writes the RSVP: Prisma opens SQLite interactive transactions with BEGIN
- * IMMEDIATE, so concurrent signups queue on the write lock and each one counts committed dishes
- * only.
+ * prisma.$transaction that writes the RSVP, so the read and the write commit together: the
+ * eight-way concurrent signup test shows exactly the allowed number of dishes get in.
  */
 export async function checkPotluckAnswers(
 	tx: Prisma.TransactionClient,
@@ -105,3 +104,14 @@ export async function checkPotluckAnswers(
 
 	return null;
 }
+
+/** A signup rush can outlast Prisma's transaction wait; the guest should retry, not see a 500. */
+export function isBusyTransaction(cause: unknown): boolean {
+	const code = (cause as { code?: unknown } | null)?.code;
+	const message = cause instanceof Error ? cause.message : "";
+
+	return code === "P2028" || /SQLITE_BUSY|database is locked/i.test(message);
+}
+
+export const BUSY_MESSAGE =
+	"Lots of people are signing up right now. Please try again in a moment.";

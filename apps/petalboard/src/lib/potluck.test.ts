@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import {
 	FRIENDSGIVING_POTLUCK,
+	keepOverrides,
 	offeredCategoryIds,
 	parsePotluckAnswer,
 	slotStatuses,
@@ -182,16 +183,44 @@ describe("unclaimedIdeas", () => {
 		expect(left).toHaveLength(desserts.ideas.length - 1);
 	});
 
-	it("never suggests a dish the hosts are providing", () => {
-		const hostDishes = [
-			/pulled\s+chicken/,
-			/pulled\s+pork/,
-			/mac(aroni)?\s*(and|&|n'?)\s*cheese/,
-			/green\s+beans?/,
-		];
-		const suggested = FRIENDSGIVING_CATEGORIES.flatMap((c) => c.ideas.map((i) => i.toLowerCase()));
+	const hostDishes = [
+		/pulled chicken/,
+		/pulled pork/,
+		/mac(aroni)? (and|n) cheese/,
+		/green beans?/,
+	];
+	const namesHostDish = (idea: string) => {
+		const words = idea
+			.toLowerCase()
+			.replaceAll("&", " and ")
+			.replaceAll(/[^a-z]+/g, " ")
+			.trim();
 
-		expect(suggested.filter((idea) => hostDishes.some((dish) => dish.test(idea)))).toEqual([]);
+		return hostDishes.some((dish) => dish.test(words));
+	};
+
+	it("recognises host dishes however an idea spells them", () => {
+		for (const idea of [
+			"Green Bean Casserole",
+			"green beans",
+			"Mac n Cheese",
+			"mac 'n' cheese",
+			"mac-n-cheese",
+			"Macaroni & Cheese",
+			"pulled-pork sliders",
+			"Pulled Chicken",
+		]) {
+			expect(namesHostDish(idea), idea).toBe(true);
+		}
+
+		expect(namesHostDish("chocolate covered strawberries")).toBe(false);
+	});
+
+	it("never suggests a dish the hosts are providing", () => {
+		const suggested = FRIENDSGIVING_CATEGORIES.flatMap((c) => c.ideas);
+
+		expect(suggested.length).toBeGreaterThan(20);
+		expect(suggested.filter(namesHostDish)).toEqual([]);
 	});
 
 	it("names the hosts' dishes in the default providing line", () => {
@@ -245,5 +274,33 @@ describe("parsePotluckAnswer", () => {
 	it("rejects free text and empty dishes", () => {
 		expect(parsePotluckAnswer("pie")).toBeNull();
 		expect(parsePotluckAnswer('{"category":"sides","dish":"  "}')).toBeNull();
+	});
+});
+
+describe("keepOverrides", () => {
+	it("keeps a host's force-open across a config edit and drops it for removed categories", () => {
+		const forced = friendsgiving(2);
+		const desserts = forced.categories.find((c) => c.id === "desserts");
+
+		if (desserts) {
+			desserts.forceOpen = true;
+		}
+
+		const edited = friendsgiving(2);
+		const kept = keepOverrides(forced, edited);
+
+		expect(kept.categories.find((c) => c.id === "desserts")?.forceOpen).toBe(true);
+		expect(kept.categories.filter((c) => c.forceOpen)).toHaveLength(1);
+
+		const draftForced = {
+			...edited,
+			categories: edited.categories.map((c) => ({ ...c, forceOpen: true })),
+		};
+
+		expect(keepOverrides(friendsgiving(2), draftForced).categories.some((c) => c.forceOpen)).toBe(
+			false,
+		);
+
+		expect(keepOverrides(null, draftForced).categories.some((c) => c.forceOpen)).toBe(false);
 	});
 });
