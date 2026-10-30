@@ -293,11 +293,63 @@ describe("passwordless RSVP access", () => {
 		expect(await prisma.rsvp.findUniqueOrThrow({ where: { id: own.id } })).toStrictEqual(before);
 	});
 
+	// The jar's cookie moves to Second, as when Second's edit link opens in another tab.
+	async function twoRsvpsOneBrowser() {
+		const jar: Jar = new Map();
+
+		await rsvp({ name: "First", email: `first.${seq}@example.test` }, jar);
+		await rsvp({ name: "Second", email: `second.${seq}@example.test` }, jar);
+
+		return {
+			jar,
+			first: await prisma.rsvp.findFirstOrThrow({ where: { name: "First" } }),
+			before: await prisma.rsvp.findMany({ where: { eventId }, orderBy: { name: "asc" } }),
+		};
+	}
+
+	const stale = [409, "This page is out of date. Reload to edit your current RSVP."];
+
+	it("refuses an update from a dialog showing a different RSVP than the cookie's", async () => {
+		const { jar, first, before } = await twoRsvpsOneBrowser();
+		const fields = { name: "Overwritten", status: "not_attending", guestCount: "1" };
+		const results = [
+			await call(page.actions.updateRsvp, {
+				body: form({ ...fields, expectedRsvpId: first.id }),
+				jar,
+			}),
+			await call(page.actions.updateRsvp, { body: form(fields), jar }),
+		];
+
+		expect(results.map((r) => [r.status, r.data?.message ?? r.message])).toEqual([stale, stale]);
+
+		expect(
+			await prisma.rsvp.findMany({ where: { eventId }, orderBy: { name: "asc" } }),
+		).toStrictEqual(before);
+	});
+
+	it("refuses a cancel from a dialog showing a different RSVP than the cookie's", async () => {
+		const { jar, first, before } = await twoRsvpsOneBrowser();
+		const results = [
+			await call(page.actions.cancelRsvp, { body: form({ expectedRsvpId: first.id }), jar }),
+			await call(page.actions.cancelRsvp, { body: form({}), jar }),
+		];
+
+		expect(results.map((r) => [r.status, r.data?.message ?? r.message])).toEqual([stale, stale]);
+
+		expect(
+			await prisma.rsvp.findMany({ where: { eventId }, orderBy: { name: "asc" } }),
+		).toStrictEqual(before);
+	});
+
 	it("cancels with the cookie, deletes the RSVP and clears the cookie", async () => {
 		const jar: Jar = new Map();
 
 		await rsvp({ name: "Avery", email: `avery.${seq}@example.test` }, jar);
-		const cancelled = await call(page.actions.cancelRsvp, { body: form({}), jar });
+		const own = await prisma.rsvp.findFirstOrThrow({ where: { eventId } });
+		const cancelled = await call(page.actions.cancelRsvp, {
+			body: form({ expectedRsvpId: own.id }),
+			jar,
+		});
 
 		expect(cancelled.success).toBe(true);
 		expect(await prisma.rsvp.count({ where: { eventId } })).toBe(0);

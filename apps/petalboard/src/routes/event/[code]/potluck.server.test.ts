@@ -63,6 +63,19 @@ function post(action: keyof Actions, fields: Record<string, string>, jar: Jar = 
 	});
 }
 
+// Submits the way the edit dialog does, naming the RSVP the guest's cookie points at.
+async function postAsGuest(
+	action: "updateRsvp" | "cancelRsvp",
+	fields: Record<string, string>,
+	jar: Jar,
+) {
+	const { readSession } = await import("$lib/server/rsvpAccess");
+	const event = await prisma.event.findUniqueOrThrow({ where: { publicCode } });
+	const expectedRsvpId = await readSession(cookieJar(jar) as never, event.id);
+
+	return post(action, { ...fields, expectedRsvpId: expectedRsvpId ?? "" }, jar);
+}
+
 function signUp(category: string, dish: string) {
 	const n = guestSeq++;
 	const jar: Jar = new Map();
@@ -182,7 +195,7 @@ describe("potluck signups", () => {
 
 		expect(accepted((await signUp("desserts", "pie c")).result)).toBe(false);
 
-		const cancelled = await post("cancelRsvp", {}, jar);
+		const cancelled = await postAsGuest("cancelRsvp", {}, jar);
 
 		expect(cancelled.success).toBe(true);
 		expect(accepted((await signUp("desserts", "pie c")).result)).toBe(true);
@@ -191,7 +204,7 @@ describe("potluck signups", () => {
 	it("frees a dessert slot when a guest edits their dish to a side", async () => {
 		await signUp("desserts", "pie a");
 		const { jar } = await signUp("desserts", "pie b");
-		const edited = await post(
+		const edited = await postAsGuest(
 			"updateRsvp",
 			{
 				name: "Guest edited",
@@ -209,7 +222,7 @@ describe("potluck signups", () => {
 	it("lets a guest keep their dessert while editing after desserts closed", async () => {
 		await signUp("desserts", "pie a");
 		const { jar } = await signUp("desserts", "pie b");
-		const edited = await post(
+		const edited = await postAsGuest(
 			"updateRsvp",
 			{
 				name: "Guest renamed",
@@ -246,7 +259,7 @@ describe("potluck signups", () => {
 		const own = await prisma.rsvp.findFirstOrThrow({ where: { name: "Forced dessert 0" } });
 		const { createSession } = await import("$lib/server/rsvpAccess");
 		const jar: Jar = new Map([["pb_rsvp", await createSession(own.id)]]);
-		const edited = await post(
+		const edited = await postAsGuest(
 			"updateRsvp",
 			{
 				name: "Forced dessert renamed",
@@ -279,7 +292,7 @@ describe("potluck signups", () => {
 
 		expect(accepted(result)).toBe(true);
 
-		const edited = await post(
+		const edited = await postAsGuest(
 			"updateRsvp",
 			{ name: "Guest no dish", status: "attending", [`response_${questionId}`]: "" },
 			jar,

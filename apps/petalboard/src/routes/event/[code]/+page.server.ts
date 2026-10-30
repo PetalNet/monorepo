@@ -346,6 +346,7 @@ async function syncSpotifyPlaylists(eventId: string) {
 
 const ALREADY_REGISTERED = "You're already on the list. We emailed you a link to edit your RSVP.";
 const ACCESS_EXPIRED = "Your edit access has expired. Use Edit my RSVP to get a new link.";
+const STALE_PAGE = "This page is out of date. Reload to edit your current RSVP.";
 const LINK_SENT =
 	"If that email is on the list for this event, we've sent it a link to edit the RSVP. The link works for 1 hour.";
 
@@ -612,6 +613,11 @@ async function findOwnRsvp(cookies: Cookies, eventId: string) {
 		: null;
 }
 
+// The cookie can switch RSVPs in another tab, so a form only acts on the RSVP it was showing.
+function isStale(formData: FormData, rsvpId: string) {
+	return formData.get("expectedRsvpId") !== rsvpId;
+}
+
 function isUniqueViolation(cause: unknown) {
 	return (cause as { code?: unknown } | null)?.code === "P2002";
 }
@@ -750,7 +756,13 @@ export const actions = {
 			return fail(403, { success: false, type: "updateRsvp" as const, message: ACCESS_EXPIRED });
 		}
 
-		const { values, responses } = readRsvpForm(await request.formData());
+		const formData = await request.formData();
+
+		if (isStale(formData, existing.id)) {
+			return fail(409, { success: false, type: "updateRsvp" as const, message: STALE_PAGE });
+		}
+
+		const { values, responses } = readRsvpForm(formData);
 		const parsed = rsvpSchema.omit({ email: true }).safeParse({ ...values, responses });
 
 		if (!parsed.success) {
@@ -775,12 +787,16 @@ export const actions = {
 		};
 	},
 
-	cancelRsvp: async ({ params, cookies }) => {
+	cancelRsvp: async ({ request, params, cookies }) => {
 		const event = await findEvent(params.code);
 		const existing = await findOwnRsvp(cookies, event.id);
 
 		if (!existing) {
 			return fail(403, { success: false, type: "cancelRsvp" as const, message: ACCESS_EXPIRED });
+		}
+
+		if (isStale(await request.formData(), existing.id)) {
+			return fail(409, { success: false, type: "cancelRsvp" as const, message: STALE_PAGE });
 		}
 
 		await prisma.rsvp.delete({ where: { id: existing.id } });

@@ -1778,7 +1778,7 @@
 				>
 			</div>
 
-			{#if formType === "updateRsvp" && message && !success}
+			{#if (formType === "updateRsvp" || formType === "cancelRsvp") && message && !success}
 				<div class="error-banner">{message}</div>
 			{/if}
 
@@ -1817,6 +1817,7 @@
 					};
 				}}
 			>
+				<input type="hidden" name="expectedRsvpId" value={editingRsvp.id} />
 				<label class="form-label">
 					<span>Your name *</span>
 					<input
@@ -2065,6 +2066,7 @@
 					};
 				}}
 			>
+				<input type="hidden" name="expectedRsvpId" value={editingRsvp.id} />
 				{#if showCancelConfirm}
 					<div class="flex justify-center gap-2">
 						<button type="submit" class="btn-danger">Yes, Cancel RSVP</button>
