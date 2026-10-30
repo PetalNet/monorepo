@@ -1,4 +1,11 @@
 /* oxlint-disable eslint/no-await-in-loop -- Playlist sync runs one question at a time against the same Spotify session. */
+import {
+	BUSY_MESSAGE,
+	checkPotluckAnswers,
+	isBusyTransaction,
+	oneSignupAtATime,
+	potluckView,
+} from "$lib/server/potluck";
 import { prisma } from "$lib/server/prisma";
 import { hashPin, verifyPin } from "$lib/server/security";
 import {
@@ -43,6 +50,7 @@ export const load = async ({ params, locals }) => {
 					isPublic: true,
 					spotifyPlaylistId: true,
 					songsPerUser: true,
+					potluckConfig: true,
 					responses: {
 						select: {
 							id: true,
@@ -118,13 +126,17 @@ export const load = async ({ params, locals }) => {
 				spotifyPlaylistId: question.spotifyPlaylistId,
 				songsPerUser: question.songsPerUser,
 				responseCount: question.responses.length,
-				publicResponses: question.isPublic
-					? question.responses.map((r) => ({
-							name: r.rsvp.name,
-							value: r.value,
-							status: r.rsvp.status,
-						}))
-					: [],
+				potluck: question.potluckConfig
+					? potluckView(question.potluckConfig, question.responses, question.isPublic)
+					: null,
+				publicResponses:
+					question.isPublic && question.type !== "potluck"
+						? question.responses.map((r) => ({
+								name: r.rsvp.name,
+								value: r.value,
+								status: r.rsvp.status,
+							}))
+						: [],
 			})),
 		},
 		isOwner,
@@ -464,26 +476,62 @@ export const actions = {
 			});
 		}
 
-		// Create RSVP and responses
-		const rsvp = await prisma.rsvp.create({
-			data: {
-				name,
-				email: email ?? null,
-				status,
-				guestCount,
-				pinHash,
-				eventId: event.id,
-				responses: {
-					create: Object.entries(responses)
-						.filter(([, answer]) => answer && answer.trim() !== "")
-						.map(([questionId, answer]) => ({
-							questionId,
-							value: answer,
-						})),
-				},
-			},
-			select: { id: true },
+		const created = await oneSignupAtATime(event.id, () =>
+			prisma.$transaction(async (tx) => {
+				const rejection =
+					status === "not_attending"
+						? null
+						: await checkPotluckAnswers(tx, event.id, responses, null);
+
+				if (rejection) {
+					return { rejection, rsvp: null };
+				}
+
+				const rsvp = await tx.rsvp.create({
+					data: {
+						name,
+						email: email ?? null,
+						status,
+						guestCount,
+						pinHash,
+						eventId: event.id,
+						responses: {
+							create: Object.entries(responses)
+								.filter(([, answer]) => answer && answer.trim() !== "")
+								.map(([questionId, answer]) => ({
+									questionId,
+									value: answer,
+								})),
+						},
+					},
+					select: { id: true },
+				});
+
+				return { rejection: null, rsvp };
+			}),
+		).catch((cause: unknown) => {
+			if (isBusyTransaction(cause)) {
+				return { rejection: null, rsvp: null, busy: true };
+			}
+
+			throw cause;
 		});
+
+		if ("busy" in created) {
+			return fail(503, { success: false, message: BUSY_MESSAGE, type: "rsvp", values: raw });
+		}
+
+		if (!created.rsvp) {
+			return fail(409, {
+				success: false,
+				message: created.rejection?.message,
+				potluck: created.rejection,
+				type: "rsvp",
+				values: raw,
+			});
+		}
+
+		const { rsvp } = created;
 
 		// Fetch updated data to return
 		const updatedEvent = await prisma.event.findUnique({
@@ -746,25 +794,58 @@ export const actions = {
 			}
 		}
 
-		// Update the RSVP
-		await prisma.rsvp.update({
-			where: { id: rsvp.id },
-			data: {
-				name: name || undefined,
-				email: email || null,
-				status,
-				guestCount,
-				responses: {
-					deleteMany: {},
-					create: Object.entries(responses)
-						.filter(([, value]) => value && value.trim() !== "")
-						.map(([questionId, value]) => ({
-							questionId,
-							value,
-						})),
-				},
-			},
+		const rejection = await oneSignupAtATime(event.id, () =>
+			prisma.$transaction(async (tx) => {
+				const found =
+					status === "not_attending"
+						? null
+						: await checkPotluckAnswers(tx, event.id, responses, rsvp.id);
+
+				if (found) {
+					return found;
+				}
+
+				await tx.rsvp.update({
+					where: { id: rsvp.id },
+					data: {
+						name: name || undefined,
+						email: email || null,
+						status,
+						guestCount,
+						responses: {
+							deleteMany: {},
+							create: Object.entries(responses)
+								.filter(([, value]) => value && value.trim() !== "")
+								.map(([questionId, value]) => ({
+									questionId,
+									value,
+								})),
+						},
+					},
+				});
+
+				return null;
+			}),
+		).catch((cause: unknown) => {
+			if (isBusyTransaction(cause)) {
+				return "busy" as const;
+			}
+
+			throw cause;
 		});
+
+		if (rejection === "busy") {
+			return fail(503, { success: false, message: BUSY_MESSAGE, type: "updateRsvp" });
+		}
+
+		if (rejection) {
+			return fail(409, {
+				success: false,
+				message: rejection.message,
+				potluck: rejection,
+				type: "updateRsvp",
+			});
+		}
 
 		// Fetch updated data to return
 		const updatedEvent = await prisma.event.findUnique({

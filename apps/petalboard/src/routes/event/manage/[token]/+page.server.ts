@@ -1,3 +1,5 @@
+import { keepOverrides, parsePotluckConfig, potluckConfigSchema } from "$lib/potluck";
+import { potluckView } from "$lib/server/potluck";
 import { prisma } from "$lib/server/prisma";
 import { eventSchema, questionSchema } from "$lib/server/validation";
 import { parseLocalDateTimeInTimezone } from "$lib/utils/timezones";
@@ -8,6 +10,38 @@ const questionUpdateSchema = questionSchema.extend({
 	questionId: z.string().cuid(),
 });
 const questionTargetSchema = z.object({ questionId: z.string().cuid() });
+const potluckOverrideSchema = z.object({
+	questionId: z.string().cuid(),
+	categoryId: z.string().min(1),
+	forceOpen: z.enum(["true", "false"]).transform((v) => v === "true"),
+});
+
+function parsePotluckField(type: string, raw: string | undefined, previous: string | null = null) {
+	if (type !== "potluck") {
+		return { ok: true, value: null } as const;
+	}
+
+	let json: unknown;
+
+	try {
+		json = JSON.parse(raw ?? "");
+	} catch {
+		return { ok: false, errors: { potluckConfig: ["Add the dish categories"] } } as const;
+	}
+
+	const parsed = potluckConfigSchema.safeParse(json);
+
+	if (!parsed.success) {
+		return {
+			ok: false,
+			errors: { potluckConfig: parsed.error.issues.map((i) => i.message) },
+		} as const;
+	}
+
+	const stored = previous ? parsePotluckConfig(previous) : null;
+
+	return { ok: true, value: JSON.stringify(keepOverrides(stored, parsed.data)) } as const;
+}
 
 async function getEventId(token: string) {
 	const event = await prisma.event.findUnique({
@@ -54,8 +88,13 @@ export const load = async ({ params, locals }) => {
 					isPublic: true,
 					spotifyPlaylistId: true,
 					songsPerUser: true,
+					potluckConfig: true,
 					order: true,
 					_count: { select: { responses: true } },
+					responses: {
+						where: { question: { type: "potluck" } },
+						select: { value: true, rsvp: { select: { name: true, status: true } } },
+					},
 				},
 			},
 			rsvps: {
@@ -124,6 +163,9 @@ export const load = async ({ params, locals }) => {
 				responseCount: question._count.responses,
 				spotifyPlaylistId: question.spotifyPlaylistId ?? null,
 				songsPerUser: question.songsPerUser ?? null,
+				potluck: question.potluckConfig
+					? potluckView(question.potluckConfig, question.responses, true)
+					: null,
 			})),
 		},
 		rsvps: event.rsvps.map((rsvp) => ({
@@ -135,6 +177,7 @@ export const load = async ({ params, locals }) => {
 			createdAt: rsvp.createdAt,
 			responses: rsvp.responses.map(
 				(r: { questionId: string; value: string; question: { label: string; type: string } }) => ({
+					questionId: r.questionId,
 					questionLabel: r.question.label,
 					questionType: r.question.type,
 					value: r.value,
@@ -212,6 +255,16 @@ export const actions = {
 		}
 
 		const { type, label, description, required, options, quantity, isPublic } = parsed.data;
+		const potluck = parsePotluckField(type, raw.potluckConfig);
+
+		if (!potluck.ok) {
+			return fail(400, {
+				success: false,
+				errors: potluck.errors,
+				values: raw,
+				type: "addQuestion",
+			});
+		}
 
 		// Extract Spotify-specific fields
 		const spotifyPlaylistId = raw.spotifyPlaylistId || null;
@@ -243,6 +296,7 @@ export const actions = {
 				isPublic: isPublic ?? false,
 				spotifyPlaylistId,
 				songsPerUser,
+				potluckConfig: potluck.value,
 				order: (maxOrder?.order ?? -1) + 1,
 				eventId,
 			},
@@ -257,6 +311,7 @@ export const actions = {
 				isPublic: true,
 				spotifyPlaylistId: true,
 				songsPerUser: true,
+				potluckConfig: true,
 				order: true,
 				_count: { select: { responses: true } },
 			},
@@ -268,6 +323,7 @@ export const actions = {
 			question: {
 				...question,
 				responseCount: question._count.responses,
+				potluck: question.potluckConfig ? potluckView(question.potluckConfig, [], true) : null,
 			},
 		} as const;
 	},
@@ -301,11 +357,42 @@ export const actions = {
 			return Number.isNaN(count) || count <= 0 ? null : count;
 		})();
 
-		const question = await prisma.question.findFirst({
-			where: { id: questionId, eventId },
+		// Read and write together so a "Force open" from another tab cannot land in between.
+		const outcome = await prisma.$transaction(async (tx) => {
+			const question = await tx.question.findFirst({
+				where: { id: questionId, eventId },
+			});
+
+			if (!question) {
+				return { kind: "missing" } as const;
+			}
+
+			const potluck = parsePotluckField(type, raw.potluckConfig, question.potluckConfig);
+
+			if (!potluck.ok) {
+				return { kind: "invalid", errors: potluck.errors } as const;
+			}
+
+			await tx.question.update({
+				where: { id: questionId },
+				data: {
+					type,
+					label,
+					description: description ?? null,
+					required: required ?? false,
+					options: options ?? null,
+					quantity: quantity ?? null,
+					spotifyPlaylistId,
+					songsPerUser,
+					potluckConfig: potluck.value,
+					isPublic: isPublic ?? false,
+				},
+			});
+
+			return { kind: "saved" } as const;
 		});
 
-		if (!question) {
+		if (outcome.kind === "missing") {
 			return fail(404, {
 				success: false,
 				message: "Question not found.",
@@ -313,22 +400,71 @@ export const actions = {
 			});
 		}
 
-		await prisma.question.update({
-			where: { id: questionId },
-			data: {
-				type,
-				label,
-				description: description ?? null,
-				required: required ?? false,
-				options: options ?? null,
-				quantity: quantity ?? null,
-				spotifyPlaylistId,
-				songsPerUser,
-				isPublic: isPublic ?? false,
-			},
-		});
+		if (outcome.kind === "invalid") {
+			return fail(400, {
+				success: false,
+				errors: outcome.errors,
+				values: raw,
+				type: "updateQuestion",
+			});
+		}
 
 		return { success: true, type: "updateQuestion" } as const;
+	},
+	setPotluckOverride: async ({ params, request }) => {
+		const eventId = await getEventId(params.token);
+		const parsed = potluckOverrideSchema.safeParse(Object.fromEntries(await request.formData()));
+
+		if (!parsed.success) {
+			return fail(400, { success: false, message: "Invalid request.", type: "setPotluckOverride" });
+		}
+
+		const { questionId, categoryId, forceOpen } = parsed.data;
+		const updated = await prisma.$transaction(async (tx) => {
+			const question = await tx.question.findFirst({
+				where: { id: questionId, eventId, type: "potluck" },
+				select: { potluckConfig: true },
+			});
+
+			if (!question?.potluckConfig) {
+				return null;
+			}
+
+			const config = parsePotluckConfig(question.potluckConfig);
+
+			if (!config.categories.some((c) => c.id === categoryId)) {
+				return null;
+			}
+
+			const next = {
+				...config,
+				categories: config.categories.map((c) => (c.id === categoryId ? { ...c, forceOpen } : c)),
+			};
+
+			return tx.question.update({
+				where: { id: questionId },
+				data: { potluckConfig: JSON.stringify(next) },
+				select: {
+					potluckConfig: true,
+					responses: { select: { value: true, rsvp: { select: { name: true, status: true } } } },
+				},
+			});
+		});
+
+		if (!updated?.potluckConfig) {
+			return fail(404, {
+				success: false,
+				message: "Category not found.",
+				type: "setPotluckOverride",
+			});
+		}
+
+		return {
+			success: true,
+			type: "setPotluckOverride",
+			questionId,
+			potluck: potluckView(updated.potluckConfig, updated.responses, true),
+		} as const;
 	},
 	deleteQuestion: async ({ params, request }) => {
 		const eventId = await getEventId(params.token);

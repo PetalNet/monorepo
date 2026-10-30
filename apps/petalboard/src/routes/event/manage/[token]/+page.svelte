@@ -2,6 +2,13 @@
 	import { enhance } from "$app/forms";
 	import { page } from "$app/stores";
 	import AddressInput from "$lib/components/AddressInput.svelte";
+	import PotluckConfigEditor from "$lib/components/PotluckConfigEditor.svelte";
+	import {
+		FRIENDSGIVING_POTLUCK,
+		parsePotluckAnswer,
+		slotStatuses,
+		type PotluckView,
+	} from "$lib/potluck";
 	import { formatDate, formatShortDate } from "$lib/utils/format";
 	import { COMMON_TIMEZONES, formatDateTimeForInput } from "$lib/utils/timezones";
 
@@ -57,6 +64,8 @@
 					return "Question removed";
 				case "deleteRsvp":
 					return "RSVP removed";
+				case "setPotluckOverride":
+					return "Category override saved";
 				default:
 					return null;
 			}
@@ -91,6 +100,28 @@
 	const manageMaybeGuests = $derived(
 		manageMaybeRsvps.reduce((sum: number, r: (typeof rsvpsList)[number]) => sum + r.guestCount, 0),
 	);
+
+	const slotStatusText = {
+		"needed-most": "Needed most",
+		open: "Open",
+		full: "Full for now",
+	} as const;
+
+	function describeAnswer(questionId: string, value: string) {
+		const answer = parsePotluckAnswer(value);
+		const view: PotluckView | null | undefined = questions.find(
+			(q) => q.id === questionId,
+		)?.potluck;
+
+		if (!answer || !view) {
+			return value;
+		}
+
+		const label =
+			view.config.categories.find((c) => c.id === answer.category)?.label ?? answer.category;
+
+		return `${label}: ${answer.dish}`;
+	}
 
 	let locationValue = $derived(event.location ?? "");
 	let questionType = $state<string>("text");
@@ -538,7 +569,9 @@
 											>
 												{question.type === "spotify_playlist"
 													? "🎵 Spotify Song"
-													: question.type.replace("_", " ")}
+													: question.type === "potluck"
+														? "Dish slots"
+														: question.type.replace("_", " ")}
 											</span>
 										</div>
 										{#if question.quantity}
@@ -618,24 +651,31 @@
 										</label>
 									{/if}
 
-									<label class="form-label">
-										<span>Open slots (optional)</span>
-										<input
-											class="input-field"
-											name="quantity"
-											inputmode="numeric"
-											placeholder="Unlimited"
-											value={question.quantity ?? ""}
+									{#if question.type === "potluck" && question.potluck}
+										<PotluckConfigEditor
+											initial={question.potluck.config}
+											errors={slotErrors[question.id]?.potluckConfig ?? []}
 										/>
-										<small class="text-sm text-gray-600"
-											>How many people can respond to this question</small
-										>
-										{#if slotErrors[question.id]?.quantity}
-											<small class="text-sm text-red-600"
-												>{slotErrors[question.id].quantity[0]}</small
+									{:else}
+										<label class="form-label">
+											<span>Open slots (optional)</span>
+											<input
+												class="input-field"
+												name="quantity"
+												inputmode="numeric"
+												placeholder="Unlimited"
+												value={question.quantity ?? ""}
+											/>
+											<small class="text-sm text-gray-600"
+												>How many people can respond to this question</small
 											>
-										{/if}
-									</label>
+											{#if slotErrors[question.id]?.quantity}
+												<small class="text-sm text-red-600"
+													>{slotErrors[question.id].quantity[0]}</small
+												>
+											{/if}
+										</label>
+									{/if}
 
 									<label class="form-label">
 										<span>Description</span>
@@ -742,6 +782,79 @@
 									{/if}
 									<button class="btn-primary" type="submit">Update question</button>
 								</form>
+
+								{#if question.type === "potluck" && question.potluck}
+									{@const view = question.potluck}
+									<div class="mt-6 border-t border-gray-200 pt-4">
+										<h4 class="mb-1 font-bold text-dark-800">Current mix</h4>
+										<p class="mb-3 text-sm text-gray-600">
+											{view.taken.length}
+											{view.taken.length === 1 ? "dish" : "dishes"} signed up. Force a category open to
+											accept it past its share.
+										</p>
+										<ul class="space-y-2">
+											{#each slotStatuses(view.config, view.counts) as slot (slot.category.id)}
+												{@const total = view.taken.length}
+												{@const target = Math.round(
+													(slot.category.ratio /
+														view.config.categories.reduce((sum, c) => sum + c.ratio, 0)) *
+														100,
+												)}
+												<li
+													class="flex flex-wrap items-center gap-x-3 gap-y-1 rounded-lg border border-primary-700/10 px-3 py-2"
+												>
+													<span class="min-w-[7rem] font-semibold text-dark-900"
+														>{slot.category.label}</span
+													>
+													<span class="text-sm tabular-nums text-gray-700"
+														>{slot.count} · {total ? Math.round((slot.count / total) * 100) : 0}% of
+														{target}%</span
+													>
+													<span
+														class="rounded-full px-2 py-0.5 text-xs font-semibold {slot.status ===
+														'full'
+															? 'bg-gray-100 text-gray-700'
+															: slot.status === 'needed-most'
+																? 'bg-orange-100 text-orange-700'
+																: 'bg-green-100 text-green-700'}"
+														>{slot.category.forceOpen
+															? "Forced open"
+															: slotStatusText[slot.status]}</span
+													>
+													<form
+														method="POST"
+														action="?/setPotluckOverride"
+														class="ml-auto"
+														use:enhance={() => {
+															return async ({ result, update }) => {
+																if (result.type === "success" && result.data?.potluck) {
+																	const next = result.data.potluck as typeof view;
+
+																	questions = questions.map((q) =>
+																		q.id === question.id ? { ...q, potluck: next } : q,
+																	);
+																}
+
+																await update({ reset: false, invalidateAll: false });
+															};
+														}}
+													>
+														<input type="hidden" name="questionId" value={question.id} />
+														<input type="hidden" name="categoryId" value={slot.category.id} />
+														<input
+															type="hidden"
+															name="forceOpen"
+															value={slot.category.forceOpen ? "false" : "true"}
+														/>
+														<button type="submit" class="btn-secondary px-3 py-1 text-sm">
+															{slot.category.forceOpen ? "Remove override" : "Force open"}
+														</button>
+													</form>
+												</li>
+											{/each}
+										</ul>
+									</div>
+								{/if}
 							</article>
 						{/key}
 					{/each}
@@ -928,6 +1041,10 @@
 														{:else}
 															<div class="text-sm italic text-dark-600">No songs selected</div>
 														{/if}
+													{:else if response.questionType === "potluck"}
+														<div class="text-sm font-medium text-dark-800">
+															{describeAnswer(response.questionId, response.value)}
+														</div>
 													{:else}
 														<div class="text-sm font-medium text-dark-800">{response.value}</div>
 													{/if}
@@ -1059,6 +1176,7 @@
 						<option value="checkbox">Checkbox</option>
 						<option value="slots">Slots</option>
 						<option value="spotify_playlist">Spotify Playlist Song</option>
+						<option value="potluck">Dish slots (balanced mix)</option>
 					</select>
 				</label>
 
@@ -1087,7 +1205,14 @@
 					</label>
 				{/if}
 
-				{#if questionType !== "spotify_playlist"}
+				{#if questionType === "potluck"}
+					<PotluckConfigEditor
+						initial={FRIENDSGIVING_POTLUCK}
+						errors={addSlotErrors.potluckConfig ?? []}
+					/>
+				{/if}
+
+				{#if questionType !== "spotify_playlist" && questionType !== "potluck"}
 					<label class="form-label">
 						<span>Open slots</span>
 						<input class="input-field" type="number" name="quantity" min="0" value="0" />
@@ -1164,6 +1289,7 @@
 						<input
 							type="checkbox"
 							name="isPublic"
+							checked={questionType === "potluck"}
 							class="h-5 w-5 rounded border-primary-700/25 text-primary-600 focus:ring-primary-500"
 						/>
 						<span class="font-medium text-dark-900">Show responses publicly</span>

@@ -39,6 +39,7 @@ function question(id: string, label: string, order: number): Question {
 		responseCount: 0,
 		spotifyPlaylistId: null,
 		songsPerUser: null,
+		potluck: null,
 	};
 }
 
