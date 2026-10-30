@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { enhance } from "$app/forms";
-	import { invalidateAll } from "$app/navigation";
+	import { invalidateAll, replaceState } from "$app/navigation";
 	import { env } from "$env/dynamic/public";
 	import PotluckField from "$lib/components/PotluckField.svelte";
 	import SpotifySongSelector from "$lib/components/SpotifySongSelector.svelte";
@@ -471,6 +471,9 @@
 	let showLinkModal = $state(false);
 	let linkResult = $state<{ ok: boolean; message: string } | null>(null);
 	let linkEmailInput = $state<HTMLInputElement>();
+	let linkStatus = $state<HTMLElement>();
+	let sendingLink = $state(false);
+	let editNameInput = $state<HTMLInputElement>();
 	let linkTrigger: HTMLElement | null = null;
 	let editingStatus = $state<RsvpStatus>("attending");
 	let editingGuestCount = $state(1);
@@ -769,7 +772,7 @@
 		newGuestCount = 1;
 	}
 
-	function openEditModal() {
+	async function openEditModal() {
 		if (!myRsvp) {
 			return;
 		}
@@ -779,6 +782,8 @@
 		editingStatus = toRsvpStatus(myRsvp.status);
 		editingGuestCount = myRsvp.guestCount;
 		showEditModal = true;
+		await tick();
+		editNameInput?.focus();
 	}
 
 	function closeEditModal() {
@@ -803,10 +808,17 @@
 		linkTrigger?.focus();
 	}
 
-	onMount(() => {
-		if (new URLSearchParams(window.location.search).get("edit") === "1") {
-			openEditModal();
+	onMount(async () => {
+		const url = new URL(window.location.href);
+
+		if (url.searchParams.get("edit") !== "1") {
+			return;
 		}
+
+		await openEditModal();
+		// Without this, a reload or a shared copy of the URL reopens the dialog.
+		url.searchParams.delete("edit");
+		replaceState(url, {});
 	});
 
 	async function expandList(key: string, button: HTMLElement) {
@@ -1705,7 +1717,7 @@
 				>
 			</div>
 			{#if linkResult?.ok}
-				<p class="mb-4" role="status">{linkResult.message}</p>
+				<p class="mb-4" role="status" tabindex="-1" bind:this={linkStatus}>{linkResult.message}</p>
 				<div class="modal-actions">
 					<button type="button" class="btn-primary min-h-11" onclick={closeLinkModal}>Done</button>
 				</div>
@@ -1714,12 +1726,26 @@
 					method="POST"
 					action="?/requestEditLink"
 					use:enhance={() => {
+						sendingLink = true;
+
 						return async ({ result }) => {
+							sendingLink = false;
+
 							if (result.type === "success" || result.type === "failure") {
 								linkResult = {
 									ok: result.type === "success",
 									message: String(result.data?.message ?? ""),
 								};
+							} else if (result.type === "error") {
+								linkResult = {
+									ok: false,
+									message: "Something went wrong sending your link. Try again in a minute.",
+								};
+							}
+
+							if (linkResult?.ok) {
+								await tick();
+								linkStatus?.focus();
 							}
 						};
 					}}
@@ -1743,7 +1769,9 @@
 						>
 					</label>
 					<div class="modal-actions">
-						<button type="submit" class="btn-primary min-h-11">Email me a link</button>
+						<button type="submit" class="btn-primary min-h-11" disabled={sendingLink}
+							>{sendingLink ? "Sending…" : "Email me a link"}</button
+						>
 						<button type="button" class="btn-secondary min-h-11" onclick={closeLinkModal}
 							>Cancel</button
 						>
@@ -1826,6 +1854,7 @@
 						required
 						maxlength="100"
 						value={editingRsvp.name}
+						bind:this={editNameInput}
 						autocomplete="name"
 					/>
 				</label>

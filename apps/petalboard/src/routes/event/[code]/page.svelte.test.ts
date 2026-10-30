@@ -16,7 +16,10 @@ vi.mock("$app/forms", () => ({
 	},
 }));
 
-vi.mock("$app/navigation", () => ({ invalidateAll: async () => undefined }));
+vi.mock("$app/navigation", () => ({
+	invalidateAll: async () => undefined,
+	replaceState: (url: URL) => window.history.replaceState({}, "", url),
+}));
 
 vi.mock("$env/dynamic/public", () => ({ env: {} }));
 
@@ -185,20 +188,48 @@ describe("event page dialogs", () => {
 		expect(target.querySelector("#edit-rsvp-title")).toBeNull();
 	});
 
-	it("opens my RSVP for editing when an edit link lands on ?edit=1", () => {
-		window.history.replaceState({}, "", "/event/CODE1234?edit=1");
+	it("opens my RSVP for editing when an edit link lands on ?edit=1, focused, and drops the param", async () => {
+		window.history.replaceState({}, "", "/event/CODE1234?edit=1&ref=mail");
 		const target = render(null, avery);
 
-		expect(target.querySelector("#edit-rsvp-title")).not.toBeNull();
+		await tick();
+		await tick();
+		const nameInput = target.querySelector<HTMLInputElement>(
+			'[aria-labelledby="edit-rsvp-title"] input[name="name"]',
+		);
+
+		expect(nameInput?.value).toBe("Avery");
+		expect(document.activeElement).toBe(nameInput);
 		expect(target.textContent).toContain("avery@example.test");
+		expect(window.location.pathname + window.location.search).toBe("/event/CODE1234?ref=mail");
 	});
 
-	it("emails an edit link from a labelled, focused email field and shows the server's answer", async () => {
-		const target = render();
+	it("moves focus into the edit dialog when Edit my RSVP opens it", async () => {
+		const target = render(null, avery);
 
-		expect(
-			[...target.querySelectorAll("button")].some((b) => b.textContent === "Edit my RSVP"),
-		).toBe(false);
+		button(target, "Edit my RSVP").click();
+		await tick();
+
+		expect(document.activeElement).toBe(
+			target.querySelector('[aria-labelledby="edit-rsvp-title"] input[name="name"]'),
+		);
+	});
+
+	it("submits the shown RSVP's id with update and cancel", () => {
+		const target = render(null, avery);
+
+		button(target, "Edit my RSVP").click();
+		flushSync();
+
+		for (const action of ["?/updateRsvp", "?/cancelRsvp"]) {
+			const form = target.querySelector<HTMLFormElement>(`form[action="${action}"]`);
+
+			expect(new FormData(form!).get("expectedRsvpId")).toBe("rsvp-Avery");
+		}
+	});
+
+	async function openLinkDialog() {
+		const target = render();
 
 		button(target, "Already RSVP'd? Edit my RSVP").click();
 		await tick();
@@ -207,43 +238,79 @@ describe("event page dialogs", () => {
 		const form = dialog?.querySelector<HTMLFormElement>('form[action="?/requestEditLink"]');
 		const submit = submitters.get("?/requestEditLink");
 
-		if (!email || !form || !submit) {
+		if (!dialog || !email || !form || !submit) {
 			throw new Error("edit link dialog did not open");
 		}
+
+		const action = new URL("http://localhost/event/CODE1234?/requestEditLink");
+		const send = async () => {
+			const after = await submit({
+				action,
+				formData: new FormData(form),
+				formElement: form,
+				controller: new AbortController(),
+				submitter: null,
+				cancel: () => undefined,
+			});
+
+			flushSync();
+
+			if (typeof after !== "function") {
+				throw new TypeError("enhance callback did not return a result handler");
+			}
+
+			return async (result: Parameters<typeof after>[0]["result"]) => {
+				await after({
+					action,
+					formData: new FormData(form),
+					formElement: form,
+					result,
+					update: async () => undefined,
+				});
+				flushSync();
+			};
+		};
+
+		return { target, dialog, email, send };
+	}
+
+	it("emails an edit link from a labelled, focused email field and shows the server's answer", async () => {
+		const { target, dialog, email, send } = await openLinkDialog();
+
+		expect(
+			[...target.querySelectorAll("button")].some((b) => b.textContent === "Edit my RSVP"),
+		).toBe(false);
 
 		expect(email.closest("label")?.textContent).toContain("The email you RSVP'd with");
 		expect(document.activeElement).toBe(email);
 
-		const action = new URL("http://localhost/event/CODE1234?/requestEditLink");
-		const after = await submit({
-			action,
-			formData: new FormData(form),
-			formElement: form,
-			controller: new AbortController(),
-			submitter: null,
-			cancel: () => undefined,
+		const finish = await send();
+
+		expect(button(dialog, "Sending…").disabled).toBe(true);
+
+		await finish({
+			type: "success",
+			status: 200,
+			data: { type: "requestEditLink", success: true, message: "Check your inbox." },
 		});
 
-		if (typeof after !== "function") {
-			throw new TypeError("enhance callback did not return a result handler");
-		}
+		const status = dialog.querySelector('[role="status"]');
 
-		await after({
-			action,
-			formData: new FormData(form),
-			formElement: form,
-			result: {
-				type: "success",
-				status: 200,
-				data: { type: "requestEditLink", success: true, message: "Check your inbox." },
-			},
-			update: async () => undefined,
-		});
+		expect(status?.textContent).toBe("Check your inbox.");
+		expect(document.activeElement).toBe(status);
+		expect(dialog.querySelector("form")).toBeNull();
+	});
 
-		flushSync();
+	it("says so when sending the edit link errors, and lets the guest try again", async () => {
+		const { dialog, send } = await openLinkDialog();
+		const finish = await send();
 
-		expect(dialog?.querySelector('[role="status"]')?.textContent).toBe("Check your inbox.");
-		expect(dialog?.querySelector("form")).toBeNull();
+		await finish({ type: "error", status: 500, error: new Error("boom") });
+
+		expect(dialog.querySelector('[role="alert"]')?.textContent).toBe(
+			"Something went wrong sending your link. Try again in a minute.",
+		);
+		expect(button(dialog, "Email me a link").disabled).toBe(false);
 	});
 
 	it("locks Confirm RSVP and shows Saving while the RSVP submits", async () => {
