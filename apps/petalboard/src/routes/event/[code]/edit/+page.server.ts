@@ -37,6 +37,9 @@ export const actions = {
 			return fail(400, { expired: true });
 		}
 
+		// The link proves the inbox, so it signs out every other browser: whoever RSVP'd first with
+		// someone else's address, or a shared computer the guest left signed in.
+		await prisma.rsvpSession.deleteMany({ where: { rsvpId } });
 		setRsvpCookie(cookies, event.publicCode, await createSession(rsvpId));
 
 		throw redirect(303, `/event/${event.publicCode}?edit=1`);

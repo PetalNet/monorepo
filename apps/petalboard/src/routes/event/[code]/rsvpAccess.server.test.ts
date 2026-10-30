@@ -229,7 +229,7 @@ describe("passwordless RSVP access", () => {
 		const already = (await sentEmails()).filter((e) => e.kind === "already");
 
 		expect(already.map((e) => e.to)).toEqual([`avery.${seq}@example.test`]);
-		expect((await continueWithLink(already[0].token, new Map())).status).toBe(303);
+		expect((await continueWithLink(already[0].token, owner)).status).toBe(303);
 
 		const updated = await rsvp(
 			{ name: "Avery Q", email: `avery.${seq}@example.test`, status: "maybe" },
@@ -255,6 +255,26 @@ describe("passwordless RSVP access", () => {
 		expect((await sentEmails()).map((e) => [e.kind, e.to])).toEqual([
 			["requested", `known.${seq}@example.test`],
 		]);
+	});
+
+	it("signs out every other browser on the RSVP when its link is used", async () => {
+		const squatter: Jar = new Map();
+
+		await rsvp({ name: "Squatter", email: `victim.${seq}@example.test` }, squatter);
+		const own = await prisma.rsvp.findFirstOrThrow({ where: { eventId } });
+		const [{ token }] = await sentEmails();
+
+		expect((await continueWithLink(token, new Map())).status).toBe(303);
+
+		const fields = { name: "Squatter again", status: "attending", expectedRsvpId: own.id };
+		const updated = await call(page.actions.updateRsvp, { body: form(fields), jar: squatter });
+
+		expect([updated.status, updated.data?.message]).toEqual([
+			403,
+			"Your edit access has expired. Use Edit my RSVP to get a new link.",
+		]);
+
+		expect(await prisma.rsvpSession.count({ where: { rsvpId: own.id } })).toBe(1);
 	});
 
 	it("accepts a link once", async () => {
