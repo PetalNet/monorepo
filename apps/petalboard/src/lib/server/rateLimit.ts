@@ -2,7 +2,6 @@ const FIFTEEN_MINUTES = 15 * 60 * 1000;
 
 export const EMAIL_LIMIT = { limit: 3, windowMs: FIFTEEN_MINUTES };
 export const IP_LIMIT = { limit: 20, windowMs: FIFTEEN_MINUTES };
-// Caps what the app as a whole mails out, whoever asks and for whichever addresses.
 export const SEND_LIMIT = { limit: 100, windowMs: 60 * 60 * 1000 };
 
 interface Window {

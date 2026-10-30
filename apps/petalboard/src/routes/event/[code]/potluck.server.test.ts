@@ -68,7 +68,7 @@ async function postAsGuest(
 	action: "updateRsvp" | "cancelRsvp",
 	fields: Record<string, string>,
 	jar: Jar,
-) {
+): Promise<any> {
 	const { readSession } = await import("$lib/server/rsvpAccess");
 	const event = await prisma.event.findUniqueOrThrow({ where: { publicCode } });
 	const expectedRsvpId = await readSession(cookieJar(jar) as never, event.id);

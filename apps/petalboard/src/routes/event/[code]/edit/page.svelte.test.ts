@@ -34,6 +34,7 @@ function render(form: { expired: true } | null = null) {
 		void unmount(component);
 		target.remove();
 	};
+
 	flushSync();
 
 	return target;
@@ -45,7 +46,7 @@ describe("edit link page", () => {
 		const root = document.documentElement;
 		const button = target.querySelector<HTMLButtonElement>('button[type="submit"]');
 
-		expect(root.getAttribute("data-event-title")).toBe("Friendsgiving");
+		expect(root.dataset.eventTitle).toBe("Friendsgiving");
 		expect(root.style.getPropertyValue("--event-primary-600")).toBe("#d97706");
 		expect(button?.textContent).toBe("Continue");
 		expect(button?.getAttribute("style")).toContain("linear-gradient(135deg, #b45309, #c2410c)");
@@ -54,13 +55,13 @@ describe("edit link page", () => {
 		cleanup?.();
 		cleanup = undefined;
 
-		expect(root.hasAttribute("data-event-page")).toBe(false);
+		expect(root.dataset.eventPage).toBeUndefined();
 	});
 
 	it("keeps the theme on the expired-link answer", () => {
 		const target = render({ expired: true });
 
 		expect(target.querySelector('[role="alert"]')?.textContent).toContain("expired");
-		expect(document.documentElement.getAttribute("data-event-page")).toBe("true");
+		expect(document.documentElement.dataset.eventPage).toBe("true");
 	});
 });

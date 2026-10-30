@@ -167,7 +167,7 @@ const hexToRgb = (value: string | null | undefined) => {
 		return { r: 255, g: 255, b: 255 };
 	}
 
-	const normalized = String(value).trim();
+	const normalized = value.trim();
 	const rgbMatch = /rgba?\(\s*(\d{1,3})\s*,\s*(\d{1,3})\s*,\s*(\d{1,3})/i.exec(normalized);
 
 	if (rgbMatch) {
@@ -368,18 +368,18 @@ export function applyEventTheme(
 			root.style.setProperty(key, value);
 		}
 
-		root.setAttribute("data-event-page", "true");
-		root.setAttribute("data-event-emoji", event.emoji || "");
-		root.setAttribute("data-event-title", event.title);
+		root.dataset.eventPage = "true";
+		root.dataset.eventEmoji = event.emoji || "";
+		root.dataset.eventTitle = event.title;
 	}
 
 	return () => {
 		if (typeof document !== "undefined") {
 			const root = document.documentElement;
 
-			root.removeAttribute("data-event-page");
-			root.removeAttribute("data-event-emoji");
-			root.removeAttribute("data-event-title");
+			delete root.dataset.eventPage;
+			delete root.dataset.eventEmoji;
+			delete root.dataset.eventTitle;
 
 			for (const key of Object.keys(themeVars)) {
 				root.style.removeProperty(key);

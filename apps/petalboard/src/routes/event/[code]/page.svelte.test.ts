@@ -18,7 +18,9 @@ vi.mock("$app/forms", () => ({
 
 vi.mock("$app/navigation", () => ({
 	invalidateAll: async () => undefined,
-	replaceState: (url: URL) => window.history.replaceState({}, "", url),
+	replaceState: (url: URL) => {
+		window.history.replaceState({}, "", url);
+	},
 }));
 
 vi.mock("$env/dynamic/public", () => ({ env: {} }));
@@ -194,6 +196,7 @@ describe("event page dialogs", () => {
 
 		await tick();
 		await tick();
+
 		const nameInput = target.querySelector<HTMLInputElement>(
 			'[aria-labelledby="edit-rsvp-title"] input[name="name"]',
 		);
@@ -267,6 +270,7 @@ describe("event page dialogs", () => {
 					result,
 					update: async () => undefined,
 				});
+
 				flushSync();
 			};
 		};
@@ -310,6 +314,7 @@ describe("event page dialogs", () => {
 		expect(dialog.querySelector('[role="alert"]')?.textContent).toBe(
 			"Something went wrong sending your link. Try again in a minute.",
 		);
+
 		expect(button(dialog, "Email me a link").disabled).toBe(false);
 	});
 

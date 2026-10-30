@@ -222,6 +222,7 @@ describe("passwordless RSVP access", () => {
 		);
 
 		expect(result.status).toBe(409);
+
 		expect(result.data).toStrictEqual({
 			success: false,
 			type: "rsvp",
@@ -229,6 +230,7 @@ describe("passwordless RSVP access", () => {
 			message:
 				"You're already on the list. Check your email for a link to edit your RSVP, or use Edit my RSVP to get a new one.",
 		});
+
 		expect(await prisma.rsvp.findMany({ where: { eventId } })).toStrictEqual([before]);
 		expect(stranger.size).toBe(0);
 
@@ -343,6 +345,10 @@ describe("passwordless RSVP access", () => {
 	}
 
 	const stale = [409, "This page is out of date. Reload to edit your current RSVP."];
+	const outcome = (r: { status?: number; message?: string; data?: { message?: string } }) => [
+		r.status,
+		r.data?.message ?? r.message,
+	];
 
 	it("refuses an update from a dialog showing a different RSVP than the cookie's", async () => {
 		const { jar, first, before } = await twoRsvpsOneBrowser();
@@ -355,7 +361,7 @@ describe("passwordless RSVP access", () => {
 			await call(page.actions.updateRsvp, { body: form(fields), jar }),
 		];
 
-		expect(results.map((r) => [r.status, r.data?.message ?? r.message])).toEqual([stale, stale]);
+		expect(results.map(outcome)).toEqual([stale, stale]);
 
 		expect(
 			await prisma.rsvp.findMany({ where: { eventId }, orderBy: { name: "asc" } }),
@@ -369,7 +375,7 @@ describe("passwordless RSVP access", () => {
 			await call(page.actions.cancelRsvp, { body: form({}), jar }),
 		];
 
-		expect(results.map((r) => [r.status, r.data?.message ?? r.message])).toEqual([stale, stale]);
+		expect(results.map(outcome)).toEqual([stale, stale]);
 
 		expect(
 			await prisma.rsvp.findMany({ where: { eventId }, orderBy: { name: "asc" } }),
