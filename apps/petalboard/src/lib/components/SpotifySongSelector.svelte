@@ -220,6 +220,12 @@
 					: "Search for a song..."}
 				value={searchQuery}
 				oninput={handleInputChange}
+				onkeydown={(event) => {
+					if (event.key === "Escape" && showResults) {
+						event.preventDefault();
+						showResults = false;
+					}
+				}}
 				onfocus={() => {
 					if (searchResults.length > 0) {
 						showResults = true;
