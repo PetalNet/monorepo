@@ -2,15 +2,11 @@ import { beforeAll, describe, expect, it } from "vitest";
 
 import {
 	ASCENDER_HEIGHT,
-	BOSS_RADIUS,
 	CAP_HEIGHT,
 	DAY_SCALE,
 	readingArc,
 	usageLabelAt,
-	RING_LABEL_SIZE,
-	ringLabelBaseline,
 	stackBaselines,
-	WEEK_RINGS,
 	WEEK_SCALE,
 	type DialScale,
 	windowGeometry,
@@ -139,33 +135,6 @@ describe("centre boss lettering", () => {
 		const { line: baseline } = stackBaselines(line, null, 4.6);
 
 		expect(Math.abs(baseline - (line.size * line.rise) / 2)).toBeLessThan(HALF_PIXEL);
-	});
-});
-
-describe("ring names", () => {
-	const [outerRadius, innerRadius] = WEEK_RINGS.radii;
-	const edges = (radius: number) => ({
-		inner: radius - WEEK_RINGS.width / 2,
-		outer: radius + WEEK_RINGS.width / 2,
-	});
-	const lettering = (ringInner: number) => {
-		const baseline = ringLabelBaseline(ringInner);
-
-		return { low: baseline, high: baseline + RING_LABEL_SIZE * CAP_HEIGHT };
-	};
-
-	const outer = edges(outerRadius);
-	const inner = edges(innerRadius);
-	const claude = lettering(outer.inner);
-	const codex = lettering(inner.inner);
-
-	it("letters both week rings at twelve o'clock without touching each other or a ring", () => {
-		// Both names are centred on the same angle, so they are apart exactly when their radii are.
-		expect(claude.high).toBeLessThan(outer.inner);
-		expect(claude.low).toBeGreaterThan(inner.outer);
-		expect(codex.high).toBeLessThan(inner.inner);
-		expect(codex.low).toBeGreaterThan(BOSS_RADIUS + 0.6);
-		expect(claude.low).toBeGreaterThan(codex.high);
 	});
 });
 

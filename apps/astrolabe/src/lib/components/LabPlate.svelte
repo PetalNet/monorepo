@@ -4,7 +4,7 @@
 
 	let { dossier }: { dossier: Dossier } = $props();
 
-	const services = $derived(servicesSummary(dossier.services));
+	const services = $derived(servicesSummary(dossier.services, dossier.services.kumaUrl));
 
 	const dateTime = (value: number | null): string =>
 		value === null
@@ -56,9 +56,10 @@
 
 		<section class="plate-section">
 			<h2>
-				Services<span class="plate-status" class:alarm={services.status.tone === "down"}
-					>{services.status.label}</span
-				>
+				{#if services.href}<a href={services.href} rel="external">Services</a
+					>{:else}Services{/if}{#if services.status}<span class="plate-status"
+						>{services.status}</span
+					>{/if}
 			</h2>
 			<dl class="plate-figures">
 				{#each services.stats as stat (stat.label)}
@@ -68,6 +69,16 @@
 					</div>
 				{/each}
 			</dl>
+			{#if services.down.length > 0}
+				<ul class="plate-down" aria-label="Down">
+					{#each services.down as monitor (monitor.id)}
+						<li>
+							{#if monitor.href}<a href={monitor.href} rel="external">{monitor.name}</a
+								>{:else}{monitor.name}{/if}
+						</li>
+					{/each}
+				</ul>
+			{/if}
 			{#if services.recent}<p class="plate-note alarm">{services.recent}</p>{/if}
 		</section>
 

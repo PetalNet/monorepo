@@ -46,16 +46,9 @@ export const CAP_HEIGHT = 0.65;
 /** EB Garamond's ascender height (b, d, h, l), in ems. */
 export const ASCENDER_HEIGHT = 0.71;
 
-/** Ring names are lettered at this size, centred at twelve o'clock just inside their ring. */
-export const RING_LABEL_SIZE = 9;
-
-/** Baseline radius of a ring's name, leaving its cap tops 1.8 units clear of the ring's inner edge. */
-export const ringLabelBaseline = (inner: number): number =>
-	inner - 1.8 - RING_LABEL_SIZE * CAP_HEIGHT;
-
 /**
  * The week dial's two 7-day rings, Claude outside and Codex inside. The gap between them holds the
- * outer ring's name and the inner ring's reset mark, so it is wider than a band.
+ * inner ring's reset mark, so it is wider than a band.
  */
 export const WEEK_RINGS = { radii: [79, 50], width: 15 } as const;
 

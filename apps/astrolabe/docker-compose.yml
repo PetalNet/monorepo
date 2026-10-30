@@ -12,6 +12,7 @@ services:
       CODEX_USAGE_PATH: /shared/codex-usage.json
       BACKUP_LOG: /logs/backup-offsite.log
       KUMA_DB: /kuma/kuma.db
+      KUMA_URL: ${KUMA_URL:-https://kuma.petalcat.dev}
       HOST_HEALTH_PATH: /shared/host-health-state.json
       MOOD_PATH: /shared/janet-mood.json
     volumes:

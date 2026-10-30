@@ -2,7 +2,6 @@
 	import { invalidateAll } from "$app/navigation";
 	import LabPlate from "$lib/components/LabPlate.svelte";
 	import Orloj from "$lib/components/Orloj.svelte";
-	import ThemeToggle from "$lib/components/ThemeToggle.svelte";
 	import { onMount } from "svelte";
 
 	import type { PageProps } from "./$types";
@@ -22,14 +21,8 @@
 	><title>Astrolabe</title><meta name="description" content="Lab status dashboard" /></svelte:head
 >
 
-<header class="top">
-	<div class="top-inner">
-		<h1>Astrolabe</h1>
-		<ThemeToggle />
-	</div>
-</header>
-
 <main class="wrap">
+	<h1 class="sr-only">Astrolabe</h1>
 	<Orloj dossier={data.dossier} />
 
 	<LabPlate dossier={data.dossier} />

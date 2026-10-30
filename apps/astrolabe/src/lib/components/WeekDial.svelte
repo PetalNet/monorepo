@@ -16,34 +16,22 @@
 	import DialFace from "./DialFace.svelte";
 	import FiligreeHand from "./FiligreeHand.svelte";
 	import LimitRing from "./LimitRing.svelte";
-	import RingLabel from "./RingLabel.svelte";
-
-	interface Ring {
-		reading: LimitReading;
-		label: string;
-	}
 
 	let {
 		rings,
 		now,
-		label,
 	}: {
 		/** Claude outside, Codex inside. */
-		rings: [Ring, Ring];
+		rings: [LimitReading, LimitReading];
 		now: number;
-		label: string;
 	} = $props();
 
 	const DAY_DEG = 360 / 7;
 	const placed = $derived(
 		[
-			{ ...rings[0], radius: WEEK_RINGS.radii[0] },
-			{ ...rings[1], radius: WEEK_RINGS.radii[1] },
-		].map((ring) => ({
-			...ring,
-			geometry: windowGeometry(ring.reading, WEEK_SCALE),
-			inner: ring.radius - WEEK_RINGS.width / 2,
-		})),
+			{ reading: rings[0], radius: WEEK_RINGS.radii[0] },
+			{ reading: rings[1], radius: WEEK_RINGS.radii[1] },
+		].map((ring) => ({ ...ring, geometry: windowGeometry(ring.reading, WEEK_SCALE) })),
 	);
 
 	const days = $derived.by(() => {
@@ -85,8 +73,8 @@
 	);
 </script>
 
-<DialFace id="week" {label}>
-	<g class="chapter">
+<DialFace id="week" title="Week" label="Week dial">
+	<g class="chapter" aria-hidden="true">
 		<circle class="chapter-band" r="100" stroke-width="15" />
 		<circle class="engraved" r="107.6" />
 		<circle class="engraved fine" r="106.4" />
@@ -119,12 +107,8 @@
 			<circle class="groove empty" r={ring.radius} stroke-width={WEEK_RINGS.width} />
 		{/if}
 	{/each}
-	<!-- The names go on after both rings so neither ring's marks can cover them. -->
-	{#each placed as ring (ring.reading.window.id)}
-		<RingLabel id={ring.reading.window.id} label={ring.label} inner={ring.inner} />
-	{/each}
 
-	<FiligreeHand angle={weekAngle(now)} length={91} />
+	<FiligreeHand angle={weekAngle(now)} length={91} label="Now: {date.weekday}" />
 
 	<circle class="boss" r={BOSS_RADIUS} />
 	<circle class="engraved" r="28.6" />

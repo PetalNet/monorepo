@@ -43,10 +43,6 @@
 	);
 	const time = (epoch: number) =>
 		new Intl.DateTimeFormat(undefined, { hour: "numeric", minute: "2-digit" }).format(epoch);
-	const summary = (reading: NonNullable<typeof readings>["claude5h"]) =>
-		reading.usedPct === null
-			? `${reading.window.agent} ${reading.window.span}: no reading`
-			: `${reading.window.agent} ${reading.window.span}: ${String(Math.round(reading.usedPct))}% used`;
 	const sunLine = $derived(now === null ? null : sunCaption(dossier.sun, now, time));
 </script>
 
@@ -55,40 +51,19 @@
 		<figure class="orloj-dial">
 			<div class="dial-frame">
 				{#if readings && now !== null}
-					<DayDial
-						sun={dossier.sun}
-						reading={readings.claude5h}
-						{now}
-						label="Day dial. {summary(readings.claude5h)}."
-					/>
+					<DayDial sun={dossier.sun} reading={readings.claude5h} {now} />
 				{/if}
 			</div>
-			<figcaption>
-				<strong>Today</strong>
-				<span
-					>Claude's 5-hour limit. {#if sunLine}{sunLine}{/if}</span
-				>
-			</figcaption>
+			{#if sunLine}<figcaption>{sunLine}</figcaption>{/if}
 		</figure>
 		<figure class="orloj-dial">
 			<div class="dial-frame">
 				{#if readings && now !== null}
-					<WeekDial
-						rings={[
-							{ reading: readings.claude7d, label: "Claude" },
-							{ reading: readings.codex7d, label: "Codex" },
-						]}
-						{now}
-						label="Week dial. {summary(readings.claude7d)}. {summary(readings.codex7d)}."
-					/>
+					<WeekDial rings={[readings.claude7d, readings.codex7d]} {now} />
 				{/if}
 			</div>
 			<figcaption>
-				<strong>This week</strong>
-				<span
-					>Claude's and Codex's 7-day limits. {dossier.moon.phaseName},
-					{Math.round(dossier.moon.illumination * 100)}% lit.</span
-				>
+				{dossier.moon.phaseName}, {Math.round(dossier.moon.illumination * 100)}% lit.
 			</figcaption>
 		</figure>
 	</div>
