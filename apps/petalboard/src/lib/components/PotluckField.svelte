@@ -87,27 +87,29 @@
 
 	<input type="hidden" name="response_{questionId}" value={raw} />
 
-	{#each open as s (s.category.id)}
-		{@const ideas = unclaimedIdeas(s.category, takenDishes(s.category.id))}
-		<label class="radio-option">
-			<input
-				type="radio"
-				name="potluck_category_{questionId}"
-				value={s.category.id}
-				checked={category === s.category.id}
-				onchange={() => (category = s.category.id)}
-			/>
-			<span>
-				{s.category.label}
-				{#if s.category.id === neededMost}
-					<span class="badge-status ml-2 px-2 py-0.5 text-xs">Needed most</span>
-				{/if}
-				<small class="block text-sm text-gray-600"
-					>{s.count} so far{#if ideas.length > 0}. Ideas: {ideas.join(", ")}{/if}</small
-				>
-			</span>
-		</label>
-	{/each}
+	<div class="status-options">
+		{#each open as s (s.category.id)}
+			{@const ideas = unclaimedIdeas(s.category, takenDishes(s.category.id))}
+			<label class="status-option">
+				<input
+					type="radio"
+					name="potluck_category_{questionId}"
+					value={s.category.id}
+					checked={category === s.category.id}
+					onchange={() => (category = s.category.id)}
+				/>
+				<span class="flex-1">
+					{s.category.label}
+					{#if s.category.id === neededMost}
+						<small class="badge-status ml-2 px-2 py-0.5 text-xs">Needed most</small>
+					{/if}
+					<small class="mt-1 block text-sm text-gray-600"
+						>{s.count} so far{#if ideas.length > 0}. Ideas: {ideas.join(", ")}{/if}</small
+					>
+				</span>
+			</label>
+		{/each}
+	</div>
 
 	{#if full.length > 0}
 		<small class="text-sm text-gray-600"

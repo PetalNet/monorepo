@@ -829,13 +829,10 @@
 					{event.title}
 				</h1>
 				<div class="mb-4 flex flex-col gap-2">
-					<p class="m-0 text-sm text-dark-700 md:text-base">
+					<p class="prose m-0 text-sm text-dark-700 md:text-base">
 						📅 {formatDate(event.date, event.timezone)}
-						<a
-							class="ml-1 whitespace-nowrap font-semibold underline"
-							style="color: {primaryColors[700]};"
-							href="/event/{event.publicCode}/calendar.ics"
-							download>Add to calendar</a
+						<a class="ml-1 whitespace-nowrap" href="/event/{event.publicCode}/calendar.ics" download
+							>Add to calendar</a
 						>
 					</p>
 					{#if event.endDate}
@@ -845,11 +842,10 @@
 					{/if}
 					{#if event.location}
 						<div class="flex flex-col gap-3">
-							<p class="m-0 break-words text-sm text-dark-700 md:text-base">
+							<p class="prose m-0 break-words text-sm text-dark-700 md:text-base">
 								📍 {event.location}
 								<a
-									class="ml-1 whitespace-nowrap font-semibold underline"
-									style="color: {primaryColors[700]};"
+									class="ml-1 whitespace-nowrap"
 									href={directionsUrl(event.location)}
 									target="_blank"
 									rel="noreferrer">Directions</a
