@@ -7,9 +7,9 @@ without forcing guests to create accounts.
 
 - 🎉 **Event creation** – Collect title, date, description, and location in one form.
 - 🧺 **Slot management** – Add, edit, and remove required items while tracking remaining capacity.
-- 🔐 **PIN-secured signups** – Guests reserve a slot with their name, optional email, and 4–6 digit
-  PIN. The PIN is hashed using scrypt before storage.
-- 🔁 **Guest self-service** – Guests can edit or cancel their signup later using the signup ID and PIN.
+- ✉️ **Passwordless signups** – Guests RSVP with their name and email. No password or PIN.
+- 🔁 **Guest self-service** – The browser that RSVPs can edit or cancel any time; any other browser
+  gets a single-use, one-hour edit link by email (see `EMAIL_SETUP.md`).
 - 🧮 **Overbooking prevention** – Server-side validation ensures slots never exceed their quantity.
 - 🖨️ **Manage dashboard** – Token-protected view for organizers to edit event details, slots, and
   remove signups.
@@ -70,7 +70,7 @@ docker build -f apps/petalboard/Dockerfile --build-arg MONOREPO_SHA="$(git rev-p
 The container listens on port 4173, applies pending Prisma migrations on start, and keeps its
 SQLite database at `/app/data/dev.db`. Mount a volume at `/app/data`. Set `ORIGIN` to the public
 URL so form actions pass SvelteKit's CSRF check, and `APP_URL` to the same URL for email links.
-SMTP, Google Maps, and Spotify settings are listed in `.env.example`.
+Resend, Google Maps, and Spotify settings are listed in `.env.example`.
 
 ## Project structure
 
@@ -92,7 +92,9 @@ prisma/
 
 ## Security notes
 
-- Signup PINs are hashed with scrypt using Node's `crypto` module and per-signup salts.
+- Guest edit cookies and emailed links are random 32-byte tokens; only their SHA-256 hashes are
+  stored. Links work once, for 1 hour, and opening one never consumes it until the guest presses
+  Continue.
 - All mutations validate input with [Zod](https://zod.dev/).
 - Organizer dashboards are protected with unique manage tokens generated at event creation.
 

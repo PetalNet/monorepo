@@ -11,13 +11,7 @@ import type * as ManageServer from "../manage/[token]/+page.server";
 import type * as PageServer from "./+page.server";
 
 vi.mock("$env/dynamic/private", () => ({ env: process.env }));
-
-// The real scrypt hash blocks the event loop for ~90ms per request, which would
-// stagger the concurrent signups below instead of overlapping them.
-vi.mock("$lib/server/security", () => ({
-	hashPin: (pin: string) => `test:${pin}`,
-	verifyPin: (pin: string, hash: string) => hash === `test:${pin}`,
-}));
+vi.mock("$lib/server/email", () => ({ sendRsvpEmail: vi.fn() }));
 
 const dir = mkdtempSync(path.join(tmpdir(), "petalboard-potluck-"));
 
@@ -31,14 +25,23 @@ let publicCode: string;
 let manageToken: string;
 let manageActions: typeof ManageServer.actions;
 let questionId: string;
-let pinSeq = 1000;
+let guestSeq = 1000;
 
 const strict: PotluckConfig = { ...FRIENDSGIVING_POTLUCK, minOptions: 1 };
 
-function post(action: keyof Actions, fields: Record<string, string>) {
+type Jar = Map<string, string>;
+
+function cookieJar(jar: Jar) {
+	return {
+		get: (name: string) => jar.get(name),
+		set: (name: string, value: string) => jar.set(name, value),
+		delete: (name: string) => jar.delete(name),
+	};
+}
+
+function post(action: keyof Actions, fields: Record<string, string>, jar: Jar = new Map()) {
 	const body = new FormData();
 
-	body.set("email", "");
 	body.set("guestCount", "1");
 
 	for (const [k, v] of Object.entries(fields)) {
@@ -51,18 +54,42 @@ function post(action: keyof Actions, fields: Record<string, string>) {
 	});
 	const handler = actions[action] as (e: unknown) => Promise<any>;
 
-	return handler({ request, params: { code: publicCode }, locals: {} });
+	return handler({
+		request,
+		params: { code: publicCode },
+		locals: {},
+		cookies: cookieJar(jar),
+		getClientAddress: () => "127.0.0.1",
+	});
+}
+
+// Submits the way the edit dialog does, naming the RSVP the guest's cookie points at.
+async function postAsGuest(
+	action: "updateRsvp" | "cancelRsvp",
+	fields: Record<string, string>,
+	jar: Jar,
+): Promise<any> {
+	const { readSession } = await import("$lib/server/rsvpAccess");
+	const event = await prisma.event.findUniqueOrThrow({ where: { publicCode } });
+	const expectedRsvpId = await readSession(cookieJar(jar) as never, event.id);
+
+	return post(action, { ...fields, expectedRsvpId: expectedRsvpId ?? "" }, jar);
 }
 
 function signUp(category: string, dish: string) {
-	const pin = String(pinSeq++);
+	const n = guestSeq++;
+	const jar: Jar = new Map();
 
-	return post("rsvp", {
-		name: `Guest ${pin}`,
-		pin,
-		status: "attending",
-		[`response_${questionId}`]: JSON.stringify({ category, dish }),
-	}).then((result) => ({ result, pin }));
+	return post(
+		"rsvp",
+		{
+			name: `Guest ${n}`,
+			email: `guest${n}@example.test`,
+			status: "attending",
+			[`response_${questionId}`]: JSON.stringify({ category, dish }),
+		},
+		jar,
+	).then((result) => ({ result, jar }));
 }
 
 const accepted = (r: any) => r?.success === true;
@@ -99,8 +126,8 @@ beforeEach(async () => {
 		data: {
 			title: "Test potluck",
 			date: new Date("2026-11-26T18:00:00Z"),
-			publicCode: `pc${pinSeq}`,
-			manageToken: `mt${pinSeq}`,
+			publicCode: `pc${guestSeq}`,
+			manageToken: `mt${guestSeq}`,
 			userId: user.id,
 			questions: {
 				create: {
@@ -126,7 +153,6 @@ beforeEach(async () => {
 			await prisma.rsvp.create({
 				data: {
 					name: `Seed ${category} ${i}`,
-					pinHash: `seed-${category}-${i}`,
 					eventId: event.id,
 					responses: {
 						create: { questionId, value: JSON.stringify({ category, dish: `${category} ${i}` }) },
@@ -165,11 +191,11 @@ describe("potluck signups", () => {
 
 	it("frees a dessert slot when a guest cancels", async () => {
 		await signUp("desserts", "pie a");
-		const { result: second, pin } = await signUp("desserts", "pie b");
+		const { jar } = await signUp("desserts", "pie b");
 
 		expect(accepted((await signUp("desserts", "pie c")).result)).toBe(false);
 
-		const cancelled = await post("cancelRsvp", { rsvpId: second.rsvpId, pin });
+		const cancelled = await postAsGuest("cancelRsvp", {}, jar);
 
 		expect(cancelled.success).toBe(true);
 		expect(accepted((await signUp("desserts", "pie c")).result)).toBe(true);
@@ -177,14 +203,16 @@ describe("potluck signups", () => {
 
 	it("frees a dessert slot when a guest edits their dish to a side", async () => {
 		await signUp("desserts", "pie a");
-		const { result: second, pin } = await signUp("desserts", "pie b");
-		const edited = await post("updateRsvp", {
-			rsvpId: second.rsvpId,
-			pin,
-			name: "Guest edited",
-			status: "attending",
-			[`response_${questionId}`]: JSON.stringify({ category: "sides", dish: "stuffing" }),
-		});
+		const { jar } = await signUp("desserts", "pie b");
+		const edited = await postAsGuest(
+			"updateRsvp",
+			{
+				name: "Guest edited",
+				status: "attending",
+				[`response_${questionId}`]: JSON.stringify({ category: "sides", dish: "stuffing" }),
+			},
+			jar,
+		);
 
 		expect(edited.success).toBe(true);
 		expect(await countIn("desserts")).toBe(2);
@@ -193,14 +221,16 @@ describe("potluck signups", () => {
 
 	it("lets a guest keep their dessert while editing after desserts closed", async () => {
 		await signUp("desserts", "pie a");
-		const { result: second, pin } = await signUp("desserts", "pie b");
-		const edited = await post("updateRsvp", {
-			rsvpId: second.rsvpId,
-			pin,
-			name: "Guest renamed",
-			status: "attending",
-			[`response_${questionId}`]: JSON.stringify({ category: "desserts", dish: "pecan pie" }),
-		});
+		const { jar } = await signUp("desserts", "pie b");
+		const edited = await postAsGuest(
+			"updateRsvp",
+			{
+				name: "Guest renamed",
+				status: "attending",
+				[`response_${questionId}`]: JSON.stringify({ category: "desserts", dish: "pecan pie" }),
+			},
+			jar,
+		);
 
 		expect(edited.success).toBe(true);
 		expect(await countIn("desserts")).toBe(3);
@@ -215,7 +245,6 @@ describe("potluck signups", () => {
 			await prisma.rsvp.create({
 				data: {
 					name: `Forced dessert ${i}`,
-					pinHash: `test:${9000 + i}`,
 					eventId,
 					responses: {
 						create: {
@@ -228,13 +257,17 @@ describe("potluck signups", () => {
 		}
 
 		const own = await prisma.rsvp.findFirstOrThrow({ where: { name: "Forced dessert 0" } });
-		const edited = await post("updateRsvp", {
-			rsvpId: own.id,
-			pin: "9000",
-			name: "Forced dessert renamed",
-			status: "attending",
-			[`response_${questionId}`]: JSON.stringify({ category: "desserts", dish: "carrot cake" }),
-		});
+		const { createSession } = await import("$lib/server/rsvpAccess");
+		const jar: Jar = new Map([["pb_rsvp", await createSession(own.id)]]);
+		const edited = await postAsGuest(
+			"updateRsvp",
+			{
+				name: "Forced dessert renamed",
+				status: "attending",
+				[`response_${questionId}`]: JSON.stringify({ category: "desserts", dish: "carrot cake" }),
+			},
+			jar,
+		);
 
 		expect(edited.success).toBe(true);
 		expect(accepted((await signUp("desserts", "one more cake")).result)).toBe(false);
@@ -255,20 +288,19 @@ describe("potluck signups", () => {
 	});
 
 	it("removes a guest's dish when they choose not to bring one", async () => {
-		const { result, pin } = await signUp("desserts", "pie");
+		const { result, jar } = await signUp("desserts", "pie");
 
 		expect(accepted(result)).toBe(true);
 
-		const edited = await post("updateRsvp", {
-			rsvpId: result.rsvpId,
-			pin,
-			name: "Guest no dish",
-			status: "attending",
-			[`response_${questionId}`]: "",
-		});
+		const edited = await postAsGuest(
+			"updateRsvp",
+			{ name: "Guest no dish", status: "attending", [`response_${questionId}`]: "" },
+			jar,
+		);
+		const own = await prisma.rsvp.findFirstOrThrow({ where: { name: "Guest no dish" } });
 
 		expect(edited.success).toBe(true);
-		expect(await prisma.response.count({ where: { rsvpId: result.rsvpId } })).toBe(0);
+		expect(await prisma.response.count({ where: { rsvpId: own.id } })).toBe(0);
 	});
 
 	it("keeps the host's force-open and its removal when the question is edited", async () => {
@@ -346,7 +378,7 @@ describe("potluck signups", () => {
 	it("rejects free text that is not a category and dish", async () => {
 		const result = await post("rsvp", {
 			name: "Guest free text",
-			pin: "4321",
+			email: "free.text@example.test",
 			status: "attending",
 			[`response_${questionId}`]: "brownies",
 		});

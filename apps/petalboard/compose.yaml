@@ -14,8 +14,10 @@ services:
       DATABASE_URL: file:/app/data/dev.db
     # The default bridge avoids allocating a new network from the host's address pool.
     network_mode: bridge
+    # Loopback only: Traefik on the host is the one way in, so cf-connecting-ip can't be forged
+    # from the LAN.
     ports:
-      - "4173:4173"
+      - "127.0.0.1:4173:4173"
     volumes:
       - petalboard-data:/app/data
     healthcheck:

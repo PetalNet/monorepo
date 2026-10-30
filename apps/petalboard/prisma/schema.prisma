@@ -79,19 +79,41 @@ model Question {
 }
 
 model Rsvp {
-  id          String     @id @default(cuid())
+  id          String        @id @default(cuid())
   name        String
-  email       String?
-  status      String     @default("attending") // "attending", "maybe", "not_attending"
-  guestCount  Int        @default(1)
-  pinHash     String
+  email       String?       // Lowercased and trimmed; the guest's identity for edits
+  status      String        @default("attending") // "attending", "maybe", "not_attending"
+  guestCount  Int           @default(1)
   eventId     String
-  event       Event      @relation(fields: [eventId], references: [id], onDelete: Cascade)
+  event       Event         @relation(fields: [eventId], references: [id], onDelete: Cascade)
   responses   Response[]
-  createdAt   DateTime   @default(now())
-  updatedAt   DateTime   @updatedAt
+  sessions    RsvpSession[]
+  links       RsvpLink[]
+  createdAt   DateTime      @default(now())
+  updatedAt   DateTime      @updatedAt
 
-  @@unique([eventId, pinHash])
+  @@unique([eventId, email])
+}
+
+// Long-lived browser cookie that lets one browser edit one RSVP.
+model RsvpSession {
+  id        String   @id @default(cuid())
+  tokenHash String   @unique
+  rsvpId    String
+  rsvp      Rsvp     @relation(fields: [rsvpId], references: [id], onDelete: Cascade)
+  createdAt DateTime @default(now())
+  expiresAt DateTime
+}
+
+// Single-use emailed edit link.
+model RsvpLink {
+  id        String    @id @default(cuid())
+  tokenHash String    @unique
+  rsvpId    String
+  rsvp      Rsvp      @relation(fields: [rsvpId], references: [id], onDelete: Cascade)
+  createdAt DateTime  @default(now())
+  expiresAt DateTime
+  usedAt    DateTime?
 }
 
 model Response {

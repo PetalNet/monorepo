@@ -1,10 +1,11 @@
 <script lang="ts">
 	import { enhance } from "$app/forms";
-	import { invalidateAll } from "$app/navigation";
+	import { invalidateAll, replaceState } from "$app/navigation";
 	import { env } from "$env/dynamic/public";
 	import PotluckField from "$lib/components/PotluckField.svelte";
 	import SpotifySongSelector from "$lib/components/SpotifySongSelector.svelte";
 	import { directionsUrl, headcount } from "$lib/eventDetails";
+	import { applyEventTheme, eventTheme, mixColors, withAlpha } from "$lib/eventTheme";
 	import { LIST_PREVIEW_SIZE, previewList } from "$lib/listPreview";
 	import { parsePotluckAnswer, slotStatuses, type PotluckView } from "$lib/potluck";
 	import { formatDate, formatShortDate } from "$lib/utils/format";
@@ -30,367 +31,12 @@
 	const { data, form }: { data: PageData; form: ActionData | null } = $props();
 	const event = $derived(data.event);
 	const isOwner = $derived(data.isOwner);
+	const myRsvp = $derived(data.myRsvp);
 
-	// Color mapping from Tailwind
-	const colorMap: Record<
-		string,
-		{ 50: string; 100: string; 600: string; 700: string; 800: string; 900: string }
-	> = {
-		red: {
-			50: "#fef2f2",
-			100: "#fee2e2",
-			600: "#dc2626",
-			700: "#b91c1c",
-			800: "#991b1b",
-			900: "#7f1d1d",
-		},
-		orange: {
-			50: "#fff7ed",
-			100: "#ffedd5",
-			600: "#ea580c",
-			700: "#c2410c",
-			800: "#9a3412",
-			900: "#7c2d12",
-		},
-		amber: {
-			50: "#fffbeb",
-			100: "#fef3c7",
-			600: "#d97706",
-			700: "#b45309",
-			800: "#92400e",
-			900: "#78350f",
-		},
-		yellow: {
-			50: "#fefce8",
-			100: "#fef9c3",
-			600: "#ca8a04",
-			700: "#a16207",
-			800: "#854d0e",
-			900: "#713f12",
-		},
-		lime: {
-			50: "#f7fee7",
-			100: "#ecfccb",
-			600: "#65a30d",
-			700: "#4d7c0f",
-			800: "#3f6212",
-			900: "#365314",
-		},
-		green: {
-			50: "#f0fdf4",
-			100: "#dcfce7",
-			600: "#16a34a",
-			700: "#15803d",
-			800: "#166534",
-			900: "#14532d",
-		},
-		emerald: {
-			50: "#ecfdf5",
-			100: "#d1fae5",
-			600: "#059669",
-			700: "#047857",
-			800: "#065f46",
-			900: "#064e3b",
-		},
-		teal: {
-			50: "#f0fdfa",
-			100: "#ccfbf1",
-			600: "#0d9488",
-			700: "#0f766e",
-			800: "#115e59",
-			900: "#134e4a",
-		},
-		cyan: {
-			50: "#ecfeff",
-			100: "#cffafe",
-			600: "#0891b2",
-			700: "#0e7490",
-			800: "#155e75",
-			900: "#164e63",
-		},
-		sky: {
-			50: "#f0f9ff",
-			100: "#e0f2fe",
-			600: "#0284c7",
-			700: "#0369a1",
-			800: "#075985",
-			900: "#0c4a6e",
-		},
-		blue: {
-			50: "#eff6ff",
-			100: "#dbeafe",
-			600: "#2563eb",
-			700: "#1d4ed8",
-			800: "#1e40af",
-			900: "#1e3a8a",
-		},
-		indigo: {
-			50: "#eef2ff",
-			100: "#e0e7ff",
-			600: "#4f46e5",
-			700: "#4338ca",
-			800: "#3730a3",
-			900: "#312e81",
-		},
-		violet: {
-			50: "#f5f3ff",
-			100: "#ede9fe",
-			600: "#7c3aed",
-			700: "#6d28d9",
-			800: "#5b21b6",
-			900: "#4c1d95",
-		},
-		purple: {
-			50: "#faf5ff",
-			100: "#f3e8ff",
-			600: "#9333ea",
-			700: "#7e22ce",
-			800: "#6b21a8",
-			900: "#581c87",
-		},
-		fuchsia: {
-			50: "#fdf4ff",
-			100: "#fae8ff",
-			600: "#c026d3",
-			700: "#a21caf",
-			800: "#86198f",
-			900: "#701a75",
-		},
-		pink: {
-			50: "#fdf2f8",
-			100: "#fce7f3",
-			600: "#db2777",
-			700: "#be185d",
-			800: "#9f1239",
-			900: "#831843",
-		},
-		rose: {
-			50: "#fff1f2",
-			100: "#ffe4e6",
-			600: "#e11d48",
-			700: "#be123c",
-			800: "#9f1239",
-			900: "#881337",
-		},
-	};
-
-	// Legacy hex to color name mapping (for old events)
-	const hexToColorName: Record<string, string> = {
-		"#EF4444": "red",
-		"#F97316": "orange",
-		"#F59E0B": "amber",
-		"#EAB308": "yellow",
-		"#84CC16": "lime",
-		"#22C55E": "green",
-		"#10B981": "emerald",
-		"#14B8A6": "teal",
-		"#06B6D4": "cyan",
-		"#0EA5E9": "sky",
-		"#3B82F6": "blue",
-		"#6366F1": "indigo",
-		"#8B5CF6": "violet",
-		"#A855F7": "purple",
-		"#D946EF": "fuchsia",
-		"#EC4899": "pink",
-		"#F43F5E": "rose",
-	};
-
-	// Color utilities - handle both old hex values and new color names
-	const getPrimaryColor = () => {
-		if (!event.primaryColor) {
-			return "violet";
-		}
-
-		// Check if it's a hex color (old format)
-		if (event.primaryColor.startsWith("#")) {
-			return hexToColorName[event.primaryColor] || "violet";
-		}
-
-		return event.primaryColor;
-	};
-
-	const getSecondaryColor = () => {
-		if (!event.secondaryColor) {
-			return "pink";
-		}
-
-		// Check if it's a hex color (old format)
-		if (event.secondaryColor.startsWith("#")) {
-			return hexToColorName[event.secondaryColor] || "pink";
-		}
-
-		return event.secondaryColor;
-	};
-
-	const primaryColor = getPrimaryColor();
-	const secondaryColor = getSecondaryColor();
-	const primaryColors = colorMap[primaryColor] || colorMap.violet;
-	const secondaryColors = colorMap[secondaryColor] || colorMap.pink;
-
-	const hexToRgb = (value: string | null | undefined) => {
-		if (!value) {
-			return { r: 255, g: 255, b: 255 };
-		}
-
-		const normalized = String(value).trim();
-		const rgbMatch = /rgba?\(\s*(\d{1,3})\s*,\s*(\d{1,3})\s*,\s*(\d{1,3})/i.exec(normalized);
-
-		if (rgbMatch) {
-			return {
-				r: Number(rgbMatch[1]),
-				g: Number(rgbMatch[2]),
-				b: Number(rgbMatch[3]),
-			};
-		}
-
-		const trimmed = normalized.replace("#", "");
-
-		if (!/^[0-9a-fA-F]{3,8}$/.test(trimmed)) {
-			return { r: 255, g: 255, b: 255 };
-		}
-
-		const expanded =
-			trimmed.length === 3 || trimmed.length === 4
-				? trimmed
-						.split("")
-						.map((c) => c + c)
-						.join("")
-				: trimmed.length >= 6
-					? trimmed.slice(0, 6)
-					: trimmed.padEnd(6, trimmed[trimmed.length - 1] ?? "0");
-
-		return {
-			r: parseInt(expanded.slice(0, 2), 16),
-			g: parseInt(expanded.slice(2, 4), 16),
-			b: parseInt(expanded.slice(4, 6), 16),
-		};
-	};
-
-	const withAlpha = (color: string | null | undefined, alpha: number) => {
-		const { r, g, b } = hexToRgb(color);
-
-		return `rgba(${r}, ${g}, ${b}, ${alpha})`;
-	};
-
-	const mixColors = (colorA: string, colorB: string, weight = 0.5, alpha = 1) => {
-		const clamp = (value: number, min = 0, max = 1) => Math.min(Math.max(value, min), max);
-		const w = clamp(weight);
-		const a = hexToRgb(colorA);
-		const b = hexToRgb(colorB);
-		const r = Math.round(a.r * w + b.r * (1 - w));
-		const g = Math.round(a.g * w + b.g * (1 - w));
-		const bl = Math.round(a.b * w + b.b * (1 - w));
-		const aFixed = Number(alpha.toFixed(3));
-
-		if (aFixed >= 1) {
-			return `rgb(${r}, ${g}, ${bl})`;
-		}
-
-		return `rgba(${r}, ${g}, ${bl}, ${aFixed})`;
-	};
-
-	const lighten = (color: string, amount = 0.2, alpha = 1) =>
-		mixColors(color, "#ffffff", 1 - amount, alpha);
-	const darken = (color: string, amount = 0.2, alpha = 1) =>
-		mixColors(color, "#000000", 1 - amount, alpha);
-
-	const pageBackgroundLight = mixColors(
-		"#fdfbff",
-		mixColors(primaryColors[50], secondaryColors[50], 0.55, 1),
-		0.82,
-		1,
-	);
-	const darkCanvasBase = "#0c0b11"; // Deep neutral black base
-	const pageBackgroundDark = "#0c0b11"; // Solid base for dark mode
-
-	const backgroundImage = $derived(
-		event.backgroundImage ? `url("${event.backgroundImage}")` : "none",
-	);
-	const backgroundOverlayLight = $derived(
-		event.backgroundImage
-			? `linear-gradient(to bottom, ${withAlpha("#ffffff", 0.92)}, ${withAlpha("#ffffff", 0.96)})`
-			: `radial-gradient(120% 120% at 20% -12%, ${withAlpha(primaryColors[100], 0.32)}, transparent 62%), radial-gradient(140% 140% at 92% 120%, ${withAlpha(secondaryColors[100], 0.18)}, transparent 70%)`,
-	);
-	const backgroundOverlayDark = $derived(
-		event.backgroundImage
-			? `linear-gradient(to bottom, rgba(0,0,0,0.85), rgba(0,0,0,0.9))`
-			: `linear-gradient(135deg, ${mixColors("#0c0b11", primaryColors[900], 0.85, 1)} 0%, ${mixColors("#0c0b11", secondaryColors[900], 0.88, 1)} 100%), radial-gradient(120% 120% at 18% -14%, ${withAlpha(primaryColors[600], 0.18)}, transparent 58%), radial-gradient(140% 150% at 92% 125%, ${withAlpha(secondaryColors[600], 0.15)}, transparent 68%)`,
-	);
-
-	const themeVars = $derived({
-		"--event-primary-50": primaryColors[50],
-		"--event-primary-100": primaryColors[100],
-		"--event-primary-600": primaryColors[600],
-		"--event-primary-700": primaryColors[700],
-		"--event-primary-800": primaryColors[800],
-		"--event-primary-900": primaryColors[900],
-		"--event-primary-600-alpha": `${primaryColors[600]}30`,
-		"--event-secondary-50": secondaryColors[50],
-		"--event-secondary-100": secondaryColors[100],
-		"--event-secondary-600": secondaryColors[600],
-		"--event-secondary-700": secondaryColors[700],
-		"--event-secondary-800": secondaryColors[800],
-		"--event-secondary-900": secondaryColors[900],
-		"--event-secondary-600-alpha": withAlpha(secondaryColors[600], 0.28),
-		"--event-page-background": pageBackgroundLight,
-		"--event-page-background-dark": pageBackgroundDark,
-		"--event-background-image": backgroundImage,
-		"--event-background-overlay": backgroundOverlayLight,
-		"--event-background-overlay-dark": backgroundOverlayDark,
-		"--event-background-attachment": event.backgroundImage ? "fixed" : "scroll",
-		"--event-card-surface": "#ffffff",
-		"--event-card-surface-dark": "rgba(28, 28, 35, 0.85)",
-		"--event-section-surface": "#ffffff",
-		"--event-section-surface-dark": "rgba(20, 20, 28, 0.8)",
-		"--event-surface-border": withAlpha(primaryColors[600], 0.1),
-		"--event-surface-border-dark": "rgba(255, 255, 255, 0.08)",
-		"--event-surface-glow-dark": withAlpha(primaryColors[600], 0.15),
-		"--event-panel-surface": "#ffffff",
-		"--event-panel-surface-dark": "rgba(25, 25, 32, 0.85)",
-		"--event-panel-shadow": withAlpha(primaryColors[600], 0.16),
-		"--event-panel-shadow-dark": "0 8px 30px rgba(0, 0, 0, 0.6)",
-		"--event-entry-surface-dark": "rgba(20, 20, 28, 0.9)",
-		"--event-header-bg-light": mixColors(primaryColors[100], secondaryColors[100], 0.55, 0.9),
-		"--event-header-bg-dark": `linear-gradient(135deg, rgba(${hexToRgb(primaryColors[700]).r}, ${hexToRgb(primaryColors[700]).g}, ${hexToRgb(primaryColors[700]).b}, 0.2), rgba(${hexToRgb(secondaryColors[700]).r}, ${hexToRgb(secondaryColors[700]).g}, ${hexToRgb(secondaryColors[700]).b}, 0.15))`,
-		"--event-header-border-light": withAlpha(secondaryColors[600], 0.32),
-		"--event-header-border-dark": "rgba(255, 255, 255, 0.1)",
-		"--event-header-text-light": mixColors(primaryColors[900], secondaryColors[900], 0.6, 0.95),
-		"--event-header-text-dark": "#ffffff",
-		"--event-topbar-chip-bg": mixColors(primaryColors[50], secondaryColors[50], 0.4, 0.78),
-		"--event-topbar-chip-bg-dark": `rgba(${hexToRgb(primaryColors[600]).r}, ${hexToRgb(primaryColors[600]).g}, ${hexToRgb(primaryColors[600]).b}, 0.25)`,
-		"--event-topbar-chip-border": withAlpha(secondaryColors[600], 0.48),
-		"--event-topbar-chip-text": mixColors(primaryColors[900], secondaryColors[900], 0.5, 0.95),
-		"--event-topbar-chip-text-dark": "#ffffff",
-		"--event-summary-attending-bg": mixColors(primaryColors[100], secondaryColors[50], 0.56, 0.92),
-		"--event-summary-attending-bg-dark": `rgba(${hexToRgb(primaryColors[600]).r}, ${hexToRgb(primaryColors[600]).g}, ${hexToRgb(primaryColors[600]).b}, 0.25)`,
-		"--event-summary-attending-text": primaryColors[800],
-		"--event-summary-attending-text-dark": "#ffffff",
-		"--event-summary-attending-border": withAlpha(primaryColors[600], 0.18),
-		"--event-summary-attending-border-dark": `rgba(${hexToRgb(primaryColors[600]).r}, ${hexToRgb(primaryColors[600]).g}, ${hexToRgb(primaryColors[600]).b}, 0.3)`,
-		"--event-summary-maybe-bg": mixColors(secondaryColors[100], "#ffffff", 0.53, 0.9),
-		"--event-summary-maybe-bg-dark": `rgba(${hexToRgb(secondaryColors[600]).r}, ${hexToRgb(secondaryColors[600]).g}, ${hexToRgb(secondaryColors[600]).b}, 0.25)`,
-		"--event-summary-maybe-text": secondaryColors[800],
-		"--event-summary-maybe-text-dark": "#ffffff",
-		"--event-summary-maybe-border": withAlpha(secondaryColors[600], 0.2),
-		"--event-summary-maybe-border-dark": `rgba(${hexToRgb(secondaryColors[600]).r}, ${hexToRgb(secondaryColors[600]).g}, ${hexToRgb(secondaryColors[600]).b}, 0.3)`,
-		"--event-summary-not-bg": mixColors(primaryColors[100], "#ffffff", 0.62, 0.9),
-		"--event-summary-not-bg-dark": "rgba(40, 40, 48, 0.6)",
-		"--event-summary-not-text": primaryColors[700],
-		"--event-summary-not-text-dark": "#c9c9d4",
-		"--event-summary-not-border": withAlpha(primaryColors[600], 0.16),
-		"--event-summary-not-border-dark": "rgba(255, 255, 255, 0.1)",
-		"--event-entry-chip-bg-dark": `rgba(${hexToRgb(primaryColors[600]).r}, ${hexToRgb(primaryColors[600]).g}, ${hexToRgb(primaryColors[600]).b}, 0.3)`,
-		"--event-entry-chip-text-dark": "#ffffff",
-		"--event-badge-bg-dark": `rgba(${hexToRgb(secondaryColors[600]).r}, ${hexToRgb(secondaryColors[600]).g}, ${hexToRgb(secondaryColors[600]).b}, 0.3)`,
-		"--event-badge-text-dark": "#ffffff",
-		"--event-text-primary": "#1b1430",
-		"--event-text-secondary": "#362a54",
-		"--event-text-muted": "#5f5177",
-		"--event-text-primary-dark": "#ffffff",
-		"--event-text-secondary-dark": "#c9c9d4",
-		"--event-text-muted-dark": "#8b8b99",
-		"--event-divider-dark": withAlpha(secondaryColors[600], 0.22),
-	} satisfies Record<string, string>);
+	const theme = $derived(eventTheme(event));
+	const primaryColors = $derived(theme.primaryColors);
+	const secondaryColors = $derived(theme.secondaryColors);
+	const themeVars = $derived(theme.themeVars);
 
 	const colorStyles = $derived(
 		Object.entries(themeVars)
@@ -399,33 +45,7 @@
 	);
 
 	// Apply event colors to the document root for layout theming
-	$effect(() => {
-		if (typeof document !== "undefined") {
-			const root = document.documentElement;
-
-			for (const [key, value] of Object.entries(themeVars)) {
-				root.style.setProperty(key, value);
-			}
-
-			root.setAttribute("data-event-page", "true");
-			root.setAttribute("data-event-emoji", event.emoji || "");
-			root.setAttribute("data-event-title", event.title);
-		}
-
-		return () => {
-			if (typeof document !== "undefined") {
-				const root = document.documentElement;
-
-				root.removeAttribute("data-event-page");
-				root.removeAttribute("data-event-emoji");
-				root.removeAttribute("data-event-title");
-
-				for (const key of Object.keys(themeVars)) {
-					root.style.removeProperty(key);
-				}
-			}
-		};
-	});
+	$effect(() => applyEventTheme(themeVars, event));
 
 	// Make rsvps reactive so we can update without reload
 	let rsvps = $derived(data.rsvps);
@@ -466,11 +86,14 @@
 	let showRsvpModal = $state(false);
 	let showEditModal = $state(false);
 	let editingRsvp = $state<any>(null);
-	let currentPin = $state<string>("");
 	let lastFormType = $state<string | null>(null);
-	let editingRsvpId = $state<string>("");
-	let pinInput = $state<string>("");
-	let pinError = $state<string>("");
+	let showLinkModal = $state(false);
+	let linkResult = $state<{ ok: boolean; message: string } | null>(null);
+	let linkEmailInput = $state<HTMLInputElement>();
+	let linkStatus = $state<HTMLElement>();
+	let sendingLink = $state(false);
+	let editNameInput = $state<HTMLInputElement>();
+	let linkTrigger: HTMLElement | null = null;
 	let editingStatus = $state<RsvpStatus>("attending");
 	let editingGuestCount = $state(1);
 	let newRsvpStatus = $state<RsvpStatus>("attending");
@@ -492,7 +115,7 @@
 	// Prevent body scroll when modals are open
 	$effect(() => {
 		if (typeof document !== "undefined") {
-			if (showRsvpModal || showEditModal || editingRsvpId) {
+			if (showRsvpModal || showEditModal || showLinkModal) {
 				document.body.classList.add("no-scroll");
 			} else {
 				document.body.classList.remove("no-scroll");
@@ -657,8 +280,8 @@
 			return;
 		}
 
-		if (editingRsvpId && !editingRsvp) {
-			closePinPrompt();
+		if (showLinkModal) {
+			closeLinkModal();
 		} else if (showEditModal) {
 			closeEditModal();
 		} else if (showRsvpModal) {
@@ -740,37 +363,10 @@
 
 		lastFormType = currentFormType;
 
-		// Handle lookup success
-		if (form?.type === "lookupRsvp" && form.success && form.rsvp) {
-			editingRsvp = form.rsvp;
-			responses = form.rsvp.responses || {};
-			editingStatus = toRsvpStatus(form.rsvp.status);
-			editingGuestCount = form.rsvp.guestCount ?? 1;
-			showEditModal = true;
-			pinInput = "";
-			pinError = "";
-			editingRsvpId = "";
-		}
-
-		// Handle lookup failure
-		if (form?.type === "lookupRsvp" && !form.success && message) {
-			pinError = message;
-		}
-
-		// Handle successful update/cancel
 		if ((form?.type === "updateRsvp" || form?.type === "cancelRsvp") && form.success) {
-			editingRsvp = null;
-			showEditModal = false;
-			currentPin = "";
-			responses = {};
-			editingStatus = "attending";
-			editingGuestCount = 1;
-			editingRsvpId = "";
-			pinInput = "";
-			pinError = "";
+			closeEditModal();
 		}
 
-		// Handle successful new RSVP
 		if (form?.type === "rsvp" && form.success) {
 			showRsvpModal = false;
 			newRsvpStatus = "attending";
@@ -795,17 +391,54 @@
 		newGuestCount = 1;
 	}
 
+	async function openEditModal() {
+		if (!myRsvp) {
+			return;
+		}
+
+		editingRsvp = myRsvp;
+		responses = { ...myRsvp.responses };
+		editingStatus = toRsvpStatus(myRsvp.status);
+		editingGuestCount = myRsvp.guestCount;
+		showEditModal = true;
+		await tick();
+		editNameInput?.focus();
+	}
+
 	function closeEditModal() {
 		editingRsvp = null;
 		showEditModal = false;
-		currentPin = "";
 		responses = {};
 		editingStatus = "attending";
 		editingGuestCount = 1;
-		editingRsvpId = "";
-		pinInput = "";
-		pinError = "";
 	}
+
+	async function openLinkModal(trigger: HTMLElement) {
+		linkTrigger = trigger;
+		linkResult = null;
+		showLinkModal = true;
+		await tick();
+		linkEmailInput?.focus();
+	}
+
+	function closeLinkModal() {
+		showLinkModal = false;
+		linkResult = null;
+		linkTrigger?.focus();
+	}
+
+	onMount(async () => {
+		const url = new URL(window.location.href);
+
+		if (url.searchParams.get("edit") !== "1") {
+			return;
+		}
+
+		await openEditModal();
+		// Without this, a reload or a shared copy of the URL reopens the dialog.
+		url.searchParams.delete("edit");
+		replaceState(url, {});
+	});
 
 	async function expandList(key: string, button: HTMLElement) {
 		const list = button.parentElement;
@@ -825,42 +458,6 @@
 		} else {
 			revealed.tabIndex = -1;
 			revealed.focus();
-		}
-	}
-
-	function closePinPrompt() {
-		editingRsvpId = "";
-		pinInput = "";
-		pinError = "";
-	}
-
-	function promptForPin(rsvpId: string) {
-		editingRsvpId = rsvpId;
-		pinInput = "";
-		pinError = "";
-	}
-
-	async function submitPinLookup(e: Event) {
-		e.preventDefault();
-
-		if (!pinInput || !editingRsvpId) {
-			return;
-		}
-
-		const formData = new FormData();
-
-		formData.append("rsvpId", editingRsvpId);
-		formData.append("pin", pinInput);
-
-		const response = await fetch("?/lookupRsvp", {
-			method: "POST",
-			body: formData,
-		});
-
-		// Let the form action handle the response
-		if (response.ok) {
-			// The page will reload with the form data
-			window.location.reload();
 		}
 	}
 </script>
@@ -964,8 +561,8 @@
 				</div>
 			</div>
 
-			{#if !rsvpAtLimit}
-				<div class="w-full md:w-auto">
+			<div class="flex w-full flex-col gap-3 md:w-auto">
+				{#if !rsvpAtLimit}
 					<button
 						class="w-full rounded-xl px-6 py-3 text-base font-semibold text-white shadow-button transition-colors md:w-auto md:px-8 md:py-4 md:text-lg"
 						style={`background: linear-gradient(135deg, ${primaryColors[700]}, ${secondaryColors[700]}); box-shadow: 0 14px 28px ${withAlpha(primaryColors[600], 0.33)};`}
@@ -981,8 +578,19 @@
 					>
 						RSVP Now
 					</button>
-				</div>
-			{/if}
+				{/if}
+				{#if myRsvp}
+					<button type="button" class="btn-secondary min-h-11" onclick={openEditModal}
+						>Edit my RSVP</button
+					>
+				{:else}
+					<button
+						type="button"
+						class="btn-secondary min-h-11"
+						onclick={(e) => openLinkModal(e.currentTarget)}>Already RSVP'd? Edit my RSVP</button
+					>
+				{/if}
+			</div>
 		</div>
 	</article>
 
@@ -993,19 +601,21 @@
 			style={`border: 1px solid ${withAlpha(secondaryColors[600], 0.32)}; background-color: ${mixColors(primaryColors[50], secondaryColors[50], 0.6, 0.78)};`}
 		>
 			<h2 class="mb-2 text-xl font-bold">✅ You're all set!</h2>
-			<p class="mb-0">Your RSVP has been confirmed.</p>
-			<div
-				class="event-section mt-4 rounded-xl p-4"
-				style={`background-color: ${mixColors(primaryColors[100], secondaryColors[50], 0.55, 0.9)}; border: 1px solid ${withAlpha(primaryColors[600], 0.14)};`}
-			>
-				<strong style="color: {primaryColors[800]};">Your RSVP ID:</strong>
-				<code
-					class="rounded px-2 py-1 font-semibold"
-					style={`background-color: white; color: ${secondaryColors[700]}; box-shadow: 0 1px 3px ${withAlpha(secondaryColors[600], 0.28)};`}
-					>{form?.rsvpId}</code
-				><br />
-				<small>Save this ID and your PIN to manage your RSVP later.</small>
-			</div>
+			<p class="mb-0">
+				Check your email for a confirmation with a link to edit your RSVP. This browser can also
+				edit it any time with Edit my RSVP.
+			</p>
+		</div>
+	{/if}
+
+	{#if formType === "rsvp" && form?.alreadyRegistered}
+		<div
+			class="card event-card mb-8"
+			role="status"
+			style={`border: 1px solid ${withAlpha(secondaryColors[600], 0.32)}; background-color: ${mixColors(primaryColors[50], secondaryColors[50], 0.6, 0.78)};`}
+		>
+			<h2 class="mb-2 text-xl font-bold">Check your email</h2>
+			<p class="mb-0">{message}</p>
 		</div>
 	{/if}
 
@@ -1083,15 +693,17 @@
 											>{formatShortDate(rsvp.createdAt, event.timezone)}</span
 										>
 									</div>
-									<button
-										type="button"
-										class="inline-flex min-h-11 min-w-11 flex-shrink-0 cursor-pointer items-center justify-center border-none bg-none p-2 text-xl opacity-60 transition-opacity hover:opacity-100"
-										title="Edit {rsvp.name}'s RSVP"
-										aria-label="Edit {rsvp.name}'s RSVP"
-										onclick={() => promptForPin(rsvp.id)}
-									>
-										✏️
-									</button>
+									{#if rsvp.id === myRsvp?.id}
+										<button
+											type="button"
+											class="inline-flex min-h-11 min-w-11 flex-shrink-0 cursor-pointer items-center justify-center border-none bg-none p-2 text-xl opacity-60 transition-opacity hover:opacity-100"
+											title="Edit my RSVP"
+											aria-label="Edit my RSVP"
+											onclick={openEditModal}
+										>
+											✏️
+										</button>
+									{/if}
 								</div>
 							{/each}
 							{@render showAll("attending", attendingList.length, "")}
@@ -1140,15 +752,17 @@
 											>{formatShortDate(rsvp.createdAt, event.timezone)}</span
 										>
 									</div>
-									<button
-										type="button"
-										class="inline-flex min-h-11 min-w-11 flex-shrink-0 cursor-pointer items-center justify-center border-none bg-none p-2 text-xl opacity-60 transition-opacity hover:opacity-100"
-										title="Edit {rsvp.name}'s RSVP"
-										aria-label="Edit {rsvp.name}'s RSVP"
-										onclick={() => promptForPin(rsvp.id)}
-									>
-										✏️
-									</button>
+									{#if rsvp.id === myRsvp?.id}
+										<button
+											type="button"
+											class="inline-flex min-h-11 min-w-11 flex-shrink-0 cursor-pointer items-center justify-center border-none bg-none p-2 text-xl opacity-60 transition-opacity hover:opacity-100"
+											title="Edit my RSVP"
+											aria-label="Edit my RSVP"
+											onclick={openEditModal}
+										>
+											✏️
+										</button>
+									{/if}
 								</div>
 							{/each}
 							{@render showAll("maybe", maybeList.length, "")}
@@ -1197,15 +811,17 @@
 											>{formatShortDate(rsvp.createdAt, event.timezone)}</span
 										>
 									</div>
-									<button
-										type="button"
-										class="inline-flex min-h-11 min-w-11 flex-shrink-0 cursor-pointer items-center justify-center border-none bg-none p-2 text-xl opacity-60 transition-opacity hover:opacity-100"
-										title="Edit {rsvp.name}'s RSVP"
-										aria-label="Edit {rsvp.name}'s RSVP"
-										onclick={() => promptForPin(rsvp.id)}
-									>
-										✏️
-									</button>
+									{#if rsvp.id === myRsvp?.id}
+										<button
+											type="button"
+											class="inline-flex min-h-11 min-w-11 flex-shrink-0 cursor-pointer items-center justify-center border-none bg-none p-2 text-xl opacity-60 transition-opacity hover:opacity-100"
+											title="Edit my RSVP"
+											aria-label="Edit my RSVP"
+											onclick={openEditModal}
+										>
+											✏️
+										</button>
+									{/if}
 								</div>
 							{/each}
 							{@render showAll("not-attending", notAttendingList.length, "")}
@@ -1696,67 +1312,91 @@
 	{/if}
 </div>
 
-<!-- PIN Prompt Modal -->
-{#if editingRsvpId && !editingRsvp}
+<!-- Edit-link request modal -->
+{#if showLinkModal}
 	<div
 		class="modal-backdrop"
 		role="button"
 		tabindex="0"
-		aria-label="Close PIN prompt"
-		onclick={(event) => event.target === event.currentTarget && closePinPrompt()}
-		onkeydown={(event) => handleOverlayKeydown(event, closePinPrompt)}
+		aria-label="Close edit link dialog"
+		onclick={(event) => event.target === event.currentTarget && closeLinkModal()}
+		onkeydown={(event) => handleOverlayKeydown(event, closeLinkModal)}
 	>
 		<div
 			class="modal"
 			role="dialog"
 			aria-modal="true"
-			aria-labelledby="pin-prompt-title"
+			aria-labelledby="edit-link-title"
 			tabindex="-1"
 		>
 			<div class="modal-header">
-				<h3 id="pin-prompt-title">Enter PIN</h3>
-				<button type="button" class="close-btn" aria-label="Close" onclick={closePinPrompt}
+				<h3 id="edit-link-title">Edit my RSVP</h3>
+				<button type="button" class="close-btn" aria-label="Close" onclick={closeLinkModal}
 					>×</button
 				>
 			</div>
-			<form
-				method="POST"
-				action="?/lookupRsvp"
-				use:enhance={() => {
-					// Store the PIN before submission
-					const submittedPin = pinInput;
-
-					return async ({ result, update }) => {
-						if (result.type === "success" && result.data?.success) {
-							currentPin = submittedPin;
-						}
-
-						await update();
-					};
-				}}
-			>
-				<input type="hidden" name="rsvpId" value={editingRsvpId} />
-				{#if pinError}
-					<div class="error-banner mb-4">{pinError}</div>
-				{/if}
-				<label class="form-label">
-					<span>Enter your PIN to edit this RSVP</span>
-					<input
-						class="input-field"
-						name="pin"
-						type="text"
-						inputmode="numeric"
-						required
-						placeholder="Enter PIN"
-						maxlength="6"
-						bind:value={pinInput}
-					/>
-				</label>
+			{#if linkResult?.ok}
+				<p class="mb-4" role="status" tabindex="-1" bind:this={linkStatus}>{linkResult.message}</p>
 				<div class="modal-actions">
-					<button type="submit" class="btn-primary">Unlock</button>
-					<button type="button" class="btn-secondary" onclick={closePinPrompt}>Cancel</button>
+					<button type="button" class="btn-primary min-h-11" onclick={closeLinkModal}>Done</button>
 				</div>
-			</form>
+			{:else}
+				<form
+					method="POST"
+					action="?/requestEditLink"
+					use:enhance={() => {
+						sendingLink = true;
+
+						return async ({ result }) => {
+							sendingLink = false;
+
+							if (result.type === "success" || result.type === "failure") {
+								linkResult = {
+									ok: result.type === "success",
+									message: String(result.data?.message ?? ""),
+								};
+							} else if (result.type === "error") {
+								linkResult = {
+									ok: false,
+									message: "Something went wrong sending your link. Try again in a minute.",
+								};
+							}
+
+							if (linkResult?.ok) {
+								await tick();
+								linkStatus?.focus();
+							}
+						};
+					}}
+				>
+					{#if linkResult}
+						<div class="error-banner mb-4" role="alert">{linkResult.message}</div>
+					{/if}
+					<label class="form-label">
+						<span>The email you RSVP'd with</span>
+						<input
+							class="input-field"
+							name="email"
+							type="email"
+							required
+							autocomplete="email"
+							placeholder="you@example.com"
+							bind:this={linkEmailInput}
+						/>
+						<small class="text-sm text-gray-600"
+							>We'll email you a link to edit your RSVP. It works for 1 hour.</small
+						>
+					</label>
+					<div class="modal-actions">
+						<button type="submit" class="btn-primary min-h-11" disabled={sendingLink}
+							>{sendingLink ? "Sending…" : "Email me a link"}</button
+						>
+						<button type="button" class="btn-secondary min-h-11" onclick={closeLinkModal}
+							>Cancel</button
+						>
+					</div>
+				</form>
+			{/if}
 		</div>
 	</div>
 {/if}
@@ -1785,7 +1425,7 @@
 				>
 			</div>
 
-			{#if formType === "updateRsvp" && message && !success}
+			{#if (formType === "updateRsvp" || formType === "cancelRsvp") && message && !success}
 				<div class="error-banner">{message}</div>
 			{/if}
 
@@ -1824,31 +1464,24 @@
 					};
 				}}
 			>
-				<input type="hidden" name="rsvpId" value={editingRsvp.id} />
-				<input type="hidden" name="pin" value={currentPin} />
-
+				<input type="hidden" name="expectedRsvpId" value={editingRsvp.id} />
 				<label class="form-label">
 					<span>Your name *</span>
 					<input
 						class="input-field"
 						name="name"
 						required
+						maxlength="100"
 						value={editingRsvp.name}
+						bind:this={editNameInput}
 						autocomplete="name"
 					/>
 				</label>
 
-				<label class="form-label">
-					<span>Email (optional)</span>
-					<input
-						class="input-field"
-						type="email"
-						name="email"
-						placeholder="you@example.com"
-						value={editingRsvp.email ?? ""}
-						autocomplete="email"
-					/>
-				</label>
+				<p class="form-label">
+					<span>Email</span>
+					<span class="text-dark-700">{editingRsvp.email}</span>
+				</p>
 
 				<label class="form-label">
 					<span>How many guests (including yourself)?</span>
@@ -2082,8 +1715,7 @@
 					};
 				}}
 			>
-				<input type="hidden" name="rsvpId" value={editingRsvp.id} />
-				<input type="hidden" name="pin" value={currentPin} />
+				<input type="hidden" name="expectedRsvpId" value={editingRsvp.id} />
 				{#if showCancelConfirm}
 					<div class="flex justify-center gap-2">
 						<button type="submit" class="btn-danger">Yes, Cancel RSVP</button>
@@ -2125,7 +1757,7 @@
 				>
 			</div>
 
-			{#if formType === "rsvp" && message}
+			{#if formType === "rsvp" && message && !form?.alreadyRegistered}
 				<div class="error-banner">{message}</div>
 			{/if}
 
@@ -2155,10 +1787,13 @@
 								questionResponseCounts = payload.questionResponseCounts;
 							}
 
-							// Close modal
 							showRsvpModal = false;
 							responses = {};
 							newGuestCount = 1;
+						}
+
+						if (result.type === "failure" && result.data?.alreadyRegistered) {
+							showRsvpModal = false;
 						}
 
 						await update();
@@ -2175,6 +1810,7 @@
 						class="input-field"
 						name="name"
 						required
+						maxlength="100"
 						value={values.name ?? ""}
 						autocomplete="name"
 						placeholder="Your full name"
@@ -2185,38 +1821,21 @@
 				</label>
 
 				<label class="form-label">
-					<span>Email (optional but recommended)</span>
+					<span>Email *</span>
 					<input
 						class="input-field"
 						type="email"
 						name="email"
+						required
 						value={values.email ?? ""}
 						autocomplete="email"
 						placeholder="you@example.com"
 					/>
+					<small class="text-sm text-gray-600"
+						>We'll email you a link to edit your RSVP later. No password needed.</small
+					>
 					{#if errors.email}
 						<small class="text-sm text-red-600">{errors.email[0]}</small>
-					{/if}
-				</label>
-
-				<label class="form-label">
-					<span>Choose a PIN (4-6 digits) *</span>
-					<input
-						class="input-field"
-						name="pin"
-						type="text"
-						inputmode="numeric"
-						minlength="4"
-						maxlength="6"
-						required
-						value={values.pin ?? ""}
-						autocomplete="off"
-					/>
-					<small class="text-sm text-gray-600"
-						>You'll need this PIN to manage your RSVP later.</small
-					>
-					{#if errors.pin}
-						<small class="text-sm text-red-600">{errors.pin[0]}</small>
 					{/if}
 				</label>
 
@@ -2512,7 +2131,6 @@
 
 	.event-card p,
 	.event-card span,
-	.event-card small,
 	.event-section span,
 	.panel-block-body p,
 	.panel-block-body span,
@@ -2521,7 +2139,6 @@
 		color: var(--event-text-secondary, #3c2f68);
 	}
 
-	.event-card small,
 	.event-card .text-dark-600,
 	.event-card .text-dark-500 {
 		color: var(--event-text-muted, #655b82);
@@ -2569,7 +2186,6 @@
 		color: var(--event-text-secondary-dark, #d9d8f5);
 	}
 
-	:global(.dark) .event-card small,
 	:global(.dark) .panel-list-item .text-dark-600,
 	:global(.dark) .panel-list-item .text-dark-500,
 	:global(.dark) .event-card .text-dark-600,
@@ -2798,8 +2414,7 @@
 	}
 
 	:global(.dark) .index-badge,
-	:global(.dark) .song-note,
-	:global(.dark) .success-banner strong {
+	:global(.dark) .song-note {
 		color: var(--event-primary-100) !important;
 	}
 
