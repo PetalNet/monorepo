@@ -70,7 +70,7 @@ docker build -f apps/petalboard/Dockerfile --build-arg MONOREPO_SHA="$(git rev-p
 The container listens on port 4173, applies pending Prisma migrations on start, and keeps its
 SQLite database at `/app/data/dev.db`. Mount a volume at `/app/data`. Set `ORIGIN` to the public
 URL so form actions pass SvelteKit's CSRF check, and `APP_URL` to the same URL for email links.
-SMTP, Google Maps, and Spotify settings are listed in `.env.example`.
+Resend, Google Maps, and Spotify settings are listed in `.env.example`.
 
 ## Project structure
 
