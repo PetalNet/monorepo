@@ -7,7 +7,15 @@ import {
 	potluckView,
 } from "$lib/server/potluck";
 import { prisma } from "$lib/server/prisma";
-import { hashPin, verifyPin } from "$lib/server/security";
+import { clientIp, IP_LIMIT, isLimited } from "$lib/server/rateLimit";
+import {
+	clearRsvpCookie,
+	createSession,
+	inBackground,
+	readSession,
+	sendEditLink,
+	setRsvpCookie,
+} from "$lib/server/rsvpAccess";
 import {
 	refreshAccessToken,
 	createPlaylist,
@@ -15,10 +23,10 @@ import {
 	getSpotifyProfile,
 } from "$lib/server/spotify";
 import type { SpotifyTrack } from "$lib/server/spotify";
-import { rsvpSchema } from "$lib/server/validation";
-import { fail, error } from "@sveltejs/kit";
+import { editLinkSchema, rsvpSchema } from "$lib/server/validation";
+import { error, fail, type Cookies } from "@sveltejs/kit";
 
-export const load = async ({ params, locals }) => {
+export const load = async ({ params, locals, cookies }) => {
 	const event = await prisma.event.findUnique({
 		where: { publicCode: params.code },
 		select: {
@@ -93,6 +101,8 @@ export const load = async ({ params, locals }) => {
 	// Check if current user is the event owner
 	const isOwner = locals.user?.id === event.userId;
 
+	const myRsvpId = await readSession(cookies, event.id);
+	const mine = myRsvpId ? event.rsvps.find((rsvp) => rsvp.id === myRsvpId) : undefined;
 	const rsvpCount = event.rsvps.length;
 	const totalGuests = event.rsvps.reduce((sum, r) => sum + r.guestCount, 0);
 
@@ -140,6 +150,16 @@ export const load = async ({ params, locals }) => {
 			})),
 		},
 		isOwner,
+		myRsvp: mine
+			? {
+					id: mine.id,
+					name: mine.name,
+					email: mine.email,
+					status: mine.status,
+					guestCount: mine.guestCount,
+					responses: Object.fromEntries(mine.responses.map((r) => [r.question.id, r.value])),
+				}
+			: null,
 		rsvps: event.rsvps.map((rsvp) => ({
 			id: rsvp.id,
 			name: rsvp.name,
@@ -324,698 +344,457 @@ async function syncSpotifyPlaylists(eventId: string) {
 	}
 }
 
-export const actions = {
-	rsvp: async ({ request, params }) => {
-		const event = await prisma.event.findUnique({
-			where: { publicCode: params.code },
-			select: {
-				id: true,
-				rsvpLimit: true,
-				_count: { select: { rsvps: true } },
-				questions: {
-					select: {
-						id: true,
-						label: true,
-						required: true,
-						type: true,
-						quantity: true,
-						songsPerUser: true,
-						spotifyPlaylistId: true,
-						responses: {
-							select: {
-								id: true,
+const ALREADY_REGISTERED = "You're already on the list. We emailed you a link to edit your RSVP.";
+const ACCESS_EXPIRED = "Your edit access has expired. Use Edit my RSVP to get a new link.";
+const LINK_SENT =
+	"If that email is on the list for this event, we've sent it a link to edit the RSVP. The link works for 1 hour.";
+
+type RsvpFormType = "rsvp" | "updateRsvp";
+
+async function findEvent(code: string) {
+	const event = await prisma.event.findUnique({
+		where: { publicCode: code },
+		select: {
+			id: true,
+			title: true,
+			publicCode: true,
+			rsvpLimit: true,
+			questions: {
+				select: {
+					id: true,
+					label: true,
+					required: true,
+					type: true,
+					quantity: true,
+					songsPerUser: true,
+					_count: { select: { responses: true } },
+				},
+			},
+		},
+	});
+
+	if (!event) {
+		throw error(404, "Event not found");
+	}
+
+	return event;
+}
+
+type RsvpEvent = Awaited<ReturnType<typeof findEvent>>;
+
+function readRsvpForm(formData: FormData) {
+	const responses: Record<string, string> = {};
+	const values: Record<string, string> = {};
+
+	for (const [key, value] of formData.entries()) {
+		if (key.startsWith("response_")) {
+			responses[key.replace("response_", "")] = value as string;
+		} else {
+			values[key] = value as string;
+		}
+	}
+
+	return { values, responses };
+}
+
+interface RsvpInput {
+	name: string;
+	status: "attending" | "maybe" | "not_attending";
+	guestCount: number;
+	responses: Record<string, string>;
+}
+
+interface ExistingRsvp {
+	id: string;
+	guestCount: number;
+	responses: { questionId: string }[];
+}
+
+// A new RSVP carries the email it was made with; an existing one keeps its email, the guest's identity.
+type SaveTarget = { existing: ExistingRsvp } | { email: string };
+
+function answered(responses: Record<string, string>) {
+	return Object.entries(responses)
+		.filter(([, value]) => value && value.trim() !== "")
+		.map(([questionId, value]) => ({ questionId, value }));
+}
+
+// Returns the saved RSVP's id, or the failure to show on `type`'s form.
+async function saveRsvp(
+	event: RsvpEvent,
+	target: SaveTarget,
+	input: RsvpInput,
+	type: RsvpFormType,
+	values: Record<string, string>,
+) {
+	const { name, status, guestCount, responses } = input;
+	const existing = "existing" in target ? target.existing : null;
+	const reject = (message: string, httpStatus = 400) =>
+		fail(httpStatus, { success: false, type, message, values });
+	const hadAnswer = (questionId: string) =>
+		existing?.responses.some((r) => r.questionId === questionId) ?? false;
+
+	if (event.rsvpLimit && guestCount > (existing?.guestCount ?? 0)) {
+		const totals = await prisma.rsvp.aggregate({
+			where: { eventId: event.id, id: existing ? { not: existing.id } : undefined },
+			_sum: { guestCount: true },
+		});
+		const othersTotal = totals._sum.guestCount ?? 0;
+
+		if (othersTotal + guestCount > event.rsvpLimit) {
+			return reject(
+				guestCount > 1
+					? `Sorry, there are only ${event.rsvpLimit - othersTotal} spot(s) left, but you requested ${guestCount}.`
+					: "Sorry, this event has reached its RSVP limit.",
+			);
+		}
+	}
+
+	// Checked before required questions, so a full required question reports as full.
+	for (const question of event.questions) {
+		if (
+			responses[question.id] &&
+			question.quantity &&
+			!hadAnswer(question.id) &&
+			question._count.responses >= question.quantity
+		) {
+			return reject(`Sorry, "${question.label}" is full (all ${question.quantity} slots taken).`);
+		}
+	}
+
+	for (const question of event.questions) {
+		if (question.type !== "spotify_playlist" || !question.songsPerUser) {
+			continue;
+		}
+
+		if (parseSpotifySelection(responses[question.id]).length > question.songsPerUser) {
+			return reject(
+				`You can add at most ${question.songsPerUser} song${
+					question.songsPerUser === 1 ? "" : "s"
+				} for "${question.label}".`,
+			);
+		}
+	}
+
+	if (status !== "not_attending") {
+		const missingRequired = event.questions.some(
+			(q) =>
+				q.required && !(q.quantity && q._count.responses >= q.quantity) && !responses[q.id]?.trim(),
+		);
+
+		if (missingRequired) {
+			return reject("Please answer all required questions.");
+		}
+	}
+
+	const saved = await oneSignupAtATime(event.id, () =>
+		prisma.$transaction(async (tx) => {
+			const rejection =
+				status === "not_attending"
+					? null
+					: await checkPotluckAnswers(tx, event.id, responses, existing?.id ?? null);
+
+			if (rejection) {
+				return { rejection, id: null };
+			}
+
+			const rsvp =
+				"existing" in target
+					? await tx.rsvp.update({
+							where: { id: target.existing.id },
+							data: {
+								name,
+								status,
+								guestCount,
+								responses: { deleteMany: {}, create: answered(responses) },
 							},
+							select: { id: true },
+						})
+					: await tx.rsvp.create({
+							data: {
+								name,
+								email: target.email,
+								status,
+								guestCount,
+								eventId: event.id,
+								responses: { create: answered(responses) },
+							},
+							select: { id: true },
+						});
+
+			return { rejection: null, id: rsvp.id };
+		}),
+	).catch((cause: unknown) => {
+		if (isBusyTransaction(cause)) {
+			return "busy" as const;
+		}
+
+		throw cause;
+	});
+
+	if (saved === "busy") {
+		return reject(BUSY_MESSAGE, 503);
+	}
+
+	if (saved.rejection) {
+		return fail(409, {
+			success: false,
+			type,
+			message: saved.rejection.message,
+			potluck: saved.rejection,
+			values,
+		});
+	}
+
+	await syncSpotifyPlaylists(event.id).catch((cause) => {
+		console.error("Spotify sync failed after RSVP save", cause);
+	});
+
+	return saved.id;
+}
+
+async function guestList(eventId: string) {
+	const event = await prisma.event.findUnique({
+		where: { id: eventId },
+		select: {
+			questions: { select: { id: true, _count: { select: { responses: true } } } },
+			rsvps: {
+				orderBy: { createdAt: "desc" },
+				select: {
+					id: true,
+					name: true,
+					status: true,
+					guestCount: true,
+					createdAt: true,
+					responses: {
+						select: {
+							value: true,
+							question: { select: { id: true, label: true, type: true } },
 						},
 					},
 				},
 			},
-		});
+		},
+	});
+	const rsvps = event?.rsvps ?? [];
 
-		if (!event) {
-			throw error(404, "Event not found");
-		}
+	return {
+		rsvpCount: rsvps.length,
+		totalGuests: rsvps.reduce((sum, r) => sum + r.guestCount, 0),
+		questionResponseCounts: Object.fromEntries(
+			(event?.questions ?? []).map((q) => [q.id, q._count.responses]),
+		),
+		rsvps: rsvps.map((r) => ({
+			id: r.id,
+			name: r.name,
+			email: null,
+			status: r.status,
+			guestCount: r.guestCount,
+			createdAt: r.createdAt,
+			responses: r.responses.map((resp) => ({
+				questionId: resp.question.id,
+				questionLabel: resp.question.label,
+				questionType: resp.question.type,
+				answer: resp.value,
+			})),
+		})),
+	};
+}
 
-		const formData = await request.formData();
+async function findOwnRsvp(cookies: Cookies, eventId: string) {
+	const rsvpId = await readSession(cookies, eventId);
 
-		// Parse form data and extract responses
-		const responses: Record<string, string> = {};
-		const raw: Record<string, string> = {};
+	return rsvpId
+		? prisma.rsvp.findUnique({
+				where: { id: rsvpId },
+				select: { id: true, guestCount: true, responses: { select: { questionId: true } } },
+			})
+		: null;
+}
 
-		for (const [key, value] of formData.entries()) {
-			if (key.startsWith("response_")) {
-				const questionId = key.replace("response_", "");
+function isUniqueViolation(cause: unknown) {
+	return (cause as { code?: unknown } | null)?.code === "P2002";
+}
 
-				responses[questionId] = value as string;
-			} else {
-				raw[key] = value as string;
-			}
-		}
-
-		// Add responses to raw data for validation
-		const dataToValidate = { ...raw, responses };
-		const parsed = rsvpSchema.safeParse(dataToValidate);
+export const actions = {
+	rsvp: async ({ request, params, cookies, getClientAddress }) => {
+		const event = await findEvent(params.code);
+		const { values, responses } = readRsvpForm(await request.formData());
+		const parsed = rsvpSchema.safeParse({ ...values, responses });
 
 		if (!parsed.success) {
 			return fail(400, {
 				success: false,
+				type: "rsvp" as const,
 				errors: parsed.error.flatten().fieldErrors,
-				values: raw,
+				values,
 			});
 		}
 
-		const { name, email, pin, status, guestCount } = parsed.data;
+		const input = parsed.data;
+		const ip = clientIp(request, getClientAddress);
+		const alreadyRegistered = (rsvp: { id: string; name: string } | null) => {
+			inBackground(() => sendEditLink("already", rsvp, input.email, event, ip));
 
-		// Check RSVP limit (using sum of guest counts)
-		if (event.rsvpLimit) {
-			const totalGuests = await prisma.rsvp.aggregate({
-				where: { eventId: event.id },
-				_sum: { guestCount: true },
-			});
-			const currentTotal = totalGuests._sum.guestCount ?? 0;
-
-			if (currentTotal + guestCount > event.rsvpLimit) {
-				return fail(400, {
-					success: false,
-					message:
-						guestCount > 1
-							? `Sorry, there are only ${event.rsvpLimit - currentTotal} spot(s) left, but you requested ${guestCount}.`
-							: "Sorry, this event has reached its RSVP limit.",
-					values: raw,
-				});
-			}
-		}
-
-		// Check capacity for questions with quantity limits FIRST
-		// This prevents issues where a required question is full
-		for (const question of event.questions) {
-			if (responses[question.id] && question.quantity) {
-				const responseCount = question.responses.length;
-
-				if (responseCount >= question.quantity) {
-					return fail(400, {
-						success: false,
-						message: `Sorry, "${question.label}" is full (all ${question.quantity} slots taken).`,
-						values: raw,
-					});
-				}
-			}
-		}
-
-		// Enforce per-guest Spotify song limits
-		for (const question of event.questions) {
-			if (question.type !== "spotify_playlist" || !question.songsPerUser) {
-				continue;
-			}
-
-			const tracks = parseSpotifySelection(responses[question.id]);
-
-			if (tracks.length > question.songsPerUser) {
-				return fail(400, {
-					success: false,
-					message: `You can add at most ${question.songsPerUser} song${
-						question.songsPerUser === 1 ? "" : "s"
-					} for "${question.label}".`,
-					values: raw,
-				});
-			}
-		}
-
-		// Check if all required questions are answered
-		// But only for questions that aren't full
-		const requiredQuestions = event.questions.filter((q) => q.required);
-		const missingRequired = requiredQuestions.filter((q) => {
-			// If question has a quantity limit and is full, don't require it
-			if (q.quantity && q.responses.length >= q.quantity) {
-				return false;
-			}
-
-			// Otherwise, check if it's answered
-			return !responses[q.id] || responses[q.id].trim() === "";
-		});
-
-		if (missingRequired.length > 0) {
-			return fail(400, {
-				success: false,
-				message: "Please answer all required questions.",
-				values: raw,
-			});
-		}
-
-		const pinHash = hashPin(pin);
-
-		// Check for duplicate PIN
-		const existingRsvp = await prisma.rsvp.findFirst({
-			where: { eventId: event.id, pinHash },
-		});
-
-		if (existingRsvp) {
-			return fail(400, {
-				success: false,
-				message: "That PIN is already in use for this event. Please choose a different one.",
-				values: raw,
-			});
-		}
-
-		const created = await oneSignupAtATime(event.id, () =>
-			prisma.$transaction(async (tx) => {
-				const rejection =
-					status === "not_attending"
-						? null
-						: await checkPotluckAnswers(tx, event.id, responses, null);
-
-				if (rejection) {
-					return { rejection, rsvp: null };
-				}
-
-				const rsvp = await tx.rsvp.create({
-					data: {
-						name,
-						email: email ?? null,
-						status,
-						guestCount,
-						pinHash,
-						eventId: event.id,
-						responses: {
-							create: Object.entries(responses)
-								.filter(([, answer]) => answer && answer.trim() !== "")
-								.map(([questionId, answer]) => ({
-									questionId,
-									value: answer,
-								})),
-						},
-					},
-					select: { id: true },
-				});
-
-				return { rejection: null, rsvp };
-			}),
-		).catch((cause: unknown) => {
-			if (isBusyTransaction(cause)) {
-				return { rejection: null, rsvp: null, busy: true };
-			}
-
-			throw cause;
-		});
-
-		if ("busy" in created) {
-			return fail(503, { success: false, message: BUSY_MESSAGE, type: "rsvp", values: raw });
-		}
-
-		if (!created.rsvp) {
 			return fail(409, {
 				success: false,
-				message: created.rejection?.message,
-				potluck: created.rejection,
-				type: "rsvp",
-				values: raw,
+				type: "rsvp" as const,
+				alreadyRegistered: true,
+				message: ALREADY_REGISTERED,
 			});
-		}
-
-		const { rsvp } = created;
-
-		// Fetch updated data to return
-		const updatedEvent = await prisma.event.findUnique({
-			where: { id: event.id },
-			select: {
-				questions: {
-					select: {
-						id: true,
-						responses: {
-							select: {
-								id: true,
-							},
-						},
-					},
-				},
-				rsvps: {
-					orderBy: { createdAt: "desc" },
-					select: {
-						id: true,
-						name: true,
-						status: true,
-						guestCount: true,
-						createdAt: true,
-						responses: {
-							select: {
-								value: true,
-								question: { select: { id: true, label: true, type: true } },
-							},
-						},
-					},
-				},
-			},
-		});
-
-		const updatedRsvps = updatedEvent?.rsvps ?? [];
-		const updatedRsvpCount = updatedRsvps.length;
-		const updatedTotalGuests = updatedRsvps.reduce((sum, r) => sum + r.guestCount, 0);
-
-		await syncSpotifyPlaylists(event.id).catch((cause) => {
-			console.error("Spotify sync failed after RSVP create", cause);
-		});
-
-		return {
-			success: true,
-			rsvpId: rsvp.id,
-			rsvpCount: updatedRsvpCount,
-			totalGuests: updatedTotalGuests,
-			questionResponseCounts: Object.fromEntries(
-				(updatedEvent?.questions ?? []).map((q) => [q.id, q.responses.length]),
-			),
-			rsvps: updatedRsvps.map((r) => ({
-				id: r.id,
-				name: r.name,
-				email: null, // Never expose emails in action response
-				status: r.status,
-				guestCount: r.guestCount,
-				createdAt: r.createdAt,
-				responses: r.responses.map((resp) => ({
-					questionId: resp.question.id,
-					questionLabel: resp.question.label,
-					questionType: resp.question.type,
-					answer: resp.value,
-				})),
-			})),
 		};
-	},
 
-	lookupRsvp: async ({ request, params }) => {
-		const formData = await request.formData();
-		const rsvpId = formData.get("rsvpId") as string;
-		const pin = formData.get("pin") as string;
-
-		if (!rsvpId || !pin) {
-			return fail(400, {
-				success: false,
-				message: "Please provide your RSVP ID and PIN.",
-				type: "lookupRsvp",
-			});
-		}
-
-		const rsvp = await prisma.rsvp.findFirst({
-			where: {
-				id: rsvpId,
-				event: { publicCode: params.code },
-			},
+		const existing = await prisma.rsvp.findUnique({
+			where: { eventId_email: { eventId: event.id, email: input.email } },
 			select: {
 				id: true,
 				name: true,
-				email: true,
-				status: true,
 				guestCount: true,
-				pinHash: true,
-				responses: {
-					select: {
-						questionId: true,
-						value: true,
-						question: { select: { label: true } },
-					},
-				},
+				responses: { select: { questionId: true } },
 			},
 		});
 
-		if (!rsvp || !verifyPin(pin, rsvp.pinHash)) {
-			return fail(403, {
-				success: false,
-				message: "Invalid RSVP ID or PIN.",
-				type: "lookupRsvp",
-			});
-		}
-
-		return {
-			success: true,
-			type: "lookupRsvp",
-			rsvp: {
-				id: rsvp.id,
-				name: rsvp.name,
-				email: rsvp.email,
-				status: rsvp.status,
-				guestCount: rsvp.guestCount,
-				responses: Object.fromEntries(rsvp.responses.map((r) => [r.questionId, r.value])),
-			},
-		};
-	},
-
-	updateRsvp: async ({ request, params }) => {
-		const event = await prisma.event.findUnique({
-			where: { publicCode: params.code },
-			select: {
-				id: true,
-				questions: {
-					select: {
-						id: true,
-						label: true,
-						required: true,
-						type: true,
-						quantity: true,
-						songsPerUser: true,
-						spotifyPlaylistId: true,
-						responses: {
-							select: {
-								id: true,
-							},
-						},
-					},
-				},
-			},
-		});
-
-		if (!event) {
-			throw error(404, "Event not found");
-		}
-
-		const formData = await request.formData();
-		const rsvpId = formData.get("rsvpId") as string;
-		const pin = formData.get("pin") as string;
-		const name = formData.get("name") as string;
-		const email = formData.get("email") as string;
-		const status = (formData.get("status") as string) || "attending";
-		const rawGuestCount = formData.get("guestCount") as string;
-		const guestCount = Math.min(20, Math.max(1, Number.parseInt(rawGuestCount, 10) || 1));
-
-		// Parse responses from form data
-		const responses: Record<string, string> = {};
-
-		for (const [key, value] of formData.entries()) {
-			if (key.startsWith("response_")) {
-				const questionId = key.replace("response_", "");
-
-				responses[questionId] = value as string;
-			}
-		}
-
-		if (!rsvpId || !pin) {
-			return fail(400, {
-				success: false,
-				message: "Missing RSVP ID or PIN.",
-				type: "updateRsvp",
-			});
-		}
-
-		const rsvp = await prisma.rsvp.findFirst({
-			where: {
-				id: rsvpId,
-				eventId: event.id,
-			},
-			select: {
-				id: true,
-				pinHash: true,
-				responses: { select: { id: true, questionId: true } },
-			},
-		});
-
-		if (!rsvp || !verifyPin(pin, rsvp.pinHash)) {
-			return fail(403, {
-				success: false,
-				message: "Invalid RSVP ID or PIN.",
-				type: "updateRsvp",
-			});
-		}
-
-		// Check capacity for questions with quantity limits FIRST
-		for (const question of event.questions) {
-			if (responses[question.id] && question.quantity) {
-				const currentResponse = rsvp.responses.find((r) => r.questionId === question.id);
-
-				// If they weren't signed up before, check capacity
-				if (!currentResponse) {
-					const responseCount = question.responses.length;
-
-					if (responseCount >= question.quantity) {
-						return fail(400, {
-							success: false,
-							message: `Sorry, "${question.label}" is full (all ${question.quantity} slots taken).`,
-							type: "updateRsvp",
-						});
-					}
-				}
-			}
-		}
-
-		// Enforce per-guest Spotify song limits
-		for (const question of event.questions) {
-			if (question.type !== "spotify_playlist" || !question.songsPerUser) {
-				continue;
+		if (existing) {
+			if ((await readSession(cookies, event.id)) !== existing.id) {
+				return alreadyRegistered(existing);
 			}
 
-			const tracks = parseSpotifySelection(responses[question.id]);
+			const saved = await saveRsvp(event, { existing }, input, "rsvp", values);
 
-			if (tracks.length > question.songsPerUser) {
-				return fail(400, {
-					success: false,
-					message: `You can add at most ${question.songsPerUser} song${
-						question.songsPerUser === 1 ? "" : "s"
-					} for "${question.label}".`,
-					type: "updateRsvp",
-				});
+			if (typeof saved !== "string") {
+				return saved;
 			}
+
+			return {
+				success: true,
+				type: "updateRsvp" as const,
+				message: "Your RSVP has been updated!",
+				...(await guestList(event.id)),
+			};
 		}
 
-		// Check required questions
-		// But only for attending/maybe status and questions that aren't full
-		if (status === "attending" || status === "maybe") {
-			const requiredQuestions = event.questions.filter((q) => q.required);
-			const missingRequired = requiredQuestions.filter((q) => {
-				// If question has a quantity limit and is full, don't require it
-				if (q.quantity && q.responses.length >= q.quantity) {
-					return false;
+		const saved = await saveRsvp(event, { email: input.email }, input, "rsvp", values).catch(
+			(cause: unknown) => {
+				if (isUniqueViolation(cause)) {
+					return "taken" as const;
 				}
 
-				// Otherwise, check if it's answered
-				return !responses[q.id] || responses[q.id].trim() === "";
-			});
-
-			if (missingRequired.length > 0) {
-				return fail(400, {
-					success: false,
-					message: "Please answer all required questions.",
-					type: "updateRsvp",
-				});
-			}
-		}
-
-		const rejection = await oneSignupAtATime(event.id, () =>
-			prisma.$transaction(async (tx) => {
-				const found =
-					status === "not_attending"
-						? null
-						: await checkPotluckAnswers(tx, event.id, responses, rsvp.id);
-
-				if (found) {
-					return found;
-				}
-
-				await tx.rsvp.update({
-					where: { id: rsvp.id },
-					data: {
-						name: name || undefined,
-						email: email || null,
-						status,
-						guestCount,
-						responses: {
-							deleteMany: {},
-							create: Object.entries(responses)
-								.filter(([, value]) => value && value.trim() !== "")
-								.map(([questionId, value]) => ({
-									questionId,
-									value,
-								})),
-						},
-					},
-				});
-
-				return null;
-			}),
-		).catch((cause: unknown) => {
-			if (isBusyTransaction(cause)) {
-				return "busy" as const;
-			}
-
-			throw cause;
-		});
-
-		if (rejection === "busy") {
-			return fail(503, { success: false, message: BUSY_MESSAGE, type: "updateRsvp" });
-		}
-
-		if (rejection) {
-			return fail(409, {
-				success: false,
-				message: rejection.message,
-				potluck: rejection,
-				type: "updateRsvp",
-			});
-		}
-
-		// Fetch updated data to return
-		const updatedEvent = await prisma.event.findUnique({
-			where: { id: event.id },
-			select: {
-				questions: {
-					select: {
-						id: true,
-						responses: {
-							select: {
-								id: true,
-							},
-						},
-					},
-				},
-				rsvps: {
-					orderBy: { createdAt: "desc" },
-					select: {
-						id: true,
-						name: true,
-						status: true,
-						guestCount: true,
-						createdAt: true,
-						responses: {
-							select: {
-								value: true,
-								question: { select: { id: true, label: true, type: true } },
-							},
-						},
-					},
-				},
+				throw cause;
 			},
-		});
-
-		const updatedRsvpsForUpdate = updatedEvent?.rsvps ?? [];
-		const updatedTotalGuestsForUpdate = updatedRsvpsForUpdate.reduce(
-			(sum, r) => sum + r.guestCount,
-			0,
 		);
 
-		await syncSpotifyPlaylists(event.id).catch((cause) => {
-			console.error("Spotify sync failed after RSVP update", cause);
+		if (saved === "taken") {
+			return alreadyRegistered(
+				await prisma.rsvp.findUnique({
+					where: { eventId_email: { eventId: event.id, email: input.email } },
+					select: { id: true, name: true },
+				}),
+			);
+		}
+
+		if (typeof saved !== "string") {
+			return saved;
+		}
+
+		const created = { id: saved, name: input.name };
+
+		setRsvpCookie(cookies, event.publicCode, await createSession(created.id));
+		inBackground(() => sendEditLink("confirmation", created, input.email, event, ip));
+
+		return { success: true, type: "rsvp" as const, ...(await guestList(event.id)) };
+	},
+
+	requestEditLink: async ({ request, params, getClientAddress }) => {
+		const event = await findEvent(params.code);
+		const parsed = editLinkSchema.safeParse({
+			email: (await request.formData()).get("email") ?? "",
 		});
+
+		if (!parsed.success) {
+			return fail(400, {
+				success: false,
+				type: "requestEditLink" as const,
+				message: "Enter a valid email",
+			});
+		}
+
+		const ip = clientIp(request, getClientAddress);
+
+		if (isLimited(`ip:${ip}`, IP_LIMIT.limit, IP_LIMIT.windowMs)) {
+			return fail(429, {
+				success: false,
+				type: "requestEditLink" as const,
+				message: "Too many requests, try again in a few minutes",
+			});
+		}
+
+		const { email } = parsed.data;
+
+		inBackground(async () => {
+			const rsvp = await prisma.rsvp.findUnique({
+				where: { eventId_email: { eventId: event.id, email } },
+				select: { id: true, name: true },
+			});
+
+			await sendEditLink("requested", rsvp, email, event, ip);
+		});
+
+		return { success: true, type: "requestEditLink" as const, message: LINK_SENT };
+	},
+
+	updateRsvp: async ({ request, params, cookies }) => {
+		const event = await findEvent(params.code);
+		const existing = await findOwnRsvp(cookies, event.id);
+
+		if (!existing) {
+			return fail(403, { success: false, type: "updateRsvp" as const, message: ACCESS_EXPIRED });
+		}
+
+		const { values, responses } = readRsvpForm(await request.formData());
+		const parsed = rsvpSchema.omit({ email: true }).safeParse({ ...values, responses });
+
+		if (!parsed.success) {
+			return fail(400, {
+				success: false,
+				type: "updateRsvp" as const,
+				message: Object.values(parsed.error.flatten().fieldErrors).flat()[0] ?? "Check your RSVP.",
+			});
+		}
+
+		const saved = await saveRsvp(event, { existing }, parsed.data, "updateRsvp", values);
+
+		if (typeof saved !== "string") {
+			return saved;
+		}
 
 		return {
 			success: true,
-			type: "updateRsvp",
+			type: "updateRsvp" as const,
 			message: "Your RSVP has been updated!",
-			totalGuests: updatedTotalGuestsForUpdate,
-			questionResponseCounts: Object.fromEntries(
-				(updatedEvent?.questions ?? []).map((q) => [q.id, q.responses.length]),
-			),
-			rsvps: updatedRsvpsForUpdate.map((r) => ({
-				id: r.id,
-				name: r.name,
-				email: null,
-				status: r.status,
-				guestCount: r.guestCount,
-				createdAt: r.createdAt,
-				responses: r.responses.map((resp) => ({
-					questionId: resp.question.id,
-					questionLabel: resp.question.label,
-					questionType: resp.question.type,
-					answer: resp.value,
-				})),
-			})),
+			...(await guestList(event.id)),
 		};
 	},
 
-	cancelRsvp: async ({ request, params }) => {
-		const formData = await request.formData();
-		const rsvpId = formData.get("rsvpId") as string;
-		const pin = formData.get("pin") as string;
+	cancelRsvp: async ({ params, cookies }) => {
+		const event = await findEvent(params.code);
+		const existing = await findOwnRsvp(cookies, event.id);
 
-		if (!rsvpId || !pin) {
-			return fail(400, {
-				success: false,
-				message: "Missing RSVP ID or PIN.",
-				type: "cancelRsvp",
-			});
+		if (!existing) {
+			return fail(403, { success: false, type: "cancelRsvp" as const, message: ACCESS_EXPIRED });
 		}
 
-		const rsvp = await prisma.rsvp.findFirst({
-			where: {
-				id: rsvpId,
-				event: { publicCode: params.code },
-			},
-			select: {
-				id: true,
-				pinHash: true,
-				eventId: true,
-			},
-		});
+		await prisma.rsvp.delete({ where: { id: existing.id } });
+		clearRsvpCookie(cookies, event.publicCode);
 
-		if (!rsvp || !verifyPin(pin, rsvp.pinHash)) {
-			return fail(403, {
-				success: false,
-				message: "Invalid RSVP ID or PIN.",
-				type: "cancelRsvp",
-			});
-		}
-
-		await prisma.rsvp.delete({
-			where: { id: rsvp.id },
-		});
-
-		await syncSpotifyPlaylists(rsvp.eventId).catch((cause) => {
+		await syncSpotifyPlaylists(event.id).catch((cause) => {
 			console.error("Spotify sync failed after RSVP cancellation", cause);
 		});
 
-		// Fetch updated data to return
-		const updatedEvent = await prisma.event.findUnique({
-			where: { id: rsvp.eventId },
-			select: {
-				questions: {
-					select: {
-						id: true,
-						responses: {
-							select: {
-								id: true,
-							},
-						},
-					},
-				},
-				rsvps: {
-					orderBy: { createdAt: "desc" },
-					select: {
-						id: true,
-						name: true,
-						status: true,
-						guestCount: true,
-						createdAt: true,
-						responses: {
-							select: {
-								value: true,
-								question: { select: { id: true, label: true, type: true } },
-							},
-						},
-					},
-				},
-			},
-		});
-
-		const cancelledRsvps = updatedEvent?.rsvps ?? [];
-		const cancelledRsvpCount = cancelledRsvps.length;
-		const cancelledTotalGuests = cancelledRsvps.reduce((sum, r) => sum + r.guestCount, 0);
-
 		return {
 			success: true,
-			type: "cancelRsvp",
+			type: "cancelRsvp" as const,
 			message: "Your RSVP has been cancelled.",
-			rsvpCount: cancelledRsvpCount,
-			totalGuests: cancelledTotalGuests,
-			questionResponseCounts: Object.fromEntries(
-				(updatedEvent?.questions ?? []).map((q) => [q.id, q.responses.length]),
-			),
-			rsvps: cancelledRsvps.map((r) => ({
-				id: r.id,
-				name: r.name,
-				email: null,
-				status: r.status,
-				guestCount: r.guestCount,
-				createdAt: r.createdAt,
-				responses: r.responses.map((resp) => ({
-					questionId: resp.question.id,
-					questionLabel: resp.question.label,
-					questionType: resp.question.type,
-					answer: resp.value,
-				})),
-			})),
+			...(await guestList(event.id)),
 		};
 	},
 };

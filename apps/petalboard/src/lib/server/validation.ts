@@ -95,10 +95,13 @@ export const questionSchema = z.object({
 		.transform((value) => value === "on" || value === "true"),
 });
 
+const guestEmail = z.string().trim().toLowerCase().email("Enter a valid email").max(254);
+
+export const editLinkSchema = z.object({ email: guestEmail });
+
 export const rsvpSchema = z.object({
 	name: z.string().trim().min(2, "Name is required"),
-	email: optionalText(z.string().email("Enter a valid email").max(160)),
-	pin: z.string().regex(/^[0-9]{4,6}$/, "PIN must be 4-6 digits"),
+	email: guestEmail,
 	status: z.enum(["attending", "maybe", "not_attending"]).default("attending"),
 	guestCount: z
 		.string()
