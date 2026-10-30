@@ -116,9 +116,10 @@ const RSVP_COPY: Record<RsvpEmailKind, { subject: (title: string) => string; int
 	},
 };
 
+// Guests type the address, so the body carries nothing else a guest typed.
 export async function sendRsvpEmail(
 	kind: RsvpEmailKind,
-	rsvp: { email: string; name: string },
+	email: string,
 	event: { title: string; publicCode: string },
 	token: string,
 ) {
@@ -129,7 +130,7 @@ export async function sendRsvpEmail(
 	const ignore = "If you didn't ask for this, you can ignore this email.";
 	const html = layout(
 		escapeHtml(event.title),
-		`        <p>Hi ${escapeHtml(rsvp.name)},</p>
+		`        <p>Hi,</p>
         <p>${copy.intro.replace("{title}", `<strong>${escapeHtml(event.title)}</strong>`)}</p>
 ${linkBlock("Edit my RSVP", editUrl)}
         <p style="color: #666; font-size: 14px;">${escapeHtml(expiry)}</p>
@@ -137,9 +138,9 @@ ${linkBlock("Edit my RSVP", editUrl)}
 	);
 
 	await sendEmail({
-		to: rsvp.email,
+		to: email,
 		subject: copy.subject(event.title),
 		html,
-		text: `Hi ${rsvp.name},\n\n${copy.intro.replace("{title}", event.title)}\n\n${editUrl}\n\n${expiry}\n\n${ignore}\n\nPetalBoard - Effortless event signups`,
+		text: `Hi,\n\n${copy.intro.replace("{title}", event.title)}\n\n${editUrl}\n\n${expiry}\n\n${ignore}\n\nPetalBoard - Effortless event signups`,
 	});
 }

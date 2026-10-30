@@ -101,7 +101,7 @@ async function continueWithLink(
 async function sentEmails() {
 	await access.backgroundSettled();
 
-	return sendRsvpEmail.mock.calls.map(([kind, to, , token]) => ({ kind, to: to.email, token }));
+	return sendRsvpEmail.mock.calls.map(([kind, to, , token]) => ({ kind, to, token }));
 }
 
 async function seedRsvp(email: string) {
@@ -170,6 +170,15 @@ describe("passwordless RSVP access", () => {
 		expect((await sentEmails()).map((e) => [e.kind, e.to])).toEqual([
 			["confirmation", `avery.${seq}@example.test`],
 		]);
+	});
+
+	it("refuses a name over 100 characters and sends nothing", async () => {
+		const result = await rsvp({ name: "x".repeat(101), email: `long.${seq}@example.test` });
+
+		expect(result.status).toBe(400);
+		expect(result.data.errors.name).toEqual(["Name must be 100 characters or fewer"]);
+		expect(await prisma.rsvp.count({ where: { eventId } })).toBe(0);
+		expect(await sentEmails()).toEqual([]);
 	});
 
 	it("does not consume the link or set a cookie when a scanner GETs it", async () => {

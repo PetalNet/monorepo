@@ -2,7 +2,7 @@ import { createHash, randomBytes } from "node:crypto";
 
 import { sendRsvpEmail, type RsvpEmailKind } from "$lib/server/email";
 import { prisma } from "$lib/server/prisma";
-import { EMAIL_LIMIT, IP_LIMIT, take } from "$lib/server/rateLimit";
+import { EMAIL_LIMIT, IP_LIMIT, SEND_LIMIT, take } from "$lib/server/rateLimit";
 import type { Cookies } from "@sveltejs/kit";
 
 const RSVP_COOKIE = "pb_rsvp";
@@ -87,11 +87,12 @@ export async function consumeLink(token: string, eventId: string, now = new Date
 
 /**
  * Every edit-link email goes through here, so no flow can mail an inbox past its limit. Over a
- * limit, or with no RSVP for the address, it sends nothing and says nothing.
+ * limit, or with no RSVP for the address, it sends nothing and says nothing. The app-wide send
+ * limit is taken last, so requests that would send nothing don't use it up.
  */
 export async function sendEditLink(
 	kind: RsvpEmailKind,
-	rsvp: { id: string; name: string } | null,
+	rsvpId: string | null,
 	email: string,
 	event: { title: string; publicCode: string },
 	ip: string,
@@ -99,14 +100,15 @@ export async function sendEditLink(
 	if (
 		!take(`ip:${ip}`, IP_LIMIT.limit, IP_LIMIT.windowMs) ||
 		!take(`email:${email}`, EMAIL_LIMIT.limit, EMAIL_LIMIT.windowMs) ||
-		!rsvp
+		!rsvpId ||
+		!take("send", SEND_LIMIT.limit, SEND_LIMIT.windowMs)
 	) {
 		return;
 	}
 
-	const token = await issueLink(rsvp.id);
+	const token = await issueLink(rsvpId);
 
-	await sendRsvpEmail(kind, { email, name: rsvp.name }, event, token);
+	await sendRsvpEmail(kind, email, event, token);
 }
 
 const inflight = new Set<Promise<void>>();

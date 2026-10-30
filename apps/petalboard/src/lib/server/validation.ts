@@ -100,7 +100,11 @@ const guestEmail = z.string().trim().toLowerCase().email("Enter a valid email").
 export const editLinkSchema = z.object({ email: guestEmail });
 
 export const rsvpSchema = z.object({
-	name: z.string().trim().min(2, "Name is required"),
+	name: z
+		.string()
+		.trim()
+		.min(2, "Name is required")
+		.max(100, "Name must be 100 characters or fewer"),
 	email: guestEmail,
 	status: z.enum(["attending", "maybe", "not_attending"]).default("attending"),
 	guestCount: z

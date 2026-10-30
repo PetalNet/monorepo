@@ -639,8 +639,8 @@ export const actions = {
 
 		const input = parsed.data;
 		const ip = clientIp(request, getClientAddress);
-		const alreadyRegistered = (rsvp: { id: string; name: string } | null) => {
-			inBackground(() => sendEditLink("already", rsvp, input.email, event, ip));
+		const alreadyRegistered = (rsvpId: string | null) => {
+			inBackground(() => sendEditLink("already", rsvpId, input.email, event, ip));
 
 			return fail(409, {
 				success: false,
@@ -652,17 +652,12 @@ export const actions = {
 
 		const existing = await prisma.rsvp.findUnique({
 			where: { eventId_email: { eventId: event.id, email: input.email } },
-			select: {
-				id: true,
-				name: true,
-				guestCount: true,
-				responses: { select: { questionId: true } },
-			},
+			select: { id: true, guestCount: true, responses: { select: { questionId: true } } },
 		});
 
 		if (existing) {
 			if ((await readSession(cookies, event.id)) !== existing.id) {
-				return alreadyRegistered(existing);
+				return alreadyRegistered(existing.id);
 			}
 
 			const saved = await saveRsvp(event, { existing }, input, "rsvp", values);
@@ -690,22 +685,20 @@ export const actions = {
 		);
 
 		if (saved === "taken") {
-			return alreadyRegistered(
-				await prisma.rsvp.findUnique({
-					where: { eventId_email: { eventId: event.id, email: input.email } },
-					select: { id: true, name: true },
-				}),
-			);
+			const taken = await prisma.rsvp.findUnique({
+				where: { eventId_email: { eventId: event.id, email: input.email } },
+				select: { id: true },
+			});
+
+			return alreadyRegistered(taken?.id ?? null);
 		}
 
 		if (typeof saved !== "string") {
 			return saved;
 		}
 
-		const created = { id: saved, name: input.name };
-
-		setRsvpCookie(cookies, event.publicCode, await createSession(created.id));
-		inBackground(() => sendEditLink("confirmation", created, input.email, event, ip));
+		setRsvpCookie(cookies, event.publicCode, await createSession(saved));
+		inBackground(() => sendEditLink("confirmation", saved, input.email, event, ip));
 
 		return { success: true, type: "rsvp" as const, ...(await guestList(event.id)) };
 	},
@@ -739,10 +732,10 @@ export const actions = {
 		inBackground(async () => {
 			const rsvp = await prisma.rsvp.findUnique({
 				where: { eventId_email: { eventId: event.id, email } },
-				select: { id: true, name: true },
+				select: { id: true },
 			});
 
-			await sendEditLink("requested", rsvp, email, event, ip);
+			await sendEditLink("requested", rsvp?.id ?? null, email, event, ip);
 		});
 
 		return { success: true, type: "requestEditLink" as const, message: LINK_SENT };

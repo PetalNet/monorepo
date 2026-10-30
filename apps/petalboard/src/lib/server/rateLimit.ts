@@ -2,10 +2,13 @@ const FIFTEEN_MINUTES = 15 * 60 * 1000;
 
 export const EMAIL_LIMIT = { limit: 3, windowMs: FIFTEEN_MINUTES };
 export const IP_LIMIT = { limit: 20, windowMs: FIFTEEN_MINUTES };
+// Caps what the app as a whole mails out, whoever asks and for whichever addresses.
+export const SEND_LIMIT = { limit: 100, windowMs: 60 * 60 * 1000 };
 
 interface Window {
 	start: number;
 	count: number;
+	windowMs: number;
 }
 
 const windows = new Map<string, Window>();
@@ -18,7 +21,7 @@ function current(key: string, windowMs: number, now: number) {
 
 function sweep(now: number) {
 	for (const [key, window] of windows) {
-		if (now - window.start >= FIFTEEN_MINUTES) {
+		if (now - window.start >= window.windowMs) {
 			windows.delete(key);
 		}
 	}
@@ -32,7 +35,7 @@ export function take(key: string, limit: number, windowMs: number, now = Date.no
 			sweep(now);
 		}
 
-		windows.set(key, { start: now, count: 1 });
+		windows.set(key, { start: now, count: 1, windowMs });
 
 		return true;
 	}

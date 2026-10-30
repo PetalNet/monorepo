@@ -1824,6 +1824,7 @@
 						class="input-field"
 						name="name"
 						required
+						maxlength="100"
 						value={editingRsvp.name}
 						autocomplete="name"
 					/>
@@ -2161,6 +2162,7 @@
 						class="input-field"
 						name="name"
 						required
+						maxlength="100"
 						value={values.name ?? ""}
 						autocomplete="name"
 						placeholder="Your full name"
