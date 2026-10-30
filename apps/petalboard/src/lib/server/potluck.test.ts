@@ -24,10 +24,11 @@ describe("potluckView", () => {
 		expect(potluckView(config, responses, true).counts).toEqual({ sides: 1, desserts: 1 });
 	});
 
-	it("hides every guest name when the question is not public", () => {
+	it("sends counts but no dishes or names when the question is not public", () => {
 		const view = potluckView(config, responses, false);
 
-		expect(view.taken.map((t) => t.name)).toEqual([null, null]);
+		expect(view.taken).toEqual([]);
+		expect(view.counts).toEqual({ sides: 1, desserts: 1 });
 
 		expect(potluckView(config, responses, true).taken.map((t) => t.name)).toEqual([
 			"Avery",
@@ -38,9 +39,9 @@ describe("potluckView", () => {
 
 describe("isBusyTransaction", () => {
 	it("recognises Prisma's transaction timeout and SQLite lock errors only", () => {
-		expect(
-			isBusyTransaction(Object.assign(new Error("Transaction API error"), { code: "P2028" })),
-		).toBe(true);
+		for (const code of ["P1008", "P2024", "P2028", "P2034"]) {
+			expect(isBusyTransaction(Object.assign(new Error("busy"), { code })), code).toBe(true);
+		}
 
 		expect(isBusyTransaction(new Error("SQLITE_BUSY: database is locked"))).toBe(true);
 

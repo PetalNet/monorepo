@@ -184,10 +184,10 @@ describe("unclaimedIdeas", () => {
 	});
 
 	const hostDishes = [
-		/pulled chicken/,
-		/pulled pork/,
-		/mac(aroni)? (and|n) cheese/,
-		/green beans?/,
+		/pulled ?chicken/,
+		/pulled ?pork/,
+		/mac(aroni)? ?(and|n)? ?cheese/,
+		/green ?beans?/,
 	];
 	const namesHostDish = (idea: string) => {
 		const words = idea
@@ -209,6 +209,10 @@ describe("unclaimedIdeas", () => {
 			"Macaroni & Cheese",
 			"pulled-pork sliders",
 			"Pulled Chicken",
+			"mac + cheese",
+			"macaroni+cheese",
+			"macncheese",
+			"greenbeans",
 		]) {
 			expect(namesHostDish(idea), idea).toBe(true);
 		}

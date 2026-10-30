@@ -357,11 +357,42 @@ export const actions = {
 			return Number.isNaN(count) || count <= 0 ? null : count;
 		})();
 
-		const question = await prisma.question.findFirst({
-			where: { id: questionId, eventId },
+		// Read and write together so a "Force open" from another tab cannot land in between.
+		const outcome = await prisma.$transaction(async (tx) => {
+			const question = await tx.question.findFirst({
+				where: { id: questionId, eventId },
+			});
+
+			if (!question) {
+				return { kind: "missing" } as const;
+			}
+
+			const potluck = parsePotluckField(type, raw.potluckConfig, question.potluckConfig);
+
+			if (!potluck.ok) {
+				return { kind: "invalid", errors: potluck.errors } as const;
+			}
+
+			await tx.question.update({
+				where: { id: questionId },
+				data: {
+					type,
+					label,
+					description: description ?? null,
+					required: required ?? false,
+					options: options ?? null,
+					quantity: quantity ?? null,
+					spotifyPlaylistId,
+					songsPerUser,
+					potluckConfig: potluck.value,
+					isPublic: isPublic ?? false,
+				},
+			});
+
+			return { kind: "saved" } as const;
 		});
 
-		if (!question) {
+		if (outcome.kind === "missing") {
 			return fail(404, {
 				success: false,
 				message: "Question not found.",
@@ -369,32 +400,14 @@ export const actions = {
 			});
 		}
 
-		const potluck = parsePotluckField(type, raw.potluckConfig, question.potluckConfig);
-
-		if (!potluck.ok) {
+		if (outcome.kind === "invalid") {
 			return fail(400, {
 				success: false,
-				errors: potluck.errors,
+				errors: outcome.errors,
 				values: raw,
 				type: "updateQuestion",
 			});
 		}
-
-		await prisma.question.update({
-			where: { id: questionId },
-			data: {
-				type,
-				label,
-				description: description ?? null,
-				required: required ?? false,
-				options: options ?? null,
-				quantity: quantity ?? null,
-				spotifyPlaylistId,
-				songsPerUser,
-				potluckConfig: potluck.value,
-				isPublic: isPublic ?? false,
-			},
-		});
 
 		return { success: true, type: "updateQuestion" } as const;
 	},

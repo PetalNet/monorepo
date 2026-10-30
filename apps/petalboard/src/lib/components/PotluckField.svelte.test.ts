@@ -66,9 +66,30 @@ describe("PotluckField", () => {
 
 		expect(field.hidden()).toBe("");
 		expect(field.latest()).toBe("");
-		expect(field.dish()?.value).toBe("");
-		expect(field.dish()?.required).toBe(false);
+		expect(field.dish()).toBeNull();
+	});
+
+	it("does not mark the opt-out when no category is picked yet", () => {
+		const field = render(false, "");
+
+		expect(field.optOut?.querySelector("input")?.checked).toBe(false);
 		expect(field.dish()?.checkValidity()).toBe(true);
+	});
+
+	it("blocks a typed dish that has no category, so it is never silently dropped", () => {
+		const field = render(false, "");
+		const input = field.dish();
+
+		if (!input) {
+			throw new Error("dish input missing");
+		}
+
+		input.value = "cornbread";
+		input.dispatchEvent(new Event("input"));
+		flushSync();
+
+		expect(input.checkValidity()).toBe(false);
+		expect(field.hidden()).toBe("");
 	});
 
 	it("offers no opt-out when the host made the question required", () => {

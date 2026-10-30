@@ -1150,6 +1150,7 @@
 
 	{#each event.questions.filter((q: any) => potluckViews[q.id]) as question (question.id)}
 		{@const view = potluckViews[question.id]}
+		{@const dishTotal = Object.values(view.counts).reduce((sum, n) => sum + n, 0)}
 		<section class="card event-card mb-8">
 			<div
 				class="mb-6 flex flex-col gap-3 border-b pb-4 md:flex-row md:items-center md:justify-between md:gap-4"
@@ -1161,8 +1162,8 @@
 					data-tone="theme"
 					style="background-color: {primaryColors[100]}; color: {primaryColors[800]};"
 				>
-					{view.taken.length}
-					{view.taken.length === 1 ? "dish" : "dishes"}
+					{dishTotal}
+					{dishTotal === 1 ? "dish" : "dishes"}
 				</span>
 			</div>
 			{#if view.config.providing}
@@ -1198,7 +1199,7 @@
 								{/if}
 							</span>
 						</div>
-						{#if question.isPublic && dishes.length > 0}
+						{#if dishes.length > 0}
 							<p class="m-0 mt-1 text-sm text-dark-700">
 								{dishes.map((d) => (d.name ? `${d.dish} (${d.name})` : d.dish)).join(", ")}
 							</p>

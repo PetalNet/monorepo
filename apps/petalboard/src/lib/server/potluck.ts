@@ -23,7 +23,7 @@ interface ResponseWithRsvp {
 export function potluckView(
 	rawConfig: string,
 	responses: readonly ResponseWithRsvp[],
-	showNames: boolean,
+	isPublic: boolean,
 ): PotluckView {
 	const config = parsePotluckConfig(rawConfig);
 	const taken = responses.flatMap((r) => {
@@ -33,16 +33,17 @@ export function potluckView(
 
 		const answer = parsePotluckAnswer(r.value);
 
-		return answer ? [{ ...answer, name: showNames ? r.rsvp.name : null }] : [];
+		return answer ? [{ ...answer, name: r.rsvp.name }] : [];
 	});
 
-	return { config, counts: countByCategory(taken), taken };
+	// A private question still shows how full each category is, but no dish or name leaves the server.
+	return { config, counts: countByCategory(taken), taken: isPublic ? taken : [] };
 }
 
 /**
  * Checks every potluck answer in a submission against the ratio rule. Call it inside the
- * prisma.$transaction that writes the RSVP, so the read and the write commit together: the
- * eight-way concurrent signup test shows exactly the allowed number of dishes get in.
+ * prisma.$transaction that writes the RSVP, so concurrent signups see each other's committed dishes
+ * instead of all reading the same counts.
  */
 export async function checkPotluckAnswers(
 	tx: Prisma.TransactionClient,
@@ -110,7 +111,11 @@ export function isBusyTransaction(cause: unknown): boolean {
 	const code = (cause as { code?: unknown } | null)?.code;
 	const message = cause instanceof Error ? cause.message : "";
 
-	return code === "P2028" || /SQLITE_BUSY|database is locked/i.test(message);
+	// P1008 timeout, P2024 pool timeout, P2028 transaction API, P2034 write conflict.
+	return (
+		(typeof code === "string" && ["P1008", "P2024", "P2028", "P2034"].includes(code)) ||
+		/SQLITE_BUSY|database is locked/i.test(message)
+	);
 }
 
 export const BUSY_MESSAGE =

@@ -247,11 +247,11 @@ describe("potluck signups", () => {
 
 		const holder = await prisma.rsvp.findFirstOrThrow({ where: { name: "Seed desserts 0" } });
 
+		await prisma.rsvp.update({ where: { id: holder.id }, data: { status: "maybe" } });
+		expect(accepted((await signUp("desserts", "pie c")).result)).toBe(false);
+
 		await prisma.rsvp.update({ where: { id: holder.id }, data: { status: "not_attending" } });
 		expect(accepted((await signUp("desserts", "pie c")).result)).toBe(true);
-
-		await prisma.rsvp.update({ where: { id: holder.id }, data: { status: "maybe" } });
-		expect(accepted((await signUp("desserts", "pie d")).result)).toBe(false);
 	});
 
 	it("removes a guest's dish when they choose not to bring one", async () => {
@@ -327,6 +327,20 @@ describe("potluck signups", () => {
 		expect((await override(false)).success).toBe(true);
 		expect((await update(staleDraft(true))).success).toBe(true);
 		expect(await dessertsForced()).toBe(false);
+	});
+
+	it("asks the guest to retry when the signup transaction times out", async () => {
+		const busy = Object.assign(new Error("Transaction already closed"), { code: "P2028" });
+		const spy = vi.spyOn(prisma, "$transaction").mockRejectedValue(busy);
+
+		try {
+			const { result } = await signUp("desserts", "pie");
+
+			expect(result.status).toBe(503);
+			expect(result.data.message).toMatch(/try again/);
+		} finally {
+			spy.mockRestore();
+		}
 	});
 
 	it("rejects free text that is not a category and dish", async () => {

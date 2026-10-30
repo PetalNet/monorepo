@@ -35,6 +35,9 @@
 	const initial = untrack(() => parsePotluckAnswer(value));
 	let category = $state(initial?.category ?? "");
 	let dish = $state(initial?.dish ?? "");
+	// Only an explicit click opts out; a category closing under the guest must not look like one.
+	let optedOut = $state(false);
+	let dishInput: HTMLInputElement | undefined = $state();
 
 	// A guest editing their RSVP should not be blocked by their own dish.
 	const counts = $derived.by(() => {
@@ -74,6 +77,10 @@
 	);
 
 	$effect(() => onchange(raw));
+
+	$effect(() => {
+		dishInput?.setCustomValidity(dish.trim() && !category ? "Pick a category for your dish" : "");
+	});
 </script>
 
 <fieldset>
@@ -98,7 +105,10 @@
 					name="potluck_category_{questionId}"
 					value={s.category.id}
 					checked={category === s.category.id}
-					onchange={() => (category = s.category.id)}
+					onchange={() => {
+						category = s.category.id;
+						optedOut = false;
+					}}
 				/>
 				<span class="flex-1">
 					{s.category.label}
@@ -121,10 +131,10 @@
 					type="radio"
 					name="potluck_category_{questionId}"
 					value=""
-					checked={category === ""}
+					checked={optedOut}
 					onchange={() => {
 						category = "";
-						dish = "";
+						optedOut = true;
 					}}
 				/>
 				<span class="flex-1">Not bringing a dish</span>
@@ -139,16 +149,27 @@
 		>
 	{/if}
 
-	<label class="form-label">
-		<span>Your dish{required || category ? " *" : ""}</span>
-		<input
-			class="input-field"
-			type="text"
-			maxlength="80"
-			bind:value={dish}
-			required={required || Boolean(category)}
-			disabled={!required && !category}
-			placeholder={category ? "What are you bringing?" : "Pick a category first"}
-		/>
-	</label>
+	{#if !optedOut}
+		<label class="form-label">
+			<span>Your dish{required || category ? " *" : ""}</span>
+			<input
+				class="input-field"
+				type="text"
+				maxlength="80"
+				bind:this={dishInput}
+				bind:value={dish}
+				required={required || Boolean(category)}
+				placeholder={category ? "What are you bringing?" : "Pick a category first"}
+			/>
+		</label>
+	{/if}
 </fieldset>
+
+<style>
+	/* The event page's dark rule for themed badges is scoped to that page, so mirror it here. */
+	:global(.dark) .badge-status[data-tone="theme"] {
+		background-color: var(--event-badge-bg-dark) !important;
+		color: var(--event-badge-text-dark) !important;
+		border-color: var(--event-surface-border-dark) !important;
+	}
+</style>
