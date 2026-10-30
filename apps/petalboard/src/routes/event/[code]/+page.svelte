@@ -30,6 +30,7 @@
 	const { data, form }: { data: PageData; form: ActionData | null } = $props();
 	const event = $derived(data.event);
 	const isOwner = $derived(data.isOwner);
+	const myRsvp = $derived(data.myRsvp);
 
 	// Color mapping from Tailwind
 	const colorMap: Record<
@@ -466,11 +467,11 @@
 	let showRsvpModal = $state(false);
 	let showEditModal = $state(false);
 	let editingRsvp = $state<any>(null);
-	let currentPin = $state<string>("");
 	let lastFormType = $state<string | null>(null);
-	let editingRsvpId = $state<string>("");
-	let pinInput = $state<string>("");
-	let pinError = $state<string>("");
+	let showLinkModal = $state(false);
+	let linkResult = $state<{ ok: boolean; message: string } | null>(null);
+	let linkEmailInput = $state<HTMLInputElement>();
+	let linkTrigger: HTMLElement | null = null;
 	let editingStatus = $state<RsvpStatus>("attending");
 	let editingGuestCount = $state(1);
 	let newRsvpStatus = $state<RsvpStatus>("attending");
@@ -492,7 +493,7 @@
 	// Prevent body scroll when modals are open
 	$effect(() => {
 		if (typeof document !== "undefined") {
-			if (showRsvpModal || showEditModal || editingRsvpId) {
+			if (showRsvpModal || showEditModal || showLinkModal) {
 				document.body.classList.add("no-scroll");
 			} else {
 				document.body.classList.remove("no-scroll");
@@ -657,8 +658,8 @@
 			return;
 		}
 
-		if (editingRsvpId && !editingRsvp) {
-			closePinPrompt();
+		if (showLinkModal) {
+			closeLinkModal();
 		} else if (showEditModal) {
 			closeEditModal();
 		} else if (showRsvpModal) {
@@ -740,37 +741,10 @@
 
 		lastFormType = currentFormType;
 
-		// Handle lookup success
-		if (form?.type === "lookupRsvp" && form.success && form.rsvp) {
-			editingRsvp = form.rsvp;
-			responses = form.rsvp.responses || {};
-			editingStatus = toRsvpStatus(form.rsvp.status);
-			editingGuestCount = form.rsvp.guestCount ?? 1;
-			showEditModal = true;
-			pinInput = "";
-			pinError = "";
-			editingRsvpId = "";
-		}
-
-		// Handle lookup failure
-		if (form?.type === "lookupRsvp" && !form.success && message) {
-			pinError = message;
-		}
-
-		// Handle successful update/cancel
 		if ((form?.type === "updateRsvp" || form?.type === "cancelRsvp") && form.success) {
-			editingRsvp = null;
-			showEditModal = false;
-			currentPin = "";
-			responses = {};
-			editingStatus = "attending";
-			editingGuestCount = 1;
-			editingRsvpId = "";
-			pinInput = "";
-			pinError = "";
+			closeEditModal();
 		}
 
-		// Handle successful new RSVP
 		if (form?.type === "rsvp" && form.success) {
 			showRsvpModal = false;
 			newRsvpStatus = "attending";
@@ -795,17 +769,45 @@
 		newGuestCount = 1;
 	}
 
+	function openEditModal() {
+		if (!myRsvp) {
+			return;
+		}
+
+		editingRsvp = myRsvp;
+		responses = { ...myRsvp.responses };
+		editingStatus = toRsvpStatus(myRsvp.status);
+		editingGuestCount = myRsvp.guestCount;
+		showEditModal = true;
+	}
+
 	function closeEditModal() {
 		editingRsvp = null;
 		showEditModal = false;
-		currentPin = "";
 		responses = {};
 		editingStatus = "attending";
 		editingGuestCount = 1;
-		editingRsvpId = "";
-		pinInput = "";
-		pinError = "";
 	}
+
+	async function openLinkModal(trigger: HTMLElement) {
+		linkTrigger = trigger;
+		linkResult = null;
+		showLinkModal = true;
+		await tick();
+		linkEmailInput?.focus();
+	}
+
+	function closeLinkModal() {
+		showLinkModal = false;
+		linkResult = null;
+		linkTrigger?.focus();
+	}
+
+	onMount(() => {
+		if (new URLSearchParams(window.location.search).get("edit") === "1") {
+			openEditModal();
+		}
+	});
 
 	async function expandList(key: string, button: HTMLElement) {
 		const list = button.parentElement;
@@ -825,42 +827,6 @@
 		} else {
 			revealed.tabIndex = -1;
 			revealed.focus();
-		}
-	}
-
-	function closePinPrompt() {
-		editingRsvpId = "";
-		pinInput = "";
-		pinError = "";
-	}
-
-	function promptForPin(rsvpId: string) {
-		editingRsvpId = rsvpId;
-		pinInput = "";
-		pinError = "";
-	}
-
-	async function submitPinLookup(e: Event) {
-		e.preventDefault();
-
-		if (!pinInput || !editingRsvpId) {
-			return;
-		}
-
-		const formData = new FormData();
-
-		formData.append("rsvpId", editingRsvpId);
-		formData.append("pin", pinInput);
-
-		const response = await fetch("?/lookupRsvp", {
-			method: "POST",
-			body: formData,
-		});
-
-		// Let the form action handle the response
-		if (response.ok) {
-			// The page will reload with the form data
-			window.location.reload();
 		}
 	}
 </script>
@@ -964,8 +930,8 @@
 				</div>
 			</div>
 
-			{#if !rsvpAtLimit}
-				<div class="w-full md:w-auto">
+			<div class="flex w-full flex-col gap-3 md:w-auto">
+				{#if !rsvpAtLimit}
 					<button
 						class="w-full rounded-xl px-6 py-3 text-base font-semibold text-white shadow-button transition-colors md:w-auto md:px-8 md:py-4 md:text-lg"
 						style={`background: linear-gradient(135deg, ${primaryColors[700]}, ${secondaryColors[700]}); box-shadow: 0 14px 28px ${withAlpha(primaryColors[600], 0.33)};`}
@@ -981,8 +947,19 @@
 					>
 						RSVP Now
 					</button>
-				</div>
-			{/if}
+				{/if}
+				{#if myRsvp}
+					<button type="button" class="btn-secondary min-h-11" onclick={openEditModal}
+						>Edit my RSVP</button
+					>
+				{:else}
+					<button
+						type="button"
+						class="btn-secondary min-h-11"
+						onclick={(e) => openLinkModal(e.currentTarget)}>Already RSVP'd? Edit my RSVP</button
+					>
+				{/if}
+			</div>
 		</div>
 	</article>
 
@@ -993,19 +970,21 @@
 			style={`border: 1px solid ${withAlpha(secondaryColors[600], 0.32)}; background-color: ${mixColors(primaryColors[50], secondaryColors[50], 0.6, 0.78)};`}
 		>
 			<h2 class="mb-2 text-xl font-bold">✅ You're all set!</h2>
-			<p class="mb-0">Your RSVP has been confirmed.</p>
-			<div
-				class="event-section mt-4 rounded-xl p-4"
-				style={`background-color: ${mixColors(primaryColors[100], secondaryColors[50], 0.55, 0.9)}; border: 1px solid ${withAlpha(primaryColors[600], 0.14)};`}
-			>
-				<strong style="color: {primaryColors[800]};">Your RSVP ID:</strong>
-				<code
-					class="rounded px-2 py-1 font-semibold"
-					style={`background-color: white; color: ${secondaryColors[700]}; box-shadow: 0 1px 3px ${withAlpha(secondaryColors[600], 0.28)};`}
-					>{form?.rsvpId}</code
-				><br />
-				<small>Save this ID and your PIN to manage your RSVP later.</small>
-			</div>
+			<p class="mb-0">
+				We emailed you a confirmation with a link to edit your RSVP. This browser can also edit it
+				any time with Edit my RSVP.
+			</p>
+		</div>
+	{/if}
+
+	{#if formType === "rsvp" && form?.alreadyRegistered}
+		<div
+			class="card event-card mb-8"
+			role="status"
+			style={`border: 1px solid ${withAlpha(secondaryColors[600], 0.32)}; background-color: ${mixColors(primaryColors[50], secondaryColors[50], 0.6, 0.78)};`}
+		>
+			<h2 class="mb-2 text-xl font-bold">Check your email</h2>
+			<p class="mb-0">{message}</p>
 		</div>
 	{/if}
 
@@ -1083,15 +1062,17 @@
 											>{formatShortDate(rsvp.createdAt, event.timezone)}</span
 										>
 									</div>
-									<button
-										type="button"
-										class="inline-flex min-h-11 min-w-11 flex-shrink-0 cursor-pointer items-center justify-center border-none bg-none p-2 text-xl opacity-60 transition-opacity hover:opacity-100"
-										title="Edit {rsvp.name}'s RSVP"
-										aria-label="Edit {rsvp.name}'s RSVP"
-										onclick={() => promptForPin(rsvp.id)}
-									>
-										✏️
-									</button>
+									{#if rsvp.id === myRsvp?.id}
+										<button
+											type="button"
+											class="inline-flex min-h-11 min-w-11 flex-shrink-0 cursor-pointer items-center justify-center border-none bg-none p-2 text-xl opacity-60 transition-opacity hover:opacity-100"
+											title="Edit my RSVP"
+											aria-label="Edit my RSVP"
+											onclick={openEditModal}
+										>
+											✏️
+										</button>
+									{/if}
 								</div>
 							{/each}
 							{@render showAll("attending", attendingList.length, "")}
@@ -1140,15 +1121,17 @@
 											>{formatShortDate(rsvp.createdAt, event.timezone)}</span
 										>
 									</div>
-									<button
-										type="button"
-										class="inline-flex min-h-11 min-w-11 flex-shrink-0 cursor-pointer items-center justify-center border-none bg-none p-2 text-xl opacity-60 transition-opacity hover:opacity-100"
-										title="Edit {rsvp.name}'s RSVP"
-										aria-label="Edit {rsvp.name}'s RSVP"
-										onclick={() => promptForPin(rsvp.id)}
-									>
-										✏️
-									</button>
+									{#if rsvp.id === myRsvp?.id}
+										<button
+											type="button"
+											class="inline-flex min-h-11 min-w-11 flex-shrink-0 cursor-pointer items-center justify-center border-none bg-none p-2 text-xl opacity-60 transition-opacity hover:opacity-100"
+											title="Edit my RSVP"
+											aria-label="Edit my RSVP"
+											onclick={openEditModal}
+										>
+											✏️
+										</button>
+									{/if}
 								</div>
 							{/each}
 							{@render showAll("maybe", maybeList.length, "")}
@@ -1197,15 +1180,17 @@
 											>{formatShortDate(rsvp.createdAt, event.timezone)}</span
 										>
 									</div>
-									<button
-										type="button"
-										class="inline-flex min-h-11 min-w-11 flex-shrink-0 cursor-pointer items-center justify-center border-none bg-none p-2 text-xl opacity-60 transition-opacity hover:opacity-100"
-										title="Edit {rsvp.name}'s RSVP"
-										aria-label="Edit {rsvp.name}'s RSVP"
-										onclick={() => promptForPin(rsvp.id)}
-									>
-										✏️
-									</button>
+									{#if rsvp.id === myRsvp?.id}
+										<button
+											type="button"
+											class="inline-flex min-h-11 min-w-11 flex-shrink-0 cursor-pointer items-center justify-center border-none bg-none p-2 text-xl opacity-60 transition-opacity hover:opacity-100"
+											title="Edit my RSVP"
+											aria-label="Edit my RSVP"
+											onclick={openEditModal}
+										>
+											✏️
+										</button>
+									{/if}
 								</div>
 							{/each}
 							{@render showAll("not-attending", notAttendingList.length, "")}
@@ -1696,67 +1681,75 @@
 	{/if}
 </div>
 
-<!-- PIN Prompt Modal -->
-{#if editingRsvpId && !editingRsvp}
+<!-- Edit-link request modal -->
+{#if showLinkModal}
 	<div
 		class="modal-backdrop"
 		role="button"
 		tabindex="0"
-		aria-label="Close PIN prompt"
-		onclick={(event) => event.target === event.currentTarget && closePinPrompt()}
-		onkeydown={(event) => handleOverlayKeydown(event, closePinPrompt)}
+		aria-label="Close edit link dialog"
+		onclick={(event) => event.target === event.currentTarget && closeLinkModal()}
+		onkeydown={(event) => handleOverlayKeydown(event, closeLinkModal)}
 	>
 		<div
 			class="modal"
 			role="dialog"
 			aria-modal="true"
-			aria-labelledby="pin-prompt-title"
+			aria-labelledby="edit-link-title"
 			tabindex="-1"
 		>
 			<div class="modal-header">
-				<h3 id="pin-prompt-title">Enter PIN</h3>
-				<button type="button" class="close-btn" aria-label="Close" onclick={closePinPrompt}
+				<h3 id="edit-link-title">Edit my RSVP</h3>
+				<button type="button" class="close-btn" aria-label="Close" onclick={closeLinkModal}
 					>×</button
 				>
 			</div>
-			<form
-				method="POST"
-				action="?/lookupRsvp"
-				use:enhance={() => {
-					// Store the PIN before submission
-					const submittedPin = pinInput;
-
-					return async ({ result, update }) => {
-						if (result.type === "success" && result.data?.success) {
-							currentPin = submittedPin;
-						}
-
-						await update();
-					};
-				}}
-			>
-				<input type="hidden" name="rsvpId" value={editingRsvpId} />
-				{#if pinError}
-					<div class="error-banner mb-4">{pinError}</div>
-				{/if}
-				<label class="form-label">
-					<span>Enter your PIN to edit this RSVP</span>
-					<input
-						class="input-field"
-						name="pin"
-						type="text"
-						inputmode="numeric"
-						required
-						placeholder="Enter PIN"
-						maxlength="6"
-						bind:value={pinInput}
-					/>
-				</label>
+			{#if linkResult?.ok}
+				<p class="mb-4" role="status">{linkResult.message}</p>
 				<div class="modal-actions">
-					<button type="submit" class="btn-primary">Unlock</button>
-					<button type="button" class="btn-secondary" onclick={closePinPrompt}>Cancel</button>
+					<button type="button" class="btn-primary min-h-11" onclick={closeLinkModal}>Done</button>
 				</div>
-			</form>
+			{:else}
+				<form
+					method="POST"
+					action="?/requestEditLink"
+					use:enhance={() => {
+						return async ({ result }) => {
+							if (result.type === "success" || result.type === "failure") {
+								linkResult = {
+									ok: result.type === "success",
+									message: String(result.data?.message ?? ""),
+								};
+							}
+						};
+					}}
+				>
+					{#if linkResult}
+						<div class="error-banner mb-4" role="alert">{linkResult.message}</div>
+					{/if}
+					<label class="form-label">
+						<span>The email you RSVP'd with</span>
+						<input
+							class="input-field"
+							name="email"
+							type="email"
+							required
+							autocomplete="email"
+							placeholder="you@example.com"
+							bind:this={linkEmailInput}
+						/>
+						<small class="text-sm text-gray-600"
+							>We'll email you a link to edit your RSVP. It works for 1 hour.</small
+						>
+					</label>
+					<div class="modal-actions">
+						<button type="submit" class="btn-primary min-h-11">Email me a link</button>
+						<button type="button" class="btn-secondary min-h-11" onclick={closeLinkModal}
+							>Cancel</button
+						>
+					</div>
+				</form>
+			{/if}
 		</div>
 	</div>
 {/if}
@@ -1824,9 +1817,6 @@
 					};
 				}}
 			>
-				<input type="hidden" name="rsvpId" value={editingRsvp.id} />
-				<input type="hidden" name="pin" value={currentPin} />
-
 				<label class="form-label">
 					<span>Your name *</span>
 					<input
@@ -1838,17 +1828,10 @@
 					/>
 				</label>
 
-				<label class="form-label">
-					<span>Email (optional)</span>
-					<input
-						class="input-field"
-						type="email"
-						name="email"
-						placeholder="you@example.com"
-						value={editingRsvp.email ?? ""}
-						autocomplete="email"
-					/>
-				</label>
+				<p class="form-label">
+					<span>Email</span>
+					<span class="text-dark-700">{editingRsvp.email}</span>
+				</p>
 
 				<label class="form-label">
 					<span>How many guests (including yourself)?</span>
@@ -2082,8 +2065,6 @@
 					};
 				}}
 			>
-				<input type="hidden" name="rsvpId" value={editingRsvp.id} />
-				<input type="hidden" name="pin" value={currentPin} />
 				{#if showCancelConfirm}
 					<div class="flex justify-center gap-2">
 						<button type="submit" class="btn-danger">Yes, Cancel RSVP</button>
@@ -2125,7 +2106,7 @@
 				>
 			</div>
 
-			{#if formType === "rsvp" && message}
+			{#if formType === "rsvp" && message && !form?.alreadyRegistered}
 				<div class="error-banner">{message}</div>
 			{/if}
 
@@ -2155,10 +2136,13 @@
 								questionResponseCounts = payload.questionResponseCounts;
 							}
 
-							// Close modal
 							showRsvpModal = false;
 							responses = {};
 							newGuestCount = 1;
+						}
+
+						if (result.type === "failure" && result.data?.alreadyRegistered) {
+							showRsvpModal = false;
 						}
 
 						await update();
@@ -2185,38 +2169,21 @@
 				</label>
 
 				<label class="form-label">
-					<span>Email (optional but recommended)</span>
+					<span>Email *</span>
 					<input
 						class="input-field"
 						type="email"
 						name="email"
+						required
 						value={values.email ?? ""}
 						autocomplete="email"
 						placeholder="you@example.com"
 					/>
+					<small class="text-sm text-gray-600"
+						>We'll email you a link to edit your RSVP later. No password needed.</small
+					>
 					{#if errors.email}
 						<small class="text-sm text-red-600">{errors.email[0]}</small>
-					{/if}
-				</label>
-
-				<label class="form-label">
-					<span>Choose a PIN (4-6 digits) *</span>
-					<input
-						class="input-field"
-						name="pin"
-						type="text"
-						inputmode="numeric"
-						minlength="4"
-						maxlength="6"
-						required
-						value={values.pin ?? ""}
-						autocomplete="off"
-					/>
-					<small class="text-sm text-gray-600"
-						>You'll need this PIN to manage your RSVP later.</small
-					>
-					{#if errors.pin}
-						<small class="text-sm text-red-600">{errors.pin[0]}</small>
 					{/if}
 				</label>
 
@@ -2512,7 +2479,6 @@
 
 	.event-card p,
 	.event-card span,
-	.event-card small,
 	.event-section span,
 	.panel-block-body p,
 	.panel-block-body span,
@@ -2521,7 +2487,6 @@
 		color: var(--event-text-secondary, #3c2f68);
 	}
 
-	.event-card small,
 	.event-card .text-dark-600,
 	.event-card .text-dark-500 {
 		color: var(--event-text-muted, #655b82);
@@ -2569,7 +2534,6 @@
 		color: var(--event-text-secondary-dark, #d9d8f5);
 	}
 
-	:global(.dark) .event-card small,
 	:global(.dark) .panel-list-item .text-dark-600,
 	:global(.dark) .panel-list-item .text-dark-500,
 	:global(.dark) .event-card .text-dark-600,
@@ -2798,8 +2762,7 @@
 	}
 
 	:global(.dark) .index-badge,
-	:global(.dark) .song-note,
-	:global(.dark) .success-banner strong {
+	:global(.dark) .song-note {
 		color: var(--event-primary-100) !important;
 	}
 

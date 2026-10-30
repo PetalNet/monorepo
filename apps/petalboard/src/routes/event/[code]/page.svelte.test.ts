@@ -70,7 +70,16 @@ function songsQuestion(): Question {
 	};
 }
 
-function pageData(): PageData {
+const avery: NonNullable<PageData["myRsvp"]> = {
+	id: "rsvp-Avery",
+	name: "Avery",
+	email: "avery@example.test",
+	status: "attending",
+	guestCount: 1,
+	responses: {},
+};
+
+function pageData(myRsvp: PageData["myRsvp"] = null): PageData {
 	const rsvps = [
 		...guestNames.map((name) => rsvp(name, "attending")),
 		rsvp("Morgan", "not_attending"),
@@ -79,6 +88,7 @@ function pageData(): PageData {
 	return {
 		user: null,
 		isOwner: false,
+		myRsvp,
 		event: {
 			id: "event-1",
 			title: "Friendsgiving",
@@ -105,16 +115,17 @@ function pageData(): PageData {
 let cleanup: (() => void) | undefined;
 
 afterEach(() => {
+	window.history.replaceState({}, "", "/");
 	cleanup?.();
 	cleanup = undefined;
 	submitters.clear();
 });
 
-function render(form: ActionData | null = null): HTMLElement {
+function render(form: ActionData | null = null, myRsvp: PageData["myRsvp"] = null): HTMLElement {
 	const target = document.createElement("div");
 
 	document.body.append(target);
-	const component = mount(Page, { target, props: { data: pageData(), form } });
+	const component = mount(Page, { target, props: { data: pageData(myRsvp), form } });
 
 	cleanup = () => {
 		void unmount(component);
@@ -159,26 +170,80 @@ describe("event page dialogs", () => {
 	});
 
 	it("closes the edit-RSVP dialog on Escape pressed inside the form", () => {
-		const target = render({
-			type: "lookupRsvp",
-			success: true,
-			rsvp: {
-				id: "rsvp-Avery",
-				name: "Avery",
-				email: null,
-				status: "attending",
-				guestCount: 1,
-				responses: {},
-			},
-		});
-		const nameInput = target.querySelector(
+		const target = render(null, avery);
+
+		button(target, "Edit my RSVP").click();
+		flushSync();
+
+		const nameInput = target.querySelector<HTMLInputElement>(
 			'[aria-labelledby="edit-rsvp-title"] input[name="name"]',
 		);
 
-		expect(nameInput).not.toBeNull();
+		expect(nameInput?.value).toBe("Avery");
 		pressEscape(nameInput!);
 
 		expect(target.querySelector("#edit-rsvp-title")).toBeNull();
+	});
+
+	it("opens my RSVP for editing when an edit link lands on ?edit=1", () => {
+		window.history.replaceState({}, "", "/event/CODE1234?edit=1");
+		const target = render(null, avery);
+
+		expect(target.querySelector("#edit-rsvp-title")).not.toBeNull();
+		expect(target.textContent).toContain("avery@example.test");
+	});
+
+	it("emails an edit link from a labelled, focused email field and shows the server's answer", async () => {
+		const target = render();
+
+		expect(
+			[...target.querySelectorAll("button")].some((b) => b.textContent === "Edit my RSVP"),
+		).toBe(false);
+
+		button(target, "Already RSVP'd? Edit my RSVP").click();
+		await tick();
+		const dialog = target.querySelector('[role="dialog"][aria-labelledby="edit-link-title"]');
+		const email = dialog?.querySelector<HTMLInputElement>('input[name="email"]');
+		const form = dialog?.querySelector<HTMLFormElement>('form[action="?/requestEditLink"]');
+		const submit = submitters.get("?/requestEditLink");
+
+		if (!email || !form || !submit) {
+			throw new Error("edit link dialog did not open");
+		}
+
+		expect(email.closest("label")?.textContent).toContain("The email you RSVP'd with");
+		expect(document.activeElement).toBe(email);
+
+		const action = new URL("http://localhost/event/CODE1234?/requestEditLink");
+		const after = await submit({
+			action,
+			formData: new FormData(form),
+			formElement: form,
+			controller: new AbortController(),
+			submitter: null,
+			cancel: () => undefined,
+		});
+
+		if (typeof after !== "function") {
+			throw new TypeError("enhance callback did not return a result handler");
+		}
+
+		await after({
+			action,
+			formData: new FormData(form),
+			formElement: form,
+			result: {
+				type: "success",
+				status: 200,
+				data: { type: "requestEditLink", success: true, message: "Check your inbox." },
+			},
+			update: async () => undefined,
+		});
+
+		flushSync();
+
+		expect(dialog?.querySelector('[role="status"]')?.textContent).toBe("Check your inbox.");
+		expect(dialog?.querySelector("form")).toBeNull();
 	});
 
 	it("locks Confirm RSVP and shows Saving while the RSVP submits", async () => {
@@ -225,19 +290,20 @@ describe("event page dialogs", () => {
 		expect(button(target, "Confirm RSVP").disabled).toBe(false);
 	});
 
-	it("labels every pencil and close button for screen readers", () => {
-		const target = render();
-		const pencils = [...target.querySelectorAll("button")].filter((b) =>
-			b.textContent.includes("✏️"),
-		);
+	it("shows a labelled pencil only on this browser's own RSVP", () => {
+		const pencils = (root: ParentNode) =>
+			[...root.querySelectorAll("button")].filter((b) => b.textContent.includes("✏️"));
 
-		expect(pencils.length).toBeGreaterThan(0);
+		expect(pencils(render())).toEqual([]);
+		cleanup?.();
 
-		expect(pencils.map((b) => b.getAttribute("aria-label"))).toEqual(
-			pencils.map(
-				(b) =>
-					`Edit ${b.closest(".panel-list-item")?.querySelector("strong")?.textContent.trim()}'s RSVP`,
-			),
+		const target = render(null, avery);
+		const own = pencils(target);
+
+		expect(own.map((b) => b.getAttribute("aria-label"))).toEqual(["Edit my RSVP"]);
+
+		expect(own[0].closest(".panel-list-item")?.querySelector("strong")?.textContent.trim()).toBe(
+			"Avery",
 		);
 
 		button(target, "RSVP Now").click();
@@ -356,7 +422,7 @@ describe("event page lists", () => {
 		await tick();
 
 		expect(panel.querySelectorAll(".panel-list-item")).toHaveLength(guestNames.length);
-		expect(document.activeElement).toBe(panel.querySelectorAll(".panel-list-item button")[8]);
+		expect(document.activeElement).toBe(panel.querySelectorAll(".panel-list-item")[8]);
 
 		expect(
 			[...panel.querySelectorAll("button")].some((b) => b.textContent.startsWith("Show all")),
@@ -387,7 +453,7 @@ describe("event page lists", () => {
 
 describe("event page banners", () => {
 	it.each([
-		[{ type: "rsvp", success: true, rsvpId: "rsvp-new" }, "✅ You're all set!"],
+		[{ type: "rsvp", success: true }, "✅ You're all set!"],
 		[{ type: "updateRsvp", success: true, message: "Updated" }, "✅ Updated!"],
 		[{ type: "cancelRsvp", success: true, message: "Cancelled" }, "RSVP Cancelled"],
 	])("tints the whole %o banner instead of a left stripe", (form, title) => {
@@ -402,5 +468,18 @@ describe("event page banners", () => {
 				banner?.style.getPropertyValue(`border-${side.toLowerCase()}-width`),
 			),
 		).toEqual(["1px", "1px", "1px", "1px"]);
+	});
+
+	it("shows an already-registered RSVP as information, not an error", () => {
+		const target = render({
+			type: "rsvp",
+			success: false,
+			alreadyRegistered: true,
+			message: "You're already on the list.",
+		});
+		const status = target.querySelector('[role="status"]');
+
+		expect(status?.textContent).toContain("You're already on the list.");
+		expect(target.querySelector(".error-banner")).toBeNull();
 	});
 });

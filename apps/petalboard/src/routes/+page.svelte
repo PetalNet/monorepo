@@ -26,7 +26,7 @@
 		<ul class="grid gap-2 pl-5 text-dark-700">
 			<li>Track remaining slots in real time</li>
 			<li>Share public and manage links with one click</li>
-			<li>Secure edits with a PIN instead of passwords</li>
+			<li>Guests edit their RSVP from an email link, no password</li>
 		</ul>
 	</div>
 </section>
@@ -53,10 +53,10 @@
 			<span class="text-2xl">👥</span>
 			Guests
 		</h2>
-		<p class="text-dark-700">No accounts. Just pick a slot, add your name, and choose a PIN.</p>
+		<p class="text-dark-700">No accounts. Just pick a slot and add your name and email.</p>
 		<ul class="grid gap-2 pl-5 text-dark-700">
 			<li>Mobile-first sign up experience</li>
-			<li>Make changes later with your signup ID</li>
+			<li>Make changes later from the link we email you</li>
 			<li>Automatic email reminders (coming soon)</li>
 		</ul>
 	</article>
@@ -70,7 +70,7 @@
 		<p class="text-dark-700">All data stays private to your event. No ads, no dark patterns.</p>
 		<ul class="grid gap-2 pl-5 text-dark-700">
 			<li>SQLite by default, Postgres-ready for production</li>
-			<li>Scrypt hashed PINs for secure edit links</li>
+			<li>Single-use, one-hour edit links by email</li>
 			<li>Open source and ready to self-host</li>
 		</ul>
 	</article>
@@ -84,8 +84,8 @@
 		<ol class="grid gap-3 pl-5 text-lg text-dark-700">
 			<li class="pl-2"><strong>Create an event</strong> and add the items you need.</li>
 			<li class="pl-2"><strong>Share the public link</strong> with your guests.</li>
-			<li class="pl-2"><strong>Guests reserve their slot</strong> and lock it with a PIN.</li>
-			<li class="pl-2"><strong>They can edit or cancel</strong> later with their signup ID.</li>
+			<li class="pl-2"><strong>Guests reserve their slot</strong> with their name and email.</li>
+			<li class="pl-2"><strong>They can edit or cancel</strong> later from an emailed link.</li>
 		</ol>
 	</div>
 	<div
