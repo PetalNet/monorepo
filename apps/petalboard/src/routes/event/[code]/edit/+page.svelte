@@ -6,7 +6,7 @@
 
 <svelte:head>
 	<title>Edit your RSVP - {data.event.title} - PetalBoard</title>
-	<meta name="referrer" content="no-referrer" />
+	<meta name="referrer" content="same-origin" />
 </svelte:head>
 
 <div class="mx-auto max-w-[480px] px-4 py-12">

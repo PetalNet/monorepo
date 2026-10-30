@@ -19,7 +19,7 @@ async function findEvent(code: string) {
 export const load = async ({ params, url, setHeaders }) => {
 	const event = await findEvent(params.code);
 
-	setHeaders({ "Referrer-Policy": "no-referrer", "Cache-Control": "no-store" });
+	setHeaders({ "Referrer-Policy": "same-origin", "Cache-Control": "no-store" });
 
 	return {
 		event: { title: event.title, publicCode: event.publicCode },
