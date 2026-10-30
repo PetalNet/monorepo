@@ -23,6 +23,23 @@
 	a {
 		@apply text-inherit;
 	}
+
+	a:focus-visible,
+	button:focus-visible,
+	summary:focus-visible,
+	[role="button"]:focus-visible,
+	[tabindex]:focus-visible {
+		outline: 2px solid #2a1748;
+		outline-offset: 2px;
+	}
+
+	html.dark a:focus-visible,
+	html.dark button:focus-visible,
+	html.dark summary:focus-visible,
+	html.dark [role="button"]:focus-visible,
+	html.dark [tabindex]:focus-visible {
+		outline-color: #c4b5fd;
+	}
 }
 
 @layer components {
@@ -60,7 +77,7 @@
 	/* Buttons */
 	.btn-primary {
 		@apply cursor-pointer rounded-full border-none px-7 py-3 font-semibold text-white;
-		background: linear-gradient(135deg, #7c5dfa, #9b6bff);
+		background: linear-gradient(135deg, #7054e1, #845bd9);
 		box-shadow: 0 18px 30px rgba(95, 61, 170, 0.25);
 		transition: transform 0.2s;
 		max-width: 100%;
@@ -331,7 +348,9 @@
 	}
 
 	.prose a {
-		@apply text-primary-700 underline hover:text-primary-800;
+		@apply underline hover:text-primary-800;
+		color: #7054e1;
+		overflow-wrap: anywhere;
 	}
 
 	.prose ul,
@@ -532,7 +551,7 @@
 }
 
 .close-btn {
-	@apply flex h-8 w-8 cursor-pointer items-center justify-center rounded-lg border-none bg-none p-0 text-4xl leading-none transition-all;
+	@apply flex h-11 w-11 cursor-pointer items-center justify-center rounded-lg border-none bg-none p-0 text-4xl leading-none transition-all;
 	color: rgba(42, 23, 72, 0.5);
 }
 
@@ -784,7 +803,7 @@ button {
 .btn-danger {
 	@apply cursor-pointer rounded-full border px-7 py-3 font-semibold transition-all;
 	background: rgba(194, 59, 75, 0.12);
-	color: #c23b4b;
+	color: #b02f40;
 	border-color: rgba(194, 59, 75, 0.3);
 }
 
@@ -986,6 +1005,7 @@ html.dark .modal {
 	html.dark .modal-header {
 		flex-shrink: 0 !important;
 		padding: 0.75rem 1rem !important;
+		background-color: rgb(20, 20, 28) !important;
 	}
 
 	html.dark .modal-actions {
@@ -1215,13 +1235,13 @@ html.dark summary:hover {
 
 /* Buttons - vibrant accent gradient for dark mode */
 html.dark .btn-primary {
-	background: linear-gradient(135deg, #8a3cff, #ff75d8);
+	background: linear-gradient(135deg, #8a3cff, #b25297);
 	color: #ffffff;
 	box-shadow: 0 4px 20px rgba(138, 60, 255, 0.4);
 }
 
 html.dark .btn-primary:hover {
-	background: linear-gradient(135deg, #9a4cff, #ff85e8);
+	background: linear-gradient(135deg, #7c33ee, #a04888);
 	box-shadow: 0 6px 30px rgba(138, 60, 255, 0.6);
 }
 

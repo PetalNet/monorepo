@@ -5,11 +5,13 @@
 	import PotluckField from "$lib/components/PotluckField.svelte";
 	import SpotifySongSelector from "$lib/components/SpotifySongSelector.svelte";
 	import { directionsUrl, headcount } from "$lib/eventDetails";
+	import { LIST_PREVIEW_SIZE, previewList } from "$lib/listPreview";
 	import { parsePotluckAnswer, slotStatuses, type PotluckView } from "$lib/potluck";
 	import { formatDate, formatShortDate } from "$lib/utils/format";
 	import { loadGoogleMaps } from "$lib/utils/googleMaps";
 	import { renderMarkdown } from "$lib/utils/markdown";
 	import { onMount, tick } from "svelte";
+	import { SvelteSet } from "svelte/reactivity";
 
 	import type { ActionData, PageData } from "./$types";
 
@@ -474,6 +476,8 @@
 	let newRsvpStatus = $state<RsvpStatus>("attending");
 	let newGuestCount = $state(1);
 	let showCancelConfirm = $state(false);
+	let submittingRsvp = $state(false);
+	const expandedLists = new SvelteSet<string>();
 
 	// Collapsible sections state
 	let showAttending = $state(true);
@@ -642,9 +646,23 @@
 	}
 
 	function handleOverlayKeydown(event: KeyboardEvent, action: () => void) {
-		if (event.key === "Escape" || event.key === "Enter" || event.key === " ") {
+		if (event.target === event.currentTarget && (event.key === "Enter" || event.key === " ")) {
 			event.preventDefault();
 			action();
+		}
+	}
+
+	function closeTopDialog(event: KeyboardEvent) {
+		if (event.key !== "Escape" || event.defaultPrevented) {
+			return;
+		}
+
+		if (editingRsvpId && !editingRsvp) {
+			closePinPrompt();
+		} else if (showEditModal) {
+			closeEditModal();
+		} else if (showRsvpModal) {
+			closeRsvpModal();
 		}
 	}
 
@@ -789,6 +807,12 @@
 		pinError = "";
 	}
 
+	function closePinPrompt() {
+		editingRsvpId = "";
+		pinInput = "";
+		pinError = "";
+	}
+
 	function promptForPin(rsvpId: string) {
 		editingRsvpId = rsvpId;
 		pinInput = "";
@@ -823,6 +847,18 @@
 <svelte:head>
 	<title>{event.title} - PetalBoard</title>
 </svelte:head>
+
+<svelte:window onkeydown={closeTopDialog} />
+
+{#snippet showAll(key: string, total: number, extraClass: string)}
+	{#if total > LIST_PREVIEW_SIZE && !expandedLists.has(key)}
+		<button
+			type="button"
+			class="btn-secondary w-full {extraClass}"
+			onclick={() => expandedLists.add(key)}>Show all {total}</button
+		>
+	{/if}
+{/snippet}
 
 <div class="event-page-wrapper mx-auto min-h-screen max-w-4xl px-4 py-8" style={colorStyles}>
 	<!-- Event Header with RSVP Button -->
@@ -859,6 +895,8 @@
 								>
 							</p>
 							{#if env.PUBLIC_GOOGLE_MAPS_API_KEY && env.PUBLIC_GOOGLE_MAPS_API_KEY !== "your-google-maps-api-key"}
+								<a href="#after-map" class="sr-only text-sm underline focus:not-sr-only">Skip map</a
+								>
 								<div
 									class="h-[200px] w-full overflow-hidden rounded-xl shadow-card"
 									bind:this={mapElement}
@@ -866,7 +904,7 @@
 							{/if}
 						</div>
 					{/if}
-					<p class="m-0 text-sm text-dark-700 md:text-base">
+					<p id="after-map" class="m-0 text-sm text-dark-700 md:text-base" tabindex="-1">
 						👥 {people.coming}
 						{people.coming === 1 ? "person" : "people"} coming{#if people.maybe > 0}, {people.maybe}
 							maybe{/if}
@@ -909,15 +947,15 @@
 				<div class="w-full md:w-auto">
 					<button
 						class="w-full rounded-xl px-6 py-3 text-base font-semibold text-white shadow-button transition-colors md:w-auto md:px-8 md:py-4 md:text-lg"
-						style={`background: linear-gradient(135deg, ${primaryColors[600]}, ${secondaryColors[600]}); box-shadow: 0 14px 28px ${withAlpha(primaryColors[600], 0.33)};`}
+						style={`background: linear-gradient(135deg, ${primaryColors[700]}, ${secondaryColors[700]}); box-shadow: 0 14px 28px ${withAlpha(primaryColors[600], 0.33)};`}
 						onmouseover={(e) =>
-							(e.currentTarget.style.background = `linear-gradient(135deg, ${primaryColors[700]}, ${secondaryColors[700]})`)}
+							(e.currentTarget.style.background = `linear-gradient(135deg, ${primaryColors[800]}, ${secondaryColors[800]})`)}
 						onmouseout={(e) =>
-							(e.currentTarget.style.background = `linear-gradient(135deg, ${primaryColors[600]}, ${secondaryColors[600]})`)}
-						onfocus={(e) =>
 							(e.currentTarget.style.background = `linear-gradient(135deg, ${primaryColors[700]}, ${secondaryColors[700]})`)}
+						onfocus={(e) =>
+							(e.currentTarget.style.background = `linear-gradient(135deg, ${primaryColors[800]}, ${secondaryColors[800]})`)}
 						onblur={(e) =>
-							(e.currentTarget.style.background = `linear-gradient(135deg, ${primaryColors[600]}, ${secondaryColors[600]})`)}
+							(e.currentTarget.style.background = `linear-gradient(135deg, ${primaryColors[700]}, ${secondaryColors[700]})`)}
 						onclick={openRsvpModal}
 					>
 						RSVP Now
@@ -931,7 +969,7 @@
 	{#if success && formType === "rsvp"}
 		<div
 			class="success-banner event-card"
-			style={`border-left: 6px solid ${secondaryColors[600]}; background-color: ${mixColors(primaryColors[50], secondaryColors[50], 0.6, 0.78)};`}
+			style={`border: 1px solid ${withAlpha(secondaryColors[600], 0.32)}; background-color: ${mixColors(primaryColors[50], secondaryColors[50], 0.6, 0.78)};`}
 		>
 			<h2 class="mb-2 text-xl font-bold">✅ You're all set!</h2>
 			<p class="mb-0">Your RSVP has been confirmed.</p>
@@ -953,7 +991,7 @@
 	{#if success && formType === "updateRsvp"}
 		<div
 			class="success-banner event-card"
-			style={`border-left: 6px solid ${secondaryColors[600]}; background-color: ${mixColors(primaryColors[50], secondaryColors[50], 0.6, 0.78)};`}
+			style={`border: 1px solid ${withAlpha(secondaryColors[600], 0.32)}; background-color: ${mixColors(primaryColors[50], secondaryColors[50], 0.6, 0.78)};`}
 		>
 			<h2 class="mb-2 text-xl font-bold">✅ Updated!</h2>
 			<p class="mb-0">{message}</p>
@@ -963,7 +1001,7 @@
 	{#if success && formType === "cancelRsvp"}
 		<div
 			class="card event-card mb-8"
-			style={`border-left: 6px solid ${secondaryColors[600]}; background-color: ${mixColors(primaryColors[50], secondaryColors[50], 0.6, 0.78)};`}
+			style={`border: 1px solid ${withAlpha(secondaryColors[600], 0.32)}; background-color: ${mixColors(primaryColors[50], secondaryColors[50], 0.6, 0.78)};`}
 		>
 			<h2 class="mb-2 text-xl font-bold">RSVP Cancelled</h2>
 			<p class="mb-0">{message}</p>
@@ -996,7 +1034,7 @@
 							<span class="flex items-center gap-2">
 								<span
 									class="inline-flex h-6 w-6 items-center justify-center rounded-full text-sm"
-									style={`background-color: ${primaryColors[600]}; color: white; box-shadow: 0 2px 8px ${withAlpha(primaryColors[600], 0.28)};`}
+									style={`background-color: ${primaryColors[700]}; color: white; box-shadow: 0 2px 8px ${withAlpha(primaryColors[600], 0.28)};`}
 									>✓</span
 								>
 								Attending ({attendingList.length})
@@ -1004,7 +1042,7 @@
 							<span class="chevron-icon text-sm opacity-60">▼</span>
 						</summary>
 						<div class="panel-body event-section grid gap-3 p-4 pt-3 md:p-6 md:pt-4">
-							{#each attendingList as rsvp}
+							{#each previewList(attendingList, expandedLists.has("attending")) as rsvp}
 								<div
 									class="panel-list-item flex items-center justify-between gap-3 rounded-xl border p-3 transition-all hover:shadow-md md:gap-4 md:p-4"
 								>
@@ -1025,14 +1063,17 @@
 										>
 									</div>
 									<button
-										class="flex-shrink-0 cursor-pointer border-none bg-none p-2 text-xl opacity-60 transition-opacity hover:opacity-100"
+										type="button"
+										class="inline-flex min-h-11 min-w-11 flex-shrink-0 cursor-pointer items-center justify-center border-none bg-none p-2 text-xl opacity-60 transition-opacity hover:opacity-100"
 										title="Edit {rsvp.name}'s RSVP"
+										aria-label="Edit {rsvp.name}'s RSVP"
 										onclick={() => promptForPin(rsvp.id)}
 									>
 										✏️
 									</button>
 								</div>
 							{/each}
+							{@render showAll("attending", attendingList.length, "")}
 						</div>
 					</details>
 				{/if}
@@ -1050,7 +1091,7 @@
 							<span class="flex items-center gap-2">
 								<span
 									class="inline-flex h-6 w-6 items-center justify-center rounded-full text-sm"
-									style={`background-color: ${secondaryColors[600]}; color: white; box-shadow: 0 2px 8px ${withAlpha(secondaryColors[600], 0.25)};`}
+									style={`background-color: ${secondaryColors[700]}; color: white; box-shadow: 0 2px 8px ${withAlpha(secondaryColors[600], 0.25)};`}
 									>?</span
 								>
 								Maybe ({maybeList.length})
@@ -1058,7 +1099,7 @@
 							<span class="chevron-icon text-sm opacity-60">▼</span>
 						</summary>
 						<div class="panel-body event-section grid gap-3 p-4 pt-3 md:p-6 md:pt-4">
-							{#each maybeList as rsvp}
+							{#each previewList(maybeList, expandedLists.has("maybe")) as rsvp}
 								<div
 									class="panel-list-item flex items-center justify-between gap-3 rounded-xl border p-3 transition-all hover:shadow-md md:gap-4 md:p-4"
 								>
@@ -1079,14 +1120,17 @@
 										>
 									</div>
 									<button
-										class="flex-shrink-0 cursor-pointer border-none bg-none p-2 text-xl opacity-60 transition-opacity hover:opacity-100"
+										type="button"
+										class="inline-flex min-h-11 min-w-11 flex-shrink-0 cursor-pointer items-center justify-center border-none bg-none p-2 text-xl opacity-60 transition-opacity hover:opacity-100"
 										title="Edit {rsvp.name}'s RSVP"
+										aria-label="Edit {rsvp.name}'s RSVP"
 										onclick={() => promptForPin(rsvp.id)}
 									>
 										✏️
 									</button>
 								</div>
 							{/each}
+							{@render showAll("maybe", maybeList.length, "")}
 						</div>
 					</details>
 				{/if}
@@ -1104,7 +1148,7 @@
 							<span class="flex items-center gap-2">
 								<span
 									class="inline-flex h-6 w-6 items-center justify-center rounded-full text-sm"
-									style={`background-color: ${withAlpha(primaryColors[600], 0.65)}; color: white; box-shadow: 0 2px 8px ${withAlpha(primaryColors[600], 0.18)};`}
+									style={`background-color: ${withAlpha(primaryColors[700], 0.8)}; color: white; box-shadow: 0 2px 8px ${withAlpha(primaryColors[600], 0.18)};`}
 									>✗</span
 								>
 								Not Attending ({notAttendingList.length})
@@ -1112,7 +1156,7 @@
 							<span class="chevron-icon text-sm opacity-60">▼</span>
 						</summary>
 						<div class="panel-body event-section grid gap-3 p-4 pt-3 md:p-6 md:pt-4">
-							{#each notAttendingList as rsvp}
+							{#each previewList(notAttendingList, expandedLists.has("not-attending")) as rsvp}
 								<div
 									class="panel-list-item flex items-center justify-between gap-3 rounded-xl border p-3 transition-all hover:shadow-md md:gap-4 md:p-4"
 								>
@@ -1133,14 +1177,17 @@
 										>
 									</div>
 									<button
-										class="flex-shrink-0 cursor-pointer border-none bg-none p-2 text-xl opacity-60 transition-opacity hover:opacity-100"
+										type="button"
+										class="inline-flex min-h-11 min-w-11 flex-shrink-0 cursor-pointer items-center justify-center border-none bg-none p-2 text-xl opacity-60 transition-opacity hover:opacity-100"
 										title="Edit {rsvp.name}'s RSVP"
+										aria-label="Edit {rsvp.name}'s RSVP"
 										onclick={() => promptForPin(rsvp.id)}
 									>
 										✏️
 									</button>
 								</div>
 							{/each}
+							{@render showAll("not-attending", notAttendingList.length, "")}
 						</div>
 					</details>
 				{/if}
@@ -1262,15 +1309,16 @@
 								>
 									<span
 										class="inline-flex h-6 w-6 items-center justify-center rounded-full text-sm font-bold"
-										style={`background-color: ${primaryColors[600]}; color: white; box-shadow: 0 2px 8px ${withAlpha(primaryColors[600], 0.28)};`}
+										style={`background-color: ${primaryColors[700]}; color: white; box-shadow: 0 2px 8px ${withAlpha(primaryColors[600], 0.28)};`}
 										>✓</span
 									>
-									Attending ({attendingTrackEntries.length})
+									Attending ({attendingTrackEntries.length}
+									{attendingTrackEntries.length === 1 ? "song" : "songs"})
 								</h3>
 								<div class="panel-block-body px-5 py-4">
 									{#if attendingTrackEntries.length > 0}
 										<ul class="space-y-3">
-											{#each attendingTrackEntries as entry, index (entry.key)}
+											{#each previewList(attendingTrackEntries, expandedLists.has(`songs-${question.id}-attending`)) as entry, index (entry.key)}
 												<li
 													class="panel-list-item flex flex-col items-start gap-3 rounded-xl border p-3 transition-all hover:shadow-md sm:flex-row sm:items-center sm:gap-4 sm:p-4"
 												>
@@ -1320,14 +1368,19 @@
 															<span class="sm:hidden">{entry.contributor.split(" ")[0]}</span>
 														</span>
 														<span
-															class="flex-shrink-0 text-lg sm:text-xl"
-															style="color: {primaryColors[600]};"
+															class="song-note flex-shrink-0 text-lg sm:text-xl"
+															style="color: {primaryColors[700]};"
 															aria-hidden="true">♪</span
 														>
 													</div>
 												</li>
 											{/each}
 										</ul>
+										{@render showAll(
+											`songs-${question.id}-attending`,
+											attendingTrackEntries.length,
+											"mt-3",
+										)}
 									{:else}
 										<p class="text-sm italic text-gray-500">No songs yet from attendees.</p>
 									{/if}
@@ -1346,15 +1399,16 @@
 								>
 									<span
 										class="inline-flex h-6 w-6 items-center justify-center rounded-full text-sm font-bold"
-										style={`background-color: ${secondaryColors[600]}; color: white; box-shadow: 0 2px 8px ${withAlpha(secondaryColors[600], 0.24)};`}
+										style={`background-color: ${secondaryColors[700]}; color: white; box-shadow: 0 2px 8px ${withAlpha(secondaryColors[600], 0.24)};`}
 										>?</span
 									>
-									Maybe ({maybeTrackEntries.length})
+									Maybe ({maybeTrackEntries.length}
+									{maybeTrackEntries.length === 1 ? "song" : "songs"})
 								</h3>
 								<div class="panel-block-body px-5 py-4">
 									{#if maybeTrackEntries.length > 0}
 										<ul class="space-y-3">
-											{#each maybeTrackEntries as entry, index (entry.key)}
+											{#each previewList(maybeTrackEntries, expandedLists.has(`songs-${question.id}-maybe`)) as entry, index (entry.key)}
 												<li
 													class="panel-list-item flex flex-col items-start gap-3 rounded-xl border p-3 transition-all hover:shadow-md sm:flex-row sm:items-center sm:gap-4 sm:p-4"
 												>
@@ -1404,14 +1458,19 @@
 															<span class="sm:hidden">{entry.contributor.split(" ")[0]}</span>
 														</span>
 														<span
-															class="flex-shrink-0 text-lg sm:text-xl"
-															style="color: {primaryColors[600]};"
+															class="song-note flex-shrink-0 text-lg sm:text-xl"
+															style="color: {primaryColors[700]};"
 															aria-hidden="true">♪</span
 														>
 													</div>
 												</li>
 											{/each}
 										</ul>
+										{@render showAll(
+											`songs-${question.id}-maybe`,
+											maybeTrackEntries.length,
+											"mt-3",
+										)}
 									{:else}
 										<p class="text-sm italic text-gray-500">No songs yet from “Maybe” guests.</p>
 									{/if}
@@ -1430,15 +1489,16 @@
 								>
 									<span
 										class="inline-flex h-6 w-6 items-center justify-center rounded-full text-sm font-bold"
-										style={`background-color: ${withAlpha(primaryColors[600], 0.65)}; color: white; box-shadow: 0 2px 8px ${withAlpha(primaryColors[600], 0.18)};`}
+										style={`background-color: ${withAlpha(primaryColors[700], 0.8)}; color: white; box-shadow: 0 2px 8px ${withAlpha(primaryColors[600], 0.18)};`}
 										>✗</span
 									>
-									Not Attending ({notTrackEntries.length})
+									Not Attending ({notTrackEntries.length}
+									{notTrackEntries.length === 1 ? "song" : "songs"})
 								</h3>
 								<div class="panel-block-body px-5 py-4">
 									{#if notTrackEntries.length > 0}
 										<ul class="space-y-3">
-											{#each notTrackEntries as entry, index (entry.key)}
+											{#each previewList(notTrackEntries, expandedLists.has(`songs-${question.id}-not-attending`)) as entry, index (entry.key)}
 												<li
 													class="panel-list-item flex flex-col items-start gap-3 rounded-xl border p-3 transition-all hover:shadow-md sm:flex-row sm:items-center sm:gap-4 sm:p-4"
 												>
@@ -1488,14 +1548,19 @@
 															<span class="sm:hidden">{entry.contributor.split(" ")[0]}</span>
 														</span>
 														<span
-															class="flex-shrink-0 text-lg sm:text-xl"
-															style="color: {primaryColors[600]};"
+															class="song-note flex-shrink-0 text-lg sm:text-xl"
+															style="color: {primaryColors[700]};"
 															aria-hidden="true">♪</span
 														>
 													</div>
 												</li>
 											{/each}
 										</ul>
+										{@render showAll(
+											`songs-${question.id}-not-attending`,
+											notTrackEntries.length,
+											"mt-3",
+										)}
 									{:else}
 										<p class="text-sm italic text-gray-500">
 											No songs yet from guests marked “Not Attending”.
@@ -1518,7 +1583,7 @@
 								>
 									<span
 										class="inline-flex h-6 w-6 items-center justify-center rounded-full text-sm font-bold"
-										style={`background-color: ${primaryColors[600]}; color: white; box-shadow: 0 2px 8px ${withAlpha(primaryColors[600], 0.28)};`}
+										style={`background-color: ${primaryColors[700]}; color: white; box-shadow: 0 2px 8px ${withAlpha(primaryColors[600], 0.28)};`}
 										>✓</span
 									>
 									Attending ({attendingResponses.length})
@@ -1550,7 +1615,7 @@
 								>
 									<span
 										class="inline-flex h-6 w-6 items-center justify-center rounded-full text-sm font-bold"
-										style={`background-color: ${secondaryColors[600]}; color: white; box-shadow: 0 2px 8px ${withAlpha(secondaryColors[600], 0.25)};`}
+										style={`background-color: ${secondaryColors[700]}; color: white; box-shadow: 0 2px 8px ${withAlpha(secondaryColors[600], 0.25)};`}
 										>?</span
 									>
 									Maybe ({maybeResponses.length})
@@ -1582,7 +1647,7 @@
 								>
 									<span
 										class="inline-flex h-6 w-6 items-center justify-center rounded-full text-sm font-bold"
-										style={`background-color: ${withAlpha(primaryColors[600], 0.65)}; color: white; box-shadow: 0 2px 8px ${withAlpha(primaryColors[600], 0.18)};`}
+										style={`background-color: ${withAlpha(primaryColors[700], 0.8)}; color: white; box-shadow: 0 2px 8px ${withAlpha(primaryColors[600], 0.18)};`}
 										>✗</span
 									>
 									Not Attending ({notAttendingResponses.length})
@@ -1617,17 +1682,8 @@
 		role="button"
 		tabindex="0"
 		aria-label="Close PIN prompt"
-		onclick={() => {
-			editingRsvpId = "";
-			pinInput = "";
-			pinError = "";
-		}}
-		onkeydown={(event) =>
-			handleOverlayKeydown(event, () => {
-				editingRsvpId = "";
-				pinInput = "";
-				pinError = "";
-			})}
+		onclick={(event) => event.target === event.currentTarget && closePinPrompt()}
+		onkeydown={(event) => handleOverlayKeydown(event, closePinPrompt)}
 	>
 		<div
 			class="modal"
@@ -1635,18 +1691,11 @@
 			aria-modal="true"
 			aria-labelledby="pin-prompt-title"
 			tabindex="-1"
-			onclick={(event) => event.stopPropagation()}
-			onkeydown={(event) => event.key === "Escape" && event.stopPropagation()}
 		>
 			<div class="modal-header">
 				<h3 id="pin-prompt-title">Enter PIN</h3>
-				<button
-					class="close-btn"
-					onclick={() => {
-						editingRsvpId = "";
-						pinInput = "";
-						pinError = "";
-					}}>×</button
+				<button type="button" class="close-btn" aria-label="Close" onclick={closePinPrompt}
+					>×</button
 				>
 			</div>
 			<form
@@ -1684,17 +1733,7 @@
 				</label>
 				<div class="modal-actions">
 					<button type="submit" class="btn-primary">Unlock</button>
-					<button
-						type="button"
-						class="btn-secondary"
-						onclick={() => {
-							editingRsvpId = "";
-							pinInput = "";
-							pinError = "";
-						}}
-					>
-						Cancel
-					</button>
+					<button type="button" class="btn-secondary" onclick={closePinPrompt}>Cancel</button>
 				</div>
 			</form>
 		</div>
@@ -1708,12 +1747,8 @@
 		role="button"
 		tabindex="0"
 		aria-label="Close edit RSVP dialog"
-		onclick={closeEditModal}
-		onkeydown={(event) => {
-			if (event.key === "Escape") {
-				closeEditModal();
-			}
-		}}
+		onclick={(event) => event.target === event.currentTarget && closeEditModal()}
+		onkeydown={(event) => handleOverlayKeydown(event, closeEditModal)}
 	>
 		<div
 			class="modal large"
@@ -1721,12 +1756,12 @@
 			aria-modal="true"
 			aria-labelledby="edit-rsvp-title"
 			tabindex="-1"
-			onclick={(event) => event.stopPropagation()}
-			onkeydown={(event) => event.stopPropagation()}
 		>
 			<div class="modal-header">
 				<h3 id="edit-rsvp-title">Edit Your RSVP</h3>
-				<button class="close-btn" onclick={closeEditModal}>×</button>
+				<button type="button" class="close-btn" aria-label="Close" onclick={closeEditModal}
+					>×</button
+				>
 			</div>
 
 			{#if formType === "updateRsvp" && message && !success}
@@ -2052,12 +2087,8 @@
 		role="button"
 		tabindex="0"
 		aria-label="Close RSVP dialog"
-		onclick={closeRsvpModal}
-		onkeydown={(event) => {
-			if (event.key === "Escape") {
-				closeRsvpModal();
-			}
-		}}
+		onclick={(event) => event.target === event.currentTarget && closeRsvpModal()}
+		onkeydown={(event) => handleOverlayKeydown(event, closeRsvpModal)}
 	>
 		<div
 			class="modal large"
@@ -2065,12 +2096,12 @@
 			aria-modal="true"
 			aria-labelledby="create-rsvp-title"
 			tabindex="-1"
-			onclick={(event) => event.stopPropagation()}
-			onkeydown={(event) => event.stopPropagation()}
 		>
 			<div class="modal-header">
 				<h3 id="create-rsvp-title">RSVP to {event.title}</h3>
-				<button class="close-btn" onclick={closeRsvpModal}>×</button>
+				<button type="button" class="close-btn" aria-label="Close" onclick={closeRsvpModal}
+					>×</button
+				>
 			</div>
 
 			{#if formType === "rsvp" && message}
@@ -2082,7 +2113,11 @@
 				action="?/rsvp"
 				class="rsvp-form"
 				use:enhance={() => {
+					submittingRsvp = true;
+
 					return async ({ result, update }) => {
+						submittingRsvp = false;
+
 						const payload =
 							result.type === "success" ? (result.data as RsvpMutation | undefined) : undefined;
 
@@ -2398,7 +2433,9 @@
 				{/if}
 
 				<div class="modal-actions">
-					<button type="submit" class="btn-primary w-full">Confirm RSVP</button>
+					<button type="submit" class="btn-primary w-full" disabled={submittingRsvp}
+						>{submittingRsvp ? "Saving…" : "Confirm RSVP"}</button
+					>
 					<button type="button" class="btn-secondary w-full" onclick={closeRsvpModal}>Cancel</button
 					>
 				</div>
@@ -2737,6 +2774,15 @@
 
 	:global(.dark) .panel-list-item .text-dark-900 {
 		color: var(--event-text-primary-dark, #f4f3ff) !important;
+	}
+
+	:global(.dark) .index-badge,
+	:global(.dark) .song-note {
+		color: var(--event-text-muted-dark) !important;
+	}
+
+	:global(.dark) .success-banner strong {
+		color: var(--event-text-primary-dark) !important;
 	}
 
 	:global(.dark) .badge-status[data-tone="theme"] {
