@@ -351,9 +351,11 @@ FROM monitor m WHERE m.active = 1 ORDER BY m.name COLLATE NOCASE;`;
 			throw new TypeError("unexpected Kuma monitor row");
 		}
 
+		const name = stringOrNull(row.name)?.trim() ?? "";
+
 		return {
 			id: row.id,
-			name: stringOrNull(row.name)?.trim() || `Monitor ${String(row.id)}`,
+			name: name === "" ? `Monitor ${String(row.id)}` : name,
 			status: row.status,
 		};
 	});
@@ -425,6 +427,8 @@ export const buildDossier = async (): Promise<Dossier> => {
 	const solarNoonAt = timeOf(solarTimes.solarNoon);
 	const sunPosition = SunCalc.getPosition(new Date(now), lat, lon);
 	const moon = SunCalc.getMoonIllumination(new Date(now));
+	const kumaBase = process.env.KUMA_URL?.replace(/\/+$/, "") ?? "";
+	const kumaUrl = kumaBase === "" ? null : kumaBase;
 	const defaultServices = {
 		up: 0,
 		down: [],
@@ -512,7 +516,7 @@ export const buildDossier = async (): Promise<Dossier> => {
 			nextScheduledAt: nextBackupAt(now),
 			stale: backup.lastSuccessAt === null || now - backup.lastSuccessAt > BACKUP_STALE_AFTER_MS,
 		},
-		services: { ...services, kumaUrl: process.env.KUMA_URL?.replace(/\/+$/, "") || null },
+		services: { ...services, kumaUrl },
 		host,
 		mood,
 		debug: { errors },
