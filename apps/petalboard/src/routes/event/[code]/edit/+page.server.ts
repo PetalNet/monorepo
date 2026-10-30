@@ -5,7 +5,15 @@ import { error, fail, redirect } from "@sveltejs/kit";
 async function findEvent(code: string) {
 	const event = await prisma.event.findUnique({
 		where: { publicCode: code },
-		select: { id: true, title: true, publicCode: true },
+		select: {
+			id: true,
+			title: true,
+			publicCode: true,
+			emoji: true,
+			primaryColor: true,
+			secondaryColor: true,
+			backgroundImage: true,
+		},
 	});
 
 	if (!event) {
@@ -22,7 +30,14 @@ export const load = async ({ params, url, setHeaders }) => {
 	setHeaders({ "Referrer-Policy": "same-origin", "Cache-Control": "no-store" });
 
 	return {
-		event: { title: event.title, publicCode: event.publicCode },
+		event: {
+			title: event.title,
+			publicCode: event.publicCode,
+			emoji: event.emoji,
+			primaryColor: event.primaryColor,
+			secondaryColor: event.secondaryColor,
+			backgroundImage: event.backgroundImage,
+		},
 		token: url.searchParams.get("token") ?? "",
 	};
 };

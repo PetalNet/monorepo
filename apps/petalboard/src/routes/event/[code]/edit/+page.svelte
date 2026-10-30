@@ -1,7 +1,14 @@
 <script lang="ts">
+	import { applyEventTheme, eventTheme, withAlpha } from "$lib/eventTheme";
+
 	import type { ActionData, PageData } from "./$types";
 
 	const { data, form }: { data: PageData; form: ActionData | null } = $props();
+	const theme = $derived(eventTheme(data.event));
+	const gradient = (stop: 700 | 800) =>
+		`linear-gradient(135deg, ${theme.primaryColors[stop]}, ${theme.secondaryColors[stop]})`;
+
+	$effect(() => applyEventTheme(theme.themeVars, data.event));
 </script>
 
 <svelte:head>
@@ -27,7 +34,15 @@
 			<p class="mb-6 text-dark-700">Continue to open your RSVP on this browser.</p>
 			<form method="POST">
 				<input type="hidden" name="token" value={data.token} />
-				<button type="submit" class="btn-primary min-h-11">Continue</button>
+				<button
+					type="submit"
+					class="min-h-11 w-full rounded-xl px-6 py-3 text-base font-semibold text-white shadow-button transition-colors md:w-auto md:px-8"
+					style={`background: ${gradient(700)}; box-shadow: 0 14px 28px ${withAlpha(theme.primaryColors[600], 0.33)};`}
+					onmouseover={(e) => (e.currentTarget.style.background = gradient(800))}
+					onmouseout={(e) => (e.currentTarget.style.background = gradient(700))}
+					onfocus={(e) => (e.currentTarget.style.background = gradient(800))}
+					onblur={(e) => (e.currentTarget.style.background = gradient(700))}>Continue</button
+				>
 			</form>
 		{/if}
 	</section>
