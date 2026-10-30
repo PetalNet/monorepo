@@ -47,27 +47,37 @@ def live_rate_limits():
     # model call, no tokens spent. Rollouts only refresh when codex is used, so
     # an idle box would otherwise serve hours-old numbers. Returns the rollout
     # (snake_case) shape so the rest of the script is source-agnostic.
-    import subprocess
+    import queue, subprocess, threading
     reqs = [
         {'jsonrpc': '2.0', 'id': 1, 'method': 'initialize',
          'params': {'clientInfo': {'name': 'codex-usage', 'version': '1'}}},
         {'jsonrpc': '2.0', 'method': 'initialized'},
         {'jsonrpc': '2.0', 'id': 2, 'method': 'account/rateLimits/read'},
     ]
+    codex = os.environ.get('CODEX_BIN', 'codex')
     try:
-        proc = subprocess.Popen(['codex', 'app-server'], stdin=subprocess.PIPE,
+        proc = subprocess.Popen([codex, 'app-server'], stdin=subprocess.PIPE,
                                 stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, text=True)
-    except OSError:
+    except OSError as e:
+        print(f'codex-usage: live read unavailable ({e}); using rollouts', file=sys.stderr)
         return None
+    # A reader thread plus queue timeout gives a hard deadline without mixing
+    # select() on the fd with Python's buffered readline().
+    lines = queue.Queue()
+    def pump():
+        for line in proc.stdout:
+            lines.put(line)
+        lines.put(None)
+    threading.Thread(target=pump, daemon=True).start()
     try:
         proc.stdin.write(''.join(json.dumps(r) + '\n' for r in reqs)); proc.stdin.flush()
         deadline = time.time() + 20
-        import select
-        while time.time() < deadline:
-            if not select.select([proc.stdout], [], [], deadline - time.time())[0]:
+        while True:
+            try:
+                line = lines.get(timeout=max(0, deadline - time.time()))
+            except queue.Empty:
                 break
-            line = proc.stdout.readline()
-            if not line:
+            if line is None:
                 break
             try:
                 msg = json.loads(line)
@@ -77,7 +87,7 @@ def live_rate_limits():
                 continue
             rl = (msg.get('result') or {}).get('rateLimits')
             if not rl:
-                return None
+                break
             def win(w):
                 return w and {'used_percent': w.get('usedPercent'),
                               'window_minutes': w.get('windowDurationMins'),
@@ -88,9 +98,16 @@ def live_rate_limits():
                 'plan_type': rl.get('planType'),
                 'rate_limit_reached_type': rl.get('rateLimitReachedType'),
             }
-        return None
+    except OSError:
+        pass
     finally:
+        try:
+            proc.stdin.close()
+        except OSError:
+            pass
         proc.kill(); proc.wait()
+    print('codex-usage: live read failed; using rollouts', file=sys.stderr)
+    return None
 
 def current_rate_limits():
     rl = live_rate_limits()

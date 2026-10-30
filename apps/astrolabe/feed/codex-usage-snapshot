@@ -7,10 +7,11 @@
 # on the next fetch. Run via cron every ~5 min from a release checkout of main:
 #     */5 * * * * <release>/apps/astrolabe/feed/codex-usage-snapshot
 set -euo pipefail
-HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+HERE="$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")"
 OUT="${CODEX_USAGE_OUT:-/home/docker/.claude/shared/codex-usage.json}"
 TMP="$OUT.tmp.$$"
-if "$HERE/codex-usage" --json > "$TMP" 2>/dev/null && \
+trap 'rm -f "$TMP"' EXIT
+if "$HERE/codex-usage" --json > "$TMP" && \
    python3 -c "import json,sys; json.load(open(sys.argv[1]))" "$TMP" 2>/dev/null; then
     cat "$TMP" > "$OUT"   # in-place overwrite; preserves the mounted inode
     rm -f "$TMP"

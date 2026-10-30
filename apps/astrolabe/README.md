@@ -13,7 +13,7 @@ The server accepts the existing deployment paths through `USAGE_PATH`, `CODEX_US
 
 ## Codex usage feed
 
-`feed/codex-usage-snapshot` writes `CODEX_USAGE_PATH`'s file on the host (default `/home/docker/.claude/shared/codex-usage.json`, override with `CODEX_USAGE_OUT`). Cron on .14 runs it every 5 minutes from a release checkout of `main`. It calls `feed/codex-usage --json`, which asks OpenAI for live rate limits through `codex app-server` (`account/rateLimits/read`, no tokens spent) and falls back to the newest `~/.codex/sessions` rollout when that fails. The JSON fields match `src/lib/server/dossier.ts`.
+`feed/codex-usage-snapshot` writes `CODEX_USAGE_PATH`'s file on the host (default `/home/docker/.claude/shared/codex-usage.json`, override with `CODEX_USAGE_OUT`). Cron on .14 runs it every 5 minutes from a release checkout of `main`. It calls `feed/codex-usage --json`, which asks OpenAI for live rate limits through `codex app-server` (`account/rateLimits/read`, no tokens spent; `CODEX_BIN` overrides the binary) and falls back to the newest `~/.codex/sessions` rollout when that fails, with a warning on stderr. The JSON fields match `src/lib/server/dossier.ts`.
 
 ## Container
 
