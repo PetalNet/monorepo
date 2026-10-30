@@ -3,7 +3,6 @@
 /* Canonical PetalNet paper-ink tokens from design.petalcat.dev. */
 :root {
 	color-scheme: light dark;
-	--bg: #ffffff;
 	--surface: #f6f5f3;
 	--elev: #fbfaf9;
 	--rule: #ececea;
@@ -24,7 +23,6 @@
 
 @media (prefers-color-scheme: dark) {
 	:root {
-		--bg: #0d0c0b;
 		--surface: #161413;
 		--elev: #1d1b19;
 		--rule: #262321;
@@ -88,7 +86,7 @@ html {
    luminance alone, so the hue never shifts. */
 body {
 	background:
-		url("/stone.svg") 0 0 / 30rem 15rem,
+		url("./lib/assets/stone.svg") 0 0 / 30rem 15rem,
 		linear-gradient(135deg, var(--stone-lit), var(--stone-shade)) fixed;
 	background-color: var(--stone-shade);
 	color: var(--text);
@@ -522,6 +520,10 @@ h3 {
 	text-decoration: underline 1px var(--orloj-brass-deep);
 	text-underline-offset: 0.2em;
 	transition: text-decoration-thickness var(--t);
+}
+/* The page's petal focus ring vanishes on brass, so plate links take the engraving's ink. */
+.plate-section a:focus-visible {
+	outline-color: var(--orloj-engraved);
 }
 .plate-section a:hover {
 	text-decoration-thickness: 2px;

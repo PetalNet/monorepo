@@ -104,7 +104,13 @@
 				hand={weekAngle(now)}
 			/>
 		{:else}
-			<circle class="groove empty" r={ring.radius} stroke-width={WEEK_RINGS.width} />
+			<circle
+				class="groove empty"
+				r={ring.radius}
+				stroke-width={WEEK_RINGS.width}
+				role="img"
+				aria-label="{ring.reading.window.agent} {ring.reading.window.span}: no reading"
+			/>
 		{/if}
 	{/each}
 

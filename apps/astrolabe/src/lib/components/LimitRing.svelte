@@ -76,7 +76,7 @@
 		).format(epoch);
 	const spoken = $derived(
 		[
-			`${name}: ${reading.usedPct === null ? "no reading" : `${String(Math.round(reading.usedPct))}%`}`,
+			`${reading.window.agent} ${reading.window.span}: ${String(Math.round(reading.usedPct ?? 0))}% used`,
 			reading.runsOutAt === null ? null : `runs out ${at(reading.runsOutAt)}`,
 			reading.resetsAt === null ? null : `resets ${at(reading.resetsAt)}`,
 		]
@@ -120,7 +120,7 @@
 	{/if}
 	{#if lockout && lockout.sweep > 0}
 		<g class="lockout">
-			<title>Runs out</title>
+			<title>{reading.state === "limit-reached" ? "Limit reached" : "Runs out"}</title>
 			<path d={arcPath(lockout.from, lockout.sweep, outer + 0.6)} />
 			<path d={arcPath(lockout.from, lockout.sweep, inner - 0.6)} />
 			<line {...across(lockout.from, inner - 0.6, outer + 0.6)} />

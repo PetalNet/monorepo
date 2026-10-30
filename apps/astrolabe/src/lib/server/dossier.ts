@@ -345,17 +345,18 @@ FROM monitor m WHERE m.active = 1 ORDER BY m.name COLLATE NOCASE;`;
 		throw new TypeError("expected a JSON array of monitors");
 	}
 
-	const monitors = parsed.flatMap((row: unknown) =>
-		isRecord(row) && typeof row.id === "number" && typeof row.status === "number"
-			? [
-					{
-						id: row.id,
-						name: stringOrNull(row.name) ?? `Monitor ${String(row.id)}`,
-						status: row.status,
-					},
-				]
-			: [],
-	);
+	const monitors = parsed.map((row: unknown) => {
+		if (!isRecord(row) || typeof row.id !== "number" || typeof row.status !== "number") {
+			// A changed Kuma schema must read as stale, not as an empty and therefore "All up" lab.
+			throw new TypeError("unexpected Kuma monitor row");
+		}
+
+		return {
+			id: row.id,
+			name: stringOrNull(row.name)?.trim() || `Monitor ${String(row.id)}`,
+			status: row.status,
+		};
+	});
 	const asCount = (value: string): number => {
 		const count = Number(value);
 
