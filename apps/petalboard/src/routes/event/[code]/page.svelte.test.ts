@@ -1,6 +1,6 @@
 // @vitest-environment happy-dom
 import type { SubmitFunction } from "@sveltejs/kit";
-import { flushSync, mount, unmount } from "svelte";
+import { flushSync, mount, tick, unmount } from "svelte";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import type { ActionData, PageData } from "./$types";
@@ -137,7 +137,10 @@ function button(root: ParentNode, text: string): HTMLButtonElement {
 }
 
 function pressEscape(on: Element) {
-	on.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true }));
+	on.dispatchEvent(
+		new KeyboardEvent("keydown", { key: "Escape", bubbles: true, cancelable: true }),
+	);
+
 	flushSync();
 }
 
@@ -246,8 +249,100 @@ describe("event page dialogs", () => {
 	});
 });
 
+describe("event page dialog dismissal", () => {
+	it("keeps the RSVP dialog open for clicks and Space inside it", () => {
+		const target = render();
+
+		button(target, "RSVP Now").click();
+		flushSync();
+		const dialog = target.querySelector('[role="dialog"]');
+		const nameInput = dialog?.querySelector('input[name="name"]');
+
+		if (!dialog || !nameInput) {
+			throw new Error("RSVP dialog did not open");
+		}
+
+		dialog.querySelector("h3")?.click();
+
+		nameInput.dispatchEvent(
+			new KeyboardEvent("keydown", { key: " ", bubbles: true, cancelable: true }),
+		);
+
+		nameInput.dispatchEvent(
+			new KeyboardEvent("keydown", { key: "Enter", bubbles: true, cancelable: true }),
+		);
+
+		flushSync();
+
+		expect(target.querySelector('[role="dialog"]')).toBe(dialog);
+	});
+
+	it("closes the RSVP dialog when the backdrop itself is clicked", () => {
+		const target = render();
+
+		button(target, "RSVP Now").click();
+		flushSync();
+		target.querySelector<HTMLElement>(".modal-backdrop")?.click();
+		flushSync();
+
+		expect(target.querySelector('[role="dialog"]')).toBeNull();
+	});
+
+	it("lets Escape in the song search close only the results, not the RSVP", async () => {
+		vi.useFakeTimers();
+
+		vi.stubGlobal(
+			"fetch",
+			vi.fn(async () =>
+				Response.json({
+					tracks: {
+						items: [
+							{
+								id: "f1",
+								name: "Found Song",
+								uri: "spotify:track:f1",
+								artists: [{ name: "Band" }],
+								album: { name: "Album", images: [] },
+							},
+						],
+					},
+				}),
+			),
+		);
+
+		try {
+			const target = render();
+
+			button(target, "RSVP Now").click();
+			flushSync();
+
+			const search = target.querySelector<HTMLInputElement>(
+				'[role="dialog"] input[placeholder^="Search for a song"]',
+			);
+
+			if (!search) {
+				throw new Error("no song search");
+			}
+
+			search.value = "found";
+			search.dispatchEvent(new Event("input", { bubbles: true }));
+			await vi.advanceTimersByTimeAsync(400);
+			flushSync();
+
+			expect(target.textContent).toContain("Found Song");
+			pressEscape(search);
+
+			expect(target.querySelector('[role="dialog"]')).not.toBeNull();
+			expect(target.textContent).not.toContain("Found Song");
+		} finally {
+			vi.useRealTimers();
+			vi.unstubAllGlobals();
+		}
+	});
+});
+
 describe("event page lists", () => {
-	it("shows the first 8 guests until Show all is pressed", () => {
+	it("shows the first 8 guests until Show all is pressed, then focuses the first revealed guest", async () => {
 		const target = render();
 		const panel = target.querySelector("details.tone-attending");
 
@@ -257,16 +352,18 @@ describe("event page lists", () => {
 
 		expect(panel.querySelectorAll(".panel-list-item")).toHaveLength(8);
 		button(panel, `Show all ${guestNames.length}`).click();
-		flushSync();
+		await tick();
+		await tick();
 
 		expect(panel.querySelectorAll(".panel-list-item")).toHaveLength(guestNames.length);
+		expect(document.activeElement).toBe(panel.querySelectorAll(".panel-list-item button")[8]);
 
 		expect(
 			[...panel.querySelectorAll("button")].some((b) => b.textContent.startsWith("Show all")),
 		).toBe(false);
 	});
 
-	it("labels the song list as songs and shows the first 8 until Show all", () => {
+	it("labels the song list as songs and shows the first 8 until Show all, then focuses the first revealed song", async () => {
 		const target = render();
 		const block = target.querySelector(".panel-block.tone-attending");
 
@@ -280,9 +377,11 @@ describe("event page lists", () => {
 
 		expect(block.querySelectorAll("li")).toHaveLength(8);
 		button(block, `Show all ${guestNames.length}`).click();
-		flushSync();
+		await tick();
+		await tick();
 
 		expect(block.querySelectorAll("li")).toHaveLength(guestNames.length);
+		expect(document.activeElement).toBe(block.querySelectorAll("li")[8]);
 	});
 });
 
@@ -297,6 +396,11 @@ describe("event page banners", () => {
 		const banner = heading?.closest<HTMLElement>("[style*='background-color']");
 
 		expect(banner?.style.backgroundColor).toBeTruthy();
-		expect(banner?.style.borderLeftWidth).toBe(banner?.style.borderRightWidth);
+
+		expect(
+			["Top", "Right", "Bottom", "Left"].map((side) =>
+				banner?.style.getPropertyValue(`border-${side.toLowerCase()}-width`),
+			),
+		).toEqual(["1px", "1px", "1px", "1px"]);
 	});
 });

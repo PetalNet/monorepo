@@ -653,7 +653,7 @@
 	}
 
 	function closeTopDialog(event: KeyboardEvent) {
-		if (event.key !== "Escape" || event.defaultPrevented) {
+		if (event.key !== "Escape" || event.defaultPrevented || event.isComposing) {
 			return;
 		}
 
@@ -807,6 +807,27 @@
 		pinError = "";
 	}
 
+	async function expandList(key: string, button: HTMLElement) {
+		const list = button.parentElement;
+
+		expandedLists.add(key);
+		await tick();
+		const revealed = list?.querySelectorAll<HTMLElement>(".panel-list-item")[LIST_PREVIEW_SIZE];
+
+		if (!revealed) {
+			return;
+		}
+
+		const control = revealed.querySelector<HTMLElement>("a[href], button");
+
+		if (control) {
+			control.focus();
+		} else {
+			revealed.tabIndex = -1;
+			revealed.focus();
+		}
+	}
+
 	function closePinPrompt() {
 		editingRsvpId = "";
 		pinInput = "";
@@ -855,7 +876,7 @@
 		<button
 			type="button"
 			class="btn-secondary w-full {extraClass}"
-			onclick={() => expandedLists.add(key)}>Show all {total}</button
+			onclick={(event) => expandList(key, event.currentTarget)}>Show all {total}</button
 		>
 	{/if}
 {/snippet}
@@ -2777,12 +2798,9 @@
 	}
 
 	:global(.dark) .index-badge,
-	:global(.dark) .song-note {
-		color: var(--event-text-muted-dark) !important;
-	}
-
+	:global(.dark) .song-note,
 	:global(.dark) .success-banner strong {
-		color: var(--event-text-primary-dark) !important;
+		color: var(--event-primary-100) !important;
 	}
 
 	:global(.dark) .badge-status[data-tone="theme"] {
