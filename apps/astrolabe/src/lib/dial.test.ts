@@ -23,7 +23,7 @@ beforeAll(() => {
 /** Places a window on a dial and returns the dial points as absolute angles. */
 const place = (startsAt: number, resetsAt: number, now: number, scale: DialScale, usedPct = 40) => {
 	const geometry = windowGeometry(
-		{ startsAt, resetsAt, usedPct, projectedPct: null, runsOutAt: null },
+		{ startsAt, resetsAt, usedPct, projectedPct: null, lockoutAt: null },
 		scale,
 	);
 
@@ -97,7 +97,7 @@ describe("window geometry without DST", () => {
 				resetsAt,
 				usedPct: 51,
 				projectedPct: 160,
-				runsOutAt: null,
+				lockoutAt: null,
 			},
 			WEEK_SCALE,
 		);
@@ -109,7 +109,7 @@ describe("window geometry without DST", () => {
 	it("places nothing for a window without a reset", () => {
 		expect(
 			windowGeometry(
-				{ startsAt: null, resetsAt: null, usedPct: 3, projectedPct: null, runsOutAt: null },
+				{ startsAt: null, resetsAt: null, usedPct: 3, projectedPct: null, lockoutAt: null },
 				DAY_SCALE,
 			),
 		).toBeNull();
@@ -173,7 +173,7 @@ describe("groove", () => {
 				resetsAt,
 				usedPct: 55,
 				projectedPct: null,
-				runsOutAt: null,
+				lockoutAt: null,
 			},
 			WEEK_SCALE,
 		);
@@ -185,7 +185,7 @@ describe("groove", () => {
 	it("runs a 5-hour window's groove only from its start to its reset", () => {
 		const resetsAt = at("2026-10-29T20:10:00Z");
 		const geometry = windowGeometry(
-			{ startsAt: resetsAt - 5 * HOUR, resetsAt, usedPct: 21, projectedPct: null, runsOutAt: null },
+			{ startsAt: resetsAt - 5 * HOUR, resetsAt, usedPct: 21, projectedPct: null, lockoutAt: null },
 			DAY_SCALE,
 		);
 

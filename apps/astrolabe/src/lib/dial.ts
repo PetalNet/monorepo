@@ -188,8 +188,12 @@ export interface WindowGeometry {
 	fill: number;
 	/** Sweep to where the burn rate lands, capped at the reset. */
 	projection: number | null;
-	/** Angle of the moment the burn rate hits 100%. */
-	runsOut: number | null;
+	/**
+	 * The stretch the limit is spent for, as sweeps from the start, clamped inside the groove. When
+	 * the clocks go back the reset can sit behind the start of the stretch on the dial, and it is
+	 * empty.
+	 */
+	lockout: { from: number; sweep: number } | null;
 }
 
 /**
@@ -202,7 +206,7 @@ export const windowGeometry = (
 		resetsAt: number | null;
 		usedPct: number | null;
 		projectedPct: number | null;
-		runsOutAt: number | null;
+		lockoutAt: number | null;
 	},
 	scale: DialScale,
 ): WindowGeometry | null => {
@@ -218,6 +222,17 @@ export const windowGeometry = (
 		localMinutesBetween(startsAt, Math.min(Math.max(epoch, startsAt), resetsAt)) *
 		scale.degreesPerMinute;
 
+	const lockout = () => {
+		if (window.lockoutAt === null) {
+			return null;
+		}
+
+		const reset = sweepTo(resetsAt);
+		const from = Math.min(sweepTo(window.lockoutAt), reset);
+
+		return { from, sweep: reset - from };
+	};
+
 	return {
 		start: scale.angle(startsAt),
 		reset: sweepTo(resetsAt),
@@ -225,6 +240,6 @@ export const windowGeometry = (
 			((resetsAt - startsAt) / 60_000) * scale.degreesPerMinute >= 360 ? 360 : sweepTo(resetsAt),
 		fill: window.usedPct === null ? 0 : sweepTo(instantAt(window.usedPct)),
 		projection: window.projectedPct === null ? null : sweepTo(instantAt(window.projectedPct)),
-		runsOut: window.runsOutAt === null ? null : scale.angle(window.runsOutAt),
+		lockout: lockout(),
 	};
 };

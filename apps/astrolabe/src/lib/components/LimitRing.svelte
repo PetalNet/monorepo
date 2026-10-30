@@ -1,12 +1,5 @@
 <script lang="ts">
-	import {
-		arcPath,
-		clockwise,
-		polar,
-		tangentRotation,
-		usageLabelAt,
-		type WindowGeometry,
-	} from "$lib/dial";
+	import { arcPath, polar, tangentRotation, usageLabelAt, type WindowGeometry } from "$lib/dial";
 	import type { LimitReading } from "$lib/limits";
 
 	let {
@@ -30,7 +23,6 @@
 	const startDeg = $derived(geometry.start);
 	const arcDeg = $derived(geometry.reset);
 	const fillSweep = $derived(geometry.fill);
-	const runsOutDeg = $derived(geometry.runsOut);
 	// The usage figure sits at the end of the fill. The projection is the plaque's job.
 	const usage = $derived.by(() => {
 		if (reading.usedPct === null) {
@@ -56,13 +48,11 @@
 		return { text, inside: spot.inside, x: at.x, y: at.y, rotate: tangentRotation(spot.angle) };
 	});
 	const resetDeg = $derived(startDeg + arcDeg);
-	// Red marks only the stretch the limit is projected to be spent, up to the reset: from the
-	// runs-out point, or from now once the limit is reached.
-	const lockoutFrom = $derived(
-		reading.state === "limit-reached" ? hand : reading.state === "overshoot" ? runsOutDeg : null,
-	);
+	// Red marks only the stretch the limit is spent for, up to the reset.
 	const lockout = $derived(
-		lockoutFrom === null ? null : { from: lockoutFrom, sweep: clockwise(lockoutFrom, resetDeg) },
+		geometry.lockout === null
+			? null
+			: { from: startDeg + geometry.lockout.from, sweep: geometry.lockout.sweep },
 	);
 	const name = $derived(
 		`${reading.window.agent} ${reading.window.span === "5-hour" ? "5h" : "7d"}`,

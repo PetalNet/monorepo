@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { afterAll, beforeAll, describe, expect, it } from "vitest";
 
 import { DAY_SCALE, windowGeometry } from "./dial.js";
 import { limitWindowsFrom, readLimit, type LimitWindow } from "./limits.js";
@@ -140,5 +140,53 @@ describe("burn-rate projection", () => {
 		expect(readLimit(byId("claude-5h"), at("2026-10-29T20:11:00Z")).state).toBe(
 			"reset-since-reading",
 		);
+	});
+});
+
+describe("red span when the clocks go back", () => {
+	let zone: string | undefined;
+
+	beforeAll(() => {
+		zone = process.env.TZ;
+		process.env.TZ = "America/New_York";
+	});
+
+	afterAll(() => {
+		process.env.TZ = zone;
+	});
+
+	// 01:30 EDT, in the repeated hour; the 5-hour window resets at 01:15 EST, 45 real minutes later.
+	const spentAt = at("2026-11-01T05:30:00Z");
+	const resetsAt = at("2026-11-01T06:15:00Z");
+	const spent: LimitWindow = {
+		id: "claude-5h",
+		agent: "Claude",
+		span: "5-hour",
+		usedPct: 100,
+		resetsAt,
+		observedAt: spentAt,
+		credits: null,
+		blockedBy: null,
+	};
+
+	it("stays inside the window instead of wrapping into a near-full turn", () => {
+		const reading = readLimit(spent, spentAt);
+		const geometry = windowGeometry(reading, DAY_SCALE);
+
+		expect(reading.state).toBe("limit-reached");
+		expect(geometry?.groove).toBe(60);
+		// 45 real minutes are at most 11.25 degrees of the day dial, and the span ends at the reset.
+		expect(geometry?.lockout?.sweep).toBeGreaterThanOrEqual(0);
+		expect(geometry?.lockout?.sweep).toBeLessThanOrEqual(11.25);
+		expect((geometry?.lockout?.from ?? 0) + (geometry?.lockout?.sweep ?? 0)).toBe(geometry?.reset);
+	});
+
+	it("still spans now to the reset on an ordinary day", () => {
+		const geometry = windowGeometry(
+			readLimit({ ...spent, resetsAt: at("2026-11-02T06:15:00Z") }, at("2026-11-02T05:30:00Z")),
+			DAY_SCALE,
+		);
+
+		expect(geometry?.lockout?.sweep).toBeCloseTo(11.25, 6);
 	});
 });
