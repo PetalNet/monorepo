@@ -45,7 +45,7 @@ export const eventSchema = z.object({
 });
 
 export const questionSchema = z.object({
-	type: z.enum(["text", "multiple_choice", "checkbox", "slots", "spotify_playlist"]),
+	type: z.enum(["text", "multiple_choice", "checkbox", "slots", "spotify_playlist", "potluck"]),
 	label: z.string().trim().min(2, "Question text is required"),
 	description: optionalText(z.string().max(2000)),
 	required: z

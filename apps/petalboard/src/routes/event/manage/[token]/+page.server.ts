@@ -1,3 +1,5 @@
+import { parsePotluckConfig, potluckConfigSchema } from "$lib/potluck";
+import { potluckView } from "$lib/server/potluck";
 import { prisma } from "$lib/server/prisma";
 import { eventSchema, questionSchema } from "$lib/server/validation";
 import { parseLocalDateTimeInTimezone } from "$lib/utils/timezones";
@@ -8,6 +10,36 @@ const questionUpdateSchema = questionSchema.extend({
 	questionId: z.string().cuid(),
 });
 const questionTargetSchema = z.object({ questionId: z.string().cuid() });
+const potluckOverrideSchema = z.object({
+	questionId: z.string().cuid(),
+	categoryId: z.string().min(1),
+	forceOpen: z.enum(["true", "false"]).transform((v) => v === "true"),
+});
+
+function parsePotluckField(type: string, raw: string | undefined) {
+	if (type !== "potluck") {
+		return { ok: true, value: null } as const;
+	}
+
+	let json: unknown;
+
+	try {
+		json = JSON.parse(raw ?? "");
+	} catch {
+		return { ok: false, errors: { potluckConfig: ["Add the dish categories"] } } as const;
+	}
+
+	const parsed = potluckConfigSchema.safeParse(json);
+
+	if (!parsed.success) {
+		return {
+			ok: false,
+			errors: { potluckConfig: parsed.error.issues.map((i) => i.message) },
+		} as const;
+	}
+
+	return { ok: true, value: JSON.stringify(parsed.data) } as const;
+}
 
 async function getEventId(token: string) {
 	const event = await prisma.event.findUnique({
@@ -54,8 +86,13 @@ export const load = async ({ params, locals }) => {
 					isPublic: true,
 					spotifyPlaylistId: true,
 					songsPerUser: true,
+					potluckConfig: true,
 					order: true,
 					_count: { select: { responses: true } },
+					responses: {
+						where: { question: { type: "potluck" } },
+						select: { value: true, rsvp: { select: { name: true, status: true } } },
+					},
 				},
 			},
 			rsvps: {
@@ -124,6 +161,9 @@ export const load = async ({ params, locals }) => {
 				responseCount: question._count.responses,
 				spotifyPlaylistId: question.spotifyPlaylistId ?? null,
 				songsPerUser: question.songsPerUser ?? null,
+				potluck: question.potluckConfig
+					? potluckView(question.potluckConfig, question.responses, true)
+					: null,
 			})),
 		},
 		rsvps: event.rsvps.map((rsvp) => ({
@@ -135,6 +175,7 @@ export const load = async ({ params, locals }) => {
 			createdAt: rsvp.createdAt,
 			responses: rsvp.responses.map(
 				(r: { questionId: string; value: string; question: { label: string; type: string } }) => ({
+					questionId: r.questionId,
 					questionLabel: r.question.label,
 					questionType: r.question.type,
 					value: r.value,
@@ -212,6 +253,16 @@ export const actions = {
 		}
 
 		const { type, label, description, required, options, quantity, isPublic } = parsed.data;
+		const potluck = parsePotluckField(type, raw.potluckConfig);
+
+		if (!potluck.ok) {
+			return fail(400, {
+				success: false,
+				errors: potluck.errors,
+				values: raw,
+				type: "addQuestion",
+			});
+		}
 
 		// Extract Spotify-specific fields
 		const spotifyPlaylistId = raw.spotifyPlaylistId || null;
@@ -243,6 +294,7 @@ export const actions = {
 				isPublic: isPublic ?? false,
 				spotifyPlaylistId,
 				songsPerUser,
+				potluckConfig: potluck.value,
 				order: (maxOrder?.order ?? -1) + 1,
 				eventId,
 			},
@@ -257,6 +309,7 @@ export const actions = {
 				isPublic: true,
 				spotifyPlaylistId: true,
 				songsPerUser: true,
+				potluckConfig: true,
 				order: true,
 				_count: { select: { responses: true } },
 			},
@@ -268,6 +321,7 @@ export const actions = {
 			question: {
 				...question,
 				responseCount: question._count.responses,
+				potluck: question.potluckConfig ? potluckView(question.potluckConfig, [], true) : null,
 			},
 		} as const;
 	},
@@ -288,6 +342,16 @@ export const actions = {
 
 		const { questionId, type, label, description, required, options, quantity, isPublic } =
 			parsed.data;
+		const potluck = parsePotluckField(type, raw.potluckConfig);
+
+		if (!potluck.ok) {
+			return fail(400, {
+				success: false,
+				errors: potluck.errors,
+				values: raw,
+				type: "updateQuestion",
+			});
+		}
 
 		// Spotify-specific fields from form
 		const spotifyPlaylistId = raw.spotifyPlaylistId || null;
@@ -324,11 +388,67 @@ export const actions = {
 				quantity: quantity ?? null,
 				spotifyPlaylistId,
 				songsPerUser,
+				potluckConfig: potluck.value,
 				isPublic: isPublic ?? false,
 			},
 		});
 
 		return { success: true, type: "updateQuestion" } as const;
+	},
+	setPotluckOverride: async ({ params, request }) => {
+		const eventId = await getEventId(params.token);
+		const parsed = potluckOverrideSchema.safeParse(Object.fromEntries(await request.formData()));
+
+		if (!parsed.success) {
+			return fail(400, { success: false, message: "Invalid request.", type: "setPotluckOverride" });
+		}
+
+		const { questionId, categoryId, forceOpen } = parsed.data;
+		const updated = await prisma.$transaction(async (tx) => {
+			const question = await tx.question.findFirst({
+				where: { id: questionId, eventId, type: "potluck" },
+				select: { potluckConfig: true },
+			});
+
+			if (!question?.potluckConfig) {
+				return null;
+			}
+
+			const config = parsePotluckConfig(question.potluckConfig);
+
+			if (!config.categories.some((c) => c.id === categoryId)) {
+				return null;
+			}
+
+			const next = {
+				...config,
+				categories: config.categories.map((c) => (c.id === categoryId ? { ...c, forceOpen } : c)),
+			};
+
+			return tx.question.update({
+				where: { id: questionId },
+				data: { potluckConfig: JSON.stringify(next) },
+				select: {
+					potluckConfig: true,
+					responses: { select: { value: true, rsvp: { select: { name: true, status: true } } } },
+				},
+			});
+		});
+
+		if (!updated?.potluckConfig) {
+			return fail(404, {
+				success: false,
+				message: "Category not found.",
+				type: "setPotluckOverride",
+			});
+		}
+
+		return {
+			success: true,
+			type: "setPotluckOverride",
+			questionId,
+			potluck: potluckView(updated.potluckConfig, updated.responses, true),
+		} as const;
 	},
 	deleteQuestion: async ({ params, request }) => {
 		const eventId = await getEventId(params.token);

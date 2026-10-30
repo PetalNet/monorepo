@@ -1,7 +1,10 @@
 <script lang="ts">
 	import { enhance } from "$app/forms";
 	import { env } from "$env/dynamic/public";
+	import PotluckField from "$lib/components/PotluckField.svelte";
 	import SpotifySongSelector from "$lib/components/SpotifySongSelector.svelte";
+	import { directionsUrl, headcount } from "$lib/eventDetails";
+	import { parsePotluckAnswer, slotStatuses, type PotluckView } from "$lib/potluck";
 	import { formatDate, formatShortDate } from "$lib/utils/format";
 	import { loadGoogleMaps } from "$lib/utils/googleMaps";
 	import { renderMarkdown } from "$lib/utils/markdown";
@@ -429,6 +432,14 @@
 		Object.fromEntries(event.questions.map((q: any) => [q.id, q.responseCount])),
 	);
 
+	const people = $derived(headcount(rsvps));
+	const potluckViews = $derived<Record<string, PotluckView>>(
+		Object.fromEntries(event.questions.flatMap((q: any) => (q.potluck ? [[q.id, q.potluck]] : []))),
+	);
+	const potluckRejection = $derived<{ questionId: string; offered: string[] } | null>(
+		(form as any)?.potluck ?? null,
+	);
+
 	const errors = $derived<Record<string, string[]>>(
 		(form?.errors ?? {}) as Record<string, string[]>,
 	);
@@ -820,6 +831,12 @@
 				<div class="mb-4 flex flex-col gap-2">
 					<p class="m-0 text-sm text-dark-700 md:text-base">
 						📅 {formatDate(event.date, event.timezone)}
+						<a
+							class="ml-1 whitespace-nowrap font-semibold underline"
+							style="color: {primaryColors[700]};"
+							href="/event/{event.publicCode}/calendar.ics"
+							download>Add to calendar</a
+						>
 					</p>
 					{#if event.endDate}
 						<p class="m-0 text-sm text-dark-700 md:text-base">
@@ -828,7 +845,16 @@
 					{/if}
 					{#if event.location}
 						<div class="flex flex-col gap-3">
-							<p class="m-0 break-words text-sm text-dark-700 md:text-base">📍 {event.location}</p>
+							<p class="m-0 break-words text-sm text-dark-700 md:text-base">
+								📍 {event.location}
+								<a
+									class="ml-1 whitespace-nowrap font-semibold underline"
+									style="color: {primaryColors[700]};"
+									href={directionsUrl(event.location)}
+									target="_blank"
+									rel="noreferrer">Directions</a
+								>
+							</p>
 							{#if env.PUBLIC_GOOGLE_MAPS_API_KEY && env.PUBLIC_GOOGLE_MAPS_API_KEY !== "your-google-maps-api-key"}
 								<div
 									class="h-[200px] w-full overflow-hidden rounded-xl shadow-card"
@@ -837,6 +863,11 @@
 							{/if}
 						</div>
 					{/if}
+					<p class="m-0 text-sm text-dark-700 md:text-base">
+						👥 {people.coming}
+						{people.coming === 1 ? "person" : "people"} coming{#if people.maybe > 0}, {people.maybe}
+							maybe{/if}
+					</p>
 				</div>
 				{#if event.description}
 					<div
@@ -1113,6 +1144,67 @@
 			</div>
 		</section>
 	{/if}
+
+	{#each event.questions.filter((q: any) => potluckViews[q.id]) as question (question.id)}
+		{@const view = potluckViews[question.id]}
+		<section class="card event-card mb-8">
+			<div
+				class="mb-6 flex flex-col gap-3 border-b pb-4 md:flex-row md:items-center md:justify-between md:gap-4"
+				style="border-color: {primaryColors[600]}20;"
+			>
+				<h2 class="m-0 text-xl font-bold text-dark-900 md:text-2xl">{question.label}</h2>
+				<span
+					class="badge-status"
+					data-tone="theme"
+					style="background-color: {primaryColors[100]}; color: {primaryColors[800]};"
+				>
+					{view.taken.length}
+					{view.taken.length === 1 ? "dish" : "dishes"}
+				</span>
+			</div>
+			{#if view.config.providing}
+				<p class="m-0 mb-4 text-sm text-dark-700 md:text-base">
+					<strong>Hosts are providing:</strong>
+					{view.config.providing}
+				</p>
+			{/if}
+			<ul class="m-0 flex list-none flex-col gap-4 p-0">
+				{#each slotStatuses(view.config, view.counts) as slot (slot.category.id)}
+					{@const dishes = view.taken.filter((t) => t.category === slot.category.id)}
+					<li>
+						<div class="flex items-center justify-between gap-3">
+							<strong class="text-sm text-dark-900 md:text-base">{slot.category.label}</strong>
+							<span class="flex items-center gap-2 text-sm text-dark-600">
+								{slot.count}
+								{#if slot.status === "needed-most"}
+									<span
+										class="badge-status px-3 py-1 text-xs"
+										data-tone="theme"
+										style="background-color: {primaryColors[100]}; color: {primaryColors[800]};"
+										>Needed most</span
+									>
+								{:else if slot.status === "full"}
+									<span
+										class="badge-status px-3 py-1 text-xs"
+										data-tone="theme"
+										style="background-color: transparent; color: {primaryColors[800]}; border: 1px solid {withAlpha(
+											primaryColors[600],
+											0.3,
+										)};">Full for now</span
+									>
+								{/if}
+							</span>
+						</div>
+						{#if dishes.length > 0}
+							<p class="m-0 mt-1 text-sm text-dark-700">
+								{dishes.map((d) => (d.name ? `${d.dish} (${d.name})` : d.dish)).join(", ")}
+							</p>
+						{/if}
+					</li>
+				{/each}
+			</ul>
+		</section>
+	{/each}
 
 	<!-- Public Question Responses (All Types - In Creation Order) -->
 	{#if event.questions.some((q: any) => q.isPublic && q.publicResponses && q.publicResponses.length > 0)}
@@ -1840,6 +1932,20 @@
 											>
 										{/if}
 									</label>
+								{:else if question.type === "potluck" && potluckViews[question.id]}
+									<PotluckField
+										questionId={question.id}
+										label={question.label}
+										description={question.description}
+										required={question.required}
+										view={potluckViews[question.id]}
+										value={responses[question.id] ?? ""}
+										ownAnswer={parsePotluckAnswer(editingRsvp.responses?.[question.id])}
+										offeredOverride={potluckRejection?.questionId === question.id
+											? potluckRejection.offered
+											: null}
+										onchange={(raw) => (responses[question.id] = raw)}
+									/>
 								{:else if question.type === "spotify_playlist"}
 									<div class="form-label">
 										<span>{question.label}{question.required ? " *" : ""}</span>
@@ -2228,6 +2334,19 @@
 											>
 										{/if}
 									</label>
+								{:else if question.type === "potluck" && potluckViews[question.id]}
+									<PotluckField
+										questionId={question.id}
+										label={question.label}
+										description={question.description}
+										required={question.required}
+										view={potluckViews[question.id]}
+										value={responses[question.id] ?? ""}
+										offeredOverride={potluckRejection?.questionId === question.id
+											? potluckRejection.offered
+											: null}
+										onchange={(raw) => (responses[question.id] = raw)}
+									/>
 								{:else if question.type === "spotify_playlist"}
 									<div class="form-label">
 										<span>

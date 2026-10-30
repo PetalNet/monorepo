@@ -61,7 +61,7 @@ model Question {
   id                 String     @id @default(cuid())
   eventId            String
   event              Event      @relation(fields: [eventId], references: [id], onDelete: Cascade)
-  type               String     // "text", "multiple_choice", "checkbox", "slots", "spotify_playlist"
+  type               String     // "text", "multiple_choice", "checkbox", "slots", "spotify_playlist", "potluck"
   label              String
   description        String?
   required           Boolean    @default(false)
@@ -72,6 +72,7 @@ model Question {
   isPublic           Boolean    @default(false) // If true, responses are visible to all attendees
   spotifyPlaylistId  String?    // Spotify playlist ID for spotify_playlist type questions
   songsPerUser       Int?       // Max number of songs each user can add (for spotify_playlist type)
+  potluckConfig      String?    // JSON PotluckConfig (src/lib/potluck.ts) for potluck type questions
   responses          Response[]
   createdAt          DateTime   @default(now())
   updatedAt          DateTime   @updatedAt
