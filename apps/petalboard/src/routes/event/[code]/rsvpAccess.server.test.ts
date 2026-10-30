@@ -222,7 +222,13 @@ describe("passwordless RSVP access", () => {
 		);
 
 		expect(result.status).toBe(409);
-		expect(result.data.alreadyRegistered).toBe(true);
+		expect(result.data).toStrictEqual({
+			success: false,
+			type: "rsvp",
+			alreadyRegistered: true,
+			message:
+				"You're already on the list. Check your email for a link to edit your RSVP, or use Edit my RSVP to get a new one.",
+		});
 		expect(await prisma.rsvp.findMany({ where: { eventId } })).toStrictEqual([before]);
 		expect(stranger.size).toBe(0);
 

@@ -983,8 +983,8 @@
 		>
 			<h2 class="mb-2 text-xl font-bold">✅ You're all set!</h2>
 			<p class="mb-0">
-				We emailed you a confirmation with a link to edit your RSVP. This browser can also edit it
-				any time with Edit my RSVP.
+				Check your email for a confirmation with a link to edit your RSVP. This browser can also
+				edit it any time with Edit my RSVP.
 			</p>
 		</div>
 	{/if}

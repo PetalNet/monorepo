@@ -344,7 +344,8 @@ async function syncSpotifyPlaylists(eventId: string) {
 	}
 }
 
-const ALREADY_REGISTERED = "You're already on the list. We emailed you a link to edit your RSVP.";
+const ALREADY_REGISTERED =
+	"You're already on the list. Check your email for a link to edit your RSVP, or use Edit my RSVP to get a new one.";
 const ACCESS_EXPIRED = "Your edit access has expired. Use Edit my RSVP to get a new link.";
 const STALE_PAGE = "This page is out of date. Reload to edit your current RSVP.";
 const LINK_SENT =
