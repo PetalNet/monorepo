@@ -1,0 +1,195 @@
+#!/usr/bin/env python3
+# codex-usage — read Codex's ACTUAL rate-limit usage straight from OpenAI's API
+# data. The Codex CLI records the API's rate_limits snapshot in every session
+# rollout (~/.codex/sessions/**/*.jsonl). It asks the API live first (codex
+# app-server, no tokens spent) and falls back to the newest rollout.
+#   windows are bucketed by window_minutes (5h vs 7d), not by primary/secondary slot
+# Exit 0 normally; exit 3 if a limit is currently maxed (caller should back off).
+#
+# --json : print a compact machine-readable snapshot (for astrolabe / dashboards)
+#          { five_hour_pct, five_hour_resets_at, seven_day_pct, seven_day_resets_at,
+#            plan, scraped_at, snapshot_age_sec, credits_balance, rate_limit_reached_type }
+#          seven_day_pct is null when OpenAI hasn't reported the weekly window.
+import json, glob, os, sys, time
+
+def latest_rate_limits():
+    files = glob.glob(os.path.expanduser('~/.codex/sessions/**/*.jsonl'), recursive=True)
+    if not files:
+        return None, None
+    files.sort(key=os.path.getmtime, reverse=True)
+    def walk(x):
+        if isinstance(x, dict):
+            for k, v in x.items():
+                if k == 'rate_limits' and isinstance(v, dict):
+                    yield v
+                else:
+                    yield from walk(v)
+        elif isinstance(x, list):
+            for v in x:
+                yield from walk(v)
+    for fp in files[:8]:  # newest first; scan a few in case the very latest has none
+        last = None
+        try:
+            for line in open(fp):
+                try:
+                    for rl in walk(json.loads(line)):
+                        last = rl
+                except Exception:
+                    pass
+        except Exception:
+            continue
+        if last:
+            return last, os.path.getmtime(fp)
+    return None, None
+
+def live_rate_limits():
+    # Ask OpenAI directly via `codex app-server` (account/rateLimits/read): no
+    # model call, no tokens spent. Rollouts only refresh when codex is used, so
+    # an idle box would otherwise serve hours-old numbers. Returns the rollout
+    # (snake_case) shape so the rest of the script is source-agnostic.
+    import queue, subprocess, threading
+    reqs = [
+        {'jsonrpc': '2.0', 'id': 1, 'method': 'initialize',
+         'params': {'clientInfo': {'name': 'codex-usage', 'version': '1'}}},
+        {'jsonrpc': '2.0', 'method': 'initialized'},
+        {'jsonrpc': '2.0', 'id': 2, 'method': 'account/rateLimits/read'},
+    ]
+    codex = os.environ.get('CODEX_BIN', 'codex')
+    try:
+        proc = subprocess.Popen([codex, 'app-server'], stdin=subprocess.PIPE,
+                                stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, text=True)
+    except OSError as e:
+        print(f'codex-usage: live read unavailable ({e}); using rollouts', file=sys.stderr)
+        return None
+    # A reader thread plus queue timeout gives a hard deadline without mixing
+    # select() on the fd with Python's buffered readline().
+    lines = queue.Queue()
+    def pump():
+        for line in proc.stdout:
+            lines.put(line)
+        lines.put(None)
+    threading.Thread(target=pump, daemon=True).start()
+    try:
+        proc.stdin.write(''.join(json.dumps(r) + '\n' for r in reqs)); proc.stdin.flush()
+        deadline = time.time() + 20
+        while True:
+            try:
+                line = lines.get(timeout=max(0, deadline - time.time()))
+            except queue.Empty:
+                break
+            if line is None:
+                break
+            try:
+                msg = json.loads(line)
+            except ValueError:
+                continue
+            if msg.get('id') != 2:
+                continue
+            rl = (msg.get('result') or {}).get('rateLimits')
+            if not rl:
+                break
+            def win(w):
+                return w and {'used_percent': w.get('usedPercent'),
+                              'window_minutes': w.get('windowDurationMins'),
+                              'resets_at': w.get('resetsAt')}
+            return {
+                'primary': win(rl.get('primary')), 'secondary': win(rl.get('secondary')),
+                'credits': {'balance': (rl.get('credits') or {}).get('balance')},
+                'plan_type': rl.get('planType'),
+                'rate_limit_reached_type': rl.get('rateLimitReachedType'),
+            }
+    except OSError:
+        pass
+    finally:
+        try:
+            proc.stdin.close()
+        except OSError:
+            pass
+        proc.kill(); proc.wait()
+    print('codex-usage: live read failed; using rollouts', file=sys.stderr)
+    return None
+
+def current_rate_limits():
+    rl = live_rate_limits()
+    if rl:
+        return rl, time.time()
+    return latest_rate_limits()
+
+def fmt_reset(ts):
+    if not ts:
+        return '?'
+    s = int(ts - time.time())
+    if s < 0:
+        return 'now'
+    d, s = divmod(s, 86400); h, s = divmod(s, 3600); m, _ = divmod(s, 60)
+    return (f'{d}d ' if d else '') + (f'{h}h ' if h or d else '') + f'{m}m'
+
+def windows(rl):
+    # Bucket by window length, not slot: codex now reports the weekly window
+    # (window_minutes=10080) as `primary` with no `secondary` on some plans.
+    short, week = {}, {}
+    for w in (rl.get('primary'), rl.get('secondary')):
+        if w:
+            if (w.get('window_minutes') or 0) >= 1440:
+                week = w
+            else:
+                short = w
+    return short, week
+
+def _num(v):
+    try:
+        return float(v)
+    except (TypeError, ValueError):
+        return None
+
+def emit_json():
+    rl, mtime = current_rate_limits()
+    now = int(time.time())
+    if not rl:
+        print(json.dumps({
+            'five_hour_pct': None, 'five_hour_resets_at': None,
+            'seven_day_pct': None, 'seven_day_resets_at': None,
+            'plan': None, 'scraped_at': now, 'snapshot_age_sec': None,
+            'awaiting': True,
+        }))
+        return 0
+    p, s = windows(rl)
+    snap = {
+        'five_hour_pct': _num(p.get('used_percent')),
+        'five_hour_resets_at': int(p['resets_at']) if p.get('resets_at') else None,
+        'seven_day_pct': _num(s.get('used_percent')),
+        'seven_day_resets_at': int(s['resets_at']) if s.get('resets_at') else None,
+        'plan': rl.get('plan_type'),
+        'scraped_at': now,
+        'snapshot_age_sec': int(now - mtime) if mtime else None,
+        'awaiting': False,
+        'credits_balance': _num((rl.get('credits') or {}).get('balance')),
+        # Set only when a limit has actually stopped requests; at 100% with credits it stays null.
+        'rate_limit_reached_type': rl.get('rate_limit_reached_type'),
+    }
+    print(json.dumps(snap))
+    return 0
+
+def main():
+    if '--json' in sys.argv[1:]:
+        return emit_json()
+    rl, mtime = current_rate_limits()
+    if not rl:
+        print('codex usage: no rate-limit data yet (make a codex call first)'); return 0
+    p, s = windows(rl)
+    age = int(time.time() - mtime) if mtime else None
+    plan = rl.get('plan_type', '?')
+    reached = rl.get('rate_limit_reached_type')
+    print(f"Codex usage (plan: {plan}; snapshot {age}s ago):")
+    print(f"  5-hour window : {p.get('used_percent','?')}% used   (resets in {fmt_reset(p.get('resets_at'))})")
+    print(f"  weekly window : {s.get('used_percent','?')}% used   (resets in {fmt_reset(s.get('resets_at'))})")
+    if reached:
+        print(f"  ⚠ LIMIT REACHED: {reached}")
+        return 3
+    # warn when close
+    hi = max(p.get('used_percent', 0) or 0, s.get('used_percent', 0) or 0)
+    if hi >= 90:
+        print(f"  ⚠ near limit ({hi}%) — back off")
+    return 0
+
+sys.exit(main())

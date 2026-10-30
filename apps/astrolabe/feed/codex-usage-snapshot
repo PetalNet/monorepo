@@ -1,0 +1,23 @@
+#!/usr/bin/env bash
+# codex-usage-snapshot — write codex's rate-limit usage as JSON to the shared
+# feed the astrolabe dashboard reads. Validates into a tmp file, then overwrites
+# the target IN PLACE (same inode) — astrolabe bind-mounts this single file
+# read-only, so a rename/mv would leave the container reading a stale inode.
+# A reader hitting a mid-write file just falls back to "stale" and self-heals
+# on the next fetch. Run via cron every ~5 min from a release checkout of main:
+#     */5 * * * * <release>/apps/astrolabe/feed/codex-usage-snapshot
+set -euo pipefail
+HERE="$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")"
+OUT="${CODEX_USAGE_OUT:-/home/docker/.claude/shared/codex-usage.json}"
+TMP="$OUT.tmp.$$"
+trap 'rm -f "$TMP"' EXIT
+if "$HERE/codex-usage" --json > "$TMP" && \
+   python3 -c "import json,sys; json.load(open(sys.argv[1]))" "$TMP" 2>/dev/null; then
+    cat "$TMP" > "$OUT"   # in-place overwrite; preserves the mounted inode
+    rm -f "$TMP"
+    echo "[codex-usage-snapshot] wrote $OUT"
+else
+    rm -f "$TMP"
+    echo "[codex-usage-snapshot] failed; kept previous $OUT" >&2
+    exit 1
+fi
