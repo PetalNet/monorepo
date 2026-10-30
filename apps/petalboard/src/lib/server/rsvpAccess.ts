@@ -100,9 +100,16 @@ export async function sendEditLink(
 	if (
 		!take(`ip:${ip}`, IP_LIMIT.limit, IP_LIMIT.windowMs) ||
 		!take(`email:${email}`, EMAIL_LIMIT.limit, EMAIL_LIMIT.windowMs) ||
-		!rsvpId ||
-		!take("send", SEND_LIMIT.limit, SEND_LIMIT.windowMs)
+		!rsvpId
 	) {
+		return;
+	}
+
+	// Confirmations skip the app-wide cap: each needs a new RSVP on the host's event, and letting
+	// link requests use the cap up must not stop guests who just RSVP'd from getting their link.
+	if (kind !== "confirmation" && !take("send", SEND_LIMIT.limit, SEND_LIMIT.windowMs)) {
+		console.warn("RSVP email skipped: app-wide hourly send cap reached");
+
 		return;
 	}
 

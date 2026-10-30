@@ -50,4 +50,30 @@ describe("sendEditLink", () => {
 			vi.useRealTimers();
 		}
 	});
+
+	it("still sends confirmations once link requests have used up the app-wide cap", async () => {
+		vi.mocked(sendRsvpEmail).mockClear();
+		vi.useFakeTimers({ toFake: ["Date"] });
+		vi.setSystemTime(Date.now() + 6 * 60 * 60 * 1000);
+
+		try {
+			for (let i = 0; i < SEND_LIMIT.limit + 1; i++) {
+				// oxlint-disable-next-line eslint/no-await-in-loop -- The limiter counts sends in order.
+				await sendEditLink("requested", `flood${i}`, `flood${i}@example.test`, event, `fip${i}`);
+			}
+
+			expect(vi.mocked(sendRsvpEmail)).toHaveBeenCalledTimes(SEND_LIMIT.limit);
+
+			await sendEditLink("confirmation", "rsvp-new", "new@example.test", event, "ip-new");
+
+			expect(vi.mocked(sendRsvpEmail)).toHaveBeenLastCalledWith(
+				"confirmation",
+				"new@example.test",
+				event,
+				expect.any(String),
+			);
+		} finally {
+			vi.useRealTimers();
+		}
+	});
 });
