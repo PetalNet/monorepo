@@ -3,6 +3,7 @@ import {
 	BUSY_MESSAGE,
 	checkPotluckAnswers,
 	isBusyTransaction,
+	oneSignupAtATime,
 	potluckView,
 } from "$lib/server/potluck";
 import { prisma } from "$lib/server/prisma";
@@ -475,8 +476,8 @@ export const actions = {
 			});
 		}
 
-		const created = await prisma
-			.$transaction(async (tx) => {
+		const created = await oneSignupAtATime(event.id, () =>
+			prisma.$transaction(async (tx) => {
 				const rejection =
 					status === "not_attending"
 						? null
@@ -507,14 +508,14 @@ export const actions = {
 				});
 
 				return { rejection: null, rsvp };
-			})
-			.catch((cause: unknown) => {
-				if (isBusyTransaction(cause)) {
-					return { rejection: null, rsvp: null, busy: true };
-				}
+			}),
+		).catch((cause: unknown) => {
+			if (isBusyTransaction(cause)) {
+				return { rejection: null, rsvp: null, busy: true };
+			}
 
-				throw cause;
-			});
+			throw cause;
+		});
 
 		if ("busy" in created) {
 			return fail(503, { success: false, message: BUSY_MESSAGE, type: "rsvp", values: raw });
@@ -793,8 +794,8 @@ export const actions = {
 			}
 		}
 
-		const rejection = await prisma
-			.$transaction(async (tx) => {
+		const rejection = await oneSignupAtATime(event.id, () =>
+			prisma.$transaction(async (tx) => {
 				const found =
 					status === "not_attending"
 						? null
@@ -824,14 +825,14 @@ export const actions = {
 				});
 
 				return null;
-			})
-			.catch((cause: unknown) => {
-				if (isBusyTransaction(cause)) {
-					return "busy" as const;
-				}
+			}),
+		).catch((cause: unknown) => {
+			if (isBusyTransaction(cause)) {
+				return "busy" as const;
+			}
 
-				throw cause;
-			});
+			throw cause;
+		});
 
 		if (rejection === "busy") {
 			return fail(503, { success: false, message: BUSY_MESSAGE, type: "updateRsvp" });

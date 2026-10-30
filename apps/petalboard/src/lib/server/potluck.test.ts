@@ -1,7 +1,7 @@
 import { FRIENDSGIVING_POTLUCK } from "$lib/potluck";
 import { describe, expect, it } from "vitest";
 
-import { isBusyTransaction, potluckView } from "./potluck";
+import { isBusyTransaction, oneSignupAtATime, potluckView } from "./potluck";
 
 const responses = [
 	{
@@ -50,5 +50,41 @@ describe("isBusyTransaction", () => {
 		).toBe(false);
 
 		expect(isBusyTransaction(null)).toBe(false);
+	});
+});
+
+describe("oneSignupAtATime", () => {
+	it("runs one event's signups in order, never overlapping, and survives a failure", async () => {
+		const log: string[] = [];
+		let running = 0;
+		const job =
+			(name: string, fail = false) =>
+			async () => {
+				running++;
+				expect(running).toBe(1);
+				log.push(`start ${name}`);
+
+				await new Promise((resolve) => {
+					setTimeout(resolve, 5);
+				});
+
+				log.push(`end ${name}`);
+				running--;
+
+				if (fail) {
+					throw new Error(name);
+				}
+
+				return name;
+			};
+
+		const results = await Promise.allSettled([
+			oneSignupAtATime("e1", job("a")),
+			oneSignupAtATime("e1", job("b", true)),
+			oneSignupAtATime("e1", job("c")),
+		]);
+
+		expect(results.map((r) => r.status)).toEqual(["fulfilled", "rejected", "fulfilled"]);
+		expect(log).toEqual(["start a", "end a", "start b", "end b", "start c", "end c"]);
 	});
 });
