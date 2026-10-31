@@ -30,7 +30,7 @@ jobs:
           fetch-depth: 1
           persist-credentials: false
       - name: Run agent
-        uses: pullfrog/pullfrog@ae4145b3d72b3f4aa045e2352dc6b2c7538daeeb # v0.1.101
+        uses: pullfrog/pullfrog@25a837a2b078177c3acdce790506d1fd1acedd82 # v0.1.102
         with:
           prompt: ${{ inputs.prompt }}
           # local: Codex CLI agent on GPT Sol (openai/gpt-6.1-sol), read-only
