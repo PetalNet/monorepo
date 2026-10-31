@@ -146,7 +146,7 @@ catalogs:
     "@libsql/client": ^0.17.0
     "@lucide/svelte": ^1.23.0
     "@modelcontextprotocol/sdk": ^1.29.0
-    "@prisma/client": ^5.22.0
+    "@prisma/client": ^7.0.0
     "@sveltejs/kit": ^2.50.1
     bcryptjs: ^3.0.0
     daisyui: ^5.6.13
@@ -174,7 +174,7 @@ catalogs:
   # PetalBoard shipped on Prisma 6 and uses its `prisma-client` generator, which writes
   # the client into the app. tools/prisma-clients.test.ts keeps app clients apart.
   prisma6:
-    "@prisma/client": ^6.18.0
+    "@prisma/client": ^7.0.0
     prisma: ^6.18.0
 
 catalog:
