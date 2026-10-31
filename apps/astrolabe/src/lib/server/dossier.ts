@@ -61,7 +61,11 @@ export interface Dossier {
 		nextScheduledAt: number | null;
 		stale: boolean;
 	};
-	services: ServiceCounts & { totalActive: number };
+	services: ServiceCounts & {
+		totalActive: number;
+		/** Uptime Kuma's base URL, from KUMA_URL. Without it the plate names monitors unlinked. */
+		kumaUrl: string | null;
+	};
 	host: {
 		diskWorst: { mount: string; level: string } | null;
 		load: string;
@@ -321,23 +325,40 @@ const readUsage = async (
 	return usageReadoutFrom({ ...input, data });
 };
 
-const readServices = async (dbPath: string): Promise<Omit<Dossier["services"], "stale">> => {
-	const monitorSql = `SELECT
-  SUM(CASE WHEN s = 1 THEN 1 ELSE 0 END) AS up,
-  SUM(CASE WHEN s = 0 THEN 1 ELSE 0 END) AS down,
-  SUM(CASE WHEN s = 2 THEN 1 ELSE 0 END) AS pending,
-  COUNT(*) AS total
-FROM (
-  SELECT COALESCE((SELECT h.status FROM heartbeat h WHERE h.monitor_id = m.id ORDER BY h.time DESC LIMIT 1), -1) AS s
-  FROM monitor m WHERE m.active = 1
-);`;
+const readServices = async (
+	dbPath: string,
+): Promise<Omit<Dossier["services"], "stale" | "kumaUrl">> => {
+	// Each active monitor with its latest heartbeat status: 0 down, 1 up, 2 pending, -1 never checked.
+	const monitorSql = `SELECT m.id, m.name,
+  COALESCE((SELECT h.status FROM heartbeat h WHERE h.monitor_id = m.id ORDER BY h.time DESC LIMIT 1), -1) AS status
+FROM monitor m WHERE m.active = 1 ORDER BY m.name COLLATE NOCASE;`;
 	const recentFailuresSql =
 		"SELECT COUNT(*), COUNT(DISTINCT monitor_id) FROM heartbeat WHERE status = 0 AND time > datetime('now', '-1 hour');";
-	const [monitors, recentFailures] = await Promise.all([
-		execFileAsync("sqlite3", ["-readonly", dbPath, monitorSql]),
+	const [monitorRows, recentFailures] = await Promise.all([
+		execFileAsync("sqlite3", ["-readonly", "-json", dbPath, monitorSql]),
 		execFileAsync("sqlite3", ["-readonly", dbPath, recentFailuresSql]),
 	]);
-	const [up = "0", down = "0", pending = "0", total = "0"] = monitors.stdout.trim().split("|");
+	// sqlite3 -json prints nothing at all for an empty result.
+	const parsed: unknown = JSON.parse(monitorRows.stdout.trim() || "[]");
+
+	if (!Array.isArray(parsed)) {
+		throw new TypeError("expected a JSON array of monitors");
+	}
+
+	const monitors = parsed.map((row: unknown) => {
+		if (!isRecord(row) || typeof row.id !== "number" || typeof row.status !== "number") {
+			// A changed Kuma schema must read as stale, not as an empty and therefore "All up" lab.
+			throw new TypeError("unexpected Kuma monitor row");
+		}
+
+		const name = stringOrNull(row.name)?.trim() ?? "";
+
+		return {
+			id: row.id,
+			name: name === "" ? `Monitor ${String(row.id)}` : name,
+			status: row.status,
+		};
+	});
 	const asCount = (value: string): number => {
 		const count = Number(value);
 
@@ -347,10 +368,10 @@ FROM (
 	const [failedChecks = "0", failingServices = "0"] = recentFailures.stdout.trim().split("|");
 
 	return {
-		up: asCount(up),
-		down: asCount(down),
-		pending: asCount(pending),
-		totalActive: asCount(total),
+		up: monitors.filter((monitor) => monitor.status === 1).length,
+		down: monitors.filter((monitor) => monitor.status === 0).map(({ id, name }) => ({ id, name })),
+		pending: monitors.filter((monitor) => monitor.status === 2).length,
+		totalActive: monitors.length,
 		failedChecks1h: asCount(failedChecks),
 		failingServices1h: asCount(failingServices),
 	};
@@ -406,9 +427,11 @@ export const buildDossier = async (): Promise<Dossier> => {
 	const solarNoonAt = timeOf(solarTimes.solarNoon);
 	const sunPosition = SunCalc.getPosition(new Date(now), lat, lon);
 	const moon = SunCalc.getMoonIllumination(new Date(now));
+	const kumaBase = process.env.KUMA_URL?.replace(/\/+$/, "") ?? "";
+	const kumaUrl = kumaBase === "" ? null : kumaBase;
 	const defaultServices = {
 		up: 0,
-		down: 0,
+		down: [],
 		pending: 0,
 		totalActive: 0,
 		failedChecks1h: 0,
@@ -493,7 +516,7 @@ export const buildDossier = async (): Promise<Dossier> => {
 			nextScheduledAt: nextBackupAt(now),
 			stale: backup.lastSuccessAt === null || now - backup.lastSuccessAt > BACKUP_STALE_AFTER_MS,
 		},
-		services,
+		services: { ...services, kumaUrl },
 		host,
 		mood,
 		debug: { errors },

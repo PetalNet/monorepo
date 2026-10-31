@@ -54,6 +54,8 @@ export interface LimitReading {
 	projectedPct: number | null;
 	/** When the current burn rate hits 100%, if that is before the reset. */
 	runsOutAt: number | null;
+	/** Where the dial's red span starts: `runsOutAt` when overshooting, now once the limit is hit. */
+	lockoutAt: number | null;
 }
 
 const clamp = (value: number, low: number, high: number) => Math.min(high, Math.max(low, value));
@@ -68,6 +70,7 @@ export const readLimit = (window: LimitWindow, now: number): LimitReading => {
 		elapsed: null,
 		projectedPct: null,
 		runsOutAt: null,
+		lockoutAt: null,
 	};
 
 	if (window.usedPct === null || window.resetsAt === null || window.observedAt === null) {
@@ -101,6 +104,7 @@ export const readLimit = (window: LimitWindow, now: number): LimitReading => {
 			state: onCredits ? "on-credits" : "limit-reached",
 			projectedPct: 100,
 			runsOutAt: null,
+			lockoutAt: onCredits ? null : now,
 		};
 	}
 
@@ -108,7 +112,13 @@ export const readLimit = (window: LimitWindow, now: number): LimitReading => {
 	const observedElapsed = (window.observedAt - startsAt) / duration;
 
 	if (observedElapsed < MIN_ELAPSED_TO_PROJECT) {
-		return { ...reading, state: "too-early", projectedPct: null, runsOutAt: null };
+		return {
+			...reading,
+			state: "too-early",
+			projectedPct: null,
+			runsOutAt: null,
+			lockoutAt: null,
+		};
 	}
 
 	const projectedPct = usedPct / observedElapsed;
@@ -122,6 +132,7 @@ export const readLimit = (window: LimitWindow, now: number): LimitReading => {
 		state: projectedPct > 100 ? "overshoot" : "on-pace",
 		projectedPct,
 		runsOutAt,
+		lockoutAt: runsOutAt,
 	};
 };
 

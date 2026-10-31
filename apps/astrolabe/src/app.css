@@ -1,9 +1,8 @@
 @import "tailwindcss";
 
 /* Canonical PetalNet paper-ink tokens from design.petalcat.dev. */
-:root,
-[data-theme="light"] {
-	--bg: #ffffff;
+:root {
+	color-scheme: light dark;
 	--surface: #f6f5f3;
 	--elev: #fbfaf9;
 	--rule: #ececea;
@@ -22,21 +21,22 @@
 	--danger-text: #c5374b;
 }
 
-[data-theme="dark"] {
-	--bg: #0d0c0b;
-	--surface: #161413;
-	--elev: #1d1b19;
-	--rule: #262321;
-	--rule-strong: #36322f;
-	--text: #ece8e3;
-	--text-mute: #9a938b;
-	--text-soft: #645e57;
-	--petal: #e2725b;
-	--on-petal: #0d0c0b;
-	--petal-soft-pct: 15%;
-	--success-text: #329760;
-	--warning-text: #c77d11;
-	--danger-text: #d25d6e;
+@media (prefers-color-scheme: dark) {
+	:root {
+		--surface: #161413;
+		--elev: #1d1b19;
+		--rule: #262321;
+		--rule-strong: #36322f;
+		--text: #ece8e3;
+		--text-mute: #9a938b;
+		--text-soft: #645e57;
+		--petal: #e2725b;
+		--on-petal: #0d0c0b;
+		--petal-soft-pct: 15%;
+		--success-text: #329760;
+		--warning-text: #c77d11;
+		--danger-text: #d25d6e;
+	}
 }
 
 :root {
@@ -81,8 +81,14 @@ html {
 	-webkit-text-size-adjust: 100%;
 	scrollbar-gutter: stable;
 }
+/* The page is the dressed sandstone the Prague Orloj is set into. One hue, lit from the upper left
+   like every brass and paper face on it; stone.svg carries the grain and the ashlar joints as
+   luminance alone, so the hue never shifts. */
 body {
-	background: var(--bg);
+	background:
+		url("./lib/assets/stone.svg") 0 0 / 30rem 15rem,
+		linear-gradient(135deg, var(--stone-lit), var(--stone-shade)) fixed;
+	background-color: var(--stone-shade);
 	color: var(--text);
 	font-family: var(--font-sans);
 	font-size: 0.875rem;
@@ -104,9 +110,6 @@ h2,
 h3 {
 	text-wrap: balance;
 }
-button {
-	font: inherit;
-}
 :focus-visible {
 	outline: 2px solid var(--petal);
 	outline-offset: 2px;
@@ -116,56 +119,6 @@ button {
 	background: var(--petal-soft);
 	color: var(--text);
 }
-html.no-theme-transition,
-html.no-theme-transition *,
-html.no-theme-transition *::before,
-html.no-theme-transition *::after {
-	transition: none !important;
-}
-
-.top {
-	border-bottom: 1px solid var(--rule);
-	background: var(--bg);
-	transition:
-		border-color var(--t),
-		background var(--t);
-}
-.top-inner {
-	align-items: center;
-	display: flex;
-	justify-content: space-between;
-	margin: 0 auto;
-	max-width: 55rem;
-	padding: var(--s3) var(--s4);
-}
-h1 {
-	font-size: 1rem;
-	font-weight: 600;
-	line-height: 1.2;
-}
-.theme-toggle {
-	align-items: center;
-	background: var(--surface);
-	border: 0;
-	border-radius: var(--radius-sm);
-	color: var(--text-mute);
-	cursor: pointer;
-	display: inline-flex;
-	height: 2.25rem;
-	justify-content: center;
-	transition:
-		background var(--t),
-		color var(--t),
-		transform var(--dur-fast) var(--ease-standard);
-	width: 2.25rem;
-}
-.theme-toggle:hover {
-	background: var(--petal-soft);
-	color: var(--petal);
-}
-.theme-toggle:active {
-	transform: scale(0.96);
-}
 
 .wrap {
 	margin: 0 auto;
@@ -173,9 +126,6 @@ h1 {
 	padding: var(--s5) var(--s4) var(--s7);
 }
 @media (max-width: 600px) {
-	.top-inner {
-		padding: var(--s3);
-	}
 	.wrap {
 		padding: var(--s4) var(--s3) var(--s6);
 	}
@@ -192,8 +142,7 @@ h1 {
 /* The orloj: the usage-limit dials, after the Prague Orloj and the Grote Kerk tower clocks.
    Light is an aged-paper dial in a brass bezel with sepia engraving; dark is the Orloj's
    slate-blue enamel with gilt. Each limit keeps one enamel colour across dial and plaque. */
-:root,
-[data-theme="light"] {
+:root {
 	--orloj-paper: #f4ead2;
 	--orloj-paper-edge: #dcc79b;
 	--orloj-chapter: #e9dcbc;
@@ -212,31 +161,39 @@ h1 {
 	--orloj-claude-7d: #2a6d5f;
 	--orloj-codex-7d: #6c3b6c;
 	--orloj-vermilion: #ad2e1a;
-	--orloj-vermilion-wash: #f3d9c8;
 	--orloj-grain: 0.16;
+	--orloj-alarm: #741b0d;
+	--stone-lit: #e8e1d6;
+	--stone-shade: #d3cbbe;
+	--stone-ink: #1f1c18;
 }
 
-[data-theme="dark"] {
-	--orloj-paper: #1b2840;
-	--orloj-paper-edge: #0f1828;
-	--orloj-chapter: #142034;
-	--orloj-ink: #e6c67d;
-	--orloj-ink-mute: #c2a874;
-	--orloj-gilt: #e1bd6b;
-	--orloj-brass-hi: #d9b666;
-	--orloj-brass-lo: #7d5f27;
-	--orloj-brass-deep: #4c3814;
-	--orloj-engraved: #2e1f0c;
-	--orloj-groove: #26354f;
-	--orloj-sky-day: #5d8fae;
-	--orloj-sky-twilight: #a8743c;
-	--orloj-sky-night: #0b0f18;
-	--orloj-claude-5h: #9db9f2;
-	--orloj-claude-7d: #7fd0b5;
-	--orloj-codex-7d: #dcaee0;
-	--orloj-vermilion: #ff8c6b;
-	--orloj-vermilion-wash: #3a1d16;
-	--orloj-grain: 0.1;
+@media (prefers-color-scheme: dark) {
+	:root {
+		--orloj-paper: #1b2840;
+		--orloj-paper-edge: #0f1828;
+		--orloj-chapter: #142034;
+		--orloj-ink: #e6c67d;
+		--orloj-ink-mute: #c2a874;
+		--orloj-gilt: #e1bd6b;
+		--orloj-brass-hi: #d9b666;
+		--orloj-brass-lo: #7d5f27;
+		--orloj-brass-deep: #4c3814;
+		--orloj-engraved: #2e1f0c;
+		--orloj-groove: #26354f;
+		--orloj-sky-day: #5d8fae;
+		--orloj-sky-twilight: #a8743c;
+		--orloj-sky-night: #0b0f18;
+		--orloj-claude-5h: #9db9f2;
+		--orloj-claude-7d: #7fd0b5;
+		--orloj-codex-7d: #dcaee0;
+		--orloj-vermilion: #ff8c6b;
+		--orloj-grain: 0.1;
+		--orloj-alarm: #58140a;
+		--stone-lit: #2e2a26;
+		--stone-shade: #1f1c19;
+		--stone-ink: #d6d0c8;
+	}
 }
 
 .orloj {
@@ -268,20 +225,11 @@ h1 {
 	width: 100%;
 }
 .orloj-dial figcaption {
-	color: var(--text-mute);
+	color: var(--stone-ink);
 	font-size: 1rem;
 	line-height: 1.4;
 	max-width: 26rem;
 	text-align: center;
-	transition: color var(--t);
-}
-.orloj-dial figcaption strong {
-	color: var(--text);
-	display: block;
-	font-size: 1.25rem;
-	font-variant: small-caps;
-	font-weight: 500;
-	letter-spacing: 0.04em;
 	transition: color var(--t);
 }
 
@@ -375,19 +323,6 @@ h1 {
 .dial-face .lane {
 	fill: none;
 }
-/* Size lives on the element, next to the geometry that keeps the letters clear of the groove. */
-.dial-face .ring-label {
-	fill: var(--limit);
-	font-family: var(--font-serif);
-	font-variant: small-caps;
-	font-weight: 600;
-	letter-spacing: 0.1em;
-	paint-order: stroke;
-	stroke: var(--orloj-paper);
-	stroke-linejoin: round;
-	stroke-width: 2.4px;
-	text-anchor: middle;
-}
 .dial-face .ring-empty {
 	fill: var(--orloj-ink-mute);
 	font-size: 7px;
@@ -416,7 +351,9 @@ h1 {
 .dial-face .usage.inside {
 	fill: var(--orloj-paper);
 }
-.dial-face .alarm-rule {
+/* The projected lockout: a span bracketed by engraved vermilion rules, the dial's only red. */
+.dial-face .lockout path,
+.dial-face .lockout line {
 	fill: none;
 	stroke: var(--orloj-vermilion);
 	stroke-width: 0.9;
@@ -429,11 +366,6 @@ h1 {
 	fill: var(--orloj-ink);
 	stroke: var(--orloj-paper);
 	stroke-width: 0.6;
-}
-.dial-face .runs-out {
-	stroke: var(--orloj-vermilion);
-	stroke-linecap: round;
-	stroke-width: 2.6;
 }
 .claude-5h {
 	--limit: var(--orloj-claude-5h);
@@ -569,16 +501,38 @@ h1 {
 	font-weight: 500;
 	letter-spacing: normal;
 }
-/* Anything wrong is an enamel inlay, the same as a limit plaque's alarm. */
-.plate-status.alarm,
+/* Anything wrong is filled with red enamel in the plate's own engraving: the lettering, and an
+   engraved rule beside a sentence. No inlaid field, so the brass stays one surface. */
 .plate-figures .alarm,
-.plate-note.alarm {
-	background: var(--orloj-vermilion-wash);
-	border-radius: var(--radius-xs);
-	color: var(--orloj-vermilion);
-	font-style: normal;
+.plate-note.alarm,
+.plaque.alarm .plaque-verdict {
+	color: var(--orloj-alarm);
 	font-weight: 600;
-	padding: 0.125rem var(--s2);
+}
+.plate-note.alarm,
+.plaque.alarm .plaque-verdict {
+	border-inline-start: 2px solid var(--orloj-alarm);
+	padding-inline-start: var(--s2);
+}
+/* Links are engraved like the rest of the lettering, underlined in the bezel's deep brass. */
+.plate-section a {
+	color: inherit;
+	text-decoration: underline 1px var(--orloj-brass-deep);
+	text-underline-offset: 0.2em;
+	transition: text-decoration-thickness var(--t);
+}
+/* The page's petal focus ring vanishes on brass, so plate links take the engraving's ink. */
+.plate-section a:focus-visible {
+	outline-color: var(--orloj-engraved);
+}
+.plate-section a:hover {
+	text-decoration-thickness: 2px;
+}
+.plate-down {
+	display: flex;
+	flex-wrap: wrap;
+	gap: var(--s1) var(--s3);
+	list-style: none;
 }
 .plate-rows {
 	display: grid;
@@ -680,13 +634,6 @@ h1 {
 }
 .plaque-detail {
 	font-size: 0.9375rem;
-}
-.plaque.alarm .plaque-verdict {
-	background: var(--orloj-vermilion-wash);
-	border-radius: var(--radius-xs);
-	color: var(--orloj-vermilion);
-	font-weight: 600;
-	padding: var(--s2);
 }
 .plaque.alarm .plaque-verdict svg {
 	flex: none;

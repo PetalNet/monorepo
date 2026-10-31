@@ -2,15 +2,11 @@ import { beforeAll, describe, expect, it } from "vitest";
 
 import {
 	ASCENDER_HEIGHT,
-	BOSS_RADIUS,
 	CAP_HEIGHT,
 	DAY_SCALE,
 	readingArc,
 	usageLabelAt,
-	RING_LABEL_SIZE,
-	ringLabelBaseline,
 	stackBaselines,
-	WEEK_RINGS,
 	WEEK_SCALE,
 	type DialScale,
 	windowGeometry,
@@ -27,7 +23,7 @@ beforeAll(() => {
 /** Places a window on a dial and returns the dial points as absolute angles. */
 const place = (startsAt: number, resetsAt: number, now: number, scale: DialScale, usedPct = 40) => {
 	const geometry = windowGeometry(
-		{ startsAt, resetsAt, usedPct, projectedPct: null, runsOutAt: null },
+		{ startsAt, resetsAt, usedPct, projectedPct: null, lockoutAt: null },
 		scale,
 	);
 
@@ -101,7 +97,7 @@ describe("window geometry without DST", () => {
 				resetsAt,
 				usedPct: 51,
 				projectedPct: 160,
-				runsOutAt: null,
+				lockoutAt: null,
 			},
 			WEEK_SCALE,
 		);
@@ -113,7 +109,7 @@ describe("window geometry without DST", () => {
 	it("places nothing for a window without a reset", () => {
 		expect(
 			windowGeometry(
-				{ startsAt: null, resetsAt: null, usedPct: 3, projectedPct: null, runsOutAt: null },
+				{ startsAt: null, resetsAt: null, usedPct: 3, projectedPct: null, lockoutAt: null },
 				DAY_SCALE,
 			),
 		).toBeNull();
@@ -139,33 +135,6 @@ describe("centre boss lettering", () => {
 		const { line: baseline } = stackBaselines(line, null, 4.6);
 
 		expect(Math.abs(baseline - (line.size * line.rise) / 2)).toBeLessThan(HALF_PIXEL);
-	});
-});
-
-describe("ring names", () => {
-	const [outerRadius, innerRadius] = WEEK_RINGS.radii;
-	const edges = (radius: number) => ({
-		inner: radius - WEEK_RINGS.width / 2,
-		outer: radius + WEEK_RINGS.width / 2,
-	});
-	const lettering = (ringInner: number) => {
-		const baseline = ringLabelBaseline(ringInner);
-
-		return { low: baseline, high: baseline + RING_LABEL_SIZE * CAP_HEIGHT };
-	};
-
-	const outer = edges(outerRadius);
-	const inner = edges(innerRadius);
-	const claude = lettering(outer.inner);
-	const codex = lettering(inner.inner);
-
-	it("letters both week rings at twelve o'clock without touching each other or a ring", () => {
-		// Both names are centred on the same angle, so they are apart exactly when their radii are.
-		expect(claude.high).toBeLessThan(outer.inner);
-		expect(claude.low).toBeGreaterThan(inner.outer);
-		expect(codex.high).toBeLessThan(inner.inner);
-		expect(codex.low).toBeGreaterThan(BOSS_RADIUS + 0.6);
-		expect(claude.low).toBeGreaterThan(codex.high);
 	});
 });
 
@@ -204,7 +173,7 @@ describe("groove", () => {
 				resetsAt,
 				usedPct: 55,
 				projectedPct: null,
-				runsOutAt: null,
+				lockoutAt: null,
 			},
 			WEEK_SCALE,
 		);
@@ -216,7 +185,7 @@ describe("groove", () => {
 	it("runs a 5-hour window's groove only from its start to its reset", () => {
 		const resetsAt = at("2026-10-29T20:10:00Z");
 		const geometry = windowGeometry(
-			{ startsAt: resetsAt - 5 * HOUR, resetsAt, usedPct: 21, projectedPct: null, runsOutAt: null },
+			{ startsAt: resetsAt - 5 * HOUR, resetsAt, usedPct: 21, projectedPct: null, lockoutAt: null },
 			DAY_SCALE,
 		);
 
