@@ -31,7 +31,12 @@ use std::sync::Arc;
 use matrix_sdk::{Client, config::SyncSettings, ruma::api::client::error::ErrorKind};
 use tracing::{error, info, warn};
 
-use courier_core::{health::RelayHealth, supervise::Backoff, watchdog::Heartbeat};
+use courier_core::{
+    bound::bounded,
+    health::RelayHealth,
+    supervise::Backoff,
+    watchdog::{Heartbeat, is_stalled},
+};
 
 /// Runtime knobs for the sync loop. All values come from CLI flags/env with
 /// safe defaults; see `Args`.
@@ -99,6 +104,7 @@ pub async fn run(
     client: &Client,
     config: EngineConfig,
     heartbeat: Heartbeat,
+    synced: Heartbeat,
 ) -> anyhow::Result<()> {
     let settings = SyncSettings::new().timeout(config.sync_timeout);
     let mut backoff = Backoff::new(Duration::from_secs(1), Duration::from_mins(1));
@@ -138,6 +144,7 @@ pub async fn run(
         };
 
         if outcome == IterationOutcome::Success {
+            synced.beat();
             if consecutive_failures > 0 {
                 info!(after_failures = consecutive_failures, "Sync recovered");
             }
@@ -176,6 +183,52 @@ pub async fn health_reporter(health: Arc<RelayHealth>, interval: Duration) {
             } else {
                 error!(leg = %leg.summary(), "Relay health: LEG IS DEAD — messages are NOT being delivered");
             }
+        }
+    }
+}
+
+/// Interval between Uptime Kuma pushes.
+const KUMA_PUSH_INTERVAL: Duration = Duration::from_mins(1);
+
+/// Deadline for one Uptime Kuma push request.
+const KUMA_PUSH_TIMEOUT: Duration = Duration::from_secs(10);
+
+/// Whether to report "up": the last successful sync is no older than
+/// `max_age`. The loop beats [`run`]'s main heartbeat even while every sync
+/// fails, so only a completed sync counts here.
+#[must_use]
+pub const fn kuma_push_due(since_sync: Duration, max_age: Duration) -> bool {
+    !is_stalled(since_sync, max_age)
+}
+
+/// Push to an Uptime Kuma push monitor every [`KUMA_PUSH_INTERVAL`] while
+/// syncs are completing. Skipping a push (rather than sending `down`) lets
+/// Kuma's own timeout flag the bot, which also covers a dead process.
+pub async fn kuma_pusher(url: String, synced: Heartbeat, max_age: Duration) {
+    let http = reqwest::Client::new();
+    let mut ticker = tokio::time::interval(KUMA_PUSH_INTERVAL);
+    ticker.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
+    // The first tick fires immediately; wait for the first real sync.
+    ticker.tick().await;
+    loop {
+        ticker.tick().await;
+        let since_sync = synced.age();
+        if !kuma_push_due(since_sync, max_age) {
+            warn!(
+                since_sync_secs = since_sync.as_secs(),
+                "Kuma push skipped: no successful sync recently"
+            );
+            continue;
+        }
+        let push = async {
+            http.get(&url)
+                .send()
+                .await
+                .and_then(reqwest::Response::error_for_status)
+                .map_err(reqwest::Error::without_url)
+        };
+        if let Err(e) = bounded("kuma push", KUMA_PUSH_TIMEOUT, push).await {
+            warn!(error = %e, "Kuma push failed");
         }
     }
 }
@@ -223,5 +276,14 @@ mod tests {
             next_action(IterationOutcome::Fatal, &mut backoff),
             LoopAction::Exit
         );
+    }
+
+    #[test]
+    fn kuma_push_only_while_syncs_complete() {
+        let max_age = Duration::from_mins(2);
+        assert!(kuma_push_due(Duration::ZERO, max_age));
+        assert!(kuma_push_due(max_age, max_age));
+        assert!(!kuma_push_due(max_age + Duration::from_secs(1), max_age));
+        assert!(!kuma_push_due(Duration::from_hours(1), max_age));
     }
 }

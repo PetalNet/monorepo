@@ -47,6 +47,8 @@ All flags are also environment variables
 - `--check-config` parses and prints the config, then exits.
 - `--mcp-server time` runs the internal MCP time server instead of the bot.
 - `MATRIX_WATCHDOG_SECS=0` disables the stall watchdog (not recommended).
+- `COURIER_KUMA_PUSH_URL` (an Uptime Kuma push monitor URL) makes the bot
+  push every minute while syncs are completing. Unset, nothing is pushed.
 - The deprecated `MATRIX_SYNC_ITERATION_TIMEOUT_SECS` is accepted and
   ignored (a per-iteration sync timeout silently loses events).
 

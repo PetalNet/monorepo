@@ -145,6 +145,8 @@ async fn main() -> Result<()> {
     // the dispatcher on every message (a large post-outage batch must count
     // as progress).
     let heartbeat = Heartbeat::new();
+    // Beaten only by successful syncs; drives the Uptime Kuma push.
+    let synced = Heartbeat::new();
 
     let dispatcher = Arc::new(dispatch::Dispatcher {
         registry: Arc::clone(&registry),
@@ -163,6 +165,14 @@ async fn main() -> Result<()> {
     ));
 
     let sync_timeout = Duration::from_millis(args.sync_timeout_ms);
+    if let Some(url) = args.kuma_push_url.clone() {
+        info!("Uptime Kuma push enabled");
+        tokio::spawn(engine::kuma_pusher(
+            url,
+            synced.clone(),
+            sync_timeout + Duration::from_secs(90),
+        ));
+    }
     if args.sync_iteration_timeout_secs != 180 {
         warn!(
             requested_secs = args.sync_iteration_timeout_secs,
@@ -189,7 +199,13 @@ async fn main() -> Result<()> {
     // Startup finished; the sync watchdog owns liveness from here.
     startup_guard.disarm();
 
-    engine::run(&client, engine::EngineConfig { sync_timeout }, heartbeat).await
+    engine::run(
+        &client,
+        engine::EngineConfig { sync_timeout },
+        heartbeat,
+        synced,
+    )
+    .await
 }
 
 fn log_registered_triggers(registry: &courier_core::plugin::PluginRegistry) {
