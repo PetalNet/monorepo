@@ -201,7 +201,7 @@ catalog:
   jose: ^6.2.5
   "@modelcontextprotocol/client": 2.0.0
   "@better-auth/mcp": 1.7.7
-  "@effect/vitest": 4.0.1
+  "@effect/vitest": 4.0.7
   drizzle-orm: 1.0.0-rc.5-5935859
   drizzle-kit: 1.0.0-rc.5-5935859
   fontless: ^1.2.1
