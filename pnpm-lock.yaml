@@ -242,8 +242,8 @@ catalogs:
       specifier: ^5.0.0
       version: 5.1.15
     nodemailer:
-      specifier: ^7.0.10
-      version: 7.0.13
+      specifier: ^10.0.0
+      version: 10.3.1
     qrcode:
       specifier: ^1.5.4
       version: 1.5.4
@@ -651,7 +651,7 @@ importers:
         version: 5.1.15
       nodemailer:
         specifier: catalog:prod
-        version: 7.0.13
+        version: 10.3.1
       remark:
         specifier: catalog:prod
         version: 15.0.1(supports-color@7.2.0)
@@ -6110,9 +6110,9 @@ packages:
     version: 26.5.1
     hasBin: true
 
-  nodemailer@7.0.13:
-    resolution: {integrity: sha512-PNDFSJdP+KFgdsG3ZzMXCgquO7I6McjY2vlqILjtJd0hy8wEvtugS9xKRF2NWlPNGxvLCXlTNIae4serI7dinw==}
-    engines: {node: '>=6.0.0'}
+  nodemailer@10.3.1:
+    resolution: {integrity: sha512-uF0AFsJC07Y1vdW7p580DKAnh7rAO+4UPSSB3mDCPNDufoiaOebV6JmrzpxB14OjEEEiBsNdYoM2Y+fN8M7BBA==}
+    engines: {node: '>=20.0.0'}
 
   normalize-path@3.0.0:
     resolution: {integrity: sha512-6eZs5Ls3WtCisHWp9S2GUy8dqkpGi4BVSz3GaqiE6ezub0512ESztXUwUB6C6IKbQkY2Pnb/mD4WYojCRwcwLA==}
@@ -12020,7 +12020,7 @@ snapshots:
 
   node@runtime:26.5.1: {}
 
-  nodemailer@7.0.13: {}
+  nodemailer@10.3.1: {}
 
   normalize-path@3.0.0: {}
 
