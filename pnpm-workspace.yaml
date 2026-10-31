@@ -187,7 +187,7 @@ catalog:
   "@sveltejs/adapter-node": ^6.0.0
   "@effect/platform-node": 4.0.1
   "@effect/sql-pg": 4.0.0
-  "@sveltejs/kit": 3.0.1
+  "@sveltejs/kit": 3.1.0
   "@testcontainers/postgresql": ^11.10.0
   better-auth: 1.7.7
   effect: 4.0.1
