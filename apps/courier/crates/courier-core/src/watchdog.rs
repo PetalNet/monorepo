@@ -206,9 +206,9 @@ mod tests {
     #[test]
     fn unbeaten_heartbeat_is_stalled_until_first_beat() {
         let hb = Heartbeat::unbeaten();
-        assert!(is_stalled(hb.age(), Duration::from_secs(300)));
+        assert!(is_stalled(hb.age(), Duration::from_mins(5)));
         hb.beat();
-        assert!(!is_stalled(hb.age(), Duration::from_secs(300)));
+        assert!(!is_stalled(hb.age(), Duration::from_mins(5)));
     }
 
     #[test]
