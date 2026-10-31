@@ -146,7 +146,7 @@ async fn main() -> Result<()> {
     // as progress).
     let heartbeat = Heartbeat::new();
     // Beaten only by successful syncs; drives the Uptime Kuma push.
-    let synced = Heartbeat::new();
+    let synced = Heartbeat::unbeaten();
 
     let dispatcher = Arc::new(dispatch::Dispatcher {
         registry: Arc::clone(&registry),

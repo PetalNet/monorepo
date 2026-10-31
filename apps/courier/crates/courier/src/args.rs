@@ -78,9 +78,9 @@ pub struct Args {
     #[arg(long, env = "MATRIX_HEALTH_REPORT_SECS", default_value_t = 900)]
     pub health_report_secs: u64,
 
-    /// Uptime Kuma push monitor URL. When set, the bot GETs it every minute
+    /// Uptime Kuma push monitor URL. When set, the bot GETs it every 30s
     /// while the sync loop is completing syncs; unset disables the push.
-    #[arg(long, env = "COURIER_KUMA_PUSH_URL")]
+    #[arg(long, env = "COURIER_KUMA_PUSH_URL", hide_env_values = true)]
     pub kuma_push_url: Option<String>,
 
     /// Parse and print the config, then exit without connecting.

@@ -187,37 +187,28 @@ pub async fn health_reporter(health: Arc<RelayHealth>, interval: Duration) {
     }
 }
 
-/// Interval between Uptime Kuma pushes.
-const KUMA_PUSH_INTERVAL: Duration = Duration::from_mins(1);
+/// Interval between Uptime Kuma pushes. Half the monitor's 120s window, so
+/// one lost push does not flip it.
+const KUMA_PUSH_INTERVAL: Duration = Duration::from_secs(30);
 
 /// Deadline for one Uptime Kuma push request.
 const KUMA_PUSH_TIMEOUT: Duration = Duration::from_secs(10);
 
-/// Whether to report "up": the last successful sync is no older than
-/// `max_age`. The loop beats [`run`]'s main heartbeat even while every sync
-/// fails, so only a completed sync counts here.
-#[must_use]
-pub const fn kuma_push_due(since_sync: Duration, max_age: Duration) -> bool {
-    !is_stalled(since_sync, max_age)
-}
-
 /// Push to an Uptime Kuma push monitor every [`KUMA_PUSH_INTERVAL`] while
-/// syncs are completing. Skipping a push (rather than sending `down`) lets
-/// Kuma's own timeout flag the bot, which also covers a dead process.
+/// the last successful sync is no older than `max_age`. `synced` must be
+/// beaten only on success: the main heartbeat also beats on failing turns.
+/// Skipping a push (rather than sending `down`) lets Kuma's own timeout flag
+/// the bot, which also covers a dead process.
 pub async fn kuma_pusher(url: String, synced: Heartbeat, max_age: Duration) {
     let http = reqwest::Client::new();
     let mut ticker = tokio::time::interval(KUMA_PUSH_INTERVAL);
     ticker.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
-    // The first tick fires immediately; wait for the first real sync.
+    // The first tick fires immediately, before any sync can have completed.
     ticker.tick().await;
     loop {
         ticker.tick().await;
-        let since_sync = synced.age();
-        if !kuma_push_due(since_sync, max_age) {
-            warn!(
-                since_sync_secs = since_sync.as_secs(),
-                "Kuma push skipped: no successful sync recently"
-            );
+        if is_stalled(synced.age(), max_age) {
+            warn!("Kuma push skipped: no successful sync recently");
             continue;
         }
         let push = async {
@@ -276,14 +267,5 @@ mod tests {
             next_action(IterationOutcome::Fatal, &mut backoff),
             LoopAction::Exit
         );
-    }
-
-    #[test]
-    fn kuma_push_only_while_syncs_complete() {
-        let max_age = Duration::from_mins(2);
-        assert!(kuma_push_due(Duration::ZERO, max_age));
-        assert!(kuma_push_due(max_age, max_age));
-        assert!(!kuma_push_due(max_age + Duration::from_secs(1), max_age));
-        assert!(!kuma_push_due(Duration::from_hours(1), max_age));
     }
 }
