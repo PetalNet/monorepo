@@ -194,6 +194,12 @@ const KUMA_PUSH_INTERVAL: Duration = Duration::from_secs(30);
 /// Deadline for one Uptime Kuma push request.
 const KUMA_PUSH_TIMEOUT: Duration = Duration::from_secs(10);
 
+/// Whether the Kuma push is due: `synced` was beaten within `max_age`.
+/// An unbeaten heartbeat (no sync has succeeded yet) is never due.
+fn kuma_push_due(synced: &Heartbeat, max_age: Duration) -> bool {
+    !is_stalled(synced.age(), max_age)
+}
+
 /// Push to an Uptime Kuma push monitor every [`KUMA_PUSH_INTERVAL`] while
 /// the last successful sync is no older than `max_age`. `synced` must be
 /// beaten only on success: the main heartbeat also beats on failing turns.
@@ -207,7 +213,7 @@ pub async fn kuma_pusher(url: String, synced: Heartbeat, max_age: Duration) {
     ticker.tick().await;
     loop {
         ticker.tick().await;
-        if is_stalled(synced.age(), max_age) {
+        if !kuma_push_due(&synced, max_age) {
             warn!("Kuma push skipped: no successful sync recently");
             continue;
         }
@@ -267,5 +273,16 @@ mod tests {
             next_action(IterationOutcome::Fatal, &mut backoff),
             LoopAction::Exit
         );
+    }
+
+    #[test]
+    fn kuma_push_waits_for_first_sync_and_stops_after_expiry() {
+        let max_age = Duration::from_millis(50);
+        let synced = Heartbeat::unbeaten();
+        assert!(!kuma_push_due(&synced, max_age), "never synced");
+        synced.beat();
+        assert!(kuma_push_due(&synced, max_age), "after first success");
+        std::thread::sleep(Duration::from_millis(80));
+        assert!(!kuma_push_due(&synced, max_age), "after expiry");
     }
 }
