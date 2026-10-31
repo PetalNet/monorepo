@@ -202,7 +202,7 @@ catalog:
   "@modelcontextprotocol/client": 2.0.0
   "@better-auth/mcp": 1.7.7
   "@effect/vitest": 4.0.1
-  drizzle-orm: 1.0.0-rc.5-5935859
+  drizzle-orm: 1.0.0-rc.5-ab785fc
   drizzle-kit: 1.0.0-rc.5-5935859
   fontless: ^1.2.1
   suncalc: ^2.1.1
