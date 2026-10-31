@@ -36,13 +36,15 @@ pub fn check_bridges(required: &[String], whoami: &Value) -> Result<(), String> 
         if states.iter().any(|s| OK_STATES.contains(s)) {
             continue;
         }
-        let why = match states.first() {
-            None => bridge
-                .pointer("/bridgeState/stateEvent")
-                .and_then(Value::as_str)
-                .map_or_else(|| "no login".to_owned(), |s| format!("no login ({s})")),
-            Some(s) => (*s).to_owned(),
-        };
+        let why = states.first().map_or_else(
+            || {
+                bridge
+                    .pointer("/bridgeState/stateEvent")
+                    .and_then(Value::as_str)
+                    .map_or_else(|| "no login".to_owned(), |s| format!("no login ({s})"))
+            },
+            |s| (*s).to_owned(),
+        );
         problems.push(format!("{name}: {why}"));
     }
     if problems.is_empty() {
@@ -85,7 +87,7 @@ mod tests {
         vec!["sh-instagram".into(), "sh-gchat".into()]
     }
 
-    fn whoami(insta: Value, gchat: Value) -> Value {
+    fn whoami(insta: &Value, gchat: &Value) -> Value {
         json!({"user": {"bridges": {
             "sh-instagram": {"bridgeState": {"stateEvent": "RUNNING"}, "remoteState": insta},
             "sh-gchat": {"bridgeState": {"stateEvent": "RUNNING"}, "remoteState": gchat},
@@ -95,15 +97,15 @@ mod tests {
     #[test]
     fn connected_is_ok() {
         let w = whoami(
-            json!({"1": {"state_event": "CONNECTED"}}),
-            json!({"2": {"state_event": "BACKFILLING"}}),
+            &json!({"1": {"state_event": "CONNECTED"}}),
+            &json!({"2": {"state_event": "BACKFILLING"}}),
         );
         assert_eq!(check_bridges(&req(), &w), Ok(()));
     }
 
     #[test]
     fn logged_out_bridges_fail_and_are_named() {
-        let w = whoami(json!({"1": {"state_event": "BAD_CREDENTIALS"}}), json!({}));
+        let w = whoami(&json!({"1": {"state_event": "BAD_CREDENTIALS"}}), &json!({}));
         let err = check_bridges(&req(), &w).unwrap_err();
         assert!(err.contains("sh-instagram: BAD_CREDENTIALS"), "{err}");
         assert!(err.contains("sh-gchat: no login (RUNNING)"), "{err}");
@@ -112,8 +114,8 @@ mod tests {
     #[test]
     fn one_good_login_suffices_and_missing_bridge_fails() {
         let w = whoami(
-            json!({"1": {"state_event": "BAD_CREDENTIALS"}, "3": {"state_event": "CONNECTED"}}),
-            json!({"2": {"state_event": "TRANSIENT_DISCONNECT"}}),
+            &json!({"1": {"state_event": "BAD_CREDENTIALS"}, "3": {"state_event": "CONNECTED"}}),
+            &json!({"2": {"state_event": "TRANSIENT_DISCONNECT"}}),
         );
         let err = check_bridges(&req(), &w).unwrap_err();
         assert!(!err.contains("sh-instagram"), "{err}");
