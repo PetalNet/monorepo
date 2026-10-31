@@ -13,6 +13,7 @@
 //!    supervised sync loop.
 
 mod args;
+mod bridges;
 mod dispatch;
 mod engine;
 mod logging;
@@ -171,6 +172,12 @@ async fn main() -> Result<()> {
             url,
             synced.clone(),
             sync_timeout + Duration::from_secs(90),
+            client.clone(),
+            args.required_bridges
+                .iter()
+                .map(|b| b.trim().to_owned())
+                .filter(|b| !b.is_empty())
+                .collect(),
         ));
     }
     if args.sync_iteration_timeout_secs != 180 {

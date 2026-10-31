@@ -31,6 +31,8 @@ use std::sync::Arc;
 use matrix_sdk::{Client, config::SyncSettings, ruma::api::client::error::ErrorKind};
 use tracing::{error, info, warn};
 
+use crate::bridges::{self, PushDecision};
+
 use courier_core::{
     bound::bounded,
     health::RelayHealth,
@@ -200,12 +202,66 @@ fn kuma_push_due(synced: &Heartbeat, max_age: Duration) -> bool {
     !is_stalled(synced.age(), max_age)
 }
 
+/// The push URL with `status`/`msg` set (replacing any already in it).
+fn push_url(base: &str, down_msg: Option<&str>) -> Option<reqwest::Url> {
+    let mut url = reqwest::Url::parse(base).ok()?;
+    let kept: Vec<(String, String)> = url
+        .query_pairs()
+        .filter(|(k, _)| k != "status" && k != "msg")
+        .map(|(k, v)| (k.into_owned(), v.into_owned()))
+        .collect();
+    let (status, msg) = down_msg.map_or(("up", "OK"), |m| ("down", m));
+    url.query_pairs_mut()
+        .clear()
+        .extend_pairs(kept)
+        .append_pair("status", status)
+        .append_pair("msg", msg);
+    Some(url)
+}
+
+/// Fetch Beeper bridge state and check the required bridges. Any failure to
+/// learn the state is `Err` (down), never a silent pass.
+async fn bridge_status(
+    http: &reqwest::Client,
+    client: &Client,
+    required: &[String],
+) -> Result<(), String> {
+    let token = client
+        .access_token()
+        .ok_or_else(|| "bridge state unknown".to_owned())?;
+    let fetch = async {
+        http.get(bridges::WHOAMI_URL)
+            .bearer_auth(token)
+            .send()
+            .await?
+            .error_for_status()?
+            .json::<serde_json::Value>()
+            .await
+            .map_err(reqwest::Error::without_url)
+    };
+    match bounded("beeper whoami", bridges::WHOAMI_TIMEOUT, fetch).await {
+        Ok(v) => bridges::check_bridges(required, &v),
+        Err(e) => {
+            warn!(error = %e, "Beeper whoami failed");
+            Err("bridge state unknown".to_owned())
+        }
+    }
+}
+
 /// Push to an Uptime Kuma push monitor every [`KUMA_PUSH_INTERVAL`] while
 /// the last successful sync is no older than `max_age`. `synced` must be
 /// beaten only on success: the main heartbeat also beats on failing turns.
 /// Skipping a push (rather than sending `down`) lets Kuma's own timeout flag
-/// the bot, which also covers a dead process.
-pub async fn kuma_pusher(url: String, synced: Heartbeat, max_age: Duration) {
+/// the bot, which also covers a dead process. When `required_bridges` is
+/// non-empty, the push is `down` (with the reason) unless each of those
+/// Beeper bridges has a connected login.
+pub async fn kuma_pusher(
+    url: String,
+    synced: Heartbeat,
+    max_age: Duration,
+    client: Client,
+    required_bridges: Vec<String>,
+) {
     let http = reqwest::Client::new();
     let mut ticker = tokio::time::interval(KUMA_PUSH_INTERVAL);
     ticker.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
@@ -213,12 +269,29 @@ pub async fn kuma_pusher(url: String, synced: Heartbeat, max_age: Duration) {
     ticker.tick().await;
     loop {
         ticker.tick().await;
-        if !kuma_push_due(&synced, max_age) {
-            warn!("Kuma push skipped: no successful sync recently");
+        let fresh = kuma_push_due(&synced, max_age);
+        let bridge_check = if fresh && !required_bridges.is_empty() {
+            Some(bridge_status(&http, &client, &required_bridges).await)
+        } else {
+            None
+        };
+        let down_msg = match bridges::decide(fresh, bridge_check) {
+            PushDecision::Skip => {
+                warn!("Kuma push skipped: no successful sync recently");
+                continue;
+            }
+            PushDecision::Up => None,
+            PushDecision::Down(msg) => {
+                warn!(reason = %msg, "Kuma push reporting down");
+                Some(msg)
+            }
+        };
+        let Some(target) = push_url(&url, down_msg.as_deref()) else {
+            warn!("Kuma push URL is invalid");
             continue;
-        }
+        };
         let push = async {
-            http.get(&url)
+            http.get(target)
                 .send()
                 .await
                 .and_then(reqwest::Response::error_for_status)
@@ -284,5 +357,21 @@ mod tests {
         assert!(kuma_push_due(&synced, max_age), "after first success");
         std::thread::sleep(Duration::from_millis(80));
         assert!(!kuma_push_due(&synced, max_age), "after expiry");
+    }
+
+    #[test]
+    fn push_url_replaces_status_and_msg() {
+        let u = push_url(
+            "https://k.example/api/push/tok?status=up&msg=OK&ping=",
+            None,
+        )
+        .unwrap();
+        assert_eq!(u.query(), Some("ping=&status=up&msg=OK"));
+        let u = push_url(
+            "https://k.example/api/push/tok?status=up&msg=OK",
+            Some("a b"),
+        )
+        .unwrap();
+        assert_eq!(u.query(), Some("status=down&msg=a+b"));
     }
 }
