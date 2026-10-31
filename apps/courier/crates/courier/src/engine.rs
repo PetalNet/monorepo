@@ -361,9 +361,17 @@ mod tests {
 
     #[test]
     fn push_url_replaces_status_and_msg() {
-        let u = push_url("https://k.example/api/push/tok?status=up&msg=OK&ping=", None).unwrap();
+        let u = push_url(
+            "https://k.example/api/push/tok?status=up&msg=OK&ping=",
+            None,
+        )
+        .unwrap();
         assert_eq!(u.query(), Some("ping=&status=up&msg=OK"));
-        let u = push_url("https://k.example/api/push/tok?status=up&msg=OK", Some("a b")).unwrap();
+        let u = push_url(
+            "https://k.example/api/push/tok?status=up&msg=OK",
+            Some("a b"),
+        )
+        .unwrap();
         assert_eq!(u.query(), Some("status=down&msg=a+b"));
     }
 }

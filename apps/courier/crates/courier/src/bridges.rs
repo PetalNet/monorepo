@@ -31,7 +31,11 @@ pub fn check_bridges(required: &[String], whoami: &Value) -> Result<(), String> 
         let states: Vec<&str> = remotes
             .into_iter()
             .flatten()
-            .map(|(_, r)| r.get("state_event").and_then(Value::as_str).unwrap_or("UNKNOWN"))
+            .map(|(_, r)| {
+                r.get("state_event")
+                    .and_then(Value::as_str)
+                    .unwrap_or("UNKNOWN")
+            })
             .collect();
         if states.iter().any(|s| OK_STATES.contains(s)) {
             continue;
@@ -76,7 +80,6 @@ pub fn decide(sync_fresh: bool, bridges: Option<Result<(), String>>) -> PushDeci
     }
 }
 
-
 #[cfg(test)]
 mod tests {
     use serde_json::json;
@@ -105,7 +108,10 @@ mod tests {
 
     #[test]
     fn logged_out_bridges_fail_and_are_named() {
-        let w = whoami(&json!({"1": {"state_event": "BAD_CREDENTIALS"}}), &json!({}));
+        let w = whoami(
+            &json!({"1": {"state_event": "BAD_CREDENTIALS"}}),
+            &json!({}),
+        );
         let err = check_bridges(&req(), &w).unwrap_err();
         assert!(err.contains("sh-instagram: BAD_CREDENTIALS"), "{err}");
         assert!(err.contains("sh-gchat: no login (RUNNING)"), "{err}");
