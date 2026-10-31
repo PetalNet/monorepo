@@ -83,6 +83,12 @@ pub struct Args {
     #[arg(long, env = "COURIER_KUMA_PUSH_URL", hide_env_values = true)]
     pub kuma_push_url: Option<String>,
 
+    /// Comma-separated Beeper bridges (e.g. `sh-instagram,sh-gchat`) that
+    /// must each have a connected login for the Kuma push to report up.
+    /// Unset keeps the push sync-only.
+    #[arg(long, env = "COURIER_REQUIRED_BRIDGES", value_delimiter = ',')]
+    pub required_bridges: Vec<String>,
+
     /// Parse and print the config, then exit without connecting.
     #[arg(long)]
     pub check_config: bool,
