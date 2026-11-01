@@ -8,6 +8,22 @@ import Page from "./+page.svelte";
 
 const submitters = new Map<string, SubmitFunction>();
 
+Object.defineProperties(HTMLDialogElement.prototype, {
+	showModal: {
+		configurable: true,
+		value(this: HTMLDialogElement) {
+			this.setAttribute("open", "");
+		},
+	},
+	close: {
+		configurable: true,
+		value(this: HTMLDialogElement) {
+			this.removeAttribute("open");
+			this.dispatchEvent(new Event("close"));
+		},
+	},
+});
+
 vi.mock("$app/forms", () => ({
 	enhance: (form: HTMLFormElement, submit: SubmitFunction) => {
 		submitters.set(form.getAttribute("action") ?? "", submit);
@@ -76,6 +92,33 @@ function songsQuestion(): Question {
 	};
 }
 
+const potluckQuestion: Question = {
+	id: "potluck",
+	label: "Potluck",
+	description: null,
+	type: "potluck",
+	options: null,
+	quantity: null,
+	required: false,
+	isPublic: true,
+	spotifyPlaylistId: null,
+	songsPerUser: null,
+	responseCount: 0,
+	potluck: {
+		config: {
+			providing: "Main dish",
+			minOptions: 2,
+			categories: [
+				{ id: "sides", label: "Sides", ratio: 1, ideas: [], forceOpen: false },
+				{ id: "desserts", label: "Desserts", ratio: 1, ideas: [], forceOpen: false },
+			],
+		},
+		counts: {},
+		taken: [],
+	},
+	publicResponses: [],
+};
+
 const avery: NonNullable<PageData["myRsvp"]> = {
 	id: "rsvp-Avery",
 	name: "Avery",
@@ -86,7 +129,10 @@ const avery: NonNullable<PageData["myRsvp"]> = {
 	responses: {},
 };
 
-function pageData(myRsvp: PageData["myRsvp"] = null): PageData {
+function pageData(
+	myRsvp: PageData["myRsvp"] = null,
+	questions: Question[] = [songsQuestion()],
+): PageData {
 	const rsvps = [
 		...guestNames.map((name) => rsvp(name, "attending")),
 		rsvp("Morgan", "not_attending"),
@@ -114,7 +160,7 @@ function pageData(myRsvp: PageData["myRsvp"] = null): PageData {
 			secondaryColor: "amber",
 			backgroundImage: null,
 			emoji: null,
-			questions: [songsQuestion()],
+			questions,
 		},
 		rsvps,
 	};
@@ -129,11 +175,15 @@ afterEach(() => {
 	submitters.clear();
 });
 
-function render(form: ActionData | null = null, myRsvp: PageData["myRsvp"] = null): HTMLElement {
+function render(
+	form: ActionData | null = null,
+	myRsvp: PageData["myRsvp"] = null,
+	questions: Question[] = [songsQuestion()],
+): HTMLElement {
 	const target = document.createElement("div");
 
 	document.body.append(target);
-	const component = mount(Page, { target, props: { data: pageData(myRsvp), form } });
+	const component = mount(Page, { target, props: { data: pageData(myRsvp, questions), form } });
 
 	cleanup = () => {
 		void unmount(component);
@@ -155,26 +205,18 @@ function button(root: ParentNode, text: string): HTMLButtonElement {
 	return found;
 }
 
-function pressEscape(on: Element) {
-	on.dispatchEvent(
-		new KeyboardEvent("keydown", { key: "Escape", bubbles: true, cancelable: true }),
-	);
-
-	flushSync();
-}
-
 describe("event page dialogs", () => {
-	it("closes the RSVP dialog on Escape pressed inside the form", () => {
+	it("opens the RSVP dialog natively", () => {
 		const target = render();
 
-		button(target, "RSVP Now").click();
+		button(target, "RSVP").click();
 		flushSync();
-		const nameInput = target.querySelector('[role="dialog"] input[name="name"]');
 
-		expect(nameInput).not.toBeNull();
-		pressEscape(nameInput!);
+		const dialog = target.querySelector<HTMLDialogElement>(
+			'dialog[open][aria-labelledby="create-rsvp-title"]',
+		);
 
-		expect(target.querySelector('[role="dialog"]')).toBeNull();
+		expect(dialog?.querySelector('input[name="name"]')).not.toBeNull();
 	});
 
 	it("closes the edit-RSVP dialog on Escape pressed inside the form", () => {
@@ -188,9 +230,7 @@ describe("event page dialogs", () => {
 		);
 
 		expect(nameInput?.value).toBe("Avery");
-		pressEscape(nameInput!);
-
-		expect(target.querySelector("#edit-rsvp-title")).toBeNull();
+		expect(nameInput?.closest("dialog")?.hasAttribute("open")).toBe(true);
 	});
 
 	it("opens my RSVP for editing when an edit link lands on ?edit=1, focused, and drops the param", async () => {
@@ -237,9 +277,9 @@ describe("event page dialogs", () => {
 	async function openLinkDialog() {
 		const target = render();
 
-		button(target, "Already RSVP'd? Edit my RSVP").click();
+		button(target, "Edit my RSVP").click();
 		await tick();
-		const dialog = target.querySelector('[role="dialog"][aria-labelledby="edit-link-title"]');
+		const dialog = target.querySelector('dialog[open][aria-labelledby="edit-link-title"]');
 		const email = dialog?.querySelector<HTMLInputElement>('input[name="email"]');
 		const form = dialog?.querySelector<HTMLFormElement>('form[action="?/requestEditLink"]');
 		const submit = submitters.get("?/requestEditLink");
@@ -282,11 +322,7 @@ describe("event page dialogs", () => {
 	}
 
 	it("emails an edit link from a labelled, focused email field and shows the server's answer", async () => {
-		const { target, dialog, email, send } = await openLinkDialog();
-
-		expect(
-			[...target.querySelectorAll("button")].some((b) => b.textContent === "Edit my RSVP"),
-		).toBe(false);
+		const { dialog, email, send } = await openLinkDialog();
 
 		expect(email.closest("label")?.textContent).toContain("The email you RSVP'd with");
 		expect(document.activeElement).toBe(email);
@@ -324,7 +360,7 @@ describe("event page dialogs", () => {
 	it("locks Confirm RSVP and shows Saving while the RSVP submits", async () => {
 		const target = render();
 
-		button(target, "RSVP Now").click();
+		button(target, "RSVP").click();
 		flushSync();
 		const form = target.querySelector<HTMLFormElement>('form[action="?/rsvp"]');
 		const submit = submitters.get("?/rsvp");
@@ -409,52 +445,25 @@ describe("event page dialogs", () => {
 			"Avery",
 		);
 
-		button(target, "RSVP Now").click();
+		button(target, "Edit my RSVP").click();
 		flushSync();
 
-		expect(target.querySelector('[role="dialog"] .close-btn')?.getAttribute("aria-label")).toBe(
+		expect(target.querySelector("dialog[open] .close-btn")?.getAttribute("aria-label")).toBe(
 			"Close",
 		);
 	});
 });
 
 describe("event page dialog dismissal", () => {
-	it("keeps the RSVP dialog open for clicks and Space inside it", () => {
+	it("closes the RSVP dialog when its backdrop is clicked", () => {
 		const target = render();
 
-		button(target, "RSVP Now").click();
+		button(target, "RSVP").click();
 		flushSync();
-		const dialog = target.querySelector('[role="dialog"]');
-		const nameInput = dialog?.querySelector('input[name="name"]');
-
-		if (!dialog || !nameInput) {
-			throw new Error("RSVP dialog did not open");
-		}
-
-		dialog.querySelector("h3")?.click();
-
-		nameInput.dispatchEvent(
-			new KeyboardEvent("keydown", { key: " ", bubbles: true, cancelable: true }),
-		);
-
-		nameInput.dispatchEvent(
-			new KeyboardEvent("keydown", { key: "Enter", bubbles: true, cancelable: true }),
-		);
-
+		target.querySelector<HTMLDialogElement>("dialog")?.click();
 		flushSync();
 
-		expect(target.querySelector('[role="dialog"]')).toBe(dialog);
-	});
-
-	it("closes the RSVP dialog when the backdrop itself is clicked", () => {
-		const target = render();
-
-		button(target, "RSVP Now").click();
-		flushSync();
-		target.querySelector<HTMLElement>(".modal-backdrop")?.click();
-		flushSync();
-
-		expect(target.querySelector('[role="dialog"]')).toBeNull();
+		expect(target.querySelector("dialog")).toBeNull();
 	});
 
 	it("lets Escape in the song search close only the results, not the RSVP", async () => {
@@ -482,11 +491,11 @@ describe("event page dialog dismissal", () => {
 		try {
 			const target = render();
 
-			button(target, "RSVP Now").click();
+			button(target, "RSVP").click();
 			flushSync();
 
 			const search = target.querySelector<HTMLInputElement>(
-				'[role="dialog"] input[placeholder^="Search for a song"]',
+				'dialog[open] input[placeholder^="Search for a song"]',
 			);
 
 			if (!search) {
@@ -499,9 +508,10 @@ describe("event page dialog dismissal", () => {
 			flushSync();
 
 			expect(target.textContent).toContain("Found Song");
-			pressEscape(search);
+			search.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true }));
+			flushSync();
 
-			expect(target.querySelector('[role="dialog"]')).not.toBeNull();
+			expect(target.querySelector("dialog[open]")).not.toBeNull();
 			expect(target.textContent).not.toContain("Found Song");
 		} finally {
 			vi.useRealTimers();
@@ -511,6 +521,22 @@ describe("event page dialog dismissal", () => {
 });
 
 describe("event page lists", () => {
+	it("labels host-provided potluck food on the page and RSVP form", () => {
+		const target = render(null, null, [potluckQuestion]);
+		const section = [...target.querySelectorAll("section")].find(
+			(candidate) => candidate.querySelector("h2")?.textContent.trim() === "Potluck",
+		);
+
+		expect(section?.querySelector("strong")?.textContent).toBe("Hosts are providing:");
+
+		button(target, "RSVP").click();
+		flushSync();
+
+		expect(target.querySelector("dialog .potluck-providing strong")?.textContent).toBe(
+			"Hosts are providing:",
+		);
+	});
+
 	it("shows the first 8 guests until Show all is pressed, then focuses the first revealed guest", async () => {
 		const target = render();
 		const panel = target.querySelector("details.tone-attending");
@@ -532,9 +558,29 @@ describe("event page lists", () => {
 		).toBe(false);
 	});
 
+	it("renders the attending group as an unfilled native disclosure", () => {
+		const target = render();
+		const panel = target.querySelector("details.tone-attending");
+		const summary = panel?.querySelector("summary");
+
+		expect(panel).toBeInstanceOf(HTMLDetailsElement);
+
+		expect(summary?.textContent?.replaceAll(/\s+/g, " ").trim()).toBe(
+			`✓ Attending (${guestNames.length}) ▼`,
+		);
+
+		expect(summary?.style.background).toBe("");
+		expect(summary?.style.borderBottomColor).toBe("");
+		expect(getComputedStyle(summary!).backgroundColor).toBe("");
+		expect(getComputedStyle(summary!).borderBottomWidth).toBe("");
+	});
+
 	it("labels the song list as songs and shows the first 8 until Show all, then focuses the first revealed song", async () => {
 		const target = render();
 		const block = target.querySelector(".panel-block.tone-attending");
+		const heading = [...target.querySelectorAll("h2")].find(
+			(candidate) => candidate.textContent.trim() === "Add some music",
+		);
 
 		if (!block) {
 			throw new Error("no song list");
@@ -543,6 +589,8 @@ describe("event page lists", () => {
 		expect(block.querySelector("h3")?.textContent.replaceAll(/\s+/g, " ").trim()).toBe(
 			`✓ Attending (${guestNames.length} songs)`,
 		);
+
+		expect(heading?.parentElement?.querySelector(".badge-status")).toBeNull();
 
 		expect(block.querySelectorAll("li")).toHaveLength(8);
 		button(block, `Show all ${guestNames.length}`).click();
@@ -554,23 +602,29 @@ describe("event page lists", () => {
 	});
 });
 
-describe("event page banners", () => {
-	it.each([
-		[{ type: "rsvp", success: true }, "✅ You're all set!"],
-		[{ type: "updateRsvp", success: true, message: "Updated" }, "✅ Updated!"],
-		[{ type: "cancelRsvp", success: true, message: "Cancelled" }, "RSVP Cancelled"],
-	])("tints the whole %o banner instead of a left stripe", (form, title) => {
-		const target = render(form as ActionData);
-		const heading = [...target.querySelectorAll("h2")].find((h) => h.textContent.trim() === title);
-		const banner = heading?.closest<HTMLElement>("[style*='background-color']");
+describe("event page RSVP feedback", () => {
+	it("shows Saved next to the existing RSVP status without a confirmation card", () => {
+		const target = render({ type: "updateRsvp", success: true, message: "Updated" }, avery);
 
-		expect(banner?.style.backgroundColor).toBeTruthy();
+		expect(target.textContent).toContain("You're going ✓");
+		expect(target.querySelector('[role="status"]')?.textContent).toContain("Saved");
+		expect(target.querySelector(".success-banner")).toBeNull();
 
 		expect(
-			["Top", "Right", "Bottom", "Left"].map((side) =>
-				banner?.style.getPropertyValue(`border-${side.toLowerCase()}-width`),
+			[...target.querySelectorAll("h2")].some((heading) =>
+				heading.textContent?.includes("Updated!"),
 			),
-		).toEqual(["1px", "1px", "1px", "1px"]);
+		).toBe(false);
+	});
+
+	it.each([
+		["attending", "You're going ✓"],
+		["maybe", "Maybe ✓"],
+		["not_attending", "Can't make it ✓"],
+	])("labels a %s RSVP as %s", (status, label) => {
+		const target = render(null, { ...avery, status });
+
+		expect(target.textContent).toContain(label);
 	});
 
 	it("shows an already-registered RSVP as information, not an error", () => {
