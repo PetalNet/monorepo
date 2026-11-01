@@ -32,6 +32,17 @@
 	);
 
 	let showDeleteModal = $state(false);
+	let deleteDialog = $state<HTMLDialogElement>();
+
+	$effect(() => {
+		if (showDeleteModal && deleteDialog && !deleteDialog.open) {
+			deleteDialog.showModal();
+		}
+
+		if (!showDeleteModal && deleteDialog?.open) {
+			deleteDialog.close();
+		}
+	});
 </script>
 
 <div class="mx-auto max-w-[800px]">
@@ -216,62 +227,58 @@
 </div>
 
 {#if showDeleteModal}
-	<!-- svelte-ignore a11y_click_events_have_key_events -->
-	<!-- svelte-ignore a11y_no_static_element_interactions -->
-	<div class="modal-backdrop" onclick={() => (showDeleteModal = false)}>
-		<!-- svelte-ignore a11y_click_events_have_key_events -->
-		<!-- svelte-ignore a11y_no_static_element_interactions -->
-		<div class="modal" onclick={(e) => e.stopPropagation()}>
-			<div class="modal-header">
-				<h2 class="flex items-center gap-2">
-					<span class="text-2xl">⚠️</span>
-					Confirm Account Deletion
-				</h2>
-				<button type="button" class="close-btn" onclick={() => (showDeleteModal = false)}>✕</button>
+	<dialog
+		bind:this={deleteDialog}
+		class="modal"
+		aria-labelledby="delete-account-title"
+		onclose={() => (showDeleteModal = false)}
+		onclick={(event) => event.target === event.currentTarget && deleteDialog?.close()}
+	>
+		<div class="modal-header">
+			<h2 id="delete-account-title" class="flex items-center gap-2">
+				<span class="text-2xl">⚠️</span>
+				Confirm Account Deletion
+			</h2>
+			<button type="button" class="close-btn" onclick={() => deleteDialog?.close()}>✕</button>
+		</div>
+
+		<form
+			method="POST"
+			action="?/deleteAccount"
+			class="px-8 py-6"
+			use:enhance={() => {
+				return async ({ update }) => {
+					await update();
+				};
+			}}
+		>
+			<div class="mb-6 rounded-lg border border-red-200 bg-red-50 p-4">
+				<p class="mb-2 text-sm font-semibold text-red-800">
+					⚠️ Warning: This action cannot be undone!
+				</p>
+				<p class="text-sm text-red-700">Deleting your account will permanently remove:</p>
+				<ul class="mt-2 list-inside list-disc space-y-1 text-sm text-red-700">
+					<li>Your profile and account information</li>
+					<li>All events you've created</li>
+					<li>All RSVPs and responses to your events</li>
+					<li>All questions and event data</li>
+				</ul>
 			</div>
 
-			<form
-				method="POST"
-				action="?/deleteAccount"
-				class="px-8 py-6"
-				use:enhance={() => {
-					return async ({ update }) => {
-						await update();
-					};
-				}}
-			>
-				<div class="mb-6 rounded-lg border border-red-200 bg-red-50 p-4">
-					<p class="mb-2 text-sm font-semibold text-red-800">
-						⚠️ Warning: This action cannot be undone!
-					</p>
-					<p class="text-sm text-red-700">Deleting your account will permanently remove:</p>
-					<ul class="mt-2 list-inside list-disc space-y-1 text-sm text-red-700">
-						<li>Your profile and account information</li>
-						<li>All events you've created</li>
-						<li>All RSVPs and responses to your events</li>
-						<li>All questions and event data</li>
-					</ul>
-				</div>
+			<label class="form-label">
+				<span>Enter your account email to confirm *</span>
+				<input class="input-field" type="email" name="email" required autocomplete="email" />
+				{#if deleteErrors.email}
+					<small class="text-sm text-red-600">{deleteErrors.email[0]}</small>
+				{/if}
+			</label>
 
-				<label class="form-label">
-					<span>Enter your account email to confirm *</span>
-					<input class="input-field" type="email" name="email" required autocomplete="email" />
-					{#if deleteErrors.email}
-						<small class="text-sm text-red-600">{deleteErrors.email[0]}</small>
-					{/if}
-				</label>
-
-				<div class="mt-6 flex gap-3">
-					<button
-						type="button"
-						class="btn-secondary flex-1"
-						onclick={() => (showDeleteModal = false)}
-					>
-						Cancel
-					</button>
-					<button type="submit" class="btn-danger flex-1">Delete My Account</button>
-				</div>
-			</form>
-		</div>
-	</div>
+			<div class="mt-6 flex gap-3">
+				<button type="button" class="btn-secondary flex-1" onclick={() => deleteDialog?.close()}>
+					Cancel
+				</button>
+				<button type="submit" class="btn-danger flex-1">Delete My Account</button>
+			</div>
+		</form>
+	</dialog>
 {/if}

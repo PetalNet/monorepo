@@ -113,6 +113,24 @@ export default defineConfig([
 		},
 	},
 	{
+		files: ["apps/petalboard/**/*.svelte"],
+		rules: {
+			"no-restricted-syntax": [
+				"error",
+				{
+					selector:
+						'SvelteElement:not([name.name="dialog"]) > SvelteStartTag > SvelteAttribute[key.name="role"]:has(SvelteLiteral[value="dialog"])',
+					message: "Use a native <dialog> with showModal().",
+				},
+				{
+					selector:
+						'SvelteElement:not([name.name="dialog"]) > SvelteStartTag > SvelteAttribute[key.name="aria-modal"]',
+					message: "Use a native <dialog> with showModal().",
+				},
+			],
+		},
+	},
+	{
 		files: ["apps/grove/**/*.{ts,svelte}"],
 		rules: {
 			"@typescript-eslint/no-restricted-types": [

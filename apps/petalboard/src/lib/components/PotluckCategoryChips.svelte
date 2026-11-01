@@ -74,7 +74,7 @@
 		gap: 0.5rem;
 		padding: 0.5rem 0.625rem;
 		cursor: pointer;
-		border: 2px solid rgba(124, 93, 250, 0.2);
+		border: none;
 		border-radius: 0.75rem;
 		background: #fff;
 		color: var(--event-text-primary, #1b1430);
@@ -90,14 +90,12 @@
 	}
 
 	.potluck-choice.selected {
-		border-color: var(--event-primary-700, #6d28d9);
 		background: linear-gradient(135deg, rgba(124, 93, 250, 0.15), rgba(155, 107, 255, 0.1));
 		color: var(--event-primary-900, #4c1d95);
 	}
 
 	.potluck-choice.closed {
 		cursor: not-allowed;
-		border-color: rgba(124, 93, 250, 0.14);
 		background: rgba(124, 93, 250, 0.04);
 	}
 
@@ -133,7 +131,6 @@
 	}
 
 	:global(html.dark) .potluck-choice {
-		border-color: rgba(124, 93, 250, 0.2);
 		background: var(--event-entry-surface-dark, rgba(20, 20, 28, 0.9));
 		color: var(--event-text-primary-dark, #f4f3ff);
 	}
@@ -143,7 +140,6 @@
 	}
 
 	:global(html.dark) .potluck-choice.selected {
-		border-color: var(--event-primary-700, #6d28d9);
 		background:
 			linear-gradient(135deg, rgba(124, 93, 250, 0.15), rgba(155, 107, 255, 0.1)),
 			var(--event-entry-surface-dark, rgba(20, 20, 28, 0.9));
@@ -151,7 +147,6 @@
 	}
 
 	:global(html.dark) .potluck-choice.closed {
-		border-color: rgba(124, 93, 250, 0.16);
 		background: rgba(255, 255, 255, 0.04);
 	}
 </style>

@@ -176,9 +176,7 @@
 	{#if selectedTracks.length > 0}
 		<div class="space-y-3">
 			{#each selectedTracks as track (track.id)}
-				<div
-					class="to-accent-50/30 rounded-xl border border-primary-700/20 bg-gradient-to-br from-primary-50 p-4"
-				>
+				<div class="to-accent-50/30 rounded-xl bg-gradient-to-br from-primary-50 p-4">
 					<div class="flex items-start gap-4">
 						{#if track.album.images[0]}
 							<img
@@ -253,12 +251,12 @@
 					}}
 				></div>
 				<div
-					class="absolute z-20 mt-2 max-h-96 w-full overflow-y-auto rounded-xl border border-primary-700/10 bg-white shadow-2xl"
+					class="absolute z-20 mt-2 max-h-96 w-full overflow-y-auto rounded-xl bg-white shadow-2xl"
 				>
 					{#each searchResults as track (track.id)}
 						<button
 							type="button"
-							class="flex w-full items-center gap-3 border-b border-gray-100 p-3 text-left transition-colors last:border-b-0 hover:bg-primary-50 disabled:cursor-not-allowed disabled:opacity-60"
+							class="flex w-full items-center gap-3 p-3 text-left transition-colors hover:bg-primary-50 disabled:cursor-not-allowed disabled:opacity-60"
 							onclick={() => selectTrack(track)}
 							disabled={limitReached &&
 								!selectedTracks.some((selected) => selected.id === track.id)}
@@ -291,7 +289,7 @@
 
 			{#if showResults && searchQuery && searchResults.length === 0 && !isSearching}
 				<div
-					class="absolute z-20 mt-2 w-full rounded-xl border border-primary-700/10 bg-white p-4 text-center text-gray-500 shadow-2xl"
+					class="absolute z-20 mt-2 w-full rounded-xl bg-white p-4 text-center text-gray-500 shadow-2xl"
 				>
 					No songs found
 				</div>
