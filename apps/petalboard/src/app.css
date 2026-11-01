@@ -436,12 +436,19 @@
 }
 
 /* Modal styles */
-.modal-backdrop {
-	@apply fixed inset-0 z-[1000] flex items-center justify-center p-0 md:p-4;
+dialog.modal {
+	@apply mx-auto my-auto w-full max-w-lg rounded-2xl bg-white;
+	border: 0;
+	padding: 0;
+	max-height: 100vh;
+	max-height: 100dvh;
+	overflow-y: auto;
+	animation: slideUp 0.3s ease;
+}
+
+dialog.modal::backdrop {
 	background: rgba(0, 0, 0, 0.5);
 	animation: fadeIn 0.2s ease;
-	overflow-y: auto;
-	-webkit-overflow-scrolling: touch;
 }
 
 @keyframes fadeIn {
@@ -453,12 +460,28 @@
 	}
 }
 
+.saved-note {
+	animation: savedNoteFade 3s ease forwards;
+}
+
+@keyframes savedNoteFade {
+	0%,
+	80% {
+		opacity: 1;
+	}
+	100% {
+		opacity: 0;
+	}
+}
+
+@media (prefers-reduced-motion: reduce) {
+	.saved-note {
+		animation: none;
+	}
+}
+
 .modal {
-	@apply mx-auto my-auto w-full max-w-lg rounded-2xl bg-white;
-	max-height: 100vh;
-	max-height: 100dvh; /* Use dynamic viewport height on mobile */
-	overflow-y: auto;
-	animation: slideUp 0.3s ease;
+	/* ponytail: dialog.modal owns modal geometry; this class remains for shared child selectors. */
 }
 
 .modal.large {
@@ -467,9 +490,7 @@
 
 /* On mobile, make modal full screen */
 @media (max-width: 768px) {
-	.modal-backdrop .modal,
-	div[role="dialog"].modal,
-	.modal {
+	dialog.modal {
 		border-radius: 0 !important;
 		max-height: 100vh !important;
 		max-height: 100dvh !important;
@@ -485,7 +506,7 @@
 
 	/* Ensure form takes remaining space and scrolls */
 	.modal form,
-	div[role="dialog"] form {
+	dialog.modal form {
 		flex: 1 1 auto !important;
 		min-height: 0 !important;
 		overflow-y: auto !important;
@@ -530,7 +551,7 @@
 
 /* Mobile adjustments for modal header */
 @media (max-width: 768px) {
-	div[role="dialog"] .modal-header,
+	dialog.modal .modal-header,
 	.modal .modal-header,
 	.modal-header {
 		padding: 0.75rem 1rem !important;
@@ -586,9 +607,8 @@
 
 /* Mobile adjustments for modal form */
 @media (max-width: 768px) {
-	div[role="dialog"] form,
-	.modal form,
-	.modal-backdrop .modal form {
+	dialog.modal form,
+	.modal form {
 		padding: 0.75rem 1rem !important;
 	}
 
@@ -993,7 +1013,7 @@ html.dark footer {
 	color: #6b6b7b;
 }
 
-html.dark .modal-backdrop {
+html.dark dialog.modal::backdrop {
 	background-color: rgba(0, 0, 0, 0.9);
 	backdrop-filter: blur(8px);
 }
@@ -1006,7 +1026,7 @@ html.dark .modal {
 /* Dark mode mobile modal fixes */
 @media (max-width: 768px) {
 	html.dark .modal,
-	html.dark div[role="dialog"].modal {
+	html.dark dialog.modal {
 		display: flex !important;
 		flex-direction: column !important;
 		border-radius: 0 !important;
@@ -1017,7 +1037,7 @@ html.dark .modal {
 	}
 
 	html.dark .modal form,
-	html.dark div[role="dialog"] form {
+	html.dark dialog.modal form {
 		flex: 1 1 auto !important;
 		min-height: 0 !important;
 		overflow-y: auto !important;

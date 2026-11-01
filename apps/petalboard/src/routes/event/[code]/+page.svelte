@@ -120,6 +120,9 @@
 	let newPeople = $state<Person[]>([]);
 	let showCancelConfirm = $state(false);
 	let submittingRsvp = $state(false);
+	let linkDialog = $state<HTMLDialogElement>();
+	let editDialog = $state<HTMLDialogElement>();
+	let rsvpDialog = $state<HTMLDialogElement>();
 	const expandedLists = new SvelteSet<string>();
 
 	// Collapsible sections state
@@ -132,14 +135,33 @@
 	let map: google.maps.Map | null = null;
 	let marker: google.maps.marker.AdvancedMarkerElement | null = null;
 
-	// Prevent body scroll when modals are open
 	$effect(() => {
-		if (typeof document !== "undefined") {
-			if (showRsvpModal || showEditModal || showLinkModal) {
-				document.body.classList.add("no-scroll");
-			} else {
-				document.body.classList.remove("no-scroll");
-			}
+		if (showLinkModal && linkDialog && !linkDialog.open) {
+			linkDialog.showModal();
+		}
+
+		if (!showLinkModal && linkDialog?.open) {
+			linkDialog.close();
+		}
+	});
+
+	$effect(() => {
+		if (showEditModal && editDialog && !editDialog.open) {
+			editDialog.showModal();
+		}
+
+		if (!showEditModal && editDialog?.open) {
+			editDialog.close();
+		}
+	});
+
+	$effect(() => {
+		if (showRsvpModal && rsvpDialog && !rsvpDialog.open) {
+			rsvpDialog.showModal();
+		}
+
+		if (!showRsvpModal && rsvpDialog?.open) {
+			rsvpDialog.close();
 		}
 	});
 
@@ -288,27 +310,6 @@
 			});
 	}
 
-	function handleOverlayKeydown(event: KeyboardEvent, action: () => void) {
-		if (event.target === event.currentTarget && (event.key === "Enter" || event.key === " ")) {
-			event.preventDefault();
-			action();
-		}
-	}
-
-	function closeTopDialog(event: KeyboardEvent) {
-		if (event.key !== "Escape" || event.defaultPrevented || event.isComposing) {
-			return;
-		}
-
-		if (showLinkModal) {
-			closeLinkModal();
-		} else if (showEditModal) {
-			closeEditModal();
-		} else if (showRsvpModal) {
-			closeRsvpModal();
-		}
-	}
-
 	function parseSpotifyTracks(value: string | null | undefined): ParsedSpotifyTrack[] {
 		if (!value) {
 			return [];
@@ -417,10 +418,24 @@
 	}
 
 	function closeRsvpModal() {
+		if (rsvpDialog?.open) {
+			rsvpDialog.close();
+
+			return;
+		}
+
 		showRsvpModal = false;
 		responses = {};
 		newRsvpStatus = "attending";
 		newPeople = [];
+	}
+
+	function rsvpStatusLabel(status: string) {
+		return toRsvpStatus(status) === "attending"
+			? "You're going ✓"
+			: toRsvpStatus(status) === "maybe"
+				? "Maybe ✓"
+				: "Can't make it ✓";
 	}
 
 	async function openEditModal() {
@@ -438,6 +453,12 @@
 	}
 
 	function closeEditModal() {
+		if (editDialog?.open) {
+			editDialog.close();
+
+			return;
+		}
+
 		editingRsvp = null;
 		showEditModal = false;
 		responses = {};
@@ -454,6 +475,12 @@
 	}
 
 	function closeLinkModal() {
+		if (linkDialog?.open) {
+			linkDialog.close();
+
+			return;
+		}
+
 		showLinkModal = false;
 		linkResult = null;
 		linkTrigger?.focus();
@@ -497,8 +524,6 @@
 <svelte:head>
 	<title>{event.title} - PetalBoard</title>
 </svelte:head>
-
-<svelte:window onkeydown={closeTopDialog} />
 
 {#snippet showAll(key: string, total: number, extraClass: string)}
 	{#if total > LIST_PREVIEW_SIZE && !expandedLists.has(key)}
@@ -584,7 +609,16 @@
 			</div>
 
 			<div class="flex w-full flex-col gap-3 md:w-auto">
-				{#if !rsvpAtLimit}
+				{#if myRsvp}
+					<div class="text-base text-dark-700">
+						{rsvpStatusLabel(myRsvp.status)}
+						{#if success && (formType === "rsvp" || formType === "updateRsvp")}
+							<span class="saved-note ml-2 text-sm text-dark-700/70" role="status">Saved</span>
+						{:else if success && formType === "cancelRsvp"}
+							<span class="ml-2 text-sm text-dark-700/70" role="status">RSVP cancelled</span>
+						{/if}
+					</div>
+				{:else if !rsvpAtLimit}
 					<button
 						class="w-full rounded-xl px-6 py-3 text-base font-semibold text-white transition-colors md:w-auto md:px-8 md:py-4 md:text-lg"
 						style={`background-color: ${primaryColors[700]};`}
@@ -608,54 +642,16 @@
 						onclick={(e) => openLinkModal(e.currentTarget)}>Edit my RSVP</button
 					>
 				{/if}
+				{#if formType === "rsvp" && form?.alreadyRegistered && message}
+					<p class="text-sm text-dark-700/70" role="status">{message}</p>
+				{:else if success && formType === "cancelRsvp"}
+					<p class="text-sm text-dark-700/70" role="status">RSVP cancelled</p>
+				{:else if message && !success && !showRsvpModal && !showEditModal && !showLinkModal}
+					<p class="text-sm text-red-700" role="alert">{message}</p>
+				{/if}
 			</div>
 		</div>
 	</article>
-
-	<!-- Success Messages -->
-	{#if success && formType === "rsvp"}
-		<div
-			class="success-banner event-card"
-			style={`background-color: ${mixColors(primaryColors[50], secondaryColors[50], 0.6, 0.78)};`}
-		>
-			<h2 class="mb-2 text-xl font-bold">✅ You're all set!</h2>
-			<p class="mb-0">
-				Check your email for a confirmation with a link to edit your RSVP. This browser can also
-				edit it any time with Edit my RSVP.
-			</p>
-		</div>
-	{/if}
-
-	{#if formType === "rsvp" && form?.alreadyRegistered}
-		<div
-			class="card event-card mb-8"
-			role="status"
-			style={`background-color: ${mixColors(primaryColors[50], secondaryColors[50], 0.6, 0.78)};`}
-		>
-			<h2 class="mb-2 text-xl font-bold">Check your email</h2>
-			<p class="mb-0">{message}</p>
-		</div>
-	{/if}
-
-	{#if success && formType === "updateRsvp"}
-		<div
-			class="success-banner event-card"
-			style={`background-color: ${mixColors(primaryColors[50], secondaryColors[50], 0.6, 0.78)};`}
-		>
-			<h2 class="mb-2 text-xl font-bold">✅ Updated!</h2>
-			<p class="mb-0">{message}</p>
-		</div>
-	{/if}
-
-	{#if success && formType === "cancelRsvp"}
-		<div
-			class="card event-card mb-8"
-			style={`background-color: ${mixColors(primaryColors[50], secondaryColors[50], 0.6, 0.78)};`}
-		>
-			<h2 class="mb-2 text-xl font-bold">RSVP Cancelled</h2>
-			<p class="mb-0">{message}</p>
-		</div>
-	{/if}
 
 	<!-- WHO'S COMING - Public View -->
 	{#if rsvps && rsvps.length > 0}
@@ -1330,745 +1326,708 @@
 
 <!-- Edit-link request modal -->
 {#if showLinkModal}
-	<div
-		class="modal-backdrop"
-		role="button"
-		tabindex="0"
-		aria-label="Close edit link dialog"
-		onclick={(event) => event.target === event.currentTarget && closeLinkModal()}
-		onkeydown={(event) => handleOverlayKeydown(event, closeLinkModal)}
+	<dialog
+		bind:this={linkDialog}
+		class="modal"
+		aria-labelledby="edit-link-title"
+		onclose={closeLinkModal}
+		onclick={(event) => event.target === event.currentTarget && linkDialog?.close()}
 	>
-		<div
-			class="modal"
-			role="dialog"
-			aria-modal="true"
-			aria-labelledby="edit-link-title"
-			tabindex="-1"
-		>
-			<div class="modal-header">
-				<h3 id="edit-link-title">Edit my RSVP</h3>
-				<button type="button" class="close-btn" aria-label="Close" onclick={closeLinkModal}
-					>×</button
-				>
-			</div>
-			{#if linkResult?.ok}
-				<p class="mb-4" role="status" tabindex="-1" bind:this={linkStatus}>{linkResult.message}</p>
-				<div class="modal-actions">
-					<button type="button" class="btn-primary min-h-11" onclick={closeLinkModal}>Done</button>
-				</div>
-			{:else}
-				<form
-					method="POST"
-					action="?/requestEditLink"
-					use:enhance={() => {
-						sendingLink = true;
-
-						return async ({ result }) => {
-							sendingLink = false;
-
-							if (result.type === "success" || result.type === "failure") {
-								linkResult = {
-									ok: result.type === "success",
-									message: String(result.data?.message ?? ""),
-								};
-							} else if (result.type === "error") {
-								linkResult = {
-									ok: false,
-									message: "Something went wrong sending your link. Try again in a minute.",
-								};
-							}
-
-							if (linkResult?.ok) {
-								await tick();
-								linkStatus?.focus();
-							}
-						};
-					}}
-				>
-					{#if linkResult}
-						<div class="error-banner mb-4" role="alert">{linkResult.message}</div>
-					{/if}
-					<label class="form-label">
-						<span>The email you RSVP'd with</span>
-						<input
-							class="input-field"
-							name="email"
-							type="email"
-							required
-							autocomplete="email"
-							placeholder="you@example.com"
-							bind:this={linkEmailInput}
-						/>
-						<small class="text-sm text-gray-600"
-							>We'll email you a link to edit your RSVP. It works for 1 hour.</small
-						>
-					</label>
-					<div class="modal-actions">
-						<button type="submit" class="btn-primary min-h-11" disabled={sendingLink}
-							>{sendingLink ? "Sending…" : "Email me a link"}</button
-						>
-						<button type="button" class="btn-secondary min-h-11" onclick={closeLinkModal}
-							>Cancel</button
-						>
-					</div>
-				</form>
-			{/if}
+		<div class="modal-header">
+			<h3 id="edit-link-title">Edit my RSVP</h3>
+			<button type="button" class="close-btn" aria-label="Close" onclick={closeLinkModal}>×</button>
 		</div>
-	</div>
+		{#if linkResult?.ok}
+			<p class="mb-4" role="status" tabindex="-1" bind:this={linkStatus}>{linkResult.message}</p>
+			<div class="modal-actions">
+				<button type="button" class="btn-primary min-h-11" onclick={closeLinkModal}>Done</button>
+			</div>
+		{:else}
+			<form
+				method="POST"
+				action="?/requestEditLink"
+				use:enhance={() => {
+					sendingLink = true;
+
+					return async ({ result }) => {
+						sendingLink = false;
+
+						if (result.type === "success" || result.type === "failure") {
+							linkResult = {
+								ok: result.type === "success",
+								message: String(result.data?.message ?? ""),
+							};
+						} else if (result.type === "error") {
+							linkResult = {
+								ok: false,
+								message: "Something went wrong sending your link. Try again in a minute.",
+							};
+						}
+
+						if (linkResult?.ok) {
+							await tick();
+							linkStatus?.focus();
+						}
+					};
+				}}
+			>
+				{#if linkResult}
+					<div class="error-banner mb-4" role="alert">{linkResult.message}</div>
+				{/if}
+				<label class="form-label">
+					<span>The email you RSVP'd with</span>
+					<input
+						class="input-field"
+						name="email"
+						type="email"
+						required
+						autocomplete="email"
+						placeholder="you@example.com"
+						bind:this={linkEmailInput}
+					/>
+					<small class="text-sm text-gray-600"
+						>We'll email you a link to edit your RSVP. It works for 1 hour.</small
+					>
+				</label>
+				<div class="modal-actions">
+					<button type="submit" class="btn-primary min-h-11" disabled={sendingLink}
+						>{sendingLink ? "Sending…" : "Email me a link"}</button
+					>
+					<button type="button" class="btn-secondary min-h-11" onclick={closeLinkModal}
+						>Cancel</button
+					>
+				</div>
+			</form>
+		{/if}
+	</dialog>
 {/if}
 
 <!-- Edit RSVP Modal -->
 {#if showEditModal && editingRsvp}
-	<div
-		class="modal-backdrop"
-		role="button"
-		tabindex="0"
-		aria-label="Close edit RSVP dialog"
-		onclick={(event) => event.target === event.currentTarget && closeEditModal()}
-		onkeydown={(event) => handleOverlayKeydown(event, closeEditModal)}
+	<dialog
+		bind:this={editDialog}
+		class="modal large"
+		aria-labelledby="edit-rsvp-title"
+		onclose={closeEditModal}
+		onclick={(event) => event.target === event.currentTarget && editDialog?.close()}
 	>
-		<div
-			class="modal large"
-			role="dialog"
-			aria-modal="true"
-			aria-labelledby="edit-rsvp-title"
-			tabindex="-1"
-		>
-			<div class="modal-header">
-				<h3 id="edit-rsvp-title">Edit my RSVP</h3>
-				<button type="button" class="close-btn" aria-label="Close" onclick={closeEditModal}
-					>×</button
-				>
-			</div>
+		<div class="modal-header">
+			<h3 id="edit-rsvp-title">Edit my RSVP</h3>
+			<button type="button" class="close-btn" aria-label="Close" onclick={closeEditModal}>×</button>
+		</div>
 
-			{#if (formType === "updateRsvp" || formType === "cancelRsvp") && message && !success}
-				<div class="error-banner">{message}</div>
+		{#if (formType === "updateRsvp" || formType === "cancelRsvp") && message && !success}
+			<div class="error-banner">{message}</div>
+		{/if}
+
+		<form
+			method="POST"
+			action="?/updateRsvp"
+			class="rsvp-form"
+			use:enhance={() => {
+				return async ({ result, update }) => {
+					const payload =
+						result.type === "success" ? (result.data as RsvpMutation | undefined) : undefined;
+
+					if (payload?.success) {
+						// Update reactive state
+						if (payload.rsvps) {
+							rsvps = payload.rsvps;
+						}
+
+						if (payload.totalGuests !== undefined) {
+							totalGuests = payload.totalGuests;
+						}
+
+						if (payload.questionResponseCounts) {
+							questionResponseCounts = payload.questionResponseCounts;
+						}
+
+						// Close modal
+						closeEditModal();
+					}
+
+					await update();
+
+					if (result.type === "failure" && result.data?.potluck) {
+						await invalidateAll();
+					}
+				};
+			}}
+		>
+			<input type="hidden" name="expectedRsvpId" value={editingRsvp.id} />
+			<label class="form-label">
+				<span>Your name *</span>
+				<input
+					class="input-field"
+					name="name"
+					required
+					maxlength="100"
+					value={editingRsvp.name}
+					bind:this={editNameInput}
+					autocomplete="name"
+				/>
+			</label>
+
+			<p class="form-label">
+				<span>Email</span>
+				<span class="text-dark-700">{editingRsvp.email}</span>
+			</p>
+
+			{#if editingStatus !== "not_attending"}
+				<PlusOnesField bind:people={editingPeople} maxPlusOnes={event.maxPlusOnes} />
 			{/if}
 
-			<form
-				method="POST"
-				action="?/updateRsvp"
-				class="rsvp-form"
-				use:enhance={() => {
-					return async ({ result, update }) => {
-						const payload =
-							result.type === "success" ? (result.data as RsvpMutation | undefined) : undefined;
-
-						if (payload?.success) {
-							// Update reactive state
-							if (payload.rsvps) {
-								rsvps = payload.rsvps;
-							}
-
-							if (payload.totalGuests !== undefined) {
-								totalGuests = payload.totalGuests;
-							}
-
-							if (payload.questionResponseCounts) {
-								questionResponseCounts = payload.questionResponseCounts;
-							}
-
-							// Close modal
-							closeEditModal();
-						}
-
-						await update();
-
-						if (result.type === "failure" && result.data?.potluck) {
-							await invalidateAll();
-						}
-					};
-				}}
-			>
-				<input type="hidden" name="expectedRsvpId" value={editingRsvp.id} />
-				<label class="form-label">
-					<span>Your name *</span>
-					<input
-						class="input-field"
-						name="name"
-						required
-						maxlength="100"
-						value={editingRsvp.name}
-						bind:this={editNameInput}
-						autocomplete="name"
-					/>
-				</label>
-
-				<p class="form-label">
-					<span>Email</span>
-					<span class="text-dark-700">{editingRsvp.email}</span>
-				</p>
-
-				{#if editingStatus !== "not_attending"}
-					<PlusOnesField bind:people={editingPeople} maxPlusOnes={event.maxPlusOnes} />
-				{/if}
-
-				<div class="status-section">
-					<span class="status-label">Will you come?</span>
-					<div class="status-options">
-						<label class="status-option">
-							<input
-								type="radio"
-								name="status"
-								value="attending"
-								checked={editingStatus === "attending"}
-								onchange={() => (editingStatus = "attending")}
-								required
-							/>
-							<span>Attending</span>
-						</label>
-						<label class="status-option">
-							<input
-								type="radio"
-								name="status"
-								value="maybe"
-								checked={editingStatus === "maybe"}
-								onchange={() => (editingStatus = "maybe")}
-							/>
-							<span>Maybe</span>
-						</label>
-						<label class="status-option">
-							<input
-								type="radio"
-								name="status"
-								value="not_attending"
-								checked={editingStatus === "not_attending"}
-								onchange={() => {
-									editingStatus = "not_attending";
-									responses = {};
-								}}
-							/>
-							<span>Can't make it</span>
-						</label>
-					</div>
+			<div class="status-section">
+				<span class="status-label">Will you come?</span>
+				<div class="status-options">
+					<label class="status-option">
+						<input
+							type="radio"
+							name="status"
+							value="attending"
+							checked={editingStatus === "attending"}
+							onchange={() => (editingStatus = "attending")}
+							required
+						/>
+						<span>Attending</span>
+					</label>
+					<label class="status-option">
+						<input
+							type="radio"
+							name="status"
+							value="maybe"
+							checked={editingStatus === "maybe"}
+							onchange={() => (editingStatus = "maybe")}
+						/>
+						<span>Maybe</span>
+					</label>
+					<label class="status-option">
+						<input
+							type="radio"
+							name="status"
+							value="not_attending"
+							checked={editingStatus === "not_attending"}
+							onchange={() => {
+								editingStatus = "not_attending";
+								responses = {};
+							}}
+						/>
+						<span>Can't make it</span>
+					</label>
 				</div>
+			</div>
 
-				{#if event.questions.length > 0 && (editingStatus === "attending" || editingStatus === "maybe")}
-					<div class="questions-section">
-						<div class="question-list">
-							{#each event.questions as question}
-								{#if question.type === "text"}
-									<label class="form-label">
-										<span>{question.label}{question.required ? " *" : ""}</span>
-										{#if question.description}
-											<small>{question.description}</small>
-										{/if}
-										<input
-											class="input-field"
-											name="response_{question.id}"
-											type="text"
-											value={responses[question.id] ?? ""}
-											required={question.required}
-											onchange={(e) => (responses[question.id] = e.currentTarget.value)}
-										/>
-									</label>
-								{:else if question.type === "multiple_choice"}
-									<fieldset>
-										<legend>{question.label}{question.required ? " *" : ""}</legend>
-										{#if question.description}
-											<small>{question.description}</small>
-										{/if}
-										{#each question.options ?? [] as option}
-											<label class="radio-option">
-												<input
-													type="radio"
-													name="response_{question.id}"
-													value={option}
-													checked={responses[question.id] === option}
-													required={question.required}
-													onchange={(e) => (responses[question.id] = e.currentTarget.value)}
-												/>
-												<span>{option}</span>
-											</label>
-										{/each}
-									</fieldset>
-								{:else if question.type === "checkbox"}
-									<fieldset>
-										<legend>{question.label}{question.required ? " *" : ""}</legend>
-										{#if question.description}
-											<small>{question.description}</small>
-										{/if}
-										{#each question.options ?? [] as option}
-											<label class="checkbox-option">
-												<input
-													type="checkbox"
-													name="response_{question.id}"
-													value={option}
-													checked={responses[question.id]?.includes(option)}
-													onchange={(e) => {
-														const currentVals =
-															responses[question.id]?.split(",").filter(Boolean) ?? [];
-
-														if (e.currentTarget.checked) {
-															responses[question.id] = [...currentVals, option].join(",");
-														} else {
-															responses[question.id] = currentVals
-																.filter((v) => v !== option)
-																.join(",");
-														}
-													}}
-												/>
-												<span>{option}</span>
-											</label>
-										{/each}
-									</fieldset>
-								{:else if question.type === "slots"}
-									<label class="form-label">
-										<span>{question.label}{question.required ? " *" : ""}</span>
-										{#if question.description}
-											<small class="text-sm text-gray-600">{question.description}</small>
-										{/if}
-										<input
-											class="input-field"
-											name="response_{question.id}"
-											type="text"
-											value={responses[question.id] ?? ""}
-											required={question.required}
-											placeholder="What are you bringing?"
-											onchange={(e) => (responses[question.id] = e.currentTarget.value)}
-										/>
-										{#if question.quantity}
-											<small class="text-sm text-gray-600"
-												>{question.responseCount} of {question.quantity} slots filled</small
-											>
-										{/if}
-									</label>
-								{:else if question.type === "potluck" && potluckViews[question.id]}
-									<PotluckField
-										questionId={question.id}
-										label={question.label}
-										required={question.required}
-										view={potluckViews[question.id]}
+			{#if event.questions.length > 0 && (editingStatus === "attending" || editingStatus === "maybe")}
+				<div class="questions-section">
+					<div class="question-list">
+						{#each event.questions as question}
+							{#if question.type === "text"}
+								<label class="form-label">
+									<span>{question.label}{question.required ? " *" : ""}</span>
+									{#if question.description}
+										<small>{question.description}</small>
+									{/if}
+									<input
+										class="input-field"
+										name="response_{question.id}"
+										type="text"
 										value={responses[question.id] ?? ""}
-										ownAnswer={editingRsvp.status === "not_attending"
-											? null
-											: parsePotluckAnswer(editingRsvp.responses?.[question.id])}
-										offeredOverride={offeredAfterRejection("updateRsvp", question.id)}
-										onchange={(raw) => (responses[question.id] = raw)}
+										required={question.required}
+										onchange={(e) => (responses[question.id] = e.currentTarget.value)}
 									/>
-								{:else if question.type === "spotify_playlist"}
-									<div class="form-label">
-										<span>{question.label}{question.required ? " *" : ""}</span>
-										{#if question.description}
-											<small class="text-sm text-gray-600">{question.description}</small>
-										{/if}
-										{#if question.songsPerUser}
-											<small class="mb-2 block text-sm text-gray-600">
-												Up to {question.songsPerUser} song{question.songsPerUser === 1 ? "" : "s"}.
-											</small>
-										{:else}
-											<small class="mb-2 block text-sm text-gray-600">Add songs you love.</small>
-										{/if}
-										<SpotifySongSelector
-											name="response_{question.id}"
-											required={question.required}
-											value={responses[question.id] ?? ""}
-											eventCode={event.publicCode}
-											limit={question.songsPerUser ?? null}
-											playlistId={question.spotifyPlaylistId}
-											questionId={question.id}
-										/>
-									</div>
-								{/if}
-							{/each}
-						</div>
+								</label>
+							{:else if question.type === "multiple_choice"}
+								<fieldset>
+									<legend>{question.label}{question.required ? " *" : ""}</legend>
+									{#if question.description}
+										<small>{question.description}</small>
+									{/if}
+									{#each question.options ?? [] as option}
+										<label class="radio-option">
+											<input
+												type="radio"
+												name="response_{question.id}"
+												value={option}
+												checked={responses[question.id] === option}
+												required={question.required}
+												onchange={(e) => (responses[question.id] = e.currentTarget.value)}
+											/>
+											<span>{option}</span>
+										</label>
+									{/each}
+								</fieldset>
+							{:else if question.type === "checkbox"}
+								<fieldset>
+									<legend>{question.label}{question.required ? " *" : ""}</legend>
+									{#if question.description}
+										<small>{question.description}</small>
+									{/if}
+									{#each question.options ?? [] as option}
+										<label class="checkbox-option">
+											<input
+												type="checkbox"
+												name="response_{question.id}"
+												value={option}
+												checked={responses[question.id]?.includes(option)}
+												onchange={(e) => {
+													const currentVals =
+														responses[question.id]?.split(",").filter(Boolean) ?? [];
+
+													if (e.currentTarget.checked) {
+														responses[question.id] = [...currentVals, option].join(",");
+													} else {
+														responses[question.id] = currentVals
+															.filter((v) => v !== option)
+															.join(",");
+													}
+												}}
+											/>
+											<span>{option}</span>
+										</label>
+									{/each}
+								</fieldset>
+							{:else if question.type === "slots"}
+								<label class="form-label">
+									<span>{question.label}{question.required ? " *" : ""}</span>
+									{#if question.description}
+										<small class="text-sm text-gray-600">{question.description}</small>
+									{/if}
+									<input
+										class="input-field"
+										name="response_{question.id}"
+										type="text"
+										value={responses[question.id] ?? ""}
+										required={question.required}
+										placeholder="What are you bringing?"
+										onchange={(e) => (responses[question.id] = e.currentTarget.value)}
+									/>
+									{#if question.quantity}
+										<small class="text-sm text-gray-600"
+											>{question.responseCount} of {question.quantity} slots filled</small
+										>
+									{/if}
+								</label>
+							{:else if question.type === "potluck" && potluckViews[question.id]}
+								<PotluckField
+									questionId={question.id}
+									label={question.label}
+									required={question.required}
+									view={potluckViews[question.id]}
+									value={responses[question.id] ?? ""}
+									ownAnswer={editingRsvp.status === "not_attending"
+										? null
+										: parsePotluckAnswer(editingRsvp.responses?.[question.id])}
+									offeredOverride={offeredAfterRejection("updateRsvp", question.id)}
+									onchange={(raw) => (responses[question.id] = raw)}
+								/>
+							{:else if question.type === "spotify_playlist"}
+								<div class="form-label">
+									<span>{question.label}{question.required ? " *" : ""}</span>
+									{#if question.description}
+										<small class="text-sm text-gray-600">{question.description}</small>
+									{/if}
+									{#if question.songsPerUser}
+										<small class="mb-2 block text-sm text-gray-600">
+											Up to {question.songsPerUser} song{question.songsPerUser === 1 ? "" : "s"}.
+										</small>
+									{:else}
+										<small class="mb-2 block text-sm text-gray-600">Add songs you love.</small>
+									{/if}
+									<SpotifySongSelector
+										name="response_{question.id}"
+										required={question.required}
+										value={responses[question.id] ?? ""}
+										eventCode={event.publicCode}
+										limit={question.songsPerUser ?? null}
+										playlistId={question.spotifyPlaylistId}
+										questionId={question.id}
+									/>
+								</div>
+							{/if}
+						{/each}
 					</div>
-				{/if}
-
-				<div class="modal-actions">
-					<button type="submit" class="btn-primary">Update RSVP</button>
-					<button type="button" class="btn-secondary" onclick={closeEditModal}>Cancel</button>
 				</div>
-			</form>
+			{/if}
 
-			<form
-				method="POST"
-				action="?/cancelRsvp"
-				class="cancel-form"
-				use:enhance={() => {
-					return async ({ result, update }) => {
-						showCancelConfirm = false;
+			<div class="modal-actions">
+				<button type="submit" class="btn-primary">Update RSVP</button>
+				<button type="button" class="btn-secondary" onclick={closeEditModal}>Cancel</button>
+			</div>
+		</form>
 
-						const payload =
-							result.type === "success" ? (result.data as RsvpMutation | undefined) : undefined;
+		<form
+			method="POST"
+			action="?/cancelRsvp"
+			class="cancel-form"
+			use:enhance={() => {
+				return async ({ result, update }) => {
+					showCancelConfirm = false;
 
-						if (payload?.success) {
-							// Update reactive state
-							rsvpCount = payload.rsvpCount ?? rsvpCount - 1;
-							totalGuests = payload.totalGuests ?? totalGuests - 1;
+					const payload =
+						result.type === "success" ? (result.data as RsvpMutation | undefined) : undefined;
 
-							if (payload.rsvps) {
-								rsvps = payload.rsvps;
-							}
+					if (payload?.success) {
+						// Update reactive state
+						rsvpCount = payload.rsvpCount ?? rsvpCount - 1;
+						totalGuests = payload.totalGuests ?? totalGuests - 1;
 
-							if (payload.questionResponseCounts) {
-								questionResponseCounts = payload.questionResponseCounts;
-							}
-
-							// Close modal
-							closeEditModal();
+						if (payload.rsvps) {
+							rsvps = payload.rsvps;
 						}
 
-						await update();
-					};
-				}}
-			>
-				<input type="hidden" name="expectedRsvpId" value={editingRsvp.id} />
-				{#if showCancelConfirm}
-					<div class="flex justify-center gap-2">
-						<button type="submit" class="btn-danger">Yes, Cancel RSVP</button>
-						<button type="button" class="btn-secondary" onclick={() => (showCancelConfirm = false)}
-							>Nevermind</button
-						>
-					</div>
-				{:else}
-					<button type="button" class="btn-danger" onclick={() => (showCancelConfirm = true)}
-						>Cancel RSVP</button
+						if (payload.questionResponseCounts) {
+							questionResponseCounts = payload.questionResponseCounts;
+						}
+
+						// Close modal
+						closeEditModal();
+					}
+
+					await update();
+				};
+			}}
+		>
+			<input type="hidden" name="expectedRsvpId" value={editingRsvp.id} />
+			{#if showCancelConfirm}
+				<div class="flex justify-center gap-2">
+					<button type="submit" class="btn-danger">Yes, Cancel RSVP</button>
+					<button type="button" class="btn-secondary" onclick={() => (showCancelConfirm = false)}
+						>Nevermind</button
 					>
-				{/if}
-			</form>
-		</div>
-	</div>
+				</div>
+			{:else}
+				<button type="button" class="btn-danger" onclick={() => (showCancelConfirm = true)}
+					>Cancel RSVP</button
+				>
+			{/if}
+		</form>
+	</dialog>
 {/if}
 
 <!-- RSVP Form Modal -->
 {#if showRsvpModal && !rsvpAtLimit}
-	<div
-		class="modal-backdrop"
-		role="button"
-		tabindex="0"
-		aria-label="Close RSVP dialog"
-		onclick={(event) => event.target === event.currentTarget && closeRsvpModal()}
-		onkeydown={(event) => handleOverlayKeydown(event, closeRsvpModal)}
+	<dialog
+		bind:this={rsvpDialog}
+		class="modal large"
+		aria-labelledby="create-rsvp-title"
+		onclose={closeRsvpModal}
+		onclick={(event) => event.target === event.currentTarget && rsvpDialog?.close()}
 	>
-		<div
-			class="modal large"
-			role="dialog"
-			aria-modal="true"
-			aria-labelledby="create-rsvp-title"
-			tabindex="-1"
-		>
-			<div class="modal-header">
-				<h3 id="create-rsvp-title">RSVP</h3>
-				<button type="button" class="close-btn" aria-label="Close" onclick={closeRsvpModal}
-					>×</button
-				>
-			</div>
+		<div class="modal-header">
+			<h3 id="create-rsvp-title">RSVP</h3>
+			<button type="button" class="close-btn" aria-label="Close" onclick={closeRsvpModal}>×</button>
+		</div>
 
-			{#if formType === "rsvp" && message && !form?.alreadyRegistered}
-				<div class="error-banner">{message}</div>
+		{#if formType === "rsvp" && message && !form?.alreadyRegistered}
+			<div class="error-banner">{message}</div>
+		{/if}
+
+		<form
+			method="POST"
+			action="?/rsvp"
+			class="rsvp-form"
+			use:enhance={() => {
+				submittingRsvp = true;
+
+				return async ({ result, update }) => {
+					submittingRsvp = false;
+
+					const payload =
+						result.type === "success" ? (result.data as RsvpMutation | undefined) : undefined;
+
+					if (payload?.success) {
+						// Update reactive state
+						rsvpCount = payload.rsvpCount ?? rsvpCount + 1;
+						totalGuests = payload.totalGuests ?? totalGuests + 1;
+
+						if (payload.rsvps) {
+							rsvps = payload.rsvps;
+						}
+
+						if (payload.questionResponseCounts) {
+							questionResponseCounts = payload.questionResponseCounts;
+						}
+
+						showRsvpModal = false;
+						responses = {};
+						newPeople = [];
+					}
+
+					if (result.type === "failure" && result.data?.alreadyRegistered) {
+						showRsvpModal = false;
+					}
+
+					const failedGuestNames =
+						result.type === "failure" && result.data?.type === "rsvp"
+							? submittedGuestNames(result.data)
+							: null;
+
+					if (failedGuestNames) {
+						newPeople = failedGuestNames.map((name) => newPerson(name));
+					}
+
+					await update();
+
+					if (result.type === "failure" && result.data?.potluck) {
+						await invalidateAll();
+					}
+				};
+			}}
+		>
+			<label class="form-label">
+				<span>Your name *</span>
+				<input
+					class="input-field"
+					name="name"
+					required
+					maxlength="100"
+					value={values.name ?? ""}
+					autocomplete="name"
+					placeholder="Name"
+				/>
+				{#if errors.name}
+					<small class="text-sm text-red-600">{errors.name[0]}</small>
+				{/if}
+			</label>
+
+			<label class="form-label">
+				<span>Email *</span>
+				<input
+					class="input-field"
+					type="email"
+					name="email"
+					required
+					value={values.email ?? ""}
+					autocomplete="email"
+					placeholder="you@example.com"
+				/>
+				<small class="text-sm text-gray-600">We'll email your edit link.</small>
+				{#if errors.email}
+					<small class="text-sm text-red-600">{errors.email[0]}</small>
+				{/if}
+			</label>
+
+			{#if newRsvpStatus !== "not_attending"}
+				<PlusOnesField
+					bind:people={newPeople}
+					error={errors.guestNames?.[0]}
+					maxPlusOnes={event.maxPlusOnes}
+				/>
 			{/if}
 
-			<form
-				method="POST"
-				action="?/rsvp"
-				class="rsvp-form"
-				use:enhance={() => {
-					submittingRsvp = true;
-
-					return async ({ result, update }) => {
-						submittingRsvp = false;
-
-						const payload =
-							result.type === "success" ? (result.data as RsvpMutation | undefined) : undefined;
-
-						if (payload?.success) {
-							// Update reactive state
-							rsvpCount = payload.rsvpCount ?? rsvpCount + 1;
-							totalGuests = payload.totalGuests ?? totalGuests + 1;
-
-							if (payload.rsvps) {
-								rsvps = payload.rsvps;
-							}
-
-							if (payload.questionResponseCounts) {
-								questionResponseCounts = payload.questionResponseCounts;
-							}
-
-							showRsvpModal = false;
-							responses = {};
-							newPeople = [];
-						}
-
-						if (result.type === "failure" && result.data?.alreadyRegistered) {
-							showRsvpModal = false;
-						}
-
-						const failedGuestNames =
-							result.type === "failure" && result.data?.type === "rsvp"
-								? submittedGuestNames(result.data)
-								: null;
-
-						if (failedGuestNames) {
-							newPeople = failedGuestNames.map((name) => newPerson(name));
-						}
-
-						await update();
-
-						if (result.type === "failure" && result.data?.potluck) {
-							await invalidateAll();
-						}
-					};
-				}}
-			>
-				<label class="form-label">
-					<span>Your name *</span>
-					<input
-						class="input-field"
-						name="name"
-						required
-						maxlength="100"
-						value={values.name ?? ""}
-						autocomplete="name"
-						placeholder="Name"
-					/>
-					{#if errors.name}
-						<small class="text-sm text-red-600">{errors.name[0]}</small>
-					{/if}
-				</label>
-
-				<label class="form-label">
-					<span>Email *</span>
-					<input
-						class="input-field"
-						type="email"
-						name="email"
-						required
-						value={values.email ?? ""}
-						autocomplete="email"
-						placeholder="you@example.com"
-					/>
-					<small class="text-sm text-gray-600">We'll email your edit link.</small>
-					{#if errors.email}
-						<small class="text-sm text-red-600">{errors.email[0]}</small>
-					{/if}
-				</label>
-
-				{#if newRsvpStatus !== "not_attending"}
-					<PlusOnesField
-						bind:people={newPeople}
-						error={errors.guestNames?.[0]}
-						maxPlusOnes={event.maxPlusOnes}
-					/>
-				{/if}
-
-				<div class="status-section">
-					<span class="status-label">Will you come?</span>
-					<div class="status-options">
-						<label class="status-option">
-							<input
-								type="radio"
-								name="status"
-								value="attending"
-								checked={newRsvpStatus === "attending"}
-								onchange={() => (newRsvpStatus = "attending")}
-								required
-							/>
-							<span>Attending</span>
-						</label>
-						<label class="status-option">
-							<input
-								type="radio"
-								name="status"
-								value="maybe"
-								checked={newRsvpStatus === "maybe"}
-								onchange={() => (newRsvpStatus = "maybe")}
-							/>
-							<span>Maybe</span>
-						</label>
-						<label class="status-option">
-							<input
-								type="radio"
-								name="status"
-								value="not_attending"
-								checked={newRsvpStatus === "not_attending"}
-								onchange={() => {
-									newRsvpStatus = "not_attending";
-									responses = {};
-								}}
-							/>
-							<span>Can't make it</span>
-						</label>
-					</div>
+			<div class="status-section">
+				<span class="status-label">Will you come?</span>
+				<div class="status-options">
+					<label class="status-option">
+						<input
+							type="radio"
+							name="status"
+							value="attending"
+							checked={newRsvpStatus === "attending"}
+							onchange={() => (newRsvpStatus = "attending")}
+							required
+						/>
+						<span>Attending</span>
+					</label>
+					<label class="status-option">
+						<input
+							type="radio"
+							name="status"
+							value="maybe"
+							checked={newRsvpStatus === "maybe"}
+							onchange={() => (newRsvpStatus = "maybe")}
+						/>
+						<span>Maybe</span>
+					</label>
+					<label class="status-option">
+						<input
+							type="radio"
+							name="status"
+							value="not_attending"
+							checked={newRsvpStatus === "not_attending"}
+							onchange={() => {
+								newRsvpStatus = "not_attending";
+								responses = {};
+							}}
+						/>
+						<span>Can't make it</span>
+					</label>
 				</div>
+			</div>
 
-				{#if event.questions.length > 0 && (newRsvpStatus === "attending" || newRsvpStatus === "maybe")}
-					<div class="questions-section">
-						<div class="question-list">
-							{#each event.questions as question}
-								{@const isFull = Boolean(
-									question.quantity && question.responseCount >= question.quantity,
-								)}
-								{@const isRequired = question.required && !isFull}
+			{#if event.questions.length > 0 && (newRsvpStatus === "attending" || newRsvpStatus === "maybe")}
+				<div class="questions-section">
+					<div class="question-list">
+						{#each event.questions as question}
+							{@const isFull = Boolean(
+								question.quantity && question.responseCount >= question.quantity,
+							)}
+							{@const isRequired = question.required && !isFull}
 
-								{#if question.type === "text"}
-									<label class="form-label" class:disabled={isFull}>
-										<span>
-											{question.label}{isRequired ? " *" : ""}
-											{#if isFull}
-												<span class="badge-danger ml-2">Full</span>
-											{/if}
-										</span>
-										{#if question.description}
-											<small class="text-sm text-gray-600">{question.description}</small>
+							{#if question.type === "text"}
+								<label class="form-label" class:disabled={isFull}>
+									<span>
+										{question.label}{isRequired ? " *" : ""}
+										{#if isFull}
+											<span class="badge-danger ml-2">Full</span>
 										{/if}
-										<input
-											class="input-field"
-											name="response_{question.id}"
-											type="text"
-											value={responses[question.id] ?? ""}
-											required={isRequired}
-											disabled={isFull}
-											placeholder={isFull ? "This question is at capacity" : ""}
-											onchange={(e) => (responses[question.id] = e.currentTarget.value)}
-										/>
-									</label>
-								{:else if question.type === "multiple_choice"}
-									<fieldset class:disabled={isFull}>
-										<legend class="form-label">
-											{question.label}{isRequired ? " *" : ""}
-											{#if isFull}
-												<span class="badge-danger ml-2">Full</span>
-											{/if}
-										</legend>
-										{#if question.description}
-											<small class="text-sm text-gray-600">{question.description}</small>
-										{/if}
-										{#each question.options ?? [] as option}
-											<label class="radio-option">
-												<input
-													type="radio"
-													name="response_{question.id}"
-													value={option}
-													checked={responses[question.id] === option}
-													required={isRequired}
-													disabled={isFull}
-													onchange={(e) => (responses[question.id] = e.currentTarget.value)}
-												/>
-												<span>{option}</span>
-											</label>
-										{/each}
-									</fieldset>
-								{:else if question.type === "checkbox"}
-									<fieldset class:disabled={isFull}>
-										<legend class="form-label">
-											{question.label}{isRequired ? " *" : ""}
-											{#if isFull}
-												<span class="badge-danger ml-2">Full</span>
-											{/if}
-										</legend>
-										{#if question.description}
-											<small class="text-sm text-gray-600">{question.description}</small>
-										{/if}
-										{#each question.options ?? [] as option}
-											<label class="checkbox-option">
-												<input
-													type="checkbox"
-													name="response_{question.id}"
-													value={option}
-													checked={responses[question.id]?.includes(option)}
-													disabled={isFull}
-													onchange={(e) => {
-														const currentVals =
-															responses[question.id]?.split(",").filter(Boolean) ?? [];
-
-														if (e.currentTarget.checked) {
-															responses[question.id] = [...currentVals, option].join(",");
-														} else {
-															responses[question.id] = currentVals
-																.filter((v) => v !== option)
-																.join(",");
-														}
-													}}
-												/>
-												<span>{option}</span>
-											</label>
-										{/each}
-									</fieldset>
-								{:else if question.type === "slots"}
-									<label class="form-label" class:disabled={isFull}>
-										<span>
-											{question.label}{isRequired ? " *" : ""}
-											{#if isFull}
-												<span class="badge-danger ml-2">Full</span>
-											{/if}
-										</span>
-										{#if question.description}
-											<small class="text-sm text-gray-600">{question.description}</small>
-										{/if}
-										<input
-											class="input-field"
-											name="response_{question.id}"
-											type="text"
-											value={responses[question.id] ?? ""}
-											required={isRequired}
-											disabled={isFull}
-											placeholder={isFull ? "All slots are taken" : "What are you bringing?"}
-											onchange={(e) => (responses[question.id] = e.currentTarget.value)}
-										/>
-										{#if question.quantity}
-											<small
-												class="text-sm"
-												class:text-red-600={isFull}
-												class:text-gray-600={!isFull}
-												>{question.responseCount} of {question.quantity} slots filled</small
-											>
-										{/if}
-									</label>
-								{:else if question.type === "potluck" && potluckViews[question.id]}
-									<PotluckField
-										questionId={question.id}
-										label={question.label}
-										required={question.required}
-										view={potluckViews[question.id]}
+									</span>
+									{#if question.description}
+										<small class="text-sm text-gray-600">{question.description}</small>
+									{/if}
+									<input
+										class="input-field"
+										name="response_{question.id}"
+										type="text"
 										value={responses[question.id] ?? ""}
-										offeredOverride={offeredAfterRejection("rsvp", question.id)}
-										onchange={(raw) => (responses[question.id] = raw)}
+										required={isRequired}
+										disabled={isFull}
+										placeholder={isFull ? "This question is at capacity" : ""}
+										onchange={(e) => (responses[question.id] = e.currentTarget.value)}
 									/>
-								{:else if question.type === "spotify_playlist"}
-									<div class="form-label">
-										<span>
-											{question.label}{isRequired ? " *" : ""}
-											{#if isFull}
-												<span class="badge-danger ml-2">Full</span>
-											{/if}
-										</span>
-										{#if question.description}
-											<small class="text-sm text-gray-600">{question.description}</small>
+								</label>
+							{:else if question.type === "multiple_choice"}
+								<fieldset class:disabled={isFull}>
+									<legend class="form-label">
+										{question.label}{isRequired ? " *" : ""}
+										{#if isFull}
+											<span class="badge-danger ml-2">Full</span>
 										{/if}
-										{#if question.songsPerUser}
-											<small class="mb-2 block text-sm text-gray-600">
-												Up to {question.songsPerUser} song{question.songsPerUser === 1 ? "" : "s"}.
-											</small>
-										{:else}
-											<small class="mb-2 block text-sm text-gray-600">Add songs you love.</small>
+									</legend>
+									{#if question.description}
+										<small class="text-sm text-gray-600">{question.description}</small>
+									{/if}
+									{#each question.options ?? [] as option}
+										<label class="radio-option">
+											<input
+												type="radio"
+												name="response_{question.id}"
+												value={option}
+												checked={responses[question.id] === option}
+												required={isRequired}
+												disabled={isFull}
+												onchange={(e) => (responses[question.id] = e.currentTarget.value)}
+											/>
+											<span>{option}</span>
+										</label>
+									{/each}
+								</fieldset>
+							{:else if question.type === "checkbox"}
+								<fieldset class:disabled={isFull}>
+									<legend class="form-label">
+										{question.label}{isRequired ? " *" : ""}
+										{#if isFull}
+											<span class="badge-danger ml-2">Full</span>
 										{/if}
-										<SpotifySongSelector
-											name="response_{question.id}"
-											required={isRequired}
-											value={responses[question.id] ?? ""}
-											eventCode={event.publicCode}
-											limit={question.songsPerUser ?? null}
-											playlistId={question.spotifyPlaylistId}
-											questionId={question.id}
-										/>
-									</div>
-								{/if}
-							{/each}
-						</div>
-					</div>
-				{/if}
+									</legend>
+									{#if question.description}
+										<small class="text-sm text-gray-600">{question.description}</small>
+									{/if}
+									{#each question.options ?? [] as option}
+										<label class="checkbox-option">
+											<input
+												type="checkbox"
+												name="response_{question.id}"
+												value={option}
+												checked={responses[question.id]?.includes(option)}
+												disabled={isFull}
+												onchange={(e) => {
+													const currentVals =
+														responses[question.id]?.split(",").filter(Boolean) ?? [];
 
-				<div class="modal-actions">
-					<button type="submit" class="btn-primary w-full" disabled={submittingRsvp}
-						>{submittingRsvp ? "Saving…" : "Confirm RSVP"}</button
-					>
-					<button type="button" class="btn-secondary w-full" onclick={closeRsvpModal}>Cancel</button
-					>
+													if (e.currentTarget.checked) {
+														responses[question.id] = [...currentVals, option].join(",");
+													} else {
+														responses[question.id] = currentVals
+															.filter((v) => v !== option)
+															.join(",");
+													}
+												}}
+											/>
+											<span>{option}</span>
+										</label>
+									{/each}
+								</fieldset>
+							{:else if question.type === "slots"}
+								<label class="form-label" class:disabled={isFull}>
+									<span>
+										{question.label}{isRequired ? " *" : ""}
+										{#if isFull}
+											<span class="badge-danger ml-2">Full</span>
+										{/if}
+									</span>
+									{#if question.description}
+										<small class="text-sm text-gray-600">{question.description}</small>
+									{/if}
+									<input
+										class="input-field"
+										name="response_{question.id}"
+										type="text"
+										value={responses[question.id] ?? ""}
+										required={isRequired}
+										disabled={isFull}
+										placeholder={isFull ? "All slots are taken" : "What are you bringing?"}
+										onchange={(e) => (responses[question.id] = e.currentTarget.value)}
+									/>
+									{#if question.quantity}
+										<small class="text-sm" class:text-red-600={isFull} class:text-gray-600={!isFull}
+											>{question.responseCount} of {question.quantity} slots filled</small
+										>
+									{/if}
+								</label>
+							{:else if question.type === "potluck" && potluckViews[question.id]}
+								<PotluckField
+									questionId={question.id}
+									label={question.label}
+									required={question.required}
+									view={potluckViews[question.id]}
+									value={responses[question.id] ?? ""}
+									offeredOverride={offeredAfterRejection("rsvp", question.id)}
+									onchange={(raw) => (responses[question.id] = raw)}
+								/>
+							{:else if question.type === "spotify_playlist"}
+								<div class="form-label">
+									<span>
+										{question.label}{isRequired ? " *" : ""}
+										{#if isFull}
+											<span class="badge-danger ml-2">Full</span>
+										{/if}
+									</span>
+									{#if question.description}
+										<small class="text-sm text-gray-600">{question.description}</small>
+									{/if}
+									{#if question.songsPerUser}
+										<small class="mb-2 block text-sm text-gray-600">
+											Up to {question.songsPerUser} song{question.songsPerUser === 1 ? "" : "s"}.
+										</small>
+									{:else}
+										<small class="mb-2 block text-sm text-gray-600">Add songs you love.</small>
+									{/if}
+									<SpotifySongSelector
+										name="response_{question.id}"
+										required={isRequired}
+										value={responses[question.id] ?? ""}
+										eventCode={event.publicCode}
+										limit={question.songsPerUser ?? null}
+										playlistId={question.spotifyPlaylistId}
+										questionId={question.id}
+									/>
+								</div>
+							{/if}
+						{/each}
+					</div>
 				</div>
-			</form>
-		</div>
-	</div>
+			{/if}
+
+			<div class="modal-actions">
+				<button type="submit" class="btn-primary w-full" disabled={submittingRsvp}
+					>{submittingRsvp ? "Saving…" : "Confirm RSVP"}</button
+				>
+				<button type="button" class="btn-secondary w-full" onclick={closeRsvpModal}>Cancel</button>
+			</div>
+		</form>
+	</dialog>
 {/if}
 
 <style>

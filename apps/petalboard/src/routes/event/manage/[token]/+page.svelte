@@ -135,6 +135,17 @@
 	let deletingQuestionId = $state<string | null>(null);
 	let deletingRsvpId = $state<string | null>(null);
 	let showDeleteEventConfirm = $state(false);
+	let addQuestionDialog = $state<HTMLDialogElement>();
+
+	$effect(() => {
+		if (showAddQuestionModal && addQuestionDialog && !addQuestionDialog.open) {
+			addQuestionDialog.showModal();
+		}
+
+		if (!showAddQuestionModal && addQuestionDialog?.open) {
+			addQuestionDialog.close();
+		}
+	});
 
 	// Update location value when form values change
 	$effect(() => {
@@ -1157,169 +1168,167 @@
 </section>
 
 {#if showAddQuestionModal}
-	<!-- svelte-ignore a11y_click_events_have_key_events -->
-	<!-- svelte-ignore a11y_no_static_element_interactions -->
-	<div class="modal-backdrop" onclick={() => (showAddQuestionModal = false)}>
-		<!-- svelte-ignore a11y_click_events_have_key_events -->
-		<!-- svelte-ignore a11y_no_static_element_interactions -->
-		<div class="modal" onclick={(e) => e.stopPropagation()}>
-			<div class="modal-header">
-				<h2>Add a question</h2>
-				<button type="button" class="close-btn" onclick={() => (showAddQuestionModal = false)}>
-					✕
-				</button>
-			</div>
+	<dialog
+		bind:this={addQuestionDialog}
+		class="modal"
+		aria-labelledby="add-question-title"
+		onclose={() => (showAddQuestionModal = false)}
+		onclick={(event) => event.target === event.currentTarget && addQuestionDialog?.close()}
+	>
+		<div class="modal-header">
+			<h2 id="add-question-title">Add a question</h2>
+			<button type="button" class="close-btn" onclick={() => addQuestionDialog?.close()}>
+				✕
+			</button>
+		</div>
 
-			<form
-				method="POST"
-				action="?/addQuestion"
-				class="space-y-5 px-8 py-6"
-				use:enhance={() => {
-					return async ({ result, update }) => {
-						await update();
+		<form
+			method="POST"
+			action="?/addQuestion"
+			class="space-y-5 px-8 py-6"
+			use:enhance={() => {
+				return async ({ result, update }) => {
+					await update();
 
-						// update() reloads data, which already includes the new question.
-						if (result.type === "success") {
-							questionType = "text";
-							optionsText = "";
-							showAddQuestionModal = false;
-						}
-					};
-				}}
-			>
+					// update() reloads data, which already includes the new question.
+					if (result.type === "success") {
+						questionType = "text";
+						optionsText = "";
+						showAddQuestionModal = false;
+					}
+				};
+			}}
+		>
+			<label class="form-label">
+				<span>Question type</span>
+				<select class="input-field" name="type" bind:value={questionType} required>
+					<option value="text">Text</option>
+					<option value="multiple_choice">Multiple Choice</option>
+					<option value="checkbox">Checkbox</option>
+					<option value="slots">Slots</option>
+					<option value="spotify_playlist">Spotify Playlist Song</option>
+					<option value="potluck">Dish slots (balanced mix)</option>
+				</select>
+			</label>
+
+			{#if questionType === "spotify_playlist" && !data.hasSpotifyConnected}
+				<div class="rounded-lg border border-yellow-200 bg-yellow-50 p-4">
+					<p class="text-sm text-yellow-800">
+						<strong>⚠️ Spotify not connected</strong><br />
+						You need to
+						<a href="/settings" class="font-semibold underline">connect your Spotify account</a> before
+						adding a Spotify playlist question.
+					</p>
+				</div>
+			{/if}
+
+			<label class="form-label">
+				<span>Question label *</span>
+				<input class="input-field" type="text" name="label" required />
+			</label>
+
+			{#if questionType === "multiple_choice" || questionType === "checkbox" || questionType === "slots"}
 				<label class="form-label">
-					<span>Question type</span>
-					<select class="input-field" name="type" bind:value={questionType} required>
-						<option value="text">Text</option>
-						<option value="multiple_choice">Multiple Choice</option>
-						<option value="checkbox">Checkbox</option>
-						<option value="slots">Slots</option>
-						<option value="spotify_playlist">Spotify Playlist Song</option>
-						<option value="potluck">Dish slots (balanced mix)</option>
-					</select>
-				</label>
-
-				{#if questionType === "spotify_playlist" && !data.hasSpotifyConnected}
-					<div class="rounded-lg border border-yellow-200 bg-yellow-50 p-4">
-						<p class="text-sm text-yellow-800">
-							<strong>⚠️ Spotify not connected</strong><br />
-							You need to
-							<a href="/settings" class="font-semibold underline">connect your Spotify account</a> before
-							adding a Spotify playlist question.
-						</p>
-					</div>
-				{/if}
-
-				<label class="form-label">
-					<span>Question label *</span>
-					<input class="input-field" type="text" name="label" required />
-				</label>
-
-				{#if questionType === "multiple_choice" || questionType === "checkbox" || questionType === "slots"}
-					<label class="form-label">
-						<span>Options (one per line) *</span>
-						<textarea class="input-field" name="options" bind:value={optionsText} rows="4" required
-						></textarea>
-						<small class="text-sm text-gray-600">Enter each option on a new line</small>
-					</label>
-				{/if}
-
-				{#if questionType === "potluck"}
-					<PotluckConfigEditor
-						initial={FRIENDSGIVING_POTLUCK}
-						errors={addSlotErrors.potluckConfig ?? []}
-					/>
-				{/if}
-
-				{#if questionType !== "spotify_playlist" && questionType !== "potluck"}
-					<label class="form-label">
-						<span>Open slots</span>
-						<input class="input-field" type="number" name="quantity" min="0" value="0" />
-						<small class="text-sm text-gray-600">0 for unlimited</small>
-					</label>
-				{/if}
-
-				{#if questionType === "spotify_playlist" && data.hasSpotifyConnected}
-					<label class="form-label">
-						<span>Select Playlist</span>
-						{#if loadingPlaylists}
-							<div class="flex items-center gap-2 py-3 text-sm text-gray-600">
-								<div
-									class="h-4 w-4 animate-spin rounded-full border-2 border-primary-600 border-t-transparent"
-								></div>
-								Loading playlists...
-							</div>
-						{:else if playlists.length > 0}
-							<select class="input-field" name="spotifyPlaylistId" bind:value={selectedPlaylistId}>
-								<option value="">Create new playlist</option>
-								{#each playlists as playlist}
-									<option value={playlist.id}
-										>{playlist.name} ({playlist.tracks.total} songs)</option
-									>
-								{/each}
-							</select>
-							<small class="text-sm text-gray-600">
-								Select an existing playlist or leave blank to create a new one when songs are
-								submitted
-							</small>
-						{:else}
-							<input class="input-field" type="hidden" name="spotifyPlaylistId" value="" />
-							<div class="py-2 text-sm text-gray-600">
-								No playlists found. A new playlist will be created when songs are submitted.
-							</div>
-						{/if}
-					</label>
-
-					<label class="form-label">
-						<span>Songs per user</span>
-						<input
-							class="input-field"
-							type="number"
-							name="songsPerUser"
-							min="1"
-							max="10"
-							value={addSlotValues.songsPerUser ?? "1"}
-							placeholder="Unlimited"
-						/>
-						<small class="text-sm text-gray-600">
-							Leave blank for unlimited, or enter a number to cap songs each guest can add.
-						</small>
-					</label>
-				{/if}
-
-				<label class="form-label">
-					<span>Description</span>
-					<textarea class="input-field" name="description" rows="3" style="white-space: pre-wrap;"
+					<span>Options (one per line) *</span>
+					<textarea class="input-field" name="options" bind:value={optionsText} rows="4" required
 					></textarea>
-					<small class="text-sm text-gray-600">Supports Markdown</small>
+					<small class="text-sm text-gray-600">Enter each option on a new line</small>
+				</label>
+			{/if}
+
+			{#if questionType === "potluck"}
+				<PotluckConfigEditor
+					initial={FRIENDSGIVING_POTLUCK}
+					errors={addSlotErrors.potluckConfig ?? []}
+				/>
+			{/if}
+
+			{#if questionType !== "spotify_playlist" && questionType !== "potluck"}
+				<label class="form-label">
+					<span>Open slots</span>
+					<input class="input-field" type="number" name="quantity" min="0" value="0" />
+					<small class="text-sm text-gray-600">0 for unlimited</small>
+				</label>
+			{/if}
+
+			{#if questionType === "spotify_playlist" && data.hasSpotifyConnected}
+				<label class="form-label">
+					<span>Select Playlist</span>
+					{#if loadingPlaylists}
+						<div class="flex items-center gap-2 py-3 text-sm text-gray-600">
+							<div
+								class="h-4 w-4 animate-spin rounded-full border-2 border-primary-600 border-t-transparent"
+							></div>
+							Loading playlists...
+						</div>
+					{:else if playlists.length > 0}
+						<select class="input-field" name="spotifyPlaylistId" bind:value={selectedPlaylistId}>
+							<option value="">Create new playlist</option>
+							{#each playlists as playlist}
+								<option value={playlist.id}>{playlist.name} ({playlist.tracks.total} songs)</option>
+							{/each}
+						</select>
+						<small class="text-sm text-gray-600">
+							Select an existing playlist or leave blank to create a new one when songs are
+							submitted
+						</small>
+					{:else}
+						<input class="input-field" type="hidden" name="spotifyPlaylistId" value="" />
+						<div class="py-2 text-sm text-gray-600">
+							No playlists found. A new playlist will be created when songs are submitted.
+						</div>
+					{/if}
 				</label>
 
-				<label class="flex cursor-pointer items-center gap-3">
+				<label class="form-label">
+					<span>Songs per user</span>
+					<input
+						class="input-field"
+						type="number"
+						name="songsPerUser"
+						min="1"
+						max="10"
+						value={addSlotValues.songsPerUser ?? "1"}
+						placeholder="Unlimited"
+					/>
+					<small class="text-sm text-gray-600">
+						Leave blank for unlimited, or enter a number to cap songs each guest can add.
+					</small>
+				</label>
+			{/if}
+
+			<label class="form-label">
+				<span>Description</span>
+				<textarea class="input-field" name="description" rows="3" style="white-space: pre-wrap;"
+				></textarea>
+				<small class="text-sm text-gray-600">Supports Markdown</small>
+			</label>
+
+			<label class="flex cursor-pointer items-center gap-3">
+				<input
+					type="checkbox"
+					name="required"
+					class="h-5 w-5 rounded border-primary-700/25 text-primary-600 focus:ring-primary-500"
+				/>
+				<span class="font-medium text-dark-900">Required question</span>
+			</label>
+
+			<label class="flex cursor-pointer flex-col gap-2">
+				<div class="flex items-center gap-3">
 					<input
 						type="checkbox"
-						name="required"
+						name="isPublic"
+						checked={questionType === "potluck"}
 						class="h-5 w-5 rounded border-primary-700/25 text-primary-600 focus:ring-primary-500"
 					/>
-					<span class="font-medium text-dark-900">Required question</span>
-				</label>
+					<span class="font-medium text-dark-900">Show responses publicly</span>
+				</div>
+				<small class="ml-8 text-sm text-gray-600"
+					>When enabled, all attendees can see everyone's responses to this question</small
+				>
+			</label>
 
-				<label class="flex cursor-pointer flex-col gap-2">
-					<div class="flex items-center gap-3">
-						<input
-							type="checkbox"
-							name="isPublic"
-							checked={questionType === "potluck"}
-							class="h-5 w-5 rounded border-primary-700/25 text-primary-600 focus:ring-primary-500"
-						/>
-						<span class="font-medium text-dark-900">Show responses publicly</span>
-					</div>
-					<small class="ml-8 text-sm text-gray-600"
-						>When enabled, all attendees can see everyone's responses to this question</small
-					>
-				</label>
-
-				<button class="btn-primary w-full" type="submit">Add question</button>
-			</form>
-		</div>
-	</div>
+			<button class="btn-primary w-full" type="submit">Add question</button>
+		</form>
+	</dialog>
 {/if}
