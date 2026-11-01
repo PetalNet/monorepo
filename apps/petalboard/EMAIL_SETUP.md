@@ -1,7 +1,6 @@
 # Email setup
 
-PetalBoard sends email through [Resend](https://resend.com): account verification for hosts, and
-edit links for guests who RSVP.
+PetalBoard sends email through [Resend](https://resend.com) for guest RSVP edit links.
 
 1. Verify your sending domain in the Resend dashboard.
 2. Create an API key with sending access.

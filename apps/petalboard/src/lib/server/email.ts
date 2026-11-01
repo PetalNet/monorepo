@@ -80,24 +80,6 @@ function linkBlock(label: string, url: string) {
         <p style="color: #7c5dfa; word-break: break-all; font-size: 14px;">${url}</p>`;
 }
 
-export async function sendVerificationEmail(email: string, name: string, token: string) {
-	const verifyUrl = `${appUrl()}/verify/${token}`;
-	const html = layout(
-		"Welcome to PetalBoard!",
-		`        <p>Hi ${escapeHtml(name)},</p>
-        <p>Thanks for creating a PetalBoard account! Please verify your email address to start creating events.</p>
-${linkBlock("Verify Email Address", verifyUrl)}
-        <p style="margin-top: 30px; color: #666; font-size: 14px;">If you didn't create this account, you can safely ignore this email.</p>`,
-	);
-
-	await sendEmail({
-		to: email,
-		subject: "Verify your PetalBoard account",
-		html,
-		text: `Hi ${name},\n\nThanks for creating a PetalBoard account! Please verify your email address by clicking the link below:\n\n${verifyUrl}\n\nIf you didn't create this account, you can safely ignore this email.\n\nPetalBoard - Effortless event signups`,
-	});
-}
-
 export type RsvpEmailKind = "confirmation" | "already" | "requested";
 
 const RSVP_COPY: Record<RsvpEmailKind, { subject: (title: string) => string; intro: string }> = {

@@ -50,6 +50,12 @@ without forcing guests to create accounts.
    ```
    Open the logged URL (usually `http://localhost:5173`).
 
+## Host login
+
+Hosts log in through Authentik OpenID Connect. Access is restricted to the Authentik group named in
+`OIDC_REQUIRED_GROUP` (default: `petalboard-hosts`). Set `OIDC_ISSUER`, `OIDC_CLIENT_ID`, and
+`OIDC_CLIENT_SECRET` before hosts can log in.
+
 ## Useful commands
 
 ```bash

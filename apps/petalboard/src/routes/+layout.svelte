@@ -198,10 +198,6 @@
 					href="/login"
 					class="nav-link font-medium no-underline transition-opacity hover:opacity-80">Log in</a
 				>
-				<a
-					href="/register"
-					class="nav-link font-medium no-underline transition-opacity hover:opacity-80">Register</a
-				>
 			{/if}
 		</nav>
 	</header>
@@ -260,7 +256,6 @@
 					<span>{darkMode ? "Light Mode" : "Dark Mode"}</span>
 				</button>
 				<a href="/login" class="mobile-nav-link" onclick={closeMobileNav}>Log in</a>
-				<a href="/register" class="mobile-nav-link" onclick={closeMobileNav}>Register</a>
 			{/if}
 		</nav>
 	</aside>

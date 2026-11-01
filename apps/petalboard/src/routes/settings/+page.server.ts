@@ -1,4 +1,3 @@
-import { hashPassword, verifyPassword } from "$lib/server/auth";
 import { prisma } from "$lib/server/prisma";
 import { redirect, fail } from "@sveltejs/kit";
 import { z } from "zod";
@@ -6,14 +5,7 @@ import { z } from "zod";
 import type { Actions, PageServerLoad } from "./$types";
 
 const updateProfileSchema = z.object({
-	email: z.string().trim().email("Enter a valid email").max(160),
 	name: z.string().trim().min(2, "Name must be at least 2 characters").max(100),
-});
-
-const changePasswordSchema = z.object({
-	currentPassword: z.string().min(1, "Current password is required"),
-	newPassword: z.string().min(8, "Password must be at least 8 characters").max(100),
-	confirmPassword: z.string().min(1, "Please confirm your password"),
 });
 
 export const load: PageServerLoad = async ({ locals }) => {
@@ -51,10 +43,8 @@ export const actions = {
 
 		const data = await request.formData();
 		const name = data.get("name")?.toString() || "";
-		const email = data.get("email")?.toString() || "";
 
-		// Validate with zod
-		const result = updateProfileSchema.safeParse({ name, email });
+		const result = updateProfileSchema.safeParse({ name });
 
 		if (!result.success) {
 			const errors: Record<string, string[]> = {};
@@ -72,32 +62,14 @@ export const actions = {
 			return fail(400, {
 				type: "updateProfile",
 				errors,
-				values: { name, email },
+				values: { name },
 			});
-		}
-
-		// Check if email is already taken
-		if (email !== locals.user.email) {
-			const existingUser = await prisma.user.findUnique({
-				where: { email },
-			});
-
-			if (existingUser) {
-				return fail(400, {
-					type: "updateProfile",
-					errors: { email: ["Email is already in use"] },
-					values: { name, email },
-				});
-			}
 		}
 
 		try {
 			await prisma.user.update({
 				where: { id: locals.user.id },
-				data: {
-					name,
-					email,
-				},
+				data: { name },
 			});
 
 			return {
@@ -113,101 +85,14 @@ export const actions = {
 		}
 	},
 
-	changePassword: async ({ locals, request }) => {
-		if (!locals.user) {
-			throw redirect(302, "/login");
-		}
-
-		const data = await request.formData();
-		const currentPassword = data.get("currentPassword")?.toString() || "";
-		const newPassword = data.get("newPassword")?.toString() || "";
-		const confirmPassword = data.get("confirmPassword")?.toString() || "";
-
-		// Validate with zod
-		const result = changePasswordSchema.safeParse({
-			currentPassword,
-			newPassword,
-			confirmPassword,
-		});
-
-		if (!result.success) {
-			const errors: Record<string, string[]> = {};
-
-			result.error.issues.forEach((err) => {
-				const field = err.path[0] as string;
-
-				if (!errors[field]) {
-					errors[field] = [];
-				}
-
-				errors[field].push(err.message);
-			});
-
-			return fail(400, {
-				type: "changePassword",
-				errors,
-			});
-		}
-
-		// Verify current password
-		const user = await prisma.user.findUnique({
-			where: { id: locals.user.id },
-		});
-
-		if (!user) {
-			return fail(404, {
-				type: "changePassword",
-				message: "User not found",
-			});
-		}
-
-		const valid = verifyPassword(currentPassword, user.passwordHash);
-
-		if (!valid) {
-			return fail(400, {
-				type: "changePassword",
-				errors: { currentPassword: ["Current password is incorrect"] },
-			});
-		}
-
-		// Verify passwords match
-		if (newPassword !== confirmPassword) {
-			return fail(400, {
-				type: "changePassword",
-				errors: { confirmPassword: ["Passwords do not match"] },
-			});
-		}
-
-		try {
-			const passwordHash = hashPassword(newPassword);
-
-			await prisma.user.update({
-				where: { id: locals.user.id },
-				data: { passwordHash },
-			});
-
-			return {
-				type: "changePassword",
-				success: true,
-				message: "Password changed successfully",
-			};
-		} catch {
-			return fail(500, {
-				type: "changePassword",
-				message: "Failed to change password",
-			});
-		}
-	},
-
 	deleteAccount: async ({ locals, request, cookies }) => {
 		if (!locals.user) {
 			throw redirect(302, "/login");
 		}
 
 		const data = await request.formData();
-		const password = data.get("password")?.toString() || "";
+		const email = data.get("email")?.toString() || "";
 
-		// Verify password
 		const user = await prisma.user.findUnique({
 			where: { id: locals.user.id },
 		});
@@ -219,12 +104,10 @@ export const actions = {
 			});
 		}
 
-		const valid = verifyPassword(password, user.passwordHash);
-
-		if (!valid) {
+		if (email !== user.email) {
 			return fail(400, {
 				type: "deleteAccount",
-				errors: { password: ["Password is incorrect"] },
+				errors: { email: ["Enter your account email exactly to confirm"] },
 			});
 		}
 

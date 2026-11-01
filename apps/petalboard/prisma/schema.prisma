@@ -14,6 +14,7 @@ model User {
   passwordHash      String
   name              String
   emailVerified     Boolean  @default(false)
+  oidcSubject       String?  @unique
   verificationToken String?  @unique
   spotifyAccessToken  String?
   spotifyRefreshToken String?
