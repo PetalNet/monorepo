@@ -33,6 +33,8 @@ export interface SpotifyTokenResponse {
 	scope: string;
 }
 
+let clientCredentialsToken: { accessToken: string; expiresAt: number } | undefined;
+
 export function getSpotifyAuthUrl(state: string): string {
 	const scopes = [
 		"playlist-modify-public",
@@ -105,6 +107,36 @@ export async function refreshAccessToken(refreshToken: string): Promise<SpotifyT
 	}
 
 	return (await response.json()) as SpotifyTokenResponse;
+}
+
+export async function getClientCredentialsToken(): Promise<string> {
+	if (clientCredentialsToken && clientCredentialsToken.expiresAt > Date.now()) {
+		return clientCredentialsToken.accessToken;
+	}
+
+	const response = await fetch("https://accounts.spotify.com/api/token", {
+		method: "POST",
+		headers: {
+			"Content-Type": "application/x-www-form-urlencoded",
+			Authorization: `Basic ${Buffer.from(`${SPOTIFY_CLIENT_ID}:${SPOTIFY_CLIENT_SECRET}`).toString(
+				"base64",
+			)}`,
+		},
+		body: new URLSearchParams({ grant_type: "client_credentials" }),
+	});
+
+	if (!response.ok) {
+		throw new Error("Failed to get client credentials token");
+	}
+
+	const token = (await response.json()) as SpotifyTokenResponse;
+
+	clientCredentialsToken = {
+		accessToken: token.access_token,
+		expiresAt: Date.now() + (token.expires_in - 60) * 1000,
+	};
+
+	return token.access_token;
 }
 
 export async function searchTracks(
