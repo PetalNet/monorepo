@@ -201,7 +201,7 @@ catalog:
   "@better-auth/mcp": 1.7.7
   "@effect/vitest": 4.0.1
   drizzle-orm: 1.0.0-rc.5-5935859
-  drizzle-kit: 1.0.0-rc.5-5935859
+  drizzle-kit: 1.0.0-rc.5-ab785fc
   fontless: ^1.2.1
   suncalc: ^2.1.1
 # Kit's programmatic API requires a matching ORM installation.
