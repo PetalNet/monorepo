@@ -14,6 +14,7 @@
 		"test": "vitest run"
 	},
 	"dependencies": {
+		"@lucide/svelte": "catalog:prod",
 		"@prisma/client": "catalog:prisma6",
 		"@sveltejs/kit": "catalog:prod",
 		"nanoid": "catalog:prod",

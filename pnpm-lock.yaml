@@ -634,6 +634,9 @@ importers:
 
   apps/petalboard:
     dependencies:
+      '@lucide/svelte':
+        specifier: catalog:prod
+        version: 1.24.0(svelte@5.57.2(@typescript-eslint/types@8.61.1))
       '@prisma/client':
         specifier: catalog:prisma6
         version: 6.19.3(@typescript/typescript6@6.0.2)(prisma@6.19.3(@typescript/typescript6@6.0.2))

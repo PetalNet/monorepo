@@ -56,6 +56,7 @@ function pageData(questions: Question[]): PageData {
 			timezone: "America/Chicago",
 			location: null,
 			rsvpLimit: null,
+			maxPlusOnes: null,
 			publicCode: "CODE1234",
 			theme: "light",
 			primaryColor: null,

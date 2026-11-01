@@ -1,3 +1,4 @@
+import { MAX_PLUS_ONES } from "$lib/guests";
 /* oxlint-disable eslint/no-await-in-loop -- Playlist sync runs one question at a time against the same Spotify session. */
 import {
 	BUSY_MESSAGE,
@@ -26,6 +27,9 @@ import type { SpotifyTrack } from "$lib/server/spotify";
 import { editLinkSchema, rsvpSchema } from "$lib/server/validation";
 import { error, fail, type Cookies } from "@sveltejs/kit";
 
+// Named +1s in party order.
+const GUEST_NAMES = { orderBy: { position: "asc" }, select: { name: true } } as const;
+
 export const load = async ({ params, locals, cookies }) => {
 	const event = await prisma.event.findUnique({
 		where: { publicCode: params.code },
@@ -40,6 +44,7 @@ export const load = async ({ params, locals, cookies }) => {
 			location: true,
 			publicCode: true,
 			rsvpLimit: true,
+			maxPlusOnes: true,
 			theme: true,
 			primaryColor: true,
 			secondaryColor: true,
@@ -81,6 +86,7 @@ export const load = async ({ params, locals, cookies }) => {
 					email: true,
 					status: true,
 					guestCount: true,
+					guests: GUEST_NAMES,
 					createdAt: true,
 					responses: {
 						select: {
@@ -117,6 +123,7 @@ export const load = async ({ params, locals, cookies }) => {
 			location: event.location,
 			publicCode: event.publicCode,
 			rsvpLimit: event.rsvpLimit,
+			maxPlusOnes: event.maxPlusOnes,
 			rsvpCount,
 			totalGuests,
 			theme: event.theme,
@@ -157,6 +164,7 @@ export const load = async ({ params, locals, cookies }) => {
 					email: mine.email,
 					status: mine.status,
 					guestCount: mine.guestCount,
+					guestNames: mine.guests.map((g) => g.name),
 					responses: Object.fromEntries(mine.responses.map((r) => [r.question.id, r.value])),
 				}
 			: null,
@@ -166,6 +174,7 @@ export const load = async ({ params, locals, cookies }) => {
 			email: isOwner ? rsvp.email : null, // Only show email to owner
 			status: rsvp.status,
 			guestCount: rsvp.guestCount,
+			guestNames: rsvp.guests.map((g) => g.name),
 			createdAt: rsvp.createdAt,
 			responses: rsvp.responses.map((r) => ({
 				questionId: r.question.id,
@@ -361,6 +370,7 @@ async function findEvent(code: string) {
 			title: true,
 			publicCode: true,
 			rsvpLimit: true,
+			maxPlusOnes: true,
 			questions: {
 				select: {
 					id: true,
@@ -387,28 +397,33 @@ type RsvpEvent = Awaited<ReturnType<typeof findEvent>>;
 function readRsvpForm(formData: FormData) {
 	const responses: Record<string, string> = {};
 	const values: Record<string, string> = {};
+	const guestNames: string[] = [];
 
 	for (const [key, value] of formData.entries()) {
-		if (key.startsWith("response_")) {
+		if (key === "guestName") {
+			guestNames.push(value as string);
+		} else if (key.startsWith("response_")) {
 			responses[key.replace("response_", "")] = value as string;
 		} else {
 			values[key] = value as string;
 		}
 	}
 
-	return { values, responses };
+	return { values, responses, guestNames };
 }
 
 interface RsvpInput {
 	name: string;
 	status: "attending" | "maybe" | "not_attending";
-	guestCount: number;
+	guestNames: string[];
+	legacyGuestCount: number | null;
 	responses: Record<string, string>;
 }
 
 interface ExistingRsvp {
 	id: string;
 	guestCount: number;
+	guests: { name: string }[];
 	responses: { questionId: string }[];
 }
 
@@ -421,6 +436,13 @@ function answered(responses: Record<string, string>) {
 		.map(([questionId, value]) => ({ questionId, value }));
 }
 
+function clampedLegacyGuestCount(raw: string | undefined, maxPlusOnes: number | null) {
+	const count = Number(raw);
+	const capped = Math.min(20, (maxPlusOnes ?? MAX_PLUS_ONES) + 1);
+
+	return Number.isInteger(count) ? Math.min(capped, Math.max(1, count)) : 1;
+}
+
 // Returns the saved RSVP's id, or the failure to show on `type`'s form.
 async function saveRsvp(
 	event: RsvpEvent,
@@ -429,12 +451,25 @@ async function saveRsvp(
 	type: RsvpFormType,
 	values: Record<string, string>,
 ) {
-	const { name, status, guestCount, responses } = input;
+	const { name, status, guestNames, legacyGuestCount, responses } = input;
+	const namedGuests = status === "not_attending" ? [] : guestNames;
 	const existing = "existing" in target ? target.existing : null;
+	const isLegacy = legacyGuestCount !== null;
+	const guestCount = isLegacy ? (existing?.guestCount ?? legacyGuestCount) : 1 + namedGuests.length;
+	const guests = {
+		deleteMany: {},
+		create: namedGuests.map((guestName, position) => ({ name: guestName, position })),
+	};
 	const reject = (message: string, httpStatus = 400) =>
-		fail(httpStatus, { success: false, type, message, values });
+		fail(httpStatus, { success: false, type, message, values, guestNames });
 	const hadAnswer = (questionId: string) =>
 		existing?.responses.some((r) => r.questionId === questionId) ?? false;
+	const existingPlusOnes = existing?.guests.length || Math.max(0, (existing?.guestCount ?? 1) - 1);
+	const cap = event.maxPlusOnes ?? MAX_PLUS_ONES;
+
+	if (!isLegacy && namedGuests.length > Math.max(cap, existingPlusOnes)) {
+		return reject("That RSVP has too many +1s.");
+	}
 
 	if (event.rsvpLimit && guestCount > (existing?.guestCount ?? 0)) {
 		const totals = await prisma.rsvp.aggregate({
@@ -507,7 +542,7 @@ async function saveRsvp(
 							data: {
 								name,
 								status,
-								guestCount,
+								...(isLegacy ? {} : { guestCount, guests }),
 								responses: { deleteMany: {}, create: answered(responses) },
 							},
 							select: { id: true },
@@ -518,6 +553,7 @@ async function saveRsvp(
 								email: target.email,
 								status,
 								guestCount,
+								guests: { create: guests.create },
 								eventId: event.id,
 								responses: { create: answered(responses) },
 							},
@@ -567,6 +603,7 @@ async function guestList(eventId: string) {
 					name: true,
 					status: true,
 					guestCount: true,
+					guests: GUEST_NAMES,
 					createdAt: true,
 					responses: {
 						select: {
@@ -592,6 +629,7 @@ async function guestList(eventId: string) {
 			email: null,
 			status: r.status,
 			guestCount: r.guestCount,
+			guestNames: r.guests.map((g) => g.name),
 			createdAt: r.createdAt,
 			responses: r.responses.map((resp) => ({
 				questionId: resp.question.id,
@@ -609,7 +647,12 @@ async function findOwnRsvp(cookies: Cookies, eventId: string) {
 	return rsvpId
 		? prisma.rsvp.findUnique({
 				where: { id: rsvpId },
-				select: { id: true, guestCount: true, responses: { select: { questionId: true } } },
+				select: {
+					id: true,
+					guestCount: true,
+					guests: GUEST_NAMES,
+					responses: { select: { questionId: true } },
+				},
 			})
 		: null;
 }
@@ -626,8 +669,13 @@ function isUniqueViolation(cause: unknown) {
 export const actions = {
 	rsvp: async ({ request, params, cookies, getClientAddress }) => {
 		const event = await findEvent(params.code);
-		const { values, responses } = readRsvpForm(await request.formData());
-		const parsed = rsvpSchema.safeParse({ ...values, responses });
+		const formData = await request.formData();
+		const { values, responses, guestNames } = readRsvpForm(formData);
+		const legacyCount =
+			formData.has("guestCount") && !formData.has("guestName")
+				? clampedLegacyGuestCount(values.guestCount, event.maxPlusOnes)
+				: null;
+		const parsed = rsvpSchema.safeParse({ ...values, responses, guestNames });
 
 		if (!parsed.success) {
 			return fail(400, {
@@ -635,10 +683,11 @@ export const actions = {
 				type: "rsvp" as const,
 				errors: parsed.error.flatten().fieldErrors,
 				values,
+				guestNames,
 			});
 		}
 
-		const input = parsed.data;
+		const input = { ...parsed.data, legacyGuestCount: legacyCount };
 		const ip = clientIp(request, getClientAddress);
 		const alreadyRegistered = (rsvpId: string | null) => {
 			inBackground(() => sendEditLink("already", rsvpId, input.email, event, ip));
@@ -653,7 +702,12 @@ export const actions = {
 
 		const existing = await prisma.rsvp.findUnique({
 			where: { eventId_email: { eventId: event.id, email: input.email } },
-			select: { id: true, guestCount: true, responses: { select: { questionId: true } } },
+			select: {
+				id: true,
+				guestCount: true,
+				guests: GUEST_NAMES,
+				responses: { select: { questionId: true } },
+			},
 		});
 
 		if (existing) {
@@ -756,8 +810,12 @@ export const actions = {
 			return fail(409, { success: false, type: "updateRsvp" as const, message: STALE_PAGE });
 		}
 
-		const { values, responses } = readRsvpForm(formData);
-		const parsed = rsvpSchema.omit({ email: true }).safeParse({ ...values, responses });
+		const { values, responses, guestNames } = readRsvpForm(formData);
+		const legacyCount =
+			formData.has("guestCount") && !formData.has("guestName")
+				? clampedLegacyGuestCount(values.guestCount, event.maxPlusOnes)
+				: null;
+		const parsed = rsvpSchema.omit({ email: true }).safeParse({ ...values, responses, guestNames });
 
 		if (!parsed.success) {
 			return fail(400, {
@@ -767,7 +825,13 @@ export const actions = {
 			});
 		}
 
-		const saved = await saveRsvp(event, { existing }, parsed.data, "updateRsvp", values);
+		const saved = await saveRsvp(
+			event,
+			{ existing },
+			{ ...parsed.data, legacyGuestCount: legacyCount },
+			"updateRsvp",
+			values,
+		);
 
 		if (typeof saved !== "string") {
 			return saved;

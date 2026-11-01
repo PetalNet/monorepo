@@ -1,3 +1,4 @@
+import { MAX_PLUS_ONE_NAME_LENGTH, MAX_PLUS_ONES } from "$lib/guests";
 import { z } from "zod";
 
 const optionalText = (schema: z.ZodString) =>
@@ -35,6 +36,24 @@ export const eventSchema = z.object({
 		.refine((value) => value === undefined || (value > 0 && value <= 10000), {
 			message: "Must be between 1 and 10000",
 		}),
+	maxPlusOnes: z
+		.string()
+		.optional()
+		.transform((value) => {
+			if (!value || value.trim() === "") {
+				return null;
+			}
+
+			return Number(value.trim());
+		})
+		.refine(
+			(value) =>
+				value === null ||
+				(Number.isInteger(value) && value >= 0 && value <= MAX_PLUS_ONES),
+			{
+				message: `Must be between 0 and ${MAX_PLUS_ONES}`,
+			},
+		),
 	location: optionalText(z.string().max(120)),
 	description: optionalText(z.string().max(5000)),
 	timezone: z.string().min(1, "Timezone is required"),
@@ -107,21 +126,20 @@ export const rsvpSchema = z.object({
 		.max(100, "Name must be 100 characters or fewer"),
 	email: guestEmail,
 	status: z.enum(["attending", "maybe", "not_attending"]).default("attending"),
-	guestCount: z
-		.string()
-		.optional()
-		.transform((value) => {
-			if (!value) {
-				return 1;
-			}
-
-			const parsed = Number.parseInt(value, 10);
-
-			return Number.isNaN(parsed) ? 1 : parsed;
-		})
-		.refine((value) => value >= 1 && value <= 20, {
-			message: "Guest count must be between 1 and 20",
-		}),
+	// The people the guest is bringing; the headcount is these plus the guest.
+	guestNames: z
+		.array(
+			z
+				.string()
+				.trim()
+				.min(1, "Give each person you add a name, or remove them")
+				.max(
+					MAX_PLUS_ONE_NAME_LENGTH,
+					`Names must be ${MAX_PLUS_ONE_NAME_LENGTH} characters or fewer`,
+				),
+		)
+		.max(MAX_PLUS_ONES, `You can add up to ${MAX_PLUS_ONES} people`)
+		.default([]),
 	responses: z.record(z.string(), z.string()).optional().default({}),
 });
 

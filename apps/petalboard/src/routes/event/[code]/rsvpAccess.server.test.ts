@@ -58,19 +58,21 @@ function call(
 	});
 }
 
-function form(fields: Record<string, string>) {
+function form(fields: Record<string, string | string[]>) {
 	const body = new FormData();
 
 	for (const [k, v] of Object.entries(fields)) {
-		body.set(k, v);
+		for (const one of [v].flat()) {
+			body.append(k, one);
+		}
 	}
 
 	return body;
 }
 
-function rsvp(fields: Record<string, string>, jar: Jar = new Map()) {
+function rsvp(fields: Record<string, string | string[]>, jar: Jar = new Map()) {
 	return call(page.actions.rsvp, {
-		body: form({ guestCount: "1", status: "attending", ...fields }),
+		body: form({ status: "attending", ...fields }),
 		jar,
 	});
 }
@@ -321,7 +323,7 @@ describe("passwordless RSVP access", () => {
 	it("refuses update and cancel without the RSVP's cookie, whatever the form says", async () => {
 		const own = await seedRsvp(`held.${seq}@example.test`);
 		const before = await prisma.rsvp.findUniqueOrThrow({ where: { id: own.id } });
-		const fields = { rsvpId: own.id, name: "Hijacked", status: "not_attending", guestCount: "1" };
+		const fields = { rsvpId: own.id, name: "Hijacked", status: "not_attending" };
 
 		const updated = await call(page.actions.updateRsvp, { body: form(fields) });
 		const cancelled = await call(page.actions.cancelRsvp, { body: form({ rsvpId: own.id }) });
@@ -352,7 +354,7 @@ describe("passwordless RSVP access", () => {
 
 	it("refuses an update from a dialog showing a different RSVP than the cookie's", async () => {
 		const { jar, first, before } = await twoRsvpsOneBrowser();
-		const fields = { name: "Overwritten", status: "not_attending", guestCount: "1" };
+		const fields = { name: "Overwritten", status: "not_attending" };
 		const results = [
 			await call(page.actions.updateRsvp, {
 				body: form({ ...fields, expectedRsvpId: first.id }),
@@ -400,15 +402,245 @@ describe("passwordless RSVP access", () => {
 	it("returns myRsvp only to the browser holding its cookie", async () => {
 		const jar: Jar = new Map();
 
-		await rsvp({ name: "Avery", email: `avery.${seq}@example.test`, guestCount: "2" }, jar);
+		await rsvp({ name: "Avery", email: `avery.${seq}@example.test`, guestName: ["Sam"] }, jar);
 
 		expect((await call(page.load, { jar })).myRsvp).toMatchObject({
 			name: "Avery",
 			email: `avery.${seq}@example.test`,
 			guestCount: 2,
+			guestNames: ["Sam"],
 		});
 
 		expect((await call(page.load, {})).myRsvp).toBeNull();
+	});
+
+	describe("named +1s", () => {
+		const email = () => `party.${seq}@example.test`;
+		const listed = async () => {
+			const { rsvps } = (await call(page.load, {})) as {
+				rsvps: { name: string; guestCount: number; guestNames: string[] }[];
+			};
+
+			return rsvps.map((r) => [r.name, r.guestCount, r.guestNames]);
+		};
+
+		it("derives the headcount from trimmed names, in order", async () => {
+			await rsvp({ name: "Avery", email: email(), guestName: ["  Sam ", "Alex"] });
+
+			expect(await listed()).toEqual([["Avery", 3, ["Sam", "Alex"]]]);
+		});
+
+		it("keeps a legacy count as unnamed guests, clamped to the event cap", async () => {
+			await prisma.event.update({ where: { id: eventId }, data: { maxPlusOnes: 2 } });
+
+			await rsvp({ name: "Avery", email: email(), guestCount: "99" });
+
+			expect(await listed()).toEqual([["Avery", 3, []]]);
+		});
+
+		it("does not replace named guests when a stale form posts only guestCount", async () => {
+			const jar: Jar = new Map();
+
+			await rsvp({ name: "Avery", email: email(), guestName: ["Sam", "Alex"] }, jar);
+			const own = await prisma.rsvp.findFirstOrThrow({ where: { eventId } });
+
+			const updated = await call(page.actions.updateRsvp, {
+				body: form({
+					name: "Avery Updated",
+					status: "maybe",
+					expectedRsvpId: own.id,
+					guestCount: "1",
+				}),
+				jar,
+			});
+
+			expect(updated.success).toBe(true);
+			expect(await listed()).toEqual([["Avery Updated", 3, ["Sam", "Alex"]]]);
+		});
+
+		it("does not save a party for an RSVP marked not attending", async () => {
+			await rsvp({
+				name: "Avery",
+				email: email(),
+				status: "not_attending",
+				guestName: ["Sam"],
+			});
+
+			expect(await listed()).toEqual([["Avery", 1, []]]);
+		});
+
+		it("rejects blank names, over-long names and too many people", async () => {
+			const bad = [
+				["Sam", "   "],
+				["x".repeat(101)],
+				Array.from({ length: 20 }, (_, i) => `P${i}`),
+			];
+
+			for (const guestName of bad) {
+				// oxlint-disable-next-line eslint/no-await-in-loop -- Each case is independent but cheap.
+				const result = await rsvp({ name: "Avery", email: email(), guestName });
+
+				expect(result.status).toBe(400);
+				expect(result.data.errors.guestNames).toHaveLength(1);
+			}
+
+			expect(await prisma.rsvp.count({ where: { eventId } })).toBe(0);
+		});
+
+		it("returns submitted guest names with a validation failure", async () => {
+			const result = await rsvp({
+				name: "Avery",
+				email: email(),
+				guestName: ["Sam", ""],
+			});
+
+			expect(result.status).toBe(400);
+			expect(result.data.guestNames).toEqual(["Sam", ""]);
+		});
+
+		it("replaces the names on edit and keeps the count in step", async () => {
+			const jar: Jar = new Map();
+
+			await rsvp({ name: "Avery", email: email(), guestName: ["Sam", "Alex"] }, jar);
+			const own = await prisma.rsvp.findFirstOrThrow({ where: { eventId } });
+			const edited = await call(page.actions.updateRsvp, {
+				body: form({
+					name: "Avery",
+					status: "attending",
+					expectedRsvpId: own.id,
+					guestName: ["Alex"],
+				}),
+				jar,
+			});
+
+			expect(edited.success).toBe(true);
+			expect(edited.totalGuests).toBe(2);
+			expect(await listed()).toEqual([["Avery", 2, ["Alex"]]]);
+			expect(await prisma.rsvpGuest.count({ where: { rsvpId: own.id } })).toBe(1);
+		});
+
+		it("shows an RSVP from before names as a bare count, then lets it be named", async () => {
+			const jar: Jar = new Map();
+
+			await rsvp({ name: "Avery", email: email() }, jar);
+			const own = await prisma.rsvp.findFirstOrThrow({ where: { eventId } });
+
+			await prisma.rsvp.update({ where: { id: own.id }, data: { guestCount: 3 } });
+
+			expect(await listed()).toEqual([["Avery", 3, []]]);
+
+			expect((await call(page.load, { jar })).myRsvp).toMatchObject({
+				guestCount: 3,
+				guestNames: [],
+			});
+
+			await call(page.actions.updateRsvp, {
+				body: form({
+					name: "Avery",
+					status: "attending",
+					expectedRsvpId: own.id,
+					guestName: ["Sam", "Alex"],
+				}),
+				jar,
+			});
+
+			expect(await listed()).toEqual([["Avery", 3, ["Sam", "Alex"]]]);
+		});
+
+		it("holds the headcount, not the RSVP count, to the limit", async () => {
+			await prisma.event.update({ where: { id: eventId }, data: { rsvpLimit: 2 } });
+
+			const result = await rsvp({ name: "Avery", email: email(), guestName: ["Sam", "Alex"] });
+
+			expect(result.status).toBe(400);
+			expect(result.data.message).toContain("only 2 spot(s) left");
+			expect(await prisma.rsvp.count({ where: { eventId } })).toBe(0);
+		});
+
+		it("enforces an event's plus-one cap while leaving null capped only at 19", async () => {
+			const names = ["Sam", "Alex"];
+
+			await prisma.event.update({ where: { id: eventId }, data: { maxPlusOnes: 1 } });
+			const over = await rsvp({ name: "Avery", email: email(), guestName: names });
+
+			expect(over.status).toBe(400);
+			expect(over.data.message).toBe("That RSVP has too many +1s.");
+
+			await prisma.event.update({ where: { id: eventId }, data: { maxPlusOnes: 2 } });
+			expect((await rsvp({ name: "Avery", email: email(), guestName: names })).success).toBe(true);
+
+			await prisma.event.update({ where: { id: eventId }, data: { maxPlusOnes: 0 } });
+
+			const zero = await rsvp({
+				name: "Blake",
+				email: `zero.${seq}@example.test`,
+				guestName: ["Sam"],
+			});
+
+			expect(zero.status).toBe(400);
+			expect(zero.data.message).toBe("That RSVP has too many +1s.");
+
+			await prisma.event.update({ where: { id: eventId }, data: { maxPlusOnes: null } });
+
+			expect(
+				(
+					await rsvp({
+						name: "Casey",
+						email: `unlimited.${seq}@example.test`,
+						guestName: Array.from({ length: 19 }, (_, index) => `P${index}`),
+					})
+				).success,
+			).toBe(true);
+		});
+
+		it("grandfathers an RSVP over a lowered plus-one cap without allowing an increase", async () => {
+			const jar: Jar = new Map();
+			const emailAddress = email();
+			const original = ["Sam", "Alex", "Jo"];
+
+			await rsvp({ name: "Avery", email: emailAddress, guestName: original }, jar);
+			const own = await prisma.rsvp.findFirstOrThrow({ where: { eventId, email: emailAddress } });
+
+			await prisma.event.update({ where: { id: eventId }, data: { maxPlusOnes: 1 } });
+
+			const same = await call(page.actions.updateRsvp, {
+				body: form({
+					name: "Avery",
+					status: "attending",
+					expectedRsvpId: own.id,
+					guestName: original,
+				}),
+				jar,
+			});
+
+			expect(same.success).toBe(true);
+
+			const larger = await call(page.actions.updateRsvp, {
+				body: form({
+					name: "Avery",
+					status: "attending",
+					expectedRsvpId: own.id,
+					guestName: [...original, "Lee"],
+				}),
+				jar,
+			});
+
+			expect(larger.status).toBe(400);
+			expect(larger.data.message).toBe("That RSVP has too many +1s.");
+
+			const smaller = await call(page.actions.updateRsvp, {
+				body: form({
+					name: "Avery",
+					status: "attending",
+					expectedRsvpId: own.id,
+					guestName: ["Sam"],
+				}),
+				jar,
+			});
+
+			expect(smaller.success).toBe(true);
+			expect(await listed()).toEqual([["Avery", 2, ["Sam"]]]);
+		});
 	});
 
 	it("stops mailing an address after 3 links in 15 minutes but answers the same", async () => {

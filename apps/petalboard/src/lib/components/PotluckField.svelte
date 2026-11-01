@@ -6,41 +6,39 @@
 		type PotluckAnswer,
 		type PotluckView,
 	} from "$lib/potluck";
-	import { untrack } from "svelte";
+	import { tick, untrack } from "svelte";
+	import { fly } from "svelte/transition";
+
+	import PotluckCategoryChips from "./PotluckCategoryChips.svelte";
 
 	let {
 		questionId,
 		label,
-		description = null,
 		required = false,
 		view,
 		value = "",
 		ownAnswer = null,
 		offeredOverride = null,
-		accentStyle = "",
 		onchange,
 	}: {
 		questionId: string;
 		label: string;
-		description?: string | null;
 		required?: boolean;
 		view: PotluckView;
 		value?: string;
 		ownAnswer?: PotluckAnswer | null;
 		offeredOverride?: string[] | null;
-		accentStyle?: string;
 		onchange: (raw: string) => void;
 	} = $props();
 
 	const initial = untrack(() => parsePotluckAnswer(value));
 	let category = $state(initial?.category ?? "");
 	let dish = $state(initial?.dish ?? "");
-	// Only an explicit click opts out; a category closing under the guest must not look like one.
 	let optedOut = $state(false);
-	let dishInput: HTMLInputElement | undefined = $state();
+	let dishInput = $state<HTMLInputElement>();
 
-	// A guest editing their RSVP should not be blocked by their own dish.
-	const counts = $derived.by(() => {
+	// A guest editing an RSVP replaces their old count with their in-progress selection.
+	const countsWithoutOwn = $derived.by(() => {
 		if (!ownAnswer) {
 			return view.counts;
 		}
@@ -50,126 +48,136 @@
 			[ownAnswer.category]: Math.max(0, (view.counts[ownAnswer.category] ?? 1) - 1),
 		};
 	});
-
-	const ranked = $derived(
-		standings(view.config, counts).map((s) => ({
-			...s,
+	const displayedCounts = $derived(
+		category
+			? { ...countsWithoutOwn, [category]: (countsWithoutOwn[category] ?? 0) + 1 }
+			: countsWithoutOwn,
+	);
+	const offeredCategoryIds = $derived(
+		standings(view.config, countsWithoutOwn)
+			.filter((standing) => standing.reason !== "closed")
+			.map((standing) => standing.category.id),
+	);
+	const categories = $derived(
+		view.config.categories.map((item) => ({
+			category: item,
 			offered:
-				s.category.id === ownAnswer?.category ||
-				(offeredOverride ? offeredOverride.includes(s.category.id) : s.reason !== "closed"),
+				item.id === ownAnswer?.category ||
+				(offeredOverride
+					? offeredOverride.includes(item.id)
+					: offeredCategoryIds.includes(item.id)),
 		})),
 	);
-	const open = $derived(ranked.filter((s) => s.offered));
-	const full = $derived(ranked.filter((s) => !s.offered));
-	const neededMost = $derived(open.find((s) => s.deficit >= 1)?.category.id ?? null);
-
 	const takenDishes = (id: string) =>
-		view.taken.filter((t) => t.category === id).map((t) => t.dish);
-
-	$effect(() => {
-		if (category && !open.some((s) => s.category.id === category)) {
-			category = "";
-		}
-	});
-
+		view.taken.filter((item) => item.category === id).map((item) => item.dish);
+	const selected = $derived(view.config.categories.find((item) => item.id === category) ?? null);
+	const ideas = $derived(
+		selected ? unclaimedIdeas(selected, takenDishes(selected.id)).slice(0, 2) : [],
+	);
+	const placeholder = $derived(
+		ideas.length > 0 ? `e.g. ${ideas.join(", ")}` : "What are you bringing?",
+	);
 	const raw = $derived(
 		category && dish.trim() ? JSON.stringify({ category, dish: dish.trim() }) : "",
 	);
+	const motionDuration = () =>
+		typeof matchMedia === "function" && matchMedia("(prefers-reduced-motion: reduce)").matches
+			? 0
+			: 160;
 
 	$effect(() => onchange(raw));
 
 	$effect(() => {
-		dishInput?.setCustomValidity(dish.trim() && !category ? "Pick a category for your dish" : "");
+		if (category && !categories.some((item) => item.category.id === category && item.offered)) {
+			category = "";
+		}
 	});
+
+	async function chooseCategory(nextCategory: string) {
+		category = nextCategory;
+		optedOut = false;
+		await tick();
+		dishInput?.focus();
+	}
 </script>
 
-<fieldset>
+<fieldset class="potluck-field" role="radiogroup" aria-label={label}>
 	<legend>{label}{required ? " *" : ""}</legend>
-	{#if description}
-		<small class="block text-sm text-gray-600">{description}</small>
-	{/if}
 	{#if view.config.providing}
-		<small class="block text-sm text-gray-600"
+		<small
+			class="potluck-providing"
+			title={view.config.providing}
+			aria-label={`Hosts are providing: ${view.config.providing}`}
 			><strong>Hosts are providing:</strong> {view.config.providing}</small
 		>
 	{/if}
 
 	<input type="hidden" name="response_{questionId}" value={raw} />
 
-	<div class="status-options">
-		{#each open as s (s.category.id)}
-			{@const ideas = unclaimedIdeas(s.category, takenDishes(s.category.id))}
-			<label class="status-option">
-				<input
-					type="radio"
-					name="potluck_category_{questionId}"
-					value={s.category.id}
-					checked={category === s.category.id}
-					onchange={() => {
-						category = s.category.id;
-						optedOut = false;
-					}}
-				/>
-				<span class="flex-1">
-					{s.category.label}
-					{#if s.category.id === neededMost}
-						<small
-							class="badge-status ml-2 px-2 py-0.5 text-xs"
-							data-tone="theme"
-							style={accentStyle}>Needed most</small
-						>
-					{/if}
-					<small class="mt-1 block text-sm text-gray-600"
-						>{s.count} so far{#if ideas.length > 0}. Ideas: {ideas.join(", ")}{/if}</small
-					>
-				</span>
-			</label>
-		{/each}
-		{#if !required}
-			<label class="status-option">
-				<input
-					type="radio"
-					name="potluck_category_{questionId}"
-					value=""
-					checked={optedOut}
-					onchange={() => {
-						category = "";
-						optedOut = true;
-					}}
-				/>
-				<span class="flex-1">Not bringing a dish</span>
-			</label>
-		{/if}
-	</div>
+	<PotluckCategoryChips
+		{questionId}
+		{categories}
+		selected={category}
+		counts={displayedCounts}
+		{required}
+		{optedOut}
+		onchoose={(categoryId) => void chooseCategory(categoryId)}
+		onskip={() => {
+			category = "";
+			optedOut = true;
+		}}
+	/>
 
-	{#if full.length > 0}
-		<small class="text-sm text-gray-600"
-			>Full for now: {full.map((s) => s.category.label).join(", ")}. Pick from what's still needed
-			above.</small
-		>
-	{/if}
-
-	{#if !optedOut}
-		<label class="form-label">
-			<span>Your dish{required || category ? " *" : ""}</span>
-			<input
-				class="input-field"
-				type="text"
-				maxlength="80"
-				bind:this={dishInput}
-				bind:value={dish}
-				required={required || Boolean(category)}
-				placeholder={category ? "What are you bringing?" : "Pick a category first"}
-			/>
-		</label>
+	{#if category && !optedOut}
+		<div class="potluck-dish" in:fly={{ y: -6, duration: motionDuration() }}>
+			<label class="form-label" for="dish-{questionId}">
+				<span>Your dish{required || category ? " *" : ""}</span>
+				<input
+					class="input-field"
+					id="dish-{questionId}"
+					type="text"
+					maxlength="80"
+					bind:this={dishInput}
+					bind:value={dish}
+					required
+					{placeholder}
+				/>
+			</label>
+		</div>
 	{/if}
 </fieldset>
 
 <style>
-	/* The event page's dark rule for themed badges is scoped to that page, so mirror it here. */
-	:global(.dark) .badge-status[data-tone="theme"] {
-		background-color: var(--event-badge-bg-dark) !important;
-		color: var(--event-badge-text-dark) !important;
-		border-color: var(--event-surface-border-dark) !important;
+	.potluck-field {
+		display: grid;
+		gap: 0.5rem;
+		min-width: 0;
+	}
+
+	.potluck-field legend {
+		color: var(--event-text-primary, #1b1430);
+		font-weight: 600;
+	}
+
+	.potluck-providing {
+		display: block;
+		overflow: hidden;
+		color: var(--event-text-secondary, #362a54);
+		text-overflow: ellipsis;
+		white-space: nowrap;
+	}
+
+	.potluck-dish {
+		display: grid;
+		gap: 0.25rem;
+		padding-top: 0.125rem;
+	}
+
+	:global(html.dark) .potluck-field legend {
+		color: var(--event-text-primary-dark, #fff);
+	}
+
+	:global(html.dark) .potluck-providing {
+		color: var(--event-text-secondary-dark, #d9d8f5);
 	}
 </style>
