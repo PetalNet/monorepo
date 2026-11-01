@@ -128,7 +128,7 @@ catalogs:
     turbo: 2.11.10
     update-ts-references: ^6.0.0
     vite: ^8.3.3
-    vitest: 5.0.3
+    vitest: 5.0.5
     "@stylistic/eslint-plugin": ^5.10.0
     antislop-ai: ^3.2.20
 
