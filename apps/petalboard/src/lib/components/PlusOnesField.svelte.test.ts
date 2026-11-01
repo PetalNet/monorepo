@@ -2,8 +2,7 @@
 import { flushSync, mount, tick, unmount } from "svelte";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-import { newPerson, type Person } from "./PlusOnesField.svelte";
-import PlusOnesFieldTestHost from "./PlusOnesFieldTestHost.svelte";
+import PlusOnesField, { newPerson, type Person } from "./PlusOnesField.svelte";
 
 let cleanup: (() => void) | undefined;
 
@@ -30,9 +29,9 @@ function render(people: Person[], maxPlusOnes: number | null): HTMLElement {
 
 	document.body.append(target);
 
-	const component = mount(PlusOnesFieldTestHost, {
+	const component = mount(PlusOnesField, {
 		target,
-		props: { initialPeople: people, maxPlusOnes },
+		props: { people, maxPlusOnes },
 	});
 
 	cleanup = () => {
@@ -47,7 +46,8 @@ function render(people: Person[], maxPlusOnes: number | null): HTMLElement {
 
 describe("PlusOnesField", () => {
 	it("removes the add button at the cap and restores it after a removal without cap copy", async () => {
-		const target = render([newPerson("Sam")], 2);
+		const people = $state<Person[]>([newPerson("Sam")]);
+		const target = render(people, 2);
 		const add = buttonByText(target, "Add a person");
 
 		expect(add).not.toBeNull();
@@ -66,14 +66,16 @@ describe("PlusOnesField", () => {
 	});
 
 	it("keeps existing people visible at a zero cap without an add button", () => {
-		const target = render([newPerson("Sam"), newPerson("Alex")], 0);
+		const people = $state<Person[]>([newPerson("Sam"), newPerson("Alex")]);
+		const target = render(people, 0);
 
 		expect(buttonByText(target, "Add a person")).toBeNull();
 		expect(target.querySelectorAll(".plus-ones-row")).toHaveLength(2);
 	});
 
 	it("does not render the plus-one group at a zero cap without people", () => {
-		const target = render([], 0);
+		const people = $state<Person[]>([]);
+		const target = render(people, 0);
 
 		expect(target.textContent).not.toContain("Bringing anyone?");
 	});

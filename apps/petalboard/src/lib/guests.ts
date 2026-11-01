@@ -3,7 +3,7 @@ export const MAX_PLUS_ONES = 19;
 export const MAX_PLUS_ONE_NAME_LENGTH = 100;
 
 /** RSVPs made before +1s had names keep a bare guestCount, so some of the party may be unnamed. */
-export function unnamedGuests(guestCount: number, guestNames: readonly string[]): number {
+function unnamedGuests(guestCount: number, guestNames: readonly string[]): number {
 	return Math.max(0, guestCount - 1 - guestNames.length);
 }
 

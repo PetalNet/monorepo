@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { partyLabel, unnamedGuests } from "./guests";
+import { partyLabel } from "./guests";
 
 describe("partyLabel", () => {
 	it("lists named people", () => {
@@ -10,12 +10,11 @@ describe("partyLabel", () => {
 	});
 
 	it("counts the unnamed slots of an RSVP from before names", () => {
-		expect(unnamedGuests(3, [])).toBe(2);
 		expect(partyLabel(3, [])).toBe("2 more");
 		expect(partyLabel(3, ["Sam"])).toBe("Sam and 1 more");
 	});
 
-	it("never goes negative", () => {
-		expect(unnamedGuests(1, ["Sam"])).toBe(0);
+	it("does not add unnamed slots when names fill the party", () => {
+		expect(partyLabel(1, ["Sam"])).toBe("Sam");
 	});
 });
