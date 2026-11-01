@@ -138,7 +138,6 @@ catalogs:
     "@types/leaflet.heat": ^0.2.5
     "@types/leaflet.markercluster": ^1.5.6
     "@types/node": ^25.9.1
-    "@types/nodemailer": ^7.0.3
     "@types/qrcode": ^1.5.5
     "@types/sortablejs": ^1.15.8
 
@@ -157,7 +156,6 @@ catalogs:
     leaflet.heat: ^0.2.0
     leaflet.markercluster: ^1.5.3
     nanoid: ^5.0.0
-    nodemailer: ^7.0.10
     qrcode: ^1.5.4
     remark: ^15.0.1
     remark-gfm: ^4.0.1

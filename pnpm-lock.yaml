@@ -241,9 +241,6 @@ catalogs:
     nanoid:
       specifier: ^5.0.0
       version: 5.1.16
-    nodemailer:
-      specifier: ^7.0.10
-      version: 7.0.13
     qrcode:
       specifier: ^1.5.4
       version: 1.5.4
@@ -284,9 +281,6 @@ catalogs:
     '@types/node':
       specifier: ^25.9.1
       version: 25.9.4
-    '@types/nodemailer':
-      specifier: ^7.0.3
-      version: 7.0.12
     '@types/qrcode':
       specifier: ^1.5.5
       version: 1.5.6
@@ -649,9 +643,6 @@ importers:
       nanoid:
         specifier: catalog:prod
         version: 5.1.16
-      nodemailer:
-        specifier: catalog:prod
-        version: 7.0.13
       remark:
         specifier: catalog:prod
         version: 15.0.1(supports-color@7.2.0)
@@ -680,9 +671,6 @@ importers:
       '@types/node':
         specifier: catalog:types
         version: 25.9.4
-      '@types/nodemailer':
-        specifier: catalog:types
-        version: 7.0.12
       autoprefixer:
         specifier: catalog:dev
         version: 10.5.0(postcss@8.5.29)
@@ -3505,9 +3493,6 @@ packages:
   '@types/node@25.9.4':
     resolution: {integrity: sha512-dszCsrKb5U7ZsVZBWiHFklTloVl0mSEnWH/iZXfZUlI4rzCUnsvGmgqfuVRHL54ugE7/wRuxEIXRa2iMZ+BG6g==}
 
-  '@types/nodemailer@7.0.12':
-    resolution: {integrity: sha512-80vKwiIsVSyFA1rRovH59jNPLBOuc6dRZIHEu40gXTkBkZnQv8vog1xSGEb9j5q/tdMAs5ivvDR2pLTU0hGHXA==}
-
   '@types/pg@8.20.0':
     resolution: {integrity: sha512-bEPFOaMAHTEP1EzpvHTbmwR8UsFyHSKsRisLIHVMXnpNefSbGA1bD6CVy+qKjGSqmZqNqBDV2azOBo8TgkcVow==}
 
@@ -6109,10 +6094,6 @@ packages:
               libc: musl
     version: 26.5.1
     hasBin: true
-
-  nodemailer@7.0.13:
-    resolution: {integrity: sha512-PNDFSJdP+KFgdsG3ZzMXCgquO7I6McjY2vlqILjtJd0hy8wEvtugS9xKRF2NWlPNGxvLCXlTNIae4serI7dinw==}
-    engines: {node: '>=6.0.0'}
 
   normalize-path@3.0.0:
     resolution: {integrity: sha512-6eZs5Ls3WtCisHWp9S2GUy8dqkpGi4BVSz3GaqiE6ezub0512ESztXUwUB6C6IKbQkY2Pnb/mD4WYojCRwcwLA==}
@@ -9438,10 +9419,6 @@ snapshots:
     dependencies:
       undici-types: 7.24.6
 
-  '@types/nodemailer@7.0.12':
-    dependencies:
-      '@types/node': 25.9.4
-
   '@types/pg@8.20.0':
     dependencies:
       '@types/node': 25.9.4
@@ -12019,8 +11996,6 @@ snapshots:
   node-releases@2.0.48: {}
 
   node@runtime:26.5.1: {}
-
-  nodemailer@7.0.13: {}
 
   normalize-path@3.0.0: {}
 
