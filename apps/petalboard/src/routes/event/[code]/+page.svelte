@@ -2,7 +2,11 @@
 	import { enhance } from "$app/forms";
 	import { invalidateAll, replaceState } from "$app/navigation";
 	import { env } from "$env/dynamic/public";
-	import PlusOnesField, { newPerson, peopleFor, type Person } from "$lib/components/PlusOnesField.svelte";
+	import PlusOnesField, {
+		newPerson,
+		peopleFor,
+		type Person,
+	} from "$lib/components/PlusOnesField.svelte";
 	import PotluckField from "$lib/components/PotluckField.svelte";
 	import SpotifySongSelector from "$lib/components/SpotifySongSelector.svelte";
 	import { directionsUrl, headcount } from "$lib/eventDetails";

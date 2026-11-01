@@ -170,7 +170,20 @@
 	.potluck-dish {
 		display: grid;
 		gap: 0.25rem;
+		margin-top: 0.5rem;
 		padding-top: 0.125rem;
+	}
+
+	@media (max-width: 640px) {
+		.potluck-providing {
+			display: -webkit-box;
+			overflow: hidden;
+			-webkit-box-orient: vertical;
+			-webkit-line-clamp: 2;
+			line-clamp: 2;
+			text-overflow: initial;
+			white-space: normal;
+		}
 	}
 
 	:global(html.dark) .potluck-field legend {

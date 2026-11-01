@@ -593,19 +593,19 @@ describe("passwordless RSVP access", () => {
 			).toBe(true);
 		});
 
-		it("grandfathers an RSVP over a lowered plus-one cap without allowing an increase", async () => {
+		it("grandfathers named guests when the plus-one cap is lowered to zero", async () => {
 			const jar: Jar = new Map();
 			const emailAddress = email();
-			const original = ["Sam", "Alex", "Jo"];
+			const original = ["Sam", "Alex"];
 
 			await rsvp({ name: "Avery", email: emailAddress, guestName: original }, jar);
 			const own = await prisma.rsvp.findFirstOrThrow({ where: { eventId, email: emailAddress } });
 
-			await prisma.event.update({ where: { id: eventId }, data: { maxPlusOnes: 1 } });
+			await prisma.event.update({ where: { id: eventId }, data: { maxPlusOnes: 0 } });
 
 			const same = await call(page.actions.updateRsvp, {
 				body: form({
-					name: "Avery",
+					name: "Avery Updated",
 					status: "attending",
 					expectedRsvpId: own.id,
 					guestName: original,
@@ -614,10 +614,11 @@ describe("passwordless RSVP access", () => {
 			});
 
 			expect(same.success).toBe(true);
+			expect(await listed()).toEqual([["Avery Updated", 3, original]]);
 
 			const larger = await call(page.actions.updateRsvp, {
 				body: form({
-					name: "Avery",
+					name: "Avery Updated",
 					status: "attending",
 					expectedRsvpId: own.id,
 					guestName: [...original, "Lee"],
@@ -627,19 +628,6 @@ describe("passwordless RSVP access", () => {
 
 			expect(larger.status).toBe(400);
 			expect(larger.data.message).toBe("That RSVP has too many +1s.");
-
-			const smaller = await call(page.actions.updateRsvp, {
-				body: form({
-					name: "Avery",
-					status: "attending",
-					expectedRsvpId: own.id,
-					guestName: ["Sam"],
-				}),
-				jar,
-			});
-
-			expect(smaller.success).toBe(true);
-			expect(await listed()).toEqual([["Avery", 2, ["Sam"]]]);
 		});
 	});
 

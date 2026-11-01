@@ -1,7 +1,7 @@
 <script lang="ts">
 	import { MAX_PLUS_ONE_NAME_LENGTH } from "$lib/guests";
 	import { X } from "@lucide/svelte";
-	import { fly } from "svelte/transition";
+	import { slide } from "svelte/transition";
 
 	import type { Person } from "./PlusOnesField.svelte";
 
@@ -19,11 +19,7 @@
 	}
 </script>
 
-<li
-	class="plus-ones-row"
-	in:fly={{ y: -6, duration: duration() }}
-	out:fly={{ y: -6, duration: duration() }}
->
+<li class="plus-ones-row" in:slide={{ duration: duration() }} out:slide={{ duration: duration() }}>
 	<input
 		class="input-field"
 		name="guestName"

@@ -65,10 +65,16 @@ describe("PlusOnesField", () => {
 		expect(buttonByText(target, "Add a person")).not.toBeNull();
 	});
 
-	it("does not render the plus-one group at a zero cap", () => {
-		const target = render([], 0);
+	it("keeps existing people visible at a zero cap without an add button", () => {
+		const target = render([newPerson("Sam"), newPerson("Alex")], 0);
 
 		expect(buttonByText(target, "Add a person")).toBeNull();
+		expect(target.querySelectorAll(".plus-ones-row")).toHaveLength(2);
+	});
+
+	it("does not render the plus-one group at a zero cap without people", () => {
+		const target = render([], 0);
+
 		expect(target.textContent).not.toContain("Bringing anyone?");
 	});
 });

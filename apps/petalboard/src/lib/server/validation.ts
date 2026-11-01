@@ -48,8 +48,7 @@ export const eventSchema = z.object({
 		})
 		.refine(
 			(value) =>
-				value === null ||
-				(Number.isInteger(value) && value >= 0 && value <= MAX_PLUS_ONES),
+				value === null || (Number.isInteger(value) && value >= 0 && value <= MAX_PLUS_ONES),
 			{
 				message: `Must be between 0 and ${MAX_PLUS_ONES}`,
 			},

@@ -72,7 +72,7 @@
 	<small class="text-sm text-red-600">{error}</small>
 {/if}
 
-{#if cap > 0}
+{#if cap !== 0 || people.length > 0}
 	<div class="plus-ones" role="group" aria-labelledby="plus-ones-label">
 		<span class="status-label" id="plus-ones-label">Bringing anyone?</span>
 
@@ -96,7 +96,7 @@
 	.plus-ones {
 		display: grid;
 		gap: 0.5rem;
-		margin-block: 0.75rem 0.25rem;
+		margin-block: 0.75rem 0.75rem;
 	}
 
 	.plus-ones-list {

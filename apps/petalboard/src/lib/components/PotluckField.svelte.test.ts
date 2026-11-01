@@ -82,7 +82,7 @@ describe("PotluckField", () => {
 		flushSync();
 
 		expect(field.dish()).toBe(document.activeElement);
-			expect(field.dish()?.placeholder).toBe("e.g. mashed potatoes, hash-brown casserole");
+		expect(field.dish()?.placeholder).toBe("e.g. mashed potatoes, hash-brown casserole");
 		expect(field.hidden()).toBe("");
 	});
 
@@ -110,18 +110,18 @@ describe("PotluckField", () => {
 
 	it("updates the compact category counts with the in-progress choice", async () => {
 		const field = render();
-		const tile = (value: string) => field.radio(value)?.closest("label");
+		const count = (value: string) => field.radio(value)?.closest("label")?.querySelector("small");
 
-		expect(tile("sides")?.textContent).toContain("Sides0");
+		expect(count("sides")?.textContent).toBe("0");
 		field.radio("sides")?.click();
 		await tick();
 		flushSync();
-		expect(tile("sides")?.textContent).toContain("Sides1");
+		expect(count("sides")?.textContent).toBe("1");
 		field.radio("drinks")?.click();
 		await tick();
 		flushSync();
-		expect(tile("sides")?.textContent).toContain("Sides0");
-		expect(tile("drinks")?.textContent).toContain("Drinks1");
+		expect(count("sides")?.textContent).toBe("0");
+		expect(count("drinks")?.textContent).toBe("1");
 	});
 
 	it("lets an optional RSVP withdraw a dish", () => {
@@ -140,6 +140,9 @@ describe("PotluckField", () => {
 
 		expect(field.radio("")).toBeNull();
 		expect(field.form.checkValidity()).toBe(false);
-		expect(field.target.querySelector<HTMLInputElement>('input[type="radio"]')?.required).toBe(true);
+
+		expect(field.target.querySelector<HTMLInputElement>('input[type="radio"]')?.required).toBe(
+			true,
+		);
 	});
 });

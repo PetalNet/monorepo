@@ -40,7 +40,8 @@
 				required={required && item.category.id === firstOfferedId}
 				onchange={() => onchoose(item.category.id)}
 			/>
-			<span>{item.category.label}</span><small>{counts[item.category.id] ?? 0}</small>
+			<span>{item.category.label}</span>
+			<small>{item.offered ? (counts[item.category.id] ?? 0) : "Full"}</small>
 		</label>
 	{/each}
 	{#if !required}
@@ -61,7 +62,7 @@
 	.potluck-choices {
 		display: grid;
 		grid-template-columns: repeat(2, minmax(0, 1fr));
-		gap: 0.75rem;
+		gap: 0.5rem;
 	}
 
 	.potluck-choice {
@@ -73,7 +74,7 @@
 		gap: 0.5rem;
 		padding: 0.5rem 0.625rem;
 		cursor: pointer;
-		border: 1px solid var(--event-primary-700, #6d28d9);
+		border: 2px solid rgba(124, 93, 250, 0.2);
 		border-radius: 0.75rem;
 		background: #fff;
 		color: var(--event-text-primary, #1b1430);
@@ -89,14 +90,15 @@
 	}
 
 	.potluck-choice.selected {
-		border-color: var(--event-primary-800, #5b21b6);
-		background: var(--event-primary-100, #ede9fe);
+		border-color: var(--event-primary-700, #6d28d9);
+		background: linear-gradient(135deg, rgba(124, 93, 250, 0.15), rgba(155, 107, 255, 0.1));
 		color: var(--event-primary-900, #4c1d95);
 	}
 
 	.potluck-choice.closed {
 		cursor: not-allowed;
-		opacity: 0.58;
+		border-color: rgba(124, 93, 250, 0.14);
+		background: rgba(124, 93, 250, 0.04);
 	}
 
 	.potluck-choice input {
@@ -131,9 +133,9 @@
 	}
 
 	:global(html.dark) .potluck-choice {
-		border-color: rgba(255, 255, 255, 0.4);
+		border-color: rgba(124, 93, 250, 0.2);
 		background: var(--event-entry-surface-dark, rgba(20, 20, 28, 0.9));
-		color: var(--event-text-primary-dark, #fff);
+		color: var(--event-text-primary-dark, #f4f3ff);
 	}
 
 	:global(html.dark) .potluck-choice:hover:not(.closed) {
@@ -141,8 +143,15 @@
 	}
 
 	:global(html.dark) .potluck-choice.selected {
-		border-color: #fff;
-		background: var(--event-primary-700, #6d28d9);
-		color: #fff;
+		border-color: var(--event-primary-700, #6d28d9);
+		background:
+			linear-gradient(135deg, rgba(124, 93, 250, 0.15), rgba(155, 107, 255, 0.1)),
+			var(--event-entry-surface-dark, rgba(20, 20, 28, 0.9));
+		color: var(--event-text-primary-dark, #f4f3ff);
+	}
+
+	:global(html.dark) .potluck-choice.closed {
+		border-color: rgba(124, 93, 250, 0.16);
+		background: rgba(255, 255, 255, 0.04);
 	}
 </style>

@@ -369,7 +369,9 @@ describe("event page dialogs", () => {
 		expect(button(target, "Confirm RSVP").disabled).toBe(false);
 
 		expect(
-			[...target.querySelectorAll<HTMLInputElement>('input[name="guestName"]')].map((input) => input.value),
+			[...target.querySelectorAll<HTMLInputElement>('input[name="guestName"]')].map(
+				(input) => input.value,
+			),
 		).toEqual(["Sam", "Alex"]);
 	});
 
@@ -385,7 +387,9 @@ describe("event page dialogs", () => {
 		expect(target.querySelector('[aria-labelledby="create-rsvp-title"]')).not.toBeNull();
 
 		expect(
-			[...target.querySelectorAll<HTMLInputElement>('input[name="guestName"]')].map((input) => input.value),
+			[...target.querySelectorAll<HTMLInputElement>('input[name="guestName"]')].map(
+				(input) => input.value,
+			),
 		).toEqual(["Sam", ""]);
 	});
 
