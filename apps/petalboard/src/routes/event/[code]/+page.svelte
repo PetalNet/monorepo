@@ -667,7 +667,7 @@
 				<!-- Attending Section -->
 				{#if attendingList.length > 0}
 					<details
-						class="panel tone-attending overflow-hidden"
+						class="panel tone-attending"
 						open={showAttending}
 						ontoggle={(e) => (showAttending = (e.target as HTMLDetailsElement)?.open ?? false)}
 					>
@@ -730,7 +730,7 @@
 				<!-- Maybe Section -->
 				{#if maybeList.length > 0}
 					<details
-						class="panel tone-maybe overflow-hidden"
+						class="panel tone-maybe"
 						open={showMaybe}
 						ontoggle={(e) => (showMaybe = (e.target as HTMLDetailsElement)?.open ?? false)}
 					>
@@ -793,7 +793,7 @@
 				<!-- Not Attending Section -->
 				{#if notAttendingList.length > 0}
 					<details
-						class="panel tone-not overflow-hidden"
+						class="panel tone-not"
 						open={showNotAttending}
 						ontoggle={(e) => (showNotAttending = (e.target as HTMLDetailsElement)?.open ?? false)}
 					>
@@ -956,7 +956,7 @@
 								question.publicResponses ?? [],
 								"attending",
 							)}
-							<div class="panel-block tone-attending overflow-hidden">
+							<div class="panel-block tone-attending">
 								<h3
 									class="panel-block-header m-0 flex items-center gap-2.5 px-5 py-3.5 text-sm font-semibold"
 								>
@@ -1045,7 +1045,7 @@
 								question.publicResponses ?? [],
 								"maybe",
 							)}
-							<div class="panel-block tone-maybe overflow-hidden">
+							<div class="panel-block tone-maybe">
 								<h3
 									class="panel-block-header m-0 flex items-center gap-2.5 px-5 py-3.5 text-sm font-semibold"
 								>
@@ -1134,7 +1134,7 @@
 								question.publicResponses ?? [],
 								"not_attending",
 							)}
-							<div class="panel-block tone-not overflow-hidden">
+							<div class="panel-block tone-not">
 								<h3
 									class="panel-block-header m-0 flex items-center gap-2.5 px-5 py-3.5 text-sm font-semibold"
 								>
@@ -1228,7 +1228,7 @@
 							{@const attendingResponses = question.publicResponses.filter(
 								(r: any) => r.status === "attending",
 							)}
-							<div class="panel-block tone-attending overflow-hidden">
+							<div class="panel-block tone-attending">
 								<h3
 									class="panel-block-header m-0 flex items-center gap-2.5 px-5 py-3.5 text-sm font-semibold"
 								>
@@ -1259,7 +1259,7 @@
 							{@const maybeResponses = question.publicResponses.filter(
 								(r: any) => r.status === "maybe",
 							)}
-							<div class="panel-block tone-maybe overflow-hidden">
+							<div class="panel-block tone-maybe">
 								<h3
 									class="panel-block-header m-0 flex items-center gap-2.5 px-5 py-3.5 text-sm font-semibold"
 								>
@@ -1290,7 +1290,7 @@
 							{@const notAttendingResponses = question.publicResponses.filter(
 								(r: any) => r.status === "not_attending",
 							)}
-							<div class="panel-block tone-not overflow-hidden">
+							<div class="panel-block tone-not">
 								<h3
 									class="panel-block-header m-0 flex items-center gap-2.5 px-5 py-3.5 text-sm font-semibold"
 								>
@@ -2055,10 +2055,9 @@
 		contain: layout paint;
 	}
 
-	.event-section {
-		background: var(--event-section-surface, rgba(255, 255, 255, 0.88));
+	.panel-body.event-section {
+		background: transparent;
 		border: none;
-		border-radius: 18px;
 	}
 
 	.event-page-wrapper,
@@ -2098,8 +2097,8 @@
 		color: rgba(248, 247, 255, 0.96);
 	}
 
-	:global(.dark) .event-section {
-		background: var(--event-section-surface-dark, rgba(0, 0, 0, 0.3)) !important;
+	:global(.dark) .panel-body.event-section {
+		background: transparent !important;
 		border: none;
 		color: rgba(240, 239, 252, 0.92);
 	}
@@ -2152,24 +2151,21 @@
 	}
 
 	details.panel {
-		background: var(--event-panel-surface);
+		background: transparent;
 		border: none;
-		border-radius: 20px;
 		/* Performance: Contain layout to isolate reflows */
 		contain: layout style;
-		overflow: hidden;
-		transition: background-color 0.2s ease;
+	}
+
+	details.panel > summary {
+		background: transparent;
+		border: none;
 	}
 
 	/* Performance: Skip rendering for closed details */
 	details.panel:not([open]) {
 		content-visibility: auto;
 		contain-intrinsic-size: 0 80px;
-	}
-
-	:global(.dark) details.panel {
-		background: var(--event-panel-surface-dark);
-		border: none;
 	}
 
 	details.tone-attending > summary {
@@ -2197,22 +2193,8 @@
 	}
 
 	.panel-block {
-		background: var(--event-panel-surface);
-		border: none;
-		border-radius: 20px;
-		overflow: hidden;
-		transition: background-color 0.2s ease;
 		/* Performance: Contain layout for list items */
 		contain: layout style;
-	}
-
-	:global(.dark) .panel-block {
-		background: var(--event-panel-surface-dark);
-		border: none;
-	}
-
-	.panel-block-body {
-		background: transparent;
 	}
 
 	.panel-block.tone-attending .panel-block-header {
@@ -2237,10 +2219,6 @@
 
 	:global(.dark) .panel-block.tone-not .panel-block-header {
 		color: var(--event-summary-not-text-dark);
-	}
-
-	.panel-body {
-		background: transparent;
 	}
 
 	.panel-list-item {
