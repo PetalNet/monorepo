@@ -167,7 +167,7 @@ describe("event page dialogs", () => {
 	it("closes the RSVP dialog on Escape pressed inside the form", () => {
 		const target = render();
 
-		button(target, "RSVP Now").click();
+		button(target, "RSVP").click();
 		flushSync();
 		const nameInput = target.querySelector('[role="dialog"] input[name="name"]');
 
@@ -237,7 +237,7 @@ describe("event page dialogs", () => {
 	async function openLinkDialog() {
 		const target = render();
 
-		button(target, "Already RSVP'd? Edit my RSVP").click();
+		button(target, "Edit my RSVP").click();
 		await tick();
 		const dialog = target.querySelector('[role="dialog"][aria-labelledby="edit-link-title"]');
 		const email = dialog?.querySelector<HTMLInputElement>('input[name="email"]');
@@ -282,11 +282,7 @@ describe("event page dialogs", () => {
 	}
 
 	it("emails an edit link from a labelled, focused email field and shows the server's answer", async () => {
-		const { target, dialog, email, send } = await openLinkDialog();
-
-		expect(
-			[...target.querySelectorAll("button")].some((b) => b.textContent === "Edit my RSVP"),
-		).toBe(false);
+		const { dialog, email, send } = await openLinkDialog();
 
 		expect(email.closest("label")?.textContent).toContain("The email you RSVP'd with");
 		expect(document.activeElement).toBe(email);
@@ -324,7 +320,7 @@ describe("event page dialogs", () => {
 	it("locks Confirm RSVP and shows Saving while the RSVP submits", async () => {
 		const target = render();
 
-		button(target, "RSVP Now").click();
+		button(target, "RSVP").click();
 		flushSync();
 		const form = target.querySelector<HTMLFormElement>('form[action="?/rsvp"]');
 		const submit = submitters.get("?/rsvp");
@@ -409,7 +405,7 @@ describe("event page dialogs", () => {
 			"Avery",
 		);
 
-		button(target, "RSVP Now").click();
+		button(target, "RSVP").click();
 		flushSync();
 
 		expect(target.querySelector('[role="dialog"] .close-btn')?.getAttribute("aria-label")).toBe(
@@ -422,7 +418,7 @@ describe("event page dialog dismissal", () => {
 	it("keeps the RSVP dialog open for clicks and Space inside it", () => {
 		const target = render();
 
-		button(target, "RSVP Now").click();
+		button(target, "RSVP").click();
 		flushSync();
 		const dialog = target.querySelector('[role="dialog"]');
 		const nameInput = dialog?.querySelector('input[name="name"]');
@@ -449,7 +445,7 @@ describe("event page dialog dismissal", () => {
 	it("closes the RSVP dialog when the backdrop itself is clicked", () => {
 		const target = render();
 
-		button(target, "RSVP Now").click();
+		button(target, "RSVP").click();
 		flushSync();
 		target.querySelector<HTMLElement>(".modal-backdrop")?.click();
 		flushSync();
@@ -482,7 +478,7 @@ describe("event page dialog dismissal", () => {
 		try {
 			const target = render();
 
-			button(target, "RSVP Now").click();
+			button(target, "RSVP").click();
 			flushSync();
 
 			const search = target.querySelector<HTMLInputElement>(

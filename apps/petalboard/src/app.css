@@ -26,6 +26,9 @@
 
 	a:focus-visible,
 	button:focus-visible,
+	input:focus-visible,
+	select:focus-visible,
+	textarea:focus-visible,
 	summary:focus-visible,
 	[role="button"]:focus-visible,
 	[tabindex]:focus-visible {
@@ -39,6 +42,9 @@
 
 	html.dark a:focus-visible,
 	html.dark button:focus-visible,
+	html.dark input:focus-visible,
+	html.dark select:focus-visible,
+	html.dark textarea:focus-visible,
 	html.dark summary:focus-visible,
 	html.dark [role="button"]:focus-visible,
 	html.dark [tabindex]:focus-visible {
@@ -58,8 +64,9 @@
 	}
 
 	.input-field:focus {
-		@apply border-primary-700 outline-none;
-		box-shadow: 0 0 0 3px rgba(124, 93, 250, 0.18);
+		@apply border-primary-700;
+		outline: 2px solid #7054e1;
+		outline-offset: 2px;
 	}
 
 	.input-field::placeholder {
@@ -86,9 +93,8 @@
 	/* Buttons */
 	.btn-primary {
 		@apply cursor-pointer rounded-full border-none px-7 py-3 font-semibold text-white;
-		background: linear-gradient(135deg, #7054e1, #845bd9);
-		box-shadow: 0 18px 30px rgba(95, 61, 170, 0.25);
-		transition: transform 0.2s;
+		background: #7054e1;
+		transition: background-color 0.2s;
 		max-width: 100%;
 		box-sizing: border-box;
 		word-wrap: break-word;
@@ -97,14 +103,19 @@
 	}
 
 	.btn-primary:hover {
-		transform: translateY(-1px);
+		background-color: #5f45c4;
+	}
+
+	.btn-primary:disabled {
+		cursor: not-allowed;
+		opacity: 0.6;
 	}
 
 	.btn-secondary {
 		@apply cursor-pointer rounded-full border-none px-7 py-3 font-semibold;
 		background: rgba(124, 93, 250, 0.12);
 		color: #5533a5;
-		transition: transform 0.2s;
+		transition: background-color 0.2s;
 		max-width: 100%;
 		box-sizing: border-box;
 		word-wrap: break-word;
@@ -113,7 +124,7 @@
 	}
 
 	.btn-secondary:hover {
-		transform: translateY(-2px);
+		background-color: rgba(124, 93, 250, 0.2);
 	}
 
 	.btn-ghost {
@@ -128,7 +139,6 @@
 	/* Cards */
 	.card {
 		@apply rounded-3xl bg-white p-6 lg:p-10;
-		box-shadow: 0 20px 40px rgba(60, 35, 110, 0.08);
 	}
 
 	/* Mobile card adjustments */
@@ -141,7 +151,6 @@
 	.card-sm {
 		@apply bg-white p-6;
 		border-radius: 18px;
-		box-shadow: 0 18px 32px rgba(66, 32, 121, 0.08);
 	}
 
 	/* Mobile card-sm adjustments */
@@ -449,7 +458,6 @@
 	max-height: 100vh;
 	max-height: 100dvh; /* Use dynamic viewport height on mobile */
 	overflow-y: auto;
-	box-shadow: 0 20px 40px rgba(0, 0, 0, 0.2);
 	animation: slideUp 0.3s ease;
 }
 
@@ -671,7 +679,12 @@
 
 .status-option:has(input:checked) {
 	@apply border-primary-700;
-	background: linear-gradient(135deg, rgba(124, 93, 250, 0.15), rgba(155, 107, 255, 0.1));
+	background: rgba(124, 93, 250, 0.12);
+}
+
+.status-option:has(input:focus-visible) {
+	outline: 2px solid #7054e1;
+	outline-offset: 2px;
 }
 
 .status-option input[type="radio"] {
@@ -914,6 +927,10 @@ html.dark .btn-secondary:hover {
 	background-color: rgba(139, 92, 246, 0.25);
 }
 
+html.dark .status-option:has(input:focus-visible) {
+	outline-color: #c4b5fd;
+}
+
 html.dark a {
 	color: #a78bfa;
 }
@@ -987,7 +1004,6 @@ html.dark .modal {
 	background-color: rgba(20, 20, 28, 0.98) !important;
 	color: #ffffff;
 	border: 1px solid rgba(255, 255, 255, 0.08);
-	box-shadow: 0 25px 50px rgba(0, 0, 0, 0.7);
 }
 
 /* Dark mode mobile modal fixes */
@@ -1242,16 +1258,14 @@ html.dark summary:hover {
 	background-color: rgba(139, 92, 246, 0.1);
 }
 
-/* Buttons - vibrant accent gradient for dark mode */
+/* Buttons */
 html.dark .btn-primary {
-	background: linear-gradient(135deg, #8a3cff, #b25297);
+	background: #8a3cff;
 	color: #ffffff;
-	box-shadow: 0 4px 20px rgba(138, 60, 255, 0.4);
 }
 
 html.dark .btn-primary:hover {
-	background: linear-gradient(135deg, #7c33ee, #a04888);
-	box-shadow: 0 6px 30px rgba(138, 60, 255, 0.6);
+	background: #7c33ee;
 }
 
 html.dark .btn-secondary {

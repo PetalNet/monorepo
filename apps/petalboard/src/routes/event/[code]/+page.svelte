@@ -548,7 +548,7 @@
 								<a href="#after-map" class="sr-only text-sm underline focus:not-sr-only">Skip map</a
 								>
 								<div
-									class="h-[200px] w-full overflow-hidden rounded-xl shadow-card"
+									class="h-[200px] w-full overflow-hidden rounded-xl"
 									bind:this={mapElement}
 								></div>
 							{/if}
@@ -579,16 +579,6 @@
 						>
 							{totalGuests} / {event.rsvpLimit} guests
 						</span>
-					{:else}
-						<span
-							class="badge-status"
-							data-tone="theme"
-							style={`background-color: ${mixColors(primaryColors[100], secondaryColors[100], 0.55, 0.9)}; color: ${primaryColors[800]}; border: 1px solid ${withAlpha(primaryColors[600], 0.18)};`}
-						>
-							{rsvpCount}
-							{rsvpCount === 1 ? "RSVP" : "RSVPs"}{#if totalGuests > rsvpCount}
-								({totalGuests} guests){/if}
-						</span>
 					{/if}
 				</div>
 			</div>
@@ -596,19 +586,15 @@
 			<div class="flex w-full flex-col gap-3 md:w-auto">
 				{#if !rsvpAtLimit}
 					<button
-						class="w-full rounded-xl px-6 py-3 text-base font-semibold text-white shadow-button transition-colors md:w-auto md:px-8 md:py-4 md:text-lg"
-						style={`background: linear-gradient(135deg, ${primaryColors[700]}, ${secondaryColors[700]}); box-shadow: 0 14px 28px ${withAlpha(primaryColors[600], 0.33)};`}
-						onmouseover={(e) =>
-							(e.currentTarget.style.background = `linear-gradient(135deg, ${primaryColors[800]}, ${secondaryColors[800]})`)}
-						onmouseout={(e) =>
-							(e.currentTarget.style.background = `linear-gradient(135deg, ${primaryColors[700]}, ${secondaryColors[700]})`)}
-						onfocus={(e) =>
-							(e.currentTarget.style.background = `linear-gradient(135deg, ${primaryColors[800]}, ${secondaryColors[800]})`)}
-						onblur={(e) =>
-							(e.currentTarget.style.background = `linear-gradient(135deg, ${primaryColors[700]}, ${secondaryColors[700]})`)}
+						class="w-full rounded-xl px-6 py-3 text-base font-semibold text-white transition-colors md:w-auto md:px-8 md:py-4 md:text-lg"
+						style={`background-color: ${primaryColors[700]};`}
+						onmouseover={(e) => (e.currentTarget.style.backgroundColor = primaryColors[800])}
+						onmouseout={(e) => (e.currentTarget.style.backgroundColor = primaryColors[700])}
+						onfocus={(e) => (e.currentTarget.style.backgroundColor = primaryColors[800])}
+						onblur={(e) => (e.currentTarget.style.backgroundColor = primaryColors[700])}
 						onclick={openRsvpModal}
 					>
-						RSVP Now
+						RSVP
 					</button>
 				{/if}
 				{#if myRsvp}
@@ -619,7 +605,7 @@
 					<button
 						type="button"
 						class="btn-secondary min-h-11"
-						onclick={(e) => openLinkModal(e.currentTarget)}>Already RSVP'd? Edit my RSVP</button
+						onclick={(e) => openLinkModal(e.currentTarget)}>Edit my RSVP</button
 					>
 				{/if}
 			</div>
@@ -678,9 +664,7 @@
 		{@const notAttendingList = rsvps.filter((r: any) => r.status === "not_attending")}
 
 		<section class="card event-card mb-8">
-			<h2 class="mb-6 text-xl font-bold text-dark-900 md:text-2xl">
-				Who's Coming ({attendingList.length} attending, {maybeList.length} maybe)
-			</h2>
+			<h2 class="mb-6 text-xl font-bold text-dark-900 md:text-xl">Who's coming</h2>
 
 			<!-- RSVPs List -->
 			<div class="flex flex-col gap-4">
@@ -697,8 +681,7 @@
 							<span class="flex items-center gap-2">
 								<span
 									class="inline-flex h-6 w-6 items-center justify-center rounded-full text-sm"
-									style={`background-color: ${primaryColors[700]}; color: white; box-shadow: 0 2px 8px ${withAlpha(primaryColors[600], 0.28)};`}
-									>✓</span
+									style={`background-color: ${primaryColors[700]}; color: white;`}>✓</span
 								>
 								Attending ({attendingList.length})
 							</span>
@@ -707,7 +690,7 @@
 						<div class="panel-body event-section grid gap-3 p-4 pt-3 md:p-6 md:pt-4">
 							{#each previewList(attendingList, expandedLists.has("attending")) as rsvp}
 								<div
-									class="panel-list-item flex items-center justify-between gap-3 rounded-xl border p-3 transition-all hover:shadow-md md:gap-4 md:p-4"
+									class="panel-list-item flex items-center justify-between gap-3 rounded-xl border p-3 transition-all md:gap-4 md:p-4"
 								>
 									<div class="flex min-w-0 flex-1 flex-col gap-1">
 										<strong class="truncate text-sm text-dark-900 md:text-base"
@@ -761,8 +744,7 @@
 							<span class="flex items-center gap-2">
 								<span
 									class="inline-flex h-6 w-6 items-center justify-center rounded-full text-sm"
-									style={`background-color: ${secondaryColors[700]}; color: white; box-shadow: 0 2px 8px ${withAlpha(secondaryColors[600], 0.25)};`}
-									>?</span
+									style={`background-color: ${secondaryColors[700]}; color: white;`}>?</span
 								>
 								Maybe ({maybeList.length})
 							</span>
@@ -771,7 +753,7 @@
 						<div class="panel-body event-section grid gap-3 p-4 pt-3 md:p-6 md:pt-4">
 							{#each previewList(maybeList, expandedLists.has("maybe")) as rsvp}
 								<div
-									class="panel-list-item flex items-center justify-between gap-3 rounded-xl border p-3 transition-all hover:shadow-md md:gap-4 md:p-4"
+									class="panel-list-item flex items-center justify-between gap-3 rounded-xl border p-3 transition-all md:gap-4 md:p-4"
 								>
 									<div class="flex min-w-0 flex-1 flex-col gap-1">
 										<strong class="truncate text-sm text-dark-900 md:text-base"
@@ -825,7 +807,7 @@
 							<span class="flex items-center gap-2">
 								<span
 									class="inline-flex h-6 w-6 items-center justify-center rounded-full text-sm"
-									style={`background-color: ${withAlpha(primaryColors[700], 0.8)}; color: white; box-shadow: 0 2px 8px ${withAlpha(primaryColors[600], 0.18)};`}
+									style={`background-color: ${withAlpha(primaryColors[700], 0.8)}; color: white;`}
 									>✗</span
 								>
 								Not Attending ({notAttendingList.length})
@@ -835,7 +817,7 @@
 						<div class="panel-body event-section grid gap-3 p-4 pt-3 md:p-6 md:pt-4">
 							{#each previewList(notAttendingList, expandedLists.has("not-attending")) as rsvp}
 								<div
-									class="panel-list-item flex items-center justify-between gap-3 rounded-xl border p-3 transition-all hover:shadow-md md:gap-4 md:p-4"
+									class="panel-list-item flex items-center justify-between gap-3 rounded-xl border p-3 transition-all md:gap-4 md:p-4"
 								>
 									<div class="flex min-w-0 flex-1 flex-col gap-1">
 										<strong class="truncate text-sm text-dark-900 md:text-base"
@@ -881,27 +863,15 @@
 
 	{#each event.questions.filter((q: any) => potluckViews[q.id]) as question (question.id)}
 		{@const view = potluckViews[question.id]}
-		{@const dishTotal = Object.values(view.counts).reduce((sum, n) => sum + n, 0)}
 		<section class="card event-card mb-8">
 			<div
 				class="mb-6 flex flex-col gap-3 border-b pb-4 md:flex-row md:items-center md:justify-between md:gap-4"
 				style="border-color: {primaryColors[600]}20;"
 			>
-				<h2 class="m-0 text-xl font-bold text-dark-900 md:text-2xl">{question.label}</h2>
-				<span
-					class="badge-status"
-					data-tone="theme"
-					style="background-color: {primaryColors[100]}; color: {primaryColors[800]};"
-				>
-					{dishTotal}
-					{dishTotal === 1 ? "dish" : "dishes"}
-				</span>
+				<h2 class="m-0 text-xl font-bold text-dark-900 md:text-xl">{question.label}</h2>
 			</div>
 			{#if view.config.providing}
-				<p class="m-0 mb-4 text-sm text-dark-700 md:text-base">
-					<strong>Hosts are providing:</strong>
-					{view.config.providing}
-				</p>
+				<p class="m-0 mb-4 text-sm text-dark-700 md:text-base">{view.config.providing}</p>
 			{/if}
 			<ul class="m-0 flex list-none flex-col gap-4 p-0">
 				{#each slotStatuses(view.config, view.counts) as slot (slot.category.id)}
@@ -952,7 +922,7 @@
 					class="mb-6 flex flex-col gap-3 border-b pb-4 md:flex-row md:items-center md:justify-between md:gap-4"
 					style="border-color: {primaryColors[600]}20;"
 				>
-					<h2 class="m-0 text-xl font-bold text-dark-900 md:text-2xl">{question.label}</h2>
+					<h2 class="m-0 text-xl font-bold text-dark-900 md:text-xl">{question.label}</h2>
 					{#if question.quantity}
 						<span
 							class="badge-status"
@@ -993,8 +963,7 @@
 								>
 									<span
 										class="inline-flex h-6 w-6 items-center justify-center rounded-full text-sm font-bold"
-										style={`background-color: ${primaryColors[700]}; color: white; box-shadow: 0 2px 8px ${withAlpha(primaryColors[600], 0.28)};`}
-										>✓</span
+										style={`background-color: ${primaryColors[700]}; color: white;`}>✓</span
 									>
 									Attending ({attendingTrackEntries.length}
 									{attendingTrackEntries.length === 1 ? "song" : "songs"})
@@ -1004,7 +973,7 @@
 										<ul class="space-y-3">
 											{#each previewList(attendingTrackEntries, expandedLists.has(`songs-${question.id}-attending`)) as entry, index (entry.key)}
 												<li
-													class="panel-list-item flex flex-col items-start gap-3 rounded-xl border p-3 transition-all hover:shadow-md sm:flex-row sm:items-center sm:gap-4 sm:p-4"
+													class="panel-list-item flex flex-col items-start gap-3 rounded-xl border p-3 transition-all sm:flex-row sm:items-center sm:gap-4 sm:p-4"
 												>
 													<div class="flex w-full items-center gap-3 sm:w-auto sm:gap-4">
 														<span
@@ -1017,7 +986,7 @@
 																alt={entry.track.album
 																	? `${entry.track.album} artwork`
 																	: `${entry.track.name} artwork`}
-																class="h-12 w-12 flex-shrink-0 rounded-lg object-cover shadow-sm sm:h-14 sm:w-14"
+																class="h-12 w-12 flex-shrink-0 rounded-lg object-cover sm:h-14 sm:w-14"
 																loading="lazy"
 															/>
 														{/if}
@@ -1083,8 +1052,7 @@
 								>
 									<span
 										class="inline-flex h-6 w-6 items-center justify-center rounded-full text-sm font-bold"
-										style={`background-color: ${secondaryColors[700]}; color: white; box-shadow: 0 2px 8px ${withAlpha(secondaryColors[600], 0.24)};`}
-										>?</span
+										style={`background-color: ${secondaryColors[700]}; color: white;`}>?</span
 									>
 									Maybe ({maybeTrackEntries.length}
 									{maybeTrackEntries.length === 1 ? "song" : "songs"})
@@ -1094,7 +1062,7 @@
 										<ul class="space-y-3">
 											{#each previewList(maybeTrackEntries, expandedLists.has(`songs-${question.id}-maybe`)) as entry, index (entry.key)}
 												<li
-													class="panel-list-item flex flex-col items-start gap-3 rounded-xl border p-3 transition-all hover:shadow-md sm:flex-row sm:items-center sm:gap-4 sm:p-4"
+													class="panel-list-item flex flex-col items-start gap-3 rounded-xl border p-3 transition-all sm:flex-row sm:items-center sm:gap-4 sm:p-4"
 												>
 													<div class="flex w-full items-center gap-3 sm:w-auto sm:gap-4">
 														<span
@@ -1107,7 +1075,7 @@
 																alt={entry.track.album
 																	? `${entry.track.album} artwork`
 																	: `${entry.track.name} artwork`}
-																class="h-12 w-12 flex-shrink-0 rounded-lg object-cover shadow-sm sm:h-14 sm:w-14"
+																class="h-12 w-12 flex-shrink-0 rounded-lg object-cover sm:h-14 sm:w-14"
 																loading="lazy"
 															/>
 														{/if}
@@ -1173,7 +1141,7 @@
 								>
 									<span
 										class="inline-flex h-6 w-6 items-center justify-center rounded-full text-sm font-bold"
-										style={`background-color: ${withAlpha(primaryColors[700], 0.8)}; color: white; box-shadow: 0 2px 8px ${withAlpha(primaryColors[600], 0.18)};`}
+										style={`background-color: ${withAlpha(primaryColors[700], 0.8)}; color: white;`}
 										>✗</span
 									>
 									Not Attending ({notTrackEntries.length}
@@ -1184,7 +1152,7 @@
 										<ul class="space-y-3">
 											{#each previewList(notTrackEntries, expandedLists.has(`songs-${question.id}-not-attending`)) as entry, index (entry.key)}
 												<li
-													class="panel-list-item flex flex-col items-start gap-3 rounded-xl border p-3 transition-all hover:shadow-md sm:flex-row sm:items-center sm:gap-4 sm:p-4"
+													class="panel-list-item flex flex-col items-start gap-3 rounded-xl border p-3 transition-all sm:flex-row sm:items-center sm:gap-4 sm:p-4"
 												>
 													<div class="flex w-full items-center gap-3 sm:w-auto sm:gap-4">
 														<span
@@ -1197,7 +1165,7 @@
 																alt={entry.track.album
 																	? `${entry.track.album} artwork`
 																	: `${entry.track.name} artwork`}
-																class="h-12 w-12 flex-shrink-0 rounded-lg object-cover shadow-sm sm:h-14 sm:w-14"
+																class="h-12 w-12 flex-shrink-0 rounded-lg object-cover sm:h-14 sm:w-14"
 																loading="lazy"
 															/>
 														{/if}
@@ -1267,8 +1235,7 @@
 								>
 									<span
 										class="inline-flex h-6 w-6 items-center justify-center rounded-full text-sm font-bold"
-										style={`background-color: ${primaryColors[700]}; color: white; box-shadow: 0 2px 8px ${withAlpha(primaryColors[600], 0.28)};`}
-										>✓</span
+										style={`background-color: ${primaryColors[700]}; color: white;`}>✓</span
 									>
 									Attending ({attendingResponses.length})
 								</h3>
@@ -1299,8 +1266,7 @@
 								>
 									<span
 										class="inline-flex h-6 w-6 items-center justify-center rounded-full text-sm font-bold"
-										style={`background-color: ${secondaryColors[700]}; color: white; box-shadow: 0 2px 8px ${withAlpha(secondaryColors[600], 0.25)};`}
-										>?</span
+										style={`background-color: ${secondaryColors[700]}; color: white;`}>?</span
 									>
 									Maybe ({maybeResponses.length})
 								</h3>
@@ -1331,7 +1297,7 @@
 								>
 									<span
 										class="inline-flex h-6 w-6 items-center justify-center rounded-full text-sm font-bold"
-										style={`background-color: ${withAlpha(primaryColors[700], 0.8)}; color: white; box-shadow: 0 2px 8px ${withAlpha(primaryColors[600], 0.18)};`}
+										style={`background-color: ${withAlpha(primaryColors[700], 0.8)}; color: white;`}
 										>✗</span
 									>
 									Not Attending ({notAttendingResponses.length})
@@ -1466,7 +1432,7 @@
 			tabindex="-1"
 		>
 			<div class="modal-header">
-				<h3 id="edit-rsvp-title">Edit Your RSVP</h3>
+				<h3 id="edit-rsvp-title">Edit my RSVP</h3>
 				<button type="button" class="close-btn" aria-label="Close" onclick={closeEditModal}
 					>×</button
 				>
@@ -1535,7 +1501,7 @@
 				{/if}
 
 				<div class="status-section">
-					<span class="status-label">Response status *</span>
+					<span class="status-label">Will you come?</span>
 					<div class="status-options">
 						<label class="status-option">
 							<input
@@ -1569,7 +1535,7 @@
 									responses = {};
 								}}
 							/>
-							<span>Not Attending</span>
+							<span>Can't make it</span>
 						</label>
 					</div>
 				</div>
@@ -1780,7 +1746,7 @@
 			tabindex="-1"
 		>
 			<div class="modal-header">
-				<h3 id="create-rsvp-title">RSVP to {event.title}</h3>
+				<h3 id="create-rsvp-title">RSVP</h3>
 				<button type="button" class="close-btn" aria-label="Close" onclick={closeRsvpModal}
 					>×</button
 				>
@@ -1851,7 +1817,7 @@
 						maxlength="100"
 						value={values.name ?? ""}
 						autocomplete="name"
-						placeholder="Your full name"
+						placeholder="Name"
 					/>
 					{#if errors.name}
 						<small class="text-sm text-red-600">{errors.name[0]}</small>
@@ -1884,7 +1850,7 @@
 				{/if}
 
 				<div class="status-section">
-					<span class="status-label">Response status *</span>
+					<span class="status-label">Will you come?</span>
 					<div class="status-options">
 						<label class="status-option">
 							<input
@@ -1918,7 +1884,7 @@
 									responses = {};
 								}}
 							/>
-							<span>Not Attending</span>
+							<span>Can't make it</span>
 						</label>
 					</div>
 				</div>
@@ -2121,16 +2087,10 @@
 
 	.event-card {
 		background: var(--event-card-surface, rgba(255, 255, 255, 0.95));
-		box-shadow: 0 4px 24px -4px rgba(0, 0, 0, 0.08);
 		border: 1px solid var(--event-surface-border, rgba(124, 93, 250, 0.1));
 		border-radius: 24px;
-		transition:
-			transform 0.2s ease,
-			box-shadow 0.2s ease;
 		/* Performance: Contain layout and paint to prevent style recalculation propagation */
 		contain: layout paint;
-		/* Performance: Hint browser about potential transforms */
-		will-change: transform;
 	}
 
 	.event-section {
@@ -2172,10 +2132,6 @@
 
 	:global(.dark) .event-card {
 		background: var(--event-card-surface-dark, rgba(0, 0, 0, 0.4)) !important;
-		backdrop-filter: blur(10px);
-		box-shadow:
-			0 16px 32px -12px rgba(6, 7, 18, 0.55),
-			0 0 0 1px var(--event-surface-glow-dark, rgba(124, 93, 250, 0.16));
 		border-color: var(--event-surface-border-dark, rgba(124, 93, 250, 0.28));
 		color: rgba(248, 247, 255, 0.96);
 	}
@@ -2243,31 +2199,16 @@
 		border-color: var(--event-divider-dark, rgba(124, 93, 250, 0.24)) !important;
 	}
 
-	.event-card:hover {
-		transform: translateY(-2px);
-		box-shadow:
-			0 8px 32px -4px rgba(0, 0, 0, 0.12),
-			0 0 0 1px var(--event-primary-600-alpha);
-	}
-
-	:global(.dark) .event-card:hover {
-		box-shadow:
-			0 8px 32px -4px rgba(0, 0, 0, 0.6),
-			0 0 0 1px var(--event-primary-600-alpha);
-	}
-
 	details.panel {
 		background: var(--event-panel-surface);
 		border: 1px solid var(--event-surface-border);
 		border-radius: 20px;
 		/* Performance: Contain layout to isolate reflows */
 		contain: layout style;
-		box-shadow: 0 2px 12px -4px var(--event-panel-shadow);
 		overflow: hidden;
 		transition:
 			background-color 0.2s ease,
-			border-color 0.2s ease,
-			box-shadow 0.2s ease;
+			border-color 0.2s ease;
 	}
 
 	/* Performance: Skip rendering for closed details */
@@ -2279,7 +2220,6 @@
 	:global(.dark) details.panel {
 		background: var(--event-panel-surface-dark);
 		border-color: var(--event-surface-border-dark);
-		box-shadow: 0 12px 28px -10px var(--event-panel-shadow-dark);
 	}
 
 	details.panel > summary {
@@ -2330,12 +2270,10 @@
 		background: var(--event-panel-surface);
 		border: 1px solid var(--event-surface-border);
 		border-radius: 20px;
-		box-shadow: 0 2px 12px -4px var(--event-panel-shadow);
 		overflow: hidden;
 		transition:
 			background-color 0.2s ease,
-			border-color 0.2s ease,
-			box-shadow 0.2s ease;
+			border-color 0.2s ease;
 		/* Performance: Contain layout for list items */
 		contain: layout style;
 	}
@@ -2343,7 +2281,6 @@
 	:global(.dark) .panel-block {
 		background: var(--event-panel-surface-dark);
 		border-color: var(--event-surface-border-dark);
-		box-shadow: 0 12px 28px -10px var(--event-panel-shadow-dark);
 	}
 
 	.panel-block-header {
