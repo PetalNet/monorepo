@@ -76,6 +76,33 @@ function songsQuestion(): Question {
 	};
 }
 
+const potluckQuestion: Question = {
+	id: "potluck",
+	label: "Potluck",
+	description: null,
+	type: "potluck",
+	options: null,
+	quantity: null,
+	required: false,
+	isPublic: true,
+	spotifyPlaylistId: null,
+	songsPerUser: null,
+	responseCount: 0,
+	potluck: {
+		config: {
+			providing: "Main dish",
+			minOptions: 2,
+			categories: [
+				{ id: "sides", label: "Sides", ratio: 1, ideas: [], forceOpen: false },
+				{ id: "desserts", label: "Desserts", ratio: 1, ideas: [], forceOpen: false },
+			],
+		},
+		counts: {},
+		taken: [],
+	},
+	publicResponses: [],
+};
+
 const avery: NonNullable<PageData["myRsvp"]> = {
 	id: "rsvp-Avery",
 	name: "Avery",
@@ -86,7 +113,10 @@ const avery: NonNullable<PageData["myRsvp"]> = {
 	responses: {},
 };
 
-function pageData(myRsvp: PageData["myRsvp"] = null): PageData {
+function pageData(
+	myRsvp: PageData["myRsvp"] = null,
+	questions: Question[] = [songsQuestion()],
+): PageData {
 	const rsvps = [
 		...guestNames.map((name) => rsvp(name, "attending")),
 		rsvp("Morgan", "not_attending"),
@@ -114,7 +144,7 @@ function pageData(myRsvp: PageData["myRsvp"] = null): PageData {
 			secondaryColor: "amber",
 			backgroundImage: null,
 			emoji: null,
-			questions: [songsQuestion()],
+			questions,
 		},
 		rsvps,
 	};
@@ -129,11 +159,15 @@ afterEach(() => {
 	submitters.clear();
 });
 
-function render(form: ActionData | null = null, myRsvp: PageData["myRsvp"] = null): HTMLElement {
+function render(
+	form: ActionData | null = null,
+	myRsvp: PageData["myRsvp"] = null,
+	questions: Question[] = [songsQuestion()],
+): HTMLElement {
 	const target = document.createElement("div");
 
 	document.body.append(target);
-	const component = mount(Page, { target, props: { data: pageData(myRsvp), form } });
+	const component = mount(Page, { target, props: { data: pageData(myRsvp, questions), form } });
 
 	cleanup = () => {
 		void unmount(component);
@@ -507,6 +541,22 @@ describe("event page dialog dismissal", () => {
 });
 
 describe("event page lists", () => {
+	it("labels host-provided potluck food on the page and RSVP form", () => {
+		const target = render(null, null, [potluckQuestion]);
+		const section = [...target.querySelectorAll("section")].find(
+			(candidate) => candidate.querySelector("h2")?.textContent.trim() === "Potluck",
+		);
+
+		expect(section?.querySelector("strong")?.textContent).toBe("Hosts are providing:");
+
+		button(target, "RSVP").click();
+		flushSync();
+
+		expect(target.querySelector("[role=dialog] .potluck-providing strong")?.textContent).toBe(
+			"Hosts are providing:",
+		);
+	});
+
 	it("shows the first 8 guests until Show all is pressed, then focuses the first revealed guest", async () => {
 		const target = render();
 		const panel = target.querySelector("details.tone-attending");
@@ -531,6 +581,9 @@ describe("event page lists", () => {
 	it("labels the song list as songs and shows the first 8 until Show all, then focuses the first revealed song", async () => {
 		const target = render();
 		const block = target.querySelector(".panel-block.tone-attending");
+		const heading = [...target.querySelectorAll("h2")].find(
+			(candidate) => candidate.textContent.trim() === "Add some music",
+		);
 
 		if (!block) {
 			throw new Error("no song list");
@@ -539,6 +592,7 @@ describe("event page lists", () => {
 		expect(block.querySelector("h3")?.textContent.replaceAll(/\s+/g, " ").trim()).toBe(
 			`✓ Attending (${guestNames.length} songs)`,
 		);
+		expect(heading?.parentElement?.querySelector(".badge-status")).toBeNull();
 
 		expect(block.querySelectorAll("li")).toHaveLength(8);
 		button(block, `Show all ${guestNames.length}`).click();

@@ -871,7 +871,10 @@
 				<h2 class="m-0 text-xl font-bold text-dark-900 md:text-xl">{question.label}</h2>
 			</div>
 			{#if view.config.providing}
-				<p class="m-0 mb-4 text-sm text-dark-700 md:text-base">{view.config.providing}</p>
+				<p class="m-0 mb-4 text-sm text-dark-700 md:text-base">
+					<strong>Hosts are providing:</strong>
+					{view.config.providing}
+				</p>
 			{/if}
 			<ul class="m-0 flex list-none flex-col gap-4 p-0">
 				{#each slotStatuses(view.config, view.counts) as slot (slot.category.id)}
@@ -931,7 +934,7 @@
 						>
 							{question.responseCount} of {question.quantity} slots filled
 						</span>
-					{:else}
+					{:else if question.type !== "spotify_playlist"}
 						<span
 							class="badge-status"
 							data-tone="theme"
