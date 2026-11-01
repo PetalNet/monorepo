@@ -28,8 +28,8 @@ catalogs:
       specifier: 4.0.1
       version: 4.0.1
     '@modelcontextprotocol/client':
-      specifier: 2.0.0
-      version: 2.0.0
+      specifier: 2.3.0
+      version: 2.3.0
     '@storybook/addon-a11y':
       specifier: 10.5.10
       version: 10.5.10
@@ -884,7 +884,7 @@ importers:
         version: 1.7.7(@better-auth/core@1.7.7(patch_hash=2aed9cc75779c05da04cac919c2bc3cad4749c90f1a4f70725a58107569ef769)(@better-auth/utils@0.4.2)(@better-fetch/fetch@1.3.2)(@opentelemetry/api@1.9.1)(better-call@1.4.0(zod@4.6.5))(jose@6.2.8)(nanostores@1.4.0))(@better-auth/utils@0.4.2)(@better-fetch/fetch@1.3.2)(better-auth@1.7.7(9509fd2af67036fa697317427dc55825))(better-call@1.4.0(zod@4.6.5))
       '@modelcontextprotocol/client':
         specifier: 'catalog:'
-        version: 2.0.0
+        version: 2.3.0
       '@petalnet/tsconfig':
         specifier: workspace:*
         version: link:../tsconfig
@@ -993,7 +993,7 @@ importers:
         version: 4.0.1(effect@4.0.1)(vitest@5.0.3)
       '@modelcontextprotocol/client':
         specifier: 'catalog:'
-        version: 2.0.0
+        version: 2.3.0
       '@petalnet/tsconfig':
         specifier: workspace:*
         version: link:../packages/tsconfig
@@ -1916,12 +1916,12 @@ packages:
       '@types/react': '>=16'
       react: '>=16'
 
-  '@modelcontextprotocol/client@2.0.0':
-    resolution: {integrity: sha512-8f1OghQ2rjzIOfqgUCP+8GiUWqRs89njoWLNqAe8kWmDePv3s1fZXseej+QXemssEuuOvLLmLO/kqM3IQHtISw==}
+  '@modelcontextprotocol/client@2.3.0':
+    resolution: {integrity: sha512-pbHtGj6EeFCHngFE8gtNPaKrsj8Mb1IMw45BLcaPML/m2WTxI7pyYmeNQvaux88Lw8BSO5r7nyRbUyIkICmGrg==}
     engines: {node: '>=20'}
 
-  '@modelcontextprotocol/core@2.0.0':
-    resolution: {integrity: sha512-pJCEwGG7Lfr/+PQp9ZTwKXNeO5wzbfKL7H3MYpCorM4oFBoQrdjnBgEoqG+RjhsvS1FKrDbKux+M1HhlnGWqcA==}
+  '@modelcontextprotocol/core@2.3.0':
+    resolution: {integrity: sha512-09BHFaNVBe5pB2AhzCfLj0cqmsKLERvZQ4FblzP90UMGLaXVqdZPByFjURwsUYCmxonUW2yAwgTTvle+8O2/8w==}
     engines: {node: '>=20'}
 
   '@modelcontextprotocol/sdk@1.29.0':
@@ -8261,9 +8261,9 @@ snapshots:
       '@types/react': 19.2.17
       react: 19.2.7
 
-  '@modelcontextprotocol/client@2.0.0':
+  '@modelcontextprotocol/client@2.3.0':
     dependencies:
-      '@modelcontextprotocol/core': 2.0.0
+      '@modelcontextprotocol/core': 2.3.0
       cross-spawn: 7.0.6
       eventsource: 3.0.7
       eventsource-parser: 3.1.0
@@ -8271,7 +8271,7 @@ snapshots:
       pkce-challenge: 5.0.1
       zod: 4.6.5
 
-  '@modelcontextprotocol/core@2.0.0':
+  '@modelcontextprotocol/core@2.3.0':
     dependencies:
       zod: 4.6.5
 
