@@ -609,7 +609,7 @@ describe("event page banners", () => {
 		[{ type: "rsvp", success: true }, "✅ You're all set!"],
 		[{ type: "updateRsvp", success: true, message: "Updated" }, "✅ Updated!"],
 		[{ type: "cancelRsvp", success: true, message: "Cancelled" }, "RSVP Cancelled"],
-	])("tints the whole %o banner instead of a left stripe", (form, title) => {
+	])("tints the whole %o banner without a border", (form, title) => {
 		const target = render(form as ActionData);
 		const heading = [...target.querySelectorAll("h2")].find((h) => h.textContent.trim() === title);
 		const banner = heading?.closest<HTMLElement>("[style*='background-color']");
@@ -620,7 +620,7 @@ describe("event page banners", () => {
 			["Top", "Right", "Bottom", "Left"].map((side) =>
 				banner?.style.getPropertyValue(`border-${side.toLowerCase()}-width`),
 			),
-		).toEqual(["1px", "1px", "1px", "1px"]);
+		).toEqual(["", "", "", ""]);
 	});
 
 	it("shows an already-registered RSVP as information, not an error", () => {

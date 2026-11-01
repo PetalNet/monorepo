@@ -616,7 +616,7 @@
 	{#if success && formType === "rsvp"}
 		<div
 			class="success-banner event-card"
-			style={`border: 1px solid ${withAlpha(secondaryColors[600], 0.32)}; background-color: ${mixColors(primaryColors[50], secondaryColors[50], 0.6, 0.78)};`}
+			style={`background-color: ${mixColors(primaryColors[50], secondaryColors[50], 0.6, 0.78)};`}
 		>
 			<h2 class="mb-2 text-xl font-bold">✅ You're all set!</h2>
 			<p class="mb-0">
@@ -630,7 +630,7 @@
 		<div
 			class="card event-card mb-8"
 			role="status"
-			style={`border: 1px solid ${withAlpha(secondaryColors[600], 0.32)}; background-color: ${mixColors(primaryColors[50], secondaryColors[50], 0.6, 0.78)};`}
+			style={`background-color: ${mixColors(primaryColors[50], secondaryColors[50], 0.6, 0.78)};`}
 		>
 			<h2 class="mb-2 text-xl font-bold">Check your email</h2>
 			<p class="mb-0">{message}</p>
@@ -640,7 +640,7 @@
 	{#if success && formType === "updateRsvp"}
 		<div
 			class="success-banner event-card"
-			style={`border: 1px solid ${withAlpha(secondaryColors[600], 0.32)}; background-color: ${mixColors(primaryColors[50], secondaryColors[50], 0.6, 0.78)};`}
+			style={`background-color: ${mixColors(primaryColors[50], secondaryColors[50], 0.6, 0.78)};`}
 		>
 			<h2 class="mb-2 text-xl font-bold">✅ Updated!</h2>
 			<p class="mb-0">{message}</p>
@@ -650,7 +650,7 @@
 	{#if success && formType === "cancelRsvp"}
 		<div
 			class="card event-card mb-8"
-			style={`border: 1px solid ${withAlpha(secondaryColors[600], 0.32)}; background-color: ${mixColors(primaryColors[50], secondaryColors[50], 0.6, 0.78)};`}
+			style={`background-color: ${mixColors(primaryColors[50], secondaryColors[50], 0.6, 0.78)};`}
 		>
 			<h2 class="mb-2 text-xl font-bold">RSVP Cancelled</h2>
 			<p class="mb-0">{message}</p>
@@ -690,7 +690,7 @@
 						<div class="panel-body event-section grid gap-3 p-4 pt-3 md:p-6 md:pt-4">
 							{#each previewList(attendingList, expandedLists.has("attending")) as rsvp}
 								<div
-									class="panel-list-item flex items-center justify-between gap-3 rounded-xl border p-3 transition-all md:gap-4 md:p-4"
+									class="panel-list-item flex items-center justify-between gap-3 rounded-xl p-3 transition-all md:gap-4 md:p-4"
 								>
 									<div class="flex min-w-0 flex-1 flex-col gap-1">
 										<strong class="truncate text-sm text-dark-900 md:text-base"
@@ -753,7 +753,7 @@
 						<div class="panel-body event-section grid gap-3 p-4 pt-3 md:p-6 md:pt-4">
 							{#each previewList(maybeList, expandedLists.has("maybe")) as rsvp}
 								<div
-									class="panel-list-item flex items-center justify-between gap-3 rounded-xl border p-3 transition-all md:gap-4 md:p-4"
+									class="panel-list-item flex items-center justify-between gap-3 rounded-xl p-3 transition-all md:gap-4 md:p-4"
 								>
 									<div class="flex min-w-0 flex-1 flex-col gap-1">
 										<strong class="truncate text-sm text-dark-900 md:text-base"
@@ -817,7 +817,7 @@
 						<div class="panel-body event-section grid gap-3 p-4 pt-3 md:p-6 md:pt-4">
 							{#each previewList(notAttendingList, expandedLists.has("not-attending")) as rsvp}
 								<div
-									class="panel-list-item flex items-center justify-between gap-3 rounded-xl border p-3 transition-all md:gap-4 md:p-4"
+									class="panel-list-item flex items-center justify-between gap-3 rounded-xl p-3 transition-all md:gap-4 md:p-4"
 								>
 									<div class="flex min-w-0 flex-1 flex-col gap-1">
 										<strong class="truncate text-sm text-dark-900 md:text-base"
@@ -976,7 +976,7 @@
 										<ul class="space-y-3">
 											{#each previewList(attendingTrackEntries, expandedLists.has(`songs-${question.id}-attending`)) as entry, index (entry.key)}
 												<li
-													class="panel-list-item flex flex-col items-start gap-3 rounded-xl border p-3 transition-all sm:flex-row sm:items-center sm:gap-4 sm:p-4"
+													class="panel-list-item flex flex-col items-start gap-3 rounded-xl p-3 transition-all sm:flex-row sm:items-center sm:gap-4 sm:p-4"
 												>
 													<div class="flex w-full items-center gap-3 sm:w-auto sm:gap-4">
 														<span
@@ -1065,7 +1065,7 @@
 										<ul class="space-y-3">
 											{#each previewList(maybeTrackEntries, expandedLists.has(`songs-${question.id}-maybe`)) as entry, index (entry.key)}
 												<li
-													class="panel-list-item flex flex-col items-start gap-3 rounded-xl border p-3 transition-all sm:flex-row sm:items-center sm:gap-4 sm:p-4"
+													class="panel-list-item flex flex-col items-start gap-3 rounded-xl p-3 transition-all sm:flex-row sm:items-center sm:gap-4 sm:p-4"
 												>
 													<div class="flex w-full items-center gap-3 sm:w-auto sm:gap-4">
 														<span
@@ -1155,7 +1155,7 @@
 										<ul class="space-y-3">
 											{#each previewList(notTrackEntries, expandedLists.has(`songs-${question.id}-not-attending`)) as entry, index (entry.key)}
 												<li
-													class="panel-list-item flex flex-col items-start gap-3 rounded-xl border p-3 transition-all sm:flex-row sm:items-center sm:gap-4 sm:p-4"
+													class="panel-list-item flex flex-col items-start gap-3 rounded-xl p-3 transition-all sm:flex-row sm:items-center sm:gap-4 sm:p-4"
 												>
 													<div class="flex w-full items-center gap-3 sm:w-auto sm:gap-4">
 														<span
@@ -1245,7 +1245,7 @@
 								<div class="panel-block-body px-5 py-4">
 									<ul class="space-y-2">
 										{#each attendingResponses as response}
-											<li class="panel-list-item flex items-start gap-3 rounded-xl border p-3">
+											<li class="panel-list-item flex items-start gap-3 rounded-xl p-3">
 												<div class="min-w-0 flex-1">
 													<p class="mb-1 text-sm font-semibold text-dark-900">{response.name}</p>
 													<p class="whitespace-pre-wrap break-words text-sm text-dark-700">
@@ -1276,7 +1276,7 @@
 								<div class="panel-block-body px-5 py-4">
 									<ul class="space-y-2">
 										{#each maybeResponses as response}
-											<li class="panel-list-item flex items-start gap-3 rounded-xl border p-3">
+											<li class="panel-list-item flex items-start gap-3 rounded-xl p-3">
 												<div class="min-w-0 flex-1">
 													<p class="mb-1 text-sm font-semibold text-dark-900">{response.name}</p>
 													<p class="whitespace-pre-wrap break-words text-sm text-dark-700">
@@ -1308,7 +1308,7 @@
 								<div class="panel-block-body px-5 py-4">
 									<ul class="space-y-2">
 										{#each notAttendingResponses as response}
-											<li class="panel-list-item flex items-start gap-3 rounded-xl border p-3">
+											<li class="panel-list-item flex items-start gap-3 rounded-xl p-3">
 												<div class="min-w-0 flex-1">
 													<p class="mb-1 text-sm font-semibold text-dark-900">{response.name}</p>
 													<p class="whitespace-pre-wrap break-words text-sm text-dark-700">
@@ -2090,7 +2090,7 @@
 
 	.event-card {
 		background: var(--event-card-surface, rgba(255, 255, 255, 0.95));
-		border: 1px solid var(--event-surface-border, rgba(124, 93, 250, 0.1));
+		border: none;
 		border-radius: 24px;
 		/* Performance: Contain layout and paint to prevent style recalculation propagation */
 		contain: layout paint;
@@ -2098,7 +2098,7 @@
 
 	.event-section {
 		background: var(--event-section-surface, rgba(255, 255, 255, 0.88));
-		border: 1px solid var(--event-surface-border, rgba(124, 93, 250, 0.1));
+		border: none;
 		border-radius: 18px;
 	}
 
@@ -2135,13 +2135,13 @@
 
 	:global(.dark) .event-card {
 		background: var(--event-card-surface-dark, rgba(0, 0, 0, 0.4)) !important;
-		border-color: var(--event-surface-border-dark, rgba(124, 93, 250, 0.28));
+		border: none;
 		color: rgba(248, 247, 255, 0.96);
 	}
 
 	:global(.dark) .event-section {
 		background: var(--event-section-surface-dark, rgba(0, 0, 0, 0.3)) !important;
-		border-color: var(--event-surface-border-dark, rgba(124, 93, 250, 0.28));
+		border: none;
 		color: rgba(240, 239, 252, 0.92);
 	}
 
@@ -2192,26 +2192,14 @@
 		color: var(--event-text-primary-dark, #faf8ff);
 	}
 
-	:global(.dark) .event-page-wrapper .border,
-	:global(.dark) .event-page-wrapper .border-b {
-		border-color: var(--event-divider-dark, rgba(124, 93, 250, 0.28)) !important;
-	}
-
-	:global(.dark) .event-card .border,
-	:global(.dark) .event-card .border-b {
-		border-color: var(--event-divider-dark, rgba(124, 93, 250, 0.24)) !important;
-	}
-
 	details.panel {
 		background: var(--event-panel-surface);
-		border: 1px solid var(--event-surface-border);
+		border: none;
 		border-radius: 20px;
 		/* Performance: Contain layout to isolate reflows */
 		contain: layout style;
 		overflow: hidden;
-		transition:
-			background-color 0.2s ease,
-			border-color 0.2s ease;
+		transition: background-color 0.2s ease;
 	}
 
 	/* Performance: Skip rendering for closed details */
@@ -2222,15 +2210,14 @@
 
 	:global(.dark) details.panel {
 		background: var(--event-panel-surface-dark);
-		border-color: var(--event-surface-border-dark);
+		border: none;
 	}
 
 	details.panel > summary {
 		border-bottom: 1px solid transparent;
 		transition:
 			background-color 0.2s ease,
-			color 0.2s ease,
-			border-color 0.2s ease;
+			color 0.2s ease;
 	}
 
 	details.tone-attending > summary {
@@ -2271,27 +2258,24 @@
 
 	.panel-block {
 		background: var(--event-panel-surface);
-		border: 1px solid var(--event-surface-border);
+		border: none;
 		border-radius: 20px;
 		overflow: hidden;
-		transition:
-			background-color 0.2s ease,
-			border-color 0.2s ease;
+		transition: background-color 0.2s ease;
 		/* Performance: Contain layout for list items */
 		contain: layout style;
 	}
 
 	:global(.dark) .panel-block {
 		background: var(--event-panel-surface-dark);
-		border-color: var(--event-surface-border-dark);
+		border: none;
 	}
 
 	.panel-block-header {
 		border-bottom: 1px solid transparent;
 		transition:
 			background-color 0.2s ease,
-			color 0.2s ease,
-			border-color 0.2s ease;
+			color 0.2s ease;
 	}
 
 	.panel-block-body {
@@ -2340,13 +2324,13 @@
 
 	.panel-list-item {
 		background-color: rgba(255, 255, 255, 0.98);
-		border: 1px solid var(--event-surface-border);
+		border: none;
 		border-radius: 16px;
 	}
 
 	:global(.dark) .panel-list-item {
 		background-color: var(--event-entry-surface-dark);
-		border-color: var(--event-surface-border-dark);
+		border: none;
 		color: rgba(242, 241, 255, 0.96);
 	}
 

@@ -656,8 +656,7 @@
 }
 
 .status-option {
-	@apply flex cursor-pointer items-center gap-3 rounded-xl border-2 p-4 transition-all;
-	border-color: rgba(124, 93, 250, 0.2);
+	@apply flex cursor-pointer items-center gap-3 rounded-xl p-4 transition-all;
 	min-height: 56px; /* Better touch target on mobile */
 }
 
@@ -678,7 +677,6 @@
 }
 
 .status-option:has(input:checked) {
-	@apply border-primary-700;
 	background: rgba(124, 93, 250, 0.12);
 }
 
@@ -1003,7 +1001,6 @@ html.dark .modal-backdrop {
 html.dark .modal {
 	background-color: rgba(20, 20, 28, 0.98) !important;
 	color: #ffffff;
-	border: 1px solid rgba(255, 255, 255, 0.08);
 }
 
 /* Dark mode mobile modal fixes */
