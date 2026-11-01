@@ -2172,47 +2172,28 @@
 		border: none;
 	}
 
-	details.panel > summary {
-		border-bottom: 1px solid transparent;
-		transition:
-			background-color 0.2s ease,
-			color 0.2s ease;
-	}
-
 	details.tone-attending > summary {
-		background: var(--event-summary-attending-bg);
 		color: var(--event-summary-attending-text);
-		border-bottom-color: var(--event-summary-attending-border);
 	}
 
 	:global(.dark) details.tone-attending > summary {
-		background: var(--event-summary-attending-bg-dark);
 		color: var(--event-summary-attending-text-dark);
-		border-bottom-color: var(--event-summary-attending-border-dark);
 	}
 
 	details.tone-maybe > summary {
-		background: var(--event-summary-maybe-bg);
 		color: var(--event-summary-maybe-text);
-		border-bottom-color: var(--event-summary-maybe-border);
 	}
 
 	:global(.dark) details.tone-maybe > summary {
-		background: var(--event-summary-maybe-bg-dark);
 		color: var(--event-summary-maybe-text-dark);
-		border-bottom-color: var(--event-summary-maybe-border-dark);
 	}
 
 	details.tone-not > summary {
-		background: var(--event-summary-not-bg);
 		color: var(--event-summary-not-text);
-		border-bottom-color: var(--event-summary-not-border);
 	}
 
 	:global(.dark) details.tone-not > summary {
-		background: var(--event-summary-not-bg-dark);
 		color: var(--event-summary-not-text-dark);
-		border-bottom-color: var(--event-summary-not-border-dark);
 	}
 
 	.panel-block {
@@ -2230,51 +2211,32 @@
 		border: none;
 	}
 
-	.panel-block-header {
-		border-bottom: 1px solid transparent;
-		transition:
-			background-color 0.2s ease,
-			color 0.2s ease;
-	}
-
 	.panel-block-body {
 		background: transparent;
 	}
 
 	.panel-block.tone-attending .panel-block-header {
-		background: var(--event-summary-attending-bg);
 		color: var(--event-summary-attending-text);
-		border-bottom-color: var(--event-summary-attending-border);
 	}
 
 	:global(.dark) .panel-block.tone-attending .panel-block-header {
-		background: var(--event-summary-attending-bg-dark);
 		color: var(--event-summary-attending-text-dark);
-		border-bottom-color: var(--event-summary-attending-border-dark);
 	}
 
 	.panel-block.tone-maybe .panel-block-header {
-		background: var(--event-summary-maybe-bg);
 		color: var(--event-summary-maybe-text);
-		border-bottom-color: var(--event-summary-maybe-border);
 	}
 
 	:global(.dark) .panel-block.tone-maybe .panel-block-header {
-		background: var(--event-summary-maybe-bg-dark);
 		color: var(--event-summary-maybe-text-dark);
-		border-bottom-color: var(--event-summary-maybe-border-dark);
 	}
 
 	.panel-block.tone-not .panel-block-header {
-		background: var(--event-summary-not-bg);
 		color: var(--event-summary-not-text);
-		border-bottom-color: var(--event-summary-not-border);
 	}
 
 	:global(.dark) .panel-block.tone-not .panel-block-header {
-		background: var(--event-summary-not-bg-dark);
 		color: var(--event-summary-not-text-dark);
-		border-bottom-color: var(--event-summary-not-border-dark);
 	}
 
 	.panel-body {

@@ -558,6 +558,23 @@ describe("event page lists", () => {
 		).toBe(false);
 	});
 
+	it("renders the attending group as an unfilled native disclosure", () => {
+		const target = render();
+		const panel = target.querySelector("details.tone-attending");
+		const summary = panel?.querySelector("summary");
+
+		expect(panel).toBeInstanceOf(HTMLDetailsElement);
+
+		expect(summary?.textContent?.replaceAll(/\s+/g, " ").trim()).toBe(
+			`✓ Attending (${guestNames.length}) ▼`,
+		);
+
+		expect(summary?.style.background).toBe("");
+		expect(summary?.style.borderBottomColor).toBe("");
+		expect(getComputedStyle(summary!).backgroundColor).toBe("");
+		expect(getComputedStyle(summary!).borderBottomWidth).toBe("");
+	});
+
 	it("labels the song list as songs and shows the first 8 until Show all, then focuses the first revealed song", async () => {
 		const target = render();
 		const block = target.querySelector(".panel-block.tone-attending");

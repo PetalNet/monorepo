@@ -12,6 +12,10 @@
 		@apply w-full max-w-full overflow-x-hidden;
 	}
 
+	html:has(dialog[open]:modal) {
+		overflow: hidden;
+	}
+
 	body {
 		@apply m-0 min-h-screen w-full max-w-full overflow-x-hidden bg-app-gradient font-sans text-dark-900;
 	}
@@ -443,6 +447,7 @@ dialog.modal {
 	max-height: 100vh;
 	max-height: 100dvh;
 	overflow-y: auto;
+	overscroll-behavior: contain;
 	animation: slideUp 0.3s ease;
 }
 
