@@ -18,14 +18,8 @@
 	import DialFace from "./DialFace.svelte";
 	import FiligreeHand from "./FiligreeHand.svelte";
 	import LimitRing from "./LimitRing.svelte";
-	import RingLabel from "./RingLabel.svelte";
 
-	let {
-		sun,
-		reading,
-		now,
-		label,
-	}: { sun: Dossier["sun"]; reading: LimitReading; now: number; label: string } = $props();
+	let { sun, reading, now }: { sun: Dossier["sun"]; reading: LimitReading; now: number } = $props();
 
 	const SKY_RADIUS = 87;
 	const SKY_WIDTH = 4;
@@ -51,8 +45,22 @@
 			allDay: sun.sunriseAt === null && sun.altitudeDeg > 0,
 		};
 	});
+	const clockTime = (epoch: number) =>
+		new Intl.DateTimeFormat(undefined, { hour: "numeric", minute: "2-digit" }).format(epoch);
 	const sunMarks = $derived(
-		[sun.sunriseAt, sun.sunsetAt].flatMap((at) => (at === null ? [] : [dayAngle(at)])),
+		(
+			[
+				["Sunrise", sun.sunriseAt],
+				["Sunset", sun.sunsetAt],
+			] as const
+		).flatMap(([name, at]) => (at === null ? [] : [{ name, at, angle: dayAngle(at) }])),
+	);
+	const skyLabel = $derived(
+		sunMarks.length === 0
+			? sky.allDay
+				? "Daylight: sun up all day"
+				: "Daylight: sun down all day"
+			: `Daylight: ${sunMarks.map((mark) => `${mark.name.toLowerCase()} ${clockTime(mark.at)}`).join(", ")}`,
 	);
 	const geometry = $derived(windowGeometry(reading, DAY_SCALE));
 	const clock = $derived.by(() => {
@@ -82,8 +90,8 @@
 	);
 </script>
 
-<DialFace id="day" {label}>
-	<g class="chapter">
+<DialFace id="day" title="Day" label="Day dial">
+	<g class="chapter" aria-hidden="true">
 		<circle class="chapter-band" r="100" stroke-width="15" />
 		<circle class="engraved" r="107.6" />
 		<circle class="engraved fine" r="106.4" />
@@ -103,7 +111,8 @@
 		{/each}
 	</g>
 
-	<g class="sky">
+	<g class="sky" role="img" aria-label={skyLabel}>
+		<title>Daylight</title>
 		<circle class="sky-night" r={SKY_RADIUS} stroke-width={SKY_WIDTH} />
 		{#if sky.twilight}
 			<path
@@ -121,21 +130,25 @@
 		{:else if sky.allDay}
 			<circle class="sky-day" r={SKY_RADIUS} stroke-width={SKY_WIDTH} />
 		{/if}
-		{#each sunMarks as mark (mark)}
-			{@const a = polar(mark, SKY_RADIUS - SKY_WIDTH / 2 - 1)}
-			{@const b = polar(mark, SKY_RADIUS + SKY_WIDTH / 2 + 1)}
-			<line class="sky-mark" x1={a.x} y1={a.y} x2={b.x} y2={b.y} />
+		{#each sunMarks as mark (mark.name)}
+			{@const a = polar(mark.angle, SKY_RADIUS - SKY_WIDTH / 2 - 1)}
+			{@const b = polar(mark.angle, SKY_RADIUS + SKY_WIDTH / 2 + 1)}
+			<line class="sky-mark" x1={a.x} y1={a.y} x2={b.x} y2={b.y}><title>{mark.name}</title></line>
 		{/each}
 	</g>
 
 	{#if geometry}
 		<LimitRing {reading} radius={68} width={16} {geometry} hand={dayAngle(now)} />
-		<RingLabel id={reading.window.id} label="Claude" inner={60} />
 	{:else}
 		<text class="ring-empty" y="-62">No 5-hour window open</text>
 	{/if}
 
-	<FiligreeHand angle={dayAngle(now)} length={91} sunAt={SKY_RADIUS} />
+	<FiligreeHand
+		angle={dayAngle(now)}
+		length={91}
+		label="Now: {clockTime(now)}"
+		sunAt={SKY_RADIUS}
+	/>
 
 	<circle class="boss" r={BOSS_RADIUS} />
 	<circle class="engraved" r="28.6" />

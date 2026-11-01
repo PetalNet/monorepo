@@ -2,8 +2,15 @@
 	let {
 		angle,
 		length,
+		label,
 		sunAt = null,
-	}: { angle: number; length: number; sunAt?: number | null } = $props();
+	}: {
+		angle: number;
+		length: number;
+		/** The reading the hand points at, for screen readers, such as "Now: 9:37 PM". */
+		label: string;
+		sunAt?: number | null;
+	} = $props();
 
 	// Drawn pointing at twelve o'clock, then turned. A tapered shaft, an open quatrefoil two thirds out,
 	// a spade tip and a ringed counterweight, after the gilt hands of the Prague Orloj.
@@ -11,7 +18,8 @@
 	const rays = Array.from({ length: 8 }, (_, index) => index * 45);
 </script>
 
-<g class="hand" style:transform="rotate({angle}deg)">
+<g class="hand" style:transform="rotate({angle}deg)" role="img" aria-label={label}>
+	<title>Now</title>
 	<path class="hand-shaft" d="M -1.6 14 L -0.55 {-length + 9} L 0.55 {-length + 9} L 1.6 14 Z" />
 	<path
 		class="hand-spade"

@@ -9,7 +9,7 @@ pnpm install
 pnpm --filter @petalnet/astrolabe dev
 ```
 
-The server accepts the existing deployment paths through `USAGE_PATH`, `CODEX_USAGE_PATH`, `BACKUP_LOG`, `KUMA_DB`, `HOST_HEALTH_PATH`, `MOOD_PATH`, `LAB_LAT`, and `LAB_LON`. Every input is optional at runtime: an unavailable source is represented locally as stale or awaiting data.
+The server accepts the existing deployment paths through `USAGE_PATH`, `CODEX_USAGE_PATH`, `BACKUP_LOG`, `KUMA_DB`, `HOST_HEALTH_PATH`, `MOOD_PATH`, `LAB_LAT`, and `LAB_LON`. `KUMA_URL` is the Uptime Kuma base URL the services section links to; without it, down monitors are named but not linked. Every input is optional at runtime: an unavailable source is represented locally as stale or awaiting data.
 
 ## Codex usage feed
 

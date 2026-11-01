@@ -2,12 +2,25 @@
 	import { polar } from "$lib/dial";
 	import type { Snippet } from "svelte";
 
-	let { id, label, children }: { id: string; label: string; children: Snippet } = $props();
+	let {
+		id,
+		title,
+		label,
+		children,
+	}: {
+		id: string;
+		/** One or two words, shown on hover. */
+		title: string;
+		label: string;
+		children: Snippet;
+	} = $props();
 
 	const beads = Array.from({ length: 72 }, (_, index) => polar(index * 5, 114.2));
 </script>
 
-<svg class="dial-face" viewBox="-120 -120 240 240" role="img" aria-label={label}>
+<!-- A group, not an image: the hand, the sky and each limit ring carry their own name and value. -->
+<svg class="dial-face" viewBox="-120 -120 240 240" role="group" aria-label={label}>
+	<title>{title}</title>
 	<defs>
 		<!-- One light, upper left, in dial coordinates: every face and both metals take it from here. -->
 		<linearGradient
@@ -41,14 +54,16 @@
 		</filter>
 	</defs>
 
-	<circle class="bezel" r="118" fill="url(#{id}-brass)" />
-	<circle class="bezel-rule" r="117.2" />
-	{#each beads as bead, index (index)}
-		<circle class="bead" cx={bead.x} cy={bead.y} r=".9" />
-	{/each}
-	<circle class="bezel-rule" r="111.2" />
-	<circle class="paper" r="110.5" fill="url(#{id}-paper)" />
-	<circle class="grain" r="110.5" filter="url(#{id}-grain)" />
+	<g aria-hidden="true">
+		<circle class="bezel" r="118" fill="url(#{id}-brass)" />
+		<circle class="bezel-rule" r="117.2" />
+		{#each beads as bead, index (index)}
+			<circle class="bead" cx={bead.x} cy={bead.y} r=".9" />
+		{/each}
+		<circle class="bezel-rule" r="111.2" />
+		<circle class="paper" r="110.5" fill="url(#{id}-paper)" />
+		<circle class="grain" r="110.5" filter="url(#{id}-grain)" />
+	</g>
 
 	{@render children()}
 </svg>
