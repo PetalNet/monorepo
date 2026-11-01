@@ -7,13 +7,7 @@ import path from "node:path";
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { PrismaClient } from "./generated/prisma/client";
-import {
-	beginOidcLogin,
-	exchangeOidcCode,
-	findOrCreateOidcUser,
-	pkceChallenge,
-	sameOidcValue,
-} from "./oidc";
+import { beginOidcLogin, exchangeOidcCode, findOrCreateOidcUser, sameOidcValue } from "./oidc";
 
 process.env.ORIGIN = "https://board.example.test";
 process.env.OIDC_ISSUER = "https://auth.example.test/application/o/petalboard/";
@@ -64,9 +58,7 @@ describe("OIDC login", () => {
 		const url = new URL(result.url);
 		const transaction = JSON.parse(Buffer.from(result.transaction, "base64url").toString("utf8"));
 
-		expect(pkceChallenge(transaction.verifier)).toBe(
-			createHash("sha256").update(transaction.verifier).digest("base64url"),
-		);
+		const expectedChallenge = createHash("sha256").update(transaction.verifier).digest("base64url");
 
 		expect(Object.fromEntries(url.searchParams)).toMatchObject({
 			response_type: "code",
@@ -76,7 +68,7 @@ describe("OIDC login", () => {
 			state: transaction.state,
 			nonce: transaction.nonce,
 			code_challenge_method: "S256",
-			code_challenge: pkceChallenge(transaction.verifier),
+			code_challenge: expectedChallenge,
 		});
 	});
 

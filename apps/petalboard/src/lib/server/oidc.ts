@@ -57,7 +57,7 @@ export function getOidcConfig() {
 	return config();
 }
 
-export function pkceChallenge(verifier: string): string {
+function pkceChallenge(verifier: string): string {
 	return createHash("sha256").update(verifier).digest("base64url");
 }
 
