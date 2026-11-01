@@ -13,10 +13,6 @@
 		(form?.type === "updateProfile" && form.values ? form.values : {}) as Record<string, string>,
 	);
 
-	const passwordErrors = $derived<Record<string, string[]>>(
-		(form?.type === "changePassword" && form.errors ? form.errors : {}) as Record<string, string[]>,
-	);
-
 	const deleteErrors = $derived<Record<string, string[]>>(
 		(form?.type === "deleteAccount" && form.errors ? form.errors : {}) as Record<string, string[]>,
 	);
@@ -85,85 +81,13 @@
 				{/if}
 			</label>
 
-			<label class="form-label">
-				<span>Email *</span>
-				<input
-					class="input-field"
-					type="email"
-					name="email"
-					value={profileValues.email ?? data.user.email}
-					required
-				/>
-				{#if profileErrors.email}
-					<small class="text-sm text-red-600">{profileErrors.email[0]}</small>
-				{/if}
-			</label>
+			<div class="form-label">
+				<span>Email</span>
+				<p class="input-field mb-0">{data.user.email}</p>
+				<small class="text-sm text-gray-600">Managed by PetalNet</small>
+			</div>
 
 			<button class="btn-primary" type="submit">Update Profile</button>
-		</form>
-	</section>
-
-	<!-- Change Password -->
-	<section class="card mb-6">
-		<h2 class="mb-6 flex items-center gap-2 text-2xl font-bold text-dark-800">
-			<span class="text-2xl">🔒</span>
-			Change Password
-		</h2>
-		<form
-			method="POST"
-			action="?/changePassword"
-			class="space-y-5"
-			use:enhance={() => {
-				return async ({ update, formElement }) => {
-					await update({ reset: false });
-					formElement.reset();
-				};
-			}}
-		>
-			<label class="form-label">
-				<span>Current Password *</span>
-				<input
-					class="input-field"
-					type="password"
-					name="currentPassword"
-					required
-					autocomplete="current-password"
-				/>
-				{#if passwordErrors.currentPassword}
-					<small class="text-sm text-red-600">{passwordErrors.currentPassword[0]}</small>
-				{/if}
-			</label>
-
-			<label class="form-label">
-				<span>New Password *</span>
-				<input
-					class="input-field"
-					type="password"
-					name="newPassword"
-					required
-					autocomplete="new-password"
-				/>
-				<small class="text-sm text-gray-600">Must be at least 8 characters</small>
-				{#if passwordErrors.newPassword}
-					<small class="text-sm text-red-600">{passwordErrors.newPassword[0]}</small>
-				{/if}
-			</label>
-
-			<label class="form-label">
-				<span>Confirm New Password *</span>
-				<input
-					class="input-field"
-					type="password"
-					name="confirmPassword"
-					required
-					autocomplete="new-password"
-				/>
-				{#if passwordErrors.confirmPassword}
-					<small class="text-sm text-red-600">{passwordErrors.confirmPassword[0]}</small>
-				{/if}
-			</label>
-
-			<button class="btn-primary" type="submit">Change Password</button>
 		</form>
 	</section>
 
@@ -183,24 +107,6 @@
 						day: "numeric",
 					})}</span
 				>
-			</div>
-			<div class="flex items-center justify-between border-b border-gray-200 py-3">
-				<span class="font-medium text-gray-600">Email Verified</span>
-				<span class="text-dark-800">
-					{#if data.user.emailVerified}
-						<span
-							class="inline-flex items-center gap-1.5 rounded-full bg-green-500/15 px-3 py-1.5 text-sm font-semibold text-green-700"
-						>
-							<span>✓</span> Verified
-						</span>
-					{:else}
-						<span
-							class="inline-flex items-center gap-1.5 rounded-full bg-yellow-500/15 px-3 py-1.5 text-sm font-semibold text-yellow-700"
-						>
-							<span>⏳</span> Pending
-						</span>
-					{/if}
-				</span>
 			</div>
 			<div class="flex items-center justify-between py-3">
 				<span class="font-medium text-gray-600">User ID</span>
@@ -348,16 +254,10 @@
 				</div>
 
 				<label class="form-label">
-					<span>Enter your password to confirm *</span>
-					<input
-						class="input-field"
-						type="password"
-						name="password"
-						required
-						autocomplete="current-password"
-					/>
-					{#if deleteErrors.password}
-						<small class="text-sm text-red-600">{deleteErrors.password[0]}</small>
+					<span>Enter your account email to confirm *</span>
+					<input class="input-field" type="email" name="email" required autocomplete="email" />
+					{#if deleteErrors.email}
+						<small class="text-sm text-red-600">{deleteErrors.email[0]}</small>
 					{/if}
 				</label>
 
