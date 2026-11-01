@@ -3,6 +3,7 @@
 	import { page } from "$app/stores";
 	import AddressInput from "$lib/components/AddressInput.svelte";
 	import PotluckConfigEditor from "$lib/components/PotluckConfigEditor.svelte";
+	import { partyLabel } from "$lib/guests";
 	import {
 		FRIENDSGIVING_POTLUCK,
 		parsePotluckAnswer,
@@ -404,6 +405,19 @@
 						min="0"
 						required
 					/>
+				</label>
+
+				<label class="form-label">
+					<span>Max +1s per RSVP</span>
+					<input
+						class="input-field"
+						type="number"
+						name="maxPlusOnes"
+						value={event.maxPlusOnes ?? ""}
+						min="0"
+						max="19"
+					/>
+					<small>Leave blank for no limit</small>
 				</label>
 
 				<label class="form-label">
@@ -942,13 +956,18 @@
 								<div class="mb-3 flex items-start gap-3">
 									<div class="flex-1">
 										<h3 class="mb-2 flex items-center gap-2 text-xl font-bold text-dark-800">
-											{rsvp.name}{#if rsvp.guestCount > 1}
+											{rsvp.name}{#if rsvp.guestCount > 1 && rsvp.guestNames.length === 0}
 												<span class="text-base font-normal text-gray-500"
 													>(+{rsvp.guestCount - 1} guest{rsvp.guestCount - 1 === 1
 														? ""
 														: "s"})</span
 												>{/if}
 										</h3>
+										{#if rsvp.guestNames.length > 0}
+											<p class="mb-2 text-sm text-gray-600">
+												With {partyLabel(rsvp.guestCount, rsvp.guestNames)}
+											</p>
+										{/if}
 										<div class="flex flex-wrap items-center gap-3">
 											{#if rsvp.status === "attending"}
 												<span

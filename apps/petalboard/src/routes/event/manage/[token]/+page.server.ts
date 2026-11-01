@@ -69,6 +69,7 @@ export const load = async ({ params, locals }) => {
 			timezone: true,
 			location: true,
 			rsvpLimit: true,
+			maxPlusOnes: true,
 			publicCode: true,
 			theme: true,
 			primaryColor: true,
@@ -105,6 +106,7 @@ export const load = async ({ params, locals }) => {
 					email: true,
 					status: true,
 					guestCount: true,
+					guests: { orderBy: { position: "asc" }, select: { name: true } },
 					createdAt: true,
 					responses: {
 						select: {
@@ -144,6 +146,7 @@ export const load = async ({ params, locals }) => {
 			timezone: event.timezone,
 			location: event.location,
 			rsvpLimit: event.rsvpLimit,
+			maxPlusOnes: event.maxPlusOnes,
 			publicCode: event.publicCode,
 			theme: event.theme,
 			primaryColor: event.primaryColor,
@@ -174,6 +177,7 @@ export const load = async ({ params, locals }) => {
 			email: rsvp.email,
 			status: rsvp.status,
 			guestCount: rsvp.guestCount,
+			guestNames: rsvp.guests.map((g) => g.name),
 			createdAt: rsvp.createdAt,
 			responses: rsvp.responses.map(
 				(r: { questionId: string; value: string; question: { label: string; type: string } }) => ({
@@ -213,7 +217,8 @@ export const actions = {
 		console.log("Parsed data:", parsed.data);
 		console.log("Parsed primary color:", parsed.data.primaryColor);
 
-		const { title, date, endDate, timezone, location, description, rsvpLimit } = parsed.data;
+		const { title, date, endDate, timezone, location, description, rsvpLimit, maxPlusOnes } =
+			parsed.data;
 
 		await prisma.event.update({
 			where: { id: eventId },
@@ -225,6 +230,7 @@ export const actions = {
 				location: location ?? null,
 				description: description ?? null,
 				rsvpLimit: rsvpLimit ?? null,
+				maxPlusOnes: maxPlusOnes ?? null,
 				primaryColor: parsed.data.primaryColor ?? null,
 				secondaryColor: parsed.data.secondaryColor ?? null,
 				backgroundImage: parsed.data.backgroundImage ?? null,

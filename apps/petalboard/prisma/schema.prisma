@@ -41,6 +41,7 @@ model Event {
   timezone     String     @default("America/New_York") // IANA timezone identifier
   location     String?
   rsvpLimit    Int?
+  maxPlusOnes  Int?
   publicCode   String     @unique
   manageToken  String     @unique
   spotifyPlaylistId String?
@@ -89,10 +90,22 @@ model Rsvp {
   responses   Response[]
   sessions    RsvpSession[]
   links       RsvpLink[]
+  guests      RsvpGuest[]
   createdAt   DateTime      @default(now())
   updatedAt   DateTime      @updatedAt
 
   @@unique([eventId, email])
+}
+
+// A named +1. guestCount is always 1 + guests, except RSVPs from before names: those keep a bare count.
+model RsvpGuest {
+  id       String @id @default(cuid())
+  name     String
+  position Int
+  rsvpId   String
+  rsvp     Rsvp   @relation(fields: [rsvpId], references: [id], onDelete: Cascade)
+
+  @@index([rsvpId])
 }
 
 // Long-lived browser cookie that lets one browser edit one RSVP.

@@ -2,10 +2,16 @@
 	import { enhance } from "$app/forms";
 	import { invalidateAll, replaceState } from "$app/navigation";
 	import { env } from "$env/dynamic/public";
+	import PlusOnesField, {
+		newPerson,
+		peopleFor,
+		type Person,
+	} from "$lib/components/PlusOnesField.svelte";
 	import PotluckField from "$lib/components/PotluckField.svelte";
 	import SpotifySongSelector from "$lib/components/SpotifySongSelector.svelte";
 	import { directionsUrl, headcount } from "$lib/eventDetails";
 	import { applyEventTheme, eventTheme, mixColors, withAlpha } from "$lib/eventTheme";
+	import { partyLabel } from "$lib/guests";
 	import { LIST_PREVIEW_SIZE, previewList } from "$lib/listPreview";
 	import { parsePotluckAnswer, slotStatuses, type PotluckView } from "$lib/potluck";
 	import { formatDate, formatShortDate } from "$lib/utils/format";
@@ -26,6 +32,20 @@
 
 	function toRsvpStatus(status: string): RsvpStatus {
 		return status === "maybe" || status === "not_attending" ? status : "attending";
+	}
+
+	function submittedGuestNames(data: unknown): string[] | null {
+		if (
+			typeof data !== "object" ||
+			data === null ||
+			!("guestNames" in data) ||
+			!Array.isArray(data.guestNames) ||
+			!data.guestNames.every((name) => typeof name === "string")
+		) {
+			return null;
+		}
+
+		return data.guestNames;
 	}
 
 	const { data, form }: { data: PageData; form: ActionData | null } = $props();
@@ -95,9 +115,9 @@
 	let editNameInput = $state<HTMLInputElement>();
 	let linkTrigger: HTMLElement | null = null;
 	let editingStatus = $state<RsvpStatus>("attending");
-	let editingGuestCount = $state(1);
+	let editingPeople = $state<Person[]>([]);
 	let newRsvpStatus = $state<RsvpStatus>("attending");
-	let newGuestCount = $state(1);
+	let newPeople = $state<Person[]>([]);
 	let showCancelConfirm = $state(false);
 	let submittingRsvp = $state(false);
 	const expandedLists = new SvelteSet<string>();
@@ -370,8 +390,20 @@
 		if (form?.type === "rsvp" && form.success) {
 			showRsvpModal = false;
 			newRsvpStatus = "attending";
-			newGuestCount = 1;
+			newPeople = [];
 			responses = {};
+		}
+	});
+
+	$effect(() => {
+		if (form?.type === "rsvp" && !form.success && form.guestNames) {
+			newPeople = form.guestNames.map((name) => newPerson(name));
+		}
+	});
+
+	$effect(() => {
+		if (form?.type === "rsvp" && !form.success && !form.alreadyRegistered) {
+			showRsvpModal = true;
 		}
 	});
 
@@ -381,14 +413,14 @@
 		showRsvpModal = true;
 		responses = {};
 		newRsvpStatus = "attending";
-		newGuestCount = 1;
+		newPeople = [];
 	}
 
 	function closeRsvpModal() {
 		showRsvpModal = false;
 		responses = {};
 		newRsvpStatus = "attending";
-		newGuestCount = 1;
+		newPeople = [];
 	}
 
 	async function openEditModal() {
@@ -399,7 +431,7 @@
 		editingRsvp = myRsvp;
 		responses = { ...myRsvp.responses };
 		editingStatus = toRsvpStatus(myRsvp.status);
-		editingGuestCount = myRsvp.guestCount;
+		editingPeople = peopleFor(myRsvp.guestCount, myRsvp.guestNames);
 		showEditModal = true;
 		await tick();
 		editNameInput?.focus();
@@ -410,7 +442,7 @@
 		showEditModal = false;
 		responses = {};
 		editingStatus = "attending";
-		editingGuestCount = 1;
+		editingPeople = [];
 	}
 
 	async function openLinkModal(trigger: HTMLElement) {
@@ -679,13 +711,18 @@
 								>
 									<div class="flex min-w-0 flex-1 flex-col gap-1">
 										<strong class="truncate text-sm text-dark-900 md:text-base"
-											>{rsvp.name}{#if rsvp.guestCount > 1}
+											>{rsvp.name}{#if rsvp.guestCount > 1 && rsvp.guestNames.length === 0}
 												<span class="font-normal text-dark-600"
 													>(+{rsvp.guestCount - 1} guest{rsvp.guestCount - 1 === 1
 														? ""
 														: "s"})</span
 												>{/if}</strong
 										>
+										{#if rsvp.guestNames.length > 0}
+											<span class="text-xs text-dark-600 md:text-sm"
+												>with {partyLabel(rsvp.guestCount, rsvp.guestNames)}</span
+											>
+										{/if}
 										{#if rsvp.email && isOwner}
 											<span class="truncate text-xs text-dark-700 md:text-sm">{rsvp.email}</span>
 										{/if}
@@ -738,13 +775,18 @@
 								>
 									<div class="flex min-w-0 flex-1 flex-col gap-1">
 										<strong class="truncate text-sm text-dark-900 md:text-base"
-											>{rsvp.name}{#if rsvp.guestCount > 1}
+											>{rsvp.name}{#if rsvp.guestCount > 1 && rsvp.guestNames.length === 0}
 												<span class="font-normal text-dark-600"
 													>(+{rsvp.guestCount - 1} guest{rsvp.guestCount - 1 === 1
 														? ""
 														: "s"})</span
 												>{/if}</strong
 										>
+										{#if rsvp.guestNames.length > 0}
+											<span class="text-xs text-dark-600 md:text-sm"
+												>with {partyLabel(rsvp.guestCount, rsvp.guestNames)}</span
+											>
+										{/if}
 										{#if rsvp.email && isOwner}
 											<span class="truncate text-xs text-dark-700 md:text-sm">{rsvp.email}</span>
 										{/if}
@@ -797,13 +839,18 @@
 								>
 									<div class="flex min-w-0 flex-1 flex-col gap-1">
 										<strong class="truncate text-sm text-dark-900 md:text-base"
-											>{rsvp.name}{#if rsvp.guestCount > 1}
+											>{rsvp.name}{#if rsvp.guestCount > 1 && rsvp.guestNames.length === 0}
 												<span class="font-normal text-dark-600"
 													>(+{rsvp.guestCount - 1} guest{rsvp.guestCount - 1 === 1
 														? ""
 														: "s"})</span
 												>{/if}</strong
 										>
+										{#if rsvp.guestNames.length > 0}
+											<span class="text-xs text-dark-600 md:text-sm"
+												>with {partyLabel(rsvp.guestCount, rsvp.guestNames)}</span
+											>
+										{/if}
 										{#if rsvp.email && isOwner}
 											<span class="truncate text-xs text-dark-700 md:text-sm">{rsvp.email}</span>
 										{/if}
@@ -1483,20 +1530,9 @@
 					<span class="text-dark-700">{editingRsvp.email}</span>
 				</p>
 
-				<label class="form-label">
-					<span>How many guests (including yourself)?</span>
-					<input
-						class="input-field"
-						name="guestCount"
-						type="number"
-						min="1"
-						max="20"
-						value={editingGuestCount}
-						oninput={(e) =>
-							(editingGuestCount = Math.min(20, Math.max(1, Number(e.currentTarget.value) || 1)))}
-					/>
-					<small class="text-sm text-gray-600">Enter 1 if it's just you.</small>
-				</label>
+				{#if editingStatus !== "not_attending"}
+					<PlusOnesField bind:people={editingPeople} maxPlusOnes={event.maxPlusOnes} />
+				{/if}
 
 				<div class="status-section">
 					<span class="status-label">Response status *</span>
@@ -1540,7 +1576,6 @@
 
 				{#if event.questions.length > 0 && (editingStatus === "attending" || editingStatus === "maybe")}
 					<div class="questions-section">
-						<h3>Questions</h3>
 						<div class="question-list">
 							{#each event.questions as question}
 								{#if question.type === "text"}
@@ -1633,14 +1668,12 @@
 									<PotluckField
 										questionId={question.id}
 										label={question.label}
-										description={question.description}
 										required={question.required}
 										view={potluckViews[question.id]}
 										value={responses[question.id] ?? ""}
 										ownAnswer={editingRsvp.status === "not_attending"
 											? null
 											: parsePotluckAnswer(editingRsvp.responses?.[question.id])}
-										accentStyle={`background-color: ${primaryColors[100]}; color: ${primaryColors[800]};`}
 										offeredOverride={offeredAfterRejection("updateRsvp", question.id)}
 										onchange={(raw) => (responses[question.id] = raw)}
 									/>
@@ -1652,14 +1685,10 @@
 										{/if}
 										{#if question.songsPerUser}
 											<small class="mb-2 block text-sm text-gray-600">
-												You can add up to {question.songsPerUser} song{question.songsPerUser === 1
-													? ""
-													: "s"}.
+												Up to {question.songsPerUser} song{question.songsPerUser === 1 ? "" : "s"}.
 											</small>
 										{:else}
-											<small class="mb-2 block text-sm text-gray-600"
-												>Add as many songs as you'd like.</small
-											>
+											<small class="mb-2 block text-sm text-gray-600">Add songs you love.</small>
 										{/if}
 										<SpotifySongSelector
 											name="response_{question.id}"
@@ -1789,11 +1818,20 @@
 
 							showRsvpModal = false;
 							responses = {};
-							newGuestCount = 1;
+							newPeople = [];
 						}
 
 						if (result.type === "failure" && result.data?.alreadyRegistered) {
 							showRsvpModal = false;
+						}
+
+						const failedGuestNames =
+							result.type === "failure" && result.data?.type === "rsvp"
+								? submittedGuestNames(result.data)
+								: null;
+
+						if (failedGuestNames) {
+							newPeople = failedGuestNames.map((name) => newPerson(name));
 						}
 
 						await update();
@@ -1831,31 +1869,19 @@
 						autocomplete="email"
 						placeholder="you@example.com"
 					/>
-					<small class="text-sm text-gray-600"
-						>We'll email you a link to edit your RSVP later. No password needed.</small
-					>
+					<small class="text-sm text-gray-600">We'll email your edit link.</small>
 					{#if errors.email}
 						<small class="text-sm text-red-600">{errors.email[0]}</small>
 					{/if}
 				</label>
 
-				<label class="form-label">
-					<span>How many guests (including yourself)?</span>
-					<input
-						class="input-field"
-						name="guestCount"
-						type="number"
-						min="1"
-						max="20"
-						value={newGuestCount}
-						oninput={(e) =>
-							(newGuestCount = Math.min(20, Math.max(1, Number(e.currentTarget.value) || 1)))}
+				{#if newRsvpStatus !== "not_attending"}
+					<PlusOnesField
+						bind:people={newPeople}
+						error={errors.guestNames?.[0]}
+						maxPlusOnes={event.maxPlusOnes}
 					/>
-					<small class="text-sm text-gray-600">Enter 1 if it's just you.</small>
-					{#if errors.guestCount}
-						<small class="text-sm text-red-600">{errors.guestCount[0]}</small>
-					{/if}
-				</label>
+				{/if}
 
 				<div class="status-section">
 					<span class="status-label">Response status *</span>
@@ -1899,8 +1925,6 @@
 
 				{#if event.questions.length > 0 && (newRsvpStatus === "attending" || newRsvpStatus === "maybe")}
 					<div class="questions-section">
-						<h3>Questions</h3>
-
 						<div class="question-list">
 							{#each event.questions as question}
 								{@const isFull = Boolean(
@@ -2026,11 +2050,9 @@
 									<PotluckField
 										questionId={question.id}
 										label={question.label}
-										description={question.description}
 										required={question.required}
 										view={potluckViews[question.id]}
 										value={responses[question.id] ?? ""}
-										accentStyle={`background-color: ${primaryColors[100]}; color: ${primaryColors[800]};`}
 										offeredOverride={offeredAfterRejection("rsvp", question.id)}
 										onchange={(raw) => (responses[question.id] = raw)}
 									/>
@@ -2047,14 +2069,10 @@
 										{/if}
 										{#if question.songsPerUser}
 											<small class="mb-2 block text-sm text-gray-600">
-												You can add up to {question.songsPerUser} song{question.songsPerUser === 1
-													? ""
-													: "s"}.
+												Up to {question.songsPerUser} song{question.songsPerUser === 1 ? "" : "s"}.
 											</small>
 										{:else}
-											<small class="mb-2 block text-sm text-gray-600"
-												>Add as many songs as you'd like.</small
-											>
+											<small class="mb-2 block text-sm text-gray-600">Add songs you love.</small>
 										{/if}
 										<SpotifySongSelector
 											name="response_{question.id}"

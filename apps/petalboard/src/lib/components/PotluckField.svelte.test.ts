@@ -1,7 +1,7 @@
 // @vitest-environment happy-dom
 import { FRIENDSGIVING_POTLUCK, type PotluckView } from "$lib/potluck";
-import { flushSync, mount, unmount } from "svelte";
-import { afterEach, describe, expect, it } from "vitest";
+import { flushSync, mount, tick, unmount } from "svelte";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import PotluckField from "./PotluckField.svelte";
 
@@ -13,16 +13,23 @@ const view: PotluckView = {
 
 let cleanup: (() => void) | undefined;
 
+beforeEach(() => {
+	vi.stubGlobal("matchMedia", () => ({ matches: true }));
+});
+
 afterEach(() => {
 	cleanup?.();
 	cleanup = undefined;
+	vi.unstubAllGlobals();
 });
 
-function render(required: boolean, value: string) {
+function render(required = false, value = "") {
+	const form = document.createElement("form");
 	const target = document.createElement("div");
 	let latest = value;
 
-	document.body.append(target);
+	form.append(target);
+	document.body.append(form);
 
 	const component = mount(PotluckField, {
 		target,
@@ -38,30 +45,89 @@ function render(required: boolean, value: string) {
 
 	cleanup = () => {
 		void unmount(component);
-		target.remove();
+		form.remove();
 	};
 
 	flushSync();
 
-	const optOut = [...target.querySelectorAll("label")].find(
-		(l) => l.textContent.trim() === "Not bringing a dish",
-	);
-
 	return {
-		optOut,
-		hidden: () => target.querySelector<HTMLInputElement>('input[name="response_q1"]')?.value,
+		form,
+		target,
 		dish: () => target.querySelector<HTMLInputElement>('input[type="text"]'),
+		hidden: () => target.querySelector<HTMLInputElement>('input[name="response_q1"]')?.value,
 		latest: () => latest,
+		radio: (radioValue: string) =>
+			target.querySelector<HTMLInputElement>(`input[type="radio"][value="${radioValue}"]`),
 	};
 }
 
 describe("PotluckField", () => {
-	it("lets a guest withdraw a dish from an optional question", () => {
+	it("uses a labelled native radiogroup and keeps the dish hidden before a choice", () => {
+		const field = render();
+
+		expect(field.target.querySelector('[role="radiogroup"]')?.getAttribute("aria-label")).toBe(
+			"What dish will you be bringing?",
+		);
+
+		expect(field.radio("sides")).not.toBeNull();
+		expect(field.dish()).toBeNull();
+		expect(field.target.querySelectorAll("button")).toHaveLength(0);
+	});
+
+	it("reveals and focuses the dish input after a category is picked", async () => {
+		const field = render();
+
+		field.radio("sides")?.click();
+		await tick();
+		flushSync();
+
+		expect(field.dish()).toBe(document.activeElement);
+		expect(field.dish()?.placeholder).toBe("e.g. mashed potatoes, hash-brown casserole");
+		expect(field.hidden()).toBe("");
+	});
+
+	it("keeps a typed dish when the category changes", async () => {
+		const field = render();
+
+		field.radio("sides")?.click();
+		await tick();
+		const dish = field.dish();
+
+		if (!dish) {
+			throw new Error("dish input missing");
+		}
+
+		dish.value = "stuffing";
+		dish.dispatchEvent(new Event("input"));
+		flushSync();
+		field.radio("drinks")?.click();
+		await tick();
+		flushSync();
+
+		expect(field.dish()?.value).toBe("stuffing");
+		expect(field.latest()).toBe(JSON.stringify({ category: "drinks", dish: "stuffing" }));
+	});
+
+	it("updates the compact category counts with the in-progress choice", async () => {
+		const field = render();
+		const count = (value: string) => field.radio(value)?.closest("label")?.querySelector("small");
+
+		expect(count("sides")?.textContent).toBe("0");
+		field.radio("sides")?.click();
+		await tick();
+		flushSync();
+		expect(count("sides")?.textContent).toBe("1");
+		field.radio("drinks")?.click();
+		await tick();
+		flushSync();
+		expect(count("sides")?.textContent).toBe("0");
+		expect(count("drinks")?.textContent).toBe("1");
+	});
+
+	it("lets an optional RSVP withdraw a dish", () => {
 		const field = render(false, JSON.stringify({ category: "sides", dish: "stuffing" }));
 
-		expect(field.hidden()).toBe(JSON.stringify({ category: "sides", dish: "stuffing" }));
-		expect(field.optOut).toBeDefined();
-		field.optOut?.querySelector("input")?.click();
+		field.radio("")?.click();
 		flushSync();
 
 		expect(field.hidden()).toBe("");
@@ -69,30 +135,14 @@ describe("PotluckField", () => {
 		expect(field.dish()).toBeNull();
 	});
 
-	it("does not mark the opt-out when no category is picked yet", () => {
-		const field = render(false, "");
+	it("does not offer an opt-out for a required question", () => {
+		const field = render(true);
 
-		expect(field.optOut?.querySelector("input")?.checked).toBe(false);
-		expect(field.dish()?.checkValidity()).toBe(true);
-	});
+		expect(field.radio("")).toBeNull();
+		expect(field.form.checkValidity()).toBe(false);
 
-	it("blocks a typed dish that has no category, so it is never silently dropped", () => {
-		const field = render(false, "");
-		const input = field.dish();
-
-		if (!input) {
-			throw new Error("dish input missing");
-		}
-
-		input.value = "cornbread";
-		input.dispatchEvent(new Event("input"));
-		flushSync();
-
-		expect(input.checkValidity()).toBe(false);
-		expect(field.hidden()).toBe("");
-	});
-
-	it("offers no opt-out when the host made the question required", () => {
-		expect(render(true, "").optOut).toBeUndefined();
+		expect(field.target.querySelector<HTMLInputElement>('input[type="radio"]')?.required).toBe(
+			true,
+		);
 	});
 });

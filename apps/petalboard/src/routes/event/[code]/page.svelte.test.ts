@@ -48,6 +48,7 @@ function rsvp(name: string, status: string): Rsvp {
 		email: null,
 		status,
 		guestCount: 1,
+		guestNames: [],
 		createdAt: new Date("2026-10-01T12:00:00Z"),
 		responses: [],
 	};
@@ -81,6 +82,7 @@ const avery: NonNullable<PageData["myRsvp"]> = {
 	email: "avery@example.test",
 	status: "attending",
 	guestCount: 1,
+	guestNames: [],
 	responses: {},
 };
 
@@ -104,6 +106,7 @@ function pageData(myRsvp: PageData["myRsvp"] = null): PageData {
 			location: null,
 			publicCode: "CODE1234",
 			rsvpLimit: null,
+			maxPlusOnes: null,
 			rsvpCount: rsvps.length,
 			totalGuests: rsvps.length,
 			theme: "light",
@@ -353,13 +356,41 @@ describe("event page dialogs", () => {
 			action,
 			formData: new FormData(form),
 			formElement: form,
-			result: { type: "failure", status: 400, data: { type: "rsvp", message: "Try again" } },
+			result: {
+				type: "failure",
+				status: 400,
+				data: { type: "rsvp", message: "Try again", guestNames: ["Sam", "Alex"] },
+			},
 			update: async () => undefined,
 		});
 
 		flushSync();
 
 		expect(button(target, "Confirm RSVP").disabled).toBe(false);
+
+		expect(
+			[...target.querySelectorAll<HTMLInputElement>('input[name="guestName"]')].map(
+				(input) => input.value,
+			),
+		).toEqual(["Sam", "Alex"]);
+	});
+
+	it("rehydrates people after a failed non-enhanced RSVP", () => {
+		const target = render({
+			type: "rsvp",
+			success: false,
+			values: { name: "Avery", email: "avery@example.test" },
+			errors: { guestNames: ["Give each person you add a name, or remove them"] },
+			guestNames: ["Sam", ""],
+		});
+
+		expect(target.querySelector('[aria-labelledby="create-rsvp-title"]')).not.toBeNull();
+
+		expect(
+			[...target.querySelectorAll<HTMLInputElement>('input[name="guestName"]')].map(
+				(input) => input.value,
+			),
+		).toEqual(["Sam", ""]);
 	});
 
 	it("shows a labelled pencil only on this browser's own RSVP", () => {

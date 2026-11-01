@@ -149,6 +149,22 @@
 	</label>
 
 	<label class="form-label text-dark-800">
+		<span>Max +1s per RSVP</span>
+		<input
+			type="number"
+			name="maxPlusOnes"
+			min="0"
+			max="19"
+			value={values.maxPlusOnes ?? ""}
+			class="font-inherit focus:ring-primary-700/18 rounded-xl border border-primary-700/25 bg-white/90 px-4 py-3 focus:border-primary-700 focus:outline-none focus:ring-4"
+		/>
+		<small class="text-sm text-gray-600">Leave blank for no limit</small>
+		{#if errors.maxPlusOnes}
+			<small class="text-red-600">{errors.maxPlusOnes[0]}</small>
+		{/if}
+	</label>
+
+	<label class="form-label text-dark-800">
 		<span>Location</span>
 		<AddressInput bind:value={locationValue} error={errors.location?.[0]} />
 	</label>
