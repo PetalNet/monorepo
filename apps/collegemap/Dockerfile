@@ -6,7 +6,7 @@
 # pnpm-lock.yaml must be in the context for install to resolve anything.
 
 # Stage 1: Build
-FROM node:24-alpine@sha256:a0b9bf06e4e6193cf7a0f58816cc935ff8c2a908f81e6f1a95432d679c54fbfd AS build
+FROM node:26-alpine@sha256:c6ad9e9c1d80f6eb607c26b4b0a132ff7a2344fad1c78ea3baa2a7d4c8de6d94 AS build
 
 # Pinned to the root package.json `packageManager` field, not @latest.
 RUN corepack enable && corepack prepare pnpm@11.11.0 --activate
@@ -45,7 +45,7 @@ RUN pnpm deploy --filter=@petalnet/collegemap --prod --config.inject-workspace-p
 RUN node apps/collegemap/docker/resolve-runtime-manifest.ts /out /repo/apps/collegemap/node_modules
 
 # Stage 2: Runtime
-FROM node:24-alpine@sha256:a0b9bf06e4e6193cf7a0f58816cc935ff8c2a908f81e6f1a95432d679c54fbfd
+FROM node:26-alpine@sha256:c6ad9e9c1d80f6eb607c26b4b0a132ff7a2344fad1c78ea3baa2a7d4c8de6d94
 
 WORKDIR /app
 
