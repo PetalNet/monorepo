@@ -56,7 +56,7 @@
 		},
 		{
 			"matchUpdateTypes": ["minor"],
-			"matchCurrentVersion": "!/^v?0\\./",
+			"matchCurrentVersion": "!/^[~^]?v?0\\./",
 			"automerge": true
 		},
 		{
