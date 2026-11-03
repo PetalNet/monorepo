@@ -107,13 +107,13 @@ catalogs:
     drizzle-kit: ^0.31.8
     eslint: ^10.4.1
     # Keep the ESLint compatibility rules aligned with standalone Oxlint.
-    eslint-plugin-oxlint: 1.87.0
+    eslint-plugin-oxlint: 1.90.0
     eslint-plugin-package-json: ^1.2.0
     happy-dom: ^21.0.1
     impeccable: ^4.5.2
     knip: ^6.31.0
-    oxfmt: 0.61.0
-    oxlint: 1.87.0
+    oxfmt: 0.75.0
+    oxlint: 1.90.0
     oxlint-tsgolint: 7.0.2003
     postcss: ^8.4.49
     prisma: ^5.22.0
