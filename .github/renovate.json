@@ -16,6 +16,7 @@
 	"minimumReleaseAge": "7 days",
 	"labels": ["dependencies"],
 	"automergeStrategy": "squash",
+	"rebaseWhen": "behind-base-branch",
 	"packageRules": [
 		{
 			"matchPackageNames": ["/eslint/"],
@@ -24,7 +25,6 @@
 		{
 			"matchPackageNames": [
 				"vite",
-				"vitest",
 				"oxfmt",
 				"oxlint",
 				"eslint-plugin-oxlint",
@@ -32,6 +32,32 @@
 				"/^oxc-/"
 			],
 			"groupName": "voidzero"
+		},
+		{
+			"matchPackageNames": ["vitest", "/^@vitest\\//"],
+			"groupName": "vitest"
+		},
+		{
+			"matchPackageNames": [
+				"effect",
+				"/^@effect\\//",
+				"oxlint-tsgolint",
+				"/^@oxlint-tsgolint\\//"
+			],
+			"groupName": "effect"
+		},
+		{
+			"matchPackageNames": ["drizzle-orm", "drizzle-kit"],
+			"groupName": "drizzle"
+		},
+		{
+			"matchPackageNames": ["/^openmls/"],
+			"groupName": "openmls"
+		},
+		{
+			"matchUpdateTypes": ["minor"],
+			"matchCurrentVersion": "!/^v?0\\./",
+			"automerge": true
 		},
 		{
 			"matchPackageNames": ["/^tailwindcss/", "/^@tailwindcss//", "daisyui"],
