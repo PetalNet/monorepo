@@ -689,6 +689,7 @@ vi.mock("node:fs", async (importOriginal) => ({
 	statfsSync: () => ({ bavail: 40 * 1024 ** 3, bsize: 1 }),
 }));
 
+// Three cold `node src/cli.ts` spawns: ~1-3s on an idle runner, 5-7s on a loaded one.
 it("the built-in fetch hook allows saved sources and denies unavailable ones", async () => {
 	const cite = setup(pdfTransport);
 
@@ -730,7 +731,7 @@ it("the built-in fetch hook allows saved sources and denies unavailable ones", a
 	});
 
 	expect(invalid.status).toBe(2);
-});
+}, 30_000);
 
 it("uses arXiv citation metadata and saves the metadata artifact with the PDF", async () => {
 	const cite = setup((url) =>
