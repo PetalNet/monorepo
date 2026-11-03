@@ -35,7 +35,7 @@ matrix-sdk = { version = "0.14", default-features = false, features = [
 ] }
 mime = "0.3"
 regex = "1"
-reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls"] }
+reqwest = { version = "0.13", default-features = false, features = ["json", "rustls-tls"] }
 rpassword = "7"
 # Matrix SDK 0.14 fixes rusqlite to 0.37; Cargo permits one sqlite3 links version.
 rusqlite = { version = "0.37", features = ["bundled"] }
