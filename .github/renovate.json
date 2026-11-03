@@ -23,7 +23,6 @@
 		{
 			"matchPackageNames": [
 				"vite",
-				"vitest",
 				"oxfmt",
 				"oxlint",
 				"eslint-plugin-oxlint",
@@ -31,6 +30,22 @@
 				"/^oxc-/"
 			],
 			"groupName": "voidzero"
+		},
+		{
+			"matchPackageNames": ["vitest", "/^@vitest\\//"],
+			"groupName": "vitest"
+		},
+		{
+			"matchPackageNames": ["effect", "/^@effect\\//", "oxlint-tsgolint", "/^@oxlint-tsgolint\\//"],
+			"groupName": "effect"
+		},
+		{
+			"matchPackageNames": ["drizzle-orm", "drizzle-kit"],
+			"groupName": "drizzle"
+		},
+		{
+			"matchPackageNames": ["/^openmls/"],
+			"groupName": "openmls"
 		},
 		{
 			"matchPackageNames": ["/^tailwindcss/", "/^@tailwindcss//", "daisyui"],
