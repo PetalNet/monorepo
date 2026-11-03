@@ -6,7 +6,7 @@
 		"preview:dockerVersions",
 		":automergeDigest",
 		":automergeLinters",
-		":automergePatch",
+		":automergeMinor",
 		":disableRateLimiting",
 		":pinAllExceptPeerDependencies",
 		":preserveSemverRanges",
@@ -25,6 +25,7 @@
 		{
 			"matchPackageNames": [
 				"vite",
+				"vitest",
 				"oxfmt",
 				"oxlint",
 				"eslint-plugin-oxlint",
@@ -32,32 +33,6 @@
 				"/^oxc-/"
 			],
 			"groupName": "voidzero"
-		},
-		{
-			"matchPackageNames": ["vitest", "/^@vitest\\//"],
-			"groupName": "vitest"
-		},
-		{
-			"matchPackageNames": [
-				"effect",
-				"/^@effect\\//",
-				"oxlint-tsgolint",
-				"/^@oxlint-tsgolint\\//"
-			],
-			"groupName": "effect"
-		},
-		{
-			"matchPackageNames": ["drizzle-orm", "drizzle-kit"],
-			"groupName": "drizzle"
-		},
-		{
-			"matchPackageNames": ["/^openmls/"],
-			"groupName": "openmls"
-		},
-		{
-			"matchUpdateTypes": ["minor"],
-			"matchCurrentVersion": "!/^[~^]?v?0\\./",
-			"automerge": true
 		},
 		{
 			"matchPackageNames": ["/^tailwindcss/", "/^@tailwindcss//", "daisyui"],
