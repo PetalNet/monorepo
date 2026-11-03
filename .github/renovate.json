@@ -4,7 +4,7 @@
 		"config:best-practices",
 		"preview:dockerCompose",
 		"preview:dockerVersions",
-		":automerge",
+		":automergeAll",
 		":disableRateLimiting",
 		":pinAllExceptPeerDependencies",
 		":preserveSemverRanges",
