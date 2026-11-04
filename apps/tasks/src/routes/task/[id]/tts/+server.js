@@ -116,9 +116,11 @@ export async function POST({ request, params, locals }) {
 	}
 
 	const voice = resolveVoice(String(pick || "default").toLowerCase());
+
 	if (!voice) {
 		return json({ error: "no-tts-voice" }, { status: 503 });
 	}
+
 	// Bound the upstream call — a stalled ElevenLabs request shouldn't tie up the process
 	// (or complete a billable request) indefinitely.
 	const r = await fetch(`https://api.elevenlabs.io/v1/text-to-speech/${voice}`, {

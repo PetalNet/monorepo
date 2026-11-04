@@ -6,6 +6,8 @@ import remarkParse from "remark-parse";
 import remarkRehype from "remark-rehype";
 import { unified } from "unified";
 
+import { tasksConfig } from "./config.js";
+
 // Markdown -> SANITIZED HTML for {@html}. Bodies come from the web form, the MCP
 // tools, and the import sync mirror — all untrusted — and tasks sits behind shared
 // SSO, so unsanitized HTML was a stored-XSS hole.
@@ -27,12 +29,10 @@ import { unified } from "unified";
 // inert span (visually marked, not a dead link). Flip FLEET_ROUTE_EXISTS when the
 // /fleet/[handle] route lands and the same code starts emitting real links.
 const FLEET_AGENTS = new Set([
-	"agent-b",
-	"claude",
-	"agent-c",
-	"agent-a",
-	"agent-e",
-	"agent-d",
+	...Object.entries(tasksConfig.people)
+		.filter(([, person]) => person.kind === "agent")
+		.map(([handle]) => handle.toLowerCase()),
+	...tasksConfig.fleet.agents.map((agent) => agent.handle.toLowerCase()),
 	"import",
 ]);
 const FLEET_ROUTE_EXISTS = false;

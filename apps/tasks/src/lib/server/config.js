@@ -40,6 +40,7 @@ function readConfig() {
 	}
 
 	let raw;
+
 	try {
 		raw = JSON.parse(readFileSync(path, "utf8"));
 	} catch (error) {
@@ -47,6 +48,7 @@ function readConfig() {
 	}
 
 	const parsed = schema.safeParse(raw);
+
 	if (!parsed.success) {
 		throw new Error(
 			`Invalid TASKS_CONFIG at ${path}: ${parsed.error.issues.map((i) => i.message).join("; ")}`,

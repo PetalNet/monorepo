@@ -1,3 +1,5 @@
+import { tasksConfig } from "$lib/server/config.js";
+
 // Identity + access gate. Behind Authentik forward-auth, traefik injects X-authentik-username.
 // ALLOW (Authentik usernames) is the access list. With ALLOW set (production) we FAIL CLOSED:
 // a missing/unknown header is rejected, never silently treated as the 'dev' identity. The
@@ -30,7 +32,7 @@ export async function handle({ event, resolve }) {
 	if (ALLOW.length > 0 && !isPublicShare(event.url.pathname) && !isAgentApi(event.url.pathname)) {
 		// production: require a valid Authentik identity (fail closed — was fail-open via 'dev')
 		if (!user || !ALLOW.includes(user)) {
-			return new Response("Private tracker — ask an operator for access.", {
+			return new Response(tasksConfig.accessMessage ?? "Access denied.", {
 				status: 403,
 				headers: { "content-type": "text/plain" },
 			});

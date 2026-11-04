@@ -9,8 +9,10 @@ let people = {};
 
 export function setPeople(entries = {}) {
 	people = {};
+
 	for (const [handle, entry] of Object.entries(entries)) {
 		people[handle.toLowerCase()] = entry;
+
 		for (const alias of entry.aliases || []) {
 			people[alias.toLowerCase()] = entry;
 		}

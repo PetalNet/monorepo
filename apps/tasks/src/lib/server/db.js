@@ -1166,6 +1166,7 @@ export function ensureProject(name, backend = "local_private", opts = {}) {
 // lands in a single, sane catch-all project so nothing goes truly orphaned. Lazily
 // created on first use; safe/reversible (just another shared project).
 const DEFAULT_PROJECT = "inbox";
+
 export const defaultProjectId = () => ensureProject(DEFAULT_PROJECT);
 
 export function createTask(t) {
@@ -2034,8 +2035,7 @@ export function cockpitData(me, { workingAgents = 0 } = {}) {
 		.all(meArgs);
 	const byDay = new Map(closeRows.map((r) => [r.day, r.n]));
 	// Build the 14 day-keys in the SAME local zone so they match the SQL local-date buckets.
-	const localDay = (ms) =>
-		new Date(ms).toLocaleDateString("en-CA", { timeZone: "process timezone" });
+	const localDay = (ms) => new Date(ms).toLocaleDateString("en-CA");
 	const series = [];
 
 	for (let i = 13; i >= 0; i--) {

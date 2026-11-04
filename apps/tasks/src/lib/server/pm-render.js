@@ -1,3 +1,5 @@
+import { tasksConfig } from "./config.js";
+
 // ── ProseMark read-view renderer ───────────────────────────────────────────
 // Renders a task body to HTML that lays out LINE-FOR-LINE like the ProseMark /
 // CodeMirror editor (src/lib/ProseMark.svelte), so flipping read↔edit doesn't
@@ -35,12 +37,10 @@ function esc(s) {
 // Same routing + same fixed class names so the read view matches the prior
 // rehype-based render. Returns an HTML string; the visible text is esc()'d.
 const FLEET_AGENTS = new Set([
-	"agent-b",
-	"claude",
-	"agent-c",
-	"agent-a",
-	"agent-e",
-	"agent-d",
+	...Object.entries(tasksConfig.people)
+		.filter(([, person]) => person.kind === "agent")
+		.map(([handle]) => handle.toLowerCase()),
+	...tasksConfig.fleet.agents.map((agent) => agent.handle.toLowerCase()),
 	"import",
 ]);
 const FLEET_ROUTE_EXISTS = false;

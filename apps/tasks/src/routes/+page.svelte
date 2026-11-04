@@ -159,7 +159,7 @@
 		}
 
 		const today = new Date().toLocaleDateString("en-CA");
-		const yest = new Date(Date.now() - 864e5).toLocaleDateString("en-CA", {});
+		const yest = new Date(Date.now() - 864e5).toLocaleDateString("en-CA");
 
 		if (day === today) {
 			return "today";

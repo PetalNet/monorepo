@@ -53,10 +53,7 @@
 	// ── per-person colours (single-sourced from $lib/people; this page's falsy-handle
 	//    fallback is '#94a3b8') ───────────────────────────────────────────────
 	const whoColor = (h) => whoColorBase(h, "#94a3b8");
-	const isAgent = (h) =>
-		["claude", "agent-b", "agent-a", "agent-c", "agent-d", "agent-e"].includes(
-			String(h).toLowerCase(),
-		);
+	const isAgent = (h) => data.config.people[String(h).toLowerCase()]?.kind === "agent";
 
 	const g = $derived(data.counts.global);
 	const cFor = (agent) =>
