@@ -1,7 +1,7 @@
 <script lang="ts">
 	import { goto } from "$app/navigation";
 	import { resolve } from "$app/paths";
-	import type { Template, TemplateCategory } from "$lib/doc";
+	import { dotsToMm, type Template, type TemplateCategory } from "$lib/doc";
 	import { editor } from "$lib/editor/editor.svelte";
 	import { resolveVars, sampleVars } from "$lib/editor/persist";
 	import Banner from "$lib/ui/Banner.svelte";
@@ -11,8 +11,10 @@
 	import IconButton from "$lib/ui/IconButton.svelte";
 	import Sheet from "$lib/ui/Sheet.svelte";
 	import Skeleton from "$lib/ui/Skeleton.svelte";
+	import { tapeMmActual } from "$lib/ui/tape";
 	import TapeLabel from "$lib/ui/TapeLabel.svelte";
 	import { templates } from "$lib/ui/templates.svelte";
+	import { formatMm } from "$lib/ui/words";
 	import { Copy, FilePlusCorner, Search, Trash2 } from "@lucide/svelte";
 
 	let filter = $state<TemplateCategory | "all">("all");
@@ -21,6 +23,10 @@
 	let confirmDelete = $state(false);
 	let busy = $state<string | null>(null);
 	let failure = $state<string | null>(null);
+	/** Rendered length per template id, in dots, reported by each thumbnail. */
+	let lengths = $state<Partial<Record<string, number>>>({});
+	/** Thumbnail stage width per template id, so each label fills its card at true proportion. */
+	let stageWidths = $state<Record<string, number>>({});
 
 	void templates.refresh();
 
@@ -137,11 +143,12 @@
 		</Banner>
 	{:else if templates.load.kind !== "ready"}
 		<div class="grid">
-			{#each { length: 8 }, index (index)}
+			{#each { length: 12 }, index (index)}
 				<div class="card skeleton">
-					<div class="stage"><Skeleton width="70%" height="44px" /></div>
+					<div class="stage"><Skeleton width="80%" height="28px" /></div>
 					<div class="meta">
-						<Skeleton width="50%" height="14px" /><Skeleton width="80%" height="12px" />
+						<Skeleton width="60%" height="14px" /><Skeleton width="90%" height="12px" />
+						<Skeleton width="40%" height="12px" />
 					</div>
 				</div>
 			{/each}
@@ -168,6 +175,7 @@
 				<h2>{group.name}</h2>
 				<div class="grid">
 					{#each group.templates as template (template.id)}
+						{@const length = lengths[template.id]}
 						<article class="card" id={template.id}>
 							<button
 								class="hit"
@@ -175,29 +183,32 @@
 								onclick={() => open(template)}
 								aria-label="Use {template.name}"
 							></button>
-							<div class="stage">
+							<div class="stage" bind:clientWidth={stageWidths[template.id]}>
 								<TapeLabel
 									doc={template.doc}
 									vars={resolveVars(template.fields, sampleVars(template.fields))}
-									maxWidth={248}
-									maxHeight={64}
+									maxWidth={Math.max(0, (stageWidths[template.id] ?? 160) - 24)}
+									maxHeight={52}
+									dimension={false}
 									lazy
+									onlength={(dots: number) => {
+										if (lengths[template.id] !== dots) {
+											lengths[template.id] = dots;
+										}
+									}}
 								/>
 							</div>
 							<div class="meta">
 								<h3>{template.name}</h3>
-								<p>{template.description}</p>
+								<p title={template.description}>{template.description}</p>
 								<div class="foot">
 									<span class="num">
-										{template.fields.length === 0
-											? "No fields"
-											: `${String(template.fields.length)} ${template.fields.length === 1 ? "field" : "fields"}`}
-										<span class="sep">·</span>
-										{template.doc.tapeMm === 4 ? "3.5" : template.doc.tapeMm} mm
+										{tapeMmActual(template.doc.tapeMm)} × {length === undefined
+											? "…"
+											: formatMm(dotsToMm(length))} mm
 									</span>
 									<div class="actions">
 										{#if template.builtin}
-											<span class="tag">Built-in</span>
 											<IconButton
 												label="Duplicate to edit"
 												disabled={busy === template.id}
@@ -239,7 +250,7 @@
 <style>
 	.page {
 		display: grid;
-		gap: 20px;
+		gap: 16px;
 		max-width: 1280px;
 		margin-inline: auto;
 		padding: 24px 24px 96px;
@@ -293,12 +304,17 @@
 		outline: none;
 	}
 
+	/* Categories stay in reach while 45 templates scroll under them. */
 	.chips {
+		position: sticky;
+		top: var(--bar-h);
+		z-index: 2;
 		display: flex;
 		gap: 6px;
 		margin-inline: -24px;
-		padding-inline: 24px;
+		padding: 8px 24px;
 		overflow-x: auto;
+		background: var(--ground);
 		scrollbar-width: none;
 	}
 
@@ -328,7 +344,8 @@
 
 	section {
 		display: grid;
-		gap: 12px;
+		gap: 10px;
+		scroll-margin-top: calc(var(--bar-h) + 56px);
 	}
 
 	h2 {
@@ -339,14 +356,15 @@
 
 	.grid {
 		display: grid;
-		grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
+		grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
 		gap: 12px;
 	}
 
 	.card {
 		position: relative;
 		display: grid;
-		grid-template-rows: 112px auto;
+		grid-template-rows: 88px auto;
+		min-width: 0;
 		border-radius: var(--r);
 		background: var(--panel);
 		box-shadow: var(--shadow-panel);
@@ -362,7 +380,7 @@
 	}
 
 	.card:has(.hit:active) {
-		transform: scale(0.99);
+		transform: scale(0.98);
 	}
 
 	.hit {
@@ -381,16 +399,25 @@
 	.stage {
 		display: grid;
 		place-items: center;
-		padding: 16px;
+		min-width: 0;
+		padding: 12px;
+		overflow: hidden;
 		background: var(--ground);
-		--dimension-bg: var(--ground);
 		pointer-events: none;
 	}
 
 	.meta {
 		display: grid;
-		gap: 4px;
-		padding: 12px 12px 8px 16px;
+		gap: 2px;
+		min-width: 0;
+		padding: 10px 6px 4px 12px;
+	}
+
+	h3,
+	.meta p {
+		overflow: hidden;
+		text-overflow: ellipsis;
+		white-space: nowrap;
 	}
 
 	h3 {
@@ -400,8 +427,7 @@
 
 	.meta p {
 		color: var(--ink-2);
-		font-size: 13px;
-		line-height: 1.4;
+		font-size: 12px;
 	}
 
 	.foot {
@@ -413,28 +439,18 @@
 		font-size: 12px;
 	}
 
-	.sep {
-		padding-inline: 2px;
-	}
-
 	.actions {
 		position: relative;
 		z-index: 1;
 		display: flex;
 		align-items: center;
-		gap: 2px;
-	}
-
-	.tag {
-		margin-inline-end: 4px;
-		color: var(--ink-3);
 	}
 
 	.blank {
 		display: flex;
 		align-items: center;
 		gap: 12px;
-		padding: 14px 16px;
+		padding: 12px 16px;
 		border: 0;
 		border-radius: var(--r);
 		background: var(--panel);
@@ -470,13 +486,43 @@
 			padding: 16px 16px 96px;
 		}
 
+		.head {
+			gap: 12px;
+		}
+
+		.sub {
+			display: none;
+		}
+
+		.blank {
+			padding-block: 10px;
+		}
+
+		.search {
+			width: 100%;
+			height: 44px;
+		}
+
 		.chips {
 			margin-inline: -16px;
 			padding-inline: 16px;
 		}
 
 		.grid {
-			grid-template-columns: 1fr;
+			grid-template-columns: repeat(2, minmax(0, 1fr));
+			gap: 8px;
+		}
+
+		.card {
+			grid-template-rows: 72px auto;
+		}
+
+		.stage {
+			padding: 10px;
+		}
+
+		.meta {
+			padding: 8px 2px 2px 10px;
 		}
 	}
 </style>
