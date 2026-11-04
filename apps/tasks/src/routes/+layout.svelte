@@ -30,10 +30,23 @@
 	const path = $derived($page.url.pathname);
 	const isActive = (n) => {
 		const p = path;
-		if (n === "desk") return p === "/";
-		if (n === "browse") return p === "/browse" || p.startsWith("/task") || p.startsWith("/board");
-		if (n === "fleet") return p.startsWith("/fleet");
-		if (n === "new") return p.startsWith("/new");
+
+		if (n === "desk") {
+			return p === "/";
+		}
+
+		if (n === "browse") {
+			return p === "/browse" || p.startsWith("/task") || p.startsWith("/board");
+		}
+
+		if (n === "fleet") {
+			return p.startsWith("/fleet");
+		}
+
+		if (n === "new") {
+			return p.startsWith("/new");
+		}
+
 		return false;
 	};
 
@@ -43,7 +56,9 @@
 
 	function toggleTheme() {
 		const next = document.documentElement.dataset.theme === "light" ? "dark" : "light";
+
 		document.documentElement.dataset.theme = next;
+
 		try {
 			localStorage.setItem("tasks-theme", next);
 		} catch {}

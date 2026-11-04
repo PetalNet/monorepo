@@ -15,13 +15,16 @@ export function take(key, { capacity = 10, rate = 0.2, now = Date.now() } = {}) 
 	// opportunistic prune: drop buckets that have been full + untouched for >10 min
 	if (now - lastPrune > 60_000) {
 		lastPrune = now;
+
 		for (const [k, b] of buckets) {
 			const refilled = Math.min(capacity, b.tokens + ((now - b.ts) / 1000) * rate);
+
 			if (refilled >= capacity && now - b.ts > 600_000) buckets.delete(k);
 		}
 	}
 
 	let b = buckets.get(key);
+
 	if (!b) {
 		b = { tokens: capacity, ts: now };
 		buckets.set(key, b);
@@ -33,10 +36,13 @@ export function take(key, { capacity = 10, rate = 0.2, now = Date.now() } = {}) 
 
 	if (b.tokens >= 1) {
 		b.tokens -= 1;
+
 		return { ok: true, retryAfter: 0 };
 	}
+
 	// seconds until a whole token is available again
 	const retryAfter = Math.max(1, Math.ceil((1 - b.tokens) / rate));
+
 	return { ok: false, retryAfter };
 }
 

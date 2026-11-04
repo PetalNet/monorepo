@@ -1,7 +1,11 @@
 import type { KnipConfig } from "knip";
 
 export default {
-	ignore: [".agents/skills/impeccable/**"],
+	ignore: [
+		".agents/skills/impeccable/**",
+		"apps/tasks/static/fonts/**",
+		"apps/tasks/static/vendor/**",
+	],
 	rules: { cycles: "error" },
 	// Strict Knip only resolves production dependencies, including script binaries.
 	ignoreBinaries: ["eslint!", "vite!", "vitest!", "storybook!"],
@@ -49,6 +53,11 @@ export default {
 		"apps/petalboard": {
 			// Only the gitignored generated Prisma client imports @prisma/client/runtime.
 			ignoreDependencies: ["@prisma/client"],
+		},
+		"apps/tasks": {
+			// Cron, MCP, and production server entrypoints run directly rather than being imported.
+			entry: ["server.js!", "mcp/*.mjs!", "scripts/*.mjs!"],
+			ignore: ["static/fonts/**", "static/vendor/**"],
 		},
 		"apps/slide": {
 			ignoreBinaries: ["prisma!"],

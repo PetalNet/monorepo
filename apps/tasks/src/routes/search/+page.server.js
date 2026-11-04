@@ -10,5 +10,6 @@ export function load({ url, locals }) {
 	const projects = listProjects(me);
 	const nameOf = projectName(projects);
 	const results = q ? searchTasks(q, me).map((t) => ({ ...t, project: nameOf(t.project_id) })) : [];
+
 	return { me, q, results };
 }

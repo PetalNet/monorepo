@@ -12,8 +12,10 @@ const STATUS_CLS = {
 	done: "done",
 	dropped: "dropped",
 };
+
 export const statusClass = (status) => STATUS_CLS[status] ?? "todo";
 
 // kind → our icon name (lucide via Icon.svelte). Not GitHub iconography.
 const KIND_ICON = { task: "task", idea: "idea", question: "question", doc: "doc", upload: "doc" };
+
 export const kindIcon = (kind) => KIND_ICON[kind] ?? "task";

@@ -14,28 +14,48 @@
 	let {
 		task, // { id, title, kind, status, priority, project_id, assignee, created_at, updated_at, ... }
 		project = "", // project NAME (caller resolves id→name)
-		href = undefined, // defaults to /task/<id>
+		href, // defaults to /task/<id>
 		showProject = true,
 		showAssignee = true,
 		showStatus = true,
 		showTime = true,
-		statusLabel = undefined, // override the status word in the meta line (e.g. "captured")
-		time = undefined, // override the relative-time string
+		statusLabel, // override the status word in the meta line (e.g. "captured")
+		time, // override the relative-time string
 		dim = false, // force the done/muted treatment
-		actions = undefined, // optional right-hand actions snippet (buttons/forms)
-		meta: metaSnippet = undefined, // optional extra meta snippet appended to the sub-line
+		actions, // optional right-hand actions snippet (buttons/forms)
+		meta: metaSnippet, // optional extra meta snippet appended to the sub-line
 	} = $props();
 
 	function rel(ts) {
-		if (!ts) return "";
+		if (!ts) {
+			return "";
+		}
+
 		const iso = /[TZ]/.test(ts) ? ts : String(ts).replace(" ", "T") + "Z";
 		const ms = new Date(iso).getTime();
-		if (isNaN(ms)) return "";
+
+		if (isNaN(ms)) {
+			return "";
+		}
+
 		const s = Math.round((Date.now() - ms) / 1000);
-		if (s < 60) return s + "s";
-		if (s < 3600) return Math.round(s / 60) + "m";
-		if (s < 86400) return Math.round(s / 3600) + "h";
-		if (s < 604800) return Math.round(s / 86400) + "d";
+
+		if (s < 60) {
+			return s + "s";
+		}
+
+		if (s < 3600) {
+			return Math.round(s / 60) + "m";
+		}
+
+		if (s < 86400) {
+			return Math.round(s / 3600) + "h";
+		}
+
+		if (s < 604800) {
+			return Math.round(s / 86400) + "d";
+		}
+
 		return Math.round(s / 604800) + "w";
 	}
 

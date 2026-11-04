@@ -7,15 +7,31 @@
 	// whoColor single-sourced from $lib/people (this page's falsy fallback is the default 'var(--text-3)').
 	const AGENTS = ["claude", "agent-a", "agent-b", "codex", "agent-d", "agent-e"];
 	const isAgent = (h) => AGENTS.includes(String(h).toLowerCase());
-	const projName = projectName(data.projects);
+	const projName = $derived(projectName(data.projects));
 
 	function relShort(ts) {
-		if (!ts) return "";
+		if (!ts) {
+			return "";
+		}
+
 		const s = Math.round((Date.now() - new Date(ts.replace(" ", "T") + "Z").getTime()) / 1000);
-		if (s < 60) return s + "s";
-		if (s < 3600) return Math.round(s / 60) + "m";
-		if (s < 86400) return Math.round(s / 3600) + "h";
-		if (s < 604800) return Math.round(s / 86400) + "d";
+
+		if (s < 60) {
+			return s + "s";
+		}
+
+		if (s < 3600) {
+			return Math.round(s / 60) + "m";
+		}
+
+		if (s < 86400) {
+			return Math.round(s / 3600) + "h";
+		}
+
+		if (s < 604800) {
+			return Math.round(s / 86400) + "d";
+		}
+
 		return Math.round(s / 604800) + "w";
 	}
 	const labelHue = (t) =>

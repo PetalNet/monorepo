@@ -7,6 +7,7 @@ import { json } from "@sveltejs/kit";
 // deepScrub honors per-user visibility on the joined focus task titles (#285).
 export function GET({ locals }) {
 	const fleet = getFleet(locals.user);
+
 	return json(deepScrub({ ...fleet, now: Date.now() }), {
 		headers: { "cache-control": "no-store" },
 	});

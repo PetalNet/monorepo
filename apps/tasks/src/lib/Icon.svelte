@@ -3,12 +3,12 @@
 	// (the lab DS icon set, matching Nexus). Replaces the hand-rolled #i-* SVG symbols.
 	// Usage: <Icon name="board" size={20} />
 	import {
-		Home,
+		House,
 		LayoutDashboard,
 		FolderKanban,
 		Inbox,
 		SquareCheckBig,
-		CircleHelp,
+		CircleQuestionMark,
 		FileText,
 		Lightbulb,
 		Zap,
@@ -24,7 +24,7 @@
 		CircleCheck,
 		MessageSquare,
 		Images,
-		MoreHorizontal,
+		Ellipsis,
 		ChevronDown,
 		ChevronLeft,
 		ChevronRight,
@@ -43,14 +43,14 @@
 
 	const MAP = {
 		// primary nav / domain
-		cockpit: Home,
-		desk: Home,
+		cockpit: House,
+		desk: House,
 		board: LayoutDashboard,
 		browse: LayoutDashboard,
 		projects: FolderKanban,
 		inbox: Inbox,
 		task: SquareCheckBig,
-		question: CircleHelp,
+		question: CircleQuestionMark,
 		doc: FileText,
 		idea: Lightbulb,
 		bolt: Zap,
@@ -75,7 +75,7 @@
 		edit: Pencil,
 		close: X,
 		// chrome
-		more: MoreHorizontal,
+		more: Ellipsis,
 		chevdown: ChevronDown,
 		car: ChevronDown,
 		chevleft: ChevronLeft,
@@ -88,7 +88,7 @@
 	};
 
 	let { name, size = 20, strokeWidth = 1.9, class: klass = "" } = $props();
-	const Cmp = $derived(MAP[name] ?? CircleHelp);
+	const Cmp = $derived(MAP[name] ?? CircleQuestionMark);
 </script>
 
 <Cmp {size} {strokeWidth} class={klass} absoluteStrokeWidth />

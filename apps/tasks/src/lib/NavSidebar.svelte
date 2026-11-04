@@ -9,13 +9,35 @@
 	const path = $derived($page.url.pathname);
 	const isActive = (n) => {
 		const p = path;
-		if (n === "desk") return p === "/";
-		if (n === "browse") return p === "/browse" || p.startsWith("/task") || p.startsWith("/board");
-		if (n === "issues") return p.startsWith("/issues");
-		if (n === "docs") return p.startsWith("/docs");
-		if (n === "gallery") return p.startsWith("/gallery");
-		if (n === "projects") return p.startsWith("/projects");
-		if (n === "fleet") return p.startsWith("/fleet");
+
+		if (n === "desk") {
+			return p === "/";
+		}
+
+		if (n === "browse") {
+			return p === "/browse" || p.startsWith("/task") || p.startsWith("/board");
+		}
+
+		if (n === "issues") {
+			return p.startsWith("/issues");
+		}
+
+		if (n === "docs") {
+			return p.startsWith("/docs");
+		}
+
+		if (n === "gallery") {
+			return p.startsWith("/gallery");
+		}
+
+		if (n === "projects") {
+			return p.startsWith("/projects");
+		}
+
+		if (n === "fleet") {
+			return p.startsWith("/fleet");
+		}
+
 		return false;
 	};
 

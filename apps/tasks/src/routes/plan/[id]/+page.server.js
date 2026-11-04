@@ -18,10 +18,13 @@ const gate = (id, me) => {
 // Bad legacy JSON must not make the page (or action) trust an arbitrary shape.
 function normalizeOptions(raw) {
 	let parsed = [];
+
 	try {
 		parsed = JSON.parse(raw || "[]");
 	} catch {}
+
 	if (!Array.isArray(parsed)) return [];
+
 	return parsed
 		.filter((o) => o != null)
 		.map((o) =>
@@ -35,10 +38,14 @@ function normalizeOptions(raw) {
 export function load({ params, locals }) {
 	const id = Number(params.id);
 	const plan = getTask(id);
-	if (!plan || plan.kind !== "doc") throw error(404, "No such plan");
+
+	if (plan?.kind !== "doc") throw error(404, "No such plan");
+
 	if (plan.visibility === "private" && plan.owner && plan.owner !== locals.user)
 		throw error(404, "No such plan");
+
 	const questions = planQuestions(id, locals.user);
+
 	return deepScrub({
 		plan,
 		bodyHtml: renderPlanMd(plan.body),
@@ -62,27 +69,38 @@ export function load({ params, locals }) {
 export const actions = {
 	answer: async ({ request, params, locals }) => {
 		const id = Number(params.id);
+
 		gate(id, locals.user);
 		const f = await request.formData();
 		const questionId = Number(f.get("question_id"));
 		const question = planQuestions(id, locals.user).find((item) => item.id === questionId);
+
 		if (!question) throw error(400, "Question is not in this plan");
+
 		if (question.answer || ["done", "dropped"].includes(question.status))
 			throw error(400, "Question is no longer active");
+
 		const value = String(f.get("value") || "");
 		const options = normalizeOptions(question.options);
+
 		if (options.length && !options.some((option) => option.value === value)) {
 			throw error(400, "Answer must be one of the configured options");
 		}
+
 		const result = answerQuestion(questionId, value);
+
 		if (result?.ok === false) return fail(400, result);
+
 		return { ok: true };
 	},
 	comment: async ({ request, params, locals }) => {
 		const id = Number(params.id);
+
 		gate(id, locals.user);
 		const body = String((await request.formData()).get("body") || "").trim();
+
 		if (body) addComment(id, locals.user || "web", body);
+
 		return { ok: true };
 	},
 };

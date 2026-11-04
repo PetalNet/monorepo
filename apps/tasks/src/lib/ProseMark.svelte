@@ -8,7 +8,11 @@
 		// function" at runtime (CM version/dedup mismatch); debugging the npm path in
 		// dev before re-deploying it (task-532).
 		const url = "/vendor/" + "prosemark.bundle.js";
-		if (!_pmPromise) _pmPromise = import(/* @vite-ignore */ url).then((m) => m.createProseMark);
+
+		if (!_pmPromise) {
+			_pmPromise = import(/* @vite-ignore */ url).then((m) => m.createProseMark);
+		}
+
 		return _pmPromise;
 	}
 	// Warm the bundle BEFORE the user commits to editing (call on Edit-button hover/
@@ -35,17 +39,27 @@
 	let status = "idle"; // idle | loading | ready | failed
 
 	async function ensureEditor() {
-		if (view || !mountEl) return;
+		if (view || !mountEl) {
+			return;
+		}
+
 		status = "loading";
+
 		try {
 			const createProseMark = await loadProseMark();
-			if (view) return;
+
+			if (view) {
+				return;
+			}
+
 			view = createProseMark(mountEl, value ?? "");
 			status = "ready";
 		} catch (e) {
 			status = "failed";
+
 			mountEl.innerHTML =
 				'<div style="padding:18px 20px;color:var(--text-3);font-size:13px">Editor failed to load.</div>';
+
 			console.error("ProseMark mount failed", e);
 		}
 	}
@@ -57,6 +71,7 @@
 				value = view.state.doc.toString();
 			} catch {}
 		}
+
 		return value;
 	}
 

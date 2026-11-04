@@ -34,19 +34,24 @@ const BUNDLE_CANDIDATES = [
 function bundleUrl() {
 	for (const c of BUNDLE_CANDIDATES) {
 		const p = resolve(process.cwd(), c);
+
 		if (existsSync(p)) return pathToFileURL(p).href;
 	}
+
 	throw new Error(
 		"prosemark-ssr: bundle not found (looked in " + BUNDLE_CANDIDATES.join(", ") + ")",
 	);
 }
 
 let _setup = null;
+
 function setup() {
 	if (_setup) return _setup;
+
 	_setup = (async () => {
 		const dom = new JSDOM("<!DOCTYPE html><body></body>", { pretendToBeVisual: true });
 		const w = dom.window;
+
 		class OBS {
 			observe() {}
 			unobserve() {}
@@ -58,6 +63,7 @@ function setup() {
 		w.MutationObserver = OBS;
 		w.ResizeObserver = OBS;
 		w.IntersectionObserver = OBS;
+
 		for (const [k, v] of [
 			["window", w],
 			["document", w.document],
@@ -70,10 +76,14 @@ function setup() {
 				globalThis[k] = v;
 			}
 		}
+
 		globalThis.requestAnimationFrame = (cb) => setTimeout(cb, 0);
 		globalThis.cancelAnimationFrame = clearTimeout;
+
 		if (!w.Window) w.Window = w.constructor || function () {};
+
 		globalThis.Window = w.Window;
+
 		if (!w.matchMedia)
 			w.matchMedia = () => ({
 				matches: false,
@@ -83,9 +93,12 @@ function setup() {
 				addListener() {},
 				removeListener() {},
 			});
+
 		const mod = await import(/* @vite-ignore */ bundleUrl());
+
 		return { w, createProseMark: mod.createProseMark };
 	})();
+
 	return _setup;
 }
 
@@ -95,25 +108,29 @@ function setup() {
 // interleave a render on the shared window.
 export async function renderBodyCM(md) {
 	if (!md) return "";
+
 	const { w, createProseMark } = await setup();
 	const el = w.document.createElement("div");
 	let view;
+
 	try {
 		view = createProseMark(el, "\n" + md);
 		const ed = el.querySelector(".cm-editor");
 		const cc = el.querySelector(".cm-content");
+
 		if (!ed || !cc) return "";
+
 		// content lines minus the leading blank (the parked cursor's line)
-		const lines = [...cc.children]
-			.filter((n) => n.classList && n.classList.contains("cm-line"))
-			.slice(1);
+		const lines = [...cc.children].filter((n) => n.classList?.contains("cm-line")).slice(1);
 		const linesHtml = lines.map((l) => l.outerHTML).join("");
+
 		// Reconstruct the editor's own wrapper — its theme classes (ͼ1…, needed by the captured
 		// CodeMirror CSS) → scroller → content — but WITHOUT the cursor/selection/gutter layers,
 		// since this is a static read view. .pm-shell + the component theming wrap it on the page.
 		return `<div class="${ed.className}"><div class="cm-scroller"><div class="${cc.className}">${linesHtml}</div></div></div>`;
 	} catch (e) {
 		console.error("prosemark-ssr render failed", e);
+
 		return "";
 	} finally {
 		try {

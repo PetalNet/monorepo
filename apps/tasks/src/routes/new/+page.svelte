@@ -101,7 +101,7 @@
 					<h2>options</h2>
 					<span class="ds-extra mono dim">one per line · "value | label"</span>
 				</div>
-				<textarea name="options" rows="4" class="mono" placeholder={"yes | Yes, do it\nno | No"}
+				<textarea name="options" rows="4" class="mono" placeholder="yes | Yes, do it\nno | No"
 				></textarea>
 			</section>
 		{/if}

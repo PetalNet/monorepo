@@ -25,6 +25,7 @@ export function load({ locals }) {
 	const me = locals.user;
 	const fleet = getFleet(me); // live per-agent telemetry (data/fleet/*.json)
 	const data = cockpitData(me, { workingAgents: fleet.totals?.working ?? 0 });
+
 	return deepScrub({
 		...data,
 		fleet, // for the in-flight lane's live agent join
@@ -40,10 +41,14 @@ export const actions = {
 	capture: async ({ request }) => {
 		const f = await request.formData();
 		const title = String(f.get("title") || "").trim();
+
 		if (!title) return { ok: false };
+
 		const projName = String(f.get("project") || "").trim();
 		const project_id = projName ? ensureProject(projName) : null;
+
 		createTask({ title, kind: "idea", project_id, created_by: "web" });
+
 		return { ok: true };
 	},
 
@@ -51,11 +56,16 @@ export const actions = {
 	update: async ({ request, locals }) => {
 		const f = await request.formData();
 		const id = Number(f.get("id"));
+
 		gate(id, locals.user);
 		const patch = {};
+
 		if (f.has("status")) patch.status = String(f.get("status"));
+
 		const res = updateTask(id, patch);
-		if (res && res.ok === false) return { ok: false, error: res.message };
+
+		if (res?.ok === false) return { ok: false, error: res.message };
+
 		return { ok: true };
 	},
 
@@ -63,8 +73,10 @@ export const actions = {
 	answer: async ({ request, locals }) => {
 		const f = await request.formData();
 		const id = Number(f.get("id"));
+
 		gate(id, locals.user);
 		answerQuestion(id, String(f.get("value") || ""));
+
 		return { ok: true };
 	},
 };

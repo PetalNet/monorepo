@@ -7,4 +7,5 @@
 process.env.TASKS_DB_PATH ||= "/srv/tasks/data/tasks.db";
 const { reapLeases } = await import("../src/lib/server/db.js");
 const n = reapLeases();
+
 if (n) console.log(`[reap ${new Date().toISOString()}] freed ${n} stale lease(s)`);

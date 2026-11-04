@@ -57,8 +57,10 @@ const projIdForWrite = (name) => (name ? ensureProject(name) : null);
 // an empty set instead of silently minting a phantom project (codex review, task-344).
 const projIdForFilter = (name) => {
 	if (!name) return null;
+
 	return getProjectByName(name)?.id ?? -1;
 };
+
 const shape = (t) =>
 	t && {
 		id: t.id,
@@ -109,6 +111,7 @@ server.tool(
 				`SELECT * FROM tasks WHERE kind='question' AND (answer='' OR answer IS NULL) AND ${ACTIVE}${pf}${af} ${NOTARCHIVED} ORDER BY priority`,
 			)
 			.all(a);
+
 		return txt({
 			up_next: upNext.map(shape),
 			in_progress: doing.map(shape),
@@ -139,21 +142,26 @@ server.tool(
 			"(project_id IS NULL OR project_id NOT IN (SELECT id FROM projects WHERE archived_at IS NOT NULL))",
 		];
 		const params = {};
+
 		if (project) {
 			where.push("project_id=@pid");
 			params.pid = projIdForFilter(project);
 		}
+
 		if (capability) {
 			where.push("capability=@cap");
 			params.cap = capability;
 		}
+
 		if (assignee) {
 			where.push("assignee=@asg");
 			params.asg = assignee;
 		}
+
 		const t = db
 			.prepare(`SELECT * FROM tasks WHERE ${where.join(" AND ")} ORDER BY rank, priority LIMIT 1`)
 			.get(params);
+
 		return txt(t ? shape(t) : "null");
 	},
 );
@@ -178,6 +186,7 @@ server.tool(
 			capability: capability || null,
 			assignee: assignee || null,
 		});
+
 		return txt(r ? { claimed: shape(r), token: r.claim_token } : "null");
 	},
 );
@@ -255,6 +264,7 @@ server.tool(
 			effort,
 			parallel_group,
 		});
+
 		return txt({ filed: shape(getTask(id)) });
 	},
 );
@@ -287,17 +297,25 @@ server.tool(
 	},
 	async ({ id, project, ...patch }) => {
 		if (!getTask(id)) return txt(`task #${id} not found`);
+
 		const clean = {};
+
 		for (const [k, v] of Object.entries(patch)) {
 			if (v === undefined) continue;
+
 			clean[k] = typeof v === "boolean" ? (v ? 1 : 0) : v;
 		}
+
 		if (project !== undefined) clean.project_id = project ? projIdForWrite(project) : null;
+
 		if (!Object.keys(clean).length) return txt("(no fields to update)");
+
 		const res = updateTask(id, clean);
+
 		// updateTask returns {ok:false,reason,message} when an invariant blocks the change
 		// (e.g. status='blocked' with no live blocker). Surface it instead of lying "updated".
-		if (res && res.ok === false) return txt({ rejected: res });
+		if (res?.ok === false) return txt({ rejected: res });
+
 		return txt({ updated: shape(getTask(id)) });
 	},
 );
@@ -317,9 +335,13 @@ server.tool(
 	},
 	async ({ id, reason, status, result_summary }) => {
 		if (!getTask(id)) return txt(`task #${id} not found`);
+
 		if (result_summary !== undefined) updateTask(id, { result_summary });
+
 		const res = closeTask(id, { reason, by: "mcp", status });
-		if (res && res.ok === false) return txt({ rejected: res });
+
+		if (res?.ok === false) return txt({ rejected: res });
+
 		return txt({ closed: shape(getTask(id)) });
 	},
 );
@@ -330,6 +352,7 @@ server.tool(
 	{ name: z.string().min(1).describe("Project name to archive") },
 	async ({ name }) => {
 		const r = archiveProject(name);
+
 		return txt(
 			r.changes
 				? { archived: name }
@@ -337,16 +360,19 @@ server.tool(
 		);
 	},
 );
+
 server.tool(
 	"unarchive_project",
 	"Restore a previously archived project: its tasks reappear in active views. Pass the project name.",
 	{ name: z.string().min(1).describe("Project name to restore") },
 	async ({ name }) => {
 		const r = unarchiveProject(name);
+
 		return txt(r.changes ? { restored: name } : { error: `no project named '${name}'` });
 	},
 );
 
 // ── boot ─────────────────────────────────────────────────────────────────────
 const transport = new StdioServerTransport();
+
 await server.connect(transport);

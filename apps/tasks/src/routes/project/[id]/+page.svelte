@@ -22,17 +22,39 @@
 		{ key: "done", title: "Done", icon: "check" },
 	];
 	const laneOf = (t) => {
-		if (t.status === "doing") return "doing";
-		if (t.status === "blocked") return "blocked";
-		if (t.status === "review") return "review";
-		if (t.status === "done" || t.status === "dropped") return "done";
-		if (t.status === "inbox") return "inbox";
-		if (t.up_next) return "upnext";
+		if (t.status === "doing") {
+			return "doing";
+		}
+
+		if (t.status === "blocked") {
+			return "blocked";
+		}
+
+		if (t.status === "review") {
+			return "review";
+		}
+
+		if (t.status === "done" || t.status === "dropped") {
+			return "done";
+		}
+
+		if (t.status === "inbox") {
+			return "inbox";
+		}
+
+		if (t.up_next) {
+			return "upnext";
+		}
+
 		return "todo";
 	};
 	const grouped = $derived.by(() => {
 		const g = {};
-		for (const t of data.tasks) (g[laneOf(t)] ??= []).push(t);
+
+		for (const t of data.tasks) {
+			(g[laneOf(t)] ??= []).push(t);
+		}
+
 		return g;
 	});
 	const lanes = $derived(

@@ -64,16 +64,20 @@
 								class="pm-btn"
 								onclick={(e) => {
 									const s = e.currentTarget.form.dest;
+
 									if (!s.value) {
 										e.preventDefault();
+
 										return;
 									}
+
 									if (
 										!confirm(
 											`Move all items from "${p.name}" into "${s.options[s.selectedIndex].text}", then delete "${p.name}"?`,
 										)
-									)
+									) {
 										e.preventDefault();
+									}
 								}}>move</button
 							>
 						</form>
@@ -86,8 +90,9 @@
 										!confirm(
 											`Archive "${p.name}"? Its tasks hide from active views — restorable, not deleted.`,
 										)
-									)
+									) {
 										e.preventDefault();
+									}
 								}}>archive</button
 							>
 						</form>
@@ -96,7 +101,9 @@
 							<button
 								class="pm-btn del"
 								onclick={(e) => {
-									if (!confirm(`Delete "${p.name}" and all its items?`)) e.preventDefault();
+									if (!confirm(`Delete "${p.name}" and all its items?`)) {
+										e.preventDefault();
+									}
 								}}>delete</button
 							>
 						</form>

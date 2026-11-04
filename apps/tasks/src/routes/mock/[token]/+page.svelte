@@ -4,6 +4,7 @@
 
 	const isAnswered = (q) => {
 		const r = data.results[q.id];
+
 		return q.multi ? r?.choices?.length > 0 : !!r?.choice;
 	};
 	const answered = $derived(data.spec.questions.filter(isAnswered).length);

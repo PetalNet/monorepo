@@ -3,21 +3,40 @@
 	import { projectName, whoColor as whoColorBase } from "$lib/people.js";
 	let { data } = $props();
 
-	const projName = projectName(data.projects);
+	const projName = $derived(projectName(data.projects));
 
 	// ── time helpers (mirror +page.svelte) ──────────────────────────────────
 	function relShort(ts) {
-		if (!ts) return "";
+		if (!ts) {
+			return "";
+		}
+
 		const s = Math.round((Date.now() - new Date(ts.replace(" ", "T") + "Z").getTime()) / 1000);
-		if (s < 60) return s + "s";
-		if (s < 3600) return Math.round(s / 60) + "m";
-		if (s < 86400) return Math.round(s / 3600) + "h";
-		if (s < 604800) return Math.round(s / 86400) + "d";
+
+		if (s < 60) {
+			return s + "s";
+		}
+
+		if (s < 3600) {
+			return Math.round(s / 60) + "m";
+		}
+
+		if (s < 86400) {
+			return Math.round(s / 3600) + "h";
+		}
+
+		if (s < 604800) {
+			return Math.round(s / 86400) + "d";
+		}
+
 		return Math.round(s / 604800) + "w";
 	}
 	// lease age: server hands us lease_age_s (>0 = expired). Render "12m over" / "in 4m".
 	function leaseLabel(s) {
-		if (s == null) return "no lease";
+		if (s == null) {
+			return "no lease";
+		}
+
 		const a = Math.abs(s);
 		const mag =
 			a < 60
@@ -27,6 +46,7 @@
 					: a < 86400
 						? Math.round(a / 3600) + "h"
 						: Math.round(a / 86400) + "d";
+
 		return s >= 0 ? `${mag} over` : `in ${mag}`;
 	}
 

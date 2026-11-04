@@ -23,8 +23,10 @@ const isPublicShare = (pathname) => pathname === "/s" || pathname.startsWith("/s
 // exact-prefix match as /s/; event.locals.user is intentionally left unset on this path —
 // the endpoint resolves identity by token, never by header.
 const isAgentApi = (pathname) => pathname === "/api/agent" || pathname.startsWith("/api/agent/");
+
 export async function handle({ event, resolve }) {
 	const user = event.request.headers.get("x-authentik-username") || "";
+
 	if (ALLOW.length && !isPublicShare(event.url.pathname) && !isAgentApi(event.url.pathname)) {
 		// production: require a valid Authentik identity (fail closed — was fail-open via 'dev')
 		if (!user || !ALLOW.includes(user)) {
@@ -33,22 +35,28 @@ export async function handle({ event, resolve }) {
 				headers: { "content-type": "text/plain" },
 			});
 		}
+
 		event.locals.user = user;
 	} else if (!ALLOW.length) {
 		// local dev only (no access list): permit the dev fallback identity
 		event.locals.user = user || "dev";
 	}
+
 	// production + /s/ public share: no identity required; event.locals.user intentionally left
 	// unset — the share route resolves strictly by token, never by user.
 	// Theme: paper-and-ink IS the base theme now (the only theme — legacy dark-zinc/amber
 	// dropped, Bob). No skin class to tag; the tokens live unconditionally in app.css.
 	const res = await resolve(event);
+
 	// defense-in-depth headers (sanitizer is the primary XSS line; these harden the rest).
 	// Use the no-clobber form: a route may legitimately need to relax a header for itself
 	// (e.g. the gallery raw-artifact endpoint frames its own same-origin sandbox iframe, so
 	// it sets X-Frame-Options: SAMEORIGIN + a CSP sandbox). Only fill in defaults it left unset.
 	if (!res.headers.has("X-Frame-Options")) res.headers.set("X-Frame-Options", "DENY"); // clickjacking
+
 	res.headers.set("X-Content-Type-Options", "nosniff");
+
 	if (!res.headers.has("Referrer-Policy")) res.headers.set("Referrer-Policy", "same-origin");
+
 	return res;
 }

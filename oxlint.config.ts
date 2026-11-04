@@ -182,8 +182,8 @@ export const lintConfig = {
 			},
 		},
 		{
-			files: ["apps/{petalboard,slide}/**"],
-			// Slide and PetalBoard predate the monorepo; their rewrites own the type-safety debt
+			files: ["apps/{petalboard,slide,tasks}/**"],
+			// Slide, PetalBoard and Tasks predate the monorepo; their rewrites own the type-safety debt
 			// and deprecated framework configuration.
 			rules: {
 				"typescript/no-base-to-string": "off",
@@ -215,6 +215,8 @@ export const lintConfig = {
 		"**/node_modules/**",
 		"**/coverage/**",
 		"**/.turbo/**",
+		"apps/tasks/static/fonts/**",
+		"apps/tasks/static/vendor/**",
 	],
 } satisfies OxlintConfig;
 

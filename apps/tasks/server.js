@@ -44,18 +44,22 @@ const TTYD = {
 const audit = (() => {
 	try {
 		const db = new Database(process.env.TASKS_DB_PATH || "/data/tasks.db");
+
 		db.pragma("journal_mode = WAL");
+
 		db.exec(`
       CREATE TABLE IF NOT EXISTS term_audit (
         id INTEGER PRIMARY KEY AUTOINCREMENT, user TEXT, mode TEXT,
         connect_ts INTEGER, disconnect_ts INTEGER, client_ip TEXT, user_agent TEXT);
       CREATE TABLE IF NOT EXISTS term_audit_input (
         id INTEGER PRIMARY KEY AUTOINCREMENT, session_id INTEGER, ts INTEGER, data TEXT);`);
+
 		const ins = db.prepare(
 			"INSERT INTO term_audit (user,mode,connect_ts,client_ip,user_agent) VALUES (?,?,?,?,?)",
 		);
 		const cls = db.prepare("UPDATE term_audit SET disconnect_ts=? WHERE id=?");
 		const inp = db.prepare("INSERT INTO term_audit_input (session_id,ts,data) VALUES (?,?,?)");
+
 		return {
 			open: (user, mode, ip, ua) =>
 				ins.run(user, mode, Date.now(), ip || "", ua || "").lastInsertRowid,
@@ -72,6 +76,7 @@ const audit = (() => {
 		};
 	} catch (e) {
 		console.error("term audit init failed (continuing without audit):", e.message);
+
 		return { open: () => null, close: () => {}, input: () => {} };
 	}
 })();
@@ -79,6 +84,7 @@ const audit = (() => {
 // resilient bootstrap: dynamic-import the built handler so a load failure logs cleanly
 // instead of an opaque crash-loop of the live tracker.
 let handler;
+
 try {
 	({ handler } = await import("./build/handler.js"));
 } catch (e) {
@@ -94,32 +100,43 @@ function deny(socket, code, msg) {
 	try {
 		socket.write(`HTTP/1.1 ${code} ${msg}\r\nConnection: close\r\n\r\n`);
 	} catch {}
+
 	socket.destroy();
 }
 
 server.on("upgrade", (req, socket, head) => {
 	let url;
+
 	try {
 		url = new URL(req.url, "http://x");
 	} catch {
 		return socket.destroy();
 	}
+
 	const m = url.pathname.match(/^\/api\/fleet\/term\/(ro|rw)$/);
+
 	if (!m) return; // not a terminal ws — no other upgrade route
+
 	const mode = m[1];
+
 	// GATE 1: Traefik-injected secret. Blocks any off-Traefik direct hit to :8896, so a spoofed
 	// x-authentik-username on loopback/bridge can't reach the proxy.
 	if (!PROXY_SECRET || req.headers["x-term-proxy-secret"] !== PROXY_SECRET)
 		return deny(socket, 403, "Forbidden");
+
 	// GATE 2 (identity): rw demands ADMIN; ro demands an ALLOW user (any authed if no ALLOW). Fail-closed.
 	const user = String(req.headers["x-authentik-username"] || "");
 	const ok = mode === "rw" ? ADMIN.includes(user) : ALLOW.length ? ALLOW.includes(user) : !!user;
+
 	if (!ok) return deny(socket, 403, "Forbidden");
+
 	if (liveWs >= MAX_WS) return deny(socket, 503, "Service Unavailable");
+
 	const ip = String(req.headers["x-forwarded-for"] || req.socket.remoteAddress || "")
 		.split(",")[0]
 		.trim();
 	const ua = String(req.headers["user-agent"] || "").slice(0, 300);
+
 	wss.handleUpgrade(req, socket, head, (client) => bridge(client, mode, user, ip, ua));
 });
 
@@ -137,6 +154,7 @@ function bridge(client, mode, user, ip, ua) {
 			inbuf = "";
 		}
 	};
+
 	const flushTimer = setInterval(flush, 2000);
 
 	// ttyd needs the 'tty' subprotocol (no subprotocol -> no shell), the Basic auth header (no
@@ -153,12 +171,14 @@ function bridge(client, mode, user, ip, ua) {
 	}, IDLE_MS);
 	const bump = () => {
 		clearTimeout(idleTimer);
+
 		idleTimer = setTimeout(() => {
 			try {
 				client.close(4408, "idle");
 			} catch {}
 		}, IDLE_MS);
 	};
+
 	const ping = setInterval(() => {
 		if (client.readyState === WebSocket.OPEN) client.ping();
 	}, 30000);
@@ -167,28 +187,35 @@ function bridge(client, mode, user, ip, ua) {
 		upOpen = true;
 		upstream.send(Buffer.from(JSON.stringify({ AuthToken: WS_AUTH, columns: 120, rows: 32 }))); // binary init frame
 	});
+
 	upstream.on("message", (data) => {
 		const buf = Buffer.isBuffer(data) ? data : Buffer.from(data);
+
 		if (buf.length && buf[0] === TTYD_OUTPUT && client.readyState === WebSocket.OPEN)
 			client.send(buf.subarray(1));
 	});
+
 	client.on("message", (data, isBinary) => {
 		if (!upOpen) return;
+
 		bump();
+
 		if (isBinary) {
 			if (mode === "rw") {
 				// ro NEVER forwards input (server-side gate on top of ttyd attach -r)
 				const b = Buffer.isBuffer(data) ? data : Buffer.from(data);
+
 				upstream.send(Buffer.concat([TTYD_INPUT, b]));
 				inbuf += b.toString("utf8"); // accountability: keystroke capture (intentionally records sensitive input)
+
 				if (inbuf.length > 4096) flush();
 			}
 		} else {
 			try {
 				const j = JSON.parse(data.toString());
+
 				if (
-					j &&
-					j.type === "resize" &&
+					j?.type === "resize" &&
 					Number.isInteger(j.cols) &&
 					j.cols >= 1 &&
 					j.cols <= 1000 &&
@@ -207,6 +234,7 @@ function bridge(client, mode, user, ip, ua) {
 	let closed = false;
 	const close = () => {
 		if (closed) return;
+
 		closed = true;
 		clearTimeout(idleTimer);
 		clearInterval(ping);
@@ -214,18 +242,23 @@ function bridge(client, mode, user, ip, ua) {
 		flush();
 		audit.close(auditId);
 		liveWs = Math.max(0, liveWs - 1);
+
 		try {
 			client.close();
 		} catch {}
+
 		try {
 			upstream.close();
 		} catch {}
 	};
+
 	client.on("close", close);
 	client.on("error", close);
 	upstream.on("close", close);
+
 	upstream.on("error", () => {
 		if (client.readyState === WebSocket.OPEN) client.close(1011);
+
 		close();
 	});
 }

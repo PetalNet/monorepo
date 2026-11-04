@@ -46,6 +46,7 @@ const ROSTER = (() => {
 				.filter(Boolean)
 				.map((pair) => {
 					const [handle, host] = pair.split(":");
+
 					return { handle: handle.toLowerCase(), host: host || null };
 				})
 		: [
@@ -56,6 +57,7 @@ const ROSTER = (() => {
 				{ handle: "agent-d", host: ".14" },
 				{ handle: "agent-e", host: ".14" },
 			];
+
 	return base;
 })();
 
@@ -64,7 +66,9 @@ const ROSTER = (() => {
 // term.example.com/ro (Authentik forward-auth, framable only by tasks.example.com).
 const TERMS = (() => {
 	const env = (process.env.TASKS_FLEET_TERMS || "").trim();
+
 	if (!env) return { agent-a: "https://term.example.com/ro/" };
+
 	return Object.fromEntries(
 		env
 			.split(",")
@@ -72,6 +76,7 @@ const TERMS = (() => {
 			.filter(Boolean)
 			.map((pair) => {
 				const i = pair.indexOf("=");
+
 				return [pair.slice(0, i).trim().toLowerCase(), pair.slice(i + 1).trim()];
 			}),
 	);
@@ -85,14 +90,19 @@ const RANK = { working: 0, alive: 1, idle: 2, offline: 3 };
 // same machine never renders two ways (Bob: "both @dot14 and @.14"). Any "dotN" → ".N".
 function normHost(h) {
 	if (!h) return null;
+
 	const s = String(h).trim();
+
 	if (!s) return null;
+
 	const m = /^dot(\d+)$/i.exec(s);
+
 	return m ? `.${m[1]}` : s;
 }
 
 function ageMs(iso) {
 	const t = iso ? new Date(iso).getTime() : NaN;
+
 	return Number.isFinite(t) ? Math.max(0, Date.now() - t) : Infinity;
 }
 
@@ -100,15 +110,19 @@ function ageMs(iso) {
 // mid-write file is skipped, never throws.
 function readFleetFiles() {
 	let names;
+
 	try {
 		names = readdirSync(FLEET_DIR).filter((n) => n.endsWith(".json"));
 	} catch {
 		return []; // dir absent (e.g. before the hook ever runs) → empty fleet
 	}
+
 	const out = [];
+
 	for (const n of names) {
 		try {
 			const raw = JSON.parse(readFileSync(join(FLEET_DIR, n), "utf8"));
+
 			if (raw && typeof raw === "object") {
 				// trust the filename as the canonical handle if the body omits it
 				raw.handle = String(raw.handle || n.replace(/\.json$/, "")).toLowerCase();
@@ -118,6 +132,7 @@ function readFleetFiles() {
 			/* skip unreadable / half-written file */
 		}
 	}
+
 	return out;
 }
 
@@ -133,8 +148,10 @@ function readFleetFiles() {
 export function getFleet(me) {
 	// Focus map: handle → [{id,title}] of tasks it currently has claimed (doing).
 	const focusByAgent = {};
+
 	for (const t of activeLeases(me)) {
 		const h = String(t.assignee).toLowerCase();
+
 		(focusByAgent[h] ??= []).push({ id: t.id, title: t.title });
 	}
 
@@ -145,6 +162,7 @@ export function getFleet(me) {
 		const reported = KNOWN_STATUS.has(f.status) ? f.status : "idle";
 		const status = stale ? "offline" : reported;
 		const focus = focusByAgent[f.handle] ?? [];
+
 		return {
 			handle: f.handle,
 			host: normHost(f.host),
@@ -164,8 +182,10 @@ export function getFleet(me) {
 	// Fold in roster members that aren't currently reporting → greyed offline stubs, so the
 	// cockpit shows the whole known fleet, not just whoever wrote a file (Bob). Live files win.
 	const present = new Set(agents.map((a) => a.handle));
+
 	for (const r of ROSTER) {
 		if (present.has(r.handle)) continue;
+
 		agents.push({
 			handle: r.handle,
 			host: normHost(r.host),
@@ -185,7 +205,9 @@ export function getFleet(me) {
 
 	agents.sort((a, b) => {
 		const r = (RANK[a.status] ?? 9) - (RANK[b.status] ?? 9);
+
 		if (r) return r;
+
 		// within a bucket: most-recently-updated first
 		return (a.age_ms ?? Infinity) - (b.age_ms ?? Infinity);
 	});

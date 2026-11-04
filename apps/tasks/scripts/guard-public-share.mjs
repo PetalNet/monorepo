@@ -18,6 +18,7 @@ const fail = (name, detail) => checks.push({ name, pass: false, detail });
 
 // (a) the public share route exists and exports a GET handler.
 const ROUTE = join(ROOT, "src/routes/s/[token]/+server.js");
+
 if (!existsSync(ROUTE)) {
 	fail("public /s/[token] route file exists", `missing: ${ROUTE}`);
 } else {
@@ -28,6 +29,7 @@ if (!existsSync(ROUTE)) {
 		/export\s+(async\s+)?function\s+GET\b/.test(route) ||
 		/export\s+const\s+GET\s*=/.test(route) ||
 		/export\s*\{[^}]*\bGET\b[^}]*\}/.test(route);
+
 	exportsGet
 		? ok("/s/[token]/+server.js exports a GET handler")
 		: fail("/s/[token]/+server.js exports a GET handler", "no GET export found");
@@ -35,6 +37,7 @@ if (!existsSync(ROUTE)) {
 
 // (b) hooks.server.js keeps the public-share SSO exemption, applied BEFORE the gate.
 const HOOKS = join(ROOT, "src/hooks.server.js");
+
 if (!existsSync(HOOKS)) {
 	fail("src/hooks.server.js exists", `missing: ${HOOKS}`);
 } else {
@@ -43,6 +46,7 @@ if (!existsSync(HOOKS)) {
 
 	// the exemption predicate is defined and keyed to the /s/ prefix.
 	const hasPredicate = /isPublicShare/.test(hooks) && /['"`]\/s\b/.test(hooks);
+
 	hasPredicate
 		? ok("hooks defines an isPublicShare predicate scoped to /s/")
 		: fail(
@@ -53,6 +57,7 @@ if (!existsSync(HOOKS)) {
 	// the Authentik gate must NEGATE the exemption — i.e. a /s/ request bypasses the 403.
 	// Match the gate condition guarding the reject, tolerant of whitespace.
 	const gateBypasses = /!\s*isPublicShare\s*\(/.test(hooks);
+
 	gateBypasses
 		? ok("Authentik gate bypasses the 403 for public-share paths (!isPublicShare)")
 		: fail(
@@ -63,14 +68,19 @@ if (!existsSync(HOOKS)) {
 
 // report
 let failed = 0;
+
 for (const c of checks) {
 	console.log(`${c.pass ? "PASS" : "FAIL"}  ${c.name}${c.pass ? "" : ` — ${c.detail}`}`);
+
 	if (!c.pass) failed++;
 }
+
 console.log(`\n${checks.length - failed}/${checks.length} checks passed`);
+
 if (failed) {
 	console.error(
 		"\nGuard FAILED: the public /s/ share route or its SSO exemption regressed (#502).",
 	);
+
 	process.exit(1);
 }

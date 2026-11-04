@@ -6,6 +6,7 @@ import { boardData, listProjects, deepScrub } from "$lib/server/db.js";
 // + claimed_by reach the UI fine — they aren't secrets.
 export function load({ locals }) {
 	const me = locals.user;
+
 	return deepScrub({
 		...boardData(me),
 		projects: listProjects(me), // for project-name lookup in the rows

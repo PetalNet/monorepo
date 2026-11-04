@@ -3,6 +3,8 @@
 		"ignoreFiles": [
 			"**/build/**",
 			"**/storybook-static/**",
+			"apps/tasks/static/fonts/**",
+			"apps/tasks/static/vendor/**",
 			"apps/collegemap/src/lib/components/CollegeSearch.svelte",
 			"apps/collegemap/src/lib/components/Map.svelte",
 			"apps/collegemap/src/routes/+layout.svelte",

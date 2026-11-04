@@ -60,11 +60,13 @@ const esc = (s) =>
 
 export function GET({ params }) {
 	const a = getArtifactByShareToken(params.token);
+
 	// FAIL CLOSED — any miss is an indistinguishable generic 404 (no info leak about why).
 	if (!a) throw error(404, "Not found");
 
 	if (a.kind === "interactive" || a.kind === "html") {
 		const csp = CSP[a.kind];
+
 		return new Response(a.content, {
 			headers: {
 				...HARDEN,
@@ -99,6 +101,7 @@ export function GET({ params }) {
 <h1>${esc(a.title)}</h1>
 ${bodyHtml}
 </body></html>`;
+
 		return new Response(page, {
 			headers: {
 				...HARDEN,

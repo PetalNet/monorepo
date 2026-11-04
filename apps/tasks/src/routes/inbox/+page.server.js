@@ -17,6 +17,7 @@ function parseOpts(s) {
 export function load({ locals }) {
 	const me = locals.user;
 	const c = inboxCounts(me) || {};
+
 	return deepScrub({
 		open: openQuestions(null, me, null).map((q) => ({ ...q, opts: parseOpts(q.options) })),
 		answered: answeredQuestions(me).map((q) => ({ ...q, opts: parseOpts(q.options) })),
@@ -36,11 +37,15 @@ export const actions = {
 		const { answerQuestion, canWrite } = await import("$lib/server/db.js");
 		const f = await request.formData();
 		const id = Number(f.get("id"));
+
 		if (!canWrite(id, locals.user)) {
 			const { error } = await import("@sveltejs/kit");
+
 			throw error(403, "Not allowed");
 		}
+
 		answerQuestion(id, String(f.get("value") || ""));
+
 		return { ok: true };
 	},
 };

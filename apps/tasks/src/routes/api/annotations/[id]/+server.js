@@ -5,6 +5,8 @@ import { json, error } from "@sveltejs/kit";
 // (hooks.server.js already fail-closed gates to ALLOW) can clear a note.
 export function DELETE({ params }) {
 	const id = Number(params.id);
+
 	if (!Number.isInteger(id)) throw error(400, "bad id");
+
 	return json({ ok: deleteAnnotation(id) });
 }

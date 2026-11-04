@@ -17,6 +17,7 @@ export const WHO = {
 // known handle → person name; unknown handle → the raw handle unchanged.
 export function who(handle) {
 	if (!handle) return "";
+
 	return WHO[String(handle).toLowerCase()] ?? handle;
 }
 
@@ -25,7 +26,9 @@ export function who(handle) {
 // fallback identity → caller-supplied devLabel ('dev' for account, 'there' for greeting).
 export function displayName(handle, devLabel = "dev") {
 	const h = String(handle || "dev").toLowerCase();
+
 	if (h === "dev") return devLabel;
+
 	return WHO[h] ?? h.charAt(0).toUpperCase() + h.slice(1);
 }
 
@@ -59,7 +62,9 @@ export const PERSON = {
 
 const personHue = (s) => {
 	let h = 0;
+
 	for (let i = 0; i < (s?.length ?? 0); i++) h = (h * 31 + s.charCodeAt(i)) % 360;
+
 	return h;
 };
 

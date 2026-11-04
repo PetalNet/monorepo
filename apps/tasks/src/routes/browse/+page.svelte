@@ -7,15 +7,22 @@
 
 	let { data } = $props();
 
-	const projName = projectName(data.projects);
+	const projName = $derived(projectName(data.projects));
 
 	// Compact lease badge for in-progress rows. lease_expires_at now ships (only
 	// claim_token is scrubbed); snapshot at render, refreshes on reload/nav.
 	function leaseBadge(t) {
-		if (t.status !== "doing" || !t.lease_expires_at) return null;
+		if (t.status !== "doing" || !t.lease_expires_at) {
+			return null;
+		}
+
 		const s = t.lease_expires_at;
 		const ms = new Date(/[TZ]/.test(s) ? s : s.replace(" ", "T") + "Z").getTime();
-		if (isNaN(ms)) return null;
+
+		if (isNaN(ms)) {
+			return null;
+		}
+
 		const now = Date.now();
 		const a = Math.abs(Math.round((now - ms) / 1000));
 		const mag =
@@ -26,6 +33,7 @@
 					: a < 86400
 						? `${Math.round(a / 3600)}h`
 						: `${Math.round(a / 86400)}d`;
+
 		return {
 			state: now >= ms ? "expired" : now > ms - 300000 ? "soon" : "ok",
 			label: now >= ms ? `${mag} over` : mag,
@@ -34,9 +42,17 @@
 
 	function filterUrl({ project = data.current, assignee = data.assignee } = {}) {
 		const q = new URLSearchParams();
-		if (project) q.set("project", project);
-		if (assignee) q.set("assignee", assignee);
+
+		if (project) {
+			q.set("project", project);
+		}
+
+		if (assignee) {
+			q.set("assignee", assignee);
+		}
+
 		const s = q.toString();
+
 		return s ? `?${s}` : "?";
 	}
 	const pickProject = (e) =>
@@ -177,7 +193,9 @@
 			autocomplete="off"
 			aria-label="Find a task"
 			onkeydown={(e) => {
-				if (e.key === "Escape") query = "";
+				if (e.key === "Escape") {
+					query = "";
+				}
 			}}
 		/>
 		{#if searching}

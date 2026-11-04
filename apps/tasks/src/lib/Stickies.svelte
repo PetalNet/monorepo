@@ -24,25 +24,36 @@
 	function buildSelector(el) {
 		const parts = [];
 		let cur = el;
-		while (cur && cur.nodeType === 1 && cur.id !== "app" && cur.tagName !== "BODY") {
+
+		while (cur?.nodeType === 1 && cur.id !== "app" && cur.tagName !== "BODY") {
 			let part = cur.tagName.toLowerCase();
+
 			if (cur.id) {
 				part += `#${cur.id}`;
 				parts.unshift(part);
+
 				break;
 			}
+
 			const parent = cur.parentElement;
+
 			if (parent) {
 				const sameTag = Array.from(parent.children).filter((c) => c.tagName === cur.tagName);
-				if (sameTag.length > 1) part += `:nth-of-type(${sameTag.indexOf(cur) + 1})`;
+
+				if (sameTag.length > 1) {
+					part += `:nth-of-type(${sameTag.indexOf(cur) + 1})`;
+				}
 			}
+
 			parts.unshift(part);
 			cur = cur.parentElement;
 		}
+
 		return parts.join(" > ");
 	}
 	function snippetFor(el) {
 		const text = (el.textContent ?? "").trim().replace(/\s+/g, " ");
+
 		return text.length > 80 ? text.slice(0, 77) + "…" : text;
 	}
 	function findElement(selector) {
@@ -54,44 +65,78 @@
 	}
 	function isOurUI(el) {
 		while (el) {
-			if (el instanceof HTMLElement && el.dataset.stickyUi === "true") return true;
+			if (el instanceof HTMLElement && el.dataset.stickyUi === "true") {
+				return true;
+			}
+
 			el = el.parentElement;
 		}
+
 		return false;
 	}
 
 	// ── long-press / right-click detection ──────────────────────────────────
 	function skipTarget(target) {
-		if (!target || isOurUI(target)) return true;
+		if (!target || isOurUI(target)) {
+			return true;
+		}
+
 		const tag = target.tagName;
+
 		return (
 			tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT" || tag === "BUTTON" || tag === "A"
 		);
 	}
 	function onPointerDown(ev) {
-		if (composer || ev.pointerType === "mouse") return; // mouse uses right-click instead
+		if (composer || ev.pointerType === "mouse") {
+			return;
+		} // mouse uses right-click instead
+
 		const target = ev.target;
-		if (skipTarget(target)) return;
+
+		if (skipTarget(target)) {
+			return;
+		}
+
 		pressOrigin = { x: ev.clientX, y: ev.clientY, target };
+
 		pressTimer = setTimeout(() => {
-			if (pressOrigin) openComposerAt(pressOrigin.x, pressOrigin.y, pressOrigin.target);
+			if (pressOrigin) {
+				openComposerAt(pressOrigin.x, pressOrigin.y, pressOrigin.target);
+			}
 		}, LONG_PRESS_MS);
 	}
 	function onPointerMove(ev) {
-		if (!pressOrigin || !pressTimer) return;
+		if (!pressOrigin || !pressTimer) {
+			return;
+		}
+
 		const dx = ev.clientX - pressOrigin.x,
 			dy = ev.clientY - pressOrigin.y;
-		if (dx * dx + dy * dy > MOVE_CANCEL_PX * MOVE_CANCEL_PX) cancelPress();
+
+		if (dx * dx + dy * dy > MOVE_CANCEL_PX * MOVE_CANCEL_PX) {
+			cancelPress();
+		}
 	}
 	function cancelPress() {
-		if (pressTimer) clearTimeout(pressTimer);
+		if (pressTimer) {
+			clearTimeout(pressTimer);
+		}
+
 		pressTimer = null;
 		pressOrigin = null;
 	}
 	function onContextMenu(ev) {
-		if (composer) return;
+		if (composer) {
+			return;
+		}
+
 		const target = ev.target;
-		if (skipTarget(target)) return;
+
+		if (skipTarget(target)) {
+			return;
+		}
+
 		ev.preventDefault();
 		openComposerAt(ev.clientX, ev.clientY, target);
 	}
@@ -100,6 +145,7 @@
 	$effect(() => {
 		if (composer) {
 			document.body.style.overflow = "hidden";
+
 			return () => {
 				document.body.style.overflow = "";
 			};
@@ -109,6 +155,7 @@
 		const rect = target.getBoundingClientRect();
 		const offX = rect.width > 0 ? Math.max(0, Math.min(1, (x - rect.left) / rect.width)) : 0.5;
 		const offY = rect.height > 0 ? Math.max(0, Math.min(1, (y - rect.top) / rect.height)) : 0.5;
+
 		composer = {
 			x,
 			y,
@@ -124,10 +171,18 @@
 		composer = null;
 	}
 	async function submitComposer() {
-		if (!composer) return;
+		if (!composer) {
+			return;
+		}
+
 		const body = composer.body.trim();
-		if (!body) return;
+
+		if (!body) {
+			return;
+		}
+
 		composer.submitting = true;
+
 		try {
 			const res = await fetch("/api/annotations", {
 				method: "POST",
@@ -141,14 +196,19 @@
 					body,
 				}),
 			});
+
 			if (!res.ok) {
 				composer.submitting = false;
+
 				return;
 			}
+
 			closeComposer();
 			await loadComments();
 		} catch {
-			if (composer) composer.submitting = false;
+			if (composer) {
+				composer.submitting = false;
+			}
 		}
 	}
 
@@ -156,8 +216,13 @@
 	async function loadComments() {
 		try {
 			const res = await fetch(`/api/annotations?page=${encodeURIComponent($page.url.pathname)}`);
-			if (!res.ok) return;
+
+			if (!res.ok) {
+				return;
+			}
+
 			const data = await res.json();
+
 			comments = data.annotations ?? [];
 		} catch {
 			/* best-effort */
@@ -166,7 +231,11 @@
 	async function ackComment(id) {
 		try {
 			const res = await fetch(`/api/annotations/${id}`, { method: "DELETE" });
-			if (!res.ok) return;
+
+			if (!res.ok) {
+				return;
+			}
+
 			comments = comments.filter((c) => c.id !== id);
 			expandedIds.delete(id);
 			expandedIds = new Set(expandedIds);
@@ -175,8 +244,12 @@
 		}
 	}
 	function toggleExpand(id) {
-		if (expandedIds.has(id)) expandedIds.delete(id);
-		else expandedIds.add(id);
+		if (expandedIds.has(id)) {
+			expandedIds.delete(id);
+		} else {
+			expandedIds.add(id);
+		}
+
 		expandedIds = new Set(expandedIds);
 	}
 
@@ -184,24 +257,38 @@
 	function stickyPos(c) {
 		positionTick; // re-evaluate on scroll/resize
 		const el = findElement(c.anchor_selector);
-		if (!el) return { left: 0, top: 0, visible: false };
+
+		if (!el) {
+			return { left: 0, top: 0, visible: false };
+		}
+
 		const rect = el.getBoundingClientRect();
 		const ox = c.anchor_offset_x ?? 0.5,
 			oy = c.anchor_offset_y ?? 0.5;
 		let left = rect.left + rect.width * ox;
 		let top = rect.top + rect.height * oy;
+
 		left = Math.max(8, Math.min(window.innerWidth - 280 - 8, left));
 		top = Math.max(8, Math.min(window.innerHeight - 60 - 8, top));
+
 		return { left, top, visible: rect.bottom > 0 && rect.top < window.innerHeight };
 	}
 	function clampComposerPos() {
-		if (!composer) return { left: 0, top: 0 };
+		if (!composer) {
+			return { left: 0, top: 0 };
+		}
+
 		const W = 300,
 			H = 180;
 		let left = composer.x - W / 2;
 		let top = composer.y + 12;
+
 		left = Math.max(8, Math.min(window.innerWidth - W - 8, left));
-		if (top + H + 8 > window.innerHeight) top = Math.max(8, composer.y - H - 12);
+
+		if (top + H + 8 > window.innerHeight) {
+			top = Math.max(8, composer.y - H - 12);
+		}
+
 		return { left, top };
 	}
 
@@ -222,20 +309,30 @@
 		window.addEventListener("resize", resizeHandler);
 	});
 	onDestroy(() => {
-		if (typeof document === "undefined") return;
+		if (typeof document === "undefined") {
+			return;
+		}
+
 		document.removeEventListener("pointerdown", onPointerDown);
 		document.removeEventListener("pointermove", onPointerMove);
 		document.removeEventListener("pointerup", cancelPress);
 		document.removeEventListener("pointercancel", cancelPress);
 		document.removeEventListener("contextmenu", onContextMenu);
-		if (scrollHandler) document.removeEventListener("scroll", scrollHandler, { capture: true });
-		if (resizeHandler) window.removeEventListener("resize", resizeHandler);
+
+		if (scrollHandler) {
+			document.removeEventListener("scroll", scrollHandler, { capture: true });
+		}
+
+		if (resizeHandler) {
+			window.removeEventListener("resize", resizeHandler);
+		}
 	});
 
 	// Reload when the route changes (client navigation).
 	let lastPath = $state("");
 	$effect(() => {
 		const p = $page.url.pathname;
+
 		if (pageLoaded && p !== lastPath) {
 			lastPath = p;
 			void loadComments();
@@ -245,10 +342,23 @@
 	function timeAgo(ts) {
 		const ms = typeof ts === "number" ? ts : Date.parse(String(ts).replace(" ", "T") + "Z");
 		const d = Math.round((Date.now() - ms) / 1000);
-		if (!Number.isFinite(d)) return "";
-		if (d < 60) return `${d}s`;
-		if (d < 3600) return `${Math.round(d / 60)}m`;
-		if (d < 86400) return `${Math.round(d / 3600)}h`;
+
+		if (!Number.isFinite(d)) {
+			return "";
+		}
+
+		if (d < 60) {
+			return `${d}s`;
+		}
+
+		if (d < 3600) {
+			return `${Math.round(d / 60)}m`;
+		}
+
+		if (d < 86400) {
+			return `${Math.round(d / 3600)}h`;
+		}
+
 		return `${Math.round(d / 86400)}d`;
 	}
 </script>
@@ -297,7 +407,9 @@
 		class="composer-bd"
 		data-sticky-ui="true"
 		onpointerdown={(e) => {
-			if (e.target === e.currentTarget) closeComposer();
+			if (e.target === e.currentTarget) {
+				closeComposer();
+			}
 		}}
 	></div>
 	<div class="composer" style:left="{pos.left}px" style:top="{pos.top}px" data-sticky-ui="true">

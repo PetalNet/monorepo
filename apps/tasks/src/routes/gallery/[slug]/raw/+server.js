@@ -53,8 +53,11 @@ const CSP = {
 
 export function GET({ params, locals }) {
 	const a = getArtifact(params.slug, locals.user);
+
 	if (!a) throw error(404, "No such artifact");
+
 	const csp = CSP[a.kind];
+
 	if (!csp) throw error(404, "Not a page artifact");
 
 	return new Response(a.content, {

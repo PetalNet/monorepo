@@ -40,6 +40,7 @@ const now = new Date();
 const stamp = now.toISOString();
 
 const log = (m) => console.log(`[archive-events ${stamp}] ${m}`);
+
 function note(msg) {
 	try {
 		execFileSync(SELF_NOTE, [msg], { timeout: 15000 });
@@ -47,19 +48,23 @@ function note(msg) {
 		/* never fail the run on a note */
 	}
 }
+
 function fail(msg) {
 	log("ABORT: " + msg);
 	note(`Events archive ABORTED (no data touched): ${msg}`);
 	process.exit(1);
 }
+
 function skip(msg) {
 	log(msg);
 	process.exit(0);
 } // benign no-op exit (e.g. lock held)
+
 // writeSync may short-write; loop until the WHOLE record is on disk before it's ever counted
 // as archived (else a truncated NDJSON line could accompany a watermark advance = silent loss).
 function writeAll(fd, buf) {
 	let off = 0;
+
 	while (off < buf.length) off += writeSync(fd, buf, off, buf.length - off);
 }
 
@@ -67,14 +72,17 @@ function writeAll(fd, buf) {
 //    duplicate records / racing the watermark. A stale lock (>2h, e.g. a timeout-killed run) is
 //    reclaimed. Released on exit, only if WE acquired it.
 const LOCK = join(dirname(process.env.TASKS_DB_PATH), ".archive-events.lock");
+
 try {
 	try {
 		if (Date.now() - statSync(LOCK).mtimeMs > 2 * 3600 * 1000) unlinkSync(LOCK);
 	} catch {}
+
 	openSync(LOCK, "wx"); // O_EXCL — throws if a live lock already exists
 } catch {
 	skip(`another archive run holds ${LOCK}; skipping`);
 }
+
 process.on("exit", () => {
 	try {
 		unlinkSync(LOCK);
@@ -85,6 +93,7 @@ process.on("exit", () => {
 try {
 	mkdirSync(ARCHIVE_DIR, { recursive: true });
 	const probe = join(ARCHIVE_DIR, `.write-probe-${process.pid}`);
+
 	writeFileSync(probe, "ok");
 	unlinkSync(probe);
 } catch (e) {
@@ -97,6 +106,7 @@ const startWm = db.getArchiveWatermark();
 const maxId = db.maxEventId();
 const beforeCount = db.eventCount();
 let beforeBytes = 0;
+
 try {
 	beforeBytes = statSync(process.env.TASKS_DB_PATH).size;
 } catch {}
@@ -107,40 +117,54 @@ const monthFds = new Map();
 const fdFor = (month) => {
 	if (!monthFds.has(month))
 		monthFds.set(month, openSync(join(ARCHIVE_DIR, `events-${month}.ndjson`), "a"));
+
 	return monthFds.get(month);
 };
+
 let archived = 0,
 	bytes = 0,
 	cursor = startWm,
 	firstId = null,
 	lastId = startWm;
+
 while (cursor < maxId) {
 	const rows = db.eventsBatchAfter(cursor, BATCH);
+
 	if (rows.length === 0) break;
+
 	const touched = new Set();
+
 	for (const r of rows) {
 		const month = (r.at || stamp).slice(0, 7); // YYYY-MM from the event's own timestamp
 		const buf = Buffer.from(JSON.stringify(r) + "\n");
+
 		writeAll(fdFor(month), buf); // full-write loop (no short-write truncation)
 		bytes += buf.length;
 		touched.add(fdFor(month));
+
 		if (firstId === null) firstId = r.id;
+
 		lastId = r.id;
 		archived++;
 	}
+
 	for (const fd of touched) fsyncSync(fd); // durable on the NAS before we advance
+
 	db.setArchiveWatermark(lastId); // watermark only covers fsync'd rows
 	cursor = lastId;
 }
+
 for (const fd of monthFds.values()) closeSync(fd);
 
 // 3. Reclaim: prune each task's now-archived events down to the keep-window (pruner is
 //    watermark-coupled, so this only deletes rows confirmed on the NAS above).
 let pruned = 0;
+
 for (const tid of db.eventTaskIds()) pruned += db.pruneTaskEvents(tid);
 
 // 4. VACUUM to return freed pages to the filesystem — on --vacuum, or when we freed a lot.
 let vacuumed = false;
+
 if (FORCE_VACUUM || pruned >= VACUUM_IF_PRUNED) {
 	try {
 		db.vacuumDb();
@@ -151,9 +175,11 @@ if (FORCE_VACUUM || pruned >= VACUUM_IF_PRUNED) {
 }
 
 let afterBytes = 0;
+
 try {
 	afterBytes = statSync(process.env.TASKS_DB_PATH).size;
 } catch {}
+
 const mb = (b) => (b / 1048576).toFixed(0) + "MB";
 const afterCount = db.eventCount();
 const summary =
@@ -162,5 +188,6 @@ const summary =
 		: `Events archived to NAS: ${archived} events (${mb(bytes)}, ids ${firstId ?? "-"}..${lastId}) -> ${ARCHIVE_DIR}. ` +
 			`Pruned ${pruned} now-archived rows from live DB. Events live: ${beforeCount} -> ${afterCount}. ` +
 			`DB file: ${mb(beforeBytes)} -> ${mb(afterBytes)}${vacuumed ? " (vacuumed)" : ""}. watermark=${db.getArchiveWatermark()}.`;
+
 log(summary);
 note(summary);

@@ -12,7 +12,7 @@
 	let { value = "" } = $props();
 
 	// module-scoped cache so re-mounts (every nav) don't re-fetch the index
-	let query = $state(value);
+	let query = $state((() => value)());
 	let open = $state(false);
 	let activeIndex = $state(-1);
 	let index = $state([]);
@@ -25,7 +25,10 @@
 	let modGlyph = $state("⌃");
 	onMount(() => {
 		const p = navigator.userAgentData?.platform || navigator.platform || navigator.userAgent;
-		if (/mac/i.test(p)) modGlyph = "⌘";
+
+		if (/mac/i.test(p)) {
+			modGlyph = "⌘";
+		}
 	});
 
 	const STORAGE_KEY = "tasks:recent-searches";
@@ -38,7 +41,10 @@
 	const showPanel = $derived(open && (query.trim() ? true : recents.length > 0));
 
 	function loadRecents() {
-		if (typeof localStorage === "undefined") return [];
+		if (typeof localStorage === "undefined") {
+			return [];
+		}
+
 		try {
 			return JSON.parse(localStorage.getItem(STORAGE_KEY) ?? "[]");
 		} catch {
@@ -47,23 +53,34 @@
 	}
 	function addRecent(term) {
 		const t = String(term || "").trim();
-		if (!t) return;
+
+		if (!t) {
+			return;
+		}
+
 		recents = [t, ...recents.filter((r) => r !== t)].slice(0, MAX_RECENTS);
+
 		try {
 			localStorage.setItem(STORAGE_KEY, JSON.stringify(recents));
 		} catch {}
 	}
 
 	async function ensureIndex() {
-		if (index.length || loading) return;
+		if (index.length || loading) {
+			return;
+		}
+
 		loading = true;
+
 		try {
 			const r = await fetch("/search/index.json", { headers: { accept: "application/json" } });
 			const d = await r.json();
+
 			index = d.items || [];
 		} catch {
 			index = [];
 		}
+
 		loading = false;
 	}
 
@@ -83,7 +100,11 @@
 	}
 	function seeAll() {
 		const q = query.trim();
-		if (!q) return;
+
+		if (!q) {
+			return;
+		}
+
 		addRecent(q);
 		close();
 		goto(`/search?q=${encodeURIComponent(q)}`);
@@ -104,20 +125,28 @@
 			e.preventDefault();
 			open = true;
 			const max = results.length - 1;
+
 			activeIndex = Math.min(activeIndex + 1, max);
 		} else if (e.key === "ArrowUp") {
 			e.preventDefault();
 			activeIndex = Math.max(activeIndex - 1, -1);
 		} else if (e.key === "Enter") {
 			e.preventDefault();
-			if (activeIndex >= 0 && results[activeIndex]) openTask(results[activeIndex]);
-			else seeAll();
+
+			if (activeIndex >= 0 && results[activeIndex]) {
+				openTask(results[activeIndex]);
+			} else {
+				seeAll();
+			}
 		} else if (e.key === "Escape") {
 			e.preventDefault();
+
 			if (query) {
 				query = "";
 				activeIndex = -1;
-			} else close();
+			} else {
+				close();
+			}
 		}
 	}
 
@@ -130,7 +159,9 @@
 				inputEl?.select();
 			}
 		};
+
 		window.addEventListener("keydown", onWin);
+
 		return () => window.removeEventListener("keydown", onWin);
 	});
 </script>

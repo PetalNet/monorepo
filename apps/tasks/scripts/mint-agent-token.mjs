@@ -15,6 +15,7 @@ process.env.TASKS_DB_PATH ||= "/srv/tasks/data/tasks.db";
 const argv = process.argv.slice(2);
 const positional = [];
 const flags = {};
+
 for (let i = 0; i < argv.length; i++) {
 	if (argv[i] === "--assignee") flags.assignee = argv[++i];
 	else if (argv[i] === "--projects") flags.projects = argv[++i];
@@ -23,17 +24,21 @@ for (let i = 0; i < argv.length; i++) {
 		process.exit(1);
 	} else positional.push(argv[i]);
 }
+
 const agent_name = positional[0];
+
 if (!agent_name) {
 	console.error(
 		"usage: node scripts/mint-agent-token.mjs <agent_name> [--assignee <name>] [--projects <csv>]",
 	);
+
 	process.exit(1);
 }
 
 const { mintAgentToken } = await import("../src/lib/server/db.js");
 
 let minted;
+
 try {
 	minted = mintAgentToken({
 		agent_name,

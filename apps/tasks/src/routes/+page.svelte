@@ -8,7 +8,7 @@
 
 	let { data } = $props();
 
-	const projName = projectName(data.projects);
+	const projName = $derived(projectName(data.projects));
 
 	// who's signed in → greeting ('there' is the dev-fallback greeting label)
 	const me = $derived(String(data.me || "dev").toLowerCase());
@@ -20,6 +20,7 @@
 		const id = setInterval(() => {
 			now = new Date();
 		}, 60_000);
+
 		return () => clearInterval(id);
 	});
 	// Live desk data: re-fetch the load every minute, ON the minute. invalidateAll() re-runs the
@@ -35,9 +36,13 @@
 			},
 			60_000 - (Date.now() % 60_000),
 		);
+
 		return () => {
 			clearTimeout(timeout);
-			if (interval) clearInterval(interval);
+
+			if (interval) {
+				clearInterval(interval);
+			}
 		};
 	});
 	const greetWord = $derived(
@@ -58,33 +63,60 @@
 		Object.fromEntries((data.fleet?.agents ?? []).map((a) => [a.handle, a])),
 	);
 	const fmtAge = (ms) => {
-		if (ms == null) return "";
+		if (ms == null) {
+			return "";
+		}
+
 		const s = Math.round(ms / 1000);
-		if (s < 60) return s + "s";
+
+		if (s < 60) {
+			return s + "s";
+		}
+
 		const m = Math.round(s / 60);
-		if (m < 60) return m + "m";
+
+		if (m < 60) {
+			return m + "m";
+		}
+
 		const h = Math.round(m / 60);
+
 		return h < 24 ? h + "h" : Math.round(h / 24) + "d";
 	};
 
 	function relShort(ts) {
-		if (!ts) return "";
+		if (!ts) {
+			return "";
+		}
+
 		const s = Math.round(
 			(Date.now() - new Date(/[TZ]/.test(ts) ? ts : ts.replace(" ", "T") + "Z").getTime()) / 1000,
 		);
-		if (s < 60) return s + "s";
-		if (s < 3600) return Math.round(s / 60) + "m";
-		if (s < 86400) return Math.round(s / 3600) + "h";
+
+		if (s < 60) {
+			return s + "s";
+		}
+
+		if (s < 3600) {
+			return Math.round(s / 60) + "m";
+		}
+
+		if (s < 86400) {
+			return Math.round(s / 3600) + "h";
+		}
+
 		return Math.round(s / 86400) + "d";
 	}
 
 	// ── filters (mirror the board; navigate to /browse with the same query) ──
 	const pickProject = (e) => {
 		const v = e.target.value;
+
 		goto("/browse" + (v ? `?project=${encodeURIComponent(v)}` : ""));
 	};
 	const pickAssignee = (e) => {
 		const v = e.target.value;
+
 		goto("/browse" + (v ? `?assignee=${encodeURIComponent(v)}` : ""));
 	};
 
@@ -97,12 +129,17 @@
 		SPK_VH = 28;
 	const spark = $derived.by(() => {
 		const s = g.momentum.series ?? [];
-		if (!s.length) return { line: "", area: "", pts: [] };
+
+		if (!s.length) {
+			return { line: "", area: "", pts: [] };
+		}
+
 		const max = Math.max(1, ...s.map((d) => d.n));
 		const n = s.length;
 		const pts = s.map((d, i) => {
 			const x = n === 1 ? 50 : (i / (n - 1)) * 100;
 			const y = SPK_BASE - (d.n / max) * (SPK_BASE - SPK_TOP);
+
 			// yPct maps the viewBox y (0–28) to a % of the rendered box, so an HTML overlay
 			// (dot/tooltip) lines up with the SVG point under preserveAspectRatio="none".
 			return { x, y, yPct: (y / SPK_VH) * 100, n: d.n, day: d.day };
@@ -110,19 +147,30 @@
 		const line = pts.map((p) => `${p.x.toFixed(1)},${p.y.toFixed(1)}`).join(" ");
 		const x0 = pts[0].x.toFixed(1),
 			xN = pts[pts.length - 1].x.toFixed(1);
+
 		return { line, area: `${line} ${xN},${SPK_BASE + 3} ${x0},${SPK_BASE + 3}`, pts };
 	});
 
 	// interactive momentum: tap/hover a day to read its count (Alice, on mobile)
 	let momActive = $state(-1);
 	const fmtDay = (day) => {
-		if (!day) return "";
+		if (!day) {
+			return "";
+		}
+
 		const today = new Date().toLocaleDateString("en-CA", { timeZone: "America/Chicago" });
 		const yest = new Date(Date.now() - 864e5).toLocaleDateString("en-CA", {
 			timeZone: "America/Chicago",
 		});
-		if (day === today) return "today";
-		if (day === yest) return "yesterday";
+
+		if (day === today) {
+			return "today";
+		}
+
+		if (day === yest) {
+			return "yesterday";
+		}
+
 		return new Date(day + "T12:00:00").toLocaleDateString("en-US", {
 			weekday: "short",
 			month: "short",
@@ -140,6 +188,7 @@
 		const bp = g.backlog.byPriority ?? {};
 		const total = g.backlog.total || 0;
 		const pct = (n) => (total ? (n / total) * 100 : 0);
+
 		return {
 			total,
 			p0: bp[0] ?? 0,
@@ -164,7 +213,11 @@
 			{ key: "f", n: f.onFire ?? 0, stroke: "var(--danger-b)" },
 			{ key: "w", n: f.inFlight ?? 0, stroke: "var(--accent-b)" },
 		].filter((s) => s.n > 0);
-		if (!total) return { arcs: [], total: 0 };
+
+		if (!total) {
+			return { arcs: [], total: 0 };
+		}
+
 		const gap = segs.length > 1 ? 1.5 : 0;
 		let offset = 0;
 		const arcs = segs.map((s) => {
@@ -174,9 +227,12 @@
 				dash: `${len.toFixed(2)} ${(C - len).toFixed(2)}`,
 				dashoffset: (-offset).toFixed(2),
 			};
+
 			offset += (s.n / total) * C;
+
 			return arc;
 		});
+
 		return { arcs, total };
 	});
 </script>
@@ -261,7 +317,9 @@
 				<div
 					class="mom-hits"
 					onpointerleave={(e) => {
-						if (e.pointerType === "mouse") momActive = -1;
+						if (e.pointerType === "mouse") {
+							momActive = -1;
+						}
 					}}
 				>
 					{#each spark.pts as p, i}
@@ -271,7 +329,9 @@
 							class:on={i === momActive}
 							aria-label="{fmtDay(p.day)}: {p.n} closed"
 							onpointerenter={(e) => {
-								if (e.pointerType === "mouse") momActive = i;
+								if (e.pointerType === "mouse") {
+									momActive = i;
+								}
 							}}
 							onfocus={() => (momActive = i)}
 							onblur={() => (momActive = -1)}
@@ -466,7 +526,7 @@
 						{@const ag = fleetByHandle[who]}
 						<div class="agent">
 							<div class="ag-top">
-								<span class="ag-dot" class:idle={!ag || ag.status !== "working"}></span>
+								<span class="ag-dot" class:idle={ag?.status !== "working"}></span>
 								<span class="ag-name mono">{who || "unclaimed"}</span>
 								{#if ag}<span class="ag-status">{ag.status}</span>{/if}
 								{#if ag?.age_ms != null}<span class="ag-age mono">{fmtAge(ag.age_ms)}</span>{/if}

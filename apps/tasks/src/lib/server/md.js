@@ -36,21 +36,26 @@ const WIKILINK_RE = /\[\[([^\]\n]+?)\]\]/g;
 // when the token is empty/whitespace so the literal text is left untouched.
 function resolveWikilink(inner) {
 	const raw = inner.trim();
+
 	if (!raw) return null;
 
 	// task-N / #N  -> real link to the task page.
 	const taskMatch = /^(?:task-|#)(\d+)$/i.exec(raw);
+
 	if (taskMatch) {
 		const n = taskMatch[1];
+
 		return el("a", { href: `/task/${n}`, className: ["wikilink", "wl-task"] }, `task-${n}`);
 	}
 
 	// Bare handle (no spaces/slashes) that matches a known fleet agent.
 	const handle = raw.toLowerCase();
+
 	if (/^[a-z0-9][a-z0-9_-]*$/i.test(raw) && FLEET_AGENTS.has(handle)) {
 		if (FLEET_ROUTE_EXISTS) {
 			return el("a", { href: `/fleet/${handle}`, className: ["wikilink", "wl-agent"] }, raw);
 		}
+
 		return el("span", { className: ["wikilink", "wl-agent"], title: "fleet agent" }, raw);
 	}
 
@@ -71,21 +76,30 @@ function el(tagName, properties, text) {
 // element nodes). Returns null when there's nothing to replace.
 function splitText(value) {
 	WIKILINK_RE.lastIndex = 0;
+
 	if (!WIKILINK_RE.test(value)) return null;
+
 	WIKILINK_RE.lastIndex = 0;
 
 	const out = [];
 	let last = 0;
 	let m;
+
 	while ((m = WIKILINK_RE.exec(value))) {
 		const node = resolveWikilink(m[1]);
+
 		if (!node) continue; // empty token: leave literal text in place
+
 		if (m.index > last) out.push({ type: "text", value: value.slice(last, m.index) });
+
 		out.push(node);
 		last = m.index + m[0].length;
 	}
+
 	if (!out.length) return null;
+
 	if (last < value.length) out.push({ type: "text", value: value.slice(last) });
+
 	return out;
 }
 
@@ -95,16 +109,21 @@ function rehypeWikilinks() {
 	return (tree) => {
 		const walk = (node) => {
 			const kids = node.children;
+
 			if (!kids) return;
+
 			for (let i = 0; i < kids.length; i++) {
 				const child = kids[i];
+
 				if (child.type === "element") {
 					// don't rewrite inside existing links or code spans
 					if (child.tagName === "code" || child.tagName === "pre" || child.tagName === "a")
 						continue;
+
 					walk(child);
 				} else if (child.type === "text") {
 					const replacement = splitText(child.value);
+
 					if (replacement) {
 						kids.splice(i, 1, ...replacement);
 						i += replacement.length - 1;
@@ -112,6 +131,7 @@ function rehypeWikilinks() {
 				}
 			}
 		};
+
 		walk(tree);
 	};
 }
@@ -126,6 +146,7 @@ const WL_CLASSES = ["wikilink", "wl-task", "wl-agent", "wl-ref"];
 function withWikilinkClasses(attrs = []) {
 	const out = [];
 	let merged = false;
+
 	for (const a of attrs) {
 		if (Array.isArray(a) && a[0] === "className") {
 			out.push(["className", ...a.slice(1), ...WL_CLASSES]);
@@ -137,7 +158,9 @@ function withWikilinkClasses(attrs = []) {
 			out.push(a);
 		}
 	}
+
 	if (!merged) out.push(["className", ...WL_CLASSES]);
+
 	return out;
 }
 
@@ -169,6 +192,7 @@ const processor = unified()
 
 export function renderMd(src) {
 	if (!src) return "";
+
 	return String(processor.processSync(src));
 }
 

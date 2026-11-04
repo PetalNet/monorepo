@@ -12,27 +12,39 @@
 	// (sandbox allow-scripts, NOT allow-same-origin) — we therefore CAN'T read their
 	// scrollHeight to auto-size. They get a fixed full-viewport frame + the "open full"
 	// link for true fullscreen. Only 'html' (script-less, same-origin) gets the fit logic.
-	const isInteractive = data.kind === "interactive";
+	const isInteractive = $derived(data.kind === "interactive");
 	let frameEl = $state(null);
-	let frameH = $state(isInteractive ? "calc(100vh - 52px)" : "calc(100vh - 140px)"); // pre-load fallback; fit() overrides for html
+	let frameH = $state((() => (isInteractive ? "calc(100vh - 52px)" : "calc(100vh - 140px)"))()); // pre-load fallback; fit() overrides for html
 	let ro;
 	function fit() {
 		try {
 			const d = frameEl?.contentDocument;
-			if (!d) return;
+
+			if (!d) {
+				return;
+			}
+
 			const h = Math.max(d.documentElement?.scrollHeight || 0, d.body?.scrollHeight || 0);
-			if (h > 0) frameH = h + "px";
+
+			if (h > 0) {
+				frameH = h + "px";
+			}
 		} catch {
 			/* if anything blocks the read, keep the fallback min-height */
 		}
 	}
 	function onFrameLoad() {
-		if (isInteractive) return; // opaque origin: nothing to measure, and no observer to attach
+		if (isInteractive) {
+			return;
+		} // opaque origin: nothing to measure, and no observer to attach
+
 		fit();
+
 		// re-fit on reflow (web-font swap, image decode, our own resizes), browser-agnostic.
 		try {
 			ro?.disconnect();
 			const d = frameEl?.contentDocument;
+
 			if (d?.body && "ResizeObserver" in window) {
 				ro = new ResizeObserver(() => fit());
 				ro.observe(d.documentElement);

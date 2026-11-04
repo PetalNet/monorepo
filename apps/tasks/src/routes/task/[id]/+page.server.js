@@ -31,30 +31,39 @@ const gate = (id, me) => {
 // (em-dash, en-dash, hyphen, or colon as the separator).
 function parseGlossary(md) {
 	if (!md) return [];
+
 	const lines = md.split("\n");
 	let inSec = false;
 	const out = [];
 	const seen = new Set();
+
 	for (const raw of lines) {
 		const line = raw.trimEnd();
 		const head = line.match(/^#{1,6}\s+(.+?)\s*$/);
+
 		if (head) {
 			inSec = /^(glossary|definitions|terms|jargon)\b/i.test(head[1].trim());
+
 			continue;
 		}
+
 		if (!inSec) continue;
+
 		// - **Term** — definition   |   - Term: definition
 		const m = line.match(/^\s*[-*]\s+(?:\*\*|__)?(.+?)(?:\*\*|__)?\s*(?:[—–:-]|--)\s+(.+)$/);
+
 		if (m) {
 			const term = m[1].replace(/[*_`]/g, "").trim();
 			const def = m[2].replace(/[*_`]/g, "").trim();
 			const key = term.toLowerCase();
+
 			if (term && def && !seen.has(key)) {
 				seen.add(key);
 				out.push({ term, def });
 			}
 		}
 	}
+
 	// longest first so multi-word terms win over their substrings when matching
 	return out.sort((a, b) => b.term.length - a.term.length);
 }
@@ -62,13 +71,17 @@ function parseGlossary(md) {
 export function load({ params, locals }) {
 	const id = Number(params.id);
 	const task = getTask(id);
+
 	if (!task) throw error(404, "No such task");
+
 	if (task.visibility === "private" && task.owner && task.owner !== locals.user)
 		throw error(404, "No such task"); // private = owner-only (404, don't reveal existence)
+
 	// options may be stored as bare strings (older questions) or {value,label} objects (newer).
 	// Normalize to {value,label} so the one-tap pills always render a label — the answer value
 	// stored is still the option's value/string, so the answer contract is unchanged.
 	let opts = [];
+
 	try {
 		opts = JSON.parse(task.options || "[]").map((o) =>
 			o && typeof o === "object"
@@ -78,6 +91,7 @@ export function load({ params, locals }) {
 	} catch {
 		opts = [];
 	}
+
 	return deepScrub({
 		task,
 		// body read view uses the ProseMark-matched renderer (read == edit, line-for-line).
@@ -96,11 +110,13 @@ export function load({ params, locals }) {
 		// activity timeline: audit events, parsed best-effort (data is the serialized JSON payload)
 		events: taskEvents(id).map((e) => {
 			let d = null;
+
 			try {
 				d = e.data ? JSON.parse(e.data) : null;
 			} catch {
 				d = null;
 			}
+
 			return { id: e.id, type: e.type, at: e.at, data: d };
 		}),
 		projects: listProjects(locals.user), // me-scoped: don't leak private project names
@@ -123,6 +139,7 @@ export const actions = {
 		gate(Number(params.id), locals.user);
 		const f = await request.formData();
 		const patch = {};
+
 		for (const k of [
 			"title",
 			"body",
@@ -141,30 +158,39 @@ export const actions = {
 		]) {
 			if (f.has(k)) patch[k] = k === "priority" ? Number(f.get(k)) : String(f.get(k));
 		}
+
 		// project_id: the sidebar can now (re)assign a task's project inline. Empty = unset (null);
 		// otherwise the numeric project id. updateTask's PATCHABLE already allows project_id.
 		if (f.has("project_id")) {
 			const v = String(f.get("project_id")).trim();
+
 			patch.project_id = v === "" ? null : Number(v);
 		}
+
 		// only the full details form carries vis_touched — inline status/priority quick-edits must not reset visibility
 		if (f.has("vis_touched")) {
 			// Ownership/visibility may only be changed by the current owner, or claimed on an
 			// UNOWNED task. Without this, any user could open a shared task someone else made,
 			// flip it private + seize owner=self, and lock the creator out (privesc through canWrite).
 			const cur = getTask(Number(params.id));
+
 			if (!cur.owner || cur.owner === locals.user) {
 				patch.visibility = f.get("private") ? "private" : "shared";
+
 				if (f.get("private")) patch.owner = locals.user; // claim ownership when locking it down
 			}
 		}
+
 		updateTask(Number(params.id), patch);
+
 		return { ok: true };
 	},
 	answer: async ({ request, params, locals }) => {
 		gate(Number(params.id), locals.user);
 		const f = await request.formData();
+
 		answerQuestion(Number(params.id), String(f.get("value") || ""));
+
 		return { ok: true };
 	},
 
@@ -174,7 +200,9 @@ export const actions = {
 	claim: async ({ params, locals }) => {
 		gate(Number(params.id), locals.user);
 		const me = locals.user || "web";
+
 		updateTask(Number(params.id), { assignee: me, status: "todo" });
+
 		return { ok: true };
 	},
 
@@ -187,7 +215,9 @@ export const actions = {
 		const reason = String(f.get("reason") || "").trim();
 		const status = f.get("status") === "dropped" ? "dropped" : "done";
 		const res = closeTask(Number(params.id), { reason, by: locals.user || "web", status });
-		if (res && res.ok === false) return fail(400, res);
+
+		if (res?.ok === false) return fail(400, res);
+
 		return { ok: true };
 	},
 
@@ -196,7 +226,9 @@ export const actions = {
 		gate(Number(params.id), locals.user);
 		const f = await request.formData();
 		const body = String(f.get("body") || "").trim();
+
 		if (body) addComment(Number(params.id), locals.user || "web", body);
+
 		return { ok: true };
 	},
 };

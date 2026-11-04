@@ -11,5 +11,6 @@
 		"moduleResolution": "bundler",
 		"types": ["node"]
 	},
-	"files": ["svelte.config.js", "vite.config.js"]
+	"files": ["svelte.config.js", "vite.config.js"],
+	"include": ["src/**/*.js", "src/**/*.svelte", "server.js", "mcp/**/*.mjs", "scripts/**/*.mjs"]
 }

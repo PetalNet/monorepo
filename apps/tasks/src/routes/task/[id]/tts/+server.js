@@ -15,6 +15,7 @@ const MAX_TEXT = 6000;
 // No key → 503, and the client quietly falls back to the browser's Web Speech API.
 function apiKey() {
 	if (env.ELEVEN_API_KEY) return env.ELEVEN_API_KEY.trim();
+
 	try {
 		return readFileSync("/data/eleven-api-key", "utf8").trim() || null;
 	} catch {
@@ -34,10 +35,14 @@ const VOICES = {
 	brian: "nPczCjzI2devNBz1zQrb", // deep, resonant, comforting
 	sarah: "EXAVITQu4vr4xnSDxMaL", // mature, reassuring, confident
 };
+
 function resolveVoice(pick) {
 	const agent-a = env.ELEVEN_VOICE_ID?.trim();
+
 	if (pick === "agent-a") return agent-a || VOICES.george; // cloned Agent-a, else a narrator until ready
+
 	if (VOICES[pick]) return VOICES[pick];
+
 	return agent-a || VOICES.george; // default
 }
 
@@ -46,34 +51,42 @@ export async function POST({ request, params, locals }) {
 	//    production (ALLOW set); this is defense-in-depth so the paid-key proxy is NEVER
 	//    reachable without an identity, even if the global gate is ever misconfigured/in dev.
 	const me = locals.user;
+
 	if (!me) return json({ error: "unauthorized" }, { status: 401 });
 
 	// 2. IDOR / scope — this route is /task/[id]/tts. Only let a caller drive the proxy for
 	//    a task they can actually see (private tasks are owner-only). 404 (don't reveal
 	//    existence), matching the load-gate. Bad/missing id -> 404 too.
 	const id = Number(params.id);
+
 	if (!Number.isInteger(id) || !canRead(id, me))
 		return json({ error: "not-found" }, { status: 404 });
 
 	// No key configured -> 503 (client quietly falls back to Web Speech). Checked before the
 	// rate-limiter so a keyless deploy doesn't burn anyone's quota.
 	const key = apiKey();
+
 	if (!key) return json({ error: "no-tts-key" }, { status: 503 });
 
 	// BODY-SIZE GUARD — reject an oversized request BEFORE buffering/parsing the JSON, so a
 	// huge body can't pressure the process (DoS). Belt-and-suspenders with a reverse-proxy
 	// body limit; MAX_TEXT is chars, allow generous JSON/UTF-8 overhead.
 	const clen = Number(request.headers.get("content-length") || 0);
+
 	if (clen > MAX_TEXT * 4 + 1024)
 		return json({ error: "too-long", max: MAX_TEXT }, { status: 413 });
 
 	let text = "",
 		pick = "";
+
 	try {
 		({ text, voice: pick } = await request.json());
 	} catch {}
+
 	text = String(text || "").trim();
+
 	if (!text) return json({ error: "empty" }, { status: 400 });
+
 	// 4. INPUT CAP — reject (not silently truncate) oversized input so a huge body can't run
 	//    up cost AND the caller knows their request was refused.
 	if (text.length > MAX_TEXT) return json({ error: "too-long", max: MAX_TEXT }, { status: 413 });
@@ -90,8 +103,10 @@ export async function POST({ request, params, locals }) {
 		? perUser
 		: (() => {
 				const global = take("tts:global", { capacity: 30, rate: 30 / 60 }); // ~30 burst, 1 / 2s sustained
+
 				return global.ok ? null : global;
 			})();
+
 	if (limited) {
 		return json(
 			{ error: "rate-limited" },
@@ -112,7 +127,9 @@ export async function POST({ request, params, locals }) {
 		}),
 		signal: AbortSignal.timeout(30_000),
 	}).catch(() => null);
+
 	if (!r) return json({ error: "tts-upstream", status: 504 }, { status: 502 });
+
 	if (!r.ok) return json({ error: "tts-upstream", status: r.status }, { status: 502 });
 
 	return new Response(r.body, {

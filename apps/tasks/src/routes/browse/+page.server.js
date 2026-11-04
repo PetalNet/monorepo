@@ -36,6 +36,7 @@ export function load({ url, locals }) {
 	const proj = projName ? getProjectByName(projName) : null;
 	const pid = proj?.id ?? null;
 	const who = url.searchParams.get("assignee") || null; // assignee filter (combinable with project)
+
 	return deepScrub({
 		projects: listProjects(me),
 		current: proj?.name ?? null,
@@ -68,10 +69,14 @@ export const actions = {
 	capture: async ({ request }) => {
 		const f = await request.formData();
 		const title = String(f.get("title") || "").trim();
+
 		if (!title) return { ok: false };
+
 		const projName = String(f.get("project") || "").trim();
 		const project_id = projName ? ensureProject(projName) : null;
+
 		createTask({ title, kind: "idea", project_id, created_by: "web" });
+
 		return { ok: true };
 	},
 
@@ -80,9 +85,12 @@ export const actions = {
 		const f = await request.formData();
 		const parent_id = Number(f.get("parent"));
 		const title = String(f.get("title") || "").trim();
+
 		if (!parent_id || !title) return { ok: false };
+
 		gate(parent_id, locals.user);
 		const parent = getTask(parent_id);
+
 		createTask({
 			title,
 			kind: "task",
@@ -91,22 +99,29 @@ export const actions = {
 			project_id: parent?.project_id ?? null,
 			created_by: "web",
 		});
+
 		return { ok: true };
 	},
 
 	update: async ({ request, locals }) => {
 		const f = await request.formData();
 		const id = Number(f.get("id"));
+
 		gate(id, locals.user);
 		const patch = {};
+
 		for (const k of ["status", "priority", "up_next", "blocked_on", "title"]) {
 			if (f.has(k))
 				patch[k] = k === "priority" || k === "up_next" ? Number(f.get(k)) : String(f.get(k));
 		}
+
 		// a 'blocker' id may ride along when setting status=blocked, so the guard passes
 		if (patch.status === "blocked" && f.get("blocker")) addBlocker(id, Number(f.get("blocker")));
+
 		const res = updateTask(id, patch);
-		if (res && res.ok === false) return { ok: false, error: res.message };
+
+		if (res?.ok === false) return { ok: false, error: res.message };
+
 		return { ok: true };
 	},
 
@@ -116,14 +131,19 @@ export const actions = {
 		const id = Number(f.get("id"));
 		const blocker_id = Number(f.get("blocker_id"));
 		const op = String(f.get("op") || "add");
+
 		if (!id || !blocker_id) return { ok: false };
+
 		gate(id, locals.user);
+
 		if (op === "remove") removeBlocker(id, blocker_id);
 		else {
 			addBlocker(id, blocker_id);
+
 			// adding a live blocker to an open task flips it to blocked
 			if (unfinishedBlockers(id).length) updateTask(id, { status: "blocked" });
 		}
+
 		return { ok: true };
 	},
 
@@ -131,16 +151,20 @@ export const actions = {
 	triage: async ({ request, locals }) => {
 		const f = await request.formData();
 		const id = Number(f.get("id"));
+
 		gate(id, locals.user);
 		const to = String(f.get("to"));
+
 		if (to === "up")
 			updateTask(id, { kind: "task", status: "todo", up_next: 1, rank: nextUpNextRank() });
 		else if (to === "backlog") updateTask(id, { kind: "task", status: "todo", up_next: 0 });
 		else if (to === "drop") updateTask(id, { status: "dropped" });
 		else if (to === "project") {
 			const name = String(f.get("name") || "").trim();
+
 			if (name) updateTask(id, { kind: "task", status: "todo", project_id: ensureProject(name) });
 		}
+
 		return { ok: true };
 	},
 
@@ -148,8 +172,10 @@ export const actions = {
 	answer: async ({ request, locals }) => {
 		const f = await request.formData();
 		const id = Number(f.get("id"));
+
 		gate(id, locals.user);
 		answerQuestion(id, String(f.get("value") || ""));
+
 		return { ok: true };
 	},
 
@@ -158,9 +184,12 @@ export const actions = {
 		const f = await request.formData();
 		const id = Number(f.get("id"));
 		const v = String(f.get("project_id") || "");
+
 		if (!id || !v) return { ok: false };
+
 		gate(id, locals.user);
 		updateTask(id, { project_id: v === "none" ? null : Number(v) });
+
 		return { ok: true };
 	},
 };

@@ -5,20 +5,21 @@
 	let { data } = $props();
 
 	// live state, seeded from the server load then refreshed by polling /fleet/data
-	let agents = $state(data.agents);
-	let totals = $state(data.totals);
+	let agents = $state((() => data.agents)());
+	let totals = $state((() => data.totals)());
 	// a per-second tick drives the "last seen" counters so they age between polls
 	let nowMs = $state(Date.now());
 	// clock skew between this browser and the server's notion of "now" at load —
 	// keeps the age honest even if the two clocks disagree.
-	let serverNow = data.now;
+	let serverNow = $state((() => data.now)());
 	let lastSync = Date.now();
 
-	const STALE_MS = data.staleMs ?? 90_000;
+	const STALE_MS = $derived(data.staleMs ?? 90_000);
 
 	// which agents' embedded terminals are expanded; open by default
 	let termOpen = $state(
-		Object.fromEntries(data.agents.filter((a) => a.term_url).map((a) => [a.handle, true])),
+		(() =>
+			Object.fromEntries(data.agents.filter((a) => a.term_url).map((a) => [a.handle, true])))(),
 	);
 
 	// per-agent accent — keep it inside the app's status language, not a new palette.
@@ -32,25 +33,48 @@
 	// estimate the agent's true age "now" by combining the server-reported age with
 	// local elapsed time since the last poll (no reliance on browser↔server clock match).
 	function liveAge(a) {
-		if (a.age_ms == null) return null;
+		if (a.age_ms == null) {
+			return null;
+		}
+
 		return a.age_ms + (nowMs - lastSync);
 	}
 	function fmtAge(ms) {
-		if (ms == null) return "—";
+		if (ms == null) {
+			return "—";
+		}
+
 		const s = Math.round(ms / 1000);
-		if (s < 60) return s + "s ago";
+
+		if (s < 60) {
+			return s + "s ago";
+		}
+
 		const m = Math.round(s / 60);
-		if (m < 60) return m + "m ago";
+
+		if (m < 60) {
+			return m + "m ago";
+		}
+
 		const h = Math.round(m / 60);
-		if (h < 24) return h + "h ago";
+
+		if (h < 24) {
+			return h + "h ago";
+		}
+
 		return Math.round(h / 24) + "d ago";
 	}
 
 	async function poll() {
 		try {
 			const r = await fetch("/fleet/data", { headers: { accept: "application/json" } });
-			if (!r.ok) return;
+
+			if (!r.ok) {
+				return;
+			}
+
 			const j = await r.json();
+
 			agents = j.agents;
 			totals = j.totals;
 			serverNow = j.now;
@@ -66,10 +90,15 @@
 		const poller = setInterval(poll, pollMs);
 		// tick the local clock once a second so age counters move between polls
 		const ticker = reduce ? null : setInterval(() => (nowMs = Date.now()), 1000);
+
 		lastSync = Date.now();
+
 		return () => {
 			clearInterval(poller);
-			if (ticker) clearInterval(ticker);
+
+			if (ticker) {
+				clearInterval(ticker);
+			}
 		};
 	});
 </script>

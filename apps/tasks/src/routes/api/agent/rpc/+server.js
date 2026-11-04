@@ -12,17 +12,22 @@ import { json } from "@sveltejs/kit";
 export async function POST({ request }) {
 	// reject oversized bodies before buffering them (the handler re-checks the real length)
 	const len = Number(request.headers.get("content-length"));
+
 	if (Number.isFinite(len) && len > BODY_MAX)
 		return json({ error: "body_too_large" }, { status: 413 });
+
 	let rawBody;
+
 	try {
 		rawBody = await request.text();
 	} catch {
 		rawBody = "";
 	}
+
 	const { status, body } = handleAgentRpc({
 		authorization: request.headers.get("authorization"),
 		rawBody,
 	});
+
 	return json(body, { status });
 }

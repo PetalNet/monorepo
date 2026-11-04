@@ -12,13 +12,18 @@
 	let now = $state(Date.now());
 	$effect(() => {
 		const i = setInterval(() => (now = Date.now()), 15000);
+
 		return () => clearInterval(i);
 	});
 	const toMs = (s) =>
 		s ? new Date(/[TZ]/.test(s) ? s : s.replace(" ", "T") + "Z").getTime() : NaN;
 	function leaseInfo(expires) {
 		const ms = toMs(expires);
-		if (isNaN(ms)) return null;
+
+		if (isNaN(ms)) {
+			return null;
+		}
+
 		const s = Math.round((now - ms) / 1000); // >0 = overdue
 		const a = Math.abs(s);
 		const mag =
@@ -29,6 +34,7 @@
 					: a < 86400
 						? `${Math.round(a / 3600)}h`
 						: `${Math.round(a / 86400)}d`;
+
 		return {
 			state: s >= 0 ? "expired" : s > -300 ? "soon" : "ok",
 			label: s >= 0 ? `${mag} overdue` : `expires in ${mag}`,
@@ -41,17 +47,30 @@
 	const isAgent = (h) => AGENTS.includes(String(h).toLowerCase());
 	const whoKind = (h) => (isAgent(h) ? "agent" : "human");
 
-	const projName = projectName(data.projects);
+	const projName = $derived(projectName(data.projects));
 	const STATUSES = ["inbox", "todo", "doing", "blocked", "review", "done", "dropped"];
 	const KIND_ICON = { task: "task", question: "question", doc: "doc", idea: "idea", upload: "doc" };
 	const kindIcon = (k) => KIND_ICON[k] ?? "task";
 
 	function ago(ts) {
-		if (!ts) return "";
+		if (!ts) {
+			return "";
+		}
+
 		const d = (Date.now() - new Date(ts.replace(" ", "T") + "Z").getTime()) / 1000;
-		if (d < 60) return "just now";
-		if (d < 3600) return Math.floor(d / 60) + "m ago";
-		if (d < 86400) return Math.floor(d / 3600) + "h ago";
+
+		if (d < 60) {
+			return "just now";
+		}
+
+		if (d < 3600) {
+			return Math.floor(d / 60) + "m ago";
+		}
+
+		if (d < 86400) {
+			return Math.floor(d / 3600) + "h ago";
+		}
+
 		return Math.floor(d / 86400) + "d ago";
 	}
 
@@ -71,7 +90,7 @@
 	// initialise directly from data (not via an effect) so docHtml is correct on
 	// the FIRST render — otherwise flipping it post-mount re-renders {@html} and
 	// clobbers the glossary spans the effect just injected.
-	let human = $state(!!data.bodyHtmlHuman); // show the plain-English rewrite
+	let human = $state((() => !!data.bodyHtmlHuman)()); // show the plain-English rewrite
 	let voice = $state("agent-a"); // TTS voice for Listen (server whitelists the key)
 
 	const VOICES = [
@@ -87,15 +106,25 @@
 	// save effect from clobbering the stored value with the default before the load runs.
 	let loaded = $state(false);
 	$effect(() => {
-		if (loaded) return;
+		if (loaded) {
+			return;
+		}
+
 		try {
 			const p = JSON.parse(localStorage.getItem("reader") || "{}");
-			if (typeof p.voice === "string") voice = p.voice;
+
+			if (typeof p.voice === "string") {
+				voice = p.voice;
+			}
 		} catch {}
+
 		loaded = true;
 	});
 	$effect(() => {
-		if (!loaded) return;
+		if (!loaded) {
+			return;
+		}
+
 		try {
 			localStorage.setItem("reader", JSON.stringify({ voice }));
 		} catch {}
@@ -110,7 +139,11 @@
 		docHtml; // re-run when the technical⇄human body swaps
 		const el = proseEl;
 		const terms = data.glossary;
-		if (!el || !terms?.length) return;
+
+		if (!el || !terms?.length) {
+			return;
+		}
+
 		// A glossary definition entry renders as "<Term> <sep> definition" — the SAME
 		// "- **Term** — def" shape parseGlossary matched. Match anchored at the entry
 		// start against the known terms so we skip ONLY real definition list-items
@@ -119,6 +152,7 @@
 			"^\\s*(?:" + terms.map((g) => escRe(g.term)).join("|") + ")\\s*(?:[—–:-]|--)\\s",
 			"i",
 		);
+
 		// wrap each defined term at its FIRST occurrence (wiki-style), one term at a
 		// time so two terms in the same text node both get wrapped.
 		for (const { term, def } of terms) {
@@ -128,22 +162,34 @@
 			const walker = document.createTreeWalker(el, NodeFilter.SHOW_TEXT, {
 				acceptNode(n) {
 					// skip headings, code, links, and any already-wrapped term
-					if (n.parentElement?.closest("h1,h2,h3,h4,h5,h6,code,pre,a,.gloss"))
+					if (n.parentElement?.closest("h1,h2,h3,h4,h5,h6,code,pre,a,.gloss")) {
 						return NodeFilter.FILTER_REJECT;
+					}
+
 					// skip the glossary's own definition entries — otherwise a term's FIRST
 					// occurrence is inside its "- **Term** — definition" <li>, so it self-wraps
 					// there instead of in the body.
 					const li = n.parentElement?.closest("li");
-					if (li && defEntry.test(li.textContent)) return NodeFilter.FILTER_REJECT;
+
+					if (li && defEntry.test(li.textContent)) {
+						return NodeFilter.FILTER_REJECT;
+					}
+
 					return re.test(n.nodeValue) ? NodeFilter.FILTER_ACCEPT : NodeFilter.FILTER_SKIP;
 				},
 			});
 			const text = walker.nextNode();
-			if (!text) continue;
+
+			if (!text) {
+				continue;
+			}
+
 			const m = text.nodeValue.match(re);
 			const after = text.splitText(m.index);
+
 			after.nodeValue = after.nodeValue.slice(m[0].length);
 			const span = document.createElement("span");
+
 			span.className = "gloss";
 			span.textContent = m[0];
 			span.setAttribute("data-def", def); // CSS hover card (pointer users)
@@ -182,10 +228,12 @@
 	// the instant submit fires, before Svelte flushes DOM updates; the direct set persists the edit.
 	const saveBody = ({ formData }) => {
 		const md = pmRef?.sync();
+
 		if (md != null) {
 			bodyDraft = md;
 			formData.set("body", md);
 		}
+
 		return async ({ update }) => {
 			await update();
 			editingBody = false;
@@ -199,24 +247,32 @@
 	let blobUrl = null; // revoke on stop to avoid leaking
 	function readableText() {
 		// while editing the rendered prose isn't mounted — read the live editor instead
-		if (editingBody && pmRef) return (pmRef.sync() || "").replace(/\s+\n/g, "\n").trim();
+		if (editingBody && pmRef) {
+			return (pmRef.sync() || "").replace(/\s+\n/g, "\n").trim();
+		}
+
 		return (proseEl?.innerText || "").replace(/\s+\n/g, "\n").trim();
 	}
 	function stopAudio() {
 		speaking = false;
 		loadingAudio = false;
+
 		try {
 			ttsCtrl?.abort();
 		} catch {}
+
 		ttsCtrl = null;
+
 		try {
 			window.speechSynthesis?.cancel();
 		} catch {}
+
 		if (audioEl) {
 			audioEl.onended = audioEl.onerror = null;
 			audioEl.pause();
 			audioEl = null;
 		}
+
 		if (blobUrl) {
 			URL.revokeObjectURL(blobUrl);
 			blobUrl = null;
@@ -225,17 +281,25 @@
 	// stop audio when the doc changes or the component unmounts (no orphan playback on nav)
 	$effect(() => {
 		t.id;
+
 		return stopAudio;
 	});
 	async function listen() {
 		if (speaking || loadingAudio) {
 			stopAudio();
+
 			return;
 		}
+
 		const text = readableText();
-		if (!text) return;
+
+		if (!text) {
+			return;
+		}
+
 		loadingAudio = true;
 		ttsCtrl = new AbortController();
+
 		// try the server TTS (ElevenLabs) first; fall back to browser speech
 		try {
 			const r = await fetch(`/task/${t.id}/tts`, {
@@ -244,6 +308,7 @@
 				body: JSON.stringify({ text: text.slice(0, 4800), voice }),
 				signal: ttsCtrl.signal,
 			});
+
 			if (r.ok && (r.headers.get("content-type") || "").includes("audio")) {
 				blobUrl = URL.createObjectURL(await r.blob());
 				audioEl = new Audio(blobUrl);
@@ -252,24 +317,36 @@
 				loadingAudio = false;
 				speaking = true;
 				await audioEl.play(); // may reject (autoplay block / rapid toggle)
+
 				return;
 			}
 		} catch (e) {
-			if (e?.name === "AbortError") return; // user cancelled — don't fall through
+			if (e?.name === "AbortError") {
+				return;
+			} // user cancelled — don't fall through
 		}
+
 		// fallback: Web Speech API
 		loadingAudio = false;
 		speaking = false;
-		if (!window.speechSynthesis) return;
+
+		if (!window.speechSynthesis) {
+			return;
+		}
+
 		const u = new SpeechSynthesisUtterance(text.slice(0, 32000));
+
 		u.rate = 1.0;
 		u.pitch = 1.0;
+
 		u.onend = () => {
 			speaking = false;
 		};
+
 		u.onerror = () => {
 			speaking = false;
 		};
+
 		speaking = true;
 		window.speechSynthesis.cancel();
 		window.speechSynthesis.speak(u);
@@ -325,6 +402,7 @@
 	// event 'data' is the parsed JSON payload from the server.
 	const eventLabel = (e) => {
 		const d = e.data || {};
+
 		switch (e.type) {
 			case "create":
 				return { who: d.by || t.created_by || "someone", act: "opened this task" };
@@ -348,8 +426,10 @@
 	};
 	const timeline = $derived.by(() => {
 		const items = [];
+
 		for (const e of data.events || []) {
 			const l = eventLabel(e);
+
 			items.push({
 				ts: e.at,
 				who: l.who,
@@ -359,6 +439,7 @@
 				_o: e.id,
 			});
 		}
+
 		// worker result — a richer bubble, anchored to updated_at (no dedicated event for it)
 		if (t.result_summary) {
 			items.push({
@@ -371,6 +452,7 @@
 				_o: 1e15,
 			});
 		}
+
 		for (const c of data.comments || []) {
 			items.push({
 				ts: c.created_at,
@@ -381,9 +463,11 @@
 				_o: 2e15 + c.id,
 			});
 		}
+
 		return items.sort((a, b) => {
 			const ta = toMs(a.ts) || 0,
 				tb = toMs(b.ts) || 0;
+
 			return ta - tb || a._o - b._o;
 		});
 	});
