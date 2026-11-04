@@ -14,11 +14,7 @@ export function bitmap(width: number, height: number): Bitmap {
 	return { width, height, data: new Uint8Array(width * height) };
 }
 
-/**
- * Collects move/line/quad/cubic commands into polylines, applying `x' = tx + x * sx`, `y' = ty + y
- *
- * - Sy` to every point.
- */
+/** Collects move/line/quad/cubic commands into polylines, scaling then translating each point. */
 export class PathBuilder {
 	readonly lines: Polyline[] = [];
 	private current: number[] | null = null;
