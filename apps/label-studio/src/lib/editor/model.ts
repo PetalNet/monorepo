@@ -11,8 +11,7 @@ import {
 	type Symbology,
 	type TapeWidthMm,
 } from "$lib/doc";
-
-export const DEFAULT_FONT = "inter";
+import { DEFAULT_FONT } from "$lib/render/fonts";
 
 /** What the Add menu offers. Several entries share one element kind. */
 export type AddKind =

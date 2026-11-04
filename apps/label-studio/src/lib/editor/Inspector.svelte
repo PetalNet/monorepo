@@ -1,5 +1,6 @@
 <script lang="ts">
 	import { dotsToMm, mmToDots, placeholders, type LabelElement, type Rotation } from "$lib/doc";
+	import { FONTS } from "$lib/render/fonts";
 	import Banner from "$lib/ui/Banner.svelte";
 	import IconButton from "$lib/ui/IconButton.svelte";
 	import NumberInput from "$lib/ui/NumberInput.svelte";
@@ -28,7 +29,6 @@
 	} from "@lucide/svelte";
 
 	import { editor } from "./editor.svelte";
-	import { FONTS } from "./fonts";
 	import IconPicker from "./IconPicker.svelte";
 	import { elementLabel, mapElements, SYMBOLOGY_NAMES, type AlignEdge } from "./model";
 	import Slider from "./Slider.svelte";
@@ -168,7 +168,7 @@
 					<Select
 						id="text-font"
 						value={element.font}
-						options={FONTS.map((font) => ({ value: font.id, label: font.name }))}
+						options={FONTS.map((font) => ({ value: font.id, label: font.label }))}
 						onchange={(font: typeof element.font) => {
 							patch("font", { font });
 						}}

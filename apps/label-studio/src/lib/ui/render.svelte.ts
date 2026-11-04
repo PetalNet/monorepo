@@ -5,8 +5,8 @@
  */
 import type { Bitmap, LabelDoc, RenderOptions, RenderResult } from "$lib/doc";
 import { renderLabel } from "$lib/render";
+import { browserFonts } from "$lib/render/fonts";
 
-import { browserFonts } from "./fonts";
 import RenderWorker from "./render.worker.ts?worker";
 
 const BUDGET_MS = 8;

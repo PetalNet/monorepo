@@ -1,7 +1,6 @@
 import type { LabelDoc, RenderOptions } from "$lib/doc";
 import { renderLabel } from "$lib/render";
-
-import { browserFonts } from "./fonts";
+import { browserFonts } from "$lib/render/fonts";
 
 interface Request {
 	id: number;
