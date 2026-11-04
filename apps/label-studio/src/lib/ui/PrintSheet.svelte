@@ -1,7 +1,7 @@
 <script lang="ts">
 	import type { PrintRequest } from "$lib/api";
 	import type { LabelDoc, Vars } from "$lib/doc";
-	import { ChevronRight, Minus, Plus, Printer } from "@lucide/svelte";
+	import { ChevronRight, Minus, Plus, Printer, PrinterX } from "@lucide/svelte";
 
 	import Banner from "./Banner.svelte";
 	import Button from "./Button.svelte";
@@ -46,8 +46,7 @@
 	let copies = $state(1);
 	let cut = $state(true);
 	let chain = $state(false);
-	let dryRun = $state(false);
-	let advanced = $state(false);
+	let advanced = $state(printerStatus.dryRun);
 	let sending = $state(false);
 	let failure = $state<string | null>(null);
 	let jobId = $state<string | null>(null);
@@ -55,9 +54,10 @@
 	const pages = $derived(rows?.length ?? 1);
 	const total = $derived(lengthMm * copies);
 	const loaded = $derived(printerStatus.loadedTape);
-	const printer = $derived(printerStatus.printer);
-	const mismatch = $derived(loaded !== null && loaded !== doc.tapeMm);
-	const blocked = $derived(!dryRun && printer?.state !== "ready");
+	const availability = $derived(printerStatus.availability);
+	const dryRun = $derived(printerStatus.dryRun);
+	const mismatch = $derived(!dryRun && loaded !== null && loaded !== doc.tapeMm);
+	const blocked = $derived(!dryRun && availability.kind === "unavailable");
 	const tracked = $derived(jobId === null ? null : (jobs.find(jobId) ?? null));
 
 	$effect(() => {
@@ -119,6 +119,22 @@
 	{#if tracked}
 		<JobRow entry={tracked} dismissible={false} />
 	{:else}
+		{#if blocked && availability.kind === "unavailable"}
+			<div class="reason">
+				<Banner tone="warn">
+					{sentence(availability.detail)} A dry run renders and records it without printing.
+					{#snippet action()}
+						<Button
+							size="sm"
+							onclick={() => {
+								printerStatus.dryRun = true;
+								advanced = true;
+							}}>Dry run instead</Button
+						>
+					{/snippet}
+				</Banner>
+			</div>
+		{/if}
 		<div class="rows">
 			<Row label="Copies" for="print-copies">
 				<span class="copies">
@@ -187,7 +203,7 @@
 						checked={dryRun}
 						label="Dry run"
 						onchange={(value: boolean) => {
-							dryRun = value;
+							printerStatus.dryRun = value;
 						}}
 					/>
 					<span class="hint">Render and record, do not print</span>
@@ -209,15 +225,6 @@
 				Designed for {tapeMmActual(doc.tapeMm)} mm tape, but {tapeMmActual(loaded)} mm is loaded. The
 				printer will refuse it.
 			</Banner>
-		{:else if blocked}
-			<Banner tone="warn">
-				{printer === null
-					? "Cannot reach the printer."
-					: printer.state === "ready"
-						? ""
-						: sentence(plainError(printer.message))}
-				Turn on Dry run under Advanced to record it without printing.
-			</Banner>
 		{/if}
 		{#if failure}<Banner tone="danger">{failure}</Banner>{/if}
 	{/if}
@@ -227,9 +234,19 @@
 			<Button variant="primary" onclick={() => (open = false)}>Done</Button>
 		{:else}
 			<Button variant="ghost" onclick={() => (open = false)}>Cancel</Button>
-			<Button variant="primary" busy={sending} disabled={blocked || mismatch} onclick={send}>
-				<Printer size={16} />
-				{dryRun ? "Dry run" : `Print ${formatMm(total)} mm`}
+			<Button
+				variant={blocked || mismatch ? "secondary" : "primary"}
+				busy={sending}
+				disabled={blocked || mismatch}
+				onclick={send}
+			>
+				{#if blocked && availability.kind === "unavailable"}
+					<PrinterX size={16} />
+					{availability.reason}
+				{:else}
+					<Printer size={16} />
+					{dryRun ? `Dry run ${formatMm(total)} mm` : `Print ${formatMm(total)} mm`}
+				{/if}
 			</Button>
 		{/if}
 	{/snippet}
@@ -245,6 +262,10 @@
 		padding: 28px 20px 16px;
 		background: var(--ground);
 		--dimension-bg: var(--ground);
+	}
+
+	.reason {
+		margin-bottom: 12px;
 	}
 
 	.more {

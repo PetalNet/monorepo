@@ -8,6 +8,7 @@
 	import Button from "$lib/ui/Button.svelte";
 	import { chrome } from "$lib/ui/chrome.svelte";
 	import { api, errorText } from "$lib/ui/client";
+	import PrintButton from "$lib/ui/PrintButton.svelte";
 	import PrintSheet from "$lib/ui/PrintSheet.svelte";
 	import Row from "$lib/ui/Row.svelte";
 	import Segmented from "$lib/ui/Segmented.svelte";
@@ -17,7 +18,7 @@
 	import TapeLabel from "$lib/ui/TapeLabel.svelte";
 	import { templates } from "$lib/ui/templates.svelte";
 	import { formatMm, relativeTime } from "$lib/ui/words";
-	import { CircleCheck, FileUp, Printer, Server } from "@lucide/svelte";
+	import { CircleCheck, FileUp, Server } from "@lucide/svelte";
 	import { SvelteSet } from "svelte/reactivity";
 
 	type Input = "paste" | "file" | "source";
@@ -161,15 +162,10 @@
 </script>
 
 {#snippet printAction()}
-	<Button
-		variant="primary"
-		disabled={chosen.length === 0 || !measured}
-		onclick={() => (printing = true)}
-	>
-		<Printer size={16} />
-		<span>Print {chosen.length || ""}</span>
-		{#if chosen.length > 0 && measured}<span class="length num">{formatMm(totalMm)} mm</span>{/if}
-	</Button>
+	<PrintButton disabled={chosen.length === 0 || !measured} onclick={() => (printing = true)}>
+		{chosen.length}
+		{chosen.length === 1 ? "label" : "labels"} · {formatMm(totalMm)} mm
+	</PrintButton>
 {/snippet}
 
 <div class="page">
@@ -617,12 +613,6 @@
 	.index {
 		color: var(--ink-3);
 		font-size: 12px;
-	}
-
-	.length {
-		padding-inline-start: 8px;
-		box-shadow: -1px 0 0 color-mix(in oklch, var(--on-accent) 35%, transparent);
-		font-weight: 400;
 	}
 
 	@media (max-width: 960px) {

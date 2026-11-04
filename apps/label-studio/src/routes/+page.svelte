@@ -15,6 +15,7 @@
 	import Button from "$lib/ui/Button.svelte";
 	import { chrome } from "$lib/ui/chrome.svelte";
 	import IconButton from "$lib/ui/IconButton.svelte";
+	import PrintButton from "$lib/ui/PrintButton.svelte";
 	import PrintSheet from "$lib/ui/PrintSheet.svelte";
 	import Segmented from "$lib/ui/Segmented.svelte";
 	import { formatMm } from "$lib/ui/words";
@@ -27,7 +28,6 @@
 		Minus,
 		PenLine,
 		Plus,
-		Printer,
 		Redo2,
 		Save,
 		Type,
@@ -190,11 +190,9 @@
 <svelte:window onkeydown={keydown} onpaste={paste} />
 
 {#snippet printAction()}
-	<Button variant="primary" disabled={empty} onclick={() => (printing = true)}>
-		<Printer size={16} />
-		<span>Print</span>
-		{#if !empty}<span class="length num">{formatMm(lengthMm)} mm</span>{/if}
-	</Button>
+	<PrintButton disabled={empty} onclick={() => (printing = true)}
+		>{formatMm(lengthMm)} mm</PrintButton
+	>
 {/snippet}
 
 <div class="editor" class:wide={wide.current}>
@@ -458,14 +456,6 @@
 		display: flex;
 		gap: 8px;
 		pointer-events: auto;
-	}
-
-	.length {
-		padding-inline-start: 8px;
-		margin-inline-start: 2px;
-		box-shadow: -1px 0 0 color-mix(in oklch, var(--on-accent) 35%, transparent);
-		font-weight: 400;
-		opacity: 0.9;
 	}
 
 	@keyframes enter {
