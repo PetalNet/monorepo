@@ -570,7 +570,7 @@ t("audit log lines are written and NEVER contain a plaintext token", () => {
 
 	const all = logLines.join("\n");
 
-	for (const tok of [agent-a, full, projOnly, asgOnly]) {
+	for (const tok of [agentA, full, projOnly, asgOnly]) {
 		assert.ok(!all.includes(tok.token), "plaintext token absent from logs");
 	}
 });
