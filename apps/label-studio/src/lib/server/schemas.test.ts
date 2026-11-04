@@ -67,6 +67,16 @@ describe("request schemas", () => {
 		});
 	});
 
+	it("refuses to print a document with nothing on it", () => {
+		expect(parse(printRequest, { doc: { ...doc, elements: [] } })).toEqual({
+			ok: false,
+			error: "doc: has nothing to print",
+		});
+
+		expect(parse(printRequest, { doc })).toMatchObject({ ok: true, value: { doc } });
+		expect(parse(renderRequest, { doc: { ...doc, elements: [] } })).toMatchObject({ ok: true });
+	});
+
 	it("checks an image's pixel data matches its size", () => {
 		const image = {
 			id: "img",

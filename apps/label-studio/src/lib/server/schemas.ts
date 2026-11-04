@@ -236,25 +236,29 @@ export const renderRequest: Parser<RenderRequest> = withDesign(
 	(value, design) => ({ ...design, vars: value.vars, rows: value.rows }),
 );
 
-export const printRequest: Parser<PrintRequest> = withDesign(
-	object({
-		...renderShape,
-		copies: optional(number({ min: 1, max: LIMITS.copies, integer: true })),
-		cut: optional(boolean),
-		chain: optional(boolean),
-		dryRun: optional(boolean),
-		title: optional(string({ max: 120 })),
-	}),
-	(value, design) => ({
-		...design,
-		vars: value.vars,
-		rows: value.rows,
-		copies: value.copies,
-		cut: value.cut,
-		chain: value.chain,
-		dryRun: value.dryRun,
-		title: value.title,
-	}),
+export const printRequest: Parser<PrintRequest> = refine(
+	withDesign(
+		object({
+			...renderShape,
+			copies: optional(number({ min: 1, max: LIMITS.copies, integer: true })),
+			cut: optional(boolean),
+			chain: optional(boolean),
+			dryRun: optional(boolean),
+			title: optional(string({ max: 120 })),
+		}),
+		(value, design) => ({
+			...design,
+			vars: value.vars,
+			rows: value.rows,
+			copies: value.copies,
+			cut: value.cut,
+			chain: value.chain,
+			dryRun: value.dryRun,
+			title: value.title,
+		}),
+	),
+	(value) =>
+		"doc" in value && value.doc.elements.length === 0 ? "doc: has nothing to print" : null,
 );
 
 export const reprintRequest = object({
