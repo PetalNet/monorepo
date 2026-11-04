@@ -390,7 +390,6 @@
 
 		.thumb {
 			grid-column: 1 / -1;
-			justify-items: start;
 		}
 	}
 </style>
