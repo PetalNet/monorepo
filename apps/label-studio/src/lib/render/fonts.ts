@@ -58,6 +58,31 @@ export const browserFonts: FontSource = {
 export interface Face {
 	font: Font;
 	kern: Kerning;
+	/** Line box above and below the baseline in font units, both positive. */
+	ascent: number;
+	descent: number;
+}
+
+const ASCENDERS = "ABCDEFGHIJKLMNOPQRSTUVWXYZbdfhklt0123456789";
+const DESCENDERS = "gjpqy";
+
+/**
+ * The line box is the ink extent of plain Latin letters and digits, a constant of the face. The
+ * font's own ascender/descender reserve room for accents and run 20-35% taller, which on a 70-dot
+ * band costs a fifth of the cap height; glyphs beyond this box bleed past it instead.
+ */
+function lineBox(font: Font): Pick<Face, "ascent" | "descent"> {
+	let ascent = 0;
+	let descent = 0;
+
+	for (const glyph of font.stringToGlyphs(ASCENDERS + DESCENDERS)) {
+		const box = glyph.getBoundingBox();
+
+		ascent = Math.max(ascent, box.y2);
+		descent = Math.max(descent, -box.y1);
+	}
+
+	return { ascent, descent };
 }
 
 const cache = new WeakMap<FontSource, Map<string, Promise<Face>>>();
@@ -77,10 +102,11 @@ export function loadFace(source: FontSource, file: string): Promise<Face> {
 		return known;
 	}
 
-	const loading = source.load(file).then(async (bytes) => ({
-		font: parse(bytes),
-		kern: await readKerning(bytes),
-	}));
+	const loading = source.load(file).then(async (bytes) => {
+		const font = parse(bytes);
+
+		return { font, kern: await readKerning(bytes), ...lineBox(font) };
+	});
 
 	faces.set(file, loading);
 	loading.catch(() => faces.delete(file));

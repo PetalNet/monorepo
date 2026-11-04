@@ -193,11 +193,11 @@ describe("geometry", () => {
 		});
 	});
 
-	it("turns a rotated element's content clockwise inside its footprint", async () => {
-		const line = rect("l", 20, 0, 10, 20, { shape: "line-h", fill: false, stroke: 1, rotate: 90 });
-		const result = await print(label([line]));
+	it("turns content clockwise like CSS rotate()", async () => {
+		const corner = image("c", [0, 255, 255, 255], 2, 2, { w: 10, h: 20, rotate: 90 });
+		const result = await print(label([corner]));
 
-		expect(bounds(result.frame)).toEqual({ count: 20, x0: 25, x1: 25, y0: 0, y1: 19 });
+		expect(bounds(result.frame)).toEqual({ count: 50, x0: 5, x1: 9, y0: 0, y1: 9 });
 	});
 
 	it("knocks an inverted element's content out of a box of ink", async () => {
@@ -235,19 +235,42 @@ describe("geometry", () => {
 });
 
 describe("text", () => {
-	it("fills the box: the largest size whose ink stays inside it", async () => {
-		const el = text("t", "Hello");
+	it("fills the box: the largest size whose line box fits it", async () => {
+		const el = text("t", "Hlg");
 		const result = await print(label([el]));
 		const ink = bounds(result.frame);
 
 		expect(ink.x0).toBeGreaterThanOrEqual(el.x);
 		expect(ink.x1).toBeLessThan(el.x + el.w);
-		expect(ink.y0).toBeGreaterThanOrEqual(el.y);
-		expect(ink.y1).toBeLessThan(el.y + el.h);
+		expect(ink.y0 - el.y).toBeGreaterThanOrEqual(0);
+		expect(ink.y0 - el.y).toBeLessThanOrEqual(2);
+		expect(el.y + el.h - 1 - ink.y1).toBeGreaterThanOrEqual(0);
+		expect(el.y + el.h - 1 - ink.y1).toBeLessThanOrEqual(2);
+	});
 
-		expect(Math.max(ink.x1 - ink.x0 + 1 - el.w, ink.y1 - ink.y0 + 1 - el.h)).toBeGreaterThanOrEqual(
-			-3,
-		);
+	it.each(["fill", "fixed"] as const)(
+		"puts the baseline in the same row whatever glyphs the text holds (%s)",
+		async (fit) => {
+			const settings = { fit, size: fit === "fill" ? 200 : 24, align: "left", w: 300 } as const;
+			const alone = (await print(label([text("t", "H", settings)]))).frame;
+			const mixed = (await print(label([text("t", "Hgy", settings)]))).frame;
+			const h = bounds(alone);
+			const crop = (frame: Bitmap): number[] =>
+				Array.from({ length: (h.x1 + 1) * frame.height }, (_, i) =>
+					at(frame, i % (h.x1 + 1), Math.floor(i / (h.x1 + 1))),
+				);
+
+			expect(h.count).toBeGreaterThan(100);
+			expect(crop(mixed)).toEqual(crop(alone));
+		},
+	);
+
+	it("lets accents ink past the line box instead of clipping them", async () => {
+		const el = text("t", "É", { y: 20, h: 30 });
+		const ink = bounds((await print(label([el]))).frame);
+
+		expect(ink.y0).toBeLessThan(el.y - 2);
+		expect(ink.y1).toBeLessThan(el.y + el.h);
 	});
 
 	it("reports the laid-out width for auto-width text", async () => {
@@ -309,10 +332,35 @@ describe("codes", () => {
 			}
 
 			expect(Number.isInteger(module)).toBe(true);
-			expect(ink.x0).toBeGreaterThanOrEqual(4 * module);
+			expect(ink.x0).toBeGreaterThanOrEqual(module);
 			expect(read).toEqual(symbol.pixs);
 		},
 	);
+
+	it("sizes a small QR at 2 dots per module, keeping one module of quiet zone", async () => {
+		const data = "https://example.com/asset/0042";
+		const options = { bcid: "qrcode", text: data, eclevel: "M" };
+		const [symbol] = bwip.raw(options) as { pixx: number }[];
+		const result = await print(label([code("q", "qr", data, { x: 3, y: 3, w: 64, h: 64 })]));
+		const ink = bounds(result.frame);
+
+		expect(symbol.pixx).toBeGreaterThanOrEqual(25);
+		expect(ink.x1 - ink.x0 + 1).toBe(2 * symbol.pixx);
+		expect(ink.x0 - 3).toBeGreaterThanOrEqual(2);
+		expect(result.warnings).toEqual([]);
+	});
+
+	it("warns when a 2D code is down to 1 dot per module", async () => {
+		const result = await print(
+			label([code("q", "qr", "https://example.com/asset/0042", { w: 40, h: 40 })]),
+		);
+
+		expect(result.warnings).toEqual([
+			"QR code is too dense to scan reliably at this size; make it larger",
+		]);
+
+		expect(bounds(result.frame).count).toBeGreaterThan(0);
+	});
 
 	it("draws EAN-13 bars matching the published encoding", async () => {
 		const L = [
