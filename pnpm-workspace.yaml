@@ -142,11 +142,24 @@ catalogs:
     "@types/sortablejs": ^1.15.8
 
   prod:
+    "@codemirror/autocomplete": ^6.20.4
+    "@codemirror/commands": ^6.11.1
+    "@codemirror/lang-markdown": ^6.5.2
+    "@codemirror/language": ^6.13.1
+    "@codemirror/language-data": ^6.5.2
+    "@codemirror/lint": ^6.9.7
+    "@codemirror/search": ^6.7.2
+    "@codemirror/state": ^6.7.6
+    "@codemirror/view": ^6.43.15
+    "@fontsource-variable/geist": ^5.3.0
+    "@fontsource-variable/geist-mono": ^5.3.0
     "@libsql/client": ^0.17.0
     "@lucide/svelte": ^1.23.0
     "@modelcontextprotocol/sdk": ^1.29.0
     "@prisma/client": ^5.22.0
     "@sveltejs/kit": ^2.50.1
+    "@prosemark/core": ^0.0.11
+    better-sqlite3: ^12.11.1
     bcryptjs: ^3.0.0
     daisyui: ^5.6.13
     date-fns: ^4.1.0
@@ -155,15 +168,25 @@ catalogs:
     leaflet-image: ^0.4.0
     leaflet.heat: ^0.2.0
     leaflet.markercluster: ^1.5.3
+    ghostty-web: ^0.4.0
+    jsdom: ^29.1.1
+    marked: ^18.1.3
     nanoid: ^5.0.0
     qrcode: ^1.5.4
     remark: ^15.0.1
+    remark-breaks: ^4.0.0
     remark-gfm: ^4.0.1
     remark-html: ^16.0.1
+    remark-parse: ^11.0.0
+    remark-rehype: ^11.1.2
+    rehype-sanitize: ^6.0.0
+    rehype-stringify: ^10.0.1
     sortablejs: ^1.15.6
     svelte: ^5.57.2
     tailwindcss: ^4.3.3
     zod: ^4.0.0
+    unified: ^11.0.5
+    ws: ^8.22.1
 
   # Apps still on Tailwind v3 (consolidated to latest v3); not upgraded to v4 yet.
   legacy:

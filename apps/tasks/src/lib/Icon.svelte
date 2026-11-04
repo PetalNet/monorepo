@@ -8,7 +8,7 @@
     Moon, Sun, CircleDot, CircleCheck, MessageSquare, Images, MoreHorizontal,
     ChevronDown, ChevronLeft, ChevronRight, Flame, Activity, Clock, ShieldCheck,
     ListChecks, PanelLeftClose, PanelLeft, Pencil, X, Search, LogOut
-  } from 'lucide-svelte';
+  } from '@lucide/svelte';
 
   const MAP = {
     // primary nav / domain
