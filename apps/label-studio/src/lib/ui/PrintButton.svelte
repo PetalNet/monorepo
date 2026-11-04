@@ -31,7 +31,10 @@
 	<span class="glyph" class:off={!live} aria-hidden="true">
 		{#if live}<Printer size={16} />{:else}<PrinterX size={16} />{/if}
 	</span>
-	<span>{printerStatus.dryRun ? "Dry run" : "Print"}</span>
+	<span class:muted={!live}>{printerStatus.dryRun ? "Dry run" : "Print"}</span>
+	{#if availability.kind === "unavailable" && !printerStatus.dryRun}
+		<span class="sr-only">, unavailable: {availability.reason}</span>
+	{/if}
 	{#if !disabled}<span class="length num" class:muted={!live}>{@render children()}</span>{/if}
 </Button>
 
@@ -44,9 +47,12 @@
 		opacity: 0.9;
 	}
 
+	.muted {
+		color: var(--ink-3);
+	}
+
 	.length.muted {
 		box-shadow: -1px 0 0 var(--rule-strong);
-		color: var(--ink-2);
 	}
 
 	.glyph {

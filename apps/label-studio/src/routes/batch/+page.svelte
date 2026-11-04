@@ -163,8 +163,7 @@
 
 {#snippet printAction()}
 	<PrintButton disabled={chosen.length === 0 || !measured} onclick={() => (printing = true)}>
-		{chosen.length}
-		{chosen.length === 1 ? "label" : "labels"} · {formatMm(totalMm)} mm
+		{chosen.length} · {formatMm(totalMm)} mm
 	</PrintButton>
 {/snippet}
 

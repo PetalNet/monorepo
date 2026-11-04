@@ -163,7 +163,14 @@
 		display: flex;
 		align-items: center;
 		gap: 8px;
+		min-width: 0;
 		margin-inline-start: auto;
+	}
+
+	/* The status pill gives way first, down to its dot, so the header never outgrows a phone. */
+	.end :global(.pill) {
+		flex-shrink: 1;
+		min-width: 0;
 	}
 
 	main {
