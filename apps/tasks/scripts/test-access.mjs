@@ -78,8 +78,8 @@ await t("the owner can restore her private archived project", async () => {
 });
 
 // Claim queue: an archived project's queued work must never be handed to an agent.
-const queued = (projectId, title, rank) => {
-	return createTask({
+const queued = (projectId, title, rank) =>
+	createTask({
 		title,
 		kind: "task",
 		project_id: projectId,
@@ -87,7 +87,6 @@ const queued = (projectId, title, rank) => {
 		status: "todo",
 		rank,
 	});
-};
 
 const archivedId = project("old-work", "alice", "shared");
 const activeId = project("live-work", "alice", "shared");

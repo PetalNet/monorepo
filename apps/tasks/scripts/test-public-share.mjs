@@ -55,7 +55,7 @@ const sha256hex = (s) => createHash("sha256").update(s).digest("hex");
 
 function share(slug, token, extra = "") {
 	db.prepare(
-		`INSERT INTO artifact_shares (slug, token_hash, created_by${extra ? ", " + extra : ""})
+		`INSERT INTO artifact_shares (slug, token_hash, created_by${extra ? `, ${extra}` : ""})
      VALUES (@slug, @hash, 'alice'${extra ? ", 1" : ""})`,
 	).run({ slug, hash: sha256hex(token) });
 }
