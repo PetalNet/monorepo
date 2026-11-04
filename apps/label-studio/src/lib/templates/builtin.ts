@@ -195,8 +195,8 @@ export const BUILTIN_TEMPLATES: Template[] = [
 		category: "kitchen",
 		description: "What it is and when it was made, for jars and freezer boxes.",
 		doc: doc([
-			text("item", { x: 0, y: 2, w: 200, h: 44 }, "{{item}}", { bold: true }),
-			text("date", { x: 0, y: 48, w: 200, h: 20 }, "{{date}}"),
+			text("item", { x: 3, y: 2, w: 200, h: 44 }, "{{item}}", { bold: true }),
+			text("date", { x: 3, y: 48, w: 200, h: 20 }, "{{date}}"),
 		]),
 		fields: [
 			field("item", "Item", { placeholder: "Tomato soup" }),
