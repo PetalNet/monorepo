@@ -174,12 +174,12 @@ function scan(
 	swap: boolean,
 	span: (line: number, x0: number, x1: number) => void,
 ): void {
-	const [ix, iy] = swap ? [1, 0] : [0, 1];
+	const [xOffset, yOffset] = swap ? [1, 0] : [0, 1];
 	let top = Infinity;
 	let bottom = -Infinity;
 
 	for (const { points } of lines) {
-		for (let i = iy; i < points.length; i += 2) {
+		for (let i = yOffset; i < points.length; i += 2) {
 			top = Math.min(top, points[i]);
 			bottom = Math.max(bottom, points[i]);
 		}
@@ -200,10 +200,10 @@ function scan(
 
 		for (let i = 0; i < n; i++) {
 			const j = (i + 1) % n;
-			const x0 = points[2 * i + ix];
-			const y0 = points[2 * i + iy];
-			const x1 = points[2 * j + ix];
-			const y1 = points[2 * j + iy];
+			const x0 = points[2 * i + xOffset];
+			const y0 = points[2 * i + yOffset];
+			const x1 = points[2 * j + xOffset];
+			const y1 = points[2 * j + yOffset];
 
 			if (y0 === y1) {
 				continue;
