@@ -67,9 +67,9 @@ export async function POST({ request, params, locals }) {
 	// BODY-SIZE GUARD — reject an oversized request BEFORE buffering/parsing the JSON, so a
 	// huge body can't pressure the process (DoS). Belt-and-suspenders with a reverse-proxy
 	// body limit; MAX_TEXT is chars, allow generous JSON/UTF-8 overhead.
-	const clen = Number(request.headers.get("content-length") || 0);
+	const contentLength = Number(request.headers.get("content-length") || 0);
 
-	if (clen > MAX_TEXT * 4 + 1024) {
+	if (contentLength > MAX_TEXT * 4 + 1024) {
 		return json({ error: "too-long", max: MAX_TEXT }, { status: 413 });
 	}
 

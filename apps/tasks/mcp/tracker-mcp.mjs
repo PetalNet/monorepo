@@ -13,7 +13,7 @@
 //   • blocked-guard      — `updateTask` rejects status='blocked' with no live blocker
 //   • cascade-unblock    — closing/dropping a task frees its dependents (blocked->todo)
 //   • events-log write   — every mutation logs a (capped, rolling-window) event
-// Read tools (get_ready, up_next) keep their own SELECTs — no invariants to enforce on
+// Read tools (get_ready, up_next) keep their own SELECT statements — no invariants to enforce on
 // reads, and they resolve a project FILTER without creating it. All tools share the SAME
 // better-sqlite3 file handle exported as `db`, so there is exactly one connection.
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";

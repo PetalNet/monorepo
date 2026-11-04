@@ -1162,7 +1162,7 @@ export function ensureProject(name, backend = "local_private", opts = {}) {
 }
 
 // Default home for tasks filed without an explicit project (task-192). Rather than
-// erroring on a floating task (which would block the capture path), unparented work
+// erroring on a floating task (which would block the capture path), parentless work
 // lands in a single, sane catch-all project so nothing goes truly orphaned. Lazily
 // created on first use; safe/reversible (just another shared project).
 const DEFAULT_PROJECT = "inbox";

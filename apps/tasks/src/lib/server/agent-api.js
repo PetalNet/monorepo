@@ -18,7 +18,7 @@
 // ALL writes route through the canonical db.js helpers (createTask / updateTask /
 // closeTask / claimNext / reapLeases) exactly like mcp/tracker-mcp.mjs — NEVER raw
 // INSERT/UPDATE on tasks — preserving blocked-guard, cascade-unblock and the audit log
-// (task-344). Read SELECTs mirror the MCP server's (no invariants on reads).
+// (task-344). Read SELECT statements mirror the MCP server's (no invariants on reads).
 //
 // Framework-free on purpose: handleAgentRpc takes plain values and returns
 // { status, body }, so scripts/test-agent-api.mjs exercises the REAL handler under
