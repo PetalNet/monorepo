@@ -219,7 +219,7 @@ class Editor {
 
 	/** Replace the document: a template, a history entry, or a new label. One undo step back. */
 	load(doc: LabelDoc, template: Session["template"], vars: Record<string, string> = {}): void {
-		this.history = commit(this.history, $state.snapshot(doc) as LabelDoc);
+		this.history = commit(this.history, $state.snapshot(doc));
 		this.template = template;
 		this.vars = vars;
 		this.selection = [];

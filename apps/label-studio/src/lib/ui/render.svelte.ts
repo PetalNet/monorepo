@@ -25,18 +25,27 @@ class Renderer {
 	>();
 	#slowStreak = 0;
 	#warm = false;
+	#inFlight = 0;
 
 	async render(doc: LabelDoc, options: RenderOptions): Promise<RenderResult> {
 		if (this.useWorker) {
 			return this.#inWorker(doc, options);
 		}
 
+		this.#inFlight += 1;
+		const solo = this.#inFlight === 1;
 		const started = performance.now();
-		const result = await renderLabel($state.snapshot(doc), options, browserFonts);
+		const result = await renderLabel($state.snapshot(doc), options, browserFonts).finally(() => {
+			this.#inFlight -= 1;
+		});
 		const took = performance.now() - started;
 
-		// The first render includes font loading; it says nothing about frame cost.
-		if (this.#warm) {
+		/*
+		 * Only a render that ran alone measures frame cost: concurrent renders (a gallery of
+		 * thumbnails) interleave at their awaits and each one's wall time includes the others.
+		 * The first render also loads fonts, so it is skipped.
+		 */
+		if (this.#warm && solo && this.#inFlight === 0) {
 			this.lastMainMs = took;
 			this.#slowStreak = took > BUDGET_MS ? this.#slowStreak + 1 : 0;
 
