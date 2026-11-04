@@ -710,40 +710,6 @@ export function addComment(task_id, author, body) {
 	return Number(r.lastInsertRowid);
 }
 
-// ── stickies (page-anchored annotations) ──────────────────────────────────
-export const listAnnotations = (page_path) =>
-	db.prepare("SELECT * FROM annotations WHERE page_path=? ORDER BY created_at").all(page_path);
-
-export function addAnnotation({
-	page_path,
-	anchor_selector,
-	anchor_snippet,
-	anchor_offset_x,
-	anchor_offset_y,
-	body,
-	author,
-}) {
-	const r = db
-		.prepare(
-			`INSERT INTO annotations (page_path,anchor_selector,anchor_snippet,anchor_offset_x,anchor_offset_y,body,author)
-     VALUES (?,?,?,?,?,?,?)`,
-		)
-		.run(
-			page_path,
-			anchor_selector,
-			anchor_snippet || "",
-			anchor_offset_x,
-			anchor_offset_y,
-			body,
-			author || "",
-		);
-
-	return db.prepare("SELECT * FROM annotations WHERE id=?").get(Number(r.lastInsertRowid));
-}
-
-export const deleteAnnotation = (id) =>
-	db.prepare("DELETE FROM annotations WHERE id=?").run(id).changes > 0;
-
 export const listProjects = (me) =>
 	db
 		.prepare(
@@ -755,12 +721,18 @@ export const archiveProject = (name) =>
 	db
 		.prepare("UPDATE projects SET archived_at=datetime('now') WHERE name=? AND archived_at IS NULL")
 		.run(name);
-export const unarchiveProject = (name) =>
-	db.prepare("UPDATE projects SET archived_at=NULL WHERE name=?").run(name);
-export const listArchivedProjects = () =>
+export const unarchiveProject = (name, me) =>
 	db
-		.prepare("SELECT * FROM projects WHERE archived_at IS NOT NULL ORDER BY archived_at DESC")
-		.all();
+		.prepare(
+			`UPDATE projects SET archived_at=NULL WHERE name=@name ${me ? "AND (visibility='shared' OR owner=@me)" : ""}`,
+		)
+		.run(me ? { name, me } : { name });
+export const listArchivedProjects = (me) =>
+	db
+		.prepare(
+			`SELECT * FROM projects WHERE archived_at IS NOT NULL ${me ? "AND (visibility='shared' OR owner=@me)" : ""} ORDER BY archived_at DESC`,
+		)
+		.all(me ? { me } : {});
 export const getProject = (id) => db.prepare("SELECT * FROM projects WHERE id=?").get(id);
 export const renameProject = (id, name) =>
 	db.prepare("UPDATE projects SET name=? WHERE id=?").run(name, id);
@@ -1364,6 +1336,7 @@ export const claimNext = db.transaction(
     WHERE id = (SELECT id FROM tasks
                 WHERE up_next=1 AND status='todo' AND kind IN ('task','idea')
                   AND (lease_expires_at IS NULL OR lease_expires_at < datetime('now'))
+                  ${NOTARCHIVED}
                   ${f.join(" ")}
                 ORDER BY rank, priority LIMIT 1)
     RETURNING *`)

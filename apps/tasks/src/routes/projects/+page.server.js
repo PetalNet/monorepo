@@ -8,7 +8,7 @@ import db, {
 	archiveProject,
 	unarchiveProject,
 	listArchivedProjects,
-} from "$lib/server/db.js";
+} from "../../lib/server/db.js";
 
 export function load({ locals }) {
 	const me = locals.user;
@@ -21,7 +21,7 @@ export function load({ locals }) {
 			.get(p.id).c,
 	}));
 
-	return { projects, archived: listArchivedProjects(), me };
+	return { projects, archived: listArchivedProjects(me), me };
 }
 
 // only act on a project the user can actually see (shared or owned)
@@ -90,12 +90,12 @@ export const actions = {
 
 		return { ok: true };
 	},
-	unarchive: async ({ request }) => {
+	unarchive: async ({ request, locals }) => {
 		const f = await request.formData();
 		const name = String(f.get("name") || "");
 
 		if (name) {
-			unarchiveProject(name);
+			unarchiveProject(name, locals.user);
 		}
 
 		return { ok: true };
