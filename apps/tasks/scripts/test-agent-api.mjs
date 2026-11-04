@@ -104,8 +104,16 @@ const MINE = mk("agent-a task one", {
 	priority: 2,
 	rank: 5,
 });
-const DOING = mk("agent-a in progress", { project_id: agentlab, assignee: "agent-a", status: "doing" });
-const Q = mk("agent-a open question", { project_id: agentlab, assignee: "agent-a", kind: "question" });
+const DOING = mk("agent-a in progress", {
+	project_id: agentlab,
+	assignee: "agent-a",
+	status: "doing",
+});
+const Q = mk("agent-a open question", {
+	project_id: agentlab,
+	assignee: "agent-a",
+	kind: "question",
+});
 const SAMEASG_OTHERPROJ = mk("agent-a-assigned but in secops", {
 	project_id: secops,
 	assignee: "agent-a",

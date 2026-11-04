@@ -1,17 +1,17 @@
 {
-  "people": {
-    "alice": { "name": "Alice", "color": "#38bdf8", "kind": "human", "aliases": [] },
-    "bob": { "name": "Bob", "color": "#fb923c", "kind": "human", "aliases": [] },
-    "agent-1": { "name": "Agent 1", "color": "#a3e635", "kind": "agent", "aliases": [] },
-    "agent-2": { "name": "Agent 2", "color": "#c084fc", "kind": "agent", "aliases": [] }
-  },
-  "responsibles": ["alice", "bob"],
-  "assignees": ["alice", "bob", "agent-1", "agent-2"],
-  "fleet": {
-    "agents": [
-      { "handle": "agent-1", "host": "host-a", "term": "https://example.com/term-a" },
-      { "handle": "agent-2", "host": "host-b", "term": "https://example.com/term-b" }
-    ]
-  },
-  "accessMessage": "Private tracker access is required."
+	"people": {
+		"alice": { "name": "Alice", "color": "#38bdf8", "kind": "human", "aliases": [] },
+		"bob": { "name": "Bob", "color": "#fb923c", "kind": "human", "aliases": [] },
+		"agent-1": { "name": "Agent 1", "color": "#a3e635", "kind": "agent", "aliases": [] },
+		"agent-2": { "name": "Agent 2", "color": "#c084fc", "kind": "agent", "aliases": [] }
+	},
+	"responsibles": ["alice", "bob"],
+	"assignees": ["alice", "bob", "agent-1", "agent-2"],
+	"fleet": {
+		"agents": [
+			{ "handle": "agent-1", "host": "host-a", "term": "https://example.com/term-a" },
+			{ "handle": "agent-2", "host": "host-b", "term": "https://example.com/term-b" }
+		]
+	},
+	"accessMessage": "Private tracker access is required."
 }

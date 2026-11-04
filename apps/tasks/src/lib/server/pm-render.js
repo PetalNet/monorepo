@@ -34,7 +34,15 @@ function esc(s) {
 // ── [[wikilink]] resolution (string form, ported from server/md.js) ──────────
 // Same routing + same fixed class names so the read view matches the prior
 // rehype-based render. Returns an HTML string; the visible text is esc()'d.
-const FLEET_AGENTS = new Set(["agent-b", "claude", "agent-c", "agent-a", "agent-e", "agent-d", "import"]);
+const FLEET_AGENTS = new Set([
+	"agent-b",
+	"claude",
+	"agent-c",
+	"agent-a",
+	"agent-e",
+	"agent-d",
+	"import",
+]);
 const FLEET_ROUTE_EXISTS = false;
 
 function resolveWikilink(inner) {

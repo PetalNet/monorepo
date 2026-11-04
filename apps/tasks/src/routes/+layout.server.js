@@ -1,5 +1,5 @@
-import { getFleet } from "$lib/server/fleet.js";
 import { tasksConfig } from "$lib/server/config.js";
+import { getFleet } from "$lib/server/fleet.js";
 
 // Feed the sidebar agent rail with the LIVE per-agent fleet (data/fleet/*.json,
 // written by the lifecycle hooks) joined to the task each agent has claimed.

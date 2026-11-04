@@ -16,8 +16,8 @@ import { readFileSync, readdirSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
-import { activeLeases } from "./db.js";
 import { tasksConfig } from "./config.js";
+import { activeLeases } from "./db.js";
 
 // Mirror db.js's path resolution so the fleet dir sits next to tasks.db (the only
 // mounted path in the container: /data → /data/fleet).

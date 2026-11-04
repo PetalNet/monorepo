@@ -61,4 +61,6 @@ const personHue = (s) => {
 // used null), so it stays a per-caller argument — `empty` defaults to 'var(--text-3)' and
 // each page that differed binds its own value, preserving every call site's exact output.
 export const whoColor = (handle, empty = "var(--text-3)") =>
-	handle ? (people[String(handle).toLowerCase()]?.color ?? `hsl(${personHue(handle)} 60% 68%)`) : empty;
+	handle
+		? (people[String(handle).toLowerCase()]?.color ?? `hsl(${personHue(handle)} 60% 68%)`)
+		: empty;

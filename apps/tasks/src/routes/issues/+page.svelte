@@ -5,7 +5,9 @@
 	let tab = $state("open");
 
 	// whoColor single-sourced from $lib/people (this page's falsy fallback is the default 'var(--text-3)').
-	const AGENTS = Object.entries(data.config?.people ?? {}).filter(([, person]) => person.kind === "agent").map(([handle]) => handle);
+	const AGENTS = Object.entries(data.config?.people ?? {})
+		.filter(([, person]) => person.kind === "agent")
+		.map(([handle]) => handle);
 	const isAgent = (h) => AGENTS.includes(String(h).toLowerCase());
 	const projName = $derived(projectName(data.projects));
 

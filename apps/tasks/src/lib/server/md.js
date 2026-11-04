@@ -26,7 +26,15 @@ import { unified } from "unified";
 // ONLY when that route exists; today it doesn't, so handles render as a styled-but-
 // inert span (visually marked, not a dead link). Flip FLEET_ROUTE_EXISTS when the
 // /fleet/[handle] route lands and the same code starts emitting real links.
-const FLEET_AGENTS = new Set(["agent-b", "claude", "agent-c", "agent-a", "agent-e", "agent-d", "import"]);
+const FLEET_AGENTS = new Set([
+	"agent-b",
+	"claude",
+	"agent-c",
+	"agent-a",
+	"agent-e",
+	"agent-d",
+	"import",
+]);
 const FLEET_ROUTE_EXISTS = false;
 
 // [[...]] tokens. Inner text is captured loosely (no ]] inside) and classified below.

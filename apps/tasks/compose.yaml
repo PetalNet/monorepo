@@ -45,7 +45,10 @@ services:
         "-t",
         "${TASKS_TERM_TMUX_SESSION:?Set the tmux session}",
       ]
-    volumes: ["${TASKS_TERM_TMUX_SOCKET_DIR:?Set the tmux socket directory}:${TASKS_TERM_TMUX_SOCKET_DIR:?Set the tmux socket directory}"]
+    volumes:
+      [
+        "${TASKS_TERM_TMUX_SOCKET_DIR:?Set the tmux socket directory}:${TASKS_TERM_TMUX_SOCKET_DIR:?Set the tmux socket directory}",
+      ]
     networks: [tasks]
   ttyd-rw:
     mem_limit: 256m
@@ -71,7 +74,10 @@ services:
         "-t",
         "${TASKS_TERM_TMUX_SESSION:?Set the tmux session}",
       ]
-    volumes: ["${TASKS_TERM_TMUX_SOCKET_DIR:?Set the tmux socket directory}:${TASKS_TERM_TMUX_SOCKET_DIR:?Set the tmux socket directory}"]
+    volumes:
+      [
+        "${TASKS_TERM_TMUX_SOCKET_DIR:?Set the tmux socket directory}:${TASKS_TERM_TMUX_SOCKET_DIR:?Set the tmux socket directory}",
+      ]
     networks: [tasks]
 networks:
   # Explicit subnet: host Docker auto address pools are exhausted.

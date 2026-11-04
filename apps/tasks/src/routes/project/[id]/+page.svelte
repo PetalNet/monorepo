@@ -5,7 +5,9 @@
 
 	// per-person colours single-sourced from $lib/people; this page's falsy fallback is null.
 	const whoColor = (h) => whoColorBase(h, null);
-	const AGENTS = Object.entries(data.config?.people ?? {}).filter(([, person]) => person.kind === "agent").map(([handle]) => handle);
+	const AGENTS = Object.entries(data.config?.people ?? {})
+		.filter(([, person]) => person.kind === "agent")
+		.map(([handle]) => handle);
 	const isAgent = (h) => AGENTS.includes(String(h).toLowerCase());
 
 	const kindIcon = (k) =>

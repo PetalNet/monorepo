@@ -628,7 +628,8 @@
 					<span class="af-lbl">responsible · human</span>
 					<select name="responsible" value={t.responsible ?? ""}>
 						<option value="">— none —</option>
-						{#each RESPONSIBLES as responsible}<option value={responsible}>{responsible}</option>{/each}
+						{#each RESPONSIBLES as responsible}<option value={responsible}>{responsible}</option
+							>{/each}
 					</select>
 				</label>
 				<button class="btn-save-sm" type="submit">set</button>
@@ -1261,7 +1262,7 @@
 									<input
 										name="owner_machine"
 										value={t.owner_machine ?? ""}
-									placeholder="e.g. build-host"
+										placeholder="e.g. build-host"
 									/></label
 								>
 								<label class="rt-field"
@@ -1269,7 +1270,7 @@
 									<input
 										name="suggested_agent"
 										value={t.suggested_agent ?? ""}
-									placeholder="e.g. agent-1"
+										placeholder="e.g. agent-1"
 									/></label
 								>
 								<label class="rt-field"

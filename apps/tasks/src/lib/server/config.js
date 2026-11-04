@@ -4,7 +4,10 @@ import { z } from "zod";
 
 const person = z.object({
 	name: z.string().min(1),
-	color: z.string().regex(/^#[0-9a-f]{6}$/i).optional(),
+	color: z
+		.string()
+		.regex(/^#[0-9a-f]{6}$/i)
+		.optional(),
 	kind: z.enum(["human", "agent"]),
 	aliases: z.array(z.string().min(1)).default([]),
 });
@@ -43,7 +46,9 @@ function readConfig() {
 
 	const parsed = schema.safeParse(raw);
 	if (!parsed.success)
-		throw new Error(`Invalid TASKS_CONFIG at ${path}: ${parsed.error.issues.map((i) => i.message).join("; ")}`);
+		throw new Error(
+			`Invalid TASKS_CONFIG at ${path}: ${parsed.error.issues.map((i) => i.message).join("; ")}`,
+		);
 
 	return parsed.data;
 }

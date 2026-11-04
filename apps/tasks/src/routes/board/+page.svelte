@@ -54,7 +54,9 @@
 	//    fallback is '#94a3b8') ───────────────────────────────────────────────
 	const whoColor = (h) => whoColorBase(h, "#94a3b8");
 	const isAgent = (h) =>
-		["claude", "agent-b", "agent-a", "agent-c", "agent-d", "agent-e"].includes(String(h).toLowerCase());
+		["claude", "agent-b", "agent-a", "agent-c", "agent-d", "agent-e"].includes(
+			String(h).toLowerCase(),
+		);
 
 	const g = $derived(data.counts.global);
 	const cFor = (agent) =>
