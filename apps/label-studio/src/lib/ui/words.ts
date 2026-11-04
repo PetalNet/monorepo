@@ -9,7 +9,7 @@ const PLAIN: readonly [RegExp, string][] = [
 	[/cutter jam/i, "Cutter jam. Clear the cutter and retry."],
 	[/overheat/i, "Printer overheated. Let it cool for a minute and retry."],
 	[
-		/(printer|device|usb)[^.]*not found|unreachable|offline|connection refused/i,
+		/(printer|device|usb)[^.]*not found|not connected|unreachable|offline|connection refused/i,
 		"Printer offline. Check it is on and connected.",
 	],
 	[/battery/i, "Battery low. Plug the printer in and retry."],

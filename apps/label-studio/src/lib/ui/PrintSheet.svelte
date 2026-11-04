@@ -82,7 +82,7 @@
 		};
 
 		try {
-			const entry = await jobs.print(request);
+			const entry = await jobs.print(request, false);
 
 			jobId = entry.job.id;
 		} catch (error) {
@@ -93,7 +93,17 @@
 	}
 </script>
 
-<Sheet bind:open title={tracked ? "Print job" : "Print"} width="560px">
+<Sheet
+	bind:open
+	title={tracked ? "Print job" : "Print"}
+	width="560px"
+	onclose={() => {
+		// A job still running or failed stays visible in the shell after the sheet closes.
+		if (tracked && tracked.job.status !== "done") {
+			jobs.show(tracked.job.id);
+		}
+	}}
+>
 	<div class="stage">
 		<TapeLabel
 			{doc}
@@ -110,15 +120,17 @@
 	{:else}
 		<div class="rows">
 			<Row label="Copies" for="print-copies">
-				<NumberInput
-					id="print-copies"
-					value={copies}
-					min={1}
-					max={99}
-					onchange={(value: number) => {
-						copies = Math.round(value);
-					}}
-				/>
+				<span class="copies"
+					><NumberInput
+						id="print-copies"
+						value={copies}
+						min={1}
+						max={99}
+						onchange={(value: number) => {
+							copies = Math.round(value);
+						}}
+					/></span
+				>
 			</Row>
 			<Row label="Cut" for="print-cut">
 				<Switch
@@ -170,7 +182,7 @@
 
 		<div class="total">
 			<span>Tape used</span>
-			<strong class="num">{formatMm(total)} mm</strong>
+			<strong class="num">{formatMm(total)}&nbsp;<span class="unit">mm</span></strong>
 			<span class="num breakdown">
 				{pages}
 				{pages === 1 ? "label" : "labels"}{copies > 1 ? ` × ${String(copies)} copies` : ""}
@@ -230,6 +242,11 @@
 		gap: 4px;
 	}
 
+	.copies {
+		display: flex;
+		width: 96px;
+	}
+
 	.hint {
 		color: var(--ink-3);
 		font-size: 12px;
@@ -269,9 +286,13 @@
 		color: var(--ink-2);
 	}
 
+	.total .unit {
+		color: var(--ink-3);
+	}
+
 	.total strong {
 		font-size: 22px;
-		font-weight: 500;
+		font-weight: 400;
 	}
 
 	.breakdown {

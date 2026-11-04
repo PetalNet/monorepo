@@ -9,6 +9,7 @@
 	import { api, errorText, historyPage } from "$lib/ui/client";
 	import JobRow from "$lib/ui/JobRow.svelte";
 	import { jobs } from "$lib/ui/jobs.svelte";
+	import RasterThumb from "$lib/ui/RasterThumb.svelte";
 	import Sheet from "$lib/ui/Sheet.svelte";
 	import Skeleton from "$lib/ui/Skeleton.svelte";
 	import { tapeMmActual } from "$lib/ui/tape";
@@ -63,14 +64,18 @@
 		try {
 			const job = await api.reprint(reprinting.id);
 
-			jobs.follow(job, {
-				doc: reprinting.doc,
-				rows: reprinting.rows,
-				copies: reprinting.copies,
-				cut: reprinting.cut,
-				chain: reprinting.chain,
-				title: reprinting.title,
-			});
+			jobs.follow(
+				job,
+				{
+					doc: reprinting.doc,
+					rows: reprinting.rows,
+					copies: reprinting.copies,
+					cut: reprinting.cut,
+					chain: reprinting.chain,
+					title: reprinting.title,
+				},
+				false,
+			);
 
 			reprintJob = job.id;
 		} catch (error) {
@@ -124,7 +129,7 @@
 			{#each entries as entry (entry.id)}
 				<li class="entry">
 					<div class="thumb">
-						<img src={historyPage(entry.id)} alt="Printed raster of {entry.title}" loading="lazy" />
+						<RasterThumb src={historyPage(entry.id)} alt="Printed raster of {entry.title}" />
 					</div>
 					<div class="body">
 						<div class="title">
@@ -142,9 +147,15 @@
 								? ` × ${String(entry.copies)}`
 								: ""}
 							<span class="sep">·</span>
-							{formatMm(entry.lengthMm)} mm
+							<span class="nowrap"
+								>{formatMm(entry.lengthMm)}&nbsp;<span class="unit">mm</span></span
+							>
 							<span class="sep">·</span>
-							{isTapeWidth(entry.tapeMm) ? tapeMmActual(entry.tapeMm) : entry.tapeMm} mm tape
+							<span class="nowrap"
+								>{isTapeWidth(entry.tapeMm) ? tapeMmActual(entry.tapeMm) : entry.tapeMm}&nbsp;<span
+									class="unit">mm tape</span
+								></span
+							>
 						</span>
 						{#if entry.error}<span class="error">{plainError(entry.error)}</span>{/if}
 					</div>
@@ -180,11 +191,24 @@
 	{/if}
 </div>
 
-<Sheet bind:open={confirm} title="Reprint" width="460px">
+<Sheet
+	bind:open={confirm}
+	title="Reprint"
+	width="460px"
+	onclose={() => {
+		if (tracked && tracked.job.status !== "done") {
+			jobs.show(tracked.job.id);
+		}
+	}}
+>
 	{#if reprinting}
 		<div class="confirm">
 			<div class="thumb large">
-				<img src={historyPage(reprinting.id)} alt="Printed raster of {reprinting.title}" />
+				<RasterThumb
+					src={historyPage(reprinting.id)}
+					alt="Printed raster of {reprinting.title}"
+					height={72}
+				/>
 			</div>
 			{#if tracked}
 				<JobRow entry={tracked} dismissible={false} />
@@ -225,7 +249,7 @@
 
 	h1 {
 		font-size: 22px;
-		font-weight: 600;
+		font-weight: 500;
 		line-height: 1.2;
 	}
 
@@ -258,28 +282,17 @@
 	.thumb {
 		display: grid;
 		place-items: center;
-		height: 56px;
+		height: 72px;
+		--dimension-bg: var(--ground);
 		padding: 6px;
 		border-radius: var(--r);
 		background: var(--ground);
 		overflow: hidden;
 	}
 
-	.thumb img {
-		max-width: 100%;
-		max-height: 44px;
-		background: var(--tape);
-		box-shadow: var(--tape-shadow);
-		image-rendering: pixelated;
-	}
-
 	.thumb.large {
-		height: 112px;
+		height: 128px;
 		padding: 16px;
-	}
-
-	.thumb.large img {
-		max-height: 80px;
 	}
 
 	.body {
@@ -321,8 +334,13 @@
 		font-size: 12px;
 	}
 
-	.sep {
+	.sep,
+	.unit {
 		color: var(--ink-3);
+	}
+
+	.nowrap {
+		white-space: nowrap;
 	}
 
 	.error {

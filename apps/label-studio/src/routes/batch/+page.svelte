@@ -59,6 +59,12 @@
 		};
 	});
 	const keys = $derived(placeholders(design.doc));
+	const fieldLabels = $derived.by((): Partial<Record<string, string>> => {
+		const template = templates.list.find((candidate) => candidate.id === designId);
+		const fields = template?.fields ?? editor.template?.fields ?? [];
+
+		return Object.fromEntries(fields.map((field) => [field.key, field.label]));
+	});
 	const table = $derived.by((): Table => {
 		if (input === "source") {
 			return source?.table ?? { columns: [], rows: [] };
@@ -300,7 +306,7 @@
 				<section class="card">
 					<h2>Columns</h2>
 					{#each keys as key (key)}
-						<Row label={key} for="map-{key}">
+						<Row label={fieldLabels[key] ?? key} for="map-{key}">
 							<Select
 								id="map-{key}"
 								value={map[key] ?? ""}
@@ -376,7 +382,6 @@
 									vars={{ ...design.vars, ...row }}
 									maxWidth={260}
 									maxHeight={56}
-									lazy
 									onlength={(dots: number) => {
 										if (lengths[index] !== dots) {
 											lengths[index] = dots;
@@ -412,7 +417,7 @@
 
 	h1 {
 		font-size: 22px;
-		font-weight: 600;
+		font-weight: 500;
 		line-height: 1.2;
 	}
 

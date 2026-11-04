@@ -99,7 +99,7 @@
 	<header class="head">
 		<div>
 			<h1>Templates</h1>
-			<p class="sub">Tap one to fill in its fields and print.</p>
+			<p class="sub">Pick one, fill in its fields, print.</p>
 		</div>
 		<label class="search">
 			<Search aria-hidden="true" />
@@ -255,7 +255,7 @@
 
 	h1 {
 		font-size: 22px;
-		font-weight: 600;
+		font-weight: 500;
 		line-height: 1.2;
 	}
 

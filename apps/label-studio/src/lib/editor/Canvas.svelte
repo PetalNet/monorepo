@@ -429,7 +429,7 @@
 						aria-label="Label preview, {printView ? 'print view' : 'design view'}"
 					></canvas>
 
-					{#if !printView}
+					{#if !printView && guides.length > 0}
 						<span
 							class="margin"
 							style:left={horizontal ? `${String(marginStart * zoom)}px` : "0"}

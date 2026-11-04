@@ -43,7 +43,7 @@
 	<title>Label Studio</title>
 </svelte:head>
 
-<div class="shell">
+<div class="shell" style:--banner-h={jobs.current ? "64px" : "0px"}>
 	<header class="bar">
 		<a class="mark" href={resolve("/")} aria-label="Label Studio, editor">
 			<span class="glyph" aria-hidden="true"></span>
@@ -62,13 +62,13 @@
 		</div>
 	</header>
 
-	<main>{@render children()}</main>
-
 	{#if jobs.current}
-		<div class="job-dock">
+		<div class="job-banner">
 			<JobRow entry={jobs.current} />
 		</div>
 	{/if}
+
+	<main>{@render children()}</main>
 
 	<nav class="tabbar" aria-label="Sections">
 		{#each sections as section (section.href)}
@@ -116,13 +116,16 @@
 
 	/* A short length of tape with a cut edge: the product's own object as its mark. */
 	.glyph {
-		width: 22px;
-		height: 12px;
+		width: 30px;
+		height: 16px;
 		border-radius: 1px;
 		background:
-			linear-gradient(var(--ink), var(--ink)) 5px 50% / 9px 2px no-repeat,
+			linear-gradient(var(--tape-ink), var(--tape-ink)) 6px 5px / 14px 2px no-repeat,
+			linear-gradient(var(--tape-ink), var(--tape-ink)) 6px 9px / 9px 2px no-repeat,
 			linear-gradient(180deg, var(--tape), var(--tape-shade));
-		box-shadow: var(--tape-shadow);
+		box-shadow:
+			0 0 0 1px var(--rule-strong),
+			var(--tape-shadow);
 	}
 
 	.tabs {
@@ -173,12 +176,24 @@
 		min-height: 0;
 	}
 
-	.job-dock {
-		position: fixed;
-		inset-inline-end: 16px;
-		bottom: 16px;
-		z-index: 5;
-		width: min(400px, calc(100vw - 32px));
+	/* The job status sits in the page flow under the bar: persistent, never floating over work. */
+	.job-banner {
+		position: sticky;
+		top: var(--bar-h);
+		z-index: 3;
+		display: flex;
+		align-items: center;
+		height: var(--banner-h);
+		padding: 6px 12px;
+		background: var(--ground);
+		box-shadow: 0 1px 0 var(--rule);
+	}
+
+	.job-banner :global(.job) {
+		flex: 1;
+		max-width: 720px;
+		margin-inline: auto;
+		padding-block: 6px;
 	}
 
 	.tabbar {
@@ -241,12 +256,6 @@
 
 		.tabbar a[aria-current="page"] :global(svg) {
 			transform: translateY(-1px);
-		}
-
-		.job-dock {
-			inset-inline: 8px;
-			bottom: calc(var(--tab-h) + env(safe-area-inset-bottom) + 8px);
-			width: auto;
 		}
 	}
 </style>

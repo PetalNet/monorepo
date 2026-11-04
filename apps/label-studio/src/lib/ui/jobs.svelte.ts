@@ -23,17 +23,25 @@ class Jobs {
 	}
 
 	/** Queue a print. Throws an Error with the server's message when it is refused. */
-	async print(request: PrintRequest): Promise<TrackedJob> {
+	async print(request: PrintRequest, show = true): Promise<TrackedJob> {
 		const job = await api.print(request);
 
-		return this.follow(job, request);
+		return this.follow(job, request, show);
 	}
 
-	follow(job: Job, request: PrintRequest): TrackedJob {
+	/**
+	 * Track a job. `show` puts it in the shell's job banner; a sheet that already shows the job
+	 * passes false and calls `show()` when it closes.
+	 */
+	follow(job: Job, request: PrintRequest, show = true): TrackedJob {
 		const entry: TrackedJob = { job, request };
 
 		this.tracked = [entry, ...this.tracked].slice(0, 20);
-		this.visible = job.id;
+
+		if (show) {
+			this.visible = job.id;
+		}
+
 		this.#poll(job.id);
 
 		return entry;
@@ -41,6 +49,10 @@ class Jobs {
 
 	retry(entry: TrackedJob): Promise<TrackedJob> {
 		return this.print(entry.request);
+	}
+
+	show(id: string): void {
+		this.visible = id;
 	}
 
 	dismiss(): void {

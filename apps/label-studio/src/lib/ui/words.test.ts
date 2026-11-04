@@ -13,6 +13,10 @@ describe("plainError", () => {
 			"Printer offline. Check it is on and connected.",
 		);
 
+		expect(plainError("Printer not connected")).toBe(
+			"Printer offline. Check it is on and connected.",
+		);
+
 		expect(plainError("Template not found: pantry")).toBe("Template not found: pantry");
 		expect(plainError("Something new")).toBe("Something new");
 	});

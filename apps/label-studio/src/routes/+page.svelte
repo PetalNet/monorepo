@@ -337,7 +337,7 @@
 	.editor {
 		display: grid;
 		grid-template-columns: minmax(0, 1fr) 340px;
-		height: calc(100dvh - var(--bar-h));
+		height: calc(100dvh - var(--bar-h) - var(--banner-h, 0px));
 	}
 
 	.editor.wide {
