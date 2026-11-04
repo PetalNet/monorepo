@@ -164,21 +164,29 @@ export class PathBuilder {
 	}
 }
 
-/** Fill every polyline as a closed ring with the nonzero rule, sampling each pixel at its centre. */
-export function fill(target: Bitmap, lines: readonly Polyline[]): void {
-	const { width, height, data } = target;
-	let top = height;
-	let bottom = -1;
+/**
+ * Scan polylines as closed nonzero rings, one scanline per pixel row (or column when `swap`),
+ * calling `span` for every inside run with its edge crossings at that line's pixel centres.
+ */
+function scan(
+	lines: readonly Polyline[],
+	extent: number,
+	swap: boolean,
+	span: (line: number, x0: number, x1: number) => void,
+): void {
+	const [ix, iy] = swap ? [1, 0] : [0, 1];
+	let top = Infinity;
+	let bottom = -Infinity;
 
 	for (const { points } of lines) {
-		for (let i = 1; i < points.length; i += 2) {
+		for (let i = iy; i < points.length; i += 2) {
 			top = Math.min(top, points[i]);
 			bottom = Math.max(bottom, points[i]);
 		}
 	}
 
 	const rowStart = Math.max(0, Math.ceil(top - 0.5));
-	const rowEnd = Math.min(height - 1, Math.ceil(bottom - 0.5) - 1);
+	const rowEnd = Math.min(extent - 1, Math.ceil(bottom - 0.5) - 1);
 
 	if (rowEnd < rowStart) {
 		return;
@@ -192,10 +200,10 @@ export function fill(target: Bitmap, lines: readonly Polyline[]): void {
 
 		for (let i = 0; i < n; i++) {
 			const j = (i + 1) % n;
-			const x0 = points[2 * i];
-			const y0 = points[2 * i + 1];
-			const x1 = points[2 * j];
-			const y1 = points[2 * j + 1];
+			const x0 = points[2 * i + ix];
+			const y0 = points[2 * i + iy];
+			const x1 = points[2 * j + ix];
+			const y1 = points[2 * j + iy];
 
 			if (y0 === y1) {
 				continue;
@@ -227,21 +235,52 @@ export function fill(target: Bitmap, lines: readonly Polyline[]): void {
 	for (let row = rowStart; row <= rowEnd; row++) {
 		const rowXs = xs[row - rowStart];
 		const rowDirs = dirs[row - rowStart];
-		const offset = row * width;
 		let winding = 0;
 
 		for (let k = 0; k < rowXs.length - 1; k++) {
 			winding += rowDirs[k];
 
 			if (winding !== 0) {
-				const from = Math.max(0, Math.ceil(rowXs[k] - 0.5));
-				const to = Math.min(width, Math.ceil(rowXs[k + 1] - 0.5));
-
-				if (to > from) {
-					data.fill(255, offset + from, offset + to);
-				}
+				span(row, rowXs[k], rowXs[k + 1]);
 			}
 		}
+	}
+}
+
+/**
+ * Fill every polyline as a closed ring with the nonzero rule, sampling each pixel at its centre.
+ * With `dropout`, a run thinner than a pixel that misses every centre still inks its nearest pixel,
+ * scanning both rows and columns, so hairlines survive at small sizes without thickening anything
+ * already wider than a dot (TrueType's dropout control).
+ */
+export function fill(target: Bitmap, lines: readonly Polyline[], dropout = false): void {
+	const { width, height, data } = target;
+
+	scan(lines, height, false, (row, x0, x1) => {
+		const from = Math.max(0, Math.ceil(x0 - 0.5));
+		const to = Math.min(width, Math.ceil(x1 - 0.5));
+
+		if (to > from) {
+			data.fill(255, row * width + from, row * width + to);
+		} else if (dropout) {
+			const col = Math.floor((x0 + x1) / 2);
+
+			if (col >= 0 && col < width) {
+				data[row * width + col] = 255;
+			}
+		}
+	});
+
+	if (dropout) {
+		scan(lines, width, true, (col, y0, y1) => {
+			if (Math.ceil(y1 - 0.5) <= Math.ceil(y0 - 0.5)) {
+				const row = Math.floor((y0 + y1) / 2);
+
+				if (row >= 0 && row < height) {
+					data[row * width + col] = 255;
+				}
+			}
+		});
 	}
 }
 

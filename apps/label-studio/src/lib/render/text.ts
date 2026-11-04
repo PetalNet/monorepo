@@ -15,26 +15,12 @@ export interface TextSpec {
 	fit: TextFit;
 }
 
-interface Bounds {
-	xMin: number;
-	xMax: number;
-	yMin: number;
-	yMax: number;
-}
-
 /** One line measured in font units, so any size is a linear rescale. */
 interface MeasuredLine {
 	glyphs: Glyph[];
 	pens: number[];
-	bounds: (Bounds | null)[];
-}
-
-interface LineBox {
-	left: number;
-	right: number;
-	ascent: number;
-	descent: number;
-	inked: boolean;
+	/** Pen position after the last glyph: the line's advance width. */
+	advance: number;
 }
 
 export interface PlacedGlyph {
@@ -46,33 +32,11 @@ export interface PlacedGlyph {
 export interface TextLayout {
 	/** Resolved em size in dots. */
 	size: number;
-	/** Width of the widest line's extent in dots. */
+	/** Advance width of the widest line in dots. */
 	width: number;
 	glyphs: PlacedGlyph[];
 	overflow: boolean;
 	missing: string[];
-}
-
-const boundsCache = new WeakMap<Glyph, Bounds | null>();
-
-function glyphBounds(glyph: Glyph): Bounds | null {
-	const known = boundsCache.get(glyph);
-
-	if (known !== undefined) {
-		return known;
-	}
-
-	let bounds: Bounds | null = null;
-
-	if (glyph.path.commands.length > 0) {
-		const box = glyph.path.getBoundingBox();
-
-		bounds = { xMin: box.x1, xMax: box.x2, yMin: box.y1, yMax: box.y2 };
-	}
-
-	boundsCache.set(glyph, bounds);
-
-	return bounds;
 }
 
 function measure(face: Face, line: string): MeasuredLine {
@@ -89,72 +53,18 @@ function measure(face: Face, line: string): MeasuredLine {
 		pen += glyph.advanceWidth ?? 0;
 	}
 
-	return { glyphs, pens, bounds: glyphs.map(glyphBounds) };
+	return { glyphs, pens, advance: pen };
 }
 
-/** A line's ink extent at scale `k`: alignment and fitting both work on ink, not advances. */
-function lineBox(line: MeasuredLine, k: number, tracking: number): LineBox {
-	const box: LineBox = { left: 0, right: 0, ascent: 0, descent: 0, inked: false };
+const lineWidth = (line: MeasuredLine, k: number, tracking: number): number =>
+	line.advance * k + Math.max(0, line.glyphs.length - 1) * tracking;
 
-	for (const [i, bounds] of line.bounds.entries()) {
-		if (!bounds) {
-			continue;
-		}
-
-		const pen = line.pens[i] * k + i * tracking;
-		const left = pen + bounds.xMin * k;
-		const right = pen + bounds.xMax * k;
-
-		if (box.inked) {
-			box.left = Math.min(box.left, left);
-			box.right = Math.max(box.right, right);
-			box.ascent = Math.max(box.ascent, bounds.yMax * k);
-			box.descent = Math.min(box.descent, bounds.yMin * k);
-		} else {
-			Object.assign(box, {
-				left,
-				right,
-				ascent: bounds.yMax * k,
-				descent: bounds.yMin * k,
-				inked: true,
-			});
-		}
-	}
-
-	return box;
-}
-
-interface Block {
-	lines: LineBox[];
-	width: number;
-	top: number;
-	bottom: number;
-}
-
-function block(lines: MeasuredLine[], face: Face, size: number, spec: TextSpec): Block {
-	const k = size / face.font.unitsPerEm;
-	const boxes = lines.map((line) => lineBox(line, k, spec.tracking));
-	let top = Infinity;
-	let bottom = -Infinity;
-
-	for (const [i, box] of boxes.entries()) {
-		if (box.inked) {
-			const baseline = i * spec.lineHeight * size;
-
-			top = Math.min(top, baseline - box.ascent);
-			bottom = Math.max(bottom, baseline - box.descent);
-		}
-	}
-
-	if (top > bottom) {
-		top = 0;
-		bottom = 0;
-	}
-
-	const width = Math.max(0, ...boxes.map((box) => box.right - box.left));
-
-	return { lines: boxes, width, top, bottom };
-}
+/**
+ * Lines stack on the face's line box (see `Face.ascent`), never on their own ink, so the baseline
+ * depends only on font, size, line height, alignment and box: "ace" and "Ag" share it.
+ */
+const blockHeight = (face: Face, lines: number, size: number, lineHeight: number): number =>
+	((lines - 1) * lineHeight + (face.ascent + face.descent) / face.font.unitsPerEm) * size;
 
 const EPSILON = 1e-6;
 
@@ -168,11 +78,12 @@ export function layoutText(spec: TextSpec, face: Face, width: number, height: nu
 	const missing = Array.from(new Set(Array.from(text))).filter(
 		(char) => char !== "\n" && !face.font.charToGlyphIndex(char),
 	);
-	const fits = (size: number): boolean => {
-		const b = block(lines, face, size, spec);
-
-		return b.width <= width + EPSILON && b.bottom - b.top <= height + EPSILON;
-	};
+	const upm = face.font.unitsPerEm;
+	const widest = (size: number): number =>
+		Math.max(0, ...lines.map((line) => lineWidth(line, size / upm, spec.tracking)));
+	const fits = (size: number): boolean =>
+		widest(size) <= width + EPSILON &&
+		blockHeight(face, lines.length, size, spec.lineHeight) <= height + EPSILON;
 
 	let size = Math.max(1, spec.size);
 	let overflow = false;
@@ -200,38 +111,36 @@ export function layoutText(spec: TextSpec, face: Face, width: number, height: nu
 		size = lo;
 	}
 
-	const b = block(lines, face, size, spec);
-	const boxWidth = Number.isFinite(width) ? width : b.width;
-	const boxHeight = height;
-	const k = size / face.font.unitsPerEm;
-	const top =
-		spec.valign === "top"
-			? -b.top
-			: spec.valign === "bottom"
-				? boxHeight - b.bottom
-				: (boxHeight - (b.bottom - b.top)) / 2 - b.top;
+	const k = size / upm;
+	const textWidth = widest(size);
+	const boxWidth = Number.isFinite(width) ? width : textWidth;
+	const slack = height - blockHeight(face, lines.length, size, spec.lineHeight);
+	const top = spec.valign === "top" ? 0 : spec.valign === "bottom" ? slack : slack / 2;
 	const glyphs: PlacedGlyph[] = [];
 
 	for (const [i, line] of lines.entries()) {
-		const box = b.lines[i];
-		const extent = box.right - box.left;
+		const extent = lineWidth(line, k, spec.tracking);
 		const x =
 			spec.align === "left"
-				? -box.left
+				? 0
 				: spec.align === "right"
-					? boxWidth - box.right
-					: (boxWidth - extent) / 2 - box.left;
-		const baseline = top + i * spec.lineHeight * size;
+					? boxWidth - extent
+					: (boxWidth - extent) / 2;
+		// A whole-dot baseline keeps flat glyph bottoms crisp instead of splitting a row.
+		const baseline = Math.round(top + face.ascent * k + i * spec.lineHeight * size);
 
 		for (const [j, glyph] of line.glyphs.entries()) {
-			if (line.bounds[j]) {
+			if (glyph.path.commands.length > 0) {
 				glyphs.push({ glyph, x: x + line.pens[j] * k + j * spec.tracking, baseline });
 			}
 		}
 	}
 
-	return { size, width: b.width, glyphs, overflow, missing };
+	return { size, width: textWidth, glyphs, overflow, missing };
 }
+
+/** Dots of room around a text box for ink past its line box: accents, italic overhang. */
+export const textBleed = (layout: TextLayout): number => Math.ceil(layout.size / 2);
 
 /**
  * Fill the laid-out glyphs into `target` at `scale` pixels per dot, with the layout box's top-left
@@ -275,6 +184,6 @@ export function drawText(
 			}
 		}
 
-		fill(target, path.lines);
+		fill(target, path.lines, true);
 	}
 }
