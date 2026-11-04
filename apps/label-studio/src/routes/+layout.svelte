@@ -114,18 +114,13 @@
 		text-decoration: none;
 	}
 
-	/* A short length of tape with a cut edge: the product's own object as its mark. */
+	/* A length of tape cut to a flag tail, its two lines of print knocked out: the product's own
+	   object as its mark, in the accent. */
 	.glyph {
-		width: 30px;
+		width: 28px;
 		height: 16px;
-		border-radius: 1px;
-		background:
-			linear-gradient(var(--tape-ink), var(--tape-ink)) 6px 5px / 14px 2px no-repeat,
-			linear-gradient(var(--tape-ink), var(--tape-ink)) 6px 9px / 9px 2px no-repeat,
-			linear-gradient(180deg, var(--tape), var(--tape-shade));
-		box-shadow:
-			0 0 0 1px var(--rule-strong),
-			var(--tape-shadow);
+		background: var(--accent);
+		mask: url("../lib/ui/mark.svg") center / contain no-repeat;
 	}
 
 	.tabs {
