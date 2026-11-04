@@ -38,6 +38,8 @@
 	/** CSS pixels per printer dot at real size: 96 CSS px per inch over 180 dots per inch. */
 	const ACTUAL_SIZE = 96 / 180;
 	const wide = new MediaQuery("min-width: 1100px");
+	/* On a phone the label leads and its fields follow it; above that, fill-in-the-blanks come first. */
+	const phone = new MediaQuery("max-width: 760px");
 	let tab = $state<PanelTab>("add");
 	const setTab = (next: PanelTab): void => {
 		tab = next;
@@ -275,24 +277,15 @@
 				<IconButton label="Save as template" disabled={empty} onclick={() => (saving = true)}
 					><Save /></IconButton
 				>
-				<IconButton label="Keyboard shortcuts" onclick={() => (help = true)}
-					><Keyboard /></IconButton
-				>
+				{#if !phone.current}
+					<IconButton label="Keyboard shortcuts" onclick={() => (help = true)}
+						><Keyboard /></IconButton
+					>
+				{/if}
 			</div>
 		</div>
 
-		{#if showFields}
-			<div class="template-bar">
-				{#if editor.template}
-					<p class="template-name">
-						<LayoutGrid size={14} aria-hidden="true" />
-						{editor.template.name}
-						{#if editor.template.builtin}<span class="tag">Built-in</span>{/if}
-					</p>
-				{/if}
-				<Fields />
-			</div>
-		{/if}
+		{#if showFields && !phone.current}<Fields />{/if}
 
 		<div class="canvas">
 			<Canvas onedittext={editText} />
@@ -313,6 +306,8 @@
 				</div>
 			{/if}
 		</div>
+
+		{#if showFields && phone.current}<Fields />{/if}
 	</section>
 
 	{#if wide.current}
@@ -407,33 +402,6 @@
 		background: var(--hover);
 	}
 
-	.template-bar {
-		display: grid;
-		gap: 8px;
-		margin: 0 12px;
-		padding: 12px;
-		border-radius: var(--r);
-		background: var(--sunken);
-		animation: enter var(--base) var(--ease);
-	}
-
-	.template-name {
-		display: flex;
-		align-items: center;
-		gap: 6px;
-		color: var(--ink-2);
-		font-size: 12px;
-		font-weight: 500;
-	}
-
-	.tag {
-		padding: 1px 6px;
-		border-radius: var(--r);
-		background: var(--panel);
-		color: var(--ink-3);
-		font-size: 11px;
-	}
-
 	.canvas {
 		position: relative;
 		flex: 1;
@@ -478,7 +446,7 @@
 
 		.canvas {
 			flex: none;
-			height: clamp(200px, 36dvh, 320px);
+			height: clamp(180px, 30dvh, 280px);
 		}
 
 		.toolbar {
