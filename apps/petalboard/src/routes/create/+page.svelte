@@ -57,6 +57,15 @@
 			locationValue = values.location;
 		}
 	});
+
+	// The appearance errors render inside the collapsible section, so a rejected submit opens it.
+	$effect(() => {
+		if (
+			["emoji", "primaryColor", "secondaryColor", "backgroundImage"].some((field) => errors[field])
+		) {
+			showCustomization = true;
+		}
+	});
 </script>
 
 <h1 class="mb-2">Create an event</h1>
