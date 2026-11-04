@@ -59,13 +59,25 @@
 			vars: editor.resolvedVars,
 		};
 	});
-	const keys = $derived(placeholders(design.doc));
-	const fieldLabels = $derived.by((): Partial<Record<string, string>> => {
-		const template = templates.list.find((candidate) => candidate.id === designId);
-		const fields = template?.fields ?? editor.template?.fields ?? [];
+	const fields = $derived(
+		templates.list.find((candidate) => candidate.id === designId)?.fields ??
+			editor.template?.fields ??
+			[],
+	);
+	/** Declared fields first, in their form order, so pasted columns line up with the editor's form. */
+	const keys = $derived.by(() => {
+		const used = new Set(placeholders(design.doc));
 
-		return Object.fromEntries(fields.map((field) => [field.key, field.label]));
+		return [
+			...fields.map((field) => field.key).filter((key) => used.has(key)),
+			...[...used].filter((key) => !fields.some((field) => field.key === key)),
+		];
 	});
+	const fieldLabels = $derived(
+		Object.fromEntries(fields.map((field) => [field.key, field.label])) as Partial<
+			Record<string, string>
+		>,
+	);
 	const table = $derived.by((): Table => {
 		if (input === "source") {
 			return source?.table ?? { columns: [], rows: [] };
