@@ -86,7 +86,7 @@ class Renderer {
 	}
 }
 
-export const renderer = new Renderer();
+const renderer = new Renderer();
 
 /**
  * A render that follows changing inputs: at most one render per animation frame, one in flight at a

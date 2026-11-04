@@ -3,7 +3,8 @@
  * print API accepts. Every length is in printer dots (180 dpi) unless its name ends in `Mm`.
  */
 
-export const DPI = 180;
+const DPI = 180;
+
 export const DOTS_PER_MM = DPI / 25.4;
 /** Pins on the PT-P710BT print head; every raster sent to the printer is this tall. */
 export const HEAD_PINS = 128;

@@ -1,6 +1,7 @@
 /** Longest side of an imported image, in source pixels. */
-export const MAX_IMAGE_SIDE = 1024;
+const MAX_IMAGE_SIDE = 1024;
 
+/** @internal Exported for its tests. */
 export function fitSize(
 	width: number,
 	height: number,
@@ -14,6 +15,8 @@ export function fitSize(
 /**
  * RGBA to luminance (Rec. 709), composited over white so transparent pixels become paper instead of
  * ink.
+ *
+ * @internal Exported for its tests.
  */
 export function toGray(rgba: Uint8ClampedArray): Uint8Array {
 	const gray = new Uint8Array(rgba.length / 4);
@@ -29,6 +32,7 @@ export function toGray(rgba: Uint8ClampedArray): Uint8Array {
 	return gray;
 }
 
+/** @internal Exported for its tests. */
 export function toBase64(bytes: Uint8Array): string {
 	let binary = "";
 	const chunk = 0x8000;

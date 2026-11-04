@@ -15,7 +15,7 @@ const isRecord = (value: unknown): value is Record<string, unknown> =>
 	typeof value === "object" && value !== null && !Array.isArray(value);
 
 /** Accepts anything that looks like a version-1 document; the renderer tolerates the rest. */
-export function parseDoc(value: unknown): LabelDoc | null {
+function parseDoc(value: unknown): LabelDoc | null {
 	if (
 		!isRecord(value) ||
 		value.version !== 1 ||
@@ -40,6 +40,7 @@ function parseVars(value: unknown): Record<string, string> {
 	);
 }
 
+/** @internal Exported for its tests. */
 export function parseSession(raw: string | null): Session | null {
 	if (raw === null) {
 		return null;
@@ -89,7 +90,7 @@ const pad = (value: number): string => String(value).padStart(2, "0");
  * The variables every label can use, `{{today}}` and `{{now}}`, the same names the server provides
  * when it prints. The preview uses the browser's clock.
  */
-export function builtinVars(now: Date): Record<string, string> {
+function builtinVars(now: Date): Record<string, string> {
 	const today = `${String(now.getFullYear())}-${pad(now.getMonth() + 1)}-${pad(now.getDate())}`;
 
 	return { today, now: `${today} ${pad(now.getHours())}:${pad(now.getMinutes())}` };

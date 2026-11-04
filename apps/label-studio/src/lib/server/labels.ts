@@ -31,7 +31,11 @@ export interface Design {
 
 const pad = (value: number): string => String(value).padStart(2, "0");
 
-/** `today` (YYYY-MM-DD) and `now` (YYYY-MM-DD HH:MM) in the server's local time. */
+/**
+ * `today` (YYYY-MM-DD) and `now` (YYYY-MM-DD HH:MM) in the server's local time.
+ *
+ * @internal Exported for its tests.
+ */
 export function builtinVars(now: Date): Vars {
 	const today = `${String(now.getFullYear())}-${pad(now.getMonth() + 1)}-${pad(now.getDate())}`;
 

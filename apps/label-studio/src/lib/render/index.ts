@@ -33,11 +33,9 @@ export interface FontSource {
 	load: (file: string) => Promise<ArrayBuffer>;
 }
 
-export { browserFonts, DEFAULT_FONT, FONTS } from "./fonts.ts";
-
 /** Longest label the renderer will lay out; longer fixed lengths are clamped. */
-export const MAX_LENGTH_MM = 1000;
-export const MAX_SCALE = 16;
+const MAX_LENGTH_MM = 1000;
+const MAX_SCALE = 16;
 
 interface Assets {
 	faces: ReadonlyMap<string, Face>;

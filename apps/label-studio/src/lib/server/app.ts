@@ -17,7 +17,7 @@ export interface App {
 	now: () => Date;
 }
 
-export function createApp(config: Config): App {
+function createApp(config: Config): App {
 	const store = new Store(config.dataDir);
 	const interrupted = store.failInterrupted("Interrupted by a server restart");
 

@@ -6,7 +6,11 @@
 
 const SPECIAL = /[\\;,:"]/g;
 
-/** Escape `\ ; , : "` with a backslash, as the Wi-Fi and MECARD formats require. */
+/**
+ * Escape `\ ; , : "` with a backslash, as the Wi-Fi and MECARD formats require.
+ *
+ * @internal Exported for its tests.
+ */
 export const escapeQrValue = (value: string): string => value.replaceAll(SPECIAL, "\\$&");
 
 export type WifiSecurity = "WPA" | "WEP" | "nopass";

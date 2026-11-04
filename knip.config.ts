@@ -42,6 +42,10 @@ export default {
 				"migrations/*.ts!",
 			],
 		},
+		"apps/label-studio": {
+			// Loopback listener shared by the server tests; nothing in production imports it.
+			entry: ["src/lib/server/testing.ts"],
+		},
 		"apps/numbat-sheet": {
 			// build:wasm needs the Rust wasm-bindgen CLI, which is not an npm package.
 			ignoreBinaries: ["wasm-bindgen"],

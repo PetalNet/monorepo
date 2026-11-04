@@ -40,7 +40,7 @@ export function emptyDoc(tapeMm: TapeWidthMm = 12): LabelDoc {
 }
 
 /** Height of the printable band across the tape, in dots. */
-export const bandDots = (doc: LabelDoc): number => TAPES[doc.tapeMm].pins;
+const bandDots = (doc: LabelDoc): number => TAPES[doc.tapeMm].pins;
 
 /** The design frame for a resolved label length. */
 export function frameSize(doc: LabelDoc, lengthDots: number): { w: number; h: number } {
@@ -172,6 +172,7 @@ export function addElement(doc: LabelDoc, element: LabelElement): LabelDoc {
 	return { ...doc, elements: [...doc.elements, element] };
 }
 
+/** @internal Exported for its tests. */
 export function updateElement<E extends LabelElement>(
 	doc: LabelDoc,
 	id: string,

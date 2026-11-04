@@ -1,4 +1,8 @@
-/** The export name for a kebab-case icon name, the way a renderer looks it up. */
+/**
+ * The export name for a kebab-case icon name, the way a renderer looks it up.
+ *
+ * @internal Exported for its tests.
+ */
 export function pascal(name: string): string {
 	return name
 		.split("-")
@@ -6,7 +10,11 @@ export function pascal(name: string): string {
 		.join("");
 }
 
-/** Lucide's export names are PascalCase; documents store the kebab-case icon name. */
+/**
+ * Lucide's export names are PascalCase; documents store the kebab-case icon name.
+ *
+ * @internal Exported for its tests.
+ */
 export function kebab(exportName: string): string {
 	return exportName
 		.replaceAll(/([a-z])([A-Z0-9])/g, "$1-$2")
@@ -16,7 +24,7 @@ export function kebab(exportName: string): string {
 }
 
 /** Icons people reach for on labels, shown before any search. */
-export const SUGGESTED = [
+const SUGGESTED = [
 	"tag",
 	"triangle-alert",
 	"zap",

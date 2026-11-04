@@ -79,7 +79,11 @@ const truenasDisks = array(
 	}),
 );
 
-/** Drive makers count in powers of ten, so a 4 TB disk should say 4 TB. */
+/**
+ * Drive makers count in powers of ten, so a 4 TB disk should say 4 TB.
+ *
+ * @internal Exported for its tests.
+ */
 export function humanSize(bytes: number): string {
 	const units = ["B", "KB", "MB", "GB", "TB", "PB"];
 	let value = bytes;

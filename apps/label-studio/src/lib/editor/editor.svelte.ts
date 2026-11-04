@@ -35,8 +35,8 @@ export type View = "design" | "print";
 /** The editor panel tabs; "edit" exists only on narrow screens, "templates" only on wide ones. */
 export type PanelTab = "add" | "edit" | "layers" | "templates";
 
-export const ZOOM_MIN = 0.1;
-export const ZOOM_MAX = 16;
+const ZOOM_MIN = 0.1;
+const ZOOM_MAX = 16;
 
 class Editor {
 	history = $state.raw<History<LabelDoc>>(startHistory(emptyDoc()));

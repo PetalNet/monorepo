@@ -114,7 +114,7 @@ const code = object({
 
 const element: Parser<LabelElement> = tagged("kind", { text, icon, shape, image, code });
 
-export const labelDoc: Parser<LabelDoc> = refine(
+const labelDoc: Parser<LabelDoc> = refine(
 	object({
 		version: oneOf(1),
 		tapeMm: tapeWidth,
@@ -154,14 +154,11 @@ export const labelDoc: Parser<LabelDoc> = refine(
 
 const VAR_KEY = /^[\w.-]{1,64}$/;
 
-export const vars: Parser<Vars> = refine(
-	record(string({ max: 4000 }), { maxKeys: 100 }),
-	(value) => {
-		const bad = Object.keys(value).find((key) => !VAR_KEY.test(key));
+const vars: Parser<Vars> = refine(record(string({ max: 4000 }), { maxKeys: 100 }), (value) => {
+	const bad = Object.keys(value).find((key) => !VAR_KEY.test(key));
 
-		return bad === undefined ? null : `"${bad}" is not a valid variable name`;
-	},
-);
+	return bad === undefined ? null : `"${bad}" is not a valid variable name`;
+});
 
 const CATEGORIES = [
 	"lab",
