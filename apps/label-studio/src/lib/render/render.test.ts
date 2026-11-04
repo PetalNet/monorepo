@@ -332,10 +332,35 @@ describe("codes", () => {
 			}
 
 			expect(Number.isInteger(module)).toBe(true);
-			expect(ink.x0).toBeGreaterThanOrEqual(4 * module);
+			expect(ink.x0).toBeGreaterThanOrEqual(module);
 			expect(read).toEqual(symbol.pixs);
 		},
 	);
+
+	it("sizes a small QR at 2 dots per module, keeping one module of quiet zone", async () => {
+		const data = "https://example.com/asset/0042";
+		const options = { bcid: "qrcode", text: data, eclevel: "M" };
+		const [symbol] = bwip.raw(options) as { pixx: number }[];
+		const result = await print(label([code("q", "qr", data, { x: 3, y: 3, w: 64, h: 64 })]));
+		const ink = bounds(result.frame);
+
+		expect(symbol.pixx).toBeGreaterThanOrEqual(25);
+		expect(ink.x1 - ink.x0 + 1).toBe(2 * symbol.pixx);
+		expect(ink.x0 - 3).toBeGreaterThanOrEqual(2);
+		expect(result.warnings).toEqual([]);
+	});
+
+	it("warns when a 2D code is down to 1 dot per module", async () => {
+		const result = await print(
+			label([code("q", "qr", "https://example.com/asset/0042", { w: 40, h: 40 })]),
+		);
+
+		expect(result.warnings).toEqual([
+			"QR code is too dense to scan reliably at this size; make it larger",
+		]);
+
+		expect(bounds(result.frame).count).toBeGreaterThan(0);
+	});
 
 	it("draws EAN-13 bars matching the published encoding", async () => {
 		const L = [

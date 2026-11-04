@@ -15,16 +15,22 @@ export async function loadBarcodes(): Promise<Barcodes> {
 }
 
 type Spec =
-	| { bcid: string; geometry: "matrix"; quiet: number }
+	| { bcid: string; geometry: "matrix" }
 	| { bcid: string; geometry: "bars"; quiet: readonly [left: number, right: number] };
 
-/** Quiet zones in modules, from each symbology's specification. */
+/**
+ * 1D quiet zones in modules, from each symbology's specification. 2D codes keep one module inside
+ * the box: the blank tape around a label supplies the rest, and the specification's four-module QR
+ * margin would halve the module size in a 64-dot box.
+ */
 const SYMBOLOGIES: Record<Symbology, Spec> = {
-	qr: { bcid: "qrcode", geometry: "matrix", quiet: 4 },
-	datamatrix: { bcid: "datamatrix", geometry: "matrix", quiet: 1 },
+	qr: { bcid: "qrcode", geometry: "matrix" },
+	datamatrix: { bcid: "datamatrix", geometry: "matrix" },
 	code128: { bcid: "code128", geometry: "bars", quiet: [10, 10] },
 	ean13: { bcid: "ean13", geometry: "bars", quiet: [11, 7] },
 };
+
+const MATRIX_QUIET = 1;
 
 export type Encoded =
 	| { geometry: "matrix"; cols: number; rows: number; dark: readonly number[] }
@@ -93,8 +99,9 @@ const tooSmall = (el: CodeElement): string =>
 	`${LABELS[el.symbology]} doesn't fit its box; make it larger`;
 
 /**
- * Draw a symbol with the largest integer module size in dots that fits the `w × h` box, centred,
- * keeping the quiet zone inside the box when there is room for it.
+ * Draw a symbol with the largest integer module size in dots that fits the `w × h` box, centred. A
+ * 2D code keeps a one-module quiet zone when it fits; a 1D code picks its module size from the bars
+ * alone and keeps as much of its quiet zone as the spare width allows. Returns a warning.
  */
 export function drawCode(
 	target: Bitmap,
@@ -111,10 +118,9 @@ export function drawCode(
 	};
 
 	if (symbol.geometry === "matrix") {
-		const quiet = spec.geometry === "matrix" ? spec.quiet : 0;
 		const fit = (q: number): number =>
 			Math.floor(Math.min(w / (symbol.cols + 2 * q), h / (symbol.rows + 2 * q)));
-		const module = fit(quiet) >= 1 ? fit(quiet) : fit(0);
+		const module = fit(MATRIX_QUIET) >= 1 ? fit(MATRIX_QUIET) : fit(0);
 
 		if (module < 1) {
 			return tooSmall(el);
@@ -131,20 +137,22 @@ export function drawCode(
 			}
 		}
 
-		return null;
+		return module === 1
+			? `${LABELS[el.symbology]} is too dense to scan reliably at this size; make it larger`
+			: null;
 	}
 
 	const [left, right] = spec.geometry === "bars" ? spec.quiet : [0, 0];
 	const modules = symbol.widths.reduce((sum, width) => sum + width, 0);
-	const withQuiet = Math.floor(w / (modules + left + right));
-	const module = withQuiet >= 1 ? withQuiet : Math.floor(w / modules);
+	const module = Math.floor(w / modules);
 
 	if (module < 1) {
 		return tooSmall(el);
 	}
 
-	const [ql, qr] = withQuiet >= 1 ? [left, right] : [0, 0];
-	const ox = ql * module + Math.floor((w - (modules + ql + qr) * module) / 2);
+	const spare = w - modules * module;
+	const quiet = Math.min(spare, (left + right) * module);
+	const ox = Math.floor((quiet * left) / (left + right) + (spare - quiet) / 2);
 	const textHeight = Math.min(20, Math.max(7, Math.round(h * 0.24)));
 	const gap = 1;
 	const showText = el.showText && face !== null && h - textHeight - gap >= 4;
