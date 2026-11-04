@@ -236,13 +236,16 @@ export function interpolate(value: string, vars: Vars): string {
 /** Every distinct `{{key}}` used by a document's text and code elements, in first-use order. */
 export function placeholders(doc: LabelDoc): string[] {
 	const keys = new Set<string>();
+
 	for (const element of doc.elements) {
 		const source =
 			element.kind === "text" ? element.text : element.kind === "code" ? element.data : "";
+
 		for (const match of source.matchAll(PLACEHOLDER)) {
 			keys.add(match[1]);
 		}
 	}
+
 	return [...keys];
 }
 
