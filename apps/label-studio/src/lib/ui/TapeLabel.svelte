@@ -15,6 +15,7 @@
 		maxHeight = 72,
 		dimension = true,
 		lazy = false,
+		alongTape = false,
 		onlength,
 	}: {
 		doc: LabelDoc;
@@ -24,6 +25,11 @@
 		maxHeight?: number;
 		dimension?: boolean;
 		lazy?: boolean;
+		/**
+		 * Lay an upright design along the tape, as it comes out of the printer, so a thumbnail of a
+		 * tall label is as large as a wide one.
+		 */
+		alongTape?: boolean;
 		onlength?: (dots: number) => void;
 	} = $props();
 
@@ -35,12 +41,15 @@
 	const scale = $derived(
 		mode === "print" ? 1 : Math.min(4, Math.ceil(2 * (globalThis.devicePixelRatio || 1))),
 	);
-	const horizontal = $derived(doc.orientation === "horizontal");
+	const upright = $derived(doc.orientation === "vertical");
+	/** Upright and laid down: the canvas turns a quarter, counter-clockwise like the print raster. */
+	const turned = $derived(upright && alongTape);
+	const horizontal = $derived(!upright || alongTape);
 	const across = $derived(tapeAcross(doc.tapeMm));
 	const result = $derived(live.result);
 	const frameW = $derived(result ? result.frame.width / (mode === "print" ? 1 : scale) : 0);
 	const frameH = $derived(result ? result.frame.height / (mode === "print" ? 1 : scale) : 0);
-	const along = $derived(horizontal ? frameW : frameH);
+	const along = $derived(upright ? frameH : frameW);
 	// The tape runs across the screen for a horizontal label and down it for a vertical one.
 	const zoom = $derived.by(() => {
 		if (along <= 0) {
@@ -104,18 +113,19 @@
 			class="strip"
 			class:vertical={!horizontal}
 			style:--gutter="{across.gutter * zoom}px"
-			style:width="{(horizontal ? frameW : across.dots) * zoom}px"
-			style:height="{(horizontal ? across.dots : frameH) * zoom}px"
+			style:width="{(horizontal ? along : across.dots) * zoom}px"
+			style:height="{(horizontal ? across.dots : along) * zoom}px"
 		>
 			<canvas
 				bind:this={canvas}
 				class:pixelated={mode === "print"}
+				class:turned
 				style:width="{frameW * zoom}px"
 				style:height="{frameH * zoom}px"
 			></canvas>
 		</div>
 		{#if dimension}
-			<div class="dim" style:width="{(horizontal ? frameW : across.dots) * zoom}px">
+			<div class="dim" style:width="{(horizontal ? along : across.dots) * zoom}px">
 				<Dimension mm={dotsToMm(result.lengthDots)} size="sm" />
 			</div>
 		{/if}
@@ -150,6 +160,14 @@
 
 	canvas {
 		display: block;
+	}
+
+	.turned {
+		position: absolute;
+		top: 50%;
+		left: 50%;
+		translate: -50% -50%;
+		rotate: -90deg;
 	}
 
 	.pixelated {

@@ -190,6 +190,7 @@
 									maxWidth={Math.max(0, (stageWidths[template.id] ?? 160) - 24)}
 									maxHeight={52}
 									dimension={false}
+									alongTape
 									lazy
 									onlength={(dots: number) => {
 										if (lengths[template.id] !== dots) {
