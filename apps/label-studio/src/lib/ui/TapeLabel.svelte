@@ -41,7 +41,16 @@
 	const frameW = $derived(result ? result.frame.width / (mode === "print" ? 1 : scale) : 0);
 	const frameH = $derived(result ? result.frame.height / (mode === "print" ? 1 : scale) : 0);
 	const along = $derived(horizontal ? frameW : frameH);
-	const zoom = $derived(along > 0 ? Math.min(maxWidth / along, maxHeight / across.dots, 4) : 1);
+	// The tape runs across the screen for a horizontal label and down it for a vertical one.
+	const zoom = $derived.by(() => {
+		if (along <= 0) {
+			return 1;
+		}
+
+		return horizontal
+			? Math.min(maxWidth / along, maxHeight / across.dots, 4)
+			: Math.min(maxWidth / across.dots, maxHeight / along, 4);
+	});
 
 	$effect(() => {
 		if (!lazy) {
