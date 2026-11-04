@@ -26,7 +26,7 @@ import { drawIcon, loadIcons, type IconSet } from "./icon.ts";
 import { decodeGray, drawImage } from "./image.ts";
 import { bitmap } from "./raster.ts";
 import { drawBorder, drawShape } from "./shape.ts";
-import { drawText, layoutText } from "./text.ts";
+import { drawText, layoutText, textBleed } from "./text.ts";
 
 /** Loads font bytes for a family/style. The browser fetches them; the server reads files. */
 export interface FontSource {
@@ -53,12 +53,17 @@ interface Context {
 	warn: (message: string) => void;
 }
 
-/** Draws an element's content, unrotated, into a layer of its local box at render scale. */
-type Draw = (layer: Bitmap, w: number, h: number) => void;
+/**
+ * Draws an element's content, unrotated, into a layer of its local box at render scale. The layer
+ * extends `bleed` dots past the box on every side; the box's top-left is at dot (bleed, bleed).
+ */
+type Draw = (layer: Bitmap, w: number, h: number, bleed: number) => void;
 
 /** An element ready to draw: its local width (auto-width text resolves it), or null to skip. */
 interface Prepared {
 	width?: number;
+	/** Dots the content may ink past its box, like CSS overflow: visible. */
+	bleed?: number;
 	draw: Draw;
 }
 
@@ -112,8 +117,9 @@ const PREPARE: { [K in ElementKind]: Preparer<K> } = {
 
 		return {
 			width: auto ? Math.max(1, Math.ceil(layout.width)) : w,
-			draw(layer) {
-				drawText(layer, layout, face, ctx.scale);
+			bleed: textBleed(layout),
+			draw(layer, _w, _h, bleed) {
+				drawText(layer, layout, face, ctx.scale, bleed, bleed);
 			},
 		};
 	},
@@ -366,7 +372,13 @@ export async function renderLabel(
 	};
 	const vertical = doc.orientation === "vertical";
 	const boxes: Record<string, Box> = {};
-	const items: { box: Box; local: [number, number]; el: LabelElement; draw: Draw }[] = [];
+	const items: {
+		box: Box;
+		local: [number, number];
+		bleed: number;
+		el: LabelElement;
+		draw: Draw;
+	}[] = [];
 	let furthest = 0;
 
 	for (const el of doc.elements) {
@@ -389,7 +401,10 @@ export async function renderLabel(
 		furthest = Math.max(furthest, vertical ? resolved.y + resolved.h : resolved.x + resolved.w);
 
 		if (prepared) {
-			items.push({ box: resolved, local: [width, lh], el, draw: prepared.draw });
+			// An inverted layer paints its whole extent, so it must stop at the box.
+			const bleed = el.invert ? 0 : (prepared.bleed ?? 0);
+
+			items.push({ box: resolved, local: [width, lh], bleed, el, draw: prepared.draw });
 		}
 	}
 
@@ -407,11 +422,12 @@ export async function renderLabel(
 	const [frameW, frameH] = vertical ? [tape.pins, lengthDots] : [lengthDots, tape.pins];
 	const frame = bitmap(frameW * scale, frameH * scale);
 
-	for (const { box, local, el, draw } of items) {
-		const layer = bitmap(local[0] * scale, local[1] * scale);
+	for (const { box, local, bleed, el, draw } of items) {
+		const layer = bitmap((local[0] + 2 * bleed) * scale, (local[1] + 2 * bleed) * scale);
 
-		draw(layer, local[0], local[1]);
-		blit(frame, layer, box.x * scale, box.y * scale, el.rotate, el.invert);
+		// The bleed is the same on all four sides, so it survives any quarter turn unchanged.
+		draw(layer, local[0], local[1], bleed);
+		blit(frame, layer, (box.x - bleed) * scale, (box.y - bleed) * scale, el.rotate, el.invert);
 	}
 
 	if (doc.border) {
