@@ -17,7 +17,7 @@ services:
       ORIGIN: ${ORIGIN:?Set the public origin}
       TASKS_DB_PATH: /data/tasks.db
       TASKS_CONFIG: /data/config.json
-      ALLOW: ${ALLOW:-}
+      ALLOW: ${ALLOW:?Set the allowed users}
       TERM_ADMIN: ${TERM_ADMIN:-}
       TERM_WS_SECRET: ${TERM_WS_SECRET:?Set the ttyd credential}
       TERM_PROXY_SECRET: ${TERM_PROXY_SECRET:?Set the proxy credential}

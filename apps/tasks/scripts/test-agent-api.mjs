@@ -2,7 +2,7 @@
 // Tests for the agent-API (bearer-token RPC, POST /api/agent/rpc) against a TEMP DB.
 //
 // No vitest in this project → a dependency-free node assertion script (same pattern as
-// guard-public-share.mjs), wired to `pnpm test:agent-api`. It drives the REAL handler
+// test-public-share.mjs), wired to `pnpm test:agent-api`. It drives the REAL handler
 // (src/lib/server/agent-api.js handleAgentRpc — the route is a thin transport wrapper)
 // and the REAL db.js helpers, on a throwaway SQLite file. Never touches the live DB.
 //

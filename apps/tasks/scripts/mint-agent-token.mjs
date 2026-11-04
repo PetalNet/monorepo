@@ -71,7 +71,7 @@ Minted agent-API token #${minted.id} for '${agent_name}'
 
   Try it:
 
-    curl -sS https://tracker.example.com/api/agent/rpc \\
+    curl -sS ${process.env.ORIGIN || "$ORIGIN"}/api/agent/rpc \\
       -H 'Authorization: Bearer ${minted.token}' \\
       -H 'Content-Type: application/json' \\
       -d '{"op":"get_ready","args":{}}'

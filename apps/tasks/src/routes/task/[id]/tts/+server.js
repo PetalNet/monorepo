@@ -3,6 +3,7 @@ import { readFileSync } from "node:fs";
 import { env } from "$env/dynamic/private";
 import { canRead } from "$lib/server/db.js";
 import { take } from "$lib/server/ratelimit.js";
+import { VOICES } from "$lib/server/voices.js";
 import { json } from "@sveltejs/kit";
 
 // Hard cap on text the proxy will forward to the PAID ElevenLabs key. The reader only
@@ -24,14 +25,6 @@ function apiKey() {
 		return null;
 	}
 }
-
-// Whitelisted voices are configured as comma-separated name=id pairs.
-const VOICES = Object.fromEntries(
-	(env.ELEVEN_VOICES || "")
-		.split(",")
-		.map((pair) => pair.split("=").map((part) => part.trim()))
-		.filter(([name, id]) => name && id),
-);
 
 function resolveVoice(pick) {
 	return VOICES[pick] || VOICES.default || Object.values(VOICES)[0] || null;

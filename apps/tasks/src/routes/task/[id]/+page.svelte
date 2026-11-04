@@ -90,15 +90,11 @@
 	// the FIRST render — otherwise flipping it post-mount re-renders {@html} and
 	// clobbers the glossary spans the effect just injected.
 	let human = $state((() => !!data.bodyHtmlHuman)()); // show the plain-English rewrite
-	let voice = $state("default"); // TTS voice for Listen (server whitelists the key)
+	let voice = $state((() => data.config.voices[0] ?? "")()); // TTS voice for Listen (server whitelists the key)
 
-	const VOICES = [
-		{ id: "default", label: "Default" },
-		{ id: "george", label: "George" },
-		{ id: "river", label: "River" },
-		{ id: "brian", label: "Brian" },
-		{ id: "sarah", label: "Sarah" },
-	];
+	const VOICES = $derived(
+		data.config.voices.map((id) => ({ id, label: id.charAt(0).toUpperCase() + id.slice(1) })),
+	);
 	const docHtml = $derived(human && hasHuman ? data.bodyHtmlHuman : data.bodyHtml);
 
 	// restore the narrator voice once on mount, THEN allow saving — a `loaded` gate stops the

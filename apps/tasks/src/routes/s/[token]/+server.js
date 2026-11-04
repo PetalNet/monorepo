@@ -1,6 +1,7 @@
-import { getArtifactByShareToken } from "$lib/server/db.js";
-import { renderMd } from "$lib/server/md.js";
 import { error } from "@sveltejs/kit";
+
+import { getArtifactByShareToken } from "../../../lib/server/db.js";
+import { renderMd } from "../../../lib/server/md.js";
 
 // PUBLIC, SSO-EXEMPT scoped share view: /s/<token>.
 //

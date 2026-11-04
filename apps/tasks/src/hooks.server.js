@@ -1,4 +1,4 @@
-import { tasksConfig } from "$lib/server/config.js";
+import { tasksConfig } from "./lib/server/config.js";
 
 // Identity + access gate. Behind Authentik forward-auth, traefik injects X-authentik-username.
 // ALLOW (Authentik usernames) is the access list. With ALLOW set (production) we FAIL CLOSED:
