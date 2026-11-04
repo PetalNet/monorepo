@@ -1,5 +1,5 @@
-import { json } from '@sveltejs/kit';
-import { handleAgentRpc, BODY_MAX } from '$lib/server/agent-api.js';
+import { handleAgentRpc, BODY_MAX } from "$lib/server/agent-api.js";
+import { json } from "@sveltejs/kit";
 
 // POST /api/agent/rpc  { op, args } — bearer-token RPC for remote headless agents.
 //
@@ -10,14 +10,19 @@ import { handleAgentRpc, BODY_MAX } from '$lib/server/agent-api.js';
 // here — identity resolves by token, never by header. The route stays a thin transport
 // wrapper so scripts/test-agent-api.mjs can exercise the real handler under plain node.
 export async function POST({ request }) {
-  // reject oversized bodies before buffering them (the handler re-checks the real length)
-  const len = Number(request.headers.get('content-length'));
-  if (Number.isFinite(len) && len > BODY_MAX) return json({ error: 'body_too_large' }, { status: 413 });
-  let rawBody;
-  try { rawBody = await request.text(); } catch { rawBody = ''; }
-  const { status, body } = handleAgentRpc({
-    authorization: request.headers.get('authorization'),
-    rawBody
-  });
-  return json(body, { status });
+	// reject oversized bodies before buffering them (the handler re-checks the real length)
+	const len = Number(request.headers.get("content-length"));
+	if (Number.isFinite(len) && len > BODY_MAX)
+		return json({ error: "body_too_large" }, { status: 413 });
+	let rawBody;
+	try {
+		rawBody = await request.text();
+	} catch {
+		rawBody = "";
+	}
+	const { status, body } = handleAgentRpc({
+		authorization: request.headers.get("authorization"),
+		rawBody,
+	});
+	return json(body, { status });
 }

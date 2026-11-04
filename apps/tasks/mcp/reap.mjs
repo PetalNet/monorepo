@@ -4,7 +4,7 @@
 // /srv/tracker-mcp/reap.mjs, which opened its own connection and ran a divergent raw
 // UPDATE (part of the two-write-paths drift fixed in task-284). reapLeases() also clears the
 // expired lease_expires_at, which the old standalone copy did not.
-process.env.TASKS_DB_PATH ||= '/srv/tasks/data/tasks.db';
-const { reapLeases } = await import('../src/lib/server/db.js');
+process.env.TASKS_DB_PATH ||= "/srv/tasks/data/tasks.db";
+const { reapLeases } = await import("../src/lib/server/db.js");
 const n = reapLeases();
 if (n) console.log(`[reap ${new Date().toISOString()}] freed ${n} stale lease(s)`);

@@ -1,6 +1,6 @@
-import { error } from '@sveltejs/kit';
-import { getArtifactByShareToken } from '$lib/server/db.js';
-import { renderMd } from '$lib/server/md.js';
+import { getArtifactByShareToken } from "$lib/server/db.js";
+import { renderMd } from "$lib/server/md.js";
+import { error } from "@sveltejs/kit";
 
 // PUBLIC, SSO-EXEMPT scoped share view: /s/<token>.
 //
@@ -35,44 +35,50 @@ import { renderMd } from '$lib/server/md.js';
 //
 // CSP profiles mirror /gallery/[slug]/raw, MINUS allow-same-origin for html (see above).
 const CSP = {
-  html: "sandbox; default-src 'none'; img-src data:; style-src 'unsafe-inline'; font-src data:; frame-ancestors 'none'",
-  interactive: "sandbox allow-scripts allow-downloads; default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; img-src data:; font-src data:; frame-ancestors 'none'"
+	html: "sandbox; default-src 'none'; img-src data:; style-src 'unsafe-inline'; font-src data:; frame-ancestors 'none'",
+	interactive:
+		"sandbox allow-scripts allow-downloads; default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; img-src data:; font-src data:; frame-ancestors 'none'",
 };
 
 // Shared hardening headers for every served response (and the 404 path stays generic).
 const HARDEN = {
-  'x-robots-tag': 'noindex, nofollow',
-  'x-frame-options': 'DENY',
-  'x-content-type-options': 'nosniff',
-  'referrer-policy': 'no-referrer',
-  'cache-control': 'private, no-store',
-  'permissions-policy': 'camera=(), microphone=(), geolocation=(), browsing-topics=(), payment=(), usb=(), serial=(), hid=()'
+	"x-robots-tag": "noindex, nofollow",
+	"x-frame-options": "DENY",
+	"x-content-type-options": "nosniff",
+	"referrer-policy": "no-referrer",
+	"cache-control": "private, no-store",
+	"permissions-policy":
+		"camera=(), microphone=(), geolocation=(), browsing-topics=(), payment=(), usb=(), serial=(), hid=()",
 };
 
 // Minimal HTML escaper for the markdown wrapper's <title>.
-const esc = (s) => String(s || '').replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+const esc = (s) =>
+	String(s || "").replace(
+		/[&<>"]/g,
+		(c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[c],
+	);
 
 export function GET({ params }) {
-  const a = getArtifactByShareToken(params.token);
-  // FAIL CLOSED — any miss is an indistinguishable generic 404 (no info leak about why).
-  if (!a) throw error(404, 'Not found');
+	const a = getArtifactByShareToken(params.token);
+	// FAIL CLOSED — any miss is an indistinguishable generic 404 (no info leak about why).
+	if (!a) throw error(404, "Not found");
 
-  if (a.kind === 'interactive' || a.kind === 'html') {
-    const csp = CSP[a.kind];
-    return new Response(a.content, {
-      headers: {
-        ...HARDEN,
-        'content-type': 'text/html; charset=utf-8',
-        'content-security-policy': csp
-      }
-    });
-  }
+	if (a.kind === "interactive" || a.kind === "html") {
+		const csp = CSP[a.kind];
+		return new Response(a.content, {
+			headers: {
+				...HARDEN,
+				"content-type": "text/html; charset=utf-8",
+				"content-security-policy": csp,
+			},
+		});
+	}
 
-  if (a.kind === 'markdown') {
-    const bodyHtml = renderMd(a.content); // sanitized server-side render
-    // Self-contained page: noindex meta + a tight inline CSP. No nav, no app chrome, no link back
-    // into the gated tracker. style-src unsafe-inline for the small inline stylesheet only.
-    const page = `<!doctype html>
+	if (a.kind === "markdown") {
+		const bodyHtml = renderMd(a.content); // sanitized server-side render
+		// Self-contained page: noindex meta + a tight inline CSP. No nav, no app chrome, no link back
+		// into the gated tracker. style-src unsafe-inline for the small inline stylesheet only.
+		const page = `<!doctype html>
 <html lang="en"><head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
@@ -93,16 +99,17 @@ export function GET({ params }) {
 <h1>${esc(a.title)}</h1>
 ${bodyHtml}
 </body></html>`;
-    return new Response(page, {
-      headers: {
-        ...HARDEN,
-        'content-type': 'text/html; charset=utf-8',
-        // inline-style-only page; no scripts, no remote anything.
-        'content-security-policy': "default-src 'none'; img-src data: https:; style-src 'unsafe-inline'; font-src data:; base-uri 'none'; form-action 'none'"
-      }
-    });
-  }
+		return new Response(page, {
+			headers: {
+				...HARDEN,
+				"content-type": "text/html; charset=utf-8",
+				// inline-style-only page; no scripts, no remote anything.
+				"content-security-policy":
+					"default-src 'none'; img-src data: https:; style-src 'unsafe-inline'; font-src data:; base-uri 'none'; form-action 'none'",
+			},
+		});
+	}
 
-  // Unknown kind → generic 404 (fail closed).
-  throw error(404, 'Not found');
+	// Unknown kind → generic 404 (fail closed).
+	throw error(404, "Not found");
 }

@@ -1,5 +1,5 @@
-import { error } from '@sveltejs/kit';
-import { getArtifact } from '$lib/server/db.js';
+import { getArtifact } from "$lib/server/db.js";
+import { error } from "@sveltejs/kit";
 
 // Serves a standalone HTML artifact as its own document, for embedding in the
 // sandboxed <iframe> on the reader page (and for the "open full" link).
@@ -44,32 +44,34 @@ import { getArtifact } from '$lib/server/db.js';
 //    own same-origin iframe would be blocked. frame-ancestors 'self' (via CSP)
 //    keeps it embeddable only by tasks itself.
 const CSP = {
-  html: "sandbox allow-same-origin; default-src 'none'; img-src data:; style-src 'unsafe-inline'; font-src data:; frame-ancestors 'self'",
-  // allow-scripts WITHOUT allow-same-origin == scripts run in an opaque origin (no cookie/parent
-  // access). No connect/fetch (default-src 'none'). script/style inline for the docs' own blocks.
-  interactive: "sandbox allow-scripts allow-downloads; default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; img-src data:; font-src data:; frame-ancestors 'self'"
+	html: "sandbox allow-same-origin; default-src 'none'; img-src data:; style-src 'unsafe-inline'; font-src data:; frame-ancestors 'self'",
+	// allow-scripts WITHOUT allow-same-origin == scripts run in an opaque origin (no cookie/parent
+	// access). No connect/fetch (default-src 'none'). script/style inline for the docs' own blocks.
+	interactive:
+		"sandbox allow-scripts allow-downloads; default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; img-src data:; font-src data:; frame-ancestors 'self'",
 };
 
 export function GET({ params, locals }) {
-  const a = getArtifact(params.slug, locals.user);
-  if (!a) throw error(404, 'No such artifact');
-  const csp = CSP[a.kind];
-  if (!csp) throw error(404, 'Not a page artifact');
+	const a = getArtifact(params.slug, locals.user);
+	if (!a) throw error(404, "No such artifact");
+	const csp = CSP[a.kind];
+	if (!csp) throw error(404, "Not a page artifact");
 
-  return new Response(a.content, {
-    headers: {
-      'content-type': 'text/html; charset=utf-8',
-      'content-security-policy': csp,
-      'x-frame-options': 'SAMEORIGIN',
-      // Defense-in-depth over the (author-only) interactive JS: deny the device/identity
-      // surfaces CSP doesn't gate. WebRTC ICE is the one network channel CSP can't reliably
-      // cage cross-engine — the threat model here is "trusted-author content, sandbox is
-      // belt-and-suspenders", so a leak needs malicious authored content; if a user-upload
-      // path is ever added, close WebRTC explicitly before trusting this.
-      'permissions-policy': 'camera=(), microphone=(), geolocation=(), browsing-topics=(), payment=(), usb=(), serial=(), hid=()',
-      // private content behind SSO: don't let a shared cache (or post-logout browser) reuse it.
-      'cache-control': 'private, no-store',
-      'referrer-policy': 'no-referrer'
-    }
-  });
+	return new Response(a.content, {
+		headers: {
+			"content-type": "text/html; charset=utf-8",
+			"content-security-policy": csp,
+			"x-frame-options": "SAMEORIGIN",
+			// Defense-in-depth over the (author-only) interactive JS: deny the device/identity
+			// surfaces CSP doesn't gate. WebRTC ICE is the one network channel CSP can't reliably
+			// cage cross-engine — the threat model here is "trusted-author content, sandbox is
+			// belt-and-suspenders", so a leak needs malicious authored content; if a user-upload
+			// path is ever added, close WebRTC explicitly before trusting this.
+			"permissions-policy":
+				"camera=(), microphone=(), geolocation=(), browsing-topics=(), payment=(), usb=(), serial=(), hid=()",
+			// private content behind SSO: don't let a shared cache (or post-logout browser) reuse it.
+			"cache-control": "private, no-store",
+			"referrer-policy": "no-referrer",
+		},
+	});
 }

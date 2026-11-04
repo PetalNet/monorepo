@@ -1,5 +1,5 @@
-import { error } from '@sveltejs/kit';
-import { getProject, tasksInProject, deepScrub } from '$lib/server/db.js';
+import { getProject, tasksInProject, deepScrub } from "$lib/server/db.js";
+import { error } from "@sveltejs/kit";
 
 // Project drill-in: all of one project's items, grouped by status lane.
 // Visibility mirrors listProjects (the /projects gate): a HUMAN may only open a project
@@ -8,14 +8,14 @@ import { getProject, tasksInProject, deepScrub } from '$lib/server/db.js';
 // visibility is enforced again in tasksInProject (vis(me)), so a shared project never
 // leaks another user's private task inside it.
 export function load({ params, locals }) {
-  const me = locals.user;
-  const id = Number(params.id);
-  const project = getProject(id);
-  if (!project) throw error(404, 'No such project');
-  // Fail closed: only a shared project, or my own, is visible. This also covers a
-  // private project with an empty/null owner (which the old owner-guard let leak).
-  if (!(project.visibility === 'shared' || project.owner === me)) {
-    throw error(404, 'No such project'); // don't reveal a non-visible project's existence
-  }
-  return deepScrub({ project, tasks: tasksInProject(id, me), me });
+	const me = locals.user;
+	const id = Number(params.id);
+	const project = getProject(id);
+	if (!project) throw error(404, "No such project");
+	// Fail closed: only a shared project, or my own, is visible. This also covers a
+	// private project with an empty/null owner (which the old owner-guard let leak).
+	if (!(project.visibility === "shared" || project.owner === me)) {
+		throw error(404, "No such project"); // don't reveal a non-visible project's existence
+	}
+	return deepScrub({ project, tasks: tasksInProject(id, me), me });
 }
