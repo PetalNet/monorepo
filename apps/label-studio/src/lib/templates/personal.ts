@@ -18,7 +18,7 @@ export const PERSONAL = [
 				lineHeight: 1.2,
 			}),
 			text("contact", { x: 122, y: 6, w: 240, h: 34 }, "{{contact}}", { bold: true }),
-			text("detail", { x: 122, y: 46, w: 240, h: 18 }, "{{detail}}"),
+			text("detail", { x: 122, y: 46, w: 240, h: 22 }, "{{detail}}"),
 		]),
 		fields: [
 			field("contact", "Email or phone", "owner@example.com"),

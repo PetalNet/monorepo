@@ -105,11 +105,11 @@ export const OFFICE = [
 		description:
 			"A big price and item name beside an EAN-13 barcode. The check digit is added if you leave it off.",
 		doc: doc([
-			text("price", { x: START, y: 4, w: 112, h: 40 }, "{{price}}", {
+			text("price", { x: START, y: 2, w: 112, h: 44 }, "{{price}}", {
 				bold: true,
 				widthMode: "fixed",
 			}),
-			text("item", { x: START, y: 48, w: 112, h: 18 }, "{{item}}", { widthMode: "fixed" }),
+			text("item", { x: START, y: 46, w: 112, h: 22 }, "{{item}}", { widthMode: "fixed" }),
 			code("barcode", { x: 130, y: 2, w: 240, h: 66 }, "ean13", "{{ean}}"),
 		]),
 		fields: [
@@ -123,11 +123,11 @@ export const OFFICE = [
 		name: "Product barcode",
 		description: "Product name and variant beside a Code 128 SKU that any scanner reads.",
 		doc: doc([
-			text("name", { x: START, y: 6, w: 150, h: 34 }, "{{name}}", {
+			text("name", { x: START, y: 2, w: 150, h: 44 }, "{{name}}", {
 				bold: true,
 				widthMode: "fixed",
 			}),
-			text("variant", { x: START, y: 46, w: 150, h: 18 }, "{{variant}}", { widthMode: "fixed" }),
+			text("variant", { x: START, y: 46, w: 150, h: 22 }, "{{variant}}", { widthMode: "fixed" }),
 			code("sku", { x: 168, y: 2, w: 240, h: 66 }, "code128", "{{sku}}"),
 		]),
 		fields: [

@@ -8,8 +8,8 @@ export const KITCHEN = [
 		name: "Food and date",
 		description: "What it is and the day it was made, for jars and lunch boxes.",
 		doc: doc([
-			text("item", { x: START, y: 4, w: 200, h: 40 }, "{{item}}", { font: "nunito", bold: true }),
-			text("date", { x: START, y: 48, w: 200, h: 18 }, "Made {{date}}", { font: "nunito" }),
+			text("item", { x: START, y: 2, w: 200, h: 44 }, "{{item}}", { font: "nunito", bold: true }),
+			text("date", { x: START, y: 46, w: 200, h: 22 }, "Made {{date}}", { font: "nunito" }),
 		]),
 		fields: [field("item", "Item", "Tomato soup"), dateField("date", "Made")],
 	}),
@@ -35,8 +35,8 @@ export const KITCHEN = [
 				invert: true,
 				widthMode: "fixed",
 			}),
-			text("item", { x: 114, y: 4, w: 200, h: 40 }, "{{item}}", { font: "nunito", bold: true }),
-			text("opened", { x: 114, y: 48, w: 200, h: 18 }, "Opened {{opened}}", { font: "nunito" }),
+			text("item", { x: 114, y: 2, w: 200, h: 44 }, "{{item}}", { font: "nunito", bold: true }),
+			text("opened", { x: 114, y: 46, w: 200, h: 22 }, "Opened {{opened}}", { font: "nunito" }),
 		]),
 		fields: [
 			field("within", "Use within", "5 days"),
@@ -51,8 +51,8 @@ export const KITCHEN = [
 			"Leftovers with the day they went in and how many portions, so the oldest gets eaten first.",
 		doc: doc([
 			icon("icon", { x: START, y: 13, w: 44, h: 44 }, "snowflake"),
-			text("item", { x: 64, y: 4, w: 200, h: 40 }, "{{item}}", { font: "nunito", bold: true }),
-			text("frozen", { x: 64, y: 48, w: 240, h: 18 }, "Frozen {{date}} · {{portions}}", {
+			text("item", { x: 64, y: 2, w: 200, h: 44 }, "{{item}}", { font: "nunito", bold: true }),
+			text("frozen", { x: 64, y: 46, w: 240, h: 22 }, "Frozen {{date}} · {{portions}}", {
 				font: "nunito",
 			}),
 		]),

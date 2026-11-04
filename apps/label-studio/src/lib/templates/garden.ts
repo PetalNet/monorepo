@@ -22,7 +22,7 @@ export const GARDEN = [
 				font: "source-serif",
 				bold: true,
 			}),
-			text("latin", { x: 106, y: 46, w: 200, h: 20 }, "{{latin}}", {
+			text("latin", { x: 106, y: 46, w: 200, h: 22 }, "{{latin}}", {
 				font: "source-serif",
 				italic: true,
 			}),

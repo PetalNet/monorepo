@@ -120,8 +120,8 @@ export const LAB = [
 				invert: true,
 				widthMode: "fixed",
 			}),
-			text("host", { x: 106, y: 6, w: 200, h: 36 }, "{{host}}", { bold: true }),
-			text("role", { x: 106, y: 46, w: 200, h: 20 }, "{{role}}"),
+			text("host", { x: 106, y: 2, w: 200, h: 44 }, "{{host}}", { bold: true }),
+			text("role", { x: 106, y: 46, w: 200, h: 22 }, "{{role}}"),
 		]),
 		fields: [
 			field("unit", "Unit", "U12"),
@@ -135,8 +135,8 @@ export const LAB = [
 		description: "A large port number with its VLAN, for switches and wall plates.",
 		doc: doc([
 			icon("icon", { x: START, y: 11, w: 48, h: 48 }, "ethernet-port"),
-			text("port", { x: 68, y: 4, w: 120, h: 40 }, "{{port}}", { bold: true }),
-			text("vlan", { x: 68, y: 48, w: 120, h: 18 }, "VLAN {{vlan}}"),
+			text("port", { x: 68, y: 2, w: 120, h: 44 }, "{{port}}", { bold: true }),
+			text("vlan", { x: 68, y: 46, w: 120, h: 22 }, "VLAN {{vlan}}"),
 		]),
 		fields: [field("port", "Port", "1/12"), field("vlan", "VLAN", "10", { kind: "number" })],
 	}),
@@ -183,8 +183,8 @@ export const LAB = [
 				invert: true,
 				widthMode: "fixed",
 			}),
-			text("device", { x: 172, y: 6, w: 200, h: 36 }, "{{device}}", { bold: true }),
-			text("detail", { x: 172, y: 46, w: 200, h: 18 }, "{{detail}}"),
+			text("device", { x: 172, y: 2, w: 200, h: 44 }, "{{device}}", { bold: true }),
+			text("detail", { x: 172, y: 46, w: 200, h: 22 }, "{{detail}}"),
 		]),
 		fields: [
 			field("voltage", "Voltage", "12 V"),
@@ -198,11 +198,11 @@ export const LAB = [
 		description:
 			"Disk name and size beside a Code 128 serial. Fields match the TrueNAS source, so a batch print needs no mapping.",
 		doc: doc([
-			text("name", { x: START, y: 4, w: 76, h: 36 }, "{{name}}", {
+			text("name", { x: START, y: 2, w: 76, h: 44 }, "{{name}}", {
 				bold: true,
 				widthMode: "fixed",
 			}),
-			text("size", { x: START, y: 46, w: 76, h: 18 }, "{{size}}", { widthMode: "fixed" }),
+			text("size", { x: START, y: 46, w: 76, h: 22 }, "{{size}}", { widthMode: "fixed" }),
 			code("serial", { x: 96, y: 4, w: 300, h: 44 }, "code128", "{{serial}}"),
 			text("model", { x: 96, y: 52, w: 300, h: 14 }, "{{model}}", { font: "jetbrains-mono" }),
 		]),
@@ -227,8 +227,8 @@ export const LAB = [
 				invert: true,
 				widthMode: "fixed",
 			}),
-			text("name", { x: 102, y: 6, w: 200, h: 36 }, "{{name}}", { bold: true }),
-			text("type", { x: 102, y: 46, w: 200, h: 18 }, "{{type}}"),
+			text("name", { x: 102, y: 2, w: 200, h: 44 }, "{{name}}", { bold: true }),
+			text("type", { x: 102, y: 46, w: 200, h: 22 }, "{{type}}"),
 		]),
 		fields: [
 			field("vmid", "ID", "101"),
@@ -243,8 +243,8 @@ export const LAB = [
 			"A device's friendly name over its entity ID. Fields match the Home Assistant source.",
 		doc: doc([
 			icon("icon", { x: START, y: 13, w: 44, h: 44 }, "house-wifi"),
-			text("name", { x: 64, y: 6, w: 200, h: 36 }, "{{name}}", { bold: true }),
-			text("entity", { x: 64, y: 46, w: 200, h: 18 }, "{{entity_id}}", { font: "jetbrains-mono" }),
+			text("name", { x: 64, y: 2, w: 200, h: 44 }, "{{name}}", { bold: true }),
+			text("entity", { x: 64, y: 46, w: 200, h: 22 }, "{{entity_id}}", { font: "jetbrains-mono" }),
 		]),
 		fields: [
 			field("name", "Name", "Hallway sensor"),

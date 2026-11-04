@@ -34,8 +34,8 @@ export const QR = [
 			"Network name and password in a monospaced face that keeps 0 and O, 1 and l apart.",
 		doc: doc([
 			icon("icon", { x: START, y: 13, w: 44, h: 44 }, "wifi"),
-			text("ssid", { x: 64, y: 4, w: 240, h: 30 }, "{{ssid}}", { bold: true }),
-			text("password", { x: 64, y: 40, w: 240, h: 26 }, "{{password}}", { font: "jetbrains-mono" }),
+			text("ssid", { x: 64, y: 2, w: 240, h: 40 }, "{{ssid}}", { bold: true }),
+			text("password", { x: 64, y: 44, w: 240, h: 24 }, "{{password}}", { font: "jetbrains-mono" }),
 		]),
 		fields: [
 			field("ssid", "Network name", "Guest network"),
@@ -75,8 +75,8 @@ export const QR = [
 			"A QR code that opens a web page, with a title and the address spelled out. Short links scan best.",
 		doc: doc([
 			qr("qr", { x: 4, y: 0, w: 70, h: 70 }, "{{url}}", { ecc: "L" }),
-			text("title", { x: 82, y: 6, w: 240, h: 34 }, "{{title}}", { bold: true }),
-			text("url", { x: 82, y: 46, w: 240, h: 18 }, "{{url}}", { font: "jetbrains-mono" }),
+			text("title", { x: 82, y: 2, w: 240, h: 44 }, "{{title}}", { bold: true }),
+			text("url", { x: 82, y: 46, w: 240, h: 22 }, "{{url}}", { font: "jetbrains-mono" }),
 		]),
 		fields: [
 			field("title", "Title", "Manual"),

@@ -51,8 +51,8 @@ export const SAFETY = [
 		doc: doc([
 			rect("disc", { x: START, y: 3, w: 64, h: 64 }, { shape: "ellipse" }),
 			icon("icon", { x: START + 12, y: 15, w: 40, h: 40 }, "flame", { invert: true, stroke: 2.5 }),
-			text("heading", { x: 84, y: 4, w: 140, h: 40 }, "HOT", { font: "atkinson", bold: true }),
-			text("message", { x: 84, y: 48, w: 200, h: 18 }, "{{message}}", { font: "atkinson" }),
+			text("heading", { x: 84, y: 2, w: 140, h: 44 }, "HOT", { font: "atkinson", bold: true }),
+			text("message", { x: 84, y: 46, w: 200, h: 22 }, "{{message}}", { font: "atkinson" }),
 		]),
 		fields: [field("message", "Message", "Surface may be hot")],
 	}),
@@ -82,11 +82,11 @@ export const SAFETY = [
 		doc: doc(
 			[
 				icon("icon", { x: START, y: 11, w: 48, h: 48 }, "zap", { stroke: 2.5 }),
-				text("heading", { x: 66, y: 4, w: 240, h: 40 }, "HIGH VOLTAGE", {
+				text("heading", { x: 66, y: 2, w: 240, h: 44 }, "HIGH VOLTAGE", {
 					font: "barlow-condensed",
 					bold: true,
 				}),
-				text("message", { x: 66, y: 48, w: 240, h: 18 }, "{{message}}", { font: "atkinson" }),
+				text("message", { x: 66, y: 46, w: 240, h: 22 }, "{{message}}", { font: "atkinson" }),
 			],
 			{ invert: true, margin: { startMm: 1.5, endMm: 3 } },
 		),
