@@ -1,5 +1,5 @@
 import { TAPES, type LabelDoc, type ShapeElement, type TextElement } from "$lib/doc";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 
 import {
 	align,
@@ -8,6 +8,7 @@ import {
 	emptyDoc,
 	moveBy,
 	moveToIndex,
+	newId,
 	removeElements,
 	reorder,
 	retape,
@@ -152,5 +153,20 @@ describe("retape", () => {
 		const doc = withElements(1);
 
 		expect(retape(doc, 12)).toBe(doc);
+	});
+});
+
+describe("newId", () => {
+	it("works where crypto.randomUUID is missing, as on a plain-http page", () => {
+		vi.stubGlobal("crypto", { getRandomValues: globalThis.crypto.getRandomValues.bind(globalThis.crypto) });
+
+		try {
+			const ids = new Set(Array.from({ length: 50 }, () => newId()));
+
+			expect(ids.size).toBe(50);
+			for (const id of ids) expect(id).toMatch(/^[0-9a-f]{8}$/);
+		} finally {
+			vi.unstubAllGlobals();
+		}
 	});
 });
