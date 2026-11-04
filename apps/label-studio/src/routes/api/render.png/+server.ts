@@ -23,6 +23,5 @@ export const POST: RequestHandler = async ({ request }) => {
 	return pngResponse(page.png, {
 		"x-label-length-mm": String(page.lengthMm),
 		"x-label-pages": String(rendered.value.pages.length),
-		"x-label-warnings": JSON.stringify(page.warnings),
 	});
 };

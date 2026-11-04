@@ -26,7 +26,8 @@ export const SOURCES: Record<SourceId, SourceDef> = {
 	},
 	truenas: {
 		label: "TrueNAS",
-		paths: () => ["/api/v2.0/disk"],
+		// Without extra.pools TrueNAS leaves every disk's pool null.
+		paths: () => ["/api/v2.0/disk?extra.pools=true"],
 		authorization: (secret) => `Bearer ${secret}`,
 		table: ([disks]) => normalise.truenas(disks),
 	},
