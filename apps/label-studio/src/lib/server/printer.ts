@@ -15,17 +15,6 @@ export interface Printer {
 	print: (pages: readonly Uint8Array[], options: PrintOptions) => Promise<PrintOutcome>;
 }
 
-/** Daemon 503 details, matched by substring, to the message a person sees. */
-const STATUS_ERRORS: readonly { match: string; state: "error" | "offline"; message: string }[] = [
-	{ match: "no tape", state: "error", message: "No tape" },
-	{ match: "cover open", state: "error", message: "Cover open" },
-	{ match: "wrong tape", state: "error", message: "Wrong tape" },
-	{ match: "cutter jam", state: "error", message: "Cutter jam" },
-	{ match: "overheated", state: "error", message: "Printer overheated" },
-	{ match: "unsupported tape width", state: "error", message: "Unsupported tape" },
-	{ match: "not found", state: "offline", message: "Printer not connected" },
-];
-
 const UNREACHABLE = "Print server unreachable";
 
 export function createPrinter(
@@ -55,13 +44,14 @@ export function createPrinter(
 			}
 
 			const detail = detailOf(body) ?? `Print server answered HTTP ${String(response.status)}`;
-			const known = STATUS_ERRORS.find((entry) => detail.toLowerCase().includes(entry.match));
 
-			if (known?.state === "offline") {
-				return { state: "offline", message: known.message };
+			// The daemon's details ("no tape", "cover open"…) read well as sentences. A failed USB
+			// lookup ("… not found") means the printer is off or unplugged.
+			if (detail.includes("not found")) {
+				return { state: "offline", message: "Printer not connected" };
 			}
 
-			return { state: "error", message: known?.message ?? sentence(detail), tape: null };
+			return { state: "error", message: sentence(detail), tape: null };
 		},
 
 		async print(pages, options) {

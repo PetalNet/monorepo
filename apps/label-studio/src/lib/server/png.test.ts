@@ -66,6 +66,8 @@ describe("encodePng", () => {
 		}
 
 		data[width + 1] = 127;
+		data[3 * width + 5] = 128;
+		inked.add(3 * width + 5);
 		const bitmap: Bitmap = { width, height, data };
 
 		const decoded = decode(encodePng(bitmap));
