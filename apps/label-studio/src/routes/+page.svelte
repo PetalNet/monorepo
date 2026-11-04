@@ -287,24 +287,8 @@
 
 		{#if showFields && !phone.current}<Fields />{/if}
 
-		<div class="canvas">
-			<Canvas onedittext={editText} />
-			{#if empty}
-				<div class="empty">
-					<p>Start from a template, or add your own text.</p>
-					<div class="empty-actions">
-						<Button variant="primary" onclick={() => goto(resolve("/templates"))}
-							><LayoutGrid size={16} /> Templates</Button
-						>
-						<Button
-							onclick={() => {
-								editor.add("text");
-								editText(editor.selection[0]);
-							}}><Type size={16} /> Add text</Button
-						>
-					</div>
-				</div>
-			{/if}
+		<div class="canvas" class:empty>
+			<Canvas onedittext={editText} blank={start} />
 		</div>
 
 		{#if showFields && phone.current}<Fields />{/if}
@@ -320,6 +304,23 @@
 </div>
 
 {#snippet designIcon()}<PenLine />{/snippet}
+{#snippet start()}
+	<div class="first-run">
+		<p>Start from a template, or add your own text.</p>
+		<div class="first-run-actions">
+			<Button variant="primary" onclick={() => goto(resolve("/templates"))}
+				><LayoutGrid size={16} /> Templates</Button
+			>
+			<Button
+				onclick={() => {
+					editor.add("text");
+					editText(editor.selection[0]);
+				}}><Type size={16} /> Add text</Button
+			>
+		</div>
+	</div>
+{/snippet}
+
 {#snippet printIcon()}<Eye />{/snippet}
 
 <PrintSheet bind:open={printing} doc={editor.doc} vars={editor.resolvedVars} {title} {lengthMm} />
@@ -408,22 +409,23 @@
 		min-height: 0;
 	}
 
-	.empty {
-		position: absolute;
-		inset-inline: 0;
-		bottom: 24px;
+	.first-run {
 		display: grid;
 		justify-items: center;
 		gap: 12px;
+		width: max-content;
+		padding-top: 14px;
 		color: var(--ink-2);
-		pointer-events: none;
 		animation: enter var(--slow) var(--ease);
 	}
 
-	.empty-actions {
+	.first-run p {
+		margin: 0;
+	}
+
+	.first-run-actions {
 		display: flex;
 		gap: 8px;
-		pointer-events: auto;
 	}
 
 	@keyframes enter {
@@ -466,8 +468,9 @@
 			box-shadow: 0 -1px 0 var(--rule);
 		}
 
-		.empty {
-			bottom: 12px;
+		/* The first thing a phone shows: give the blank tape and its prompt room to breathe. */
+		.canvas.empty {
+			height: clamp(280px, 40dvh, 360px);
 		}
 	}
 </style>

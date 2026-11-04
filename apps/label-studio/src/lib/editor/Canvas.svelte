@@ -4,6 +4,7 @@
 	import { LiveRender, paint } from "$lib/ui/render.svelte";
 	import Skeleton from "$lib/ui/Skeleton.svelte";
 	import { tapeAcross, tapeMmActual } from "$lib/ui/tape";
+	import type { Snippet } from "svelte";
 	import { SvelteMap } from "svelte/reactivity";
 
 	import { editor } from "./editor.svelte";
@@ -18,11 +19,28 @@
 		type Handle,
 	} from "./snap";
 
-	let { onedittext }: { onedittext?: (id: string) => void } = $props();
+	let {
+		onedittext,
+		blank,
+	}: {
+		onedittext?: (id: string) => void;
+		/** Shown under an empty label in place of its length, which is not real yet. */
+		blank?: Snippet;
+	} = $props();
 
 	const live = new LiveRender();
 	const MAX_CANVAS = 8192;
 	const SNAP_PX = 6;
+	/**
+	 * An empty auto-length label is only its margins, a few mm long. It shows as this much plain tape
+	 * instead, never counted as length and never printed.
+	 */
+	const BLANK_MM = 40;
+	/** Fit never zooms past this (about 3.75× real size), so a short label does not fill the stage. */
+	const FIT_MAX = 2;
+	/** Stage chrome around the strip: the layout padding plus the tape-width line beside it. */
+	const CHROME_W = 96 + 12 + 20;
+	const CHROME_H = 80 + 10;
 
 	let stage = $state<HTMLElement>();
 	let overlay = $state<HTMLElement>();
@@ -31,6 +49,7 @@
 	let guides = $state<Guide[]>([]);
 	let dpr = $state(globalThis.devicePixelRatio || 1);
 	let renderedScale = $state(1);
+	let belowHeight = $state(20);
 
 	const doc = $derived(editor.doc);
 	const horizontal = $derived(doc.orientation === "horizontal");
@@ -38,6 +57,7 @@
 	const across = $derived(tapeAcross(doc.tapeMm));
 	const result = $derived(live.result);
 	const printView = $derived(editor.view === "print");
+	const placeholder = $derived(doc.elements.length === 0 && doc.length.mode === "auto");
 	/**
 	 * Pixels per dot in the bitmap: zoom × devicePixelRatio, capped so a long label stays a legal
 	 * canvas.
@@ -53,27 +73,29 @@
 		return Math.max(1, Math.min(wanted, 16, Math.floor(MAX_CANVAS / along)));
 	});
 	const frame = $derived(
-		result
-			? {
-					w: result.frame.width / (printView ? 1 : renderedScale),
-					h: result.frame.height / (printView ? 1 : renderedScale),
-				}
-			: frameSize(doc, mmToDots(30)),
+		placeholder
+			? frameSize(doc, mmToDots(BLANK_MM))
+			: result
+				? {
+						w: result.frame.width / (printView ? 1 : renderedScale),
+						h: result.frame.height / (printView ? 1 : renderedScale),
+					}
+				: frameSize(doc, mmToDots(30)),
 	);
 
-	// Fit the label in the stage with room for the dimension lines.
+	// Fit the strip in the stage with room for the dimension lines or the empty-label prompt.
 	$effect(() => {
-		const alongDots = horizontal ? frame.w : frame.h;
-		const acrossDots = across.dots;
+		const wide = horizontal ? frame.w : across.dots;
+		const tall = horizontal ? across.dots : frame.h;
 
-		if (stageSize.w === 0 || alongDots <= 0) {
+		if (stageSize.w === 0 || wide <= 0 || tall <= 0) {
 			return;
 		}
 
-		const roomAlong = (horizontal ? stageSize.w : stageSize.h) - 96;
-		const roomAcross = (horizontal ? stageSize.h : stageSize.w) - 112;
+		const roomW = stageSize.w - CHROME_W;
+		const roomH = stageSize.h - CHROME_H - belowHeight;
 
-		editor.fitZoom = Math.max(0.1, Math.min(roomAlong / alongDots, roomAcross / acrossDots, 12));
+		editor.fitZoom = Math.max(0.1, Math.min(roomW / wide, roomH / tall, FIT_MAX));
 	});
 
 	$effect(() => {
@@ -408,10 +430,11 @@
 				class="strip"
 				class:vertical={!horizontal}
 				class:printing={printView}
+				class:blank={placeholder}
 				style:width="{stripW}px"
 				style:height="{stripH}px"
 			>
-				{#if !result}
+				{#if !result && !placeholder}
 					<div class="loading"><Skeleton width="60%" height="40%" /></div>
 				{/if}
 				<div
@@ -424,6 +447,7 @@
 					<canvas
 						bind:this={canvas}
 						class:pixelated={printView}
+						hidden={placeholder}
 						style:width="{frame.w * zoom}px"
 						style:height="{frame.h * zoom}px"
 						aria-label="Label preview, {printView ? 'print view' : 'design view'}"
@@ -503,12 +527,16 @@
 				/>
 			</div>
 		</div>
-		<div class="dim-along" style:width="{stripW}px">
-			<Dimension
-				mm={dotsToMm(editor.lengthDots)}
-				axis={horizontal ? "x" : "y"}
-				label="Label length {dotsToMm(editor.lengthDots).toFixed(1)} mm"
-			/>
+		<div class="below" style:width="{stripW}px" bind:offsetHeight={belowHeight}>
+			{#if placeholder}
+				{@render blank?.()}
+			{:else}
+				<Dimension
+					mm={dotsToMm(editor.lengthDots)}
+					axis={horizontal ? "x" : "y"}
+					label="Label length {dotsToMm(editor.lengthDots).toFixed(1)} mm"
+				/>
+			{/if}
 		</div>
 	</div>
 </div>
@@ -554,6 +582,12 @@
 
 	.strip.vertical {
 		background: linear-gradient(90deg, var(--tape) 0%, var(--tape-shade) 100%);
+	}
+
+	/* The printable band, outlined so plain tape reads as a label waiting for content. */
+	.strip.blank .frame {
+		border-radius: 1px;
+		outline: 1px dashed color-mix(in oklch, var(--tape-ink) 16%, transparent);
 	}
 
 	.loading {
@@ -689,6 +723,12 @@
 
 	.dim-across {
 		display: flex;
+	}
+
+	.below {
+		display: flex;
+		flex-direction: column;
+		align-items: center;
 	}
 
 	@keyframes settle {
