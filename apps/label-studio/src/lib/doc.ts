@@ -1,7 +1,6 @@
 /**
- * The label document: the one shape the editor edits, templates store, the
- * renderer draws and the print API accepts. Every length is in printer dots
- * (180 dpi) unless its name ends in `Mm`.
+ * The label document: the one shape the editor edits, templates store, the renderer draws and the
+ * print API accepts. Every length is in printer dots (180 dpi) unless its name ends in `Mm`.
  */
 
 export const DPI = 180;
@@ -10,9 +9,8 @@ export const DOTS_PER_MM = DPI / 25.4;
 export const HEAD_PINS = 128;
 
 /**
- * Printable pins and the offset of the first printable pin, per tape width, from
- * Brother's raster command reference (pp. 14 and 20). "4" is the 3.5 mm tape,
- * which the printer reports as 4.
+ * Printable pins and the offset of the first printable pin, per tape width, from Brother's raster
+ * command reference (pp. 14 and 20). "4" is the 3.5 mm tape, which the printer reports as 4.
  */
 export const TAPES = {
 	4: { pins: 24, margin: 52 },
@@ -46,11 +44,10 @@ export const mmToDots = (mm: number): number => Math.round(mm * DOTS_PER_MM);
 export const dotsToMm = (dots: number): number => dots / DOTS_PER_MM;
 
 /**
- * The design frame. In "horizontal" orientation it is `length × pins` and x runs
- * along the tape. In "vertical" orientation it is `pins × length`: the user designs
- * a portrait strip and the renderer rotates it 90° counter-clockwise onto the tape,
- * so frame (x, y) lands on tape (y, pins - 1 - x) and the frame's top edge is the
- * start of the label.
+ * The design frame. In "horizontal" orientation it is `length × pins` and x runs along the tape. In
+ * "vertical" orientation it is `pins × length`: the user designs a portrait strip and the renderer
+ * rotates it 90° counter-clockwise onto the tape, so frame (x, y) lands on tape (y, pins - 1 - x)
+ * and the frame's top edge is the start of the label.
  */
 export type Orientation = "horizontal" | "vertical";
 
@@ -59,9 +56,9 @@ export type LabelLength = { mode: "auto" } | { mode: "fixed"; mm: number };
 export type Rotation = 0 | 90 | 180 | 270;
 
 /**
- * Position and footprint in the design frame, in dots. For rotate 90/270 the box is
- * the on-canvas footprint after rotation, so the content is laid out in an `h × w`
- * local box and then turned. Handles and hit tests always use the box as stored.
+ * Position and footprint in the design frame, in dots. For rotate 90/270 the box is the on-canvas
+ * footprint after rotation, so the content is laid out in an `h × w` local box and then turned.
+ * Handles and hit tests always use the box as stored.
  */
 export interface Box {
 	x: number;
@@ -84,8 +81,8 @@ export type FontId = string;
 export type TextAlign = "left" | "center" | "right";
 export type VerticalAlign = "top" | "middle" | "bottom";
 /**
- * "fill": the largest size at which every line fits the box (the label-maker default).
- * "shrink": use `size`, but shrink until it fits. "fixed": use `size` and clip.
+ * "fill": the largest size at which every line fits the box (the label-maker default). "shrink":
+ * use `size`, but shrink until it fits. "fixed": use `size` and clip.
  */
 export type TextFit = "fill" | "shrink" | "fixed";
 
@@ -106,8 +103,8 @@ export interface TextElement extends ElementBase {
 	tracking: number;
 	fit: TextFit;
 	/**
-	 * "auto": the box width follows the laid-out text (useful with auto length);
-	 * the renderer reports the resolved width in `RenderResult.boxes`.
+	 * "auto": the box width follows the laid-out text (useful with auto length); the renderer reports
+	 * the resolved width in `RenderResult.boxes`.
 	 */
 	widthMode: "fixed" | "auto";
 }
@@ -180,10 +177,9 @@ export interface LabelDoc {
 	orientation: Orientation;
 	length: LabelLength;
 	/**
-	 * Blank tape before and after the content, along the tape. Element positions are
-	 * never shifted: with auto length the label ends `endMm` after the furthest element
-	 * edge, and `startMm` is the guide the editor snaps new and dragged content to.
-	 * With fixed length both are layout guides.
+	 * Blank tape before and after the content, along the tape. Element positions are never shifted:
+	 * with auto length the label ends `endMm` after the furthest element edge, and `startMm` is the
+	 * guide the editor snaps new and dragged content to. With fixed length both are layout guides.
 	 */
 	margin: { startMm: number; endMm: number };
 	/** Print the whole band as ink with the design knocked out. */
@@ -260,9 +256,9 @@ export interface RenderOptions {
 	tape: TapeGeometry;
 	vars?: Vars;
 	/**
-	 * "print": exactly what the printer will burn, values 0 or 255 only, 1 dot per pixel.
-	 * "design": the same geometry for the editor, drawn at `scale` pixels per dot, with
-	 * images in grayscale instead of thresholded or dithered.
+	 * "print": exactly what the printer will burn, values 0 or 255 only, 1 dot per pixel. "design":
+	 * the same geometry for the editor, drawn at `scale` pixels per dot, with images in grayscale
+	 * instead of thresholded or dithered.
 	 */
 	mode?: "print" | "design";
 	/** Integer pixels per dot in design mode. Print mode always uses 1. */

@@ -1,7 +1,7 @@
 /**
- * The HTTP contract between the browser, agents and the server routes under
- * /api. Request bodies are JSON; errors are `{ error: string }` with a 4xx/5xx
- * status and a message a person can act on ("Cover open", not "HTTP 400").
+ * The HTTP contract between the browser, agents and the server routes under /api. Request bodies
+ * are JSON; errors are `{ error: string }` with a 4xx/5xx status and a message a person can act on
+ * ("Cover open", not "HTTP 400").
  */
 import type { LabelDoc, TapeGeometry, Template, TemplateField, Vars } from "$lib/doc";
 
@@ -22,8 +22,8 @@ export interface StatusResponse {
 export type DesignRef = { doc: LabelDoc } | { template: string };
 
 /**
- * Variables for one label (`vars`) or one label per row (`rows`). Each row is
- * merged over `vars`, which is merged over the template's field defaults.
+ * Variables for one label (`vars`) or one label per row (`rows`). Each row is merged over `vars`,
+ * which is merged over the template's field defaults.
  */
 export type RenderRequest = DesignRef & { vars?: Vars; rows?: Vars[] };
 
@@ -34,7 +34,7 @@ export interface RenderResponse {
 }
 
 export interface RenderedPage {
-	/** data:image/png;base64 of the exact 128-dot-high printer raster. */
+	/** Data:image/png;base64 of the exact 128-dot-high printer raster. */
 	png: string;
 	lengthDots: number;
 	lengthMm: number;
@@ -77,10 +77,8 @@ export interface JobResponse {
 }
 
 /**
- * GET /api/history?limit=&before= → { entries }
- * GET /api/history/:id → { entry }
- * GET /api/history/:id/pages/:n.png → the stored raster
- * POST /api/history/:id/reprint → 202 { job }
+ * GET /api/history?limit=&before= → { entries } GET /api/history/:id → { entry } GET
+ * /api/history/:id/pages/:n.png → the stored raster POST /api/history/:id/reprint → 202 { job }
  */
 export interface HistoryEntry {
 	id: string;
@@ -101,8 +99,7 @@ export interface HistoryEntry {
 }
 
 /**
- * GET /api/templates → { templates }
- * POST /api/templates (TemplateInput) → 201 { template }
+ * GET /api/templates → { templates } POST /api/templates (TemplateInput) → 201 { template }
  * GET|PUT|DELETE /api/templates/:id; built-ins are read-only (PUT/DELETE → 409).
  */
 export interface TemplateInput {
