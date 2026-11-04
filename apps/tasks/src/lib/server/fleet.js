@@ -51,7 +51,7 @@ function normHost(h) {
 		return null;
 	}
 
-	return s;
+	return tasksConfig.fleet.hostAliases[s] ?? s;
 }
 
 function ageMs(iso) {

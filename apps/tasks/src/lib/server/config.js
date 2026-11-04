@@ -27,8 +27,10 @@ const schema = z.object({
 					}),
 				)
 				.default([]),
+			// Maps a host label as heartbeats report it to the label the UI shows.
+			hostAliases: z.record(z.string().min(1), z.string().min(1)).default({}),
 		})
-		.default({ agents: [] }),
+		.default({ agents: [], hostAliases: {} }),
 	accessMessage: z.string().min(1).optional(),
 });
 
