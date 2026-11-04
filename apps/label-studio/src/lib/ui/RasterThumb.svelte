@@ -22,11 +22,12 @@
 </figure>
 
 <style>
+	/* Sized to the drawn image so the dimension line spans the label, not the row. */
 	.raster {
 		display: grid;
-		justify-items: center;
 		gap: 2px;
-		width: 100%;
+		width: fit-content;
+		max-width: 100%;
 		margin: 0;
 	}
 

@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { formatMm, plainError, relativeTime } from "./words";
+import { formatMm, plainError, relativeTime, sentence } from "./words";
 
 describe("plainError", () => {
 	it("turns daemon phrases into a recovery step", () => {
@@ -19,6 +19,13 @@ describe("plainError", () => {
 
 		expect(plainError("Template not found: pantry")).toBe("Template not found: pantry");
 		expect(plainError("Something new")).toBe("Something new");
+	});
+});
+
+describe("sentence", () => {
+	it("adds a full stop only when one is missing", () => {
+		expect(sentence("Lid open")).toBe("Lid open.");
+		expect(sentence("Cover open. Close it and retry.")).toBe("Cover open. Close it and retry.");
 	});
 });
 

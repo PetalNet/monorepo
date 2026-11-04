@@ -25,6 +25,11 @@ export function plainError(message: string): string {
 	return message;
 }
 
+/** End a message with a full stop so another sentence can follow it. */
+export function sentence(text: string): string {
+	return /[.!?]$/.test(text.trim()) ? text.trim() : `${text.trim()}.`;
+}
+
 const RELATIVE = new Intl.RelativeTimeFormat(undefined, { numeric: "auto" });
 const STEPS: readonly [Intl.RelativeTimeFormatUnit, number][] = [
 	["second", 60],

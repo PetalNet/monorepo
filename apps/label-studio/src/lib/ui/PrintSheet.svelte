@@ -1,11 +1,12 @@
 <script lang="ts">
 	import type { PrintRequest } from "$lib/api";
 	import type { LabelDoc, Vars } from "$lib/doc";
-	import { ChevronRight, Printer } from "@lucide/svelte";
+	import { ChevronRight, Minus, Plus, Printer } from "@lucide/svelte";
 
 	import Banner from "./Banner.svelte";
 	import Button from "./Button.svelte";
 	import { errorText } from "./client";
+	import IconButton from "./IconButton.svelte";
 	import JobRow from "./JobRow.svelte";
 	import { jobs } from "./jobs.svelte";
 	import NumberInput from "./NumberInput.svelte";
@@ -15,7 +16,7 @@
 	import Switch from "./Switch.svelte";
 	import { tapeMmActual } from "./tape";
 	import TapeLabel from "./TapeLabel.svelte";
-	import { formatMm, plainError } from "./words";
+	import { formatMm, plainError, sentence } from "./words";
 
 	/**
 	 * The one confirmation before tape is spent: what prints (the exact 1-bit render), how many, how
@@ -120,8 +121,15 @@
 	{:else}
 		<div class="rows">
 			<Row label="Copies" for="print-copies">
-				<span class="copies"
-					><NumberInput
+				<span class="copies">
+					<IconButton
+						label="One fewer copy"
+						disabled={copies <= 1}
+						onclick={() => {
+							copies = Math.max(1, copies - 1);
+						}}><Minus /></IconButton
+					>
+					<NumberInput
 						id="print-copies"
 						value={copies}
 						min={1}
@@ -129,8 +137,15 @@
 						onchange={(value: number) => {
 							copies = Math.round(value);
 						}}
-					/></span
-				>
+					/>
+					<IconButton
+						label="One more copy"
+						disabled={copies >= 99}
+						onclick={() => {
+							copies = Math.min(99, copies + 1);
+						}}><Plus /></IconButton
+					>
+				</span>
 			</Row>
 			<Row label="Cut" for="print-cut">
 				<Switch
@@ -200,7 +215,7 @@
 					? "Cannot reach the printer."
 					: printer.state === "ready"
 						? ""
-						: plainError(printer.message)}
+						: sentence(plainError(printer.message))}
 				Turn on Dry run under Advanced to record it without printing.
 			</Banner>
 		{/if}
@@ -244,7 +259,9 @@
 
 	.copies {
 		display: flex;
-		width: 96px;
+		align-items: center;
+		gap: 4px;
+		width: 152px;
 	}
 
 	.hint {
