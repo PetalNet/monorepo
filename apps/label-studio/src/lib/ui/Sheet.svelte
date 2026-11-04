@@ -50,19 +50,22 @@
 		}
 	}}
 >
-	<div class="frame">
-		<header>
-			<h2>{title}</h2>
-			<IconButton
-				label="Close"
-				onclick={() => {
-					open = false;
-				}}><X /></IconButton
-			>
-		</header>
-		<div class="content">{@render children()}</div>
-		{#if footer}<footer>{@render footer()}</footer>{/if}
-	</div>
+	<!-- Content mounts only while open, so a closed sheet costs no renders. -->
+	{#if open}
+		<div class="frame">
+			<header>
+				<h2>{title}</h2>
+				<IconButton
+					label="Close"
+					onclick={() => {
+						open = false;
+					}}><X /></IconButton
+				>
+			</header>
+			<div class="content">{@render children()}</div>
+			{#if footer}<footer>{@render footer()}</footer>{/if}
+		</div>
+	{/if}
 </dialog>
 
 <style>

@@ -23,7 +23,7 @@
 
 <div class="dimension {axis} {size}" role="img" aria-label={label ?? `${formatMm(mm)} millimetres`}>
 	<span class="line" aria-hidden="true"></span>
-	<span class="value num" aria-hidden="true">{formatMm(shown.current)}<small> mm</small></span>
+	<span class="value num" aria-hidden="true">{formatMm(shown.current)}<small>&nbsp;mm</small></span>
 </div>
 
 <style>

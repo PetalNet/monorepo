@@ -75,7 +75,7 @@
 		}
 
 		if (kind === "ellipse") {
-			const shape = createElement(editor.doc, "rect");
+			const shape = createElement(editor.doc, "rect", editor.boxes);
 
 			editor.insert({ ...shape, ...(shape.kind === "shape" ? { shape: "ellipse" as const } : {}) });
 		} else {
@@ -121,7 +121,7 @@
 		>
 		<IconPicker
 			onpick={(name: string) => {
-				const icon = createElement(editor.doc, "icon");
+				const icon = createElement(editor.doc, "icon", editor.boxes);
 
 				editor.insert({ ...icon, ...(icon.kind === "icon" ? { icon: name } : {}) });
 				picking = false;

@@ -5,7 +5,7 @@ import { createElement, newId } from "./model";
 /** Decode an image file or pasted blob and add it sized to the band. */
 export async function insertImage(blob: Blob): Promise<void> {
 	const { gray, srcW, srcH } = await importImage(blob);
-	const base = createElement(editor.doc, "rect");
+	const base = createElement(editor.doc, "rect", editor.boxes);
 	const band = editor.doc.orientation === "horizontal" ? base.h + base.y * 2 : base.w + base.x * 2;
 	const along = Math.round((band * srcW) / srcH);
 	const horizontal = editor.doc.orientation === "horizontal";

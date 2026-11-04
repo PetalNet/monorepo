@@ -33,7 +33,6 @@
 		Type,
 		Undo2,
 	} from "@lucide/svelte";
-	import { onDestroy } from "svelte";
 	import { MediaQuery } from "svelte/reactivity";
 
 	/** CSS pixels per printer dot at real size: 96 CSS px per inch over 180 dots per inch. */
@@ -69,9 +68,15 @@
 		}
 	});
 
-	chrome.actions = printAction;
-	onDestroy(() => {
-		chrome.actions = null;
+	// Installed after mount, so it lands after the previous page's cleanup.
+	$effect(() => {
+		chrome.actions = printAction;
+
+		return () => {
+			if (chrome.actions === printAction) {
+				chrome.actions = null;
+			}
+		};
 	});
 
 	function editText(id: string): void {
@@ -175,7 +180,7 @@
 
 		if (text !== "") {
 			event.preventDefault();
-			const element = createElement(editor.doc, "text");
+			const element = createElement(editor.doc, "text", editor.boxes);
 
 			editor.insert({ ...element, ...(element.kind === "text" ? { text } : {}) });
 		}
@@ -332,7 +337,7 @@
 	.editor {
 		display: grid;
 		grid-template-columns: minmax(0, 1fr) 340px;
-		height: 100%;
+		height: calc(100dvh - var(--bar-h));
 	}
 
 	.editor.wide {
@@ -475,7 +480,6 @@
 			display: flex;
 			flex-direction: column;
 			height: auto;
-			min-height: 100%;
 		}
 
 		.work {

@@ -50,13 +50,15 @@ export function frameSize(doc: LabelDoc, lengthDots: number): { w: number; h: nu
 }
 
 /** The far edge of the content along the tape, where the next element goes. */
-function contentEnd(doc: LabelDoc): number {
+function contentEnd(doc: LabelDoc, boxes: Readonly<Partial<Record<string, Box>>>): number {
 	const along = doc.orientation === "horizontal" ? "x" : "y";
 	const size = along === "x" ? "w" : "h";
 	let end = mmToDots(doc.margin.startMm);
 
 	for (const element of doc.elements) {
-		end = Math.max(end, element[along] + element[size] + mmToDots(1.5));
+		const box = boxes[element.id] ?? element;
+
+		end = Math.max(end, box[along] + box[size] + mmToDots(1.5));
 	}
 
 	return end;
@@ -71,10 +73,17 @@ const CODE_DATA: Record<Symbology, string> = {
 	ean13: "590123412345",
 };
 
-/** A new element of the given kind, sized to the band and placed after the content. */
-export function createElement(doc: LabelDoc, kind: AddKind): LabelElement {
+/**
+ * A new element of the given kind, sized to the band and placed after the content. `boxes` are the
+ * renderer's resolved boxes, so it lands after text as wide as it really laid out.
+ */
+export function createElement(
+	doc: LabelDoc,
+	kind: AddKind,
+	boxes: Readonly<Partial<Record<string, Box>>> = {},
+): LabelElement {
 	const band = bandDots(doc);
-	const at = contentEnd(doc);
+	const at = contentEnd(doc, boxes);
 	const across = Math.round(band * 0.14);
 	const place = (w: number, h: number, offset = 0): Box =>
 		doc.orientation === "horizontal"

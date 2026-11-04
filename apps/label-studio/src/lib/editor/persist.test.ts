@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import { emptyDoc } from "./model";
-import { loadSession, parseSession, resolveVars, saveSession } from "./persist";
+import { loadSession, parseSession, resolveVars, sampleVars, saveSession } from "./persist";
 
 function memory(): Storage {
 	const map = new Map<string, string>();
@@ -54,6 +54,27 @@ describe("resolveVars", () => {
 			{ key: "b", label: "B", kind: "text" as const, default: "two" },
 		];
 
-		expect(resolveVars(fields, { b: "mine" })).toEqual({ a: "one", b: "mine" });
+		expect(resolveVars(fields, { b: "mine" }, new Date(2026, 0, 2, 9, 5))).toEqual({
+			today: "2026-01-02",
+			now: "2026-01-02 09:05",
+			a: "one",
+			b: "mine",
+		});
+	});
+
+	it("lets a default use the built-in date", () => {
+		const fields = [{ key: "date", label: "Date", kind: "date" as const, default: "{{today}}" }];
+
+		expect(resolveVars(fields, {}, new Date(2026, 10, 4)).date).toBe("2026-11-04");
+	});
+
+	it("fills empty fields with their example text", () => {
+		const fields = [
+			{ key: "a", label: "Item", kind: "text" as const, default: "", placeholder: "Soup" },
+			{ key: "b", label: "Note", kind: "text" as const, default: "" },
+			{ key: "c", label: "Date", kind: "date" as const, default: "{{today}}" },
+		];
+
+		expect(sampleVars(fields)).toEqual({ a: "Soup", b: "Note" });
 	});
 });

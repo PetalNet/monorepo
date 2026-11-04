@@ -1,4 +1,4 @@
-import { isTapeWidth, type LabelDoc, type TemplateField, type Vars } from "$lib/doc";
+import { interpolate, isTapeWidth, type LabelDoc, type TemplateField, type Vars } from "$lib/doc";
 
 /** What survives a reload: the document, the template it came from and its field values. */
 export interface Session {
@@ -83,7 +83,40 @@ export function saveSession(storage: Pick<Storage, "setItem">, session: Session)
 	}
 }
 
-/** Field defaults merged under the user's values. */
-export function resolveVars(fields: readonly TemplateField[], vars: Vars): Record<string, string> {
-	return { ...Object.fromEntries(fields.map((field) => [field.key, field.default])), ...vars };
+const pad = (value: number): string => String(value).padStart(2, "0");
+
+/**
+ * The variables every label can use, `{{today}}` and `{{now}}`, the same names the server provides
+ * when it prints. The preview uses the browser's clock.
+ */
+export function builtinVars(now: Date): Record<string, string> {
+	const today = `${String(now.getFullYear())}-${pad(now.getMonth() + 1)}-${pad(now.getDate())}`;
+
+	return { today, now: `${today} ${pad(now.getHours())}:${pad(now.getMinutes())}` };
+}
+
+/** Built-ins, under field defaults (which may use built-ins), under the user's values. */
+export function resolveVars(
+	fields: readonly TemplateField[],
+	vars: Vars,
+	now = new Date(),
+): Record<string, string> {
+	const builtins = builtinVars(now);
+	const defaults = Object.fromEntries(
+		fields.map((field) => [field.key, interpolate(field.default, builtins)]),
+	);
+
+	return { ...builtins, ...defaults, ...vars };
+}
+
+/**
+ * Starting values for a freshly opened template: a field with no default takes its example text, so
+ * the label shows (and would print) something real until the user types over it.
+ */
+export function sampleVars(fields: readonly TemplateField[]): Record<string, string> {
+	return Object.fromEntries(
+		fields
+			.filter((field) => field.default === "")
+			.map((field) => [field.key, field.placeholder ?? field.label]),
+	);
 }

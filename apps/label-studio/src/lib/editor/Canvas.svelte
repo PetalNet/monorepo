@@ -73,7 +73,7 @@
 		const roomAlong = (horizontal ? stageSize.w : stageSize.h) - 96;
 		const roomAcross = (horizontal ? stageSize.h : stageSize.w) - 112;
 
-		editor.fitZoom = Math.max(0.5, Math.min(roomAlong / alongDots, roomAcross / acrossDots, 12));
+		editor.fitZoom = Math.max(0.1, Math.min(roomAlong / alongDots, roomAcross / acrossDots, 12));
 	});
 
 	$effect(() => {
@@ -167,23 +167,24 @@
 			: { x: 0, y: 0 };
 	}
 
-	function hit(point: { x: number; y: number }): LabelElement | null {
+	function contains(element: LabelElement, point: { x: number; y: number }): boolean {
 		const pad = 6 / zoom;
+		const box = boxOf(element);
 
-		for (const element of doc.elements.toReversed()) {
-			const box = boxOf(element);
+		return (
+			point.x >= box.x - pad &&
+			point.x <= box.x + box.w + pad &&
+			point.y >= box.y - pad &&
+			point.y <= box.y + box.h + pad
+		);
+	}
 
-			if (
-				point.x >= box.x - pad &&
-				point.x <= box.x + box.w + pad &&
-				point.y >= box.y - pad &&
-				point.y <= box.y + box.h + pad
-			) {
-				return element;
-			}
-		}
+	function hitSelected(point: { x: number; y: number }): LabelElement | null {
+		return editor.selected.toReversed().find((element) => contains(element, point)) ?? null;
+	}
 
-		return null;
+	function hit(point: { x: number; y: number }): LabelElement | null {
+		return doc.elements.toReversed().find((element) => contains(element, point)) ?? null;
 	}
 
 	function targetsExcept(ids: ReadonlySet<string>) {
@@ -236,7 +237,8 @@
 			return;
 		}
 
-		const element = hit(point);
+		// Pressing inside the current selection drags it, even under a higher layer.
+		const element = (event.shiftKey ? null : hitSelected(point)) ?? hit(point);
 
 		if (!element) {
 			if (!event.shiftKey) {
@@ -515,7 +517,7 @@
 	.stage {
 		position: relative;
 		display: grid;
-		place-items: center;
+		place-items: safe center;
 		width: 100%;
 		height: 100%;
 		overflow: auto;

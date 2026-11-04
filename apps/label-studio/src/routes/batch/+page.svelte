@@ -18,7 +18,6 @@
 	import { templates } from "$lib/ui/templates.svelte";
 	import { formatMm, relativeTime } from "$lib/ui/words";
 	import { CircleCheck, FileUp, Printer, Server } from "@lucide/svelte";
-	import { onDestroy } from "svelte";
 	import { SvelteSet } from "svelte/reactivity";
 
 	type Input = "paste" | "file" | "source";
@@ -98,9 +97,15 @@
 		}
 	});
 
-	chrome.actions = printAction;
-	onDestroy(() => {
-		chrome.actions = null;
+	// Installed after mount, so it lands after the previous page's cleanup.
+	$effect(() => {
+		chrome.actions = printAction;
+
+		return () => {
+			if (chrome.actions === printAction) {
+				chrome.actions = null;
+			}
+		};
 	});
 
 	async function readFile(file: File): Promise<void> {

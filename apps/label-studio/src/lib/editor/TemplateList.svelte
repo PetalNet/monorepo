@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { resolveVars, sampleVars } from "$lib/editor/persist";
 	import Banner from "$lib/ui/Banner.svelte";
 	import Button from "$lib/ui/Button.svelte";
 	import Skeleton from "$lib/ui/Skeleton.svelte";
@@ -51,7 +52,7 @@
 			>
 				<TapeLabel
 					doc={template.doc}
-					vars={{}}
+					vars={resolveVars(template.fields, sampleVars(template.fields))}
 					maxWidth={232}
 					maxHeight={40}
 					dimension={false}

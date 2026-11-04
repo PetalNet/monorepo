@@ -28,14 +28,14 @@ import {
 	type AlignEdge,
 	type LayerMove,
 } from "./model";
-import { loadSession, resolveVars, saveSession, type Session } from "./persist";
+import { loadSession, resolveVars, sampleVars, saveSession, type Session } from "./persist";
 
 export type View = "design" | "print";
 
 /** The editor panel tabs; "edit" exists only on narrow screens, "templates" only on wide ones. */
 export type PanelTab = "add" | "edit" | "layers" | "templates";
 
-export const ZOOM_MIN = 0.5;
+export const ZOOM_MIN = 0.1;
 export const ZOOM_MAX = 16;
 
 class Editor {
@@ -150,7 +150,7 @@ class Editor {
 	}
 
 	add(kind: AddKind): void {
-		const element = createElement(this.doc, kind);
+		const element = createElement(this.doc, kind, this.boxes);
 
 		this.apply(addElement(this.doc, element));
 		this.selection = [element.id];
@@ -219,7 +219,7 @@ class Editor {
 
 	/** Replace the document: a template, a history entry, or a new label. One undo step back. */
 	load(doc: LabelDoc, template: Session["template"], vars: Record<string, string> = {}): void {
-		this.history = commit(this.history, structuredClone(doc));
+		this.history = commit(this.history, $state.snapshot(doc) as LabelDoc);
 		this.template = template;
 		this.vars = vars;
 		this.selection = [];
@@ -228,12 +228,11 @@ class Editor {
 	}
 
 	loadTemplate(template: Template): void {
-		this.load(template.doc, {
-			id: template.id,
-			name: template.name,
-			builtin: template.builtin,
-			fields: template.fields,
-		});
+		this.load(
+			template.doc,
+			{ id: template.id, name: template.name, builtin: template.builtin, fields: template.fields },
+			sampleVars(template.fields),
+		);
 	}
 
 	startBlank(tapeMm: TapeWidthMm): void {

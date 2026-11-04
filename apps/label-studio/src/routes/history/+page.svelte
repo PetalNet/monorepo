@@ -267,7 +267,7 @@
 
 	.thumb img {
 		max-width: 100%;
-		max-height: 100%;
+		max-height: 44px;
 		background: var(--tape);
 		box-shadow: var(--tape-shadow);
 		image-rendering: pixelated;
@@ -276,6 +276,10 @@
 	.thumb.large {
 		height: 112px;
 		padding: 16px;
+	}
+
+	.thumb.large img {
+		max-height: 80px;
 	}
 
 	.body {

@@ -3,6 +3,7 @@
 	import { resolve } from "$app/paths";
 	import type { Template, TemplateCategory } from "$lib/doc";
 	import { editor } from "$lib/editor/editor.svelte";
+	import { resolveVars, sampleVars } from "$lib/editor/persist";
 	import Banner from "$lib/ui/Banner.svelte";
 	import Button from "$lib/ui/Button.svelte";
 	import { CATEGORIES } from "$lib/ui/categories";
@@ -175,7 +176,13 @@
 								aria-label="Use {template.name}"
 							></button>
 							<div class="stage">
-								<TapeLabel doc={template.doc} maxWidth={248} maxHeight={64} lazy />
+								<TapeLabel
+									doc={template.doc}
+									vars={resolveVars(template.fields, sampleVars(template.fields))}
+									maxWidth={248}
+									maxHeight={64}
+									lazy
+								/>
 							</div>
 							<div class="meta">
 								<h3>{template.name}</h3>

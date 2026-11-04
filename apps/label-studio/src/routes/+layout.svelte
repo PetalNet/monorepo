@@ -83,15 +83,19 @@
 <PrinterSheet bind:open={printerOpen} />
 
 <style>
+	/* The document scrolls, so the browser restores each page's scroll position and mobile toolbars collapse. */
 	.shell {
-		display: grid;
-		grid-template-rows: var(--bar-h) minmax(0, 1fr);
-		height: 100dvh;
+		display: flex;
+		flex-direction: column;
+		min-height: 100dvh;
 	}
 
 	.bar {
-		position: relative;
-		z-index: 2;
+		position: sticky;
+		top: 0;
+		z-index: 4;
+		flex: none;
+		height: var(--bar-h);
 		display: flex;
 		align-items: center;
 		gap: 24px;
@@ -165,8 +169,8 @@
 	}
 
 	main {
+		flex: 1;
 		min-height: 0;
-		overflow: auto;
 	}
 
 	.job-dock {
@@ -189,12 +193,6 @@
 	}
 
 	@media (max-width: 760px) {
-		.shell {
-			grid-template-rows: var(--bar-h) minmax(0, 1fr) calc(
-					var(--tab-h) + env(safe-area-inset-bottom)
-				);
-		}
-
 		.bar {
 			gap: 12px;
 			padding-inline: 12px;
@@ -206,8 +204,12 @@
 		}
 
 		.tabbar {
+			position: sticky;
+			bottom: 0;
+			z-index: 4;
 			display: grid;
 			grid-template-columns: repeat(4, 1fr);
+			height: calc(var(--tab-h) + env(safe-area-inset-bottom));
 			padding-bottom: env(safe-area-inset-bottom);
 			background: var(--panel);
 			box-shadow: 0 -1px 0 var(--rule);
