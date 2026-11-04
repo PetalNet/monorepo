@@ -25,7 +25,7 @@ try {
 const db = new Database(DB_PATH);
 
 db.pragma("journal_mode = WAL");
-db.pragma("busy_timeout = 5000"); // multi-writer safety (delegation + the Corner sync)
+db.pragma("busy_timeout = 5000"); // multi-writer safety
 db.pragma("foreign_keys = ON"); // so task_blockers edges cascade when a task is deleted
 
 db.exec(`
@@ -67,9 +67,9 @@ db.exec(`
     at      TEXT NOT NULL DEFAULT (datetime('now'))
   );
   -- small key/value store. First use: events_archived_through = max events.id that has been
-  -- safely written to the NAS event archive (scripts/archive-events.mjs). The in-process event
+  -- safely written to the event archive (scripts/archive-events.mjs). The in-process event
   -- pruner only deletes rows at/below this watermark, so nothing is ever dropped from the live
-  -- DB before it's archived off-box (task-340: archive-to-NAS, don't lose history).
+  -- DB before it is archived.
   CREATE TABLE IF NOT EXISTS meta (
     key   TEXT PRIMARY KEY,
     value TEXT

@@ -1,9 +1,9 @@
 #!/usr/bin/env node
-// tracker-mcp — MCP server exposing the local tracker (tasks.example.com) as tools.
+// tracker-mcp — MCP server exposing the local tracker as tools.
 //
 // Tools: get_ready, up_next, claim, reap, file, update, close.
 // Transport: stdio (one server per Claude Code session, launched by the client).
-// DB: /srv/tasks/data/tasks.db (override with TASKS_DB_PATH).
+// DB: TASKS_DB_PATH or the generic db.js default.
 //
 // IMPORTANT (task-344): every WRITE tool routes through the canonical mutation
 // helpers in ../src/lib/server/db.js — the SAME single source of truth the web UI
@@ -20,10 +20,7 @@ import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import { z } from "zod";
 
-// db.js opens its connection from TASKS_DB_PATH at import time. Default it to the
-// live tracker DB so a bare `node mcp/tracker-mcp.mjs` hits the real data, matching
-// the old server's default. (Set TASKS_DB_PATH to override, e.g. for tests.)
-process.env.TASKS_DB_PATH ||= "/srv/tasks/data/tasks.db";
+// db.js resolves TASKS_DB_PATH at import time, falling back to its generic local default.
 
 const DB = await import("../src/lib/server/db.js");
 const db = DB.default; // the shared connection (used only for read queries below)

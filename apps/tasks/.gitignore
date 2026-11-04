@@ -11,9 +11,7 @@ data/tasks.db
 data/tasks.db-*
 # runtime agent-fleet heartbeat (written by the warm session/manager, read by the rail)
 data/agent-fleet-status.json
-# Corner sync log (runtime artifact, was tracked by mistake — task-367)
-data/sync-corner.log
-# ElevenLabs TTS key — secret; never commit (key itself is out of scope, just ignored here — task-367)
+# ElevenLabs TTS key — secret; never commit
 data/eleven-api-key
 
 # local board verification artifacts (screenshots) — not app source
@@ -28,6 +26,6 @@ matrix-*.tgz
 matrix-org-*.tgz
 # generated / temp
 data/keeper-reports/
-# per-agent fleet heartbeats (runtime-written; agent-a/codex/agent-b/...)
+# per-agent fleet heartbeats (runtime-written)
 data/fleet/*.json
 *.bak-archive

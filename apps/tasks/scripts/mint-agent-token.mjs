@@ -3,15 +3,13 @@
 //
 //   node scripts/mint-agent-token.mjs <agent_name> [--assignee <name>] [--projects <csv>]
 //
-// Honors TASKS_DB_PATH (host runs MUST set it — gotcha-tasks-db-path). The plaintext
+// Honors TASKS_DB_PATH and otherwise uses db.js's generic default. The plaintext
 // token is printed ONCE and never stored (only sha256 lands in agent_tokens); revoke
 // with revokeAgentToken(<id or agent_name>) from src/lib/server/db.js.
 //
 // SCOPE IS THE SECURITY: --assignee and/or --projects confine the token to that lane.
 // Omitting BOTH mints an UNSCOPED token that can read/act on the whole tracker — the
 // script makes you say so out loud before it does.
-process.env.TASKS_DB_PATH ||= "/srv/tasks/data/tasks.db";
-
 const argv = process.argv.slice(2);
 const positional = [];
 const flags = {};
@@ -69,7 +67,7 @@ Minted agent-API token #${minted.id} for '${agent_name}'
 
   Try it:
 
-    curl -sS https://tasks.example.com/api/agent/rpc \\
+    curl -sS https://tracker.example.com/api/agent/rpc \\
       -H 'Authorization: Bearer ${minted.token}' \\
       -H 'Content-Type: application/json' \\
       -d '{"op":"get_ready","args":{}}'
