@@ -46,6 +46,9 @@
 		"@sveltejs/adapter-node": "catalog:dev",
 		"@sveltejs/kit": "catalog:prod",
 		"@sveltejs/vite-plugin-svelte": "catalog:dev",
+		"@types/better-sqlite3": "catalog:types",
+		"@types/jsdom": "catalog:types",
+		"@types/ws": "catalog:types",
 		"svelte-check": "catalog:dev",
 		"vite": "catalog:dev"
 	}

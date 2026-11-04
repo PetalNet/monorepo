@@ -1,24 +1,24 @@
-# Build stage — compile better-sqlite3 (native) + run the SvelteKit build.
-FROM node:22-slim AS build
-WORKDIR /app
-RUN apt-get update && apt-get install -y --no-install-recommends python3 make g++ ca-certificates \
-    && rm -rf /var/lib/apt/lists/*
-RUN corepack enable
-COPY package.json pnpm-lock.yaml pnpm-workspace.yaml ./
-RUN pnpm install --frozen-lockfile
-# pnpm skips install scripts by default — force the native better-sqlite3 build.
-RUN cd "$(find node_modules/.pnpm -type d -path '*/better-sqlite3' | grep -v '/node_modules/better-sqlite3/node_modules' | head -1)" && npm run install
+# syntax=docker/dockerfile:1.28@sha256:bb22d9815c728170f72750f4e5b0d672e06176142e1d602c7e66c050100b7e5b
+FROM node:26.5.1-bookworm-slim@sha256:9e6f9357d371591e32ab6f2d8a26d63bdd0d17c29eee3f4f3e7e454d9634bf73 AS base
+RUN apt-get update && apt-get install -y --no-install-recommends ca-certificates python3 make g++ && rm -rf /var/lib/apt/lists/* && npm install -g pnpm@12.16.1
+WORKDIR /workspace
+FROM base AS build
 COPY . .
-RUN pnpm build
-
-# Run stage.
-FROM node:22-slim
-WORKDIR /app
-ENV NODE_ENV=production
-COPY --from=build /app/build ./build
-COPY --from=build /app/node_modules ./node_modules
-COPY --from=build /app/package.json ./
-COPY --from=build /app/server.js ./
+RUN CI=true pnpm install --frozen-lockfile --filter @petalnet/tasks && pnpm --filter @petalnet/tasks build
+FROM node:26.5.1-bookworm-slim@sha256:9e6f9357d371591e32ab6f2d8a26d63bdd0d17c29eee3f4f3e7e454d9634bf73
+ARG MONOREPO_SHA=unknown
+LABEL org.opencontainers.image.source=https://github.com/PetalNet/monorepo
+LABEL org.opencontainers.image.revision=$MONOREPO_SHA
+ENV NODE_ENV=production PORT=8896
+COPY --from=build /workspace/node_modules /workspace/node_modules
+COPY --from=build /workspace/apps/tasks/node_modules /workspace/apps/tasks/node_modules
+COPY --from=build /workspace/apps/tasks/package.json /workspace/apps/tasks/package.json
+COPY --from=build /workspace/apps/tasks/build /workspace/apps/tasks/build
+COPY --from=build /workspace/apps/tasks/server.js /workspace/apps/tasks/server.js
+COPY --from=build /workspace/apps/tasks/mcp /workspace/apps/tasks/mcp
+COPY --from=build /workspace/apps/tasks/scripts /workspace/apps/tasks/scripts
+COPY --from=build /workspace/apps/tasks/src/lib/server /workspace/apps/tasks/src/lib/server
+WORKDIR /workspace/apps/tasks
+RUN mkdir -p /data
 EXPOSE 8896
-# custom server: SvelteKit handler + the fleet-terminal ws proxy (ws can't live in a +server route)
 CMD ["node", "server.js"]

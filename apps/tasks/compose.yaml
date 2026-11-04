@@ -1,0 +1,80 @@
+name: tasks
+services:
+  tasks:
+    mem_limit: 512m
+    memswap_limit: 512m
+    image: tasks:${MONOREPO_SHA:?Set the monorepo SHA the image was built from}
+    container_name: tasks
+    user: "1000:1000"
+    restart: unless-stopped
+    ports: ["127.0.0.1:${TASKS_PORT:-8896}:8896"]
+    environment:
+      PORT: 8896
+      ORIGIN: https://tasks.example.com
+      TASKS_DB_PATH: /data/tasks.db
+      ALLOW: alice,bob
+      TERM_ADMIN: alice,bob
+      TERM_WS_SECRET: ${TERM_WS_SECRET:?Set the ttyd credential}
+      TERM_PROXY_SECRET: ${TERM_PROXY_SECRET:?Set the proxy credential}
+      TZ: America/Chicago
+    volumes: ["${TASKS_DATA_DIR:?Set the Tasks data directory}:/data"]
+    networks: [tasks]
+    logging: { driver: json-file, options: { max-size: "1m", max-file: "1" } }
+  ttyd-ro:
+    mem_limit: 256m
+    memswap_limit: 256m
+    build: { context: apps/tasks/fleet-term }
+    image: tasks-ttyd:${MONOREPO_SHA:?Set the monorepo SHA the image was built from}
+    container_name: tasks-ttyd-ro
+    user: "1000:1000"
+    restart: unless-stopped
+    command:
+      [
+        "-c",
+        "term:${TERM_WS_SECRET:?Set the ttyd credential}",
+        "-p",
+        "7681",
+        "-i",
+        "0.0.0.0",
+        "tmux",
+        "-S",
+        "/tmp/tmux-1000/default",
+        "attach",
+        "-r",
+        "-t",
+        "agent-session",
+      ]
+    volumes: ["/tmp/tmux-1000:/tmp/tmux-1000"]
+    networks: [tasks]
+  ttyd-rw:
+    mem_limit: 256m
+    memswap_limit: 256m
+    build: { context: apps/tasks/fleet-term }
+    image: tasks-ttyd:${MONOREPO_SHA:?Set the monorepo SHA the image was built from}
+    container_name: tasks-ttyd-rw
+    user: "1000:1000"
+    restart: unless-stopped
+    command:
+      [
+        "-c",
+        "term:${TERM_WS_SECRET:?Set the ttyd credential}",
+        "-p",
+        "7682",
+        "-i",
+        "0.0.0.0",
+        "-W",
+        "tmux",
+        "-S",
+        "/tmp/tmux-1000/default",
+        "attach",
+        "-t",
+        "agent-session",
+      ]
+    volumes: ["/tmp/tmux-1000:/tmp/tmux-1000"]
+    networks: [tasks]
+networks:
+  # Explicit subnet: host Docker auto address pools are exhausted.
+  tasks:
+    ipam:
+      config:
+        - subnet: 172.16.46.0/24

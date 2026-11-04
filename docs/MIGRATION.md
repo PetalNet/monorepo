@@ -87,6 +87,11 @@ Then, the things that bit slide:
 
 _(populated as repos land — see issue #1 for the live checklist)_
 
+- `tasks` → `apps/tasks` — SvelteKit lab tracker imported with scrubbed history: 11+ research,
+  seed, and mock files and a Matrix room ID removed with git filter-repo; author emails rewritten
+  to noreply and gitleaks clean across history. Plain JavaScript remains with per-app lint
+  exceptions; node-script tests run through `test`.
+
 ## Excluded
 
 - `petalnet-infra`, `ActionOneHass`, `hassblink`, `PetalPVE`, `serverhost` — deployment/infra, stay separate.

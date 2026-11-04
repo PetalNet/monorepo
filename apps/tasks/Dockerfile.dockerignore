@@ -1,0 +1,17 @@
+*
+!package.json
+!pnpm-lock.yaml
+!pnpm-workspace.yaml
+!patches/
+!apps/*/package.json
+!packages/*/package.json
+!tools/package.json
+!apps/tasks/
+apps/tasks/data/
+apps/tasks/*.db
+apps/tasks/*.db-*
+apps/tasks/.env*
+apps/tasks/node_modules
+apps/tasks/build
+apps/tasks/.svelte-kit
+apps/tasks/fleet-term/
