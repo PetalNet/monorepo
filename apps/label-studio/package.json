@@ -14,6 +14,7 @@
 	},
 	"dependencies": {
 		"@lucide/svelte": "catalog:prod",
+		"@sveltejs/kit": "catalog:prod",
 		"bwip-js": "catalog:prod",
 		"csv-parse": "catalog:",
 		"lucide": "catalog:prod",
@@ -24,11 +25,11 @@
 	},
 	"devDependencies": {
 		"@sveltejs/adapter-node": "catalog:dev",
-		"@sveltejs/kit": "catalog:prod",
 		"@sveltejs/vite-plugin-svelte": "catalog:dev",
 		"@tailwindcss/vite": "catalog:dev",
 		"@types/node": "catalog:types",
 		"@types/opentype.js": "catalog:types",
+		"fontless": "catalog:",
 		"svelte-check": "catalog:dev",
 		"typescript": "catalog:dev",
 		"vite": "catalog:dev",

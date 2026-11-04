@@ -1,29 +1,5 @@
 @import "tailwindcss";
 
-@font-face {
-	font-family: "Geist";
-	font-style: normal;
-	font-weight: 400;
-	font-display: swap;
-	src: url("./lib/ui/fonts/geist-latin-400-normal.woff2") format("woff2");
-}
-
-@font-face {
-	font-family: "Geist";
-	font-style: normal;
-	font-weight: 500;
-	font-display: swap;
-	src: url("./lib/ui/fonts/geist-latin-500-normal.woff2") format("woff2");
-}
-
-@font-face {
-	font-family: "Geist";
-	font-style: normal;
-	font-weight: 600;
-	font-display: swap;
-	src: url("./lib/ui/fonts/geist-latin-600-normal.woff2") format("woff2");
-}
-
 /*
  * Three elevation tiers and nothing else: ground (the workspace), panel (toolbars,
  * inspector, cards), sheet (dialogs and menus). The accent is reserved for the active
@@ -59,7 +35,8 @@
 	--tape-ink: oklch(0.16 0 0);
 	--tape-shadow: 0 1px 1px oklch(0.2 0.01 165 / 0.12), 0 6px 18px -6px oklch(0.2 0.01 165 / 0.28);
 	--dimension: oklch(0.52 0.01 165);
-	--font-sans: "Geist", ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
+	--font-sans:
+		"Geist", "Geist Fallback", ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
 	--r: 2px;
 	--r-sheet: 10px;
 	--ease: cubic-bezier(0.16, 1, 0.3, 1);
