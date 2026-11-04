@@ -168,7 +168,7 @@ export const actions = {
 		return { ok: true };
 	},
 
-	// answer an async decision (Corner-style question)
+	// answer an async decision (import-style question)
 	answer: async ({ request, locals }) => {
 		const f = await request.formData();
 		const id = Number(f.get("id"));

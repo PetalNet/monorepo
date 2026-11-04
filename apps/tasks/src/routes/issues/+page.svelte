@@ -5,7 +5,7 @@
 	let tab = $state("open");
 
 	// whoColor single-sourced from $lib/people (this page's falsy fallback is the default 'var(--text-3)').
-	const AGENTS = ["claude", "agent-a", "agent-b", "codex", "agent-d", "agent-e"];
+	const AGENTS = ["claude", "agent-b", "agent-a", "agent-c", "agent-d", "agent-e"];
 	const isAgent = (h) => AGENTS.includes(String(h).toLowerCase());
 	const projName = $derived(projectName(data.projects));
 

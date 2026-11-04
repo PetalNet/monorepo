@@ -127,9 +127,9 @@
 	{#if agents.length === 0}
 		<div class="fleet-empty">
 			<span class="fe-dot"></span>
-			<p>No agents reporting yet.</p>
+			<p>No fleet configured.</p>
 			<p class="mono dim">
-				Hooks write <code>data/fleet/&lt;handle&gt;.json</code> on every lifecycle event.
+				Add fleet agents to the TASKS_CONFIG file to show their heartbeat status.
 			</p>
 		</div>
 	{:else}
@@ -250,7 +250,7 @@
 			background 0.2s;
 	}
 	/* agent identity is carried by the status dot + coloured status word, not a
-     side-stripe (the #1 AI-UI tell — Bob's /impeccable) */
+     side-stripe (the #1 AI-UI tell — an operator's /impeccable) */
 	.agent:hover {
 		background: var(--surface-2);
 		border-color: var(--border);

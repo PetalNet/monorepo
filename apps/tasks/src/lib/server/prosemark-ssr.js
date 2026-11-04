@@ -4,7 +4,7 @@ import { pathToFileURL } from "node:url";
 
 // ── CodeMirror SSR ─────────────────────────────────────────────────────────
 // Render a task body through the SAME ProseMark/CodeMirror engine the editor uses,
-// server-side, so the read view is BYTE-IDENTICAL to edit mode (Bob: "make a
+// server-side, so the read view is BYTE-IDENTICAL to edit mode (an operator: "make a
 // CodeMirror SSR so it's the same rendering engine"). No second markdown renderer —
 // the read HTML is literally what CodeMirror produces for an unfocused document.
 //

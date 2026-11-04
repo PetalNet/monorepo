@@ -11,7 +11,7 @@
 	<header>
 		<p class="eyebrow">Plan</p>
 		<h1>{data.plan.title}</h1>
-		<p class="byline">{data.plan.created_by || "Agent-a"} · {data.plan.updated_at}</p>
+		<p class="byline">{data.plan.created_by || "an agent"} · {data.plan.updated_at}</p>
 	</header>
 
 	<section class="plan-prose prose">

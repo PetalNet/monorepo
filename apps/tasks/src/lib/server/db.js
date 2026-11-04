@@ -96,9 +96,9 @@ db.exec(`
     author          TEXT DEFAULT '',
     created_at      TEXT NOT NULL DEFAULT (datetime('now'))
   );
-  -- artifacts / pages gallery: browsable writeups Agent-a generates (dossiers, research pages,
+  -- artifacts / pages gallery: browsable writeups an agent generates (dossiers, research pages,
   -- future briefs) served INSIDE tasks behind the existing Authentik gate, instead of one-off
-  -- gated subdomains (brain.example.com / tag.example.com). Content is stored IN the DB (the
+  -- gated subdomains (brain.tracker.example.com / tag.tracker.example.com). Content is stored IN the DB (the
   -- source of truth the container already mounts) — no on-disk file path => no path-traversal
   -- surface. kind: 'markdown' renders through renderMd (sanitized, inline .prose); 'html' is a
   -- pre-built standalone document served raw into a locked-down sandbox <iframe> (it cannot run
@@ -108,7 +108,7 @@ db.exec(`
   -- cage: its JS cannot read the SSO cookie, reach the parent DOM, navigate the top frame, or make
   -- any scripted background request (default-src 'none'). The one inherent residual — a script can
   -- navigate its OWN frame out, leaking the viewer IP — is mitigated by author-only content (no user
-  -- upload path), so it's as trusted as anything else Agent-a publishes. See /gallery/[slug]/raw.
+  -- upload path), so it's as trusted as anything else an agent publishes. See /gallery/[slug]/raw.
   -- visibility mirrors tasks: 'shared' (alice+bob) | 'private' (owner-only).
   CREATE TABLE IF NOT EXISTS artifacts (
     id          INTEGER PRIMARY KEY,
@@ -192,7 +192,7 @@ db.exec(`
   -- autonomy (auto|ask|readonly|paused) is advisory today except 'paused'/inactive, which the
   -- claim/assign paths treat as "can work nothing". Idempotent create — see ensureAgentsTable too.
   CREATE TABLE IF NOT EXISTS agents (
-    handle       TEXT PRIMARY KEY,                         -- canonical lowercase id (e.g. 'person-c')
+    handle       TEXT PRIMARY KEY,                         -- canonical lowercase id (e.g. 'agent-f')
     display_name TEXT    DEFAULT '',
     host         TEXT    DEFAULT '',                       -- which machine it runs on (advisory)
     role         TEXT    DEFAULT '',                       -- free-text role label
@@ -252,18 +252,18 @@ function ensureColumns() {
 		type: "TEXT DEFAULT 'task'",
 		claimed_by: "TEXT DEFAULT ''", // agent that holds the active lease
 		claim_token: "TEXT DEFAULT ''",
-		lease_expires_at: "TEXT", // claim lease; Agent-a reaps when expired
+		lease_expires_at: "TEXT", // claim lease; an agent reaps when expired
 		handoff_context: "TEXT DEFAULT ''", // just-enough context for the worker
-		acceptance_criteria: "TEXT DEFAULT ''", // what "done" means; Agent-a verifies against this
+		acceptance_criteria: "TEXT DEFAULT ''", // what "done" means; an agent verifies against this
 		result_summary: "TEXT DEFAULT ''", // worker's concise result
 		verification_status: "TEXT DEFAULT 'unverified'", // unverified|verified|rejected
 		max_children: "INTEGER DEFAULT 5", // runaway-delegation guard
 		budget: "TEXT DEFAULT ''",
-		// Claude Corner merge: kind 'doc' (brief/ADR, body=writeup) and 'question' (async decision)
+		// imported tracker merge: kind 'doc' (brief/ADR, body=writeup) and 'question' (async decision)
 		options: "TEXT DEFAULT ''", // JSON [{value,label}] for kind='question'
 		answer: "TEXT DEFAULT ''", // chosen value for kind='question'
 		answer_at: "TEXT", // decision timestamp, kept apart from prose
-		source: "TEXT DEFAULT ''", // provenance for sync upserts, e.g. 'corner:post:42'
+		source: "TEXT DEFAULT ''", // provenance for sync upserts, e.g. 'import:42'
 		owner: "TEXT DEFAULT ''", // who created/owns it (authentik username; privacy)
 		visibility: "TEXT DEFAULT 'shared'", // shared | private (private = owner-only for humans)
 		responsible: "TEXT DEFAULT ''", // human accountable for completion (alice|bob); != assignee(agent)
@@ -276,7 +276,7 @@ function ensureColumns() {
 		effort: "TEXT DEFAULT ''", // rough size hint (e.g. xs|s|m|l)
 		parallel_group: "TEXT DEFAULT ''", // tasks in the same group may run concurrently
 		close_reason: "TEXT DEFAULT ''", // why it closed (the "why" ledger; required by the close tool/action, not yet by every status-edit path)
-		synced_snapshot: "TEXT DEFAULT ''", // JSON of the fields the Corner mirror last wrote — the 3-way-merge base so a re-sync never clobbers a local edit (task-346)
+		synced_snapshot: "TEXT DEFAULT ''", // JSON of the fields the import bookkeeping last wrote — the 3-way-merge base so a re-sync never clobbers a local edit (task-346)
 	};
 
 	// try/catch: two processes booting at once (server + sync cron) can both read `have`
@@ -754,7 +754,7 @@ export function deleteProject(id) {
 	db.prepare("DELETE FROM projects WHERE id=?").run(id);
 }
 
-// one-time classify: a project with NO shared items is Alice-private (covers the Corner mirror + empty leaks)
+// one-time classify: a project with NO shared items is an operator-private (covers the import bookkeeping + empty leaks)
 export function classifyProjectPrivacy() {
 	return db
 		.prepare(
@@ -780,7 +780,7 @@ export const listAssignees = (me) =>
 
 const TASKISH = "kind IN ('task','idea')"; // docs & questions are not part of the task checklist
 
-// Top-level items per section (children render nested under their parent — work isn't flat, per Bob).
+// Top-level items per section (children render nested under their parent — work isn't flat, per an operator).
 // in-progress work gets its own lane, so pull status='doing' out of up-next / to-do
 export const doing = (p, me, a) =>
 	withKids(
@@ -938,7 +938,7 @@ export const blockerCandidates = (me) =>
 		)
 		.all(me ? { me } : {});
 
-// --- Claude Corner merge: docs (briefs/ADRs) + questions (async decisions) ---
+// --- imported tracker merge: docs (briefs/ADRs) + questions (async decisions) ---
 export const listDocs = (p, me, a) =>
 	db
 		.prepare(
@@ -1155,7 +1155,7 @@ export function ensureProject(name, backend = "local_private", opts = {}) {
 
 	if (found) return found.id;
 
-	// create-only owner/visibility: the Corner sync passes {owner:'alice',visibility:'private'}
+	// create-only owner/visibility: the import sync passes {owner:'alice',visibility:'private'}
 	// so a project auto-created to hold a PRIVATE mirrored doc isn't minted 'shared' (which
 	// leaked the private project name + let other users act on it). Default stays shared.
 	const owner = opts.owner ?? "";
@@ -1177,7 +1177,7 @@ export const defaultProjectId = () => ensureProject(DEFAULT_PROJECT);
 
 export function createTask(t) {
 	const kind = t.kind ?? "task";
-	// INVARIANT (Bob, corrected repeatedly — do NOT let this regress again): a real TASK must have a
+	// INVARIANT (an operator, corrected repeatedly — do NOT let this regress again): a real TASK must have a
 	// parent project. Enforced HERE, the single helper every create path funnels through (web /new,
 	// MCP file, triage, subtask), so no UI layer can quietly re-introduce project-less tasks. Ideas,
 	// docs and questions may be project-less pre-triage; only kind='task' is gated.
@@ -1301,7 +1301,7 @@ export const updateTask = db.transaction((id, patch) => {
 		};
 	}
 
-	// INVARIANT (Bob): a TASK must have a parent project. Block any update that turns this into a
+	// INVARIANT (an operator): a TASK must have a parent project. Block any update that turns this into a
 	// kind=task while it has no project — e.g. triaging a project-less inbox idea straight to a task.
 	// Mirrors the createTask guard so the triage path can't sneak a project-less task in either.
 	if (patch.kind === "task") {
@@ -1330,13 +1330,13 @@ export const updateTask = db.transaction((id, patch) => {
 	return { ok: true };
 });
 
-// Corner-mirror bookkeeping: records the field values the mirror last wrote, used as the
-// 3-way-merge base in sync-corner.mjs (task-346). Deliberately a raw write — it must NOT log
+// import- bookkeeping: records the field values the mirror last wrote, used as the
+// 3-way-merge base in import helper (task-346). Deliberately a raw write — it must NOT log
 // an event or bump updated_at, since it's invisible internal state, not a user-visible change.
 export const setSyncSnapshot = (id, snapshot) =>
 	db.prepare("UPDATE tasks SET synced_snapshot=? WHERE id=?").run(snapshot, id);
 
-// Run fn as a single IMMEDIATE transaction (takes the write lock up front). The Corner mirror
+// Run fn as a single IMMEDIATE transaction (takes the write lock up front). The import bookkeeping
 // uses this to do its read → 3-way-compare → patch → snapshot-advance atomically: the row is
 // re-read INSIDE the txn, so a human edit can't land between the read and the write and get
 // clobbered from a stale snapshot (task-346, the stale-read race).
@@ -1456,7 +1456,7 @@ export function closeTask(id, { reason, by = "", status = "done" } = {}) {
 	return res ?? { ok: true };
 }
 
-// Agent-a verifies a reviewed task against acceptance_criteria, then closes or bounces it back.
+// an agent verifies a reviewed task against acceptance_criteria, then closes or bounces it back.
 export function verifyTask(id, ok) {
 	updateTask(
 		id,
@@ -1487,7 +1487,7 @@ export function reapLeases({ claimed_by = null } = {}) {
 
 // --- agent registry + ENFORCED lane/capability routing (fleet-dispatcher, #212) ---
 // The gap this closes: lane/capability routing was ADVISORY (suggested_agent/capability HINTS).
-// Nothing stopped an out-of-lane agent (e.g. 'person-c', work-only) from claiming a lab task. These
+// Nothing stopped an out-of-lane agent (e.g. 'agent-f', work-only) from claiming a lab task. These
 // functions make the lane a gate the DISPATCHER enforces server-side: an agent's capabilities are
 // looked up HERE, never trusted from the caller, so the agent cannot widen its own pool.
 
@@ -1566,7 +1566,7 @@ export const setAgentActive = (handle, on) =>
 //   * task.capability === '' (or null) → OPEN: any active agent may work it.
 //   * else the task's single capability tag MUST be in the agent's capabilities set.
 // The agent's capabilities come from the REGISTRY, never the caller — that's the enforcement:
-// give 'person-c' capabilities WITHOUT 'lab', tag lab tasks capability='lab' → person-c is blocked here.
+// give 'agent-f' capabilities WITHOUT 'lab', tag lab tasks capability='lab' → agent-f is blocked here.
 // Accepts a task row OR a bare task id (re-read for the latter). A missing task → false.
 export function agentCan(handle, task) {
 	const agent = getAgent(handle);
@@ -1731,7 +1731,7 @@ export function upsertArtifact({
 // --- mock sessions (decision layer over the gallery) -----------------------
 // A session poses visual questions whose options point at gallery artifacts. The picker UI
 // (the choose buttons) lives on the OUTER authenticated tasks page; the designs stay caged in
-// the gallery sandbox. createMockSession is author-side (Agent-a); recordMockChoice is the gated
+// the gallery sandbox. createMockSession is author-side (an agent); recordMockChoice is the gated
 // write the picker page calls. me is ALWAYS required to record (fail-closed).
 export function createMockSession({ title, spec, created_by = "" }) {
 	if (!title || !spec) throw new Error("mock session requires title, spec");
@@ -1912,7 +1912,7 @@ export const revokeArtifactShare = (id, slug) =>
 db.exec(`
   CREATE TABLE IF NOT EXISTS agent_tokens (
     id             INTEGER PRIMARY KEY,
-    agent_name     TEXT NOT NULL,            -- 'agent-b'
+    agent_name     TEXT NOT NULL,            -- 'agent-a'
     token_sha256   TEXT NOT NULL UNIQUE,     -- hex sha256 of the plaintext token; PLAINTEXT NEVER STORED
     scope_assignee TEXT,                     -- if set: agent may only see/act on tasks with this assignee
     scope_projects TEXT,                     -- if set: CSV of project NAMES the agent may see/act on
@@ -1993,7 +1993,7 @@ export function verifyAgentToken(token) {
 }
 
 // Revoke by numeric id (one token) or by agent_name (ALL of that agent's live tokens —
-// the incident-response path: "kill everything agent-b holds"). Idempotent; returns count.
+// the incident-response path: "kill everything agent-a holds"). Idempotent; returns count.
 export function revokeAgentToken(idOrName) {
 	const byId = Number.isInteger(idOrName) || /^\d+$/.test(String(idOrName));
 
@@ -2132,7 +2132,7 @@ export function boardLanes(me) {
 }
 
 // Stale/reaped log: 'doing' rows whose lease is already in the past (live reap
-// candidates — Agent-a's reapLeases() will free these), plus the recent 'closed'
+// candidates — an agent's reapLeases() will free these), plus the recent 'closed'
 // event ledger (the "why" — reason + by). Two distinct sources, returned separately.
 export function staleLog(me, { closedLimit = 15 } = {}) {
 	const staleLeases = db
@@ -2157,7 +2157,7 @@ export function staleLog(me, { closedLimit = 15 } = {}) {
 	}));
 	// recent closes from the why-ledger. FAIL CLOSED: INNER JOIN the task + gate visibility IN SQL,
 	// so a close whose task was DELETED (no row) or is owner-private to someone else never appears —
-	// and the LIMIT applies to already-visible rows (no over-fetch/underfill). (codex+adversarial review)
+	// and the LIMIT applies to already-visible rows (no over-fetch/underfill). (agent-c+adversarial review)
 	const closed = db
 		.prepare(
 			`SELECT e.task_id AS id, e.data AS data, e.at AS at,
@@ -2402,7 +2402,7 @@ export function cockpitData(me, { workingAgents = 0 } = {}) {
 		});
 
 	// GRAPHS — momentum (closes/day incl today), backlog (open by priority), focus donut.
-	// momentum: 14-day window of 'closed' events, bucketed by LOCAL (America/Chicago, set via
+	// momentum: 14-day window of 'closed' events, bucketed by LOCAL (process timezone, set via
 	// the container TZ) day — UTC bucketing rolled evening-Central closes into the next day, so
 	// "closed today" read 0 after ~7pm local (the "I did 4 things but it said nothing" bug). Visibility-gated.
 	const closeRows = db
@@ -2417,7 +2417,7 @@ export function cockpitData(me, { workingAgents = 0 } = {}) {
 	const byDay = new Map(closeRows.map((r) => [r.day, r.n]));
 	// Build the 14 day-keys in the SAME local zone so they match the SQL local-date buckets.
 	const localDay = (ms) =>
-		new Date(ms).toLocaleDateString("en-CA", { timeZone: "America/Chicago" });
+		new Date(ms).toLocaleDateString("en-CA", { timeZone: "process timezone" });
 	const series = [];
 
 	for (let i = 13; i >= 0; i--) {

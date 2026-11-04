@@ -5,7 +5,7 @@
 // (clarity .../design-system/markdown.ts) — pure JS, block-level, NO CodeMirror,
 // so there's no headless-virtualization problem the CM-SSR path had.
 //
-// The key trick (Bob's "blank-line × line-height"): blank source lines are
+// The key trick (an operator's "blank-line × line-height"): blank source lines are
 // COUNTED and turned into vertical space via `margin-top: calc(N * var(--pm-lh))`
 // — exactly how CodeMirror renders a blank line as one line-box. Metrics
 // (--pm-lh, heading sizes, list geometry) live in the .pm-rendered stylesheet
@@ -19,7 +19,7 @@
 // XSS: every user-controlled text run goes through esc(); link hrefs are
 // allowlisted to http(s):// | / | # (no javascript:); the only generated style
 // values are integer blank-counts, never user input. Bodies are untrusted
-// (web form / MCP / Corner sync) behind shared SSO, so this is load-bearing —
+// (web form / MCP / import sync) behind shared SSO, so this is load-bearing —
 // do not insert raw user text into an attribute or an unescaped position.
 
 function esc(s) {
@@ -34,7 +34,7 @@ function esc(s) {
 // ── [[wikilink]] resolution (string form, ported from server/md.js) ──────────
 // Same routing + same fixed class names so the read view matches the prior
 // rehype-based render. Returns an HTML string; the visible text is esc()'d.
-const FLEET_AGENTS = new Set(["agent-a", "claude", "agent-c", "agent-b", "agent-e", "agent-d", "corner"]);
+const FLEET_AGENTS = new Set(["agent-b", "claude", "agent-c", "agent-a", "agent-e", "agent-d", "import"]);
 const FLEET_ROUTE_EXISTS = false;
 
 function resolveWikilink(inner) {

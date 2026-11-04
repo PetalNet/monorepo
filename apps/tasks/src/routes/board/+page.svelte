@@ -54,7 +54,7 @@
 	//    fallback is '#94a3b8') ───────────────────────────────────────────────
 	const whoColor = (h) => whoColorBase(h, "#94a3b8");
 	const isAgent = (h) =>
-		["claude", "agent-a", "agent-b", "codex", "agent-d", "agent-e"].includes(String(h).toLowerCase());
+		["claude", "agent-b", "agent-a", "agent-c", "agent-d", "agent-e"].includes(String(h).toLowerCase());
 
 	const g = $derived(data.counts.global);
 	const cFor = (agent) =>
@@ -302,7 +302,7 @@
 		gap: 12px;
 	}
 	/* agent identity is carried by the avatar + name, not a side-stripe (the #1
-     AI-UI tell — Bob's /impeccable) */
+     AI-UI tell — an operator's /impeccable) */
 	.swim {
 		background: var(--surface-1);
 		border: 1px solid var(--border-sub);

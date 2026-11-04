@@ -2,13 +2,14 @@
 	import "../app.css";
 	import { page } from "$app/stores";
 	import Icon from "$lib/Icon.svelte";
-	// Stickies removed from render (task-499, Bob: overlay blocked inspect-element).
+	// Stickies removed from render (task-499, an operator: overlay blocked inspect-element).
 	// Component left in place so it's reversible — re-add the import + <Stickies /> to restore.
 	// import Stickies from '$lib/Stickies.svelte';
 	import NavSidebar from "$lib/NavSidebar.svelte";
-	import { displayName } from "$lib/people.js";
+	import { displayName, setPeople } from "$lib/people.js";
 	import SearchBox from "$lib/SearchBox.svelte";
 	let { children, data } = $props();
+	setPeople(data.config.people);
 
 	// sidebar collapse — persisted
 	let collapsed = $state(false);
@@ -168,7 +169,7 @@
 		overflow: hidden;
 	}
 	/* shell column: a FIXED top bar + a SEPARATE inner scroller, so the bar never moves on
-     overscroll (Bob: "only the page itself should overscroll" — sticky-inside-the-scroller
+     overscroll (an operator: "only the page itself should overscroll" — sticky-inside-the-scroller
      still rubber-banded with the bounce; taking the bar out of the scroller is the real fix). */
 	.main {
 		flex: 1;
@@ -191,7 +192,7 @@
 	/* desktop top bar — holds the sidebar toggle + global search + account.
      height + vertical center match the sidebar brand/logomark row (no curve — squared chrome) */
 	/* solid chrome — the bar sits above the scroller (content never passes under it),
-     so a translucent blur is pure decoration (glass tell — Bob's /impeccable) */
+     so a translucent blur is pure decoration (glass tell — an operator's /impeccable) */
 	.topbar-d {
 		flex-shrink: 0;
 		z-index: 5;
@@ -222,7 +223,7 @@
 
 	/* global search is the <SearchBox> component (task-506) — its own scoped styles */
 
-	/* account — moved up from the sidebar foot (Bob) */
+	/* account — moved up from the sidebar foot (an operator) */
 	.tb-acct {
 		margin-left: auto;
 		position: relative;

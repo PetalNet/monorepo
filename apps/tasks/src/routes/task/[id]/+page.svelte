@@ -43,8 +43,7 @@
 	const lease = $derived(leaseInfo(t.lease_expires_at));
 
 	// whoColor single-sourced from $lib/people (this page's falsy fallback is the default 'var(--text-3)').
-	const AGENTS = ["claude", "agent-a", "agent-b", "codex", "agent-d", "agent-e"];
-	const isAgent = (h) => AGENTS.includes(String(h).toLowerCase());
+	const isAgent = (h) => data.config?.people?.[String(h).toLowerCase()]?.kind === "agent";
 	const whoKind = (h) => (isAgent(h) ? "agent" : "human");
 
 	const projName = $derived(projectName(data.projects));
@@ -91,10 +90,10 @@
 	// the FIRST render — otherwise flipping it post-mount re-renders {@html} and
 	// clobbers the glossary spans the effect just injected.
 	let human = $state((() => !!data.bodyHtmlHuman)()); // show the plain-English rewrite
-	let voice = $state("agent-a"); // TTS voice for Listen (server whitelists the key)
+	let voice = $state("default"); // TTS voice for Listen (server whitelists the key)
 
 	const VOICES = [
-		{ id: "agent-a", label: "Agent-a" },
+		{ id: "default", label: "Default" },
 		{ id: "george", label: "George" },
 		{ id: "river", label: "River" },
 		{ id: "brian", label: "Brian" },
@@ -382,8 +381,8 @@
 			await update();
 			editField = null;
 		};
-	const ASSIGNEES = ["agent-a", "claude", "agent-b", "codex", "agent-d", "agent-e"];
-	const RESPONSIBLES = ["alice", "bob"];
+	const ASSIGNEES = $derived(data.config?.assignees ?? []);
+	const RESPONSIBLES = $derived(data.config?.responsibles ?? []);
 
 	let reassigning = $state(false);
 	let showClose = $state(false);
@@ -622,18 +621,14 @@
 					<span class="af-lbl">agent · works it</span>
 					<select name="assignee" value={t.assignee ?? ""}>
 						<option value="">— none —</option>
-						<option value="agent-a">agent-a</option>
-						<option value="claude">claude</option>
-						<option value="agent-b">agent-b</option>
-						<option value="codex">codex</option>
+						{#each ASSIGNEES as assignee}<option value={assignee}>{assignee}</option>{/each}
 					</select>
 				</label>
 				<label class="rr-field">
 					<span class="af-lbl">responsible · human</span>
 					<select name="responsible" value={t.responsible ?? ""}>
 						<option value="">— none —</option>
-						<option value="alice">alice</option>
-						<option value="bob">bob</option>
+						{#each RESPONSIBLES as responsible}<option value={responsible}>{responsible}</option>{/each}
 					</select>
 				</label>
 				<button class="btn-save-sm" type="submit">set</button>
@@ -749,7 +744,7 @@
            block). One rendered .prose surface at the task size, with a Listen (TTS) control
            available everywhere; Edit → the ProseMark WYSIWYM editor. The old doc/idea "reader"
            (font scaler / serif / wide / focus column) is gone — ideas now render exactly like a
-           task, so the editor matches them too (Bob, task-518 follow-up). -->
+           task, so the editor matches them too (an operator, task-518 follow-up). -->
 			{#if !isQuestion}
 				<section class="sec">
 					<div class="sec-head">
@@ -943,7 +938,7 @@
 					<!-- close reason as a terminal ledger entry when closed -->
 					{#if isClosed && t.close_reason}
 						<div class="tl-item">
-							{@render avatar("alice", 27)}
+							{@render avatar(t.owner || data.me || "?", 27)}
 							<div class="tl-meta">
 								<span class="who">closed</span><span class="tl-kind mono">{t.status}</span>
 							</div>
@@ -1266,7 +1261,7 @@
 									<input
 										name="owner_machine"
 										value={t.owner_machine ?? ""}
-										placeholder="e.g. dot14"
+									placeholder="e.g. build-host"
 									/></label
 								>
 								<label class="rt-field"
@@ -1274,7 +1269,7 @@
 									<input
 										name="suggested_agent"
 										value={t.suggested_agent ?? ""}
-										placeholder="e.g. agent-a"
+									placeholder="e.g. agent-1"
 									/></label
 								>
 								<label class="rt-field"

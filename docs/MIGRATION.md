@@ -98,3 +98,6 @@ _(populated as repos land — see issue #1 for the live checklist)_
 - `notes`, `notable-petals` — prototypes.
 - `findmy-bridge` — private.
 - `homelab-docs` — deferred pending a publishability review.
+# Tasks configuration
+
+The imported `apps/tasks` tracker is generic and reads its optional people and fleet configuration from `TASKS_CONFIG`. Use `apps/tasks/config.example.json` and `.env.example` as the cutover reference.

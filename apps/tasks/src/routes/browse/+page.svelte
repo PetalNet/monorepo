@@ -383,7 +383,7 @@
 </div>
 
 <style>
-	/* widen the board off the narrow editorial column (Bob) — detail keeps its own width */
+	/* widen the board off the narrow editorial column (an operator) — detail keeps its own width */
 	.board {
 		max-width: 1200px;
 	}

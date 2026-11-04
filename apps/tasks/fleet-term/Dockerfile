@@ -1,7 +1,7 @@
 # ttyd + tmux for the fleet agent-session view (#547). Attaches to the HOST tmux socket
-# (mounted) so it mirrors the live agent-session session. Runs as uid 1000 (host docker user
+# (mounted) so it mirrors the live tracker-session session. Runs as uid 1000 (host docker user
 # owns the socket). Bound inside-container only — reachable on the tasks docker network, NOT
-# host-localhost (Bob's container-isolation; no SSRF surface from host processes).
+# host-localhost (an operator's container-isolation; no SSRF surface from host processes).
 FROM alpine:3.20
 # Pin ttyd to a specific release + verify sha256 (supply-chain: never releases/latest, which is a
 # moving target an upstream compromise could swap). Bump = update both the version and the hash.

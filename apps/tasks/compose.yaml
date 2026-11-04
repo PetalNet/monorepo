@@ -10,13 +10,14 @@ services:
     ports: ["127.0.0.1:${TASKS_PORT:-8896}:8896"]
     environment:
       PORT: 8896
-      ORIGIN: https://tasks.example.com
+      ORIGIN: ${ORIGIN:?Set the public origin}
       TASKS_DB_PATH: /data/tasks.db
-      ALLOW: alice,bob
-      TERM_ADMIN: alice,bob
+      TASKS_CONFIG: /data/config.json
+      ALLOW: ${ALLOW:-}
+      TERM_ADMIN: ${TERM_ADMIN:-}
       TERM_WS_SECRET: ${TERM_WS_SECRET:?Set the ttyd credential}
       TERM_PROXY_SECRET: ${TERM_PROXY_SECRET:?Set the proxy credential}
-      TZ: America/Chicago
+      TZ: ${TZ:-UTC}
     volumes: ["${TASKS_DATA_DIR:?Set the Tasks data directory}:/data"]
     networks: [tasks]
     logging: { driver: json-file, options: { max-size: "1m", max-file: "1" } }
@@ -38,13 +39,13 @@ services:
         "0.0.0.0",
         "tmux",
         "-S",
-        "/tmp/tmux-1000/default",
+        "${TASKS_TERM_TMUX_SOCKET_DIR:?Set the tmux socket directory}/default",
         "attach",
         "-r",
         "-t",
-        "agent-session",
+        "${TASKS_TERM_TMUX_SESSION:?Set the tmux session}",
       ]
-    volumes: ["/tmp/tmux-1000:/tmp/tmux-1000"]
+    volumes: ["${TASKS_TERM_TMUX_SOCKET_DIR:?Set the tmux socket directory}:${TASKS_TERM_TMUX_SOCKET_DIR:?Set the tmux socket directory}"]
     networks: [tasks]
   ttyd-rw:
     mem_limit: 256m
@@ -65,12 +66,12 @@ services:
         "-W",
         "tmux",
         "-S",
-        "/tmp/tmux-1000/default",
+        "${TASKS_TERM_TMUX_SOCKET_DIR:?Set the tmux socket directory}/default",
         "attach",
         "-t",
-        "agent-session",
+        "${TASKS_TERM_TMUX_SESSION:?Set the tmux session}",
       ]
-    volumes: ["/tmp/tmux-1000:/tmp/tmux-1000"]
+    volumes: ["${TASKS_TERM_TMUX_SOCKET_DIR:?Set the tmux socket directory}:${TASKS_TERM_TMUX_SOCKET_DIR:?Set the tmux socket directory}"]
     networks: [tasks]
 networks:
   # Explicit subnet: host Docker auto address pools are exhausted.

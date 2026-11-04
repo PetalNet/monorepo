@@ -25,7 +25,7 @@
 		</div>
 		{#if data.spec.intro}<p class="intro">{data.spec.intro}</p>{/if}
 		<p class="how">
-			Make your picks — they record straight back to Agent-a. (Multi-select questions let you check
+			Make your picks — they record straight back to an agent. (Multi-select questions let you check
 			every one you like.)
 		</p>
 	</header>

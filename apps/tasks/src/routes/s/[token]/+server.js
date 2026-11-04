@@ -5,8 +5,8 @@ import { error } from "@sveltejs/kit";
 // PUBLIC, SSO-EXEMPT scoped share view: /s/<token>.
 //
 // This is the ONE route Traefik exempts from the Authentik forward-auth middleware (see
-// /srv/traefik/dynamic/tasks.yml — router `tasks-share`, PathPrefix `/s/`, NO authentik
-// mw, high priority). Everything else on tasks.example.com stays gated. Because there is no SSO
+// Reverse proxy configuration — router `tasks-share`, PathPrefix `/s/`, NO authentik
+// mw, high priority). Everything else on tasks.tracker.example.com stays gated. Because there is no SSO
 // in front of this handler, ALL of the access control lives right here, and it is FAIL-CLOSED.
 //
 // SECURITY CONTRACT (the whole point of the feature):

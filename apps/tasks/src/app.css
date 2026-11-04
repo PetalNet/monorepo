@@ -1,5 +1,5 @@
 /* tasks — design system tokens.
- * Carries Claude Corner's design language onto the tasks data model.
+ * Carries imported tracker's design language onto the tasks data model.
  * Source of truth for visual design. Per-route styles reference these
  * via var(--name); when a per-route style references a legacy token
  * (--surface, --elev, --mute, --soft, --green, --amber, --red, --blue),
@@ -139,7 +139,7 @@
 	padding: 0;
 	/* clip backgrounds to the padding box so they don't bleed past rounded
 	 * corners under the border (otherwise every bordered card shows a square
-	 * "ghost" peeking out at each rounded corner). !important because the
+	 * "ghost" peeking out at each rounded import). !important because the
 	 * `background:` shorthand used throughout resets background-clip to
 	 * border-box, which would re-introduce the artifact. No element here wants
 	 * a border-box background, so forcing padding-box globally is safe. */
@@ -149,11 +149,11 @@ html,
 body {
 	height: 100%;
 }
-/* Progressive enhancement (Bob): lets size transitions animate to/from intrinsic
+/* Progressive enhancement (an operator): lets size transitions animate to/from intrinsic
    keywords (auto, max-content) instead of the max-width-to-a-magic-number hack.
    Chromium ships it; Firefox/Safari are catching up — where it's unsupported the
    existing max-width fallbacks keep collapses smooth, so it degrades cleanly on
-   Gecko/WebKit (Alice's on Fennec). */
+   Gecko/WebKit (an operator's on Fennec). */
 :root {
 	interpolate-size: allow-keywords;
 }
@@ -202,7 +202,7 @@ button {
 }
 
 /* ============================================================
- * Corner design-language component CSS — ported verbatim from the
+ * imported design-language component CSS — ported verbatim from the
  * design package (app.html). Source of truth for the feed/rows/chips/
  * lanes/avatars/detail. Used by the migrated +page.svelte.
  * ============================================================ */

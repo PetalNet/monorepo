@@ -23,7 +23,7 @@ const ALLOW = (process.env.ALLOW || "")
 	.split(",")
 	.map((s) => s.trim())
 	.filter(Boolean);
-const ADMIN = (process.env.TERM_ADMIN || "alice,bob")
+const ADMIN = (process.env.TERM_ADMIN || "")
 	.split(",")
 	.map((s) => s.trim())
 	.filter(Boolean);

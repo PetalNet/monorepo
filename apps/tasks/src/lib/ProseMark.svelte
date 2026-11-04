@@ -228,7 +228,7 @@
 		color: var(--text-2);
 	}
 	/* GFM task-list checkboxes: theme to the app accent so edit matches the read
-     view's coral checkbox (Bob — "you can totally theme the editor checkboxes"). */
+     view's coral checkbox (an operator — "you can totally theme the editor checkboxes"). */
 	:global(.pm-shell input[type="checkbox"]) {
 		accent-color: var(--accent);
 	}

@@ -41,7 +41,7 @@
 		return false;
 	};
 
-	// Nav: Inbox folded into the Desk; Issues retired (Bob); Fleet is the status card below.
+	// Nav: Inbox folded into the Desk; Issues retired (an operator); Fleet is the status card below.
 	const groups = [
 		{
 			label: null,
@@ -141,16 +141,16 @@
 		border-radius: 0;
 		/* GCal-style smooth collapse: animate the rail WIDTH with overflow:hidden so the labels are
        CLIPPED (not squished/reflowed) as it narrows — that's the whole trick to it looking smooth
-       (Bob's reference). Icons stay pinned; labels just fade + clip, nothing inside relayouts. */
+       (an operator's reference). Icons stay pinned; labels just fade + clip, nothing inside relayouts. */
 		transition: width 0.2s cubic-bezier(0.4, 0, 0.2, 1);
 		overflow: hidden;
 		position: relative;
 		z-index: 6;
-		/* contain layout so the collapse reflow physically can't escape the rail (Bob) */
+		/* contain layout so the collapse reflow physically can't escape the rail (an operator) */
 		contain: layout;
 	}
 	/* collapsed keeps the SAME left/right padding as expanded so every icon's x is identical
-     in both states — only the rail width + labels animate, icons never slide (Bob). */
+     in both states — only the rail width + labels animate, icons never slide (an operator). */
 	.nav.collapsed {
 		--w: 68px;
 	}
@@ -161,7 +161,7 @@
 	}
 
 	/* brand row = a 56px header, content vertically centered, so the logomark lines up EXACTLY with
-     the top bar's row across the sidebar/main seam (Bob: "not aligned at all" — was a too-big
+     the top bar's row across the sidebar/main seam (an operator: "not aligned at all" — was a too-big
      logomark + lopsided padding). */
 	.brand {
 		display: flex;
@@ -222,7 +222,7 @@
 		background: var(--accent-b);
 	}
 	/* collapsed: the icon stays exactly where it was (same margin + padding); only the label
-     collapses and the rail narrows — the button never recenters, so the icon never moves (Bob) */
+     collapses and the rail narrows — the button never recenters, so the icon never moves (an operator) */
 	.new-btn .lbl {
 		max-width: 160px;
 		overflow: hidden;
@@ -336,7 +336,7 @@
 	.collapsed .fleet-head .fleet-n {
 		opacity: 0;
 	}
-	/* roster clips/fades + collapses its height on collapse — same .2s as the rail (Bob) */
+	/* roster clips/fades + collapses its height on collapse — same .2s as the rail (an operator) */
 	.fleet-list {
 		display: flex;
 		flex-direction: column;

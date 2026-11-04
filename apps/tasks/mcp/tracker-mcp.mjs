@@ -51,7 +51,7 @@ const projName = (id) =>
 const projIdForWrite = (name) => (name ? ensureProject(name) : null);
 // Resolve a project NAME for a read FILTER without creating it. An unknown project
 // name yields a sentinel id (-1) that matches nothing, so a typo in a filter returns
-// an empty set instead of silently minting a phantom project (codex review, task-344).
+// an empty set instead of silently minting a phantom project (agent-c review, task-344).
 const projIdForFilter = (name) => {
 	if (!name) return null;
 

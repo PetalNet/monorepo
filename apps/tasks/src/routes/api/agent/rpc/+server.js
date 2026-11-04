@@ -3,7 +3,7 @@ import { json } from "@sveltejs/kit";
 
 // POST /api/agent/rpc  { op, args } — bearer-token RPC for remote headless agents.
 //
-// This path is SSO-EXEMPT (hooks.server.js isAgentApi + Agent-a's Traefik `tasks-agent`
+// This path is SSO-EXEMPT (hooks.server.js isAgentApi + an agent's Traefik `tasks-agent`
 // router), so ALL access control lives in handleAgentRpc: fail-closed bearer auth,
 // per-agent rate limiting, and scope confinement (a scoped token can only see/act on
 // tasks in its own assignee/project lane). event.locals.user is intentionally unset

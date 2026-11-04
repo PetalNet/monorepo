@@ -2,7 +2,7 @@ import crypto from "node:crypto";
 
 // agent-API core — the single RPC handler behind POST /api/agent/rpc.
 //
-// A remote headless agent (Agent-b) reaches the tracker over HTTPS with a bearer token
+// A remote headless agent (an agent) reaches the tracker over HTTPS with a bearer token
 // minted by scripts/mint-agent-token.mjs — no Authentik session. The route is SSO-exempt
 // (hooks.server.js isAgentApi), so EVERYTHING rests on two properties enforced here:
 //
@@ -187,7 +187,7 @@ const isInt = (v) => Number.isInteger(v);
 // `update` may only set NON-TERMINAL, NON-'doing' statuses: 'done'/'dropped' MUST route
 // through `close` (mandatory why-ledger reason + 'closed' event) and 'doing' through
 // `claim` (atomic lease + claim token + 'claim' audit). Otherwise a bearer agent bypasses
-// those invariants on its own in-scope task (codex review). todo/inbox/blocked/review are
+// those invariants on its own in-scope task (agent-c review). todo/inbox/blocked/review are
 // safe direct transitions (blocked still hits updateTask's blocked-guard).
 const UPDATE_STATUSES = new Set(["inbox", "todo", "blocked", "review"]);
 // update: EXPLICIT allowlist mirroring the MCP update tool. Never pass caller keys
@@ -289,7 +289,7 @@ const ops = {
 	// A multi-project scope claims per-project in scope order (claimNext takes one
 	// project_id) — each attempt is individually atomic.
 	claim(scope, args, tok) {
-		const worker = tok.agent_name; // PINNED to the token identity — a bearer agent can't forge claimed_by (codex review); args.worker is ignored
+		const worker = tok.agent_name; // PINNED to the token identity — a bearer agent can't forge claimed_by (agent-c review); args.worker is ignored
 		const asg = effectiveAssignee(scope, args);
 
 		if (asg.empty) return { status: 200, body: { claimed: null } };

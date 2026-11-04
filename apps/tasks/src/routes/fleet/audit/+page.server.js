@@ -3,7 +3,7 @@ import { error } from "@sveltejs/kit";
 
 // Audit is ADMIN-ONLY — it exposes rw keystroke transcripts of a root-equivalent shell. Keep this
 // gate in lockstep with TERM_ADMIN (server.js / docker-compose / fleet/+page.server.js).
-const ADMIN = (process.env.TERM_ADMIN || "alice,bob")
+const ADMIN = (process.env.TERM_ADMIN || "")
 	.split(",")
 	.map((s) => s.trim())
 	.filter(Boolean);

@@ -24,7 +24,7 @@ export const actions = {
 
 		const projName = String(f.get("project") || "").trim();
 
-		// INVARIANT (Bob, repeatedly): a TASK must have an EXPLICITLY-chosen parent project — no silent
+		// INVARIANT (an operator, repeatedly): a TASK must have an EXPLICITLY-chosen parent project — no silent
 		// catch-all fallback that lets a project-less task slip through. (createTask also hard-rejects
 		// kind=task w/o project_id as the structural backstop.) Ideas/docs/questions may still fall back.
 		if (kind === "task" && !projName)

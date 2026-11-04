@@ -98,7 +98,7 @@ export function load({ params, locals }) {
 		bodyHtml: renderPm(task.body),
 		bodyHtmlHuman: renderPm(task.body_alt),
 		// glossary lives in the humanized body_alt when present (sync-safe — the
-		// Corner→tasks mirror overwrites body but never touches body_alt), else body
+		// imported data mirror overwrites body but never touches body_alt), else body
 		glossary: parseGlossary(task.body_alt || task.body),
 		opts,
 		comments: listComments(id),

@@ -109,7 +109,7 @@
 		</section>
 	{/if}
 
-	<!-- the two-way notification loop is the next build (Corner→tasks); shown as the roadmap, not faked -->
+	<!-- the two-way notification loop is the next build (imported data); shown as the roadmap, not faked -->
 	<section class="block">
 		<h2 class="block-h">notifications · both ways</h2>
 		<div class="loop-soon">
@@ -117,7 +117,7 @@
 			<div>
 				<div class="ls-title">the async loop closes here next</div>
 				<p class="loop-cap mono">
-					→ matrix push when you're mentioned · → corner-inbox.jsonl write-back · cold agents read
+					→ matrix push when you're mentioned · → import-inbox.jsonl write-back · cold agents read
 					it on SessionStart
 				</p>
 			</div>
@@ -139,7 +139,7 @@
 </div>
 
 <style>
-	/* widen off the narrow editorial column (Bob) */
+	/* widen off the narrow editorial column (an operator) */
 	.inbox {
 		max-width: 1200px;
 	}

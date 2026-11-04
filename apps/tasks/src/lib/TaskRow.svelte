@@ -61,7 +61,7 @@
 
 	// LEFT indicator = our own kind icon (idea/question/doc/task), TINTED by status —
 	// shape conveys kind (so ideas/docs read distinctly), colour conveys state. NOT
-	// GitHub's open-circle/closed-check (Bob: "a circle doesn't mean issue, it's copycat").
+	// GitHub's open-circle/closed-check (an operator: "a circle doesn't mean issue, it's copycat").
 	const ico = $derived(kindIcon(task?.kind));
 	const sCls = $derived(statusClass(task?.status));
 	const isDone = $derived(dim || task?.status === "done" || task?.status === "dropped");
@@ -69,7 +69,7 @@
 	const relTime = $derived(time ?? (showTime ? rel(task?.updated_at ?? task?.created_at) : ""));
 	const statusTxt = $derived(statusLabel ?? (showStatus ? (task?.status ?? "") : ""));
 	const asg = $derived(showAssignee ? who(task?.assignee) : "");
-	// priority is a FIELD — it lives in the meta line below, not as a title-line pill (Bob).
+	// priority is a FIELD — it lives in the meta line below, not as a title-line pill (an operator).
 	const prio = $derived(task?.priority);
 	const metaParts = $derived([statusTxt, showProject ? project : "", asg, relTime].filter(Boolean));
 </script>
@@ -100,7 +100,7 @@
 </div>
 
 <style>
-	/* flat row: no card, no rounded hover (Bob: rounded hover "feels goofy without cards") */
+	/* flat row: no card, no rounded hover (an operator: rounded hover "feels goofy without cards") */
 	.trow {
 		display: flex;
 		align-items: flex-start;
@@ -184,7 +184,7 @@
 		font-weight: 550;
 	}
 
-	/* the #number trails to the end of the title line, muted (Bob) */
+	/* the #number trails to the end of the title line, muted (an operator) */
 	.trow-num {
 		margin-left: auto;
 		flex-shrink: 0;

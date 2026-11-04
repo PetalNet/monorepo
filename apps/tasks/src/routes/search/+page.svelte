@@ -30,7 +30,7 @@
 </div>
 
 <style>
-	/* wide editorial-free column — use the screen (Bob: narrow column wastes space) */
+	/* wide editorial-free column — use the screen (an operator: narrow column wastes space) */
 	.wrap {
 		max-width: 1200px;
 		margin: 0 auto;

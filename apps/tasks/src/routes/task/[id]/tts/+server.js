@@ -23,27 +23,16 @@ function apiKey() {
 	}
 }
 
-// Whitelisted voices — the client sends a KEY, never a raw voice id, so a request
-// can't drive arbitrary use of our ElevenLabs account. These IDs are voices that
-// exist in the account (free tier). 'agent-a' = Alice's cloned show voice via
-// $ELEVEN_VOICE_ID once the clip is uploaded. Tom + the other library voice Alice
-// linked are SHARED voices that must be "Add to my voices"'d in the EL UI first;
-// once they show in /v1/voices, drop their account ids here.
-const VOICES = {
-	george: "JBFqnCBsd6RMkjVDRZzb", // warm, captivating storyteller (default narrator)
-	river: "SAz9YHcvj6GT2YYXdXww", // relaxed, neutral, informative
-	brian: "nPczCjzI2devNBz1zQrb", // deep, resonant, comforting
-	sarah: "EXAVITQu4vr4xnSDxMaL", // mature, reassuring, confident
-};
+// Whitelisted voices are configured as comma-separated name=id pairs.
+const VOICES = Object.fromEntries(
+	(env.ELEVEN_VOICES || "")
+		.split(",")
+		.map((pair) => pair.split("=").map((part) => part.trim()))
+		.filter(([name, id]) => name && id),
+);
 
 function resolveVoice(pick) {
-	const agent-a = env.ELEVEN_VOICE_ID?.trim();
-
-	if (pick === "agent-a") return agent-a || VOICES.george; // cloned Agent-a, else a narrator until ready
-
-	if (VOICES[pick]) return VOICES[pick];
-
-	return agent-a || VOICES.george; // default
+	return VOICES[pick] || VOICES.default || Object.values(VOICES)[0] || null;
 }
 
 export async function POST({ request, params, locals }) {
@@ -114,7 +103,8 @@ export async function POST({ request, params, locals }) {
 		);
 	}
 
-	const voice = resolveVoice(String(pick || "agent-a").toLowerCase());
+	const voice = resolveVoice(String(pick || "default").toLowerCase());
+	if (!voice) return json({ error: "no-tts-voice" }, { status: 503 });
 	// Bound the upstream call — a stalled ElevenLabs request shouldn't tie up the process
 	// (or complete a billable request) indefinitely.
 	const r = await fetch(`https://api.elevenlabs.io/v1/text-to-speech/${voice}`, {

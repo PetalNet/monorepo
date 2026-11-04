@@ -7,7 +7,7 @@ import remarkRehype from "remark-rehype";
 import { unified } from "unified";
 
 // Markdown -> SANITIZED HTML for {@html}. Bodies come from the web form, the MCP
-// tools, and the Corner sync mirror — all untrusted — and tasks sits behind shared
+// tools, and the import sync mirror — all untrusted — and tasks sits behind shared
 // SSO, so unsanitized HTML was a stored-XSS hole.
 //
 // remark-rehype is used WITHOUT allowDangerousHtml, so raw HTML in a body (e.g.
@@ -26,7 +26,7 @@ import { unified } from "unified";
 // ONLY when that route exists; today it doesn't, so handles render as a styled-but-
 // inert span (visually marked, not a dead link). Flip FLEET_ROUTE_EXISTS when the
 // /fleet/[handle] route lands and the same code starts emitting real links.
-const FLEET_AGENTS = new Set(["agent-a", "claude", "agent-c", "agent-b", "agent-e", "agent-d", "corner"]);
+const FLEET_AGENTS = new Set(["agent-b", "claude", "agent-c", "agent-a", "agent-e", "agent-d", "import"]);
 const FLEET_ROUTE_EXISTS = false;
 
 // [[...]] tokens. Inner text is captured loosely (no ]] inside) and classified below.

@@ -25,7 +25,7 @@
 	});
 	// Live desk data: re-fetch the load every minute, ON the minute. invalidateAll() re-runs the
 	// server loads and updates `data` reactively — NOT a page reload, so typing/scroll aren't
-	// disrupted and an offline blip just fails quietly (Bob). Aligned to the wall-clock minute.
+	// disrupted and an offline blip just fails quietly (an operator). Aligned to the wall-clock minute.
 	$effect(() => {
 		let interval;
 		const refresh = () => invalidateAll().catch(() => {});
@@ -123,7 +123,7 @@
 	// ── momentum sparkline geometry from the real 14-day series ──
 	// Thin filled-area sparkline. preserveAspectRatio="none" stretches X, so the line uses
 	// a non-scaling stroke (uniform 1.6px) and there's no end-dot — that's what made the old
-	// marker render as a stretched ellipse (Bob: "momentum is still ugly").
+	// marker render as a stretched ellipse (an operator: "momentum is still ugly").
 	const SPK_BASE = 25,
 		SPK_TOP = 4,
 		SPK_VH = 28;
@@ -151,16 +151,15 @@
 		return { line, area: `${line} ${xN},${SPK_BASE + 3} ${x0},${SPK_BASE + 3}`, pts };
 	});
 
-	// interactive momentum: tap/hover a day to read its count (Alice, on mobile)
+	// interactive momentum: tap/hover a day to read its count (an operator, on mobile)
 	let momActive = $state(-1);
 	const fmtDay = (day) => {
 		if (!day) {
 			return "";
 		}
 
-		const today = new Date().toLocaleDateString("en-CA", { timeZone: "America/Chicago" });
+		const today = new Date().toLocaleDateString("en-CA");
 		const yest = new Date(Date.now() - 864e5).toLocaleDateString("en-CA", {
-			timeZone: "America/Chicago",
 		});
 
 		if (day === today) {
@@ -695,7 +694,7 @@
 		outline: 0;
 	}
 
-	/* GRAPHS strip — flat (task-499, Bob: "all cards shall die"). No boxes: three columns
+	/* GRAPHS strip — flat (task-499, an operator: "all cards shall die"). No boxes: three columns
      in a single hairline-framed band, separated by vertical dividers + whitespace. */
 	.graphs {
 		display: grid;
@@ -811,7 +810,7 @@
 		background: none;
 		cursor: pointer;
 	}
-	/* no hover column fill — the line + active dot/rule are the readout (Bob: the bg was goofy) */
+	/* no hover column fill — the line + active dot/rule are the readout (an operator: the bg was goofy) */
 	.g-mom .mom-hit:focus-visible {
 		outline: 2px solid var(--accent-b);
 		outline-offset: -2px;
