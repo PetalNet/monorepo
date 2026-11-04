@@ -1,0 +1,37 @@
+{
+	"name": "@petalnet/label-studio",
+	"version": "0.0.1",
+	"private": true,
+	"type": "module",
+	"scripts": {
+		"build": "vite build",
+		"check": "svelte-kit sync && svelte-check --tsconfig ./tsconfig.json",
+		"check:watch": "svelte-kit sync && svelte-check --tsconfig ./tsconfig.json --watch",
+		"dev": "vite dev",
+		"prepare": "svelte-kit sync || echo ''",
+		"preview": "vite preview",
+		"test": "vitest run"
+	},
+	"dependencies": {
+		"@lucide/svelte": "catalog:prod",
+		"bwip-js": "catalog:prod",
+		"csv-parse": "catalog:",
+		"lucide": "catalog:prod",
+		"opentype.js": "catalog:prod",
+		"svelte": "catalog:prod",
+		"svgpath": "catalog:prod",
+		"tailwindcss": "catalog:prod"
+	},
+	"devDependencies": {
+		"@sveltejs/adapter-node": "catalog:dev",
+		"@sveltejs/kit": "catalog:prod",
+		"@sveltejs/vite-plugin-svelte": "catalog:dev",
+		"@tailwindcss/vite": "catalog:dev",
+		"@types/node": "catalog:types",
+		"@types/opentype.js": "catalog:types",
+		"svelte-check": "catalog:dev",
+		"typescript": "catalog:dev",
+		"vite": "catalog:dev",
+		"vitest": "catalog:dev"
+	}
+}
