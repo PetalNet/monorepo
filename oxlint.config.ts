@@ -200,6 +200,16 @@ export const lintConfig = {
 			},
 		},
 		{
+			files: ["apps/tasks/**"],
+			// Tasks is untyped JavaScript; ESLint already exempts these type-safety rules for it.
+			rules: {
+				"typescript/no-confusing-void-expression": "off",
+				"typescript/no-unnecessary-type-conversion": "off",
+				"typescript/no-unsafe-return": "off",
+				"typescript/restrict-plus-operands": "off",
+			},
+		},
+		{
 			files: ["apps/petalboard/**"],
 			// Prisma names its aggregate fields with a leading underscore.
 			rules: { "eslint/no-underscore-dangle": ["error", { allow: ["_count", "_sum"] }] },
@@ -215,7 +225,6 @@ export const lintConfig = {
 		"**/node_modules/**",
 		"**/coverage/**",
 		"**/.turbo/**",
-		"apps/tasks/static/fonts/**",
 		"apps/tasks/static/vendor/**",
 	],
 } satisfies OxlintConfig;

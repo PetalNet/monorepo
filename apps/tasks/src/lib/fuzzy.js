@@ -14,27 +14,38 @@ const PENALTY_GAP_MAX = 12;
 const SEP = /[\s/_\-.:#()[\]]/;
 
 function isBoundary(prev, ch) {
-	if (prev === "") return true;
+	if (prev === "") {
+		return true;
+	}
 
-	if (SEP.test(prev)) return true;
+	if (SEP.test(prev)) {
+		return true;
+	}
 
 	// camelCase boundary: lower→Upper
-	if (prev.toLowerCase() === prev && ch.toUpperCase() === ch && ch.toLowerCase() !== ch)
+	if (prev.toLowerCase() === prev && ch.toUpperCase() === ch && ch.toLowerCase() !== ch) {
 		return true;
+	}
 
 	// digit boundary: letter→digit
-	if (/[a-z]/i.test(prev) && /[0-9]/.test(ch)) return true;
+	if (/[a-z]/i.test(prev) && /[0-9]/.test(ch)) {
+		return true;
+	}
 
 	return false;
 }
 
 // Returns { score, positions } or null if `query` is not a subsequence of `text`.
-export function fuzzyScore(query, text) {
+function fuzzyScore(query, text) {
 	const q = String(query || "").toLowerCase();
 
-	if (!q) return { score: 0, positions: [] };
+	if (!q) {
+		return { score: 0, positions: [] };
+	}
 
-	if (!text) return null;
+	if (!text) {
+		return null;
+	}
 
 	const t = String(text);
 	const tl = t.toLowerCase();
@@ -45,16 +56,24 @@ export function fuzzyScore(query, text) {
 	const positions = [];
 
 	for (let i = 0; i < tl.length && qi < q.length; i++) {
-		if (tl[i] !== q[qi]) continue;
+		if (tl[i] !== q[qi]) {
+			continue;
+		}
 
 		let s = 1;
 		const prev = i > 0 ? t[i - 1] : "";
 
-		if (i === 0) s += BONUS_START;
-		else if (isBoundary(prev, t[i])) s += BONUS_BOUNDARY;
+		if (i === 0) {
+			s += BONUS_START;
+		} else if (isBoundary(prev, t[i])) {
+			s += BONUS_BOUNDARY;
+		}
 
-		if (i === prevMatch + 1) s += BONUS_CONSECUTIVE;
-		else if (prevMatch >= 0) s -= Math.min(PENALTY_GAP * (i - prevMatch - 1), PENALTY_GAP_MAX);
+		if (i === prevMatch + 1) {
+			s += BONUS_CONSECUTIVE;
+		} else if (prevMatch >= 0) {
+			s -= Math.min(PENALTY_GAP * (i - prevMatch - 1), PENALTY_GAP_MAX);
+		}
 
 		score += s;
 		positions.push(i);
@@ -62,7 +81,9 @@ export function fuzzyScore(query, text) {
 		qi++;
 	}
 
-	if (qi < q.length) return null; // not every query char matched, in order
+	if (qi < q.length) {
+		return null;
+	} // not every query char matched, in order
 
 	// a leading gap (query doesn't start the string) costs a little; shorter text wins ties
 	score -= positions[0] * 0.5;
@@ -77,7 +98,9 @@ export function fuzzyScore(query, text) {
 export function rankTasks(query, index, limit = 8) {
 	const q = String(query || "").trim();
 
-	if (!q) return [];
+	if (!q) {
+		return [];
+	}
 
 	const numeric = /^#?\d+$/.test(q);
 	const numQ = numeric ? q.replace("#", "") : null;
@@ -98,19 +121,26 @@ export function rankTasks(query, index, limit = 8) {
 
 		const am = it.assignee ? fuzzyScore(q, it.assignee) : null;
 
-		if (am && am.score * 0.3 > best) best = Math.max(best, am.score * 0.3);
+		if (am && am.score * 0.3 > best) {
+			best = Math.max(best, am.score * 0.3);
+		}
 
 		if (numQ) {
 			const idStr = String(it.id);
 
-			if (idStr === numQ) best = Math.max(best, 1000);
-			else if (idStr.startsWith(numQ)) best = Math.max(best, 600);
+			if (idStr === numQ) {
+				best = Math.max(best, 1000);
+			} else if (idStr.startsWith(numQ)) {
+				best = Math.max(best, 600);
+			}
 		}
 
-		if (best > -Infinity) out.push({ ...it, _score: best, _hits: hits });
+		if (best > -Infinity) {
+			out.push({ ...it, score: best, _hits: hits });
+		}
 	}
 
-	out.sort((a, b) => b._score - a._score || (b.updated_at || "").localeCompare(a.updated_at || ""));
+	out.sort((a, b) => b.score - a.score || (b.updated_at || "").localeCompare(a.updated_at || ""));
 
 	return out.slice(0, limit);
 }
@@ -119,7 +149,9 @@ export function rankTasks(query, index, limit = 8) {
 export function highlightChunks(text, positions) {
 	const t = String(text || "");
 
-	if (!positions?.length) return [{ text: t, hit: false }];
+	if (!positions?.length) {
+		return [{ text: t, hit: false }];
+	}
 
 	const set = new Set(positions);
 	const chunks = [];
@@ -130,7 +162,9 @@ export function highlightChunks(text, positions) {
 		const hit = set.has(i);
 
 		if (hit !== cur) {
-			if (buf) chunks.push({ text: buf, hit: cur });
+			if (buf) {
+				chunks.push({ text: buf, hit: cur });
+			}
 
 			buf = "";
 			cur = hit;
@@ -139,7 +173,9 @@ export function highlightChunks(text, positions) {
 		buf += t[i];
 	}
 
-	if (buf) chunks.push({ text: buf, hit: cur });
+	if (buf) {
+		chunks.push({ text: buf, hit: cur });
+	}
 
 	return chunks;
 }

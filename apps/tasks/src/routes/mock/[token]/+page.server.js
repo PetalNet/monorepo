@@ -6,7 +6,9 @@ import { error, fail } from "@sveltejs/kit";
 export function load({ params, locals }) {
 	const s = getMockSession(params.token);
 
-	if (!s) throw error(404, "No such mock session");
+	if (!s) {
+		throw error(404, "No such mock session");
+	}
 
 	return {
 		token: s.token,
@@ -24,16 +26,18 @@ export const actions = {
 	choose: async ({ request, params, locals }) => {
 		const fd = await request.formData();
 		const questionId = String(fd.get("questionId") || "");
-		const choice = String(fd.get("choice") || "");
-		const choices = fd.getAll("choices").map((c) => String(c)); // multi-select questions
+		const choice = String(fd.get("choice") ?? "");
+		const choices = fd.getAll("choices").map(String); // multi-select questions
 		const comment = String(fd.get("comment") || "");
 
 		// questionId is attached to every failure so the UI can surface it on the right question.
-		if (!locals.user)
+		if (!locals.user) {
 			return fail(401, { error: "Sign-in required to record a choice.", questionId });
+		}
 
-		if (!choice && choices.length === 0)
+		if (!choice && choices.length === 0) {
 			return fail(400, { error: "Pick at least one option first.", questionId });
+		}
 
 		try {
 			recordMockChoice({

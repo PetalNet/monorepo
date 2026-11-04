@@ -19,7 +19,9 @@ export function take(key, { capacity = 10, rate = 0.2, now = Date.now() } = {}) 
 		for (const [k, b] of buckets) {
 			const refilled = Math.min(capacity, b.tokens + ((now - b.ts) / 1000) * rate);
 
-			if (refilled >= capacity && now - b.ts > 600_000) buckets.delete(k);
+			if (refilled >= capacity && now - b.ts > 600_000) {
+				buckets.delete(k);
+			}
 		}
 	}
 
@@ -47,7 +49,3 @@ export function take(key, { capacity = 10, rate = 0.2, now = Date.now() } = {}) 
 }
 
 // test/maintenance helper
-export function _reset() {
-	buckets.clear();
-	lastPrune = 0;
-}

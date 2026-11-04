@@ -5,7 +5,9 @@ import { json, error } from "@sveltejs/kit";
 export function GET({ url }) {
 	const page = url.searchParams.get("page") || "";
 
-	if (!page) return json({ annotations: [] });
+	if (!page) {
+		return json({ annotations: [] });
+	}
 
 	return json({ annotations: listAnnotations(page) });
 }
@@ -26,8 +28,9 @@ export async function POST({ request, locals }) {
 		.trim()
 		.slice(0, 2000);
 
-	if (!page_path || !anchor_selector || !body)
+	if (!page_path || !anchor_selector || !body) {
 		throw error(400, "page_path, anchor_selector and body are required");
+	}
 
 	const clamp01 = (v) => {
 		const n = Number(v);

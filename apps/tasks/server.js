@@ -1,15 +1,15 @@
 // Custom adapter-node entry: serves the SvelteKit app AND proxies the fleet-terminal
 // websocket (#547). WebSockets can't be a SvelteKit +server endpoint, so the proxy lives
 // here at the HTTP-upgrade layer. It bridges ttyd's framed protocol (1-byte command prefix)
-// to a RAW byte stream for the ghostty-web client.
+// to a raw byte stream for the browser terminal client.
 //
 // SECURITY — this is a shell into the live agent session (root-equivalent), so TWO independent
 // gates, neither sufficient alone (per adversarial review):
 //   GATE 1  x-term-proxy-secret — injected ONLY by Traefik (customRequestHeaders), so a direct
-//           off-Traefik request to :8896 (host loopback / bridge IP 172.16.46.2 / host-net
+//           off-Traefik request to :8896 (host loopback / bridge IP / host-net
 //           container) can't reach the proxy even WITH a spoofed x-authentik-username. Checked first.
 //   GATE 2  ttyd itself requires a credential (AuthToken = TERM_WS_SECRET); a direct ws to the
-//           ttyd container's bridge port (172.16.46.{3,4}) is denied — the proxy isn't the only
+//           ttyd container's bridge port is denied — the proxy isn't the only
 //           network path to those ports, so they can't be an unauthenticated shell.
 //   Identity: x-authentik-username (Traefik forward-auth). rw=ADMIN, ro=ALLOW. Fail-closed.
 //   Audit: every session -> term_audit; rw keystrokes -> term_audit_input (batched).
@@ -23,15 +23,17 @@ const ALLOW = (process.env.ALLOW || "")
 	.split(",")
 	.map((s) => s.trim())
 	.filter(Boolean);
-const ADMIN = (process.env.TERM_ADMIN || "")
-	.split(",")
-	.map((s) => s.trim())
-	.filter(Boolean);
+const ADMIN = new Set(
+	(process.env.TERM_ADMIN || "")
+		.split(",")
+		.map((s) => s.trim())
+		.filter(Boolean),
+);
 const WS_SECRET = process.env.TERM_WS_SECRET || ""; // ttyd -c credential password (username is 'term')
 // ttyd's credential = base64("term:<secret>"); it's required BOTH as the Basic upgrade header
 // (no header -> ttyd drops the ws) AND as the init-frame AuthToken (empty token -> no shell).
 // Verified empirically against ttyd 1.7.7 (no header => socket hang up; header+token => shell).
-const WS_AUTH = WS_SECRET ? Buffer.from("term:" + WS_SECRET).toString("base64") : "";
+const WS_AUTH = WS_SECRET ? Buffer.from(`term:${WS_SECRET}`).toString("base64") : "";
 const PROXY_SECRET = process.env.TERM_PROXY_SECRET || ""; // Traefik-injected header gate
 const MAX_WS = Number(process.env.TERM_MAX_WS || 8);
 const IDLE_MS = Number(process.env.TERM_IDLE_MS || 30 * 60 * 1000);
@@ -65,12 +67,16 @@ const audit = (() => {
 				ins.run(user, mode, Date.now(), ip || "", ua || "").lastInsertRowid,
 			close: (id) => {
 				try {
-					if (id) cls.run(Date.now(), id);
+					if (id) {
+						cls.run(Date.now(), id);
+					}
 				} catch {}
 			},
 			input: (id, data) => {
 				try {
-					if (id && data) inp.run(id, Date.now(), data);
+					if (id && data) {
+						inp.run(id, Date.now(), data);
+					}
 				} catch {}
 			},
 		};
@@ -113,24 +119,32 @@ server.on("upgrade", (req, socket, head) => {
 		return socket.destroy();
 	}
 
-	const m = url.pathname.match(/^\/api\/fleet\/term\/(ro|rw)$/);
+	const m = /^\/api\/fleet\/term\/(ro|rw)$/.exec(url.pathname);
 
-	if (!m) return; // not a terminal ws — no other upgrade route
+	if (!m) {
+		return;
+	} // not a terminal ws — no other upgrade route
 
 	const mode = m[1];
 
 	// GATE 1: Traefik-injected secret. Blocks any off-Traefik direct hit to :8896, so a spoofed
 	// x-authentik-username on loopback/bridge can't reach the proxy.
-	if (!PROXY_SECRET || req.headers["x-term-proxy-secret"] !== PROXY_SECRET)
+	if (!PROXY_SECRET || req.headers["x-term-proxy-secret"] !== PROXY_SECRET) {
 		return deny(socket, 403, "Forbidden");
+	}
 
 	// GATE 2 (identity): rw demands ADMIN; ro demands an ALLOW user (any authed if no ALLOW). Fail-closed.
 	const user = String(req.headers["x-authentik-username"] || "");
-	const ok = mode === "rw" ? ADMIN.includes(user) : ALLOW.length ? ALLOW.includes(user) : !!user;
+	const ok =
+		mode === "rw" ? ADMIN.has(user) : ALLOW.length > 0 ? ALLOW.includes(user) : Boolean(user);
 
-	if (!ok) return deny(socket, 403, "Forbidden");
+	if (!ok) {
+		return deny(socket, 403, "Forbidden");
+	}
 
-	if (liveWs >= MAX_WS) return deny(socket, 503, "Service Unavailable");
+	if (liveWs >= MAX_WS) {
+		return deny(socket, 503, "Service Unavailable");
+	}
 
 	const ip = String(req.headers["x-forwarded-for"] || req.socket.remoteAddress || "")
 		.split(",")[0]
@@ -161,7 +175,7 @@ function bridge(client, mode, user, ip, ua) {
 	// header -> ttyd drops the ws), AND the matching AuthToken in the init frame below. All three.
 	const upstream = new WebSocket(TTYD[mode], ["tty"], {
 		perMessageDeflate: false,
-		headers: WS_AUTH ? { Authorization: "Basic " + WS_AUTH } : {},
+		headers: WS_AUTH ? { Authorization: `Basic ${WS_AUTH}` } : {},
 	});
 	let upOpen = false;
 	let idleTimer = setTimeout(() => {
@@ -180,7 +194,9 @@ function bridge(client, mode, user, ip, ua) {
 	};
 
 	const ping = setInterval(() => {
-		if (client.readyState === WebSocket.OPEN) client.ping();
+		if (client.readyState === WebSocket.OPEN) {
+			client.ping();
+		}
 	}, 30000);
 
 	upstream.on("open", () => {
@@ -191,12 +207,15 @@ function bridge(client, mode, user, ip, ua) {
 	upstream.on("message", (data) => {
 		const buf = Buffer.isBuffer(data) ? data : Buffer.from(data);
 
-		if (buf.length && buf[0] === TTYD_OUTPUT && client.readyState === WebSocket.OPEN)
+		if (buf.length > 0 && buf[0] === TTYD_OUTPUT && client.readyState === WebSocket.OPEN) {
 			client.send(buf.subarray(1));
+		}
 	});
 
 	client.on("message", (data, isBinary) => {
-		if (!upOpen) return;
+		if (!upOpen) {
+			return;
+		}
 
 		bump();
 
@@ -208,7 +227,9 @@ function bridge(client, mode, user, ip, ua) {
 				upstream.send(Buffer.concat([TTYD_INPUT, b]));
 				inbuf += b.toString("utf8"); // accountability: keystroke capture (intentionally records sensitive input)
 
-				if (inbuf.length > 4096) flush();
+				if (inbuf.length > 4096) {
+					flush();
+				}
 			}
 		} else {
 			try {
@@ -233,7 +254,9 @@ function bridge(client, mode, user, ip, ua) {
 
 	let closed = false;
 	const close = () => {
-		if (closed) return;
+		if (closed) {
+			return;
+		}
 
 		closed = true;
 		clearTimeout(idleTimer);
@@ -257,7 +280,9 @@ function bridge(client, mode, user, ip, ua) {
 	upstream.on("close", close);
 
 	upstream.on("error", () => {
-		if (client.readyState === WebSocket.OPEN) client.close(1011);
+		if (client.readyState === WebSocket.OPEN) {
+			client.close(1011);
+		}
 
 		close();
 	});

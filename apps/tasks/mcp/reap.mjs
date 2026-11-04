@@ -5,4 +5,6 @@
 const { reapLeases } = await import("../src/lib/server/db.js");
 const n = reapLeases();
 
-if (n) console.log(`[reap ${new Date().toISOString()}] freed ${n} stale lease(s)`);
+if (n) {
+	console.log(`[reap ${new Date().toISOString()}] freed ${n} stale lease(s)`);
+}

@@ -11,14 +11,18 @@ export function setPeople(entries = {}) {
 	people = {};
 	for (const [handle, entry] of Object.entries(entries)) {
 		people[handle.toLowerCase()] = entry;
-		for (const alias of entry.aliases || []) people[alias.toLowerCase()] = entry;
+		for (const alias of entry.aliases || []) {
+			people[alias.toLowerCase()] = entry;
+		}
 	}
 }
 
 // who(handle): inline / assignee display. Empty handle → '' (render nothing);
 // known handle → person name; unknown handle → the raw handle unchanged.
 export function who(handle) {
-	if (!handle) return "";
+	if (!handle) {
+		return "";
+	}
 
 	return people[String(handle).toLowerCase()]?.name ?? handle;
 }
@@ -29,7 +33,9 @@ export function who(handle) {
 export function displayName(handle, devLabel = "dev") {
 	const h = String(handle || "dev").toLowerCase();
 
-	if (h === "dev") return devLabel;
+	if (h === "dev") {
+		return devLabel;
+	}
 
 	return people[h]?.name ?? h.charAt(0).toUpperCase() + h.slice(1);
 }
@@ -50,7 +56,9 @@ export const projectName = (projects) => (id) => projects.find((p) => p.id === i
 const personHue = (s) => {
 	let h = 0;
 
-	for (let i = 0; i < (s?.length ?? 0); i++) h = (h * 31 + s.charCodeAt(i)) % 360;
+	for (let i = 0; i < (s?.length ?? 0); i++) {
+		h = (h * 31 + s.codePointAt(i)) % 360;
+	}
 
 	return h;
 };

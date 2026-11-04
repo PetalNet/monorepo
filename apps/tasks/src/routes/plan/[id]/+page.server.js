@@ -11,7 +11,9 @@ import { renderPlanMd, renderMd } from "$lib/server/md.js";
 import { error, fail } from "@sveltejs/kit";
 
 const gate = (id, me) => {
-	if (!canWrite(id, me)) throw error(403, "Not allowed");
+	if (!canWrite(id, me)) {
+		throw error(403, "Not allowed");
+	}
 };
 
 // Keep the plan's answer controls on the same {value,label} contract as task detail.
@@ -23,7 +25,9 @@ function normalizeOptions(raw) {
 		parsed = JSON.parse(raw || "[]");
 	} catch {}
 
-	if (!Array.isArray(parsed)) return [];
+	if (!Array.isArray(parsed)) {
+		return [];
+	}
 
 	return parsed
 		.filter((o) => o != null)
@@ -39,10 +43,13 @@ export function load({ params, locals }) {
 	const id = Number(params.id);
 	const plan = getTask(id);
 
-	if (plan?.kind !== "doc") throw error(404, "No such plan");
-
-	if (plan.visibility === "private" && plan.owner && plan.owner !== locals.user)
+	if (plan?.kind !== "doc") {
 		throw error(404, "No such plan");
+	}
+
+	if (plan.visibility === "private" && plan.owner && plan.owner !== locals.user) {
+		throw error(404, "No such plan");
+	}
 
 	const questions = planQuestions(id, locals.user);
 
@@ -54,13 +61,11 @@ export function load({ params, locals }) {
 			.map((item) => ({ ...item, rationaleHtml: renderMd(item.body) })),
 		questions: questions
 			.filter((item) => !item.answer)
-			.map((item) => {
-				return {
-					...item,
-					options: normalizeOptions(item.options),
-					contextHtml: renderMd(item.body),
-				};
-			}),
+			.map((item) => ({
+				...item,
+				options: normalizeOptions(item.options),
+				contextHtml: renderMd(item.body),
+			})),
 		comments: listComments(id),
 		canWrite: canWrite(id, locals.user),
 	});
@@ -75,21 +80,26 @@ export const actions = {
 		const questionId = Number(f.get("question_id"));
 		const question = planQuestions(id, locals.user).find((item) => item.id === questionId);
 
-		if (!question) throw error(400, "Question is not in this plan");
+		if (!question) {
+			throw error(400, "Question is not in this plan");
+		}
 
-		if (question.answer || ["done", "dropped"].includes(question.status))
+		if (question.answer || ["done", "dropped"].includes(question.status)) {
 			throw error(400, "Question is no longer active");
+		}
 
 		const value = String(f.get("value") || "");
 		const options = normalizeOptions(question.options);
 
-		if (options.length && !options.some((option) => option.value === value)) {
+		if (options.length > 0 && !options.some((option) => option.value === value)) {
 			throw error(400, "Answer must be one of the configured options");
 		}
 
 		const result = answerQuestion(questionId, value);
 
-		if (result?.ok === false) return fail(400, result);
+		if (result?.ok === false) {
+			return fail(400, result);
+		}
 
 		return { ok: true };
 	},
@@ -99,7 +109,9 @@ export const actions = {
 		gate(id, locals.user);
 		const body = String((await request.formData()).get("body") || "").trim();
 
-		if (body) addComment(id, locals.user || "web", body);
+		if (body) {
+			addComment(id, locals.user || "web", body);
+		}
 
 		return { ok: true };
 	},

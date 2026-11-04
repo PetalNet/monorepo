@@ -36,7 +36,6 @@ const {
 	closeTask,
 	archiveProject,
 	unarchiveProject,
-	listArchivedProjects,
 } = DB;
 
 // archived-project exclusion (mirrors db.js NOTARCHIVED) — get_ready/up_next build raw queries here.
@@ -53,7 +52,9 @@ const projIdForWrite = (name) => (name ? ensureProject(name) : null);
 // name yields a sentinel id (-1) that matches nothing, so a typo in a filter returns
 // an empty set instead of silently minting a phantom project (agent-c review, task-344).
 const projIdForFilter = (name) => {
-	if (!name) return null;
+	if (!name) {
+		return null;
+	}
 
 	return getProjectByName(name)?.id ?? -1;
 };
@@ -65,7 +66,7 @@ const shape = (t) =>
 		kind: t.kind,
 		status: t.status,
 		priority: t.priority,
-		up_next: !!t.up_next,
+		up_next: Boolean(t.up_next),
 		rank: t.rank,
 		project: projName(t.project_id),
 		body: t.body || undefined,
@@ -164,8 +165,7 @@ server.tool(
 );
 
 // claim — atomically grab THE next Up Next task (lockless CAS) via canonical claimNext().
-// Distinct from the canonical claimTask() which is scoped to a pre-assigned worker; this is
-// a deliberately lockless, assignee-agnostic grab. The guarded single-statement UPDATE inside
+// This is a deliberately lockless, assignee-agnostic grab. The guarded single-statement UPDATE inside
 // claimNext is the atomicity invariant (no double-claim), and it logs a 'claim' audit event —
 // so this write goes through the same source of truth as every other mutation (task-344).
 server.tool(
@@ -193,10 +193,9 @@ server.tool(
 	"reap",
 	"Reclaim tasks stuck in 'doing' past their lease (crashed/killed workers) by flipping them back to 'todo'. Returns how many were reaped. Safe to run anytime.",
 	{},
-	async () => {
+	async () =>
 		// canonical: clears the lease secrets too and uses the same predicate as the web path.
-		return txt({ reaped: reapLeases() });
-	},
+		txt({ reaped: reapLeases() }),
 );
 
 // file — create a new task (idea/task/question) via the canonical createTask (logs a 'create' event).
@@ -293,25 +292,35 @@ server.tool(
 			.describe("Routing hint: tasks sharing a group may run concurrently"),
 	},
 	async ({ id, project, ...patch }) => {
-		if (!getTask(id)) return txt(`task #${id} not found`);
+		if (!getTask(id)) {
+			return txt(`task #${id} not found`);
+		}
 
 		const clean = {};
 
 		for (const [k, v] of Object.entries(patch)) {
-			if (v === undefined) continue;
+			if (v === undefined) {
+				continue;
+			}
 
 			clean[k] = typeof v === "boolean" ? (v ? 1 : 0) : v;
 		}
 
-		if (project !== undefined) clean.project_id = project ? projIdForWrite(project) : null;
+		if (project !== undefined) {
+			clean.project_id = project ? projIdForWrite(project) : null;
+		}
 
-		if (!Object.keys(clean).length) return txt("(no fields to update)");
+		if (Object.keys(clean).length === 0) {
+			return txt("(no fields to update)");
+		}
 
 		const res = updateTask(id, clean);
 
 		// updateTask returns {ok:false,reason,message} when an invariant blocks the change
 		// (e.g. status='blocked' with no live blocker). Surface it instead of lying "updated".
-		if (res?.ok === false) return txt({ rejected: res });
+		if (res?.ok === false) {
+			return txt({ rejected: res });
+		}
 
 		return txt({ updated: shape(getTask(id)) });
 	},
@@ -331,13 +340,19 @@ server.tool(
 		result_summary: z.string().optional().describe("One-line note about the outcome"),
 	},
 	async ({ id, reason, status, result_summary }) => {
-		if (!getTask(id)) return txt(`task #${id} not found`);
+		if (!getTask(id)) {
+			return txt(`task #${id} not found`);
+		}
 
-		if (result_summary !== undefined) updateTask(id, { result_summary });
+		if (result_summary !== undefined) {
+			updateTask(id, { result_summary });
+		}
 
 		const res = closeTask(id, { reason, by: "mcp", status });
 
-		if (res?.ok === false) return txt({ rejected: res });
+		if (!res?.ok) {
+			return txt({ rejected: res });
+		}
 
 		return txt({ closed: shape(getTask(id)) });
 	},

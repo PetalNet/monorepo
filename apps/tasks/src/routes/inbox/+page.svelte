@@ -117,8 +117,8 @@
 			<div>
 				<div class="ls-title">the async loop closes here next</div>
 				<p class="loop-cap mono">
-					→ matrix push when you're mentioned · → import-inbox.jsonl write-back · cold agents read
-					it on SessionStart
+					→ a push when you're mentioned · → import-inbox.jsonl write-back · cold agents read it on
+					SessionStart
 				</p>
 			</div>
 		</div>

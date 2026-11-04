@@ -12,7 +12,9 @@ export function load({ params, locals }) {
 	const id = Number(params.id);
 	const project = getProject(id);
 
-	if (!project) throw error(404, "No such project");
+	if (!project) {
+		throw error(404, "No such project");
+	}
 
 	// Fail closed: only a shared project, or my own, is visible. This also covers a
 	// private project with an empty/null owner (which the old owner-guard let leak).

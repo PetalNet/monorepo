@@ -14,7 +14,9 @@ const MAX_TEXT = 6000;
 // Key resolution: $ELEVEN_API_KEY, else /data/eleven-api-key (the mounted data dir).
 // No key → 503, and the client quietly falls back to the browser's Web Speech API.
 function apiKey() {
-	if (env.ELEVEN_API_KEY) return env.ELEVEN_API_KEY.trim();
+	if (env.ELEVEN_API_KEY) {
+		return env.ELEVEN_API_KEY.trim();
+	}
 
 	try {
 		return readFileSync("/data/eleven-api-key", "utf8").trim() || null;
@@ -41,32 +43,38 @@ export async function POST({ request, params, locals }) {
 	//    reachable without an identity, even if the global gate is ever misconfigured/in dev.
 	const me = locals.user;
 
-	if (!me) return json({ error: "unauthorized" }, { status: 401 });
+	if (!me) {
+		return json({ error: "unauthorized" }, { status: 401 });
+	}
 
 	// 2. IDOR / scope — this route is /task/[id]/tts. Only let a caller drive the proxy for
 	//    a task they can actually see (private tasks are owner-only). 404 (don't reveal
 	//    existence), matching the load-gate. Bad/missing id -> 404 too.
 	const id = Number(params.id);
 
-	if (!Number.isInteger(id) || !canRead(id, me))
+	if (!Number.isInteger(id) || !canRead(id, me)) {
 		return json({ error: "not-found" }, { status: 404 });
+	}
 
 	// No key configured -> 503 (client quietly falls back to Web Speech). Checked before the
 	// rate-limiter so a keyless deploy doesn't burn anyone's quota.
 	const key = apiKey();
 
-	if (!key) return json({ error: "no-tts-key" }, { status: 503 });
+	if (!key) {
+		return json({ error: "no-tts-key" }, { status: 503 });
+	}
 
 	// BODY-SIZE GUARD — reject an oversized request BEFORE buffering/parsing the JSON, so a
 	// huge body can't pressure the process (DoS). Belt-and-suspenders with a reverse-proxy
 	// body limit; MAX_TEXT is chars, allow generous JSON/UTF-8 overhead.
 	const clen = Number(request.headers.get("content-length") || 0);
 
-	if (clen > MAX_TEXT * 4 + 1024)
+	if (clen > MAX_TEXT * 4 + 1024) {
 		return json({ error: "too-long", max: MAX_TEXT }, { status: 413 });
+	}
 
-	let text = "",
-		pick = "";
+	let pick = "",
+		text = "";
 
 	try {
 		({ text, voice: pick } = await request.json());
@@ -74,11 +82,15 @@ export async function POST({ request, params, locals }) {
 
 	text = String(text || "").trim();
 
-	if (!text) return json({ error: "empty" }, { status: 400 });
+	if (!text) {
+		return json({ error: "empty" }, { status: 400 });
+	}
 
 	// 4. INPUT CAP — reject (not silently truncate) oversized input so a huge body can't run
 	//    up cost AND the caller knows their request was refused.
-	if (text.length > MAX_TEXT) return json({ error: "too-long", max: MAX_TEXT }, { status: 413 });
+	if (text.length > MAX_TEXT) {
+		return json({ error: "too-long", max: MAX_TEXT }, { status: 413 });
+	}
 
 	// 3. RATE-LIMIT — charged HERE, after validation, so malformed/empty/oversized requests
 	//    can't drain a user's bucket (only a genuine, about-to-bill request spends a token).
@@ -88,13 +100,13 @@ export async function POST({ request, params, locals }) {
 	//    bucket is sized for the app's single-instance deployment (better-sqlite3, one node
 	//    process); a multi-replica rollout would need a shared store to keep the ceiling exact.
 	const perUser = take(`tts:user:${me}`, { capacity: 8, rate: 8 / 60 }); // ~8 burst, 1 / 7.5s sustained
-	const limited = !perUser.ok
-		? perUser
-		: (() => {
+	const limited = perUser.ok
+		? (() => {
 				const global = take("tts:global", { capacity: 30, rate: 30 / 60 }); // ~30 burst, 1 / 2s sustained
 
 				return global.ok ? null : global;
-			})();
+			})()
+		: perUser;
 
 	if (limited) {
 		return json(
@@ -104,7 +116,9 @@ export async function POST({ request, params, locals }) {
 	}
 
 	const voice = resolveVoice(String(pick || "default").toLowerCase());
-	if (!voice) return json({ error: "no-tts-voice" }, { status: 503 });
+	if (!voice) {
+		return json({ error: "no-tts-voice" }, { status: 503 });
+	}
 	// Bound the upstream call — a stalled ElevenLabs request shouldn't tie up the process
 	// (or complete a billable request) indefinitely.
 	const r = await fetch(`https://api.elevenlabs.io/v1/text-to-speech/${voice}`, {
@@ -118,9 +132,13 @@ export async function POST({ request, params, locals }) {
 		signal: AbortSignal.timeout(30_000),
 	}).catch(() => null);
 
-	if (!r) return json({ error: "tts-upstream", status: 504 }, { status: 502 });
+	if (!r) {
+		return json({ error: "tts-upstream", status: 504 }, { status: 502 });
+	}
 
-	if (!r.ok) return json({ error: "tts-upstream", status: r.status }, { status: 502 });
+	if (!r.ok) {
+		return json({ error: "tts-upstream", status: r.status }, { status: 502 });
+	}
 
 	return new Response(r.body, {
 		headers: { "content-type": "audio/mpeg", "cache-control": "no-store" },

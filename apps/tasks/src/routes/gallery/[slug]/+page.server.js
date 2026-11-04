@@ -12,7 +12,9 @@ import { error } from "@sveltejs/kit";
 export function load({ params, locals }) {
 	const a = getArtifact(params.slug, locals.user);
 
-	if (!a) throw error(404, "No such artifact");
+	if (!a) {
+		throw error(404, "No such artifact");
+	}
 
 	return {
 		slug: a.slug,

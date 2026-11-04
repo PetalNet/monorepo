@@ -13,16 +13,15 @@
 // the sidebar rail. The old single agent-fleet-status.json is no longer used here.
 
 import { readFileSync, readdirSync } from "node:fs";
-import { dirname, join, resolve } from "node:path";
-import { fileURLToPath } from "node:url";
+import path from "node:path";
 
 import { tasksConfig } from "./config.js";
 import { activeLeases } from "./db.js";
 
 // Mirror db.js's path resolution so the fleet dir sits next to tasks.db (the only
 // mounted path in the container: /data → /data/fleet).
-const DEFAULT_DB_PATH = resolve(fileURLToPath(import.meta.url), "../../../../data/tasks.db");
-const FLEET_DIR = join(dirname(process.env.TASKS_DB_PATH || DEFAULT_DB_PATH), "fleet");
+const DEFAULT_DB_PATH = path.resolve(import.meta.filename, "../../../../data/tasks.db");
+const FLEET_DIR = path.join(path.dirname(process.env.TASKS_DB_PATH || DEFAULT_DB_PATH), "fleet");
 
 // An agent that hasn't written its file in this long is treated as offline/stale —
 // the hooks fire on every tool call, so a healthy working agent updates every few
@@ -42,11 +41,15 @@ const ROSTER = tasksConfig.fleet.agents.map((agent) => ({
 const RANK = { working: 0, alive: 1, idle: 2, offline: 3 };
 
 function normHost(h) {
-	if (!h) return null;
+	if (!h) {
+		return null;
+	}
 
 	const s = String(h).trim();
 
-	if (!s) return null;
+	if (!s) {
+		return null;
+	}
 
 	return s;
 }
@@ -72,7 +75,7 @@ function readFleetFiles() {
 
 	for (const n of names) {
 		try {
-			const raw = JSON.parse(readFileSync(join(FLEET_DIR, n), "utf8"));
+			const raw = JSON.parse(readFileSync(path.join(FLEET_DIR, n), "utf8"));
 
 			if (raw && typeof raw === "object") {
 				// trust the filename as the canonical handle if the body omits it
@@ -135,7 +138,9 @@ export function getFleet(me) {
 	const present = new Set(agents.map((a) => a.handle));
 
 	for (const r of ROSTER) {
-		if (present.has(r.handle)) continue;
+		if (present.has(r.handle)) {
+			continue;
+		}
 
 		agents.push({
 			handle: r.handle,
@@ -157,7 +162,9 @@ export function getFleet(me) {
 	agents.sort((a, b) => {
 		const r = (RANK[a.status] ?? 9) - (RANK[b.status] ?? 9);
 
-		if (r) return r;
+		if (r) {
+			return r;
+		}
 
 		// within a bucket: most-recently-updated first
 		return (a.age_ms ?? Infinity) - (b.age_ms ?? Infinity);

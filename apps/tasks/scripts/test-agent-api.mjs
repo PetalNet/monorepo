@@ -14,12 +14,12 @@
 import assert from "node:assert/strict";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import path from "node:path";
 
 // temp DB MUST be set before db.js is imported (it opens the file at import time)
-const TMP = mkdtempSync(join(tmpdir(), "agent-api-test-"));
+const TMP = mkdtempSync(path.join(tmpdir(), "agent-api-test-"));
 
-process.env.TASKS_DB_PATH = join(TMP, "tasks.db");
+process.env.TASKS_DB_PATH = path.join(TMP, "tasks.db");
 
 const DB = await import("../src/lib/server/db.js");
 const db = DB.default;
@@ -33,7 +33,7 @@ const {
 	getTask,
 	addBlocker,
 } = DB;
-const { handleAgentRpc, _resetRateLimiter, BODY_MAX } =
+const { handleAgentRpc, resetRateLimiter, BODY_MAX } =
 	await import("../src/lib/server/agent-api.js");
 
 // ── harness ──────────────────────────────────────────────────────────────────
@@ -83,8 +83,11 @@ const mk = (
 ) => {
 	const id = createTask({ title, kind, project_id, priority, rank, up_next, status });
 
-	if (assignee || status !== "todo")
-		updateTask(id, { ...(assignee ? { assignee } : {}), ...(status !== "todo" ? { status } : {}) });
+	const updates = { ...(assignee ? { assignee } : {}), ...(status === "todo" ? {} : { status }) };
+
+	if (Object.keys(updates).length > 0) {
+		updateTask(id, updates);
+	}
 
 	return id;
 };
@@ -134,7 +137,7 @@ const full = mintAgentToken({ agent_name: "agent-b-test" }); // unscoped (sanity
 const projOnly = mintAgentToken({ agent_name: "agent-a-proj", scope_projects: ["agentlab"] });
 const asgOnly = mintAgentToken({ agent_name: "agent-a-asg", scope_assignee: "agent-a" });
 
-_resetRateLimiter();
+resetRateLimiter();
 
 // ── 1. token round-trip / revocation / mint validation ──────────────────────
 t("mint returns plaintext once; verify resolves identity + parsed scopes", () => {
@@ -233,18 +236,18 @@ t("get_ready (scoped): returns ONLY in-scope tasks; the secret never appears", (
 
 	assert.equal(r.status, 200);
 
-	const ids = [
+	const ids = new Set([
 		...r.body.up_next.map((x) => x.id),
 		...r.body.in_progress.map((x) => x.id),
 		...r.body.open_questions.map((x) => x.id),
-	];
+	]);
 
-	assert.ok(ids.includes(MINE), "in-scope up_next present");
-	assert.ok(ids.includes(DOING), "in-scope doing present");
-	assert.ok(ids.includes(Q), "in-scope question present");
-	assert.ok(!ids.includes(SECRET), "secret excluded");
-	assert.ok(!ids.includes(SAMEASG_OTHERPROJ), "assignee-match/project-miss excluded");
-	assert.ok(!ids.includes(OTHERASG_MYPROJ), "project-match/assignee-miss excluded");
+	assert.ok(ids.has(MINE), "in-scope up_next present");
+	assert.ok(ids.has(DOING), "in-scope doing present");
+	assert.ok(ids.has(Q), "in-scope question present");
+	assert.ok(!ids.has(SECRET), "secret excluded");
+	assert.ok(!ids.has(SAMEASG_OTHERPROJ), "assignee-match/project-miss excluded");
+	assert.ok(!ids.has(OTHERASG_MYPROJ), "project-match/assignee-miss excluded");
 
 	assert.ok(
 		!JSON.stringify(r.body).includes("secret security finding"),
@@ -538,7 +541,7 @@ t("reap: flips only leases claimed by this agent_name", () => {
 		updateTask(id, {
 			status: "doing",
 			claimed_by: who,
-			claim_token: "tok-" + who,
+			claim_token: `tok-${who}`,
 			lease_expires_at: "2020-01-01 00:00:00",
 		});
 
@@ -559,14 +562,16 @@ t("reap: flips only leases claimed by this agent_name", () => {
 t("rate limit: 61st request inside a minute → 429", () => {
 	const ratey = mintAgentToken({ agent_name: "ratey", scope_assignee: "ratey" });
 
-	_resetRateLimiter();
+	resetRateLimiter();
 	let last;
 
-	for (let i = 0; i < 61; i++) last = rpc(ratey.token, "up_next");
+	for (let i = 0; i < 61; i++) {
+		last = rpc(ratey.token, "up_next");
+	}
 
 	assert.equal(last.status, 429);
 	assert.deepEqual(last.body, { error: "rate_limited" });
-	_resetRateLimiter();
+	resetRateLimiter();
 });
 
 // ── 11. hygiene: audit lines exist, tokens never logged ──────────────────────
@@ -604,7 +609,9 @@ let failed = 0;
 for (const c of checks) {
 	console.log(`${c.pass ? "PASS" : "FAIL"}  ${c.name}${c.pass ? "" : ` — ${c.detail}`}`);
 
-	if (!c.pass) failed++;
+	if (!c.pass) {
+		failed++;
+	}
 }
 
 console.log(`\n${checks.length - failed}/${checks.length} checks passed`);
@@ -614,4 +621,6 @@ try {
 	rmSync(TMP, { recursive: true, force: true });
 } catch {}
 
-if (failed) process.exit(1);
+if (failed) {
+	process.exit(1);
+}

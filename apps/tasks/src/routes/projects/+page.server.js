@@ -37,7 +37,9 @@ export const actions = {
 		const id = Number(f.get("id"));
 		const name = String(f.get("name") || "").trim();
 
-		if (name && allowed(id, locals.user)) renameProject(id, name);
+		if (name && allowed(id, locals.user)) {
+			renameProject(id, name);
+		}
 
 		return { ok: true };
 	},
@@ -45,9 +47,11 @@ export const actions = {
 		const f = await request.formData();
 		const id = Number(f.get("id"));
 
-		if (!allowed(id, locals.user)) return { ok: false };
+		if (!allowed(id, locals.user)) {
+			return { ok: false };
+		}
 
-		const priv = !!f.get("private");
+		const priv = Boolean(f.get("private"));
 
 		setProjectVisibility(id, priv ? "private" : "shared", priv ? locals.user : "");
 
@@ -57,7 +61,9 @@ export const actions = {
 		const f = await request.formData();
 		const id = Number(f.get("id"));
 
-		if (allowed(id, locals.user)) deleteProject(id);
+		if (allowed(id, locals.user)) {
+			deleteProject(id);
+		}
 
 		return { ok: true };
 	},
@@ -67,8 +73,9 @@ export const actions = {
 		const dest = Number(f.get("dest"));
 
 		// move id's tasks into dest, then retire id; only projects the user can act on
-		if (id && dest && id !== dest && allowed(id, locals.user) && allowed(dest, locals.user))
+		if (id && dest && id !== dest && allowed(id, locals.user) && allowed(dest, locals.user)) {
 			moveProject(id, dest);
+		}
 
 		return { ok: true };
 	},
@@ -77,15 +84,19 @@ export const actions = {
 		const f = await request.formData();
 		const p = allowed(Number(f.get("id")), locals.user);
 
-		if (p) archiveProject(p.name);
+		if (p) {
+			archiveProject(p.name);
+		}
 
 		return { ok: true };
 	},
-	unarchive: async ({ request, locals }) => {
+	unarchive: async ({ request }) => {
 		const f = await request.formData();
 		const name = String(f.get("name") || "");
 
-		if (name) unarchiveProject(name);
+		if (name) {
+			unarchiveProject(name);
+		}
 
 		return { ok: true };
 	},

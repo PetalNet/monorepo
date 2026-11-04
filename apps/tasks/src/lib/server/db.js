@@ -1,7 +1,6 @@
-import crypto from "node:crypto";
+import { createHash, randomBytes } from "node:crypto";
 import { mkdirSync } from "node:fs";
-import { dirname, resolve } from "node:path";
-import { fileURLToPath } from "node:url";
+import path from "node:path";
 
 import Database from "better-sqlite3";
 
@@ -11,15 +10,16 @@ import Database from "better-sqlite3";
 // followed the CWD, so a process started from a different directory silently opened a NEW empty
 // DB and wrote there — invisible data loss (task-337). Warn when the env is unset so the
 // canonical deploy path (TASKS_DB_PATH) is always explicit.
-const DEFAULT_DB_PATH = resolve(fileURLToPath(import.meta.url), "../../../../data/tasks.db");
+const DEFAULT_DB_PATH = path.resolve(import.meta.filename, "../../../../data/tasks.db");
 
-if (!process.env.TASKS_DB_PATH)
+if (!process.env.TASKS_DB_PATH) {
 	console.warn(`[db] TASKS_DB_PATH unset; defaulting to ${DEFAULT_DB_PATH}`);
+}
 
 const DB_PATH = process.env.TASKS_DB_PATH || DEFAULT_DB_PATH;
 
 try {
-	mkdirSync(dirname(DB_PATH), { recursive: true });
+	mkdirSync(path.dirname(DB_PATH), { recursive: true });
 } catch {}
 
 const db = new Database(DB_PATH);
@@ -185,10 +185,10 @@ db.exec(`
   -- Agent registry (fleet-dispatcher, #212). The authoritative list of which agents exist and
   -- — critically — what each MAY work. Today lane/capability routing is purely ADVISORY (the
   -- suggested_agent / owner_machine / capability HINTS on a task). This table is the ENFORCED
-  -- side: claimNextForAgent / assignTaskToAgent look an agent's capabilities up HERE, server-side
+  -- side: agent capability metadata is stored here for server-side routing
   -- (the agent never supplies its own filter), so an out-of-lane agent is blocked by the DB, not
   -- by politely asking the model. lane is a coarse human label (open|work|lab|...); the real
-  -- gate is capabilities (a CSV of tags) checked against a task's capability tag in agentCan().
+  -- gate is capabilities (a CSV of tags) checked against a task's capability tag.
   -- autonomy (auto|ask|readonly|paused) is advisory today except 'paused'/inactive, which the
   -- claim/assign paths treat as "can work nothing". Idempotent create — see ensureAgentsTable too.
   CREATE TABLE IF NOT EXISTS agents (
@@ -226,14 +226,17 @@ function ensureAgentsTable() {
 		updated_at: "TEXT NOT NULL DEFAULT (datetime('now'))",
 	};
 
-	for (const [name, def] of Object.entries(adds))
+	for (const [name, def] of Object.entries(adds)) {
 		if (!have.has(name)) {
 			try {
 				db.exec(`ALTER TABLE agents ADD COLUMN ${name} ${def}`);
 			} catch (e) {
-				if (!/duplicate column/i.test(e.message)) throw e;
+				if (!/duplicate column/i.test(e.message)) {
+					throw e;
+				}
 			}
 		}
+	}
 }
 
 ensureAgentsTable();
@@ -282,14 +285,17 @@ function ensureColumns() {
 	// try/catch: two processes booting at once (server + sync cron) can both read `have`
 	// before either adds the column, then race the ALTER — the loser throws "duplicate column".
 	// Swallow only that; anything else is a real error.
-	for (const [name, def] of Object.entries(adds))
+	for (const [name, def] of Object.entries(adds)) {
 		if (!have.has(name)) {
 			try {
 				db.exec(`ALTER TABLE tasks ADD COLUMN ${name} ${def}`);
 			} catch (e) {
-				if (!/duplicate column/i.test(e.message)) throw e;
+				if (!/duplicate column/i.test(e.message)) {
+					throw e;
+				}
 			}
 		}
+	}
 }
 
 ensureColumns();
@@ -303,12 +309,17 @@ function ensureProjectColumns() {
 			.map((c) => c.name),
 	);
 
-	if (!have.has("owner")) db.exec("ALTER TABLE projects ADD COLUMN owner TEXT DEFAULT ''");
+	if (!have.has("owner")) {
+		db.exec("ALTER TABLE projects ADD COLUMN owner TEXT DEFAULT ''");
+	}
 
-	if (!have.has("visibility"))
+	if (!have.has("visibility")) {
 		db.exec("ALTER TABLE projects ADD COLUMN visibility TEXT DEFAULT 'shared'");
+	}
 
-	if (!have.has("archived_at")) db.exec("ALTER TABLE projects ADD COLUMN archived_at TEXT");
+	if (!have.has("archived_at")) {
+		db.exec("ALTER TABLE projects ADD COLUMN archived_at TEXT");
+	}
 }
 
 ensureProjectColumns();
@@ -335,8 +346,9 @@ function ensureIndexes() {
 		// blocker_id-leading lookups (cascadeUnblock, blocks(), removeBlocker) aren't covered by the
 		// task_blockers PK (task_id, blocker_id), so index the reverse direction (task-280 audit).
 		"CREATE INDEX IF NOT EXISTS idx_blockers_blocker ON task_blockers(blocker_id)",
-	])
+	]) {
 		db.exec(sql);
+	}
 }
 
 ensureIndexes();
@@ -344,9 +356,6 @@ ensureIndexes();
 // Keep the audit log lean: record WHICH keys changed + small scalar values, but never
 // serialize large text columns (body/body_alt/etc.) into events.data. Logging full doc
 // bodies on every save had ballooned the DB to ~716MB / ~126k rows (task-340).
-// trimEventData + EVENT_KEEP_PER_TASK are exported so the one-time compaction migration
-// (scripts/compact-events.mjs) reuses the EXACT same rules — no drift between the
-// forward fix and the backfill.
 const BIG_FIELDS = new Set([
 	"body",
 	"body_alt",
@@ -368,8 +377,10 @@ const EVENT_DATA_MAX = 4000; // hard backstop on the serialized event payload (d
 // migration relies on this to reach a true fixed point.
 const SUMMARY_MARKER = /^\[(?:\d+ chars|omitted)\]$/;
 
-export function trimEventData(data) {
-	if (!data || typeof data !== "object") return data;
+function trimEventData(data) {
+	if (!data || typeof data !== "object") {
+		return data;
+	}
 
 	const o = {};
 
@@ -384,7 +395,7 @@ export function trimEventData(data) {
 			BIG_FIELDS.has(k) ||
 			(typeof v === "string" && v.length > FIELD_MAX) ||
 			(v != null && typeof v === "object")
-				? `[${typeof v === "string" ? v.length + " chars" : "omitted"}]`
+				? `[${typeof v === "string" ? `${v.length} chars` : "omitted"}]`
 				: v;
 	}
 
@@ -394,8 +405,10 @@ export function trimEventData(data) {
 // Final serialization with the hard byte cap as a last line of defense: if even the trimmed
 // object exceeds EVENT_DATA_MAX (pathological key counts), collapse to a tiny stub recording
 // only which keys changed. Guarantees a bounded per-event payload no matter the input.
-export function serializeEventData(data) {
-	if (data == null) return null;
+function serializeEventData(data) {
+	if (data == null) {
+		return null;
+	}
 
 	let s = JSON.stringify(trimEventData(data));
 
@@ -411,34 +424,34 @@ export function serializeEventData(data) {
 // Bounding: retain at most this many events per task. The events log is an audit/history
 // substrate (design: "basis for git export + future sync") with NO live app consumer, so a
 // rolling window per task is safe — we keep the most recent N plus the ORIGINAL create anchor.
-export const EVENT_KEEP_PER_TASK = 200;
+const EVENT_KEEP_PER_TASK = 200;
 
-// Archive watermark: the max events.id written to the NAS archive (scripts/archive-events.mjs).
+// Archive watermark: the max events.id written to the archive (scripts/archive-events.mjs).
 // The pruner NEVER deletes an event above this, so the live DB only ever sheds rows already
 // preserved off-box. With watermark 0 (archiver never ran) the pruner deletes NOTHING — the
 // safe default (events accumulate, slim, until the nightly archiver advances the watermark).
-const _wmGet = db.prepare("SELECT value FROM meta WHERE key='events_archived_through'");
+const wmGet = db.prepare("SELECT value FROM meta WHERE key='events_archived_through'");
 // Monotonic: the watermark can only move FORWARD (guards against a late/overlapping writer
 // moving it backward, which would re-expose archived rows to re-pruning churn).
-const _wmSet = db.prepare(
+const wmSet = db.prepare(
 	"INSERT INTO meta (key,value) VALUES ('events_archived_through',@v) " +
 		"ON CONFLICT(key) DO UPDATE SET value=@v WHERE CAST(@v AS INTEGER) > CAST(value AS INTEGER)",
 );
 
 export function getArchiveWatermark() {
-	const r = _wmGet.get();
+	const r = wmGet.get();
 
 	return r ? Number(r.value) || 0 : 0;
 }
 
 export function setArchiveWatermark(id) {
-	_wmSet.run({ v: String(Number(id) || 0) });
+	wmSet.run({ v: String(Number(id) || 0) });
 
 	return getArchiveWatermark();
 }
 
 // Prune ONE task's events down to the keep-window, atomically — but ONLY rows at/below the
-// archive watermark (already on the NAS). Preserves the EARLIEST 'create' anchor; later/dup
+// archive watermark (already on the archive). Preserves the EARLIEST 'create' anchor; later/dup
 // 'create' rows are prunable like any other event so they can't accumulate unbounded.
 const pruneStmt = db.prepare(`
   DELETE FROM events
@@ -450,12 +463,14 @@ const pruneStmt = db.prepare(`
      AND id != (SELECT MIN(id) FROM events WHERE task_id = @tid AND type = 'create')`);
 
 export function pruneTaskEvents(tid, keep = EVENT_KEEP_PER_TASK) {
-	if (tid == null) return 0;
+	if (tid == null) {
+		return 0;
+	}
 
 	return pruneStmt.run({ tid, keep, wm: getArchiveWatermark() }).changes;
 }
 
-// --- helpers for the NAS event archiver (scripts/archive-events.mjs) — kept here so the
+// --- helpers for the archive event archiver (scripts/archive-events.mjs) — kept here so the
 // archive/reclaim path shares this module's connection (WAL, busy_timeout) and never forks a
 // divergent second code path (the task-284 lesson). ---
 // A batch of events strictly above `afterId`, oldest-first (id cursor → bounded memory on the
@@ -497,7 +512,9 @@ const log = (task_id, type, data) => {
 		if (n >= PRUNE_EVERY) {
 			pruneTaskEvents(task_id);
 			writeCounts.set(task_id, 0);
-		} else writeCounts.set(task_id, n);
+		} else {
+			writeCounts.set(task_id, n);
+		}
 	}
 
 	return r;
@@ -512,7 +529,6 @@ const whoFilter = (a) => (a ? "AND assignee=@a" : "");
 // visibility filter for HUMAN web views: pass the logged-in user; omit for agents (they see all).
 const vis = (me) => (me ? "AND (visibility='shared' OR owner=@me)" : "");
 const qargs = (p, me, a) => ({ ...(p ? { p } : {}), ...(me ? { me } : {}), ...(a ? { a } : {}) });
-const args = (p) => (p ? { p } : {});
 // archive: a project with archived_at SET is hidden from every ACTIVE task view (restorable).
 // NULL-project guard: bare `project_id NOT IN (subq)` would drop NULL-project tasks (NULL NOT IN => NULL).
 const NOTARCHIVED =
@@ -527,7 +543,9 @@ export const getTask = (id) => db.prepare("SELECT * FROM tasks WHERE id=?").get(
 export function canWrite(id, me) {
 	const t = db.prepare("SELECT owner, visibility FROM tasks WHERE id=?").get(id);
 
-	if (!t) return false;
+	if (!t) {
+		return false;
+	}
 
 	return !(t.visibility === "private" && t.owner && t.owner !== me);
 }
@@ -541,13 +559,15 @@ export function canWrite(id, me) {
 export function canRead(id, me) {
 	const t = db.prepare("SELECT owner, visibility FROM tasks WHERE id=?").get(id);
 
-	if (!t) return false;
+	if (!t) {
+		return false;
+	}
 
 	return !(t.visibility === "private" && t.owner && t.owner !== me);
 }
 
 // Strip the ONE server-only secret from anything bound for the browser: claim_token.
-// It's the live lease capability claimTask/reportTask authenticate with — shipping it
+// It is the live lease capability token — shipping it
 // via SELECT * would let any viewer hijack a worker's claim. claimed_by and
 // lease_expires_at are NOT secrets: knowing either enables no action without the token,
 // so they ship to the UI on purpose — claimed_by drives the fleet board's agent
@@ -556,12 +576,18 @@ export function canRead(id, me) {
 const SECRET_COLS = new Set(["claim_token"]);
 
 export function deepScrub(v) {
-	if (Array.isArray(v)) return v.map(deepScrub);
+	if (Array.isArray(v)) {
+		return v.map(deepScrub);
+	}
 
 	if (v && typeof v === "object") {
 		const o = {};
 
-		for (const k of Object.keys(v)) if (!SECRET_COLS.has(k)) o[k] = deepScrub(v[k]);
+		for (const k of Object.keys(v)) {
+			if (!SECRET_COLS.has(k)) {
+				o[k] = deepScrub(v[k]);
+			}
+		}
 
 		return o;
 	}
@@ -592,7 +618,9 @@ export function addBlocker(task_id, blocker_id) {
 	task_id = Number(task_id);
 	blocker_id = Number(blocker_id);
 
-	if (!task_id || !blocker_id || task_id === blocker_id) return false; // no self-block
+	if (!task_id || !blocker_id || task_id === blocker_id) {
+		return false;
+	} // no self-block
 
 	db.prepare("INSERT OR IGNORE INTO task_blockers (task_id,blocker_id) VALUES (?,?)").run(
 		task_id,
@@ -635,11 +663,13 @@ export const blocks = (id, me) =>
 // --- typed NON-blocking provenance links (task_links) ---
 // addLink: record a typed edge. Self-links and bad ids are rejected; UNIQUE makes it idempotent.
 // Keeps the event payload TINY (ids + rel only, never task bodies — task-340 bloat rule).
-export function addLink(task_id, related_id, rel = "discovered_from") {
+function addLink(task_id, related_id, rel = "discovered_from") {
 	task_id = Number(task_id);
 	related_id = Number(related_id);
 
-	if (!task_id || !related_id || task_id === related_id || !rel) return false;
+	if (!task_id || !related_id || task_id === related_id || !rel) {
+		return false;
+	}
 
 	db.prepare("INSERT OR IGNORE INTO task_links (task_id,related_id,rel) VALUES (?,?,?)").run(
 		task_id,
@@ -652,10 +682,6 @@ export function addLink(task_id, related_id, rel = "discovered_from") {
 	return true;
 }
 
-export const removeLink = (task_id, related_id, rel = "discovered_from") =>
-	db
-		.prepare("DELETE FROM task_links WHERE task_id=? AND related_id=? AND rel=?")
-		.run(Number(task_id), Number(related_id), rel).changes > 0;
 // discoveredFrom: the task(s) THIS one was discovered from (the parent provenance).
 export const discoveredFrom = (id, me, rel = "discovered_from") =>
 	db
@@ -754,17 +780,6 @@ export function deleteProject(id) {
 	db.prepare("DELETE FROM projects WHERE id=?").run(id);
 }
 
-// one-time classify: a project with NO shared items is an operator-private (covers the import bookkeeping + empty leaks)
-export function classifyProjectPrivacy() {
-	return db
-		.prepare(
-			`UPDATE projects SET owner='alice', visibility='private'
-     WHERE visibility!='private'
-       AND (SELECT count(*) FROM tasks WHERE tasks.project_id=projects.id AND tasks.visibility!='private')=0`,
-		)
-		.run().changes;
-}
-
 export const getProjectByName = (name) =>
 	db.prepare("SELECT * FROM projects WHERE name=?").get(name);
 
@@ -830,7 +845,9 @@ export const searchTasks = (q, me) => {
 	const term = `%${String(q || "").replace(/[\\%_]/g, "\\$&")}%`;
 	const params = { q: term };
 
-	if (me) params.me = me;
+	if (me) {
+		params.me = me;
+	}
 
 	return db
 		.prepare(
@@ -900,31 +917,36 @@ export const blockedList = (p, me, a) => {
 		)
 		.all(qargs(p, me, a));
 
-	if (!rows.length) return rows;
+	if (rows.length === 0) {
+		return rows;
+	}
 
 	const idp = {};
 
 	rows.forEach((r, i) => {
-		idp["t" + i] = r.id;
+		idp[`t${i}`] = r.id;
 	});
 
-	const placeholders = rows.map((_, i) => "@t" + i).join(",");
+	const placeholders = rows.map((_, i) => `@t${i}`).join(",");
 	const edges = db
 		.prepare(
-			`SELECT b.task_id AS _owner, t.* FROM task_blockers b JOIN tasks t ON t.id=b.blocker_id
+			`SELECT b.task_id AS owner, t.* FROM task_blockers b JOIN tasks t ON t.id=b.blocker_id
       WHERE b.task_id IN (${placeholders}) ${vis(me)} ${NOTARCHIVED} ORDER BY t.id`,
 		)
 		.all({ ...idp, ...(me ? { me } : {}) });
 	const byOwner = new Map();
 
 	for (const e of edges) {
-		const owner = e._owner;
+		const owner = e.owner;
 
-		delete e._owner;
+		delete e.owner;
 		const arr = byOwner.get(owner);
 
-		if (arr) arr.push(e);
-		else byOwner.set(owner, [e]);
+		if (arr) {
+			arr.push(e);
+		} else {
+			byOwner.set(owner, [e]);
+		}
 	}
 
 	return rows.map((r) => ({ ...r, blockers: byOwner.get(r.id) || [] }));
@@ -966,17 +988,19 @@ export const openQuestions = (p, me, a) =>
 // Answer a question: only valid for kind='question', and an empty answer is rejected (an
 // empty value would otherwise mark the question done with no recorded decision). task-302.
 export function answerQuestion(id, value, answerAt = null) {
-	if (value == null || String(value).trim() === "")
+	if (value == null || String(value).trim() === "") {
 		return { ok: false, reason: "empty_answer", message: "An answer value is required." };
+	}
 
 	const t = getTask(id);
 
-	if (t?.kind !== "question")
+	if (t?.kind !== "question") {
 		return {
 			ok: false,
 			reason: "not_a_question",
 			message: "answerQuestion only applies to kind=question.",
 		};
+	}
 
 	return updateTask(id, {
 		answer: value,
@@ -987,7 +1011,6 @@ export function answerQuestion(id, value, answerAt = null) {
 
 export const createDoc = (project_id, title, body, created_by = "") =>
 	createTask({ kind: "doc", title, body, status: "todo", project_id, created_by });
-export const createPlanDoc = createDoc;
 
 export function createQuestion(project_id, title, context, options, created_by = "") {
 	const id = createTask({
@@ -1000,35 +1023,6 @@ export function createQuestion(project_id, title, context, options, created_by =
 	});
 
 	updateTask(id, { options: JSON.stringify(options || []) });
-
-	return id;
-}
-
-export function createDecision(project_id, plan_id, title, rationale, chosenOption, who, when) {
-	const id = createQuestion(
-		project_id,
-		title,
-		rationale,
-		[{ value: chosenOption, label: chosenOption }],
-		who,
-	);
-
-	updateTask(id, { parent_id: plan_id, answer: chosenOption, answer_at: when, status: "done" });
-
-	return id;
-}
-
-export function createPlanQuestion(
-	project_id,
-	plan_id,
-	title,
-	context = "",
-	options = [],
-	created_by = "",
-) {
-	const id = createQuestion(project_id, title, context, options, created_by);
-
-	updateTask(id, { parent_id: plan_id });
 
 	return id;
 }
@@ -1066,8 +1060,11 @@ function childMapByParent(me) {
 	for (const r of rows) {
 		const arr = m.get(r.parent_id);
 
-		if (arr) arr.push(r);
-		else m.set(r.parent_id, [r]);
+		if (arr) {
+			arr.push(r);
+		} else {
+			m.set(r.parent_id, [r]);
+		}
 	}
 
 	return m;
@@ -1082,7 +1079,7 @@ const attachKids = (rows, map, depth = 0) =>
 		kids: depth >= 7 ? [] : attachKids(map.get(r.id) || [], map, depth + 1),
 	}));
 // Top-level rows + their full (visible, active) subtrees — one preload, then assemble.
-const withKids = (rows, me) => (rows.length ? attachKids(rows, childMapByParent(me)) : rows);
+const withKids = (rows, me) => (rows.length > 0 ? attachKids(rows, childMapByParent(me)) : rows);
 
 // One task's children + descendants (the task/[id] relations panel). Same one-query model.
 export const children = (pid, me) => {
@@ -1092,7 +1089,7 @@ export const children = (pid, me) => {
 		)
 		.all({ pid, ...(me ? { me } : {}) });
 
-	return roots.length ? attachKids(roots, childMapByParent(me)) : roots;
+	return roots.length > 0 ? attachKids(roots, childMapByParent(me)) : roots;
 };
 
 // Sub-tasks for the detail page hierarchy section: ALL statuses (incl. done/dropped) so a
@@ -1120,7 +1117,9 @@ export const planQuestions = (pid, me) =>
 export const parentOf = (childId, me) => {
 	const c = db.prepare("SELECT parent_id FROM tasks WHERE id=?").get(childId);
 
-	if (!c?.parent_id) return null;
+	if (!c?.parent_id) {
+		return null;
+	}
 
 	return (
 		db
@@ -1136,14 +1135,6 @@ export const parentOf = (childId, me) => {
 export const taskEvents = (tid) =>
 	db.prepare("SELECT id, type, data, at FROM events WHERE task_id=? ORDER BY id").all(tid);
 
-// The agent query (MCP get_ready, phase 2): actionable, unblocked, up-next first then by manual rank.
-export const ready = (p) =>
-	db
-		.prepare(
-			`SELECT * FROM tasks WHERE status IN ('todo','doing') AND (blocked_on='' OR blocked_on IS NULL) ${where(p)} ${NOTARCHIVED} ORDER BY up_next DESC, rank, priority`,
-		)
-		.all(args(p));
-
 // append to the end of the Up Next order — scoped to ACTIVE rows so a closed (done/dropped)
 // task's stale rank can't push the next item's rank arbitrarily high and break manual ordering (task-323).
 export const nextUpNextRank = () =>
@@ -1153,7 +1144,9 @@ export const nextUpNextRank = () =>
 export function ensureProject(name, backend = "local_private", opts = {}) {
 	const found = getProjectByName(name);
 
-	if (found) return found.id;
+	if (found) {
+		return found.id;
+	}
 
 	// create-only owner/visibility: the import sync passes {owner:'alice',visibility:'private'}
 	// so a project auto-created to hold a PRIVATE mirrored doc isn't minted 'shared' (which
@@ -1172,7 +1165,7 @@ export function ensureProject(name, backend = "local_private", opts = {}) {
 // erroring on a floating task (which would block the capture path), unparented work
 // lands in a single, sane catch-all project so nothing goes truly orphaned. Lazily
 // created on first use; safe/reversible (just another shared project).
-export const DEFAULT_PROJECT = "inbox";
+const DEFAULT_PROJECT = "inbox";
 export const defaultProjectId = () => ensureProject(DEFAULT_PROJECT);
 
 export function createTask(t) {
@@ -1181,11 +1174,12 @@ export function createTask(t) {
 	// parent project. Enforced HERE, the single helper every create path funnels through (web /new,
 	// MCP file, triage, subtask), so no UI layer can quietly re-introduce project-less tasks. Ideas,
 	// docs and questions may be project-less pre-triage; only kind='task' is gated.
-	const _pid =
+	const projectId =
 		t.project_id && typeof t.project_id === "object" ? t.project_id.id : (t.project_id ?? null);
 
-	if (kind === "task" && !_pid)
+	if (kind === "task" && !projectId) {
 		throw new Error("A task must have a parent project (project_id is required).");
+	}
 
 	const r = db
 		.prepare(
@@ -1195,7 +1189,7 @@ export function createTask(t) {
        @owner_machine,@suggested_agent,@effort,@parallel_group)`,
 		)
 		.run({
-			project_id: _pid,
+			project_id: projectId,
 			kind,
 			title: t.title,
 			body: t.body ?? "",
@@ -1216,12 +1210,14 @@ export function createTask(t) {
 	log(id, "create", t);
 
 	// typed provenance: if this task was discovered while working another, record it (non-blocking).
-	if (t.discovered_from) addLink(id, t.discovered_from, "discovered_from");
+	if (t.discovered_from) {
+		addLink(id, t.discovered_from, "discovered_from");
+	}
 
 	return id;
 }
 
-const PATCHABLE = [
+const PATCHABLE = new Set([
 	"title",
 	"body",
 	"status",
@@ -1257,10 +1253,7 @@ const PATCHABLE = [
 	"effort",
 	"parallel_group",
 	"close_reason",
-];
-
-export const getTaskBySource = (source) =>
-	db.prepare("SELECT * FROM tasks WHERE source=?").get(source);
+]);
 
 // When a task closes, free anything it was blocking that now has no live blockers (blocked -> todo).
 function cascadeUnblock(blockerId) {
@@ -1288,9 +1281,11 @@ export const updateTask = db.transaction((id, patch) => {
 		patch = { ...patch, claimed_by: "", claim_token: "", lease_expires_at: null };
 	}
 
-	const cols = Object.keys(patch).filter((k) => PATCHABLE.includes(k));
+	const cols = Object.keys(patch).filter((k) => PATCHABLE.has(k));
 
-	if (!cols.length) return;
+	if (cols.length === 0) {
+		return;
+	}
 
 	// Guard: status='blocked' requires >=1 live blocker. No-op (with a clear return) otherwise.
 	if (patch.status === "blocked" && unfinishedBlockers(id).length === 0) {
@@ -1310,12 +1305,13 @@ export const updateTask = db.transaction((id, patch) => {
 				? patch.project_id
 				: db.prepare("SELECT project_id FROM tasks WHERE id=?").get(id)?.project_id;
 
-		if (!pid)
+		if (!pid) {
 			return {
 				ok: false,
 				reason: "no_project",
 				message: "Cannot make this a task without a parent project — set a project first.",
 			};
+		}
 	}
 
 	db.prepare(
@@ -1325,71 +1321,37 @@ export const updateTask = db.transaction((id, patch) => {
 	log(id, "update", patch);
 
 	// Auto-unblock: closing this task frees its dependents.
-	if (patch.status === "done" || patch.status === "dropped") cascadeUnblock(id);
+	if (patch.status === "done" || patch.status === "dropped") {
+		cascadeUnblock(id);
+	}
 
 	return { ok: true };
 });
 
-// import- bookkeeping: records the field values the mirror last wrote, used as the
-// 3-way-merge base in import helper (task-346). Deliberately a raw write — it must NOT log
-// an event or bump updated_at, since it's invisible internal state, not a user-visible change.
-export const setSyncSnapshot = (id, snapshot) =>
-	db.prepare("UPDATE tasks SET synced_snapshot=? WHERE id=?").run(snapshot, id);
-
-// Run fn as a single IMMEDIATE transaction (takes the write lock up front). The import bookkeeping
-// uses this to do its read → 3-way-compare → patch → snapshot-advance atomically: the row is
-// re-read INSIDE the txn, so a human edit can't land between the read and the write and get
-// clobbered from a stale snapshot (task-346, the stale-read race).
-export const withTxn = (fn) => db.transaction(fn).immediate();
-
-// --- delegation: assignment, atomic claim/lease, report-back, verify, reap ---
-
-export function assignTask(id, assignee, capability) {
-	updateTask(id, { assignee, status: "todo", ...(capability ? { capability } : {}) });
-}
-
-// Atomic claim: better-sqlite3 serializes writes, so this guarded UPDATE can't double-claim.
-// Returns true iff THIS worker won the claim.
-export function claimTask(id, worker, token) {
-	const r = db
-		.prepare(
-			`UPDATE tasks SET status='doing', claimed_by=@worker, claim_token=@token,
-       lease_expires_at=datetime('now','+30 minutes'), updated_at=datetime('now')
-     WHERE id=@id AND assignee=@worker AND status='todo'
-       AND (lease_expires_at IS NULL OR lease_expires_at < datetime('now'))`,
-		)
-		.run({ id, worker, token });
-
-	if (r.changes) log(id, "claim", { worker });
-
-	return r.changes > 0;
-}
-
 // Lockless, assignee-agnostic claim of THE next Up Next task (compare-and-set).
-// Distinct from claimTask (which is scoped to a pre-assigned worker): this grabs the
-// top of the Up Next queue regardless of assignee, for opportunistic workers (the MCP
-// `claim` tool). The single-statement guarded UPDATE is atomic under better-sqlite3's
-// single writer, so two callers can't grab the same row. Optional filters narrow the
-// candidate pool. Logs a 'claim' audit event on success (parity with claimTask).
+// This grabs the top of the Up Next queue for opportunistic workers (the MCP `claim`
+// tool). The single-statement guarded UPDATE is atomic under better-sqlite3's single
+// writer, so two callers can't grab the same row. Optional filters narrow the candidate
+// pool and a successful claim records an audit event.
 // Returns the claimed row (with its fresh claim_token) or null if nothing was free.
 export const claimNext = db.transaction(
 	(worker, { project_id = null, capability = null, assignee = null } = {}) => {
 		const f = [];
-		const args = { worker, tok: crypto.randomUUID() };
+		const claimArgs = { worker, tok: crypto.randomUUID() };
 
 		if (project_id != null) {
 			f.push("AND project_id=@pid");
-			args.pid = project_id;
+			claimArgs.pid = project_id;
 		}
 
 		if (capability) {
 			f.push("AND capability=@cap");
-			args.cap = capability;
+			claimArgs.cap = capability;
 		}
 
 		if (assignee) {
 			f.push("AND assignee=@asg");
-			args.asg = assignee;
+			claimArgs.asg = assignee;
 		}
 
 		// CAS + audit log run in one transaction so a claimed task always has its 'claim' event
@@ -1404,33 +1366,15 @@ export const claimNext = db.transaction(
                   ${f.join(" ")}
                 ORDER BY rank, priority LIMIT 1)
     RETURNING *`)
-			.get(args);
+			.get(claimArgs);
 
-		if (r) log(r.id, "claim", { worker });
+		if (r) {
+			log(r.id, "claim", { worker });
+		}
 
 		return r || null;
 	},
 );
-
-// Worker reports back. Only the current lease holder may report.
-export function reportTask(id, worker, token, { status, result_summary, blocked_on } = {}) {
-	const t = getTask(id);
-
-	if (!t || t.claimed_by !== worker || (token && t.claim_token !== token)) return false;
-
-	const patch = {};
-
-	if (status) patch.status = status; // review | blocked | done
-
-	if (result_summary != null) patch.result_summary = result_summary;
-
-	if (blocked_on != null) patch.blocked_on = blocked_on;
-
-	updateTask(id, patch);
-	log(id, "report", { worker, ...patch });
-
-	return true;
-}
 
 // Close a task with a MANDATORY reason (the "why" ledger — fleet-dispatcher Phase 1).
 // Stores the reason in close_reason AND emits a tiny 'closed' event {reason, by}. The new
@@ -1441,35 +1385,24 @@ export function reportTask(id, worker, token, { status, result_summary, blocked_
 export function closeTask(id, { reason, by = "", status = "done" } = {}) {
 	reason = (reason ?? "").toString().trim();
 
-	if (!reason)
+	if (!reason) {
 		return { ok: false, reason: "reason_required", message: "A close reason is required." };
+	}
 
-	if (status !== "done" && status !== "dropped") status = "done";
+	if (status !== "done" && status !== "dropped") {
+		status = "done";
+	}
 
 	// updateTask logs an 'update' event; add a dedicated tiny 'closed' event for the why-ledger.
 	const res = updateTask(id, { status, close_reason: reason });
 
-	if (res?.ok === false) return res; // e.g. nonexistent → no cols patched
+	if (res?.ok === false) {
+		return res;
+	} // e.g. nonexistent → no cols patched
 
 	log(id, "closed", { reason: reason.slice(0, 200), by });
 
 	return res ?? { ok: true };
-}
-
-// an agent verifies a reviewed task against acceptance_criteria, then closes or bounces it back.
-export function verifyTask(id, ok) {
-	updateTask(
-		id,
-		ok
-			? { verification_status: "verified", status: "done" }
-			: {
-					verification_status: "rejected",
-					status: "todo",
-					claimed_by: "",
-					claim_token: "",
-					lease_expires_at: null,
-				},
-	);
 }
 
 // Release expired leases back to todo so the lead can reassign. Optional claimed_by
@@ -1490,184 +1423,6 @@ export function reapLeases({ claimed_by = null } = {}) {
 // Nothing stopped an out-of-lane agent (e.g. 'agent-f', work-only) from claiming a lab task. These
 // functions make the lane a gate the DISPATCHER enforces server-side: an agent's capabilities are
 // looked up HERE, never trusted from the caller, so the agent cannot widen its own pool.
-
-// Normalize a handle to the canonical key (lowercase, trimmed). Mirrors fleet.js, which lowercases
-// handles read off the status files — keep the registry key in lockstep so lookups always hit.
-const normHandle = (h) =>
-	String(h ?? "")
-		.trim()
-		.toLowerCase();
-// Parse a CSV capability set → lowercase, trimmed, de-duped, empties dropped. Tolerant of the
-// free-text column (spaces, trailing commas, mixed case). Used for both agent.capabilities and
-// (degenerately) a task's single capability tag.
-const capSet = (csv) =>
-	new Set(
-		String(csv ?? "")
-			.split(",")
-			.map((s) => s.trim().toLowerCase())
-			.filter(Boolean),
-	);
-
-// Insert-or-update one agent by handle. Only the fields PRESENT in the arg are written on update
-// (so a partial upsert — e.g. just flipping autonomy — doesn't wipe capabilities). updated_at is
-// always bumped. active accepts a bool/0/1; an explicit value wins, else defaults to 1 on insert.
-// Returns the stored row.
-export function upsertAgent({
-	handle,
-	display_name,
-	host,
-	role,
-	lane,
-	capabilities,
-	autonomy,
-	active,
-} = {}) {
-	const h = normHandle(handle);
-
-	if (!h) throw new Error("upsertAgent requires a handle");
-
-	const existing = db.prepare("SELECT * FROM agents WHERE handle=?").get(h);
-	// coalesce: present-in-arg → use it; else keep existing; else the column default.
-	const pick = (val, cur, def) => (val !== undefined ? val : existing ? cur : def);
-	const row = {
-		handle: h,
-		display_name: pick(display_name, existing?.display_name, ""),
-		host: pick(host, existing?.host, ""),
-		role: pick(role, existing?.role, ""),
-		lane: pick(lane, existing?.lane, "open"),
-		capabilities: pick(capabilities, existing?.capabilities, ""),
-		autonomy: pick(autonomy, existing?.autonomy, "ask"),
-		// active: normalize any truthy/0/1/false to an integer; default active on first insert.
-		active: active !== undefined ? (active ? 1 : 0) : existing ? existing.active : 1,
-	};
-
-	db.prepare(
-		`INSERT INTO agents (handle,display_name,host,role,lane,capabilities,autonomy,active)
-       VALUES (@handle,@display_name,@host,@role,@lane,@capabilities,@autonomy,@active)
-     ON CONFLICT(handle) DO UPDATE SET
-       display_name=@display_name, host=@host, role=@role, lane=@lane,
-       capabilities=@capabilities, autonomy=@autonomy, active=@active,
-       updated_at=datetime('now')`,
-	).run(row);
-
-	return getAgent(h);
-}
-
-export const listAgents = () => db.prepare("SELECT * FROM agents ORDER BY handle").all();
-export const getAgent = (handle) =>
-	db.prepare("SELECT * FROM agents WHERE handle=?").get(normHandle(handle));
-export const setAgentActive = (handle, on) =>
-	db
-		.prepare("UPDATE agents SET active=@a, updated_at=datetime('now') WHERE handle=@h")
-		.run({ h: normHandle(handle), a: on ? 1 : 0 }).changes > 0;
-
-// THE LANE GATE. true iff `agent` (by handle) may work `task`. Rules:
-//   * unknown agent OR active=0 → false (a ghost/retired agent works nothing).
-//   * task.capability === '' (or null) → OPEN: any active agent may work it.
-//   * else the task's single capability tag MUST be in the agent's capabilities set.
-// The agent's capabilities come from the REGISTRY, never the caller — that's the enforcement:
-// give 'agent-f' capabilities WITHOUT 'lab', tag lab tasks capability='lab' → agent-f is blocked here.
-// Accepts a task row OR a bare task id (re-read for the latter). A missing task → false.
-export function agentCan(handle, task) {
-	const agent = getAgent(handle);
-
-	if (!agent?.active) return false;
-
-	const t = task && typeof task === "object" ? task : getTask(task);
-
-	if (!t) return false;
-
-	const need = String(t.capability ?? "")
-		.trim()
-		.toLowerCase();
-
-	if (!need) return true; // OPEN task → anyone active
-
-	return capSet(agent.capabilities).has(need); // gated task → must hold the tag
-}
-
-// Atomic, lane-bounded claim of the next Up Next task THIS agent may work. Like claimNext, but the
-// candidate pool is filtered by the agent's REGISTERED capabilities (looked up server-side — the
-// agent does NOT pass its own filter, the whole point). Inactive/paused agent → claims nothing.
-// Same single-statement guarded UPDATE under better-sqlite3's single writer → no double-claim; sets
-// the 30-min lease + logs the 'claim' event. Returns the claimed row (with its fresh token) or null.
-export const claimNextForAgent = db.transaction((handle, { project_id = null } = {}) => {
-	const agent = getAgent(handle);
-
-	if (!agent?.active || agent.autonomy === "paused") return null;
-
-	const caps = capSet(agent.capabilities);
-	const args = { worker: agent.handle, tok: crypto.randomUUID() };
-	const f = [];
-
-	if (project_id != null) {
-		f.push("AND project_id=@pid");
-		args.pid = project_id;
-	}
-
-	// The lane gate, IN SQL: a candidate is eligible iff its capability is empty (OPEN) OR the
-	// (lowercased) tag is one this agent holds. We can't bind a SQL "IN (set)" of arbitrary size
-	// cleanly across drivers, so enumerate the agent's tags as @c0,@c1,...; an agent with NO caps
-	// can still take OPEN tasks (the empty-capability branch). Comparison is lowercased both sides.
-	const capParams = [];
-	let i = 0;
-
-	for (const c of caps) {
-		const k = "c" + i++;
-
-		args[k] = c;
-		capParams.push("@" + k);
-	}
-
-	const capPred = capParams.length
-		? `AND (capability='' OR capability IS NULL OR lower(trim(capability)) IN (${capParams.join(",")}))`
-		: `AND (capability='' OR capability IS NULL)`;
-	const r = db
-		.prepare(`
-    UPDATE tasks SET status='doing', claimed_by=@worker, claim_token=@tok,
-      lease_expires_at=datetime('now','+30 minutes'), updated_at=datetime('now')
-    WHERE id = (SELECT id FROM tasks
-                WHERE up_next=1 AND status='todo' AND kind IN ('task','idea')
-                  AND (lease_expires_at IS NULL OR lease_expires_at < datetime('now'))
-                  ${capPred}
-                  ${f.join(" ")}
-                ORDER BY rank, priority LIMIT 1)
-    RETURNING *`)
-		.get(args);
-
-	if (r) log(r.id, "claim", { worker: agent.handle, via: "claimNextForAgent" });
-
-	return r || null;
-});
-
-// Mayor push-assignment WITH the lane gate. Validates agentCan() FIRST; rejects an out-of-lane (or
-// unknown/inactive) agent with {ok:false,reason} instead of routing work it can't do. On success,
-// reuses assignTask (assignee + status='todo'). Returns {ok:true,...} or {ok:false,reason,message}.
-export function assignTaskToAgent(id, handle) {
-	const h = normHandle(handle);
-	const t = getTask(id);
-
-	if (!t) return { ok: false, reason: "no_task", message: `No task #${id}.` };
-
-	const agent = getAgent(h);
-
-	if (!agent) return { ok: false, reason: "unknown_agent", message: `No registered agent '${h}'.` };
-
-	if (!agent.active)
-		return { ok: false, reason: "inactive_agent", message: `Agent '${h}' is inactive.` };
-
-	if (!agentCan(h, t)) {
-		return {
-			ok: false,
-			reason: "out_of_lane",
-			message: `Agent '${h}' may not work capability='${t.capability || ""}' (lane gate).`,
-		};
-	}
-
-	assignTask(id, agent.handle, undefined); // keep the task's existing capability tag
-
-	return { ok: true, id: Number(id), assignee: agent.handle };
-}
 
 // --- artifacts / pages gallery ---------------------------------------------
 // Human visibility gate, identical rule to tasks: a private artifact is owner-only.
@@ -1693,75 +1448,12 @@ export const getArtifact = (slug, me) =>
 		)
 		.get({ slug, ...(me ? { me } : {}) });
 
-// Upsert by slug — used by the seed script and any future writer. Content stays in the DB.
-export function upsertArtifact({
-	slug,
-	title,
-	description = "",
-	kind = "markdown",
-	content,
-	source = "",
-	owner = "",
-	visibility = "shared",
-}) {
-	if (!slug || !title || !content) throw new Error("artifact requires slug, title, content");
-
-	if (kind !== "markdown" && kind !== "html" && kind !== "interactive")
-		throw new Error("artifact kind must be markdown|html|interactive");
-
-	// validate enum (a typo'd visibility silently becoming owner-only — or worse, "shared" by
-	// accident — is an authz footgun; fail loudly instead). slug stays URL-clean.
-	if (visibility !== "shared" && visibility !== "private")
-		throw new Error("artifact visibility must be shared|private");
-
-	if (!/^[a-z0-9][a-z0-9-]*$/.test(slug))
-		throw new Error("artifact slug must be lowercase alphanumeric + dashes");
-
-	db.prepare(
-		`INSERT INTO artifacts (slug,title,description,kind,content,source,owner,visibility)
-       VALUES (@slug,@title,@description,@kind,@content,@source,@owner,@visibility)
-     ON CONFLICT(slug) DO UPDATE SET
-       title=@title, description=@description, kind=@kind, content=@content,
-       source=@source, owner=@owner, visibility=@visibility, updated_at=datetime('now')`,
-	).run({ slug, title, description, kind, content, source, owner, visibility });
-
-	return getArtifact(slug, null);
-}
-
-// --- mock sessions (decision layer over the gallery) -----------------------
-// A session poses visual questions whose options point at gallery artifacts. The picker UI
-// (the choose buttons) lives on the OUTER authenticated tasks page; the designs stay caged in
-// the gallery sandbox. createMockSession is author-side (an agent); recordMockChoice is the gated
-// write the picker page calls. me is ALWAYS required to record (fail-closed).
-export function createMockSession({ title, spec, created_by = "" }) {
-	if (!title || !spec) throw new Error("mock session requires title, spec");
-
-	const specObj = typeof spec === "string" ? JSON.parse(spec) : spec;
-
-	if (!Array.isArray(specObj.questions) || !specObj.questions.length)
-		throw new Error("spec needs questions[]");
-
-	for (const q of specObj.questions) {
-		if (!q.id || !q.prompt || !Array.isArray(q.options) || !q.options.length)
-			throw new Error("each question needs id, prompt, options[]");
-
-		for (const o of q.options)
-			if (!o.key || !o.label) throw new Error("each option needs key, label");
-	}
-
-	const token = crypto.randomBytes(9).toString("base64url"); // 12-char url id
-
-	db.prepare(
-		`INSERT INTO mock_sessions (token, title, spec, created_by) VALUES (@token,@title,@spec,@created_by)`,
-	).run({ token, title, spec: JSON.stringify(specObj), created_by });
-
-	return getMockSession(token);
-}
-
 export function getMockSession(token) {
 	const r = db.prepare("SELECT * FROM mock_sessions WHERE token=?").get(token);
 
-	if (!r) return undefined;
+	if (!r) {
+		return undefined;
+	}
 
 	return { ...r, spec: JSON.parse(r.spec), results: JSON.parse(r.results || "{}") };
 }
@@ -1772,16 +1464,22 @@ export function getMockSession(token) {
 // fully synchronous (better-sqlite3, no await between SELECT and UPDATE). Do NOT add an await
 // inside this function or two concurrent picks become a lost-update race.
 export function recordMockChoice({ token, questionId, choice, choices, comment = "", me }) {
-	if (!me) throw new Error("not authorized");
+	if (!me) {
+		throw new Error("not authorized");
+	}
 
 	const r = db.prepare("SELECT * FROM mock_sessions WHERE token=?").get(token);
 
-	if (!r) throw new Error("no such session");
+	if (!r) {
+		throw new Error("no such session");
+	}
 
 	const spec = JSON.parse(r.spec);
 	const q = (spec.questions || []).find((x) => x.id === questionId);
 
-	if (!q) throw new Error("no such question");
+	if (!q) {
+		throw new Error("no such question");
+	}
 
 	const results = JSON.parse(r.results || "{}");
 	const base = { comment: String(comment).slice(0, 2000), by: me, at: new Date().toISOString() };
@@ -1794,7 +1492,9 @@ export function recordMockChoice({ token, questionId, choice, choices, comment =
 
 		results[questionId] = { ...base, choices: arr };
 	} else {
-		if (choice && !q.options.some((o) => o.key === choice)) throw new Error("invalid choice");
+		if (choice && !q.options.some((o) => o.key === choice)) {
+			throw new Error("invalid choice");
+		}
 
 		results[questionId] = { ...base, choice: choice || null };
 	}
@@ -1826,36 +1526,7 @@ export function recordMockChoice({ token, questionId, choice, choices, comment =
 //     high-entropy secret (no early-exit on the application-supplied value; SQLite compares the
 //     stored 64-char hex, not the attacker's raw token). A DB read-out yields hashes, not links.
 //   * Validity is enforced IN SQL (revoked=0 AND not expired) so the public route can't forget a check.
-const sha256hex = (s) => crypto.createHash("sha256").update(String(s)).digest("hex");
-
-// Create a share for `slug`. Returns { token (RAW — show once), id, slug, expires_at }.
-// expires_at: pass an ISO/SQL UTC timestamp string or null. The CALLER (the page action) is
-// responsible for the canWrite/auth gate — this is a pure data op (mirrors createTask etc.).
-export function createArtifactShare({ slug, label = "", created_by = "", expires_at = null }) {
-	if (!slug) throw new Error("share requires slug");
-
-	// Don't mint a link for a slug that doesn't exist (defense-in-depth; the action also gates).
-	const exists = db.prepare("SELECT 1 FROM artifacts WHERE slug=?").get(slug);
-
-	if (!exists) throw new Error("no such artifact");
-
-	const token = crypto.randomBytes(32).toString("base64url"); // 256-bit secret
-	const token_hash = sha256hex(token);
-	const r = db
-		.prepare(
-			`INSERT INTO artifact_shares (slug, token_hash, label, created_by, expires_at)
-       VALUES (@slug, @token_hash, @label, @created_by, @expires_at)`,
-		)
-		.run({
-			slug,
-			token_hash,
-			label: label || "",
-			created_by: created_by || "",
-			expires_at: expires_at || null,
-		});
-
-	return { id: Number(r.lastInsertRowid), slug, token, expires_at: expires_at || null };
-}
+const sha256hex = (s) => createHash("sha256").update(String(s)).digest("hex");
 
 // Resolve a RAW token to its artifact — the public-route lookup. FAIL CLOSED: returns the
 // artifact row ONLY when a matching share exists, is NOT revoked, and is NOT expired; otherwise
@@ -1864,7 +1535,9 @@ export function createArtifactShare({ slug, label = "", created_by = "", expires
 // artifact (so a private artifact can be shared), and it can reach no other slug — the token row
 // names a single slug. Defensive: a non-string/empty token short-circuits to undefined.
 export function getArtifactByShareToken(token) {
-	if (!token || typeof token !== "string") return undefined;
+	if (!token || typeof token !== "string") {
+		return undefined;
+	}
 
 	const token_hash = sha256hex(token);
 	const share = db
@@ -1875,28 +1548,13 @@ export function getArtifactByShareToken(token) {
 		)
 		.get({ token_hash });
 
-	if (!share) return undefined;
+	if (!share) {
+		return undefined;
+	}
 
 	// getArtifact with me=null bypasses the human visibility gate — intentional: the share IS the grant.
 	return getArtifact(share.slug, null);
 }
-
-// List a single artifact's shares for the management UI (no token/hash leaves the server).
-export const listArtifactShares = (slug) =>
-	db
-		.prepare(
-			`SELECT id, label, created_by, created_at, expires_at, revoked,
-          (revoked=0 AND (expires_at IS NULL OR expires_at > datetime('now'))) AS active
-     FROM artifact_shares WHERE slug=@slug ORDER BY created_at DESC`,
-		)
-		.all({ slug });
-
-// Revoke one share BY ID, scoped to its slug (so a request can't revoke another artifact's share
-// by id alone — the page action passes the slug it's authorized for). Idempotent.
-export const revokeArtifactShare = (id, slug) =>
-	db
-		.prepare("UPDATE artifact_shares SET revoked=1 WHERE id=@id AND slug=@slug")
-		.run({ id: Number(id), slug }).changes > 0;
 
 // --- agent bearer tokens (agent-API: POST /api/agent/rpc) -------------------
 // Threat model mirrors artifact_shares: an SSO-EXEMPT route authenticated purely by a
@@ -1928,7 +1586,9 @@ db.exec(`
 export function mintAgentToken({ agent_name, scope_assignee = null, scope_projects = null } = {}) {
 	const name = String(agent_name ?? "").trim();
 
-	if (!name) throw new Error("mintAgentToken requires agent_name");
+	if (!name) {
+		throw new Error("mintAgentToken requires agent_name");
+	}
 
 	let projectsCsv = null;
 
@@ -1939,18 +1599,20 @@ export function mintAgentToken({ agent_name, scope_assignee = null, scope_projec
 			.map((s) => String(s).trim())
 			.filter(Boolean);
 
-		if (!list.length)
+		if (list.length === 0) {
 			throw new Error("scope_projects was supplied but empty — refusing to mint an unscoped token");
+		}
 
 		projectsCsv = list.join(",");
 	}
 
-	const assignee = scope_assignee != null ? String(scope_assignee).trim() : null;
+	const assignee = scope_assignee == null ? null : String(scope_assignee).trim();
 
-	if (scope_assignee != null && !assignee)
+	if (scope_assignee != null && !assignee) {
 		throw new Error("scope_assignee was supplied but empty — refusing to mint an unscoped token");
+	}
 
-	const token = crypto.randomBytes(32).toString("base64url"); // 256-bit secret, shown ONCE
+	const token = randomBytes(32).toString("base64url"); // 256-bit secret, shown ONCE
 	const r = db
 		.prepare(
 			`INSERT INTO agent_tokens (agent_name, token_sha256, scope_assignee, scope_projects)
@@ -1970,13 +1632,17 @@ export function mintAgentToken({ agent_name, scope_assignee = null, scope_projec
 // missing/non-string/unknown/revoked token — never a partial match. On a hit, stamps
 // last_used_at (usage audit trail). scope_projects is returned as a parsed array (or null).
 export function verifyAgentToken(token) {
-	if (!token || typeof token !== "string") return null;
+	if (!token || typeof token !== "string") {
+		return null;
+	}
 
 	const row = db
 		.prepare("SELECT * FROM agent_tokens WHERE token_sha256=? AND revoked_at IS NULL")
 		.get(sha256hex(token));
 
-	if (!row) return null;
+	if (!row) {
+		return null;
+	}
 
 	db.prepare("UPDATE agent_tokens SET last_used_at=datetime('now') WHERE id=?").run(row.id);
 
@@ -2005,68 +1671,6 @@ export function revokeAgentToken(idOrName) {
 		.run({ v: byId ? Number(idOrName) : String(idOrName) }).changes;
 }
 
-// An agent's own queue (for the SessionStart hook + the cockpit) — now LANE-AWARE. Returns the
-// tasks this agent is responsible for OR may opportunistically pick up, in two buckets:
-//   * assigned: open work whose assignee IS this agent (todo/doing/blocked), regardless of capability
-//     (a mayor push-assignment via assignTaskToAgent already passed the gate, so it stays visible).
-//   * claimable: UNASSIGNED Up Next tasks this agent MAY claim under the lane gate (capability empty,
-//     or a tag the agent holds) — exactly the pool claimNextForAgent would draw from.
-// Both buckets are also returned flattened as `tasks` (de-duped) for the simple legacy single-list
-// consumer. An unknown/inactive agent gets empty buckets (it owns nothing and may claim nothing).
-export function agentQueue(handle) {
-	const h = normHandle(handle);
-	const agent = getAgent(h);
-	const assigned = db
-		.prepare(
-			`SELECT * FROM tasks WHERE lower(assignee)=@h AND status IN ('todo','doing','blocked')
-       AND ${TASKISH} ${NOTARCHIVED} ORDER BY status, priority, rank`,
-		)
-		.all({ h });
-	// claimable only if the agent exists and is active (inactive owns its assigned but claims nothing).
-	let claimable = [];
-
-	if (agent?.active) {
-		const caps = capSet(agent.capabilities);
-		const args = {};
-		const capParams = [];
-		let i = 0;
-
-		for (const c of caps) {
-			const k = "c" + i++;
-
-			args[k] = c;
-			capParams.push("@" + k);
-		}
-
-		const capPred = capParams.length
-			? `AND (capability='' OR capability IS NULL OR lower(trim(capability)) IN (${capParams.join(",")}))`
-			: `AND (capability='' OR capability IS NULL)`;
-
-		claimable = db
-			.prepare(
-				`SELECT * FROM tasks
-        WHERE up_next=1 AND status='todo' AND kind IN ('task','idea')
-          AND (assignee='' OR assignee IS NULL)
-          AND (lease_expires_at IS NULL OR lease_expires_at < datetime('now'))
-          ${capPred}
-          ${NOTARCHIVED}
-        ORDER BY rank, priority`,
-			)
-			.all(args);
-	}
-
-	const seen = new Set(assigned.map((t) => t.id));
-	const tasks = [...assigned, ...claimable.filter((t) => !seen.has(t.id))];
-
-	return { assigned, claimable, tasks };
-}
-
-// Tasks awaiting the lead's verification.
-export const needsReview = () =>
-	db
-		.prepare(`SELECT * FROM tasks WHERE status='review' ${NOTARCHIVED} ORDER BY updated_at DESC`)
-		.all();
-
 // --- /board: the fleet at a glance (fleet-dispatcher Phase 2, #242) -----------
 // One aggregate so the board does a single load with no N+1. Everything respects
 // the HUMAN visibility gate (vis(me)) exactly like the main board — agents never
@@ -2082,7 +1686,7 @@ export const needsReview = () =>
 // (<5 min left → amber), else 'ok'. No lease set → null age, 'none' state.
 const SOON_S = 300; // 5 min: amber "lease nearly up" window
 
-export function boardLanes(me) {
+function boardLanes(me) {
 	const rows = db
 		.prepare(
 			`SELECT id, title, status, priority, project_id, assignee, claimed_by, lease_expires_at, updated_at, kind
@@ -2092,14 +1696,20 @@ export function boardLanes(me) {
 		)
 		.all(me ? { me } : {});
 	const nowMs = Date.now();
-	const toMs = (ts) => (ts ? new Date(ts.replace(" ", "T") + "Z").getTime() : null);
+	const toMs = (ts) => (ts ? new Date(`${ts.replace(" ", "T")}Z`).getTime() : null);
 	const lanes = new Map();
 
 	for (const r of rows) {
 		const exp = toMs(r.lease_expires_at);
 		const lease_age_s = exp == null ? null : Math.round((nowMs - exp) / 1000); // >0 = expired
 		const lease_state =
-			exp == null ? "none" : lease_age_s >= 0 ? "expired" : -lease_age_s <= SOON_S ? "soon" : "ok";
+			exp == null
+				? "none"
+				: lease_age_s >= 0
+					? "expired"
+					: Math.abs(lease_age_s) <= SOON_S
+						? "soon"
+						: "ok";
 		const who = (r.claimed_by || r.assignee || "").toLowerCase() || "(unassigned)";
 		const task = {
 			id: r.id,
@@ -2114,18 +1724,23 @@ export function boardLanes(me) {
 			lease_state,
 		};
 
-		if (!lanes.has(who)) lanes.set(who, { agent: who, tasks: [], expired: 0, soon: 0 });
+		if (!lanes.has(who)) {
+			lanes.set(who, { agent: who, tasks: [], expired: 0, soon: 0 });
+		}
 
 		const lane = lanes.get(who);
 
 		lane.tasks.push(task);
 
-		if (lease_state === "expired") lane.expired++;
-		else if (lease_state === "soon") lane.soon++;
+		if (lease_state === "expired") {
+			lane.expired++;
+		} else if (lease_state === "soon") {
+			lane.soon++;
+		}
 	}
 
 	// most-loaded agent first, with any expired-lease lane bubbled to the top (it wants attention)
-	return [...lanes.values()].sort(
+	return [...lanes.values()].toSorted(
 		(a, b) =>
 			b.expired - a.expired || b.tasks.length - a.tasks.length || a.agent.localeCompare(b.agent),
 	);
@@ -2134,7 +1749,7 @@ export function boardLanes(me) {
 // Stale/reaped log: 'doing' rows whose lease is already in the past (live reap
 // candidates — an agent's reapLeases() will free these), plus the recent 'closed'
 // event ledger (the "why" — reason + by). Two distinct sources, returned separately.
-export function staleLog(me, { closedLimit = 15 } = {}) {
+function staleLog(me, { closedLimit = 15 } = {}) {
 	const staleLeases = db
 		.prepare(
 			`SELECT id, title, assignee, claimed_by, lease_expires_at, project_id, priority
@@ -2145,7 +1760,7 @@ export function staleLog(me, { closedLimit = 15 } = {}) {
 		)
 		.all(me ? { me } : {});
 	const nowMs = Date.now();
-	const toMs = (ts) => (ts ? new Date(ts.replace(" ", "T") + "Z").getTime() : null);
+	const toMs = (ts) => (ts ? new Date(`${ts.replace(" ", "T")}Z`).getTime() : null);
 	const stale = staleLeases.map((r) => ({
 		id: r.id,
 		title: r.title,
@@ -2168,8 +1783,8 @@ export function staleLog(me, { closedLimit = 15 } = {}) {
 		)
 		.all({ lim: closedLimit, ...(me ? { me } : {}) })
 		.map((e) => {
-			let reason = "",
-				by = "";
+			let by = "",
+				reason = "";
 
 			try {
 				const d = JSON.parse(e.data || "{}");
@@ -2194,14 +1809,15 @@ export function staleLog(me, { closedLimit = 15 } = {}) {
 
 // Per-agent + global running counts. closedToday = 'closed' events since local-ish
 // midnight UTC (the DB stores UTC); cheap COUNT off the indexed events table.
-export function boardCounts(me) {
+function boardCounts(me) {
 	// per-status tallies in one pass over the visible task set
 	const byAgent = new Map();
-	const get = (a) => {
+	const get = (a = "") => {
 		const k = a || "(unassigned)";
 
-		if (!byAgent.has(k))
+		if (!byAgent.has(k)) {
 			byAgent.set(k, { agent: k, ready: 0, doing: 0, blocked: 0, review: 0, closedToday: 0 });
+		}
 
 		return byAgent.get(k);
 	};
@@ -2258,11 +1874,9 @@ export function boardCounts(me) {
 	return { global, byAgent: Object.fromEntries(byAgent) };
 }
 
-// Visibility-aware READY queue for the board. The agent ready() deliberately skips
-// the human vis() gate (agents see all); the board is a HUMAN view, so it must not
-// surface a private task. Same eligibility predicate as ready(): actionable + unblocked,
-// up-next first then manual rank. Capped — the board shows the head of the queue.
-export const boardReady = (me, limit = 25) =>
+// Visibility-aware ready queue for the board. This human view must not surface a private
+// task. It includes actionable, unblocked work, ordered by up-next then manual rank.
+const boardReady = (me, limit = 25) =>
 	db
 		.prepare(
 			`SELECT id, title, status, priority, up_next, project_id, assignee, kind
@@ -2273,7 +1887,7 @@ export const boardReady = (me, limit = 25) =>
 		)
 		.all({ lim: limit, ...(me ? { me } : {}) });
 
-// The whole board in one call. Reuses needsReview() and the new aggregates.
+// The whole board in one call.
 // `me` is the signed-in human (visibility gate); pass null for an agent (sees all).
 //   { lanes:[{agent,tasks:[{id,title,priority,project_id,lease_age_s,lease_state,...}],expired,soon}],
 //     counts:{ global:{ready,doing,blocked,review,closedToday}, byAgent:{[agent]:{...}} },
@@ -2282,7 +1896,7 @@ export const boardReady = (me, limit = 25) =>
 // lease_age_s / lease_state are SERVER-derived (handy + clock-skew-proof); lease_expires_at also ships now.
 export function boardData(me) {
 	// needs-human / escalation lane: status='review' (the human-gated items an agent can't
-	// self-close). Visibility-gated for the human board (needsReview() itself is the agent path).
+	// self-close). Visibility-gated for the human board.
 	const review = db
 		.prepare(
 			`SELECT id, title, status, priority, project_id, assignee, kind, updated_at
@@ -2352,14 +1966,18 @@ export function cockpitData(me, { workingAgents = 0 } = {}) {
 	const needsYou = [];
 
 	for (const q of questions) {
-		if (seen.has(q.id)) continue;
+		if (seen.has(q.id)) {
+			continue;
+		}
 
 		seen.add(q.id);
 		needsYou.push({ ...q, reason: "question" });
 	}
 
 	for (const t of assigned) {
-		if (seen.has(t.id)) continue;
+		if (seen.has(t.id)) {
+			continue;
+		}
 
 		seen.add(t.id);
 		needsYou.push({ ...t, reason: "assigned" });
@@ -2442,8 +2060,11 @@ export function cockpitData(me, { workingAgents = 0 } = {}) {
 	for (const r of blRows) {
 		const p = Number(r.priority);
 
-		if (p in byPriority) byPriority[p] += r.n;
-		else byPriority[3] += r.n;
+		if (p in byPriority) {
+			byPriority[p] += r.n;
+		} else {
+			byPriority[3] += r.n;
+		}
 
 		backlogTotal += r.n;
 	}
@@ -2478,34 +2099,36 @@ db.exec(`
     id INTEGER PRIMARY KEY AUTOINCREMENT, session_id INTEGER, ts INTEGER, data TEXT);
   CREATE INDEX IF NOT EXISTS idx_term_audit_input_session ON term_audit_input(session_id);`);
 
-const _termSessions = db.prepare(`
+const termSessions = db.prepare(`
   SELECT a.id, a.user, a.mode, a.connect_ts, a.disconnect_ts, a.client_ip, a.user_agent,
          COALESCE(SUM(LENGTH(i.data)), 0) AS input_chars
   FROM term_audit a LEFT JOIN term_audit_input i ON i.session_id = a.id
   GROUP BY a.id ORDER BY a.connect_ts DESC LIMIT ?`);
-const _termInput = db.prepare(
+const termInput = db.prepare(
 	"SELECT data FROM term_audit_input WHERE session_id=? ORDER BY ts, id",
 );
-const _termOne = db.prepare("SELECT * FROM term_audit WHERE id=?");
+const termOne = db.prepare("SELECT * FROM term_audit WHERE id=?");
 
 // ADMIN-ONLY (gated in the route): session list, or the full keystroke transcript for one rw
 // session. The transcript is deliberately sensitive — accountability for a root-equivalent shell.
 export function getTermAudit({ sessionId = null, limit = 200 } = {}) {
 	if (sessionId != null) {
-		const session = _termOne.get(sessionId);
+		const session = termOne.get(sessionId);
 
-		if (!session) return { session: null, input: "" };
+		if (!session) {
+			return { session: null, input: "" };
+		}
 
 		return {
 			session,
-			input: _termInput
+			input: termInput
 				.all(sessionId)
 				.map((r) => r.data)
 				.join(""),
 		};
 	}
 
-	return { sessions: _termSessions.all(limit) };
+	return { sessions: termSessions.all(limit) };
 }
 
 export default db;

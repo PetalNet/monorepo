@@ -17,20 +17,23 @@ import {
 	discoveries,
 	closeTask,
 } from "$lib/server/db.js";
-import { renderMd } from "$lib/server/md.js";
 import { renderPm } from "$lib/server/pm-render.js";
 import { error, fail } from "@sveltejs/kit";
 
 // IDOR guard — a human may only mutate a task they can write (shared, or own private).
 const gate = (id, me) => {
-	if (!canWrite(id, me)) throw error(403, "Not allowed");
+	if (!canWrite(id, me)) {
+		throw error(403, "Not allowed");
+	}
 };
 
 // Pull a glossary out of a "## Glossary" / "## Definitions" section so the reader
 // can hover-define jargon. Matches bullet lines like "- **Term** — definition"
 // (em-dash, en-dash, hyphen, or colon as the separator).
 function parseGlossary(md) {
-	if (!md) return [];
+	if (!md) {
+		return [];
+	}
 
 	const lines = md.split("\n");
 	let inSec = false;
@@ -47,7 +50,9 @@ function parseGlossary(md) {
 			continue;
 		}
 
-		if (!inSec) continue;
+		if (!inSec) {
+			continue;
+		}
 
 		// - **Term** — definition   |   - Term: definition
 		const m = line.match(/^\s*[-*]\s+(?:\*\*|__)?(.+?)(?:\*\*|__)?\s*(?:[—–:-]|--)\s+(.+)$/);
@@ -65,17 +70,20 @@ function parseGlossary(md) {
 	}
 
 	// longest first so multi-word terms win over their substrings when matching
-	return out.sort((a, b) => b.term.length - a.term.length);
+	return out.toSorted((a, b) => b.term.length - a.term.length);
 }
 
 export function load({ params, locals }) {
 	const id = Number(params.id);
 	const task = getTask(id);
 
-	if (!task) throw error(404, "No such task");
+	if (!task) {
+		throw error(404, "No such task");
+	}
 
-	if (task.visibility === "private" && task.owner && task.owner !== locals.user)
-		throw error(404, "No such task"); // private = owner-only (404, don't reveal existence)
+	if (task.visibility === "private" && task.owner && task.owner !== locals.user) {
+		throw error(404, "No such task");
+	} // private = owner-only (404, don't reveal existence)
 
 	// options may be stored as bare strings (older questions) or {value,label} objects (newer).
 	// Normalize to {value,label} so the one-tap pills always render a label — the answer value
@@ -156,7 +164,9 @@ export const actions = {
 			"effort",
 			"parallel_group",
 		]) {
-			if (f.has(k)) patch[k] = k === "priority" ? Number(f.get(k)) : String(f.get(k));
+			if (f.has(k)) {
+				patch[k] = k === "priority" ? Number(f.get(k)) : String(f.get(k));
+			}
 		}
 
 		// project_id: the sidebar can now (re)assign a task's project inline. Empty = unset (null);
@@ -177,7 +187,9 @@ export const actions = {
 			if (!cur.owner || cur.owner === locals.user) {
 				patch.visibility = f.get("private") ? "private" : "shared";
 
-				if (f.get("private")) patch.owner = locals.user; // claim ownership when locking it down
+				if (f.get("private")) {
+					patch.owner = locals.user;
+				} // claim ownership when locking it down
 			}
 		}
 
@@ -216,7 +228,9 @@ export const actions = {
 		const status = f.get("status") === "dropped" ? "dropped" : "done";
 		const res = closeTask(Number(params.id), { reason, by: locals.user || "web", status });
 
-		if (res?.ok === false) return fail(400, res);
+		if (!res?.ok) {
+			return fail(400, res);
+		}
 
 		return { ok: true };
 	},
@@ -227,7 +241,9 @@ export const actions = {
 		const f = await request.formData();
 		const body = String(f.get("body") || "").trim();
 
-		if (body) addComment(Number(params.id), locals.user || "web", body);
+		if (body) {
+			addComment(Number(params.id), locals.user || "web", body);
+		}
 
 		return { ok: true };
 	},

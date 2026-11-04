@@ -27,12 +27,7 @@ export default defineConfig([
 		gitignoreResolution: true,
 	}),
 	{
-		ignores: [
-			".agents/skills/impeccable/**",
-			"apps/tasks/docs/**",
-			"apps/tasks/static/fonts/**",
-			"apps/tasks/static/vendor/**",
-		],
+		ignores: [".agents/skills/impeccable/**", "apps/tasks/static/vendor/**"],
 	},
 	{
 		files: ["**/*.{js,cjs,mjs,jsx,ts,cts,mts,tsx,svelte}"],

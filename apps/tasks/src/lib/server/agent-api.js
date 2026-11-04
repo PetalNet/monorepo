@@ -1,5 +1,3 @@
-import crypto from "node:crypto";
-
 // agent-API core — the single RPC handler behind POST /api/agent/rpc.
 //
 // A remote headless agent (an agent) reaches the tracker over HTTPS with a bearer token
@@ -51,7 +49,7 @@ const shape = (t, scope) =>
 		kind: t.kind,
 		status: t.status,
 		priority: t.priority,
-		up_next: !!t.up_next,
+		up_next: Boolean(t.up_next),
 		rank: t.rank,
 		project: projName(t.project_id),
 		body: t.body || undefined,
@@ -86,14 +84,16 @@ function rateLimited(name, now = Date.now()) {
 	b.tokens = Math.min(RATE_LIMIT, b.tokens + ((now - b.at) * RATE_LIMIT) / RATE_WINDOW_MS);
 	b.at = now;
 
-	if (b.tokens < 1) return true;
+	if (b.tokens < 1) {
+		return true;
+	}
 
 	b.tokens -= 1;
 
 	return false;
 }
 
-export const _resetRateLimiter = () => buckets.clear(); // test hook only
+export const resetRateLimiter = () => buckets.clear(); // test hook only
 
 // ── scope machinery ──────────────────────────────────────────────────────────
 // Resolve the token's project-name scope to EXISTING project ids (a read filter must
@@ -106,14 +106,20 @@ const scopeProjectIds = (scope) =>
 
 // THE scope predicate. A task with NO project counts as OUT of a project-scoped lane.
 function inScope(t, scope) {
-	if (!t) return false;
+	if (!t) {
+		return false;
+	}
 
-	if (scope.assignee != null && (t.assignee || "") !== scope.assignee) return false;
+	if (scope.assignee != null && (t.assignee || "") !== scope.assignee) {
+		return false;
+	}
 
 	if (scope.projects != null) {
 		const name = projName(t.project_id);
 
-		if (!name || !scope.projects.includes(name)) return false;
+		if (!name || !scope.projects.includes(name)) {
+			return false;
+		}
 	}
 
 	return true;
@@ -123,10 +129,12 @@ function inScope(t, scope) {
 // scope, never widen it; a contradiction (args outside the scope) yields the EMPTY set
 // rather than an error, so probing filters can't distinguish "excluded" from "empty".
 function effectiveAssignee(scope, args) {
-	const want = args.assignee != null ? String(args.assignee) : null;
+	const want = args.assignee == null ? null : String(args.assignee);
 
 	if (scope.assignee != null) {
-		if (want != null && want !== scope.assignee) return { empty: true };
+		if (want != null && want !== scope.assignee) {
+			return { empty: true };
+		}
 
 		return { value: scope.assignee };
 	}
@@ -135,10 +143,12 @@ function effectiveAssignee(scope, args) {
 }
 
 function effectiveProjectIds(scope, args) {
-	const want = args.project != null ? String(args.project) : null;
+	const want = args.project == null ? null : String(args.project);
 
 	if (want != null) {
-		if (scope.projects != null && !scope.projects.includes(want)) return { empty: true };
+		if (scope.projects != null && !scope.projects.includes(want)) {
+			return { empty: true };
+		}
 
 		// unknown name → sentinel -1: matches nothing instead of minting a phantom project
 		return { ids: [getProjectByName(want)?.id ?? -1] };
@@ -146,7 +156,9 @@ function effectiveProjectIds(scope, args) {
 
 	const ids = scopeProjectIds(scope);
 
-	if (ids != null && !ids.length) return { empty: true };
+	if (ids != null && ids.length === 0) {
+		return { empty: true };
+	}
 
 	return { ids }; // null = unrestricted
 }
@@ -155,11 +167,15 @@ function effectiveProjectIds(scope, args) {
 function readScope(scope, args) {
 	const asg = effectiveAssignee(scope, args);
 
-	if (asg.empty) return { empty: true };
+	if (asg.empty) {
+		return { empty: true };
+	}
 
 	const proj = effectiveProjectIds(scope, args);
 
-	if (proj.empty) return { empty: true };
+	if (proj.empty) {
+		return { empty: true };
+	}
 
 	const where = [];
 	const params = {};
@@ -171,9 +187,9 @@ function readScope(scope, args) {
 
 	if (proj.ids != null) {
 		const ph = proj.ids.map((id, i) => {
-			params["p" + i] = id;
+			params[`p${i}`] = id;
 
-			return "@p" + i;
+			return `@p${i}`;
 		});
 
 		where.push(`AND project_id IN (${ph.join(",")})`);
@@ -218,7 +234,9 @@ const ops = {
 	get_ready(scope, args) {
 		const f = readScope(scope, args);
 
-		if (f.empty) return { status: 200, body: { up_next: [], in_progress: [], open_questions: [] } };
+		if (f.empty) {
+			return { status: 200, body: { up_next: [], in_progress: [], open_questions: [] } };
+		}
 
 		const upNext = db
 			.prepare(
@@ -253,7 +271,9 @@ const ops = {
 	up_next(scope, args) {
 		const f = readScope(scope, args);
 
-		if (f.empty) return { status: 200, body: { task: null } };
+		if (f.empty) {
+			return { status: 200, body: { task: null } };
+		}
 
 		const params = { ...f.params };
 		let capf = "";
@@ -275,11 +295,15 @@ const ops = {
 
 	// one task by id — out-of-scope and nonexistent are INDISTINGUISHABLE (generic 404).
 	get(scope, args) {
-		if (!isInt(args.id)) return bad("bad_request");
+		if (!isInt(args.id)) {
+			return bad("bad_request");
+		}
 
 		const t = getTask(args.id);
 
-		if (!inScope(t, scope)) return notFound();
+		if (!inScope(t, scope)) {
+			return notFound();
+		}
 
 		return { status: 200, body: { task: shape(t, scope) } };
 	},
@@ -292,14 +316,18 @@ const ops = {
 		const worker = tok.agent_name; // PINNED to the token identity — a bearer agent can't forge claimed_by (agent-c review); args.worker is ignored
 		const asg = effectiveAssignee(scope, args);
 
-		if (asg.empty) return { status: 200, body: { claimed: null } };
+		if (asg.empty) {
+			return { status: 200, body: { claimed: null } };
+		}
 
 		const proj = effectiveProjectIds(scope, args);
 
-		if (proj.empty) return { status: 200, body: { claimed: null } };
+		if (proj.empty) {
+			return { status: 200, body: { claimed: null } };
+		}
 
 		const filters = {
-			capability: args.capability != null ? String(args.capability) : null,
+			capability: args.capability == null ? null : String(args.capability),
 			assignee: asg.value,
 		};
 		const pool = proj.ids == null ? [null] : proj.ids;
@@ -327,71 +355,97 @@ const ops = {
 	// a scoped token may not reassign a task to another assignee/project (that would move
 	// work out of — or smuggle it beyond — its lane).
 	update(scope, args) {
-		if (!isInt(args.id)) return bad("bad_request");
+		if (!isInt(args.id)) {
+			return bad("bad_request");
+		}
 
 		const t = getTask(args.id);
 
-		if (!inScope(t, scope)) return notFound();
+		if (!inScope(t, scope)) {
+			return notFound();
+		}
 
 		const clean = {};
 
 		for (const [k, v] of Object.entries(args)) {
-			if (k === "id" || v === undefined) continue;
+			if (k === "id" || v === undefined) {
+				continue;
+			}
 
-			if (!UPDATE_FIELDS.has(k)) return bad("bad_request"); // unknown field → reject, don't ignore
+			if (!UPDATE_FIELDS.has(k)) {
+				return bad("bad_request");
+			} // unknown field → reject, don't ignore
 
 			clean[k] = v;
 		}
 
-		if ("status" in clean && !UPDATE_STATUSES.has(clean.status)) return bad("bad_request");
+		if ("status" in clean && !UPDATE_STATUSES.has(clean.status)) {
+			return bad("bad_request");
+		}
 
 		if (
 			"priority" in clean &&
 			!(isInt(clean.priority) && clean.priority >= 0 && clean.priority <= 3)
-		)
+		) {
 			return bad("bad_request");
+		}
 
-		if ("up_next" in clean) clean.up_next = clean.up_next ? 1 : 0;
+		if ("up_next" in clean) {
+			clean.up_next = clean.up_next ? 1 : 0;
+		}
 
 		// scope-pinning: the post-state must remain in scope.
-		if (scope.assignee != null && "assignee" in clean && clean.assignee !== scope.assignee)
+		if (scope.assignee != null && "assignee" in clean && clean.assignee !== scope.assignee) {
 			return bad("bad_request");
+		}
 
 		if ("project" in clean) {
 			const name = clean.project == null ? null : String(clean.project);
 
-			if (scope.projects != null && (name == null || !scope.projects.includes(name)))
+			if (scope.projects != null && (name == null || !scope.projects.includes(name))) {
 				return bad("bad_request");
+			}
 
 			delete clean.project;
 			clean.project_id = name ? ensureProject(name) : null;
 		}
 
-		if (!Object.keys(clean).length) return bad("bad_request");
+		if (Object.keys(clean).length === 0) {
+			return bad("bad_request");
+		}
 
 		const res = updateTask(args.id, clean);
 
-		if (res?.ok === false) return { status: 422, body: { rejected: res } }; // e.g. blocked-guard
+		if (res?.ok === false) {
+			return { status: 422, body: { rejected: res } };
+		} // e.g. blocked-guard
 
 		return { status: 200, body: { updated: shape(getTask(args.id), scope) } };
 	},
 
 	// close an in-scope task via canonical closeTask (mandatory reason — the why-ledger).
 	close(scope, args, tok) {
-		if (!isInt(args.id)) return bad("bad_request");
+		if (!isInt(args.id)) {
+			return bad("bad_request");
+		}
 
 		const t = getTask(args.id);
 
-		if (!inScope(t, scope)) return notFound();
+		if (!inScope(t, scope)) {
+			return notFound();
+		}
 
 		const status = args.status === "dropped" ? "dropped" : "done";
 
-		if (args.result_summary !== undefined)
+		if (args.result_summary !== undefined) {
 			updateTask(args.id, { result_summary: String(args.result_summary) });
+		}
 
 		const res = closeTask(args.id, { reason: args.reason, by: `agent:${tok.agent_name}`, status });
 
-		if (res?.ok === false) return { status: 422, body: { rejected: res } }; // e.g. reason_required
+		if (!res?.ok) {
+			return { status: 422, body: { rejected: res } };
+		} // e.g. reason_required
 
 		return { status: 200, body: { closed: shape(getTask(args.id), scope) } };
 	},
@@ -400,28 +454,36 @@ const ops = {
 	file(scope, args, tok) {
 		const title = String(args.title ?? "").trim();
 
-		if (!title) return bad("bad_request");
+		if (!title) {
+			return bad("bad_request");
+		}
 
 		const kind = args.kind === undefined ? "idea" : args.kind;
 
-		if (!["task", "idea", "question"].includes(kind)) return bad("bad_request");
+		if (!["task", "idea", "question"].includes(kind)) {
+			return bad("bad_request");
+		}
 
 		const priority = args.priority === undefined ? 2 : args.priority;
 
-		if (!(isInt(priority) && priority >= 0 && priority <= 3)) return bad("bad_request");
+		if (!(isInt(priority) && priority >= 0 && priority <= 3)) {
+			return bad("bad_request");
+		}
 
 		// project confinement: with a project scope, an explicit IN-SCOPE project is required
 		// (no default/inherit path may land the task outside the lane) — spec §2.4.
 		let project_id;
 
-		if (scope.projects != null) {
+		if (scope.projects == null) {
+			project_id = args.project ? ensureProject(String(args.project)) : null;
+		} else {
 			const name = args.project == null ? null : String(args.project);
 
-			if (name == null || !scope.projects.includes(name)) return bad("project_out_of_scope");
+			if (name == null || !scope.projects.includes(name)) {
+				return bad("project_out_of_scope");
+			}
 
 			project_id = ensureProject(name);
-		} else {
-			project_id = args.project ? ensureProject(String(args.project)) : null;
 		}
 
 		// parent/provenance links may only reference IN-SCOPE tasks. Nonexistent and
@@ -429,28 +491,40 @@ const ops = {
 		let parent_id = null;
 
 		if (args.parent_id !== undefined) {
-			if (!isInt(args.parent_id)) return bad("bad_request");
+			if (!isInt(args.parent_id)) {
+				return bad("bad_request");
+			}
 
 			const parent = getTask(args.parent_id);
 
-			if (!inScope(parent, scope)) return bad("invalid_parent");
+			if (!inScope(parent, scope)) {
+				return bad("invalid_parent");
+			}
 
 			parent_id = parent.id;
 
-			if (project_id == null) project_id = parent.project_id ?? null; // MCP inherit rule (already in-scope)
+			if (project_id == null) {
+				project_id = parent.project_id ?? null;
+			} // MCP inherit rule (already in-scope)
 		}
 
 		let discovered_from = null;
 
 		if (args.discovered_from !== undefined) {
-			if (!isInt(args.discovered_from)) return bad("bad_request");
+			if (!isInt(args.discovered_from)) {
+				return bad("bad_request");
+			}
 
-			if (!inScope(getTask(args.discovered_from), scope)) return bad("invalid_discovered_from");
+			if (!inScope(getTask(args.discovered_from), scope)) {
+				return bad("invalid_discovered_from");
+			}
 
 			discovered_from = args.discovered_from;
 		}
 
-		if (project_id == null) project_id = defaultProjectId(); // task-192: never floating (unscoped tokens only)
+		if (project_id == null) {
+			project_id = defaultProjectId();
+		} // task-192: never floating (unscoped tokens only)
 
 		const id = createTask({
 			title,
@@ -463,20 +537,21 @@ const ops = {
 			status: kind === "idea" ? "inbox" : "todo",
 			created_by: `agent:${tok.agent_name}`,
 			discovered_from,
-			owner_machine: args.owner_machine != null ? String(args.owner_machine) : undefined,
-			suggested_agent: args.suggested_agent != null ? String(args.suggested_agent) : undefined,
-			effort: args.effort != null ? String(args.effort) : undefined,
-			parallel_group: args.parallel_group != null ? String(args.parallel_group) : undefined,
+			owner_machine: args.owner_machine == null ? undefined : String(args.owner_machine),
+			suggested_agent: args.suggested_agent == null ? undefined : String(args.suggested_agent),
+			effort: args.effort == null ? undefined : String(args.effort),
+			parallel_group: args.parallel_group == null ? undefined : String(args.parallel_group),
 		});
 		// assignee confinement: an assignee-scoped token's tasks are ALWAYS its own.
-		const assignee =
-			scope.assignee != null
-				? scope.assignee
-				: args.assignee != null
-					? String(args.assignee)
-					: null;
+		let assignee = scope.assignee;
 
-		if (assignee) updateTask(id, { assignee }); // canonical helper (createTask has no assignee column)
+		if (assignee === undefined || assignee === null) {
+			assignee = String(args.assignee ?? "") || null;
+		}
+
+		if (assignee) {
+			updateTask(id, { assignee });
+		} // canonical helper (createTask has no assignee column)
 
 		return { status: 201, body: { filed: shape(getTask(id), scope) } };
 	},
@@ -497,7 +572,9 @@ export function handleAgentRpc({ authorization, rawBody } = {}) {
 	const m = /^Bearer\s+(\S+)$/i.exec(String(authorization ?? "").trim());
 	const tok = m ? verifyAgentToken(m[1]) : null;
 
-	if (!tok) return { status: 401, body: { error: "unauthorized" } };
+	if (!tok) {
+		return { status: 401, body: { error: "unauthorized" } };
+	}
 
 	if (rateLimited(tok.agent_name)) {
 		console.log(`[agent-api] ${tok.agent_name} rate-limited -> 429`);
@@ -553,7 +630,7 @@ export function handleAgentRpc({ authorization, rawBody } = {}) {
 		(isInt(args.id) ? args.id : null);
 
 	console.log(
-		`[agent-api] ${tok.agent_name} ${op} task=${taskId ?? "-"} -> ${res.status < 400 ? "ok" : "err " + (res.body?.error || res.status)}`,
+		`[agent-api] ${tok.agent_name} ${op} task=${taskId ?? "-"} -> ${res.status < 400 ? "ok" : `err ${res.body?.error || res.status}`}`,
 	);
 
 	return res;

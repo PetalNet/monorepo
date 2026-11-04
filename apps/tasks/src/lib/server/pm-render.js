@@ -48,34 +48,36 @@ const FLEET_ROUTE_EXISTS = false;
 function resolveWikilink(inner) {
 	const raw = inner.trim();
 
-	if (!raw) return null;
+	if (!raw) {
+		return null;
+	}
 
 	const taskMatch = /^(?:task-|#)(\d+)$/i.exec(raw);
 
 	if (taskMatch) {
 		const n = taskMatch[1];
 
-		return '<a href="/task/' + n + '" class="wikilink wl-task">task-' + n + "</a>";
+		return `<a href="/task/${n}" class="wikilink wl-task">task-${n}</a>`;
 	}
 
 	const handle = raw.toLowerCase();
 
 	if (/^[a-z0-9][a-z0-9_-]*$/i.test(raw) && FLEET_AGENTS.has(handle)) {
 		if (FLEET_ROUTE_EXISTS) {
-			return '<a href="/fleet/' + handle + '" class="wikilink wl-agent">' + esc(raw) + "</a>";
+			return `<a href="/fleet/${handle}" class="wikilink wl-agent">${esc(raw)}</a>`;
 		}
 
-		return '<span class="wikilink wl-agent" title="fleet agent">' + esc(raw) + "</span>";
+		return `<span class="wikilink wl-agent" title="fleet agent">${esc(raw)}</span>`;
 	}
 
-	return '<span class="wikilink wl-ref">' + esc(raw) + "</span>";
+	return `<span class="wikilink wl-ref">${esc(raw)}</span>`;
 }
 
 // Sentinels are wrapped in \x01 / \x02 control chars: they survive esc() (which
 // only touches & < > " '), users don't type them, and they can't collide with
 // real markdown. Each protected fragment is restored AFTER esc() runs.
-const C0 = "\x01",
-	C1 = "\x02";
+const C0 = "\u0001",
+	C1 = "\u0002";
 
 function inline(raw) {
 	const store = [];
@@ -86,7 +88,7 @@ function inline(raw) {
 	};
 
 	// 1) inline code `…` — content esc()'d, restored as <code> verbatim.
-	let s = raw.replace(/`([^`]+)`/g, (_, c) => stash("<code>" + esc(c) + "</code>"));
+	let s = raw.replace(/`([^`]+)`/g, (_, c) => stash(`<code>${esc(c)}</code>`));
 
 	// 2) [[wikilinks]] — resolved to fixed-class <a>/<span>, text esc()'d inside.
 	s = s.replace(/\[\[([^\]\n]+?)\]\]/g, (m, inner) => {
@@ -101,14 +103,14 @@ function inline(raw) {
 	// 4) [text](url) links — url allowlisted (no javascript:); double-quoted href,
 	//    and url is already esc()'d so it can't carry a raw quote to break out.
 	s = s.replace(/\[([^\]]+)\]\(([^)\s]+)\)/g, (_, t, url) =>
-		!/^(https?:\/\/|\/|#)/i.test(url) ? t : '<a href="' + url + '" rel="noopener">' + t + "</a>",
+		/^(https?:\/\/|\/|#)/i.test(url) ? `<a href="${url}" rel="noopener">${t}</a>` : t,
 	);
 
 	// 5) **bold** then *italic* (italic guard avoids eating ** and mid-word *).
 	s = s.replace(/\*\*([^*]+)\*\*/g, "<strong>$1</strong>");
 	s = s.replace(/(^|[^*])\*([^*\s][^*]*)\*/g, "$1<em>$2</em>");
 	// 6) restore protected fragments.
-	s = s.replace(new RegExp(C0 + "(\\d+)" + C1, "g"), (_, i) => store[+i]);
+	s = s.replace(new RegExp(`${C0}(\\d+)${C1}`, "g"), (_, i) => store[Number(i)]);
 
 	return s;
 }
@@ -117,13 +119,15 @@ const COPY_SVG =
 	'<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-copy"><rect width="14" height="14" x="8" y="8" rx="2" ry="2"></rect><path d="M4 16c-1.1 0-2-.9-2-2V4c0-1.1.9-2 2-2h10c1.1 0 2 .9 2 2"></path></svg>';
 
 export function renderPm(src) {
-	if (!src) return "";
+	if (!src) {
+		return "";
+	}
 
 	const lines = String(src).split("\n");
-	let html = "",
-		i = 0,
-		blanks = 0,
-		firstBlock = true;
+	let blanks = 0,
+		firstBlock = true,
+		html = "",
+		i = 0;
 	// sep(): the blank-line × line-height gap ABOVE a block. Consecutive blank
 	// source lines stack (N × line-height), matching CM's blank line-boxes.
 	const sep = () => {
@@ -136,7 +140,7 @@ export function renderPm(src) {
 		firstBlock = false;
 		blanks = 0;
 
-		return n ? ' style="margin-top:calc(' + n + ' * var(--pm-lh))"' : "";
+		return n ? ` style="margin-top:calc(${n} * var(--pm-lh))"` : "";
 	};
 
 	while (i < lines.length) {
@@ -150,19 +154,17 @@ export function renderPm(src) {
 		}
 
 		// fenced code block
-		const fence = line.match(/^```(.*)$/);
+		const fence = /^```(.*)$/.exec(line);
 
 		if (fence) {
 			const lang = (fence[1] || "").trim().split(/\s+/)[0];
 			const langLabel = lang ? esc(lang.toUpperCase()) : "";
 			const chrome =
-				'<span class="cm-code-block-info" contenteditable="false" aria-hidden="true">' +
-				'<span class="cm-code-block-lang-container">' +
-				langLabel +
-				"</span>" +
-				'<button type="button" class="cm-code-block-copy-button" title="Copy code">' +
-				COPY_SVG +
-				"</button></span>";
+				`<span class="cm-code-block-info" contenteditable="false" aria-hidden="true">` +
+				`<span class="cm-code-block-lang-container">${langLabel}</span>` +
+				`<button type="button" class="cm-code-block-copy-button" title="Copy code">${
+					COPY_SVG
+				}</button></span>`;
 			const buf = [];
 
 			i++;
@@ -173,18 +175,18 @@ export function renderPm(src) {
 			}
 
 			i++; // closing fence
-			html += "<pre" + sep() + ">" + chrome + "<code>" + buf.join("\n") + "</code></pre>";
+			html += `<pre${sep()}>${chrome}<code>${buf.join("\n")}</code></pre>`;
 
 			continue;
 		}
 
 		// headings h1–h3
-		const h = line.match(/^(#{1,3})\s+(.*)$/);
+		const h = /^(#{1,3})\s+(.*)$/.exec(line);
 
 		if (h) {
 			const n = h[1].length;
 
-			html += "<h" + n + sep() + ">" + inline(h[2]) + "</h" + n + ">";
+			html += `<h${n}${sep()}>${inline(h[2])}</h${n}>`;
 			i++;
 
 			continue;
@@ -194,26 +196,20 @@ export function renderPm(src) {
 		// .pm-rendered li carries the per-item gap, ul carries the blank-line gap.
 		// GFM task items (`- [ ]` / `- [x]`) render as a disabled checkbox.
 		if (/^[-*]\s+/.test(line)) {
-			html += "<ul" + sep() + ">";
+			html += `<ul${sep()}>`;
 
 			while (i < lines.length && /^[-*]\s+/.test(lines[i])) {
 				const item = lines[i].replace(/^[-*]\s+/, "");
-				const tm = item.match(/^\[([ xX])\]\s+(.*)$/);
+				const tm = /^\[([ xX])\]\s+(.*)$/.exec(item);
 
 				if (tm) {
 					const done = tm[1].toLowerCase() === "x";
 
 					html +=
-						'<li class="pm-task' +
-						(done ? " pm-done" : "") +
-						'">' +
-						'<input type="checkbox" disabled' +
-						(done ? " checked" : "") +
-						">" +
-						inline(tm[2]) +
-						"</li>";
+						`<li class="pm-task${done ? " pm-done" : ""}">` +
+						`<input type="checkbox" disabled${done ? " checked" : ""}>${inline(tm[2])}</li>`;
 				} else {
-					html += "<li>" + inline(item) + "</li>";
+					html += `<li>${inline(item)}</li>`;
 				}
 
 				i++;
@@ -233,7 +229,7 @@ export function renderPm(src) {
 				i++;
 			}
 
-			html += "<blockquote" + sep() + ">" + q.map(inline).join("<br>") + "</blockquote>";
+			html += `<blockquote${sep()}>${q.map(inline).join("<br>")}</blockquote>`;
 
 			continue;
 		}
@@ -252,15 +248,14 @@ export function renderPm(src) {
 			i++;
 		}
 
-		html += "<p" + sep() + ">" + para.map(inline).join("<br>") + "</p>";
+		html += `<p${sep()}>${para.map(inline).join("<br>")}</p>`;
 	}
 
 	// trailing blank lines (rare, but keep the doc's tail height stable)
 	if (blanks > 0) {
-		html +=
-			'<div class="pm-trailing-blank" aria-hidden="true" style="height:calc(' +
-			blanks +
-			' * var(--pm-lh))"></div>';
+		html += `<div class="pm-trailing-blank" aria-hidden="true" style="height:calc(${
+			blanks
+		} * var(--pm-lh))"></div>`;
 	}
 
 	return html;

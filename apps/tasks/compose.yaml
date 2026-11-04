@@ -1,3 +1,7 @@
+# Deploy from a checkout of main after building the image there:
+#   docker build -f apps/tasks/Dockerfile --build-arg MONOREPO_SHA="$SHA" -t "tasks:$SHA" .
+#   MONOREPO_SHA="$SHA" docker compose --env-file /path/to/tasks.env -f apps/tasks/compose.yaml up -d
+# See .env.example for the variables and config.example.json for TASKS_CONFIG.
 name: tasks
 services:
   tasks:
@@ -24,7 +28,7 @@ services:
   ttyd-ro:
     mem_limit: 256m
     memswap_limit: 256m
-    build: { context: apps/tasks/fleet-term }
+    build: { context: ./fleet-term }
     image: tasks-ttyd:${MONOREPO_SHA:?Set the monorepo SHA the image was built from}
     container_name: tasks-ttyd-ro
     user: "1000:1000"
@@ -53,7 +57,7 @@ services:
   ttyd-rw:
     mem_limit: 256m
     memswap_limit: 256m
-    build: { context: apps/tasks/fleet-term }
+    build: { context: ./fleet-term }
     image: tasks-ttyd:${MONOREPO_SHA:?Set the monorepo SHA the image was built from}
     container_name: tasks-ttyd-rw
     user: "1000:1000"
@@ -80,8 +84,5 @@ services:
       ]
     networks: [tasks]
 networks:
-  # Explicit subnet: host Docker auto address pools are exhausted.
-  tasks:
-    ipam:
-      config:
-        - subnet: 172.16.46.0/24
+  # A host whose Docker address pools are exhausted can pin a subnet in a compose override.
+  tasks: {}

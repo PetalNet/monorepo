@@ -6,18 +6,26 @@
 //   mcp__clarity-search__fetch_url  → "fetch url"
 // Plain built-ins (Bash, Edit, Read, Grep, Write, …) pass through unchanged.
 export function humanizeTool(name) {
-	if (!name) return name;
+	if (!name) {
+		return name;
+	}
 
-	if (!name.startsWith("mcp__")) return name;
+	if (!name.startsWith("mcp__")) {
+		return name;
+	}
 
 	const parts = name.slice(5).split("__");
 	const server = parts[0] || "";
 	const tool = (parts[parts.length - 1] || "").replace(/_/g, " ").trim();
 
-	if (!tool) return name;
+	if (!tool) {
+		return name;
+	}
 
 	// multi-word tools already read clearly; single-word ones borrow the server for context
-	if (server && !tool.includes(" ")) return `${server.replace(/[-_]/g, " ")} ${tool}`;
+	if (server && !tool.includes(" ")) {
+		return `${server.replace(/[-_]/g, " ")} ${tool}`;
+	}
 
 	return tool;
 }

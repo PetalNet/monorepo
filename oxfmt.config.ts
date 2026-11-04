@@ -11,7 +11,6 @@ export default {
 		// Vendored designs stay byte-faithful.
 		"apps/point/docs/design/**",
 		// Tasks' vendored assets stay byte-faithful.
-		"apps/tasks/static/fonts/**",
 		"apps/tasks/static/vendor/**",
 	],
 	overrides: [

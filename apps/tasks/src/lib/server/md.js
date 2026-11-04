@@ -22,7 +22,7 @@ import { unified } from "unified";
 // set of class names, both of which the extended schema below permits — no new XSS
 // surface. Sanitize runs last regardless, so even a bug here can't leak raw HTML.
 
-// Fleet agent handles (lab personas). A handle resolves to a /fleet/<handle> page
+// Fleet agent handles (from TASKS_CONFIG). A handle resolves to a /fleet/<handle> page
 // ONLY when that route exists; today it doesn't, so handles render as a styled-but-
 // inert span (visually marked, not a dead link). Flip FLEET_ROUTE_EXISTS when the
 // /fleet/[handle] route lands and the same code starts emitting real links.
@@ -45,7 +45,9 @@ const WIKILINK_RE = /\[\[([^\]\n]+?)\]\]/g;
 function resolveWikilink(inner) {
 	const raw = inner.trim();
 
-	if (!raw) return null;
+	if (!raw) {
+		return null;
+	}
 
 	// task-N / #N  -> real link to the task page.
 	const taskMatch = /^(?:task-|#)(\d+)$/i.exec(raw);
@@ -85,7 +87,9 @@ function el(tagName, properties, text) {
 function splitText(value) {
 	WIKILINK_RE.lastIndex = 0;
 
-	if (!WIKILINK_RE.test(value)) return null;
+	if (!WIKILINK_RE.test(value)) {
+		return null;
+	}
 
 	WIKILINK_RE.lastIndex = 0;
 
@@ -96,17 +100,25 @@ function splitText(value) {
 	while ((m = WIKILINK_RE.exec(value))) {
 		const node = resolveWikilink(m[1]);
 
-		if (!node) continue; // empty token: leave literal text in place
+		if (!node) {
+			continue;
+		} // empty token: leave literal text in place
 
-		if (m.index > last) out.push({ type: "text", value: value.slice(last, m.index) });
+		if (m.index > last) {
+			out.push({ type: "text", value: value.slice(last, m.index) });
+		}
 
 		out.push(node);
 		last = m.index + m[0].length;
 	}
 
-	if (!out.length) return null;
+	if (out.length === 0) {
+		return null;
+	}
 
-	if (last < value.length) out.push({ type: "text", value: value.slice(last) });
+	if (last < value.length) {
+		out.push({ type: "text", value: value.slice(last) });
+	}
 
 	return out;
 }
@@ -118,15 +130,18 @@ function rehypeWikilinks() {
 		const walk = (node) => {
 			const kids = node.children;
 
-			if (!kids) return;
+			if (!kids) {
+				return;
+			}
 
 			for (let i = 0; i < kids.length; i++) {
 				const child = kids[i];
 
 				if (child.type === "element") {
 					// don't rewrite inside existing links or code spans
-					if (child.tagName === "code" || child.tagName === "pre" || child.tagName === "a")
+					if (child.tagName === "code" || child.tagName === "pre" || child.tagName === "a") {
 						continue;
+					}
 
 					walk(child);
 				} else if (child.type === "text") {
@@ -167,7 +182,9 @@ function withWikilinkClasses(attrs = []) {
 		}
 	}
 
-	if (!merged) out.push(["className", ...WL_CLASSES]);
+	if (!merged) {
+		out.push(["className", ...WL_CLASSES]);
+	}
 
 	return out;
 }
@@ -199,7 +216,9 @@ const processor = unified()
 	.use(rehypeStringify);
 
 export function renderMd(src) {
-	if (!src) return "";
+	if (!src) {
+		return "";
+	}
 
 	return String(processor.processSync(src));
 }

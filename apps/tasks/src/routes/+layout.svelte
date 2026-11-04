@@ -2,9 +2,6 @@
 	import "../app.css";
 	import { page } from "$app/stores";
 	import Icon from "$lib/Icon.svelte";
-	// Stickies removed from render (task-499, an operator: overlay blocked inspect-element).
-	// Component left in place so it's reversible — re-add the import + <Stickies /> to restore.
-	// import Stickies from '$lib/Stickies.svelte';
 	import NavSidebar from "$lib/NavSidebar.svelte";
 	import { displayName, setPeople } from "$lib/people.js";
 	import SearchBox from "$lib/SearchBox.svelte";
@@ -158,8 +155,6 @@
 		<label class="tab" for="more-tgl"><Icon name="more" size={20} /><span>More</span></label>
 	</nav>
 </div>
-
-<!-- <Stickies /> — removed (task-499); component retained in $lib for easy restore -->
 
 <style>
 	/* ── shell layout ─────────────────────────────────────── */

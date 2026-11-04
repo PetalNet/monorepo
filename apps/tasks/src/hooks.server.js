@@ -27,7 +27,7 @@ const isAgentApi = (pathname) => pathname === "/api/agent" || pathname.startsWit
 export async function handle({ event, resolve }) {
 	const user = event.request.headers.get("x-authentik-username") || "";
 
-	if (ALLOW.length && !isPublicShare(event.url.pathname) && !isAgentApi(event.url.pathname)) {
+	if (ALLOW.length > 0 && !isPublicShare(event.url.pathname) && !isAgentApi(event.url.pathname)) {
 		// production: require a valid Authentik identity (fail closed — was fail-open via 'dev')
 		if (!user || !ALLOW.includes(user)) {
 			return new Response("Private tracker — ask an operator for access.", {
@@ -37,7 +37,7 @@ export async function handle({ event, resolve }) {
 		}
 
 		event.locals.user = user;
-	} else if (!ALLOW.length) {
+	} else if (ALLOW.length === 0) {
 		// local dev only (no access list): permit the dev fallback identity
 		event.locals.user = user || "dev";
 	}
@@ -52,11 +52,15 @@ export async function handle({ event, resolve }) {
 	// Use the no-clobber form: a route may legitimately need to relax a header for itself
 	// (e.g. the gallery raw-artifact endpoint frames its own same-origin sandbox iframe, so
 	// it sets X-Frame-Options: SAMEORIGIN + a CSP sandbox). Only fill in defaults it left unset.
-	if (!res.headers.has("X-Frame-Options")) res.headers.set("X-Frame-Options", "DENY"); // clickjacking
+	if (!res.headers.has("X-Frame-Options")) {
+		res.headers.set("X-Frame-Options", "DENY");
+	} // clickjacking
 
 	res.headers.set("X-Content-Type-Options", "nosniff");
 
-	if (!res.headers.has("Referrer-Policy")) res.headers.set("Referrer-Policy", "same-origin");
+	if (!res.headers.has("Referrer-Policy")) {
+		res.headers.set("Referrer-Policy", "same-origin");
+	}
 
 	return res;
 }

@@ -71,7 +71,3 @@ Outputs live in root `target/`. Point's bridge retains its separate
 
 See [`docs/ARCHITECTURE.md`](./docs/ARCHITECTURE.md) for repository mechanics and
 [`docs/MIGRATION.md`](./docs/MIGRATION.md) for the historical migration journal.
-
-# Tasks
-
-`apps/tasks` is a generic tracker. Configure people, assignees, fleet entries, and optional access copy with `TASKS_CONFIG`; see `apps/tasks/config.example.json`.

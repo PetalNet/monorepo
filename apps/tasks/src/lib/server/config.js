@@ -35,20 +35,23 @@ const schema = z.object({
 function readConfig() {
 	const path = process.env.TASKS_CONFIG;
 
-	if (!path || !existsSync(path)) return schema.parse({});
+	if (!path || !existsSync(path)) {
+		return schema.parse({});
+	}
 
 	let raw;
 	try {
 		raw = JSON.parse(readFileSync(path, "utf8"));
 	} catch (error) {
-		throw new Error(`Invalid TASKS_CONFIG at ${path}: ${error.message}`);
+		throw new Error(`Invalid TASKS_CONFIG at ${path}: ${error.message}`, { cause: error });
 	}
 
 	const parsed = schema.safeParse(raw);
-	if (!parsed.success)
+	if (!parsed.success) {
 		throw new Error(
 			`Invalid TASKS_CONFIG at ${path}: ${parsed.error.issues.map((i) => i.message).join("; ")}`,
 		);
+	}
 
 	return parsed.data;
 }

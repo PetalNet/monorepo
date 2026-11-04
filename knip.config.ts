@@ -1,11 +1,7 @@
 import type { KnipConfig } from "knip";
 
 export default {
-	ignore: [
-		".agents/skills/impeccable/**",
-		"apps/tasks/static/fonts/**",
-		"apps/tasks/static/vendor/**",
-	],
+	ignore: [".agents/skills/impeccable/**", "apps/tasks/static/vendor/**"],
 	rules: { cycles: "error" },
 	// Strict Knip only resolves production dependencies, including script binaries.
 	ignoreBinaries: ["eslint!", "vite!", "vitest!", "storybook!"],
@@ -56,8 +52,13 @@ export default {
 		},
 		"apps/tasks": {
 			// Cron, MCP, and production server entrypoints run directly rather than being imported.
-			entry: ["server.js!", "mcp/*.mjs!", "scripts/*.mjs!"],
-			ignore: ["static/fonts/**", "static/vendor/**"],
+			entry: ["mcp/*.mjs!", "scripts/*.mjs!"],
+			ignore: ["static/vendor/**"],
+			ignoreDependencies: [
+				// CSS @import directives load these fonts, which Knip does not analyze.
+				"@fontsource-variable/geist",
+				"@fontsource-variable/geist-mono",
+			],
 		},
 		"apps/slide": {
 			ignoreBinaries: ["prisma!"],

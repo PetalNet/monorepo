@@ -15,7 +15,9 @@ import { error } from "@sveltejs/kit";
 
 // IDOR guard: a human may only mutate tasks they can write (shared, or their own private).
 const gate = (id, me) => {
-	if (!canWrite(id, me)) throw error(403, "Not allowed");
+	if (!canWrite(id, me)) {
+		throw error(403, "Not allowed");
+	}
 };
 
 // /  — the OWNER COCKPIT. The firehose board moved to /browse; this is the
@@ -42,7 +44,9 @@ export const actions = {
 		const f = await request.formData();
 		const title = String(f.get("title") || "").trim();
 
-		if (!title) return { ok: false };
+		if (!title) {
+			return { ok: false };
+		}
 
 		const projName = String(f.get("project") || "").trim();
 		const project_id = projName ? ensureProject(projName) : null;
@@ -60,11 +64,15 @@ export const actions = {
 		gate(id, locals.user);
 		const patch = {};
 
-		if (f.has("status")) patch.status = String(f.get("status"));
+		if (f.has("status")) {
+			patch.status = String(f.get("status"));
+		}
 
 		const res = updateTask(id, patch);
 
-		if (res?.ok === false) return { ok: false, error: res.message };
+		if (res?.ok === false) {
+			return { ok: false, error: res.message };
+		}
 
 		return { ok: true };
 	},

@@ -13,8 +13,9 @@ export async function POST({ request }) {
 	// reject oversized bodies before buffering them (the handler re-checks the real length)
 	const len = Number(request.headers.get("content-length"));
 
-	if (Number.isFinite(len) && len > BODY_MAX)
+	if (Number.isFinite(len) && len > BODY_MAX) {
 		return json({ error: "body_too_large" }, { status: 413 });
+	}
 
 	let rawBody;
 

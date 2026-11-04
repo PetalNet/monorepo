@@ -3,7 +3,6 @@
 		"ignoreFiles": [
 			"**/build/**",
 			"**/storybook-static/**",
-			"apps/tasks/static/fonts/**",
 			"apps/tasks/static/vendor/**",
 			"apps/collegemap/src/lib/components/CollegeSearch.svelte",
 			"apps/collegemap/src/lib/components/Map.svelte",
@@ -25,7 +24,9 @@
 			"apps/slide/src/routes/dashboard/+page.svelte",
 			"apps/slide/src/routes/event/[id]/live/+page.svelte",
 			"apps/slide/src/routes/night/[code]/+page.svelte",
-			"apps/slide/src/routes/night/[code]/live/+page.svelte"
+			"apps/slide/src/routes/night/[code]/live/+page.svelte",
+			"apps/tasks/src/app.css",
+			"apps/tasks/src/routes/task/[id]/+page.svelte"
 		]
 	}
 }

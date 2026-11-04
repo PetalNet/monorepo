@@ -15,12 +15,16 @@ const positional = [];
 const flags = {};
 
 for (let i = 0; i < argv.length; i++) {
-	if (argv[i] === "--assignee") flags.assignee = argv[++i];
-	else if (argv[i] === "--projects") flags.projects = argv[++i];
-	else if (argv[i].startsWith("--")) {
+	if (argv[i] === "--assignee") {
+		flags.assignee = argv[++i];
+	} else if (argv[i] === "--projects") {
+		flags.projects = argv[++i];
+	} else if (argv[i].startsWith("--")) {
 		console.error(`unknown flag: ${argv[i]}`);
 		process.exit(1);
-	} else positional.push(argv[i]);
+	} else {
+		positional.push(argv[i]);
+	}
 }
 
 const agent_name = positional[0];

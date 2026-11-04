@@ -26,7 +26,7 @@
 </script>
 
 <script>
-	// ── ProseMark editor — a WYSIWYM markdown surface (CodeMirror 6 / @prosemark/core)
+	// ── ProseMark editor — a WYSIWYM markdown surface backed by the vendored bundle.
 	// themed to render LINE-FOR-LINE like the saved task body. The task page already shows
 	// the saved body through the real `.prose` pipeline (server md.js -> bodyHtml); this
 	// editor is styled to match that .prose render (same font, sizes, heading colors, card)

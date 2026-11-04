@@ -62,7 +62,9 @@ export function GET({ params }) {
 	const a = getArtifactByShareToken(params.token);
 
 	// FAIL CLOSED — any miss is an indistinguishable generic 404 (no info leak about why).
-	if (!a) throw error(404, "Not found");
+	if (!a) {
+		throw error(404, "Not found");
+	}
 
 	if (a.kind === "interactive" || a.kind === "html") {
 		const csp = CSP[a.kind];
