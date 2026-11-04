@@ -1,0 +1,33 @@
+node_modules
+/build
+/.svelte-kit
+tasks.db
+tasks.db-*
+*.local
+.env
+
+# runtime DB lives under data/ (the root tasks.db globs above only catch a top-level copy)
+data/tasks.db
+data/tasks.db-*
+# runtime agent-fleet heartbeat (written by the warm session/manager, read by the rail)
+data/agent-fleet-status.json
+# Corner sync log (runtime artifact, was tracked by mistake — task-367)
+data/sync-corner.log
+# ElevenLabs TTS key — secret; never commit (key itself is out of scope, just ignored here — task-367)
+data/eleven-api-key
+
+# local board verification artifacts (screenshots) — not app source
+_board-verify/
+
+# vendored exploration artifacts (matrix-rust-sdk / wasm clones) — NOT build deps, ~62M
+matrix-rust-sdk/
+matrix-sdk-crypto-wasm/
+wasm/
+mjs/
+matrix-*.tgz
+matrix-org-*.tgz
+# generated / temp
+data/keeper-reports/
+# per-agent fleet heartbeats (runtime-written; agent-a/codex/agent-b/...)
+data/fleet/*.json
+*.bak-archive
