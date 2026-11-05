@@ -269,6 +269,8 @@ export interface RenderOptions {
 export interface RenderResult {
 	/** The design frame (`frameW × frameH` in dots, times `scale` in design mode), before orientation. */
 	frame: Bitmap;
+	/** Pixels per dot in `frame`: the requested scale, lowered if the frame would be too large. */
+	scale: number;
 	/** Print mode only: the HEAD_PINS-high raster for the printer, band placed at tape.margin. */
 	raster: Bitmap | null;
 	/** Label length along the tape, in dots. */

@@ -12,9 +12,16 @@ import {
 } from "$lib/doc";
 import { serverFonts } from "$lib/server/fonts";
 import bwip from "bwip-js/generic";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 
 import { renderLabel } from "./index.ts";
+import { bitmap } from "./raster.ts";
+
+vi.mock("./raster.ts", async (importOriginal) => {
+	const raster = await importOriginal<typeof import("./raster.ts")>();
+
+	return { ...raster, bitmap: vi.fn(raster.bitmap) };
+});
 
 const tape = tapeGeometry(12);
 
@@ -239,6 +246,38 @@ describe("geometry", () => {
 		expect(preview.frame.data.filter((value) => value > 0)).toHaveLength(600 * 16 * 16);
 		expect(at(preview.frame, 10 * 16, 5 * 16)).toBe(255);
 		expect(at(preview.frame, 0, 0)).toBe(0);
+	});
+
+	it("lowers the preview scale so no bitmap of a long, zoomed label exceeds 16 MiB", async () => {
+		const doc = label([rect("big", 0, 0, 1800, 1800), rect("r", 10, 5, 20, 30)], {
+			tapeMm: 24,
+			length: { mode: "fixed", mm: 1000 },
+		});
+
+		vi.mocked(bitmap).mockClear();
+
+		const preview = await renderLabel(
+			doc,
+			{ tape: tapeGeometry(24), mode: "design", scale: 16 },
+			serverFonts,
+		);
+		const sizes = vi.mocked(bitmap).mock.calls.map(([w, h]) => w * h);
+
+		expect(preview.scale).toBeLessThan(16);
+		expect(preview.frame.width).toBe(mmToDots(1000) * preview.scale);
+		expect(at(preview.frame, 10 * preview.scale, 5 * preview.scale)).toBe(255);
+		expect(sizes.length).toBeGreaterThan(1);
+		expect(Math.max(...sizes)).toBeLessThanOrEqual(1 << 24);
+	});
+
+	it("keeps the requested scale when the label is small enough", async () => {
+		const preview = await renderLabel(
+			label([rect("r", 10, 5, 20, 30)], { length: { mode: "fixed", mm: 40 } }),
+			{ tape, mode: "design", scale: 16 },
+			serverFonts,
+		);
+
+		expect(preview.scale).toBe(16);
 	});
 
 	it("skips an element too large to allocate and still draws the rest", async () => {

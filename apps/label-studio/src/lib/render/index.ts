@@ -42,6 +42,12 @@ const MAX_SCALE = 16;
  * any scale, and preview and print skip the same elements.
  */
 const MAX_LAYER_FRAMES = 4;
+/**
+ * Most pixels in any one bitmap a design-mode render allocates. The requested scale drops until the
+ * frame and every drawn layer fit, so a long label at high zoom previews a little softer instead of
+ * allocating hundreds of megabytes. Print mode, at scale 1, always fits.
+ */
+const MAX_SCALED_PIXELS = 1 << 24;
 
 interface Assets {
 	faces: ReadonlyMap<string, Face>;
@@ -348,11 +354,11 @@ export async function renderLabel(
 	fonts: FontSource,
 ): Promise<RenderResult> {
 	const mode = options.mode ?? "print";
-	const scale = mode === "print" ? 1 : (options.scale ?? 1);
+	const requested = mode === "print" ? 1 : (options.scale ?? 1);
 
-	if (!Number.isInteger(scale) || scale < 1 || scale > MAX_SCALE) {
+	if (!Number.isInteger(requested) || requested < 1 || requested > MAX_SCALE) {
 		throw new RangeError(
-			`renderLabel: scale must be an integer from 1 to ${String(MAX_SCALE)}, got ${String(scale)}`,
+			`renderLabel: scale must be an integer from 1 to ${String(MAX_SCALE)}, got ${String(requested)}`,
 		);
 	}
 
@@ -371,7 +377,7 @@ export async function renderLabel(
 		assets: await loadAssets(doc, fonts, warn),
 		vars: options.vars ?? {},
 		mode,
-		scale,
+		scale: requested,
 		warn,
 	};
 	const vertical = doc.orientation === "vertical";
@@ -424,15 +430,28 @@ export async function renderLabel(
 	lengthDots = Math.max(1, Math.round(lengthDots));
 
 	const [frameW, frameH] = vertical ? [tape.pins, lengthDots] : [lengthDots, tape.pins];
-	const frame = bitmap(frameW * scale, frameH * scale);
+	const area = ({ local, bleed }: (typeof items)[number]): number =>
+		(local[0] + 2 * bleed) * (local[1] + 2 * bleed);
+	const drawn = items.filter((item) => {
+		if (area(item) > MAX_LAYER_FRAMES * frameW * frameH) {
+			warn(`${item.el.name ?? item.el.id} is too large to draw`);
 
-	for (const { box, local, bleed, el, draw } of items) {
-		if ((local[0] + 2 * bleed) * (local[1] + 2 * bleed) > MAX_LAYER_FRAMES * frameW * frameH) {
-			warn(`${el.name ?? el.id} is too large to draw`);
-
-			continue;
+			return false;
 		}
 
+		return true;
+	});
+	const largest = Math.max(frameW * frameH, ...drawn.map(area));
+	const scale = Math.max(
+		1,
+		Math.min(requested, Math.floor(Math.sqrt(MAX_SCALED_PIXELS / largest))),
+	);
+
+	ctx.scale = scale;
+
+	const frame = bitmap(frameW * scale, frameH * scale);
+
+	for (const { box, local, bleed, el, draw } of drawn) {
 		const layer = bitmap((local[0] + 2 * bleed) * scale, (local[1] + 2 * bleed) * scale);
 
 		// The bleed is the same on all four sides, so it survives any quarter turn unchanged.
@@ -464,5 +483,5 @@ export async function renderLabel(
 		}
 	}
 
-	return { frame, raster, lengthDots, boxes, warnings: [...warnings] };
+	return { frame, raster, scale, lengthDots, boxes, warnings: [...warnings] };
 }

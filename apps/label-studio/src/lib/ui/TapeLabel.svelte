@@ -47,8 +47,8 @@
 	const horizontal = $derived(!upright || alongTape);
 	const across = $derived(tapeAcross(doc.tapeMm));
 	const result = $derived(live.result);
-	const frameW = $derived(result ? result.frame.width / (mode === "print" ? 1 : scale) : 0);
-	const frameH = $derived(result ? result.frame.height / (mode === "print" ? 1 : scale) : 0);
+	const frameW = $derived(result ? result.frame.width / result.scale : 0);
+	const frameH = $derived(result ? result.frame.height / result.scale : 0);
 	const along = $derived(upright ? frameH : frameW);
 	// The tape runs across the screen for a horizontal label and down it for a vertical one.
 	const zoom = $derived.by(() => {

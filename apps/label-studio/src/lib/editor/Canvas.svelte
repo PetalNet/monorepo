@@ -48,7 +48,6 @@
 	let stageSize = $state({ w: 0, h: 0 });
 	let guides = $state<Guide[]>([]);
 	let dpr = $state(globalThis.devicePixelRatio || 1);
-	let renderedScale = $state(1);
 	let belowHeight = $state(20);
 
 	const doc = $derived(editor.doc);
@@ -77,8 +76,8 @@
 			? frameSize(doc, mmToDots(BLANK_MM))
 			: result
 				? {
-						w: result.frame.width / (printView ? 1 : renderedScale),
-						h: result.frame.height / (printView ? 1 : renderedScale),
+						w: result.frame.width / result.scale,
+						h: result.frame.height / result.scale,
 					}
 				: frameSize(doc, mmToDots(30)),
 	);
@@ -113,10 +112,6 @@
 		if (!result || !canvas) {
 			return;
 		}
-
-		renderedScale = printView
-			? 1
-			: result.frame.width / Math.max(1, frameSize(doc, result.lengthDots).w);
 
 		paint(canvas, result.frame, [22, 22, 22]);
 		editor.boxes = result.boxes;

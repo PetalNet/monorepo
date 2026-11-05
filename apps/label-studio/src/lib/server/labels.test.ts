@@ -42,6 +42,7 @@ describe("renderPages", () => {
 			const result: RenderResult = {
 				frame: raster,
 				raster,
+				scale: 1,
 				lengthDots: 180,
 				boxes: {},
 				warnings: ["w"],
