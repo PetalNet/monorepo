@@ -78,12 +78,13 @@
 			Record<string, string>
 		>,
 	);
+	const parsed = $derived(input === "source" ? null : parseTable(text, header));
 	const table = $derived.by((): Table => {
-		if (input === "source") {
+		if (parsed === null) {
 			return source?.table ?? { columns: [], rows: [] };
 		}
 
-		return parseTable(text, header);
+		return parsed.ok ? parsed.table : { columns: [], rows: [] };
 	});
 	// Columns re-match whenever the columns or the template's variables change; the user can override.
 	let map = $derived<ColumnMap>(autoMap(table.columns, keys));
@@ -226,6 +227,7 @@
 						placeholder={PASTE_HINT}
 						aria-label="Rows"
 						spellcheck="false"></textarea>
+					{#if parsed?.ok === false}<Banner tone="danger">{parsed.error}</Banner>{/if}
 					<Row label="Header" for="batch-header">
 						<Switch
 							id="batch-header"
@@ -253,6 +255,7 @@
 						/>
 					</label>
 					{#if fileError}<Banner tone="danger">{fileError}</Banner>{/if}
+					{#if parsed?.ok === false}<Banner tone="danger">{parsed.error}</Banner>{/if}
 					<Row label="Header" for="batch-file-header">
 						<Switch
 							id="batch-file-header"

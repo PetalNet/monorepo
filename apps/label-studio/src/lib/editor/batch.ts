@@ -7,6 +7,9 @@ export interface Table {
 	rows: Vars[];
 }
 
+/** A parsed table, or why the text is not one yet (an unclosed quote while typing, say). */
+export type Parsed = { ok: true; table: Table } | { ok: false; error: string };
+
 /** Which table column fills each template variable; null leaves the field default. */
 export type ColumnMap = Record<string, string | null>;
 
@@ -17,11 +20,11 @@ const normalise = (value: string): string => value.toLowerCase().replaceAll(/[^a
  * spreadsheet) and `header` says whether the first row names the columns; otherwise every non-empty
  * line is one label with a single "text" column.
  */
-export function parseTable(text: string, header: boolean): Table {
+export function parseTable(text: string, header: boolean): Parsed {
 	const trimmed = text.replace(/\s+$/, "");
 
 	if (trimmed === "") {
-		return { columns: [], rows: [] };
+		return { ok: true, table: { columns: [], rows: [] } };
 	}
 
 	const firstLine = trimmed.split("\n", 1)[0];
@@ -32,17 +35,27 @@ export function parseTable(text: string, header: boolean): Table {
 		const body = header ? lines.slice(1) : lines;
 
 		return {
-			columns: [{ key: "text", label: header ? lines[0] : "Text" }],
-			rows: body.filter((line) => line !== "").map((line) => ({ text: line })),
+			ok: true,
+			table: {
+				columns: [{ key: "text", label: header ? lines[0] : "Text" }],
+				rows: body.filter((line) => line !== "").map((line) => ({ text: line })),
+			},
 		};
 	}
 
-	const records = parse(trimmed, {
-		delimiter,
-		relax_column_count: true,
-		skip_empty_lines: true,
-		trim: true,
-	});
+	let records: string[][];
+
+	try {
+		records = parse(trimmed, {
+			delimiter,
+			relax_column_count: true,
+			skip_empty_lines: true,
+			trim: true,
+		});
+	} catch (error) {
+		return { ok: false, error: error instanceof Error ? error.message : String(error) };
+	}
+
 	const width = Math.max(0, ...records.map((record) => record.length));
 	const names = header ? (records[0] ?? []) : [];
 	const used = new Set<string>();
@@ -62,7 +75,7 @@ export function parseTable(text: string, header: boolean): Table {
 		Object.fromEntries(columns.map((column, index) => [column.key, record[index] ?? ""])),
 	);
 
-	return { columns, rows };
+	return { ok: true, table: { columns, rows } };
 }
 
 /** Match each variable to the column of the same name, else to the columns in order. */
