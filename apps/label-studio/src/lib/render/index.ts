@@ -36,6 +36,11 @@ export interface FontSource {
 /** Longest label the renderer will lay out; longer fixed lengths are clamped. */
 const MAX_LENGTH_MM = 1000;
 const MAX_SCALE = 16;
+/**
+ * Largest element layer, in dots squared: four times the biggest frame. Each layer is allocated
+ * whole before it is clipped to the frame, so this bounds memory per element.
+ */
+const MAX_LAYER_DOTS = 4 * mmToDots(MAX_LENGTH_MM) * HEAD_PINS;
 
 interface Assets {
 	faces: ReadonlyMap<string, Face>;
@@ -401,6 +406,12 @@ export async function renderLabel(
 		if (prepared) {
 			// An inverted layer paints its whole extent, so it must stop at the box.
 			const bleed = el.invert ? 0 : (prepared.bleed ?? 0);
+
+			if ((width + 2 * bleed) * (lh + 2 * bleed) > MAX_LAYER_DOTS) {
+				warn(`${el.name ?? el.id} is too large to draw`);
+
+				continue;
+			}
 
 			items.push({ box: resolved, local: [width, lh], bleed, el, draw: prepared.draw });
 		}

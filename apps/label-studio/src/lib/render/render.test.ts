@@ -227,6 +227,13 @@ describe("geometry", () => {
 		expect(result.lengthDots).toBe(65 + mmToDots(2));
 	});
 
+	it("skips an element too large to allocate and still draws the rest", async () => {
+		const result = await print(label([rect("huge", 0, 0, 20_000, 1000), rect("r", 10, 5, 20, 30)]));
+
+		expect(result.warnings).toContain("huge is too large to draw");
+		expect(bounds(result.frame)).toEqual({ count: 600, x0: 10, x1: 29, y0: 5, y1: 34 });
+	});
+
 	it("clips elements to the band", async () => {
 		const result = await print(label([rect("r", 0, 60, 10, 30)]));
 
