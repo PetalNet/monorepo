@@ -45,11 +45,21 @@ describe("parseTable", () => {
 		const open = parseTable('name,location\n"Flour', true);
 
 		expect(open.ok).toBe(false);
-		expect(open.ok ? "" : open.error).toMatch(/quote/i);
+		expect(open.ok ? "" : open.error).toBe("Line 2 opens a quote that is never closed.");
 
 		expect(tableOf('name,location\n"Flour",shelf', true).rows).toEqual([
 			{ name: "Flour", location: "shelf" },
 		]);
+	});
+
+	it("explains how to fix a stray quote", () => {
+		const stray = parseTable('name,location\nFlour" mill,shelf', true);
+
+		expect(stray.ok).toBe(false);
+
+		expect(stray.ok ? "" : stray.error).toBe(
+			"Line 2 has a stray quote. Wrap the whole value in quotes and double any quote inside it.",
+		);
 	});
 
 	it("pads short rows", () => {

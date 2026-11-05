@@ -153,6 +153,11 @@ export interface CodeElement extends ElementBase {
 	symbology: Symbology;
 	/** May contain `{{var}}` placeholders. */
 	data: string;
+	/**
+	 * When true, each `{{var}}` value is backslash-escaped for Wi-Fi/MECARD payloads (`\ ; , : "`)
+	 * before it is substituted.
+	 */
+	escapeFields?: boolean;
 	/** QR error correction. */
 	ecc: "L" | "M" | "Q" | "H";
 	/** Print human-readable text under 1D codes. */
@@ -226,8 +231,16 @@ export type Vars = Readonly<Record<string, string>>;
 const PLACEHOLDER = /\{\{\s*([\w.-]+)\s*\}\}/g;
 
 /** Replace `{{key}}` with `vars[key]`. Unknown keys render as empty strings. */
-export function interpolate(value: string, vars: Vars): string {
-	return value.replaceAll(PLACEHOLDER, (_, key: string) => vars[key] ?? "");
+export function interpolate(
+	value: string,
+	vars: Vars,
+	mapValue?: (value: string) => string,
+): string {
+	return value.replaceAll(PLACEHOLDER, (_, key: string) => {
+		const field = vars[key] ?? "";
+
+		return mapValue ? mapValue(field) : field;
+	});
 }
 
 /** Every distinct `{{key}}` used by a document's text and code elements, in first-use order. */

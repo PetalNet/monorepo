@@ -108,6 +108,7 @@ const code = object({
 	kind: oneOf("code"),
 	symbology: oneOf("qr", "code128", "datamatrix", "ean13"),
 	data: string({ max: 2000 }),
+	escapeFields: optional(boolean),
 	ecc: oneOf("L", "M", "Q", "H"),
 	showText: boolean,
 });

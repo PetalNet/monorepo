@@ -1,20 +1,18 @@
 import { category, doc, field, icon, qr, START, text } from "./build.ts";
-import { meCard, wifiJoin } from "./qr-data.ts";
 
 const qrCategory = category("qr");
-
-const ESCAPE_NOTE =
-	'Names or passwords containing ; , : \\ or " need a backslash before those characters in the field.';
 
 export const QR = [
 	qrCategory({
 		slug: "wifi-qr",
 		name: "Wi-Fi QR",
-		description: `Scan to join a WPA network. Laid out for 24 mm tape so phones read the code from arm's length. ${ESCAPE_NOTE}`,
+		description:
+			"Scan to join a WPA network. Laid out for 24 mm tape so phones read the code from arm's length.",
 		doc: doc(
 			[
-				qr("qr", { x: 4, y: 0, w: 128, h: 128 }, wifiJoin("{{ssid}}", "{{password}}"), {
+				qr("qr", { x: 4, y: 0, w: 128, h: 128 }, "WIFI:T:WPA;S:{{ssid}};P:{{password}};;", {
 					ecc: "L",
+					escapeFields: true,
 				}),
 				icon("icon", { x: 144, y: 22, w: 28, h: 28 }, "wifi"),
 				text("lead", { x: 180, y: 24, w: 200, h: 24 }, "Scan to join"),
@@ -45,15 +43,17 @@ export const QR = [
 	qrCategory({
 		slug: "contact-qr",
 		name: "Contact card",
-		description: `A MECARD QR that saves your name, phone and email to a phone's contacts, on 24 mm tape. ${ESCAPE_NOTE.replace("Names or passwords", "Values")}`,
+		description:
+			"A MECARD QR that saves your name, phone and email to a phone's contacts, on 24 mm tape.",
 		doc: doc(
 			[
 				qr(
 					"qr",
 					{ x: 4, y: 0, w: 128, h: 128 },
-					meCard({ name: "{{name}}", phone: "{{phone}}", email: "{{email}}" }),
+					"MECARD:N:{{name}};TEL:{{phone}};EMAIL:{{email}};;",
 					{
 						ecc: "L",
+						escapeFields: true,
 					},
 				),
 				text("name", { x: 144, y: 10, w: 300, h: 44 }, "{{name}}", { bold: true }),

@@ -7,7 +7,7 @@ import { templateInput } from "$lib/server/schemas";
 import { describe, expect, it } from "vitest";
 
 import { BUILTIN_TEMPLATES } from "./builtin.ts";
-import { wifiJoin } from "./qr-data.ts";
+import { escapeQrValue } from "./qr-data.ts";
 
 const BUILTIN_VARS = new Set(["today", "now"]);
 const NOW = new Date("2026-03-07T09:05:00");
@@ -107,6 +107,10 @@ describe("BUILTIN_TEMPLATES", () => {
 		const qr = template?.doc.elements.find((element) => element.kind === "code");
 		const vars = { ssid: "Cabin", password: "pine-cone-7" };
 
-		expect(qr && interpolate(qr.data, vars)).toBe(wifiJoin(vars.ssid, vars.password));
+		expect(qr?.escapeFields).toBe(true);
+
+		expect(qr && interpolate(qr.data, vars, escapeQrValue)).toBe(
+			"WIFI:T:WPA;S:Cabin;P:pine-cone-7;;",
+		);
 	});
 });

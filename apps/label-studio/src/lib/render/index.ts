@@ -13,6 +13,7 @@ import {
 	type Vars,
 } from "$lib/doc";
 
+import { escapeQrValue } from "../templates/qr-data.ts";
 import { drawCode, encode, loadBarcodes, type Barcodes } from "./code.ts";
 import {
 	DEFAULT_FONT,
@@ -177,7 +178,11 @@ const PREPARE: { [K in ElementKind]: Preparer<K> } = {
 			return null;
 		}
 
-		const symbol = encode(ctx.assets.barcodes, el, interpolate(el.data, ctx.vars));
+		const symbol = encode(
+			ctx.assets.barcodes,
+			el,
+			interpolate(el.data, ctx.vars, el.escapeFields ? escapeQrValue : undefined),
+		);
 
 		if (typeof symbol === "string") {
 			ctx.warn(symbol);

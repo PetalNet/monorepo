@@ -14,11 +14,13 @@ import { serverFonts } from "$lib/server/fonts";
 import bwip from "bwip-js/generic";
 import { describe, expect, it, vi } from "vitest";
 
+import { QR } from "../templates/qr.ts";
 import { renderLabel } from "./index.ts";
 import { bitmap } from "./raster.ts";
+import type * as Raster from "./raster.ts";
 
 vi.mock("./raster.ts", async (importOriginal) => {
-	const raster = await importOriginal<typeof import("./raster.ts")>();
+	const raster = await importOriginal<typeof Raster>();
 
 	return { ...raster, bitmap: vi.fn(raster.bitmap) };
 });
@@ -129,12 +131,12 @@ const image = (
 	...extra,
 });
 
-const inked = (bitmap: Bitmap): [number, number][] => {
+const inked = (target: Bitmap): [number, number][] => {
 	const out: [number, number][] = [];
 
-	for (let y = 0; y < bitmap.height; y++) {
-		for (let x = 0; x < bitmap.width; x++) {
-			if (bitmap.data[y * bitmap.width + x]) {
+	for (let y = 0; y < target.height; y++) {
+		for (let x = 0; x < target.width; x++) {
+			if (target.data[y * target.width + x]) {
 				out.push([x, y]);
 			}
 		}
@@ -143,8 +145,8 @@ const inked = (bitmap: Bitmap): [number, number][] => {
 	return out;
 };
 
-const bounds = (bitmap: Bitmap) => {
-	const points = inked(bitmap);
+const bounds = (target: Bitmap) => {
+	const points = inked(target);
 	const xs = points.map(([x]) => x);
 	const ys = points.map(([, y]) => y);
 
@@ -165,7 +167,7 @@ const rasterOf = (result: RenderResult): Bitmap => {
 	return result.raster;
 };
 
-const at = (bitmap: Bitmap, x: number, y: number): number => bitmap.data[y * bitmap.width + x];
+const at = (target: Bitmap, x: number, y: number): number => target.data[y * target.width + x];
 
 const print = (doc: LabelDoc) => renderLabel(doc, { tape }, serverFonts);
 
@@ -371,6 +373,46 @@ describe("text", () => {
 });
 
 describe("codes", () => {
+	it("escapes Wi-Fi template fields before encoding its QR payload", async () => {
+		const template = QR.find((item) => item.id === "builtin:wifi-qr");
+
+		if (!template) {
+			throw new Error("Wi-Fi QR template is missing");
+		}
+
+		const wifi = template.doc.elements.find(
+			(element): element is CodeElement => element.kind === "code",
+		);
+
+		if (!wifi) {
+			throw new Error("Wi-Fi QR code is missing");
+		}
+
+		const { escapeFields: _escapeFields, ...plainWifi } = wifi;
+		const vars = { ssid: "Cafe;5G", password: 'a:b"c' };
+		const fromTemplate = await renderLabel(
+			{ ...template.doc, elements: [wifi] },
+			{ tape: tapeGeometry(24), vars },
+			serverFonts,
+		);
+		const literal = await renderLabel(
+			{
+				...template.doc,
+				elements: [{ ...plainWifi, data: 'WIFI:T:WPA;S:Cafe\\;5G;P:a\\:b\\"c;;' }],
+			},
+			{ tape: tapeGeometry(24) },
+			serverFonts,
+		);
+		const unescaped = await renderLabel(
+			{ ...template.doc, elements: [{ ...wifi, escapeFields: false }] },
+			{ tape: tapeGeometry(24), vars },
+			serverFonts,
+		);
+
+		expect(fromTemplate.frame.data).toEqual(literal.frame.data);
+		expect(fromTemplate.frame.data).not.toEqual(unescaped.frame.data);
+	});
+
 	it.each(["L", "H"] as const)(
 		"draws a QR (ECC %s) whose module grid reads back as bwip-js's matrix",
 		async (ecc) => {

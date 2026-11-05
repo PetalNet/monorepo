@@ -15,6 +15,26 @@ export type ColumnMap = Record<string, string | null>;
 
 const normalise = (value: string): string => value.toLowerCase().replaceAll(/[^a-z0-9]/g, "");
 
+function csvErrorMessage(error: unknown): string {
+	if (!(error instanceof Error)) {
+		return "CSV could not be read.";
+	}
+
+	const code = "code" in error && typeof error.code === "string" ? error.code : "";
+	const line = "lines" in error && typeof error.lines === "number" ? error.lines : null;
+	const prefix = line === null ? "" : `Line ${String(line)} `;
+
+	if (code === "CSV_QUOTE_NOT_CLOSED") {
+		return `${prefix}opens a quote that is never closed.`;
+	}
+
+	if (code.includes("QUOTE")) {
+		return `${prefix}has a stray quote. Wrap the whole value in quotes and double any quote inside it.`;
+	}
+
+	return `${prefix}could not be read as CSV.`;
+}
+
 /**
  * Pasted text becomes a table. With a delimiter on the first line it is CSV (or TSV from a
  * spreadsheet) and `header` says whether the first row names the columns; otherwise every non-empty
@@ -53,7 +73,7 @@ export function parseTable(text: string, header: boolean): Parsed {
 			trim: true,
 		});
 	} catch (error) {
-		return { ok: false, error: error instanceof Error ? error.message : String(error) };
+		return { ok: false, error: csvErrorMessage(error) };
 	}
 
 	const width = Math.max(0, ...records.map((record) => record.length));
