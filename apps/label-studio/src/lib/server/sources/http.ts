@@ -13,12 +13,12 @@ const TLS_ERROR = /CERT|SELF_SIGNED|UNABLE_TO_VERIFY/;
 const MAX_BYTES = 16 * 1024 * 1024;
 
 /**
- * GET a JSON document. `insecureTls` turns off certificate checks for this one request (a
- * self-signed lab appliance), never process-wide.
+ * GET a JSON document. `ca` replaces the system roots for this one request, so a self-signed lab
+ * appliance is trusted only for its own certificate and the chain and hostname are still checked.
  */
 export function getJson(
 	url: string,
-	options: { headers: Record<string, string>; insecureTls: boolean; timeoutMs: number },
+	options: { headers: Record<string, string>; ca?: string; timeoutMs: number },
 ): Promise<HttpResult> {
 	const target = new URL(url);
 	const client = target.protocol === "https:" ? https : http;
@@ -29,9 +29,7 @@ export function getJson(
 			{
 				headers: { accept: "application/json", ...options.headers },
 				timeout: options.timeoutMs,
-				...(target.protocol === "https:" && options.insecureTls
-					? { rejectUnauthorized: false }
-					: {}),
+				...(target.protocol === "https:" && options.ca !== undefined ? { ca: options.ca } : {}),
 			},
 			(response) => {
 				const status = response.statusCode ?? 0;

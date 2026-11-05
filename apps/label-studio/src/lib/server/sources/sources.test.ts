@@ -1,11 +1,14 @@
-import { mkdtempSync, writeFileSync } from "node:fs";
+import { execFileSync } from "node:child_process";
+import { mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { createServer, type IncomingHttpHeaders, type Server } from "node:http";
+import { createServer as createHttpsServer } from "node:https";
+import type { AddressInfo } from "node:net";
 import os from "node:os";
 import path from "node:path";
 
 import { afterEach, describe, expect, it } from "vitest";
 
-import type { SourceConfig } from "../config.ts";
+import { parseConfig, type SourceConfig } from "../config.ts";
 import { listenLocal } from "../testing.ts";
 import { readSource } from "./index.ts";
 import { hass, humanSize, proxmox, truenas } from "./normalise.ts";
@@ -116,7 +119,53 @@ function sourceConfig(url: string, extra: Partial<SourceConfig> = {}): SourceCon
 
 	writeFileSync(secretFile, `${SECRET}\n`);
 
-	return { url, secretFile, insecureTls: false, ...extra };
+	return { url, secretFile, ...extra };
+}
+
+/** A fresh self-signed certificate for 127.0.0.1, as its PEM file and key. */
+function selfSigned(): { certFile: string; cert: string; key: string } {
+	const dir = mkdtempSync(path.join(os.tmpdir(), "ls-cert-"));
+	const certFile = path.join(dir, "cert.pem");
+	const keyFile = path.join(dir, "key.pem");
+
+	execFileSync(
+		"openssl",
+		[
+			"req",
+			"-x509",
+			"-newkey",
+			"ec",
+			"-pkeyopt",
+			"ec_paramgen_curve:prime256v1",
+			"-nodes",
+			"-keyout",
+			keyFile,
+			"-out",
+			certFile,
+			"-days",
+			"1",
+			"-subj",
+			"/CN=127.0.0.1",
+			"-addext",
+			"subjectAltName=IP:127.0.0.1",
+		],
+		{ stdio: "ignore" },
+	);
+
+	return { certFile, cert: readFileSync(certFile, "utf8"), key: readFileSync(keyFile, "utf8") };
+}
+
+async function selfSignedSource(identity: { cert: string; key: string }): Promise<string> {
+	server = createHttpsServer(identity, (_request, response) => {
+		response.writeHead(200, { "content-type": "application/json" });
+		response.end(JSON.stringify([{ entity_id: "light.desk", state: "on", attributes: {} }]));
+	});
+
+	await new Promise<void>((resolve) => {
+		server?.listen(0, "127.0.0.1", resolve);
+	});
+
+	return `https://127.0.0.1:${String((server.address() as AddressInfo).port)}`;
 }
 
 describe("readSource", () => {
@@ -194,12 +243,55 @@ describe("readSource", () => {
 		const result = await readSource("hass", {
 			url: "http://127.0.0.1:9",
 			secretFile: "/nonexistent/secret",
-			insecureTls: false,
 		});
 
 		expect(result).toEqual({
 			ok: false,
 			error: "Home Assistant credential file could not be read",
 		});
+	});
+});
+
+describe("TLS trust", () => {
+	const untrusted = {
+		ok: false,
+		error:
+			"Home Assistant has a certificate this server does not trust; set LABEL_STUDIO_HASS_CA_FILE to its CA certificate if it is self-signed",
+	};
+
+	it("refuses a self-signed source by default", async () => {
+		const url = await selfSignedSource(selfSigned());
+
+		expect(await readSource("hass", sourceConfig(url))).toEqual(untrusted);
+	});
+
+	it("trusts a self-signed source whose certificate is pinned", async () => {
+		const identity = selfSigned();
+		const url = await selfSignedSource(identity);
+		const result = await readSource("hass", sourceConfig(url, { caFile: identity.certFile }));
+
+		expect(result.ok).toBe(true);
+	});
+
+	it("still refuses a source whose certificate is not the pinned one", async () => {
+		const url = await selfSignedSource(selfSigned());
+		const other = selfSigned();
+
+		expect(await readSource("hass", sourceConfig(url, { caFile: other.certFile }))).toEqual(
+			untrusted,
+		);
+	});
+
+	it("reads each source's pinned CA file from its own variable", () => {
+		const config = parseConfig({
+			LABEL_STUDIO_TRUENAS_URL: "https://nas.lan",
+			LABEL_STUDIO_TRUENAS_KEY_FILE: "/run/key",
+			LABEL_STUDIO_TRUENAS_CA_FILE: "/run/nas.pem",
+			LABEL_STUDIO_HASS_URL: "https://hass.lan",
+			LABEL_STUDIO_HASS_TOKEN_FILE: "/run/token",
+		});
+
+		expect(config.sources.truenas?.caFile).toBe("/run/nas.pem");
+		expect(config.sources.hass?.caFile).toBeUndefined();
 	});
 });

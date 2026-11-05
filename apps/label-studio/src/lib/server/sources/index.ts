@@ -2,7 +2,7 @@ import { readFile } from "node:fs/promises";
 
 import type { SourceId, SourceInfo, SourceRows } from "$lib/api";
 
-import type { Config, SourceConfig } from "../config.ts";
+import { caFileEnv, type Config, type SourceConfig } from "../config.ts";
 import { getJson } from "./http.ts";
 import * as normalise from "./normalise.ts";
 
@@ -70,13 +70,17 @@ export async function readSource(
 		return { ok: false, error: `${def.label} credential file could not be read` };
 	}
 
+	let ca: string | undefined;
+
+	try {
+		ca = config.caFile === undefined ? undefined : await readFile(config.caFile, "utf8");
+	} catch {
+		return { ok: false, error: `${def.label} CA certificate file could not be read` };
+	}
+
 	const headers = { authorization: def.authorization(secret) };
 	const results = await Promise.all(
-		def
-			.paths(config)
-			.map((path) =>
-				getJson(`${config.url}${path}`, { headers, insecureTls: config.insecureTls, timeoutMs }),
-			),
+		def.paths(config).map((path) => getJson(`${config.url}${path}`, { headers, ca, timeoutMs })),
 	);
 	const bodies: unknown[] = [];
 
@@ -87,7 +91,7 @@ export async function readSource(
 			case "untrusted":
 				return {
 					ok: false,
-					error: `${def.label} has a certificate this server does not trust; list ${id} in LABEL_STUDIO_INSECURE_TLS if it is self-signed`,
+					error: `${def.label} has a certificate this server does not trust; set ${caFileEnv(id)} to its CA certificate if it is self-signed`,
 				};
 			case "unreadable":
 				return { ok: false, error: `${def.label} sent a reply that is not JSON` };

@@ -4,8 +4,11 @@ export interface SourceConfig {
 	url: string;
 	/** File holding the token or API key; read per request, never cached. */
 	secretFile: string;
-	/** Accept a self-signed certificate for this source only. */
-	insecureTls: boolean;
+	/**
+	 * PEM certificate this source's TLS chain must lead to, in place of the system roots, for a
+	 * self-signed lab appliance. Read per request.
+	 */
+	caFile?: string;
 	/** Proxmox node name. */
 	node?: string;
 }
@@ -19,15 +22,27 @@ export interface Config {
 
 type Env = Readonly<Record<string, string | undefined>>;
 
-const SOURCE_ENV: Record<SourceId, { url: string; secret: string; node?: string }> = {
+const SOURCE_ENV: Record<SourceId, { url: string; secret: string; ca: string; node?: string }> = {
 	proxmox: {
 		url: "LABEL_STUDIO_PROXMOX_URL",
 		secret: "LABEL_STUDIO_PROXMOX_TOKEN_FILE",
+		ca: "LABEL_STUDIO_PROXMOX_CA_FILE",
 		node: "LABEL_STUDIO_PROXMOX_NODE",
 	},
-	truenas: { url: "LABEL_STUDIO_TRUENAS_URL", secret: "LABEL_STUDIO_TRUENAS_KEY_FILE" },
-	hass: { url: "LABEL_STUDIO_HASS_URL", secret: "LABEL_STUDIO_HASS_TOKEN_FILE" },
+	truenas: {
+		url: "LABEL_STUDIO_TRUENAS_URL",
+		secret: "LABEL_STUDIO_TRUENAS_KEY_FILE",
+		ca: "LABEL_STUDIO_TRUENAS_CA_FILE",
+	},
+	hass: {
+		url: "LABEL_STUDIO_HASS_URL",
+		secret: "LABEL_STUDIO_HASS_TOKEN_FILE",
+		ca: "LABEL_STUDIO_HASS_CA_FILE",
+	},
 };
+
+/** The variable that pins a source's certificate, for error messages. */
+export const caFileEnv = (id: SourceId): string => SOURCE_ENV[id].ca;
 
 export function parseConfig(env: Env): Config {
 	const value = (key: string): string | undefined => {
@@ -35,10 +50,6 @@ export function parseConfig(env: Env): Config {
 
 		return raw === "" ? undefined : raw;
 	};
-
-	const insecure = new Set(
-		(value("LABEL_STUDIO_INSECURE_TLS") ?? "").split(",").map((id) => id.trim()),
-	);
 
 	const source = (id: SourceId): SourceConfig | null => {
 		const keys = SOURCE_ENV[id];
@@ -50,7 +61,7 @@ export function parseConfig(env: Env): Config {
 			return null;
 		}
 
-		return { url: url.replace(/\/+$/, ""), secretFile, insecureTls: insecure.has(id), node };
+		return { url: url.replace(/\/+$/, ""), secretFile, caFile: value(keys.ca), node };
 	};
 
 	return {
