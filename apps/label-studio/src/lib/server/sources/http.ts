@@ -14,11 +14,12 @@ const MAX_BYTES = 16 * 1024 * 1024;
 
 /**
  * GET a JSON document. `ca` replaces the system roots for this one request, so a self-signed lab
- * appliance is trusted only for its own certificate and the chain and hostname are still checked.
+ * appliance is trusted only for its own certificate. `servername` is the name the certificate must
+ * carry, and the SNI sent, in place of the URL's host. The chain and the name are always checked.
  */
 export function getJson(
 	url: string,
-	options: { headers: Record<string, string>; ca?: string; timeoutMs: number },
+	options: { headers: Record<string, string>; ca?: string; servername?: string; timeoutMs: number },
 ): Promise<HttpResult> {
 	const target = new URL(url);
 	const client = target.protocol === "https:" ? https : http;
@@ -29,7 +30,12 @@ export function getJson(
 			{
 				headers: { accept: "application/json", ...options.headers },
 				timeout: options.timeoutMs,
-				...(target.protocol === "https:" && options.ca !== undefined ? { ca: options.ca } : {}),
+				...(target.protocol === "https:"
+					? {
+							...(options.ca === undefined ? {} : { ca: options.ca }),
+							...(options.servername === undefined ? {} : { servername: options.servername }),
+						}
+					: {}),
 			},
 			(response) => {
 				const status = response.statusCode ?? 0;

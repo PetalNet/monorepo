@@ -2,7 +2,7 @@ import { readFile } from "node:fs/promises";
 
 import type { SourceId, SourceInfo, SourceRows } from "$lib/api";
 
-import { caFileEnv, type Config, type SourceConfig } from "../config.ts";
+import { tlsEnv, type Config, type SourceConfig } from "../config.ts";
 import { getJson } from "./http.ts";
 import * as normalise from "./normalise.ts";
 
@@ -80,7 +80,14 @@ export async function readSource(
 
 	const headers = { authorization: def.authorization(secret) };
 	const results = await Promise.all(
-		def.paths(config).map((path) => getJson(`${config.url}${path}`, { headers, ca, timeoutMs })),
+		def.paths(config).map((path) =>
+			getJson(`${config.url}${path}`, {
+				headers,
+				ca,
+				servername: config.tlsName,
+				timeoutMs,
+			}),
+		),
 	);
 	const bodies: unknown[] = [];
 
@@ -91,7 +98,7 @@ export async function readSource(
 			case "untrusted":
 				return {
 					ok: false,
-					error: `${def.label} has a certificate this server does not trust; set ${caFileEnv(id)} to its CA certificate if it is self-signed`,
+					error: `${def.label} has a certificate this server does not trust; set ${tlsEnv(id).ca} to its CA certificate if it is self-signed, and ${tlsEnv(id).tlsName} to a name it carries if that is not the URL's host`,
 				};
 			case "unreadable":
 				return { ok: false, error: `${def.label} sent a reply that is not JSON` };

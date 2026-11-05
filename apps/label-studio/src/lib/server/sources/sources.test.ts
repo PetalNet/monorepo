@@ -5,6 +5,7 @@ import { createServer as createHttpsServer } from "node:https";
 import type { AddressInfo } from "node:net";
 import os from "node:os";
 import path from "node:path";
+import type { TLSSocket } from "node:tls";
 
 import { afterEach, describe, expect, it } from "vitest";
 
@@ -122,8 +123,8 @@ function sourceConfig(url: string, extra: Partial<SourceConfig> = {}): SourceCon
 	return { url, secretFile, ...extra };
 }
 
-/** A fresh self-signed certificate for 127.0.0.1, as its PEM file and key. */
-function selfSigned(): { certFile: string; cert: string; key: string } {
+/** A fresh self-signed certificate, for 127.0.0.1 unless given other names, as its PEM file and key. */
+function selfSigned(san = "IP:127.0.0.1"): { certFile: string; cert: string; key: string } {
 	const dir = mkdtempSync(path.join(os.tmpdir(), "ls-cert-"));
 	const certFile = path.join(dir, "cert.pem");
 	const keyFile = path.join(dir, "key.pem");
@@ -147,7 +148,7 @@ function selfSigned(): { certFile: string; cert: string; key: string } {
 			"-subj",
 			"/CN=127.0.0.1",
 			"-addext",
-			"subjectAltName=IP:127.0.0.1",
+			`subjectAltName=${san}`,
 		],
 		{ stdio: "ignore" },
 	);
@@ -155,8 +156,13 @@ function selfSigned(): { certFile: string; cert: string; key: string } {
 	return { certFile, cert: readFileSync(certFile, "utf8"), key: readFileSync(keyFile, "utf8") };
 }
 
+let sniSeen: string[] = [];
+
 async function selfSignedSource(identity: { cert: string; key: string }): Promise<string> {
-	server = createHttpsServer(identity, (_request, response) => {
+	sniSeen = [];
+
+	server = createHttpsServer(identity, (request, response) => {
+		sniSeen.push(String((request.socket as TLSSocket).servername));
 		response.writeHead(200, { "content-type": "application/json" });
 		response.end(JSON.stringify([{ entity_id: "light.desk", state: "on", attributes: {} }]));
 	});
@@ -256,7 +262,7 @@ describe("TLS trust", () => {
 	const untrusted = {
 		ok: false,
 		error:
-			"Home Assistant has a certificate this server does not trust; set LABEL_STUDIO_HASS_CA_FILE to its CA certificate if it is self-signed",
+			"Home Assistant has a certificate this server does not trust; set LABEL_STUDIO_HASS_CA_FILE to its CA certificate if it is self-signed, and LABEL_STUDIO_HASS_TLS_NAME to a name it carries if that is not the URL's host",
 	};
 
 	it("refuses a self-signed source by default", async () => {
@@ -282,16 +288,49 @@ describe("TLS trust", () => {
 		);
 	});
 
+	describe("a certificate that names a host other than the URL's IP", () => {
+		const internal = () => selfSigned("DNS:example.internal");
+
+		it("is refused when pinned without a TLS name", async () => {
+			const identity = internal();
+			const url = await selfSignedSource(identity);
+
+			expect(await readSource("hass", sourceConfig(url, { caFile: identity.certFile }))).toEqual(
+				untrusted,
+			);
+		});
+
+		it("is accepted when pinned with the name it carries, which is also sent as SNI", async () => {
+			const identity = internal();
+			const url = await selfSignedSource(identity);
+			const config = sourceConfig(url, { caFile: identity.certFile, tlsName: "example.internal" });
+
+			expect((await readSource("hass", config)).ok).toBe(true);
+			expect(sniSeen).toEqual(["example.internal"]);
+		});
+
+		it("is refused when pinned with a name it does not carry", async () => {
+			const identity = internal();
+			const url = await selfSignedSource(identity);
+			const config = sourceConfig(url, { caFile: identity.certFile, tlsName: "other.internal" });
+
+			expect(await readSource("hass", config)).toEqual(untrusted);
+		});
+	});
+
 	it("reads each source's pinned CA file from its own variable", () => {
 		const config = parseConfig({
 			LABEL_STUDIO_TRUENAS_URL: "https://nas.lan",
 			LABEL_STUDIO_TRUENAS_KEY_FILE: "/run/key",
 			LABEL_STUDIO_TRUENAS_CA_FILE: "/run/nas.pem",
+			LABEL_STUDIO_TRUENAS_TLS_NAME: "localhost",
 			LABEL_STUDIO_HASS_URL: "https://hass.lan",
 			LABEL_STUDIO_HASS_TOKEN_FILE: "/run/token",
 		});
 
 		expect(config.sources.truenas?.caFile).toBe("/run/nas.pem");
+		expect(config.sources.truenas?.tlsName).toBe("localhost");
 		expect(config.sources.hass?.caFile).toBeUndefined();
+		expect(config.sources.hass?.tlsName).toBeUndefined();
 	});
 });
