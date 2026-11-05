@@ -158,13 +158,18 @@ describe("retape", () => {
 
 describe("newId", () => {
 	it("works where crypto.randomUUID is missing, as on a plain-http page", () => {
-		vi.stubGlobal("crypto", { getRandomValues: globalThis.crypto.getRandomValues.bind(globalThis.crypto) });
+		vi.stubGlobal("crypto", {
+			getRandomValues: globalThis.crypto.getRandomValues.bind(globalThis.crypto),
+		});
 
 		try {
-			const ids = new Set(Array.from({ length: 50 }, () => newId()));
+			const made = new Set(Array.from({ length: 50 }, () => newId()));
 
-			expect(ids.size).toBe(50);
-			for (const id of ids) expect(id).toMatch(/^[0-9a-f]{8}$/);
+			expect(made.size).toBe(50);
+
+			for (const id of made) {
+				expect(id).toMatch(/^[0-9a-f]{8}$/);
+			}
 		} finally {
 			vi.unstubAllGlobals();
 		}

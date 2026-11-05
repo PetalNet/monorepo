@@ -66,7 +66,9 @@ function contentEnd(doc: LabelDoc, boxes: Readonly<Partial<Record<string, Box>>>
 
 // crypto.randomUUID only exists in secure contexts, and the app is served over plain http on the LAN.
 export const newId = (): string =>
-	Array.from(crypto.getRandomValues(new Uint8Array(4)), (byte) => byte.toString(16).padStart(2, "0")).join("");
+	Array.from(crypto.getRandomValues(new Uint8Array(4)), (byte) =>
+		byte.toString(16).padStart(2, "0"),
+	).join("");
 
 const CODE_DATA: Record<Symbology, string> = {
 	qr: "https://example.com",
