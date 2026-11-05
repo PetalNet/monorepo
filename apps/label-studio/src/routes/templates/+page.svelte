@@ -88,7 +88,7 @@
 			await api.deleteTemplate(target.id);
 
 			if (editor.template?.id === target.id) {
-				editor.template = null;
+				editor.setTemplate(null);
 			}
 
 			confirmDelete = false;

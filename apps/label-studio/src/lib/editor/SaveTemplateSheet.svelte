@@ -62,12 +62,12 @@
 					? await api.updateTemplate(editor.template.id, input)
 					: await api.createTemplate(input);
 
-			editor.template = {
+			editor.setTemplate({
 				id: template.id,
 				name: template.name,
 				builtin: false,
 				fields: template.fields,
-			};
+			});
 
 			open = false;
 			await goto(resolve("/templates"));

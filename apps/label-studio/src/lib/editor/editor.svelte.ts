@@ -35,18 +35,37 @@ export type View = "design" | "print";
 /** The editor panel tabs; "edit" exists only on narrow screens, "templates" only on wide ones. */
 export type PanelTab = "add" | "edit" | "layers" | "templates";
 
+/**
+ * The template a document came from and its field values. Loading a document starts a new context;
+ * edits keep the current one, so undoing a load brings back the old fields as they were left.
+ */
+class Context {
+	template = $state.raw<Session["template"]>(null);
+	vars = $state<Record<string, string>>({});
+
+	constructor(template: Session["template"], vars: Record<string, string>) {
+		this.template = template;
+		this.vars = vars;
+	}
+}
+
+interface Entry {
+	doc: LabelDoc;
+	context: Context;
+}
+
 const ZOOM_MIN = 0.1;
 const ZOOM_MAX = 16;
 
 class Editor {
-	history = $state.raw<History<LabelDoc>>(startHistory(emptyDoc()));
+	history = $state.raw<History<Entry>>(
+		startHistory({ doc: emptyDoc(), context: new Context(null, {}) }),
+	);
 	selection = $state.raw<string[]>([]);
 	view = $state<View>("design");
 	/** CSS pixels per printer dot. `null` follows the fitted zoom. */
 	zoom = $state<number | null>(null);
 	fitZoom = $state(3);
-	template = $state.raw<Session["template"]>(null);
-	vars = $state<Record<string, string>>({});
 	tapePinned = $state(false);
 	/** The latest resolved geometry from the renderer, for overlays, alignment and the length readout. */
 	boxes = $state.raw<Partial<Record<string, Box>>>({});
@@ -57,7 +76,20 @@ class Editor {
 	#restored = false;
 
 	get doc(): LabelDoc {
-		return this.history.present;
+		return this.history.present.doc;
+	}
+
+	get template(): Session["template"] {
+		return this.history.present.context.template;
+	}
+
+	/** Rename or detach the current template without an undo step. */
+	setTemplate(template: Session["template"]): void {
+		this.history.present.context.template = template;
+	}
+
+	get vars(): Record<string, string> {
+		return this.history.present.context.vars;
 	}
 
 	get canUndo(): boolean {
@@ -95,9 +127,11 @@ class Editor {
 		const session = loadSession(localStorage);
 
 		if (session) {
-			this.history = startHistory(session.doc);
-			this.template = session.template;
-			this.vars = session.vars;
+			this.history = startHistory({
+				doc: session.doc,
+				context: new Context(session.template, session.vars),
+			});
+
 			this.tapePinned = session.tapePinned;
 		}
 
@@ -115,7 +149,11 @@ class Editor {
 
 	/** Apply an edit. Edits sharing `key` within a second merge into one undo step. */
 	apply(next: LabelDoc, key: string | null = null): void {
-		this.history = commit(this.history, next, key);
+		if (next === this.doc) {
+			return;
+		}
+
+		this.history = commit(this.history, { doc: next, context: this.history.present.context }, key);
 		const live = new Set(next.elements.map((element) => element.id));
 
 		if (this.selection.some((id) => !live.has(id))) {
@@ -219,9 +257,11 @@ class Editor {
 
 	/** Replace the document: a template, a history entry, or a new label. One undo step back. */
 	load(doc: LabelDoc, template: Session["template"], vars: Record<string, string> = {}): void {
-		this.history = commit(this.history, $state.snapshot(doc));
-		this.template = template;
-		this.vars = vars;
+		this.history = commit(this.history, {
+			doc: $state.snapshot(doc),
+			context: new Context(template, vars),
+		});
+
 		this.selection = [];
 		this.zoom = null;
 		this.view = "design";
