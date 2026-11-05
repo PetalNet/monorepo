@@ -227,6 +227,20 @@ describe("geometry", () => {
 		expect(result.lengthDots).toBe(65 + mmToDots(2));
 	});
 
+	it("skips the same oversized element in a scale-16 preview as in print", async () => {
+		const doc = label([rect("huge", 0, 0, 1900, 1900), rect("r", 10, 5, 20, 30)], {
+			length: { mode: "fixed", mm: 40 },
+		});
+		const preview = await renderLabel(doc, { tape, mode: "design", scale: 16 }, serverFonts);
+		const printed = await print(doc);
+
+		expect(preview.warnings).toContain("huge is too large to draw");
+		expect(printed.warnings).toContain("huge is too large to draw");
+		expect(preview.frame.data.filter((value) => value > 0)).toHaveLength(600 * 16 * 16);
+		expect(at(preview.frame, 10 * 16, 5 * 16)).toBe(255);
+		expect(at(preview.frame, 0, 0)).toBe(0);
+	});
+
 	it("skips an element too large to allocate and still draws the rest", async () => {
 		const result = await print(label([rect("huge", 0, 0, 20_000, 1000), rect("r", 10, 5, 20, 30)]));
 

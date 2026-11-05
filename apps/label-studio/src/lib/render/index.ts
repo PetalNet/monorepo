@@ -37,10 +37,11 @@ export interface FontSource {
 const MAX_LENGTH_MM = 1000;
 const MAX_SCALE = 16;
 /**
- * Largest element layer, in dots squared: four times the biggest frame. Each layer is allocated
- * whole before it is clipped to the frame, so this bounds memory per element.
+ * Largest element layer, as a multiple of the frame's area. A layer is allocated whole at render
+ * scale before it is clipped to the frame, so this keeps each one within four frames of memory at
+ * any scale, and preview and print skip the same elements.
  */
-const MAX_LAYER_DOTS = 4 * mmToDots(MAX_LENGTH_MM) * HEAD_PINS;
+const MAX_LAYER_FRAMES = 4;
 
 interface Assets {
 	faces: ReadonlyMap<string, Face>;
@@ -407,12 +408,6 @@ export async function renderLabel(
 			// An inverted layer paints its whole extent, so it must stop at the box.
 			const bleed = el.invert ? 0 : (prepared.bleed ?? 0);
 
-			if ((width + 2 * bleed) * (lh + 2 * bleed) > MAX_LAYER_DOTS) {
-				warn(`${el.name ?? el.id} is too large to draw`);
-
-				continue;
-			}
-
 			items.push({ box: resolved, local: [width, lh], bleed, el, draw: prepared.draw });
 		}
 	}
@@ -432,6 +427,12 @@ export async function renderLabel(
 	const frame = bitmap(frameW * scale, frameH * scale);
 
 	for (const { box, local, bleed, el, draw } of items) {
+		if ((local[0] + 2 * bleed) * (local[1] + 2 * bleed) > MAX_LAYER_FRAMES * frameW * frameH) {
+			warn(`${el.name ?? el.id} is too large to draw`);
+
+			continue;
+		}
+
 		const layer = bitmap((local[0] + 2 * bleed) * scale, (local[1] + 2 * bleed) * scale);
 
 		// The bleed is the same on all four sides, so it survives any quarter turn unchanged.
