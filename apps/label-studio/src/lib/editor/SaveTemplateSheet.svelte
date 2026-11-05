@@ -1,7 +1,7 @@
 <script lang="ts">
 	import { goto } from "$app/navigation";
 	import { resolve } from "$app/paths";
-	import { placeholders, type TemplateCategory, type TemplateField } from "$lib/doc";
+	import type { TemplateCategory, TemplateField } from "$lib/doc";
 	import Banner from "$lib/ui/Banner.svelte";
 	import Button from "$lib/ui/Button.svelte";
 	import { CATEGORIES } from "$lib/ui/categories";
@@ -10,6 +10,7 @@
 	import Sheet from "$lib/ui/Sheet.svelte";
 
 	import { editor } from "./editor.svelte";
+	import { templateDraft } from "./persist";
 
 	let { open = $bindable(false) }: { open?: boolean } = $props();
 
@@ -22,26 +23,18 @@
 
 	const updatable = $derived(editor.template !== null && !editor.template.builtin);
 
-	// Each open starts from the document: its variables become fields, keeping known labels.
 	$effect(() => {
 		if (!open) {
 			return;
 		}
 
 		failure = null;
-		const known = new Map((editor.template?.fields ?? []).map((field) => [field.key, field]));
 
-		fields = placeholders(editor.doc).map(
-			(key) =>
-				known.get(key) ?? {
-					key,
-					label: key.charAt(0).toUpperCase() + key.slice(1).replaceAll(/[_-]/g, " "),
-					kind: "text",
-					default: editor.vars[key] ?? "",
-				},
-		);
-
-		name = editor.template && !editor.template.builtin ? editor.template.name : "";
+		({ name, category, description, fields } = templateDraft(
+			editor.template,
+			editor.doc,
+			editor.vars,
+		));
 	});
 
 	async function save(asNew: boolean): Promise<void> {
@@ -67,6 +60,8 @@
 				name: template.name,
 				builtin: false,
 				fields: template.fields,
+				category: template.category,
+				description: template.description,
 			});
 
 			open = false;

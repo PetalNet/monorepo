@@ -33,6 +33,13 @@ describe("session persistence", () => {
 		expect(loadSession(storage)).toEqual(session);
 	});
 
+	it("drops a stored template that lacks its category and description", () => {
+		const template = { id: "t1", name: "Jar", builtin: false, fields: [] };
+		const raw = JSON.stringify({ doc: emptyDoc(9), template, vars: {}, tapePinned: false });
+
+		expect(parseSession(raw)?.template).toBeNull();
+	});
+
 	it("rejects garbage and wrong versions", () => {
 		expect(parseSession("{")).toBeNull();
 		expect(parseSession(JSON.stringify({ doc: { ...emptyDoc(), version: 2 } }))).toBeNull();

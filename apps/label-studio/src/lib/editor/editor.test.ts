@@ -3,10 +3,11 @@ import { describe, expect, it } from "vitest";
 
 import { editor } from "./editor.svelte";
 import { emptyDoc } from "./model";
+import { templateDraft } from "./persist";
 
 const field = (key: string): TemplateField => ({ key, label: key, kind: "text", default: "" });
 
-const templateWith = (id: string, key: string): Template => {
+const templateWith = (id: string, key: string, extra: Partial<Template> = {}): Template => {
 	const doc: LabelDoc = {
 		...emptyDoc(12),
 		elements: [
@@ -43,6 +44,7 @@ const templateWith = (id: string, key: string): Template => {
 		fields: [field(key)],
 		builtin: false,
 		updatedAt: "2026-01-01T00:00:00Z",
+		...extra,
 	};
 };
 
@@ -89,5 +91,24 @@ describe("undoing a document load", () => {
 
 		expect(editor.doc.elements).toHaveLength(1);
 		expect(editor.resolvedVars.asset).toBe("A-42");
+	});
+});
+
+describe("saving over a loaded template", () => {
+	const draft = () => templateDraft(editor.template, editor.doc, editor.vars);
+
+	it("starts from the template's own category and description", () => {
+		editor.loadTemplate(
+			templateWith("jar", "item", { category: "kitchen", description: "Pantry jars" }),
+		);
+
+		expect(draft()).toMatchObject({ name: "jar", category: "kitchen", description: "Pantry jars" });
+	});
+
+	it("resets to the next template's metadata when another one is opened", () => {
+		editor.loadTemplate(templateWith("jar", "item", { category: "kitchen", description: "Jars" }));
+		editor.loadTemplate(templateWith("rack", "host", { category: "lab", description: "" }));
+
+		expect(draft()).toMatchObject({ name: "rack", category: "lab", description: "" });
 	});
 });

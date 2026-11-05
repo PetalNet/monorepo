@@ -270,7 +270,14 @@ class Editor {
 	loadTemplate(template: Template): void {
 		this.load(
 			template.doc,
-			{ id: template.id, name: template.name, builtin: template.builtin, fields: template.fields },
+			{
+				id: template.id,
+				name: template.name,
+				builtin: template.builtin,
+				fields: template.fields,
+				category: template.category,
+				description: template.description,
+			},
 			sampleVars(template.fields),
 		);
 	}

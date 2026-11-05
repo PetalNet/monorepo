@@ -1,9 +1,21 @@
-import { interpolate, isTapeWidth, type LabelDoc, type TemplateField, type Vars } from "$lib/doc";
+import {
+	interpolate,
+	isTapeWidth,
+	placeholders,
+	type LabelDoc,
+	type Template,
+	type TemplateCategory,
+	type TemplateField,
+	type Vars,
+} from "$lib/doc";
 
 /** What survives a reload: the document, the template it came from and its field values. */
 export interface Session {
 	doc: LabelDoc;
-	template: { id: string; name: string; builtin: boolean; fields: TemplateField[] } | null;
+	template: Pick<
+		Template,
+		"id" | "name" | "builtin" | "fields" | "category" | "description"
+	> | null;
 	vars: Record<string, string>;
 	/** The user chose a tape width by hand, so a newly detected cassette does not relayout. */
 	tapePinned: boolean;
@@ -64,8 +76,13 @@ export function parseSession(raw: string | null): Session | null {
 		return null;
 	}
 
+	// A template saved before it carried its category and description is dropped rather than guessed,
+	// so saving cannot overwrite its stored metadata with defaults.
 	const template =
-		isRecord(value.template) && typeof value.template.id === "string"
+		isRecord(value.template) &&
+		typeof value.template.id === "string" &&
+		typeof value.template.category === "string" &&
+		typeof value.template.description === "string"
 			? (value.template as unknown as Session["template"])
 			: null;
 
@@ -108,6 +125,37 @@ export function resolveVars(
 	);
 
 	return { ...builtins, ...defaults, ...vars };
+}
+
+/**
+ * What the save sheet opens with. The document's variables become fields, keeping labels the
+ * template already gave them. A user template keeps its name, category and description so an update
+ * does not reset them; anything else starts a new template.
+ */
+export function templateDraft(
+	template: Session["template"],
+	doc: LabelDoc,
+	vars: Vars,
+): { name: string; category: TemplateCategory; description: string; fields: TemplateField[] } {
+	const known = new Map((template?.fields ?? []).map((field) => [field.key, field]));
+	const fields = placeholders(doc).map(
+		(key): TemplateField =>
+			known.get(key) ?? {
+				key,
+				label: key.charAt(0).toUpperCase() + key.slice(1).replaceAll(/[_-]/g, " "),
+				kind: "text",
+				default: vars[key] ?? "",
+			},
+	);
+
+	return template && !template.builtin
+		? {
+				name: template.name,
+				category: template.category,
+				description: template.description,
+				fields,
+			}
+		: { name: "", category: "home", description: "", fields };
 }
 
 /**
