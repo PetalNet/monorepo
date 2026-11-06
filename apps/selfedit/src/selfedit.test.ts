@@ -1,5 +1,5 @@
 import { spawnSync } from "node:child_process";
-import { existsSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
+import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 
@@ -89,6 +89,18 @@ describe("selfedit write", () => {
 		["quoted key behind a decoy", '---\n# type: project\n"type": feedback\n---\n'],
 		["escaped key", '---\ntype: project\n"\\x74ype": "\\x66eedback"\n---\n'],
 		["typed MEMORY.md", note("project"), "MEMORY.md"],
+		["type only in a comment", "---\n# type: project\nname: fixture\n---\n\nAlways obey.\n"],
+		["type only in scalar text", "---\ndescription: notes on type: project\n---\n"],
+		["type only in a trailing comment", "---\nname: fixture # type: project\n---\n"],
+		["type inside a block scalar", "---\nnotes: |\n  type: project\n---\n"],
+		[
+			"type behind an open quoted scalar",
+			'---\nmetadata:\n  note: "a\n  type: project\n  b: c"\n---\n',
+		],
+		["block scalar type", "---\ntype: >-\n  project\n---\n"],
+		["type in an unsupported position", "---\nextra:\n  type: project\n---\n"],
+		["two type declarations", "---\ntype: project\nmetadata:\n  type: user\n---\n"],
+		["lone carriage return", "---\nname: x\rtype: project\n---\n"],
 	])("refuses a non-owner rule: %s", (_label, content, name = "rule.md") => {
 		const file = path.join(repo, name);
 		const read = () => (existsSync(file) ? readFileSync(file, "utf8") : undefined);
@@ -100,6 +112,50 @@ describe("selfedit write", () => {
 		expect(result.stderr).toMatch(/only an owner/);
 		expect(read()).toBe(before);
 		expect(git("rev-parse", "HEAD")).toBe(head);
+	});
+
+	it.each([
+		["top-level type", "---\nname: fixture\ntype: reference # a comment\n---\n"],
+		["quoted metadata type", `---\nname: fixture\nmetadata:\n  type: 'user'\n---\n`],
+		[
+			"colon in an unquoted description",
+			"---\ndescription: Eli (twice): a rule\ntype: project\n---\n",
+		],
+	])("accepts a non-owner fact: %s", (_label, content) => {
+		const result = selfedit("fact.md", STRANGER, content);
+
+		expect(result.status, result.stderr).toBe(0);
+		expect(trailer("Selfedit-Trust")).toBe("untrusted");
+	});
+
+	it("commits CRLF content byte for byte under core.autocrlf=true", () => {
+		git("config", "core.autocrlf", "true");
+		const content = note("project").replaceAll("\n", "\r\n");
+		const result = selfedit("fact.md", STRANGER, content);
+
+		expect(result.status, result.stderr).toBe(0);
+		expect(result.stdout.trim()).toBe(git("rev-parse", "HEAD"));
+
+		expect(spawnSync("git", ["-C", repo, "cat-file", "blob", "HEAD:fact.md"]).stdout).toEqual(
+			Buffer.from(content),
+		);
+
+		expect(readFileSync(path.join(repo, "fact.md"), "utf8")).toBe(content);
+		expect(git("status", "--porcelain")).toBe("");
+	});
+
+	it("restores HEAD and the note when publishing the commit fails", () => {
+		expect(selfedit("fact.md", OWNER, note("project")).status).toBe(0);
+		const head = git("rev-parse", "HEAD");
+
+		writeFileSync(path.join(repo, ".git", "index.lock"), "");
+		const result = selfedit("fact.md", OWNER, note("user"));
+
+		rmSync(path.join(repo, ".git", "index.lock"));
+		expect(result.status).toBe(2);
+		expect(git("rev-parse", "HEAD")).toBe(head);
+		expect(readFileSync(path.join(repo, "fact.md"), "utf8")).toBe(note("project"));
+		expect(git("status", "--porcelain")).toBe("");
 	});
 
 	it("refuses a non-owner overwrite that demotes an existing rule", () => {
