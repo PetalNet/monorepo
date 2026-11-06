@@ -1,5 +1,5 @@
 import { spawnSync } from "node:child_process";
-import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 
@@ -199,6 +199,21 @@ describe("selfedit write", () => {
 
 		expect(selfedit("rule.md", OWNER, note("feedback")).status).toBe(0);
 		expect(trailer("Selfedit-Trust")).toBe("owner");
+	});
+
+	it("refuses to write through a symlinked note", () => {
+		const outside = path.join(repo, "..", "outside.md");
+
+		writeFileSync(outside, "outside\n");
+		writeFileSync(path.join(repo, ".gitignore"), "fact.md\n");
+		git("add", ".gitignore");
+		git("commit", "--quiet", "-m", "ignore");
+		symlinkSync(outside, path.join(repo, "fact.md"));
+		const head = git("rev-parse", "HEAD");
+
+		expect(selfedit("fact.md", OWNER, note("project")).status).toBe(2);
+		expect(readFileSync(outside, "utf8")).toBe("outside\n");
+		expect(git("rev-parse", "HEAD")).toBe(head);
 	});
 
 	it("refuses to write over uncommitted changes to the note", () => {

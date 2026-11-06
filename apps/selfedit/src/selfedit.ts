@@ -1,6 +1,16 @@
 #!/usr/bin/env node
 import { execFileSync } from "node:child_process";
-import { closeSync, existsSync, openSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import {
+	closeSync,
+	constants,
+	existsSync,
+	fstatSync,
+	ftruncateSync,
+	openSync,
+	readFileSync,
+	rmSync,
+	writeSync,
+} from "node:fs";
 import { homedir } from "node:os";
 import path from "node:path";
 import { parseArgs } from "node:util";
@@ -202,14 +212,58 @@ function trailers(provenance: Provenance): string {
 	].join("\n");
 }
 
-function commit(repo: string, note: string, content: string, provenance: Provenance): Outcome {
-	const file = path.join(repo, note);
+// The note is opened once, without following a symlink, and every later read,
+// write and rollback goes through this descriptor. The file that was
+// classified is therefore the file that is written, whatever replaces the path.
+interface Existing {
+	readonly fd: number;
+	readonly previous: string;
+}
 
+function openNote(file: string): Existing | undefined {
+	let fd: number;
+
+	try {
+		fd = openSync(file, constants.O_RDWR | constants.O_NOFOLLOW);
+	} catch (error) {
+		if (error instanceof Error && "code" in error && error.code === "ENOENT") {
+			return undefined;
+		}
+
+		throw error;
+	}
+
+	if (!fstatSync(fd).isFile()) {
+		closeSync(fd);
+
+		throw new Error(`${path.basename(file)} is not a regular file`);
+	}
+
+	return { fd, previous: readFileSync(fd, "utf8") };
+}
+
+function overwrite(fd: number, text: string): void {
+	const bytes = Buffer.from(text);
+
+	ftruncateSync(fd, 0);
+
+	for (let done = 0; done < bytes.length;) {
+		done += writeSync(fd, bytes, done, bytes.length - done, done);
+	}
+}
+
+function commit(
+	repo: string,
+	note: string,
+	content: string,
+	provenance: Provenance,
+	existing: Existing | undefined,
+): Outcome {
 	if (git(repo, ["status", "--porcelain", "--untracked-files=all", "--", note]) !== "") {
 		throw new Error(`${note} has uncommitted changes; commit or discard them first`);
 	}
 
-	const previous = existsSync(file) ? readFileSync(file, "utf8") : undefined;
+	const previous = existing?.previous;
 
 	if (provenance.trust === "untrusted") {
 		const reason =
@@ -277,10 +331,20 @@ function commit(repo: string, note: string, content: string, provenance: Provena
 		throw new Error(`commit ${sha} does not match the requested write`);
 	}
 
+	const file = path.join(repo, note);
+	let created: number | undefined;
 	let moved = false;
 
 	try {
-		writeFileSync(file, content);
+		overwrite(
+			existing?.fd ??
+				(created = openSync(
+					file,
+					constants.O_WRONLY | constants.O_CREAT | constants.O_EXCL | constants.O_NOFOLLOW,
+					0o644,
+				)),
+			content,
+		);
 
 		git(repo, [
 			"update-ref",
@@ -303,13 +367,17 @@ function commit(repo: string, note: string, content: string, provenance: Provena
 			);
 		}
 
-		if (previous === undefined) {
+		if (existing !== undefined) {
+			overwrite(existing.fd, existing.previous);
+		} else if (created !== undefined) {
 			rmSync(file, { force: true });
-		} else {
-			writeFileSync(file, previous);
 		}
 
 		throw error;
+	} finally {
+		if (created !== undefined) {
+			closeSync(created);
+		}
 	}
 
 	return { printed: sha };
@@ -321,7 +389,15 @@ function write(repo: string, note: string, content: string, provenance: Provenan
 	closeSync(openSync(lock, "wx"));
 
 	try {
-		return commit(repo, note, content, provenance);
+		const existing = openNote(path.join(repo, note));
+
+		try {
+			return commit(repo, note, content, provenance, existing);
+		} finally {
+			if (existing !== undefined) {
+				closeSync(existing.fd);
+			}
+		}
 	} finally {
 		rmSync(lock);
 	}
