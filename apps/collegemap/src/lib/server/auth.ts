@@ -7,18 +7,21 @@ import { users } from "./db/schema";
 import type { User } from "./db/schema";
 
 const SESSION_COOKIE = "session";
+
 // Signs the session cookie. Read from the environment with no default: this repo is public, so
 // any literal here is a published signing key, and a known key plus a user id (the ids are on
 // the public calendar page) is a valid session. Read on use, not at import, so the build's
 // postbuild analyse can load this module without a secret; every sign and verify fails closed.
 function sessionSecret(): string {
 	const secret = env.SESSION_SECRET;
+
 	if (!secret) {
 		throw new Error(
 			"SESSION_SECRET is not set. Generate one (openssl rand -base64 48) and pass it to the " +
 				"container; sessions cannot be signed safely without it.",
 		);
 	}
+
 	return secret;
 }
 
@@ -64,6 +67,7 @@ async function createSessionToken(userId: string): Promise<string> {
 async function verifySessionToken(token: string): Promise<string | null> {
 	// Outside the try: a missing secret must surface as an error, not read as "no session".
 	const secret = sessionSecret();
+
 	try {
 		const payload = atob(token);
 		const [userId, signature] = payload.split(":");
