@@ -42,9 +42,19 @@ export default {
 				"migrations/*.ts!",
 			],
 		},
+		"apps/label-studio": {
+			// Loopback listener shared by the server tests; nothing in production imports it.
+			entry: ["src/lib/server/testing.ts"],
+			// The TLS tests mint throwaway certificates with the system openssl, not an npm package.
+			ignoreBinaries: ["openssl"],
+		},
 		"apps/numbat-sheet": {
 			// build:wasm needs the Rust wasm-bindgen CLI, which is not an npm package.
 			ignoreBinaries: ["wasm-bindgen"],
+		},
+		"apps/petalboard": {
+			// Only the gitignored generated Prisma client imports @prisma/client/runtime.
+			ignoreDependencies: ["@prisma/client"],
 		},
 		"apps/slide": {
 			ignoreBinaries: ["prisma!"],

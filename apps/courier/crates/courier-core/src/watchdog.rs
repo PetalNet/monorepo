@@ -28,6 +28,9 @@ use tracing::{error, info};
 /// Exit code used when the watchdog kills a stalled process (`EX_SOFTWARE`).
 pub const WATCHDOG_EXIT_CODE: i32 = 70;
 
+/// `last_beat_ms` value for a heartbeat that has never been beaten.
+const NEVER_BEATEN: u64 = u64::MAX;
+
 /// Monotonic heartbeat shared between the sync loop and the watchdog thread.
 #[derive(Debug, Clone)]
 pub struct Heartbeat {
@@ -45,6 +48,15 @@ impl Heartbeat {
         }
     }
 
+    /// Create a heartbeat that reads as stalled until its first beat.
+    #[must_use]
+    pub fn unbeaten() -> Self {
+        Self {
+            anchor: Instant::now(),
+            last_beat_ms: Arc::new(AtomicU64::new(NEVER_BEATEN)),
+        }
+    }
+
     /// Record progress. Called by the sync loop on every iteration and by
     /// the message handler (progress inside a long catch-up batch counts).
     pub fn beat(&self) {
@@ -57,6 +69,9 @@ impl Heartbeat {
     pub fn age(&self) -> Duration {
         let now_ms = u64::try_from(self.anchor.elapsed().as_millis()).unwrap_or(u64::MAX);
         let last_ms = self.last_beat_ms.load(Ordering::Relaxed);
+        if last_ms == NEVER_BEATEN {
+            return Duration::MAX;
+        }
         Duration::from_millis(now_ms.saturating_sub(last_ms))
     }
 }
@@ -186,6 +201,14 @@ mod tests {
         assert!(hb.age() >= Duration::from_millis(20));
         hb.beat();
         assert!(hb.age() < Duration::from_millis(20));
+    }
+
+    #[test]
+    fn unbeaten_heartbeat_is_stalled_until_first_beat() {
+        let hb = Heartbeat::unbeaten();
+        assert!(is_stalled(hb.age(), Duration::from_mins(5)));
+        hb.beat();
+        assert!(!is_stalled(hb.age(), Duration::from_mins(5)));
     }
 
     #[test]

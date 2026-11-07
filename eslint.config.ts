@@ -100,7 +100,9 @@ export default defineConfig([
 		},
 	},
 	{
-		files: ["apps/{collegemap,grove,numbat-sheet,slide,storybook,whoami}/**/*.svelte"],
+		files: [
+			"apps/{astrolabe,collegemap,grove,label-studio,numbat-sheet,petalboard,slide,storybook,whoami}/**/*.svelte",
+		],
 		extends: svelte.configs.recommended,
 		languageOptions: {
 			parserOptions: {
@@ -108,6 +110,24 @@ export default defineConfig([
 				projectService: true,
 				extraFileExtensions: [".svelte"],
 			},
+		},
+	},
+	{
+		files: ["apps/petalboard/**/*.svelte"],
+		rules: {
+			"no-restricted-syntax": [
+				"error",
+				{
+					selector:
+						'SvelteElement:not([name.name="dialog"]) > SvelteStartTag > SvelteAttribute[key.name="role"]:has(SvelteLiteral[value="dialog"])',
+					message: "Use a native <dialog> with showModal().",
+				},
+				{
+					selector:
+						'SvelteElement:not([name.name="dialog"]) > SvelteStartTag > SvelteAttribute[key.name="aria-modal"]',
+					message: "Use a native <dialog> with showModal().",
+				},
+			],
 		},
 	},
 	{
@@ -179,7 +199,8 @@ export default defineConfig([
 		extends: [json.configs.recommended],
 	},
 	{
-		files: ["apps/slide/**"],
+		// Slide and PetalBoard predate the monorepo and carry their type-safety debt in place.
+		files: ["apps/{petalboard,slide}/**"],
 		rules: {
 			"@typescript-eslint/no-base-to-string": "off",
 			"@typescript-eslint/no-confusing-void-expression": "off",

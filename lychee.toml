@@ -10,4 +10,7 @@ exclude_path = [
 	"apps/point/docs/design",
 	# Flutter-generated web bootstrap (boilerplate index.html/manifest, not ours).
 	"apps/point/app/web",
+	# SvelteKit page templates: root-relative asset links resolve against the deployed site.
+	"apps/petalboard/src/app.html",
+	"apps/label-studio/src/app.html",
 ]

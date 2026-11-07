@@ -4,5 +4,5 @@
 		"noEmit": true,
 		"types": ["node"]
 	},
-	"include": ["ci-manager/**/*.ts", "vitest.config.ts"]
+	"include": ["ci-manager/**/*.ts", "prisma-clients.test.ts", "vitest.config.ts"]
 }
