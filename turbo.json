@@ -20,6 +20,7 @@
 		"SENTRY_*",
 		"ORIGIN",
 		"ADMIN_EMAIL",
+		"LABEL_STUDIO_*",
 		"PORT"
 	],
 	"globalDependencies": [

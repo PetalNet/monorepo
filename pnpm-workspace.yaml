@@ -65,6 +65,7 @@ minimumReleaseAgeExclude:
   - drizzle-orm@1.0.0-rc.5-5935859
   - drizzle-kit@1.0.0-rc.5-5935859
   - impeccable@4.5.2
+  - lucide@1.68.0
 
 # Allow native-binding and codegen builds, deny unused scripts, and approve skills.
 permissions:
@@ -101,7 +102,7 @@ catalogs:
     "@sveltejs/adapter-node": ^5.5.7
     "@sveltejs/vite-plugin-svelte": ^7.0.0
     "@tailwindcss/vite": ^4.3.3
-    "@vitest/coverage-v8": 5.0.3
+    "@vitest/coverage-v8": 5.0.5
     eslint-plugin-svelte: ^3.20.0
     autoprefixer: ^10.4.20
     drizzle-kit: ^0.31.8
@@ -128,7 +129,7 @@ catalogs:
     turbo: 2.11.10
     update-ts-references: ^6.0.0
     vite: ^8.3.3
-    vitest: 5.0.3
+    vitest: 5.0.5
     "@stylistic/eslint-plugin": ^5.10.0
     antislop-ai: ^3.2.20
 
@@ -138,6 +139,7 @@ catalogs:
     "@types/leaflet.heat": ^0.2.5
     "@types/leaflet.markercluster": ^1.5.6
     "@types/node": ^25.9.1
+    "@types/opentype.js": ^1.3.10
     "@types/qrcode": ^1.5.5
     "@types/sortablejs": ^1.15.8
 
@@ -148,6 +150,7 @@ catalogs:
     "@prisma/client": ^5.22.0
     "@sveltejs/kit": ^2.50.1
     bcryptjs: ^3.0.0
+    bwip-js: ^4.11.4
     daisyui: ^5.6.13
     date-fns: ^4.1.0
     drizzle-orm: ^0.45.1
@@ -155,13 +158,16 @@ catalogs:
     leaflet-image: ^0.4.0
     leaflet.heat: ^0.2.0
     leaflet.markercluster: ^1.5.3
+    lucide: ^1.68.0
     nanoid: ^5.0.0
+    opentype.js: ^1.3.4
     qrcode: ^1.5.4
     remark: ^15.0.1
     remark-gfm: ^4.0.1
     remark-html: ^16.0.1
     sortablejs: ^1.15.6
     svelte: ^5.57.2
+    svgpath: ^2.6.0
     tailwindcss: ^4.3.3
     zod: ^4.0.0
 
@@ -186,13 +192,13 @@ catalog:
   "@effect/platform-node": 4.0.1
   "@effect/sql-pg": 4.0.0
   "@sveltejs/kit": 3.0.1
-  "@testcontainers/postgresql": ^11.10.0
+  "@testcontainers/postgresql": ^12.0.0
   better-auth: 1.7.7
   effect: 4.0.1
   effect-qb: 0.24.1
   mode-watcher: ^1.1.0
   "@effect/tsgo": 0.50.0
-  storybook: 10.5.10
+  storybook: 10.6.2
   "@storybook/svelte-vite": 10.5.10
   "@storybook/addon-a11y": 10.5.10
   "@storybook/addon-docs": 10.5.10
