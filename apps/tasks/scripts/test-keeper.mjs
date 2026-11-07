@@ -2,7 +2,7 @@
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
 import { createHash } from "node:crypto";
-import { chmodSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 
@@ -20,7 +20,12 @@ const KEEPER = path.resolve(import.meta.filename, "../tasks-keeper.mjs");
 process.env.TASKS_DB_PATH = DB_PATH;
 delete process.env.TASKS_CONFIG;
 
-const { default: db, ensureProject, createTask } = await import("../src/lib/server/db.js");
+const {
+	default: db,
+	ensureProject,
+	createTask,
+	addBlocker,
+} = await import("../src/lib/server/db.js");
 
 const project = ensureProject("keeper-test");
 const task = (title, fields, daysOld) => {
@@ -34,11 +39,20 @@ const task = (title, fields, daysOld) => {
 	return id;
 };
 
+const agingP0 = task("rotting p0", { priority: 0 }, 40);
 const agingP1 = task("rotting p1", { priority: 1 }, 30);
 const freshP1 = task("fresh p1", { priority: 1 }, 0);
 const blocked = task("blocked with no edge", { status: "blocked" }, 1);
 const review = task("forgotten review", { status: "review" }, 10);
 const doing = task("stuck doing", { status: "doing" }, 5);
+
+task("fresh doing", { status: "doing" }, 1);
+
+const blocker = task("the blocker", {}, 1);
+const blockedWithEdge = task("blocked by the blocker", {}, 1);
+
+addBlocker(blockedWithEdge, blocker);
+db.prepare(`UPDATE tasks SET status='blocked' WHERE id=?`).run(blockedWithEdge);
 
 task("old idea", { kind: "idea" }, 9);
 
@@ -62,10 +76,13 @@ const fingerprint = () => {
 };
 const before = fingerprint();
 
+const cleanEnv = Object.fromEntries(
+	Object.entries(process.env).filter(([k]) => !k.startsWith("TASKS_KEEPER_")),
+);
 const run = (args, env = {}) =>
 	spawnSync(process.execPath, [KEEPER, ...args], {
 		encoding: "utf8",
-		env: { ...process.env, TASKS_DB_PATH: DB_PATH, ...env },
+		env: { ...cleanEnv, TASKS_DB_PATH: DB_PATH, ...env },
 	});
 const reports = () => readdirSync(REPORTS);
 
@@ -101,8 +118,8 @@ t("--alert drops exactly the expected digest", () => {
 		msg.body,
 		[
 			"🧹 Ada (board keeper) — daily digest",
-			"Board: 5 todo · 1 doing · 1 review · 1 inbox",
-			`⚠ 1 P1s aging >21d (oldest #${agingP1} 30d: rotting p1)`,
+			"Board: 7 todo · 2 doing · 1 review · 1 inbox",
+			`⚠ 2 P1s aging >21d (oldest #${agingP0} 40d: rotting p0)`,
 			`review pileup >7d: #${review}`,
 			"1 inbox untriaged >7d",
 			`blocked w/o blocker edge: #${blocked}`,
@@ -119,6 +136,7 @@ t("the markdown report is printed and saved next to the DB", () => {
 	assert.ok(alerted.stdout.startsWith(saved), "stdout does not lead with the saved report");
 
 	for (const line of [
+		`- #${agingP0} [P0/todo] 40d — rotting p0`,
 		`- #${agingP1} [P1/todo] 30d — rotting p1`,
 		`- #${freshP1} [P1/todo] 0d — fresh p1`,
 		`- #${doing} 5d — stuck doing`,
@@ -145,7 +163,7 @@ t("--json prints the report and saves nothing", () => {
 
 	assert.deepEqual(
 		report.health.aging_high_priority.map((x) => x.id),
-		[agingP1, freshP1],
+		[agingP0, agingP1, freshP1],
 	);
 	assert.deepEqual(
 		report.health.stale_doing.map((x) => x.id),
@@ -163,18 +181,35 @@ t("--alert without an outbox refuses to run", () => {
 	assert.match(r.stderr, /TASKS_KEEPER_OUTBOX/);
 });
 
+const notADir = path.join(TMP, "not-a-dir");
+
+writeFileSync(notADir, "");
+
 t("an undeliverable digest fails the run but still saves the report", () => {
-	const readonlyOutbox = path.join(TMP, "readonly-outbox");
+	const r = run(["--alert"], { TASKS_KEEPER_OUTBOX: notADir });
 
-	mkdirSync(readonlyOutbox);
-	chmodSync(readonlyOutbox, 0o500);
-
-	const r = run(["--alert"], { TASKS_KEEPER_OUTBOX: readonlyOutbox });
-
-	chmodSync(readonlyOutbox, 0o700);
 	assert.equal(r.status, 1, r.stderr);
 	assert.match(r.stderr, /enqueue failed/);
 	assert.equal(reports().length, 1);
+});
+
+t("an undeliverable digest also fails a --json run", () => {
+	const r = run(["--json", "--alert"], { TASKS_KEEPER_OUTBOX: notADir });
+
+	assert.equal(r.status, 1, r.stderr);
+	assert.ok(JSON.parse(r.stdout).db.tasks > 0);
+});
+
+t("an unsavable report fails the run but still delivers the digest", () => {
+	const outbox = path.join(TMP, "outbox-2");
+	const r = run(["--alert"], {
+		TASKS_KEEPER_OUTBOX: outbox,
+		TASKS_KEEPER_REPORT_DIR: path.join(notADir, "reports"),
+	});
+
+	assert.equal(r.status, 1, r.stderr);
+	assert.match(r.stderr, /report save failed/);
+	assert.equal(readdirSync(outbox).length, 1);
 });
 
 t("the keeper never changes the board", () => assert.equal(fingerprint(), before));
