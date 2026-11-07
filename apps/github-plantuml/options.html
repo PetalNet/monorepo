@@ -1,0 +1,24 @@
+<!doctype html>
+<html lang="en">
+	<head>
+		<meta charset="UTF-8" />
+		<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+		<title>GitHub PlantUML options</title>
+		<script type="module" src="/src/options.ts"></script>
+	</head>
+	<body>
+		<main>
+			<h1>GitHub PlantUML</h1>
+			<p>
+				Diagrams render in this browser by default. Optionally use a self-hosted PlantUML server.
+			</p>
+			<form id="settings">
+				<label for="server">Self-hosted PlantUML server URL</label>
+				<input id="server" name="server" type="url" placeholder="https://plantuml.example.com" />
+				<p id="help">Your diagram source is sent to this server only when it is configured.</p>
+				<button type="submit">Save</button>
+				<output id="status" aria-live="polite"></output>
+			</form>
+		</main>
+	</body>
+</html>

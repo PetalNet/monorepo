@@ -1,0 +1,19 @@
+{
+	"name": "@petalnet/github-plantuml",
+	"version": "0.0.1",
+	"private": true,
+	"type": "module",
+	"scripts": {
+		"build": "vite build",
+		"test": "vitest run",
+		"typecheck": "tsc -b"
+	},
+	"devDependencies": {
+		"@petalnet/tsconfig": "workspace:*",
+		"@plantuml/core": "catalog:",
+		"happy-dom": "catalog:dev",
+		"typescript": "catalog:dev",
+		"vite": "catalog:dev",
+		"vitest": "catalog:dev"
+	}
+}
