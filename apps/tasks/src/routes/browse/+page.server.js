@@ -1,8 +1,5 @@
 import {
-	upNext,
-	inbox,
-	backlog,
-	doing,
+	browseLanes,
 	recentDone,
 	listProjects,
 	getProjectByName,
@@ -17,11 +14,9 @@ import {
 	openQuestions,
 	answerQuestion,
 	listAssignees,
-	blockedList,
 	addBlocker,
 	removeBlocker,
 	unfinishedBlockers,
-	blockerCandidates,
 } from "$lib/server/db.js";
 import { error } from "@sveltejs/kit";
 
@@ -38,7 +33,12 @@ export function load({ url, locals }) {
 	const proj = projName ? getProjectByName(projName) : null;
 	const pid = proj?.id ?? null;
 	const who = url.searchParams.get("assignee") || null; // assignee filter (combinable with project)
-
+	// browseLanes = ONE top-level scan classified into the five lanes + one shared child map +
+	// one blocker batch (was one query per lane, each of doing/upNext/backlog rebuilding the
+	// child map — task-318/293). blockerCandidates (500 rows) was also shipped here on every
+	// load with NO consumer left in the page — dropped, not made lazy: the picker UI it fed no
+	// longer exists.
+	const lanes = browseLanes(pid, me, who);
 	return deepScrub({
 		projects: listProjects(me),
 		current: proj?.name ?? null,
@@ -47,13 +47,8 @@ export function load({ url, locals }) {
 		assignees: listAssignees(me),
 		assignee: who,
 		questions: openQuestions(pid, me, who).map((q) => ({ ...q, opts: parseOpts(q.options) })),
-		doing: doing(pid, me, who),
-		upNext: upNext(pid, me, who),
-		inbox: inbox(pid, me, who),
-		backlog: backlog(pid, me, who),
-		blocked: blockedList(pid, me, who),
+		...lanes,
 		done: recentDone(pid, me, who),
-		candidates: blockerCandidates(me),
 		docs: listDocs(pid, me, who),
 	});
 }

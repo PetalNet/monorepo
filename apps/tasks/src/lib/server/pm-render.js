@@ -1,3 +1,5 @@
+import crypto from "node:crypto";
+
 import { tasksConfig } from "./config.js";
 
 // ── ProseMark read-view renderer ───────────────────────────────────────────
@@ -118,7 +120,7 @@ function inline(raw) {
 const COPY_SVG =
 	'<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-copy"><rect width="14" height="14" x="8" y="8" rx="2" ry="2"></rect><path d="M4 16c-1.1 0-2-.9-2-2V4c0-1.1.9-2 2-2h10c1.1 0 2 .9 2 2"></path></svg>';
 
-export function renderPm(src) {
+function renderPmUncached(src) {
 	if (!src) {
 		return "";
 	}
@@ -260,3 +262,35 @@ export function renderPm(src) {
 
 	return html;
 }
+
+// ── render cache (task-306) ──────────────────────────────────────────────────
+// The task detail loader renders BOTH body and body_alt on every GET; a doc body
+// can be tens of thousands of chars, and the SAME unchanged content was re-parsed
+// on every refresh/HMR/nav — pure wasted CPU on the request path (the render is
+// deterministic and pure). Cache the output keyed by a hash of the SOURCE STRING,
+// so identical content (same task reloaded, or two tasks sharing a body) is a Map
+// hit. Content-keyed (not id+updated_at) so it's correct without a task identity —
+// any change to the source changes the key, so a stale render is impossible.
+// Bounded LRU (insertion-order Map, evict oldest) so a long-lived server can't grow
+// unbounded. Keyed by length+sha1 to make collisions astronomically unlikely while
+// keeping the key small.
+const PM_CACHE = new Map();
+const PM_CACHE_MAX = 500;
+export function renderPm(src) {
+	if (!src) return "";
+	const s = String(src);
+	const key = s.length + ":" + crypto.createHash("sha1").update(s).digest("base64");
+	const hit = PM_CACHE.get(key);
+	if (hit !== undefined) {
+		// refresh LRU recency: re-insert at the tail
+		PM_CACHE.delete(key);
+		PM_CACHE.set(key, hit);
+		return hit;
+	}
+	const html = renderPmUncached(s);
+	PM_CACHE.set(key, html);
+	if (PM_CACHE.size > PM_CACHE_MAX) PM_CACHE.delete(PM_CACHE.keys().next().value);
+	return html;
+}
+// test/introspection hook — lets a bench prove cache hits without reaching into the Map.
+export const _pmCacheStats = () => ({ size: PM_CACHE.size });

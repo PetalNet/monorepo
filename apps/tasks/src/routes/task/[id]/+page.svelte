@@ -1,5 +1,6 @@
 <script>
 	import { enhance } from "$app/forms";
+	import { radioNav } from "$lib/a11y.js";
 	import Icon from "$lib/Icon.svelte";
 	import { projectName, whoColor } from "$lib/people.js";
 	import ProseMark, { preloadProseMark } from "$lib/ProseMark.svelte";
@@ -147,52 +148,64 @@
 			"^\\s*(?:" + terms.map((g) => escRe(g.term)).join("|") + ")\\s*(?:[—–:-]|--)\\s",
 			"i",
 		);
-
-		// wrap each defined term at its FIRST occurrence (wiki-style), one term at a
-		// time so two terms in the same text node both get wrapped.
-		for (const { term, def } of terms) {
-			// explicit word-char boundaries (not \b) so terms with non-word edges match too
-			// — ".env", "C++", ".14" all have non-word first/last chars that \b can't bound.
-			const re = new RegExp("(?<![A-Za-z0-9_])" + escRe(term) + "(?![A-Za-z0-9_])", "i");
-			const walker = document.createTreeWalker(el, NodeFilter.SHOW_TEXT, {
-				acceptNode(n) {
-					// skip headings, code, links, and any already-wrapped term
-					if (n.parentElement?.closest("h1,h2,h3,h4,h5,h6,code,pre,a,.gloss")) {
-						return NodeFilter.FILTER_REJECT;
+		// PERF (task-307): the old effect built a fresh RegExp + a fresh TreeWalker PER term and
+		// walked the ENTIRE rendered prose (up to 60k chars) once per term — O(terms × DOM), re-fired
+		// on every technical⇄human toggle. Now: ONE combined alternation RegExp (terms are pre-sorted
+		// longest-first, so at any index the longest term wins — "API key" beats "API"), and ONE walk
+		// that collects the eligible text nodes; then wrap each term at its first occurrence in a
+		// single left-to-right scan. Explicit word-char boundaries (not \b) so terms with non-word
+		// edges match too — ".env", "C++", ".14" all have non-word first/last chars \b can't bound.
+		const byTerm = new Map(terms.map((g) => [g.term.toLowerCase(), g]));
+		const combined = new RegExp(
+			"(?<![A-Za-z0-9_])(" + terms.map((g) => escRe(g.term)).join("|") + ")(?![A-Za-z0-9_])",
+			"gi",
+		);
+		// collect eligible text nodes in ONE walk (don't mutate the DOM mid-traversal)
+		const walker = document.createTreeWalker(el, NodeFilter.SHOW_TEXT, {
+			acceptNode(n) {
+				// skip headings, code, links, and any already-wrapped term
+				if (n.parentElement?.closest("h1,h2,h3,h4,h5,h6,code,pre,a,.gloss"))
+					return NodeFilter.FILTER_REJECT;
+				// skip the glossary's own definition entries — otherwise a term's FIRST occurrence is
+				// inside its "- **Term** — definition" <li>, so it self-wraps there instead of the body.
+				const li = n.parentElement?.closest("li");
+				if (li && defEntry.test(li.textContent)) return NodeFilter.FILTER_REJECT;
+				return NodeFilter.FILTER_ACCEPT;
+			},
+		});
+		const nodes = [];
+		for (let n = walker.nextNode(); n; n = walker.nextNode()) nodes.push(n);
+		const wrapped = new Set(); // lowercased terms already wrapped (each term wraps once, wiki-style)
+		for (let node of nodes) {
+			// wrap successive first-occurrence terms within this node; after each wrap continue on the
+			// tail remainder so two terms in the same text node both get wrapped.
+			while (node && wrapped.size < byTerm.size) {
+				combined.lastIndex = 0;
+				let m,
+					hit = null;
+				while ((m = combined.exec(node.nodeValue))) {
+					if (!wrapped.has(m[0].toLowerCase())) {
+						hit = m;
+						break;
 					}
-
-					// skip the glossary's own definition entries — otherwise a term's FIRST
-					// occurrence is inside its "- **Term** — definition" <li>, so it self-wraps
-					// there instead of in the body.
-					const li = n.parentElement?.closest("li");
-
-					if (li && defEntry.test(li.textContent)) {
-						return NodeFilter.FILTER_REJECT;
-					}
-
-					return re.test(n.nodeValue) ? NodeFilter.FILTER_ACCEPT : NodeFilter.FILTER_SKIP;
-				},
-			});
-			const text = walker.nextNode();
-
-			if (!text) {
-				continue;
+				}
+				if (!hit) break;
+				const g = byTerm.get(hit[0].toLowerCase());
+				const after = node.splitText(hit.index);
+				after.nodeValue = after.nodeValue.slice(hit[0].length);
+				const span = document.createElement("span");
+				span.className = "gloss";
+				span.textContent = hit[0];
+				span.setAttribute("data-def", g.def); // CSS hover card (pointer users)
+				span.title = g.def; // native tooltip — touch long-press + fallback
+				span.tabIndex = 0; // keyboard-focusable (hover card shows on focus)
+				span.setAttribute("role", "note");
+				span.setAttribute("aria-label", `${hit[0]}: ${g.def}`); // screen-reader gets the definition
+				after.parentNode.insertBefore(span, after);
+				wrapped.add(hit[0].toLowerCase());
+				node = after; // continue scanning the remainder of this node
 			}
-
-			const m = text.nodeValue.match(re);
-			const after = text.splitText(m.index);
-
-			after.nodeValue = after.nodeValue.slice(m[0].length);
-			const span = document.createElement("span");
-
-			span.className = "gloss";
-			span.textContent = m[0];
-			span.setAttribute("data-def", def); // CSS hover card (pointer users)
-			span.title = def; // native tooltip — touch long-press + fallback
-			span.tabIndex = 0; // keyboard-focusable (hover card shows on focus)
-			span.setAttribute("role", "note");
-			span.setAttribute("aria-label", `${m[0]}: ${def}`); // screen-reader gets the definition
-			text.parentNode.insertBefore(span, after);
+			if (wrapped.size >= byTerm.size) break;
 		}
 	});
 
@@ -237,6 +250,10 @@
 
 	let speaking = $state(false);
 	let loadingAudio = $state(false);
+	// task-368: Listen state surfaced to AT — a polite live region announces
+	// loading / playing / fallback / failure / stop instead of icon-only changes.
+	let ttsStatus = $state("");
+	let ttsErr = $state(false); // failure states also render VISIBLY next to the button
 	let audioEl = null;
 	let ttsCtrl = null; // AbortController for the in-flight TTS fetch
 	let blobUrl = null; // revoke on stop to avoid leaking
@@ -248,10 +265,13 @@
 
 		return (proseEl?.innerText || "").replace(/\s+\n/g, "\n").trim();
 	}
-	function stopAudio() {
+	function stopAudio(announce = false) {
 		speaking = false;
 		loadingAudio = false;
-
+		if (announce) {
+			ttsStatus = "Narration stopped";
+			ttsErr = false;
+		}
 		try {
 			ttsCtrl?.abort();
 		} catch {}
@@ -276,16 +296,13 @@
 	// stop audio when the doc changes or the component unmounts (no orphan playback on nav)
 	$effect(() => {
 		t.id;
-
-		return stopAudio;
+		return () => stopAudio();
 	});
 	async function listen() {
 		if (speaking || loadingAudio) {
-			stopAudio();
-
+			stopAudio(true);
 			return;
-		}
-
+		} // task-368: announce stop on re-press
 		const text = readableText();
 
 		if (!text) {
@@ -293,6 +310,8 @@
 		}
 
 		loadingAudio = true;
+		ttsStatus = "Loading narration…";
+		ttsErr = false;
 		ttsCtrl = new AbortController();
 
 		// try the server TTS (ElevenLabs) first; fall back to browser speech
@@ -307,10 +326,18 @@
 			if (r.ok && (r.headers.get("content-type") || "").includes("audio")) {
 				blobUrl = URL.createObjectURL(await r.blob());
 				audioEl = new Audio(blobUrl);
-				audioEl.onended = () => stopAudio();
-				audioEl.onerror = () => stopAudio();
+				audioEl.onended = () => {
+					stopAudio();
+					ttsStatus = "Narration finished";
+				};
+				audioEl.onerror = () => {
+					stopAudio();
+					ttsStatus = "Audio unavailable";
+					ttsErr = true;
+				};
 				loadingAudio = false;
 				speaking = true;
+				ttsStatus = "Playing narration";
 				await audioEl.play(); // may reject (autoplay block / rapid toggle)
 
 				return;
@@ -320,15 +347,16 @@
 				return;
 			} // user cancelled — don't fall through
 		}
-
-		// fallback: Web Speech API
+		// fallback: Web Speech API (task-368/313: never silent — surface every failure path)
 		loadingAudio = false;
 		speaking = false;
-
 		if (!window.speechSynthesis) {
+			ttsStatus = "Audio unavailable";
+			ttsErr = true;
 			return;
 		}
-
+		ttsStatus = "Narration failed, using browser voice";
+		ttsErr = false;
 		const u = new SpeechSynthesisUtterance(text.slice(0, 32000));
 
 		u.rate = 1.0;
@@ -336,10 +364,13 @@
 
 		u.onend = () => {
 			speaking = false;
+			ttsStatus = "Narration finished";
 		};
-
+		// task-313: mid-utterance synthesis failure must reset the button (was stuck on "stop")
 		u.onerror = () => {
 			speaking = false;
+			ttsStatus = "Audio unavailable";
+			ttsErr = true;
 		};
 
 		speaking = true;
@@ -513,12 +544,15 @@
 			{#if t.up_next}<span class="proj-tag up">up next</span>{/if}
 		</div>
 
+		<!-- task-332: the page's one real h1 for AT/heading outlines; the input stays the
+         visual + edit affordance (it is not a heading to a screen reader) -->
+		<h1 class="vh">#{t.id} · {t.title}</h1>
 		<form method="POST" action="?/save" use:enhance class="titleform">
 			<input
 				class="title-in"
 				name="title"
 				value={t.title}
-				aria-label="Title"
+				aria-label="Task title"
 				readonly={!canWrite}
 			/>
 		</form>
@@ -679,6 +713,14 @@
 							<div class="pm-rendered">{@html data.bodyHtml}</div>
 						</div>{/if}
 
+					<!-- task-359: persistent live region — announces the answered confirmation the
+               moment it lands (the region exists from mount, so AT reliably fires) -->
+					<span class="vh" role="status" aria-live="polite">
+						{t.answer
+							? `Answered: ${data.opts.find((o) => o.value === t.answer)?.label ?? t.answer}`
+							: ""}
+					</span>
+
 					{#if t.answer}
 						<div class="q-done">
 							<span class="qd-check"><Icon name="check" size={20} /></span>
@@ -692,7 +734,17 @@
 					{/if}
 
 					{#if data.opts.length}
-						<div class="answers" class:locked={t.answer}>
+						<!-- task-359: the options ARE mutually-exclusive answers — expose them that way.
+                 fieldset+legend ties them to the question; radiogroup/radio + aria-checked
+                 carries the selected state; radioNav adds the arrow-key/roving-tab contract. -->
+						<fieldset
+							class="answers"
+							class:locked={t.answer}
+							role="radiogroup"
+							aria-label="Decision: {t.title}"
+							use:radioNav
+						>
+							<legend class="vh">Decision: {t.title}</legend>
 							{#each data.opts as o}
 								<form method="POST" action="?/answer" use:enhance>
 									<input type="hidden" name="value" value={o.value} />
@@ -701,13 +753,15 @@
 										class:on={t.answer === o.value}
 										type="submit"
 										disabled={!canWrite}
+										role="radio"
+										aria-checked={t.answer === o.value}
 									>
-										<span class="a-dot"></span>
+										<span class="a-dot" aria-hidden="true"></span>
 										<span>{o.label}</span>
 									</button>
 								</form>
 							{/each}
-						</div>
+						</fieldset>
 					{:else}
 						<!-- open question (no preset options): free-text answer -->
 						<form method="POST" action="?/answer" use:enhance class="freeanswer">
@@ -751,12 +805,21 @@
                  the Edit button turns into Save (same slot, same style) with a Cancel beside it. -->
 						<span class="right body-tools">
 							{#if hasHuman && !editingBody}
+								<!-- task-361: toggle state carried by aria-pressed, not color alone -->
 								<div class="seg" role="group" aria-label="Version">
-									<button class="seg-btn" class:on={human} onclick={() => (human = true)}
-										>plain english</button
+									<button
+										type="button"
+										class="seg-btn"
+										class:on={human}
+										aria-pressed={human}
+										onclick={() => (human = true)}>plain english</button
 									>
-									<button class="seg-btn" class:on={!human} onclick={() => (human = false)}
-										>technical</button
+									<button
+										type="button"
+										class="seg-btn"
+										class:on={!human}
+										aria-pressed={!human}
+										onclick={() => (human = false)}>technical</button
 									>
 								</div>
 							{/if}
@@ -769,19 +832,25 @@
 								>
 									{#each VOICES as v}<option value={v.id}>{v.label}</option>{/each}
 								</select>
+								<!-- task-368: pressed state + a live status so AT hears loading/playing/failed -->
 								<button
+									type="button"
 									class="rb listen"
 									class:on={speaking}
 									class:loading={loadingAudio}
 									title="Listen"
+									aria-pressed={speaking || loadingAudio}
 									onclick={listen}
 								>
-									{#if loadingAudio}<span class="spin"></span>{:else}<Icon
+									{#if loadingAudio}<span class="spin" aria-hidden="true"></span>{:else}<Icon
 											name={speaking ? "check" : "arrow"}
 											size={15}
 										/>{/if}
 									<span>{speaking ? "stop" : loadingAudio ? "…" : "listen"}</span>
 								</button>
+								<span class="tts-status mono" class:vh={!ttsErr} role="status" aria-live="polite"
+									>{ttsStatus}</span
+								>
 							{/if}
 							{#if canWrite}
 								{#if editingBody}
@@ -1813,11 +1882,15 @@
 	}
 
 	/* ── question answer options (violet, one-tap) ───────────── */
+	/* fieldset reset (task-359): the group is semantic, not visual — zero chrome */
 	.answers {
 		display: flex;
 		flex-direction: column;
 		gap: 7px;
 		margin-top: 6px;
+		border: 0;
+		padding: 0;
+		min-width: 0;
 	}
 	.answers form {
 		display: contents;
@@ -2689,6 +2762,16 @@
 	.seg-btn:not(.on):hover {
 		color: var(--text-1);
 	}
+	/* task-368: TTS status — live-region always, VISIBLE when it's a failure state.
+     AAA-measured: dark #ef8090 = 7.14:1 on surface-1; light needs a deeper red than
+     --danger-b (#a52d3e = 6.62:1), so it darkens to #962939 = 7.54:1. */
+	.tts-status {
+		font-size: 11px;
+		color: var(--danger-b);
+	}
+	:global([data-theme="light"]) .tts-status {
+		color: #962939;
+	}
 	.human-note {
 		display: flex;
 		align-items: center;
@@ -2701,8 +2784,10 @@
 		color: var(--accent-b);
 	}
 
-	/* ── responsive: phone (sidebar drops below body, buttons stay reachable) ── */
-	@media (max-width: 760px) {
+	/* ── responsive: phone (sidebar drops below body, buttons stay reachable).
+     @container app, NOT @media — aligned with the shell's single 760px breakpoint
+     (task-333: mixing viewport + container units for the same layer is the drift class). ── */
+	@container app (max-width: 760px) {
 		.screen.detail {
 			max-width: 100%;
 		}
@@ -2724,6 +2809,25 @@
 		.actionbar .btn {
 			flex: 1;
 			justify-content: center;
+		}
+		/* task-334: reader-bar controls reach the 44px minimum tap target on phone */
+		.rb,
+		.seg-btn,
+		.edit-btn {
+			min-height: 44px;
+		}
+		.rb {
+			height: auto;
+			padding: 0 12px;
+		}
+		.seg-btn {
+			padding: 4px 13px;
+		}
+		.edit-btn {
+			padding: 4px 14px;
+		}
+		.body-tools {
+			gap: 8px;
 		}
 		/* sidebar collapses into its <details> on phone */
 		.side-wrap > summary {
@@ -2759,7 +2863,7 @@
 		}
 	}
 	/* on desktop the side-wrap <summary> is hidden — content always shown */
-	@media (min-width: 761px) {
+	@container app (min-width: 761px) {
 		.side-wrap > summary {
 			display: none;
 		}

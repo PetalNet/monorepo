@@ -17,6 +17,7 @@
 		"@fontsource-variable/geist-mono": "catalog:prod",
 		"@lucide/svelte": "catalog:prod",
 		"@modelcontextprotocol/sdk": "catalog:prod",
+		"@sentry/sveltekit": "catalog:prod",
 		"@sveltejs/kit": "catalog:prod",
 		"better-sqlite3": "catalog:prod",
 		"rehype-sanitize": "catalog:prod",

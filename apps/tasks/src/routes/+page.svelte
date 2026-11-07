@@ -1,6 +1,7 @@
 <script>
 	import { enhance } from "$app/forms";
 	import { goto, invalidateAll } from "$app/navigation";
+	import { radioNav } from "$lib/a11y.js";
 	import Icon from "$lib/Icon.svelte";
 	import { displayName, projectName } from "$lib/people.js";
 	import TaskRow from "$lib/TaskRow.svelte";
@@ -109,6 +110,8 @@
 	}
 
 	// ── filters (mirror the board; navigate to /browse with the same query) ──
+	// task-331: these leave the page — /browse announces the filtered result count in
+	// its own live region, and SvelteKit's route announcer reads the new title.
 	const pickProject = (e) => {
 		const v = e.target.value;
 
@@ -118,6 +121,14 @@
 		const v = e.target.value;
 
 		goto("/browse" + (v ? `?assignee=${encodeURIComponent(v)}` : ""));
+	};
+
+	// task-359: confirm one-tap answers out loud — the answered row simply vanishes
+	// from the lane, which a screen-reader user would otherwise never hear about.
+	let liveMsg = $state("");
+	const answered = (label) => () => {
+		liveMsg = `Answer submitted: ${label}`;
+		return async ({ update }) => update();
 	};
 
 	// ── momentum sparkline geometry from the real 14-day series ──
@@ -241,6 +252,8 @@
 	<!-- HUD header -->
 	<header class="ckhead">
 		<h1 class="greet">{greetWord}, <em>{whoName}</em></h1>
+		<!-- task-359: polite confirmation when a one-tap answer lands -->
+		<span class="vh" role="status" aria-live="polite">{liveMsg}</span>
 		<div class="statline">
 			<div class="stat you">
 				<span class="n mono">{hud.needsYou}</span><span class="l">need you</span>
@@ -482,15 +495,23 @@
 										></span
 									>
 									{#if opts.length}
-										<div class="q-answer">
+										<!-- task-359: exclusive answers → radiogroup tied to the question title -->
+										<div
+											class="q-answer"
+											role="radiogroup"
+											aria-label="Answer: {t.title}"
+											use:radioNav
+										>
 											{#each opts as o}
-												<form method="POST" action="?/answer" use:enhance>
+												<form method="POST" action="?/answer" use:enhance={answered(o.label)}>
 													<input type="hidden" name="id" value={t.id} /><input
 														type="hidden"
 														name="value"
 														value={o.value}
 													/>
-													<button class="act act-decide">{o.label}</button>
+													<button class="act act-decide" role="radio" aria-checked="false"
+														>{o.label}</button
+													>
 												</form>
 											{/each}
 										</div>

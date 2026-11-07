@@ -1,4 +1,17 @@
+// Glitchtip (self-hosted Sentry) error reporting. The DSN comes only from env
+// (GLITCHTIP_DSN); unset → the SDK stays dormant (local dev default).
+import * as Sentry from "@sentry/sveltekit";
+import { sequence } from "@sveltejs/kit/hooks";
+
 import { tasksConfig } from "./lib/server/config.js";
+
+Sentry.init({
+	dsn: process.env.GLITCHTIP_DSN,
+	enabled: Boolean(process.env.GLITCHTIP_DSN),
+	environment: process.env.GLITCHTIP_ENV || "production",
+	// errors only — no perf tracing
+	tracesSampleRate: 0,
+});
 
 // Identity + access gate. Behind Authentik forward-auth, traefik injects X-authentik-username.
 // ALLOW (Authentik usernames) is the access list. With ALLOW set (production) we FAIL CLOSED:
@@ -26,7 +39,7 @@ const isPublicShare = (pathname) => pathname === "/s" || pathname.startsWith("/s
 // the endpoint resolves identity by token, never by header.
 const isAgentApi = (pathname) => pathname === "/api/agent" || pathname.startsWith("/api/agent/");
 
-export async function handle({ event, resolve }) {
+async function accessGate({ event, resolve }) {
 	const user = event.request.headers.get("x-authentik-username") || "";
 
 	if (ALLOW.length > 0 && !isPublicShare(event.url.pathname) && !isAgentApi(event.url.pathname)) {
@@ -66,3 +79,9 @@ export async function handle({ event, resolve }) {
 
 	return res;
 }
+
+export const handle = sequence(Sentry.sentryHandle(), accessGate);
+
+// Unexpected server errors → Glitchtip. Expected errors (kit's error(status, ...)) are
+// NOT reported — that's the SDK default and exactly what we want for the 403/404 paths.
+export const handleError = Sentry.handleErrorWithSentry();

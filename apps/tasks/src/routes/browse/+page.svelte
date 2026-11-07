@@ -1,6 +1,7 @@
 <script>
 	import { enhance } from "$app/forms";
-	import { goto } from "$app/navigation";
+	import { goto, afterNavigate } from "$app/navigation";
+	import { radioNav } from "$lib/a11y.js";
 	import Icon from "$lib/Icon.svelte";
 	import { projectName } from "$lib/people.js";
 	import TaskRow from "$lib/TaskRow.svelte";
@@ -55,10 +56,41 @@
 
 		return s ? `?${s}` : "?";
 	}
-	const pickProject = (e) =>
+	const pickProject = (e) => {
+		announcePending = true;
 		goto(filterUrl({ project: e.target.value || null }), { keepFocus: true, noScroll: true });
-	const pickAssignee = (e) =>
+	};
+	const pickAssignee = (e) => {
+		announcePending = true;
 		goto(filterUrl({ assignee: e.target.value || null }), { keepFocus: true, noScroll: true });
+	};
+
+	// task-331: the filter selects navigate in place with keepFocus, so a screen-reader
+	// user got zero feedback that the board changed. One polite live region announces
+	// the new result count + active filters once the re-queried data lands; the same
+	// region confirms one-tap answers (task-359) since the answered row just vanishes.
+	let announcePending = false;
+	let liveMsg = $state("");
+	const totalLoaded = $derived(
+		(data.questions?.length ?? 0) +
+			(data.doing?.length ?? 0) +
+			(data.upNext?.length ?? 0) +
+			(data.inbox?.length ?? 0) +
+			(data.backlog?.length ?? 0) +
+			(data.blocked?.length ?? 0) +
+			(data.docs?.length ?? 0) +
+			(data.done?.length ?? 0),
+	);
+	afterNavigate(() => {
+		// fires once the filtered load has landed, even if counts are unchanged
+		if (!announcePending) return;
+		announcePending = false;
+		liveMsg = `${totalLoaded} task${totalLoaded === 1 ? "" : "s"} · ${data.current || "all projects"}${data.assignee ? " · " + data.assignee : ""}`;
+	});
+	const answered = (label) => () => {
+		liveMsg = `Answer submitted: ${label}`;
+		return async ({ update }) => update();
+	};
 
 	// attention sub-line counts
 	const waitingCount = $derived(data.questions.length);
@@ -164,6 +196,8 @@
 				· <span class="hl-a">{data.doing.length} in progress</span>{/if} · {data.upNext.length} up next
 			· {data.backlog.length} to do · {data.inbox.length} in inbox
 		</p>
+		<!-- task-331/359: polite announcements — filter result counts + answer confirmations -->
+		<span class="vh" role="status" aria-live="polite">{liveMsg}</span>
 	</header>
 
 	<form
@@ -199,7 +233,9 @@
 			}}
 		/>
 		{#if searching}
-			<span class="sb-count mono">{matchCount} match{matchCount === 1 ? "" : "es"}</span>
+			<span class="sb-count mono" role="status"
+				>{matchCount} match{matchCount === 1 ? "" : "es"}</span
+			>
 			<button type="button" class="sb-clear" onclick={() => (query = "")} aria-label="Clear search"
 				>✕</button
 			>
@@ -231,15 +267,21 @@
 								<a class="row-title" href="/task/{q.id}"
 									>{q.title} <span class="tasknum mono">#{q.id}</span></a
 								>
-								<div class="q-answer">
+								<!-- task-359: mutually-exclusive answers exposed as a radiogroup tied to the question -->
+								<div
+									class="q-answer"
+									role={q.opts.length ? "radiogroup" : undefined}
+									aria-label={q.opts.length ? `Answer: ${q.title}` : undefined}
+									use:radioNav
+								>
 									{#each q.opts as o}
-										<form method="POST" action="?/answer" use:enhance>
+										<form method="POST" action="?/answer" use:enhance={answered(o.label)}>
 											<input type="hidden" name="id" value={q.id} /><input
 												type="hidden"
 												name="value"
 												value={o.value}
 											/>
-											<button class="q-opt">{o.label}</button>
+											<button class="q-opt" role="radio" aria-checked="false">{o.label}</button>
 										</form>
 									{/each}
 									{#if !q.opts.length}
@@ -299,7 +341,7 @@
 										type="hidden"
 										name="to"
 										value="up"
-									/><button class="tg up" title="Up Next">↑</button>
+									/><button class="tg up" title="Up Next" aria-label="Triage to Up Next">↑</button>
 								</form>
 								<form method="POST" action="?/triage" use:enhance>
 									<input type="hidden" name="id" value={t.id} /><input
@@ -307,7 +349,7 @@
 										name="to"
 										value="project"
 									/><input type="hidden" name="name" value={t.title} /><button
-										class="tg"
+										class="tg tg-mid"
 										title="Make a project">proj</button
 									>
 								</form>
@@ -316,14 +358,16 @@
 										type="hidden"
 										name="to"
 										value="backlog"
-									/><button class="tg" title="Backlog">↓</button>
+									/><button class="tg tg-mid" title="Backlog" aria-label="Triage to backlog"
+										>↓</button
+									>
 								</form>
 								<form method="POST" action="?/triage" use:enhance>
 									<input type="hidden" name="id" value={t.id} /><input
 										type="hidden"
 										name="to"
 										value="drop"
-									/><button class="tg x" title="Dismiss">✕</button>
+									/><button class="tg x" title="Dismiss" aria-label="Dismiss">✕</button>
 								</form>
 							{/snippet}
 						</TaskRow>
@@ -769,9 +813,21 @@
 		opacity: 0.85;
 	}
 
-	@media (max-width: 560px) {
-		.triage form:nth-child(2) .tg {
+	/* task-333: ONE phone breakpoint, matching the shell's @container app 760px
+     (the old rule was @media 560px on a .triage class that no longer exists —
+     between 561-760px the full 4-button cluster crowded the already-narrow card).
+     On phone the inbox triage cluster reduces to ↑ / ✕ and both reach 44px targets. */
+	@container app (max-width: 760px) {
+		.tg.tg-mid {
 			display: none;
+		}
+		.tg {
+			min-height: 44px;
+			min-width: 44px;
+		}
+		.rcheck {
+			width: 44px;
+			height: 44px;
 		}
 	}
 </style>

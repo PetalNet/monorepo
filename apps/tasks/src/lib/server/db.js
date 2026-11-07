@@ -346,6 +346,12 @@ function ensureIndexes() {
 		// blocker_id-leading lookups (cascadeUnblock, blocks(), removeBlocker) aren't covered by the
 		// task_blockers PK (task_id, blocker_id), so index the reverse direction (task-280 audit).
 		"CREATE INDEX IF NOT EXISTS idx_blockers_blocker ON task_blockers(blocker_id)",
+		// comment counts: /issues joins a GROUP BY task_id aggregate and the task page does
+		// listComments(task_id) — both were full comments scans (task-317).
+		"CREATE INDEX IF NOT EXISTS idx_comments_task ON comments(task_id)",
+		// kind+status: /issues splits open/closed with kind!='doc' AND status IN(...); inboxCounts
+		// and the doc library filter the same pair (task-317).
+		"CREATE INDEX IF NOT EXISTS idx_tasks_kind_status ON tasks(kind, status)",
 	]) {
 		db.exec(sql);
 	}
@@ -855,13 +861,36 @@ export const activeLeases = (me) =>
 			`SELECT id, title, assignee, project_id FROM tasks WHERE status='doing' AND assignee IS NOT NULL AND assignee!='' ${vis(me)} ${NOTARCHIVED} ORDER BY updated_at DESC`,
 		)
 		.all(me ? { me } : {});
-// flat GitHub-style issues list — every actionable item (not docs) + its comment count, for the /issues view
-export const issuesList = (me) =>
+// flat GitHub-style issues list — every actionable item (not docs) + its comment count, for the
+// /issues view. PAGINATED at the SQL level (task-317): the old issuesList shipped the ENTIRE
+// open+closed history on every visit, with a correlated per-row comment-count subquery. Now the
+// open/closed split happens in SQL, comment counts come from ONE grouped LEFT JOIN, and each tab
+// fetches a bounded page. `state` is an internal enum (never user input reaches the SQL string).
+const ISSUE_STATE = {
+	open: "t.status NOT IN ('done','dropped')",
+	closed: "t.status IN ('done','dropped')",
+};
+export const issuesPage = (me, state, limit, offset) =>
 	db
 		.prepare(
-			`SELECT *, (SELECT COUNT(*) FROM comments c WHERE c.task_id=tasks.id) AS ncomments FROM tasks WHERE kind != 'doc' ${vis(me)} ${NOTARCHIVED} ORDER BY priority DESC, updated_at DESC`,
+			`SELECT t.*, COALESCE(c.n, 0) AS ncomments
+     FROM tasks t
+     LEFT JOIN (SELECT task_id, COUNT(*) AS n FROM comments GROUP BY task_id) c ON c.task_id = t.id
+    WHERE t.kind != 'doc' AND ${ISSUE_STATE[state] || ISSUE_STATE.open} ${vis(me)} ${NOTARCHIVED}
+    ORDER BY t.priority DESC, t.updated_at DESC LIMIT @limit OFFSET @offset`,
 		)
-		.all(me ? { me } : {});
+		.all({ limit, offset, ...(me ? { me } : {}) });
+// header/tab totals + the distinct-project count, in one aggregate pass (was computed in JS
+// over the full shipped history).
+export const issuesCounts = (me) =>
+	db
+		.prepare(
+			`SELECT SUM(CASE WHEN status NOT IN ('done','dropped') THEN 1 ELSE 0 END) AS open,
+          SUM(CASE WHEN status IN ('done','dropped') THEN 1 ELSE 0 END) AS closed,
+          COUNT(DISTINCT project_id) AS projects
+     FROM tasks WHERE kind != 'doc' ${vis(me)} ${NOTARCHIVED}`,
+		)
+		.get(me ? { me } : {});
 // /inbox (the async hub): recently-answered questions + headline counts
 export const answeredQuestions = (me) =>
 	db
@@ -882,13 +911,7 @@ export const inboxCounts = (me) =>
 // dedicated muted section for blocked tasks (top-level only; children render under their parent).
 // blockers are fetched in ONE batched query (was a per-row blockersOf() call = N+1). me-scoped
 // vis so a private blocker's title never leaks on the board (#285); order matches blockersOf (t.id).
-export const blockedList = (p, me, a) => {
-	const rows = db
-		.prepare(
-			`SELECT * FROM tasks WHERE status='blocked' AND parent_id IS NULL AND ${TASKISH} ${where(p)} ${whoFilter(a)} ${vis(me)} ${NOTARCHIVED} ORDER BY priority, rank, updated_at DESC`,
-		)
-		.all(qargs(p, me, a));
-
+const attachBlockers = (rows, me) => {
 	if (rows.length === 0) {
 		return rows;
 	}
@@ -923,7 +946,15 @@ export const blockedList = (p, me, a) => {
 
 	return rows.map((r) => ({ ...r, blockers: byOwner.get(r.id) || [] }));
 };
-
+export const blockedList = (p, me, a) =>
+	attachBlockers(
+		db
+			.prepare(
+				`SELECT * FROM tasks WHERE status='blocked' AND parent_id IS NULL AND ${TASKISH} ${where(p)} ${whoFilter(a)} ${vis(me)} ${NOTARCHIVED} ORDER BY priority, rank, updated_at DESC`,
+			)
+			.all(qargs(p, me, a)),
+		me,
+	);
 // lightweight {id,title} list of open tasks for the blocker-picker dropdown (honors visibility).
 export const blockerCandidates = (me) =>
 	db
@@ -932,6 +963,68 @@ export const blockerCandidates = (me) =>
 		)
 		.all(me ? { me } : {});
 
+// --- consolidated board lanes (task-318 + task-293) ---------------------------------
+// /browse previously ran one query PER lane (doing/upNext/inbox/backlog/blocked) over the
+// same top-level active rows, and doing/upNext/backlog EACH rebuilt the full child map
+// inside withKids (3 identical child scans per request). This selects every visible
+// top-level ACTIVE taskish row ONCE, classifies lanes in JS with the exact predicates the
+// per-lane SQL used, sorts each lane to match its old ORDER BY, and builds the child map
+// + the blocked lane's blocker batch a single time: 9 statements → 3.
+// recentDone intentionally stays its own LIMIT 12 query — folding the full done history
+// into this scan would be a regression, not a consolidation.
+export function browseLanes(p, me, a) {
+	const rows = db
+		.prepare(
+			`SELECT * FROM tasks WHERE parent_id IS NULL AND ${TASKISH} AND ${ACTIVE} ${where(p)} ${whoFilter(a)} ${vis(me)} ${NOTARCHIVED}`,
+		)
+		.all(qargs(p, me, a));
+
+	const doing = [],
+		upNext = [],
+		inboxL = [],
+		backlog = [],
+		blocked = [];
+	for (const r of rows) {
+		const inboxIdea = r.kind === "idea" && r.status === "inbox";
+		if (inboxIdea) inboxL.push(r); // inbox lane (idea capture)
+		if (r.status === "doing") {
+			doing.push(r);
+			continue;
+		}
+		if (r.status === "blocked") {
+			blocked.push(r);
+			continue;
+		}
+		// remaining rows satisfy UNBLOCKED AND status!='doing' (ACTIVE already dropped done/dropped)
+		if (r.up_next)
+			upNext.push(r); // NB: an up-next inbox idea appears in
+		else if (!inboxIdea) backlog.push(r); // BOTH lanes — exactly like the old SQL
+	}
+
+	// replicate each lane's old ORDER BY (all columns NOT NULL; ISO timestamps compare as strings)
+	const asc = (x, y) => (x < y ? -1 : x > y ? 1 : 0);
+	const desc = (x, y) => (x < y ? 1 : x > y ? -1 : 0);
+	const prioRankUpd = (A, B) =>
+		asc(A.priority, B.priority) || asc(A.rank, B.rank) || desc(A.updated_at, B.updated_at);
+	doing.sort((A, B) => asc(A.priority, B.priority) || desc(A.updated_at, B.updated_at));
+	upNext.sort(
+		(A, B) =>
+			asc(A.rank, B.rank) || asc(A.priority, B.priority) || desc(A.updated_at, B.updated_at),
+	);
+	inboxL.sort((A, B) => desc(A.created_at, B.created_at));
+	backlog.sort(prioRankUpd);
+	blocked.sort(prioRankUpd);
+
+	const map = childMapByParent(me); // ONE child scan shared by all three kid-bearing lanes
+	return {
+		doing: attachKids(doing, map),
+		upNext: attachKids(upNext, map),
+		inbox: inboxL,
+		backlog: attachKids(backlog, map),
+		blocked: attachBlockers(blocked, me),
+	};
+}
+
 // --- imported tracker merge: docs (briefs/ADRs) + questions (async decisions) ---
 export const listDocs = (p, me, a) =>
 	db
@@ -939,17 +1032,29 @@ export const listDocs = (p, me, a) =>
 			`SELECT * FROM tasks WHERE kind='doc' AND ${ACTIVE} ${where(p)} ${whoFilter(a)} ${vis(me)} ${NOTARCHIVED} ORDER BY updated_at DESC`,
 		)
 		.all(qargs(p, me, a));
-// every doc (research/briefs/ADRs) across all projects, for the /docs research library (joined → qualify cols)
-export const allDocs = (me) =>
+// every doc (research/briefs/ADRs) across all projects, for the /docs research library (joined →
+// qualify cols). Bounded page + a total (task-317): the old allDocs had no LIMIT, so the library
+// shipped the whole accumulating doc corpus on every visit. Same project-grouped ordering; a
+// group may straddle a page boundary, which the pager UI states.
+export const allDocsPage = (me, limit, offset) =>
 	db
 		.prepare(
 			`SELECT t.id, t.title, t.updated_at, t.created_by, t.project_id, p.name AS project_name
    FROM tasks t LEFT JOIN projects p ON p.id = t.project_id
    WHERE t.kind='doc' AND t.status NOT IN ('done','dropped')
    ${me ? "AND (t.visibility='shared' OR t.owner=@me)" : ""}
-   ORDER BY (p.name IS NULL), p.name COLLATE NOCASE, t.updated_at DESC`,
+   ORDER BY (p.name IS NULL), p.name COLLATE NOCASE, t.updated_at DESC
+   LIMIT @limit OFFSET @offset`,
 		)
-		.all(me ? { me } : {});
+		.all({ limit, offset, ...(me ? { me } : {}) });
+export const allDocsCount = (me) =>
+	db
+		.prepare(
+			`SELECT COUNT(*) AS n FROM tasks t
+    WHERE t.kind='doc' AND t.status NOT IN ('done','dropped')
+    ${me ? "AND (t.visibility='shared' OR t.owner=@me)" : ""}`,
+		)
+		.get(me ? { me } : {}).n;
 export const openQuestions = (p, me, a) =>
 	db
 		.prepare(
@@ -1548,20 +1653,49 @@ db.exec(`
     token_sha256   TEXT NOT NULL UNIQUE,     -- hex sha256 of the plaintext token; PLAINTEXT NEVER STORED
     scope_assignee TEXT,                     -- if set: agent may only see/act on tasks with this assignee
     scope_projects TEXT,                     -- if set: CSV of project NAMES the agent may see/act on
+    scope_readonly INTEGER NOT NULL DEFAULT 0, -- 1 = may only call READ ops; every write op is refused
     created_at     TEXT NOT NULL DEFAULT (datetime('now')),
     last_used_at   TEXT,
     revoked_at     TEXT
   );
 `);
 
+// scope_readonly arrived after the table did. Existing tokens stay read-write (0) so no
+// deployed agent breaks; read-only is opt-in at mint time.
+{
+	const have = new Set(
+		db
+			.prepare("PRAGMA table_info(agent_tokens)")
+			.all()
+			.map((c) => c.name),
+	);
+	if (!have.has("scope_readonly")) {
+		db.exec("ALTER TABLE agent_tokens ADD COLUMN scope_readonly INTEGER NOT NULL DEFAULT 0");
+	}
+}
+
 // Mint a token for one agent. scope_projects accepts an array or a CSV string; stored as
 // CSV. A scope that was SUPPLIED but normalizes to empty is rejected (a typo'd
 // `--projects ""` must not silently mint an UNSCOPED token — fail closed, not open).
-export function mintAgentToken({ agent_name, scope_assignee = null, scope_projects = null } = {}) {
+export function mintAgentToken({
+	agent_name,
+	scope_assignee = null,
+	scope_projects = null,
+	readonly,
+} = {}) {
 	const name = String(agent_name ?? "").trim();
 
 	if (!name) {
 		throw new Error("mintAgentToken requires agent_name");
+	}
+
+	// REQUIRED, deliberately undefaulted. A default of false is the forgettable kind: the
+	// risk is not the tokens that exist today but the one minted months from now by
+	// someone who never read this file. Write authority has to be typed out.
+	if (typeof readonly !== "boolean") {
+		throw new Error(
+			"mintAgentToken requires readonly:true|false — say whether this token may write",
+		);
 	}
 
 	let projectsCsv = null;
@@ -1589,14 +1723,15 @@ export function mintAgentToken({ agent_name, scope_assignee = null, scope_projec
 	const token = randomBytes(32).toString("base64url"); // 256-bit secret, shown ONCE
 	const r = db
 		.prepare(
-			`INSERT INTO agent_tokens (agent_name, token_sha256, scope_assignee, scope_projects)
-       VALUES (@agent_name, @token_sha256, @scope_assignee, @scope_projects)`,
+			`INSERT INTO agent_tokens (agent_name, token_sha256, scope_assignee, scope_projects, scope_readonly)
+       VALUES (@agent_name, @token_sha256, @scope_assignee, @scope_projects, @scope_readonly)`,
 		)
 		.run({
 			agent_name: name,
 			token_sha256: sha256hex(token),
 			scope_assignee: assignee,
 			scope_projects: projectsCsv,
+			scope_readonly: readonly ? 1 : 0,
 		});
 
 	return { id: Number(r.lastInsertRowid), token };
@@ -1629,6 +1764,11 @@ export function verifyAgentToken(token) {
 					.map((s) => s.trim())
 					.filter(Boolean)
 			: null,
+		// Read-write unless the column explicitly says otherwise. This is deliberately
+		// BACK-COMPAT rather than fail-closed: the migration backfills every existing row to
+		// 0, and flipping absent/NULL to read-only would silently break every token minted
+		// before this column existed. Read-only is opt-in at mint time.
+		scope_readonly: !!row.scope_readonly,
 	};
 }
 

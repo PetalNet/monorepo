@@ -1,7 +1,15 @@
-import { allDocs } from "$lib/server/db.js";
+import { allDocsPage, allDocsCount } from "$lib/server/db.js";
 
-export function load({ locals }) {
-	const docs = allDocs(locals.user);
+// Bounded page (task-317): the old loader had NO limit and shipped the whole accumulating doc
+// corpus every visit. Now one SQL page (?page=N, 0-based); the project grouping runs over just
+// that page, so a group may continue onto the next page (the pager states the range + total).
+const PAGE = 60;
+
+export function load({ url, locals }) {
+	const me = locals.user;
+	const page = Math.max(0, Number(url.searchParams.get("page")) || 0);
+	const total = allDocsCount(me);
+	const docs = allDocsPage(me, PAGE, page * PAGE);
 	// group by project, preserving the (project-name, updated desc) order from the query
 	const groups = [];
 	const idx = new Map();
@@ -19,5 +27,12 @@ export function load({ locals }) {
 		g.docs.push(d);
 	}
 
-	return { groups, total: docs.length };
+	return {
+		groups,
+		total,
+		shown: docs.length,
+		page,
+		pageSize: PAGE,
+		hasMore: (page + 1) * PAGE < total,
+	};
 }
