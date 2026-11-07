@@ -71,11 +71,17 @@
 
 	<div class="iss-list">
 		<div class="iss-tabs">
-			<a class="iss-tab" class:on={data.tab === "open"} href={tabHref("open")}
-				><Icon name="iopen" size={15} /> {data.openCount} Open</a
+			<a
+				class="iss-tab"
+				class:on={data.tab === "open"}
+				aria-current={data.tab === "open" ? "page" : undefined}
+				href={tabHref("open")}><Icon name="iopen" size={15} /> {data.openCount} Open</a
 			>
-			<a class="iss-tab" class:on={data.tab === "closed"} href={tabHref("closed")}
-				><Icon name="iclosed" size={15} /> {data.closedCount} Closed</a
+			<a
+				class="iss-tab"
+				class:on={data.tab === "closed"}
+				aria-current={data.tab === "closed" ? "page" : undefined}
+				href={tabHref("closed")}><Icon name="iclosed" size={15} /> {data.closedCount} Closed</a
 			>
 		</div>
 
@@ -136,7 +142,6 @@
 		align-items: center;
 		gap: 6px;
 		text-decoration: none;
-		color: inherit;
 	}
 	.iss-pager {
 		display: flex;

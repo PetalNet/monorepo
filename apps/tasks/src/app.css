@@ -1136,7 +1136,7 @@ button {
 	border-bottom: 1px solid var(--border-sub);
 	background: var(--surface-2);
 }
-.iss-tabs button {
+.iss-tabs .iss-tab {
 	display: flex;
 	align-items: center;
 	gap: 7px;
@@ -1145,13 +1145,13 @@ button {
 	color: var(--text-3);
 	transition: 0.1s;
 }
-.iss-tabs button:hover {
+.iss-tabs .iss-tab:hover {
 	color: var(--text-1);
 }
-.iss-tabs button.on {
+.iss-tabs .iss-tab.on {
 	color: var(--text-1);
 }
-.iss-tabs button.on svg {
+.iss-tabs .iss-tab.on svg {
 	color: var(--accent-b);
 }
 .iss-row {

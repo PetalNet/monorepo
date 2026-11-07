@@ -1,6 +1,5 @@
 <script>
 	import { enhance } from "$app/forms";
-	import { radioNav } from "$lib/a11y.js";
 	import Icon from "$lib/Icon.svelte";
 	import { projectName } from "$lib/people.js";
 	import TaskRow from "$lib/TaskRow.svelte";
@@ -88,12 +87,11 @@
 									>{/if}
 								<span class="mono dim">asked {relShort(q.created_at)} ago</span>
 							</span>
-							<!-- task-359 (merged 329): radiogroup semantics on the answer control -->
+							<!-- task-359: each option submits at once, so they are buttons in a labelled group -->
 							<div
 								class="q-answer"
-								role={q.opts.length ? "radiogroup" : undefined}
+								role={q.opts.length ? "group" : undefined}
 								aria-label={q.opts.length ? `Answer: ${q.title}` : undefined}
-								use:radioNav
 							>
 								{#each q.opts as o}
 									<form method="POST" action="?/answer" use:enhance={answered(o.label)}>
@@ -102,7 +100,7 @@
 											name="value"
 											value={o.value}
 										/>
-										<button class="q-opt" role="radio" aria-checked="false">{o.label}</button>
+										<button class="q-opt">{o.label}</button>
 									</form>
 								{/each}
 								{#if !q.opts.length}

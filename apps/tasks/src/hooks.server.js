@@ -4,14 +4,12 @@ import * as Sentry from "@sentry/sveltekit";
 import { sequence } from "@sveltejs/kit/hooks";
 
 import { tasksConfig } from "./lib/server/config.js";
+import { sentryOptions } from "./lib/telemetry.js";
 
-Sentry.init({
-	dsn: process.env.GLITCHTIP_DSN,
-	enabled: Boolean(process.env.GLITCHTIP_DSN),
-	environment: process.env.GLITCHTIP_ENV || "production",
-	// errors only — no perf tracing
-	tracesSampleRate: 0,
-});
+// sentryOptions strips credentials (auth headers, cookies, share tokens) from every event.
+Sentry.init(
+	sentryOptions({ dsn: process.env.GLITCHTIP_DSN, environment: process.env.GLITCHTIP_ENV }),
+);
 
 // Identity + access gate. Behind Authentik forward-auth, traefik injects X-authentik-username.
 // ALLOW (Authentik usernames) is the access list. With ALLOW set (production) we FAIL CLOSED:

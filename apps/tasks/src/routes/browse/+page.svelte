@@ -1,7 +1,6 @@
 <script>
 	import { enhance } from "$app/forms";
 	import { goto, afterNavigate } from "$app/navigation";
-	import { radioNav } from "$lib/a11y.js";
 	import Icon from "$lib/Icon.svelte";
 	import { projectName } from "$lib/people.js";
 	import TaskRow from "$lib/TaskRow.svelte";
@@ -271,12 +270,11 @@
 								<a class="row-title" href="/task/{q.id}"
 									>{q.title} <span class="tasknum mono">#{q.id}</span></a
 								>
-								<!-- task-359: mutually-exclusive answers exposed as a radiogroup tied to the question -->
+								<!-- task-359: each option submits at once, so they are buttons in a labelled group -->
 								<div
 									class="q-answer"
-									role={q.opts.length ? "radiogroup" : undefined}
+									role={q.opts.length ? "group" : undefined}
 									aria-label={q.opts.length ? `Answer: ${q.title}` : undefined}
-									use:radioNav
 								>
 									{#each q.opts as o}
 										<form method="POST" action="?/answer" use:enhance={answered(o.label)}>
@@ -285,7 +283,7 @@
 												name="value"
 												value={o.value}
 											/>
-											<button class="q-opt" role="radio" aria-checked="false">{o.label}</button>
+											<button class="q-opt">{o.label}</button>
 										</form>
 									{/each}
 									{#if !q.opts.length}

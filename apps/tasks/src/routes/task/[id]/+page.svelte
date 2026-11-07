@@ -1,6 +1,5 @@
 <script>
 	import { enhance } from "$app/forms";
-	import { radioNav } from "$lib/a11y.js";
 	import Icon from "$lib/Icon.svelte";
 	import { projectName, whoColor } from "$lib/people.js";
 	import ProseMark, { preloadProseMark } from "$lib/ProseMark.svelte";
@@ -770,16 +769,9 @@
 					{/if}
 
 					{#if data.opts.length}
-						<!-- task-359: the options ARE mutually-exclusive answers — expose them that way.
-                 fieldset+legend ties them to the question; radiogroup/radio + aria-checked
-                 carries the selected state; radioNav adds the arrow-key/roving-tab contract. -->
-						<fieldset
-							class="answers"
-							class:locked={t.answer}
-							role="radiogroup"
-							aria-label="Decision: {t.title}"
-							use:radioNav
-						>
+						<!-- task-359: each option submits at once, so they are buttons; fieldset+legend ties
+                 them to the question and aria-pressed marks the recorded answer. -->
+						<fieldset class="answers" class:locked={t.answer}>
 							<legend class="vh">Decision: {t.title}</legend>
 							{#each data.opts as o}
 								<form method="POST" action="?/answer" use:enhance>
@@ -789,8 +781,7 @@
 										class:on={t.answer === o.value}
 										type="submit"
 										disabled={!canWrite}
-										role="radio"
-										aria-checked={t.answer === o.value}
+										aria-pressed={t.answer === o.value}
 									>
 										<span class="a-dot" aria-hidden="true"></span>
 										<span>{o.label}</span>
