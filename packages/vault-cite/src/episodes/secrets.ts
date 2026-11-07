@@ -1,4 +1,5 @@
 import { spawnSync } from "node:child_process";
+import { createHash } from "node:crypto";
 import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
@@ -111,6 +112,59 @@ export function candidateSpans(text: string): CandidateResult {
 	}
 
 	return { spans, truncated };
+}
+
+/**
+ * Match persisted SHA-256 hashes without re-reading every overlapping candidate. Each start owns an
+ * incremental hash; digesting a copy at each end preserves it. With B <= 48 boundary points, work
+ * is O(B * text.length + B²) per run, plus materializing matches. Hash-set lookup does not scan the
+ * known secrets. Plaintext is never persisted. Keep candidateSpans as the exhaustive reference for
+ * candidate coverage.
+ */
+export function matchKnownSecrets(text: string, knownHashes: ReadonlySet<string>): CandidateResult {
+	const spans = new Set<string>();
+
+	for (const match of text.matchAll(WIDE_RUN_RE)) {
+		const run = match[0];
+		const boundarySet = new Set<number>([0, run.length]);
+
+		for (let i = 0; i < run.length; i++) {
+			if (WEAK_DELIMITER_RE.test(run[i] ?? "")) {
+				boundarySet.add(i);
+				boundarySet.add(i + 1);
+
+				if (boundarySet.size > MAX_BOUNDARY_POINTS) {
+					return { spans: [], truncated: true };
+				}
+			}
+		}
+
+		const boundaries = [...boundarySet].toSorted((a, b) => a - b);
+
+		for (const [i, start] of boundaries.entries()) {
+			if (run.length - start < SPAN_FLOOR) {
+				break;
+			}
+
+			const hash = createHash("sha256");
+			let previous = start;
+
+			for (const end of boundaries.slice(i + 1)) {
+				hash.update(run.slice(previous, end), "utf8");
+				previous = end;
+
+				if (end - start >= SPAN_FLOOR) {
+					const digest = end === run.length ? hash.digest("hex") : hash.copy().digest("hex");
+
+					if (knownHashes.has(digest)) {
+						spans.add(run.slice(start, end));
+					}
+				}
+			}
+		}
+	}
+
+	return { spans: [...spans], truncated: false };
 }
 
 function builtinScan(text: string): SecretFinding[] {
