@@ -662,6 +662,7 @@ function injectReactDiffs(): void {
 	}
 }
 
+/** @internal Exported for the tests; the content script calls it itself. */
 export function cleanup(): void {
 	for (const preview of document.querySelectorAll<HTMLElement>(`[${marker}='preview']`)) {
 		const section = preview.parentElement;
@@ -711,27 +712,29 @@ function schedule(): void {
 	}
 }
 
-new MutationObserver(schedule).observe(document.documentElement, {
-	childList: true,
-	subtree: true,
-});
+export function start(): void {
+	new MutationObserver(schedule).observe(document.documentElement, {
+		childList: true,
+		subtree: true,
+	});
 
-const themeObserver = new MutationObserver(() => {
-	cleanup();
+	const themeObserver = new MutationObserver(() => {
+		cleanup();
+		schedule();
+	});
+
+	themeObserver.observe(document.documentElement, {
+		attributes: true,
+		attributeFilter: ["data-color-mode", "data-dark-theme", "data-light-theme"],
+	});
+
+	matchMedia("(prefers-color-scheme: dark)").addEventListener("change", () => {
+		cleanup();
+		schedule();
+	});
+
+	document.addEventListener("turbo:load", schedule);
+	document.addEventListener("pjax:end", schedule);
+	window.addEventListener("popstate", schedule);
 	schedule();
-});
-
-themeObserver.observe(document.documentElement, {
-	attributes: true,
-	attributeFilter: ["data-color-mode", "data-dark-theme", "data-light-theme"],
-});
-
-matchMedia("(prefers-color-scheme: dark)").addEventListener("change", () => {
-	cleanup();
-	schedule();
-});
-
-document.addEventListener("turbo:load", schedule);
-document.addEventListener("pjax:end", schedule);
-window.addEventListener("popstate", schedule);
-schedule();
+}

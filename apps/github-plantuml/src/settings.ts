@@ -1,4 +1,4 @@
-import { browser } from "@wxt-dev/browser";
+import { browser } from "wxt/browser";
 
 export interface Settings {
 	server?: string;

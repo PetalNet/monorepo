@@ -4,6 +4,7 @@
 **/build-server/
 **/storybook-static/
 **/.svelte-kit/
+**/.wxt/
 **/coverage/
 **/target/
 **/.dart_tool/

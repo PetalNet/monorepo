@@ -73,7 +73,7 @@ function isRenderModule(value: unknown): value is RenderModule {
 }
 
 async function importEngine(): Promise<RenderModule> {
-	const asset = "./plantuml/plantuml.js";
+	const asset = "/plantuml/plantuml.js";
 
 	globalThis.PLANTUML_VIZ = globalThis.Viz;
 	const loaded: unknown = await import(/* @vite-ignore */ asset);

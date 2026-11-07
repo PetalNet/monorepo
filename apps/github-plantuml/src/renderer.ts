@@ -1,4 +1,4 @@
-import { browser } from "@wxt-dev/browser";
+import { browser } from "wxt/browser";
 
 import { isDarkTheme, resolveInclude, type IncludeSource } from "./domain.ts";
 
@@ -63,7 +63,7 @@ function rendererFrame(): HTMLIFrameElement {
 
 	frame = document.createElement("iframe");
 	frame.hidden = true;
-	frame.src = browser.runtime.getURL("renderer.html");
+	frame.src = browser.runtime.getURL("/renderer.html");
 	document.documentElement.append(frame);
 
 	return frame;

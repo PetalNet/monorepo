@@ -7,5 +7,11 @@
 		"noEmit": true,
 		"types": ["vite/client"]
 	},
-	"include": ["src/**/*.ts", "vite.config.ts", "vitest.config.ts"]
+	"include": [
+		".wxt/wxt.d.ts",
+		"entrypoints/**/*.ts",
+		"src/**/*.ts",
+		"vitest.config.ts",
+		"wxt.config.ts"
+	]
 }

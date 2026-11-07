@@ -4,12 +4,13 @@
 	"private": true,
 	"type": "module",
 	"scripts": {
-		"build": "vite build",
+		"build": "wxt build && wxt build -b firefox",
+		"prepare": "wxt prepare",
 		"test": "vitest run",
 		"typecheck": "tsc -b"
 	},
 	"dependencies": {
-		"@wxt-dev/browser": "catalog:"
+		"wxt": "catalog:"
 	},
 	"devDependencies": {
 		"@petalnet/tsconfig": "workspace:*",

@@ -1,8 +1,10 @@
 import { afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 
+import type * as Content from "./content.ts";
+
 vi.mock("./renderer.ts", () => ({ renderDiagram: vi.fn(() => Promise.resolve("rendered")) }));
 
-let cleanup: () => void;
+let content: typeof Content;
 
 beforeAll(async () => {
 	vi.stubGlobal("chrome", {
@@ -12,7 +14,8 @@ beforeAll(async () => {
 		},
 	});
 
-	({ cleanup } = await import("./content.ts"));
+	content = await import("./content.ts");
+	content.start();
 });
 
 afterEach(() => {
@@ -212,7 +215,7 @@ describe("cleanup", () => {
 			<div class="js-file-content" hidden data-gh-puml-hidden="false">source</div>
 			<div data-gh-plantuml="diff">preview</div>`;
 
-		cleanup();
+		content.cleanup();
 
 		const source = document.querySelector<HTMLElement>(".js-file-content");
 
@@ -247,7 +250,7 @@ describe("cleanup", () => {
 			expect(resolveFetch).toBeTypeOf("function");
 		});
 
-		cleanup();
+		content.cleanup();
 		resolveFetch?.(new Response("@startuml\n@enduml", { status: 200 }));
 		await Promise.resolve();
 		await Promise.resolve();
@@ -271,7 +274,7 @@ describe("cleanup", () => {
 		await renderRichDiff();
 
 		(await richDiffButton()).click();
-		cleanup();
+		content.cleanup();
 
 		expect(document.querySelector<HTMLElement>(".js-file-content")?.hidden).toBe(false);
 	});

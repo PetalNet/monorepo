@@ -1,4 +1,4 @@
-import { saveServer, settings } from "./settings.ts";
+import { saveServer, settings } from "../../src/settings.ts";
 
 function required<T>(element: T | null): T {
 	if (element === null) {
