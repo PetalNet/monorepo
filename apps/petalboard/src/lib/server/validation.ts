@@ -1,11 +1,12 @@
 import { MAX_PLUS_ONE_NAME_LENGTH, MAX_PLUS_ONES } from "$lib/guests";
 import { z } from "zod";
 
+// A field the form leaves out (such as one in a collapsed section) reads the same as a blank one.
 const optionalText = (schema: z.ZodString) =>
 	z
 		.string()
-		.transform((value) => value.trim())
-		.transform((value) => (value.length === 0 ? undefined : value))
+		.optional()
+		.transform((value) => value?.trim() || undefined)
 		.pipe(schema.optional());
 
 export const eventSchema = z.object({
