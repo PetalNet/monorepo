@@ -82,7 +82,8 @@ const report = {
 		tasks: one("SELECT COUNT(*) n FROM tasks").n,
 		events: one("SELECT COUNT(*) n FROM events").n,
 		artifacts: one("SELECT COUNT(*) n FROM artifacts").n,
-		events_note: "managed by scripts/archive-events.mjs (archive + keep-window prune); not bloat",
+		events_note:
+			"managed by scripts/archive-events.mjs (nightly NAS archive + keep-window prune); not bloat",
 	},
 };
 
@@ -138,12 +139,13 @@ if (ALERT) {
 		console.error(`[keeper] digest -> ${OUTBOX}`);
 	} catch (error) {
 		console.error("[keeper] enqueue failed:", error.message);
+		process.exitCode = 1;
 	}
 }
 
 if (JSON_OUT) {
 	console.log(JSON.stringify(report, null, 2));
-	process.exit(0);
+	process.exit();
 }
 
 const H = report.health;
@@ -201,4 +203,5 @@ try {
 	console.log(`\n[report saved: ${f}]`);
 } catch (error) {
 	console.error("[keeper] report save failed:", error.message);
+	process.exitCode = 1;
 }
