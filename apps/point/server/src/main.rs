@@ -37,10 +37,7 @@ fn main() {
     let sentry_guard = config.glitchtip_dsn.as_deref().map(|dsn| {
         sentry::init((
             dsn,
-            sentry::ClientOptions {
-                release: sentry::release_name!(),
-                ..Default::default()
-            },
+            sentry::ClientOptions::new().maybe_release(sentry::release_name!()),
         ))
     });
     if sentry_guard.is_some() {

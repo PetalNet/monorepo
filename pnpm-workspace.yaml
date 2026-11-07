@@ -15,12 +15,14 @@ skills:
 # Grove uses Drizzle and Better Auth's minimal runtime. Kysely and unrelated
 # built-in adapters are unused.
 overrides:
-  "better-auth@1.7.7>@better-auth/kysely-adapter": "-"
-  "better-auth@1.7.7>@better-auth/memory-adapter": "-"
-  "better-auth@1.7.7>@better-auth/mongo-adapter": "-"
-  "better-auth@1.7.7>@better-auth/prisma-adapter": "-"
-  "better-auth@1.7.7>kysely": "-"
-  "@better-auth/core@1.7.7>kysely": "-"
+  "better-auth@1.7.14>@better-auth/kysely-adapter": "-"
+  "better-auth@1.7.14>@better-auth/memory-adapter": "-"
+  "better-auth@1.7.14>@better-auth/mongo-adapter": "-"
+  "better-auth@1.7.14>@better-auth/prisma-adapter": "-"
+  "better-auth@1.7.14>kysely": "-"
+  "@better-auth/core@1.7.14>kysely": "-"
+  # Keep MCP's OAuth provider on the same Better Auth release as core.
+  "@better-auth/mcp@1.7.14>@better-auth/oauth-provider": 1.7.14
   vite: catalog:dev
   vitest: catalog:dev
 
@@ -32,8 +34,6 @@ peerDependencyRules:
   allowedVersions:
     "@napi-rs/wasm-runtime@1.2.0>@emnapi/core": ^1.9.0
     "@napi-rs/wasm-runtime@1.2.0>@emnapi/runtime": ^1.9.0
-    # Better Auth's SvelteKit helper still declares Kit 2; auth boundary tests cover Kit 3.
-    "better-auth@1.7.7>@sveltejs/kit": ^3.0.1
 
 # Why: every dependency version must come from a catalog. `pnpm add` routes new
 # deps into a catalog automatically and refuses to introduce a divergent range.
@@ -62,8 +62,8 @@ minimumReleaseAgeExclude:
   - "@effect/tsgo-win32-arm64@0.50.0"
   - "@effect/tsgo-win32-x64@0.50.0"
   - "@effect/tsgo@0.50.0"
-  - drizzle-orm@1.0.0-rc.5-5935859
-  - drizzle-kit@1.0.0-rc.5-5935859
+  - drizzle-orm@1.0.0-rc.5-ab785fc
+  - drizzle-kit@1.0.0-rc.5-ab785fc
   - impeccable@4.5.2
   - lucide@1.68.0
 
@@ -119,7 +119,7 @@ catalogs:
     oxfmt: 0.61.0
     oxlint: 1.87.0
     oxlint-tsgolint: 7.0.2003
-    postcss: ^8.4.49
+    postcss: ^8.5.23
     prisma: ^5.22.0
     svelte-check: ^4.3.5
     # Keep the TS 6 API at the name ecosystem tooling imports. The native TS 7
@@ -142,7 +142,7 @@ catalogs:
     "@types/leaflet": ^1.9.21
     "@types/leaflet.heat": ^0.2.5
     "@types/leaflet.markercluster": ^1.5.6
-    "@types/node": ^25.9.1
+    "@types/node": ^26.0.0
     "@types/opentype.js": ^1.3.10
     "@types/qrcode": ^1.5.5
     "@types/sortablejs": ^1.15.8
@@ -151,12 +151,12 @@ catalogs:
   prod:
     "@fontsource-variable/geist": ^5.3.0
     "@fontsource-variable/geist-mono": ^5.3.0
-    "@libsql/client": ^0.17.0
+    "@libsql/client": ^0.18.0
     "@lucide/svelte": ^1.23.0
     "@modelcontextprotocol/sdk": ^1.29.0
     "@prisma/client": ^5.22.0
     "@sentry/sveltekit": ^10.78.0
-    "@sveltejs/kit": ^2.50.1
+    "@sveltejs/kit": ^2.70.3
     better-sqlite3: ^12.11.1
     bcryptjs: ^3.0.0
     bwip-js: ^4.11.4
@@ -168,7 +168,7 @@ catalogs:
     leaflet.heat: ^0.2.0
     leaflet.markercluster: ^1.5.3
     lucide: ^1.68.0
-    nanoid: ^5.0.0
+    nanoid: ^6.0.0
     opentype.js: ^1.3.4
     qrcode: ^1.5.4
     remark: ^15.0.1
@@ -202,37 +202,34 @@ catalog:
   ipaddr.js: 2.5.0
   playwright: 1.64.1
   robots-parser: 3.0.1
-  "@better-auth/core": 1.7.7
-  "@better-auth/test-utils": 1.7.7
+  "@better-auth/core": 1.7.14
+  "@better-auth/test-utils": 1.7.14
   "@sveltejs/adapter-node": ^6.0.0
   "@effect/platform-node": 4.0.1
   "@effect/sql-pg": 4.0.0
-  "@sveltejs/kit": 3.0.1
+  "@sveltejs/kit": 3.1.1
   "@testcontainers/postgresql": ^12.0.0
-  better-auth: 1.7.7
+  better-auth: 1.7.14
   effect: 4.0.1
   effect-qb: 0.24.1
   mode-watcher: ^1.1.0
   "@effect/tsgo": 0.50.0
-  storybook: 10.6.2
-  "@storybook/svelte-vite": 10.5.10
-  "@storybook/addon-a11y": 10.5.10
-  "@storybook/addon-docs": 10.5.10
+  storybook: 10.6.5
+  "@storybook/svelte-vite": 10.6.5
+  "@storybook/addon-a11y": 10.6.5
+  "@storybook/addon-docs": 10.6.5
   jose: ^6.2.5
-  "@modelcontextprotocol/client": 2.0.0
-  "@better-auth/mcp": 1.7.7
+  "@modelcontextprotocol/client": 2.3.0
+  "@better-auth/mcp": 1.7.14
   "@effect/vitest": 4.0.1
-  drizzle-orm: 1.0.0-rc.5-5935859
-  drizzle-kit: 1.0.0-rc.5-5935859
+  drizzle-orm: 1.0.0-rc.5-ab785fc
+  drizzle-kit: 1.0.0-rc.5-ab785fc
   fontless: ^1.2.1
   suncalc: ^2.1.1
 # Kit's programmatic API requires a matching ORM installation.
 packageExtensions:
-  "drizzle-kit@1.0.0-rc.5-5935859":
+  "drizzle-kit@1.0.0-rc.5-ab785fc":
     dependencies:
-      drizzle-orm: 1.0.0-rc.5-5935859
-# Keep JWKS network TypeErrors distinct from opaque-token failures (503, not 401).
-# Covered by Grove's real HTTP JWKS disconnect regression; remove after an upstream fix.
+      drizzle-orm: 1.0.0-rc.5-ab785fc
 patchedDependencies:
-  "@better-auth/core@1.7.7": patches/@better-auth__core@1.7.7.patch
-  drizzle-orm@1.0.0-rc.5-5935859: patches/drizzle-orm@1.0.0-rc.5-5935859.patch
+  drizzle-orm@1.0.0-rc.5-ab785fc: patches/drizzle-orm@1.0.0-rc.5-ab785fc.patch
