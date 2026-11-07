@@ -10,7 +10,8 @@
 // filtered; out-of-scope get/update/close → generic 404; claim confined to scope;
 // file forced into scope; unknown op → 400; missing/garbage bearer → 401; writes go
 // through canonical helpers (blocked-guard + cascade-unblock + events preserved);
-// scoped reap; rate limit; token never appears in logs.
+// scoped reap; blocker edges (add/remove/list, cycle + scope guards) and set_type;
+// rate limit; token never appears in logs.
 import assert from 'node:assert/strict';
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -24,7 +25,7 @@ const DB = await import('../src/lib/server/db.js');
 const db = DB.default;
 const {
   mintAgentToken, verifyAgentToken, revokeAgentToken,
-  ensureProject, createTask, updateTask, getTask, addBlocker,
+  ensureProject, createTask, updateTask, getTask, addBlocker, closeTask,
 } = DB;
 const { handleAgentRpc, _resetRateLimiter, BODY_MAX } = await import('../src/lib/server/agent-api.js');
 
@@ -341,6 +342,128 @@ t('reap: flips only leases claimed by this agent_name', () => {
   assert.equal(r.body.reaped, 1);
   assert.equal(getTask(mineExpired).status, 'todo');
   assert.equal(getTask(theirsExpired).status, 'doing', "someone else's lease untouched");
+});
+
+// ── 9b. blocker edges + task type ─────────────────────────────────────────────
+_resetRateLimiter(); // the sections above spent most of agent-b's bucket
+const edgeCount = (task, blocker) => db.prepare('SELECT COUNT(*) n FROM task_blockers WHERE task_id=? AND blocker_id=?').get(task, blocker).n;
+t('add_blocker: in-scope edge → 200 via canonical addBlocker; todo task flips to blocked; idempotent', () => {
+  const a = mk('edge blocker', { project_id: scoutlab, assignee: 'agent-b' });
+  const b = mk('edge dependent', { project_id: scoutlab, assignee: 'agent-b' });
+  const r = rpc(agent-b.token, 'add_blocker', { id: b, blocked_by: a });
+  assert.equal(r.status, 200);
+  assert.equal(r.body.added, true);
+  assert.equal(edgeCount(b, a), 1);
+  assert.equal(getTask(b).status, 'blocked', 'todo + live blocker → blocked (claim skips it)');
+  assert.equal(r.body.task.status, 'blocked');
+  assert.ok(db.prepare("SELECT 1 FROM events WHERE task_id=? AND type='add_blocker'").get(b), "canonical 'add_blocker' event exists");
+  const again = rpc(agent-b.token, 'add_blocker', { id: b, blocked_by: a });
+  assert.equal(again.status, 200);
+  assert.equal(again.body.added, false, 're-adding is a no-op');
+  assert.equal(edgeCount(b, a), 1);
+  assert.ok(logLines.some((l) => l.includes(`add_blocker task=${b} blocked_by=${a} -> ok`)), 'audit line names both ends');
+});
+t('add_blocker: a doing task keeps its lease (status untouched); a done blocker does not block', () => {
+  const a = mk('live blocker', { project_id: scoutlab, assignee: 'agent-b' });
+  const d = mk('leased dependent', { project_id: scoutlab, assignee: 'agent-b', status: 'doing' });
+  assert.equal(rpc(agent-b.token, 'add_blocker', { id: d, blocked_by: a }).status, 200);
+  assert.equal(getTask(d).status, 'doing');
+  const fin = mk('finished blocker', { project_id: scoutlab, assignee: 'agent-b', status: 'done' });
+  const c = mk('dependent of finished', { project_id: scoutlab, assignee: 'agent-b' });
+  assert.equal(rpc(agent-b.token, 'add_blocker', { id: c, blocked_by: fin }).status, 200);
+  assert.equal(edgeCount(c, fin), 1, 'edge recorded');
+  assert.equal(getTask(c).status, 'todo', 'no live blocker → stays todo');
+});
+t('add_blocker: an up_next task in review with a live blocker leaves get_ready/up_next', () => {
+  const a = mk('review blocker', { project_id: scoutlab, assignee: 'agent-b' });
+  const r = mk('review dependent', { project_id: scoutlab, assignee: 'agent-b', status: 'review', up_next: 1, rank: -1000 });
+  const ready = () => rpc(agent-b.token, 'get_ready', {}).body.up_next.map((x) => x.id);
+  assert.ok(ready().includes(r), 'precondition: listed before the edge');
+  assert.equal(rpc(agent-b.token, 'add_blocker', { id: r, blocked_by: a }).status, 200);
+  assert.equal(getTask(r).status, 'review', 'status untouched');
+  assert.ok(!ready().includes(r), 'live blocker hides it from get_ready');
+  assert.notEqual(rpc(agent-b.token, 'up_next', {}).body.task?.id, r, 'and from up_next');
+  closeTask(a, { status: 'done', reason: 'test' });
+  assert.ok(ready().includes(r), 'finished blocker → ready again');
+});
+t('add_blocker: self-block and cycles are refused, nothing written', () => {
+  const x = mk('cyc x', { project_id: scoutlab, assignee: 'agent-b' });
+  const y = mk('cyc y', { project_id: scoutlab, assignee: 'agent-b' });
+  const z = mk('cyc z', { project_id: scoutlab, assignee: 'agent-b' });
+  assert.deepEqual(rpc(agent-b.token, 'add_blocker', { id: x, blocked_by: x }).body, { error: 'self_block' });
+  assert.equal(rpc(agent-b.token, 'add_blocker', { id: y, blocked_by: x }).status, 200); // y blocked by x
+  assert.equal(rpc(agent-b.token, 'add_blocker', { id: z, blocked_by: y }).status, 200); // z blocked by y
+  const r = rpc(agent-b.token, 'add_blocker', { id: x, blocked_by: z });                 // x by z → x→y→z→x
+  assert.equal(r.status, 422);
+  assert.equal(r.body.rejected.reason, 'would_cycle');
+  assert.equal(edgeCount(x, z), 0);
+  assert.equal(getTask(x).status, 'todo');
+});
+t('add/remove_blocker: out-of-scope task → 404; out-of-scope and missing blocker are indistinguishable', () => {
+  const mine = mk('scoped end', { project_id: scoutlab, assignee: 'agent-b' });
+  assert.deepEqual(rpc(agent-b.token, 'add_blocker', { id: SECRET, blocked_by: mine }).body, { error: 'not_found' });
+  const oos = rpc(agent-b.token, 'add_blocker', { id: mine, blocked_by: SECRET });
+  const missing = rpc(agent-b.token, 'add_blocker', { id: mine, blocked_by: 99999999 });
+  assert.equal(oos.status, 400);
+  assert.deepEqual(oos.body, missing.body);
+  assert.deepEqual(oos.body, { error: 'invalid_blocker' });
+  assert.equal(edgeCount(mine, SECRET), 0);
+  assert.equal(rpc(agent-b.token, 'remove_blocker', { id: SECRET, blocked_by: mine }).status, 404);
+  assert.equal(rpc(agent-b.token, 'add_blocker', { id: mine, blocked_by: 'x' }).status, 400);
+  assert.equal(rpc(agent-b.token, 'add_blocker', { id: mine }).status, 400);
+});
+t('remove_blocker: drops the edge, auto-unblocks, logs; missing edge → removed:false with no event', () => {
+  const a = mk('rm blocker', { project_id: scoutlab, assignee: 'agent-b' });
+  const b = mk('rm dependent', { project_id: scoutlab, assignee: 'agent-b' });
+  rpc(agent-b.token, 'add_blocker', { id: b, blocked_by: a });
+  assert.equal(getTask(b).status, 'blocked');
+  const r = rpc(agent-b.token, 'remove_blocker', { id: b, blocked_by: a });
+  assert.equal(r.status, 200);
+  assert.equal(r.body.removed, true);
+  assert.equal(edgeCount(b, a), 0);
+  assert.equal(getTask(b).status, 'todo', 'no live blockers left → auto-unblocked');
+  assert.ok(db.prepare("SELECT 1 FROM events WHERE task_id=? AND type='remove_blocker'").get(b));
+  const n = db.prepare("SELECT COUNT(*) n FROM events WHERE task_id=? AND type='remove_blocker'").get(b).n;
+  const again = rpc(agent-b.token, 'remove_blocker', { id: b, blocked_by: a });
+  assert.equal(again.body.removed, false);
+  assert.equal(db.prepare("SELECT COUNT(*) n FROM events WHERE task_id=? AND type='remove_blocker'").get(b).n, n);
+});
+t('list_blockers: both directions; out-of-scope neighbours are dropped', () => {
+  const a = mk('lb up', { project_id: scoutlab, assignee: 'agent-b' });
+  const b = mk('lb mid', { project_id: scoutlab, assignee: 'agent-b' });
+  const c = mk('lb down', { project_id: scoutlab, assignee: 'agent-b' });
+  rpc(agent-b.token, 'add_blocker', { id: b, blocked_by: a });
+  rpc(agent-b.token, 'add_blocker', { id: c, blocked_by: b });
+  addBlocker(b, SECRET); // an edge only an unscoped caller could make
+  const r = rpc(agent-b.token, 'list_blockers', { id: b });
+  assert.equal(r.status, 200);
+  assert.deepEqual(r.body.blocked_by.map((x) => x.id), [a], 'secret blocker hidden');
+  assert.deepEqual(r.body.blocks.map((x) => x.id), [c]);
+  assert.deepEqual(Object.keys(r.body.blocked_by[0]).sort(), ['id', 'status', 'title']);
+  assert.ok(!JSON.stringify(r.body).includes('secret security finding'));
+  const u = rpc(full.token, 'list_blockers', { id: b });
+  assert.deepEqual(u.body.blocked_by.map((x) => x.id).sort((p, q) => p - q), [SECRET, a].sort((p, q) => p - q), 'unscoped sees it');
+  assert.equal(rpc(agent-b.token, 'list_blockers', { id: SECRET }).status, 404);
+});
+t('set_type: allowlisted type via canonical updateTask; bad type / out-of-scope refused', () => {
+  const m = mk('a map', { project_id: scoutlab, assignee: 'agent-b' });
+  const r = rpc(agent-b.token, 'set_type', { id: m, type: 'wayfinder-map' });
+  assert.equal(r.status, 200);
+  assert.equal(r.body.updated.type, 'wayfinder-map');
+  assert.equal(getTask(m).type, 'wayfinder-map');
+  assert.ok(db.prepare("SELECT 1 FROM events WHERE task_id=? AND type='update' AND data LIKE '%wayfinder-map%'").get(m));
+  assert.deepEqual(rpc(agent-b.token, 'set_type', { id: m, type: 'wayfinder_map' }).body, { error: 'bad_type' });
+  assert.equal(rpc(agent-b.token, 'set_type', { id: m }).status, 400);
+  assert.equal(getTask(m).type, 'wayfinder-map', 'rejected calls change nothing');
+  const before = getTask(SECRET).type;
+  assert.equal(rpc(agent-b.token, 'set_type', { id: SECRET, type: 'research' }).status, 404);
+  assert.equal(getTask(SECRET).type, before);
+});
+t('file: optional type is validated and applied', () => {
+  const r = rpc(agent-b.token, 'file', { title: 'typed ticket', project: 'scoutlab', kind: 'task', type: 'research' });
+  assert.equal(r.status, 201);
+  assert.equal(getTask(r.body.filed.id).type, 'research');
+  assert.equal(rpc(agent-b.token, 'file', { title: 'bad', project: 'scoutlab', type: 'nope' }).status, 400);
 });
 
 // ── 10. rate limit ────────────────────────────────────────────────────────────

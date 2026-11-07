@@ -13,10 +13,12 @@
 //      Reads push the scope into the SQL filters AND post-filter the rows (belt+braces);
 //      get/update/close on an out-of-scope id return a generic 404 that never reveals the
 //      task exists; claim constrains claimNext so it can never grab out-of-scope work;
-//      file forces the new task INTO scope; reap only touches this agent's own leases.
+//      file forces the new task INTO scope; reap only touches this agent's own leases;
+//      blocker edges (add/remove_blocker) need BOTH ends in scope, list_blockers drops
+//      out-of-scope neighbours.
 //
 // ALL writes route through the canonical db.js helpers (createTask / updateTask /
-// closeTask / claimNext / reapLeases) exactly like mcp/tracker-mcp.mjs — NEVER raw
+// closeTask / claimNext / reapLeases / addBlocker / removeBlocker) exactly like mcp/tracker-mcp.mjs — NEVER raw
 // INSERT/UPDATE on tasks — preserving blocked-guard, cascade-unblock and the audit log
 // (task-344). Read SELECTs mirror the MCP server's (no invariants on reads).
 //
@@ -25,16 +27,20 @@
 // plain node; the +server.js route is a thin wrapper.
 import db, {
   createTask, updateTask, getTask, getProjectByName, ensureProject, defaultProjectId,
-  claimNext, reapLeases, closeTask, verifyAgentToken
+  claimNext, reapLeases, closeTask, verifyAgentToken,
+  addBlocker, removeBlocker, blockersOf, blocks, unfinishedBlockers
 } from './db.js';
 import crypto from 'node:crypto';
 
 // mirrors mcp/tracker-mcp.mjs — archived-project exclusion + active predicate + shape()
 const NOTARCHIVED = "AND (project_id IS NULL OR project_id NOT IN (SELECT id FROM projects WHERE archived_at IS NOT NULL))";
 const ACTIVE = "status NOT IN ('done','dropped')";
+// No live blocker edge. A blocker only flips a 'todo' task to 'blocked' (add_blocker), so an
+// up_next task in another status (review, inbox) would otherwise stay "ready" while blocked.
+const UNBLOCKED = "NOT EXISTS (SELECT 1 FROM task_blockers tb JOIN tasks bt ON bt.id=tb.blocker_id WHERE tb.task_id=tasks.id AND bt.status NOT IN ('done','dropped'))";
 const projName = (id) => id ? (db.prepare('SELECT name FROM projects WHERE id=?').get(id)?.name || null) : null;
 const shape = (t, scope) => t && ({
-  id: t.id, title: t.title, kind: t.kind, status: t.status, priority: t.priority,
+  id: t.id, title: t.title, kind: t.kind, type: t.type || undefined, status: t.status, priority: t.priority,
   up_next: !!t.up_next, rank: t.rank, project: projName(t.project_id),
   body: t.body || undefined,
   // parent_id is WITHHELD unless the parent is itself in the caller's scope — otherwise a
@@ -46,7 +52,12 @@ const shape = (t, scope) => t && ({
 });
 
 export const BODY_MAX = 32 * 1024; // request-body cap — RPC args are small; anything bigger is abuse
-const OPS = new Set(['get_ready', 'up_next', 'get', 'claim', 'update', 'close', 'file', 'reap']);
+const OPS = new Set(['get_ready', 'up_next', 'get', 'claim', 'update', 'close', 'file', 'reap',
+  'add_blocker', 'remove_blocker', 'list_blockers', 'set_type']);
+
+// task.type vocabulary (free TEXT column, default 'task'). Allowlisted so a typo'd type can't
+// silently fall out of every type-keyed view: the wayfinder set + the values already in use.
+export const TASK_TYPES = new Set(['task', 'build', 'wayfinder-map', 'grilling', 'research', 'prototype']);
 
 // ── rate limit: in-memory token bucket per agent_name (60 req/min) ───────────
 // Process-local is fine — better-sqlite3 pins this app to a single process. A restart
@@ -136,6 +147,37 @@ const UPDATE_FIELDS = new Set(['status', 'priority', 'up_next', 'title', 'body',
   'blocked_on', 'assignee', 'result_summary', 'owner_machine', 'suggested_agent', 'effort', 'parallel_group']);
 
 const bad = (error) => ({ status: 400, body: { error } });
+// minimal {id,title,status} for edge listings — never bodies
+const edge = (t) => ({ id: t.id, title: t.title, status: t.status });
+
+// Would the edge "task_id is blocked BY blocker_id" close a cycle? True iff task_id already
+// (transitively) blocks blocker_id, i.e. task_id is reachable walking blocker_id's blockers.
+// Walks the WHOLE graph (not scope-filtered) — a cycle through an out-of-scope task is still
+// a deadlock. The rejection names no ids, so it discloses only that some path exists.
+function wouldCycle(task_id, blocker_id) {
+  const next = db.prepare('SELECT blocker_id FROM task_blockers WHERE task_id=?');
+  const seen = new Set([blocker_id]);
+  const stack = [blocker_id];
+  while (stack.length) {
+    const cur = stack.pop();
+    for (const { blocker_id: b } of next.all(cur)) {
+      if (b === task_id) return true;
+      if (!seen.has(b)) { seen.add(b); stack.push(b); }
+    }
+  }
+  return false;
+}
+// Both ends of a blocking edge must be in scope: the task (404 if not, like get/update) and
+// the blocker (same 'invalid_blocker' for out-of-scope and nonexistent — no existence oracle).
+function edgeEnds(scope, args) {
+  if (!isInt(args.id) || !isInt(args.blocked_by)) return { err: bad('bad_request') };
+  const t = getTask(args.id);
+  if (!inScope(t, scope)) return { err: notFound() };
+  if (args.blocked_by === args.id) return { err: bad('self_block') };
+  const b = getTask(args.blocked_by);
+  if (!inScope(b, scope)) return { err: bad('invalid_blocker') };
+  return { t, b };
+}
 const notFound = () => ({ status: 404, body: { error: 'not_found' } }); // generic — never reveals existence
 
 // ── op handlers (auth + scope already resolved) ──────────────────────────────
@@ -144,7 +186,7 @@ const ops = {
   get_ready(scope, args) {
     const f = readScope(scope, args);
     if (f.empty) return { status: 200, body: { up_next: [], in_progress: [], open_questions: [] } };
-    const upNext = db.prepare(`SELECT * FROM tasks WHERE up_next=1 AND kind IN ('task','idea') AND ${ACTIVE} AND status != 'blocked' ${f.where} ${NOTARCHIVED} ORDER BY rank, priority`).all(f.params);
+    const upNext = db.prepare(`SELECT * FROM tasks WHERE up_next=1 AND kind IN ('task','idea') AND ${ACTIVE} AND status != 'blocked' AND ${UNBLOCKED} ${f.where} ${NOTARCHIVED} ORDER BY rank, priority`).all(f.params);
     const doing = db.prepare(`SELECT * FROM tasks WHERE status='doing' ${f.where} ${NOTARCHIVED}`).all(f.params);
     const questions = db.prepare(`SELECT * FROM tasks WHERE kind='question' AND (answer='' OR answer IS NULL) AND ${ACTIVE} ${f.where} ${NOTARCHIVED} ORDER BY priority`).all(f.params);
     const mine = (rows) => rows.filter((t) => inScope(t, scope)); // belt+braces post-filter
@@ -166,7 +208,7 @@ const ops = {
     let capf = '';
     if (args.capability != null) { capf = ' AND capability=@cap'; params.cap = String(args.capability); }
     const t = db.prepare(
-      `SELECT * FROM tasks WHERE up_next=1 AND ${ACTIVE} AND status != 'blocked' AND kind IN ('task','idea')
+      `SELECT * FROM tasks WHERE up_next=1 AND ${ACTIVE} AND status != 'blocked' AND ${UNBLOCKED} AND kind IN ('task','idea')
         ${f.where}${capf} ${NOTARCHIVED} ORDER BY rank, priority LIMIT 1`
     ).get(params);
     return { status: 200, body: { task: (t && inScope(t, scope)) ? shape(t, scope) : null } };
@@ -255,6 +297,7 @@ const ops = {
     if (!title) return bad('bad_request');
     const kind = args.kind === undefined ? 'idea' : args.kind;
     if (!['task', 'idea', 'question'].includes(kind)) return bad('bad_request');
+    if (args.type !== undefined && !TASK_TYPES.has(args.type)) return bad('bad_type');
     const priority = args.priority === undefined ? 2 : args.priority;
     if (!(isInt(priority) && priority >= 0 && priority <= 3)) return bad('bad_request');
     // project confinement: with a project scope, an explicit IN-SCOPE project is required
@@ -301,6 +344,7 @@ const ops = {
     const assignee = scope.assignee != null ? scope.assignee
       : (args.assignee != null ? String(args.assignee) : null);
     if (assignee) updateTask(id, { assignee }); // canonical helper (createTask has no assignee column)
+    if (args.type !== undefined && args.type !== 'task') updateTask(id, { type: args.type }); // same (no type column in createTask)
     return { status: 201, body: { filed: shape(getTask(id), scope) } };
   },
 
@@ -308,6 +352,59 @@ const ops = {
   // reapLeases with the claimed_by filter — never the global sweep).
   reap(scope, args, tok) {
     return { status: 200, body: { reaped: reapLeases({ claimed_by: tok.agent_name }) } };
+  },
+
+  // add a blocking edge: task `id` is blocked BY `blocked_by`, via canonical addBlocker
+  // ('add_blocker' event). Cycles are refused (they would deadlock both tasks forever).
+  // Mirrors the web UI's blocker action: a 'todo' task with a live blocker flips to
+  // 'blocked' so claim/up_next skip it. Other statuses are left alone — a 'doing' lease
+  // is never yanked (call update status=blocked yourself), inbox stays un-triaged.
+  // Idempotent: re-adding an existing edge is a no-op 200 with added:false.
+  add_blocker(scope, args) {
+    const { err, t, b } = edgeEnds(scope, args);
+    if (err) return err;
+    const exists = db.prepare('SELECT 1 FROM task_blockers WHERE task_id=? AND blocker_id=?').get(t.id, b.id);
+    if (!exists) {
+      if (wouldCycle(t.id, b.id)) return { status: 422, body: { rejected: { ok: false, reason: 'would_cycle' } } };
+      addBlocker(t.id, b.id);
+    }
+    if (t.status === 'todo' && unfinishedBlockers(t.id).length) {
+      const res = updateTask(t.id, { status: 'blocked' });
+      if (res && res.ok === false) return { status: 422, body: { rejected: res } };
+    }
+    return { status: 200, body: { added: !exists, task: shape(getTask(t.id), scope) } };
+  },
+
+  // remove a blocking edge via canonical removeBlocker ('remove_blocker' event; a 'blocked'
+  // task left with no live blockers auto-returns to 'todo'). Missing edge → removed:false,
+  // and no event is written.
+  remove_blocker(scope, args) {
+    const { err, t, b } = edgeEnds(scope, args);
+    if (err) return err;
+    const exists = db.prepare('SELECT 1 FROM task_blockers WHERE task_id=? AND blocker_id=?').get(t.id, b.id);
+    if (exists) removeBlocker(t.id, b.id);
+    return { status: 200, body: { removed: !!exists, task: shape(getTask(t.id), scope) } };
+  },
+
+  // both directions of the blocking graph for one in-scope task. Out-of-scope neighbours are
+  // dropped (same post-filter as reads), so an edge to a hidden task reveals nothing.
+  list_blockers(scope, args) {
+    if (!isInt(args.id)) return bad('bad_request');
+    const t = getTask(args.id);
+    if (!inScope(t, scope)) return notFound();
+    const vis = (rows) => rows.filter((x) => inScope(x, scope)).map(edge);
+    return { status: 200, body: { id: t.id, blocked_by: vis(blockersOf(t.id)), blocks: vis(blocks(t.id)) } };
+  },
+
+  // set task.type (allowlisted, TASK_TYPES) via canonical updateTask ('update' event).
+  set_type(scope, args) {
+    if (!isInt(args.id)) return bad('bad_request');
+    const t = getTask(args.id);
+    if (!inScope(t, scope)) return notFound();
+    if (!TASK_TYPES.has(args.type)) return bad('bad_type');
+    const res = updateTask(t.id, { type: args.type });
+    if (res && res.ok === false) return { status: 422, body: { rejected: res } };
+    return { status: 200, body: { updated: shape(getTask(t.id), scope) } };
   },
 };
 
@@ -362,8 +459,10 @@ export function handleAgentRpc({ authorization, rawBody } = {}) {
     console.log(`[agent-api] ${tok.agent_name} ${op} -> err ${e?.message || e}`);
     return { status: 400, body: { error: 'bad_request' } };
   }
-  const taskId = res?.body?.task?.id ?? res?.body?.updated?.id ?? res?.body?.closed?.id
+  const taskId = res?.body?.task?.id ?? res?.body?.updated?.id ?? res?.body?.id ?? res?.body?.closed?.id
     ?? res?.body?.filed?.id ?? res?.body?.claimed?.id ?? (isInt(args.id) ? args.id : null);
-  console.log(`[agent-api] ${tok.agent_name} ${op} task=${taskId ?? '-'} -> ${res.status < 400 ? 'ok' : 'err ' + (res.body?.error || res.status)}`);
+  // edge ops also record the other end so the audit line captures the whole edge
+  const other = (op === 'add_blocker' || op === 'remove_blocker') && isInt(args.blocked_by) ? ` blocked_by=${args.blocked_by}` : '';
+  console.log(`[agent-api] ${tok.agent_name} ${op} task=${taskId ?? '-'}${other} -> ${res.status < 400 ? 'ok' : 'err ' + (res.body?.error || res.status)}`);
   return res;
 }
