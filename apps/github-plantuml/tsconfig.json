@@ -1,0 +1,17 @@
+{
+	"extends": "@petalnet/tsconfig/base.json",
+	"compilerOptions": {
+		"module": "ESNext",
+		"moduleResolution": "Bundler",
+		"lib": ["ESNext", "DOM", "DOM.Iterable"],
+		"noEmit": true,
+		"types": ["vite/client"]
+	},
+	"include": [
+		".wxt/wxt.d.ts",
+		"entrypoints/**/*.ts",
+		"src/**/*.ts",
+		"vitest.config.ts",
+		"wxt.config.ts"
+	]
+}

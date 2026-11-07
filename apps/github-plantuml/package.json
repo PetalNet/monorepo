@@ -1,0 +1,23 @@
+{
+	"name": "@petalnet/github-plantuml",
+	"version": "0.0.1",
+	"private": true,
+	"type": "module",
+	"scripts": {
+		"build": "wxt build && wxt build -b firefox",
+		"prepare": "wxt prepare",
+		"test": "vitest run",
+		"typecheck": "tsc -b"
+	},
+	"dependencies": {
+		"wxt": "catalog:"
+	},
+	"devDependencies": {
+		"@petalnet/tsconfig": "workspace:*",
+		"@plantuml/core": "catalog:",
+		"happy-dom": "catalog:dev",
+		"typescript": "catalog:dev",
+		"vite": "catalog:dev",
+		"vitest": "catalog:dev"
+	}
+}

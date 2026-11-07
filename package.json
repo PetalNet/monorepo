@@ -14,7 +14,7 @@
 		"fmt": "oxfmt",
 		"fmt:check": "oxfmt --check",
 		"lint": "turbo run lint:oxlint --filter=@petalnet/* --filter=// && turbo run lint:eslint:root lint:eslint:apps --filter=@petalnet/* --filter=// --concurrency=1",
-		"lint:eslint:apps": "NODE_OPTIONS=--max-old-space-size=3072 eslint apps --max-warnings=0",
+		"lint:eslint:apps": "NODE_OPTIONS=--max-old-space-size=6144 eslint apps --max-warnings=0",
 		"lint:eslint:root": "NODE_OPTIONS=--max-old-space-size=3072 eslint . --ignore-pattern 'apps/**' --max-warnings=0",
 		"lint:impeccable": "impeccable detect --no-advisory apps packages",
 		"lint:knip": "knip --dependencies --exports --files --cycles --exclude nsExports,nsTypes",

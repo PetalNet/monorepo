@@ -1,0 +1,206 @@
+.gh-puml-file-preview {
+	background: var(--bgColor-default);
+	padding: var(--base-size-16);
+}
+.gh-puml-preview img {
+	display: block;
+	max-width: 100%;
+	height: auto;
+	margin-inline: auto;
+}
+.gh-puml-error {
+	margin: var(--base-size-16);
+}
+.gh-puml-diff {
+	position: relative;
+	box-sizing: border-box;
+	text-align: center;
+	background: var(--bgColor-muted);
+	padding: 30px;
+	border: 1px solid var(--borderColor-default);
+	border-radius: 3px;
+}
+.gh-puml-diff .view {
+	min-height: 120px;
+}
+.gh-puml-diff .shell {
+	display: inline-block;
+	vertical-align: top;
+	line-height: 0;
+	max-width: 49%;
+}
+.gh-puml-diff .shell p {
+	color: var(--fgColor-muted);
+	padding: 12px 0;
+	font-size: 12px;
+	line-height: 1.5;
+}
+.gh-puml-diff .frame-label {
+	position: relative;
+	top: -15px;
+	font-weight: 700;
+	line-height: 1;
+}
+.gh-puml-diff .label-deleted {
+	color: var(--fgColor-danger);
+}
+.gh-puml-diff .label-added {
+	color: var(--fgColor-success);
+}
+.gh-puml-diff .deleted-frame,
+.gh-puml-diff .added-frame {
+	display: block;
+	box-sizing: border-box;
+}
+.gh-puml-diff .deleted-frame {
+	border: 1px solid var(--borderColor-danger-emphasis);
+}
+.gh-puml-diff .added-frame {
+	border: 1px solid var(--borderColor-success-emphasis);
+}
+.gh-puml-diff img {
+	display: block;
+	max-width: 100%;
+	height: auto;
+	background: var(--bgColor-default);
+}
+.gh-puml-diff .swipe-frame,
+.gh-puml-diff .onion-skin-frame {
+	position: relative;
+	display: inline-block;
+	width: min(100%, var(--gh-puml-diff-width, 100%));
+	aspect-ratio: var(--gh-puml-diff-width, 1) / var(--gh-puml-diff-height, 1);
+	vertical-align: top;
+}
+.gh-puml-diff .swipe-frame > .deleted-frame,
+.gh-puml-diff .swipe-shell,
+.gh-puml-diff .onion-skin-frame > .deleted-frame,
+.gh-puml-diff .onion-skin-frame > .added-frame {
+	position: absolute;
+	inset: 0;
+}
+.gh-puml-diff .swipe-frame > .deleted-frame,
+.gh-puml-diff .onion-skin-frame > .deleted-frame {
+	position: static;
+}
+.gh-puml-diff .swipe-frame img,
+.gh-puml-diff .onion-skin-frame img {
+	max-width: none;
+	height: auto;
+	transform-origin: top left;
+}
+.gh-puml-diff .swipe-frame > .deleted-frame img,
+.gh-puml-diff .onion-skin-frame > .deleted-frame img {
+	width: calc(100% * var(--gh-puml-before-scale, 1));
+}
+.gh-puml-diff .swipe-frame .added-frame img,
+.gh-puml-diff .onion-skin-frame > .added-frame img {
+	width: calc(100% * var(--gh-puml-after-scale, 1));
+}
+.gh-puml-diff .swipe-shell {
+	left: auto;
+	overflow: hidden;
+	border-inline-start: 1px solid var(--borderColor-default);
+	width: 50%;
+}
+.gh-puml-diff .swipe-shell .added-frame {
+	position: absolute;
+	left: 0;
+	top: 0;
+}
+.gh-puml-diff .swipe-bar {
+	position: absolute;
+	inset-block: 0;
+	left: 50%;
+	width: 1px;
+	background: var(--fgColor-muted);
+	cursor: ew-resize;
+}
+.gh-puml-diff .top-handle,
+.gh-puml-diff .bottom-handle,
+.gh-puml-diff .dragger {
+	position: absolute;
+	width: 12px;
+	height: 12px;
+	background: var(--fgColor-muted);
+	border-radius: 50%;
+	box-shadow: var(--shadow-resting-medium);
+}
+.gh-puml-diff .top-handle {
+	top: -6px;
+	left: -6px;
+}
+.gh-puml-diff .bottom-handle {
+	bottom: -6px;
+	left: -6px;
+}
+.gh-puml-diff .onion-skin-frame > .added-frame {
+	opacity: 0.5;
+}
+.gh-puml-diff .controls {
+	position: absolute;
+	inset-inline-start: 50%;
+	bottom: -25px;
+	display: flex;
+	width: 300px;
+	height: 12px;
+	margin-inline-start: -150px;
+}
+.gh-puml-diff .transparent,
+.gh-puml-diff .opaque {
+	width: 10px;
+	background: var(--fgColor-muted);
+}
+.gh-puml-diff .slider {
+	flex: 1;
+	padding: 0 5px;
+	cursor: ew-resize;
+}
+.gh-puml-diff .slider-track {
+	display: block;
+	position: relative;
+	top: 5px;
+	height: 2px;
+	background: var(--borderColor-default);
+}
+.gh-puml-diff .dragger {
+	top: -5px;
+	left: 0;
+}
+.gh-puml-diff .render-bar {
+	margin: 30px -30px -30px;
+	padding: var(--base-size-12);
+	border-top: 1px solid var(--borderColor-default);
+}
+.gh-puml-diff .render-view-modes {
+	border: 0;
+	margin: 0;
+	padding: 0;
+}
+.gh-puml-diff .render-view-modes label {
+	position: relative;
+	display: inline-block;
+	padding: 0 5px;
+	border-inline-end: 1px solid var(--borderColor-default);
+	cursor: pointer;
+}
+.gh-puml-diff .render-view-modes label:last-child {
+	border: 0;
+}
+.gh-puml-diff .render-view-modes input {
+	position: absolute;
+	width: 1px;
+	height: 1px;
+	clip: rect(0, 0, 0, 0);
+	overflow: hidden;
+}
+.gh-puml-diff .render-view-modes .selected {
+	font-weight: 700;
+}
+.gh-puml-diff .render-view-modes .selected::before {
+	content: "▼";
+	position: absolute;
+	top: -13px;
+	left: 40%;
+	font-size: 10px;
+}

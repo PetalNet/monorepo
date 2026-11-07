@@ -226,6 +226,8 @@ catalog:
   drizzle-kit: 1.0.0-rc.5-ab785fc
   fontless: ^1.2.1
   suncalc: ^2.1.1
+  "@plantuml/core": 1.2026.9
+  wxt: 0.21.5
 # Kit's programmatic API requires a matching ORM installation.
 packageExtensions:
   "drizzle-kit@1.0.0-rc.5-ab785fc":
