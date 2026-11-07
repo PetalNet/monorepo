@@ -76,6 +76,7 @@ const shape = (t, scope) =>
 	};
 
 export const BODY_MAX = 32 * 1024; // request-body cap — RPC args are small; anything bigger is abuse
+
 const OPS = new Set([
 	"get_ready",
 	"up_next",
@@ -93,14 +94,7 @@ const OPS = new Set([
 
 // task.type vocabulary (free TEXT column, default 'task'). Allowlisted so a typo'd type can't
 // silently fall out of every type-keyed view: the wayfinder set + the values already in use.
-export const TASK_TYPES = new Set([
-	"task",
-	"build",
-	"wayfinder-map",
-	"grilling",
-	"research",
-	"prototype",
-]);
+const TASK_TYPES = new Set(["task", "build", "wayfinder-map", "grilling", "research", "prototype"]);
 
 // ── rate limit: in-memory token bucket per agent_name (60 req/min) ───────────
 // Process-local is fine — better-sqlite3 pins this app to a single process. A restart
@@ -273,29 +267,51 @@ function wouldCycle(task_id, blocker_id) {
 	const next = db.prepare("SELECT blocker_id FROM task_blockers WHERE task_id=?");
 	const seen = new Set([blocker_id]);
 	const stack = [blocker_id];
-	while (stack.length) {
+
+	while (stack.length > 0) {
 		const cur = stack.pop();
+
 		for (const { blocker_id: b } of next.all(cur)) {
-			if (b === task_id) return true;
+			if (b === task_id) {
+				return true;
+			}
+
 			if (!seen.has(b)) {
 				seen.add(b);
 				stack.push(b);
 			}
 		}
 	}
+
 	return false;
 }
+
 // Both ends of a blocking edge must be in scope: the task (404 if not, like get/update) and
 // the blocker (same 'invalid_blocker' for out-of-scope and nonexistent — no existence oracle).
 function edgeEnds(scope, args) {
-	if (!isInt(args.id) || !isInt(args.blocked_by)) return { err: bad("bad_request") };
+	if (!isInt(args.id) || !isInt(args.blocked_by)) {
+		return { err: bad("bad_request") };
+	}
+
 	const t = getTask(args.id);
-	if (!inScope(t, scope)) return { err: notFound() };
-	if (args.blocked_by === args.id) return { err: bad("self_block") };
+
+	if (!inScope(t, scope)) {
+		return { err: notFound() };
+	}
+
+	if (args.blocked_by === args.id) {
+		return { err: bad("self_block") };
+	}
+
 	const b = getTask(args.blocked_by);
-	if (!inScope(b, scope)) return { err: bad("invalid_blocker") };
+
+	if (!inScope(b, scope)) {
+		return { err: bad("invalid_blocker") };
+	}
+
 	return { t, b };
 }
+
 const notFound = () => ({ status: 404, body: { error: "not_found" } }); // generic — never reveals existence
 
 // ── op handlers (auth + scope already resolved) ──────────────────────────────
@@ -648,19 +664,31 @@ const ops = {
 	// Idempotent: re-adding an existing edge is a no-op 200 with added:false.
 	add_blocker(scope, args) {
 		const { err, t, b } = edgeEnds(scope, args);
-		if (err) return err;
+
+		if (err) {
+			return err;
+		}
+
 		const exists = db
 			.prepare("SELECT 1 FROM task_blockers WHERE task_id=? AND blocker_id=?")
 			.get(t.id, b.id);
+
 		if (!exists) {
-			if (wouldCycle(t.id, b.id))
+			if (wouldCycle(t.id, b.id)) {
 				return { status: 422, body: { rejected: { ok: false, reason: "would_cycle" } } };
+			}
+
 			addBlocker(t.id, b.id);
 		}
-		if (t.status === "todo" && unfinishedBlockers(t.id).length) {
+
+		if (t.status === "todo" && unfinishedBlockers(t.id).length > 0) {
 			const res = updateTask(t.id, { status: "blocked" });
-			if (res && res.ok === false) return { status: 422, body: { rejected: res } };
+
+			if (res && !res.ok) {
+				return { status: 422, body: { rejected: res } };
+			}
 		}
+
 		return { status: 200, body: { added: !exists, task: shape(getTask(t.id), scope) } };
 	},
 
@@ -669,21 +697,37 @@ const ops = {
 	// and no event is written.
 	remove_blocker(scope, args) {
 		const { err, t, b } = edgeEnds(scope, args);
-		if (err) return err;
+
+		if (err) {
+			return err;
+		}
+
 		const exists = db
 			.prepare("SELECT 1 FROM task_blockers WHERE task_id=? AND blocker_id=?")
 			.get(t.id, b.id);
-		if (exists) removeBlocker(t.id, b.id);
-		return { status: 200, body: { removed: !!exists, task: shape(getTask(t.id), scope) } };
+
+		if (exists) {
+			removeBlocker(t.id, b.id);
+		}
+
+		return { status: 200, body: { removed: Boolean(exists), task: shape(getTask(t.id), scope) } };
 	},
 
 	// both directions of the blocking graph for one in-scope task. Out-of-scope neighbours are
 	// dropped (same post-filter as reads), so an edge to a hidden task reveals nothing.
 	list_blockers(scope, args) {
-		if (!isInt(args.id)) return bad("bad_request");
+		if (!isInt(args.id)) {
+			return bad("bad_request");
+		}
+
 		const t = getTask(args.id);
-		if (!inScope(t, scope)) return notFound();
+
+		if (!inScope(t, scope)) {
+			return notFound();
+		}
+
 		const vis = (rows) => rows.filter((x) => inScope(x, scope)).map(edge);
+
 		return {
 			status: 200,
 			body: { id: t.id, blocked_by: vis(blockersOf(t.id)), blocks: vis(blocks(t.id)) },
@@ -692,12 +736,26 @@ const ops = {
 
 	// set task.type (allowlisted, TASK_TYPES) via canonical updateTask ('update' event).
 	set_type(scope, args) {
-		if (!isInt(args.id)) return bad("bad_request");
+		if (!isInt(args.id)) {
+			return bad("bad_request");
+		}
+
 		const t = getTask(args.id);
-		if (!inScope(t, scope)) return notFound();
-		if (!TASK_TYPES.has(args.type)) return bad("bad_type");
+
+		if (!inScope(t, scope)) {
+			return notFound();
+		}
+
+		if (!TASK_TYPES.has(args.type)) {
+			return bad("bad_type");
+		}
+
 		const res = updateTask(t.id, { type: args.type });
-		if (res && res.ok === false) return { status: 422, body: { rejected: res } };
+
+		if (res && !res.ok) {
+			return { status: 422, body: { rejected: res } };
+		}
+
 		return { status: 200, body: { updated: shape(getTask(t.id), scope) } };
 	},
 };
@@ -758,6 +816,7 @@ export function handleAgentRpc({ authorization, rawBody } = {}) {
 	// tracker - the exact confusion this API is built to avoid.
 	if (tok.scope_readonly && !READ_OPS.has(op)) {
 		console.log(`[agent-api] ${tok.agent_name} ${op} -> err read_only_token`);
+
 		return { status: 403, body: { error: "read_only_token" } };
 	}
 

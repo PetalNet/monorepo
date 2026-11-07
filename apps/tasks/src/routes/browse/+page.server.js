@@ -39,6 +39,7 @@ export function load({ url, locals }) {
 	// load with NO consumer left in the page — dropped, not made lazy: the picker UI it fed no
 	// longer exists.
 	const lanes = browseLanes(pid, me, who);
+
 	return deepScrub({
 		projects: listProjects(me),
 		current: proj?.name ?? null,

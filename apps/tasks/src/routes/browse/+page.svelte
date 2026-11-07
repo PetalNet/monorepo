@@ -83,12 +83,16 @@
 	);
 	afterNavigate(() => {
 		// fires once the filtered load has landed, even if counts are unchanged
-		if (!announcePending) return;
+		if (!announcePending) {
+			return;
+		}
+
 		announcePending = false;
 		liveMsg = `${totalLoaded} task${totalLoaded === 1 ? "" : "s"} · ${data.current || "all projects"}${data.assignee ? " · " + data.assignee : ""}`;
 	});
 	const answered = (label) => () => {
 		liveMsg = `Answer submitted: ${label}`;
+
 		return async ({ update }) => update();
 	};
 

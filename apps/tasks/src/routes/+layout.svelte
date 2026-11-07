@@ -82,13 +82,23 @@
 		if (e.key === "Escape") {
 			e.preventDefault();
 			closeMore();
+
 			return;
 		}
-		if (e.key !== "Tab") return;
+
+		if (e.key !== "Tab") {
+			return;
+		}
+
 		const f = [...sheetEl.querySelectorAll("a[href]")];
-		if (!f.length) return;
+
+		if (!f.length) {
+			return;
+		}
+
 		const first = f[0],
 			last = f[f.length - 1];
+
 		if (e.shiftKey && document.activeElement === first) {
 			e.preventDefault();
 			last.focus();

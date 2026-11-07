@@ -38,8 +38,10 @@ if (!agent_name) {
 	console.error(
 		"usage: node scripts/mint-agent-token.mjs <agent_name> (--readonly | --write) [--assignee <name>] [--projects <csv>]",
 	);
+
 	process.exit(1);
 }
+
 // Same treatment scope already gets: you say it out loud or you get nothing.
 if (flags.readonly === undefined) {
 	console.error(
@@ -76,6 +78,7 @@ const scopeDesc = [
 ]
 	.filter(Boolean)
 	.join(" AND ");
+
 if (!flags.assignee && !flags.projects) {
 	console.log("\n  NOTE: UNSCOPED — this token sees the whole tracker. Is that what you wanted?");
 }

@@ -80,7 +80,10 @@ async function accessGate({ event, resolve }) {
 	return res;
 }
 
-export const handle = sequence(Sentry.sentryHandle(), accessGate);
+// Without a DSN the SDK is dormant, so the access gate runs on its own.
+export const handle = process.env.GLITCHTIP_DSN
+	? sequence(Sentry.sentryHandle(), accessGate)
+	: accessGate;
 
 // Unexpected server errors → Glitchtip. Expected errors (kit's error(status, ...)) are
 // NOT reported — that's the SDK default and exactly what we want for the 403/404 paths.

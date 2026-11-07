@@ -1,4 +1,4 @@
-import crypto from "node:crypto";
+import { createHash } from "node:crypto";
 
 import { tasksConfig } from "./config.js";
 
@@ -276,21 +276,31 @@ function renderPmUncached(src) {
 // keeping the key small.
 const PM_CACHE = new Map();
 const PM_CACHE_MAX = 500;
+
 export function renderPm(src) {
-	if (!src) return "";
+	if (!src) {
+		return "";
+	}
+
 	const s = String(src);
-	const key = s.length + ":" + crypto.createHash("sha1").update(s).digest("base64");
+	const key = `${s.length}:${createHash("sha1").update(s).digest("base64")}`;
 	const hit = PM_CACHE.get(key);
+
 	if (hit !== undefined) {
 		// refresh LRU recency: re-insert at the tail
 		PM_CACHE.delete(key);
 		PM_CACHE.set(key, hit);
+
 		return hit;
 	}
+
 	const html = renderPmUncached(s);
+
 	PM_CACHE.set(key, html);
-	if (PM_CACHE.size > PM_CACHE_MAX) PM_CACHE.delete(PM_CACHE.keys().next().value);
+
+	if (PM_CACHE.size > PM_CACHE_MAX) {
+		PM_CACHE.delete(PM_CACHE.keys().next().value);
+	}
+
 	return html;
 }
-// test/introspection hook — lets a bench prove cache hits without reaching into the Map.
-export const _pmCacheStats = () => ({ size: PM_CACHE.size });

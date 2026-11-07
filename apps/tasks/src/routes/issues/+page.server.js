@@ -12,6 +12,7 @@ export function load({ url, locals }) {
 	const rows = issuesPage(me, tab, PAGE + 1, page * PAGE); // +1 sentinel = "is there a next page?"
 	const hasMore = rows.length > PAGE;
 	const counts = issuesCounts(me);
+
 	return deepScrub({
 		tab,
 		page,

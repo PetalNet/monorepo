@@ -73,6 +73,9 @@ permissions:
     build: true
   "@prisma/engines":
     build: true
+  # Only needed to upload source maps, which the tasks build does not do.
+  "@sentry/cli":
+    build: false
   antislop-ai:
     skills: true
   better-sqlite3:

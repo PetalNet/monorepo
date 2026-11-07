@@ -153,6 +153,7 @@ resetRateLimiter();
 // ── 1. token round-trip / revocation / mint validation ──────────────────────
 t("mint returns plaintext once; verify resolves identity + parsed scopes", () => {
 	const v = verifyAgentToken(agentA.token);
+
 	// scope_readonly added with the read-only axis; asserted here so the identity SHAPE
 	// stays pinned rather than loosened to a subset match.
 	assert.deepEqual(v, {
@@ -200,14 +201,17 @@ t("mint refuses an accidentally-unscoped token (supplied-but-empty scope)", () =
 		() => mintAgentToken({ agent_name: "x", scope_projects: "", readonly: false }),
 		/scope_projects/,
 	);
+
 	assert.throws(
 		() => mintAgentToken({ agent_name: "x", scope_projects: " , ", readonly: false }),
 		/scope_projects/,
 	);
+
 	assert.throws(
 		() => mintAgentToken({ agent_name: "x", scope_assignee: "  ", readonly: false }),
 		/scope_assignee/,
 	);
+
 	assert.throws(() => mintAgentToken({ agent_name: "", readonly: false }), /agent_name/);
 });
 
@@ -584,35 +588,43 @@ t("reap: flips only leases claimed by this agent_name", () => {
 
 // ── 9b. blocker edges + task type ─────────────────────────────────────────────
 resetRateLimiter(); // the sections above spent most of agent-a's bucket
+
 const edgeCount = (task, blocker) =>
 	db
 		.prepare("SELECT COUNT(*) n FROM task_blockers WHERE task_id=? AND blocker_id=?")
 		.get(task, blocker).n;
+
 t(
 	"add_blocker: in-scope edge → 200 via canonical addBlocker; todo task flips to blocked; idempotent",
 	() => {
 		const a = mk("edge blocker", { project_id: agentlab, assignee: "agent-a" });
 		const b = mk("edge dependent", { project_id: agentlab, assignee: "agent-a" });
 		const r = rpc(agentA.token, "add_blocker", { id: b, blocked_by: a });
+
 		assert.equal(r.status, 200);
 		assert.equal(r.body.added, true);
 		assert.equal(edgeCount(b, a), 1);
 		assert.equal(getTask(b).status, "blocked", "todo + live blocker → blocked (claim skips it)");
 		assert.equal(r.body.task.status, "blocked");
+
 		assert.ok(
 			db.prepare("SELECT 1 FROM events WHERE task_id=? AND type='add_blocker'").get(b),
 			"canonical 'add_blocker' event exists",
 		);
+
 		const again = rpc(agentA.token, "add_blocker", { id: b, blocked_by: a });
+
 		assert.equal(again.status, 200);
 		assert.equal(again.body.added, false, "re-adding is a no-op");
 		assert.equal(edgeCount(b, a), 1);
+
 		assert.ok(
 			logLines.some((l) => l.includes(`add_blocker task=${b} blocked_by=${a} -> ok`)),
 			"audit line names both ends",
 		);
 	},
 );
+
 t(
 	"add_blocker: a doing task keeps its lease (status untouched); a done blocker does not block",
 	() => {
@@ -622,19 +634,23 @@ t(
 			assignee: "agent-a",
 			status: "doing",
 		});
+
 		assert.equal(rpc(agentA.token, "add_blocker", { id: d, blocked_by: a }).status, 200);
 		assert.equal(getTask(d).status, "doing");
+
 		const fin = mk("finished blocker", {
 			project_id: agentlab,
 			assignee: "agent-a",
 			status: "done",
 		});
 		const c = mk("dependent of finished", { project_id: agentlab, assignee: "agent-a" });
+
 		assert.equal(rpc(agentA.token, "add_blocker", { id: c, blocked_by: fin }).status, 200);
 		assert.equal(edgeCount(c, fin), 1, "edge recorded");
 		assert.equal(getTask(c).status, "todo", "no live blocker → stays todo");
 	},
 );
+
 t("add_blocker: an up_next task in review with a live blocker leaves get_ready/up_next", () => {
 	const a = mk("review blocker", { project_id: agentlab, assignee: "agent-a" });
 	const r = mk("review dependent", {
@@ -645,6 +661,7 @@ t("add_blocker: an up_next task in review with a live blocker leaves get_ready/u
 		rank: -1000,
 	});
 	const ready = () => rpc(agentA.token, "get_ready", {}).body.up_next.map((x) => x.id);
+
 	assert.ok(ready().includes(r), "precondition: listed before the edge");
 	assert.equal(rpc(agentA.token, "add_blocker", { id: r, blocked_by: a }).status, 200);
 	assert.equal(getTask(r).status, "review", "status untouched");
@@ -653,30 +670,38 @@ t("add_blocker: an up_next task in review with a live blocker leaves get_ready/u
 	closeTask(a, { status: "done", reason: "test" });
 	assert.ok(ready().includes(r), "finished blocker → ready again");
 });
+
 t("add_blocker: self-block and cycles are refused, nothing written", () => {
 	const x = mk("cyc x", { project_id: agentlab, assignee: "agent-a" });
 	const y = mk("cyc y", { project_id: agentlab, assignee: "agent-a" });
 	const z = mk("cyc z", { project_id: agentlab, assignee: "agent-a" });
+
 	assert.deepEqual(rpc(agentA.token, "add_blocker", { id: x, blocked_by: x }).body, {
 		error: "self_block",
 	});
+
 	assert.equal(rpc(agentA.token, "add_blocker", { id: y, blocked_by: x }).status, 200); // y blocked by x
 	assert.equal(rpc(agentA.token, "add_blocker", { id: z, blocked_by: y }).status, 200); // z blocked by y
 	const r = rpc(agentA.token, "add_blocker", { id: x, blocked_by: z }); // x by z → x→y→z→x
+
 	assert.equal(r.status, 422);
 	assert.equal(r.body.rejected.reason, "would_cycle");
 	assert.equal(edgeCount(x, z), 0);
 	assert.equal(getTask(x).status, "todo");
 });
+
 t(
 	"add/remove_blocker: out-of-scope task → 404; out-of-scope and missing blocker are indistinguishable",
 	() => {
 		const mine = mk("scoped end", { project_id: agentlab, assignee: "agent-a" });
+
 		assert.deepEqual(rpc(agentA.token, "add_blocker", { id: SECRET, blocked_by: mine }).body, {
 			error: "not_found",
 		});
+
 		const oos = rpc(agentA.token, "add_blocker", { id: mine, blocked_by: SECRET });
 		const missing = rpc(agentA.token, "add_blocker", { id: mine, blocked_by: 99999999 });
+
 		assert.equal(oos.status, 400);
 		assert.deepEqual(oos.body, missing.body);
 		assert.deepEqual(oos.body, { error: "invalid_blocker" });
@@ -686,24 +711,30 @@ t(
 		assert.equal(rpc(agentA.token, "add_blocker", { id: mine }).status, 400);
 	},
 );
+
 t(
 	"remove_blocker: drops the edge, auto-unblocks, logs; missing edge → removed:false with no event",
 	() => {
 		const a = mk("rm blocker", { project_id: agentlab, assignee: "agent-a" });
 		const b = mk("rm dependent", { project_id: agentlab, assignee: "agent-a" });
+
 		rpc(agentA.token, "add_blocker", { id: b, blocked_by: a });
 		assert.equal(getTask(b).status, "blocked");
 		const r = rpc(agentA.token, "remove_blocker", { id: b, blocked_by: a });
+
 		assert.equal(r.status, 200);
 		assert.equal(r.body.removed, true);
 		assert.equal(edgeCount(b, a), 0);
 		assert.equal(getTask(b).status, "todo", "no live blockers left → auto-unblocked");
 		assert.ok(db.prepare("SELECT 1 FROM events WHERE task_id=? AND type='remove_blocker'").get(b));
+
 		const n = db
 			.prepare("SELECT COUNT(*) n FROM events WHERE task_id=? AND type='remove_blocker'")
 			.get(b).n;
 		const again = rpc(agentA.token, "remove_blocker", { id: b, blocked_by: a });
+
 		assert.equal(again.body.removed, false);
+
 		assert.equal(
 			db.prepare("SELECT COUNT(*) n FROM events WHERE task_id=? AND type='remove_blocker'").get(b)
 				.n,
@@ -711,40 +742,51 @@ t(
 		);
 	},
 );
+
 t("list_blockers: both directions; out-of-scope neighbours are dropped", () => {
 	const a = mk("lb up", { project_id: agentlab, assignee: "agent-a" });
 	const b = mk("lb mid", { project_id: agentlab, assignee: "agent-a" });
 	const c = mk("lb down", { project_id: agentlab, assignee: "agent-a" });
+
 	rpc(agentA.token, "add_blocker", { id: b, blocked_by: a });
 	rpc(agentA.token, "add_blocker", { id: c, blocked_by: b });
 	addBlocker(b, SECRET); // an edge only an unscoped caller could make
 	const r = rpc(agentA.token, "list_blockers", { id: b });
+
 	assert.equal(r.status, 200);
+
 	assert.deepEqual(
 		r.body.blocked_by.map((x) => x.id),
 		[a],
 		"secret blocker hidden",
 	);
+
 	assert.deepEqual(
 		r.body.blocks.map((x) => x.id),
 		[c],
 	);
-	assert.deepEqual(Object.keys(r.body.blocked_by[0]).sort(), ["id", "status", "title"]);
+
+	assert.deepEqual(Object.keys(r.body.blocked_by[0]).toSorted(), ["id", "status", "title"]);
 	assert.ok(!JSON.stringify(r.body).includes("secret security finding"));
 	const u = rpc(full.token, "list_blockers", { id: b });
+
 	assert.deepEqual(
-		u.body.blocked_by.map((x) => x.id).sort((p, q) => p - q),
-		[SECRET, a].sort((p, q) => p - q),
+		u.body.blocked_by.map((x) => x.id).toSorted((p, q) => p - q),
+		[SECRET, a].toSorted((p, q) => p - q),
 		"unscoped sees it",
 	);
+
 	assert.equal(rpc(agentA.token, "list_blockers", { id: SECRET }).status, 404);
 });
+
 t("set_type: allowlisted type via canonical updateTask; bad type / out-of-scope refused", () => {
 	const m = mk("a map", { project_id: agentlab, assignee: "agent-a" });
 	const r = rpc(agentA.token, "set_type", { id: m, type: "wayfinder-map" });
+
 	assert.equal(r.status, 200);
 	assert.equal(r.body.updated.type, "wayfinder-map");
 	assert.equal(getTask(m).type, "wayfinder-map");
+
 	assert.ok(
 		db
 			.prepare(
@@ -752,15 +794,19 @@ t("set_type: allowlisted type via canonical updateTask; bad type / out-of-scope 
 			)
 			.get(m),
 	);
+
 	assert.deepEqual(rpc(agentA.token, "set_type", { id: m, type: "wayfinder_map" }).body, {
 		error: "bad_type",
 	});
+
 	assert.equal(rpc(agentA.token, "set_type", { id: m }).status, 400);
 	assert.equal(getTask(m).type, "wayfinder-map", "rejected calls change nothing");
 	const before = getTask(SECRET).type;
+
 	assert.equal(rpc(agentA.token, "set_type", { id: SECRET, type: "research" }).status, 404);
 	assert.equal(getTask(SECRET).type, before);
 });
+
 t("file: optional type is validated and applied", () => {
 	const r = rpc(agentA.token, "file", {
 		title: "typed ticket",
@@ -768,8 +814,10 @@ t("file: optional type is validated and applied", () => {
 		kind: "task",
 		type: "research",
 	});
+
 	assert.equal(r.status, 201);
 	assert.equal(getTask(r.body.filed.id).type, "research");
+
 	assert.equal(
 		rpc(agentA.token, "file", { title: "bad", project: "agentlab", type: "nope" }).status,
 		400,
@@ -840,6 +888,7 @@ const rw = mintAgentToken({
 
 t("read-only token is surfaced by verifyAgentToken", () => {
 	assert.equal(verifyAgentToken(ro.token).scope_readonly, true);
+
 	assert.equal(
 		verifyAgentToken(rw.token).scope_readonly,
 		false,
@@ -849,6 +898,7 @@ t("read-only token is surfaced by verifyAgentToken", () => {
 
 t("read-only token CAN call get_ready", () => {
 	const r = rpc(ro.token, "get_ready");
+
 	assert.equal(r.status, 200);
 	assert.ok(Array.isArray(r.body.up_next), "returns the briefing shape");
 });
@@ -856,8 +906,10 @@ t("read-only token CAN call get_ready", () => {
 t("read-only token CAN call get", () => {
 	// createTask returns the ID itself, not a row object.
 	const mine = createTask({ title: "ro-visible", kind: "task", project_id: agentlab });
+
 	updateTask(mine, { assignee: "agent-a" }); // must be IN the token scope to be gettable
 	const r = rpc(ro.token, "get", { id: mine });
+
 	assert.equal(r.status, 200, `expected 200, got ${r.status} ${JSON.stringify(r.body)}`);
 	assert.equal(r.body.task.id, mine);
 });
@@ -871,6 +923,7 @@ for (const [op, args] of [
 ]) {
 	t(`read-only token is REFUSED ${op} with 403 read_only_token`, () => {
 		const r = rpc(ro.token, op, args);
+
 		assert.equal(r.status, 403, `expected 403, got ${r.status}`);
 		assert.equal(r.body.error, "read_only_token");
 	});
@@ -879,6 +932,7 @@ for (const [op, args] of [
 	// READ_OPS entirely (refuse all ops) would leave every assertion above still green.
 	t(`a NON-read-only token is still allowed ${op}`, () => {
 		const r = rpc(rw.token, op, args);
+
 		assert.notEqual(r.status, 403, `${op} must not be 403 for a read-write token`);
 	});
 }
@@ -887,15 +941,19 @@ t("a write refused by the read-only gate has no side effect", () => {
 	const before = db
 		.prepare("SELECT COUNT(*) c FROM tasks WHERE title='should never exist'")
 		.get().c;
+
 	rpc(ro.token, "file", { title: "should never exist" });
 	const after = db.prepare("SELECT COUNT(*) c FROM tasks WHERE title='should never exist'").get().c;
+
 	assert.equal(after, before, "refused write must not reach the handler");
 });
 
 t("the read-only refusal is logged without the token", () => {
 	const before = logLines.length;
+
 	rpc(ro.token, "close", { id: 1 });
 	const added = logLines.slice(before).join("\n");
+
 	assert.ok(added.includes("read_only_token"), "refusal is audited");
 	assert.ok(!added.includes(ro.token), "token never appears in a log line");
 });

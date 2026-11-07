@@ -24,6 +24,11 @@ services:
       TZ: ${TZ:-UTC}
       ELEVEN_API_KEY: ${ELEVEN_API_KEY:-}
       ELEVEN_VOICES: ${ELEVEN_VOICES:-}
+      GLITCHTIP_DSN: ${GLITCHTIP_DSN:-}
+      GLITCHTIP_ENV: ${GLITCHTIP_ENV:-}
+      PUBLIC_GLITCHTIP_DSN: ${PUBLIC_GLITCHTIP_DSN:-}
+      PUBLIC_GLITCHTIP_ENV: ${PUBLIC_GLITCHTIP_ENV:-}
+      GLITCHTIP_DEBUG: ${GLITCHTIP_DEBUG:-}
     volumes: ["${TASKS_DATA_DIR:?Set the Tasks data directory}:/data"]
     networks: [tasks]
     logging: { driver: json-file, options: { max-size: "1m", max-file: "1" } }

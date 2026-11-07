@@ -164,36 +164,56 @@
 		const walker = document.createTreeWalker(el, NodeFilter.SHOW_TEXT, {
 			acceptNode(n) {
 				// skip headings, code, links, and any already-wrapped term
-				if (n.parentElement?.closest("h1,h2,h3,h4,h5,h6,code,pre,a,.gloss"))
+				if (n.parentElement?.closest("h1,h2,h3,h4,h5,h6,code,pre,a,.gloss")) {
 					return NodeFilter.FILTER_REJECT;
+				}
+
 				// skip the glossary's own definition entries — otherwise a term's FIRST occurrence is
 				// inside its "- **Term** — definition" <li>, so it self-wraps there instead of the body.
 				const li = n.parentElement?.closest("li");
-				if (li && defEntry.test(li.textContent)) return NodeFilter.FILTER_REJECT;
+
+				if (li && defEntry.test(li.textContent)) {
+					return NodeFilter.FILTER_REJECT;
+				}
+
 				return NodeFilter.FILTER_ACCEPT;
 			},
 		});
 		const nodes = [];
-		for (let n = walker.nextNode(); n; n = walker.nextNode()) nodes.push(n);
+
+		for (let n = walker.nextNode(); n; n = walker.nextNode()) {
+			nodes.push(n);
+		}
+
 		const wrapped = new Set(); // lowercased terms already wrapped (each term wraps once, wiki-style)
+
 		for (let node of nodes) {
 			// wrap successive first-occurrence terms within this node; after each wrap continue on the
 			// tail remainder so two terms in the same text node both get wrapped.
 			while (node && wrapped.size < byTerm.size) {
 				combined.lastIndex = 0;
+
 				let m,
 					hit = null;
+
 				while ((m = combined.exec(node.nodeValue))) {
 					if (!wrapped.has(m[0].toLowerCase())) {
 						hit = m;
+
 						break;
 					}
 				}
-				if (!hit) break;
+
+				if (!hit) {
+					break;
+				}
+
 				const g = byTerm.get(hit[0].toLowerCase());
 				const after = node.splitText(hit.index);
+
 				after.nodeValue = after.nodeValue.slice(hit[0].length);
 				const span = document.createElement("span");
+
 				span.className = "gloss";
 				span.textContent = hit[0];
 				span.setAttribute("data-def", g.def); // CSS hover card (pointer users)
@@ -205,7 +225,10 @@
 				wrapped.add(hit[0].toLowerCase());
 				node = after; // continue scanning the remainder of this node
 			}
-			if (wrapped.size >= byTerm.size) break;
+
+			if (wrapped.size >= byTerm.size) {
+				break;
+			}
 		}
 	});
 
@@ -268,10 +291,12 @@
 	function stopAudio(announce = false) {
 		speaking = false;
 		loadingAudio = false;
+
 		if (announce) {
 			ttsStatus = "Narration stopped";
 			ttsErr = false;
 		}
+
 		try {
 			ttsCtrl?.abort();
 		} catch {}
@@ -296,13 +321,16 @@
 	// stop audio when the doc changes or the component unmounts (no orphan playback on nav)
 	$effect(() => {
 		t.id;
+
 		return () => stopAudio();
 	});
 	async function listen() {
 		if (speaking || loadingAudio) {
 			stopAudio(true);
+
 			return;
 		} // task-368: announce stop on re-press
+
 		const text = readableText();
 
 		if (!text) {
@@ -326,15 +354,18 @@
 			if (r.ok && (r.headers.get("content-type") || "").includes("audio")) {
 				blobUrl = URL.createObjectURL(await r.blob());
 				audioEl = new Audio(blobUrl);
+
 				audioEl.onended = () => {
 					stopAudio();
 					ttsStatus = "Narration finished";
 				};
+
 				audioEl.onerror = () => {
 					stopAudio();
 					ttsStatus = "Audio unavailable";
 					ttsErr = true;
 				};
+
 				loadingAudio = false;
 				speaking = true;
 				ttsStatus = "Playing narration";
@@ -347,14 +378,18 @@
 				return;
 			} // user cancelled — don't fall through
 		}
+
 		// fallback: Web Speech API (task-368/313: never silent — surface every failure path)
 		loadingAudio = false;
 		speaking = false;
+
 		if (!window.speechSynthesis) {
 			ttsStatus = "Audio unavailable";
 			ttsErr = true;
+
 			return;
 		}
+
 		ttsStatus = "Narration failed, using browser voice";
 		ttsErr = false;
 		const u = new SpeechSynthesisUtterance(text.slice(0, 32000));
@@ -366,6 +401,7 @@
 			speaking = false;
 			ttsStatus = "Narration finished";
 		};
+
 		// task-313: mid-utterance synthesis failure must reset the button (was stuck on "stop")
 		u.onerror = () => {
 			speaking = false;

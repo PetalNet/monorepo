@@ -527,8 +527,6 @@ const log = (task_id, type, data) => {
 };
 
 const ACTIVE = "status NOT IN ('done','dropped')";
-// actionable list filter: blocked tasks get their own muted section, so the working lists hide them.
-const UNBLOCKED = "status NOT IN ('done','dropped','blocked')";
 const where = (p) => (p ? "AND project_id=@p" : "");
 // assignee filter: mirrors the project filter; supplied → restrict to one agent/human.
 const whoFilter = (a) => (a ? "AND assignee=@a" : "");
@@ -774,40 +772,12 @@ export const listAssignees = (me) =>
 const TASKISH = "kind IN ('task','idea')"; // docs & questions are not part of the task checklist
 
 // Top-level items per section (children render nested under their parent — work isn't flat, per an operator).
-// in-progress work gets its own lane, so pull status='doing' out of up-next / to-do
-export const doing = (p, me, a) =>
-	withKids(
-		db
-			.prepare(
-				`SELECT * FROM tasks WHERE status='doing' AND parent_id IS NULL AND ${TASKISH} ${where(p)} ${whoFilter(a)} ${vis(me)} ${NOTARCHIVED} ORDER BY priority, updated_at DESC`,
-			)
-			.all(qargs(p, me, a)),
-		me,
-	);
-export const upNext = (p, me, a) =>
-	withKids(
-		db
-			.prepare(
-				`SELECT * FROM tasks WHERE up_next=1 AND parent_id IS NULL AND ${TASKISH} AND ${UNBLOCKED} AND status!='doing' ${where(p)} ${whoFilter(a)} ${vis(me)} ${NOTARCHIVED} ORDER BY rank, priority, updated_at DESC`,
-			)
-			.all(qargs(p, me, a)),
-		me,
-	);
 export const inbox = (p, me, a) =>
 	db
 		.prepare(
 			`SELECT * FROM tasks WHERE kind='idea' AND status='inbox' AND parent_id IS NULL ${where(p)} ${whoFilter(a)} ${vis(me)} ${NOTARCHIVED} ORDER BY created_at DESC`,
 		)
 		.all(qargs(p, me, a));
-export const backlog = (p, me, a) =>
-	withKids(
-		db
-			.prepare(
-				`SELECT * FROM tasks WHERE up_next=0 AND parent_id IS NULL AND ${TASKISH} AND NOT (kind='idea' AND status='inbox') AND ${UNBLOCKED} AND status!='doing' ${where(p)} ${whoFilter(a)} ${vis(me)} ${NOTARCHIVED} ORDER BY priority, rank, updated_at DESC`,
-			)
-			.all(qargs(p, me, a)),
-		me,
-	);
 // recently-shipped (top-level), capped — a "done" lane so the board shows momentum
 export const recentDone = (p, me, a) =>
 	db
@@ -861,6 +831,7 @@ export const activeLeases = (me) =>
 			`SELECT id, title, assignee, project_id FROM tasks WHERE status='doing' AND assignee IS NOT NULL AND assignee!='' ${vis(me)} ${NOTARCHIVED} ORDER BY updated_at DESC`,
 		)
 		.all(me ? { me } : {});
+
 // flat GitHub-style issues list — every actionable item (not docs) + its comment count, for the
 // /issues view. PAGINATED at the SQL level (task-317): the old issuesList shipped the ENTIRE
 // open+closed history on every visit, with a correlated per-row comment-count subquery. Now the
@@ -870,6 +841,7 @@ const ISSUE_STATE = {
 	open: "t.status NOT IN ('done','dropped')",
 	closed: "t.status IN ('done','dropped')",
 };
+
 export const issuesPage = (me, state, limit, offset) =>
 	db
 		.prepare(
@@ -946,22 +918,6 @@ const attachBlockers = (rows, me) => {
 
 	return rows.map((r) => ({ ...r, blockers: byOwner.get(r.id) || [] }));
 };
-export const blockedList = (p, me, a) =>
-	attachBlockers(
-		db
-			.prepare(
-				`SELECT * FROM tasks WHERE status='blocked' AND parent_id IS NULL AND ${TASKISH} ${where(p)} ${whoFilter(a)} ${vis(me)} ${NOTARCHIVED} ORDER BY priority, rank, updated_at DESC`,
-			)
-			.all(qargs(p, me, a)),
-		me,
-	);
-// lightweight {id,title} list of open tasks for the blocker-picker dropdown (honors visibility).
-export const blockerCandidates = (me) =>
-	db
-		.prepare(
-			`SELECT id, title FROM tasks WHERE ${TASKISH} AND ${ACTIVE} ${vis(me)} ${NOTARCHIVED} ORDER BY updated_at DESC LIMIT 500`,
-		)
-		.all(me ? { me } : {});
 
 // --- consolidated board lanes (task-318 + task-293) ---------------------------------
 // /browse previously ran one query PER lane (doing/upNext/inbox/backlog/blocked) over the
@@ -979,26 +935,38 @@ export function browseLanes(p, me, a) {
 		)
 		.all(qargs(p, me, a));
 
-	const doing = [],
-		upNext = [],
-		inboxL = [],
-		backlog = [],
-		blocked = [];
+	const backlog = [];
+	const blocked = [];
+	const doing = [];
+	const inboxL = [];
+	const upNext = [];
+
 	for (const r of rows) {
 		const inboxIdea = r.kind === "idea" && r.status === "inbox";
-		if (inboxIdea) inboxL.push(r); // inbox lane (idea capture)
+
+		if (inboxIdea) {
+			inboxL.push(r);
+		} // inbox lane (idea capture)
+
 		if (r.status === "doing") {
 			doing.push(r);
+
 			continue;
 		}
+
 		if (r.status === "blocked") {
 			blocked.push(r);
+
 			continue;
 		}
+
 		// remaining rows satisfy UNBLOCKED AND status!='doing' (ACTIVE already dropped done/dropped)
-		if (r.up_next)
-			upNext.push(r); // NB: an up-next inbox idea appears in
-		else if (!inboxIdea) backlog.push(r); // BOTH lanes — exactly like the old SQL
+		if (r.up_next) {
+			upNext.push(r);
+		} // NB: an up-next inbox idea appears in
+		else if (!inboxIdea) {
+			backlog.push(r);
+		} // BOTH lanes — exactly like the old SQL
 	}
 
 	// replicate each lane's old ORDER BY (all columns NOT NULL; ISO timestamps compare as strings)
@@ -1006,16 +974,20 @@ export function browseLanes(p, me, a) {
 	const desc = (x, y) => (x < y ? 1 : x > y ? -1 : 0);
 	const prioRankUpd = (A, B) =>
 		asc(A.priority, B.priority) || asc(A.rank, B.rank) || desc(A.updated_at, B.updated_at);
+
 	doing.sort((A, B) => asc(A.priority, B.priority) || desc(A.updated_at, B.updated_at));
+
 	upNext.sort(
 		(A, B) =>
 			asc(A.rank, B.rank) || asc(A.priority, B.priority) || desc(A.updated_at, B.updated_at),
 	);
+
 	inboxL.sort((A, B) => desc(A.created_at, B.created_at));
 	backlog.sort(prioRankUpd);
 	blocked.sort(prioRankUpd);
 
 	const map = childMapByParent(me); // ONE child scan shared by all three kid-bearing lanes
+
 	return {
 		doing: attachKids(doing, map),
 		upNext: attachKids(upNext, map),
@@ -1155,8 +1127,6 @@ const attachKids = (rows, map, depth = 0) =>
 		...r,
 		kids: depth >= 7 ? [] : attachKids(map.get(r.id) || [], map, depth + 1),
 	}));
-// Top-level rows + their full (visible, active) subtrees — one preload, then assemble.
-const withKids = (rows, me) => (rows.length > 0 ? attachKids(rows, childMapByParent(me)) : rows);
 
 // One task's children + descendants (the task/[id] relations panel). Same one-query model.
 export const children = (pid, me) => {
@@ -1669,6 +1639,7 @@ db.exec(`
 			.all()
 			.map((c) => c.name),
 	);
+
 	if (!have.has("scope_readonly")) {
 		db.exec("ALTER TABLE agent_tokens ADD COLUMN scope_readonly INTEGER NOT NULL DEFAULT 0");
 	}
@@ -1693,7 +1664,7 @@ export function mintAgentToken({
 	// risk is not the tokens that exist today but the one minted months from now by
 	// someone who never read this file. Write authority has to be typed out.
 	if (typeof readonly !== "boolean") {
-		throw new Error(
+		throw new TypeError(
 			"mintAgentToken requires readonly:true|false — say whether this token may write",
 		);
 	}
@@ -1768,7 +1739,7 @@ export function verifyAgentToken(token) {
 		// BACK-COMPAT rather than fail-closed: the migration backfills every existing row to
 		// 0, and flipping absent/NULL to read-only would silently break every token minted
 		// before this column existed. Read-only is opt-in at mint time.
-		scope_readonly: !!row.scope_readonly,
+		scope_readonly: Boolean(row.scope_readonly),
 	};
 }
 

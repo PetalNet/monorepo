@@ -128,6 +128,7 @@
 	let liveMsg = $state("");
 	const answered = (label) => () => {
 		liveMsg = `Answer submitted: ${label}`;
+
 		return async ({ update }) => update();
 	};
 
