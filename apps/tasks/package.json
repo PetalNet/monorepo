@@ -32,6 +32,7 @@
     "@fontsource-variable/geist-mono": "^5.2.8",
     "@modelcontextprotocol/sdk": "^1.0.0",
     "@prosemark/core": "^0.0.9",
+    "@sentry/sveltekit": "^10.64.0",
     "better-sqlite3": "^11.3.0",
     "ghostty-web": "^0.4.0",
     "jsdom": "^29.1.1",

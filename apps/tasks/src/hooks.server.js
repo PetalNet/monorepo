@@ -1,3 +1,18 @@
+// Glitchtip (self-hosted Sentry) error reporting — standing rule, task-651.
+// DSN comes ONLY from env (GLITCHTIP_DSN, set in the service env on .14 from
+// /srv/glitchtip/.dsn-tasks); unset → SDK stays dormant (local dev default).
+// Recipe: homelab-docs/runbooks/glitchtip.md
+import * as Sentry from '@sentry/sveltekit';
+import { sequence } from '@sveltejs/kit/hooks';
+
+Sentry.init({
+  dsn: process.env.GLITCHTIP_DSN,
+  enabled: Boolean(process.env.GLITCHTIP_DSN),
+  environment: process.env.GLITCHTIP_ENV || 'production',
+  // errors only — no perf tracing; keeps Glitchtip/.14 load negligible
+  tracesSampleRate: 0
+});
+
 // Identity + access gate. Behind Authentik forward-auth, traefik injects X-authentik-username.
 // ALLOW (Authentik usernames) is the access list. With ALLOW set (production) we FAIL CLOSED:
 // a missing/unknown header is rejected, never silently treated as the 'dev' identity. The
@@ -20,7 +35,7 @@ const isPublicShare = (pathname) => pathname === '/s' || pathname.startsWith('/s
 // exact-prefix match as /s/; event.locals.user is intentionally left unset on this path —
 // the endpoint resolves identity by token, never by header.
 const isAgentApi = (pathname) => pathname === '/api/agent' || pathname.startsWith('/api/agent/');
-export async function handle({ event, resolve }) {
+async function accessGate({ event, resolve }) {
   const user = event.request.headers.get('x-authentik-username') || '';
   if (ALLOW.length && !isPublicShare(event.url.pathname) && !isAgentApi(event.url.pathname)) {
     // production: require a valid Authentik identity (fail closed — was fail-open via 'dev')
@@ -49,3 +64,9 @@ export async function handle({ event, resolve }) {
   if (!res.headers.has('Referrer-Policy')) res.headers.set('Referrer-Policy', 'same-origin');
   return res;
 }
+
+export const handle = sequence(Sentry.sentryHandle(), accessGate);
+
+// Unexpected server errors → Glitchtip. Expected errors (kit's error(status, ...)) are
+// NOT reported — that's the SDK default and exactly what we want for the 403/404 paths.
+export const handleError = Sentry.handleErrorWithSentry();
