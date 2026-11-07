@@ -1,15 +1,6 @@
-import { isDarkTheme, resolveInclude, type IncludeSource } from "./domain.ts";
+import { browser } from "@wxt-dev/browser";
 
-declare const chrome: {
-	runtime: {
-		getURL: (path: string) => string;
-		sendMessage: (message: unknown) => Promise<string | null>;
-	};
-	storage: {
-		sync: { get: (keys: string[]) => Promise<{ server?: string }> };
-		onChanged: { addListener: (listener: () => void) => void };
-	};
-};
+import { isDarkTheme, resolveInclude, type IncludeSource } from "./domain.ts";
 
 interface FrameReply {
 	type: "plantuml-ready" | "plantuml-result" | "plantuml-error" | "plantuml-include";
@@ -54,17 +45,15 @@ const queued = new Map<string, { source: string }>();
 let serverSettings: Promise<{ server?: string }> | undefined;
 
 function configuredServer(): Promise<{ server?: string }> {
-	serverSettings ??= chrome.storage.sync.get(["server"]);
-
-	return serverSettings;
+	return (serverSettings ??= browser.storage.sync.get<{ server?: string }>(["server"]));
 }
 
-chrome.storage.onChanged.addListener(() => {
+browser.storage.onChanged.addListener(() => {
 	serverSettings = undefined;
 });
 
 function extensionOrigin(): string {
-	return new URL(chrome.runtime.getURL("/")).origin;
+	return new URL(browser.runtime.getURL("/")).origin;
 }
 
 function rendererFrame(): HTMLIFrameElement {
@@ -74,7 +63,7 @@ function rendererFrame(): HTMLIFrameElement {
 
 	frame = document.createElement("iframe");
 	frame.hidden = true;
-	frame.src = chrome.runtime.getURL("renderer.html");
+	frame.src = browser.runtime.getURL("renderer.html");
 	document.documentElement.append(frame);
 
 	return frame;
@@ -212,7 +201,10 @@ export async function renderDiagram(source: string, includeSource: IncludeSource
 	}
 
 	try {
-		const svg = await chrome.runtime.sendMessage({ type: "plantuml-server-render", source });
+		const svg = await browser.runtime.sendMessage<unknown, string | null>({
+			type: "plantuml-server-render",
+			source,
+		});
 
 		return svg ?? (await renderLocally(source, includeSource));
 	} catch {

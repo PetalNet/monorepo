@@ -8,6 +8,9 @@
 		"test": "vitest run",
 		"typecheck": "tsc -b"
 	},
+	"dependencies": {
+		"@wxt-dev/browser": "catalog:"
+	},
 	"devDependencies": {
 		"@petalnet/tsconfig": "workspace:*",
 		"@plantuml/core": "catalog:",
