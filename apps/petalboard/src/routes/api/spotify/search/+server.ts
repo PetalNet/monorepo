@@ -1,5 +1,11 @@
 import { prisma } from "$lib/server/prisma";
-import { getClientCredentialsToken, searchTracks } from "$lib/server/spotify";
+import {
+	getClientCredentialsToken,
+	invalidateClientCredentialsToken,
+	searchTracks,
+	SpotifySearchUnauthorizedError,
+	type SpotifySearchResult,
+} from "$lib/server/spotify";
 import { json, error } from "@sveltejs/kit";
 
 import type { RequestHandler } from "./$types";
@@ -26,7 +32,18 @@ export const GET: RequestHandler = async ({ url, locals }) => {
 	}
 
 	try {
-		const results = await searchTracks(query, await getClientCredentialsToken());
+		let results: SpotifySearchResult;
+
+		try {
+			results = await searchTracks(query, await getClientCredentialsToken());
+		} catch (err) {
+			if (!(err instanceof SpotifySearchUnauthorizedError)) {
+				throw err;
+			}
+
+			invalidateClientCredentialsToken();
+			results = await searchTracks(query, await getClientCredentialsToken());
+		}
 
 		return json(results);
 	} catch (err) {

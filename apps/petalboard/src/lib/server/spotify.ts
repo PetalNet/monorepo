@@ -34,6 +34,9 @@ export interface SpotifyTokenResponse {
 }
 
 let clientCredentialsToken: { accessToken: string; expiresAt: number } | undefined;
+let clientCredentialsTokenRequest: Promise<string> | undefined;
+
+export class SpotifySearchUnauthorizedError extends Error {}
 
 export function getSpotifyAuthUrl(state: string): string {
 	const scopes = [
@@ -114,29 +117,41 @@ export async function getClientCredentialsToken(): Promise<string> {
 		return clientCredentialsToken.accessToken;
 	}
 
-	const response = await fetch("https://accounts.spotify.com/api/token", {
-		method: "POST",
-		headers: {
-			"Content-Type": "application/x-www-form-urlencoded",
-			Authorization: `Basic ${Buffer.from(`${SPOTIFY_CLIENT_ID}:${SPOTIFY_CLIENT_SECRET}`).toString(
-				"base64",
-			)}`,
-		},
-		body: new URLSearchParams({ grant_type: "client_credentials" }),
-	});
+	if (!clientCredentialsTokenRequest) {
+		clientCredentialsTokenRequest = (async () => {
+			const response = await fetch("https://accounts.spotify.com/api/token", {
+				method: "POST",
+				headers: {
+					"Content-Type": "application/x-www-form-urlencoded",
+					Authorization: `Basic ${Buffer.from(
+						`${SPOTIFY_CLIENT_ID}:${SPOTIFY_CLIENT_SECRET}`,
+					).toString("base64")}`,
+				},
+				body: new URLSearchParams({ grant_type: "client_credentials" }),
+			});
 
-	if (!response.ok) {
-		throw new Error("Failed to get client credentials token");
+			if (!response.ok) {
+				throw new Error("Failed to get client credentials token");
+			}
+
+			const token = (await response.json()) as SpotifyTokenResponse;
+
+			clientCredentialsToken = {
+				accessToken: token.access_token,
+				expiresAt: Date.now() + (token.expires_in - 60) * 1000,
+			};
+
+			return token.access_token;
+		})().finally(() => {
+			clientCredentialsTokenRequest = undefined;
+		});
 	}
 
-	const token = (await response.json()) as SpotifyTokenResponse;
+	return clientCredentialsTokenRequest;
+}
 
-	clientCredentialsToken = {
-		accessToken: token.access_token,
-		expiresAt: Date.now() + (token.expires_in - 60) * 1000,
-	};
-
-	return token.access_token;
+export function invalidateClientCredentialsToken(): void {
+	clientCredentialsToken = undefined;
 }
 
 export async function searchTracks(
@@ -154,6 +169,10 @@ export async function searchTracks(
 			Authorization: `Bearer ${accessToken}`,
 		},
 	});
+
+	if (response.status === 401) {
+		throw new SpotifySearchUnauthorizedError();
+	}
 
 	if (!response.ok) {
 		throw new Error("Failed to search tracks");
