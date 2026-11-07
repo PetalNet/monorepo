@@ -101,7 +101,7 @@ export default defineConfig([
 	},
 	{
 		files: [
-			"apps/{astrolabe,collegemap,grove,numbat-sheet,petalboard,slide,storybook,whoami}/**/*.svelte",
+			"apps/{astrolabe,collegemap,grove,label-studio,numbat-sheet,petalboard,slide,storybook,whoami}/**/*.svelte",
 		],
 		extends: svelte.configs.recommended,
 		languageOptions: {
@@ -110,6 +110,24 @@ export default defineConfig([
 				projectService: true,
 				extraFileExtensions: [".svelte"],
 			},
+		},
+	},
+	{
+		files: ["apps/petalboard/**/*.svelte"],
+		rules: {
+			"no-restricted-syntax": [
+				"error",
+				{
+					selector:
+						'SvelteElement:not([name.name="dialog"]) > SvelteStartTag > SvelteAttribute[key.name="role"]:has(SvelteLiteral[value="dialog"])',
+					message: "Use a native <dialog> with showModal().",
+				},
+				{
+					selector:
+						'SvelteElement:not([name.name="dialog"]) > SvelteStartTag > SvelteAttribute[key.name="aria-modal"]',
+					message: "Use a native <dialog> with showModal().",
+				},
+			],
 		},
 	},
 	{
