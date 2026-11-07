@@ -148,7 +148,7 @@ catalogs:
     "@lucide/svelte": ^1.23.0
     "@modelcontextprotocol/sdk": ^1.29.0
     "@prisma/client": ^5.22.0
-    "@sveltejs/kit": ^2.50.1
+    "@sveltejs/kit": ^2.70.3
     bcryptjs: ^3.0.0
     bwip-js: ^4.11.4
     daisyui: ^5.6.13
