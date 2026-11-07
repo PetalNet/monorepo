@@ -8,16 +8,16 @@ version = "0.1.0"
 edition = "2021"
 
 [dependencies]
-openmls = "0.6"
-openmls_traits = "0.3"
-openmls_rust_crypto = "0.3"
-openmls_basic_credential = "0.3"
-openmls_memory_storage = { version = "0.3", features = ["persistence"] }
+openmls = "0.7"
+openmls_traits = "0.4"
+openmls_rust_crypto = "0.4"
+openmls_basic_credential = "0.4"
+openmls_memory_storage = { version = "0.4", features = ["persistence"] }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 tempfile = "3"
 thiserror = "2"
-base64 = "0.22"
+base64 = "0.23"
 rand = "0.10"
 hex = "0.4"
 sha2 = "0.11"
@@ -25,7 +25,7 @@ hmac = "0.13"
 # Zero-knowledge account recovery (client-side): derive a key from a user-held
 # recovery code and encrypt the exported MLS state so the server stores only
 # opaque ciphertext. See recovery.rs.
-argon2 = "0.5"
+argon2 = "0.6"
 chacha20poly1305 = "0.11"
 zeroize = "1"
 
