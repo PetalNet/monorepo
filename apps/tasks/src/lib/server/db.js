@@ -1360,18 +1360,34 @@ db.exec(`
     token_sha256   TEXT NOT NULL UNIQUE,     -- hex sha256 of the plaintext token; PLAINTEXT NEVER STORED
     scope_assignee TEXT,                     -- if set: agent may only see/act on tasks with this assignee
     scope_projects TEXT,                     -- if set: CSV of project NAMES the agent may see/act on
+    scope_readonly INTEGER NOT NULL DEFAULT 0, -- 1 = may only call READ ops; every write op is refused
     created_at     TEXT NOT NULL DEFAULT (datetime('now')),
     last_used_at   TEXT,
     revoked_at     TEXT
   );
 `);
 
+// scope_readonly arrived after the table did. Existing tokens stay read-write (0) so no
+// deployed agent breaks; read-only is opt-in at mint time.
+{
+  const have = new Set(db.prepare('PRAGMA table_info(agent_tokens)').all().map((c) => c.name));
+  if (!have.has('scope_readonly')) {
+    db.exec('ALTER TABLE agent_tokens ADD COLUMN scope_readonly INTEGER NOT NULL DEFAULT 0');
+  }
+}
+
 // Mint a token for one agent. scope_projects accepts an array or a CSV string; stored as
 // CSV. A scope that was SUPPLIED but normalizes to empty is rejected (a typo'd
 // `--projects ""` must not silently mint an UNSCOPED token — fail closed, not open).
-export function mintAgentToken({ agent_name, scope_assignee = null, scope_projects = null } = {}) {
+export function mintAgentToken({ agent_name, scope_assignee = null, scope_projects = null, readonly } = {}) {
   const name = String(agent_name ?? '').trim();
   if (!name) throw new Error('mintAgentToken requires agent_name');
+  // REQUIRED, deliberately undefaulted. A default of false is the forgettable kind: the
+  // risk is not the tokens that exist today but the one minted months from now by
+  // someone who never read this file. Write authority has to be typed out.
+  if (typeof readonly !== 'boolean') {
+    throw new Error('mintAgentToken requires readonly:true|false — say whether this token may write');
+  }
   let projectsCsv = null;
   if (scope_projects != null) {
     const list = (Array.isArray(scope_projects) ? scope_projects : String(scope_projects).split(','))
@@ -1383,9 +1399,10 @@ export function mintAgentToken({ agent_name, scope_assignee = null, scope_projec
   if (scope_assignee != null && !assignee) throw new Error('scope_assignee was supplied but empty — refusing to mint an unscoped token');
   const token = crypto.randomBytes(32).toString('base64url'); // 256-bit secret, shown ONCE
   const r = db.prepare(
-    `INSERT INTO agent_tokens (agent_name, token_sha256, scope_assignee, scope_projects)
-       VALUES (@agent_name, @token_sha256, @scope_assignee, @scope_projects)`
-  ).run({ agent_name: name, token_sha256: sha256hex(token), scope_assignee: assignee, scope_projects: projectsCsv });
+    `INSERT INTO agent_tokens (agent_name, token_sha256, scope_assignee, scope_projects, scope_readonly)
+       VALUES (@agent_name, @token_sha256, @scope_assignee, @scope_projects, @scope_readonly)`
+  ).run({ agent_name: name, token_sha256: sha256hex(token), scope_assignee: assignee, scope_projects: projectsCsv,
+          scope_readonly: readonly ? 1 : 0 });
   return { id: Number(r.lastInsertRowid), token };
 }
 
@@ -1404,7 +1421,12 @@ export function verifyAgentToken(token) {
     scope_assignee: row.scope_assignee || null,
     scope_projects: row.scope_projects
       ? row.scope_projects.split(',').map((s) => s.trim()).filter(Boolean)
-      : null
+      : null,
+    // Read-write unless the column explicitly says otherwise. This is deliberately
+    // BACK-COMPAT rather than fail-closed: the migration backfills every existing row to
+    // 0, and flipping absent/NULL to read-only would silently break every token minted
+    // before this column existed. Read-only is opt-in at mint time.
+    scope_readonly: !!row.scope_readonly
   };
 }
 

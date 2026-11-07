@@ -65,17 +65,19 @@ const Q = mk('agent-b open question', { project_id: scoutlab, assignee: 'agent-b
 const SAMEASG_OTHERPROJ = mk('agent-b-assigned but in secops', { project_id: secops, assignee: 'agent-b', up_next: 1 });
 const OTHERASG_MYPROJ = mk('agent-a-assigned in scoutlab', { project_id: scoutlab, assignee: 'agent-a', up_next: 1 });
 
-const agent-b = mintAgentToken({ agent_name: 'agent-b', scope_assignee: 'agent-b', scope_projects: 'scoutlab' });
-const full = mintAgentToken({ agent_name: 'agent-a-test' });                       // unscoped (sanity)
-const projOnly = mintAgentToken({ agent_name: 'agent-b-proj', scope_projects: ['scoutlab'] });
-const asgOnly = mintAgentToken({ agent_name: 'agent-b-asg', scope_assignee: 'agent-b' });
+const agent-b = mintAgentToken({ agent_name: 'agent-b', scope_assignee: 'agent-b', scope_projects: 'scoutlab', readonly: false });
+const full = mintAgentToken({ agent_name: 'agent-a-test', readonly: false });                       // unscoped (sanity)
+const projOnly = mintAgentToken({ agent_name: 'agent-b-proj', scope_projects: ['scoutlab'], readonly: false });
+const asgOnly = mintAgentToken({ agent_name: 'agent-b-asg', scope_assignee: 'agent-b', readonly: false });
 
 _resetRateLimiter();
 
 // ── 1. token round-trip / revocation / mint validation ──────────────────────
 t('mint returns plaintext once; verify resolves identity + parsed scopes', () => {
   const v = verifyAgentToken(agent-b.token);
-  assert.deepEqual(v, { agent_name: 'agent-b', scope_assignee: 'agent-b', scope_projects: ['scoutlab'] });
+  // scope_readonly added with the read-only axis; asserted here so the identity SHAPE
+  // stays pinned rather than loosened to a subset match.
+  assert.deepEqual(v, { agent_name: 'agent-b', scope_assignee: 'agent-b', scope_projects: ['scoutlab'], scope_readonly: false });
   const row = db.prepare('SELECT * FROM agent_tokens WHERE id=?').get(agent-b.id);
   assert.ok(row.last_used_at, 'last_used_at stamped on verify');
   assert.notEqual(row.token_sha256, agent-b.token, 'plaintext is not what is stored');
@@ -87,24 +89,26 @@ t('verify fails closed on garbage / empty / non-string', () => {
   assert.equal(verifyAgentToken(null), null);
 });
 t('revoked token (by id) no longer verifies and RPC rejects it with 401', () => {
-  const tmp = mintAgentToken({ agent_name: 'tmp' });
+  const tmp = mintAgentToken({ agent_name: 'tmp', readonly: false });
   assert.ok(verifyAgentToken(tmp.token));
   assert.equal(revokeAgentToken(tmp.id), 1);
   assert.equal(verifyAgentToken(tmp.token), null);
   assert.equal(rpc(tmp.token, 'get_ready').status, 401);
 });
 t('revoke by agent_name kills all of that agent\'s live tokens', () => {
-  const a = mintAgentToken({ agent_name: 'multi' });
-  const b = mintAgentToken({ agent_name: 'multi' });
+  const a = mintAgentToken({ agent_name: 'multi', readonly: false });
+  const b = mintAgentToken({ agent_name: 'multi', readonly: false });
   assert.equal(revokeAgentToken('multi'), 2);
   assert.equal(verifyAgentToken(a.token), null);
   assert.equal(verifyAgentToken(b.token), null);
 });
 t('mint refuses an accidentally-unscoped token (supplied-but-empty scope)', () => {
-  assert.throws(() => mintAgentToken({ agent_name: 'x', scope_projects: '' }));
-  assert.throws(() => mintAgentToken({ agent_name: 'x', scope_projects: ' , ' }));
-  assert.throws(() => mintAgentToken({ agent_name: 'x', scope_assignee: '  ' }));
-  assert.throws(() => mintAgentToken({ agent_name: '' }));
+  // readonly is passed explicitly on every one of these: without it they would throw on
+  // the MISSING FLAG rather than the empty scope, stay green, and stop testing scope.
+  assert.throws(() => mintAgentToken({ agent_name: 'x', scope_projects: '', readonly: false }), /scope_projects/);
+  assert.throws(() => mintAgentToken({ agent_name: 'x', scope_projects: ' , ', readonly: false }), /scope_projects/);
+  assert.throws(() => mintAgentToken({ agent_name: 'x', scope_assignee: '  ', readonly: false }), /scope_assignee/);
+  assert.throws(() => mintAgentToken({ agent_name: '', readonly: false }), /agent_name/);
 });
 
 // ── 2. auth gate: missing/garbage bearer → 401, generic body ────────────────
@@ -341,7 +345,7 @@ t('reap: flips only leases claimed by this agent_name', () => {
 
 // ── 10. rate limit ────────────────────────────────────────────────────────────
 t('rate limit: 61st request inside a minute → 429', () => {
-  const ratey = mintAgentToken({ agent_name: 'ratey', scope_assignee: 'ratey' });
+  const ratey = mintAgentToken({ agent_name: 'ratey', scope_assignee: 'ratey', readonly: false });
   _resetRateLimiter();
   let last;
   for (let i = 0; i < 61; i++) last = rpc(ratey.token, 'up_next');
@@ -365,6 +369,75 @@ t('unknown op is NOT echoed into logs — an op set to the token value never lea
   const added = logLines.slice(before).join('\n');
   assert.ok(!added.includes(agent-b.token), 'the caller-controlled op value (a token) is not written to logs');
   assert.ok(added.includes('unknown-op len='), 'unknown op is logged as a length, not its content');
+});
+
+t('mintAgentToken REFUSES to mint without an explicit readonly decision', () => {
+  assert.throws(() => mintAgentToken({ agent_name: 'forgot-the-flag' }), /readonly/);
+  assert.throws(() => mintAgentToken({ agent_name: 'wrong-type', readonly: 'yes' }), /readonly/);
+  // positive control: it is the MISSING decision that is refused, not minting itself
+  assert.ok(mintAgentToken({ agent_name: 'said-so-rw', readonly: false }).token);
+  assert.ok(mintAgentToken({ agent_name: 'said-so-ro', readonly: true }).token);
+});
+
+// ── read-only scope ───────────────────────────────────────────────────────────
+// A token that can read must not be able to close, file, update, claim or reap.
+const ro = mintAgentToken({ agent_name: 'briefing-ro', scope_assignee: 'agent-b', readonly: true });
+const rw = mintAgentToken({ agent_name: 'briefing-rw', scope_assignee: 'agent-b', readonly: false });
+
+t('read-only token is surfaced by verifyAgentToken', () => {
+  assert.equal(verifyAgentToken(ro.token).scope_readonly, true);
+  assert.equal(verifyAgentToken(rw.token).scope_readonly, false, 'default must stay read-WRITE for back-compat');
+});
+
+t('read-only token CAN call get_ready', () => {
+  const r = rpc(ro.token, 'get_ready');
+  assert.equal(r.status, 200);
+  assert.ok(Array.isArray(r.body.up_next), 'returns the briefing shape');
+});
+
+t('read-only token CAN call get', () => {
+  // createTask returns the ID itself, not a row object.
+  const mine = createTask({ title: 'ro-visible', kind: 'task', project_id: scoutlab });
+  updateTask(mine, { assignee: 'agent-b' }); // must be IN the token scope to be gettable
+  const r = rpc(ro.token, 'get', { id: mine });
+  assert.equal(r.status, 200, `expected 200, got ${r.status} ${JSON.stringify(r.body)}`);
+  assert.equal(r.body.task.id, mine);
+});
+
+for (const [op, args] of [
+  ['update', { id: 1, status: 'doing' }],
+  ['close', { id: 1 }],
+  ['file', { title: 'should never exist' }],
+  ['claim', {}],
+  ['reap', {}],
+]) {
+  t(`read-only token is REFUSED ${op} with 403 read_only_token`, () => {
+    const r = rpc(ro.token, op, args);
+    assert.equal(r.status, 403, `expected 403, got ${r.status}`);
+    assert.equal(r.body.error, 'read_only_token');
+  });
+
+  // positive control: the gate must not be refusing everyone. Without this, deleting
+  // READ_OPS entirely (refuse all ops) would leave every assertion above still green.
+  t(`a NON-read-only token is still allowed ${op}`, () => {
+    const r = rpc(rw.token, op, args);
+    assert.notEqual(r.status, 403, `${op} must not be 403 for a read-write token`);
+  });
+}
+
+t('a write refused by the read-only gate has no side effect', () => {
+  const before = db.prepare("SELECT COUNT(*) c FROM tasks WHERE title='should never exist'").get().c;
+  rpc(ro.token, 'file', { title: 'should never exist' });
+  const after = db.prepare("SELECT COUNT(*) c FROM tasks WHERE title='should never exist'").get().c;
+  assert.equal(after, before, 'refused write must not reach the handler');
+});
+
+t('the read-only refusal is logged without the token', () => {
+  const before = logLines.length;
+  rpc(ro.token, 'close', { id: 1 });
+  const added = logLines.slice(before).join('\n');
+  assert.ok(added.includes('read_only_token'), 'refusal is audited');
+  assert.ok(!added.includes(ro.token), 'token never appears in a log line');
 });
 
 // ── report ────────────────────────────────────────────────────────────────────

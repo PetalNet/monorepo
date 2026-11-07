@@ -316,6 +316,11 @@ const ops = {
 // Order is deliberate: auth (401) → rate limit (429) → body/op validation (400/413)
 // → scope-confined dispatch. Every failure body is generic; the token never appears
 // in any response or log line.
+// Ops that only READ. A read-only token may call these and nothing else. Listed
+// explicitly rather than derived by negation: adding a new write op must not
+// accidentally become callable by every read-only token that already exists.
+const READ_OPS = new Set(['get_ready', 'get']);
+
 export function handleAgentRpc({ authorization, rawBody } = {}) {
   const m = /^Bearer\s+(\S+)$/i.exec(String(authorization ?? '').trim());
   const tok = m ? verifyAgentToken(m[1]) : null;
@@ -336,6 +341,15 @@ export function handleAgentRpc({ authorization, rawBody } = {}) {
   if (typeof op !== 'string' || !OPS.has(op)) {
     console.log(`[agent-api] ${tok.agent_name} (unknown-op len=${typeof op === 'string' ? op.length : 0}) -> err unknown_op`);
     return { status: 400, body: { error: 'unknown_op' } };
+  }
+
+  // A read-only token is refused at DISPATCH, before any handler runs. 403 rather than
+  // the scope-confinement 404: the op exists and the caller is known, they simply may not
+  // call it, and pretending otherwise would make a misconfigured token look like an empty
+  // tracker - the exact confusion this API is built to avoid.
+  if (tok.scope_readonly && !READ_OPS.has(op)) {
+    console.log(`[agent-api] ${tok.agent_name} ${op} -> err read_only_token`);
+    return { status: 403, body: { error: 'read_only_token' } };
   }
 
   const scope = { assignee: tok.scope_assignee, projects: tok.scope_projects };

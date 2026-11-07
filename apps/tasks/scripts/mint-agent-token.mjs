@@ -1,7 +1,8 @@
 #!/usr/bin/env node
 // Mint a bearer token for the agent-API (POST /api/agent/rpc).
 //
-//   node scripts/mint-agent-token.mjs <agent_name> [--assignee <name>] [--projects <csv>]
+//   node scripts/mint-agent-token.mjs <agent_name> (--readonly | --write)
+//                                      [--assignee <name>] [--projects <csv>]
 //
 // Honors TASKS_DB_PATH (host runs MUST set it — gotcha-tasks-db-path). The plaintext
 // token is printed ONCE and never stored (only sha256 lands in agent_tokens); revoke
@@ -18,12 +19,19 @@ const flags = {};
 for (let i = 0; i < argv.length; i++) {
   if (argv[i] === '--assignee') flags.assignee = argv[++i];
   else if (argv[i] === '--projects') flags.projects = argv[++i];
+  else if (argv[i] === '--readonly') flags.readonly = true;
+  else if (argv[i] === '--write') flags.readonly = false;
   else if (argv[i].startsWith('--')) { console.error(`unknown flag: ${argv[i]}`); process.exit(1); }
   else positional.push(argv[i]);
 }
 const agent_name = positional[0];
 if (!agent_name) {
-  console.error('usage: node scripts/mint-agent-token.mjs <agent_name> [--assignee <name>] [--projects <csv>]');
+  console.error('usage: node scripts/mint-agent-token.mjs <agent_name> (--readonly | --write) [--assignee <name>] [--projects <csv>]');
+  process.exit(1);
+}
+// Same treatment scope already gets: you say it out loud or you get nothing.
+if (flags.readonly === undefined) {
+  console.error('refusing to mint: pass --readonly (may only read) or --write (may close, file, update, claim, reap)');
   process.exit(1);
 }
 
@@ -35,6 +43,7 @@ try {
     agent_name,
     scope_assignee: flags.assignee ?? null,
     scope_projects: flags.projects ?? null,
+    readonly: flags.readonly,
   });
 } catch (e) {
   console.error(`mint failed: ${e.message}`);
@@ -42,9 +51,15 @@ try {
 }
 
 const scopeDesc = [
+  // the mode is part of the scope, so it belongs in the receipt: a token you cannot
+  // tell apart from a write-capable one is a token you will misuse later
+  flags.readonly ? 'READ-ONLY (get_ready, get)' : 'READ-WRITE (may close, file, update, claim, reap)',
   flags.assignee ? `assignee=${flags.assignee}` : null,
   flags.projects ? `projects=${flags.projects}` : null,
-].filter(Boolean).join(' AND ') || 'UNSCOPED — full tracker access; are you sure this is what you wanted?';
+].filter(Boolean).join(' AND ');
+if (!flags.assignee && !flags.projects) {
+  console.log('\n  NOTE: UNSCOPED — this token sees the whole tracker. Is that what you wanted?');
+}
 
 console.log(`
 Minted agent-API token #${minted.id} for '${agent_name}'
