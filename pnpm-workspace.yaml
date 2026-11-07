@@ -62,8 +62,8 @@ minimumReleaseAgeExclude:
   - "@effect/tsgo-win32-arm64@0.50.0"
   - "@effect/tsgo-win32-x64@0.50.0"
   - "@effect/tsgo@0.50.0"
-  - drizzle-orm@1.0.0-rc.5-5935859
-  - drizzle-kit@1.0.0-rc.5-5935859
+  - drizzle-orm@1.0.0-rc.5-ab785fc
+  - drizzle-kit@1.0.0-rc.5-ab785fc
   - impeccable@4.5.2
   - lucide@1.68.0
 
@@ -212,11 +212,11 @@ catalog:
   suncalc: ^2.1.1
 # Kit's programmatic API requires a matching ORM installation.
 packageExtensions:
-  "drizzle-kit@1.0.0-rc.5-5935859":
+  "drizzle-kit@1.0.0-rc.5-ab785fc":
     dependencies:
-      drizzle-orm: 1.0.0-rc.5-5935859
+      drizzle-orm: 1.0.0-rc.5-ab785fc
 # Keep JWKS network TypeErrors distinct from opaque-token failures (503, not 401).
 # Covered by Grove's real HTTP JWKS disconnect regression; remove after an upstream fix.
 patchedDependencies:
   "@better-auth/core@1.7.7": patches/@better-auth__core@1.7.7.patch
-  drizzle-orm@1.0.0-rc.5-5935859: patches/drizzle-orm@1.0.0-rc.5-5935859.patch
+  drizzle-orm@1.0.0-rc.5-ab785fc: patches/drizzle-orm@1.0.0-rc.5-ab785fc.patch
