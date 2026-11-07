@@ -211,6 +211,7 @@ catalog:
   fontless: ^1.2.1
   suncalc: ^2.1.1
   "@plantuml/core": 1.2026.9
+  "@wxt-dev/browser": 0.3.7
 # Kit's programmatic API requires a matching ORM installation.
 packageExtensions:
   "drizzle-kit@1.0.0-rc.5-ab785fc":

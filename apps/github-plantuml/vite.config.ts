@@ -1,4 +1,4 @@
-import { cp, mkdir, readFile, writeFile } from "node:fs/promises";
+import { cp, mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -44,6 +44,8 @@ function extensionAssets(): Plugin {
 
 	return {
 		name: "extension-assets",
+		// The content environment builds last, after every entry is in dist/chrome.
+		applyToEnvironment: (environment) => environment.name === "content",
 		async closeBundle() {
 			const destination = path.join(directory, "dist/chrome");
 
@@ -75,6 +77,7 @@ function extensionAssets(): Plugin {
 				browser_specific_settings: { gecko: { id: "github-plantuml@petalnet.dev" } },
 			};
 
+			await rm(path.join(directory, "dist/firefox"), { recursive: true, force: true });
 			await cp(destination, path.join(directory, "dist/firefox"), { recursive: true });
 
 			await writeFile(
@@ -85,22 +88,40 @@ function extensionAssets(): Plugin {
 	};
 }
 
+const output = {
+	entryFileNames: "[name].js",
+	assetFileNames: "[name][extname]",
+	format: "es",
+} as const;
+
 export default defineConfig({
 	root: import.meta.dirname,
 	plugins: [extensionAssets()],
-	build: {
-		outDir: "dist/chrome",
-		emptyOutDir: true,
-		rolldownOptions: {
-			input: {
-				content: "src/content.ts",
-				background: "src/background.ts",
-				options: "options.html",
-				frame: "src/frame.ts",
+	builder: {},
+	environments: {
+		client: {
+			build: {
+				outDir: "dist/chrome",
+				emptyOutDir: true,
+				rolldownOptions: {
+					input: {
+						background: "src/background.ts",
+						options: "options.html",
+						frame: "src/frame.ts",
+					},
+					output,
+				},
 			},
-			// The content entry has no static imports after bundling, so this ES output is
-			// still executable as Chrome's classic content-script file.
-			output: { entryFileNames: "[name].js", assetFileNames: "[name][extname]", format: "es" },
+		},
+		// Chrome runs content scripts as classic scripts, so the content entry is built on
+		// its own: anything it shares with the other entries is inlined, not imported.
+		content: {
+			consumer: "client",
+			build: {
+				outDir: "dist/chrome",
+				emptyOutDir: false,
+				rolldownOptions: { input: { content: "src/content.ts" }, output },
+			},
 		},
 	},
 });

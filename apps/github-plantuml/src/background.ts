@@ -1,14 +1,28 @@
+import { browser } from "@wxt-dev/browser";
+
 import { settings } from "./settings.ts";
 
-declare const chrome: {
-	runtime: {
-		onMessage: {
-			addListener: (listener: (message: unknown) => Promise<string | null> | undefined) => void;
-		};
-	};
-};
+async function serverRender(source: string): Promise<string | null> {
+	const { server } = await settings();
 
-chrome.runtime.onMessage.addListener((message: unknown) => {
+	if (server === undefined) {
+		return null;
+	}
+
+	const response = await fetch(`${server}/svg`, {
+		method: "POST",
+		headers: { "content-type": "text/plain;charset=utf-8" },
+		body: source,
+	});
+
+	if (!response.ok) {
+		throw new Error(`PlantUML server returned ${String(response.status)}`);
+	}
+
+	return `data:image/svg+xml;charset=utf-8,${encodeURIComponent(await response.text())}`;
+}
+
+browser.runtime.onMessage.addListener((message: unknown, _sender, sendResponse) => {
 	if (
 		typeof message !== "object" ||
 		message === null ||
@@ -20,23 +34,11 @@ chrome.runtime.onMessage.addListener((message: unknown) => {
 		return;
 	}
 
-	const source = message.source;
+	// A null reply makes the renderer fall back to local rendering, as for a failed server.
+	void serverRender(message.source)
+		.catch(() => null)
+		.then(sendResponse);
 
-	return settings().then(async ({ server }) => {
-		if (server === undefined) {
-			return null;
-		}
-
-		const response = await fetch(`${server}/svg`, {
-			method: "POST",
-			headers: { "content-type": "text/plain;charset=utf-8" },
-			body: source,
-		});
-
-		if (!response.ok) {
-			throw new Error(`PlantUML server returned ${String(response.status)}`);
-		}
-
-		return `data:image/svg+xml;charset=utf-8,${encodeURIComponent(await response.text())}`;
-	});
+	// Keep the channel open until sendResponse runs.
+	return true;
 });
