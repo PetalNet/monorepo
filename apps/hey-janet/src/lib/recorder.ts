@@ -1,5 +1,6 @@
 // Vite emits the worklet as a hashed asset; the browser loads it by URL off the UI thread.
 import captureWorklet from "./capture.worklet.js?url&no-inline";
+import { maxDuration, type PromptKind } from "./prompts";
 
 export interface Recording {
 	wav: Blob;
@@ -13,6 +14,7 @@ export class Recorder {
 	stream: MediaStream | null = null;
 	node: AudioWorkletNode | null = null;
 	chunks: Float32Array[] = [];
+	kind: PromptKind = "pos";
 	active = false;
 	started = 0;
 	lastVoice = 0;
@@ -21,6 +23,7 @@ export class Recorder {
 		private readonly level: (v: number) => void,
 		private readonly ended: (r: Recording) => void,
 		private readonly interrupted: () => void,
+		private readonly tick: (seconds: number) => void,
 	) {}
 	async open() {
 		this.context = new AudioContext();
@@ -81,7 +84,9 @@ export class Recorder {
 			throw e;
 		}
 	}
-	async start() {
+	async start(kind: PromptKind) {
+		this.kind = kind;
+		this.tick(0);
 		await this.context?.resume();
 		this.chunks = [];
 		this.active = true;
@@ -90,10 +95,13 @@ export class Recorder {
 
 		this.timer = window.setInterval(() => {
 			const now = performance.now();
+			const seconds = (now - this.started) / 1000;
+
+			this.tick(Math.min(seconds, maxDuration(this.kind)));
 
 			if (
-				now - this.started >= 6500 ||
-				(this.lastVoice > 0 && now - this.started > 1300 && now - this.lastVoice > 1100)
+				seconds >= (this.kind === "pos" || this.kind === "neg" ? 6.5 : maxDuration(this.kind)) ||
+				(this.kind !== "free" && this.lastVoice > 0 && seconds > 1.3 && now - this.lastVoice > 1100)
 			) {
 				this.stop();
 			}
@@ -117,23 +125,27 @@ export class Recorder {
 		}
 
 		let start = 0;
-		let end = raw.length;
+		let end = Math.min(raw.length, Math.floor(rate * maxDuration(this.kind)));
 
-		while (start < end && Math.abs(raw[start]) < 0.008) {
-			start++;
+		if (this.kind !== "free") {
+			while (start < end && Math.abs(raw[start]) < 0.008) {
+				start++;
+			}
+
+			while (end > start && Math.abs(raw[end - 1]) < 0.008) {
+				end--;
+			}
+
+			if (start === end) {
+				start = 0;
+				end = raw.length;
+			}
+
+			start = Math.max(0, start - Math.round(rate * 0.15));
+			end = Math.min(raw.length, end + Math.round(rate * 0.25));
 		}
 
-		while (end > start && Math.abs(raw[end - 1]) < 0.008) {
-			end--;
-		}
-
-		if (start === end) {
-			start = 0;
-			end = raw.length;
-		}
-
-		start = Math.max(0, start - Math.round(rate * 0.15));
-		end = Math.min(raw.length, end + Math.round(rate * 0.25));
+		end = Math.min(end, Math.floor(rate * maxDuration(this.kind)));
 		const count = Math.max(3200, Math.ceil(((end - start) * 16000) / rate));
 		const bytes = new ArrayBuffer(44 + count * 2);
 		const view = new DataView(bytes);
@@ -155,9 +167,8 @@ export class Recorder {
 		view.setUint16(34, 16, true);
 		str(36, "data");
 		view.setUint32(40, count * 2, true);
-
-		let clipped = 0;
 		let peak = 0;
+		let clipped = 0;
 
 		for (let i = 0; i < count; i++) {
 			const from = start + (i * rate) / 16000;
