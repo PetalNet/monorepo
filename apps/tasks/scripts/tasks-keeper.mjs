@@ -129,12 +129,10 @@ function digest() {
 if (ALERT) {
 	try {
 		mkdirSync(OUTBOX, { recursive: true });
-		const f = path.join(OUTBOX, `${Date.now()}000-${KEEPER_SENDER}.json`);
+		const ts = Date.now();
+		const f = path.join(OUTBOX, `${ts}000-${KEEPER_SENDER}.json`);
 
-		writeFileSync(
-			`${f}.tmp`,
-			JSON.stringify({ sender: KEEPER_SENDER, body: digest(), ts: Date.now() }),
-		);
+		writeFileSync(`${f}.tmp`, JSON.stringify({ sender: KEEPER_SENDER, body: digest(), ts }));
 		renameSync(`${f}.tmp`, f);
 		console.error(`[keeper] digest -> ${OUTBOX}`);
 	} catch (error) {

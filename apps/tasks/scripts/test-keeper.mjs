@@ -80,7 +80,9 @@ function t(name, fn) {
 	}
 }
 
+const startedAt = Date.now();
 const alerted = run(["--alert"], { TASKS_KEEPER_OUTBOX: OUTBOX, TASKS_KEEPER_NAME: "Ada" });
+const endedAt = Date.now();
 
 t("--alert run exits 0", () => assert.equal(alerted.status, 0, alerted.stderr));
 
@@ -88,12 +90,13 @@ t("--alert drops exactly the expected digest", () => {
 	const files = readdirSync(OUTBOX);
 
 	assert.equal(files.length, 1, files.join(", "));
-	assert.match(files[0], /^\d+-ada\.json$/);
+	assert.match(files[0], /^\d{13}000-ada\.json$/);
 
 	const msg = JSON.parse(readFileSync(path.join(OUTBOX, files[0]), "utf8"));
 
 	assert.equal(msg.sender, "ada");
-	assert.equal(typeof msg.ts, "number");
+	assert.ok(msg.ts >= startedAt && msg.ts <= endedAt, `ts ${msg.ts} is not epoch ms of this run`);
+	assert.equal(files[0], `${msg.ts}000-ada.json`);
 	assert.equal(
 		msg.body,
 		[
