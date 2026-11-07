@@ -30,6 +30,40 @@ import { error, fail, type Cookies } from "@sveltejs/kit";
 // Named +1s in party order.
 const GUEST_NAMES = { orderBy: { position: "asc" }, select: { name: true } } as const;
 
+interface RsvpForClient {
+	id: string;
+	name: string;
+	email: string | null;
+	status: string;
+	guestCount: number;
+	guests: { name: string }[];
+	createdAt: Date;
+	responses: {
+		value: string;
+		question: { id: string; label: string; type: string; isPublic: boolean };
+	}[];
+}
+
+function serializeRsvps(rsvps: RsvpForClient[], isOwner: boolean) {
+	return rsvps.map((rsvp) => ({
+		id: rsvp.id,
+		name: rsvp.name,
+		email: isOwner ? rsvp.email : null,
+		status: rsvp.status,
+		guestCount: rsvp.guestCount,
+		guestNames: rsvp.guests.map((guest) => guest.name),
+		createdAt: rsvp.createdAt,
+		responses: rsvp.responses
+			.filter((response) => isOwner || response.question.isPublic)
+			.map((response) => ({
+				questionId: response.question.id,
+				questionLabel: response.question.label,
+				questionType: response.question.type,
+				answer: response.value,
+			})),
+	}));
+}
+
 export const load = async ({ params, locals, cookies }) => {
 	const event = await prisma.event.findUnique({
 		where: { publicCode: params.code },
@@ -92,7 +126,7 @@ export const load = async ({ params, locals, cookies }) => {
 						select: {
 							id: true,
 							value: true,
-							question: { select: { id: true, label: true, type: true } },
+							question: { select: { id: true, label: true, type: true, isPublic: true } },
 						},
 					},
 				},
@@ -168,21 +202,7 @@ export const load = async ({ params, locals, cookies }) => {
 					responses: Object.fromEntries(mine.responses.map((r) => [r.question.id, r.value])),
 				}
 			: null,
-		rsvps: event.rsvps.map((rsvp) => ({
-			id: rsvp.id,
-			name: rsvp.name,
-			email: isOwner ? rsvp.email : null, // Only show email to owner
-			status: rsvp.status,
-			guestCount: rsvp.guestCount,
-			guestNames: rsvp.guests.map((g) => g.name),
-			createdAt: rsvp.createdAt,
-			responses: rsvp.responses.map((r) => ({
-				questionId: r.question.id,
-				questionLabel: r.question.label,
-				questionType: r.question.type,
-				answer: r.value,
-			})),
-		})),
+		rsvps: serializeRsvps(event.rsvps, isOwner),
 	} as const;
 };
 
@@ -367,6 +387,7 @@ async function findEvent(code: string) {
 		where: { publicCode: code },
 		select: {
 			id: true,
+			userId: true,
 			title: true,
 			publicCode: true,
 			rsvpLimit: true,
@@ -591,7 +612,7 @@ async function saveRsvp(
 	return saved.id;
 }
 
-async function guestList(eventId: string) {
+async function guestList(eventId: string, isOwner: boolean) {
 	const event = await prisma.event.findUnique({
 		where: { id: eventId },
 		select: {
@@ -601,6 +622,7 @@ async function guestList(eventId: string) {
 				select: {
 					id: true,
 					name: true,
+					email: true,
 					status: true,
 					guestCount: true,
 					guests: GUEST_NAMES,
@@ -608,7 +630,7 @@ async function guestList(eventId: string) {
 					responses: {
 						select: {
 							value: true,
-							question: { select: { id: true, label: true, type: true } },
+							question: { select: { id: true, label: true, type: true, isPublic: true } },
 						},
 					},
 				},
@@ -623,21 +645,7 @@ async function guestList(eventId: string) {
 		questionResponseCounts: Object.fromEntries(
 			(event?.questions ?? []).map((q) => [q.id, q._count.responses]),
 		),
-		rsvps: rsvps.map((r) => ({
-			id: r.id,
-			name: r.name,
-			email: null,
-			status: r.status,
-			guestCount: r.guestCount,
-			guestNames: r.guests.map((g) => g.name),
-			createdAt: r.createdAt,
-			responses: r.responses.map((resp) => ({
-				questionId: resp.question.id,
-				questionLabel: resp.question.label,
-				questionType: resp.question.type,
-				answer: resp.value,
-			})),
-		})),
+		rsvps: serializeRsvps(rsvps, isOwner),
 	};
 }
 
@@ -667,8 +675,9 @@ function isUniqueViolation(cause: unknown) {
 }
 
 export const actions = {
-	rsvp: async ({ request, params, cookies, getClientAddress }) => {
+	rsvp: async ({ request, params, cookies, getClientAddress, locals }) => {
 		const event = await findEvent(params.code);
+		const isOwner = locals.user?.id === event.userId;
 		const formData = await request.formData();
 		const { values, responses, guestNames } = readRsvpForm(formData);
 		const legacyCount =
@@ -725,7 +734,7 @@ export const actions = {
 				success: true,
 				type: "updateRsvp" as const,
 				message: "Your RSVP has been updated!",
-				...(await guestList(event.id)),
+				...(await guestList(event.id, isOwner)),
 			};
 		}
 
@@ -755,7 +764,7 @@ export const actions = {
 		setRsvpCookie(cookies, event.publicCode, await createSession(saved));
 		inBackground(() => sendEditLink("confirmation", saved, input.email, event, ip));
 
-		return { success: true, type: "rsvp" as const, ...(await guestList(event.id)) };
+		return { success: true, type: "rsvp" as const, ...(await guestList(event.id, isOwner)) };
 	},
 
 	requestEditLink: async ({ request, params, getClientAddress }) => {
@@ -796,8 +805,9 @@ export const actions = {
 		return { success: true, type: "requestEditLink" as const, message: LINK_SENT };
 	},
 
-	updateRsvp: async ({ request, params, cookies }) => {
+	updateRsvp: async ({ request, params, cookies, locals }) => {
 		const event = await findEvent(params.code);
+		const isOwner = locals.user?.id === event.userId;
 		const existing = await findOwnRsvp(cookies, event.id);
 
 		if (!existing) {
@@ -841,12 +851,13 @@ export const actions = {
 			success: true,
 			type: "updateRsvp" as const,
 			message: "Your RSVP has been updated!",
-			...(await guestList(event.id)),
+			...(await guestList(event.id, isOwner)),
 		};
 	},
 
-	cancelRsvp: async ({ request, params, cookies }) => {
+	cancelRsvp: async ({ request, params, cookies, locals }) => {
 		const event = await findEvent(params.code);
+		const isOwner = locals.user?.id === event.userId;
 		const existing = await findOwnRsvp(cookies, event.id);
 
 		if (!existing) {
@@ -868,7 +879,7 @@ export const actions = {
 			success: true,
 			type: "cancelRsvp" as const,
 			message: "Your RSVP has been cancelled.",
-			...(await guestList(event.id)),
+			...(await guestList(event.id, isOwner)),
 		};
 	},
 };
