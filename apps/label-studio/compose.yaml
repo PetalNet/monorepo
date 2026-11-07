@@ -1,0 +1,38 @@
+# Deploy from a checkout of main after building the image there:
+#   docker build -f apps/label-studio/Dockerfile --build-arg MONOREPO_SHA="$SHA" -t "label-studio:$SHA" .
+#   MONOREPO_SHA="$SHA" LABEL_STUDIO_ENV_FILE=/path/to/runtime.env \
+#     docker compose -f apps/label-studio/compose.yaml up -d
+# Secret files (API tokens, CA files) are mounted by a private override compose file kept outside git,
+# referenced by their *_FILE variables.
+name: label-studio
+services:
+  label-studio:
+    image: label-studio:${MONOREPO_SHA:?Set the monorepo main SHA the image was built from}
+    container_name: label-studio-app
+    restart: unless-stopped
+    env_file: ${LABEL_STUDIO_ENV_FILE:?Set the private runtime environment file}
+    environment:
+      # The data must stay on the volume, whatever the env file says.
+      LABEL_STUDIO_DATA_DIR: /app/data
+    network_mode: bridge
+    # Loopback only: Traefik on the host is the way in.
+    ports:
+      - "127.0.0.1:8632:3000"
+    # The print server (ptouch server.py) usually runs on the Docker host; set
+    # LABEL_STUDIO_PRINTER_URL=http://host.docker.internal:<port> in the env file.
+    extra_hosts: ["host.docker.internal:host-gateway"]
+    volumes:
+      - label-studio-data:/app/data
+    healthcheck:
+      test:
+        - CMD
+        - node
+        - -e
+        - "fetch('http://127.0.0.1:3000/').then((r) => process.exit(r.ok ? 0 : 1), () => process.exit(1))"
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
+volumes:
+  label-studio-data:
+    name: label-studio-data
