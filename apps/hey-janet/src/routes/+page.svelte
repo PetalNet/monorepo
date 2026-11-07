@@ -336,13 +336,14 @@
 		busy = true;
 
 		try {
+			// Clear local takes first: if that fails, the signed identity still matches them.
+			await queue.clear();
 			const response = await fetch("/api/session", { method: "DELETE" });
 
 			if (!response.ok) {
 				throw new Error("Could not reset this session. Try again.");
 			}
 
-			await queue.clear();
 			recorder?.close();
 			revoke();
 			window.location.assign(resolve("/"));
