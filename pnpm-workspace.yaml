@@ -65,6 +65,7 @@ minimumReleaseAgeExclude:
   - drizzle-orm@1.0.0-rc.5-5935859
   - drizzle-kit@1.0.0-rc.5-5935859
   - impeccable@4.5.2
+  - lucide@1.68.0
 
 # Allow native-binding and codegen builds, deny unused scripts, and approve skills.
 permissions:
@@ -139,6 +140,7 @@ catalogs:
     "@types/leaflet.heat": ^0.2.5
     "@types/leaflet.markercluster": ^1.5.6
     "@types/node": ^25.9.1
+    "@types/opentype.js": ^1.3.10
     "@types/qrcode": ^1.5.5
     "@types/sortablejs": ^1.15.8
     "@types/ws": ^8.18.2
@@ -153,6 +155,7 @@ catalogs:
     "@sveltejs/kit": ^2.50.1
     better-sqlite3: ^12.11.1
     bcryptjs: ^3.0.0
+    bwip-js: ^4.11.4
     daisyui: ^5.6.13
     date-fns: ^4.1.0
     drizzle-orm: ^0.45.1
@@ -160,7 +163,9 @@ catalogs:
     leaflet-image: ^0.4.0
     leaflet.heat: ^0.2.0
     leaflet.markercluster: ^1.5.3
+    lucide: ^1.68.0
     nanoid: ^5.0.0
+    opentype.js: ^1.3.4
     qrcode: ^1.5.4
     remark: ^15.0.1
     remark-breaks: ^4.0.0
@@ -172,6 +177,7 @@ catalogs:
     rehype-stringify: ^10.0.1
     sortablejs: ^1.15.6
     svelte: ^5.57.2
+    svgpath: ^2.6.0
     tailwindcss: ^4.3.3
     zod: ^4.0.0
     unified: ^11.0.5
