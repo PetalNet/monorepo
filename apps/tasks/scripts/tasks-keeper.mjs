@@ -35,47 +35,54 @@ const db = new Database(DB_PATH, { readonly: true, fileMustExist: true });
 const all = (s, ...p) => db.prepare(s).all(...p);
 const one = (s, ...p) => db.prepare(s).get(...p);
 const AGE = "julianday('now') - julianday(updated_at)";
+// Tasks in archived projects are off the board, the same rule the board itself applies.
+const ON_BOARD =
+	"(project_id IS NULL OR project_id NOT IN (SELECT id FROM projects WHERE archived_at IS NOT NULL))";
 
 const report = {
 	generated_at: new Date().toISOString(),
-	status_counts: all("SELECT status, COUNT(*) n FROM tasks GROUP BY status ORDER BY n DESC"),
+	status_counts: all(
+		`SELECT status, COUNT(*) n FROM tasks WHERE ${ON_BOARD} GROUP BY status ORDER BY n DESC`,
+	),
 	health: {
 		aging_high_priority: all(
 			`SELECT id, priority, status, round(${AGE},1) days, title FROM tasks
-       WHERE status NOT IN ('done','dropped') AND priority <= 1
+       WHERE ${ON_BOARD} AND status NOT IN ('done','dropped') AND priority <= 1
        ORDER BY ${AGE} DESC LIMIT 12`,
 		),
 		stale_doing: all(
 			`SELECT id, round(${AGE},1) days, title FROM tasks
-       WHERE status='doing' AND ${AGE} > 3 ORDER BY ${AGE} DESC`,
+       WHERE ${ON_BOARD} AND status='doing' AND ${AGE} > 3 ORDER BY ${AGE} DESC`,
 		),
 		review_pileup: all(
 			`SELECT id, round(${AGE},1) days, title FROM tasks
-       WHERE status='review' AND ${AGE} > 7 ORDER BY ${AGE} DESC LIMIT 15`,
+       WHERE ${ON_BOARD} AND status='review' AND ${AGE} > 7 ORDER BY ${AGE} DESC LIMIT 15`,
 		),
-		inbox_untriaged: one(`SELECT COUNT(*) n FROM tasks WHERE status='inbox' AND ${AGE} > 7`),
+		inbox_untriaged: one(
+			`SELECT COUNT(*) n FROM tasks WHERE ${ON_BOARD} AND status='inbox' AND ${AGE} > 7`,
+		),
 		// A blocked task with no blocker edge can never auto-unblock.
 		blocked_without_edge: all(
-			`SELECT id, title FROM tasks WHERE status='blocked'
+			`SELECT id, title FROM tasks WHERE ${ON_BOARD} AND status='blocked'
        AND id NOT IN (SELECT task_id FROM task_blockers)`,
 		),
 	},
 	consolidation_candidates: {
 		duplicate_titles: all(
 			`SELECT lower(title) t, COUNT(*) n, group_concat(id) ids
-       FROM tasks WHERE status NOT IN ('done','dropped')
+       FROM tasks WHERE ${ON_BOARD} AND status NOT IN ('done','dropped')
        GROUP BY lower(title) HAVING n > 1`,
 		),
 		// The title says pending/TODO while the body announces it done.
 		label_content_mismatch: all(
 			`SELECT id, status, title FROM tasks
-       WHERE status NOT IN ('done','dropped')
+       WHERE ${ON_BOARD} AND status NOT IN ('done','dropped')
        AND (lower(title) LIKE '%pending%' OR lower(title) LIKE '%todo%')
        AND (lower(body) LIKE '%done%' OR lower(body) LIKE '%resolved%' OR lower(body) LIKE '%shipped%' OR lower(body) LIKE '%is live%')
        LIMIT 20`,
 		),
 		terminal_archive_candidates: one(
-			`SELECT COUNT(*) n FROM tasks WHERE status IN ('done','dropped') AND ${AGE} > 60`,
+			`SELECT COUNT(*) n FROM tasks WHERE ${ON_BOARD} AND status IN ('done','dropped') AND ${AGE} > 60`,
 		),
 	},
 	db: {

@@ -25,6 +25,7 @@ const {
 	ensureProject,
 	createTask,
 	addBlocker,
+	archiveProject,
 } = await import("../src/lib/server/db.js");
 
 const project = ensureProject("keeper-test");
@@ -61,6 +62,29 @@ const dupB = task("same title", {}, 1);
 const mismatch = task("pending: wire the thing", { body: "this is live now" }, 1);
 
 task("long done", { status: "done" }, 90);
+
+// An archived project holding one of every alertable task. None of it may surface.
+const archived = ensureProject("keeper-archived");
+
+for (const [title, fields, daysOld] of [
+	["archived p1", { priority: 1 }, 50],
+	["archived doing", { status: "doing" }, 9],
+	["archived review", { status: "review" }, 20],
+	["archived idea", { kind: "idea" }, 20],
+	["archived blocked", { status: "blocked" }, 1],
+	["same title", {}, 1],
+	["todo: archived but done", { body: "shipped" }, 1],
+	["archived done", { status: "done" }, 90],
+]) {
+	const id = createTask({ project_id: archived, title, ...fields });
+
+	db.prepare(`UPDATE tasks SET updated_at=datetime('now', ?) WHERE id=?`).run(
+		`-${daysOld} days`,
+		id,
+	);
+}
+
+archiveProject("keeper-archived");
 db.pragma("wal_checkpoint(TRUNCATE)");
 db.close();
 
