@@ -110,7 +110,6 @@ beforeEach(async () => {
 			title: "Private answers",
 			date: new Date("2026-11-26T18:00:00Z"),
 			publicCode: `privacy${seq}`,
-			manageToken: `privacy-token${seq}`,
 			userId: owner.id,
 			questions: {
 				create: [
