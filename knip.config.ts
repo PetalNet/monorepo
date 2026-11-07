@@ -42,6 +42,10 @@ export default {
 				"migrations/*.ts!",
 			],
 		},
+		"apps/github-plantuml": {
+			// Extension entrypoints are loaded by manifest.json rather than imported by the app graph.
+			entry: ["src/content.ts!", "src/background.ts!", "src/frame.ts!", "src/options.ts!"],
+		},
 		"apps/label-studio": {
 			// Loopback listener shared by the server tests; nothing in production imports it.
 			entry: ["src/lib/server/testing.ts"],
