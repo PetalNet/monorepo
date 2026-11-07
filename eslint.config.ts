@@ -27,7 +27,7 @@ export default defineConfig([
 		gitignoreResolution: true,
 	}),
 	{
-		ignores: [".agents/skills/impeccable/**"],
+		ignores: [".agents/skills/impeccable/**", "apps/tasks/static/vendor/**"],
 	},
 	{
 		files: ["**/*.{js,cjs,mjs,jsx,ts,cts,mts,tsx,svelte}"],
@@ -101,7 +101,7 @@ export default defineConfig([
 	},
 	{
 		files: [
-			"apps/{astrolabe,collegemap,grove,label-studio,numbat-sheet,petalboard,slide,storybook,whoami}/**/*.svelte",
+			"apps/{astrolabe,collegemap,grove,label-studio,numbat-sheet,petalboard,slide,storybook,tasks,whoami}/**/*.svelte",
 		],
 		extends: svelte.configs.recommended,
 		languageOptions: {
@@ -199,8 +199,8 @@ export default defineConfig([
 		extends: [json.configs.recommended],
 	},
 	{
-		// Slide and PetalBoard predate the monorepo and carry their type-safety debt in place.
-		files: ["apps/{petalboard,slide}/**"],
+		// Slide, PetalBoard and Tasks predate the monorepo and carry their type-safety debt in place.
+		files: ["apps/{petalboard,slide,tasks}/**"],
 		rules: {
 			"@typescript-eslint/no-base-to-string": "off",
 			"@typescript-eslint/no-confusing-void-expression": "off",
@@ -225,6 +225,18 @@ export default defineConfig([
 			"svelte/no-navigation-without-resolve": "off",
 			"svelte/prefer-svelte-reactivity": "off",
 			"svelte/require-each-key": "off",
+		},
+	},
+	{
+		// Imported Tasks scripts use empty catch handlers and browser API shims deliberately.
+		files: ["apps/tasks/**/*.{js,mjs,svelte}"],
+		rules: {
+			"@typescript-eslint/no-empty-function": "off",
+			"@typescript-eslint/no-unused-expressions": "off",
+			"no-empty": "off",
+			"no-useless-assignment": "off",
+			"svelte/no-at-html-tags": "off",
+			"svelte/no-dom-manipulating": "off",
 		},
 	},
 	{

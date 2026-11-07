@@ -1,0 +1,95 @@
+# Deploy from a checkout of main after building the image there:
+#   docker build -f apps/tasks/Dockerfile --build-arg MONOREPO_SHA="$SHA" -t "tasks:$SHA" .
+#   MONOREPO_SHA="$SHA" docker compose --env-file /path/to/tasks.env -f apps/tasks/compose.yaml up -d
+# See .env.example for the variables and config.example.json for TASKS_CONFIG.
+name: tasks
+services:
+  tasks:
+    mem_limit: 512m
+    memswap_limit: 512m
+    image: tasks:${MONOREPO_SHA:?Set the monorepo SHA the image was built from}
+    container_name: tasks
+    user: "1000:1000"
+    restart: unless-stopped
+    ports: ["127.0.0.1:${TASKS_PORT:-8896}:8896"]
+    environment:
+      PORT: 8896
+      ORIGIN: ${ORIGIN:?Set the public origin}
+      TASKS_DB_PATH: /data/tasks.db
+      TASKS_CONFIG: /data/config.json
+      ALLOW: ${ALLOW:?Set the allowed users}
+      TERM_ADMIN: ${TERM_ADMIN:-}
+      TERM_WS_SECRET: ${TERM_WS_SECRET:?Set the ttyd credential}
+      TERM_PROXY_SECRET: ${TERM_PROXY_SECRET:?Set the proxy credential}
+      TZ: ${TZ:-UTC}
+      ELEVEN_API_KEY: ${ELEVEN_API_KEY:-}
+      ELEVEN_VOICES: ${ELEVEN_VOICES:-}
+      GLITCHTIP_DSN: ${GLITCHTIP_DSN:-}
+      GLITCHTIP_ENV: ${GLITCHTIP_ENV:-}
+      PUBLIC_GLITCHTIP_DSN: ${PUBLIC_GLITCHTIP_DSN:-}
+      PUBLIC_GLITCHTIP_ENV: ${PUBLIC_GLITCHTIP_ENV:-}
+      GLITCHTIP_DEBUG: ${GLITCHTIP_DEBUG:-}
+    volumes: ["${TASKS_DATA_DIR:?Set the Tasks data directory}:/data"]
+    networks: [tasks]
+    logging: { driver: json-file, options: { max-size: "1m", max-file: "1" } }
+  ttyd-ro:
+    mem_limit: 256m
+    memswap_limit: 256m
+    build: { context: ./fleet-term }
+    image: tasks-ttyd:${MONOREPO_SHA:?Set the monorepo SHA the image was built from}
+    container_name: tasks-ttyd-ro
+    user: "1000:1000"
+    restart: unless-stopped
+    command:
+      [
+        "-c",
+        "term:${TERM_WS_SECRET:?Set the ttyd credential}",
+        "-p",
+        "7681",
+        "-i",
+        "0.0.0.0",
+        "tmux",
+        "-S",
+        "${TASKS_TERM_TMUX_SOCKET_DIR:?Set the tmux socket directory}/default",
+        "attach",
+        "-r",
+        "-t",
+        "${TASKS_TERM_TMUX_SESSION:?Set the tmux session}",
+      ]
+    volumes:
+      [
+        "${TASKS_TERM_TMUX_SOCKET_DIR:?Set the tmux socket directory}:${TASKS_TERM_TMUX_SOCKET_DIR:?Set the tmux socket directory}",
+      ]
+    networks: [tasks]
+  ttyd-rw:
+    mem_limit: 256m
+    memswap_limit: 256m
+    build: { context: ./fleet-term }
+    image: tasks-ttyd:${MONOREPO_SHA:?Set the monorepo SHA the image was built from}
+    container_name: tasks-ttyd-rw
+    user: "1000:1000"
+    restart: unless-stopped
+    command:
+      [
+        "-c",
+        "term:${TERM_WS_SECRET:?Set the ttyd credential}",
+        "-p",
+        "7682",
+        "-i",
+        "0.0.0.0",
+        "-W",
+        "tmux",
+        "-S",
+        "${TASKS_TERM_TMUX_SOCKET_DIR:?Set the tmux socket directory}/default",
+        "attach",
+        "-t",
+        "${TASKS_TERM_TMUX_SESSION:?Set the tmux session}",
+      ]
+    volumes:
+      [
+        "${TASKS_TERM_TMUX_SOCKET_DIR:?Set the tmux socket directory}:${TASKS_TERM_TMUX_SOCKET_DIR:?Set the tmux socket directory}",
+      ]
+    networks: [tasks]
+networks:
+  # A host whose Docker address pools are exhausted can pin a subnet in a compose override.
+  tasks: {}

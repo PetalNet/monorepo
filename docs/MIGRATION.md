@@ -87,6 +87,16 @@ Then, the things that bit slide:
 
 _(populated as repos land — see issue #1 for the live checklist)_
 
+- `tasks` → `apps/tasks` — SvelteKit work tracker on Kit 2, SQLite (better-sqlite3) and a
+  custom `server.js` that adds a terminal websocket proxy. Imported from `PetalNet/tasks` main
+  with rewritten history: research briefs, seed scripts, mocks, lab cron scripts, fonts and stale
+  docs were removed from every commit with git filter-repo, lab hostnames, URLs and a Matrix room
+  ID were replaced, and author emails were rewritten to noreply. Gitleaks over the full history
+  found nothing. The app is generic: people, assignees and fleet entries come from the JSON file
+  named by `TASKS_CONFIG` (see `config.example.json` and `.env.example`). Plain JavaScript stays,
+  with per-app lint exceptions like Slide and PetalBoard; the node-script tests run through
+  `test`. The Dockerfile builds from the repository root.
+
 ## Excluded
 
 - `petalnet-infra`, `ActionOneHass`, `hassblink`, `PetalPVE`, `serverhost` — deployment/infra, stay separate.

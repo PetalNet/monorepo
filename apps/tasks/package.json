@@ -1,0 +1,42 @@
+{
+	"name": "@petalnet/tasks",
+	"version": "0.0.1",
+	"private": true,
+	"type": "module",
+	"scripts": {
+		"dev": "vite dev",
+		"build": "vite build",
+		"start": "node server.js",
+		"preview": "vite preview",
+		"check": "svelte-kit sync && svelte-check --tsconfig ./tsconfig.json",
+		"prepare": "svelte-kit sync",
+		"test": "node scripts/test-public-share.mjs && node scripts/test-access.mjs && node scripts/test-agent-api.mjs && node scripts/test-telemetry.mjs"
+	},
+	"dependencies": {
+		"@fontsource-variable/geist": "catalog:prod",
+		"@fontsource-variable/geist-mono": "catalog:prod",
+		"@lucide/svelte": "catalog:prod",
+		"@modelcontextprotocol/sdk": "catalog:prod",
+		"@sentry/sveltekit": "catalog:prod",
+		"@sveltejs/kit": "catalog:prod",
+		"better-sqlite3": "catalog:prod",
+		"rehype-sanitize": "catalog:prod",
+		"rehype-stringify": "catalog:prod",
+		"remark-breaks": "catalog:prod",
+		"remark-gfm": "catalog:prod",
+		"remark-parse": "catalog:prod",
+		"remark-rehype": "catalog:prod",
+		"svelte": "catalog:prod",
+		"unified": "catalog:prod",
+		"ws": "catalog:prod",
+		"zod": "catalog:prod"
+	},
+	"devDependencies": {
+		"@sveltejs/adapter-node": "catalog:dev",
+		"@sveltejs/vite-plugin-svelte": "catalog:dev",
+		"@types/better-sqlite3": "catalog:types",
+		"@types/ws": "catalog:types",
+		"svelte-check": "catalog:dev",
+		"vite": "catalog:dev"
+	}
+}

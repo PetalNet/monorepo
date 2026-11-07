@@ -73,6 +73,9 @@ permissions:
     build: true
   "@prisma/engines":
     build: true
+  # Only needed to upload source maps, which the tasks build does not do.
+  "@sentry/cli":
+    build: false
   antislop-ai:
     skills: true
   better-sqlite3:
@@ -134,6 +137,7 @@ catalogs:
     antislop-ai: ^3.2.20
 
   types:
+    "@types/better-sqlite3": ^9.6.0
     "@types/google.maps": ^3.58.1
     "@types/leaflet": ^1.9.21
     "@types/leaflet.heat": ^0.2.5
@@ -142,13 +146,18 @@ catalogs:
     "@types/opentype.js": ^1.3.10
     "@types/qrcode": ^1.5.5
     "@types/sortablejs": ^1.15.8
+    "@types/ws": ^8.18.2
 
   prod:
+    "@fontsource-variable/geist": ^5.3.0
+    "@fontsource-variable/geist-mono": ^5.3.0
     "@libsql/client": ^0.18.0
     "@lucide/svelte": ^1.23.0
     "@modelcontextprotocol/sdk": ^1.29.0
     "@prisma/client": ^5.22.0
+    "@sentry/sveltekit": ^10.78.0
     "@sveltejs/kit": ^2.70.3
+    better-sqlite3: ^12.11.1
     bcryptjs: ^3.0.0
     bwip-js: ^4.11.4
     daisyui: ^5.6.13
@@ -163,13 +172,20 @@ catalogs:
     opentype.js: ^1.3.4
     qrcode: ^1.5.4
     remark: ^15.0.1
+    remark-breaks: ^4.0.0
     remark-gfm: ^4.0.1
     remark-html: ^16.0.1
+    remark-parse: ^11.0.0
+    remark-rehype: ^11.1.2
+    rehype-sanitize: ^6.0.0
+    rehype-stringify: ^10.0.1
     sortablejs: ^1.15.6
     svelte: ^5.57.2
     svgpath: ^2.6.0
     tailwindcss: ^4.3.3
     zod: ^4.0.0
+    unified: ^11.0.5
+    ws: ^8.22.1
 
   # Apps still on Tailwind v3 (consolidated to latest v3); not upgraded to v4 yet.
   legacy:

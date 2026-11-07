@@ -182,8 +182,8 @@ export const lintConfig = {
 			},
 		},
 		{
-			files: ["apps/{petalboard,slide}/**"],
-			// Slide and PetalBoard predate the monorepo; their rewrites own the type-safety debt
+			files: ["apps/{petalboard,slide,tasks}/**"],
+			// Slide, PetalBoard and Tasks predate the monorepo; their rewrites own the type-safety debt
 			// and deprecated framework configuration.
 			rules: {
 				"typescript/no-base-to-string": "off",
@@ -197,6 +197,16 @@ export const lintConfig = {
 				"typescript/prefer-nullish-coalescing": "off",
 				"typescript/require-await": "off",
 				"typescript/restrict-template-expressions": "off",
+			},
+		},
+		{
+			files: ["apps/tasks/**"],
+			// Tasks is untyped JavaScript; ESLint already exempts these type-safety rules for it.
+			rules: {
+				"typescript/no-confusing-void-expression": "off",
+				"typescript/no-unnecessary-type-conversion": "off",
+				"typescript/no-unsafe-return": "off",
+				"typescript/restrict-plus-operands": "off",
 			},
 		},
 		{
@@ -215,6 +225,7 @@ export const lintConfig = {
 		"**/node_modules/**",
 		"**/coverage/**",
 		"**/.turbo/**",
+		"apps/tasks/static/vendor/**",
 	],
 } satisfies OxlintConfig;
 

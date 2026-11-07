@@ -1,0 +1,22 @@
+node_modules
+/build
+/.svelte-kit
+tasks.db
+tasks.db-*
+*.local
+.env
+
+# runtime DB lives under data/ (the root tasks.db globs above only catch a top-level copy)
+data/tasks.db
+data/tasks.db-*
+# runtime agent-fleet heartbeat (written by the warm session/manager, read by the rail)
+data/agent-fleet-status.json
+# ElevenLabs TTS key — secret; never commit
+data/eleven-api-key
+
+# local board verification artifacts (screenshots) — not app source
+_board-verify/
+
+# per-agent fleet heartbeats (runtime-written)
+data/fleet/*.json
+*.bak-archive

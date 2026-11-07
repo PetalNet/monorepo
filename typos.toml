@@ -14,6 +14,8 @@ extend-exclude = [
 	# Vendored design references (client UI spec + pixel-close mockup) — kept
 	# byte-faithful to the gallery source, not our prose to correct.
 	"apps/point/docs/design/**",
+	# Prebuilt ProseMark editor bundle (minified third-party code), vendored as-is.
+	"apps/tasks/static/vendor/**",
 ]
 
 [default.extend-words]

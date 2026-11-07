@@ -10,6 +10,8 @@ export default {
 	ignorePatterns: [
 		// Vendored designs stay byte-faithful.
 		"apps/point/docs/design/**",
+		// Tasks' vendored assets stay byte-faithful.
+		"apps/tasks/static/vendor/**",
 	],
 	overrides: [
 		{
