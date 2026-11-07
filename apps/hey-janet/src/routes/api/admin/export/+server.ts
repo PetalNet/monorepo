@@ -22,6 +22,9 @@ export const GET: RequestHandler = async (event) => {
 	);
 	const groups = speaker ? Map.groupBy(clips, (clip) => clip.id) : new Map([["", clips]]);
 
+	// Speaker sets are keyed by participant ID; their metadata must not carry the name either.
+	const record = (key: string, value: unknown) => (speaker && key === "name" ? undefined : value);
+
 	async function* entries() {
 		for (const [directory, participants] of groups) {
 			for (const clip of participants) {
@@ -35,7 +38,7 @@ export const GET: RequestHandler = async (event) => {
 
 			yield {
 				name: `${directory ? `${directory}/` : ""}clips.jsonl`,
-				data: Buffer.from(`${participants.map((c) => JSON.stringify(c)).join("\n")}\n`),
+				data: Buffer.from(`${participants.map((c) => JSON.stringify(c, record)).join("\n")}\n`),
 			};
 		}
 	}
