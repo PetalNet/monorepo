@@ -62,10 +62,8 @@ fn run_manager(work_dir_arg: Option<&str>) {
     let _glitchtip_guard = cfg.glitchtip_dsn.as_deref().map(|dsn| {
         sentry::init((
             dsn,
-            sentry::ClientOptions {
-                release: sentry::release_name!(),
-                ..Default::default()
-            },
+            sentry::ClientOptions::new()
+                .maybe_release(sentry::release_name!()),
         ))
     });
     let creds = cfg.load_creds().unwrap_or_else(|e| die(&e));
