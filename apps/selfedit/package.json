@@ -1,0 +1,20 @@
+{
+	"name": "@petalnet/selfedit",
+	"version": "0.0.0",
+	"private": true,
+	"description": "Single write path for an agent's memory repo: one provenance-tagged commit per write, rules only from owners.",
+	"bin": {
+		"selfedit": "./src/selfedit.ts"
+	},
+	"type": "module",
+	"scripts": {
+		"test": "vitest run",
+		"typecheck": "tsc -b"
+	},
+	"devDependencies": {
+		"@petalnet/tsconfig": "workspace:*",
+		"@types/node": "catalog:types",
+		"typescript": "catalog:dev",
+		"vitest": "catalog:dev"
+	}
+}
