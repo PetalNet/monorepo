@@ -1,4 +1,5 @@
-import { sha256Hex } from "./redact.ts";
+import { createHash } from "node:crypto";
+
 import { scanBatch } from "./secrets.ts";
 import type { EpisodeStore } from "./store.ts";
 
@@ -10,18 +11,20 @@ export interface VerifyResult {
 
 /**
  * Independent-of-redaction candidate generation. This is deliberately NOT the same code as
- * `candidateSpans` in secrets.ts (the one `redactBatch` and `sweepResidualSecrets` use):
+ * `matchKnownSecrets` in secrets.ts (the one `redactBatch` and `sweepResidualSecrets` use):
  * verification is the project's safety net, so it must not inherit a blind spot from the same
  * matcher it exists to audit (pullfrog's review on the first slice found exactly this failure mode
  * -- a narrower shared matcher let a known secret stay searchable while verify reported zero hits).
  * Same semantic goal as candidateSpans (every contiguous sub-span of a wide run, split at weak
  * delimiters, down to a floor below every BUILTIN_RULE's minimum), reached by splitting into
  * alternating [fragment, delimiter, fragment, ...] pieces instead of boundary index arithmetic.
+ * Hash each piece incrementally and copy the hash state at candidate ends. With at most 97 pieces
+ * per run, each byte is hashed at most 49 times, independently of the known-hash count.
  */
 const WIDE_RUN_RE = /[A-Za-z0-9_\-/+.]{15,}/g;
 const WEAK_DELIMITER_RE = /([.\-/+])/;
 const FLOOR = 15;
-const MAX_PIECES = 97; // ~48 delimiters before falling back to whole-run + single fragments only
+const MAX_PIECES = 97; // More than 48 delimiters means incomplete coverage and a verification hit.
 
 interface IndependentCandidateResult {
 	spans: string[];
@@ -36,14 +39,19 @@ interface IndependentCandidateResult {
 	truncated: boolean;
 }
 
-function independentCandidates(text: string): IndependentCandidateResult {
+function independentKnownCandidates(
+	text: string,
+	knownHashes: ReadonlySet<string>,
+): IndependentCandidateResult {
 	const spans: string[] = [];
 	let truncated = false;
 
 	for (const match of text.matchAll(WIDE_RUN_RE)) {
 		const run = match[0];
 
-		spans.push(run);
+		if (knownHashes.has(createHash("sha256").update(run).digest("hex"))) {
+			spans.push(run);
+		}
 
 		const pieces = run.split(WEAK_DELIMITER_RE);
 
@@ -54,13 +62,22 @@ function independentCandidates(text: string): IndependentCandidateResult {
 		}
 
 		for (let start = 0; start < pieces.length; start += 2) {
-			let candidate = "";
+			const hash = createHash("sha256");
+			let length = 0;
 
 			for (let end = start; end < pieces.length; end++) {
-				candidate += pieces[end] ?? "";
+				const piece = pieces[end] ?? "";
 
-				if (end % 2 === 0 && candidate.length >= FLOOR && candidate.length < run.length) {
-					spans.push(candidate);
+				hash.update(piece, "utf8");
+				length += piece.length;
+
+				if (
+					end % 2 === 0 &&
+					length >= FLOOR &&
+					length < run.length &&
+					knownHashes.has(hash.copy().digest("hex"))
+				) {
+					spans.push(pieces.slice(start, end + 1).join(""));
 				}
 			}
 		}
@@ -113,20 +130,14 @@ export function verifyEpisodes(episodes: EpisodeStore): VerifyResult {
 		}
 
 		if (knownHashes.size > 0) {
-			const { spans, truncated } = independentCandidates(text);
+			const { spans, truncated } = independentKnownCandidates(text, knownHashes);
 
 			if (truncated) {
 				// Fail closed: coverage against the known-secret hash set could not be
 				// guaranteed complete for this episode, so it cannot be confirmed clean.
 				hitIds.add(id);
-			} else {
-				for (const candidate of spans) {
-					if (knownHashes.has(sha256Hex(candidate))) {
-						hitIds.add(id);
-
-						break;
-					}
-				}
+			} else if (spans.length > 0) {
+				hitIds.add(id);
 			}
 		}
 	}

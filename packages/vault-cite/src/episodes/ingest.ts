@@ -6,9 +6,9 @@ import { z } from "zod";
 import { diskGuard } from "../store.ts";
 import type { Store } from "../store.ts";
 import type { IngestCounts } from "./model.ts";
-import { maskAll, redactBatch, sha256Hex } from "./redact.ts";
+import { maskAll, redactBatch } from "./redact.ts";
 import { isDenied, loadScopeConfig } from "./scope.ts";
-import { candidateSpans } from "./secrets.ts";
+import { matchKnownSecrets } from "./secrets.ts";
 import { EpisodeStore } from "./store.ts";
 
 const recallRowSchema = z.object({
@@ -99,7 +99,7 @@ export function sweepResidualSecrets(episodes: EpisodeStore): {
 	};
 
 	for (const { id, text } of episodes.allText()) {
-		const { spans, truncated } = candidateSpans(text);
+		const { spans, truncated } = matchKnownSecrets(text, knownHashes);
 
 		if (truncated) {
 			// Fail closed: this episode's candidate coverage against the known-secret
@@ -111,7 +111,7 @@ export function sweepResidualSecrets(episodes: EpisodeStore): {
 			const values = new Map<string, string>();
 
 			for (const value of spans) {
-				if (!values.has(value) && knownHashes.has(sha256Hex(value))) {
+				if (!values.has(value)) {
 					values.set(value, "known-value");
 				}
 			}
