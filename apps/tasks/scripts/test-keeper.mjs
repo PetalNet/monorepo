@@ -63,6 +63,13 @@ const mismatch = task("pending: wire the thing", { body: "this is live now" }, 1
 
 task("long done", { status: "done" }, 90);
 
+// Just inside each threshold, or closed, so none of these may surface.
+task("recent review", { status: "review" }, 6);
+task("recent idea", { kind: "idea" }, 6);
+task("recently done", { status: "done" }, 59);
+task("same title", { status: "done" }, 1);
+task("todo: finished", { status: "done", body: "done" }, 1);
+
 // An archived project holding one of every alertable task. None of it may surface.
 const archived = ensureProject("keeper-archived");
 
@@ -142,7 +149,7 @@ t("--alert drops exactly the expected digest", () => {
 		msg.body,
 		[
 			"🧹 Ada (board keeper) — daily digest",
-			"Board: 7 todo · 2 doing · 1 review · 1 inbox",
+			"Board: 7 todo · 2 doing · 2 review · 2 inbox",
 			`⚠ 2 P1s aging >21d (oldest #${agingP0} 40d: rotting p0)`,
 			`review pileup >7d: #${review}`,
 			"1 inbox untriaged >7d",
@@ -196,6 +203,20 @@ t("--json prints the report and saves nothing", () => {
 	assert.equal(report.health.inbox_untriaged.n, 1);
 	assert.deepEqual(reports(), []);
 	assert.equal(readdirSync(OUTBOX).length, 1);
+});
+
+t("TASKS_KEEPER_SENDER overrides the sender", () => {
+	const outbox = path.join(TMP, "outbox-sender");
+	const r = run(["--alert"], {
+		TASKS_KEEPER_OUTBOX: outbox,
+		TASKS_KEEPER_NAME: "Ada",
+		TASKS_KEEPER_SENDER: "board-bot",
+	});
+	const [file] = readdirSync(outbox);
+
+	assert.equal(r.status, 0, r.stderr);
+	assert.match(file, /^\d{13}000-board-bot\.json$/);
+	assert.equal(JSON.parse(readFileSync(path.join(outbox, file), "utf8")).sender, "board-bot");
 });
 
 t("--alert without an outbox refuses to run", () => {
