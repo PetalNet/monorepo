@@ -4,9 +4,7 @@
 //! The same `validate_token` runs on REST and on the WS first-message auth
 //! (D-011) — there is exactly one way a token becomes a user.
 
-use argon2::password_hash::rand_core::OsRng;
-use argon2::password_hash::{PasswordHash, PasswordHasher as _, PasswordVerifier as _, SaltString};
-use argon2::{Algorithm, Argon2, Params, Version};
+use argon2::{Algorithm, Argon2, Params, PasswordHasher as _, PasswordVerifier as _, Version};
 use axum::extract::FromRequestParts;
 use axum::http::request::Parts;
 use chrono::{DateTime, Duration, Utc};
@@ -31,9 +29,9 @@ pub fn hash_password(password: &str) -> Result<String, AppError> {
     if password.len() > MAX_PASSWORD_BYTES {
         return Err(AppError::BadRequest("password too long".into()));
     }
-    let salt = SaltString::generate(&mut OsRng);
+    // argon2 0.6 draws the 16-byte salt from the OS RNG (getrandom).
     argon2()
-        .hash_password(password.as_bytes(), &salt)
+        .hash_password(password.as_bytes())
         .map(|h| h.to_string())
         .map_err(|e| AppError::Internal(format!("password hash: {e}")))
 }
@@ -42,13 +40,11 @@ pub fn verify_password(password: &str, phc_hash: &str) -> bool {
     if password.len() > MAX_PASSWORD_BYTES {
         return false;
     }
-    let Ok(parsed) = PasswordHash::new(phc_hash) else {
-        return false;
-    };
     // Verify with default-config Argon2: the PHC string carries its own params,
-    // so previously-hashed passwords keep working if we ever re-pin.
+    // so previously-hashed passwords keep working if we ever re-pin. A string
+    // that doesn't parse as PHC fails verification.
     Argon2::default()
-        .verify_password(password.as_bytes(), &parsed)
+        .verify_password(password.as_bytes(), phc_hash)
         .is_ok()
 }
 
