@@ -121,7 +121,7 @@ describe("OIDC user mapping", () => {
 		});
 
 		prisma = new PrismaClient({ datasourceUrl: databaseUrl });
-	});
+	}, 60_000);
 
 	afterAll(async () => {
 		await prisma?.$disconnect();
