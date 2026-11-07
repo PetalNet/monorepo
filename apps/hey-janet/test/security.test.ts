@@ -59,6 +59,7 @@ it("validates OIDC signature, issuer, audience, expiry, nonce and discovery endp
 	await new Promise<void>((resolve) => {
 		server.listen(0, "127.0.0.1", resolve);
 	});
+
 	const address = server.address();
 
 	if (!address || typeof address === "string") {

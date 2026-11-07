@@ -13,6 +13,7 @@ services:
       PROTOCOL_HEADER: X-Forwarded-Proto
       ADDRESS_HEADER: X-Forwarded-For
       XFF_DEPTH: "1"
+      BODY_SIZE_LIMIT: "1048576"
       BOOTH_DATA: /data
     volumes:
       - type: bind
