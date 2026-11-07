@@ -1,0 +1,99 @@
+@import "tailwindcss";
+@plugin "daisyui" {
+	themes: false;
+}
+@plugin "daisyui/theme" {
+	name: "booth";
+	default: true;
+	color-scheme: light dark;
+	--color-base-100: light-dark(#ffffff, #242127);
+	--color-base-200: light-dark(#f6f5f7, #18161b);
+	--color-base-300: light-dark(#dedbe1, #48424c);
+	--color-base-content: light-dark(#202027, #f5f2f6);
+	--color-primary: light-dark(#58254f, #edc4e4);
+	--color-primary-content: light-dark(#ffffff, #18161b);
+	--radius-selector: 0.125rem;
+	--radius-field: 0.125rem;
+	--radius-box: 0.125rem;
+}
+:root {
+	font-family: "Public Sans", system-ui, sans-serif;
+	background: var(--color-base-200);
+	color: var(--color-base-content);
+}
+.btn {
+	transition-property: transform;
+}
+label {
+	margin-block-end: 8px;
+}
+p {
+	line-height: 1.6;
+	margin-block: 16px;
+}
+h1,
+h2 {
+	font-weight: 500;
+	text-wrap: balance;
+	line-height: 1.12;
+}
+h1 {
+	font-size: clamp(2.5rem, 8vw, 4rem);
+	margin-block: 24px;
+}
+h2 {
+	font-size: 1.75rem;
+}
+a:not(.btn) {
+	text-underline-offset: 4px;
+}
+small {
+	font-size: 0.875rem;
+}
+.station {
+	padding: 32px 16px;
+	background: var(--color-base-100);
+	margin-block: 24px;
+	text-align: center;
+	min-height: 320px;
+	display: flex;
+	flex-direction: column;
+	justify-content: center;
+	border-radius: var(--radius-box);
+}
+.phrase {
+	font-size: clamp(2.25rem, 8vw, 3.5rem);
+	margin-block: 24px 16px;
+}
+.direction {
+	font-size: 1.125rem;
+	min-height: 56px;
+}
+.meter {
+	height: 8px;
+	background: var(--color-base-300);
+	overflow: hidden;
+	margin-block: 24px 8px;
+}
+.meter-fill {
+	height: 100%;
+	background: var(--color-primary);
+	width: 100%;
+	transform-origin: left;
+	transition: transform 80ms linear;
+}
+audio {
+	width: 100%;
+	margin-block: 16px;
+}
+@media (min-width: 480px) {
+	.station {
+		padding: 40px 32px;
+	}
+}
+@media (prefers-reduced-motion: reduce) {
+	.meter-fill,
+	.btn {
+		transition: none;
+	}
+}
