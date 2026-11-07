@@ -125,7 +125,7 @@ Based on Lighthouse audit results, the following optimizations have been impleme
 **For Spotify images in event pages:**
 
 - Apply same `loading="lazy"`, `decoding="async"`, and explicit dimensions
-- Files: `/src/routes/event/[code]/+page.svelte` and `/src/routes/event/manage/[token]/+page.svelte`
+- Files: `/src/routes/event/[code]/+page.svelte` and `/src/routes/event/[code]/manage/+page.svelte`
 - Already has `loading="lazy"`, need to add `decoding="async"` and dimensions
 
 ### 7. Code Splitting
