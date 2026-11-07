@@ -18,7 +18,7 @@ vi.mock("$app/forms", () => ({
 }));
 
 vi.mock("$app/stores", () => ({
-	page: readable({ url: new URL("http://localhost/event/manage/token") }),
+	page: readable({ url: new URL("http://localhost/event/pc1/manage") }),
 }));
 
 vi.mock("$env/dynamic/public", () => ({ env: {} }));
@@ -114,7 +114,7 @@ describe("manage page: add question", () => {
 		}
 
 		const after = await submit({
-			action: new URL("http://localhost/event/manage/token?/addQuestion"),
+			action: new URL("http://localhost/event/pc1/manage?/addQuestion"),
 			formData: new FormData(form),
 			formElement: form,
 			controller: new AbortController(),
@@ -127,7 +127,7 @@ describe("manage page: add question", () => {
 		}
 
 		await after({
-			action: new URL("http://localhost/event/manage/token?/addQuestion"),
+			action: new URL("http://localhost/event/pc1/manage?/addQuestion"),
 			formData: new FormData(form),
 			formElement: form,
 			result: { type: "success", status: 200, data: { success: true, question: added } },

@@ -7,8 +7,8 @@ import { FRIENDSGIVING_POTLUCK, type PotluckConfig } from "$lib/potluck";
 import type * as PrismaModule from "$lib/server/prisma";
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 
-import type * as ManageServer from "../manage/[token]/+page.server";
 import type * as PageServer from "./+page.server";
+import type * as ManageServer from "./manage/+page.server";
 
 vi.mock("$env/dynamic/private", () => ({ env: process.env }));
 vi.mock("$lib/server/email", () => ({ sendRsvpEmail: vi.fn() }));
@@ -22,7 +22,7 @@ type Prisma = typeof PrismaModule.prisma;
 let actions: Actions;
 let prisma: Prisma;
 let publicCode: string;
-let manageToken: string;
+let host: { id: string };
 let manageActions: typeof ManageServer.actions;
 let questionId: string;
 let guestSeq = 1000;
@@ -107,7 +107,7 @@ beforeAll(async () => {
 	});
 
 	({ actions } = await import("./+page.server"));
-	({ actions: manageActions } = await import("../manage/[token]/+page.server"));
+	({ actions: manageActions } = await import("./manage/+page.server"));
 	({ prisma } = await import("$lib/server/prisma"));
 }, 60_000);
 
@@ -127,7 +127,6 @@ beforeEach(async () => {
 			title: "Test potluck",
 			date: new Date("2026-11-26T18:00:00Z"),
 			publicCode: `pc${guestSeq}`,
-			manageToken: `mt${guestSeq}`,
 			userId: user.id,
 			questions: {
 				create: {
@@ -142,7 +141,7 @@ beforeEach(async () => {
 	});
 
 	publicCode = event.publicCode;
-	manageToken = event.manageToken;
+	host = user;
 	questionId = event.questions[0].id;
 
 	const seed = { sides: 5, "apps-snacks": 2, desserts: 1, drinks: 1 };
@@ -317,7 +316,8 @@ describe("potluck signups", () => {
 
 			return handler({
 				request: new Request("http://localhost/", { method: "POST", body }),
-				params: { token: manageToken },
+				params: { code: publicCode },
+				locals: { user: host },
 			});
 		};
 
@@ -331,7 +331,8 @@ describe("potluck signups", () => {
 
 			return handler({
 				request: new Request("http://localhost/", { method: "POST", body }),
-				params: { token: manageToken },
+				params: { code: publicCode },
+				locals: { user: host },
 			});
 		};
 

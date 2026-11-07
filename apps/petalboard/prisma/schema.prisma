@@ -44,7 +44,6 @@ model Event {
   rsvpLimit    Int?
   maxPlusOnes  Int?
   publicCode   String     @unique
-  manageToken  String     @unique
   spotifyPlaylistId String?
   theme        String     @default("light") // "light" or "dark"
   primaryColor String?    // Hex color for primary theme
