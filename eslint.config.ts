@@ -101,7 +101,7 @@ export default defineConfig([
 	},
 	{
 		files: [
-			"apps/{astrolabe,collegemap,grove,numbat-sheet,petalboard,slide,storybook,whoami}/**/*.svelte",
+			"apps/{astrolabe,collegemap,grove,label-studio,numbat-sheet,petalboard,slide,storybook,whoami}/**/*.svelte",
 		],
 		extends: svelte.configs.recommended,
 		languageOptions: {
