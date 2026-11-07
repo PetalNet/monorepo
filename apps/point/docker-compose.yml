@@ -18,7 +18,7 @@
 
 services:
   traefik:
-    image: traefik:v3.2@sha256:e561a37f8710d9cf41c78bdf421d822b2c0b48267ec0552e644565fb55466ea9
+    image: traefik:v3.6@sha256:31267173a15b4944e797a76ffd9c419707c8d8b32fe5b610f80cd0cfa05f372d
     command:
       - --providers.docker=true
       - --providers.docker.exposedbydefault=false
@@ -91,7 +91,7 @@ services:
   # docs/SELF-HOSTING.md "Maps". Then set in .env:
   #   TILES_URL=https://$DOMAIN/tiles/styles/point-dark/{z}/{x}/{y}.png
   tileserver:
-    image: maptiler/tileserver-gl:v5.6.0@sha256:3a9ccdb24820b6814c8119bcc8a4376c39867cb0ffe69d62919ef898b90c2427
+    image: maptiler/tileserver-gl:v5.7.0@sha256:24d0364e1d40da0ae3fb3269f617c26e36a883ad4b7454e5c4064a8795bfc807
     profiles: ["tiles"]
     command: ["--config", "/data/config.json", "--public_url", "https://${DOMAIN}/tiles/"]
     volumes:
