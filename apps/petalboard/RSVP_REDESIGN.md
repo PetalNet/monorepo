@@ -51,7 +51,7 @@
   - [ ] Success message with PIN reminder
   - [ ] "Update RSVP" link/section
 
-### 3. Event Manage Page (`/event/manage/[token]`)
+### 3. Event Manage Page (`/event/[code]/manage`)
 
 - [ ] Update event form - add RSVP Limit field
 - [ ] Update slot form - add "Required" checkbox
@@ -88,7 +88,7 @@ All these routes need to be redesigned for the new RSVP system:
 
 - [ ] Add `rsvpLimit` to event creation
 
-### `event/manage/[token]/+page.server.ts`
+### `event/[code]/manage/+page.server.ts`
 
 - [ ] Update `load` function to fetch RSVPs and SlotSignups
 - [ ] Update `updateEvent` action to handle `rsvpLimit`

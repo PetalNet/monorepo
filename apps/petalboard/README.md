@@ -11,7 +11,7 @@ without forcing guests to create accounts.
 - 🔁 **Guest self-service** – The browser that RSVPs can edit or cancel any time; any other browser
   gets a single-use, one-hour edit link by email (see `EMAIL_SETUP.md`).
 - 🧮 **Overbooking prevention** – Server-side validation ensures slots never exceed their quantity.
-- 🖨️ **Manage dashboard** – Token-protected view for organizers to edit event details, slots, and
+- 🖨️ **Manage dashboard** – View, only for the signed-in event owner, to edit event details, slots, and
   remove signups.
 
 ## Tech stack
@@ -89,7 +89,7 @@ src/
     +page.svelte                # Landing page
     create/                     # Event creation flow
     event/[code]/               # Public event view and signup action
-    event/manage/[token]/       # Organizer dashboard
+    event/[code]/manage/        # Organizer dashboard (owner session only)
     manage-signup/              # Guest lookup/edit page
     api/signups/{lookup,update,cancel}  # JSON endpoints for guest actions
 prisma/
@@ -102,6 +102,6 @@ prisma/
   stored. Links work once, for 1 hour, and opening one never consumes it until the guest presses
   Continue.
 - All mutations validate input with [Zod](https://zod.dev/).
-- Organizer dashboards are protected with unique manage tokens generated at event creation.
+- Organizer dashboards require the event owner's signed-in session; the page load and every action check it.
 
 Enjoy planning your next event without the clutter! 🌸

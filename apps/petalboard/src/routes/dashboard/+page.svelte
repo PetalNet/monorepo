@@ -125,7 +125,7 @@
 							>👁️ View Public</a
 						>
 						<a
-							href="/event/manage/{event.manageToken}"
+							href="/event/{event.publicCode}/manage"
 							class="flex-1 rounded-xl bg-primary-gradient px-3 py-2.5 text-center text-sm font-semibold text-white no-underline transition-all hover:-translate-y-0.5 hover:shadow-[0_8px_16px_rgba(124,93,250,0.4)]"
 							>⚙️ Manage</a
 						>

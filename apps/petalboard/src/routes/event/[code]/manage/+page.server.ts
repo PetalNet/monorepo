@@ -6,6 +6,8 @@ import { parseLocalDateTimeInTimezone } from "$lib/utils/timezones";
 import { fail, error, redirect } from "@sveltejs/kit";
 import { z } from "zod";
 
+import type { RequestEvent } from "./$types";
+
 const questionUpdateSchema = questionSchema.extend({
 	questionId: z.string().cuid(),
 });
@@ -43,25 +45,45 @@ function parsePotluckField(type: string, raw: string | undefined, previous: stri
 	return { ok: true, value: JSON.stringify(keepOverrides(stored, parsed.data)) } as const;
 }
 
-async function getEventId(token: string) {
+async function requireOwnedEvent({ params, locals }: Pick<RequestEvent, "params" | "locals">) {
+	if (!locals.user) {
+		throw redirect(303, "/login");
+	}
+
 	const event = await prisma.event.findUnique({
-		where: { manageToken: token },
-		select: { id: true },
+		where: { publicCode: params.code },
+		select: { id: true, userId: true },
 	});
 
 	if (!event) {
 		throw error(404, "Event not found");
 	}
 
-	return event.id;
+	if (event.userId !== locals.user.id) {
+		throw error(403, "You don't have permission to manage this event");
+	}
+
+	return event;
 }
 
-export const load = async ({ params, locals }) => {
+// Wraps the whole actions object so an action cannot be added without the owner check.
+function ownerOnly<
+	A extends Record<string, (event: RequestEvent, eventId: string) => Promise<unknown>>,
+>(handlers: A) {
+	return Object.fromEntries(
+		Object.entries(handlers).map(([name, handler]) => [
+			name,
+			async (event: RequestEvent) => handler(event, (await requireOwnedEvent(event)).id),
+		]),
+	) as { [K in keyof A]: (event: RequestEvent) => ReturnType<A[K]> };
+}
+
+export const load = async (requestEvent) => {
+	const owned = await requireOwnedEvent(requestEvent);
 	const event = await prisma.event.findUnique({
-		where: { manageToken: params.token },
+		where: { id: owned.id },
 		select: {
 			id: true,
-			userId: true,
 			title: true,
 			description: true,
 			date: true,
@@ -124,14 +146,9 @@ export const load = async ({ params, locals }) => {
 		throw error(404, "Event not found");
 	}
 
-	// Verify the user owns this event
-	if (locals.user?.id !== event.userId) {
-		throw error(403, "You don't have permission to manage this event");
-	}
-
 	// Check if user has Spotify connected
 	const user = await prisma.user.findUnique({
-		where: { id: locals.user.id },
+		where: { id: owned.userId },
 		select: { spotifyAccessToken: true },
 	});
 
@@ -191,9 +208,8 @@ export const load = async ({ params, locals }) => {
 	} as const;
 };
 
-export const actions = {
-	updateEvent: async ({ params, request }) => {
-		const eventId = await getEventId(params.token);
+export const actions = ownerOnly({
+	updateEvent: async ({ request }, eventId) => {
 		const formData = await request.formData();
 		const raw = Object.fromEntries(formData) as Record<string, string>;
 
@@ -245,8 +261,7 @@ export const actions = {
 			type: "updateEvent",
 		} as const;
 	},
-	addQuestion: async ({ params, request }) => {
-		const eventId = await getEventId(params.token);
+	addQuestion: async ({ request }, eventId) => {
 		const formData = await request.formData();
 		const raw = Object.fromEntries(formData) as Record<string, string>;
 		const parsed = questionSchema.safeParse(raw);
@@ -333,8 +348,7 @@ export const actions = {
 			},
 		} as const;
 	},
-	updateQuestion: async ({ params, request }) => {
-		const eventId = await getEventId(params.token);
+	updateQuestion: async ({ request }, eventId) => {
 		const formData = await request.formData();
 		const raw = Object.fromEntries(formData) as Record<string, string>;
 		const parsed = questionUpdateSchema.safeParse(raw);
@@ -417,8 +431,7 @@ export const actions = {
 
 		return { success: true, type: "updateQuestion" } as const;
 	},
-	setPotluckOverride: async ({ params, request }) => {
-		const eventId = await getEventId(params.token);
+	setPotluckOverride: async ({ request }, eventId) => {
 		const parsed = potluckOverrideSchema.safeParse(Object.fromEntries(await request.formData()));
 
 		if (!parsed.success) {
@@ -472,8 +485,7 @@ export const actions = {
 			potluck: potluckView(updated.potluckConfig, updated.responses, true),
 		} as const;
 	},
-	deleteQuestion: async ({ params, request }) => {
-		const eventId = await getEventId(params.token);
+	deleteQuestion: async ({ request }, eventId) => {
 		const formData = await request.formData();
 		const raw = Object.fromEntries(formData) as Record<string, string>;
 		const parsed = questionTargetSchema.safeParse(raw);
@@ -504,8 +516,7 @@ export const actions = {
 
 		return { success: true, type: "deleteQuestion" } as const;
 	},
-	deleteRsvp: async ({ params, request }) => {
-		const eventId = await getEventId(params.token);
+	deleteRsvp: async ({ request }, eventId) => {
 		const formData = await request.formData();
 		const raw = Object.fromEntries(formData) as Record<string, string>;
 		const parsed = z.object({ rsvpId: z.string().cuid() }).safeParse(raw);
@@ -536,13 +547,11 @@ export const actions = {
 
 		return { success: true, type: "deleteRsvp" } as const;
 	},
-	deleteEvent: async ({ params }) => {
-		const eventId = await getEventId(params.token);
-
+	deleteEvent: async (_event, eventId) => {
 		// Delete the event (cascading deletes will handle questions and responses)
 		await prisma.event.delete({ where: { id: eventId } });
 
 		// Redirect to dashboard
 		throw redirect(303, "/dashboard");
 	},
-};
+});

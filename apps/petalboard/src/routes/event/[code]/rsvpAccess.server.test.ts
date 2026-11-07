@@ -144,7 +144,6 @@ beforeEach(async () => {
 			title: "Garden party",
 			date: new Date("2026-11-26T18:00:00Z"),
 			publicCode: `pc${seq}`,
-			manageToken: `mt${seq}`,
 			userId: user.id,
 		},
 	});
