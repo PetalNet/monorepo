@@ -30,6 +30,9 @@ catalogs:
     '@modelcontextprotocol/client':
       specifier: 2.3.0
       version: 2.3.0
+    '@plantuml/core':
+      specifier: 1.2026.9
+      version: 1.2026.9
     '@storybook/addon-a11y':
       specifier: 10.6.5
       version: 10.6.5
@@ -48,6 +51,9 @@ catalogs:
     '@testcontainers/postgresql':
       specifier: ^12.0.0
       version: 12.2.1
+    '@wxt-dev/browser':
+      specifier: 0.3.7
+      version: 0.3.7
     better-auth:
       specifier: 1.7.14
       version: 1.7.14
@@ -527,6 +533,31 @@ importers:
       tsx:
         specifier: catalog:dev
         version: 4.22.4
+      typescript:
+        specifier: catalog:dev
+        version: '@typescript/typescript6@6.0.2'
+      vite:
+        specifier: ^8.3.3
+        version: 8.3.3(@types/node@26.6.6)(esbuild@0.28.1)(jiti@2.7.0)(tsx@4.22.4)(yaml@2.9.0)
+      vitest:
+        specifier: 5.0.5
+        version: 5.0.5(@types/node@26.6.6)(@vitest/coverage-v8@5.0.5)(happy-dom@21.0.4)(vite@8.3.3(@types/node@26.6.6)(esbuild@0.28.1)(jiti@2.7.0)(tsx@4.22.4)(yaml@2.9.0))
+
+  apps/github-plantuml:
+    dependencies:
+      '@wxt-dev/browser':
+        specifier: 'catalog:'
+        version: 0.3.7
+    devDependencies:
+      '@petalnet/tsconfig':
+        specifier: workspace:*
+        version: link:../../packages/tsconfig
+      '@plantuml/core':
+        specifier: 'catalog:'
+        version: 1.2026.9
+      happy-dom:
+        specifier: catalog:dev
+        version: 21.0.4
       typescript:
         specifier: catalog:dev
         version: '@typescript/typescript6@6.0.2'
@@ -2793,6 +2824,9 @@ packages:
     resolution: {integrity: sha512-+1VkjdD0QBLPodGrJUeqarH8VAIvQODIbwh9XpP5Syisf7YoQgsJKPNFoqqLQlu+VQ/tVSshMR6loPMn8U+dPg==}
     engines: {node: '>=14'}
 
+  '@plantuml/core@1.2026.9':
+    resolution: {integrity: sha512-Qy46og9hEb+wOFtjUfniWkl/BDwHpDuebQX5rF+35s9PS2G4cKZf1iWw4E/ELLQ0pTkESPDoQTbKWcc3ZyVcVA==}
+
   '@pnpm/config.env-replace@1.1.0':
     resolution: {integrity: sha512-htyl8TWnKL7K/ESFa1oW2UB5lVDxuF5DpM7tBi6Hu2LNL3mWkIzNLG6N4zoCUP1lCKNxWy/3iu8mS8MvToGd6w==}
     engines: {node: '>=12.22.0'}
@@ -3507,6 +3541,9 @@ packages:
   '@types/google.maps@3.66.8':
     resolution: {integrity: sha512-79smuL2cQ28Uqo01YlPCcHNCq96iyZQhvXinCBl9NvxsVP8kEel1cLsKtImNcwv0x4stX3QGgEUsE1ObXyCs5A==}
 
+  '@types/har-format@1.2.16':
+    resolution: {integrity: sha512-fluxdy7ryD3MV6h8pTfTYpy/xQzCFC7m89nOH9y94cNqJ1mDIDPut7MnRHI3F6qRmh/cT2fUjG1MLdCNb4hE9A==}
+
   '@types/hast@3.0.4':
     resolution: {integrity: sha512-WPs+bbQw5aCj+x6laNGWLH3wviHtoCv/P3+otBhbOhJgG8qtpdAMlTCxLtsTWA7LH1Oh/bFCHsBn0TPS5m30EQ==}
 
@@ -3804,6 +3841,9 @@ packages:
 
   '@webcontainer/env@1.1.1':
     resolution: {integrity: sha512-6aN99yL695Hi9SuIk1oC88l9o0gmxL1nGWWQ/kNy81HigJ0FoaoTXpytCj6ItzgyCEwA9kF1wixsTuv5cjsgng==}
+
+  '@wxt-dev/browser@0.3.7':
+    resolution: {integrity: sha512-TCBcayayb2mycJxt9X3kTq3QZerqltx/I4FW1WVTafBcqQC6vUaDz5Sboummy0rVsSMbYzyKnS5118VTw0dt4A==}
 
   abort-controller@3.0.0:
     resolution: {integrity: sha512-h8lQ8tacZYnR3vNQTgibj+tODHI5/+l06Au2Pcriv/Gmet0eaj4TwWH41sO9wnHDiQsEj19q0drzdWdeAHtweg==}
@@ -8625,6 +8665,8 @@ snapshots:
   '@pkgjs/parseargs@0.11.0':
     optional: true
 
+  '@plantuml/core@1.2026.9': {}
+
   '@pnpm/config.env-replace@1.1.0': {}
 
   '@pnpm/network.ca-file@1.0.2':
@@ -9236,6 +9278,8 @@ snapshots:
 
   '@types/google.maps@3.66.8': {}
 
+  '@types/har-format@1.2.16': {}
+
   '@types/hast@3.0.4':
     dependencies:
       '@types/unist': 3.0.3
@@ -9525,6 +9569,10 @@ snapshots:
       tinyrainbow: 2.0.0
 
   '@webcontainer/env@1.1.1': {}
+
+  '@wxt-dev/browser@0.3.7':
+    dependencies:
+      '@types/har-format': 1.2.16
 
   abort-controller@3.0.0:
     dependencies:
