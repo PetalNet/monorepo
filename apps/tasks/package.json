@@ -8,7 +8,8 @@
     "start": "node build",
     "preview": "node build",
     "test:guards": "node scripts/guard-public-share.mjs",
-    "test:agent-api": "node scripts/test-agent-api.mjs"
+    "test:agent-api": "node scripts/test-agent-api.mjs",
+    "test:a11y": "node scripts/test-a11y.mjs"
   },
   "devDependencies": {
     "@sveltejs/adapter-node": "^5.2.0",

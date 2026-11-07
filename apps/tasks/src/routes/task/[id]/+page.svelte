@@ -2,6 +2,7 @@
   import { enhance } from '$app/forms';
   import Icon from '$lib/Icon.svelte';
   import { projectName, whoColor } from '$lib/people.js';
+  import { radioNav } from '$lib/a11y.js';
   import ProseMark, { preloadProseMark } from '$lib/ProseMark.svelte';
   let { data } = $props();
   const t = $derived(data.task);
@@ -157,6 +158,10 @@
 
   let speaking = $state(false);
   let loadingAudio = $state(false);
+  // task-368: Listen state surfaced to AT — a polite live region announces
+  // loading / playing / fallback / failure / stop instead of icon-only changes.
+  let ttsStatus = $state('');
+  let ttsErr = $state(false);     // failure states also render VISIBLY next to the button
   let audioEl = null;
   let ttsCtrl = null;       // AbortController for the in-flight TTS fetch
   let blobUrl = null;       // revoke on stop to avoid leaking
@@ -165,8 +170,9 @@
     if (editingBody && pmRef) return (pmRef.sync() || '').replace(/\s+\n/g, '\n').trim();
     return (proseEl?.innerText || '').replace(/\s+\n/g, '\n').trim();
   }
-  function stopAudio() {
+  function stopAudio(announce = false) {
     speaking = false; loadingAudio = false;
+    if (announce) { ttsStatus = 'Narration stopped'; ttsErr = false; }
     try { ttsCtrl?.abort(); } catch {}
     ttsCtrl = null;
     try { window.speechSynthesis?.cancel(); } catch {}
@@ -174,12 +180,13 @@
     if (blobUrl) { URL.revokeObjectURL(blobUrl); blobUrl = null; }
   }
   // stop audio when the doc changes or the component unmounts (no orphan playback on nav)
-  $effect(() => { t.id; return stopAudio; });
+  $effect(() => { t.id; return () => stopAudio(); });
   async function listen() {
-    if (speaking || loadingAudio) { stopAudio(); return; }
+    if (speaking || loadingAudio) { stopAudio(true); return; }   // task-368: announce stop on re-press
     const text = readableText();
     if (!text) return;
     loadingAudio = true;
+    ttsStatus = 'Loading narration…'; ttsErr = false;
     ttsCtrl = new AbortController();
     // try the server TTS (ElevenLabs) first; fall back to browser speech
     try {
@@ -190,22 +197,25 @@
       if (r.ok && (r.headers.get('content-type') || '').includes('audio')) {
         blobUrl = URL.createObjectURL(await r.blob());
         audioEl = new Audio(blobUrl);
-        audioEl.onended = () => stopAudio();
-        audioEl.onerror = () => stopAudio();
+        audioEl.onended = () => { stopAudio(); ttsStatus = 'Narration finished'; };
+        audioEl.onerror = () => { stopAudio(); ttsStatus = 'Audio unavailable'; ttsErr = true; };
         loadingAudio = false; speaking = true;
+        ttsStatus = 'Playing narration';
         await audioEl.play();   // may reject (autoplay block / rapid toggle)
         return;
       }
     } catch (e) {
       if (e?.name === 'AbortError') return;   // user cancelled — don't fall through
     }
-    // fallback: Web Speech API
+    // fallback: Web Speech API (task-368/313: never silent — surface every failure path)
     loadingAudio = false; speaking = false;
-    if (!window.speechSynthesis) return;
+    if (!window.speechSynthesis) { ttsStatus = 'Audio unavailable'; ttsErr = true; return; }
+    ttsStatus = 'Narration failed, using browser voice'; ttsErr = false;
     const u = new SpeechSynthesisUtterance(text.slice(0, 32000));
     u.rate = 1.0; u.pitch = 1.0;
-    u.onend = () => { speaking = false; };
-    u.onerror = () => { speaking = false; };
+    u.onend = () => { speaking = false; ttsStatus = 'Narration finished'; };
+    // task-313: mid-utterance synthesis failure must reset the button (was stuck on "stop")
+    u.onerror = () => { speaking = false; ttsStatus = 'Audio unavailable'; ttsErr = true; };
     speaking = true;
     window.speechSynthesis.cancel();
     window.speechSynthesis.speak(u);
@@ -312,8 +322,11 @@
       {#if t.up_next}<span class="proj-tag up">up next</span>{/if}
     </div>
 
+    <!-- task-332: the page's one real h1 for AT/heading outlines; the input stays the
+         visual + edit affordance (it is not a heading to a screen reader) -->
+    <h1 class="vh">#{t.id} · {t.title}</h1>
     <form method="POST" action="?/save" use:enhance class="titleform">
-      <input class="title-in" name="title" value={t.title} aria-label="Title" readonly={!canWrite} />
+      <input class="title-in" name="title" value={t.title} aria-label="Task title" readonly={!canWrite} />
     </form>
 
     {#if t.assignee || t.responsible}
@@ -419,6 +432,12 @@
 
           {#if data.bodyHtml}<div class="bodycard read"><div class="pm-rendered">{@html data.bodyHtml}</div></div>{/if}
 
+          <!-- task-359: persistent live region — announces the answered confirmation the
+               moment it lands (the region exists from mount, so AT reliably fires) -->
+          <span class="vh" role="status" aria-live="polite">
+            {t.answer ? `Answered: ${data.opts.find((o) => o.value === t.answer)?.label ?? t.answer}` : ''}
+          </span>
+
           {#if t.answer}
             <div class="q-done">
               <span class="qd-check"><Icon name="check" size={20} /></span>
@@ -430,17 +449,23 @@
           {/if}
 
           {#if data.opts.length}
-            <div class="answers" class:locked={t.answer}>
+            <!-- task-359: the options ARE mutually-exclusive answers — expose them that way.
+                 fieldset+legend ties them to the question; radiogroup/radio + aria-checked
+                 carries the selected state; radioNav adds the arrow-key/roving-tab contract. -->
+            <fieldset class="answers" class:locked={t.answer} role="radiogroup"
+              aria-label="Decision: {t.title}" use:radioNav>
+              <legend class="vh">Decision: {t.title}</legend>
               {#each data.opts as o}
                 <form method="POST" action="?/answer" use:enhance>
                   <input type="hidden" name="value" value={o.value} />
-                  <button class="answer" class:on={t.answer === o.value} type="submit" disabled={!canWrite}>
-                    <span class="a-dot"></span>
+                  <button class="answer" class:on={t.answer === o.value} type="submit" disabled={!canWrite}
+                    role="radio" aria-checked={t.answer === o.value}>
+                    <span class="a-dot" aria-hidden="true"></span>
                     <span>{o.label}</span>
                   </button>
                 </form>
               {/each}
-            </div>
+            </fieldset>
           {:else}
             <!-- open question (no preset options): free-text answer -->
             <form method="POST" action="?/answer" use:enhance class="freeanswer">
@@ -476,19 +501,23 @@
                  the Edit button turns into Save (same slot, same style) with a Cancel beside it. -->
             <span class="right body-tools">
               {#if hasHuman && !editingBody}
+                <!-- task-361: toggle state carried by aria-pressed, not color alone -->
                 <div class="seg" role="group" aria-label="Version">
-                  <button class="seg-btn" class:on={human} onclick={() => (human = true)}>plain english</button>
-                  <button class="seg-btn" class:on={!human} onclick={() => (human = false)}>technical</button>
+                  <button type="button" class="seg-btn" class:on={human} aria-pressed={human} onclick={() => (human = true)}>plain english</button>
+                  <button type="button" class="seg-btn" class:on={!human} aria-pressed={!human} onclick={() => (human = false)}>technical</button>
                 </div>
               {/if}
               {#if docHtml}
                 <select class="rb voice" bind:value={voice} title="Narrator voice" aria-label="Narrator voice">
                   {#each VOICES as v}<option value={v.id}>{v.label}</option>{/each}
                 </select>
-                <button class="rb listen" class:on={speaking} class:loading={loadingAudio} title="Listen" onclick={listen}>
-                  {#if loadingAudio}<span class="spin"></span>{:else}<Icon name={speaking ? 'check' : 'arrow'} size={15} />{/if}
+                <!-- task-368: pressed state + a live status so AT hears loading/playing/failed -->
+                <button type="button" class="rb listen" class:on={speaking} class:loading={loadingAudio}
+                  title="Listen" aria-pressed={speaking || loadingAudio} onclick={listen}>
+                  {#if loadingAudio}<span class="spin" aria-hidden="true"></span>{:else}<Icon name={speaking ? 'check' : 'arrow'} size={15} />{/if}
                   <span>{speaking ? 'stop' : loadingAudio ? '…' : 'listen'}</span>
                 </button>
+                <span class="tts-status mono" class:vh={!ttsErr} role="status" aria-live="polite">{ttsStatus}</span>
               {/if}
               {#if canWrite}
                 {#if editingBody}
@@ -937,7 +966,8 @@
   .btn-save-sm:hover { background: var(--accent-b); }
 
   /* ── question answer options (violet, one-tap) ───────────── */
-  .answers { display: flex; flex-direction: column; gap: 7px; margin-top: 6px; }
+  /* fieldset reset (task-359): the group is semantic, not visual — zero chrome */
+  .answers { display: flex; flex-direction: column; gap: 7px; margin-top: 6px; border: 0; padding: 0; min-width: 0; }
   .answers form { display: contents; }
   .answer {
     display: flex; align-items: center; gap: 11px; width: 100%; text-align: left;
@@ -1156,17 +1186,30 @@
     color: var(--text-3); font: inherit; font-size: 11.5px; font-weight: 500; cursor: pointer; transition: .12s; white-space: nowrap; }
   .seg-btn.on { background: var(--accent-bg); color: var(--accent-b); }
   .seg-btn:not(.on):hover { color: var(--text-1); }
+  /* task-368: TTS status — live-region always, VISIBLE when it's a failure state.
+     AAA-measured: dark #ef8090 = 7.14:1 on surface-1; light needs a deeper red than
+     --danger-b (#a52d3e = 6.62:1), so it darkens to #962939 = 7.54:1. */
+  .tts-status { font-size: 11px; color: var(--danger-b); }
+  :global([data-theme='light']) .tts-status { color: #962939; }
   .human-note { display: flex; align-items: center; gap: 7px; font-size: 11px; color: var(--text-3); margin: 0 0 12px; }
   .human-note svg { color: var(--accent-b); }
 
-  /* ── responsive: phone (sidebar drops below body, buttons stay reachable) ── */
-  @media (max-width: 760px) {
+  /* ── responsive: phone (sidebar drops below body, buttons stay reachable).
+     @container app, NOT @media — aligned with the shell's single 760px breakpoint
+     (task-333: mixing viewport + container units for the same layer is the drift class). ── */
+  @container app (max-width: 760px) {
     .screen.detail { max-width: 100%; }
     .grid { grid-template-columns: 1fr; gap: 20px; }
     .col-side { order: 2; }
     .actionbar { position: sticky; top: 0; z-index: 4; }
     .ab-spacer { display: none; }
     .actionbar .btn { flex: 1; justify-content: center; }
+    /* task-334: reader-bar controls reach the 44px minimum tap target on phone */
+    .rb, .seg-btn, .edit-btn { min-height: 44px; }
+    .rb { height: auto; padding: 0 12px; }
+    .seg-btn { padding: 4px 13px; }
+    .edit-btn { padding: 4px 14px; }
+    .body-tools { gap: 8px; }
     /* sidebar collapses into its <details> on phone */
     .side-wrap > summary { display: flex; align-items: center; gap: 8px; cursor: pointer; list-style: none;
       font-family: var(--mono); font-size: 10px; text-transform: uppercase; letter-spacing: .07em; color: var(--text-3);
@@ -1177,5 +1220,5 @@
     .side { padding: 6px 4px 0; }
   }
   /* on desktop the side-wrap <summary> is hidden — content always shown */
-  @media (min-width: 761px) { .side-wrap > summary { display: none; } .side-wrap > .side { display: flex; } }
+  @container app (min-width: 761px) { .side-wrap > summary { display: none; } .side-wrap > .side { display: flex; } }
 </style>

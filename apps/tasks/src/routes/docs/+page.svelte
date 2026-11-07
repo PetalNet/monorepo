@@ -26,7 +26,11 @@
         <section class="lane">
           <div class="lane-head">
             <span class="lane-ic"><Icon name="doc" size={14} /></span>
-            {#if g.project_id}<a class="proj-link mono" href="/?project={encodeURIComponent(g.project)}">{g.project}</a>{:else}<h2>{g.project}</h2>{/if}
+            <!-- task-332: lane heads are ALWAYS a real h2 (stable heading outline);
+                 the project link nests inside instead of replacing the heading -->
+            <h2>
+              {#if g.project_id}<a class="proj-link mono" href="/?project={encodeURIComponent(g.project)}">{g.project}</a>{:else}{g.project}{/if}
+            </h2>
             <span class="lane-count">{g.docs.length}</span>
           </div>
           <div class="lane-body">

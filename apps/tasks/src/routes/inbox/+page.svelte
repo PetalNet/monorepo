@@ -3,8 +3,13 @@
   import TaskRow from '$lib/TaskRow.svelte';
   import { enhance } from '$app/forms';
   import { projectName } from '$lib/people.js';
+  import { radioNav } from '$lib/a11y.js';
   let { data } = $props();
   const projName = projectName(data.projects);
+
+  // task-359 (merged task-329): announce one-tap answers — the row leaves the list
+  let liveMsg = $state('');
+  const answered = (label) => () => { liveMsg = `Answer submitted: ${label}`; return async ({ update }) => update(); };
 
   function relShort(ts) {
     if (!ts) return '';
@@ -31,6 +36,7 @@
   <header class="page-head">
     <h1>inbox</h1>
     <p class="ph-sub mono">{data.counts.open} open · {data.counts.answered} answered all-time · the async loop, in one place</p>
+    <span class="vh" role="status" aria-live="polite">{liveMsg}</span>
     <dl class="statstrip">
       {#each stats as s}
         <div><dt>{s.k}</dt><dd class={s.strong ? 'strong' : ''}>{s.v}</dd></div>
@@ -56,11 +62,13 @@
                 {#if projName(q.project_id)}<span class="mono dim">{projName(q.project_id)}</span>{/if}
                 <span class="mono dim">asked {relShort(q.created_at)} ago</span>
               </span>
-              <div class="q-answer">
+              <!-- task-359 (merged 329): radiogroup semantics on the answer control -->
+              <div class="q-answer" role={q.opts.length ? 'radiogroup' : undefined}
+                aria-label={q.opts.length ? `Answer: ${q.title}` : undefined} use:radioNav>
                 {#each q.opts as o}
-                  <form method="POST" action="?/answer" use:enhance>
+                  <form method="POST" action="?/answer" use:enhance={answered(o.label)}>
                     <input type="hidden" name="id" value={q.id} /><input type="hidden" name="value" value={o.value} />
-                    <button class="q-opt">{o.label}</button>
+                    <button class="q-opt" role="radio" aria-checked="false">{o.label}</button>
                   </form>
                 {/each}
                 {#if !q.opts.length}

@@ -38,9 +38,34 @@
     document.documentElement.dataset.theme = next;
     try { localStorage.setItem('tasks-theme', next); } catch {}
   }
+
+  // ── "More" sheet (task-335/360): a real dialog, not a checkbox hack ──
+  // The old <label for="more-tgl"> + hidden checkbox was mouse-only: labels aren't
+  // keyboard-operable and the sheet had no Escape/focus handling. Now a button with
+  // aria-expanded opens a dialog that takes focus, traps Tab, closes on Escape and
+  // backdrop, and returns focus to the tab that opened it.
+  let moreOpen = $state(false);
+  let sheetEl = $state(null);
+  let moreBtn = $state(null);
+  function openMore() { moreOpen = true; queueMicrotask(() => sheetEl?.querySelector('a')?.focus()); }
+  function closeMore() { moreOpen = false; moreBtn?.focus(); }
+  function sheetKeydown(e) {
+    if (e.key === 'Escape') { e.preventDefault(); closeMore(); return; }
+    if (e.key !== 'Tab') return;
+    const f = [...sheetEl.querySelectorAll('a[href]')];
+    if (!f.length) return;
+    const first = f[0], last = f[f.length - 1];
+    if (e.shiftKey && document.activeElement === first) { e.preventDefault(); last.focus(); }
+    else if (!e.shiftKey && document.activeElement === last) { e.preventDefault(); first.focus(); }
+  }
+  // close the sheet when a navigation happens from inside it
+  $effect(() => { path; moreOpen = false; });
 </script>
 
 <div class="app">
+  <!-- skip link — first tab stop on every route (task-360) -->
+  <a class="skip" href="#main">Skip to content</a>
+
   <!-- DESKTOP SIDEBAR — Nexus-style grouped nav, collapses to an icon rail -->
   <NavSidebar bind:collapsed fleet={data.fleet} />
 
@@ -50,7 +75,7 @@
     <button class="ico-theme" onclick={toggleTheme} title="Theme" aria-label="Theme"><Icon name="moon" size={18} /></button>
   </header>
 
-  <main class="main">
+  <main class="main" id="main" tabindex="-1">
     <!-- DESKTOP top bar — toggle · global search · account menu (no section-name parrot) -->
     <header class="topbar-d">
       <button class="tb-toggle" onclick={() => (collapsed = !collapsed)} aria-label={collapsed ? 'Expand sidebar' : 'Collapse sidebar'} title={collapsed ? 'Expand' : 'Collapse'}>
@@ -82,21 +107,22 @@
     <div class="main-scroll">{@render children()}</div>
   </main>
 
-  <!-- MOBILE bottom tab bar + More sheet -->
-  <input type="checkbox" id="more-tgl" hidden />
-  <label class="sheet-bd" for="more-tgl" aria-hidden="true"></label>
-  <div class="sheet" role="dialog" aria-label="More">
-    <h3>More</h3>
-    <a href="/docs"><Icon name="doc" size={20} />Docs</a>
-    <a href="/gallery"><Icon name="gallery" size={20} />Gallery</a>
-    <a href="/projects"><Icon name="projects" size={20} />Projects</a>
+  <!-- MOBILE bottom tab bar + More sheet (a real dialog — keyboard + AT operable, task-335/360) -->
+  <button class="sheet-bd" class:open={moreOpen} tabindex="-1" aria-hidden="true" onclick={closeMore}></button>
+  <div class="sheet" class:open={moreOpen} id="more-sheet" role="dialog" aria-modal="true" tabindex="-1"
+    aria-labelledby="more-sheet-title" bind:this={sheetEl} onkeydown={sheetKeydown}>
+    <h3 id="more-sheet-title">More</h3>
+    <a href="/docs" aria-current={path.startsWith('/docs') ? 'page' : undefined}><Icon name="doc" size={20} />Docs</a>
+    <a href="/gallery" aria-current={path.startsWith('/gallery') ? 'page' : undefined}><Icon name="gallery" size={20} />Gallery</a>
+    <a href="/projects" aria-current={path.startsWith('/projects') ? 'page' : undefined}><Icon name="projects" size={20} />Projects</a>
   </div>
-  <nav class="tabbar">
-    <a class="tab" class:on={isActive('desk')} href="/"><Icon name="desk" size={20} /><span>Desk</span></a>
-    <a class="tab" class:on={isActive('browse')} href="/browse"><Icon name="board" size={20} /><span>Browse</span></a>
-    <a class="tab" class:on={isActive('fleet')} href="/fleet"><Icon name="bolt" size={20} /><span>Fleet</span></a>
-    <a class="tab" class:on={isActive('new')} href="/new"><Icon name="plus" size={20} /><span>New</span></a>
-    <label class="tab" for="more-tgl"><Icon name="more" size={20} /><span>More</span></label>
+  <nav class="tabbar" aria-label="Primary">
+    <a class="tab" class:on={isActive('desk')} aria-current={isActive('desk') ? 'page' : undefined} href="/"><Icon name="desk" size={20} /><span>Desk</span></a>
+    <a class="tab" class:on={isActive('browse')} aria-current={isActive('browse') ? 'page' : undefined} href="/browse"><Icon name="board" size={20} /><span>Browse</span></a>
+    <a class="tab" class:on={isActive('fleet')} aria-current={isActive('fleet') ? 'page' : undefined} href="/fleet"><Icon name="bolt" size={20} /><span>Fleet</span></a>
+    <a class="tab" class:on={isActive('new')} aria-current={isActive('new') ? 'page' : undefined} href="/new"><Icon name="plus" size={20} /><span>New</span></a>
+    <button class="tab" type="button" bind:this={moreBtn} aria-haspopup="dialog" aria-expanded={moreOpen}
+      aria-controls="more-sheet" onclick={() => (moreOpen ? closeMore() : openMore())}><Icon name="more" size={20} /><span>More</span></button>
   </nav>
 </div>
 
@@ -167,13 +193,16 @@
 
     .tabbar { display: flex; background: var(--surface-1); border-top: 1px solid var(--border-sub); flex-shrink: 0;
       padding: 6px 6px calc(6px + env(safe-area-inset-bottom)); position: sticky; bottom: 0; z-index: 5; }
-    .tab { flex: 1; display: flex; flex-direction: column; align-items: center; gap: 3px; padding: 7px 4px;
-      border-radius: var(--radius); color: var(--text-4); font-size: 9.5px; font-weight: 600; text-decoration: none; cursor: pointer; }
+    .tab { flex: 1; min-width: 0; display: flex; flex-direction: column; align-items: center; gap: 3px; padding: 7px 4px;
+      border-radius: var(--radius); color: var(--text-4); font-size: 9.5px; font-weight: 600; text-decoration: none; cursor: pointer;
+      background: none; border: 0; font-family: inherit; }
     .tab.on { color: var(--accent-b); }
+    /* task-335: labels clip with an ellipsis instead of colliding on ~320px phones */
+    .tab span { max-width: 100%; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 
-    /* "More" sheet — the tucked-away secondary nav */
-    #more-tgl:checked ~ .sheet-bd { display: block; position: fixed; inset: 0; background: rgba(0,0,0,.5); z-index: 40; }
-    #more-tgl:checked ~ .sheet { display: flex; }
+    /* "More" sheet — the tucked-away secondary nav (state-driven; keyboard-operable) */
+    .sheet-bd.open { display: block; position: fixed; inset: 0; background: rgba(0,0,0,.5); z-index: 40; cursor: default; }
+    .sheet.open { display: flex; }
     .sheet { position: fixed; left: 0; right: 0; bottom: 0; z-index: 41; flex-direction: column; gap: 2px;
       background: var(--surface-1); border-top: 1px solid var(--border); border-radius: var(--radius-lg) var(--radius-lg) 0 0;
       padding: 10px 12px calc(16px + env(safe-area-inset-bottom)); }
@@ -184,5 +213,7 @@
     .sheet a:hover { background: var(--surface-2); }
   }
 
-  :where(a, button, input, select, label, [tabindex]):focus-visible { outline: 2px solid var(--accent-b); outline-offset: 2px; border-radius: 3px; }
+  /* focus-visible ring lives in app.css (one global rule, hugging each element's own radius) */
+  /* the skip-link target: no ring on programmatic focus, only when keyboard-focused directly */
+  .main:focus { outline: none; }
 </style>
