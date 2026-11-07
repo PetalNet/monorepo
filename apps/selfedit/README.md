@@ -1,8 +1,12 @@
 # selfedit
 
 `selfedit` is the single write path for an agent's memory repository. Each
-write is one git commit that records where the change came from. Only an owner
-can cause a rule.
+write is one git commit that records where the change came from. Only a sender
+in the owners file can cause a rule.
+
+The caller reports `--sender`, and this version does not check it against the
+Matrix event. A forged sender is recorded in the commit, not prevented, so the
+rule gate is only as strong as the caller that sets `--sender`.
 
 ## Usage
 
