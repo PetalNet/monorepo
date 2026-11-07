@@ -105,6 +105,7 @@ const fingerprint = () => {
 
 	return createHash("sha256").update(JSON.stringify(rows)).digest("hex");
 };
+
 const before = fingerprint();
 
 const cleanEnv = Object.fromEntries(
@@ -145,6 +146,7 @@ t("--alert drops exactly the expected digest", () => {
 	assert.equal(msg.sender, "ada");
 	assert.ok(msg.ts >= startedAt && msg.ts <= endedAt, `ts ${msg.ts} is not epoch ms of this run`);
 	assert.equal(files[0], `${msg.ts}000-ada.json`);
+
 	assert.equal(
 		msg.body,
 		[
@@ -196,10 +198,12 @@ t("--json prints the report and saves nothing", () => {
 		report.health.aging_high_priority.map((x) => x.id),
 		[agingP0, agingP1, freshP1],
 	);
+
 	assert.deepEqual(
 		report.health.stale_doing.map((x) => x.id),
 		[doing],
 	);
+
 	assert.equal(report.health.inbox_untriaged.n, 1);
 	assert.deepEqual(reports(), []);
 	assert.equal(readdirSync(OUTBOX).length, 1);

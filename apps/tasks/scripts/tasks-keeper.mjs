@@ -171,10 +171,12 @@ p(`# tasks-keeper report — ${report.generated_at}`);
 p(`\n**Board:** ${report.status_counts.map((s) => `${s.n} ${s.status}`).join(" · ")}`);
 p(`\n## Health (act on these)`);
 p(`\n### Aging high-priority (P0/P1 still open)`);
+
 each(
 	H.aging_high_priority,
 	(t) => `- #${t.id} [P${t.priority}/${t.status}] ${t.days}d — ${t.title}`,
 );
+
 p(`\n### Stale 'doing' (>3d untouched)`);
 each(H.stale_doing, (t) => `- #${t.id} ${t.days}d — ${t.title}`);
 p(`\n### Review pileup (>7d in review — done or abandoned?)`);
@@ -188,10 +190,13 @@ each(C.duplicate_titles, (d) => `- "${d.t}" → #${d.ids}`);
 p(`\n### Label/content mismatch (title says pending/todo, body says done)`);
 each(C.label_content_mismatch, (t) => `- #${t.id} [${t.status}] — ${t.title}`);
 p(`\n### Terminal tasks >60d old (archive candidates): **${C.terminal_archive_candidates.n}**`);
+
 p(
 	`\n## DB: ${report.db.tasks} tasks · ${report.db.events} events · ${report.db.artifacts} artifacts`,
 );
+
 p(`_events: ${report.db.events_note}_`);
+
 p(
 	`\n---\n_Report-only. Acting on consolidation items is a gated/human step — this keeper never mutates the board._`,
 );
