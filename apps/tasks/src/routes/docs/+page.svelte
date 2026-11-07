@@ -20,6 +20,16 @@
     <p class="ph-sub mono">{data.total} research docs, briefs &amp; ADRs · grouped by project</p>
   </header>
 
+  {#if data.total > data.pageSize}
+    {@const firstIdx = data.page * data.pageSize + 1}
+    {@const lastIdx = data.page * data.pageSize + data.shown}
+    <nav class="docs-pager mono" aria-label="doc pages">
+      {#if data.page > 0}<a class="pg" href="?page={data.page - 1}">← newer</a>{:else}<span class="pg dis">← newer</span>{/if}
+      <span class="pg-range">{firstIdx}–{lastIdx} of {data.total}</span>
+      {#if data.hasMore}<a class="pg" href="?page={data.page + 1}">older →</a>{:else}<span class="pg dis">older →</span>{/if}
+    </nav>
+  {/if}
+
   {#if data.groups.length}
     <div class="lanes">
       {#each data.groups as g (g.project)}
@@ -59,4 +69,9 @@
   .proj-link:hover { color: var(--accent-b); }
   .row-right { display: flex; align-items: center; gap: 10px; }
   .empty { color: var(--text-4); font-size: 13px; }
+  .docs-pager { display: flex; align-items: center; justify-content: center; gap: 16px; padding: 4px 0 16px; font-size: 12px; }
+  .docs-pager .pg { text-decoration: none; color: var(--text-2); padding: 4px 10px; border: 1px solid var(--line, var(--text-4)); border-radius: 6px; }
+  .docs-pager .pg:hover { color: var(--accent-b); }
+  .docs-pager .pg.dis { color: var(--text-4); border-color: transparent; pointer-events: none; }
+  .docs-pager .pg-range { color: var(--text-3); }
 </style>

@@ -95,38 +95,59 @@
       '^\\s*(?:' + terms.map((g) => escRe(g.term)).join('|') + ')\\s*(?:[—–:-]|--)\\s',
       'i'
     );
-    // wrap each defined term at its FIRST occurrence (wiki-style), one term at a
-    // time so two terms in the same text node both get wrapped.
-    for (const { term, def } of terms) {
-      // explicit word-char boundaries (not \b) so terms with non-word edges match too
-      // — ".env", "C++", ".14" all have non-word first/last chars that \b can't bound.
-      const re = new RegExp('(?<![A-Za-z0-9_])' + escRe(term) + '(?![A-Za-z0-9_])', 'i');
-      const walker = document.createTreeWalker(el, NodeFilter.SHOW_TEXT, {
-        acceptNode(n) {
-          // skip headings, code, links, and any already-wrapped term
-          if (n.parentElement?.closest('h1,h2,h3,h4,h5,h6,code,pre,a,.gloss')) return NodeFilter.FILTER_REJECT;
-          // skip the glossary's own definition entries — otherwise a term's FIRST
-          // occurrence is inside its "- **Term** — definition" <li>, so it self-wraps
-          // there instead of in the body.
-          const li = n.parentElement?.closest('li');
-          if (li && defEntry.test(li.textContent)) return NodeFilter.FILTER_REJECT;
-          return re.test(n.nodeValue) ? NodeFilter.FILTER_ACCEPT : NodeFilter.FILTER_SKIP;
+    // PERF (task-307): the old effect built a fresh RegExp + a fresh TreeWalker PER term and
+    // walked the ENTIRE rendered prose (up to 60k chars) once per term — O(terms × DOM), re-fired
+    // on every technical⇄human toggle. Now: ONE combined alternation RegExp (terms are pre-sorted
+    // longest-first, so at any index the longest term wins — "API key" beats "API"), and ONE walk
+    // that collects the eligible text nodes; then wrap each term at its first occurrence in a
+    // single left-to-right scan. Explicit word-char boundaries (not \b) so terms with non-word
+    // edges match too — ".env", "C++", ".14" all have non-word first/last chars \b can't bound.
+    const byTerm = new Map(terms.map((g) => [g.term.toLowerCase(), g]));
+    const combined = new RegExp(
+      '(?<![A-Za-z0-9_])(' + terms.map((g) => escRe(g.term)).join('|') + ')(?![A-Za-z0-9_])',
+      'gi'
+    );
+    // collect eligible text nodes in ONE walk (don't mutate the DOM mid-traversal)
+    const walker = document.createTreeWalker(el, NodeFilter.SHOW_TEXT, {
+      acceptNode(n) {
+        // skip headings, code, links, and any already-wrapped term
+        if (n.parentElement?.closest('h1,h2,h3,h4,h5,h6,code,pre,a,.gloss')) return NodeFilter.FILTER_REJECT;
+        // skip the glossary's own definition entries — otherwise a term's FIRST occurrence is
+        // inside its "- **Term** — definition" <li>, so it self-wraps there instead of the body.
+        const li = n.parentElement?.closest('li');
+        if (li && defEntry.test(li.textContent)) return NodeFilter.FILTER_REJECT;
+        return NodeFilter.FILTER_ACCEPT;
+      }
+    });
+    const nodes = [];
+    for (let n = walker.nextNode(); n; n = walker.nextNode()) nodes.push(n);
+    const wrapped = new Set();  // lowercased terms already wrapped (each term wraps once, wiki-style)
+    for (let node of nodes) {
+      // wrap successive first-occurrence terms within this node; after each wrap continue on the
+      // tail remainder so two terms in the same text node both get wrapped.
+      while (node && wrapped.size < byTerm.size) {
+        combined.lastIndex = 0;
+        let m, hit = null;
+        while ((m = combined.exec(node.nodeValue))) {
+          if (!wrapped.has(m[0].toLowerCase())) { hit = m; break; }
         }
-      });
-      const text = walker.nextNode();
-      if (!text) continue;
-      const m = text.nodeValue.match(re);
-      const after = text.splitText(m.index);
-      after.nodeValue = after.nodeValue.slice(m[0].length);
-      const span = document.createElement('span');
-      span.className = 'gloss';
-      span.textContent = m[0];
-      span.setAttribute('data-def', def);     // CSS hover card (pointer users)
-      span.title = def;                        // native tooltip — touch long-press + fallback
-      span.tabIndex = 0;                        // keyboard-focusable (hover card shows on focus)
-      span.setAttribute('role', 'note');
-      span.setAttribute('aria-label', `${m[0]}: ${def}`); // screen-reader gets the definition
-      text.parentNode.insertBefore(span, after);
+        if (!hit) break;
+        const g = byTerm.get(hit[0].toLowerCase());
+        const after = node.splitText(hit.index);
+        after.nodeValue = after.nodeValue.slice(hit[0].length);
+        const span = document.createElement('span');
+        span.className = 'gloss';
+        span.textContent = hit[0];
+        span.setAttribute('data-def', g.def);     // CSS hover card (pointer users)
+        span.title = g.def;                        // native tooltip — touch long-press + fallback
+        span.tabIndex = 0;                          // keyboard-focusable (hover card shows on focus)
+        span.setAttribute('role', 'note');
+        span.setAttribute('aria-label', `${hit[0]}: ${g.def}`); // screen-reader gets the definition
+        after.parentNode.insertBefore(span, after);
+        wrapped.add(hit[0].toLowerCase());
+        node = after;   // continue scanning the remainder of this node
+      }
+      if (wrapped.size >= byTerm.size) break;
     }
   });
 

@@ -2,7 +2,6 @@
   import Icon from '$lib/Icon.svelte';
   import { projectName, whoColor } from '$lib/people.js';
   let { data } = $props();
-  let tab = $state('open');
 
   // whoColor single-sourced from $lib/people (this page's falsy fallback is the default 'var(--text-3)').
   const AGENTS = ['claude', 'agent-a', 'agent-b', 'codex', 'agent-d', 'agent-e'];
@@ -20,7 +19,12 @@
   }
   const labelHue = (t) => Math.abs([...t].reduce((a, c) => (a * 31 + c.charCodeAt(0)) | 0, 7)) % 360;
 
-  const list = $derived(tab === 'open' ? data.open : data.closed);
+  // Server-paginated (task-317): the list, tab, and page all come from the loader; tab switches
+  // and prev/next are plain links that re-query one bounded page (no full-history payload).
+  const tabHref = (t) => `?tab=${t}`;
+  const pageHref = (p) => `?tab=${data.tab}&page=${p}`;
+  const firstIdx = $derived(data.page * data.pageSize + 1);
+  const lastIdx = $derived(data.page * data.pageSize + data.rows.length);
 </script>
 
 <svelte:head><title>issues · tasks</title></svelte:head>
@@ -34,16 +38,16 @@
 <div class="screen issues">
   <header class="page-head">
     <h1>issues</h1>
-    <p class="ph-sub mono">{data.open.length} open · {data.closed.length} closed · {data.projectCount} projects</p>
+    <p class="ph-sub mono">{data.openCount} open · {data.closedCount} closed · {data.projectCount} projects</p>
   </header>
 
   <div class="iss-list">
     <div class="iss-tabs">
-      <button class:on={tab === 'open'} onclick={() => (tab = 'open')}><Icon name="iopen" size={15} /> {data.open.length} Open</button>
-      <button class:on={tab === 'closed'} onclick={() => (tab = 'closed')}><Icon name="iclosed" size={15} /> {data.closed.length} Closed</button>
+      <a class="iss-tab" class:on={data.tab === 'open'} href={tabHref('open')}><Icon name="iopen" size={15} /> {data.openCount} Open</a>
+      <a class="iss-tab" class:on={data.tab === 'closed'} href={tabHref('closed')}><Icon name="iclosed" size={15} /> {data.closedCount} Closed</a>
     </div>
 
-    {#each list as it (it.id)}
+    {#each data.rows as it (it.id)}
       {@const closed = it.status === 'done' || it.status === 'dropped'}
       {@const author = it.created_by || it.responsible || it.assignee}
       <a class="iss-row" href="/task/{it.id}">
@@ -67,7 +71,24 @@
         </span>
       </a>
     {:else}
-      <div class="iss-empty">no {tab} issues.</div>
+      <div class="iss-empty">no {data.tab} issues.</div>
     {/each}
+
+    {#if data.rows.length && (data.page > 0 || data.hasMore)}
+      <nav class="iss-pager mono" aria-label="issue pages">
+        {#if data.page > 0}<a class="pg" href={pageHref(data.page - 1)}>← newer</a>{:else}<span class="pg dis">← newer</span>{/if}
+        <span class="pg-range">{firstIdx}–{lastIdx}</span>
+        {#if data.hasMore}<a class="pg" href={pageHref(data.page + 1)}>older →</a>{:else}<span class="pg dis">older →</span>{/if}
+      </nav>
+    {/if}
   </div>
 </div>
+
+<style>
+  .iss-tab { display: inline-flex; align-items: center; gap: 6px; text-decoration: none; color: inherit; }
+  .iss-pager { display: flex; align-items: center; justify-content: center; gap: 16px; padding: 16px 0 4px; font-size: 12px; }
+  .iss-pager .pg { text-decoration: none; color: var(--text-2); padding: 4px 10px; border: 1px solid var(--line, var(--text-4)); border-radius: 6px; }
+  .iss-pager .pg:hover { color: var(--accent-b); }
+  .iss-pager .pg.dis { color: var(--text-4); border-color: transparent; pointer-events: none; }
+  .iss-pager .pg-range { color: var(--text-3); }
+</style>
