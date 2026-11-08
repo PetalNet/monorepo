@@ -69,7 +69,9 @@
             }
 
             // The innermost Prisma package of a path. (Not every @prisma/* package shares
-            // Prisma's version: @prisma/engines-version doesn't.)
+            // Prisma's version: @prisma/engines-version doesn't.) The variables are global
+            // to the process, so one process can use only one Prisma version's engines, and
+            // a bundle that resolves no Prisma file keeps the working-directory choice.
             const prismaPackage = /^(.*[\\/]node_modules[\\/](?:prisma|@prisma[\\/](?:client|engines)))[\\/]/;
             const versions = new Map();
             registerHooks?.({
@@ -78,12 +80,18 @@
                 const root = result.url.startsWith("file:")
                   ? prismaPackage.exec(fileURLToPath(result.url))?.[1]
                   : undefined;
-                if (root !== undefined) {
-                  if (!versions.has(root)) {
+                if (root !== undefined && !versions.has(root)) {
+                  try {
                     const manifest = path.join(root, "package.json");
                     versions.set(root, JSON.parse(fs.readFileSync(manifest, "utf8")).version);
+                  } catch {
+                    // Not a package we can read; leave the choice alone.
+                    versions.set(root, null);
                   }
-                  use(versions.get(root));
+                }
+                const version = versions.get(root);
+                if (version !== undefined && version !== null) {
+                  use(version);
                 }
                 return result;
               },
