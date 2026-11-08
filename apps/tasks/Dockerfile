@@ -16,7 +16,7 @@ COPY --from=build /workspace/apps/tasks/package.json /workspace/apps/tasks/packa
 COPY --from=build /workspace/apps/tasks/build /workspace/apps/tasks/build
 COPY --from=build /workspace/apps/tasks/server.js /workspace/apps/tasks/server.js
 COPY --from=build /workspace/apps/tasks/mcp /workspace/apps/tasks/mcp
-COPY --from=build /workspace/apps/tasks/scripts/archive-events.mjs /workspace/apps/tasks/scripts/mint-agent-token.mjs /workspace/apps/tasks/scripts/
+COPY --from=build /workspace/apps/tasks/scripts/archive-events.mjs /workspace/apps/tasks/scripts/mint-agent-token.mjs /workspace/apps/tasks/scripts/tasks-keeper.mjs /workspace/apps/tasks/scripts/
 COPY --from=build /workspace/apps/tasks/src/lib/server /workspace/apps/tasks/src/lib/server
 WORKDIR /workspace/apps/tasks
 RUN mkdir -p /data
