@@ -32,9 +32,10 @@ RUN pnpm exec svelte-kit sync && DATABASE_URL=file:placeholder.db pnpm build
 
 # Prune to a production-only tree at /out that is self-contained, so it can be
 # copied to a different path in the runtime stage without the surrounding
-# workspace layout coming with it.
+# workspace layout coming with it. `--ignore-scripts` skips `prepare`, whose
+# svelte-kit is a devDependency and absent from the production tree.
 WORKDIR /repo
-RUN pnpm deploy --filter=@petalnet/collegemap --prod --config.inject-workspace-packages=true /out
+RUN pnpm deploy --filter=@petalnet/collegemap --prod --ignore-scripts --config.inject-workspace-packages=true /out
 
 # `pnpm deploy` copies the manifest verbatim, catalog: specs and devDependencies
 # included, and /out has no pnpm-workspace.yaml to resolve them against -- so any
