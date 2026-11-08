@@ -62,7 +62,7 @@
 			"version": "26.12.1"
 		}
 	},
-	"packageManager": "pnpm@12.16.1",
+	"packageManager": "pnpm@12.18.0",
 	"typesync": {
 		"ignoreProjects": [
 			"apps/box-agent",
