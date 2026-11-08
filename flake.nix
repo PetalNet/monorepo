@@ -22,12 +22,13 @@
         pkgs: pkgs-prisma5:
         let
           # Prisma has no engine downloads for NixOS, so it must be pointed at nixpkgs'
-          # engines (https://wiki.nixos.org/wiki/Prisma), and those must be the build of
-          # the exact Prisma version that runs. PetalBoard and Slide pin different majors,
-          # so one set of exported paths can't serve both: Slide's Prisma 5 client aborts
-          # on PetalBoard's Prisma 6 query engine. Instead every Node process in the shell
-          # picks the engines for the Prisma installed where it runs, and leaves Prisma
-          # alone (it fails as before) when no nixpkgs build matches.
+          # engines (https://wiki.nixos.org/wiki/Prisma), built from the exact Prisma
+          # version that runs. PetalBoard and Slide pin different majors, and Slide's
+          # Prisma 5 client aborts on Prisma 6's query engine, so the shell can't export
+          # one set of paths. Instead a script preloaded into every Node process sets
+          # them per version: first for the Prisma installed where the process starts,
+          # then again for whichever Prisma package the process actually loads. A
+          # version with no nixpkgs build gets no paths, so Prisma fails as it did before.
           engines = lib.listToAttrs (
             map (e: lib.nameValuePair e.version "${e}") [
               pkgs.prisma-engines_6
@@ -35,31 +36,58 @@
             ]
           );
           selectEngines = pkgs.writeText "prisma-engines.cjs" ''
+            const fs = require("node:fs");
+            const path = require("node:path");
+            const { registerHooks } = require("node:module");
+            const { fileURLToPath } = require("node:url");
+
             const engines = ${builtins.toJSON engines};
-            let version;
-            try {
-              const manifest = require.resolve("prisma/package.json", { paths: [process.cwd()] });
-              version = require(manifest).version;
-            } catch {
-              // No Prisma here (Prisma's postinstall runs its CLI from the repository
-              // root, for one), so keep whatever the parent process chose.
-              return;
-            }
-            const dir = engines[version];
             const files = {
               PRISMA_SCHEMA_ENGINE_BINARY: "/bin/schema-engine",
               PRISMA_QUERY_ENGINE_BINARY: "/bin/query-engine",
               PRISMA_QUERY_ENGINE_LIBRARY: "/lib/libquery_engine.node",
               PRISMA_FMT_BINARY: "/bin/prisma-fmt",
             };
-            // Set or clear all four, so a parent's choice for another version never leaks.
-            for (const [name, file] of Object.entries(files)) {
-              if (dir === undefined) {
-                delete process.env[name];
-              } else {
-                process.env[name] = dir + file;
+
+            // Set or clear all four, so a choice made for another version never leaks.
+            function use(version) {
+              const root = engines[version];
+              for (const [name, file] of Object.entries(files)) {
+                if (root === undefined) {
+                  delete process.env[name];
+                } else {
+                  process.env[name] = root + file;
+                }
               }
             }
+
+            try {
+              use(require(require.resolve("prisma/package.json", { paths: [process.cwd()] })).version);
+            } catch {
+              // No Prisma here (Prisma's postinstall runs from the repository root, for
+              // one), so keep the parent process's choice.
+            }
+
+            // The innermost Prisma package of a path. (Not every @prisma/* package shares
+            // Prisma's version: @prisma/engines-version doesn't.)
+            const prismaPackage = /^(.*[\\/]node_modules[\\/](?:prisma|@prisma[\\/](?:client|engines)))[\\/]/;
+            const versions = new Map();
+            registerHooks?.({
+              resolve(specifier, context, nextResolve) {
+                const result = nextResolve(specifier, context);
+                const root = result.url.startsWith("file:")
+                  ? prismaPackage.exec(fileURLToPath(result.url))?.[1]
+                  : undefined;
+                if (root !== undefined) {
+                  if (!versions.has(root)) {
+                    const manifest = path.join(root, "package.json");
+                    versions.set(root, JSON.parse(fs.readFileSync(manifest, "utf8")).version);
+                  }
+                  use(versions.get(root));
+                }
+                return result;
+              },
+            });
           '';
         in
         {
