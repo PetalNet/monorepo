@@ -5,13 +5,15 @@ WORKDIR /workspace
 FROM base AS build
 COPY . .
 RUN CI=true pnpm install --frozen-lockfile --filter @petalnet/tasks && pnpm --filter @petalnet/tasks build
+# A filtered install still links the workspace root's dev tooling (~900 MB). Ship only the
+# production dependency tree of the tasks package.
+RUN CI=true pnpm --filter @petalnet/tasks deploy --prod /prod
 FROM node:26.5.1-bookworm-slim@sha256:9e6f9357d371591e32ab6f2d8a26d63bdd0d17c29eee3f4f3e7e454d9634bf73
 ARG MONOREPO_SHA=unknown
 LABEL org.opencontainers.image.source=https://github.com/PetalNet/monorepo
 LABEL org.opencontainers.image.revision=$MONOREPO_SHA
 ENV NODE_ENV=production PORT=8896
-COPY --from=build /workspace/node_modules /workspace/node_modules
-COPY --from=build /workspace/apps/tasks/node_modules /workspace/apps/tasks/node_modules
+COPY --from=build /prod/node_modules /workspace/apps/tasks/node_modules
 COPY --from=build /workspace/apps/tasks/package.json /workspace/apps/tasks/package.json
 COPY --from=build /workspace/apps/tasks/build /workspace/apps/tasks/build
 COPY --from=build /workspace/apps/tasks/server.js /workspace/apps/tasks/server.js
