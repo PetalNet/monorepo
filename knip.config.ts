@@ -57,8 +57,13 @@ export default (({ strict }) => ({
 			ignoreBinaries: ["wasm-bindgen"],
 		},
 		"apps/petalboard": {
-			// Only the gitignored generated Prisma client imports @prisma/client/runtime.
-			ignoreDependencies: ["@prisma/client"],
+			ignoreDependencies: [
+				// Only the gitignored generated Prisma client imports @prisma/client/runtime.
+				"@prisma/client",
+				// The image's CMD runs `prisma migrate deploy`, which strict Knip cannot see. The
+				// non-strict run still counts the package scripts that use it.
+				"prisma!",
+			],
 		},
 		"apps/tasks": {
 			// Cron, MCP, and production server entrypoints run directly rather than being imported.
