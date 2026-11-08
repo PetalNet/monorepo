@@ -2,7 +2,7 @@
 # (mounted) so it mirrors the live tracker-session session. Runs as uid 1000 (host docker user
 # owns the socket). Bound inside-container only — reachable on the tasks docker network, NOT
 # host-localhost (an operator's container-isolation; no SSRF surface from host processes).
-FROM alpine:3.20
+FROM alpine:3.20@sha256:d9e853e87e55526f6b2917df91a2115c36dd7c696a35be12163d44e6e2a4b6bc
 # Pin ttyd to a specific release + verify sha256 (supply-chain: never releases/latest, which is a
 # moving target an upstream compromise could swap). Bump = update both the version and the hash.
 ARG TTYD_VERSION=1.7.7
