@@ -1,5 +1,5 @@
 # syntax=docker/dockerfile:1.28@sha256:bb22d9815c728170f72750f4e5b0d672e06176142e1d602c7e66c050100b7e5b
-FROM node:26.5.1-bookworm-slim@sha256:9e6f9357d371591e32ab6f2d8a26d63bdd0d17c29eee3f4f3e7e454d9634bf73 AS base
+FROM node:26.12.1-bookworm-slim@sha256:88e480776c6149ff1d098cd304f44bf18057fb5d284a3329b78162d29821e28c AS base
 RUN apt-get update && apt-get install -y --no-install-recommends ca-certificates python3 make g++ && rm -rf /var/lib/apt/lists/* && npm install -g pnpm@12.16.1
 WORKDIR /workspace
 FROM base AS build
@@ -8,7 +8,7 @@ RUN CI=true pnpm install --frozen-lockfile --filter @petalnet/tasks && pnpm --fi
 # A filtered install still links the workspace root's dev tooling (~900 MB). Ship only the
 # production dependency tree of the tasks package.
 RUN CI=true pnpm --filter @petalnet/tasks deploy --prod /prod
-FROM node:26.5.1-bookworm-slim@sha256:9e6f9357d371591e32ab6f2d8a26d63bdd0d17c29eee3f4f3e7e454d9634bf73
+FROM node:26.12.1-bookworm-slim@sha256:88e480776c6149ff1d098cd304f44bf18057fb5d284a3329b78162d29821e28c
 ARG MONOREPO_SHA=unknown
 LABEL org.opencontainers.image.source=https://github.com/PetalNet/monorepo
 LABEL org.opencontainers.image.revision=$MONOREPO_SHA
