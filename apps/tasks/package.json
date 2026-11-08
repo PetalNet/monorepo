@@ -14,6 +14,8 @@
 	},
 	"dependencies": {
 		"@modelcontextprotocol/sdk": "catalog:prod",
+		"@sentry/core": "catalog:prod",
+		"@sentry/node": "catalog:prod",
 		"better-sqlite3": "catalog:prod",
 		"ws": "catalog:prod",
 		"zod": "catalog:prod"

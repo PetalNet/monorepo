@@ -223,6 +223,12 @@ catalogs:
     '@prisma/client':
       specifier: ^5.22.0
       version: 5.22.0
+    '@sentry/core':
+      specifier: ^10.78.0
+      version: 10.78.0
+    '@sentry/node':
+      specifier: ^10.78.0
+      version: 10.78.0
     '@sentry/sveltekit':
       specifier: ^10.78.0
       version: 10.78.0
@@ -943,6 +949,12 @@ importers:
       '@modelcontextprotocol/sdk':
         specifier: catalog:prod
         version: 1.32.0(zod@4.6.5)
+      '@sentry/core':
+        specifier: catalog:prod
+        version: 10.78.0
+      '@sentry/node':
+        specifier: catalog:prod
+        version: 10.78.0(@opentelemetry/core@2.12.0(@opentelemetry/api@1.9.1))
       better-sqlite3:
         specifier: catalog:prod
         version: 12.11.1

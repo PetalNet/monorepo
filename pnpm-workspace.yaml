@@ -155,6 +155,8 @@ catalogs:
     "@lucide/svelte": ^1.23.0
     "@modelcontextprotocol/sdk": ^1.29.0
     "@prisma/client": ^5.22.0
+    "@sentry/core": ^10.78.0
+    "@sentry/node": ^10.78.0
     "@sentry/sveltekit": ^10.78.0
     "@sveltejs/kit": ^2.70.3
     better-sqlite3: ^12.11.1

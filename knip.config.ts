@@ -68,6 +68,12 @@ export default (({ strict }) => ({
 				// CSS @import directives load these fonts, which Knip does not analyze.
 				"@fontsource-variable/geist",
 				"@fontsource-variable/geist-mono",
+				// Listed so adapter-node keeps Sentry's Node SDK external: bundled into the ESM
+				// server, its require hook calls an undefined require. @sentry/sveltekit imports them.
+				"@sentry/core",
+				"@sentry/core!",
+				"@sentry/node",
+				"@sentry/node!",
 			],
 		},
 		"apps/slide": {
