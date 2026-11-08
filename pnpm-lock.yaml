@@ -67,8 +67,8 @@ catalogs:
       specifier: 4.0.1
       version: 4.0.1
     effect-qb:
-      specifier: 0.24.1
-      version: 0.24.1
+      specifier: 0.24.2
+      version: 0.24.2
     fontless:
       specifier: ^1.2.1
       version: 1.2.1
@@ -1069,7 +1069,7 @@ importers:
         version: 4.0.0(effect@4.0.1)
       effect-qb:
         specifier: 'catalog:'
-        version: 0.24.1(effect@4.0.1)
+        version: 0.24.2(effect@4.0.1)
     devDependencies:
       '@better-auth/core':
         specifier: 'catalog:'
@@ -5284,11 +5284,11 @@ packages:
   ee-first@1.1.1:
     resolution: {integrity: sha512-WMwm9LhRUo+WUaRN+vRuETqG89IgZphVSNkdFgeb6sS/E4OrDIN7t48CAewSHXc6C8lefD8KKfr5vY61brQlow==}
 
-  effect-qb@0.24.1:
-    resolution: {integrity: sha512-hIPX2qAZfr6xDKyd+//KR1AqoJBQWuNKBCGodm+at+y05/YzZ/P/LAeErmk7KHFrrcv2IlAwQif9Euq1EGh//g==}
+  effect-qb@0.24.2:
+    resolution: {integrity: sha512-Q/avslFYAJNTb0Lad0N6NYxHnBLoE5luKJuAYohZXuMZhAcnritlagHz6w8oHiBf1mfzGhkeQ/R/5/2zCJRUTg==}
     engines: {node: '>=22'}
     peerDependencies:
-      effect: ^4.0.0
+      effect: '>=4.0.0 <4.1.0'
 
   effect@3.21.0:
     resolution: {integrity: sha512-PPN80qRokCd1f015IANNhrwOnLO7GrrMQfk4/lnZRE/8j7UPWrNNjPV0uBrZutI/nHzernbW+J0hdqQysHiSnQ==}
@@ -11506,7 +11506,7 @@ snapshots:
 
   ee-first@1.1.1: {}
 
-  effect-qb@0.24.1(effect@4.0.1):
+  effect-qb@0.24.2(effect@4.0.1):
     dependencies:
       effect: 4.0.1
       pgsql-ast-parser: 12.0.2
