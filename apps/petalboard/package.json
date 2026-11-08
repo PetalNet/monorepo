@@ -14,29 +14,29 @@
 		"test": "vitest run"
 	},
 	"dependencies": {
-		"@lucide/svelte": "catalog:prod",
-		"@prisma/client": "catalog:prisma6",
-		"@sveltejs/kit": "catalog:prod",
-		"nanoid": "catalog:prod",
-		"remark": "catalog:prod",
-		"remark-gfm": "catalog:prod",
-		"remark-html": "catalog:prod",
-		"svelte": "catalog:prod",
-		"zod": "catalog:prod"
+		"@prisma/client": "catalog:prisma6"
 	},
 	"devDependencies": {
+		"@lucide/svelte": "catalog:prod",
 		"@sveltejs/adapter-node": "catalog:dev",
+		"@sveltejs/kit": "catalog:prod",
 		"@sveltejs/vite-plugin-svelte": "catalog:dev",
 		"@types/google.maps": "catalog:types",
 		"@types/node": "catalog:types",
 		"autoprefixer": "catalog:dev",
 		"happy-dom": "catalog:dev",
+		"nanoid": "catalog:prod",
 		"postcss": "catalog:dev",
 		"prisma": "catalog:prisma6",
+		"remark": "catalog:prod",
+		"remark-gfm": "catalog:prod",
+		"remark-html": "catalog:prod",
+		"svelte": "catalog:prod",
 		"svelte-check": "catalog:dev",
 		"tailwindcss": "catalog:legacy",
 		"typescript": "catalog:dev",
 		"vite": "catalog:dev",
-		"vitest": "catalog:dev"
+		"vitest": "catalog:dev",
+		"zod": "catalog:prod"
 	}
 }

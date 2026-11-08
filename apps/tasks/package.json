@@ -13,13 +13,21 @@
 		"test": "node scripts/test-public-share.mjs && node scripts/test-access.mjs && node scripts/test-agent-api.mjs && node scripts/test-telemetry.mjs && node scripts/test-keeper.mjs"
 	},
 	"dependencies": {
+		"@modelcontextprotocol/sdk": "catalog:prod",
+		"better-sqlite3": "catalog:prod",
+		"ws": "catalog:prod",
+		"zod": "catalog:prod"
+	},
+	"devDependencies": {
 		"@fontsource-variable/geist": "catalog:prod",
 		"@fontsource-variable/geist-mono": "catalog:prod",
 		"@lucide/svelte": "catalog:prod",
-		"@modelcontextprotocol/sdk": "catalog:prod",
 		"@sentry/sveltekit": "catalog:prod",
+		"@sveltejs/adapter-node": "catalog:dev",
 		"@sveltejs/kit": "catalog:prod",
-		"better-sqlite3": "catalog:prod",
+		"@sveltejs/vite-plugin-svelte": "catalog:dev",
+		"@types/better-sqlite3": "catalog:types",
+		"@types/ws": "catalog:types",
 		"rehype-sanitize": "catalog:prod",
 		"rehype-stringify": "catalog:prod",
 		"remark-breaks": "catalog:prod",
@@ -27,16 +35,8 @@
 		"remark-parse": "catalog:prod",
 		"remark-rehype": "catalog:prod",
 		"svelte": "catalog:prod",
-		"unified": "catalog:prod",
-		"ws": "catalog:prod",
-		"zod": "catalog:prod"
-	},
-	"devDependencies": {
-		"@sveltejs/adapter-node": "catalog:dev",
-		"@sveltejs/vite-plugin-svelte": "catalog:dev",
-		"@types/better-sqlite3": "catalog:types",
-		"@types/ws": "catalog:types",
 		"svelte-check": "catalog:dev",
+		"unified": "catalog:prod",
 		"vite": "catalog:dev"
 	}
 }

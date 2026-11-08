@@ -9,15 +9,13 @@
 		"test": "vitest run",
 		"typecheck": "tsc -b"
 	},
-	"dependencies": {
-		"wxt": "catalog:"
-	},
 	"devDependencies": {
 		"@petalnet/tsconfig": "workspace:*",
 		"@plantuml/core": "catalog:",
 		"happy-dom": "catalog:dev",
 		"typescript": "catalog:dev",
 		"vite": "catalog:dev",
-		"vitest": "catalog:dev"
+		"vitest": "catalog:dev",
+		"wxt": "catalog:"
 	}
 }

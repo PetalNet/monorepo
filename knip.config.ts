@@ -1,8 +1,12 @@
 import type { KnipConfig } from "knip";
 
-export default {
+// Knip passes the parsed CLI flags to a config function (KnipConfig's function form).
+export default (({ strict }) => ({
 	ignore: [".agents/skills/impeccable/**", "apps/tasks/static/vendor/**"],
 	rules: { cycles: "error" },
+	// Apps keep bundled packages in devDependencies, so strict mode, which counts only
+	// dependencies, would report every bundled import as unlisted. Packages keep the check.
+	ignoreIssues: strict ? { "apps/**": ["unlisted"] } : {},
 	// Strict Knip only resolves production dependencies, including script binaries.
 	ignoreBinaries: ["eslint!", "vite!", "vitest!", "storybook!"],
 	ignoreDependencies: [
@@ -87,4 +91,4 @@ export default {
 			ignoreDependencies: ["@better-auth/mcp!"],
 		},
 	},
-} satisfies KnipConfig;
+})) satisfies KnipConfig;

@@ -12,10 +12,6 @@
 		"preview": "vite preview",
 		"test": "vitest run"
 	},
-	"dependencies": {
-		"svelte": "catalog:prod",
-		"tailwindcss": "catalog:prod"
-	},
 	"devDependencies": {
 		"@sveltejs/adapter-node": "catalog:dev",
 		"@sveltejs/kit": "catalog:prod",
@@ -23,7 +19,9 @@
 		"@tailwindcss/vite": "catalog:dev",
 		"@types/node": "catalog:types",
 		"happy-dom": "catalog:dev",
+		"svelte": "catalog:prod",
 		"svelte-check": "catalog:dev",
+		"tailwindcss": "catalog:prod",
 		"typescript": "catalog:dev",
 		"vite": "catalog:dev",
 		"vitest": "catalog:dev"
