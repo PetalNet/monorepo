@@ -1,24 +1,30 @@
 # syntax=docker/dockerfile:1.28@sha256:bb22d9815c728170f72750f4e5b0d672e06176142e1d602c7e66c050100b7e5b
 # Build from the repository root: docker build -f apps/petalboard/Dockerfile -t petalboard .
 FROM node:26.12.1-bookworm-slim@sha256:88e480776c6149ff1d098cd304f44bf18057fb5d284a3329b78162d29821e28c AS base
+# Prisma's engines link against OpenSSL.
 RUN apt-get update \
 	&& apt-get install -y --no-install-recommends ca-certificates openssl \
-	&& rm -rf /var/lib/apt/lists/* \
-	&& npm install -g pnpm@12.11.2
+	&& rm -rf /var/lib/apt/lists/*
 WORKDIR /workspace
 
 FROM base AS build
+RUN npm install -g pnpm@12.11.2
 COPY . .
+# `prepare` runs `prisma generate`, which writes the client and its query engine to
+# src/lib/server/generated.
 RUN CI=true pnpm install --frozen-lockfile --filter @petalnet/petalboard \
 	&& pnpm --filter @petalnet/petalboard build
+# A filtered install still links the workspace root's dev tooling. Ship only the production
+# dependency tree: @prisma/client for the generated client, and the prisma CLI for
+# `migrate deploy` at start.
+RUN CI=true pnpm --filter @petalnet/petalboard deploy --prod /prod
 
 FROM base
 ARG MONOREPO_SHA=unknown
 LABEL org.opencontainers.image.source=https://github.com/PetalNet/monorepo
 LABEL org.opencontainers.image.revision=$MONOREPO_SHA
 ENV NODE_ENV=production PORT=4173 DATABASE_URL=file:/app/data/dev.db
-COPY --from=build /workspace/node_modules /workspace/node_modules
-COPY --from=build /workspace/apps/petalboard/node_modules /workspace/apps/petalboard/node_modules
+COPY --from=build /prod/node_modules /workspace/apps/petalboard/node_modules
 COPY --from=build /workspace/apps/petalboard/package.json /workspace/apps/petalboard/package.json
 COPY --from=build /workspace/apps/petalboard/prisma /workspace/apps/petalboard/prisma
 COPY --from=build /workspace/apps/petalboard/build /workspace/apps/petalboard/build

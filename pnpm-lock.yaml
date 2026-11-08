@@ -785,6 +785,9 @@ importers:
       '@prisma/client':
         specifier: catalog:prisma6
         version: 6.19.3(@typescript/typescript6@6.0.2)(prisma@6.19.3(@typescript/typescript6@6.0.2))
+      prisma:
+        specifier: catalog:prisma6
+        version: 6.19.3(@typescript/typescript6@6.0.2)
     devDependencies:
       '@lucide/svelte':
         specifier: catalog:prod
@@ -816,9 +819,6 @@ importers:
       postcss:
         specifier: catalog:dev
         version: 8.5.29
-      prisma:
-        specifier: catalog:prisma6
-        version: 6.19.3(@typescript/typescript6@6.0.2)
       remark:
         specifier: catalog:prod
         version: 15.0.1

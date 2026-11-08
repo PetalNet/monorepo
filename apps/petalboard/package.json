@@ -14,7 +14,8 @@
 		"test": "vitest run"
 	},
 	"dependencies": {
-		"@prisma/client": "catalog:prisma6"
+		"@prisma/client": "catalog:prisma6",
+		"prisma": "catalog:prisma6"
 	},
 	"devDependencies": {
 		"@lucide/svelte": "catalog:prod",
@@ -27,7 +28,6 @@
 		"happy-dom": "catalog:dev",
 		"nanoid": "catalog:prod",
 		"postcss": "catalog:dev",
-		"prisma": "catalog:prisma6",
 		"remark": "catalog:prod",
 		"remark-gfm": "catalog:prod",
 		"remark-html": "catalog:prod",
