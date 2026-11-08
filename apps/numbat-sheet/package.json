@@ -11,12 +11,10 @@
 		"test": "vitest run",
 		"typecheck": "svelte-check --tsconfig ./tsconfig.json"
 	},
-	"dependencies": {
-		"svelte": "catalog:prod"
-	},
 	"devDependencies": {
 		"@petalnet/tsconfig": "workspace:*",
 		"@sveltejs/vite-plugin-svelte": "catalog:dev",
+		"svelte": "catalog:prod",
 		"svelte-check": "catalog:dev",
 		"typescript": "catalog:dev",
 		"vite": "catalog:dev",
