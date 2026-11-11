@@ -77,7 +77,7 @@ class CodexWatchTest(unittest.TestCase):
         self.assertEqual(msg["body"], f"{ELI} Codex is back (60% left), you can turn Pullfrog on")
         self.assertEqual(msg["m.mentions"], {"user_ids": [ELI]})
         self.assertIn(f'href="https://matrix.to/#/{ELI}"', msg["formatted_body"])
-        self.assertIn("%21SuTttEVQceZrHCCAnl%3Amx.petalcat.dev", FakeHomeserver.sent[0]["path"])
+        self.assertIn("%21jUddLoOYUBWXaHQuTP%3Amx.petalcat.dev", FakeHomeserver.sent[0]["path"])
         self.assertEqual(FakeHomeserver.sent[0]["auth"], "Bearer tok")
         self.assertEqual(self.stored_state(), "ok")
 

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-# codex-watch: ping Eli in Homelab when Codex usage crosses 15% remaining, so he
+# codex-watch: ping Eli in his DM with Shawn when Codex usage crosses 15% remaining, so he
 # can turn Pullfrog on or off. Reads the feed codex-usage-snapshot writes, keeps
 # `ok`/`out` in a state file, and posts only on a transition. Run from cron on .14
 # out of the same release checkout of main as the feed:
@@ -18,7 +18,7 @@ STATE = os.environ.get("CODEX_WATCH_STATE", "/home/docker/.claude/shared/codex-w
 CREDS = os.environ.get("CODEX_WATCH_MATRIX_CREDS", "/home/docker/.claude/shared/shawn-account.json")
 # localhost, not the public URL: the edge 403s Python's urllib User-Agent.
 HOMESERVER = os.environ.get("CODEX_WATCH_HOMESERVER", "http://localhost:8008")
-ROOM = "!SuTttEVQceZrHCCAnl:mx.petalcat.dev"  # Homelab
+ROOM = "!jUddLoOYUBWXaHQuTP:mx.petalcat.dev"  # Shawn <-> Eli DM
 ELI = "@lishaduck:beeper.com"
 THRESHOLD = 15
 MAX_AGE_SEC = 2 * 60 * 60
