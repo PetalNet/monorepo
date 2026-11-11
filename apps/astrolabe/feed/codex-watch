@@ -3,7 +3,8 @@
 # can turn Pullfrog on or off. Reads the feed codex-usage-snapshot writes, keeps
 # `ok`/`out` in a state file, and posts only on a transition. Run from cron on .14
 # out of the same release checkout of main as the feed:
-#     */15 * * * * <release>/apps/astrolabe/feed/codex-watch
+#     */15 * * * * CODEX_WATCH_ROOM=<room id> <release>/apps/astrolabe/feed/codex-watch
+# CODEX_WATCH_ROOM is required; the script refuses to run without it.
 # --dry-run prints the message it would post and leaves the state file alone.
 import json
 import math
@@ -18,7 +19,7 @@ STATE = os.environ.get("CODEX_WATCH_STATE", "/home/docker/.claude/shared/codex-w
 CREDS = os.environ.get("CODEX_WATCH_MATRIX_CREDS", "/home/docker/.claude/shared/shawn-account.json")
 # localhost, not the public URL: the edge 403s Python's urllib User-Agent.
 HOMESERVER = os.environ.get("CODEX_WATCH_HOMESERVER", "http://localhost:8008")
-ROOM = "!jUddLoOYUBWXaHQuTP:mx.petalcat.dev"  # Shawn <-> Eli DM
+ROOM = os.environ.get("CODEX_WATCH_ROOM")
 ELI = "@lishaduck:beeper.com"
 THRESHOLD = 15
 MAX_AGE_SEC = 2 * 60 * 60
@@ -92,6 +93,8 @@ def post(text, txn):
 
 
 def main():
+    if not ROOM:
+        sys.exit("codex-watch: CODEX_WATCH_ROOM is not set")
     dry_run = "--dry-run" in sys.argv[1:]
     now = time.time()
     try:

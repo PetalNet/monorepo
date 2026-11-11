@@ -54,6 +54,7 @@ class CodexWatchTest(unittest.TestCase):
         creds.write_text(json.dumps({"access_token": "tok"}))
         self.env = {**os.environ, "CODEX_USAGE_PATH": str(self.feed),
                     "CODEX_WATCH_STATE": str(self.state), "CODEX_WATCH_MATRIX_CREDS": str(creds),
+                    "CODEX_WATCH_ROOM": "!room:test",
                     "CODEX_WATCH_HOMESERVER": f"http://127.0.0.1:{self.server.server_port}"}
 
     def tearDown(self):
@@ -70,6 +71,17 @@ class CodexWatchTest(unittest.TestCase):
     def stored_state(self):
         return self.state.read_text().strip() if self.state.exists() else None
 
+    def test_missing_room_refuses_to_run(self):
+        self.feed.write_text(json.dumps(snapshot(five=20.0, week=40.0)))
+        self.state.write_text("out\n")
+        env = {k: v for k, v in self.env.items() if k != "CODEX_WATCH_ROOM"}
+        res = subprocess.run([sys.executable, str(SCRIPT)], env=env,
+                             capture_output=True, text=True, timeout=30)
+        self.assertNotEqual(res.returncode, 0)
+        self.assertIn("CODEX_WATCH_ROOM", res.stderr)
+        self.assertEqual(FakeHomeserver.sent, [])
+        self.assertEqual(self.stored_state(), "out")
+
     def test_out_to_ok_pings_with_a_real_mention(self):
         sent = self.run_watch(snapshot(five=20.0, week=40.0), "out")
         self.assertEqual(len(sent), 1)
@@ -77,7 +89,7 @@ class CodexWatchTest(unittest.TestCase):
         self.assertEqual(msg["body"], f"{ELI} Codex is back (60% left), you can turn Pullfrog on")
         self.assertEqual(msg["m.mentions"], {"user_ids": [ELI]})
         self.assertIn(f'href="https://matrix.to/#/{ELI}"', msg["formatted_body"])
-        self.assertIn("%21jUddLoOYUBWXaHQuTP%3Amx.petalcat.dev", FakeHomeserver.sent[0]["path"])
+        self.assertIn("%21room%3Atest", FakeHomeserver.sent[0]["path"])
         self.assertEqual(FakeHomeserver.sent[0]["auth"], "Bearer tok")
         self.assertEqual(self.stored_state(), "ok")
 
