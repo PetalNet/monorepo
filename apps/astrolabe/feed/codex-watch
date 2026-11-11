@@ -1,0 +1,121 @@
+#!/usr/bin/env python3
+# codex-watch: ping Eli in Homelab when Codex usage crosses 15% remaining, so he
+# can turn Pullfrog on or off. Reads the feed codex-usage-snapshot writes, keeps
+# `ok`/`out` in a state file, and posts only on a transition. Run from cron on .14
+# out of the same release checkout of main as the feed:
+#     */15 * * * * <release>/apps/astrolabe/feed/codex-watch
+# --dry-run prints the message it would post and leaves the state file alone.
+import json
+import math
+import os
+import sys
+import time
+import urllib.parse
+import urllib.request
+
+FEED = os.environ.get("CODEX_USAGE_PATH", "/home/docker/.claude/shared/codex-usage.json")
+STATE = os.environ.get("CODEX_WATCH_STATE", "/home/docker/.claude/shared/codex-watch.state")
+CREDS = os.environ.get("CODEX_WATCH_MATRIX_CREDS", "/home/docker/.claude/shared/janet-account.json")
+# localhost, not the public URL: the edge 403s Python's urllib User-Agent.
+HOMESERVER = os.environ.get("CODEX_WATCH_HOMESERVER", "http://localhost:8008")
+ROOM = "!SuTttEVQceZrHCCAnl:mx.petalcat.dev"  # Homelab
+ELI = "@lishaduck:beeper.com"
+THRESHOLD = 15
+MAX_AGE_SEC = 2 * 60 * 60
+
+
+def remaining_pct(snap, now):
+    """Percent left, or None when the reading must not be acted on."""
+    if not isinstance(snap, dict) or snap.get("awaiting") is not False:
+        return None
+    scraped, age = snap.get("scraped_at"), snap.get("snapshot_age_sec")
+    if not isinstance(scraped, (int, float)) or not isinstance(age, (int, float)):
+        return None
+    if now - scraped + age > MAX_AGE_SEC:
+        return None
+    used = []
+    for key in ("five_hour_pct", "seven_day_pct"):
+        v = snap.get(key)
+        if v is None:
+            v = 0.0
+        if not isinstance(v, (int, float)):
+            return None
+        used.append(v)
+    return 100 - max(used)
+
+
+def step(state, remaining):
+    """(next state, message to post or None)."""
+    target = "ok" if remaining >= THRESHOLD else "out"
+    if target == state:
+        return state, None
+    left = math.floor(remaining)
+    if target == "ok":
+        return target, f"Codex is back ({left}% left), you can turn Pullfrog on"
+    return target, f"Codex is under {THRESHOLD}% ({left}% left), time to turn Pullfrog off"
+
+
+def read_state():
+    try:
+        with open(STATE) as f:
+            return "ok" if f.read().strip() == "ok" else "out"
+    except FileNotFoundError:
+        return "out"
+
+
+def write_state(state):
+    tmp = f"{STATE}.tmp.{os.getpid()}"
+    with open(tmp, "w") as f:
+        f.write(state + "\n")
+    os.replace(tmp, STATE)
+
+
+def post(text, txn):
+    with open(CREDS) as f:
+        token = json.load(f)["access_token"]
+    pill = f'<a href="https://matrix.to/#/{ELI}">{ELI}</a>'
+    content = {
+        "msgtype": "m.text",
+        "body": f"{ELI} {text}",
+        "format": "org.matrix.custom.html",
+        "formatted_body": f"{pill} {text}",
+        "m.mentions": {"user_ids": [ELI]},
+    }
+    url = (f"{HOMESERVER}/_matrix/client/v3/rooms/{urllib.parse.quote(ROOM, safe='')}"
+           f"/send/m.room.message/{urllib.parse.quote(txn, safe='')}")
+    req = urllib.request.Request(
+        url, method="PUT", data=json.dumps(content).encode(),
+        headers={"Authorization": f"Bearer {token}", "Content-Type": "application/json",
+                 "User-Agent": "codex-watch"})
+    with urllib.request.urlopen(req, timeout=30) as r:
+        return json.load(r)["event_id"]
+
+
+def main():
+    dry_run = "--dry-run" in sys.argv[1:]
+    now = time.time()
+    try:
+        with open(FEED) as f:
+            snap = json.load(f)
+    except (OSError, ValueError) as e:
+        print(f"[codex-watch] feed unreadable ({e}); no-op", file=sys.stderr)
+        return 0
+    remaining = remaining_pct(snap, now)
+    if remaining is None:
+        print("[codex-watch] reading stale or awaiting; no-op", file=sys.stderr)
+        return 0
+    state = read_state()
+    new_state, text = step(state, remaining)
+    if text is None:
+        return 0
+    if dry_run:
+        print(f"{ELI} {text}")
+        return 0
+    event = post(text, f"codex-watch-{new_state}-{int(snap['scraped_at'])}")
+    write_state(new_state)
+    print(f"[codex-watch] {state} -> {new_state}, posted {event}")
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())

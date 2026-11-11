@@ -15,6 +15,8 @@ The server accepts the existing deployment paths through `USAGE_PATH`, `CODEX_US
 
 `feed/codex-usage-snapshot` writes `CODEX_USAGE_PATH`'s file on the host (default `/home/docker/.claude/shared/codex-usage.json`, override with `CODEX_USAGE_OUT`). Cron on .14 runs it every 5 minutes from a release checkout of `main`. It calls `feed/codex-usage --json`, which asks OpenAI for live rate limits through `codex app-server` (`account/rateLimits/read`, no tokens spent; `CODEX_BIN` overrides the binary) and falls back to the newest `~/.codex/sessions` rollout when that fails, with a warning on stderr. The JSON fields match `src/lib/server/dossier.ts`.
 
+`feed/codex-watch` reads that file and pings Eli in Homelab when Codex crosses 15% remaining, so he can turn Pullfrog on or off. Remaining is 100 minus the larger of the 5-hour and weekly used percentages. It keeps `ok` or `out` in `CODEX_WATCH_STATE` (default `/home/docker/.claude/shared/codex-watch.state`, missing counts as `out`), posts only on a transition, and does nothing on a reading that is awaiting or older than 2 hours. It posts as @janet through `http://localhost:8008` with the token in `janet-account.json`. Cron on .14 runs it every 15 minutes from the same release checkout. `--dry-run` prints the message instead of posting and leaves the state alone. Tests: `python3 -m unittest test_codex_watch` from `feed/`.
+
 ## Container
 
 Build from the repository root so pnpm can use the workspace catalog and lockfile:
