@@ -15,7 +15,7 @@ import urllib.request
 
 FEED = os.environ.get("CODEX_USAGE_PATH", "/home/docker/.claude/shared/codex-usage.json")
 STATE = os.environ.get("CODEX_WATCH_STATE", "/home/docker/.claude/shared/codex-watch.state")
-CREDS = os.environ.get("CODEX_WATCH_MATRIX_CREDS", "/home/docker/.claude/shared/janet-account.json")
+CREDS = os.environ.get("CODEX_WATCH_MATRIX_CREDS", "/home/docker/.claude/shared/shawn-account.json")
 # localhost, not the public URL: the edge 403s Python's urllib User-Agent.
 HOMESERVER = os.environ.get("CODEX_WATCH_HOMESERVER", "http://localhost:8008")
 ROOM = "!SuTttEVQceZrHCCAnl:mx.petalcat.dev"  # Homelab
