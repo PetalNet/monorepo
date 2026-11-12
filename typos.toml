@@ -16,6 +16,21 @@ extend-exclude = [
 	"apps/point/docs/design/**",
 	# Prebuilt ProseMark editor bundle (minified third-party code), vendored as-is.
 	"apps/tasks/static/vendor/**",
+	# Voice spec: Parker's design rulings are quoted verbatim, typos included,
+	# because paraphrasing a ruling is what caused the misattributions that spec
+	# documents. His spelling is not ours to correct. Only the files that carry
+	# his words are excluded, so the rest of the spec is still checked.
+	"docs/janet-voice/SPEC.md",
+	"docs/janet-voice/wayfinder/map.md",
+	"docs/janet-voice/wayfinder/tickets/how-fast-a-reply-must-start.md",
+	"docs/janet-voice/wayfinder/tickets/failure-honesty-evidence.md",
+	"docs/janet-voice/wayfinder/tickets/cutting-her-off.md",
+	"docs/janet-voice/wayfinder/tickets/is-there-a-non-fork-quick-tier.md",
+	"docs/janet-voice/wayfinder/tickets/what-counts-as-consent.md",
+	"docs/janet-voice/wayfinder/tickets/what-hass-can-own-of-a-call.md",
+	"docs/janet-voice/wayfinder/tickets/can-hass-carry-the-audio.md",
+	"docs/janet-voice/wayfinder/tickets/which-sessions-exist.md",
+	"docs/janet-voice/wayfinder/tickets/fork-cost.md",
 ]
 
 [default.extend-words]
