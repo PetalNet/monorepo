@@ -21,7 +21,7 @@ Janet. **Disclosing beats silent degradation, and that half has real sources.**
 - Google's PAIR guidebook names silent background errors as the dangerous case.
 - Microsoft's HAX guidelines (Amershi et al., CHI 2019): make clear how well the system can do what it
   does.
-- Kocielnik, Amershi and Bennett (CHI 2019): setting expectations *raised* acceptance of a weak AI
+- Kocielnik, Amershi and Bennett (CHI 2019): setting expectations _raised_ acceptance of a weak AI
   rather than costing trust.
 - Mahmood et al. (CHI 2022): apologies repair trust.
 

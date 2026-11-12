@@ -24,20 +24,20 @@ Three sources, three answers. Pairs with [Is there a non-fork quick tier](is-the
 
 - **His own head** is a fork of main, so it runs main's model. The cache is the whole reason it is
   warm; giving it a different model throws that away.
-- **The room and guest heads** are fresh contexts built in code. *(Backing: the cheap model's quality
+- **The room and guest heads** are fresh contexts built in code. _(Backing: the cheap model's quality
   at this tier is unmeasured — see [Is the cheap model good enough](cheap-model-floor.md). The real
   backing is the tool list, plus a required pre-launch eval. Deterministic matching handles the fixed
-  scripts so the model only sees the fuzzy cases.)* There is no cache to preserve and no
+  scripts so the model only sees the fuzzy cases.)_ There is no cache to preserve and no
   main context to reuse, so nothing argues for the expensive model and plenty argues against. This is
   where the cheap model lives.
 - **There is no second identity.** Haiku survives as what the untrusted heads run, not as a "fast
   Janet" with a persona of her own, which is the part Oct 27 was right to kill.
-- **There IS an independent quick rung.** *(Corrected 2026-11-11, later the same day: this ticket
+- **There IS an independent quick rung.** _(Corrected 2026-11-11, later the same day: this ticket
   first said Nov 6's "quick model" was "not a rung", merely the room head seen from outside, and
   collapsed [Is there a non-fork quick tier](is-there-a-non-fork-quick-tier.md) into itself on that
   basis. Parker then ruled "Hey janet what is xyz should be fast limited tools culled down session",
-  which restores it.* **Rung 1 is a real rung**, independent of tier: a culled-down context with a
-  limited tool list. What stays dead is a separate *identity* — there is no "fast Janet".)
+  which restores it._ **Rung 1 is a real rung**, independent of tier: a culled-down context with a
+  limited tool list. What stays dead is a separate _identity_ — there is no "fast Janet".)
 - Consistent with Parker's Oct 28 ruling that real thinking happens in a fork of main, and that
   subagent work and anything important or blocking always goes back to main.
 

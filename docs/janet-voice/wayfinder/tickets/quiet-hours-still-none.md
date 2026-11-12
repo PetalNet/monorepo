@@ -35,6 +35,6 @@ none is missed:
   `tool.check`.
 
 One clock dependency is **not** covered by the ruling and is a separate question: the rebuild plan's
-merge trigger "nightly at a quiet hour". That is a clock-based *trigger*, not clock-based *silence*,
+merge trigger "nightly at a quiet hour". That is a clock-based _trigger_, not clock-based _silence_,
 so Oct 27 does not settle it. Raised in
 [When what a head learned flows back](when-what-a-head-learned-flows-back.md).

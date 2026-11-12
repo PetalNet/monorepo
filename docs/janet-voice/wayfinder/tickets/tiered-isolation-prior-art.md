@@ -42,7 +42,7 @@ Each holds two of three. Splitting by trust is what makes that true; splitting b
 ### Amendment it forces
 
 **The room head counts as untrusted input, because "probably him" is not him.** So it may hold low
-private facts *or* the ability to act, **not both**, unless the action asks for confirmation. Lamps
+private facts _or_ the ability to act, **not both**, unless the action asks for confirmation. Lamps
 alone are fine. Lamps plus his calendar is not.
 
 Parker ruled that voice drives the lamps **directly**, i.e. without confirmation. So the room head

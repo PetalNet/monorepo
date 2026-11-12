@@ -11,7 +11,7 @@ local to the voice system.
 **Main Janet.** The one long-running Janet, with her own memory, who does the real work. Everything
 voice-facing exists to reach her or to stand in front of her.
 
-- Say *main Janet*, not **Central** or **Janet Central**. The Nov 6 page called her Central; that
+- Say _main Janet_, not **Central** or **Janet Central**. The Nov 6 page called her Central; that
   name is retired to avoid implying a second entity.
 
 **Head.** A voice-facing session a person is actually talking to. A head is defined by the **tier** it
@@ -30,7 +30,7 @@ member. Holds public facts and the lamps. No private facts.
 **Guest head.** The head that serves an unknown voice or unknown caller. Public facts only. No data,
 no actions.
 
-**Rung.** How much machinery a *request* needs, on Parker's ladder: **0** Home Assistant's own intent
+**Rung.** How much machinery a _request_ needs, on Parker's ladder: **0** Home Assistant's own intent
 matcher with no model, **1** a cheap limited session, **2** a **fork** of main, **3** main Janet. Chosen
 by the kind of thing being asked, and re-chosen fresh on every turn. Independent of **tier**.
 
@@ -49,7 +49,7 @@ rather than merely informed about her.
 **Quarantined model.** A model with no tools, whose only job is to read untrusted words and emit a
 **digest**. It exists so that main Janet never reads untrusted words herself.
 
-**Spare.** *Retired 2026-11-11.* A head prepared before anyone is talking. Parker ruled four seconds
+**Spare.** _Retired 2026-11-11._ A head prepared before anyone is talking. Parker ruled four seconds
 on the first turn acceptable, so no head is kept warm and the term is gone. Heads **spawn on the first
 turn**.
 
@@ -58,7 +58,7 @@ turn**.
 **Tier.** How much is proved about who is speaking and where. The tier selects the head. Re-judged on
 **every turn**, against the channel that turn arrived on, and never inherited from the conversation.
 
-**Proof.** Evidence present *on this turn* that establishes the tier. A credential or a signed-in app
+**Proof.** Evidence present _on this turn_ that establishes the tier. A credential or a signed-in app
 proves; a caller id does not, because it can be spoofed.
 
 **Rise.** A turn moving to a higher tier. Needs proof on that turn, never a claim.
@@ -78,7 +78,7 @@ secret), **high**, **secret**. An untagged fact counts as high, so a missing tag
 
 **Secret.** Never enters any head, at any tier.
 
-**Aggregate class.** The class of a fact *answered repeatedly on demand*, which can exceed the class of
+**Aggregate class.** The class of a fact _answered repeatedly on demand_, which can exceed the class of
 the fact itself. Free/busy is public once and an **oracle** asked twice.
 
 **Oracle.** A head that can be interrogated to reveal something no single answer discloses.
@@ -95,7 +95,7 @@ contradicts the premise his ruling rests on.
 ## Memory
 
 **Journal line.** What one turn appends about itself, as part of that turn. Carries the words, the
-tier, the speaker or *unknown*, and what the head did. A conversation never announces that it is over,
+tier, the speaker or _unknown_, and what the head did. A conversation never announces that it is over,
 so nothing waits for the end.
 
 - A line's tier comes from the **proof on the turn**, not from which head made the sound. Only the
@@ -129,9 +129,9 @@ Say these only to explain what replaced them.
 
 - **Patrice** — an earlier separate assistant persona. There is one Janet.
 - **Mini Janet** / **janet-mini** — the prototype this system replaces.
-- **Fast Janet** — a small brain with its own *identity*. There is no separate Janet. The **command
-  rung is a rung, not a persona, and the cheap model is something a head *runs*.
-- **Janet Central** / **Central** — see *main Janet*.
+- **Fast Janet** — a small brain with its own _identity_. There is no separate Janet. The **command
+  rung is a rung, not a persona, and the cheap model is something a head _runs_.
+- **Janet Central** / **Central** — see _main Janet_.
 - **Spare** — see above. Spawn-on-first-turn replaced it.
 - **Quiet hours** — ruled out on 2026-10-27. Decisions key on who is asking and who is present, never
   the clock.

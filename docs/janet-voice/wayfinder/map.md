@@ -218,10 +218,10 @@ a manager's gloss and was wrongly quoted as his. See
   standard (MemGPT at 70 and 100 percent); fork drift from a parent has no prior art and is labelled
   **novel**. Compaction is machine-readable as a `compact_boundary` event. (The cache-lifetime and
   tool-list retirement rules were written for a spare that no longer exists; they now apply to a
-  *running* head.)
+  _running_ head.)
 - [Is there a non-fork quick tier](tickets/is-there-a-non-fork-quick-tier.md): **yes — rung 1 is a
   real, independent rung**, a cheap model with a culled-down context and a limited tool list, on
-  Parker's ruling. It was briefly closed the other way; what stays dead is a separate *identity*, not
+  Parker's ruling. It was briefly closed the other way; what stays dead is a separate _identity_, not
   the rung
 - [Quiet hours are still none](tickets/quiet-hours-still-none.md): the Oct 27 ruling stands, and five
   places in the sources still assume a clock, listed for stripping. One clock-based merge trigger is
@@ -260,11 +260,11 @@ a manager's gloss and was wrongly quoted as his. See
 - Anything visual (the desk guide milestone) riding on the same session.
 - Which tools make rung 1's limited list. An engineering list, not a decision for Parker.
 
-*Cleared from this section: the cold-fork acknowledgement problem. It dissolved once Parker's ladder was
+_Cleared from this section: the cold-fork acknowledgement problem. It dissolved once Parker's ladder was
 reconciled — rung 1 answers immediately and passes up, so rung 2's four seconds are paid behind an
 answer already in progress. The room-tier acknowledgement candidate that was filed here is struck, not
 deferred: it would have fed his private words into a cheap head, and an acknowledging head that hears
-nothing is functionally canned.*
+nothing is functionally canned._
 
 ## Out of scope
 

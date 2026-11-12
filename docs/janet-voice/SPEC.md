@@ -10,11 +10,11 @@
 >
 > Three misattributions were found and are corrected in place, each noted in the section it affects:
 >
-> 1. **His zero-idle wording** is *"Nothing calls a model while Parker is silent. Idle must cost zero
->    usage."* The longer list naming warmups and keepalives is janet-mini's `PLAN.md:109` — a manager's
+> 1. **His zero-idle wording** is _"Nothing calls a model while Parker is silent. Idle must cost zero
+>    usage."_ The longer list naming warmups and keepalives is janet-mini's `PLAN.md:109` — a manager's
 >    gloss that was wrongly quoted as his. (§9)
 > 2. **The "0.7 to 1.5 second bar" is ours**, from janet-mini `PLAN.md:200`, not his requirement. His
->    stated tolerance is *"3 seconds is pretty damn good."* (§9)
+>    stated tolerance is _"3 seconds is pretty damn good."_ (§9)
 > 3. **A phone tap for money, sending as him and deletions was never his ruling.** The Nov 6 page
 >    asserted it under a "Parker ruled" label while also listing it as its own open question, and his
 >    actual words go the other way. It is removed, and the outbound-call tap derived from it with it.
@@ -42,14 +42,14 @@ it reopens the decision rather than earning a footnote.
 **This system cannot be built as written today.** Three things are outstanding, two of them Parker's.
 None of them blocks the first slice.
 
-*Resolved 2026-11-11: the fork question. Parker ruled "4 seconds fresh is good for the beginning of the
-convo", so there is no spare, no keepalives and **no exception to his zero-idle rule**. See §9.*
+_Resolved 2026-11-11: the fork question. Parker ruled "4 seconds fresh is good for the beginning of the
+convo", so there is no spare, no keepalives and **no exception to his zero-idle rule**. See §9._
 
-| What | Who | What it blocks |
-|---|---|---|
-| **The room-speaker band.** Whether voice match *plus* phone presence proves him well enough to reach rung 2 from a room speaker, and whether his schedule may then be spoken aloud there. He asked for exactly this ("Can we have different levels? Voice match + phone location?") and his Oct 27 "never on a room speaker" covers *private* things without saying whether a schedule is one. **Leans permissive** — he told Janet to look at how Google does voice matching, and Google gives a matched voice its calendar on a shared speaker — but that is an instruction to research, not a ruling, and this spec does not manufacture rulings. **Blocks only what a room speaker may say.** | Parker | §4.3, and the width of §5.3 |
-| **Two purchases.** A satellite for the room slice, with a price; and the phone number's registration, about $21 and a one-to-two week vetting wait. | Parker | The room slice and everything phone-shaped. Registration is the critical path, so it should be raised first. |
-| **The Proxmox CPU type on both VMs.** The lab server presents a generic QEMU CPU with no AVX; the Home Assistant box lacks SSE4.2, very likely the same setting. | A reboot | Real speech to text (§7) and usable voice match (§4.2). Until it lands, both run degraded and say so. |
+| What                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                              | Who      | What it blocks                                                                                               |
+| ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------- | ------------------------------------------------------------------------------------------------------------ |
+| **The room-speaker band.** Whether voice match _plus_ phone presence proves him well enough to reach rung 2 from a room speaker, and whether his schedule may then be spoken aloud there. He asked for exactly this ("Can we have different levels? Voice match + phone location?") and his Oct 27 "never on a room speaker" covers _private_ things without saying whether a schedule is one. **Leans permissive** — he told Janet to look at how Google does voice matching, and Google gives a matched voice its calendar on a shared speaker — but that is an instruction to research, not a ruling, and this spec does not manufacture rulings. **Blocks only what a room speaker may say.** | Parker   | §4.3, and the width of §5.3                                                                                  |
+| **Two purchases.** A satellite for the room slice, with a price; and the phone number's registration, about $21 and a one-to-two week vetting wait.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                               | Parker   | The room slice and everything phone-shaped. Registration is the critical path, so it should be raised first. |
+| **The Proxmox CPU type on both VMs.** The lab server presents a generic QEMU CPU with no AVX; the Home Assistant box lacks SSE4.2, very likely the same setting.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                  | A reboot | Real speech to text (§7) and usable voice match (§4.2). Until it lands, both run degraded and say so.        |
 
 **A standing obligation:** before launch, run an eval of about 50 real utterances plus injection
 strings against **each head's exact tool schema**. Until it exists, the cheap-model choice in §6 is
@@ -72,7 +72,7 @@ temporary. `[ruling]`
 
 ## 2. The shape of a turn
 
-```
+```text
     speech
       │
       ▼
@@ -140,15 +140,15 @@ inherited from the conversation.** A shared head never means shared trust. `[rea
 
 ### 3.3 What counts as proof
 
-| Channel | Tier |
-|---|---|
-| His signed-in phone app, unlocked | his own head |
-| A call on his own signed-in app or SIP credential | his own head |
-| The desk, **headphones** reported by the client | his own head |
-| The desk, output on **speakers** | room head — "just speaker is messy" `[ruling]` |
-| A call from a bare number, however it looks | **room head at most** — caller id is spoofable `[research]` |
-| Voice match alone, on a room speaker | room head |
-| An unknown voice, an unknown caller | guest head |
+| Channel                                           | Tier                                                        |
+| ------------------------------------------------- | ----------------------------------------------------------- |
+| His signed-in phone app, unlocked                 | his own head                                                |
+| A call on his own signed-in app or SIP credential | his own head                                                |
+| The desk, **headphones** reported by the client   | his own head                                                |
+| The desk, output on **speakers**                  | room head — "just speaker is messy" `[ruling]`              |
+| A call from a bare number, however it looks       | **room head at most** — caller id is spoofable `[research]` |
+| Voice match alone, on a room speaker              | room head                                                   |
+| An unknown voice, an unknown caller               | guest head                                                  |
 
 **Approvals only ever come from his own head.** `[ruling]`
 
@@ -229,7 +229,7 @@ non-private head. A matched voice still gets real answers inside its own band.
 ### 5.3 Say it or send it
 
 **Private things go to his phone. She does not ask first.** `[ruling]` His Oct 27 wording is "Otherwise
-they go to your phone" — they *go*; he did not say she offers. The Nov 6 page proposed an offer ("Want
+they go to your phone" — they _go_; he did not say she offers. The Nov 6 page proposed an offer ("Want
 it on your phone?") as its own inference; that offer is **dropped**.
 
 ### 5.4 Fixed script
@@ -238,7 +238,7 @@ Any head below the unlocking rung answers from a **fixed script** wherever a com
 become an oracle. The room head holds no private facts at all, so it answers from script by
 construction. `[reasoning]`
 
-*Width pending the room-speaker ceiling (§0).*
+_Width pending the room-speaker ceiling (§0)._
 
 ---
 
@@ -249,9 +249,9 @@ construction. `[reasoning]`
 A head is a **rung** and a **tier**, and they are independent. Conflating them caused two misreadings
 on the day this was written, so it is stated first.
 
-- **Rung** — how much machinery the *request* needs. Parker's ladder, below. Chosen by the kind of
+- **Rung** — how much machinery the _request_ needs. Parker's ladder, below. Chosen by the kind of
   thing being asked, and re-chosen **fresh on every turn**.
-- **Tier** — what is *proved* about who is speaking, and therefore what the head may hold and do.
+- **Tier** — what is _proved_ about who is speaking, and therefore what the head may hold and do.
   His own, room, or guest.
 
 A command on headphones is rung 1 at his tier; the same words on a room speaker are rung 1 at room
@@ -263,12 +263,12 @@ tier. Neither axis determines the other.
 send to janet for a later text reply". `[ruling]` It restates the Oct 7 two-speeds ruling, and
 janet-mini's code already implements exactly this.
 
-| Rung | What | For | Measured |
-|---|---|---|---|
-| **0** | Home Assistant's own intent matcher. **No model at all.** | Lamps, timers | instant, free |
-| **1** | Cheap model, **limited tools, culled-down context, very low thinking**. Never loads main's context. | Voice commands, quick questions — "Hey janet what is xyz" | 0.758 s median reply |
-| **2** | **A fork of main**, full context, main's model at low effort. | **Feature requests, complex ideas, long conversation** | ~4 s first turn, 1–2 s after |
-| **3** | **Main Janet.** | Subagent tasks, anything important, anything blocking, anything that leaves the house or deletes | spoken if back within 45 s, else a notification |
+| Rung  | What                                                                                                | For                                                                                              | Measured                                        |
+| ----- | --------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------ | ----------------------------------------------- |
+| **0** | Home Assistant's own intent matcher. **No model at all.**                                           | Lamps, timers                                                                                    | instant, free                                   |
+| **1** | Cheap model, **limited tools, culled-down context, very low thinking**. Never loads main's context. | Voice commands, quick questions — "Hey janet what is xyz"                                        | 0.758 s median reply                            |
+| **2** | **A fork of main**, full context, main's model at low effort.                                       | **Feature requests, complex ideas, long conversation**                                           | ~4 s first turn, 1–2 s after                    |
+| **3** | **Main Janet.**                                                                                     | Subagent tasks, anything important, anything blocking, anything that leaves the house or deletes | spoken if back within 45 s, else a notification |
 
 **The trigger is the kind of request, not the length of the exchange.** `[ruling]`
 
@@ -282,8 +282,8 @@ tier. A room or guest head passes a **digest** instead, by the same rule as §3.
 head on a room speaker may pass up, but what reaches rung 2 is a digest, and the answer returns at room
 tier unless the channel proves him. `[research]`
 
-**This corrects an earlier draft of this spec**, which had a conversation get a fork *because it was a
-conversation*. Entry to rung 2 is by request kind; a conversation that never needs rung 2 never pays
+**This corrects an earlier draft of this spec**, which had a conversation get a fork _because it was a
+conversation_. Entry to rung 2 is by request kind; a conversation that never needs rung 2 never pays
 for it. [→ ticket](wayfinder/tickets/one-shared-head-or-one-per-call.md)
 
 ### 6.3 Tiers
@@ -292,16 +292,16 @@ for it. [→ ticket](wayfinder/tickets/one-shared-head-or-one-per-call.md)
 Rule of Two. This is why the architecture holds, and why splitting by device would not have
 produced it. `[research]` [→ ticket](wayfinder/tickets/tiered-isolation-prior-art.md)
 
-| Tier | Untrusted input | Sensitive data | Can act |
-|---|---|---|---|
-| His own | no — proof every turn | **yes** | **yes** |
-| Room | **yes** — "probably him" is not him | no | **yes** — lamps only |
-| Guest | **yes** | no | no |
+| Tier    | Untrusted input                     | Sensitive data | Can act              |
+| ------- | ----------------------------------- | -------------- | -------------------- |
+| His own | no — proof every turn               | **yes**        | **yes**              |
+| Room    | **yes** — "probably him" is not him | no             | **yes** — lamps only |
+| Guest   | **yes**                             | no             | no                   |
 
 **They are separate processes because a head cannot forget what it has already heard.** That property,
 not convenience, is the reason there are three. `[reasoning]`
 
-**The room head holds no private facts, not even low ones.** Parker ruled the lamps act *directly*,
+**The room head holds no private facts, not even low ones.** Parker ruled the lamps act _directly_,
 without confirmation, so under the Rule of Two it cannot also hold private facts. A low-band answer is
 a **rise** to his own head. `[research]`
 
@@ -309,7 +309,7 @@ a **rise** to his own head. `[research]`
 there is no cache to preserve and nothing argues for the expensive one. `[reasoning]`
 [→ ticket](wayfinder/tickets/which-model-a-voice-head-runs.md)
 
-**There is no second identity.** The cheap model is what the untrusted heads *run*; it is not a "fast
+**There is no second identity.** The cheap model is what the untrusted heads _run_; it is not a "fast
 Janet". Nov 6's "quick model" rung was the room head seen from outside, never a rung.
 [→ ticket](wayfinder/tickets/is-there-a-non-fork-quick-tier.md)
 
@@ -326,7 +326,7 @@ head is retired between visitors. `[reasoning]`
 
 **The rung this map briefly collapsed is real.** [Is there a non-fork quick
 tier](wayfinder/tickets/is-there-a-non-fork-quick-tier.md) was closed on the reasoning that "the middle
-rung is a head, not a speed" — half right. It is a head *and* a speed. What stays dead is a separate
+rung is a head, not a speed" — half right. It is a head _and_ a speed. What stays dead is a separate
 **identity**: there is no "fast Janet", only a rung.
 
 **The cold-start problem dissolves.** An earlier draft worried at length about four seconds of silence
@@ -337,7 +337,7 @@ lands at 1.499 s and the fork's answer begins at 3.225 s. Rung 1 speaks its own 
 before the pass-up tool call — freshly generated, so his no-canned-phrases ruling is satisfied without
 any of the machinery that draft proposed.
 
-*Still ours rather than his:* **which tools make rung 1's limited list.*
+_Still ours rather than his:_ *_which tools make rung 1's limited list._
 
 ---
 
@@ -356,7 +356,7 @@ getting it wrong is merely bad manners or a bad call, it is judgement.
 
 ### The fence is two layers
 
-**A non-admin Home Assistant account is *not* a fence.** Home Assistant has no per-entity permissions
+**A non-admin Home Assistant account is _not_ a fence.** Home Assistant has no per-entity permissions
 for ordinary users, so a non-admin token can still call any service on any entity, locks and alarms
 included; all it removes is the config screens. Keep it as hygiene. Do not treat it as the boundary.
 `[research]`
@@ -366,14 +366,14 @@ included; all it removes is the config screens. Keep it as hygiene. Do not treat
    pipelines each get **their own assistant**, exposing only their own entities. Local matching on
    those pipelines then physically cannot reach anything else.
 
-Per-assistant exposure was the *limitation* that stopped us scoping a caller's rights; it becomes the
-*mechanism* once heads split by trust, because one assistant per tier lands exactly on the head
+Per-assistant exposure was the _limitation_ that stopped us scoping a caller's rights; it becomes the
+_mechanism_ once heads split by trust, because one assistant per tier lands exactly on the head
 boundary.
 
 ### The lamps
 
 Reachable for **his own head and the room head**; kept out of the **guest head** until the
-room-speaker ceiling is ruled. *Which* lamp and *when* stays her judgement. `[ruling]` + `[reasoning]`
+room-speaker ceiling is ruled. _Which_ lamp and _when_ stays her judgement. `[ruling]` + `[reasoning]`
 
 ---
 
@@ -394,7 +394,7 @@ Ruled by Parker on 2026-10-28, in a DM that never reached the published page. Th
   asserted it under a "Parker ruled" label while also listing it as its own first open question, and
   the compiled record contains only the permissive direction.
 
-**A standing recommendation, not a question.** His ruling turns on *"as long as its me"*, and for money that premise has a demonstrated defeat: a
+**A standing recommendation, not a question.** His ruling turns on _"as long as its me"_, and for money that premise has a demonstrated defeat: a
 journalist entered his own bank account by phone using a voice clone trained on about five minutes of
 speech (Cox / Lloyds, Feb 2023), and ASVspoof 2021 found replay detection did not survive moving from
 simulated rooms to real ones. So voice does not establish "it's me" against a motivated attacker at the
@@ -414,7 +414,7 @@ attached, exactly as the fork premise was. It is not grounds for overriding him 
 - **Retirement is simply retirement.** A head is retired; the next request that needs rung 2 spawns a
   fresh fork. No head is kept warm.
 - **A rung-1 head is retired when the utterance is done**, and carries no conversation. `[reasoning]`
-- **The staleness signal still decides when a *running* head is retired** — it no longer has a spare to
+- **The staleness signal still decides when a _running_ head is retired** — it no longer has a spare to
   schedule.
 - The $3/day question is moot.
 
@@ -458,7 +458,7 @@ drops, headphones come off — so a head waiting for the end would lose exactly 
 ended badly. `[reasoning]`
 [→ ticket](wayfinder/tickets/when-what-a-head-learned-flows-back.md)
 
-A line carries the words, the tier, the speaker or *unknown*, and what the head did. Appended
+A line carries the words, the tier, the speaker or _unknown_, and what the head did. Appended
 mechanically, **never reconciled by a separate model call**. Main picks it up on her next turn, so
 nothing is lost even if a head dies mid-sentence.
 
@@ -472,7 +472,7 @@ read later as a guest utterance. `[reasoning]`
 - **Lines from a room or guest head never reach main raw.** A **tool-less quarantined model** reads
   them and hands main a **fixed-schema digest** — who called, when, which intent from a fixed list, a
   callback number. Set fields, never free text. `[research]`
-- **A line his own head wrote *after* reading guest content is tainted too** (OWASP ASI06) and takes
+- **A line his own head wrote _after_ reading guest content is tainted too** (OWASP ASI06) and takes
   the same route. `[research]`
 
 **Why digests and not quoting.** Quoting marks a line without disarming it. Main holds his private
@@ -516,7 +516,7 @@ own rule names. `[ruling]`
   the microphone at end of speech, so Home Assistant hears nothing while she talks.
 - **Cancelling by starting a new pipeline cancels nothing audible.** The pipeline finishes once it
   hands out the TTS URL and the device plays it. There is no stop-playback method on the satellite
-  entity. *An earlier draft of this spec claimed otherwise.*
+  entity. _An earlier draft of this spec claimed otherwise._
 - The stock **call** path cannot be cut off at all: it never transcribes audio arriving during a reply,
   clears it before the next turn, and its sender only exits on hangup.
 
@@ -553,7 +553,7 @@ when he asks for something it breaks. **Every degraded turn is logged even when 
 aloud**, so restraint applies to speaking and never to recording.
 
 Disclosure over silent degradation is `[research]` (Google PAIR on silent background errors;
-Microsoft HAX; Kocielnik 2019, where setting expectations *raised* acceptance of a weak AI; Mahmood
+Microsoft HAX; Kocielnik 2019, where setting expectations _raised_ acceptance of a weak AI; Mahmood
 2022 on apologies repairing trust). **"Once per outage" has no evidence and is `[reasoning]`.**
 [→ ticket](wayfinder/tickets/failure-honesty-evidence.md)
 
@@ -595,16 +595,16 @@ On a call from an unknown number, she:
     person reading a record rather than a context being fed.
   - **Main receives only the digest plus a reference to that artifact.** She never ingests the prose,
     so §10 holds unchanged.
-  - **Main never ingests the transcript, whoever authorises the work.** *(Corrected: an earlier draft
+  - **Main never ingests the transcript, whoever authorises the work.** _(Corrected: an earlier draft
     said that if Parker asked her to act on it, the content "arrives as his instruction rather than the
-    caller's". That was wrong — see the rule below.)* Two routes exist, and no third:
+    caller's". That was wrong — see the rule below.)_ Two routes exist, and no third:
     - **Parker reads it and gives his own instruction**, in his own words. What reaches main is then
       genuinely his.
     - **A tool-less quarantined model processes it** and hands main only the permitted structured
       fields.
 
-**Authorisation is not provenance.** `[reasoning]` Parker's permission changes what may be *done*, never
-where words *came from*. "Handle that voicemail" does not make a caller's sentences his, and treating it
+**Authorisation is not provenance.** `[reasoning]` Parker's permission changes what may be _done_, never
+where words _came from_. "Handle that voicemail" does not make a caller's sentences his, and treating it
 that way would be the exact path by which injected prose reaches main's tools — untrusted text, her
 private context and her ability to act, all at once, which is what §6.2 and §10 exist to prevent. Under
 FIDES a context takes the **worst** label in its history regardless of who asked for the read, so a
@@ -612,11 +612,12 @@ permission granted afterwards cannot launder it.
 
 This is the same error as the misattributions in the banner above, in a different costume: a label
 asserted over a thing does not change the thing.
+
 - **Never answers free or busy live.** See §5.2.
 - **Never** touches what his schedule says, where he is, who he is with, or anything about anyone
   else, and **never commits him** to anything.
-- **Never transfers to his cell** unless he has set a rule saying so. A transfer is an action *on* him,
-  not an answer *about* him.
+- **Never transfers to his cell** unless he has set a rule saying so. A transfer is an action _on_ him,
+  not an answer _about_ him.
 
 **Two mechanisms, adopted as `[reasoning]`** rather than put to Parker, because they follow from
 settled rulings rather than expressing a preference. Both were listed as open questions on the Nov 6
@@ -624,7 +625,7 @@ page.
 
 - **The call-back.** An inbound call whose attestation is weak gets **called back** on his own number
   rather than trusted. What this buys is narrower than an earlier draft claimed: dialling his number
-  defeats *caller-id spoofing*, because we choose the destination — but it **does not prove who
+  defeats _caller-id spoofing_, because we choose the destination — but it **does not prove who
   answers**. So a called-back leg is subject to the same restriction as any outbound leg to him
   (§14.2): guest tier until proof under §3.3.
 - **Nothing personal goes to voicemail**, and she establishes that a person rather than a machine
@@ -655,18 +656,19 @@ loop**. A spam storm must not be able to make the house think or spend his money
   - **Voicemail, or any machine:** she leaves nothing personal. A fixed callback request only.
   - **An unknown answerer:** guest tier. She does not say why she called beyond what a stranger may
     hear, and does not confirm anything about him.
-  - **No proof at all:** the restricted state *is* the resting state. It is not a failure mode.
+  - **No proof at all:** the restricted state _is_ the resting state. It is not a failure mode.
 
-  *This is the one place this spec interprets a ruling rather than applying it.* Parker said calls
+  _This is the one place this spec interprets a ruling rather than applying it._ Parker said calls
   Janet places "are fork", and that is honoured — a fork originates and owns them. What he did not
   rule on is who is holding the phone at the other end, and the proof rule answers that.
+
 - **Calling anyone else** — **guest-tier rules**, with a **digest** return path, because the far end is
   a stranger. **Flagged tension:** Oct 19 says "incoming calls will get a janet fork with
   limited context and tools", but **a fork cannot drop context** — which is why the Nov 6 page chose a
   fresh session instead. Ask Parker only if the spec comes to depend on it.
 
-*Note on the record: "call outs" in his earlier ruling meant **voice commands**, not outbound calls.
-This section was written once from the wrong reading and corrected.*
+_Note on the record: "call outs" in his earlier ruling meant **voice commands**, not outbound calls.
+This section was written once from the wrong reading and corrected._
 
 For the non-him case, **the brief must itself be schema-constrained — a digest going out.**
 `[reasoning]`
@@ -688,13 +690,13 @@ parameters the task needs — mirroring the **digest** that comes back. Two usef
 
 **Placing the call needs his approval, and his voice is enough.** `[ruling]`
 
-*Corrected: an earlier draft required a phone tap here, derived from a phone-tap rule for "the three"
+_Corrected: an earlier draft required a phone tap here, derived from a phone-tap rule for "the three"
 that turned out not to be his (see §8). With that premise gone, this follows his actual ruling —
-approval by voice on a private channel is sufficient.*
+approval by voice on a private channel is sufficient._
 
 What survives, and is worth keeping on its own merits: **the brief is read back exactly as it will be
 used, and logged.** `[reasoning]` A fixed-schema brief is only a meaningful thing to approve if he
-hears the version that will actually be spoken. Calling *him* needs no approval at all: reaching him
+hears the version that will actually be spoken. Calling _him_ needs no approval at all: reaching him
 is not acting as him.
 
 **She discloses that she is an automated assistant calling for Parker.** Required outbound by FCC
@@ -705,11 +707,11 @@ is not acting as him.
 ## 15. Build order
 
 1. **The desk on headphones, plus his phone.** Real cutoff on both, and **nothing to buy** — headphones
-  have no echo path and a phone line gives a clean stream. `[reasoning]`
+   have no echo path and a phone line gives a clean stream. `[reasoning]`
 2. **The phone number.** Registration is the critical path and should be raised first even though the
-  slice is second.
+   slice is second.
 3. **The room**, which is the only place echo-cancelling hardware matters. A purchase, so it goes to
-  Parker with a price.
+   Parker with a price.
 
 **Rulings of Parker's have twice turned out to live only in a DM while a published page said the
 opposite, and the page won by being easier to find.** The old voice plan pages are to be marked

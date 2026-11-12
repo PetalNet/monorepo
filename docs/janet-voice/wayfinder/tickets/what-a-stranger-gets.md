@@ -8,8 +8,8 @@ resolved: 2026-11-11
 ## Question
 
 The number is in scope, so an unknown caller is a real case, not fog. The guest head already answers
-what it *knows* (public class only, untrusted speech, attributed facts only). This ticket is what it
-*does*.
+what it _knows_ (public class only, untrusted speech, attributed facts only). This ticket is what it
+_does_.
 
 From the phone research: callers were to be scoped by class, with an unknown caller getting intake
 plus free/busy, a client getting booking, and Parker or a VIP getting a transfer. None of that is
@@ -39,15 +39,15 @@ What she does on a call from an unknown number:
   sure he gets your message", every time, whatever his calendar actually says.
 - **Never** touches what his schedule says, where he is, who he is with, or anything about anyone
   else, and **never commits him** to anything.
-- **No transfer to his cell** unless he has set a rule saying so. A transfer is an action *on* him,
-  not an answer *about* him.
+- **No transfer to his cell** unless he has set a rule saying so. A transfer is an action _on_ him,
+  not an answer _about_ him.
 - **The message reaches him as a stored transcript artifact**, and **main receives only the digest
-  plus a reference to it**. *(Corrected 2026-11-11: this first said "quoted as external data", which
+  plus a reference to it**. _(Corrected 2026-11-11: this first said "quoted as external data", which
   both predates the digest rule and cannot carry an arbitrary message anyway. A digest is fixed fields;
   a message is prose. They need separate routes, or the intake promises something it then throws
-  away.)* Parker reads the artifact as a person. **Main never ingests it, whoever authorises the work** —
-authorisation is not provenance, so his asking her to handle it does not make the caller's words his.
-Either he gives his own instruction, or the quarantined model returns permitted structured fields.
+  away.)_ Parker reads the artifact as a person. **Main never ingests it, whoever authorises the work** —
+  authorisation is not provenance, so his asking her to handle it does not make the caller's words his.
+  Either he gives his own instruction, or the quarantined model returns permitted structured fields.
 
 ### Why free/busy is withheld even though it is public class
 

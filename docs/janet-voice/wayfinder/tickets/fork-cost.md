@@ -56,11 +56,11 @@ main is warm.
 Measured, Oct 28 spike: a 159k-token synthetic main on Opus 5.5, five runs per arm. Spike notes are
 held outside this repo.
 
-| | first text | cost |
-|---|---|---|
-| Warm fork, first turn | 4.1 s median | ~$0.19 |
-| Cold fork, first turn | 3.5 s | ~$1.36 |
-| Follow-up turns in a running fork | 1 – 2.2 s | ~$0.04 |
+|                                   | first text   | cost   |
+| --------------------------------- | ------------ | ------ |
+| Warm fork, first turn             | 4.1 s median | ~$0.19 |
+| Cold fork, first turn             | 3.5 s        | ~$1.36 |
+| Follow-up turns in a running fork | 1 – 2.2 s    | ~$0.04 |
 
 **No fork's first turn met the 0.7 to 1.5 second bar. Only a fresh lean session did.**
 
@@ -73,7 +73,7 @@ held outside this repo.
 
 Both queried by Focus · Voice and answered by Janet the same day.
 
-1. **The warm fork measured *slower* than the cold one** (4.1 s against 3.5 s) while costing a seventh
+1. **The warm fork measured _slower_ than the cold one** (4.1 s against 3.5 s) while costing a seventh
    as much, which is strange enough to suspect. **Resolved: the nonce swap did invalidate** — the cold
    arm read 8.9k from cache and wrote 169.7k, the warm arm read 158.9k. So the cost gap is real and
    the latency gap is the noisy half. At five runs an arm, 3.5 against 4.1 is noise, and the honest
@@ -91,7 +91,7 @@ different levers and the spare pulls both.
 
 - The cache is why a first turn costs $0.19 rather than $1.36.
 - The spare is why Parker does not wait: its first turn is **already spent**, so his actual first turn
-  is a *follow-up* at 1 to 2.2 seconds.
+  is a _follow-up_ at 1 to 2.2 seconds.
 
 So about $3/day buys first word in **1 to 2 seconds instead of about 4**. "Warmth buys money, not
 speed" is true of the cache alone and misleading about the spare.
@@ -111,7 +111,7 @@ lifetime on a subscription for the main thread; the installed 2.1.312 binary ret
 janet-mini's kept-ready fork is a **prestarted process with no warm-up turn and no keepalive**
 (`PLAN.md:89`; "An idle fork makes no model calls"). It is zero-idle-compliant by construction, and it
 bought only about **0.5 s** (`PLAN.md:263`). The $3/day cache-pinging spare costed below was a
-*different* design, drawn up the same evening and presented to Parker as "the spare". **His no-spare
+_different_ design, drawn up the same evening and presented to Parker as "the spare". **His no-spare
 decision stands**, but it was made against an overstated premise, and the free half-second remains
 available if he ever asks for faster.
 
@@ -135,9 +135,9 @@ five-minute cache would run about $11/day and loses to simply eating cold spawns
   enough for voice. The ruling states its own premise and the premise failed, which makes this an easy
   and honest thing to put back to him.
 - **His zero-idle ruling.** **His words are "Nothing calls a model while Parker is silent. Idle must
-  cost zero usage."** *(Corrected: this ticket first quoted a longer list naming warmups and
+  cost zero usage."** _(Corrected: this ticket first quoted a longer list naming warmups and
   keepalives as his. That list is janet-mini's `PLAN.md:109`, a manager's gloss, and must not be
-  attributed to him.)* A spare that pings to hold a cache does call a model while he is silent, so the
+  attributed to him.)_ A spare that pings to hold a cache does call a model while he is silent, so the
   substance still bites — but the framing built on his supposed wording did not survive checking.
 
 ### Outcome: Parker ruled, and no exception was carved

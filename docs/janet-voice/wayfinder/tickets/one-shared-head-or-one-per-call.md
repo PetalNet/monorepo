@@ -52,7 +52,7 @@ Closed with Janet as manager, 2026-11-11: "You're right, and I'm dropping my lea
 The warm-start half of this decision depends on fork cost, which is unverified: a fork has no cache of
 its own and reads main's cached prefix, which expires after minutes of quiet. The "half a second
 against nearly three and a half" comparison therefore holds only while main has spoken recently. The
-*per conversation rather than per channel* half stands on its own, since it rests on trust levels and
+_per conversation rather than per channel_ half stands on its own, since it rests on trust levels and
 on a head taking one turn at a time. See [What a fork actually costs](fork-cost.md).
 
 ## Rewritten by the reconciliation, 2026-11-11
@@ -62,7 +62,7 @@ on a head taking one turn at a time. See [What a fork actually costs](fork-cost.
 reply" — reserves the fork for **feature requests, complex ideas, or long conversation**, and routing
 is re-decided **fresh every turn with no sticky rule** (Oct 7).
 
-So "one warm head per conversation" was the wrong frame: a conversation does not get a fork *because*
+So "one warm head per conversation" was the wrong frame: a conversation does not get a fork _because_
 it is a conversation. **Rung 1 answers, and passes up when the request needs rung 2.** What survives
 of this ticket is narrower and still true: once rung 2 exists it is shared across his channels for that
 conversation, and a genuinely simultaneous second conversation gets its own, because a head takes one

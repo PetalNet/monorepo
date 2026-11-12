@@ -35,7 +35,7 @@ This ticket first recorded "the three always need a tap on his phone, every time
 labelled as his ruling. **It was never his.** The label came from the Nov 6 tiers page, which asserts
 it while also listing it as its own first open question, and the compiled record contains only the
 permissive direction above. It was briefly downgraded to reasoning, then removed outright: the
-permissive reading *is* the ruling.
+permissive reading _is_ the ruling.
 
 **That propagated.** The rule requiring a phone tap to place an outbound call was derived from this
 one, so it went too; see [What a stranger gets on the phone](what-a-stranger-gets.md).

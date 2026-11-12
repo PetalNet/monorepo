@@ -14,7 +14,7 @@ How many voice sessions are there, and what splits them?
   household session" with no fork of main and no Parker memory.
 - Parker's Nov 11 ruling sends every device through Home Assistant, which makes every turn an HA
   Assist turn and leaves R1 with nothing to split on.
-- The janet-mini map already ruled in [One Janet, many doors] that "sessions are not per device; the
+- The janet-mini map already ruled, in its "One Janet, many doors" decision, that "sessions are not per device; the
   device is a fact in the envelope", and the Nov 6 tiers page splits by trust instead: a fork of
   Central on a private channel, a fresh low-class head on the house speaker, a public-only head for
   a guest.
@@ -34,11 +34,11 @@ Three kinds of head:
 - **His own head.** A fork of main with full context. Reached from the desk on headphones, his phone
   app signed in and unlocked, and a call proved to be him.
 - **The room head.** Fresh, **public facts only, plus the lamps**. For a room speaker, and for
-  anything where we only believe it is probably him. *(Amended 2026-11-11: it was "public and low
+  anything where we only believe it is probably him. _(Amended 2026-11-11: it was "public and low
   notes". Meta's Rule of Two forbids holding private facts and the ability to act at once, and
   "probably him" counts as untrusted input, so since Parker ruled the lamps work directly and without
   confirmation, the room head holds no private facts at all. A low-band answer is a rise to his own
-  head. See [Tiered isolation as a pattern](tiered-isolation-prior-art.md).)*
+  head. See [Tiered isolation as a pattern](tiered-isolation-prior-art.md).)_
 - **The guest head.** Public class only. For an unknown voice or an unknown caller.
 
 The device never picks the head: the device is a fact in the envelope, per the existing ruling that
@@ -62,11 +62,11 @@ must be present **on the turn that rises** and can never be claimed from an earl
 
 **What a rise carries depends on whether the lower head heard untrusted input.** From a head at his own
 tier — proof on every turn, so nothing untrusted — raw words may go up. From a **room or guest** head,
-which has untrusted input by definition, only a **schema-constrained digest** goes up. *(Refined the
+which has untrusted input by definition, only a **schema-constrained digest** goes up. _(Refined the
 same day: this first said a rise never carries raw words, which over-applied the taint rule to a head
-that had nothing tainted to pass.)*
+that had nothing tainted to pass.)_
 
-*Corrected the same day.* This first read "may read everything the lower head saw, because information
+_Corrected the same day._ This first read "may read everything the lower head saw, because information
 flowing up leaks nothing". That was wrong: information flowing up does not leak, it **taints**, which
 is worse for being silent and permanent. See [Provenance and taint in agent
 memory](provenance-and-taint.md).

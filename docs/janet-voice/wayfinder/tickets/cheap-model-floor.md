@@ -29,8 +29,8 @@ Janet. **Nothing is published on short spoken commands for the cheap model speci
   2025-09-11), and publishes no table.
 
 **The decision stands, but its real backing is the tools-fixed-in-code condition, not the model's
-quality.** That matters more than it first looks: the injection gap puts the *weakest* model exactly
-where the *untrusted* input arrives. It is acceptable only because the fence is the tool list — a room
+quality.** That matters more than it first looks: the injection gap puts the _weakest_ model exactly
+where the _untrusted_ input arrives. It is acceptable only because the fence is the tool list — a room
 head holding lamps and nothing else, a guest head holding nothing — so a successful injection has
 almost nothing to reach. The gap matters in proportion to blast radius, and the blast radius is
 deliberately tiny. See [Where permissions are enforced](where-permissions-are-enforced.md).

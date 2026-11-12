@@ -38,9 +38,9 @@ she is already running by then, so nothing is lost even if a head dies mid-sente
 ### How main reads it depends on who wrote it
 
 - **Lines from his own head are main's own memory.** That head is a fork of her, so they read as hers.
-- **Lines from a room or guest head never reach main raw.** *(Replaced 2026-11-11; this first said
+- **Lines from a room or guest head never reach main raw.** _(Replaced 2026-11-11; this first said
   they arrive quoted and marked as external data. Quoting was the right instinct and the wrong
-  mechanism — it marks a line without stopping an injection.)* A **tool-less quarantined model** reads
+  mechanism — it marks a line without stopping an injection.)_ A **tool-less quarantined model** reads
   them and hands main a **schema-constrained digest**: who called, when, which intent from a fixed
   list, a callback number. Fixed fields, never free text. Main holds his private data and her tools, so
   reading untrusted words directly would give her all three of the Rule of Two, and under FIDES a

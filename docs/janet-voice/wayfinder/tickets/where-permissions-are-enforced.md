@@ -47,9 +47,9 @@ Two layers are the boundary:
    each get **their own assistant** with only their entities exposed, so local matching on those
    pipelines physically cannot reach anything else.
 
-This is where choosing trust as the axis pays off twice. Per-assistant exposure was a *limitation*
+This is where choosing trust as the axis pays off twice. Per-assistant exposure was a _limitation_
 when the question was scoping a caller's rights — Home Assistant cannot do that, which is why Janet
-gates callers herself. The same granularity becomes the *mechanism* once heads split by trust,
+gates callers herself. The same granularity becomes the _mechanism_ once heads split by trust,
 because one assistant per tier lines up exactly with the head boundary. Splitting per device or per
 caller would not have lined up at all.
 
@@ -59,6 +59,6 @@ The one place the test bites. Parker ruled voice drives the lamps directly; Oct 
 denied in code until he said otherwise. A lamp leaks nothing and spends nothing, so it is judgement by
 the test, but it is also the only house capability he has actually granted. Resolved: the lamps are
 reachable for **his own head and the room head**, kept out of the **guest head** until he rules on the
-room ceiling, and *which* lamp and *when* stays her judgement.
+room ceiling, and _which_ lamp and _when_ stays her judgement.
 
 Closed with Janet as manager, 2026-11-11.

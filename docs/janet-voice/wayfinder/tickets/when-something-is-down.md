@@ -38,10 +38,10 @@ prove.
 
 ### Loud means once
 
-**Told once, in the turn where it matters, plus one alert to main.** *(The disclosure rule is
+**Told once, in the turn where it matters, plus one alert to main.** _(The disclosure rule is
 research-backed; the once-per-outage frequency is reasoning — see [Does admitting degradation
 help](failure-honesty-evidence.md). Every degraded turn is logged even when nothing is said aloud, so
-restraint applies to speaking and never to recording.)* Not repeated announcements from a
+restraint applies to speaking and never to recording.)_ Not repeated announcements from a
 room speaker at three in the morning while the dongle stays wedged. Once per outage per channel, and
 named again only when he asks for something it breaks.
 
