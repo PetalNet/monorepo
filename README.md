@@ -11,7 +11,8 @@ standalone.
 apps/         independently shipped applications and services
 packages/     shared TypeScript libraries and configuration
 skills/       the lab's own agent skills, linked into .agents/skills
-docs/         repository architecture and migration history
+docs/         repository architecture, migration history, and design specs for
+              systems that span several apps
 ```
 
 ### Applications
