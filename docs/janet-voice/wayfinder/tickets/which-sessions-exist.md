@@ -57,9 +57,14 @@ forget what it already holds.**
 
 **The rise rule, written 2026-11-11** to close a gap this decision left: the drop rule was specified
 in detail and the rise rule never was. A rise is judged **per turn, exactly like a drop**. The proof
-must be present **on the turn that rises** and can never be claimed from an earlier one. The higher
-head reads a **schema-constrained digest** of what the lower head saw, **never its raw words**. The
-lower head **gets nothing back**.
+must be present **on the turn that rises** and can never be claimed from an earlier one. The lower head
+**gets nothing back**.
+
+**What a rise carries depends on whether the lower head heard untrusted input.** From a head at his own
+tier — proof on every turn, so nothing untrusted — raw words may go up. From a **room or guest** head,
+which has untrusted input by definition, only a **schema-constrained digest** goes up. *(Refined the
+same day: this first said a rise never carries raw words, which over-applied the taint rule to a head
+that had nothing tainted to pass.)*
 
 *Corrected the same day.* This first read "may read everything the lower head saw, because information
 flowing up leaks nothing". That was wrong: information flowing up does not leak, it **taints**, which

@@ -30,22 +30,7 @@ room and guest turns, differing in what it may hold and do.
 What does **not** exist is a separate *identity*. There is no "fast Janet"; the cheap model is
 something a rung runs.
 
-> ### Superseded history — not implementation guidance
->
-> This ticket was first closed the other way, collapsing the rung away. The reasoning below is kept
-> because the distinction it got wrong is worth seeing.
-
-**Collapsed into [Which model a voice head runs](which-model-a-voice-head-runs.md)**, with Janet's
-agreement, because the trust split had already answered it.
-
-There is no extra rung between a Home Assistant intent and a fork of main. What Nov 6 called "the
-quick model" is the room head seen from outside: a fresh context on the cheap model, which exists for
-privacy first and cost second. The middle rung is a *head*, not a *speed*.
-
-So the answer to the question as posed — cost decision, privacy decision, or both — is: privacy
-decides that the head exists, and cost decides what model it runs.
-
-## Reopened by Parker the same day, and the collapse was half wrong
+### How the collapse went wrong
 
 Parker: "Hey janet what is xyz should be fast limited tools culled down session." So a quick question
 or a device command **does** get its own session shape: fresh, culled-down context, limited tool list.
@@ -61,3 +46,18 @@ The lasting fix is the distinction in [CONTEXT.md](../../CONTEXT.md): a head is 
 *Still provisional, and ours rather than his:* which tools make the limited list, the command shape's
 tier (set by what the channel proves), and the escalation boundary where a command that draws a
 follow-up becomes a conversation and pays the four seconds.
+
+> ### Superseded history — not implementation guidance
+>
+> This ticket was first closed the other way, collapsing the rung away. The reasoning below is kept
+> because the distinction it got wrong is worth seeing.
+
+**Collapsed into [Which model a voice head runs](which-model-a-voice-head-runs.md)**, with Janet's
+agreement, because the trust split had already answered it.
+
+There is no extra rung between a Home Assistant intent and a fork of main. What Nov 6 called "the
+quick model" is the room head seen from outside: a fresh context on the cheap model, which exists for
+privacy first and cost second. The middle rung is a *head*, not a *speed*.
+
+So the answer to the question as posed — cost decision, privacy decision, or both — is: privacy
+decides that the head exists, and cost decides what model it runs.

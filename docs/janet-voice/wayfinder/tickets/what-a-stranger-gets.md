@@ -17,7 +17,9 @@ ruled yet. Also unruled: what Janet may do on a call with someone who is not Par
 take a message, how a message reaches him, and whether she says she is an assistant.
 
 One external constraint is not ours to choose: FCC 24-17 means an AI voice calling a mobile needs
-consent, so an outbound automated call must disclose itself. Recording consent is one-party where he is. These bound the answer rather than being decided by it.
+consent, so an outbound automated call must disclose itself. For recording, one party's consent is
+enough where he is, but a caller may be somewhere that requires every party's. These bound the answer
+rather than being decided by it.
 
 ## Resolution
 

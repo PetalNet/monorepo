@@ -146,12 +146,14 @@ a manager's gloss and was wrongly quoted as his. See
   presence above it; voice match is free software on hardware he owns; the fused "he is alone" top
   rung is dropped, because the room's only sensor does not cover the whole room
 - [How fast a reply must start](tickets/how-fast-a-reply-must-start.md): already settled in the specs,
-  not re-asked; she acknowledges in her own words before the slow thing, and the warm-fork decision
-  already bought the sub-second path. What is left is a measurement, not a decision
+  not re-asked; she acknowledges in her own words before the slow thing. The sub-second preference
+  read into the warm-fork decision was **ours, not his** — his tolerance is "3 seconds is pretty damn
+  good" and he accepted four. What is left is a measurement, not a decision
 - [What counts as consent](tickets/what-counts-as-consent.md): already ruled on Oct 28 and never
-  published; voice approves when it is him, headphones and calls carry approval, a speaker sends him
-  to his phone, and the three always need a tap. The Oct 27 "nothing spoken is consent" rule and R4
-  are retired
+  published; voice approves when it is **proved** to be him, headphones and a call on his app or SIP
+  credential carry approval, a speaker sends him to his phone. **No carve-out for money, sending as
+  him or deletions** — the phone-tap rule was never his and is removed. The Oct 27 "nothing spoken is
+  consent" rule and R4 are retired
 - [Can Home Assistant carry the audio and still be cut off](tickets/can-hass-carry-the-audio.md): no
   for calls, and in a room only with firmware we write; shipped satellites stop by word only, and
   cancelling via a new pipeline cancels nothing audible
@@ -163,9 +165,11 @@ a manager's gloss and was wrongly quoted as his. See
   R1's client split is retired and replaced; his own head, a room head and a guest head; a head cannot
   forget, so dropping trust hands off to a fresher head with only the spoken request and cuts her off
   aloud; a bare caller id tops out at the room head; approvals only from his own head
-- [One shared head, or one per call](tickets/one-shared-head-or-one-per-call.md) **(provisional)**: one warm head per
-  conversation, shared across his own channels, a simultaneous second conversation forking its own;
-  trust is re-checked every turn against the channel it arrived on and never inherited
+- [One shared head, or one per call](tickets/one-shared-head-or-one-per-call.md): **rung 2 is entered
+  by the kind of request, not at the start of a conversation**, and there is no warm head. Once it
+  exists it is shared across his channels for that conversation, and a simultaneous second
+  conversation forks its own; trust is re-checked every turn against the channel it arrived on and
+  never inherited
 - [Which model a voice head runs](tickets/which-model-a-voice-head-runs.md) **(provisional)**: the model follows the
   head; his own head is a fork on main's model for the cache, the room and guest heads are fresh
   contexts on the cheap model, and there is no second identity. Capability comes from the tool list
@@ -212,10 +216,13 @@ a manager's gloss and was wrongly quoted as his. See
   rule written the same day
 - [Measuring fork staleness](tickets/staleness-signal.md): **partly supported.** Context fullness is
   standard (MemGPT at 70 and 100 percent); fork drift from a parent has no prior art and is labelled
-  **novel**. Compaction is machine-readable as a `compact_boundary` event, and the spare retires at the
-  cache lifetime and whenever main's tool list changes
-- [Is there a non-fork quick tier](tickets/is-there-a-non-fork-quick-tier.md): no extra rung; the
-  middle rung is a head, not a speed. Collapsed into the ticket above
+  **novel**. Compaction is machine-readable as a `compact_boundary` event. (The cache-lifetime and
+  tool-list retirement rules were written for a spare that no longer exists; they now apply to a
+  *running* head.)
+- [Is there a non-fork quick tier](tickets/is-there-a-non-fork-quick-tier.md): **yes — rung 1 is a
+  real, independent rung**, a cheap model with a culled-down context and a limited tool list, on
+  Parker's ruling. It was briefly closed the other way; what stays dead is a separate *identity*, not
+  the rung
 - [Quiet hours are still none](tickets/quiet-hours-still-none.md): the Oct 27 ruling stands, and five
   places in the sources still assume a clock, listed for stripping. One clock-based merge trigger is
   a separate question, not covered by the ruling

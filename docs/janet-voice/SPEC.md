@@ -579,8 +579,8 @@ On a call from an unknown number, she:
 
 - **Says in her opening line that she is an assistant answering for Parker, and that the call is being
   transcribed.** The FCC rule (24-17) only compels the disclosure outbound, but letting an inbound
-  caller believe they reached a person is worse than the rule bothers to forbid. Recording consent is one-party where he is
-  consent, but callers can be anywhere and some states require every party.
+  caller believe they reached a person is worse than the rule bothers to forbid. One party's consent is
+  enough to record where he is, but callers can be anywhere and some states require every party's.
 - **Takes a message**, promising it will reach him in **fixed, generic words** — never a time computed
   from his day.
 

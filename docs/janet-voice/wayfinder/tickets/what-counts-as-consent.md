@@ -7,20 +7,22 @@ resolved: 2026-11-11
 
 ## Question
 
-Parker has ruled the hard part already: money, sending anything as Parker, and deletions need a
-"Was this you?" tap on his phone, every time, on every channel, and nothing spoken counts as
-approval. The Nov 6 page adds that other approvals still work by voice on a private channel.
+What counts as Parker's consent by voice, and on which channels?
 
-What is left to settle is the edge: which actions fall in the taps-only set beyond those three
-(standing orders, recurring charges, anything irreversible), what happens when the tap never comes,
-and whether a voice approval on headphones really is enough for everything else.
+> **This section's original framing was wrong and is kept only as history — not implementation
+> guidance.** It opened by asserting that he had already ruled that money, sending as him and
+> deletions need a phone tap on every channel, and that nothing spoken counts as approval. **Neither
+> was his ruling.** The first came from the Nov 6 page's mislabel; the second he overruled on Oct 28,
+> the day after it was written. The real question was therefore the opposite of the one asked, and the
+> Resolution below answers it.
 
 ## Resolution
 
 Already ruled by Parker on 2026-10-28, the day after the rule it overturned, in a DM that never
 reached the published page. Not re-asked.
 
-- Approval by voice counts when it is Parker. A phone call is him.
+- Approval by voice counts when it is **proved** to be Parker — his signed-in app or his SIP
+  credential. A bare caller id does not prove it, because it can be spoofed.
 - Headphones carry approval, checked against his known devices, not a name guess. His words: "In
   headphones should be approvaled. just speaker is messy."
 - On a room speaker she asks him to confirm on his phone or to put headphones on.
