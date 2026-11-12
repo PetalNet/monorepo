@@ -42,6 +42,14 @@ number. Fixed fields only, never free text.
 it is stored as a transcript artifact for **Parker** to read, with main receiving the digest plus a
 reference. A person reading a record is not a context being fed. See SPEC.md §14.1.
 
+**And authorisation is not provenance.** Main never ingests that transcript, **whoever authorises the
+work**. An earlier draft allowed it when Parker asked her to act on it, reasoning that the content then
+arrived as his instruction. It does not: his permission changes what may be done, never where the words
+came from, and "handle that voicemail" does not make a caller's sentences his. Under this ticket's own
+FIDES finding a context takes the worst label in its history regardless of who requested the read, so
+nothing granted afterwards can launder it. Either Parker gives his own instruction in his own words, or
+the quarantined model returns permitted structured fields.
+
 This replaces "main reads them quoted as external data" in [When what a head learned flows
 back](when-what-a-head-learned-flows-back.md). Quoting was the right instinct and the wrong mechanism.
 

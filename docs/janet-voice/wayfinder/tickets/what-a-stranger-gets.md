@@ -45,7 +45,9 @@ What she does on a call from an unknown number:
   plus a reference to it**. *(Corrected 2026-11-11: this first said "quoted as external data", which
   both predates the digest rule and cannot carry an arbitrary message anyway. A digest is fixed fields;
   a message is prose. They need separate routes, or the intake promises something it then throws
-  away.)* Parker reads the artifact as a person; main does not open it on her own account.
+  away.)* Parker reads the artifact as a person. **Main never ingests it, whoever authorises the work** —
+authorisation is not provenance, so his asking her to handle it does not make the caller's words his.
+Either he gives his own instruction, or the quarantined model returns permitted structured fields.
 
 ### Why free/busy is withheld even though it is public class
 

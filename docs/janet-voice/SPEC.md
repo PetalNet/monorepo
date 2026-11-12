@@ -595,8 +595,23 @@ On a call from an unknown number, she:
     person reading a record rather than a context being fed.
   - **Main receives only the digest plus a reference to that artifact.** She never ingests the prose,
     so §10 holds unchanged.
-  - **Main may not open the artifact on her own account.** If Parker asks her to act on it, that is him
-    choosing to bring the content in, and it arrives as his instruction rather than the caller's.
+  - **Main never ingests the transcript, whoever authorises the work.** *(Corrected: an earlier draft
+    said that if Parker asked her to act on it, the content "arrives as his instruction rather than the
+    caller's". That was wrong — see the rule below.)* Two routes exist, and no third:
+    - **Parker reads it and gives his own instruction**, in his own words. What reaches main is then
+      genuinely his.
+    - **A tool-less quarantined model processes it** and hands main only the permitted structured
+      fields.
+
+**Authorisation is not provenance.** `[reasoning]` Parker's permission changes what may be *done*, never
+where words *came from*. "Handle that voicemail" does not make a caller's sentences his, and treating it
+that way would be the exact path by which injected prose reaches main's tools — untrusted text, her
+private context and her ability to act, all at once, which is what §6.2 and §10 exist to prevent. Under
+FIDES a context takes the **worst** label in its history regardless of who asked for the read, so a
+permission granted afterwards cannot launder it.
+
+This is the same error as the misattributions in the banner above, in a different costume: a label
+asserted over a thing does not change the thing.
 - **Never answers free or busy live.** See §5.2.
 - **Never** touches what his schedule says, where he is, who he is with, or anything about anyone
   else, and **never commits him** to anything.
