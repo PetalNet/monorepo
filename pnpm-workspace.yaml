@@ -120,7 +120,7 @@ catalogs:
     oxlint: 1.87.0
     oxlint-tsgolint: 7.0.2003
     postcss: ^8.5.23
-    prisma: ^5.22.0
+    prisma: ^7.0.0
     svelte-check: ^4.3.5
     # Keep the TS 6 API at the name ecosystem tooling imports. The native TS 7
     # compiler is installed alongside it under the official alias below.
@@ -154,7 +154,7 @@ catalogs:
     "@libsql/client": ^0.18.0
     "@lucide/svelte": ^1.23.0
     "@modelcontextprotocol/sdk": ^1.29.0
-    "@prisma/client": ^5.22.0
+    "@prisma/client": ^7.0.0
     "@sentry/core": ^10.78.0
     "@sentry/node": ^10.78.0
     "@sentry/sveltekit": ^10.78.0
@@ -196,8 +196,8 @@ catalogs:
   # PetalBoard shipped on Prisma 6 and uses its `prisma-client` generator, which writes
   # the client into the app. tools/prisma-clients.test.ts keeps app clients apart.
   prisma6:
-    "@prisma/client": ^6.18.0
-    prisma: ^6.18.0
+    "@prisma/client": ^7.0.0
+    prisma: ^7.0.0
 
 catalog:
   csv-parse: 7.0.3
