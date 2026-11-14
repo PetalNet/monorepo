@@ -5,6 +5,8 @@ import path from "node:path";
 
 import Database from "better-sqlite3";
 
+import { renderMd } from "../src/lib/server/md.js";
+
 // sync-makkit-docs: mirror the gallery pages tagged collection='makkit' into the Makkit staff
 // app's Docs reader.
 //
@@ -19,8 +21,9 @@ import Database from "better-sqlite3";
 // Env:    MAKKIT_API_URL, MAKKIT_ANON_KEY, MAKKIT_AGENT_KEY_FILE (a path to a file holding a
 //         docs_publish agent key), TASKS_DB_PATH.
 //
-// Only html and interactive pages sync. Markdown pages are rendered by the web app's renderMd,
-// whose dependencies the production image does not ship, so they are skipped and reported.
+// html and interactive pages go as stored. Markdown pages are rendered with the web app's own
+// renderMd (sanitized) and wrapped in a self-contained document, so Makkit's reader, which serves
+// docs under default-src 'none'; style-src 'unsafe-inline', needs nothing external.
 
 const DB_PATH =
 	process.env.TASKS_DB_PATH || path.resolve(import.meta.filename, "../../data/tasks.db");
@@ -40,7 +43,7 @@ function readTagged() {
 	try {
 		return db
 			.prepare(
-				`SELECT slug, title, kind, content FROM artifacts
+				`SELECT slug, title, description, kind, content FROM artifacts
          WHERE collection='makkit' AND visibility='shared' ORDER BY slug`,
 			)
 			.all();
@@ -49,11 +52,68 @@ function readTagged() {
 	}
 }
 
-function skipReason(r) {
-	if (r.kind === "markdown") {
-		return "markdown pages are not synced";
-	}
+const escapeHtml = (s) =>
+	s
+		.replaceAll("&", "&amp;")
+		.replaceAll("<", "&lt;")
+		.replaceAll(">", "&gt;")
+		.replaceAll('"', "&quot;");
 
+// Mirrors the tasks gallery's markdown view (app.css .prose): same type scale, spacing and paper
+// and ink palettes, with system fonts because the reader allows no external resources.
+const DOC_CSS = `
+:root{color-scheme:light dark;--bg:#fff;--s1:#fbfaf9;--s2:#f6f5f3;--rule:#ececea;--t1:#161412;--t2:#3a3631;--t3:#4a4642;--ac:#bc5638;--acb:#a14a30;--acl:rgba(188,86,56,.3)}
+@media (prefers-color-scheme:dark){:root{--bg:#0d0c0b;--s1:#161413;--s2:#1d1b19;--rule:#262321;--t1:#ece8e3;--t2:#c4beb6;--t3:#bdb9b4;--ac:#e2725b;--acb:#ec8a76;--acl:rgba(226,114,91,.34)}}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--t2);font:15.5px/1.7 system-ui,-apple-system,"Segoe UI",sans-serif;-webkit-text-size-adjust:100%}
+main{max-width:760px;margin:0 auto;padding:32px 20px 64px}
+header h1{font-size:28px;font-weight:700;letter-spacing:-.02em;color:var(--t1);margin:0 0 6px;line-height:1.25}
+.sub{color:var(--t3);margin:0 0 8px}
+h1,h2,h3,h4{color:var(--t1);line-height:1.3}
+article h1{font-size:24px;font-weight:700;margin:26px 0 8px;letter-spacing:-.02em}
+h2{font-size:18px;font-weight:600;margin:26px 0 8px;color:var(--acb);border-bottom:1px solid var(--rule);padding-bottom:6px}
+h3{font-size:15px;font-weight:600;margin:20px 0 6px}
+p,ul,ol,blockquote{margin:9px 0}
+ul,ol{padding-left:24px}
+li{margin:5px 0}
+strong{color:var(--t1);font-weight:600}
+a{color:var(--acb);text-decoration:underline;text-decoration-color:var(--acl);text-underline-offset:3px}
+code{font:13px ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;background:var(--s2);padding:1px 6px;border-radius:5px;color:var(--acb);border:1px solid var(--rule)}
+pre{background:var(--s1);border:1px solid var(--rule);border-radius:12px;padding:12px 14px;overflow-x:auto;margin:12px 0}
+pre code{background:none;border:0;padding:0;color:var(--t2);font-size:12.5px;line-height:1.5}
+blockquote{border-left:3px solid var(--ac);padding-left:15px;color:var(--t3);font-style:italic}
+hr{border:0;border-top:1px solid var(--rule);margin:26px 0}
+table{width:100%;border-collapse:collapse;margin:14px 0;font-size:13px;display:block;overflow-x:auto}
+th,td{border:1px solid var(--rule);padding:7px 10px;text-align:left;vertical-align:top}
+th{background:var(--s2);color:var(--t1);font-weight:600;white-space:nowrap}
+img{max-width:100%}
+.wikilink{font-size:.92em;padding:1px 7px;border-radius:5px;white-space:nowrap;border:1px solid var(--rule);background:var(--s2);text-decoration:none}
+`
+	.trim()
+	.replaceAll("\n", "");
+
+function markdownDocument(r) {
+	const sub = r.description ? `<p class="sub">${escapeHtml(r.description)}</p>` : "";
+
+	return `<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>${escapeHtml(r.title)}</title>
+<style>${DOC_CSS}</style>
+</head>
+<body>
+<main>
+<header><h1>${escapeHtml(r.title)}</h1>${sub}</header>
+<article>${renderMd(r.content)}</article>
+</main>
+</body>
+</html>
+`;
+}
+
+function skipReason(r, html) {
 	if (!SLUG_RE.test(r.slug)) {
 		return "invalid slug";
 	}
@@ -62,7 +122,7 @@ function skipReason(r) {
 		return `title must be 1 to ${MAX_TITLE} characters`;
 	}
 
-	if (r.content.length > MAX_HTML) {
+	if (html.length > MAX_HTML) {
 		return `html is over ${MAX_HTML} characters`;
 	}
 
@@ -75,7 +135,8 @@ function classify(rows) {
 	const skipped = [];
 
 	for (const r of rows) {
-		const why = skipReason(r);
+		const html = r.kind === "markdown" ? markdownDocument(r) : r.content;
+		const why = skipReason(r, html);
 
 		if (why) {
 			skipped.push({ slug: r.slug, why });
@@ -83,8 +144,8 @@ function classify(rows) {
 			pages.push({
 				slug: r.slug,
 				title: r.title,
-				html: r.content,
-				hash: sha256(`${r.title}\n${r.content}`),
+				html,
+				hash: sha256(`${r.title}\n${html}`),
 			});
 		}
 	}

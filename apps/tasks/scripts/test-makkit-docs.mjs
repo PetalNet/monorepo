@@ -32,10 +32,19 @@ const sha = (s) => createHash("sha256").update(s).digest("hex");
 const page = (slug, title, content, fields = {}) =>
 	db
 		.prepare(
-			`INSERT INTO artifacts (slug, title, kind, content, visibility, collection)
-       VALUES (@slug, @title, @kind, @content, @visibility, @collection)`,
+			`INSERT INTO artifacts (slug, title, description, kind, content, visibility, collection)
+       VALUES (@slug, @title, @description, @kind, @content, @visibility, @collection)`,
 		)
-		.run({ slug, title, content, kind: "html", visibility: "shared", collection: "", ...fields });
+		.run({
+			slug,
+			title,
+			content,
+			description: "",
+			kind: "html",
+			visibility: "shared",
+			collection: "",
+			...fields,
+		});
 const collectionOf = (slug) =>
 	db.prepare("SELECT collection FROM artifacts WHERE slug=?").get(slug).collection;
 
@@ -98,6 +107,39 @@ await t("an update that omits the collection leaves it alone", () => {
 await t("an update can clear the collection with ''", () => {
 	db.prepare("UPDATE artifacts SET collection='' WHERE slug='kept'").run();
 	assert.equal(collectionOf("kept"), "");
+});
+
+// The statement the live gallery publisher runs (upsertArtifact in the lab host's checkout).
+const UPSERT_ARTIFACT = `INSERT INTO artifacts (slug, title, description, kind, content, source, owner, visibility)
+  VALUES (@slug, @title, @description, @kind, @content, @source, @owner, @visibility)
+  ON CONFLICT(slug) DO UPDATE SET title=excluded.title, description=excluded.description,
+    kind=excluded.kind, content=excluded.content, source=excluded.source, owner=excluded.owner,
+    visibility=excluded.visibility, updated_at=datetime('now')`;
+const upsert = (slug, content) =>
+	db.prepare(UPSERT_ARTIFACT).run({
+		slug,
+		title: "Republished",
+		description: "d",
+		kind: "html",
+		content,
+		source: "s",
+		owner: "o",
+		visibility: "shared",
+	});
+
+await t("the live publisher's upsert keeps the tag on republish and works for a new page", () => {
+	page("tagged-live", "Tagged", "<p>v1</p>", { collection: "makkit" });
+	upsert("tagged-live", "<p>v2</p>");
+	assert.equal(collectionOf("tagged-live"), "makkit");
+
+	assert.equal(
+		db.prepare("SELECT content FROM artifacts WHERE slug='tagged-live'").get().content,
+		"<p>v2</p>",
+	);
+
+	upsert("brand-new", "<p>n</p>");
+	assert.equal(collectionOf("brand-new"), "");
+	db.prepare("DELETE FROM artifacts WHERE slug IN ('tagged-live', 'brand-new')").run();
 });
 
 await t("a collection that is not a short lowercase slug is refused", () => {
@@ -291,8 +333,7 @@ await t("a page made private, untagged or deleted is retired", async () => {
 	assert.equal(standIn.docs.size, 0);
 });
 
-await t("markdown, oversized and badly named pages are skipped and reported", async () => {
-	page("md-page", "Markdown", "# hi", { collection: "makkit", kind: "markdown" });
+await t("oversized and badly named pages are skipped and reported", async () => {
 	page("huge", "Huge", "x".repeat(2_000_001), { collection: "makkit" });
 	page("Bad_Slug", "Bad", "<p>bad</p>", { collection: "makkit" });
 	page("fine", "Fine", "<p>fine</p>", { collection: "makkit" });
@@ -300,11 +341,85 @@ await t("markdown, oversized and badly named pages are skipped and reported", as
 	const r = await sync();
 
 	assert.equal(r.status, 0, r.stderr);
-	assert.match(r.stdout, /published=1 unchanged=0 retired=0 skipped=3 failed=0/);
+	assert.match(r.stdout, /published=1 unchanged=0 retired=0 skipped=2 failed=0/);
 	assert.match(r.stderr, /skipped huge/);
 	assert.match(r.stderr, /skipped Bad_Slug: invalid slug/);
-	assert.match(r.stderr, /skipped md-page/);
 	assert.deepEqual([...standIn.docs.keys()], ["fine"]);
+});
+
+const MD = `# Roadmap
+
+Intro with a [link](https://example.com) and a [[task-7]] ref.
+
+| Metric | Value |
+|--------|-------|
+| Users  | 12    |
+
+<script>alert("xss")</script>
+
+\`\`\`js
+const x = 1;
+\`\`\`
+`;
+
+await t(
+	"a markdown page is published as a rendered, self-contained, sanitized document",
+	async () => {
+		page("md-page", "Markdown <Doc>", MD, {
+			collection: "makkit",
+			kind: "markdown",
+			description: "A & B",
+		});
+
+		const r = await sync();
+
+		assert.equal(r.status, 0, r.stderr);
+		assert.match(r.stdout, /published=1 unchanged=1 retired=0 skipped=2 failed=0/);
+
+		const { html, title } = standIn.docs.get("md-page");
+
+		assert.equal(title, "Markdown <Doc>");
+		assert.match(html, /^<!doctype html>/i);
+		assert.match(html, /<title>Markdown &lt;Doc&gt;<\/title>/);
+		assert.match(html, /<h1>Roadmap<\/h1>/);
+		assert.match(html, /<table>[\s\S]*<th>Metric<\/th>[\s\S]*<td>12<\/td>[\s\S]*<\/table>/);
+		assert.match(html, /<pre><code class="language-js">const x = 1;/);
+		assert.match(html, /A &amp; B/);
+		assert.match(html, /prefers-color-scheme:dark/);
+		assert.doesNotMatch(html, /<script/i);
+		assert.doesNotMatch(html, /alert\(/);
+		assert.doesNotMatch(html, /<link|@import|url\(|src=|https?:\/\/[^"]*\.(?:css|js|woff)/i);
+	},
+);
+
+await t("an unchanged markdown page makes no changing call on the next run", async () => {
+	standIn.state.calls.length = 0;
+
+	const r = await sync();
+
+	assert.equal(r.status, 0, r.stderr);
+	assert.match(r.stdout, /published=0 unchanged=2 retired=0/);
+	assert.deepEqual(changingCalls(), []);
+});
+
+await t("editing the markdown republishes only that page", async () => {
+	db.prepare("UPDATE artifacts SET content=? WHERE slug='md-page'").run(
+		MD.replace("| Users  | 12    |", "| Users  | 99    |"),
+	);
+
+	standIn.state.calls.length = 0;
+
+	const r = await sync();
+
+	assert.equal(r.status, 0, r.stderr);
+	assert.match(r.stdout, /published=1 unchanged=1 retired=0/);
+
+	assert.deepEqual(
+		changingCalls().map((c) => [c.fn, c.args.slug]),
+		[["docs_publish", "md-page"]],
+	);
+
+	assert.match(standIn.docs.get("md-page").html, /<td>99<\/td>/);
 });
 
 await t("a server error on a write exits non-zero", async () => {

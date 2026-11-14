@@ -17,6 +17,13 @@
 		"@sentry/core": "catalog:prod",
 		"@sentry/node": "catalog:prod",
 		"better-sqlite3": "catalog:prod",
+		"rehype-sanitize": "catalog:prod",
+		"rehype-stringify": "catalog:prod",
+		"remark-breaks": "catalog:prod",
+		"remark-gfm": "catalog:prod",
+		"remark-parse": "catalog:prod",
+		"remark-rehype": "catalog:prod",
+		"unified": "catalog:prod",
 		"ws": "catalog:prod",
 		"zod": "catalog:prod"
 	},
@@ -30,15 +37,8 @@
 		"@sveltejs/vite-plugin-svelte": "catalog:dev",
 		"@types/better-sqlite3": "catalog:types",
 		"@types/ws": "catalog:types",
-		"rehype-sanitize": "catalog:prod",
-		"rehype-stringify": "catalog:prod",
-		"remark-breaks": "catalog:prod",
-		"remark-gfm": "catalog:prod",
-		"remark-parse": "catalog:prod",
-		"remark-rehype": "catalog:prod",
 		"svelte": "catalog:prod",
 		"svelte-check": "catalog:dev",
-		"unified": "catalog:prod",
 		"vite": "catalog:dev"
 	}
 }
