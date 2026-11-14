@@ -158,7 +158,7 @@ catalogs:
     "@sentry/core": ^10.78.0
     "@sentry/node": ^10.78.0
     "@sentry/sveltekit": ^10.78.0
-    "@sveltejs/kit": ^2.70.3
+    "@sveltejs/kit": ^3.0.0
     better-sqlite3: ^13.0.0
     bcryptjs: ^3.0.0
     bwip-js: ^4.11.4
