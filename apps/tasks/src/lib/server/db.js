@@ -324,6 +324,27 @@ function ensureProjectColumns() {
 
 ensureProjectColumns();
 
+// A gallery page can belong to one named collection (e.g. 'makkit'); '' means none. Pages are
+// published by writing the table directly, so the CHECK is the boundary that refuses a bad
+// value: lowercase letters, digits and hyphens, starting alphanumeric, at most 32 characters.
+// Nothing in the app rewrites the column, so a plain UPDATE of other fields leaves it alone.
+function ensureArtifactColumns() {
+	const have = new Set(
+		db
+			.prepare("PRAGMA table_info(artifacts)")
+			.all()
+			.map((c) => c.name),
+	);
+
+	if (!have.has("collection")) {
+		db.exec(`ALTER TABLE artifacts ADD COLUMN collection TEXT NOT NULL DEFAULT ''
+      CHECK (collection = '' OR (length(collection) <= 32
+        AND collection GLOB '[a-z0-9]*' AND collection NOT GLOB '*[^a-z0-9-]*'))`);
+	}
+}
+
+ensureArtifactColumns();
+
 // Indexes for the hot query paths (board lists, child fetch, events log) — the DB had none,
 // so every list was a full table scan. IF NOT EXISTS = safe to run on every boot.
 function ensureIndexes() {

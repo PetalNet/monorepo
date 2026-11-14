@@ -958,6 +958,27 @@ importers:
       better-sqlite3:
         specifier: catalog:prod
         version: 13.0.3
+      rehype-sanitize:
+        specifier: catalog:prod
+        version: 6.0.0
+      rehype-stringify:
+        specifier: catalog:prod
+        version: 10.0.1
+      remark-breaks:
+        specifier: catalog:prod
+        version: 4.0.0
+      remark-gfm:
+        specifier: catalog:prod
+        version: 4.0.1
+      remark-parse:
+        specifier: catalog:prod
+        version: 11.0.0
+      remark-rehype:
+        specifier: catalog:prod
+        version: 11.1.2
+      unified:
+        specifier: catalog:prod
+        version: 11.0.5
       ws:
         specifier: catalog:prod
         version: 8.22.1
@@ -992,33 +1013,12 @@ importers:
       '@types/ws':
         specifier: catalog:types
         version: 8.18.2
-      rehype-sanitize:
-        specifier: catalog:prod
-        version: 6.0.0
-      rehype-stringify:
-        specifier: catalog:prod
-        version: 10.0.1
-      remark-breaks:
-        specifier: catalog:prod
-        version: 4.0.0
-      remark-gfm:
-        specifier: catalog:prod
-        version: 4.0.1
-      remark-parse:
-        specifier: catalog:prod
-        version: 11.0.0
-      remark-rehype:
-        specifier: catalog:prod
-        version: 11.1.2
       svelte:
         specifier: catalog:prod
         version: 5.57.2(@typescript-eslint/types@8.61.1)
       svelte-check:
         specifier: catalog:dev
         version: 4.6.0(@typescript/typescript6@6.0.2)(picomatch@4.0.7)(svelte@5.57.2(@typescript-eslint/types@8.61.1))
-      unified:
-        specifier: catalog:prod
-        version: 11.0.5
       vite:
         specifier: ^8.3.3
         version: 8.3.3(@types/node@26.6.6)(esbuild@0.28.1)(jiti@2.7.0)(tsx@4.22.4)(yaml@2.9.0)
