@@ -341,6 +341,15 @@ await t("a wrong agent key exits non-zero", async () => {
 	assert.doesNotMatch(r.stdout + r.stderr, /nope|agent-key-secret/);
 });
 
+await t("a cleartext non-loopback URL is refused before the key is read or sent", async () => {
+	const before = standIn.state.calls.length;
+	const r = await sync([], { MAKKIT_API_URL: "http://makkit.example.test" });
+
+	assert.notEqual(r.status, 0);
+	assert.match(r.stderr, /must be https/);
+	assert.equal(standIn.state.calls.length, before);
+});
+
 await t("missing config exits non-zero", async () => {
 	const r = await sync([], { MAKKIT_ANON_KEY: "" });
 

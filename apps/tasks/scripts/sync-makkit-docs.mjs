@@ -101,6 +101,14 @@ function agentCaller() {
 		throw new Error("set MAKKIT_API_URL, MAKKIT_ANON_KEY and MAKKIT_AGENT_KEY_FILE");
 	}
 
+	// The agent key travels in the request body, so it never leaves over cleartext HTTP. Plain
+	// http is allowed only for a loopback stand-in.
+	const { protocol, hostname } = new URL(base);
+
+	if (protocol !== "https:" && !["localhost", "127.0.0.1", "[::1]"].includes(hostname)) {
+		throw new Error("MAKKIT_API_URL must be https (http only for localhost)");
+	}
+
 	const key = readFileSync(keyFile, "utf8").trim();
 
 	if (!key) {
