@@ -22,7 +22,7 @@ overrides:
   "better-auth@1.7.14>kysely": "-"
   "@better-auth/core@1.7.14>kysely": "-"
   # Keep MCP's OAuth provider on the same Better Auth release as core.
-  "@better-auth/mcp@1.7.14>@better-auth/oauth-provider": 1.7.18
+  "@better-auth/mcp@1.7.14>@better-auth/oauth-provider": 1.7.20
   vite: catalog:dev
   vitest: catalog:dev
 
@@ -204,14 +204,14 @@ catalog:
   ipaddr.js: 2.5.0
   playwright: 1.65.0
   robots-parser: 3.0.1
-  "@better-auth/core": 1.7.18
-  "@better-auth/test-utils": 1.7.18
+  "@better-auth/core": 1.7.20
+  "@better-auth/test-utils": 1.7.20
   "@sveltejs/adapter-node": ^6.0.0
   "@effect/platform-node": 4.0.1
   "@effect/sql-pg": 4.0.0
   "@sveltejs/kit": 3.2.0
   "@testcontainers/postgresql": ^12.0.0
-  better-auth: 1.7.18
+  better-auth: 1.7.20
   effect: 4.0.1
   effect-qb: 0.24.2
   mode-watcher: ^1.1.0
@@ -222,7 +222,7 @@ catalog:
   "@storybook/addon-docs": 10.6.7
   jose: ^6.2.5
   "@modelcontextprotocol/client": 2.4.0
-  "@better-auth/mcp": 1.7.18
+  "@better-auth/mcp": 1.7.20
   "@effect/vitest": 4.0.1
   drizzle-orm: 1.0.0-rc.5-ab785fc
   drizzle-kit: 1.0.0-rc.5-ab785fc
