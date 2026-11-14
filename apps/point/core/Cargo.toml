@@ -8,11 +8,11 @@ version = "0.1.0"
 edition = "2021"
 
 [dependencies]
-openmls = "0.7"
-openmls_traits = "0.4"
-openmls_rust_crypto = "0.4"
-openmls_basic_credential = "0.4"
-openmls_memory_storage = { version = "0.4", features = ["persistence"] }
+openmls = "0.9"
+openmls_traits = "0.6"
+openmls_rust_crypto = "0.6"
+openmls_basic_credential = "0.6"
+openmls_memory_storage = { version = "0.6", features = ["persistence"] }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 tempfile = "3"
