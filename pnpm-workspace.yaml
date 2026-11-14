@@ -171,7 +171,7 @@ catalogs:
     leaflet.markercluster: ^1.5.3
     lucide: ^1.68.0
     nanoid: ^6.0.0
-    opentype.js: ^1.3.4
+    opentype.js: ^2.0.0
     qrcode: ^1.5.4
     remark: ^15.0.1
     remark-breaks: ^4.0.0
