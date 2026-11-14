@@ -260,8 +260,8 @@ catalogs:
       specifier: ^0.4.0
       version: 0.4.0
     leaflet.heat:
-      specifier: ^0.2.0
-      version: 0.2.0
+      specifier: ^1.0.0
+      version: 1.0.1
     leaflet.markercluster:
       specifier: ^1.5.3
       version: 1.5.3
@@ -561,7 +561,7 @@ importers:
         version: 0.4.0
       leaflet.heat:
         specifier: catalog:prod
-        version: 0.2.0
+        version: 1.0.1(leaflet@1.9.4)
       leaflet.markercluster:
         specifier: catalog:prod
         version: 1.5.3(leaflet@1.9.4)
@@ -6108,8 +6108,10 @@ packages:
   leaflet-image@0.4.0:
     resolution: {integrity: sha512-J/vLCHiYNXlcQ/SZbHhj/VF5k3thxTryWijoqMO9sB20KV7hlMNUZDgxcDzXnfjk4hcYcFfGbveVc1tyQ9FgYw==}
 
-  leaflet.heat@0.2.0:
-    resolution: {integrity: sha512-Cd5PbAA/rX3X3XKxfDoUGi9qp78FyhWYurFg3nsfhntcM/MCNK08pRkf4iEenO1KNqwVPKCmkyktjW3UD+h9bQ==}
+  leaflet.heat@1.0.1:
+    resolution: {integrity: sha512-F2o1QQbhEvsQJt7EooHPsydxSc746t79yQcDI8gB/K7wPirMowHpirSai6k9EDNZzUH7eKxucFDizoRSbV2Lzw==}
+    peerDependencies:
+      leaflet: ^1.9.0 || ^2.0.0-beta.1
 
   leaflet.markercluster@1.5.3:
     resolution: {integrity: sha512-vPTw/Bndq7eQHjLBVlWpnGeLa3t+3zGiuM7fJwCkiMFq+nmRuG3RI3f7f4N4TDX7T4NpbAXpR2+NTRSEGfCSeA==}
@@ -7490,6 +7492,9 @@ packages:
   signal-exit@4.1.0:
     resolution: {integrity: sha512-bzyZ1e88w9O1iNJbKnOlvYTrWPDl46O1bG0D3XInv+9tkPrxrN8jUUTiFlDkkmKWgn1M6CfIA13SuGqOa9Korw==}
     engines: {node: '>=14'}
+
+  simpleheat@1.0.0:
+    resolution: {integrity: sha512-hCGl1lj+IR+CymAouYf5ZQ7NguSQq+w1PWu1WvHgZWkdzmyS/xbN1T2TpwlSC8nEDDK2JRVPcdgV0a6652aP2Q==}
 
   sirv@3.0.2:
     resolution: {integrity: sha512-2wcC/oGxHis/BoHkkPwldgiPSYcpZK3JU28WoMVv55yHJgcZ8rlXvuG9iZggz+sU1d4bRgIGASwyWqjxu3FM0g==}
@@ -12427,7 +12432,10 @@ snapshots:
     dependencies:
       d3-queue: 2.0.3
 
-  leaflet.heat@0.2.0: {}
+  leaflet.heat@1.0.1(leaflet@1.9.4):
+    dependencies:
+      leaflet: 1.9.4
+      simpleheat: 1.0.0
 
   leaflet.markercluster@1.5.3(leaflet@1.9.4):
     dependencies:
@@ -14024,6 +14032,8 @@ snapshots:
   signal-exit@3.0.7: {}
 
   signal-exit@4.1.0: {}
+
+  simpleheat@1.0.0: {}
 
   sirv@3.0.2:
     dependencies:
