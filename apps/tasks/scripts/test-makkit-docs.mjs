@@ -197,6 +197,14 @@ function makkitStandIn() {
 				return send(500, { message: "boom" });
 			}
 
+			if (state.mode === "echo" && p_fn !== "docs_index") {
+				return send(500, { message: `bad request ${body}` });
+			}
+
+			if (state.mode === "ok-error" && p_fn !== "docs_index") {
+				return send(200, { error: "not really ok" });
+			}
+
 			if (state.mode === "index-error") {
 				return send(500, { message: "boom" });
 			}
@@ -431,6 +439,25 @@ await t("a server error on a write exits non-zero", async () => {
 	assert.notEqual(r.status, 0);
 	assert.match(r.stdout, /failed=1/);
 	assert.match(r.stderr, /HTTP 500/);
+});
+
+await t("an error that echoes the request never prints the agent key", async () => {
+	standIn.state.mode = "echo";
+
+	const r = await sync();
+
+	assert.notEqual(r.status, 0);
+	assert.match(r.stderr, /<agent key>/);
+	assert.doesNotMatch(r.stdout + r.stderr, /agent-key-secret/);
+});
+
+await t("a 200 answer without the expected boolean counts as a failure", async () => {
+	standIn.state.mode = "ok-error";
+
+	const r = await sync();
+
+	assert.notEqual(r.status, 0);
+	assert.match(r.stdout, /published=0 .*failed=1/);
 });
 
 await t("a server error on the index exits non-zero and changes nothing", async () => {

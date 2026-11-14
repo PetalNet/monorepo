@@ -188,7 +188,7 @@ function agentCaller() {
 			body: JSON.stringify({ p_key: key, p_fn: fn, p_args: args }),
 			signal: AbortSignal.timeout(TIMEOUT_MS),
 		});
-		const text = await res.text();
+		const text = (await res.text()).replaceAll(key, "<agent key>");
 
 		if (!res.ok) {
 			throw new Error(`${fn} answered HTTP ${res.status}: ${text.slice(0, 300)}`);
@@ -230,9 +230,15 @@ async function main() {
 
 	const remote = new Map(index.docs.map((d) => [d.slug, d.hash]));
 	const counts = { published: 0, unchanged: 0, retired: 0, failed: 0 };
-	const attempt = async (what, fn, args) => {
+	const attempt = async (what, fn, args, field) => {
 		try {
-			return await call(fn, args);
+			const out = await call(fn, args);
+
+			if (typeof out?.[field] !== "boolean") {
+				throw new TypeError(`${fn} did not answer a boolean ${field}`);
+			}
+
+			return out;
 		} catch (err) {
 			counts.failed += 1;
 			console.error(`[makkit-docs] ${what} failed: ${err.message}`);
@@ -250,7 +256,7 @@ async function main() {
 
 		// Calls run one at a time on purpose, so a large sync never floods Makkit.
 		// oxlint-disable-next-line no-await-in-loop
-		if (await attempt(`publish ${p.slug}`, "docs_publish", p)) {
+		if (await attempt(`publish ${p.slug}`, "docs_publish", p, "changed")) {
 			counts.published += 1;
 		}
 	}
@@ -260,8 +266,12 @@ async function main() {
 	const tagged = new Set([...pages, ...skipped].map((p) => p.slug));
 
 	for (const slug of remote.keys()) {
+		if (tagged.has(slug)) {
+			continue;
+		}
+
 		// oxlint-disable-next-line no-await-in-loop
-		if (!tagged.has(slug) && (await attempt(`retire ${slug}`, "docs_retire", { slug }))) {
+		if (await attempt(`retire ${slug}`, "docs_retire", { slug }, "retired")) {
 			counts.retired += 1;
 		}
 	}
