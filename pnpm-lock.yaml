@@ -622,13 +622,13 @@ importers:
     devDependencies:
       '@better-auth/mcp':
         specifier: 'catalog:'
-        version: 1.7.18(@better-auth/core@1.7.18(@better-auth/utils@0.5.1)(@better-fetch/fetch@1.3.3)(@opentelemetry/api@1.9.1)(better-call@1.4.5(zod@4.6.5))(jose@6.2.8)(kysely@0.29.8)(nanostores@1.4.0))(@better-auth/utils@0.5.1)(@better-fetch/fetch@1.3.3)(better-auth@1.7.18(ddc997ab7170d8ee0254a9bf570e61e7))(better-call@1.4.5(zod@4.6.5))
+        version: 1.7.18(@better-auth/core@1.7.18(@better-auth/utils@0.5.1)(@better-fetch/fetch@1.3.3)(@opentelemetry/api@1.9.1)(better-call@1.4.5(zod@4.6.5))(jose@6.2.8)(kysely@0.29.8)(nanostores@1.4.0))(@better-auth/utils@0.5.1)(@better-fetch/fetch@1.3.3)(better-auth@1.7.18(b01ba4c94710c6781eaeb6cde48e5fda))(better-call@1.4.5(zod@4.6.5))
       '@effect/platform-node':
         specifier: 'catalog:'
         version: 4.0.1(effect@4.0.1)(redis@6.2.1(@opentelemetry/api@1.9.1))
       '@effect/vitest':
         specifier: 'catalog:'
-        version: 4.0.1(effect@4.0.1)(vitest@5.1.0)
+        version: 4.0.1(effect@4.0.1)(vite@8.3.3(@types/node@26.6.6)(esbuild@0.28.1)(jiti@2.7.0)(tsx@4.22.4)(yaml@2.9.0))(vitest@5.1.0)
       '@lucide/svelte':
         specifier: catalog:prod
         version: 1.24.0(svelte@5.57.2(@typescript-eslint/types@8.61.1))
@@ -658,7 +658,7 @@ importers:
         version: 26.6.6
       better-auth:
         specifier: 'catalog:'
-        version: 1.7.18(ddc997ab7170d8ee0254a9bf570e61e7)
+        version: 1.7.18(b01ba4c94710c6781eaeb6cde48e5fda)
       daisyui:
         specifier: catalog:prod
         version: 5.6.18
@@ -1076,7 +1076,7 @@ importers:
         version: 1.7.18(@better-auth/utils@0.5.1)(@better-fetch/fetch@1.3.3)(@opentelemetry/api@1.9.1)(better-call@1.4.5(zod@4.6.5))(jose@6.2.8)(kysely@0.29.8)(nanostores@1.4.0)
       '@better-auth/test-utils':
         specifier: 'catalog:'
-        version: 1.7.18(@better-auth/core@1.7.18(@better-auth/utils@0.5.1)(@better-fetch/fetch@1.3.3)(@opentelemetry/api@1.9.1)(better-call@1.4.5(zod@4.6.5))(jose@6.2.8)(kysely@0.29.8)(nanostores@1.4.0))(better-auth@1.7.18(ddc997ab7170d8ee0254a9bf570e61e7))(vitest@5.1.0)
+        version: 1.7.18(@better-auth/core@1.7.18(@better-auth/utils@0.5.1)(@better-fetch/fetch@1.3.3)(@opentelemetry/api@1.9.1)(better-call@1.4.5(zod@4.6.5))(jose@6.2.8)(kysely@0.29.8)(nanostores@1.4.0))(better-auth@1.7.18(b01ba4c94710c6781eaeb6cde48e5fda))(vite@8.3.3(@types/node@26.6.6)(esbuild@0.28.1)(jiti@2.7.0)(tsx@4.22.4)(yaml@2.9.0))(vitest@5.1.0)
       '@testcontainers/postgresql':
         specifier: 'catalog:'
         version: 12.2.1
@@ -1085,7 +1085,7 @@ importers:
         version: 26.6.6
       better-auth:
         specifier: 'catalog:'
-        version: 1.7.18(ddc997ab7170d8ee0254a9bf570e61e7)
+        version: 1.7.18(b01ba4c94710c6781eaeb6cde48e5fda)
       effect:
         specifier: 'catalog:'
         version: 4.0.1
@@ -1107,7 +1107,7 @@ importers:
     devDependencies:
       '@better-auth/mcp':
         specifier: 'catalog:'
-        version: 1.7.18(@better-auth/core@1.7.18(@better-auth/utils@0.5.1)(@better-fetch/fetch@1.3.3)(@opentelemetry/api@1.9.1)(better-call@1.4.5(zod@4.6.5))(jose@6.2.8)(kysely@0.29.8)(nanostores@1.4.0))(@better-auth/utils@0.5.1)(@better-fetch/fetch@1.3.3)(better-auth@1.7.18(ddc997ab7170d8ee0254a9bf570e61e7))(better-call@1.4.5(zod@4.6.5))
+        version: 1.7.18(@better-auth/core@1.7.18(@better-auth/utils@0.5.1)(@better-fetch/fetch@1.3.3)(@opentelemetry/api@1.9.1)(better-call@1.4.5(zod@4.6.5))(jose@6.2.8)(kysely@0.29.8)(nanostores@1.4.0))(@better-auth/utils@0.5.1)(@better-fetch/fetch@1.3.3)(better-auth@1.7.18(b01ba4c94710c6781eaeb6cde48e5fda))(better-call@1.4.5(zod@4.6.5))
       '@modelcontextprotocol/client':
         specifier: 'catalog:'
         version: 2.4.0
@@ -1116,7 +1116,7 @@ importers:
         version: link:../tsconfig
       '@vitest/coverage-v8':
         specifier: catalog:dev
-        version: 5.1.0(vitest@5.1.0)
+        version: 5.1.0(vite@8.3.3(@types/node@26.6.6)(esbuild@0.28.1)(jiti@2.7.0)(tsx@4.22.4)(yaml@2.9.0))(vitest@5.1.0)
       typescript:
         specifier: catalog:dev
         version: '@typescript/typescript6@6.0.2'
@@ -1141,7 +1141,7 @@ importers:
         version: link:../tsconfig
       '@vitest/coverage-v8':
         specifier: catalog:dev
-        version: 5.1.0(vitest@5.1.0)
+        version: 5.1.0(vite@8.3.3(@types/node@26.6.6)(esbuild@0.28.1)(jiti@2.7.0)(tsx@4.22.4)(yaml@2.9.0))(vitest@5.1.0)
       typescript:
         specifier: catalog:dev
         version: '@typescript/typescript6@6.0.2'
@@ -1216,7 +1216,7 @@ importers:
         version: 4.0.1(effect@4.0.1)(redis@6.2.1(@opentelemetry/api@1.9.1))
       '@effect/vitest':
         specifier: 'catalog:'
-        version: 4.0.1(effect@4.0.1)(vitest@5.1.0)
+        version: 4.0.1(effect@4.0.1)(vite@8.3.3(@types/node@26.6.6)(esbuild@0.28.1)(jiti@2.7.0)(tsx@4.22.4)(yaml@2.9.0))(vitest@5.1.0)
       '@modelcontextprotocol/client':
         specifier: 'catalog:'
         version: 2.4.0
@@ -8435,11 +8435,11 @@ snapshots:
     optionalDependencies:
       kysely: 0.29.8
 
-  '@better-auth/mcp@1.7.18(@better-auth/core@1.7.18(@better-auth/utils@0.5.1)(@better-fetch/fetch@1.3.3)(@opentelemetry/api@1.9.1)(better-call@1.4.5(zod@4.6.5))(jose@6.2.8)(kysely@0.29.8)(nanostores@1.4.0))(@better-auth/utils@0.5.1)(@better-fetch/fetch@1.3.3)(better-auth@1.7.18(ddc997ab7170d8ee0254a9bf570e61e7))(better-call@1.4.5(zod@4.6.5))':
+  '@better-auth/mcp@1.7.18(@better-auth/core@1.7.18(@better-auth/utils@0.5.1)(@better-fetch/fetch@1.3.3)(@opentelemetry/api@1.9.1)(better-call@1.4.5(zod@4.6.5))(jose@6.2.8)(kysely@0.29.8)(nanostores@1.4.0))(@better-auth/utils@0.5.1)(@better-fetch/fetch@1.3.3)(better-auth@1.7.18(b01ba4c94710c6781eaeb6cde48e5fda))(better-call@1.4.5(zod@4.6.5))':
     dependencies:
       '@better-auth/core': 1.7.18(@better-auth/utils@0.5.1)(@better-fetch/fetch@1.3.3)(@opentelemetry/api@1.9.1)(better-call@1.4.5(zod@4.6.5))(jose@6.2.8)(kysely@0.29.8)(nanostores@1.4.0)
-      '@better-auth/oauth-provider': 1.7.18(@better-auth/core@1.7.18(@better-auth/utils@0.5.1)(@better-fetch/fetch@1.3.3)(@opentelemetry/api@1.9.1)(better-call@1.4.5(zod@4.6.5))(jose@6.2.8)(kysely@0.29.8)(nanostores@1.4.0))(@better-auth/utils@0.5.1)(@better-fetch/fetch@1.3.3)(better-auth@1.7.18(ddc997ab7170d8ee0254a9bf570e61e7))(better-call@1.4.5(zod@4.6.5))
-      better-auth: 1.7.18(ddc997ab7170d8ee0254a9bf570e61e7)
+      '@better-auth/oauth-provider': 1.7.18(@better-auth/core@1.7.18(@better-auth/utils@0.5.1)(@better-fetch/fetch@1.3.3)(@opentelemetry/api@1.9.1)(better-call@1.4.5(zod@4.6.5))(jose@6.2.8)(kysely@0.29.8)(nanostores@1.4.0))(@better-auth/utils@0.5.1)(@better-fetch/fetch@1.3.3)(better-auth@1.7.18(b01ba4c94710c6781eaeb6cde48e5fda))(better-call@1.4.5(zod@4.6.5))
+      better-auth: 1.7.18(b01ba4c94710c6781eaeb6cde48e5fda)
       better-call: 1.4.5(zod@4.6.5)
       jose: 6.2.8
     transitivePeerDependencies:
@@ -8456,12 +8456,12 @@ snapshots:
       '@better-auth/core': 1.7.18(@better-auth/utils@0.5.1)(@better-fetch/fetch@1.3.3)(@opentelemetry/api@1.9.1)(better-call@1.4.5(zod@4.6.5))(jose@6.2.8)(kysely@0.29.8)(nanostores@1.4.0)
       '@better-auth/utils': 0.5.1
 
-  '@better-auth/oauth-provider@1.7.18(@better-auth/core@1.7.18(@better-auth/utils@0.5.1)(@better-fetch/fetch@1.3.3)(@opentelemetry/api@1.9.1)(better-call@1.4.5(zod@4.6.5))(jose@6.2.8)(kysely@0.29.8)(nanostores@1.4.0))(@better-auth/utils@0.5.1)(@better-fetch/fetch@1.3.3)(better-auth@1.7.18(ddc997ab7170d8ee0254a9bf570e61e7))(better-call@1.4.5(zod@4.6.5))':
+  '@better-auth/oauth-provider@1.7.18(@better-auth/core@1.7.18(@better-auth/utils@0.5.1)(@better-fetch/fetch@1.3.3)(@opentelemetry/api@1.9.1)(better-call@1.4.5(zod@4.6.5))(jose@6.2.8)(kysely@0.29.8)(nanostores@1.4.0))(@better-auth/utils@0.5.1)(@better-fetch/fetch@1.3.3)(better-auth@1.7.18(b01ba4c94710c6781eaeb6cde48e5fda))(better-call@1.4.5(zod@4.6.5))':
     dependencies:
       '@better-auth/core': 1.7.18(@better-auth/utils@0.5.1)(@better-fetch/fetch@1.3.3)(@opentelemetry/api@1.9.1)(better-call@1.4.5(zod@4.6.5))(jose@6.2.8)(kysely@0.29.8)(nanostores@1.4.0)
       '@better-auth/utils': 0.5.1
       '@better-fetch/fetch': 1.3.3
-      better-auth: 1.7.18(ddc997ab7170d8ee0254a9bf570e61e7)
+      better-auth: 1.7.18(b01ba4c94710c6781eaeb6cde48e5fda)
       better-call: 1.4.5(zod@4.6.5)
       jose: 6.2.8
       zod: 4.6.5
@@ -8480,11 +8480,13 @@ snapshots:
       '@better-auth/utils': 0.5.1
       '@better-fetch/fetch': 1.3.3
 
-  '@better-auth/test-utils@1.7.18(@better-auth/core@1.7.18(@better-auth/utils@0.5.1)(@better-fetch/fetch@1.3.3)(@opentelemetry/api@1.9.1)(better-call@1.4.5(zod@4.6.5))(jose@6.2.8)(kysely@0.29.8)(nanostores@1.4.0))(better-auth@1.7.18(ddc997ab7170d8ee0254a9bf570e61e7))(vitest@5.1.0)':
+  '@better-auth/test-utils@1.7.18(@better-auth/core@1.7.18(@better-auth/utils@0.5.1)(@better-fetch/fetch@1.3.3)(@opentelemetry/api@1.9.1)(better-call@1.4.5(zod@4.6.5))(jose@6.2.8)(kysely@0.29.8)(nanostores@1.4.0))(better-auth@1.7.18(b01ba4c94710c6781eaeb6cde48e5fda))(vite@8.3.3(@types/node@26.6.6)(esbuild@0.28.1)(jiti@2.7.0)(tsx@4.22.4)(yaml@2.9.0))(vitest@5.1.0)':
     dependencies:
       '@better-auth/core': 1.7.18(@better-auth/utils@0.5.1)(@better-fetch/fetch@1.3.3)(@opentelemetry/api@1.9.1)(better-call@1.4.5(zod@4.6.5))(jose@6.2.8)(kysely@0.29.8)(nanostores@1.4.0)
-      better-auth: 1.7.18(ddc997ab7170d8ee0254a9bf570e61e7)
+      better-auth: 1.7.18(b01ba4c94710c6781eaeb6cde48e5fda)
       vitest: 5.1.0(@opentelemetry/api@1.9.1)(@types/node@26.6.6)(@vitest/coverage-v8@5.1.0)(happy-dom@21.0.4)(vite@8.3.3(@types/node@26.6.6)(esbuild@0.28.1)(jiti@2.7.0)(tsx@4.22.4)(yaml@2.9.0))
+    transitivePeerDependencies:
+      - vite
 
   '@better-auth/utils@0.5.1':
     dependencies:
@@ -8566,10 +8568,12 @@ snapshots:
       '@effect/tsgo-win32-arm64': 0.50.0
       '@effect/tsgo-win32-x64': 0.50.0
 
-  '@effect/vitest@4.0.1(effect@4.0.1)(vitest@5.1.0)':
+  '@effect/vitest@4.0.1(effect@4.0.1)(vite@8.3.3(@types/node@26.6.6)(esbuild@0.28.1)(jiti@2.7.0)(tsx@4.22.4)(yaml@2.9.0))(vitest@5.1.0)':
     dependencies:
       effect: 4.0.1
       vitest: 5.1.0(@opentelemetry/api@1.9.1)(@types/node@26.6.6)(@vitest/coverage-v8@5.1.0)(happy-dom@21.0.4)(vite@8.3.3(@types/node@26.6.6)(esbuild@0.28.1)(jiti@2.7.0)(tsx@4.22.4)(yaml@2.9.0))
+    transitivePeerDependencies:
+      - vite
 
   '@emnapi/core@1.11.0':
     dependencies:
@@ -10670,7 +10674,22 @@ snapshots:
 
   '@ungap/structured-clone@1.4.0': {}
 
-  '@vitest/coverage-v8@5.1.0(vitest@5.1.0)':
+  '@vitest/coverage-v8@5.1.0(vite@8.3.3(@types/node@26.6.6)(esbuild@0.28.1)(jiti@1.21.7)(tsx@4.22.4)(yaml@2.9.0))(vitest@5.1.0)':
+    dependencies:
+      '@bcoe/v8-coverage': 1.0.2
+      '@vitest/istanbul-lib-coverage': 2.1.0
+      '@vitest/istanbul-lib-report': 2.1.0
+      ast-v8-to-istanbul: 1.0.7
+      magicast: 0.5.5
+      obug: 3.0.0
+      std-env: 4.3.0
+      tinyrainbow: 3.2.0
+      vitest: 5.1.0(@opentelemetry/api@1.9.1)(@types/node@26.6.6)(@vitest/coverage-v8@5.1.0)(happy-dom@21.0.4)(vite@8.3.3(@types/node@26.6.6)(esbuild@0.28.1)(jiti@1.21.7)(tsx@4.22.4)(yaml@2.9.0))
+    transitivePeerDependencies:
+      - vite
+    optional: true
+
+  '@vitest/coverage-v8@5.1.0(vite@8.3.3(@types/node@26.6.6)(esbuild@0.28.1)(jiti@2.7.0)(tsx@4.22.4)(yaml@2.9.0))(vitest@5.1.0)':
     dependencies:
       '@bcoe/v8-coverage': 1.0.2
       '@vitest/istanbul-lib-coverage': 2.1.0
@@ -10681,6 +10700,8 @@ snapshots:
       std-env: 4.3.0
       tinyrainbow: 3.2.0
       vitest: 5.1.0(@opentelemetry/api@1.9.1)(@types/node@26.6.6)(@vitest/coverage-v8@5.1.0)(happy-dom@21.0.4)(vite@8.3.3(@types/node@26.6.6)(esbuild@0.28.1)(jiti@2.7.0)(tsx@4.22.4)(yaml@2.9.0))
+    transitivePeerDependencies:
+      - vite
 
   '@vitest/expect@3.2.4':
     dependencies:
@@ -10939,7 +10960,7 @@ snapshots:
 
   bcryptjs@3.0.3: {}
 
-  better-auth@1.7.18(ddc997ab7170d8ee0254a9bf570e61e7):
+  better-auth@1.7.18(b01ba4c94710c6781eaeb6cde48e5fda):
     dependencies:
       '@better-auth/core': 1.7.18(@better-auth/utils@0.5.1)(@better-fetch/fetch@1.3.3)(@opentelemetry/api@1.9.1)(better-call@1.4.5(zod@4.6.5))(jose@6.2.8)(kysely@0.29.8)(nanostores@1.4.0)
       '@better-auth/drizzle-adapter': 1.7.18(@better-auth/core@1.7.18(@better-auth/utils@0.5.1)(@better-fetch/fetch@1.3.3)(@opentelemetry/api@1.9.1)(better-call@1.4.5(zod@4.6.5))(jose@6.2.8)(kysely@0.29.8)(nanostores@1.4.0))(@better-auth/utils@0.5.1)(drizzle-orm@1.0.0-rc.5-ab785fc(patch_hash=d6755ae253f52bb5c045b2c4c87397175bdb84dd465ca6d2543359e0702be012)(@effect/sql-pg@4.0.0(effect@4.0.1))(@libsql/client@0.18.0)(@opentelemetry/api@1.9.1)(@types/better-sqlite3@9.6.0)(better-sqlite3@13.0.3)(effect@4.0.1)(zod@4.6.5))
@@ -10970,6 +10991,7 @@ snapshots:
       vitest: 5.1.0(@opentelemetry/api@1.9.1)(@types/node@26.6.6)(@vitest/coverage-v8@5.1.0)(happy-dom@21.0.4)(vite@8.3.3(@types/node@26.6.6)(esbuild@0.28.1)(jiti@2.7.0)(tsx@4.22.4)(yaml@2.9.0))
     transitivePeerDependencies:
       - '@opentelemetry/api'
+      - vite
 
   better-call@1.4.5(zod@4.6.5):
     dependencies:
@@ -14768,7 +14790,7 @@ snapshots:
     optionalDependencies:
       '@opentelemetry/api': 1.9.1
       '@types/node': 26.6.6
-      '@vitest/coverage-v8': 5.1.0(vitest@5.1.0)
+      '@vitest/coverage-v8': 5.1.0(vite@8.3.3(@types/node@26.6.6)(esbuild@0.28.1)(jiti@1.21.7)(tsx@4.22.4)(yaml@2.9.0))(vitest@5.1.0)
       happy-dom: 21.0.4
     transitivePeerDependencies:
       - msw
@@ -14792,7 +14814,7 @@ snapshots:
     optionalDependencies:
       '@opentelemetry/api': 1.9.1
       '@types/node': 26.6.6
-      '@vitest/coverage-v8': 5.1.0(vitest@5.1.0)
+      '@vitest/coverage-v8': 5.1.0(vite@8.3.3(@types/node@26.6.6)(esbuild@0.28.1)(jiti@2.7.0)(tsx@4.22.4)(yaml@2.9.0))(vitest@5.1.0)
       happy-dom: 21.0.4
     transitivePeerDependencies:
       - msw
