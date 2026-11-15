@@ -34,7 +34,7 @@ export function load({ params, locals }) {
 }
 
 // A stored draft is JSON {paras:[...]} written by an anonymous visitor. Flatten it to plain text
-// (a blank line between paragraphs). Anything unparseable shows as an empty draft, not an error.
+// (a blank line between paragraphs). Anything that fails to parse shows as an empty draft, not an error.
 function draftText(d) {
 	let paras = [];
 
