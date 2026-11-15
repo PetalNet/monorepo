@@ -1598,33 +1598,109 @@ export function recordMockChoice({ token, questionId, choice, choices, comment =
 //   * Validity is enforced IN SQL (revoked=0 AND not expired) so the public route can't forget a check.
 const sha256hex = (s) => createHash("sha256").update(String(s)).digest("hex");
 
-// Resolve a RAW token to its artifact — the public-route lookup. FAIL CLOSED: returns the
-// artifact row ONLY when a matching share exists, is NOT revoked, and is NOT expired; otherwise
-// undefined (the route then 404s uniformly — never distinguishing unknown vs revoked vs expired).
-// Ignores artifact visibility ON PURPOSE: a share is an explicit, revocable grant for THAT one
-// artifact (so a private artifact can be shared), and it can reach no other slug — the token row
-// names a single slug. Defensive: a non-string/empty token short-circuits to undefined.
-export function getArtifactByShareToken(token) {
+// Resolve a RAW token to { share, artifact } — the public-route lookup. FAIL CLOSED: undefined
+// unless a matching share exists, is NOT revoked and is NOT expired (checked in SQL), so /s/ and
+// /s/<token>/draft 404 uniformly, never distinguishing unknown vs revoked vs expired. Ignores
+// artifact visibility ON PURPOSE: a share is an explicit, revocable grant for THAT one artifact
+// (so a private artifact can be shared), and it can reach no other slug. Defensive: a non-string
+// or empty token short-circuits to undefined.
+export function resolveShare(token) {
 	if (!token || typeof token !== "string") {
 		return undefined;
 	}
 
-	const token_hash = sha256hex(token);
 	const share = db
 		.prepare(
-			`SELECT slug FROM artifact_shares
+			`SELECT id, slug, draft_enabled FROM artifact_shares
       WHERE token_hash=@token_hash AND revoked=0
         AND (expires_at IS NULL OR expires_at > datetime('now'))`,
 		)
-		.get({ token_hash });
+		.get({ token_hash: sha256hex(token) });
 
 	if (!share) {
 		return undefined;
 	}
 
 	// getArtifact with me=null bypasses the human visibility gate — intentional: the share IS the grant.
-	return getArtifact(share.slug, null);
+	const artifact = getArtifact(share.slug, null);
+
+	if (!artifact) {
+		return undefined;
+	}
+
+	return { share: { id: share.id, draft_enabled: share.draft_enabled === 1 }, artifact };
 }
+
+// --- share drafts (see src/lib/server/share-draft.js) -----------------------
+// One save slot per share link, kept as a short revision history (the newest SHARE_DRAFT_KEEP
+// rows). Written only by the public /s/<token>/draft endpoint after it has resolved the token;
+// read by that endpoint and by the SSO-gated gallery page. draft_enabled defaults to 0, so no
+// existing share gains a write path until it is turned on for that one share.
+export const SHARE_DRAFT_KEEP = 50;
+
+db.exec(`
+  CREATE TABLE IF NOT EXISTS share_drafts (
+    id         INTEGER PRIMARY KEY,
+    share_id   INTEGER NOT NULL REFERENCES artifact_shares(id),
+    content    TEXT NOT NULL,                        -- normalised JSON {paras:[...], checks:{...}}
+    bytes      INTEGER NOT NULL,
+    created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%d %H:%M:%f','now'))
+  );
+  CREATE INDEX IF NOT EXISTS idx_share_drafts_share ON share_drafts(share_id, id);
+`);
+
+if (
+	!db
+		.prepare("PRAGMA table_info(artifact_shares)")
+		.all()
+		.some((c) => c.name === "draft_enabled")
+) {
+	db.exec("ALTER TABLE artifact_shares ADD COLUMN draft_enabled INTEGER NOT NULL DEFAULT 0");
+}
+
+const insertShareDraft = db.prepare(
+	"INSERT INTO share_drafts (share_id, content, bytes) VALUES (@share_id, @content, @bytes)",
+);
+const pruneShareDrafts = db.prepare(
+	`DELETE FROM share_drafts WHERE share_id=@share_id AND id NOT IN
+     (SELECT id FROM share_drafts WHERE share_id=@share_id ORDER BY id DESC LIMIT ${SHARE_DRAFT_KEEP})`,
+);
+
+export const saveShareDraft = db.transaction((share_id, content) => {
+	const r = insertShareDraft.run({ share_id, content, bytes: Buffer.byteLength(content) });
+
+	pruneShareDrafts.run({ share_id });
+
+	return db.prepare("SELECT id, created_at FROM share_drafts WHERE id=?").get(r.lastInsertRowid);
+});
+
+export const getLatestShareDraft = (share_id) =>
+	db
+		.prepare(
+			"SELECT id, content, created_at FROM share_drafts WHERE share_id=? ORDER BY id DESC LIMIT 1",
+		)
+		.get(share_id);
+
+export const countShareDrafts = (share_id) =>
+	db.prepare("SELECT count(*) AS n FROM share_drafts WHERE share_id=?").get(share_id).n;
+
+// For the gated gallery page: the latest draft of each of this artifact's shares that has one.
+export const listShareDraftsForSlug = (slug) =>
+	db
+		.prepare(
+			`SELECT s.id AS share_id, s.label, d.content, d.created_at,
+          (SELECT count(*) FROM share_drafts x WHERE x.share_id=s.id) AS revisions
+     FROM artifact_shares s
+     JOIN share_drafts d ON d.id = (SELECT max(id) FROM share_drafts WHERE share_id=s.id)
+    WHERE s.slug=@slug ORDER BY d.id DESC`,
+		)
+		.all({ slug });
+
+// Turn the draft slot on or off for ONE share, scoped to its slug (the id alone is not enough).
+export const setShareDraftEnabled = (id, slug, on) =>
+	db
+		.prepare("UPDATE artifact_shares SET draft_enabled=@on WHERE id=@id AND slug=@slug")
+		.run({ id: Number(id), slug, on: on ? 1 : 0 }).changes > 0;
 
 // --- agent bearer tokens (agent-API: POST /api/agent/rpc) -------------------
 // Threat model mirrors artifact_shares: an SSO-EXEMPT route authenticated purely by a

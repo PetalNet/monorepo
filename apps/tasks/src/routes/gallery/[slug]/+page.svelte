@@ -95,6 +95,17 @@
 			referrerpolicy="no-referrer"
 			style="height:{frameH}"
 		></iframe>
+		{#each data.drafts as d (d.share_id)}
+			<section class="draft">
+				<h2 class="draft-h">
+					Latest draft via share link{#if d.label}: {d.label}{/if}
+				</h2>
+				<p class="draft-meta mono">
+					saved {d.updated_at} UTC · {d.words} words · {d.revisions} revisions kept
+				</p>
+				<pre class="draft-text">{d.text}</pre>
+			</section>
+		{/each}
 	</div>
 {:else}
 	<div class="screen detail">
@@ -170,6 +181,32 @@
 		border-radius: 999px;
 		padding: 1px 8px;
 		cursor: default;
+	}
+	.draft {
+		padding: 16px 18px 28px;
+		border-top: 1px solid var(--border-sub);
+		max-width: 760px;
+	}
+	.draft-h {
+		font-size: 14px;
+		font-weight: 600;
+		color: var(--text-1);
+		margin: 0 0 4px;
+	}
+	.draft-meta {
+		font-size: 12px;
+		color: var(--text-3);
+		margin: 0 0 10px;
+	}
+	.draft-text {
+		white-space: pre-wrap;
+		overflow-wrap: anywhere;
+		font:
+			15px/1.6 ui-serif,
+			Georgia,
+			serif;
+		color: var(--text-1);
+		margin: 0;
 	}
 	iframe {
 		width: 100%;

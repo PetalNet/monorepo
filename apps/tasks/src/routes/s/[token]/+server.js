@@ -1,7 +1,8 @@
 import { error } from "@sveltejs/kit";
 
-import { getArtifactByShareToken } from "../../../lib/server/db.js";
+import { resolveShare } from "../../../lib/server/db.js";
 import { renderMd } from "../../../lib/server/md.js";
+import { shareCsp } from "../../../lib/server/share-draft.js";
 
 // PUBLIC, SSO-EXEMPT scoped share view: /s/<token>.
 //
@@ -12,7 +13,7 @@ import { renderMd } from "../../../lib/server/md.js";
 //
 // SECURITY CONTRACT (the whole point of the feature):
 //  - Resolution: hash the RAW token (sha256) and look up a share row that is revoked=0 AND not
-//    expired, IN SQL (getArtifactByShareToken). The raw token is never stored; only its hash is.
+//    expired, IN SQL (resolveShare). The raw token is never stored; only its hash is.
 //    Any miss — unknown / revoked / expired / malformed token, or a deleted artifact — yields
 //    undefined → a single generic 404. We never distinguish those cases (no existence/expiry leak).
 //  - Scoped to ONE artifact: the token row names exactly one slug; nothing in the URL or params
@@ -35,11 +36,8 @@ import { renderMd } from "../../../lib/server/md.js";
 //  - No-store/no-referrer: a shared cache must not reuse it; the token must not leak via Referer.
 //
 // CSP profiles mirror /gallery/[slug]/raw, MINUS allow-same-origin for html (see above).
-const CSP = {
-	html: "sandbox; default-src 'none'; img-src data:; style-src 'unsafe-inline'; font-src data:; frame-ancestors 'none'",
-	interactive:
-		"sandbox allow-scripts allow-downloads; default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; img-src data:; font-src data:; frame-ancestors 'none'",
-};
+// The CSP strings live in share-draft.js (SHARE_CSP, shareCsp) so a test pins them byte for byte.
+// A share with draft_enabled=1 gets ONE extra connect-src naming its own /s/<token>/draft URL.
 
 // Shared hardening headers for every served response (and the 404 path stays generic).
 const HARDEN = {
@@ -59,8 +57,9 @@ const esc = (s) =>
 		(c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[c],
 	);
 
-export function GET({ params }) {
-	const a = getArtifactByShareToken(params.token);
+export function GET({ params, url }) {
+	const resolved = resolveShare(params.token);
+	const a = resolved?.artifact;
 
 	// FAIL CLOSED — any miss is an indistinguishable generic 404 (no info leak about why).
 	if (!a) {
@@ -68,7 +67,11 @@ export function GET({ params }) {
 	}
 
 	if (a.kind === "interactive" || a.kind === "html") {
-		const csp = CSP[a.kind];
+		const csp = shareCsp(a.kind, {
+			token: params.token,
+			draftEnabled: resolved.share.draft_enabled,
+			origin: url?.origin,
+		});
 
 		return new Response(a.content, {
 			headers: {

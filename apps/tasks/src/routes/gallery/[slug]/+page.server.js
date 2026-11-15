@@ -1,4 +1,4 @@
-import { getArtifact } from "$lib/server/db.js";
+import { getArtifact, listShareDraftsForSlug } from "$lib/server/db.js";
 import { renderMd } from "$lib/server/md.js";
 import { error } from "@sveltejs/kit";
 
@@ -26,5 +26,36 @@ export function load({ params, locals }) {
 		// only markdown artifacts are rendered here; html ones load via the sandboxed iframe
 		bodyHtml: a.kind === "markdown" ? renderMd(a.content) : "",
 		me: locals.user,
+		// Drafts saved through draft-enabled share links (/s/<token>/draft). Sent as PLAIN TEXT
+		// only: the page renders it in a <pre> with Svelte's default escaping, never {@html}
+		// and never through markdown.
+		drafts: listShareDraftsForSlug(a.slug).map(draftText),
+	};
+}
+
+// A stored draft is JSON {paras:[...]} written by an anonymous visitor. Flatten it to plain text
+// (a blank line between paragraphs). Anything unparseable shows as an empty draft, not an error.
+function draftText(d) {
+	let paras = [];
+
+	try {
+		const parsed = JSON.parse(d.content);
+
+		if (Array.isArray(parsed.paras)) {
+			paras = parsed.paras.filter((p) => typeof p === "string");
+		}
+	} catch {
+		paras = [];
+	}
+
+	const text = paras.map((p) => p.trim()).join("\n\n");
+
+	return {
+		share_id: d.share_id,
+		label: d.label || "",
+		updated_at: d.created_at,
+		revisions: d.revisions,
+		text,
+		words: text.trim() ? text.trim().split(/\s+/).length : 0,
 	};
 }
