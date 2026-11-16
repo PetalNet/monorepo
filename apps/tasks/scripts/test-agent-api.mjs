@@ -958,6 +958,64 @@ t("the read-only refusal is logged without the token", () => {
 	assert.ok(!added.includes(ro.token), "token never appears in a log line");
 });
 
+// ── get_markup (pencil ink on gallery artifacts) ──────────────────────────────
+db.prepare(
+	"INSERT INTO artifacts (slug, title, kind, content, owner, visibility) VALUES ('ink-page', 'Ink page', 'interactive', '<p>x</p>', 'person-a', 'private')",
+).run();
+
+const stroke = {
+	tool: "pen",
+	color: "#e5484d",
+	width: 4,
+	vw: 1024,
+	pts: [10, 20, 0.5, 30, 40, 0.7],
+};
+
+DB.saveMarkup("ink-page", "person-a", [stroke]);
+const roFull = mintAgentToken({ agent_name: "agent-ro-full", readonly: true });
+
+resetRateLimiter();
+
+t("get_markup returns each author's strokes and updated_at to an unscoped token", () => {
+	const r = rpc(full.token, "get_markup", { slug: "ink-page" });
+
+	assert.equal(r.status, 200);
+	assert.equal(r.body.markups.length, 1);
+	assert.equal(r.body.markups[0].author, "person-a");
+	assert.deepEqual(r.body.markups[0].strokes, [stroke]);
+	assert.ok(r.body.markups[0].updated_at, "updated_at present");
+	assert.equal(r.body.content, undefined, "page content only on request");
+});
+
+t("get_markup returns the page content when asked", () => {
+	assert.equal(
+		rpc(full.token, "get_markup", { slug: "ink-page", content: true }).body.content,
+		"<p>x</p>",
+	);
+});
+
+t("get_markup is a read op: an unscoped read-only token may call it", () => {
+	assert.equal(rpc(roFull.token, "get_markup", { slug: "ink-page" }).status, 200);
+});
+
+t("get_markup author filter narrows to that author", () => {
+	assert.equal(
+		rpc(full.token, "get_markup", { slug: "ink-page", author: "person-b" }).body.markups.length,
+		0,
+	);
+});
+
+t("get_markup is a generic 404 for a scoped token and for an unknown slug", () => {
+	assert.equal(rpc(agentA.token, "get_markup", { slug: "ink-page" }).status, 404);
+	assert.equal(rpc(projOnly.token, "get_markup", { slug: "ink-page" }).status, 404);
+	assert.equal(rpc(full.token, "get_markup", { slug: "no-such-page" }).status, 404);
+});
+
+t("saving an empty stroke list deletes the markup row", () => {
+	DB.saveMarkup("ink-page", "person-a", []);
+	assert.equal(rpc(full.token, "get_markup", { slug: "ink-page" }).body.markups.length, 0);
+});
+
 // ── report ────────────────────────────────────────────────────────────────────
 let failed = 0;
 

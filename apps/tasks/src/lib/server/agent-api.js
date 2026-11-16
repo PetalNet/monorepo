@@ -41,6 +41,8 @@ import db, {
 	blockersOf,
 	blocks,
 	unfinishedBlockers,
+	getArtifact,
+	listMarkup,
 } from "./db.js";
 
 // mirrors mcp/tracker-mcp.mjs — archived-project exclusion + active predicate + shape()
@@ -90,6 +92,7 @@ const OPS = new Set([
 	"remove_blocker",
 	"list_blockers",
 	"set_type",
+	"get_markup",
 ]);
 
 // task.type vocabulary (free TEXT column, default 'task'). Allowlisted so a typo'd type can't
@@ -734,6 +737,41 @@ const ops = {
 		};
 	},
 
+	// pencil ink on a gallery artifact, every author's or one author's, plus the page itself
+	// when args.content is true (scripts/render-markup.mjs draws the two together). Artifacts
+	// sit outside the assignee/project lane model, so only an UNSCOPED token may read them; a
+	// scoped token gets the same generic 404 as an unknown slug.
+	get_markup(scope, args) {
+		if (scope.assignee != null || scope.projects != null) {
+			return notFound();
+		}
+
+		if (typeof args.slug !== "string") {
+			return bad("bad_request");
+		}
+
+		const a = getArtifact(args.slug, null);
+
+		if (!a) {
+			return notFound();
+		}
+
+		const markups = listMarkup(a.slug).filter(
+			(m) => args.author == null || m.author === args.author,
+		);
+
+		return {
+			status: 200,
+			body: {
+				slug: a.slug,
+				title: a.title,
+				kind: a.kind,
+				markups,
+				...(args.content === true ? { content: String(a.content) } : {}),
+			},
+		};
+	},
+
 	// set task.type (allowlisted, TASK_TYPES) via canonical updateTask ('update' event).
 	set_type(scope, args) {
 		if (!isInt(args.id)) {
@@ -768,7 +806,7 @@ const ops = {
 // Ops that only READ. A read-only token may call these and nothing else. Listed
 // explicitly rather than derived by negation: adding a new write op must not
 // accidentally become callable by every read-only token that already exists.
-const READ_OPS = new Set(["get_ready", "get"]);
+const READ_OPS = new Set(["get_ready", "get", "get_markup"]);
 
 export function handleAgentRpc({ authorization, rawBody } = {}) {
 	const m = /^Bearer\s+(\S+)$/i.exec(String(authorization ?? "").trim());

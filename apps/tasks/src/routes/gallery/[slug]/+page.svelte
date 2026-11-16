@@ -1,4 +1,8 @@
 <script>
+	import { inkLayer } from "$lib/ink.js";
+	import { Eraser, Highlighter, PenLine, Trash2, Undo2 } from "@lucide/svelte";
+	import { onMount } from "svelte";
+
 	let { data } = $props();
 	// For HTML artifacts we size the iframe to its content height so the page scrolls as
 	// ONE document (no nested scrollbar, nothing cropped). The iframe is
@@ -35,8 +39,12 @@
 	}
 	function onFrameLoad() {
 		if (isInteractive) {
+			// opaque origin: nothing to measure. Handshake with the ink bootstrap (?ink=1) instead.
+			inkReady = false;
+			frameEl?.contentWindow?.postMessage({ ink: "init" }, "*");
+
 			return;
-		} // opaque origin: nothing to measure, and no observer to attach
+		}
 
 		fit();
 
@@ -58,6 +66,121 @@
 	// slug is DB-validated (lowercase alnum + dashes) but encode defensively so a future
 	// looser slug can't smuggle ?/# into the iframe/raw URL.
 	const rawUrl = $derived(`/gallery/${encodeURIComponent(data.slug)}/raw`);
+
+	// Pencil markup. The ink layer (src/lib/ink.js) lives where the page's coordinates are:
+	// inside the interactive iframe (injected via ?ink=1, spoken to by postMessage), or for
+	// html artifacts in an overlay laid over the auto-sized iframe here, since that frame
+	// scrolls with this page and can't run scripts. Either way strokes come back here and
+	// are saved per viewer, debounced.
+	const COLORS = [
+		["#e5484d", "Red"],
+		["#2f6fed", "Blue"],
+		["#1f9d55", "Green"],
+		["#f76b15", "Orange"],
+	];
+	let overlayEl = $state(null);
+	let layer = null;
+	let inkReady = $state(false);
+	let marking = $state(false);
+	let tool = $state("pen");
+	let color = $state(COLORS[0][0]);
+	let canUndo = $state(false);
+	let strokes = $state.raw((() => data.markup)());
+	let saveState = $state("");
+	let saveTimer;
+	let unsaved = false;
+	let saving = Promise.resolve();
+	const markupUrl = $derived(`/api/markup/${encodeURIComponent(data.slug)}`);
+
+	function send(m) {
+		if (isInteractive) {
+			frameEl?.contentWindow?.postMessage(m, "*");
+		} else {
+			layer?.handle(m);
+		}
+	}
+	function onInk(m) {
+		if (m.ink === "ready") {
+			inkReady = true;
+			send({ ink: "set", strokes });
+			send({ ink: "tool", tool, color });
+			send({ ink: "arm", on: marking });
+		} else if (m.ink === "change" && Array.isArray(m.strokes)) {
+			strokes = m.strokes;
+			canUndo = Boolean(m.canUndo);
+			unsaved = true;
+			saveState = "saving";
+			clearTimeout(saveTimer);
+			saveTimer = setTimeout(save, 800);
+		}
+	}
+	function save(final = false) {
+		clearTimeout(saveTimer);
+
+		if (!unsaved) {
+			return saving;
+		}
+
+		unsaved = false;
+		const body = JSON.stringify({ strokes });
+
+		saving = saving.then(async () => {
+			try {
+				const r = await fetch(markupUrl, {
+					method: "PUT",
+					headers: { "content-type": "application/json" },
+					body,
+					keepalive: final && body.length < 60_000,
+				});
+
+				saveState = r.ok ? "saved" : r.status === 413 ? "too much ink to save" : "save failed";
+			} catch {
+				saveState = "save failed";
+			}
+		});
+
+		return saving;
+	}
+	function toggleMarking() {
+		marking = !marking;
+		send({ ink: "arm", on: marking });
+
+		if (!marking) {
+			save();
+		}
+	}
+	function pick(t, c) {
+		tool = t;
+
+		if (c) {
+			color = c;
+		}
+
+		send({ ink: "tool", tool, color });
+	}
+	onMount(() => {
+		if (!isInteractive && overlayEl) {
+			layer = inkLayer(window, { host: overlayEl, emit: onInk });
+			onInk({ ink: "ready" });
+		}
+
+		const onMessage = (e) => {
+			if (isInteractive && e.source === frameEl?.contentWindow && typeof e.data?.ink === "string") {
+				onInk(e.data);
+			}
+		};
+
+		const flush = () => save(true);
+
+		window.addEventListener("message", onMessage);
+		window.addEventListener("pagehide", flush);
+
+		return () => {
+			window.removeEventListener("message", onMessage);
+			window.removeEventListener("pagehide", flush);
+			save(true);
+		};
+	});
 </script>
 
 <svelte:head><title>{data.title} · gallery</title></svelte:head>
@@ -82,19 +205,79 @@
 					class="ht-badge mono"
 					title="Runs in a sandboxed frame (no network, no cookies)">interactive</span
 				>{/if}
+			{#if marking}
+				<div class="inkbar" role="toolbar" aria-label="Markup tools">
+					{#each COLORS as [c, name] (c)}
+						<button
+							class="ink-btn swatch"
+							class:sel={tool === "pen" && color === c}
+							style="--swatch:{c}"
+							aria-label="{name} pen"
+							aria-pressed={tool === "pen" && color === c}
+							title="{name} pen"
+							onclick={() => pick("pen", c)}
+						></button>
+					{/each}
+					<button
+						class="ink-btn"
+						class:sel={tool === "hl"}
+						aria-pressed={tool === "hl"}
+						aria-label="Highlighter"
+						title="Highlighter"
+						onclick={() => pick("hl")}><Highlighter size={16} /></button
+					>
+					<button
+						class="ink-btn"
+						class:sel={tool === "erase"}
+						aria-pressed={tool === "erase"}
+						aria-label="Eraser"
+						title="Eraser (whole strokes)"
+						onclick={() => pick("erase")}><Eraser size={16} /></button
+					>
+					<span class="ink-sep"></span>
+					<button
+						class="ink-btn"
+						disabled={!canUndo}
+						aria-label="Undo"
+						title="Undo"
+						onclick={() => send({ ink: "undo" })}><Undo2 size={16} /></button
+					>
+					<button
+						class="ink-btn"
+						disabled={!strokes.length}
+						aria-label="Clear all ink"
+						title="Clear all ink"
+						onclick={() => send({ ink: "clear" })}><Trash2 size={16} /></button
+					>
+					<span class="ink-status mono" aria-live="polite">{saveState}</span>
+				</div>
+			{/if}
+			{#if inkReady}
+				<button
+					class="ink-toggle mono"
+					class:on={marking}
+					aria-pressed={marking}
+					onclick={toggleMarking}
+					title={marking ? "Stop marking up" : "Mark up with Apple Pencil or mouse"}
+					><PenLine size={14} />{marking ? "done" : "markup"}</button
+				>
+			{/if}
 			<a class="raw-link mono" href={rawUrl} target="_blank" rel="noopener noreferrer"
 				>open full ↗</a
 			>
 		</header>
-		<iframe
-			bind:this={frameEl}
-			onload={onFrameLoad}
-			title={data.title}
-			src={rawUrl}
-			sandbox={isInteractive ? "allow-scripts allow-downloads" : "allow-same-origin"}
-			referrerpolicy="no-referrer"
-			style="height:{frameH}"
-		></iframe>
+		<div class="frame-wrap">
+			<iframe
+				bind:this={frameEl}
+				onload={onFrameLoad}
+				title={data.title}
+				src={isInteractive ? `${rawUrl}?ink=1` : rawUrl}
+				sandbox={isInteractive ? "allow-scripts allow-downloads" : "allow-same-origin"}
+				referrerpolicy="no-referrer"
+				style="height:{frameH}"
+			></iframe>
+			{#if !isInteractive}<div class="ink-overlay" bind:this={overlayEl}></div>{/if}
+		</div>
 	</div>
 {:else}
 	<div class="screen detail">
@@ -176,6 +359,88 @@
 		border: 0;
 		background: #fff;
 		display: block;
+	}
+	.frame-wrap {
+		position: relative;
+	}
+	.ink-overlay {
+		position: absolute;
+		inset: 0;
+		pointer-events: none;
+	}
+	.ink-toggle {
+		flex: none;
+		display: inline-flex;
+		align-items: center;
+		gap: 5px;
+		font-size: 12px;
+		color: var(--text-3);
+		background: none;
+		border: 1px solid var(--border-sub);
+		border-radius: 999px;
+		padding: 3px 10px;
+		cursor: pointer;
+	}
+	.ink-toggle:hover,
+	.ink-toggle.on {
+		color: var(--accent-b);
+	}
+	.ink-toggle.on {
+		border-color: var(--accent-b);
+	}
+	.inkbar {
+		flex: none;
+		display: flex;
+		align-items: center;
+		gap: 2px;
+	}
+	.ink-btn {
+		width: 32px;
+		height: 32px;
+		display: grid;
+		place-items: center;
+		border-radius: 8px;
+		background: none;
+		border: 1px solid transparent;
+		color: var(--text-3);
+		cursor: pointer;
+		padding: 0;
+	}
+	.ink-btn:hover:not(:disabled) {
+		color: var(--text-1);
+	}
+	.ink-btn.sel {
+		border-color: var(--border-sub);
+		color: var(--text-1);
+		background: var(--surface-2);
+	}
+	.ink-btn:disabled {
+		opacity: 0.35;
+		cursor: default;
+	}
+	.swatch::before {
+		content: "";
+		width: 14px;
+		height: 14px;
+		border-radius: 50%;
+		background: var(--swatch);
+	}
+	.swatch.sel::before {
+		box-shadow:
+			0 0 0 2px var(--surface-1),
+			0 0 0 3.5px var(--swatch);
+	}
+	.ink-sep {
+		width: 1px;
+		height: 18px;
+		background: var(--border-sub);
+		margin: 0 4px;
+	}
+	.ink-status {
+		font-size: 11px;
+		color: var(--text-3);
+		min-width: 4.5em;
+		padding-left: 4px;
 	}
 	@media (max-width: 640px) {
 		.html-head {
