@@ -216,7 +216,11 @@ export function inkLayer(win, { host = null, page = null, emit }) {
 		const steps = [];
 
 		while (el !== pd.documentElement) {
-			if (el.id && pd.getElementById(el.id) === el && /^[^\s/]{1,100}$/.test(el.id)) {
+			if (
+				el.id &&
+				/^[^\s/]{1,100}$/.test(el.id) &&
+				pd.querySelector(`#${pd.defaultView.CSS.escape(el.id)}`) === el
+			) {
 				return `#${el.id}${steps.join("")}`;
 			}
 
@@ -229,7 +233,8 @@ export function inkLayer(win, { host = null, page = null, emit }) {
 
 	function resolve(pd, p) {
 		const m = /^(?:#([^/]+))?((?:\/\d+)*)$/.exec(p);
-		let el = m && (m[1] ? pd.getElementById(m[1]) : pd.documentElement);
+		let el =
+			m && (m[1] ? pd.querySelector(`#${pd.defaultView.CSS.escape(m[1])}`) : pd.documentElement);
 
 		for (const i of m ? m[2].split("/").slice(1) : []) {
 			el = el?.children[Number(i)];
@@ -241,7 +246,7 @@ export function inkLayer(win, { host = null, page = null, emit }) {
 	// The element a mark centred at (cx, cy) belongs to. A mark written beside a paragraph hits a
 	// tall container's margin there, so then the line through the centre is swept across the page
 	// for the smallest element on it. Inline boxes move within their line as text rewraps, so the
-	// anchor is their block. up counts the levels to the nearest ancestor spanning cx.
+	// anchor is their block. levels counts the steps to the nearest ancestor spanning cx.
 	function pick(cx, cy) {
 		const pd = pageDoc();
 
@@ -285,24 +290,24 @@ export function inkLayer(win, { host = null, page = null, emit }) {
 
 		let xel = el;
 		let xb = b;
-		let up = 0;
+		let levels = 0;
 
 		while ((cx < xb.x || cx > xb.x + xb.w) && xel.parentElement && xel !== pd.body) {
 			xel = xel.parentElement;
 			xb = box(xel) || xb;
-			up += 1;
+			levels += 1;
 		}
 
-		return { el, up };
+		return { el, levels };
 	}
 
 	// Pin strokes to one element, each with its own offset, so a word written in several strokes
 	// moves as one.
-	function anchorTo({ el, up }, list) {
+	function anchorTo({ el, levels }, list) {
 		const b = box(el);
 		let xel = el;
 
-		for (let i = 0; i < up && xel.parentElement; i++) {
+		for (let i = 0; i < levels && xel.parentElement; i++) {
 			xel = xel.parentElement;
 		}
 
@@ -312,7 +317,7 @@ export function inkLayer(win, { host = null, page = null, emit }) {
 		return list.map((s) => {
 			const [cx, cy] = center(s.pts);
 
-			return { ...s, anchor: { p, dx: r1(cx - xb.x), dy: r1(cy - b.y), up } };
+			return { ...s, anchor: { p, dx: r1(cx - xb.x), dy: r1(cy - b.y), up: levels } };
 		});
 	}
 
@@ -596,7 +601,7 @@ export function inkLayer(win, { host = null, page = null, emit }) {
 
 			commit(
 				strokes.concat(
-					el && box(el) ? anchorTo({ el, up: prev.anchor.up }, [a.s]) : anchorGroup([a.s]),
+					el && box(el) ? anchorTo({ el, levels: prev.anchor.up }, [a.s]) : anchorGroup([a.s]),
 				),
 			);
 		} else if (strokes !== a.before) {

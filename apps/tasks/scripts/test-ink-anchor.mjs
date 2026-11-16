@@ -7,6 +7,7 @@
 //   PLAYWRIGHT_DIR=/home/docker/shotty node scripts/test-ink-anchor.mjs [--shots dir]
 //
 // Needs Playwright with Chromium, so it is not part of `pnpm test`.
+// oxlint-disable no-await-in-loop -- mouse input and page steps have to run in order
 import { createRequire } from "node:module";
 import path from "node:path";
 import { parseArgs } from "node:util";
@@ -59,7 +60,7 @@ const MARKS = [
 	['[data-t="row7"]', ".scroller"],
 ];
 const TARGETS = [...MARKS.map((m) => m[1]), "h1"];
-const LAYER = `window.__strokes=[];window.__ink=(${inkLayer.toString()})(window,{emit(m){if(m.ink==='change')window.__strokes=m.strokes}});`;
+const LAYER = `window.inkStrokes=[];window.inkTest=(${inkLayer.toString()})(window,{emit(m){if(m.ink==='change')window.inkStrokes=m.strokes}});`;
 
 const browser = await chromium.launch();
 let failed = 0;
@@ -73,7 +74,7 @@ async function open(css) {
 	const page = await browser.newPage({ viewport: { width: 1000, height: 700 } });
 
 	await page.setContent(PAGE);
-	await page.evaluate((c) => (document.getElementById("layout").textContent = c), css);
+	await page.evaluate((c) => (document.querySelector("#layout").textContent = c), css);
 	await page.evaluate(LAYER);
 
 	return page;
@@ -125,7 +126,7 @@ function onTarget(page) {
 }
 
 async function show(page, strokes, file) {
-	await page.evaluate((s) => window.__ink.handle({ ink: "set", strokes: s }), strokes);
+	await page.evaluate((s) => window.inkTest.handle({ ink: "set", strokes: s }), strokes);
 
 	if (opts.shots && file) {
 		await page.screenshot({ path: path.join(opts.shots, file), fullPage: true });
@@ -137,7 +138,7 @@ async function show(page, strokes, file) {
 try {
 	const a = await open("");
 
-	await a.evaluate(() => window.__ink.handle({ ink: "arm", on: true }));
+	await a.evaluate(() => window.inkTest.handle({ ink: "arm", on: true }));
 	await a.evaluate(() => document.querySelector('[data-t="row0"]').closest("ul").scrollTo(0, 300));
 
 	for (const [sel] of MARKS) {
@@ -212,7 +213,7 @@ try {
 		await a.mouse.up();
 	}
 
-	const drawn = await a.evaluate(() => window.__strokes);
+	const drawn = await a.evaluate(() => window.inkStrokes);
 
 	check(
 		"every drawn stroke is anchored",
@@ -228,10 +229,10 @@ try {
 
 	const legacy = drawn.map(({ anchor: _anchor, ...s }) => s);
 
-	await a.evaluate(() => window.__ink.handle({ ink: "arm", on: false }));
-	await a.evaluate((s) => window.__ink.handle({ ink: "set", strokes: s }), legacy);
-	await a.evaluate(() => window.__ink.handle({ ink: "arm", on: true }));
-	const rescued = await a.evaluate(() => window.__strokes);
+	await a.evaluate(() => window.inkTest.handle({ ink: "arm", on: false }));
+	await a.evaluate((s) => window.inkTest.handle({ ink: "set", strokes: s }), legacy);
+	await a.evaluate(() => window.inkTest.handle({ ink: "arm", on: true }));
+	const rescued = await a.evaluate(() => window.inkStrokes);
 
 	check(
 		"arming the layout a legacy stroke was drawn in anchors it",
@@ -254,7 +255,7 @@ try {
 			[...document.querySelectorAll("svg[data-ink] path")].map((p) => p.getAttribute("transform")),
 		);
 
-		const rows = await b.evaluate(() => {
+		const rowHits = await b.evaluate(() => {
 			const paths = [...document.querySelectorAll("svg[data-ink] path")].slice(-3);
 
 			return [...document.querySelectorAll("#waiting li")].map((li, i) => {
@@ -268,8 +269,8 @@ try {
 
 		check(
 			`${name} highlight on each list row stays on its own row`,
-			rows.every(Boolean),
-			rows.join(" "),
+			rowHits.every(Boolean),
+			rowHits.join(" "),
 		);
 
 		for (const [k, what] of ["across the chip", "across two rows"].entries()) {
@@ -301,13 +302,13 @@ try {
 		document.querySelector('[data-t="row0"]').closest("ul").scrollTo(0, 300),
 	);
 
-	await narrow.evaluate(() => window.__ink.handle({ ink: "arm", on: true }));
-	await narrow.evaluate((s) => window.__ink.handle({ ink: "set", strokes: s }), legacy);
-	await narrow.evaluate(() => window.__ink.handle({ ink: "arm", on: true }));
+	await narrow.evaluate(() => window.inkTest.handle({ ink: "arm", on: true }));
+	await narrow.evaluate((s) => window.inkTest.handle({ ink: "set", strokes: s }), legacy);
+	await narrow.evaluate(() => window.inkTest.handle({ ink: "arm", on: true }));
 
 	check(
 		"a different page width does not re-anchor legacy strokes",
-		(await narrow.evaluate(() => window.__strokes)).length === 0,
+		(await narrow.evaluate(() => window.inkStrokes)).length === 0,
 	);
 } finally {
 	await browser.close();
