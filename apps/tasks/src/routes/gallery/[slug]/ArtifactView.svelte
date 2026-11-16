@@ -48,6 +48,11 @@
 
 		fit();
 
+		// Strokes anchor to the framed page, so markup waits for it to load.
+		if (layer) {
+			onInk({ ink: "ready" });
+		}
+
 		// re-fit on reflow (web-font swap, image decode, our own resizes), browser-agnostic.
 		try {
 			ro?.disconnect();
@@ -170,7 +175,11 @@
 				emit: onInk,
 			});
 
-			onInk({ ink: "ready" });
+			const d = frameEl?.contentDocument;
+
+			if (d?.readyState === "complete" && d.URL !== "about:blank") {
+				onInk({ ink: "ready" });
+			}
 		}
 
 		const onMessage = (e) => {

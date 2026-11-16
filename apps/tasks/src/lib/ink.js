@@ -8,11 +8,14 @@
 // Stroke: { tool: 'pen' | 'hl', color: '#rrggbb', width, vw, pts: [x, y, pressure, ...], anchor? }
 // x/y are page coordinates (CSS px from the document's top-left) in the layout the stroke was
 // drawn in; vw is that page width. Text reflows differently per browser and font, so absolute y
-// lands on other content elsewhere. anchor = { p, fx, fy } pins the stroke to the element under
-// it: p is a child-index path from the nearest id'd ancestor ('#id/2/0') or the root ('/1/3'),
-// and fx/fy place the centre of the stroke's box as a fraction of that element's box. Rendering
-// translates the stroke to that spot in the current layout, falling back to pts when p no
-// longer resolves to a visible element.
+// lands on other content elsewhere. anchor = { p, dx, dy, up } pins the stroke to the element
+// under it: p is a child-index path from the nearest id'd ancestor ('#id/2/0') or the root
+// ('/1/3'). dy is the offset in CSS px from that element's top to the centre of the stroke's box,
+// and dx the offset from the left of its ancestor `up` levels higher, the nearest one whose box
+// spans the centre horizontally, so a note in the margin beside a word doesn't follow the word
+// sideways when the line rewraps. Rendering translates the stroke by however far those boxes
+// moved, falling back to pts when p no longer resolves to a visible element. A scrolling box is as deep as an anchor goes,
+// since its scroll position is not saved.
 //
 // Messages in (handle): set {strokes} | arm {on} | tool {tool, color} | undo | clear.
 // Messages out (emit): change {strokes, canUndo}.
@@ -134,6 +137,12 @@ export function inkLayer(win, { host = null, page = null, emit }) {
 		return pos === "fixed" || pos === "sticky";
 	}
 
+	function scrolls(el) {
+		const o = el.ownerDocument.defaultView.getComputedStyle(el).overflowY;
+
+		return (o === "auto" || o === "scroll") && el.scrollHeight > el.clientHeight;
+	}
+
 	// The deepest element whose box holds page point (x, y), searched by geometry rather than
 	// hit-testing so it works off-screen. Children are tried topmost first.
 	function deepest(pd, x, y) {
@@ -164,8 +173,8 @@ export function inkLayer(win, { host = null, page = null, emit }) {
 				}
 			}
 
-			if (!next) {
-				return el;
+			if (!next || scrolls(next)) {
+				return next || el;
 			}
 
 			el = next;
@@ -228,13 +237,21 @@ export function inkLayer(win, { host = null, page = null, emit }) {
 			}
 		}
 
-		return best
-			? {
-					p: pathOf(best.el),
-					fx: Math.round(((cx - best.b.x) / best.b.w) * 1e4) / 1e4,
-					fy: Math.round(((cy - best.b.y) / best.b.h) * 1e4) / 1e4,
-				}
-			: null;
+		if (!best) {
+			return null;
+		}
+
+		let xel = best.el;
+		let xb = best.b;
+		let up = 0;
+
+		while ((cx < xb.x || cx > xb.x + xb.w) && xel.parentElement && xel !== pd.body) {
+			xel = xel.parentElement;
+			xb = box(xel) || xb;
+			up += 1;
+		}
+
+		return { p: pathOf(best.el), dx: r1(cx - xb.x), dy: r1(cy - best.b.y), up };
 	}
 
 	function shiftOf(s) {
@@ -246,9 +263,16 @@ export function inkLayer(win, { host = null, page = null, emit }) {
 			return [0, 0];
 		}
 
+		let xel = el;
+
+		for (let i = 0; i < (s.anchor.up || 0) && xel.parentElement; i++) {
+			xel = xel.parentElement;
+		}
+
+		const xb = box(xel) || b;
 		const [cx, cy] = center(s.pts);
 
-		return [b.x + s.anchor.fx * b.w - cx, b.y + s.anchor.fy * b.h - cy];
+		return [xb.x + s.anchor.dx - cx, b.y + s.anchor.dy - cy];
 	}
 
 	function outline(s) {

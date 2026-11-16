@@ -33,7 +33,7 @@ h1{font-size:72px;line-height:1.05;margin:0 0 20px}
 .scroller li{height:60px}
 .q{display:flex;gap:12px;border-top:1px solid #ddd;padding:12px 0}
 </style><style id="layout"></style></head><body>
-<h1>Open questions for the pencil test page.</h1>
+<h1>Open questions for the pencil test page<span class="dot">.</span></h1>
 ${filler(8)}
 <div class="cols"><div>${filler(5)}</div><ul id="waiting"><li>first draft</li><li>second draft</li><li>third draft</li></ul></div>
 ${filler(6)}
@@ -48,7 +48,15 @@ ${filler(20)}
 
 // Layout B: the same page as a browser with a much wider, taller font would draw it.
 const WIDE = "body,h1{font-family:monospace;letter-spacing:.06em;line-height:1.7}";
-const TARGETS = ["#waiting", '[data-t="q2"]', '[data-t="bullet"]', '[data-t="row7"]'];
+// What each mark is drawn around, and the box it must still sit in after the relayout. The list
+// scrolls back to the top on reload, so a mark drawn on a scrolled row must stay on the list.
+const MARKS = [
+	["#waiting", "#waiting"],
+	['[data-t="q2"]', '[data-t="q2"]'],
+	['[data-t="bullet"]', '[data-t="bullet"]'],
+	['[data-t="row7"]', ".scroller"],
+];
+const TARGETS = [...MARKS.map((m) => m[1]), "h1"];
 const LAYER = `window.__strokes=[];window.__ink=(${inkLayer.toString()})(window,{emit(m){if(m.ink==='change')window.__strokes=m.strokes}});`;
 
 const browser = await chromium.launch();
@@ -103,10 +111,11 @@ function onTarget(page) {
 			const p = paths[i].getBoundingClientRect();
 			const cx = p.left + p.width / 2;
 			const cy = p.top + p.height / 2;
+			const [left, right] = sel === "h1" ? [0, innerWidth] : [t.left, t.right];
 
 			return {
 				sel,
-				hit: cx >= t.left && cx <= t.right && cy >= t.top && cy <= t.bottom,
+				hit: cx >= left && cx <= right && cy >= t.top && cy <= t.bottom,
 				dy: Math.round(cy - (t.top + t.height / 2)),
 			};
 		});
@@ -129,20 +138,36 @@ try {
 	await a.evaluate(() => window.__ink.handle({ ink: "arm", on: true }));
 	await a.evaluate(() => document.querySelector('[data-t="row0"]').closest("ul").scrollTo(0, 300));
 
-	for (const sel of TARGETS) {
+	for (const [sel] of MARKS) {
 		await ring(a, sel);
 	}
+
+	// A margin note beside the heading's last line, where the nearest small box is the full stop.
+	await a.evaluate(() => scrollTo(0, 0));
+
+	const dot = await a.evaluate(() => {
+		const b = document.querySelector(".dot").getBoundingClientRect();
+
+		return { y: b.top + b.height / 2 };
+	});
+
+	await a.mouse.move(900, dot.y - 10);
+	await a.mouse.down();
+	await a.mouse.move(930, dot.y + 10, { steps: 6 });
+	await a.mouse.move(960, dot.y - 10, { steps: 6 });
+	await a.mouse.up();
 
 	const drawn = await a.evaluate(() => window.__strokes);
 
 	check(
 		"every drawn stroke is anchored",
 		drawn.length === TARGETS.length && drawn.every((s) => s.anchor),
+		drawn.map((s) => s.anchor?.p).join(" "),
 	);
 
 	check(
-		"the stroke on the scrolled list anchors inside the scroller",
-		/^\/1\/\d+\/7$/.test(drawn[3].anchor?.p ?? ""),
+		"the stroke on the scrolled list anchors to the list, not a row whose scroll is lost",
+		/^\/1\/\d+$/.test(drawn[3].anchor?.p ?? ""),
 		drawn[3].anchor?.p,
 	);
 
@@ -159,8 +184,6 @@ try {
 	);
 
 	const b = await open(WIDE);
-
-	await b.evaluate(() => document.querySelector('[data-t="row0"]').closest("ul").scrollTo(0, 300));
 
 	for (const [name, strokes, file] of [
 		["anchored", drawn, "ink-anchor-wide-anchored.png"],
@@ -186,9 +209,11 @@ try {
 
 	await narrow.setContent(PAGE);
 	await narrow.evaluate(LAYER);
+
 	await narrow.evaluate(() =>
 		document.querySelector('[data-t="row0"]').closest("ul").scrollTo(0, 300),
 	);
+
 	await narrow.evaluate(() => window.__ink.handle({ ink: "arm", on: true }));
 	await narrow.evaluate((s) => window.__ink.handle({ ink: "set", strokes: s }), legacy);
 	await narrow.evaluate(() => window.__ink.handle({ ink: "arm", on: true }));

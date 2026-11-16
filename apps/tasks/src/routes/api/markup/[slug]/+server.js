@@ -10,20 +10,23 @@ const MAX_POINTS = 6000;
 
 // See the anchor shape in src/lib/ink.js.
 function parseAnchor(a) {
-	const fraction = (n) => typeof n === "number" && Number.isFinite(n) && Math.abs(n) < 1e4;
+	const offset = (n) => typeof n === "number" && Number.isFinite(n) && Math.abs(n) < 1e6;
 
 	if (
 		!a ||
 		typeof a.p !== "string" ||
 		a.p.length > 400 ||
 		!/^(?:#[^\s/]{1,100})?(?:\/\d{1,5})*$/.test(a.p) ||
-		!fraction(a.fx) ||
-		!fraction(a.fy)
+		!offset(a.dx) ||
+		!offset(a.dy) ||
+		!Number.isInteger(a.up) ||
+		a.up < 0 ||
+		a.up > 200
 	) {
 		return null;
 	}
 
-	return { p: a.p, fx: a.fx, fy: a.fy };
+	return { p: a.p, dx: a.dx, dy: a.dy, up: a.up };
 }
 
 function parseStrokes(input) {
@@ -68,13 +71,10 @@ function parseStrokes(input) {
 
 		const stroke = { tool: s.tool, color: s.color.toLowerCase(), width, vw, pts: p };
 
-		if (s.anchor !== undefined) {
-			const anchor = parseAnchor(s.anchor);
+		// A bad anchor only costs placement, so it is dropped rather than failing the whole save.
+		const anchor = s.anchor === undefined ? null : parseAnchor(s.anchor);
 
-			if (!anchor) {
-				return null;
-			}
-
+		if (anchor) {
 			stroke.anchor = anchor;
 		}
 
