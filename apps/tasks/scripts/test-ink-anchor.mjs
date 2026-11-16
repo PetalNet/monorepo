@@ -189,16 +189,34 @@ try {
 	);
 
 	await word([
-		[600, seam - 12],
-		[620, seam + 12],
-		[640, seam + 14],
+		[600, seam - 6],
+		[620, seam + 6],
+		[640, seam + 4],
 	]);
+
+	// One highlight per row of a list, each its own mark.
+	await a.evaluate(() => document.querySelector("#waiting").scrollIntoView({ block: "center" }));
+
+	const rows = await a.evaluate(() =>
+		[...document.querySelectorAll("#waiting li")].map((li) => {
+			const b = li.getBoundingClientRect();
+
+			return [b.left, b.top + b.height / 2];
+		}),
+	);
+
+	for (const [x, y] of rows) {
+		await a.mouse.move(x, y);
+		await a.mouse.down();
+		await a.mouse.move(x + 80, y, { steps: 8 });
+		await a.mouse.up();
+	}
 
 	const drawn = await a.evaluate(() => window.__strokes);
 
 	check(
 		"every drawn stroke is anchored",
-		drawn.length === TARGETS.length + 6 && drawn.every((s) => s.anchor),
+		drawn.length === TARGETS.length + 9 && drawn.every((s) => s.anchor),
 		drawn.map((s) => s.anchor?.p).join(" "),
 	);
 
@@ -234,6 +252,24 @@ try {
 
 		const moves = await b.evaluate(() =>
 			[...document.querySelectorAll("svg[data-ink] path")].map((p) => p.getAttribute("transform")),
+		);
+
+		const rows = await b.evaluate(() => {
+			const paths = [...document.querySelectorAll("svg[data-ink] path")].slice(-3);
+
+			return [...document.querySelectorAll("#waiting li")].map((li, i) => {
+				const t = li.getBoundingClientRect();
+				const p = paths[i].getBoundingClientRect();
+				const cy = p.top + p.height / 2;
+
+				return cy >= t.top && cy <= t.bottom;
+			});
+		});
+
+		check(
+			`${name} highlight on each list row stays on its own row`,
+			rows.every(Boolean),
+			rows.join(" "),
 		);
 
 		for (const [k, what] of ["across the chip", "across two rows"].entries()) {

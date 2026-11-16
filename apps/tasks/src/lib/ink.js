@@ -29,8 +29,8 @@ export function inkLayer(win, { host = null, page = null, emit }) {
 	const PEN_WIDTH = 4;
 	const HL_WIDTH = 18;
 	const ERASE_RADIUS = 12;
-	// Strokes this close, drawn one after another, are one mark (a word, an arrow and its note),
-	// up to GROUP_HEIGHT tall.
+	// Strokes drawn one after another this close side by side are one mark, up to GROUP_HEIGHT
+	// tall; see joins.
 	const NEAR = 25;
 	const GROUP_HEIGHT = 240;
 	const docMode = !host;
@@ -139,8 +139,15 @@ export function inkLayer(win, { host = null, page = null, emit }) {
 		Math.max(a[2], b[2]),
 		Math.max(a[3], b[3]),
 	];
-	const near = (a, b) =>
-		a[0] - NEAR <= b[2] && b[0] - NEAR <= a[2] && a[1] - NEAR <= b[3] && b[1] - NEAR <= a[3];
+	// Whether a stroke with bounds b continues the mark with bounds u: beside it on the same line
+	// (letters of a word overlap vertically; highlights on successive rows don't), and the mark
+	// stays short enough to follow one element.
+	const joins = (u, b) =>
+		b[0] - NEAR <= u[2] &&
+		u[0] - NEAR <= b[2] &&
+		b[1] < u[3] &&
+		u[1] < b[3] &&
+		Math.max(u[3], b[3]) - Math.min(u[1], b[1]) <= GROUP_HEIGHT;
 
 	function box(el) {
 		const r = el.getBoundingClientRect();
@@ -434,14 +441,8 @@ export function inkLayer(win, { host = null, page = null, emit }) {
 			let j = i + 1;
 			let u = bounds(strokes[i]);
 
-			while (legacy(strokes[j]) && near(u, bounds(strokes[j]))) {
-				const grown = union(u, bounds(strokes[j]));
-
-				if (grown[3] - grown[1] > GROUP_HEIGHT) {
-					break;
-				}
-
-				u = grown;
+			while (legacy(strokes[j]) && joins(u, bounds(strokes[j]))) {
+				u = union(u, bounds(strokes[j]));
 				j += 1;
 			}
 
@@ -580,12 +581,16 @@ export function inkLayer(win, { host = null, page = null, emit }) {
 
 		if (a.s) {
 			const prev = strokes.at(-1);
+			let u = null;
+
+			for (let i = strokes.length - 1; i >= 0 && strokes[i].anchor?.p === prev?.anchor?.p; i--) {
+				const b = bounds(strokes[i], shifts.get(strokes[i]));
+
+				u = u ? union(u, b) : b;
+			}
+
 			const pd = pageDoc();
-			const el =
-				prev?.anchor &&
-				pd &&
-				near(bounds(prev, shifts.get(prev)), bounds(a.s)) &&
-				resolve(pd, prev.anchor.p);
+			const el = prev?.anchor && pd && joins(u, bounds(a.s)) && resolve(pd, prev.anchor.p);
 
 			commit(
 				strokes.concat(
