@@ -7,7 +7,8 @@
 //
 // Fetches the page and its strokes through the agent API (get_markup with content), lays the
 // page out at the width the strokes were drawn at (the most common stroke vw, unless --width),
-// and draws the ink with the same inkLayer the viewer uses. The PNG is cropped to the marks plus
+// and draws the ink with the same inkLayer the viewer uses, so anchored strokes land on the
+// elements they were drawn over even where this browser's fonts wrap text differently. The PNG is cropped to the marks plus
 // a margin of page around them; --full captures the whole page. TASKS_AGENT_TOKEN_FILE may name a
 // file holding the token. Needs Playwright with Chromium; PLAYWRIGHT_DIR points at a directory
 // whose node_modules has it when this checkout doesn't.
@@ -67,7 +68,7 @@ for (const s of strokes) {
 }
 
 const width = Number(opts.width) || [...widths].toSorted((a, b) => b[1] - a[1])[0]?.[0] || 1024;
-const offWidth = strokes.filter((s) => s.vw !== width).length;
+const offWidth = strokes.filter((s) => s.vw !== width && !s.anchor).length;
 const req = process.env.PLAYWRIGHT_DIR
 	? createRequire(path.join(process.env.PLAYWRIGHT_DIR, "noop.js"))
 	: createRequire(import.meta.url);
@@ -89,6 +90,8 @@ try {
 	const page = await ctx.newPage();
 
 	await page.setContent(body.content, { waitUntil: "load" });
+	// Anchored strokes follow the layout, so let it settle before they are placed.
+	await page.evaluate(() => document.fonts.ready);
 
 	await page.evaluate(
 		`(${inkLayer.toString()})(window, { emit() {} }).handle({ ink: "set", strokes: ${JSON.stringify(strokes)} })`,
@@ -128,7 +131,9 @@ try {
 			width,
 			region: clip ? { top: clip.y, height: clip.height } : "full page",
 			...(offWidth
-				? { warning: `${offWidth} stroke(s) were drawn at another page width and may be offset` }
+				? {
+						warning: `${offWidth} unanchored stroke(s) were drawn at another page width and may be offset`,
+					}
 				: {}),
 		}),
 	);

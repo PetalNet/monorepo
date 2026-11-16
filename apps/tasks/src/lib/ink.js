@@ -5,19 +5,35 @@
 // own body. The viewer calls it directly for html artifacts, and scripts/render-markup.mjs
 // injects it to draw saved ink into a PNG, so all three surfaces share one renderer.
 //
-// Stroke: { tool: 'pen' | 'hl', color: '#rrggbb', width, vw, pts: [x, y, pressure, ...] }
-// x/y are page coordinates (CSS px from the document's top-left); vw is the page width the
-// stroke was drawn at, so a different viewport width is detectable.
+// Stroke: { tool: 'pen' | 'hl', color: '#rrggbb', width, vw, pts: [x, y, pressure, ...], anchor? }
+// x/y are page coordinates (CSS px from the document's top-left) in the layout the stroke was
+// drawn in; vw is that page width. Text reflows differently per browser and font, so absolute y
+// lands on other content elsewhere. anchor = { p, dx, dy, up } pins the stroke to the element
+// under it: p is a child-index path from the nearest id'd ancestor ('#id/2/0') or the root
+// ('/1/3'). dy is the offset in CSS px from that element's top to the centre of the stroke's box,
+// and dx the offset from the left of its ancestor `up` levels higher, the nearest one whose box
+// spans the centre horizontally, so a note in the margin beside a word doesn't follow the word
+// sideways when the line rewraps. Rendering translates the stroke by however far those boxes
+// moved, falling back to pts when p no longer resolves to a visible element. A scrolling box is as deep as an anchor goes,
+// since its scroll position is not saved.
 //
 // Messages in (handle): set {strokes} | arm {on} | tool {tool, color} | undo | clear.
 // Messages out (emit): change {strokes, canUndo}.
-export function inkLayer(win, { host = null, emit }) {
+export function inkLayer(win, { host = null, page = null, emit }) {
 	const doc = win.document;
+	// The document the strokes sit on: this one, or (html artifacts) the same-origin frame the
+	// host overlay covers, whose page coordinates equal the overlay's.
+	const pageDoc = () => (page ? page() : doc);
 	const NS = "http://www.w3.org/2000/svg";
 	const HL_COLOR = "#ffd400";
 	const PEN_WIDTH = 4;
 	const HL_WIDTH = 18;
 	const ERASE_RADIUS = 12;
+	// Strokes drawn one after another this close side by side are one mark, up to GROUP_HEIGHT
+	// tall; see joins.
+	const NEAR = 25;
+	const GAP = 10;
+	const GROUP_HEIGHT = 240;
 	const docMode = !host;
 	let strokes = [];
 	let history = [];
@@ -28,6 +44,8 @@ export function inkLayer(win, { host = null, emit }) {
 	let active = null;
 	let penDown = false;
 
+	const shifts = new Map();
+
 	const r1 = (n) => Math.round(n * 10) / 10;
 	const viewWidth = () => Math.round(docMode ? doc.documentElement.clientWidth : host.clientWidth);
 
@@ -37,6 +55,7 @@ export function inkLayer(win, { host = null, emit }) {
 
 		svg.style.width = `${doc.documentElement.clientWidth}px`;
 		svg.style.height = `${h}px`;
+		render();
 	}
 
 	function ensureSvg() {
@@ -64,6 +83,8 @@ export function inkLayer(win, { host = null, emit }) {
 			}
 
 			win.addEventListener("resize", fit);
+		} else if (win.ResizeObserver) {
+			new win.ResizeObserver(render).observe(host);
 		}
 
 		svg.addEventListener("pointerdown", down);
@@ -87,6 +108,245 @@ export function inkLayer(win, { host = null, emit }) {
 
 		svg.addEventListener("touchstart", blockPen, { passive: false });
 		svg.addEventListener("touchmove", blockPen, { passive: false });
+	}
+
+	// [left, top, right, bottom] of a stroke as drawn, moved by shift.
+	function bounds(s, [sx, sy] = [0, 0]) {
+		const p = s.pts;
+		let x0 = Infinity;
+		let y0 = Infinity;
+		let x1 = -Infinity;
+		let y1 = -Infinity;
+
+		for (let i = 0; i < p.length; i += 3) {
+			x0 = Math.min(x0, p[i]);
+			x1 = Math.max(x1, p[i]);
+			y0 = Math.min(y0, p[i + 1]);
+			y1 = Math.max(y1, p[i + 1]);
+		}
+
+		return [x0 + sx, y0 + sy, x1 + sx, y1 + sy];
+	}
+
+	function center(pts) {
+		const b = bounds({ pts });
+
+		return [(b[0] + b[2]) / 2, (b[1] + b[3]) / 2];
+	}
+
+	const union = (a, b) => [
+		Math.min(a[0], b[0]),
+		Math.min(a[1], b[1]),
+		Math.max(a[2], b[2]),
+		Math.max(a[3], b[3]),
+	];
+	// Whether a stroke with bounds b continues the mark with bounds u: beside it on the same line
+	// (letters of a word overlap vertically, or nearly, like the dot of an i; highlights on
+	// successive rows are a line apart), and the mark
+	// stays short enough to follow one element.
+	const joins = (u, b) =>
+		b[0] - NEAR <= u[2] &&
+		u[0] - NEAR <= b[2] &&
+		b[1] - GAP < u[3] &&
+		u[1] - GAP < b[3] &&
+		Math.max(u[3], b[3]) - Math.min(u[1], b[1]) <= GROUP_HEIGHT;
+
+	function box(el) {
+		const r = el.getBoundingClientRect();
+		const w = el.ownerDocument.defaultView;
+
+		return r.width > 0 && r.height > 0
+			? { x: r.left + w.scrollX, y: r.top + w.scrollY, w: r.width, h: r.height }
+			: null;
+	}
+
+	// Fixed and sticky boxes move with the scroll position, so they can't hold a stroke.
+	function pinned(el) {
+		const pos = el.ownerDocument.defaultView.getComputedStyle(el).position;
+
+		return pos === "fixed" || pos === "sticky";
+	}
+
+	function scrolls(el) {
+		const o = el.ownerDocument.defaultView.getComputedStyle(el).overflowY;
+
+		return (o === "auto" || o === "scroll") && el.scrollHeight > el.clientHeight;
+	}
+
+	// The deepest element whose box holds page point (x, y), searched by geometry rather than
+	// hit-testing so it works off-screen. Children are tried topmost first.
+	function deepest(pd, x, y) {
+		let el = pd.body;
+
+		if (!el || pinned(el)) {
+			return null;
+		}
+
+		for (;;) {
+			let next = null;
+
+			for (let c = el.lastElementChild; c; c = c.previousElementSibling) {
+				const b = box(c);
+
+				if (
+					b &&
+					x >= b.x &&
+					x <= b.x + b.w &&
+					y >= b.y &&
+					y <= b.y + b.h &&
+					!c.matches("svg[data-ink]") &&
+					!pinned(c)
+				) {
+					next = c;
+
+					break;
+				}
+			}
+
+			if (!next || scrolls(next)) {
+				return next || el;
+			}
+
+			el = next;
+		}
+	}
+
+	function pathOf(el) {
+		const pd = el.ownerDocument;
+		const steps = [];
+
+		while (el !== pd.documentElement) {
+			if (
+				el.id &&
+				/^[^\s/]{1,100}$/.test(el.id) &&
+				pd.querySelector(`#${pd.defaultView.CSS.escape(el.id)}`) === el
+			) {
+				return `#${el.id}${steps.join("")}`;
+			}
+
+			steps.unshift(`/${Array.prototype.indexOf.call(el.parentElement.children, el)}`);
+			el = el.parentElement;
+		}
+
+		return steps.join("");
+	}
+
+	function resolve(pd, p) {
+		const m = /^(?:#([^/]+))?((?:\/\d+)*)$/.exec(p);
+		let el =
+			m && (m[1] ? pd.querySelector(`#${pd.defaultView.CSS.escape(m[1])}`) : pd.documentElement);
+
+		for (const i of m ? m[2].split("/").slice(1) : []) {
+			el = el?.children[Number(i)];
+		}
+
+		return el || null;
+	}
+
+	// The element a mark centred at (cx, cy) belongs to. A mark written beside a paragraph hits a
+	// tall container's margin there, so then the line through the centre is swept across the page
+	// for the smallest element on it. Inline boxes move within their line as text rewraps, so the
+	// anchor is their block. levels counts the steps to the nearest ancestor spanning cx.
+	function pick(cx, cy) {
+		const pd = pageDoc();
+
+		if (!pd?.body) {
+			return null;
+		}
+
+		let best = null;
+		const consider = (x) => {
+			const el = deepest(pd, x, cy);
+			const b = el && el !== pd.body && box(el);
+
+			if (b && (!best || b.h < best.b.h)) {
+				best = { el, b };
+			}
+		};
+
+		consider(cx);
+
+		if (!best || best.b.h > 160) {
+			for (let x = 8; x < pd.documentElement.scrollWidth; x += 32) {
+				consider(x);
+			}
+		}
+
+		let el = best?.el;
+
+		while (
+			el &&
+			el.parentElement !== pd.documentElement &&
+			(el.ownerSVGElement || pd.defaultView.getComputedStyle(el).display.startsWith("inline"))
+		) {
+			el = el.parentElement;
+		}
+
+		const b = el && box(el);
+
+		if (!b) {
+			return null;
+		}
+
+		let xel = el;
+		let xb = b;
+		let levels = 0;
+
+		while ((cx < xb.x || cx > xb.x + xb.w) && xel.parentElement && xel !== pd.body) {
+			xel = xel.parentElement;
+			xb = box(xel) || xb;
+			levels += 1;
+		}
+
+		return { el, levels };
+	}
+
+	// Pin strokes to one element, each with its own offset, so a word written in several strokes
+	// moves as one.
+	function anchorTo({ el, levels }, list) {
+		const b = box(el);
+		let xel = el;
+
+		for (let i = 0; i < levels && xel.parentElement; i++) {
+			xel = xel.parentElement;
+		}
+
+		const xb = box(xel) || b;
+		const p = pathOf(el);
+
+		return list.map((s) => {
+			const [cx, cy] = center(s.pts);
+
+			return { ...s, anchor: { p, dx: r1(cx - xb.x), dy: r1(cy - b.y), up: levels } };
+		});
+	}
+
+	function anchorGroup(list) {
+		const u = list.map((s) => bounds(s)).reduce(union);
+		const t = pick((u[0] + u[2]) / 2, (u[1] + u[3]) / 2);
+
+		return t ? anchorTo(t, list) : list;
+	}
+
+	function shiftOf(s) {
+		const pd = s.anchor && pageDoc();
+		const el = pd && resolve(pd, s.anchor.p);
+		const b = el && box(el);
+
+		if (!b) {
+			return [0, 0];
+		}
+
+		let xel = el;
+
+		for (let i = 0; i < (s.anchor.up || 0) && xel.parentElement; i++) {
+			xel = xel.parentElement;
+		}
+
+		const xb = box(xel) || b;
+		const [cx, cy] = center(s.pts);
+
+		return [xb.x + s.anchor.dx - cx, b.y + s.anchor.dy - cy];
 	}
 
 	function outline(s) {
@@ -132,9 +392,10 @@ export function inkLayer(win, { host = null, emit }) {
 		return `M${left.join("L")}A${r1(capEnd)} ${r1(capEnd)} 0 0 1 ${right[n - 1]}L${right.toReversed().join("L")}A${r1(capStart)} ${r1(capStart)} 0 0 1 ${left[0]}Z`;
 	}
 
-	function paint(s, el) {
+	function paint(s, el, shift = [0, 0]) {
 		el ||= doc.createElementNS(NS, "path");
 		el.setAttribute("d", outline(s));
+		el.setAttribute("transform", `translate(${r1(shift[0])} ${r1(shift[1])})`);
 
 		if (s.tool === "hl") {
 			el.setAttribute("fill", "none");
@@ -156,7 +417,53 @@ export function inkLayer(win, { host = null, emit }) {
 		}
 
 		ensureSvg();
-		svg.replaceChildren(...strokes.map((s) => paint(s)));
+		shifts.clear();
+
+		for (const s of strokes) {
+			shifts.set(s, shiftOf(s));
+		}
+
+		svg.replaceChildren(...strokes.map((s) => paint(s, null, shifts.get(s))));
+
+		if (active?.el) {
+			svg.append(active.el);
+		}
+	}
+
+	// Strokes saved before anchors existed are placed right only in the layout they were drawn
+	// in. When the page is open at that width, pin them to what they cover, once.
+	function anchorLegacy() {
+		const w = viewWidth();
+		const legacy = (s) => s && !s.anchor && s.vw === w;
+		const next = [];
+		let n = 0;
+
+		for (let i = 0; i < strokes.length;) {
+			if (!legacy(strokes[i])) {
+				next.push(strokes[i++]);
+
+				continue;
+			}
+
+			let j = i + 1;
+			let u = bounds(strokes[i]);
+
+			while (legacy(strokes[j]) && joins(u, bounds(strokes[j]))) {
+				u = union(u, bounds(strokes[j]));
+				j += 1;
+			}
+
+			const group = anchorGroup(strokes.slice(i, j));
+
+			n += group.filter((s) => s.anchor).length;
+			next.push(...group);
+			i = j;
+		}
+
+		if (n > 0) {
+			strokes = next;
+			changed();
+		}
 	}
 
 	function changed() {
@@ -180,10 +487,11 @@ export function inkLayer(win, { host = null, emit }) {
 		const [x, y] = local(e);
 		const keep = strokes.filter((s) => {
 			const lim = (ERASE_RADIUS + s.width / 2) ** 2;
+			const [sx, sy] = shifts.get(s) || [0, 0];
 
 			for (let i = 0; i < s.pts.length; i += 3) {
-				const dx = s.pts[i] - x;
-				const dy = s.pts[i + 1] - y;
+				const dx = s.pts[i] + sx - x;
+				const dy = s.pts[i + 1] + sy - y;
 
 				if (dx * dx + dy * dy < lim) {
 					return false;
@@ -279,7 +587,23 @@ export function inkLayer(win, { host = null, emit }) {
 		penDown = false;
 
 		if (a.s) {
-			commit(strokes.concat([a.s]));
+			const prev = strokes.at(-1);
+			let u = null;
+
+			for (let i = strokes.length - 1; i >= 0 && strokes[i].anchor?.p === prev?.anchor?.p; i--) {
+				const b = bounds(strokes[i], shifts.get(strokes[i]));
+
+				u = u ? union(u, b) : b;
+			}
+
+			const pd = pageDoc();
+			const el = prev?.anchor && pd && joins(u, bounds(a.s)) && resolve(pd, prev.anchor.p);
+
+			commit(
+				strokes.concat(
+					el && box(el) ? anchorTo({ el, levels: prev.anchor.up }, [a.s]) : anchorGroup([a.s]),
+				),
+			);
 		} else if (strokes !== a.before) {
 			history.push(a.before);
 			changed();
@@ -296,6 +620,7 @@ export function inkLayer(win, { host = null, emit }) {
 
 			if (armed) {
 				ensureSvg();
+				anchorLegacy();
 			}
 
 			if (svg) {

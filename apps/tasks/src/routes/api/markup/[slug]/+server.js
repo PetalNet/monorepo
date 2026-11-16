@@ -8,6 +8,27 @@ import { json, error } from "@sveltejs/kit";
 const MAX_STROKES = 2000;
 const MAX_POINTS = 6000;
 
+// See the anchor shape in src/lib/ink.js.
+function parseAnchor(a) {
+	const offset = (n) => typeof n === "number" && Number.isFinite(n) && Math.abs(n) < 1e6;
+
+	if (
+		!a ||
+		typeof a.p !== "string" ||
+		a.p.length > 400 ||
+		!/^(?:#[^\s/]{1,100})?(?:\/\d{1,5})*$/.test(a.p) ||
+		!offset(a.dx) ||
+		!offset(a.dy) ||
+		!Number.isInteger(a.up) ||
+		a.up < 0 ||
+		a.up > 200
+	) {
+		return null;
+	}
+
+	return { p: a.p, dx: a.dx, dy: a.dy, up: a.up };
+}
+
 function parseStrokes(input) {
 	if (!Array.isArray(input) || input.length > MAX_STROKES) {
 		return null;
@@ -48,7 +69,16 @@ function parseStrokes(input) {
 			return null;
 		}
 
-		out.push({ tool: s.tool, color: s.color.toLowerCase(), width, vw, pts: p });
+		const stroke = { tool: s.tool, color: s.color.toLowerCase(), width, vw, pts: p };
+
+		// A bad anchor only costs placement, so it is dropped rather than failing the whole save.
+		const anchor = s.anchor === undefined ? null : parseAnchor(s.anchor);
+
+		if (anchor) {
+			stroke.anchor = anchor;
+		}
+
+		out.push(stroke);
 	}
 
 	return out;
