@@ -189,9 +189,9 @@ try {
 	);
 
 	await word([
-		[600, seam - 6],
-		[620, seam + 6],
-		[640, seam + 4],
+		[600, seam - 12],
+		[620, seam + 12],
+		[640, seam + 14],
 	]);
 
 	// One highlight per row of a list, each its own mark.

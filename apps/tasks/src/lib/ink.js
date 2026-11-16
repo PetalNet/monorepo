@@ -32,6 +32,7 @@ export function inkLayer(win, { host = null, page = null, emit }) {
 	// Strokes drawn one after another this close side by side are one mark, up to GROUP_HEIGHT
 	// tall; see joins.
 	const NEAR = 25;
+	const GAP = 10;
 	const GROUP_HEIGHT = 240;
 	const docMode = !host;
 	let strokes = [];
@@ -140,13 +141,14 @@ export function inkLayer(win, { host = null, page = null, emit }) {
 		Math.max(a[3], b[3]),
 	];
 	// Whether a stroke with bounds b continues the mark with bounds u: beside it on the same line
-	// (letters of a word overlap vertically; highlights on successive rows don't), and the mark
+	// (letters of a word overlap vertically, or nearly, like the dot of an i; highlights on
+	// successive rows are a line apart), and the mark
 	// stays short enough to follow one element.
 	const joins = (u, b) =>
 		b[0] - NEAR <= u[2] &&
 		u[0] - NEAR <= b[2] &&
-		b[1] < u[3] &&
-		u[1] < b[3] &&
+		b[1] - GAP < u[3] &&
+		u[1] - GAP < b[3] &&
 		Math.max(u[3], b[3]) - Math.min(u[1], b[1]) <= GROUP_HEIGHT;
 
 	function box(el) {
