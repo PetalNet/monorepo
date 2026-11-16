@@ -5,14 +5,22 @@
 // own body. The viewer calls it directly for html artifacts, and scripts/render-markup.mjs
 // injects it to draw saved ink into a PNG, so all three surfaces share one renderer.
 //
-// Stroke: { tool: 'pen' | 'hl', color: '#rrggbb', width, vw, pts: [x, y, pressure, ...] }
-// x/y are page coordinates (CSS px from the document's top-left); vw is the page width the
-// stroke was drawn at, so a different viewport width is detectable.
+// Stroke: { tool: 'pen' | 'hl', color: '#rrggbb', width, vw, pts: [x, y, pressure, ...], anchor? }
+// x/y are page coordinates (CSS px from the document's top-left) in the layout the stroke was
+// drawn in; vw is that page width. Text reflows differently per browser and font, so absolute y
+// lands on other content elsewhere. anchor = { p, fx, fy } pins the stroke to the element under
+// it: p is a child-index path from the nearest id'd ancestor ('#id/2/0') or the root ('/1/3'),
+// and fx/fy place the centre of the stroke's box as a fraction of that element's box. Rendering
+// translates the stroke to that spot in the current layout, falling back to pts when p no
+// longer resolves to a visible element.
 //
 // Messages in (handle): set {strokes} | arm {on} | tool {tool, color} | undo | clear.
 // Messages out (emit): change {strokes, canUndo}.
-export function inkLayer(win, { host = null, emit }) {
+export function inkLayer(win, { host = null, page = null, emit }) {
 	const doc = win.document;
+	// The document the strokes sit on: this one, or (html artifacts) the same-origin frame the
+	// host overlay covers, whose page coordinates equal the overlay's.
+	const pageDoc = () => (page ? page() : doc);
 	const NS = "http://www.w3.org/2000/svg";
 	const HL_COLOR = "#ffd400";
 	const PEN_WIDTH = 4;
@@ -28,6 +36,8 @@ export function inkLayer(win, { host = null, emit }) {
 	let active = null;
 	let penDown = false;
 
+	const shifts = new Map();
+
 	const r1 = (n) => Math.round(n * 10) / 10;
 	const viewWidth = () => Math.round(docMode ? doc.documentElement.clientWidth : host.clientWidth);
 
@@ -37,6 +47,7 @@ export function inkLayer(win, { host = null, emit }) {
 
 		svg.style.width = `${doc.documentElement.clientWidth}px`;
 		svg.style.height = `${h}px`;
+		render();
 	}
 
 	function ensureSvg() {
@@ -64,6 +75,8 @@ export function inkLayer(win, { host = null, emit }) {
 			}
 
 			win.addEventListener("resize", fit);
+		} else if (win.ResizeObserver) {
+			new win.ResizeObserver(render).observe(host);
 		}
 
 		svg.addEventListener("pointerdown", down);
@@ -87,6 +100,155 @@ export function inkLayer(win, { host = null, emit }) {
 
 		svg.addEventListener("touchstart", blockPen, { passive: false });
 		svg.addEventListener("touchmove", blockPen, { passive: false });
+	}
+
+	function center(pts) {
+		let x0 = Infinity;
+		let y0 = Infinity;
+		let x1 = -Infinity;
+		let y1 = -Infinity;
+
+		for (let i = 0; i < pts.length; i += 3) {
+			x0 = Math.min(x0, pts[i]);
+			x1 = Math.max(x1, pts[i]);
+			y0 = Math.min(y0, pts[i + 1]);
+			y1 = Math.max(y1, pts[i + 1]);
+		}
+
+		return [(x0 + x1) / 2, (y0 + y1) / 2];
+	}
+
+	function box(el) {
+		const r = el.getBoundingClientRect();
+		const w = el.ownerDocument.defaultView;
+
+		return r.width > 0 && r.height > 0
+			? { x: r.left + w.scrollX, y: r.top + w.scrollY, w: r.width, h: r.height }
+			: null;
+	}
+
+	// Fixed and sticky boxes move with the scroll position, so they can't hold a stroke.
+	function pinned(el) {
+		const pos = el.ownerDocument.defaultView.getComputedStyle(el).position;
+
+		return pos === "fixed" || pos === "sticky";
+	}
+
+	// The deepest element whose box holds page point (x, y), searched by geometry rather than
+	// hit-testing so it works off-screen. Children are tried topmost first.
+	function deepest(pd, x, y) {
+		let el = pd.body;
+
+		if (!el || pinned(el)) {
+			return null;
+		}
+
+		for (;;) {
+			let next = null;
+
+			for (let c = el.lastElementChild; c; c = c.previousElementSibling) {
+				const b = box(c);
+
+				if (
+					b &&
+					x >= b.x &&
+					x <= b.x + b.w &&
+					y >= b.y &&
+					y <= b.y + b.h &&
+					!c.matches("svg[data-ink]") &&
+					!pinned(c)
+				) {
+					next = c;
+
+					break;
+				}
+			}
+
+			if (!next) {
+				return el;
+			}
+
+			el = next;
+		}
+	}
+
+	function pathOf(el) {
+		const pd = el.ownerDocument;
+		const steps = [];
+
+		while (el !== pd.documentElement) {
+			if (el.id && pd.getElementById(el.id) === el && /^[^\s/]{1,100}$/.test(el.id)) {
+				return `#${el.id}${steps.join("")}`;
+			}
+
+			steps.unshift(`/${Array.prototype.indexOf.call(el.parentElement.children, el)}`);
+			el = el.parentElement;
+		}
+
+		return steps.join("");
+	}
+
+	function resolve(pd, p) {
+		const m = /^(?:#([^/]+))?((?:\/\d+)*)$/.exec(p);
+		let el = m && (m[1] ? pd.getElementById(m[1]) : pd.documentElement);
+
+		for (const i of m ? m[2].split("/").slice(1) : []) {
+			el = el?.children[Number(i)];
+		}
+
+		return el || null;
+	}
+
+	// Pin a stroke to the element under its centre. A mark written beside a paragraph hits a
+	// tall container's margin there, so then the line through the centre is swept across the
+	// page for the smallest element on it.
+	function anchorOf(s) {
+		const pd = pageDoc();
+
+		if (!pd?.body) {
+			return null;
+		}
+
+		const [cx, cy] = center(s.pts);
+		let best = null;
+		const consider = (x) => {
+			const el = deepest(pd, x, cy);
+			const b = el && el !== pd.body && box(el);
+
+			if (b && (!best || b.h < best.b.h)) {
+				best = { el, b };
+			}
+		};
+
+		consider(cx);
+
+		if (!best || best.b.h > 160) {
+			for (let x = 8; x < pd.documentElement.scrollWidth; x += 32) {
+				consider(x);
+			}
+		}
+
+		return best
+			? {
+					p: pathOf(best.el),
+					fx: Math.round(((cx - best.b.x) / best.b.w) * 1e4) / 1e4,
+					fy: Math.round(((cy - best.b.y) / best.b.h) * 1e4) / 1e4,
+				}
+			: null;
+	}
+
+	function shiftOf(s) {
+		const pd = s.anchor && pageDoc();
+		const el = pd && resolve(pd, s.anchor.p);
+		const b = el && box(el);
+
+		if (!b) {
+			return [0, 0];
+		}
+
+		const [cx, cy] = center(s.pts);
+
+		return [b.x + s.anchor.fx * b.w - cx, b.y + s.anchor.fy * b.h - cy];
 	}
 
 	function outline(s) {
@@ -132,9 +294,10 @@ export function inkLayer(win, { host = null, emit }) {
 		return `M${left.join("L")}A${r1(capEnd)} ${r1(capEnd)} 0 0 1 ${right[n - 1]}L${right.toReversed().join("L")}A${r1(capStart)} ${r1(capStart)} 0 0 1 ${left[0]}Z`;
 	}
 
-	function paint(s, el) {
+	function paint(s, el, shift = [0, 0]) {
 		el ||= doc.createElementNS(NS, "path");
 		el.setAttribute("d", outline(s));
+		el.setAttribute("transform", `translate(${r1(shift[0])} ${r1(shift[1])})`);
 
 		if (s.tool === "hl") {
 			el.setAttribute("fill", "none");
@@ -156,7 +319,36 @@ export function inkLayer(win, { host = null, emit }) {
 		}
 
 		ensureSvg();
-		svg.replaceChildren(...strokes.map((s) => paint(s)));
+		shifts.clear();
+
+		for (const s of strokes) {
+			shifts.set(s, shiftOf(s));
+		}
+
+		svg.replaceChildren(...strokes.map((s) => paint(s, null, shifts.get(s))));
+
+		if (active?.el) {
+			svg.append(active.el);
+		}
+	}
+
+	// Strokes saved before anchors existed are placed right only in the layout they were drawn
+	// in. When the page is open at that width, pin them to what they cover, once.
+	function anchorLegacy() {
+		const w = viewWidth();
+		let n = 0;
+		const next = strokes.map((s) => {
+			const a = !s.anchor && s.vw === w && anchorOf(s);
+
+			n += a ? 1 : 0;
+
+			return a ? { ...s, anchor: a } : s;
+		});
+
+		if (n > 0) {
+			strokes = next;
+			changed();
+		}
 	}
 
 	function changed() {
@@ -180,10 +372,11 @@ export function inkLayer(win, { host = null, emit }) {
 		const [x, y] = local(e);
 		const keep = strokes.filter((s) => {
 			const lim = (ERASE_RADIUS + s.width / 2) ** 2;
+			const [sx, sy] = shifts.get(s) || [0, 0];
 
 			for (let i = 0; i < s.pts.length; i += 3) {
-				const dx = s.pts[i] - x;
-				const dy = s.pts[i + 1] - y;
+				const dx = s.pts[i] + sx - x;
+				const dy = s.pts[i + 1] + sy - y;
 
 				if (dx * dx + dy * dy < lim) {
 					return false;
@@ -279,7 +472,9 @@ export function inkLayer(win, { host = null, emit }) {
 		penDown = false;
 
 		if (a.s) {
-			commit(strokes.concat([a.s]));
+			const anchor = anchorOf(a.s);
+
+			commit(strokes.concat([anchor ? { ...a.s, anchor } : a.s]));
 		} else if (strokes !== a.before) {
 			history.push(a.before);
 			changed();
@@ -296,6 +491,7 @@ export function inkLayer(win, { host = null, emit }) {
 
 			if (armed) {
 				ensureSvg();
+				anchorLegacy();
 			}
 
 			if (svg) {

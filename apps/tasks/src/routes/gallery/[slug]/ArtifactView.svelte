@@ -164,7 +164,12 @@
 	}
 	onMount(() => {
 		if (!isInteractive && overlayEl) {
-			layer = inkLayer(window, { host: overlayEl, emit: onInk });
+			layer = inkLayer(window, {
+				host: overlayEl,
+				page: () => frameEl?.contentDocument,
+				emit: onInk,
+			});
+
 			onInk({ ink: "ready" });
 		}
 

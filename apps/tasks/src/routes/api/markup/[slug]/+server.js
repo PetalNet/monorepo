@@ -8,6 +8,24 @@ import { json, error } from "@sveltejs/kit";
 const MAX_STROKES = 2000;
 const MAX_POINTS = 6000;
 
+// See the anchor shape in src/lib/ink.js.
+function parseAnchor(a) {
+	const fraction = (n) => typeof n === "number" && Number.isFinite(n) && Math.abs(n) < 1e4;
+
+	if (
+		!a ||
+		typeof a.p !== "string" ||
+		a.p.length > 400 ||
+		!/^(?:#[^\s/]{1,100})?(?:\/\d{1,5})*$/.test(a.p) ||
+		!fraction(a.fx) ||
+		!fraction(a.fy)
+	) {
+		return null;
+	}
+
+	return { p: a.p, fx: a.fx, fy: a.fy };
+}
+
 function parseStrokes(input) {
 	if (!Array.isArray(input) || input.length > MAX_STROKES) {
 		return null;
@@ -48,7 +66,19 @@ function parseStrokes(input) {
 			return null;
 		}
 
-		out.push({ tool: s.tool, color: s.color.toLowerCase(), width, vw, pts: p });
+		const stroke = { tool: s.tool, color: s.color.toLowerCase(), width, vw, pts: p };
+
+		if (s.anchor !== undefined) {
+			const anchor = parseAnchor(s.anchor);
+
+			if (!anchor) {
+				return null;
+			}
+
+			stroke.anchor = anchor;
+		}
+
+		out.push(stroke);
 	}
 
 	return out;
