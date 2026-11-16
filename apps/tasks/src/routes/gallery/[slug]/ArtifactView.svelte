@@ -136,7 +136,7 @@
 				});
 
 				saveState = r.ok ? "saved" : r.status === 413 ? "too much ink to save" : "save failed";
-				unsaved ||= !r.ok;
+				unsaved ||= r.status >= 500;
 			} catch {
 				saveState = "save failed";
 				unsaved = true;

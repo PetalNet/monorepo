@@ -1505,8 +1505,8 @@ export function reapLeases({ claimed_by = null } = {}) {
 
 // --- artifacts / pages gallery ---------------------------------------------
 // Human visibility gate, identical rule to tasks: a private artifact is owner-only.
-// `me` is ALWAYS supplied for web views, so the gate is never skipped there. The one
-// caller passing null is the agent API's get_markup, which only unscoped tokens reach. Listing returns metadata only — never the (large) content blob.
+// `me` is ALWAYS supplied for web views, so the gate is never skipped there. Callers that
+// pass null do their own authorization: a share token, or an unscoped agent token. Listing returns metadata only — never the (large) content blob.
 const artVis = (me) => (me ? "WHERE (visibility='shared' OR owner=@me)" : "");
 
 export const listArtifacts = (me) =>

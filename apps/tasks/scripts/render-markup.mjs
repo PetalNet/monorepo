@@ -82,6 +82,7 @@ try {
 		deviceScaleFactor: 2,
 		colorScheme: opts.dark ? "dark" : "light",
 		javaScriptEnabled: body.kind === "interactive",
+		offline: true,
 	});
 
 	await ctx.route(/^(?!data:|about:)/u, (route) => route.abort());
