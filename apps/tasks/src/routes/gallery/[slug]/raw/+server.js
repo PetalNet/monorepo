@@ -1,3 +1,4 @@
+import { injectInk } from "$lib/ink.js";
 import { getArtifact } from "$lib/server/db.js";
 import { error } from "@sveltejs/kit";
 
@@ -40,6 +41,12 @@ import { error } from "@sveltejs/kit";
 //    Either way: NO scripted remote fetches; img/font data:-only; external <a href> citation
 //    links still work ("open full" opens them in a normal new tab). A Permissions-Policy
 //    (below) additionally denies camera/mic/geo/etc.
+//  - Markup: the viewer frames interactive artifacts as ?ink=1, which appends the pencil-ink
+//    bootstrap (src/lib/ink.js). It is inert until the parent viewer sends {ink:'init'}. The one
+//    capability it adds: the artifact's own scripts can read and rewrite the viewer's ink for
+//    this page through the same postMessage channel (the parent saves; it parses every stroke).
+//    Without ?ink=1 ("open full", /s/ shares) the document is served byte-for-byte. html
+//    artifacts are never injected: they run no scripts, so the viewer inks them from outside.
 //  - We must override the global X-Frame-Options: DENY for THIS route only, or our
 //    own same-origin iframe would be blocked. frame-ancestors 'self' (via CSP)
 //    keeps it embeddable only by tasks itself.
@@ -51,7 +58,7 @@ const CSP = {
 		"sandbox allow-scripts allow-downloads; default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; img-src data:; font-src data:; frame-ancestors 'self'",
 };
 
-export function GET({ params, locals }) {
+export function GET({ params, locals, url }) {
 	const a = getArtifact(params.slug, locals.user);
 
 	if (!a) {
@@ -64,7 +71,9 @@ export function GET({ params, locals }) {
 		throw error(404, "Not a page artifact");
 	}
 
-	return new Response(a.content, {
+	const ink = a.kind === "interactive" && url.searchParams.get("ink") === "1";
+
+	return new Response(ink ? injectInk(String(a.content)) : a.content, {
 		headers: {
 			"content-type": "text/html; charset=utf-8",
 			"content-security-policy": csp,

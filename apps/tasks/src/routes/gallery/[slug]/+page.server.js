@@ -1,4 +1,4 @@
-import { getArtifact } from "$lib/server/db.js";
+import { getArtifact, getMarkup } from "$lib/server/db.js";
 import { renderMd } from "$lib/server/md.js";
 import { error } from "@sveltejs/kit";
 
@@ -26,5 +26,8 @@ export function load({ params, locals }) {
 		// only markdown artifacts are rendered here; html ones load via the sandboxed iframe
 		bodyHtml: a.kind === "markdown" ? renderMd(a.content) : "",
 		me: locals.user,
+		// the viewer's saved pencil ink (page artifacts only; see /api/markup/[slug])
+		markup:
+			a.kind !== "markdown" && locals.user ? (getMarkup(a.slug, locals.user)?.strokes ?? []) : [],
 	};
 }

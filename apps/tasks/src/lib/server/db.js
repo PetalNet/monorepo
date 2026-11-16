@@ -143,6 +143,15 @@ db.exec(`
   );
   CREATE INDEX IF NOT EXISTS idx_artifact_shares_token ON artifact_shares(token_hash);
   CREATE INDEX IF NOT EXISTS idx_artifact_shares_slug  ON artifact_shares(slug);
+  -- pencil markup drawn over an html/interactive artifact, one row per (artifact, author).
+  -- strokes is a JSON array in page coordinates (shape in src/lib/ink.js). No row = no ink.
+  CREATE TABLE IF NOT EXISTS artifact_markup (
+    slug       TEXT NOT NULL,
+    author     TEXT NOT NULL,
+    strokes    TEXT NOT NULL,
+    updated_at TEXT NOT NULL DEFAULT (datetime('now')),
+    PRIMARY KEY (slug, author)
+  );
   -- mock sessions: a DECISION LAYER over the gallery (a step toward MockLab). A session poses one
   -- or more visual questions; each option POINTS AT a gallery artifact (the design). The user opens
   -- /mock/<token> and sees each option rendered in the SAME locked sandbox iframe the gallery uses —
@@ -1496,8 +1505,8 @@ export function reapLeases({ claimed_by = null } = {}) {
 
 // --- artifacts / pages gallery ---------------------------------------------
 // Human visibility gate, identical rule to tasks: a private artifact is owner-only.
-// `me` is ALWAYS supplied for web views (the gallery has no agent API), so the gate
-// is never skipped. Listing returns metadata only — never the (large) content blob.
+// `me` is ALWAYS supplied for web views, so the gate is never skipped there. Callers that
+// pass null do their own authorization: a share token, or an unscoped agent token. Listing returns metadata only — never the (large) content blob.
 const artVis = (me) => (me ? "WHERE (visibility='shared' OR owner=@me)" : "");
 
 export const listArtifacts = (me) =>
@@ -1624,6 +1633,40 @@ export function getArtifactByShareToken(token) {
 
 	// getArtifact with me=null bypasses the human visibility gate — intentional: the share IS the grant.
 	return getArtifact(share.slug, null);
+}
+
+// --- artifact markup (pencil ink) -------------------------------------------
+// Callers authorize first (getArtifact with the viewer, or an unscoped agent token).
+const markupRow = (r) =>
+	r && { author: r.author, strokes: JSON.parse(r.strokes), updated_at: r.updated_at };
+
+export const getMarkup = (slug, author) =>
+	markupRow(
+		db
+			.prepare("SELECT author, strokes, updated_at FROM artifact_markup WHERE slug=? AND author=?")
+			.get(slug, author),
+	);
+
+export const listMarkup = (slug) =>
+	db
+		.prepare("SELECT author, strokes, updated_at FROM artifact_markup WHERE slug=? ORDER BY author")
+		.all(slug)
+		.map(markupRow);
+
+// Saving an empty list deletes the row, so a cleared page leaves nothing behind.
+export function saveMarkup(slug, author, strokes) {
+	if (strokes.length === 0) {
+		db.prepare("DELETE FROM artifact_markup WHERE slug=? AND author=?").run(slug, author);
+
+		return null;
+	}
+
+	db.prepare(
+		`INSERT INTO artifact_markup (slug, author, strokes) VALUES (?, ?, ?)
+     ON CONFLICT(slug, author) DO UPDATE SET strokes=excluded.strokes, updated_at=datetime('now')`,
+	).run(slug, author, JSON.stringify(strokes));
+
+	return getMarkup(slug, author);
 }
 
 // --- agent bearer tokens (agent-API: POST /api/agent/rpc) -------------------
