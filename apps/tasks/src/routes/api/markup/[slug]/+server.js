@@ -37,7 +37,14 @@ function parseStrokes(input) {
 			return null;
 		}
 
-		if (!p.every((n) => typeof n === "number" && Number.isFinite(n) && Math.abs(n) < 1e6)) {
+		const ok = p.every(
+			(n, i) =>
+				typeof n === "number" &&
+				Number.isFinite(n) &&
+				(i % 3 === 2 ? n >= 0 && n <= 1 : Math.abs(n) < 1e6),
+		);
+
+		if (!ok) {
 			return null;
 		}
 

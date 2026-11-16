@@ -42,8 +42,9 @@ import { error } from "@sveltejs/kit";
 //    links still work ("open full" opens them in a normal new tab). A Permissions-Policy
 //    (below) additionally denies camera/mic/geo/etc.
 //  - Markup: the viewer frames interactive artifacts as ?ink=1, which appends the pencil-ink
-//    bootstrap (src/lib/ink.js). It is inert until the parent viewer sends {ink:'init'}, and it
-//    adds no capability (it only postMessages strokes to the parent, which does the saving).
+//    bootstrap (src/lib/ink.js). It is inert until the parent viewer sends {ink:'init'}. The one
+//    capability it adds: the artifact's own scripts can read and rewrite the viewer's ink for
+//    this page through the same postMessage channel (the parent saves; it parses every stroke).
 //    Without ?ink=1 ("open full", /s/ shares) the document is served byte-for-byte. html
 //    artifacts are never injected: they run no scripts, so the viewer inks them from outside.
 //  - We must override the global X-Frame-Options: DENY for THIS route only, or our

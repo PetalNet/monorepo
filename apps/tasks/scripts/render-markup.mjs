@@ -75,21 +75,24 @@ const { chromium } = req("playwright");
 const browser = await chromium.launch();
 
 try {
+	// Keep the gallery's cage: html pages run no scripts there and no page gets the network.
+	// The ink is drawn over CDP, which page script settings don't gate.
 	const ctx = await browser.newContext({
 		viewport: { width, height: 1366 },
 		deviceScaleFactor: 2,
-		bypassCSP: true,
 		colorScheme: opts.dark ? "dark" : "light",
+		javaScriptEnabled: body.kind === "interactive",
 	});
+
+	await ctx.route(/^(?!data:|about:)/u, (route) => route.abort());
 	const page = await ctx.newPage();
 
 	await page.setContent(body.content, { waitUntil: "load" });
 
-	await page.addScriptTag({
-		content: `window.inkLayerForRender = (${inkLayer.toString()})(window, { emit() {} });`,
-	});
+	await page.evaluate(
+		`(${inkLayer.toString()})(window, { emit() {} }).handle({ ink: "set", strokes: ${JSON.stringify(strokes)} })`,
+	);
 
-	await page.evaluate((s) => window.inkLayerForRender.handle({ ink: "set", strokes: s }), strokes);
 	await page.waitForTimeout(300);
 	const file = opts.out ?? `markup-${slug}${markup ? `-${markup.author}` : ""}.png`;
 
