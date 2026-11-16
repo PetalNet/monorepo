@@ -641,10 +641,10 @@ packages:
     dependency: "direct main"
     description:
       name: kaisel
-      sha256: c205470b2fba57105e6bfdd5e43b6cf007e051fd2b2ef68639c96ab3e2d7c5e7
+      sha256: "6099a94388296251b9a6fe1e055f2482a58e43a62e80a38323c1a0107884004f"
       url: "https://pub.dev"
     source: hosted
-    version: "1.1.0"
+    version: "1.2.0"
   kaisel_core:
     dependency: transitive
     description:
