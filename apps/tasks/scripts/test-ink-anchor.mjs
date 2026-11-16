@@ -32,6 +32,7 @@ h1{font-size:72px;line-height:1.05;margin:0 0 20px}
 .scroller{height:200px;overflow-y:auto;border:1px solid #ccc}
 .scroller li{height:60px}
 .q{display:flex;gap:12px;border-top:1px solid #ddd;padding:12px 0}
+.chip{display:inline-block;padding:2px 8px;background:#eee;border-radius:9px}
 </style><style id="layout"></style></head><body>
 <h1>Open questions for the pencil test page<span class="dot">.</span></h1>
 ${filler(8)}
@@ -43,6 +44,7 @@ ${filler(10)}
 <ul class="scroller">${Array.from({ length: 12 }, (_, i) => `<li data-t="row${i}">row ${i}</li>`).join("")}</ul>
 ${filler(4)}
 <p data-t="bullet">Teams already post in Discord; the bridge turns a photo into a post.</p>
+<p data-t="cite">Most students want convenient times and places to meet <a class="chip" href="#">Research: FSE 2020</a></p>
 ${filler(20)}
 </body></html>`;
 
@@ -157,11 +159,46 @@ try {
 	await a.mouse.move(960, dot.y - 10, { steps: 6 });
 	await a.mouse.up();
 
+	// A word written in three strokes, the first over the end of an inline chip that rewraps.
+	await a.evaluate(() => document.querySelector(".chip").scrollIntoView({ block: "center" }));
+
+	const chip = await a.evaluate(() => {
+		const b = document.querySelector(".chip").getBoundingClientRect();
+
+		return { x: b.right, y: b.top + b.height / 2 };
+	});
+
+	const word = async (points) => {
+		for (const [x, y] of points) {
+			await a.mouse.move(x, y - 8);
+			await a.mouse.down();
+			await a.mouse.move(x + 10, y + 8, { steps: 5 });
+			await a.mouse.up();
+		}
+	};
+
+	await word([chip.x - 6, chip.x + 14, chip.x + 34].map((x) => [x, chip.y]));
+
+	// A word written across the line between two rows, which reflow by different amounts.
+	await a.evaluate(() =>
+		document.querySelector('[data-t="q2"]').scrollIntoView({ block: "center" }),
+	);
+
+	const seam = await a.evaluate(
+		() => document.querySelector('[data-t="q2"]').getBoundingClientRect().top,
+	);
+
+	await word([
+		[600, seam - 12],
+		[620, seam + 12],
+		[640, seam + 14],
+	]);
+
 	const drawn = await a.evaluate(() => window.__strokes);
 
 	check(
 		"every drawn stroke is anchored",
-		drawn.length === TARGETS.length && drawn.every((s) => s.anchor),
+		drawn.length === TARGETS.length + 6 && drawn.every((s) => s.anchor),
 		drawn.map((s) => s.anchor?.p).join(" "),
 	);
 
@@ -193,6 +230,20 @@ try {
 
 		for (const r of res) {
 			check(`${name} stroke stays on ${r.sel} in the wide layout`, r.hit, `dy=${r.dy}`);
+		}
+
+		const moves = await b.evaluate(() =>
+			[...document.querySelectorAll("svg[data-ink] path")].map((p) => p.getAttribute("transform")),
+		);
+
+		for (const [k, what] of ["across the chip", "across two rows"].entries()) {
+			const m = moves.slice(TARGETS.length + 3 * k, TARGETS.length + 3 * k + 3);
+
+			check(
+				`${name} word written ${what} moves as one`,
+				new Set(m).size === 1 && m[0] !== "translate(0 0)",
+				m.join(" "),
+			);
 		}
 	}
 

@@ -29,6 +29,10 @@ export function inkLayer(win, { host = null, page = null, emit }) {
 	const PEN_WIDTH = 4;
 	const HL_WIDTH = 18;
 	const ERASE_RADIUS = 12;
+	// Strokes this close, drawn one after another, are one mark (a word, an arrow and its note),
+	// up to GROUP_HEIGHT tall.
+	const NEAR = 25;
+	const GROUP_HEIGHT = 240;
 	const docMode = !host;
 	let strokes = [];
 	let history = [];
@@ -105,21 +109,38 @@ export function inkLayer(win, { host = null, page = null, emit }) {
 		svg.addEventListener("touchmove", blockPen, { passive: false });
 	}
 
-	function center(pts) {
+	// [left, top, right, bottom] of a stroke as drawn, moved by shift.
+	function bounds(s, [sx, sy] = [0, 0]) {
+		const p = s.pts;
 		let x0 = Infinity;
 		let y0 = Infinity;
 		let x1 = -Infinity;
 		let y1 = -Infinity;
 
-		for (let i = 0; i < pts.length; i += 3) {
-			x0 = Math.min(x0, pts[i]);
-			x1 = Math.max(x1, pts[i]);
-			y0 = Math.min(y0, pts[i + 1]);
-			y1 = Math.max(y1, pts[i + 1]);
+		for (let i = 0; i < p.length; i += 3) {
+			x0 = Math.min(x0, p[i]);
+			x1 = Math.max(x1, p[i]);
+			y0 = Math.min(y0, p[i + 1]);
+			y1 = Math.max(y1, p[i + 1]);
 		}
 
-		return [(x0 + x1) / 2, (y0 + y1) / 2];
+		return [x0 + sx, y0 + sy, x1 + sx, y1 + sy];
 	}
+
+	function center(pts) {
+		const b = bounds({ pts });
+
+		return [(b[0] + b[2]) / 2, (b[1] + b[3]) / 2];
+	}
+
+	const union = (a, b) => [
+		Math.min(a[0], b[0]),
+		Math.min(a[1], b[1]),
+		Math.max(a[2], b[2]),
+		Math.max(a[3], b[3]),
+	];
+	const near = (a, b) =>
+		a[0] - NEAR <= b[2] && b[0] - NEAR <= a[2] && a[1] - NEAR <= b[3] && b[1] - NEAR <= a[3];
 
 	function box(el) {
 		const r = el.getBoundingClientRect();
@@ -208,17 +229,17 @@ export function inkLayer(win, { host = null, page = null, emit }) {
 		return el || null;
 	}
 
-	// Pin a stroke to the element under its centre. A mark written beside a paragraph hits a
-	// tall container's margin there, so then the line through the centre is swept across the
-	// page for the smallest element on it.
-	function anchorOf(s) {
+	// The element a mark centred at (cx, cy) belongs to. A mark written beside a paragraph hits a
+	// tall container's margin there, so then the line through the centre is swept across the page
+	// for the smallest element on it. Inline boxes move within their line as text rewraps, so the
+	// anchor is their block. up counts the levels to the nearest ancestor spanning cx.
+	function pick(cx, cy) {
 		const pd = pageDoc();
 
 		if (!pd?.body) {
 			return null;
 		}
 
-		const [cx, cy] = center(s.pts);
 		let best = null;
 		const consider = (x) => {
 			const el = deepest(pd, x, cy);
@@ -237,12 +258,24 @@ export function inkLayer(win, { host = null, page = null, emit }) {
 			}
 		}
 
-		if (!best) {
+		let el = best?.el;
+
+		while (
+			el &&
+			el.parentElement !== pd.documentElement &&
+			(el.ownerSVGElement || pd.defaultView.getComputedStyle(el).display.startsWith("inline"))
+		) {
+			el = el.parentElement;
+		}
+
+		const b = el && box(el);
+
+		if (!b) {
 			return null;
 		}
 
-		let xel = best.el;
-		let xb = best.b;
+		let xel = el;
+		let xb = b;
 		let up = 0;
 
 		while ((cx < xb.x || cx > xb.x + xb.w) && xel.parentElement && xel !== pd.body) {
@@ -251,7 +284,34 @@ export function inkLayer(win, { host = null, page = null, emit }) {
 			up += 1;
 		}
 
-		return { p: pathOf(best.el), dx: r1(cx - xb.x), dy: r1(cy - best.b.y), up };
+		return { el, up };
+	}
+
+	// Pin strokes to one element, each with its own offset, so a word written in several strokes
+	// moves as one.
+	function anchorTo({ el, up }, list) {
+		const b = box(el);
+		let xel = el;
+
+		for (let i = 0; i < up && xel.parentElement; i++) {
+			xel = xel.parentElement;
+		}
+
+		const xb = box(xel) || b;
+		const p = pathOf(el);
+
+		return list.map((s) => {
+			const [cx, cy] = center(s.pts);
+
+			return { ...s, anchor: { p, dx: r1(cx - xb.x), dy: r1(cy - b.y), up } };
+		});
+	}
+
+	function anchorGroup(list) {
+		const u = list.map((s) => bounds(s)).reduce(union);
+		const t = pick((u[0] + u[2]) / 2, (u[1] + u[3]) / 2);
+
+		return t ? anchorTo(t, list) : list;
 	}
 
 	function shiftOf(s) {
@@ -360,14 +420,37 @@ export function inkLayer(win, { host = null, page = null, emit }) {
 	// in. When the page is open at that width, pin them to what they cover, once.
 	function anchorLegacy() {
 		const w = viewWidth();
+		const legacy = (s) => s && !s.anchor && s.vw === w;
+		const next = [];
 		let n = 0;
-		const next = strokes.map((s) => {
-			const a = !s.anchor && s.vw === w && anchorOf(s);
 
-			n += a ? 1 : 0;
+		for (let i = 0; i < strokes.length;) {
+			if (!legacy(strokes[i])) {
+				next.push(strokes[i++]);
 
-			return a ? { ...s, anchor: a } : s;
-		});
+				continue;
+			}
+
+			let j = i + 1;
+			let u = bounds(strokes[i]);
+
+			while (legacy(strokes[j]) && near(u, bounds(strokes[j]))) {
+				const grown = union(u, bounds(strokes[j]));
+
+				if (grown[3] - grown[1] > GROUP_HEIGHT) {
+					break;
+				}
+
+				u = grown;
+				j += 1;
+			}
+
+			const group = anchorGroup(strokes.slice(i, j));
+
+			n += group.filter((s) => s.anchor).length;
+			next.push(...group);
+			i = j;
+		}
 
 		if (n > 0) {
 			strokes = next;
@@ -496,9 +579,19 @@ export function inkLayer(win, { host = null, page = null, emit }) {
 		penDown = false;
 
 		if (a.s) {
-			const anchor = anchorOf(a.s);
+			const prev = strokes.at(-1);
+			const pd = pageDoc();
+			const el =
+				prev?.anchor &&
+				pd &&
+				near(bounds(prev, shifts.get(prev)), bounds(a.s)) &&
+				resolve(pd, prev.anchor.p);
 
-			commit(strokes.concat([anchor ? { ...a.s, anchor } : a.s]));
+			commit(
+				strokes.concat(
+					el && box(el) ? anchorTo({ el, up: prev.anchor.up }, [a.s]) : anchorGroup([a.s]),
+				),
+			);
 		} else if (strokes !== a.before) {
 			history.push(a.before);
 			changed();
