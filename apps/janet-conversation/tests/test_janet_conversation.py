@@ -30,6 +30,7 @@ class FakeHead:
     def __init__(self, end_phrase=False):
         self.opened, self.ended, self.turns = [], [], []
         self.turn_failures = []  # statuses to answer before the stream works
+        self.failure_text = "the conversation has ended"
         self.end_phrase = end_phrase
 
     def app(self) -> web.Application:
@@ -48,6 +49,9 @@ class FakeHead:
         body = await request.json()
         if not body.get("channel"):
             return web.json_response({"error": "channel is required"}, status=400)
+        for index, earlier in enumerate(self.opened, 1):  # as the head: same client_ref, same conversation
+            if earlier.get("client_ref") == body.get("client_ref"):
+                return web.json_response({"id": f"c{index}"})
         self.opened.append(body)
         return web.json_response({"id": f"c{len(self.opened)}"})
 
@@ -55,7 +59,7 @@ class FakeHead:
         self._auth(request)
         self.turns.append((request.match_info["id"], (await request.json())["text"]))
         if self.turn_failures:
-            return web.json_response({"error": "the conversation has ended"}, status=self.turn_failures.pop(0))
+            return web.json_response({"error": self.failure_text}, status=self.turn_failures.pop(0))
         body = FIXTURE.replace(b'"end_conversation": false', b'"end_conversation": true') if self.end_phrase else FIXTURE
         response = web.StreamResponse(headers={"content-type": "text/event-stream"})
         await response.prepare(request)
@@ -151,6 +155,24 @@ class SessionTests(Base):
         await self.collect(sessions)
         await self.collect(sessions, user="other-user")
         self.assertEqual([o["tier"] for o in self.fake.opened], [PERSONAL, GUEST])
+
+    async def test_a_known_conversation_id_cannot_borrow_the_owners_head_session(self):
+        # The real head returns the existing conversation for a known client_ref and ignores tier.
+        sessions = Sessions(self.head, OWNER)
+        await self.collect(sessions)
+        await self.collect(sessions, user="other-user")
+        refs = [o["client_ref"] for o in self.fake.opened]
+        self.assertEqual(len(set(refs)), 2)
+        self.assertEqual(self.fake.ended, ["c1"])
+
+    async def test_a_turn_still_in_flight_does_not_replace_the_live_conversation(self):
+        sessions = Sessions(self.head, OWNER)
+        await self.collect(sessions)
+        self.fake.turn_failures = [409]
+        self.fake.failure_text = "a turn is already in flight; interrupt it first"
+        with self.assertRaises(HeadError):
+            await self.collect(sessions)
+        self.assertEqual(len(self.fake.opened), 1)
 
 
 class EndPhraseTests(Base):

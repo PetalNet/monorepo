@@ -26,16 +26,21 @@ class Sessions:
     def __init__(self, head: HeadClient, owner_user_id: str):
         self._head = head
         self._owner = owner_user_id
-        self._open: dict[str, tuple[str, str]] = {}
+        self._open: dict[str, tuple[str, str | None]] = {}  # ha id -> (head id, user id it was opened for)
         self._generation: dict[str, int] = {}
 
-    async def _ensure(self, ha_id: str, channel: str, tier: str) -> str:
+    async def _ensure(self, ha_id: str, user_id: str | None, channel: str, tier: str) -> str:
         known = self._open.get(ha_id)
-        if known is not None and known[1] == tier:
+        if known is not None and known[1] == user_id:
             return known[0]
+        if known is not None:
+            # A different user on the same Home Assistant conversation id never inherits the earlier user's
+            # session. The new client_ref matters: the head returns the existing conversation for a known one.
+            self._forget(ha_id)
+            await self._end_quietly(known[0], "another user")
         generation = self._generation.get(ha_id, 0)
         head_id = await self._head.open(channel, tier, f"{ha_id}:{generation}")
-        self._open[ha_id] = (head_id, tier)
+        self._open[ha_id] = (head_id, user_id)
         return head_id
 
     def _forget(self, ha_id: str) -> None:
@@ -47,7 +52,7 @@ class Sessions:
     ) -> AsyncIterator[Sentence | Done]:
         tier, channel = tier_for(user_id, self._owner), surface_for(device_name)
         for attempt in range(2):
-            head_id = await self._ensure(ha_id, channel, tier)
+            head_id = await self._ensure(ha_id, user_id, channel, tier)
             started = False
             try:
                 async for item in self._head.turn(head_id, text):
@@ -58,8 +63,10 @@ class Sessions:
                     yield item
                 return
             except HeadError as error:
-                # 404 and 409 before any speech: the head ended or forgot it (idle timeout). Start a new one once.
-                if started or attempt or error.status not in (404, 409):
+                # Before any speech, a 404 or an "ended" 409 means the head ended or forgot it (idle timeout):
+                # start a new one once. Any other 409 is a turn still in flight; the live conversation stays.
+                gone = error.status == 404 or (error.status == 409 and "ended" in str(error))
+                if started or attempt or not gone:
                     raise
                 self._forget(ha_id)
 
