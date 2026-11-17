@@ -24,7 +24,7 @@ def eer(tar, non):
     s = np.concatenate([tar, non]); y = np.concatenate([np.ones(len(tar)), np.zeros(len(non))]); o = np.argsort(-s); y = y[o]
     fr = 1 - np.cumsum(y) / len(tar); fa = np.cumsum(1 - y) / len(non); i = np.argmin(np.abs(fr - fa))
     return float((fr[i] + fa[i]) / 2 * 100), float(s[o][i])
-def thr_at_far(non, far): return float(np.quantile(non, 1 - far))
+def threshold_at_far(non, far): return float(np.quantile(non, 1 - far))
 out = {}
 for emb in E:
     X = E[emb]; X = X / np.linalg.norm(X, axis=1, keepdims=True)
@@ -49,14 +49,14 @@ for emb in E:
     lr2 = LogisticRegression(C=1.0, max_iter=2000, class_weight="balanced").fit(np.concatenate([enroll, cohort, clones_tr]), np.r_[np.ones(len(enroll)), np.zeros(len(cohort) + len(clones_tr))])
     logit_ac = lambda Y: lr2.decision_function(Y)
     for bname, f in (("cosine", cos), ("asnorm", asnorm), ("logreg", logit), ("logreg_clone_aware", logit_ac)):
-        st, sn = f(tar), f(non); e, t_eer = eer(st, sn); t1 = thr_at_far(sn, 0.01)
+        st, sn = f(tar), f(non); e, t_eer = eer(st, sn); t1 = threshold_at_far(sn, 0.01)
         r = {"EER_%": round(e, 2), "trials": f"{len(st)} target / {len(sn)} non-target",
              "EER_vs_household_%": round(eer(st, f(non_sets['other_household_speakers']))[0], 2),
              "EER_vs_librispeech_%": round(eer(st, f(non_sets['librispeech_unseen']))[0], 2),
              "FRR_at_FAR1%_%": round(float((st < t1).mean() * 100), 1)}
         if len(clones):
-            sc = f(clones); r["clones_accepted_at_EER_thr_%"] = round(float((sc >= t_eer).mean() * 100), 1)
-            r["clones_accepted_at_FAR1%_thr_%"] = round(float((sc >= t1).mean() * 100), 1); r["n_clones"] = len(sc)
+            sc = f(clones); r["clones_accepted_at_EER_threshold_%"] = round(float((sc >= t_eer).mean() * 100), 1)
+            r["clones_accepted_at_FAR1%_threshold_%"] = round(float((sc >= t1).mean() * 100), 1); r["n_clones"] = len(sc)
             r["clone_vs_owner_EER_%"] = round(eer(st, sc)[0], 1)  # can the score tell real owner from clone at all?
         if len(ctrl): r["control_clones_accepted_as_owner_at_EER_%"] = round(float((f(ctrl) >= t_eer).mean() * 100), 1)
         out[f"{emb}/{bname}"] = r

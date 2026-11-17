@@ -8,7 +8,7 @@ NEAR = ["hey jane", "hey janice", "hey jenny", "janet", "janet hold on", "hey ja
         "hey jeanette", "hey jenna", "hey channel", "hey jarvis", "hey dad", "hey wait", "okay and it", "hey jan",
         "say it again", "hey did you get it", "talking to janet", "hey janelle", "janitor", "hey garnet", "hey granite",
         "hey bennett", "hey kenneth", "hey get it", "hey daniel", "they ate it", "hey dinner", "ask janet",
-        "thanks janet", "hey jeff", "hey chanel", "hey genet", "a jacket", "hey there", "hey siri", "hey google",
+        "thanks janet", "hey jeff", "hey chantal", "hey genet", "a jacket", "hey there", "hey siri", "hey google",
         "alexa", "hey jen it", "hey dinette", "hey cabinet", "planet", "hey jet"]
 def run(text, n, d):
     d.mkdir(parents=True, exist_ok=True)

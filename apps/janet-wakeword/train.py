@@ -76,7 +76,7 @@ def evaluate():
     for t in GRID:
         fa = sum(events_per_hour(nat[k] >= t, 1.0) for k in nat) / HOURS
         if fa <= a.fa_bar: break
-    r = {"thr": t, "fa_per_hour_natural": fa, **{f"recall_{k}": float((v >= t).mean()) for k, v in pos.items()}, "near_miss_accept": float((near >= t).mean())}
+    r = {"threshold": t, "fa_per_hour_natural": fa, **{f"recall_{k}": float((v >= t).mean()) for k, v in pos.items()}, "near_miss_accept": float((near >= t).mean())}
     r["false_events"] = {k: int(events_per_hour(v >= t, 1.0)) for k, v in nat.items()}
     return r
 start = evaluate(); print("init", json.dumps(start), flush=True)

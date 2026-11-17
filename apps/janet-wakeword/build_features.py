@@ -131,12 +131,12 @@ for m in man:
     else:
         for k in range(3): add(f"{sp}_neg_clone", neg_windows(x, True))
 log("chatterbox done")
-pp = sorted((ROOT / "synth_piper" / "pos").rglob("*.wav")) if "piper" in STAGES else []
-pn = sorted((ROOT / "synth_piper" / "neg").rglob("*.wav")) if "piper" in STAGES else []
-for i, p in enumerate(pp):
+pos_files = sorted((ROOT / "synth_piper" / "pos").rglob("*.wav")) if "piper" in STAGES else []
+neg_files = sorted((ROOT / "synth_piper" / "neg").rglob("*.wav")) if "piper" in STAGES else []
+for i, p in enumerate(pos_files):
     x = load(p); sp = "val" if i % 10 == 0 else "train"
     add(f"{sp}_pos_piper", pos_windows(x, speech_end(x), True))
-for i, p in enumerate(pn):
+for i, p in enumerate(neg_files):
     x = load(p); sp = "val" if i % 10 == 0 else "train"
     add(f"{sp}_neg_piper", neg_windows(x, True, stride=2))
 log("piper done")
