@@ -1,0 +1,9 @@
+event: sentence
+data: {"text": "You told me to leave them off voice, so I took Hue lamps three and four out of what the voice assistant can control."}
+
+event: sentence
+data: {"text": "One catch: they're still part of the Lamps group, so saying \"lamps\" can still switch them."}
+
+event: done
+data: {"end_conversation": false, "latency_ms": {"first_token": 5836, "first_sentence": 6521, "total": 6790, "spawn_wait": 3905}}
+

@@ -1,0 +1,13 @@
+{
+  "config": {
+    "step": {
+      "user": {
+        "title": "Janet",
+        "description": "The voice head's address and bearer token. Only the owner user below gets the personal tier.",
+        "data": { "url": "Voice head URL", "token": "Bearer token", "owner_user_id": "Owner's Home Assistant user id" }
+      }
+    },
+    "error": { "cannot_connect": "The voice head did not answer.", "invalid_auth": "The voice head refused the token." },
+    "abort": { "already_configured": "Janet is already set up." }
+  }
+}
