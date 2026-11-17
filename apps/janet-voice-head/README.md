@@ -65,6 +65,36 @@ repeated key itself, and the head then sends again without the lookup.
 Nothing is deleted. The journal and the head session's own transcript stay on disk, and
 the hard merge names both along with the parent session and the fork point.
 
+## What main receives
+
+- **Size.** The hub refuses text over 20000 characters, so every merge is built to fit. Each
+  line of speech is capped, each section has a share, and the transcript takes what is left.
+  Anything cut is listed in a notice that names the journal and the head transcript, where
+  the full text stays.
+- **Fence.** Speech is data, never structure. Every piece of it becomes one line with
+  whitespace and control characters flattened and the header, delimiter, `key=` and
+  `</channel>` patterns defused. For `room` and `guest` conversations the summary, asks,
+  commitments and transcript all sit between two `SPEECH` lines with a `| ` in front of every
+  line, under a trusted header the speaker cannot reach. For `personal` conversations the
+  transcript is fenced the same way.
+- **Refusals.** A transient failure (a 5xx, no connection, 401, 403, 408, 429) is retried until
+  it lands. Any other 4xx means the hub read the message and said no. The head then sends a
+  short notice that names the archive, and if that is refused too it marks the conversation
+  `undeliverable`, logs it, and stops. `/end` answers `{"merged": false, "delivery": ...}`.
+  A soft merge refused for good is not retried; the hard merge then carries its ask as new.
+
+## Limits
+
+- The bearer token and every spoken word cross the LAN in cleartext. Anyone who can sniff the
+  desk PC's traffic can open a `personal` fork of main with the token. The LAN already carries
+  Home Assistant over plain http. The cheap options do not close it: a source-address
+  allowlist leaves the token sniffable, and TLS needs a certificate the desk client trusts.
+  Put the head behind a TLS-terminating route before it faces anything less than the home LAN.
+- A fork runs in `<state_dir>/fork`, not in main's directory, and resumes main through a
+  symlink to main's transcript there. Its own transcript therefore lands in a separate
+  project directory, so anything that picks main's newest session by directory listing never
+  picks a fork.
+
 ## Configuration
 
 Every host-specific value comes from a TOML file outside the repository:
@@ -106,5 +136,5 @@ hub, and drive it over HTTP. They need no model and no network. The crash tests 
 server between the hub's accept and the journal write. Run them from this directory:
 
 ```sh
-python -m unittest tests.test_head
+python -m unittest discover -s tests -t .
 ```

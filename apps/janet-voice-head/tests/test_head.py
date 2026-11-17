@@ -1,6 +1,7 @@
 import http.client
 import json
 import os
+import re
 import stat
 import time
 import unittest
@@ -118,6 +119,28 @@ class SoftMergeTest(HeadCase):
         self.assertEqual(len(self.hub.texts("voice-soft")), 1)
 
 
+class RelayTest(HeadCase):
+    def test_a_reply_that_opens_with_an_upper_case_relay_speaks_what_follows_and_relays_the_ask(self):
+        conv = self.open()
+        sentences, _ = self.turn(conv, "relayfirst please")
+        self.assertEqual(sentences, ["Sure thing."])
+        self.wait_for(lambda: self.hub.texts("voice-soft"), "the ask never reached the hub")
+        self.assertIn("- do the first thing", self.hub.texts("voice-soft")[0])
+
+    def test_every_relay_block_of_a_reply_reaches_main_and_none_is_spoken(self):
+        conv = self.open()
+        sentences, _ = self.turn(conv, "tworelays please")
+        self.assertEqual(sentences, ["Okay.", "Also noted.", "Done."])
+        self.wait_for(lambda: self.hub.texts("voice-soft"), "the asks never reached the hub")
+        (soft,) = self.hub.texts("voice-soft")
+        self.assertIn("- first thing", soft)
+        self.assertIn("- second thing", soft)
+
+    def test_a_reply_that_is_only_a_relay_still_gets_a_spoken_acknowledgement(self):
+        sentences, _ = self.turn(self.open(), "onlyrelay please")
+        self.assertEqual(sentences, ["Okay, I will pass that to main Janet."])
+
+
 class EverySoftMergeTest(HeadCase):
     overrides = {"soft_merge": "every"}
 
@@ -177,6 +200,67 @@ class HardMergeTest(HeadCase):
         self.wait_for(lambda: self.hub.texts("voice-hard"), "the merge was never retried")
         self.assertEqual(self.end(conv)[1]["merged"], True)
         self.assertEqual(len(self.hub.texts("voice-hard")), 1)
+
+
+class OversizeAndRefusalTest(HeadCase):
+    def test_a_conversation_too_big_for_the_hub_still_lands_and_names_its_archive(self):
+        conv = self.open()
+        self.turn(conv, "please order " + "x" * 25000)
+        self.turn(conv, "hello there")
+        status, reply = self.end(conv)
+        self.assertEqual((status, reply["merged"]), (200, True))
+        (merge,) = self.hub.texts("voice-hard")
+        self.assertLessEqual(len(merge), 20000)
+        self.assertIn(f"{conv}.jsonl", merge.split("Cut to fit", 1)[1])
+        self.assertIn(f'"heard": "please order {"x" * 25000}', (self.root / "state" / "conversations" / f"{conv}.jsonl").read_text())
+
+    def test_a_guest_who_speaks_at_length_still_lands(self):
+        conv = self.open("guest")
+        self.turn(conv, "hello " * 5000)
+        self.assertEqual(self.end(conv)[1]["merged"], True)
+        self.assertLessEqual(len(self.hub.texts("voice-hard")[0]), 20000)
+
+    def test_a_hub_that_refuses_for_good_is_asked_twice_and_then_left_alone(self):
+        conv = self.open()
+        self.turn(conv, "hello there")
+        self.hub.refuse_with = 400
+        status, reply = self.end(conv)
+        self.assertEqual((status, reply["merged"]), (200, False))
+        self.assertTrue(reply["delivery"].startswith("undeliverable"))
+        self.assertIn(f"{conv}.jsonl", reply["delivery"])
+        attempts = self.hub.attempts
+        time.sleep(4.5)
+        self.assertEqual((attempts, self.hub.attempts), (2, 2))
+
+    def test_a_hub_that_refuses_only_the_full_text_gets_a_notice_that_names_the_archive(self):
+        self.hub.max_text = 1000
+        conv = self.open()
+        self.turn(conv, "hello there")
+        self.assertEqual(self.end(conv)[1]["merged"], True)
+        (notice,) = self.hub.texts("voice-hard")
+        self.assertIn(f"{conv}.jsonl", notice)
+        self.assertIn("refused the full record", notice)
+
+    def test_a_hub_server_error_is_retried_until_it_lands(self):
+        conv = self.open()
+        self.turn(conv, "hello there")
+        self.hub.refuse_with = 500
+        self.assertEqual(self.end(conv)[0], 503)
+        self.hub.refuse_with = None
+        self.wait_for(lambda: self.hub.texts("voice-hard"), "the merge was never retried")
+        self.assertEqual(self.end(conv)[1]["merged"], True)
+
+    def test_a_soft_merge_refused_for_good_is_not_retried_and_the_hard_merge_carries_the_ask_as_new(self):
+        self.hub.refuse_with = 400
+        conv = self.open()
+        self.turn(conv, "please order filament")
+        self.wait_for(lambda: self.hub.attempts >= 1, "the soft merge was never tried")
+        time.sleep(4.5)
+        self.assertEqual(self.hub.attempts, 1)
+        self.hub.refuse_with = None
+        self.end(conv)
+        (merge,) = self.hub.texts("voice-hard")
+        self.assertIn("[new] please order filament", merge)
 
 
 class UnmergedChannelTest(HeadCase):
@@ -280,6 +364,14 @@ class TierTest(HeadCase):
         self.assertEqual(argv[argv.index("--tools") + 1], "")
         self.assertIn("--strict-mcp-config", argv)
         self.assertFalse([name for name in launch["env"] if name.startswith(("HERMES", "CC_LINK", "CLAUDE", "ANTHROPIC"))])
+
+    def test_a_fork_runs_outside_mains_directory_so_its_transcript_never_joins_mains(self):
+        self.turn(self.open("personal"), "hello")
+        (launch,) = self.launches()
+        self.assertNotEqual(launch["cwd"], str(self.root))
+        link = self.root / ".claude" / "projects" / re.sub(r"[^A-Za-z0-9]", "-", launch["cwd"]) / "parent-session-id.jsonl"
+        self.assertTrue(link.is_symlink())
+        self.assertEqual(link.resolve(), self.hub.transcript.resolve())
 
     def test_a_guest_conversation_is_a_fresh_session_outside_the_parent(self):
         self.turn(self.open("guest"), "hello")

@@ -8,12 +8,14 @@ from pathlib import Path
 
 from . import prompts
 from .conversation import Conversation, Exchange, Journal, TranscriptMark
-from .merge import Hub, HubError, fallback_summary, hard_text, soft_text
+from .merge import Hub, HubError, HubRefused
+from .render import fallback_summary, hard_text, soft_text, stub_text
 from .session import LOCKED_FLAGS, ClaudeSession, SessionError, transcript_path
 from .speech import SIGN_OFF, SpeechStream, is_end_phrase
 
 log = logging.getLogger("janet-voice-head")
 NO_ANSWER = "Sorry, I could not answer that."
+RELAYED = "Okay, I will pass that to main Janet."
 IDLE_TIMEOUT = "idle_timeout"
 Emit = Callable[[str, dict], None]
 
@@ -29,7 +31,6 @@ class Config:
     state_dir: Path
     hub: Hub
     main_cwd: str
-    """The directory main runs in. A fork must run there to find main's transcript."""
     claude: list[str] = field(default_factory=lambda: ["claude"])
     model: str = "opus"
     cold_model: str = "haiku"
@@ -70,6 +71,7 @@ class Head:
         self._journals = config.state_dir / "conversations"
         self._journals.mkdir(parents=True, exist_ok=True)
         (config.state_dir / "cold").mkdir(exist_ok=True)
+        (config.state_dir / "fork").mkdir(exist_ok=True)
         self._recover()
         threading.Thread(target=self._upkeep_loop, daemon=True).start()
 
@@ -85,8 +87,12 @@ class Head:
             try:
                 fork_point = self.config.hub.transcript_mark() if fork else None
                 parent = self.config.hub.main_session() if fork else None
+                if parent:
+                    self._expose_parent(parent)
             except HubError as error:
                 raise ApiError(503, f"cannot find main's session: {error}") from error
+            except OSError as error:
+                raise ApiError(503, f"cannot link main's transcript: {error}") from error
             conv = journal.append(None, kind="opened", at=time.time(), id=conv_id, channel=channel, tier=tier,
                                   client_ref=client_ref, parent_session=parent)
             live = Live(conv, journal)
@@ -107,6 +113,9 @@ class Head:
         live = self._open_live(conv_id)
         if not live.turn_lock.acquire(blocking=False):
             raise ApiError(409, "a turn is already in flight; interrupt it first")
+        if live.conv.state != "open":
+            live.turn_lock.release()
+            raise ApiError(409, "the conversation has ended")
         started = time.monotonic()
         latency: dict[str, int | None] = {"first_token": None, "first_sentence": None, "total": None}
         client_connected = True
@@ -148,9 +157,9 @@ class Head:
                 except SessionError as error:
                     log.warning("conversation %s: %s", conv_id, error)
                     end = True
-                if latency["first_sentence"] is None and live.cut_off is None:
-                    say(NO_ANSWER)
                 relay = stream.relay
+                if latency["first_sentence"] is None and live.cut_off is None:
+                    say(RELAYED if relay and not end else NO_ANSWER)
                 with live.lock:
                     live.record(kind="exchange", n=number, heard=text, said=stream.spoken, asks=relay.asks, commitments=relay.commitments)
                     if live.cut_off is not None:
@@ -198,7 +207,7 @@ class Head:
             except HubError as error:
                 log.warning("conversation %s: hard merge waits: %s", conv_id, error)
                 raise ApiError(503, "main is unreachable; the merge is retried until it lands") from error
-        return {"merged": True, "delivery": live.conv.delivery}
+        return {"merged": live.conv.delivered, "delivery": live.conv.delivery}
 
     def close(self) -> None:
         self._stop.set()
@@ -222,7 +231,13 @@ class Head:
         return live.conv.channel not in self.config.unmerged_channels
 
     def _cwd(self, conv: Conversation) -> str:
-        return self.config.main_cwd if conv.tier == "personal" else str(self.config.state_dir / "cold")
+        return str(self.config.state_dir / ("fork" if conv.tier == "personal" else "cold"))
+
+    def _expose_parent(self, parent: str) -> None:
+        link = transcript_path(str(self.config.state_dir / "fork"), parent)
+        link.parent.mkdir(parents=True, exist_ok=True)
+        if not link.is_symlink():
+            link.symlink_to(transcript_path(self.config.main_cwd, parent))
 
     def _argv(self, conv: Conversation) -> list[str]:
         if conv.parent_session:
@@ -272,9 +287,13 @@ class Head:
             key = f"voice-soft:{live.conv.id}:{number}"
             try:
                 delivery = self._deliver(
-                    "voice-soft", key, soft_text(live.conv, exchange, key),
+                    "voice-soft", key, soft_text(live.conv, exchange, key, live.journal.path),
                     exchange.soft_attempted_at if exchange.soft == "sending" else None,
                     lambda mark: live.record(kind="soft_sending", n=number, since=mark))
+            except HubRefused as error:
+                log.error("conversation %s: the hub refused soft merge %d for good: %s", live.conv.id, number, error)
+                live.record(kind="soft_refused", n=number, error=str(error))
+                return
             except HubError as error:
                 log.warning("conversation %s: soft merge %d waits: %s", live.conv.id, number, error)
                 return
@@ -297,13 +316,25 @@ class Head:
                     key = f"voice-hard:{live.conv.id}"
                     if live.conv.summary is None:
                         live.record(kind="summary", text=fallback_summary(live.conv))
-                    delivery = self._deliver(
-                        "voice-hard", key, hard_text(live.conv, key, live.journal.path),
-                        live.conv.hard_attempted_at,
-                        lambda mark: live.record(kind="hard_sending", key=key, since=mark))
-                    live.record(kind="merged", delivery=delivery)
+                    self._send_hard(live, key)
             if live.conv.state == "merged":
                 live.record(kind="archived")
+
+    def _send_hard(self, live: Live, key: str) -> None:
+        path = live.journal.path
+        refusal = ""
+        for text in (lambda: hard_text(live.conv, key, path), lambda: stub_text(live.conv, key, path, refusal)):
+            try:
+                delivery = self._deliver("voice-hard", key, text(), live.conv.hard_attempted_at,
+                                         lambda mark: live.record(kind="hard_sending", key=key, since=mark))
+            except HubRefused as error:
+                refusal = str(error)
+                log.error("conversation %s: the hub refused the hard merge for good: %s", live.conv.id, error)
+                live.record(kind="hard_refused", error=refusal)
+                continue
+            live.record(kind="merged", delivery=delivery)
+            return
+        live.record(kind="undeliverable", delivery=f"undeliverable: {refusal}; the full text stays in {path}")
 
     def _recover(self) -> None:
         for path in sorted(self._journals.glob("*.jsonl")):

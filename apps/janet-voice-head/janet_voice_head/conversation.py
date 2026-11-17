@@ -50,6 +50,7 @@ class Conversation:
     summary: str | None = None
     hard_attempted_at: TranscriptMark | None = None
     delivery: str | None = None
+    delivered: bool = False
     exchanges: list[Exchange] = field(default_factory=list)
 
     def exchange(self, n: int) -> Exchange | None:
@@ -71,7 +72,7 @@ def apply(conv: Conversation | None, record: dict) -> Conversation:
     elif kind == "interrupted":
         if (exchange := conv.exchange(record["n"])) is not None:
             exchange.heard_before_cutoff = record["heard_text"]
-    elif kind in ("soft_sending", "soft_merged"):
+    elif kind in ("soft_sending", "soft_merged", "soft_refused"):
         if (exchange := conv.exchange(record["n"])) is not None:
             exchange.soft = kind.removeprefix("soft_")
             exchange.soft_attempted_at = _mark(record.get("since")) or exchange.soft_attempted_at
@@ -82,7 +83,9 @@ def apply(conv: Conversation | None, record: dict) -> Conversation:
     elif kind == "hard_sending":
         conv.hard_attempted_at = _mark(record.get("since"))
     elif kind == "merged":
-        conv.state, conv.delivery = "merged", record["delivery"]
+        conv.state, conv.delivery, conv.delivered = "merged", record["delivery"], True
+    elif kind == "undeliverable":
+        conv.state, conv.delivery, conv.delivered = "archived", record["delivery"], False
     elif kind == "archived":
         conv.state = "archived"
     return conv

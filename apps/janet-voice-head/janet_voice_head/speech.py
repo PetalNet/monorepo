@@ -1,7 +1,10 @@
 import re
 from dataclasses import dataclass, field
 
-RELAY_OPEN, RELAY_CLOSE = "<relay>", "</relay>"
+RELAY_TAGS = ("<relay>", "[relay]")
+_RELAY_OPEN = re.compile(r"<relay>|\[relay\]", re.I)
+_RELAY_CLOSE = re.compile(r"</relay>|\[/relay\]", re.I)
+_RELAY_BLOCK = re.compile(r"(?:<relay>|\[relay\]).*?(?:</relay>|\[/relay\]|\Z)", re.I | re.S)
 END_PHRASES = {
     "that's all", "thats all", "that is all", "that's it", "thats it", "that's everything",
     "goodbye", "good bye", "bye", "bye bye", "never mind", "nevermind", "stop listening",
@@ -48,40 +51,59 @@ def _speakable(text: str) -> str:
 
 
 def _unfinished_relay_tag(text: str) -> str:
-    """The tail of `text` that the next delta could complete into the relay tag, such as "<rel"."""
-    return next((text[i:] for i in range(len(text)) if RELAY_OPEN.startswith(text[i:])), "")
+    """The tail of `text` that the next delta could complete into a relay tag, such as "<rel"."""
+    lowered = text.lower()
+    return next((text[i:] for i in range(len(text)) if any(tag.startswith(lowered[i:]) for tag in RELAY_TAGS)), "")
 
 
 class SpeechStream:
     def __init__(self, redact: str | None = None):
         self.text = ""
         self._pending = ""
-        self._relay: str | None = None
+        self._block: str | None = None
+        self._relay = Relay()
         self._redact = re.compile(re.escape(redact), re.I) if redact else None
 
     def feed(self, delta: str) -> list[str]:
         self.text += delta
-        if self._relay is not None:
-            self._relay += delta
-            return []
-        self._pending += delta
-        if RELAY_OPEN in self._pending:
-            self._pending, _, self._relay = self._pending.partition(RELAY_OPEN)
-            return self._sentences(final=True)
-        return self._sentences(final=False)
+        if self._block is None:
+            self._pending += delta
+        else:
+            self._block += delta
+        out: list[str] = []
+        while True:
+            if self._block is not None:
+                if (close := _RELAY_CLOSE.search(self._block)) is None:
+                    return out
+                self._absorb(self._block[: close.start()])
+                self._pending, self._block = self._block[close.end():], None
+            if (opened := _RELAY_OPEN.search(self._pending)) is None:
+                return out + self._sentences(final=False)
+            self._pending, self._block = self._pending[: opened.start()], self._pending[opened.end():]
+            out += self._sentences(final=True)
 
     def finish(self) -> list[str]:
-        return [] if self._relay is not None else self._sentences(final=True)
+        if self._block is None:
+            return self._sentences(final=True, drop_partial_tag=True)
+        self._absorb(self._block)
+        self._block = None
+        return []
 
     @property
     def relay(self) -> Relay:
-        return parse_relay((self._relay or "").partition(RELAY_CLOSE)[0])
+        open_block = parse_relay(self._block or "")
+        return Relay(self._relay.asks + open_block.asks, self._relay.commitments + open_block.commitments)
 
     @property
     def spoken(self) -> str:
-        return _speakable(self.text.partition(RELAY_OPEN)[0])
+        return _speakable(_RELAY_BLOCK.sub("", self.text))
 
-    def _sentences(self, final: bool) -> list[str]:
+    def _absorb(self, block: str) -> None:
+        parsed = parse_relay(block)
+        self._relay.asks += parsed.asks
+        self._relay.commitments += parsed.commitments
+
+    def _sentences(self, final: bool, drop_partial_tag: bool = False) -> list[str]:
         out, start = [], 0
         for match in _SENTENCE_END.finditer(self._pending):
             if _ABBREVIATION.search(self._pending[start:match.end()].rstrip()):
@@ -89,9 +111,8 @@ class SpeechStream:
             out.append(self._pending[start:match.end()])
             start = match.end()
         rest = self._pending[start:]
-        held = _unfinished_relay_tag(rest)
         if final:
-            out.append(rest.removesuffix(held) if self._relay is None else rest)
+            out.append(rest.removesuffix(_unfinished_relay_tag(rest)) if drop_partial_tag else rest)
             rest = ""
         self._pending = rest
         sentences = [_speakable(s) for s in out]

@@ -17,6 +17,7 @@ from .head import ApiError, Config, Head
 from .merge import Hub
 
 MAX_BODY = 64 * 1024
+HANDLER_TIMEOUT_S = 30
 _CONVERSATION = re.compile(r"/v1/conversations/([0-9a-f]{12})/(turns|interrupt|end)")
 
 
@@ -47,6 +48,7 @@ def load_config(path: Path) -> tuple[Config, list[str], Path]:
 class Handler(BaseHTTPRequestHandler):
     head: Head
     token: str
+    timeout = HANDLER_TIMEOUT_S
 
     def log_message(self, *_):
         pass
@@ -60,10 +62,13 @@ class Handler(BaseHTTPRequestHandler):
         self.wfile.write(data)
 
     def _authorized(self) -> bool:
-        return hmac.compare_digest(self.headers.get("Authorization", ""), "Bearer " + self.token)
+        return hmac.compare_digest(self.headers.get("Authorization", "").encode("utf-8", "replace"), f"Bearer {self.token}".encode())
 
     def _body(self) -> dict:
-        length = int(self.headers.get("Content-Length", "0"))
+        raw_length = self.headers.get("Content-Length", "0").strip()
+        if not (raw_length.isascii() and raw_length.isdigit()):
+            raise ApiError(400, "Content-Length must be a non-negative integer")
+        length = int(raw_length)
         if length > MAX_BODY:
             raise ApiError(413, "body too large")
         try:

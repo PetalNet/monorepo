@@ -31,6 +31,12 @@ def reply_to(prompt: str) -> str:
     said = prompt.rsplit(" says: ", 1)[-1]
     if "conversation is over" in prompt:
         return "They talked about test things."
+    if "relayfirst" in said:
+        return "<RELAY>\nask: do the first thing\n</RELAY>\nSure thing."
+    if "tworelays" in said:
+        return "Okay.\n<relay>\nask: first thing\n</relay>\nAlso noted.\n[relay]\nask: second thing\n[/relay]\nDone."
+    if "onlyrelay" in said:
+        return "<relay>\nask: quiet thing\n</relay>"
     if "order" in said:
         return f"I will pass that to main. <relay>\nask: {said}\ncommitment: main will handle it\n</relay>"
     if "count" in said:
