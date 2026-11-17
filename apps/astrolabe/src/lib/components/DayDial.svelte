@@ -160,7 +160,10 @@
 				r={ring.radius}
 				stroke-width={layout.width}
 				role="img"
-				aria-label="{ring.reading.window.agent} {ring.reading.window.span}: no reading"
+				aria-label="{ring.reading.window.agent} {ring.reading.window.span}: {ring.reading.state ===
+				'not-reported'
+					? 'not reported'
+					: 'no reading'}"
 			/>
 		{/if}
 	{:else}

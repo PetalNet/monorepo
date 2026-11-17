@@ -246,6 +246,17 @@ const claudeWindows = (raw: JsonRecord): { windows: ReportedWindow[]; unreadKind
 	overall(raw.five_hour, "5-hour");
 	overall(raw.seven_day, "7-day");
 
+	// Per-model windows Anthropic may fill in outside `limits`, such as `seven_day_opus`.
+	for (const [key, value] of Object.entries(raw)) {
+		if (
+			/^(five_hour|seven_day)_/.test(key) &&
+			isRecord(value) &&
+			numberOrNull(value.utilization) !== null
+		) {
+			unreadKinds.push(key);
+		}
+	}
+
 	for (const limit of Array.isArray(raw.limits) ? raw.limits : []) {
 		if (!isRecord(limit)) {
 			continue;
@@ -253,10 +264,21 @@ const claudeWindows = (raw: JsonRecord): { windows: ReportedWindow[]; unreadKind
 
 		const kind = stringOrNull(limit.kind) ?? "unnamed";
 		const scope = isRecord(limit.scope) ? limit.scope : null;
-		const model = isRecord(scope?.model) ? stringOrNull(scope.model.display_name) : null;
+		const name = isRecord(scope?.model) ? stringOrNull(scope.model.display_name)?.trim() : null;
+		const model = name === undefined || name === "" ? null : name;
 
 		if (kind === "weekly_all") {
-			// The same window as `seven_day`.
+			// The same window as `seven_day`, read here only when that is missing.
+			if (!isRecord(raw.seven_day)) {
+				windows.push({
+					span: "7-day",
+					model: null,
+					usedPct: pct(limit.percent),
+					resetsAt: epochSecondsFromIso(limit.resets_at),
+					inactive: false,
+				});
+			}
+
 			continue;
 		}
 
@@ -286,7 +308,7 @@ const codexWindows = (data: JsonRecord): ReportedWindow[] =>
 			["7-day", data.seven_day_pct, data.seven_day_resets_at],
 		] as const
 	).flatMap(([span, used, resets]) =>
-		used === null && resets === null
+		(used ?? null) === null && (resets ?? null) === null
 			? []
 			: [
 					{

@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { ringCapacity } from "$lib/dial";
 	import { limitWindowsFrom, readLimit } from "$lib/limits";
 	import type { Dossier } from "$lib/server/dossier";
 	import { sunCaption } from "$lib/sky";
@@ -37,6 +38,23 @@
 		(readings ?? []).filter(
 			(reading) => reading.window.span === span && reading.window.fit !== "unlisted",
 		);
+	const notices = $derived([
+		...plan.notices,
+		...(
+			[
+				["5-hour", "day"],
+				["7-day", "week"],
+			] as const
+		).flatMap(([span, dial]) => {
+			const extra =
+				plan.windows.filter((window) => window.span === span && window.fit !== "unlisted").length -
+				ringCapacity(dial);
+
+			return extra > 0
+				? [`${String(extra)} ${span} limit(s) have no room on the ${dial} dial; see the plaques`]
+				: [];
+		}),
+	]);
 	const time = (epoch: number) =>
 		new Intl.DateTimeFormat(undefined, { hour: "numeric", minute: "2-digit" }).format(epoch);
 	const sunLine = $derived(now === null ? null : sunCaption(dossier.sun, now, time));
@@ -77,9 +95,9 @@
 			{/each}
 		{/if}
 	</div>
-	{#if plan.notices.length > 0}
+	{#if notices.length > 0}
 		<ul class="plan-notices">
-			{#each plan.notices as notice (notice)}
+			{#each notices as notice (notice)}
 				<li><TriangleAlert size={16} strokeWidth={2} aria-hidden="true" />{notice}</li>
 			{/each}
 		</ul>

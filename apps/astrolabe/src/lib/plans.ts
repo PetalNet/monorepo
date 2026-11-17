@@ -46,5 +46,11 @@ export const planWindows = (provider: Provider, plan: string): readonly WindowSp
 	return Object.hasOwn(plans, plan) ? plans[plan] : null;
 };
 
-export const sameWindow = (a: WindowSpec, b: WindowSpec): boolean =>
-	a.span === b.span && (a.model ?? null)?.toLowerCase() === (b.model ?? null)?.toLowerCase();
+/**
+ * A window's identity, such as `7d-fable`. Model names that differ only in case or punctuation
+ * match.
+ */
+export const windowKey = (spec: WindowSpec): string =>
+	[spec.span === "5-hour" ? "5h" : "7d", spec.model?.toLowerCase().replaceAll(/\W+/g, "-")]
+		.filter(Boolean)
+		.join("-");

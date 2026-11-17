@@ -1,4 +1,4 @@
-import { planWindows, sameWindow, type WindowSpan, type WindowSpec } from "$lib/plans";
+import { planWindows, windowKey, type WindowSpan, type WindowSpec } from "$lib/plans";
 import type { ReportedWindow, UsageReadout } from "$lib/server/dossier";
 
 const HOUR_MS = 60 * 60 * 1000;
@@ -157,11 +157,6 @@ export const readLimit = (window: LimitWindow, now: number): LimitReading => {
 
 const ms = (seconds: number | null) => (seconds === null ? null : seconds * 1000);
 
-const windowId = (kind: UsageReadout["kind"], spec: WindowSpec) =>
-	[kind, spec.span === "5-hour" ? "5h" : "7d", spec.model?.toLowerCase().replaceAll(/\W+/g, "-")]
-		.filter(Boolean)
-		.join("-");
-
 export interface PlanCheck {
 	/** Each agent's plan windows, then any the feed reports beyond them, in that order. */
 	windows: LimitWindow[];
@@ -181,7 +176,7 @@ export const limitWindowsFrom = (agents: readonly UsageReadout[]): PlanCheck => 
 			reported: ReportedWindow | undefined,
 			fit: LimitWindow["fit"],
 		): LimitWindow => ({
-			id: windowId(agent.kind, spec),
+			id: `${agent.kind}-${windowKey(spec)}`,
 			agent: agent.label,
 			span: spec.span,
 			model: spec.model ?? null,
@@ -213,20 +208,40 @@ export const limitWindowsFrom = (agents: readonly UsageReadout[]): PlanCheck => 
 			notices.push(`${agent.label} reports a ${kind} limit Astrolabe does not read`);
 		}
 
+		// One window per identity, so each ring and plaque has a unique key. Repeats keep the fullest.
+		const reportedByKey = new Map<string, ReportedWindow>();
+
+		for (const reported of agent.windows) {
+			const key = windowKey(asSpec(reported));
+			const kept = reportedByKey.get(key);
+
+			if (kept !== undefined) {
+				notices.push(
+					`${agent.label} reports more than one ${[kept.model, kept.span].filter(Boolean).join(" ")} limit; showing the fullest`,
+				);
+			}
+
+			if (kept === undefined || (reported.usedPct ?? -1) > (kept.usedPct ?? -1)) {
+				reportedByKey.set(key, reported);
+			}
+		}
+
+		const listedKeys = new Set((listed ?? []).map(windowKey));
+
 		for (const spec of listed ?? []) {
-			const reported = agent.windows.find((candidate) => sameWindow(asSpec(candidate), spec));
+			const reported = reportedByKey.get(windowKey(spec));
 
 			windows.push(
 				window(spec, reported, agent.read && reported === undefined ? "unreported" : "listed"),
 			);
 		}
 
-		for (const reported of agent.windows) {
-			if (!(listed ?? []).some((spec) => sameWindow(asSpec(reported), spec))) {
+		for (const [key, reported] of reportedByKey) {
+			if (!listedKeys.has(key)) {
 				windows.push(window(asSpec(reported), reported, "unlisted"));
 			}
 		}
 	}
 
-	return { windows, notices };
+	return { windows, notices: [...new Set(notices)] };
 };

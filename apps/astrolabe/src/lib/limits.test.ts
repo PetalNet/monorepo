@@ -327,4 +327,81 @@ describe("plan check", () => {
 			"Codex reports the plus plan, but Astrolabe is set to pro",
 		]);
 	});
+
+	const fable = (percent: number, extra: Record<string, unknown> = {}) => ({
+		kind: "weekly_scoped",
+		percent,
+		resets_at: "2026-11-24T10:00:00+00:00",
+		scope: { model: { id: null, display_name: "Fable" }, surface: null },
+		is_active: true,
+		...extra,
+	});
+	const withLimits = (limits: unknown[], raw: Record<string, unknown> = {}) => ({
+		...claudeToday,
+		raw: { ...claudeToday.raw, limits, ...raw },
+	});
+
+	it("keeps one window per identity, the fullest, and says there were more", () => {
+		const twice = withLimits([
+			fable(3),
+			fable(90, { scope: { model: { display_name: "fable" } } }),
+		]);
+
+		for (const plan of ["max-20x", "pro"]) {
+			const result = check(plan, "plus", twice);
+			const ids = result.windows.map(({ id }) => id);
+
+			expect(new Set(ids).size).toBe(ids.length);
+			expect(result.windows.find(({ id }) => id === "claude-7d-fable")?.usedPct).toBe(90);
+
+			expect(result.notices).toContain(
+				"Claude reports more than one Fable 7-day limit; showing the fullest",
+			);
+		}
+	});
+
+	it("reads a per-model limit with no model name as unread, once", () => {
+		const unnamed = { kind: "weekly_scoped", percent: 1, scope: { model: { display_name: " " } } };
+		const result = check("max-20x", "plus", withLimits([unnamed, unnamed]));
+
+		expect(result.windows.map(({ id }) => id)).not.toContain("claude-7d-");
+
+		expect(result.notices).toEqual([
+			"Claude reports a weekly_scoped limit Astrolabe does not read",
+		]);
+	});
+
+	it("falls back to weekly_all when seven_day is missing", () => {
+		const weeklyAll = { kind: "weekly_all", percent: 8, resets_at: "2026-11-24T10:00:00Z" };
+		const result = check("max-20x", "plus", withLimits([weeklyAll], { seven_day: null }));
+
+		expect(result.windows[0]).toMatchObject({ id: "claude-7d", fit: "listed", usedPct: 8 });
+	});
+
+	it("names a per-model window Anthropic reports outside limits", () => {
+		const result = check(
+			"max-20x",
+			"plus",
+			withLimits([], { seven_day_opus: { utilization: 70 } }),
+		);
+
+		expect(result.notices).toContain(
+			"Claude reports a seven_day_opus limit Astrolabe does not read",
+		);
+	});
+
+	it("flags a Codex 5-hour window whose fields are absent, not just null", () => {
+		const { windows } = limitWindowsFrom([
+			usageReadoutFrom({
+				slug: "codex",
+				label: "Codex",
+				kind: "codex",
+				plan: "plus",
+				data: { seven_day_pct: 100, seven_day_resets_at: 1_795_016_116, scraped_at: 1_794_939_303 },
+				nowSeconds: 1_794_939_400,
+			}),
+		]);
+
+		expect(windows[0]).toMatchObject({ id: "codex-5h", fit: "unreported" });
+	});
 });

@@ -63,6 +63,9 @@ const RING_LAYOUTS = {
 	],
 } as const;
 
+/** How many limit rings the dial has room for. */
+export const ringCapacity = (dial: keyof typeof RING_LAYOUTS): number => RING_LAYOUTS[dial].length;
+
 /** The layout for `count` rings on a dial; rings past the dial's capacity are not drawn. */
 export const ringLayout = (dial: keyof typeof RING_LAYOUTS, count: number) => {
 	const layouts = RING_LAYOUTS[dial];
