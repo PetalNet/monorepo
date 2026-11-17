@@ -127,7 +127,7 @@ catalogs:
     "@typescript/native": npm:typescript@^7.0.2
     typescript: npm:@typescript/typescript6@^6.0.2
     typescript-eslint: ^8.60.0
-    typesync: ^0.14.3
+    typesync: ^0.15.0
     tsx: ^4.22.4
     turbo: 2.11.11
     update-ts-references: ^6.0.0
