@@ -7,14 +7,14 @@ import { usageReadoutFrom } from "./server/dossier.js";
 const at = (iso: string) => Date.parse(iso);
 const seconds = (iso: string) => at(iso) / 1000;
 
-// Real feed shapes from 2026-10-29. Claude's *_pct fields copy claude.ai's `utilization`; Codex's copy
-// `rate_limits.*.used_percent`. Both are percent of the limit used.
+// Real feed figures from 2026-10-29, when Claude still had a 5-hour window. Claude's figures are
+// claude.ai's `utilization`; Codex's copy `rate_limits.*.used_percent`. Both are percent used.
 const claudeFeed = {
-	five_hour_pct: 3,
-	five_hour_resets_at: seconds("2026-10-29T20:10:00Z"),
-	seven_day_pct: 50,
-	seven_day_resets_at_iso: "2026-11-03T10:00:00.390029+00:00",
 	scraped_at: seconds("2026-10-29T15:16:01Z"),
+	raw: {
+		five_hour: { utilization: 3, resets_at: "2026-10-29T20:10:00Z" },
+		seven_day: { utilization: 50, resets_at: "2026-11-03T10:00:00.390029+00:00" },
+	},
 };
 const codexFeed = {
 	five_hour_pct: null,
@@ -25,11 +25,12 @@ const codexFeed = {
 	credits_balance: 38_426.39,
 };
 const now = at("2026-10-29T15:16:30Z");
-const windows = limitWindowsFrom([
+const { windows } = limitWindowsFrom([
 	usageReadoutFrom({
 		slug: "janet-primary",
 		label: "Claude",
 		kind: "claude",
+		plan: "pro",
 		data: claudeFeed,
 		nowSeconds: now / 1000,
 	}),
@@ -37,11 +38,12 @@ const windows = limitWindowsFrom([
 		slug: "codex",
 		label: "Codex",
 		kind: "codex",
+		plan: "plus",
 		data: codexFeed,
 		nowSeconds: now / 1000,
 	}),
 ]);
-const byId = (id: LimitWindow["id"]) => {
+const byId = (id: string) => {
 	const window = windows.find((candidate) => candidate.id === id);
 
 	if (window === undefined) {
@@ -103,6 +105,10 @@ describe("burn-rate projection", () => {
 				id: "claude-5h",
 				agent: "Claude",
 				span: "5-hour",
+				model: null,
+				plan: "pro",
+				fit: "listed",
+				inactive: false,
 				usedPct: 20,
 				resetsAt: at("2026-10-29T18:00:00Z"),
 				observedAt: at("2026-10-29T15:30:00Z"),
@@ -125,6 +131,10 @@ describe("burn-rate projection", () => {
 			id: "codex-7d",
 			agent: "Codex",
 			span: "7-day",
+			model: null,
+			plan: "plus",
+			fit: "listed",
+			inactive: false,
 			usedPct: 50,
 			resetsAt: at("2026-11-05T00:00:00Z"),
 			observedAt: at("2026-10-31T00:00:00Z"),
@@ -162,6 +172,10 @@ describe("red span when the clocks go back", () => {
 		id: "claude-5h",
 		agent: "Claude",
 		span: "5-hour",
+		model: null,
+		plan: "pro",
+		fit: "listed",
+		inactive: false,
 		usedPct: 100,
 		resetsAt,
 		observedAt: spentAt,
@@ -188,5 +202,129 @@ describe("red span when the clocks go back", () => {
 		);
 
 		expect(geometry?.lockout?.sweep).toBeCloseTo(11.25, 6);
+	});
+});
+
+describe("plan check", () => {
+	// Real feeds from 2026-11-17, trimmed to the fields read. Claude Max 20x has dropped its 5-hour
+	// window (`five_hour: null`, while the top-level five_hour_pct still says 0) and gained a
+	// per-model Fable weekly limit. Codex Plus reports a 5-hour window beside its weekly one.
+	const claudeToday = {
+		five_hour_pct: 0,
+		five_hour_resets_at: 0,
+		seven_day_pct: 8,
+		scraped_at: 1_794_939_242,
+		raw: {
+			five_hour: null,
+			seven_day: { utilization: 8, resets_at: "2026-11-24T10:00:00.381339+00:00" },
+			seven_day_opus: null,
+			limits: [
+				{
+					kind: "weekly_all",
+					percent: 8,
+					resets_at: "2026-11-24T10:00:00.381339+00:00",
+					scope: null,
+					is_active: true,
+				},
+				{
+					kind: "weekly_scoped",
+					percent: 0,
+					resets_at: "2026-11-24T10:00:00+00:00",
+					scope: { model: { id: null, display_name: "Fable" }, surface: null },
+					is_active: false,
+				},
+			],
+		},
+	};
+	const codexToday = {
+		five_hour_pct: 0,
+		five_hour_resets_at: 1_794_947_325,
+		seven_day_pct: 100,
+		seven_day_resets_at: 1_795_016_116,
+		plan: "plus",
+		scraped_at: 1_794_939_303,
+		snapshot_age_sec: 0,
+		awaiting: false,
+		credits_balance: 35_694.46,
+		rate_limit_reached_type: "rate_limit_reached",
+	};
+	const check = (
+		claudePlan: string,
+		codexPlan: string,
+		claude: Record<string, unknown> = claudeToday,
+	) =>
+		limitWindowsFrom([
+			usageReadoutFrom({
+				slug: "janet-primary",
+				label: "Claude",
+				kind: "claude",
+				plan: claudePlan,
+				data: claude,
+				nowSeconds: 1_794_939_400,
+			}),
+			usageReadoutFrom({
+				slug: "codex",
+				label: "Codex",
+				kind: "codex",
+				plan: codexPlan,
+				data: codexToday,
+				nowSeconds: 1_794_939_400,
+			}),
+		]);
+	const summary = (result: ReturnType<typeof check>) =>
+		result.windows.map(({ id, fit, usedPct }) => ({ id, fit, usedPct }));
+
+	it("draws Max 20x as weekly plus Fable weekly, and Codex Plus as 5-hour plus weekly", () => {
+		const result = check("max-20x", "plus");
+
+		expect(summary(result)).toEqual([
+			{ id: "claude-7d", fit: "listed", usedPct: 8 },
+			{ id: "claude-7d-fable", fit: "listed", usedPct: 0 },
+			{ id: "codex-5h", fit: "listed", usedPct: 0 },
+			{ id: "codex-7d", fit: "listed", usedPct: 100 },
+		]);
+
+		expect(result.notices).toEqual([]);
+	});
+
+	it("reads Fable's own reset and the inactive flag", () => {
+		const fable = check("max-20x", "plus").windows.find(({ id }) => id === "claude-7d-fable");
+
+		expect(fable).toMatchObject({ resetsAt: at("2026-11-24T10:00:00Z"), inactive: true });
+	});
+
+	it("flags a 5-hour window the Pro plan lists but Claude no longer reports", () => {
+		const result = check("pro", "plus");
+
+		expect(summary(result).slice(0, 3)).toEqual([
+			{ id: "claude-5h", fit: "unreported", usedPct: null },
+			{ id: "claude-7d", fit: "listed", usedPct: 8 },
+			{ id: "claude-7d-fable", fit: "unlisted", usedPct: 0 },
+		]);
+
+		expect(readLimit(result.windows[0], at("2026-11-17T18:20:00Z")).state).toBe("not-reported");
+	});
+
+	it("flags a 5-hour window Claude reports that Max 20x doesn't list", () => {
+		const withFiveHour = {
+			...claudeToday,
+			raw: {
+				...claudeToday.raw,
+				five_hour: { utilization: 12, resets_at: "2026-11-17T20:00:00Z" },
+			},
+		};
+
+		expect(summary(check("max-20x", "plus", withFiveHour))).toContainEqual({
+			id: "claude-5h",
+			fit: "unlisted",
+			usedPct: 12,
+		});
+	});
+
+	it("names a plan Codex reports that differs from the configured one, and an unknown plan", () => {
+		expect(check("max-20x", "pro").notices).toEqual([
+			'Codex plan "pro" is not in the plan table',
+			"Codex reports the plus plan, but Astrolabe is set to pro",
+		]);
 	});
 });

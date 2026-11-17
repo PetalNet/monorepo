@@ -159,6 +159,8 @@ h3 {
 	--orloj-sky-night: #8d8070;
 	--orloj-claude-5h: #2c4c86;
 	--orloj-claude-7d: #2a6d5f;
+	--orloj-claude-7d-fable: #8a5a1c;
+	--orloj-codex-5h: #9b4f7d;
 	--orloj-codex-7d: #6c3b6c;
 	--orloj-vermilion: #ad2e1a;
 	--orloj-grain: 0.16;
@@ -186,6 +188,8 @@ h3 {
 		--orloj-sky-night: #0b0f18;
 		--orloj-claude-5h: #9db9f2;
 		--orloj-claude-7d: #7fd0b5;
+		--orloj-claude-7d-fable: #e6b872;
+		--orloj-codex-5h: #f0a8c8;
 		--orloj-codex-7d: #dcaee0;
 		--orloj-vermilion: #ff8c6b;
 		--orloj-grain: 0.1;
@@ -367,8 +371,19 @@ h3 {
 	stroke: var(--orloj-paper);
 	stroke-width: 0.6;
 }
+/* A window no colour is set for, such as a new per-model limit, still reads as a limit. */
+.limit,
+.plaque {
+	--limit: var(--orloj-ink-mute);
+}
 .claude-5h {
 	--limit: var(--orloj-claude-5h);
+}
+.claude-7d-fable {
+	--limit: var(--orloj-claude-7d-fable);
+}
+.codex-5h {
+	--limit: var(--orloj-codex-5h);
 }
 .claude-7d {
 	--limit: var(--orloj-claude-7d);
@@ -422,8 +437,27 @@ h3 {
 .orloj-plaques {
 	display: grid;
 	gap: var(--s3);
-	grid-template-columns: repeat(3, 1fr);
+	grid-template-columns: repeat(auto-fit, minmax(13rem, 1fr));
 	margin-top: var(--s5);
+}
+/* Plan drift: the feeds disagree with the configured plan. */
+.plan-notices,
+.plaque-flag {
+	color: var(--orloj-alarm);
+	font-style: italic;
+}
+.plan-notices {
+	display: grid;
+	gap: var(--s1);
+	list-style: none;
+	margin: var(--s3) 0 0;
+	padding: 0;
+}
+.plan-notices li,
+.plaque-flag {
+	align-items: center;
+	display: flex;
+	gap: var(--s1);
 }
 /* Brass plates (the limit plaques and the lab plate) are cut from the same metal as the bezel, under the same light from the
    upper left: the bezel's stops and specular band, held to the lighter part of their range so the

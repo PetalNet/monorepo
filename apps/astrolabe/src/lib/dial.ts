@@ -47,10 +47,28 @@ export const CAP_HEIGHT = 0.65;
 export const ASCENDER_HEIGHT = 0.71;
 
 /**
- * The week dial's two 7-day rings, Claude outside and Codex inside. The gap between them holds the
- * inner ring's reset mark, so it is wider than a band.
+ * Limit ring radii and band width per ring count, outermost first. Each gap holds the inner ring's
+ * reset mark (6.5 past its outer edge), so it is wider than a band; the innermost band clears the
+ * boss. The day dial's outer ring stays inside the sky band at 85.
  */
-export const WEEK_RINGS = { radii: [79, 50], width: 15 } as const;
+const RING_LAYOUTS = {
+	week: [
+		{ radii: [79], width: 15 },
+		{ radii: [79, 50], width: 15 },
+		{ radii: [80, 61, 42], width: 12 },
+	],
+	day: [
+		{ radii: [68], width: 16 },
+		{ radii: [70, 49], width: 12 },
+	],
+} as const;
+
+/** The layout for `count` rings on a dial; rings past the dial's capacity are not drawn. */
+export const ringLayout = (dial: keyof typeof RING_LAYOUTS, count: number) => {
+	const layouts = RING_LAYOUTS[dial];
+
+	return layouts[Math.min(Math.max(count, 1), layouts.length) - 1];
+};
 
 /** Radius of the centre boss that carries the date or time. */
 export const BOSS_RADIUS = 31;

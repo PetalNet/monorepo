@@ -54,11 +54,12 @@ describe("usage readouts", () => {
 			slug: "janet-primary",
 			label: "Claude",
 			kind: "claude",
+			plan: "max-20x",
 			data: null,
 			nowSeconds: 1000,
 		});
 
-		expect(result).toMatchObject({ awaiting: false, stale: true, fiveHourUsedPct: null });
+		expect(result).toMatchObject({ awaiting: false, stale: true, read: false, windows: [] });
 	});
 
 	it("marks a missing Codex feed awaiting", () => {
@@ -66,20 +67,21 @@ describe("usage readouts", () => {
 			slug: "codex",
 			label: "Codex",
 			kind: "codex",
+			plan: "plus",
 			data: null,
 			nowSeconds: 1000,
 		});
 
-		expect(result).toMatchObject({ awaiting: true, stale: false, fiveHourUsedPct: null });
+		expect(result).toMatchObject({ awaiting: true, stale: false, read: false, windows: [] });
 	});
 
-	it("reads a Codex feed whose only window is the 7-day one as 7-day, with no 5-hour figure", () => {
-		// Codex reports the weekly window (window_minutes 10080) as `primary` with no `secondary`.
-		// codex-usage buckets by window length, so the feed carries it as seven_day_pct.
+	it("reads a Codex feed whose only window is the 7-day one as 7-day, with no 5-hour window", () => {
+		// codex-usage buckets by window length, so a lone weekly `primary` arrives as seven_day_pct.
 		const codex = usageReadoutFrom({
 			slug: "codex",
 			label: "Codex",
 			kind: "codex",
+			plan: "plus",
 			nowSeconds: 1000,
 			data: {
 				five_hour_pct: null,
@@ -92,13 +94,11 @@ describe("usage readouts", () => {
 			},
 		});
 
-		expect(codex).toMatchObject({
-			fiveHourUsedPct: null,
-			fiveHourResetsAt: null,
-			sevenDayUsedPct: 100,
-			creditsBalance: 38_426.39,
-			limitReachedType: null,
-		});
+		expect(codex.windows).toEqual([
+			{ span: "7-day", model: null, usedPct: 100, resetsAt: 1200, inactive: false },
+		]);
+
+		expect(codex).toMatchObject({ creditsBalance: 38_426.39, limitReachedType: null });
 	});
 
 	it("passes Codex's rate_limit_reached_type through, and ignores it for Claude", () => {
@@ -108,6 +108,7 @@ describe("usage readouts", () => {
 				slug: kind === "codex" ? "codex" : "janet-primary",
 				label: kind === "codex" ? "Codex" : "Claude",
 				kind,
+				plan: "plus",
 				nowSeconds: 1000,
 				data,
 			}).limitReachedType;
@@ -116,40 +117,53 @@ describe("usage readouts", () => {
 		expect(read("claude")).toBeNull();
 	});
 
-	it("uses the Claude ISO reset while Codex stays epoch-based", () => {
+	it("takes Claude's windows from the raw response, not the zeroed top-level 5-hour fields", () => {
 		const claude = usageReadoutFrom({
 			slug: "janet-primary",
 			label: "Claude",
 			kind: "claude",
+			plan: "max-20x",
 			nowSeconds: 1000,
 			data: {
-				five_hour_pct: null,
-				seven_day_pct: 40,
-				seven_day_resets_at_iso: "1970-01-01T00:20:00Z",
+				five_hour_pct: 0,
+				five_hour_resets_at: 0,
 				scraped_at: 995,
-			},
-		});
-		const codex = usageReadoutFrom({
-			slug: "codex",
-			label: "Codex",
-			kind: "codex",
-			nowSeconds: 1000,
-			data: {
-				five_hour_pct: null,
-				seven_day_pct: 40,
-				seven_day_resets_at: 1200,
-				credits_balance: 3000,
-				scraped_at: 995,
+				raw: {
+					five_hour: null,
+					seven_day: { utilization: 40, resets_at: "1970-01-01T00:20:00Z" },
+					limits: [
+						{ kind: "weekly_all", percent: 40, resets_at: "1970-01-01T00:20:00Z" },
+						{
+							kind: "weekly_scoped",
+							percent: 5,
+							resets_at: "1970-01-01T00:20:00Z",
+							scope: { model: { id: null, display_name: "Fable" } },
+							is_active: false,
+						},
+						{ kind: "daily_burst", percent: 1 },
+					],
+				},
 			},
 		});
 
-		expect(claude.sevenDayResetsAt).toBe(1200);
+		expect(claude.windows).toEqual([
+			{ span: "7-day", model: null, usedPct: 40, resetsAt: 1200, inactive: false },
+			{ span: "7-day", model: "Fable", usedPct: 5, resetsAt: 1200, inactive: true },
+		]);
 
-		expect(codex).toMatchObject({
-			fiveHourUsedPct: null,
-			creditsBalance: 3000,
-			stale: false,
-			awaiting: false,
+		expect(claude.unreadKinds).toEqual(["daily_burst"]);
+	});
+
+	it("cannot say which windows a Claude snapshot without raw has", () => {
+		const claude = usageReadoutFrom({
+			slug: "janet-primary",
+			label: "Claude",
+			kind: "claude",
+			plan: "max-20x",
+			nowSeconds: 1000,
+			data: { seven_day_pct: 40, scraped_at: 995 },
 		});
+
+		expect(claude).toMatchObject({ read: false, windows: [] });
 	});
 });

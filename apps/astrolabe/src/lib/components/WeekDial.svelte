@@ -5,9 +5,9 @@
 		CAP_HEIGHT,
 		polar,
 		readingArc,
+		ringLayout,
 		stackBaselines,
 		weekAngle,
-		WEEK_RINGS,
 		WEEK_SCALE,
 		windowGeometry,
 	} from "$lib/dial";
@@ -21,17 +21,19 @@
 		rings,
 		now,
 	}: {
-		/** Claude outside, Codex inside. */
-		rings: [LimitReading, LimitReading];
+		/** Outermost first: Claude, then Codex. */
+		rings: LimitReading[];
 		now: number;
 	} = $props();
 
 	const DAY_DEG = 360 / 7;
+	const layout = $derived(ringLayout("week", rings.length));
 	const placed = $derived(
-		[
-			{ reading: rings[0], radius: WEEK_RINGS.radii[0] },
-			{ reading: rings[1], radius: WEEK_RINGS.radii[1] },
-		].map((ring) => ({ ...ring, geometry: windowGeometry(ring.reading, WEEK_SCALE) })),
+		rings.slice(0, layout.radii.length).map((reading, index) => ({
+			reading,
+			radius: layout.radii[index],
+			geometry: windowGeometry(reading, WEEK_SCALE),
+		})),
 	);
 
 	const days = $derived.by(() => {
@@ -99,7 +101,7 @@
 			<LimitRing
 				reading={ring.reading}
 				radius={ring.radius}
-				width={WEEK_RINGS.width}
+				width={layout.width}
 				geometry={ring.geometry}
 				hand={weekAngle(now)}
 			/>
@@ -107,7 +109,7 @@
 			<circle
 				class="groove empty"
 				r={ring.radius}
-				stroke-width={WEEK_RINGS.width}
+				stroke-width={layout.width}
 				role="img"
 				aria-label="{ring.reading.window.agent} {ring.reading.window.span}: no reading"
 			/>
