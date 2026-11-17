@@ -1,5 +1,6 @@
 #!/bin/bash
 # Talk to Janet from a key: `janet-talk start` on key down, `janet-talk stop` on key up.
+# Hold the key and talk, or tap it and talk until you stop.
 # Records and transcribes through the local Hex app, sends the text to the voice head
 # through the voice gateway, shows the reply as a notification and plays it.
 # Nothing runs between presses.
@@ -7,11 +8,16 @@ set -u
 
 CONFIG="${JANET_TALK_CONFIG:-$HOME/.config/janet-talk/config}"
 STATE="${JANET_TALK_STATE:-$HOME/Library/Caches/janet-talk}"
-HEX="${JANET_TALK_HEX:-/Applications/Hex.app/Contents/MacOS/hex}"
+HEX_API="${JANET_TALK_HEX_API:-$HOME/Library/Application Support/hex/local-api.json}"
 KEYCHAIN_SERVICE="janet-voice"
 CONVERSATION_IDLE_S=90 # the head ends a conversation itself after 120 s without a turn
 VOICE_WAKE_WAIT_S="${JANET_TALK_WAKE_WAIT_S:-240}"
 RETRY_S="${JANET_TALK_RETRY_S:-5}"
+# A second press shorter than this is a tap: Janet then listens until the speaker stops.
+LATCH_MS="${JANET_TALK_LATCH_MS:-400}"
+END_OF_SPEECH_S="${JANET_TALK_END_OF_SPEECH_S:-1.3}"
+NO_SPEECH_S="${JANET_TALK_NO_SPEECH_S:-6}"
+MAX_LISTEN_S="${JANET_TALK_MAX_LISTEN_S:-45}"
 
 # shellcheck source=/dev/null
 [ -r "$CONFIG" ] && . "$CONFIG"
@@ -28,7 +34,7 @@ case "${1:-}" in
   start | stop)
     if [ -z "${JANET_TALK_DETACHED:-}" ]; then
       JANET_TALK_DETACHED=1 exec perl -MPOSIX -e 'fork and exit; setsid(); exec @ARGV' \
-        /bin/bash "$0" "$@" </dev/null >/dev/null 2>&1
+        /bin/bash "$0" "$@" </dev/null >/dev/null 2>>"$LOG"
     fi
     ;;
 esac
@@ -65,6 +71,63 @@ api() { # path, body file, extra curl args...
     printf 'header = "CF-Access-Client-Secret: %s"\n' "$CF_SECRET"
     printf 'header = "Authorization: Bearer %s"\n' "$HEAD_TOKEN"
   } | curl -sS -K - -X POST -H 'content-type: application/json' --data-binary "@$body" "$@" "$URL$path"
+}
+
+# --- Hex, over its local API ---------------------------------------------------------
+# A recording made this way is never pasted, and Hex reports the microphone level while it runs.
+
+hex() { # method, path, extra curl args...
+  local method="$1" path="$2" port token
+  shift 2
+  read -r port token < <(jq -r '"\(.port) \(.token)"' "$HEX_API" 2>/dev/null)
+  [ -n "${port:-}" ] || return 7
+  printf 'header = "Authorization: Bearer %s"\n' "$token" |
+    curl -sS -K - -X "$method" "$@" "http://127.0.0.1:$port$path" 2>/dev/null
+}
+
+# Starts a recording. Leaves "<id> <owner token> <start ms>" in the recording file.
+hex_start() {
+  local reply id owner
+  reply=$(hex POST /dictations --max-time 5 -H 'content-type: application/json' -d '{"source":"janet-talk"}') || return 1
+  id=$(printf '%s' "$reply" | jq -r '.id // empty' 2>/dev/null)
+  owner=$(printf '%s' "$reply" | jq -r '.ownerToken // empty' 2>/dev/null)
+  [ -n "$id" ] && [ -n "$owner" ] || return 1
+  (umask 077 && echo "$id $owner $(now_ms)" >"$STATE/recording.tmp" && mv "$STATE/recording.tmp" "$STATE/recording")
+  : >"$STATE/alive.$id"
+  # Hex drops a recording whose owner goes quiet for ten seconds.
+  (while [ -e "$STATE/alive.$id" ] && [ "$SECONDS" -lt 120 ]; do
+    sleep 3
+    hex POST "/dictations/$id/heartbeat" --max-time 3 -H "X-Hex-Dictation-Token: $owner" >/dev/null
+  done) &
+}
+
+hex_end() { # finish|cancel, id, owner -> prints the transcript for finish
+  local reply
+  rm -f "$STATE/alive.$2"
+  reply=$(hex POST "/dictations/$2/$1" --max-time 60 -H "X-Hex-Dictation-Token: $3") || return 1
+  [ "$1" = finish ] && printf '%s' "$reply" | jq -r '.transcript // empty' 2>/dev/null
+}
+
+# Returns when the speaker has stopped: speech was heard and then END_OF_SPEECH_S of quiet,
+# or nothing was said for NO_SPEECH_S, or MAX_LISTEN_S passed. The quiet level is whatever the
+# room turns out to be, so it needs no tuning per microphone. A second double tap ends it too.
+wait_for_end_of_speech() { # id, owner
+  hex GET "/dictations/$1/levels" -N --max-time "$MAX_LISTEN_S" -H "X-Hex-Dictation-Token: $2" |
+    END_S="$END_OF_SPEECH_S" NONE_S="$NO_SPEECH_S" STOP_FILE="$STATE/listening.stop" perl -MTime::HiRes=time -ne '
+      BEGIN { $start = $last = time; $quiet = 0; $loud = 0 }
+      next unless /"rmsDb":\s*(-?[\d.]+)/;
+      exit 0 if -e $ENV{STOP_FILE};                 # the key was pressed again
+      $level = $1; $now = time; $step = $now - $last; $last = $now;
+      push @heard, $level;
+      @sorted = sort { $a <=> $b } @heard;
+      # The quiet fifth of what was heard so far. A lowest value would not do: Hex reports
+      # near-total silence for an instant while the microphone opens.
+      $floor = $sorted[int($#sorted * 0.2)];
+      $loud += $step if $level > $floor + 10;
+      $speech = $loud >= 0.3;                       # a click or a cough is not speech
+      $quiet = $level < $floor + 6 ? $quiet + $step : 0;
+      exit 0 if $speech && $quiet >= $ENV{END_S};
+      exit 0 if !$speech && $now - $start >= $ENV{NONE_S};'
 }
 
 body() { # jq filter, jq args... -> path of a JSON body file
@@ -200,19 +263,25 @@ report_heard() { # turn dir
 # --- the two key events -------------------------------------------------------------
 
 start() {
-  local warm stopped
+  local warm stopped id owner
   [ -f "$LOG" ] && [ "$(wc -c <"$LOG")" -gt 1000000 ] && : >"$LOG"
   log "start"
+  # While Janet is listening after a double tap, another double tap means "that's it".
+  if ours "$STATE/listening.pid"; then
+    : >"$STATE/listening.stop"
+    log "listening ended by the key"
+    exit 0
+  fi
   # The microphone comes first: nothing below may delay the recording.
   stopped=$(stop_reply)
-  "$HEX" dictation start --raw >/dev/null 2>&1 || {
+  hex_start || {
     notify "Janet" "Hex is not running."
     exit 1
   }
-  : >"$STATE/recording"
   if ! load_secrets; then
-    "$HEX" dictation cancel >/dev/null 2>&1
+    read -r id owner _ <"$STATE/recording"
     rm -f "$STATE/recording"
+    hex_end cancel "$id" "$owner"
     notify "Janet" "Not set up: run the janet-mac install script."
     exit 1
   fi
@@ -226,6 +295,7 @@ start() {
 
 stop() {
   local released text status id dir file count=0 event="" line end="false" reply="" waited=0
+  local hex_id hex_owner began
   released=$(now_ms)
   log "released"
   # A quick tap can run this before `start` has begun the recording. Wait for it, briefly.
@@ -233,8 +303,28 @@ stop() {
     sleep 0.1
     waited=$((waited + 1))
   done
+  [ -e "$STATE/recording" ] || {
+    log "no recording to end"
+    exit 0
+  }
+  read -r hex_id hex_owner began <"$STATE/recording"
+  # A release whose own press never started a recording must not end the next press's one.
+  if [ $((began - released)) -gt 1000 ]; then
+    log "the recording belongs to a later press"
+    exit 0
+  fi
   rm -f "$STATE/recording"
-  text=$("$HEX" dictation stop --print 2>/dev/null)
+  if [ $((released - began)) -lt "$LATCH_MS" ]; then
+    # A tap, not a hold: listen until the speaker stops.
+    rm -f "$STATE/listening.stop"
+    echo $$ >"$STATE/listening.pid"
+    log "listening"
+    wait_for_end_of_speech "$hex_id" "$hex_owner"
+    rm -f "$STATE/listening.pid"
+    released=$(now_ms)
+    log "speaker stopped"
+  fi
+  text=$(hex_end finish "$hex_id" "$hex_owner")
   status=$?
   text=$(printf '%s' "$text" | tr '\n' ' ' | sed 's/^ *//; s/ *$//')
   log "transcript status $status after $(($(now_ms) - released)) ms"
