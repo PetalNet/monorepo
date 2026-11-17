@@ -44,7 +44,7 @@ class EscalationFilterTest(unittest.TestCase):
 
 
 class RoutedTurnTest(HeadCase):
-    overrides = {"router": True}
+    overrides = {"router": True, "hub_forks": False}
 
     def test_the_clock_is_answered_with_no_model_call(self):
         sentences, done = self.turn(self.open(), "what time is it")
@@ -86,6 +86,41 @@ class RoutedTurnTest(HeadCase):
     def test_guests_never_use_the_fast_lane(self):
         sentences, _ = self.turn(self.open("guest"), "who wrote dune")
         self.assertEqual(sentences[0], "You said who wrote dune.")
+
+
+class HubForkTest(HeadCase):
+    overrides = {"router": True}
+
+    def test_a_personal_conversation_uses_a_hub_fork_and_launches_no_local_fork(self):
+        conv = self.open()
+        sentences, done = self.turn(conv, "send me a note about today")
+        self.assertEqual(sentences, [router.FILLER, "Fork heard send me a note about today.", "That is the fork."])
+        self.assertEqual(done["latency_ms"]["route"], "fork")
+        self.assertTrue(self.hub.asks[-1]["stream"] and self.hub.asks[-1]["sentences"] and self.hub.asks[-1]["speaker"]["verified"])
+        self.assertFalse(any("--resume" in launch["argv"] for launch in self.launches()))
+
+    def test_the_warm_spare_is_claimed_and_replaced(self):
+        self.wait_for(lambda: len(self.hub.forks) == 1, "no warm fork was made")
+        self.open()
+        self.wait_for(lambda: len(self.hub.forks) == 2, "the spare was not replaced")
+
+    def test_ending_a_conversation_hard_merges_the_hub_fork_and_injects_nothing(self):
+        conv = self.open()
+        self.turn(conv, "send me a note")
+        self.end(conv)
+        self.assertIn(("hard", self.hub.asks[-1]["node"]), self.hub.fork_calls)
+        self.assertEqual(self.hub.accepted, [])
+
+    def test_a_fork_the_hub_has_parked_is_replaced_once(self):
+        conv = self.open()
+        self.wait_for(lambda: len(self.hub.forks) == 2, "the spare was not replaced")
+        self.hub.dead_forks.add(self.hub.asks[-1]["node"] if self.hub.asks else "f1")
+        sentences, _ = self.turn(conv, "send me a note")
+        self.assertEqual(sentences[-1], "That is the fork.")
+
+    def test_a_fork_turn_is_not_injected_into_main_at_all(self):
+        self.turn(self.open(), "who wrote dune")
+        self.assertEqual([m for m in self.hub.accepted if m["source"].startswith("voice-soft")], [])
 
 
 if __name__ == "__main__":
