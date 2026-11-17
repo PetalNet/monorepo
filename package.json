@@ -70,6 +70,7 @@
 			"apps/control-plane",
 			"apps/courier",
 			"apps/dispatcher",
+			"apps/fold-cards",
 			"apps/janet-desk",
 			"apps/manager",
 			"apps/point",
