@@ -72,6 +72,8 @@
 			"apps/dispatcher",
 			"apps/janet-desk",
 			"apps/janet-dictate",
+			"apps/janet-mac",
+			"apps/janet-voice-gateway",
 			"apps/manager",
 			"apps/point",
 			"tools/*"

@@ -1,0 +1,293 @@
+#!/bin/bash
+# Talk to Janet from a key: `janet-talk start` on key down, `janet-talk stop` on key up.
+# Records and transcribes through the local Hex app, sends the text to the voice head
+# through the voice gateway, shows the reply as a notification and plays it.
+# Nothing runs between presses.
+set -u
+
+CONFIG="${JANET_TALK_CONFIG:-$HOME/.config/janet-talk/config}"
+STATE="${JANET_TALK_STATE:-$HOME/Library/Caches/janet-talk}"
+HEX="${JANET_TALK_HEX:-/Applications/Hex.app/Contents/MacOS/hex}"
+KEYCHAIN_SERVICE="janet-voice"
+CONVERSATION_IDLE_S=90 # the head ends a conversation itself after 120 s without a turn
+VOICE_WAKE_WAIT_S="${JANET_TALK_WAKE_WAIT_S:-240}"
+RETRY_S="${JANET_TALK_RETRY_S:-5}"
+
+# shellcheck source=/dev/null
+[ -r "$CONFIG" ] && . "$CONFIG"
+URL="${JANET_VOICE_URL:-}"
+CHANNEL="${JANET_VOICE_CHANNEL:-mac}"
+
+mkdir -p "$STATE"
+LOG="$STATE/talk.log"
+
+now_ms() { perl -MTime::HiRes=time -e 'printf "%d\n", time * 1000'; }
+log() { echo "$(now_ms) $*" >>"$LOG"; }
+
+notify() { # title, text
+  osascript - "$1" "$2" >/dev/null 2>&1 <<'OSA' &
+on run argv
+  display notification (item 2 of argv) with title (item 1 of argv)
+end run
+OSA
+}
+
+secret() { security find-generic-password -s "$KEYCHAIN_SERVICE" -a "$1" -w 2>/dev/null; }
+
+load_secrets() {
+  local value
+  CF_ID=$(secret cf-access-client-id) && CF_SECRET=$(secret cf-access-client-secret) && HEAD_TOKEN=$(secret head-token) || return 1
+  [ -n "$URL" ] || return 1
+  # The values go into curl config lines. Tokens are made of these characters; anything else is refused.
+  for value in "$CF_ID" "$CF_SECRET" "$HEAD_TOKEN"; do
+    case "$value" in "" | *[!A-Za-z0-9._~+/=-]*) return 1 ;; esac
+  done
+}
+
+# Secrets reach curl on stdin, so they never show up in a process list.
+api() { # path, body file, extra curl args...
+  local path="$1" body="$2"
+  shift 2
+  {
+    printf 'header = "CF-Access-Client-Id: %s"\n' "$CF_ID"
+    printf 'header = "CF-Access-Client-Secret: %s"\n' "$CF_SECRET"
+    printf 'header = "Authorization: Bearer %s"\n' "$HEAD_TOKEN"
+  } | curl -sS -K - -X POST -H 'content-type: application/json' --data-binary "@$body" "$@" "$URL$path"
+}
+
+body() { # jq filter, jq args... -> path of a JSON body file
+  local file
+  file=$(mktemp "$STATE/body.XXXXXX")
+  jq -n "$@" >"$file"
+  echo "$file"
+}
+
+# True when the pid file names a live janet-talk process, not a stranger that reused the number.
+ours() { # pid file
+  local pid
+  [ -s "$1" ] || return 1
+  pid=$(cat "$1")
+  case "$(ps -p "$pid" -o command= 2>/dev/null)" in *janet-talk*) return 0 ;; esac
+  return 1
+}
+
+# --- conversation -----------------------------------------------------------------
+
+conversation_fresh() {
+  [ -s "$STATE/conversation" ] && [ -s "$STATE/conversation.used" ] &&
+    [ $(($(date +%s) - $(cat "$STATE/conversation.used"))) -lt "$CONVERSATION_IDLE_S" ]
+}
+
+open_conversation() {
+  local file id
+  if conversation_fresh; then return 0; fi
+  rm -f "$STATE/conversation"
+  file=$(body '{channel: $c, tier: "personal", client_ref: $r}' --arg c "$CHANNEL" --arg r "mac-$(now_ms)-$$")
+  id=$(api /v1/conversations "$file" --max-time 20 | jq -r '.id // empty' 2>/dev/null)
+  rm -f "$file"
+  [ -n "$id" ] || {
+    log "open failed"
+    return 1
+  }
+  date +%s >"$STATE/conversation.used"
+  echo "$id" >"$STATE/conversation.tmp" && mv "$STATE/conversation.tmp" "$STATE/conversation"
+  log "opened $id"
+}
+
+end_conversation() { # reason
+  local id file
+  [ -s "$STATE/conversation" ] || return 0
+  id=$(cat "$STATE/conversation")
+  rm -f "$STATE/conversation" "$STATE/conversation.used"
+  file=$(body '{reason: $v}' --arg v "$1")
+  api "/v1/conversations/$id/end" "$file" --max-time 30 >/dev/null 2>&1
+  rm -f "$file"
+}
+
+# --- speech -----------------------------------------------------------------------
+
+# Fetches one sentence's audio. The voice host may be asleep: the gateway then answers 503
+# after sending a wake packet, and this keeps asking until the voice is up or time runs out.
+# Any other failure, such as a transfer the gateway cut because the voice failed, is final.
+fetch_speech() { # turn dir, index
+  local dir="$1" i="$2" file code deadline announced=""
+  file=$(body '{text: $v}' --arg v "$(cat "$dir/$i.txt")")
+  deadline=$(($(date +%s) + VOICE_WAKE_WAIT_S))
+  while [ "$(date +%s)" -lt "$deadline" ]; do
+    if code=$(api /v1/tts "$file" --max-time 300 -o "$dir/$i.part" -w '%{http_code}'); then
+      if [ "$code" = 200 ] && [ -s "$dir/$i.part" ]; then
+        mv "$dir/$i.part" "$dir/$i.wav"
+        break
+      fi
+    fi
+    log "speech $i: http $code"
+    # 503 is a sleeping voice host and 000 is no answer at all; both are worth another try.
+    [ "$code" = 503 ] || [ "$code" = 000 ] || break
+    if [ "$code" = 503 ] && [ -z "$announced" ] && [ "$i" = 1 ]; then
+      announced=1
+      notify "Janet" "Waking the voice PC. I'll speak as soon as it's up."
+    fi
+    sleep "$RETRY_S"
+  done
+  [ -e "$dir/$i.wav" ] || : >"$dir/$i.failed"
+  rm -f "$file" "$dir/$i.part"
+}
+
+# Plays sentences in order as their audio arrives. Stops after the last one.
+play_turn() { # turn dir
+  local dir="$1" i=1 deadline=$((SECONDS + VOICE_WAKE_WAIT_S + 600))
+  sh -c 'echo $PPID' >"$dir/player.pid"
+  while [ "$SECONDS" -lt "$deadline" ]; do
+    if [ -e "$dir/$i.wav" ]; then
+      [ "$i" = 1 ] && log "first audio"
+      afplay "$dir/$i.wav"
+      echo "$i" >"$dir/played"
+      i=$((i + 1))
+    elif [ -e "$dir/$i.failed" ]; then
+      i=$((i + 1))
+    elif [ -e "$dir/count" ] && [ "$i" -gt "$(cat "$dir/count")" ]; then
+      break
+    else
+      sleep 0.05
+    fi
+  done
+}
+
+# Stops a reply that is still being fetched or played. Prints the directory of the stopped turn.
+stop_reply() {
+  local dir turn player playing fetching
+  ours "$STATE/turn.pid" || return 1
+  turn=$(cat "$STATE/turn.pid")
+  dir=$(cat "$STATE/turn.dir" 2>/dev/null)
+  player=$(cat "$dir/player.pid" 2>/dev/null)
+  # The player goes first, so it cannot move on to the next sentence when its afplay dies.
+  playing=$([ -n "$player" ] && pgrep -P "$player")
+  fetching=$(pgrep -P "$turn")
+  # shellcheck disable=SC2086
+  kill "$turn" $player $playing $fetching 2>/dev/null
+  rm -f "$STATE/turn.pid"
+  echo "$dir"
+}
+
+# Tells the head which sentences of the stopped reply were heard in full.
+report_heard() { # turn dir
+  local dir="$1" played heard="" i=1 file id
+  [ -n "$dir" ] && [ -s "$STATE/conversation" ] || return 0
+  played=$(cat "$dir/played" 2>/dev/null || echo 0)
+  while [ "$i" -le "$played" ]; do
+    heard="$heard$(cat "$dir/$i.txt") "
+    i=$((i + 1))
+  done
+  id=$(cat "$STATE/conversation")
+  file=$(body '{heard_text: $v}' --arg v "${heard% }")
+  api "/v1/conversations/$id/interrupt" "$file" --max-time 10 >/dev/null 2>&1
+  rm -f "$file"
+  log "barge-in after $played sentences"
+}
+
+# --- the two key events -------------------------------------------------------------
+
+start() {
+  local warm stopped
+  [ -f "$LOG" ] && [ "$(wc -c <"$LOG")" -gt 1000000 ] && : >"$LOG"
+  log "start"
+  # The microphone comes first: nothing below may delay the recording.
+  stopped=$(stop_reply)
+  "$HEX" dictation start --raw >/dev/null 2>&1 || {
+    notify "Janet" "Hex is not running."
+    exit 1
+  }
+  : >"$STATE/recording"
+  if ! load_secrets; then
+    "$HEX" dictation cancel >/dev/null 2>&1
+    rm -f "$STATE/recording"
+    notify "Janet" "Not set up: run the janet-mac install script."
+    exit 1
+  fi
+  [ -n "$stopped" ] && report_heard "$stopped"
+  # While Parker talks: get the conversation ready and start the voice loading.
+  open_conversation
+  warm=$(body '{text: "Hi."}')
+  api /v1/tts "$warm" --max-time 300 -o /dev/null >/dev/null 2>&1
+  rm -f "$warm"
+}
+
+stop() {
+  local released text status id dir file count=0 event="" line end="false" reply="" waited=0
+  released=$(now_ms)
+  log "released"
+  # A quick tap can run this before `start` has begun the recording. Wait for it, briefly.
+  while [ ! -e "$STATE/recording" ] && [ "$waited" -lt 20 ]; do
+    sleep 0.1
+    waited=$((waited + 1))
+  done
+  rm -f "$STATE/recording"
+  text=$("$HEX" dictation stop --print 2>/dev/null)
+  status=$?
+  text=$(printf '%s' "$text" | tr '\n' ' ' | sed 's/^ *//; s/ *$//')
+  log "transcript status $status after $(($(now_ms) - released)) ms"
+  if [ "$status" -ne 0 ] || [ -z "$text" ]; then
+    notify "Janet" "Didn't catch that."
+    exit 0
+  fi
+  load_secrets || exit 1
+  # `start` may still be opening the conversation.
+  waited=0
+  while ! conversation_fresh && [ "$waited" -lt 100 ]; do
+    sleep 0.1
+    waited=$((waited + 1))
+  done
+  conversation_fresh || open_conversation || {
+    notify "Janet" "Can't reach Janet."
+    exit 1
+  }
+  id=$(cat "$STATE/conversation")
+
+  dir=$(mktemp -d "$STATE/turn.XXXXXX")
+  echo "$dir" >"$STATE/turn.dir"
+  echo $$ >"$STATE/turn.pid"
+  play_turn "$dir" &
+  file=$(body '{text: $v}' --arg v "$text")
+  while IFS= read -r line; do
+    line=${line%$'\r'}
+    case "$line" in
+      "") event="" ;;
+      event:*) event=$(echo "${line#event:}" | tr -d ' ') ;;
+      data:*)
+        if [ "$event" = sentence ]; then
+          count=$((count + 1))
+          [ "$count" = 1 ] && log "first sentence after $(($(now_ms) - released)) ms"
+          printf '%s' "${line#data:}" | jq -r .text >"$dir/$count.txt"
+          reply="$reply$(cat "$dir/$count.txt") "
+          fetch_speech "$dir" "$count" &
+        elif [ "$event" = done ]; then
+          end=$(printf '%s' "${line#data:}" | jq -r .end_conversation)
+        fi
+        ;;
+    esac
+  done < <(api "/v1/conversations/$id/turns" "$file" -N --max-time 180)
+  rm -f "$file"
+  echo "$count" >"$dir/count"
+  date +%s >"$STATE/conversation.used"
+  if [ "$count" = 0 ]; then
+    notify "Janet" "Can't reach Janet."
+    rm -f "$STATE/conversation" "$STATE/conversation.used"
+  else
+    notify "Janet" "${reply% }"
+  fi
+  [ "$end" = true ] && end_conversation end_phrase &
+  wait
+  log "done after $(($(now_ms) - released)) ms"
+  rm -f "$STATE/turn.pid"
+  find "$STATE" -maxdepth 1 -name 'turn.*' -type d -mmin +10 -exec rm -rf {} + 2>/dev/null
+}
+
+case "${1:-}" in
+  start) start ;;
+  stop) stop ;;
+  end) load_secrets && end_conversation client_exit ;;
+  *)
+    echo "usage: janet-talk start|stop|end" >&2
+    exit 2
+    ;;
+esac
