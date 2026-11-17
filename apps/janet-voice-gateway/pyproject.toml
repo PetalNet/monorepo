@@ -1,0 +1,12 @@
+[project]
+name = "janet-voice-gateway"
+version = "0.1.0"
+description = "One authenticated HTTP door to the voice head and a Wyoming voice, with Wake-on-LAN"
+requires-python = ">=3.12"
+dependencies = []
+
+[project.scripts]
+janet-voice-gateway = "janet_voice_gateway:main"
+
+[tool.ruff]
+line-length = 120

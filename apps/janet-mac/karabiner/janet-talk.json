@@ -1,0 +1,30 @@
+{
+  "title": "Janet: one key for dictation and for talking to Janet",
+  "rules": [
+    {
+      "description": "Dictation key (F5): hold to dictate with Hex, double tap and hold to talk to Janet",
+      "manipulators": [
+        {
+          "type": "basic",
+          "from": { "key_code": "f5", "modifiers": { "optional": ["any"] } },
+          "conditions": [{ "type": "variable_if", "name": "janet_tap", "value": 1 }],
+          "to": [
+            { "set_variable": { "name": "janet_tap", "value": 0 } },
+            { "shell_command": "\"$HOME/.local/bin/janet-talk\" start" }
+          ],
+          "to_after_key_up": [{ "shell_command": "\"$HOME/.local/bin/janet-talk\" stop" }]
+        },
+        {
+          "type": "basic",
+          "from": { "key_code": "f5", "modifiers": { "optional": ["any"] } },
+          "to": [{ "set_variable": { "name": "janet_tap", "value": 1 } }, { "key_code": "f18" }],
+          "to_delayed_action": {
+            "to_if_invoked": [{ "set_variable": { "name": "janet_tap", "value": 0 } }],
+            "to_if_canceled": [{ "set_variable": { "name": "janet_tap", "value": 0 } }]
+          },
+          "parameters": { "basic.to_delayed_action_delay_milliseconds": 300 }
+        }
+      ]
+    }
+  ]
+}
