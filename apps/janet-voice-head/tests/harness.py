@@ -30,6 +30,10 @@ class FakeHub:
         self.transcript.parent.mkdir(parents=True)
         self.transcript.write_text("")
         self.accepted: list[dict] = []
+        self.forks: list[dict] = []
+        self.asks: list[dict] = []
+        self.fork_calls: list[tuple] = []
+        self.dead_forks: set[str] = set()
         self.drops_repeats = False
         self.max_text = 20000
         self.refuse_with: int | None = None
@@ -54,8 +58,34 @@ class FakeHub:
             def do_GET(self):
                 self._send(503 if hub.down else 200, {"ok": True, "inject_keys": hub.drops_repeats})
 
+            def _fork(self, body):
+                path = self.path
+                if path == "/fork":
+                    hub.forks.append(body)
+                    return self._send(200, {"ok": True, "node": f"f{len(hub.forks)}"})
+                if path == "/fork/interrupt":
+                    hub.fork_calls.append(("interrupt", body["node"]))
+                    return self._send(200, {"ok": True, "interrupted": True})
+                if path == "/fork/hard":
+                    hub.fork_calls.append(("hard", body["node"]))
+                    return self._send(200, {"ok": True})
+                hub.asks.append(body)
+                if body["node"] in hub.dead_forks:
+                    self.send_response(200)
+                    self.end_headers()
+                    return self.wfile.write(json.dumps({"done": {"ok": False, "error": "no live fork with that id"}}).encode() + b"\n")
+                said = body["text"].rsplit("Parker says: ", 1)[-1].splitlines()[-1]
+                self.send_response(200)
+                self.end_headers()
+                for sentence in (f"Fork heard {said}.", "That is the fork."):
+                    self.wfile.write(json.dumps({"sentence": sentence}).encode() + b"\n")
+                    self.wfile.flush()
+                self.wfile.write(json.dumps({"done": {"ok": True, "answer": "x"}}).encode() + b"\n")
+
             def do_POST(self):
                 body = json.loads(self.rfile.read(int(self.headers["Content-Length"])))
+                if self.path.startswith("/fork"):
+                    return self._fork(body)
                 hub.attempts += 1
                 if hub.down:
                     return self._send(503, {})

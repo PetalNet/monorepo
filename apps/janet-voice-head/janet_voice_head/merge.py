@@ -1,4 +1,5 @@
 import json
+from collections.abc import Callable
 import urllib.error
 import urllib.request
 from pathlib import Path
@@ -89,6 +90,42 @@ class Hub:
         if not body.get("ok"):
             raise HubRefused("hub refused the message: " + str(body.get("error", "")))
         return str(body.get("id"))
+
+
+    def fork_create(self, label: str, surface: str) -> str:
+        body = self._call("/fork", {"label": label, "surface": surface, "audience": "owner"})
+        if not body.get("ok"):
+            raise HubError("the hub would not create a fork: " + str(body.get("error", "")))
+        return str(body["node"])
+
+    def fork_ask(self, node: str, text: str, key: str, surface: str, on_sentence: Callable[[str], None], timeout: float = 120) -> dict:
+        """One streamed turn on a hub fork: each finished sentence goes to `on_sentence` as the fork writes it."""
+        request = urllib.request.Request(
+            self.url + "/fork/ask", method="POST",
+            data=json.dumps({"node": node, "text": text, "key": key, "stream": True, "sentences": True,
+                             "speaker": {"verified": True}, "surface": surface}).encode(),
+            headers={"Authorization": "Bearer " + self.token_file.read_text(encoding="utf-8").strip(), "content-type": "application/json"})
+        try:
+            with urllib.request.urlopen(request, timeout=timeout) as response:
+                for line in response:
+                    row = json.loads(line)
+                    if "sentence" in row:
+                        on_sentence(str(row["sentence"]))
+                    elif "done" in row:
+                        if not row["done"].get("ok"):
+                            raise HubRefused("fork ask failed: " + str(row["done"].get("error", "")))
+                        return row["done"]
+        except urllib.error.HTTPError as error:
+            raise HubError(f"hub /fork/ask: HTTP {error.code} {_error_text(error)}") from error
+        except (urllib.error.URLError, OSError, ValueError) as error:
+            raise HubError(f"hub /fork/ask: {getattr(error, 'reason', error)}") from error
+        raise HubError("hub /fork/ask ended without a done line")
+
+    def fork_interrupt(self, node: str) -> None:
+        self._call("/fork/interrupt", {"node": node})
+
+    def fork_hard(self, node: str) -> dict:
+        return self._call("/fork/hard", {"node": node})
 
 
 def _error_text(error: urllib.error.HTTPError) -> str:

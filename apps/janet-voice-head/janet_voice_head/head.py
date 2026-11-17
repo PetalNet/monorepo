@@ -9,6 +9,8 @@ from pathlib import Path
 from . import prompts
 from .conversation import Conversation, Exchange, Journal, TranscriptMark
 from .merge import Hub, HubError, HubRefused
+from . import router
+from .hubfork import ForkPool
 from .render import fallback_summary, hard_text, soft_text, stub_text
 from .session import LOCKED_FLAGS, ClaudeSession, SessionError, transcript_path
 from .speech import SIGN_OFF, SpeechStream, is_end_phrase
@@ -41,6 +43,11 @@ class Config:
     turn_timeout_s: float = 60
     max_open: int = 2
     unmerged_channels: list[str] = field(default_factory=list)
+    router: bool = False
+    hub_forks: bool = True
+    fast_model: str = "sonnet"
+    ha_url: str = ""
+    ha_token_file: str = ""
 
 
 @dataclass
@@ -51,6 +58,10 @@ class Live:
     last_activity: float = field(default_factory=time.monotonic)
     in_turn: bool = False
     cut_off: str | None = None
+    turning: object | None = None
+    hub_node: str | None = None
+    said_so_far: str = ""
+    unseen: list[tuple[str, str]] = field(default_factory=list)
     lock: threading.RLock = field(default_factory=threading.RLock)
     turn_lock: threading.Lock = field(default_factory=threading.Lock)
     end_lock: threading.Lock = field(default_factory=threading.Lock)
@@ -72,6 +83,9 @@ class Head:
         self._journals.mkdir(parents=True, exist_ok=True)
         (config.state_dir / "cold").mkdir(exist_ok=True)
         (config.state_dir / "fork").mkdir(exist_ok=True)
+        self._fast = router.FastLane(router.FastLane.argv(config.claude, config.fast_model), str(config.state_dir / "cold"), session_factory) if config.router else None
+        self._forks = ForkPool(config.hub) if config.router and config.hub_forks else None
+        self._home = router.HomeAssistant(config.ha_url, config.ha_token_file) if config.router and config.ha_url else None
         self._recover()
         threading.Thread(target=self._upkeep_loop, daemon=True).start()
 
@@ -83,10 +97,12 @@ class Head:
                 raise ApiError(429, "too many open conversations")
             conv_id = uuid.uuid4().hex[:12]
             journal = Journal(self._journals / f"{conv_id}.jsonl")
-            fork = tier == "personal"
+            via_hub = tier == "personal" and self._forks is not None
+            fork = tier == "personal" and not via_hub
             try:
                 fork_point = self.config.hub.transcript_mark() if fork else None
                 parent = self.config.hub.main_session() if fork else None
+                node = self._forks.claim(f"voice-desk {conv_id}") if via_hub else None
                 if parent:
                     self._expose_parent(parent)
             except HubError as error:
@@ -95,9 +111,12 @@ class Head:
                 raise ApiError(503, f"cannot link main's transcript: {error}") from error
             conv = journal.append(None, kind="opened", at=time.time(), id=conv_id, channel=channel, tier=tier,
                                   client_ref=client_ref, parent_session=parent)
-            live = Live(conv, journal)
+            live = Live(conv, journal, hub_node=node)
+            if node:
+                live.record(kind="hub_fork", node=node)
             try:
-                live.session = self._session_factory(self._argv(conv), self._cwd(conv), fork)
+                if not via_hub:
+                    live.session = self._session_factory(self._argv(conv), self._cwd(conv), fork)
             except OSError as error:
                 live.record(kind="ending", reason="session_failed_to_start")
                 raise ApiError(503, f"the head session did not start: {error}") from error
@@ -129,7 +148,7 @@ class Head:
                     emit("sentence", {"text": sentence})
                 except OSError:
                     client_connected = False
-                    live.session.interrupt()
+                    self._cut(live)
 
         try:
             with live.lock:
@@ -137,26 +156,18 @@ class Head:
                 number = len(live.conv.exchanges) + 1
                 previous_cut = live.conv.exchanges[-1].heard_before_cutoff if live.conv.exchanges else None
             stream, end, session = SpeechStream(), False, live.session
+            live.said_so_far = ""
             if is_end_phrase(text):
                 say(SIGN_OFF)
                 live.record(kind="sign_off", heard=text)
                 end = True
             else:
                 try:
-                    session.wait_ready(self.config.ready_timeout_s)
-                    latency["spawn_wait"] = _ms(started)
-                    fork = live.conv.tier == "personal"
-                    stream = SpeechStream(redact=None if fork else session.account_email)
-                    for delta in session.turn(prompts.turn_prompt(text, fork=fork, cut_off=previous_cut), self.config.turn_timeout_s):
-                        if latency["first_token"] is None:
-                            latency["first_token"] = _ms(started)
-                        for sentence in stream.feed(delta):
-                            say(sentence)
-                    for sentence in stream.finish():
-                        say(sentence)
+                    stream = self._answer(live, text, say, latency, started, previous_cut)
                 except SessionError as error:
                     log.warning("conversation %s: %s", conv_id, error)
                     end = True
+                    stream.text = live.said_so_far
                 relay = stream.relay
                 if latency["first_sentence"] is None and live.cut_off is None:
                     say(RELAYED if relay and not end else NO_ANSWER)
@@ -166,7 +177,7 @@ class Head:
                         live.record(kind="interrupted", n=number, heard_text=live.cut_off)
                     live.in_turn = False
                 self._note_session(live, None)
-                if self._merges(live) and live.conv.tier == "personal" and (relay or self.config.soft_merge == "every"):
+                if self._merges(live) and live.conv.tier == "personal" and live.hub_node is None and (relay or self.config.soft_merge == "every"):
                     threading.Thread(target=self._soft_merge, args=(live, number), daemon=True).start()
             with live.lock:
                 live.in_turn, live.last_activity = False, time.monotonic()
@@ -177,15 +188,122 @@ class Head:
                 except OSError:
                     pass
         finally:
-            live.in_turn = False
+            live.in_turn, live.turning = False, None
             live.turn_lock.release()
+
+    def _answer(self, live: Live, text: str, say: Callable[[str], None], latency: dict, started: float, previous_cut: str | None) -> SpeechStream:
+        """Speaks the reply to `text` through `say`. Returns the stream whose `spoken` and `relay` are recorded."""
+        fork = live.conv.tier == "personal"
+        lane = router.classify(text) if fork and self._fast is not None else "fork"
+        latency["route"] = lane
+        spoken: list[str] = []
+        if lane in ("clock", "home"):
+            local = router.clock_answer(text) if lane == "clock" else self._home.answer(text) if self._home else None
+            if local:
+                say(local)
+                return _said(local)
+            lane = "fork"
+        if lane == "fast":
+            try:
+                fast, escalated = self._fast_turn(live, text, say, latency, started)
+            except SessionError as error:
+                log.warning("conversation %s: the fast lane failed: %s", live.conv.id, error)
+                fast, escalated = _said(""), True
+            spoken.append(fast.spoken)
+            live.said_so_far = " ".join(spoken)
+            if not escalated:
+                live.unseen.append((text, fast.spoken))
+                return _said(" ".join(spoken))
+        elif fork and self._fast is not None:
+            say(router.FILLER)
+            spoken.append(router.FILLER)
+            live.said_so_far = router.FILLER
+        if live.hub_node:
+            stream = self._hub_turn(live, text, say, latency, started, previous_cut)
+            return self._after_fork(live, stream, spoken, say)
+        session = live.session
+        session.wait_ready(self.config.ready_timeout_s)
+        latency["spawn_wait"] = _ms(started)
+        stream = SpeechStream(redact=None if fork else session.account_email)
+        live.turning = session
+        prompt = prompts.turn_prompt(self._with_unseen(live, text) if fork else text, fork=fork, cut_off=previous_cut)
+        for delta in session.turn(prompt, self.config.turn_timeout_s):
+            if latency["first_token"] is None:
+                latency["first_token"] = _ms(started)
+            for sentence in stream.feed(delta):
+                say(sentence)
+        for sentence in stream.finish():
+            say(sentence)
+        return self._after_fork(live, stream, spoken, say)
+
+    def _after_fork(self, live: Live, stream: SpeechStream, spoken: list[str], say: Callable[[str], None]) -> SpeechStream:
+        live.unseen.clear()
+        if spoken and live.cut_off is None and not stream.spoken:
+            say(RELAYED if stream.relay else NO_ANSWER)
+            spoken.append(RELAYED if stream.relay else NO_ANSWER)
+        if spoken:
+            stream.text = " ".join(spoken) + " " + stream.text
+        return stream
+
+    def _hub_turn(self, live: Live, text: str, say: Callable[[str], None], latency: dict, started: float, previous_cut: str | None) -> SpeechStream:
+        stream = SpeechStream()
+        prompt = prompts.hub_prompt(self._with_unseen(live, text), cut_off=previous_cut)
+
+        def on_sentence(sentence: str) -> None:
+            if latency["first_token"] is None:
+                latency["first_token"] = _ms(started)
+            for out in stream.feed(sentence + " "):
+                say(out)
+
+        self._forks.ready(live.hub_node)
+        for attempt in (1, 2):
+            try:
+                self.config.hub.fork_ask(live.hub_node, prompt, uuid.uuid4().hex, self._forks.surface, on_sentence, timeout=self.config.turn_timeout_s)
+                self._forks.touched(live.hub_node)
+                break
+            except HubRefused as error:
+                # The hub parks an idle fork; a conversation that outlived its fork gets a new one.
+                if attempt == 2 or "no live fork" not in str(error) or stream.text:
+                    raise SessionError(str(error)) from error
+                live.hub_node = self._forks.replace(f"voice-desk {live.conv.id}", live.hub_node)
+                self._forks.ready(live.hub_node)
+                live.record(kind="hub_fork", node=live.hub_node)
+            except HubError as error:
+                raise SessionError(str(error)) from error
+        for out in stream.finish():
+            say(out)
+        return stream
+
+    def _fast_turn(self, live: Live, text: str, say: Callable[[str], None], latency: dict, started: float) -> tuple[SpeechStream, bool]:
+        lane, mark, stream = self._fast, router.EscalationFilter(), SpeechStream()
+        with lane.turn_lock:
+            session = lane.session
+            session.wait_ready(self.config.ready_timeout_s)
+            live.turning = session
+            for delta in session.turn(prompts.fast_prompt(text), self.config.turn_timeout_s):
+                if latency["first_token"] is None:
+                    latency["first_token"] = _ms(started)
+                for sentence in stream.feed(mark.feed(delta)):
+                    say(sentence)
+            for sentence in stream.feed(mark.finish()) + stream.finish():
+                say(sentence)
+            lane.retire_if_old()
+            live.turning = None
+        return stream, mark.escalated
+
+    @staticmethod
+    def _with_unseen(live: Live, text: str) -> str:
+        if not live.unseen:
+            return text
+        earlier = " ".join(f'Parker said "{heard}" and the fast thread answered "{said}".' for heard, said in live.unseen)
+        return f"{text}\n[Earlier in this call, answered without you: {earlier}]"
 
     def interrupt(self, conv_id: str, heard_text: str) -> None:
         live = self._open_live(conv_id)
         with live.lock:
             if live.in_turn:
                 live.cut_off = heard_text
-                live.session.interrupt()
+                self._cut(live)
             elif live.conv.exchanges:
                 live.record(kind="interrupted", n=live.conv.exchanges[-1].n, heard_text=heard_text)
             live.last_activity = time.monotonic()
@@ -211,9 +329,22 @@ class Head:
 
     def close(self) -> None:
         self._stop.set()
+        if self._fast is not None:
+            self._fast.close()
         for live in list(self._lives.values()):
             if live.session is not None:
                 live.session.close()
+
+    def _cut(self, live: Live) -> None:
+        if live.turning is not None:
+            live.turning.interrupt()
+        elif live.hub_node:
+            try:
+                self.config.hub.fork_interrupt(live.hub_node)
+            except HubError as error:
+                log.warning("conversation %s: could not interrupt the fork: %s", live.conv.id, error)
+        elif live.session is not None:
+            live.session.interrupt()
 
     def _live(self, conv_id: str) -> Live:
         live = self._lives.get(conv_id)
@@ -248,6 +379,8 @@ class Head:
 
     def _note_session(self, live: Live, fork_point: TranscriptMark | None) -> None:
         session = live.session
+        if session is None:
+            return
         if fork_point is not None:
             try:
                 session.wait_ready(self.config.ready_timeout_s)
@@ -306,7 +439,9 @@ class Head:
     def _merge(self, live: Live) -> None:
         with live.merge_lock:
             if live.conv.state == "ending":
-                if not live.conv.exchanges:
+                if live.hub_node:
+                    self._hub_merge(live)
+                elif not live.conv.exchanges:
                     live.record(kind="merged", delivery="nothing to deliver")
                 elif not self._merges(live):
                     live.record(kind="merged", delivery="channel is not merged")
@@ -319,6 +454,11 @@ class Head:
                     self._send_hard(live, key)
             if live.conv.state == "merged":
                 live.record(kind="archived")
+
+    def _hub_merge(self, live: Live) -> None:
+        if self._forks is not None and live.hub_node and not live.conv.delivered:
+            self._forks.release(live.hub_node)
+        live.record(kind="merged", delivery=f"the hub merges fork {live.hub_node}")
 
     def _send_hard(self, live: Live, key: str) -> None:
         path = live.journal.path
@@ -342,7 +482,7 @@ class Head:
             conv = journal.load()
             if conv is None:
                 continue
-            live = self._lives[conv.id] = Live(conv, journal)
+            live = self._lives[conv.id] = Live(conv, journal, hub_node=conv.hub_node)
             if conv.client_ref:
                 self._by_ref[conv.client_ref] = conv.id
             if conv.state == "open":
@@ -372,6 +512,12 @@ class Head:
                 self._merge(live)
             finally:
                 live.end_lock.release()
+
+
+def _said(text: str) -> SpeechStream:
+    stream = SpeechStream()
+    stream.text = text
+    return stream
 
 
 def _ms(started: float) -> int:

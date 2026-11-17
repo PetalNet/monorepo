@@ -138,3 +138,16 @@ server between the hub's accept and the journal write. Run them from this direct
 ```sh
 python -m unittest discover -s tests -t .
 ```
+
+## Router (personal tier, `router = true`)
+
+Not every turn needs a fork. With `router = true`, each personal turn is routed by rules first, after PetalNet/janet-mini (`wayfinder/tickets/which-models.md`, `when-fast-janet-passes-a-question-up.md`, `templates/fast-CLAUDE.md`):
+
+| Route | Takes | Model | First sentence (measured) |
+| :-- | :-- | :-- | :-- |
+| clock | "what time is it", the date | none | about 0 s |
+| home | lights, timers, "is X on", weather, via Home Assistant's own intents (`ha_url`, `ha_token_file`); no intent falls through to fast | none | 0.04 s |
+| fast | quick chat and facts | one warm session shared by every personal conversation (`fast_model`, default sonnet, low effort), streaming | 0.5 to 0.8 s |
+| fork | what Parker told Janet, his work, actions, sending (keyword rules), or when the fast session begins its reply with `<escalate/>` plus one acknowledgment sentence | the conversation's fork of main, started at open | filler at once, first fork sentence about 3 s |
+
+The fork is told what was answered without it on its next turn. Guests and rooms never use the lanes. With `router = false` every turn goes to the fork, as before.
