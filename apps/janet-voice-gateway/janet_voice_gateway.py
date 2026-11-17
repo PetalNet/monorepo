@@ -17,7 +17,19 @@ from urllib.parse import urlsplit
 __version__ = "0.1.0"
 
 MAX_BODY = 64 * 1024
-_HEAD_PATH = re.compile(r"/v1/conversations(/[0-9a-f]{12}/(turns|interrupt|end))?")
+_CONVERSATION = re.compile(r"/v1/conversations/([0-9a-f]{12})/(turns|interrupt|end)")
+_ACTIONS = {"turns": "turns", "interrupt": "interrupt", "end": "end"}
+
+
+def head_path(path: str) -> str | None:
+    """The head route a request path names, rebuilt from its checked parts; None for any other path."""
+    if path == "/v1/conversations":
+        return "/v1/conversations"
+    match = _CONVERSATION.fullmatch(path)
+    if match is None:
+        return None
+    # The id is re-rendered from its numeric value, so nothing the caller typed is sent on.
+    return f"/v1/conversations/{int(match[1], 16):012x}/{_ACTIONS[match[2]]}"
 
 
 class VoiceAsleep(Exception):
@@ -187,8 +199,9 @@ class Handler(BaseHTTPRequestHandler):
             return self._json(200, {"sent": True})
         if self.path == "/v1/tts":
             return self._tts(body)
-        if _HEAD_PATH.fullmatch(self.path):
-            return self._to_head(body)
+        route = head_path(self.path)
+        if route is not None:
+            return self._to_head(route, body)
         self._json(404, {"error": "not found"})
 
     def _tts(self, body: bytes) -> None:
@@ -216,19 +229,20 @@ class Handler(BaseHTTPRequestHandler):
         except OSError:
             self._abort_stream()
 
-    def _to_head(self, body: bytes) -> None:
+    def _to_head(self, route: str, body: bytes) -> None:
         url = urlsplit(self.head)
         upstream = http.client.HTTPConnection(url.hostname, url.port, timeout=180)
         try:
-            # The caller's own token goes through, so the head checks it a second time.
-            upstream.request("POST", self.path, body=body, headers={
+            # The caller's own header goes through, so the head checks the token a second time.
+            upstream.request("POST", route, body=body, headers={
                 "Authorization": self.headers.get("Authorization", ""), "content-type": "application/json"})
             response = upstream.getresponse()
-            content_type = response.getheader("content-type", "application/json")
-            if response.status != 200 or not content_type.startswith("text/event-stream"):
+            streaming = response.getheader("content-type", "").startswith("text/event-stream")
+            if response.status != 200 or not streaming:
                 data = response.read()
                 self.send_response(response.status)
-                self.send_header("content-type", content_type)
+                # The head answers JSON on every route but a turn. Its header is not copied.
+                self.send_header("content-type", "application/json")
                 self.send_header("content-length", str(len(data)))
                 self.end_headers()
                 self.wfile.write(data)
@@ -236,7 +250,7 @@ class Handler(BaseHTTPRequestHandler):
         except OSError as error:
             upstream.close()
             return self._json(502, {"error": f"the voice head is unreachable: {error}"})
-        self._start_stream(content_type)
+        self._start_stream("text/event-stream")
         try:
             while line := response.fp.readline():
                 self._chunk(line)

@@ -24,11 +24,9 @@ STUBS = {
     # The transcript and exit status come from files the test writes.
     "hex": '#!/usr/bin/env bash\necho "$*" >>"$STUB/hex.log"\n'
     'if [ "$2" = stop ]; then cat "$STUB/transcript"; exit "$(cat "$STUB/hex-status")"; fi\n',
-    "security": '#!/usr/bin/env bash\ncase "$5" in cf-access-client-id) echo cf-id;; cf-access-client-secret) echo '
-    + CF_SECRET
-    + ";; head-token) echo "
-    + fakes.TOKEN
-    + ";; esac\n",
+    # The secrets come from the test's environment, so none is written to disk.
+    "security": '#!/usr/bin/env bash\ncase "$5" in cf-access-client-id) echo cf-id;; '
+    'cf-access-client-secret) echo "$STUB_CF_SECRET";; head-token) echo "$STUB_HEAD_TOKEN";; esac\n',
     # Appends the audio it was asked to play, then takes as long as the test says.
     "afplay": '#!/usr/bin/env bash\ntail -c +45 "$1" >>"$STUB/played"; echo >>"$STUB/played"\n'
     'sleep "$(cat "$STUB/afplay-seconds")"\n',
@@ -64,7 +62,9 @@ class TalkCase(unittest.TestCase):
         self.addCleanup(lambda: self.voice and self.voice.shutdown())
 
         port = fakes.closed_port().rpartition(":")[2]
-        (self.root / "token").write_text(fakes.TOKEN + "\n")
+        token_file = self.root / "token"
+        token_file.touch(mode=0o600)
+        token_file.write_text(fakes.TOKEN + "\n")
         (self.root / "gateway.toml").write_text(
             f'listen = ["127.0.0.1:{port}"]\ntoken_file = "{self.root / "token"}"\nhead = "{self.head.url}"\n'
             f'[voice]\nwyoming = "{self.voice_address}"\nname = "janet"\nmac = "{fakes.MAC}"\n'
@@ -82,6 +82,8 @@ class TalkCase(unittest.TestCase):
             "PATH": f"{self.stub}:{os.environ['PATH']}",
             "STUB": str(self.stub),
             "REAL_CURL": real_curl,
+            "STUB_CF_SECRET": CF_SECRET,
+            "STUB_HEAD_TOKEN": fakes.TOKEN,
             "JANET_TALK_CONFIG": str(self.root / "config"),
             "JANET_TALK_STATE": str(self.root / "state"),
             "JANET_TALK_HEX": str(self.stub / "hex"),
