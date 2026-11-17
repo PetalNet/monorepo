@@ -70,6 +70,7 @@
 			"apps/control-plane",
 			"apps/courier",
 			"apps/dispatcher",
+			"apps/janet-desk",
 			"apps/janet-voice-head",
 			"apps/manager",
 			"apps/point",

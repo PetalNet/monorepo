@@ -55,7 +55,7 @@
 			: { from: startDeg + geometry.lockout.from, sweep: geometry.lockout.sweep },
 	);
 	const name = $derived(
-		`${reading.window.agent} ${reading.window.span === "5-hour" ? "5h" : "7d"}`,
+		`${reading.window.agent}${reading.window.model ? ` ${reading.window.model}` : ""} ${reading.window.span === "5-hour" ? "5h" : "7d"}`,
 	);
 	const at = (epoch: number) =>
 		new Intl.DateTimeFormat(
@@ -66,7 +66,7 @@
 		).format(epoch);
 	const spoken = $derived(
 		[
-			`${reading.window.agent} ${reading.window.span}: ${String(Math.round(reading.usedPct ?? 0))}% used`,
+			`${reading.window.agent}${reading.window.model ? ` ${reading.window.model}` : ""} ${reading.window.span}: ${String(Math.round(reading.usedPct ?? 0))}% used`,
 			reading.runsOutAt === null ? null : `runs out ${at(reading.runsOutAt)}`,
 			reading.resetsAt === null ? null : `resets ${at(reading.resetsAt)}`,
 		]

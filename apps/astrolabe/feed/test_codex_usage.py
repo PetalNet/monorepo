@@ -20,7 +20,7 @@ for _ in range(3):
 os.write(1, b'{{"id":1,"result":{{}}}}\\n'
             b'{{"id":2,"result":{{"rateLimits":{{"primary":{{"usedPercent":42,'
             b'"windowDurationMins":10080,"resetsAt":1793774155}},"secondary":null,'
-            b'"credits":{{"balance":"12.5"}},"planType":"prolite",'
+            b'"credits":{{"hasCredits":true,"balance":"12.5"}},"planType":"prolite",'
             b'"rateLimitReachedType":null}}}}}}\\n')
 time.sleep(60)
 """
@@ -42,6 +42,7 @@ class LiveReadTest(unittest.TestCase):
         snap = json.loads(out)
         self.assertEqual(snap["seven_day_pct"], 42.0)
         self.assertEqual(snap["credits_balance"], 12.5)
+        self.assertIs(snap["has_credits"], True)
         self.assertEqual(snap["snapshot_age_sec"], 0)
         self.assertLess(elapsed, 10)
 

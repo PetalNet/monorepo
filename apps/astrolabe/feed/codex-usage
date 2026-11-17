@@ -8,7 +8,8 @@
 #
 # --json : print a compact machine-readable snapshot (for astrolabe / dashboards)
 #          { five_hour_pct, five_hour_resets_at, seven_day_pct, seven_day_resets_at,
-#            plan, scraped_at, snapshot_age_sec, credits_balance, rate_limit_reached_type }
+#            plan, scraped_at, snapshot_age_sec, credits_balance, has_credits,
+#            rate_limit_reached_type }
 #          seven_day_pct is null when OpenAI hasn't reported the weekly window.
 import json, glob, os, sys, time
 
@@ -94,7 +95,8 @@ def live_rate_limits():
                               'resets_at': w.get('resetsAt')}
             return {
                 'primary': win(rl.get('primary')), 'secondary': win(rl.get('secondary')),
-                'credits': {'balance': (rl.get('credits') or {}).get('balance')},
+                'credits': {'balance': (rl.get('credits') or {}).get('balance'),
+                            'has_credits': (rl.get('credits') or {}).get('hasCredits')},
                 'plan_type': rl.get('planType'),
                 'rate_limit_reached_type': rl.get('rateLimitReachedType'),
             }
@@ -164,6 +166,8 @@ def emit_json():
         'snapshot_age_sec': int(now - mtime) if mtime else None,
         'awaiting': False,
         'credits_balance': _num((rl.get('credits') or {}).get('balance')),
+        # OpenAI's own word that credits are carrying requests past a full window.
+        'has_credits': (rl.get('credits') or {}).get('has_credits'),
         # Set only when a limit has actually stopped requests; at 100% with credits it stays null.
         'rate_limit_reached_type': rl.get('rate_limit_reached_type'),
     }
