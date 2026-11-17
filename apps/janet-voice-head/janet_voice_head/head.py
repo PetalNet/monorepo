@@ -257,13 +257,14 @@ class Head:
 
         for attempt in (1, 2):
             try:
-                self.config.hub.fork_ask(live.hub_node, prompt, uuid.uuid4().hex, self._forks.surface, on_sentence)
+                self.config.hub.fork_ask(live.hub_node, prompt, uuid.uuid4().hex, self._forks.surface, on_sentence, timeout=self.config.turn_timeout_s)
+                self._forks.touch(live.hub_node)
                 break
             except HubRefused as error:
                 # The hub parks an idle fork; a conversation that outlived its fork gets a new one.
                 if attempt == 2 or "no live fork" not in str(error) or stream.text:
                     raise SessionError(str(error)) from error
-                live.hub_node = self._forks.fresh(f"voice-desk {live.conv.id}")
+                live.hub_node = self._forks.replace(f"voice-desk {live.conv.id}", live.hub_node)
                 live.record(kind="hub_fork", node=live.hub_node)
             except HubError as error:
                 raise SessionError(str(error)) from error
@@ -453,13 +454,7 @@ class Head:
                 live.record(kind="archived")
 
     def _hub_merge(self, live: Live) -> None:
-        if not live.conv.exchanges:
-            live.record(kind="merged", delivery="nothing to deliver")
-        elif not self._merges(live):
-            live.record(kind="merged", delivery="channel is not merged")
-        else:
-            self.config.hub.fork_hard(live.hub_node)
-            live.record(kind="merged", delivery=f"hub fork {live.hub_node} hard merge")
+        live.record(kind="merged", delivery=f"the hub merges fork {live.hub_node}")
 
     def _send_hard(self, live: Live, key: str) -> None:
         path = live.journal.path
@@ -483,7 +478,7 @@ class Head:
             conv = journal.load()
             if conv is None:
                 continue
-            live = self._lives[conv.id] = Live(conv, journal)
+            live = self._lives[conv.id] = Live(conv, journal, hub_node=conv.hub_node)
             if conv.client_ref:
                 self._by_ref[conv.client_ref] = conv.id
             if conv.state == "open":
@@ -498,8 +493,6 @@ class Head:
                     log.warning("conversation %s: %s", live.conv.id, error)
                 except Exception:
                     log.exception("conversation %s: upkeep failed", live.conv.id)
-            if self._forks is not None:
-                self._forks.maintain()
             if self._stop.wait(2):
                 return
 

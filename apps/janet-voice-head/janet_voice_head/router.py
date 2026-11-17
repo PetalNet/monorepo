@@ -33,7 +33,7 @@ _STRONG = re.compile(
     r"|save|note that|look up|search|check my|projects?|status|working on|yesterday|last (week|night)|earlier|due|deadline|assignment|homework|exam|class(es)?)\b", re.I)
 _PERSONAL = re.compile(r"\b(my|we|our|ours|i (have|had|did|told|said|need|should)|do i|am i|who is my|where did i)\b", re.I)
 _LOCAL_WORDS = re.compile(
-    r"\b(turn (on|off)|switch (on|off)|lights?|lamp|timer|alarm|thermostat|temperature|volume|locked?|unlock|is the .+ (on|off|open|closed)"
+    r"\b(turn (on|off)|switch (on|off)|lights?|lamp|timer|alarm|thermostat|temperature|volume|locked?|unlock|is the [\w ]{1,30} (on|off|open|closed)\W*$"
     r"|set (a|the)|how (hot|cold|warm)|weather)\b", re.I)
 _CLOCK = re.compile(r"^\W*(?:hey janet\W+)?(?:what(?:'s| is)? (?:the )?time(?: is it)?(?: now| right now)?|what time is it(?: now| right now)?|what(?:'s| is) the date(?: today)?|what day is it(?: today)?)\W*$", re.I)
 

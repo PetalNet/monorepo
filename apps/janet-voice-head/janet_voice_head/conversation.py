@@ -52,6 +52,7 @@ class Conversation:
     delivery: str | None = None
     delivered: bool = False
     exchanges: list[Exchange] = field(default_factory=list)
+    hub_node: str | None = None
 
     def exchange(self, n: int) -> Exchange | None:
         return next((x for x in self.exchanges if x.n == n), None)
@@ -66,6 +67,8 @@ def apply(conv: Conversation | None, record: dict) -> Conversation:
     assert conv is not None, "a journal starts with its opened record"
     if kind == "session":
         conv.session_id, conv.fork_point, conv.transcript = record["session_id"], _mark(record.get("fork_point")), record.get("transcript")
+    elif kind == "hub_fork":
+        conv.hub_node = record["node"]
     elif kind == "exchange":
         conv.exchanges.append(Exchange(n=record["n"], heard=record["heard"], said=record["said"],
                                        asks=record.get("asks", []), commitments=record.get("commitments", [])))

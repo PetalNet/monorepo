@@ -99,22 +99,27 @@ class HubForkTest(HeadCase):
         self.assertTrue(self.hub.asks[-1]["stream"] and self.hub.asks[-1]["sentences"] and self.hub.asks[-1]["speaker"]["verified"])
         self.assertFalse(any("--resume" in launch["argv"] for launch in self.launches()))
 
-    def test_the_warm_spare_is_claimed_and_replaced(self):
-        self.wait_for(lambda: len(self.hub.forks) == 1, "no warm fork was made")
-        self.open()
-        self.wait_for(lambda: len(self.hub.forks) == 2, "the spare was not replaced")
+    def test_conversations_close_together_share_one_warm_fork(self):
+        first = self.open()
+        self.turn(first, "send me a note")
+        self.end(first)
+        second = self.open()
+        self.turn(second, "send me another note")
+        self.assertEqual(len(self.hub.forks), 1)
+        self.assertEqual(self.hub.asks[-1]["node"], self.hub.asks[0]["node"])
+        self.assertEqual(self.hub.asks[0]["text"].count("Warm-up"), 1)
 
-    def test_ending_a_conversation_hard_merges_the_hub_fork_and_injects_nothing(self):
+    def test_the_head_never_merges_a_hub_fork_or_injects_into_main(self):
         conv = self.open()
         self.turn(conv, "send me a note")
         self.end(conv)
-        self.assertIn(("hard", self.hub.asks[-1]["node"]), self.hub.fork_calls)
+        self.assertEqual([call for call in self.hub.fork_calls if call[0] == "hard"], [])
         self.assertEqual(self.hub.accepted, [])
 
     def test_a_fork_the_hub_has_parked_is_replaced_once(self):
         conv = self.open()
-        self.wait_for(lambda: len(self.hub.forks) == 2, "the spare was not replaced")
-        self.hub.dead_forks.add(self.hub.asks[-1]["node"] if self.hub.asks else "f1")
+        self.wait_for(lambda: self.hub.asks, "the fork was not warmed")
+        self.hub.dead_forks.add("f1")
         sentences, _ = self.turn(conv, "send me a note")
         self.assertEqual(sentences[-1], "That is the fork.")
 
