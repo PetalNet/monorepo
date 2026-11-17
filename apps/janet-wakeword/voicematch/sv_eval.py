@@ -7,6 +7,17 @@ import json, collections, numpy as np
 from common import PRIV
 OWNER = os.environ["JANET_WW_OWNER"]
 rows = json.loads((PRIV / "sv_rows.json").read_text()); E = np.load(PRIV / "sv_embeddings.npz")
+import sys
+# Quality rule, same for every speaker: real speech has >= 1.5 words/s and isn't a Whisper loop over noise
+# (unique-word ratio >= 0.4). '--raw' keeps everything.
+seg = {r["file"]: r for r in json.loads((PRIV / "sv_segments.json").read_text())}
+def ok(r):
+    s = seg.get(r["file"]);  w = s and s.get("words")
+    return s is None or (w is not None and len(w) / s["sec"] >= 1.5 and len(set(w)) / max(1, len(w)) >= 0.4)
+EXCL = set(a for a in sys.argv[1:] if not a.startswith("--"))  # sensitivity: drop named notes
+keep = np.array([(True if "--raw" in sys.argv else ok(r)) and r.get("note") not in EXCL for r in rows])
+rows = [r for r, k in zip(rows, keep) if k]; E = {k: E[k][keep] for k in E.files}
+print("segments kept", int(keep.sum()), "of", len(keep), "by speaker:", dict(collections.Counter(r["spk"] for r in rows if not r["spk"].startswith("libri"))))
 spk = np.array([r["spk"] for r in rows]); split = np.array([r["split"] for r in rows])
 libri = sorted({s for s in spk if s.startswith("libri_")}); lib_cohort, lib_test = set(libri[:20]), set(libri[20:])
 def eer(tar, non):
@@ -15,7 +26,7 @@ def eer(tar, non):
     return float((fr[i] + fa[i]) / 2 * 100), float(s[o][i])
 def thr_at_far(non, far): return float(np.quantile(non, 1 - far))
 out = {}
-for emb in E.files:
+for emb in E:
     X = E[emb]; X = X / np.linalg.norm(X, axis=1, keepdims=True)
     m = lambda cond: X[cond]
     enroll = m((spk == OWNER) & (split == "train")); c = enroll.mean(0); c /= np.linalg.norm(c)
@@ -49,4 +60,4 @@ for emb in E.files:
             r["clone_vs_owner_EER_%"] = round(eer(st, sc)[0], 1)  # can the score tell real owner from clone at all?
         if len(ctrl): r["control_clones_accepted_as_owner_at_EER_%"] = round(float((f(ctrl) >= t_eer).mean() * 100), 1)
         out[f"{emb}/{bname}"] = r
-(PRIV / "sv_results.json").write_text(json.dumps(out, indent=1)); print(json.dumps(out, indent=1))
+(PRIV / ("sv_results_raw.json" if "--raw" in sys.argv else "sv_results_excl.json" if EXCL else "sv_results.json")).write_text(json.dumps(out, indent=1)); print(json.dumps(out, indent=1))

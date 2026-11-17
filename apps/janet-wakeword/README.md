@@ -93,3 +93,38 @@ single clip's score swings with where the 80 ms frame grid lands.
 The model is the same graph as the deployed one, so `wyoming-openwakeword` loads it as
 is. Limits: all 24 real takes come from one recording session on one microphone, and the
 held-out notes contain only one "hey Janet", so recall in other rooms is unmeasured.
+
+## Voice match (`voicematch/`)
+
+The same voice notes also give a speaker-verification test of the owner, the "voice match"
+in `docs/janet-voice/SPEC.md`. Pipeline: `sv_segments.py` cuts notes into 2-6 s speech
+segments from the word timestamps; `sv_clones.py` makes the attack set; `sv_embed.py`
+embeds everything with WeSpeaker ResNet-293-LM (ONNX) and SpeechBrain ECAPA-TDNN;
+`sv_eval.py` scores four backends; `sv_watermark.py` checks Chatterbox's Perth watermark;
+`sv_export.py` writes the chosen model.
+
+Enrollment and every trained backend use train-split notes only. Target trials are 136
+held-out segments of the owner. Non-target trials are 782 segments: another speaker
+recorded on the same phone channel, plus 20 LibriSpeech test-clean speakers never used as
+cohort. A quality rule drops segments that aren't speech (Whisper loops over noise), the
+same rule for every speaker.
+
+| Encoder, backend, segment length | EER | EER vs same-channel speaker | miss rate at 1% false accept |
+| --- | --- | --- | --- |
+| WeSpeaker ResNet-293, cosine to enrollment mean, up to 6 s | 9.6% | 11.7% | 22.1% |
+| WeSpeaker ResNet-293, AS-norm, up to 6 s | 4.4% | 5.1% | 5.1% |
+| WeSpeaker ResNet-293, logistic backend, up to 6 s | 2.9% | 5.1% | 5.1% |
+| ECAPA-TDNN, logistic backend, up to 6 s | 4.4% | 5.1% | 5.9% |
+| WeSpeaker ResNet-293, logistic backend, 2 s | 6.6% | 6.6% | 10.3% |
+
+One held-out note probably contains a second voice; without it the best EER is 2.1%.
+
+**Clone attack.** Chatterbox Turbo, given 8-12 s of the owner's held-out audio, said ordinary
+requests ("approve the payment...") in his voice. The best plain backend accepted 71% of
+the 120 clones at its EER threshold, and 61% even at the 1% false-accept threshold. Training
+the backend with clones made from other references cut that to 55% and 21%, but that only
+helps against the generator it was trained on. Chatterbox's Perth watermark flagged 100% of
+the clones, still 100% after a 24 kbps Opus re-encode, and none of the owner's real speech.
+A different TTS, or a build with the watermark removed, carries no watermark.
+
+So voice match can decide a trust tier, as the spec says, and must never approve money.

@@ -21,7 +21,8 @@ for spk_dir in sorted((PRIV / "voicenotes").iterdir()):
                 seg_e = min(e, s + 6.0); y = x[int(s * 16000):int(seg_e * 16000)]
                 if len(y) >= 32000:
                     d = OUT / spk; d.mkdir(parents=True, exist_ok=True); p = d / f"{f.stem}_{k:03d}.wav"; sf.write(p, y, 16000)
-                    rows.append({"spk": spk, "note": f.stem, "split": split_of(f.name), "file": str(p), "sec": len(y) / 16000}); k += 1
+                    ws = [w["w"].strip().lower() for w in t["words"] if s <= w["s"] < seg_e]
+                    rows.append({"spk": spk, "note": f.stem, "split": split_of(f.name), "file": str(p), "sec": len(y) / 16000, "words": ws}); k += 1
                 s = seg_e
 (PRIV / "sv_segments.json").write_text(json.dumps(rows))
 import collections
