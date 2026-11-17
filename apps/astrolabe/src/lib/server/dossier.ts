@@ -40,6 +40,8 @@ export interface UsageReadout {
 	unreadKinds: string[];
 	read: boolean;
 	creditsBalance: number | null;
+	/** Codex's `credits.hasCredits`: credits are carrying requests past a full window. */
+	hasCredits: boolean | null;
 	/** Codex's `rate_limit_reached_type`: set only when a limit has actually stopped requests. */
 	limitReachedType: string | null;
 	scrapedAt: number | null;
@@ -356,6 +358,8 @@ export const usageReadoutFrom = (input: {
 		// A Claude snapshot without `raw` cannot say which windows exist.
 		read: !awaiting && data !== null && (kind === "codex" || raw !== null),
 		creditsBalance: kind === "codex" && data !== null ? numberOrNull(data.credits_balance) : null,
+		hasCredits:
+			kind === "codex" && typeof data?.has_credits === "boolean" ? data.has_credits : null,
 		limitReachedType:
 			kind === "codex" && typeof data?.rate_limit_reached_type === "string"
 				? data.rate_limit_reached_type

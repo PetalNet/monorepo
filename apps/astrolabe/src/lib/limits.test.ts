@@ -113,6 +113,7 @@ describe("burn-rate projection", () => {
 				resetsAt: at("2026-10-29T18:00:00Z"),
 				observedAt: at("2026-10-29T15:30:00Z"),
 				credits: null,
+				hasCredits: null,
 				blockedBy: null,
 			},
 			at("2026-10-29T15:30:00Z"),
@@ -139,6 +140,7 @@ describe("burn-rate projection", () => {
 			resetsAt: at("2026-11-05T00:00:00Z"),
 			observedAt: at("2026-10-31T00:00:00Z"),
 			credits: null,
+			hasCredits: null,
 			blockedBy: null,
 		};
 
@@ -180,6 +182,7 @@ describe("red span when the clocks go back", () => {
 		resetsAt,
 		observedAt: spentAt,
 		credits: null,
+		hasCredits: null,
 		blockedBy: null,
 	};
 
@@ -246,6 +249,7 @@ describe("plan check", () => {
 		snapshot_age_sec: 0,
 		awaiting: false,
 		credits_balance: 35_694.46,
+		has_credits: true,
 		rate_limit_reached_type: "rate_limit_reached",
 	};
 	const check = (
@@ -285,6 +289,25 @@ describe("plan check", () => {
 		]);
 
 		expect(result.notices).toEqual([]);
+	});
+
+	it("reads a full Codex week carried by credits as using credits, despite rate_limit_reached", () => {
+		// The live account: weekly at 100%, rateLimitReachedType "rate_limit_reached",
+		// ordinaryUsageAllowed false, credits.hasCredits true, and work still running on credits.
+		const week = check("max-20x", "plus").windows.find(({ id }) => id === "codex-7d");
+
+		if (week === undefined) {
+			throw new Error("missing codex-7d");
+		}
+
+		const reading = readLimit(week, at("2026-11-17T18:20:00Z"));
+
+		expect(reading).toMatchObject({ state: "on-credits", usedPct: 100 });
+		expect(reading.window.credits).toBeCloseTo(35_694.46, 2);
+
+		expect(readLimit({ ...week, hasCredits: false }, at("2026-11-17T18:20:00Z")).state).toBe(
+			"limit-reached",
+		);
 	});
 
 	it("reads Fable's own reset and the inactive flag", () => {

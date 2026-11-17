@@ -38,6 +38,8 @@ export interface LimitWindow {
 	observedAt: number | null;
 	/** Prepaid credits that carry on past 100%. Null when the agent has none to draw on. */
 	credits: number | null;
+	/** The provider's own word on whether credits are carrying requests, when it gives one. */
+	hasCredits: boolean | null;
 	/** The provider's own word that a limit has stopped requests, such as Codex's `primary`. */
 	blockedBy: string | null;
 }
@@ -115,8 +117,12 @@ export const readLimit = (window: LimitWindow, now: number): LimitReading => {
 	};
 
 	if (usedPct >= 100) {
-		// Past the limit, credits keep requests going until the provider says it has stopped them.
-		const onCredits = window.blockedBy === null && window.credits !== null && window.credits > 0;
+		// Past the limit, credits keep requests going. Codex sets `rate_limit_reached_type` once the
+		// plan's own allowance is spent even while credits carry on, so its `hasCredits` decides; a feed
+		// without it falls back to a positive balance and no stop.
+		const onCredits =
+			window.hasCredits ??
+			(window.blockedBy === null && window.credits !== null && window.credits > 0);
 
 		return {
 			...reading,
@@ -187,6 +193,7 @@ export const limitWindowsFrom = (agents: readonly UsageReadout[]): PlanCheck => 
 			resetsAt: ms(reported?.resetsAt ?? null),
 			observedAt: ms(agent.observedAt),
 			credits: agent.creditsBalance,
+			hasCredits: agent.hasCredits,
 			blockedBy: agent.limitReachedType,
 		});
 		const asSpec = (reported: ReportedWindow): WindowSpec =>
