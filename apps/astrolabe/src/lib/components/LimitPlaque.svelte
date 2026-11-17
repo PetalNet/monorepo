@@ -3,11 +3,9 @@
 	import type { LimitReading } from "$lib/limits";
 	import TriangleAlert from "@lucide/svelte/icons/triangle-alert";
 
-	let {
-		reading,
-		now,
-		credits = null,
-	}: { reading: LimitReading; now: number; credits?: number | null } = $props();
+	let { reading, now }: { reading: LimitReading; now: number } = $props();
+
+	const credits = $derived(reading.window.credits);
 
 	const STALE_AFTER_MS = 15 * 60 * 1000;
 
@@ -31,6 +29,12 @@
 	});
 	const verdict = $derived.by((): { text: string; detail?: string; alarm: boolean } => {
 		switch (reading.state) {
+			case "not-reported":
+				return {
+					text: `Not reported by ${reading.window.agent}`,
+					detail: `The ${reading.window.plan} plan lists it`,
+					alarm: true,
+				};
 			case "no-reading":
 				return { text: "No reading", alarm: false };
 			case "reset-since-reading":
@@ -67,9 +71,12 @@
 	);
 	const note = $derived(
 		[
+			reading.window.inactive ? `${reading.window.agent} marks it inactive` : null,
 			age,
 			// While the plaque is drawing on credits, the verdict already carries the balance.
-			creditsLeft === null || reading.state === "on-credits" ? null : `${creditsLeft} credits left`,
+			creditsLeft === null || reading.state === "on-credits" || reading.window.span !== "7-day"
+				? null
+				: `${creditsLeft} credits left`,
 		]
 			.filter((part) => part !== null)
 			.join(" · "),
@@ -79,7 +86,9 @@
 <article class="brass-plate plaque {reading.window.id}" class:alarm={verdict.alarm}>
 	<div class="brass-plate-face">
 		<h3>
-			<span class="swatch" aria-hidden="true"></span>{reading.window.agent} · {reading.window.span}
+			<span class="swatch" aria-hidden="true"></span>{reading.window.agent}{reading.window.model
+				? ` ${reading.window.model}`
+				: ""} · {reading.window.span}
 		</h3>
 		{#if reading.usedPct !== null && reading.leftPct !== null}
 			<p class="plaque-figure">
@@ -96,5 +105,11 @@
 			</p>
 		</div>
 		{#if note}<p class="plaque-note">{note}</p>{/if}
+		{#if reading.window.fit === "unlisted"}
+			<p class="plaque-flag">
+				<TriangleAlert size={14} strokeWidth={2} aria-hidden="true" />Not in the {reading.window
+					.plan} plan
+			</p>
+		{/if}
 	</div>
 </article>

@@ -6,6 +6,7 @@
 		clockwise,
 		dayAngle,
 		polar,
+		ringLayout,
 		romanHour,
 		stackBaselines,
 		tangentRotation,
@@ -19,7 +20,7 @@
 	import FiligreeHand from "./FiligreeHand.svelte";
 	import LimitRing from "./LimitRing.svelte";
 
-	let { sun, reading, now }: { sun: Dossier["sun"]; reading: LimitReading; now: number } = $props();
+	let { sun, rings, now }: { sun: Dossier["sun"]; rings: LimitReading[]; now: number } = $props();
 
 	const SKY_RADIUS = 87;
 	const SKY_WIDTH = 4;
@@ -62,7 +63,14 @@
 				: "Daylight: sun down all day"
 			: `Daylight: ${sunMarks.map((mark) => `${mark.name.toLowerCase()} ${clockTime(mark.at)}`).join(", ")}`,
 	);
-	const geometry = $derived(windowGeometry(reading, DAY_SCALE));
+	const layout = $derived(ringLayout("day", rings.length));
+	const placed = $derived(
+		rings.slice(0, layout.radii.length).map((reading, index) => ({
+			reading,
+			radius: layout.radii[index],
+			geometry: windowGeometry(reading, DAY_SCALE),
+		})),
+	);
 	const clock = $derived.by(() => {
 		const parts = new Intl.DateTimeFormat(undefined, {
 			hour: "numeric",
@@ -137,11 +145,30 @@
 		{/each}
 	</g>
 
-	{#if geometry}
-		<LimitRing {reading} radius={68} width={16} {geometry} hand={dayAngle(now)} />
+	{#each placed as ring (ring.reading.window.id)}
+		{#if ring.geometry}
+			<LimitRing
+				reading={ring.reading}
+				radius={ring.radius}
+				width={layout.width}
+				geometry={ring.geometry}
+				hand={dayAngle(now)}
+			/>
+		{:else}
+			<circle
+				class="groove empty"
+				r={ring.radius}
+				stroke-width={layout.width}
+				role="img"
+				aria-label="{ring.reading.window.agent} {ring.reading.window.span}: {ring.reading.state ===
+				'not-reported'
+					? 'not reported'
+					: 'no reading'}"
+			/>
+		{/if}
 	{:else}
-		<text class="ring-empty" y="-62">No 5-hour window open</text>
-	{/if}
+		<text class="ring-empty" y="-62">No 5-hour limit on these plans</text>
+	{/each}
 
 	<FiligreeHand
 		angle={dayAngle(now)}

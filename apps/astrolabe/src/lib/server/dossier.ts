@@ -4,6 +4,7 @@ import { promisify } from "node:util";
 
 import * as SunCalc from "suncalc";
 
+import { DEFAULT_PLANS, type Provider, type WindowSpan } from "../plans.js";
 import type { ServiceCounts } from "../services.js";
 import { nextSolarEvent, type SolarEvent } from "../sky.js";
 
@@ -12,20 +13,35 @@ const FIFTEEN_MINUTES_SECONDS = 15 * 60;
 const BACKUP_STALE_AFTER_MS = 26 * 60 * 60 * 1000;
 const SYNODIC_MONTH_DAYS = 29.53058867;
 
+/** A limit window as the provider reports it. */
+export interface ReportedWindow {
+	span: WindowSpan;
+	/** The model a per-model weekly limit covers, such as "Fable". Null for the overall limit. */
+	model: string | null;
+	/** Percent of the limit used (Claude's `utilization`/`percent`, Codex's `used_percent`), not left. */
+	usedPct: number | null;
+	/** Epoch seconds. */
+	resetsAt: number | null;
+	/** Claude's `is_active: false` on a per-model limit. */
+	inactive: boolean;
+}
+
 export interface UsageReadout {
 	slug: "janet-primary" | "codex";
 	label: "Claude" | "Codex";
-	kind: "claude" | "codex";
-	/**
-	 * Percent of the 5-hour limit used (Claude's `utilization`, Codex's `used_percent`), not percent
-	 * left.
-	 */
-	fiveHourUsedPct: number | null;
-	fiveHourResetsAt: number | null;
-	/** Percent of the 7-day limit used, not percent left. */
-	sevenDayUsedPct: number | null;
-	sevenDayResetsAt: number | null;
+	kind: Provider;
+	/** The configured plan, from `CLAUDE_PLAN`/`CODEX_PLAN` or `DEFAULT_PLANS`. */
+	plan: string;
+	/** The plan the provider says the account is on. Only Codex reports one. */
+	reportedPlan: string | null;
+	/** Every window the feed reports. Empty with `read` false when there is no feed to read. */
+	windows: ReportedWindow[];
+	/** Limit kinds in Claude's `limits` list that Astrolabe has no reading for. */
+	unreadKinds: string[];
+	read: boolean;
 	creditsBalance: number | null;
+	/** Codex's `credits.hasCredits`: credits are carrying requests past a full window. */
+	hasCredits: boolean | null;
 	/** Codex's `rate_limit_reached_type`: set only when a limit has actually stopped requests. */
 	limitReachedType: string | null;
 	scrapedAt: number | null;
@@ -210,34 +226,140 @@ const pct = (value: unknown): number | null => {
 	return parsed === null ? null : Math.max(0, Math.min(100, parsed));
 };
 
+/**
+ * Claude's windows from the raw usage response the snapshot keeps. The top-level `five_hour_pct` is
+ * 0 when the response has no 5-hour window at all, so only `raw` tells the two apart.
+ */
+const claudeWindows = (raw: JsonRecord): { windows: ReportedWindow[]; unreadKinds: string[] } => {
+	const windows: ReportedWindow[] = [];
+	const unreadKinds: string[] = [];
+	const overall = (value: unknown, span: WindowSpan) => {
+		if (isRecord(value)) {
+			windows.push({
+				span,
+				model: null,
+				usedPct: pct(value.utilization),
+				resetsAt: epochSecondsFromIso(value.resets_at),
+				inactive: false,
+			});
+		}
+	};
+
+	overall(raw.five_hour, "5-hour");
+	overall(raw.seven_day, "7-day");
+
+	for (const limit of Array.isArray(raw.limits) ? raw.limits : []) {
+		if (!isRecord(limit)) {
+			continue;
+		}
+
+		const kind = stringOrNull(limit.kind) ?? "unnamed";
+		const scope = isRecord(limit.scope) ? limit.scope : null;
+		const name = isRecord(scope?.model) ? stringOrNull(scope.model.display_name)?.trim() : null;
+		const model = name === undefined || name === "" ? null : name;
+
+		if (kind === "weekly_all") {
+			// The same window as `seven_day`, read here only when that is missing.
+			if (!isRecord(raw.seven_day)) {
+				windows.push({
+					span: "7-day",
+					model: null,
+					usedPct: pct(limit.percent),
+					resetsAt: epochSecondsFromIso(limit.resets_at),
+					inactive: false,
+				});
+			}
+
+			continue;
+		}
+
+		if (kind === "weekly_scoped" && model !== null) {
+			windows.push({
+				span: "7-day",
+				model,
+				usedPct: pct(limit.percent),
+				resetsAt: epochSecondsFromIso(limit.resets_at),
+				inactive: limit.is_active === false,
+			});
+
+			continue;
+		}
+
+		unreadKinds.push(model === null ? kind : `${kind} (${model})`);
+	}
+
+	// Per-model windows Anthropic may fill in outside `limits`, such as `seven_day_opus`, unless `limits` already gave that model.
+	for (const [key, value] of Object.entries(raw)) {
+		if (
+			/^(five_hour|seven_day)_/.test(key) &&
+			isRecord(value) &&
+			numberOrNull(value.utilization) !== null &&
+			!windows.some(
+				(window) => window.model?.toLowerCase() === key.replace(/^(five_hour|seven_day)_/, ""),
+			)
+		) {
+			unreadKinds.push(key);
+		}
+	}
+
+	return { windows, unreadKinds };
+};
+
+/** Codex's windows, which codex-usage has already bucketed by length. */
+const codexWindows = (data: JsonRecord): ReportedWindow[] =>
+	(
+		[
+			["5-hour", data.five_hour_pct, data.five_hour_resets_at],
+			["7-day", data.seven_day_pct, data.seven_day_resets_at],
+		] as const
+	).flatMap(([span, used, resets]) =>
+		(used ?? null) === null && (resets ?? null) === null
+			? []
+			: [
+					{
+						span,
+						model: null,
+						usedPct: pct(used),
+						resetsAt: numberOrNull(resets),
+						inactive: false,
+					},
+				],
+	);
+
 /** @internal Exported for its tests; buildDossier is the module's interface. */
 export const usageReadoutFrom = (input: {
 	slug: UsageReadout["slug"];
 	label: UsageReadout["label"];
 	kind: UsageReadout["kind"];
+	plan: string;
 	data: JsonRecord | null;
 	nowSeconds: number;
 }): UsageReadout => {
-	const { slug, label, kind, data, nowSeconds } = input;
+	const { slug, label, kind, plan, data, nowSeconds } = input;
 	const awaiting = kind === "codex" && (data === null || data.awaiting === true);
 	const scrapedAt = data === null ? null : numberOrNull(data.scraped_at);
-	const fiveHourResetsAt = data === null ? null : numberOrNull(data.five_hour_resets_at);
-	const sevenDayResetsAt =
-		data === null
-			? null
-			: kind === "claude"
-				? epochSecondsFromIso(data.seven_day_resets_at_iso)
-				: numberOrNull(data.seven_day_resets_at);
+	const raw = kind === "claude" && isRecord(data?.raw) ? data.raw : null;
+	const claude = raw === null ? null : claudeWindows(raw);
+	const windows =
+		data === null || awaiting
+			? []
+			: kind === "codex"
+				? codexWindows(data)
+				: (claude?.windows ?? []);
 
 	return {
 		slug,
 		label,
 		kind,
-		fiveHourUsedPct: data === null ? null : pct(data.five_hour_pct),
-		fiveHourResetsAt,
-		sevenDayUsedPct: data === null ? null : pct(data.seven_day_pct),
-		sevenDayResetsAt,
+		plan,
+		reportedPlan: kind === "codex" && data !== null ? stringOrNull(data.plan) : null,
+		windows,
+		unreadKinds: claude?.unreadKinds ?? [],
+		// A Claude snapshot without `raw` cannot say which windows exist.
+		read: !awaiting && data !== null && (kind === "codex" || raw !== null),
 		creditsBalance: kind === "codex" && data !== null ? numberOrNull(data.credits_balance) : null,
+		hasCredits:
+			kind === "codex" && typeof data?.has_credits === "boolean" ? data.has_credits : null,
 		limitReachedType:
 			kind === "codex" && typeof data?.rate_limit_reached_type === "string"
 				? data.rate_limit_reached_type
@@ -452,6 +574,7 @@ export const buildDossier = async (): Promise<Dossier> => {
 				slug: "janet-primary",
 				label: "Claude",
 				kind: "claude",
+				plan: process.env.CLAUDE_PLAN ?? DEFAULT_PLANS.claude,
 				path: process.env.USAGE_PATH ?? "/shared/janet-usage.json",
 				nowSeconds,
 				errors,
@@ -461,6 +584,7 @@ export const buildDossier = async (): Promise<Dossier> => {
 				slug: "codex",
 				label: "Codex",
 				kind: "codex",
+				plan: process.env.CODEX_PLAN ?? DEFAULT_PLANS.codex,
 				path: process.env.CODEX_USAGE_PATH ?? "/shared/codex-usage.json",
 				nowSeconds,
 				errors,
