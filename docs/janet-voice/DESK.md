@@ -26,13 +26,13 @@ text-to-speech URL cannot stop the playback (§12).
 
 ## Departures from the spec
 
-| Spec | Built | Why |
-| :-- | :-- | :-- |
-| §11 Wake word on the device | The model runs on the desk machine, served over Wyoming and called through Home Assistant | One wake word service for every later satellite. The client can move detection in-process without changing anything else. |
-| §11 Speech to text central on the lab server | Speech to text runs on the desktop's CPU | The lab server and the Home Assistant machine lack the CPU instructions the speech models need (§0). Desk speech to text is off whenever the desktop is, and so is the desk. The phone line still needs the central one. |
-| §11 Voice server reachable only by the lab server | The desk client reaches it on loopback | Same machine. |
-| §12 Barge-in needs a prototype per channel | Headphone output: any sustained speech interrupts. Other outputs: the wake word only | Headphones put none of the reply into the microphone, so there is no echo to cancel. Open speakers stay on stop-by-word. |
-| Listening continues only when asked (ticket `when-listening-continues`) | The microphone stays open after every reply | Parker's later ruling for this slice. Silence or an end phrase closes it. |
+| Spec                                                                    | Built                                                                                     | Why                                                                                                                                                                                                                      |
+| :---------------------------------------------------------------------- | :---------------------------------------------------------------------------------------- | :----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| §11 Wake word on the device                                             | The model runs on the desk machine, served over Wyoming and called through Home Assistant | One wake word service for every later satellite. The client can move detection in-process without changing anything else.                                                                                                |
+| §11 Speech to text central on the lab server                            | Speech to text runs on the desktop's CPU                                                  | The lab server and the Home Assistant machine lack the CPU instructions the speech models need (§0). Desk speech to text is off whenever the desktop is, and so is the desk. The phone line still needs the central one. |
+| §11 Voice server reachable only by the lab server                       | The desk client reaches it on loopback                                                    | Same machine.                                                                                                                                                                                                            |
+| §12 Barge-in needs a prototype per channel                              | Headphone output: any sustained speech interrupts. Other outputs: the wake word only      | Headphones put none of the reply into the microphone, so there is no echo to cancel. Open speakers stay on stop-by-word.                                                                                                 |
+| Listening continues only when asked (ticket `when-listening-continues`) | The microphone stays open after every reply                                               | Parker's later ruling for this slice. Silence or an end phrase closes it.                                                                                                                                                |
 
 ## Rules the client keeps
 
