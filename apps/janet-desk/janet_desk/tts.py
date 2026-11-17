@@ -1,3 +1,5 @@
+import asyncio
+
 from wyoming.audio import AudioChunk, AudioStop
 from wyoming.client import AsyncTcpClient
 from wyoming.error import Error
@@ -11,12 +13,17 @@ class SynthesisError(Exception):
 
 
 class WyomingSynthesizer:
-    def __init__(self, host: str, port: int, voice: str):
+    def __init__(self, host: str, port: int, voice: str, timeout: float = 150.0):
+        self._timeout = timeout
         self._host = host
         self._port = port
         self._voice = voice
 
     async def synthesize(self, text: str) -> Clip:
+        async with asyncio.timeout(self._timeout):
+            return await self._synthesize(text)
+
+    async def _synthesize(self, text: str) -> Clip:
         pcm = bytearray()
         rate = 0
         async with AsyncTcpClient(self._host, self._port) as server:

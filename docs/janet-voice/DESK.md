@@ -37,8 +37,8 @@ text-to-speech URL cannot stop the playback (§12).
 ## Rules the client keeps
 
 - **Tier from the output device.** `personal` only when the output is a configured headphone
-  device, judged again at every wake word. The client reads the output device once, at start, and
-  plays to that device, so the tier always describes where the audio goes.
+  device. The client reads the output device once, at start, and plays to that device, so the tier
+  always describes where the audio goes. A changed default output takes effect on restart.
 - **What she said is what he heard.** An interruption reports the words that were played, counted
   from the audio, so the head's memory of the exchange matches his.
 - **Idle is silent.** Nothing reaches the head until the wake word fires.

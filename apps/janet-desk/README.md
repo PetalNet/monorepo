@@ -24,7 +24,15 @@ idle ── wake word ──> waking ──> listening ── transcript ──>
   the head which words were heard, and becomes the next turn, including the audio from before the
   cut. On any other output the microphone hears the reply itself, so only the wake word interrupts.
 - **Privacy tier.** The client reports `personal` when the output device is one of the configured
-  `headphones`, and `room` otherwise.
+  `headphones`, and `room` otherwise. It reads the output device once, at start, and plays to that
+  device, so the tier describes where the audio goes. Changing the default output while the client
+  runs changes nothing until it restarts.
+- **Always closed.** Every conversation ends with a `/end` to the head, so it merges into main
+  Janet. The client retries a failed `/end` twice, then logs it and leaves it to the head's idle
+  timer (120 s). A voice server or head that stays silent past `think_seconds` or the synthesis
+  timeout counts as an error: the client apologizes, ends the conversation and returns to idle.
+  If the microphone fails, the client ends any open conversation and exits with the error, so a
+  supervisor restarts it.
 - **Speed.** When the wake word fires, before speech to text finishes, the client opens the head
   conversation and asks the voice server for a throwaway word, so a voice model that unloaded while
   idle starts loading at once. It synthesizes each sentence while the one before it plays.
@@ -71,12 +79,23 @@ volume = 1.0                             # optional
 follow_up_seconds = 6.0
 barge_in_seconds = 0.3
 stall_seconds = 30.0                     # give up on a transcript after this long
+think_seconds = 180.0                    # give up waiting for the first spoken sentence after this long
+
+[service]                                # optional
+stop_file = "/path/to/stop"              # creating this file stops the client gracefully
 ```
 
 ```sh
 janet-desk --list-devices
 janet-desk --config desk.toml
 ```
+
+## Stopping
+
+Cancel the process (Ctrl-C) or create the `stop_file`. Either ends an open conversation with the
+reason `client_exit` before the client exits. A hard kill, such as `Stop-ScheduledTask` on a hidden
+`pythonw`, gives the client no chance to do that: the conversation then stays open until the head's
+own 120 s idle timer ends and merges it. Use the stop file where the process has no console.
 
 ## Replaying a conversation
 

@@ -34,6 +34,13 @@ def arguments() -> argparse.Namespace:
     return parser.parse_args()
 
 
+async def stop_when_file_appears(path: Path, task: asyncio.Task, interval: float = 0.5) -> None:
+    while not path.exists():
+        await asyncio.sleep(interval)
+    path.unlink(missing_ok=True)
+    task.cancel()
+
+
 async def run(options: argparse.Namespace) -> None:
     config = tomllib.loads(options.config.read_text(encoding="utf-8"))
     assist, head, voice, audio = config["home_assistant"], config["head"], config["voice"], config["audio"]
@@ -73,9 +80,20 @@ async def run(options: argparse.Namespace) -> None:
             settings=Settings(headphones=frozenset(audio["headphones"]), **conversation),
             trace=trace,
         )
+        running = asyncio.create_task(client.run())
+        stop_file = Path(config["service"]["stop_file"]) if "service" in config else None
+        watcher = None
+        if stop_file:
+            stop_file.unlink(missing_ok=True)
+            watcher = asyncio.create_task(stop_when_file_appears(stop_file, running))
         try:
-            await client.run()
+            await running
+        except asyncio.CancelledError:
+            if not (watcher and watcher.done()):
+                raise
         finally:
+            if watcher:
+                watcher.cancel()
             if options.record_output and (recording := speaker.recording()):
                 write_wav(str(options.record_output), recording)
 

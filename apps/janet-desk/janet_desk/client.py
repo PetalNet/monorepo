@@ -13,6 +13,7 @@ log = logging.getLogger("janet-desk")
 
 PREROLL_MARGIN_SECONDS = 0.4
 APOLOGY = "Sorry, something went wrong on my end."
+APOLOGY_SECONDS = 30.0
 # A voice server that unloads its model when idle takes many seconds to load it again. Asking for a throwaway word
 # at the wake word starts that load while the user is still talking.
 WARM_UP = "Okay."
@@ -79,6 +80,8 @@ class Settings:
     follow_up_seconds: float = 6.0
     barge_in_seconds: float = 0.3
     stall_seconds: float = 30.0
+    think_seconds: float = 180.0
+    end_retry_seconds: tuple[float, ...] = (0.5, 1.5)
 
 
 class Trace:
@@ -95,7 +98,7 @@ class Trace:
             observer(record)
 
 
-@dataclass
+@dataclass(eq=False)
 class Conversation:
     tier: Tier
     on_headphones: bool
@@ -175,30 +178,45 @@ class DeskClient:
         self._settings = settings
         self._trace = trace
         self._background: set[asyncio.Task[None]] = set()
+        self._open: set[Conversation] = set()
 
     async def run(self) -> None:
         microphone = asyncio.create_task(self._mic.run())
+        conversing = asyncio.create_task(self._converse())
+        try:
+            await asyncio.wait({microphone, conversing}, return_when=asyncio.FIRST_COMPLETED)
+            if microphone.done() and not microphone.cancelled() and (failure := microphone.exception()):
+                raise failure
+            await conversing
+        finally:
+            for task in (microphone, conversing):
+                task.cancel()
+            await asyncio.wait({microphone, conversing})
+            await asyncio.shield(self._close())
+
+    async def _close(self) -> None:
+        for conversation in self._open.copy():
+            self._end_in_background(conversation, "client_exit")
+        if self._background:
+            await asyncio.wait(self._background)
+
+    async def _converse(self) -> None:
         state: State = Idle()
         retry_seconds = 1.0
-        try:
-            while not (isinstance(state, Idle) and self._mic.ended):
-                self._trace.mark(state.name)
-                try:
-                    state = await self._step(state)
-                    retry_seconds = 1.0
-                except Exception as error:
-                    log.exception("%s failed", state.name)
-                    self._trace.mark("error", state=state.name, error=repr(error))
-                    if not isinstance(state, Idle | Waking):
-                        await self._apologize()
-                        self._end_in_background(state.conversation, "error")
-                    await asyncio.sleep(retry_seconds)
-                    retry_seconds = min(retry_seconds * 2, 30.0)
-                    state = Idle()
-        finally:
-            microphone.cancel()
-            if self._background:
-                await asyncio.wait(self._background)
+        while not (isinstance(state, Idle) and self._mic.ended):
+            self._trace.mark(state.name)
+            try:
+                state = await self._step(state)
+                retry_seconds = 1.0
+            except Exception as error:
+                log.exception("%s failed", state.name)
+                self._trace.mark("error", state=state.name, error=repr(error))
+                if not isinstance(state, Idle | Waking):
+                    await self._apologize()
+                    self._end_in_background(state.conversation, "error")
+                await asyncio.sleep(retry_seconds)
+                retry_seconds = min(retry_seconds * 2, 30.0)
+                state = Idle()
 
     async def _step(self, state: State) -> State:
         match state:
@@ -233,7 +251,9 @@ class DeskClient:
         self._trace.mark("wake_detected", tier=tier.value, output=self._speaker.device)
         opening = asyncio.create_task(self._head.open(tier.value))
         self._in_background(self._warm_voice())
-        return Listening(Conversation(tier, on_headphones, opening), state.hearing)
+        conversation = Conversation(tier, on_headphones, opening)
+        self._open.add(conversation)
+        return Listening(conversation, state.hearing)
 
     async def _listening(self, state: Listening) -> State:
         return await self._utterance(state.conversation, state.hearing, second_chance=True)
@@ -270,7 +290,11 @@ class DeskClient:
     async def _thinking(self, state: Thinking) -> State:
         reply = Reply()
         reply.composing = asyncio.create_task(self._compose(state.conversation, state.text, reply))
-        first = await reply.clips.get()
+        try:
+            first = await asyncio.wait_for(reply.clips.get(), self._settings.think_seconds)
+        except BaseException:
+            reply.composing.cancel()
+            raise
         if first is None:
             return await self._after(state.conversation, reply)
         return Speaking(state.conversation, reply, first)
@@ -312,9 +336,9 @@ class DeskClient:
             await self._head.interrupt(await conversation.id, heard_text)
             return interruption.result()
         finally:
-            for task in (playing, interruption):
+            for task in (playing, interruption, reply.composing):
                 task.cancel()
-            await asyncio.wait({playing, interruption})
+            await asyncio.wait({playing, interruption, reply.composing})
 
     async def _play(self, reply: Reply, first: tuple[str, Clip], heard: list[str]) -> None:
         self._trace.mark("playback_start")
@@ -357,6 +381,7 @@ class DeskClient:
 
     def _end_in_background(self, conversation: Conversation, reason: str) -> State:
         self._trace.mark("conversation_end", reason=reason)
+        self._open.discard(conversation)
         self._in_background(self._tell_head_it_ended(conversation, reason))
         return Idle()
 
@@ -372,14 +397,23 @@ class DeskClient:
             log.exception("could not warm the voice up")
 
     async def _tell_head_it_ended(self, conversation: Conversation, reason: str) -> None:
-        try:
-            await self._head.end(await conversation.id, reason)
-            self._trace.mark("head_ended")
-        except Exception:
-            log.exception("could not end the conversation with the head")
+        delays = iter(self._settings.end_retry_seconds)
+        while True:
+            try:
+                await self._head.end(await conversation.id, reason)
+                self._trace.mark("head_ended")
+                return
+            except Exception:
+                delay = next(delays, None)
+                if delay is None:
+                    log.exception("could not end the conversation; the head ends it after its idle timeout")
+                    return
+                log.warning("could not end the conversation, retrying", exc_info=True)
+                await asyncio.sleep(delay)
 
     async def _apologize(self) -> None:
         try:
-            await self._speaker.play(await self._synthesizer.synthesize(APOLOGY))
+            async with asyncio.timeout(APOLOGY_SECONDS):
+                await self._speaker.play(await self._synthesizer.synthesize(APOLOGY))
         except Exception:
             log.exception("could not say that something went wrong")

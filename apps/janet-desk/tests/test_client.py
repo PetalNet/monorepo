@@ -1,7 +1,11 @@
 import asyncio
+import contextlib
+import tempfile
 import unittest
 from collections.abc import AsyncIterator
+from pathlib import Path
 
+from janet_desk.__main__ import stop_when_file_appears
 from janet_desk.audio import FRAME_SECONDS, Clip, MicHub, MicStep, RecordingSpeaker, Say, ScriptedMic, Silence, WaitFor
 from janet_desk.client import (
     APOLOGY,
@@ -16,6 +20,7 @@ from janet_desk.client import (
     WakeWord,
 )
 from janet_desk.head import Done, Sentence
+from janet_desk.tts import WyomingSynthesizer
 
 PACE = 0.05
 HEADPHONES = "Headphones"
@@ -91,6 +96,53 @@ class FakeHead:
         self.calls.append(("end", conversation, reason))
 
 
+class FlakyEnd(FakeHead):
+    def __init__(self, failures: int):
+        super().__init__(REPLIES)
+        self.failures = failures
+
+    async def end(self, conversation: str, reason: str) -> None:
+        self.calls.append(("end", conversation, reason))
+        if len([call for call in self.calls if call[0] == "end"]) <= self.failures:
+            raise ConnectionError("head unreachable")
+
+
+class HungAfterFirstSentence(FakeHead):
+    def __init__(self) -> None:
+        super().__init__(REPLIES)
+        self.stream_closed = False
+
+    async def turn(self, conversation: str, text: str) -> AsyncIterator[Sentence | Done]:
+        self.calls.append(("turn", conversation, text))
+        try:
+            yield Sentence(ANSWER)
+            await asyncio.Future()
+        finally:
+            self.stream_closed = True
+
+
+class HungHead(FakeHead):
+    async def turn(self, conversation: str, text: str) -> AsyncIterator[Sentence | Done]:
+        self.calls.append(("turn", conversation, text))
+        await asyncio.Future()
+        yield Done(False)
+
+
+class BrokenSpeaker(RecordingSpeaker):
+    async def play(self, clip: Clip) -> float:
+        raise OSError("output device gone")
+
+
+class UnpluggedMic:
+    def __init__(self, inner: ScriptedMic):
+        self._inner = inner
+
+    async def __aiter__(self) -> AsyncIterator[bytes]:
+        async for frame in self._inner:
+            yield frame
+        raise OSError("microphone unplugged")
+
+
 class FakeVoice:
     def __init__(self) -> None:
         self.synthesized: list[str] = []
@@ -112,26 +164,53 @@ REPLIES = {
 
 
 class Desk:
-    def __init__(self, script: list[MicStep], output: str = HEADPHONES, listener: FakeAssist | None = None):
-        self.head = FakeHead(REPLIES)
-        self.speaker = RecordingSpeaker(output, PACE)
+    def __init__(
+        self,
+        script: list[MicStep],
+        output: str = HEADPHONES,
+        listener: FakeAssist | None = None,
+        head: FakeHead | None = None,
+        speaker: RecordingSpeaker | None = None,
+        unplug: bool = False,
+        **settings: object,
+    ):
+        self.head = head or FakeHead(REPLIES)
+        self.speaker = speaker or RecordingSpeaker(output, PACE)
         self.trace = Trace()
         mic = ScriptedMic(script, PACE)
         self.trace.observers.append(lambda record: mic.notice(record["event"]))
+        self.reached: dict[str, asyncio.Event] = {}
+        self.trace.observers.append(lambda record: self.reached.setdefault(record["event"], asyncio.Event()).set())
         self.voice = voice = FakeVoice()
         self.client = DeskClient(
-            mic=MicHub(mic),
+            mic=MicHub(UnpluggedMic(mic) if unplug else mic),
             listener=listener or FakeAssist(),
             head=self.head,
             synthesizer=voice,
             speaker=self.speaker,
             voice=voice,
-            settings=Settings(headphones=frozenset({HEADPHONES}), follow_up_seconds=6 * PACE, stall_seconds=10 * PACE),
+            settings=Settings(
+                headphones=frozenset({HEADPHONES}),
+                **{
+                    "follow_up_seconds": 6 * PACE,
+                    "stall_seconds": 10 * PACE,
+                    "end_retry_seconds": (PACE, PACE),
+                    **settings,
+                },
+            ),
             trace=self.trace,
         )
 
     async def run(self) -> "Desk":
         await asyncio.wait_for(self.client.run(), 20)
+        return self
+
+    async def cancelled_at(self, event: str) -> "Desk":
+        running = asyncio.create_task(self.client.run())
+        await asyncio.wait_for(self.reached.setdefault(event, asyncio.Event()).wait(), 20)
+        running.cancel()
+        with contextlib.suppress(asyncio.CancelledError):
+            await running
         return self
 
     def played_seconds(self) -> float:
@@ -208,6 +287,90 @@ class ConversationTest(unittest.IsolatedAsyncioTestCase):
 
         self.assertEqual(desk.head.calls, [("open", "personal"), ("end", "c1", "error")])
         self.assertAlmostEqual(desk.played_seconds(), seconds_of(APOLOGY), places=2)
+
+
+class ShutdownTest(unittest.IsolatedAsyncioTestCase):
+    async def test_stopping_while_listening_for_a_follow_up_ends_the_conversation(self):
+        script = [WAKE, QUESTION, WaitFor("follow_up"), Silence(30)]
+        desk = await Desk(script, follow_up_seconds=100).cancelled_at("follow_up")
+
+        self.assertEqual(desk.head.calls[-1], ("end", "c1", "client_exit"))
+
+    async def test_stopping_while_speaking_ends_the_conversation(self):
+        desk = await Desk([WAKE, QUESTION, WaitFor("playback_start"), Silence(30)]).cancelled_at("playback_start")
+
+        self.assertEqual(desk.head.calls[-1], ("end", "c1", "client_exit"))
+        self.assertEqual([call for call in desk.head.calls if call[0] == "end"], [("end", "c1", "client_exit")])
+
+    async def test_stopping_while_idle_has_nothing_to_end(self):
+        desk = await Desk([Silence(30)]).cancelled_at("idle")
+
+        self.assertEqual(desk.head.calls, [])
+
+    async def test_a_microphone_that_fails_stops_the_client_with_the_error_after_ending_the_conversation(self):
+        desk = Desk([WAKE, QUESTION, WaitFor("playback_start")], unplug=True)
+
+        with self.assertRaisesRegex(OSError, "unplugged"):
+            await desk.run()
+
+        self.assertEqual(desk.head.calls[-1], ("end", "c1", "client_exit"))
+
+    async def test_a_failed_end_is_retried_and_then_succeeds(self):
+        desk = await Desk([WAKE, WaitFor("head_ended")], head=FlakyEnd(failures=2)).run()
+
+        self.assertEqual(desk.head.calls.count(("end", "c1", "silence")), 3)
+        self.assertIn("head_ended", desk.events())
+
+    async def test_a_head_that_never_takes_the_end_is_given_up_on_without_stopping_the_client(self):
+        desk = await Desk([WAKE, WaitFor("idle")], head=FlakyEnd(failures=99)).run()
+
+        self.assertEqual(desk.head.calls.count(("end", "c1", "silence")), 3)
+        self.assertNotIn("head_ended", desk.events())
+
+    async def test_the_stop_file_cancels_the_client(self):
+        with tempfile.TemporaryDirectory() as folder:
+            stop = Path(folder) / "stop"
+            desk = Desk([WAKE, QUESTION, WaitFor("playback_start"), Silence(30)])
+            running = asyncio.create_task(desk.client.run())
+            watcher = asyncio.create_task(stop_when_file_appears(stop, running, interval=PACE))
+            await asyncio.wait_for(desk.reached.setdefault("playback_start", asyncio.Event()).wait(), 20)
+            stop.touch()
+            await asyncio.wait_for(watcher, 5)
+            with contextlib.suppress(asyncio.CancelledError):
+                await running
+
+            self.assertEqual(desk.head.calls[-1], ("end", "c1", "client_exit"))
+            self.assertFalse(stop.exists())
+
+
+class StallTest(unittest.IsolatedAsyncioTestCase):
+    async def test_a_head_that_never_answers_ends_the_conversation_and_returns_to_idle(self):
+        desk = await Desk([WAKE, QUESTION, WaitFor("idle")], head=HungHead(REPLIES), think_seconds=8 * PACE).run()
+
+        self.assertEqual(desk.head.calls[-1], ("end", "c1", "error"))
+        self.assertIn("error", desk.events())
+        self.assertEqual(desk.events()[-1], "idle")
+
+    async def test_an_error_while_speaking_stops_the_head_stream(self):
+        head = HungAfterFirstSentence()
+        desk = await Desk([WAKE, QUESTION, WaitFor("idle")], head=head, speaker=BrokenSpeaker(HEADPHONES, PACE)).run()
+
+        self.assertTrue(head.stream_closed)
+        self.assertEqual(desk.head.calls[-1], ("end", "c1", "error"))
+
+    async def test_a_voice_server_that_never_answers_times_out(self):
+        async def say_nothing(reader: asyncio.StreamReader, writer: asyncio.StreamWriter) -> None:
+            await reader.read()
+
+        server = await asyncio.start_server(say_nothing, "127.0.0.1", 0)
+        port = server.sockets[0].getsockname()[1]
+        try:
+            started = asyncio.get_running_loop().time()
+            with self.assertRaises(TimeoutError):
+                await asyncio.wait_for(WyomingSynthesizer("127.0.0.1", port, "janet", timeout=0.3).synthesize("hi"), 3)
+            self.assertLess(asyncio.get_running_loop().time() - started, 1.5)
+        finally:
+            server.close()
 
 
 class BargeInTest(unittest.IsolatedAsyncioTestCase):
