@@ -64,7 +64,13 @@
 		</figure>
 	</div>
 
-	<div class="orloj-plaques">
+	<!-- Four plaques read as a 2 by 2 block rather than a row of three and an orphan. -->
+	<div
+		class="orloj-plaques"
+		style:--plaque-columns={plan.windows.length === 4
+			? 2
+			: Math.max(1, Math.min(plan.windows.length, 3))}
+	>
 		{#if readings && now !== null}
 			{#each readings as reading (reading.window.id)}
 				<LimitPlaque {reading} {now} />

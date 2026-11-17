@@ -437,7 +437,7 @@ h3 {
 .orloj-plaques {
 	display: grid;
 	gap: var(--s3);
-	grid-template-columns: repeat(auto-fit, minmax(13rem, 1fr));
+	grid-template-columns: repeat(var(--plaque-columns, 3), 1fr);
 	margin-top: var(--s5);
 }
 /* Plan drift: the feeds disagree with the configured plan. */
