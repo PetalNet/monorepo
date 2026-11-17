@@ -426,7 +426,7 @@ describe("plan check", () => {
 	});
 
 	it("flags a Codex 5-hour window whose fields are absent, not just null", () => {
-		const { windows } = limitWindowsFrom([
+		const codexOnly = limitWindowsFrom([
 			usageReadoutFrom({
 				slug: "codex",
 				label: "Codex",
@@ -437,6 +437,6 @@ describe("plan check", () => {
 			}),
 		]);
 
-		expect(windows[0]).toMatchObject({ id: "codex-5h", fit: "unreported" });
+		expect(codexOnly.windows[0]).toMatchObject({ id: "codex-5h", fit: "unreported" });
 	});
 });
