@@ -12,13 +12,13 @@ One authenticated HTTP door for a voice client that is not on the lab network, s
 Bearer token on everything except `GET /health`. It is the voice head's token. With an `[access]`
 section in the config, the same routes also need a valid Cloudflare Access token (below).
 
-| Call                                              | Reply                                              |
-| :------------------------------------------------ | :------------------------------------------------- |
-| `GET /health`                                     | `{"ok": true, "version"}`                          |
-| `POST /v1/conversations`, `…/{id}/turns`, `…/{id}/interrupt`, `…/{id}/end` | the head's status and body |
-| `POST /v1/tts` `{"text"}`                         | `audio/wav` (mono PCM16), or 503 while the voice host wakes |
-| `GET /v1/voice`                                   | `{"state": "up" \| "asleep"}`                      |
-| `POST /v1/voice/wake`                             | `{"sent": true}`                                   |
+| Call                                                                       | Reply                                                       |
+| :------------------------------------------------------------------------- | :---------------------------------------------------------- |
+| `GET /health`                                                              | `{"ok": true, "version"}`                                   |
+| `POST /v1/conversations`, `…/{id}/turns`, `…/{id}/interrupt`, `…/{id}/end` | the head's status and body                                  |
+| `POST /v1/tts` `{"text"}`                                                  | `audio/wav` (mono PCM16), or 503 while the voice host wakes |
+| `GET /v1/voice`                                                            | `{"state": "up" \| "asleep"}`                               |
+| `POST /v1/voice/wake`                                                      | `{"sent": true}`                                            |
 
 - **Head routes.** Only the four conversation routes reach the head. The gateway forwards the
   caller's `Authorization` header as it came, so the head checks the same token a second time. A

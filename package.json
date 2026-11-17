@@ -70,6 +70,8 @@
 			"apps/control-plane",
 			"apps/courier",
 			"apps/dispatcher",
+			"apps/janet-mac",
+			"apps/janet-voice-gateway",
 			"apps/manager",
 			"apps/point",
 			"tools/*"

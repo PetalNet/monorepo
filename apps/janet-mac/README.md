@@ -66,8 +66,10 @@ Timings for every press are in `~/Library/Caches/janet-talk/talk.log`.
 
    The secrets go to the login Keychain (service `janet-voice`). The URL goes to
    `~/.config/janet-talk/config`. The rule in [`karabiner/janet-talk.json`](karabiner/janet-talk.json)
-   is merged into the selected Karabiner profile. It assumes the dictation key is F5, the
-   microphone key on a MacBook; change `from.key_code` for another key.
+   is merged into the selected Karabiner profile. It matches the microphone key of a MacBook in
+   both forms a keyboard can report it (`key_code: f5` and `consumer_key_code: dictation`); change
+   `from` for another key. Turn off the system's own use of that key (Dictation, and Siri's
+   "hold microphone key") so only Karabiner answers it.
 
 ## Network
 
