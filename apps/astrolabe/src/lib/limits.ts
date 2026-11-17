@@ -24,7 +24,8 @@ export interface LimitWindow {
 	/** The configured plan the window was checked against. */
 	plan: string;
 	/**
-	 * `listed`: the plan lists it and the feed reports it (or there is no feed to check).
+	 * `listed`: the plan lists it and the feed reports it (or there is no feed to check), or the plan is
+	 * unknown and the feed's windows are all there is to draw.
 	 * `unreported`: the plan lists it but the feed doesn't. `unlisted`: the feed reports it but the
 	 * plan doesn't.
 	 */
