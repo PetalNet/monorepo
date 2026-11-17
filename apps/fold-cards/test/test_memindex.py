@@ -66,7 +66,7 @@ class NoEmbedder(unittest.TestCase):
         py = os.path.join(d, 'embed-venv', 'bin', 'python')
         with open(py, 'w') as f:
             f.write('#!/bin/sh\nexit 0\n')
-        os.chmod(py, 0o755)
+        os.chmod(py, 0o700)
         self.assertIsNone(memindex.candidates(os.path.join(d, 'cards.db'), 'friendsgiving', ['fold']))
         self.assertTrue(os.path.exists(os.path.join(d, 'embed.starting')))
 
