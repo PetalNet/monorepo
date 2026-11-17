@@ -4,6 +4,8 @@ head, the voice server, and the Mac programs the script calls."""
 import importlib.util
 import json
 import os
+import shutil
+import signal
 import stat
 import subprocess
 import sys
@@ -93,6 +95,8 @@ class TalkCase(unittest.TestCase):
             "JANET_TALK_CONFIG": str(self.root / "config"),
             "JANET_TALK_STATE": str(self.root / "state"),
             "JANET_TALK_HEX": str(self.stub / "hex"),
+            # The tests wait for each key event to finish, so it stays in the foreground.
+            "JANET_TALK_DETACHED": "1",
             "JANET_TALK_RETRY_S": "0.2",
             "JANET_TALK_WAKE_WAIT_S": "20",
         }
@@ -192,6 +196,22 @@ class TalkTest(TalkCase):
         time.sleep(0.5)
         self.assertEqual(self.lines("played"), ["First."])
 
+
+    def test_a_key_event_outlives_the_command_that_started_it(self):
+        # Karabiner ends the key-down command when the key-up command arrives. The work must go on.
+        env = {k: v for k, v in self.env.items() if k != "JANET_TALK_DETACHED"}
+        script = self.root / "janet-talk"
+        script.write_text((APP / "janet-talk").read_text().replace("/bin/bash", shutil.which("bash")))
+        (self.stub / "hex-start-seconds").write_text("0.5")
+        launcher = subprocess.Popen(["bash", str(script), "start"], env=env, start_new_session=True)
+        self.assertEqual(launcher.wait(5), 0)
+        self.assertEqual(self.lines("hex.log"), [], "the launcher waited for the work")
+        try:
+            os.killpg(launcher.pid, signal.SIGKILL)
+        except ProcessLookupError:
+            pass
+        self.wait_for(lambda: self.head_calls("/v1/conversations"), 10)
+        self.assertEqual(self.lines("hex.log"), ["dictation start --raw"])
 
     def test_a_release_that_beats_the_recording_still_ends_it(self):
         # A quick tap: the key is up again before Hex has started recording.

@@ -21,6 +21,18 @@ CHANNEL="${JANET_VOICE_CHANNEL:-mac}"
 mkdir -p "$STATE"
 LOG="$STATE/talk.log"
 
+# Karabiner does not let a key's command outlive the next one: the key-up command arriving
+# cut the key-down command short. So each key event carries on in a session of its own, and
+# the command Karabiner started returns at once.
+case "${1:-}" in
+  start | stop)
+    if [ -z "${JANET_TALK_DETACHED:-}" ]; then
+      JANET_TALK_DETACHED=1 exec perl -MPOSIX -e 'fork and exit; setsid(); exec @ARGV' \
+        /bin/bash "$0" "$@" </dev/null >/dev/null 2>&1
+    fi
+    ;;
+esac
+
 now_ms() { perl -MTime::HiRes=time -e 'printf "%d\n", time * 1000'; }
 log() { echo "$(now_ms) $*" >>"$LOG"; }
 
