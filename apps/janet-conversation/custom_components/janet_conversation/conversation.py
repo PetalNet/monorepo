@@ -25,6 +25,7 @@ class JanetConversationEntity(ConversationEntity):
     _attr_has_entity_name = True
     _attr_name = None
     _attr_supported_features = conversation.ConversationEntityFeature(0)
+    _attr_supports_streaming = True  # the base class default is False, which buffers the whole reply
 
     def __init__(self, entry: ConfigEntry) -> None:
         self.entry = entry
@@ -38,18 +39,21 @@ class JanetConversationEntity(ConversationEntity):
     def _sessions(self) -> Sessions:
         return self.entry.runtime_data
 
-    def _device_name(self, user_input: ConversationInput) -> str | None:
-        device_id = user_input.device_id
-        if device_id is None:
-            return None
-        device = dr.async_get(self.hass).async_get(device_id)
-        return (device.name_by_user or device.name) if device else None
+    async def _surface_name(self, user_input: ConversationInput) -> str | None:
+        """The device's name; the companion app sends no device, so fall back to the user's name."""
+        if user_input.device_id is not None:
+            device = dr.async_get(self.hass).async_get(user_input.device_id)
+            if device is not None:
+                return device.name_by_user or device.name
+        user_id = user_input.context.user_id if user_input.context else None
+        user = await self.hass.auth.async_get_user(user_id) if user_id else None
+        return user.name if user else None
 
     async def _async_handle_message(self, user_input: ConversationInput, chat_log: ChatLog) -> ConversationResult:
         sessions = self._sessions
         ha_id = chat_log.conversation_id
         user_id = user_input.context.user_id if user_input.context else None
-        device = self._device_name(user_input)
+        device = await self._surface_name(user_input)
 
         async def deltas():
             yield {"role": "assistant"}
