@@ -21,8 +21,9 @@ by the head's merge. This app holds no history and no fork logic of its own.
 ## Install
 
 Copy `custom_components/janet_conversation` to `<config>/custom_components/` and restart Home Assistant.
-`setup-pipeline.mjs` then adds the config entry, a Wyoming entry for the Chatterbox voice, and the Assist
-pipeline "Janet Talk" (Wyoming faster-whisper, Janet, Chatterbox). It never changes the preferred pipeline.
+Then add the config entry (the head's URL and bearer token, and the owner's Home Assistant user id), a
+Wyoming entry for the Chatterbox voice, and an Assist pipeline (Wyoming faster-whisper, Janet, Chatterbox).
+The lab's script for this lives with its other Home Assistant setup in PetalNet/petalnet-infra.
 
 ## Tests
 
