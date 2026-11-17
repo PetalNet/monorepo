@@ -57,6 +57,7 @@ class Live:
     in_turn: bool = False
     cut_off: str | None = None
     turning: object | None = None
+    said_so_far: str = ""
     unseen: list[tuple[str, str]] = field(default_factory=list)
     lock: threading.RLock = field(default_factory=threading.RLock)
     turn_lock: threading.Lock = field(default_factory=threading.Lock)
@@ -146,6 +147,7 @@ class Head:
                 number = len(live.conv.exchanges) + 1
                 previous_cut = live.conv.exchanges[-1].heard_before_cutoff if live.conv.exchanges else None
             stream, end, session = SpeechStream(), False, live.session
+            live.said_so_far = ""
             if is_end_phrase(text):
                 say(SIGN_OFF)
                 live.record(kind="sign_off", heard=text)
@@ -156,6 +158,7 @@ class Head:
                 except SessionError as error:
                     log.warning("conversation %s: %s", conv_id, error)
                     end = True
+                    stream.text = live.said_so_far
                 relay = stream.relay
                 if latency["first_sentence"] is None and live.cut_off is None:
                     say(RELAYED if relay and not end else NO_ANSWER)
@@ -190,16 +193,22 @@ class Head:
             if local:
                 say(local)
                 return _said(local)
-            lane = "fast"
+            lane = "fork"
         if lane == "fast":
-            fast, escalated = self._fast_turn(live, text, say, latency, started)
+            try:
+                fast, escalated = self._fast_turn(live, text, say, latency, started)
+            except SessionError as error:
+                log.warning("conversation %s: the fast lane failed: %s", live.conv.id, error)
+                fast, escalated = _said(""), True
             spoken.append(fast.spoken)
+            live.said_so_far = " ".join(spoken)
             if not escalated:
                 live.unseen.append((text, fast.spoken))
                 return _said(" ".join(spoken))
         elif fork and self._fast is not None:
             say(router.FILLER)
             spoken.append(router.FILLER)
+            live.said_so_far = router.FILLER
         session = live.session
         session.wait_ready(self.config.ready_timeout_s)
         latency["spawn_wait"] = _ms(started)
@@ -214,6 +223,9 @@ class Head:
         for sentence in stream.finish():
             say(sentence)
         live.unseen.clear()
+        if spoken and live.cut_off is None and not stream.spoken:
+            say(RELAYED if stream.relay else NO_ANSWER)
+            spoken.append(RELAYED if stream.relay else NO_ANSWER)
         if spoken:
             stream.text = " ".join(spoken) + " " + stream.text
         return stream
@@ -232,6 +244,7 @@ class Head:
             for sentence in stream.feed(mark.finish()) + stream.finish():
                 say(sentence)
             lane.retire_if_old()
+            live.turning = None
         return stream, mark.escalated
 
     @staticmethod

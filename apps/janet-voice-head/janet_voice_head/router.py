@@ -28,11 +28,12 @@ You hold no private memory and have no tools. You never claim to have done somet
 If the request needs Janet's memory (what he told her, his schedule, his projects, his work), a real action, a lookup, or sending anything, begin the reply with {ESCALATE} and follow it with one short natural sentence saying you are checking. Write nothing after that sentence: no answer and no guess. You never guess about Parker, his work, his projects, his plans, or anything said earlier. Decide fresh each turn from the request alone.
 Parker would rather hear something than wait in silence."""
 
-_FORK_WORDS = re.compile(
-    r"\b(remember|remind|what did i (tell|say)|did i (tell|say)|my (calendar|schedule|email|emails|messages|class|classes|project|projects|grades?)"
-    r"|projects?|status|due|deadline|assignment|homework|exam|class|working on|yesterday|last (week|night)|earlier|today's plan|send|text|email|message|schedule|book|order|buy|call|add (it|that|this) to|save|note that|look up|search|check my|on my)\b", re.I)
+_STRONG = re.compile(
+    r"\b(remember|remind\w*|what did (i|we)|did (i|we)|send|text(ed)?|e-?mail(ed)?|message[ds]?|schedule|book|order|buy|call|add (it|that|this) to"
+    r"|save|note that|look up|search|check my|projects?|status|working on|yesterday|last (week|night)|earlier|due|deadline|assignment|homework|exam|class(es)?)\b", re.I)
+_PERSONAL = re.compile(r"\b(my|we|our|ours|i (have|had|did|told|said|need|should)|do i|am i|who is my|where did i)\b", re.I)
 _LOCAL_WORDS = re.compile(
-    r"\b(turn (on|off)|switch (on|off)|lights?|lamp|timer|alarm|thermostat|temperature|volume|is the .+ (on|off|open|closed)"
+    r"\b(turn (on|off)|switch (on|off)|lights?|lamp|timer|alarm|thermostat|temperature|volume|locked?|unlock|is the .+ (on|off|open|closed)"
     r"|set (a|the)|how (hot|cold|warm)|weather)\b", re.I)
 _CLOCK = re.compile(r"^\W*(?:hey janet\W+)?(?:what(?:'s| is)? (?:the )?time(?: is it)?(?: now| right now)?|what time is it(?: now| right now)?|what(?:'s| is) the date(?: today)?|what day is it(?: today)?)\W*$", re.I)
 
@@ -51,31 +52,31 @@ def classify(text: str) -> str:
     """Rules only: which lane starts on this turn."""
     if clock_answer(text) is not None:
         return "clock"
-    if _FORK_WORDS.search(text):
+    if _STRONG.search(text):
         return "fork"
     if _LOCAL_WORDS.search(text):
         return "home"
-    return "fast"
+    return "fork" if _PERSONAL.search(text) else "fast"
 
 
 class HomeAssistant:
-    def __init__(self, url: str, token_file: str, timeout: float = 4.0):
+    def __init__(self, url: str, token_file: str, timeout: float = 2.5):
         self._url, self._token_file, self._timeout = url.rstrip("/"), token_file, timeout
 
     def answer(self, text: str) -> str | None:
         """Home Assistant's own sentence for `text`, or None when it has no intent for it."""
-        body = json.dumps({"text": text, "language": "en"}).encode()
-        request = urllib.request.Request(
-            f"{self._url}/api/conversation/process", body,
-            {"content-type": "application/json", "Authorization": "Bearer " + Path(self._token_file).read_text().strip()})
         try:
+            body = json.dumps({"text": text, "language": "en"}).encode()
+            request = urllib.request.Request(
+                f"{self._url}/api/conversation/process", body,
+                {"content-type": "application/json", "Authorization": "Bearer " + Path(self._token_file).read_text().strip()})
             with urllib.request.urlopen(request, timeout=self._timeout) as response:
                 reply = json.load(response)["response"]
-        except (OSError, ValueError, KeyError):
+            if reply.get("response_type") not in ("action_done", "query_answer"):
+                return None
+            return ((reply.get("speech") or {}).get("plain") or {}).get("speech") or None
+        except (OSError, ValueError, KeyError, TypeError, AttributeError):
             return None
-        if reply.get("response_type") not in ("action_done", "query_answer"):
-            return None
-        return ((reply.get("speech") or {}).get("plain") or {}).get("speech") or None
 
 
 class FastLane:

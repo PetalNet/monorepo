@@ -11,6 +11,8 @@ class ClassifyTest(unittest.TestCase):
             ("What time is it?", "clock"), ("hey Janet, what's the date", "clock"),
             ("turn off the desk lights", "home"), ("set a timer for ten minutes", "home"),
             ("what did I tell you about Friday", "fork"), ("send a text to Sam", "fork"), ("remind me to call mom", "fork"),
+            ("do I have anything tomorrow", "fork"), ("who emailed me", "fork"), ("what did we talk about", "fork"),
+            ("is the front door locked", "home"), ("turn off my desk lights", "home"), ("set a reminder for five", "fork"),
             ("who wrote Dune", "fast"), ("tell me a joke", "fast"),
         ]:
             self.assertEqual(router.classify(text), lane, text)
@@ -75,6 +77,11 @@ class RoutedTurnTest(HeadCase):
         fork_prompt = next(p for p in self.prompts() if "Voice head turn" in p)
         self.assertIn("who wrote dune", fork_prompt)
         self.assertIn("Fast says who wrote dune.", fork_prompt)
+
+    def test_a_relay_only_fork_reply_after_the_filler_still_gets_a_spoken_answer(self):
+        sentences, _ = self.turn(self.open(), "send onlyrelay")
+        self.assertEqual(sentences[0], router.FILLER)
+        self.assertEqual(sentences[-1], "Okay, I will pass that to main Janet.")
 
     def test_guests_never_use_the_fast_lane(self):
         sentences, _ = self.turn(self.open("guest"), "who wrote dune")
