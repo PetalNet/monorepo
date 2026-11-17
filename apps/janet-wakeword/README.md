@@ -107,7 +107,10 @@ Enrollment and every trained backend use train-split notes only. Target trials a
 held-out segments of the owner. Non-target trials are 782 segments: another speaker
 recorded on the same phone channel, plus 20 LibriSpeech test-clean speakers never used as
 cohort. A quality rule drops segments that aren't speech (Whisper loops over noise), the
-same rule for every speaker.
+same rule for every speaker. The same-channel speaker's train-split notes are in the
+AS-norm and logistic cohorts, so for those backends that column measures a known impostor;
+the cosine row and the LibriSpeech speakers are the unseen-impostor results (best
+logistic backend: 3.0% EER against unseen LibriSpeech speakers).
 
 | Encoder, backend, segment length | EER | EER vs same-channel speaker | miss rate at 1% false accept |
 | --- | --- | --- | --- |

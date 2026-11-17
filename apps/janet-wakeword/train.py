@@ -9,10 +9,8 @@ ap.add_argument("run"); ap.add_argument("--fold", type=int, default=-1, help="-1
 ap.add_argument("--init", default=str(ROOT / "baseline" / "baseline_weights.npz"), help="npz to start from; 'none' = from scratch")
 ap.add_argument("--steps", type=int, default=6000); ap.add_argument("--lr", type=float, default=5e-5)
 ap.add_argument("--negw", type=float, default=10.0); ap.add_argument("--freeze-layer1", action="store_true")
-ap.add_argument("--thr", type=float, default=0.5, help="operating threshold used for selection")
 ap.add_argument("--acavw", type=float, default=50.0, help="weight on general-audio negatives (default: --negw)")
 ap.add_argument("--mine", type=int, default=5000, help="hardest general-audio windows to oversample (0 = off)")
-ap.add_argument("--l2sp", type=float, default=0.0, help="penalty on drift from the starting weights (L2-SP)")
 ap.add_argument("--distill", type=float, default=1.0, help="weight of matching the starting model's scores on general audio")
 ap.add_argument("--fa-bar", type=float, default=0.3, help="max false accepts per hour on val natural audio at the chosen threshold")
 a = ap.parse_args()
@@ -83,7 +81,6 @@ def evaluate():
     return r
 start = evaluate(); print("init", json.dumps(start), flush=True)
 bar = a.fa_bar
-W0 = {n: p.detach().clone() for n, p in net.named_parameters()}
 import copy; teacher = copy.deepcopy(net).eval()
 best, log, t0 = None, [], time.time()
 for step in range(a.steps):
@@ -97,7 +94,6 @@ for step in range(a.steps):
         xs.append(x); ys.append(torch.full((n,), float(lab), device=dev)); ws.append(torch.full((n,), 1.0 if lab else wneg, device=dev))
     x, y, w = torch.cat(xs), torch.cat(ys), torch.cat(ws)
     loss = (torch.nn.functional.binary_cross_entropy(net(x).clamp(1e-6, 1 - 1e-6), y, reduction="none") * w).mean()
-    if a.l2sp: loss = loss + a.l2sp * sum(((p - W0[n]) ** 2).sum() for n, p in net.named_parameters() if p.requires_grad)
     if a.distill:  # stay close to the starting model's opinion on general audio (logit space)
         g = xs[list(train).index("acav")]; lg = lambda m: torch.logit(m(g).clamp(1e-6, 1 - 1e-6))
         with torch.no_grad(): tl = lg(teacher)
