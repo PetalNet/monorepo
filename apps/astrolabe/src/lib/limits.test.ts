@@ -344,11 +344,45 @@ describe("plan check", () => {
 		});
 	});
 
-	it("names a plan Codex reports that differs from the configured one, and an unknown plan", () => {
-		expect(check("max-20x", "pro").notices).toEqual([
-			'Codex plan "pro" is not in the plan table',
+	it("names a plan Codex reports that differs from the configured one", () => {
+		expect(check("max-20x", "pro").notices).toContain(
 			"Codex reports the plus plan, but Astrolabe is set to pro",
+		);
+	});
+
+	// ChatGPT Pro reports planType "prolite" and has no 5-hour limit, only a weekly one.
+	const codexProlite = {
+		...codexToday,
+		five_hour_pct: null,
+		five_hour_resets_at: null,
+		plan: "prolite",
+	};
+	const checkCodex = (codexPlan: string, codex: Record<string, unknown> = codexProlite) =>
+		limitWindowsFrom([
+			usageReadoutFrom({
+				slug: "codex",
+				label: "Codex",
+				kind: "codex",
+				plan: codexPlan,
+				data: codex,
+				nowSeconds: 1_794_939_400,
+			}),
 		]);
+
+	it("knows the prolite plan: one weekly window, no notices", () => {
+		const result = checkCodex("prolite");
+
+		expect(summary(result)).toEqual([{ id: "codex-7d", fit: "listed", usedPct: 100 }]);
+		expect(result.notices).toEqual([]);
+	});
+
+	it("warns visibly on an unknown plan and still draws what the feed reports", () => {
+		const result = checkCodex("mystery", { ...codexProlite, plan: "mystery" });
+
+		expect(result.notices).toEqual([
+			'Codex plan "mystery" is not in the plan table; showing the limits its feed reports',
+		]);
+		expect(summary(result)).toEqual([{ id: "codex-7d", fit: "listed", usedPct: 100 }]);
 	});
 
 	const fable = (percent: number, extra: Record<string, unknown> = {}) => ({

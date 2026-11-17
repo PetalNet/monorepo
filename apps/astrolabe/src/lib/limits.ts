@@ -202,7 +202,9 @@ export const limitWindowsFrom = (agents: readonly UsageReadout[]): PlanCheck => 
 				: { span: reported.span, model: reported.model };
 
 		if (listed === null) {
-			notices.push(`${agent.label} plan "${agent.plan}" is not in the plan table`);
+			notices.push(
+				`${agent.label} plan "${agent.plan}" is not in the plan table; showing the limits its feed reports`,
+			);
 		}
 
 		if (agent.reportedPlan !== null && agent.reportedPlan !== agent.plan) {
@@ -245,7 +247,8 @@ export const limitWindowsFrom = (agents: readonly UsageReadout[]): PlanCheck => 
 
 		for (const [key, reported] of reportedByKey) {
 			if (!listedKeys.has(key)) {
-				windows.push(window(asSpec(reported), reported, "unlisted"));
+				// An unknown plan lists nothing, so the feed's windows are all there is to draw.
+				windows.push(window(asSpec(reported), reported, listed === null ? "listed" : "unlisted"));
 			}
 		}
 	}

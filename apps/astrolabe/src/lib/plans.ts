@@ -30,6 +30,9 @@ export const PLANS = {
 	},
 	codex: {
 		plus: [FIVE_HOUR, WEEKLY],
+		// ChatGPT Pro ($100 and up) reports planType "prolite". OpenAI: "Pro plans currently have no
+		// five-hour limit" (learn.chatgpt.com/docs/pricing); the feed reports one weekly window.
+		prolite: [WEEKLY],
 	},
 } as const satisfies Record<Provider, Record<string, readonly WindowSpec[]>>;
 
