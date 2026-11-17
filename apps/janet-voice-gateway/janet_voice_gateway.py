@@ -1,4 +1,6 @@
 import argparse
+import base64
+import hashlib
 import hmac
 import http.client
 import json
@@ -8,7 +10,9 @@ import signal
 import socket
 import struct
 import threading
+import time
 import tomllib
+import urllib.request
 from dataclasses import dataclass
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
@@ -66,10 +70,15 @@ class Voice:
             return False
         return True
 
-    def wake(self) -> None:
-        with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as sock:
-            sock.setsockopt(socket.SOL_SOCKET, socket.SO_BROADCAST, 1)
-            sock.sendto(b"\xff" * 6 + self.mac * 16, self.broadcast)
+    def wake(self) -> bool:
+        try:
+            with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as sock:
+                sock.setsockopt(socket.SOL_SOCKET, socket.SO_BROADCAST, 1)
+                sock.sendto(b"\xff" * 6 + self.mac * 16, self.broadcast)
+        except OSError as error:
+            logging.warning("wake: %s", error)
+            return False
+        return True
 
     def open(self, text: str) -> "Synthesis":
         """Connects and sends the request. Raises VoiceAsleep when nothing answers."""
@@ -132,11 +141,72 @@ def wav_file(rate: int, pcm: bytes) -> bytes:
     return header + pcm
 
 
+# DigestInfo for SHA-256, the fixed prefix of an RSASSA-PKCS1-v1_5 signature block (RFC 8017, 9.2).
+_SHA256_PREFIX = bytes.fromhex("3031300d060960864801650304020105000420")
+
+
+def _unb64(text: str) -> bytes:
+    return base64.urlsafe_b64decode(text + "=" * (-len(text) % 4))
+
+
+class AccessVerifier:
+    """Checks the signed token Cloudflare Access adds to every request it lets through.
+
+    A request that reached this process some other way (another container on the proxy's
+    host, a client on the same network) has no such token, so Access cannot be skipped.
+    """
+
+    def __init__(self, certs_url: str, audience: str, issuer: str):
+        self._certs_url, self._audience, self._issuer = certs_url, audience, issuer
+        self._keys: dict[str, tuple[int, int]] = {}
+        self._fetched = 0.0
+        self._lock = threading.Lock()
+
+    def _key(self, kid: str) -> tuple[int, int] | None:
+        with self._lock:
+            # Cloudflare rotates its keys, so an unknown key id means fetch again, at most once a minute.
+            if kid not in self._keys and time.monotonic() - self._fetched > 60:
+                self._fetched = time.monotonic()
+                try:
+                    with urllib.request.urlopen(self._certs_url, timeout=10) as reply:  # noqa: S310 - from config
+                        keys = json.load(reply)["keys"]
+                    self._keys = {key["kid"]: (int.from_bytes(_unb64(key["n"])), int.from_bytes(_unb64(key["e"])))
+                                  for key in keys if key.get("kty") == "RSA"}
+                except (OSError, ValueError, KeyError, TypeError) as error:
+                    logging.warning("access: cannot fetch signing keys: %s", error)
+            return self._keys.get(kid)
+
+    def valid(self, token: str) -> bool:
+        try:
+            signed, _, signature = token.rpartition(".")
+            header_part, _, claims_part = signed.partition(".")
+            header, claims = json.loads(_unb64(header_part)), json.loads(_unb64(claims_part))
+            if header.get("alg") != "RS256":
+                return False
+            key = self._key(header["kid"])
+            if key is None:
+                return False
+            modulus, exponent = key
+            size = (modulus.bit_length() + 7) // 8
+            digest = hashlib.sha256(signed.encode()).digest()
+            expected = b"\x00\x01" + b"\xff" * (size - len(_SHA256_PREFIX) - len(digest) - 3) + b"\x00" + _SHA256_PREFIX + digest
+            actual = pow(int.from_bytes(_unb64(signature)), exponent, modulus).to_bytes(size)
+            audience = claims.get("aud")
+            audiences = audience if isinstance(audience, list) else [audience]
+            return (hmac.compare_digest(actual, expected) and self._audience in audiences
+                    and claims.get("iss") == self._issuer and float(claims["exp"]) > time.time())
+        except (ValueError, KeyError, TypeError, OverflowError):
+            return False
+
+
 class Handler(BaseHTTPRequestHandler):
     protocol_version = "HTTP/1.1"
+    # Seconds a client may stall while sending a request.
+    timeout = 30
     token: str
     head: str
     voice: Voice
+    access: AccessVerifier | None
 
     def log_message(self, *_):
         pass
@@ -146,27 +216,37 @@ class Handler(BaseHTTPRequestHandler):
         self.send_response(status)
         self.send_header("content-type", "application/json")
         self.send_header("content-length", str(len(data)))
+        # One request per connection: bytes after this request are never read as another one.
+        self.send_header("connection", "close")
         for name, value in (headers or {}).items():
             self.send_header(name, value)
         self.end_headers()
         self.wfile.write(data)
 
     def _authorized(self) -> bool:
+        if self.access is not None and not self.access.valid(self.headers.get("Cf-Access-Jwt-Assertion", "")):
+            return False
         return hmac.compare_digest(self.headers.get("Authorization", "").encode(), ("Bearer " + self.token).encode())
 
     def _read_body(self) -> bytes | None:
-        length = int(self.headers.get("Content-Length", "0"))
-        if length > MAX_BODY:
-            self.close_connection = True
+        if self.headers.get("Transfer-Encoding"):
+            self._json(411, {"error": "send a Content-Length"})
+            return None
+        length = self.headers.get("Content-Length", "0")
+        if not (length.isascii() and length.isdigit()):
+            self._json(400, {"error": "bad Content-Length"})
+            return None
+        if int(length) > MAX_BODY:
             self._json(413, {"error": "body too large"})
             return None
-        return self.rfile.read(length)
+        return self.rfile.read(int(length))
 
     def _start_stream(self, content_type: str) -> None:
         self.send_response(200)
         self.send_header("content-type", content_type)
         self.send_header("cache-control", "no-cache")
         self.send_header("transfer-encoding", "chunked")
+        self.send_header("connection", "close")
         self.end_headers()
         self.wfile.flush()
 
@@ -175,9 +255,6 @@ class Handler(BaseHTTPRequestHandler):
             self.wfile.write(f"{len(data):x}\r\n".encode() + data + b"\r\n")
             self.wfile.flush()
 
-    def _abort_stream(self) -> None:
-        # No terminating chunk, so the client sees a failed transfer and not a short reply.
-        self.close_connection = True
 
     def do_GET(self):
         if self.path == "/health":
@@ -195,8 +272,7 @@ class Handler(BaseHTTPRequestHandler):
         if not self._authorized():
             return self._json(401, {"error": "bearer token required"})
         if self.path == "/v1/voice/wake":
-            self.voice.wake()
-            return self._json(200, {"sent": True})
+            return self._json(200, {"sent": self.voice.wake()})
         if self.path == "/v1/tts":
             return self._tts(body)
         route = head_path(self.path)
@@ -224,10 +300,10 @@ class Handler(BaseHTTPRequestHandler):
             self._chunk(synthesis.wav())
             self.wfile.write(b"0\r\n\r\n")
         except VoiceError as error:
+            # No terminating chunk: the client sees a failed transfer, not a short reply.
             logging.warning("voice: %s", error)
-            self._abort_stream()
         except OSError:
-            self._abort_stream()
+            pass
 
     def _to_head(self, route: str, body: bytes) -> None:
         url = urlsplit(self.head)
@@ -244,19 +320,20 @@ class Handler(BaseHTTPRequestHandler):
                 # The head answers JSON on every route but a turn. Its header is not copied.
                 self.send_header("content-type", "application/json")
                 self.send_header("content-length", str(len(data)))
+                self.send_header("connection", "close")
                 self.end_headers()
                 self.wfile.write(data)
                 return
-        except OSError as error:
+        except (OSError, http.client.HTTPException) as error:
             upstream.close()
             return self._json(502, {"error": f"the voice head is unreachable: {error}"})
         self._start_stream("text/event-stream")
         try:
-            while line := response.fp.readline():
+            while line := response.readline():
                 self._chunk(line)
             self.wfile.write(b"0\r\n\r\n")
-        except OSError:
-            self._abort_stream()
+        except (OSError, http.client.HTTPException) as error:
+            logging.warning("head stream: %s", error)
         finally:
             upstream.close()
 
@@ -269,9 +346,13 @@ def load_config(path: Path) -> tuple[list[str], dict]:
     if len(mac) != 6:
         raise ValueError("voice.mac must be six bytes")
     bhost, _, bport = voice["broadcast"].rpartition(":")
+    if urlsplit(raw["head"]).scheme != "http":
+        raise ValueError("head must be an http:// URL")
+    access = raw.get("access")
     bound = {
         "token": Path(raw["token_file"]).read_text(encoding="utf-8").strip(),
         "head": raw["head"],
+        "access": AccessVerifier(access["certs_url"], access["audience"], access["issuer"]) if access else None,
         "voice": Voice(host, int(port), voice.get("name", "default"), mac, (bhost, int(bport))),
     }
     if not bound["token"]:

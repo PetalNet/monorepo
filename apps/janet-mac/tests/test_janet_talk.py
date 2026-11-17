@@ -2,6 +2,7 @@
 head, the voice server, and the Mac programs the script calls."""
 
 import importlib.util
+import json
 import os
 import stat
 import subprocess
@@ -22,10 +23,13 @@ CF_SECRET = "cf-secret-value"
 
 STUBS = {
     # The transcript and exit status come from files the test writes.
-    "hex": '#!/usr/bin/env bash\necho "$*" >>"$STUB/hex.log"\n'
-    'if [ "$2" = stop ]; then cat "$STUB/transcript"; exit "$(cat "$STUB/hex-status")"; fi\n',
+    # A start is logged once the recording has begun, which takes as long as the test says.
+    "hex": '#!/usr/bin/env bash\n[ "$2" = start ] && sleep "$(cat "$STUB/hex-start-seconds")"\n'
+    'echo "$*" >>"$STUB/hex.log"\n'
+    'if [ "$2" = stop ]; then cat "$STUB/transcript"; exit "$(cat "$STUB/hex-status")"; fi\n'
+    'if [ "$2" = start ]; then exit "$(cat "$STUB/hex-start-status")"; fi\n',
     # The secrets come from the test's environment, so none is written to disk.
-    "security": '#!/usr/bin/env bash\ncase "$5" in cf-access-client-id) echo cf-id;; '
+    "security": '#!/usr/bin/env bash\n[ -e "$STUB/no-secrets" ] && exit 44\ncase "$5" in cf-access-client-id) echo cf-id;; '
     'cf-access-client-secret) echo "$STUB_CF_SECRET";; head-token) echo "$STUB_HEAD_TOKEN";; esac\n',
     # Appends the audio it was asked to play, then takes as long as the test says.
     "afplay": '#!/usr/bin/env bash\ntail -c +45 "$1" >>"$STUB/played"; echo >>"$STUB/played"\n'
@@ -48,6 +52,8 @@ class TalkCase(unittest.TestCase):
             path.chmod(path.stat().st_mode | stat.S_IEXEC)
         (self.stub / "hex-status").write_text("0")
         (self.stub / "afplay-seconds").write_text("0")
+        (self.stub / "hex-start-seconds").write_text("0")
+        (self.stub / "hex-start-status").write_text("0")
         self.say("what time is it")
 
         self.head = fakes.FakeHead()
@@ -105,11 +111,17 @@ class TalkCase(unittest.TestCase):
     def say(self, text):
         (self.stub / "transcript").write_text(text + "\n")
 
-    def talk(self, action, wait=True):
+    def talk(self, action, wait=True, status=0):
         process = subprocess.Popen(["bash", str(APP / "janet-talk"), action], env=self.env)
         if wait:
-            self.assertEqual(process.wait(60), 0)
+            self.assertEqual(process.wait(60), status)
         return process
+
+    def notified(self, expected):
+        # The script posts notifications in the background, so they can land just after it exits.
+        self.wait_for(lambda: len(self.lines("notifications")) >= len(expected), 3)
+        time.sleep(0.2)
+        self.assertEqual(self.lines("notifications"), expected)
 
     def lines(self, name):
         path = self.stub / name
@@ -126,7 +138,7 @@ class TalkTest(TalkCase):
         self.assertEqual(self.lines("hex.log"), ["dictation start --raw", "dictation stop --print"])
         self.assertEqual(self.head_calls("/turns"), [{"text": "what time is it"}])
         self.assertEqual(self.lines("played"), ["First.", "Second."])
-        self.assertEqual(self.lines("notifications"), ["First. Second."])
+        self.notified(["First. Second."])
 
     def test_the_conversation_is_personal_on_the_mac_channel_and_reused_for_a_follow_up(self):
         for _ in range(2):
@@ -152,7 +164,7 @@ class TalkTest(TalkCase):
         self.talk("start")
         self.talk("stop")
         self.assertEqual(self.head_calls("/turns"), [])
-        self.assertEqual(self.lines("notifications"), ["Didn't catch that."])
+        self.notified(["Didn't catch that."])
         self.assertEqual(self.lines("played"), [])
 
     def test_the_voice_starts_loading_at_the_press(self):
@@ -181,6 +193,118 @@ class TalkTest(TalkCase):
         self.assertEqual(self.lines("played"), ["First."])
 
 
+    def test_a_release_that_beats_the_recording_still_ends_it(self):
+        # A quick tap: the key is up again before Hex has started recording.
+        (self.stub / "hex-start-seconds").write_text("0.6")
+        starting = self.talk("start", wait=False)
+        time.sleep(0.1)
+        self.talk("stop")
+        starting.wait(10)
+        self.assertEqual(self.lines("hex.log"), ["dictation start --raw", "dictation stop --print"])
+        self.assertEqual(self.head_calls("/turns"), [{"text": "what time is it"}])
+
+    def test_a_follow_up_after_a_long_pause_gets_a_new_conversation(self):
+        self.talk("start")
+        self.talk("stop")
+        state = Path(self.env["JANET_TALK_STATE"])
+        (state / "conversation.used").write_text(str(int(time.time()) - 600))
+        (state / "conversation").write_text("00000000dead\n")
+        self.talk("start")
+        self.talk("stop")
+        self.assertEqual(len(self.head_calls("/v1/conversations")), 2)
+        self.assertEqual([path for path, _ in self.head.calls if "00000000dead" in path], [])
+
+    def test_without_hex_it_says_so_and_calls_nobody(self):
+        (self.stub / "hex-start-status").write_text("3")
+        self.talk("start", status=1)
+        self.notified(["Hex is not running."])
+        self.assertEqual(self.head.calls, [])
+
+    def test_without_its_secrets_it_says_so_and_drops_the_recording(self):
+        (self.stub / "no-secrets").touch()
+        self.talk("start", status=1)
+        self.notified(["Not set up: run the janet-mac install script."])
+        self.assertEqual(self.lines("hex.log"), ["dictation start --raw", "dictation cancel"])
+        self.assertEqual(self.head.calls, [])
+
+    def test_a_voice_that_fails_is_not_asked_again(self):
+        self.voice.fail_texts = {"First."}
+        self.talk("start")
+        self.talk("stop")
+        asked = [request["text"] for request in self.voice.requests_seen]
+        self.assertEqual(sorted(asked), ["First.", "Hi.", "Second."])
+        self.assertEqual(self.lines("played"), ["Second."])
+        self.notified(["First. Second."])
+
+
+class InstallTest(unittest.TestCase):
+    def setUp(self):
+        self.home = Path(tempfile.mkdtemp())
+        stub = self.home / "stub"
+        stub.mkdir()
+        # A Keychain made of files: `-i` stores what it is told, find prints it back.
+        (stub / "security").write_text(
+            "#!/usr/bin/env bash\n"
+            'if [ "$1" = -i ]; then while read -r _ _ _ _ _ account _ value; do '
+            'a=${account//\\"/}; v=${value//\\"/}; [ -e "$HOME/keychain-broken" ] || printf %s "$v" >"$HOME/kc.$a"; done; exit 0; fi\n'
+            'cat "$HOME/kc.$5" 2>/dev/null || exit 44\n'
+        )
+        (stub / "security").chmod(0o755)
+        self.env = {**os.environ, "HOME": str(self.home), "PATH": f"{stub}:{os.environ['PATH']}"}
+        self.karabiner = self.home / ".config" / "karabiner" / "karabiner.json"
+        self.karabiner.parent.mkdir(parents=True)
+        self.karabiner.write_text(json.dumps({"profiles": [
+            {"name": "Other", "complex_modifications": {"rules": [{"description": "other profile"}]}},
+            {"name": "Default", "selected": True, "complex_modifications": {"rules": [{"description": "mine"}]}},
+        ]}))
+
+    def install(self, secrets="cf-id.access\ncf-secret\nhead-token\n", url="https://voice.example.com/"):
+        return subprocess.run(["bash", str(APP / "install.sh"), url], input=secrets, text=True, env=self.env,
+                              capture_output=True)
+
+    def rules(self, profile):
+        profiles = json.loads(self.karabiner.read_text())["profiles"]
+        return [rule["description"] for rule in profiles[profile]["complex_modifications"]["rules"]]
+
+    def test_it_installs_the_script_the_url_the_secrets_and_the_rule(self):
+        self.assertEqual(self.install().returncode, 0)
+        self.assertTrue(os.access(self.home / ".local/bin/janet-talk", os.X_OK))
+        self.assertEqual((self.home / ".config/janet-talk/config").read_text(),
+                         'JANET_VOICE_URL="https://voice.example.com"\n')
+        stored = {name: (self.home / f"kc.{name}").read_text() for name in
+                  ("cf-access-client-id", "cf-access-client-secret", "head-token")}
+        self.assertEqual(stored, {"cf-access-client-id": "cf-id.access", "cf-access-client-secret": "cf-secret",
+                                  "head-token": "head-token"})
+        self.assertEqual(len(self.rules(1)), 2)
+        self.assertIn("double tap", self.rules(1)[0])
+        self.assertEqual(self.rules(1)[1], "mine")
+        self.assertEqual(self.rules(0), ["other profile"])
+
+    def test_running_it_twice_keeps_one_rule_and_the_original_backup(self):
+        self.install()
+        self.install()
+        self.assertEqual(len(self.rules(1)), 2)
+        backup = json.loads((self.karabiner.parent / "karabiner.json.before-janet-talk").read_text())
+        self.assertEqual([rule["description"] for rule in backup["profiles"][1]["complex_modifications"]["rules"]],
+                         ["mine"])
+
+    def test_a_secret_with_a_quote_or_a_space_is_refused_before_anything_is_stored(self):
+        for bad in ('cf-id\nse"cret\ntoken\n', "cf-id\nsecret\nto ken\n", "cf-id\nsecret\n", "cf-id\nsec\\ret\ntoken\n"):
+            with self.subTest(bad=bad):
+                self.assertNotEqual(self.install(secrets=bad).returncode, 0)
+                self.assertEqual(list(self.home.glob("kc.*")), [])
+
+    def test_a_plain_http_gateway_is_refused(self):
+        self.assertNotEqual(self.install(url="http://voice.example.com").returncode, 0)
+        self.assertFalse((self.home / ".config/janet-talk/config").exists())
+
+    def test_it_fails_when_the_keychain_did_not_keep_the_secret(self):
+        (self.home / "keychain-broken").touch()
+        result = self.install()
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("Keychain", result.stderr)
+
+
 class SleepingVoiceTest(TalkCase):
     voice_up = False
 
@@ -189,7 +313,7 @@ class SleepingVoiceTest(TalkCase):
         self.assertTrue(self.wake.packets(), "the press sent no wake packet")
         speaking = self.talk("stop", wait=False)
         self.wait_for(lambda: "First. Second." in self.lines("notifications"))
-        self.assertIn("Waking the voice PC. I'll speak as soon as it's up.", self.lines("notifications"))
+        self.wait_for(lambda: "Waking the voice PC. I'll speak as soon as it's up." in self.lines("notifications"))
         self.assertEqual(self.lines("played"), [])
         self.start_voice()
         self.assertEqual(speaking.wait(30), 0)

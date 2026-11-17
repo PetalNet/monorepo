@@ -35,8 +35,13 @@ OSA
 secret() { security find-generic-password -s "$KEYCHAIN_SERVICE" -a "$1" -w 2>/dev/null; }
 
 load_secrets() {
-  CF_ID=$(secret cf-access-client-id) && CF_SECRET=$(secret cf-access-client-secret) && HEAD_TOKEN=$(secret head-token) &&
-    [ -n "$CF_ID" ] && [ -n "$CF_SECRET" ] && [ -n "$HEAD_TOKEN" ] && [ -n "$URL" ]
+  local value
+  CF_ID=$(secret cf-access-client-id) && CF_SECRET=$(secret cf-access-client-secret) && HEAD_TOKEN=$(secret head-token) || return 1
+  [ -n "$URL" ] || return 1
+  # The values go into curl config lines. Tokens are made of these characters; anything else is refused.
+  for value in "$CF_ID" "$CF_SECRET" "$HEAD_TOKEN"; do
+    case "$value" in "" | *[!A-Za-z0-9._~+/=-]*) return 1 ;; esac
+  done
 }
 
 # Secrets reach curl on stdin, so they never show up in a process list.
@@ -57,7 +62,14 @@ body() { # jq filter, jq args... -> path of a JSON body file
   echo "$file"
 }
 
-alive() { [ -s "$1" ] && kill -0 "$(cat "$1")" 2>/dev/null; }
+# True when the pid file names a live janet-talk process, not a stranger that reused the number.
+ours() { # pid file
+  local pid
+  [ -s "$1" ] || return 1
+  pid=$(cat "$1")
+  case "$(ps -p "$pid" -o command= 2>/dev/null)" in *janet-talk*) return 0 ;; esac
+  return 1
+}
 
 # --- conversation -----------------------------------------------------------------
 
@@ -77,8 +89,8 @@ open_conversation() {
     log "open failed"
     return 1
   }
-  echo "$id" >"$STATE/conversation.tmp" && mv "$STATE/conversation.tmp" "$STATE/conversation"
   date +%s >"$STATE/conversation.used"
+  echo "$id" >"$STATE/conversation.tmp" && mv "$STATE/conversation.tmp" "$STATE/conversation"
   log "opened $id"
 }
 
@@ -96,17 +108,20 @@ end_conversation() { # reason
 
 # Fetches one sentence's audio. The voice host may be asleep: the gateway then answers 503
 # after sending a wake packet, and this keeps asking until the voice is up or time runs out.
+# Any other failure, such as a transfer the gateway cut because the voice failed, is final.
 fetch_speech() { # turn dir, index
   local dir="$1" i="$2" file code deadline announced=""
   file=$(body '{text: $v}' --arg v "$(cat "$dir/$i.txt")")
   deadline=$(($(date +%s) + VOICE_WAKE_WAIT_S))
   while [ "$(date +%s)" -lt "$deadline" ]; do
-    code=$(api /v1/tts "$file" --max-time 300 -o "$dir/$i.part" -w '%{http_code}') || code="000"
-    if [ "$code" = 200 ] && [ -s "$dir/$i.part" ]; then
-      mv "$dir/$i.part" "$dir/$i.wav"
-      break
+    if code=$(api /v1/tts "$file" --max-time 300 -o "$dir/$i.part" -w '%{http_code}'); then
+      if [ "$code" = 200 ] && [ -s "$dir/$i.part" ]; then
+        mv "$dir/$i.part" "$dir/$i.wav"
+        break
+      fi
     fi
     log "speech $i: http $code"
+    # 503 is a sleeping voice host and 000 is no answer at all; both are worth another try.
     [ "$code" = 503 ] || [ "$code" = 000 ] || break
     if [ "$code" = 503 ] && [ -z "$announced" ] && [ "$i" = 1 ]; then
       announced=1
@@ -121,6 +136,7 @@ fetch_speech() { # turn dir, index
 # Plays sentences in order as their audio arrives. Stops after the last one.
 play_turn() { # turn dir
   local dir="$1" i=1 deadline=$((SECONDS + VOICE_WAKE_WAIT_S + 600))
+  sh -c 'echo $PPID' >"$dir/player.pid"
   while [ "$SECONDS" -lt "$deadline" ]; do
     if [ -e "$dir/$i.wav" ]; then
       [ "$i" = 1 ] && log "first audio"
@@ -137,18 +153,27 @@ play_turn() { # turn dir
   done
 }
 
-# Stops a reply that is still playing and tells the head what was heard.
-barge_in() {
-  local dir played heard="" i file id
-  alive "$STATE/turn.pid" || return 0
+# Stops a reply that is still being fetched or played. Prints the directory of the stopped turn.
+stop_reply() {
+  local dir turn player playing fetching
+  ours "$STATE/turn.pid" || return 1
+  turn=$(cat "$STATE/turn.pid")
   dir=$(cat "$STATE/turn.dir" 2>/dev/null)
-  pkill -TERM -P "$(cat "$STATE/turn.pid")" 2>/dev/null
-  kill "$(cat "$STATE/turn.pid")" 2>/dev/null
-  pkill -x afplay 2>/dev/null
+  player=$(cat "$dir/player.pid" 2>/dev/null)
+  # The player goes first, so it cannot move on to the next sentence when its afplay dies.
+  playing=$([ -n "$player" ] && pgrep -P "$player")
+  fetching=$(pgrep -P "$turn")
+  # shellcheck disable=SC2086
+  kill "$turn" $player $playing $fetching 2>/dev/null
   rm -f "$STATE/turn.pid"
+  echo "$dir"
+}
+
+# Tells the head which sentences of the stopped reply were heard in full.
+report_heard() { # turn dir
+  local dir="$1" played heard="" i=1 file id
   [ -n "$dir" ] && [ -s "$STATE/conversation" ] || return 0
   played=$(cat "$dir/played" 2>/dev/null || echo 0)
-  i=1
   while [ "$i" -le "$played" ]; do
     heard="$heard$(cat "$dir/$i.txt") "
     i=$((i + 1))
@@ -163,17 +188,23 @@ barge_in() {
 # --- the two key events -------------------------------------------------------------
 
 start() {
-  local warm
+  local warm stopped
+  [ "$(wc -c <"$LOG" 2>/dev/null || echo 0)" -gt 1000000 ] && : >"$LOG"
   log "start"
-  if ! load_secrets; then
-    notify "Janet" "Not set up: run the janet-mac install script."
-    exit 1
-  fi
-  barge_in
+  # The microphone comes first: nothing below may delay the recording.
+  stopped=$(stop_reply)
   "$HEX" dictation start --raw >/dev/null 2>&1 || {
     notify "Janet" "Hex is not running."
     exit 1
   }
+  : >"$STATE/recording"
+  if ! load_secrets; then
+    "$HEX" dictation cancel >/dev/null 2>&1
+    rm -f "$STATE/recording"
+    notify "Janet" "Not set up: run the janet-mac install script."
+    exit 1
+  fi
+  [ -n "$stopped" ] && report_heard "$stopped"
   # While Parker talks: get the conversation ready and start the voice loading.
   open_conversation
   warm=$(body '{text: "Hi."}')
@@ -185,6 +216,12 @@ stop() {
   local released text status id dir file count=0 event="" line end="false" reply="" waited=0
   released=$(now_ms)
   log "released"
+  # A quick tap can run this before `start` has begun the recording. Wait for it, briefly.
+  while [ ! -e "$STATE/recording" ] && [ "$waited" -lt 20 ]; do
+    sleep 0.1
+    waited=$((waited + 1))
+  done
+  rm -f "$STATE/recording"
   text=$("$HEX" dictation stop --print 2>/dev/null)
   status=$?
   text=$(printf '%s' "$text" | tr '\n' ' ' | sed 's/^ *//; s/ *$//')
@@ -195,11 +232,12 @@ stop() {
   fi
   load_secrets || exit 1
   # `start` may still be opening the conversation.
-  while [ ! -s "$STATE/conversation" ] && [ "$waited" -lt 100 ]; do
+  waited=0
+  while ! conversation_fresh && [ "$waited" -lt 100 ]; do
     sleep 0.1
     waited=$((waited + 1))
   done
-  [ -s "$STATE/conversation" ] || open_conversation || {
+  conversation_fresh || open_conversation || {
     notify "Janet" "Can't reach Janet."
     exit 1
   }
@@ -213,6 +251,7 @@ stop() {
   while IFS= read -r line; do
     line=${line%$'\r'}
     case "$line" in
+      "") event="" ;;
       event:*) event=$(echo "${line#event:}" | tr -d ' ') ;;
       data:*)
         if [ "$event" = sentence ]; then

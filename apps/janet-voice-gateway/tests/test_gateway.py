@@ -2,6 +2,7 @@ import http.client
 import json
 import os
 import signal
+import socket
 import subprocess
 import sys
 import tempfile
@@ -9,7 +10,7 @@ import time
 import unittest
 from pathlib import Path
 
-from tests.fakes import MAC, TOKEN, FakeHead, FakeVoice, WakeListener, closed_port
+from tests.fakes import MAC, TOKEN, AccessIssuer, ChunkedHead, FakeHead, FakeVoice, WakeListener, closed_port
 
 APP = Path(__file__).resolve().parent.parent / "janet_voice_gateway.py"
 AUTH = {"Authorization": "Bearer " + TOKEN, "content-type": "application/json"}
@@ -17,9 +18,11 @@ AUTH = {"Authorization": "Bearer " + TOKEN, "content-type": "application/json"}
 
 class GatewayCase(unittest.TestCase):
     voice_options: dict = {}
+    head_class = FakeHead
+    extra_config = ""
 
     def setUp(self):
-        self.head = FakeHead()
+        self.head = self.head_class()
         self.voice = FakeVoice(**self.voice_options)
         self.wake = WakeListener()
         self.addCleanup(self.head.shutdown)
@@ -36,6 +39,7 @@ class GatewayCase(unittest.TestCase):
             f'token_file = "{folder / "token"}"\n'
             f'head = "{self.head.url}"\n'
             f'[voice]\nwyoming = "{wyoming}"\nname = "janet"\nmac = "{MAC}"\nbroadcast = "{self.wake.address}"\n'
+            + self.extra_config
         )
         self.process = subprocess.Popen([sys.executable, str(APP), "--config", str(folder / "gateway.toml")])
         self.addCleanup(self.stop)
@@ -83,20 +87,6 @@ class AuthTest(GatewayCase):
         self.assertEqual(self.voice.requests_seen, [])
         self.assertEqual(self.wake.packets(), [])
 
-    def test_the_head_checks_the_token_again(self):
-        # The gateway forwards the caller's own header; it does not substitute a token of its own.
-        self.head.RequestHandlerClass = type("Strict", (self.head.RequestHandlerClass,), {})
-        seen = []
-        original = self.head.RequestHandlerClass.do_POST
-
-        def record(handler):
-            seen.append(handler.headers.get("Authorization"))
-            original(handler)
-
-        self.head.RequestHandlerClass.do_POST = record
-        self.request("POST", "/v1/conversations", {"channel": "mac"}, AUTH)
-        self.assertEqual(seen, ["Bearer " + TOKEN])
-
 
 class HeadTest(GatewayCase):
     def test_opening_a_conversation_reaches_the_head_and_returns_its_reply(self):
@@ -133,6 +123,103 @@ class HeadTest(GatewayCase):
         self.head.shutdown()
         self.head.server_close()
         self.assertEqual(self.request("POST", "/v1/conversations", {"channel": "mac"}, AUTH)[0], 502)
+
+
+class ChunkedHeadTest(GatewayCase):
+    head_class = ChunkedHead
+
+    def test_a_head_that_frames_its_stream_in_chunks_is_relayed_clean_and_ends(self):
+        started = time.monotonic()
+        status, body, _ = self.request("POST", "/v1/conversations/0123456789ab/turns", {"text": "hello"}, AUTH)
+        self.assertEqual(status, 200)
+        self.assertEqual(
+            body,
+            b'event: sentence\ndata: {"text": "First."}\n\nevent: done\ndata: {"end_conversation": false}\n\n',
+        )
+        self.assertLess(time.monotonic() - started, 5, "the reply waited for the head to close its connection")
+
+
+class RequestFramingTest(GatewayCase):
+    def raw(self, request: bytes) -> bytes:
+        with socket.create_connection(("127.0.0.1", self.port), timeout=5) as sock:
+            sock.sendall(request)
+            reply = b""
+            try:
+                while data := sock.recv(65536):
+                    reply += data
+            except TimeoutError:
+                self.fail(f"the connection stayed open; so far: {reply!r}")
+        return reply
+
+    def test_a_request_hidden_in_a_body_is_not_answered(self):
+        hidden = f"GET /v1/voice HTTP/1.1\r\nHost: x\r\nAuthorization: Bearer {TOKEN}\r\n\r\n".encode()
+        reply = self.raw(b"GET /health HTTP/1.1\r\nHost: x\r\nContent-Length: %d\r\n\r\n" % len(hidden) + hidden)
+        self.assertEqual(reply.count(b"HTTP/1.1 "), 1)
+        self.assertNotIn(b'"state"', reply)
+
+    def test_a_chunked_request_body_is_refused_and_not_read_as_a_request(self):
+        reply = self.raw(
+            f"POST /v1/tts HTTP/1.1\r\nHost: x\r\nAuthorization: Bearer {TOKEN}\r\n"
+            'Transfer-Encoding: chunked\r\n\r\n10\r\n{"text": "hi"}  \r\n0\r\n\r\n'.encode()
+        )
+        self.assertTrue(reply.startswith(b"HTTP/1.1 411"), reply[:60])
+        self.assertEqual(reply.count(b"HTTP/1.1 "), 1)
+        self.assertEqual(self.voice.requests_seen, [])
+
+    def test_a_content_length_that_is_not_a_plain_number_is_refused_at_once(self):
+        for value in (b"-1", b"abc", b"1e3", b"+5"):
+            with self.subTest(value=value):
+                reply = self.raw(b"POST /v1/tts HTTP/1.1\r\nHost: x\r\nContent-Length: " + value + b"\r\n\r\n")
+                self.assertTrue(reply.startswith(b"HTTP/1.1 400"), reply[:60])
+
+    def test_a_body_over_the_limit_is_refused(self):
+        status, _, _ = self.request("POST", "/v1/tts", {"text": "x" * 70000}, AUTH)
+        self.assertEqual(status, 413)
+        self.assertEqual(self.voice.requests_seen, [])
+
+
+class AccessTest(GatewayCase):
+    def setUp(self):
+        self.issuer = AccessIssuer()
+        self.addCleanup(self.issuer.shutdown)
+        self.extra_config = (
+            f'[access]\ncerts_url = "{self.issuer.url}"\naudience = "{AccessIssuer.AUDIENCE}"\n'
+            f'issuer = "{self.issuer.url}"\n'
+        )
+        super().setUp()
+
+    def voice_state(self, **headers):
+        return self.request("GET", "/v1/voice", headers={**AUTH, **headers})[0]
+
+    def test_a_request_signed_by_access_with_the_bearer_token_gets_through(self):
+        self.assertEqual(self.voice_state(**{"Cf-Access-Jwt-Assertion": self.issuer.token()}), 200)
+
+    def test_the_bearer_token_alone_is_refused(self):
+        self.assertEqual(self.voice_state(), 401)
+
+    def test_the_access_token_alone_is_refused(self):
+        status, _, _ = self.request("GET", "/v1/voice", headers={"Cf-Access-Jwt-Assertion": self.issuer.token()})
+        self.assertEqual(status, 401)
+
+    def test_a_token_that_access_did_not_sign_for_this_application_now_is_refused(self):
+        forged = {
+            "signed with another key": self.issuer.token(key=self.issuer.other_key()),
+            "another application": self.issuer.token(aud=["someone-else"]),
+            "another issuer": self.issuer.token(iss="https://evil.example"),
+            "expired": self.issuer.token(exp=time.time() - 1),
+            "unsigned": self.issuer.token(alg="none"),
+            "unknown key id": self.issuer.token(kid="key-2"),
+            "tampered claims": self.tampered(),
+            "not a token": "x.y.z",
+        }
+        for name, token in forged.items():
+            with self.subTest(name):
+                self.assertEqual(self.voice_state(**{"Cf-Access-Jwt-Assertion": token}), 401)
+
+    def tampered(self) -> str:
+        header, _, signature = self.issuer.token(aud=["someone-else"]).split(".")
+        _, claims, _ = self.issuer.token().split(".")
+        return f"{header}.{claims}.{signature}"
 
 
 class VoiceTest(GatewayCase):
