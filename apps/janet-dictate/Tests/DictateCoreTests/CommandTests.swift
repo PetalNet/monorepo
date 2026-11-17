@@ -3,12 +3,12 @@ import XCTest
 
 final class CommandTests: XCTestCase {
 	func testNoArgumentsRunsAgent() throws {
-		XCTAssertEqual(try CommandParser.parse([]), .agent(key: nil))
+		XCTAssertEqual(try CommandParser.parse([]), .agent(AgentOptions()))
 	}
 
 	func testLeadingKeyOptionRunsAgentWithKey() throws {
-		XCTAssertEqual(try CommandParser.parse(["--key", "f18"]), .agent(key: "f18"))
-		XCTAssertEqual(try CommandParser.parse(["agent", "--key=f17"]), .agent(key: "f17"))
+		XCTAssertEqual(try CommandParser.parse(["--key", "f18"]), .agent(AgentOptions(key: "f18")))
+		XCTAssertEqual(try CommandParser.parse(["agent", "--key=f17"]), .agent(AgentOptions(key: "f17")))
 	}
 
 	func testStopPrintFlag() throws {
@@ -32,9 +32,12 @@ final class CommandTests: XCTestCase {
 	func testBenchForms() throws {
 		XCTAssertEqual(
 			try CommandParser.parse(["--bench", "d", "--realtime"]),
-			.bench(directory: "d", realtime: true)
+			.bench(directory: "d", realtime: true, retention: nil)
 		)
-		XCTAssertEqual(try CommandParser.parse(["bench", "d"]), .bench(directory: "d", realtime: false))
+		XCTAssertEqual(
+			try CommandParser.parse(["bench", "d", "--retention", "lingering"]),
+			.bench(directory: "d", realtime: false, retention: .lingering)
+		)
 	}
 
 	func testRejectsUnknownThings() {
@@ -69,5 +72,43 @@ final class CommandTests: XCTestCase {
 			XCTAssertEqual($0 as? KeySpec.ParseError, .unknownKey("f99"))
 		}
 		XCTAssertThrowsError(try KeySpec.parse(""))
+	}
+
+	func testControlSocketIsOffUnlessAskedFor() throws {
+		XCTAssertFalse(try agentOptions([]).controlSocket)
+		XCTAssertTrue(try agentOptions(["--control-socket"]).controlSocket)
+		XCTAssertFalse(CommandParser.resolveControlSocket(flag: false, defaultsValue: nil))
+		XCTAssertFalse(CommandParser.resolveControlSocket(flag: false, defaultsValue: false))
+		XCTAssertTrue(CommandParser.resolveControlSocket(flag: false, defaultsValue: true))
+		XCTAssertTrue(CommandParser.resolveControlSocket(flag: true, defaultsValue: false))
+	}
+
+	func testMaxSecondsOptionAndDefaults() throws {
+		XCTAssertEqual(try agentOptions(["--max-seconds", "30"]).maxSeconds, 30)
+		XCTAssertThrowsError(try CommandParser.parse(["--max-seconds", "0"]))
+		XCTAssertThrowsError(try CommandParser.parse(["--max-seconds", "soon"]))
+		XCTAssertThrowsError(try CommandParser.parse(["--max-seconds"]))
+		XCTAssertEqual(CommandParser.resolveMaxSeconds(argument: nil, defaultsValue: nil), 120)
+		XCTAssertEqual(CommandParser.resolveMaxSeconds(argument: nil, defaultsValue: 45), 45)
+		XCTAssertEqual(CommandParser.resolveMaxSeconds(argument: nil, defaultsValue: 1), 120)
+		XCTAssertEqual(CommandParser.resolveMaxSeconds(argument: 20, defaultsValue: 45), 20)
+	}
+
+	func testRetentionOption() throws {
+		XCTAssertEqual(try agentOptions(["--retention", "lingering"]).retention, .lingering)
+		XCTAssertThrowsError(try CommandParser.parse(["--retention", "forever"])) {
+			XCTAssertEqual($0 as? CommandParseError, .invalidValue(option: "--retention", value: "forever"))
+		}
+		XCTAssertEqual(CommandParser.resolveRetention(argument: nil, defaultsValue: nil), .whileInUse)
+		XCTAssertEqual(CommandParser.resolveRetention(argument: nil, defaultsValue: "lingering"), .lingering)
+		XCTAssertEqual(CommandParser.resolveRetention(argument: .whileInUse, defaultsValue: "lingering"), .whileInUse)
+	}
+
+	private func agentOptions(_ args: [String]) throws -> AgentOptions {
+		guard case .agent(let options) = try CommandParser.parse(args) else {
+			XCTFail("not an agent command")
+			return AgentOptions()
+		}
+		return options
 	}
 }

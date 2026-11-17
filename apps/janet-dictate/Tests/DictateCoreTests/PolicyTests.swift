@@ -28,6 +28,46 @@ final class PasteboardPolicyTests: XCTestCase {
 	}
 }
 
+final class PasteGateTests: XCTestCase {
+	func testSameAppAndNoSecureInputPastes() {
+		XCTAssertEqual(PasteboardPolicy.pasteTarget(pidAtRelease: 42, pidNow: 42, secureInput: false), .paste)
+	}
+
+	func testChangedFocusLeavesTheTextOnTheClipboard() {
+		XCTAssertEqual(
+			PasteboardPolicy.pasteTarget(pidAtRelease: 42, pidNow: 77, secureInput: false),
+			.clipboardOnly(.focusChanged)
+		)
+		XCTAssertEqual(
+			PasteboardPolicy.pasteTarget(pidAtRelease: 42, pidNow: nil, secureInput: false),
+			.clipboardOnly(.focusChanged)
+		)
+	}
+
+	func testSecureInputBlocksThePaste() {
+		XCTAssertEqual(
+			PasteboardPolicy.pasteTarget(pidAtRelease: 42, pidNow: 42, secureInput: true),
+			.clipboardOnly(.secureInput)
+		)
+	}
+}
+
+final class RestoreMarkerTests: XCTestCase {
+	func testRestoredItemsAreMarkedTransient() {
+		XCTAssertEqual(
+			PasteboardPolicy.restoreMarkers(savedItemTypes: [["public.utf8-plain-text"]]),
+			[PasteboardPolicy.transientType]
+		)
+	}
+
+	func testConcealedMarkerSurvivesRestore() {
+		XCTAssertEqual(
+			PasteboardPolicy.restoreMarkers(savedItemTypes: [["public.utf8-plain-text"], [PasteboardPolicy.concealedType]]),
+			[PasteboardPolicy.transientType, PasteboardPolicy.concealedType]
+		)
+	}
+}
+
 final class TextCleanupTests: XCTestCase {
 	func testCollapsesWhitespaceAndTrims() {
 		XCTAssertEqual(TextCleanup.clean("  hello \n\t world  "), "hello world")

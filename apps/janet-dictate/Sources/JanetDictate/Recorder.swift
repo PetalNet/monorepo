@@ -1,10 +1,18 @@
 import AVFoundation
+import DictateCore
 import Foundation
 
-/// Owns the microphone only between `start` and `stop`. The engine is created per recording
-/// and released afterwards, so nothing holds the input device while idle.
-final class Recorder {
+/// Owns the microphone only between `start` and `stop`. One instance per recording; the
+/// engine is released afterwards, so nothing holds the input device while idle.
+final class Recorder: @unchecked Sendable {
 	private var engine: AVAudioEngine?
+	private var observer: NSObjectProtocol?
+	private let onConfigurationChange: @Sendable () -> Void
+
+	/// `onConfigurationChange` fires if the input device changes mid-recording.
+	init(onConfigurationChange: @escaping @Sendable () -> Void) {
+		self.onConfigurationChange = onConfigurationChange
+	}
 
 	enum MicError: Error, CustomStringConvertible {
 		case denied
@@ -28,14 +36,14 @@ final class Recorder {
 	}
 
 	/// Starts capture and returns the transcription that is receiving it.
-	func start() throws -> Transcription {
+	func start(retention: Retention) throws -> Transcription {
 		let engine = AVAudioEngine()
 		let input = engine.inputNode
 		let format = input.outputFormat(forBus: 0)
 		guard format.sampleRate > 0, format.channelCount > 0 else {
 			throw MicError.failed("no input device")
 		}
-		let transcription = Transcription(sourceFormat: format)
+		let transcription = Transcription(sourceFormat: format, retention: retention)
 		input.installTap(onBus: 0, bufferSize: 2048, format: format) { buffer, _ in
 			transcription.feed(buffer)
 		}
@@ -46,11 +54,17 @@ final class Recorder {
 			transcription.cancel()
 			throw MicError.failed(error.localizedDescription)
 		}
+		let change = onConfigurationChange
+		observer = NotificationCenter.default.addObserver(
+			forName: .AVAudioEngineConfigurationChange, object: engine, queue: nil
+		) { _ in change() }
 		self.engine = engine
 		return transcription
 	}
 
 	func stop() {
+		if let observer { NotificationCenter.default.removeObserver(observer) }
+		observer = nil
 		guard let engine else { return }
 		engine.inputNode.removeTap(onBus: 0)
 		engine.stop()

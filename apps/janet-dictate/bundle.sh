@@ -2,13 +2,17 @@
 # Builds janet-dictate and wraps it in a minimal .app so macOS attributes the
 # microphone, speech and accessibility prompts to it. Usage: bundle.sh [output-dir]
 set -euo pipefail
+# A relative output directory is relative to where the caller ran this, not to the package.
+mkdir -p "${1:-$HOME/Applications}"
+OUT="$(cd "${1:-$HOME/Applications}" && pwd)"
 cd "$(dirname "$0")"
-OUT="${1:-$HOME/Applications}"
 APP="$OUT/janet-dictate.app"
 
 swift build -c release
 mkdir -p "$APP/Contents/MacOS"
-cp .build/release/janet-dictate "$APP/Contents/MacOS/janet-dictate"
+# Copy beside the target and move into place, so a running agent never sees a half-written binary.
+cp .build/release/janet-dictate "$APP/Contents/MacOS/.janet-dictate.new"
+mv -f "$APP/Contents/MacOS/.janet-dictate.new" "$APP/Contents/MacOS/janet-dictate"
 cat > "$APP/Contents/Info.plist" <<'PLIST'
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
@@ -29,3 +33,4 @@ cat > "$APP/Contents/Info.plist" <<'PLIST'
 PLIST
 codesign --force --sign - --identifier dev.petalnet.janet-dictate "$APP"
 echo "built $APP"
+echo "Ad-hoc signing gives a new identity on every build: allow Accessibility for the app again after a rebuild."

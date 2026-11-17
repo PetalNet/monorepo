@@ -14,9 +14,18 @@ public struct Request: Codable, Equatable, Sendable {
 		self.verb = verb
 		self.print = print
 	}
+
+	private enum CodingKeys: String, CodingKey { case verb, print }
+
+	/// `print` is optional on the wire; a request like `{"verb":"start"}` is valid.
+	public init(from decoder: Decoder) throws {
+		let container = try decoder.container(keyedBy: CodingKeys.self)
+		verb = try container.decode(Verb.self, forKey: .verb)
+		print = try container.decodeIfPresent(Bool.self, forKey: .print) ?? false
+	}
 }
 
-public struct Response: Codable, Equatable, Sendable {
+public struct Response: Codable, Equatable, Sendable, Error {
 	public enum Status: String, Codable, Sendable {
 		case ok
 		/// The recording finished but no speech was heard.
@@ -71,6 +80,14 @@ public enum Wire {
 	/// Decodes one line; a trailing newline is accepted.
 	public static func decode<T: Decodable>(_ type: T.Type, from line: Data) throws -> T {
 		try JSONDecoder().decode(type, from: line)
+	}
+
+	/// Parses a request line; anything unreadable becomes the error reply to send back.
+	public static func parseRequest(_ line: Data?) -> Result<Request, Response> {
+		guard let line, let request = try? decode(Request.self, from: line) else {
+			return .failure(.error("unreadable request"))
+		}
+		return .success(request)
 	}
 
 	/// Returns the first complete line in `buffer` without its newline, or nil if none yet.

@@ -36,4 +36,22 @@ final class WireTests: XCTestCase {
 		XCTAssertEqual(ExitCode.forResponse(.error("boom")), 1)
 		XCTAssertEqual(ExitCode.agentNotRunning, 3)
 	}
+
+	func testRequestWithoutPrintFieldDecodes() throws {
+		let request = try Wire.decode(Request.self, from: Data("{\"verb\":\"start\"}".utf8))
+		XCTAssertEqual(request, Request(verb: .start, print: false))
+	}
+
+	func testUnreadableRequestBecomesAnErrorReply() {
+		for bad in [Data("nope".utf8), Data("{\"verb\":\"explode\"}".utf8), nil] as [Data?] {
+			guard case .failure(let response) = Wire.parseRequest(bad) else {
+				return XCTFail("expected a failure for \(String(describing: bad))")
+			}
+			XCTAssertEqual(response.status, .error)
+		}
+		guard case .success(let ok) = Wire.parseRequest(Data("{\"verb\":\"status\"}".utf8)) else {
+			return XCTFail("valid request rejected")
+		}
+		XCTAssertEqual(ok.verb, .status)
+	}
 }

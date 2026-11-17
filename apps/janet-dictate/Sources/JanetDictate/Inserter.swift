@@ -1,5 +1,6 @@
 import AppKit
 import ApplicationServices
+import Carbon.HIToolbox
 import CoreGraphics
 import DictateCore
 import Foundation
@@ -7,13 +8,20 @@ import Foundation
 /// Puts text into the focused app: transient clipboard write, Cmd+V, then restore.
 @MainActor
 final class Inserter {
-	private static let transientType = NSPasteboard.PasteboardType("org.nspasteboard.TransientType")
-	private static let concealedType = NSPasteboard.PasteboardType("org.nspasteboard.ConcealedType")
-	private static let restoreDelay: TimeInterval = 0.3
+	private static let transientType = NSPasteboard.PasteboardType(PasteboardPolicy.transientType)
+	private static let concealedType = NSPasteboard.PasteboardType(PasteboardPolicy.concealedType)
+	/// The target app may read the pasteboard well after the keystroke lands.
+	private static let restoreDelay: TimeInterval = 1.0
 
 	private var warnedAboutAccessibility = false
 
-	func insert(_ text: String) {
+	static func frontmostPid() -> Int32? {
+		NSWorkspace.shared.frontmostApplication?.processIdentifier
+	}
+
+	/// `targetPid` is the frontmost app when the key was released; the paste only goes out if
+	/// that app still has focus.
+	func insert(_ text: String, targetPid: Int32?) {
 		let pasteboard = NSPasteboard.general
 		let saved = Self.snapshot(of: pasteboard)
 
@@ -38,6 +46,17 @@ final class Inserter {
 			return
 		}
 
+		switch PasteboardPolicy.pasteTarget(
+			pidAtRelease: targetPid, pidNow: Self.frontmostPid(), secureInput: IsSecureEventInputEnabled()
+		) {
+		case .clipboardOnly(let reason):
+			let why = reason == .secureInput ? "A secure text field is active." : "The focused app changed."
+			Notifier.post(title: "Dictation copied", body: "\(why) The text is on your clipboard, not pasted.")
+			return
+		case .paste:
+			break
+		}
+
 		Self.postPaste()
 		DispatchQueue.main.asyncAfter(deadline: .now() + Self.restoreDelay) {
 			let board = NSPasteboard.general
@@ -47,12 +66,15 @@ final class Inserter {
 				hadPreviousContents: !saved.isEmpty
 			) {
 			case .restore:
+				let markers = PasteboardPolicy.restoreMarkers(savedItemTypes: saved.map { $0.keys.map(\.rawValue) })
 				board.clearContents()
-				for item in saved {
+				let items = saved.map { item -> NSPasteboardItem in
 					let restored = NSPasteboardItem()
 					for (type, data) in item { restored.setData(data, forType: type) }
-					board.writeObjects([restored])
+					for marker in markers { restored.setData(Data(), forType: NSPasteboard.PasteboardType(marker)) }
+					return restored
 				}
+				board.writeObjects(items)
 			case .clear:
 				board.clearContents()
 			case .leave:

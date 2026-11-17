@@ -11,6 +11,8 @@ public struct DictationMachine: Equatable, Sendable {
 		case idle
 		case recording(Source, since: TimeInterval)
 		case finishing
+		/// A socket recording hit its limit; the transcript waits for `stop`.
+		case holding
 	}
 
 	public enum Event: Equatable, Sendable {
@@ -19,6 +21,10 @@ public struct DictationMachine: Equatable, Sendable {
 		case socketStart
 		case socketStop(print: Bool)
 		case socketCancel
+		/// The recording hit its length cap, or the input device changed.
+		case forcedEnd
+		/// A held transcript was never collected.
+		case holdExpired
 		/// The transcript is in and delivered (or failed); the agent is free again.
 		case finished
 	}
@@ -28,6 +34,9 @@ public struct DictationMachine: Equatable, Sendable {
 		case startRecording
 		case stopAndPaste
 		case stopAndReturnText
+		/// Finish now and keep the transcript for a later `stop`.
+		case stopAndHold
+		case deliverHeld(paste: Bool)
 		case discard
 		case rejectBusy
 		case rejectNotRecording
@@ -52,6 +61,20 @@ public struct DictationMachine: Equatable, Sendable {
 			}
 			state = .finishing
 			return .stopAndPaste
+		case (.recording(.hotkey, _), .forcedEnd):
+			state = .finishing
+			return .stopAndPaste
+		case (.recording(.socket, _), .forcedEnd):
+			state = .holding
+			return .stopAndHold
+		case (.holding, .socketStop(let printText)):
+			state = .finishing
+			return .deliverHeld(paste: !printText)
+		case (.holding, .socketCancel), (.holding, .holdExpired):
+			state = .idle
+			return .discard
+		case (.holding, .socketStart):
+			return .rejectBusy
 		case (.recording, .socketStop(let printText)):
 			state = .finishing
 			return printText ? .stopAndReturnText : .stopAndPaste

@@ -14,6 +14,8 @@ Needs macOS 26 or newer and Xcode.
 swift test               # unit tests for the pure logic
 ```
 
+Ad-hoc signing gives the app a new identity on every build. After a rebuild, allow Accessibility for it again.
+
 The app bundle has id `dev.petalnet.janet-dictate` and `LSUIElement` set, so it has no Dock icon. macOS attributes its permission prompts to this bundle.
 
 ## Run
@@ -26,14 +28,18 @@ The agent does not start at login. Add a login item or a launchd agent yourself 
 
 Hold F19 to talk. Release to paste.
 
+F19 is not on a MacBook keyboard. The key is meant to be produced by a remapper, for example Karabiner mapping the microphone key to F19. To use a key you do have, pass `--key`, for example `--key f13` or `--key ctrl+opt+space`.
+
 ## Change the key
 
-Pass `--key` or set a defaults value. The argument wins.
+Pass `--key` or set a defaults value. The argument wins. Other options work the same way: `--max-seconds` (defaults key `maxSeconds`), `--retention` (defaults key `retention`), and `--control-socket` (defaults key `controlSocket`).
 
 ```sh
 open ~/Applications/janet-dictate.app --args --key f18
 defaults write dev.petalnet.janet-dictate key -string "ctrl+opt+space"
 ```
+
+Environment variables do not reach an app started with `open` unless you pass `--env`, so the options above are the way to configure it.
 
 Keys are `f1` to `f20`, `space`, `return`, `tab`, `escape`, `grave`, letters, or `keycode:N`. Modifiers are `cmd`, `shift`, `opt`, `ctrl`, joined with `+`.
 
@@ -41,13 +47,15 @@ Keys are `f1` to `f20`, `space`, `return`, `tab`, `escape`, `grave`, letters, or
 
 - Microphone: asked on the first recording. Click Allow.
 - Accessibility: needed to post Cmd+V. Without it the text is left on the clipboard and one notification says so. Add the app under System Settings, Privacy & Security, Accessibility.
-- Notifications: only used for the two messages above.
+- Notifications: used for the Accessibility message, for "copied, not pasted" notices, and for errors.
 
 The global hotkey itself needs no permission.
 
 ## Control from a script
 
-The same binary talks to the running agent over a Unix socket in `~/Library/Caches/janet-dictate/` (directory mode 700, socket mode 600).
+This is off by default. Any process of your user that can reach the socket can start the microphone and read the transcript with the agent's permissions, so only turn it on if you need it. Enable it with `--control-socket` or `defaults write dev.petalnet.janet-dictate controlSocket -bool true`. The agent also refuses connections from any other user id.
+
+With it on, the same binary talks to the running agent over a Unix socket in `~/Library/Caches/janet-dictate/` (directory mode 700, socket mode 600). With it off there is no socket, and these commands exit 3 and name the switch.
 
 ```sh
 BIN=~/Applications/janet-dictate.app/Contents/MacOS/janet-dictate
@@ -58,23 +66,25 @@ $BIN cancel                # discard
 $BIN status                # idle, recording or finishing
 ```
 
-Exit codes: 0 ok, 1 error, 2 usage, 3 agent not running, 4 no speech heard (nothing printed).
+Exit codes: 0 ok, 1 error, 2 usage, 3 agent not running or control socket off, 4 no speech heard (nothing printed).
+
+A recording that is not stopped within 120 seconds (`--max-seconds`) ends by itself. A hotkey recording pastes what was heard. A socket recording keeps its transcript for 30 more seconds for a later `stop --print`, then drops it. If the input device changes mid-recording, the recording ends the same way.
 
 ## Transcribe a file
 
 ```sh
 $BIN transcribe file.wav                  # {"text": ..., "ms": ...}
 ./bench.sh $BIN                           # 20 TTS utterances, WER and latency
-./bench.sh $BIN --realtime                # audio paced like a microphone; times release-to-text
+./bench.sh $BIN --realtime              # audio paced like a microphone; times release-to-text
 ```
 
 The file path and the microphone path share one code path: audio buffers go into a `Transcription`, which converts them and feeds SpeechAnalyzer.
 
-Set `JANET_DICTATE_RETENTION=lingering` to keep the system model loaded a little after each use. The default, `whileInUse`, lets it go at once.
+Pass `--retention lingering` to the agent or to `--bench` to keep the system model loaded a little after each use. The default, `whileInUse`, lets it go at once.
 
 ## How the clipboard is handled
 
-The text is written to the general pasteboard marked as transient and concealed (`org.nspasteboard.TransientType` and `org.nspasteboard.ConcealedType`), so clipboard managers skip it. Cmd+V is posted, and 0.3 s later the previous contents are restored. If something else wrote to the clipboard in the meantime, it is left alone.
+The text is written to the general pasteboard marked as transient and concealed (`org.nspasteboard.TransientType` and `org.nspasteboard.ConcealedType`), so clipboard managers skip it. Cmd+V is posted, and 1 s later the previous contents are restored, marked transient so clipboard managers skip them. If something else wrote to the clipboard in the meantime, it is left alone. The paste is skipped, and the text stays on the clipboard, if the focused app changed since you released the key or a secure text field is active.
 
 ## Measured numbers
 
@@ -99,3 +109,4 @@ The three misses were "career affair", "pool request" and "flag ... 645" for "fl
 - Speech into the microphone: a 2 s recording of room quiet ended with exit 4 (no speech) and 73 ms from stop to result. It was not tested with a human voice.
 - The hotkey press and release path, and the paste with Cmd+V, were not exercised. The hotkey registers; nobody pressed it.
 - The Accessibility-denied notice and the clipboard restore were not run either. Only their decision logic is unit tested.
+- The length cap, the input-device-change path, and the focus-changed and secure-input paste guards were not exercised on the Mac. Only their decision logic is unit tested.

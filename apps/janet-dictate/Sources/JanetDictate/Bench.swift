@@ -4,7 +4,7 @@ import Foundation
 enum Bench {
 	/// Transcribes every WAV in `directory` in one process. `refs.txt` (one line per file, in
 	/// numeric file order) enables the word error rate. The first file is run once uncounted.
-	static func run(directory: String, realtime: Bool) async throws {
+	static func run(directory: String, realtime: Bool, retention: Retention) async throws {
 		let url = URL(fileURLWithPath: directory)
 		let files = try FileManager.default.contentsOfDirectory(atPath: directory)
 			.filter { $0.hasSuffix(".wav") }
@@ -13,7 +13,7 @@ enum Bench {
 		let refs = (try? String(contentsOf: url.appendingPathComponent("refs.txt"), encoding: .utf8))?
 			.split(separator: "\n").map(String.init)
 
-		_ = try await FileTranscriber.transcribe(path: url.appendingPathComponent(first).path, realtime: false)
+		_ = try await FileTranscriber.transcribe(path: url.appendingPathComponent(first).path, realtime: false, retention: retention)
 
 		var rows: [[String: Any]] = []
 		var latencies: [Double] = []
@@ -21,7 +21,7 @@ enum Bench {
 		var words = 0
 		for (index, name) in files.enumerated() {
 			let timing = try await FileTranscriber.transcribe(
-				path: url.appendingPathComponent(name).path, realtime: realtime
+				path: url.appendingPathComponent(name).path, realtime: realtime, retention: retention
 			)
 			let measured = realtime ? timing.tailMs : timing.totalMs
 			latencies.append(measured)
@@ -49,7 +49,7 @@ enum Bench {
 				"max": Int((sorted.last ?? 0).rounded()),
 				"min": Int((sorted.first ?? 0).rounded()),
 			],
-			"retention": "\(Engine.retention)",
+			"retention": retention.rawValue,
 			"rows": rows,
 		]
 		if words > 0 { summary["wer_percent"] = round(10000 * Double(errors) / Double(words)) / 100 }

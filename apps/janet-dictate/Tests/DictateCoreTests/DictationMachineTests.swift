@@ -77,4 +77,53 @@ final class DictationMachineTests: XCTestCase {
 		XCTAssertEqual(machine.handle(.socketCancel), .none)
 		XCTAssertEqual(machine.handle(.keyDown(at: 3)), .startRecording)
 	}
+
+	func testLengthCapOnHotkeyRecordingPastesWhatWasHeard() {
+		var machine = DictationMachine()
+		_ = machine.handle(.keyDown(at: 1))
+		XCTAssertEqual(machine.handle(.forcedEnd), .stopAndPaste)
+		XCTAssertEqual(machine.state, .finishing)
+		XCTAssertEqual(machine.handle(.keyUp(at: 200)), .none)
+	}
+
+	func testLengthCapOnSocketRecordingHoldsTheTranscriptForStop() {
+		var machine = DictationMachine()
+		_ = machine.handle(.socketStart)
+		XCTAssertEqual(machine.handle(.forcedEnd), .stopAndHold)
+		XCTAssertEqual(machine.state, .holding)
+		XCTAssertEqual(machine.handle(.socketStop(print: true)), .deliverHeld(paste: false))
+		XCTAssertEqual(machine.handle(.finished), .none)
+		XCTAssertEqual(machine.state, .idle)
+	}
+
+	func testHeldTranscriptDeliveredAsPasteWhenStopHasNoPrint() {
+		var machine = DictationMachine()
+		_ = machine.handle(.socketStart)
+		_ = machine.handle(.forcedEnd)
+		XCTAssertEqual(machine.handle(.socketStop(print: false)), .deliverHeld(paste: true))
+	}
+
+	func testUncollectedHeldTranscriptIsDiscardedOnExpiry() {
+		var machine = DictationMachine()
+		_ = machine.handle(.socketStart)
+		_ = machine.handle(.forcedEnd)
+		XCTAssertEqual(machine.handle(.socketStart), .rejectBusy)
+		XCTAssertEqual(machine.handle(.holdExpired), .discard)
+		XCTAssertEqual(machine.state, .idle)
+	}
+
+	func testCancelDropsAHeldTranscript() {
+		var machine = DictationMachine()
+		_ = machine.handle(.socketStart)
+		_ = machine.handle(.forcedEnd)
+		XCTAssertEqual(machine.handle(.socketCancel), .discard)
+		XCTAssertEqual(machine.state, .idle)
+	}
+
+	func testForcedEndOutsideARecordingDoesNothing() {
+		var machine = DictationMachine()
+		XCTAssertEqual(machine.handle(.forcedEnd), .none)
+		XCTAssertEqual(machine.handle(.holdExpired), .none)
+		XCTAssertEqual(machine.state, .idle)
+	}
 }

@@ -3,22 +3,27 @@ import Foundation
 
 /// Talks to the resident agent. Returns nil when no agent is listening.
 enum Client {
+	static let notRunningMessage = """
+		janet-dictate: agent is not running, or its control socket is off.
+		Start it with --control-socket, or run: defaults write dev.petalnet.janet-dictate controlSocket -bool true
+		"""
+
 	static func send(_ request: Request, timeout: Int = 60) -> Response? {
+		signal(SIGPIPE, SIG_IGN)
 		let fd = socket(AF_UNIX, SOCK_STREAM, 0)
 		guard fd >= 0 else { return nil }
 		defer { close(fd) }
-		var address = Paths.socketAddress()
+		guard var address = try? Paths.socketAddress() else { return nil }
 		let connected = withUnsafePointer(to: &address) {
 			$0.withMemoryRebound(to: sockaddr.self, capacity: 1) {
 				connect(fd, $0, socklen_t(MemoryLayout<sockaddr_un>.size))
 			}
 		}
 		guard connected == 0 else { return nil }
-		var tv = timeval(tv_sec: timeout, tv_usec: 0)
-		setsockopt(fd, SOL_SOCKET, SO_RCVTIMEO, &tv, socklen_t(MemoryLayout<timeval>.size))
-		guard let data = try? Wire.encode(request) else { return nil }
-		let written = data.withUnsafeBytes { write(fd, $0.baseAddress, $0.count) }
-		guard written == data.count else { return .error("could not send the request") }
+		Sock.configure(fd, receiveSeconds: timeout, sendSeconds: 5)
+		guard let data = try? Wire.encode(request), Sock.writeAll(fd, data) else {
+			return .error("could not send the request")
+		}
 		var buffer = Data()
 		var chunk = [UInt8](repeating: 0, count: 4096)
 		while Wire.firstLine(in: buffer) == nil {
@@ -35,7 +40,7 @@ enum Client {
 	/// Runs one command and returns the process exit code.
 	static func run(_ request: Request) -> Int32 {
 		guard let response = send(request) else {
-			FileHandle.standardError.write(Data("janet-dictate: agent is not running\n".utf8))
+			FileHandle.standardError.write(Data((notRunningMessage + "\n").utf8))
 			return ExitCode.agentNotRunning
 		}
 		switch response.status {

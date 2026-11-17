@@ -13,9 +13,13 @@ struct SendableBuffer: @unchecked Sendable {
 }
 
 enum Engine {
-	/// How long the system keeps the speech model loaded after a session ends.
-	/// `whileInUse` unloads it as soon as we finish, which keeps idle memory lowest.
-	static var retention: SpeechAnalyzer.Options.ModelRetention = .whileInUse
+	static func modelRetention(_ retention: Retention) -> SpeechAnalyzer.Options.ModelRetention {
+		switch retention {
+		case .whileInUse: .whileInUse
+		case .lingering: .lingering
+		case .processLifetime: .processLifetime
+		}
+	}
 
 	static func locale() async -> Locale {
 		if let supported = await SpeechTranscriber.supportedLocale(equivalentTo: Locale.current) {
@@ -45,12 +49,12 @@ final class Transcription: @unchecked Sendable {
 	private var pump: Task<String, Error>!
 	private let sourceFormat: AVAudioFormat
 
-	init(sourceFormat: AVAudioFormat) {
+	init(sourceFormat: AVAudioFormat, retention: Retention) {
 		self.sourceFormat = sourceFormat
 		(rawStream, rawContinuation) = AsyncStream.makeStream(of: SendableBuffer.self, bufferingPolicy: .unbounded)
 		let stream = rawStream
 		pump = Task { [sourceFormat] in
-			try await Self.run(stream: stream, sourceFormat: sourceFormat)
+			try await Self.run(stream: stream, sourceFormat: sourceFormat, retention: retention)
 		}
 	}
 
@@ -69,13 +73,15 @@ final class Transcription: @unchecked Sendable {
 		pump.cancel()
 	}
 
-	private static func run(stream: AsyncStream<SendableBuffer>, sourceFormat: AVAudioFormat) async throws -> String {
+	private static func run(
+		stream: AsyncStream<SendableBuffer>, sourceFormat: AVAudioFormat, retention: Retention
+	) async throws -> String {
 		let transcriber = SpeechTranscriber(locale: await Engine.locale(), preset: .transcription)
 		try await Engine.ensureAssets(transcriber: transcriber)
 		guard let target = await SpeechAnalyzer.bestAvailableAudioFormat(compatibleWith: [transcriber]) else {
 			throw EngineError(description: "no compatible audio format")
 		}
-		let options = SpeechAnalyzer.Options(priority: .userInitiated, modelRetention: Engine.retention)
+		let options = SpeechAnalyzer.Options(priority: .userInitiated, modelRetention: Engine.modelRetention(retention))
 		let analyzer = SpeechAnalyzer(modules: [transcriber], options: options)
 		try await analyzer.prepareToAnalyze(in: target)
 
@@ -88,22 +94,39 @@ final class Transcription: @unchecked Sendable {
 			}
 			return text
 		}
-		try await analyzer.start(inputSequence: inputs)
-
-		let converter = AVAudioConverter(from: sourceFormat, to: target)
-		for await item in stream {
-			if let converted = convert(item.buffer, with: converter, to: target) {
-				inputContinuation.yield(AnalyzerInput(buffer: converted))
+		do {
+			try await analyzer.start(inputSequence: inputs)
+			let converter = AVAudioConverter(from: sourceFormat, to: target)
+			for await item in stream {
+				if let converted = convert(item.buffer, with: converter, to: target) {
+					inputContinuation.yield(AnalyzerInput(buffer: converted))
+				}
 			}
-		}
-		inputContinuation.finish()
-		if Task.isCancelled {
-			await analyzer.cancelAndFinishNow()
+			if let converter, let tail = flush(converter, to: target) {
+				inputContinuation.yield(AnalyzerInput(buffer: tail))
+			}
+			inputContinuation.finish()
+			try Task.checkCancellation()
+			try await analyzer.finalizeAndFinishThroughEndOfInput()
+			return try await collector.value
+		} catch {
+			// Never leave the collector waiting on a results stream that will not end.
+			inputContinuation.finish()
 			collector.cancel()
-			throw CancellationError()
+			await analyzer.cancelAndFinishNow()
+			throw error
 		}
-		try await analyzer.finalizeAndFinishThroughEndOfInput()
-		return try await collector.value
+	}
+
+	/// Drains whatever the sample-rate converter still holds at end of stream.
+	private static func flush(_ converter: AVAudioConverter, to target: AVAudioFormat) -> AVAudioPCMBuffer? {
+		guard let out = AVAudioPCMBuffer(pcmFormat: target, frameCapacity: 4096) else { return nil }
+		var error: NSError?
+		let status = converter.convert(to: out, error: &error) { _, inputStatus in
+			inputStatus.pointee = .endOfStream
+			return nil
+		}
+		return status != .error && out.frameLength > 0 ? out : nil
 	}
 
 	private static func convert(
@@ -141,14 +164,14 @@ enum FileTranscriber {
 
 	/// Pushes a WAV through the same `Transcription` path the microphone uses.
 	/// `realtime` paces the buffers like a live microphone.
-	static func transcribe(path: String, realtime: Bool) async throws -> Timing {
+	static func transcribe(path: String, realtime: Bool, retention: Retention) async throws -> Timing {
 		let file = try AVAudioFile(forReading: URL(fileURLWithPath: path))
 		let format = file.processingFormat
 		let chunk = AVAudioFrameCount(format.sampleRate / 10)
 		let seconds = Double(file.length) / format.sampleRate
 		let clock = ContinuousClock()
 		let start = clock.now
-		let transcription = Transcription(sourceFormat: format)
+		let transcription = Transcription(sourceFormat: format, retention: retention)
 		while file.framePosition < file.length {
 			guard let buffer = AVAudioPCMBuffer(pcmFormat: format, frameCapacity: chunk) else { break }
 			try file.read(into: buffer, frameCount: chunk)

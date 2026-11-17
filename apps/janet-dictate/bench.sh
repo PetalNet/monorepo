@@ -1,9 +1,8 @@
 #!/usr/bin/env bash
 # Generates 20 TTS utterances with `say` (writes files, plays nothing) and runs the
-# in-process benchmark. Usage: bench.sh [path-to-janet-dictate] [--realtime]
+# in-process benchmark. Usage: bench.sh [path-to-janet-dictate] [--realtime] [--retention MODE]
 set -euo pipefail
 BIN="${1:-.build/release/janet-dictate}"
-MODE="${2:-}"
 DIR="$(mktemp -d)"
 trap 'rm -rf "$DIR"' EXIT
 
@@ -36,8 +35,4 @@ while IFS= read -r line; do
 	i=$((i + 1))
 done < "$DIR/refs.txt"
 
-if [ "$MODE" = "--realtime" ]; then
-	"$BIN" --bench "$DIR" --realtime
-else
-	"$BIN" --bench "$DIR"
-fi
+"$BIN" --bench "$DIR" "${@:2}"
