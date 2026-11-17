@@ -246,17 +246,6 @@ const claudeWindows = (raw: JsonRecord): { windows: ReportedWindow[]; unreadKind
 	overall(raw.five_hour, "5-hour");
 	overall(raw.seven_day, "7-day");
 
-	// Per-model windows Anthropic may fill in outside `limits`, such as `seven_day_opus`.
-	for (const [key, value] of Object.entries(raw)) {
-		if (
-			/^(five_hour|seven_day)_/.test(key) &&
-			isRecord(value) &&
-			numberOrNull(value.utilization) !== null
-		) {
-			unreadKinds.push(key);
-		}
-	}
-
 	for (const limit of Array.isArray(raw.limits) ? raw.limits : []) {
 		if (!isRecord(limit)) {
 			continue;
@@ -295,6 +284,20 @@ const claudeWindows = (raw: JsonRecord): { windows: ReportedWindow[]; unreadKind
 		}
 
 		unreadKinds.push(model === null ? kind : `${kind} (${model})`);
+	}
+
+	// Per-model windows Anthropic may fill in outside `limits`, such as `seven_day_opus`, unless `limits` already gave that model.
+	for (const [key, value] of Object.entries(raw)) {
+		if (
+			/^(five_hour|seven_day)_/.test(key) &&
+			isRecord(value) &&
+			numberOrNull(value.utilization) !== null &&
+			!windows.some(
+				(window) => window.model?.toLowerCase() === key.replace(/^(five_hour|seven_day)_/, ""),
+			)
+		) {
+			unreadKinds.push(key);
+		}
 	}
 
 	return { windows, unreadKinds };

@@ -390,6 +390,18 @@ describe("plan check", () => {
 		);
 	});
 
+	it("does not call a raw per-model window unread when limits gave the same model", () => {
+		const opus = { ...fable(70), scope: { model: { display_name: "Opus" } } };
+		const result = check(
+			"pro",
+			"plus",
+			withLimits([opus], { seven_day_opus: { utilization: 70 } }),
+		);
+
+		expect(result.notices).toEqual([]);
+		expect(result.windows.map(({ id }) => id)).toContain("claude-7d-opus");
+	});
+
 	it("flags a Codex 5-hour window whose fields are absent, not just null", () => {
 		const { windows } = limitWindowsFrom([
 			usageReadoutFrom({
