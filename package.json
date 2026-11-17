@@ -71,6 +71,7 @@
 			"apps/courier",
 			"apps/dispatcher",
 			"apps/janet-desk",
+			"apps/janet-dictate",
 			"apps/manager",
 			"apps/point",
 			"tools/*"
