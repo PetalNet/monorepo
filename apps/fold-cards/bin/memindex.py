@@ -287,7 +287,7 @@ def candidates(db_path, text, sources, thread=(), context_weight=0.5, n=POOL, al
 SHORT = 6
 QUERY_CHARS = 600  # of the message the embedder reads: about 150 tokens; at 1500 a long message took ~300 ms on this CPU
 # Per source, a logistic model of "would this help answer the message", fitted on 59 real prompts and 1,310 candidates
-# graded blind (test/recall_eval.json). Cosine alone separates poorly: a generic message pulls generically high cosines,
+# graded blind (the private fixture eval_recall.py reads). Cosine alone separates poorly: a generic message pulls generically high cosines,
 # so the models lean on how far a candidate stands above its own query's top TOP (z) and on a rare query term matching
 # it (lex). A source without a model (documents: 7 helpful candidates, none picked precisely) is indexed but never attached.
 MODELS = {

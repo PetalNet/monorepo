@@ -69,7 +69,7 @@ class Docs(unittest.TestCase):
             self.assertFalse(memindex.SECRET.search(line), line)
 
     def test_a_word_that_merely_contains_a_key_prefix_is_kept(self):
-        self.write('disk.md', 'See dot14-disk-full-from-agent-artifacts for why the disk filled up again last week, twice over. ' * 2)
+        self.write('disk.md', 'See lab-disk-full-notes for why the disk filled up again last week, twice over. ' * 2)
         memindex.sync_docs(self.db, self.docs, 'shared')
         self.assertEqual(self.ids(), ['shared:disk.md#0'])
         self.assertTrue(memindex.SECRET.search('key: sk-' + 'c' * 40))

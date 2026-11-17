@@ -10,7 +10,7 @@ bin/unfold POINTER [--db DB] [--max-tool-chars N]
 
 A card is one finished stretch: a person's prompt and everything up to the next prompt. Its pointer is `<session>:<uuid of the prompt row>`; `event:<channel event_id>` also resolves. `build` is idempotent: it resumes from the byte offset it stopped at. `unfold` prints the exact transcript passage behind a pointer.
 
-The compaction mod (`fold`) runs `build` before each compaction, and the recall mod (`fold-recall`) runs `query` on every prompt. Both find this package at `bin/cards.py` beside their mod directories.
+The compaction mod (`fold`) runs `build` before each compaction, and the recall mod (`fold-recall`) runs `query` on every prompt. Those mods live in Janet's private config repo and call `bin/cards.py` by path.
 
 ## How recall ranks
 
