@@ -233,7 +233,7 @@ class OversizeAndRefusalTest(HeadCase):
         self.assertEqual((attempts, self.hub.attempts), (2, 2))
 
     def test_a_hub_that_refuses_only_the_full_text_gets_a_notice_that_names_the_archive(self):
-        self.hub.max_text = 1000
+        self.hub.refuse_when = lambda text: "<<<SPEECH" in text
         conv = self.open()
         self.turn(conv, "hello there")
         self.assertEqual(self.end(conv)[1]["merged"], True)

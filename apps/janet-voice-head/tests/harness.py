@@ -33,6 +33,7 @@ class FakeHub:
         self.drops_repeats = False
         self.max_text = 20000
         self.refuse_with: int | None = None
+        self.refuse_when = None
         self.attempts = 0
         self.down = False
         self.on_accept = None
@@ -60,7 +61,7 @@ class FakeHub:
                     return self._send(503, {})
                 if hub.refuse_with:
                     return self._send(hub.refuse_with, {"ok": False, "error": "refused"})
-                if len(body.get("text", "")) > hub.max_text:
+                if len(body.get("text", "")) > hub.max_text or (hub.refuse_when and hub.refuse_when(body.get("text", ""))):
                     return self._send(400, {"ok": False, "error": "text must be 1-20000 characters"})
                 if hub.drops_repeats and any(m.get("key") == body.get("key") for m in hub.accepted):
                     return self._send(200, {"ok": True, "id": "dup", "duplicate": True})
