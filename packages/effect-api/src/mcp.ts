@@ -2,9 +2,9 @@ import { Cause, Context, Effect, Layer, Option, Predicate, Schema, Stream } from
 import { McpProtocol, McpSchema, McpServer, Tool } from "effect/ai";
 import { HttpRouter, HttpServerRequest, HttpServerResponse } from "effect/http";
 
-import { invokeOperation } from "./invoke.js";
-import type { ApiOperation, LogCause } from "./operation.js";
-import { ApiRequest } from "./request.js";
+import { invokeOperation } from "./invoke.ts";
+import type { ApiOperation, LogCause } from "./operation.ts";
+import { ApiRequest } from "./request.ts";
 
 interface McpConfig<R> {
 	readonly title: string;

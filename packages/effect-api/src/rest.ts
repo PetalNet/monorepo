@@ -17,9 +17,9 @@ import {
 	OpenApi,
 } from "effect/http-api";
 
-import { invokeOperation } from "./invoke.js";
-import { operationErrorSchemas, type ApiOperation, type LogCause } from "./operation.js";
-import { inHostRequest, type RequestMiddleware } from "./request.js";
+import { invokeOperation } from "./invoke.ts";
+import { operationErrorSchemas, type ApiOperation, type LogCause } from "./operation.ts";
+import { inHostRequest, type RequestMiddleware } from "./request.ts";
 
 /** Encode only the declared public fields, never the underlying failure or cause. */
 export const failureResponse = ({

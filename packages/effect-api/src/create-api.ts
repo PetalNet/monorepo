@@ -2,8 +2,8 @@ import { Effect, Layer, Option, type Schema } from "effect";
 import { HttpRouter } from "effect/http";
 import type { HttpApiScalar } from "effect/http-api";
 
-import { createMcpLayer } from "./mcp.js";
-import { defaultLogCause, type ApiOperation, type LogCause } from "./operation.js";
+import { createMcpLayer } from "./mcp.ts";
+import { defaultLogCause, type ApiOperation, type LogCause } from "./operation.ts";
 import {
 	ApiRequest,
 	inHostRequest,
@@ -11,8 +11,8 @@ import {
 	McpAuthentication,
 	McpEndpoint,
 	type RequestMiddleware,
-} from "./request.js";
-import { createRestApi } from "./rest.js";
+} from "./request.ts";
+import { createRestApi } from "./rest.ts";
 
 export interface EffectApiConfig<R = unknown> {
 	readonly title: string;
