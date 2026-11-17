@@ -20,36 +20,58 @@ WARM_UP = "[Warm-up: nobody is speaking yet. Reply with exactly NO_REPLY.]"
 
 
 class ForkPool:
-    def __init__(self, hub: Hub, surface: str = SURFACE, reuse_within: float = REUSE_WITHIN_S):
-        self._hub, self.surface, self._reuse_within = hub, surface, reuse_within
+    """Idle forks wait here between conversations; a conversation owns its fork alone while it runs."""
+
+    def __init__(self, hub: Hub, surface: str = SURFACE, reuse_within: float = REUSE_WITHIN_S, warm_wait: float = 20.0):
+        self._hub, self.surface, self._reuse_within, self._warm_wait = hub, surface, reuse_within, warm_wait
         self._lock = threading.Lock()
-        self._node: str | None = None
-        self._last_used = 0.0
+        self._idle: list[tuple[str, float]] = []  # (node, when the hub last finished a turn on it)
+        self._warm: dict[str, threading.Event] = {}
+        self._last_turn: dict[str, float] = {}
 
     def claim(self, label: str) -> str:
+        """A fork for one conversation: an idle one the hub has not been about to merge, otherwise a new one."""
+        now = time.monotonic()
         with self._lock:
-            if self._node is not None and time.monotonic() - self._last_used < self._reuse_within:
-                self._last_used = time.monotonic()
-                return self._node
-            node = self._node = self._hub.fork_create(label, self.surface)
-            self._last_used = time.monotonic()
+            self._idle = [(n, t) for n, t in self._idle if now - t < self._reuse_within]
+            if self._idle:
+                node, _ = self._idle.pop()
+                return node
+        node = self._hub.fork_create(label, self.surface)
+        done = threading.Event()
+        with self._lock:
+            self._warm[node] = done
+            self._last_turn[node] = time.monotonic()
         # The first turn of a fork pays its catch-up and cache load; paying it while the speaker is still talking hides it.
-        threading.Thread(target=self._warm, args=(node,), daemon=True).start()
+        threading.Thread(target=self._warm_up, args=(node, done), daemon=True).start()
         return node
 
-    def touch(self, node: str) -> None:
+    def ready(self, node: str) -> None:
+        """Waits, briefly, for the warm-up turn so the first real ask does not race it."""
         with self._lock:
-            if node == self._node:
-                self._last_used = time.monotonic()
+            done = self._warm.get(node)
+        if done is not None:
+            done.wait(self._warm_wait)
+
+    def touched(self, node: str) -> None:
+        with self._lock:
+            self._last_turn[node] = time.monotonic()
+
+    def release(self, node: str) -> None:
+        with self._lock:
+            self._idle.append((node, self._last_turn.get(node, time.monotonic())))
 
     def replace(self, label: str, dead: str) -> str:
         with self._lock:
-            if self._node == dead:
-                self._node = None
+            self._warm.pop(dead, None)
+            self._last_turn.pop(dead, None)
         return self.claim(label)
 
-    def _warm(self, node: str) -> None:
+    def _warm_up(self, node: str, done: threading.Event) -> None:
         try:
             self._hub.fork_ask(node, WARM_UP, uuid.uuid4().hex, self.surface, lambda _: None)
         except (HubError, OSError) as error:
             log.warning("could not warm fork %s: %s", node, error)
+        finally:
+            done.set()
+            self.touched(node)

@@ -109,6 +109,19 @@ class HubForkTest(HeadCase):
         self.assertEqual(self.hub.asks[-1]["node"], self.hub.asks[0]["node"])
         self.assertEqual(self.hub.asks[0]["text"].count("Warm-up"), 1)
 
+    def test_two_open_conversations_never_share_a_fork(self):
+        first, second = self.open(), self.open()
+        self.turn(first, "send me a note")
+        self.turn(second, "send me another note")
+        self.assertEqual(len(self.hub.forks), 2)
+        self.assertNotEqual(self.hub.asks[-1]["node"], self.hub.asks[-2]["node"])
+
+    def test_the_first_real_ask_waits_for_the_warm_up(self):
+        conv = self.open()
+        self.turn(conv, "send me a note")
+        self.assertIn("Warm-up", self.hub.asks[0]["text"])
+        self.assertNotIn("Warm-up", self.hub.asks[1]["text"])
+
     def test_the_head_never_merges_a_hub_fork_or_injects_into_main(self):
         conv = self.open()
         self.turn(conv, "send me a note")
