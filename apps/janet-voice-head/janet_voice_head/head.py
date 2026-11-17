@@ -9,6 +9,7 @@ from pathlib import Path
 from . import prompts
 from .conversation import Conversation, Exchange, Journal, TranscriptMark
 from .merge import Hub, HubError, HubRefused
+from . import router
 from .render import fallback_summary, hard_text, soft_text, stub_text
 from .session import LOCKED_FLAGS, ClaudeSession, SessionError, transcript_path
 from .speech import SIGN_OFF, SpeechStream, is_end_phrase
@@ -41,6 +42,10 @@ class Config:
     turn_timeout_s: float = 60
     max_open: int = 2
     unmerged_channels: list[str] = field(default_factory=list)
+    router: bool = False
+    fast_model: str = "sonnet"
+    ha_url: str = ""
+    ha_token_file: str = ""
 
 
 @dataclass
@@ -51,6 +56,8 @@ class Live:
     last_activity: float = field(default_factory=time.monotonic)
     in_turn: bool = False
     cut_off: str | None = None
+    turning: object | None = None
+    unseen: list[tuple[str, str]] = field(default_factory=list)
     lock: threading.RLock = field(default_factory=threading.RLock)
     turn_lock: threading.Lock = field(default_factory=threading.Lock)
     end_lock: threading.Lock = field(default_factory=threading.Lock)
@@ -72,6 +79,8 @@ class Head:
         self._journals.mkdir(parents=True, exist_ok=True)
         (config.state_dir / "cold").mkdir(exist_ok=True)
         (config.state_dir / "fork").mkdir(exist_ok=True)
+        self._fast = router.FastLane(router.FastLane.argv(config.claude, config.fast_model), str(config.state_dir / "cold"), session_factory) if config.router else None
+        self._home = router.HomeAssistant(config.ha_url, config.ha_token_file) if config.router and config.ha_url else None
         self._recover()
         threading.Thread(target=self._upkeep_loop, daemon=True).start()
 
@@ -129,7 +138,7 @@ class Head:
                     emit("sentence", {"text": sentence})
                 except OSError:
                     client_connected = False
-                    live.session.interrupt()
+                    (live.turning or live.session).interrupt()
 
         try:
             with live.lock:
@@ -143,17 +152,7 @@ class Head:
                 end = True
             else:
                 try:
-                    session.wait_ready(self.config.ready_timeout_s)
-                    latency["spawn_wait"] = _ms(started)
-                    fork = live.conv.tier == "personal"
-                    stream = SpeechStream(redact=None if fork else session.account_email)
-                    for delta in session.turn(prompts.turn_prompt(text, fork=fork, cut_off=previous_cut), self.config.turn_timeout_s):
-                        if latency["first_token"] is None:
-                            latency["first_token"] = _ms(started)
-                        for sentence in stream.feed(delta):
-                            say(sentence)
-                    for sentence in stream.finish():
-                        say(sentence)
+                    stream = self._answer(live, text, say, latency, started, previous_cut)
                 except SessionError as error:
                     log.warning("conversation %s: %s", conv_id, error)
                     end = True
@@ -177,15 +176,77 @@ class Head:
                 except OSError:
                     pass
         finally:
-            live.in_turn = False
+            live.in_turn, live.turning = False, None
             live.turn_lock.release()
+
+    def _answer(self, live: Live, text: str, say: Callable[[str], None], latency: dict, started: float, previous_cut: str | None) -> SpeechStream:
+        """Speaks the reply to `text` through `say`. Returns the stream whose `spoken` and `relay` are recorded."""
+        fork = live.conv.tier == "personal"
+        lane = router.classify(text) if fork and self._fast is not None else "fork"
+        latency["route"] = lane
+        spoken: list[str] = []
+        if lane in ("clock", "home"):
+            local = router.clock_answer(text) if lane == "clock" else self._home.answer(text) if self._home else None
+            if local:
+                say(local)
+                return _said(local)
+            lane = "fast"
+        if lane == "fast":
+            fast, escalated = self._fast_turn(live, text, say, latency, started)
+            spoken.append(fast.spoken)
+            if not escalated:
+                live.unseen.append((text, fast.spoken))
+                return _said(" ".join(spoken))
+        elif fork and self._fast is not None:
+            say(router.FILLER)
+            spoken.append(router.FILLER)
+        session = live.session
+        session.wait_ready(self.config.ready_timeout_s)
+        latency["spawn_wait"] = _ms(started)
+        stream = SpeechStream(redact=None if fork else session.account_email)
+        live.turning = session
+        prompt = prompts.turn_prompt(self._with_unseen(live, text) if fork else text, fork=fork, cut_off=previous_cut)
+        for delta in session.turn(prompt, self.config.turn_timeout_s):
+            if latency["first_token"] is None:
+                latency["first_token"] = _ms(started)
+            for sentence in stream.feed(delta):
+                say(sentence)
+        for sentence in stream.finish():
+            say(sentence)
+        live.unseen.clear()
+        if spoken:
+            stream.text = " ".join(spoken) + " " + stream.text
+        return stream
+
+    def _fast_turn(self, live: Live, text: str, say: Callable[[str], None], latency: dict, started: float) -> tuple[SpeechStream, bool]:
+        lane, mark, stream = self._fast, router.EscalationFilter(), SpeechStream()
+        with lane.turn_lock:
+            session = lane.session
+            session.wait_ready(self.config.ready_timeout_s)
+            live.turning = session
+            for delta in session.turn(prompts.fast_prompt(text), self.config.turn_timeout_s):
+                if latency["first_token"] is None:
+                    latency["first_token"] = _ms(started)
+                for sentence in stream.feed(mark.feed(delta)):
+                    say(sentence)
+            for sentence in stream.feed(mark.finish()) + stream.finish():
+                say(sentence)
+            lane.retire_if_old()
+        return stream, mark.escalated
+
+    @staticmethod
+    def _with_unseen(live: Live, text: str) -> str:
+        if not live.unseen:
+            return text
+        earlier = " ".join(f'Parker said "{heard}" and the fast thread answered "{said}".' for heard, said in live.unseen)
+        return f"{text}\n[Earlier in this call, answered without you: {earlier}]"
 
     def interrupt(self, conv_id: str, heard_text: str) -> None:
         live = self._open_live(conv_id)
         with live.lock:
             if live.in_turn:
                 live.cut_off = heard_text
-                live.session.interrupt()
+                (live.turning or live.session).interrupt()
             elif live.conv.exchanges:
                 live.record(kind="interrupted", n=live.conv.exchanges[-1].n, heard_text=heard_text)
             live.last_activity = time.monotonic()
@@ -211,6 +272,8 @@ class Head:
 
     def close(self) -> None:
         self._stop.set()
+        if self._fast is not None:
+            self._fast.close()
         for live in list(self._lives.values()):
             if live.session is not None:
                 live.session.close()
@@ -372,6 +435,12 @@ class Head:
                 self._merge(live)
             finally:
                 live.end_lock.release()
+
+
+def _said(text: str) -> SpeechStream:
+    stream = SpeechStream()
+    stream.text = text
+    return stream
 
 
 def _ms(started: float) -> int:

@@ -36,3 +36,7 @@ def turn_prompt(text: str, *, fork: bool, cut_off: str | None) -> str:
         parts.append(f'[The speaker cut your last reply off. Only this much was heard: "{cut_off}". The rest was never said.]')
     parts.append(("Parker says: " if fork else "The speaker says: ") + text)
     return "\n".join(parts)
+
+
+def fast_prompt(text: str) -> str:
+    return f"[Local time: {local_time()}.]\nParker says: {text}"

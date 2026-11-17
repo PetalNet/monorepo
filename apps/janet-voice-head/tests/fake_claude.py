@@ -31,6 +31,10 @@ def reply_to(prompt: str) -> str:
     said = prompt.rsplit(" says: ", 1)[-1]
     if "conversation is over" in prompt:
         return "They talked about test things."
+    if "--system-prompt" in argv and "fast thread" in argv[argv.index("--system-prompt") + 1]:
+        if "escalateme" in said:
+            return "<esc" + "alate/> Checking on that."
+        return f"Fast says {said}."
     if "relayfirst" in said:
         return "<RELAY>\nask: do the first thing\n</RELAY>\nSure thing."
     if "tworelays" in said:
