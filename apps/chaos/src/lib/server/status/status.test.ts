@@ -2,15 +2,25 @@ import { describe, expect, it } from "vitest";
 
 import { openStore, type Store } from "../store";
 import { board } from "./board";
-import {
-	parseAws,
-	parseAzure,
-	parseGoogleCloud,
-	parseSlack,
-	parseStatuspage,
-	SERVICES,
-} from "./services";
+import { SERVICES } from "./services";
 import { watch } from "./watch";
+
+/** A service's own reader, reached the way the watcher reaches it. */
+function reader(id: string): (body: string) => { level: string; text: string } {
+	const service = SERVICES.find((candidate) => candidate.id === id);
+
+	if (!service) {
+		throw new Error(`no service ${id}`);
+	}
+
+	return service.parse;
+}
+
+const parseStatuspage = reader("github");
+const parseSlack = reader("slack");
+const parseGoogleCloud = reader("gcp");
+const parseAws = reader("aws");
+const parseAzure = reader("azure");
 
 const NOW = new Date("2026-11-18T17:00:00Z");
 const later = (minutes: number) => new Date(NOW.getTime() + minutes * 60_000);

@@ -43,7 +43,7 @@ const STATUSPAGE = new Map<string, ClaimLevel>([
 ]);
 
 /** Atlassian Statuspage's `status.json`, used by most of the services here. */
-export function parseStatuspage(body: string): Claim {
+function parseStatuspage(body: string): Claim {
 	const { status } = json(body) as { status?: { indicator?: unknown; description?: unknown } };
 	const level = STATUSPAGE.get(text(status?.indicator, "indicator"));
 
@@ -54,7 +54,7 @@ export function parseStatuspage(body: string): Claim {
 	return { level, text: text(status?.description, "description") };
 }
 
-export function parseSlack(body: string): Claim {
+function parseSlack(body: string): Claim {
 	const { status, active_incidents: incidents } = json(body) as {
 		status?: unknown;
 		active_incidents?: { title?: unknown; type?: unknown }[];
@@ -77,7 +77,7 @@ export function parseSlack(body: string): Claim {
  * some products in some regions, so it is never read as a full outage: our probe reaches one
  * endpoint and cannot speak for the rest.
  */
-export function parseGoogleCloud(body: string): Claim {
+function parseGoogleCloud(body: string): Claim {
 	const incidents = json(body);
 
 	if (!Array.isArray(incidents)) {
@@ -102,7 +102,7 @@ export function parseGoogleCloud(body: string): Claim {
  * AWS lists its open events, each tied to one region. A regional event is never read as a full
  * outage here, because our probe reaches one global endpoint and cannot speak for a region.
  */
-export function parseAws(body: string): Claim {
+function parseAws(body: string): Claim {
 	const events = json(body);
 
 	if (!Array.isArray(events)) {
@@ -143,7 +143,7 @@ function unescape(xml: string): string {
 }
 
 /** Azure's status feed is RSS with one item for each open event. An empty channel means none. */
-export function parseAzure(body: string): Claim {
+function parseAzure(body: string): Claim {
 	if (!/<channel[\s>]/.test(body)) {
 		throw new TypeError("status feed: not an RSS channel");
 	}
