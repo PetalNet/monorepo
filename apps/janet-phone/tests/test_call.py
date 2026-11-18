@@ -37,6 +37,7 @@ def tone(seconds: float, rate: int = 16000) -> bytes:
 class FakeGateway(BaseHTTPRequestHandler):
     calls: list[tuple[str, dict]] = []
     seen: list[tuple[str, str]] = []
+    voice_down = False
 
     def log_message(self, *args):
         pass
@@ -52,6 +53,8 @@ class FakeGateway(BaseHTTPRequestHandler):
             return self._send(200, json.dumps({"id": f"{opened - 1:012x}" if opened > 1 else "0123456789ab"}).encode())
         if self.path == "/v1/conversations/0123456789ab/turns" and body["text"] == "are you there":
             return self._send(409, b'{"error": "the conversation has ended"}')
+        if self.path == "/v1/tts" and self.voice_down:
+            return self._send(500, b"{}")
         if self.path == "/v1/tts":
             out = io.BytesIO()
             with wave.open(out, "wb") as wav:
@@ -77,18 +80,22 @@ class FakeStt(socketserver.StreamRequestHandler):
     texts: list[str] = []
 
     def handle(self):
+        heard = False
         while line := self.rfile.readline():
             header = json.loads(line)
-            self.rfile.read(header.get("payload_length") or 0)
+            heard = any(self.rfile.read(header.get("payload_length") or 0)) or heard
             if header["type"] == "audio-stop":
-                data = json.dumps({"type": "transcript", "data": {"text": self.texts.pop(0)}})
+                # Silence, which a warm-up sends, is nobody's utterance.
+                data = json.dumps({"type": "transcript", "data": {"text": self.texts.pop(0) if heard else ""}})
                 self.wfile.write(data.encode() + b"\n")
                 return
 
 
 class CallTest(unittest.IsolatedAsyncioTestCase):
     async def asyncSetUp(self):
-        FakeGateway.calls, FakeGateway.seen = [], []
+        FakeGateway.calls, FakeGateway.seen, FakeGateway.voice_down = [], [], False
+        janet_phone.DISCLOSURES.clear()
+        janet_phone.WARMED[0] = 0.0
         self.gateway = ThreadingHTTPServer(("127.0.0.1", 0), FakeGateway)
         self.stt = socketserver.ThreadingTCPServer(("127.0.0.1", 0), FakeStt)
         for server in (self.gateway, self.stt):
@@ -107,7 +114,8 @@ class CallTest(unittest.IsolatedAsyncioTestCase):
             notify=["sh", "-c", f"cat > {self.dir}/notice; echo $JANET_PHONE_DESTINATION > {self.dir}/destination"],
             record_dir=str(self.dir / "calls"),
             endpoint={"silence_ms": 200}, head_token_file=str(self.dir / "head-token"),
-            devices_file=str(self.dir / "devices.json"))
+            devices_file=str(self.dir / "devices.json"), cache_dir=str(self.dir / "cache"))
+        (self.dir / "cache").mkdir()
         self.server = await janet_phone.serve(
             lambda ws: janet_phone.handle(ws, config), "127.0.0.1", 0,
             process_request=lambda ws, request: janet_phone.admit(ws, request, config, self.devices))
@@ -115,7 +123,8 @@ class CallTest(unittest.IsolatedAsyncioTestCase):
         self.http = pairing.serve("127.0.0.1:0", self.devices, self.codes, url="wss://bridge.example/v1/call",
                                   access_file=str(self.dir / "access.json"), users=["parker"],
                                   proxy_secret_file=str(self.dir / "proxy-secret"),
-                                  on_paired=lambda name, by: self.announced.append((name, by)))
+                                  on_paired=lambda name, by: self.announced.append((name, by)),
+                                  routes={"/v1/call/warm": janet_phone.warm_route(config, self.devices)})
         self.announced = []
         self.addCleanup(self.http.shutdown)
         self.addAsyncCleanup(self._close)
@@ -145,7 +154,8 @@ class CallTest(unittest.IsolatedAsyncioTestCase):
         async with connect(self.url, additional_headers=self.phone) as ws:
             first = await asyncio.wait_for(ws.recv(), 10)
             self.assertEqual(json.loads(first), {"type": "audio", "rate": 24000})
-            self.assertIsInstance(await asyncio.wait_for(ws.recv(), 10), bytes)
+            while not isinstance(await asyncio.wait_for(ws.recv(), 10), bytes):
+                pass
             for _ in range(2):
                 await asyncio.sleep(0.4)
                 await ws.send(tone(0.5))
@@ -168,7 +178,7 @@ class CallTest(unittest.IsolatedAsyncioTestCase):
         async with connect(self.url, additional_headers=self.phone) as ws:
             await ws.send(tone(0.5))
             await ws.send(bytes(16000))
-            while [body for path, body in FakeGateway.calls if path == "/v1/tts"][-1:] != [{"text": "You said tell me a story."}]:
+            while {"text": "You said tell me a story."} not in [body for path, body in FakeGateway.calls if path == "/v1/tts"]:
                 await asyncio.sleep(0.02)
             await asyncio.sleep(0.5)
             await ws.send(tone(0.5))
@@ -179,6 +189,82 @@ class CallTest(unittest.IsolatedAsyncioTestCase):
                 await asyncio.sleep(0.05)
         self.assertIn("/v1/conversations/0123456789ab/interrupt", [path for path, _ in FakeGateway.calls])
         self.assertIn("[cut off]", await self._notice())
+
+    async def test_the_screen_is_told_state_words_and_levels(self):
+        FakeStt.texts = ["what is this"]
+        events = []
+        async with connect(self.url, additional_headers=self.phone) as ws:
+            await asyncio.sleep(0.4)
+            await ws.send(tone(0.5))
+            await ws.send(bytes(16000))
+            try:
+                while True:
+                    message = await asyncio.wait_for(ws.recv(), 2)
+                    if isinstance(message, str):
+                        events.append(json.loads(message))
+            except TimeoutError:
+                pass
+        states = [event["value"] for event in events if event["type"] == "state"]
+        self.assertEqual(states[:5], ["speaking", "listening", "thinking", "speaking", "listening"])
+        hers = [event for event in events if event["type"] == "words" and event["side"] == "her"]
+        self.assertEqual([event["text"] for event in hers],
+                         ["This is an automated assistant for Parker.", "You said what is this."])
+        self.assertEqual([word["w"] for word in hers[1]["words"]], ["You", "said", "what", "is", "this."])
+        self.assertEqual(hers[1]["words"][0]["t"], 0.0)
+        self.assertAlmostEqual(sum(word["d"] for word in hers[1]["words"]), 0.2, delta=0.03)
+        his = [event for event in events if event["type"] == "words" and event["side"] == "him"]
+        self.assertEqual(his, [{"type": "words", "side": "him", "text": "what is this", "words": []}])
+        levels = [event for event in events if event["type"] == "level"]
+        self.assertTrue(any(event["her"] > 0.5 for event in levels), "her level follows her audio")
+        self.assertTrue(any(event["him"] > 0.5 and event["her"] == 0 for event in levels), "his level follows the microphone")
+
+    async def test_the_disclosure_survives_a_restart_and_a_sleeping_voice(self):
+        async with connect(self.url, additional_headers=self.phone) as ws:
+            await asyncio.wait_for(ws.recv(), 10)
+        janet_phone.DISCLOSURES.clear()
+        FakeGateway.voice_down = True
+        async with connect(self.url, additional_headers=self.phone) as ws:
+            self.assertEqual(json.loads(await asyncio.wait_for(ws.recv(), 3)), {"type": "audio", "rate": 24000})
+
+    async def test_a_damaged_cache_file_is_replaced_not_played(self):
+        for damage in (b"", b"not audio at all", None):
+            janet_phone.DISCLOSURES.clear()
+            for old in (self.dir / "cache").glob("*.wav"):
+                old.unlink()
+            async with connect(self.url, additional_headers=self.phone) as ws:
+                await asyncio.wait_for(ws.recv(), 10)
+            cached = next((self.dir / "cache").glob("*.wav"))
+            if damage is None:  # a header that promises more audio than the file holds
+                cached.write_bytes(cached.read_bytes()[:200])
+            else:
+                cached.write_bytes(damage)
+            janet_phone.DISCLOSURES.clear()
+            async with connect(self.url, additional_headers=self.phone) as ws:
+                heard = b""
+                while len(heard) < 9600:
+                    message = await asyncio.wait_for(ws.recv(), 10)
+                    heard += message if isinstance(message, bytes) else b""
+            with wave.open(str(cached)) as wav:
+                self.assertEqual(wav.getnframes(), 4800, damage)
+
+    async def test_warm_up_runs_at_most_once_a_minute(self):
+        for _ in range(3):
+            self.assertEqual((await asyncio.to_thread(self._http, "POST", "/v1/call/warm", {}, self.phone))[0], 202)
+        await asyncio.sleep(1)
+        self.assertEqual([body["text"] for path, body in FakeGateway.calls if path == "/v1/tts"].count("Okay."), 1)
+
+    async def test_warm_up_is_for_paired_phones_and_readies_speech_before_a_call(self):
+        self.assertEqual((await asyncio.to_thread(self._http, "POST", "/v1/call/warm", {}))[0], 403)
+        self.assertEqual(FakeGateway.calls, [])
+        self.assertEqual((await asyncio.to_thread(self._http, "POST", "/v1/call/warm", {}, self.phone))[0], 202)
+        for _ in range(100):
+            spoken = [body["text"] for path, body in FakeGateway.calls if path == "/v1/tts"]
+            if "This is an automated assistant for Parker." in spoken and "Okay." in spoken:
+                break
+            await asyncio.sleep(0.05)
+        else:
+            self.fail("warm-up did not synthesize")
+        self.assertTrue(list((self.dir / "cache").glob("*.wav")))
 
     async def test_a_dropped_connection_still_ends_the_call_and_reports_it(self):
         async with connect(self.url, additional_headers=self.phone) as ws:
@@ -302,6 +388,24 @@ class CallTest(unittest.IsolatedAsyncioTestCase):
         code, _ = self.codes.issue("parker", now=time.time() - 301)
         self.assertEqual((await asyncio.to_thread(self._http, "POST", "/v1/call/pair", {"code": code}))[0], 403)
         self.assertEqual(len(self.devices.listing()), 1)
+
+
+class LevelTest(unittest.TestCase):
+    def test_a_level_is_the_rms_of_the_last_20_ms_over_6000_clamped(self):
+        quiet, loud = struct.pack("<h", 0), struct.pack("<h", 3000)
+        self.assertEqual(janet_phone.level(loud * 320, 16000), 0.5)
+        self.assertEqual(janet_phone.level(loud * 480, 24000), 0.5)
+        self.assertEqual(janet_phone.level(loud * 1600 + quiet * 320, 16000), 0.0)  # only the last 20 ms counts
+        self.assertEqual(janet_phone.level(quiet * 160 + loud * 320, 24000), round((2 / 3) ** 0.5 * 0.5, 3))
+        self.assertEqual(janet_phone.level(struct.pack("<h", 30000) * 320, 16000), 1.0)
+        self.assertEqual(janet_phone.level(b"", 16000), 0.0)
+        self.assertEqual(janet_phone.level(struct.pack("<hh", 3000, -3000) * 160, 16000), 0.5)  # RMS, not the mean
+
+    def test_word_times_start_at_zero_and_end_with_the_audio(self):
+        times = janet_phone.word_times("Hi Sam, thanks for calling.", 2.0)
+        self.assertEqual([word["w"] for word in times], ["Hi", "Sam,", "thanks", "for", "calling."])
+        self.assertEqual(times[0]["t"], 0.0)
+        self.assertAlmostEqual(times[-1]["t"] + times[-1]["d"], 2.0, delta=0.02)
 
 
 class DestinationTest(unittest.TestCase):

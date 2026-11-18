@@ -3,12 +3,14 @@
 import argparse
 import array
 import asyncio
+import hashlib
 import io
 import json
 import logging
 import os
 import socket
 import subprocess
+import threading
 import time
 import tomllib
 import urllib.error
@@ -87,6 +89,7 @@ class Config:
     # Command that gets the call record on stdin and where it goes in JANET_PHONE_DESTINATION.
     notify: list[str] = field(default_factory=list)
     record_dir: str = ""  # keep both sides of every call as WAV files here
+    cache_dir: str = ""  # keep the disclosure's audio here across restarts
     max_calls: int = 2
     max_call_s: int = 900
     # Who may call: a phone presents its own device token, which works only here. The bridge then
@@ -126,6 +129,90 @@ def transcribe(address: str, pcm: bytes) -> str:
             if header["type"] == "transcript":
                 return data.get("text", "").strip()
     raise OSError("the speech-to-text server closed the connection")
+
+
+def level(pcm: bytes, rate: int) -> float:
+    """A meter reading from 0 to 1: the RMS of the last 20 ms of PCM16, over 6000, clamped. The
+    calling app computes the same thing locally when no readings arrive, so the scale never jumps."""
+    samples = array.array("h", pcm[: len(pcm) & ~1])[-(rate // 50):]
+    if not samples:
+        return 0.0
+    return round(min(1.0, (sum(s * s for s in samples) / len(samples)) ** 0.5 / 6000), 3)
+
+
+def word_times(sentence: str, seconds: float) -> list[dict]:
+    """When each word of a sentence falls in its audio. The voice gives no timing, so each word gets
+    a share of the sentence's length in proportion to its letters: an estimate, good enough to
+    reveal text in step with speech."""
+    words = sentence.split()
+    total = sum(len(word) + 1 for word in words) or 1
+    times, at = [], 0.0
+    for word in words:
+        share = (len(word) + 1) / total * seconds
+        times.append({"w": word, "t": round(at, 2), "d": round(share, 2)})
+        at += share
+    return times
+
+
+DISCLOSING = threading.Lock()
+
+
+def disclosure_audio(config: Config, gateway: "Gateway") -> tuple[int, bytes]:
+    """The disclosure is fixed text, so its audio is synthesized once and kept: in memory, and in
+    cache_dir so that the first call after a restart, or while the voice host is asleep, still opens
+    with it at once. One caller at a time: a call and a warm-up often want it together."""
+    text = config.disclosure
+    with DISCLOSING:
+        if text in DISCLOSURES:
+            return DISCLOSURES[text]
+        name = hashlib.sha256(text.encode()).hexdigest() + ".wav"
+        cached = Path(config.cache_dir) / name if config.cache_dir else None
+        if cached is not None and cached.exists():
+            # A file that is empty, cut short or not audio is not the disclosure: synthesize again.
+            try:
+                with wave.open(str(cached)) as wav:
+                    rate, frames, pcm = wav.getframerate(), wav.getnframes(), wav.readframes(wav.getnframes())
+                if frames and len(pcm) == frames * 2:
+                    DISCLOSURES[text] = (rate, pcm)
+                    return DISCLOSURES[text]
+            except (OSError, EOFError, wave.Error):
+                pass
+            log.warning("the cached disclosure is unusable; synthesizing it again")
+        rate, pcm = gateway.speech(text)
+        if not pcm:
+            raise OSError("the voice returned no audio for the disclosure")
+        DISCLOSURES[text] = (rate, pcm)
+        if cached is not None:
+            try:
+                cached.parent.mkdir(parents=True, exist_ok=True)
+                partial = cached.with_suffix(".tmp")
+                with wave.open(str(partial), "wb") as wav:
+                    wav.setnchannels(1), wav.setsampwidth(2), wav.setframerate(rate)
+                    wav.writeframes(pcm)
+                os.replace(partial, cached)
+            except OSError as error:
+                log.warning("the disclosure was not cached: %s", error)
+        return rate, pcm
+
+
+WARMED = [float("-inf")]
+
+
+def warm(config: Config, gateway: "Gateway") -> None:
+    """Gets the slow parts ready before anyone speaks: wakes the voice host, loads the voice and the
+    speech-to-text model, and makes sure the disclosure is cached. At most once a minute."""
+    if time.monotonic() - WARMED[0] < 60:
+        return
+    WARMED[0] = time.monotonic()
+    steps = [("speech to text", lambda: transcribe(config.stt, bytes(RATE * 2))),
+             ("voice", lambda: gateway.speech("Okay."))]
+    if not DISCLOSING.locked():  # a call is already fetching it; do not queue behind that
+        steps.insert(1, ("disclosure", lambda: disclosure_audio(config, gateway)))
+    for name, step in steps:
+        try:
+            step()
+        except (OSError, ValueError, EOFError, wave.Error) as error:
+            log.warning("warm-up: %s failed: %s", name, error)
 
 
 def destination(config: Config) -> str:
@@ -208,6 +295,8 @@ class Call:
         self.heard: list[str] = []
         self.rate = 0
         self.over = False
+        self.him = 0.0  # the caller's level, as last measured
+        self.playing = False
         self.tape = {"caller": bytearray(), "janet": bytearray()}
 
     async def run(self) -> None:
@@ -215,10 +304,12 @@ class Call:
         try:
             await self.say(self.config.disclosure, asyncio.ensure_future(self.disclosure()))
             while True:
+                await self.tell(type="state", value="listening")
                 try:
                     pcm, ended = await self.utterances.get()
                 except asyncio.QueueShutDown:
                     return
+                await self.tell(type="state", value="thinking")
                 turn = {"endpoint_ms": self.config.endpoint.get("silence_ms", 700)}
                 mark = time.monotonic()
                 try:
@@ -230,6 +321,7 @@ class Call:
                 if not text:
                     continue
                 self.transcript.append(("Caller", text))
+                await self.tell(type="words", side="him", text=text, words=[])
                 self.speaking = asyncio.create_task(self.reply(text, ended, turn))
                 await asyncio.wait([self.speaking])
                 if self.speaking.cancelled():
@@ -250,15 +342,16 @@ class Call:
                 self.speaking.cancel()
             await self.ws.close()
 
+    async def tell(self, **message) -> None:
+        """One event for the caller's screen. A device that does not know an event ignores it."""
+        await self.ws.send(json.dumps(message))
+
     async def disclosure(self) -> tuple[int, bytes]:
-        """The disclosure is fixed text, so its audio is synthesized once and kept."""
-        if self.config.disclosure not in DISCLOSURES:
-            DISCLOSURES[self.config.disclosure] = await self.synthesize(self.config.disclosure)
-        return DISCLOSURES[self.config.disclosure]
+        return await asyncio.to_thread(disclosure_audio, self.config, self.gateway)
 
     async def listen(self) -> None:
         """Reads the caller until the socket closes, however it closes, and then ends the call."""
-        endpointer = Endpointer(**self.config.endpoint)
+        endpointer, heard = Endpointer(**self.config.endpoint), 0
         try:
             async with asyncio.timeout(self.config.max_call_s):
                 async for message in self.ws:
@@ -266,6 +359,11 @@ class Call:
                         continue
                     if self.config.record_dir:
                         self.tape["caller"] += message
+                    heard += len(message)
+                    if heard >= RATE // 5:  # every 100 ms of microphone audio
+                        heard, self.him = 0, level(message, RATE)
+                        if not self.playing:
+                            await self.tell(type="level", her=0.0, him=self.him)
                     for event in endpointer.feed(message):
                         if event == "start":
                             await self.cut_off()
@@ -353,16 +451,23 @@ class Call:
         self.latency.setdefault("first_audio_ms", round((time.monotonic() - self.connected) * 1000))
         if self.config.record_dir:
             self.tape["janet"] += pcm
+        await self.tell(type="state", value="speaking")
+        await self.tell(type="words", side="her", text=sentence, words=word_times(sentence, len(pcm) / (rate * 2)))
         # Paced a little ahead of real time, so a cut-off stops what the caller hears at once.
         step, sent, began = rate // 10 * 2, 0, time.monotonic()
+        self.playing = True
         try:
             while sent < len(pcm):
-                await self.ws.send(pcm[sent : sent + step])
+                chunk = pcm[sent : sent + step]
+                await self.ws.send(chunk)
+                await self.tell(type="level", her=level(chunk, rate), him=self.him)
                 sent += step
                 await asyncio.sleep(max(0.0, began + sent / (rate * 2) - 0.2 - time.monotonic()))
         except asyncio.CancelledError:
             self.transcript.append(("Janet", sentence + " [cut off]"))
             raise
+        finally:
+            self.playing = False
         self.transcript.append(("Janet", sentence))
         self.heard.append(sentence)
 
@@ -423,6 +528,8 @@ async def admit(ws: ServerConnection, request: Request, config: Config, devices:
 
 async def handle(ws: ServerConnection, config: Config) -> None:
     call = Call(ws, config, ws.gateway, ws.conversation, ws.device)
+    # A sleeping voice host starts waking now, while the caller hears the cached disclosure.
+    threading.Thread(target=warm, args=(config, ws.gateway), daemon=True).start()
     OPEN.add(id(call))
     log.info("call %s: answered", call.conversation)
     try:
@@ -462,12 +569,25 @@ def paired(config: Config, name: str, by: str) -> None:
         log.warning("pairing notice failed: %s", error)
 
 
+def warm_route(config: Config, devices: pairing.Devices):
+    """POST /v1/call/warm: a paired phone says a call is likely. Answers at once."""
+
+    def route(headers, body) -> tuple[int, dict]:
+        if devices.name_of(pairing.bearer(headers.get("Authorization"))) is None:
+            return HTTPStatus.FORBIDDEN, {}
+        threading.Thread(target=warm, args=(config, gateway_for(config, headers)), daemon=True).start()
+        return HTTPStatus.ACCEPTED, {"ok": True}
+
+    return route
+
+
 async def serve_forever(config: Config) -> None:
     devices = pairing.Devices(Path(config.devices_file))
     if config.http_listen:
         pairing.serve(config.http_listen, devices, pairing.Codes(config.pair_ttl_s), url=config.public_url,
                       access_file=config.access_file, users=config.pair_users, page_path=config.pair_path,
-                      proxy_secret_file=config.proxy_secret_file, on_paired=lambda name, by: paired(config, name, by))
+                      proxy_secret_file=config.proxy_secret_file, on_paired=lambda name, by: paired(config, name, by),
+                      routes={"/v1/call/warm": warm_route(config, devices)})
         log.info("pairing on %s", config.http_listen)
     host, _, port = config.listen.rpartition(":")
     async with serve(lambda ws: handle(ws, config), host, int(port), max_size=1 << 20,

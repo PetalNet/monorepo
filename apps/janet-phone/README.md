@@ -16,7 +16,8 @@ names. The head session has no tools, and the caller's words reach it as speech 
 instructions.
 
 - **Disclosure first.** The first thing a caller hears is the configured `disclosure` sentence. It is
-  fixed text, not model output, and the caller cannot cut it off.
+  fixed text, not model output, and the caller cannot cut it off. Its audio is kept in `cache_dir`,
+  so a call opens with it at once after a restart and while the voice host is still waking.
 - **Paired phones only.** A phone presents its own device token, which works only on this bridge
   and so only for the tier and channel the bridge is configured with. The bridge keeps a hash of
   each token in `devices_file`; removing an entry (or `--revoke ID`) refuses that phone's next call. A
@@ -60,6 +61,19 @@ instructions.
 | bridge to device | `{"type": "clear"}`             | the caller cut in: drop queued audio                 |
 | bridge to device | `{"type": "bye"}`, then a close | Janet ended the call                                 |
 
+For the device's screen the bridge also sends these text messages. A device may ignore any of them.
+
+| Message                                                        | Meaning                                                                                              |
+| :------------------------------------------------------------- | :--------------------------------------------------------------------------------------------------- |
+| `{"type": "state", "value": "listening"}`                      | what Janet is doing: `listening`, `thinking` or `speaking`                                           |
+| `{"type": "words", "side": "her", "text", "words": [{w,t,d}]}` | sent just before a sentence's audio; `t` and `d` are seconds from the start of that audio, estimated |
+| `{"type": "words", "side": "him", "text", "words": []}`        | what the caller was heard to say                                                                     |
+| `{"type": "level", "her": 0.4, "him": 0.0}`                    | about ten a second: `min(1, RMS of the last 20 ms / 6000)` of her audio and of the microphone        |
+
+`POST /v1/call/warm` from a paired phone (empty JSON body, 202 at once) wakes the voice host, loads
+the voice and the speech-to-text model, and caches the disclosure. A call does the same when it
+starts. At most once a minute.
+
 Closing the socket hangs up.
 
 ## Configuration
@@ -74,6 +88,7 @@ disclosure = "Hi, this is Janet, an automated assistant for Parker. This call is
 source = "test"                     # "inbound" only for a real line from the outside
 notify = ["sh", "-c", "f=/outbox/$(date +%s%N); cat > $f.tmp && mv $f.tmp $f.$JANET_PHONE_DESTINATION.txt"]
 record_dir = ""                     # set to keep both sides of every call as WAV files
+cache_dir = "/state/cache"          # the disclosure's audio, kept across restarts
 max_calls = 2                       # the head's own max_open is the real ceiling
 head_token_file = "/secrets/head-token"       # the voice head's bearer token
 devices_file = "/state/devices.json"          # paired phones, by token hash
