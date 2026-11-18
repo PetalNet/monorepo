@@ -33,6 +33,12 @@ object Calls {
 	/** What the bridge last said about the line. Main thread, and the Pairer's thread before it posts. */
 	@Volatile var line: Line = Line.Checking
 
+	/** Where a warm-up answer for [pairing] goes: nowhere if this phone has since been paired again or unpaired. */
+	fun lineSink(context: Context, pairing: Pairing): (Line) -> Unit {
+		val app = context.applicationContext
+		return { line -> if (Settings(app).pairing()?.token == pairing.token) hearLine(line) }
+	}
+
 	fun hearLine(value: Line) {
 		update { line = value }
 	}
@@ -87,9 +93,9 @@ object Dialer {
 	/** Places the call. Returns why it could not be placed, or null. */
 	fun place(context: Context): Problem? {
 		if (Calls.inCall) return null
-		val pairing = Settings(context).pairing() ?: return Problem.RePair(NOT_PAIRED)
+		val pairing = Settings(context).pairing() ?: return Problem.Note(NOT_PAIRED)
 		// Speech-to-text and the voice start loading now, while Android sets the call up.
-		Bridge.warm(pairing, Calls::hearLine)
+		Bridge.warm(pairing, Calls.lineSink(context, pairing))
 		val telecom = context.getSystemService(TelecomManager::class.java)
 		val handle = handle(context)
 		telecom.registerPhoneAccount(

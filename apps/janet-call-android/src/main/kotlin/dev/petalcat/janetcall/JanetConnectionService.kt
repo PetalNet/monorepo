@@ -126,7 +126,7 @@ class JanetConnectionService : ConnectionService() {
 	}
 
 	private fun failed(reason: String): Connection {
-		Calls.update(CallState.Ended(reason, Problem.RePair(reason)))
+		Calls.update(CallState.Ended(reason, Problem.Note(reason)))
 		return Connection.createFailedConnection(DisconnectCause(DisconnectCause.ERROR, "Call failed", reason, "janet"))
 	}
 

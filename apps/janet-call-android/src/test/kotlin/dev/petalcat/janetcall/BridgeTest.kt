@@ -57,12 +57,15 @@ class BridgeTest {
 			"This pairing link was already used or has expired. Ask for a new one.",
 			refusal(Bridge.pair(link(), "x")),
 		)
+		assertEquals("a spent code cannot be tried again", false, (Bridge.pair(link(), "x") as PairResult.Refused).retryable)
 	}
 
 	@Test
 	fun `a 429 says to wait a minute`() {
 		bridgeAnswers(429, """{"error":"too many attempts"}""")
-		assertEquals("Too many pairing attempts. Wait a minute, then try again.", refusal(Bridge.pair(link(), "x")))
+		val answer = Bridge.pair(link(), "x") as PairResult.Refused
+		assertEquals("Too many pairing attempts. Wait a minute, then try again.", answer.reason)
+		assertEquals("a 429 spent nothing, so the same link can be tried again", true, answer.retryable)
 	}
 
 	@Test
@@ -105,7 +108,6 @@ class BridgeTest {
 
 	@Test
 	fun `an unreachable bridge can be tried again with the same link, a spent code cannot`() {
-		val port = server.address.port
 		server.stop(0)
 		assertTrue((Bridge.pair(link(), "x") as PairResult.Refused).retryable)
 	}

@@ -153,13 +153,18 @@ private fun Card(label: String, content: @Composable ColumnScope.() -> Unit) {
 
 /** What went wrong, in a card of its own, with the one thing to tap if there is one. */
 @Composable
-private fun ProblemCard(problem: Problem, onAction: () -> Unit) {
+private fun ProblemCard(problem: Problem, onDismiss: (() -> Unit)? = null, onAction: () -> Unit) {
 	val palette = LocalPalette.current
 	Card("PROBLEM") {
 		Text(problem.message, style = Type.body, color = palette.ink)
 		problem.action?.let { label ->
 			Spacer(Modifier.height(14.dp))
 			Pill(label, onAction, filled = false)
+		}
+		// A problem with nothing to do about it, or one the person would rather leave, can be put away.
+		if (onDismiss != null && problem !is Problem.RePair) {
+			Spacer(Modifier.height(10.dp))
+			Pill("Dismiss", onDismiss, filled = false)
 		}
 	}
 	Spacer(Modifier.height(14.dp))
@@ -171,6 +176,7 @@ fun HomeScreen(
 	onCall: () -> Unit,
 	onSettings: () -> Unit,
 	onProblem: (Problem) -> Unit = {},
+	onDismiss: (() -> Unit)? = null,
 	now: Instant = Instant.now(),
 	zone: ZoneId = ZoneId.systemDefault(),
 	onRetry: (() -> Unit)? = null,
@@ -192,7 +198,7 @@ fun HomeScreen(
 			}
 			Spacer(Modifier.height(14.dp))
 		}
-		screen.problem?.let { ProblemCard(it) { onProblem(it) } }
+		screen.problem?.let { ProblemCard(it, onDismiss) { onProblem(it) } }
 		Card("LAST CALL") {
 			if (screen.recent.isEmpty()) {
 				Text("No calls yet. Tap Call Janet to start one.", style = Type.body, color = palette.g1)

@@ -41,7 +41,7 @@ fun screenFor(
 		host = paired.host,
 		line = line,
 		// A phone the bridge has forgotten has one thing to do, and it comes before anything else it says.
-		problem = problem ?: if (line == Line.Revoked) Problem.RePair("The bridge no longer knows this phone.") else null,
+		problem = if (line == Line.Revoked) Problem.RePair("The bridge no longer knows this phone.") else problem,
 		ended = ended,
 		recent = recent.take(3),
 	)

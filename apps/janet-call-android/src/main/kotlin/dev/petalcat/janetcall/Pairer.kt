@@ -26,7 +26,7 @@ object Pairer {
 			if (failed == null) {
 				// A fresh pairing: ask the bridge at once whether the line is up.
 				Calls.line = Line.Checking
-				Settings(app).pairing()?.let { Bridge.warm(it, Calls::hearLine) }
+				Settings(app).pairing()?.let { Bridge.warm(it, Calls.lineSink(app, it)) }
 			}
 			Calls.update {
 				host = null

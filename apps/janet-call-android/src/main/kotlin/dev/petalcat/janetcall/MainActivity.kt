@@ -83,6 +83,14 @@ class MainActivity : ComponentActivity() {
 				},
 				licences = { licenceText(this) },
 			)
+			// Something to fix comes before the page: the page is for when all is well.
+			shown is Screen.Home && (shown.problem != null || shown.line == Line.Revoked) -> HomeScreen(
+				shown,
+				onCall = ::requestCall,
+				onSettings = { settingsOpen = true },
+				onProblem = ::act,
+				onDismiss = ::dismissProblem,
+			)
 			shown is Screen.Home -> HomeWeb(
 				url = config.homeUrl(),
 				onCall = ::requestCall,
@@ -114,7 +122,7 @@ class MainActivity : ComponentActivity() {
 	override fun onStart() {
 		super.onStart()
 		Calls.observe(observer)
-		settings.pairing()?.let { Bridge.warmOnForeground(it, SystemClock.elapsedRealtime(), Calls::hearLine) }
+		settings.pairing()?.let { Bridge.warmOnForeground(it, SystemClock.elapsedRealtime(), Calls.lineSink(this, it)) }
 		render()
 	}
 
@@ -153,9 +161,10 @@ class MainActivity : ComponentActivity() {
 		setIntent(Intent(this, MainActivity::class.java))
 		if (intent.flags and Intent.FLAG_ACTIVITY_LAUNCHED_FROM_HISTORY != 0) return
 		when {
-			Calls.inCall || pending != null || Pairer.host != null -> Unit
+			// A phone the bridge has forgotten cannot call: the screen says what to do.
+			Calls.inCall || pending != null || Pairer.host != null || Calls.line == Line.Revoked -> Unit
 			settings.pairing() == null -> {
-				Pairer.notice = "Pair this phone first, then call."
+				Pairer.problem = Problem.Note("Pair this phone first, then call.")
 				render()
 			}
 			else -> requestCall()
@@ -225,6 +234,13 @@ class MainActivity : ComponentActivity() {
 		Calls.connection?.setRoute(if (speakerOn) CallAudioState.ROUTE_EARPIECE else CallAudioState.ROUTE_SPEAKER)
 	}
 
+	/** Puts the page back: forgets the problem and how the last call ended. */
+	private fun dismissProblem() {
+		Pairer.problem = null
+		Calls.update(CallState.Idle)
+		render()
+	}
+
 	/** The one thing a problem card offers to do. */
 	private fun act(problem: Problem) {
 		when (problem) {
@@ -234,13 +250,7 @@ class MainActivity : ComponentActivity() {
 				Intent(android.provider.Settings.ACTION_APPLICATION_DETAILS_SETTINGS, Uri.fromParts("package", packageName, null)),
 			)
 			is Problem.CallFailed -> requestCall()
-			is Problem.RePair -> {
-				settings.clear()
-				Pairer.problem = null
-				Calls.update(CallState.Idle)
-				Calls.hearLine(Line.Checking)
-				render()
-			}
+			is Problem.RePair -> unpair()
 		}
 	}
 

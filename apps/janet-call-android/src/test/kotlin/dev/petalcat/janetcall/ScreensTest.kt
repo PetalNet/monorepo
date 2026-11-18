@@ -64,7 +64,15 @@ class ScreensTest {
 		assertEquals("Open app settings", mic?.action)
 		val forgotten = screen(paired = PAIRED, line = Line.Revoked) as Screen.Home
 		assertEquals("Pair again", forgotten.problem?.action)
-		assertEquals(Problem.CallFailed("x"), (screen(paired = PAIRED, line = Line.Revoked, problem = Problem.CallFailed("x")) as Screen.Home).problem)
+		// A forgotten phone's one move is to pair again, whatever else went wrong.
+		assertEquals("Pair again", (screen(paired = PAIRED, line = Line.Revoked, problem = Problem.CallFailed("x")) as Screen.Home).problem?.action)
+		assertEquals("Call again", (screen(paired = PAIRED, problem = Problem.CallFailed("x")) as Screen.Home).problem?.action)
+	}
+
+	@Test
+	fun `a pairing link never shows its one-time code when printed`() {
+		assertEquals(false, LINK.toString().contains("code"))
+		assertEquals(false, Problem.PairUnreachable("x", LINK).toString().contains(LINK.code))
 	}
 
 	@Test
