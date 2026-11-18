@@ -39,7 +39,10 @@ class FakeGateway(BaseHTTPRequestHandler):
         if self.headers.get("Authorization") != TOKEN:
             return self._send(401, b"{}")
         if self.path == "/v1/conversations":
-            return self._send(200, b'{"id": "0123456789ab"}')
+            opened = sum(path == "/v1/conversations" for path, _ in self.calls)
+            return self._send(200, json.dumps({"id": f"{opened - 1:012x}" if opened > 1 else "0123456789ab"}).encode())
+        if self.path == "/v1/conversations/0123456789ab/turns" and body["text"] == "are you there":
+            return self._send(409, b'{"error": "the conversation has ended"}')
         if self.path == "/v1/tts":
             out = io.BytesIO()
             with wave.open(out, "wb") as wav:
@@ -167,6 +170,16 @@ class CallTest(unittest.IsolatedAsyncioTestCase):
         writer.close()
         self.assertIn(b"404", status)
         self.assertEqual(FakeGateway.calls, [])
+
+    async def test_a_conversation_the_head_ended_is_reopened(self):
+        FakeStt.texts = ["are you there"]
+        async with connect(self.url, additional_headers={"Authorization": TOKEN}) as ws:
+            await asyncio.sleep(0.4)
+            await ws.send(tone(0.5))
+            await ws.send(bytes(16000))
+            await asyncio.sleep(1.5)
+        self.assertIn("Janet: You said are you there.", await self._notice())
+        self.assertIn("/v1/conversations/000000000001/end", [path for path, _ in FakeGateway.calls])
 
     async def test_a_failed_reply_does_not_drop_the_call(self):
         FakeStt.texts = ["break", "what is this"]

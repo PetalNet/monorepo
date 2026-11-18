@@ -75,6 +75,9 @@ Run it with `python janet_phone.py --config /path/to/phone.toml`, or build the `
   loudspeaker without echo cancellation will cut her off with her own voice.
 - The Access assertion a call starts with is used for the whole call. A call that outlasts it (24
   hours by default) loses its last turns.
+- The head ends a conversation that sits idle. When that happens mid-call (a sleeping voice host can
+  take minutes to say the disclosure), the call continues in a new conversation, which does not
+  remember the earlier turns.
 - A call whose WebSocket handshake fails after the gateway accepted it leaves a conversation open
   until the head's idle timeout ends it.
 - The call record carries the caller's words. Post it where a person reads it, not where an agent
