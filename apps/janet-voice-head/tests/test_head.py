@@ -286,6 +286,48 @@ class UnmergedChannelTest(HeadCase):
         self.assertEqual(self.hub.accepted, [])
 
 
+class BridgeTest(HeadCase):
+    def cold_head(self, **overrides):
+        self.claude_extra = ["--fake-slow-warm"]
+        self.stop_head()
+        self.start_head(**{"bridge_after_s": 0.3, **overrides})
+
+    def events(self, conv, text):
+        status, events = self.request("POST", f"/v1/conversations/{conv}/turns", {"text": text})
+        self.assertEqual(status, 200, events)
+        return events
+
+    def test_a_cold_first_turn_says_one_short_line_before_the_real_reply_and_it_is_not_remembered(self):
+        self.cold_head()
+        conv = self.open()
+        events = self.events(conv, "hello there")
+        sentences = [data for name, data in events if name == "sentence"]
+        self.assertTrue(sentences[0].get("bridge"))
+        self.assertEqual([s["text"] for s in sentences[1:]], ["You said hello there.", "That is all I know."])
+        self.assertEqual(sum(1 for s in sentences if s.get("bridge")), 1)
+        self.assertIn("bridge", events[-1][1]["latency_ms"])
+        self.end(conv)
+        self.assertNotIn(sentences[0]["text"], self.hub.texts("voice-hard")[0])
+
+    def test_a_turn_that_starts_warm_gets_no_bridge(self):
+        self.cold_head()
+        conv = self.open()
+        self.turn(conv, "one")
+        sentences = [data for name, data in self.events(conv, "two") if name == "sentence"]
+        self.assertFalse(any(s.get("bridge") for s in sentences))
+
+    def test_a_reply_that_is_ready_in_time_gets_no_bridge(self):
+        self.stop_head()
+        self.start_head(bridge_after_s=5)
+        sentences = [data for name, data in self.events(self.open(), "hello there") if name == "sentence"]
+        self.assertFalse(any(s.get("bridge") for s in sentences))
+
+    def test_the_bridge_can_be_turned_off(self):
+        self.cold_head(bridge_after_s=0)
+        sentences = [data for name, data in self.events(self.open(), "hello there") if name == "sentence"]
+        self.assertFalse(any(s.get("bridge") for s in sentences))
+
+
 class IdleTest(HeadCase):
     overrides = {"idle_timeout_s": 0.5}
 

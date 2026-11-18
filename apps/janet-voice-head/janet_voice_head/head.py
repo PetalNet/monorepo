@@ -41,6 +41,9 @@ class Config:
     turn_timeout_s: float = 60
     max_open: int = 2
     warm_up: bool = True
+    # A first turn that has to wait for a cold fork says one short line after this many seconds. 0 turns it off.
+    bridge_after_s: float = 1.0
+    bridge_phrases: list[str] = field(default_factory=lambda: ["Mm, one sec.", "Let me think.", "Hang on a sec."])
     unmerged_channels: list[str] = field(default_factory=list)
 
 
@@ -127,26 +130,54 @@ class Head:
 
     def turn(self, conv_id: str, text: str, emit: Emit) -> None:
         live = self._open_live(conv_id)
-        live.warm.wait(self.config.ready_timeout_s + self.config.turn_timeout_s)
-        if not live.turn_lock.acquire(blocking=False):
-            raise ApiError(409, "a turn is already in flight; interrupt it first")
-        if live.conv.state != "open":
-            live.turn_lock.release()
-            raise ApiError(409, "the conversation has ended")
+        arrived = time.monotonic()
+        spoken, emit_lock, bridge_ms = threading.Event(), threading.Lock(), []
+        # A cold fork takes seconds to its first word. Until then one short line keeps the speaker from sitting in silence.
+        # Never on a turn that starts warm, and at most once, and never after the real reply has begun.
+        cold = (self.config.bridge_after_s > 0 and self.config.bridge_phrases and live.conv.tier == "personal"
+                and not live.warm.is_set() and not live.conv.exchanges and not is_end_phrase(text))
+
+        def bridge() -> None:
+            with emit_lock:
+                if spoken.is_set():
+                    return
+                phrase = self.config.bridge_phrases[int.from_bytes(live.conv.id.encode()[:2], "big") % len(self.config.bridge_phrases)]
+                try:
+                    emit("sentence", {"text": phrase, "bridge": True})
+                    bridge_ms.append(_ms(arrived))
+                except OSError:
+                    pass
+
+        timer = threading.Timer(self.config.bridge_after_s, bridge)
+        timer.daemon = True
+        if cold:
+            timer.start()
+        try:
+            live.warm.wait(self.config.ready_timeout_s + self.config.turn_timeout_s)
+            if not live.turn_lock.acquire(blocking=False):
+                raise ApiError(409, "a turn is already in flight; interrupt it first")
+            if live.conv.state != "open":
+                live.turn_lock.release()
+                raise ApiError(409, "the conversation has ended")
+        except ApiError:
+            timer.cancel()
+            raise
         started = time.monotonic()
         latency: dict[str, int | None] = {"first_token": None, "first_sentence": None, "total": None}
         client_connected = True
 
         def say(sentence: str) -> None:
             nonlocal client_connected
-            if latency["first_sentence"] is None:
-                latency["first_sentence"] = _ms(started)
-            if client_connected:
-                try:
-                    emit("sentence", {"text": sentence})
-                except OSError:
-                    client_connected = False
-                    live.session.interrupt()
+            with emit_lock:
+                spoken.set()
+                if latency["first_sentence"] is None:
+                    latency["first_sentence"] = _ms(started)
+                if client_connected:
+                    try:
+                        emit("sentence", {"text": sentence})
+                    except OSError:
+                        client_connected = False
+                        live.session.interrupt()
 
         try:
             with live.lock:
@@ -188,12 +219,15 @@ class Head:
             with live.lock:
                 live.in_turn, live.last_activity = False, time.monotonic()
             latency["total"] = _ms(started)
+            if bridge_ms:
+                latency["bridge"] = bridge_ms[0]
             if client_connected:
                 try:
                     emit("done", {"end_conversation": end, "latency_ms": latency})
                 except OSError:
                     pass
         finally:
+            timer.cancel()
             live.in_turn = False
             live.turn_lock.release()
 
