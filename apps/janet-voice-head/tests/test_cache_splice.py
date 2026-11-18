@@ -88,6 +88,12 @@ class SpliceTest(unittest.TestCase):
         result, _ = cs.splice(body(fork), reference(main, held=False), "main", time.time())
         self.assertEqual(result["messages"], fork)
 
+    def test_the_fork_s_own_cache_marker_survives_when_its_message_is_replaced(self):
+        marked = {"role": "user", "content": [{"type": "text", "text": "skills:\nlist", "cache_control": {"type": "ephemeral"}}]}
+        result, _ = self.run_splice([marked], [user("skills:\n" + TAG + "list", blocks=True)])
+        self.assertEqual(result["messages"][0]["content"][0]["text"], "skills:\n" + TAG + "list")
+        self.assertEqual(result["messages"][0]["content"][0]["cache_control"], {"type": "ephemeral"})
+
     def test_it_skips_and_says_why(self):
         main = [user("a")]
         cases = {
@@ -149,6 +155,14 @@ class LatestRequestTest(unittest.TestCase):
               {"type": "user", "uuid": "u1", "message": {"role": "user", "content": text}},
               self.request("r1", [cs.message_hash(sent)]))
         self.assertEqual(cs.latest_request(self.path)["messages"], {cs.message_hash(sent): sent})
+
+    def test_a_record_with_a_lone_surrogate_does_not_switch_the_splice_off(self):
+        a = user("a")
+        write(self.path, {"type": "api-request-shape", "shapeHash": "s1", "shape": {"system": [], "tools": []}},
+              {"type": "user", "message": {"role": "user", "content": "hi \ud83d x"}},
+              {"type": "api-request-blob", "hash": cs.message_hash(a), "message": a},
+              self.request("r1", [cs.message_hash(a)]))
+        self.assertEqual(cs.latest_request(self.path)["hashes"], [cs.message_hash(a)])
 
     def test_requests_from_other_sources_are_ignored_and_a_missing_shape_gives_nothing(self):
         a = user("a")

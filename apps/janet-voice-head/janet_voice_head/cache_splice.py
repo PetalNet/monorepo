@@ -51,7 +51,8 @@ def message_hash(message: dict) -> str:
     """How Claude Code names a message in its request log: SHA-256 of role and content, keys sorted, no whitespace."""
     content = [{k: v for k, v in block.items() if k != "cache_control"} if isinstance(block, dict) else block for block in message["content"]] \
         if isinstance(message.get("content"), list) else message.get("content")
-    return hashlib.sha256(json.dumps({"role": message.get("role"), "content": content}, sort_keys=True, separators=(",", ":"), ensure_ascii=False).encode()).hexdigest()
+    return hashlib.sha256(json.dumps({"role": message.get("role"), "content": content}, sort_keys=True, separators=(",", ":"),
+                                     ensure_ascii=False).encode("utf-8", "surrogatepass")).hexdigest()
 
 
 def _forms(message: dict):
@@ -68,7 +69,7 @@ def _named(message: dict) -> dict[str, dict]:
     for content in _forms(message):
         plain = {"role": message.get("role"), "content": content}
         for ascii_ in (False, True):
-            out[hashlib.sha256(json.dumps(plain, sort_keys=True, separators=(",", ":"), ensure_ascii=ascii_).encode()).hexdigest()] = plain
+            out[hashlib.sha256(json.dumps(plain, sort_keys=True, separators=(",", ":"), ensure_ascii=ascii_).encode("utf-8", "surrogatepass")).hexdigest()] = plain
     return out
 
 
@@ -113,7 +114,10 @@ def latest_request(transcript: Path) -> Reference | None:
             elif kind == "record":
                 message = record.get("message")
                 if isinstance(message, dict) and message.get("role") in ("user", "assistant") and "content" in message:
-                    recorded.update(_named(message))
+                    try:
+                        recorded.update(_named(message))
+                    except (ValueError, TypeError):
+                        continue  # one odd record must not switch the splice off
             elif record.get("querySource") == "repl_main_thread":
                 requests[record["id"]] = record
                 order.append(record["id"])
@@ -156,6 +160,10 @@ def _adapted(main_message: dict, fork_message: dict) -> dict:
     content = main_message.get("content")
     if not isinstance(fork_message.get("content"), str) and isinstance(content, str):
         content = _blocks(content)
+    if isinstance(content, list) and content and isinstance(fork_message.get("content"), list) and fork_message["content"]:
+        marker = fork_message["content"][-1].get("cache_control") if isinstance(fork_message["content"][-1], dict) else None
+        if marker and isinstance(content[-1], dict) and "cache_control" not in content[-1]:
+            content = [*content[:-1], {**content[-1], "cache_control": marker}]  # the fork's own breakpoint stays where it was
     return {**fork_message, "content": content}
 
 
