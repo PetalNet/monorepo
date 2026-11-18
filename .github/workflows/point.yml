@@ -56,8 +56,26 @@ jobs:
       - uses: $/.github/actions/setup-turbo
       - run: turbo --skip-infer run fmt:check check lint build test --filter='point-*'
 
-  flutter:
-    name: flutter (analyze, test)
+  flutter-analyze:
+    name: flutter (analyze)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: subosito/flutter-action@1a449444c387b1966244ae4d4f8c696479add0b2 # v2.23.0
+        with:
+          channel: stable
+          # Pin to the version the client is built + verified against (kaisel
+          # 0.22.0 needs Dart 3.10+; this ships Dart 3.12).
+          flutter-version: 3.44.6
+      - run: flutter pub get
+        working-directory: apps/point/app
+      - run: flutter analyze
+        working-directory: apps/point/app
+
+  flutter-test:
+    name: flutter (test)
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -65,38 +83,36 @@ jobs:
           persist-credentials: false
       - name: Install pinned toolchain (rust-toolchain.toml)
         run: rustup toolchain install
-      - name: Check for Flutter project
-        id: check
+      # The desktop MLS bridge compiles while the Flutter SDK downloads.
+      - name: Start desktop MLS test bridge build
         run: |
-          if [ -f apps/point/app/pubspec.yaml ]; then
-            echo "present=true" >> "$GITHUB_OUTPUT"
-          else
-            echo "present=false" >> "$GITHUB_OUTPUT"
-            echo "apps/point/app has no Flutter project yet (lands in M1) — skipping honestly."
-          fi
+          nohup cargo build --manifest-path rust/Cargo.toml --locked --release > "$RUNNER_TEMP/bridge.log" 2>&1 &
+          echo $! > "$RUNNER_TEMP/bridge.pid"
+        working-directory: apps/point/app
       - uses: subosito/flutter-action@1a449444c387b1966244ae4d4f8c696479add0b2 # v2.23.0
-        if: steps.check.outputs.present == 'true'
         with:
           channel: stable
-          # Pin to the version the client is built + verified against (kaisel
-          # 0.22.0 needs Dart 3.10+; this ships Dart 3.12).
           flutter-version: 3.44.6
-      - name: flutter pub get
-        if: steps.check.outputs.present == 'true'
-        run: flutter pub get
+      # `flutter test` runs webcrypto's native-assets hook, which compiles BoringSSL (about two
+      # minutes). Cache the built library with the package source: the hook rebuilds when a source
+      # file is newer than its output, so both must restore together. The key follows the lockfile.
+      - uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: |
+            ~/.pub-cache/hosted/pub.dev/webcrypto-*
+            ~/.pub-cache/hosted-hashes/pub.dev/webcrypto-*
+            apps/point/app/.dart_tool/hooks_runner/shared/webcrypto
+          key: flutter-webcrypto-hook-v2-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('apps/point/app/pubspec.lock') }}
+      - run: flutter pub get
         working-directory: apps/point/app
-      - name: flutter analyze
-        if: steps.check.outputs.present == 'true'
-        run: flutter analyze
-        working-directory: apps/point/app
-      - name: build desktop MLS test bridge
-        if: steps.check.outputs.present == 'true'
-        run: cargo build --manifest-path rust/Cargo.toml --locked --release
+      - name: Wait for desktop MLS test bridge
+        run: |
+          timeout 600 tail --pid="$(cat "$RUNNER_TEMP/bridge.pid")" -f /dev/null
+          cat "$RUNNER_TEMP/bridge.log"
+          test -f rust/target/release/libpoint_mls.so
         working-directory: apps/point/app
       - name: flutter test
-        if: steps.check.outputs.present == 'true'
         env:
           LD_LIBRARY_PATH: ${{ github.workspace }}/apps/point/app/rust/target/release
-        run: |
-          if [ -d test ]; then flutter test; else echo "no tests yet"; fi
+        run: flutter test
         working-directory: apps/point/app
