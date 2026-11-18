@@ -77,6 +77,10 @@
 		"format": { "env": ["!CARGO_INCREMENTAL"] },
 		"fmt:check": { "env": ["RUSTFMT"], "outputs": [] },
 		"lint": { "env": ["!CARGO_INCREMENTAL"] },
+		"lint:eslint": {
+			"dependsOn": ["^typecheck", "prepare"],
+			"outputs": []
+		},
 		"test": {
 			"cache": false,
 			"env": ["!CARGO_INCREMENTAL"],
@@ -138,17 +142,7 @@
 			"dependsOn": ["//#lint:eslint:apps"],
 			"outputs": []
 		},
-		"//#lint:eslint:apps": {
-			"dependsOn": [
-				"@petalnet/astrolabe#check",
-				"@petalnet/collegemap#check",
-				"@petalnet/grove#check",
-				"@petalnet/slide#check",
-				"//#lint:eslint:root"
-			],
-			"inputs": ["$TURBO_DEFAULT$"],
-			"outputs": []
-		},
+		"//#lint:eslint:apps": { "outputs": [] },
 		"//#lint:eslint:root": {
 			"dependsOn": ["//#typecheck", "//#lint:oxlint"],
 			"inputs": ["$TURBO_DEFAULT$", "!apps/**"],

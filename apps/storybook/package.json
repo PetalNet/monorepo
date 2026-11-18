@@ -6,6 +6,7 @@
 	"scripts": {
 		"build": "storybook build",
 		"dev": "storybook dev -p 6006",
+		"lint:eslint": "eslint . --max-warnings=0",
 		"typecheck": "svelte-check --tsconfig ./tsconfig.json"
 	},
 	"devDependencies": {

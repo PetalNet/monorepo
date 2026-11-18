@@ -5,6 +5,7 @@
 	"type": "module",
 	"scripts": {
 		"build": "wxt build && wxt build -b firefox",
+		"lint:eslint": "eslint . --max-warnings=0",
 		"prepare": "wxt prepare",
 		"test": "vitest run",
 		"typecheck": "tsc -b"
