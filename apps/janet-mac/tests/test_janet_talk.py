@@ -368,6 +368,21 @@ class TalkTest(TalkCase):
         self.notified(["First. Second."])
 
 
+class OrderedSpeechTest(TalkCase):
+    def test_sentences_are_synthesized_one_at_a_time_in_order_while_the_first_plays(self):
+        self.voice.delays = {"First.": 0.6, "Second.": 0.3}
+        (self.stub / "afplay-seconds").write_text("1.5")
+        self.talk("start")
+        speaking = self.talk("stop", wait=False)
+        self.wait_for(lambda: len(self.voice.requests_seen) == 3)
+        self.wait_for(lambda: self.lines("played") == ["First."])
+        # The second sentence is already made while the first one is still playing.
+        self.assertEqual(self.voice.requests_seen[1:], [{"text": "First.", "voice": {"name": "janet"}}, {"text": "Second.", "voice": {"name": "janet"}}])
+        self.assertEqual(self.voice.peak_active, 1)
+        speaking.wait(20)
+        self.assertEqual(self.lines("played"), ["First.", "Second."])
+
+
 class TapTest(TalkCase):
     """The second press was a tap, so Janet listens until the speaker stops.
 
@@ -603,6 +618,14 @@ class SleepingVoiceTest(TalkCase):
         self.start_voice()
         self.assertEqual(speaking.wait(30), 0)
         self.assertEqual(self.lines("played"), ["First.", "Second."])
+
+    def test_a_voice_that_stays_asleep_is_waited_for_once_for_the_whole_reply(self):
+        self.env["JANET_TALK_WAKE_WAIT_S"] = "3"
+        self.talk("start")
+        started = time.monotonic()
+        self.talk("stop", within=30)
+        self.assertLess(time.monotonic() - started, 5)
+        self.assertEqual(self.lines("played"), [])
 
 
 if __name__ == "__main__":
