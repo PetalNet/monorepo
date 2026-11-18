@@ -99,6 +99,12 @@ try {
 
 	assert.ok(end === "hung" ? false : end.done, "stream closes after abort");
 
+	// an already-aborted request never leaves a listener or timer behind
+	const dead = new AbortController();
+
+	dead.abort();
+	assert.ok((await homeStream(dead.signal, { keepaliveMs: 10 }).getReader().read()).done);
+
 	// lab-status generator: parses a real-shaped ssh reply, flags what is down, leaks nothing
 	const up = parseDockerHost(
 		"@@df\nFilesystem 1024-blocks Used Available Capacity Mounted on\n/dev/x 400000000 360000000 22000000 95% /\n@@load\n10.95 9.36 8.07 25/9583 1\n@@ps\ntasks\tUp 2 days\nsynapse\tUp 3 hours (healthy)\nagentsview\tUp 1 hour (unhealthy)\n",
@@ -110,6 +116,11 @@ try {
 	assert.equal(up.containers.get("tasks"), true);
 	assert.equal(up.containers.get("agentsview"), false);
 	assert.equal(parseDockerHost(null).up, false);
+	// docker daemon down: the host is still up, just with no containers
+	const noDocker = parseDockerHost("@@df\nH\n/dev/x 4 3 1 75% /\n@@load\n0.5 0 0 1/1 1\n@@ps\n");
+
+	assert.equal(noDocker.up, true);
+	assert.equal(noDocker.containers.size, 0);
 	assert.equal(parseDockerHost("garbage").up, false);
 
 	const facts = {

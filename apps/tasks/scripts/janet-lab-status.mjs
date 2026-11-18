@@ -18,7 +18,8 @@ import { readFileSync, statfsSync } from "node:fs";
 import { homedir, loadavg } from "node:os";
 import { fileURLToPath } from "node:url";
 
-const DOCKER_HOST_SSH = "docker@10.10.10.14";
+// ssh target of the .14 docker host, kept out of the repo: JANET_LAB_DOCKER_SSH=user@host
+const DOCKER_HOST_SSH = process.env.JANET_LAB_DOCKER_SSH;
 const TIMEOUT_MS = 15_000;
 
 const run = (cmd, args) =>
@@ -30,7 +31,7 @@ const run = (cmd, args) =>
 
 // ── .14: one ssh call, three sections ────────────────────────────────────────
 const REMOTE =
-	"echo @@df; df -P /; echo @@load; cat /proc/loadavg; echo @@ps; docker ps --format '{{.Names}}\t{{.Status}}'";
+	"echo @@df; df -P /; echo @@load; cat /proc/loadavg; echo @@ps; docker ps --format '{{.Names}}\t{{.Status}}' || true";
 
 export function parseDockerHost(out) {
 	if (!out) {
@@ -93,6 +94,10 @@ async function claudeSessions() {
 }
 
 export async function collect() {
+	if (!DOCKER_HOST_SSH) {
+		throw new Error("set JANET_LAB_DOCKER_SSH=user@host for the .14 docker host");
+	}
+
 	const [remote, head, gateway, sessions] = await Promise.all([
 		run("ssh", ["-o", "BatchMode=yes", "-o", "ConnectTimeout=5", DOCKER_HOST_SSH, REMOTE]).then(
 			parseDockerHost,

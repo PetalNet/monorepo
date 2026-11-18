@@ -80,6 +80,13 @@ export function homeStream(signal, { keepaliveMs = 25_000 } = {}) {
 			};
 
 			signal?.addEventListener("abort", cleanup, { once: true });
+
+			if (signal?.aborted) {
+				cleanup();
+
+				return;
+			}
+
 			send("retry: 3000\n\n");
 			push(getHome());
 		},
