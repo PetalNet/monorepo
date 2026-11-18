@@ -71,6 +71,9 @@
 			"apps/courier",
 			"apps/dispatcher",
 			"apps/janet-conversation",
+			"apps/janet-desk",
+			"apps/janet-mac",
+			"apps/janet-voice-gateway",
 			"apps/manager",
 			"apps/point",
 			"tools/*"
