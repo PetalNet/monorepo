@@ -4,6 +4,7 @@ import android.content.Context
 import android.graphics.Bitmap
 import android.graphics.Canvas
 import android.graphics.Paint
+import android.graphics.Rect
 import android.graphics.RectF
 import android.os.SystemClock
 import android.text.Layout
@@ -303,6 +304,11 @@ class CallSky(context: Context) : View(context) {
 	private val caps = RectF()
 	private var topInset = 0
 	private var bottomInset = 0
+	private var slotTop = -1
+	private var slotBottom = -1
+	private var cellPx = 1f
+	private val rowsShown get() = if (slotTop >= 0) PlanetEngine.PLANET_ROWS else PlanetEngine.ROWS
+	private val source = Rect()
 	private var lastS = 0.0
 	private val view = StageView()
 	private var drawnStage: CallStage? = null
@@ -327,6 +333,18 @@ class CallSky(context: Context) : View(context) {
 		invalidate()
 	}
 
+	/**
+	 * Draws the planet alone, without its meter, centred between [top] and [bottom] pixels. The home
+	 * screens use this: no call, so no transcript, and room is shared with their own text.
+	 */
+	fun slot(top: Int, bottom: Int) {
+		if (top == slotTop && bottom == slotBottom) return
+		slotTop = top
+		slotBottom = bottom
+		place(width, height)
+		invalidate()
+	}
+
 	override fun onSizeChanged(w: Int, h: Int, oldw: Int, oldh: Int) = place(w, h)
 
 	/**
@@ -336,6 +354,7 @@ class CallSky(context: Context) : View(context) {
 	 * short screen. Height the reference does not have is shared above the planet and over the controls.
 	 */
 	private fun place(w: Int, h: Int) {
+		if (slotTop >= 0) return placeInSlot(w)
 		val controlsTop = h - bottomInset - (BOTTOM + BUTTON + CONTROLS_GAP) * density
 		val planetTop = topInset + PLANET_TOP * density
 		val cell = floor(
@@ -350,9 +369,20 @@ class CallSky(context: Context) : View(context) {
 		val block = cell * PlanetEngine.ROWS + (CAPS_GAP + CAPS_HEIGHT) * density
 		val left = floor((w - cell * PlanetEngine.GRID) / 2)
 		val top = floor(planetTop + max(0f, controlsTop - planetTop - block) * SLACK_ABOVE)
+		cellPx = cell
 		planet.set(left, top, left + cell * PlanetEngine.GRID, top + cell * PlanetEngine.ROWS)
 		val capsTop = planet.bottom + CAPS_GAP * density
 		caps.set(CAPS_EDGE * density, capsTop, w - CAPS_EDGE * density, min(capsTop + CAPS_HEIGHT * density, controlsTop))
+	}
+
+	private fun placeInSlot(w: Int) {
+		val cell = floor(
+			min((w - 2 * CAPS_EDGE * density) / PlanetEngine.GRID, (slotBottom - slotTop).toFloat() / PlanetEngine.PLANET_ROWS),
+		).coerceAtLeast(1f)
+		val left = floor((w - cell * PlanetEngine.GRID) / 2)
+		val top = floor(slotTop + ((slotBottom - slotTop) - cell * PlanetEngine.PLANET_ROWS) / 2)
+		cellPx = cell
+		planet.set(left, top, left + cell * PlanetEngine.GRID, top + cell * PlanetEngine.PLANET_ROWS)
 	}
 
 	override fun onDraw(canvas: Canvas) {
@@ -391,9 +421,10 @@ class CallSky(context: Context) : View(context) {
 
 		canvas.save()
 		val scale = engine.scale.toFloat()
-		canvas.scale(scale, scale, planet.left + planet.width() * PlanetEngine.ORIGIN_X, planet.top + planet.height() * PlanetEngine.ORIGIN_Y)
+		canvas.scale(scale, scale, planet.left + planet.width() * PlanetEngine.ORIGIN_X, planet.top + cellPx * PlanetEngine.ROWS * PlanetEngine.ORIGIN_Y)
 		blit.alpha = (engine.alpha * 255).toInt()
-		canvas.drawBitmap(bitmap, null, planet, blit)
+		source.set(0, 0, PlanetEngine.GRID, rowsShown)
+		canvas.drawBitmap(bitmap, source, planet, blit)
 		canvas.restore()
 
 		if (showText) drawCaption(canvas, nowS)
