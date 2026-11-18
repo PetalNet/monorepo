@@ -11,8 +11,8 @@
 		"./episodes": "./src/episodes/index.ts"
 	},
 	"scripts": {
-		"build": "tsc -b",
-		"typecheck": "tsc -b",
+		"build": "effect-tsgo tsrs -b",
+		"typecheck": "effect-tsgo tsrs -b",
 		"test": "vitest run",
 		"cite": "node src/cli.ts"
 	},

@@ -122,9 +122,10 @@ flowchart LR
 
 Oxlint enables correctness, suspicious, performance, pedantic, and style categories, with
 targeted exceptions for noisy policies and existing strict rule options. It runs
-typed checks through `oxlint-tsgolint`, plus Effect's recommended diagnostics.
-Root `prepare` patches the compiler and Oxlint backend with `effect-tsgo patch --oxlint`; compiler Effect
-diagnostics are disabled to avoid duplicate reports. Framework generation and
+typed checks on tsrs through `effect-tsgo --tsrs-lint oxlint`, plus Effect's recommended diagnostics.
+Type checking runs `effect-tsgo tsrs`, the Effect build of the installed `tsrs` version. Root `prepare`
+runs `effect-tsgo patch --oxlint --tsrs` so editors that start `oxlint` or `tsrs` directly get the same
+builds; compiler Effect diagnostics are disabled to avoid duplicate reports. Framework generation and
 shared declaration/typecheck tasks precede typed Oxlint, including focused Turbo
 lint invocations. Package tests use discoverable `test/tsconfig.json` projects.
 Effect's unstable-API check remains enabled: the tsconfig plugin settings allow

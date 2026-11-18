@@ -3,9 +3,12 @@ import { Config, Console, Effect, Schema } from "effect";
 import { expectedConclusions, Needs, Selection } from "./workflow.ts";
 
 // oxlint-disable-next-line unicorn/throw-new-error -- TaggedError is a class factory, not a constructor.
-class GateFailed extends Schema.TaggedError<GateFailed>()("GateFailed", {
-	message: Schema.String,
-}) {}
+class GateFailed extends Schema.TaggedError<GateFailed, { readonly brand: unique symbol }>()(
+	"GateFailed",
+	{
+		message: Schema.String,
+	},
+) {}
 
 export const evaluateGate = Effect.fn("evaluateGate")(function* (json: string) {
 	const jobs = yield* Schema.decodeEffect(Schema.fromJsonString(Needs))(json);

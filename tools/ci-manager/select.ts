@@ -22,7 +22,10 @@ const AffectedPlan = Schema.Struct({
 });
 
 // oxlint-disable-next-line unicorn/throw-new-error -- TaggedError is a class factory, not a constructor.
-class TurboQueryFailed extends Schema.TaggedError<TurboQueryFailed>()("TurboQueryFailed", {
+class TurboQueryFailed extends Schema.TaggedError<
+	TurboQueryFailed,
+	{ readonly brand: unique symbol }
+>()("TurboQueryFailed", {
 	message: Schema.String,
 }) {}
 

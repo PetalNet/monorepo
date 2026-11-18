@@ -187,7 +187,7 @@ async function render(browser: Browser, reply: Reply, network: Network): Promise
 			const clone = document.documentElement.cloneNode(true);
 
 			if (!(clone instanceof HTMLElement)) {
-				throw new Error("Missing document");
+				throw new TypeError("Missing document");
 			}
 
 			const originals = document.querySelectorAll("*");

@@ -7,7 +7,7 @@
 		".": "./src/index.ts"
 	},
 	"scripts": {
-		"check": "tsc --noEmit",
+		"check": "effect-tsgo tsrs --noEmit",
 		"lint": "eslint src test --max-warnings=0",
 		"test": "DEBUG='-testcontainers*' vitest run"
 	},

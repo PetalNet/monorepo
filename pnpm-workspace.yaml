@@ -54,14 +54,14 @@ minimumReleaseAgeExclude:
   - effect-db@0.24.1
   - effect-qb@0.24.1
   - vite@8.3.3
-  - "@effect/tsgo-darwin-arm64@0.50.0"
-  - "@effect/tsgo-darwin-x64@0.50.0"
-  - "@effect/tsgo-linux-arm64@0.50.0"
-  - "@effect/tsgo-linux-arm@0.50.0"
-  - "@effect/tsgo-linux-x64@0.50.0"
-  - "@effect/tsgo-win32-arm64@0.50.0"
-  - "@effect/tsgo-win32-x64@0.50.0"
-  - "@effect/tsgo@0.50.0"
+  - "@effect/tsgo-darwin-arm64@0.70.0"
+  - "@effect/tsgo-darwin-x64@0.70.0"
+  - "@effect/tsgo-linux-arm64@0.70.0"
+  - "@effect/tsgo-linux-arm@0.70.0"
+  - "@effect/tsgo-linux-x64@0.70.0"
+  - "@effect/tsgo-win32-arm64@0.70.0"
+  - "@effect/tsgo-win32-x64@0.70.0"
+  - "@effect/tsgo@0.70.0"
   - drizzle-orm@1.0.0-rc.5-ab785fc
   - drizzle-kit@1.0.0-rc.5-ab785fc
   - impeccable@4.5.2
@@ -111,14 +111,14 @@ catalogs:
     drizzle-kit: ^0.31.8
     eslint: ^10.4.1
     # Keep the ESLint compatibility rules aligned with standalone Oxlint.
-    eslint-plugin-oxlint: 1.87.0
+    eslint-plugin-oxlint: 1.93.0
     eslint-plugin-package-json: ^1.2.0
     happy-dom: ^21.0.1
     impeccable: ^4.5.2
     knip: ^6.31.0
     oxfmt: 0.61.0
-    oxlint: 1.87.0
-    oxlint-tsgolint: 7.0.2003
+    oxlint: 1.93.0
+    oxlint-tsgolint: 7.0.2007
     postcss: ^8.5.23
     prisma: ^5.22.0
     svelte-check: ^4.3.5
@@ -128,6 +128,7 @@ catalogs:
     typescript: npm:@typescript/typescript6@^6.0.2
     typescript-eslint: ^8.60.0
     typesync: ^0.15.0
+    tsrs: 0.25.0-ts7.1.0-beta
     tsx: ^4.22.4
     turbo: 2.11.11
     update-ts-references: ^6.0.0
@@ -215,7 +216,7 @@ catalog:
   effect: 4.0.1
   effect-qb: 0.24.2
   mode-watcher: ^1.1.0
-  "@effect/tsgo": 0.50.0
+  "@effect/tsgo": 0.70.0
   storybook: 10.6.7
   "@storybook/svelte-vite": 10.6.7
   "@storybook/addon-a11y": 10.6.7
