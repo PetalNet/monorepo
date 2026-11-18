@@ -46,6 +46,9 @@ jobs:
       # runner image versions.
       - name: Install pinned toolchain (rust-toolchain.toml)
         run: rustup toolchain uninstall stable && rustup toolchain install && rustup component add rustfmt clippy
+      - uses: taiki-e/install-action@75a7c0f87bd666af3cdb75c5b9e9d03ab6044e6f # v2.90.6
+        with:
+          tool: cargo-nextest@0.9.152
       - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
         with:
           workspaces: . -> target

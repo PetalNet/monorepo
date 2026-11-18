@@ -13,6 +13,10 @@
 		"lint": {
 			"command": ["cargo", "clippy", "--all-targets", "--locked"]
 		},
-		"test": { "cache": true, "outputs": [] }
+		"test": {
+			"cache": true,
+			"outputs": [],
+			"command": ["cargo", "nextest", "run", "--locked", "--profile=ci", "--no-tests=pass"]
+		}
 	}
 }

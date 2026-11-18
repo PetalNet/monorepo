@@ -154,6 +154,9 @@ jobs:
         run: sudo apt-get update -q && sudo apt-get install -y -q tmux && tmux -V
       - name: Install pinned toolchain (rust-toolchain.toml)
         run: rustup toolchain install && rustup component add rustfmt clippy
+      - uses: taiki-e/install-action@75a7c0f87bd666af3cdb75c5b9e9d03ab6044e6f # v2.90.6
+        with:
+          tool: cargo-nextest@0.9.152
       - uses: $/.github/actions/setup-turbo
       - parallel:
           - run: turbo --skip-infer run fmt:check check lint test --filter=agent-manager
@@ -176,6 +179,9 @@ jobs:
       # runner image versions.
       - name: Install pinned toolchain (rust-toolchain.toml)
         run: rustup toolchain uninstall stable && rustup toolchain install && rustup component add rustfmt clippy
+      - uses: taiki-e/install-action@75a7c0f87bd666af3cdb75c5b9e9d03ab6044e6f # v2.90.6
+        with:
+          tool: cargo-nextest@0.9.152
       - uses: $/.github/actions/setup-turbo
       - run: turbo --skip-infer run fmt:check --filter='courier*'
       # The courier package's remaining tasks cover all five courier crates in one Cargo invocation
@@ -204,6 +210,9 @@ jobs:
           persist-credentials: false
       - name: Install pinned toolchain (rust-toolchain.toml)
         run: rustup toolchain install && rustup component add rustfmt clippy
+      - uses: taiki-e/install-action@75a7c0f87bd666af3cdb75c5b9e9d03ab6044e6f # v2.90.6
+        with:
+          tool: cargo-nextest@0.9.152
       - uses: $/.github/actions/setup-turbo
       - run: turbo --skip-infer run fmt:check check lint test --filter=dispatcher
 
@@ -217,6 +226,9 @@ jobs:
           persist-credentials: false
       - name: Install pinned toolchain (rust-toolchain.toml)
         run: rustup toolchain install && rustup component add rustfmt clippy
+      - uses: taiki-e/install-action@75a7c0f87bd666af3cdb75c5b9e9d03ab6044e6f # v2.90.6
+        with:
+          tool: cargo-nextest@0.9.152
       - uses: $/.github/actions/setup-turbo
       - run: turbo --skip-infer run fmt:check check lint test --filter=control-plane
 
@@ -230,6 +242,9 @@ jobs:
           persist-credentials: false
       - name: Install pinned toolchain (rust-toolchain.toml)
         run: rustup toolchain install && rustup component add rustfmt clippy
+      - uses: taiki-e/install-action@75a7c0f87bd666af3cdb75c5b9e9d03ab6044e6f # v2.90.6
+        with:
+          tool: cargo-nextest@0.9.152
       - uses: $/.github/actions/setup-turbo
       - run: turbo --skip-infer run fmt:check check lint test --filter=box-agent
 

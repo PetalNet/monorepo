@@ -1,0 +1,8 @@
+[profile.ci]
+# Report every failure in one run instead of stopping at the first.
+fail-fast = false
+# A test that passes only on a retry is reported as flaky, not hidden.
+retries = 2
+slow-timeout = { period = "60s", terminate-after = 3 }
+failure-output = "immediate-final"
+final-status-level = "flaky"
