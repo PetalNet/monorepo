@@ -13,6 +13,7 @@
 		"db:push": "drizzle-kit push",
 		"db:studio": "drizzle-kit studio",
 		"dev": "vite dev",
+		"lint:eslint": "eslint . --max-warnings=0",
 		"prepare": "svelte-kit sync",
 		"preview": "vite preview",
 		"test": "vitest run"

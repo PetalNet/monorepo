@@ -9,6 +9,7 @@
 		"check:watch": "svelte-kit sync && svelte-check --tsconfig ./tsconfig.json --watch",
 		"dev": "vite dev",
 		"generate": "prisma generate",
+		"lint:eslint": "eslint . --max-warnings=0",
 		"prepare": "svelte-kit sync && prisma generate",
 		"preview": "vite preview",
 		"test": "vitest run"

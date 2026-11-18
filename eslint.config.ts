@@ -40,6 +40,9 @@ export default defineConfig([
 		languageOptions: {
 			parserOptions: {
 				projectService: true,
+				// Declared once for every file, not only on the .svelte block: a per-block value rebuilds the
+				// TypeScript program each time linting moves between .ts and .svelte files (sveltejs/eslint-plugin-svelte#1575).
+				extraFileExtensions: [".svelte"],
 			},
 		},
 		rules: {
@@ -108,7 +111,6 @@ export default defineConfig([
 			parserOptions: {
 				parser: tseslint.parser,
 				projectService: true,
-				extraFileExtensions: [".svelte"],
 			},
 		},
 	},
