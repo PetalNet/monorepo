@@ -1,0 +1,264 @@
+import { describe, expect, it } from "vitest";
+
+import type { KevEntry } from "../kev";
+import { board } from "../status/board";
+import { openStore, type Store } from "../store";
+import { hitCheck } from "./check";
+import type { Dns, Records } from "./lookup";
+
+const NOW = new Date("2026-11-18T17:00:00Z");
+const TODAY = "2026-11-18";
+const NONE: Records = { ns: [], mx: [], txt: [], cname: [] };
+
+const entry = (cveId: string, vendor: string, dateAdded: string, ransomware = false): KevEntry => ({
+	cveId,
+	vendor,
+	product: "Product",
+	name: `${vendor} flaw ${cveId}`,
+	description: "",
+	dateAdded,
+	dueDate: "2026-12-09",
+	ransomware,
+});
+
+let minute = 0;
+
+/**
+ * Runs the check with a stand-in for DNS, and records every name it was asked for. `prepare` fills
+ * the store as of the moment of the check. Each call takes its own minute, so the rate limit never
+ * touches these checks.
+ */
+async function check(
+	input: string | null,
+	records: Records | "missing" | "failed" = NONE,
+	prepare: (store: Store, now: Date) => void = () => undefined,
+) {
+	const asked: string[] = [];
+	const dns: Dns = (domain) => {
+		asked.push(domain);
+
+		return Promise.resolve(records);
+	};
+
+	const store = openStore(":memory:");
+
+	minute += 1;
+
+	const now = new Date(NOW.getTime() + minute * 61_000);
+
+	prepare(store, now);
+
+	return { result: await hitCheck(store, board(store, now).rows, input, TODAY, now, dns), asked };
+}
+
+describe("what a visitor may type", () => {
+	it("does nothing until a domain is typed", async () => {
+		expect(await check(null)).toEqual({ result: { kind: "idle" }, asked: [] });
+		expect((await check("  ")).result).toEqual({ kind: "idle" });
+	});
+
+	it("cuts a pasted address or URL down to its domain", async () => {
+		const typed = [
+			"Example.org",
+			" https://www.example.org/path?q=1 ",
+			"someone@example.org",
+			"example.org.",
+		];
+		const checks = await Promise.all(typed.map((input) => check(input)));
+
+		expect(checks.map((done) => done.asked)).toEqual(typed.map(() => ["example.org"]));
+	});
+
+	it("refuses anything that is not a public domain name, without a lookup", async () => {
+		const refused = [
+			"localhost",
+			"10.10.10.14",
+			"http://127.0.0.1:4466/",
+			"[::1]",
+			"printer.local",
+			"nas.lan",
+			"host.internal",
+			"14.10.10.10.in-addr.arpa",
+			"example",
+			"exa mple.org",
+			"-bad.org",
+			`${"a".repeat(64)}.org`,
+			"example.org; rm -rf /",
+			"<script>alert(1)</script>.org",
+		];
+
+		const checks = await Promise.all(refused.map((input) => check(input)));
+
+		expect(checks).toEqual(refused.map(() => ({ result: { kind: "invalid" }, asked: [] })));
+	});
+
+	it("says when the domain does not exist or the lookup failed, and assumes nothing", async () => {
+		expect((await check("example.org", "missing")).result).toEqual({
+			kind: "missing",
+			domain: "example.org",
+		});
+
+		expect((await check("example.org", "failed")).result).toEqual({
+			kind: "failed",
+			domain: "example.org",
+		});
+	});
+});
+
+describe("reading the records", () => {
+	const RECORDS: Records = {
+		ns: ["sid.ns.cloudflare.com", "brynne.ns.cloudflare.com"],
+		mx: ["example-org.mail.protection.outlook.com"],
+		txt: [
+			"v=spf1 include:spf.protection.outlook.com include:sendgrid.net ~all",
+			"atlassian-domain-verification=SECRETTOKEN",
+			"MS=ms12345678",
+			"unrelated=value",
+		],
+		cname: ["cname.vercel-dns.com"],
+	};
+
+	it("names each provider with the record that shows it, and never prints a proof token", async () => {
+		const { result } = await check("example.org", RECORDS);
+
+		expect(result).toMatchObject({ kind: "result", domain: "example.org" });
+
+		const findings = result.kind === "result" ? result.findings : [];
+
+		expect(Object.fromEntries(findings.map((finding) => [finding.name, finding.signs]))).toEqual({
+			Cloudflare: [{ role: "DNS", evidence: "NS sid.ns.cloudflare.com" }],
+			Microsoft: [
+				{ role: "Mail", evidence: "MX example-org.mail.protection.outlook.com" },
+				{ role: "Sends mail", evidence: "SPF include spf.protection.outlook.com" },
+				{ role: "Account", evidence: "TXT MS" },
+			],
+			Vercel: [{ role: "Website", evidence: "www CNAME cname.vercel-dns.com" }],
+			Atlassian: [{ role: "Account", evidence: "TXT atlassian-domain-verification" }],
+			"Twilio SendGrid": [{ role: "Sends mail", evidence: "SPF include sendgrid.net" }],
+		});
+
+		expect(JSON.stringify(result)).not.toContain("SECRETTOKEN");
+	});
+
+	it("matches a provider on a whole host suffix, never on a look-alike name", async () => {
+		const { result } = await check("example.org", {
+			ns: ["ns1.notcloudflare.com.evil.example"],
+			mx: ["mail.google.com.attacker.example"],
+			txt: ["xMS=1", "v=spf1 include:sendgrid.net.evil.example ~all"],
+			cname: ["vercel-dns.com.evil.example"],
+		});
+
+		expect(result).toMatchObject({ kind: "result", findings: [] });
+	});
+
+	it("reports no provider when the records name none", async () => {
+		expect((await check("example.org", NONE)).result).toMatchObject({
+			kind: "result",
+			findings: [],
+		});
+	});
+});
+
+describe("setting a provider against the panel", () => {
+	const MICROSOFT: Records = { ...NONE, mx: ["example-org.mail.protection.outlook.com"] };
+	const listed =
+		(entries: KevEntry[], also: (store: Store, now: Date) => void = () => undefined) =>
+		(store: Store, now: Date) => {
+			store.save(entries, null, now);
+			also(store, now);
+		};
+	const says =
+		(service: string, level: "ok" | "degraded", text: string) => (store: Store, now: Date) => {
+			store.saveClaim(service, { level, text }, now);
+			store.saveProbe(service, true, "120 ms", now);
+		};
+
+	it("counts the vendor's exploited vulnerabilities of the last 30 days and names the worst", async () => {
+		const store = listed([
+			entry("CVE-2026-1", "Microsoft", "2026-11-17"),
+			entry("CVE-2026-2", "Microsoft", "2026-10-20", true),
+			entry("CVE-2026-3", "Microsoft", "2026-10-19"),
+			entry("CVE-2026-4", "Cisco", "2026-11-17"),
+			entry("CVE-2026-5", "Fake Microsoft Corp", "2026-11-17"),
+		]);
+		const { result } = await check("example.org", MICROSOFT, store);
+
+		expect(result).toMatchObject({
+			findings: [
+				{
+					name: "Microsoft",
+					hit: true,
+					exploited: { count: 2, worst: { cveId: "CVE-2026-2", dateAdded: "2026-10-20" } },
+				},
+			],
+		});
+	});
+
+	it("is clear when the vendor has nothing recent and its status page reports no trouble", async () => {
+		const store = listed(
+			[entry("CVE-2026-3", "Microsoft", "2026-10-19")],
+			says("azure", "ok", "No open events"),
+		);
+
+		expect((await check("example.org", MICROSOFT, store)).result).toMatchObject({
+			findings: [
+				{
+					hit: false,
+					exploited: { count: 0, worst: undefined },
+					status: { verdict: "agree", claim: { text: "No open events" } },
+				},
+			],
+		});
+	});
+
+	it("hits when the provider's own status page reports trouble, and lists hits first", async () => {
+		const store = listed([entry("CVE-2026-3", "Microsoft", "2026-10-19")], (inner, now) => {
+			says("cloudflare", "degraded", "Partially Degraded Service")(inner, now);
+			says("azure", "ok", "No open events")(inner, now);
+		});
+		const { result } = await check(
+			"example.org",
+			{ ...MICROSOFT, ns: ["sid.ns.cloudflare.com"] },
+			store,
+		);
+
+		expect(result).toMatchObject({
+			findings: [
+				{
+					name: "Cloudflare",
+					hit: true,
+					status: { claim: { text: "Partially Degraded Service" } },
+				},
+				{ name: "Microsoft", hit: false },
+			],
+		});
+	});
+
+	it("names AWS and Azure name servers by their numbered hosts only", async () => {
+		const { result } = await check("example.org", {
+			...NONE,
+			ns: ["ns-520.awsdns-01.net", "ns1-05.azure-dns.com", "ns1.awsdns-fake.example"],
+		});
+
+		expect(result.kind === "result" ? result.findings.map((finding) => finding.signs) : []).toEqual(
+			[
+				[{ role: "DNS", evidence: "NS ns-520.awsdns-01.net" }],
+				[{ role: "DNS", evidence: "NS ns1-05.azure-dns.com" }],
+			],
+		);
+	});
+});
+
+it("stops after 20 checks in a minute and recovers in the next one", async () => {
+	const store = openStore(":memory:");
+	const at = new Date("2027-01-01T00:00:00Z");
+	const run = (now: Date) =>
+		hitCheck(store, [], "example.org", TODAY, now, () => Promise.resolve(NONE));
+	const kinds = (await Promise.all(Array.from({ length: 21 }, () => run(at)))).map(
+		(done) => done.kind,
+	);
+
+	expect(kinds.slice(0, 20).every((kind) => kind === "result")).toBe(true);
+	expect(kinds[20]).toBe("busy");
+	expect((await run(new Date(at.getTime() + 61_000))).kind).toBe("result");
+});
