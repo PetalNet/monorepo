@@ -65,8 +65,11 @@ export const test = (
 };
 
 /** Runs one write on the provided vault. */
-export const write = <A, E>(tier: Tier, body: (tx: Tx) => Effect.Effect<A, E>, message = "test") =>
-	Effect.flatMap(Vault, (vault) => vault.transact(tier, message, body));
+export const write = <A, E, R>(
+	tier: Tier,
+	body: (tx: Tx) => Effect.Effect<A, E, R>,
+	message = "test",
+) => Effect.flatMap(Vault, (vault) => vault.transact(tier, message, body));
 
 export const state = (tier: Tier) =>
 	Effect.flatMap(Vault, (vault) => Effect.map(vault.view, (view) => view.tiers[tier]));
@@ -124,12 +127,15 @@ export const addClaim = (tier: Tier, input: NewClaim) =>
 
 /** One test per case; `%s` in the name is replaced by the case's first value. */
 export const testEach =
-	<const Case extends readonly [string, ...unknown[]]>(cases: readonly Case[]) =>
+	(cases: readonly (readonly [label: string, text: string])[]) =>
 	(
 		name: string,
-		body: (...args: Case) => Effect.Effect<void, unknown, Vault | Cite | NodeServices.NodeServices>,
+		body: (
+			label: string,
+			text: string,
+		) => Effect.Effect<void, unknown, Vault | Cite | NodeServices.NodeServices>,
 	) => {
-		for (const each of cases) {
-			test(name.replace("%s", each[0]), () => body(...each));
+		for (const [label, text] of cases) {
+			test(name.replace("%s", label), () => body(label, text));
 		}
 	};

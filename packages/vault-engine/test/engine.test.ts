@@ -120,7 +120,7 @@ describe("write checks", () => {
 		Effect.gen(function* () {
 			yield* seeded;
 
-			for (const attempt of [
+			const attempts: readonly Effect.Effect<unknown, unknown, Vault>[] = [
 				addClaim("shared", claimInput(`The deploy token is ${token}`)),
 				write(
 					"shared",
@@ -130,7 +130,9 @@ describe("write checks", () => {
 				write("shared", (tx) =>
 					tx.putTopic({ id: "t-raw", title: "Clean", summary: `see ${token}`, headings: [] }),
 				),
-			]) {
+			];
+
+			for (const attempt of attempts) {
 				expect(yield* Effect.flip(attempt)).toBeInstanceOf(SecretFound);
 			}
 
@@ -183,7 +185,7 @@ describe("write checks", () => {
 		Effect.gen(function* () {
 			yield* seeded;
 
-			for (const attempt of [
+			const attempts: readonly Effect.Effect<unknown, unknown, Vault>[] = [
 				write("shared", (tx) =>
 					tx.putTopic({ id: "t-bad", title: "Two\nlines", summary: "x", headings: [] }),
 				),
@@ -191,7 +193,9 @@ describe("write checks", () => {
 					tx.putTopic({ id: "Not an ID", title: "Ok", summary: "x", headings: [] }),
 				),
 				addClaim("shared", { ...claimInput("Claim\n## Dependents") }),
-			]) {
+			];
+
+			for (const attempt of attempts) {
 				expect(yield* Effect.flip(attempt)).toBeInstanceOf(WriteRejected);
 			}
 
