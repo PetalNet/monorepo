@@ -96,7 +96,9 @@ export function openStore(file: string): Store {
 			headline TEXT NOT NULL
 		);
 		CREATE INDEX IF NOT EXISTS alert_sent ON alert (sent);
-		CREATE TABLE IF NOT EXISTS news_day (
+		-- Counts taken long after their day, by an earlier version, read too low. They are dropped.
+		DROP TABLE IF EXISTS news_day;
+		CREATE TABLE IF NOT EXISTS news_count (
 			day TEXT PRIMARY KEY,
 			articles INTEGER NOT NULL,
 			capped INTEGER NOT NULL,
@@ -162,11 +164,11 @@ export function openStore(file: string): Store {
 		"SELECT id, event, sent, area, headline FROM alert WHERE sent >= ? ORDER BY sent DESC",
 	);
 	const setNewsDay = db.prepare(`
-		INSERT INTO news_day (day, articles, capped, final) VALUES (?, ?, ?, ?)
+		INSERT INTO news_count (day, articles, capped, final) VALUES (?, ?, ?, ?)
 		ON CONFLICT (day) DO UPDATE SET
 			articles = excluded.articles, capped = excluded.capped, final = excluded.final`);
 	const getNewsDays = db.prepare(
-		"SELECT day, articles, capped, final FROM news_day WHERE day >= ? ORDER BY day",
+		"SELECT day, articles, capped, final FROM news_count WHERE day >= ? ORDER BY day",
 	);
 	const addHeadline = db.prepare(
 		"INSERT OR REPLACE INTO headline (url, title, outlet, published) VALUES (?, ?, ?, ?)",

@@ -105,8 +105,8 @@ describe("public safety", () => {
 			id,
 			event: "911 Telephone Outage",
 			sent,
-			areaDesc: "Boone, MO",
-			headline: "911 outage in Boone County",
+			areaDesc: "Example County",
+			headline: "911 outage in Example County",
 			status: "Actual",
 			messageType: "Alert",
 			...extra,
@@ -141,8 +141,8 @@ describe("public safety", () => {
 				id: "a",
 				event: "911 Telephone Outage",
 				sent: "2026-11-17T16:00:00.000Z",
-				area: "Boone, MO",
-				headline: "911 outage in Boone County",
+				area: "Example County",
+				headline: "911 outage in Example County",
 			},
 		]);
 	});
@@ -245,12 +245,20 @@ describe("the chaos-o-meter", () => {
 		`<item><title>${title} - ${outlet}</title><link>https://news.google.com/rss/articles/${encodeURIComponent(title)}</link><pubDate>${published}</pubDate><source url="https://example.com">${outlet}</source></item>`;
 	const rss = (items: string[]) =>
 		`<rss><channel><title>search</title>${items.join("")}</channel></rss>`;
-	/** A feed that answers every day and term with `count(day)` headlines. */
+	/**
+	 * A feed that answers every day and word with `count(day)` headlines. The same stories turn up
+	 * under every word, unless `apart(day)` says each word finds its own.
+	 */
 	const counted =
-		(count: (day: string) => number, asked: string[] = []): typeof fetch =>
+		(
+			count: (day: string) => number,
+			asked: string[] = [],
+			apart: (day: string) => boolean = () => false,
+		): typeof fetch =>
 		(input) => {
-			const url = input instanceof Request ? input.url : input.toString();
-			const day = /after:(\d{4}-\d{2}-\d{2})/.exec(decodeURIComponent(url))?.[1] ?? "";
+			const url = decodeURIComponent(address(input));
+			const day = /after:(\d{4}-\d{2}-\d{2})/.exec(url)?.[1] ?? "";
+			const word = apart(day) ? (/intitle:"([^"]+)"/.exec(url)?.[1] ?? "") : "";
 
 			asked.push(day);
 
@@ -258,12 +266,18 @@ describe("the chaos-o-meter", () => {
 				new Response(
 					rss(
 						Array.from({ length: count(day) }, (_, index) =>
-							item(`${day} story ${String(index)}`, "Wire"),
+							item(`${day} ${word} story ${String(index)}`, "Wire"),
 						),
 					),
 				),
 			);
 		};
+	/** Runs one round at 17:00 UTC on each of `days` days from November 18. */
+	const daily = (store: ReturnType<typeof openStore>, feed: typeof fetch, days: number) =>
+		Array.from({ length: days }, (_, index) => hours(24 * index)).reduce(
+			(before, at) => before.then(() => ingestNews(store, feed, at, noPause)),
+			Promise.resolve(0),
+		);
 	const noPause = () => Promise.resolve();
 
 	it("asks for each word in headlines on one day, and strips the outlet Google appends to a title", async () => {
@@ -310,28 +324,28 @@ describe("the chaos-o-meter", () => {
 		expect(chaos(store, NOW).gauge.kind).toBe("stale");
 	});
 
-	it("fills its baseline on the first round, then only counts today again", async () => {
+	it("never fills its baseline from the past: the first round counts three days", async () => {
 		const store = openStore(":memory:");
 		const asked: string[] = [];
 		const feed = counted((day) => (day === "2026-11-17" ? 5 : 2), asked);
 
-		expect(chaos(store, NOW).gauge).toEqual({ of: 28, kind: "stale" });
-		expect(await ingestNews(store, feed, NOW, noPause)).toBe(31);
+		expect(chaos(store, NOW).gauge).toEqual({ of: 14, kind: "stale" });
+		expect(await ingestNews(store, feed, NOW, noPause)).toBe(3);
+		expect(new Set(asked)).toEqual(new Set(["2026-11-16", "2026-11-17", TODAY]));
 
 		const reading = chaos(store, NOW);
 
-		// Five headlines on the last full day against two on each of the 28 days before. The same
-		// story turns up under all three words and counts once.
+		// The same story turns up under all three words and counts once.
 		expect(reading).toMatchObject({
 			day: "2026-11-17",
 			capped: false,
 			today: { day: TODAY, articles: 2, final: false },
-			gauge: { kind: "reading", value: 5, quieter: 28, level: "heavy", median: 2 },
+			gauge: { of: 14, kind: "short", have: 2, need: 15, value: 5 },
 		});
 
 		expect(reading.headlines.map((headline) => headline.title)).toEqual([
-			"2026-11-18 story 0",
-			"2026-11-18 story 1",
+			"2026-11-18  story 0",
+			"2026-11-18  story 1",
 		]);
 
 		asked.length = 0;
@@ -340,56 +354,153 @@ describe("the chaos-o-meter", () => {
 		expect(new Set(asked)).toEqual(new Set([TODAY]));
 	});
 
+	it("starts reading once it holds 14 of its own settled days before the last one", async () => {
+		const store = openStore(":memory:");
+		const feed = counted((day) => (day === "2026-12-01" ? 5 : 2));
+
+		await daily(store, feed, 13);
+		expect(chaos(store, hours(24 * 12)).gauge).toMatchObject({ kind: "short", have: 14, need: 15 });
+
+		await ingestNews(store, feed, hours(24 * 13), noPause);
+
+		expect(chaos(store, hours(24 * 13))).toMatchObject({
+			day: "2026-11-30",
+			gauge: { of: 14, kind: "reading", value: 2, quieter: 0, level: "quiet" },
+		});
+
+		await ingestNews(store, feed, hours(24 * 14), noPause);
+
+		expect(chaos(store, hours(24 * 14))).toMatchObject({
+			day: "2026-12-01",
+			gauge: { of: 15, kind: "reading", value: 5, quieter: 15, level: "heavy", median: 2 },
+		});
+	});
+
+	it("skips a day it never counted in time, and never counts a day at the feed's limit as quieter", async () => {
+		const store = openStore(":memory:");
+		// November 20 hits the limit under each word. December 1 is far louder still.
+		const feed = counted(
+			(day) => (day === "2026-11-20" || day === "2026-12-01" ? 100 : 2),
+			[],
+			(day) => day === "2026-12-01",
+		);
+
+		await daily(store, feed, 15);
+
+		expect(chaos(store, hours(24 * 14))).toMatchObject({
+			day: "2026-12-01",
+			capped: true,
+			gauge: { of: 15, kind: "reading", value: 300, quieter: 14, level: "heavy" },
+		});
+
+		// Four days with no round: three of those days were never counted, and are never filled in.
+		const asked: string[] = [];
+		const back = hours(24 * 19);
+
+		await ingestNews(
+			store,
+			counted(() => 2, asked),
+			back,
+			noPause,
+		);
+
+		expect(new Set(asked)).toEqual(new Set(["2026-12-05", "2026-12-06", "2026-12-07"]));
+
+		expect(chaos(store, back)).toMatchObject({
+			day: "2026-12-06",
+			gauge: { of: 17, kind: "reading" },
+		});
+	});
+
+	it("sets the label from the same count as the needle when past days hit the limit", async () => {
+		const store = openStore(":memory:");
+		// Eight of the 15 earlier days hit the limit under one word. The last day is louder than all.
+		const capped = new Set([
+			"2026-11-17",
+			"2026-11-18",
+			"2026-11-19",
+			"2026-11-20",
+			"2026-11-21",
+			"2026-11-22",
+			"2026-11-23",
+			"2026-11-24",
+		]);
+		const feed = counted(
+			(day) => (capped.has(day) || day === "2026-12-01" ? 100 : 2),
+			[],
+			(day) => day === "2026-12-01",
+		);
+
+		await daily(store, feed, 15);
+
+		// Seven uncapped days were quieter. Seven of 15 is under half, so the day is not even "busy".
+		expect(chaos(store, hours(24 * 14)).gauge).toMatchObject({
+			of: 15,
+			kind: "reading",
+			value: 300,
+			quieter: 7,
+			level: "quiet",
+		});
+	});
+
+	it("leaves out a day it only counted before the day had settled", async () => {
+		const store = openStore(":memory:");
+		const feed = counted(() => 2);
+
+		await daily(store, feed, 15);
+		// A week with no round: December 2 was only ever counted as "today".
+		await ingestNews(store, feed, hours(24 * 21), noPause);
+		await ingestNews(store, feed, hours(24 * 22), noPause);
+
+		const reading = chaos(store, hours(24 * 22));
+
+		expect(reading.gauge.kind).toBe("reading");
+
+		expect(
+			reading.gauge.kind === "reading" ? reading.gauge.series.map((day) => day.end) : [],
+		).not.toContain("2026-12-02");
+	});
+
 	it("keeps reading the last settled day across midnight, then moves on three hours later", async () => {
 		const store = openStore(":memory:");
-		const feed = counted((day) => (day === TODAY ? 100 : 2));
+		const feed = counted((day) => (day === "2026-12-02" ? 9 : 2));
 
-		await ingestNews(store, feed, NOW, noPause);
+		await daily(store, feed, 15);
 
-		// Half past midnight US Pacific on November 19: yesterday has ended but has not settled.
-		const justAfter = new Date("2026-11-19T08:30:00Z");
+		// Half past midnight US Pacific on December 3: yesterday has ended but has not settled.
+		const justAfter = new Date("2026-12-03T08:30:00Z");
 
 		await ingestNews(store, feed, justAfter, noPause);
 
 		expect(chaos(store, justAfter)).toMatchObject({
-			day: "2026-11-17",
+			day: "2026-12-01",
 			gauge: { kind: "reading", value: 2 },
 		});
 
-		const asked: string[] = [];
-		const settled = new Date("2026-11-19T12:00:00Z");
+		const settled = new Date("2026-12-03T12:00:00Z");
 
-		await ingestNews(
-			store,
-			counted((day) => (day === TODAY ? 100 : 2), asked),
-			settled,
-			noPause,
-		);
+		await ingestNews(store, feed, settled, noPause);
 
-		expect(new Set(asked)).toEqual(new Set([TODAY, "2026-11-19"]));
-
-		// 100 results is the feed's limit, so the count is marked as "or more".
 		expect(chaos(store, settled)).toMatchObject({
-			day: TODAY,
-			capped: true,
-			gauge: { kind: "reading", value: 100, quieter: 28 },
+			day: "2026-12-02",
+			gauge: { kind: "reading", value: 9, quieter: 16 },
 		});
 	});
 
-	it("shows no reading after a round that failed part way, then picks up where it stopped", async () => {
+	it("shows no reading after a round that failed part way, then finishes it", async () => {
 		const store = openStore(":memory:");
 		let calls = 0;
 		const flaky: typeof fetch = (input, init) => {
 			calls += 1;
 
-			return calls > 30
+			return calls > 3
 				? Promise.resolve(new Response("", { status: 429 }))
 				: counted(() => 2)(input, init);
 		};
 
 		await expect(ingestNews(store, flaky, NOW, noPause)).rejects.toThrow("429");
-		// Ten days were counted, but only a whole round counts as a check.
-		expect(chaos(store, NOW).gauge).toEqual({ of: 28, kind: "stale" });
+		// One day was counted, but only a whole round counts as a check.
+		expect(chaos(store, NOW).gauge).toEqual({ of: 14, kind: "stale" });
 
 		const asked: string[] = [];
 
@@ -400,8 +511,8 @@ describe("the chaos-o-meter", () => {
 			noPause,
 		);
 
-		expect(new Set(asked).size).toBe(21);
-		expect(chaos(store, hours(1)).gauge.kind).toBe("reading");
+		expect(new Set(asked)).toEqual(new Set(["2026-11-16", TODAY]));
+		expect(chaos(store, hours(1)).gauge).toMatchObject({ kind: "short", have: 2 });
 	});
 
 	it("leaves out an item it cannot read, and reads CDATA and numbered entities", async () => {
@@ -433,7 +544,7 @@ describe("the chaos-o-meter", () => {
 			noPause,
 		);
 
-		expect(chaos(store, hours(4)).gauge.kind).toBe("reading");
+		expect(chaos(store, hours(4)).gauge.kind).toBe("short");
 		expect(chaos(store, hours(6))).toMatchObject({ gauge: { kind: "stale" }, headlines: [] });
 	});
 });
