@@ -46,6 +46,8 @@ class FakeGateway(BaseHTTPRequestHandler):
                 wav.setnchannels(1), wav.setsampwidth(2), wav.setframerate(24000)
                 wav.writeframes(tone(3.0 if "story" in body["text"] else 0.2, 24000))
             return self._send(200, out.getvalue())
+        if self.path.endswith("/turns") and body["text"] == "break":
+            return self._send(500, b"{}")
         if self.path.endswith("/turns"):
             done = {"end_conversation": body["text"] == "goodbye"}
             events = f'event: sentence\ndata: {{"text": "You said {body["text"]}."}}\n\nevent: done\ndata: {json.dumps(done)}\n\n'
@@ -150,6 +152,31 @@ class CallTest(unittest.IsolatedAsyncioTestCase):
                 await asyncio.sleep(0.05)
         self.assertIn("/v1/conversations/0123456789ab/interrupt", [path for path, _ in FakeGateway.calls])
         self.assertIn("[cut off]", await self._notice())
+
+    async def test_a_dropped_connection_still_ends_the_call_and_reports_it(self):
+        async with connect(self.url, additional_headers={"Authorization": TOKEN}) as ws:
+            await asyncio.wait_for(ws.recv(), 10)
+            ws.transport.abort()
+        self.assertIn("automated assistant", await self._notice())
+        self.assertIn("/v1/conversations/0123456789ab/end", [path for path, _ in FakeGateway.calls])
+
+    async def test_a_plain_request_opens_no_conversation(self):
+        reader, writer = await asyncio.open_connection("127.0.0.1", self.server.sockets[0].getsockname()[1])
+        writer.write(b"GET /v1/call HTTP/1.1\r\nHost: x\r\nAuthorization: " + TOKEN.encode() + b"\r\n\r\n")
+        status = await asyncio.wait_for(reader.readline(), 10)
+        writer.close()
+        self.assertIn(b"404", status)
+        self.assertEqual(FakeGateway.calls, [])
+
+    async def test_a_failed_reply_does_not_drop_the_call(self):
+        FakeStt.texts = ["break", "what is this"]
+        async with connect(self.url, additional_headers={"Authorization": TOKEN}) as ws:
+            for _ in range(2):
+                await asyncio.sleep(0.4)
+                await ws.send(tone(0.5))
+                await ws.send(bytes(16000))
+            await asyncio.sleep(1.5)
+        self.assertIn("Janet: You said what is this.", await self._notice())
 
     async def test_a_caller_the_gateway_refuses_gets_no_socket(self):
         with self.assertRaises(InvalidStatus) as refused:

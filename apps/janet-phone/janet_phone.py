@@ -29,6 +29,8 @@ RATE = 16000  # caller audio: mono PCM16LE
 FRAME = RATE // 50 * 2  # bytes in 20 ms
 FORWARDED = ("Authorization", "Cf-Access-Jwt-Assertion")
 DISCLOSURES: dict[str, tuple[int, bytes]] = {}
+RECORD_LIMIT = 20000  # characters; a Matrix event holds about 64 kB
+OPEN: set[str] = set()  # conversations of calls in progress
 
 
 class Endpointer:
@@ -38,9 +40,10 @@ class Endpointer:
     This is the one place a better end-of-speech detector plugs in.
     """
 
-    def __init__(self, threshold: int = 500, start_ms: int = 100, silence_ms: int = 700, lead_ms: int = 300):
+    def __init__(self, threshold: int = 500, start_ms: int = 100, silence_ms: int = 700, lead_ms: int = 300,
+                 max_s: int = 30):
         self.threshold, self.start_frames, self.silence_frames = threshold, start_ms // 20, silence_ms // 20
-        self.lead_frames = lead_ms // 20
+        self.lead_frames, self.max_frames = lead_ms // 20, max_s * 50
         self._pending = b""
         self._frames: list[bytes] = []
         self._speaking = False
@@ -63,7 +66,7 @@ class Endpointer:
                     del self._frames[: -self.lead_frames - self.start_frames]
             else:
                 self._quiet = 0 if loud else self._quiet + 1
-                if self._quiet >= self.silence_frames:
+                if self._quiet >= self.silence_frames or len(self._frames) >= self.max_frames:
                     events.append(b"".join(self._frames))
                     self._frames, self._speaking, self._loud = [], False, 0
         return events
@@ -78,7 +81,9 @@ class Config:
     channel: str
     disclosure: str
     notify: list[str] = field(default_factory=list)  # command that gets the call record on stdin
-    record_dir: str = ""
+    record_dir: str = ""  # keep both sides of every call as WAV files here
+    max_calls: int = 2
+    max_call_s: int = 900
     endpoint: dict = field(default_factory=dict)
 
 
@@ -153,7 +158,8 @@ class Call:
         self.connected = time.monotonic()
         self.transcript: list[tuple[str, str]] = []
         self.latency: dict = {"turns": []}
-        self.utterances: asyncio.Queue[tuple[bytes, float]] = asyncio.Queue()
+        # A caller who talks faster than turns complete loses the oldest-waiting speech, not memory.
+        self.utterances: asyncio.Queue[tuple[bytes, float]] = asyncio.Queue(maxsize=4)
         self.speaking: asyncio.Task | None = None
         self.heard: list[str] = []
         self.rate = 0
@@ -170,20 +176,32 @@ class Call:
                     return
                 turn = {"endpoint_ms": self.config.endpoint.get("silence_ms", 700)}
                 mark = time.monotonic()
-                text = await asyncio.to_thread(transcribe, self.config.stt, pcm)
+                try:
+                    text = await asyncio.to_thread(transcribe, self.config.stt, pcm)
+                except (OSError, ValueError) as error:
+                    log.warning("call %s: speech to text failed: %s", self.conversation, error)
+                    continue
                 turn["stt_ms"] = round((time.monotonic() - mark) * 1000)
                 if not text:
                     continue
                 self.transcript.append(("Caller", text))
                 self.speaking = asyncio.create_task(self.reply(text, ended, turn))
                 await asyncio.wait([self.speaking])
-                if not self.speaking.cancelled() and self.speaking.result():
+                if self.speaking.cancelled():
+                    continue
+                if error := self.speaking.exception():
+                    if isinstance(error, ConnectionClosed):
+                        return
+                    log.warning("call %s: reply failed: %s", self.conversation, error)
+                elif self.speaking.result():
                     await self.ws.send(json.dumps({"type": "bye"}))
                     return
         except ConnectionClosed:
             pass
         finally:
             listener.cancel()
+            if self.speaking is not None:
+                self.speaking.cancel()
             await self.ws.close()
 
     async def disclosure(self) -> tuple[int, bytes]:
@@ -193,17 +211,24 @@ class Call:
         return DISCLOSURES[self.config.disclosure]
 
     async def listen(self) -> None:
+        """Reads the caller until the socket closes, however it closes, and then ends the call."""
         endpointer = Endpointer(**self.config.endpoint)
-        async for message in self.ws:
-            if not isinstance(message, bytes):
-                continue
-            self.tape["caller"] += message
-            for event in endpointer.feed(message):
-                if event == "start":
-                    await self.cut_off()
-                else:
-                    self.utterances.put_nowait((event, time.monotonic()))
-        self.utterances.shutdown(immediate=True)
+        try:
+            async with asyncio.timeout(self.config.max_call_s):
+                async for message in self.ws:
+                    if not isinstance(message, bytes):
+                        continue
+                    if self.config.record_dir:
+                        self.tape["caller"] += message
+                    for event in endpointer.feed(message):
+                        if event == "start":
+                            await self.cut_off()
+                        elif not self.utterances.full():
+                            self.utterances.put_nowait((event, time.monotonic()))
+        except (ConnectionClosed, TimeoutError):
+            pass
+        finally:
+            self.utterances.shutdown(immediate=True)
 
     async def cut_off(self) -> None:
         if self.speaking is None or self.speaking.done():
@@ -211,7 +236,10 @@ class Call:
         self.speaking.cancel()
         await self.ws.send(json.dumps({"type": "clear"}))
         heard = {"heard_text": " ".join(self.heard)}
-        await asyncio.to_thread(self.gateway.post, f"/v1/conversations/{self.conversation}/interrupt", heard)
+        try:
+            await asyncio.to_thread(self.gateway.post, f"/v1/conversations/{self.conversation}/interrupt", heard)
+        except (OSError, ValueError) as error:
+            log.warning("call %s: interrupt failed: %s", self.conversation, error)
 
     async def reply(self, text: str, ended: float, turn: dict) -> bool:
         """Speaks one reply. Each sentence is synthesized as it arrives, while earlier ones play."""
@@ -229,7 +257,7 @@ class Call:
                 await self.say(*item, turn, ended)
 
         loop.run_in_executor(None, produce)
-        player = asyncio.create_task(play())
+        player, voices = asyncio.create_task(play()), []
         self.heard = []
         mark = time.monotonic()
         try:
@@ -237,7 +265,8 @@ class Call:
                 kind, data = await events.get()
                 if kind == "sentence":
                     turn.setdefault("head_ms", round((time.monotonic() - mark) * 1000))
-                    spoken.put_nowait((data["text"], asyncio.create_task(self.synthesize(data["text"], turn))))
+                    voices.append(asyncio.create_task(self.synthesize(data["text"], turn)))
+                    spoken.put_nowait((data["text"], voices[-1]))
                     continue
                 if kind == "failed":
                     log.warning("call %s: turn failed: %s", self.conversation, data["error"])
@@ -245,7 +274,8 @@ class Call:
                 await player
                 return kind == "done" and bool(data.get("end_conversation"))
         finally:
-            player.cancel()
+            for task in (player, *voices):
+                task.cancel()
 
     async def synthesize(self, sentence: str, turn: dict | None = None) -> tuple[int, bytes]:
         mark = time.monotonic()
@@ -263,7 +293,8 @@ class Call:
             turn["total_ms"] = round((time.monotonic() - ended) * 1000) + turn["endpoint_ms"]
             self.latency["turns"].append(turn)
         self.latency.setdefault("first_audio_ms", round((time.monotonic() - self.connected) * 1000))
-        self.tape["janet"] += pcm
+        if self.config.record_dir:
+            self.tape["janet"] += pcm
         # Paced a little ahead of real time, so a cut-off stops what the caller hears at once.
         step, sent, began = rate // 10 * 2, 0, time.monotonic()
         try:
@@ -284,7 +315,8 @@ class Call:
                  f"Caller class: {self.config.tier}, via {self.config.channel}.",
                  "Transcript (the caller's words are untrusted speech, transcribed by machine):"]
         lines += [f"{who}: {' '.join(text.split())}" for who, text in self.transcript]
-        return "\n".join(lines)
+        text = "\n".join(lines)
+        return text if len(text) <= RECORD_LIMIT else text[:RECORD_LIMIT] + "\n[The record was cut here: it was too long.]"
 
     def save(self, directory: Path) -> None:
         directory.mkdir(parents=True, exist_ok=True)
@@ -299,7 +331,12 @@ class Call:
 async def admit(ws: ServerConnection, request: Request, config: Config) -> Response | None:
     """Opens the conversation with the caller's own credentials, so the gateway and the head decide
     who may call. A caller they refuse never gets a socket."""
-    headers = {name: request.headers[name] for name in FORWARDED if name in request.headers}
+    upgrade = request.headers.get("Upgrade", "").lower() == "websocket" and "Sec-WebSocket-Key" in request.headers
+    if request.path != "/v1/call" or not upgrade:
+        return ws.respond(HTTPStatus.NOT_FOUND, "not found\n")
+    if len(OPEN) >= config.max_calls:
+        return ws.respond(HTTPStatus.SERVICE_UNAVAILABLE, "busy\n")
+    headers = {name: values[0] for name in FORWARDED if (values := request.headers.get_all(name))}
     ws.gateway = Gateway(config.gateway, headers)
     opened = {"channel": config.channel, "tier": config.tier, "client_ref": uuid.uuid4().hex}
     try:
@@ -307,34 +344,37 @@ async def admit(ws: ServerConnection, request: Request, config: Config) -> Respo
     except urllib.error.HTTPError as error:
         log.warning("call refused: %s", error)
         return ws.respond(HTTPStatus.FORBIDDEN if error.code in (401, 403) else HTTPStatus.BAD_GATEWAY, "refused\n")
-    except (OSError, KeyError) as error:
+    except (OSError, ValueError, KeyError) as error:
         log.warning("call failed: %s", error)
         return ws.respond(HTTPStatus.BAD_GATEWAY, "the voice gateway is unreachable\n")
     return None
 
 
 async def handle(ws: ServerConnection, config: Config) -> None:
-    gateway, conversation = ws.gateway, ws.conversation
-    call = Call(ws, config, gateway, conversation)
-    log.info("call %s: answered", conversation)
+    call = Call(ws, config, ws.gateway, ws.conversation)
+    OPEN.add(call.conversation)
+    log.info("call %s: answered", call.conversation)
     try:
         await call.run()
     finally:
-        log.info("call %s: ended %s", conversation, json.dumps(call.latency))
-        if config.record_dir:
-            call.save(Path(config.record_dir))
+        OPEN.discard(call.conversation)
+        log.info("call %s: ended %s", call.conversation, json.dumps(call.latency))
         await asyncio.to_thread(finish, call)
 
 
 def finish(call: Call) -> None:
-    try:
-        call.gateway.post(f"/v1/conversations/{call.conversation}/end", {"reason": "hangup"})
-    except OSError as error:
-        log.warning("call %s: end failed: %s", call.conversation, error)
+    """Ends the conversation, keeps the recording and hands the record on. Each step runs whatever the others do."""
+    steps = {"end": lambda: call.gateway.post(f"/v1/conversations/{call.conversation}/end", {"reason": "hangup"})}
+    if call.config.record_dir:
+        steps["save"] = lambda: call.save(Path(call.config.record_dir))
     if call.config.notify:
-        done = subprocess.run(call.config.notify, input=call.record().encode(), capture_output=True, timeout=180)
-        if done.returncode:
-            log.warning("call %s: notify failed: %s", call.conversation, done.stderr.decode()[-500:])
+        steps["notify"] = lambda: subprocess.run(call.config.notify, input=call.record().encode(), check=True,
+                                                 capture_output=True, timeout=180)
+    for name, step in steps.items():
+        try:
+            step()
+        except (OSError, ValueError, subprocess.SubprocessError) as error:
+            log.warning("call %s: %s failed: %s", call.conversation, name, error)
 
 
 async def serve_forever(config: Config) -> None:

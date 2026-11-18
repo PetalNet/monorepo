@@ -17,13 +17,18 @@ instructions.
 
 - **Disclosure first.** The first thing a caller hears is the configured `disclosure` sentence. It is
   fixed text, not model output, and the caller cannot cut it off.
-- **No secrets.** The bridge forwards the caller's `Authorization` and `Cf-Access-Jwt-Assertion`
-  headers to the gateway, which checks both. A caller the gateway refuses gets HTTP 403 and no socket.
+- **No secrets on the bridge.** It forwards the caller's `Authorization` and
+  `Cf-Access-Jwt-Assertion` headers to the gateway, which checks both. A caller the gateway refuses
+  gets HTTP 403 and no socket. The calling device does hold the gateway's bearer token.
+- **Bounded.** At most `max_calls` calls at once (503 beyond that), `max_call_s` seconds per call,
+  30 s per utterance, and four utterances waiting for a turn.
 - **Cut-off.** When the caller speaks over a reply, the bridge stops sending it, tells the device to
   drop what it has queued, and tells the head how much was heard.
 - **Call record.** When the call ends, the bridge ends the conversation and pipes a plain-text record
-  (time, length, caller class, transcript) to the `notify` command. `matrix_notice.py` is one such
-  command: it posts standard input to a Matrix room as a notice.
+  (time, length, caller class, transcript) to the `notify` command. `matrix_notice.py` posts text to a
+  Matrix room as a notice, from standard input or from files dropped in an `--outbox` directory. Run
+  it with `--outbox` as its own process, so the bridge, which faces callers, holds no Matrix
+  credential either.
 
 ## Protocol
 
@@ -48,8 +53,10 @@ stt = "stt-host.local:10300"        # Wyoming speech-to-text
 tier = "guest"                      # the head tier every call on this bridge gets
 channel = "phone"
 disclosure = "Hi, this is Janet, an automated assistant for Parker. This call is being transcribed."
-notify = ["python3", "/app/matrix_notice.py", "--homeserver", "https://matrix.example", "--creds", "/secrets/creds.json", "--store", "/state/store", "--room", "!room:example"]
+notify = ["sh", "-c", "f=/outbox/$(date +%s%N); cat > $f.tmp && mv $f.tmp $f.txt"]
 record_dir = ""                     # set to keep both sides of every call as WAV files
+max_calls = 2                       # the head's own max_open is the real ceiling
+max_call_s = 900
 
 [endpoint]                          # loudness end-of-speech detector
 threshold = 500
@@ -66,6 +73,10 @@ Run it with `python janet_phone.py --config /path/to/phone.toml`, or build the `
   first sentence.
 - Cut-off relies on the calling device cancelling its own echo. A device that plays Janet through a
   loudspeaker without echo cancellation will cut her off with her own voice.
+- The Access assertion a call starts with is used for the whole call. A call that outlasts it (24
+  hours by default) loses its last turns.
+- A call whose WebSocket handshake fails after the gateway accepted it leaves a conversation open
+  until the head's idle timeout ends it.
 - The call record carries the caller's words. Post it where a person reads it, not where an agent
   with tools takes messages as instructions.
 
