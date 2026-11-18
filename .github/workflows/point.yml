@@ -8,6 +8,8 @@ env:
   CI: true
   TURBO_TELEMETRY_DISABLED: "1"
   PNPM_CONFIG_VERIFY_DEPS_BEFORE_RUN: "false"
+  CARGO_PROFILE_DEV_DEBUG: "0"
+  CARGO_INCREMENTAL: "0"
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}-point

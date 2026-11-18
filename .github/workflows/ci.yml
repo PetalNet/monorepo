@@ -15,6 +15,9 @@ env:
   TURBO_TELEMETRY_DISABLED: "1"
   # Every JS job installs frozen dependencies through the setup action first.
   PNPM_CONFIG_VERIFY_DEPS_BEFORE_RUN: "false"
+  # No job attaches a debugger; debuginfo costs compile time and two thirds of the target directory.
+  CARGO_PROFILE_DEV_DEBUG: "0"
+  CARGO_INCREMENTAL: "0"
 
 permissions:
   contents: read
@@ -172,7 +175,22 @@ jobs:
       - name: Install pinned toolchain (rust-toolchain.toml)
         run: rustup toolchain install && rustup component add rustfmt clippy
       - uses: $/.github/actions/setup-turbo
-      - run: turbo --skip-infer run fmt:check check lint build test --filter='courier*'
+      - run: turbo --skip-infer run fmt:check --filter='courier*'
+      # The courier package's remaining tasks cover all five courier crates in one Cargo invocation
+      # each, so Cargo resolves one feature set and compiles matrix-sdk once per mode, not per crate.
+      - id: plan
+        name: Count tasks Turbo cannot replay
+        run: |
+          misses=$(turbo --skip-infer run check lint build test --filter=courier --dry=json | jq '[.tasks[] | select(.cache.status != "HIT")] | length')
+          echo "misses=$misses" >> "$GITHUB_OUTPUT"
+      # Restoring dependencies is wasted when Turbo replays every task, and saving after such a run
+      # would store an empty target directory under the exact key.
+      - if: steps.plan.outputs.misses != '0'
+        uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
+        with:
+          shared-key: courier
+          save-if: ${{ github.ref == 'refs/heads/main' }}
+      - run: turbo --skip-infer run check lint build test --filter=courier
 
   dispatcher-rust:
     needs: select

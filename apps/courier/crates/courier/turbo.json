@@ -6,13 +6,21 @@
 			"dependsOn": [],
 			"outputs": [],
 			"inputs": ["$TURBO_DEFAULT$"],
-			"command": ["cargo", "build", "--all-targets", "--locked"]
+			"command": ["cargo", "build", "--package=courier*", "--all-targets", "--locked"]
 		},
-		"check": { "dependsOn": [], "inputs": ["$TURBO_DEFAULT$"] },
+		"check": {
+			"dependsOn": [],
+			"inputs": ["$TURBO_DEFAULT$"],
+			"command": ["cargo", "check", "--package=courier*", "--locked"]
+		},
 		"fmt:check": { "command": ["cargo", "fmt", "--check"] },
 		"lint": {
-			"command": ["cargo", "clippy", "--all-targets", "--locked"]
+			"command": ["cargo", "clippy", "--package=courier*", "--all-targets", "--locked"]
 		},
-		"test": { "cache": true, "outputs": [] }
+		"test": {
+			"cache": true,
+			"outputs": [],
+			"command": ["cargo", "test", "--package=courier*", "--locked"]
+		}
 	}
 }
