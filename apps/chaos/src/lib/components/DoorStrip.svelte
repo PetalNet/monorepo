@@ -32,7 +32,6 @@
 						href="{resolve('/')}?door={door.id}"
 						aria-current={door.id === selected ? "true" : undefined}
 						data-sveltekit-noscroll
-						data-sveltekit-replacestate
 					>
 						<span class="face">{face(door)}</span>
 						<span class="tally" aria-hidden="true">
@@ -43,7 +42,7 @@
 						</span>
 						<span class="sr-only">
 							{door.label}, {dates(door)}{door.state === "today" ? ", today" : ""}:
-							{plural(added, "addition", "additions")}
+							{door.added === undefined ? "no reading" : plural(added, "addition", "additions")}
 						</span>
 					</a>
 				{/if}

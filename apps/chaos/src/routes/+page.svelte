@@ -29,7 +29,7 @@
 		</div>
 		<div>
 			<dt>Added today</dt>
-			<dd>{today?.added ?? "Season over"}</dd>
+			<dd>{today ? (data.addedToday ?? "No reading") : "Season over"}</dd>
 		</div>
 	</dl>
 

@@ -123,9 +123,38 @@ it("counts each door's additions and leaves locked doors without a count", () =>
 it("claims nothing about today before any pull has succeeded", () => {
 	expect(at(NOON)).toMatchObject({
 		reading: { current: false, item: undefined },
+		addedToday: undefined,
 		checkedAt: undefined,
 		catalogSize: 0,
 	});
+
+	expect(at(NOON).strip.map((door) => door.added)).toEqual(Array.from({ length: 25 }));
+});
+
+it("shows no count on a door the last pull does not cover", () => {
+	const store = stored([entry("CVE-2026-1", "2026-12-01")], "2026-12-01T17:00:00Z");
+	const stale = at("2026-12-02T17:00:00Z", undefined, store);
+
+	expect(stale.addedToday).toBeUndefined();
+	// The pull on December 1 came after the pre-season door closed, so only that door is vouched for.
+	expect(stale.strip.slice(0, 3).map((door) => door.added)).toEqual([0, undefined, undefined]);
+});
+
+it("counts today alone as added today, while the pre-season door counts its whole run", () => {
+	const store = stored(
+		[
+			entry("CVE-2026-1", "2026-11-18"),
+			entry("CVE-2026-2", "2026-11-19"),
+			entry("CVE-2026-3", "2026-11-20"),
+		],
+		"2026-11-20T17:00:00Z",
+	);
+	const result = at("2026-11-20T17:00:00Z", undefined, store);
+
+	expect(result.addedToday).toBe(1);
+	expect(result.reading.added).toBe(1);
+	expect(result.strip[0]?.added).toBe(3);
+	expect(at("2026-12-25T17:00:00Z", undefined, store).addedToday).toBeUndefined();
 });
 
 it("is not current when the last successful check was on an earlier day", () => {
@@ -193,7 +222,7 @@ it("does not vouch for an opened door until a pull has succeeded after it closed
 	expect(at("2026-12-02T17:00:00Z", "1", store).reading.current).toBe(true);
 });
 
-it("names the next door and the instant it unlocks, on either side of the clock change", () => {
+it("names the next door and the instant it unlocks", () => {
 	expect(at(NOON).next).toEqual({ label: "Door 1", opensAt: "2026-12-01T05:00:00.000Z" });
 
 	expect(at("2026-12-23T17:00:00Z").next).toEqual({

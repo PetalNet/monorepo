@@ -8,14 +8,19 @@
 	// svelte-ignore state_referenced_locally
 	let now = $state(Date.parse(from));
 
-	onMount(() => {
-		let opened = false;
-		const tick = (): void => {
-			now = Date.now();
+	/** How often to ask the server again once the door should have unlocked. */
+	const RETRY = 30_000;
 
-			// The door has unlocked: load the strip again, once.
-			if (!opened && now >= Date.parse(to)) {
-				opened = true;
+	onMount(() => {
+		// Count on the server's clock: a visitor's clock that runs fast must not open a door early.
+		const offset = Date.parse(from) - Date.now();
+		let asked = 0;
+		const tick = (): void => {
+			now = Date.now() + offset;
+
+			// The door should have unlocked: load the strip again, and keep asking until `to` moves on.
+			if (now >= Date.parse(to) && Date.now() - asked >= RETRY) {
+				asked = Date.now();
 				void invalidateAll();
 			}
 		};

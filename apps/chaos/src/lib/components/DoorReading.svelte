@@ -45,6 +45,9 @@
 		{:else}
 			CISA added {plural(reading.added, "vulnerability", "vulnerabilities")} to {KEV} on these dates.
 		{/if}
+		{#if today && door.from !== door.to && door.added !== undefined}
+			This door has counted {door.added.toLocaleString("en-US")} since {day(door.from)}.
+		{/if}
 	</p>
 
 	{#if reading.item && reading.shownDate}

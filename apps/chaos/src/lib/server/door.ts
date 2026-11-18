@@ -16,7 +16,10 @@ export interface StripDoor {
 	from: string;
 	to: string;
 	state: DoorState;
-	/** KEV additions on the door's dates so far. A locked door has no count. */
+	/**
+	 * KEV additions on the door's dates so far. Absent for a locked door, and for an open door the
+	 * page cannot vouch for: no pull has succeeded today (today's door) or since it closed.
+	 */
 	added: number | undefined;
 }
 
@@ -44,6 +47,8 @@ export interface Panel {
 	date: string;
 	strip: StripDoor[];
 	reading: Reading;
+	/** Additions today. Absent with no pull today, and once the season is over. */
+	addedToday: number | undefined;
 	/** The next door to unlock and the instant it does. Absent once every door is open. */
 	next: { label: string; opensAt: string } | undefined;
 	catalogSize: number;
@@ -93,6 +98,15 @@ function startOf(date: string): string {
 	return start.toISOString();
 }
 
+/** Whether a successful pull covers the door: today for today's door, after it closed otherwise. */
+function vouched(
+	door: { to: string; state: DoorState },
+	date: string,
+	checkedDate: string,
+): boolean {
+	return door.state === "today" ? checkedDate === date : checkedDate > door.to;
+}
+
 function readDoor(store: Store, door: StripDoor, date: string, checkedDate: string): Reading {
 	if (door.state === "today") {
 		const today = store.addedBetween(date, date);
@@ -102,7 +116,7 @@ function readDoor(store: Store, door: StripDoor, date: string, checkedDate: stri
 
 		return {
 			door,
-			current: checkedDate === date,
+			current: vouched(door, date, checkedDate),
 			added: today.length,
 			item: worst(shown),
 			shownDate,
@@ -116,7 +130,7 @@ function readDoor(store: Store, door: StripDoor, date: string, checkedDate: stri
 
 	return {
 		door,
-		current: checkedDate > door.to,
+		current: vouched(door, date, checkedDate),
 		added: entries.length,
 		item,
 		shownDate: item?.dateAdded,
@@ -139,7 +153,7 @@ export function panel(store: Store, now: Date, wanted?: string): Panel {
 		const state = doorState(door, date);
 		let added: number | undefined;
 
-		if (state !== "locked") {
+		if (state !== "locked" && vouched({ ...door, state }, date, checkedDate)) {
 			added = 0;
 
 			for (const [day, count] of counts) {
@@ -167,6 +181,10 @@ export function panel(store: Store, now: Date, wanted?: string): Panel {
 		date,
 		strip,
 		reading: readDoor(store, door, date, checkedDate),
+		addedToday:
+			checkedDate === date && strip.some((candidate) => candidate.state === "today")
+				? (counts.get(date) ?? 0)
+				: undefined,
 		next: locked && { label: locked.label, opensAt: startOf(locked.from) },
 		catalogSize: store.size(),
 		checkedAt,
