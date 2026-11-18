@@ -2,6 +2,7 @@ import { operation, operationError } from "@petalnet/effect-api";
 import { Effect, Schema } from "effect";
 import { PlatformError } from "effect/PlatformError";
 
+import { Vault } from "./engine.ts";
 import { SecretFound, TierUnreadable, WriteRejected } from "./errors.ts";
 import { ClaimCard, recallClaims, reindex, renderCard } from "./recall.ts";
 import { RememberInput, remember } from "./research.ts";
@@ -18,6 +19,7 @@ const errors = {
 };
 
 const tier = Schema.optionalKey(Tier);
+const Retire = Schema.Struct({ id: Text, reason: Text });
 
 const RecallInput = Schema.Struct({
 	query: Text,
@@ -51,11 +53,35 @@ export const operations = [
 	operation({
 		name: "remember",
 		description:
-			"Add a single claim to a topic. Give `source` (a vault source ID) or `direct` (who said or observed it, with the quote). A claim with neither is stored as a GUESS.",
+			"Add a single claim to a topic. Give `source` (a vault source ID) or `direct` (who said or observed it, with the quote). A claim with neither is stored as a GUESS. To correct a claim, pass `replaces` with its ID; claims are never edited.",
 		input: Schema.Struct({ ...RememberInput.fields, tier }),
 		output: Claim,
 		handler: ({ tier: chosen, ...input }) =>
 			remember(chosen ?? "shared", input).pipe(Effect.tap(() => refresh)),
+		errors,
+	}),
+	operation({
+		name: "claim_retract",
+		description: "Mark a claim retracted with a reason. The claim and its ID stay in the vault.",
+		input: Retire,
+		output: Claim,
+		handler: ({ id, reason }) =>
+			Effect.gen(function* () {
+				const vault = yield* Vault;
+				const home = (yield* vault.view).locate(id);
+
+				if (home?.kind !== "claims") {
+					return yield* new WriteRejected({ message: `${id} is not in the vault` });
+				}
+
+				const claim = yield* vault.transact(home.tier, `retract claim ${id}`, (tx) =>
+					tx.retractClaim(id, reason),
+				);
+
+				yield* refresh;
+
+				return claim;
+			}),
 		errors,
 	}),
 ];

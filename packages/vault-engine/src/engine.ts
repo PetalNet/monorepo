@@ -22,13 +22,22 @@ export interface TierState {
 /**
  * How a tier is laid out inside its Loro document. Every map holds plain values keyed by ID. A Loro
  * map keeps one writer's value per key, so anything two replicas may write at the same time has its
- * own key: each passage is its own entry, addressed by a hash of its text.
+ * own key: a claim's text never shares a key with its retirement, and each passage is its own
+ * entry, addressed by a hash of its text.
  */
 interface Stored {
-	claims: Record<string, Claim>;
+	claims: Record<string, Omit<Claim, "status" | "supersededBy" | "reason" | "updated">>;
+	retired: Record<string, Retirement>;
 	sources: Record<string, Omit<Source, "passages" | "headings">>;
 	passages: Record<string, { text: string; heading?: string }>;
 	topics: Record<string, Topic>;
+}
+
+interface Retirement {
+	readonly status: "superseded" | "retracted";
+	readonly supersededBy?: string;
+	readonly reason?: string;
+	readonly at: string;
 }
 
 export type NewClaim = Pick<Claim, "text" | "topic" | "heading" | "links" | "sourceType">;
@@ -56,6 +65,15 @@ export interface Tx extends VaultView {
 	/** This tier as staged so far. */
 	readonly state: TierState;
 	readonly addClaim: (input: NewClaim) => Effect.Effect<Claim, WriteRejected | SecretFound>;
+	/** Claims are never edited: the old claim stays, marked superseded, and the new one links back. */
+	readonly replaceClaim: (
+		id: string,
+		input: NewClaim,
+	) => Effect.Effect<Claim, WriteRejected | SecretFound>;
+	readonly retractClaim: (
+		id: string,
+		reason: string,
+	) => Effect.Effect<Claim, WriteRejected | SecretFound>;
 	/** A passage is what a claim was checked against, so its text never changes once written. */
 	readonly putSource: (input: NewSource) => Effect.Effect<Source, WriteRejected | SecretFound>;
 	/**
@@ -80,7 +98,7 @@ export interface VaultShape {
 	readonly view: Effect.Effect<VaultView, VaultError>;
 	/**
 	 * Runs one write under the tier's lock. It commits only if every operation passed its checks and
-	 * no claim was lost.
+	 * no claim was lost or rewritten.
 	 */
 	readonly transact: <A, E, R>(
 		tier: Tier,
@@ -104,7 +122,7 @@ const hash = (data: string | Uint8Array) => createHash("sha256").update(data).di
 
 function readState(doc: LoroDoc): TierState {
 	const stored = Object.fromEntries(
-		["claims", "sources", "passages", "topics"].map((name) => [
+		["claims", "retired", "sources", "passages", "topics"].map((name) => [
 			name,
 			doc.getMap(name).toJSON() as unknown,
 		]),
@@ -135,7 +153,20 @@ function readState(doc: LoroDoc): TierState {
 		}
 	}
 
-	return { claims: stored.claims, sources, topics: stored.topics };
+	const claims: Record<string, Claim> = {};
+
+	for (const [id, core] of Object.entries(stored.claims)) {
+		const { at, ...retired } = stored.retired[id] ?? { at: undefined };
+
+		claims[id] = {
+			...core,
+			status: "active",
+			...retired,
+			updated: at ?? core.created,
+		};
+	}
+
+	return { claims, sources, topics: stored.topics };
 }
 
 /** Every string in a value, keys included, as written: JSON escaping would hide token boundaries. */
@@ -189,6 +220,10 @@ function makeView(states: Readonly<Record<Tier, TierState>>): VaultView {
 	};
 }
 
+/** The part of a claim that never changes after it is written. */
+const fixed = ({ status: _s, supersededBy: _b, reason: _r, updated: _u, ...rest }: Claim) =>
+	JSON.stringify(Object.entries(rest).toSorted(([a], [b]) => a.localeCompare(b)));
+
 function makeTx(
 	tier: Tier,
 	doc: LoroDoc,
@@ -227,6 +262,14 @@ function makeTx(
 		return valid;
 	});
 
+	const claim = (id: string) => {
+		const found = state.claims[id];
+
+		return found
+			? Effect.succeed(found)
+			: Effect.fail(reject(`Claim ${id} is not in the ${tier} tier`));
+	};
+
 	const source = (id: string) => {
 		const found = state.sources[id];
 
@@ -249,6 +292,10 @@ function makeTx(
 				);
 			}
 
+			if (link.rel === "replaces" && found.kind !== "claims") {
+				return yield* reject("replaces:: must point at a claim");
+			}
+
 			if (
 				link.passage !== undefined &&
 				!(link.passage in (view.source(link.target)?.passages ?? {}))
@@ -256,6 +303,19 @@ function makeTx(
 				return yield* reject(`Passage ${link.target}#^${link.passage} does not exist`);
 			}
 		}
+	});
+
+	const retire = Effect.fnUntraced(function* (id: string, change: Retirement) {
+		const { at, ...fields } = change;
+
+		yield* write(
+			"claims",
+			Claim,
+			{ ...(yield* claim(id)), ...fields, updated: at },
+			"retired",
+			id,
+			change,
+		);
 	});
 
 	const newClaimId = () => {
@@ -279,8 +339,22 @@ function makeTx(
 		yield* checkLinks(input.links);
 
 		const core = { ...input, id: newClaimId(), created: now, agent };
+		const added = yield* write(
+			"claims",
+			Claim,
+			{ ...core, status: "active", updated: now },
+			"claims",
+			core.id,
+			core,
+		);
 
-		return yield* write("claims", Claim, core, "claims", core.id, core);
+		for (const link of input.links) {
+			if (link.rel === "replaces") {
+				yield* retire(link.target, { status: "superseded", supersededBy: added.id, at: now });
+			}
+		}
+
+		return yield* claim(added.id);
 	});
 
 	const passage = Effect.fnUntraced(function* (
@@ -313,6 +387,20 @@ function makeTx(
 		now,
 		state,
 		addClaim,
+		replaceClaim: (id, input) =>
+			claim(id).pipe(
+				Effect.andThen(
+					addClaim({
+						...input,
+						links: [
+							...input.links.filter((link) => !(link.rel === "replaces" && link.target === id)),
+							{ rel: "replaces", target: id },
+						],
+					}),
+				),
+			),
+		retractClaim: (id, reason) =>
+			retire(id, { status: "retracted", reason, at: now }).pipe(Effect.andThen(claim(id))),
 		putSource: Effect.fnUntraced(function* (input: NewSource) {
 			// Scanned and checked whole before any part is written, so a refused source leaves nothing
 			// behind even when the caller carries on with the transaction.
@@ -383,7 +471,7 @@ function makeTx(
 
 /**
  * The backstop on every commit: whatever the operations did, every claim that existed is still
- * there, and no new claim ID is held by another tier.
+ * there with the same core, none came back to life, and no new claim ID is held by another tier.
  */
 function lostOrDuplicated(
 	tier: Tier,
@@ -391,9 +479,19 @@ function lostOrDuplicated(
 	after: TierState,
 	committed: Readonly<Record<Tier, TierState>>,
 ) {
-	for (const id of Object.keys(before.claims)) {
-		if (!(id in after.claims)) {
+	for (const [id, old] of Object.entries(before.claims)) {
+		const now = after.claims[id];
+
+		if (!now) {
 			return `Write would lose claim ${id}`;
+		}
+
+		if (fixed(now) !== fixed(old)) {
+			return `Write would rewrite claim ${id}; replace it instead`;
+		}
+
+		if (old.status !== "active" && now.status === "active") {
+			return `Write would revive ${old.status} claim ${id}`;
 		}
 	}
 

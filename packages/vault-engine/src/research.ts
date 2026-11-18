@@ -58,6 +58,11 @@ export const RememberInput = Schema.Struct({
 		Text.annotate({ description: "The passage of `source` the claim rests on." }),
 	),
 	sourceType: Schema.optionalKey(SourceType),
+	replaces: Schema.optionalKey(
+		Text.annotate({
+			description: "The claim this one corrects. The old claim stays, marked superseded.",
+		}),
+	),
 });
 export type RememberInput = typeof RememberInput.Type;
 
@@ -94,7 +99,8 @@ export const remember = Effect.fnUntraced(function* (tier: Tier, input: Remember
 	return yield* vault.transact(tier, `remember in ${input.topic}`, (tx) =>
 		Effect.gen(function* () {
 			const [topic = ""] = (yield* upsertTopics(tx, [{ title: input.topic }])).values();
-			const links: Link[] = [];
+			const links: Link[] =
+				input.replaces === undefined ? [] : [{ rel: "replaces", target: input.replaces }];
 			let sourceType = input.sourceType ?? "GUESS";
 
 			if (captured) {

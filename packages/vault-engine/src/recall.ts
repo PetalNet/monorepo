@@ -15,9 +15,9 @@ import { Claim, Relation, Tier, freshness, tiers } from "./schema.ts";
 const SCHEMA = `
 CREATE TABLE claim(
 	id TEXT PRIMARY KEY, tier TEXT NOT NULL, topic TEXT NOT NULL,
-	title TEXT NOT NULL, heading TEXT NOT NULL, text TEXT NOT NULL,
+	title TEXT NOT NULL, heading TEXT NOT NULL, text TEXT NOT NULL, status TEXT NOT NULL,
 	source_type TEXT NOT NULL, freshness TEXT NOT NULL, sources TEXT NOT NULL,
-	created TEXT NOT NULL);
+	created TEXT NOT NULL, updated TEXT NOT NULL);
 CREATE VIRTUAL TABLE claim_fts USING fts5(id UNINDEXED, text, context, tokenize='porter unicode61');
 CREATE TABLE meta(key TEXT PRIMARY KEY, value TEXT NOT NULL);
 `;
@@ -42,6 +42,7 @@ export const ClaimCard = Schema.Struct({
 	title: Schema.String,
 	heading: Schema.String,
 	text: Schema.String,
+	status: Claim.fields.status,
 	sourceType: Claim.fields.sourceType,
 	/** What the claim's evidence looks like today. */
 	freshness: Schema.Literals(["fresh", "stale", "unsourced"]),
@@ -80,7 +81,7 @@ export const reindex = Effect.gen(function* () {
 				db.exec(SCHEMA);
 				db.exec("BEGIN");
 
-				const claim = db.prepare("INSERT INTO claim VALUES(?,?,?,?,?,?,?,?,?,?)");
+				const claim = db.prepare("INSERT INTO claim VALUES(?,?,?,?,?,?,?,?,?,?,?,?)");
 				const claimFts = db.prepare("INSERT INTO claim_fts VALUES(?,?,?)");
 
 				for (const tier of tiers) {
@@ -123,10 +124,12 @@ export const reindex = Effect.gen(function* () {
 							title,
 							record.heading,
 							record.text,
+							record.status,
 							record.sourceType,
 							evidence,
 							JSON.stringify(sources),
 							record.created,
+							record.updated,
 						);
 
 						// The note title and heading are the claim's retrieval context, at no inference cost.
@@ -161,6 +164,8 @@ function ftsQuery(text: string): string {
 export interface RecallOptions {
 	readonly k?: number;
 	readonly tiers?: readonly Tier[];
+	/** Superseded and retracted claims are left out unless asked for. */
+	readonly includeInactive?: boolean;
 }
 
 /** Runs one query against the index; no index yet, or a query with no words, finds nothing. */
@@ -201,7 +206,8 @@ export const recallClaims = (query: string, options: RecallOptions = {}): Recall
 		query,
 		`SELECT claim.*, bm25(claim_fts, 0.0, 1.0, 0.5) AS rank FROM claim_fts
 			 JOIN claim ON claim.id = claim_fts.id
-			 WHERE claim_fts MATCH ? AND claim.tier IN (SELECT value FROM json_each(?))
+			 WHERE claim_fts MATCH ? ${options.includeInactive === true ? "" : "AND claim.status = 'active'"}
+			 AND claim.tier IN (SELECT value FROM json_each(?))
 			 ORDER BY rank LIMIT ?`,
 		ClaimRow,
 		options,

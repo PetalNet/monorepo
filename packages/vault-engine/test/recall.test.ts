@@ -46,10 +46,14 @@ describe("recall", () => {
 			});
 		}));
 
-	test("filters tiers before the limit", () =>
+	test("leaves superseded claims out unless asked, and filters tiers before the limit", () =>
 		Effect.gen(function* () {
-			yield* write("shared", (tx) =>
+			const old = yield* write("shared", (tx) =>
 				seed(tx).pipe(Effect.andThen(tx.addClaim(claimInput("Propositions always win.")))),
+			);
+
+			yield* write("shared", (tx) =>
+				tx.replaceClaim(old.id, claimInput("Propositions win for unsupervised retrievers.")),
 			);
 
 			yield* write("agent", (tx) =>
@@ -65,6 +69,14 @@ describe("recall", () => {
 			);
 
 			yield* reindex;
+
+			expect(
+				(yield* recallClaims("propositions", { tiers: ["shared"] })).map((card) => card.status),
+			).toEqual(["active"]);
+
+			expect(
+				yield* recallClaims("propositions", { tiers: ["shared"], includeInactive: true }),
+			).toHaveLength(2);
 
 			expect(
 				(yield* recallClaims("propositions", { k: 1, tiers: ["agent"] })).map((card) => card.tier),

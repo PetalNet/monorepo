@@ -36,6 +36,7 @@ const some = <A>(key: string, value: Option.Option<A>) =>
 
 const words = Argument.String("text").pipe(Argument.variadic({ min: 1 }));
 const tier = optional(Flag.Literals("tier", tiers));
+const reason = Flag.String("reason");
 
 const commands = [
 	Command.make(
@@ -62,6 +63,7 @@ const commands = [
 			source: optional(Flag.String("source")),
 			quote: optional(Flag.String("quote")),
 			direct: optional(Flag.String("direct")),
+			replaces: optional(Flag.String("replaces")),
 		},
 		(flags) =>
 			call("remember", {
@@ -70,6 +72,7 @@ const commands = [
 				...some("heading", flags.heading),
 				...some("tier", flags.tier),
 				...some("source", flags.source),
+				...some("replaces", flags.replaces),
 				...Option.match(flags.direct, {
 					onNone: () => some("quote", flags.quote),
 					onSome: (title) => ({
@@ -78,6 +81,14 @@ const commands = [
 				}),
 			}).pipe(Effect.flatMap(print)),
 	).pipe(Command.withDescription("Store one sourced claim.")),
+	Command.make("claim").pipe(
+		Command.withDescription("Retract a claim."),
+		Command.withSubcommands([
+			Command.make("retract", { id: Argument.String("id"), reason }, (input) =>
+				call("claim_retract", input).pipe(Effect.flatMap(print)),
+			).pipe(Command.withDescription("Retract a claim. Its ID stays.")),
+		]),
+	),
 	Command.make("reindex", {}, () => reindex.pipe(Effect.flatMap(print))).pipe(
 		Command.withDescription("Rebuild the claim index."),
 	),

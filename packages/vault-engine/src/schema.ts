@@ -9,7 +9,7 @@ export type Tier = typeof Tier.Type;
 export const tiers = Tier.literals;
 
 export const SourceType = Schema.Literals(["PRIMARY", "DIRECT", "DERIVED", "GUESS"]);
-export const Relation = Schema.Literals(["source", "supports", "contradicts"]);
+export const Relation = Schema.Literals(["source", "supports", "contradicts", "replaces"]);
 
 const pattern = (regExp: RegExp) => Schema.String.check(Schema.isPattern(regExp));
 
@@ -45,7 +45,11 @@ export const Claim = Schema.Struct({
 	heading: Line,
 	links: Schema.Array(Link),
 	sourceType: SourceType,
+	status: Schema.Literals(["active", "superseded", "retracted"]),
+	supersededBy: Schema.optionalKey(ClaimId),
+	reason: Schema.optionalKey(Line),
 	created: Timestamp,
+	updated: Timestamp,
 	agent: Text,
 }).check(
 	Schema.makeFilter(

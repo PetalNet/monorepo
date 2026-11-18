@@ -154,6 +154,32 @@ describe("write checks", () => {
 			expect(yield* stored("shared")).not.toContain("Half valid");
 		}));
 
+	test("keeps the old claim when one is replaced, and never revives a retired one", () =>
+		Effect.gen(function* () {
+			const old = yield* write("shared", (tx) =>
+				seed(tx).pipe(Effect.andThen(tx.addClaim(claimInput("Per-claim files are needed.")))),
+			);
+			const next = yield* write("shared", (tx) =>
+				tx.replaceClaim(old.id, claimInput("Claim-level indexing is enough.")),
+			);
+			const { claims } = yield* state("shared");
+
+			expect(claims[old.id]).toMatchObject({
+				status: "superseded",
+				supersededBy: next.id,
+				text: old.text,
+			});
+
+			expect(next.links).toContainEqual({ rel: "replaces", target: old.id });
+
+			yield* write("shared", (tx) => tx.retractClaim(next.id, "wrong"));
+
+			expect((yield* state("shared")).claims[next.id]).toMatchObject({
+				status: "retracted",
+				reason: "wrong",
+			});
+		}));
+
 	test("never changes a passage once it is written", () =>
 		Effect.gen(function* () {
 			yield* seeded;
@@ -194,7 +220,9 @@ describe("tiers and locks", () => {
 				)).message,
 			).toMatch(/cannot link to .* in the personal tier/);
 
-			yield* addClaim("personal", claimInput("Private claim on a shared source."));
+			expect(
+				(yield* addClaim("personal", claimInput("Private claim on a shared source."))).status,
+			).toBe("active");
 		}));
 
 	test("keeps a source ID to one tier", () =>
