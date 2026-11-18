@@ -50,7 +50,8 @@ class CallLog(context: Context) {
 fun whenText(record: CallRecord, now: Instant, zone: ZoneId, locale: Locale = Locale.getDefault()): String {
 	val at = Instant.ofEpochMilli(record.startedMs).atZone(zone)
 	val days = java.time.temporal.ChronoUnit.DAYS.between(at.toLocalDate(), LocalDate.ofInstant(now, zone))
-	val time = DateTimeFormatter.ofPattern("h:mm a", locale).format(at)
+	// Newer JDKs put a narrow no-break space before AM and PM.
+	val time = DateTimeFormatter.ofPattern("h:mm a", locale).format(at).replace('\u202f', ' ')
 	return when (days) {
 		0L -> "Today $time"
 		1L -> "Yesterday $time"
