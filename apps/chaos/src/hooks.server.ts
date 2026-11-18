@@ -4,6 +4,7 @@ import path from "node:path";
 import { building } from "$app/environment";
 import { MODE_COOKIE, parseMode } from "$lib/mode";
 import { ingestKev } from "$lib/server/ingest";
+import { watch } from "$lib/server/status/watch";
 import { openStore, type Store } from "$lib/server/store";
 import type { Handle, ServerInit } from "@sveltejs/kit";
 
@@ -31,8 +32,22 @@ export const init: ServerInit = () => {
 		}
 	};
 
+	// Most status feeds and every probe are a few hundred bytes. The two heavy feeds (AWS and Google
+	// Cloud, about 250 kB each) are read once an hour, so the board costs about 15 MB a day.
+	const look = async (): Promise<void> => {
+		try {
+			for (const failure of await watch(store)) {
+				console.warn(`status: ${failure}`);
+			}
+		} catch (error) {
+			console.error("status: round failed", error);
+		}
+	};
+
 	void pull();
+	void look();
 	setInterval(() => void pull(), HOUR).unref();
+	setInterval(() => void look(), HOUR / 6).unref();
 };
 
 export const handle: Handle = ({ event, resolve }) => {

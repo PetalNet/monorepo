@@ -31,3 +31,12 @@ export function clock(iso: string): string {
 export function plural(count: number, one: string, many: string): string {
 	return `${count.toLocaleString("en-US")} ${count === 1 ? one : many}`;
 }
+
+/** A time of day on the door clock: "3:04 PM". */
+export function hour(iso: string): string {
+	return new Date(iso).toLocaleString("en-US", {
+		hour: "numeric",
+		minute: "2-digit",
+		timeZone: "America/New_York",
+	});
+}
