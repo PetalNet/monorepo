@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+
+	<!-- Debug builds only: the scripted-call and provisioning entry point, and plain ws:// for a local test bridge. -->
+	<application android:usesCleartextTraffic="true">
+		<activity
+			android:name=".DebugControlActivity"
+			android:exported="true"
+			android:excludeFromRecents="true"
+			android:theme="@android:style/Theme.Translucent.NoTitleBar" />
+	</application>
+</manifest>

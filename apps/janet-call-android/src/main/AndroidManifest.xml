@@ -1,0 +1,37 @@
+<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+
+	<uses-permission android:name="android.permission.INTERNET" />
+	<uses-permission android:name="android.permission.RECORD_AUDIO" />
+	<uses-permission android:name="android.permission.MANAGE_OWN_CALLS" />
+	<uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+	<uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
+	<uses-permission android:name="android.permission.FOREGROUND_SERVICE_PHONE_CALL" />
+	<uses-permission android:name="android.permission.FOREGROUND_SERVICE_MICROPHONE" />
+
+	<application
+		android:allowBackup="false"
+		android:label="Janet Call"
+		android:theme="@android:style/Theme.DeviceDefault.NoActionBar">
+
+		<activity
+			android:name=".MainActivity"
+			android:exported="true"
+			android:windowSoftInputMode="adjustResize">
+			<intent-filter>
+				<action android:name="android.intent.action.MAIN" />
+				<category android:name="android.intent.category.LAUNCHER" />
+			</intent-filter>
+		</activity>
+
+		<service
+			android:name=".JanetConnectionService"
+			android:exported="true"
+			android:foregroundServiceType="phoneCall|microphone"
+			android:permission="android.permission.BIND_TELECOM_CONNECTION_SERVICE">
+			<intent-filter>
+				<action android:name="android.telecom.ConnectionService" />
+			</intent-filter>
+		</service>
+	</application>
+</manifest>
