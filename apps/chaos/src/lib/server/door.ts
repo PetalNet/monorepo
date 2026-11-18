@@ -1,4 +1,5 @@
 import { KEV_CAUSE, worst, type Cause, type KevEntry } from "./kev";
+import { risk, type Risk } from "./risk";
 import type { Store } from "./store";
 
 /** CISA dates entries in US Eastern time, so a door opens and closes on that clock. */
@@ -47,6 +48,7 @@ export interface Panel {
 	date: string;
 	strip: StripDoor[];
 	reading: Reading;
+	risk: Risk;
 	/** Additions today. Absent with no pull today, and once the season is over. */
 	addedToday: number | undefined;
 	/** The next door to unlock and the instant it does. Absent once every door is open. */
@@ -181,6 +183,7 @@ export function panel(store: Store, now: Date, wanted?: string): Panel {
 		date,
 		strip,
 		reading: readDoor(store, door, date, checkedDate),
+		risk: risk(store, date, checkedDate),
 		addedToday:
 			checkedDate === date && strip.some((candidate) => candidate.state === "today")
 				? (counts.get(date) ?? 0)
