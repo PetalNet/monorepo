@@ -9,7 +9,7 @@ set -u
 CONFIG="${JANET_TALK_CONFIG:-$HOME/.config/janet-talk/config}"
 STATE="${JANET_TALK_STATE:-$HOME/Library/Caches/janet-talk}"
 HEX_API="${JANET_TALK_HEX_API:-$HOME/Library/Application Support/hex/local-api.json}"
-# Where install.sh puts turn_end.py, its Python environment and its models.
+# Where install.sh puts turn_end.py, its Python environment and its speech model.
 TURN_END="${JANET_TALK_TURN_END:-$HOME/.local/share/janet-talk}"
 KEYCHAIN_SERVICE="janet-voice"
 CONVERSATION_IDLE_S=90 # the head ends a conversation itself after 120 s without a turn
@@ -140,16 +140,16 @@ hex_end() { # finish|cancel, id, owner -> prints the transcript for finish
 #   when the stop file appears (the key again), and after MAX_LISTEN_S as a backstop.
 # The first half second is left out: Hex reports near-total silence while the microphone opens.
 wait_for_end_of_speech() { # id, owner
-  # With the turn-end models installed, they decide from the audio itself: see turn_end.py.
-  # The level rule below is for when they give no verdict: they are not installed, they failed
-  # to run, or this Hex has no audio stream.
+  # With the speech model installed, turn_end.py decides from the audio itself. The level rule
+  # below is for when it gives no verdict: it is not installed, it failed to run, or this Hex
+  # has no audio stream.
   local why
   if [ -x "$TURN_END/venv/bin/python" ]; then
     why=$(HEX_OWNER="$2" hex GET "/dictations/$1/audio" -N --max-time "$((MAX_LISTEN_S + 5))" |
       "$TURN_END/venv/bin/python" "$TURN_END/turn_end.py" --models "$TURN_END/models" \
         --rate "$(cat "$STATE/recording.rate")" --stop-file "$STATE/listening.stop" \
         --max-s "$MAX_LISTEN_S" --nothing-said-s "$NO_SPEECH_S" 2>>"$LOG")
-    case "$why" in "" | "stream ended"*) log "turn end models gave no verdict: ${why:-they did not run}" ;; *)
+    case "$why" in "" | "stream ended"*) log "turn_end.py gave no verdict: ${why:-it did not run}" ;; *)
       echo "$why"
       return
       ;;

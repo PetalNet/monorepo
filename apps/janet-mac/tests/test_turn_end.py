@@ -1,4 +1,4 @@
-"""turn_end.py with scripted stand-ins for the two models: what a speaker would notice."""
+"""turn_end.py with a scripted stand-in for the speech model: what a speaker would notice."""
 
 import io
 import sys
@@ -10,76 +10,53 @@ import numpy as np
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 import turn_end  # noqa: E402
-from turn_end import FRAME, FRAME_S, RATE, Policy, Silero, To16k, TurnEnd, frames, whisper_features  # noqa: E402
+from turn_end import FRAME, FRAME_S, RATE, Policy, Silero, To16k, TurnEnd, frames  # noqa: E402
 
 SPEECH, SILENCE = np.ones(FRAME, np.float32), np.zeros(FRAME, np.float32)
 
 
-def listen(steps, finished=0.0, policy=Policy()):
-    """Feeds (seconds, frame) steps; returns (why it ended, seconds heard, times Smart Turn was asked)."""
-    asked = []
-
-    def smart_turn(audio):
-        asked.append(len(audio) / RATE)
-        return finished(len(asked)) if callable(finished) else finished
-
-    turn_end = TurnEnd(lambda frame: float(frame[0]), smart_turn, policy)
+def listen(steps, policy=Policy()):
+    """Feeds (seconds, frame) steps; returns (why it ended, seconds heard)."""
+    turn_end = TurnEnd(lambda frame: float(frame[0]), policy)
     heard = 0
     for seconds, frame in steps:
         for _ in range(round(seconds / FRAME_S)):
             heard += 1
             if why := turn_end.feed(frame):
-                return why, heard * FRAME_S, asked
-    return None, heard * FRAME_S, asked
+                return why, heard * FRAME_S
+    return None, heard * FRAME_S
+
+
+QUIET_S = Policy().quiet_s
 
 
 class TurnEndTest(unittest.TestCase):
-    def test_a_turn_that_sounds_finished_ends_after_a_second_of_silence(self):
-        why, seconds, _ = listen([(2.0, SPEECH), (10.0, SILENCE)], finished=0.99)
-        self.assertEqual(why, "finished")
-        self.assertAlmostEqual(seconds, 3.0, delta=0.1)
-
-    def test_a_turn_that_sounds_unfinished_is_given_four_seconds_of_silence(self):
-        why, seconds, asked = listen([(2.0, SPEECH), (10.0, SILENCE)], finished=0.3)
+    def test_a_turn_ends_once_the_speaker_has_been_quiet_long_enough(self):
+        why, seconds = listen([(2.0, SPEECH), (10.0, SILENCE)])
         self.assertEqual(why, "quiet")
-        self.assertAlmostEqual(seconds, 6.0, delta=0.1)
-        self.assertEqual(len(asked), len(Policy().asks))
-
-    def test_the_longer_the_silence_the_less_sure_smart_turn_has_to_be(self):
-        why, seconds, _ = listen([(2.0, SPEECH), (10.0, SILENCE)], finished=0.93)
-        self.assertEqual(why, "finished")
-        self.assertAlmostEqual(seconds, 4.0, delta=0.1)
+        self.assertAlmostEqual(seconds, 2.0 + QUIET_S, delta=0.1)
 
     def test_someone_who_pauses_to_think_and_goes_on_is_heard_to_the_end(self):
-        thinking = [(3.0, SPEECH), (2.4, SILENCE)] * 20
-        why, seconds, _ = listen(thinking + [(10.0, SILENCE)], finished=0.6)
-        self.assertEqual(why, "finished")
-        self.assertGreater(seconds, 20 * 5.4)
-
-    def test_speech_after_a_pause_starts_the_asking_again(self):
-        steps = [(2.0, SPEECH), (1.2, SILENCE), (2.0, SPEECH), (10.0, SILENCE)]
-        why, seconds, asked = listen(steps, finished=lambda count: 0.99 if count > 1 else 0.0)
-        self.assertEqual((why, len(asked)), ("finished", 2))
-        self.assertAlmostEqual(seconds, 6.2, delta=0.1)
-
-    def test_a_click_is_not_a_turn_and_nothing_said_gives_up(self):
-        why, seconds, asked = listen([(1.0, SILENCE), (0.09, SPEECH), (10.0, SILENCE)], finished=0.99)
-        self.assertEqual((why, asked), ("nothing said", []))
-        self.assertAlmostEqual(seconds, 6.0, delta=0.1)
+        thinking = [(3.0, SPEECH), (QUIET_S - 0.3, SILENCE)] * 20
+        why, seconds = listen(thinking + [(10.0, SILENCE)])
+        self.assertEqual(why, "quiet")
+        self.assertAlmostEqual(seconds, 20 * (3.0 + QUIET_S - 0.3) + 0.3, delta=0.2)
 
     def test_the_briefest_speech_in_a_silence_keeps_the_turn_open(self):
-        steps = [(2.0, SPEECH), (3.5, SILENCE), (FRAME_S, SPEECH), (10.0, SILENCE)]
-        why, seconds, _ = listen(steps, finished=0.3)
+        steps = [(2.0, SPEECH), (QUIET_S - 0.5, SILENCE), (FRAME_S, SPEECH), (10.0, SILENCE)]
+        why, seconds = listen(steps)
         self.assertEqual(why, "quiet")
-        self.assertAlmostEqual(seconds, 2.0 + 3.5 + 4.0, delta=0.1)
+        self.assertAlmostEqual(seconds, 2.0 + QUIET_S - 0.5 + QUIET_S, delta=0.1)
 
-    def test_smart_turn_has_to_be_surer_than_the_threshold_not_merely_at_it(self):
-        why, _, _ = listen([(2.0, SPEECH), (10.0, SILENCE)], finished=0.5, policy=Policy(asks=((1.0, 0.5),)))
+    def test_a_click_is_not_a_turn_and_nothing_said_gives_up(self):
+        why, seconds = listen([(1.0, SILENCE), (0.09, SPEECH), (10.0, SILENCE)])
+        self.assertEqual(why, "nothing said")
+        self.assertAlmostEqual(seconds, 6.0, delta=0.1)
+
+    def test_however_long_the_speaker_waits_to_begin_the_turn_gets_its_full_silence(self):
+        why, seconds = listen([(5.5, SILENCE), (1.0, SPEECH), (10.0, SILENCE)])
         self.assertEqual(why, "quiet")
-
-    def test_smart_turn_hears_at_most_the_last_eight_seconds(self):
-        _, _, asked = listen([(20.0, SPEECH), (10.0, SILENCE)], finished=0.99)
-        self.assertEqual(asked, [8.0])
+        self.assertAlmostEqual(seconds, 6.5 + QUIET_S, delta=0.1)
 
 
 class AudioTest(unittest.TestCase):
@@ -121,18 +98,6 @@ class AudioTest(unittest.TestCase):
         ragged = np.concatenate(list(frames(Dribble(tone.tobytes()), 48000)))
         clean = np.concatenate(list(frames(io.BytesIO(tone.tobytes()), 48000)))
         np.testing.assert_allclose(ragged, clean[: len(ragged)], atol=1e-6)
-
-    def test_the_features_are_the_ones_whisper_computes(self):
-        # A rising tone over a steady one, three seconds long. The expected values are what
-        # transformers' WhisperFeatureExtractor(chunk_length=8) gives for it, front-padded.
-        t = np.arange(3 * RATE) / RATE
-        sound = (0.3 * np.sin(2 * np.pi * (200 + 300 * t) * t) + 0.1 * np.sin(2 * np.pi * 1500 * t)).astype(np.float32)
-        features = whisper_features(sound)
-        self.assertEqual(features.shape, (80, 800))
-        for (mel, frame), expected in {(0, 0): -0.2087, (5, 520): 0.8456, (40, 650): 0.2402, (79, 799): 0.0587}.items():
-            self.assertAlmostEqual(float(features[mel, frame]), expected, places=3)
-        self.assertAlmostEqual(float(features.mean()), -0.1071, places=3)
-        self.assertEqual(whisper_features(self.tone(RATE, 12.0)).shape, (80, 800))
 
     def test_silero_is_given_its_own_memory_and_the_end_of_the_frame_before(self):
         class Model:
