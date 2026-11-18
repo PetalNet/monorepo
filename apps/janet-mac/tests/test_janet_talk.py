@@ -729,6 +729,8 @@ class InstallTest(unittest.TestCase):
             path = self.home / "stub" / name
             path.write_text(f'#!/usr/bin/env bash\necho "$*" >>"$HOME/{name}-calls"\nexit 1\n')
             path.chmod(0o755)
+        (self.home / "stub" / "uname").write_text("#!/usr/bin/env bash\necho Linux\n")
+        (self.home / "stub" / "uname").chmod(0o755)
         self.assertEqual(self.install().returncode, 0)
         self.assertFalse((self.home / "curl-calls").exists())
         self.assertFalse((self.home / "python3-calls").exists())
