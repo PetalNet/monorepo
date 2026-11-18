@@ -21,6 +21,11 @@
 			"allowedVersions": "<5"
 		},
 		{
+			"description": "Compose BOM 2026 (compose 1.12) needs Android Gradle plugin 9.1 and a newer compileSdk, so #742 broke the build of apps/janet-call-android. Lift this with the plugin and compileSdk bump.",
+			"matchPackageNames": ["androidx.compose:compose-bom"],
+			"allowedVersions": "<2026"
+		},
+		{
 			"matchPackageNames": ["/eslint/"],
 			"groupName": "eslint"
 		},
