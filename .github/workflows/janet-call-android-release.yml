@@ -1,0 +1,94 @@
+name: janet-call-android-release
+
+# Build the signed Janet Call APK from main and publish it as a GitHub release.
+# The app store on the lab server picks new releases up (apps/app-store), and
+# phones update from there. A release is cut once per versionCode, so a phone
+# updates when a push to main raises versionCode in build.gradle.kts.
+on:
+  push:
+    branches: [main]
+    paths:
+      - "apps/janet-call-android/**"
+      - ".github/workflows/janet-call-android-release.yml"
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  release:
+    name: build, sign and release
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    # Holds the signing keystore; the environment only deploys from main.
+    environment: android-release
+    permissions:
+      contents: write
+    defaults:
+      run:
+        working-directory: apps/janet-call-android
+    env:
+      # Every installed copy of the app is signed with this certificate, and
+      # Android refuses an update signed with any other.
+      SIGNER_SHA256: a132547d48a2a4ab1ce79b343eacc02d1d7b27440b92a99ff27ef3110096e5a9
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Use the runner's JDK 21
+        run: echo "JAVA_HOME=$JAVA_HOME_21_X64" >> "$GITHUB_ENV"
+
+      # build.gradle.kts signs the release with the debug signing config, which
+      # reads ~/.android/debug.keystore.
+      - name: Restore the signing keystore
+        env:
+          KEYSTORE_B64: ${{ secrets.ANDROID_DEBUG_KEYSTORE_B64 }}
+        run: |
+          mkdir -p ~/.android
+          base64 -d <<<"$KEYSTORE_B64" > ~/.android/debug.keystore
+
+      - name: Test and build
+        run: ./gradlew --no-daemon testReleaseUnitTest assembleRelease
+
+      - name: Check the signer and read the version
+        id: apk
+        run: |
+          tools=$(find "$ANDROID_HOME/build-tools" -mindepth 1 -maxdepth 1 | sort -V | tail -n 1)
+          apk=build/outputs/apk/release/janet-call-android-release.apk
+          signer=$("$tools/apksigner" verify --print-certs "$apk" |
+            sed -n 's/^Signer #1 certificate SHA-256 digest: //p')
+          if [[ $signer != "$SIGNER_SHA256" ]]; then
+            echo "::error::APK is signed by ${signer:-nothing}, expected $SIGNER_SHA256"
+            exit 1
+          fi
+          badging=$("$tools/aapt2" dump badging "$apk")
+          package=$(sed -n "s/^package: name='\([^']*\)'.*/\1/p" <<<"$badging")
+          code=$(sed -n "s/^package: .* versionCode='\([0-9]*\)'.*/\1/p" <<<"$badging")
+          name=$(sed -n "s/^package: .* versionName='\([^']*\)'.*/\1/p" <<<"$badging")
+          [[ -n $package && -n $code && -n $name ]]
+          cp "$apk" "$RUNNER_TEMP/${package}_${code}.apk"
+          {
+            echo "asset=$RUNNER_TEMP/${package}_${code}.apk"
+            echo "tag=janet-call-android-$code"
+            echo "title=Janet Call $name ($code)"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Release once per versionCode
+        env:
+          GH_TOKEN: ${{ github.token }}
+          ASSET: ${{ steps.apk.outputs.asset }}
+          TAG: ${{ steps.apk.outputs.tag }}
+          TITLE: ${{ steps.apk.outputs.title }}
+        run: |
+          if gh release view "$TAG" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            echo "$TAG is already released; raise versionCode to ship an update."
+            exit 0
+          fi
+          gh release create "$TAG" "$ASSET" --repo "$GITHUB_REPOSITORY" \
+            --target "$GITHUB_SHA" --title "$TITLE" --latest=false \
+            --notes "Built from $GITHUB_SHA. Installed through the app store, see apps/app-store."
