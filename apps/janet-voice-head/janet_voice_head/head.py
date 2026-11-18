@@ -9,6 +9,7 @@ from pathlib import Path
 from . import prompts
 from .conversation import Conversation, Exchange, Journal, TranscriptMark
 from .merge import Hub, HubError, HubRefused
+from . import snapshot
 from .render import fallback_summary, hard_text, soft_text, stub_text
 from .session import LOCKED_FLAGS, ClaudeSession, SessionError, transcript_path
 from .speech import SIGN_OFF, SpeechStream, is_end_phrase
@@ -44,6 +45,11 @@ class Config:
     # A first turn that has to wait for a cold fork says one short line after this many seconds. 0 turns it off.
     bridge_after_s: float = 1.0
     bridge_phrases: list[str] = field(default_factory=lambda: ["Mm, one sec.", "Let me think.", "Hang on a sec."])
+    # A fork resumes a copy of main's transcript from its last compaction on, not the whole file.
+    trim_transcript: bool = True
+    trim_max_bytes: int = 64 * 1024 * 1024
+    # 0 makes a fresh copy for every conversation. Forks of one copy share the model's prompt cache.
+    trim_reuse_s: float = 0
     unmerged_channels: list[str] = field(default_factory=list)
 
 
@@ -86,6 +92,7 @@ class Head:
     def __init__(self, config: Config, session_factory=ClaudeSession):
         self.config, self._session_factory = config, session_factory
         self._lives: dict[str, Live] = {}
+        self._snapshot: tuple[str, str, float] | None = None
         self._by_ref: dict[str, str] = {}
         self._lock = threading.Lock()
         self._stop = threading.Event()
@@ -108,8 +115,7 @@ class Head:
             try:
                 fork_point = self.config.hub.transcript_mark() if fork else None
                 parent = self.config.hub.main_session() if fork else None
-                if parent:
-                    self._expose_parent(parent)
+                resume = self._resume_target(parent) if parent else None
             except HubError as error:
                 raise ApiError(503, f"cannot find main's session: {error}") from error
             except OSError as error:
@@ -118,7 +124,7 @@ class Head:
                                   client_ref=client_ref, parent_session=parent)
             live = Live(conv, journal)
             try:
-                live.session = self._session_factory(self._argv(conv), self._cwd(conv))
+                live.session = self._session_factory(self._argv(conv, resume), self._cwd(conv))
             except OSError as error:
                 live.record(kind="ending", reason="session_failed_to_start")
                 raise ApiError(503, f"the head session did not start: {error}") from error
@@ -305,15 +311,37 @@ class Head:
     def _cwd(self, conv: Conversation) -> str:
         return str(self.config.state_dir / ("fork" if conv.tier == "personal" else "cold"))
 
+    def _resume_target(self, parent: str) -> str:
+        """The session id a fork resumes: a trimmed copy of main's transcript when it has a compact boundary, else main's own."""
+        fork_dir = transcript_path(str(self.config.state_dir / "fork"), "x").parent
+        manifest = self.config.state_dir / "snapshots"
+        source = transcript_path(self.config.main_cwd, parent)
+        if self.config.trim_transcript and source.exists():
+            reusable = self._snapshot
+            if reusable and reusable[1] == parent and time.monotonic() - reusable[2] < self.config.trim_reuse_s:
+                return reusable[0]
+            try:
+                copy = snapshot.write_trimmed(source, fork_dir, self.config.trim_max_bytes)
+            except OSError as error:
+                log.warning("trimmed copy failed, resuming main's whole transcript: %s", error)
+                copy = None
+            if copy:
+                snapshot.remember(manifest, copy)
+                self._snapshot = (copy, parent, time.monotonic())
+                snapshot.prune(fork_dir, manifest, 3600, keep=copy)
+                return copy
+        self._expose_parent(parent)
+        return parent
+
     def _expose_parent(self, parent: str) -> None:
         link = transcript_path(str(self.config.state_dir / "fork"), parent)
         link.parent.mkdir(parents=True, exist_ok=True)
         if not link.is_symlink():
             link.symlink_to(transcript_path(self.config.main_cwd, parent))
 
-    def _argv(self, conv: Conversation) -> list[str]:
-        if conv.parent_session:
-            identity = ["--resume", conv.parent_session, "--fork-session", "--model", self.config.model]
+    def _argv(self, conv: Conversation, resume: str | None) -> list[str]:
+        if resume:
+            identity = ["--resume", resume, "--fork-session", "--model", self.config.model]
         else:
             identity = ["--model", self.config.cold_model, "--system-prompt", prompts.COLD_PROFILE]
         return [*self.config.claude, *LOCKED_FLAGS, *identity, "--effort", self.config.effort]

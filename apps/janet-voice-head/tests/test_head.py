@@ -451,6 +451,29 @@ class TierTest(HeadCase):
         self.assertIn("--strict-mcp-config", argv)
         self.assertFalse([name for name in launch["env"] if name.startswith(("HERMES", "CC_LINK", "CLAUDE", "ANTHROPIC"))])
 
+    def test_a_fork_resumes_a_copy_of_mains_transcript_from_its_last_compaction(self):
+        def line(**fields):
+            return json.dumps(fields, separators=(",", ":")) + "\n"
+        main = (line(uuid="old", parentUuid=None, type="user") + line(uuid="b", parentUuid=None, type="system", subtype="compact_boundary")
+                + line(uuid="live", parentUuid="b", type="user"))
+        self.hub.transcript.write_text(main)
+        self.turn(self.open("personal"), "hello")
+        (launch,) = self.launches()
+        argv = launch["argv"]
+        resumed = argv[argv.index("--resume") + 1]
+        self.assertNotEqual(resumed, "parent-session-id")
+        copy = self.hub.transcript.parent.parent / (re.sub(r"[^A-Za-z0-9]", "-", str(self.root / "state" / "fork"))) / f"{resumed}.jsonl"
+        self.assertEqual([json.loads(row)["uuid"] for row in copy.read_text().splitlines()], ["b", "live"])
+        self.assertEqual(self.hub.transcript.read_text(), main)
+
+    def test_trimming_can_be_turned_off(self):
+        self.stop_head()
+        self.start_head(trim_transcript=False)
+        self.hub.transcript.write_text(json.dumps({"uuid": "b", "parentUuid": None, "type": "system", "subtype": "compact_boundary"}, separators=(",", ":")) + "\n")
+        self.turn(self.open("personal"), "hello")
+        argv = self.launches()[-1]["argv"]
+        self.assertEqual(argv[argv.index("--resume") + 1], "parent-session-id")
+
     def test_a_fork_runs_outside_mains_directory_so_its_transcript_never_joins_mains(self):
         self.turn(self.open("personal"), "hello")
         (launch,) = self.launches()
