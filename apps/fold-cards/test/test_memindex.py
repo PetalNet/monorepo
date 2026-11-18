@@ -131,6 +131,16 @@ class Vault(unittest.TestCase):
     def claims(self):
         return {r[0]: json.loads(r[1]) for r in self.db.execute("SELECT id, meta FROM doc WHERE source='vault'")}
 
+    def test_vault_rows_shift_rarity_only_when_the_vault_is_searched(self):
+        memindex.put(self.db, 'memory', 'memory:a', '', 'the server logs rotate weekly', {})
+        memindex.put(self.db, 'memory', 'memory:b', '', 'the garden needs water', {})
+        self.db.commit()
+        before = memindex.rarity(self.db, ['logs'])
+        replica(self.rep, [claim(f'c-{i}', f'The logs of shed {i} are kept.') for i in range(50)])
+        memindex.sync_vault(self.db, self.rep)
+        self.assertEqual(memindex.rarity(self.db, ['logs']), before)
+        self.assertNotEqual(memindex.rarity(self.db, ['logs'], vault=True), before)
+
     def test_the_backing_source_is_a_source_or_supports_link(self):
         link = lambda id, rel: {'id': id, 'title': id.upper(), 'rel': rel, 'captured': '2026-11-02T10:00:00Z', 'freshness': 'fresh'}
         replica(self.rep, [claim('c-1', 'The shed padlock is a 4-digit Abus.', sources=[link('s-old', 'replaces'), link('s-no', 'contradicts'), link('s-yes', 'supports')]),

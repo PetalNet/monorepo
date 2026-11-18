@@ -90,13 +90,15 @@ def phrase(t):
     return '"' + t.replace('"', '') + '"'
 
 
-def rarity(db, terms):
+def rarity(db, terms, vault=False):
     """({term: idf} over every document, idf bar) for the terms that occur at all. Each term costs a full FTS count,
-    so a query counts once and every source reuses it."""
-    n = db.execute('SELECT count(*) FROM doc').fetchone()[0]
+    so a query counts once and every source reuses it. Vault rows count only when the vault is searched, so claims
+    left in the index (sync-vault by hand, or a flag turned off since the last build) never shift other sources."""
+    skip = '' if vault else " AND rowid NOT IN (SELECT rowid FROM doc WHERE source='vault')"
+    n = db.execute("SELECT count(*) FROM doc" + ('' if vault else " WHERE source!='vault'")).fetchone()[0]
     idf = {}
     for t in terms:
-        df = db.execute('SELECT count(*) FROM doc_fts WHERE doc_fts MATCH ?', (phrase(t),)).fetchone()[0]
+        df = db.execute('SELECT count(*) FROM doc_fts WHERE doc_fts MATCH ?' + skip, (phrase(t),)).fetchone()[0]
         if df:
             idf[t] = math.log((n - df + 0.5) / (df + 0.5) + 1)
     return idf, min(MIN_IDF, 0.5 * math.log((n - 0.5) / 1.5 + 1))
@@ -306,7 +308,7 @@ def candidates(db_path, text, sources, thread=(), context_weight=0.5, n=POOL, al
     context = ' '.join(thread)[-1500:] if thread and len(terms) < SHORT else ''
     pending = embed_query(db_path, text[:QUERY_CHARS], context, context_weight, sources, n * 4 if allow else n, timeout)
     lex = {}
-    idf, bar = rarity(db, terms)
+    idf, bar = rarity(db, terms, vault='vault' in sources)
     for s in sources:
         cands, matched = lexical(db, idf, [s])
         for rank, r in enumerate(cands):
