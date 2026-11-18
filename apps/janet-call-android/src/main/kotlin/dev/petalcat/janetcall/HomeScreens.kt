@@ -151,21 +151,37 @@ private fun Card(label: String, content: @Composable ColumnScope.() -> Unit) {
 	}
 }
 
+/** What went wrong, in a card of its own, with the one thing to tap if there is one. */
+@Composable
+private fun ProblemCard(problem: Problem, onAction: () -> Unit) {
+	val palette = LocalPalette.current
+	Card("PROBLEM") {
+		Text(problem.message, style = Type.body, color = palette.ink)
+		problem.action?.let { label ->
+			Spacer(Modifier.height(14.dp))
+			Pill(label, onAction, filled = false)
+		}
+	}
+	Spacer(Modifier.height(14.dp))
+}
+
 @Composable
 fun HomeScreen(
 	screen: Screen.Home,
 	onCall: () -> Unit,
 	onSettings: () -> Unit,
+	onProblem: (Problem) -> Unit = {},
 	now: Instant = Instant.now(),
 	zone: ZoneId = ZoneId.systemDefault(),
 	onRetry: (() -> Unit)? = null,
 ) {
 	val palette = LocalPalette.current
 	Skeleton(
-		headline = "Ready when\nyou are.",
-		status = screen.notice ?: "Paired with ${screen.host}",
+		headline = lineHeadline(screen.line),
+		status = if (screen.problem != null) "Paired with ${screen.host}" else screen.ended ?: lineStatus(screen.line, screen.host),
 		onSettings = onSettings,
-		action = { Pill("Call Janet", onCall) },
+		// A phone the bridge has forgotten cannot call. Its one move is in the problem card.
+		action = if (screen.line == Line.Revoked) null else ({ Pill("Call Janet", onCall) }),
 	) {
 		// Shown when the home page could not load: the page is the home, this is what is left of it.
 		if (onRetry != null) {
@@ -176,6 +192,7 @@ fun HomeScreen(
 			}
 			Spacer(Modifier.height(14.dp))
 		}
+		screen.problem?.let { ProblemCard(it) { onProblem(it) } }
 		Card("LAST CALL") {
 			if (screen.recent.isEmpty()) {
 				Text("No calls yet. Tap Call Janet to start one.", style = Type.body, color = palette.g1)
@@ -192,12 +209,13 @@ fun HomeScreen(
 }
 
 @Composable
-fun WelcomeScreen(screen: Screen.Welcome) {
+fun WelcomeScreen(screen: Screen.Welcome, onProblem: (Problem) -> Unit = {}) {
 	val palette = LocalPalette.current
 	Skeleton(
 		headline = "Pair this phone\nwith Janet.",
-		status = screen.notice ?: "Waiting for a pairing link",
+		status = "Waiting for a pairing link",
 	) {
+		screen.problem?.let { ProblemCard(it) { onProblem(it) } }
 		listOf(
 			"Open the pairing link Janet sent you, on this phone.",
 			"Check the address this app shows.",

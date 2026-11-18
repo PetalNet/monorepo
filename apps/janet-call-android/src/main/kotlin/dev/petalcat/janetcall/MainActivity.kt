@@ -3,6 +3,7 @@ package dev.petalcat.janetcall
 import android.Manifest
 import android.content.Intent
 import android.content.pm.PackageManager
+import android.net.Uri
 import android.os.Build
 import android.os.Bundle
 import android.os.SystemClock
@@ -86,9 +87,11 @@ class MainActivity : ComponentActivity() {
 				url = config.homeUrl(),
 				onCall = ::requestCall,
 				onSettings = { settingsOpen = true },
-				fallback = { retry -> HomeScreen(shown, onCall = ::requestCall, onSettings = { settingsOpen = true }, onRetry = retry) },
+				fallback = { retry ->
+					HomeScreen(shown, onCall = ::requestCall, onSettings = { settingsOpen = true }, onProblem = ::act, onRetry = retry)
+				},
 			)
-			shown is Screen.Welcome -> WelcomeScreen(shown)
+			shown is Screen.Welcome -> WelcomeScreen(shown, onProblem = ::act)
 			shown is Screen.Pairing -> PairingScreen(shown)
 			shown is Screen.Confirm -> ConfirmScreen(
 				shown,
@@ -111,7 +114,7 @@ class MainActivity : ComponentActivity() {
 	override fun onStart() {
 		super.onStart()
 		Calls.observe(observer)
-		settings.pairing()?.let { Bridge.warmOnForeground(it, SystemClock.elapsedRealtime()) }
+		settings.pairing()?.let { Bridge.warmOnForeground(it, SystemClock.elapsedRealtime(), Calls::setLine) }
 		render()
 	}
 
@@ -127,11 +130,11 @@ class MainActivity : ComponentActivity() {
 		// Reopening the app from recents replays the old link. Only a link opened just now counts.
 		if (intent.flags and Intent.FLAG_ACTIVITY_LAUNCHED_FROM_HISTORY != 0) return
 		// A link is never held to be shown later, when the person no longer expects it.
-		Pairer.notice = when {
-			Calls.inCall -> "Finish the call first, then open the pairing link again."
-			pending != null || Pairer.host != null -> "Another pairing was already waiting. Answer it, then open the new link again."
+		Pairer.problem = when {
+			Calls.inCall -> Problem.Note("Finish the call first, then open the pairing link again.")
+			pending != null || Pairer.host != null -> Problem.Note("Another pairing was already waiting. Answer it, then open the new link again.")
 			else -> when (val parsed = parsePairingPayload(data.getQueryParameter("u").orEmpty(), nowS(), BuildConfig.DEBUG)) {
-				is PairingParse.Bad -> parsed.reason
+				is PairingParse.Bad -> Problem.Note(parsed.reason)
 				is PairingParse.Ok -> {
 					pending = parsed.link
 					pendingSinceMs = SystemClock.elapsedRealtime()
@@ -175,13 +178,21 @@ class MainActivity : ComponentActivity() {
 		// was there a moment ago cannot pair the phone.
 		val wait = pendingSinceMs + PAIR_DELAY_MS - SystemClock.elapsedRealtime()
 		if (link != null && wait > 0) content.postDelayed({ if (pending === link) render() }, wait)
+		// The microphone problem is over once the permission is back.
+		if (Pairer.problem == Problem.NoMicrophone && checkSelfPermission(Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED) {
+			Pairer.problem = null
+		}
+		val paired = settings.pairing()
+		val ended = Calls.state as? CallState.Ended
 		screen = screenFor(
 			pairingWith = Pairer.host,
 			link = link,
 			pairReady = wait <= 0,
-			paired = settings.pairing(),
-			notice = Pairer.notice,
-			ended = (Calls.state as? CallState.Ended)?.reason,
+			paired = paired,
+			// What the last call said is about a pairing that is still there.
+			problem = Pairer.problem ?: ended?.problem.takeIf { paired != null },
+			ended = ended?.takeIf { it.problem == null }?.reason,
+			line = Calls.line,
 			recent = log.recent(),
 		)
 		// An overlay drawn over the confirmation must not be able to pass a tap through to Pair.
@@ -191,7 +202,7 @@ class MainActivity : ComponentActivity() {
 	private fun pair(link: PairingLink) {
 		pending = null
 		if (link.expired(nowS())) {
-			Pairer.notice = EXPIRED_LINK
+			Pairer.problem = Problem.Note(EXPIRED_LINK)
 			render()
 		} else {
 			Pairer.start(this, link)
@@ -203,7 +214,9 @@ class MainActivity : ComponentActivity() {
 		forgetWebSession()
 		settings.clear()
 		log.clear()
-		Pairer.notice = null
+		Pairer.problem = null
+		Calls.update(CallState.Idle)
+		Calls.setLine(Line.Checking)
 		render()
 	}
 
@@ -212,7 +225,27 @@ class MainActivity : ComponentActivity() {
 		Calls.connection?.setRoute(if (speakerOn) CallAudioState.ROUTE_EARPIECE else CallAudioState.ROUTE_SPEAKER)
 	}
 
+	/** The one thing a problem card offers to do. */
+	private fun act(problem: Problem) {
+		when (problem) {
+			is Problem.Note -> Unit
+			is Problem.PairUnreachable -> pair(problem.link)
+			Problem.NoMicrophone -> startActivity(
+				Intent(android.provider.Settings.ACTION_APPLICATION_DETAILS_SETTINGS, Uri.fromParts("package", packageName, null)),
+			)
+			is Problem.CallFailed -> requestCall()
+			is Problem.RePair -> {
+				settings.clear()
+				Pairer.problem = null
+				Calls.update(CallState.Idle)
+				Calls.setLine(Line.Checking)
+				render()
+			}
+		}
+	}
+
 	private fun requestCall() {
+		Pairer.problem = null
 		val needed = buildList {
 			add(Manifest.permission.RECORD_AUDIO)
 			if (Build.VERSION.SDK_INT >= 33) add(Manifest.permission.POST_NOTIFICATIONS)
@@ -225,13 +258,13 @@ class MainActivity : ComponentActivity() {
 		if (checkSelfPermission(Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED) {
 			placeCall()
 		} else {
-			Pairer.notice = "Janet needs the microphone to take a call"
+			Pairer.problem = Problem.NoMicrophone
 			render()
 		}
 	}
 
 	private fun placeCall() {
-		Pairer.notice = Dialer.place(this)
+		Pairer.problem = Dialer.place(this)
 		render()
 	}
 

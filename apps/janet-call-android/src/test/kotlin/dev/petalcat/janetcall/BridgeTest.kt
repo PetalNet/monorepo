@@ -102,4 +102,19 @@ class BridgeTest {
 		server.stop(0)
 		assertTrue(refusal(Bridge.pair(link(), "x")).startsWith("Could not reach the bridge at 127.0.0.1:$port: "))
 	}
+
+	@Test
+	fun `an unreachable bridge can be tried again with the same link, a spent code cannot`() {
+		val port = server.address.port
+		server.stop(0)
+		assertTrue((Bridge.pair(link(), "x") as PairResult.Refused).retryable)
+	}
+
+	@Test
+	fun `the warm-up answer says whether the line is up, or the bridge forgot this phone`() {
+		assertEquals(Line.Ready, Bridge.lineFor(202, null))
+		assertEquals(Line.Revoked, Bridge.lineFor(403, JSONObject("""{"error":"unknown device"}""")))
+		assertEquals("a 403 from Cloudflare Access proves nothing about the pairing", Line.Unreachable, Bridge.lineFor(403, null))
+		assertEquals(Line.Unreachable, Bridge.lineFor(502, null))
+	}
 }

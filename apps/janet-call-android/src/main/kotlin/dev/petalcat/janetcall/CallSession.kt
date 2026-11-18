@@ -15,7 +15,8 @@ sealed interface End {
 
 	data class Remote(val reason: String) : End
 
-	data class Failed(val reason: String) : End
+	/** [repair]: only a new pairing can fix it. */
+	data class Failed(val reason: String, val repair: Boolean = false) : End
 }
 
 /** One call: one WebSocket to the bridge, microphone up, reply audio down. */
@@ -48,7 +49,7 @@ class CallSession(
 			}
 			socket = Bridge.http.newWebSocket(request, Listener())
 		} catch (e: IllegalArgumentException) {
-			finish(End.Failed("The stored pairing is not valid. Unpair and pair again."))
+			finish(End.Failed("The stored pairing is not valid.", repair = true))
 		}
 	}
 
@@ -135,13 +136,14 @@ class CallSession(
 
 		override fun onFailure(webSocket: WebSocket, t: Throwable, response: Response?) {
 			val code = response?.code
+			val repair = code == 401 || code == 403 || code in 300..399
 			val reason = when (code) {
-				401, 403 -> "The bridge refused this phone (HTTP $code). Unpair and pair again."
-				in 300..399 -> "Cloudflare Access did not accept this phone (HTTP $code). Unpair and pair again."
+				401, 403 -> "The bridge refused this phone (HTTP $code)."
+				in 300..399 -> "Cloudflare Access did not accept this phone (HTTP $code)."
 				null -> t.message ?: "Could not reach the bridge"
 				else -> "Bridge error (HTTP $code)"
 			}
-			finish(End.Failed(reason))
+			finish(End.Failed(reason, repair))
 		}
 	}
 }
