@@ -67,8 +67,9 @@ while IFS=$'\t' read -r package repo prefix || [[ -n ${package-} ]]; do
 			ok=0
 			continue
 		fi
-		signers=$("$apksigner" verify --print-certs "$apk" </dev/null |
-			sed -n 's/^Signer .*certificate SHA-256 digest: //p' | sort -u)
+		# apksigner labels a signer "Signer #1" or "V2 Signer:" depending on its version.
+		signers=$("$apksigner" verify --print-certs "$apk" </dev/null | grep -v '^Source Stamp' |
+			sed -n 's/^.*certificate SHA-256 digest: //p' | sort -u)
 		if [[ $signers != "$pin" ]]; then
 			echo "$name: signed by ${signers:-nothing}, expected $pin; not published" >&2
 			ok=0
