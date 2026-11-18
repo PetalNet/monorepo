@@ -1,0 +1,14 @@
+{
+	"name": "@petalnet/boot-ping",
+	"version": "0.0.0",
+	"private": true,
+	"description": "Claude Code mod: after a restart, start one turn that says the session is back",
+	"type": "module",
+	"scripts": {
+		"typecheck": "tsc -p ."
+	},
+	"devDependencies": {
+		"@petalnet/claude-code-types": "workspace:*",
+		"typescript": "catalog:dev"
+	}
+}

@@ -1,0 +1,4 @@
+{
+	"extends": "@petalnet/claude-code-types/tsconfig.mod.json",
+	"include": ["hooks"]
+}

@@ -24,6 +24,12 @@ export default (({ strict }) => ({
 			entry: ["enroll-grove-dev-agent.ts"],
 			project: ["**/*.ts"],
 		},
+		"apps/boot-ping": {
+			// Claude Code loads the mod from hooks/hooks.json; nothing imports it.
+			entry: ["hooks/register.ts!"],
+			// "claude-code" is the ambient module @petalnet/claude-code-types declares, not a package.
+			ignoreDependencies: ["claude-code"],
+		},
 		"apps/collegemap": {
 			// Build-time deploy script run by the Dockerfile, and the ops script an operator runs
 			// against the deployed database to load institutional breaks. Neither is imported by

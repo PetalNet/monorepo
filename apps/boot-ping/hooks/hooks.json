@@ -1,0 +1,4 @@
+{
+	"description": "boot-ping: start one turn after a restart so Janet says she's back",
+	"modules": ["./register.ts"]
+}
