@@ -246,7 +246,11 @@ class Head:
                     end = True
                 relay = stream.relay
                 if latency["first_sentence"] is None and live.cut_off is None:
-                    say(RELAYED if relay and not end else NO_ANSWER)
+                    # A reply with nothing to say is silence, not an apology: Parker may have paused mid-thought. Only a failure apologises.
+                    if end:
+                        say(NO_ANSWER)
+                    elif relay:
+                        say(RELAYED)
                 with live.lock:
                     live.record(kind="exchange", n=number, heard=text, said=stream.spoken, asks=relay.asks, commitments=relay.commitments)
                     if live.cut_off is not None:

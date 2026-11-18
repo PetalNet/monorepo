@@ -39,6 +39,10 @@ def reply_to(prompt: str) -> str:
         return "ready"
     if "conversation is over" in prompt:
         return "They talked about test things."
+    if "silentcase" in said:
+        return "[silent]"
+    if "fillercase" in said:
+        return "Go ahead, I'm listening."
     if "relayfirst" in said:
         return "<RELAY>\nask: do the first thing\n</RELAY>\nSure thing."
     if "tworelays" in said:
