@@ -257,6 +257,24 @@ fetch_speech() { # turn dir, index
   rm -f "$file" "$dir/$i.part"
 }
 
+# Synthesizes the reply's sentences one at a time, in order, as they arrive. The voice server
+# works through requests one by one, so asking for all of them at once only lets a later
+# sentence take the turn of an earlier one. This way the first sentence is always ready first,
+# and each next one is being made while the one before it plays.
+fetch_turn() { # turn dir
+  local dir="$1" i=1
+  while :; do
+    if [ -e "$dir/$i.txt" ]; then
+      fetch_speech "$dir" "$i"
+      i=$((i + 1))
+    elif [ -e "$dir/count" ] && [ "$i" -gt "$(cat "$dir/count")" ]; then
+      break
+    else
+      sleep 0.05
+    fi
+  done
+}
+
 # Plays sentences in order as their audio arrives. Stops after the last one.
 play_turn() { # turn dir
   local dir="$1" i=1 deadline=$((SECONDS + VOICE_WAKE_WAIT_S + 600))
@@ -400,6 +418,7 @@ stop() {
   echo "$dir" >"$STATE/turn.dir"
   echo $$ >"$STATE/turn.pid"
   play_turn "$dir" &
+  fetch_turn "$dir" &
   file=$(body '{text: $v}' --arg v "$text")
   while IFS= read -r line; do
     line=${line%$'\r'}
@@ -410,9 +429,9 @@ stop() {
         if [ "$event" = sentence ]; then
           count=$((count + 1))
           [ "$count" = 1 ] && log "first sentence after $(($(now_ms) - released)) ms"
-          printf '%s' "${line#data:}" | jq -r .text >"$dir/$count.txt"
+          printf '%s' "${line#data:}" | jq -r .text >"$dir/$count.part"
+          mv "$dir/$count.part" "$dir/$count.txt"
           reply="$reply$(cat "$dir/$count.txt") "
-          fetch_speech "$dir" "$count" &
         elif [ "$event" = done ]; then
           end=$(printf '%s' "${line#data:}" | jq -r .end_conversation)
         fi

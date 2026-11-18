@@ -4,6 +4,7 @@ import json
 import socket
 import socketserver
 import threading
+import time
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 TOKEN = "test-token"
@@ -78,6 +79,8 @@ class FakeVoice(socketserver.ThreadingTCPServer):
         super().__init__(("127.0.0.1", port), _VoiceHandler)
         self.fail_after_first_chunk = fail_after_first_chunk
         self.fail_texts: set[str] = set()
+        self.delays: dict[str, float] = {}
+        self.active = self.peak_active = 0
         self.requests_seen: list[dict] = []
         serve(self)
 
@@ -100,6 +103,15 @@ class _VoiceHandler(socketserver.StreamRequestHandler):
         header = json.loads(line)
         request = json.loads(self.rfile.read(header["data_length"]))
         self.server.requests_seen.append(request)
+        self.server.active += 1
+        self.server.peak_active = max(self.server.peak_active, self.server.active)
+        try:
+            self._synthesize(request)
+        finally:
+            self.server.active -= 1
+
+    def _synthesize(self, request):
+        time.sleep(self.server.delays.get(request["text"], 0))
         self._event("audio-start", {"rate": 24000, "width": 2, "channels": 1})
         if request["text"] in self.server.fail_texts:
             return self._event("error", {"text": "CUDA out of memory"})

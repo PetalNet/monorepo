@@ -49,7 +49,7 @@ noise is taken for speech and the listen ends 1.3 s later.
   heard, starts a recording through Hex's local API (which never pastes), opens the head conversation, and asks the voice for a throwaway
   word so a sleeping voice host starts waking before the question is finished.
 - `stop` (key up): after a tap, waits for the speaker to stop; then takes the transcript from Hex, sends it as a turn, and for each sentence of the
-  reply fetches the audio and plays it in order. The whole reply is shown as one notification as
+  reply fetches the audio and plays it in order. Sentences are synthesized one at a time, in order, while the one before plays, so the first is always ready first. The whole reply is shown as one notification as
   soon as the text is complete, which is before the audio finishes.
 - When the voice host is asleep the gateway answers 503 and sends it a wake packet. The text is
   shown at once, a second notification says the voice is waking, and the audio plays when the
