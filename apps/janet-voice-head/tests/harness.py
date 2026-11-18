@@ -17,6 +17,12 @@ APP = Path(__file__).resolve().parent.parent
 FAKE_CLAUDE = Path(__file__).resolve().parent / "fake_claude.py"
 
 
+def toml_value(value) -> str:
+    if isinstance(value, dict):
+        return "{ " + ", ".join(f"{json.dumps(k)} = {toml_value(v)}" for k, v in value.items()) + " }"
+    return json.dumps(value)
+
+
 def free_port() -> int:
     with socket.socket() as sock:
         sock.bind(("127.0.0.1", 0))
@@ -115,7 +121,7 @@ class HeadCase(unittest.TestCase):
             f'state_dir = "{self.root / "state"}"',
             f'main_cwd = "{self.root}"',
             f"claude = {json.dumps(claude)}",
-            *(f"{key} = {json.dumps(value)}" for key, value in settings.items()),
+            *(f"{key} = {toml_value(value)}" for key, value in settings.items()),
             "[hub]",
             f'url = "{self.hub.url}"',
             f'token_file = "{self.root / "hub-token"}"',

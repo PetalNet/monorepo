@@ -466,6 +466,37 @@ class TierTest(HeadCase):
         self.assertEqual([json.loads(row)["uuid"] for row in copy.read_text().splitlines()], ["b", "live"])
         self.assertEqual(self.hub.transcript.read_text(), main)
 
+    def test_a_main_like_fork_carries_mains_flags_and_env_but_no_way_to_run_a_tool(self):
+        self.stop_head()
+        self.start_head(main_like_fork=True, main_like_args=["--plugin-dir", "/main/plugin"], main_like_env={"MAIN_LIKE_MARK": "1"})
+        sentences, _ = self.turn(self.open("personal"), "hello")
+        self.assertEqual(sentences, ["You said hello.", "That is all I know."])
+        launch = self.launches()[-1]
+        argv = launch["argv"]
+        self.assertNotIn("--tools", argv)
+        self.assertNotIn("--strict-mcp-config", argv)
+        self.assertEqual(argv[argv.index("--permission-mode") + 1], "dontAsk")
+        self.assertEqual(argv[argv.index("--setting-sources") + 1], "")
+        self.assertEqual(argv[argv.index("--plugin-dir") + 1], "/main/plugin")
+        self.assertIn("--fork-session", argv)
+        self.assertEqual(launch["cwd"], str(self.root))
+        self.assertEqual(launch["extra"], "1")
+        self.assertRegex(launch["base_url"], r"^http://127\.0\.0\.1:\d+$")
+
+    def test_the_cache_proxy_can_be_turned_off_for_a_main_like_fork(self):
+        self.stop_head()
+        self.start_head(main_like_fork=True, cache_normalize=False)
+        self.turn(self.open("personal"), "hello")
+        self.assertIsNone(self.launches()[-1]["base_url"])
+
+    def test_a_guest_is_never_launched_main_like(self):
+        self.stop_head()
+        self.start_head(main_like_fork=True)
+        self.turn(self.open("guest"), "hello")
+        argv = self.launches()[-1]["argv"]
+        self.assertIn("--tools", argv)
+        self.assertNotIn("--permission-mode", argv)
+
     def test_trimming_can_be_turned_off(self):
         self.stop_head()
         self.start_head(trim_transcript=False)

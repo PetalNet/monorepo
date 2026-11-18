@@ -33,18 +33,19 @@ def session_env(environ=os.environ) -> dict[str, str]:
 
 
 class ClaudeSession:
-    def __init__(self, argv: list[str], cwd: str):
+    def __init__(self, argv: list[str], cwd: str, env: dict[str, str] | None = None, allow_tools: bool = False):
         self.session_id: str | None = None
         self.account_email: str | None = None
         self.failure: str | None = None
         self._verified = False
+        self._allow_tools = allow_tools
         self._initialized = False
         self._ready = threading.Event()
         self._events: queue.Queue = queue.Queue()
         self._active = False
         self._answering = False
         self._write_lock = threading.Lock()
-        self._proc = subprocess.Popen(argv, cwd=cwd, env=session_env(), stdin=subprocess.PIPE,
+        self._proc = subprocess.Popen(argv, cwd=cwd, env=env if env is not None else session_env(), stdin=subprocess.PIPE,
                                       stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, text=True)
         threading.Thread(target=self._read, daemon=True).start()
         self._send({"type": "control_request", "request_id": "init", "request": {"subtype": "initialize"}})
@@ -121,7 +122,7 @@ class ClaudeSession:
                 self.account_email = (response.get("account") or {}).get("email")
                 self._initialized = True
         elif kind == "system" and event.get("subtype") == "init":
-            if event.get("tools") or event.get("mcp_servers"):
+            if (event.get("tools") or event.get("mcp_servers")) and not self._allow_tools:
                 return self._fail("the session came up with tools or MCP servers")
             self.session_id, self._verified = event.get("session_id"), True
         elif kind == "system" and event.get("subtype") == "status" and event.get("status") == "requesting":
