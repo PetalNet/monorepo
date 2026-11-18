@@ -485,7 +485,7 @@ class TierTest(HeadCase):
 
     def test_the_cache_proxy_can_be_turned_off_for_a_main_like_fork(self):
         self.stop_head()
-        self.start_head(main_like_fork=True, cache_normalize=False)
+        self.start_head(main_like_fork=True, cache_splice=False)
         self.turn(self.open("personal"), "hello")
         self.assertIsNone(self.launches()[-1]["base_url"])
 

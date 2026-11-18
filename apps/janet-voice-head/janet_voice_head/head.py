@@ -9,7 +9,7 @@ from pathlib import Path
 from . import prompts
 from .conversation import Conversation, Exchange, Journal, TranscriptMark
 from .merge import Hub, HubError, HubRefused
-from . import cache_normalize, snapshot
+from . import cache_splice, snapshot
 from .render import fallback_summary, hard_text, soft_text, stub_text
 from .session import LOCKED_FLAGS, ClaudeSession, SessionError, session_env, transcript_path
 from .speech import SIGN_OFF, SpeechStream, is_end_phrase
@@ -54,12 +54,12 @@ class Config:
     # launched (main's plugins and tool set from main_like_args, main_like_env) with permission mode dontAsk and no
     # settings files, so no allow rule can run a tool. Plugin hooks still run and read-only tools are still allowed:
     # deny them with permissions.deny in a --settings file passed in main_like_args. The fork then runs in
-    # main's directory. cache_normalize adds a loopback proxy that words the few tool definitions headless mode writes
-    # differently the way main writes them. Off by default: the lean fork below has no tools at all.
+    # main's directory. cache_splice adds a loopback proxy that gives the fork's request main's exact prefix (see
+    # cache_splice.py). Off by default: the lean fork below has no tools at all.
     main_like_fork: bool = False
     main_like_args: list[str] = field(default_factory=list)
     main_like_env: dict[str, str] = field(default_factory=dict)
-    cache_normalize: bool = True
+    cache_splice: bool = True
     unmerged_channels: list[str] = field(default_factory=list)
 
 
@@ -111,8 +111,8 @@ class Head:
         self._journals.mkdir(parents=True, exist_ok=True)
         (config.state_dir / "cold").mkdir(exist_ok=True)
         (config.state_dir / "fork").mkdir(exist_ok=True)
-        if config.main_like_fork and config.cache_normalize:
-            self._proxy = cache_normalize.serve_in_background(self._main_transcript)
+        if config.main_like_fork and config.cache_splice:
+            self._proxy = cache_splice.serve_in_background(self._main_transcript, self._main_session)
         self._recover()
         threading.Thread(target=self._upkeep_loop, daemon=True).start()
 
@@ -337,6 +337,12 @@ class Head:
     def _main_transcript(self) -> Path | None:
         try:
             return transcript_path(self.config.main_cwd, self.config.hub.main_session())
+        except HubError:
+            return None
+
+    def _main_session(self) -> str | None:
+        try:
+            return self.config.hub.main_session()
         except HubError:
             return None
 

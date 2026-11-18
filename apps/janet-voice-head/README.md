@@ -22,19 +22,21 @@ One conversation is one talk-only Claude Code process:
   within that many seconds share one copy, and so share the model's prompt cache: a cached first
   call read 184k tokens and reached the first token in 3.8 s, against 6.5 s uncached, at the price
   of a fork that is that much staler than main.
-- **Main-like fork and the cache proxy (off by default).** A fork reads main's prompt cache only when its request
-  matches main's byte for byte, and `--tools ""` alone makes it differ. With `main_like_fork = true` a personal fork
-  is launched as main is: main's plugins and tool set come from `main_like_args` and `main_like_env`, it runs in main's
-  directory, with `--permission-mode dontAsk` and no settings files, so no allow rule can run a tool. Two things
-  that does not stop: plugin hooks (the plugins named in `main_like_args` are main's own and their hooks run as they do
-  in main), and read-only tools, which dontAsk allows. Put deny rules for them in a `--settings` file in
-  `main_like_args` (`permissions.deny`); a fork told to read a file with Read, Glob, Grep, WebFetch, WebSearch,
-  Edit, Write and Bash denied reported that it could not. Headless mode still words a few tool definitions differently from main's interactive
-  session, so with `cache_normalize = true` (the default) the head runs a loopback proxy and points the fork at it with
-  `ANTHROPIC_BASE_URL`. The proxy rewrites only the `tools` of `/v1/messages` requests, copying each shared tool's
-  definition from main's own last logged request. It adds, removes and reorders nothing, and a request it does not
-  understand goes through unchanged with a `cache-normalize skipped` line in the log. Measured on a 108k-token fork,
-  first call: 14,302 tokens read and 76,242 written without it, 96,090 to 100,429 read and 5,831 to 8,089 written with it.
+- **Main-like fork and the cache splice (off by default).** A fork reads main's prompt cache only when the start of its
+  request matches main's byte for byte, and a fork resumed from main's transcript does not: headless mode words a few
+  tool definitions differently, and some old messages are rendered from session state main has and the fork lacks (a
+  harness-tag line in an attachment, a string where main sent a text block). The first difference makes it rebuild
+  everything after it: 14k tokens read and 162k written on a 160k-token fork. With `main_like_fork = true` a personal
+  fork is launched as main is (main's plugins and tool set from `main_like_args` and `main_like_env`, main's directory)
+  with `--permission-mode dontAsk` and no settings files, so no allow rule can run a tool. Plugin hooks still run and
+  read-only tools are still allowed: deny them with `permissions.deny` in a `--settings` file in `main_like_args`.
+  With `cache_splice = true` (the default) the head also runs a loopback proxy (`cache_splice.py`) and points the fork
+  at it with `ANTHROPIC_BASE_URL`. Main logs every request in its transcript, so the proxy rebuilds main's latest one,
+  and for a fork request replaces the tool definitions and the first k messages, which correspond to main's after
+  stripping harness-tag lines, with main's own, leaving the fork's tail as it is. It skips, forwards unchanged and logs
+  `splice skipped: <why>` when main's request is older than the cache lifetime, belongs to another session, the first
+  message does not correspond, or the tail would answer a tool call the prefix does not hold. Measured on a 160k-token
+  fork, first call: 14,303 read and 162,156 written without it, 176,459 read and 0 written with it.
 - **Talk only.** The process runs with no tools, no MCP servers, no settings, and an
   allowlisted environment. The head reads the session's own report of its tools and never
   uses a session that reports any.
