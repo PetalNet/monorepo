@@ -2,11 +2,11 @@ import { KEV_CAUSE, worst, type Cause, type KevEntry } from "./kev";
 import type { Store } from "./store";
 
 /** CISA dates entries in US Eastern time, so a door opens and closes on that clock. */
-export function doorDate(now: Date): string {
+function doorDate(now: Date): string {
 	return new Intl.DateTimeFormat("en-CA", { timeZone: "America/New_York" }).format(now);
 }
 
-export function doorLabel(date: string): string {
+function doorLabel(date: string): string {
 	const monthDay = date.slice(5);
 
 	if (monthDay >= "11-18" && monthDay <= "11-30") {
