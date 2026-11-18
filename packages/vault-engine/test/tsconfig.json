@@ -1,5 +1,9 @@
 {
-	"extends": "../tsconfig.json",
-	"compilerOptions": { "rootDir": "..", "outDir": "../node_modules/.cache/test-types" },
+	"extends": "../tsconfig.src.json",
+	"compilerOptions": {
+		"rootDir": "..",
+		"outDir": "../node_modules/.cache/test-types",
+		"tsBuildInfoFile": "../node_modules/.cache/tsbuild/info.test.json"
+	},
 	"include": ["./**/*.ts", "../src/**/*.ts"]
 }

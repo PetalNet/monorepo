@@ -378,17 +378,16 @@ function makeTx(
 		}
 	});
 
+	/** A claim is retired once: superseded or retracted, never both, never twice. */
 	const retire = Effect.fnUntraced(function* (id: string, change: Retirement) {
 		const { at, ...fields } = change;
+		const current = yield* claim(id);
 
-		yield* write(
-			"claims",
-			Claim,
-			{ ...(yield* claim(id)), ...fields, updated: at },
-			"retired",
-			id,
-			change,
-		);
+		if (current.status !== "active") {
+			return yield* reject(`Claim ${id} is already ${current.status}`);
+		}
+
+		yield* write("claims", Claim, { ...current, ...fields, updated: at }, "retired", id, change);
 	});
 
 	const flag = Effect.fnUntraced(function* (current: Claim, sources: readonly string[]) {
@@ -611,8 +610,13 @@ function lostOrDuplicated(
 			return `Write would rewrite claim ${id}; replace it instead`;
 		}
 
-		if (old.status !== "active" && now.status === "active") {
-			return `Write would revive ${old.status} claim ${id}`;
+		if (
+			old.status !== "active" &&
+			(now.status !== old.status ||
+				now.supersededBy !== old.supersededBy ||
+				now.reason !== old.reason)
+		) {
+			return `Write would change ${old.status} claim ${id}`;
 		}
 	}
 
@@ -623,6 +627,49 @@ function lostOrDuplicated(
 	);
 
 	return taken === undefined ? undefined : `Write would duplicate claim ${taken}`;
+}
+
+/**
+ * Every ID a record in this tier holds must name a record that exists, in this tier or in shared:
+ * claim links, a source's replacement and the sources it cites, a topic's hub, and a run's lists.
+ */
+function danglingOrPrivate(tier: Tier, view: VaultView) {
+	const state = view.tiers[tier];
+	const reachable = (id: string) => {
+		const found = id.startsWith("t-")
+			? id in state.topics
+				? tier
+				: undefined
+			: view.locate(id)?.tier;
+
+		return found !== undefined && mayLink(tier, found);
+	};
+
+	const refs = [
+		...Object.values(state.claims).flatMap((claim) => [
+			...claim.links.map((link) => link.target),
+			...(claim.supersededBy === undefined ? [] : [claim.supersededBy]),
+		]),
+		...Object.values(state.sources).flatMap((source) => [
+			...(source.replacedBy === undefined ? [] : [source.replacedBy]),
+			// A cited URL is not an ID; only cited vault sources are references.
+			...(source.cites ?? []).filter((cited) => /^(?:src|doc)-/.test(cited)),
+		]),
+		...Object.values(state.topics).flatMap((topic) => (topic.hub === undefined ? [] : [topic.hub])),
+		...Object.values(state.runs).flatMap((run) => [
+			...run.topics,
+			...run.answer,
+			...run.created,
+			...run.updated,
+			...run.reused,
+			...run.stale,
+		]),
+	];
+	const bad = refs.find((id) => !reachable(id));
+
+	return bad === undefined
+		? undefined
+		: `A ${tier} record refers to ${bad}, which is not in ${tier === "shared" ? "the shared tier" : `the ${tier} or shared tier`}`;
 }
 
 interface Loaded {
@@ -705,7 +752,10 @@ const makeVault = Effect.fnUntraced(function* (config: VaultConfig) {
 			`${tier} tier`,
 		);
 
-		const problem = lostOrDuplicated(tier, base.state, readState(doc), committed);
+		const after = readState(doc);
+		const problem =
+			lostOrDuplicated(tier, base.state, after, committed) ??
+			danglingOrPrivate(tier, makeView({ ...committed, [tier]: after }));
 
 		if (problem !== undefined) {
 			return yield* reject(problem);
@@ -718,7 +768,7 @@ const makeVault = Effect.fnUntraced(function* (config: VaultConfig) {
 	const transact: VaultShape["transact"] = (tier, message, body) =>
 		Effect.scoped(
 			Effect.gen(function* () {
-				yield* files.lock(tier);
+				yield* files.lock;
 
 				const { loaded, states } = yield* loadAll;
 				const base = loaded[tier];

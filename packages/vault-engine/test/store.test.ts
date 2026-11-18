@@ -35,12 +35,12 @@ describe("tier files", () => {
 	it.live("makes a second writer wait for the lock, and clears a lock left by a dead process", () =>
 		Effect.gen(function* () {
 			const { fs, store } = yield* files;
-			const lockFile = `${store.file("shared")}.lock`;
+			const { lockFile } = store;
 			const order: string[] = [];
 			const held = yield* Deferred.make<true>();
 			const first = yield* Effect.scoped(
 				Effect.gen(function* () {
-					yield* store.lock("shared");
+					yield* store.lock;
 					yield* Deferred.succeed(held, true);
 					yield* Effect.sleep("100 millis");
 					order.push("first");
@@ -50,7 +50,7 @@ describe("tier files", () => {
 			yield* Deferred.await(held);
 
 			yield* Effect.scoped(
-				store.lock("shared").pipe(Effect.andThen(Effect.sync(() => order.push("second")))),
+				store.lock.pipe(Effect.andThen(Effect.sync(() => order.push("second")))),
 			);
 
 			yield* Fiber.join(first);
@@ -59,7 +59,7 @@ describe("tier files", () => {
 			expect(yield* fs.exists(lockFile)).toBe(false);
 
 			yield* fs.writeFileString(lockFile, "test-host:2147483646:stale");
-			yield* Effect.scoped(store.lock("shared"));
+			yield* Effect.scoped(store.lock);
 			expect(yield* fs.exists(lockFile)).toBe(false);
 		}).pipe(Effect.provide(NodeServices.layer)),
 	);

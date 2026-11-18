@@ -31,7 +31,7 @@ same time has its own key: a claim's text (`claims`), its retirement (`retired`)
 
 ## Write path
 
-`Vault.transact(tier, message, body)` runs one write under the tier's lock. The body gets a `Tx`
+`Vault.transact(tier, message, body)` runs one write under the vault's write lock (one lock for all tiers, since a write checks the others). The body gets a `Tx`
 whose methods are the only operations there are: add, replace or retract a claim; put a source,
 topic or run; add a passage; retire a source; flag dependents. The Loro document stays inside the
 service. Each operation checks its record strictly against its schema before writing it. A source
@@ -40,8 +40,9 @@ once written.
 
 At commit, everything the write added to the op log, commit message included, passes the secret
 scan (`src/secrets.ts`, following the gitleaks rules); a hit refuses the whole write and names only
-the rule. The commit also confirms that every claim that existed is still there with the same core
-and that none came back to life. The snapshot is written to a temporary file, synced, and renamed
+the rule. The commit also confirms that every claim that existed is still there with the same core,
+that a retired claim stays exactly as it was retired, and that every ID a record in the tier holds
+(links, replacements, citations, hubs, run lists) names a record in that tier or in `shared`. The snapshot is written to a temporary file, synced, and renamed
 over the tier file only if that file still holds the bytes the write started from. The replaced
 version stays beside it as `<tier>.loro.prev`.
 

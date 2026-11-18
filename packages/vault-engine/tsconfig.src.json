@@ -1,0 +1,12 @@
+{
+	"extends": "@petalnet/tsconfig/base.json",
+	"compilerOptions": {
+		"strict": true,
+		"outDir": "dist",
+		"rootDir": "src",
+		"types": ["node"],
+		"lib": ["esnext", "dom", "dom.iterable"],
+		"tsBuildInfoFile": "node_modules/.cache/tsbuild/info.src.json"
+	},
+	"include": ["src/**/*.ts"]
+}

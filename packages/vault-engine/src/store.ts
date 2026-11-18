@@ -51,11 +51,13 @@ export interface TierFilesShape {
 		bytes: Uint8Array,
 	) => Effect.Effect<void, WriteRejected | PlatformError>;
 	/**
-	 * Holds the tier's lock for the scope: a hard link to a file naming the holder, which fails if
-	 * the lock exists. Only the holder releases it. A lock whose holder is a dead process on this
-	 * host, or that is older than an hour, is cleared.
+	 * Holds the vault's write lock for the scope: one lock for every tier, because a write checks the
+	 * other tiers too. It is a hard link to a file naming the holder, which fails if the lock exists.
+	 * Only the holder releases it. A lock whose holder is a dead process on this host, or that is
+	 * older than an hour, is cleared.
 	 */
-	readonly lock: (tier: Tier) => Effect.Effect<void, WriteRejected | PlatformError, Scope.Scope>;
+	readonly lock: Effect.Effect<void, WriteRejected | PlatformError, Scope.Scope>;
+	readonly lockFile: string;
 }
 
 /** The tier files of one vault folder: `<root>/docs/<tier>.loro`. */
@@ -107,8 +109,8 @@ const makeTierFiles = Effect.fnUntraced(function* (root: string, host: string) {
 		}).pipe(Effect.onError(() => fs.remove(temporary, { force: true }).pipe(Effect.ignore)));
 	});
 
-	const lock = (tier: Tier) => {
-		const lockFile = `${file(tier)}.lock`;
+	const lockFile = path.join(root, "docs", "vault.lock");
+	const lock = Effect.suspend(() => {
 		const token = `${host}:${String(process.pid)}:${randomBytes(8).toString("hex")}`;
 		const mine = `${lockFile}.${randomBytes(8).toString("hex")}`;
 
@@ -163,13 +165,13 @@ const makeTierFiles = Effect.fnUntraced(function* (root: string, host: string) {
 			take.pipe(
 				Effect.timeoutOrElse({
 					duration: Duration.minutes(2),
-					orElse: () => Effect.fail(reject(`Timed out waiting for the ${tier} tier lock`)),
+					orElse: () => Effect.fail(reject("Timed out waiting for the vault lock")),
 				}),
 				Effect.onError(() => fs.remove(mine, { force: true }).pipe(Effect.ignore)),
 			),
 			() => release,
 		);
-	};
+	});
 
-	return { file, read, save, lock } satisfies TierFilesShape;
+	return { file, read, save, lock, lockFile } satisfies TierFilesShape;
 });

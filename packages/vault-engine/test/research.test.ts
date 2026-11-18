@@ -22,6 +22,31 @@ import {
 } from "./tools.ts";
 
 describe("research run", () => {
+	test("refuses a shared run that reuses a private claim", () =>
+		Effect.gen(function* () {
+			yield* seeded;
+
+			const hidden = yield* write("personal", (tx) =>
+				tx.putTopic({ id: "t-private", title: "Private", summary: "Private.", headings: [] }).pipe(
+					Effect.andThen(
+						tx.addClaim({
+							text: "A private finding.",
+							topic: "t-private",
+							heading: "Notes",
+							links: [],
+							sourceType: "GUESS",
+						}),
+					),
+				),
+			);
+
+			expect(
+				(yield* Effect.flip(researchRun("shared", input({ reused: [hidden.id] })))).message,
+			).toMatch(/refers to c-[a-z0-9]{8}, which is not in the shared tier/);
+
+			expect((yield* state("shared")).runs).toEqual({});
+		}));
+
 	const input = (extra: Partial<ResearchRunInput> = {}): ResearchRunInput => ({
 		question: "How big should a vault note be?",
 		summary: "Topic notes with claim-level IDs.",

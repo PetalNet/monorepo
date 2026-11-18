@@ -41,6 +41,38 @@ const source = (id: string) =>
 	Effect.flatMap(Vault, (vault) => Effect.map(vault.view, (view) => view.source(id)));
 
 describe("migration", () => {
+	test("resolves a shared document's citations only to shared captures, and withholds an origin that trips the scan", () =>
+		Effect.gen(function* () {
+			const dir = yield* tempDir;
+			const cites = yield* file(dir, "cites.md", "See https://example.org/page for details.\n");
+			const leaky = yield* file(dir, "leaky.md", `token ghp_${"a1B2".repeat(9)}\n`);
+			const report = yield* migrate(
+				[
+					capture(SOURCE, { tier: "personal" }),
+					document(cites),
+					document(leaky, {
+						origin: `https://admin:${["hunter2", "Zq8vR2mW"].join("")}@db.example.org/x`,
+					}),
+				],
+				[],
+			);
+
+			expect(
+				(yield* source(report.migrated.find((item) => item.origin === cites)?.id ?? ""))?.cites,
+			).toEqual(["https://example.org/page"]);
+
+			expect(report.unsavedCitations).toEqual([
+				{ ref: "https://example.org/page", citedBy: cites },
+			]);
+
+			expect(report.excluded).toEqual([
+				{
+					origin: "(origin withheld by the secret scan)",
+					reason: "secret scan: url-credentials, github-pat",
+				},
+			]);
+		}));
+
 	test("copies documents in as sources with one passage per section, linking saved citations", () =>
 		Effect.gen(function* () {
 			const body =

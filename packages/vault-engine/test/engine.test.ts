@@ -286,6 +286,28 @@ describe("write checks", () => {
 });
 
 describe("staleness", () => {
+	test("retires a claim once: a superseded or retracted claim cannot be replaced or retracted again", () =>
+		Effect.gen(function* () {
+			const old = yield* write("shared", (tx) =>
+				seed(tx).pipe(Effect.andThen(tx.addClaim(claimInput("First wording.")))),
+			);
+			const next = yield* write("shared", (tx) =>
+				tx.replaceClaim(old.id, claimInput("Second wording.")),
+			);
+
+			for (const attempt of [
+				write("shared", (tx) => tx.replaceClaim(old.id, claimInput("Third wording."))),
+				write("shared", (tx) => tx.retractClaim(old.id, "changed my mind")),
+			]) {
+				expect((yield* Effect.flip(attempt)).message).toMatch(/already superseded/);
+			}
+
+			expect((yield* state("shared")).claims[old.id]).toMatchObject({
+				status: "superseded",
+				supersededBy: next.id,
+			});
+		}));
+
 	test("flags every claim that cites a replaced source, in every tier, and leaves the rest alone", () =>
 		Effect.gen(function* () {
 			const [cites, unrelated] = yield* write("shared", (tx) =>
@@ -350,6 +372,25 @@ describe("staleness", () => {
 });
 
 describe("tiers and locks", () => {
+	test("refuses a shared source replaced by a private one", () =>
+		Effect.gen(function* () {
+			const privateSource = "src-bbbbbbbbbbbbbbbbbbbb";
+
+			yield* seeded;
+			yield* write("personal", (tx) => seed(tx, privateSource));
+
+			const error = yield* Effect.flip(
+				(yield* Vault).retireSource(SOURCE, {
+					status: "replaced",
+					replacedBy: privateSource,
+					reason: "a private copy",
+				}),
+			);
+
+			expect(error.message).toMatch(/refers to src-b+, which is not in the shared tier/);
+			expect((yield* state("shared")).sources[SOURCE]?.status).toBe("active");
+		}));
+
 	test("refuses a shared claim that links into a private tier", () =>
 		Effect.gen(function* () {
 			const privateSource = "src-bbbbbbbbbbbbbbbbbbbb";
@@ -417,7 +458,7 @@ describe("tiers and locks", () => {
 				write("shared", (tx) =>
 					Effect.gen(function* () {
 						yield* tx.addClaim(claimInput("From the writer that lost its lock."));
-						yield* remove(`${vault.file("shared")}.lock`);
+						yield* remove(path.join(path.dirname(vault.file("shared")), "vault.lock"));
 
 						yield* addClaim("shared", claimInput("From the writer that took over.")).pipe(
 							Effect.provideService(Vault, other),

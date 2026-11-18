@@ -5,6 +5,7 @@ import { Effect, FileSystem, Option, Schema } from "effect";
 import { Vault } from "./engine.ts";
 import type { NewSource, Tx } from "./engine.ts";
 import { SourceType, Text, Tier, oneLine } from "./schema.ts";
+import { secretRules } from "./secrets.ts";
 
 const Timestamp = Text.check(Schema.isPattern(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?Z$/));
 
@@ -152,7 +153,7 @@ export const migrate = Effect.fnUntraced(function* (
 	const denied = denyKeywords.map(fold).filter(Boolean);
 	const outOfScope = (text: string) => denied.some((keyword) => fold(text).includes(keyword));
 	/** Reference key to the ID of a capture that is now in the vault. */
-	const saved = new Map<string, string>();
+	const saved = new Map<string, { id: string; tier: Tier }>();
 
 	/** One transaction per tier; an entry that fails its own checks is reported and the rest go on. */
 	const each = <Entry extends ManifestEntry>(
@@ -214,7 +215,7 @@ export const migrate = Effect.fnUntraced(function* (
 					report.migrated.push({ origin: entry.url, id: entry.id, passages: 0 });
 
 					for (const key of [entry.url, ...refs].flatMap(referenceKeys)) {
-						saved.set(key, entry.id);
+						saved.set(key, { id: entry.id, tier: entry.tier });
 					}
 				},
 			);
@@ -258,9 +259,13 @@ export const migrate = Effect.fnUntraced(function* (
 				const unsaved: string[] = [];
 
 				for (const url of citedUrls(kept.map((section) => section.text).join("\n"))) {
+					// A shared document may cite only shared captures; a private one, its own tier's too.
 					const id = referenceKeys(url)
 						.map((key) => saved.get(key))
-						.find((found) => found !== undefined);
+						.find(
+							(found) =>
+								found !== undefined && (found.tier === entry.tier || found.tier === "shared"),
+						)?.id;
 
 					if (id === undefined) {
 						unsaved.push(url);
@@ -300,7 +305,8 @@ export const migrate = Effect.fnUntraced(function* (
 						),
 						...(cites.length === 0 ? {} : { cites: [...new Set(cites)] }),
 					},
-					origin,
+					// An origin that itself trips the scan is withheld from the report.
+					secretRules([origin]).length === 0 ? origin : "(origin withheld by the secret scan)",
 					() => {
 						report.migrated.push({ origin, id, passages: kept.length });
 
