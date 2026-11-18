@@ -128,11 +128,9 @@
 		flex-direction: column;
 		background: var(--ground);
 		color: var(--ink);
-		font:
-			15px/1.5 "Geist Variable",
-			Geist,
-			system-ui,
-			sans-serif;
+		font-size: 15px;
+		line-height: 1.5;
+		font-family: var(--sans);
 	}
 	@media (prefers-color-scheme: dark) {
 		.home {
@@ -249,7 +247,7 @@
 		white-space: nowrap;
 	}
 	.doc :global(code) {
-		font-family: "Geist Mono Variable", ui-monospace, monospace;
+		font-family: var(--mono);
 		font-size: 0.9em;
 		background: var(--tint);
 		padding: 1px 5px;
@@ -266,8 +264,9 @@
 		padding: 0;
 	}
 	.doc :global(blockquote) {
-		border-left: 3px solid var(--petal);
-		padding-left: 12px;
+		background: var(--tint);
+		border-radius: 10px;
+		padding: 6px 12px;
 		color: var(--g1);
 	}
 	.empty {
