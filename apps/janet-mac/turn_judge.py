@@ -160,7 +160,7 @@ class Judge:
         self._scale = np.array(fitted["scale"])
         self._weight = np.array(fitted["weight"])
         self._bias: float = fitted["bias"]
-        self.sure: float = fitted["sure"]  # the chance at which the turn ends early
+        self.sure: float = fitted["sure"]  # the turn ends early above this chance
 
     def done(self, c: dict[str, float]) -> float:
         x = (np.array([c[name] for name in self.names]) - self._mean) / self._scale
@@ -218,7 +218,7 @@ class Hearing:
         chance = self._judge.done(c)
         # A last word that leads somewhere ("the", "so", "for") is no ending, but short answers
         # do end on some of them, so it only rules out ending early.
-        if c["leading"] or chance < self._judge.sure:
+        if c["leading"] or chance <= self._judge.sure:
             return None
         print(f"judged done: {chance:.2f} {json.dumps(c)}", file=sys.stderr)
         return "done"
