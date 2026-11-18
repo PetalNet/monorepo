@@ -198,7 +198,7 @@ def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__.split("\n")[0])
     parser.add_argument("--models", type=Path, required=True, help="directory holding silero_vad.onnx")
     parser.add_argument("--rate", type=int, default=RATE, help="sample rate of the audio on standard input")
-    parser.add_argument("--stop-file", type=Path, help="stop as soon as this file exists")
+    parser.add_argument("--stop-file", type=Path, action="append", default=[], help="stop as soon as this file exists")
     parser.add_argument("--max-s", type=float, default=300.0, help="backstop on the whole listen")
     parser.add_argument("--nothing-said-s", type=float, default=Policy.nothing_said_s)
     parser.add_argument("--claim", type=Path, help="a directory to make when speech begins; when it is there already, stop")
@@ -216,7 +216,7 @@ def main() -> None:
     def watch() -> None:
         # Its own thread, so a stalled audio stream cannot hold up the key or the limit.
         while True:
-            if args.stop_file and args.stop_file.exists():
+            if any(path.exists() for path in args.stop_file):
                 stop("key")
             if time.monotonic() - start >= args.max_s:
                 stop("limit")

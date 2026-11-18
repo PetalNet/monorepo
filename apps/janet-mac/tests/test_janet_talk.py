@@ -14,6 +14,7 @@ import sys
 import tempfile
 import time
 import unittest
+from unittest import mock
 from pathlib import Path
 
 APP = Path(__file__).resolve().parent.parent
@@ -325,6 +326,32 @@ class TurnEndTest(TalkCase):
         self.assertEqual(self.head_calls("/turns"), [{"text": "what time is it"}, {"text": "what time is it and tomorrow"}])
         self.assertEqual(self.lines("played"), ["First.", "Second."])
         self.assertEqual(self.lines("hex.log"), ["start", "finish", "start", "finish", "start", "cancel"])
+        self.notified(["First. Second."])
+
+    def test_a_head_still_putting_the_dropped_reply_away_is_asked_again(self):
+        self.turn_end()
+        self.head.release_turn.clear()
+        (self.stub / "voice-seconds").write_text("2")
+        (self.stub / "goes-on-after").write_text("0.7")
+        answer, asked = fakes._HeadHandler.do_POST, []
+
+        def busy_once(handler):
+            if handler.path.endswith("/turns"):
+                asked.append(handler.path)
+                if len(asked) == 2:
+                    handler.rfile.read(int(handler.headers.get("Content-Length", "0")))
+                    return handler._json(409, {"error": "a turn is already in flight; interrupt it first"})
+            return answer(handler)
+
+        with mock.patch.object(fakes._HeadHandler, "do_POST", busy_once):
+            self.talk("start")
+            talking = self.talk("stop", wait=False)
+            self.wait_for(lambda: self.head_calls("/interrupt") == [{"heard_text": ""}])
+            self.head.release_turn.set()
+            self.assertEqual(talking.wait(40), 0)
+        self.assertEqual(len(asked), 3)
+        self.assertEqual(self.head_calls("/turns")[-1], {"text": "what time is it and tomorrow"})
+        self.assertEqual(self.lines("played"), ["First.", "Second."])
         self.notified(["First. Second."])
 
     def test_a_reply_that_begins_to_play_ends_the_further_listening(self):
