@@ -4,12 +4,29 @@ import { PlatformError } from "effect/PlatformError";
 
 import { Vault } from "./engine.ts";
 import { SecretFound, TierUnreadable, WriteRejected } from "./errors.ts";
+import { project } from "./project.ts";
 import { ClaimCard, recallClaims, reindex, renderCard } from "./recall.ts";
 import { RememberInput, remember } from "./research.ts";
 import { Claim, Text, Tier } from "./schema.ts";
 
-/** Brings the read side, the claim index, up to date after a write. */
-export const refresh = Effect.asVoid(reindex);
+/**
+ * Brings the read side (claim index, and the projection when configured) up to date. The write is
+ * already saved, so a failure here is reported and swallowed: failing would invite a retry that
+ * stores the write twice.
+ */
+export const refresh = Effect.gen(function* () {
+	const vault = yield* Vault;
+
+	yield* reindex;
+
+	if (vault.projection !== undefined) {
+		yield* project(vault.projection);
+	}
+}).pipe(
+	Effect.catchCause((cause) =>
+		Effect.logWarning("Saved, but the index or projection could not be refreshed", cause),
+	),
+);
 
 const errors = {
 	WriteRejected: operationError(WriteRejected, { status: 422, message: (error) => error.message }),

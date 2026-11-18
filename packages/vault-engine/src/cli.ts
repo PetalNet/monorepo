@@ -10,6 +10,7 @@ import { Argument, Command, Flag } from "effect/cli";
 import { operations, refresh } from "./api.ts";
 import { Vault } from "./engine.ts";
 import { SecretFound, WriteRejected } from "./errors.ts";
+import { project } from "./project.ts";
 import { reindex } from "./recall.ts";
 import { tiers } from "./schema.ts";
 
@@ -37,6 +38,12 @@ const some = <A>(key: string, value: Option.Option<A>) =>
 const words = Argument.String("text").pipe(Argument.variadic({ min: 1 }));
 const tier = optional(Flag.Literals("tier", tiers));
 const reason = Flag.String("reason");
+const folder = Argument.String("dir").pipe(Argument.optional);
+
+const out = (dir: Option.Option<string>) =>
+	Effect.map(Vault, (vault) =>
+		Option.getOrElse(dir, () => vault.projection ?? path.join(vault.root, "obsidian")),
+	);
 
 const commands = [
 	Command.make(
@@ -102,6 +109,13 @@ const commands = [
 			).pipe(Command.withDescription("Retract a claim. Its ID stays.")),
 		]),
 	),
+	Command.make("project", { dir: folder }, ({ dir }) =>
+		Effect.flatMap(out(dir), project).pipe(Effect.flatMap(print)),
+	).pipe(
+		Command.withDescription(
+			"Regenerate the Obsidian vault (default: VAULT_PROJECTION or <root>/obsidian).",
+		),
+	),
 	Command.make("reindex", {}, () => reindex.pipe(Effect.flatMap(print))).pipe(
 		Command.withDescription("Rebuild the claim index."),
 	),
@@ -119,7 +133,10 @@ const commands = [
 	),
 ];
 
-/** `VAULT_ROOT` is this host's vault and `VAULT_AGENT` names the writer. */
+/**
+ * `VAULT_ROOT` is this host's vault, `VAULT_AGENT` names the writer and `VAULT_PROJECTION` an
+ * Obsidian folder to keep current.
+ */
 const VaultLive = Layer.unwrap(
 	Effect.gen(function* () {
 		const root = yield* Config.String("VAULT_ROOT").pipe(
@@ -128,8 +145,9 @@ const VaultLive = Layer.unwrap(
 		const agent = yield* Config.String("VAULT_AGENT").pipe(
 			Config.withDefault(os.userInfo().username),
 		);
+		const projection = yield* Config.option(Config.String("VAULT_PROJECTION"));
 
-		return Vault.layer({ root, agent });
+		return Vault.layer({ root, agent, ...some("projection", projection) });
 	}),
 );
 

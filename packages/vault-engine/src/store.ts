@@ -13,7 +13,7 @@ const isSystemError = (tag: PlatformError["reason"]["_tag"]) => (error: Platform
 	Predicate.isTagged(error.reason, tag);
 
 /** A file that does not exist reads as `None`; every other failure stays a failure. */
-const ifExists = <A, R>(effect: Effect.Effect<A, PlatformError, R>) =>
+export const ifExists = <A, R>(effect: Effect.Effect<A, PlatformError, R>) =>
 	effect.pipe(
 		Effect.asSome,
 		Effect.catchIf(isSystemError("NotFound"), () => Effect.succeedNone),

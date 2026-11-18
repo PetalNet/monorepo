@@ -109,6 +109,8 @@ export interface VaultShape {
 	readonly root: string;
 	/** The writing agent. Each agent on each host writes as its own Loro peer. */
 	readonly agent: string;
+	/** An Obsidian folder kept current after each write, if any. */
+	readonly projection: string | undefined;
 	readonly file: (tier: Tier) => string;
 	readonly view: Effect.Effect<VaultView, VaultError>;
 	/**
@@ -137,6 +139,7 @@ export interface VaultConfig {
 	readonly agent: string;
 	/** Names this host in the writer's peer; defaults to the hostname. */
 	readonly host?: string;
+	readonly projection?: string;
 }
 
 const reject = (message: string) => new WriteRejected({ message });
@@ -723,6 +726,7 @@ const makeVault = Effect.fnUntraced(function* (config: VaultConfig) {
 	return {
 		root: config.root,
 		agent: config.agent,
+		projection: config.projection,
 		file: files.file,
 		view: Effect.map(loadAll, ({ states }) => makeView(states)),
 		transact,
