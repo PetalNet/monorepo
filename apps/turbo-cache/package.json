@@ -20,7 +20,6 @@
 	"devDependencies": {
 		"@petalnet/tsconfig": "workspace:*",
 		"@types/node": "catalog:types",
-		"turborepo-remote-cache": "catalog:dev",
 		"typescript": "catalog:dev",
 		"vitest": "catalog:dev"
 	}

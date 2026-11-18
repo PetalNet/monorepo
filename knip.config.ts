@@ -19,7 +19,7 @@ export default (({ strict }) => ({
 	treatConfigHintsAsErrors: true,
 	workspaces: {
 		"apps/turbo-cache": {
-			entry: ["src/main.ts!", "test/cache-process.ts"],
+			entry: ["src/main.ts!"],
 		},
 		tools: {
 			// Repository-only operations are invoked by agents and build scripts, not imported.

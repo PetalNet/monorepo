@@ -63,5 +63,7 @@ providers and emits `scope` plus `teams`. Keep `JWT_READ_SCOPES=read`,
 permit any valid token.
 
 Its JWT dependency accepts RS256 and EdDSA, but not ES256. This exchanger uses
-RS256. ducktors publishes no TypeScript declarations and its `/v8/clean` endpoint
-requires write access, so eviction operates directly on storage.
+RS256. ducktors' `/v8/clean` endpoint requires write access, so eviction operates directly on storage.
+
+The integration test runs the pinned ducktors image with docker and host networking.
+It is skipped on machines without docker and required in CI.

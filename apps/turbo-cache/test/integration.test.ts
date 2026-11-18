@@ -1,8 +1,5 @@
 import { generateKeyPairSync } from "node:crypto";
-import { mkdtemp, rm } from "node:fs/promises";
 import { createServer } from "node:http";
-import { tmpdir } from "node:os";
-import path from "node:path";
 
 import * as NodeHttpServer from "@effect/platform-node/NodeHttpServer";
 import { Effect, Layer, Redacted, Schema } from "effect";
@@ -10,12 +7,12 @@ import * as FetchHttpClient from "effect/http/FetchHttpClient";
 import * as HttpClient from "effect/http/HttpClient";
 import * as HttpClientRequest from "effect/http/HttpClientRequest";
 import { decodeJwt, exportJWK, SignJWT } from "jose";
-import { expect, it } from "vitest";
+import { beforeAll, expect, it } from "vitest";
 
 import { createExchanger } from "../src/exchanger.ts";
 import { githubIssuer } from "../src/policy.ts";
 import { application } from "../src/server.ts";
-import { startCache } from "./cache-process.ts";
+import { dockerAvailable, pullCache, startCache } from "./cache-process.ts";
 
 const TokenResponse = Schema.Struct({
 	access_token: Schema.String,
@@ -24,7 +21,20 @@ const TokenResponse = Schema.Struct({
 	team: Schema.String,
 });
 
-it("exchanges local issuer tokens and enforces access in unmodified ducktors v2.14.3", async () => {
+const docker = await dockerAvailable();
+
+// CI must run this test; local machines without docker skip it.
+if (!docker && process.env["CI"]) {
+	throw new Error("The ducktors integration test needs docker in CI");
+}
+
+beforeAll(async () => {
+	if (docker) {
+		await pullCache();
+	}
+}, 120_000);
+
+it.skipIf(!docker)("exchanges local issuer tokens and enforces access in unmodified ducktors v2.14.3", async () => {
 	const issuerKey = generateKeyPairSync("rsa", { modulusLength: 2048 });
 	const signingKey = generateKeyPairSync("rsa", { modulusLength: 2048 });
 	const jwk = {
@@ -72,7 +82,6 @@ it("exchanges local issuer tokens and enforces access in unmodified ducktors v2.
 	}
 
 	const issuerUrl = `http://127.0.0.1:${String(address.port)}`;
-	const storage = await mkdtemp(path.join(tmpdir(), "petalnet-cache-"));
 
 	try {
 		await Effect.runPromise(
@@ -100,7 +109,7 @@ it("exchanges local issuer tokens and enforces access in unmodified ducktors v2.
 					const base = `http://127.0.0.1:${String(server.address.port)}`;
 
 					yield* Effect.promise(async () => {
-						const cache = await startCache(`${base}/.well-known/jwks.json`, storage);
+						const cache = await startCache(`${base}/.well-known/jwks.json`);
 						const cacheUrl = cache.url;
 						const mint = (claims: Record<string, unknown> = {}, key = issuerKey.privateKey) =>
 							new SignJWT({
@@ -267,7 +276,5 @@ it("exchanges local issuer tokens and enforces access in unmodified ducktors v2.
 				}
 			});
 		});
-
-		await rm(storage, { recursive: true, force: true });
 	}
 }, 30_000);

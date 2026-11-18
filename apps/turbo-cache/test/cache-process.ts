@@ -1,59 +1,107 @@
-import { spawn } from "node:child_process";
-import { once } from "node:events";
+import { execFile } from "node:child_process";
+import { createServer } from "node:net";
+import { promisify } from "node:util";
 
-import { Schema } from "effect";
+const run = promisify(execFile);
 
-export async function startCache(jwksUrl: string, storage: string) {
-	const child = spawn(
-		process.execPath,
-		[
-			"--input-type=module",
-			"--eval",
-			`
-		import { createApp } from ${JSON.stringify(import.meta.resolve("turborepo-remote-cache"))};
-		const app = createApp({ logger: false });
-		const url = await app.listen({ port: 0, host: '127.0.0.1' });
-		process.send(url);
-		process.on('SIGTERM', async () => { await app.close(); process.exit(0); });
-	`,
-		],
-		{
-			cwd: import.meta.dirname,
-			stdio: ["ignore", "ignore", "inherit", "ipc"],
-			env: {
-				...process.env,
-				AUTH_MODE: "jwt",
-				JWKS_URL: jwksUrl,
-				JWT_ISSUER: "https://turbo-cache.petalcat.dev",
-				JWT_AUDIENCE: "turbo-cache.petalcat.dev",
-				JWT_SCOPE_CLAIM: "scope",
-				JWT_READ_SCOPES: "read",
-				JWT_WRITE_SCOPES: "write",
-				JWT_TEAM_CLAIM: "teams",
-				STORAGE_PROVIDER: "local",
-				STORAGE_PATH: storage,
-				STORAGE_PATH_USE_TMP_FOLDER: "false",
-			},
-		},
-	);
+// The exact image compose deploys, so the test exercises the shipped ducktors build.
+export const cacheImage =
+	"ducktors/turborepo-remote-cache:2.14.3@sha256:781b0549dca80cf5aca27bf416fc766d44cad57333a7368098a755c5f12b8822";
+
+export async function dockerAvailable() {
+	if (process.platform !== "linux") {
+		return false;
+	}
 
 	try {
-		const messages: unknown[] = await once(child, "message", {
-			signal: AbortSignal.timeout(10_000),
+		await run("docker", ["version", "--format", "{{.Server.Version}}"]);
+
+		return true;
+	} catch {
+		return false;
+	}
+}
+
+export async function pullCache() {
+	await run("docker", ["pull", "--quiet", cacheImage]);
+}
+
+async function freePort() {
+	const server = createServer();
+
+	await new Promise<void>((resolve) => {
+		server.listen(0, "127.0.0.1", resolve);
+	});
+
+	const address = server.address();
+
+	await new Promise<void>((resolve) => {
+		server.close(() => {
+			resolve();
 		});
-		const url = Schema.decodeUnknownSync(Schema.String)(messages[0]);
+	});
 
-		return {
-			url,
-			close: async () => {
-				const exited = once(child, "exit");
+	if (!address || typeof address === "string") {
+		throw new Error("Missing free port");
+	}
 
-				child.kill("SIGTERM");
-				await exited;
-			},
-		};
+	return address.port;
+}
+
+// Host networking lets the container reach the test's loopback JWKS server.
+export async function startCache(jwksUrl: string) {
+	const port = await freePort();
+	const env = {
+		PORT: String(port),
+		AUTH_MODE: "jwt",
+		JWKS_URL: jwksUrl,
+		JWT_ISSUER: "https://turbo-cache.petalcat.dev",
+		JWT_AUDIENCE: "turbo-cache.petalcat.dev",
+		JWT_SCOPE_CLAIM: "scope",
+		JWT_READ_SCOPES: "read",
+		JWT_WRITE_SCOPES: "write",
+		JWT_TEAM_CLAIM: "teams",
+		STORAGE_PROVIDER: "local",
+		STORAGE_PATH: "/data",
+		STORAGE_PATH_USE_TMP_FOLDER: "false",
+	};
+	const { stdout } = await run("docker", [
+		"run",
+		"--detach",
+		"--rm",
+		"--network",
+		"host",
+		"--tmpfs",
+		"/data:uid=1001,gid=1001",
+		...Object.entries(env).flatMap(([key, value]) => ["--env", `${key}=${value}`]),
+		cacheImage,
+	]);
+	const id = stdout.trim();
+	const close = async () => {
+		await run("docker", ["rm", "--force", id]).catch(() => undefined);
+	};
+	const url = `http://127.0.0.1:${String(port)}`;
+
+	try {
+		const deadline = Date.now() + 15_000;
+
+		for (;;) {
+			try {
+				await fetch(`${url}/v8/artifacts/status`);
+
+				break;
+			} catch (error) {
+				if (Date.now() > deadline) {
+					throw error;
+				}
+
+				await new Promise((resolve) => setTimeout(resolve, 100));
+			}
+		}
+
+		return { url, close };
 	} catch (error) {
-		child.kill("SIGTERM");
+		await close();
 
 		throw error;
 	}
