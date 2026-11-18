@@ -67,11 +67,11 @@ class TurnEndTest(unittest.TestCase):
         self.assertEqual((why, asked), ("nothing said", []))
         self.assertAlmostEqual(seconds, 6.0, delta=0.1)
 
-    def test_stray_instants_the_detector_takes_for_speech_do_not_keep_it_listening(self):
-        blips = [(1.9, SILENCE), (FRAME_S, SPEECH)] * 30
-        why, seconds, _ = listen([(2.0, SPEECH)] + blips, finished=0.3)
+    def test_the_briefest_speech_in_a_silence_keeps_the_turn_open(self):
+        steps = [(2.0, SPEECH), (3.5, SILENCE), (FRAME_S, SPEECH), (10.0, SILENCE)]
+        why, seconds, _ = listen(steps, finished=0.3)
         self.assertEqual(why, "quiet")
-        self.assertAlmostEqual(seconds, 6.0, delta=0.1)
+        self.assertAlmostEqual(seconds, 2.0 + 3.5 + 4.0, delta=0.1)
 
     def test_smart_turn_has_to_be_surer_than_the_threshold_not_merely_at_it(self):
         why, _, _ = listen([(2.0, SPEECH), (10.0, SILENCE)], finished=0.5, policy=Policy(asks=((1.0, 0.5),)))

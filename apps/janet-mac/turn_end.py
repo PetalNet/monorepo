@@ -104,7 +104,7 @@ class SmartTurn:
 @dataclass(frozen=True)
 class Policy:
     speech: float = 0.5  # Silero chance that counts as speech
-    start_s: float = 0.1  # unbroken speech that starts a turn or ends a silence: a click is shorter
+    start_s: float = 0.1  # unbroken speech that starts a turn: a click is shorter
     # (seconds of silence, how sure Smart Turn must be that the turn is finished). People stop
     # to think after a finished sentence, so a short silence ends the turn only on near certainty.
     asks: tuple[tuple[float, float], ...] = ((1.0, 0.98), (1.5, 0.98), (2.0, 0.9), (2.5, 0.9), (3.0, 0.5))
@@ -171,7 +171,9 @@ class TurnEnd:
         keep = SMART_TURN_S if self._started else LEAD_IN_S
         self._turn = np.concatenate([self._turn, frame])[-int(keep * RATE) :]
         self._speech_run_s = self._speech_run_s + FRAME_S if self._vad(frame) >= policy.speech else 0.0
-        if self._speech_run_s >= policy.start_s:
+        # Once a turn has started, one frame of speech is enough to keep it open. Asking for more
+        # cut speakers off more often on recorded turns, and no recording was held open by noise.
+        if self._speech_run_s >= (FRAME_S if self._started else policy.start_s):
             self._started = True
             self._silence_s = 0.0
             self._asks = 0

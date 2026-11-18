@@ -45,7 +45,7 @@ longer the silence, the less sure Smart Turn has to be:
 | 3 s           | over 50% sure                  |
 | 4 s           | whatever it says               |
 
-Speech starts the count again; a click does not. Each listen logs why it ended and what Smart Turn said, in
+Any speech starts the count again. Each listen logs why it ended and what Smart Turn said, in
 `~/Library/Caches/janet-talk/talk.log`.
 
 When the models give no verdict (they are not installed, they failed to run, or this Hex has no
