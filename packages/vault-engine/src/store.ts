@@ -1,9 +1,9 @@
-import { randomBytes } from "node:crypto";
+import { createHash, randomBytes } from "node:crypto";
 import os from "node:os";
 import path from "node:path";
 
-import { Context, Duration, Effect, FileSystem, Layer, Predicate } from "effect";
-import type { Option, Scope } from "effect";
+import { Context, Duration, Effect, FileSystem, Layer, Option, Predicate } from "effect";
+import type { Scope } from "effect";
 import type { PlatformError } from "effect/PlatformError";
 
 import { WriteRejected } from "./errors.ts";
@@ -19,17 +19,41 @@ const ifExists = <A, R>(effect: Effect.Effect<A, PlatformError, R>) =>
 		Effect.catchIf(isSystemError("NotFound"), () => Effect.succeedNone),
 	);
 
+/** Identifies one saved version of a tier: a hash of its bytes, or "new" when it has no file. */
+export const stampOf = (bytes: Option.Option<Uint8Array>) =>
+	Option.match(bytes, {
+		onNone: () => "new",
+		onSome: (found) => createHash("sha256").update(found).digest("hex"),
+	});
+
+/** Whether a process on this host still runs. */
+function alive(pid: number) {
+	try {
+		process.kill(pid, 0);
+
+		return true;
+	} catch (error) {
+		return !(error instanceof Error && "code" in error && error.code === "ESRCH");
+	}
+}
+
 export interface TierFilesShape {
 	readonly file: (tier: Tier) => string;
 	readonly read: (tier: Tier) => Effect.Effect<Option.Option<Uint8Array>, PlatformError>;
 	/**
 	 * Replaces the tier file with `bytes` so that a crash leaves either the old file or the whole new
-	 * one.
+	 * one, and only if the file is still the version `stamp` names. The replaced version stays beside
+	 * it as `<tier>.loro.prev`.
 	 */
-	readonly save: (tier: Tier, bytes: Uint8Array) => Effect.Effect<void, PlatformError>;
+	readonly save: (
+		tier: Tier,
+		stamp: string,
+		bytes: Uint8Array,
+	) => Effect.Effect<void, WriteRejected | PlatformError>;
 	/**
 	 * Holds the tier's lock for the scope: a hard link to a file naming the holder, which fails if
-	 * the lock exists. Only the holder releases it.
+	 * the lock exists. Only the holder releases it. A lock whose holder is a dead process on this
+	 * host, or that is older than an hour, is cleared.
 	 */
 	readonly lock: (tier: Tier) => Effect.Effect<void, WriteRejected | PlatformError, Scope.Scope>;
 }
@@ -52,7 +76,7 @@ const makeTierFiles = Effect.fnUntraced(function* (root: string, host: string) {
 
 	yield* fs.makeDirectory(path.join(root, "docs"), { recursive: true, mode: 0o700 });
 
-	const save = Effect.fnUntraced(function* (tier: Tier, bytes: Uint8Array) {
+	const save = Effect.fnUntraced(function* (tier: Tier, stamp: string, bytes: Uint8Array) {
 		const target = file(tier);
 		const temporary = `${target}.${String(process.pid)}.${randomBytes(4).toString("hex")}.tmp`;
 
@@ -66,6 +90,19 @@ const makeTierFiles = Effect.fnUntraced(function* (root: string, host: string) {
 				}),
 			);
 
+			// The lock should make this impossible; if the file moved on anyway, losing this write
+			// loudly beats overwriting someone else's silently.
+			if (stampOf(yield* read(tier)) !== stamp) {
+				return yield* reject(
+					`The ${tier} tier changed during this write; nothing was saved, retry`,
+				);
+			}
+
+			if (stamp !== "new") {
+				yield* fs.remove(`${target}.prev`, { force: true });
+				yield* fs.link(target, `${target}.prev`);
+			}
+
 			yield* fs.rename(temporary, target);
 		}).pipe(Effect.onError(() => fs.remove(temporary, { force: true }).pipe(Effect.ignore)));
 	});
@@ -75,12 +112,42 @@ const makeTierFiles = Effect.fnUntraced(function* (root: string, host: string) {
 		const token = `${host}:${String(process.pid)}:${randomBytes(8).toString("hex")}`;
 		const mine = `${lockFile}.${randomBytes(8).toString("hex")}`;
 
+		const clearDead = Effect.gen(function* () {
+			const holder = yield* fs.readFileString(lockFile);
+			const info = yield* fs.stat(lockFile);
+			const [holderHost, pid] = holder.split(":");
+			const age =
+				Date.now() - Option.match(info.mtime, { onNone: () => 0, onSome: (at) => at.getTime() });
+
+			if (age <= 3_600_000 && (holderHost !== host || alive(Number(pid)))) {
+				return false;
+			}
+
+			// Rename, then look at what was renamed: if another waiter cleared the dead lock first and
+			// a live writer has since taken it, this set a live lock aside and must hand it back.
+			const aside = `${lockFile}.dead.${randomBytes(4).toString("hex")}`;
+
+			yield* fs.rename(lockFile, aside);
+
+			if ((yield* fs.readFileString(aside)) !== holder) {
+				yield* fs.link(aside, lockFile).pipe(Effect.ignore);
+			}
+
+			yield* fs.remove(aside, { force: true });
+
+			return true;
+		}).pipe(Effect.orElseSucceed(() => false));
+
 		const take: Effect.Effect<void, PlatformError> = Effect.gen(function* () {
 			yield* fs.writeFileString(mine, token);
 			yield* fs.link(mine, lockFile);
 		}).pipe(
 			Effect.catchIf(isSystemError("AlreadyExists"), () =>
-				Effect.sleep(Duration.millis(25)).pipe(Effect.andThen(take)),
+				clearDead.pipe(
+					Effect.flatMap((cleared) =>
+						cleared ? take : Effect.sleep(Duration.millis(25)).pipe(Effect.andThen(take)),
+					),
+				),
 			),
 		);
 

@@ -1,3 +1,6 @@
+import { spawn } from "node:child_process";
+import path from "node:path";
+
 import { describe, expect } from "@effect/vitest";
 import { Effect } from "effect";
 import { LoroDoc } from "loro-crdt";
@@ -12,11 +15,13 @@ import {
 	claimInput,
 	exists,
 	seed,
+	remove,
 	seeded,
 	state,
 	stored,
 	test,
 	testEach,
+	vaultAt,
 	write,
 } from "./tools.ts";
 
@@ -299,5 +304,59 @@ describe("tiers and locks", () => {
 			);
 
 			expect((yield* state("personal")).sources).toEqual({});
+		}));
+
+	test(
+		"loses no write when three processes write the same tier at once",
+		() =>
+			Effect.gen(function* () {
+				const vault = yield* Vault;
+				const writer = path.join(import.meta.dirname, "writer.ts");
+				const run = (agent: string) =>
+					Effect.promise(
+						() =>
+							new Promise<number | null>((resolve) => {
+								spawn(process.execPath, ["--no-warnings", writer, vault.root, agent, "12"], {
+									stdio: "ignore",
+								}).on("exit", resolve);
+							}),
+					);
+
+				yield* seeded;
+
+				expect(
+					yield* Effect.all([run("one"), run("two"), run("three")], { concurrency: "unbounded" }),
+				).toEqual([0, 0, 0]);
+
+				expect(Object.keys((yield* state("shared")).claims)).toHaveLength(36);
+			}),
+		60_000,
+	);
+
+	test("saves nothing if the tier changed underneath a write that lost its lock", () =>
+		Effect.gen(function* () {
+			const vault = yield* Vault;
+			const other = yield* vaultAt(vault.root, "other");
+
+			yield* seeded;
+
+			const error = yield* Effect.flip(
+				write("shared", (tx) =>
+					Effect.gen(function* () {
+						yield* tx.addClaim(claimInput("From the writer that lost its lock."));
+						yield* remove(`${vault.file("shared")}.lock`);
+
+						yield* addClaim("shared", claimInput("From the writer that took over.")).pipe(
+							Effect.provideService(Vault, other),
+						);
+					}),
+				),
+			);
+
+			expect(error.message).toMatch(/changed during this write/);
+
+			expect(Object.values((yield* state("shared")).claims).map((claim) => claim.text)).toEqual([
+				"From the writer that took over.",
+			]);
 		}));
 });

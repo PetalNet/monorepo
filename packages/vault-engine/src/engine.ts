@@ -10,7 +10,7 @@ import { SecretFound, TierUnreadable, WriteRejected } from "./errors.ts";
 import { Claim, Source, Topic, tiers } from "./schema.ts";
 import type { Link, Tier } from "./schema.ts";
 import { secretRules } from "./secrets.ts";
-import { TierFiles } from "./store.ts";
+import { TierFiles, stampOf } from "./store.ts";
 
 /** One tier as readers see it: every record whole, keyed by its own ID. */
 export interface TierState {
@@ -112,8 +112,8 @@ export interface VaultShape {
 	readonly file: (tier: Tier) => string;
 	readonly view: Effect.Effect<VaultView, VaultError>;
 	/**
-	 * Runs one write under the tier's lock. It commits only if every operation passed its checks and
-	 * no claim was lost or rewritten.
+	 * Runs one write under the tier's lock. It commits only if every operation passed its checks, no
+	 * claim was lost or rewritten, and the tier file is still the version the write started from.
 	 */
 	readonly transact: <A, E, R>(
 		tier: Tier,
@@ -592,6 +592,8 @@ function lostOrDuplicated(
 }
 
 interface Loaded {
+	/** A hash of the file's bytes, or "new" when the tier has no file yet. */
+	readonly stamp: string;
 	readonly doc: LoroDoc;
 	readonly state: TierState;
 }
@@ -601,9 +603,19 @@ const makeVault = Effect.fnUntraced(function* (config: VaultConfig) {
 	const peerName = `${config.agent}@${config.host ?? os.hostname()}`;
 	// 48 bits of the name's hash: a stable peer per agent and host that fits a JS safe integer.
 	const peerId = BigInt(`0x${hash(peerName).slice(0, 12)}`);
+	const cache = new Map<Tier, Loaded>();
 
+	/** The bytes are read once and stamped, so what was loaded is what was stamped. */
 	const load = Effect.fnUntraced(function* (tier: Tier) {
-		const bytes = Option.getOrUndefined(yield* files.read(tier));
+		const read = yield* files.read(tier);
+		const stamp = stampOf(read);
+		const bytes = Option.getOrUndefined(read);
+		const cached = cache.get(tier);
+
+		if (cached?.stamp === stamp) {
+			return cached;
+		}
+
 		const doc =
 			bytes === undefined
 				? new LoroDoc()
@@ -611,8 +623,11 @@ const makeVault = Effect.fnUntraced(function* (config: VaultConfig) {
 						try: () => LoroDoc.fromSnapshot(bytes),
 						catch: (cause) => new TierUnreadable({ tier, reason: String(cause) }),
 					});
+		const loaded = { stamp, doc, state: readState(doc) };
 
-		return { doc, state: readState(doc) } satisfies Loaded;
+		cache.set(tier, loaded);
+
+		return loaded;
 	});
 
 	const loadAll = Effect.map(
@@ -635,6 +650,14 @@ const makeVault = Effect.fnUntraced(function* (config: VaultConfig) {
 		message: string,
 		seconds: number,
 	) {
+		const labelled = doc.getMap("meta").get("tier");
+
+		if (labelled === undefined) {
+			doc.getMap("meta").set("tier", tier);
+		} else if (labelled !== tier) {
+			return yield* reject(`The file for the ${tier} tier holds another tier's document`);
+		}
+
 		doc.commit({ message, timestamp: seconds });
 
 		// Everything this write adds to the file's history, commit message included: a value set and
@@ -650,7 +673,8 @@ const makeVault = Effect.fnUntraced(function* (config: VaultConfig) {
 			return yield* reject(problem);
 		}
 
-		yield* files.save(tier, doc.export({ mode: "snapshot" }));
+		yield* files.save(tier, base.stamp, doc.export({ mode: "snapshot" }));
+		cache.delete(tier);
 	});
 
 	const transact: VaultShape["transact"] = (tier, message, body) =>
