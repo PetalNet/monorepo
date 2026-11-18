@@ -5,8 +5,17 @@ import { PlatformError } from "effect/PlatformError";
 import { Vault } from "./engine.ts";
 import { SecretFound, TierUnreadable, WriteRejected } from "./errors.ts";
 import { project } from "./project.ts";
-import { ClaimCard, recallClaims, reindex, renderCard } from "./recall.ts";
-import { RememberInput, remember } from "./research.ts";
+import {
+	ClaimCard,
+	PassageHit,
+	logRecall,
+	recallClaims,
+	recallPassages,
+	reindex,
+	renderCard,
+	renderPassage,
+} from "./recall.ts";
+import { Recheck, RememberInput, remember, researchCheck } from "./research.ts";
 import { Claim, Text, Tier } from "./schema.ts";
 
 /**
@@ -44,13 +53,29 @@ const RecallInput = Schema.Struct({
 	tiers: Schema.optionalKey(
 		Schema.Array(Tier).annotate({ description: "Limit results to these tiers. Default: all." }),
 	),
+	passages: Schema.optionalKey(
+		Schema.Boolean.annotate({
+			description: "Also search passages of migrated documents and quoted sources.",
+		}),
+	),
 });
 
 const recall = Effect.fnUntraced(function* (input: typeof RecallInput.Type) {
 	const options = { k: input.k ?? 8, ...(input.tiers === undefined ? {} : { tiers: input.tiers }) };
 	const claims = yield* recallClaims(input.query, options);
+	const passages = input.passages === true ? yield* recallPassages(input.query, options) : [];
 
-	return { claims, text: claims.map(renderCard).join("\n") || "No claim matches." };
+	yield* logRecall(
+		input.query,
+		claims.map((card) => card.id),
+	);
+
+	return {
+		claims,
+		passages,
+		text:
+			[...claims.map(renderCard), ...passages.map(renderPassage)].join("\n") || "No claim matches.",
+	};
 });
 
 /** The vault's agent surface. Every write refreshes the read side before it returns. */
@@ -62,6 +87,7 @@ export const operations = [
 		input: RecallInput,
 		output: Schema.Struct({
 			claims: Schema.Array(ClaimCard),
+			passages: Schema.Array(PassageHit),
 			text: Schema.String,
 		}),
 		handler: recall,
@@ -75,6 +101,27 @@ export const operations = [
 		output: Claim,
 		handler: ({ tier: chosen, ...input }) =>
 			remember(chosen ?? "shared", input).pipe(Effect.tap(() => refresh)),
+		errors,
+	}),
+	operation({
+		name: "research_check",
+		description:
+			"First step of any research: returns matching claims and passages, plus `recheck`, the sources behind them that are stale, replaced or retracted. Fetch only what is missing, and look for something newer only for `recheck` sources.",
+		input: Schema.Struct({ question: Text }),
+		output: Schema.Struct({
+			claims: Schema.Array(ClaimCard),
+			passages: Schema.Array(PassageHit),
+			recheck: Schema.Array(Recheck),
+		}),
+		handler: ({ question }) =>
+			researchCheck(question).pipe(
+				Effect.tap((check) =>
+					logRecall(
+						question,
+						check.claims.map((card) => card.id),
+					),
+				),
+			),
 		errors,
 	}),
 	operation({

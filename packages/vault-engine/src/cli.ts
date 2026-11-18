@@ -51,10 +51,11 @@ const commands = [
 		{
 			query: words,
 			k: optional(Flag.Int("k")),
+			passages: Flag.Boolean("passages").pipe(Flag.withDefault(false)),
 			json: Flag.Boolean("json").pipe(Flag.withDefault(false)),
 		},
-		({ query, k, json }) =>
-			call("recall", { query: query.join(" "), ...some("k", k) }).pipe(
+		({ query, k, passages, json }) =>
+			call("recall", { query: query.join(" "), passages, ...some("k", k) }).pipe(
 				Effect.flatMap((result) => print(json ? result : (result as { text: string }).text)),
 			),
 	).pipe(
@@ -88,6 +89,11 @@ const commands = [
 				}),
 			}).pipe(Effect.flatMap(print)),
 	).pipe(Command.withDescription("Store one sourced claim.")),
+	Command.make("research-check", { question: words }, ({ question }) =>
+		call("research_check", { question: question.join(" ") }).pipe(Effect.flatMap(print)),
+	).pipe(
+		Command.withDescription("What the vault holds on a question, and which sources to re-check."),
+	),
 	Command.make("source").pipe(
 		Command.withDescription("Replace or retract a source."),
 		Command.withSubcommands([

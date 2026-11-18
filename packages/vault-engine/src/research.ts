@@ -5,8 +5,57 @@ import { Effect, Schema } from "effect";
 import { Vault } from "./engine.ts";
 import type { Tx } from "./engine.ts";
 import { WriteRejected } from "./errors.ts";
+import { recallClaims, recallPassages } from "./recall.ts";
+import type { ClaimCard, PassageHit } from "./recall.ts";
 import { SourceType, Text, oneLine, slug } from "./schema.ts";
 import type { Link, Source, Tier } from "./schema.ts";
+
+export const Recheck = Schema.Struct({
+	id: Schema.String,
+	title: Schema.String,
+	freshness: Schema.String,
+	url: Schema.optionalKey(Schema.String),
+});
+
+export interface VaultCheck {
+	readonly claims: readonly ClaimCard[];
+	readonly passages: readonly PassageHit[];
+	/**
+	 * Sources behind those hits that are past shelf life, replaced or retracted: check these for
+	 * something newer.
+	 */
+	readonly recheck: readonly (typeof Recheck.Type)[];
+}
+
+/**
+ * Step one of every research run: what the vault already holds on the question, and how fresh it
+ * is.
+ */
+export const researchCheck = Effect.fnUntraced(function* (question: string) {
+	const k = 12;
+	const claims = yield* recallClaims(question, { k });
+	const passages = yield* recallPassages(question, { k });
+	const recheck = new Map<string, typeof Recheck.Type>();
+
+	for (const source of claims.flatMap((card) => card.sources)) {
+		if (source.freshness !== "fresh") {
+			recheck.set(source.id, {
+				id: source.id,
+				title: source.title,
+				freshness: source.freshness,
+				...(source.url === undefined ? {} : { url: source.url }),
+			});
+		}
+	}
+
+	for (const hit of passages) {
+		if (hit.freshness !== "fresh" && !recheck.has(hit.source)) {
+			recheck.set(hit.source, { id: hit.source, title: hit.title, freshness: hit.freshness });
+		}
+	}
+
+	return { claims, passages, recheck: [...recheck.values()] } satisfies VaultCheck;
+});
 
 const hash = (text: string) => createHash("sha256").update(text).digest("hex");
 

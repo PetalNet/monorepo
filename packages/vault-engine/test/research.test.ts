@@ -2,10 +2,40 @@ import { createHash } from "node:crypto";
 
 import { describe, expect } from "@effect/vitest";
 import { Effect } from "effect";
+import { TestClock } from "effect/testing";
 
 import { Vault } from "../src/engine.ts";
-import { remember } from "../src/research.ts";
-import { SOURCE, seeded, state, test } from "./tools.ts";
+import { reindex } from "../src/recall.ts";
+import { remember, researchCheck } from "../src/research.ts";
+import { SOURCE, claimInput, seed, seeded, state, test, write } from "./tools.ts";
+
+describe("research run", () => {
+	test("checks the vault first and names the sources worth re-checking", () =>
+		Effect.gen(function* () {
+			yield* write("shared", (tx) =>
+				seed(tx).pipe(Effect.andThen(tx.addClaim(claimInput("Propositions beat passages.")))),
+			);
+
+			yield* reindex;
+			expect((yield* researchCheck("do propositions beat passages")).recheck).toEqual([]);
+
+			yield* TestClock.setTime(Date.parse("2028-01-01T00:00:00.000Z"));
+			yield* reindex;
+
+			const check = yield* researchCheck("do propositions beat passages");
+
+			expect(check.claims).toHaveLength(1);
+
+			expect(check.recheck).toEqual([
+				{
+					id: SOURCE,
+					title: "Dense X Retrieval",
+					freshness: "stale",
+					url: `https://example.org/${SOURCE}`,
+				},
+			]);
+		}));
+});
 
 describe("remember", () => {
 	test("records who said it as a DIRECT source and quotes a known source", () =>

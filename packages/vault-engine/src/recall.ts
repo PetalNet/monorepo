@@ -5,7 +5,8 @@ import { Clock, Effect, FileSystem, Schema } from "effect";
 import type { PlatformError } from "effect/PlatformError";
 
 import { Vault } from "./engine.ts";
-import { Claim, Relation, Tier, freshness, tiers } from "./schema.ts";
+import { Claim, Relation, Source, Tier, freshness, tiers } from "./schema.ts";
+import { secretRules } from "./secrets.ts";
 
 /**
  * The claim index is a read replica: a SQLite file rebuilt from the Loro documents and swapped in
@@ -19,6 +20,11 @@ CREATE TABLE claim(
 	source_type TEXT NOT NULL, freshness TEXT NOT NULL, sources TEXT NOT NULL,
 	created TEXT NOT NULL, updated TEXT NOT NULL);
 CREATE VIRTUAL TABLE claim_fts USING fts5(id UNINDEXED, text, context, tokenize='porter unicode61');
+CREATE TABLE passage(
+	source TEXT NOT NULL, passage TEXT NOT NULL, tier TEXT NOT NULL, kind TEXT NOT NULL,
+	title TEXT NOT NULL, heading TEXT NOT NULL, text TEXT NOT NULL, freshness TEXT NOT NULL,
+	PRIMARY KEY(source, passage));
+CREATE VIRTUAL TABLE passage_fts USING fts5(source UNINDEXED, passage UNINDEXED, text, context, tokenize='porter unicode61');
 CREATE TABLE meta(key TEXT PRIMARY KEY, value TEXT NOT NULL);
 `;
 
@@ -51,6 +57,19 @@ export const ClaimCard = Schema.Struct({
 });
 export type ClaimCard = typeof ClaimCard.Type;
 
+export const PassageHit = Schema.Struct({
+	source: Schema.String,
+	passage: Schema.String,
+	tier: Tier,
+	kind: Source.fields.kind,
+	title: Schema.String,
+	heading: Schema.String,
+	text: Schema.String,
+	freshness: SourceFreshness,
+	score: Schema.Finite,
+});
+export type PassageHit = typeof PassageHit.Type;
+
 const { sourceType, score: _claimScore, ...claimFields } = ClaimCard.fields;
 const ClaimRow = Schema.Struct({
 	...claimFields,
@@ -58,6 +77,8 @@ const ClaimRow = Schema.Struct({
 	sources: Schema.fromJsonString(Schema.Array(SourceRef)),
 	rank: Schema.Finite,
 });
+const { score: _passageScore, ...passageFields } = PassageHit.fields;
+const PassageRow = Schema.Struct({ ...passageFields, rank: Schema.Finite });
 
 const indexPath = (root: string) => path.join(root, "index.sqlite");
 
@@ -76,13 +97,15 @@ export const reindex = Effect.gen(function* () {
 		Effect.sync(() => new DatabaseSync(temporary)),
 		(db) =>
 			Effect.sync(() => {
-				const counted = { claims: 0 };
+				const counted = { claims: 0, passages: 0 };
 
 				db.exec(SCHEMA);
 				db.exec("BEGIN");
 
 				const claim = db.prepare("INSERT INTO claim VALUES(?,?,?,?,?,?,?,?,?,?,?,?)");
 				const claimFts = db.prepare("INSERT INTO claim_fts VALUES(?,?,?)");
+				const passage = db.prepare("INSERT INTO passage VALUES(?,?,?,?,?,?,?,?)");
+				const passageFts = db.prepare("INSERT INTO passage_fts VALUES(?,?,?,?)");
 
 				for (const tier of tiers) {
 					const state = view.tiers[tier];
@@ -136,6 +159,18 @@ export const reindex = Effect.gen(function* () {
 						// The note title and heading are the claim's retrieval context, at no inference cost.
 						claimFts.run(record.id, record.text, `${title} ${record.heading}`);
 						counted.claims++;
+					}
+
+					for (const source of Object.values(state.sources)) {
+						const fresh = freshness(source, now);
+
+						for (const [id, text] of Object.entries(source.passages)) {
+							const heading = source.headings?.[id] ?? "";
+
+							passage.run(source.id, id, tier, source.kind, source.title, heading, text, fresh);
+							passageFts.run(source.id, id, text, `${source.title} ${heading}`);
+							counted.passages++;
+						}
 					}
 				}
 
@@ -224,6 +259,19 @@ export const recallClaims = (query: string, options: RecallOptions = {}): Recall
 		),
 	);
 
+export const recallPassages = (query: string, options: RecallOptions = {}): Recall<PassageHit> =>
+	search(
+		query,
+		`SELECT passage.*, bm25(passage_fts, 0.0, 0.0, 1.0, 0.5) AS rank FROM passage_fts
+			 JOIN passage ON passage.source = passage_fts.source AND passage.passage = passage_fts.passage
+			 WHERE passage_fts MATCH ? AND passage.tier IN (SELECT value FROM json_each(?))
+			 ORDER BY rank LIMIT ?`,
+		PassageRow,
+		options,
+	).pipe(
+		Effect.map((rows) => rows.map(({ rank, ...hit }): PassageHit => ({ ...hit, score: -rank }))),
+	);
+
 /**
  * One line an agent can read and cite: the claim, where it lives, its evidence and how fresh that
  * is.
@@ -238,3 +286,27 @@ export function renderCard(card: ClaimCard): string {
 
 	return `[${card.id}] ${card.title} > ${card.heading}: ${card.text} | ${card.sourceType}, ${card.freshness}${sources === "" ? "" : ` | ${sources}`}`;
 }
+
+export const renderPassage = (hit: PassageHit) =>
+	`[${hit.source}#^${hit.passage}] ${hit.title}${hit.heading === "" ? "" : ` > ${hit.heading}`} (${hit.kind}, ${hit.freshness}): ${hit.text.slice(0, 400)}`;
+
+/**
+ * Records what a recall returned. Paired with the op log (which claims an agent then cited), this
+ * is the training signal for a later reranker; nothing reads it yet.
+ */
+export const logRecall = Effect.fnUntraced(function* (query: string, ids: readonly string[]) {
+	const vault = yield* Vault;
+	const fs = yield* FileSystem.FileSystem;
+	const ts = new Date(yield* Clock.currentTimeMillis).toISOString();
+	// A query is whatever an agent was asked; one that carries a credential is logged without its text.
+	const logged = secretRules([query]).length > 0 ? null : query;
+	const dir = path.join(vault.root, "log");
+
+	yield* fs.makeDirectory(dir, { recursive: true });
+
+	yield* fs.writeFileString(
+		path.join(dir, "recall.jsonl"),
+		`${JSON.stringify({ ts, agent: vault.agent, query: logged, ids })}\n`,
+		{ flag: "a" },
+	);
+});

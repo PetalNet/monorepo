@@ -3,8 +3,8 @@ import { Effect } from "effect";
 import { TestClock } from "effect/testing";
 
 import { Vault } from "../src/engine.ts";
-import { recallClaims, reindex, renderCard } from "../src/recall.ts";
-import { SOURCE, TOPIC, claimInput, seed, test, write } from "./tools.ts";
+import { logRecall, recallClaims, reindex, renderCard } from "../src/recall.ts";
+import { SOURCE, TOPIC, claimInput, readText, seed, test, write } from "./tools.ts";
 
 describe("recall", () => {
 	test("finds a claim by its note title and heading, not only its own words", () =>
@@ -86,5 +86,22 @@ describe("recall", () => {
 			expect(
 				(yield* recallClaims("propositions", { k: 1, tiers: ["agent"] })).map((card) => card.tier),
 			).toEqual(["agent"]);
+		}));
+
+	test("logs what a recall returned, without the text of a query that carries a credential", () =>
+		Effect.gen(function* () {
+			yield* logRecall("note size", ["c-aaaaaaaa"]);
+			yield* TestClock.adjust("1 second");
+			yield* logRecall(`use ghp_${"a1B2".repeat(9)} to push`, []);
+
+			expect(
+				(yield* readText((yield* Vault).root, "log/recall.jsonl"))
+					.trim()
+					.split("\n")
+					.map((line) => JSON.parse(line) as unknown),
+			).toEqual([
+				{ ts: "2026-11-17T12:00:00.000Z", agent: "janet", query: "note size", ids: ["c-aaaaaaaa"] },
+				{ ts: "2026-11-17T12:00:01.000Z", agent: "janet", query: null, ids: [] },
+			]);
 		}));
 });
