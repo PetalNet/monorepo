@@ -27,7 +27,9 @@
 A consolidated spec, assembled from the decisions in [the map](wayfinder/map.md). Vocabulary is in
 [CONTEXT.md](CONTEXT.md); every term in bold there means exactly what it says there.
 
-Charted and decided with Parker on 2026-11-11. Nothing here has been built.
+Charted and decided with Parker on 2026-11-11. The voice head of the desk slice is built:
+[apps/janet-voice-head](../../apps/janet-voice-head/README.md). §9 and §10 say where it departs from the
+charted design.
 
 **Every rule below carries its backing**, because Parker required it: `[research]` means a sourced read
 of code, docs or the live system; `[ruling]` means Parker's own call, which outranks research rather
@@ -407,8 +409,11 @@ attached, exactly as the fork premise was. It is not grounds for overriding him 
 
 **Parker ruled it: "4 seconds fresh is good for the beginning of the convo."** `[ruling]`
 
-- **Rung 2 is a fork of main, spawned when a request first needs it** — not at the first word of a
-  conversation. That turn takes about four seconds. Follow-ups inside the running head are one to two.
+- **Rung 2 is a fork of main, spawned when the wake word fires.** The spawn loads main's transcript and
+  calls no model, so it runs under his own speech and the speech-to-text, and the zero-idle rule holds.
+  The head therefore knows what main knew at the wake word. Measured 2026-11-17 on the lab VM: ready
+  3.4 to 5.2 seconds after the spawn (about 10 when the VM's cores are saturated), first text 2.4
+  seconds after the turn arrives, follow-ups 1.3 to 1.7. `[research]`
 - **No spare, no keepalives, and no exception to the zero-idle rule.** The rule stands intact. Nothing
   wakes a model while he is silent.
 - **Retirement is simply retirement.** A head is retired; the next request that needs rung 2 spawns a
@@ -466,12 +471,27 @@ nothing is lost even if a head dies mid-sentence.
 head that owned the turn writes a line**. A misattributed line is worse than a missing one: it would
 read later as a guest utterance. `[reasoning]`
 
+### How a line reaches main
+
+Built 2026-11-17 in the voice head. `[research]`
+
+- **Soft merge.** An exchange that carries an ask or a commitment is injected into main at once, so main
+  acts during the call. Each injection costs main a full turn, so small talk waits for the hard merge.
+  `soft_merge: every` relays every exchange.
+- **Hard merge.** The end of the conversation injects one message: the transcript, a summary, and each
+  ask marked as already relayed or new. The summary is the head's own last turn. A conversation that a
+  timer ended gets a summary assembled without a model.
+- **Exactly once.** Every step is a line in an fsynced journal, and each injection carries a key. After a
+  crash the head looks for the key in the hub's queue and in main's transcript before it sends again.
+
 ### How main reads it
 
 - **Lines from his own head are main's own memory.** That head is continuous with her.
 - **Lines from a room or guest head never reach main raw.** A **tool-less quarantined model** reads
   them and hands main a **fixed-schema digest** — who called, when, which intent from a fixed list, a
-  callback number. Set fields, never free text. `[research]`
+  callback number. Set fields, never free text. `[research]` **The desk slice has no quarantined reader
+  yet:** it delivers a room or guest conversation as a transcript labelled untrusted, and never relays
+  its asks for action. The digest is required before a channel that strangers can reach.
 - **A line his own head wrote _after_ reading guest content is tainted too** (OWASP ASI06) and takes
   the same route. `[research]`
 

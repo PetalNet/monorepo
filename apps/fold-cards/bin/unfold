@@ -1,0 +1,3 @@
+#!/bin/sh
+# unfold <pointer | event:<channel event_id>> [--max-tool-chars N]: print the exact source passage of a card.
+exec python3 -I "$(dirname "$0")/cards.py" unfold "$@"

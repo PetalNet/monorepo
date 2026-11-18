@@ -1,0 +1,17 @@
+#!/usr/bin/env bash
+# Install the optional local embedder into the fold state directory: a venv with fastembed, the
+# BAAI/bge-small-en-v1.5 quantized ONNX model (about 65 MB), and on NixOS the C++ runtime and zlib that pip
+# wheels expect, pinned as GC roots. Idempotent. Recall works without it, lexical only.
+set -euo pipefail
+state=${FOLD_STATE_DIR:-$HOME/.claude/state/fold}
+mkdir -p "$state/embed-libs"
+[ -x "$state/embed-venv/bin/python" ] || python3 -m venv "$state/embed-venv"
+"$state/embed-venv/bin/pip" install -q fastembed
+if command -v nix >/dev/null && [ -e /etc/NIXOS ]; then
+  nix build --out-link "$state/embed-libs/gcc-lib" nixpkgs#stdenv.cc.cc.lib
+  nix build --out-link "$state/embed-libs/zlib" nixpkgs#zlib.out
+fi
+libs=$(printf '%s:' "$state"/embed-libs/*/lib)
+cd "$state" && LD_LIBRARY_PATH=$libs "$state/embed-venv/bin/python" -I -c \
+  "from fastembed import TextEmbedding; TextEmbedding('BAAI/bge-small-en-v1.5', cache_dir='$state/models')" >/dev/null
+echo "embedder ready in $state; the first recall query starts it and it backfills vectors in the background"

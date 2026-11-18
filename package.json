@@ -70,12 +70,14 @@
 			"apps/control-plane",
 			"apps/courier",
 			"apps/dispatcher",
+			"apps/fold-cards",
 			"apps/janet-conversation",
 			"apps/janet-desk",
 			"apps/janet-mac",
 			"apps/janet-voice-gateway",
 			"apps/manager",
 			"apps/point",
+			"apps/janet-voice-head",
 			"tools/*"
 		]
 	}
