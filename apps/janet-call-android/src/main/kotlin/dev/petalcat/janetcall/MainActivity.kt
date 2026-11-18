@@ -177,6 +177,8 @@ class MainActivity : ComponentActivity() {
 	}
 
 	private fun unpair() {
+		// The next person to pair this phone must not inherit the last one's sign-in to the home page.
+		forgetWebSession()
 		settings.clear()
 		log.clear()
 		Pairer.notice = null

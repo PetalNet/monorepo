@@ -91,6 +91,13 @@ class AppConfigTest {
 	private val config get() = AppConfig(ApplicationProvider.getApplicationContext<android.app.Application>())
 
 	@Test
+	fun `a saved address that no longer validates falls back to the default`() {
+		val app = ApplicationProvider.getApplicationContext<android.app.Application>()
+		app.getSharedPreferences("janet_call_app", android.content.Context.MODE_PRIVATE).edit().putString("home_url", "http://bad.example/").commit()
+		assertEquals(DEFAULT_HOME_URL, AppConfig(app).homeUrl())
+	}
+
+	@Test
 	fun `the home page is the default until a good address is saved, and a blank one resets it`() {
 		assertEquals(DEFAULT_HOME_URL, config.homeUrl())
 		assertEquals(true, config.setHomeUrl("http://insecure.example/") != null)

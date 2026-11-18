@@ -20,6 +20,8 @@ class HomeWebTest {
 		assertEquals(LinkRoute.Browser, route("https://tasks.petalcat.dev@evil.example/"))
 		assertEquals(LinkRoute.Browser, route("https://evil.example@tasks.petalcat.dev/"))
 		assertEquals(LinkRoute.Browser, route("http://tasks.petalcat.dev/janet/home"))
+		assertEquals(LinkRoute.Browser, route("https://tasks.petalcat.dev./janet/home"))
+		assertEquals(LinkRoute.InView, route("https://tasks.petalcat.dev:8443/janet/home"))
 	}
 
 	@Test
@@ -28,6 +30,7 @@ class HomeWebTest {
 		assertEquals(LinkRoute.Call, route("janetcall://call?ask=hello%20there"))
 		assertEquals(LinkRoute.Block, route("janetcall://pair?u=abc"))
 		assertEquals(LinkRoute.Block, route("janetcall://callme"))
+		assertEquals(LinkRoute.Block, route("janetcall://x@call"))
 	}
 
 	@Test

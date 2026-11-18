@@ -19,6 +19,7 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.statusBarsPadding
@@ -86,6 +87,13 @@ fun homeUrlProblem(url: String): String? {
 	}
 }
 
+/** Forgets the sign-in the home WebView holds: its cookies and its page storage. */
+fun forgetWebSession() {
+	CookieManager.getInstance().removeAllCookies(null)
+	CookieManager.getInstance().flush()
+	android.webkit.WebStorage.getInstance().deleteAllData()
+}
+
 /** The hosts the home WebView may show: the home page's own, and the sign-in page. */
 fun allowedHosts(homeUrl: String): Set<String> =
 	setOfNotNull(runCatching { URI(homeUrl).host?.lowercase() }.getOrNull(), AUTH_HOST)
@@ -118,7 +126,7 @@ fun routeLink(url: String, allowed: Set<String>): LinkRoute {
 	}
 	val host = uri.host?.lowercase()
 	return when (uri.scheme?.lowercase()) {
-		"janetcall" -> if (host == "call") LinkRoute.Call else LinkRoute.Block
+		"janetcall" -> if (host == "call" && uri.userInfo == null) LinkRoute.Call else LinkRoute.Block
 		"https" -> if (host != null && uri.userInfo == null && host in allowed) LinkRoute.InView else LinkRoute.Browser
 		"http" -> LinkRoute.Browser
 		else -> LinkRoute.Block
@@ -149,25 +157,23 @@ fun HomeWeb(
 	var canGoBack by remember { mutableStateOf(false) }
 	val web = remember { arrayOfNulls<WebView>(1) }
 	BackHandler(enabled = canGoBack) { web[0]?.goBack() }
-	Column(Modifier.fillMaxSize().background(palette.ground).statusBarsPadding().navigationBarsPadding()) {
+	Column(Modifier.fillMaxSize().background(palette.ground).statusBarsPadding().navigationBarsPadding().imePadding()) {
 		Row(Modifier.fillMaxWidth().height(56.dp).padding(horizontal = 24.dp), verticalAlignment = Alignment.CenterVertically) {
 			Text("Janet", style = Type.name, color = palette.ink, modifier = Modifier.weight(1f).semantics { heading() })
 			RoundButton(R.drawable.ic_settings, "Settings", size = 48, iconSize = 20, filled = false, onClick = onSettings)
 		}
-		androidx.compose.runtime.key(attempt) {
-			AndroidView(
-				modifier = Modifier.weight(1f).fillMaxWidth(),
-				factory = { context ->
-					val view = homeWebView(context, url, palette.ground.toArgb(), onCall, { failed = true }, { canGoBack = it })
-					web[0] = view.webView
-					view.layout
-				},
-				onRelease = {
-					web[0]?.destroy()
-					web[0] = null
-				},
-			)
-		}
+		AndroidView(
+			modifier = Modifier.weight(1f).fillMaxWidth(),
+			factory = { context ->
+				val view = homeWebView(context, url, palette.ground.toArgb(), onCall, { failed = true }, { canGoBack = it })
+				web[0] = view.webView
+				view.layout
+			},
+			onRelease = { layout ->
+				(layout.getChildAt(0) as? WebView)?.destroy()
+				web[0] = null
+			},
+		)
 	}
 }
 
@@ -202,16 +208,28 @@ private fun homeWebView(
 	}
 	webView.webViewClient = object : WebViewClient() {
 		override fun shouldOverrideUrlLoading(view: WebView, request: WebResourceRequest): Boolean {
+			// Only the page itself can start a call or leave for the browser: a frame inside it, such as an
+			// embedded widget, never can.
+			val tapped = request.isForMainFrame && request.hasGesture()
 			when (routeLink(request.url.toString(), allowed)) {
 				// A page can only start a call from a tap, never by redirecting on its own.
-				LinkRoute.Call -> if (request.hasGesture()) onCall()
+				LinkRoute.Call -> if (tapped) onCall()
 				LinkRoute.InView -> return false
-				LinkRoute.Browser -> if (request.hasGesture()) {
+				LinkRoute.Browser -> if (tapped) {
 					runCatching { context.startActivity(Intent(Intent.ACTION_VIEW, request.url).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)) }
 				}
 				LinkRoute.Block -> Unit
 			}
 			return true
+		}
+
+		// shouldOverrideUrlLoading is not asked about a form POST, so the page itself is held to the allowed
+		// hosts here too: a main-frame request to any other host never loads.
+		override fun shouldInterceptRequest(view: WebView, request: WebResourceRequest): WebResourceResponse? {
+			if (!request.isForMainFrame) return null
+			val host = request.url.host?.lowercase()
+			if (request.url.scheme == "https" && host != null && request.url.userInfo == null && host in allowed) return null
+			return WebResourceResponse("text/plain", "utf-8", 403, "Blocked", emptyMap(), java.io.ByteArrayInputStream(ByteArray(0)))
 		}
 
 		override fun onPageStarted(view: WebView, url: String?, favicon: Bitmap?) {
