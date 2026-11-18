@@ -2,8 +2,12 @@
 head, the voice server, and the Mac programs the script calls."""
 
 import importlib.util
+import threading
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 import json
 import os
+import shutil
+import signal
 import stat
 import subprocess
 import sys
@@ -23,11 +27,6 @@ CF_SECRET = "cf-secret-value"
 
 STUBS = {
     # The transcript and exit status come from files the test writes.
-    # A start is logged once the recording has begun, which takes as long as the test says.
-    "hex": '#!/usr/bin/env bash\n[ "$2" = start ] && sleep "$(cat "$STUB/hex-start-seconds")"\n'
-    'echo "$*" >>"$STUB/hex.log"\n'
-    'if [ "$2" = stop ]; then cat "$STUB/transcript"; exit "$(cat "$STUB/hex-status")"; fi\n'
-    'if [ "$2" = start ]; then exit "$(cat "$STUB/hex-start-status")"; fi\n',
     # The secrets come from the test's environment, so none is written to disk.
     "security": '#!/usr/bin/env bash\n[ -e "$STUB/no-secrets" ] && exit 44\ncase "$5" in cf-access-client-id) echo cf-id;; '
     'cf-access-client-secret) echo "$STUB_CF_SECRET";; head-token) echo "$STUB_HEAD_TOKEN";; esac\n',
@@ -37,6 +36,103 @@ STUBS = {
     "osascript": '#!/usr/bin/env bash\necho "$3" >>"$STUB/notifications"\n',
     "curl": '#!/usr/bin/env bash\necho "$*" >>"$STUB/curl-args"\nexec "$REAL_CURL" "$@"\n',
 }
+
+
+# How a real room's level wandered around its middle, in dB, sample by sample: taken from four
+# seconds of a MacBook microphone in a quiet room, including its louder instants.
+ROOM_WANDER = [
+    -1, -2, -1, -2, 1, 0, 1, 1, 1, -1, 0, -2, -1, 0, 0, 1, 0, 7, 4, -2, 2, 3, 1, 1, 0, 1, 2, 0, 0, 0, -1, 1, 0, 2, 0,
+    3, -1, -1, -3, 2, 2, 1, 0, 1, 2, 0, 1, 0, 1, 3, 3, -1, 0, 1, -3, 1, 0, 0, 2, -2, 0, 0, -1, -2, 0, 3, 2, 3, 3, -2,
+    1, -1, 3, 1, 1, 1, -2, 2, -2, -3, -2, -4, -3, -2, -1, 2, 1, 2, 2, -3, -4, -3, 1, -2, 1, 0, 4, 4, 2, 1, -1, 2, 1,
+]
+
+
+class FakeHex(ThreadingHTTPServer):
+    """Hex's local dictation API. What it does comes from files the test writes, and it logs each call."""
+
+    daemon_threads = True
+
+    def __init__(self, stub: Path):
+        super().__init__(("127.0.0.1", 0), _HexHandler)
+        self.stub = stub
+        # (seconds, dB) steps the microphone level goes through while a recording runs.
+        self.levels = [(0.0, -50.0)]
+        self.heartbeats = 0
+        self.sample = 0
+        # When each call arrived, by name, in seconds on the monotonic clock.
+        self.at: dict[str, float] = {}
+        threading.Thread(target=self.serve_forever, daemon=True).start()
+        (stub / "local-api.json").write_text(json.dumps({"port": self.server_address[1], "token": "hex-token"}))
+
+
+class _HexHandler(BaseHTTPRequestHandler):
+    def log_message(self, *_):
+        pass
+
+    def _reply(self, status, body=None):
+        data = json.dumps(body).encode() if body is not None else b""
+        self.send_response(status)
+        self.send_header("content-length", str(len(data)))
+        self.end_headers()
+        self.wfile.write(data)
+
+    def _read(self, name):
+        return (self.server.stub / name).read_text().strip()
+
+    def _log(self, line):
+        with (self.server.stub / "hex.log").open("a") as log:
+            log.write(line + "\n")
+
+    def do_POST(self):
+        self.rfile.read(int(self.headers.get("Content-Length", "0")))
+        if self.headers.get("Authorization") != "Bearer hex-token":
+            return self._reply(401)
+        if self.path == "/dictations":
+            time.sleep(float(self._read("hex-start-seconds")))
+            if self._read("hex-start-status") != "0":
+                return self._reply(503)
+            # A start is logged once the recording has begun.
+            self.server.at["start"] = time.monotonic()
+            self._log("start")
+            return self._reply(201, {"id": 7, "ownerToken": "owner-token", "sampleRate": 48000})
+        if self.headers.get("X-Hex-Dictation-Token") != "owner-token":
+            return self._reply(403)
+        action = self.path.rpartition("/")[2]
+        if action == "heartbeat":
+            self.server.heartbeats += 1
+            return self._reply(204)
+        self.server.at[action] = time.monotonic()
+        self._log(action)
+        if action == "finish":
+            heard = "" if self._read("hex-status") == "4" else self._read("transcript")
+            return self._reply(200, {"transcript": heard, "durationMs": 1000})
+        self._reply(200, {})
+
+    def do_GET(self):
+        self.send_response(200)
+        self.send_header("content-type", "text/event-stream")
+        self.end_headers()
+        try:
+            for seconds, level in self.server.levels:
+                until = time.monotonic() + seconds
+                syllable = 0
+                while True:
+                    # Speech is uneven: loud and soft instants alternate. A room wanders.
+                    syllable += 1
+                    self.server.sample += 1
+                    if isinstance(level, list):
+                        now = level[syllable % len(level)]
+                    elif level > -30:
+                        now = level - 15 if syllable % 2 else level
+                    else:
+                        now = level + ROOM_WANDER[self.server.sample % len(ROOM_WANDER)]
+                    self.wfile.write(f'data: {{"peakDb":{now},"rmsDb":{now}}}\n\n'.encode())
+                    self.wfile.flush()
+                    if time.monotonic() >= until:
+                        break
+                    time.sleep(0.05)
+        except OSError:
+            pass
 
 
 class TalkCase(unittest.TestCase):
@@ -55,6 +151,8 @@ class TalkCase(unittest.TestCase):
         (self.stub / "hex-start-seconds").write_text("0")
         (self.stub / "hex-start-status").write_text("0")
         self.say("what time is it")
+        self.hex = FakeHex(self.stub)
+        self.addCleanup(self.hex.shutdown)
 
         self.head = fakes.FakeHead()
         self.head.release_turn.set()
@@ -92,7 +190,14 @@ class TalkCase(unittest.TestCase):
             "STUB_HEAD_TOKEN": fakes.TOKEN,
             "JANET_TALK_CONFIG": str(self.root / "config"),
             "JANET_TALK_STATE": str(self.root / "state"),
-            "JANET_TALK_HEX": str(self.stub / "hex"),
+            "JANET_TALK_HEX_API": str(self.stub / "local-api.json"),
+            # Every press counts as a hold unless a test says otherwise.
+            "JANET_TALK_LATCH_MS": "-1000000",
+            "JANET_TALK_END_OF_SPEECH_S": "0.4",
+            "JANET_TALK_NO_SPEECH_S": "6",
+            "JANET_TALK_MAX_LISTEN_S": "20",
+            # The tests wait for each key event to finish, so it stays in the foreground.
+            "JANET_TALK_DETACHED": "1",
             "JANET_TALK_RETRY_S": "0.2",
             "JANET_TALK_WAKE_WAIT_S": "20",
         }
@@ -111,10 +216,10 @@ class TalkCase(unittest.TestCase):
     def say(self, text):
         (self.stub / "transcript").write_text(text + "\n")
 
-    def talk(self, action, wait=True, status=0):
+    def talk(self, action, wait=True, status=0, within=60):
         process = subprocess.Popen(["bash", str(APP / "janet-talk"), action], env=self.env)
         if wait:
-            self.assertEqual(process.wait(60), status)
+            self.assertEqual(process.wait(within), status)
         return process
 
     def notified(self, expected):
@@ -135,7 +240,7 @@ class TalkTest(TalkCase):
     def test_a_press_and_release_speaks_the_reply_in_order_and_shows_it(self):
         self.talk("start")
         self.talk("stop")
-        self.assertEqual(self.lines("hex.log"), ["dictation start --raw", "dictation stop --print"])
+        self.assertEqual(self.lines("hex.log"), ["start", "finish"])
         self.assertEqual(self.head_calls("/turns"), [{"text": "what time is it"}])
         self.assertEqual(self.lines("played"), ["First.", "Second."])
         self.notified(["First. Second."])
@@ -193,6 +298,22 @@ class TalkTest(TalkCase):
         self.assertEqual(self.lines("played"), ["First."])
 
 
+    def test_a_key_event_outlives_the_command_that_started_it(self):
+        # Karabiner ends the key-down command when the key-up command arrives. The work must go on.
+        env = {k: v for k, v in self.env.items() if k != "JANET_TALK_DETACHED"}
+        script = self.root / "janet-talk"
+        script.write_text((APP / "janet-talk").read_text().replace("/bin/bash", shutil.which("bash")))
+        (self.stub / "hex-start-seconds").write_text("0.5")
+        launcher = subprocess.Popen(["bash", str(script), "start"], env=env, start_new_session=True)
+        self.assertEqual(launcher.wait(5), 0)
+        self.assertEqual(self.lines("hex.log"), [], "the launcher waited for the work")
+        try:
+            os.killpg(launcher.pid, signal.SIGKILL)
+        except ProcessLookupError:
+            pass
+        self.wait_for(lambda: self.head_calls("/v1/conversations"), 10)
+        self.assertEqual(self.lines("hex.log"), ["start"])
+
     def test_a_release_that_beats_the_recording_still_ends_it(self):
         # A quick tap: the key is up again before Hex has started recording.
         (self.stub / "hex-start-seconds").write_text("0.6")
@@ -200,8 +321,18 @@ class TalkTest(TalkCase):
         time.sleep(0.1)
         self.talk("stop")
         starting.wait(10)
-        self.assertEqual(self.lines("hex.log"), ["dictation start --raw", "dictation stop --print"])
+        self.assertEqual(self.lines("hex.log"), ["start", "finish"])
         self.assertEqual(self.head_calls("/turns"), [{"text": "what time is it"}])
+
+    def test_a_release_with_no_recording_leaves_the_next_press_alone(self):
+        # The first press never started a recording (Hex was slow), and its release is still waiting.
+        orphan = self.talk("stop", wait=False)
+        time.sleep(1.3)
+        self.talk("start")
+        self.assertEqual(orphan.wait(10), 0)
+        self.assertEqual(self.lines("hex.log"), ["start"], "the old release ended the new recording")
+        self.talk("stop")
+        self.assertEqual(self.lines("hex.log"), ["start", "finish"])
 
     def test_a_follow_up_after_a_long_pause_gets_a_new_conversation(self):
         self.talk("start")
@@ -224,7 +355,7 @@ class TalkTest(TalkCase):
         (self.stub / "no-secrets").touch()
         self.talk("start", status=1)
         self.notified(["Not set up: run the janet-mac install script."])
-        self.assertEqual(self.lines("hex.log"), ["dictation start --raw", "dictation cancel"])
+        self.assertEqual(self.lines("hex.log"), ["start", "cancel"])
         self.assertEqual(self.head.calls, [])
 
     def test_a_voice_that_fails_is_not_asked_again(self):
@@ -235,6 +366,160 @@ class TalkTest(TalkCase):
         self.assertEqual(sorted(asked), ["First.", "Hi.", "Second."])
         self.assertEqual(self.lines("played"), ["Second."])
         self.notified(["First. Second."])
+
+
+class TapTest(TalkCase):
+    """The second press was a tap, so Janet listens until the speaker stops.
+
+    Each test plays a microphone level through the fake Hex and checks how long Janet listened:
+    the time from Hex starting the recording to Hex being told to finish it. Speech ends
+    0.4 s of quiet later in these tests; giving up on silence takes 6 s, far outside every bound,
+    so a test cannot pass by giving up.
+    """
+
+    ROOM, SPEECH = -50.0, -22.0
+
+    def setUp(self):
+        super().setUp()
+        self.env["JANET_TALK_LATCH_MS"] = "1000000"
+
+    def listened(self, levels, within=60):
+        self.hex.levels = levels
+        self.talk("start")
+        self.talk("stop", within=within)
+        self.assertEqual(self.lines("hex.log"), ["start", "finish"])
+        return self.hex.at["finish"] - self.hex.at["start"]
+
+    def assert_ended_after_speech(self, levels, speech_ends_at, within=60):
+        seconds = self.listened(levels, within)
+        self.assertGreater(seconds, speech_ends_at + 0.3, "it stopped listening while the speaker was talking")
+        self.assertLess(seconds, speech_ends_at + 1.6, "it kept listening after the speaker stopped")
+
+    def test_it_sends_what_was_said_once_the_speaker_goes_quiet(self):
+        self.assert_ended_after_speech([(1.0, self.ROOM), (1.5, self.SPEECH), (30.0, self.ROOM)], 2.5)
+        self.assertEqual(self.head_calls("/turns"), [{"text": "what time is it"}])
+
+    def test_a_pause_shorter_than_the_limit_does_not_end_it(self):
+        levels = [(0.8, self.ROOM), (0.8, self.SPEECH), (0.2, self.ROOM), (1.0, self.SPEECH), (30.0, self.ROOM)]
+        self.assert_ended_after_speech(levels, 2.8)
+
+    def test_speech_that_starts_at_once_still_ends_on_quiet(self):
+        self.assert_ended_after_speech([(2.0, self.SPEECH), (30.0, self.ROOM)], 2.0)
+
+    def test_a_noisy_room_counts_as_quiet_once_the_speaker_stops(self):
+        self.assert_ended_after_speech([(1.0, -38.0), (1.5, -18.0), (30.0, -38.0)], 2.5)
+
+    def test_the_microphone_opening_does_not_make_room_noise_look_like_speech(self):
+        # Hex reports near-total silence for an instant while the microphone opens. Then the
+        # speaker takes two seconds to begin.
+        levels = [(0.15, -110.0), (0.15, -75.0), (2.0, -46.0), (1.2, self.SPEECH), (30.0, -46.0)]
+        self.assert_ended_after_speech(levels, 3.5)
+
+    def test_one_stray_silent_instant_does_not_set_the_quiet_level(self):
+        levels = [(0.9, -46.0), (0.0, -80.0), (1.5, -46.0), (1.2, self.SPEECH), (30.0, -46.0)]
+        self.assert_ended_after_speech(levels, 3.6)
+
+    def test_a_click_before_the_speech_does_not_end_the_listening(self):
+        levels = [(1.2, self.ROOM), (0.1, -28.0), (1.5, self.ROOM), (1.2, self.SPEECH), (30.0, self.ROOM)]
+        self.assert_ended_after_speech(levels, 4.0)
+
+    def test_a_long_sentence_with_a_soft_ending_is_heard_to_the_end(self):
+        # The ending is steady and soft: above the room, below the dips of the loud part.
+        self.env["JANET_TALK_NO_SPEECH_S"] = "10"
+        levels = [(0.8, self.ROOM), (3.0, -20.0), (1.5, -32.0), (30.0, self.ROOM)]
+        self.assert_ended_after_speech(levels, 5.3)
+
+    def test_someone_who_talks_for_a_minute_is_heard_to_the_end(self):
+        del self.env["JANET_TALK_MAX_LISTEN_S"]  # the limit the script ships with
+        self.assert_ended_after_speech([(1.0, self.ROOM), (60.0, self.SPEECH), (30.0, self.ROOM)], 61.0, within=120)
+
+    def test_speech_only_a_little_above_the_room_is_still_speech(self):
+        # Eleven dB over a -46 room, with gaps.
+        soft = [-35.0, -35.0, -46.0, -35.0]
+        self.assert_ended_after_speech([(1.0, -46.0), (1.5, soft), (30.0, -46.0)], 2.5)
+
+    def test_a_room_with_frequent_louder_instants_is_not_speech(self):
+        # Seven and eight dB over the room, half the time, and nobody talking.
+        self.env["JANET_TALK_NO_SPEECH_S"] = "2"
+        (self.stub / "hex-status").write_text("4")
+        restless = [-46.0, -46.0, -39.0, -38.0, -46.0, -39.0, -38.0, -46.0]
+        seconds = self.listened([(30.0, restless)])
+        self.assertGreater(seconds, 1.9)
+        self.assertLess(seconds, 3.5)
+        self.assertIn("nothing said", (Path(self.env["JANET_TALK_STATE"]) / "talk.log").read_text())
+
+    def test_a_room_that_gets_louder_does_not_keep_it_listening(self):
+        # Speech, then a fan starts: nine dB more room, for good.
+        levels = [(1.0, self.ROOM), (1.5, self.SPEECH), (30.0, self.ROOM + 9)]
+        seconds = self.listened(levels)
+        self.assertLess(seconds, 2.5 + 8 + 3, "it never accepted the louder room as the room")
+
+    def test_a_room_that_goes_quiet_does_not_end_the_listening_on_the_spot(self):
+        # A fan stops three seconds in. The speaker still gets the usual pause to begin.
+        seconds = self.listened([(3.0, self.ROOM + 8), (30.0, self.ROOM)])
+        self.assertGreater(seconds, 3.0 + 1.2)
+
+    def test_nothing_said_gives_up(self):
+        self.env["JANET_TALK_NO_SPEECH_S"] = "1.5"
+        (self.stub / "hex-status").write_text("4")
+        seconds = self.listened([(30.0, self.ROOM)])
+        self.assertGreater(seconds, 1.4)
+        self.assertLess(seconds, 3.5)
+        self.assertEqual(self.head_calls("/turns"), [])
+        self.notified(["Didn't catch that."])
+
+    def test_a_level_stream_that_ends_does_not_leave_it_listening(self):
+        seconds = self.listened([(0.6, self.ROOM)])
+        self.assertLess(seconds, 3.0)
+
+    def test_a_second_double_tap_ends_the_listening_at_once(self):
+        self.hex.levels = [(0.2, self.ROOM), (60.0, self.SPEECH)]
+        self.talk("start")
+        listening = self.talk("stop", wait=False)
+        self.wait_for(lambda: (Path(self.env["JANET_TALK_STATE"]) / "listening.pid").exists())
+        time.sleep(1.0)
+        pressed = time.monotonic()
+        self.talk("start")
+        self.assertEqual(listening.wait(15), 0)
+        self.assertLess(self.hex.at["finish"] - pressed, 1.5)
+        self.assertEqual(self.lines("hex.log"), ["start", "finish"])
+        self.assertEqual(self.head_calls("/turns"), [{"text": "what time is it"}])
+
+
+class HoldTest(TalkCase):
+    def test_hex_hears_from_the_recording_while_the_key_is_held_and_not_after(self):
+        # Hex drops a recording whose owner goes quiet.
+        self.env["JANET_TALK_HEARTBEAT_S"] = "0.2"
+        self.talk("start")
+        time.sleep(1.0)
+        self.assertGreaterEqual(self.hex.heartbeats, 2)
+        self.talk("stop")
+        time.sleep(0.5)
+        after = self.hex.heartbeats
+        time.sleep(0.8)
+        self.assertEqual(self.hex.heartbeats, after)
+
+    def test_a_slow_hex_does_not_turn_a_hold_into_a_tap_or_lose_the_recording(self):
+        # Hex takes over a second to start, the key is held well past that, then released.
+        self.env["JANET_TALK_LATCH_MS"] = "400"
+        (self.stub / "hex-start-seconds").write_text("1.2")
+        self.hex.levels = [(60.0, -22.0)]
+        starting = self.talk("start", wait=False)
+        time.sleep(1.6)
+        self.talk("stop")
+        starting.wait(10)
+        self.assertEqual(self.lines("hex.log"), ["start", "finish"])
+        self.assertLess(self.hex.at["finish"] - self.hex.at["start"], 3.0)
+
+    def test_a_held_key_ends_on_release_without_waiting_for_quiet(self):
+        self.env["JANET_TALK_LATCH_MS"] = "100"
+        self.hex.levels = [(60.0, -22.0)]
+        self.talk("start")
+        time.sleep(0.3)
+        started = time.monotonic()
+        self.talk("stop")
+        self.assertLess(time.monotonic() - started, 6.0)
+        self.assertEqual(self.lines("hex.log"), ["start", "finish"])
 
 
 class InstallTest(unittest.TestCase):
