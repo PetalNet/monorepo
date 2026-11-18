@@ -600,6 +600,22 @@ class WebToolsTest(HeadCase):
             self.start_head(web_tools=["WebSearch", "Bash"])
 
 
+class SilenceTest(HeadCase):
+    def test_a_fragment_the_model_answers_with_nothing_or_filler_is_met_with_silence_not_an_apology(self):
+        conv = self.open("personal")
+        for text in ("silentcase so", "fillercase and then"):
+            sentences, done = self.turn(conv, text)
+            self.assertEqual(sentences, [], text)
+            self.assertFalse(done["end_conversation"])
+
+    def test_a_failure_still_apologises(self):
+        self.stop_head()
+        self.claude_extra = ["--fake-leak-tools"]
+        self.start_head()
+        sentences, _ = self.turn(self.open("personal"), "hello")
+        self.assertEqual(sentences, ["Sorry, I could not answer that."])
+
+
 class MainLikeWebToolsTest(HeadCase):
     def settings_of(self, argv):
         self.assertEqual(argv.count("--settings"), 1, "claude reads only the last --settings")
