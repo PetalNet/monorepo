@@ -3,12 +3,12 @@
 It hears what a person listening would: the words so far (a small speech model that writes them
 down as they are said, on this machine), the pace, and how the turn has gone. A few numbers
 describe the pause, and a logistic model fitted on recorded turns of the person who uses this
-Mac turns them into the chance that he is done. Pitch and loudness were measured on those turns
-too and told a finished thought from a pause to think no better than chance, so they are not
-here.
+Mac turns them into the chance that he is done. Loudness before the pause told a finished
+thought from a pause to think no better than chance on those turns, and pitch was not tracked
+well enough to say, so neither is here.
 
-A filled pause ("um", "uh") or a trailing "so" or "and" is not judged: it always means more
-is coming.
+A filled pause ("um", "uh"), a word drawn out into the silence or a trailing "and" is not
+judged: it always means more is coming.
 """
 
 from __future__ import annotations
@@ -36,6 +36,8 @@ LEADING = {
     "really", "very", "by", "into", "about", "than", "would", "could", "should", "can", "will", "actually", "basically",
     "maybe", "need", "that's", "there's", "they", "he", "she", "is", "are", "was", "have", "has",
 }  # fmt: skip
+# Words that only ever join two things: after one, more is coming.
+JOINING = {"and", "but", "or", "because"}
 # Words that hand the turn over.
 CLOSING = {"please", "thanks", "you", "know", "yeah", "understand", "sense", "think", "luck", "fun", "bye"}
 ASKING = {
@@ -126,6 +128,7 @@ def cues(speech: list[bool], pieces: list[tuple[str, float]], ended: bool, pause
     c = {
         "turn_s": (pause - start) * FRAME_S,
         "leading": float(last in LEADING),
+        "joining": float(last in JOINING),
         "filler": float(last in FILLERS),
         "closing": float(last in CLOSING),
         "unworded_s": unworded * FRAME_S,
@@ -142,9 +145,9 @@ def cues(speech: list[bool], pieces: list[tuple[str, float]], ended: bool, pause
 
 
 def filled(c: dict[str, float]) -> bool:
-    """More is coming: an "um" (the speech model writes most of them down as nothing at all, so
-    voice with no word to it counts), or a last word that leads somewhere ("and", "so", "the")."""
-    return bool(c["filler"]) or c["unworded_s"] >= UNWORDED_S or bool(c["leading"])
+    """More is coming: an "um" or a word drawn out into the silence (the speech model writes most
+    "um"s down as nothing at all, so voice with no word to it counts), or a trailing "and"."""
+    return bool(c["filler"]) or c["unworded_s"] >= UNWORDED_S or bool(c["joining"])
 
 
 class Judge:
@@ -212,4 +215,10 @@ class Hearing:
         c = cues(self._speech, list(self._pieces), ended, pause)
         if filled(c):
             return "hold"
-        return "done" if self._judge.done(c) >= self._judge.sure else None
+        chance = self._judge.done(c)
+        # A last word that leads somewhere ("the", "so", "for") is no ending, but short answers
+        # do end on some of them, so it only rules out ending early.
+        if c["leading"] or chance < self._judge.sure:
+            return None
+        print(f"judged done: {chance:.2f} {json.dumps(c)}", file=sys.stderr)
+        return "done"

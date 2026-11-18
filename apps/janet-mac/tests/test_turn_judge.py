@@ -177,6 +177,11 @@ class CuesTest(unittest.TestCase):
     def test_a_trailing_and_means_more_is_coming(self):
         self.assertTrue(filled(said("we could move it to the other server and")))
 
+    def test_a_short_answer_that_ends_on_so_is_not_held_open(self):
+        answer = said("yeah i think so")
+        self.assertFalse(filled(answer))
+        self.assertEqual(answer["leading"], 1.0)
+
     def test_a_sound_the_speech_model_wrote_no_word_for_is_a_filled_pause(self):
         self.assertTrue(filled(said("i was thinking we could", um_s=0.9)))
         self.assertTrue(filled(said("we could move it um")))

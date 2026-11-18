@@ -42,13 +42,14 @@ speech model on the Mac writes the words down as they are said
 ([Parakeet Realtime EOU](https://huggingface.co/nvidia/parakeet_realtime_eou_120m-v1), 194 MB, NVIDIA
 Open Model License). Two things follow from what it hears:
 
-- After an "um", or a last word that leads somewhere ("and", "so", "the"), more is coming: the wait
-  is 6 s instead of 3. The model writes most "um"s down as nothing, so voice with no word to it
-  counts as one.
+- After an "um", a word drawn out into the silence or a trailing "and", more is coming: the wait is
+  6 s instead of 3. The model writes most "um"s down as nothing, so voice with no word to it counts
+  as one.
 - After 1 s of silence, a logistic model gives the chance that the speaker is done, from the words
   (a short turn that asks something, a closing word, the speech model's own end-of-utterance mark),
-  the pace and the pauses so far. Above a bar no mid-turn pause in the recordings reached, the turn
-  ends at once. It is asked again at 1.5, 2 and 2.5 s.
+  the pace and the pauses so far. Above a bar set by the surest mid-turn pause in the recordings,
+  the turn ends at once, unless the last word leads somewhere ("the", "so", "for"). It is asked
+  again at 1.5, 2 and 2.5 s.
 
 The weights in [`turn_judge.json`](turn_judge.json) were fitted on recorded turns of the person who
 uses this Mac. Nothing leaves the Mac and no API is called. Without the judge's files, or while its
