@@ -7,7 +7,6 @@ import { fail, redirect } from "@sveltejs/kit";
 import { customAlphabet } from "nanoid";
 
 const publicId = customAlphabet("346789ABCDEFGHJKLMNPQRTUVWXY", 8);
-const manageId = customAlphabet("abcdefghijklmnopqrstuvwxyz0123456789", 32);
 
 export const load = async ({ locals }) => {
 	if (!locals.user) {
@@ -50,7 +49,6 @@ export const actions = {
 
 		for (let attempt = 0; attempt < 5; attempt += 1) {
 			const publicCode = publicId();
-			const manageToken = manageId();
 
 			try {
 				const event = await prisma.event.create({
@@ -68,13 +66,12 @@ export const actions = {
 						backgroundImage: backgroundImage ?? null,
 						emoji: emoji ?? null,
 						publicCode,
-						manageToken,
 						userId: locals.user.id,
 					},
 				});
 
 				// Successfully created, redirect to the management page
-				throw redirect(303, `/event/manage/${event.manageToken}?new`);
+				throw redirect(303, `/event/${event.publicCode}/manage?new`);
 			} catch (error) {
 				// Prisma duplicate key error - try again with a new code
 				if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === "P2002") {

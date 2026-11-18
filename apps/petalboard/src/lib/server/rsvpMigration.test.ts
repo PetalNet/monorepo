@@ -31,7 +31,12 @@ describe(`${MIGRATION} migration`, () => {
 	it("normalizes emails and dedupes them per event without deleting any RSVP", () => {
 		cpSync(path.join(appRoot, "prisma"), path.join(dir, "prisma"), {
 			recursive: true,
-			filter: (source) => !source.includes(MIGRATION) && !source.endsWith(".db"),
+			// Stop the history before this migration so later ones cannot reshape the tables first.
+			filter: (source) => {
+				const name = path.basename(source);
+
+				return !name.endsWith(".db") && !(/^\d{14}_/.test(name) && name >= MIGRATION);
+			},
 		});
 
 		deploy();

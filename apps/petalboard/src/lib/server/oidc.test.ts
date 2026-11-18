@@ -147,7 +147,6 @@ describe("OIDC user mapping", () => {
 				title: "Garden party",
 				date: new Date("2026-11-26T18:00:00Z"),
 				publicCode: "oidc-event",
-				manageToken: "oidc-manage-token",
 				userId: existing.id,
 			},
 		});

@@ -51,7 +51,7 @@ Replace the `<style>` block starting around line 600 with Tailwind classes. Use 
 - `.error-banner`, `.success-banner` for notifications
 - `.badge-attending`, `.badge-maybe`, `.badge-not-attending` for status badges
 
-### 2. Event Management Page (`src/routes/event/manage/[token]/+page.svelte`)
+### 2. Event Management Page (`src/routes/event/[code]/manage/+page.svelte`)
 
 **Size:** ~1081 lines  
 **Complexity:** Very High - Most complex page in the app
@@ -249,7 +249,7 @@ After completing the migration:
 ## 🚀 Next Steps
 
 1. Complete migration of `/event/[code]/+page.svelte`
-2. Complete migration of `/event/manage/[token]/+page.svelte`
+2. Complete migration of `/event/[code]/manage/+page.svelte`
 3. Run full application test suite
 4. Remove any unused style blocks
 5. Consider creating additional component classes for repeated patterns

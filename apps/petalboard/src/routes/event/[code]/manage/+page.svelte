@@ -300,7 +300,7 @@
 				>
 			</div>
 			<div>
-				<strong class="mb-2 block text-primary-50">Management link (keep this private):</strong>
+				<strong class="mb-2 block text-primary-50">Management link (only you can open it):</strong>
 				<code class="block rounded-lg bg-white/20 px-4 py-3 font-mono text-sm"
 					>{$page.url.href.replace("?new", "")}</code
 				>

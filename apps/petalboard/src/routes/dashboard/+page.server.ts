@@ -28,7 +28,6 @@ export const load = async ({ locals }) => {
 			timezone: event.timezone,
 			location: event.location,
 			publicCode: event.publicCode,
-			manageToken: event.manageToken,
 			rsvpCount: event._count.rsvps,
 			questionCount: event._count.questions,
 		})),
