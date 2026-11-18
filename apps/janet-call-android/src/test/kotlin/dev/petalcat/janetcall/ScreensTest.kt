@@ -61,7 +61,7 @@ class ScreensTest {
 			CallRecord(at(iso), seconds, ok).let { whenText(it, now, UTC, Locale.US) to lengthText(it) }
 		assertEquals("Today 9:41 AM" to "2:14", text("2026-11-18T09:41:00Z"))
 		assertEquals("Yesterday 6:02 PM" to "2:14", text("2026-11-17T18:02:00Z"))
-		assertEquals("Mon 10 Nov" to "Did not connect", text("2026-11-10T08:00:00Z", 0, false))
+		assertEquals("Tue 10 Nov" to "Did not connect", text("2026-11-10T08:00:00Z", 0, false))
 	}
 }
 
