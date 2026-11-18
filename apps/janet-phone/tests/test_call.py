@@ -351,7 +351,10 @@ class CallTest(unittest.IsolatedAsyncioTestCase):
             self.assertEqual((await asyncio.to_thread(self._http, "GET", "/pair", None, arrived))[0], 200, site)
         framed = {**owner, "Sec-Fetch-Site": "cross-site", "Sec-Fetch-Mode": "navigate", "Sec-Fetch-Dest": "iframe"}
         fetched = {**owner, "Sec-Fetch-Site": "same-site", "Sec-Fetch-Mode": "cors", "Sec-Fetch-Dest": "empty"}
-        for headers in (framed, fetched):
+        odd = {**owner, "Sec-Fetch-Site": "cross-site", "Sec-Fetch-Mode": "no-cors", "Sec-Fetch-Dest": "document"}
+        prefetched = {**owner, "Sec-Fetch-Site": "cross-site", "Sec-Fetch-Mode": "navigate", "Sec-Fetch-Dest": "document",
+                      "Sec-Purpose": "prefetch"}
+        for headers in (framed, fetched, odd, prefetched):
             self.assertEqual((await asyncio.to_thread(self._http, "GET", "/pair", None, headers))[0], 403, headers)
 
     async def test_the_gateway_gets_the_head_token_and_the_callers_access_assertion(self):
