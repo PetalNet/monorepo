@@ -47,6 +47,18 @@ class MicBacklog {
 	}
 }
 
+/**
+ * [mic], silent while [muted] says so. The frames keep coming at their own pace, so the bridge
+ * hears a pause and the call's timing does not change.
+ */
+class MutableMic(private val mic: Mic, private val muted: () -> Boolean) : Mic by mic {
+	override fun read(buf: ByteArray): Int {
+		val n = mic.read(buf)
+		if (n > 0 && muted()) buf.fill(0, 0, n)
+		return n
+	}
+}
+
 interface Mic {
 	/** Blocks until [buf] is full, or returns <= 0 once the mic is stopped. */
 	fun read(buf: ByteArray): Int

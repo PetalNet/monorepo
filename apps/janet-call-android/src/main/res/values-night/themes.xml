@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+	<color name="ground">#0B0B0B</color>
+
+	<style name="Theme.JanetCall" parent="android:Theme.Material.NoActionBar">
+		<item name="android:windowBackground">@color/ground</item>
+	</style>
+</resources>

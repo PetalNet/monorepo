@@ -12,7 +12,7 @@
 	<application
 		android:allowBackup="false"
 		android:label="Janet Call"
-		android:theme="@android:style/Theme.DeviceDefault.NoActionBar">
+		android:theme="@style/Theme.JanetCall">
 
 		<activity
 			android:name=".MainActivity"

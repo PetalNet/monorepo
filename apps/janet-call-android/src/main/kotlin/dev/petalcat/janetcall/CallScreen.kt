@@ -5,32 +5,62 @@ import android.graphics.Bitmap
 import android.graphics.Canvas
 import android.graphics.Paint
 import android.graphics.RectF
-import android.graphics.Typeface
-import android.graphics.drawable.GradientDrawable
-import android.os.Build
 import android.os.SystemClock
 import android.text.Layout
 import android.text.StaticLayout
 import android.text.TextPaint
 import android.util.TypedValue
-import android.view.Gravity
+import android.view.HapticFeedbackConstants
 import android.view.View
-import android.widget.FrameLayout
-import android.widget.ImageButton
-import android.widget.TextView
+import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.background
+import androidx.compose.foundation.border
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.navigationBars
+import androidx.compose.foundation.layout.navigationBarsPadding
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.statusBars
+import androidx.compose.foundation.layout.statusBarsPadding
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.material3.Icon
+import androidx.compose.material3.Text
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.produceState
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.toArgb
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.platform.LocalView
+import androidx.compose.ui.res.painterResource
+import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.unit.dp
+import androidx.compose.ui.viewinterop.AndroidView
+import dev.petalcat.janetcall.ui.LocalPalette
+import dev.petalcat.janetcall.ui.Palette
+import dev.petalcat.janetcall.ui.Type
 import kotlin.math.floor
 import kotlin.math.max
 import kotlin.math.min
-
-/** The approved palette, dark ground. */
-object Ink {
-	const val GROUND = 0xFF0B0B0B.toInt()
-	const val INK = 0xFFF3F3EF.toInt()
-	const val G1 = 0xFFC6C6C2.toInt()
-	const val G2 = 0xFFA2A29E.toInt()
-	const val HAIR2 = 0xFF3B3B3B.toInt()
-	const val TINT = 0xFF202020.toInt()
-}
+import kotlinx.coroutines.delay
 
 /**
  * Star positions for the reference's 360 x 760 screen: its generator with its seed, so the sky is
@@ -70,274 +100,354 @@ const val FRAME_YIELD = 3L
  */
 fun frameGapMs(busyMs: Long): Long = max(FRAME_MS - busyMs, FRAME_YIELD * busyMs)
 
+/** What the call screen shows besides the live [CallStage]. [sinceMs] is on the elapsed-realtime clock, null until the call connects. */
+data class CallUi(val sinceMs: Long?, val route: String, val muted: Boolean)
+
+/** The word under Janet's name for what the call is doing right now. */
+fun callStatus(connected: Boolean, muted: Boolean, phase: Phase): String = when {
+	!connected -> "Calling…"
+	muted -> "Muted"
+	phase == Phase.Thinking -> "Thinking"
+	phase == Phase.Speaking -> "Speaking"
+	else -> "Listening"
+}
+
 /**
  * The call screen: the planet is the whole interface. Under it, the level meter and one centred
- * transcript line, hers bright and his gray, with no labels. Controls: speaker, Hide or Show text, hang up.
+ * transcript line, hers bright and his gray, with no labels. Controls: mute, Hide or Show text,
+ * hang up, and the speaker in the top corner.
  */
-class CallScreen(context: Context) : FrameLayout(context) {
-	private val sky = Sky(context)
-	private val speaker = round(R.drawable.ic_speaker, "Speaker")
-	private val end = round(R.drawable.ic_end, "Hang up").apply {
-		background = oval(Ink.INK)
-		drawable.setTint(Ink.GROUND)
-	}
-	private val text = TextView(context).apply {
-		setTextSize(TypedValue.COMPLEX_UNIT_SP, 16f)
-		setTextColor(Ink.G1)
-		typeface = Typeface.create("sans-serif-medium", Typeface.NORMAL)
-		gravity = Gravity.CENTER
-		setPadding(dp(22), 0, dp(22), 0)
-		background = GradientDrawable().apply {
-			cornerRadius = dp(28).toFloat()
-			setStroke(dp(1), Ink.HAIR2)
-		}
-		setOnClickListener {
-			sky.showText = !sky.showText
-			renderControls()
+@Composable
+fun CallScreen(
+	ui: CallUi,
+	stage: CallStage?,
+	onMute: (Boolean) -> Unit,
+	onSpeaker: () -> Unit,
+	onHangUp: () -> Unit,
+	clock: () -> Double = CallStage::nowS,
+) {
+	val palette = LocalPalette.current
+	val view = LocalView.current
+	val density = LocalDensity.current
+	var showText by rememberSaveable { mutableStateOf(true) }
+	var phase by remember { mutableStateOf(Phase.Idle) }
+	val connected = ui.sinceMs != null
+	val elapsed by produceState(0L, ui.sinceMs) {
+		while (ui.sinceMs != null) {
+			value = max(0L, (SystemClock.elapsedRealtime() - ui.sinceMs) / 1000)
+			delay(250)
 		}
 	}
 
-	var onSpeaker: () -> Unit = {}
-	var onHangUp: () -> Unit = {}
+	// Self-managed calls get no proximity sensor handling from the system, and the screen is the call.
+	DisposableEffect(view) {
+		view.keepScreenOn = true
+		onDispose { view.keepScreenOn = false }
+	}
+	LaunchedEffect(connected) { if (connected) view.performHapticFeedback(HapticFeedbackConstants.LONG_PRESS) }
 
-	init {
-		setBackgroundColor(Ink.GROUND)
-		// Self-managed calls get no proximity sensor handling from the system, and the screen is the call.
-		keepScreenOn = true
-		addView(sky, LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.MATCH_PARENT))
-		val edge = dp(EDGE)
-		val bottom = dp(BOTTOM)
-		addView(speaker, LayoutParams(dp(BUTTON), dp(BUTTON), Gravity.BOTTOM or Gravity.START).apply { setMargins(edge, 0, 0, bottom) })
-		addView(
-			text,
-			LayoutParams(LayoutParams.WRAP_CONTENT, dp(56), Gravity.BOTTOM or Gravity.CENTER_HORIZONTAL)
-				.apply { setMargins(0, 0, 0, bottom + dp(BUTTON - 56) / 2) },
+	val topInset = WindowInsets.statusBars.getTop(density)
+	val bottomInset = WindowInsets.navigationBars.getBottom(density)
+	Box(Modifier.fillMaxSize().background(palette.ground)) {
+		AndroidView(
+			modifier = Modifier.fillMaxSize(),
+			factory = { CallSky(it) },
+			update = { sky ->
+				sky.palette = palette
+				sky.stage = stage
+				sky.clock = clock
+				sky.showText = showText
+				sky.onPhase = { phase = it }
+				sky.inset(topInset, bottomInset)
+			},
 		)
-		addView(end, LayoutParams(dp(BUTTON), dp(BUTTON), Gravity.BOTTOM or Gravity.END).apply { setMargins(0, 0, edge, bottom) })
-		speaker.setOnClickListener { onSpeaker() }
-		end.setOnClickListener { onHangUp() }
-		renderControls()
-	}
-
-	/** Call state changed: the header line and the speaker button follow it. */
-	fun render() {
-		renderControls()
-		sky.invalidate()
-	}
-
-	private fun renderControls() {
-		val on = Calls.route == "Speaker"
-		speaker.background = oval(if (on) Ink.INK else Ink.TINT)
-		speaker.drawable.setTint(if (on) Ink.GROUND else Ink.INK)
-		speaker.contentDescription = if (on) "Speaker, on" else "Speaker, off"
-		text.text = if (sky.showText) "Hide text" else "Show text"
-	}
-
-	private fun dp(v: Int) = (v * resources.displayMetrics.density).toInt()
-
-	private fun oval(color: Int) = GradientDrawable().apply {
-		shape = GradientDrawable.OVAL
-		setColor(color)
-	}
-
-	private fun round(icon: Int, label: String) = ImageButton(context).apply {
-		setImageDrawable(context.getDrawable(icon)!!.mutate())
-		scaleType = android.widget.ImageView.ScaleType.CENTER
-		contentDescription = label
-	}
-
-	/** Everything that is drawn rather than tapped: stars, the header, the planet with its meter, the transcript. */
-	private class Sky(context: Context) : View(context) {
-		var showText = true
-			set(value) {
-				field = value
-				invalidate()
+		Column(
+			Modifier.align(Alignment.TopCenter).statusBarsPadding().padding(top = 14.dp),
+			horizontalAlignment = Alignment.CenterHorizontally,
+		) {
+			Text("Janet", style = Type.name, color = palette.ink)
+			val status = callStatus(connected, ui.muted, phase)
+			Text(
+				if (connected) "%d:%02d · %s".format(elapsed / 60, elapsed % 60, status) else status,
+				style = Type.detail,
+				color = palette.g2,
+			)
+		}
+		if (ui.route.isNotEmpty()) {
+			val speaker = ui.route == "Speaker"
+			RoundButton(
+				icon = R.drawable.ic_speaker,
+				label = if (speaker) "Speaker, on" else "Speaker, off. Sound is on ${ui.route}",
+				size = 48,
+				iconSize = 20,
+				filled = speaker,
+				modifier = Modifier.align(Alignment.TopEnd).statusBarsPadding().padding(top = 8.dp, end = 16.dp),
+				onClick = onSpeaker,
+			)
+		}
+		Row(
+			Modifier.align(Alignment.BottomCenter).navigationBarsPadding().fillMaxWidth()
+				.padding(start = EDGE.dp, end = EDGE.dp, bottom = BOTTOM.dp),
+			horizontalArrangement = Arrangement.SpaceBetween,
+			verticalAlignment = Alignment.CenterVertically,
+		) {
+			RoundButton(
+				icon = if (ui.muted) R.drawable.ic_mic_off else R.drawable.ic_mic,
+				label = if (ui.muted) "Microphone, muted" else "Microphone, on",
+				size = BUTTON,
+				iconSize = 29,
+				filled = ui.muted,
+				onClick = { onMute(!ui.muted) },
+			)
+			Box(
+				Modifier.height(56.dp).clip(CircleShape).border(BorderStroke(1.dp, palette.hair2), CircleShape)
+					.clickable(role = Role.Button) { showText = !showText }.padding(horizontal = 22.dp),
+				contentAlignment = Alignment.Center,
+			) {
+				Text(if (showText) "Hide text" else "Show text", style = Type.pill, color = palette.g1)
 			}
+			RoundButton(
+				icon = R.drawable.ic_end,
+				label = "Hang up",
+				size = BUTTON,
+				iconSize = 31,
+				filled = true,
+				onClick = {
+					view.performHapticFeedback(HapticFeedbackConstants.LONG_PRESS)
+					onHangUp()
+				},
+			)
+		}
+	}
+}
 
-		private val engine = PlanetEngine(context.resources.openRawResource(R.raw.planet_lit).use { it.readBytes() })
-		private val pixels = IntArray(PlanetEngine.GRID * PlanetEngine.ROWS)
-		private val bitmap = Bitmap.createBitmap(PlanetEngine.GRID, PlanetEngine.ROWS, Bitmap.Config.ARGB_8888)
-		private val sky = stars(29, 30, 180.0, 250.0, 170.0)
-		private val density = resources.displayMetrics.density
-		private val fill = Paint()
-		private val blit = Paint().apply { isFilterBitmap = false }
-		private val name = textPaint(15f, 600, Ink.INK)
-		private val detail = textPaint(12.5f, 500, Ink.G2)
-		private val words = textPaint(18f, 500, Ink.INK)
-		private val planet = RectF()
-		private val caps = RectF()
-		private var lastS = 0.0
-		private val stage = StageView()
-		private var drawnStage: CallStage? = null
-		private var clock = ""
-		private var clockSecond = -1L
+/** A round control. Filled is ink on the ground's colour: the hang-up button, and a toggle that is on. */
+@Composable
+fun RoundButton(
+	icon: Int,
+	label: String,
+	size: Int,
+	iconSize: Int,
+	filled: Boolean,
+	modifier: Modifier = Modifier,
+	onClick: () -> Unit,
+) {
+	val palette = LocalPalette.current
+	Box(
+		modifier.size(size.dp).clip(CircleShape).background(if (filled) palette.ink else palette.tint)
+			.clickable(role = Role.Button, onClick = onClick).semantics { contentDescription = label },
+		contentAlignment = Alignment.Center,
+	) {
+		Icon(painterResource(icon), null, Modifier.size(iconSize.dp), tint = if (filled) palette.onInk else palette.ink)
+	}
+}
 
-		/** Every frame that is drawn asks for the next one, so nothing runs while the screen is not drawn. */
-		private val nextFrame = Runnable { invalidate() }
-
-		private var shown: Caption? = null
-		private var shownLayout: StaticLayout? = null
-		private var shownSinceS = 0.0
-		private var leaving: StaticLayout? = null
-		private var leavingColor = 0
-		private var leavingSinceS = 0.0
-
-		private fun textPaint(sp: Float, weight: Int, color: Int) = TextPaint(Paint.ANTI_ALIAS_FLAG).apply {
-			textSize = TypedValue.applyDimension(TypedValue.COMPLEX_UNIT_SP, sp, resources.displayMetrics)
-			this.color = color
-			typeface = if (Build.VERSION.SDK_INT >= 28) {
-				Typeface.create(Typeface.DEFAULT, weight, false)
-			} else {
-				Typeface.create(if (weight >= 600) "sans-serif" else "sans-serif-medium", if (weight >= 600) Typeface.BOLD else Typeface.NORMAL)
-			}
+/** Everything on the call screen that is drawn rather than tapped: stars, the planet with its meter, the transcript. */
+class CallSky(context: Context) : View(context) {
+	var showText = true
+		set(value) {
+			field = value
+			invalidate()
 		}
 
-		/**
-		 * The reference lays out a 360 x 726 dp area under the status bar: planet grid at 3 dp a cell
-		 * from 40 dp down, the transcript 18 dp under it, the controls at the bottom. A shorter or
-		 * narrower screen gets a smaller whole-pixel cell, so the grid stays crisp.
-		 */
-		override fun onSizeChanged(w: Int, h: Int, oldw: Int, oldh: Int) {
-			val below = (CAPS_GAP + CAPS_MIN + CONTROLS_GAP + BUTTON + BOTTOM) * density
-			val cell = floor(
+	/** The call to draw, or null for a quiet sky. */
+	var stage: CallStage? = null
+
+	/** Seconds on the clock the stage's times are on. A test swaps it to draw a chosen instant. */
+	var clock: () -> Double = CallStage::nowS
+
+	/** Told when the call moves between listening, thinking and speaking. */
+	var onPhase: (Phase) -> Unit = {}
+
+	var palette: Palette = dev.petalcat.janetcall.ui.DarkPalette
+		set(value) {
+			field = value
+			ground = value.ground.toArgb()
+			ink = value.ink.toArgb()
+			gray = value.g2.toArgb()
+			invalidate()
+		}
+
+	private var ground = palette.ground.toArgb()
+	private var ink = palette.ink.toArgb()
+	private var gray = palette.g2.toArgb()
+	private val engine = PlanetEngine(context.resources.openRawResource(R.raw.planet_lit).use { it.readBytes() })
+	private val pixels = IntArray(PlanetEngine.GRID * PlanetEngine.ROWS)
+	private val bitmap = Bitmap.createBitmap(PlanetEngine.GRID, PlanetEngine.ROWS, Bitmap.Config.ARGB_8888)
+	private val sky = stars(29, 30, 180.0, 250.0, 170.0)
+	private val density = resources.displayMetrics.density
+	private val fill = Paint()
+	private val blit = Paint().apply { isFilterBitmap = false }
+	private val words = TextPaint(Paint.ANTI_ALIAS_FLAG).apply {
+		textSize = TypedValue.applyDimension(TypedValue.COMPLEX_UNIT_SP, 18f, resources.displayMetrics)
+		typeface = resources.getFont(R.font.geist)
+		fontVariationSettings = "'wght' 500"
+	}
+	private val planet = RectF()
+	private val caps = RectF()
+	private var topInset = 0
+	private var bottomInset = 0
+	private var lastS = 0.0
+	private val view = StageView()
+	private var drawnStage: CallStage? = null
+	private var told: Phase? = null
+
+	/** Every frame that is drawn asks for the next one, so nothing runs while the screen is not drawn. */
+	private val nextFrame = Runnable { invalidate() }
+
+	private var shown: Caption? = null
+	private var shownLayout: StaticLayout? = null
+	private var shownSinceS = 0.0
+	private var leaving: StaticLayout? = null
+	private var leavingColor = 0
+	private var leavingSinceS = 0.0
+
+	/** The system bars' heights in pixels. The sky runs under both; the planet and the words stay clear of them. */
+	fun inset(top: Int, bottom: Int) {
+		if (top == topInset && bottom == bottomInset) return
+		topInset = top
+		bottomInset = bottom
+		place(width, height)
+		invalidate()
+	}
+
+	override fun onSizeChanged(w: Int, h: Int, oldw: Int, oldh: Int) = place(w, h)
+
+	/**
+	 * The reference lays out a 360 x 726 dp area under the status bar: the planet grid from 40 dp
+	 * down, the transcript 18 dp under it, the controls at the bottom. The cell is a whole number of
+	 * pixels, so the grid stays crisp: as large as the width allows up to [CELL] dp, smaller on a
+	 * short screen. Height the reference does not have is shared above the planet and over the controls.
+	 */
+	private fun place(w: Int, h: Int) {
+		val controlsTop = h - bottomInset - (BOTTOM + BUTTON + CONTROLS_GAP) * density
+		val planetTop = topInset + PLANET_TOP * density
+		val cell = floor(
+			min(
+				CELL * density,
 				min(
-					CELL * density,
-					min((w - 2 * CAPS_EDGE * density) / PlanetEngine.GRID, (h - PLANET_TOP * density - below) / PlanetEngine.ROWS),
+					(w - 2 * CAPS_EDGE * density) / PlanetEngine.GRID,
+					(controlsTop - planetTop - (CAPS_GAP + CAPS_MIN) * density) / PlanetEngine.ROWS,
 				),
-			).coerceAtLeast(1f)
-			val left = floor((w - cell * PlanetEngine.GRID) / 2)
-			val top = floor(PLANET_TOP * density)
-			planet.set(left, top, left + cell * PlanetEngine.GRID, top + cell * PlanetEngine.ROWS)
-			val capsTop = planet.bottom + CAPS_GAP * density
-			val controlsTop = h - (BOTTOM + BUTTON + CONTROLS_GAP) * density
-			caps.set(CAPS_EDGE * density, capsTop, w - CAPS_EDGE * density, min(capsTop + CAPS_HEIGHT * density, controlsTop))
-		}
-
-		override fun onDraw(canvas: Canvas) {
-			val nowS = CallStage.nowS()
-			val live = Calls.stage
-			if (live !== drawnStage) {
-				// Another call: nothing of the last one's line may fade out over this one.
-				drawnStage = live
-				shown = null
-				shownLayout = null
-				leaving = null
-				stage.caption = null
-				stage.parts = emptyList()
-				stage.phase = Phase.Idle
-				stage.her = 0.0
-				stage.him = 0.0
-			}
-			live?.read(nowS, stage)
-			val dt = (nowS - lastS).coerceIn(0.001, 0.05)
-			lastS = nowS
-			engine.step(stage.phase, stage.her, stage.him, nowS, dt)
-			engine.draw(nowS, Ink.INK, pixels)
-			bitmap.setPixels(pixels, 0, PlanetEngine.GRID, 0, 0, PlanetEngine.GRID, PlanetEngine.ROWS)
-
-			fill.color = Ink.INK
-			for ((x, y, big) in sky) {
-				val size = (if (big) 2 else 1) * density
-				val left = x * width / 360f
-				val top = (y - STATUS) * height / 726f
-				canvas.drawRect(left, top, left + size, top + size, fill)
-			}
-
-			val centre = width / 2f
-			name.textAlign = Paint.Align.CENTER
-			detail.textAlign = Paint.Align.CENTER
-			val nameBase = 14 * density - name.fontMetrics.ascent
-			canvas.drawText("Janet", centre, nameBase, name)
-			canvas.drawText(headerDetail(), centre, nameBase + name.fontMetrics.descent - detail.fontMetrics.ascent, detail)
-
-			canvas.save()
-			val scale = engine.scale.toFloat()
-			canvas.scale(scale, scale, planet.left + planet.width() * PlanetEngine.ORIGIN_X, planet.top + planet.height() * PlanetEngine.ORIGIN_Y)
-			blit.alpha = (engine.alpha * 255).toInt()
-			canvas.drawBitmap(bitmap, null, planet, blit)
-			canvas.restore()
-
-			if (showText) drawCaption(canvas, nowS)
-
-			removeCallbacks(nextFrame)
-			postDelayed(nextFrame, frameGapMs(SystemClock.uptimeMillis() - drawingTime))
-		}
-
-		private fun headerDetail(): String {
-			val since = Calls.activeSinceMs ?: return if (Calls.inCall) "Calling…" else ""
-			val seconds = max(0, (SystemClock.elapsedRealtime() - since) / 1000)
-			if (seconds != clockSecond) {
-				clockSecond = seconds
-				clock = "%d:%02d".format(seconds / 60, seconds % 60)
-			}
-			return if (Calls.route.isEmpty()) clock else "$clock · ${Calls.route}"
-		}
-
-		private fun layout(text: String): StaticLayout {
-			val width = (caps.width() - 2 * CAPS_PAD * density).toInt().coerceAtLeast(1)
-			return StaticLayout.Builder.obtain(text, 0, text.length, words, width)
-				.setAlignment(Layout.Alignment.ALIGN_CENTER)
-				.setLineSpacing(0f, LINE_HEIGHT * words.textSize / words.getFontMetrics(null))
-				.setBreakStrategy(Layout.BREAK_STRATEGY_BALANCED)
-				.build()
-		}
-
-		private fun room() = caps.height() - 2 * CAPS_TOP * density
-
-		/**
-		 * Only the current utterance. When hers outgrows the box, the oldest sentences go first. A
-		 * single sentence that is still too tall is drawn from its end, see [drawLayout].
-		 */
-		private fun fit(parts: List<String>): StaticLayout {
-			for (from in parts.indices) {
-				val candidate = layout(parts.drop(from).joinToString(" "))
-				if (candidate.height <= room() || from == parts.lastIndex) return candidate
-			}
-			return layout("")
-		}
-
-		private fun drawCaption(canvas: Canvas, nowS: Double) {
-			// The dark ground keeps stars from sitting behind the words.
-			fill.color = Ink.GROUND
-			canvas.drawRoundRect(caps, 16 * density, 16 * density, fill)
-			val caption = stage.caption
-			if (caption != shown) {
-				if (caption?.id != shown?.id) {
-					leaving = shownLayout
-					leavingColor = if (shown?.side == Side.Him) Ink.G2 else Ink.INK
-					leavingSinceS = nowS
-					shownSinceS = nowS
-				}
-				shown = caption
-				shownLayout = caption?.let { fit(stage.parts) }
-			}
-			val left = caps.left + CAPS_PAD * density
-			val top = caps.top + CAPS_TOP * density
-			leaving?.let { old ->
-				val fade = 1 - (nowS - leavingSinceS) / FADE_OUT_S
-				if (fade <= 0) leaving = null else drawLayout(canvas, old, left, top, leavingColor, fade)
-			}
-			shownLayout?.let { drawLayout(canvas, it, left, top, if (shown?.side == Side.Him) Ink.G2 else Ink.INK, (nowS - shownSinceS) / FADE_IN_S) }
-		}
-
-		private fun drawLayout(canvas: Canvas, layout: StaticLayout, left: Float, top: Float, color: Int, opacity: Double) {
-			words.color = color
-			words.alpha = (opacity.coerceIn(0.0, 1.0) * 255).toInt()
-			// Words never leave the box. Text taller than the box shows its newest lines.
-			canvas.save()
-			canvas.clipRect(caps)
-			canvas.translate(left, top - max(0f, layout.height - room()))
-			layout.draw(canvas)
-			canvas.restore()
-		}
+			),
+		).coerceAtLeast(1f)
+		val block = cell * PlanetEngine.ROWS + (CAPS_GAP + CAPS_HEIGHT) * density
+		val left = floor((w - cell * PlanetEngine.GRID) / 2)
+		val top = floor(planetTop + max(0f, controlsTop - planetTop - block) * SLACK_ABOVE)
+		planet.set(left, top, left + cell * PlanetEngine.GRID, top + cell * PlanetEngine.ROWS)
+		val capsTop = planet.bottom + CAPS_GAP * density
+		caps.set(CAPS_EDGE * density, capsTop, w - CAPS_EDGE * density, min(capsTop + CAPS_HEIGHT * density, controlsTop))
 	}
+
+	override fun onDraw(canvas: Canvas) {
+		val nowS = clock()
+		val live = stage
+		if (live !== drawnStage) {
+			// Another call: nothing of the last one's line may fade out over this one.
+			drawnStage = live
+			shown = null
+			shownLayout = null
+			leaving = null
+			view.caption = null
+			view.parts = emptyList()
+			view.phase = Phase.Idle
+			view.her = 0.0
+			view.him = 0.0
+		}
+		live?.read(nowS, view)
+		if (view.phase != told) {
+			told = view.phase
+			onPhase(view.phase)
+		}
+		val dt = (nowS - lastS).coerceIn(0.001, 0.05)
+		lastS = nowS
+		engine.step(view.phase, view.her, view.him, nowS, dt)
+		engine.draw(nowS, ink, pixels)
+		bitmap.setPixels(pixels, 0, PlanetEngine.GRID, 0, 0, PlanetEngine.GRID, PlanetEngine.ROWS)
+
+		fill.color = ink
+		for ((x, y, big) in sky) {
+			val size = (if (big) 2 else 1) * density
+			val left = x * width / 360f
+			val top = topInset + (y - STATUS) * (height - topInset) / 726f
+			canvas.drawRect(left, top, left + size, top + size, fill)
+		}
+
+		canvas.save()
+		val scale = engine.scale.toFloat()
+		canvas.scale(scale, scale, planet.left + planet.width() * PlanetEngine.ORIGIN_X, planet.top + planet.height() * PlanetEngine.ORIGIN_Y)
+		blit.alpha = (engine.alpha * 255).toInt()
+		canvas.drawBitmap(bitmap, null, planet, blit)
+		canvas.restore()
+
+		if (showText) drawCaption(canvas, nowS)
+
+		removeCallbacks(nextFrame)
+		postDelayed(nextFrame, frameGapMs(SystemClock.uptimeMillis() - drawingTime))
+	}
+
+	private fun layout(text: String): StaticLayout {
+		val width = (caps.width() - 2 * CAPS_PAD * density).toInt().coerceAtLeast(1)
+		return StaticLayout.Builder.obtain(text, 0, text.length, words, width)
+			.setAlignment(Layout.Alignment.ALIGN_CENTER)
+			.setLineSpacing(0f, LINE_HEIGHT * words.textSize / words.getFontMetrics(null))
+			.setBreakStrategy(Layout.BREAK_STRATEGY_BALANCED)
+			.build()
+	}
+
+	private fun room() = caps.height() - 2 * CAPS_TOP * density
+
+	/**
+	 * Only the current utterance. When hers outgrows the box, the oldest sentences go first. A
+	 * single sentence that is still too tall is drawn from its end, see [drawLayout].
+	 */
+	private fun fit(parts: List<String>): StaticLayout {
+		for (from in parts.indices) {
+			val candidate = layout(parts.drop(from).joinToString(" "))
+			if (candidate.height <= room() || from == parts.lastIndex) return candidate
+		}
+		return layout("")
+	}
+
+	private fun drawCaption(canvas: Canvas, nowS: Double) {
+		// The dark ground keeps stars from sitting behind the words.
+		fill.color = ground
+		canvas.drawRoundRect(caps, 16 * density, 16 * density, fill)
+		val caption = view.caption
+		if (caption != shown) {
+			if (caption?.id != shown?.id) {
+				leaving = shownLayout
+				leavingColor = if (shown?.side == Side.Him) gray else ink
+				leavingSinceS = nowS
+				shownSinceS = nowS
+			}
+			shown = caption
+			shownLayout = caption?.let { fit(view.parts) }
+		}
+		val left = caps.left + CAPS_PAD * density
+		val top = caps.top + CAPS_TOP * density
+		leaving?.let { old ->
+			val fade = 1 - (nowS - leavingSinceS) / FADE_OUT_S
+			if (fade <= 0) leaving = null else drawLayout(canvas, old, left, top, leavingColor, fade)
+		}
+		shownLayout?.let { drawLayout(canvas, it, left, top, if (shown?.side == Side.Him) gray else ink, (nowS - shownSinceS) / FADE_IN_S) }
+	}
+
+	private fun drawLayout(canvas: Canvas, layout: StaticLayout, left: Float, top: Float, color: Int, opacity: Double) {
+		words.color = color
+		words.alpha = (opacity.coerceIn(0.0, 1.0) * 255).toInt()
+		// Words never leave the box. Text taller than the box shows its newest lines.
+		canvas.save()
+		canvas.clipRect(caps)
+		canvas.translate(left, top - max(0f, layout.height - room()))
+		layout.draw(canvas)
+		canvas.restore()
+	}
+}
 
 	private companion object {
-		const val BUTTON = 78
-		const val EDGE = 24
-		const val BOTTOM = 24
 		const val STATUS = 34
-		const val CELL = 3
+		const val CELL = 4
 		const val PLANET_TOP = 40
 		const val CAPS_GAP = 18
 		const val CAPS_EDGE = 22
@@ -349,5 +459,12 @@ class CallScreen(context: Context) : FrameLayout(context) {
 		const val CAPS_TOP = 6
 		const val FADE_IN_S = 0.2
 		const val FADE_OUT_S = 0.38
+
+		/** How much of the spare height on a tall screen goes above the planet. The rest sits over the controls. */
+		const val SLACK_ABOVE = 0.35f
 	}
 }
+
+private const val BUTTON = 78
+private const val EDGE = 24
+private const val BOTTOM = 24

@@ -1,11 +1,9 @@
 package dev.petalcat.janetcall
 
 import android.Manifest
-import android.app.Activity
 import android.app.AlertDialog
 import android.content.Intent
 import android.content.pm.PackageManager
-import android.graphics.drawable.ColorDrawable
 import android.os.Build
 import android.os.Bundle
 import android.os.SystemClock
@@ -15,6 +13,13 @@ import android.widget.Button
 import android.widget.FrameLayout
 import android.widget.LinearLayout
 import android.widget.TextView
+import androidx.activity.ComponentActivity
+import androidx.activity.enableEdgeToEdge
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.setValue
+import androidx.compose.ui.platform.ComposeView
+import dev.petalcat.janetcall.ui.JanetTheme
 
 /**
  * Pairing, the home screen, and the call screen ([CallScreen]) while a call is up. Self-managed
@@ -25,13 +30,15 @@ import android.widget.TextView
  * link cannot land under a habitual tap: a link is only taken when it arrives fresh, never during a
  * call or over another confirmation, and Pair sits apart from Call and Hang up and wakes up late.
  */
-class MainActivity : Activity() {
+class MainActivity : ComponentActivity() {
 	private lateinit var title: TextView
 	private lateinit var body: TextView
 	private lateinit var primary: Button
 	private lateinit var secondary: Button
 	private lateinit var home: View
-	private lateinit var callScreen: CallScreen
+	private lateinit var callScreen: ComposeView
+	private var callUi by mutableStateOf(CallUi(null, "", false))
+	private var callStage by mutableStateOf<CallStage?>(null)
 	private val settings by lazy { Settings(this) }
 	private val observer: () -> Unit = { render() }
 
@@ -43,6 +50,7 @@ class MainActivity : Activity() {
 	private var pendingSinceMs = 0L
 
 	override fun onCreate(savedInstanceState: Bundle?) {
+		enableEdgeToEdge()
 		super.onCreate(savedInstanceState)
 		val dp = resources.displayMetrics.density
 		fun pad(v: Int) = (v * dp).toInt()
@@ -61,19 +69,26 @@ class MainActivity : Activity() {
 			listOf(title, body, primary, secondary).forEach(::addView)
 		}
 		home = column
-		callScreen = CallScreen(this).apply {
-			onHangUp = { Calls.connection?.hangup() }
-			onSpeaker = { toggleSpeaker() }
+		callScreen = ComposeView(this).apply {
+			setContent {
+				JanetTheme {
+					CallScreen(
+						ui = callUi,
+						stage = callStage,
+						onMute = Calls::mute,
+						onSpeaker = ::toggleSpeaker,
+						onHangUp = { Calls.connection?.hangup() },
+					)
+				}
+			}
 		}
 		setContentView(FrameLayout(this).apply {
 			addView(column)
 			addView(callScreen)
 		})
-		window.statusBarColor = Ink.GROUND
-		window.navigationBarColor = Ink.GROUND
-		window.setBackgroundDrawable(ColorDrawable(Ink.GROUND))
-		window.decorView.setOnApplyWindowInsetsListener { v, insets ->
-			v.setPadding(0, insets.systemWindowInsetTop, 0, insets.systemWindowInsetBottom)
+		// The call screen runs under the system bars. The home column keeps clear of them.
+		column.setOnApplyWindowInsetsListener { v, insets ->
+			v.setPadding(pad(20), pad(24) + insets.systemWindowInsetTop, pad(20), pad(24) + insets.systemWindowInsetBottom)
 			insets
 		}
 		// A restored activity is handed the intent it was first started with. That link was already
@@ -143,7 +158,10 @@ class MainActivity : Activity() {
 		callScreen.visibility = if (Calls.inCall) View.VISIBLE else View.GONE
 		home.visibility = if (Calls.inCall) View.GONE else View.VISIBLE
 		when {
-			Calls.inCall -> callScreen.render()
+			Calls.inCall -> {
+				callUi = CallUi(Calls.activeSinceMs, Calls.route, Calls.muted)
+				callStage = Calls.stage
+			}
 			pairingWith != null -> show("Pairing with $pairingWith…", "", null, null)
 			link != null -> confirm(link, pairing)
 			pairing == null -> show(
@@ -218,6 +236,7 @@ class MainActivity : Activity() {
 	}
 
 	override fun onRequestPermissionsResult(code: Int, permissions: Array<out String>, results: IntArray) {
+		super.onRequestPermissionsResult(code, permissions, results)
 		if (checkSelfPermission(Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED) {
 			placeCall()
 		} else {

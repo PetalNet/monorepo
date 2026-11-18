@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Lucide "mic" (ISC). -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+	android:width="24dp"
+	android:height="24dp"
+	android:viewportWidth="24"
+	android:viewportHeight="24">
+	<path
+		android:pathData="M12 19v3M19 10v2a7 7 0 0 1-14 0v-2M12 2a3 3 0 0 0-3 3v7a3 3 0 0 0 6 0V5a3 3 0 0 0-3-3"
+		android:strokeColor="#FFFFFFFF"
+		android:strokeLineCap="round"
+		android:strokeLineJoin="round"
+		android:strokeWidth="2" />
+</vector>
