@@ -61,8 +61,7 @@ fn queued_card_survives_restart_and_runs() {
     );
     let mut pool = WorkerPool::new(vec!["true".into()], 2);
     for pc in inbox.load_pending().unwrap() {
-        pool.spawn(pc.card.clone(), pc.request_id.clone(), 0)
-            .unwrap();
+        pool.spawn(pc.card.clone(), pc.request_id, 0).unwrap();
     }
     let mut done = Vec::new();
     for _ in 0..200 {

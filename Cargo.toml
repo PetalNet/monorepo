@@ -55,7 +55,7 @@ courier-ai = { path = "apps/courier/crates/courier-ai" }
 
 [workspace.lints.rust]
 warnings = { level = "deny", priority = -1 }
-future-incompatible = "warn"
+future_incompatible = "warn"
 missing_debug_implementations = "warn"
 
 [workspace.lints.clippy]
@@ -69,7 +69,9 @@ unused_trait_names = "warn"
 wildcard_enum_match_arm = "warn"
 
 too_many_lines = "allow"
-cognitive-complexity = "allow"
+# Its suggested `assert_eq!(v, [] as [T; 0])` is harder to read and often fails to infer a type.
+assert_is_empty = "allow"
+cognitive_complexity = "allow"
 
 [profile.release]
 lto = true

@@ -68,6 +68,10 @@ pub struct ClientIp(pub String);
 impl<S: Send + Sync> FromRequestParts<S> for ClientIp {
     type Rejection = Infallible;
 
+    #[expect(
+        clippy::unused_async_trait_impl,
+        reason = "the trait method is async; returning a ready future by hand reads worse"
+    )]
     async fn from_request_parts(parts: &mut Parts, _state: &S) -> Result<Self, Infallible> {
         let trust_proxy = parts.extensions.get::<TrustProxy>().is_some_and(|t| t.0);
         let header_ip = if trust_proxy {
