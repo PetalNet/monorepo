@@ -168,7 +168,7 @@ class CallScreen(context: Context) : FrameLayout(context) {
 					ticking = false
 					return
 				}
-				if (frameTimeNanos - lastFrameNs >= FRAME_NS) {
+				if (frameTimeNanos - lastFrameNs >= (TestHooks.frameNs ?: FRAME_NS)) {
 					lastFrameNs = frameTimeNanos
 					invalidate()
 				}

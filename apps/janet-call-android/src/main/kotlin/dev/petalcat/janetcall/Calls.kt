@@ -95,9 +95,15 @@ object Dialer {
 	}
 }
 
-/** Debug-only overrides: a WAV as the microphone and a WAV that records what was played. */
+/**
+ * Debug-only overrides: a WAV as the microphone, a WAV that records what was played, and a slower
+ * call screen. An emulator that renders in software cannot draw thirty frames a second and keep a
+ * call's audio moving, so a scripted call there asks for a few frames a second.
+ */
 object TestHooks {
 	@Volatile var micWav: java.io.File? = null
 
 	@Volatile var playedWav: java.io.File? = null
+
+	@Volatile var frameNs: Long? = null
 }

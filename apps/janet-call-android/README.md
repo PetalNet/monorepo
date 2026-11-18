@@ -145,6 +145,8 @@ adb shell am start -a android.intent.action.VIEW -d "janetcall://pair?u=PAYLOAD"
 # and record what the app played to out.wav.
 adb push in.wav /sdcard/Android/data/$APP/files/in.wav
 adb shell am start -n $APP/.DebugControlActivity -a $APP.CALL --es mic in.wav --es out out.wav
+# On an emulator without hardware acceleration, add `--ei fps 2`: drawing the call screen thirty
+# times a second in software starves the call's own threads until the WebSocket ping times out.
 adb shell am start -n $APP/.DebugControlActivity -a $APP.HANGUP
 adb pull /sdcard/Android/data/$APP/files/out.wav
 ```

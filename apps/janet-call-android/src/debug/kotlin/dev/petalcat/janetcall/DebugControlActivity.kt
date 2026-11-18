@@ -11,7 +11,7 @@ import java.io.File
  *   -a dev.petalcat.janetcall.PROVISION --es u PAYLOAD      pairs with a link's `u` payload, no confirmation
  *   -a dev.petalcat.janetcall.PROVISION --es url wss://... --es token ... [--es cf_id ... --es cf_secret ...]
  *   -a dev.petalcat.janetcall.UNPAIR
- *   -a dev.petalcat.janetcall.CALL [--es mic in.wav] [--es out played.wav]
+ *   -a dev.petalcat.janetcall.CALL [--es mic in.wav] [--es out played.wav] [--ei fps 2]
  *   -a dev.petalcat.janetcall.HANGUP
  * WAV names are files in the app's external files dir. Outcomes go to logcat under JanetCallDebug.
  */
@@ -46,6 +46,7 @@ class DebugControlActivity : Activity() {
 			"dev.petalcat.janetcall.CALL" -> {
 				TestHooks.micWav = wav(extra("mic"))
 				TestHooks.playedWav = wav(extra("out"))
+				TestHooks.frameNs = intent.getIntExtra("fps", 0).takeIf { it > 0 }?.let { 1_000_000_000L / it }
 				startActivity(Intent(this, MainActivity::class.java).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
 				Log.i(TAG, "call: ${Dialer.place(this) ?: "placed"}")
 			}
