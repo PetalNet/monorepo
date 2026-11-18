@@ -33,7 +33,6 @@
 			"matchPackageNames": [
 				"vite",
 				"oxfmt",
-				"oxlint",
 				"eslint-plugin-oxlint",
 				"/^@oxc-/",
 				"/^oxc-/"
@@ -45,9 +44,11 @@
 			"groupName": "vitest"
 		},
 		{
+			"description": "oxlint, @effect/tsgo and tsrs must move together (effect-tsgo drives both); a split update breaks the type-aware lint.",
 			"matchPackageNames": [
 				"effect",
 				"/^@effect\\//",
+				"oxlint",
 				"oxlint-tsgolint",
 				"/^@oxlint-tsgolint\\//",
 				"tsrs",
