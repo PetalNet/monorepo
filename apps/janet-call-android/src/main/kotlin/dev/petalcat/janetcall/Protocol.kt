@@ -49,7 +49,11 @@ fun parseServerMessage(text: String): ServerMessage {
 			else -> ServerMessage.Unknown
 		}
 		"words" -> words(json)
-		"level" -> ServerMessage.Level(unit(json, "her"), unit(json, "him"))
+		"level" -> {
+			val her = unit(json, "her")
+			val him = unit(json, "him")
+			if (her == null && him == null) ServerMessage.Unknown else ServerMessage.Level(her, him)
+		}
 		else -> ServerMessage.Unknown
 	}
 }

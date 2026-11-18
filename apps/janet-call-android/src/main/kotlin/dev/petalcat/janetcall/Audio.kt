@@ -141,7 +141,7 @@ class Player(private val stage: CallStage, private val recorder: (Int) -> WavWri
 	private sealed interface Item {
 		class Pcm(val generation: Int, val bytes: ByteArray) : Item
 
-		class Sentence(val generation: Int) : Item
+		class Sentence(val generation: Int, val seq: Int) : Item
 
 		class Rate(val hz: Int) : Item
 
@@ -177,8 +177,8 @@ class Player(private val stage: CallStage, private val recorder: (Int) -> WavWri
 		}
 	}
 
-	/** The audio enqueued after this call is the start of a sentence whose words the stage is holding. */
-	fun markSentence() = queue.put(Item.Sentence(generation))
+	/** The audio enqueued after this call is the start of sentence [seq], whose words the stage is holding. */
+	fun markSentence(seq: Int) = queue.put(Item.Sentence(generation, seq))
 
 	fun clear() {
 		generation++
@@ -221,7 +221,7 @@ class Player(private val stage: CallStage, private val recorder: (Int) -> WavWri
 	}
 
 	/** Seconds until a frame written now is heard: what is written and not yet played. */
-	private fun lagS(): Double = synchronized(trackLock) {
+	fun lagS(): Double = synchronized(trackLock) {
 		val head = try {
 			track?.playbackHeadPosition?.toLong()?.and(0xFFFFFFFFL)
 		} catch (_: IllegalStateException) {
@@ -233,7 +233,7 @@ class Player(private val stage: CallStage, private val recorder: (Int) -> WavWri
 	private fun loop() {
 		// Audio keeps its place ahead of drawing the call screen.
 		Process.setThreadPriority(Process.THREAD_PRIORITY_URGENT_AUDIO)
-		var sentenceDue: Int? = null
+		var sentenceDue: Item.Sentence? = null
 		try {
 			while (true) {
 				when (val item = queue.take()) {
@@ -246,14 +246,15 @@ class Player(private val stage: CallStage, private val recorder: (Int) -> WavWri
 						rate = item.hz
 						replaceTrack(buildTrack(item.hz))
 					}
-					is Item.Sentence -> sentenceDue = item.generation
+					// A later marker replaces one whose audio never came.
+					is Item.Sentence -> sentenceDue = item
 					is Item.Pcm -> {
 						if (item.generation != generation) continue
 						if (track == null) replaceTrack(buildTrack(rate))
 						if (recording == null) recording = recorder(rate)
 						recording?.write(item.bytes)
 						val heardS = CallStage.nowS() + lagS()
-						if (sentenceDue == item.generation) stage.herAudioStarted(heardS)
+						sentenceDue?.let { if (it.generation == item.generation) stage.herAudioStarted(it.seq, heardS) }
 						sentenceDue = null
 						stage.played(pcmLevel(item.bytes), heardS)
 						track?.write(item.bytes, 0, item.bytes.size)

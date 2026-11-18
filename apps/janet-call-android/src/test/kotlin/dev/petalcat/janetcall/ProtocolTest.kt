@@ -35,6 +35,7 @@ class ProtocolTest {
 		assertEquals(ServerMessage.Level(0.25, 1.0), parseServerMessage("""{"type":"level","her":0.25,"him":7}"""))
 		assertEquals(ServerMessage.Level(0.0, null), parseServerMessage("""{"type":"level","her":-1}"""))
 		assertEquals(ServerMessage.Level(null, 0.5), parseServerMessage("""{"type":"level","him":0.5}"""))
+		assertEquals("a level with no reading is not one", ServerMessage.Unknown, parseServerMessage("""{"type":"level"}"""))
 	}
 
 	@Test

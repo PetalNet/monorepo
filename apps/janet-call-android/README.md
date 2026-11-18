@@ -30,7 +30,12 @@ and his gray. The controls are speaker, Hide text or Show text, and hang up.
   queue, and the sentence starts when playback reaches it, so text never runs ahead of her voice.
 - The meter shows the bridge's `level` events. After a second without one it shows levels measured
   on the phone from the audio it played and the microphone audio it sent. Both use the same scale:
-  the RMS of 20 ms of PCM16 divided by 6000, capped at 1.
+  the RMS of 20 ms of PCM16 divided by 6000, capped at 1. A reading of her voice is shown when
+  that audio reaches the speaker, not when it arrives, and the meter shows her only while she
+  speaks and the caller only while she listens.
+- The golden frames in `src/test/resources/planet-reference-frames.txt` come from the reference
+  engine: `python3 tools/reference_frames.py path/to/ref/engine2.js` (needs node).
+- The screen stays on during a call and draws about thirty frames a second.
 
 ## Pairing
 

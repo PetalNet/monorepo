@@ -13,6 +13,7 @@ import android.text.Layout
 import android.text.StaticLayout
 import android.text.TextPaint
 import android.util.TypedValue
+import android.view.Choreographer
 import android.view.Gravity
 import android.view.View
 import android.widget.FrameLayout
@@ -88,6 +89,8 @@ class CallScreen(context: Context) : FrameLayout(context) {
 
 	init {
 		setBackgroundColor(Ink.GROUND)
+		// Self-managed calls get no proximity sensor handling from the system, and the screen is the call.
+		keepScreenOn = true
 		addView(sky, LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.MATCH_PARENT))
 		val edge = dp(EDGE)
 		val bottom = dp(BOTTOM)
@@ -151,6 +154,35 @@ class CallScreen(context: Context) : FrameLayout(context) {
 		private val planet = RectF()
 		private val caps = RectF()
 		private var lastS = 0.0
+		private val stage = StageView()
+		private var drawnStage: CallStage? = null
+		private var clock = ""
+		private var clockSecond = -1L
+		private var lastFrameNs = 0L
+		private var ticking = false
+
+		/** Asks for a frame about thirty times a second, whatever the display's own rate. */
+		private val ticker = object : Choreographer.FrameCallback {
+			override fun doFrame(frameTimeNanos: Long) {
+				if (!isShown) {
+					ticking = false
+					return
+				}
+				if (frameTimeNanos - lastFrameNs >= FRAME_NS) {
+					lastFrameNs = frameTimeNanos
+					invalidate()
+				}
+				Choreographer.getInstance().postFrameCallback(this)
+			}
+		}
+
+		override fun onVisibilityAggregated(isVisible: Boolean) {
+			super.onVisibilityAggregated(isVisible)
+			if (isVisible && !ticking) {
+				ticking = true
+				Choreographer.getInstance().postFrameCallback(ticker)
+			}
+		}
 
 		private var shown: Caption? = null
 		private var shownLayout: StaticLayout? = null
@@ -192,10 +224,23 @@ class CallScreen(context: Context) : FrameLayout(context) {
 
 		override fun onDraw(canvas: Canvas) {
 			val nowS = CallStage.nowS()
-			val stage = Calls.stage?.view(nowS)
+			val live = Calls.stage
+			if (live !== drawnStage) {
+				// Another call: nothing of the last one's line may fade out over this one.
+				drawnStage = live
+				shown = null
+				shownLayout = null
+				leaving = null
+				stage.caption = null
+				stage.parts = emptyList()
+				stage.phase = Phase.Idle
+				stage.her = 0.0
+				stage.him = 0.0
+			}
+			live?.read(nowS, stage)
 			val dt = (nowS - lastS).coerceIn(0.001, 0.05)
 			lastS = nowS
-			engine.step(stage?.phase ?: Phase.Idle, stage?.her ?: 0.0, stage?.him ?: 0.0, nowS, dt)
+			engine.step(stage.phase, stage.her, stage.him, nowS, dt)
 			engine.draw(nowS, Ink.INK, pixels)
 			bitmap.setPixels(pixels, 0, PlanetEngine.GRID, 0, 0, PlanetEngine.GRID, PlanetEngine.ROWS)
 
@@ -221,16 +266,16 @@ class CallScreen(context: Context) : FrameLayout(context) {
 			canvas.drawBitmap(bitmap, null, planet, blit)
 			canvas.restore()
 
-			if (showText) drawCaption(canvas, stage, nowS)
-			// The planet moves in whole cells, a few times a second. Thirty frames a second shows all of
-			// it, and leaves the processor to the call's audio for the length of a long call.
-			if (isShown) postInvalidateDelayed(FRAME_MS)
+			if (showText) drawCaption(canvas, nowS)
 		}
 
 		private fun headerDetail(): String {
 			val since = Calls.activeSinceMs ?: return if (Calls.inCall) "Calling…" else ""
 			val seconds = max(0, (SystemClock.elapsedRealtime() - since) / 1000)
-			val clock = "%d:%02d".format(seconds / 60, seconds % 60)
+			if (seconds != clockSecond) {
+				clockSecond = seconds
+				clock = "%d:%02d".format(seconds / 60, seconds % 60)
+			}
 			return if (Calls.route.isEmpty()) clock else "$clock · ${Calls.route}"
 		}
 
@@ -243,21 +288,25 @@ class CallScreen(context: Context) : FrameLayout(context) {
 				.build()
 		}
 
-		/** Only the current utterance. When hers outgrows the box, the oldest sentences go first. */
+		private fun room() = caps.height() - 2 * CAPS_TOP * density
+
+		/**
+		 * Only the current utterance. When hers outgrows the box, the oldest sentences go first. A
+		 * single sentence that is still too tall is drawn from its end, see [drawLayout].
+		 */
 		private fun fit(parts: List<String>): StaticLayout {
-			val room = caps.height() - CAPS_PAD * density
 			for (from in parts.indices) {
 				val candidate = layout(parts.drop(from).joinToString(" "))
-				if (candidate.height <= room || from == parts.lastIndex) return candidate
+				if (candidate.height <= room() || from == parts.lastIndex) return candidate
 			}
 			return layout("")
 		}
 
-		private fun drawCaption(canvas: Canvas, stage: StageView?, nowS: Double) {
+		private fun drawCaption(canvas: Canvas, nowS: Double) {
 			// The dark ground keeps stars from sitting behind the words.
 			fill.color = Ink.GROUND
 			canvas.drawRoundRect(caps, 16 * density, 16 * density, fill)
-			val caption = stage?.caption
+			val caption = stage.caption
 			if (caption != shown) {
 				if (caption?.id != shown?.id) {
 					leaving = shownLayout
@@ -266,10 +315,10 @@ class CallScreen(context: Context) : FrameLayout(context) {
 					shownSinceS = nowS
 				}
 				shown = caption
-				shownLayout = caption?.let { fit(stage?.parts.orEmpty()) }
+				shownLayout = caption?.let { fit(stage.parts) }
 			}
 			val left = caps.left + CAPS_PAD * density
-			val top = caps.top + 6 * density
+			val top = caps.top + CAPS_TOP * density
 			leaving?.let { old ->
 				val fade = 1 - (nowS - leavingSinceS) / FADE_OUT_S
 				if (fade <= 0) leaving = null else drawLayout(canvas, old, left, top, leavingColor, fade)
@@ -280,8 +329,10 @@ class CallScreen(context: Context) : FrameLayout(context) {
 		private fun drawLayout(canvas: Canvas, layout: StaticLayout, left: Float, top: Float, color: Int, opacity: Double) {
 			words.color = color
 			words.alpha = (opacity.coerceIn(0.0, 1.0) * 255).toInt()
+			// Words never leave the box. Text taller than the box shows its newest lines.
 			canvas.save()
-			canvas.translate(left, top)
+			canvas.clipRect(caps)
+			canvas.translate(left, top - max(0f, layout.height - room()))
 			layout.draw(canvas)
 			canvas.restore()
 		}
@@ -301,7 +352,10 @@ class CallScreen(context: Context) : FrameLayout(context) {
 		const val CAPS_MIN = 84
 		const val CONTROLS_GAP = 16
 		const val LINE_HEIGHT = 1.36f
-		const val FRAME_MS = 33L
+		const val CAPS_TOP = 6
+
+		/** A little under a thirtieth of a second, so every second frame of a 60 Hz display qualifies. */
+		const val FRAME_NS = 30_000_000L
 		const val FADE_IN_S = 0.2
 		const val FADE_OUT_S = 0.38
 	}

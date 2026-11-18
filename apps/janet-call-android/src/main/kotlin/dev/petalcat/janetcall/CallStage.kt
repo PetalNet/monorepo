@@ -17,38 +17,53 @@ class Transcript {
 		/** Set when she is cut off: only this many words were said. */
 		var cut: Int? = null
 
-		fun revealed(nowS: Double): String {
-			if (words.isEmpty()) return if (cut == null) text else ""
-			val said = cut ?: words.count { it.start <= nowS - startS }
-			return words.take(said).joinToString(" ") { it.text }
-		}
+		fun said(nowS: Double): Int = cut ?: if (words.isEmpty()) 1 else words.count { it.start <= nowS - startS }
+
+		fun revealed(said: Int): String = if (words.isEmpty()) (if (said > 0) text else "") else words.take(said).joinToString(" ") { it.text }
 	}
 
-	private val waiting = ArrayDeque<ServerMessage.HerWords>()
+	private class Waiting(val seq: Int, val words: ServerMessage.HerWords)
+
+	private val waiting = ArrayDeque<Waiting>()
 	private var sentences = listOf<Sentence>()
 	private var his: String? = null
 	private var id = 0
+	private var nextSeq = 0
 
 	/** True once her turn is over, so her next sentence starts a new utterance and does not extend the old one. */
 	private var turnOver = true
 
-	/** A sentence whose audio is queued behind this call. Returns nothing; [herAudioStarted] reveals it. */
-	fun herSentenceQueued(words: ServerMessage.HerWords) {
-		waiting.addLast(words)
+	/** What [caption] last built, and the word counts it was built from, so a frame with nothing new builds nothing. */
+	private var built: Pair<Caption, List<String>>? = null
+	private var builtFrom = -1L
+
+	/**
+	 * A sentence whose audio is queued behind this call. The number it returns names the sentence
+	 * to [herAudioStarted].
+	 */
+	fun herSentenceQueued(words: ServerMessage.HerWords): Int {
+		waiting.addLast(Waiting(nextSeq, words))
+		return nextSeq++
 	}
 
-	/** The audio of the oldest waiting sentence starts playing at [startS]. */
-	fun herAudioStarted(startS: Double) {
-		val next = waiting.removeFirstOrNull() ?: return
+	/**
+	 * The audio of sentence [seq] starts playing at [startS]. Sentences queued before it whose audio
+	 * never came are dropped, so one lost sentence does not shift every later one.
+	 */
+	fun herAudioStarted(seq: Int, startS: Double) {
+		while (waiting.isNotEmpty() && waiting.first().seq < seq) waiting.removeFirst()
+		if (waiting.firstOrNull()?.seq != seq) return
+		val next = waiting.removeFirst().words
 		val sentence = Sentence(next.text, next.words, startS)
 		if (turnOver || his != null) {
 			id++
 			sentences = listOf(sentence)
 		} else {
-			sentences = sentences + sentence
+			sentences = (sentences + sentence).takeLast(MAX_SENTENCES)
 		}
 		his = null
 		turnOver = false
+		built = null
 	}
 
 	fun hisWords(text: String) {
@@ -56,6 +71,7 @@ class Transcript {
 		his = text
 		sentences = emptyList()
 		turnOver = true
+		built = null
 	}
 
 	/** Her turn ended without a cut: what she said stays up until the next utterance replaces it. */
@@ -66,19 +82,32 @@ class Transcript {
 	/** She was cut off at [nowS]: words not yet said are never shown, and sentences not yet started are dropped. */
 	fun clear(nowS: Double) {
 		waiting.clear()
-		sentences.forEach { s -> if (s.cut == null) s.cut = s.words.count { it.start <= nowS - s.startS } }
+		sentences.forEach { s -> if (s.cut == null) s.cut = s.said(nowS) }
 		turnOver = true
 	}
 
 	/**
 	 * The utterance to show at [nowS], or null before anyone has spoken. Her sentences are listed
-	 * oldest first, so a view with little room can drop the oldest.
+	 * oldest first, so a view with little room can drop the oldest. The same object comes back
+	 * until another word is due.
 	 */
 	fun caption(nowS: Double): Pair<Caption, List<String>>? {
-		his?.let { return Caption(id, Side.Him, it) to listOf(it) }
-		if (sentences.isEmpty()) return null
-		val parts = sentences.map { it.revealed(nowS) }.filter { it.isNotEmpty() }
-		return Caption(id, Side.Her, parts.joinToString(" ")) to parts
+		if (his == null && sentences.isEmpty()) return null
+		var from = 0L
+		for (s in sentences) from = from * 1009 + s.said(nowS)
+		built?.let { if (builtFrom == from) return it }
+		val made = his?.let { Caption(id, Side.Him, it) to listOf(it) } ?: run {
+			val parts = sentences.map { it.revealed(it.said(nowS)) }.filter { it.isNotEmpty() }
+			Caption(id, Side.Her, parts.joinToString(" ")) to parts
+		}
+		built = made
+		builtFrom = from
+		return made
+	}
+
+	private companion object {
+		/** A turn longer than this shows its last sentences only, however long a bridge keeps one turn open. */
+		const val MAX_SENTENCES = 6
 	}
 }
 
@@ -99,51 +128,64 @@ fun pcmLevel(pcm: ByteArray, length: Int = pcm.size): Double {
  * none has arrived for [REMOTE_STALE_S], the levels are the ones measured on this phone from the
  * audio it played and the microphone audio it sent, so the meter always shows real sound.
  *
- * A reading stands only briefly. The bridge sends no zero for her when she stops, so a side
- * without a new reading for [REMOTE_HOLD_S] is silent.
+ * Every reading carries the time it is due: her audio is measured before it is heard, and the
+ * meter must not move ahead of her voice. A reading stands only briefly. The bridge sends no
+ * zero for her when she stops, so a side without a new reading for [REMOTE_HOLD_S] is silent.
  */
 class Levels {
-	private var remoteHer = 0.0
-	private var remoteHerAtS = Double.NEGATIVE_INFINITY
-	private var remoteHim = 0.0
-	private var remoteHimAtS = Double.NEGATIVE_INFINITY
-	private var remoteAtS = Double.NEGATIVE_INFINITY
-	private var playedLevel = 0.0
-	private var playedAtS = Double.NEGATIVE_INFINITY
-	private var micLevel = 0.0
-	private var micAtS = Double.NEGATIVE_INFINITY
+	/** Readings in the order they fall due. [at] gives the latest one whose time has come, while it still stands. */
+	private class Readings(private val holdS: Double) {
+		private val due = ArrayDeque<DoubleArray>()
+		private var level = 0.0
+		private var sinceS = Double.NEGATIVE_INFINITY
 
-	fun remote(her: Double?, him: Double?, nowS: Double) {
-		if (her != null) {
-			remoteHer = her
-			remoteHerAtS = nowS
+		fun add(level: Double, dueS: Double) {
+			if (due.size == MAX_DUE) due.removeFirst()
+			due.addLast(doubleArrayOf(dueS, level))
 		}
-		if (him != null) {
-			remoteHim = him
-			remoteHimAtS = nowS
+
+		fun at(nowS: Double): Double {
+			while (due.isNotEmpty() && due.first()[0] <= nowS) {
+				val reading = due.removeFirst()
+				sinceS = reading[0]
+				level = reading[1]
+			}
+			return if (nowS - sinceS < holdS) level else 0.0
 		}
+	}
+
+	private val remoteHer = Readings(REMOTE_HOLD_S)
+	private val remoteHim = Readings(REMOTE_HOLD_S)
+	private val played = Readings(LOCAL_HOLD_S)
+	private val mic = Readings(LOCAL_HOLD_S)
+	private var remoteAtS = Double.NEGATIVE_INFINITY
+
+	/** A `level` event at [nowS]. Her reading describes audio that is heard at [herHeardS]. */
+	fun remote(her: Double?, him: Double?, nowS: Double, herHeardS: Double = nowS) {
+		her?.let { remoteHer.add(it, herHeardS) }
+		him?.let { remoteHim.add(it, nowS) }
 		remoteAtS = nowS
 	}
 
-	fun played(level: Double, nowS: Double) {
-		playedLevel = level
-		playedAtS = nowS
-	}
+	/** A piece of her audio, [level] loud, that is heard at [heardS]. */
+	fun played(level: Double, heardS: Double) = played.add(level, heardS)
 
-	fun mic(level: Double, nowS: Double) {
-		micLevel = level
-		micAtS = nowS
-	}
+	fun mic(level: Double, nowS: Double) = mic.add(level, nowS)
 
 	private fun live(nowS: Double) = nowS - remoteAtS < REMOTE_STALE_S
 
-	private fun held(level: Double, atS: Double, nowS: Double, holdS: Double) = if (nowS - atS < holdS) level else 0.0
+	fun her(nowS: Double): Double {
+		// Both are read every time, so neither queue holds stale readings when the source changes.
+		val remote = remoteHer.at(nowS)
+		val local = played.at(nowS)
+		return if (live(nowS)) remote else local
+	}
 
-	fun her(nowS: Double) =
-		if (live(nowS)) held(remoteHer, remoteHerAtS, nowS, REMOTE_HOLD_S) else held(playedLevel, playedAtS, nowS, LOCAL_HOLD_S)
-
-	fun him(nowS: Double) =
-		if (live(nowS)) held(remoteHim, remoteHimAtS, nowS, REMOTE_HOLD_S) else held(micLevel, micAtS, nowS, LOCAL_HOLD_S)
+	fun him(nowS: Double): Double {
+		val remote = remoteHim.at(nowS)
+		val local = mic.at(nowS)
+		return if (live(nowS)) remote else local
+	}
 
 	companion object {
 		const val REMOTE_STALE_S = 1.0
@@ -156,11 +198,20 @@ class Levels {
 
 		/** With no `state` events, a level above this is someone talking. */
 		const val TALKING = 0.04
+
+		/** Far more readings than can be waiting: half a second of 20 ms pieces is 25. */
+		private const val MAX_DUE = 128
 	}
 }
 
-/** What the call screen draws at one instant. */
-data class StageView(val phase: Phase, val her: Double, val him: Double, val caption: Caption?, val parts: List<String>)
+/** What the call screen draws at one instant. The screen owns one and [CallStage.read] fills it, so a frame allocates nothing. */
+class StageView {
+	var phase = Phase.Idle
+	var her = 0.0
+	var him = 0.0
+	var caption: Caption? = null
+	var parts: List<String> = emptyList()
+}
 
 /**
  * Everything the call screen shows about one call. The socket, playback and microphone threads
@@ -195,10 +246,10 @@ class CallStage {
 	}
 
 	@Synchronized
-	fun herSentenceQueued(words: ServerMessage.HerWords) = transcript.herSentenceQueued(words)
+	fun herSentenceQueued(words: ServerMessage.HerWords): Int = transcript.herSentenceQueued(words)
 
 	@Synchronized
-	fun herAudioStarted(startS: Double) = transcript.herAudioStarted(startS)
+	fun herAudioStarted(seq: Int, startS: Double) = transcript.herAudioStarted(seq, startS)
 
 	@Synchronized
 	fun hisWords(text: String) = transcript.hisWords(text)
@@ -211,7 +262,7 @@ class CallStage {
 	}
 
 	@Synchronized
-	fun level(her: Double?, him: Double?, nowS: Double) = levels.remote(her, him, nowS)
+	fun level(her: Double?, him: Double?, nowS: Double, herHeardS: Double) = levels.remote(her, him, nowS, herHeardS)
 
 	/** A piece of her audio, [level] loud, reaches the speaker at [heardS]. */
 	@Synchronized
@@ -223,8 +274,12 @@ class CallStage {
 	@Synchronized
 	fun mic(level: Double, nowS: Double) = levels.mic(level, nowS)
 
+	/**
+	 * Fills [into] with what to draw at [nowS]. The meter gets her level only while she speaks and
+	 * his only while she listens, so his microphone during her speech cannot turn the meter into his.
+	 */
 	@Synchronized
-	fun view(nowS: Double): StageView {
+	fun read(nowS: Double, into: StageView) {
 		waiting?.let { if (nowS >= heardUntilS) enter(it) }
 		val her = levels.her(nowS)
 		val him = levels.him(nowS)
@@ -234,7 +289,11 @@ class CallStage {
 			else -> Phase.Idle
 		}
 		val caption = transcript.caption(nowS)
-		return StageView(phase, her, him, caption?.first, caption?.second.orEmpty())
+		into.phase = phase
+		into.her = if (phase == Phase.Speaking) her else 0.0
+		into.him = if (phase == Phase.Listening) him else 0.0
+		into.caption = caption?.first
+		into.parts = caption?.second.orEmpty()
 	}
 
 	companion object {

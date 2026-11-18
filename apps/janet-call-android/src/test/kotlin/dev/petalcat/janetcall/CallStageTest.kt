@@ -4,6 +4,7 @@ import kotlin.math.sin
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
+import org.junit.Assert.assertSame
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
@@ -15,71 +16,91 @@ class CallStageTest {
 
 	private fun Transcript.text(nowS: Double) = caption(nowS)?.first?.text
 
+	private fun CallStage.at(nowS: Double) = StageView().also { read(nowS, it) }
+
 	@Test
 	fun `her words appear in time with her audio, not when they arrive`() {
 		val transcript = Transcript()
-		transcript.herSentenceQueued(hello)
+		val seq = transcript.herSentenceQueued(hello)
 		assertNull("nothing shows before her audio starts", transcript.caption(5.0))
 
-		transcript.herAudioStarted(startS = 10.0)
+		transcript.herAudioStarted(seq, startS = 10.0)
 		assertEquals("Hi", transcript.text(10.0))
 		assertEquals("Hi Sam,", transcript.text(10.3))
 		assertEquals("Hi Sam, thanks for", transcript.text(10.9))
 		assertEquals("Hi Sam, thanks for calling.", transcript.text(11.0))
 		assertEquals(Side.Her, transcript.caption(11.0)?.first?.side)
+		assertSame("nothing is rebuilt until another word is due", transcript.caption(11.0), transcript.caption(12.0))
 	}
 
 	@Test
 	fun `a second sentence waits for its own audio and extends the same utterance`() {
 		val transcript = Transcript()
-		transcript.herSentenceQueued(hello)
-		transcript.herSentenceQueued(sentence("How" to 0.0, "are" to 0.2, "you?" to 0.4))
-		transcript.herAudioStarted(10.0)
-		val first = transcript.caption(12.0)!!.first
-		assertEquals("Hi Sam, thanks for calling.", first.text)
+		val first = transcript.herSentenceQueued(hello)
+		val second = transcript.herSentenceQueued(sentence("How" to 0.0, "are" to 0.2, "you?" to 0.4))
+		transcript.herAudioStarted(first, 10.0)
+		val one = transcript.caption(12.0)!!.first
+		assertEquals("Hi Sam, thanks for calling.", one.text)
 
-		transcript.herAudioStarted(12.5)
+		transcript.herAudioStarted(second, 12.5)
 		val both = transcript.caption(12.8)!!
 		assertEquals("Hi Sam, thanks for calling. How are", both.first.text)
 		assertEquals(listOf("Hi Sam, thanks for calling.", "How are"), both.second)
-		assertEquals("one utterance", first.id, both.first.id)
+		assertEquals("one utterance", one.id, both.first.id)
+	}
+
+	@Test
+	fun `a sentence whose audio never came does not shift the ones after it`() {
+		val transcript = Transcript()
+		transcript.herSentenceQueued(sentence("Lost." to 0.0))
+		val heard = transcript.herSentenceQueued(sentence("Heard." to 0.0))
+		val later = transcript.herSentenceQueued(sentence("Later." to 0.0))
+		transcript.herAudioStarted(heard, 1.0)
+		assertEquals("Heard.", transcript.text(1.0))
+		transcript.herAudioStarted(later, 2.0)
+		assertEquals("Heard. Later.", transcript.text(2.0))
+	}
+
+	@Test
+	fun `a long turn keeps only its last sentences`() {
+		val transcript = Transcript()
+		for (n in 1..20) transcript.herAudioStarted(transcript.herSentenceQueued(sentence("S$n." to 0.0)), n.toDouble())
+		assertEquals(listOf("S15.", "S16.", "S17.", "S18.", "S19.", "S20."), transcript.caption(30.0)!!.second)
 	}
 
 	@Test
 	fun `his words show at once, in his colour, and replace hers`() {
 		val transcript = Transcript()
-		transcript.herSentenceQueued(hello)
-		transcript.herAudioStarted(10.0)
+		transcript.herAudioStarted(transcript.herSentenceQueued(hello), 10.0)
 		val hers = transcript.caption(11.0)!!.first
 		transcript.hisWords("Is the build done?")
 		val his = transcript.caption(11.0)!!.first
 		assertEquals(Caption(hers.id + 1, Side.Him, "Is the build done?"), his)
 
-		transcript.herSentenceQueued(sentence("Not" to 0.0, "yet." to 0.3))
+		val reply = transcript.herSentenceQueued(sentence("Not" to 0.0, "yet." to 0.3))
 		assertEquals("his line stays until she is heard", his, transcript.caption(11.5)!!.first)
-		transcript.herAudioStarted(12.0)
+		transcript.herAudioStarted(reply, 12.0)
 		assertEquals(Caption(his.id + 1, Side.Her, "Not"), transcript.caption(12.1)!!.first)
 	}
 
 	@Test
 	fun `cutting her off keeps only the words she said and drops what was queued`() {
 		val transcript = Transcript()
-		transcript.herSentenceQueued(hello)
-		transcript.herSentenceQueued(sentence("Never" to 0.0, "said." to 0.3))
-		transcript.herAudioStarted(10.0)
+		val first = transcript.herSentenceQueued(hello)
+		val never = transcript.herSentenceQueued(sentence("Never" to 0.0, "said." to 0.3))
+		transcript.herAudioStarted(first, 10.0)
 		transcript.clear(nowS = 10.6)
 		assertEquals("Hi Sam, thanks", transcript.text(10.6))
 		assertEquals("no more words appear after the cut", "Hi Sam, thanks", transcript.text(20.0))
 
-		transcript.herAudioStarted(11.0)
+		transcript.herAudioStarted(never, 11.0)
 		assertEquals("the dropped sentence never shows", "Hi Sam, thanks", transcript.text(20.0))
 	}
 
 	@Test
 	fun `a sentence without timings shows whole when its audio starts`() {
 		val transcript = Transcript()
-		transcript.herSentenceQueued(ServerMessage.HerWords("No timings here.", emptyList()))
-		transcript.herAudioStarted(3.0)
+		transcript.herAudioStarted(transcript.herSentenceQueued(ServerMessage.HerWords("No timings here.", emptyList())), 3.0)
 		assertEquals("No timings here.", transcript.text(3.0))
 	}
 
@@ -87,15 +108,13 @@ class CallStageTest {
 	fun `her next turn starts a new utterance`() {
 		val stage = CallStage()
 		stage.state(Phase.Speaking, nowS = 0.5)
-		stage.herSentenceQueued(hello)
-		stage.herAudioStarted(1.0)
-		val first = stage.view(3.0).caption!!
+		stage.herAudioStarted(stage.herSentenceQueued(hello), 1.0)
+		val first = stage.at(3.0).caption!!
 		stage.state(Phase.Listening, nowS = 3.5)
-		assertEquals("what she said stays up while he talks", first, stage.view(4.0).caption)
+		assertEquals("what she said stays up while he talks", first, stage.at(4.0).caption)
 		stage.state(Phase.Speaking, nowS = 5.5)
-		stage.herSentenceQueued(sentence("Sure." to 0.0))
-		stage.herAudioStarted(6.0)
-		assertEquals(Caption(first.id + 1, Side.Her, "Sure."), stage.view(6.1).caption)
+		stage.herAudioStarted(stage.herSentenceQueued(sentence("Sure." to 0.0)), 6.0)
+		assertEquals(Caption(first.id + 1, Side.Her, "Sure."), stage.at(6.1).caption)
 	}
 
 	@Test
@@ -116,11 +135,24 @@ class CallStageTest {
 	@Test
 	fun `the bridge's levels drive the meter while they keep coming`() {
 		val levels = Levels()
-		levels.played(0.9, nowS = 10.0)
+		levels.played(0.9, heardS = 10.0)
 		levels.mic(0.8, nowS = 10.0)
 		levels.remote(her = 0.3, him = 0.1, nowS = 10.0)
 		assertEquals(0.3, levels.her(10.2), 0.0)
 		assertEquals(0.1, levels.him(10.2), 0.0)
+	}
+
+	@Test
+	fun `her level shows when her audio is heard, not when it arrives`() {
+		val levels = Levels()
+		levels.remote(her = 0.7, him = 0.0, nowS = 10.0, herHeardS = 10.2)
+		assertEquals("still in the phone's buffer", 0.0, levels.her(10.1), 0.0)
+		assertEquals(0.7, levels.her(10.2), 0.0)
+
+		val local = Levels()
+		local.played(0.5, heardS = 20.2)
+		assertEquals(0.0, local.her(20.1), 0.0)
+		assertEquals(0.5, local.her(20.25), 0.0)
 	}
 
 	@Test
@@ -136,30 +168,47 @@ class CallStageTest {
 	fun `a second without level events falls back to the levels measured on the phone`() {
 		val levels = Levels()
 		levels.remote(her = 0.3, him = 0.1, nowS = 10.0)
-		levels.played(0.9, nowS = 11.0)
+		levels.played(0.9, heardS = 11.0)
 		levels.mic(0.8, nowS = 11.0)
 		assertEquals(0.9, levels.her(11.05), 0.0)
 		assertEquals(0.8, levels.him(11.05), 0.0)
 		assertEquals("no audio played lately is silence, not the last level", 0.0, levels.her(11.5), 0.0)
 
 		levels.remote(her = 0.2, him = 0.0, nowS = 12.0)
-		levels.played(0.9, nowS = 12.0)
+		levels.played(0.9, heardS = 12.0)
 		assertEquals("the bridge's events take over again", 0.2, levels.her(12.01), 0.0)
 	}
 
 	@Test
 	fun `with no state events the phase follows who is audible`() {
 		val stage = CallStage()
-		assertEquals(Phase.Idle, stage.view(0.0).phase)
+		assertEquals(Phase.Idle, stage.at(0.0).phase)
 		stage.played(0.5, heardS = 1.0)
-		assertEquals(Phase.Speaking, stage.view(1.01).phase)
+		assertEquals(Phase.Speaking, stage.at(1.01).phase)
 		stage.mic(0.5, nowS = 2.0)
-		assertEquals(Phase.Listening, stage.view(2.01).phase)
-		assertEquals(Phase.Idle, stage.view(3.0).phase)
+		assertEquals(Phase.Listening, stage.at(2.01).phase)
+		assertEquals(Phase.Idle, stage.at(3.0).phase)
 
 		stage.state(Phase.Thinking, nowS = 3.5)
 		stage.played(0.5, heardS = 4.0)
-		assertEquals("a stated phase wins over the levels", Phase.Thinking, stage.view(4.01).phase)
+		assertEquals("a stated phase wins over the levels", Phase.Thinking, stage.at(4.01).phase)
+	}
+
+	@Test
+	fun `the meter gets her level only while she speaks and his only while she listens`() {
+		val stage = CallStage()
+		stage.state(Phase.Speaking, nowS = 1.0)
+		stage.level(her = 0.6, him = 0.9, nowS = 1.0, herHeardS = 1.0)
+		val speaking = stage.at(1.05)
+		assertEquals(0.6, speaking.her, 0.0)
+		assertEquals("his microphone during her speech stays off the meter", 0.0, speaking.him, 0.0)
+
+		stage.clear(nowS = 1.1)
+		stage.state(Phase.Listening, nowS = 1.1)
+		stage.level(her = 0.6, him = 0.9, nowS = 1.2, herHeardS = 1.2)
+		val listening = stage.at(1.25)
+		assertEquals(0.0, listening.her, 0.0)
+		assertEquals(0.9, listening.him, 0.0)
 	}
 
 	@Test
@@ -168,10 +217,10 @@ class CallStageTest {
 		stage.state(Phase.Speaking, nowS = 1.0)
 		stage.played(0.5, heardS = 2.0)
 		stage.state(Phase.Listening, nowS = 1.9)
-		assertEquals("her last audio is still playing", Phase.Speaking, stage.view(2.0).phase)
+		assertEquals("her last audio is still playing", Phase.Speaking, stage.at(2.0).phase)
 		stage.played(0.5, heardS = 2.02)
-		assertEquals(Phase.Speaking, stage.view(2.05).phase)
-		assertEquals(Phase.Listening, stage.view(2.2).phase)
+		assertEquals(Phase.Speaking, stage.at(2.05).phase)
+		assertEquals(Phase.Listening, stage.at(2.2).phase)
 	}
 
 	@Test
@@ -181,7 +230,7 @@ class CallStageTest {
 		stage.played(0.5, heardS = 2.0)
 		stage.clear(nowS = 1.5)
 		stage.state(Phase.Listening, nowS = 1.5)
-		assertEquals(Phase.Listening, stage.view(1.5).phase)
+		assertEquals(Phase.Listening, stage.at(1.5).phase)
 	}
 
 	@Test

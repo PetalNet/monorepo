@@ -32,6 +32,8 @@ class CallSession(
 
 	@Volatile private var mic: Mic? = null
 
+	@Volatile private var readerTid: Int? = null
+
 	fun start() {
 		try {
 			val request = with(Bridge) {
@@ -54,6 +56,7 @@ class CallSession(
 			mic?.stop()
 			player.close(drain = end !is End.Local && end !is End.Failed)
 			socket?.close(1000, "hangup")
+			readerTid?.let { Process.setThreadPriority(it, Process.THREAD_PRIORITY_DEFAULT) }
 		} finally {
 			onEnded(end)
 		}
@@ -77,7 +80,9 @@ class CallSession(
 	private inner class Listener : WebSocketListener() {
 		override fun onOpen(webSocket: WebSocket, response: Response) {
 			// This is the thread that reads the socket for the rest of the call. Her audio arrives on
-			// it, so it runs ahead of drawing the call screen too.
+			// it, so it runs ahead of drawing the call screen too. It is one of OkHttp's pooled
+			// threads, so finish() puts its priority back.
+			readerTid = Process.myTid()
 			Process.setThreadPriority(Process.THREAD_PRIORITY_AUDIO)
 			val source = try {
 				micFactory()
@@ -100,12 +105,13 @@ class CallSession(
 					stage.clear(CallStage.nowS())
 				}
 				is ServerMessage.State -> stage.state(msg.phase, CallStage.nowS())
-				is ServerMessage.HerWords -> {
-					stage.herSentenceQueued(msg)
-					player.markSentence()
-				}
+				is ServerMessage.HerWords -> player.markSentence(stage.herSentenceQueued(msg))
 				is ServerMessage.HisWords -> stage.hisWords(msg.text)
-				is ServerMessage.Level -> stage.level(msg.her, msg.him, CallStage.nowS())
+				is ServerMessage.Level -> {
+					// Her reading comes with its audio, ahead of the speaker by what is still buffered.
+					val now = CallStage.nowS()
+					stage.level(msg.her, msg.him, now, herHeardS = now + player.lagS())
+				}
 				ServerMessage.Bye -> finish(End.Remote("Janet ended the call"))
 				ServerMessage.Unknown -> Unit
 			}
