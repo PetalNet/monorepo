@@ -30,13 +30,7 @@
 			"groupName": "eslint"
 		},
 		{
-			"matchPackageNames": [
-				"vite",
-				"oxfmt",
-				"eslint-plugin-oxlint",
-				"/^@oxc-/",
-				"/^oxc-/"
-			],
+			"matchPackageNames": ["vite", "oxfmt", "eslint-plugin-oxlint", "/^@oxc-/", "/^oxc-/"],
 			"groupName": "voidzero"
 		},
 		{
