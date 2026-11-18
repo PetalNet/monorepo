@@ -4,7 +4,7 @@ import { describe, expect } from "@effect/vitest";
 import { Effect, FileSystem } from "effect";
 
 import { Vault } from "../src/engine.ts";
-import { project } from "../src/project.ts";
+import { lint, project } from "../src/project.ts";
 import {
 	OTHER,
 	SOURCE,
@@ -26,6 +26,20 @@ const projected = Effect.gen(function* () {
 
 	return out;
 });
+const problems = (out: string) => Effect.map(lint(out), (result) => result.problems);
+const odd = (passages: Record<string, string>) =>
+	write("shared", (tx) =>
+		tx.putSource({
+			id: "doc-0000000000000001",
+			kind: "research",
+			title: "Odd",
+			sourceType: "DERIVED",
+			captured: "2026-10-18T00:00:00.000Z",
+			passages,
+		}),
+	);
+const ODD = "shared/Sources/research/doc-0000000000000001.md";
+
 describe("projection", () => {
 	test("writes each claim as one list item with typed wikilinks and a trailing block ID", () =>
 		Effect.gen(function* () {
@@ -43,6 +57,8 @@ describe("projection", () => {
 			expect(yield* readText(out, `shared/Sources/capture/${SOURCE}.md`)).toContain(
 				"- Proposition indexing raises Recall@5. ^p1",
 			);
+
+			expect(yield* problems(out)).toEqual([]);
 		}));
 
 	test("lists every dependent claim on its source note, marking stale ones", () =>
@@ -81,6 +97,34 @@ describe("projection", () => {
 			expect(yield* readText(out, "shared/Topics/Note granularity.md")).toContain(
 				`[stale:: 2026-11-17 ${SOURCE}]`,
 			);
+
+			expect(yield* problems(out)).toEqual([]);
+		}));
+
+	test("lint reports a claim ID that is lost or duplicated in the projected files", () =>
+		Effect.gen(function* () {
+			const fs = yield* FileSystem.FileSystem;
+
+			const claim = yield* write("shared", (tx) =>
+				seed(tx).pipe(Effect.andThen(tx.addClaim(claimInput("Will be tampered with.")))),
+			);
+			const out = yield* projected;
+			const topic = path.join(out, "shared/Topics/Note granularity.md");
+			const original = yield* fs.readFileString(topic);
+
+			yield* fs.chmod(topic, 0o644);
+			yield* fs.writeFileString(topic, original.replace(` ^${claim.id}`, ""));
+
+			expect(yield* problems(out)).toEqual([
+				`claim ${claim.id} is missing from the projection`,
+				`shared/Sources/capture/${SOURCE}.md: link to missing block [[Note granularity#^${claim.id}]]`,
+			]);
+
+			yield* fs.writeFileString(topic, `${original}- A hand-made copy. ^${claim.id}\n`);
+
+			expect(yield* problems(out)).toEqual([
+				`claim ${claim.id} appears in both shared/Topics/Note granularity.md and shared/Topics/Note granularity.md`,
+			]);
 		}));
 
 	test("reports a hand edit, overwrites it, writes notes read-only and leaves files it does not own alone", () =>
@@ -196,6 +240,7 @@ describe("projection", () => {
 			expect(yield* fs.exists((yield* Vault).file("shared"))).toBe(true);
 			expect((yield* fs.stat(path.join(out, "shared"))).type).toBe("Directory");
 			expect(yield* fs.exists(path.join(out, "agent"))).toBe(false);
+			expect(yield* problems(out)).toEqual([]);
 		}));
 
 	test("promotes a claim to its own note once three other topics link to it", () =>
@@ -236,10 +281,79 @@ describe("projection", () => {
 			expect(yield* readText(out, `shared/Claims/${hub.id}.md`)).toContain(
 				`![[Note granularity#^${hub.id}]]`,
 			);
+
+			expect(yield* problems(out)).toEqual([]);
 		}));
 });
 
 describe("projected text", () => {
+	test("keeps later passages and the Dependents list visible after a passage that opens a fence, comment or tag", () =>
+		Effect.gen(function* () {
+			yield* seeded;
+
+			yield* odd({
+				s1: "````text\nnever closed",
+				s2: "<!-- never closed",
+				s3: "%% never closed",
+				s4: "<pre>",
+				s5: "Plain.",
+			});
+
+			const out = yield* projected;
+			const note = yield* readText(out, ODD);
+
+			expect(note).toContain("never closed\n````\n\n^s1");
+			expect(note).toContain("\\<!-- never closed\n\n^s2");
+			expect(note).toContain("%\\% never closed\n\n^s3");
+			expect(note).toContain("\\<pre>\n\n^s4");
+			expect(note).toMatch(/Plain\.\n\n\^s5\n\n## Dependents\n/);
+			expect(yield* problems(out)).toEqual([]);
+		}));
+
+	test("leaves code alone: fenced text and inline code are copied as they are", () =>
+		Effect.gen(function* () {
+			yield* seeded;
+
+			yield* odd({
+				s1: "```a`b is not a fence",
+				s2: "Obsidian comments use `%%` and `<!--` markers.",
+				s3: "```html\n<!-- inside a fence -->\n```",
+			});
+
+			const out = yield* projected;
+
+			expect(yield* readText(out, ODD)).toContain(
+				"```a`b is not a fence\n\n^s1\n\nObsidian comments use `%%` and `<!--` markers.\n\n^s2\n\n```html\n<!-- inside a fence -->\n```\n\n^s3\n",
+			);
+
+			expect(yield* problems(out)).toEqual([]);
+		}));
+
+	test("lint reports a source note whose passage swallows the blocks after it", () =>
+		Effect.gen(function* () {
+			const fs = yield* FileSystem.FileSystem;
+
+			yield* seeded;
+			yield* odd({ s1: "Fine.", s2: "Also fine." });
+
+			const out = yield* projected;
+			const file = path.join(out, ODD);
+
+			expect(yield* problems(out)).toEqual([]);
+			yield* fs.chmod(file, 0o644);
+
+			yield* fs.writeFileString(
+				file,
+				(yield* fs.readFileString(file)).replace("Fine.", "Fine.\n````"),
+			);
+
+			expect(yield* problems(out)).toEqual([
+				`${ODD}: the Dependents list is hidden by an unclosed fence`,
+				`${ODD}: passage ^s1 is not a visible block`,
+				`${ODD}: passage ^s2 is not a visible block`,
+			]);
+		}));
+
 	test("writes claim text as plain text", () =>
 		Effect.gen(function* () {
 			yield* seeded;
@@ -253,6 +367,8 @@ describe("projected text", () => {
 			expect(yield* readText(out, "shared/Topics/Note granularity.md")).toContain(
 				String.raw`- See \[\[Secret plans\]\] and \[verdict:\: contradicted\] \<!-- hide %\% this [supports:: [[${SOURCE}#^p1|Dense X Retrieval]]] [basis:: PRIMARY] ^${claim.id}`,
 			);
+
+			expect(yield* lint(out)).toMatchObject({ problems: [], claimBlocks: 1 });
 		}));
 
 	test("keeps comment markers in titles out of file names, links and aliases", () =>
@@ -290,5 +406,6 @@ describe("projected text", () => {
 			const out = yield* projected;
 
 			expect(yield* fs.exists(path.join(out, "shared/Topics/Evil title.md"))).toBe(true);
+			expect(yield* lint(out)).toMatchObject({ problems: [], claimBlocks: 1 });
 		}));
 });

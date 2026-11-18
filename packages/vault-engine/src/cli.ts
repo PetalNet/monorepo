@@ -10,7 +10,7 @@ import { Argument, Command, Flag } from "effect/cli";
 import { operations, refresh } from "./api.ts";
 import { Vault } from "./engine.ts";
 import { SecretFound, WriteRejected } from "./errors.ts";
-import { project } from "./project.ts";
+import { lint, project } from "./project.ts";
 import { reindex } from "./recall.ts";
 import { tiers } from "./schema.ts";
 
@@ -115,6 +115,19 @@ const commands = [
 		Command.withDescription(
 			"Regenerate the Obsidian vault (default: VAULT_PROJECTION or <root>/obsidian).",
 		),
+	),
+	Command.make("lint", { dir: folder }, ({ dir }) =>
+		Effect.gen(function* () {
+			const result = yield* lint(yield* out(dir));
+
+			yield* print(result);
+
+			if (result.problems.length > 0) {
+				process.exitCode = 1;
+			}
+		}),
+	).pipe(
+		Command.withDescription("Check claim IDs, passages and generated links in a projected vault."),
 	),
 	Command.make("reindex", {}, () => reindex.pipe(Effect.flatMap(print))).pipe(
 		Command.withDescription("Rebuild the claim index."),

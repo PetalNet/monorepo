@@ -57,6 +57,61 @@ const literal = (text: string) =>
 		.replaceAll("::", String.raw`:\:`)
 		.replaceAll("%%", String.raw`%\%`);
 
+/** Tracks CommonMark code fences, line by line. */
+class Fence {
+	#open: { char: string; length: number } | undefined;
+	/** Feeds one line; returns true if the line is markdown, outside any fence. */
+	feed(line: string): boolean {
+		// A backtick fence's info string cannot itself contain a backtick.
+		const run = /^ {0,3}(`{3,}(?!.*`)|~{3,})(.*)$/.exec(line);
+
+		if (this.#open) {
+			if (
+				run?.[1]?.startsWith(this.#open.char) === true &&
+				run[1].length >= this.#open.length &&
+				run[2]?.trim() === ""
+			) {
+				this.#open = undefined;
+			}
+
+			return false;
+		}
+
+		if (run?.[1] !== undefined) {
+			this.#open = { char: run[1].charAt(0), length: run[1].length };
+
+			return false;
+		}
+
+		return true;
+	}
+	/** The line that closes a fence still open, if one is. */
+	get closer(): string | undefined {
+		return this.#open?.char.repeat(this.#open.length);
+	}
+}
+
+/**
+ * A copied passage stays markdown but cannot hide what follows it: outside code, `<` and `%%` are
+ * escaped, so no HTML block or comment can open, and a fence left open is closed after it.
+ */
+function contain(text: string): string {
+	const fence = new Fence();
+	const lines = text
+		.split("\n")
+		.map((line) =>
+			fence.feed(line)
+				? line.replaceAll(
+						/(`[^`]*`)|<|%%/g,
+						(match, code: string | undefined) =>
+							code ?? (match === "<" ? String.raw`\<` : String.raw`%\%`),
+					)
+				: line,
+		);
+
+	return [...lines, ...(fence.closer === undefined ? [] : [fence.closer])].join("\n");
+}
+
 /** Renders every note from one view of the vault. Pure: the same view always yields the same files. */
 function render(view: VaultView, now: Date): Map<string, string> {
 	const files = new Map<string, string>();
@@ -235,7 +290,7 @@ function render(view: VaultView, now: Date): Map<string, string> {
 				lines.push(`- ${literal(text.replaceAll(/\s*\n\s*/g, " "))} ^${id}`);
 			} else {
 				// A block ID on its own line, set off by blank lines, addresses the block above it.
-				lines.push("", text.trimEnd(), "", `^${id}`);
+				lines.push("", contain(text.trimEnd()), "", `^${id}`);
 			}
 		}
 
@@ -406,4 +461,121 @@ export const project = Effect.fnUntraced(function* (out: string) {
 		removed: Object.keys(previous).filter((relative) => !files.has(relative)).length,
 		overwrittenEdits,
 	} satisfies ProjectResult;
+});
+
+export interface LintResult {
+	readonly files: number;
+	readonly claimBlocks: number;
+	readonly links: number;
+	readonly problems: readonly string[];
+}
+
+const GENERATED_LINK = /!?\[\[([^\]|#]*)(?:#\^([A-Za-z0-9-]+))?(?:\|[^\]]*)?\]\]/g;
+const BLOCK_ID = /(?:^|\s)\^([A-Za-z0-9-]+)$/;
+
+/**
+ * Checks a projected vault from its files: every claim ID the engine holds appears as exactly one
+ * block, every passage is a visible block, and every generated wikilink resolves to a note and,
+ * when it names one, a block in that note. Text copied from migrated documents is not
+ * link-checked.
+ */
+export const lint = Effect.fnUntraced(function* (out: string) {
+	const fs = yield* FileSystem.FileSystem;
+	const view = yield* (yield* Vault).view;
+	const notes = new Map<string, { relative: string; blocks: Set<string>; lines: string[] }>();
+	const problems: string[] = [];
+	const seen = new Map<string, string>();
+	let claimBlocks = 0;
+	let links = 0;
+
+	const tierNotes = yield* Effect.forEach(tiers, (tier) =>
+		fs.readDirectory(path.join(out, tier), { recursive: true }).pipe(
+			Effect.map((entries) => entries.map((entry) => `${tier}/${entry}`)),
+			Effect.orElseSucceed((): string[] => []),
+		),
+	);
+
+	for (const relative of ["Index.md", ...tierNotes.flat()]
+		.filter((entry) => entry.endsWith(".md"))
+		.toSorted()) {
+		const lines = (yield* fs.readFileString(path.join(out, relative))).split("\n");
+		const blocks = new Set<string>();
+		const fence = new Fence();
+		const body = lines[0] === "---" ? lines.indexOf("---", 1) + 1 : 0;
+		let dependents = false;
+
+		for (const line of lines.slice(body)) {
+			// A block ID or heading inside a fence is text to Obsidian, not structure.
+			if (!fence.feed(line)) {
+				continue;
+			}
+
+			dependents ||= line === "## Dependents";
+
+			const id = BLOCK_ID.exec(line)?.[1];
+
+			if (id === undefined) {
+				continue;
+			}
+
+			blocks.add(id);
+
+			if (id.startsWith("c-") && relative.includes("/Topics/")) {
+				claimBlocks++;
+
+				if (seen.has(id)) {
+					problems.push(`claim ${id} appears in both ${seen.get(id) ?? ""} and ${relative}`);
+				}
+
+				seen.set(id, relative);
+			}
+		}
+
+		if (relative.includes("/Sources/") && !dependents) {
+			problems.push(`${relative}: the Dependents list is hidden by an unclosed fence`);
+		}
+
+		notes.set(path.basename(relative, ".md").toLowerCase(), { relative, blocks, lines });
+	}
+
+	for (const tier of tiers) {
+		for (const id of Object.keys(view.tiers[tier].claims)) {
+			if (!seen.has(id)) {
+				problems.push(`claim ${id} is missing from the projection`);
+			}
+		}
+
+		for (const source of Object.values(view.tiers[tier].sources)) {
+			const note = notes.get(source.id);
+
+			for (const id of Object.keys(source.passages)) {
+				if (note && !note.blocks.has(id)) {
+					problems.push(`${note.relative}: passage ^${id} is not a visible block`);
+				}
+			}
+		}
+	}
+
+	for (const { relative, lines } of notes.values()) {
+		// In a source note only the generated tail is checked; the body above is copied text.
+		const start = relative.includes("/Sources/") ? lines.lastIndexOf("## Dependents") : 0;
+
+		for (const line of lines.slice(Math.max(start, 0))) {
+			for (const [, name = "", block] of line.matchAll(GENERATED_LINK)) {
+				const found = notes.get(
+					(name === "" ? path.basename(relative, ".md") : name).toLowerCase(),
+				);
+
+				links++;
+
+				if (!found) {
+					problems.push(`${relative}: link to missing note [[${name}]]`);
+				} else if (block !== undefined && !found.blocks.has(block)) {
+					problems.push(`${relative}: link to missing block [[${name}#^${block}]]`);
+				}
+			}
+		}
+	}
+
+	return { files: notes.size, claimBlocks, links, problems } satisfies LintResult;
 });

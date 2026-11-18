@@ -82,6 +82,11 @@ describe("CLI", () => {
 				expect(refused.status).toBe(1);
 				expect(refused.stderr).toMatch(/Secret scan rejected the write to .*: github-pat/);
 				expect(refused.stderr).not.toContain(token);
+
+				expect(JSON.parse(cli(root, "lint").stdout)).toMatchObject({
+					problems: [],
+					claimBlocks: 1,
+				});
 			}),
 		60_000,
 	);
