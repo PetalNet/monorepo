@@ -3,7 +3,7 @@ import os from "node:os";
 
 import { Clock, Context, Effect, Layer, Option, Schema } from "effect";
 import type { PlatformError } from "effect/PlatformError";
-import { LoroDoc } from "loro-crdt";
+import { LoroDoc, VersionVector } from "loro-crdt";
 import type { Value } from "loro-crdt";
 
 import { SecretFound, TierUnreadable, WriteRejected } from "./errors.ts";
@@ -67,6 +67,16 @@ export interface VaultView {
 	/** Which tier holds a claim or source. */
 	readonly locate: (id: string) => Located | undefined;
 	readonly source: (id: string) => Source | undefined;
+}
+
+export interface ChangeRecord {
+	readonly agent: string;
+	/** Seconds since the epoch, as Loro records it. */
+	readonly timestamp: number;
+	readonly message: string;
+	readonly peer: string;
+	readonly counter: number;
+	readonly length: number;
 }
 
 /** One write on one tier. Each method stages a checked record; the transaction commits them all. */
@@ -137,6 +147,14 @@ export interface VaultShape {
 	readonly reconcile: (
 		reason: string,
 	) => Effect.Effect<string[], WriteRejected | SecretFound | VaultError>;
+	/** The op log: who wrote what and when, oldest first. */
+	readonly history: (tier: Tier) => Effect.Effect<ChangeRecord[], VaultError>;
+	/**
+	 * Time travel: the tier once every change stamped at or before `when` had applied. Loro never
+	 * stamps a change earlier than the changes it builds on, so that set is a consistent version even
+	 * when a host's clock runs behind.
+	 */
+	readonly at: (tier: Tier, when: Date) => Effect.Effect<TierState, VaultError>;
 	readonly snapshot: (tier: Tier) => Effect.Effect<Uint8Array, VaultError>;
 }
 
@@ -674,6 +692,10 @@ const makeVault = Effect.fnUntraced(function* (config: VaultConfig) {
 			return yield* reject(`The file for the ${tier} tier holds another tier's document`);
 		}
 
+		if (doc.getMap("peers").get(doc.peerIdStr) !== peerName) {
+			doc.getMap("peers").set(doc.peerIdStr, peerName);
+		}
+
 		doc.commit({ message, timestamp: seconds });
 
 		// Everything this write adds to the file's history, commit message included: a value set and
@@ -763,6 +785,38 @@ const makeVault = Effect.fnUntraced(function* (config: VaultConfig) {
 			// A crash here leaves other tiers unflagged; the next retire or reconcile finishes the job.
 			return [...here, ...(yield* reconcile(`${change.status} source ${id}`))];
 		}),
+		history: (tier) =>
+			Effect.map(load(tier), ({ doc }) => {
+				const peers = doc.getMap("peers").toJSON() as Record<string, string>;
+
+				return [...doc.getAllChanges().entries()]
+					.flatMap(([peer, changes]) =>
+						changes.map((change) => ({
+							agent: peers[peer] ?? peer,
+							timestamp: change.timestamp,
+							message: change.message ?? "",
+							peer,
+							counter: change.counter,
+							length: change.length,
+						})),
+					)
+					.toSorted((a, b) => a.timestamp - b.timestamp || a.counter - b.counter);
+			}),
+		at: (tier, when) =>
+			Effect.map(load(tier), ({ doc }) => {
+				const cutoff = Math.floor(when.getTime() / 1000);
+				const version = new Map<`${number}`, number>();
+
+				for (const [peer, changes] of doc.getAllChanges()) {
+					for (const change of changes) {
+						if (change.timestamp <= cutoff) {
+							version.set(peer, Math.max(version.get(peer) ?? 0, change.counter + change.length));
+						}
+					}
+				}
+
+				return readState(doc.forkAt(doc.vvToFrontiers(new VersionVector(version))));
+			}),
 		snapshot: (tier) => Effect.map(load(tier), ({ doc }) => doc.export({ mode: "snapshot" })),
 	} satisfies VaultShape;
 });

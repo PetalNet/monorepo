@@ -3,11 +3,13 @@ import path from "node:path";
 
 import { describe, expect } from "@effect/vitest";
 import { Effect } from "effect";
+import { TestClock } from "effect/testing";
 import { LoroDoc } from "loro-crdt";
 
 import { Vault } from "../src/engine.ts";
 import { SecretFound, WriteRejected } from "../src/errors.ts";
 import {
+	NOON,
 	OTHER,
 	SOURCE,
 	TOPIC,
@@ -43,6 +45,73 @@ describe("documents", () => {
 			expect(doc.getMap("sources").get(SOURCE)).toMatchObject({ id: SOURCE });
 			expect(yield* exists(vault.file("shared"))).toBe(true);
 			expect(yield* exists(vault.file("personal"))).toBe(false);
+		}));
+
+	test("records each agent as its own peer, with time and message, and can travel back", () =>
+		Effect.gen(function* () {
+			const vault = yield* Vault;
+
+			yield* seeded;
+			yield* TestClock.setTime(Date.parse("2026-11-18T12:00:00.000Z"));
+
+			const scout = yield* vaultAt(vault.root, "scout");
+			const claim = yield* addClaim("shared", claimInput("Small units need context.")).pipe(
+				Effect.provideService(Vault, scout),
+			);
+			const history = yield* vault.history("shared");
+
+			expect(history.map((change) => [change.agent, change.message])).toEqual([
+				["janet@test-host", "seed"],
+				["scout@test-host", `add claim in ${TOPIC}`],
+			]);
+
+			expect(new Set(history.map((change) => change.peer)).size).toBe(2);
+			expect(history[1]?.timestamp).toBe(Date.parse("2026-11-18T12:00:00.000Z") / 1000);
+			expect((yield* vault.at("shared", new Date("2026-11-17T23:00:00.000Z"))).claims).toEqual({});
+
+			expect(
+				(yield* vault.at("shared", new Date("2026-11-18T12:00:00.000Z"))).claims[claim.id]?.agent,
+			).toBe("scout");
+		}));
+
+	test("travels to a consistent version when a host's clock runs behind", () =>
+		Effect.gen(function* () {
+			const vault = yield* Vault;
+
+			yield* seeded;
+			yield* TestClock.setTime(Date.parse("2026-11-17T11:30:00.000Z"));
+
+			const slow = yield* vaultAt(vault.root, "slow");
+			const claim = yield* addClaim(
+				"shared",
+				claimInput("Written by a host whose clock is slow."),
+			).pipe(Effect.provideService(Vault, slow));
+
+			// The claim builds on the 12:00 seed, so it cannot appear in a version from before the seed.
+			expect(yield* vault.at("shared", new Date("2026-11-17T11:45:00.000Z"))).toEqual({
+				claims: {},
+				sources: {},
+				topics: {},
+				runs: {},
+			});
+
+			const noon = yield* vault.at("shared", new Date(NOON));
+
+			expect(noon.claims[claim.id]?.text).toBe("Written by a host whose clock is slow.");
+			expect(noon.sources[SOURCE]?.title).toBe("Dense X Retrieval");
+		}));
+
+	test("records each write as its own change", () =>
+		Effect.gen(function* () {
+			yield* seeded;
+			yield* addClaim("shared", claimInput("First."));
+			yield* addClaim("shared", claimInput("Second."));
+
+			expect((yield* (yield* Vault).history("shared")).map((change) => change.message)).toEqual([
+				"seed",
+				`add claim in ${TOPIC}`,
+				`add claim in ${TOPIC}`,
+			]);
 		}));
 });
 

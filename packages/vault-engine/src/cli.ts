@@ -41,6 +41,7 @@ const words = Argument.String("text").pipe(Argument.variadic({ min: 1 }));
 const tier = optional(Flag.Literals("tier", tiers));
 const reason = Flag.String("reason");
 const folder = Argument.String("dir").pipe(Argument.optional);
+const tierArgument = Argument.Literals("tier", tiers);
 
 const out = (dir: Option.Option<string>) =>
 	Effect.map(Vault, (vault) =>
@@ -174,6 +175,15 @@ const commands = [
 			"Flag claims whose sources were retired; finishes an interrupted retirement.",
 		),
 	),
+	Command.make("history", { tier: tierArgument }, ({ tier: chosen }) =>
+		Effect.flatMap(Vault, (vault) => vault.history(chosen)).pipe(Effect.flatMap(print)),
+	).pipe(Command.withDescription("The op log: who wrote what, when.")),
+	Command.make(
+		"at",
+		{ tier: tierArgument, time: Argument.Date("time") },
+		({ tier: chosen, time }) =>
+			Effect.flatMap(Vault, (vault) => vault.at(chosen, time)).pipe(Effect.flatMap(print)),
+	).pipe(Command.withDescription("The tier as it stood at that time.")),
 	Command.make(
 		"migrate",
 		{
@@ -213,6 +223,30 @@ const commands = [
 			"Copy documents and vault-cite sources in; report exclusions and unsaved citations.",
 		),
 	),
+	Command.make("status", {}, () =>
+		Effect.gen(function* () {
+			const vault = yield* Vault;
+			const view = yield* vault.view;
+			const counts = yield* Effect.forEach(tiers, (each) =>
+				Effect.map(vault.history(each), (history) => {
+					const state = view.tiers[each];
+
+					return [
+						each,
+						{
+							claims: Object.keys(state.claims).length,
+							sources: Object.keys(state.sources).length,
+							topics: Object.keys(state.topics).length,
+							runs: Object.keys(state.runs).length,
+							changes: history.length,
+						},
+					] as const;
+				}),
+			);
+
+			yield* print(Object.fromEntries(counts));
+		}),
+	).pipe(Command.withDescription("Claims, sources, topics, runs and changes per tier.")),
 ];
 
 /**
