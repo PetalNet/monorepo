@@ -25,19 +25,35 @@ janetcall://pair?u=<base64url of UTF-8 JSON, no padding>
 ```
 
 Any app or web page can fire that link, so the app first asks "Pair this phone with HOST?" and sends
-nothing until the answer is yes. `url` must be `wss://HOST[:port]/v1/call` with no user, query or
-fragment, so the host shown is the host called. An expired link is refused on the phone.
+nothing until the answer is yes.
+
+- `url` must be `wss://HOST[:port]/v1/call` with no user, query or fragment. The app rebuilds it
+  from the parsed host in lower case, so the host shown is the host called.
+- A link is refused when it has expired or claims more than 15 minutes of life.
+- A link is taken only when it is opened fresh. It is dropped, with a notice, during a call or while
+  another confirmation is up, and it is not replayed when the app is reopened from recents.
+- Pair is not where Call Janet and Hang up sit, it stays off for a second after the question
+  appears, and it ignores taps that come through an overlay.
 
 On yes, the app trades the code for its own device token:
 
 - `POST https://HOST/v1/call/pair` with `CF-Access-Client-Id`, `CF-Access-Client-Secret` and
   `{"code": "...", "name": "<manufacturer model>"}`.
-- `200 {"token": "<device token>"}` pairs the phone. `403` means the code was used or is wrong.
+- `200 {"token": "<device token>"}` pairs the phone. A `403` whose body is JSON with an `error`
+  is the bridge saying the code was used or has expired. Any other `403` is Cloudflare Access.
   Redirects are not followed.
 
 The URL, device token and Cloudflare Access values are stored as one value sealed with an Android
 Keystore AES key. The app shows the bridge host and an Unpair button, which wipes them. There is no
 screen that shows or edits a secret.
+
+Known gaps:
+
+- Another app on the phone can register the `janetcall` scheme and be offered the link, which
+  carries the one-time code and the Access secret. An Android App Link on the bridge's own domain
+  would close that.
+- Unpair wipes the phone. It does not revoke the device token on the bridge.
+- CI does not build this app.
 
 ## Bridge protocol
 

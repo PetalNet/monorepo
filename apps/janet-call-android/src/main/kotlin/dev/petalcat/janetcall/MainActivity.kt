@@ -7,6 +7,7 @@ import android.content.Intent
 import android.content.pm.PackageManager
 import android.os.Build
 import android.os.Bundle
+import android.os.SystemClock
 import android.telecom.CallAudioState
 import android.view.View
 import android.widget.Button
@@ -15,8 +16,11 @@ import android.widget.TextView
 
 /**
  * Pairing and the in-call UI. Self-managed calls get no system dialer screen, so this is the call screen.
+ *
  * A pairing link (`janetcall://pair?u=...`) can come from any app or web page, so nothing is sent or
- * stored until the person confirms the bridge host it names.
+ * stored until the person confirms the bridge host it names. The confirmation is built so a hostile
+ * link cannot land under a habitual tap: a link is only taken when it arrives fresh, never during a
+ * call or over another confirmation, and Pair sits apart from Call and Hang up and wakes up late.
  */
 class MainActivity : Activity() {
 	private lateinit var title: TextView
@@ -26,10 +30,12 @@ class MainActivity : Activity() {
 	private val settings by lazy { Settings(this) }
 	private val observer: () -> Unit = { render() }
 
-	/** The `u` payload of a pairing link waiting for confirmation. */
-	private var pendingPayload: String? = null
-	private var pairingWith: String? = null
-	private var notice: String? = null
+	/**
+	 * The link waiting for a yes or no. It holds the Access secret, so it is never written to saved
+	 * state: an activity recreated mid-confirmation drops the question.
+	 */
+	private var pending: PairingLink? = null
+	private var pendingSinceMs = 0L
 
 	override fun onCreate(savedInstanceState: Bundle?) {
 		super.onCreate(savedInstanceState)
@@ -42,7 +48,8 @@ class MainActivity : Activity() {
 			setPadding(0, pad(8), 0, pad(20))
 		}
 		primary = Button(this)
-		secondary = Button(this)
+		// An overlay drawn over the confirmation must not be able to pass a tap through to Pair.
+		secondary = Button(this).apply { filterTouchesWhenObscured = true }
 		val column = LinearLayout(this).apply {
 			orientation = LinearLayout.VERTICAL
 			setPadding(pad(20), pad(24), pad(20), pad(24))
@@ -53,19 +60,15 @@ class MainActivity : Activity() {
 			v.setPadding(0, insets.systemWindowInsetTop, 0, insets.systemWindowInsetBottom)
 			insets
 		}
-		pendingPayload = savedInstanceState?.getString(PENDING)
-		takePairingLink(intent)
+		// A restored activity is handed the intent it was first started with. That link was already
+		// answered or cancelled, so only a first creation reads it.
+		if (savedInstanceState == null) takePairingLink(intent)
 	}
 
 	override fun onNewIntent(intent: Intent) {
 		super.onNewIntent(intent)
 		takePairingLink(intent)
 		render()
-	}
-
-	override fun onSaveInstanceState(outState: Bundle) {
-		super.onSaveInstanceState(outState)
-		outState.putString(PENDING, pendingPayload)
 	}
 
 	override fun onStart() {
@@ -81,30 +84,33 @@ class MainActivity : Activity() {
 
 	private fun takePairingLink(intent: Intent) {
 		val data = intent.data ?: return
-		// Consumed here, so a rotation or a relaunch from recents does not ask again.
 		setIntent(Intent(this, MainActivity::class.java))
 		if (intent.action != Intent.ACTION_VIEW || data.scheme != "janetcall" || data.host != "pair") return
-		pendingPayload = data.getQueryParameter("u").orEmpty()
-		notice = null
-	}
-
-	private fun pendingLink(): PairingLink? {
-		val payload = pendingPayload ?: return null
-		return when (val parsed = parsePairingPayload(payload, System.currentTimeMillis() / 1000, BuildConfig.DEBUG)) {
-			is PairingParse.Ok -> parsed.link
-			is PairingParse.Bad -> {
-				pendingPayload = null
-				notice = parsed.reason
-				null
+		// Reopening the app from recents replays the old link. Only a link opened just now counts.
+		if (intent.flags and Intent.FLAG_ACTIVITY_LAUNCHED_FROM_HISTORY != 0) return
+		// A link is never held to be shown later, when the person no longer expects it.
+		Pairer.notice = when {
+			Calls.inCall -> "Finish the call first, then open the pairing link again."
+			pending != null || Pairer.host != null -> "Another pairing was already waiting. Answer it, then open the new link again."
+			else -> when (val parsed = parsePairingPayload(data.getQueryParameter("u").orEmpty(), nowS(), BuildConfig.DEBUG)) {
+				is PairingParse.Bad -> parsed.reason
+				is PairingParse.Ok -> {
+					pending = parsed.link
+					pendingSinceMs = SystemClock.elapsedRealtime()
+					null
+				}
 			}
 		}
 	}
+
+	private fun nowS() = System.currentTimeMillis() / 1000
 
 	private fun show(heading: String, text: String, first: Pair<String, () -> Unit>?, second: Pair<String, () -> Unit>?) {
 		title.text = heading
 		body.text = text
 		listOf(primary to first, secondary to second).forEach { (button, action) ->
 			button.visibility = if (action == null) View.GONE else View.VISIBLE
+			button.isEnabled = true
 			button.text = action?.first
 			button.setOnClickListener { action?.second?.invoke() }
 		}
@@ -112,8 +118,9 @@ class MainActivity : Activity() {
 
 	private fun render() {
 		val state = Calls.state
-		val link = if (Calls.inCall || pairingWith != null) null else pendingLink()
+		val link = pending
 		val pairing = settings.pairing()
+		val pairingWith = Pairer.host
 		when {
 			Calls.inCall -> show(
 				if (state is CallState.Active) "In call with Janet" else "Calling Janet…",
@@ -122,46 +129,51 @@ class MainActivity : Activity() {
 				"Speaker" to { toggleSpeaker() },
 			)
 			pairingWith != null -> show("Pairing with $pairingWith…", "", null, null)
-			link != null -> show(
-				"Pair this phone with ${link.host}?",
-				"Janet Call will place its calls through ${link.host}" +
-					(if (pairing != null) ", in place of ${pairing.host}" else "") +
-					". Continue only if you opened the pairing page yourself.",
-				"Pair" to { pair(link) },
-				"Cancel" to {
-					pendingPayload = null
-					render()
-				},
-			)
+			link != null -> confirm(link, pairing)
 			pairing == null -> show(
 				"Not paired",
-				notice ?: "Open the pairing page on a computer and scan the code with this phone's camera.",
+				Pairer.notice ?: "Open the pairing page on a computer and scan the code with this phone's camera.",
 				null,
 				null,
 			)
 			else -> show(
 				pairing.host,
-				notice ?: (state as? CallState.Ended)?.reason ?: "Ready",
+				Pairer.notice ?: (state as? CallState.Ended)?.reason ?: "Ready",
 				"Call Janet" to { requestCall() },
 				"Unpair" to { confirmUnpair() },
 			)
 		}
 	}
 
-	private fun pair(link: PairingLink) {
-		pendingPayload = null
-		pairingWith = link.host
-		render()
-		val store = Settings(applicationContext)
-		Thread({
-			val result = Bridge.pair(link, "${Build.MANUFACTURER} ${Build.MODEL}")
-			if (result is PairResult.Paired) store.save(result.pairing)
-			runOnUiThread {
-				pairingWith = null
-				notice = (result as? PairResult.Refused)?.reason
+	/**
+	 * Cancel takes the slot where Call Janet and Hang up sit, and Pair stays off for [PAIR_DELAY_MS],
+	 * so a tap aimed at the screen that was there a moment ago cannot pair the phone.
+	 */
+	private fun confirm(link: PairingLink, current: Pairing?) {
+		show(
+			"Pair this phone with ${link.host}?",
+			"Janet Call will place its calls through ${link.host}" +
+				(if (current != null) ", in place of ${current.host}" else "") +
+				". Continue only if you opened the pairing page yourself.",
+			"Cancel" to {
+				pending = null
 				render()
-			}
-		}, "janet-pair").start()
+			},
+			"Pair" to { pair(link) },
+		)
+		val wait = pendingSinceMs + PAIR_DELAY_MS - SystemClock.elapsedRealtime()
+		secondary.isEnabled = wait <= 0
+		if (wait > 0) secondary.postDelayed({ if (pending === link) render() }, wait)
+	}
+
+	private fun pair(link: PairingLink) {
+		pending = null
+		if (link.expired(nowS())) {
+			Pairer.notice = EXPIRED_LINK
+			render()
+		} else {
+			Pairer.start(this, link)
+		}
 	}
 
 	private fun confirmUnpair() {
@@ -169,7 +181,7 @@ class MainActivity : Activity() {
 			.setMessage("Unpair this phone? To call Janet again you will need the pairing page.")
 			.setPositiveButton("Unpair") { _, _ ->
 				settings.clear()
-				notice = null
+				Pairer.notice = null
 				render()
 			}
 			.setNegativeButton("Cancel", null)
@@ -193,17 +205,17 @@ class MainActivity : Activity() {
 		if (checkSelfPermission(Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED) {
 			placeCall()
 		} else {
-			notice = "Janet needs the microphone to take a call"
+			Pairer.notice = "Janet needs the microphone to take a call"
 			render()
 		}
 	}
 
 	private fun placeCall() {
-		notice = Dialer.place(this)
+		Pairer.notice = Dialer.place(this)
 		render()
 	}
 
 	private companion object {
-		const val PENDING = "pending_pairing_payload"
+		const val PAIR_DELAY_MS = 1000L
 	}
 }

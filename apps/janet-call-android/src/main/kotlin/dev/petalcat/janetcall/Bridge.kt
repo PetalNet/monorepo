@@ -42,8 +42,13 @@ object Bridge {
 				.build()
 			quick.newCall(request).execute().use { response ->
 				when (response.code) {
-					200 -> pairedFrom(link, response.body?.string().orEmpty())
-					403 -> PairResult.Refused("The pairing code was already used or is not valid. Open the pairing page again for a new one.")
+					200 -> pairedFrom(link, response.peekBody(MAX_ANSWER_BYTES).string())
+					// The bridge's own 403 is JSON with an "error". Any other 403 never reached the bridge.
+					403 -> if (json(response.peekBody(MAX_ANSWER_BYTES).string())?.has("error") == true) {
+						PairResult.Refused("The pairing code was already used or has expired. Open the pairing page again for a new one.")
+					} else {
+						PairResult.Refused("This phone could not reach the bridge: Cloudflare Access refused it (HTTP 403).")
+					}
 					in 300..399 -> PairResult.Refused("Cloudflare Access did not accept this link (HTTP ${response.code}).")
 					else -> PairResult.Refused("The bridge could not pair this phone (HTTP ${response.code}).")
 				}
@@ -55,12 +60,16 @@ object Bridge {
 		}
 	}
 
+	private fun json(body: String): JSONObject? = try {
+		JSONObject(body)
+	} catch (_: JSONException) {
+		null
+	}
+
+	private const val MAX_ANSWER_BYTES = 64 * 1024L
+
 	private fun pairedFrom(link: PairingLink, body: String): PairResult {
-		val token = try {
-			JSONObject(body).optString("token")
-		} catch (_: JSONException) {
-			""
-		}
+		val token = json(body)?.optString("token").orEmpty()
 		if (token.isEmpty()) return PairResult.Refused("The bridge answered without a device token.")
 		return PairResult.Paired(Pairing(link.url, token, link.cfId, link.cfSecret))
 	}

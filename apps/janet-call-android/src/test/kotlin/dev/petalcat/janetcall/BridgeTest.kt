@@ -51,10 +51,19 @@ class BridgeTest {
 	}
 
 	@Test
-	fun `a used or wrong code is refused with what to do next`() {
-		bridgeAnswers(403, """{"error":"bad code"}""")
+	fun `the bridge's own 403 means the code was used or has expired`() {
+		bridgeAnswers(403, """{"error":"code already used or expired"}""")
 		assertEquals(
-			"The pairing code was already used or is not valid. Open the pairing page again for a new one.",
+			"The pairing code was already used or has expired. Open the pairing page again for a new one.",
+			refusal(Bridge.pair(link(), "x")),
+		)
+	}
+
+	@Test
+	fun `a 403 that is not the bridge's is Cloudflare Access turning the phone away`() {
+		bridgeAnswers(403, "<html>Forbidden</html>")
+		assertEquals(
+			"This phone could not reach the bridge: Cloudflare Access refused it (HTTP 403).",
 			refusal(Bridge.pair(link(), "x")),
 		)
 	}

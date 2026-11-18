@@ -20,6 +20,7 @@ class Settings(context: Context) {
 		context.deleteSharedPreferences("janet_call")
 	}
 
+	/** Throws when the Keystore cannot seal the pairing. */
 	fun save(pairing: Pairing) {
 		val json = JSONObject()
 			.put("url", pairing.url).put("token", pairing.token)

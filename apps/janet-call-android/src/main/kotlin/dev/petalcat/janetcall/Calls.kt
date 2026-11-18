@@ -41,9 +41,14 @@ object Calls {
 		observers -= observer
 	}
 
-	fun update(state: CallState = this.state, route: String = this.route) = main.post {
+	fun update(state: CallState = this.state, route: String = this.route) = update {
 		this.state = state
 		this.route = route
+	}
+
+	/** Runs [change] on the main thread, then tells the observers. */
+	fun update(change: () -> Unit) = main.post {
+		change()
 		observers.toList().forEach { it() }
 	}
 }

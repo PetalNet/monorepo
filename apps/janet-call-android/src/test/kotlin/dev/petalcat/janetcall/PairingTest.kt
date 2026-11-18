@@ -4,6 +4,7 @@ import java.util.Base64
 import org.json.JSONObject
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
+import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class PairingTest {
@@ -43,6 +44,25 @@ class PairingTest {
 	fun `an expired link is refused with a reason that says what to do`() {
 		assertEquals(EXPIRED_LINK, reason(payload(expires = now)))
 		assertEquals(EXPIRED_LINK, reason(payload(expires = now - 1)))
+	}
+
+	@Test
+	fun `a link that claims a long life did not come from the pairing page`() {
+		assertTrue(parse(payload(expires = now + MAX_LINK_LIFE_S)) is PairingParse.Ok)
+		assertEquals("This is not a Janet Call pairing link.", reason(payload(expires = now + MAX_LINK_LIFE_S + 1)))
+	}
+
+	@Test
+	fun `the host is shown in lower case and the stored url is rebuilt from it`() {
+		val link = (parse(payload(url = "wss://PetaIcat.DEV:8443/v1/call")) as PairingParse.Ok).link
+		assertEquals("petaicat.dev:8443", link.host)
+		assertEquals("wss://petaicat.dev:8443/v1/call", link.url)
+		assertEquals("https://petaicat.dev:8443/v1/call/pair", bridgeEndpoint(link.url, "pair"))
+	}
+
+	@Test
+	fun `an oversized payload is refused before it is decoded`() {
+		assertEquals("This is not a Janet Call pairing link.", reason("A".repeat(MAX_PAYLOAD_CHARS + 1)))
 	}
 
 	@Test

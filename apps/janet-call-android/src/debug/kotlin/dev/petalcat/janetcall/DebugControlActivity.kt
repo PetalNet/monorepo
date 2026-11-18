@@ -2,7 +2,6 @@ package dev.petalcat.janetcall
 
 import android.app.Activity
 import android.content.Intent
-import android.os.Build
 import android.os.Bundle
 import android.util.Log
 import java.io.File
@@ -34,7 +33,7 @@ class DebugControlActivity : Activity() {
 		fun wav(name: String?) = name?.let { File(getExternalFilesDir(null), File(it).name) }
 		val settings = Settings(applicationContext)
 		when (intent.action) {
-			"dev.petalcat.janetcall.PROVISION" -> extra("u")?.let { pairWith(it, settings) } ?: run {
+			"dev.petalcat.janetcall.PROVISION" -> extra("u")?.let { pairWith(it) } ?: run {
 				val pairing = Pairing(extra("url").orEmpty(), extra("token").orEmpty(), extra("cf_id").orEmpty(), extra("cf_secret").orEmpty())
 				val problem = bridgeUrlProblem(pairing.url, allowCleartext = true) ?: "The token is empty".takeIf { pairing.token.isEmpty() }
 				if (problem == null) settings.save(pairing)
@@ -58,21 +57,14 @@ class DebugControlActivity : Activity() {
 		finish()
 	}
 
-	private fun pairWith(payload: String, settings: Settings) {
+	private fun pairWith(payload: String) {
 		val parsed = parsePairingPayload(payload, System.currentTimeMillis() / 1000, allowCleartext = true)
 		if (parsed !is PairingParse.Ok) {
 			Log.i(TAG, "provisioned: ${(parsed as PairingParse.Bad).reason}")
 			return
 		}
-		Thread({
-			when (val result = Bridge.pair(parsed.link, "${Build.MANUFACTURER} ${Build.MODEL}")) {
-				is PairResult.Paired -> {
-					settings.save(result.pairing)
-					Log.i(TAG, "provisioned: ok")
-				}
-				is PairResult.Refused -> Log.i(TAG, "provisioned: ${result.reason}")
-			}
-		}, "janet-pair").start()
+		val app = applicationContext
+		Thread({ Log.i(TAG, "provisioned: ${Pairer.pairAndStore(app, parsed.link) ?: "ok"}") }, "janet-pair").start()
 	}
 
 	private companion object {
