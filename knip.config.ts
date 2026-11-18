@@ -18,6 +18,9 @@ export default (({ strict }) => ({
 	ignoreExportsUsedInFile: { type: true, interface: true },
 	treatConfigHintsAsErrors: true,
 	workspaces: {
+		"apps/turbo-cache": {
+			entry: ["src/main.ts!", "test/cache-process.ts"],
+		},
 		tools: {
 			// Repository-only operations are invoked by agents and build scripts, not imported.
 			// The enrollment client is development-only; build scripts own the production verifier.
