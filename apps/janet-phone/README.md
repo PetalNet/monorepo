@@ -25,15 +25,19 @@ instructions.
   bridge then calls the gateway with the voice head's token from `head_token_file`, which never
   reaches a phone, and forwards the request's `Cf-Access-Jwt-Assertion`, which the gateway also
   checks. A phone that is not paired gets HTTP 403 and no socket.
-- **Pairing without typing.** `GET <pair_path>` on the plain-HTTP listener shows a QR code and a
-  link, `janetcall://pair?u=…`, carrying the bridge's public address, the Cloudflare Access service
-  token a phone needs to reach it, and a one-time code that lasts `pair_ttl_s` seconds. The phone
-  trades the code for its device token with `POST /v1/call/pair` `{"code", "name"}`. The page is for the
-  single-sign-on proxy alone: a request must carry the secret in `proxy_secret_file` as
-  `X-Janet-Pair-Proxy`, which the proxy adds after signing the visitor in, and only then is its
-  `X-authentik-username` believed and checked against `pair_users`. Each pairing is announced through
-  the notify command. The Access service token in a link outlives the code: if a link or a paired
-  phone is lost, rotate that token and pair again.
+- **Pairing without typing.** A pairing link is `https://<host>/v1/call/pair?c=<code>&e=<expiry>`:
+  only a one-time code that lasts `pair_ttl_s` seconds, so it can go in a chat message or a QR code.
+  It lands on a page with one button, which opens the app with `janetcall://pair?u=…` (the bridge's
+  address and the code). The phone trades the code at `POST /v1/call/pair` `{"code", "name"}` for
+  `{"token", "cf_id", "cf_secret"}`: its device token and the Cloudflare Access service token it
+  needs from then on. Neither is ever in a link. Both pair routes must be reachable without Access;
+  the exchange answers 429 after ten attempts in a minute, counted for everyone together.
+- **Getting a link.** `--pair-link FILE` asks the running bridge for one and writes it to FILE, which
+  only its owner can read. `GET <pair_path>` shows the same link as a QR code; it is for the
+  single-sign-on proxy alone:
+  a request must carry the secret in `proxy_secret_file` as `X-Janet-Pair-Proxy`, and only then is
+  its `X-authentik-username` believed and checked against `pair_users`. Each pairing is announced
+  through the notify command. If a paired phone is lost, unpair it and rotate the Access token.
 - **Bounded.** At most `max_calls` calls at once (503 beyond that), `max_call_s` seconds per call,
   30 s per utterance, and four utterances waiting for a turn.
 - **Cut-off.** When the caller speaks over a reply, the bridge stops sending it, tells the device to
