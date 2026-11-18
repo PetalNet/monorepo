@@ -47,7 +47,7 @@ dependencies {
 	// OkHttp 5.5 needs compileSdk 37, which no released Android Gradle plugin builds against yet.
 	// .github/renovate.json holds it below 5 until this project can compile against 37.
 	implementation("com.squareup.okhttp3:okhttp:4.12.1")
-	implementation(platform("androidx.compose:compose-bom:2025.10.01"))
+	implementation(platform("androidx.compose:compose-bom:2025.12.01"))
 	implementation("androidx.compose.foundation:foundation")
 	implementation("androidx.compose.material3:material3")
 	implementation("androidx.activity:activity-compose:1.13.0")
