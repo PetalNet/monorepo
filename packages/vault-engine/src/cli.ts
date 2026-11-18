@@ -14,7 +14,7 @@ import { Vault } from "./engine.ts";
 import { CaptureFailed, SecretFound, WriteRejected } from "./errors.ts";
 import { ManifestEntry, migrate } from "./migrate.ts";
 import { lint, project } from "./project.ts";
-import { reindex } from "./recall.ts";
+import { indexPath, reindex } from "./recall.ts";
 import { Cite } from "./research.ts";
 import { tiers } from "./schema.ts";
 
@@ -186,6 +186,18 @@ const commands = [
 		({ tier: chosen, time }) =>
 			Effect.flatMap(Vault, (vault) => vault.at(chosen, time)).pipe(Effect.flatMap(print)),
 	).pipe(Command.withDescription("The tier as it stood at that time.")),
+	Command.make("index", {}, () =>
+		Effect.gen(function* () {
+			const bytes = yield* (yield* FileSystem.FileSystem).readFile(indexPath((yield* Vault).root));
+
+			process.stdout.write(bytes);
+		}),
+	).pipe(Command.withDescription("Write the claim index to stdout, for a read replica.")),
+	Command.make("snapshot", { tier: tierArgument }, ({ tier: chosen }) =>
+		Effect.gen(function* () {
+			process.stdout.write(yield* (yield* Vault).snapshot(chosen));
+		}),
+	).pipe(Command.withDescription("Write the tier's Loro snapshot to stdout, as a backup.")),
 	Command.make(
 		"migrate",
 		{

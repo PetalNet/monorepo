@@ -81,7 +81,7 @@ const ClaimRow = Schema.Struct({
 const { score: _passageScore, ...passageFields } = PassageHit.fields;
 const PassageRow = Schema.Struct({ ...passageFields, rank: Schema.Finite });
 
-const indexPath = (root: string) => path.join(root, "index.sqlite");
+export const indexPath = (root: string) => path.join(root, "index.sqlite");
 
 /** Rebuilds the claim index from the documents and swaps it in with one rename. */
 export const reindex = Effect.gen(function* () {
