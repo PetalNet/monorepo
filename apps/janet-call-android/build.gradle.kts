@@ -1,7 +1,7 @@
 plugins {
 	id("com.android.application") version "9.0.1"
 	// The Kotlin version the Android plugin above compiles with.
-	id("org.jetbrains.kotlin.plugin.compose") version "2.2.10"
+	id("org.jetbrains.kotlin.plugin.compose") version "2.4.21"
 }
 
 android {
