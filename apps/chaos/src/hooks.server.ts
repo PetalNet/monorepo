@@ -6,7 +6,9 @@ import { ingestKev } from "$lib/server/ingest";
 import { openStore, type Store } from "$lib/server/store";
 import type { Handle, ServerInit } from "@sveltejs/kit";
 
-const SIX_HOURS = 6 * 60 * 60 * 1000;
+// An unchanged feed answers with no body, so an hourly check costs almost nothing and keeps the
+// page from sitting without current data for long after the door turns over.
+const HOUR = 60 * 60 * 1000;
 
 let store: Store;
 
@@ -29,7 +31,7 @@ export const init: ServerInit = () => {
 	};
 
 	void pull();
-	setInterval(() => void pull(), SIX_HOURS).unref();
+	setInterval(() => void pull(), HOUR).unref();
 };
 
 export const handle: Handle = ({ event, resolve }) => {

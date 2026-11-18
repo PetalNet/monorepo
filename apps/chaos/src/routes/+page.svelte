@@ -21,7 +21,10 @@
 			today.
 		</p>
 	{:else if data.addedToday === 0}
-		<p class="quiet">CISA has added nothing to its Known Exploited Vulnerabilities list today.</p>
+		<p class="quiet">
+			As of the last check, CISA has added nothing to its Known Exploited Vulnerabilities list
+			today.
+		</p>
 	{/if}
 
 	{#if data.item && data.shownDate}

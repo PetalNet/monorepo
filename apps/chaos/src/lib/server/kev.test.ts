@@ -28,7 +28,7 @@ const cisa =
 			modified !== null && since === modified
 				? new Response(null, { status: 304 })
 				: Response.json(
-						{ vulnerabilities: rows },
+						{ count: rows.length, vulnerabilities: rows },
 						{ headers: modified === null ? {} : { "last-modified": modified } },
 					),
 		);
@@ -41,6 +41,7 @@ describe("worst", () => {
 			row("CVE-2026-2", { dueDate: "2026-11-21" }),
 			row("CVE-2026-3", { knownRansomwareCampaignUse: "Known" }),
 		],
+		count: 3,
 	}) as [KevEntry, KevEntry, KevEntry];
 
 	it("puts known ransomware use ahead of a nearer deadline", () => {
@@ -59,10 +60,18 @@ describe("worst", () => {
 describe("parseCatalog", () => {
 	it("rejects a pull with a malformed row", () => {
 		expect(() =>
-			parseCatalog({ vulnerabilities: [row("CVE-2026-1", { dateAdded: "soon" })] }),
+			parseCatalog({ count: 1, vulnerabilities: [row("CVE-2026-1", { dateAdded: "soon" })] }),
 		).toThrow(/dateAdded/);
 
 		expect(() => parseCatalog({})).toThrow(/vulnerabilities/);
+	});
+
+	it("rejects an empty or truncated catalog", () => {
+		expect(() => parseCatalog({ count: 0, vulnerabilities: [] })).toThrow(/0 rows/);
+
+		expect(() => parseCatalog({ count: 2, vulnerabilities: [row("CVE-2026-1")] })).toThrow(
+			/count says 2/,
+		);
 	});
 });
 
@@ -104,6 +113,7 @@ describe("ingestKev", () => {
 			ingestKev(store, cisa([row("CVE-2026-9", { dueDate: "" })], "newer")),
 		).rejects.toThrow(/dueDate/);
 
+		await expect(ingestKev(store, cisa([], "newest"))).rejects.toThrow(/0 rows/);
 		expect(store.addedOn("2026-11-18").map((e) => e.cveId)).toEqual(["CVE-2026-1"]);
 	});
 

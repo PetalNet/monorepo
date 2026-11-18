@@ -36,10 +36,18 @@ function field(row: Record<string, unknown>, key: string, pattern?: RegExp): str
  * copy.
  */
 export function parseCatalog(body: unknown): KevEntry[] {
-	const rows = (body as { vulnerabilities?: unknown } | null)?.vulnerabilities;
+	const { vulnerabilities: rows, count } = (body ?? {}) as {
+		vulnerabilities?: unknown;
+		count?: unknown;
+	};
 
 	if (!Array.isArray(rows)) {
 		throw new TypeError("KEV feed: no vulnerabilities array");
+	}
+
+	// A pull replaces the stored catalog, so a truncated or half-published file must not pass.
+	if (rows.length === 0 || rows.length !== count) {
+		throw new Error(`KEV feed: ${String(rows.length)} rows but count says ${String(count)}`);
 	}
 
 	return rows.map((row: Record<string, unknown>) => ({
