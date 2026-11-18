@@ -50,7 +50,9 @@
 			labels={{ quiet: "Quiet day", busy: "Loud day", heavy: "Very loud day" }}
 			than="Louder than"
 			periods="days"
-			stale="The news count has not been refreshed in the last five hours."
+			stale={chaos.checkedAt
+				? "The news count has not been refreshed in the last five hours."
+				: "The first news count has not finished yet."}
 			summary={chaos.day
 				? `${plural(count(chaos.gauge), "headline", "headlines")}${chaos.capped ? " or more" : ""} named ransomware, a cyberattack or a data breach on ${day(chaos.day)}, the last full day.${chaos.today ? ` Today so far: ${String(chaos.today.articles)}${chaos.today.capped ? " or more" : ""}.` : ""}`
 				: undefined}
