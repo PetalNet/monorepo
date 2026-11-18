@@ -22,6 +22,8 @@ NO_SPEECH_S="${JANET_TALK_NO_SPEECH_S:-6}"
 # No limit on how long someone may talk: listening ends on quiet. This is only a backstop.
 MAX_LISTEN_S="${JANET_TALK_MAX_LISTEN_S:-300}"
 HEARTBEAT_S="${JANET_TALK_HEARTBEAT_S:-3}"
+# How many times in one turn a reply may be dropped because the speaker went on talking.
+MAX_RESUMES="${JANET_TALK_MAX_RESUMES:-4}"
 # Built by install.sh. Without it, nothing is paused.
 MEDIA_DIR="${JANET_TALK_MEDIA_DIR:-$HOME/.local/share/janet-talk/mediaremote-adapter}"
 MEDIA_TIMEOUT_S="${JANET_TALK_MEDIA_TIMEOUT_S:-2}"
@@ -100,20 +102,22 @@ hex() { # method, path, extra curl args...   (HEX_OWNER, when set, is the record
   } | curl -sS -K - --proto =http -X "$method" "$@" "http://127.0.0.1:$port$path" 2>/dev/null
 }
 
-# Starts a recording. Leaves "<id> <owner token> <press ms>" in the recording file.
-hex_start() { # press ms
-  local reply id owner
+# Starts a recording. Leaves "<id> <owner token> <press ms>" in the recording file, or in the
+# state file named.
+hex_start() { # press ms, [state file]
+  local reply id owner until file="${2:-recording}"
   reply=$(hex POST /dictations --max-time 5 -H 'content-type: application/json' -d '{"source":"janet-talk"}') || return 1
   id=$(printf '%s' "$reply" | jq -r '.id // empty' 2>/dev/null)
   owner=$(printf '%s' "$reply" | jq -r '.ownerToken // empty' 2>/dev/null)
   case "$id" in "" | *[!0-9A-Za-z_-]*) return 1 ;; esac
   [ -n "$owner" ] || return 1
   printf '%s' "$reply" | jq -r '.sampleRate // 16000' >"$STATE/recording.rate"
-  (umask 077 && echo "$id $owner $1" >"$STATE/recording.tmp" && mv "$STATE/recording.tmp" "$STATE/recording")
+  (umask 077 && echo "$id $owner $1" >"$STATE/$file.tmp" && mv "$STATE/$file.tmp" "$STATE/$file")
   : >"$STATE/alive.$id"
   # Hex drops a recording whose owner goes quiet for ten seconds. This stops when the recording
   # is finished or cancelled, and once the longest listen is over whatever happens.
-  (while [ -e "$STATE/alive.$id" ] && [ "$SECONDS" -lt "$((MAX_LISTEN_S + 10))" ]; do
+  until=$((SECONDS + MAX_LISTEN_S + 10))
+  (while [ -e "$STATE/alive.$id" ] && [ "$SECONDS" -lt "$until" ]; do
     sleep "$HEARTBEAT_S"
     [ -e "$STATE/alive.$id" ] && HEX_OWNER="$owner" hex POST "/dictations/$id/heartbeat" --max-time 3 >/dev/null
   done) &
@@ -150,6 +154,7 @@ wait_for_end_of_speech() { # id, owner
         --rate "$(cat "$STATE/recording.rate")" --stop-file "$STATE/listening.stop" \
         --max-s "$MAX_LISTEN_S" --nothing-said-s "$NO_SPEECH_S" 2>>"$LOG")
     case "$why" in "" | "stream ended"*) log "turn_end.py gave no verdict: ${why:-it did not run}" ;; *)
+      : >"$STATE/listening.heard" # turn_end.py works here, so it can listen on during the reply
       echo "$why"
       return
       ;;
@@ -202,6 +207,56 @@ wait_for_end_of_speech() { # id, owner
           $speech_at = $now if $speech;
         }
       }'
+}
+
+# Someone who only paused may go on talking while the reply is being made. Until her first
+# audio plays he has not been answered, so listening carries on in a second recording: speech
+# claims the turn back (the reply is dropped, and what he adds joins what he said), and the
+# reply's first audio ends the listening. `mkdir "$dir/claim"` decides between the two.
+# Prints why the listening ended: "key" when the reply began to play, else as a turn ends.
+listen_on() { # turn dir, id, owner
+  HEX_OWNER="$3" hex GET "/dictations/$2/audio" -N --max-time "$((MAX_LISTEN_S + 5))" |
+    "$TURN_END/venv/bin/python" "$TURN_END/turn_end.py" --models "$TURN_END/models" \
+      --rate "$(cat "$STATE/recording.rate")" --claim "$1/claim" --stop-file "$1/claim/speaking" \
+      --stop-file "$STATE/listening.stop" --max-s "$MAX_LISTEN_S" --nothing-said-s "$MAX_LISTEN_S" 2>>"$LOG"
+}
+
+# Drops the recording that listened on, if one is open.
+stop_listening_on() {
+  local id owner
+  [ -s "$STATE/listening-on" ] || return 0
+  read -r id owner _ <"$STATE/listening-on"
+  rm -f "$STATE/listening-on"
+  hex_end cancel "$id" "$owner"
+}
+
+# Runs beside one reply, from the moment its request is on its way: opens the second recording
+# and listens on. If he goes on talking, the request is dropped at once and the head is told to
+# stop making the reply, and from then a double tap means "that's it" again. If the reply
+# begins to play instead, the recording is dropped there and then, so the microphone is free.
+listen_beside() { # turn dir, conversation id
+  local dir="$1" id owner file until=$((SECONDS + MAX_LISTEN_S + 200))
+  rm -f "$STATE/listening.stop"
+  hex_start "$(now_ms)" listening-on || return 0
+  read -r id owner _ <"$STATE/listening-on"
+  echo "$id $owner" >"$dir/listening-on"
+  (
+    # Whoever takes the claim marks it at once: wait for the mark, not only the directory.
+    while [ ! -e "$dir/claim/resumed" ] && [ ! -e "$dir/claim/speaking" ] && [ "$SECONDS" -lt "$until" ] && kill -0 $$ 2>/dev/null; do
+      sleep 0.05
+    done
+    [ -e "$dir/claim/resumed" ] || exit 0
+    log "he went on talking: the reply is dropped"
+    echo $$ >"$STATE/listening.pid"
+    # shellcheck disable=SC2046
+    kill $(pgrep -P "$(cat "$dir/request.pid" 2>/dev/null)" 2>/dev/null) 2>/dev/null
+    file=$(body '{heard_text: ""}')
+    api "/v1/conversations/$2/interrupt" "$file" --max-time 10 >/dev/null 2>&1
+    rm -f "$file"
+  ) &
+  listen_on "$dir" "$id" "$owner" >"$dir/listened.part"
+  mv "$dir/listened.part" "$dir/listened"
+  [ -e "$dir/claim/resumed" ] || stop_listening_on
 }
 
 body() { # jq filter, jq args... -> path of a JSON body file
@@ -340,7 +395,7 @@ fetch_speech() { # turn dir, index
 # and each next one is being made while the one before it plays.
 fetch_turn() { # turn dir
   local dir="$1" i=1
-  while :; do
+  while [ ! -e "$dir/claim/resumed" ]; do
     if [ -e "$dir/$i.txt" ]; then
       if [ -e "$dir/voice-down" ]; then : >"$dir/$i.failed"; else fetch_speech "$dir" "$i"; fi
       i=$((i + 1))
@@ -356,11 +411,14 @@ fetch_turn() { # turn dir
 play_turn() { # turn dir
   local dir="$1" i=1 deadline=$((SECONDS + VOICE_WAKE_WAIT_S + 600))
   sh -c 'echo $PPID' >"$dir/player.pid"
-  while [ "$SECONDS" -lt "$deadline" ]; do
+  while [ "$SECONDS" -lt "$deadline" ] && [ ! -e "$dir/claim/resumed" ]; do
     if [ -e "$dir/$i.wav" ]; then
-      [ "$i" = 1 ] && log "first audio"
       # The first sentence may have failed, so this is the first one that plays.
       [ -e "$dir/media" ] || {
+        # From here he is being answered. If he went on talking first, nothing plays.
+        mkdir "$dir/claim" 2>/dev/null || return 0
+        : >"$dir/claim/speaking"
+        log "first audio"
         : >"$dir/media"
         media_pause
       }
@@ -375,6 +433,8 @@ play_turn() { # turn dir
       sleep 0.05
     fi
   done
+  # A reply with nothing to play is over too: nothing is left to claim back.
+  mkdir "$dir/claim" 2>/dev/null && : >"$dir/claim/speaking"
   media_resume
 }
 
@@ -425,6 +485,9 @@ start() {
   fi
   # The microphone comes first: nothing below may delay the recording.
   stopped=$(stop_reply)
+  stop_listening_on # Hex records one thing at a time
+  # A conversation gone stale leaves the file: `stop` then knows one is being opened below.
+  conversation_fresh || rm -f "$STATE/conversation"
   media_resume &
   hex_start "$pressed" || {
     notify "Janet" "Hex is not running."
@@ -447,7 +510,7 @@ start() {
 
 stop() {
   local released text status id dir file count=0 event="" line end="false" reply="" waited=0
-  local hex_id hex_owner pressed why
+  local hex_id hex_owner pressed why listened="" passes=0 on_id on_owner more jobs busy busy_tries=0
   released=$(now_ms)
   log "released"
   # A quick tap can run this before `start` has begun the recording. Wait for it, briefly.
@@ -469,12 +532,13 @@ stop() {
   rm -f "$STATE/recording"
   if [ $((released - pressed)) -lt "$LATCH_MS" ]; then
     # A tap, not a hold: listen until the speaker stops.
-    rm -f "$STATE/listening.stop"
+    rm -f "$STATE/listening.stop" "$STATE/listening.heard"
     echo $$ >"$STATE/listening.pid"
     log "listening"
     why=$(wait_for_end_of_speech "$hex_id" "$hex_owner")
     rm -f "$STATE/listening.pid"
     released=$(now_ms)
+    [ -e "$STATE/listening.heard" ] && listened=1
     log "stopped listening: ${why:-no level stream}"
   fi
   text=$(hex_end finish "$hex_id" "$hex_owner")
@@ -486,9 +550,10 @@ stop() {
     exit 0
   fi
   load_secrets || exit 1
-  # `start` may still be opening the conversation.
+  # `start` may still be opening the conversation: then there is none on file yet. One that is
+  # on file and has gone stale (he talked for over a minute and a half) is not worth waiting for.
   waited=0
-  while ! conversation_fresh && [ "$waited" -lt 100 ]; do
+  while ! conversation_fresh && [ ! -s "$STATE/conversation" ] && [ "$waited" -lt 100 ]; do
     sleep 0.1
     waited=$((waited + 1))
   done
@@ -498,41 +563,87 @@ stop() {
   }
   id=$(cat "$STATE/conversation")
 
-  dir=$(mktemp -d "$STATE/turn.XXXXXX")
-  echo "$dir" >"$STATE/turn.dir"
-  echo $$ >"$STATE/turn.pid"
-  play_turn "$dir" &
-  fetch_turn "$dir" &
-  file=$(body '{text: $v}' --arg v "$text")
-  while IFS= read -r line; do
-    line=${line%$'\r'}
-    case "$line" in
-      "") event="" ;;
-      event:*) event=$(echo "${line#event:}" | tr -d ' ') ;;
-      data:*)
-        if [ "$event" = sentence ]; then
-          count=$((count + 1))
-          [ "$count" = 1 ] && log "first sentence after $(($(now_ms) - released)) ms"
-          printf '%s' "${line#data:}" | jq -r .text >"$dir/$count.part"
-          mv "$dir/$count.part" "$dir/$count.txt"
-          reply="$reply$(cat "$dir/$count.txt") "
-        elif [ "$event" = done ]; then
-          end=$(printf '%s' "${line#data:}" | jq -r .end_conversation)
-        fi
-        ;;
-    esac
-  done < <(api "/v1/conversations/$id/turns" "$file" -N --max-time 180)
-  rm -f "$file"
-  echo "$count" >"$dir/count"
-  date +%s >"$STATE/conversation.used"
-  if [ "$count" = 0 ]; then
-    notify "Janet" "Can't reach Janet."
-    rm -f "$STATE/conversation" "$STATE/conversation.used"
-  else
-    notify "Janet" "${reply% }"
-  fi
-  [ "$end" = true ] && end_conversation end_phrase &
-  wait
+  # One pass sends what was said and speaks the reply. Another follows each time he goes on
+  # talking before the reply has begun to play.
+  while :; do
+    dir=$(mktemp -d "$STATE/turn.XXXXXX")
+    echo "$dir" >"$STATE/turn.dir"
+    echo $$ >"$STATE/turn.pid"
+    count=0 event="" end="false" reply="" jobs="" busy=""
+    # The request goes first, and its answer is opened at once: nothing below may delay the reply.
+    file=$(body '{text: $v}' --arg v "$text")
+    mkfifo "$dir/events"
+    api "/v1/conversations/$id/turns" "$file" -N --max-time 180 >"$dir/events" &
+    echo $! >"$dir/request.pid"
+    exec 3<"$dir/events"
+    play_turn "$dir" 3<&- &
+    jobs="$jobs $!"
+    fetch_turn "$dir" 3<&- &
+    jobs="$jobs $!"
+    if [ -n "$listened" ] && [ "$passes" -lt "$MAX_RESUMES" ]; then
+      listen_beside "$dir" "$id" 3<&- &
+      jobs="$jobs $!"
+    fi
+    # A refusal is one line with no newline after it: it is read too.
+    while IFS= read -r line || [ -n "$line" ]; do
+      line=${line%$'\r'}
+      case "$line" in
+        "") event="" ;;
+        event:*) event=$(echo "${line#event:}" | tr -d ' ') ;;
+        data:*)
+          if [ "$event" = sentence ]; then
+            count=$((count + 1))
+            [ "$count" = 1 ] && log "first sentence after $(($(now_ms) - released)) ms"
+            printf '%s' "${line#data:}" | jq -r .text >"$dir/$count.part"
+            mv "$dir/$count.part" "$dir/$count.txt"
+            reply="$reply$(cat "$dir/$count.txt") "
+          elif [ "$event" = done ]; then
+            end=$(printf '%s' "${line#data:}" | jq -r .end_conversation)
+          fi
+          ;;
+        *"already in flight"*) busy=1 ;;
+      esac
+    done <&3
+    exec 3<&-
+    rm -f "$file"
+    echo "$count" >"$dir/count"
+    date +%s >"$STATE/conversation.used"
+    if [ -e "$dir/claim/resumed" ]; then
+      : # the reply was dropped: nothing to show
+    elif [ -n "$busy" ] && [ "$passes" -gt 0 ] && [ "$busy_tries" -lt 30 ]; then
+      : # the head is still putting the dropped reply away: what he said is sent again below
+    elif [ "$count" = 0 ]; then
+      notify "Janet" "Can't reach Janet."
+      rm -f "$STATE/conversation" "$STATE/conversation.used"
+    else
+      notify "Janet" "${reply% }"
+    fi
+    # Not a bare `wait`: the second recording's keep-alive is a job too, and runs on.
+    # shellcheck disable=SC2086
+    wait $jobs
+    rm -f "$STATE/listening.pid"
+    if [ ! -e "$dir/claim/resumed" ]; then
+      [ -n "$busy" ] && [ "$passes" -gt 0 ] && [ "$busy_tries" -lt 30 ] || break
+      busy_tries=$((busy_tries + 1))
+      log "the head was not ready for what he added: sending it again"
+      sleep 1
+      continue
+    fi
+    # He went on: what he added joins what he said, and the whole of it is sent again.
+    read -r on_id on_owner <"$dir/listening-on"
+    rm -f "$STATE/listening-on"
+    released=$(now_ms)
+    log "stopped listening again: $(cat "$dir/listened" 2>/dev/null)"
+    more=$(hex_end finish "$on_id" "$on_owner" | tr '\n' ' ' | sed 's/^ *//; s/ *$//')
+    [ -n "$more" ] && text="$text $more"
+    passes=$((passes + 1))
+    conversation_fresh || open_conversation || {
+      notify "Janet" "Can't reach Janet."
+      break
+    }
+    id=$(cat "$STATE/conversation")
+  done
+  [ "$end" = true ] && [ ! -e "$dir/claim/resumed" ] && end_conversation end_phrase
   log "done after $(($(now_ms) - released)) ms"
   rm -f "$STATE/turn.pid"
   find "$STATE" -maxdepth 1 -name 'turn.*' -type d -mmin +10 -exec rm -rf {} + 2>/dev/null

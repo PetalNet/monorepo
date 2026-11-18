@@ -14,6 +14,7 @@ import sys
 import tempfile
 import time
 import unittest
+from unittest import mock
 from pathlib import Path
 
 APP = Path(__file__).resolve().parent.parent
@@ -39,7 +40,9 @@ STUBS = {
     'case "$1 $2" in\n  "get "*) echo "{\\"bundleIdentifier\\":\\"com.example.show\\",\\"playing\\":$(cat "$STUB/media-state")}";;\n'
     '  "send 1") echo false >"$STUB/media-state";;\n  "send 0") echo true >"$STUB/media-state";;\nesac\n',
     "osascript": '#!/usr/bin/env bash\necho "$3" >>"$STUB/notifications"\n',
-    "curl": '#!/usr/bin/env bash\necho "$*" >>"$STUB/curl-args"\nexec "$REAL_CURL" "$@"\n',
+    # The voice can be made slow, so a reply takes a while to begin playing.
+    "curl": '#!/usr/bin/env bash\necho "$*" >>"$STUB/curl-args"\n'
+    'case "$*" in */v1/tts*) sleep "$(cat "$STUB/voice-seconds" 2>/dev/null || echo 0)";; esac\nexec "$REAL_CURL" "$@"\n',
 }
 
 
@@ -284,8 +287,93 @@ class TurnEndTest(TalkCase):
         self.assertIn("--rate 48000 ", self.lines("turn-end-args")[0])
         self.assertEqual(int(self.lines("turn-end-heard")[0]), 9600)
         self.assertIn("stopped listening: quiet (0.3 s heard)", (Path(self.env["JANET_TALK_STATE"]) / "talk.log").read_text())
-        self.assertEqual(self.lines("hex.log"), ["start", "finish"])
+        self.assertEqual(self.lines("hex.log"), ["start", "finish", "start", "cancel"])
         self.assertEqual(self.head_calls("/turns"), [{"text": "what time is it"}])
+
+    def turn_end(self):
+        """Stands in for turn_end.py. The first listen ends at once. While a reply is being made it
+        waits for the reply to begin playing, unless the test has the speaker go on talking."""
+        home = self.root / "turn-end"
+        (home / "venv" / "bin").mkdir(parents=True)
+        python = home / "venv" / "bin" / "python"
+        python.write_text(
+            '#!/usr/bin/env bash\n'
+            'claim=""; while [ $# -gt 0 ]; do [ "$1" = --claim ] && claim="$2"; shift; done\n'
+            '[ -n "$claim" ] || { echo "quiet (0.3 s heard)"; exit 0; }\n'
+            'if [ -e "$STUB/goes-on-after" ]; then\n'
+            '  sleep "$(cat "$STUB/goes-on-after")"; rm "$STUB/goes-on-after"\n'
+            '  mkdir "$claim" 2>/dev/null || { echo "key (0.1 s heard)"; exit 0; }\n'
+            '  : >"$claim/resumed"; echo "and tomorrow" >"$STUB/transcript"; sleep 0.5; echo "quiet (1.2 s heard)"; exit 0\n'
+            'fi\n'
+            'for _ in $(seq 400); do [ -e "$claim/speaking" ] && break; sleep 0.05; done\necho "key (0.0 s heard)"\n'
+        )
+        python.chmod(0o755)
+        self.env["JANET_TALK_TURN_END"] = str(home)
+        self.env["JANET_TALK_LATCH_MS"] = "1000000"
+
+    def test_someone_who_goes_on_talking_before_the_reply_plays_is_heard_out_and_answered_once(self):
+        self.turn_end()
+        self.head.release_turn.clear()  # the reply is still being made when he goes on
+        (self.stub / "voice-seconds").write_text("2")
+        (self.stub / "goes-on-after").write_text("0.7")
+        self.talk("start")
+        talking = self.talk("stop", wait=False)
+        # The first reply is dropped unheard, and the head is told so.
+        self.wait_for(lambda: self.head_calls("/interrupt") == [{"heard_text": ""}])
+        self.head.release_turn.set()
+        self.assertEqual(talking.wait(30), 0)
+        # Then everything he said is sent as one, and that reply is the one he hears and sees.
+        self.assertEqual(self.head_calls("/turns"), [{"text": "what time is it"}, {"text": "what time is it and tomorrow"}])
+        self.assertEqual(self.lines("played"), ["First.", "Second."])
+        self.assertEqual(self.lines("hex.log"), ["start", "finish", "start", "finish", "start", "cancel"])
+        self.notified(["First. Second."])
+
+    def test_a_head_still_putting_the_dropped_reply_away_is_asked_again(self):
+        self.turn_end()
+        self.head.release_turn.clear()
+        (self.stub / "voice-seconds").write_text("2")
+        (self.stub / "goes-on-after").write_text("0.7")
+        answer, asked = fakes._HeadHandler.do_POST, []
+
+        def busy_once(handler):
+            if handler.path.endswith("/turns"):
+                asked.append(handler.path)
+                if len(asked) == 2:
+                    handler.rfile.read(int(handler.headers.get("Content-Length", "0")))
+                    return handler._json(409, {"error": "a turn is already in flight; interrupt it first"})
+            return answer(handler)
+
+        with mock.patch.object(fakes._HeadHandler, "do_POST", busy_once):
+            self.talk("start")
+            talking = self.talk("stop", wait=False)
+            self.wait_for(lambda: self.head_calls("/interrupt") == [{"heard_text": ""}])
+            self.head.release_turn.set()
+            self.assertEqual(talking.wait(40), 0)
+        self.assertEqual(len(asked), 3)
+        self.assertEqual(self.head_calls("/turns")[-1], {"text": "what time is it and tomorrow"})
+        self.assertEqual(self.lines("played"), ["First.", "Second."])
+        self.notified(["First. Second."])
+
+    def test_a_reply_that_begins_to_play_ends_the_further_listening(self):
+        self.turn_end()
+        (self.stub / "goes-on-after").write_text("3")  # too late: she is speaking by then
+        (self.stub / "afplay-seconds").write_text("2")
+        self.talk("start")
+        self.talk("stop")
+        self.assertEqual(self.head_calls("/turns"), [{"text": "what time is it"}])
+        self.assertEqual(self.head_calls("/interrupt"), [])
+        self.assertEqual(self.lines("played"), ["First.", "Second."])
+        self.assertEqual(self.lines("hex.log"), ["start", "finish", "start", "cancel"])
+
+    def test_a_new_press_while_the_reply_is_being_made_gets_the_microphone(self):
+        self.turn_end()
+        (self.stub / "voice-seconds").write_text("4")
+        self.talk("start")
+        speaking = self.talk("stop", wait=False)
+        self.wait_for(lambda: self.lines("hex.log") == ["start", "finish", "start"])
+        self.talk("start")
+        speaking.wait(10)
+        self.assertEqual(self.lines("hex.log"), ["start", "finish", "start", "cancel", "start"])
 
 
     def test_a_turn_end_that_fails_to_run_leaves_the_level_rule_to_end_the_listening(self):
@@ -413,6 +501,16 @@ class TalkTest(TalkCase):
         self.talk("stop")
         self.assertEqual(len(self.head_calls("/v1/conversations")), 2)
         self.assertEqual([path for path, _ in self.head.calls if "00000000dead" in path], [])
+
+    def test_someone_who_talked_past_the_conversation_s_life_is_answered_without_a_wait(self):
+        self.talk("start")
+        state = Path(self.env["JANET_TALK_STATE"])
+        (state / "conversation.used").write_text(str(int(time.time()) - 600))  # he has been talking a long while
+        began = time.monotonic()
+        self.talk("stop")
+        self.assertLess(time.monotonic() - began, 7, "it waited for a conversation nobody was opening")
+        self.assertEqual(len(self.head_calls("/v1/conversations")), 2)
+        self.assertEqual(self.head_calls("/turns"), [{"text": "what time is it"}])
 
     def test_without_hex_it_says_so_and_calls_nobody(self):
         (self.stub / "hex-start-status").write_text("3")

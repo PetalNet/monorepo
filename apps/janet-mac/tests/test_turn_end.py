@@ -2,6 +2,7 @@
 
 import io
 import sys
+import tempfile
 import unittest
 from pathlib import Path
 from unittest import mock
@@ -47,6 +48,23 @@ class TurnEndTest(unittest.TestCase):
         why, seconds = listen(steps)
         self.assertEqual(why, "quiet")
         self.assertAlmostEqual(seconds, 2.0 + QUIET_S - 0.5 + QUIET_S, delta=0.1)
+
+    def test_the_start_of_speech_is_told_once(self):
+        began = []
+        turn = TurnEnd(lambda frame: float(frame[0]), Policy(start_s=turn_end.RESUME_S), on_start=lambda: began.append(1))
+        for seconds, frame in [(1.0, SILENCE), (0.2, SPEECH), (0.5, SILENCE), (1.0, SPEECH), (0.5, SILENCE), (1.0, SPEECH)]:
+            for _ in range(round(seconds / FRAME_S)):
+                turn.feed(frame)
+        self.assertEqual(began, [1], "0.2 s of sound is not someone going on talking; a second of speech is, once")
+
+    def test_whoever_claims_the_turn_first_has_it(self):
+        with tempfile.TemporaryDirectory() as turn:
+            self.assertTrue(turn_end.took_the_turn(Path(turn) / "claim"))
+            self.assertTrue((Path(turn) / "claim" / "resumed").exists())
+        with tempfile.TemporaryDirectory() as turn:
+            (Path(turn) / "claim").mkdir()  # the reply began to play
+            self.assertFalse(turn_end.took_the_turn(Path(turn) / "claim"))
+            self.assertFalse((Path(turn) / "claim" / "resumed").exists())
 
     def test_a_click_is_not_a_turn_and_nothing_said_gives_up(self):
         why, seconds = listen([(1.0, SILENCE), (0.09, SPEECH), (10.0, SILENCE)])

@@ -51,6 +51,14 @@ Open Model License). Two things follow from what it hears:
   the turn ends at once, unless the last word leads somewhere ("the", "so", "for"). It is asked
   again at 1.5, 2 and 2.5 s.
 
+Any rule sometimes ends a turn on what was only a pause. So Janet goes on listening while her reply
+is being made, in a second recording, until its first audio plays. If you go on talking before
+then, the reply is dropped unheard (the request is cancelled and the head is told to stop making
+it), you are heard out, and everything you said is sent as one turn and answered once. A double
+tap ends that further listening as it ends the first. Once she has begun to speak, pressing the
+key is the way to cut in. There is a gap of a fraction of a second between the two recordings,
+while Hex writes down the first: a word said in it is lost.
+
 The weights in [`turn_judge.json`](turn_judge.json) were fitted on recorded turns of the person who
 uses this Mac. Nothing leaves the Mac and no API is called. Without the judge's files, or while its
 speech model is loading or behind, every pause waits the full 3 s.
