@@ -54,6 +54,12 @@ noise is taken for speech and the listen ends 1.3 s later.
 - When the voice host is asleep the gateway answers 503 and sends it a wake packet. The text is
   shown at once, a second notification says the voice is waking, and the audio plays when the
   voice answers (it keeps trying for four minutes).
+- Whatever the Mac is playing (a show in a browser, Spotify, anything that shows in Now Playing) is
+  paused when Janet starts speaking and resumed when the reply ends or a new press cuts it off.
+  It is paused only if it was playing, and resumed only if nothing else has started since. This
+  goes through [mediaremote-adapter](https://github.com/ungive/mediaremote-adapter), which
+  `install.sh` builds (needs git and cmake); macOS 15.4 and later block MediaRemote for ordinary
+  programs, and the adapter borrows `/usr/bin/perl`'s entitlement. Checked on macOS 27.0.1.
 - A follow-up within 90 seconds continues the same conversation. An end phrase ("that's all")
   ends it.
 

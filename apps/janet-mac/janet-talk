@@ -20,6 +20,8 @@ NO_SPEECH_S="${JANET_TALK_NO_SPEECH_S:-6}"
 # No limit on how long someone may talk: listening ends on quiet. This is only a backstop.
 MAX_LISTEN_S="${JANET_TALK_MAX_LISTEN_S:-300}"
 HEARTBEAT_S="${JANET_TALK_HEARTBEAT_S:-3}"
+# Built by install.sh. Without it, nothing is paused.
+MEDIA_DIR="${JANET_TALK_MEDIA_DIR:-$HOME/.local/share/janet-talk/mediaremote-adapter}"
 
 # shellcheck source=/dev/null
 [ -r "$CONFIG" ] && . "$CONFIG"
@@ -228,6 +230,51 @@ end_conversation() { # reason
   rm -f "$file"
 }
 
+# --- media --------------------------------------------------------------------------
+# Whatever the Mac is playing (a show in a browser, Spotify, anything that reports to Now
+# Playing) is paused while Janet speaks and resumed after, but only when it was playing.
+# macOS 15.4 closed MediaRemote to ordinary programs, so this goes through the entitled
+# /usr/bin/perl and the mediaremote-adapter that install.sh builds. JANET_TALK_MEDIA names a
+# stand-in for it.
+
+media() { # adapter arguments...
+  if [ -n "${JANET_TALK_MEDIA:-}" ]; then
+    "$JANET_TALK_MEDIA" "$@"
+  elif [ -r "$MEDIA_DIR/bin/mediaremote-adapter.pl" ]; then
+    /usr/bin/perl "$MEDIA_DIR/bin/mediaremote-adapter.pl" "$MEDIA_DIR/build/MediaRemoteAdapter.framework" "$@"
+  else
+    return 1
+  fi
+}
+
+media_playing() { # prints the bundle id of what is playing, and fails when nothing is
+  local now
+  now=$(media get --no-artwork 2>/dev/null) || return 1
+  [ "$(printf '%s' "$now" | jq -r '.playing // false' 2>/dev/null)" = true ] || return 1
+  printf '%s' "$now" | jq -r '.bundleIdentifier // empty'
+}
+
+media_pause() {
+  local bundle
+  bundle=$(media_playing) || return 0
+  media send pause >/dev/null 2>&1 || return 0
+  printf '%s' "$bundle" >"$STATE/media.paused"
+  log "media paused: $bundle"
+}
+
+# Resumes what media_pause stopped, once. The file is claimed by renaming it, so the end of a
+# reply and a barge-in cannot both resume. Something the listener started in between is left alone.
+media_resume() {
+  local claim="$STATE/media.resuming.$$" bundle
+  mv "$STATE/media.paused" "$claim" 2>/dev/null || return 0
+  bundle=$(cat "$claim")
+  rm -f "$claim"
+  media_playing >/dev/null && return 0
+  [ "$(media get --no-artwork 2>/dev/null | jq -r '.bundleIdentifier // empty' 2>/dev/null)" = "$bundle" ] || return 0
+  media send play >/dev/null 2>&1
+  log "media resumed: $bundle"
+}
+
 # --- speech -----------------------------------------------------------------------
 
 # Fetches one sentence's audio. The voice host may be asleep: the gateway then answers 503
@@ -285,7 +332,10 @@ play_turn() { # turn dir
   sh -c 'echo $PPID' >"$dir/player.pid"
   while [ "$SECONDS" -lt "$deadline" ]; do
     if [ -e "$dir/$i.wav" ]; then
-      [ "$i" = 1 ] && log "first audio"
+      if [ "$i" = 1 ]; then
+        log "first audio"
+        media_pause
+      fi
       afplay "$dir/$i.wav"
       echo "$i" >"$dir/played"
       i=$((i + 1))
@@ -297,6 +347,7 @@ play_turn() { # turn dir
       sleep 0.05
     fi
   done
+  media_resume
 }
 
 # Stops a reply that is still being fetched or played. Prints the directory of the stopped turn.
@@ -357,6 +408,7 @@ start() {
     notify "Janet" "Not set up: run the janet-mac install script."
     exit 1
   fi
+  media_resume &
   [ -n "$stopped" ] && report_heard "$stopped"
   # While Parker talks: get the conversation ready and start the voice loading.
   open_conversation

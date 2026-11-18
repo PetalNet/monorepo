@@ -32,7 +32,12 @@ STUBS = {
     'cf-access-client-secret) echo "$STUB_CF_SECRET";; head-token) echo "$STUB_HEAD_TOKEN";; esac\n',
     # Appends the audio it was asked to play, then takes as long as the test says.
     "afplay": '#!/usr/bin/env bash\ntail -c +45 "$1" >>"$STUB/played"; echo >>"$STUB/played"\n'
+    'cat "$STUB/media-state" >>"$STUB/media-at-play" 2>/dev/null\n'
     'sleep "$(cat "$STUB/afplay-seconds")"\n',
+    # Stands in for the MediaRemote adapter: one player whose state is a file, and a log of its calls.
+    "media": '#!/usr/bin/env bash\necho "$*" >>"$STUB/media-calls"\n[ -e "$STUB/media-state" ] || { echo null; exit 0; }\n'
+    'case "$1 $2" in\n  "get "*) echo "{\\"bundleIdentifier\\":\\"com.example.show\\",\\"playing\\":$(cat "$STUB/media-state")}";;\n'
+    '  "send pause") echo false >"$STUB/media-state";;\n  "send play") echo true >"$STUB/media-state";;\nesac\n',
     "osascript": '#!/usr/bin/env bash\necho "$3" >>"$STUB/notifications"\n',
     "curl": '#!/usr/bin/env bash\necho "$*" >>"$STUB/curl-args"\nexec "$REAL_CURL" "$@"\n',
 }
@@ -191,6 +196,7 @@ class TalkCase(unittest.TestCase):
             "JANET_TALK_CONFIG": str(self.root / "config"),
             "JANET_TALK_STATE": str(self.root / "state"),
             "JANET_TALK_HEX_API": str(self.stub / "local-api.json"),
+            "JANET_TALK_MEDIA": str(self.stub / "media"),
             # Every press counts as a hold unless a test says otherwise.
             "JANET_TALK_LATCH_MS": "-1000000",
             "JANET_TALK_END_OF_SPEECH_S": "0.4",
@@ -381,6 +387,58 @@ class OrderedSpeechTest(TalkCase):
         self.assertEqual(self.voice.peak_active, 1)
         speaking.wait(20)
         self.assertEqual(self.lines("played"), ["First.", "Second."])
+
+
+class MediaTest(TalkCase):
+    def playing(self, state="true"):
+        (self.stub / "media-state").write_text(state)
+
+    def sends(self):
+        return [line for line in self.lines("media-calls") if line.startswith("send")]
+
+    def test_what_is_playing_is_paused_while_janet_speaks_and_resumed_after(self):
+        self.playing()
+        self.talk("start")
+        self.talk("stop")
+        self.assertEqual(self.sends(), ["send pause", "send play"])
+        self.assertEqual(self.lines("media-at-play"), ["false", "false"])
+        self.assertEqual((self.stub / "media-state").read_text().strip(), "true")
+
+    def test_nothing_is_paused_or_resumed_when_nothing_was_playing(self):
+        self.playing("false")
+        self.talk("start")
+        self.talk("stop")
+        self.assertEqual(self.sends(), [])
+        self.assertEqual((self.stub / "media-state").read_text().strip(), "false")
+
+    def test_no_player_at_all_changes_nothing(self):
+        self.talk("start")
+        self.talk("stop")
+        self.assertEqual(self.sends(), [])
+        self.assertEqual(self.lines("played"), ["First.", "Second."])
+
+    def test_pressing_again_mid_reply_resumes_what_was_paused(self):
+        self.playing()
+        (self.stub / "afplay-seconds").write_text("1.5")
+        self.talk("start")
+        speaking = self.talk("stop", wait=False)
+        self.wait_for(lambda: self.sends() == ["send pause"])
+        (self.stub / "afplay-seconds").write_text("0")
+        self.talk("start")
+        speaking.wait(10)
+        self.wait_for(lambda: (self.stub / "media-state").read_text().strip() == "true")
+        time.sleep(0.5)
+        self.assertEqual(self.sends(), ["send pause", "send play"])
+
+    def test_something_the_listener_started_meanwhile_is_left_alone(self):
+        self.playing()
+        (self.stub / "afplay-seconds").write_text("0.8")
+        self.talk("start")
+        speaking = self.talk("stop", wait=False)
+        self.wait_for(lambda: self.sends() == ["send pause"])
+        self.playing()
+        speaking.wait(20)
+        self.assertEqual(self.sends(), ["send pause"])
 
 
 class TapTest(TalkCase):

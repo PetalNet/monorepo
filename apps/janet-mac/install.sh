@@ -48,6 +48,22 @@ store cf-access-client-id "$cf_id"
 store cf-access-client-secret "$cf_secret"
 store head-token "$head_token"
 
+# Pausing the Mac's media while Janet speaks needs the MediaRemote adapter, which is built here
+# from a pinned commit. Without git, cmake and Xcode's tools, janet-talk simply pauses nothing.
+adapter="$HOME/.local/share/janet-talk/mediaremote-adapter"
+adapter_commit=e3ff5021eb0875858bd05f48d2e9ba2e962d1cf6 # v0.7.7
+if [ "$(uname)" = Darwin ] && [ ! -e "$adapter/build/MediaRemoteAdapter.framework" ]; then
+  if command -v git >/dev/null && command -v cmake >/dev/null; then
+    rm -rf "$adapter"
+    git clone -q https://github.com/ungive/mediaremote-adapter.git "$adapter" &&
+      git -C "$adapter" checkout -q "$adapter_commit" &&
+      mkdir "$adapter/build" && (cd "$adapter/build" && cmake .. >/dev/null && cmake --build . >/dev/null) ||
+      echo "could not build the media adapter; Janet will not pause your media" >&2
+  else
+    echo "git and cmake are needed to pause media while Janet speaks; skipped" >&2
+  fi
+fi
+
 config="$HOME/.config/karabiner/karabiner.json"
 if [ -f "$config" ]; then
   # Keep the first backup: a second run must not replace it with a config that already has the rule.
