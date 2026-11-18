@@ -33,7 +33,7 @@ object Calls {
 	/** What the bridge last said about the line. Main thread, and the Pairer's thread before it posts. */
 	@Volatile var line: Line = Line.Checking
 
-	fun setLine(value: Line) {
+	fun hearLine(value: Line) {
 		update { line = value }
 	}
 
@@ -89,7 +89,7 @@ object Dialer {
 		if (Calls.inCall) return null
 		val pairing = Settings(context).pairing() ?: return Problem.RePair(NOT_PAIRED)
 		// Speech-to-text and the voice start loading now, while Android sets the call up.
-		Bridge.warm(pairing, Calls::setLine)
+		Bridge.warm(pairing, Calls::hearLine)
 		val telecom = context.getSystemService(TelecomManager::class.java)
 		val handle = handle(context)
 		telecom.registerPhoneAccount(

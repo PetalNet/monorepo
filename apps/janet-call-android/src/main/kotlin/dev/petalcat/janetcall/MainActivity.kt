@@ -114,7 +114,7 @@ class MainActivity : ComponentActivity() {
 	override fun onStart() {
 		super.onStart()
 		Calls.observe(observer)
-		settings.pairing()?.let { Bridge.warmOnForeground(it, SystemClock.elapsedRealtime(), Calls::setLine) }
+		settings.pairing()?.let { Bridge.warmOnForeground(it, SystemClock.elapsedRealtime(), Calls::hearLine) }
 		render()
 	}
 
@@ -216,7 +216,7 @@ class MainActivity : ComponentActivity() {
 		log.clear()
 		Pairer.problem = null
 		Calls.update(CallState.Idle)
-		Calls.setLine(Line.Checking)
+		Calls.hearLine(Line.Checking)
 		render()
 	}
 
@@ -238,7 +238,7 @@ class MainActivity : ComponentActivity() {
 				settings.clear()
 				Pairer.problem = null
 				Calls.update(CallState.Idle)
-				Calls.setLine(Line.Checking)
+				Calls.hearLine(Line.Checking)
 				render()
 			}
 		}
