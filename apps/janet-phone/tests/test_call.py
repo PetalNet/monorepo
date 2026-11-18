@@ -172,6 +172,9 @@ class CallTest(unittest.IsolatedAsyncioTestCase):
         self.assertEqual([(body["tier"], body["channel"]) for body in opened], [("guest", "phone-test")])
         self.assertIn("/v1/conversations/0123456789ab/end", [path for path, _ in FakeGateway.calls])
         self.assertEqual(len(list((self.dir / "calls").glob("*.wav"))), 2)
+        timeline = json.loads(next((self.dir / "calls").glob("*.txt")).read_text().splitlines()[-1])
+        self.assertEqual([line["who"] for line in timeline][:3], ["Janet", "Caller", "Janet"])
+        self.assertEqual(timeline, sorted(timeline, key=lambda line: line["t"]))
 
     async def test_speaking_over_a_reply_cuts_it_off(self):
         FakeStt.texts = ["tell me a story", "stop"]
