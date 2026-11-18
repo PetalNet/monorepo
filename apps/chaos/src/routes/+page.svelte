@@ -3,6 +3,7 @@
 	import DoorReading from "$lib/components/DoorReading.svelte";
 	import DoorStrip from "$lib/components/DoorStrip.svelte";
 	import RiskMeter from "$lib/components/RiskMeter.svelte";
+	import StatusBoard from "$lib/components/StatusBoard.svelte";
 	import { weekday } from "$lib/format";
 
 	import type { PageProps } from "./$types";
@@ -41,6 +42,8 @@
 	{#key data.reading.door.id}
 		<DoorReading reading={data.reading} date={data.date} checkedAt={data.checkedAt} />
 	{/key}
+
+	<StatusBoard board={data.board} />
 </main>
 
 <style>
