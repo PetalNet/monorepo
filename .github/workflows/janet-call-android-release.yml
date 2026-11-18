@@ -24,6 +24,7 @@ jobs:
     name: build, sign and release
     if: github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
+    timeout-minutes: 30
     # Holds the signing keystore; the environment only deploys from main.
     environment: android-release
     permissions:
@@ -43,6 +44,10 @@ jobs:
       - name: Use the runner's JDK 21
         run: echo "JAVA_HOME=$JAVA_HOME_21_X64" >> "$GITHUB_ENV"
 
+      # Tests run before the keystore is on the runner.
+      - name: Test
+        run: ./gradlew --no-daemon testReleaseUnitTest
+
       # build.gradle.kts signs the release with the debug signing config, which
       # reads ~/.android/debug.keystore.
       - name: Restore the signing keystore
@@ -51,9 +56,10 @@ jobs:
         run: |
           mkdir -p ~/.android
           base64 -d <<<"$KEYSTORE_B64" > ~/.android/debug.keystore
+          test -s ~/.android/debug.keystore
 
-      - name: Test and build
-        run: ./gradlew --no-daemon testReleaseUnitTest assembleRelease
+      - name: Build
+        run: ./gradlew --no-daemon assembleRelease
 
       - name: Check the signer and read the version
         id: apk
@@ -70,7 +76,10 @@ jobs:
           package=$(sed -n "s/^package: name='\([^']*\)'.*/\1/p" <<<"$badging")
           code=$(sed -n "s/^package: .* versionCode='\([0-9]*\)'.*/\1/p" <<<"$badging")
           name=$(sed -n "s/^package: .* versionName='\([^']*\)'.*/\1/p" <<<"$badging")
-          [[ -n $package && -n $code && -n $name ]]
+          if [[ -z $package || -z $code || -z $name ]]; then
+            echo "::error::Could not read the package and version from the APK"
+            exit 1
+          fi
           cp "$apk" "$RUNNER_TEMP/${package}_${code}.apk"
           {
             echo "asset=$RUNNER_TEMP/${package}_${code}.apk"
@@ -85,10 +94,14 @@ jobs:
           TAG: ${{ steps.apk.outputs.tag }}
           TITLE: ${{ steps.apk.outputs.title }}
         run: |
-          if gh release view "$TAG" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+          published=$(gh release view "$TAG" --repo "$GITHUB_REPOSITORY" \
+            --json isDraft,assets --jq '(.isDraft | not) and (.assets | length > 0)' 2>/dev/null || true)
+          if [[ $published == true ]]; then
             echo "$TAG is already released; raise versionCode to ship an update."
             exit 0
           fi
+          # A release left without its APK by a failed run is replaced.
+          gh release delete "$TAG" --repo "$GITHUB_REPOSITORY" --yes --cleanup-tag 2>/dev/null || true
           gh release create "$TAG" "$ASSET" --repo "$GITHUB_REPOSITORY" \
             --target "$GITHUB_SHA" --title "$TITLE" --latest=false \
             --notes "Built from $GITHUB_SHA. Installed through the app store, see apps/app-store."
