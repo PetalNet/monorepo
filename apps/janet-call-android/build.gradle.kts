@@ -29,6 +29,13 @@ android {
 		}
 	}
 
+	lint {
+		// minSdk is 26. The unit tests run on the host JDK, which has calls Android 8 does not
+		// (LocalDate.ofInstant is API 34), so only lint can see a call the oldest phone lacks.
+		checkOnly += "NewApi"
+		abortOnError = true
+	}
+
 	compileOptions {
 		sourceCompatibility = JavaVersion.VERSION_17
 		targetCompatibility = JavaVersion.VERSION_17
