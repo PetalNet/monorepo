@@ -1,14 +1,14 @@
 <!doctype html>
-<html lang="en">
+<html lang="en" data-mode="%chaos.mode%">
 	<head>
 		<meta charset="utf-8" />
 		<meta name="viewport" content="width=device-width, initial-scale=1" />
 		<meta name="robots" content="noindex" />
-		<meta name="color-scheme" content="light dark" />
+		<link rel="icon" href="%sveltekit.assets%/favicon.svg" />
 		<title>Chaos tracker</title>
 		%sveltekit.head%
 	</head>
-	<body>
+	<body data-sveltekit-preload-data="hover">
 		<div style="display: contents">%sveltekit.body%</div>
 	</body>
 </html>
