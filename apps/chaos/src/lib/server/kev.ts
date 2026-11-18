@@ -25,7 +25,7 @@ function field(row: Record<string, unknown>, key: string, pattern?: RegExp): str
 	const value = row[key];
 
 	if (typeof value !== "string" || (pattern && !pattern.test(value))) {
-		throw new Error(`KEV feed: bad ${key} in ${JSON.stringify(row["cveID"])}`);
+		throw new Error(`KEV feed: bad ${key} in ${JSON.stringify(row.cveID)}`);
 	}
 
 	return value;
@@ -38,7 +38,9 @@ function field(row: Record<string, unknown>, key: string, pattern?: RegExp): str
 export function parseCatalog(body: unknown): KevEntry[] {
 	const rows = (body as { vulnerabilities?: unknown } | null)?.vulnerabilities;
 
-	if (!Array.isArray(rows)) throw new Error("KEV feed: no vulnerabilities array");
+	if (!Array.isArray(rows)) {
+		throw new Error("KEV feed: no vulnerabilities array");
+	}
 
 	return rows.map((row: Record<string, unknown>) => ({
 		cveId: field(row, "cveID", /^CVE-\d{4}-\d+$/),

@@ -4,13 +4,13 @@ import type { KevEntry } from "./kev";
 
 export interface Store {
 	/** Replaces the stored copy of each entry; `first_seen` keeps the time this store first saw it. */
-	save(entries: readonly KevEntry[], etag: string | null, now: Date): void;
-	markChecked(now: Date): void;
-	etag(): string | undefined;
-	checkedAt(): string | undefined;
-	addedOn(date: string): KevEntry[];
+	save: (entries: readonly KevEntry[], etag: string | null, now: Date) => void;
+	markChecked: (now: Date) => void;
+	etag: () => string | undefined;
+	checkedAt: () => string | undefined;
+	addedOn: (date: string) => KevEntry[];
 	/** The most recent day before `date` on which CISA added anything. */
-	latestDayBefore(date: string): string | undefined;
+	latestDayBefore: (date: string) => string | undefined;
 }
 
 const COLUMNS = `cve_id AS cveId, vendor, product, name, description,
@@ -84,12 +84,12 @@ export function openStore(file: string): Store {
 			}
 		},
 		markChecked: (now) => void setFeed.run(null, now.toISOString()),
-		etag: () => (feed.get()?.["etag"] as string | null | undefined) ?? undefined,
+		etag: () => (feed.get()?.etag as string | null | undefined) ?? undefined,
 		checkedAt: () => feed.get()?.["checked_at"] as string | undefined,
 		addedOn: (date) =>
 			onDay
 				.all(date)
-				.map((row) => ({ ...(row as unknown as KevEntry), ransomware: row["ransomware"] === 1 })),
-		latestDayBefore: (date) => (dayBefore.get(date)?.["day"] as string | null) ?? undefined,
+				.map((row) => ({ ...(row as unknown as KevEntry), ransomware: row.ransomware === 1 })),
+		latestDayBefore: (date) => (dayBefore.get(date)?.day as string | null) ?? undefined,
 	};
 }

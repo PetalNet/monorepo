@@ -11,9 +11,11 @@ const SIX_HOURS = 6 * 60 * 60 * 1000;
 let store: Store;
 
 export const init: ServerInit = () => {
-	if (building) return;
+	if (building) {
+		return;
+	}
 
-	const dir = process.env["CHAOS_DATA_DIR"] ?? "data";
+	const dir = process.env.CHAOS_DATA_DIR ?? "data";
 
 	mkdirSync(dir, { recursive: true });
 	store = openStore(path.join(dir, "chaos.db"));

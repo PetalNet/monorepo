@@ -22,7 +22,9 @@ export async function ingestKev(
 		return "unchanged";
 	}
 
-	if (!response.ok) throw new Error(`KEV feed answered ${response.status}`);
+	if (!response.ok) {
+		throw new Error(`KEV feed answered ${String(response.status)}`);
+	}
 
 	store.save(parseCatalog(await response.json()), response.headers.get("etag"), now);
 

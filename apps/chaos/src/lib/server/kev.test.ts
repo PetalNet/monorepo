@@ -17,7 +17,7 @@ const row = (cveID: string, over: Record<string, string> = {}) => ({
 });
 
 const feed = (rows: unknown[], etag = '"v1"') =>
-	new Response(JSON.stringify({ vulnerabilities: rows }), { headers: { etag } });
+	Response.json({ vulnerabilities: rows }, { headers: { etag } });
 
 describe("worst", () => {
 	const [plain, urgent, ransom] = parseCatalog({
