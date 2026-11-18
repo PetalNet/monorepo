@@ -6,6 +6,7 @@ import android.net.Uri
 import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
+import android.os.SystemClock
 import android.telecom.PhoneAccount
 import android.telecom.PhoneAccountHandle
 import android.telecom.TelecomManager
@@ -28,6 +29,13 @@ object Calls {
 		private set
 	var connection: JanetConnection? = null
 
+	/** What the call screen shows of the call in progress. */
+	var stage: CallStage? = null
+
+	/** When the call connected, on the elapsed-realtime clock, or null while there is no connected call. */
+	var activeSinceMs: Long? = null
+		private set
+
 	private val main = Handler(Looper.getMainLooper())
 	private val observers = mutableListOf<() -> Unit>()
 
@@ -43,6 +51,7 @@ object Calls {
 
 	fun update(state: CallState = this.state, route: String = this.route) = update {
 		this.state = state
+		activeSinceMs = if (state is CallState.Active) activeSinceMs ?: SystemClock.elapsedRealtime() else null
 		this.route = route
 	}
 
@@ -62,7 +71,9 @@ object Dialer {
 	/** Places the call. Returns a reason it could not be placed, or null. */
 	fun place(context: Context): String? {
 		if (Calls.inCall) return null
-		if (Settings(context).pairing() == null) return NOT_PAIRED
+		val pairing = Settings(context).pairing() ?: return NOT_PAIRED
+		// Speech-to-text and the voice start loading now, while Android sets the call up.
+		Bridge.warm(pairing)
 		val telecom = context.getSystemService(TelecomManager::class.java)
 		val handle = handle(context)
 		telecom.registerPhoneAccount(

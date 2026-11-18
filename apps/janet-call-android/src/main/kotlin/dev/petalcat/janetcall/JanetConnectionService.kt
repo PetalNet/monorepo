@@ -19,7 +19,7 @@ class JanetConnection(private val onGone: () -> Unit) : Connection() {
 	private lateinit var session: CallSession
 	private val main = Handler(Looper.getMainLooper())
 
-	fun begin(pairing: Pairing, player: Player) {
+	fun begin(pairing: Pairing, player: Player, stage: CallStage) {
 		connectionProperties = PROPERTY_SELF_MANAGED
 		audioModeIsVoip = true
 		setAddress(android.net.Uri.parse("sip:janet@janet"), TelecomManager.PRESENTATION_ALLOWED)
@@ -29,6 +29,7 @@ class JanetConnection(private val onGone: () -> Unit) : Connection() {
 			pairing,
 			micFactory = { TestHooks.micWav?.let(::WavMic) ?: AudioRecordMic() },
 			player = player,
+			stage = stage,
 			onOpen = {
 				main.post {
 					setActive()
@@ -91,12 +92,16 @@ class JanetConnectionService : ConnectionService() {
 		startForegroundCall()
 		val connection = JanetConnection(onGone = {
 			Calls.connection = null
+			Calls.stage = null
 			stopForeground(STOP_FOREGROUND_REMOVE)
 		})
+		val stage = CallStage()
 		Calls.connection = connection
+		Calls.stage = stage
 		connection.begin(
 			pairing,
-			Player { rate -> TestHooks.playedWav?.let { WavWriter(it, rate) } },
+			Player(stage) { rate -> TestHooks.playedWav?.let { WavWriter(it, rate) } },
+			stage,
 		)
 		return connection
 	}
