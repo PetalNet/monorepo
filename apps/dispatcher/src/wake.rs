@@ -40,7 +40,9 @@ impl TokenBucket {
             reason = "Elapsed milliseconds intentionally round to floating-point refill units"
         )]
         let elapsed = (now_ms - self.last_ms).max(0) as f64;
-        self.tokens = (self.tokens + elapsed * self.refill_per_ms).min(self.capacity);
+        self.tokens = elapsed
+            .mul_add(self.refill_per_ms, self.tokens)
+            .min(self.capacity);
         self.last_ms = now_ms;
         if self.tokens >= 1.0 {
             self.tokens -= 1.0;

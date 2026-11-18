@@ -1,6 +1,6 @@
 # Multi-stage build for the Point home-server.
 # Build context must be the repo root so all Cargo workspace members resolve.
-FROM rust:1.96-bookworm@sha256:a339861ae23e9abb272cea45dfafde21760d2ce6577a70f8a926153677902663 AS build
+FROM rust:1.100-bookworm@sha256:ade39a710ef85f3506cffcfec3e8a24ba090badef1dff2fb798f71d878833fea AS build
 WORKDIR /build
 COPY Cargo.toml Cargo.lock rust-toolchain.toml ./
 # Cargo loads every workspace member, even when building only Point.

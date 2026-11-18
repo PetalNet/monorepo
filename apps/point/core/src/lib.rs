@@ -35,15 +35,13 @@ mod tests {
         let ct = alice2.encrypt(&gid, msg).unwrap();
         let bob_gid: Vec<u8> = bob
             .export_state()
-            .map(|s| {
+            .map_or_default(|s| {
                 serde_json::from_slice::<crate::crypto::PointCryptoState>(&s)
                     .unwrap()
                     .group_ids
             })
-            .unwrap_or_default()
             .first()
-            .map(|hex_id| hex::decode(hex_id).unwrap())
-            .unwrap_or_default();
+            .map_or_default(|hex_id| hex::decode(hex_id).unwrap());
         let pt = bob.decrypt(&bob_gid, &ct).unwrap();
         assert_eq!(pt, msg);
         println!(

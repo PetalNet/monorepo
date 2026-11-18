@@ -3,7 +3,7 @@
 # way to re-run the isolated proof after any change:
 #
 #   # From the repository root:
-#   docker run --rm --cpus=2 -v "$PWD":/src:ro rust:1.96-slim \
+#   docker run --rm --cpus=2 -v "$PWD":/src:ro rust:1.100-slim \
 #     bash /src/apps/manager/scripts/container-validate.sh
 #
 # Installs the distro tmux (version is printed — the gate that caught F2 ran

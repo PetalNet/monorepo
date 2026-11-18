@@ -91,8 +91,7 @@ pub fn render_text(d: &Digest) -> String {
             },
             item.thread
                 .as_deref()
-                .map(|t| format!(" thread {t}"))
-                .unwrap_or_default(),
+                .map_or_default(|t| format!(" thread {t}")),
             item.card_id,
             item.snippet
         );
@@ -149,7 +148,7 @@ mod tests {
         let item = &d.items[0];
         assert!(item.truncated);
         assert!(item.snippet.ends_with('…'));
-        assert!(item.snippet.chars().count() == BODY_SNIPPET_CHARS + 1);
+        assert_eq!(item.snippet.chars().count(), BODY_SNIPPET_CHARS + 1);
         // The snippet is a strict prefix of the verbatim body — no rewriting.
         assert!(long.starts_with(item.snippet.trim_end_matches('…')));
     }

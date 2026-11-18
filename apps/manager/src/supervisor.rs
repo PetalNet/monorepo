@@ -458,7 +458,7 @@ impl Supervisor {
         }
 
         // Crash. Long-lived sessions reset the backoff (JS parity).
-        let uptime = self.started_at.map(|t| t.elapsed()).unwrap_or_default();
+        let uptime = self.started_at.map_or_default(|t| t.elapsed());
         if uptime > QUICK_CRASH {
             self.crash_count = 0;
             self.crash_backoff = BACKOFF_START;
@@ -555,10 +555,9 @@ impl Supervisor {
             }
             "status" | "ping" | "?" => {
                 let idle_s = self.last_output_at.elapsed().as_secs();
-                let reset_str = self
-                    .rate_limit_reset
-                    .map(|r| format!(" reset@{}", r.with_timezone(&Local).format("%H:%M:%S")))
-                    .unwrap_or_default();
+                let reset_str = self.rate_limit_reset.map_or_default(|r| {
+                    format!(" reset@{}", r.with_timezone(&Local).format("%H:%M:%S"))
+                });
                 let sid8: String = self.session.session_id.chars().take(8).collect();
                 self.send(format!(
                     "state: {}{}\nsession: {}...\nlast output: {}s ago\ncrashes: {} | cwd: {}",

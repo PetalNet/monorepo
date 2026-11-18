@@ -92,7 +92,7 @@ pub async fn resolve_relay_map(client: &Client, cfg: &RelayConfig) -> Result<Rel
         let mut resolved: Vec<OwnedRoomId> = Vec::new();
         for room_ref in &cluster.rooms {
             if let Ok(id) = RoomId::parse(room_ref) {
-                resolved.push(id.clone());
+                resolved.push(id);
                 continue;
             }
             if room_ref.starts_with('#') {
@@ -105,7 +105,7 @@ pub async fn resolve_relay_map(client: &Client, cfg: &RelayConfig) -> Result<Rel
                     .await
                     {
                         Ok(resp) => {
-                            resolved.push(resp.room_id.clone());
+                            resolved.push(resp.room_id);
                         }
                         Err(e) => {
                             warn!(alias = %room_ref, error = %e, "Failed to resolve room alias; skipping");

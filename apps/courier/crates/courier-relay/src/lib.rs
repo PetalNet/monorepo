@@ -459,8 +459,7 @@ impl Relay {
         self.with_ledger(history_dir, |ledger| {
             ledger
                 .get(event_id)
-                .map(|record| record.delivered.clone())
-                .unwrap_or_default()
+                .map_or_default(|record| record.delivered.clone())
         })
         .await
     }
