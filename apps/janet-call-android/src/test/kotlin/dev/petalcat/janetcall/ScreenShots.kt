@@ -30,10 +30,12 @@ fun shoot(name: String, dark: Boolean = true, before: (ComponentActivity) -> Uni
 }
 
 /** Every view under [root] of type [T]. */
-inline fun <reified T : View> views(root: View): List<T> {
+inline fun <reified T : View> views(root: View): List<T> = views(root, T::class.java)
+
+fun <T : View> views(root: View, type: Class<T>): List<T> {
 	val found = mutableListOf<T>()
 	fun walk(v: View) {
-		if (v is T) found += v
+		if (type.isInstance(v)) found += type.cast(v)!!
 		if (v is ViewGroup) for (i in 0 until v.childCount) walk(v.getChildAt(i))
 	}
 	walk(root)
