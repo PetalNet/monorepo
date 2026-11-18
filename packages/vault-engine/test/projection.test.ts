@@ -83,6 +83,37 @@ describe("projection", () => {
 			);
 		}));
 
+	test("reports a hand edit, overwrites it, writes notes read-only and leaves files it does not own alone", () =>
+		Effect.gen(function* () {
+			const fs = yield* FileSystem.FileSystem;
+
+			yield* seeded;
+
+			const out = yield* projected;
+			const topic = path.join(out, "shared/Topics/Note granularity.md");
+			const generated = yield* fs.readFileString(topic);
+
+			expect((yield* fs.stat(topic)).mode & 0o222).toBe(0);
+			yield* fs.chmod(topic, 0o644);
+			yield* fs.writeFileString(topic, `${generated}\nAn agent typed here.\n`);
+			yield* fs.makeDirectory(path.join(out, ".obsidian"));
+			yield* fs.writeFileString(path.join(out, ".obsidian", "app.json"), "{}");
+			yield* fs.writeFileString(path.join(out, "My own note.md"), "kept");
+
+			expect((yield* project(out)).overwrittenEdits).toEqual(["shared/Topics/Note granularity.md"]);
+			expect(yield* fs.readFileString(topic)).toBe(generated);
+			expect(yield* readText(out, "My own note.md")).toBe("kept");
+			expect(yield* readText(out, ".obsidian/app.json")).toBe("{}");
+
+			expect((yield* fs.readDirectory(out)).toSorted()).toEqual([
+				".obsidian",
+				".vault-projection.json",
+				"Index.md",
+				"My own note.md",
+				"shared",
+			]);
+		}));
+
 	test("removes notes the engine no longer has", () =>
 		Effect.gen(function* () {
 			const fs = yield* FileSystem.FileSystem;
@@ -123,7 +154,7 @@ describe("projection", () => {
 
 			yield* write("shared", seed).pipe(Effect.provideService(Vault, other));
 
-			yield* project(out).pipe(Effect.provideService(Vault, other));
+			expect((yield* project(out).pipe(Effect.provideService(Vault, other))).removed).toBe(4);
 
 			expect(yield* fs.readDirectory(path.join(out, "shared/Topics"))).toEqual([
 				"Note granularity.md",

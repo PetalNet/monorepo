@@ -1,6 +1,7 @@
+import { createHash } from "node:crypto";
 import path from "node:path";
 
-import { Clock, Effect, FileSystem } from "effect";
+import { Clock, Effect, FileSystem, Option, Schema } from "effect";
 
 import { Vault } from "./engine.ts";
 import type { VaultView } from "./engine.ts";
@@ -11,8 +12,11 @@ import { ifExists } from "./store.ts";
 /** A claim promoted to its own note once claims in this many other topics link to it. */
 const PROMOTE_AT = 3;
 
+/** Digests of the files the last projection wrote, for spotting hand edits. */
+const MANIFEST = ".vault-projection.json";
+
 /** Everything the projection owns in the folder. The rest of the folder is left alone. */
-const OWNED = ["Index.md", ...tiers];
+const OWNED = ["Index.md", MANIFEST, ...tiers];
 
 interface PlacedClaim {
 	readonly claim: Claim;
@@ -328,13 +332,20 @@ const now = Effect.map(Clock.currentTimeMillis, (millis) => new Date(millis));
 
 export interface ProjectResult {
 	readonly notes: number;
+	readonly changed: number;
+	readonly removed: number;
+	/** Notes whose content on disk was not what the last projection wrote. */
+	readonly overwrittenEdits: readonly string[];
 }
+
+const digest = (content: string) => createHash("sha256").update(content).digest("hex");
+const Manifest = Schema.fromJsonString(Schema.Record(Schema.String, Schema.String));
 
 /**
  * Regenerates the Obsidian vault in `out`. The new tree is written into a fresh folder this call
- * creates, then each owned entry (`Index.md` and one folder per tier) is renamed into place. A
- * rename replaces a symlink rather than following it, so no write or removal reaches outside `out`,
- * and anything else in the folder, such as `.obsidian/`, is left alone.
+ * creates, then each owned entry (`Index.md`, the manifest, one folder per tier) is renamed into
+ * place. A rename replaces a symlink rather than following it, so no write or removal reaches
+ * outside `out`, and anything else in the folder, such as `.obsidian/`, is left alone.
  */
 export const project = Effect.fnUntraced(function* (out: string) {
 	const fs = yield* FileSystem.FileSystem;
@@ -342,6 +353,27 @@ export const project = Effect.fnUntraced(function* (out: string) {
 	const files = render(view, yield* now);
 
 	yield* fs.makeDirectory(out, { recursive: true });
+
+	const previous = yield* fs.readFileString(path.join(out, MANIFEST)).pipe(
+		Effect.flatMap(Schema.decodeUnknownEffect(Manifest)),
+		Effect.orElseSucceed((): Record<string, string> => ({})),
+	);
+	const manifest = Object.fromEntries(
+		[...files].map(([relative, content]) => [relative, digest(content)]),
+	);
+	const overwrittenEdits: string[] = [];
+
+	// Only names this projection generates are read back, never a path taken from the manifest.
+	for (const relative of files.keys()) {
+		const before = previous[relative];
+		const onDisk = Option.getOrUndefined(
+			yield* ifExists(fs.readFileString(path.join(out, relative))),
+		);
+
+		if (before !== undefined && onDisk !== undefined && digest(onDisk) !== before) {
+			overwrittenEdits.push(relative);
+		}
+	}
 
 	yield* Effect.scoped(
 		Effect.gen(function* () {
@@ -353,7 +385,12 @@ export const project = Effect.fnUntraced(function* (out: string) {
 
 				yield* fs.makeDirectory(path.dirname(file), { recursive: true });
 				yield* fs.writeFileString(file, content);
+				// Read-only files make an editor refuse a hand edit instead of losing it on the next run.
+				// An ACL-managed share may refuse chmod; the manifest still catches the edit.
+				yield* fs.chmod(file, 0o444).pipe(Effect.ignore);
 			}
+
+			yield* fs.writeFileString(path.join(staging, MANIFEST), JSON.stringify(manifest));
 
 			for (const entry of OWNED) {
 				yield* ifExists(fs.rename(path.join(out, entry), path.join(trash, entry)));
@@ -362,5 +399,11 @@ export const project = Effect.fnUntraced(function* (out: string) {
 		}),
 	);
 
-	return { notes: files.size } satisfies ProjectResult;
+	return {
+		notes: files.size,
+		changed: [...files.keys()].filter((relative) => previous[relative] !== manifest[relative])
+			.length,
+		removed: Object.keys(previous).filter((relative) => !files.has(relative)).length,
+		overwrittenEdits,
+	} satisfies ProjectResult;
 });
