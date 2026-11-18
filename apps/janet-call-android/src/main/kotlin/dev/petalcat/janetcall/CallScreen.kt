@@ -13,7 +13,6 @@ import android.text.Layout
 import android.text.StaticLayout
 import android.text.TextPaint
 import android.util.TypedValue
-import android.view.Choreographer
 import android.view.Gravity
 import android.view.View
 import android.widget.FrameLayout
@@ -56,6 +55,20 @@ fun stars(seed: Long, count: Int, clearX: Double, clearY: Double, clearRadius: D
 	}
 	return out
 }
+
+/** The call screen draws at most one frame in this long: a little under a thirtieth of a second, so every second vsync of a 60 Hz display qualifies. */
+const val FRAME_MS = 30L
+
+/** After a slow frame, the call screen draws nothing for this many times as long as the frame took. */
+const val FRAME_YIELD = 3L
+
+/**
+ * How long the call screen waits after a frame before it asks for the next one. [busyMs] is how
+ * long the frame took, from its vsync to the end of drawing. A quick frame is followed [FRAME_MS]
+ * after its vsync. A slow one means the phone is short of CPU, and the call's audio needs what
+ * there is: the wait grows with the frame, so the planet slows down and the microphone does not.
+ */
+fun frameGapMs(busyMs: Long): Long = max(FRAME_MS - busyMs, FRAME_YIELD * busyMs)
 
 /**
  * The call screen: the planet is the whole interface. Under it, the level meter and one centred
@@ -158,31 +171,9 @@ class CallScreen(context: Context) : FrameLayout(context) {
 		private var drawnStage: CallStage? = null
 		private var clock = ""
 		private var clockSecond = -1L
-		private var lastFrameNs = 0L
-		private var ticking = false
 
-		/** Asks for a frame about thirty times a second, whatever the display's own rate. */
-		private val ticker = object : Choreographer.FrameCallback {
-			override fun doFrame(frameTimeNanos: Long) {
-				if (!isShown) {
-					ticking = false
-					return
-				}
-				if (frameTimeNanos - lastFrameNs >= FRAME_NS) {
-					lastFrameNs = frameTimeNanos
-					invalidate()
-				}
-				Choreographer.getInstance().postFrameCallback(this)
-			}
-		}
-
-		override fun onVisibilityAggregated(isVisible: Boolean) {
-			super.onVisibilityAggregated(isVisible)
-			if (isVisible && !ticking) {
-				ticking = true
-				Choreographer.getInstance().postFrameCallback(ticker)
-			}
-		}
+		/** Every frame that is drawn asks for the next one, so nothing runs while the screen is not drawn. */
+		private val nextFrame = Runnable { invalidate() }
 
 		private var shown: Caption? = null
 		private var shownLayout: StaticLayout? = null
@@ -267,6 +258,9 @@ class CallScreen(context: Context) : FrameLayout(context) {
 			canvas.restore()
 
 			if (showText) drawCaption(canvas, nowS)
+
+			removeCallbacks(nextFrame)
+			postDelayed(nextFrame, frameGapMs(SystemClock.uptimeMillis() - drawingTime))
 		}
 
 		private fun headerDetail(): String {
@@ -353,9 +347,6 @@ class CallScreen(context: Context) : FrameLayout(context) {
 		const val CONTROLS_GAP = 16
 		const val LINE_HEIGHT = 1.36f
 		const val CAPS_TOP = 6
-
-		/** A little under a thirtieth of a second, so every second frame of a 60 Hz display qualifies. */
-		const val FRAME_NS = 30_000_000L
 		const val FADE_IN_S = 0.2
 		const val FADE_OUT_S = 0.38
 	}
