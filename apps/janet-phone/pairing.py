@@ -21,7 +21,8 @@ from urllib.parse import parse_qs, urlsplit
 log = logging.getLogger("janet-phone")
 MAX_BODY = 4096
 MAX_CODES = 8
-PAIR_ATTEMPTS_A_MINUTE = 10
+PAIR_ATTEMPTS_A_MINUTE = 10  # for one caller
+PAIR_ATTEMPTS_A_MINUTE_IN_ALL = 120
 
 
 def bearer(header: str | None) -> str:
@@ -86,20 +87,19 @@ class Devices:
 
 
 class Limit:
-    """At most so many events a minute, counted over the last sixty seconds, for everyone together.
-    The pair exchange is reachable without Cloudflare Access, and requests arrive from one proxy, so
-    there is no caller to count by."""
+    """At most so many events a minute for each key, counted over the last sixty seconds."""
 
     def __init__(self, a_minute: int):
-        self.a_minute, self._times, self._lock = a_minute, [], threading.Lock()
+        self.a_minute, self._times, self._lock = a_minute, {}, threading.Lock()
 
-    def allows(self, now: float | None = None) -> bool:
+    def allows(self, key: str = "", now: float | None = None) -> bool:
         now = time.monotonic() if now is None else now
         with self._lock:
-            self._times = [t for t in self._times if now - t < 60]
-            if len(self._times) >= self.a_minute:
+            self._times = {k: recent for k, times in self._times.items() if (recent := [t for t in times if now - t < 60])}
+            times = self._times.setdefault(key, [])
+            if len(times) >= self.a_minute:
                 return False
-            self._times.append(now)
+            times.append(now)
             return True
 
 
@@ -196,10 +196,10 @@ def serve(listen: str, devices: Devices, codes: Codes, *, url: str, access_file:
     listener, and without the secret it gets nothing.
     POST /v1/call/pair needs a live one-time code and nothing else, and GET /v1/call/pair is the page
     a pairing link lands on. Both are reachable without Cloudflare Access, since a phone that is not
-    paired has no Access credentials yet. The exchange is limited to ten attempts a minute in all.
+    paired has no Access credentials yet. The exchange is limited to ten attempts a minute for each caller and 120 in all.
     """
 
-    attempts = Limit(PAIR_ATTEMPTS_A_MINUTE)
+    attempts, attempts_in_all = Limit(PAIR_ATTEMPTS_A_MINUTE), Limit(PAIR_ATTEMPTS_A_MINUTE_IN_ALL)
 
     def from_proxy(headers) -> bool:
         try:
@@ -221,6 +221,8 @@ def serve(listen: str, devices: Devices, codes: Codes, *, url: str, access_file:
             self.send_header("content-length", str(len(data)))
             self.send_header("cache-control", "no-store")
             self.send_header("x-frame-options", "DENY")
+            # Nothing may be loaded or run from these pages: their addresses can hold a pairing code.
+            self.send_header("content-security-policy", "default-src 'none'; style-src 'unsafe-inline'; script-src 'unsafe-inline'")
             self.send_header("cross-origin-opener-policy", "same-origin")  # a page that opened this one loses its handle
             self.send_header("referrer-policy", "no-referrer")
             self.end_headers()
@@ -266,8 +268,17 @@ def serve(listen: str, devices: Devices, codes: Codes, *, url: str, access_file:
             if not isinstance(body, dict):
                 return self._send(HTTPStatus.BAD_REQUEST, "{}")
             if path == "/v1/call/pair":
-                if not attempts.allows():
+                # Counted for each caller, by the address Cloudflare reports, so that one caller
+                # cannot use up the owner's attempts, and for everyone together as a ceiling.
+                caller = self.headers.get("Cf-Connecting-Ip", "")
+                if not attempts.allows(caller) or not attempts_in_all.allows():
                     return self._send(HTTPStatus.TOO_MANY_REQUESTS, '{"error": "too many pairing attempts; wait a minute"}')
+                try:  # before the code is spent: a phone must never pair and then be left without these
+                    access = json.loads(Path(access_file).read_text())
+                    reply = {"cf_id": access["client_id"], "cf_secret": access["client_secret"]}
+                except (OSError, ValueError, KeyError):
+                    log.warning("pairing refused: the Access credentials file is unusable")
+                    return self._send(HTTPStatus.SERVICE_UNAVAILABLE, "{}")
                 by = codes.redeem(str(body.get("code", "")))
                 if by is None:
                     return self._send(HTTPStatus.FORBIDDEN, '{"error": "the pairing code is not valid"}')
@@ -277,9 +288,7 @@ def serve(listen: str, devices: Devices, codes: Codes, *, url: str, access_file:
                 if on_paired is not None:
                     on_paired(devices.name_of(token), by)
                 # The Access service token travels here, over TLS and once, and never in a link.
-                access = json.loads(Path(access_file).read_text())
-                reply = {"token": token, "cf_id": access["client_id"], "cf_secret": access["client_secret"]}
-                return self._send(HTTPStatus.OK, json.dumps(reply))
+                return self._send(HTTPStatus.OK, json.dumps({"token": token, **reply}))
             if routes and path in routes:
                 status, reply = routes[path](self.headers, body)
                 return self._send(status, json.dumps(reply))

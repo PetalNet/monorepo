@@ -608,6 +608,8 @@ def main() -> None:
     config = Config(**tomllib.loads(args.config.read_text()))
     devices = pairing.Devices(Path(config.devices_file))
     if args.pair_link:
+        if not config.pair_users:
+            parser.error("pair_users is empty: nobody may pair a phone")
         # The running bridge holds the codes, so the link comes from it, asked the way the sign-on
         # proxy asks. Only the file gets the link: it is a credential until it is used or expires.
         request = urllib.request.Request(f"http://{config.http_listen}{config.pair_path}?format=link", headers={
@@ -615,8 +617,13 @@ def main() -> None:
             "X-Janet-Pair-Proxy": Path(config.proxy_secret_file).read_text().strip()})
         with urllib.request.urlopen(request, timeout=15) as response:
             link = response.read()
-        with open(os.open(args.pair_link, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600), "wb") as out:
+        # A new file of its own, mode 600 from the start, then moved into place: an existing file's
+        # looser mode or a symlink at that name cannot leak the link.
+        partial = args.pair_link.with_name(args.pair_link.name + ".tmp")
+        partial.unlink(missing_ok=True)
+        with open(os.open(partial, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, 0o600), "wb") as out:
             out.write(link)
+        os.replace(partial, args.pair_link)
         print(f"wrote a pairing link to {args.pair_link}; it works once and for {config.pair_ttl_s // 60} minutes")
     elif args.revoke:
         print("unpaired:", devices.revoke(args.revoke) or "nothing: the id must match exactly one phone")
