@@ -75,6 +75,7 @@
 			"apps/janet-voice-gateway",
 			"apps/manager",
 			"apps/point",
+			"apps/janet-voice-head",
 			"tools/*"
 		]
 	}
