@@ -10,9 +10,27 @@ It uses the platform `ConnectionService`, not `androidx.core:core-telecom`. The 
 no dependency, gives the same call log and routing, and the Jetpack wrapper only adds a coroutine
 layer that this single-call app has no use for.
 
-Self-managed calls never get the system dialer screen. The app draws its own call screen
-(`MainActivity`): state, hang up, and a speaker toggle. Android shows the call in the status bar,
-the car and the Bluetooth headset like any other call.
+Self-managed calls never get the system dialer screen, so the app draws its own (`CallScreen`).
+Android shows the call in the status bar, the car and the Bluetooth headset like any other call.
+
+## The call screen
+
+The planet is the whole interface. Janet is a pixel planet that turns slowly, pulls in and spins
+fast while she thinks, and goes almost still and dims while the caller talks. Under her sits a
+level meter: a fixed row of columns on a dotted line, bright and wide for her voice, dimmer and
+narrower for the caller's. Under that is one centred transcript line with no labels, hers bright
+and his gray. The controls are speaker, Hide text or Show text, and hang up.
+
+- `PlanetEngine` is a port of the design reference's planet engine ("meter" variant) with no
+  Android imports. `PlanetEngineTest` checks it against 60 frames the reference drew.
+- The planet's frames are `src/main/res/raw/planet_lit.bin`: 48 frames of a 96 x 96 grid, one bit
+  per lit cell. Regenerate it from the orb engine's `orb.bin` with
+  `python3 tools/export_planet.py path/to/orb.bin`. `orb.bin` is not in this repository.
+- Her words are revealed on the clock of her audio. A `words` event marks a place in the playback
+  queue, and the sentence starts when playback reaches it, so text never runs ahead of her voice.
+- The meter shows the bridge's `level` events. After a second without one it shows levels measured
+  on the phone from the audio it played and the microphone audio it sent. Both use the same scale:
+  the RMS of 20 ms of PCM16 divided by 6000, capped at 1.
 
 ## Pairing
 
@@ -65,9 +83,23 @@ One WebSocket per call: `GET <url>` with `Authorization: Bearer <device token>`,
 - Server to client:
   - `{"type":"audio","rate":N}` announces the rate of the binary frames that follow.
   - A binary frame is PCM16LE mono reply audio at that rate, played as it arrives.
-  - `{"type":"clear"}` drops the audio queued for playback.
+  - `{"type":"clear"}` drops the audio queued for playback and the words she had not said yet.
   - `{"type":"bye"}` then a normal close: Janet ended the call.
+  - `{"type":"state","value":"listening"|"thinking"|"speaking"}`: what Janet is doing. Without
+    these the app takes whoever is audible as the one talking.
+  - `{"type":"words","side":"her","text":"...","words":[{"w":"Hi","t":0.0,"d":0.18}, ...]}`, sent
+    immediately before that sentence's audio. `t` is seconds from the sentence's first sample.
+  - `{"type":"words","side":"him","text":"..."}`: what the caller said, shown at once.
+  - `{"type":"level","her":0..1,"him":0..1}`, about ten a second.
+  - Every event is optional: a bridge that sends only audio still gets the planet and a live meter.
   - Unknown text types are ignored. HTTP 401 or 403 on the upgrade fails the call with a reason.
+
+## Warm-up
+
+`POST https://HOST/v1/call/warm` with the device token and the Access headers asks the bridge to
+load speech-to-text and the voice before they are needed. The app sends it when it comes to the
+foreground while paired, at most once a minute, and again just before it places a call. The bridge
+answers 202 at once. A failure is silent: the call still works, it only starts slower.
 
 ## Build
 

@@ -5,11 +5,13 @@ import android.media.AudioFormat
 import android.media.AudioRecord
 import android.media.AudioTrack
 import android.media.MediaRecorder
+import android.os.Process
 import java.io.File
 import java.io.RandomAccessFile
 import java.nio.ByteBuffer
 import java.nio.ByteOrder
 import java.util.concurrent.LinkedBlockingQueue
+import java.util.concurrent.atomic.AtomicLong
 
 const val MIC_RATE = 16_000
 
@@ -131,10 +133,15 @@ class WavWriter(file: File, private val rate: Int) {
 /**
  * Plays the bridge's reply audio. A "clear" drops everything queued and flushes the AudioTrack;
  * audio is cut into 20 ms pieces so at most one stale piece is still in flight.
+ *
+ * It also tells [stage] what it is playing: the level of each piece, and the moment the audio
+ * after a [markSentence] will reach the speaker, which is the clock her words are revealed on.
  */
-class Player(private val recorder: (Int) -> WavWriter? = { null }) {
+class Player(private val stage: CallStage, private val recorder: (Int) -> WavWriter? = { null }) {
 	private sealed interface Item {
 		class Pcm(val generation: Int, val bytes: ByteArray) : Item
+
+		class Sentence(val generation: Int) : Item
 
 		class Rate(val hz: Int) : Item
 
@@ -152,6 +159,9 @@ class Player(private val recorder: (Int) -> WavWriter? = { null }) {
 	@Volatile private var track: AudioTrack? = null
 	@Volatile private var rate = MIC_RATE
 	private var recording: WavWriter? = null
+
+	/** Frames written to the current track since it was built or flushed, to tell how far playback lags the queue. */
+	private val written = AtomicLong()
 	private val thread = Thread(::loop, "janet-playback").apply { start() }
 
 	fun setRate(hz: Int) = queue.put(Item.Rate(hz))
@@ -167,12 +177,16 @@ class Player(private val recorder: (Int) -> WavWriter? = { null }) {
 		}
 	}
 
+	/** The audio enqueued after this call is the start of a sentence whose words the stage is holding. */
+	fun markSentence() = queue.put(Item.Sentence(generation))
+
 	fun clear() {
 		generation++
-		queue.removeIf { it is Item.Pcm }
+		queue.removeIf { it is Item.Pcm || it is Item.Sentence }
 		withTrack {
 			pause()
 			flush()
+			written.set(0)
 			play()
 		}
 	}
@@ -203,9 +217,23 @@ class Player(private val recorder: (Int) -> WavWriter? = { null }) {
 	private fun replaceTrack(next: AudioTrack?) = synchronized(trackLock) {
 		track?.release()
 		track = next
+		written.set(0)
+	}
+
+	/** Seconds until a frame written now is heard: what is written and not yet played. */
+	private fun lagS(): Double = synchronized(trackLock) {
+		val head = try {
+			track?.playbackHeadPosition?.toLong()?.and(0xFFFFFFFFL)
+		} catch (_: IllegalStateException) {
+			null
+		} ?: return 0.0
+		((written.get() - head).toDouble() / rate).coerceIn(0.0, MAX_LAG_S)
 	}
 
 	private fun loop() {
+		// Audio keeps its place ahead of drawing the call screen.
+		Process.setThreadPriority(Process.THREAD_PRIORITY_URGENT_AUDIO)
+		var sentenceDue: Int? = null
 		try {
 			while (true) {
 				when (val item = queue.take()) {
@@ -218,12 +246,18 @@ class Player(private val recorder: (Int) -> WavWriter? = { null }) {
 						rate = item.hz
 						replaceTrack(buildTrack(item.hz))
 					}
+					is Item.Sentence -> sentenceDue = item.generation
 					is Item.Pcm -> {
 						if (item.generation != generation) continue
 						if (track == null) replaceTrack(buildTrack(rate))
 						if (recording == null) recording = recorder(rate)
 						recording?.write(item.bytes)
+						val heardS = CallStage.nowS() + lagS()
+						if (sentenceDue == item.generation) stage.herAudioStarted(heardS)
+						sentenceDue = null
+						stage.played(pcmLevel(item.bytes), heardS)
 						track?.write(item.bytes, 0, item.bytes.size)
+						written.addAndGet(item.bytes.size / 2L)
 					}
 				}
 			}
@@ -258,5 +292,8 @@ class Player(private val recorder: (Int) -> WavWriter? = { null }) {
 	private companion object {
 		/** A little over the 200 ms AudioTrack buffer, so the last words finish. */
 		const val DRAIN_MS = 300L
+
+		/** The AudioTrack buffer is 200 ms; anything past this is a counter out of step, not real lag. */
+		const val MAX_LAG_S = 0.5
 	}
 }

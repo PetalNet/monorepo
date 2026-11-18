@@ -6,16 +6,19 @@ import android.app.AlertDialog
 import android.content.Intent
 import android.content.pm.PackageManager
 import android.os.Build
+import android.graphics.drawable.ColorDrawable
 import android.os.Bundle
 import android.os.SystemClock
 import android.telecom.CallAudioState
 import android.view.View
 import android.widget.Button
+import android.widget.FrameLayout
 import android.widget.LinearLayout
 import android.widget.TextView
 
 /**
- * Pairing and the in-call UI. Self-managed calls get no system dialer screen, so this is the call screen.
+ * Pairing, the home screen, and the call screen ([CallScreen]) while a call is up. Self-managed
+ * calls get no system dialer screen, so the app draws its own.
  *
  * A pairing link (`janetcall://pair?u=...`) can come from any app or web page, so nothing is sent or
  * stored until the person confirms the bridge host it names. The confirmation is built so a hostile
@@ -27,6 +30,8 @@ class MainActivity : Activity() {
 	private lateinit var body: TextView
 	private lateinit var primary: Button
 	private lateinit var secondary: Button
+	private lateinit var home: View
+	private lateinit var callScreen: CallScreen
 	private val settings by lazy { Settings(this) }
 	private val observer: () -> Unit = { render() }
 
@@ -55,7 +60,18 @@ class MainActivity : Activity() {
 			setPadding(pad(20), pad(24), pad(20), pad(24))
 			listOf(title, body, primary, secondary).forEach(::addView)
 		}
-		setContentView(column)
+		home = column
+		callScreen = CallScreen(this).apply {
+			onHangUp = { Calls.connection?.hangup() }
+			onSpeaker = { toggleSpeaker() }
+		}
+		setContentView(FrameLayout(this).apply {
+			addView(column)
+			addView(callScreen)
+		})
+		window.statusBarColor = Ink.GROUND
+		window.navigationBarColor = Ink.GROUND
+		window.setBackgroundDrawable(ColorDrawable(Ink.GROUND))
 		window.decorView.setOnApplyWindowInsetsListener { v, insets ->
 			v.setPadding(0, insets.systemWindowInsetTop, 0, insets.systemWindowInsetBottom)
 			insets
@@ -74,6 +90,7 @@ class MainActivity : Activity() {
 	override fun onStart() {
 		super.onStart()
 		Calls.observe(observer)
+		settings.pairing()?.let { Bridge.warmOnForeground(it, SystemClock.elapsedRealtime()) }
 		render()
 	}
 
@@ -118,16 +135,15 @@ class MainActivity : Activity() {
 
 	private fun render() {
 		val state = Calls.state
+		// A question asked before the call must not be waiting under the first tap after it.
+		if (Calls.inCall) pending = null
 		val link = pending
 		val pairing = settings.pairing()
 		val pairingWith = Pairer.host
+		callScreen.visibility = if (Calls.inCall) View.VISIBLE else View.GONE
+		home.visibility = if (Calls.inCall) View.GONE else View.VISIBLE
 		when {
-			Calls.inCall -> show(
-				if (state is CallState.Active) "In call with Janet" else "Calling Janet…",
-				Calls.route,
-				"Hang up" to { Calls.connection?.hangup() ?: Unit },
-				"Speaker" to { toggleSpeaker() },
-			)
+			Calls.inCall -> callScreen.render()
 			pairingWith != null -> show("Pairing with $pairingWith…", "", null, null)
 			link != null -> confirm(link, pairing)
 			pairing == null -> show(

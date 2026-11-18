@@ -1,5 +1,6 @@
 package dev.petalcat.janetcall
 
+import android.os.Process
 import java.util.concurrent.atomic.AtomicBoolean
 import okhttp3.Request
 import okhttp3.Response
@@ -21,6 +22,7 @@ class CallSession(
 	private val pairing: Pairing,
 	private val micFactory: () -> Mic,
 	private val player: Player,
+	private val stage: CallStage,
 	private val onOpen: () -> Unit,
 	private val onEnded: (End) -> Unit,
 ) {
@@ -59,10 +61,12 @@ class CallSession(
 
 	private fun streamMic(source: Mic) {
 		Thread({
+			Process.setThreadPriority(Process.THREAD_PRIORITY_URGENT_AUDIO)
 			val buf = ByteArray(MIC_CHUNK_BYTES)
 			while (!ended.get()) {
 				val n = source.read(buf)
 				if (n <= 0) break
+				stage.mic(pcmLevel(buf, n), CallStage.nowS())
 				socket?.send(buf.toByteString(0, n))
 			}
 			source.close()
@@ -72,6 +76,9 @@ class CallSession(
 
 	private inner class Listener : WebSocketListener() {
 		override fun onOpen(webSocket: WebSocket, response: Response) {
+			// This is the thread that reads the socket for the rest of the call. Her audio arrives on
+			// it, so it runs ahead of drawing the call screen too.
+			Process.setThreadPriority(Process.THREAD_PRIORITY_AUDIO)
 			val source = try {
 				micFactory()
 			} catch (e: Exception) {
@@ -88,7 +95,17 @@ class CallSession(
 		override fun onMessage(webSocket: WebSocket, text: String) {
 			when (val msg = parseServerMessage(text)) {
 				is ServerMessage.Audio -> player.setRate(msg.rate)
-				ServerMessage.Clear -> player.clear()
+				ServerMessage.Clear -> {
+					player.clear()
+					stage.clear(CallStage.nowS())
+				}
+				is ServerMessage.State -> stage.state(msg.phase, CallStage.nowS())
+				is ServerMessage.HerWords -> {
+					stage.herSentenceQueued(msg)
+					player.markSentence()
+				}
+				is ServerMessage.HisWords -> stage.hisWords(msg.text)
+				is ServerMessage.Level -> stage.level(msg.her, msg.him, CallStage.nowS())
 				ServerMessage.Bye -> finish(End.Remote("Janet ended the call"))
 				ServerMessage.Unknown -> Unit
 			}
