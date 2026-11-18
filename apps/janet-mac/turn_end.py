@@ -123,13 +123,24 @@ class TurnEnd:
         self._started = False
         self._silence_s = 0.0
 
+    def _judged(self, ask):
+        """Asks the judge, if there is one. A judge that fails is dropped: the turn then ends on
+        silence alone, as it would without one."""
+        if self._hearing is None:
+            return None
+        try:
+            return ask(self._hearing)
+        except Exception as error:
+            print(f"turn judge dropped: {error!r}", file=sys.stderr)
+            self._hearing = None
+            return None
+
     def feed(self, frame: np.ndarray) -> str | None:
         policy = self._policy
         self._heard_s += FRAME_S
         said = self._vad(frame) >= policy.speech
         self._speech_run_s = self._speech_run_s + FRAME_S if said else 0.0
-        if self._hearing:
-            self._hearing.hear(frame, said)
+        self._judged(lambda hearing: hearing.hear(frame, said))
         # Once a turn has started, one frame of speech is enough to keep it open. Asking for more
         # cut speakers off more often on recorded turns, and no recording was held open by noise.
         if self._speech_run_s >= (FRAME_S if self._started else policy.start_s):
@@ -142,8 +153,8 @@ class TurnEnd:
             return "nothing said" if self._heard_s >= policy.nothing_said_s else None
         self._silence_s += FRAME_S
         self._silent += 1
-        if self._hearing and self._silent in self._judge_at:
-            verdict = self._hearing.verdict(self._silent)
+        if self._silent in self._judge_at:
+            verdict = self._judged(lambda hearing: hearing.verdict(self._silent))
             self._hold = self._hold or verdict == "hold"
             if verdict == "done" and not self._hold:
                 return "done"

@@ -1,9 +1,12 @@
 """The turn judge with scripted speech: what a speaker would notice at a pause."""
 
+import io
 import sys
 import tempfile
+import time
 import unittest
 from pathlib import Path
+from unittest import mock
 
 import numpy as np
 
@@ -41,13 +44,21 @@ def listen(steps, hearing):
     return None, heard * FRAME_S
 
 
+def stopped(hearing):
+    """Waits for a failing speech model's thread to give up."""
+    for _ in range(200):
+        if hearing._frames is None:
+            return
+        time.sleep(0.05)
+
+
 def said(text, pause_s=0.0, um_s=0.0):
     """A turn in which `text` was spoken at three words a second, then an unworded sound, then a pause."""
     words = text.split()
     spoken = round((len(words) / 3 + um_s) / FRAME_S)
     pieces = [("▁" + word, i / 3) for i, word in enumerate(words)]
     speech = [True] * spoken + [False] * round(pause_s / FRAME_S)
-    return cues(speech, [0.0] * len(speech), [-30.0] * len(speech), pieces, False, spoken)
+    return cues(speech, pieces, False, spoken)
 
 
 class TurnEndWithAJudgeTest(unittest.TestCase):
@@ -77,16 +88,89 @@ class TurnEndWithAJudgeTest(unittest.TestCase):
         self.assertEqual(why, "quiet")
         self.assertAlmostEqual(seconds, 8.0 + POLICY.quiet_s, delta=0.1)
 
-    def test_without_the_judge_installed_listening_goes_by_silence_alone(self):
+    def test_a_judge_that_says_done_after_an_um_is_not_believed_in_that_pause(self):
+        class UmThenDone(Scripted):
+            def verdict(self, silent):
+                self._verdict, was = "done", self._verdict
+                return was
+
+        why, seconds = listen([(2.0, SPEECH), (20.0, SILENCE)], UmThenDone("hold"))
+        self.assertEqual(why, "quiet")
+        self.assertAlmostEqual(seconds, 2.0 + POLICY.hold_s, delta=0.1)
+
+    def test_a_judge_that_breaks_is_dropped_and_the_turn_ends_on_silence(self):
+        class Broken(Scripted):
+            def verdict(self, silent):
+                raise KeyError("a cue the fitted model names is missing")
+
+        with mock.patch("sys.stderr", io.StringIO()) as said_why:
+            why, seconds = listen([(2.0, SPEECH), (10.0, SILENCE)], Broken(None))
+        self.assertEqual(why, "quiet")
+        self.assertAlmostEqual(seconds, 2.0 + POLICY.quiet_s, delta=0.1)
+        self.assertIn("turn judge dropped", said_why.getvalue())
+
+    def test_without_the_judge_s_files_listening_goes_by_silence_alone(self):
         with tempfile.TemporaryDirectory() as models:
             self.assertIsNone(turn_end.hearing(Path(models)))
 
-    def test_a_speech_model_that_never_loads_gives_no_call(self):
-        with tempfile.TemporaryDirectory() as models:
-            hearing = Hearing(Path(models), FITTED)  # no model there: its thread dies
+    def test_with_turn_end_installed_alone_listening_goes_by_silence_alone(self):
+        # An install that copied turn_end.py and not turn_judge.py: the import fails.
+        with tempfile.TemporaryDirectory() as models, mock.patch.dict(sys.modules, {"turn_judge": None}):
+            with mock.patch("sys.stderr", io.StringIO()) as said_why:
+                self.assertIsNone(turn_end.hearing(Path(models)))
+        self.assertIn("no turn judge", said_why.getvalue())
+
+    def test_a_speech_model_that_fails_to_load_gives_no_call_and_holds_no_audio(self):
+        with tempfile.TemporaryDirectory() as models, mock.patch("sys.stderr", io.StringIO()) as said_why:
+            hearing = Hearing(Path(models), FITTED)  # no model there
+            stopped(hearing)
             why, seconds = listen([(2.0, SPEECH), (10.0, SILENCE)], hearing)
+        self.assertIsNone(hearing._frames)
+        self.assertIn("no turn judge", said_why.getvalue())
         self.assertEqual(why, "quiet")
         self.assertAlmostEqual(seconds, 2.0 + POLICY.quiet_s, delta=0.1)
+
+    def test_a_speech_model_that_fails_mid_turn_gives_no_more_calls(self):
+        class FailsOnTheThirdChunk:
+            def __init__(self, *_):
+                self.calls = 0
+
+            def __call__(self, chunk):
+                self.calls += 1
+                if self.calls == 3:
+                    raise RuntimeError("the model stopped")
+                return [("\u2581please", 0.1)], True
+
+        with mock.patch("turn_judge.Words", FailsOnTheThirdChunk), mock.patch("sys.stderr", io.StringIO()):
+            hearing = Hearing(Path("."), FITTED)
+            why, seconds = listen([(2.0, SPEECH), (10.0, SILENCE)], hearing)
+            stopped(hearing)
+        self.assertIsNone(hearing._frames)
+        self.assertEqual(why, "quiet")
+
+    def test_a_speech_model_that_keeps_up_lets_a_short_request_end_early(self):
+        class HearsAShortRequest:
+            def __init__(self, *_):
+                self.calls = 0
+
+            def __call__(self, chunk):
+                self.calls += 1
+                heard = [("\u2581what", 0.2), ("\u2581time", 0.5), ("\u2581is", 0.8), ("\u2581it", 1.1), ("\u2581please", 1.4)]
+                return (heard if self.calls == 10 else []), self.calls == 16
+
+        class KeepsUp(Hearing):
+            def verdict(self, silent):
+                for _ in range(200):  # the test feeds audio faster than real time
+                    if self._frames.empty():
+                        break
+                    time.sleep(0.01)
+                time.sleep(0.05)
+                return super().verdict(silent)
+
+        with mock.patch("turn_judge.Words", HearsAShortRequest):
+            why, seconds = listen([(1.8, SPEECH), (10.0, SILENCE)], KeepsUp(Path("."), FITTED))
+        self.assertEqual(why, "done")
+        self.assertLess(seconds, 1.8 + POLICY.quiet_s - 0.4)
 
 
 class CuesTest(unittest.TestCase):
@@ -106,8 +190,8 @@ class CuesTest(unittest.TestCase):
     def test_a_short_question_is_surer_than_the_middle_of_a_long_ramble(self):
         judge = Judge(FITTED)
         question = said("what time does the lounge open please")
-        ramble = cues([True] * 1500 + [False] * 40 + [True] * 300, [0.0] * 1840, [-30.0] * 1840,
-                      [("▁word", i / 3) for i in range(150)] + [("▁thing", 58.0)], False, 1840)  # fmt: skip
+        speech = [True] * 1500 + [False] * 40 + [True] * 300
+        ramble = cues(speech, [("\u2581word", i / 3) for i in range(150)] + [("\u2581thing", 58.0)], False, 1840)
         self.assertGreater(judge.done(question), judge.done(ramble))
         self.assertEqual(question["short_asking"], 1.0)
 

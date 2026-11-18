@@ -1,9 +1,11 @@
 """Judges, at a pause, whether the speaker has finished or is only thinking.
 
 It hears what a person listening would: the words so far (a small speech model that writes them
-down as they are said, on this machine), how the voice moved before the pause (pitch, level,
-pace) and how the turn has gone. A few numbers describe the pause, and a logistic model fitted
-on recorded turns of the person who uses this Mac turns them into the chance that he is done.
+down as they are said, on this machine), the pace, and how the turn has gone. A few numbers
+describe the pause, and a logistic model fitted on recorded turns of the person who uses this
+Mac turns them into the chance that he is done. Pitch and loudness were measured on those turns
+too and told a finished thought from a pause to think no better than chance, so they are not
+here.
 
 A filled pause ("um", "uh") or a trailing "so" or "and" is not judged: it always means more
 is coming.
@@ -83,23 +85,6 @@ class Words:
         return pieces, any(t in self.END for t, _ in tokens)
 
 
-def pitch(heard: np.ndarray) -> float:
-    """The pitch in Hz of the last 64 ms, or 0 when it is not voiced."""
-    if len(heard) < 1024:
-        return 0.0
-    window = (heard[-1024:] - heard[-1024:].mean()) * np.hanning(1024)
-    low, high = RATE // 350, RATE // 70
-    correlation = np.fft.irfft(np.abs(np.fft.rfft(window, 2048)) ** 2)[: high + 1]
-    if correlation[0] <= 1e-9:
-        return 0.0
-    lag = low + int(np.argmax(correlation[low : high + 1]))
-    return RATE / lag if correlation[lag] / correlation[0] > 0.45 else 0.0
-
-
-def level(frame: np.ndarray) -> float:
-    return 20 * math.log10(max(1e-6, float(np.sqrt(np.mean(frame**2)))))
-
-
 def words_of(pieces: list[tuple[str, float]]) -> list[tuple[str, float]]:
     """Word pieces joined into words, each with the time it began."""
     words: list[tuple[str, float]] = []
@@ -111,11 +96,11 @@ def words_of(pieces: list[tuple[str, float]]) -> list[tuple[str, float]]:
     return [(word, at) for word, at in words if word]
 
 
-def cues(speech: list[bool], f0: list[float], levels: list[float], pieces: list[tuple[str, float]], ended: bool, pause: int) -> dict[str, float]:
+def cues(speech: list[bool], pieces: list[tuple[str, float]], ended: bool, pause: int) -> dict[str, float]:
     """What is known about a pause that began at frame `pause`, from what was heard up to now.
 
-    `speech`, `f0` and `levels` hold one value per frame; `pieces` are the word pieces the speech
-    model has given so far; `ended` says it marked an end of utterance during this pause.
+    `speech` holds one value per frame; `pieces` are the word pieces the speech model has given
+    so far; `ended` says it marked an end of utterance during this pause.
     """
     start = next((i for i, said in enumerate(speech) if said), 0)
     words = [(w, at) for w, at in words_of(pieces) if at <= pause * FRAME_S + 0.3]
@@ -127,20 +112,9 @@ def cues(speech: list[bool], f0: list[float], levels: list[float], pieces: list[
             break
     opening = [w for w, _ in words[len(words) - clause :][:2]]
     recent = [at for _, at in words if at >= pause * FRAME_S - 3.0]
-    # Speech the model wrote no word for, between the last word and the pause: an "um" sounds like this.
-    # With no word heard at all there is nothing to measure it against.
+    # Speech the model wrote no word for, between the last word and the pause: an "um" sounds
+    # like this. With no word heard at all there is nothing to measure it against.
     unworded = sum(speech[round((words[-1][1] + 0.45) / FRAME_S) : pause]) if words else 0
-    voiced = [(i, 12 * math.log2(f)) for i, f in enumerate(f0[:pause]) if f > 0]
-    ending = [v for v in voiced if v[0] >= pause - 19]  # the last 0.6 s
-    middle = float(np.median([s for _, s in voiced])) if voiced else 0.0
-    slope = float(np.polyfit([i * FRAME_S for i, _ in ending], [s for _, s in ending], 1)[0]) if len(ending) >= 4 else 0.0
-    held = 0
-    for i in range(pause - 1, -1, -1):  # the unbroken voiced stretch that ran into the pause
-        if f0[i] <= 0 and pause - 1 - i > 2:
-            break
-        held += f0[i] > 0
-    tail = [s for _, s in voiced[-max(held, 1) :]][-12:]
-    spoken = [levels[i] for i in range(start, pause) if speech[i]]
     gaps, run = [], 0
     for said in speech[start:pause]:
         if said:
@@ -151,8 +125,6 @@ def cues(speech: list[bool], f0: list[float], levels: list[float], pieces: list[
             run += 1
     c = {
         "turn_s": (pause - start) * FRAME_S,
-        "words": float(len(words)),
-        "clause_words": float(clause),
         "leading": float(last in LEADING),
         "filler": float(last in FILLERS),
         "closing": float(last in CLOSING),
@@ -160,13 +132,6 @@ def cues(speech: list[bool], f0: list[float], levels: list[float], pieces: list[
         "asking": float(any(w in ASKING for w in opening)),
         "model_end": float(ended),
         "pace": len(recent) / 3.0,
-        "last_word_s": pause * FRAME_S - words[-1][1] if words else 0.0,
-        "pitch_slope": max(-40.0, min(40.0, slope)),
-        "pitch_end": (float(np.median([s for _, s in ending[-5:]])) - middle) if ending else 0.0,
-        "pitch_flat": float(np.std(tail)) if len(tail) >= 4 else 3.0,
-        "held_s": held * FRAME_S,
-        "level_drop": (float(np.mean(spoken[-6:])) - float(np.median(spoken))) if spoken else 0.0,
-        "pauses": float(len(gaps)),
         "long_pauses": float(sum(g >= 1.0 for g in gaps)),
         "longest_pause_s": max(gaps, default=0.0),
     }
@@ -206,50 +171,45 @@ class Hearing:
     def __init__(self, models: Path, fitted: Path):
         self._judge = Judge(fitted)
         self._speech: list[bool] = []
-        self._f0: list[float] = []
-        self._levels: list[float] = []
         self._pieces: list[tuple[str, float]] = []
         self._ends: list[float] = []  # when the speech model marked an end of utterance
         self._transcribed_s = 0.0
-        self._previous = np.zeros(FRAME, np.float32)
         self._frames: queue.Queue[np.ndarray] | None = queue.Queue()
         threading.Thread(target=self._transcribe, args=(models,), daemon=True).start()
 
     def hear(self, frame: np.ndarray, said: bool) -> None:
         self._speech.append(said)
-        self._f0.append(pitch(np.concatenate([self._previous, frame])))
-        self._levels.append(level(frame))
-        self._previous = frame
-        if self._frames:
-            self._frames.put(frame)
+        frames = self._frames  # the other thread drops it when the speech model fails
+        if frames is not None:
+            frames.put(frame)
 
     def _transcribe(self, models: Path) -> None:
+        frames = self._frames
         try:
             words = Words(models / "parakeet_realtime_eou_120m.int8.onnx", models / "parakeet_vocab.txt")
+            held: list[np.ndarray] = []
+            while True:
+                held.append(frames.get())
+                if len(held) * FRAME == CHUNK:
+                    pieces, ended = words(np.concatenate(held))
+                    held = []
+                    self._pieces.extend(pieces)
+                    self._transcribed_s += CHUNK / RATE
+                    if ended:
+                        self._ends.append(self._transcribed_s)
         except Exception as error:  # no speech model, no calls: the turn then ends on silence alone
             print(f"no turn judge: {error}", file=sys.stderr)
             self._frames = None
-            return
-        held: list[np.ndarray] = []
-        while True:
-            held.append(self._frames.get())
-            if len(held) * FRAME == CHUNK:
-                pieces, ended = words(np.concatenate(held))
-                held = []
-                self._pieces.extend(pieces)
-                self._transcribed_s += CHUNK / RATE
-                if ended:
-                    self._ends.append(self._transcribed_s)
 
     def verdict(self, silent: int) -> str | None:
-        """After `silent` frames of silence: "done", "hold" for a filled pause, or None for no
+        """After `silent` frames of silence: "done", "hold" when more is coming, or None for no
         call. No call is also the answer while the speech model is behind or has not loaded."""
         now = len(self._speech)
         if now * FRAME_S - self._transcribed_s > 0.5:
             return None
         pause = now - silent
         ended = any(end > pause * FRAME_S - 0.3 for end in self._ends)
-        c = cues(self._speech, self._f0, self._levels, list(self._pieces), ended, pause)
+        c = cues(self._speech, list(self._pieces), ended, pause)
         if filled(c):
             return "hold"
         return "done" if self._judge.done(c) >= self._judge.sure else None
