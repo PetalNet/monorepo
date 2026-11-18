@@ -57,7 +57,7 @@ object Dialer {
 	/** Places the call. Returns a reason it could not be placed, or null. */
 	fun place(context: Context): String? {
 		if (Calls.inCall) return null
-		Settings(context).config().problem()?.let { return it }
+		if (Settings(context).pairing() == null) return NOT_PAIRED
 		val telecom = context.getSystemService(TelecomManager::class.java)
 		val handle = handle(context)
 		telecom.registerPhoneAccount(

@@ -9,46 +9,38 @@ import javax.crypto.Cipher
 import javax.crypto.KeyGenerator
 import javax.crypto.SecretKey
 import javax.crypto.spec.GCMParameterSpec
+import org.json.JSONObject
 
-data class Config(val url: String, val token: String, val cfId: String, val cfSecret: String) {
-	/** A reason the call cannot be placed, or null. ws:// is for local test bridges in debug builds only. */
-	fun problem(allowCleartext: Boolean = BuildConfig.DEBUG): String? = when {
-		url.isBlank() || token.isBlank() -> "Set the bridge URL and token first"
-		url.startsWith("wss://") -> null
-		url.startsWith("ws://") && allowCleartext -> null
-		else -> "The bridge URL must start with wss://"
-	}
-}
-
-/** The URL is stored as is. The token and Cloudflare Access values are sealed with an Android Keystore AES key. */
+/** The pairing, sealed as one value with an Android Keystore AES key. Nothing here is typed in or shown. */
 class Settings(context: Context) {
-	private val prefs = context.getSharedPreferences("janet_call", Context.MODE_PRIVATE)
+	private val prefs = context.getSharedPreferences("janet_call_pairing", Context.MODE_PRIVATE)
 
-	fun save(url: String, token: String?, cfId: String?, cfSecret: String?) {
-		prefs.edit().apply {
-			putString("url", url.trim())
-			token?.let { putString("token", seal(it.trim())) }
-			cfId?.let { putString("cf_id", seal(it.trim())) }
-			cfSecret?.let { putString("cf_secret", seal(it.trim())) }
-		}.apply()
+	init {
+		// 0.1.0 kept a typed bearer token here. It is not a device token, so it must not read as a pairing.
+		context.deleteSharedPreferences("janet_call")
 	}
 
-	val url: String get() = prefs.getString("url", "") ?: ""
-	val hasToken: Boolean get() = prefs.contains("token")
-	val hasCfSecret: Boolean get() = prefs.contains("cf_secret")
-	val cfId: String get() = open("cf_id")
+	fun save(pairing: Pairing) {
+		val json = JSONObject()
+			.put("url", pairing.url).put("token", pairing.token)
+			.put("cf_id", pairing.cfId).put("cf_secret", pairing.cfSecret)
+		prefs.edit().putString(KEY, seal(json.toString())).apply()
+	}
 
-	fun config() = Config(url, open("token"), open("cf_id"), open("cf_secret"))
+	fun clear() = prefs.edit().clear().apply()
 
-	private fun open(key: String): String {
-		val sealed = prefs.getString(key, null) ?: return ""
+	/** Null when this phone is not paired, or the stored pairing can no longer be opened or used. */
+	fun pairing(): Pairing? {
+		val sealed = prefs.getString(KEY, null) ?: return null
 		return try {
 			val raw = Base64.decode(sealed, Base64.NO_WRAP)
 			val cipher = Cipher.getInstance(TRANSFORM)
 			cipher.init(Cipher.DECRYPT_MODE, vaultKey(), GCMParameterSpec(128, raw, 0, IV_BYTES))
-			String(cipher.doFinal(raw, IV_BYTES, raw.size - IV_BYTES), Charsets.UTF_8)
+			val json = JSONObject(String(cipher.doFinal(raw, IV_BYTES, raw.size - IV_BYTES), Charsets.UTF_8))
+			Pairing(json.getString("url"), json.getString("token"), json.getString("cf_id"), json.getString("cf_secret"))
+				.takeIf { it.token.isNotEmpty() && bridgeUrlProblem(it.url, BuildConfig.DEBUG) == null }
 		} catch (_: Exception) {
-			""
+			null
 		}
 	}
 
@@ -73,8 +65,11 @@ class Settings(context: Context) {
 	}
 
 	private companion object {
+		const val KEY = "pairing"
 		const val KEY_ALIAS = "janet_call_settings"
 		const val TRANSFORM = "AES/GCM/NoPadding"
 		const val IV_BYTES = 12
 	}
 }
+
+const val NOT_PAIRED = "Pair this phone first"

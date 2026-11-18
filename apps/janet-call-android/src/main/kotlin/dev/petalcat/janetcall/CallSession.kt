@@ -1,8 +1,6 @@
 package dev.petalcat.janetcall
 
-import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicBoolean
-import okhttp3.OkHttpClient
 import okhttp3.Request
 import okhttp3.Response
 import okhttp3.WebSocket
@@ -20,7 +18,7 @@ sealed interface End {
 
 /** One call: one WebSocket to the bridge, microphone up, reply audio down. */
 class CallSession(
-	private val config: Config,
+	private val pairing: Pairing,
 	private val micFactory: () -> Mic,
 	private val player: Player,
 	private val onOpen: () -> Unit,
@@ -34,16 +32,15 @@ class CallSession(
 
 	fun start() {
 		try {
-			val request = Request.Builder().url(config.url)
-				.header("Authorization", "Bearer ${config.token}")
-				.apply {
-					if (config.cfId.isNotEmpty()) header("CF-Access-Client-Id", config.cfId)
-					if (config.cfSecret.isNotEmpty()) header("CF-Access-Client-Secret", config.cfSecret)
-				}
-				.build()
-			socket = http.newWebSocket(request, Listener())
+			val request = with(Bridge) {
+				Request.Builder().url(pairing.url)
+					.header("Authorization", "Bearer ${pairing.token}")
+					.cloudflareAccess(pairing.cfId, pairing.cfSecret)
+					.build()
+			}
+			socket = Bridge.http.newWebSocket(request, Listener())
 		} catch (e: IllegalArgumentException) {
-			finish(End.Failed("The bridge URL or a credential is not valid"))
+			finish(End.Failed("The stored pairing is not valid. Unpair and pair again."))
 		}
 	}
 
@@ -106,22 +103,12 @@ class CallSession(
 		override fun onFailure(webSocket: WebSocket, t: Throwable, response: Response?) {
 			val code = response?.code
 			val reason = when (code) {
-				401, 403 -> "Bridge refused the credentials (HTTP $code)"
-				in 300..399 -> "Bridge redirected the call (HTTP $code); check the URL and Cloudflare Access"
+				401, 403 -> "The bridge refused this phone (HTTP $code). Unpair and pair again."
+				in 300..399 -> "Cloudflare Access did not accept this phone (HTTP $code). Unpair and pair again."
 				null -> t.message ?: "Could not reach the bridge"
 				else -> "Bridge error (HTTP $code)"
 			}
 			finish(End.Failed(reason))
 		}
-	}
-
-	private companion object {
-		val http: OkHttpClient = OkHttpClient.Builder()
-			.connectTimeout(10, TimeUnit.SECONDS)
-			.readTimeout(0, TimeUnit.SECONDS)
-			.followRedirects(false)
-			.followSslRedirects(false)
-			.pingInterval(15, TimeUnit.SECONDS)
-			.build()
 	}
 }
