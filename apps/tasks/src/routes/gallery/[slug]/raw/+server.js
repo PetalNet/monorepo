@@ -51,11 +51,11 @@ import { error } from "@sveltejs/kit";
 //    own same-origin iframe would be blocked. frame-ancestors 'self' (via CSP)
 //    keeps it embeddable only by tasks itself.
 const CSP = {
-	html: "sandbox allow-same-origin; default-src 'none'; img-src data:; style-src 'unsafe-inline'; font-src data:; frame-ancestors 'self'",
+	html: "sandbox allow-same-origin; default-src 'none'; img-src data:; media-src data:; style-src 'unsafe-inline'; font-src data:; frame-ancestors 'self'",
 	// allow-scripts WITHOUT allow-same-origin == scripts run in an opaque origin (no cookie/parent
 	// access). No connect/fetch (default-src 'none'). script/style inline for the docs' own blocks.
 	interactive:
-		"sandbox allow-scripts allow-downloads; default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; img-src data:; font-src data:; frame-ancestors 'self'",
+		"sandbox allow-scripts allow-downloads; default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; img-src data:; media-src data:; font-src data:; frame-ancestors 'self'",
 };
 
 export function GET({ params, locals, url }) {

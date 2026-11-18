@@ -36,9 +36,9 @@ import { renderMd } from "../../../lib/server/md.js";
 //
 // CSP profiles mirror /gallery/[slug]/raw, MINUS allow-same-origin for html (see above).
 const CSP = {
-	html: "sandbox; default-src 'none'; img-src data:; style-src 'unsafe-inline'; font-src data:; frame-ancestors 'none'",
+	html: "sandbox; default-src 'none'; img-src data:; media-src data:; style-src 'unsafe-inline'; font-src data:; frame-ancestors 'none'",
 	interactive:
-		"sandbox allow-scripts allow-downloads; default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; img-src data:; font-src data:; frame-ancestors 'none'",
+		"sandbox allow-scripts allow-downloads; default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; img-src data:; media-src data:; font-src data:; frame-ancestors 'none'",
 };
 
 // Shared hardening headers for every served response (and the 404 path stays generic).
