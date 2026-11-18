@@ -11,6 +11,7 @@ import { operations } from "./api.ts";
 import { Vault } from "./engine.ts";
 import { SecretFound, WriteRejected } from "./errors.ts";
 import { reindex } from "./recall.ts";
+import { tiers } from "./schema.ts";
 
 const print = (value: unknown) =>
 	Console.log(typeof value === "string" ? value : JSON.stringify(value, null, 1));
@@ -34,6 +35,7 @@ const some = <A>(key: string, value: Option.Option<A>) =>
 	Option.match(value, { onNone: () => ({}), onSome: (found) => ({ [key]: found }) });
 
 const words = Argument.String("text").pipe(Argument.variadic({ min: 1 }));
+const tier = optional(Flag.Literals("tier", tiers));
 
 const commands = [
 	Command.make(
@@ -56,6 +58,7 @@ const commands = [
 			text: words,
 			topic: Flag.String("topic"),
 			heading: optional(Flag.String("heading")),
+			tier,
 			source: optional(Flag.String("source")),
 			quote: optional(Flag.String("quote")),
 			direct: optional(Flag.String("direct")),
@@ -65,6 +68,7 @@ const commands = [
 				text: flags.text.join(" "),
 				topic: flags.topic,
 				...some("heading", flags.heading),
+				...some("tier", flags.tier),
 				...some("source", flags.source),
 				...Option.match(flags.direct, {
 					onNone: () => some("quote", flags.quote),

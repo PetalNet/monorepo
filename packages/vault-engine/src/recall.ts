@@ -160,6 +160,7 @@ function ftsQuery(text: string): string {
 
 export interface RecallOptions {
 	readonly k?: number;
+	readonly tiers?: readonly Tier[];
 }
 
 /** Runs one query against the index; no index yet, or a query with no words, finds nothing. */
@@ -180,7 +181,10 @@ const search = <A>(
 
 		const rows = yield* Effect.acquireUseRelease(
 			Effect.sync(() => new DatabaseSync(indexPath(vault.root), { readOnly: true })),
-			(db) => Effect.sync(() => db.prepare(sql).all(match, options.k ?? 8)),
+			(db) =>
+				Effect.sync(() =>
+					db.prepare(sql).all(match, JSON.stringify(options.tiers ?? tiers), options.k ?? 8),
+				),
 			(db) =>
 				Effect.sync(() => {
 					db.close();
@@ -197,7 +201,7 @@ export const recallClaims = (query: string, options: RecallOptions = {}): Recall
 		query,
 		`SELECT claim.*, bm25(claim_fts, 0.0, 1.0, 0.5) AS rank FROM claim_fts
 			 JOIN claim ON claim.id = claim_fts.id
-			 WHERE claim_fts MATCH ?
+			 WHERE claim_fts MATCH ? AND claim.tier IN (SELECT value FROM json_each(?))
 			 ORDER BY rank LIMIT ?`,
 		ClaimRow,
 		options,

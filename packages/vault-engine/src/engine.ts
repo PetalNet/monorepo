@@ -78,7 +78,10 @@ export interface VaultShape {
 	readonly agent: string;
 	readonly file: (tier: Tier) => string;
 	readonly view: Effect.Effect<VaultView, VaultError>;
-	/** Runs one write under the tier's lock. It commits only if every operation passed its checks. */
+	/**
+	 * Runs one write under the tier's lock. It commits only if every operation passed its checks and
+	 * no claim was lost.
+	 */
 	readonly transact: <A, E, R>(
 		tier: Tier,
 		message: string,
@@ -164,6 +167,9 @@ const checked = <A>(schema: Schema.Decoder<A>, value: unknown) =>
 		Effect.mapError((error) => reject(error.message)),
 	);
 
+// A shared-tier record must not point into a private tier: the shared projection would name it.
+const mayLink = (from: Tier, to: Tier) => to === from || to === "shared";
+
 function makeView(states: Readonly<Record<Tier, TierState>>): VaultView {
 	const locate = (id: string): Located | undefined => {
 		const kind = isClaimId(id) ? "claims" : "sources";
@@ -237,6 +243,12 @@ function makeTx(
 				return yield* reject(`Link target ${link.target} is not in the vault`);
 			}
 
+			if (!mayLink(tier, found.tier)) {
+				return yield* reject(
+					`A ${tier} claim cannot link to ${link.target} in the ${found.tier} tier`,
+				);
+			}
+
 			if (
 				link.passage !== undefined &&
 				!(link.passage in (view.source(link.target)?.passages ?? {}))
@@ -306,6 +318,12 @@ function makeTx(
 			// behind even when the caller carries on with the transaction.
 			yield* refuseSecrets(input, `${tier}/sources/${input.id}`);
 
+			const home = view.locate(input.id);
+
+			if (home !== undefined && home.tier !== tier) {
+				return yield* reject(`Source ${input.id} is in the ${home.tier} tier already`);
+			}
+
 			const existing = state.sources[input.id];
 			const { passages, headings, ...core } = input;
 
@@ -363,6 +381,31 @@ function makeTx(
 	};
 }
 
+/**
+ * The backstop on every commit: whatever the operations did, every claim that existed is still
+ * there, and no new claim ID is held by another tier.
+ */
+function lostOrDuplicated(
+	tier: Tier,
+	before: TierState,
+	after: TierState,
+	committed: Readonly<Record<Tier, TierState>>,
+) {
+	for (const id of Object.keys(before.claims)) {
+		if (!(id in after.claims)) {
+			return `Write would lose claim ${id}`;
+		}
+	}
+
+	const taken = Object.keys(after.claims).find(
+		(id) =>
+			!(id in before.claims) &&
+			tiers.some((other) => other !== tier && id in committed[other].claims),
+	);
+
+	return taken === undefined ? undefined : `Write would duplicate claim ${taken}`;
+}
+
 interface Loaded {
 	readonly doc: LoroDoc;
 	readonly state: TierState;
@@ -403,6 +446,7 @@ const makeVault = Effect.fnUntraced(function* (config: VaultConfig) {
 		tier: Tier,
 		base: Loaded,
 		doc: LoroDoc,
+		committed: Readonly<Record<Tier, TierState>>,
 		message: string,
 		seconds: number,
 	) {
@@ -414,6 +458,12 @@ const makeVault = Effect.fnUntraced(function* (config: VaultConfig) {
 			doc.exportJsonUpdates(base.doc.oplogVersion(), doc.oplogVersion()),
 			`${tier} tier`,
 		);
+
+		const problem = lostOrDuplicated(tier, base.state, readState(doc), committed);
+
+		if (problem !== undefined) {
+			return yield* reject(problem);
+		}
 
 		yield* files.save(tier, doc.export({ mode: "snapshot" }));
 	});
@@ -436,7 +486,7 @@ const makeVault = Effect.fnUntraced(function* (config: VaultConfig) {
 				const tx = makeTx(tier, doc, states, config.agent, new Date(millis).toISOString());
 				const result = yield* body(tx);
 
-				yield* commit(tier, base, doc, message, Math.floor(millis / 1000));
+				yield* commit(tier, base, doc, states, message, Math.floor(millis / 1000));
 
 				return result;
 			}),

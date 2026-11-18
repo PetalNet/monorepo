@@ -40,6 +40,31 @@ describe("remember", () => {
 			]);
 		}));
 
+	test("gives the same speaker in two tiers, or two short or non-Latin names, distinct sources", () =>
+		Effect.gen(function* () {
+			yield* seeded;
+
+			const target = (claim: { links: readonly { target: string }[] }) => claim.links[0]?.target;
+			const shared = yield* remember("shared", {
+				text: "Said in shared.",
+				topic: "Note granularity",
+				direct: { title: "Eli", quote: "one" },
+			});
+			const personal = yield* remember("personal", {
+				text: "Said in personal.",
+				topic: "Private",
+				direct: { title: "Eli", quote: "two" },
+			});
+			const other = yield* remember("shared", {
+				text: "Another.",
+				topic: "Note granularity",
+				direct: { title: "田中", quote: "はい" },
+			});
+
+			expect(new Set([target(shared), target(personal), target(other)]).size).toBe(3);
+			expect((yield* (yield* Vault).view).source(target(shared) ?? "")?.title).toBe("Eli");
+		}));
+
 	test("refuses a quote that names no source", () =>
 		Effect.gen(function* () {
 			yield* seeded;

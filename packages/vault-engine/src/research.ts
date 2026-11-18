@@ -81,6 +81,16 @@ export const remember = Effect.fnUntraced(function* (tier: Tier, input: Remember
 		return yield* new WriteRejected({ message: `Source ${input.source} is not in the vault` });
 	}
 
+	if (
+		captured &&
+		input.quote !== undefined &&
+		(yield* vault.view).locate(captured.id)?.tier !== tier
+	) {
+		return yield* new WriteRejected({
+			message: `Source ${captured.id} lives in another tier; quote it from there`,
+		});
+	}
+
 	return yield* vault.transact(tier, `remember in ${input.topic}`, (tx) =>
 		Effect.gen(function* () {
 			const [topic = ""] = (yield* upsertTopics(tx, [{ title: input.topic }])).values();

@@ -179,3 +179,32 @@ describe("write checks", () => {
 			});
 		}));
 });
+
+describe("tiers and locks", () => {
+	test("refuses a shared claim that links into a private tier", () =>
+		Effect.gen(function* () {
+			const privateSource = "src-bbbbbbbbbbbbbbbbbbbb";
+
+			yield* seeded;
+			yield* write("personal", (tx) => seed(tx, privateSource));
+
+			expect(
+				(yield* Effect.flip(
+					addClaim("shared", claimInput("Leaks a private source.", privateSource)),
+				)).message,
+			).toMatch(/cannot link to .* in the personal tier/);
+
+			yield* addClaim("personal", claimInput("Private claim on a shared source."));
+		}));
+
+	test("keeps a source ID to one tier", () =>
+		Effect.gen(function* () {
+			yield* seeded;
+
+			expect((yield* Effect.flip(write("personal", (tx) => seed(tx)))).message).toMatch(
+				/in the shared tier already/,
+			);
+
+			expect((yield* state("personal")).sources).toEqual({});
+		}));
+});

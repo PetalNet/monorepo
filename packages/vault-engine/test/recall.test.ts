@@ -3,7 +3,7 @@ import { Effect } from "effect";
 import { TestClock } from "effect/testing";
 
 import { recallClaims, reindex, renderCard } from "../src/recall.ts";
-import { SOURCE, claimInput, seed, test, write } from "./tools.ts";
+import { SOURCE, TOPIC, claimInput, seed, test, write } from "./tools.ts";
 
 describe("recall", () => {
 	test("finds a claim by its note title and heading, not only its own words", () =>
@@ -44,5 +44,30 @@ describe("recall", () => {
 				freshness: "stale",
 				sources: [{ id: SOURCE, freshness: "stale" }],
 			});
+		}));
+
+	test("filters tiers before the limit", () =>
+		Effect.gen(function* () {
+			yield* write("shared", (tx) =>
+				seed(tx).pipe(Effect.andThen(tx.addClaim(claimInput("Propositions always win.")))),
+			);
+
+			yield* write("agent", (tx) =>
+				tx.putTopic({ id: TOPIC, title: "Agent notes", summary: "Agent.", headings: [] }).pipe(
+					Effect.andThen(
+						tx.addClaim({
+							...claimInput("One mention of propositions."),
+							links: [],
+							sourceType: "GUESS",
+						}),
+					),
+				),
+			);
+
+			yield* reindex;
+
+			expect(
+				(yield* recallClaims("propositions", { k: 1, tiers: ["agent"] })).map((card) => card.tier),
+			).toEqual(["agent"]);
 		}));
 });
