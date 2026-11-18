@@ -114,6 +114,8 @@ class _HexHandler(BaseHTTPRequestHandler):
         self._reply(200, {})
 
     def do_GET(self):
+        if self.path.endswith("/audio"):
+            return self._audio()
         self.send_response(200)
         self.send_header("content-type", "text/event-stream")
         self.end_headers()
@@ -136,6 +138,20 @@ class _HexHandler(BaseHTTPRequestHandler):
                     if time.monotonic() >= until:
                         break
                     time.sleep(0.05)
+        except OSError:
+            pass
+
+
+    def _audio(self):
+        # The microphone as 48 kHz float32, for as long as the listener stays.
+        self.send_response(200)
+        self.send_header("content-type", "application/octet-stream")
+        self.end_headers()
+        try:
+            while True:
+                self.wfile.write(bytes(4 * 480))
+                self.wfile.flush()
+                time.sleep(0.01)
         except OSError:
             pass
 
@@ -240,6 +256,25 @@ class TalkCase(unittest.TestCase):
 
     def head_calls(self, suffix):
         return [body for path, body in self.head.calls if path.endswith(suffix)]
+
+
+class TurnEndModelsTest(TalkCase):
+    def test_with_the_models_installed_they_hear_the_microphone_and_end_the_listening(self):
+        home = self.root / "turn-end"
+        (home / "venv" / "bin").mkdir(parents=True)
+        # Stands in for the Python that runs turn_end.py: hears a little audio, then calls the turn finished.
+        python = home / "venv" / "bin" / "python"
+        python.write_text('#!/usr/bin/env bash\necho "$*" >"$STUB/turn-end-args"\nhead -c 9600 | wc -c >"$STUB/turn-end-heard"\necho finished\n')
+        python.chmod(0o755)
+        self.env["JANET_TALK_TURN_END"] = str(home)
+        self.env["JANET_TALK_LATCH_MS"] = "1000000"
+        self.talk("start")
+        self.talk("stop")
+        self.assertIn("--rate 48000 ", self.lines("turn-end-args")[0])
+        self.assertEqual(int(self.lines("turn-end-heard")[0]), 9600)
+        self.assertIn("stopped listening: finished", (Path(self.env["JANET_TALK_STATE"]) / "talk.log").read_text())
+        self.assertEqual(self.lines("hex.log"), ["start", "finish"])
+        self.assertEqual(self.head_calls("/turns"), [{"text": "what time is it"}])
 
 
 class TalkTest(TalkCase):

@@ -9,6 +9,8 @@ set -u
 CONFIG="${JANET_TALK_CONFIG:-$HOME/.config/janet-talk/config}"
 STATE="${JANET_TALK_STATE:-$HOME/Library/Caches/janet-talk}"
 HEX_API="${JANET_TALK_HEX_API:-$HOME/Library/Application Support/hex/local-api.json}"
+# Where install.sh puts turn_end.py, its Python environment and its models.
+TURN_END="${JANET_TALK_TURN_END:-$HOME/.local/share/janet-talk}"
 KEYCHAIN_SERVICE="janet-voice"
 CONVERSATION_IDLE_S=90 # the head ends a conversation itself after 120 s without a turn
 VOICE_WAKE_WAIT_S="${JANET_TALK_WAKE_WAIT_S:-240}"
@@ -104,6 +106,7 @@ hex_start() { # press ms
   owner=$(printf '%s' "$reply" | jq -r '.ownerToken // empty' 2>/dev/null)
   case "$id" in "" | *[!0-9A-Za-z_-]*) return 1 ;; esac
   [ -n "$owner" ] || return 1
+  printf '%s' "$reply" | jq -r '.sampleRate // 16000' >"$STATE/recording.rate"
   (umask 077 && echo "$id $owner $1" >"$STATE/recording.tmp" && mv "$STATE/recording.tmp" "$STATE/recording")
   : >"$STATE/alive.$id"
   # Hex drops a recording whose owner goes quiet for ten seconds. This stops when the recording
@@ -135,6 +138,15 @@ hex_end() { # finish|cancel, id, owner -> prints the transcript for finish
 #   when the stop file appears (the key again), and after MAX_LISTEN_S as a backstop.
 # The first half second is left out: Hex reports near-total silence while the microphone opens.
 wait_for_end_of_speech() { # id, owner
+  # With the turn-end models installed, they decide from the audio itself, and the level rule
+  # below is not used: see turn_end.py.
+  if [ -x "$TURN_END/venv/bin/python" ]; then
+    HEX_OWNER="$2" hex GET "/dictations/$1/audio" -N --max-time "$MAX_LISTEN_S" |
+      "$TURN_END/venv/bin/python" "$TURN_END/turn_end.py" --models "$TURN_END/models" \
+        --rate "$(cat "$STATE/recording.rate")" --stop-file "$STATE/listening.stop" \
+        --max-s "$MAX_LISTEN_S" --nothing-said-s "$NO_SPEECH_S"
+    return
+  fi
   HEX_OWNER="$2" hex GET "/dictations/$1/levels" -N --max-time "$MAX_LISTEN_S" |
     END_S="$END_OF_SPEECH_S" NONE_S="$NO_SPEECH_S" MAX_S="$MAX_LISTEN_S" STOP_FILE="$STATE/listening.stop" \
       perl -MTime::HiRes=time -MIO::Select -e '
