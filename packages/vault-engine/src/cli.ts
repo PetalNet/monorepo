@@ -9,7 +9,7 @@ import { Argument, Command, Flag } from "effect/cli";
 
 import { operations } from "./api.ts";
 import { Vault } from "./engine.ts";
-import { WriteRejected } from "./errors.ts";
+import { SecretFound, WriteRejected } from "./errors.ts";
 import { reindex } from "./recall.ts";
 
 const print = (value: unknown) =>
@@ -101,7 +101,7 @@ const vault = Command.make("vault").pipe(
 NodeRuntime.runMain(
 	Command.run(vault, { version: "0.0.0" }).pipe(
 		// A refused write is an answer, not a crash: print what was refused and exit 1.
-		Effect.catchIf(Schema.is(WriteRejected), (error) =>
+		Effect.catchIf(Schema.is(Schema.Union([WriteRejected, SecretFound])), (error) =>
 			Console.error(error.message).pipe(
 				Effect.andThen(
 					Effect.sync(() => {

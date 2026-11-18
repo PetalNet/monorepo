@@ -114,3 +114,15 @@ export const claimInput = (text: string, source = SOURCE) => ({
 /** Adds one claim in its own write, the way `remember` does. */
 export const addClaim = (tier: Tier, input: NewClaim) =>
 	write(tier, (tx) => tx.addClaim(input), `add claim in ${input.topic}`);
+
+/** One test per case; `%s` in the name is replaced by the case's first value. */
+export const testEach =
+	<const Case extends readonly [string, ...unknown[]]>(cases: readonly Case[]) =>
+	(
+		name: string,
+		body: (...args: Case) => Effect.Effect<void, unknown, Vault | NodeServices.NodeServices>,
+	) => {
+		for (const each of cases) {
+			test(name.replace("%s", each[0]), () => body(...each));
+		}
+	};

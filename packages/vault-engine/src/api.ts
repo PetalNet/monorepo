@@ -2,7 +2,7 @@ import { operation, operationError } from "@petalnet/effect-api";
 import { Effect, Schema } from "effect";
 import { PlatformError } from "effect/PlatformError";
 
-import { TierUnreadable, WriteRejected } from "./errors.ts";
+import { SecretFound, TierUnreadable, WriteRejected } from "./errors.ts";
 import { ClaimCard, recallClaims, reindex, renderCard } from "./recall.ts";
 import { RememberInput, remember } from "./research.ts";
 import { Claim, Text } from "./schema.ts";
@@ -12,6 +12,7 @@ const refresh = Effect.asVoid(reindex);
 
 const errors = {
 	WriteRejected: operationError(WriteRejected, { status: 422, message: (error) => error.message }),
+	SecretFound: operationError(SecretFound, { status: 422, message: (error) => error.message }),
 	TierUnreadable: operationError(TierUnreadable, { status: 500 }),
 	PlatformError: operationError(PlatformError, { status: 500 }),
 };

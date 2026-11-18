@@ -6,6 +6,8 @@ import { Effect } from "effect";
 
 import { tempDir, test } from "./tools.ts";
 
+const token = `ghp_${"a1B2".repeat(9)}`;
+
 describe("CLI", () => {
 	const cli = (root: string, ...args: string[]) =>
 		spawnSync(
@@ -22,7 +24,7 @@ describe("CLI", () => {
 		);
 
 	test(
-		"writes and recalls through the same operations",
+		"writes, recalls and refuses through the same operations",
 		() =>
 			Effect.gen(function* () {
 				const root = yield* tempDir;
@@ -47,6 +49,12 @@ describe("CLI", () => {
 				expect(cli(root, "recall", "hunch").stdout).toMatch(
 					/^\[c-[a-z0-9]{8}\] Note granularity > Notes: A hunch about notes\./,
 				);
+
+				const refused = cli(root, "remember", "--topic", "Note granularity", `token ${token}`);
+
+				expect(refused.status).toBe(1);
+				expect(refused.stderr).toMatch(/Secret scan rejected the write to .*: github-pat/);
+				expect(refused.stderr).not.toContain(token);
 			}),
 		60_000,
 	);

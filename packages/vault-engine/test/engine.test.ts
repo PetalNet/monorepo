@@ -3,7 +3,7 @@ import { Effect } from "effect";
 import { LoroDoc } from "loro-crdt";
 
 import { Vault } from "../src/engine.ts";
-import { WriteRejected } from "../src/errors.ts";
+import { SecretFound, WriteRejected } from "../src/errors.ts";
 import {
 	SOURCE,
 	TOPIC,
@@ -15,8 +15,11 @@ import {
 	state,
 	stored,
 	test,
+	testEach,
 	write,
 } from "./tools.ts";
+
+const token = `ghp_${"a1B2".repeat(9)}`;
 
 describe("documents", () => {
 	test("stores claims and sources as plain values keyed by their ID, one document per tier", () =>
@@ -38,6 +41,45 @@ describe("documents", () => {
 });
 
 describe("write checks", () => {
+	test("rejects a write that carries a secret anywhere, commit message included, and keeps nothing of it", () =>
+		Effect.gen(function* () {
+			yield* seeded;
+
+			for (const attempt of [
+				addClaim("shared", claimInput(`The deploy token is ${token}`)),
+				write(
+					"shared",
+					(tx) => tx.putTopic({ id: "t-fine", title: "Fine", summary: "Fine.", headings: [] }),
+					`note ${token}`,
+				),
+				write("shared", (tx) =>
+					tx.putTopic({ id: "t-raw", title: "Clean", summary: `see ${token}`, headings: [] }),
+				),
+			]) {
+				expect(yield* Effect.flip(attempt)).toBeInstanceOf(SecretFound);
+			}
+
+			expect(Object.keys((yield* state("shared")).claims)).toEqual([]);
+			expect(Object.keys((yield* state("shared")).topics)).toEqual([TOPIC]);
+			expect(yield* stored("shared")).not.toContain(token);
+			expect(yield* stored("shared")).toContain("Dense X Retrieval");
+		}));
+
+	testEach([
+		["after a newline", `setup:\n${token}`],
+		["after a tab", `key\t${["AKIA", "IOSFODNN7", "EXAMPLE"].join("")}`],
+		["in a quoted assignment", `password="${["Zq8vR2mW", "9xKp4Lt7"].join("")}"`],
+	])("rejects a secret %s inside a passage", (_, text) =>
+		Effect.gen(function* () {
+			yield* seeded;
+
+			const error = yield* Effect.flip(write("shared", (tx) => tx.addPassage(SOURCE, text)));
+
+			expect(error).toBeInstanceOf(SecretFound);
+			expect(Object.keys((yield* state("shared")).sources[SOURCE]?.passages ?? {})).toEqual(["p1"]);
+		}),
+	);
+
 	test("requires a source for anything that is not a guess", () =>
 		Effect.gen(function* () {
 			yield* seeded;

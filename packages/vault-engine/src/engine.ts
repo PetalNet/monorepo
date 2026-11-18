@@ -6,9 +6,10 @@ import type { PlatformError } from "effect/PlatformError";
 import { LoroDoc } from "loro-crdt";
 import type { Value } from "loro-crdt";
 
-import { TierUnreadable, WriteRejected } from "./errors.ts";
+import { SecretFound, TierUnreadable, WriteRejected } from "./errors.ts";
 import { Claim, Source, Topic, tiers } from "./schema.ts";
 import type { Link, Tier } from "./schema.ts";
+import { secretRules } from "./secrets.ts";
 import { TierFiles } from "./store.ts";
 
 /** One tier as readers see it: every record whole, keyed by its own ID. */
@@ -54,9 +55,9 @@ export interface Tx extends VaultView {
 	readonly now: string;
 	/** This tier as staged so far. */
 	readonly state: TierState;
-	readonly addClaim: (input: NewClaim) => Effect.Effect<Claim, WriteRejected>;
+	readonly addClaim: (input: NewClaim) => Effect.Effect<Claim, WriteRejected | SecretFound>;
 	/** A passage is what a claim was checked against, so its text never changes once written. */
-	readonly putSource: (input: NewSource) => Effect.Effect<Source, WriteRejected>;
+	readonly putSource: (input: NewSource) => Effect.Effect<Source, WriteRejected | SecretFound>;
 	/**
 	 * Adds a quoted passage and returns its ID: a hash of the text, so two replicas quoting the same
 	 * source never hand different passages the same ID.
@@ -65,8 +66,8 @@ export interface Tx extends VaultView {
 		source: string,
 		text: string,
 		heading?: string,
-	) => Effect.Effect<string, WriteRejected>;
-	readonly putTopic: (input: Topic) => Effect.Effect<Topic, WriteRejected>;
+	) => Effect.Effect<string, WriteRejected | SecretFound>;
+	readonly putTopic: (input: Topic) => Effect.Effect<Topic, WriteRejected | SecretFound>;
 }
 
 export type VaultError = PlatformError | TierUnreadable;
@@ -82,7 +83,7 @@ export interface VaultShape {
 		tier: Tier,
 		message: string,
 		body: (tx: Tx) => Effect.Effect<A, E, R>,
-	) => Effect.Effect<A, E | WriteRejected | VaultError, R>;
+	) => Effect.Effect<A, E | WriteRejected | SecretFound | VaultError, R>;
 	readonly snapshot: (tier: Tier) => Effect.Effect<Uint8Array, VaultError>;
 }
 
@@ -134,6 +135,29 @@ function readState(doc: LoroDoc): TierState {
 	return { claims: stored.claims, sources, topics: stored.topics };
 }
 
+/** Every string in a value, keys included, as written: JSON escaping would hide token boundaries. */
+function strings(value: unknown): string[] {
+	if (typeof value === "string") {
+		return [value];
+	}
+
+	if (Array.isArray(value)) {
+		return value.flatMap((item) => strings(item));
+	}
+
+	if (typeof value === "object" && value !== null) {
+		return Object.entries(value).flatMap(([key, item]) => [key, ...strings(item)]);
+	}
+
+	return [];
+}
+
+const refuseSecrets = (value: unknown, where: string) => {
+	const rules = secretRules(strings(value));
+
+	return rules.length === 0 ? Effect.void : Effect.fail(new SecretFound({ rules, where }));
+};
+
 const checked = <A>(schema: Schema.Decoder<A>, value: unknown) =>
 	// Strict: a record key the schema does not know, even one a record schema would drop, is refused.
 	Schema.decodeUnknownEffect(schema)(value, { onExcessProperty: "error" }).pipe(
@@ -176,7 +200,8 @@ function makeTx(
 
 	/**
 	 * The one way a transaction writes: the record is checked against its schema, then the stored
-	 * value is set in the document and the record staged for later reads in this write.
+	 * value is set in the document and the record staged for later reads in this write. Secrets are
+	 * caught at commit, where everything the write added to the op log is scanned.
 	 */
 	const write = Effect.fnUntraced(function* <A extends { readonly id: string }>(
 		kind: keyof TierState,
@@ -277,8 +302,10 @@ function makeTx(
 		state,
 		addClaim,
 		putSource: Effect.fnUntraced(function* (input: NewSource) {
-			// Checked whole before any part is written, so a refused source leaves nothing behind even
-			// when the caller carries on with the transaction.
+			// Scanned and checked whole before any part is written, so a refused source leaves nothing
+			// behind even when the caller carries on with the transaction.
+			yield* refuseSecrets(input, `${tier}/sources/${input.id}`);
+
 			const existing = state.sources[input.id];
 			const { passages, headings, ...core } = input;
 
@@ -374,11 +401,19 @@ const makeVault = Effect.fnUntraced(function* (config: VaultConfig) {
 
 	const commit = Effect.fnUntraced(function* (
 		tier: Tier,
+		base: Loaded,
 		doc: LoroDoc,
 		message: string,
 		seconds: number,
 	) {
 		doc.commit({ message, timestamp: seconds });
+
+		// Everything this write adds to the file's history, commit message included: a value set and
+		// then overwritten stays in the op log forever, so the log is what gets scanned.
+		yield* refuseSecrets(
+			doc.exportJsonUpdates(base.doc.oplogVersion(), doc.oplogVersion()),
+			`${tier} tier`,
+		);
 
 		yield* files.save(tier, doc.export({ mode: "snapshot" }));
 	});
@@ -401,7 +436,7 @@ const makeVault = Effect.fnUntraced(function* (config: VaultConfig) {
 				const tx = makeTx(tier, doc, states, config.agent, new Date(millis).toISOString());
 				const result = yield* body(tx);
 
-				yield* commit(tier, doc, message, Math.floor(millis / 1000));
+				yield* commit(tier, base, doc, message, Math.floor(millis / 1000));
 
 				return result;
 			}),
