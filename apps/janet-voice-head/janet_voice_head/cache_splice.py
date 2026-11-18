@@ -265,6 +265,12 @@ class _Handler(BaseHTTPRequestHandler):
         self._forward()
 
     def _forward(self):
+        target = urlsplit(self.path)
+        if not self.path.startswith("/") or target.scheme or target.netloc:
+            # Only an origin-form path is forwarded, so a client cannot name another host or scheme.
+            self.send_error(400, "the request target must be a path")
+            self.close_connection = True
+            return
         try:
             length = int(self.headers.get("Content-Length") or 0)
         except ValueError:

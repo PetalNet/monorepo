@@ -260,6 +260,15 @@ class ProxyTest(unittest.TestCase):
         self.assertEqual(self.upstream.seen[0][2], raw)
         self.assertIn("another session", self.proxy.notes[-1])
 
+    def test_only_a_path_is_forwarded_never_a_host_or_scheme(self):
+        for target in ("http://evil.example/v1/messages", "evil.example:443", "*"):
+            connection = http.client.HTTPConnection("127.0.0.1", self.proxy.server_address[1], timeout=10)
+            connection.putrequest("POST", target, skip_accept_encoding=True)
+            connection.putheader("Content-Length", "2")
+            connection.endheaders(b"{}")
+            self.assertEqual(connection.getresponse().status, 400, target)
+        self.assertEqual(self.upstream.seen, [])
+
     def test_other_endpoints_are_not_touched(self):
         raw = self.fork_body()
         self.post("/v1/messages/count_tokens", raw).read()
