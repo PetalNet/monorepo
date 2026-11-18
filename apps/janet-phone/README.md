@@ -24,6 +24,11 @@ instructions.
   30 s per utterance, and four utterances waiting for a turn.
 - **Cut-off.** When the caller speaks over a reply, the bridge stops sending it, tells the device to
   drop what it has queued, and tells the head how much was heard.
+- **Records of test calls stay out of the owner's room.** The bridge decides each record's
+  destination in code: `owner` only when `source = "inbound"` and the channel is not a test or dev
+  channel, `notebook` for everything else, including a bridge whose config does not say. The notify
+  command gets it as `JANET_PHONE_DESTINATION`, and `matrix_notice.py` maps destination names to
+  rooms and refuses a record whose destination has no room.
 - **Call record.** When the call ends, the bridge ends the conversation and pipes a plain-text record
   (time, length, caller class, transcript) to the `notify` command. `matrix_notice.py` posts text to a
   Matrix room as a notice, from standard input or from files dropped in an `--outbox` directory. Run
@@ -53,7 +58,8 @@ stt = "stt-host.local:10300"        # Wyoming speech-to-text
 tier = "guest"                      # the head tier every call on this bridge gets
 channel = "phone"
 disclosure = "Hi, this is Janet, an automated assistant for Parker. This call is being transcribed."
-notify = ["sh", "-c", "f=/outbox/$(date +%s%N); cat > $f.tmp && mv $f.tmp $f.txt"]
+source = "test"                     # "inbound" only for a real line from the outside
+notify = ["sh", "-c", "f=/outbox/$(date +%s%N); cat > $f.tmp && mv $f.tmp $f.$JANET_PHONE_DESTINATION.txt"]
 record_dir = ""                     # set to keep both sides of every call as WAV files
 max_calls = 2                       # the head's own max_open is the real ceiling
 max_call_s = 900

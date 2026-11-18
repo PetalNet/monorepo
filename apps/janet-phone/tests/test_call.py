@@ -90,7 +90,8 @@ class CallTest(unittest.IsolatedAsyncioTestCase):
             listen="127.0.0.1:0", gateway=f"http://127.0.0.1:{self.gateway.server_port}",
             stt=f"127.0.0.1:{self.stt.server_address[1]}", tier="guest", channel="phone-test",
             disclosure="This is an automated assistant for Parker.",
-            notify=["sh", "-c", f"cat > {self.dir}/notice"], record_dir=str(self.dir / "calls"),
+            notify=["sh", "-c", f"cat > {self.dir}/notice; echo $JANET_PHONE_DESTINATION > {self.dir}/destination"],
+            record_dir=str(self.dir / "calls"),
             endpoint={"silence_ms": 200})
         self.server = await janet_phone.serve(
             lambda ws: janet_phone.handle(ws, config), "127.0.0.1", 0,
@@ -131,6 +132,7 @@ class CallTest(unittest.IsolatedAsyncioTestCase):
             self.assertTrue(any(isinstance(message, bytes) for message in seen))
         notice = await self._notice()
         self.assertIn("Janet: This is an automated assistant for Parker.", notice)
+        self.assertEqual((self.dir / "destination").read_text().strip(), "notebook")
         self.assertIn("Caller: what is this", notice)
         self.assertIn("Janet: You said what is this.", notice)
         self.assertLess(notice.index("automated assistant"), notice.index("Caller: what is this"))
@@ -196,6 +198,23 @@ class CallTest(unittest.IsolatedAsyncioTestCase):
             async with connect(self.url, additional_headers={"Authorization": "Bearer wrong"}):
                 pass
         self.assertEqual(refused.exception.response.status_code, 403)
+
+
+class DestinationTest(unittest.TestCase):
+    def config(self, **changes) -> janet_phone.Config:
+        base = dict(listen="", gateway="", stt="", tier="guest", channel="phone", disclosure="")
+        return janet_phone.Config(**{**base, **changes})
+
+    def test_only_a_real_inbound_call_reaches_the_owner(self):
+        self.assertEqual(janet_phone.destination(self.config(source="inbound")), "owner")
+
+    def test_a_bridge_that_does_not_say_what_it_is_goes_to_the_notebook(self):
+        self.assertEqual(janet_phone.destination(self.config()), "notebook")
+
+    def test_test_and_dev_calls_go_to_the_notebook_whatever_the_source_says(self):
+        for changes in ({"source": "test"}, {"source": "app"}, {"source": "inbound", "channel": "desk-test"},
+                        {"source": "inbound", "channel": "phone-dev"}):
+            self.assertEqual(janet_phone.destination(self.config(**changes)), "notebook", changes)
 
 
 class EndpointerTest(unittest.TestCase):
