@@ -123,6 +123,7 @@ client_id = "the public client's id"
 redirect_uri = "janetcall://signin"
 
 turn_models = "/models"             # silero_vad.onnx and the Parakeet files: the shared turn detector (below)
+line_tone = "AL6 AT45 AW83 BC2 BL11 BR7 BF2 BO6 DL0 DW48 U37 V80"   # the call's background sound (below); empty is off
 
 [endpoint]                          # the fallback loudness detector, used only without turn_models
 threshold = 500
@@ -133,6 +134,12 @@ silence_ms = 700
 ([`packages/janet-turn`](../../packages/janet-turn)): Silero VAD, a streaming speech model and a fitted judge. A
 pause of 3 s ends a turn; after an "um" or a trailing "and" it waits 6 s; when the words are finished it ends
 after 1 to 2.5 s. Without `turn_models`, or if the models fail to load, a call uses the loudness rule in `[endpoint]`.
+
+**The line tone.** With `line_tone`, the bridge keeps a quiet sound under the call so the caller knows the line is open
+([`packages/janet-line`](../../packages/janet-line), ported from the tuning page; the value is that page's code): comfort noise
+while listening, a low hum that fades in while Janet works on a reply and out when she speaks, and everything ducked under her
+voice. It is mixed into the audio the bridge already sends, from the pipeline's state (listening, thinking, speaking). To retune it,
+send a new code and set `line_tone`.
 
 Run it with `python janet_phone.py --config /path/to/phone.toml`, or build the `Dockerfile` from the repository root
 (`docker build -f apps/janet-phone/Dockerfile .`); the image carries the models.

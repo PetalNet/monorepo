@@ -78,6 +78,32 @@ class Endpointer:
 
 
 _WORDS: list = []
+LINE_BLOCK_S = 0.05  # the line tone is sent in blocks this long, a block ahead of real time at most
+
+
+def make_line(config: "Config", rate: int):
+    """The shared line tone (packages/janet-line) at `rate`, or None when no code is set or it cannot be made."""
+    if not config.line_tone:
+        return None
+    here = Path(__file__).resolve()
+    repo = str(here.parents[2] / "packages" / "janet-line") if len(here.parents) > 2 else ""
+    if repo and Path(repo).is_dir() and repo not in sys.path:
+        sys.path.append(repo)
+    try:
+        from janet_line.tone import LineTone
+
+        return LineTone(config.line_tone, rate)
+    except Exception as error:  # noqa: BLE001 - a call goes on without its background sound
+        log.warning("no line tone: %s", error)
+        return None
+
+
+def mix(pcm: bytes, tone) -> bytes:
+    """PCM16 mono with `tone` (float samples, -1..1) added, clipped."""
+    import numpy as np
+
+    voice = np.frombuffer(pcm, "<i2").astype(np.float32)
+    return np.clip(voice + tone[: len(voice)] * 32768, -32768, 32767).astype("<i2").tobytes()
 
 
 def new_endpointer(config: "Config"):
@@ -135,6 +161,9 @@ class Config:
     endpoint: dict = field(default_factory=dict)
     # Directory holding silero_vad.onnx and the Parakeet speech model for the shared turn detector. Empty uses the loudness rule.
     turn_models: str = ""
+    # The call's background sound, as the tuning page's code (packages/janet-line), e.g. "AL6 AT45 AW83 BC2 BL11 BR7 BF2 BO6 DL0 DW48 U37 V80".
+    # Empty is off. It plays while the line is open: comfort noise, a hum while a reply is worked on, ducked under Janet's voice.
+    line_tone: str = ""
 
 
 def transcribe(address: str, pcm: bytes) -> str:
@@ -326,6 +355,8 @@ class Call:
         self.over = False
         self.him = 0.0  # the caller's level, as last measured
         self.playing = False
+        self.phase = "listening"  # what the pipeline is doing: listening, thinking or speaking
+        self.line = None
         # Two WAV tracks on one clock, both starting when the call connected: the caller's microphone as it
         # arrives, and Janet's audio padded with silence to when each piece was sent. The timeline gives
         # each side's words the second they were said.
@@ -334,6 +365,7 @@ class Call:
 
     async def run(self) -> None:
         listener = asyncio.create_task(self.listen())
+        hum = asyncio.create_task(self.hum())
         try:
             await self.say(self.config.disclosure, asyncio.ensure_future(self.disclosure()))
             while True:
@@ -372,13 +404,38 @@ class Call:
         finally:
             self.over = True
             listener.cancel()
+            hum.cancel()
             if self.speaking is not None:
                 self.speaking.cancel()
             await self.ws.close()
 
     async def tell(self, **message) -> None:
         """One event for the caller's screen. A device that does not know an event ignores it."""
+        if message.get("type") == "state":
+            self.phase = message["value"]
         await self.ws.send(json.dumps(message))
+
+    async def hum(self) -> None:
+        """Sends the line tone whenever no speech is going out, in real time, so the caller knows the line is open."""
+        if not self.config.line_tone:
+            return
+        due = time.monotonic()
+        while True:
+            if self.playing or not self.rate:
+                due = time.monotonic()
+                await asyncio.sleep(LINE_BLOCK_S / 2)
+                continue
+            if self.line is None:
+                self.line = await asyncio.to_thread(make_line, self.config, self.rate)
+                if self.line is None:
+                    return
+            block = self.line.render(int(self.rate * LINE_BLOCK_S), self.phase)[:, 0]
+            chunk = (block * 32768).astype("<i2").tobytes()
+            await self.ws.send(chunk)
+            if self.config.record_dir:
+                self.tape_janet(chunk, self.rate)
+            due += LINE_BLOCK_S
+            await asyncio.sleep(max(0.0, due - LINE_BLOCK_S - time.monotonic()))
 
     async def disclosure(self) -> tuple[int, bytes]:
         return await asyncio.to_thread(disclosure_audio, self.config, self.gateway)
@@ -480,7 +537,10 @@ class Call:
         rate, pcm = await audio
         if rate != self.rate:
             self.rate = rate
+            self.line = None
             await self.ws.send(json.dumps({"type": "audio", "rate": rate}))
+        if self.config.line_tone and self.line is None:
+            self.line = await asyncio.to_thread(make_line, self.config, rate)
         if turn is not None and "total_ms" not in turn:
             turn["total_ms"] = round((time.monotonic() - ended) * 1000) + turn["endpoint_ms"]
             self.latency["turns"].append(turn)
@@ -494,6 +554,8 @@ class Call:
         try:
             while sent < len(pcm):
                 chunk = pcm[sent : sent + step]
+                if self.line is not None:
+                    chunk = mix(chunk, self.line.render(len(chunk) // 2, "speaking")[:, 0])
                 await self.ws.send(chunk)
                 if self.config.record_dir:
                     self.tape_janet(chunk, rate)

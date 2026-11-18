@@ -116,6 +116,7 @@ class CallTest(unittest.IsolatedAsyncioTestCase):
             endpoint={"silence_ms": 200}, head_token_file=str(self.dir / "head-token"),
             devices_file=str(self.dir / "devices.json"), cache_dir=str(self.dir / "cache"))
         (self.dir / "cache").mkdir()
+        self.config = config
         self.server = await janet_phone.serve(
             lambda ws: janet_phone.handle(ws, config), "127.0.0.1", 0,
             process_request=lambda ws, request: janet_phone.admit(ws, request, config, self.devices))
@@ -175,6 +176,35 @@ class CallTest(unittest.IsolatedAsyncioTestCase):
         timeline = json.loads(next((self.dir / "calls").glob("*.txt")).read_text().splitlines()[-1])
         self.assertEqual([line["who"] for line in timeline][:3], ["Janet", "Caller", "Janet"])
         self.assertEqual(timeline, sorted(timeline, key=lambda line: line["t"]))
+
+    async def test_with_a_line_tone_the_line_is_never_dead_air(self):
+        import dataclasses
+
+        import numpy as np
+
+        config = dataclasses.replace(self.config, line_tone="AL30 V80")
+        server = await janet_phone.serve(
+            lambda ws: janet_phone.handle(ws, config), "127.0.0.1", 0,
+            process_request=lambda ws, request: janet_phone.admit(ws, request, config, self.devices))
+        self.addAsyncCleanup(server.wait_closed)
+        self.addCleanup(server.close)
+        FakeStt.texts = []
+        url = f"ws://127.0.0.1:{server.sockets[0].getsockname()[1]}/v1/call"
+        async with connect(url, additional_headers=self.phone) as ws:
+            while True:  # the disclosure is spoken, then the line is listening
+                message = await asyncio.wait_for(ws.recv(), 10)
+                if isinstance(message, str) and json.loads(message) == {"type": "state", "value": "listening"}:
+                    break
+            await asyncio.sleep(0.3)
+            hum = []
+            for _ in range(20):
+                message = await asyncio.wait_for(ws.recv(), 5)
+                if isinstance(message, bytes):
+                    hum.append(np.frombuffer(message, "<i2"))
+            quiet = np.concatenate(hum) if hum else np.zeros(1)
+        self.assertGreater(len(hum), 5)
+        rms = float(np.sqrt(np.mean(np.square(quiet.astype(np.float64)))))
+        self.assertTrue(0 < rms < 1500, rms)  # a hiss, not silence and not speech
 
     async def test_speaking_over_a_reply_cuts_it_off(self):
         FakeStt.texts = ["tell me a story", "stop"]
@@ -537,6 +567,25 @@ class NewEndpointerTest(unittest.TestCase):
         with tempfile.TemporaryDirectory() as models:
             (Path(models) / "silero_vad.onnx").write_text("not a model")
             self.assertIsInstance(janet_phone.new_endpointer(self.config(turn_models=models)), janet_phone.Endpointer)
+
+
+class LineToneTest(unittest.IsolatedAsyncioTestCase):
+    def test_mix_adds_the_tone_to_the_voice_and_clips(self):
+        import numpy as np
+
+        voice = np.array([1000, -1000, 32000, -32000], "<i2").tobytes()
+        mixed = np.frombuffer(janet_phone.mix(voice, np.array([0.01, 0.01, 0.5, -0.5], np.float32)), "<i2")
+        self.assertEqual(mixed.tolist()[2:], [32767, -32768])
+        for got, want in zip(mixed.tolist()[:2], [1000 + 327.68, -1000 + 327.68]):
+            self.assertAlmostEqual(got, want, delta=1)
+
+    def test_no_code_means_no_line_tone(self):
+        config = janet_phone.Config(listen="x", gateway="x", stt="x", tier="guest", channel="c", disclosure="d")
+        self.assertIsNone(janet_phone.make_line(config, 24000))
+
+    def test_a_bad_code_is_no_line_tone_and_not_a_failed_call(self):
+        config = janet_phone.Config(listen="x", gateway="x", stt="x", tier="guest", channel="c", disclosure="d", line_tone="ZZ9")
+        self.assertIsNone(janet_phone.make_line(config, 24000))
 
 
 if __name__ == "__main__":
