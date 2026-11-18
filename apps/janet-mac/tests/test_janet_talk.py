@@ -430,6 +430,40 @@ class MediaTest(TalkCase):
         time.sleep(0.5)
         self.assertEqual(self.sends(), ["send pause", "send play"])
 
+    def test_a_cut_off_reply_is_resumed_even_when_the_next_press_cannot_start(self):
+        self.playing()
+        (self.stub / "afplay-seconds").write_text("1.5")
+        self.talk("start")
+        speaking = self.talk("stop", wait=False)
+        self.wait_for(lambda: self.sends() == ["send pause"])
+        (self.stub / "hex-start-status").write_text("3")
+        self.talk("start", status=1)
+        speaking.wait(10)
+        self.wait_for(lambda: (self.stub / "media-state").read_text().strip() == "true")
+
+    def test_a_leftover_pause_from_long_ago_is_not_resumed(self):
+        self.playing("false")
+        (self.root / "state").mkdir(exist_ok=True)
+        (self.root / "state" / "media.paused").write_text(f"{int(time.time()) - 5000} com.example.show")
+        self.talk("start")
+        time.sleep(0.5)
+        self.assertEqual(self.sends(), [])
+
+    def test_an_adapter_that_hangs_does_not_hold_the_reply_back(self):
+        self.env["JANET_TALK_MEDIA_TIMEOUT_S"] = "1"
+        (self.stub / "media").write_text("#!/usr/bin/env bash\nexec sleep 30\n")
+        self.talk("start")
+        self.talk("stop", within=15)
+        self.assertEqual(self.lines("played"), ["First.", "Second."])
+
+    def test_media_is_paused_even_when_the_first_sentence_could_not_be_spoken(self):
+        self.playing()
+        self.voice.fail_texts = {"First."}
+        self.talk("start")
+        self.talk("stop")
+        self.assertEqual(self.lines("played"), ["Second."])
+        self.assertEqual(self.sends(), ["send pause", "send play"])
+
     def test_something_the_listener_started_meanwhile_is_left_alone(self):
         self.playing()
         (self.stub / "afplay-seconds").write_text("0.8")
