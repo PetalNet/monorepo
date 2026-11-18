@@ -6,6 +6,7 @@ import assert from "node:assert/strict";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
+import { setTimeout as sleep } from "node:timers/promises";
 
 const TMP = mkdtempSync(path.join(tmpdir(), "janet-home-test-"));
 
@@ -66,22 +67,24 @@ try {
 
 	// SSE: current doc on connect, a new event per set, keepalives while idle, closes on abort
 	const ac = new AbortController();
-	const reader_ = homeStream(ac.signal, { keepaliveMs: 40 }).getReader();
+	const rd = homeStream(ac.signal, { keepaliveMs: 40 }).getReader();
 	const dec = new TextDecoder();
 	let buf = "";
+	let pending = null;
 	const until = async (re, ms = 2000) => {
 		const deadline = Date.now() + ms;
 
 		while (!re.test(buf)) {
 			assert.ok(Date.now() < deadline, `timed out waiting for ${re}; got ${buf}`);
 
-			const r = await Promise.race([
-				reader_.read(),
-				new Promise((res) => setTimeout(() => res(null), 100)),
-			]);
+			pending ??= rd.read();
 
-			if (r?.value) {
-				buf += dec.decode(r.value);
+			// oxlint-disable-next-line no-await-in-loop
+			const r = await Promise.race([pending, sleep(100, null)]);
+
+			if (r) {
+				pending = null;
+				buf += dec.decode(r.value ?? new Uint8Array());
 			}
 		}
 	};
@@ -92,10 +95,7 @@ try {
 	await until(/data: .*live update/);
 	ac.abort();
 
-	const end = await Promise.race([
-		reader_.read(),
-		new Promise((res) => setTimeout(() => res("hung"), 1000)),
-	]);
+	const end = await Promise.race([rd.read(), sleep(1000, "hung")]);
 
 	assert.ok(end === "hung" ? false : end.done, "stream closes after abort");
 

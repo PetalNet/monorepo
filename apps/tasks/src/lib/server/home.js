@@ -6,8 +6,6 @@
 // Live updates: every setHome() publishes to an in-process emitter (better-sqlite3 pins this
 // app to one process, so that is the whole fan-out) and homeStream() turns it into a
 // Server-Sent Events body. Framework-free so scripts/test-janet-home.mjs drives the real code.
-import { EventEmitter } from "node:events";
-
 import db from "./db.js";
 import { renderMd } from "./md.js";
 
@@ -15,9 +13,7 @@ const KEY = "janet_home";
 
 export const HOME_MAX = 24 * 1024; // chars of markdown; the RPC body cap (32 KB) bounds the rest
 
-const bus = new EventEmitter();
-
-bus.setMaxListeners(0);
+const bus = new EventTarget();
 
 export function getHome() {
 	const row = db.prepare("SELECT value FROM meta WHERE key=?").get(KEY);
@@ -36,7 +32,7 @@ export function setHome(markdown) {
 		"INSERT INTO meta(key,value) VALUES(?,?) ON CONFLICT(key) DO UPDATE SET value=excluded.value",
 	).run(KEY, JSON.stringify(doc));
 
-	bus.emit("set", doc);
+	bus.dispatchEvent(new CustomEvent("set", { detail: doc }));
 
 	return doc;
 }
@@ -66,11 +62,13 @@ export function homeStream(signal, { keepaliveMs = 25_000 } = {}) {
 			const push = (doc) => send(`event: home\ndata: ${JSON.stringify(homeView(doc))}\n\n`);
 			const ka = setInterval(() => send(": ka\n\n"), keepaliveMs);
 
-			bus.on("set", push);
+			const onSet = (e) => push(e.detail);
+
+			bus.addEventListener("set", onSet);
 
 			cleanup = () => {
 				clearInterval(ka);
-				bus.off("set", push);
+				bus.removeEventListener("set", onSet);
 
 				try {
 					controller.close();

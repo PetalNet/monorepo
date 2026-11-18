@@ -16,7 +16,6 @@
 import { execFile } from "node:child_process";
 import { readFileSync, statfsSync } from "node:fs";
 import { homedir, loadavg } from "node:os";
-import { fileURLToPath } from "node:url";
 
 // ssh target of the .14 docker host, kept out of the repo: JANET_LAB_DOCKER_SSH=user@host
 const DOCKER_HOST_SSH = process.env.JANET_LAB_DOCKER_SSH;
@@ -56,7 +55,10 @@ export function parseDockerHost(out) {
 			.split("\n")
 			.filter(Boolean)
 			.map((l) => l.split("\t"))
-			.map(([name, status]) => [name, /^Up/.test(status ?? "") && !/unhealthy/.test(status)]),
+			.map(([name, status]) => [
+				name,
+				(status ?? "").startsWith("Up") && !/unhealthy/.test(status),
+			]),
 	);
 
 	if (!dfLine || dfLine.length < 5 || Number.isNaN(load)) {
@@ -179,7 +181,7 @@ async function post(markdown) {
 	}
 }
 
-if (process.argv[1] === fileURLToPath(import.meta.url)) {
+if (process.argv[1] === import.meta.filename) {
 	const md = render(await collect());
 
 	if (process.argv.includes("--print")) {
