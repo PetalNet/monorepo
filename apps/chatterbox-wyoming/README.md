@@ -46,6 +46,7 @@ wyoming = ["tcp://127.0.0.1:10230"]
 http = ["127.0.0.1:8735"]
 idle_unload_seconds = 600
 voice_name = "default"
+gain = 1.0                             # output volume multiplier; peaks are soft-limited, not clipped
 log = "/path/to/chatterbox-wyoming.log" # used when there is no console (pythonw)
 ```
 

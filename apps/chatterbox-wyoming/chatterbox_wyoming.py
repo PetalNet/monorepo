@@ -54,6 +54,14 @@ def to_pcm16(audio: np.ndarray) -> bytes:
     return (np.clip(resampled, -1.0, 1.0) * 32767).astype("<i2").tobytes()
 
 
+def louder(audio: np.ndarray, gain: float, knee: float = 0.8) -> np.ndarray:
+    """Scale by gain, then bend only the samples above the knee smoothly toward full scale instead of clipping them."""
+    scaled = audio * gain
+    over = np.abs(scaled) - knee
+    bent = np.sign(scaled) * (knee + (1 - knee) * np.tanh(over / (1 - knee)))
+    return np.where(over > 0, bent, scaled)
+
+
 def gpu_stats(index: int) -> dict:
     """Read the GPU from nvidia-smi so status checks never create a CUDA context in this process."""
     try:
@@ -88,8 +96,8 @@ class SynthesisError(RuntimeError):
 class Voice:
     """Owns the model. All model work runs on one worker thread, which serializes requests."""
 
-    def __init__(self, runtime: str, gpu_index: int, idle_unload: float):
-        self.runtime, self.gpu_index, self.idle_unload = runtime, gpu_index, idle_unload
+    def __init__(self, runtime: str, gpu_index: int, idle_unload: float, gain: float = 1.0):
+        self.runtime, self.gpu_index, self.idle_unload, self.gain = runtime, gpu_index, idle_unload, gain
         self.model = None
         self.last_used = 0.0
         self.last_rtf: float | None = None
@@ -107,7 +115,7 @@ class Voice:
         self.busy = True
         try:
             try:
-                return self._synthesize(text)
+                return louder(self._synthesize(text), self.gain)
             except Exception as e:
                 log.exception("synthesis failed")
                 failure = repr(e)
@@ -258,7 +266,7 @@ async def reaper(voice: Voice) -> None:
 
 async def serve(config: dict) -> None:
     name, gpu_index = config["name"], config.get("gpu_index", 0)
-    voice = Voice(config["runtime"], gpu_index, config.get("idle_unload_seconds", 600))
+    voice = Voice(config["runtime"], gpu_index, config.get("idle_unload_seconds", 600), config.get("gain", 1.0))
     upstream = Attribution(name="Resemble AI", url="https://github.com/resemble-ai/chatterbox")
     voice_info = TtsVoice(
         name=config.get("voice_name", "default"),
