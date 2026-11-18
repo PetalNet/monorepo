@@ -31,6 +31,15 @@ export function addDays(date: string, days: number): string {
 	return moved.toISOString().slice(0, 10);
 }
 
+/** The label for a rank: the top tenth of the scale is heavy, the top half busy. */
+export function levelOf(quieter: number, of: number): Level {
+	if (quieter >= of * 0.9) {
+		return "heavy";
+	}
+
+	return quieter >= of / 2 ? "busy" : "quiet";
+}
+
 /**
  * Ranks the last period of `series` against the ones before it. Code sets the label from the rank
  * alone: the top tenth of the scale is heavy, the top half busy.
@@ -41,18 +50,11 @@ export function rank(series: { end: string; value: number }[]): Ranked {
 	const quieter = baseline.filter((other) => other < value).length;
 	const sorted = baseline.toSorted((a, b) => a - b);
 	const middle = Math.floor(sorted.length / 2);
-	let level: Level = "quiet";
-
-	if (quieter >= baseline.length * 0.9) {
-		level = "heavy";
-	} else if (quieter >= baseline.length / 2) {
-		level = "busy";
-	}
 
 	return {
 		value,
 		quieter,
-		level,
+		level: levelOf(quieter, baseline.length),
 		median:
 			sorted.length % 2 === 0
 				? ((sorted[middle - 1] ?? 0) + (sorted[middle] ?? 0)) / 2

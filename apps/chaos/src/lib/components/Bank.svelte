@@ -68,13 +68,13 @@
 			{#snippet method()}
 				The needle counts how many of the settled days among the 28 before the last full day had
 				strictly fewer headlines containing "ransomware", "cyberattack" or "data breach" in Google
-				News. It needs 14 such days. They are our own counts, each taken within two days of its day:
-				Google's index thins with age, so a day counted late would read too quiet and make today
-				look loud. A day is a US Pacific day, as Google dates it, and its count is final three hours
-				after it ends. A story found under two words counts once. Each word's results stop at 100,
-				the feed's limit, so a very loud day reads as "or more", and a past day at the limit never
-				counts as quieter. This is coverage volume: it measures attention, never risk, and it moves
-				no other dial.
+				News. It needs 14 such days before the day it reads. They are our own counts, each taken
+				within two days of its day: Google's index thins with age, so a day counted late would read
+				too quiet and make today look loud. A day is a US Pacific day, as Google dates it, and its
+				count is final three hours after it ends. A story found under two words counts once. Each
+				word's results stop at 100, the feed's limit, so a very loud day reads as "or more", and a
+				past day at the limit never counts as quieter. This is coverage volume: it measures
+				attention, never risk, and it moves no other dial.
 			{/snippet}
 			{#if chaos.headlines.length > 0}
 				<div class="list">

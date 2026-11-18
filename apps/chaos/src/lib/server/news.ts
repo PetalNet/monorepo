@@ -1,7 +1,7 @@
 import { setTimeout as sleep } from "node:timers/promises";
 
 import type { Store } from "./store";
-import { addDays, rank, type Gauge } from "./weekly";
+import { addDays, levelOf, rank, type Gauge } from "./weekly";
 
 /** The headline words whose daily count is the chaos-o-meter's reading. */
 const NEWS_TERMS = ["ransomware", "cyberattack", "data breach"] as const;
@@ -268,7 +268,8 @@ export function chaos(store: Store, now: Date): Chaos {
 			gauge: {
 				of: NEWS_NEEDED,
 				kind: "short",
-				have: full.size > 0 ? baseline.length + Number(last !== undefined) : 0,
+				// With no settled recent day there is no window yet: count what is held, short of enough.
+				have: last ? baseline.length + 1 : Math.min(full.size, NEWS_NEEDED),
 				need: NEWS_NEEDED + 1,
 				value: last?.articles ?? 0,
 			},
@@ -277,6 +278,9 @@ export function chaos(store: Store, now: Date): Chaos {
 		};
 	}
 
+	// A baseline day at the feed's limit was at least that loud, so it never counts as quieter, and
+	// the label follows the same count.
+	const quieter = baseline.filter((day) => !day.capped && day.articles < last.articles).length;
 	const ranked = rank([...baseline, last].map((day) => ({ end: day.day, value: day.articles })));
 
 	return {
@@ -285,8 +289,8 @@ export function chaos(store: Store, now: Date): Chaos {
 			of: baseline.length,
 			kind: "reading",
 			...ranked,
-			// A baseline day at the feed's limit was at least that loud, so it never counts as quieter.
-			quieter: baseline.filter((day) => !day.capped && day.articles < last.articles).length,
+			quieter,
+			level: levelOf(quieter, baseline.length),
 		},
 		day: last.day,
 		capped: last.capped,

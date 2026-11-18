@@ -412,6 +412,55 @@ describe("the chaos-o-meter", () => {
 		});
 	});
 
+	it("sets the label from the same count as the needle when past days hit the limit", async () => {
+		const store = openStore(":memory:");
+		// Eight of the 15 earlier days hit the limit under one word. The last day is louder than all.
+		const capped = new Set([
+			"2026-11-17",
+			"2026-11-18",
+			"2026-11-19",
+			"2026-11-20",
+			"2026-11-21",
+			"2026-11-22",
+			"2026-11-23",
+			"2026-11-24",
+		]);
+		const feed = counted(
+			(day) => (capped.has(day) || day === "2026-12-01" ? 100 : 2),
+			[],
+			(day) => day === "2026-12-01",
+		);
+
+		await daily(store, feed, 15);
+
+		// Seven uncapped days were quieter. Seven of 15 is under half, so the day is not even "busy".
+		expect(chaos(store, hours(24 * 14)).gauge).toMatchObject({
+			of: 15,
+			kind: "reading",
+			value: 300,
+			quieter: 7,
+			level: "quiet",
+		});
+	});
+
+	it("leaves out a day it only counted before the day had settled", async () => {
+		const store = openStore(":memory:");
+		const feed = counted(() => 2);
+
+		await daily(store, feed, 15);
+		// A week with no round: December 2 was only ever counted as "today".
+		await ingestNews(store, feed, hours(24 * 21), noPause);
+		await ingestNews(store, feed, hours(24 * 22), noPause);
+
+		const reading = chaos(store, hours(24 * 22));
+
+		expect(reading.gauge.kind).toBe("reading");
+
+		expect(
+			reading.gauge.kind === "reading" ? reading.gauge.series.map((day) => day.end) : [],
+		).not.toContain("2026-12-02");
+	});
+
 	it("keeps reading the last settled day across midnight, then moves on three hours later", async () => {
 		const store = openStore(":memory:");
 		const feed = counted((day) => (day === "2026-12-02" ? 9 : 2));
