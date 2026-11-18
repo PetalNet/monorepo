@@ -1,0 +1,15 @@
+[project]
+name = "janet-phone"
+version = "0.1.0"
+description = "A phone call to Janet: caller audio on one WebSocket, a voice head conversation behind it"
+requires-python = ">=3.13"
+dependencies = ["websockets>=15"]
+
+[project.optional-dependencies]
+matrix = ["matrix-nio[e2e]"]
+
+[project.scripts]
+janet-phone = "janet_phone:main"
+
+[tool.ruff]
+line-length = 120
