@@ -172,8 +172,10 @@ jobs:
           persist-credentials: false
       - name: Install system build dependencies
         run: sudo apt-get update -q && sudo apt-get install -y -q libsqlite3-dev pkg-config libssl-dev
+      # rust-cache keys on every installed toolchain, and the image's own stable differs between
+      # runner image versions.
       - name: Install pinned toolchain (rust-toolchain.toml)
-        run: rustup toolchain install && rustup component add rustfmt clippy
+        run: rustup toolchain uninstall stable && rustup toolchain install && rustup component add rustfmt clippy
       - uses: $/.github/actions/setup-turbo
       - run: turbo --skip-infer run fmt:check --filter='courier*'
       # The courier package's remaining tasks cover all five courier crates in one Cargo invocation
