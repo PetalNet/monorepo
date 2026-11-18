@@ -261,13 +261,19 @@ class ProxyTest(unittest.TestCase):
         self.assertIn("another session", self.proxy.notes[-1])
 
     def test_only_a_path_is_forwarded_never_a_host_or_scheme(self):
-        for target in ("http://evil.example/v1/messages", "evil.example:443", "*"):
+        for target in ("http://evil.example/v1/messages", "evil.example:443", "*", "/v1/../etc/passwd", "/v1/messages#frag"):
             connection = http.client.HTTPConnection("127.0.0.1", self.proxy.server_address[1], timeout=10)
             connection.putrequest("POST", target, skip_accept_encoding=True)
             connection.putheader("Content-Length", "2")
             connection.endheaders(b"{}")
             self.assertEqual(connection.getresponse().status, 400, target)
         self.assertEqual(self.upstream.seen, [])
+
+    def test_the_target_pattern_takes_plain_paths_and_nothing_else(self):
+        for good in ("/", "/v1/messages", "/v1/messages?beta=true", "/v1/messages/count_tokens?beta=true", "/.well-known/x"):
+            self.assertTrue(cs.TARGET.fullmatch(good), good)
+        for bad in ("//x", "http://x/", "/v1/../x", "/..", "/v1/./x", "/a b", "/v1/messages#f", "/v1/messages?x=a b", "/v1/messages\n", ""):
+            self.assertFalse(cs.TARGET.fullmatch(bad), bad)
 
     def test_other_endpoints_are_not_touched(self):
         raw = self.fork_body()
