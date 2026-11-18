@@ -40,7 +40,14 @@
 			"groupName": "vitest"
 		},
 		{
-			"matchPackageNames": ["effect", "/^@effect\\//", "oxlint-tsgolint", "/^@oxlint-tsgolint\\//"],
+			"matchPackageNames": [
+				"effect",
+				"/^@effect\\//",
+				"oxlint-tsgolint",
+				"/^@oxlint-tsgolint\\//",
+				"tsrs",
+				"/^@tsrs\\//"
+			],
 			"groupName": "effect"
 		},
 		{

@@ -6,7 +6,7 @@
 	"scripts": {
 		"check": "vitest run",
 		"test": "vitest run",
-		"typecheck": "tsc -b"
+		"typecheck": "effect-tsgo tsrs -b"
 	},
 	"devDependencies": {
 		"@effect/platform-node": "catalog:",

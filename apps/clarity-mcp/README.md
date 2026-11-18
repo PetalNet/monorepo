@@ -14,7 +14,7 @@ Claude Code or any MCP client. Read-only, no API key.
 ## Build & run
 
 ```bash
-pnpm --filter @petalnet/clarity-mcp build   # tsc -b -> dist/
+pnpm --filter @petalnet/clarity-mcp build   # tsrs -b -> dist/
 pnpm --filter @petalnet/clarity-mcp start   # run the stdio server
 ```
 

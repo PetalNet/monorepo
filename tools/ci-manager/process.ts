@@ -3,7 +3,10 @@ import { Console, Effect, Schema, Stream } from "effect";
 import { ChildProcess, ChildProcessSpawner } from "effect/process";
 
 // oxlint-disable-next-line unicorn/throw-new-error -- TaggedError is a class factory, not a constructor.
-export class CommandFailed extends Schema.TaggedError<CommandFailed>()("CommandFailed", {
+export class CommandFailed extends Schema.TaggedError<
+	CommandFailed,
+	{ readonly brand: unique symbol }
+>()("CommandFailed", {
 	command: Schema.String,
 	exitCode: Schema.Int,
 }) {}

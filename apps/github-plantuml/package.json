@@ -8,7 +8,7 @@
 		"lint:eslint": "eslint . --max-warnings=0",
 		"prepare": "wxt prepare",
 		"test": "vitest run",
-		"typecheck": "tsc -b"
+		"typecheck": "effect-tsgo tsrs -b"
 	},
 	"devDependencies": {
 		"@petalnet/tsconfig": "workspace:*",

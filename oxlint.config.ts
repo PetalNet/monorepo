@@ -103,7 +103,11 @@ export const lintConfig = {
 		"unicorn/consistent-function-scoping": "off",
 		// Categories must not opt into Effect rules outside its recommended preset.
 		"effecttsgo/any-unknown-in-error-context": "off",
+		"effecttsgo/effect-try-without-catch": "off",
+		"effecttsgo/missing-concurrency-option": "off",
+		"effecttsgo/prefer-schema-tagged-error": "off",
 		"effecttsgo/strict-effect-provide": "off",
+		"effecttsgo/yield-in-call-argument": "off",
 		// Formatter-owned ordering and broad style bans conflict with established code.
 		"eslint/capitalized-comments": "off",
 		"eslint/func-names": "off",
@@ -127,6 +131,8 @@ export const lintConfig = {
 		"promise/avoid-new": "off",
 		"promise/prefer-await-to-callbacks": "off",
 		"promise/prefer-await-to-then": "off",
+		// then(onFulfilled, onRejected) leaves the fulfilment handler outside the rejection handler.
+		"promise/prefer-catch": "off",
 		"typescript/parameter-properties": "off",
 		"unicorn/custom-error-definition": "off",
 		// Domain-specific names such as defect distinguish caught failures.

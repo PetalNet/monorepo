@@ -10,7 +10,7 @@
 		}
 	},
 	"scripts": {
-		"typecheck": "tsc -b"
+		"typecheck": "effect-tsgo tsrs -b"
 	},
 	"devDependencies": {
 		"@petalnet/tsconfig": "workspace:*",
