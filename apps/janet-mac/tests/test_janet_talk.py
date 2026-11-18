@@ -604,6 +604,12 @@ class TapTest(TalkCase):
         self.assert_ended_after_speech([(1.0, self.ROOM), (140.0, self.SPEECH), (30.0, self.ROOM)], 141.0, within=200)
         self.assertEqual(self.head_calls("/turns"), [{"text": "what time is it"}])
 
+    def test_a_limit_that_is_not_whole_seconds_does_not_lose_the_recording(self):
+        # Hex drops a recording it stops hearing from. Twelve seconds of speech outlast that.
+        self.env["JANET_TALK_MAX_LISTEN_S"] = "20.5"
+        self.assert_ended_after_speech([(1.0, self.ROOM), (12.0, self.SPEECH), (30.0, self.ROOM)], 13.0)
+        self.assertEqual(self.head_calls("/turns"), [{"text": "what time is it"}])
+
     def test_speech_only_a_little_above_the_room_is_still_speech(self):
         # Eleven dB over a -46 room, with gaps.
         soft = [-35.0, -35.0, -46.0, -35.0]

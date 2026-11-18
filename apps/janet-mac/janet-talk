@@ -30,6 +30,8 @@ MEDIA_STALE_S=1200
 
 # shellcheck source=/dev/null
 [ -r "$CONFIG" ] && . "$CONFIG"
+# Whole seconds: shell arithmetic and the recording's keep-alive count with it.
+case "$MAX_LISTEN_S" in "" | *[!0-9]*) MAX_LISTEN_S=300 ;; esac
 URL="${JANET_VOICE_URL:-}"
 CHANNEL="${JANET_VOICE_CHANNEL:-mac}"
 
