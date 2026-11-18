@@ -345,6 +345,17 @@ class CallTest(unittest.IsolatedAsyncioTestCase):
         for path in ("/", "/v1/call/pair", "/v1/call/../pair", "/pair/"):
             self.assertIn((await asyncio.to_thread(self._http, "GET", path, None, owner))[0], (400, 404), path)
         self.assertEqual((await asyncio.to_thread(self._http, "GET", "/pair", None, owner))[0], 200)
+        # Arriving from the sign-on host or from a link elsewhere is a navigation, and is served.
+        for site in ("same-site", "cross-site"):
+            arrived = {**owner, "Sec-Fetch-Site": site, "Sec-Fetch-Mode": "navigate", "Sec-Fetch-Dest": "document"}
+            self.assertEqual((await asyncio.to_thread(self._http, "GET", "/pair", None, arrived))[0], 200, site)
+        framed = {**owner, "Sec-Fetch-Site": "cross-site", "Sec-Fetch-Mode": "navigate", "Sec-Fetch-Dest": "iframe"}
+        fetched = {**owner, "Sec-Fetch-Site": "same-site", "Sec-Fetch-Mode": "cors", "Sec-Fetch-Dest": "empty"}
+        odd = {**owner, "Sec-Fetch-Site": "cross-site", "Sec-Fetch-Mode": "no-cors", "Sec-Fetch-Dest": "document"}
+        prefetched = {**owner, "Sec-Fetch-Site": "cross-site", "Sec-Fetch-Mode": "navigate", "Sec-Fetch-Dest": "document",
+                      "Sec-Purpose": "prefetch"}
+        for headers in (framed, fetched, odd, prefetched):
+            self.assertEqual((await asyncio.to_thread(self._http, "GET", "/pair", None, headers))[0], 403, headers)
 
     async def test_the_gateway_gets_the_head_token_and_the_callers_access_assertion(self):
         async with connect(self.url, additional_headers={**self.phone, "Cf-Access-Jwt-Assertion": "signed"}) as ws:

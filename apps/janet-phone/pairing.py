@@ -178,6 +178,8 @@ def serve(listen: str, devices: Devices, codes: Codes, *, url: str, access_file:
             self.send_header("content-length", str(len(data)))
             self.send_header("cache-control", "no-store")
             self.send_header("x-frame-options", "DENY")
+            self.send_header("cross-origin-opener-policy", "same-origin")  # a page that opened this one loses its handle
+            self.send_header("referrer-policy", "no-referrer")
             self.end_headers()
             self.wfile.write(data)
 
@@ -185,8 +187,12 @@ def serve(listen: str, devices: Devices, codes: Codes, *, url: str, access_file:
             user = self.headers.get("X-authentik-username", "")
             if urlsplit(self.path).path != page_path:
                 return self._send(HTTPStatus.NOT_FOUND, "{}")
-            # A page on another site must not make the owner's browser mint codes.
-            cross_site = self.headers.get("Sec-Fetch-Site", "none") not in ("none", "same-origin")
+            # A page on another site must not make the owner's browser mint codes behind his back, but
+            # he must be able to arrive here from the sign-on page or from a link: a top-level
+            # navigation is let through whatever site it came from, a fetch or a frame is not.
+            navigation = ((self.headers.get("Sec-Fetch-Mode"), self.headers.get("Sec-Fetch-Dest")) == ("navigate", "document")
+                          and "Sec-Purpose" not in self.headers)  # a speculative load mints nothing
+            cross_site = self.headers.get("Sec-Fetch-Site", "none") not in ("none", "same-origin") and not navigation
             if not from_proxy(self.headers) or not user or user not in users or cross_site:
                 return self._send(HTTPStatus.FORBIDDEN, "{}")
             code, expires = codes.issue(user)
