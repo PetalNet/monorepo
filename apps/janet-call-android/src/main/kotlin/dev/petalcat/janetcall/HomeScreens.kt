@@ -28,8 +28,10 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Icon
+import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -47,6 +49,8 @@ import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.heading
 import androidx.compose.ui.semantics.liveRegion
 import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.text.input.ImeAction
+import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
@@ -154,6 +158,7 @@ fun HomeScreen(
 	onSettings: () -> Unit,
 	now: Instant = Instant.now(),
 	zone: ZoneId = ZoneId.systemDefault(),
+	onRetry: (() -> Unit)? = null,
 ) {
 	val palette = LocalPalette.current
 	Skeleton(
@@ -162,6 +167,15 @@ fun HomeScreen(
 		onSettings = onSettings,
 		action = { Pill("Call Janet", onCall) },
 	) {
+		// Shown when the home page could not load: the page is the home, this is what is left of it.
+		if (onRetry != null) {
+			Card("HOME PAGE") {
+				Text("Janet's home page could not load. You can still call.", style = Type.body, color = palette.ink)
+				Spacer(Modifier.height(14.dp))
+				Pill("Try again", onRetry, filled = false)
+			}
+			Spacer(Modifier.height(14.dp))
+		}
 		Card("LAST CALL") {
 			if (screen.recent.isEmpty()) {
 				Text("No calls yet. Tap Call Janet to start one.", style = Type.body, color = palette.g1)
@@ -236,7 +250,14 @@ fun ConfirmScreen(screen: Screen.Confirm, onPair: () -> Unit, onCancel: () -> Un
 }
 
 @Composable
-fun SettingsScreen(host: String, onBack: () -> Unit, onUnpair: () -> Unit, licences: () -> String) {
+fun SettingsScreen(
+	host: String,
+	homeUrl: String,
+	onHomeUrl: (String) -> String?,
+	onBack: () -> Unit,
+	onUnpair: () -> Unit,
+	licences: () -> String,
+) {
 	val palette = LocalPalette.current
 	var asking by rememberSaveable { mutableStateOf(false) }
 	var reading by rememberSaveable { mutableStateOf(false) }
@@ -255,6 +276,8 @@ fun SettingsScreen(host: String, onBack: () -> Unit, onUnpair: () -> Unit, licen
 				Spacer(Modifier.height(14.dp))
 				Fact("Version", BuildConfig.VERSION_NAME)
 			}
+			Spacer(Modifier.height(14.dp))
+			HomePageField(homeUrl, onHomeUrl)
 			Spacer(Modifier.height(14.dp))
 			Pill("Open-source licences", { reading = true }, filled = false)
 		}
@@ -275,6 +298,35 @@ fun SettingsScreen(host: String, onBack: () -> Unit, onUnpair: () -> Unit, licen
 			text = { Text(licences(), style = Type.detail, modifier = Modifier.verticalScroll(rememberScrollState())) },
 			confirmButton = { TextButton({ reading = false }) { Text("Close") } },
 		)
+	}
+}
+
+/** The home page address. Saving a blank one puts the default back. */
+@Composable
+private fun HomePageField(saved: String, onSave: (String) -> String?) {
+	val palette = LocalPalette.current
+	var text by rememberSaveable { mutableStateOf(saved) }
+	var problem by rememberSaveable { mutableStateOf<String?>(null) }
+	var done by rememberSaveable { mutableStateOf(false) }
+	Card("HOME PAGE") {
+		OutlinedTextField(
+			value = text,
+			onValueChange = {
+				text = it
+				done = false
+			},
+			label = { Text("Address") },
+			singleLine = true,
+			isError = problem != null,
+			supportingText = { Text(problem ?: if (done) "Saved. It loads the next time Home opens." else "Leave it blank for the default.") },
+			keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Uri, imeAction = ImeAction.Done),
+			modifier = Modifier.fillMaxWidth(),
+		)
+		Spacer(Modifier.height(10.dp))
+		Pill("Save address", {
+			problem = onSave(text)
+			done = problem == null
+		}, filled = false)
 	}
 }
 

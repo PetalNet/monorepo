@@ -50,9 +50,17 @@ class HomeShots {
 
 	@Test fun pairing() = draw("home-8-pairing") { PairingScreen(Screen.Pairing("bridge.example.com")) }
 
-	@Test fun settings() = draw("home-9-settings") { SettingsScreen("bridge.example.com", {}, {}, { "Geist: SIL Open Font License 1.1" }) }
+	@Test fun homeFallback() = draw("home-11-page-failed") {
+		HomeScreen(Screen.Home("bridge.example.com", null, calls), {}, {}, now, zone, onRetry = {})
+	}
+
+	@Test fun homePage() = draw("home-12-web") {
+		HomeWeb(DEFAULT_HOME_URL, {}, {}, { retry -> HomeScreen(Screen.Home("bridge.example.com", null, calls), {}, {}, now, zone, onRetry = retry) })
+	}
+
+	@Test fun settings() = draw("home-9-settings") { SettingsScreen("bridge.example.com", DEFAULT_HOME_URL, { null }, {}, {}, { "Geist: SIL Open Font License 1.1" }) }
 
 	@Test fun settingsLight() = draw("home-10-settings-light", dark = false) {
-		SettingsScreen("bridge.example.com", {}, {}, { "Geist: SIL Open Font License 1.1" })
+		SettingsScreen("bridge.example.com", DEFAULT_HOME_URL, { null }, {}, {}, { "Geist: SIL Open Font License 1.1" })
 	}
 }

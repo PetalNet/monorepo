@@ -6,6 +6,7 @@ import java.time.Instant
 import java.time.ZoneId
 import java.util.Locale
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -81,5 +82,22 @@ class CallLogTest {
 		assertEquals(CallRecord(3_000, 3, false), recent.last())
 		log.clear()
 		assertTrue(log.recent().isEmpty())
+	}
+}
+
+@RunWith(RobolectricTestRunner::class)
+@Config(sdk = [35])
+class AppConfigTest {
+	private val config get() = AppConfig(ApplicationProvider.getApplicationContext<android.app.Application>())
+
+	@Test
+	fun `the home page is the default until a good address is saved, and a blank one resets it`() {
+		assertEquals(DEFAULT_HOME_URL, config.homeUrl())
+		assertEquals(true, config.setHomeUrl("http://insecure.example/") != null)
+		assertEquals(DEFAULT_HOME_URL, config.homeUrl())
+		assertNull(config.setHomeUrl(" https://home.example.com/janet "))
+		assertEquals("https://home.example.com/janet", config.homeUrl())
+		assertNull(config.setHomeUrl(""))
+		assertEquals(DEFAULT_HOME_URL, config.homeUrl())
 	}
 }
