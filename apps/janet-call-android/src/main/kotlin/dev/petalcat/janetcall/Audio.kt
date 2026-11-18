@@ -18,6 +18,35 @@ const val MIC_RATE = 16_000
 /** 20 ms of 16 kHz mono PCM16, the chunk size sent to the bridge. */
 const val MIC_CHUNK_BYTES = MIC_RATE / 50 * 2
 
+/** The most microphone audio that may wait in the socket's own send queue: half a second, 25 frames. */
+const val MIC_BACKLOG_BYTES = MIC_CHUNK_BYTES * 25L
+
+/**
+ * Decides whether each microphone frame joins the socket's send queue. When the uplink is slower
+ * than speech that queue would grow without end: Janet would hear the caller ever later, and after
+ * a hang-up the phone would go on sending what was said before it.
+ *
+ * So once half a second is waiting, frames are dropped until the queue has drained, and then sending
+ * resumes. Dropping a whole run and resuming leaves the bridge clean stretches of speech with a gap;
+ * dropping one frame each time one fits would hand it every few frames run together, which neither
+ * its end-of-speech detector nor speech to text can use. The bound covers this queue only, not what
+ * the TLS layer and the kernel already hold.
+ */
+class MicBacklog {
+	private var dropping = false
+
+	/** Frames dropped so far. */
+	var dropped = 0L
+		private set
+
+	fun admits(queuedBytes: Long): Boolean {
+		if (queuedBytes >= MIC_BACKLOG_BYTES) dropping = true
+		else if (queuedBytes <= MIC_CHUNK_BYTES) dropping = false
+		if (dropping) dropped++
+		return !dropping
+	}
+}
+
 interface Mic {
 	/** Blocks until [buf] is full, or returns <= 0 once the mic is stopped. */
 	fun read(buf: ByteArray): Int

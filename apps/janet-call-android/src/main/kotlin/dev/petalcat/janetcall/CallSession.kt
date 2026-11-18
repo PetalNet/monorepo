@@ -1,6 +1,7 @@
 package dev.petalcat.janetcall
 
 import android.os.Process
+import android.util.Log
 import java.util.concurrent.atomic.AtomicBoolean
 import okhttp3.Request
 import okhttp3.Response
@@ -66,13 +67,16 @@ class CallSession(
 		Thread({
 			Process.setThreadPriority(Process.THREAD_PRIORITY_URGENT_AUDIO)
 			val buf = ByteArray(MIC_CHUNK_BYTES)
+			val backlog = MicBacklog()
 			while (!ended.get()) {
 				val n = source.read(buf)
 				if (n <= 0) break
 				stage.mic(pcmLevel(buf, n), CallStage.nowS())
-				socket?.send(buf.toByteString(0, n))
+				val socket = socket ?: continue
+				if (backlog.admits(socket.queueSize())) socket.send(buf.toByteString(0, n))
 			}
 			source.close()
+			if (backlog.dropped > 0) Log.w("JanetCall", "the uplink fell behind: dropped ${backlog.dropped} microphone frames")
 			finish(End.Failed("Microphone stopped"))
 		}, "janet-mic").start()
 	}
