@@ -25,18 +25,23 @@ The first press always goes to Hex at once, so dictation never waits to see whet
 is coming. A double tap leaves Hex a recording a fraction of a second long with no speech in it,
 which it drops.
 
-A second press shorter than 0.4 s is a tap. Janet then listens until 1.3 s of quiet follow some
-speech. She gives up after 6 s if nothing is said, and stops after 45 s whatever happens. Another
-double tap ends the listening within a fraction of a second. A held press ends on release, with no
-wait for quiet.
+A second press shorter than 0.4 s is a tap. Janet then listens for as long as you talk and stops
+when 1.3 s of quiet follow. There is no limit on how long you may talk; a five-minute backstop
+exists only so a stuck listen cannot run for ever. She gives up after 6 s if nothing is said at
+all. Another double tap ends the listening within a fraction of a second. A held press ends on
+release, with no wait for quiet.
 
 "Quiet" and "speech" are judged against the room, from the microphone level Hex reports, so a loud
 room or a different microphone needs no setting. The room level is the lowest "quietest tenth" heard
-so far and only ever goes down, so a long sentence cannot raise it. A sample is loud when it stands
-10 dB above the room; a real room wanders by several dB, so quiet means "nothing loud", not
-"everything low". Speech is eight loud samples within a second, which a click is not and a cough
-can be. The first half second is ignored while the microphone opens. Each listen logs why it
-ended and what it measured, in `~/Library/Caches/janet-talk/talk.log`.
+so far, and talking cannot raise it. If nothing comes near it for eight seconds, the room itself
+got louder (a fan started), and the level is taken again from those eight seconds. A sample is loud
+when it stands 10 dB above the room; a real room wanders by several dB, so quiet means "nothing
+loud", not "everything low". Speech is eight loud samples within a second, which a click is not and
+a cough can be. The first half second is ignored while the microphone opens. Each listen logs why
+it ended and what it measured, in `~/Library/Caches/janet-talk/talk.log`.
+
+One case it gets wrong: if a noise that was there from the start stops before you speak, that
+noise is taken for speech and the listen ends 1.3 s later.
 
 ## What `janet-talk` does
 

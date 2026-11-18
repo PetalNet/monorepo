@@ -120,7 +120,9 @@ class _HexHandler(BaseHTTPRequestHandler):
                     # Speech is uneven: loud and soft instants alternate. A room wanders.
                     syllable += 1
                     self.server.sample += 1
-                    if level > -30:
+                    if isinstance(level, list):
+                        now = level[syllable % len(level)]
+                    elif level > -30:
                         now = level - 15 if syllable % 2 else level
                     else:
                         now = level + ROOM_WANDER[self.server.sample % len(ROOM_WANDER)]
@@ -193,7 +195,7 @@ class TalkCase(unittest.TestCase):
             "JANET_TALK_LATCH_MS": "-1000000",
             "JANET_TALK_END_OF_SPEECH_S": "0.4",
             "JANET_TALK_NO_SPEECH_S": "6",
-            "JANET_TALK_MAX_LISTEN_S": "12",
+            "JANET_TALK_MAX_LISTEN_S": "20",
             # The tests wait for each key event to finish, so it stays in the foreground.
             "JANET_TALK_DETACHED": "1",
             "JANET_TALK_RETRY_S": "0.2",
@@ -214,10 +216,10 @@ class TalkCase(unittest.TestCase):
     def say(self, text):
         (self.stub / "transcript").write_text(text + "\n")
 
-    def talk(self, action, wait=True, status=0):
+    def talk(self, action, wait=True, status=0, within=60):
         process = subprocess.Popen(["bash", str(APP / "janet-talk"), action], env=self.env)
         if wait:
-            self.assertEqual(process.wait(60), status)
+            self.assertEqual(process.wait(within), status)
         return process
 
     def notified(self, expected):
@@ -381,15 +383,15 @@ class TapTest(TalkCase):
         super().setUp()
         self.env["JANET_TALK_LATCH_MS"] = "1000000"
 
-    def listened(self, levels):
+    def listened(self, levels, within=60):
         self.hex.levels = levels
         self.talk("start")
-        self.talk("stop")
+        self.talk("stop", within=within)
         self.assertEqual(self.lines("hex.log"), ["start", "finish"])
         return self.hex.at["finish"] - self.hex.at["start"]
 
-    def assert_ended_after_speech(self, levels, speech_ends_at):
-        seconds = self.listened(levels)
+    def assert_ended_after_speech(self, levels, speech_ends_at, within=60):
+        seconds = self.listened(levels, within)
         self.assertGreater(seconds, speech_ends_at + 0.3, "it stopped listening while the speaker was talking")
         self.assertLess(seconds, speech_ends_at + 1.6, "it kept listening after the speaker stopped")
 
@@ -423,8 +425,39 @@ class TapTest(TalkCase):
 
     def test_a_long_sentence_with_a_soft_ending_is_heard_to_the_end(self):
         # The ending is steady and soft: above the room, below the dips of the loud part.
+        self.env["JANET_TALK_NO_SPEECH_S"] = "10"
         levels = [(0.8, self.ROOM), (3.0, -20.0), (1.5, -32.0), (30.0, self.ROOM)]
         self.assert_ended_after_speech(levels, 5.3)
+
+    def test_someone_who_talks_for_a_minute_is_heard_to_the_end(self):
+        del self.env["JANET_TALK_MAX_LISTEN_S"]  # the limit the script ships with
+        self.assert_ended_after_speech([(1.0, self.ROOM), (60.0, self.SPEECH), (30.0, self.ROOM)], 61.0, within=120)
+
+    def test_speech_only_a_little_above_the_room_is_still_speech(self):
+        # Eleven dB over a -46 room, with gaps.
+        soft = [-35.0, -35.0, -46.0, -35.0]
+        self.assert_ended_after_speech([(1.0, -46.0), (1.5, soft), (30.0, -46.0)], 2.5)
+
+    def test_a_room_with_frequent_louder_instants_is_not_speech(self):
+        # Seven and eight dB over the room, half the time, and nobody talking.
+        self.env["JANET_TALK_NO_SPEECH_S"] = "2"
+        (self.stub / "hex-status").write_text("4")
+        restless = [-46.0, -46.0, -39.0, -38.0, -46.0, -39.0, -38.0, -46.0]
+        seconds = self.listened([(30.0, restless)])
+        self.assertGreater(seconds, 1.9)
+        self.assertLess(seconds, 3.5)
+        self.assertIn("nothing said", (Path(self.env["JANET_TALK_STATE"]) / "talk.log").read_text())
+
+    def test_a_room_that_gets_louder_does_not_keep_it_listening(self):
+        # Speech, then a fan starts: nine dB more room, for good.
+        levels = [(1.0, self.ROOM), (1.5, self.SPEECH), (30.0, self.ROOM + 9)]
+        seconds = self.listened(levels)
+        self.assertLess(seconds, 2.5 + 8 + 3, "it never accepted the louder room as the room")
+
+    def test_a_room_that_goes_quiet_does_not_end_the_listening_on_the_spot(self):
+        # A fan stops three seconds in. The speaker still gets the usual pause to begin.
+        seconds = self.listened([(3.0, self.ROOM + 8), (30.0, self.ROOM)])
+        self.assertGreater(seconds, 3.0 + 1.2)
 
     def test_nothing_said_gives_up(self):
         self.env["JANET_TALK_NO_SPEECH_S"] = "1.5"
