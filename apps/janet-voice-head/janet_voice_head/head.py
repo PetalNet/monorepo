@@ -41,6 +41,9 @@ class Config:
     turn_timeout_s: float = 60
     max_open: int = 2
     warm_up: bool = True
+    # A first turn that has to wait for a cold fork says one short line after this many seconds. 0 turns it off.
+    bridge_after_s: float = 1.0
+    bridge_phrases: list[str] = field(default_factory=lambda: ["Mm, one sec.", "Let me think.", "Hang on a sec."])
     unmerged_channels: list[str] = field(default_factory=list)
 
 
@@ -66,6 +69,12 @@ class Live:
     merge_lock: threading.Lock = field(default_factory=threading.Lock)
     # Clear while a fork's warm-up call is running; the speaker's first turn waits for it.
     warm: threading.Event = field(default_factory=lambda: _set_event())
+    # True once the fork has answered anything, the warm-up included. Until then its first word is slow.
+    answered: bool = False
+    # A turn has arrived and is waiting for the warm-up or running; a second one is refused at once.
+    turn_pending: bool = False
+    # A barge-in that arrived while that turn was still waiting.
+    early_cut: str | None = None
     ending: threading.Event = field(default_factory=threading.Event)
 
     def record(self, **fields) -> None:
@@ -127,26 +136,59 @@ class Head:
 
     def turn(self, conv_id: str, text: str, emit: Emit) -> None:
         live = self._open_live(conv_id)
-        live.warm.wait(self.config.ready_timeout_s + self.config.turn_timeout_s)
-        if not live.turn_lock.acquire(blocking=False):
-            raise ApiError(409, "a turn is already in flight; interrupt it first")
-        if live.conv.state != "open":
-            live.turn_lock.release()
-            raise ApiError(409, "the conversation has ended")
+        arrived = time.monotonic()
+        spoken, emit_lock, bridge_ms = threading.Event(), threading.Lock(), []
+        # A cold fork takes seconds to its first word. Until then one short line keeps the speaker from sitting in silence.
+        # Never on a turn that starts warm, and at most once, and never after the real reply has begun.
+        cold = (self.config.bridge_after_s > 0 and self.config.bridge_phrases and live.conv.tier == "personal"
+                and not live.answered and not live.conv.exchanges and not is_end_phrase(text))
+
+        def bridge() -> None:
+            with emit_lock:
+                if spoken.is_set():
+                    return
+                phrase = self.config.bridge_phrases[int.from_bytes(live.conv.id.encode()[:2], "big") % len(self.config.bridge_phrases)]
+                try:
+                    emit("sentence", {"text": phrase, "bridge": True})
+                    bridge_ms.append(_ms(arrived))
+                except OSError:
+                    pass
+
+        with live.lock:
+            if live.turn_pending:
+                raise ApiError(409, "a turn is already in flight; interrupt it first")
+            live.turn_pending, live.early_cut = True, None
+        timer = threading.Timer(self.config.bridge_after_s, bridge)
+        timer.daemon = True
+        if cold:
+            timer.start()
+        try:
+            live.warm.wait(self.config.ready_timeout_s + self.config.turn_timeout_s)
+            if not live.turn_lock.acquire(blocking=False):
+                raise ApiError(409, "a turn is already in flight; interrupt it first")
+            if live.conv.state != "open":
+                live.turn_lock.release()
+                raise ApiError(409, "the conversation has ended")
+        except ApiError:
+            timer.cancel()
+            live.turn_pending = False
+            raise
         started = time.monotonic()
         latency: dict[str, int | None] = {"first_token": None, "first_sentence": None, "total": None}
         client_connected = True
 
         def say(sentence: str) -> None:
             nonlocal client_connected
-            if latency["first_sentence"] is None:
-                latency["first_sentence"] = _ms(started)
-            if client_connected:
-                try:
-                    emit("sentence", {"text": sentence})
-                except OSError:
-                    client_connected = False
-                    live.session.interrupt()
+            with emit_lock:
+                spoken.set()
+                if latency["first_sentence"] is None:
+                    latency["first_sentence"] = _ms(started)
+                if client_connected:
+                    try:
+                        emit("sentence", {"text": sentence})
+                    except OSError:
+                        client_connected = False
+                        live.session.interrupt()
 
         try:
             with live.lock:
@@ -154,7 +196,9 @@ class Head:
                 number = len(live.conv.exchanges) + 1
                 previous_cut = live.conv.exchanges[-1].heard_before_cutoff if live.conv.exchanges else None
             stream, end, session = SpeechStream(), False, live.session
-            if is_end_phrase(text):
+            if live.early_cut is not None:
+                pass  # the speaker cut in while this turn was still waiting: nothing is asked of the model
+            elif is_end_phrase(text):
                 say(SIGN_OFF)
                 live.record(kind="sign_off", heard=text)
                 end = True
@@ -171,6 +215,7 @@ class Head:
                             say(sentence)
                     for sentence in stream.finish():
                         say(sentence)
+                    live.answered = True
                 except SessionError as error:
                     log.warning("conversation %s: %s", conv_id, error)
                     end = True
@@ -188,12 +233,19 @@ class Head:
             with live.lock:
                 live.in_turn, live.last_activity = False, time.monotonic()
             latency["total"] = _ms(started)
-            if client_connected:
-                try:
-                    emit("done", {"end_conversation": end, "latency_ms": latency})
-                except OSError:
-                    pass
+            timer.cancel()
+            with emit_lock:
+                spoken.set()
+                if bridge_ms:
+                    latency["bridge"] = bridge_ms[0]
+                if client_connected:
+                    try:
+                        emit("done", {"end_conversation": end, "latency_ms": latency})
+                    except OSError:
+                        pass
         finally:
+            timer.cancel()
+            live.turn_pending = False
             live.in_turn = False
             live.turn_lock.release()
 
@@ -203,6 +255,8 @@ class Head:
             if live.in_turn:
                 live.cut_off = heard_text
                 live.session.interrupt()
+            elif live.turn_pending:
+                live.early_cut = heard_text
             elif live.conv.exchanges:
                 live.record(kind="interrupted", n=live.conv.exchanges[-1].n, heard_text=heard_text)
             live.last_activity = time.monotonic()
@@ -273,6 +327,7 @@ class Head:
                     return
                 for _ in live.session.turn(prompts.WARM_UP, self.config.turn_timeout_s):
                     pass
+                live.answered = True
         except SessionError as error:
             log.warning("conversation %s: warm-up: %s", live.conv.id, error)
         finally:

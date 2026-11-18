@@ -30,6 +30,8 @@ def init() -> None:
 
 def reply_to(prompt: str) -> str:
     said = prompt.rsplit(" says: ", 1)[-1]
+    if "--fake-slow-first" in argv and "says" in prompt:
+        time.sleep(1.0)
     if "warm-up" in prompt:
         time.sleep(WARM_DELAY)
         return "ready"

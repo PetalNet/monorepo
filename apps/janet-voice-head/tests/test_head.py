@@ -3,6 +3,7 @@ import json
 import os
 import re
 import stat
+import threading
 import time
 import unittest
 
@@ -284,6 +285,80 @@ class UnmergedChannelTest(HeadCase):
         self.assertEqual(self.end(conv)[1]["merged"], True)
         time.sleep(0.3)
         self.assertEqual(self.hub.accepted, [])
+
+
+class BridgeTest(HeadCase):
+    def cold_head(self, **overrides):
+        self.claude_extra = ["--fake-slow-warm"]
+        self.stop_head()
+        self.start_head(**{"bridge_after_s": 0.3, **overrides})
+
+    def events(self, conv, text):
+        status, events = self.request("POST", f"/v1/conversations/{conv}/turns", {"text": text})
+        self.assertEqual(status, 200, events)
+        return events
+
+    def test_a_cold_first_turn_says_one_short_line_before_the_real_reply_and_it_is_not_remembered(self):
+        self.cold_head()
+        conv = self.open()
+        events = self.events(conv, "hello there")
+        sentences = [data for name, data in events if name == "sentence"]
+        self.assertTrue(sentences[0].get("bridge"))
+        self.assertEqual([s["text"] for s in sentences[1:]], ["You said hello there.", "That is all I know."])
+        self.assertEqual(sum(1 for s in sentences if s.get("bridge")), 1)
+        self.assertIn("bridge", events[-1][1]["latency_ms"])
+        self.end(conv)
+        self.assertNotIn(sentences[0]["text"], self.hub.texts("voice-hard")[0])
+
+    def test_a_turn_that_starts_warm_gets_no_bridge(self):
+        self.cold_head()
+        conv = self.open()
+        self.turn(conv, "one")
+        sentences = [data for name, data in self.events(conv, "two") if name == "sentence"]
+        self.assertFalse(any(s.get("bridge") for s in sentences))
+
+    def test_a_reply_that_is_ready_in_time_gets_no_bridge(self):
+        self.stop_head()
+        self.start_head(bridge_after_s=5)
+        sentences = [data for name, data in self.events(self.open(), "hello there") if name == "sentence"]
+        self.assertFalse(any(s.get("bridge") for s in sentences))
+
+    def test_a_second_turn_while_the_first_waits_is_refused_and_gets_no_bridge_of_its_own(self):
+        self.cold_head()
+        conv = self.open()
+        results = []
+        first = threading.Thread(target=lambda: results.append(self.events(conv, "one")))
+        first.start()
+        time.sleep(0.1)
+        status, _ = self.request("POST", f"/v1/conversations/{conv}/turns", {"text": "two"})
+        first.join(10)
+        self.assertEqual(status, 409)
+        self.assertEqual(sum(1 for n, d in results[0] if n == "sentence" and d.get("bridge")), 1)
+
+    def test_cutting_in_during_the_bridge_stops_the_real_reply_from_being_asked_for(self):
+        self.cold_head()
+        conv = self.open()
+        results = []
+        turn = threading.Thread(target=lambda: results.append(self.events(conv, "hello there")))
+        turn.start()
+        time.sleep(0.45)
+        self.request("POST", f"/v1/conversations/{conv}/interrupt", {"heard_text": "Let me"})
+        turn.join(10)
+        sentences = [d["text"] for n, d in results[0] if n == "sentence"]
+        self.assertEqual(len(sentences), 1)
+        self.assertEqual(self.prompts(), [])
+
+    def test_a_cold_fork_gets_a_bridge_even_with_the_warm_up_turned_off(self):
+        self.claude_extra = ["--fake-slow-first"]
+        self.stop_head()
+        self.start_head(bridge_after_s=0.3, warm_up=False)
+        sentences = [d for n, d in self.events(self.open(), "hello there") if n == "sentence"]
+        self.assertTrue(sentences[0].get("bridge"))
+
+    def test_the_bridge_can_be_turned_off(self):
+        self.cold_head(bridge_after_s=0)
+        sentences = [data for name, data in self.events(self.open(), "hello there") if name == "sentence"]
+        self.assertFalse(any(s.get("bridge") for s in sentences))
 
 
 class IdleTest(HeadCase):
