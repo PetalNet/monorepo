@@ -32,6 +32,7 @@ class Settings(context: Context) {
 
 	/** Null when this phone is not paired, or the stored pairing can no longer be opened or used. */
 	fun pairing(): Pairing? {
+		fake?.let { return it }
 		val sealed = prefs.getString(KEY, null) ?: return null
 		return try {
 			val raw = Base64.decode(sealed, Base64.NO_WRAP)
@@ -65,7 +66,9 @@ class Settings(context: Context) {
 		}
 	}
 
-	private companion object {
+	companion object {
+		var fake: Pairing? = null
+
 		const val KEY = "pairing"
 		const val KEY_ALIAS = "janet_call_settings"
 		const val TRANSFORM = "AES/GCM/NoPadding"

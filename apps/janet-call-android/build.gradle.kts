@@ -18,6 +18,13 @@ android {
 		buildConfig = true
 	}
 
+	testOptions {
+		unitTests {
+			isIncludeAndroidResources = true
+			all { it.systemProperty("roborazzi.test.record", "true"); it.maxHeapSize = "1500m" }
+		}
+	}
+
 	compileOptions {
 		sourceCompatibility = JavaVersion.VERSION_17
 		targetCompatibility = JavaVersion.VERSION_17
@@ -38,6 +45,9 @@ dependencies {
 	implementation("com.squareup.okhttp3:okhttp:4.12.1")
 	testImplementation("junit:junit:4.13.2")
 	testImplementation("org.json:json:20240303")
+	testImplementation("org.robolectric:robolectric:4.14.1")
+	testImplementation("io.github.takahirom.roborazzi:roborazzi:1.43.1")
+	testImplementation("androidx.test:core:1.6.1")
 }
 
 androidComponents {
