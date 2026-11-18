@@ -31,13 +31,13 @@ exists only so a stuck listen cannot run for ever. She gives up after 6 s if not
 all. Another double tap ends the listening within a fraction of a second. A held press ends on
 release, with no wait for quiet.
 
-The turn has ended when no speech has been heard for 3 s ([`turn_end.py`](turn_end.py)). Speech is
+The turn has ended when no speech has been heard for 3 s ([`turn_end.py`](../../packages/janet-turn/janet_turn/turn_end.py), shared with the other voice surfaces in `packages/janet-turn`). Speech is
 judged from the microphone audio Hex streams, by [Silero VAD](https://github.com/snakers4/silero-vad),
 a small model that runs on the Mac: no audio leaves it for this. People stop to think in the middle
 of a turn, often for a second or two, so a shorter wait cuts them off. Any speech starts the count
 again. Each listen logs why it ended, in `~/Library/Caches/janet-talk/talk.log`.
 
-A pause is also judged the way a listener would judge it ([`turn_judge.py`](turn_judge.py)). A second
+A pause is also judged the way a listener would judge it ([`turn_judge.py`](../../packages/janet-turn/janet_turn/turn_judge.py)). A second
 speech model on the Mac writes the words down as they are said
 ([Parakeet Realtime EOU](https://huggingface.co/nvidia/parakeet_realtime_eou_120m-v1), 194 MB, NVIDIA
 Open Model License). Two things follow from what it hears:
@@ -59,7 +59,7 @@ tap ends that further listening as it ends the first. Once she has begun to spea
 key is the way to cut in. There is a gap of a fraction of a second between the two recordings,
 while Hex writes down the first: a word said in it is lost.
 
-The weights in [`turn_judge.json`](turn_judge.json) were fitted on recorded turns of the person who
+The weights in [`turn_judge.json`](../../packages/janet-turn/janet_turn/turn_judge.json) were fitted on recorded turns of the person who
 uses this Mac. Nothing leaves the Mac and no API is called. Without the judge's files, or while its
 speech model is loading or behind, every pause waits the full 3 s.
 
