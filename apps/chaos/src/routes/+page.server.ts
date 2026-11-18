@@ -8,11 +8,16 @@ import { gap } from "$lib/server/weekly";
 
 import type { PageServerLoad } from "./$types";
 
-export const load: PageServerLoad = async ({ locals: { store }, url }) => {
+export const load: PageServerLoad = async ({ locals: { store }, url, setHeaders }) => {
 	const now = new Date();
 	const doors = panel(store, now, url.searchParams.get("door") ?? undefined);
 	const noise = chaos(store, now);
 	const services = board(store, now);
+
+	// A checked domain is in the address. Keep the answer out of every shared cache.
+	if (url.searchParams.has("domain")) {
+		setHeaders({ "cache-control": "private, no-store" });
+	}
 
 	return {
 		...doors,

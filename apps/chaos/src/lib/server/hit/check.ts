@@ -2,7 +2,7 @@ import { worst, type KevEntry } from "../kev";
 import type { ServiceRow } from "../status/board";
 import type { Store } from "../store";
 import { addDays } from "../weekly";
-import { dependencies, parseDomain, systemDns, type Dns, type Sign } from "./lookup";
+import { dependencies, parseDomain, records, systemDns, type Dns, type Sign } from "./lookup";
 
 /** Exploited vulnerabilities count against a provider for this many days after CISA lists them. */
 const KEV_DAYS = 30;
@@ -17,6 +17,11 @@ export interface Finding {
 	status: Pick<ServiceRow, "verdict" | "claim" | "probe" | "page"> | undefined;
 	/** Entries CISA added to its exploited list for this vendor in the last 30 days. */
 	exploited: { count: number; worst: Pick<KevEntry, "cveId" | "name" | "dateAdded"> | undefined };
+	/**
+	 * Whether this panel can say anything about the provider: it has a current status reading or a
+	 * name on CISA's list. A provider that is not tracked is neither a hit nor clear.
+	 */
+	tracked: boolean;
 	/** Set by code: the provider reports trouble now, or has a recent exploited vulnerability. */
 	hit: boolean;
 }
@@ -29,25 +34,26 @@ export type HitCheck =
 	| { kind: "failed"; domain: string }
 	| { kind: "result"; domain: string; findings: Finding[]; checkedAt: string };
 
-const recent: number[] = [];
+let recent: number[] = [];
 
 function allowed(now: Date): boolean {
-	while (recent.length > 0 && (recent[0] ?? 0) <= now.getTime() - 60_000) {
-		recent.shift();
-	}
+	const time = now.getTime();
+
+	// Only the last minute counts, whichever way the clock has moved since.
+	recent = recent.filter((earlier) => earlier > time - 60_000 && earlier <= time);
 
 	if (recent.length >= PER_MINUTE) {
 		return false;
 	}
 
-	recent.push(now.getTime());
+	recent.push(time);
 
 	return true;
 }
 
 /**
  * "Does it hit me?": what public DNS shows a domain depends on, set against the status board and
- * CISA's exploited list. The typed domain is neither stored nor logged.
+ * CISA's exploited list. This app neither stores nor logs the typed domain.
  */
 export async function hitCheck(
 	store: Store,
@@ -71,14 +77,14 @@ export async function hitCheck(
 		return { kind: "busy" };
 	}
 
-	const records = await dns(domain);
+	const found = await records(domain, dns);
 
-	if (records === "missing" || records === "failed") {
-		return { kind: records, domain };
+	if (found === "missing" || found === "failed") {
+		return { kind: found, domain };
 	}
 
 	const listed = store.addedBetween(addDays(date, 1 - KEV_DAYS), date);
-	const findings = dependencies(records).map((dependency): Finding => {
+	const findings = dependencies(found).map((dependency): Finding => {
 		const vendors = new Set(dependency.vendors.map((vendor) => vendor.toLowerCase()));
 		const entries = listed.filter((entry) => vendors.has(entry.vendor.toLowerCase()));
 		const row = rows.find((candidate) => candidate.id === dependency.board);
@@ -96,6 +102,7 @@ export async function hitCheck(
 				count: entries.length,
 				worst: top && { cveId: top.cveId, name: top.name, dateAdded: top.dateAdded },
 			},
+			tracked: row?.claim !== undefined || vendors.size > 0,
 			hit: trouble || entries.length > 0,
 		};
 	});

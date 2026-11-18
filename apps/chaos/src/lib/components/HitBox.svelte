@@ -60,9 +60,9 @@
 				{#if check.findings.length === 0}
 					Public DNS for {check.domain} names none of the providers we track.
 				{:else if hits.length === 0}
-					Nothing on this panel hits {check.domain} right now.
+					Nothing on this panel touches the providers named in the DNS of {check.domain} right now.
 				{:else}
-					{plural(hits.length, "provider", "providers")} behind {check.domain}
+					{plural(hits.length, "provider", "providers")} named in the DNS of {check.domain}
 					{hits.length === 1 ? "has" : "have"} something on this panel.
 				{/if}
 			</p>
@@ -72,7 +72,9 @@
 						<li class:on={finding.hit}>
 							<h3>
 								{finding.name}
-								<span>{finding.hit ? "On the panel" : "Clear"}</span>
+								<span
+									>{finding.hit ? "On the panel" : finding.tracked ? "Clear" : "Not tracked"}</span
+								>
 							</h3>
 							<p class="signs">
 								{#each finding.signs as sign (sign.evidence)}
@@ -86,7 +88,11 @@
 										>{finding.status.claim.text}</a
 									>.
 									{#if finding.status.probe}
-										Our probe: {finding.status.probe.reachable ? "reachable" : "not reachable"}.
+										Our probe: {finding.status.probe.reachable
+											? "reachable"
+											: finding.status.verdict === "retrying"
+												? "one failed try, rechecking"
+												: "not reachable"}.
 									{/if}
 								</p>
 							{/if}
@@ -108,7 +114,10 @@
 					{/each}
 				</ul>
 			{/if}
-			<p class="note">Checked {clock(check.checkedAt)}. The domain is not stored or logged.</p>
+			<p class="note">
+				Checked {clock(check.checkedAt)}. This app does not store or log the domain. It is part of
+				the page address, so your browser history keeps it.
+			</p>
 		{/if}
 	</div>
 
@@ -119,7 +128,9 @@
 			only public DNS: name servers, mail exchangers, the mail senders in the SPF record, what www
 			points at, and the TXT records services use to prove an account. Fixed rules in code name the
 			provider. It never connects to the domain, and it cannot see software inside a network, so an
-			empty answer does not mean a domain depends on nothing.
+			empty answer does not mean a domain depends on nothing. A proof record only shows the domain
+			has an account with a service. "Not tracked" means this panel has no reading for that
+			provider.
 		</p>
 	</details>
 	<SourceLine
@@ -213,7 +224,7 @@
 		color: var(--color-error);
 	}
 	.verdict {
-		max-inline-size: 30ch;
+		max-inline-size: 36ch;
 		margin: 1rem 0 0;
 		font-size: 1.375rem;
 		line-height: 1.25;

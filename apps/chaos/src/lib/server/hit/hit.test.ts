@@ -4,11 +4,42 @@ import type { KevEntry } from "../kev";
 import { board } from "../status/board";
 import { openStore, type Store } from "../store";
 import { hitCheck } from "./check";
-import type { Dns, Records } from "./lookup";
+import type { Dns } from "./lookup";
 
 const NOW = new Date("2026-11-18T17:00:00Z");
 const TODAY = "2026-11-18";
+
+interface Records {
+	ns: string[];
+	mx: string[];
+	txt: string[];
+	cname: string[];
+}
+
 const NONE: Records = { ns: [], mx: [], txt: [], cname: [] };
+const refusal = (code: string) => Object.assign(new Error(code), { code });
+
+/** A resolver that answers from fixed records, as the system resolver would: no records is ENODATA. */
+function resolver(records: Records | "missing" | "failed", asked: string[] = []): Dns {
+	const answer = <T>(name: string, pick: (found: Records) => T[]): Promise<T[]> => {
+		asked.push(name);
+
+		if (records === "missing" || records === "failed") {
+			return Promise.reject(refusal(records === "missing" ? "ENOTFOUND" : "ETIMEOUT"));
+		}
+
+		const found = pick(records);
+
+		return found.length > 0 ? Promise.resolve(found) : Promise.reject(refusal("ENODATA"));
+	};
+
+	return {
+		resolveNs: (name) => answer(name, (found) => found.ns),
+		resolveMx: (name) => answer(name, (found) => found.mx.map((exchange) => ({ exchange }))),
+		resolveTxt: (name) => answer(name, (found) => found.txt.map((record) => [record])),
+		resolveCname: (name) => answer(name, (found) => found.cname),
+	};
+}
 
 const entry = (cveId: string, vendor: string, dateAdded: string, ransomware = false): KevEntry => ({
 	cveId,
@@ -34,11 +65,7 @@ async function check(
 	prepare: (store: Store, now: Date) => void = () => undefined,
 ) {
 	const asked: string[] = [];
-	const dns: Dns = (domain) => {
-		asked.push(domain);
-
-		return Promise.resolve(records);
-	};
+	const dns = resolver(records, asked);
 
 	const store = openStore(":memory:");
 
@@ -48,7 +75,10 @@ async function check(
 
 	prepare(store, now);
 
-	return { result: await hitCheck(store, board(store, now).rows, input, TODAY, now, dns), asked };
+	const result = await hitCheck(store, board(store, now).rows, input, TODAY, now, dns);
+
+	// The apex name three times and "www" once: nothing else is ever asked.
+	return { result, asked: [...new Set(asked.map((name) => name.replace(/^www\./, "")))] };
 }
 
 describe("what a visitor may type", () => {
@@ -144,7 +174,7 @@ describe("reading the records", () => {
 		const { result } = await check("example.org", {
 			ns: ["ns1.notcloudflare.com.evil.example"],
 			mx: ["mail.google.com.attacker.example"],
-			txt: ["xMS=1", "v=spf1 include:sendgrid.net.evil.example ~all"],
+			txt: ["xMS=1", "MS=unrelated", "v=spf1 include:sendgrid.net.evil.example ~all"],
 			cname: ["vercel-dns.com.evil.example"],
 		});
 
@@ -156,6 +186,93 @@ describe("reading the records", () => {
 			kind: "result",
 			findings: [],
 		});
+	});
+});
+
+describe("what the resolver says", () => {
+	const only = (answers: Partial<Record<keyof Dns, string>>, records: Records = NONE): Dns => {
+		const base = resolver(records);
+		const or = <A extends unknown[], T>(key: keyof Dns, ask: (...args: A) => Promise<T>) =>
+			answers[key] === undefined ? ask : () => Promise.reject(refusal(answers[key] ?? ""));
+
+		return {
+			resolveNs: or("resolveNs", base.resolveNs),
+			resolveMx: or("resolveMx", base.resolveMx),
+			resolveTxt: or("resolveTxt", base.resolveTxt),
+			resolveCname: or("resolveCname", base.resolveCname),
+		};
+	};
+
+	const through = (dns: Dns, at: number) =>
+		hitCheck(
+			openStore(":memory:"),
+			[],
+			"app.example.org",
+			TODAY,
+			new Date(Date.UTC(2028, 0, 1, 0, at)),
+			dns,
+		);
+
+	it("does not call a name missing because it has no www or none of these records", async () => {
+		// A host with only an address record: every answer is empty, and "www" under it does not exist.
+		expect(await through(only({ resolveCname: "ENOTFOUND" }), 1)).toMatchObject({
+			kind: "result",
+			findings: [],
+		});
+
+		expect(
+			await through(
+				only({ resolveCname: "ENOTFOUND" }, { ...NONE, ns: ["sid.ns.cloudflare.com"] }),
+				2,
+			),
+		).toMatchObject({ kind: "result", findings: [{ name: "Cloudflare" }] });
+	});
+
+	it("calls a name missing only when the resolver says the name itself does not exist", async () => {
+		const gone = {
+			resolveNs: "ENOTFOUND",
+			resolveMx: "ENOTFOUND",
+			resolveTxt: "ENOTFOUND",
+			resolveCname: "ENOTFOUND",
+		};
+
+		expect(await through(only(gone), 3)).toEqual({ kind: "missing", domain: "app.example.org" });
+
+		// A resolver that is slow to refuse "www" under a missing name changes nothing.
+		expect(await through(only({ ...gone, resolveCname: "ETIMEOUT" }), 7)).toMatchObject({
+			kind: "missing",
+		});
+	});
+
+	it("gives no answer when any question fails, whatever the others said", async () => {
+		const records = { ...NONE, ns: ["sid.ns.cloudflare.com"] };
+
+		expect(await through(only({ resolveTxt: "ESERVFAIL" }, records), 4)).toEqual({
+			kind: "failed",
+			domain: "app.example.org",
+		});
+
+		expect(
+			await through(
+				{ ...resolver(records), resolveMx: () => Promise.reject(new Error("boom")) },
+				5,
+			),
+		).toMatchObject({
+			kind: "failed",
+		});
+	});
+
+	it("reads an SPF include whatever its qualifier or case", async () => {
+		const spf = {
+			...NONE,
+			txt: ["V=SPF1 ~include:sendgrid.net ?INCLUDE:_spf.salesforce.com -all"],
+		};
+		const result = await through(resolver(spf), 6);
+
+		expect(result.kind === "result" ? result.findings.map((finding) => finding.name) : []).toEqual([
+			"Twilio SendGrid",
+			"Salesforce",
+		]);
 	});
 });
 
@@ -229,9 +346,27 @@ describe("setting a provider against the panel", () => {
 					hit: true,
 					status: { claim: { text: "Partially Degraded Service" } },
 				},
-				{ name: "Microsoft", hit: false },
+				{ name: "Microsoft", hit: false, tracked: true },
 			],
 		});
+	});
+
+	it("calls a provider it has no reading for not tracked, never clear", async () => {
+		const { result } = await check("example.org", {
+			...NONE,
+			txt: ["stripe-verification=abc", "slack-domain-verification=abc", "MS=ms1"],
+		});
+
+		expect(
+			result.kind === "result"
+				? result.findings.map((finding) => [finding.name, finding.tracked, finding.hit])
+				: [],
+		).toEqual([
+			// Microsoft is on CISA's list by name. Slack's status row has no reading, and Stripe has neither.
+			["Microsoft", true, false],
+			["Slack", false, false],
+			["Stripe", false, false],
+		]);
 	});
 
 	it("names AWS and Azure name servers by their numbered hosts only", async () => {
@@ -252,8 +387,7 @@ describe("setting a provider against the panel", () => {
 it("stops after 20 checks in a minute and recovers in the next one", async () => {
 	const store = openStore(":memory:");
 	const at = new Date("2027-01-01T00:00:00Z");
-	const run = (now: Date) =>
-		hitCheck(store, [], "example.org", TODAY, now, () => Promise.resolve(NONE));
+	const run = (now: Date) => hitCheck(store, [], "example.org", TODAY, now, resolver(NONE));
 	const kinds = (await Promise.all(Array.from({ length: 21 }, () => run(at)))).map(
 		(done) => done.kind,
 	);

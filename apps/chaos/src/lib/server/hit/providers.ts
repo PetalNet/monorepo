@@ -64,7 +64,7 @@ export const PROVIDERS: readonly Provider[] = [
 		mx: [".mail.protection.outlook.com"],
 		spf: ["spf.protection.outlook.com"],
 		cname: [".azurewebsites.net", ".azureedge.net", ".trafficmanager.net", ".azurefd.net"],
-		txt: ["MS="],
+		txt: ["MS=ms"],
 	},
 	{
 		id: "github",

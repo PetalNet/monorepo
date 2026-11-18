@@ -3,7 +3,7 @@ import { Resolver } from "node:dns/promises";
 import { PROVIDERS, type Role } from "./providers";
 
 /** The public DNS records the check reads. */
-export interface Records {
+interface Records {
 	ns: string[];
 	mx: string[];
 	txt: string[];
@@ -11,7 +11,13 @@ export interface Records {
 	cname: string[];
 }
 
-export type Dns = (domain: string) => Promise<Records | "missing" | "failed">;
+/** The four questions the check asks a resolver. `node:dns/promises` answers them in production. */
+export interface Dns {
+	resolveNs: (name: string) => Promise<string[]>;
+	resolveMx: (name: string) => Promise<{ exchange: string }[]>;
+	resolveTxt: (name: string) => Promise<string[][]>;
+	resolveCname: (name: string) => Promise<string[]>;
+}
 
 /** Names that never belong to the public internet. They are refused without a lookup. */
 const PRIVATE =
@@ -37,55 +43,59 @@ export function parseDomain(input: string): string | undefined {
 	return host !== undefined && HOSTNAME.test(host) && !PRIVATE.test(host) ? host : undefined;
 }
 
-const ABSENT = new Set(["ENODATA", "ENOTFOUND"]);
+/** The system resolver, asked once with a short wait so a slow answer cannot hold the page. */
+export const systemDns: Dns = new Resolver({ timeout: 3000, tries: 1 });
 
 /**
- * Reads the records through the system resolver. Only DNS is asked: the domain itself is never
- * connected to, so a typed name cannot make this server reach a host.
+ * Reads the records. Only DNS is asked: the domain itself is never connected to, so a typed name
+ * cannot make this server reach a host. "missing" means the resolver says the name itself does not
+ * exist; a name with none of these records is an empty answer, not a missing domain.
  */
-export const systemDns: Dns = async (domain) => {
-	const resolver = new Resolver({ timeout: 3000, tries: 1 });
-	let failed = 0;
-	let missing = 0;
-	const read = async <T>(ask: () => Promise<T[]>): Promise<T[]> => {
+export async function records(domain: string, dns: Dns): Promise<Records | "missing" | "failed"> {
+	const read = async <T>(ask: () => Promise<T[]>): Promise<T[] | "absent" | "failed"> => {
 		try {
 			return await ask();
 		} catch (error) {
-			const code = (error as { code?: unknown }).code;
+			const code = (error as { code?: unknown } | null)?.code;
 
 			if (code === "ENOTFOUND") {
-				missing += 1;
-			} else if (typeof code !== "string" || !ABSENT.has(code)) {
-				failed += 1;
+				return "absent";
 			}
 
-			return [];
+			return code === "ENODATA" ? [] : "failed";
 		}
 	};
 
 	const [ns, mx, txt, cname] = await Promise.all([
-		read(() => resolver.resolveNs(domain)),
-		read(() => resolver.resolveMx(domain)),
-		read(() => resolver.resolveTxt(domain)),
-		read(() => resolver.resolveCname(`www.${domain}`)),
+		read(() => dns.resolveNs(domain)),
+		read(() => dns.resolveMx(domain)),
+		read(() => dns.resolveTxt(domain)),
+		read(() => dns.resolveCname(`www.${domain}`)),
 	]);
 
-	if (failed > 0) {
+	if (ns === "failed" || mx === "failed" || txt === "failed") {
 		return "failed";
 	}
 
-	// The name itself does not exist when even its name servers are unknown.
-	if (missing > 0 && ns.length === 0 && mx.length === 0 && txt.length === 0) {
+	// Only the name itself counts: a domain with no "www" is still a domain, and when the name does
+	// not exist there is nothing to learn from asking about "www" under it.
+	if (ns === "absent" && mx === "absent" && txt === "absent") {
 		return "missing";
 	}
 
+	if (cname === "failed") {
+		return "failed";
+	}
+
+	const list = <T>(answer: T[] | "absent"): T[] => (answer === "absent" ? [] : answer);
+
 	return {
-		ns,
-		mx: mx.map((record) => record.exchange),
-		txt: txt.map((chunks) => chunks.join("")),
-		cname,
+		ns: list(ns),
+		mx: list(mx).map((record) => record.exchange),
+		txt: list(txt).map((chunks) => chunks.join("")),
+		cname: list(cname),
 	};
-};
+}
 
 export interface Sign {
 	role: Role;
@@ -120,12 +130,11 @@ function named(host: string, rules: readonly (string | RegExp)[] | undefined): b
 }
 
 /** Matches the records against the fixed provider rules. Code decides every match. */
-export function dependencies(records: Records): Dependency[] {
-	const spf = records.txt
+export function dependencies(found: Records): Dependency[] {
+	const spf = found.txt
 		.filter((record) => record.toLowerCase().startsWith("v=spf1"))
 		.flatMap((record) => record.split(/\s+/))
-		.filter((part) => part.toLowerCase().startsWith("include:"))
-		.map((part) => part.slice("include:".length));
+		.flatMap((part) => /^[+?~-]?include:(.+)$/i.exec(part)?.[1] ?? []);
 
 	return PROVIDERS.flatMap((provider) => {
 		const signs: Sign[] = [];
@@ -142,17 +151,20 @@ export function dependencies(records: Records): Dependency[] {
 			}
 		};
 
-		add("DNS", "NS", records.ns, provider.ns);
-		add("Mail", "MX", records.mx, provider.mx);
+		add("DNS", "NS", found.ns, provider.ns);
+		add("Mail", "MX", found.mx, provider.mx);
 		add("Sends mail", "SPF include", spf, provider.spf);
-		add("Website", "www CNAME", records.cname, provider.cname);
+		add("Website", "www CNAME", found.cname, provider.cname);
 
 		const proof = (provider.txt ?? []).find((label) =>
-			records.txt.some((record) => record.startsWith(label)),
+			found.txt.some((record) => record.startsWith(label)),
 		);
 
 		if (proof !== undefined) {
-			signs.push({ role: "Account", evidence: `TXT ${proof.replace(/[=_]$/, "")}` });
+			signs.push({
+				role: "Account",
+				evidence: `TXT ${(proof.split("=")[0] ?? proof).replace(/_$/, "")}`,
+			});
 		}
 
 		return signs.length > 0
