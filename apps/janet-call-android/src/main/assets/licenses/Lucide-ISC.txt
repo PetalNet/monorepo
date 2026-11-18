@@ -1,4 +1,4 @@
-Icons in Janet Call (microphone, microphone off, speaker, close, settings, back) are from Lucide, https://lucide.dev
+Icons in Janet (microphone, microphone off, speaker, close, settings, back) are from Lucide, https://lucide.dev
 
 ISC License
 

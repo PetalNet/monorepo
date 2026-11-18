@@ -150,7 +150,7 @@ class MainActivity : ComponentActivity() {
 		setIntent(Intent(this, MainActivity::class.java))
 		if (intent.flags and Intent.FLAG_ACTIVITY_LAUNCHED_FROM_HISTORY != 0) return
 		when {
-			Calls.inCall || pending != null -> Unit
+			Calls.inCall || pending != null || Pairer.host != null -> Unit
 			settings.pairing() == null -> {
 				Pairer.notice = "Pair this phone first, then call."
 				render()

@@ -41,4 +41,38 @@ class RingbackTest {
 		ringback.start()
 		assertEquals(2, tones.size)
 	}
+
+	@Test
+	fun `a tone that cannot be made, started or stopped never throws, and the next start still works`() {
+		var made = 0
+		val failing = Ringback {
+			made++
+			throw RuntimeException("no tone generator")
+		}
+		failing.start()
+		failing.stop()
+		assertEquals(1, made)
+
+		val startFails = object : Tone {
+			override fun start() = throw RuntimeException("start")
+
+			override fun stop() = Unit
+		}
+		val a = Ringback { startFails }
+		a.start()
+		a.stop()
+
+		val stopFails = Counting()
+		val b = Ringback {
+			object : Tone {
+				override fun start() = stopFails.start()
+
+				override fun stop() = throw RuntimeException("stop")
+			}
+		}
+		b.start()
+		b.stop()
+		b.stop()
+		assertEquals(1, stopFails.started)
+	}
 }

@@ -3,7 +3,7 @@
 	<shortcut
 		android:shortcutId="call"
 		android:enabled="true"
-		android:icon="@drawable/ic_stat_janet"
+		android:icon="@mipmap/ic_launcher"
 		android:shortcutShortLabel="@string/shortcut_call"
 		android:shortcutLongLabel="@string/shortcut_call_long">
 		<intent

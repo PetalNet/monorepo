@@ -18,15 +18,19 @@ interface Tone {
 class Ringback(private val tone: () -> Tone = { SystemTone() }) {
 	private var playing: Tone? = null
 
+	/** A tone that cannot be made or started is no tone: it must never take the call down with it. */
 	@Synchronized
 	fun start() {
-		if (playing == null) playing = tone().also { it.start() }
+		if (playing != null) return
+		val made = runCatching { tone() }.getOrNull() ?: return
+		if (runCatching { made.start() }.isSuccess) playing = made else runCatching { made.stop() }
 	}
 
 	@Synchronized
 	fun stop() {
-		playing?.stop()
+		val tone = playing ?: return
 		playing = null
+		runCatching { tone.stop() }
 	}
 }
 
@@ -38,8 +42,11 @@ private class SystemTone : Tone {
 	}
 
 	override fun stop() {
-		generator.stopTone()
-		generator.release()
+		try {
+			generator.stopTone()
+		} finally {
+			generator.release()
+		}
 	}
 
 	private companion object {
