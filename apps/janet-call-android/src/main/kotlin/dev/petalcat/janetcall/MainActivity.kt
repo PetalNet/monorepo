@@ -235,7 +235,7 @@ class MainActivity : ComponentActivity() {
 		if (needed.isEmpty()) placeCall() else requestPermissions(needed.toTypedArray(), 1)
 	}
 
-	override fun onRequestPermissionsResult(code: Int, permissions: Array<out String>, results: IntArray) {
+	override fun onRequestPermissionsResult(code: Int, permissions: Array<String>, results: IntArray) {
 		super.onRequestPermissionsResult(code, permissions, results)
 		if (checkSelfPermission(Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED) {
 			placeCall()

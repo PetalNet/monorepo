@@ -443,7 +443,6 @@ class CallSky(context: Context) : View(context) {
 		layout.draw(canvas)
 		canvas.restore()
 	}
-}
 
 	private companion object {
 		const val STATUS = 34
