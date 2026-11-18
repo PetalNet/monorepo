@@ -39,7 +39,13 @@ One conversation is one talk-only Claude Code process:
   fork, first call: 14,303 read and 162,156 written without it, 176,459 read and 0 written with it.
 - **Talk only.** The process runs with no tools, no MCP servers, no settings, and an
   allowlisted environment. The head reads the session's own report of its tools and never
-  uses a session that reports any.
+  uses a session that reports any. The one exception is `web_tools` (config, default empty): a
+  `personal` head is then launched with exactly `WebSearch`/`WebFetch` (`--tools`, `--permission-mode dontAsk`,
+  a `--settings` allow list; MCP and setting sources stay off) and the check becomes an allowlist: it accepts
+  those tools and kills a session that reports any other. Guests never get them. WebFetch is refused for
+  loopback, private, link-local and tailnet addresses and for `*.petalcat.dev`, `*.ts.net`, `localhost` and
+  `*.local`: Claude's `WebFetch(domain:...)` deny rules match names only (not `10.*`, checked on 2.1.326), so
+  `web_guard.py` runs as a PreToolUse hook that resolves the host and checks every address.
 - **Soft merge.** The model ends a reply with a `<relay>` block when the speaker asked for
   something to be done. The head strips the block from speech and injects the ask into
   main at once, so main acts during the call.

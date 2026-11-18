@@ -13,7 +13,7 @@ class StubSession:
     account_email = None
     failure = None
 
-    def __init__(self, *_):
+    def __init__(self, *_, **__):
         pass
 
     def wait_ready(self, _timeout):

@@ -8,12 +8,21 @@ import time
 from collections.abc import Iterator
 from pathlib import Path
 
+from . import web_guard
+
 # Main's hermes-link plugin re-points the hub at whichever session loads it, so a head must load nothing of main's.
-LOCKED_FLAGS = [
-    "-p", "--input-format", "stream-json", "--output-format", "stream-json", "--verbose",
-    "--include-partial-messages", "--tools", "", "--strict-mcp-config",
-    "--mcp-config", '{"mcpServers":{}}', "--setting-sources", "",
-]
+def locked_flags(web_tools: tuple[str, ...] = ()) -> list[str]:
+    """No MCP and no setting sources ever; the built-in tools are exactly `web_tools`, which only a personal head is given."""
+    flags = [
+        "-p", "--input-format", "stream-json", "--output-format", "stream-json", "--verbose",
+        "--include-partial-messages", "--tools", ",".join(web_tools), "--strict-mcp-config",
+        "--mcp-config", '{"mcpServers":{}}', "--setting-sources", "",
+    ]
+    if web_tools:
+        flags += ["--settings", json.dumps(web_guard.settings(web_tools)), "--permission-mode", "dontAsk"]
+    return flags
+
+
 ENV_ALLOW = (
     "HOME", "PATH", "USER", "LANG", "LC_ALL", "TZ", "NIX_LD", "NIX_LD_LIBRARY_PATH",
     "XDG_RUNTIME_DIR", "DBUS_SESSION_BUS_ADDRESS", "SSL_CERT_FILE", "NIX_SSL_CERT_FILE",
@@ -33,12 +42,14 @@ def session_env(environ=os.environ) -> dict[str, str]:
 
 
 class ClaudeSession:
-    def __init__(self, argv: list[str], cwd: str, env: dict[str, str] | None = None, allow_tools: bool = False):
+    def __init__(self, argv: list[str], cwd: str, env: dict[str, str] | None = None, allow_tools: bool = False,
+                 web_tools: tuple[str, ...] = ()):
         self.session_id: str | None = None
         self.account_email: str | None = None
         self.failure: str | None = None
         self._verified = False
         self._allow_tools = allow_tools
+        self._web_tools = frozenset(web_tools)
         self._initialized = False
         self._ready = threading.Event()
         self._events: queue.Queue = queue.Queue()
@@ -122,7 +133,7 @@ class ClaudeSession:
                 self.account_email = (response.get("account") or {}).get("email")
                 self._initialized = True
         elif kind == "system" and event.get("subtype") == "init":
-            if (event.get("tools") or event.get("mcp_servers")) and not self._allow_tools:
+            if not self._allow_tools and (event.get("mcp_servers") or not self._web_tools.issuperset(event.get("tools") or ())):
                 return self._fail("the session came up with tools or MCP servers")
             self.session_id, self._verified = event.get("session_id"), True
         elif kind == "system" and event.get("subtype") == "status" and event.get("status") == "requesting":
@@ -133,6 +144,9 @@ class ClaudeSession:
             self._answering = True
             inner = event.get("event") or {}
             delta = inner.get("delta") or {}
+            if inner.get("type") == "content_block_start" and (inner.get("content_block") or {}).get("type") == "tool_use" and self._active:
+                # A lookup begins: end the sentence before it ("one sec, checking.") so it is spoken while the tool runs.
+                self._events.put(("delta", "\n"))
             if inner.get("type") == "content_block_delta" and delta.get("type") == "text_delta" and self._active:
                 self._events.put(("delta", delta.get("text", "")))
         elif kind == "result":

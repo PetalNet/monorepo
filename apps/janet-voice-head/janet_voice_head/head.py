@@ -11,7 +11,7 @@ from .conversation import Conversation, Exchange, Journal, TranscriptMark
 from .merge import Hub, HubError, HubRefused
 from . import cache_splice, snapshot
 from .render import fallback_summary, hard_text, soft_text, stub_text
-from .session import LOCKED_FLAGS, ClaudeSession, SessionError, session_env, transcript_path
+from .session import ClaudeSession, locked_flags, SessionError, session_env, transcript_path
 from .speech import SIGN_OFF, SpeechStream, is_end_phrase
 
 log = logging.getLogger("janet-voice-head")
@@ -61,6 +61,8 @@ class Config:
     main_like_env: dict[str, str] = field(default_factory=dict)
     cache_splice: bool = True
     unmerged_channels: list[str] = field(default_factory=list)
+    # Built-in tools a personal conversation's head may use, from web_guard.TOOLS. Empty keeps every head tool-less. Guests never get them.
+    web_tools: list[str] = field(default_factory=list)
 
 
 def _set_event() -> threading.Event:
@@ -140,7 +142,7 @@ class Head:
                 if fork and self.config.main_like_fork:
                     live.session = self._session_factory(self._argv(conv, resume), self._cwd(conv), env=self._main_like_env(), allow_tools=True)
                 else:
-                    live.session = self._session_factory(self._argv(conv, resume), self._cwd(conv))
+                    live.session = self._session_factory(self._argv(conv, resume), self._cwd(conv), web_tools=self._web_tools(conv, resume))
             except OSError as error:
                 live.record(kind="ending", reason="session_failed_to_start")
                 raise ApiError(503, f"the head session did not start: {error}") from error
@@ -230,7 +232,7 @@ class Head:
                     latency["spawn_wait"] = _ms(started)
                     fork = live.conv.tier == "personal"
                     stream = SpeechStream(redact=None if fork else session.account_email)
-                    for delta in session.turn(prompts.turn_prompt(text, fork=fork, cut_off=previous_cut), self.config.turn_timeout_s):
+                    for delta in session.turn(prompts.turn_prompt(text, fork=fork, cut_off=previous_cut, web=bool(fork and self.config.web_tools and not self.config.main_like_fork)), self.config.turn_timeout_s):
                         if latency["first_token"] is None:
                             latency["first_token"] = _ms(started)
                         for sentence in stream.feed(delta):
@@ -381,6 +383,9 @@ class Head:
         if not link.is_symlink():
             link.symlink_to(transcript_path(self.config.main_cwd, parent))
 
+    def _web_tools(self, conv: Conversation, resume: str | None) -> tuple[str, ...]:
+        return tuple(self.config.web_tools) if resume and conv.tier == "personal" and not self.config.main_like_fork else ()
+
     def _argv(self, conv: Conversation, resume: str | None) -> list[str]:
         if resume and conv.tier == "personal" and self.config.main_like_fork:
             return [*self.config.claude, "-p", "--input-format", "stream-json", "--output-format", "stream-json", "--verbose",
@@ -390,7 +395,7 @@ class Head:
             identity = ["--resume", resume, "--fork-session", "--model", self.config.model]
         else:
             identity = ["--model", self.config.cold_model, "--system-prompt", prompts.COLD_PROFILE]
-        return [*self.config.claude, *LOCKED_FLAGS, *identity, "--effort", self.config.effort]
+        return [*self.config.claude, *locked_flags(self._web_tools(conv, resume)), *identity, "--effort", self.config.effort]
 
     def _warm_up(self, live: Live) -> None:
         """A fork's first model call reads all of main's context cold and takes seconds. Making it while the speaker is still talking hides that wait."""
