@@ -32,8 +32,9 @@ instructions.
   `{"token", "cf_id", "cf_secret"}`: its device token and the Cloudflare Access service token it
   needs from then on. Neither is ever in a link. Both pair routes must be reachable without Access;
   the exchange answers 429 after ten attempts in a minute, counted for everyone together.
-- **Getting a link.** `--pair-link FILE` asks the running bridge for one and writes it to FILE, mode
-  600. `GET <pair_path>` shows the same link as a QR code; it is for the single-sign-on proxy alone:
+- **Getting a link.** `--pair-link FILE` asks the running bridge for one and writes it to FILE, which
+  only its owner can read. `GET <pair_path>` shows the same link as a QR code; it is for the
+  single-sign-on proxy alone:
   a request must carry the secret in `proxy_secret_file` as `X-Janet-Pair-Proxy`, and only then is
   its `X-authentik-username` believed and checked against `pair_users`. Each pairing is announced
   through the notify command. If a paired phone is lost, unpair it and rotate the Access token.
