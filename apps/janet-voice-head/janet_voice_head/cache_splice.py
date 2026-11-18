@@ -38,7 +38,8 @@ SCAN_FALLBACK_BYTES = 16 * 1024 * 1024
 HOP_BY_HOP = {"connection", "keep-alive", "proxy-authenticate", "proxy-authorization", "te", "trailers",
               "transfer-encoding", "upgrade", "host", "content-length"}
 REPLY_ONLY = {"server", "date"}  # the proxy sends its own
-BILLING = "x-anthropic-billing-header:"
+_SEGMENT = r"(?!\.{1,2}(?:/|\?|$))[A-Za-z0-9_.~-]+"
+TARGET = re.compile(rf"/(?:{_SEGMENT}/)*(?:{_SEGMENT})?(?:\?[A-Za-z0-9_.~=&%,+:-]*)?")
 HARNESS_TAG = re.compile(r"^<artifact-content-authored-by-others/>\n", re.MULTILINE)
 
 
@@ -265,9 +266,8 @@ class _Handler(BaseHTTPRequestHandler):
         self._forward()
 
     def _forward(self):
-        target = urlsplit(self.path)
-        if not self.path.startswith("/") or target.scheme or target.netloc:
-            # Only an origin-form path is forwarded, so a client cannot name another host or scheme.
+        if not TARGET.fullmatch(self.path):
+            # Only a plain path and query are forwarded: no host, scheme, dot segments or odd characters.
             self.send_error(400, "the request target must be a path")
             self.close_connection = True
             return
