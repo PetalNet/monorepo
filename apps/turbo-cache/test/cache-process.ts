@@ -80,6 +80,7 @@ export async function startCache(jwksUrl: string) {
 	const close = async () => {
 		await run("docker", ["rm", "--force", id]).catch(() => undefined);
 	};
+
 	const url = `http://127.0.0.1:${String(port)}`;
 
 	try {
@@ -87,6 +88,7 @@ export async function startCache(jwksUrl: string) {
 
 		for (;;) {
 			try {
+				// oxlint-disable-next-line no-await-in-loop -- readiness polling is sequential by design.
 				await fetch(`${url}/v8/artifacts/status`);
 
 				break;
@@ -95,7 +97,10 @@ export async function startCache(jwksUrl: string) {
 					throw error;
 				}
 
-				await new Promise((resolve) => setTimeout(resolve, 100));
+				// oxlint-disable-next-line no-await-in-loop -- readiness polling is sequential by design.
+				await new Promise((resolve) => {
+					setTimeout(resolve, 100);
+				});
 			}
 		}
 
