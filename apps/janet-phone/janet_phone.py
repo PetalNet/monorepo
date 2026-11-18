@@ -120,7 +120,8 @@ def destination(config: Config) -> str:
     A test, a development call or a call on a test channel must never reach the owner's own room, so
     that is the answer unless the bridge is explicitly an inbound line.
     """
-    real = config.source == "inbound" and "test" not in config.channel and "dev" not in config.channel
+    channel = config.channel.lower()
+    real = config.source == "inbound" and "test" not in channel and "dev" not in channel
     return "owner" if real else "notebook"
 
 

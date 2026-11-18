@@ -19,6 +19,7 @@ from websockets.exceptions import InvalidStatus
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
 import janet_phone  # noqa: E402
+import matrix_notice  # noqa: E402
 
 TOKEN = "Bearer right"
 
@@ -213,8 +214,36 @@ class DestinationTest(unittest.TestCase):
 
     def test_test_and_dev_calls_go_to_the_notebook_whatever_the_source_says(self):
         for changes in ({"source": "test"}, {"source": "app"}, {"source": "inbound", "channel": "desk-test"},
-                        {"source": "inbound", "channel": "phone-dev"}):
+                        {"source": "inbound", "channel": "phone-dev"}, {"source": "inbound", "channel": "Desk-TEST"}):
             self.assertEqual(janet_phone.destination(self.config(**changes)), "notebook", changes)
+
+
+class NoticeRoutingTest(unittest.TestCase):
+    def test_a_file_name_carries_its_destination(self):
+        self.assertEqual(matrix_notice.destination_of("1794981808582657005.notebook.txt"), "notebook")
+
+    def test_a_file_name_without_a_destination_has_none(self):
+        for name in ("1794981808582657005.txt", "1794981808582657005..txt", "a.owner.notebook.txt", "owner.txt"):
+            self.assertEqual(matrix_notice.destination_of(name), "", name)
+
+    def test_a_record_with_no_room_is_set_aside_and_later_records_still_go(self):
+        outbox, sent = Path(tempfile.mkdtemp()), []
+        (outbox / "1.txt").write_text("old format")
+        (outbox / "2.notebook.txt").write_text("a test call")
+
+        def send(to, text):
+            sent.append((to, text))
+            raise KeyboardInterrupt  # leaves the endless loop once the routable record is reached
+
+        with self.assertRaises(KeyboardInterrupt):
+            matrix_notice.watch(outbox, {"owner": "!a:x", "notebook": "!b:x"}, send)
+        self.assertEqual(sent, [("notebook", "a test call")])
+        self.assertTrue((outbox / "1.unrouted").exists())
+
+    def test_two_destinations_cannot_share_a_room(self):
+        self.assertEqual(matrix_notice.rooms_of(["owner=!a:x", "notebook=!b:x"]), {"owner": "!a:x", "notebook": "!b:x"})
+        with self.assertRaises(ValueError):
+            matrix_notice.rooms_of(["owner=!a:x", "notebook=!a:x"])
 
 
 class EndpointerTest(unittest.TestCase):
