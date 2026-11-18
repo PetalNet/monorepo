@@ -18,7 +18,7 @@ _MARKUP = re.compile(r"[*_`#]+|^\s*[-•]\s+", re.M)
 
 _LISTENING = ("go ahead", "go on", "keep going", "carry on", "i'm listening", "im listening", "i am listening", "i'm here", "im here",
               "i'm still here", "i'm all ears", "i'm still listening", "i'm ready", "take your time", "no rush", "ready when you are",
-              "i'm with you", "i hear you", "mm-hm", "mm hm", "mhm", "mm", "mmm", "uh-huh", "uh huh", "[silent]", "<silent>")
+              "i'm with you", "i hear you", "[silent]", "<silent>")
 _FILLER = ("parker",)
 
 

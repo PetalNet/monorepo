@@ -46,12 +46,12 @@ if __name__ == "__main__":
 
 class BackchannelTest(unittest.TestCase):
     def test_filler_that_only_says_the_line_is_open_is_not_spoken(self):
-        for text in ("Go ahead, I'm listening.", "Go ahead.", "Mm-hm.", "I'm listening, Parker.", "Take your time.", "[silent]"):
+        for text in ("Go ahead, I'm listening.", "Go ahead.", "I'm listening, Parker.", "Take your time.", "[silent]"):
             spoken, _, _, whole = run(text)
             self.assertEqual((spoken, whole), ([], ""), text)
 
     def test_an_answer_that_uses_the_same_words_is_spoken(self):
-        for text in ("Okay.", "Yes.", "Sure, go ahead.", "Yes, I hear you.", "Okay, I'm ready.", "Go ahead and order the filament.", "I'm here to help with store hours."):
+        for text in ("Mm.", "Mm-hm.", "Hmm.", "Uh-huh.", "Okay.", "Yes.", "Sure, go ahead.", "Yes, I hear you.", "Okay, I'm ready.", "Go ahead and order the filament.", "I'm here to help with store hours."):
             self.assertEqual(run(text)[0], [text], text)
 
     def test_filler_before_a_real_answer_is_dropped_and_the_answer_kept(self):
