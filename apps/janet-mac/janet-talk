@@ -238,7 +238,7 @@ end_conversation() { # reason
 # Playing) is paused while Janet speaks and resumed after, but only when it was playing.
 # macOS 15.4 closed MediaRemote to ordinary programs, so this goes through the entitled
 # /usr/bin/perl and the mediaremote-adapter that install.sh builds. JANET_TALK_MEDIA names a
-# stand-in for it.
+# stand-in for it. The adapter's `send` takes a command id, not a name: 1 is pause and 0 is play.
 
 media() { # adapter arguments...; gives up on a call that hangs
   if [ -n "${JANET_TALK_MEDIA:-}" ]; then
@@ -261,7 +261,7 @@ media_playing() { # prints the bundle id of what is playing, and fails when noth
 media_pause() {
   local bundle
   bundle=$(media_playing) || return 0
-  media send pause >/dev/null 2>&1 || return 0
+  media send 1 >/dev/null 2>&1 || return 0
   printf '%s %s' "$(date +%s)" "$bundle" >"$STATE/media.paused"
   log "media paused: $bundle"
 }
@@ -277,7 +277,7 @@ media_resume() {
   [ $(($(date +%s) - paused_at)) -lt "$MEDIA_STALE_S" ] || return 0
   media_playing >/dev/null && return 0
   [ "$(media get --no-artwork 2>/dev/null | jq -r '.bundleIdentifier // empty' 2>/dev/null)" = "$bundle" ] || return 0
-  media send play >/dev/null 2>&1
+  media send 0 >/dev/null 2>&1
   log "media resumed: $bundle"
 }
 

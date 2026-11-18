@@ -35,9 +35,9 @@ STUBS = {
     'cat "$STUB/media-state" >>"$STUB/media-at-play" 2>/dev/null\n'
     'sleep "$(cat "$STUB/afplay-seconds")"\n',
     # Stands in for the MediaRemote adapter: one player whose state is a file, and a log of its calls.
-    "media": '#!/usr/bin/env bash\necho "$*" >>"$STUB/media-calls"\n[ -e "$STUB/media-state" ] || { echo null; exit 0; }\n'
+    "media": '#!/usr/bin/env bash\necho "$*" >>"$STUB/media-calls"\n[ "$1" = send ] && case "$2" in "" | *[!0-9]*) echo "Parameter command is not an integer: $2" >&2; exit 1;; esac\n[ -e "$STUB/media-state" ] || { echo null; exit 0; }\n'
     'case "$1 $2" in\n  "get "*) echo "{\\"bundleIdentifier\\":\\"com.example.show\\",\\"playing\\":$(cat "$STUB/media-state")}";;\n'
-    '  "send pause") echo false >"$STUB/media-state";;\n  "send play") echo true >"$STUB/media-state";;\nesac\n',
+    '  "send 1") echo false >"$STUB/media-state";;\n  "send 0") echo true >"$STUB/media-state";;\nesac\n',
     "osascript": '#!/usr/bin/env bash\necho "$3" >>"$STUB/notifications"\n',
     "curl": '#!/usr/bin/env bash\necho "$*" >>"$STUB/curl-args"\nexec "$REAL_CURL" "$@"\n',
 }
@@ -400,7 +400,7 @@ class MediaTest(TalkCase):
         self.playing()
         self.talk("start")
         self.talk("stop")
-        self.assertEqual(self.sends(), ["send pause", "send play"])
+        self.assertEqual(self.sends(), ["send 1", "send 0"])
         self.assertEqual(self.lines("media-at-play"), ["false", "false"])
         self.assertEqual((self.stub / "media-state").read_text().strip(), "true")
 
@@ -422,20 +422,20 @@ class MediaTest(TalkCase):
         (self.stub / "afplay-seconds").write_text("1.5")
         self.talk("start")
         speaking = self.talk("stop", wait=False)
-        self.wait_for(lambda: self.sends() == ["send pause"])
+        self.wait_for(lambda: self.sends() == ["send 1"])
         (self.stub / "afplay-seconds").write_text("0")
         self.talk("start")
         speaking.wait(10)
         self.wait_for(lambda: (self.stub / "media-state").read_text().strip() == "true")
         time.sleep(0.5)
-        self.assertEqual(self.sends(), ["send pause", "send play"])
+        self.assertEqual(self.sends(), ["send 1", "send 0"])
 
     def test_a_cut_off_reply_is_resumed_even_when_the_next_press_cannot_start(self):
         self.playing()
         (self.stub / "afplay-seconds").write_text("1.5")
         self.talk("start")
         speaking = self.talk("stop", wait=False)
-        self.wait_for(lambda: self.sends() == ["send pause"])
+        self.wait_for(lambda: self.sends() == ["send 1"])
         (self.stub / "hex-start-status").write_text("3")
         self.talk("start", status=1)
         speaking.wait(10)
@@ -462,17 +462,17 @@ class MediaTest(TalkCase):
         self.talk("start")
         self.talk("stop")
         self.assertEqual(self.lines("played"), ["Second."])
-        self.assertEqual(self.sends(), ["send pause", "send play"])
+        self.assertEqual(self.sends(), ["send 1", "send 0"])
 
     def test_something_the_listener_started_meanwhile_is_left_alone(self):
         self.playing()
         (self.stub / "afplay-seconds").write_text("0.8")
         self.talk("start")
         speaking = self.talk("stop", wait=False)
-        self.wait_for(lambda: self.sends() == ["send pause"])
+        self.wait_for(lambda: self.sends() == ["send 1"])
         self.playing()
         speaking.wait(20)
-        self.assertEqual(self.sends(), ["send pause"])
+        self.assertEqual(self.sends(), ["send 1"])
 
 
 class TapTest(TalkCase):
