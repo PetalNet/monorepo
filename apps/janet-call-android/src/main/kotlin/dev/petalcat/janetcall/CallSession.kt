@@ -26,8 +26,11 @@ class CallSession(
 	private val stage: CallStage,
 	private val onOpen: () -> Unit,
 	private val onEnded: (End) -> Unit,
+	/** Janet's first audio has arrived: the ringback tone stops here. Called once, off the main thread. */
+	private val onFirstAudio: () -> Unit = {},
 ) {
 	private val ended = AtomicBoolean(false)
+	private val heard = AtomicBoolean(false)
 
 	@Volatile private var socket: WebSocket? = null
 
@@ -121,7 +124,10 @@ class CallSession(
 			}
 		}
 
-		override fun onMessage(webSocket: WebSocket, bytes: ByteString) = player.enqueue(bytes.toByteArray())
+		override fun onMessage(webSocket: WebSocket, bytes: ByteString) {
+			if (heard.compareAndSet(false, true)) onFirstAudio()
+			player.enqueue(bytes.toByteArray())
+		}
 
 		override fun onClosing(webSocket: WebSocket, code: Int, reason: String) {
 			finish(End.Remote("Connection closed by the bridge"))
