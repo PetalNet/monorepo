@@ -1,10 +1,12 @@
+// oxlint-disable effecttsgo/unstable-api-usage -- Effect 4 exposes process services through unstable APIs.
 import { createHash } from "node:crypto";
 
-import { Effect, Schema } from "effect";
+import { Context, Effect, Layer, Schema, Stream } from "effect";
+import { ChildProcess, ChildProcessSpawner } from "effect/process";
 
 import { Vault } from "./engine.ts";
 import type { Tx } from "./engine.ts";
-import { WriteRejected } from "./errors.ts";
+import { CaptureFailed, WriteRejected } from "./errors.ts";
 import { recallClaims, recallPassages } from "./recall.ts";
 import type { ClaimCard, PassageHit } from "./recall.ts";
 import {
@@ -19,6 +21,138 @@ import {
 	tiers,
 } from "./schema.ts";
 import type { Claim, Link, Source, Tier } from "./schema.ts";
+
+const CiteOutput = Schema.fromJsonString(
+	Schema.Struct({
+		source: Schema.optionalKey(
+			Schema.NullOr(
+				Schema.Struct({
+					id: Schema.String,
+					title: Schema.String,
+					url: Schema.String,
+					fetched_at: Schema.String,
+				}),
+			),
+		),
+		citation: Schema.optionalKey(
+			Schema.NullOr(
+				Schema.Struct({
+					status: Schema.String,
+					reason: Schema.optionalKey(Schema.NullOr(Schema.String)),
+				}),
+			),
+		),
+		reason: Schema.optionalKey(Schema.NullOr(Schema.String)),
+	}),
+);
+
+export interface CitedSource {
+	readonly id: string;
+	readonly title: string;
+	readonly url: string;
+	readonly fetchedAt: string;
+}
+
+/** Vault-cite, which fetches and saves the artifacts claims cite. */
+export class Cite extends Context.Service<
+	Cite,
+	{ readonly capture: (ref: string) => Effect.Effect<CitedSource, CaptureFailed> }
+>()("vault-engine/Cite") {
+	/**
+	 * `command` is the vault-cite CLI as an argv prefix, for example `node
+	 * packages/vault-cite/src/cli.ts`, or the same behind `ssh` when the source store lives on
+	 * another host. With no command, every capture fails.
+	 */
+	static readonly layer = (command: readonly string[]) =>
+		Layer.effect(
+			Cite,
+			Effect.gen(function* () {
+				const spawner = yield* ChildProcessSpawner.ChildProcessSpawner;
+				const [program, ...prefix] = command;
+
+				return {
+					capture: (ref) =>
+						Effect.gen(function* () {
+							if (program === undefined) {
+								return yield* new CaptureFailed({
+									ref,
+									reason: "No vault-cite command is configured (set VAULT_CITE)",
+								});
+							}
+
+							const handle = yield* spawner.spawn(
+								ChildProcess.make(
+									program,
+									[...prefix, ref.startsWith("src-") ? "get" : "add", ref],
+									{
+										stderr: "inherit",
+									},
+								),
+							);
+							const output = yield* Stream.mkString(Stream.decodeText(handle.stdout));
+							const result = yield* Schema.decodeEffect(CiteOutput)(
+								output.trim().split("\n").at(-1) ?? "",
+							).pipe(Effect.orElseSucceed((): typeof CiteOutput.Type => ({})));
+
+							if (!result.source) {
+								return yield* new CaptureFailed({
+									ref,
+									reason:
+										result.citation?.reason ??
+										result.citation?.status ??
+										result.reason ??
+										"capture failed",
+								});
+							}
+
+							return {
+								id: result.source.id,
+								title: result.source.title,
+								url: result.source.url,
+								fetchedAt: result.source.fetched_at,
+							};
+						}).pipe(
+							Effect.scoped,
+							Effect.catchTag("PlatformError", (error) =>
+								Effect.fail(new CaptureFailed({ ref, reason: error.message })),
+							),
+						),
+				};
+			}),
+		);
+}
+
+/**
+ * Records a URL, DOI or arXiv ID as a source. A source the vault already holds is reused without a
+ * fetch; anything else is captured through vault-cite first.
+ */
+export const captureSource = Effect.fnUntraced(function* (tier: Tier, ref: string) {
+	const vault = yield* Vault;
+	const view = yield* vault.view;
+	const existing = ref.startsWith("src-")
+		? view.source(ref)
+		: tiers
+				.flatMap((each) => Object.values(view.tiers[each].sources))
+				.find((source) => source.url === ref && source.status === "active");
+
+	if (existing) {
+		return existing;
+	}
+
+	const saved = yield* (yield* Cite).capture(ref);
+
+	return yield* vault.transact(tier, `capture source ${saved.id}`, (tx) =>
+		tx.putSource({
+			id: saved.id,
+			kind: "capture",
+			title: oneLine(saved.title) || saved.url,
+			url: saved.url,
+			sourceType: "PRIMARY",
+			captured: new Date(saved.fetchedAt).toISOString(),
+			passages: {},
+		}),
+	);
+});
 
 export const Recheck = Schema.Struct({
 	id: Schema.String,
@@ -182,8 +316,8 @@ const upsertTopics = Effect.fnUntraced(function* (tx: Tx, topics: readonly Topic
 
 /**
  * Writes one research run as a tree: topics, claims and passages, rooted at a run note that lists
- * what the run created, updated, reused and found stale. Sources must already be in the vault; a
- * claim cannot cite a URL the vault never saved.
+ * what the run created, updated, reused and found stale. Sources must already be in the vault (see
+ * `captureSource`); a claim cannot cite a URL the vault never saved.
  */
 export const researchRun = Effect.fnUntraced(function* (tier: Tier, input: ResearchRunInput) {
 	const vault = yield* Vault;
@@ -339,7 +473,8 @@ export const RememberInput = Schema.Struct({
 	),
 	source: Schema.optionalKey(
 		Text.annotate({
-			description: "A vault source ID.",
+			description:
+				"A vault source ID, URL, DOI or arXiv ID. An unsaved reference is captured first.",
 		}),
 	),
 	direct: Schema.optionalKey(
@@ -373,11 +508,7 @@ export const remember = Effect.fnUntraced(function* (tier: Tier, input: Remember
 	}
 
 	const captured: Source | undefined =
-		input.source === undefined ? undefined : (yield* vault.view).source(input.source);
-
-	if (input.source !== undefined && captured === undefined) {
-		return yield* new WriteRejected({ message: `Source ${input.source} is not in the vault` });
-	}
+		input.source === undefined ? undefined : yield* captureSource(tier, input.source);
 
 	if (
 		captured &&

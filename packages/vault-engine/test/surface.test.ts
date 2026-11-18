@@ -41,6 +41,7 @@ describe("CLI", () => {
 					...process.env,
 					VAULT_ROOT: root,
 					VAULT_AGENT: "cli-test",
+					VAULT_CITE: "",
 					VAULT_PROJECTION: path.join(root, "obsidian"),
 				},
 			},

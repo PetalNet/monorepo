@@ -16,6 +16,16 @@ export class SecretFound extends Schema.TaggedError<SecretFound>()("SecretFound"
 	}
 }
 
+/** Vault-cite did not save a reference. Record it as a gap. */
+export class CaptureFailed extends Schema.TaggedError<CaptureFailed>()("CaptureFailed", {
+	ref: Schema.String,
+	reason: Schema.String,
+}) {
+	override get message() {
+		return `vault-cite did not save ${this.ref}: ${this.reason}`;
+	}
+}
+
 /** A tier file that Loro cannot read. */
 export class TierUnreadable extends Schema.TaggedError<TierUnreadable>()("TierUnreadable", {
 	tier: Schema.String,

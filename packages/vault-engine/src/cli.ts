@@ -9,9 +9,10 @@ import { Argument, Command, Flag } from "effect/cli";
 
 import { operations, refresh } from "./api.ts";
 import { Vault } from "./engine.ts";
-import { SecretFound, WriteRejected } from "./errors.ts";
+import { CaptureFailed, SecretFound, WriteRejected } from "./errors.ts";
 import { lint, project } from "./project.ts";
 import { reindex } from "./recall.ts";
+import { Cite } from "./research.ts";
 import { tiers } from "./schema.ts";
 
 const print = (value: unknown) =>
@@ -88,7 +89,9 @@ const commands = [
 					}),
 				}),
 			}).pipe(Effect.flatMap(print)),
-	).pipe(Command.withDescription("Store one sourced claim.")),
+	).pipe(
+		Command.withDescription("Store one sourced claim; an unsaved reference is captured first."),
+	),
 	Command.make("research-check", { question: words }, ({ question }) =>
 		call("research_check", { question: question.join(" ") }).pipe(Effect.flatMap(print)),
 	).pipe(
@@ -112,8 +115,11 @@ const commands = [
 		),
 	),
 	Command.make("source").pipe(
-		Command.withDescription("Replace or retract a source."),
+		Command.withDescription("Capture, replace or retract a source."),
 		Command.withSubcommands([
+			Command.make("add", { ref: Argument.String("ref"), tier }, ({ ref, tier: chosen }) =>
+				call("source_add", { ref, ...some("tier", chosen) }).pipe(Effect.flatMap(print)),
+			),
 			Command.make(
 				"replace",
 				{ id: Argument.String("id"), replacedBy: Argument.String("new-id"), reason },
@@ -170,8 +176,8 @@ const commands = [
 ];
 
 /**
- * `VAULT_ROOT` is this host's vault, `VAULT_AGENT` names the writer and `VAULT_PROJECTION` an
- * Obsidian folder to keep current.
+ * `VAULT_ROOT` is this host's vault, `VAULT_AGENT` names the writer, `VAULT_CITE` is the vault-cite
+ * command (split on spaces) and `VAULT_PROJECTION` an Obsidian folder to keep current.
  */
 const VaultLive = Layer.unwrap(
 	Effect.gen(function* () {
@@ -181,9 +187,13 @@ const VaultLive = Layer.unwrap(
 		const agent = yield* Config.String("VAULT_AGENT").pipe(
 			Config.withDefault(os.userInfo().username),
 		);
+		const cite = yield* Config.String("VAULT_CITE").pipe(Config.withDefault(""));
 		const projection = yield* Config.option(Config.String("VAULT_PROJECTION"));
 
-		return Vault.layer({ root, agent, ...some("projection", projection) });
+		return Layer.mergeAll(
+			Vault.layer({ root, agent, ...some("projection", projection) }),
+			Cite.layer(cite.split(" ").filter(Boolean)),
+		);
 	}),
 );
 
@@ -195,7 +205,7 @@ const vault = Command.make("vault").pipe(
 NodeRuntime.runMain(
 	Command.run(vault, { version: "0.0.0" }).pipe(
 		// A refused write is an answer, not a crash: print what was refused and exit 1.
-		Effect.catchIf(Schema.is(Schema.Union([WriteRejected, SecretFound])), (error) =>
+		Effect.catchIf(Schema.is(Schema.Union([WriteRejected, SecretFound, CaptureFailed])), (error) =>
 			Console.error(error.message).pipe(
 				Effect.andThen(
 					Effect.sync(() => {

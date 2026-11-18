@@ -9,6 +9,7 @@ import { LoroDoc } from "loro-crdt";
 
 import { Vault } from "../src/engine.ts";
 import type { NewClaim, Tx, VaultShape } from "../src/engine.ts";
+import { Cite } from "../src/research.ts";
 import type { Tier } from "../src/schema.ts";
 import { TierFiles } from "../src/store.ts";
 
@@ -35,10 +36,13 @@ export const vaultAt = (root?: string, agent = "janet") =>
 		);
 	});
 
-/** A test with a fresh vault provided as the `Vault` service and the clock at noon on 2026-11-17. */
+/**
+ * A test with a fresh vault provided as the `Vault` service, the clock at noon on 2026-11-17 and no
+ * vault-cite command, so any capture that would fetch fails.
+ */
 export const test = (
 	name: string,
-	body: () => Effect.Effect<void, unknown, Vault | NodeServices.NodeServices>,
+	body: () => Effect.Effect<void, unknown, Vault | Cite | NodeServices.NodeServices>,
 	timeout?: number,
 ) => {
 	it.effect(
@@ -47,9 +51,12 @@ export const test = (
 			TestClock.setTime(NOON).pipe(
 				Effect.andThen(body),
 				Effect.provide(
-					Layer.effect(
-						Vault,
-						Effect.suspend(() => vaultAt()),
+					Layer.mergeAll(
+						Layer.effect(
+							Vault,
+							Effect.suspend(() => vaultAt()),
+						),
+						Cite.layer([]),
 					).pipe(Layer.provideMerge(NodeServices.layer)),
 				),
 			),
@@ -120,7 +127,7 @@ export const testEach =
 	<const Case extends readonly [string, ...unknown[]]>(cases: readonly Case[]) =>
 	(
 		name: string,
-		body: (...args: Case) => Effect.Effect<void, unknown, Vault | NodeServices.NodeServices>,
+		body: (...args: Case) => Effect.Effect<void, unknown, Vault | Cite | NodeServices.NodeServices>,
 	) => {
 		for (const each of cases) {
 			test(name.replace("%s", each[0]), () => body(...each));

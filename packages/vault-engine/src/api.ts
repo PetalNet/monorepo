@@ -3,7 +3,7 @@ import { Effect, Schema } from "effect";
 import { PlatformError } from "effect/PlatformError";
 
 import { Vault } from "./engine.ts";
-import { SecretFound, TierUnreadable, WriteRejected } from "./errors.ts";
+import { CaptureFailed, SecretFound, TierUnreadable, WriteRejected } from "./errors.ts";
 import { project, renderNote } from "./project.ts";
 import {
 	ClaimCard,
@@ -19,11 +19,12 @@ import {
 	Recheck,
 	RememberInput,
 	ResearchRunInput,
+	captureSource,
 	remember,
 	researchCheck,
 	researchRun,
 } from "./research.ts";
-import { Claim, Run, Text, Tier } from "./schema.ts";
+import { Claim, Run, Source, Text, Tier } from "./schema.ts";
 
 /**
  * Brings the read side (claim index, and the projection when configured) up to date. The write is
@@ -47,6 +48,7 @@ export const refresh = Effect.gen(function* () {
 const errors = {
 	WriteRejected: operationError(WriteRejected, { status: 422, message: (error) => error.message }),
 	SecretFound: operationError(SecretFound, { status: 422, message: (error) => error.message }),
+	CaptureFailed: operationError(CaptureFailed, { status: 502, message: (error) => error.message }),
 	TierUnreadable: operationError(TierUnreadable, { status: 500 }),
 	PlatformError: operationError(PlatformError, { status: 500 }),
 };
@@ -103,7 +105,7 @@ export const operations = [
 	operation({
 		name: "remember",
 		description:
-			"Add a single claim to a topic. Give `source` (a vault source ID) or `direct` (who said or observed it, with the quote). A claim with neither is stored as a GUESS. To correct a claim, pass `replaces` with its ID; claims are never edited.",
+			"Add a single claim to a topic. Give `source` (a vault source ID, URL, DOI or arXiv ID; unsaved references are captured first) or `direct` (who said or observed it, with the quote). A claim with neither is stored as a GUESS. To correct a claim, pass `replaces` with its ID; claims are never edited.",
 		input: Schema.Struct({ ...RememberInput.fields, tier }),
 		output: Claim,
 		handler: ({ tier: chosen, ...input }) =>
@@ -134,7 +136,7 @@ export const operations = [
 	operation({
 		name: "research_run",
 		description:
-			"Record a finished research run: topics, quoted passages, claims with verdicts and typed links, reused IDs and gaps. Every cited source must already be in the vault. Returns the run and its run note, the root of the tree.",
+			"Record a finished research run: topics, quoted passages, claims with verdicts and typed links, reused IDs and gaps. Every cited source must already be in the vault (use source_add). Returns the run and its run note, the root of the tree.",
 		input: Schema.Struct({ ...ResearchRunInput.fields, tier }),
 		output: Schema.Struct({ run: Run, note: Schema.String }),
 		handler: ({ tier: chosen = "shared", ...input }) =>
@@ -145,6 +147,16 @@ export const operations = [
 
 				return { run, note: yield* renderNote(`${chosen}/Runs/${run.id}.md`) };
 			}),
+		errors,
+	}),
+	operation({
+		name: "source_add",
+		description:
+			"Save a URL, DOI or arXiv ID through vault-cite and add it to the vault. Already-saved sources are reused without a fetch. Fails when the capture fails; record that reference as a gap.",
+		input: Schema.Struct({ ref: Text, tier }),
+		output: Source,
+		handler: ({ ref, tier: chosen }) =>
+			captureSource(chosen ?? "shared", ref).pipe(Effect.tap(() => refresh)),
 		errors,
 	}),
 	operation({

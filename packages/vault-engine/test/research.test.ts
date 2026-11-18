@@ -1,4 +1,5 @@
 import { createHash } from "node:crypto";
+import path from "node:path";
 
 import { describe, expect } from "@effect/vitest";
 import { Effect } from "effect";
@@ -6,9 +7,19 @@ import { TestClock } from "effect/testing";
 
 import { Vault } from "../src/engine.ts";
 import { reindex } from "../src/recall.ts";
-import { remember, researchCheck, researchRun } from "../src/research.ts";
+import { Cite, remember, researchCheck, researchRun } from "../src/research.ts";
 import type { ResearchRunInput } from "../src/research.ts";
-import { SOURCE, claimInput, seed, seeded, state, test, write } from "./tools.ts";
+import {
+	SOURCE,
+	claimInput,
+	readText,
+	seed,
+	seeded,
+	state,
+	tempDir,
+	test,
+	write,
+} from "./tools.ts";
 
 describe("research run", () => {
 	const input = (extra: Partial<ResearchRunInput> = {}): ResearchRunInput => ({
@@ -142,7 +153,7 @@ describe("research run", () => {
 });
 
 describe("remember", () => {
-	test("records who said it as a DIRECT source and quotes a known source", () =>
+	test("records who said it as a DIRECT source and never fetches for a known source", () =>
 		Effect.gen(function* () {
 			yield* seeded;
 
@@ -172,6 +183,16 @@ describe("remember", () => {
 					passage: `p-${createHash("sha256").update("Recall@5 +12.0").digest("hex").slice(0, 10)}`,
 				},
 			]);
+
+			expect(
+				(yield* Effect.flip(
+					remember("shared", {
+						text: "x",
+						topic: "Note granularity",
+						source: "https://example.org/new",
+					}),
+				)).message,
+			).toMatch(/No vault-cite command/);
 		}));
 
 	test("gives the same speaker in two tiers, or two short or non-Latin names, distinct sources", () =>
@@ -214,5 +235,57 @@ describe("remember", () => {
 			).toMatch(/quote needs the source/);
 
 			expect((yield* state("shared")).claims).toEqual({});
+		}));
+});
+
+describe("capture", () => {
+	test("captures an unsaved reference through vault-cite once, then reuses it", () =>
+		Effect.gen(function* () {
+			const log = path.join(yield* tempDir, "calls.log");
+			const cite = Cite.layer([
+				process.execPath,
+				"--no-warnings",
+				path.join(import.meta.dirname, "fake-cite.ts"),
+				log,
+			]);
+
+			yield* Effect.gen(function* () {
+				yield* seeded;
+
+				const first = yield* remember("shared", {
+					text: "Fetched once.",
+					topic: "Note granularity",
+					source: "https://example.org/page",
+				});
+				const second = yield* remember("shared", {
+					text: "Reused.",
+					topic: "Note granularity",
+					source: "https://example.org/page",
+				});
+				const blocked = yield* Effect.flip(
+					remember("shared", {
+						text: "Blocked.",
+						topic: "Note granularity",
+						source: "https://elsewhere.test/x",
+					}),
+				);
+
+				expect(first.links).toEqual([{ rel: "source", target: "src-feedfacefeedfacefeed" }]);
+				expect(second.links).toEqual(first.links);
+
+				expect((yield* state("shared")).sources["src-feedfacefeedfacefeed"]).toMatchObject({
+					kind: "capture",
+					title: "A fetched page",
+					captured: "2026-11-16T08:00:00.000Z",
+				});
+
+				expect(blocked.message).toBe(
+					"vault-cite did not save https://elsewhere.test/x: robots.txt disallows it",
+				);
+
+				expect(yield* readText(log)).toBe(
+					"add https://example.org/page\nadd https://elsewhere.test/x\n",
+				);
+			}).pipe(Effect.provide(cite));
 		}));
 });
