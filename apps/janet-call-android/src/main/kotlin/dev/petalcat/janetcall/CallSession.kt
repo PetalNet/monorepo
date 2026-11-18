@@ -70,7 +70,8 @@ class CallSession(
 				val n = source.read(buf)
 				if (n <= 0) break
 				stage.mic(pcmLevel(buf, n), CallStage.nowS())
-				socket?.send(buf.toByteString(0, n))
+				val socket = socket ?: continue
+				if (micFrameFits(socket.queueSize())) socket.send(buf.toByteString(0, n))
 			}
 			source.close()
 			finish(End.Failed("Microphone stopped"))

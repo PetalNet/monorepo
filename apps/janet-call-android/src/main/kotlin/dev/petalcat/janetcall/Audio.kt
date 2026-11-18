@@ -18,6 +18,17 @@ const val MIC_RATE = 16_000
 /** 20 ms of 16 kHz mono PCM16, the chunk size sent to the bridge. */
 const val MIC_CHUNK_BYTES = MIC_RATE / 50 * 2
 
+/** The most microphone audio that may wait to be sent: half a second. */
+const val MIC_BACKLOG_BYTES = MIC_RATE.toLong()
+
+/**
+ * Whether another microphone frame may join the socket's send queue. When the uplink is slower than
+ * speech the queue would grow without end and Janet would hear the caller ever later, and after a
+ * hang-up the phone would go on sending what was said before it. So a frame that finds half a second
+ * already waiting is dropped: the caller loses a word and stays in the present.
+ */
+fun micFrameFits(queuedBytes: Long): Boolean = queuedBytes < MIC_BACKLOG_BYTES
+
 interface Mic {
 	/** Blocks until [buf] is full, or returns <= 0 once the mic is stopped. */
 	fun read(buf: ByteArray): Int
