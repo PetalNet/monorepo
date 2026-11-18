@@ -87,19 +87,27 @@ if [ "$(uname)" = Darwin ]; then
   mkdir -p "$turn_end/models"
   rm -f "$turn_end/models/smart-turn-v3.2-cpu.onnx" # an earlier version used it
   install -m 644 "$here/turn_end.py" "$turn_end/turn_end.py"
-  model() { # file, sha256, url
+  install -m 644 "$here/turn_judge.py" "$here/turn_judge.json" "$turn_end/"
+  model() { # file, sha256, url; fails when the download does not match its checksum
     [ "$(shasum -a 256 "$turn_end/models/$1" 2>/dev/null | cut -d' ' -f1)" = "$2" ] && return 0
-    curl -fsSL --max-time 120 -o "$turn_end/models/$1.part" "$3"
-    [ "$(shasum -a 256 "$turn_end/models/$1.part" | cut -d' ' -f1)" = "$2" ] || {
-      echo "$1 does not match its checksum" >&2
-      exit 1
-    }
-    mv "$turn_end/models/$1.part" "$turn_end/models/$1"
+    curl -fsSL --max-time 900 -o "$turn_end/models/$1.part" "$3" &&
+      [ "$(shasum -a 256 "$turn_end/models/$1.part" | cut -d' ' -f1)" = "$2" ] &&
+      mv "$turn_end/models/$1.part" "$turn_end/models/$1"
   }
   model silero_vad.onnx 1a153a22f4509e292a94e67d6f9b85e8deb25b4988682b7e174c65279d8788e3 \
-    https://raw.githubusercontent.com/snakers4/silero-vad/v6.2/src/silero_vad/data/silero_vad.onnx
+    https://raw.githubusercontent.com/snakers4/silero-vad/v6.2/src/silero_vad/data/silero_vad.onnx || {
+    echo "silero_vad.onnx did not download or does not match its checksum" >&2
+    exit 1
+  }
   [ -x "$turn_end/venv/bin/python" ] || python3 -m venv "$turn_end/venv"
   "$turn_end/venv/bin/python" -c 'import numpy, onnxruntime' 2>/dev/null ||
     "$turn_end/venv/bin/python" -m pip install --quiet --disable-pip-version-check numpy==2.0.2 onnxruntime==1.19.2
+  # The turn judge's speech model (194 MB, NVIDIA Open Model License) comes last: without it a
+  # turn ends on silence alone, so a failed download costs only the judge.
+  parakeet=https://huggingface.co/imbcmdth/parakeet-realtime-eou-120m-onnx/resolve/974110555ac70906cbb1fe9f758cecde790d8645
+  model parakeet_vocab.txt 8fe6871fa1df0813fee690d5e5ba8dfd7a66f028b12fce32ab7d51a1d1704e6f "$parakeet/vocab.txt" &&
+    model parakeet_realtime_eou_120m.int8.onnx 7dbdf3e4f539a78819c71d1fc8c0aaf0be8d34417661a16e643cd47e17c319fd \
+      "$parakeet/parakeet_realtime_eou_120m.int8.onnx" ||
+    echo "the turn judge's speech model did not download: turns will end on silence alone until this is run again" >&2
 fi
 echo "janet-talk installed"

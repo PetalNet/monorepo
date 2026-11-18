@@ -37,6 +37,24 @@ a small model that runs on the Mac: no audio leaves it for this. People stop to 
 of a turn, often for a second or two, so a shorter wait cuts them off. Any speech starts the count
 again. Each listen logs why it ended, in `~/Library/Caches/janet-talk/talk.log`.
 
+A pause is also judged the way a listener would judge it ([`turn_judge.py`](turn_judge.py)). A second
+speech model on the Mac writes the words down as they are said
+([Parakeet Realtime EOU](https://huggingface.co/nvidia/parakeet_realtime_eou_120m-v1), 194 MB, NVIDIA
+Open Model License). Two things follow from what it hears:
+
+- After an "um", a word drawn out into the silence or a trailing "and", more is coming: the wait is
+  6 s instead of 3. The model writes most "um"s down as nothing, so voice with no word to it counts
+  as one.
+- After 1 s of silence, a logistic model gives the chance that the speaker is done, from the words
+  (a short turn that asks something, a closing word, the speech model's own end-of-utterance mark),
+  the pace and the pauses so far. Above a bar set by the surest mid-turn pause in the recordings,
+  the turn ends at once, unless the last word leads somewhere ("the", "so", "for"). It is asked
+  again at 1.5, 2 and 2.5 s.
+
+The weights in [`turn_judge.json`](turn_judge.json) were fitted on recorded turns of the person who
+uses this Mac. Nothing leaves the Mac and no API is called. Without the judge's files, or while its
+speech model is loading or behind, every pause waits the full 3 s.
+
 When `turn_end.py` gives no verdict (it is not installed, it failed to run, or this Hex has no audio
 stream), "quiet" and "speech" are judged against the room instead, and the listen ends after 1.3 s
 of quiet. They are judged from the microphone level Hex reports, so a loud
@@ -96,8 +114,8 @@ Timings for every press are in `~/Library/Caches/janet-talk/talk.log`.
    ```
 
    The secrets go to the login Keychain (service `janet-voice`). The URL goes to
-   `~/.config/janet-talk/config`. `turn_end.py`, its speech model (2 MB, checked against its
-   checksum) and a Python environment with `numpy` and `onnxruntime` go to
+   `~/.config/janet-talk/config`. `turn_end.py`, `turn_judge.py`, their two speech models (2 MB and
+   194 MB, checked against their checksums) and a Python environment with `numpy` and `onnxruntime` go to
    `~/.local/share/janet-talk`. The rule in [`karabiner/janet-talk.json`](karabiner/janet-talk.json)
    is merged into the selected Karabiner profile. It matches the microphone key of a MacBook in
    both forms a keyboard can report it (`key_code: f5` and `consumer_key_code: dictation`); change
