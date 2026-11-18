@@ -619,6 +619,14 @@ class SleepingVoiceTest(TalkCase):
         self.assertEqual(speaking.wait(30), 0)
         self.assertEqual(self.lines("played"), ["First.", "Second."])
 
+    def test_a_voice_that_stays_asleep_is_waited_for_once_for_the_whole_reply(self):
+        self.env["JANET_TALK_WAKE_WAIT_S"] = "3"
+        self.talk("start")
+        started = time.monotonic()
+        self.talk("stop", within=30)
+        self.assertLess(time.monotonic() - started, 5)
+        self.assertEqual(self.lines("played"), [])
+
 
 if __name__ == "__main__":
     unittest.main()

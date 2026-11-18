@@ -234,7 +234,7 @@ end_conversation() { # reason
 # after sending a wake packet, and this keeps asking until the voice is up or time runs out.
 # Any other failure, such as a transfer the gateway cut because the voice failed, is final.
 fetch_speech() { # turn dir, index
-  local dir="$1" i="$2" file code deadline announced=""
+  local dir="$1" i="$2" file code="" deadline announced=""
   file=$(body '{text: $v}' --arg v "$(cat "$dir/$i.txt")")
   deadline=$(($(date +%s) + VOICE_WAKE_WAIT_S))
   while [ "$(date +%s)" -lt "$deadline" ]; do
@@ -253,7 +253,11 @@ fetch_speech() { # turn dir, index
     fi
     sleep "$RETRY_S"
   done
-  [ -e "$dir/$i.wav" ] || : >"$dir/$i.failed"
+  if [ ! -e "$dir/$i.wav" ]; then
+    : >"$dir/$i.failed"
+    # Out of time with the host still down: the rest of the reply would wait just as long.
+    [ "$code" = 503 ] || [ "$code" = 000 ] && : >"$dir/voice-down"
+  fi
   rm -f "$file" "$dir/$i.part"
 }
 
@@ -265,7 +269,7 @@ fetch_turn() { # turn dir
   local dir="$1" i=1
   while :; do
     if [ -e "$dir/$i.txt" ]; then
-      fetch_speech "$dir" "$i"
+      if [ -e "$dir/voice-down" ]; then : >"$dir/$i.failed"; else fetch_speech "$dir" "$i"; fi
       i=$((i + 1))
     elif [ -e "$dir/count" ] && [ "$i" -gt "$(cat "$dir/count")" ]; then
       break
