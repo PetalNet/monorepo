@@ -3,9 +3,9 @@ FROM debian:trixie-slim@sha256:a72b4433de1cf7d6bae0c4cee74d0547f58601a643b3375f0
 RUN apt-get update \
     && apt-get install -y --no-install-recommends ca-certificates curl python3 python3-venv python3-websockets python3-matrix-nio python3-qrcode \
     && rm -rf /var/lib/apt/lists/*
-# The shared turn detector's runtime. The venv sees the system packages above.
+# The shared turn detector's runtime (wheels for the base image's Python 3.13). The venv sees the system packages above.
 RUN python3 -m venv --system-site-packages /opt/venv \
-    && /opt/venv/bin/pip install --no-cache-dir numpy==2.0.2 onnxruntime==1.19.2
+    && /opt/venv/bin/pip install --no-cache-dir numpy==2.1.3 onnxruntime==1.20.1
 # Its models, fetched by checksum from the same pinned revisions janet-mac installs.
 RUN mkdir /models \
     && fetch() { curl -fsSL --max-time 900 -o "/models/$1" "$3" && echo "$2  /models/$1" | sha256sum -c -; } \

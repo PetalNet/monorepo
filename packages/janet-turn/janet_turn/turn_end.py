@@ -47,8 +47,8 @@ def _session(path: Path):
 class Silero:
     """Silero VAD v6: the chance that one frame is speech."""
 
-    def __init__(self, path: Path):
-        self._session = _session(path)
+    def __init__(self, path: Path, session=None):
+        self._session = session or _session(path)
         self._state = np.zeros((2, 1, 128), np.float32)
         self._context = np.zeros(64, np.float32)
 
@@ -206,7 +206,10 @@ class Utterances:
                  make_vad=None, make_hearing=None):
         self._models, self._words = models, words
         self._policy = policy or Policy(nothing_said_s=1e9)
-        self._make_vad = make_vad or (lambda: Silero(models / "silero_vad.onnx"))
+        if make_vad is None:
+            session = _session(models / "silero_vad.onnx")  # loaded once per stream, shared by its turns
+            make_vad = lambda: Silero(models / "silero_vad.onnx", session)  # noqa: E731
+        self._make_vad = make_vad
         self._make_hearing = make_hearing or (lambda: hearing(models, words))
         self._lead = round(lead_s / FRAME_S)
         self._max = round(max_s / FRAME_S)

@@ -84,8 +84,9 @@ def new_endpointer(config: "Config"):
     """The shared turn detector (packages/janet-turn) when its models are installed, else the loudness rule above."""
     models = Path(config.turn_models) if config.turn_models else None
     here = Path(__file__).resolve()
-    if len(here.parents) > 2 and (here.parents[2] / "packages" / "janet-turn").is_dir():  # in the repository; the image has it beside this file
-        sys.path.append(str(here.parents[2] / "packages" / "janet-turn"))
+    repo = str(here.parents[2] / "packages" / "janet-turn") if len(here.parents) > 2 else ""
+    if repo and Path(repo).is_dir() and repo not in sys.path:  # in the repository; the image has the package beside this file
+        sys.path.append(repo)
     if models and (models / "silero_vad.onnx").exists():
         try:
             from janet_turn.turn_end import Policy, Utterances
@@ -384,7 +385,7 @@ class Call:
 
     async def listen(self) -> None:
         """Reads the caller until the socket closes, however it closes, and then ends the call."""
-        endpointer, heard = new_endpointer(self.config), 0
+        endpointer, heard = await asyncio.to_thread(new_endpointer, self.config), 0
         try:
             async with asyncio.timeout(self.config.max_call_s):
                 async for message in self.ws:

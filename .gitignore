@@ -49,3 +49,7 @@
 
 # PetalBoard generates its Prisma client into the app.
 /apps/petalboard/src/lib/server/generated/
+
+# Python bytecode
+__pycache__/
+*.pyc
