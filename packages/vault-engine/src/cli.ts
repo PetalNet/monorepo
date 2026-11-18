@@ -46,21 +46,29 @@ const commands = [
 			call("recall", { query: query.join(" "), ...some("k", k) }).pipe(
 				Effect.flatMap((result) => print(json ? result : (result as { text: string }).text)),
 			),
-	).pipe(Command.withDescription("Claims matching the query.")),
+	).pipe(Command.withDescription("Claims matching the query, each with its sources.")),
 	Command.make(
 		"remember",
 		{
 			text: words,
 			topic: Flag.String("topic"),
 			heading: optional(Flag.String("heading")),
+			quote: optional(Flag.String("quote")),
+			direct: optional(Flag.String("direct")),
 		},
 		(flags) =>
 			call("remember", {
 				text: flags.text.join(" "),
 				topic: flags.topic,
 				...some("heading", flags.heading),
+				...Option.match(flags.direct, {
+					onNone: () => ({}),
+					onSome: (title) => ({
+						direct: { title, quote: Option.getOrElse(flags.quote, () => "") },
+					}),
+				}),
 			}).pipe(Effect.flatMap(print)),
-	).pipe(Command.withDescription("Store one claim.")),
+	).pipe(Command.withDescription("Store one sourced claim.")),
 ];
 
 /** `VAULT_ROOT` is this host's vault and `VAULT_AGENT` names the writer. */
@@ -78,7 +86,7 @@ const VaultLive = Layer.unwrap(
 );
 
 const vault = Command.make("vault").pipe(
-	Command.withDescription("The lab's knowledge vault: claims and recall."),
+	Command.withDescription("The lab's knowledge vault: sourced claims and recall."),
 	Command.withSubcommands(commands),
 );
 

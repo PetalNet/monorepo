@@ -32,7 +32,7 @@ export const operations = [
 	operation({
 		name: "recall",
 		description:
-			"Search the vault's claims. Each result is one claim with its topic and heading. Cite claims by ID. Call this before researching or answering from memory.",
+			"Search the vault's claims. Each result is one claim with its topic and heading and its sources. Cite claims by ID. Call this before researching or answering from memory.",
 		input: RecallInput,
 		output: Schema.Struct({
 			claims: Schema.Array(ClaimCard),
@@ -43,7 +43,8 @@ export const operations = [
 	}),
 	operation({
 		name: "remember",
-		description: "Add a single claim to a topic. It is stored as a GUESS.",
+		description:
+			"Add a single claim to a topic. Give `direct` (who said or observed it, with the quote). A claim without it is stored as a GUESS.",
 		input: RememberInput,
 		output: Claim,
 		handler: (input) => remember("shared", input).pipe(Effect.tap(() => refresh)),

@@ -5,7 +5,7 @@ import { Clock, Effect, FileSystem, Schema } from "effect";
 import type { PlatformError } from "effect/PlatformError";
 
 import { Vault } from "./engine.ts";
-import { Claim, Tier, tiers } from "./schema.ts";
+import { Claim, Relation, Tier, tiers } from "./schema.ts";
 
 /**
  * The claim index is a read replica: a SQLite file rebuilt from the Loro documents and swapped in
@@ -16,10 +16,22 @@ const SCHEMA = `
 CREATE TABLE claim(
 	id TEXT PRIMARY KEY, tier TEXT NOT NULL, topic TEXT NOT NULL,
 	title TEXT NOT NULL, heading TEXT NOT NULL, text TEXT NOT NULL,
-	source_type TEXT NOT NULL, created TEXT NOT NULL);
+	source_type TEXT NOT NULL, sources TEXT NOT NULL,
+	created TEXT NOT NULL);
 CREATE VIRTUAL TABLE claim_fts USING fts5(id UNINDEXED, text, context, tokenize='porter unicode61');
 CREATE TABLE meta(key TEXT PRIMARY KEY, value TEXT NOT NULL);
 `;
+
+const SourceRef = Schema.Struct({
+	id: Schema.String,
+	title: Schema.String,
+	rel: Relation,
+	passage: Schema.optionalKey(Schema.String),
+	url: Schema.optionalKey(Schema.String),
+	captured: Schema.String,
+});
+
+export type SourceRef = typeof SourceRef.Type;
 
 export const ClaimCard = Schema.Struct({
 	id: Schema.String,
@@ -28,6 +40,7 @@ export const ClaimCard = Schema.Struct({
 	heading: Schema.String,
 	text: Schema.String,
 	sourceType: Claim.fields.sourceType,
+	sources: Schema.Array(SourceRef),
 	score: Schema.Finite,
 });
 export type ClaimCard = typeof ClaimCard.Type;
@@ -36,6 +49,7 @@ const { sourceType, score: _claimScore, ...claimFields } = ClaimCard.fields;
 const ClaimRow = Schema.Struct({
 	...claimFields,
 	source_type: sourceType,
+	sources: Schema.fromJsonString(Schema.Array(SourceRef)),
 	rank: Schema.Finite,
 });
 
@@ -61,7 +75,7 @@ export const reindex = Effect.gen(function* () {
 				db.exec(SCHEMA);
 				db.exec("BEGIN");
 
-				const claim = db.prepare("INSERT INTO claim VALUES(?,?,?,?,?,?,?,?)");
+				const claim = db.prepare("INSERT INTO claim VALUES(?,?,?,?,?,?,?,?,?)");
 				const claimFts = db.prepare("INSERT INTO claim_fts VALUES(?,?,?)");
 
 				for (const tier of tiers) {
@@ -70,6 +84,22 @@ export const reindex = Effect.gen(function* () {
 					for (const record of Object.values(state.claims)) {
 						const topic = state.topics[record.topic];
 						const title = topic?.title ?? record.topic;
+						const sources: SourceRef[] = record.links.flatMap((link) => {
+							const source = view.source(link.target);
+
+							return source
+								? [
+										{
+											id: source.id,
+											title: source.title,
+											rel: link.rel,
+											...(link.passage === undefined ? {} : { passage: link.passage }),
+											...(source.url === undefined ? {} : { url: source.url }),
+											captured: source.captured,
+										},
+									]
+								: [];
+						});
 						claim.run(
 							record.id,
 							tier,
@@ -78,6 +108,7 @@ export const reindex = Effect.gen(function* () {
 							record.heading,
 							record.text,
 							record.sourceType,
+							JSON.stringify(sources),
 							record.created,
 						);
 
@@ -165,7 +196,13 @@ export const recallClaims = (query: string, options: RecallOptions = {}): Recall
 		),
 	);
 
-/** One line an agent can read and cite: the claim and where it lives. */
+/** One line an agent can read and cite: the claim, where it lives and its evidence. */
 export function renderCard(card: ClaimCard): string {
-	return `[${card.id}] ${card.title} > ${card.heading}: ${card.text} | ${card.sourceType}`;
+	const sources = card.sources
+		.map(
+			(source) => `${source.rel} ${source.title} (${source.id}, ${source.captured.slice(0, 10)})`,
+		)
+		.join("; ");
+
+	return `[${card.id}] ${card.title} > ${card.heading}: ${card.text} | ${card.sourceType}${sources === "" ? "" : ` | ${sources}`}`;
 }

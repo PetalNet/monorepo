@@ -5,9 +5,10 @@ import { it } from "@effect/vitest";
 import { Effect, FileSystem, Layer } from "effect";
 import type { PlatformError } from "effect/PlatformError";
 import { TestClock } from "effect/testing";
+import { LoroDoc } from "loro-crdt";
 
 import { Vault } from "../src/engine.ts";
-import type { NewClaim, Tx } from "../src/engine.ts";
+import type { NewClaim, Tx, VaultShape } from "../src/engine.ts";
 import type { Tier } from "../src/schema.ts";
 import { TierFiles } from "../src/store.ts";
 
@@ -63,23 +64,50 @@ export const write = <A, E>(tier: Tier, body: (tx: Tx) => Effect.Effect<A, E>, m
 export const state = (tier: Tier) =>
 	Effect.flatMap(Vault, (vault) => Effect.map(vault.view, (view) => view.tiers[tier]));
 
+/**
+ * Everything a tier's document holds, history included, as searchable text. A snapshot is
+ * compressed, so searching its bytes proves nothing.
+ */
+export const stored = (tier: Tier, vault?: VaultShape) =>
+	Effect.map(
+		vault === undefined
+			? Effect.flatMap(Vault, (provided) => provided.snapshot(tier))
+			: vault.snapshot(tier),
+		(bytes) => JSON.stringify(LoroDoc.fromSnapshot(bytes).exportJsonUpdates()),
+	);
+
+export const SOURCE = "src-0123456789abcdef0123";
+export const OTHER = "src-aaaaaaaaaaaaaaaaaaaa";
 export const TOPIC = "t-note-granularity";
 
-/** A topic, the minimum a claim needs. */
-export const seed = (tx: Tx) =>
-	tx.putTopic({
-		id: TOPIC,
-		title: "Note granularity",
-		summary: "How big a vault note should be.",
-		headings: ["Retrieval unit"],
+/** A topic and a captured source with one passage, the minimum a sourced claim needs. */
+export const seed = (tx: Tx, source = SOURCE) =>
+	Effect.gen(function* () {
+		yield* tx.putTopic({
+			id: TOPIC,
+			title: "Note granularity",
+			summary: "How big a vault note should be.",
+			headings: ["Retrieval unit"],
+		});
+
+		yield* tx.putSource({
+			id: source,
+			kind: "capture",
+			title: "Dense X Retrieval",
+			url: `https://example.org/${source}`,
+			sourceType: "PRIMARY",
+			captured: "2026-11-01T00:00:00.000Z",
+			passages: { p1: "Proposition indexing raises Recall@5." },
+		});
 	});
 
 export const seeded = write("shared", seed, "seed");
 
-export const claimInput = (text: string) => ({
+export const claimInput = (text: string, source = SOURCE) => ({
 	text,
 	topic: TOPIC,
 	heading: "Retrieval unit",
+	links: [{ rel: "supports" as const, target: source, passage: "p1" }],
 	sourceType: "PRIMARY" as const,
 });
 

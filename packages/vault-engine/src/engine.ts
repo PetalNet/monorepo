@@ -7,27 +7,44 @@ import { LoroDoc } from "loro-crdt";
 import type { Value } from "loro-crdt";
 
 import { TierUnreadable, WriteRejected } from "./errors.ts";
-import { Claim, Topic, tiers } from "./schema.ts";
-import type { Tier } from "./schema.ts";
+import { Claim, Source, Topic, tiers } from "./schema.ts";
+import type { Link, Tier } from "./schema.ts";
 import { TierFiles } from "./store.ts";
 
 /** One tier as readers see it: every record whole, keyed by its own ID. */
 export interface TierState {
 	readonly claims: Record<string, Claim>;
+	readonly sources: Record<string, Source>;
 	readonly topics: Record<string, Topic>;
 }
 
-/** How a tier is laid out inside its Loro document. Every map holds plain values keyed by ID. */
+/**
+ * How a tier is laid out inside its Loro document. Every map holds plain values keyed by ID. A Loro
+ * map keeps one writer's value per key, so anything two replicas may write at the same time has its
+ * own key: each passage is its own entry, addressed by a hash of its text.
+ */
 interface Stored {
 	claims: Record<string, Claim>;
+	sources: Record<string, Omit<Source, "passages" | "headings">>;
+	passages: Record<string, { text: string; heading?: string }>;
 	topics: Record<string, Topic>;
 }
 
-export type NewClaim = Pick<Claim, "text" | "topic" | "heading" | "sourceType">;
+export type NewClaim = Pick<Claim, "text" | "topic" | "heading" | "links" | "sourceType">;
 
-/** Every tier at one moment. */
+export type NewSource = Omit<Source, "agent">;
+
+export interface Located {
+	readonly tier: Tier;
+	readonly kind: "claims" | "sources";
+}
+
+/** Every tier at one moment, with lookups across them. */
 export interface VaultView {
 	readonly tiers: Readonly<Record<Tier, TierState>>;
+	/** Which tier holds a claim or source. */
+	readonly locate: (id: string) => Located | undefined;
+	readonly source: (id: string) => Source | undefined;
 }
 
 /** One write on one tier. Each method stages a checked record; the transaction commits them all. */
@@ -38,6 +55,17 @@ export interface Tx extends VaultView {
 	/** This tier as staged so far. */
 	readonly state: TierState;
 	readonly addClaim: (input: NewClaim) => Effect.Effect<Claim, WriteRejected>;
+	/** A passage is what a claim was checked against, so its text never changes once written. */
+	readonly putSource: (input: NewSource) => Effect.Effect<Source, WriteRejected>;
+	/**
+	 * Adds a quoted passage and returns its ID: a hash of the text, so two replicas quoting the same
+	 * source never hand different passages the same ID.
+	 */
+	readonly addPassage: (
+		source: string,
+		text: string,
+		heading?: string,
+	) => Effect.Effect<string, WriteRejected>;
 	readonly putTopic: (input: Topic) => Effect.Effect<Topic, WriteRejected>;
 }
 
@@ -47,6 +75,7 @@ export interface VaultShape {
 	readonly root: string;
 	/** The writing agent. Each agent on each host writes as its own Loro peer. */
 	readonly agent: string;
+	readonly file: (tier: Tier) => string;
 	readonly view: Effect.Effect<VaultView, VaultError>;
 	/** Runs one write under the tier's lock. It commits only if every operation passed its checks. */
 	readonly transact: <A, E, R>(
@@ -54,6 +83,7 @@ export interface VaultShape {
 		message: string,
 		body: (tx: Tx) => Effect.Effect<A, E, R>,
 	) => Effect.Effect<A, E | WriteRejected | VaultError, R>;
+	readonly snapshot: (tier: Tier) => Effect.Effect<Uint8Array, VaultError>;
 }
 
 export interface VaultConfig {
@@ -64,14 +94,44 @@ export interface VaultConfig {
 }
 
 const reject = (message: string) => new WriteRejected({ message });
+const passageKey = (source: string, passage: string) => `${source}#${passage}`;
+const isClaimId = (id: string) => id.startsWith("c-");
 const hash = (data: string | Uint8Array) => createHash("sha256").update(data).digest("hex");
 
 function readState(doc: LoroDoc): TierState {
 	const stored = Object.fromEntries(
-		["claims", "topics"].map((name) => [name, doc.getMap(name).toJSON() as unknown]),
+		["claims", "sources", "passages", "topics"].map((name) => [
+			name,
+			doc.getMap(name).toJSON() as unknown,
+		]),
 	) as unknown as Stored;
+	const sources: Record<string, Source> = {};
 
-	return { claims: stored.claims, topics: stored.topics };
+	for (const [id, core] of Object.entries(stored.sources)) {
+		sources[id] = { ...core, passages: {} };
+	}
+
+	// Loro does not keep insertion order; passages read back in ID order (s2 before s10).
+	const ordered = Object.entries(stored.passages).toSorted(([a], [b]) =>
+		a.localeCompare(b, "en", { numeric: true }),
+	);
+
+	for (const [key, passage] of ordered) {
+		const [sourceId = "", id = ""] = key.split("#");
+		const source = sources[sourceId];
+
+		if (source) {
+			sources[sourceId] = {
+				...source,
+				passages: { ...source.passages, [id]: passage.text },
+				...(passage.heading === undefined
+					? {}
+					: { headings: { ...source.headings, [id]: passage.heading } }),
+			};
+		}
+	}
+
+	return { claims: stored.claims, sources, topics: stored.topics };
 }
 
 const checked = <A>(schema: Schema.Decoder<A>, value: unknown) =>
@@ -81,7 +141,22 @@ const checked = <A>(schema: Schema.Decoder<A>, value: unknown) =>
 	);
 
 function makeView(states: Readonly<Record<Tier, TierState>>): VaultView {
-	return { tiers: states };
+	const locate = (id: string): Located | undefined => {
+		const kind = isClaimId(id) ? "claims" : "sources";
+		const tier = tiers.find((each) => id in states[each][kind]);
+
+		return tier === undefined ? undefined : { tier, kind };
+	};
+
+	return {
+		tiers: states,
+		locate,
+		source: (id) => {
+			const found = locate(id);
+
+			return found?.kind === "sources" ? states[found.tier].sources[id] : undefined;
+		},
+	};
 }
 
 function makeTx(
@@ -94,6 +169,7 @@ function makeTx(
 	const base = committed[tier];
 	const state = {
 		claims: { ...base.claims },
+		sources: { ...base.sources },
 		topics: { ...base.topics },
 	};
 	const view = makeView({ ...committed, [tier]: state });
@@ -120,6 +196,31 @@ function makeTx(
 		return valid;
 	});
 
+	const source = (id: string) => {
+		const found = state.sources[id];
+
+		return found
+			? Effect.succeed(found)
+			: Effect.fail(reject(`Source ${id} is not in the ${tier} tier`));
+	};
+
+	const checkLinks = Effect.fnUntraced(function* (links: readonly Link[]) {
+		for (const link of links) {
+			const found = view.locate(link.target);
+
+			if (!found) {
+				return yield* reject(`Link target ${link.target} is not in the vault`);
+			}
+
+			if (
+				link.passage !== undefined &&
+				!(link.passage in (view.source(link.target)?.passages ?? {}))
+			) {
+				return yield* reject(`Passage ${link.target}#^${link.passage} does not exist`);
+			}
+		}
+	});
+
 	const newClaimId = () => {
 		for (;;) {
 			const id = `c-${BigInt(`0x${randomBytes(8).toString("hex")}`)
@@ -127,7 +228,7 @@ function makeTx(
 				.padStart(8, "0")
 				.slice(-8)}`;
 
-			if (!tiers.some((each) => id in view.tiers[each].claims)) {
+			if (!view.locate(id)) {
 				return id;
 			}
 		}
@@ -138,9 +239,35 @@ function makeTx(
 			return yield* reject(`Topic ${input.topic} is not in the ${tier} tier`);
 		}
 
+		yield* checkLinks(input.links);
+
 		const core = { ...input, id: newClaimId(), created: now, agent };
 
 		return yield* write("claims", Claim, core, "claims", core.id, core);
+	});
+
+	const passage = Effect.fnUntraced(function* (
+		current: Source,
+		id: string,
+		text: string,
+		heading: string | undefined,
+	) {
+		if (current.passages[id] === text) {
+			return;
+		}
+
+		yield* write(
+			"sources",
+			Source,
+			{
+				...current,
+				passages: { ...current.passages, [id]: text },
+				...(heading === undefined ? {} : { headings: { ...current.headings, [id]: heading } }),
+			},
+			"passages",
+			passageKey(current.id, id),
+			{ text, ...(heading === undefined ? {} : { heading }) },
+		);
 	});
 
 	return {
@@ -149,6 +276,60 @@ function makeTx(
 		now,
 		state,
 		addClaim,
+		putSource: Effect.fnUntraced(function* (input: NewSource) {
+			// Checked whole before any part is written, so a refused source leaves nothing behind even
+			// when the caller carries on with the transaction.
+			const existing = state.sources[input.id];
+			const { passages, headings, ...core } = input;
+
+			for (const [id, text] of Object.entries(passages)) {
+				if (existing !== undefined && id in existing.passages && existing.passages[id] !== text) {
+					return yield* reject(`Passage ${input.id}#^${id} already holds different text`);
+				}
+			}
+
+			const stored = { ...core, agent: existing?.agent ?? agent };
+
+			yield* checked(Source, {
+				...existing,
+				...stored,
+				passages: { ...existing?.passages, ...passages },
+				headings: { ...existing?.headings, ...headings },
+			});
+
+			yield* write(
+				"sources",
+				Source,
+				{
+					...existing,
+					...stored,
+					passages: existing?.passages ?? {},
+				},
+				"sources",
+				input.id,
+				stored,
+			);
+
+			for (const [id, text] of Object.entries(passages)) {
+				yield* passage(yield* source(input.id), id, text, headings?.[id]);
+			}
+
+			return yield* source(input.id);
+		}),
+		addPassage: Effect.fnUntraced(function* (sourceId: string, text: string, heading?: string) {
+			const current = yield* source(sourceId);
+			const existing = Object.entries(current.passages).find(([, value]) => value === text);
+
+			if (existing) {
+				return existing[0];
+			}
+
+			const id = `p-${hash(text).slice(0, 10)}`;
+
+			yield* passage(current, id, text, heading);
+
+			return id;
+		}),
 		putTopic: Effect.fnUntraced(function* (input: Topic) {
 			return yield* write("topics", Topic, input, "topics", input.id, input);
 		}),
@@ -229,8 +410,10 @@ const makeVault = Effect.fnUntraced(function* (config: VaultConfig) {
 	return {
 		root: config.root,
 		agent: config.agent,
+		file: files.file,
 		view: Effect.map(loadAll, ({ states }) => makeView(states)),
 		transact,
+		snapshot: (tier) => Effect.map(load(tier), ({ doc }) => doc.export({ mode: "snapshot" })),
 	} satisfies VaultShape;
 });
 
