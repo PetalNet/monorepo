@@ -10,8 +10,8 @@ One key on a Mac does two things:
 
 Nothing of ours stays running. Hex is the only resident process. `janet-talk` is a shell
 script that Karabiner-Elements starts on the key events, and it exits when the reply has played. While a recording is open a small loop tells Hex
-every three seconds that it is still wanted; it ends with the recording, and after two minutes at
-the latest.
+every three seconds that it is still wanted; it ends with the recording, and once the five-minute
+backstop has passed at the latest.
 
 ```text
 key ── Karabiner ──┬─ first press ──> F18 ──> Hex dictation (types into the focused app)

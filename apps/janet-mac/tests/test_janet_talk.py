@@ -63,11 +63,17 @@ class FakeHex(ThreadingHTTPServer):
         # (seconds, dB) steps the microphone level goes through while a recording runs.
         self.levels = [(0.0, -50.0)]
         self.heartbeats = 0
+        # Hex cancels a recording that has not heard from its owner for ten seconds.
+        self.heard_from_owner = time.monotonic()
         self.sample = 0
         # When each call arrived, by name, in seconds on the monotonic clock.
         self.at: dict[str, float] = {}
         threading.Thread(target=self.serve_forever, daemon=True).start()
         (stub / "local-api.json").write_text(json.dumps({"port": self.server_address[1], "token": "hex-token"}))
+
+
+    def dropped(self):
+        return time.monotonic() - self.heard_from_owner > 10
 
 
 class _HexHandler(BaseHTTPRequestHandler):
@@ -97,14 +103,17 @@ class _HexHandler(BaseHTTPRequestHandler):
             if self._read("hex-start-status") != "0":
                 return self._reply(503)
             # A start is logged once the recording has begun.
-            self.server.at["start"] = time.monotonic()
+            self.server.at["start"] = self.server.heard_from_owner = time.monotonic()
             self._log("start")
             return self._reply(201, {"id": 7, "ownerToken": "owner-token", "sampleRate": 48000})
         if self.headers.get("X-Hex-Dictation-Token") != "owner-token":
             return self._reply(403)
         action = self.path.rpartition("/")[2]
+        if self.server.dropped():
+            return self._reply(404, {"error": "dictation-not-found"})
         if action == "heartbeat":
             self.server.heartbeats += 1
+            self.server.heard_from_owner = time.monotonic()
             return self._reply(204)
         self.server.at[action] = time.monotonic()
         self._log(action)
@@ -135,6 +144,8 @@ class _HexHandler(BaseHTTPRequestHandler):
                         now = level + ROOM_WANDER[self.server.sample % len(ROOM_WANDER)]
                     self.wfile.write(f'data: {{"peakDb":{now},"rmsDb":{now}}}\n\n'.encode())
                     self.wfile.flush()
+                    if self.server.dropped():
+                        return
                     if time.monotonic() >= until:
                         break
                     time.sleep(0.05)
@@ -588,9 +599,16 @@ class TapTest(TalkCase):
         levels = [(0.8, self.ROOM), (3.0, -20.0), (1.5, -32.0), (30.0, self.ROOM)]
         self.assert_ended_after_speech(levels, 5.3)
 
-    def test_someone_who_talks_for_a_minute_is_heard_to_the_end(self):
+    def test_someone_who_talks_for_well_over_two_minutes_is_heard_to_the_end(self):
         del self.env["JANET_TALK_MAX_LISTEN_S"]  # the limit the script ships with
-        self.assert_ended_after_speech([(1.0, self.ROOM), (60.0, self.SPEECH), (30.0, self.ROOM)], 61.0, within=120)
+        self.assert_ended_after_speech([(1.0, self.ROOM), (140.0, self.SPEECH), (30.0, self.ROOM)], 141.0, within=200)
+        self.assertEqual(self.head_calls("/turns"), [{"text": "what time is it"}])
+
+    def test_a_limit_that_is_not_whole_seconds_does_not_lose_the_recording(self):
+        # Hex drops a recording it stops hearing from. Twelve seconds of speech outlast that.
+        self.env["JANET_TALK_MAX_LISTEN_S"] = "20.5"
+        self.assert_ended_after_speech([(1.0, self.ROOM), (12.0, self.SPEECH), (30.0, self.ROOM)], 13.0)
+        self.assertEqual(self.head_calls("/turns"), [{"text": "what time is it"}])
 
     def test_speech_only_a_little_above_the_room_is_still_speech(self):
         # Eleven dB over a -46 room, with gaps.

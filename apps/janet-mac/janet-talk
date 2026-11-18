@@ -30,6 +30,8 @@ MEDIA_STALE_S=1200
 
 # shellcheck source=/dev/null
 [ -r "$CONFIG" ] && . "$CONFIG"
+# Whole seconds: shell arithmetic and the recording's keep-alive count with it.
+case "$MAX_LISTEN_S" in "" | *[!0-9]*) MAX_LISTEN_S=300 ;; esac
 URL="${JANET_VOICE_URL:-}"
 CHANNEL="${JANET_VOICE_CHANNEL:-mac}"
 
@@ -110,8 +112,8 @@ hex_start() { # press ms
   (umask 077 && echo "$id $owner $1" >"$STATE/recording.tmp" && mv "$STATE/recording.tmp" "$STATE/recording")
   : >"$STATE/alive.$id"
   # Hex drops a recording whose owner goes quiet for ten seconds. This stops when the recording
-  # is finished or cancelled, and after two minutes whatever happens.
-  (while [ -e "$STATE/alive.$id" ] && [ "$SECONDS" -lt 120 ]; do
+  # is finished or cancelled, and once the longest listen is over whatever happens.
+  (while [ -e "$STATE/alive.$id" ] && [ "$SECONDS" -lt "$((MAX_LISTEN_S + 10))" ]; do
     sleep "$HEARTBEAT_S"
     [ -e "$STATE/alive.$id" ] && HEX_OWNER="$owner" hex POST "/dictations/$id/heartbeat" --max-time 3 >/dev/null
   done) &

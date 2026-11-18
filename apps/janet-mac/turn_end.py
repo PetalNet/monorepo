@@ -201,10 +201,10 @@ def main() -> None:
     parser.add_argument("--nothing-said-s", type=float, default=Policy.nothing_said_s)
     args = parser.parse_args()
 
+    start = time.monotonic()  # before the models load: the limit is on the whole listen
     vad = Silero(args.models / "silero_vad.onnx")
     smart_turn = SmartTurn(args.models / "smart-turn-v3.2-cpu.onnx")
     turn_end = TurnEnd(vad, smart_turn, Policy(nothing_said_s=args.nothing_said_s))
-    start = time.monotonic()
     heard_s = 0.0
     once = threading.Lock()
 
