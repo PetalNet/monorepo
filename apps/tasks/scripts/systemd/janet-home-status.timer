@@ -1,0 +1,10 @@
+[Unit]
+Description=Rebuild Janet's home page every 5 minutes
+
+[Timer]
+OnBootSec=1min
+OnUnitActiveSec=5min
+AccuracySec=10s
+
+[Install]
+WantedBy=timers.target

@@ -26,6 +26,8 @@
 	const whoName = $derived(displayName(me));
 
 	const path = $derived($page.url.pathname);
+	// the Janet Call home is a bare page for the Android WebView: no tasks chrome
+	const bare = $derived(path === "/janet/home");
 	const isActive = (n) => {
 		const p = path;
 
@@ -114,143 +116,147 @@
 	});
 </script>
 
-<div class="app">
-	<!-- skip link — first tab stop on every route (task-360) -->
-	<a class="skip" href="#main">Skip to content</a>
+{#if bare}
+	{@render children()}
+{:else}
+	<div class="app">
+		<!-- skip link — first tab stop on every route (task-360) -->
+		<a class="skip" href="#main">Skip to content</a>
 
-	<!-- DESKTOP SIDEBAR — Nexus-style grouped nav, collapses to an icon rail -->
-	<NavSidebar bind:collapsed fleet={data.fleet} />
+		<!-- DESKTOP SIDEBAR — Nexus-style grouped nav, collapses to an icon rail -->
+		<NavSidebar bind:collapsed fleet={data.fleet} />
 
-	<!-- MOBILE topbar -->
-	<header class="topbar">
-		<a class="brand" href="/"
-			><span class="brand-mark"><Icon name="brand" size={18} strokeWidth={2} /></span><span
-				class="brand-name">tasks</span
-			></a
-		>
-		<button class="ico-theme" onclick={toggleTheme} title="Theme" aria-label="Theme"
-			><Icon name="moon" size={18} /></button
-		>
-	</header>
-
-	<main class="main" id="main" tabindex="-1">
-		<!-- DESKTOP top bar — toggle · global search · account menu (no section-name parrot) -->
-		<header class="topbar-d">
-			<button
-				class="tb-toggle"
-				onclick={() => (collapsed = !collapsed)}
-				aria-label={collapsed ? "Expand sidebar" : "Collapse sidebar"}
-				title={collapsed ? "Expand" : "Collapse"}
+		<!-- MOBILE topbar -->
+		<header class="topbar">
+			<a class="brand" href="/"
+				><span class="brand-mark"><Icon name="brand" size={18} strokeWidth={2} /></span><span
+					class="brand-name">tasks</span
+				></a
 			>
-				<Icon name={collapsed ? "expand" : "collapse"} size={18} />
-			</button>
-
-			<SearchBox value={q} />
-
-			<div class="tb-acct">
-				<button
-					class="acct-btn"
-					class:open={acctOpen}
-					onclick={() => (acctOpen = !acctOpen)}
-					aria-haspopup="menu"
-					aria-expanded={acctOpen}
-					aria-label="Account menu"
-				>
-					<span class="avatar acct-av">{whoName.charAt(0)}</span>
-					<span class="acct-nm">{whoName}</span>
-					<Icon name="chevdown" size={15} />
-				</button>
-				{#if acctOpen}
-					<button
-						class="acct-bd"
-						aria-label="Close menu"
-						tabindex="-1"
-						onclick={() => (acctOpen = false)}
-					></button>
-					<div class="acct-menu" role="menu">
-						<div class="acct-id">
-							<span class="avatar acct-av lg">{whoName.charAt(0)}</span>
-							<span class="acct-who"
-								><span class="nm">{whoName}</span><span class="sub mono">@{me}</span></span
-							>
-						</div>
-						<button class="acct-item" role="menuitem" onclick={toggleTheme}>
-							<Icon name="moon" size={16} /> Toggle theme
-						</button>
-					</div>
-				{/if}
-			</div>
+			<button class="ico-theme" onclick={toggleTheme} title="Theme" aria-label="Theme"
+				><Icon name="moon" size={18} /></button
+			>
 		</header>
-		<div class="main-scroll">{@render children()}</div>
-	</main>
 
-	<!-- MOBILE bottom tab bar + More sheet (a real dialog — keyboard + AT operable, task-335/360) -->
-	<button
-		class="sheet-bd"
-		class:open={moreOpen}
-		tabindex="-1"
-		aria-hidden="true"
-		onclick={closeMore}
-	></button>
-	<div
-		class="sheet"
-		class:open={moreOpen}
-		id="more-sheet"
-		role="dialog"
-		aria-modal="true"
-		tabindex="-1"
-		aria-labelledby="more-sheet-title"
-		bind:this={sheetEl}
-		onkeydown={sheetKeydown}
-	>
-		<h3 id="more-sheet-title">More</h3>
-		<a href="/docs" aria-current={path.startsWith("/docs") ? "page" : undefined}
-			><Icon name="doc" size={20} />Docs</a
-		>
-		<a href="/gallery" aria-current={path.startsWith("/gallery") ? "page" : undefined}
-			><Icon name="gallery" size={20} />Gallery</a
-		>
-		<a href="/projects" aria-current={path.startsWith("/projects") ? "page" : undefined}
-			><Icon name="projects" size={20} />Projects</a
-		>
-	</div>
-	<nav class="tabbar" aria-label="Primary">
-		<a
-			class="tab"
-			class:on={isActive("desk")}
-			aria-current={isActive("desk") ? "page" : undefined}
-			href="/"><Icon name="desk" size={20} /><span>Desk</span></a
-		>
-		<a
-			class="tab"
-			class:on={isActive("browse")}
-			aria-current={isActive("browse") ? "page" : undefined}
-			href="/browse"><Icon name="board" size={20} /><span>Browse</span></a
-		>
-		<a
-			class="tab"
-			class:on={isActive("fleet")}
-			aria-current={isActive("fleet") ? "page" : undefined}
-			href="/fleet"><Icon name="bolt" size={20} /><span>Fleet</span></a
-		>
-		<a
-			class="tab"
-			class:on={isActive("new")}
-			aria-current={isActive("new") ? "page" : undefined}
-			href="/new"><Icon name="plus" size={20} /><span>New</span></a
-		>
+		<main class="main" id="main" tabindex="-1">
+			<!-- DESKTOP top bar — toggle · global search · account menu (no section-name parrot) -->
+			<header class="topbar-d">
+				<button
+					class="tb-toggle"
+					onclick={() => (collapsed = !collapsed)}
+					aria-label={collapsed ? "Expand sidebar" : "Collapse sidebar"}
+					title={collapsed ? "Expand" : "Collapse"}
+				>
+					<Icon name={collapsed ? "expand" : "collapse"} size={18} />
+				</button>
+
+				<SearchBox value={q} />
+
+				<div class="tb-acct">
+					<button
+						class="acct-btn"
+						class:open={acctOpen}
+						onclick={() => (acctOpen = !acctOpen)}
+						aria-haspopup="menu"
+						aria-expanded={acctOpen}
+						aria-label="Account menu"
+					>
+						<span class="avatar acct-av">{whoName.charAt(0)}</span>
+						<span class="acct-nm">{whoName}</span>
+						<Icon name="chevdown" size={15} />
+					</button>
+					{#if acctOpen}
+						<button
+							class="acct-bd"
+							aria-label="Close menu"
+							tabindex="-1"
+							onclick={() => (acctOpen = false)}
+						></button>
+						<div class="acct-menu" role="menu">
+							<div class="acct-id">
+								<span class="avatar acct-av lg">{whoName.charAt(0)}</span>
+								<span class="acct-who"
+									><span class="nm">{whoName}</span><span class="sub mono">@{me}</span></span
+								>
+							</div>
+							<button class="acct-item" role="menuitem" onclick={toggleTheme}>
+								<Icon name="moon" size={16} /> Toggle theme
+							</button>
+						</div>
+					{/if}
+				</div>
+			</header>
+			<div class="main-scroll">{@render children()}</div>
+		</main>
+
+		<!-- MOBILE bottom tab bar + More sheet (a real dialog — keyboard + AT operable, task-335/360) -->
 		<button
-			class="tab"
-			type="button"
-			bind:this={moreBtn}
-			aria-haspopup="dialog"
-			aria-expanded={moreOpen}
-			aria-controls="more-sheet"
-			onclick={() => (moreOpen ? closeMore() : openMore())}
-			><Icon name="more" size={20} /><span>More</span></button
+			class="sheet-bd"
+			class:open={moreOpen}
+			tabindex="-1"
+			aria-hidden="true"
+			onclick={closeMore}
+		></button>
+		<div
+			class="sheet"
+			class:open={moreOpen}
+			id="more-sheet"
+			role="dialog"
+			aria-modal="true"
+			tabindex="-1"
+			aria-labelledby="more-sheet-title"
+			bind:this={sheetEl}
+			onkeydown={sheetKeydown}
 		>
-	</nav>
-</div>
+			<h3 id="more-sheet-title">More</h3>
+			<a href="/docs" aria-current={path.startsWith("/docs") ? "page" : undefined}
+				><Icon name="doc" size={20} />Docs</a
+			>
+			<a href="/gallery" aria-current={path.startsWith("/gallery") ? "page" : undefined}
+				><Icon name="gallery" size={20} />Gallery</a
+			>
+			<a href="/projects" aria-current={path.startsWith("/projects") ? "page" : undefined}
+				><Icon name="projects" size={20} />Projects</a
+			>
+		</div>
+		<nav class="tabbar" aria-label="Primary">
+			<a
+				class="tab"
+				class:on={isActive("desk")}
+				aria-current={isActive("desk") ? "page" : undefined}
+				href="/"><Icon name="desk" size={20} /><span>Desk</span></a
+			>
+			<a
+				class="tab"
+				class:on={isActive("browse")}
+				aria-current={isActive("browse") ? "page" : undefined}
+				href="/browse"><Icon name="board" size={20} /><span>Browse</span></a
+			>
+			<a
+				class="tab"
+				class:on={isActive("fleet")}
+				aria-current={isActive("fleet") ? "page" : undefined}
+				href="/fleet"><Icon name="bolt" size={20} /><span>Fleet</span></a
+			>
+			<a
+				class="tab"
+				class:on={isActive("new")}
+				aria-current={isActive("new") ? "page" : undefined}
+				href="/new"><Icon name="plus" size={20} /><span>New</span></a
+			>
+			<button
+				class="tab"
+				type="button"
+				bind:this={moreBtn}
+				aria-haspopup="dialog"
+				aria-expanded={moreOpen}
+				aria-controls="more-sheet"
+				onclick={() => (moreOpen ? closeMore() : openMore())}
+				><Icon name="more" size={20} /><span>More</span></button
+			>
+		</nav>
+	</div>
+{/if}
 
 <style>
 	/* ── shell layout ─────────────────────────────────────── */

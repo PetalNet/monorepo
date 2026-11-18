@@ -11,7 +11,7 @@
 		"check": "svelte-kit sync && svelte-check --tsconfig ./tsconfig.json",
 		"lint:eslint": "eslint . --max-warnings=0",
 		"prepare": "svelte-kit sync",
-		"test": "node scripts/test-public-share.mjs && node scripts/test-access.mjs && node scripts/test-agent-api.mjs && node scripts/test-telemetry.mjs && node scripts/test-keeper.mjs && node scripts/test-makkit-docs.mjs"
+		"test": "node scripts/test-public-share.mjs && node scripts/test-access.mjs && node scripts/test-agent-api.mjs && node scripts/test-janet-home.mjs && node scripts/test-telemetry.mjs && node scripts/test-keeper.mjs && node scripts/test-makkit-docs.mjs"
 	},
 	"dependencies": {
 		"@modelcontextprotocol/sdk": "catalog:prod",

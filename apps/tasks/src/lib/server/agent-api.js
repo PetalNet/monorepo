@@ -44,6 +44,7 @@ import db, {
 	getArtifact,
 	listMarkup,
 } from "./db.js";
+import { getHome, setHome, HOME_MAX } from "./home.js";
 
 // mirrors mcp/tracker-mcp.mjs — archived-project exclusion + active predicate + shape()
 const NOTARCHIVED =
@@ -93,6 +94,8 @@ const OPS = new Set([
 	"list_blockers",
 	"set_type",
 	"get_markup",
+	"set_home",
+	"get_home",
 ]);
 
 // task.type vocabulary (free TEXT column, default 'task'). Allowlisted so a typo'd type can't
@@ -772,6 +775,30 @@ const ops = {
 		};
 	},
 
+	// Janet's home page (/janet/home). One document, replaced whole. It sits outside the
+	// assignee/project lane model, so only an UNSCOPED token may touch it (scoped = generic 404).
+	set_home(scope, args) {
+		if (scope.assignee != null || scope.projects != null) {
+			return notFound();
+		}
+
+		if (typeof args.markdown !== "string" || args.markdown.length > HOME_MAX) {
+			return bad("bad_request");
+		}
+
+		const { updated_at } = setHome(args.markdown);
+
+		return { status: 200, body: { updated_at } };
+	},
+
+	get_home(scope) {
+		if (scope.assignee != null || scope.projects != null) {
+			return notFound();
+		}
+
+		return { status: 200, body: getHome() };
+	},
+
 	// set task.type (allowlisted, TASK_TYPES) via canonical updateTask ('update' event).
 	set_type(scope, args) {
 		if (!isInt(args.id)) {
@@ -806,7 +833,7 @@ const ops = {
 // Ops that only READ. A read-only token may call these and nothing else. Listed
 // explicitly rather than derived by negation: adding a new write op must not
 // accidentally become callable by every read-only token that already exists.
-const READ_OPS = new Set(["get_ready", "get", "get_markup"]);
+const READ_OPS = new Set(["get_ready", "get", "get_markup", "get_home"]);
 
 export function handleAgentRpc({ authorization, rawBody } = {}) {
 	const m = /^Bearer\s+(\S+)$/i.exec(String(authorization ?? "").trim());
