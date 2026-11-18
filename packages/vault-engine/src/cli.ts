@@ -7,7 +7,7 @@ import { NodeRuntime, NodeServices } from "@effect/platform-node";
 import { Config, Console, Effect, Layer, Option, Schema } from "effect";
 import { Argument, Command, Flag } from "effect/cli";
 
-import { operations } from "./api.ts";
+import { operations, refresh } from "./api.ts";
 import { Vault } from "./engine.ts";
 import { SecretFound, WriteRejected } from "./errors.ts";
 import { reindex } from "./recall.ts";
@@ -81,6 +81,19 @@ const commands = [
 				}),
 			}).pipe(Effect.flatMap(print)),
 	).pipe(Command.withDescription("Store one sourced claim.")),
+	Command.make("source").pipe(
+		Command.withDescription("Replace or retract a source."),
+		Command.withSubcommands([
+			Command.make(
+				"replace",
+				{ id: Argument.String("id"), replacedBy: Argument.String("new-id"), reason },
+				(input) => call("source_retire", input).pipe(Effect.flatMap(print)),
+			),
+			Command.make("retract", { id: Argument.String("id"), reason }, (input) =>
+				call("source_retire", input).pipe(Effect.flatMap(print)),
+			),
+		]),
+	),
 	Command.make("claim").pipe(
 		Command.withDescription("Retract a claim."),
 		Command.withSubcommands([
@@ -91,6 +104,18 @@ const commands = [
 	),
 	Command.make("reindex", {}, () => reindex.pipe(Effect.flatMap(print))).pipe(
 		Command.withDescription("Rebuild the claim index."),
+	),
+	Command.make("reconcile", {}, () =>
+		Effect.gen(function* () {
+			const flagged = yield* (yield* Vault).reconcile("reconcile stale flags");
+
+			yield* refresh;
+			yield* print({ flagged });
+		}),
+	).pipe(
+		Command.withDescription(
+			"Flag claims whose sources were retired; finishes an interrupted retirement.",
+		),
 	),
 ];
 

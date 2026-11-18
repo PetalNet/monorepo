@@ -5,6 +5,7 @@ import { LoroDoc } from "loro-crdt";
 import { Vault } from "../src/engine.ts";
 import { SecretFound, WriteRejected } from "../src/errors.ts";
 import {
+	OTHER,
 	SOURCE,
 	TOPIC,
 	addClaim,
@@ -203,6 +204,70 @@ describe("write checks", () => {
 			expect((yield* state("shared")).sources[SOURCE]?.passages).toEqual({
 				p1: "Proposition indexing raises Recall@5.",
 			});
+		}));
+});
+
+describe("staleness", () => {
+	test("flags every claim that cites a replaced source, in every tier, and leaves the rest alone", () =>
+		Effect.gen(function* () {
+			const [cites, unrelated] = yield* write("shared", (tx) =>
+				Effect.gen(function* () {
+					yield* seed(tx);
+					yield* seed(tx, OTHER);
+
+					return [
+						yield* tx.addClaim(claimInput("Cites the old source.")),
+						yield* tx.addClaim(claimInput("Cites another.", OTHER)),
+					];
+				}),
+			);
+			const personal = yield* write("personal", (tx) =>
+				tx
+					.putTopic({ id: TOPIC, title: "Private notes", summary: "Private.", headings: [] })
+					.pipe(Effect.andThen(tx.addClaim(claimInput("A private claim on the same source.")))),
+			);
+			const flagged = yield* (yield* Vault).retireSource(SOURCE, {
+				status: "replaced",
+				replacedBy: OTHER,
+				reason: "v2 published",
+			});
+
+			expect(new Set(flagged)).toEqual(new Set([cites?.id, personal.id]));
+			expect((yield* state("shared")).claims[cites?.id ?? ""]?.stale?.sources).toEqual([SOURCE]);
+			expect((yield* state("personal")).claims[personal.id]?.stale?.sources).toEqual([SOURCE]);
+			expect((yield* state("shared")).claims[unrelated?.id ?? ""]?.stale).toBeUndefined();
+
+			expect((yield* state("shared")).sources[SOURCE]).toMatchObject({
+				status: "replaced",
+				replacedBy: OTHER,
+			});
+		}));
+
+	test("flags on retraction too, and flags a claim written after the retraction", () =>
+		Effect.gen(function* () {
+			const claim = yield* write("shared", (tx) =>
+				Effect.gen(function* () {
+					yield* seed(tx);
+					yield* seed(tx, OTHER);
+
+					return yield* tx.addClaim(claimInput("Cites the retracted source."));
+				}),
+			);
+
+			expect(
+				yield* (yield* Vault).retireSource(SOURCE, {
+					status: "retracted",
+					reason: "paper withdrawn",
+				}),
+			).toEqual([claim.id]);
+
+			expect(
+				(yield* addClaim("shared", claimInput("Written after the retraction."))).stale?.sources,
+			).toEqual([SOURCE]);
+
+			expect(
+				(yield* addClaim("shared", claimInput("On a live source.", OTHER))).stale,
+			).toBeUndefined();
 		}));
 });
 

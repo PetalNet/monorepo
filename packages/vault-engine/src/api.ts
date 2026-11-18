@@ -9,7 +9,7 @@ import { RememberInput, remember } from "./research.ts";
 import { Claim, Text, Tier } from "./schema.ts";
 
 /** Brings the read side, the claim index, up to date after a write. */
-const refresh = Effect.asVoid(reindex);
+export const refresh = Effect.asVoid(reindex);
 
 const errors = {
 	WriteRejected: operationError(WriteRejected, { status: 422, message: (error) => error.message }),
@@ -58,6 +58,31 @@ export const operations = [
 		output: Claim,
 		handler: ({ tier: chosen, ...input }) =>
 			remember(chosen ?? "shared", input).pipe(Effect.tap(() => refresh)),
+		errors,
+	}),
+	operation({
+		name: "source_retire",
+		description:
+			"Mark a source replaced (give `replacedBy`) or retracted. Every claim that cites it is flagged stale; the flagged claim IDs are returned.",
+		input: Schema.Struct({
+			...Retire.fields,
+			replacedBy: Schema.optionalKey(
+				Text.annotate({ description: "The newer source. Omit to retract the source outright." }),
+			),
+		}),
+		output: Schema.Struct({ flagged: Schema.Array(Schema.String) }),
+		handler: ({ id, reason, replacedBy }) =>
+			Effect.flatMap(Vault, (vault) =>
+				vault.retireSource(
+					id,
+					replacedBy === undefined
+						? { status: "retracted", reason }
+						: { status: "replaced", replacedBy, reason },
+				),
+			).pipe(
+				Effect.tap(() => refresh),
+				Effect.map((flagged) => ({ flagged })),
+			),
 		errors,
 	}),
 	operation({

@@ -22,7 +22,7 @@ CREATE VIRTUAL TABLE claim_fts USING fts5(id UNINDEXED, text, context, tokenize=
 CREATE TABLE meta(key TEXT PRIMARY KEY, value TEXT NOT NULL);
 `;
 
-const SourceFreshness = Schema.Literals(["fresh", "stale"]);
+const SourceFreshness = Schema.Literals(["fresh", "stale", "replaced", "retracted"]);
 
 const SourceRef = Schema.Struct({
 	id: Schema.String,
@@ -44,8 +44,8 @@ export const ClaimCard = Schema.Struct({
 	text: Schema.String,
 	status: Claim.fields.status,
 	sourceType: Claim.fields.sourceType,
-	/** What the claim's evidence looks like today. */
-	freshness: Schema.Literals(["fresh", "stale", "unsourced"]),
+	/** What the claim's evidence looks like today: `flagged` means a cited source was retired. */
+	freshness: Schema.Literals(["fresh", "stale", "flagged", "unsourced"]),
 	sources: Schema.Array(SourceRef),
 	score: Schema.Finite,
 });
@@ -110,8 +110,9 @@ export const reindex = Effect.gen(function* () {
 						const backing = sources.filter(
 							(source) => source.rel === "source" || source.rel === "supports",
 						);
-						const evidence: ClaimCard["freshness"] =
-							backing.length === 0
+						const evidence: ClaimCard["freshness"] = record.stale
+							? "flagged"
+							: backing.length === 0
 								? "unsourced"
 								: backing.every((source) => source.freshness !== "fresh")
 									? "stale"

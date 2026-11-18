@@ -48,6 +48,13 @@ export const Claim = Schema.Struct({
 	status: Schema.Literals(["active", "superseded", "retracted"]),
 	supersededBy: Schema.optionalKey(ClaimId),
 	reason: Schema.optionalKey(Line),
+	/** Set when a cited source was replaced or retracted. */
+	stale: Schema.optionalKey(
+		Schema.Struct({
+			since: Timestamp,
+			sources: Schema.Array(SourceId).check(Schema.isMinLength(1)),
+		}),
+	),
 	created: Timestamp,
 	updated: Timestamp,
 	agent: Text,
@@ -82,6 +89,9 @@ export const Source = Schema.Struct({
 	sourceType: SourceType,
 	captured: Timestamp,
 	shelfLifeDays: Schema.optionalKey(PositiveInt),
+	status: Schema.Literals(["active", "replaced", "retracted"]),
+	replacedBy: Schema.optionalKey(SourceId),
+	reason: Schema.optionalKey(Line),
 	/** Passage ID to passage text. The heading a passage sits under is `headings[id]`. */
 	passages: Schema.Record(PassageId, Text),
 	headings: Schema.optionalKey(Schema.Record(PassageId, Line)),
@@ -100,8 +110,12 @@ export type Topic = typeof Topic.Type;
 
 const DEFAULT_SHELF_LIFE_DAYS = 365;
 
-/** A source goes stale once it is older than its shelf life. */
+/** A source goes stale once it is older than its shelf life; replacement and retraction win. */
 export function freshness(source: Source, now: Date) {
+	if (source.status !== "active") {
+		return source.status;
+	}
+
 	const days = source.shelfLifeDays ?? DEFAULT_SHELF_LIFE_DAYS;
 	const age = now.getTime() - new Date(source.captured).getTime();
 

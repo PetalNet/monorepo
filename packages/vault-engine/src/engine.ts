@@ -22,13 +22,18 @@ export interface TierState {
 /**
  * How a tier is laid out inside its Loro document. Every map holds plain values keyed by ID. A Loro
  * map keeps one writer's value per key, so anything two replicas may write at the same time has its
- * own key: a claim's text never shares a key with its retirement, and each passage is its own
- * entry, addressed by a hash of its text.
+ * own key: a claim's text never shares a key with its retirement or its stale flag, and each
+ * passage is its own entry, addressed by a hash of its text.
  */
 interface Stored {
-	claims: Record<string, Omit<Claim, "status" | "supersededBy" | "reason" | "updated">>;
+	claims: Record<string, Omit<Claim, "status" | "supersededBy" | "reason" | "stale" | "updated">>;
 	retired: Record<string, Retirement>;
-	sources: Record<string, Omit<Source, "passages" | "headings">>;
+	stale: Record<string, NonNullable<Claim["stale"]>>;
+	sources: Record<
+		string,
+		Omit<Source, "status" | "replacedBy" | "reason" | "passages" | "headings">
+	>;
+	sourceStatus: Record<string, SourceRetirement>;
 	passages: Record<string, { text: string; heading?: string }>;
 	topics: Record<string, Topic>;
 }
@@ -40,9 +45,13 @@ interface Retirement {
 	readonly at: string;
 }
 
+export type SourceRetirement =
+	| { readonly status: "replaced"; readonly replacedBy: string; readonly reason: string }
+	| { readonly status: "retracted"; readonly reason: string };
+
 export type NewClaim = Pick<Claim, "text" | "topic" | "heading" | "links" | "sourceType">;
 
-export type NewSource = Omit<Source, "agent">;
+export type NewSource = Omit<Source, "agent" | "status" | "replacedBy" | "reason">;
 
 export interface Located {
 	readonly tier: Tier;
@@ -85,6 +94,12 @@ export interface Tx extends VaultView {
 		text: string,
 		heading?: string,
 	) => Effect.Effect<string, WriteRejected | SecretFound>;
+	readonly setSourceStatus: (
+		id: string,
+		change: SourceRetirement,
+	) => Effect.Effect<Source, WriteRejected | SecretFound>;
+	/** Flags every active claim in this tier that cites a retired source; returns the new flags. */
+	readonly flagDependents: Effect.Effect<string[], WriteRejected | SecretFound>;
 	readonly putTopic: (input: Topic) => Effect.Effect<Topic, WriteRejected | SecretFound>;
 }
 
@@ -105,6 +120,15 @@ export interface VaultShape {
 		message: string,
 		body: (tx: Tx) => Effect.Effect<A, E, R>,
 	) => Effect.Effect<A, E | WriteRejected | SecretFound | VaultError, R>;
+	/** Marks a source replaced or retracted and flags every claim, in any tier, that cites it. */
+	readonly retireSource: (
+		id: string,
+		change: SourceRetirement,
+	) => Effect.Effect<string[], WriteRejected | SecretFound | VaultError>;
+	/** Flags, in every tier, the active claims that cite a retired source. */
+	readonly reconcile: (
+		reason: string,
+	) => Effect.Effect<string[], WriteRejected | SecretFound | VaultError>;
 	readonly snapshot: (tier: Tier) => Effect.Effect<Uint8Array, VaultError>;
 }
 
@@ -122,7 +146,7 @@ const hash = (data: string | Uint8Array) => createHash("sha256").update(data).di
 
 function readState(doc: LoroDoc): TierState {
 	const stored = Object.fromEntries(
-		["claims", "retired", "sources", "passages", "topics"].map((name) => [
+		["claims", "retired", "stale", "sources", "sourceStatus", "passages", "topics"].map((name) => [
 			name,
 			doc.getMap(name).toJSON() as unknown,
 		]),
@@ -130,7 +154,7 @@ function readState(doc: LoroDoc): TierState {
 	const sources: Record<string, Source> = {};
 
 	for (const [id, core] of Object.entries(stored.sources)) {
-		sources[id] = { ...core, passages: {} };
+		sources[id] = { ...core, status: "active", ...stored.sourceStatus[id], passages: {} };
 	}
 
 	// Loro does not keep insertion order; passages read back in ID order (s2 before s10).
@@ -157,12 +181,14 @@ function readState(doc: LoroDoc): TierState {
 
 	for (const [id, core] of Object.entries(stored.claims)) {
 		const { at, ...retired } = stored.retired[id] ?? { at: undefined };
+		const stale = stored.stale[id];
 
 		claims[id] = {
 			...core,
 			status: "active",
 			...retired,
-			updated: at ?? core.created,
+			...(stale === undefined ? {} : { stale }),
+			updated: at ?? stale?.since ?? core.created,
 		};
 	}
 
@@ -220,9 +246,29 @@ function makeView(states: Readonly<Record<Tier, TierState>>): VaultView {
 	};
 }
 
+/** The sources a claim cites that have been replaced or retracted, in ID order. */
+const retiredSources = (view: VaultView, claim: Claim) =>
+	[
+		...new Set(
+			claim.links
+				.filter((link) => {
+					const source = view.source(link.target);
+
+					return source !== undefined && source.status !== "active";
+				})
+				.map((link) => link.target),
+		),
+	].toSorted();
+
 /** The part of a claim that never changes after it is written. */
-const fixed = ({ status: _s, supersededBy: _b, reason: _r, updated: _u, ...rest }: Claim) =>
-	JSON.stringify(Object.entries(rest).toSorted(([a], [b]) => a.localeCompare(b)));
+const fixed = ({
+	status: _s,
+	supersededBy: _b,
+	reason: _r,
+	stale: _f,
+	updated: _u,
+	...rest
+}: Claim) => JSON.stringify(Object.entries(rest).toSorted(([a], [b]) => a.localeCompare(b)));
 
 function makeTx(
 	tier: Tier,
@@ -318,6 +364,12 @@ function makeTx(
 		);
 	});
 
+	const flag = Effect.fnUntraced(function* (current: Claim, sources: readonly string[]) {
+		const stale = { since: current.stale?.since ?? now, sources };
+
+		yield* write("claims", Claim, { ...current, stale, updated: now }, "stale", current.id, stale);
+	});
+
 	const newClaimId = () => {
 		for (;;) {
 			const id = `c-${BigInt(`0x${randomBytes(8).toString("hex")}`)
@@ -352,6 +404,12 @@ function makeTx(
 			if (link.rel === "replaces") {
 				yield* retire(link.target, { status: "superseded", supersededBy: added.id, at: now });
 			}
+		}
+
+		const retired = retiredSources(view, added);
+
+		if (retired.length > 0) {
+			yield* flag(added, retired);
 		}
 
 		return yield* claim(added.id);
@@ -426,6 +484,7 @@ function makeTx(
 			yield* checked(Source, {
 				...existing,
 				...stored,
+				status: existing?.status ?? "active",
 				passages: { ...existing?.passages, ...passages },
 				headings: { ...existing?.headings, ...headings },
 			});
@@ -436,6 +495,7 @@ function makeTx(
 				{
 					...existing,
 					...stored,
+					status: existing?.status ?? "active",
 					passages: existing?.passages ?? {},
 				},
 				"sources",
@@ -462,6 +522,33 @@ function makeTx(
 			yield* passage(current, id, text, heading);
 
 			return id;
+		}),
+		setSourceStatus: Effect.fnUntraced(function* (id: string, change: SourceRetirement) {
+			yield* write(
+				"sources",
+				Source,
+				{ ...(yield* source(id)), ...change },
+				"sourceStatus",
+				id,
+				change,
+			);
+
+			return yield* source(id);
+		}),
+		flagDependents: Effect.gen(function* () {
+			const flagged: string[] = [];
+
+			for (const current of Object.values(state.claims)) {
+				const retired = retiredSources(view, current);
+				const known = current.stale?.sources ?? [];
+
+				if (current.status === "active" && retired.some((id) => !known.includes(id))) {
+					yield* flag(current, [...new Set([...known, ...retired])].toSorted());
+					flagged.push(current.id);
+				}
+			}
+
+			return flagged;
 		}),
 		putTopic: Effect.fnUntraced(function* (input: Topic) {
 			return yield* write("topics", Topic, input, "topics", input.id, input);
@@ -590,12 +677,51 @@ const makeVault = Effect.fnUntraced(function* (config: VaultConfig) {
 			}),
 		);
 
+	const reconcile = Effect.fnUntraced(function* (reason: string) {
+		const flagged: string[] = [];
+
+		for (const tier of tiers) {
+			const view = makeView((yield* loadAll).states);
+			const pending = Object.values(view.tiers[tier].claims).some(
+				(claim) =>
+					claim.status === "active" &&
+					retiredSources(view, claim).some((id) => claim.stale?.sources.includes(id) !== true),
+			);
+
+			if (pending) {
+				flagged.push(...(yield* transact(tier, reason, (tx) => tx.flagDependents)));
+			}
+		}
+
+		return flagged;
+	});
+
 	return {
 		root: config.root,
 		agent: config.agent,
 		file: files.file,
 		view: Effect.map(loadAll, ({ states }) => makeView(states)),
 		transact,
+		reconcile,
+		retireSource: Effect.fnUntraced(function* (id: string, change: SourceRetirement) {
+			const view = makeView((yield* loadAll).states);
+			const found = view.locate(id);
+
+			if (found?.kind !== "sources") {
+				return yield* reject(`Source ${id} is not in the vault`);
+			}
+
+			if (change.status === "replaced" && !view.source(change.replacedBy)) {
+				return yield* reject(`Replacement source ${change.replacedBy} is not in the vault`);
+			}
+
+			const here = yield* transact(found.tier, `${change.status} source ${id}`, (tx) =>
+				tx.setSourceStatus(id, change).pipe(Effect.andThen(tx.flagDependents)),
+			);
+
+			// A crash here leaves other tiers unflagged; the next retire or reconcile finishes the job.
+			return [...here, ...(yield* reconcile(`${change.status} source ${id}`))];
+		}),
 		snapshot: (tier) => Effect.map(load(tier), ({ doc }) => doc.export({ mode: "snapshot" })),
 	} satisfies VaultShape;
 });

@@ -2,6 +2,7 @@ import { describe, expect } from "@effect/vitest";
 import { Effect } from "effect";
 import { TestClock } from "effect/testing";
 
+import { Vault } from "../src/engine.ts";
 import { recallClaims, reindex, renderCard } from "../src/recall.ts";
 import { SOURCE, TOPIC, claimInput, seed, test, write } from "./tools.ts";
 
@@ -44,6 +45,10 @@ describe("recall", () => {
 				freshness: "stale",
 				sources: [{ id: SOURCE, freshness: "stale" }],
 			});
+
+			yield* (yield* Vault).retireSource(SOURCE, { status: "retracted", reason: "withdrawn" });
+			yield* reindex;
+			expect((yield* recallClaims("propositions"))[0]?.freshness).toBe("flagged");
 		}));
 
 	test("leaves superseded claims out unless asked, and filters tiers before the limit", () =>
