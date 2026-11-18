@@ -269,13 +269,13 @@ class TalkCase(unittest.TestCase):
         return [body for path, body in self.head.calls if path.endswith(suffix)]
 
 
-class TurnEndModelsTest(TalkCase):
-    def test_with_the_models_installed_they_hear_the_microphone_and_end_the_listening(self):
+class TurnEndTest(TalkCase):
+    def test_with_turn_end_installed_it_hears_the_microphone_and_ends_the_listening(self):
         home = self.root / "turn-end"
         (home / "venv" / "bin").mkdir(parents=True)
-        # Stands in for the Python that runs turn_end.py: hears a little audio, then calls the turn finished.
+        # Stands in for the Python that runs turn_end.py: hears a little audio, then calls the turn over.
         python = home / "venv" / "bin" / "python"
-        python.write_text('#!/usr/bin/env bash\necho "$*" >"$STUB/turn-end-args"\nhead -c 9600 | wc -c >"$STUB/turn-end-heard"\necho finished\n')
+        python.write_text('#!/usr/bin/env bash\necho "$*" >"$STUB/turn-end-args"\nhead -c 9600 | wc -c >"$STUB/turn-end-heard"\necho "quiet (0.3 s heard)"\n')
         python.chmod(0o755)
         self.env["JANET_TALK_TURN_END"] = str(home)
         self.env["JANET_TALK_LATCH_MS"] = "1000000"
@@ -283,12 +283,12 @@ class TurnEndModelsTest(TalkCase):
         self.talk("stop")
         self.assertIn("--rate 48000 ", self.lines("turn-end-args")[0])
         self.assertEqual(int(self.lines("turn-end-heard")[0]), 9600)
-        self.assertIn("stopped listening: finished", (Path(self.env["JANET_TALK_STATE"]) / "talk.log").read_text())
+        self.assertIn("stopped listening: quiet (0.3 s heard)", (Path(self.env["JANET_TALK_STATE"]) / "talk.log").read_text())
         self.assertEqual(self.lines("hex.log"), ["start", "finish"])
         self.assertEqual(self.head_calls("/turns"), [{"text": "what time is it"}])
 
 
-    def test_models_that_fail_to_run_leave_the_level_rule_to_end_the_listening(self):
+    def test_a_turn_end_that_fails_to_run_leaves_the_level_rule_to_end_the_listening(self):
         home = self.root / "turn-end"
         (home / "venv" / "bin").mkdir(parents=True)
         python = home / "venv" / "bin" / "python"
