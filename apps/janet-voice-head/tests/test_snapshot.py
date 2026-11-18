@@ -14,6 +14,16 @@ def boundary(uuid: str) -> str:
     return json.dumps({"parentUuid": None, "type": "system", "subtype": "compact_boundary", "uuid": uuid}, separators=(",", ":"))
 
 
+def kept_boundary(uuid: str, head: str, tail: str) -> str:
+    return json.dumps({"parentUuid": None, "type": "system", "subtype": "compact_boundary", "uuid": uuid,
+                       "compactMetadata": {"preservedSegment": {"headUuid": head, "anchorUuid": "summary", "tailUuid": tail}}},
+                      separators=(",", ":"))
+
+
+def linked(uuid: str, parent: str | None, **extra) -> str:
+    return json.dumps({"uuid": uuid, "parentUuid": parent, "type": "assistant", **extra}, separators=(",", ":"))
+
+
 class TrimTest(unittest.TestCase):
     def setUp(self):
         self.dir = Path(self.enterContext(tempfile.TemporaryDirectory()))
@@ -45,6 +55,23 @@ class TrimTest(unittest.TestCase):
     def test_no_boundary_within_the_limit_gives_nothing(self):
         self.write(boundary("b"), *[record(f"f{i}", pad="x" * 1000) for i in range(50)])
         self.assertIsNone(self.trimmed(max_bytes=20000))
+
+    def test_the_records_a_compaction_kept_from_before_it_come_first_in_the_copy(self):
+        self.write(record("old"), linked("k1", "old"), linked("k2", "k1"), linked("k3", "k2"), record("gap"), kept_boundary("b", "k1", "k3"), record("c"))
+        self.assertEqual([r["uuid"] for r in self.trimmed()], ["k1", "k2", "k3", "b", "c"])
+
+    def test_kept_records_further_back_than_a_window_are_found(self):
+        filler = [record(f"f{i}", pad="x" * 1000) for i in range(int(snapshot.WINDOW * 2.2 / 1000))]
+        self.write(linked("k1", None, big="y" * 5000), linked("k2", "k1"), *filler, kept_boundary("b", "k1", "k2"), record("c"))
+        self.assertEqual([r["uuid"] for r in self.trimmed()][:3], ["k1", "k2", "b"])
+
+    def test_a_chain_that_cannot_be_found_gives_no_copy(self):
+        self.write(record("x"), kept_boundary("b", "missing-head", "missing-tail"), record("c"))
+        self.assertIsNone(self.trimmed())
+
+    def test_a_compaction_that_kept_nothing_needs_no_extra_records(self):
+        self.write(record("old"), boundary("b"), record("c"))
+        self.assertEqual([r["uuid"] for r in self.trimmed()], ["b", "c"])
 
     def test_the_source_is_left_alone(self):
         self.write(record("a"), boundary("b"), record("c"))

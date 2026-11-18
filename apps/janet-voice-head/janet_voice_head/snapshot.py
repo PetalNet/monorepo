@@ -48,16 +48,57 @@ def last_boundary_offset(source: Path, max_bytes: int) -> int | None:
             end = start + OVERLAP
 
 
+def preserved_lines(source: Path, boundary_offset: int, max_bytes: int) -> list[bytes] | None:
+    """The records a compaction kept from before it, oldest first. A compaction can keep its last messages
+    (compactMetadata.preservedSegment: head, anchor, tail uuids); they sit before the boundary in the file and
+    are relinked after the summary when the session loads, so a copy that starts at the boundary must carry them.
+    Returns [] when nothing was kept, and None when the kept records cannot be found within max_bytes."""
+    with source.open("rb") as file:
+        file.seek(boundary_offset)
+        boundary = json.loads(file.readline())
+    segment = (boundary.get("compactMetadata") or {}).get("preservedSegment")
+    if not segment:
+        return []
+    head, want = segment["headUuid"], segment["tailUuid"]
+    found: list[bytes] = []
+    end, floor = boundary_offset, max(0, boundary_offset - max_bytes)
+    carry = b""
+    with source.open("rb") as file:
+        while end > floor:
+            start = max(floor, end - WINDOW)
+            file.seek(start)
+            lines = (file.read(end - start) + carry).split(b"\n")
+            # The first piece may be a record cut by the window edge: keep it for the next, earlier window.
+            carry = lines[0] if start > floor else b""
+            for line in reversed(lines[1:] if start > floor else lines):
+                if want is None or f'"uuid":"{want}"'.encode() not in line:
+                    continue
+                record = json.loads(line)
+                if record.get("uuid") != want:
+                    continue
+                found.append(line)
+                if want == head:
+                    return found[::-1]
+                want = record.get("parentUuid")
+            end = start
+    return None
+
+
 def write_trimmed(source: Path, dest_dir: Path, max_bytes: int) -> str | None:
     """Writes the part of source that main still sends to the model as a new session file in dest_dir.
     Returns the new session id, or None when the source has no compact boundary within max_bytes."""
     offset = last_boundary_offset(source, max_bytes)
     if offset is None:
         return None
+    kept = preserved_lines(source, offset, max_bytes)
+    if kept is None:
+        return None
     session_id = str(uuid.uuid4())
     dest_dir.mkdir(parents=True, exist_ok=True)
     partial = dest_dir / f".{session_id}.part"
     with source.open("rb") as src, partial.open("wb") as out:
+        for line in kept:
+            out.write(line + b"\n")
         src.seek(offset)
         while chunk := src.read(1 << 20):
             out.write(chunk)

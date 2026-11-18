@@ -16,7 +16,7 @@ One conversation is one talk-only Claude Code process:
   personal forks are warmed, and nothing calls a model for a conversation nobody opened.
 - **Trimmed resume.** Main's transcript is gigabytes, but the model only sees what follows its last
   compaction. The head copies that part (from the last `compact_boundary` record on, uuid chain
-  intact) to a new session file and resumes the copy, so a fork starts in 0.9 s instead of 3.3 s.
+  intact, plus the records the compaction kept from before it: `preservedSegment`) to a new session file and resumes the copy, so a fork starts in 0.9 s instead of 3.3 s.
   Without a boundary in the last 64 MB it resumes main's file as before. `trim_transcript = false`
   turns it off. `trim_reuse_s` (default 0, a fresh copy per conversation) lets forks that open
   within that many seconds share one copy, and so share the model's prompt cache: a cached first
