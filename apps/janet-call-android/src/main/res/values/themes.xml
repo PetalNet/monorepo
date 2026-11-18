@@ -1,7 +1,5 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-	<color name="ground">#F7F7F5</color>
-
 	<!-- Only what shows before the first frame: the window's ground. Everything else is drawn by Compose. -->
 	<style name="Theme.JanetCall" parent="android:Theme.Material.Light.NoActionBar">
 		<item name="android:windowBackground">@color/ground</item>

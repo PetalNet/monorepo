@@ -128,7 +128,7 @@ class JanetConnectionService : ConnectionService() {
 		val manager = getSystemService(NotificationManager::class.java)
 		manager.createNotificationChannel(NotificationChannel("call", "Calls", NotificationManager.IMPORTANCE_LOW))
 		val notification = android.app.Notification.Builder(this, "call")
-			.setSmallIcon(android.R.drawable.sym_action_call)
+			.setSmallIcon(R.drawable.ic_stat_janet)
 			.setContentTitle("Call with Janet")
 			.setOngoing(true)
 			.build()

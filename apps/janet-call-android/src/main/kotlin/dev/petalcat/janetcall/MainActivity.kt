@@ -51,7 +51,10 @@ class MainActivity : ComponentActivity() {
 		setContentView(content)
 		// A restored activity is handed the intent it was first started with. That link was already
 		// answered or cancelled, so only a first creation reads it.
-		if (savedInstanceState == null) takePairingLink(intent)
+		if (savedInstanceState == null) {
+			takePairingLink(intent)
+			content.post { takeCallShortcut(intent) }
+		}
 	}
 
 	@Composable
@@ -102,6 +105,7 @@ class MainActivity : ComponentActivity() {
 		super.onNewIntent(intent)
 		takePairingLink(intent)
 		render()
+		takeCallShortcut(intent)
 	}
 
 	override fun onStart() {
@@ -134,6 +138,24 @@ class MainActivity : ComponentActivity() {
 					null
 				}
 			}
+		}
+	}
+
+	/**
+	 * The launcher shortcut "Call Janet". It starts the call as the Call Janet button does, once, and
+	 * never over a pairing question or a call that is already up.
+	 */
+	private fun takeCallShortcut(intent: Intent) {
+		if (intent.action != CALL_SHORTCUT) return
+		setIntent(Intent(this, MainActivity::class.java))
+		if (intent.flags and Intent.FLAG_ACTIVITY_LAUNCHED_FROM_HISTORY != 0) return
+		when {
+			Calls.inCall || pending != null -> Unit
+			settings.pairing() == null -> {
+				Pairer.notice = "Pair this phone first, then call."
+				render()
+			}
+			else -> requestCall()
 		}
 	}
 
@@ -215,5 +237,6 @@ class MainActivity : ComponentActivity() {
 
 	private companion object {
 		const val PAIR_DELAY_MS = 1000L
+		const val CALL_SHORTCUT = "dev.petalcat.janetcall.action.CALL"
 	}
 }

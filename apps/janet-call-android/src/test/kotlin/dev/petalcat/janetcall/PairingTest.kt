@@ -56,7 +56,7 @@ class PairingTest {
 	@Test
 	fun `a link that claims a long life did not come from the bridge`() {
 		assertTrue(parse(payload(expires = now + MAX_LINK_LIFE_S)) is PairingParse.Ok)
-		assertEquals("This is not a Janet Call pairing link.", reason(payload(expires = now + MAX_LINK_LIFE_S + 1)))
+		assertEquals("This is not a Janet pairing link.", reason(payload(expires = now + MAX_LINK_LIFE_S + 1)))
 	}
 
 	@Test
@@ -69,7 +69,7 @@ class PairingTest {
 
 	@Test
 	fun `an oversized payload is refused before it is decoded`() {
-		assertEquals("This is not a Janet Call pairing link.", reason("A".repeat(MAX_PAYLOAD_CHARS + 1)))
+		assertEquals("This is not a Janet pairing link.", reason("A".repeat(MAX_PAYLOAD_CHARS + 1)))
 	}
 
 	@Test
@@ -99,7 +99,7 @@ class PairingTest {
 
 	@Test
 	fun `anything that is not a pairing payload is refused`() {
-		val notALink = "This is not a Janet Call pairing link."
+		val notALink = "This is not a Janet pairing link."
 		assertEquals(notALink, reason(""))
 		assertEquals(notALink, reason("***"))
 		assertEquals(notALink, reason(Base64.getUrlEncoder().encodeToString("[1,2]".toByteArray())))
