@@ -15,6 +15,7 @@ import android.telecom.ConnectionService
 import android.telecom.DisconnectCause
 import android.telecom.PhoneAccountHandle
 import android.telecom.TelecomManager
+import androidx.annotation.RequiresApi
 
 class JanetConnection(private val onGone: (CallRecord) -> Unit) : Connection() {
 	private lateinit var session: CallSession
@@ -72,6 +73,8 @@ class JanetConnection(private val onGone: (CallRecord) -> Unit) : Connection() {
 		Calls.update(route = routeName(state.route))
 	}
 
+	// Android calls this only on API 34 and later, so its body may use the newer API.
+	@RequiresApi(34)
 	override fun onCallEndpointChanged(callEndpoint: CallEndpoint) {
 		Calls.update(
 			route = when (callEndpoint.endpointType) {

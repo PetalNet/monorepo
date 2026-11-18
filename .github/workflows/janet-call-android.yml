@@ -35,6 +35,10 @@ jobs:
       - name: Test and build
         run: ./gradlew --no-daemon testDebugUnitTest testReleaseUnitTest assembleDebug
 
+      # Fails on a call newer than minSdk 26, which the host-JDK tests cannot see.
+      - name: Lint for calls newer than minSdk
+        run: ./gradlew --no-daemon lintDebug
+
       - name: Keep the drawn screens
         if: always()
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
