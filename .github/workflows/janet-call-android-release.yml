@@ -48,15 +48,21 @@ jobs:
       - name: Test
         run: ./gradlew --no-daemon testReleaseUnitTest
 
-      # build.gradle.kts signs the release with the debug signing config, which
-      # reads ~/.android/debug.keystore.
+      # build.gradle.kts signs the release with the keystore JANET_CALL_KEYSTORE names.
+      # A keystore with another certificate stops here, before anything is built.
       - name: Restore the signing keystore
         env:
           KEYSTORE_B64: ${{ secrets.ANDROID_DEBUG_KEYSTORE_B64 }}
         run: |
-          mkdir -p ~/.android
-          base64 -d <<<"$KEYSTORE_B64" > ~/.android/debug.keystore
-          test -s ~/.android/debug.keystore
+          keystore="$RUNNER_TEMP/janet-call.keystore"
+          base64 -d <<<"$KEYSTORE_B64" > "$keystore"
+          found=$(keytool -list -v -keystore "$keystore" -storepass android -alias androiddebugkey \
+            | sed -n 's/^[[:space:]]*SHA256: //p' | tr -d ':' | tr 'A-F' 'a-f')
+          if [[ $found != "$SIGNER_SHA256" ]]; then
+            echo "::error::The ANDROID_DEBUG_KEYSTORE_B64 secret holds certificate ${found:-none}, expected $SIGNER_SHA256"
+            exit 1
+          fi
+          echo "JANET_CALL_KEYSTORE=$keystore" >> "$GITHUB_ENV"
 
       - name: Build
         run: ./gradlew --no-daemon assembleRelease

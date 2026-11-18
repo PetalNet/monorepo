@@ -85,6 +85,18 @@ class BridgeTest {
 	}
 
 	@Test
+	fun `a 200 whose token or Access value is null, empty or not a string does not pair`() {
+		// Android reads a JSON null as the text "null" where the JVM library reads "", so the text is refused too.
+		val answers = listOf(
+			"""{"token":null,"cf_id":"id.access","cf_secret":"s3cret"}""",
+			"""{"token":"device-token","cf_id":"null","cf_secret":"s3cret"}""",
+			"""{"token":"device-token","cf_id":"id.access","cf_secret":""}""",
+			"""{"token":"device-token","cf_id":"id.access","cf_secret":5}""",
+		)
+		for (answer in answers) assertNull(answer, Bridge.pairingFrom(link(), JSONObject(answer)))
+	}
+
+	@Test
 	fun `an unreachable bridge names the host`() {
 		val port = server.address.port
 		server.stop(0)

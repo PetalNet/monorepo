@@ -10,8 +10,8 @@ android {
 		applicationId = "dev.petalcat.janetcall"
 		minSdk = 26
 		targetSdk = 35
-		versionCode = 5
-		versionName = "0.2.2"
+		versionCode = 6
+		versionName = "0.2.3"
 	}
 
 	buildFeatures {
@@ -21,6 +21,13 @@ android {
 	compileOptions {
 		sourceCompatibility = JavaVersion.VERSION_17
 		targetCompatibility = JavaVersion.VERSION_17
+	}
+
+	signingConfigs {
+		getByName("debug") {
+			// CI names the keystore it restored. Without this the one in ~/.android is used.
+			System.getenv("JANET_CALL_KEYSTORE")?.let { storeFile = file(it) }
+		}
 	}
 
 	buildTypes {

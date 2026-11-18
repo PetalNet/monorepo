@@ -1,0 +1,35 @@
+name: janet-call-android
+
+# Unit tests and a debug build for every pull request that touches the app.
+# The signed release is built from main by janet-call-android-release.yml.
+on:
+  pull_request:
+    paths:
+      - "apps/janet-call-android/**"
+      - ".github/workflows/janet-call-android.yml"
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    name: test and build
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    defaults:
+      run:
+        working-directory: apps/janet-call-android
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Use the runner's JDK 21
+        run: echo "JAVA_HOME=$JAVA_HOME_21_X64" >> "$GITHUB_ENV"
+
+      - name: Test and build
+        run: ./gradlew --no-daemon testDebugUnitTest testReleaseUnitTest assembleDebug
