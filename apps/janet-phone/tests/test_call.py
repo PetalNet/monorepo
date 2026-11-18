@@ -36,6 +36,7 @@ def tone(seconds: float, rate: int = 16000) -> bytes:
 
 class FakeGateway(BaseHTTPRequestHandler):
     calls: list[tuple[str, dict]] = []
+    seen: list[tuple[str, str]] = []
 
     def log_message(self, *args):
         pass
@@ -43,6 +44,7 @@ class FakeGateway(BaseHTTPRequestHandler):
     def do_POST(self):
         body = json.loads(self.rfile.read(int(self.headers["content-length"])))
         self.calls.append((self.path, body))
+        self.seen.append((self.headers.get("Authorization", ""), self.headers.get("Cf-Access-Jwt-Assertion", "")))
         if self.headers.get("Authorization") != TOKEN:
             return self._send(401, b"{}")
         if self.path == "/v1/conversations":
@@ -86,7 +88,7 @@ class FakeStt(socketserver.StreamRequestHandler):
 
 class CallTest(unittest.IsolatedAsyncioTestCase):
     async def asyncSetUp(self):
-        FakeGateway.calls = []
+        FakeGateway.calls, FakeGateway.seen = [], []
         self.gateway = ThreadingHTTPServer(("127.0.0.1", 0), FakeGateway)
         self.stt = socketserver.ThreadingTCPServer(("127.0.0.1", 0), FakeStt)
         for server in (self.gateway, self.stt):
@@ -94,6 +96,7 @@ class CallTest(unittest.IsolatedAsyncioTestCase):
             self.addCleanup(server.shutdown)
         self.dir = Path(tempfile.mkdtemp())
         (self.dir / "head-token").write_text("right\n")
+        (self.dir / "proxy-secret").write_text("from-the-proxy\n")
         (self.dir / "access.json").write_text('{"client_id": "id.access", "client_secret": "s3cret"}')
         self.devices = pairing.Devices(self.dir / "devices.json")
         self.phone = {"Authorization": "Bearer " + self.devices.add("Test Phone", "parker")}
@@ -110,7 +113,10 @@ class CallTest(unittest.IsolatedAsyncioTestCase):
             process_request=lambda ws, request: janet_phone.admit(ws, request, config, self.devices))
         self.codes = pairing.Codes(300)
         self.http = pairing.serve("127.0.0.1:0", self.devices, self.codes, url="wss://bridge.example/v1/call",
-                                  access_file=str(self.dir / "access.json"), users=["parker"])
+                                  access_file=str(self.dir / "access.json"), users=["parker"],
+                                  proxy_secret_file=str(self.dir / "proxy-secret"),
+                                  on_paired=lambda name, by: self.announced.append((name, by)))
+        self.announced = []
         self.addCleanup(self.http.shutdown)
         self.addAsyncCleanup(self._close)
         self.url = f"ws://127.0.0.1:{self.server.sockets[0].getsockname()[1]}/v1/call"
@@ -219,7 +225,8 @@ class CallTest(unittest.IsolatedAsyncioTestCase):
 
     async def test_an_unpaired_phone_can_no_longer_call(self):
         ident = self.devices.listing()[0][0]
-        self.assertEqual(self.devices.revoke(ident), ["Test Phone"])
+        self.assertIsNone(self.devices.revoke(""))
+        self.assertEqual(self.devices.revoke(ident), "Test Phone")
         with self.assertRaises(InvalidStatus):
             async with connect(self.url, additional_headers=self.phone):
                 pass
@@ -227,7 +234,7 @@ class CallTest(unittest.IsolatedAsyncioTestCase):
     async def test_the_record_names_the_device(self):
         async with connect(self.url, additional_headers=self.phone) as ws:
             await asyncio.wait_for(ws.recv(), 10)
-        self.assertIn("from Test Phone", await self._notice())
+        self.assertIn("the device named 'Test Phone'", await self._notice())
 
     def _http(self, method: str, path: str, body: dict | None = None, headers: dict | None = None):
         request = urllib.request.Request(f"http://127.0.0.1:{self.http.server_port}{path}", method=method,
@@ -238,13 +245,39 @@ class CallTest(unittest.IsolatedAsyncioTestCase):
         except urllib.error.HTTPError as error:
             return error.code, error.read().decode()
 
-    async def test_the_pairing_page_is_for_the_signed_in_owner_only(self):
-        self.assertEqual((await asyncio.to_thread(self._http, "GET", "/pair"))[0], 403)
-        stranger = {"X-authentik-username": "someone-else"}
-        self.assertEqual((await asyncio.to_thread(self._http, "GET", "/pair", None, stranger))[0], 403)
+    async def test_the_pairing_page_is_for_the_signed_in_owner_through_the_proxy_only(self):
+        owner = {"X-authentik-username": "parker", "X-Janet-Pair-Proxy": "from-the-proxy"}
+        refused = [
+            {},
+            {"X-authentik-username": "parker"},  # a local process that sets the header itself
+            {"X-authentik-username": "parker", "X-Janet-Pair-Proxy": "guess"},
+            {"X-authentik-username": "someone-else", "X-Janet-Pair-Proxy": "from-the-proxy"},
+            {**owner, "Sec-Fetch-Site": "cross-site"},
+        ]
+        for headers in refused:
+            self.assertEqual((await asyncio.to_thread(self._http, "GET", "/pair", None, headers))[0], 403, headers)
+        for path in ("/", "/v1/call/pair", "/v1/call/../pair", "/pair/"):
+            self.assertIn((await asyncio.to_thread(self._http, "GET", path, None, owner))[0], (400, 404), path)
+        self.assertEqual((await asyncio.to_thread(self._http, "GET", "/pair", None, owner))[0], 200)
+
+    async def test_the_gateway_gets_the_head_token_and_the_callers_access_assertion(self):
+        async with connect(self.url, additional_headers={**self.phone, "Cf-Access-Jwt-Assertion": "signed"}) as ws:
+            await asyncio.wait_for(ws.recv(), 10)
+        self.assertEqual(FakeGateway.seen[0], ("Bearer right", "signed"))
+
+    async def test_two_authorization_headers_are_refused(self):
+        reader, writer = await asyncio.open_connection("127.0.0.1", self.server.sockets[0].getsockname()[1])
+        writer.write(b"GET /v1/call HTTP/1.1\r\nHost: x\r\nUpgrade: websocket\r\nConnection: Upgrade\r\n"
+                     b"Sec-WebSocket-Key: AAAAAAAAAAAAAAAAAAAAAA==\r\nSec-WebSocket-Version: 13\r\n"
+                     b"Authorization: Bearer nope\r\nAuthorization: " + self.phone["Authorization"].encode() + b"\r\n\r\n")
+        status = await asyncio.wait_for(reader.readline(), 10)
+        writer.close()
+        self.assertIn(b"403", status)
+        self.assertEqual(FakeGateway.calls, [])
 
     async def test_a_phone_pairs_with_the_page_code_once_and_can_then_call(self):
-        status, page = await asyncio.to_thread(self._http, "GET", "/pair", None, {"X-authentik-username": "parker"})
+        owner = {"X-authentik-username": "parker", "X-Janet-Pair-Proxy": "from-the-proxy"}
+        status, page = await asyncio.to_thread(self._http, "GET", "/pair", None, owner)
         self.assertEqual(status, 200)
         self.assertIn("<svg", page)
         link = re.search(r'href="(janetcall://pair\?u=[^"]+)"', page)[1]
@@ -256,10 +289,13 @@ class CallTest(unittest.IsolatedAsyncioTestCase):
         paired = {"code": payload["code"], "name": "Galaxy S23"}
         status, body = await asyncio.to_thread(self._http, "POST", "/v1/call/pair", paired)
         self.assertEqual(status, 200)
+        self.assertEqual(list(json.loads(body)), ["token"])
+        self.assertNotIn("right", body)
+        self.assertEqual(self.announced, [("Galaxy S23", "parker")])
         self.assertEqual((await asyncio.to_thread(self._http, "POST", "/v1/call/pair", paired))[0], 403)
         async with connect(self.url, additional_headers={"Authorization": "Bearer " + json.loads(body)["token"]}) as ws:
             await asyncio.wait_for(ws.recv(), 10)
-        self.assertIn("from Galaxy S23", await self._notice())
+        self.assertIn("the device named 'Galaxy S23'", await self._notice())
 
     async def test_a_wrong_or_expired_code_pairs_nothing(self):
         self.assertEqual((await asyncio.to_thread(self._http, "POST", "/v1/call/pair", {"code": "guess"}))[0], 403)

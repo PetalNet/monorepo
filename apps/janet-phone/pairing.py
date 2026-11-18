@@ -1,7 +1,9 @@
 """Device credentials for the call bridge, and the page that pairs a phone with it."""
 
 import base64
+import fcntl
 import hashlib
+import hmac
 import html
 import io
 import json
@@ -17,6 +19,7 @@ from urllib.parse import urlsplit
 
 log = logging.getLogger("janet-phone")
 MAX_BODY = 4096
+MAX_CODES = 8
 
 
 def bearer(header: str | None) -> str:
@@ -28,7 +31,13 @@ class Devices:
     read on every check, so removing an entry revokes that phone at once."""
 
     def __init__(self, path: Path):
-        self.path, self._lock = path, threading.Lock()
+        self.path = path
+
+    def _locked(self):
+        """One writer at a time, across processes: the bridge and a --revoke run are separate ones."""
+        lock = open(self.path.with_suffix(".lock"), "w")
+        fcntl.flock(lock, fcntl.LOCK_EX)
+        return lock
 
     def _load(self) -> dict[str, dict]:
         try:
@@ -50,7 +59,7 @@ class Devices:
 
     def add(self, name: str, by: str) -> str:
         token = secrets.token_urlsafe(32)
-        with self._lock:
+        with self._locked():
             devices = self._load()
             devices[hashlib.sha256(token.encode()).hexdigest()] = {
                 "name": " ".join(name.split())[:80] or "phone", "paired_by": by,
@@ -58,15 +67,17 @@ class Devices:
             self._save(devices)
         return token
 
-    def revoke(self, prefix: str) -> list[str]:
-        """Removes every device whose id starts with the prefix. Returns their names."""
-        with self._lock:
+    def revoke(self, prefix: str) -> str | None:
+        """Removes the one device whose id starts with the prefix and returns its name. Removes
+        nothing when the prefix matches no device or more than one."""
+        with self._locked():
             devices = self._load()
-            gone = [key for key in devices if prefix and key.startswith(prefix)]
-            names = [devices.pop(key)["name"] for key in gone]
-            if gone:
-                self._save(devices)
-        return names
+            matches = [key for key in devices if prefix and key.startswith(prefix)]
+            if len(matches) != 1:
+                return None
+            name = devices.pop(matches[0])["name"]
+            self._save(devices)
+        return name
 
     def listing(self) -> list[tuple[str, dict]]:
         return [(key[:12], device) for key, device in self._load().items()]
@@ -82,7 +93,8 @@ class Codes:
         now = time.time() if now is None else now
         code = secrets.token_urlsafe(16)
         with self._lock:
-            self._codes = {c: v for c, v in self._codes.items() if v[0] > now}
+            live = [(c, v) for c, v in self._codes.items() if v[0] > now]
+            self._codes = dict(live[-(MAX_CODES - 1):])  # reloading the page cannot pile codes up
             self._codes[code] = (now + self.ttl_s, by)
         return code, int(now + self.ttl_s)
 
@@ -135,14 +147,27 @@ a.button, button {{ display: inline-block; margin: .5rem; padding: .6rem 1rem; b
 
 
 def serve(listen: str, devices: Devices, codes: Codes, *, url: str, access_file: str, users: list[str],
-          page_path: str = "/pair", routes: dict | None = None) -> ThreadingHTTPServer:
+          proxy_secret_file: str, page_path: str = "/pair", routes: dict | None = None,
+          on_paired=None) -> ThreadingHTTPServer:
     """The bridge's plain-HTTP side: the pairing page, the pairing exchange, and any extra POST routes.
 
-    The pairing page (GET page_path) must sit behind single sign-on: it trusts the proxy's X-authentik-username header.
-    POST /v1/call/pair sits behind Cloudflare Access like the call itself.
+    The pairing page (GET page_path) is for the single-sign-on proxy alone. A request must carry the
+    proxy's own secret in X-Janet-Pair-Proxy, which the proxy adds after it has signed the visitor in;
+    only then is its X-authentik-username believed. Another process on the same host can reach this
+    listener, and without the secret it gets nothing.
+    POST /v1/call/pair needs a live one-time code and nothing else.
     """
 
+    def from_proxy(headers) -> bool:
+        try:
+            secret = Path(proxy_secret_file).read_text().strip()
+        except OSError:
+            return False
+        return bool(secret) and hmac.compare_digest(headers.get("X-Janet-Pair-Proxy", "").encode(), secret.encode())
+
     class Handler(BaseHTTPRequestHandler):
+        timeout = 10  # a stalled connection does not hold a thread
+
         def log_message(self, *args):
             pass
 
@@ -152,6 +177,7 @@ def serve(listen: str, devices: Devices, codes: Codes, *, url: str, access_file:
             self.send_header("content-type", kind)
             self.send_header("content-length", str(len(data)))
             self.send_header("cache-control", "no-store")
+            self.send_header("x-frame-options", "DENY")
             self.end_headers()
             self.wfile.write(data)
 
@@ -159,7 +185,9 @@ def serve(listen: str, devices: Devices, codes: Codes, *, url: str, access_file:
             user = self.headers.get("X-authentik-username", "")
             if urlsplit(self.path).path != page_path:
                 return self._send(HTTPStatus.NOT_FOUND, "{}")
-            if not user or user not in users:
+            # A page on another site must not make the owner's browser mint codes.
+            cross_site = self.headers.get("Sec-Fetch-Site", "none") not in ("none", "same-origin")
+            if not from_proxy(self.headers) or not user or user not in users or cross_site:
                 return self._send(HTTPStatus.FORBIDDEN, "{}")
             code, expires = codes.issue(user)
             link = pairing_link(url, code, expires, json.loads(Path(access_file).read_text()))
@@ -183,6 +211,8 @@ def serve(listen: str, devices: Devices, codes: Codes, *, url: str, access_file:
                 token = devices.add(str(body.get("name", "")), by)
                 # The id only: the device's name and who paired it are in the registry, not the log.
                 log.info("paired device %s", hashlib.sha256(token.encode()).hexdigest()[:12])
+                if on_paired is not None:
+                    on_paired(devices.name_of(token), by)
                 return self._send(HTTPStatus.OK, json.dumps({"token": token}))
             if routes and path in routes:
                 status, reply = routes[path](self.headers, body)

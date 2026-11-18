@@ -19,16 +19,20 @@ instructions.
   fixed text, not model output, and the caller cannot cut it off.
 - **Paired phones only.** A phone presents its own device token, which works only on this bridge
   and so only for the tier and channel the bridge is configured with. The bridge keeps a hash of
-  each token in `devices_file`; removing an entry (or `--revoke ID`) unpairs that phone at once. The
+  each token in `devices_file`; removing an entry (or `--revoke ID`) refuses that phone's next call. A
+  call already in progress runs on, for at most `max_call_s`. The
   bridge then calls the gateway with the voice head's token from `head_token_file`, which never
   reaches a phone, and forwards the request's `Cf-Access-Jwt-Assertion`, which the gateway also
   checks. A phone that is not paired gets HTTP 403 and no socket.
 - **Pairing without typing.** `GET <pair_path>` on the plain-HTTP listener shows a QR code and a
   link, `janetcall://pair?u=…`, carrying the bridge's public address, the Cloudflare Access service
   token a phone needs to reach it, and a one-time code that lasts `pair_ttl_s` seconds. The phone
-  trades the code for its device token with `POST /v1/call/pair` `{"code", "name"}`. The page trusts
-  the proxy's `X-authentik-username` header and serves only `pair_users`, so it must sit behind
-  single sign-on and nothing else may reach that listener.
+  trades the code for its device token with `POST /v1/call/pair` `{"code", "name"}`. The page is for the
+  single-sign-on proxy alone: a request must carry the secret in `proxy_secret_file` as
+  `X-Janet-Pair-Proxy`, which the proxy adds after signing the visitor in, and only then is its
+  `X-authentik-username` believed and checked against `pair_users`. Each pairing is announced through
+  the notify command. The Access service token in a link outlives the code: if a link or a paired
+  phone is lost, rotate that token and pair again.
 - **Bounded.** At most `max_calls` calls at once (503 beyond that), `max_call_s` seconds per call,
   30 s per utterance, and four utterances waiting for a turn.
 - **Cut-off.** When the caller speaks over a reply, the bridge stops sending it, tells the device to
@@ -78,6 +82,7 @@ public_url = "wss://voice.example/v1/call"    # where a paired phone calls
 access_file = "/secrets/access.json"          # {"client_id", "client_secret"} of the Access service token
 pair_users = ["owner"]                        # single sign-on usernames that may pair a phone
 pair_path = "/pair"
+proxy_secret_file = "/secrets/proxy-secret"   # the header value the single-sign-on proxy adds
 max_call_s = 900
 
 [endpoint]                          # loudness end-of-speech detector
