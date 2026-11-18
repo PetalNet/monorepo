@@ -8,6 +8,8 @@ env:
   CI: true
   TURBO_TELEMETRY_DISABLED: "1"
   PNPM_CONFIG_VERIFY_DEPS_BEFORE_RUN: "false"
+  CARGO_PROFILE_DEV_DEBUG: "0"
+  CARGO_INCREMENTAL: "0"
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}-point
@@ -40,11 +42,14 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
+      # rust-cache keys on every installed toolchain, and the image's own stable differs between
+      # runner image versions.
       - name: Install pinned toolchain (rust-toolchain.toml)
-        run: rustup toolchain install && rustup component add rustfmt clippy
+        run: rustup toolchain uninstall stable && rustup toolchain install && rustup component add rustfmt clippy
       - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
         with:
           workspaces: . -> target
+          save-if: ${{ github.ref == 'refs/heads/main' }}
       - uses: $/.github/actions/setup-turbo
       - run: turbo --skip-infer run fmt:check check lint build test --filter='point-*'
 
