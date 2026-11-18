@@ -30,7 +30,7 @@ object Pairer {
 		}, "janet-pair").start()
 	}
 
-	/** Trades the code for a device token and stores the pairing. Blocks. Returns why it failed, or null. */
+	/** Trades the code for the pairing and stores it. Blocks. Returns why it failed, or null. */
 	fun pairAndStore(context: Context, link: PairingLink): String? =
 		when (val result = Bridge.pair(link, "${Build.MANUFACTURER} ${Build.MODEL}")) {
 			is PairResult.Refused -> result.reason
@@ -39,7 +39,7 @@ object Pairer {
 				null
 			} catch (_: Exception) {
 				// The code is spent by now, so only a new one can pair this phone.
-				"This phone could not store the pairing. Open the pairing page again for a new code."
+				"This phone could not store the pairing. Ask for a new pairing link."
 			}
 		}
 }

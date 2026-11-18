@@ -36,7 +36,7 @@ class MainActivity : Activity() {
 	private val observer: () -> Unit = { render() }
 
 	/**
-	 * The link waiting for a yes or no. It holds the Access secret, so it is never written to saved
+	 * The link waiting for a yes or no. It holds the one-time code, so it is never written to saved
 	 * state: an activity recreated mid-confirmation drops the question.
 	 */
 	private var pending: PairingLink? = null
@@ -148,7 +148,7 @@ class MainActivity : Activity() {
 			link != null -> confirm(link, pairing)
 			pairing == null -> show(
 				"Not paired",
-				Pairer.notice ?: "Open the pairing page on a computer and scan the code with this phone's camera.",
+				Pairer.notice ?: "Open a Janet Call pairing link on this phone.",
 				null,
 				null,
 			)
@@ -170,7 +170,7 @@ class MainActivity : Activity() {
 			"Pair this phone with ${link.host}?",
 			"Janet Call will place its calls through ${link.host}" +
 				(if (current != null) ", in place of ${current.host}" else "") +
-				". Continue only if you opened the pairing page yourself.",
+				". Continue only if you asked for this pairing link.",
 			"Cancel" to {
 				pending = null
 				render()
@@ -194,7 +194,7 @@ class MainActivity : Activity() {
 
 	private fun confirmUnpair() {
 		AlertDialog.Builder(this)
-			.setMessage("Unpair this phone? To call Janet again you will need the pairing page.")
+			.setMessage("Unpair this phone? To call Janet again you will need a new pairing link.")
 			.setPositiveButton("Unpair") { _, _ ->
 				settings.clear()
 				Pairer.notice = null

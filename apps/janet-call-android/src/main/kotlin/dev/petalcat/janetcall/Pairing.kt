@@ -13,9 +13,10 @@ data class Pairing(val url: String, val token: String, val cfId: String, val cfS
 
 /**
  * A decoded `janetcall://pair?u=...` link: where to pair, and the one-time code that buys a device
- * token. [url] is rebuilt from the parsed host, so the host shown is the host every request goes to.
+ * token and the Access credentials. The link holds no lasting secret. [url] is rebuilt from the
+ * parsed host, so the host shown is the host every request goes to.
  */
-data class PairingLink(val url: String, val code: String, val cfId: String, val cfSecret: String, val expires: Long) {
+data class PairingLink(val url: String, val code: String, val expires: Long) {
 	val host: String get() = bridgeAuthority(url).orEmpty()
 
 	fun expired(nowS: Long) = nowS >= expires
@@ -27,13 +28,13 @@ sealed interface PairingParse {
 	data class Bad(val reason: String) : PairingParse
 }
 
-/** A pairing code is short-lived. A link that claims a longer life than this did not come from the pairing page. */
+/** A pairing code is short-lived. A link that claims a longer life than this did not come from the bridge. */
 const val MAX_LINK_LIFE_S = 15 * 60L
 
 /** Longer than any real payload. A longer one is refused before it is decoded. */
 const val MAX_PAYLOAD_CHARS = 4096
 
-const val EXPIRED_LINK = "This pairing code has expired. Open the pairing page again for a new one."
+const val EXPIRED_LINK = "This pairing link has expired. Ask for a new one."
 private const val BAD_LINK = "This is not a Janet Call pairing link."
 
 const val CALL_PATH = "/v1/call"
@@ -85,8 +86,6 @@ fun parsePairingPayload(u: String, nowS: Long, allowCleartext: Boolean): Pairing
 	val link = PairingLink(
 		url = canonicalBridgeUrl(url) ?: url,
 		code = json.optString("code"),
-		cfId = json.optString("cf_id"),
-		cfSecret = json.optString("cf_secret"),
 		expires = json.optLong("expires", 0),
 	)
 	if (link.url.isEmpty() || link.code.isEmpty() || link.expires <= 0) return PairingParse.Bad(BAD_LINK)

@@ -41,13 +41,15 @@ and his gray. The controls are speaker, Hide text or Show text, and hang up.
 
 ## Pairing
 
-Nothing is typed into the app and nothing is compiled in. The phone is paired by opening a link,
-normally by scanning the QR code on the bridge's pairing page with the phone's camera:
+Nothing is typed into the app and nothing is compiled in. The phone is paired by opening a link.
+The bridge's pairing page offers it as a button, so one tap on that page from the phone is enough:
 
 ```text
 janetcall://pair?u=<base64url of UTF-8 JSON, no padding>
-{"url": "wss://HOST/v1/call", "code": "<one-time code>", "cf_id": "...", "cf_secret": "...", "expires": <unix seconds>}
+{"url": "wss://HOST/v1/call", "code": "<one-time code>", "expires": <unix seconds>}
 ```
+
+The link holds no lasting secret. The code works once and only for a few minutes.
 
 Any app or web page can fire that link, so the app first asks "Pair this phone with HOST?" and sends
 nothing until the answer is yes.
@@ -60,13 +62,15 @@ nothing until the answer is yes.
 - Pair is not where Call Janet and Hang up sit, it stays off for a second after the question
   appears, and it ignores taps that come through an overlay.
 
-On yes, the app trades the code for its own device token:
+On yes, the app trades the code for its own device token and the Cloudflare Access credentials:
 
-- `POST https://HOST/v1/call/pair` with `CF-Access-Client-Id`, `CF-Access-Client-Secret` and
-  `{"code": "...", "name": "<manufacturer model>"}`.
-- `200 {"token": "<device token>"}` pairs the phone. A `403` whose body is JSON with an `error`
-  is the bridge saying the code was used or has expired. Any other `403` is Cloudflare Access.
-  Redirects are not followed.
+- `POST https://HOST/v1/call/pair` with `{"code": "...", "name": "<manufacturer model>"}` and no
+  Access headers. The bridge keeps this one endpoint outside Cloudflare Access.
+- `200 {"token": "<device token>", "cf_id": "...", "cf_secret": "..."}` pairs the phone. An answer
+  that lacks one of the three does not.
+- A `403` whose body is JSON with an `error` is the bridge saying the code was used, is wrong or
+  has expired. A `429` means too many attempts, and the app says to wait a minute. Any other
+  answer reads as a bridge that could not be reached. Redirects are not followed.
 
 The URL, device token and Cloudflare Access values are stored as one value sealed with an Android
 Keystore AES key. The app shows the bridge host and an Unpair button, which wipes them. There is no
@@ -75,8 +79,7 @@ screen that shows or edits a secret.
 Known gaps:
 
 - Another app on the phone can register the `janetcall` scheme and be offered the link, which
-  carries the one-time code and the Access secret. An Android App Link on the bridge's own domain
-  would close that.
+  carries the one-time code. An Android App Link on the bridge's own domain would close that.
 - Unpair wipes the phone. It does not revoke the device token on the bridge.
 - CI does not build this app.
 
@@ -140,7 +143,7 @@ adb shell am start -n $APP/.DebugControlActivity -a $APP.PROVISION \
   --es cf_id ID --es cf_secret SECRET
 adb shell am start -n $APP/.DebugControlActivity -a $APP.UNPAIR
 
-# The link itself, as the camera would open it. This one asks for confirmation.
+# The link itself, as the pairing page opens it. This one asks for confirmation.
 adb shell am start -a android.intent.action.VIEW -d "janetcall://pair?u=PAYLOAD"
 
 # A headless emulator has no microphone: stream a 16 kHz mono PCM16 WAV instead, then silence,
