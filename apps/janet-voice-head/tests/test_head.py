@@ -600,6 +600,51 @@ class WebToolsTest(HeadCase):
             self.start_head(web_tools=["WebSearch", "Bash"])
 
 
+class MainLikeWebToolsTest(HeadCase):
+    def settings_of(self, argv):
+        self.assertEqual(argv.count("--settings"), 1, "claude reads only the last --settings")
+        return json.loads(argv[argv.index("--settings") + 1])
+
+    def test_a_main_like_fork_merges_the_web_tools_into_its_own_settings_file(self):
+        base = self.root / "fork-settings.json"
+        base.write_text(json.dumps({"deniedMcpServers": [{"serverName": "x"}], "permissions": {"deny": ["Bash", "WebFetch", "WebSearch", "Edit"]}}))
+        self.stop_head()
+        self.start_head(main_like_fork=True, web_tools=["WebSearch", "WebFetch"], main_like_args=["--settings", str(base), "--plugin-dir", "/main/plugin"])
+        self.turn(self.open("personal"), "hello")
+        argv = self.launches()[-1]["argv"]
+        settings = self.settings_of(argv)
+        self.assertEqual(settings["deniedMcpServers"], [{"serverName": "x"}])
+        self.assertEqual(settings["permissions"]["allow"], ["WebFetch", "WebSearch"])
+        deny = settings["permissions"]["deny"]
+        self.assertTrue({"Bash", "Edit", "WebFetch(domain:petalcat.dev)"} <= set(deny))
+        self.assertTrue({"WebFetch", "WebSearch"}.isdisjoint(deny))
+        self.assertEqual(settings["hooks"]["PreToolUse"][0]["matcher"], "WebFetch")
+        self.assertTrue(settings["hooks"]["PreToolUse"][0]["hooks"][0]["command"].endswith(" || exit 2"))
+        self.assertEqual(argv[argv.index("--plugin-dir") + 1], "/main/plugin")
+        self.assertEqual(argv[argv.index("--permission-mode") + 1], "dontAsk")
+        self.assertIn("untrusted data", self.prompts()[0])
+
+    def test_a_main_like_fork_without_a_settings_file_gets_ours(self):
+        self.stop_head()
+        self.start_head(main_like_fork=True, web_tools=["WebSearch"])
+        self.turn(self.open("personal"), "hello")
+        self.assertEqual(self.settings_of(self.launches()[-1]["argv"])["permissions"]["allow"], ["WebSearch"])
+
+    def test_a_main_like_fork_without_web_tools_keeps_its_args_as_they_are(self):
+        self.stop_head()
+        self.start_head(main_like_fork=True, main_like_args=["--plugin-dir", "/p"])
+        self.turn(self.open("personal"), "hello")
+        self.assertNotIn("--settings", self.launches()[-1]["argv"])
+
+    def test_a_guest_is_still_tool_less_beside_a_main_like_web_fork(self):
+        self.stop_head()
+        self.start_head(main_like_fork=True, web_tools=["WebSearch", "WebFetch"])
+        self.turn(self.open("guest"), "hello")
+        argv = self.launches()[-1]["argv"]
+        self.assertEqual(argv[argv.index("--tools") + 1], "")
+        self.assertNotIn("--settings", argv)
+
+
 class WebToolsOffTest(HeadCase):
     def test_by_default_a_personal_head_has_no_tools(self):
         self.turn(self.open("personal"), "hello")

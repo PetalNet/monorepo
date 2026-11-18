@@ -29,6 +29,11 @@ class RefusalTest(unittest.TestCase):
         command = web_guard.settings(("WebFetch",))["hooks"]["PreToolUse"][0]["hooks"][0]["command"]
         self.assertTrue(command.endswith(" || exit 2"))
 
+    def test_main_like_args_with_an_ambiguous_settings_flag_are_refused(self):
+        for args in (["--settings=/x.json"], ["--settings", "{}", "--settings", "{}"], ["--settings"]):
+            with self.assertRaises(ValueError):
+                web_guard.main_like_args(args, ("WebFetch",))
+
     def test_the_hook_denies_on_stdin_and_fails_closed_on_garbage(self):
         def run(stdin):
             out = subprocess.run([sys.executable, "-I", web_guard.__file__], input=stdin, capture_output=True, text=True, check=True).stdout
