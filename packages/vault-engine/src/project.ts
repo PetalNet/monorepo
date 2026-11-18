@@ -1,12 +1,15 @@
 import path from "node:path";
 
-import { Effect, FileSystem } from "effect";
+import { Clock, Effect, FileSystem } from "effect";
 
 import { Vault } from "./engine.ts";
 import type { VaultView } from "./engine.ts";
-import { tiers } from "./schema.ts";
+import { freshness, tiers } from "./schema.ts";
 import type { Claim, Link, Source, Tier, Topic } from "./schema.ts";
 import { ifExists } from "./store.ts";
+
+/** A claim promoted to its own note once claims in this many other topics link to it. */
+const PROMOTE_AT = 3;
 
 /** Everything the projection owns in the folder. The rest of the folder is left alone. */
 const OWNED = ["Index.md", ...tiers];
@@ -51,11 +54,13 @@ const literal = (text: string) =>
 		.replaceAll("%%", String.raw`%\%`);
 
 /** Renders every note from one view of the vault. Pure: the same view always yields the same files. */
-function render(view: VaultView): Map<string, string> {
+function render(view: VaultView, now: Date): Map<string, string> {
 	const files = new Map<string, string>();
 	const claims = new Map<string, PlacedClaim>();
 	const sources = new Map<string, Source>();
 	const topicNote = new Map<string, string>();
+	const dependents = new Map<string, { placed: PlacedClaim; link: Link }[]>();
+	const inbound = new Map<string, PlacedClaim[]>();
 	const taken = new Set<string>(["index"]);
 
 	for (const tier of tiers) {
@@ -82,6 +87,16 @@ function render(view: VaultView): Map<string, string> {
 
 			if (note !== undefined) {
 				claims.set(claim.id, { claim, tier, note });
+			}
+		}
+	}
+
+	for (const placed of claims.values()) {
+		for (const link of placed.claim.links) {
+			if (link.target.startsWith("c-")) {
+				inbound.set(link.target, [...(inbound.get(link.target) ?? []), placed]);
+			} else {
+				dependents.set(link.target, [...(dependents.get(link.target) ?? []), { placed, link }]);
 			}
 		}
 	}
@@ -176,11 +191,105 @@ function render(view: VaultView): Map<string, string> {
 		files.set(`${tier}/Topics/${note}.md`, `${lines.join("\n")}\n`);
 	};
 
+	const sourceFile = (tier: Tier, source: Source) => {
+		const lines = [
+			"---",
+			"type: source",
+			`kind: ${source.kind}`,
+			`tier: ${tier}`,
+			`aliases: ${JSON.stringify([alias(source.title)])}`,
+			...(source.url === undefined ? [] : [`url: ${yaml(source.url)}`]),
+			`source_type: ${source.sourceType}`,
+			`captured: ${day(source.captured)}`,
+			...(source.shelfLifeDays === undefined
+				? []
+				: [`shelf_life_days: ${String(source.shelfLifeDays)}`]),
+			`status: ${freshness(source, now)}`,
+			...(source.replacedBy === undefined
+				? []
+				: [`replaced_by: ${yaml(`[[${source.replacedBy}]]`)}`]),
+			...(source.reason === undefined ? [] : [`reason: ${yaml(source.reason)}`]),
+			"generated: vault-engine",
+			"---",
+		];
+		const quotes = source.kind === "capture";
+		const passages = Object.entries(source.passages).toSorted(([a], [b]) =>
+			a.localeCompare(b, "en", { numeric: true }),
+		);
+
+		// A copied document usually opens with its own title.
+		if (quotes || !passages.some(([, text]) => text.startsWith("# "))) {
+			lines.push(`# ${literal(source.title)}`);
+		}
+
+		if (quotes && passages.length > 0) {
+			lines.push("", "## Passages");
+		}
+
+		for (const [id, text] of passages) {
+			if (quotes) {
+				lines.push(`- ${literal(text.replaceAll(/\s*\n\s*/g, " "))} ^${id}`);
+			} else {
+				// A block ID on its own line, set off by blank lines, addresses the block above it.
+				lines.push("", text.trimEnd(), "", `^${id}`);
+			}
+		}
+
+		const citing = dependents.get(source.id) ?? [];
+
+		lines.push("", "## Dependents");
+
+		if (citing.length === 0) {
+			lines.push("No claim cites this source yet.");
+		}
+
+		for (const { placed, link } of citing) {
+			const flag = placed.claim.stale && placed.claim.status === "active" ? ", stale" : "";
+			const where = link.passage === undefined ? "" : ` ^${link.passage}`;
+
+			lines.push(
+				`- [[${placed.note}#^${placed.claim.id}]] (${link.rel}${where}, ${placed.claim.status}${flag})`,
+			);
+		}
+
+		files.set(`${tier}/Sources/${source.kind}/${source.id}.md`, `${lines.join("\n")}\n`);
+	};
+
 	for (const tier of tiers) {
 		const state = view.tiers[tier];
 
 		for (const topic of Object.values(state.topics)) {
 			topicFile(tier, topic);
+		}
+
+		for (const source of Object.values(state.sources)) {
+			sourceFile(tier, source);
+		}
+	}
+
+	for (const [id, linkers] of inbound) {
+		const placed = claims.get(id);
+		const topics = new Set(
+			linkers.filter((linker) => linker.note !== placed?.note).map((linker) => linker.note),
+		);
+
+		if (placed && topics.size >= PROMOTE_AT) {
+			files.set(
+				`${placed.tier}/Claims/${id}.md`,
+				`${[
+					"---",
+					"type: claim",
+					`tier: ${placed.tier}`,
+					"generated: vault-engine",
+					"---",
+					`# Claim ${id}`,
+					"",
+					`![[${placed.note}#^${id}]]`,
+					"",
+					"## Linked from",
+					...linkers.map((linker) => `- [[${linker.note}#^${linker.claim.id}]]`),
+				].join("\n")}\n`,
+			);
 		}
 	}
 
@@ -215,6 +324,8 @@ function render(view: VaultView): Map<string, string> {
 	return files;
 }
 
+const now = Effect.map(Clock.currentTimeMillis, (millis) => new Date(millis));
+
 export interface ProjectResult {
 	readonly notes: number;
 }
@@ -228,7 +339,7 @@ export interface ProjectResult {
 export const project = Effect.fnUntraced(function* (out: string) {
 	const fs = yield* FileSystem.FileSystem;
 	const view = yield* (yield* Vault).view;
-	const files = render(view);
+	const files = render(view, yield* now);
 
 	yield* fs.makeDirectory(out, { recursive: true });
 

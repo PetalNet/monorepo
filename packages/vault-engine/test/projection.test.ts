@@ -6,6 +6,7 @@ import { Effect, FileSystem } from "effect";
 import { Vault } from "../src/engine.ts";
 import { project } from "../src/project.ts";
 import {
+	OTHER,
 	SOURCE,
 	addClaim,
 	claimInput,
@@ -37,6 +38,48 @@ describe("projection", () => {
 
 			expect(yield* readText(out, "shared/Topics/Note granularity.md")).toContain(
 				`## Retrieval unit\n- Claims retrieve better than passages. [supports:: [[${SOURCE}#^p1|Dense X Retrieval]]] [basis:: PRIMARY] ^${claim.id}\n`,
+			);
+
+			expect(yield* readText(out, `shared/Sources/capture/${SOURCE}.md`)).toContain(
+				"- Proposition indexing raises Recall@5. ^p1",
+			);
+		}));
+
+	test("lists every dependent claim on its source note, marking stale ones", () =>
+		Effect.gen(function* () {
+			const claim = yield* write("shared", (tx) =>
+				Effect.gen(function* () {
+					yield* seed(tx);
+					yield* seed(tx, OTHER);
+
+					return yield* tx.addClaim(claimInput("Depends on the source."));
+				}),
+			);
+			const out = yield* projected;
+
+			expect(yield* readText(out, `shared/Sources/capture/${SOURCE}.md`)).toContain(
+				`## Dependents\n- [[Note granularity#^${claim.id}]] (supports ^p1, active)\n`,
+			);
+
+			expect(yield* readText(out, `shared/Sources/capture/${OTHER}.md`)).toContain(
+				"No claim cites this source yet.",
+			);
+
+			yield* (yield* Vault).retireSource(SOURCE, {
+				status: "replaced",
+				replacedBy: OTHER,
+				reason: "newer version",
+			});
+
+			yield* project(out);
+
+			const note = yield* readText(out, `shared/Sources/capture/${SOURCE}.md`);
+
+			expect(note).toContain("status: replaced");
+			expect(note).toContain(`- [[Note granularity#^${claim.id}]] (supports ^p1, active, stale)`);
+
+			expect(yield* readText(out, "shared/Topics/Note granularity.md")).toContain(
+				`[stale:: 2026-11-17 ${SOURCE}]`,
 			);
 		}));
 
@@ -122,6 +165,46 @@ describe("projection", () => {
 			expect(yield* fs.exists((yield* Vault).file("shared"))).toBe(true);
 			expect((yield* fs.stat(path.join(out, "shared"))).type).toBe("Directory");
 			expect(yield* fs.exists(path.join(out, "agent"))).toBe(false);
+		}));
+
+	test("promotes a claim to its own note once three other topics link to it", () =>
+		Effect.gen(function* () {
+			const fs = yield* FileSystem.FileSystem;
+
+			const hub = yield* write("shared", (tx) =>
+				seed(tx).pipe(Effect.andThen(tx.addClaim(claimInput("A claim many topics build on.")))),
+			);
+			const linkFrom = (n: number) =>
+				write("shared", (tx) =>
+					Effect.gen(function* () {
+						yield* tx.putTopic({
+							id: `t-other-${String(n)}`,
+							title: `Other ${String(n)}`,
+							summary: "Another topic.",
+							headings: [],
+						});
+
+						yield* tx.addClaim({
+							...claimInput(`Builds on the hub claim, ${String(n)}.`),
+							topic: `t-other-${String(n)}`,
+							links: [...claimInput("").links, { rel: "supports", target: hub.id }],
+						});
+					}),
+				);
+
+			yield* linkFrom(1);
+			yield* linkFrom(2);
+
+			const out = yield* projected;
+
+			expect(yield* fs.exists(path.join(out, `shared/Claims/${hub.id}.md`))).toBe(false);
+
+			yield* linkFrom(3);
+			yield* project(out);
+
+			expect(yield* readText(out, `shared/Claims/${hub.id}.md`)).toContain(
+				`![[Note granularity#^${hub.id}]]`,
+			);
 		}));
 });
 
