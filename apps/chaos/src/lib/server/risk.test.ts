@@ -42,10 +42,11 @@ it("gives no reading when no pull has succeeded today", () => {
 it("says the history is short instead of inventing a baseline", () => {
 	// 53 weeks are needed. A list that starts 100 days ago has no year to compare with.
 	expect(risk(stored(entries("2026-08-11", 5)), TODAY, TODAY)).toEqual({
-		baselineWeeks: 52,
+		of: 52,
 		kind: "short",
-		days: 100,
-		needed: 371,
+		have: 100,
+		need: 371,
+		value: 0,
 	});
 
 	expect(risk(openStore(":memory:"), TODAY, "")).toMatchObject({ kind: "stale" });
@@ -73,14 +74,14 @@ it("counts the seven days ending today against the 52 weeks before them", () => 
 		TODAY,
 	);
 
-	expect(reading).toMatchObject({ kind: "reading", week: 3, quieterWeeks: 51, median: 0 });
+	expect(reading).toMatchObject({ kind: "reading", value: 3, quieter: 51, median: 0 });
 
 	if (reading.kind === "reading") {
-		expect(reading.weeks).toHaveLength(53);
-		expect(reading.weeks[0]).toEqual({ end: "2025-11-19", added: 0 });
-		expect(reading.weeks[1]).toEqual({ end: "2025-11-26", added: 2 });
-		expect(reading.weeks.at(-2)).toEqual({ end: "2026-11-11", added: 5 });
-		expect(reading.weeks.at(-1)).toEqual({ end: TODAY, added: 3 });
+		expect(reading.series).toHaveLength(53);
+		expect(reading.series[0]).toEqual({ end: "2025-11-19", value: 0 });
+		expect(reading.series[1]).toEqual({ end: "2025-11-26", value: 2 });
+		expect(reading.series.at(-2)).toEqual({ end: "2026-11-11", value: 5 });
+		expect(reading.series.at(-1)).toEqual({ end: TODAY, value: 3 });
 	}
 });
 
@@ -100,7 +101,7 @@ it("labels the week from how many baseline weeks were quieter", () => {
 		).flat();
 		const reading = risk(stored([...OLD, ...baseline, ...entries(TODAY, 4)]), TODAY, TODAY);
 
-		return reading.kind === "reading" ? [reading.quieterWeeks, reading.level] : [];
+		return reading.kind === "reading" ? [reading.quieter, reading.level] : [];
 	};
 
 	expect(level(0)).toEqual([0, "quiet"]);
@@ -123,5 +124,5 @@ it("does not count a week with the same additions as quieter, and takes the medi
 		TODAY,
 	);
 
-	expect(reading).toMatchObject({ week: 3, quieterWeeks: 50, median: 0 });
+	expect(reading).toMatchObject({ value: 3, quieter: 50, median: 0 });
 });

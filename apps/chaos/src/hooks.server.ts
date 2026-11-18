@@ -3,7 +3,10 @@ import path from "node:path";
 
 import { building } from "$app/environment";
 import { MODE_COOKIE, parseMode } from "$lib/mode";
+import { ingestAlerts } from "$lib/server/alerts";
+import { ingestIcs } from "$lib/server/ics";
 import { ingestKev } from "$lib/server/ingest";
+import { ingestNews } from "$lib/server/news";
 import { watch } from "$lib/server/status/watch";
 import { openStore, type Store } from "$lib/server/store";
 import type { Handle, ServerInit } from "@sveltejs/kit";
@@ -24,13 +27,40 @@ export const init: ServerInit = () => {
 	mkdirSync(dir, { recursive: true });
 	store = openStore(path.join(dir, "chaos.db"));
 
-	const pull = async (): Promise<void> => {
-		try {
-			console.log(`kev: ${await ingestKev(store)}`);
-		} catch (error) {
-			console.error("kev: pull failed, keeping the stored copy", error);
-		}
+	/** After a failed pull, a source that asks often waits this long before it asks again. */
+	const BACK_OFF = HOUR / 2;
+
+	/**
+	 * Runs one source's pull and logs it. A failed pull changes nothing: the stored copy stays. A
+	 * pull never overlaps itself, and `patient` sources back off after a failure.
+	 */
+	const run = (name: string, pull: () => Promise<unknown>, patient = false) => {
+		let running = false;
+		let waitUntil = 0;
+
+		return async (): Promise<void> => {
+			if (running || Date.now() < waitUntil) {
+				return;
+			}
+
+			running = true;
+
+			try {
+				console.log(`${name}: ${String(await pull())}`);
+			} catch (error) {
+				waitUntil = patient ? Date.now() + BACK_OFF : 0;
+				console.error(`${name}: pull failed, keeping the stored copy`, error);
+			} finally {
+				running = false;
+			}
+		};
 	};
+
+	const pull = run("kev", () => ingestKev(store));
+	const advisories = run("ics", () => ingestIcs(store));
+	const alerts = run("alerts", () => ingestAlerts(store));
+	// The news count asks at most every two hours and skips the rounds between.
+	const news = run("news", () => ingestNews(store), true);
 
 	// Most status feeds and every probe are a few hundred bytes. The two heavy feeds (AWS and Google
 	// Cloud, about 250 kB each) are read once an hour, so the board costs about 15 MB a day.
@@ -46,8 +76,17 @@ export const init: ServerInit = () => {
 
 	void pull();
 	void look();
+	void advisories();
+	void alerts();
+	void news();
 	setInterval(() => void pull(), HOUR).unref();
-	setInterval(() => void look(), HOUR / 6).unref();
+	setInterval(() => void alerts(), HOUR).unref();
+	setInterval(() => void advisories(), 6 * HOUR).unref();
+
+	setInterval(() => {
+		void look();
+		void news();
+	}, HOUR / 6).unref();
 };
 
 export const handle: Handle = ({ event, resolve }) => {
