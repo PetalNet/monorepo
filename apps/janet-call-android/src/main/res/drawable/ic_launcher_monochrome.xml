@@ -10,12 +10,12 @@
 		android:pathData="M54,54m-18,0a18,18 0 1,0 36,0a18,18 0 1,0 -36,0" />
 	<group android:pivotX="54" android:pivotY="54" android:rotation="-24">
 		<path
-			android:pathData="M22,54 A32,10 0 0,0 86,54"
+			android:pathData="M26,54 A28,9 0 0,0 82,54"
 			android:strokeColor="#FFFFFFFF"
 			android:strokeLineCap="round"
 			android:strokeWidth="5" />
 		<path
-			android:pathData="M22,54 A32,10 0 0,1 86,54"
+			android:pathData="M26,54 A28,9 0 0,1 82,54"
 			android:strokeColor="#FFFFFFFF"
 			android:strokeLineCap="round"
 			android:strokeWidth="5" />

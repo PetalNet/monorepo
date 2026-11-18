@@ -9,7 +9,7 @@
 	<group android:pivotX="54" android:pivotY="54" android:rotation="-24">
 		<!-- The far half of the ring, behind the planet. -->
 		<path
-			android:pathData="M22,54 A32,10 0 0,1 86,54"
+			android:pathData="M26,54 A28,9 0 0,1 82,54"
 			android:strokeColor="#FFA2A29E"
 			android:strokeLineCap="round"
 			android:strokeWidth="4" />
@@ -20,12 +20,12 @@
 	<group android:pivotX="54" android:pivotY="54" android:rotation="-24">
 		<!-- A gap in the planet's colour under the near half, so the ring reads as passing in front. -->
 		<path
-			android:pathData="M22,54 A32,10 0 0,0 86,54"
+			android:pathData="M26,54 A28,9 0 0,0 82,54"
 			android:strokeColor="#FF0B0B0B"
 			android:strokeLineCap="round"
 			android:strokeWidth="9" />
 		<path
-			android:pathData="M22,54 A32,10 0 0,0 86,54"
+			android:pathData="M26,54 A28,9 0 0,0 82,54"
 			android:strokeColor="#FFF3F3EF"
 			android:strokeLineCap="round"
 			android:strokeWidth="4" />
