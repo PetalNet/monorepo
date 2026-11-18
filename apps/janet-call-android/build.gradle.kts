@@ -23,13 +23,6 @@ android {
 		targetCompatibility = JavaVersion.VERSION_17
 	}
 
-	signingConfigs {
-		getByName("debug") {
-			// CI names the keystore it restored. Without this the one in ~/.android is used.
-			System.getenv("JANET_CALL_KEYSTORE")?.let { storeFile = file(it) }
-		}
-	}
-
 	buildTypes {
 		release {
 			// Same as Rolo: the release APK is signed with the machine's debug keystore.

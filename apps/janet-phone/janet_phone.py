@@ -105,6 +105,8 @@ class Config:
     pair_path: str = "/pair"
     proxy_secret_file: str = ""  # what the single-sign-on proxy sends to prove a page request is its own
     pair_ttl_s: int = 600
+    # Signing in from the app: the [signin] table, whose keys are pairing.SignIn's fields. Empty turns it off.
+    signin: dict = field(default_factory=dict)
     endpoint: dict = field(default_factory=dict)
 
 
@@ -587,6 +589,7 @@ async def serve_forever(config: Config) -> None:
         pairing.serve(config.http_listen, devices, pairing.Codes(config.pair_ttl_s), url=config.public_url,
                       access_file=config.access_file, users=config.pair_users, page_path=config.pair_path,
                       proxy_secret_file=config.proxy_secret_file, on_paired=lambda name, by: paired(config, name, by),
+                      signin=pairing.SignIn(**config.signin) if config.signin else None,
                       routes={"/v1/call/warm": warm_route(config, devices)})
         log.info("pairing on %s", config.http_listen)
     host, _, port = config.listen.rpartition(":")

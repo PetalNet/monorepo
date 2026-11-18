@@ -41,28 +41,26 @@ jobs:
         with:
           persist-credentials: false
 
-      - name: Use the runner's JDK 21
-        run: echo "JAVA_HOME=$JAVA_HOME_21_X64" >> "$GITHUB_ENV"
+      # Without ANDROID_USER_HOME the Android Gradle plugin follows XDG_CONFIG_HOME,
+      # which the runner sets, and makes a new debug key in ~/.config/.android.
+      - name: Use the runner's JDK 21 and a fixed Android user directory
+        run: |
+          echo "JAVA_HOME=$JAVA_HOME_21_X64" >> "$GITHUB_ENV"
+          echo "ANDROID_USER_HOME=$RUNNER_TEMP/android-user-home" >> "$GITHUB_ENV"
 
       # Tests run before the keystore is on the runner.
       - name: Test
         run: ./gradlew --no-daemon testReleaseUnitTest
 
-      # build.gradle.kts signs the release with the keystore JANET_CALL_KEYSTORE names.
-      # A keystore with another certificate stops here, before anything is built.
+      # build.gradle.kts signs the release with the debug signing config, which
+      # reads debug.keystore from the Android user directory.
       - name: Restore the signing keystore
         env:
           KEYSTORE_B64: ${{ secrets.ANDROID_DEBUG_KEYSTORE_B64 }}
         run: |
-          keystore="$RUNNER_TEMP/janet-call.keystore"
-          base64 -d <<<"$KEYSTORE_B64" > "$keystore"
-          found=$(keytool -list -v -keystore "$keystore" -storepass android -alias androiddebugkey \
-            | sed -n 's/^[[:space:]]*SHA256: //p' | tr -d ':' | tr 'A-F' 'a-f')
-          if [[ $found != "$SIGNER_SHA256" ]]; then
-            echo "::error::The ANDROID_DEBUG_KEYSTORE_B64 secret holds certificate ${found:-none}, expected $SIGNER_SHA256"
-            exit 1
-          fi
-          echo "JANET_CALL_KEYSTORE=$keystore" >> "$GITHUB_ENV"
+          mkdir -p "$ANDROID_USER_HOME"
+          base64 -d <<<"$KEYSTORE_B64" > "$ANDROID_USER_HOME/debug.keystore"
+          test -s "$ANDROID_USER_HOME/debug.keystore"
 
       - name: Build
         run: ./gradlew --no-daemon assembleRelease
@@ -72,9 +70,10 @@ jobs:
         run: |
           tools=$(find "$ANDROID_HOME/build-tools" -mindepth 1 -maxdepth 1 | sort -V | tail -n 1)
           apk=build/outputs/apk/release/janet-call-android-release.apk
-          # apksigner labels the line "Signer #1", "V2 Signer" or with an SDK range, by version.
+          # apksigner labels a signer "Signer #1" or "V2 Signer:" depending on its version.
           certs=$("$tools/apksigner" verify --print-certs "$apk")
-          signer=$(sed -n 's/^.*Signer.* certificate SHA-256 digest: //p' <<<"$certs" | sort -u)
+          signer=$(grep -v '^Source Stamp' <<<"$certs" |
+            sed -n 's/^.*certificate SHA-256 digest: //p' | sort -u)
           if [[ $signer != "$SIGNER_SHA256" ]]; then
             echo "::error::APK is signed by ${signer:-nothing}, expected $SIGNER_SHA256"
             grep -v '^WARNING' <<<"$certs" || true
