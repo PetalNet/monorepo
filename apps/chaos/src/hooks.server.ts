@@ -2,6 +2,7 @@ import { mkdirSync } from "node:fs";
 import path from "node:path";
 
 import { building } from "$app/environment";
+import { MODE_COOKIE, parseMode } from "$lib/mode";
 import { ingestKev } from "$lib/server/ingest";
 import { openStore, type Store } from "$lib/server/store";
 import type { Handle, ServerInit } from "@sveltejs/kit";
@@ -37,5 +38,10 @@ export const init: ServerInit = () => {
 export const handle: Handle = ({ event, resolve }) => {
 	event.locals.store = store;
 
-	return resolve(event);
+	// The theme is set on <html> by the server, so a chosen theme never flashes the other one.
+	const mode = parseMode(event.cookies.get(MODE_COOKIE));
+
+	return resolve(event, {
+		transformPageChunk: ({ html }) => html.replace("%chaos.mode%", mode),
+	});
 };

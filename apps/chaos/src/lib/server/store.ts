@@ -9,7 +9,11 @@ export interface Store {
 	/** The feed's Last-Modified from the last pull that carried a body. */
 	lastModified: () => string | undefined;
 	checkedAt: () => string | undefined;
-	addedOn: (date: string) => KevEntry[];
+	/** Entries CISA added on any day from `from` to `to`, both included. */
+	addedBetween: (from: string, to: string) => KevEntry[];
+	/** How many entries CISA added on each day from `from` to `to`. Days with none are absent. */
+	countsByDay: (from: string, to: string) => Map<string, number>;
+	size: () => number;
 	/** The most recent day before `date` on which CISA added anything. */
 	latestDayBefore: (date: string) => string | undefined;
 }
@@ -49,7 +53,11 @@ export function openStore(file: string): Store {
 			last_modified = excluded.last_modified, checked_at = excluded.checked_at`);
 	const touchFeed = db.prepare("UPDATE feed SET checked_at = ? WHERE id = 1");
 	const feed = db.prepare("SELECT last_modified, checked_at FROM feed WHERE id = 1");
-	const onDay = db.prepare(`SELECT ${COLUMNS} FROM kev WHERE date_added = ?`);
+	const between = db.prepare(`SELECT ${COLUMNS} FROM kev WHERE date_added BETWEEN ? AND ?`);
+	const byDay = db.prepare(`
+		SELECT date_added AS day, count(*) AS added FROM kev
+		WHERE date_added BETWEEN ? AND ? GROUP BY date_added`);
+	const total = db.prepare("SELECT count(*) AS entries FROM kev");
 	const dayBefore = db.prepare("SELECT max(date_added) AS day FROM kev WHERE date_added < ?");
 
 	return {
@@ -83,11 +91,14 @@ export function openStore(file: string): Store {
 		markChecked: (now) => void touchFeed.run(now.toISOString()),
 		lastModified: () => (feed.get()?.last_modified as string | null | undefined) ?? undefined,
 		checkedAt: () => feed.get()?.checked_at as string | undefined,
-		addedOn: (date) =>
-			onDay.all(date).map((row) => ({
+		addedBetween: (from, to) =>
+			between.all(from, to).map((row) => ({
 				...(row as unknown as KevEntry),
 				ransomware: row.ransomware === 1,
 			})),
+		countsByDay: (from, to) =>
+			new Map(byDay.all(from, to).map((row) => [row.day as string, row.added as number])),
+		size: () => total.get()?.entries as number,
 		latestDayBefore: (date) => (dayBefore.get(date)?.day as string | null) ?? undefined,
 	};
 }

@@ -81,15 +81,19 @@ describe("ingestKev", () => {
 		const server = cisa([row("CVE-2026-1"), row("CVE-2026-2", { dateAdded: "2026-11-17" })]);
 
 		expect(await ingestKev(store, server)).toBe("updated");
-		expect(store.addedOn("2026-11-18").map((e) => e.cveId)).toEqual(["CVE-2026-1"]);
-		expect(store.addedOn("2026-11-19")).toEqual([]);
+
+		expect(store.addedBetween("2026-11-18", "2026-11-18").map((e) => e.cveId)).toEqual([
+			"CVE-2026-1",
+		]);
+
+		expect(store.addedBetween("2026-11-19", "2026-11-19")).toEqual([]);
 		expect(store.latestDayBefore("2026-11-18")).toBe("2026-11-17");
 
 		const later = new Date("2026-11-18T20:00:00Z");
 
 		expect(await ingestKev(store, server, later)).toBe("unchanged");
 		expect(store.checkedAt()).toBe(later.toISOString());
-		expect(store.addedOn("2026-11-18")).toHaveLength(1);
+		expect(store.addedBetween("2026-11-18", "2026-11-18")).toHaveLength(1);
 	});
 
 	it("pulls the body again once the feed changes or stops sending Last-Modified", async () => {
@@ -114,7 +118,10 @@ describe("ingestKev", () => {
 		).rejects.toThrow(/dueDate/);
 
 		await expect(ingestKev(store, cisa([], "newest"))).rejects.toThrow(/0 rows/);
-		expect(store.addedOn("2026-11-18").map((e) => e.cveId)).toEqual(["CVE-2026-1"]);
+
+		expect(store.addedBetween("2026-11-18", "2026-11-18").map((e) => e.cveId)).toEqual([
+			"CVE-2026-1",
+		]);
 	});
 
 	it("follows CISA when it corrects or removes an entry", async () => {
@@ -127,6 +134,8 @@ describe("ingestKev", () => {
 			cisa([row("CVE-2026-1", { knownRansomwareCampaignUse: "Known" })], "newer"),
 		);
 
-		expect(store.addedOn("2026-11-18")).toMatchObject([{ cveId: "CVE-2026-1", ransomware: true }]);
+		expect(store.addedBetween("2026-11-18", "2026-11-18")).toMatchObject([
+			{ cveId: "CVE-2026-1", ransomware: true },
+		]);
 	});
 });

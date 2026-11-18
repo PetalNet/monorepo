@@ -1,0 +1,104 @@
+@import "tailwindcss";
+
+@plugin "daisyui" {
+	themes: false;
+}
+
+/* Chart paper by day, a night chart after dark. One accent: the live needle and today's door. */
+@plugin "daisyui/theme" {
+	name: "chaos";
+	default: true;
+	color-scheme: light dark;
+	--color-base-100: light-dark(#f9faf7, #171e24);
+	--color-base-200: light-dark(#eceeea, #0f1418);
+	--color-base-300: light-dark(#dfe3dd, #222c34);
+	--color-base-content: light-dark(#141a1f, #e6ebee);
+	--color-primary: light-dark(#a82c16, #ff8a6b);
+	--color-primary-content: light-dark(#ffffff, #0f1418);
+	--color-secondary: light-dark(#a82c16, #ff8a6b);
+	--color-secondary-content: light-dark(#ffffff, #0f1418);
+	--color-accent: light-dark(#a82c16, #ff8a6b);
+	--color-accent-content: light-dark(#ffffff, #0f1418);
+	--color-neutral: light-dark(#141a1f, #e6ebee);
+	--color-neutral-content: light-dark(#f9faf7, #0f1418);
+	--color-info: light-dark(#2f5f8a, #8fbbe0);
+	--color-success: light-dark(#1d6b45, #6fd3a0);
+	--color-warning: light-dark(#7d5200, #e9b656);
+	--color-error: light-dark(#a82c16, #ff8a6b);
+	--radius-selector: 0.125rem;
+	--radius-field: 0.125rem;
+	--radius-box: 0.125rem;
+	--border: 0;
+}
+
+@theme static {
+	--font-sans: "Geist", sans-serif;
+	--font-mono: "Geist Mono", monospace;
+	--ease-out-expo: cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+:root {
+	/* Text that steps back from the reading: labels, units, footnotes. */
+	--color-muted: light-dark(#49535c, #a3b0ba);
+	--color-rule: color-mix(in oklab, var(--color-base-content) 16%, transparent);
+	--color-rule-strong: color-mix(in oklab, var(--color-base-content) 36%, transparent);
+}
+
+:root[data-mode="light"] {
+	color-scheme: light;
+}
+
+:root[data-mode="dark"] {
+	color-scheme: dark;
+}
+
+html {
+	background-color: var(--color-base-200);
+	color: var(--color-base-content);
+	accent-color: var(--color-primary);
+	caret-color: var(--color-primary);
+	scrollbar-color: var(--color-rule-strong) transparent;
+	hanging-punctuation: first last;
+}
+
+body {
+	min-block-size: 100dvb;
+	margin: 0;
+	font-family: var(--font-sans);
+	font-weight: 400;
+	line-height: 1.55;
+	font-variant-numeric: tabular-nums;
+}
+
+::selection {
+	background-color: var(--color-primary);
+	color: var(--color-primary-content);
+}
+
+a {
+	color: inherit;
+	text-decoration-line: underline;
+	text-decoration-thickness: 1px;
+	text-underline-offset: 0.2em;
+	text-decoration-color: var(--color-rule-strong);
+	transition: text-decoration-color 150ms var(--ease-out-expo);
+}
+
+a:hover {
+	text-decoration-color: currentcolor;
+}
+
+:is(a, button, input, summary):focus-visible {
+	outline: 2px solid var(--color-primary);
+	outline-offset: 2px;
+	border-radius: 2px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+	*,
+	*::before,
+	*::after {
+		animation-duration: 0.01ms !important;
+		transition-duration: 0.01ms !important;
+	}
+}
