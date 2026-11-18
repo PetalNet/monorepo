@@ -82,6 +82,7 @@
 			"apps/manager",
 			"apps/point",
 			"apps/janet-voice-head",
+			"packages/janet-turn",
 			"tools/*"
 		]
 	}
