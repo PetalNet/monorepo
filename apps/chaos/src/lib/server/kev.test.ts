@@ -16,8 +16,23 @@ const row = (cveID: string, over: Record<string, string> = {}) => ({
 	...over,
 });
 
-const feed = (rows: unknown[], etag = '"v1"') =>
-	Response.json({ vulnerabilities: rows }, { headers: { etag } });
+const MODIFIED = "Tue, 17 Nov 2026 17:53:15 GMT";
+
+/** Answers like CISA's server: an empty 304 only when If-Modified-Since matches. */
+const cisa =
+	(rows: unknown[], modified: string | null = MODIFIED): typeof fetch =>
+	(_url, init) => {
+		const since = new Headers(init?.headers).get("if-modified-since");
+
+		return Promise.resolve(
+			modified !== null && since === modified
+				? new Response(null, { status: 304 })
+				: Response.json(
+						{ vulnerabilities: rows },
+						{ headers: modified === null ? {} : { "last-modified": modified } },
+					),
+		);
+	};
 
 describe("worst", () => {
 	const [plain, urgent, ransom] = parseCatalog({
@@ -52,53 +67,56 @@ describe("parseCatalog", () => {
 });
 
 describe("ingestKev", () => {
-	it("stores a pull, serves it by day, and sends the etag on the next check", async () => {
+	it("stores a pull by day and gets an empty answer while the feed is unchanged", async () => {
 		const store = openStore(":memory:");
-		const rows = [row("CVE-2026-1"), row("CVE-2026-2", { dateAdded: "2026-11-17" })];
+		const server = cisa([row("CVE-2026-1"), row("CVE-2026-2", { dateAdded: "2026-11-17" })]);
 
-		expect(await ingestKev(store, () => Promise.resolve(feed(rows)))).toBe("updated");
-
+		expect(await ingestKev(store, server)).toBe("updated");
 		expect(store.addedOn("2026-11-18").map((e) => e.cveId)).toEqual(["CVE-2026-1"]);
 		expect(store.addedOn("2026-11-19")).toEqual([]);
 		expect(store.latestDayBefore("2026-11-18")).toBe("2026-11-17");
 
-		let sent: HeadersInit | undefined;
-		const unchanged: typeof fetch = (_url, init) => {
-			sent = init?.headers;
+		const later = new Date("2026-11-18T20:00:00Z");
 
-			return Promise.resolve(new Response(null, { status: 304 }));
-		};
-
-		expect(await ingestKev(store, unchanged)).toBe("unchanged");
-		expect(sent).toEqual({ "If-None-Match": '"v1"' });
+		expect(await ingestKev(store, server, later)).toBe("unchanged");
+		expect(store.checkedAt()).toBe(later.toISOString());
 		expect(store.addedOn("2026-11-18")).toHaveLength(1);
+	});
+
+	it("pulls the body again once the feed changes or stops sending Last-Modified", async () => {
+		const store = openStore(":memory:");
+
+		await ingestKev(store, cisa([row("CVE-2026-1")]));
+		expect(await ingestKev(store, cisa([row("CVE-2026-1")], null))).toBe("updated");
+		expect(await ingestKev(store, cisa([row("CVE-2026-1")]))).toBe("updated");
 	});
 
 	it("keeps the stored copy when a pull fails or is malformed", async () => {
 		const store = openStore(":memory:");
 
-		await ingestKev(store, () => Promise.resolve(feed([row("CVE-2026-1")])));
+		await ingestKev(store, cisa([row("CVE-2026-1")]));
 
 		await expect(
 			ingestKev(store, () => Promise.resolve(new Response("", { status: 503 }))),
 		).rejects.toThrow(/503/);
 
 		await expect(
-			ingestKev(store, () => Promise.resolve(feed([row("CVE-2026-9", { dueDate: "" })]))),
+			ingestKev(store, cisa([row("CVE-2026-9", { dueDate: "" })], "newer")),
 		).rejects.toThrow(/dueDate/);
 
 		expect(store.addedOn("2026-11-18").map((e) => e.cveId)).toEqual(["CVE-2026-1"]);
 	});
 
-	it("reflects a correction CISA makes to an entry", async () => {
+	it("follows CISA when it corrects or removes an entry", async () => {
 		const store = openStore(":memory:");
 
-		await ingestKev(store, () => Promise.resolve(feed([row("CVE-2026-1")])));
+		await ingestKev(store, cisa([row("CVE-2026-1"), row("CVE-2026-2")]));
 
-		await ingestKev(store, () =>
-			Promise.resolve(feed([row("CVE-2026-1", { knownRansomwareCampaignUse: "Known" })], '"v2"')),
+		await ingestKev(
+			store,
+			cisa([row("CVE-2026-1", { knownRansomwareCampaignUse: "Known" })], "newer"),
 		);
 
-		expect(store.addedOn("2026-11-18")[0]?.ransomware).toBe(true);
+		expect(store.addedOn("2026-11-18")).toMatchObject([{ cveId: "CVE-2026-1", ransomware: true }]);
 	});
 });

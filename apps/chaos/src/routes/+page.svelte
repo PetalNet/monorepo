@@ -15,7 +15,12 @@
 	<p class="eyebrow">{data.label} · {day(data.date)}</p>
 	<h1>Today's door</h1>
 
-	{#if data.addedToday === 0}
+	{#if !data.current}
+		<p class="quiet">
+			No current KEV data: the last successful check was not today, so this page says nothing about
+			today.
+		</p>
+	{:else if data.addedToday === 0}
 		<p class="quiet">CISA has added nothing to its Known Exploited Vulnerabilities list today.</p>
 	{/if}
 
@@ -23,7 +28,7 @@
 		{@const item = data.item}
 		<article>
 			<p class="eyebrow">
-				{#if data.addedToday === 0}Last addition, {day(data.shownDate)}{:else}Worst of {data.shownCount}
+				{#if data.addedToday === 0}Last addition on record, {day(data.shownDate)}{:else}Worst of {data.shownCount}
 					added today{/if}
 				· cause: <strong>{data.cause}</strong>
 			</p>
