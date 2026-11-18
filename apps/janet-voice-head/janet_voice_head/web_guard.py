@@ -26,14 +26,14 @@ def settings(tools, base: dict | None = None) -> dict:
     """
     base = base or {}
     permissions = base.get("permissions") or {}
-    allow = [*permissions.get("allow", []), *sorted(tools)]
-    deny = [rule for rule in permissions.get("deny", []) if rule not in tools]
+    allow = [*(permissions.get("allow") or []), *sorted(tools)]
+    deny = [rule for rule in (permissions.get("deny") or []) if rule not in tools]
     hooks = dict(base.get("hooks") or {})
     if "WebFetch" in tools:
         deny += [f"WebFetch(domain:{domain})" for domain in DENIED_DOMAINS]
         # Claude treats any exit but 2 as a hook error and fetches anyway, so a hook that cannot start must still say 2.
         command = f"{shlex.quote(sys.executable)} -I {shlex.quote(__file__)} || exit 2"
-        hooks["PreToolUse"] = [*hooks.get("PreToolUse", []), {"matcher": "WebFetch", "hooks": [{"type": "command", "command": command}]}]
+        hooks["PreToolUse"] = [*(hooks.get("PreToolUse") or []), {"matcher": "WebFetch", "hooks": [{"type": "command", "command": command}]}]
     result = {**base, "permissions": {**permissions, "allow": allow, "deny": deny}}
     if hooks:
         result["hooks"] = hooks
@@ -42,11 +42,16 @@ def settings(tools, base: dict | None = None) -> dict:
 
 def main_like_args(args: list[str], tools) -> list[str]:
     """`args` (a main-like fork's extra flags) with its --settings file merged with the web settings, or ours added when it has none."""
+    if any(arg.startswith("--settings=") for arg in args) or args.count("--settings") > 1 or args[-1:] == ["--settings"]:
+        raise ValueError("main_like_args must carry at most one `--settings <path or JSON>`")
     if "--settings" not in args:
         return [*args, "--settings", json.dumps(settings(tools))]
     at = args.index("--settings") + 1
     value = args[at]
-    base = json.loads(value if value.lstrip().startswith("{") else Path(value).read_text(encoding="utf-8"))
+    try:
+        base = json.loads(value if value.lstrip().startswith("{") else Path(value).read_text(encoding="utf-8"))
+    except UnicodeDecodeError as error:
+        raise ValueError(f"unreadable settings: {error}") from error
     return [*args[:at], json.dumps(settings(tools, base)), *args[at + 1:]]
 
 

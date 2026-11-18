@@ -144,7 +144,7 @@ class Head:
                     live.session = self._session_factory(self._argv(conv, resume), self._cwd(conv), env=self._main_like_env(), allow_tools=True)
                 else:
                     live.session = self._session_factory(self._argv(conv, resume), self._cwd(conv), web_tools=self._web_tools(conv, resume))
-            except OSError as error:
+            except (OSError, ValueError) as error:
                 live.record(kind="ending", reason="session_failed_to_start")
                 raise ApiError(503, f"the head session did not start: {error}") from error
             finally:
