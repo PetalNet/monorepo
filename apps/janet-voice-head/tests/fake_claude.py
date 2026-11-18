@@ -10,6 +10,7 @@ log_path = argv[argv.index("--fake-log") + 1]
 resumed = "--resume" in argv
 SESSION = "fake-session-" + str(os.getpid())
 EMAIL = "owner@example.test"
+WARM_DELAY = 0.8 if "--fake-slow-warm" in argv else 0
 
 
 def out(event: dict) -> None:
@@ -29,6 +30,9 @@ def init() -> None:
 
 def reply_to(prompt: str) -> str:
     said = prompt.rsplit(" says: ", 1)[-1]
+    if "warm-up" in prompt:
+        time.sleep(WARM_DELAY)
+        return "ready"
     if "conversation is over" in prompt:
         return "They talked about test things."
     if "relayfirst" in said:

@@ -10,11 +10,21 @@ from tests.harness import HeadCase, parse_sse
 
 
 class ConversationTest(HeadCase):
-    def test_opening_starts_the_head_session_without_asking_the_model(self):
+    def test_opening_a_fork_warms_it_before_anyone_speaks_and_a_guest_is_not_warmed(self):
         self.open()
-        self.wait_for(lambda: self.claude_log.exists(), "the session never started")
+        self.wait_for(lambda: self.warm_ups(), "the fork was never warmed")
+        self.open("guest")
         time.sleep(0.2)
         self.assertEqual(self.prompts(), [])
+        self.assertEqual(len(self.warm_ups()), 1)
+
+    def test_a_turn_that_arrives_during_warm_up_waits_for_it_and_is_answered(self):
+        self.claude_extra = ["--fake-slow-warm"]
+        self.start_head()
+        sentences, done = self.turn(self.open(), "hello there")
+        self.assertEqual(sentences, ["You said hello there.", "That is all I know."])
+        self.assertEqual(len(self.warm_ups()), 1)
+        self.assertNotIn("ready", self.hub.texts("voice-hard"))
 
     def test_a_turn_streams_each_sentence_then_done_with_latencies(self):
         sentences, done = self.turn(self.open(), "hello there")

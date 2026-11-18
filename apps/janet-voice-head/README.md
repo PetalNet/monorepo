@@ -8,9 +8,12 @@ is in [docs/janet-voice/SPEC.md](../../docs/janet-voice/SPEC.md), §9 and §10.
 One conversation is one talk-only Claude Code process:
 
 - **Fork at wake.** `POST /v1/conversations` starts `claude --resume <main> --fork-session`
-  the moment the wake word fires. The process loads main's transcript and calls no model,
-  so the head knows everything main knew at that second and is ready when the first
-  transcribed turn arrives. Nothing calls a model while nobody speaks.
+  the moment the wake word fires. The process loads main's transcript, so the head knows
+  everything main knew at that second. It then makes one warm-up model call ("reply
+  ready", never spoken) while the speaker is still talking: a fork's first call reads all
+  of main's context uncached and took 7 to 25 s, and every later turn took about 2 s. A
+  turn that arrives during the warm-up waits for it. `warm_up = false` turns it off. Only
+  personal forks are warmed, and nothing calls a model for a conversation nobody opened.
 - **Talk only.** The process runs with no tools, no MCP servers, no settings, and an
   allowlisted environment. The head reads the session's own report of its tools and never
   uses a session that reports any.

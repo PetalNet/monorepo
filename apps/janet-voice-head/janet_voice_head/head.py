@@ -40,7 +40,14 @@ class Config:
     ready_timeout_s: float = 30
     turn_timeout_s: float = 60
     max_open: int = 2
+    warm_up: bool = True
     unmerged_channels: list[str] = field(default_factory=list)
+
+
+def _set_event() -> threading.Event:
+    event = threading.Event()
+    event.set()
+    return event
 
 
 @dataclass
@@ -57,6 +64,8 @@ class Live:
     turn_lock: threading.Lock = field(default_factory=threading.Lock)
     end_lock: threading.Lock = field(default_factory=threading.Lock)
     merge_lock: threading.Lock = field(default_factory=threading.Lock)
+    # Clear while a fork's warm-up call is running; the speaker's first turn waits for it.
+    warm: threading.Event = field(default_factory=lambda: _set_event())
 
     def record(self, **fields) -> None:
         with self.lock:
@@ -110,10 +119,14 @@ class Head:
         if fork:
             live.fork_point = fork_point
             threading.Thread(target=self._note_session, args=(live,), daemon=True).start()
+        if fork and self.config.warm_up:
+            live.warm.clear()
+            threading.Thread(target=self._warm_up, args=(live,), daemon=True).start()
         return conv_id
 
     def turn(self, conv_id: str, text: str, emit: Emit) -> None:
         live = self._open_live(conv_id)
+        live.warm.wait(self.config.ready_timeout_s + self.config.turn_timeout_s)
         if not live.turn_lock.acquire(blocking=False):
             raise ApiError(409, "a turn is already in flight; interrupt it first")
         if live.conv.state != "open":
@@ -248,6 +261,20 @@ class Head:
         else:
             identity = ["--model", self.config.cold_model, "--system-prompt", prompts.COLD_PROFILE]
         return [*self.config.claude, *LOCKED_FLAGS, *identity, "--effort", self.config.effort]
+
+    def _warm_up(self, live: Live) -> None:
+        """A fork's first model call reads all of main's context cold and takes seconds. Making it while the speaker is still talking hides that wait."""
+        try:
+            with live.turn_lock:
+                if live.conv.state != "open":
+                    return
+                live.session.wait_ready(self.config.ready_timeout_s)
+                for _ in live.session.turn(prompts.WARM_UP, self.config.turn_timeout_s):
+                    pass
+        except SessionError as error:
+            log.warning("conversation %s: warm-up: %s", live.conv.id, error)
+        finally:
+            live.warm.set()
 
     def _note_session(self, live: Live) -> None:
         """Records the session's id once it is known: at resume for some forks, after the first turn otherwise."""
