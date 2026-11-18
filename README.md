@@ -17,7 +17,7 @@ docs/         repository architecture, migration history, and design specs for
 
 ### Applications
 
-- Web and Node: `clarity-mcp`, `collegemap`, `grove`, `petalboard`, `slide`, and `tasks`
+- Web and Node: `chaos`, `clarity-mcp`, `collegemap`, `grove`, `petalboard`, `slide`, and `tasks`
 - Rust: `box-agent`, `control-plane`, `courier`, `dispatcher`, `manager`, and the
   Point server
 - Flutter: the Point client under `apps/point/app`
