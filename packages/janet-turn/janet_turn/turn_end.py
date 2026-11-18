@@ -47,8 +47,8 @@ def _session(path: Path):
 class Silero:
     """Silero VAD v6: the chance that one frame is speech."""
 
-    def __init__(self, path: Path):
-        self._session = _session(path)
+    def __init__(self, path: Path, session=None):
+        self._session = session or _session(path)
         self._state = np.zeros((2, 1, 128), np.float32)
         self._context = np.zeros(64, np.float32)
 
@@ -180,18 +180,72 @@ def took_the_turn(claim: Path) -> bool:
     return True
 
 
-def hearing(models: Path):
-    """The judge, when turn_judge.py, its fitted model and its speech model are all installed."""
+def hearing(models: Path, words=None):
+    """The judge, when turn_judge.py, its fitted model and its speech model are all installed.
+    `words` is a loaded turn_judge.Words to share between turns, for a process that hears many."""
     fitted = Path(__file__).with_name("turn_judge.json")
     needed = [fitted, models / "parakeet_realtime_eou_120m.int8.onnx", models / "parakeet_vocab.txt"]
     try:
         from .turn_judge import Hearing
 
         if all(path.exists() for path in needed):
-            return Hearing(models, fitted)
+            return Hearing(models, fitted, words)
     except Exception as error:  # the judge is an extra: without it the turn ends on silence, as before
         print(f"no turn judge: {error}", file=sys.stderr)
     return None
+
+
+class Utterances:
+    """Splits a continuous stream of 16 kHz mono PCM16 into utterances, ending each turn as TurnEnd does.
+
+    feed() returns "start" when speech begins (so a surface can cut off what it is saying) and the
+    utterance's PCM when the turn has ended. For a surface that hears a stream and not one turn: a phone call.
+    """
+
+    def __init__(self, models: Path, policy: Policy | None = None, words=None, lead_s: float = 0.3, max_s: float = 30.0,
+                 make_vad=None, make_hearing=None):
+        self._models, self._words = models, words
+        self._policy = policy or Policy(nothing_said_s=1e9)
+        if make_vad is None:
+            session = _session(models / "silero_vad.onnx")  # loaded once per stream, shared by its turns
+            make_vad = lambda: Silero(models / "silero_vad.onnx", session)  # noqa: E731
+        self._make_vad = make_vad
+        self._make_hearing = make_hearing or (lambda: hearing(models, words))
+        self._lead = round(lead_s / FRAME_S)
+        self._max = round(max_s / FRAME_S)
+        self._raw = b""
+        self._events: list[str | bytes] = []
+        self._new_turn()
+
+    def _new_turn(self) -> None:
+        self._turn_hearing = self._make_hearing()
+        self._turn = TurnEnd(self._make_vad(), self._policy, self._turn_hearing, self._on_start)
+        self._frames: list[bytes] = []
+        self._started = False
+
+    def _on_start(self) -> None:
+        self._started = True
+        self._events.append("start")
+
+    def feed(self, pcm: bytes) -> list[str | bytes]:
+        self._raw += pcm
+        size = FRAME * 2
+        while len(self._raw) >= size:
+            frame, self._raw = self._raw[:size], self._raw[size:]
+            self._frames.append(frame)
+            why = self._turn.feed(np.frombuffer(frame, "<i2").astype(np.float32) / 32768)
+            if not self._started:
+                del self._frames[: -self._lead - 1]
+            if why in ("done", "quiet") or len(self._frames) >= self._max:
+                self._events.append(b"".join(self._frames))
+                self.close()
+                self._new_turn()
+        events, self._events = self._events, []
+        return events
+
+    def close(self) -> None:
+        if self._turn_hearing is not None:
+            self._turn_hearing.close()
 
 
 def main() -> None:

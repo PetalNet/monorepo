@@ -122,12 +122,20 @@ userinfo_url = "http://127.0.0.1:9000/application/o/userinfo/"
 client_id = "the public client's id"
 redirect_uri = "janetcall://signin"
 
-[endpoint]                          # loudness end-of-speech detector
+turn_models = "/models"             # silero_vad.onnx and the Parakeet files: the shared turn detector (below)
+
+[endpoint]                          # the fallback loudness detector, used only without turn_models
 threshold = 500
 silence_ms = 700
 ```
 
-Run it with `python janet_phone.py --config /path/to/phone.toml`, or build the `Dockerfile`.
+**When a turn ends.** With `turn_models`, the bridge uses the same turn detector as janet-mac
+([`packages/janet-turn`](../../packages/janet-turn)): Silero VAD, a streaming speech model and a fitted judge. A
+pause of 3 s ends a turn; after an "um" or a trailing "and" it waits 6 s; when the words are finished it ends
+after 1 to 2.5 s. Without `turn_models`, or if the models fail to load, a call uses the loudness rule in `[endpoint]`.
+
+Run it with `python janet_phone.py --config /path/to/phone.toml`, or build the `Dockerfile` from the repository root
+(`docker build -f apps/janet-phone/Dockerfile .`); the image carries the models.
 
 ## Limits
 

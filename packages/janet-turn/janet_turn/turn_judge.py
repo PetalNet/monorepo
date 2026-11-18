@@ -53,14 +53,17 @@ class Words:
 
     BLANK, END = 1026, (1024, 1025)
 
-    def __init__(self, model: Path, vocab: Path):
-        import onnxruntime
+    def __init__(self, model: Path, vocab: Path, _loaded: tuple | None = None):
+        if _loaded:
+            self._session, self._vocab = _loaded
+        else:
+            import onnxruntime
 
-        options = onnxruntime.SessionOptions()
-        options.intra_op_num_threads = 1
-        options.inter_op_num_threads = 1
-        self._session = onnxruntime.InferenceSession(str(model), sess_options=options, providers=["CPUExecutionProvider"])
-        self._vocab = vocab.read_text(encoding="utf-8").split("\n")
+            options = onnxruntime.SessionOptions()
+            options.intra_op_num_threads = 1
+            options.inter_op_num_threads = 1
+            self._session = onnxruntime.InferenceSession(str(model), sess_options=options, providers=["CPUExecutionProvider"])
+            self._vocab = vocab.read_text(encoding="utf-8").split("\n")
         self._outputs = [o.name for o in self._session.get_outputs()]
         self._state = {
             "audio_cache": np.zeros([160], np.float32),
@@ -73,6 +76,10 @@ class Words:
             "last_token": np.array([self.BLANK], np.int64),
         }
         self._chunks = 0
+
+    def fresh(self) -> "Words":
+        """A model at the start of a new turn that shares this one's loaded weights, for a process that hears many turns."""
+        return Words(Path(), Path(), (self._session, self._vocab))
 
     def __call__(self, chunk: np.ndarray) -> tuple[list[tuple[str, float]], bool]:
         """Returns the word pieces heard in this chunk with their times, and whether the model
@@ -171,14 +178,21 @@ class Hearing:
     """Keeps what the judge needs as the audio arrives. The speech model runs on a thread of its
     own, so listening never waits for it."""
 
-    def __init__(self, models: Path, fitted: Path):
+    def __init__(self, models: Path, fitted: Path, words: Words | None = None):
         self._judge = Judge(fitted)
+        self._words = words
         self._speech: list[bool] = []
         self._pieces: list[tuple[str, float]] = []
         self._ends: list[float] = []  # when the speech model marked an end of utterance
         self._transcribed_s = 0.0
         self._frames: queue.Queue[np.ndarray] | None = queue.Queue()
         threading.Thread(target=self._transcribe, args=(models,), daemon=True).start()
+
+    def close(self) -> None:
+        """Ends the speech model's thread. A process that hears one turn never needs it; one that hears many does."""
+        frames = self._frames
+        if frames is not None:
+            frames.put(None)
 
     def hear(self, frame: np.ndarray, said: bool) -> None:
         self._speech.append(said)
@@ -189,10 +203,13 @@ class Hearing:
     def _transcribe(self, models: Path) -> None:
         frames = self._frames
         try:
-            words = Words(models / "parakeet_realtime_eou_120m.int8.onnx", models / "parakeet_vocab.txt")
+            words = self._words.fresh() if self._words else Words(models / "parakeet_realtime_eou_120m.int8.onnx", models / "parakeet_vocab.txt")
             held: list[np.ndarray] = []
             while True:
-                held.append(frames.get())
+                frame = frames.get()
+                if frame is None:
+                    return
+                held.append(frame)
                 if len(held) * FRAME == CHUNK:
                     pieces, ended = words(np.concatenate(held))
                     held = []
