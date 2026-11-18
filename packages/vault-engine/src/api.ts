@@ -4,7 +4,7 @@ import { PlatformError } from "effect/PlatformError";
 
 import { Vault } from "./engine.ts";
 import { SecretFound, TierUnreadable, WriteRejected } from "./errors.ts";
-import { project } from "./project.ts";
+import { project, renderNote } from "./project.ts";
 import {
 	ClaimCard,
 	PassageHit,
@@ -134,14 +134,17 @@ export const operations = [
 	operation({
 		name: "research_run",
 		description:
-			"Record a finished research run: topics, quoted passages, claims with verdicts and typed links, reused IDs and gaps. Every cited source must already be in the vault. Returns the run, the root of the tree.",
+			"Record a finished research run: topics, quoted passages, claims with verdicts and typed links, reused IDs and gaps. Every cited source must already be in the vault. Returns the run and its run note, the root of the tree.",
 		input: Schema.Struct({ ...ResearchRunInput.fields, tier }),
-		output: Schema.Struct({ run: Run }),
+		output: Schema.Struct({ run: Run, note: Schema.String }),
 		handler: ({ tier: chosen = "shared", ...input }) =>
-			researchRun(chosen, input).pipe(
-				Effect.tap(() => refresh),
-				Effect.map((run) => ({ run })),
-			),
+			Effect.gen(function* () {
+				const run = yield* researchRun(chosen, input);
+
+				yield* refresh;
+
+				return { run, note: yield* renderNote(`${chosen}/Runs/${run.id}.md`) };
+			}),
 		errors,
 	}),
 	operation({

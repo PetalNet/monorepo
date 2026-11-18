@@ -6,9 +6,11 @@ import { Effect, FileSystem } from "effect";
 import { Vault } from "../src/engine.ts";
 import { lint, project } from "../src/project.ts";
 import { researchRun } from "../src/research.ts";
+import type { ResearchRunInput } from "../src/research.ts";
 import {
 	OTHER,
 	SOURCE,
+	TOPIC,
 	addClaim,
 	claimInput,
 	readText,
@@ -360,7 +362,7 @@ describe("projected text", () => {
 			]);
 		}));
 
-	test("writes claim text, summaries and headings as plain text", () =>
+	test("writes claim text, summaries, headings and run text as plain text", () =>
 		Effect.gen(function* () {
 			yield* seeded;
 
@@ -368,7 +370,7 @@ describe("projected text", () => {
 				"shared",
 				claimInput("See [[Secret plans]] and [verdict:: contradicted] <!-- hide %% this"),
 			);
-			yield* researchRun("shared", {
+			const run = yield* researchRun("shared", {
 				question: "Is <!-- this hidden?",
 				summary: "A summary with [[a link]] and a back\\slash.",
 				topics: [{ title: "Odd topic", summary: "Notes on <!-- comments" }],
@@ -388,6 +390,7 @@ describe("projected text", () => {
 			});
 			const out = yield* projected;
 			const topic = yield* readText(out, "shared/Topics/Odd topic.md");
+			const note = yield* readText(out, `shared/Runs/${run.id}.md`);
 
 			expect(yield* readText(out, "shared/Topics/Note granularity.md")).toContain(
 				String.raw`- See \[\[Secret plans\]\] and \[verdict:\: contradicted\] \<!-- hide %\% this [supports:: [[${SOURCE}#^p1|Dense X Retrieval]]] [basis:: PRIMARY] ^${claim.id}`,
@@ -395,6 +398,9 @@ describe("projected text", () => {
 
 			expect(topic).toContain(String.raw`Notes on \<!-- comments`);
 			expect(topic).toContain(String.raw`## A \[field:\: x\] heading`);
+			expect(note).toContain(String.raw`**Question:** Is \<!-- this hidden?`);
+			expect(note).toContain(String.raw`A summary with \[\[a link\]\] and a back\\slash.`);
+			expect(note).toContain(String.raw`blocked %\% by a wall`);
 			expect(yield* lint(out)).toMatchObject({ problems: [], claimBlocks: 2 });
 		}));
 
@@ -434,5 +440,67 @@ describe("projected text", () => {
 
 			expect(yield* fs.exists(path.join(out, "shared/Topics/Evil title.md"))).toBe(true);
 			expect(yield* lint(out)).toMatchObject({ problems: [], claimBlocks: 1 });
+		}));
+});
+
+describe("run notes", () => {
+	const input = (extra: Partial<ResearchRunInput> = {}): ResearchRunInput => ({
+		question: "How big should a vault note be?",
+		summary: "Topic notes with claim-level IDs.",
+		topics: [
+			{
+				title: "Note granularity",
+				summary: "How big a vault note should be.",
+			},
+		],
+		passages: [{ key: "t3", source: SOURCE, text: "Table 3: Recall@5 +12.0." }],
+		claims: [
+			{
+				key: "a",
+				topic: "Note granularity",
+				heading: "Retrieval unit",
+				text: "Proposition indexing beats passage indexing.",
+				verdict: "supported",
+				sourceType: "PRIMARY",
+				links: [{ rel: "supports", to: "t3" }],
+			},
+		],
+		answer: ["a"],
+		gaps: [{ ref: "https://example.org/paywalled", reason: "subscription required" }],
+		...extra,
+	});
+
+	test("writes a tree rooted at a run note that lists created, reused and stale", () =>
+		Effect.gen(function* () {
+			const earlier = yield* write("shared", (tx) =>
+				Effect.gen(function* () {
+					yield* seed(tx);
+					yield* seed(tx, OTHER);
+
+					return yield* tx.addClaim(claimInput("An earlier finding.", OTHER));
+				}),
+			);
+
+			yield* (yield* Vault).retireSource(OTHER, { status: "retracted", reason: "withdrawn" });
+
+			const run = yield* researchRun("shared", input({ reused: [earlier.id] }));
+			const [created] = run.answer;
+
+			expect(run).toMatchObject({
+				id: "run-2026-11-17-how-big-should-a-vault-note-be",
+				created: [created, SOURCE],
+				reused: [earlier.id],
+				stale: [earlier.id],
+				topics: [TOPIC],
+			});
+
+			const out = yield* projected;
+			const note = yield* readText(out, `shared/Runs/${run.id}.md`);
+
+			expect(note).toContain(`## Answer\n![[Note granularity#^${String(created)}]]`);
+			expect(note).toContain(`## Stale\n- [[Note granularity#^${earlier.id}]]`);
+			expect(note).toContain("- https://example.org/paywalled: subscription required");
+			expect(note).not.toContain("Proposition indexing beats");
+			expect(yield* problems(out)).toEqual([]);
 		}));
 });

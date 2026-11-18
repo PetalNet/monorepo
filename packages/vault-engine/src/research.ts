@@ -157,9 +157,9 @@ const upsertTopics = Effect.fnUntraced(function* (tx: Tx, topics: readonly Topic
 });
 
 /**
- * Writes one research run as a tree: topics, claims and passages, rooted at a run that lists what
- * the run created, updated, reused and found stale. Sources must already be in the vault; a claim
- * cannot cite a URL the vault never saved.
+ * Writes one research run as a tree: topics, claims and passages, rooted at a run note that lists
+ * what the run created, updated, reused and found stale. Sources must already be in the vault; a
+ * claim cannot cite a URL the vault never saved.
  */
 export const researchRun = Effect.fnUntraced(function* (tier: Tier, input: ResearchRunInput) {
 	const vault = yield* Vault;

@@ -104,11 +104,11 @@ const commands = [
 				const input = yield* Schema.decodeEffect(Schema.fromJsonString(Schema.Unknown))(text);
 				const result = yield* call("research_run", input as object);
 
-				yield* print((result as { run: unknown }).run);
+				yield* print((result as { note: string }).note);
 			}),
 	).pipe(
 		Command.withDescription(
-			"Write a research run tree from JSON (a file or stdin); prints the run.",
+			"Write a research run tree from JSON (a file or stdin); prints the run note.",
 		),
 	),
 	Command.make("source").pipe(

@@ -6,7 +6,7 @@ import { Clock, Effect, FileSystem, Option, Schema } from "effect";
 import { Vault } from "./engine.ts";
 import type { VaultView } from "./engine.ts";
 import { freshness, tiers } from "./schema.ts";
-import type { Claim, Link, Source, Tier, Topic } from "./schema.ts";
+import type { Claim, Link, Run, Source, Tier, Topic } from "./schema.ts";
 import { ifExists } from "./store.ts";
 
 /** A claim promoted to its own note once claims in this many other topics link to it. */
@@ -171,6 +171,16 @@ function render(view: VaultView, now: Date): Map<string, string> {
 		return placed.note === from ? `[[#^${id}|${id}]]` : `[[${placed.note}#^${id}]]`;
 	};
 
+	const ref = (id: string) => {
+		if (id.startsWith("c-")) {
+			return claimLink(id);
+		}
+
+		const found = sources.get(id);
+
+		return found ? `[[${id}|${alias(found.title)}]]` : `\`${id}\``;
+	};
+
 	const target = (link: Link, from: string) => {
 		if (link.target.startsWith("c-")) {
 			return claimLink(link.target, from);
@@ -318,6 +328,53 @@ function render(view: VaultView, now: Date): Map<string, string> {
 		files.set(`${tier}/Sources/${source.kind}/${source.id}.md`, `${lines.join("\n")}\n`);
 	};
 
+	const runFile = (tier: Tier, run: Run) => {
+		const lines = [
+			"---",
+			"type: run",
+			`tier: ${tier}`,
+			`date: ${day(run.date)}`,
+			`agent: ${yaml(run.agent)}`,
+			"generated: vault-engine",
+			"---",
+			`# Run ${day(run.date)}: ${literal(run.question)}`,
+			"",
+			`**Question:** ${literal(run.question)}`,
+			"",
+			literal(run.summary),
+			"",
+			"## Answer",
+			// Embeds show the claim where it lives; the run note never restates it.
+			...run.answer.map((id) => `!${claimLink(id)}`),
+			"",
+			"## Topics",
+			...run.topics.map((id) => `- [[${topicNote.get(`${tier}/${id}`) ?? id}]]`),
+		];
+
+		for (const [title, ids] of [
+			["Created", run.created],
+			["Updated", run.updated],
+			["Reused", run.reused],
+			["Stale", run.stale],
+		] as const) {
+			lines.push(
+				"",
+				`## ${title}`,
+				...(ids.length === 0 ? ["None."] : ids.map((id) => `- ${ref(id)}`)),
+			);
+		}
+
+		lines.push(
+			"",
+			"## Gaps",
+			...(run.gaps.length === 0
+				? ["None."]
+				: run.gaps.map((gap) => `- ${literal(gap.ref)}: ${literal(gap.reason)}`)),
+		);
+
+		files.set(`${tier}/Runs/${run.id}.md`, `${lines.join("\n")}\n`);
+	};
+
 	for (const tier of tiers) {
 		const state = view.tiers[tier];
 
@@ -327,6 +384,10 @@ function render(view: VaultView, now: Date): Map<string, string> {
 
 		for (const source of Object.values(state.sources)) {
 			sourceFile(tier, source);
+		}
+
+		for (const run of Object.values(state.runs)) {
+			runFile(tier, run);
 		}
 	}
 
@@ -368,10 +429,12 @@ function render(view: VaultView, now: Date): Map<string, string> {
 
 	for (const tier of tiers) {
 		const state = view.tiers[tier];
+		const runs = Object.values(state.runs).toSorted((a, b) => b.date.localeCompare(a.date));
+
 		index.push(
 			"",
 			`## ${tier}`,
-			`${String(Object.keys(state.claims).length)} claims, ${String(Object.keys(state.sources).length)} sources.`,
+			`${String(Object.keys(state.claims).length)} claims, ${String(Object.keys(state.sources).length)} sources, ${String(runs.length)} runs.`,
 			"",
 			"### Topics",
 			...Object.values(state.topics)
@@ -379,6 +442,9 @@ function render(view: VaultView, now: Date): Map<string, string> {
 				.filter((name) => name !== undefined)
 				.toSorted()
 				.map((name) => `- [[${name}]]`),
+			"",
+			"### Runs",
+			...runs.slice(0, 50).map((run) => `- [[${run.id}|${day(run.date)}: ${alias(run.question)}]]`),
 		);
 	}
 
@@ -388,6 +454,13 @@ function render(view: VaultView, now: Date): Map<string, string> {
 }
 
 const now = Effect.map(Clock.currentTimeMillis, (millis) => new Date(millis));
+
+/** One projected note, rendered without touching disk: for example a run note for an agent. */
+export const renderNote = Effect.fnUntraced(function* (relative: string) {
+	const view = yield* (yield* Vault).view;
+
+	return render(view, yield* now).get(relative) ?? "";
+});
 
 export interface ProjectResult {
 	readonly notes: number;
