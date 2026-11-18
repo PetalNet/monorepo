@@ -103,8 +103,8 @@ export const lintConfig = {
 		"unicorn/consistent-function-scoping": "off",
 		// Categories must not opt into Effect rules outside its recommended preset.
 		"effecttsgo/any-unknown-in-error-context": "off",
-		"effecttsgo/effect-try-without-catch": "off",
-		"effecttsgo/missing-concurrency-option": "off",
+		"effecttsgo/effect-try-without-catch": "error",
+		"effecttsgo/missing-concurrency-option": "error",
 		"effecttsgo/prefer-schema-tagged-error": "off",
 		"effecttsgo/strict-effect-provide": "off",
 		"effecttsgo/yield-in-call-argument": "off",

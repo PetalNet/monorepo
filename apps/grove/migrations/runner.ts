@@ -4,7 +4,16 @@ import { pathToFileURL } from "node:url";
 import * as PgClient from "@effect/sql-pg/PgClient";
 import { Data, Effect, Redacted } from "effect";
 
-class MigrationError extends Data.TaggedError("MigrationError")<{ readonly message: string }> {}
+class MigrationError extends Data.TaggedError("MigrationError")<{
+	readonly message: string;
+	readonly cause?: unknown;
+}> {}
+
+const migrationFailure = (action: string) => (cause: unknown) =>
+	new MigrationError({
+		message: `${action}: ${cause instanceof Error ? cause.message : "unknown failure"}`,
+		cause,
+	});
 
 export interface MigrationFile {
 	readonly name: string;
@@ -14,28 +23,34 @@ export interface MigrationFile {
 }
 
 export const readMigrationFilesEffect = (directory: string) =>
-	Effect.tryPromise(async () => {
-		const names = (await readdir(directory))
-			.filter((name) => /^\d+_.+\.sql$/.test(name))
-			.toSorted();
+	Effect.tryPromise({
+		try: async () => {
+			const names = (await readdir(directory))
+				.filter((name) => /^\d+_.+\.sql$/.test(name))
+				.toSorted();
 
-		return Promise.all(
-			names.map(async (name): Promise<MigrationFile> => {
-				const contents = (await readFile(`${directory}/${name}`, "utf8")).replaceAll("\r\n", "\n");
-				const sections = contents
-					.replace(/^-- effect-db:up\s*\n/, "")
-					.split(/^-- effect-db:down\s*$/m);
-				const down = sections.at(1)?.trim();
-				const digest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(contents));
+			return Promise.all(
+				names.map(async (name): Promise<MigrationFile> => {
+					const contents = (await readFile(`${directory}/${name}`, "utf8")).replaceAll(
+						"\r\n",
+						"\n",
+					);
+					const sections = contents
+						.replace(/^-- effect-db:up\s*\n/, "")
+						.split(/^-- effect-db:down\s*$/m);
+					const down = sections.at(1)?.trim();
+					const digest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(contents));
 
-				return {
-					name,
-					sql: sections[0].trim(),
-					...(down ? { downSql: down } : {}),
-					checksum: `sha256:${new Uint8Array(digest).toHex()}`,
-				};
-			}),
-		);
+					return {
+						name,
+						sql: sections[0].trim(),
+						...(down ? { downSql: down } : {}),
+						checksum: `sha256:${new Uint8Array(digest).toHex()}`,
+					};
+				}),
+			);
+		},
+		catch: migrationFailure("Failed to read migration files"),
 	});
 
 // Split only at top-level semicolons: reviewed SQL contains DO/functions, quoted
@@ -131,7 +146,10 @@ const statements = (source: string) => {
 const executeScript = (source: string) =>
 	Effect.gen(function* () {
 		const sql = yield* PgClient.PgClient;
-		const parts = yield* Effect.try(() => statements(source));
+		const parts = yield* Effect.try({
+			try: () => statements(source),
+			catch: migrationFailure("Invalid migration SQL"),
+		});
 
 		for (const part of parts) {
 			yield* sql.unsafe(part);
