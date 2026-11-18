@@ -1,13 +1,15 @@
 #!/usr/bin/env node
 // oxlint-disable effecttsgo/unstable-api-usage -- Effect 4 exposes the CLI through unstable APIs.
+import { createServer } from "node:http";
 import os from "node:os";
 import path from "node:path";
 
-import { NodeRuntime, NodeServices } from "@effect/platform-node";
+import { NodeHttpServer, NodeRuntime, NodeServices } from "@effect/platform-node";
 import { Config, Console, Effect, FileSystem, Layer, Option, Schema } from "effect";
 import { Argument, Command, Flag } from "effect/cli";
+import { HttpRouter } from "effect/http";
 
-import { operations, refresh } from "./api.ts";
+import { operations, refresh, vaultApi } from "./api.ts";
 import { Vault } from "./engine.ts";
 import { CaptureFailed, SecretFound, WriteRejected } from "./errors.ts";
 import { ManifestEntry, migrate } from "./migrate.ts";
@@ -247,6 +249,25 @@ const commands = [
 			yield* print(Object.fromEntries(counts));
 		}),
 	).pipe(Command.withDescription("Claims, sources, topics, runs and changes per tier.")),
+	Command.make(
+		"serve",
+		{
+			host: Flag.String("host").pipe(Flag.withDefault("127.0.0.1")),
+			port: Flag.Int("port").pipe(Flag.withDefault(7411)),
+		},
+		({ host, port }) =>
+			Effect.gen(function* () {
+				const services = yield* Effect.context<Vault | Cite>();
+
+				yield* Console.error(`vault: MCP at http://${host}:${String(port)}/mcp`);
+
+				return yield* Layer.launch(
+					HttpRouter.serve(Layer.merge(vaultApi, Layer.succeedContext(services))).pipe(
+						Layer.provide(NodeHttpServer.layer(createServer, { host, port })),
+					),
+				);
+			}),
+	).pipe(Command.withDescription("Serve the agent operations over MCP (Streamable HTTP at /mcp).")),
 ];
 
 /**

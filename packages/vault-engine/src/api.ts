@@ -1,4 +1,4 @@
-import { operation, operationError } from "@petalnet/effect-api";
+import { createEffectApi, operation, operationError } from "@petalnet/effect-api";
 import { Effect, Schema } from "effect";
 import { PlatformError } from "effect/PlatformError";
 
@@ -209,3 +209,12 @@ export const operations = [
 		errors,
 	}),
 ];
+
+/** The operations over MCP (Streamable HTTP at `/mcp`), on whatever HTTP server hosts the layer. */
+export const vaultApi = createEffectApi({
+	title: "Vault",
+	version: "0.0.0",
+	basePath: "/api",
+	operations: [],
+	mcpOperations: operations,
+});
