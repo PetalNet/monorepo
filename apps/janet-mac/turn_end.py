@@ -4,9 +4,13 @@
 Silero VAD says, 31 times a second, whether the latest audio is speech. The turn ends when no
 speech has been heard for a while. There is no limit on how long the speaker may talk.
 
+With turn_judge.py and its speech model installed, a pause is also judged the way a listener
+would: after a second of silence the turn ends at once when the speaker sounds done, and after
+an "um" the wait is much longer. Without them every pause waits the full `quiet_s`.
+
 As a program it reads mono float32 audio on standard input, prints why it stopped, and exits:
-`quiet` (the speaker stopped), `nothing said`, `key` (the stop file appeared), `limit` or
-`stream ended`.
+`done` (judged finished), `quiet` (the speaker stopped), `nothing said`, `key` (the stop file
+appeared), `limit` or `stream ended`.
 """
 
 from __future__ import annotations
@@ -60,6 +64,10 @@ class Policy:
     # two, so anything shorter cuts them off.
     quiet_s: float = 3.0
     nothing_said_s: float = 6.0
+    # With a judge: the silences at which it is asked whether the speaker is done, and the
+    # silence that ends a turn after a filled pause ("um"), which promises more.
+    judge_at_s: tuple[float, ...] = (1.0, 1.5, 2.0, 2.5)
+    hold_s: float = 6.0
 
 
 class To16k:
@@ -103,9 +111,13 @@ def frames(stream, rate: int):
 class TurnEnd:
     """Fed one frame at a time; says why the turn ended, once it has."""
 
-    def __init__(self, vad: Silero, policy: Policy = Policy()):
+    def __init__(self, vad: Silero, policy: Policy = Policy(), hearing=None):
         self._vad = vad
         self._policy = policy
+        self._hearing = hearing  # a turn_judge.Hearing, or None to go by silence alone
+        self._judge_at = {round(s / FRAME_S) for s in policy.judge_at_s}
+        self._silent = 0
+        self._hold = False
         self._heard_s = 0.0
         self._speech_run_s = 0.0
         self._started = False
@@ -114,17 +126,42 @@ class TurnEnd:
     def feed(self, frame: np.ndarray) -> str | None:
         policy = self._policy
         self._heard_s += FRAME_S
-        self._speech_run_s = self._speech_run_s + FRAME_S if self._vad(frame) >= policy.speech else 0.0
+        said = self._vad(frame) >= policy.speech
+        self._speech_run_s = self._speech_run_s + FRAME_S if said else 0.0
+        if self._hearing:
+            self._hearing.hear(frame, said)
         # Once a turn has started, one frame of speech is enough to keep it open. Asking for more
         # cut speakers off more often on recorded turns, and no recording was held open by noise.
         if self._speech_run_s >= (FRAME_S if self._started else policy.start_s):
             self._started = True
             self._silence_s = 0.0
+            self._silent = 0
+            self._hold = False
             return None
         if not self._started:
             return "nothing said" if self._heard_s >= policy.nothing_said_s else None
         self._silence_s += FRAME_S
-        return "quiet" if self._silence_s >= policy.quiet_s else None
+        self._silent += 1
+        if self._hearing and self._silent in self._judge_at:
+            verdict = self._hearing.verdict(self._silent)
+            self._hold = self._hold or verdict == "hold"
+            if verdict == "done" and not self._hold:
+                return "done"
+        return "quiet" if self._silence_s >= (policy.hold_s if self._hold else policy.quiet_s) else None
+
+
+def hearing(models: Path):
+    """The judge, when turn_judge.py, its fitted model and its speech model are all installed."""
+    fitted = Path(__file__).with_name("turn_judge.json")
+    needed = [fitted, models / "parakeet_realtime_eou_120m.int8.onnx", models / "parakeet_vocab.txt"]
+    try:
+        from turn_judge import Hearing
+
+        if all(path.exists() for path in needed):
+            return Hearing(models, fitted)
+    except Exception as error:  # the judge is an extra: without it the turn ends on silence, as before
+        print(f"no turn judge: {error}", file=sys.stderr)
+    return None
 
 
 def main() -> None:
@@ -137,7 +174,7 @@ def main() -> None:
     args = parser.parse_args()
 
     start = time.monotonic()  # before the model loads: the limit is on the whole listen
-    turn_end = TurnEnd(Silero(args.models / "silero_vad.onnx"), Policy(nothing_said_s=args.nothing_said_s))
+    turn_end = TurnEnd(Silero(args.models / "silero_vad.onnx"), Policy(nothing_said_s=args.nothing_said_s), hearing(args.models))
     heard_s = 0.0
     once = threading.Lock()
 
