@@ -232,6 +232,15 @@ def sync_docs(db, directory, source, max_bytes=100000, skip=r'(^|/)(result|.*\.l
     return changed
 
 
+def drop_source(db, source):
+    """Remove every document of a source; returns how many went."""
+    ids = [id for (id,) in db.execute('SELECT id FROM doc WHERE source=?', (source,)).fetchall()]
+    for id in ids:
+        drop(db, id)
+    db.commit()
+    return len(ids)
+
+
 def sync_vault(db, path, source='vault'):
     """Mirror the active claims of a vault replica (a SQLite file the vault engine replaces atomically), one document
     per claim. The replica is opened read-only per sync, so a replaced file is picked up and a missing one is not
@@ -248,9 +257,11 @@ def sync_vault(db, path, source='vault'):
     seen, changed = set(), 0
     for cid, title, heading, text, source_type, freshness, sources, updated in rows:
         try:
-            first = (json.loads(sources or '[]') or [{}])[0]
+            links = json.loads(sources or '[]')
         except ValueError:
-            first = {}
+            links = []
+        # what backs the claim, as vault-engine counts it: a source or supports link, never contradicts or replaces
+        first = next((l for l in links if isinstance(l, dict) and l.get('rel') in ('source', 'supports')), {})
         id = f'{source}:{cid}'
         seen.add(id)
         meta = dict(claim=cid, title=title, heading=heading, text=text, source_type=source_type, freshness=freshness,

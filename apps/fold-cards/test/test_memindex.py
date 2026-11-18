@@ -131,6 +131,15 @@ class Vault(unittest.TestCase):
     def claims(self):
         return {r[0]: json.loads(r[1]) for r in self.db.execute("SELECT id, meta FROM doc WHERE source='vault'")}
 
+    def test_the_backing_source_is_a_source_or_supports_link(self):
+        link = lambda id, rel: {'id': id, 'title': id.upper(), 'rel': rel, 'captured': '2026-11-02T10:00:00Z', 'freshness': 'fresh'}
+        replica(self.rep, [claim('c-1', 'The shed padlock is a 4-digit Abus.', sources=[link('s-old', 'replaces'), link('s-no', 'contradicts'), link('s-yes', 'supports')]),
+                           claim('c-2', 'The shed gets a shelf.', sources=[link('s-no', 'contradicts')])])
+        memindex.sync_vault(self.db, self.rep)
+        got = self.claims()
+        self.assertEqual((got['vault:c-1']['source_id'], got['vault:c-1']['source_title']), ('s-yes', 'S-YES'))
+        self.assertEqual((got['vault:c-2']['source_id'], got['vault:c-2']['source_title']), ('', ''))
+
     def test_sync_mirrors_active_claims_across_a_replaced_replica(self):
         replica(self.rep, [claim('c-1', 'The shed padlock is a 4-digit Abus.'), claim('c-2', 'The shed key is under the pot.'),
                            claim('c-3', 'The shed has no lock.', status='superseded')])

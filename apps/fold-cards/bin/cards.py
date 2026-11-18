@@ -202,9 +202,11 @@ def build(a):
         notes[src] = memindex.sync_notes(db, os.path.expanduser(d), src)
     for src, d in doc_dirs(a.db).items():
         notes[src] = memindex.sync_docs(db, os.path.expanduser(d), src)
-    vault = config(a.db).get('index', {}).get('vault')
-    if vault:
-        notes['vault'] = memindex.sync_vault(db, vault)
+    # Vault rows count in every source's BM25 rarity, so they are indexed only while recall searches the vault.
+    if 'vault' in recall_sources(a.db):
+        notes['vault'] = memindex.sync_vault(db, config(a.db)['index']['vault'])
+    elif dropped := memindex.drop_source(db, 'vault'):
+        notes['vault'] = -dropped
     print(json.dumps({'transcript': transcript, 'added': len(added), 'offset': resume, 'notes': notes}))
     return 0
 
@@ -261,7 +263,7 @@ def query(a):
         if c['source'] == 'vault':
             h.update(card=claim_card(m))
         elif c['source'] != 'fold':
-            name =os.path.basename(m.get('path') or c['pointer']).removesuffix('.md')
+            name = os.path.basename(m.get('path') or c['pointer']).removesuffix('.md')
             text = re.sub(r'^---\n[\s\S]*?\n---\n', '', c['body']).strip()
             if m.get('title'):  # a document chunk: its title and section, then the chunk
                 h.update(name=m['title'] + (' / ' + m['heading'] if m.get('heading') else ''), description=re.sub(r'^(#+ .*\n+)+', '', text)[:400])

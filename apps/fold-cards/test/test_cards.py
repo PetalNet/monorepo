@@ -127,16 +127,29 @@ class Cards(unittest.TestCase):
         self.flag(on)
         return json.loads(run('build', '--db', self.db, '--session', S, '--transcript', self.t))
 
-    def test_vault_claims_are_searched_and_attached_only_with_the_flag_on(self):
-        out = self.vault(False, [claim('c-1', 'The shed padlock is a 4-digit Abus.')])
-        self.assertEqual(out['notes'], {'vault': 1}, 'index.vault alone still indexes the claims')
+    def vault_rows(self):
+        db = memindex.connect(self.db)
+        try:
+            return db.execute("SELECT count(*) FROM doc WHERE source='vault'").fetchone()[0]
+        finally:
+            db.close()
+
+    def test_vault_claims_are_indexed_searched_and_attached_only_with_the_flag_on(self):
+        claims = [claim('c-1', 'The shed padlock is a 4-digit Abus.')]
+        out = self.vault(False, claims)
+        self.assertEqual((out['notes'], self.vault_rows()), ({}, 0), 'with the flag off no claim is indexed, so none shifts BM25 rarity')
+        self.assertEqual(self.vault(True, claims)['notes'], {'vault': 1})
         emb = self.embed(('vault:c-1', 0.95))
+        self.flag(False)
         for args in ((), ('--sources', 'fold,vault')):
             self.assertEqual(self.query('which padlock is on the shed?', *args), [])
             self.assertNotIn('vault', emb.requests[-1]['sources'], 'with the flag off the vault is not searched at all')
         self.flag(True)
         self.assertEqual([h['pointer'] for h in self.query('which padlock is on the shed?')], ['vault:c-1'])
         self.assertIn('vault', emb.requests[-1]['sources'])
+        out = self.vault(False, claims)
+        self.assertLess(out['notes']['vault'], 0, 'the build reports what it removed')
+        self.assertEqual(self.vault_rows(), 0, 'turning the flag off removes the claims')
 
     def test_a_claim_card_carries_its_source_and_freshness(self):
         self.vault(True, [claim('c-1', 'The shed padlock is a 4-digit Abus.', freshness='stale'),

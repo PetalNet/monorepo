@@ -39,7 +39,7 @@ A second fixture grades what the gate attached, not what the ranker found: 543 r
 [claim c-7f3k2abc] Note granularity > Retrieval unit: <text> (PRIMARY; source: Dense X Retrieval, captured 2026-11-17, fresh)
 ```
 
-The vault has no graded labels yet, so it borrows the memory model behind a stricter threshold (p >= 0.6) and a cap of one claim per prompt. That choice is unfitted. `test/eval_recall.py --vault --vault-grades FILE` lists every claim that attaches on the 59 prompts so it can be graded, and the model is refit from those grades.
+The vault has no graded labels yet, so it borrows the memory model behind a stricter threshold (p >= 0.6) and a cap of one claim per prompt. That choice is unfitted. `test/eval_recall.py --fixture FIXTURE --vault --vault-grades FILE` lists every claim that attaches on the 59 prompts so it can be graded, and the model is refit from those grades.
 
 The graded fixture and the vault grades are real conversation, so they are kept private, beside the deployment's config, and not in this repository.
 
