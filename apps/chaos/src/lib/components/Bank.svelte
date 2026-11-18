@@ -150,12 +150,13 @@
 			checkedAt={safety.checkedAt}
 		>
 			{#snippet method()}
-				This counts first alerts, not updates, for 911 telephone outages, civil danger and civil
-				emergency messages, evacuations, hazardous materials, law enforcement, local area
-				emergencies, nuclear plant and radiological warnings and shelter in place orders, as US
-				authorities broadcast them through the National Weather Service. The service keeps seven
-				days, so the baseline is our own record, and the needle appears once it holds 13 weeks.
-				Hospital hacks have no primary feed here and are not counted.
+				With alerts this rare, a single one can read as a heavy week. This counts first alerts, not
+				updates, for 911 telephone outages, civil danger and civil emergency messages, evacuations,
+				hazardous materials, law enforcement, local area emergencies, nuclear plant and radiological
+				warnings and shelter in place orders, as US authorities broadcast them through the National
+				Weather Service. The service keeps seven days, so the baseline is our own record, and the
+				needle appears once it holds 13 weeks. Hospital hacks have no primary feed here and are not
+				counted.
 			{/snippet}
 			{#if safety.recent.length > 0}
 				<div class="list">

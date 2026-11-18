@@ -173,22 +173,57 @@ describe("public safety", () => {
 
 	it("keeps alerts past the service's seven days and reads once 13 weeks are held", async () => {
 		const store = openStore(":memory:");
+		const weeks = (count: number) => new Date(NOW.getTime() + count * 7 * 86_400_000);
 
 		await ingestAlerts(store, feed([feature("a", "2026-11-17T16:00:00Z")]), NOW);
 
-		const later = new Date("2027-02-10T17:00:00Z");
-
-		// The same alert again changes nothing, and the start of the record does not move.
-		await ingestAlerts(
-			store,
-			feed([feature("a", "2026-11-17T16:00:00Z"), feature("b", "2027-02-09T16:00:00Z")]),
-			later,
+		// A pull every few days for 12 weeks: no alert is ever out of the service's reach.
+		await Array.from({ length: 23 }, (_, index) => (index + 1) / 2).reduce(
+			(before, week) => before.then(() => ingestAlerts(store, feed([]), weeks(week))),
+			Promise.resolve(0),
 		);
 
-		const reading = publicSafety(store, "2027-02-10", later, doorDate);
+		// The same alert again changes nothing, and the start of the record does not move.
+		await ingestAlerts(store, feed([feature("b", "2027-02-09T16:00:00Z")]), weeks(12));
+
+		const reading = publicSafety(store, "2027-02-10", weeks(12), doorDate);
 
 		expect(reading.gauge).toMatchObject({ kind: "reading", value: 1, quieter: 11 });
 		expect(reading.recent.map((alert) => alert.id)).toEqual(["b"]);
+	});
+
+	it("starts its record over after a gap longer than the service keeps alerts", async () => {
+		const store = openStore(":memory:");
+		const days = (count: number) => new Date(NOW.getTime() + count * 86_400_000);
+
+		await ingestAlerts(store, feed([]), NOW);
+		await ingestAlerts(store, feed([]), days(6));
+		expect(publicSafety(store, "2026-11-24", days(6), doorDate).gauge).toMatchObject({ have: 14 });
+
+		// Fifteen days with no pull: whatever was sent in the first eight of them is lost.
+		await ingestAlerts(store, feed([]), days(21));
+
+		expect(publicSafety(store, "2026-12-09", days(21), doorDate).gauge).toMatchObject({
+			kind: "short",
+			have: 8,
+		});
+	});
+
+	it("leaves out an alert it cannot read and keeps the rest", async () => {
+		const store = openStore(":memory:");
+
+		expect(
+			await ingestAlerts(
+				store,
+				feed([
+					feature("a", "not a time"),
+					feature("b", "2026-11-17T16:00:00Z", { areaDesc: undefined }),
+				]),
+				NOW,
+			),
+		).toBe(1);
+
+		expect(publicSafety(store, TODAY, NOW, doorDate).recent).toMatchObject([{ id: "b", area: "" }]);
 	});
 
 	it("has no reading once the feed has not been read for three hours", async () => {
@@ -281,19 +316,19 @@ describe("the chaos-o-meter", () => {
 		const feed = counted((day) => (day === "2026-11-17" ? 5 : 2), asked);
 
 		expect(chaos(store, NOW).gauge).toEqual({ of: 28, kind: "stale" });
-		expect(await ingestNews(store, feed, NOW, noPause)).toBe(30);
+		expect(await ingestNews(store, feed, NOW, noPause)).toBe(31);
 
 		const reading = chaos(store, NOW);
 
-		// Three words, five headlines each, on the last full day: louder than all 28 days before.
+		// Five headlines on the last full day against two on each of the 28 days before. The same
+		// story turns up under all three words and counts once.
 		expect(reading).toMatchObject({
 			day: "2026-11-17",
 			capped: false,
-			today: { day: TODAY, articles: 6, final: false },
-			gauge: { kind: "reading", value: 15, quieter: 28, level: "heavy", median: 6 },
+			today: { day: TODAY, articles: 2, final: false },
+			gauge: { kind: "reading", value: 5, quieter: 28, level: "heavy", median: 2 },
 		});
 
-		// The same story found under two words is one headline.
 		expect(reading.headlines.map((headline) => headline.title)).toEqual([
 			"2026-11-18 story 0",
 			"2026-11-18 story 1",
@@ -305,36 +340,43 @@ describe("the chaos-o-meter", () => {
 		expect(new Set(asked)).toEqual(new Set([TODAY]));
 	});
 
-	it("counts yesterday again once it has ended, and marks a count at the feed's limit", async () => {
+	it("keeps reading the last settled day across midnight, then moves on three hours later", async () => {
 		const store = openStore(":memory:");
+		const feed = counted((day) => (day === TODAY ? 100 : 2));
 
-		await ingestNews(
-			store,
-			counted(() => 2),
-			NOW,
-			noPause,
-		);
+		await ingestNews(store, feed, NOW, noPause);
+
+		// Half past midnight US Pacific on November 19: yesterday has ended but has not settled.
+		const justAfter = new Date("2026-11-19T08:30:00Z");
+
+		await ingestNews(store, feed, justAfter, noPause);
+
+		expect(chaos(store, justAfter)).toMatchObject({
+			day: "2026-11-17",
+			gauge: { kind: "reading", value: 2 },
+		});
 
 		const asked: string[] = [];
-		const nextDay = new Date("2026-11-19T17:00:00Z");
+		const settled = new Date("2026-11-19T12:00:00Z");
 
 		await ingestNews(
 			store,
 			counted((day) => (day === TODAY ? 100 : 2), asked),
-			nextDay,
+			settled,
 			noPause,
 		);
 
 		expect(new Set(asked)).toEqual(new Set([TODAY, "2026-11-19"]));
 
-		expect(chaos(store, nextDay)).toMatchObject({
+		// 100 results is the feed's limit, so the count is marked as "or more".
+		expect(chaos(store, settled)).toMatchObject({
 			day: TODAY,
 			capped: true,
-			gauge: { kind: "reading", value: 300 },
+			gauge: { kind: "reading", value: 100, quieter: 28 },
 		});
 	});
 
-	it("picks up where a failed first round stopped, and says the history is short meanwhile", async () => {
+	it("shows no reading after a round that failed part way, then picks up where it stopped", async () => {
 		const store = openStore(":memory:");
 		let calls = 0;
 		const flaky: typeof fetch = (input, init) => {
@@ -346,14 +388,8 @@ describe("the chaos-o-meter", () => {
 		};
 
 		await expect(ingestNews(store, flaky, NOW, noPause)).rejects.toThrow("429");
-
-		expect(chaos(store, NOW).gauge).toEqual({
-			of: 28,
-			kind: "short",
-			have: 10,
-			need: 29,
-			value: 6,
-		});
+		// Ten days were counted, but only a whole round counts as a check.
+		expect(chaos(store, NOW).gauge).toEqual({ of: 28, kind: "stale" });
 
 		const asked: string[] = [];
 
@@ -364,8 +400,27 @@ describe("the chaos-o-meter", () => {
 			noPause,
 		);
 
-		expect(new Set(asked).size).toBe(20);
+		expect(new Set(asked).size).toBe(21);
 		expect(chaos(store, hours(1)).gauge.kind).toBe("reading");
+	});
+
+	it("leaves out an item it cannot read, and reads CDATA and numbered entities", async () => {
+		const store = openStore(":memory:");
+		const odd = [
+			"<item><title>No link or date - Wire</title></item>",
+			'<item><title><![CDATA[Company&#8217;s breach &#x26; fallout - Wire]]></title><link>https://news.google.com/rss/articles/odd</link><pubDate>Wed, 18 Nov 2026 16:00:00 GMT</pubDate><source url="https://example.com">Wire</source></item>',
+		];
+		const feed: typeof fetch = (input) =>
+			Promise.resolve(
+				new Response(rss(decodeURIComponent(address(input)).includes(`after:${TODAY}`) ? odd : [])),
+			);
+
+		await ingestNews(store, feed, NOW, noPause);
+
+		expect(chaos(store, NOW)).toMatchObject({
+			today: { articles: 1 },
+			headlines: [{ title: "Company\u2019s breach & fallout", outlet: "Wire" }],
+		});
 	});
 
 	it("has no reading once the count is five hours old", async () => {

@@ -45,23 +45,35 @@ const ENTITIES = new Map([
 	["gt", ">"],
 	["quot", '"'],
 	["apos", "'"],
-	["#39", "'"],
 ]);
 
 function unescape(xml: string): string {
 	return xml.replaceAll(
-		/&(amp|lt|gt|quot|apos|#39);/g,
-		(_, name: string) => ENTITIES.get(name) ?? "",
+		/&(?:#(\d{1,7})|#x([\da-f]{1,6})|(amp|lt|gt|quot|apos));/gi,
+		(whole, decimal, hex, name) => {
+			if (typeof name === "string") {
+				return ENTITIES.get(name.toLowerCase()) ?? whole;
+			}
+
+			const code = typeof decimal === "string" ? Number(decimal) : Number.parseInt(String(hex), 16);
+
+			return code > 0 && code <= 0x10_ff_ff ? String.fromCodePoint(code) : whole;
+		},
 	);
 }
 
 function tag(item: string, name: string): string | undefined {
-	const value = new RegExp(`<${name}[^>]*>([^<]*)</${name}>`).exec(item)?.[1];
+	const value = new RegExp(`<${name}[^>]*>(?:<!\\[CDATA\\[)?([^<\\]]*)(?:\\]\\]>)?</${name}>`).exec(
+		item,
+	)?.[1];
 
 	return value === undefined ? undefined : unescape(value).trim();
 }
 
-/** Reads one search feed. A body that is not an RSS channel is rejected, never counted as zero. */
+/**
+ * Reads one search feed. A body that is not an RSS channel is rejected, never counted as zero. An
+ * item the reader cannot make sense of is left out, so one odd item does not lose the day's count.
+ */
 function parseNews(xml: string): Headline[] {
 	if (!/<channel[\s>]/.test(xml)) {
 		throw new TypeError("news feed: not an RSS channel");
@@ -70,24 +82,26 @@ function parseNews(xml: string): Headline[] {
 	return xml
 		.split("<item>")
 		.slice(1)
-		.map((item) => {
+		.flatMap((item) => {
 			const outlet = tag(item, "source") ?? "";
 			const title = tag(item, "title") ?? "";
 			const published = new Date(tag(item, "pubDate") ?? "");
 			const url = tag(item, "link") ?? "";
 
 			if (title === "" || !url.startsWith("https://") || Number.isNaN(published.getTime())) {
-				throw new TypeError("news feed: bad item");
+				return [];
 			}
 
-			return {
-				// Google appends " - Outlet" to every title.
-				title:
-					outlet && title.endsWith(` - ${outlet}`) ? title.slice(0, -outlet.length - 3) : title,
-				outlet,
-				url,
-				published: published.toISOString(),
-			};
+			return [
+				{
+					// Google appends " - Outlet" to every title.
+					title:
+						outlet && title.endsWith(` - ${outlet}`) ? title.slice(0, -outlet.length - 3) : title,
+					outlet,
+					url,
+					published: published.toISOString(),
+				},
+			];
 		});
 }
 
@@ -102,11 +116,14 @@ async function inTurn<T>(items: readonly T[], work: (item: T) => Promise<void>):
 	await items.reduce((before, item) => before.then(() => work(item)), Promise.resolve());
 }
 
+/**
+ * Counts one day: the distinct headlines found under any of the words. A story found under two
+ * words is one headline.
+ */
 async function countDay(
 	day: string,
 	fetcher: typeof fetch,
 ): Promise<{ articles: number; capped: boolean; headlines: Headline[] }> {
-	let articles = 0;
 	let capped = false;
 	const headlines = new Map<string, Headline>();
 
@@ -124,21 +141,26 @@ async function countDay(
 
 		const found = parseNews(await response.text());
 
-		articles += found.length;
 		capped ||= found.length >= NEWS_CAP;
 
 		for (const headline of found) {
-			headlines.set(headline.title, headline);
+			headlines.set(headline.url, headline);
 		}
 	});
 
-	return { articles, capped, headlines: [...headlines.values()] };
+	return { articles: headlines.size, capped, headlines: [...headlines.values()] };
 }
 
 /**
- * One round: count today so far, and count again any of the last 28 days that has no final count.
- * The first round therefore fills the whole baseline from the feed's own dated results. Returns the
- * days it counted.
+ * A day's count is final once it was taken this long after the day ended, when indexing has
+ * settled.
+ */
+const SETTLE = 3 * 60 * 60 * 1000;
+
+/**
+ * One round: count today so far, and count any earlier day that has no final count yet. The first
+ * round therefore fills the whole baseline from the feed's own dated results. Rounds are two hours
+ * apart unless a day has never been counted. Returns the number of days counted.
  */
 export async function ingestNews(
 	store: Store,
@@ -147,29 +169,34 @@ export async function ingestNews(
 	pause: (ms: number) => Promise<void> = sleep,
 ): Promise<number> {
 	const today = newsDay(now);
+	const settled = newsDay(new Date(now.getTime() - SETTLE));
 	const checked = store.source(NEWS_SOURCE)?.checkedAt;
 	const known = new Map(
-		store.newsDays(addDays(today, -NEWS_DAYS - 1)).map((day) => [day.day, day]),
+		store.newsDays(addDays(today, -NEWS_DAYS - 2)).map((day) => [day.day, day]),
 	);
-	const open = Array.from({ length: NEWS_DAYS + 1 }, (_, back) => addDays(today, -back - 1)).filter(
-		(day) => !known.get(day)?.final,
-	);
+	const earlier = Array.from({ length: NEWS_DAYS + 2 }, (_, back) => addDays(today, -back - 1));
+	const open = earlier.filter((day) => !known.get(day)?.final);
 
-	if (open.length === 0 && checked && now.getTime() - Date.parse(checked) < EVERY) {
+	if (
+		open.every((day) => known.has(day)) &&
+		checked &&
+		now.getTime() - Date.parse(checked) < EVERY
+	) {
 		return 0;
 	}
 
 	await inTurn(open, async (day) => {
 		const { articles, capped } = await countDay(day, fetcher);
 
-		store.saveNewsDay({ day, articles, capped, final: true }, now);
+		store.saveNewsDay({ day, articles, capped, final: day < settled });
 		await pause(PAUSE);
 	});
 
 	const { articles, capped, headlines } = await countDay(today, fetcher);
 
-	store.saveNewsDay({ day: today, articles, capped, final: false }, now);
+	store.saveNewsDay({ day: today, articles, capped, final: false });
 
+	// Only a whole round counts as a check, so a round that failed part way never looks fresh.
 	store.saveHeadlines(
 		headlines.toSorted((a, b) => b.published.localeCompare(a.published)).slice(0, 6),
 		now,
@@ -200,7 +227,7 @@ export interface Chaos {
 export function chaos(store: Store, now: Date): Chaos {
 	const today = newsDay(now);
 	const checkedAt = store.source(NEWS_SOURCE)?.checkedAt;
-	const days = store.newsDays(addDays(today, -NEWS_DAYS - 1));
+	const days = store.newsDays(addDays(today, -NEWS_DAYS - 2));
 	const base = {
 		today: days.find((day) => day.day === today),
 		headlines: store.headlines(),
@@ -218,10 +245,11 @@ export function chaos(store: Store, now: Date): Chaos {
 	}
 
 	const full = new Map(days.filter((day) => day.final).map((day) => [day.day, day]));
-	const wanted = Array.from({ length: NEWS_DAYS + 1 }, (_, index) =>
-		addDays(today, index - NEWS_DAYS - 1),
-	);
-	const last = full.get(addDays(today, -1));
+	// Yesterday's count settles a few hours into today. Until then the dial reads the day before.
+	const last = full.get(addDays(today, -1)) ?? full.get(addDays(today, -2));
+	const wanted = last
+		? Array.from({ length: NEWS_DAYS + 1 }, (_, index) => addDays(last.day, index - NEWS_DAYS))
+		: [];
 	const have = wanted.filter((day) => full.has(day)).length;
 
 	if (!last || have < wanted.length) {
@@ -230,8 +258,8 @@ export function chaos(store: Store, now: Date): Chaos {
 			gauge: {
 				of: NEWS_DAYS,
 				kind: "short",
-				have,
-				need: wanted.length,
+				have: last ? have : full.size,
+				need: NEWS_DAYS + 1,
 				value: last?.articles ?? 0,
 			},
 			day: last?.day,

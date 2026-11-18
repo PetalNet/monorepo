@@ -29,14 +29,17 @@ export interface Store {
 	saveAdvisories: (advisories: readonly Advisory[], etag: string | null, now: Date) => void;
 	advisoryCounts: (from: string, to: string) => Map<string, number>;
 	earliestAdvisory: () => string | undefined;
-	/** Adds alerts to the record. `since` is how far back this pull reached; the first one is kept. */
-	saveAlerts: (alerts: readonly Alert[], since: Date, now: Date) => void;
+	/**
+	 * Adds alerts to the record. `since` is how far back this pull reached. The record's start is the
+	 * first pull's reach, and moves to this pull's reach when `restart` says alerts were missed.
+	 */
+	saveAlerts: (alerts: readonly Alert[], since: Date, now: Date, restart: boolean) => void;
 	/** Alerts sent at or after `from`, newest first. */
 	alertsSince: (from: Date) => Alert[];
-	saveNewsDay: (day: NewsDay, now: Date) => void;
+	saveNewsDay: (day: NewsDay) => void;
 	/** Counted days from `from` on, oldest first. */
 	newsDays: (from: string) => NewsDay[];
-	/** Replaces the headlines on show. */
+	/** Replaces the headlines on show and records a finished round of news counting. */
 	saveHeadlines: (headlines: readonly Headline[], now: Date) => void;
 	headlines: () => Headline[];
 	saveClaim: (service: string, claim: Claim, now: Date) => void;
@@ -146,6 +149,7 @@ export function openStore(file: string): Store {
 		ON CONFLICT (id) DO UPDATE SET
 			etag = coalesce(excluded.etag, source.etag), checked_at = excluded.checked_at,
 			since = coalesce(source.since, excluded.since)`);
+	const restartSource = db.prepare("UPDATE source SET since = ? WHERE id = ?");
 	const addAdvisory = db.prepare("INSERT INTO ics_advisory (id, published) VALUES (?, ?)");
 	const advisoriesByDay = db.prepare(`
 		SELECT published AS day, count(*) AS added FROM ics_advisory
@@ -231,8 +235,12 @@ export function openStore(file: string): Store {
 		advisoryCounts: (from, to) =>
 			new Map(advisoriesByDay.all(from, to).map((row) => [row.day as string, row.added as number])),
 		earliestAdvisory: () => (firstAdvisory.get()?.day as string | null) ?? undefined,
-		saveAlerts(alerts, since, now) {
+		saveAlerts(alerts, since, now, restart) {
 			atomically(() => {
+				if (restart) {
+					restartSource.run(since.toISOString(), "alerts");
+				}
+
 				for (const alert of alerts) {
 					addAlert.run(alert.id, alert.event, alert.sent, alert.area, alert.headline);
 				}
@@ -240,12 +248,8 @@ export function openStore(file: string): Store {
 				setSource.run("alerts", null, now.toISOString(), since.toISOString());
 			});
 		},
-		saveNewsDay(day, now) {
-			atomically(() => {
-				setNewsDay.run(day.day, day.articles, Number(day.capped), Number(day.final));
-				setSource.run("news", null, now.toISOString(), null);
-			});
-		},
+		saveNewsDay: (day) =>
+			void setNewsDay.run(day.day, day.articles, Number(day.capped), Number(day.final)),
 		newsDays: (from) =>
 			getNewsDays.all(from).map((row) => ({
 				day: row.day as string,

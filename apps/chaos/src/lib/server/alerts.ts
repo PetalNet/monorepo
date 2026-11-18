@@ -44,16 +44,6 @@ function alertsUrl(now: Date): string {
 	return `https://api.weather.gov/alerts?${query.toString()}`;
 }
 
-function field(properties: Record<string, unknown>, key: string): string {
-	const value = properties[key];
-
-	if (typeof value !== "string" || value === "") {
-		throw new TypeError(`alerts feed: bad ${key}`);
-	}
-
-	return value;
-}
-
 /**
  * Parses the alert list. Only a first, real alert for one of our event names is kept: an update or
  * a cancellation of an alert is not a new incident, and tests and exercises are not incidents.
@@ -68,28 +58,28 @@ function parseAlerts(body: unknown): Alert[] {
 	const events = new Set<string>(ALERT_EVENTS);
 
 	return (features as { properties?: Record<string, unknown> }[]).flatMap(({ properties = {} }) => {
+		const { id, event, sent, areaDesc, headline } = properties;
+
+		// An alert the reader cannot make sense of is left out, so it does not lose the others.
 		if (
 			properties.status !== "Actual" ||
 			properties.messageType !== "Alert" ||
-			typeof properties.event !== "string" ||
-			!events.has(properties.event)
+			typeof event !== "string" ||
+			!events.has(event) ||
+			typeof id !== "string" ||
+			typeof sent !== "string" ||
+			Number.isNaN(Date.parse(sent))
 		) {
 			return [];
 		}
 
-		const sent = field(properties, "sent");
-
-		if (Number.isNaN(Date.parse(sent))) {
-			throw new TypeError("alerts feed: bad sent");
-		}
-
 		return [
 			{
-				id: field(properties, "id"),
-				event: properties.event,
+				id,
+				event,
 				sent: new Date(sent).toISOString(),
-				area: field(properties, "areaDesc"),
-				headline: typeof properties.headline === "string" ? properties.headline : properties.event,
+				area: typeof areaDesc === "string" ? areaDesc : "",
+				headline: typeof headline === "string" ? headline : event,
 			},
 		];
 	});
@@ -112,7 +102,11 @@ export async function ingestAlerts(
 
 	const alerts = parseAlerts(await response.json());
 
-	store.saveAlerts(alerts, new Date(now.getTime() - WINDOW_DAYS * 86_400_000), now);
+	const reach = new Date(now.getTime() - WINDOW_DAYS * 86_400_000);
+	const last = store.source(ALERT_SOURCE)?.checkedAt;
+
+	// A gap longer than the service's window lost alerts for good, so the record starts over here.
+	store.saveAlerts(alerts, reach, now, last !== undefined && Date.parse(last) < reach.getTime());
 
 	return alerts.length;
 }
