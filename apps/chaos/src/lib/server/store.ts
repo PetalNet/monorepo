@@ -14,6 +14,8 @@ export interface Store {
 	/** How many entries CISA added on each day from `from` to `to`. Days with none are absent. */
 	countsByDay: (from: string, to: string) => Map<string, number>;
 	size: () => number;
+	/** The first day CISA added anything that is still on the list. */
+	earliestDay: () => string | undefined;
 	/** The most recent day before `date` on which CISA added anything. */
 	latestDayBefore: (date: string) => string | undefined;
 }
@@ -57,6 +59,7 @@ export function openStore(file: string): Store {
 	const byDay = db.prepare(`
 		SELECT date_added AS day, count(*) AS added FROM kev
 		WHERE date_added BETWEEN ? AND ? GROUP BY date_added`);
+	const earliest = db.prepare("SELECT min(date_added) AS day FROM kev");
 	const total = db.prepare("SELECT count(*) AS entries FROM kev");
 	const dayBefore = db.prepare("SELECT max(date_added) AS day FROM kev WHERE date_added < ?");
 
@@ -99,6 +102,7 @@ export function openStore(file: string): Store {
 		countsByDay: (from, to) =>
 			new Map(byDay.all(from, to).map((row) => [row.day as string, row.added as number])),
 		size: () => total.get()?.entries as number,
+		earliestDay: () => (earliest.get()?.day as string | null) ?? undefined,
 		latestDayBefore: (date) => (dayBefore.get(date)?.day as string | null) ?? undefined,
 	};
 }
