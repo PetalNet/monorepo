@@ -1,5 +1,6 @@
 <script lang="ts">
 	import { resolve } from "$app/paths";
+	import favicon from "$lib/assets/favicon.svg";
 	import ThemeToggle from "$lib/components/ThemeToggle.svelte";
 	import type { Snippet } from "svelte";
 
@@ -9,6 +10,10 @@
 
 	let { children, data }: { children: Snippet; data: LayoutData } = $props();
 </script>
+
+<svelte:head>
+	<link rel="icon" href={favicon} />
+</svelte:head>
 
 <div class="shell">
 	<header>
