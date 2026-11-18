@@ -10,21 +10,36 @@ const Timestamp = Text.check(Schema.isPattern(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d
 
 /**
  * One line of a migration manifest. A `document` is a lab-written file copied in verbatim as a
- * source with one passage per heading section. Originals are only read.
+ * source with one passage per heading section; a `capture` is a vault-cite source record. Originals
+ * are only read.
  */
-export const ManifestEntry = Schema.Struct({
-	type: Schema.Literal("document"),
-	kind: Schema.Literals(["research", "memory", "gallery", "context"]),
-	tier: Tier,
-	/** Where the original lives; recorded on the source and used as its stable identity. */
-	origin: Text,
-	/** The file to read. Differs from `origin` when the original was converted first. */
-	file: Text,
-	title: Text,
-	captured: Timestamp,
-	sourceType: SourceType,
-});
+export const ManifestEntry = Schema.Union([
+	Schema.Struct({
+		type: Schema.Literal("document"),
+		kind: Schema.Literals(["research", "memory", "gallery", "context"]),
+		tier: Tier,
+		/** Where the original lives; recorded on the source and used as its stable identity. */
+		origin: Text,
+		/** The file to read. Differs from `origin` when the original was converted first. */
+		file: Text,
+		title: Text,
+		captured: Timestamp,
+		sourceType: SourceType,
+	}),
+	Schema.Struct({
+		type: Schema.Literal("capture"),
+		tier: Tier,
+		id: Schema.String.check(Schema.isPattern(/^src-[a-f0-9]{20}$/)),
+		title: Schema.String,
+		url: Text,
+		captured: Timestamp,
+		/** Other names the same artifact is cited by: canonical ID, citation reference, final URL. */
+		refs: Schema.optionalKey(Schema.Array(Schema.String)),
+	}),
+]);
 export type ManifestEntry = typeof ManifestEntry.Type;
+type DocumentEntry = Extract<ManifestEntry, { type: "document" }>;
+type CaptureEntry = Extract<ManifestEntry, { type: "capture" }>;
 
 export interface MigrationReport {
 	readonly migrated: { origin: string; id: string; passages: number }[];
@@ -32,6 +47,8 @@ export interface MigrationReport {
 	readonly excluded: { origin: string; reason: string }[];
 	/** Documents migrated without the few sections that matched the deny list. */
 	readonly partial: { origin: string; sectionsExcluded: number }[];
+	/** References a migrated document cites that the vault holds no saved source for. */
+	readonly unsavedCitations: { ref: string; citedBy: string }[];
 }
 
 const FRONTMATTER = /^---\n[\s\S]*?\n---\n/;
@@ -79,6 +96,34 @@ function sections(body: string): { heading: string; text: string }[] {
 	return result;
 }
 
+/** Every form a citation of the same artifact may take, so a cited URL finds its saved source. */
+function referenceKeys(ref: string): string[] {
+	const trimmed = ref.trim().replace(/[).,;:'"\]>]+$/, "");
+	const keys = new Set([trimmed, trimmed.replace(/\/$/, ""), trimmed.replace(/^http:/, "https:")]);
+	const arxiv =
+		/arxiv\.org\/(?:abs|pdf|html)\/(\d{4}\.\d{4,5})/.exec(trimmed) ??
+		/^arxiv:(\d{4}\.\d{4,5})/i.exec(trimmed);
+	const doi = /(?:doi\.org\/|^doi:)(10\.\d{4,9}\/\S+)/i.exec(trimmed);
+
+	if (arxiv?.[1] !== undefined) {
+		keys.add(`arxiv:${arxiv[1]}`);
+	}
+
+	if (doi?.[1] !== undefined) {
+		keys.add(`doi:${doi[1].toLowerCase()}`);
+	}
+
+	return [...keys];
+}
+
+const citedUrls = (body: string) => [
+	...new Set(
+		(body.match(/https?:\/\/[^\s<>"'`|\\^{}[\]]+/g) ?? []).map((url) =>
+			url.replace(/[).,;:*_]+$/, ""),
+		),
+	),
+];
+
 /**
  * Only letters and digits count: case, spacing, punctuation, markup and look-alike characters hide
  * nothing.
@@ -103,9 +148,11 @@ export const migrate = Effect.fnUntraced(function* (
 ) {
 	const vault = yield* Vault;
 	const fs = yield* FileSystem.FileSystem;
-	const report: MigrationReport = { migrated: [], excluded: [], partial: [] };
+	const report: MigrationReport = { migrated: [], excluded: [], partial: [], unsavedCitations: [] };
 	const denied = denyKeywords.map(fold).filter(Boolean);
 	const outOfScope = (text: string) => denied.some((keyword) => fold(text).includes(keyword));
+	/** Reference key to the ID of a capture that is now in the vault. */
+	const saved = new Map<string, string>();
 
 	/** One transaction per tier; an entry that fails its own checks is reported and the rest go on. */
 	const each = <Entry extends ManifestEntry>(
@@ -138,77 +185,137 @@ export const migrate = Effect.fnUntraced(function* (
 			}),
 		);
 
-	yield* each(entries, (tx, entry) =>
-		Effect.gen(function* () {
-			const { origin } = entry;
-			const body = yield* fs.readFileString(entry.file).pipe(Effect.option);
+	// Captures first, in every tier, so a document's citations resolve only to sources that made it in.
+	yield* each(
+		entries.filter((entry): entry is CaptureEntry => entry.type === "capture"),
+		(tx, entry) => {
+			const refs = entry.refs ?? [];
 
-			if (Option.isNone(body)) {
-				report.excluded.push({ origin, reason: "unreadable" });
+			if (outOfScope([entry.title, entry.url, ...refs].join("\n"))) {
+				report.excluded.push({ origin: entry.id, reason: "out of scope" });
 
-				return;
+				return Effect.void;
 			}
 
-			const frontmatter = FRONTMATTER.exec(body.value)?.[0] ?? "";
-			const all = sections(body.value).map((section, index) => ({
-				...section,
-				id: `s${String(index + 1)}`,
-			}));
-			const kept = all.filter((section) => !outOfScope(`${section.heading}\n${section.text}`));
-			const dropped = all.length - kept.length;
-
-			if (outOfScope(`${origin}\n${entry.title}\n${frontmatter}`) || dropped > passingSections) {
-				report.excluded.push({ origin, reason: "out of scope" });
-
-				return;
-			}
-
-			if (kept.length === 0) {
-				report.excluded.push({ origin, reason: "empty document" });
-
-				return;
-			}
-
-			const id = `doc-${createHash("sha256").update(`${entry.kind}\n${origin}`).digest("hex").slice(0, 16)}`;
-			const passages = Object.fromEntries(kept.map((section) => [section.id, section.text]));
-			const before = tx.state.sources[id]?.passages ?? {};
-
-			// Passages are immutable: a document edited after it was migrated keeps its first version.
-			if (Object.entries(passages).some(([key, text]) => key in before && before[key] !== text)) {
-				report.excluded.push({
-					origin,
-					reason: "changed since it was migrated; the vault keeps the migrated version",
-				});
-
-				return;
-			}
-
-			yield* store(
+			// Named by ID if refused: the URL may be the very thing the scan refused.
+			return store(
 				tx,
 				{
-					id,
-					kind: entry.kind,
-					title: oneLine(entry.title),
-					origin,
-					sourceType: entry.sourceType,
+					id: entry.id,
+					kind: "capture",
+					title: oneLine(entry.title) || entry.url,
+					url: entry.url,
+					sourceType: "PRIMARY",
 					captured: entry.captured,
-					passages,
-					headings: Object.fromEntries(
-						kept
-							.filter((section) => section.heading !== "")
-							.map((section) => [section.id, section.heading]),
-					),
+					passages: {},
 				},
-				origin,
+				entry.id,
 				() => {
-					report.migrated.push({ origin, id, passages: kept.length });
+					report.migrated.push({ origin: entry.url, id: entry.id, passages: 0 });
 
-					if (dropped > 0) {
-						report.partial.push({ origin, sectionsExcluded: dropped });
+					for (const key of [entry.url, ...refs].flatMap(referenceKeys)) {
+						saved.set(key, entry.id);
 					}
 				},
 			);
-		}),
+		},
+	);
+
+	yield* each(
+		entries.filter((entry): entry is DocumentEntry => entry.type === "document"),
+		(tx, entry) =>
+			Effect.gen(function* () {
+				const { origin } = entry;
+				const body = yield* fs.readFileString(entry.file).pipe(Effect.option);
+
+				if (Option.isNone(body)) {
+					report.excluded.push({ origin, reason: "unreadable" });
+
+					return;
+				}
+
+				const frontmatter = FRONTMATTER.exec(body.value)?.[0] ?? "";
+				const all = sections(body.value).map((section, index) => ({
+					...section,
+					id: `s${String(index + 1)}`,
+				}));
+				const kept = all.filter((section) => !outOfScope(`${section.heading}\n${section.text}`));
+				const dropped = all.length - kept.length;
+
+				if (outOfScope(`${origin}\n${entry.title}\n${frontmatter}`) || dropped > passingSections) {
+					report.excluded.push({ origin, reason: "out of scope" });
+
+					return;
+				}
+
+				if (kept.length === 0) {
+					report.excluded.push({ origin, reason: "empty document" });
+
+					return;
+				}
+
+				const cites: string[] = [];
+				const unsaved: string[] = [];
+
+				for (const url of citedUrls(kept.map((section) => section.text).join("\n"))) {
+					const id = referenceKeys(url)
+						.map((key) => saved.get(key))
+						.find((found) => found !== undefined);
+
+					if (id === undefined) {
+						unsaved.push(url);
+					}
+
+					cites.push(id ?? url);
+				}
+
+				const id = `doc-${createHash("sha256").update(`${entry.kind}\n${origin}`).digest("hex").slice(0, 16)}`;
+				const passages = Object.fromEntries(kept.map((section) => [section.id, section.text]));
+				const before = tx.state.sources[id]?.passages ?? {};
+
+				// Passages are immutable: a document edited after it was migrated keeps its first version.
+				if (Object.entries(passages).some(([key, text]) => key in before && before[key] !== text)) {
+					report.excluded.push({
+						origin,
+						reason: "changed since it was migrated; the vault keeps the migrated version",
+					});
+
+					return;
+				}
+
+				yield* store(
+					tx,
+					{
+						id,
+						kind: entry.kind,
+						title: oneLine(entry.title),
+						origin,
+						sourceType: entry.sourceType,
+						captured: entry.captured,
+						passages,
+						headings: Object.fromEntries(
+							kept
+								.filter((section) => section.heading !== "")
+								.map((section) => [section.id, section.heading]),
+						),
+						...(cites.length === 0 ? {} : { cites: [...new Set(cites)] }),
+					},
+					origin,
+					() => {
+						report.migrated.push({ origin, id, passages: kept.length });
+
+						if (dropped > 0) {
+							report.partial.push({ origin, sectionsExcluded: dropped });
+						}
+
+						// Reported only once the document passed the secret scan, so the report cannot carry a
+						// URL the scan would have refused.
+						for (const ref of unsaved) {
+							report.unsavedCitations.push({ ref, citedBy: origin });
+						}
+					},
+				);
+			}),
 	);
 
 	return report;

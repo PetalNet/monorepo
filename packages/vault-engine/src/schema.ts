@@ -101,6 +101,8 @@ export const Source = Schema.Struct({
 	/** Passage ID to passage text. The heading a passage sits under is `headings[id]`. */
 	passages: Schema.Record(PassageId, Text),
 	headings: Schema.optionalKey(Schema.Record(PassageId, Line)),
+	/** URLs or source IDs this document cites. */
+	cites: Schema.optionalKey(Schema.Array(Text)),
 	agent: Text,
 });
 export type Source = typeof Source.Type;

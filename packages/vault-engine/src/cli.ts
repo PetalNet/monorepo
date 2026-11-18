@@ -205,9 +205,14 @@ const commands = [
 					migrated: result.migrated.length,
 					excluded: result.excluded.length,
 					partial: result.partial.length,
+					unsavedCitations: result.unsavedCitations.length,
 				});
 			}),
-	).pipe(Command.withDescription("Copy documents in; report exclusions.")),
+	).pipe(
+		Command.withDescription(
+			"Copy documents and vault-cite sources in; report exclusions and unsaved citations.",
+		),
+	),
 ];
 
 /**

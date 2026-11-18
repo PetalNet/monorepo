@@ -324,6 +324,18 @@ function render(view: VaultView, now: Date): Map<string, string> {
 			}
 		}
 
+		if (source.cites !== undefined && source.cites.length > 0) {
+			lines.push(
+				"",
+				"## Cites",
+				...source.cites.map((cited) => {
+					const found = sources.get(cited);
+
+					return found ? `- [[${cited}|${alias(found.title)}]]` : `- ${cited}`;
+				}),
+			);
+		}
+
 		const citing = dependents.get(source.id) ?? [];
 
 		lines.push("", "## Dependents");

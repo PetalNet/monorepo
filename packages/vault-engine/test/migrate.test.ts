@@ -8,7 +8,7 @@ import { migrate } from "../src/migrate.ts";
 import type { ManifestEntry } from "../src/migrate.ts";
 import { lint, project } from "../src/project.ts";
 import { recallPassages, reindex } from "../src/recall.ts";
-import { readText, state, stored, tempDir, test, writeText } from "./tools.ts";
+import { SOURCE, readText, state, stored, tempDir, test, writeText } from "./tools.ts";
 
 type DocumentEntry = Extract<ManifestEntry, { type: "document" }>;
 
@@ -24,6 +24,16 @@ const document = (file: string, extra: Partial<DocumentEntry> = {}): DocumentEnt
 	...extra,
 });
 
+const capture = (id: string, extra: object = {}): ManifestEntry => ({
+	type: "capture",
+	tier: "shared",
+	id,
+	title: "Page",
+	url: "https://example.org/page",
+	captured: "2026-10-21T00:00:00.000Z",
+	...extra,
+});
+
 const file = (dir: string, name: string, body: string) =>
 	writeText(path.join(dir, name), body).pipe(Effect.as(path.join(dir, name)));
 
@@ -31,16 +41,26 @@ const source = (id: string) =>
 	Effect.flatMap(Vault, (vault) => Effect.map(vault.view, (view) => view.source(id)));
 
 describe("migration", () => {
-	test("copies documents in as sources with one passage per section", () =>
+	test("copies documents in as sources with one passage per section, linking saved citations", () =>
 		Effect.gen(function* () {
 			const body =
 				"---\nname: x\n---\nIntro line.\n\n# Findings\nSee https://arxiv.org/abs/2312.06648 and https://example.org/unsaved.\n\n## Detail\nMore.\n";
 			const at = yield* file(yield* tempDir, "note-research.md", body);
-			const report = yield* migrate([document(at, { title: "Note research" })], []);
+			const report = yield* migrate(
+				[
+					document(at, { title: "Note research" }),
+					capture(SOURCE, {
+						title: "Dense X",
+						url: "https://arxiv.org/pdf/2312.06648",
+						refs: ["arxiv:2312.06648"],
+					}),
+				],
+				[],
+			);
 			const id = report.migrated.find((item) => item.origin === at)?.id ?? "";
 			const migrated = yield* source(id);
 
-			expect(report.migrated).toHaveLength(1);
+			expect(report.migrated).toHaveLength(2);
 
 			expect(migrated?.passages).toEqual({
 				s1: "Intro line.",
@@ -49,6 +69,12 @@ describe("migration", () => {
 			});
 
 			expect(migrated?.headings).toEqual({ s2: "Findings", s3: "Findings > Detail" });
+			expect(migrated?.cites).toEqual([SOURCE, "https://example.org/unsaved"]);
+
+			expect(report.unsavedCitations).toEqual([
+				{ ref: "https://example.org/unsaved", citedBy: at },
+			]);
+
 			expect(yield* readText(at)).toBe(body);
 
 			yield* reindex;
@@ -114,6 +140,7 @@ describe("migration", () => {
 			]);
 
 			expect(Object.keys(passing?.passages ?? {})).toEqual(["s1", "s3"]);
+			expect(passing?.cites).toEqual(["https://example.org/kept"]);
 			expect(Object.keys((yield* state("agent")).sources)).toHaveLength(2);
 
 			const history = yield* stored("agent");
@@ -167,6 +194,63 @@ describe("migration", () => {
 				...files.slice(0, 6).map((origin) => ({ origin, reason: "out of scope" })),
 				{ origin: path.join(dir, "missing.md"), reason: "unreadable" },
 			]);
+		}));
+
+	test("applies the deny list to every name a capture goes by, and resolves no citation to a denied one", () =>
+		Effect.gen(function* () {
+			const at = yield* file(
+				yield* tempDir,
+				"cites.md",
+				"See https://example.org/page for details.\n",
+			);
+			const report = yield* migrate(
+				[
+					capture("src-11111111111111111111", { refs: ["doi:10.1000/restricted-project"] }),
+					capture("src-22222222222222222222", { url: "https://example.org/restricted_project" }),
+					capture(SOURCE, { title: "Restricted Project page" }),
+					capture("src-33333333333333333333", { url: "https://example.org/other" }),
+					document(at),
+				],
+				["restricted project"],
+			);
+
+			expect(report.excluded.map((item) => item.origin)).toEqual([
+				"src-11111111111111111111",
+				"src-22222222222222222222",
+				SOURCE,
+			]);
+
+			expect(report.migrated.map((item) => item.origin)).toEqual(["https://example.org/other", at]);
+			expect(report.unsavedCitations).toEqual([{ ref: "https://example.org/page", citedBy: at }]);
+		}));
+
+	test("names a refused capture or document by ID or path, never by a URL that carries a credential", () =>
+		Effect.gen(function* () {
+			const password = ["hunter2", "Zq8vR2mW"].join("");
+			const at = yield* file(
+				yield* tempDir,
+				"creds.md",
+				`Connect to https://admin:${password}@db.example.org/x and https://example.org/fine.\n`,
+			);
+			const report = yield* migrate(
+				[
+					capture(SOURCE, {
+						title: "Database console",
+						url: `https://admin:${password}@db.example.org/x`,
+					}),
+					document(at),
+				],
+				[],
+			);
+
+			expect(report.excluded).toEqual([
+				{ origin: SOURCE, reason: "secret scan: url-credentials" },
+				{ origin: at, reason: "secret scan: url-credentials" },
+			]);
+
+			expect(report.unsavedCitations).toEqual([]);
+			expect(JSON.stringify(report)).not.toContain(password);
+			expect(yield* source(SOURCE)).toBeUndefined();
 		}));
 
 	test("converges when the same manifest runs twice, and keeps the first version of a changed document", () =>
