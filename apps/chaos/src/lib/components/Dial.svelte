@@ -1,14 +1,14 @@
 <script lang="ts">
 	/**
-	 * A half-circle gauge. The needle is drawn only for a real reading: with `fraction` undefined the
-	 * dial stays empty, so a missing number never looks like a zero.
+	 * A half-circle gauge. It is a picture of a reading the caller also prints in words, so it is
+	 * hidden from screen readers. The needle is drawn only for a real reading: with `fraction`
+	 * undefined the dial stays empty, so a missing number never looks like a zero.
 	 */
 	let {
 		fraction,
 		steps,
 		majorEvery,
 		hotFrom,
-		label,
 	}: {
 		/** Where the needle sits, from 0 (left) to 1 (right). */
 		fraction: number | undefined;
@@ -18,8 +18,6 @@
 		majorEvery: number;
 		/** The scale from this fraction up is marked as the heavy end. */
 		hotFrom: number;
-		/** The reading in words, for people who cannot see the dial. */
-		label: string;
 	} = $props();
 
 	const R = 84;
@@ -46,7 +44,7 @@
 	);
 </script>
 
-<svg viewBox="-100 -96 200 108" role="img" aria-label={label}>
+<svg viewBox="-100 -96 200 108" aria-hidden="true">
 	<path class="scale" d={arc(0, 1, R)} />
 	<path class="hot" d={arc(hotFrom, 1, R + 5)} />
 	{#each ticks as tick (tick.step)}
@@ -69,7 +67,7 @@
 			class="needle"
 			x1="12"
 			y1="0"
-			x2={-(R - 10)}
+			x2={-(R - 32)}
 			y2="0"
 			style:--turn="{Math.min(1, Math.max(0, fraction)) * 180}deg"
 		/>

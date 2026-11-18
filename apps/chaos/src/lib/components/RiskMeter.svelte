@@ -7,7 +7,7 @@
 
 	let { risk, checkedAt }: { risk: Risk; checkedAt: string | undefined } = $props();
 
-	const WEEKS = 52;
+	const WEEKS = $derived(risk.baselineWeeks);
 	const LEVELS = { quiet: "Quiet week", busy: "Busy week", heavy: "Heavy week" } as const;
 	const peak = $derived(
 		risk.kind === "reading" ? Math.max(1, ...risk.weeks.map((week) => week.added)) : 1,
@@ -20,11 +20,8 @@
 		<Dial
 			fraction={risk.kind === "reading" ? risk.quieterWeeks / WEEKS : undefined}
 			steps={WEEKS}
-			majorEvery={13}
+			majorEvery={WEEKS / 4}
 			hotFrom={0.9}
-			label={risk.kind === "reading"
-				? `Busier than ${String(risk.quieterWeeks)} of the past ${String(WEEKS)} weeks`
-				: "No reading"}
 		/>
 		{#if risk.kind === "reading"}
 			<p class="value">
@@ -34,7 +31,7 @@
 		{:else if risk.kind === "short"}
 			<p class="value">
 				<strong>Not enough history yet</strong>
-				The list covers {plural(risk.days, "day", "days")}. A reading needs {risk.needed}.
+				The list covers {plural(risk.days, "day", "days")}. A reading needs {risk.needed} days.
 			</p>
 		{:else}
 			<p class="value">
@@ -48,30 +45,30 @@
 		{#if risk.kind === "reading"}
 			<p class="count">
 				CISA added {plural(risk.week, "exploited vulnerability", "exploited vulnerabilities")} in the
-				last 7 days. The median week of the past year had {risk.median}.
+				last 7 days. The median week of the past year had {risk.median}. The heaviest week on the
+				chart had {peak}.
 			</p>
-			<ol class="trace" aria-label="Additions in each of the past 53 weeks, oldest first">
+			<div class="trace" aria-hidden="true">
 				{#each risk.weeks as week, index (week.end)}
-					<li
+					<i
 						class:now={index === risk.weeks.length - 1}
 						style:--h="{(week.added / peak) * 100}%"
 						title="Week ending {day(week.end, 'short')}: {week.added}"
-					>
-						<span class="sr-only">Week ending {day(week.end)}: {week.added}</span>
-					</li>
+					></i>
 				{/each}
-			</ol>
-			<p class="axis">
+			</div>
+			<p class="axis" aria-hidden="true">
 				<span>Week ending {day(risk.weeks[0]?.end ?? "", "short")}</span>
 				<span>Peak week {peak}</span>
 				<span>This week</span>
 			</p>
 		{/if}
 		<p class="method">
-			How it reads: the needle counts how many of the 52 weeks before this one had fewer additions
-			to CISA's exploited list than the last 7 days. The top tenth of the scale is a heavy week.
-			Every entry carries the day CISA added it, so the list is its own history. Nothing here is
-			weighted by how widely the affected software is used.
+			How it reads: the needle counts how many of the {WEEKS} weeks before this one had strictly fewer
+			additions to CISA's exploited list than the last 7 days. Today is still running, so the count can
+			rise before midnight. The top tenth of the scale is a heavy week. Every entry carries the day CISA
+			added it, so the list is its own history. Nothing here is weighted by how widely the affected software
+			is used.
 		</p>
 		<SourceLine
 			sources={[
@@ -135,12 +132,9 @@
 		align-items: flex-end;
 		gap: 2px;
 		block-size: 4.5rem;
-		margin: 0;
-		padding: 0;
-		list-style: none;
 		border-block-end: 1px solid var(--color-rule-strong);
 	}
-	.trace li {
+	.trace i {
 		flex: 1;
 		block-size: max(var(--h), 1px);
 		background: var(--color-rule-strong);

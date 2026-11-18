@@ -36,18 +36,19 @@ function stored(rows: KevEntry[]): Store {
 const OLD = entries("2021-11-03", 1);
 
 it("gives no reading when no pull has succeeded today", () => {
-	expect(risk(stored(OLD), TODAY, "2026-11-17")).toEqual({ kind: "stale" });
+	expect(risk(stored(OLD), TODAY, "2026-11-17")).toMatchObject({ kind: "stale" });
 });
 
 it("says the history is short instead of inventing a baseline", () => {
 	// 53 weeks are needed. A list that starts 100 days ago has no year to compare with.
 	expect(risk(stored(entries("2026-08-11", 5)), TODAY, TODAY)).toEqual({
+		baselineWeeks: 52,
 		kind: "short",
 		days: 100,
 		needed: 371,
 	});
 
-	expect(risk(openStore(":memory:"), TODAY, "")).toEqual({ kind: "stale" });
+	expect(risk(openStore(":memory:"), TODAY, "")).toMatchObject({ kind: "stale" });
 });
 
 it("starts reading on the first day the list covers 53 whole weeks", () => {
@@ -92,18 +93,35 @@ it("labels the week from how many baseline weeks were quieter", () => {
 		return day.toISOString().slice(0, 10);
 	};
 
-	// Baseline: 26 weeks with 2 additions, 26 weeks with 6.
-	const baseline = Array.from({ length: 52 }, (_, index) =>
-		entries(weekEnding(index + 1), index < 26 ? 2 : 6),
-	).flat();
-	const level = (thisWeek: number) => {
-		const reading = risk(stored([...OLD, ...baseline, ...entries(TODAY, thisWeek)]), TODAY, TODAY);
+	/** A year in which `quieter` weeks had 2 additions and the rest had 6, read in a week with 4. */
+	const level = (quieter: number) => {
+		const baseline = Array.from({ length: 52 }, (_, index) =>
+			entries(weekEnding(index + 1), index < quieter ? 2 : 6),
+		).flat();
+		const reading = risk(stored([...OLD, ...baseline, ...entries(TODAY, 4)]), TODAY, TODAY);
 
-		return reading.kind === "reading" ? [reading.quieterWeeks, reading.level, reading.median] : [];
+		return reading.kind === "reading" ? [reading.quieterWeeks, reading.level] : [];
 	};
 
-	expect(level(2)).toEqual([0, "quiet", 4]);
-	expect(level(3)).toEqual([26, "busy", 4]);
-	expect(level(6)).toEqual([26, "busy", 4]);
-	expect(level(7)).toEqual([52, "heavy", 4]);
+	expect(level(0)).toEqual([0, "quiet"]);
+	expect(level(25)).toEqual([25, "quiet"]);
+	expect(level(26)).toEqual([26, "busy"]);
+	expect(level(46)).toEqual([46, "busy"]);
+	expect(level(47)).toEqual([47, "heavy"]);
+	expect(level(52)).toEqual([52, "heavy"]);
+});
+
+it("does not count a week with the same additions as quieter, and takes the median of the year", () => {
+	const reading = risk(
+		stored([
+			...OLD,
+			...entries("2026-11-11", 3),
+			...entries("2026-11-04", 9),
+			...entries(TODAY, 3),
+		]),
+		TODAY,
+		TODAY,
+	);
+
+	expect(reading).toMatchObject({ week: 3, quieterWeeks: 50, median: 0 });
 });

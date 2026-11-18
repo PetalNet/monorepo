@@ -5,22 +5,27 @@ const BASELINE_WEEKS = 52;
 
 export type RiskLevel = "quiet" | "busy" | "heavy";
 
-export type Risk =
+export type Risk = {
+	/** How many weeks the last seven days are compared with. */
+	baselineWeeks: number;
+} &
 	/** No pull has succeeded today, so the last seven days cannot be counted. */
-	| { kind: "stale" }
-	/** The stored list does not reach back far enough to fill the baseline. No number is shown. */
-	| { kind: "short"; days: number; needed: number }
-	| {
-			kind: "reading";
-			/** Vulnerabilities CISA added in the seven days ending today. */
-			week: number;
-			/** How many of the 52 baseline weeks had fewer additions than this one. */
-			quieterWeeks: number;
-			level: RiskLevel;
-			median: number;
-			/** Oldest first, ending with the current week. */
-			weeks: { end: string; added: number }[];
-	  };
+	(
+		| { kind: "stale" }
+		/** The stored list does not reach back far enough to fill the baseline. No number is shown. */
+		| { kind: "short"; days: number; needed: number }
+		| {
+				kind: "reading";
+				/** Vulnerabilities CISA added in the seven days ending today. */
+				week: number;
+				/** How many of the 52 baseline weeks had fewer additions than this one. */
+				quieterWeeks: number;
+				level: RiskLevel;
+				median: number;
+				/** Oldest first, ending with the current week. */
+				weeks: { end: string; added: number }[];
+		  }
+	);
 
 function addDays(date: string, days: number): string {
 	const moved = new Date(`${date}T12:00:00Z`);
@@ -46,7 +51,7 @@ function levelOf(quieterWeeks: number): RiskLevel {
  */
 export function risk(store: Store, date: string, checkedDate: string): Risk {
 	if (checkedDate !== date) {
-		return { kind: "stale" };
+		return { baselineWeeks: BASELINE_WEEKS, kind: "stale" };
 	}
 
 	const needed = (BASELINE_WEEKS + 1) * 7;
@@ -59,7 +64,7 @@ export function risk(store: Store, date: string, checkedDate: string): Risk {
 		: 0;
 
 	if (days < needed) {
-		return { kind: "short", days, needed };
+		return { baselineWeeks: BASELINE_WEEKS, kind: "short", days, needed };
 	}
 
 	const counts = store.countsByDay(first, date);
@@ -80,6 +85,7 @@ export function risk(store: Store, date: string, checkedDate: string): Risk {
 	const middle = sorted.length / 2;
 
 	return {
+		baselineWeeks: BASELINE_WEEKS,
 		kind: "reading",
 		week,
 		quieterWeeks,
