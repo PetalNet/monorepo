@@ -401,6 +401,44 @@ class TierTest(HeadCase):
         self.assertIn("1. Speaker: please order filament", merge)
 
 
+class LateToolListTest(HeadCase):
+    """A fork that names its tools only on its first turn, as forks do since 2026-11-17."""
+
+    overrides = {"ready_timeout_s": 3}
+
+    def setUp(self):
+        super().setUp()
+        self.stop_head()
+        self.claude_extra = ["--fake-late-init"]
+        self.start_head()
+
+    def test_the_first_turn_is_answered_without_waiting_for_the_tool_list(self):
+        conv = self.open("personal")
+        started = time.monotonic()
+        sentences, done = self.turn(conv, "hello there")
+        self.assertEqual(sentences, ["You said hello there.", "That is all I know."])
+        self.assertFalse(done["end_conversation"])
+        self.assertIsNotNone(done["latency_ms"]["first_token"])
+        self.assertLess(time.monotonic() - started, 2.5, "the turn waited out the ready timeout")
+
+    def test_the_fork_and_where_it_forked_from_are_still_recorded(self):
+        conv = self.open("personal")
+        self.turn(conv, "hello")
+        records = [json.loads(line) for line in (self.root / "state" / "conversations" / f"{conv}.jsonl").read_text().splitlines()]
+        session = [record for record in records if record["kind"] == "session"]
+        self.assertEqual(len(session), 1)
+        self.assertTrue(session[0]["session_id"].startswith("fake-session-"))
+        self.assertIsNotNone(session[0]["fork_point"])
+
+    def test_a_fork_whose_late_list_has_tools_says_nothing_it_generated(self):
+        self.stop_head()
+        self.claude_extra = ["--fake-late-init", "--fake-leak-tools"]
+        self.start_head()
+        sentences, done = self.turn(self.open("personal"), "hello")
+        self.assertEqual(sentences, ["Sorry, I could not answer that."])
+        self.assertTrue(done["end_conversation"])
+
+
 class UnsafeSessionTest(HeadCase):
     def test_a_session_that_comes_up_with_tools_is_never_used(self):
         self.stop_head()

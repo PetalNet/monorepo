@@ -72,7 +72,10 @@ def interrupt_waiting() -> bool:
 while (message := incoming.get()) is not None:
     if message["type"] == "control_request" and message["request"]["subtype"] == "initialize":
         out({"type": "control_response", "response": {"response": {"account": {"email": EMAIL}}}})
-        if resumed:
+        if resumed and "--fake-late-init" in argv:
+            # What a fork does since 2026-11-17: a title, and its tools only on the first turn.
+            out({"type": "system", "subtype": "session_title_changed", "title": "Main", "session_id": SESSION})
+        elif resumed:
             init()
             out({"type": "result", "num_turns": 0})
     elif message["type"] == "user":
