@@ -17,9 +17,18 @@ instructions.
 
 - **Disclosure first.** The first thing a caller hears is the configured `disclosure` sentence. It is
   fixed text, not model output, and the caller cannot cut it off.
-- **No secrets on the bridge.** It forwards the caller's `Authorization` and
-  `Cf-Access-Jwt-Assertion` headers to the gateway, which checks both. A caller the gateway refuses
-  gets HTTP 403 and no socket. The calling device does hold the gateway's bearer token.
+- **Paired phones only.** A phone presents its own device token, which works only on this bridge
+  and so only for the tier and channel the bridge is configured with. The bridge keeps a hash of
+  each token in `devices_file`; removing an entry (or `--revoke ID`) unpairs that phone at once. The
+  bridge then calls the gateway with the voice head's token from `head_token_file`, which never
+  reaches a phone, and forwards the request's `Cf-Access-Jwt-Assertion`, which the gateway also
+  checks. A phone that is not paired gets HTTP 403 and no socket.
+- **Pairing without typing.** `GET <pair_path>` on the plain-HTTP listener shows a QR code and a
+  link, `janetcall://pair?u=…`, carrying the bridge's public address, the Cloudflare Access service
+  token a phone needs to reach it, and a one-time code that lasts `pair_ttl_s` seconds. The phone
+  trades the code for its device token with `POST /v1/call/pair` `{"code", "name"}`. The page trusts
+  the proxy's `X-authentik-username` header and serves only `pair_users`, so it must sit behind
+  single sign-on and nothing else may reach that listener.
 - **Bounded.** At most `max_calls` calls at once (503 beyond that), `max_call_s` seconds per call,
   30 s per utterance, and four utterances waiting for a turn.
 - **Cut-off.** When the caller speaks over a reply, the bridge stops sending it, tells the device to
@@ -37,7 +46,7 @@ instructions.
 
 ## Protocol
 
-`GET /v1/call` upgraded to a WebSocket, with the gateway's bearer token.
+`GET /v1/call` upgraded to a WebSocket, with `Authorization: Bearer <device token>`.
 
 | Direction        | Message                         | Meaning                                              |
 | :--------------- | :------------------------------ | :--------------------------------------------------- |
@@ -62,6 +71,13 @@ source = "test"                     # "inbound" only for a real line from the ou
 notify = ["sh", "-c", "f=/outbox/$(date +%s%N); cat > $f.tmp && mv $f.tmp $f.$JANET_PHONE_DESTINATION.txt"]
 record_dir = ""                     # set to keep both sides of every call as WAV files
 max_calls = 2                       # the head's own max_open is the real ceiling
+head_token_file = "/secrets/head-token"       # the voice head's bearer token
+devices_file = "/state/devices.json"          # paired phones, by token hash
+http_listen = "127.0.0.1:8794"                # pairing page and pairing exchange
+public_url = "wss://voice.example/v1/call"    # where a paired phone calls
+access_file = "/secrets/access.json"          # {"client_id", "client_secret"} of the Access service token
+pair_users = ["owner"]                        # single sign-on usernames that may pair a phone
+pair_path = "/pair"
 max_call_s = 900
 
 [endpoint]                          # loudness end-of-speech detector
