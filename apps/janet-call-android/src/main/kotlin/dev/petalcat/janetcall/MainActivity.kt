@@ -34,6 +34,7 @@ class MainActivity : ComponentActivity() {
 	private var callStage by mutableStateOf<CallStage?>(null)
 	private val settings by lazy { Settings(this) }
 	private val log by lazy { CallLog(this) }
+	private val config by lazy { AppConfig(this) }
 	private val observer: () -> Unit = { render() }
 
 	/**
@@ -69,6 +70,8 @@ class MainActivity : ComponentActivity() {
 			)
 			shown is Screen.Home && settingsOpen -> SettingsScreen(
 				host = shown.host,
+				homeUrl = config.homeUrl(),
+				onHomeUrl = config::setHomeUrl,
 				onBack = { settingsOpen = false },
 				onUnpair = {
 					settingsOpen = false
@@ -76,7 +79,12 @@ class MainActivity : ComponentActivity() {
 				},
 				licences = { licenceText(this) },
 			)
-			shown is Screen.Home -> HomeScreen(shown, onCall = ::requestCall, onSettings = { settingsOpen = true })
+			shown is Screen.Home -> HomeWeb(
+				url = config.homeUrl(),
+				onCall = ::requestCall,
+				onSettings = { settingsOpen = true },
+				fallback = { retry -> HomeScreen(shown, onCall = ::requestCall, onSettings = { settingsOpen = true }, onRetry = retry) },
+			)
 			shown is Screen.Welcome -> WelcomeScreen(shown)
 			shown is Screen.Pairing -> PairingScreen(shown)
 			shown is Screen.Confirm -> ConfirmScreen(
@@ -169,6 +177,8 @@ class MainActivity : ComponentActivity() {
 	}
 
 	private fun unpair() {
+		// The next person to pair this phone must not inherit the last one's sign-in to the home page.
+		forgetWebSession()
 		settings.clear()
 		log.clear()
 		Pairer.notice = null
