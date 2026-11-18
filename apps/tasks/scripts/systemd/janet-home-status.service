@@ -1,0 +1,8 @@
+[Unit]
+Description=Rebuild Janet's home page (/janet/home) from live lab status
+
+[Service]
+Type=oneshot
+# Run from a checkout of main. Token file: ~/.config/janet-home/token (unscoped write agent token).
+ExecStart=/usr/bin/env node %h/work/monorepo/apps/tasks/scripts/janet-lab-status.mjs
+TimeoutStartSec=60
