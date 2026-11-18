@@ -33,7 +33,7 @@ import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -94,7 +94,7 @@ private fun Skeleton(
 			Row(Modifier.fillMaxWidth().height(TOP_BAR).padding(horizontal = SIDE), verticalAlignment = Alignment.CenterVertically) {
 				Text("Janet", style = Type.name, color = palette.ink, modifier = Modifier.weight(1f).semantics { heading() })
 				if (onSettings != null) {
-					RoundButton(R.drawable.ic_settings, "Settings", size = 44, iconSize = 20, filled = false, onClick = onSettings)
+					RoundButton(R.drawable.ic_settings, "Settings", size = 48, iconSize = 20, filled = false, onClick = onSettings)
 				}
 			}
 			Column(Modifier.weight(1f).verticalScroll(rememberScrollState()).padding(horizontal = SIDE)) {
@@ -238,12 +238,12 @@ fun ConfirmScreen(screen: Screen.Confirm, onPair: () -> Unit, onCancel: () -> Un
 @Composable
 fun SettingsScreen(host: String, onBack: () -> Unit, onUnpair: () -> Unit, licences: () -> String) {
 	val palette = LocalPalette.current
-	var asking by remember { mutableStateOf(false) }
-	var reading by remember { mutableStateOf(false) }
+	var asking by rememberSaveable { mutableStateOf(false) }
+	var reading by rememberSaveable { mutableStateOf(false) }
 	BackHandler(onBack = onBack)
 	Column(Modifier.fillMaxSize().background(palette.ground).statusBarsPadding().navigationBarsPadding()) {
 		Row(Modifier.fillMaxWidth().height(TOP_BAR).padding(horizontal = 12.dp), verticalAlignment = Alignment.CenterVertically) {
-			RoundButton(R.drawable.ic_back, "Back", size = 44, iconSize = 20, filled = false, onClick = onBack)
+			RoundButton(R.drawable.ic_back, "Back", size = 48, iconSize = 20, filled = false, onClick = onBack)
 			Spacer(Modifier.size(12.dp))
 			Text("Settings", style = Type.title, color = palette.ink, modifier = Modifier.semantics { heading() })
 		}

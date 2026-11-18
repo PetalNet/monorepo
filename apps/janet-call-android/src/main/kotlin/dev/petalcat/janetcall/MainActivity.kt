@@ -12,6 +12,7 @@ import androidx.activity.enableEdgeToEdge
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.platform.ComposeView
 import dev.petalcat.janetcall.ui.JanetTheme
@@ -29,7 +30,6 @@ class MainActivity : ComponentActivity() {
 	private lateinit var content: ComposeView
 	private var inCall by mutableStateOf(false)
 	private var screen by mutableStateOf<Screen>(Screen.Welcome(null))
-	private var settingsOpen by mutableStateOf(false)
 	private var callUi by mutableStateOf(CallUi(null, "", false))
 	private var callStage by mutableStateOf<CallStage?>(null)
 	private val settings by lazy { Settings(this) }
@@ -56,6 +56,9 @@ class MainActivity : ComponentActivity() {
 	@Composable
 	private fun Root() {
 		val shown = screen
+		var settingsOpen by rememberSaveable { mutableStateOf(false) }
+		// A phone that is no longer paired has no settings to leave open.
+		if (shown !is Screen.Home) settingsOpen = false
 		when {
 			inCall -> CallScreen(
 				ui = callUi,
@@ -67,7 +70,10 @@ class MainActivity : ComponentActivity() {
 			shown is Screen.Home && settingsOpen -> SettingsScreen(
 				host = shown.host,
 				onBack = { settingsOpen = false },
-				onUnpair = ::unpair,
+				onUnpair = {
+					settingsOpen = false
+					unpair()
+				},
 				licences = { licenceText(this) },
 			)
 			shown is Screen.Home -> HomeScreen(shown, onCall = ::requestCall, onSettings = { settingsOpen = true })
@@ -148,7 +154,6 @@ class MainActivity : ComponentActivity() {
 			ended = (Calls.state as? CallState.Ended)?.reason,
 			recent = log.recent(),
 		)
-		if (screen !is Screen.Home) settingsOpen = false
 		// An overlay drawn over the confirmation must not be able to pass a tap through to Pair.
 		content.filterTouchesWhenObscured = screen is Screen.Confirm
 	}
@@ -167,7 +172,6 @@ class MainActivity : ComponentActivity() {
 		settings.clear()
 		log.clear()
 		Pairer.notice = null
-		settingsOpen = false
 		render()
 	}
 
