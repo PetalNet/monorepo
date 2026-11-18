@@ -9,13 +9,14 @@ import io
 import json
 import logging
 import os
+import re
 import secrets
 import threading
 import time
 from http import HTTPStatus
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
-from urllib.parse import urlsplit
+from urllib.parse import parse_qs, urlsplit
 
 log = logging.getLogger("janet-phone")
 MAX_BODY = 4096
@@ -106,12 +107,17 @@ class Codes:
         return by if expires > now else None
 
 
-def pairing_link(url: str, code: str, expires: int, access: dict) -> str:
-    """What the phone opens to pair: where the bridge is, how to get through Cloudflare Access, and
-    the one-time code. The device token itself is never shown; the phone fetches it with the code."""
-    payload = {"url": url, "code": code, "cf_id": access["client_id"], "cf_secret": access["client_secret"],
-               "expires": expires}
+def app_link(url: str, code: str, expires: int) -> str:
+    """What the app opens to pair: where the bridge is and a one-time code. No lasting secret is in
+    it; the phone trades the code for its device token and the Access credentials over TLS."""
+    payload = {"url": url, "code": code, "expires": expires}
     return "janetcall://pair?u=" + base64.urlsafe_b64encode(json.dumps(payload).encode()).decode().rstrip("=")
+
+
+def tap_link(url: str, code: str, expires: int) -> str:
+    """The same pairing as a web address, which a chat message can carry and a camera can open. It
+    leads to a page on the bridge with one button that opens the app."""
+    return f"https://{urlsplit(url).netloc}/v1/call/pair?c={code}&e={expires}"
 
 
 def qr_svg(text: str) -> str:
@@ -122,6 +128,20 @@ def qr_svg(text: str) -> str:
     qrcode.make(text, image_factory=qrcode.image.svg.SvgPathImage, box_size=8, border=2).save(out)
     return out.getvalue().decode()
 
+
+OPEN = """<!doctype html><html lang="en"><meta charset="utf-8"><meta name="viewport" content="width=device-width">
+<title>Pair this phone with Janet</title>
+<style>
+:root {{ color-scheme: light dark; }}
+body {{ font: 18px/1.5 system-ui, sans-serif; max-width: 24rem; margin: 4rem auto; padding: 0 1rem; text-align: center; }}
+a.button {{ display: inline-block; margin: 1rem; padding: .9rem 1.4rem; border: 1px solid currentColor; border-radius: .6rem;
+  color: inherit; text-decoration: none; font-weight: 600; }}
+</style>
+<h1>Pair this phone with Janet</h1>
+<p><a class="button" href="{link}">Open Janet Call</a></p>
+<p>Install Janet Call first if the button does nothing. The link works once and for a few minutes.</p>
+</html>
+"""
 
 PAGE = """<!doctype html><html lang="en"><meta charset="utf-8"><meta name="viewport" content="width=device-width">
 <title>Pair a phone with Janet</title>
@@ -136,7 +156,7 @@ a.button, button {{ display: inline-block; margin: .5rem; padding: .6rem 1rem; b
   border-radius: .5rem; background: none; color: inherit; font: inherit; text-decoration: none; cursor: pointer; }}
 </style>
 <h1>Pair a phone with Janet</h1>
-<p>Install Janet Call on the phone, then scan this code with the phone's camera.</p>
+<p>Install Janet Call on the phone, then scan this code with the phone's camera and tap the button it shows.</p>
 <div class="qr">{qr}</div>
 <p><a class="button" href="{link}">Pair this phone</a></p>
 <p>The code works once and expires in {minutes} minutes. Reload for a new one.</p>
@@ -155,7 +175,9 @@ def serve(listen: str, devices: Devices, codes: Codes, *, url: str, access_file:
     proxy's own secret in X-Janet-Pair-Proxy, which the proxy adds after it has signed the visitor in;
     only then is its X-authentik-username believed. Another process on the same host can reach this
     listener, and without the secret it gets nothing.
-    POST /v1/call/pair needs a live one-time code and nothing else.
+    POST /v1/call/pair needs a live one-time code and nothing else, and GET /v1/call/pair is the page
+    a pairing link lands on. Both are reachable without Cloudflare Access, since a phone that is not
+    paired has no Access credentials yet: put a rate limit in front of them.
     """
 
     def from_proxy(headers) -> bool:
@@ -185,7 +207,17 @@ def serve(listen: str, devices: Devices, codes: Codes, *, url: str, access_file:
 
         def do_GET(self):
             user = self.headers.get("X-authentik-username", "")
-            if urlsplit(self.path).path != page_path:
+            address = urlsplit(self.path)
+            if address.path == "/v1/call/pair":
+                # Where a tapped or scanned link lands: one button that hands the code to the app.
+                # Loading this page spends nothing, so a chat client fetching a preview does no harm.
+                query = parse_qs(address.query)
+                code, expires = query.get("c", [""])[0], query.get("e", [""])[0]
+                if not re.fullmatch(r"[A-Za-z0-9_-]{16,64}", code) or not re.fullmatch(r"[0-9]{1,12}", expires):
+                    return self._send(HTTPStatus.NOT_FOUND, "{}")
+                page = OPEN.format(link=html.escape(app_link(url, code, int(expires))))
+                return self._send(HTTPStatus.OK, page, "text/html; charset=utf-8")
+            if address.path != page_path:
                 return self._send(HTTPStatus.NOT_FOUND, "{}")
             # A page on another site must not make the owner's browser mint codes behind his back, but
             # he must be able to arrive here from the sign-on page or from a link: a top-level
@@ -196,9 +228,11 @@ def serve(listen: str, devices: Devices, codes: Codes, *, url: str, access_file:
             if not from_proxy(self.headers) or not user or user not in users or cross_site:
                 return self._send(HTTPStatus.FORBIDDEN, "{}")
             code, expires = codes.issue(user)
-            link = pairing_link(url, code, expires, json.loads(Path(access_file).read_text()))
-            page = PAGE.format(qr=qr_svg(link), link=html.escape(link), minutes=codes.ttl_s // 60, user=html.escape(user))
             log.info("pairing code issued")
+            if parse_qs(address.query).get("format") == ["link"]:  # for the operator, who sends it on
+                return self._send(HTTPStatus.OK, tap_link(url, code, expires) + "\n", "text/plain; charset=utf-8")
+            page = PAGE.format(qr=qr_svg(tap_link(url, code, expires)), link=html.escape(app_link(url, code, expires)),
+                               minutes=codes.ttl_s // 60, user=html.escape(user))
             self._send(HTTPStatus.OK, page, "text/html; charset=utf-8")
 
         def do_POST(self):
@@ -219,7 +253,10 @@ def serve(listen: str, devices: Devices, codes: Codes, *, url: str, access_file:
                 log.info("paired device %s", hashlib.sha256(token.encode()).hexdigest()[:12])
                 if on_paired is not None:
                     on_paired(devices.name_of(token), by)
-                return self._send(HTTPStatus.OK, json.dumps({"token": token}))
+                # The Access service token travels here, over TLS and once, and never in a link.
+                access = json.loads(Path(access_file).read_text())
+                reply = {"token": token, "cf_id": access["client_id"], "cf_secret": access["client_secret"]}
+                return self._send(HTTPStatus.OK, json.dumps(reply))
             if routes and path in routes:
                 status, reply = routes[path](self.headers, body)
                 return self._send(status, json.dumps(reply))

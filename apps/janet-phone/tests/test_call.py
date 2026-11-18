@@ -380,19 +380,41 @@ class CallTest(unittest.IsolatedAsyncioTestCase):
         link = re.search(r'href="(janetcall://pair\?u=[^"]+)"', page)[1]
         encoded = link.split("u=")[1]
         payload = json.loads(base64.urlsafe_b64decode(encoded + "=" * (-len(encoded) % 4)))
-        self.assertEqual((payload["url"], payload["cf_id"], payload["cf_secret"]),
-                         ("wss://bridge.example/v1/call", "id.access", "s3cret"))
-        self.assertNotIn("token", payload)
+        self.assertEqual(sorted(payload), ["code", "expires", "url"])
+        self.assertEqual(payload["url"], "wss://bridge.example/v1/call")
+        self.assertNotIn("s3cret", page)
         paired = {"code": payload["code"], "name": "Galaxy S23"}
         status, body = await asyncio.to_thread(self._http, "POST", "/v1/call/pair", paired)
         self.assertEqual(status, 200)
-        self.assertEqual(list(json.loads(body)), ["token"])
+        self.assertEqual(sorted(json.loads(body)), ["cf_id", "cf_secret", "token"])
+        self.assertEqual((json.loads(body)["cf_id"], json.loads(body)["cf_secret"]), ("id.access", "s3cret"))
         self.assertNotIn("right", body)
         self.assertEqual(self.announced, [("Galaxy S23", "parker")])
         self.assertEqual((await asyncio.to_thread(self._http, "POST", "/v1/call/pair", paired))[0], 403)
         async with connect(self.url, additional_headers={"Authorization": "Bearer " + json.loads(body)["token"]}) as ws:
             await asyncio.wait_for(ws.recv(), 10)
         self.assertIn("the device named 'Galaxy S23'", await self._notice())
+
+    async def test_a_link_for_a_chat_message_lands_on_a_page_that_opens_the_app(self):
+        owner = {"X-authentik-username": "parker", "X-Janet-Pair-Proxy": "from-the-proxy"}
+        status, link = await asyncio.to_thread(self._http, "GET", "/pair?format=link", None, owner)
+        self.assertEqual(status, 200)
+        link = link.strip()
+        self.assertRegex(link, r"^https://bridge\.example/v1/call/pair\?c=[A-Za-z0-9_-]+&e=[0-9]+$")
+        self.assertNotIn("s3cret", link)
+        self.assertNotIn("id.access", link)
+        # Anyone may load the landing page, a chat client's preview included: it spends nothing.
+        for _ in range(2):
+            status, page = await asyncio.to_thread(self._http, "GET", link.split("bridge.example")[1])
+            self.assertEqual(status, 200)
+        app = re.search(r'href="(janetcall://pair\?u=[^"]+)"', page)[1].split("u=")[1]
+        payload = json.loads(base64.urlsafe_b64decode(app + "=" * (-len(app) % 4)))
+        self.assertEqual(sorted(payload), ["code", "expires", "url"])
+        self.assertNotIn("s3cret", page)
+        status, body = await asyncio.to_thread(self._http, "POST", "/v1/call/pair", {"code": payload["code"], "name": "S23"})
+        self.assertEqual((status, json.loads(body)["cf_secret"]), (200, "s3cret"))
+        self.assertEqual((await asyncio.to_thread(self._http, "GET", "/v1/call/pair?c=<script>&e=1"))[0], 404)
+        self.assertEqual((await asyncio.to_thread(self._http, "GET", "/pair?format=link"))[0], 403)
 
     async def test_a_wrong_or_expired_code_pairs_nothing(self):
         self.assertEqual((await asyncio.to_thread(self._http, "POST", "/v1/call/pair", {"code": "guess"}))[0], 403)
