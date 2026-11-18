@@ -65,6 +65,7 @@
 	"packageManager": "pnpm@12.21.0",
 	"typesync": {
 		"ignoreProjects": [
+			"apps/app-store",
 			"apps/box-agent",
 			"apps/chatterbox-wyoming",
 			"apps/control-plane",
