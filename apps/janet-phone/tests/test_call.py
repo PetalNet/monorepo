@@ -226,6 +226,33 @@ class CallTest(unittest.IsolatedAsyncioTestCase):
         async with connect(self.url, additional_headers=self.phone) as ws:
             self.assertEqual(json.loads(await asyncio.wait_for(ws.recv(), 3)), {"type": "audio", "rate": 24000})
 
+    async def test_a_damaged_cache_file_is_replaced_not_played(self):
+        for damage in (b"", b"not audio at all", None):
+            janet_phone.DISCLOSURES.clear()
+            for old in (self.dir / "cache").glob("*.wav"):
+                old.unlink()
+            async with connect(self.url, additional_headers=self.phone) as ws:
+                await asyncio.wait_for(ws.recv(), 10)
+            cached = next((self.dir / "cache").glob("*.wav"))
+            if damage is None:  # a header that promises more audio than the file holds
+                cached.write_bytes(cached.read_bytes()[:200])
+            else:
+                cached.write_bytes(damage)
+            janet_phone.DISCLOSURES.clear()
+            async with connect(self.url, additional_headers=self.phone) as ws:
+                heard = b""
+                while len(heard) < 9600:
+                    message = await asyncio.wait_for(ws.recv(), 10)
+                    heard += message if isinstance(message, bytes) else b""
+            with wave.open(str(cached)) as wav:
+                self.assertEqual(wav.getnframes(), 4800, damage)
+
+    async def test_warm_up_runs_at_most_once_a_minute(self):
+        for _ in range(3):
+            self.assertEqual((await asyncio.to_thread(self._http, "POST", "/v1/call/warm", {}, self.phone))[0], 202)
+        await asyncio.sleep(1)
+        self.assertEqual([body["text"] for path, body in FakeGateway.calls if path == "/v1/tts"].count("Okay."), 1)
+
     async def test_warm_up_is_for_paired_phones_and_readies_speech_before_a_call(self):
         self.assertEqual((await asyncio.to_thread(self._http, "POST", "/v1/call/warm", {}))[0], 403)
         self.assertEqual(FakeGateway.calls, [])
@@ -361,6 +388,24 @@ class CallTest(unittest.IsolatedAsyncioTestCase):
         code, _ = self.codes.issue("parker", now=time.time() - 301)
         self.assertEqual((await asyncio.to_thread(self._http, "POST", "/v1/call/pair", {"code": code}))[0], 403)
         self.assertEqual(len(self.devices.listing()), 1)
+
+
+class LevelTest(unittest.TestCase):
+    def test_a_level_is_the_rms_of_the_last_20_ms_over_6000_clamped(self):
+        quiet, loud = struct.pack("<h", 0), struct.pack("<h", 3000)
+        self.assertEqual(janet_phone.level(loud * 320, 16000), 0.5)
+        self.assertEqual(janet_phone.level(loud * 480, 24000), 0.5)
+        self.assertEqual(janet_phone.level(loud * 1600 + quiet * 320, 16000), 0.0)  # only the last 20 ms counts
+        self.assertEqual(janet_phone.level(quiet * 160 + loud * 320, 24000), round((2 / 3) ** 0.5 * 0.5, 3))
+        self.assertEqual(janet_phone.level(struct.pack("<h", 30000) * 320, 16000), 1.0)
+        self.assertEqual(janet_phone.level(b"", 16000), 0.0)
+        self.assertEqual(janet_phone.level(struct.pack("<hh", 3000, -3000) * 160, 16000), 0.5)  # RMS, not the mean
+
+    def test_word_times_start_at_zero_and_end_with_the_audio(self):
+        times = janet_phone.word_times("Hi Sam, thanks for calling.", 2.0)
+        self.assertEqual([word["w"] for word in times], ["Hi", "Sam,", "thanks", "for", "calling."])
+        self.assertEqual(times[0]["t"], 0.0)
+        self.assertAlmostEqual(times[-1]["t"] + times[-1]["d"], 2.0, delta=0.02)
 
 
 class DestinationTest(unittest.TestCase):

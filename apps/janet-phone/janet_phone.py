@@ -168,12 +168,23 @@ def disclosure_audio(config: Config, gateway: "Gateway") -> tuple[int, bytes]:
         name = hashlib.sha256(text.encode()).hexdigest() + ".wav"
         cached = Path(config.cache_dir) / name if config.cache_dir else None
         if cached is not None and cached.exists():
-            with wave.open(str(cached)) as wav:
-                DISCLOSURES[text] = (wav.getframerate(), wav.readframes(wav.getnframes()))
-            return DISCLOSURES[text]
-        rate, pcm = DISCLOSURES[text] = gateway.speech(text)
+            # A file that is empty, cut short or not audio is not the disclosure: synthesize again.
+            try:
+                with wave.open(str(cached)) as wav:
+                    rate, frames, pcm = wav.getframerate(), wav.getnframes(), wav.readframes(wav.getnframes())
+                if frames and len(pcm) == frames * 2:
+                    DISCLOSURES[text] = (rate, pcm)
+                    return DISCLOSURES[text]
+            except (OSError, EOFError, wave.Error):
+                pass
+            log.warning("the cached disclosure is unusable; synthesizing it again")
+        rate, pcm = gateway.speech(text)
+        if not pcm:
+            raise OSError("the voice returned no audio for the disclosure")
+        DISCLOSURES[text] = (rate, pcm)
         if cached is not None:
             try:
+                cached.parent.mkdir(parents=True, exist_ok=True)
                 partial = cached.with_suffix(".tmp")
                 with wave.open(str(partial), "wb") as wav:
                     wav.setnchannels(1), wav.setsampwidth(2), wav.setframerate(rate)
@@ -184,7 +195,7 @@ def disclosure_audio(config: Config, gateway: "Gateway") -> tuple[int, bytes]:
         return rate, pcm
 
 
-WARMED = [0.0]
+WARMED = [float("-inf")]
 
 
 def warm(config: Config, gateway: "Gateway") -> None:
@@ -193,12 +204,14 @@ def warm(config: Config, gateway: "Gateway") -> None:
     if time.monotonic() - WARMED[0] < 60:
         return
     WARMED[0] = time.monotonic()
-    for name, step in (("speech to text", lambda: transcribe(config.stt, bytes(RATE))),
-                       ("disclosure", lambda: disclosure_audio(config, gateway)),
-                       ("voice", lambda: gateway.speech("Okay."))):
+    steps = [("speech to text", lambda: transcribe(config.stt, bytes(RATE * 2))),
+             ("voice", lambda: gateway.speech("Okay."))]
+    if not DISCLOSING.locked():  # a call is already fetching it; do not queue behind that
+        steps.insert(1, ("disclosure", lambda: disclosure_audio(config, gateway)))
+    for name, step in steps:
         try:
             step()
-        except (OSError, ValueError) as error:
+        except (OSError, ValueError, EOFError, wave.Error) as error:
             log.warning("warm-up: %s failed: %s", name, error)
 
 
@@ -516,7 +529,7 @@ async def admit(ws: ServerConnection, request: Request, config: Config, devices:
 async def handle(ws: ServerConnection, config: Config) -> None:
     call = Call(ws, config, ws.gateway, ws.conversation, ws.device)
     # A sleeping voice host starts waking now, while the caller hears the cached disclosure.
-    asyncio.get_running_loop().run_in_executor(None, warm, config, ws.gateway)
+    threading.Thread(target=warm, args=(config, ws.gateway), daemon=True).start()
     OPEN.add(id(call))
     log.info("call %s: answered", call.conversation)
     try:
