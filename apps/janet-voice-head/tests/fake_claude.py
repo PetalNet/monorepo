@@ -24,8 +24,10 @@ def log(entry: dict) -> None:
 
 
 def init() -> None:
-    out({"type": "system", "subtype": "init", "session_id": SESSION, "mcp_servers": [],
-         "tools": ["Bash"] if ("--fake-leak-tools" in argv or "--permission-mode" in argv) else []})
+    tools = argv[argv.index("--tools") + 1].split(",") if "--tools" in argv and argv[argv.index("--tools") + 1] else []
+    if "--fake-leak-tools" in argv or ("--permission-mode" in argv and not tools):
+        tools = [*tools, "Bash"]
+    out({"type": "system", "subtype": "init", "session_id": SESSION, "mcp_servers": [], "tools": tools})
 
 
 def reply_to(prompt: str) -> str:
@@ -90,6 +92,14 @@ while (message := incoming.get()) is not None:
         init()
         out({"type": "system", "subtype": "status", "status": "requesting"})
         reply, aborted = reply_to(prompt), False
+        if "lookup" in prompt.rsplit(" says: ", 1)[-1]:
+            # A lookup: a spoken bridge line, then the tool call, then the answer, with no space between the texts.
+            def delta(text):
+                out({"type": "stream_event", "event": {"type": "content_block_delta", "delta": {"type": "text_delta", "text": text}}})
+            delta("One sec, checking.")
+            out({"type": "stream_event", "event": {"type": "content_block_start", "content_block": {"type": "tool_use", "name": "WebSearch"}}})
+            time.sleep(0.5)
+            reply = "It closes at nine."
         for start in range(0, len(reply), 12):
             out({"type": "stream_event", "event": {"type": "content_block_delta", "delta": {"type": "text_delta", "text": reply[start:start + 12]}}})
             if "count" in prompt:

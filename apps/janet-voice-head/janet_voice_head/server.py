@@ -11,7 +11,7 @@ import tomllib
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
-from . import __version__
+from . import __version__, web_guard
 from .conversation import LEAST_PRIVILEGED, TIERS
 from .head import ApiError, Config, Head
 from .merge import Hub
@@ -38,6 +38,8 @@ def load_config(path: Path) -> tuple[Config, list[str], Path]:
     listen, token_file = raw.pop("listen"), Path(raw.pop("token_file"))
     if raw.get("soft_merge", "asks") not in ("asks", "every"):
         raise ValueError("soft_merge must be asks or every")
+    if unknown := set(raw.get("web_tools", [])) - web_guard.TOOLS:
+        raise ValueError(f"web_tools may only name {sorted(web_guard.TOOLS)}, not {sorted(unknown)}")
     config = Config(
         state_dir=Path(raw.pop("state_dir")),
         hub=Hub(hub["url"], Path(hub["token_file"]), Path(hub["state_file"]), raw["main_cwd"]),

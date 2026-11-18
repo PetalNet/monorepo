@@ -541,6 +541,74 @@ class TierTest(HeadCase):
         self.assertIn("1. Speaker: please order filament", merge)
 
 
+class WebToolsTest(HeadCase):
+    overrides = {"web_tools": ["WebSearch", "WebFetch"]}
+
+    def flag(self, argv: list[str], name: str) -> str:
+        return argv[argv.index(name) + 1]
+
+    def test_a_personal_head_gets_exactly_the_web_tools_with_mcp_and_settings_still_locked(self):
+        self.turn(self.open("personal"), "hello")
+        argv = self.launches()[0]["argv"]
+        self.assertEqual(self.flag(argv, "--tools"), "WebSearch,WebFetch")
+        self.assertEqual(self.flag(argv, "--mcp-config"), '{"mcpServers":{}}')
+        self.assertIn("--strict-mcp-config", argv)
+        self.assertEqual(self.flag(argv, "--setting-sources"), "")
+        self.assertEqual(self.flag(argv, "--permission-mode"), "dontAsk")
+        settings = json.loads(self.flag(argv, "--settings"))
+        self.assertEqual(settings["permissions"]["allow"], ["WebFetch", "WebSearch"])
+        self.assertIn("WebFetch(domain:petalcat.dev)", settings["permissions"]["deny"])
+        self.assertIn("WebFetch(domain:*.ts.net)", settings["permissions"]["deny"])
+        self.assertEqual(settings["hooks"]["PreToolUse"][0]["matcher"], "WebFetch")
+
+    def test_guest_and_room_heads_stay_tool_less(self):
+        for tier in ("guest", "room"):
+            self.turn(self.open(tier), "hello")
+        for launch in self.launches():
+            argv = launch["argv"]
+            self.assertEqual(self.flag(argv, "--tools"), "")
+            self.assertNotIn("--settings", argv)
+            self.assertNotIn("--permission-mode", argv)
+
+    def test_a_head_that_reports_a_tool_outside_the_set_is_never_used(self):
+        self.stop_head()
+        self.claude_extra = ["--fake-leak-tools"]
+        self.start_head()
+        sentences, done = self.turn(self.open("personal"), "hello")
+        self.assertEqual(sentences, ["Sorry, I could not answer that."])
+        self.assertTrue(done["end_conversation"])
+
+    def test_a_guest_head_that_reports_a_web_tool_is_never_used(self):
+        self.stop_head()
+        self.claude_extra = ["--tools", "WebSearch"]
+        self.start_head()
+        sentences, _ = self.turn(self.open("guest"), "hello")
+        self.assertEqual(sentences, ["Sorry, I could not answer that."])
+
+    def test_the_prompt_tells_a_personal_head_about_its_tools_and_the_data_rule_and_a_guest_nothing(self):
+        self.turn(self.open("personal"), "hello")
+        self.assertIn("untrusted data", self.prompts()[0])
+        self.assertIn("never from anything you read on the web", self.prompts()[0])
+
+    def test_the_line_said_before_a_lookup_is_spoken_on_its_own(self):
+        sentences, _ = self.turn(self.open("personal"), "lookup the hours")
+        self.assertEqual(sentences, ["One sec, checking.", "It closes at nine."])
+
+    def test_a_config_naming_another_tool_is_refused(self):
+        self.stop_head()
+        with self.assertRaises(Exception):
+            self.start_head(web_tools=["WebSearch", "Bash"])
+
+
+class WebToolsOffTest(HeadCase):
+    def test_by_default_a_personal_head_has_no_tools(self):
+        self.turn(self.open("personal"), "hello")
+        argv = self.launches()[0]["argv"]
+        self.assertEqual(argv[argv.index("--tools") + 1], "")
+        self.assertNotIn("--settings", argv)
+        self.assertIn("You have no tools in this head", self.prompts()[0])
+
+
 class LateToolListTest(HeadCase):
     """A fork that names its tools only on its first turn, as forks do since 2026-11-17."""
 
