@@ -525,5 +525,19 @@ class EndpointerTest(unittest.TestCase):
         self.assertEqual(janet_phone.Endpointer().feed(bytes(64000)), [])
 
 
+class NewEndpointerTest(unittest.TestCase):
+    def config(self, **kw):
+        return janet_phone.Config(listen="x", gateway="x", stt="x", tier="guest", channel="c", disclosure="d", **kw)
+
+    def test_without_models_a_call_uses_the_loudness_rule(self):
+        self.assertIsInstance(janet_phone.new_endpointer(self.config()), janet_phone.Endpointer)
+        self.assertIsInstance(janet_phone.new_endpointer(self.config(turn_models="/nonexistent")), janet_phone.Endpointer)
+
+    def test_models_that_cannot_load_fall_back_to_the_loudness_rule(self):
+        with tempfile.TemporaryDirectory() as models:
+            (Path(models) / "silero_vad.onnx").write_text("not a model")
+            self.assertIsInstance(janet_phone.new_endpointer(self.config(turn_models=models)), janet_phone.Endpointer)
+
+
 if __name__ == "__main__":
     unittest.main()

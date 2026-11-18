@@ -10,6 +10,7 @@ import logging
 import os
 import socket
 import subprocess
+import sys
 import threading
 import time
 import tomllib
@@ -76,6 +77,29 @@ class Endpointer:
         return events
 
 
+_WORDS: list = []
+
+
+def new_endpointer(config: "Config"):
+    """The shared turn detector (packages/janet-turn) when its models are installed, else the loudness rule above."""
+    models = Path(config.turn_models) if config.turn_models else None
+    here = Path(__file__).resolve()
+    if len(here.parents) > 2 and (here.parents[2] / "packages" / "janet-turn").is_dir():  # in the repository; the image has it beside this file
+        sys.path.append(str(here.parents[2] / "packages" / "janet-turn"))
+    if models and (models / "silero_vad.onnx").exists():
+        try:
+            from janet_turn.turn_end import Policy, Utterances
+            from janet_turn.turn_judge import Words
+
+            parakeet = models / "parakeet_realtime_eou_120m.int8.onnx"
+            if not _WORDS and parakeet.exists():
+                _WORDS.append(Words(parakeet, models / "parakeet_vocab.txt"))
+            return Utterances(models, Policy(nothing_said_s=1e9), words=_WORDS[0] if _WORDS else None)
+        except Exception as error:  # noqa: BLE001 - a call must go on with the loudness rule
+            log.warning("no shared turn detector, using the loudness rule: %s", error)
+    return Endpointer(**config.endpoint)
+
+
 @dataclass(frozen=True)
 class Config:
     listen: str
@@ -108,6 +132,8 @@ class Config:
     # Signing in from the app: the [signin] table, whose keys are pairing.SignIn's fields. Empty turns it off.
     signin: dict = field(default_factory=dict)
     endpoint: dict = field(default_factory=dict)
+    # Directory holding silero_vad.onnx and the Parakeet speech model for the shared turn detector. Empty uses the loudness rule.
+    turn_models: str = ""
 
 
 def transcribe(address: str, pcm: bytes) -> str:
@@ -358,7 +384,7 @@ class Call:
 
     async def listen(self) -> None:
         """Reads the caller until the socket closes, however it closes, and then ends the call."""
-        endpointer, heard = Endpointer(**self.config.endpoint), 0
+        endpointer, heard = new_endpointer(self.config), 0
         try:
             async with asyncio.timeout(self.config.max_call_s):
                 async for message in self.ws:
@@ -380,6 +406,8 @@ class Call:
             pass
         finally:
             self.utterances.shutdown(immediate=True)
+            if close := getattr(endpointer, "close", None):
+                close()
 
     async def cut_off(self) -> None:
         if self.speaking is None or self.speaking.done():
