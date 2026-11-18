@@ -57,12 +57,15 @@ class BridgeTest {
 			"This pairing link was already used or has expired. Ask for a new one.",
 			refusal(Bridge.pair(link(), "x")),
 		)
+		assertEquals("a spent code cannot be tried again", false, (Bridge.pair(link(), "x") as PairResult.Refused).retryable)
 	}
 
 	@Test
 	fun `a 429 says to wait a minute`() {
 		bridgeAnswers(429, """{"error":"too many attempts"}""")
-		assertEquals("Too many pairing attempts. Wait a minute, then open the pairing link again.", refusal(Bridge.pair(link(), "x")))
+		val answer = Bridge.pair(link(), "x") as PairResult.Refused
+		assertEquals("Too many pairing attempts. Wait a minute, then try again.", answer.reason)
+		assertEquals("a 429 spent nothing, so the same link can be tried again", true, answer.retryable)
 	}
 
 	@Test
@@ -101,5 +104,19 @@ class BridgeTest {
 		val port = server.address.port
 		server.stop(0)
 		assertTrue(refusal(Bridge.pair(link(), "x")).startsWith("Could not reach the bridge at 127.0.0.1:$port: "))
+	}
+
+	@Test
+	fun `an unreachable bridge can be tried again with the same link, a spent code cannot`() {
+		server.stop(0)
+		assertTrue((Bridge.pair(link(), "x") as PairResult.Refused).retryable)
+	}
+
+	@Test
+	fun `the warm-up answer says whether the line is up, or the bridge forgot this phone`() {
+		assertEquals(Line.Ready, Bridge.lineFor(202, null))
+		assertEquals(Line.Revoked, Bridge.lineFor(403, JSONObject("""{"error":"unknown device"}""")))
+		assertEquals("a 403 from Cloudflare Access proves nothing about the pairing", Line.Unreachable, Bridge.lineFor(403, null))
+		assertEquals(Line.Unreachable, Bridge.lineFor(502, null))
 	}
 }

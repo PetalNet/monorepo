@@ -14,32 +14,38 @@ object Pairer {
 		private set
 
 	/** Why the last pairing or call attempt did not go through, or null. */
-	var notice: String? = null
+	var problem: Problem? = null
 
 	fun start(context: Context, link: PairingLink) {
 		val app = context.applicationContext
 		host = link.host
-		notice = null
+		problem = null
 		Calls.update()
 		Thread({
-			val problem = pairAndStore(app, link)
+			val failed = pairAndStore(app, link)
+			if (failed == null) {
+				// A fresh pairing: ask the bridge at once whether the line is up.
+				Calls.line = Line.Checking
+				Settings(app).pairing()?.let { Bridge.warm(it, Calls.lineSink(app, it)) }
+			}
 			Calls.update {
 				host = null
-				notice = problem
+				problem = failed
 			}
 		}, "janet-pair").start()
 	}
 
 	/** Trades the code for the pairing and stores it. Blocks. Returns why it failed, or null. */
-	fun pairAndStore(context: Context, link: PairingLink): String? =
+	fun pairAndStore(context: Context, link: PairingLink): Problem? =
 		when (val result = Bridge.pair(link, "${Build.MANUFACTURER} ${Build.MODEL}")) {
-			is PairResult.Refused -> result.reason
+			// Only a link whose code was not spent can be tried again.
+			is PairResult.Refused -> if (result.retryable) Problem.PairUnreachable(result.reason, link) else Problem.Note(result.reason)
 			is PairResult.Paired -> try {
 				Settings(context).save(result.pairing)
 				null
 			} catch (_: Exception) {
 				// The code is spent by now, so only a new one can pair this phone.
-				"This phone could not store the pairing. Ask for a new pairing link."
+				Problem.Note("This phone could not store the pairing. Ask for a new pairing link.")
 			}
 		}
 }

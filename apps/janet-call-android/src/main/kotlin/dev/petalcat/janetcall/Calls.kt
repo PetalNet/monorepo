@@ -18,7 +18,8 @@ sealed interface CallState {
 
 	data object Active : CallState
 
-	data class Ended(val reason: String) : CallState
+	/** [problem] is set when the call ended because something went wrong, not because someone hung up. */
+	data class Ended(val reason: String, val problem: Problem? = null) : CallState
 }
 
 /** Call state shared between the ConnectionService and the activity. Mutated and observed on the main thread. */
@@ -28,6 +29,19 @@ object Calls {
 	var route: String = ""
 		private set
 	var connection: JanetConnection? = null
+
+	/** What the bridge last said about the line. Main thread, and the Pairer's thread before it posts. */
+	@Volatile var line: Line = Line.Checking
+
+	/** Where a warm-up answer for [pairing] goes: nowhere if this phone has since been paired again or unpaired. */
+	fun lineSink(context: Context, pairing: Pairing): (Line) -> Unit {
+		val app = context.applicationContext
+		return { line -> if (Settings(app).pairing()?.token == pairing.token) hearLine(line) }
+	}
+
+	fun hearLine(value: Line) {
+		update { line = value }
+	}
 
 	/** True while the caller has muted the microphone. Read on the microphone thread. A new call starts unmuted. */
 	@Volatile var muted = false
@@ -76,12 +90,12 @@ object Dialer {
 	private fun handle(context: Context) =
 		PhoneAccountHandle(ComponentName(context, JanetConnectionService::class.java), "janet")
 
-	/** Places the call. Returns a reason it could not be placed, or null. */
-	fun place(context: Context): String? {
+	/** Places the call. Returns why it could not be placed, or null. */
+	fun place(context: Context): Problem? {
 		if (Calls.inCall) return null
-		val pairing = Settings(context).pairing() ?: return NOT_PAIRED
+		val pairing = Settings(context).pairing() ?: return Problem.Note(NOT_PAIRED)
 		// Speech-to-text and the voice start loading now, while Android sets the call up.
-		Bridge.warm(pairing)
+		Bridge.warm(pairing, Calls.lineSink(context, pairing))
 		val telecom = context.getSystemService(TelecomManager::class.java)
 		val handle = handle(context)
 		telecom.registerPhoneAccount(
@@ -98,7 +112,7 @@ object Dialer {
 			null
 		} catch (e: SecurityException) {
 			Calls.update(CallState.Idle)
-			"Telecom refused the call: ${e.message}"
+			Problem.CallFailed("Telecom refused the call: ${e.message}")
 		}
 	}
 }

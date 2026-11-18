@@ -26,15 +26,16 @@ class ScreensTest {
 		link: PairingLink? = null,
 		ready: Boolean = true,
 		paired: Pairing? = null,
-		notice: String? = null,
+		problem: Problem? = null,
 		ended: String? = null,
+		line: Line = Line.Ready,
 		recent: List<CallRecord> = emptyList(),
-	) = screenFor(pairingWith, link, ready, paired, notice, ended, recent)
+	) = screenFor(pairingWith, link, ready, paired, problem, ended, line, recent)
 
 	@Test
 	fun `an unpaired phone shows the welcome and why the last link failed`() {
 		assertEquals(Screen.Welcome(null), screen())
-		assertEquals(Screen.Welcome("expired"), screen(notice = "expired"))
+		assertEquals(Screen.Welcome(Problem.Note("expired")), screen(problem = Problem.Note("expired")))
 	}
 
 	@Test
@@ -49,10 +50,37 @@ class ScreensTest {
 	}
 
 	@Test
-	fun `home says the notice, else how the last call ended, and lists three calls at most`() {
+	fun `home lists three calls at most and says how the last one ended`() {
 		val calls = (1..5).map { CallRecord(it * 1000L, it, true) }
-		assertEquals(Screen.Home("bridge.example.com", "No mic", calls.take(3)), screen(paired = PAIRED, notice = "No mic", ended = "Call ended", recent = calls))
-		assertEquals("Call ended", (screen(paired = PAIRED, ended = "Call ended") as Screen.Home).notice)
+		assertEquals(
+			Screen.Home("bridge.example.com", Line.Ready, null, "Call ended", calls.take(3)),
+			screen(paired = PAIRED, ended = "Call ended", recent = calls),
+		)
+	}
+
+	@Test
+	fun `a problem is shown with its action, and a phone the bridge forgot is told to pair again`() {
+		val mic = (screen(paired = PAIRED, problem = Problem.NoMicrophone) as Screen.Home).problem
+		assertEquals("Open app settings", mic?.action)
+		val forgotten = screen(paired = PAIRED, line = Line.Revoked) as Screen.Home
+		assertEquals("Pair again", forgotten.problem?.action)
+		// A forgotten phone's one move is to pair again, whatever else went wrong.
+		assertEquals("Pair again", (screen(paired = PAIRED, line = Line.Revoked, problem = Problem.CallFailed("x")) as Screen.Home).problem?.action)
+		assertEquals("Call again", (screen(paired = PAIRED, problem = Problem.CallFailed("x")) as Screen.Home).problem?.action)
+	}
+
+	@Test
+	fun `a pairing link never shows its one-time code when printed`() {
+		assertEquals(false, LINK.toString().contains("code"))
+		assertEquals(false, Problem.PairUnreachable("x", LINK).toString().contains(LINK.code))
+	}
+
+	@Test
+	fun `the line has a headline and a status for every state`() {
+		Line.entries.forEach {
+			assertTrue(lineHeadline(it).lines().size == 2)
+			assertTrue(lineStatus(it, "h").isNotBlank())
+		}
 	}
 
 	@Test

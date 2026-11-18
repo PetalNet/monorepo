@@ -58,9 +58,10 @@ class JanetConnection(private val onGone: (CallRecord) -> Unit) : Connection() {
 			is End.Failed -> DisconnectCause(DisconnectCause.ERROR, "Call failed", end.reason, "janet") to end.reason
 		}
 		ringback.stop()
+		val problem = (end as? End.Failed)?.let { if (it.repair) Problem.RePair(it.reason) else Problem.CallFailed(it.reason) }
 		setDisconnected(cause)
 		destroy()
-		Calls.update(CallState.Ended(reason))
+		Calls.update(CallState.Ended(reason, problem))
 		val connectedFor = activeAtMs?.let { (SystemClock.elapsedRealtime() - it) / 1000 }
 		onGone(CallRecord(startedMs, (connectedFor ?: 0).toInt(), connectedFor != null))
 	}
@@ -121,11 +122,11 @@ class JanetConnectionService : ConnectionService() {
 	}
 
 	override fun onCreateOutgoingConnectionFailed(account: PhoneAccountHandle?, request: ConnectionRequest?) {
-		Calls.update(CallState.Ended("Android could not place the call"))
+		Calls.update(CallState.Ended("Android could not place the call", Problem.CallFailed("Android could not place the call.")))
 	}
 
 	private fun failed(reason: String): Connection {
-		Calls.update(CallState.Ended(reason))
+		Calls.update(CallState.Ended(reason, Problem.Note(reason)))
 		return Connection.createFailedConnection(DisconnectCause(DisconnectCause.ERROR, "Call failed", reason, "janet"))
 	}
 

@@ -28,18 +28,18 @@ class HomeShots {
 		}, content = content)
 	}
 
-	@Test fun home() = draw("home-1-calls") { HomeScreen(Screen.Home("bridge.example.com", null, calls), {}, {}, now, zone) }
+	@Test fun home() = draw("home-1-calls") { HomeScreen(Screen.Home("bridge.example.com", Line.Ready, null, null, calls), {}, {}, now = now, zone = zone) }
 
-	@Test fun homeLight() = draw("home-2-light", dark = false) { HomeScreen(Screen.Home("bridge.example.com", null, calls), {}, {}, now, zone) }
+	@Test fun homeLight() = draw("home-2-light", dark = false) { HomeScreen(Screen.Home("bridge.example.com", Line.Ready, null, null, calls), {}, {}, now = now, zone = zone) }
 
 	@Test fun homeEmpty() = draw("home-3-empty") {
-		HomeScreen(Screen.Home("bridge.example.com", "Janet needs the microphone to take a call", emptyList()), {}, {}, now, zone)
+		HomeScreen(Screen.Home("bridge.example.com", Line.Ready, Problem.NoMicrophone, null, emptyList()), {}, {}, now = now, zone = zone)
 	}
 
 	@Test fun welcome() = draw("home-4-welcome") { WelcomeScreen(Screen.Welcome(null)) }
 
 	@Test fun welcomeFailed() = draw("home-5-welcome-expired", dark = false) {
-		WelcomeScreen(Screen.Welcome("This pairing link has expired. Ask for a new one."))
+		WelcomeScreen(Screen.Welcome(Problem.Note("This pairing link has expired. Ask for a new one.")))
 	}
 
 	@Test fun confirm() = draw("home-6-confirm") { ConfirmScreen(Screen.Confirm("bridge.example.com", null, true), {}, {}) }
@@ -51,14 +51,32 @@ class HomeShots {
 	@Test fun pairing() = draw("home-8-pairing") { PairingScreen(Screen.Pairing("bridge.example.com")) }
 
 	@Test fun homeFallback() = draw("home-11-page-failed") {
-		HomeScreen(Screen.Home("bridge.example.com", null, calls), {}, {}, now, zone, onRetry = {})
+		HomeScreen(Screen.Home("bridge.example.com", Line.Ready, null, null, calls), {}, {}, now = now, zone = zone, onRetry = {})
 	}
 
 	@Test fun homePage() = draw("home-12-web") {
-		HomeWeb(DEFAULT_HOME_URL, {}, {}, { retry -> HomeScreen(Screen.Home("bridge.example.com", null, calls), {}, {}, now, zone, onRetry = retry) })
+		HomeWeb(DEFAULT_HOME_URL, {}, {}, { retry -> HomeScreen(Screen.Home("bridge.example.com", Line.Ready, null, null, calls), {}, {}, now = now, zone = zone, onRetry = retry) })
 	}
 
 	@Test fun settings() = draw("home-9-settings") { SettingsScreen("bridge.example.com", DEFAULT_HOME_URL, { null }, {}, {}, { "Geist: SIL Open Font License 1.1" }) }
+
+	@Test fun homeCallFailed() = draw("home-15-call-failed") {
+		HomeScreen(Screen.Home("bridge.example.com", Line.Ready, Problem.CallFailed("Could not reach the bridge"), null, calls), {}, {}, now = now, zone = zone)
+	}
+
+	@Test fun homeUnreachable() = draw("home-16-unreachable", dark = false) {
+		HomeScreen(Screen.Home("bridge.example.com", Line.Unreachable, null, null, calls), {}, {}, now = now, zone = zone)
+	}
+
+	@Test fun homeForgotten() = draw("home-17-forgotten") {
+		HomeScreen(Screen.Home("bridge.example.com", Line.Revoked, Problem.RePair("The bridge no longer knows this phone."), null, calls), {}, {}, now = now, zone = zone)
+	}
+
+	@Test fun welcomeRetry() = draw("home-18-pair-retry") {
+		val link = PairingLink("wss://bridge.example.com/v1/call", "c", 9_999_999_999)
+		WelcomeScreen(Screen.Welcome(Problem.PairUnreachable("Could not reach the bridge at bridge.example.com: no connection", link)))
+	}
+
 
 	@Test fun settingsLight() = draw("home-10-settings-light", dark = false) {
 		SettingsScreen("bridge.example.com", DEFAULT_HOME_URL, { null }, {}, {}, { "Geist: SIL Open Font License 1.1" })

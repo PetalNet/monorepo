@@ -20,6 +20,9 @@ data class PairingLink(val url: String, val code: String, val expires: Long) {
 	val host: String get() = bridgeAuthority(url).orEmpty()
 
 	fun expired(nowS: Long) = nowS >= expires
+
+	/** The code is a one-time secret: a log line or a crash report must not carry it. */
+	override fun toString() = "PairingLink(host=$host)"
 }
 
 sealed interface PairingParse {

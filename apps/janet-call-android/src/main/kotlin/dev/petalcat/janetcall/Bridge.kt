@@ -15,7 +15,8 @@ import org.json.JSONObject
 sealed interface PairResult {
 	data class Paired(val pairing: Pairing) : PairResult
 
-	data class Refused(val reason: String) : PairResult
+	/** [retryable]: the code was not spent, so the same link can be tried again. */
+	data class Refused(val reason: String, val retryable: Boolean = false) : PairResult
 }
 
 /** Lets something through at most once every [everyMs]. */
@@ -67,12 +68,12 @@ object Bridge {
 					response.code == 403 && answer?.has("error") == true ->
 						PairResult.Refused("This pairing link was already used or has expired. Ask for a new one.")
 					response.code == 429 ->
-						PairResult.Refused("Too many pairing attempts. Wait a minute, then open the pairing link again.")
-					else -> PairResult.Refused("Could not reach the bridge at ${link.host} (HTTP ${response.code}).")
+						PairResult.Refused("Too many pairing attempts. Wait a minute, then try again.", retryable = true)
+					else -> PairResult.Refused("Could not reach the bridge at ${link.host} (HTTP ${response.code}).", retryable = true)
 				}
 			}
 		} catch (e: IOException) {
-			PairResult.Refused("Could not reach the bridge at ${link.host}: ${e.message ?: "no connection"}")
+			PairResult.Refused("Could not reach the bridge at ${link.host}: ${e.message ?: "no connection"}", retryable = true)
 		} catch (_: IllegalArgumentException) {
 			PairResult.Refused("The pairing link holds a value that cannot be sent.")
 		}
@@ -89,9 +90,10 @@ object Bridge {
 	/**
 	 * Asks the bridge to load speech-to-text and the voice, so the call's first audio does not wait
 	 * for them. The bridge answers at once and warms in the background. Never blocks, and a failure
-	 * is silent: the call works without it, only slower to start.
+	 * is silent: the call works without it, only slower to start. [onAnswer] hears what the bridge
+	 * said about the line, for the home screen.
 	 */
-	fun warm(pairing: Pairing) {
+	fun warm(pairing: Pairing, onAnswer: (Line) -> Unit = {}) {
 		val request = try {
 			Request.Builder().url(bridgeEndpoint(pairing.url, "warm"))
 				.header("Authorization", "Bearer ${pairing.token}")
@@ -102,15 +104,29 @@ object Bridge {
 			return
 		}
 		quick.newCall(request).enqueue(object : Callback {
-			override fun onFailure(call: Call, e: IOException) = Unit
+			override fun onFailure(call: Call, e: IOException) = onAnswer(Line.Unreachable)
 
-			override fun onResponse(call: Call, response: Response) = response.close()
+			override fun onResponse(call: Call, response: Response) {
+				val line = response.use { lineFor(it.code, json(it.peekBody(MAX_ANSWER_BYTES).string())) }
+				onAnswer(line)
+			}
 		})
 	}
 
 	/** [warm] for the app coming to the foreground: at most once every [FOREGROUND_WARM_MS]. */
-	fun warmOnForeground(pairing: Pairing, nowMs: Long) {
-		if (foreground.due(nowMs)) warm(pairing)
+	fun warmOnForeground(pairing: Pairing, nowMs: Long, onAnswer: (Line) -> Unit = {}) {
+		if (foreground.due(nowMs)) warm(pairing, onAnswer)
+	}
+
+	/**
+	 * 202 is the bridge accepting the warm-up. Only the bridge's own 403, JSON with an "error", says it
+	 * does not know this phone: any other 403 is Cloudflare Access in front of it, and that is not
+	 * proof of anything about the pairing.
+	 */
+	internal fun lineFor(code: Int, answer: JSONObject?): Line = when {
+		code in 200..299 -> Line.Ready
+		code == 403 && answer?.has("error") == true -> Line.Revoked
+		else -> Line.Unreachable
 	}
 
 	private val foreground = Throttle(FOREGROUND_WARM_MS)
