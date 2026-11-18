@@ -30,7 +30,7 @@ FRAME = RATE // 50 * 2  # bytes in 20 ms
 FORWARDED = ("Authorization", "Cf-Access-Jwt-Assertion")
 DISCLOSURES: dict[str, tuple[int, bytes]] = {}
 RECORD_LIMIT = 20000  # characters; a Matrix event holds about 64 kB
-OPEN: set[str] = set()  # conversations of calls in progress
+OPEN: set[int] = set()  # calls in progress
 
 
 class Endpointer:
@@ -110,6 +110,10 @@ def transcribe(address: str, pcm: bytes) -> str:
     raise OSError("the speech-to-text server closed the connection")
 
 
+class Ended(Exception):
+    """The head no longer has the conversation: it ends one that sits idle."""
+
+
 class Gateway:
     """The voice gateway, called with the caller's own credentials: the bridge holds no secret."""
 
@@ -121,13 +125,24 @@ class Gateway:
                                          {**self.headers, "content-type": "application/json"})
         return urllib.request.urlopen(request, timeout=timeout)
 
+    def open(self, config: "Config") -> str:
+        opened = {"channel": config.channel, "tier": config.tier, "client_ref": uuid.uuid4().hex}
+        return self.post("/v1/conversations", opened)["id"]
+
     def post(self, path: str, body: dict) -> dict:
         with self._open(path, body) as response:
             return json.loads(response.read() or b"{}")
 
     def turn(self, conversation: str, text: str):
         """Yields ("sentence", {"text"}) for each sentence of the reply, then ("done", {...})."""
-        with self._open(f"/v1/conversations/{conversation}/turns", {"text": text}) as response:
+        try:
+            response = self._open(f"/v1/conversations/{conversation}/turns", {"text": text})
+        except urllib.error.HTTPError as error:
+            gone = {404: b"no such conversation", 409: b"ended"}.get(error.code)
+            if gone and gone in error.read():
+                raise Ended(f"{error.code}: the head no longer has the conversation") from None
+            raise
+        with response:
             kind = ""
             for raw in response:
                 line = raw.decode().rstrip("\n")
@@ -163,6 +178,7 @@ class Call:
         self.speaking: asyncio.Task | None = None
         self.heard: list[str] = []
         self.rate = 0
+        self.over = False
         self.tape = {"caller": bytearray(), "janet": bytearray()}
 
     async def run(self) -> None:
@@ -199,6 +215,7 @@ class Call:
         except ConnectionClosed:
             pass
         finally:
+            self.over = True
             listener.cancel()
             if self.speaking is not None:
                 self.speaking.cancel()
@@ -245,9 +262,21 @@ class Call:
         """Speaks one reply. Each sentence is synthesized as it arrives, while earlier ones play."""
         loop, events, spoken = asyncio.get_running_loop(), asyncio.Queue(), asyncio.Queue()
 
+        def stream():
+            try:
+                yield from self.gateway.turn(self.conversation, text)
+            except Ended:
+                # A voice host that was asleep can take longer to say the disclosure than the head
+                # keeps an idle conversation. The call goes on in a new one, unless it is already over.
+                if self.over:
+                    raise
+                old, self.conversation = self.conversation, self.gateway.open(self.config)
+                log.info("call %s: reopened as %s", old, self.conversation)
+                yield from self.gateway.turn(self.conversation, text)
+
         def produce() -> None:
             try:
-                for kind, data in self.gateway.turn(self.conversation, text):
+                for kind, data in stream():
                     loop.call_soon_threadsafe(events.put_nowait, (kind, data))
             except Exception as error:  # noqa: BLE001 - the consumer must always get a last item
                 loop.call_soon_threadsafe(events.put_nowait, ("failed", {"error": str(error)}))
@@ -338,9 +367,8 @@ async def admit(ws: ServerConnection, request: Request, config: Config) -> Respo
         return ws.respond(HTTPStatus.SERVICE_UNAVAILABLE, "busy\n")
     headers = {name: values[0] for name in FORWARDED if (values := request.headers.get_all(name))}
     ws.gateway = Gateway(config.gateway, headers)
-    opened = {"channel": config.channel, "tier": config.tier, "client_ref": uuid.uuid4().hex}
     try:
-        ws.conversation = (await asyncio.to_thread(ws.gateway.post, "/v1/conversations", opened))["id"]
+        ws.conversation = await asyncio.to_thread(ws.gateway.open, config)
     except urllib.error.HTTPError as error:
         log.warning("call refused: %s", error)
         return ws.respond(HTTPStatus.FORBIDDEN if error.code in (401, 403) else HTTPStatus.BAD_GATEWAY, "refused\n")
@@ -352,12 +380,12 @@ async def admit(ws: ServerConnection, request: Request, config: Config) -> Respo
 
 async def handle(ws: ServerConnection, config: Config) -> None:
     call = Call(ws, config, ws.gateway, ws.conversation)
-    OPEN.add(call.conversation)
+    OPEN.add(id(call))
     log.info("call %s: answered", call.conversation)
     try:
         await call.run()
     finally:
-        OPEN.discard(call.conversation)
+        OPEN.discard(id(call))
         log.info("call %s: ended %s", call.conversation, json.dumps(call.latency))
         await asyncio.to_thread(finish, call)
 
