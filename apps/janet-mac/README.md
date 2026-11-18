@@ -8,8 +8,10 @@ One key on a Mac does two things:
   second press held and let go when you are done. The reply shows as a notification and is spoken
   in Janet's voice.
 
-Nothing of ours runs between presses. Hex is the only resident process. `janet-talk` is a shell
-script that Karabiner-Elements starts on the key events, and it exits when the reply has played.
+Nothing of ours stays running. Hex is the only resident process. `janet-talk` is a shell
+script that Karabiner-Elements starts on the key events, and it exits when the reply has played. While a recording is open a small loop tells Hex
+every three seconds that it is still wanted; it ends with the recording, and after two minutes at
+the latest.
 
 ```text
 key ── Karabiner ──┬─ first press ──> F18 ──> Hex dictation (types into the focused app)
@@ -24,10 +26,15 @@ is coming. A double tap leaves Hex a recording a fraction of a second long with 
 which it drops.
 
 A second press shorter than 0.4 s is a tap. Janet then listens until 1.3 s of quiet follow some
-speech, and gives up after 6 s if nothing is said. "Quiet" is measured against the room: the level
-Hex reports is compared with the quietest fifth of what it has reported so far, so a loud room or
-a different microphone needs no setting. A click or a cough does not count as speech. Another
-double tap ends the listening at once. A held press ends on release, with no wait for quiet.
+speech. She gives up after 6 s if nothing is said, and stops after 45 s whatever happens. Another
+double tap ends the listening within a fraction of a second. A held press ends on release, with no
+wait for quiet.
+
+"Quiet" and "speech" are judged against the room, from the microphone level Hex reports, so a loud
+room or a different microphone needs no setting. The quiet level is the lowest "quietest tenth"
+heard so far and only ever goes down, so a long sentence cannot raise it. Speech is present once
+the loudest tenth stands well above it: room noise is steady and speech is not. One click is too
+brief to count; a cough can. The first half second is ignored while the microphone opens.
 
 ## What `janet-talk` does
 

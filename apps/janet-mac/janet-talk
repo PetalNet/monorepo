@@ -18,6 +18,7 @@ LATCH_MS="${JANET_TALK_LATCH_MS:-400}"
 END_OF_SPEECH_S="${JANET_TALK_END_OF_SPEECH_S:-1.3}"
 NO_SPEECH_S="${JANET_TALK_NO_SPEECH_S:-6}"
 MAX_LISTEN_S="${JANET_TALK_MAX_LISTEN_S:-45}"
+HEARTBEAT_S="${JANET_TALK_HEARTBEAT_S:-3}"
 
 # shellcheck source=/dev/null
 [ -r "$CONFIG" ] && . "$CONFIG"
@@ -76,58 +77,85 @@ api() { # path, body file, extra curl args...
 # --- Hex, over its local API ---------------------------------------------------------
 # A recording made this way is never pasted, and Hex reports the microphone level while it runs.
 
-hex() { # method, path, extra curl args...
+hex() { # method, path, extra curl args...   (HEX_OWNER, when set, is the recording's owner token)
   local method="$1" path="$2" port token
   shift 2
   read -r port token < <(jq -r '"\(.port) \(.token)"' "$HEX_API" 2>/dev/null)
-  [ -n "${port:-}" ] || return 7
-  printf 'header = "Authorization: Bearer %s"\n' "$token" |
-    curl -sS -K - -X "$method" "$@" "http://127.0.0.1:$port$path" 2>/dev/null
+  # The values go into a URL and a curl config line, so only a port number and token characters pass.
+  case "${port:-}" in "" | *[!0-9]*) return 7 ;; esac
+  case "${token:-}${HEX_OWNER:-}" in "" | *[!A-Za-z0-9._~+/=-]*) return 7 ;; esac
+  {
+    printf 'header = "Authorization: Bearer %s"\n' "$token"
+    [ -n "${HEX_OWNER:-}" ] && printf 'header = "X-Hex-Dictation-Token: %s"\n' "$HEX_OWNER"
+  } | curl -sS -K - --proto =http -X "$method" "$@" "http://127.0.0.1:$port$path" 2>/dev/null
 }
 
-# Starts a recording. Leaves "<id> <owner token> <start ms>" in the recording file.
-hex_start() {
+# Starts a recording. Leaves "<id> <owner token> <press ms>" in the recording file.
+hex_start() { # press ms
   local reply id owner
   reply=$(hex POST /dictations --max-time 5 -H 'content-type: application/json' -d '{"source":"janet-talk"}') || return 1
   id=$(printf '%s' "$reply" | jq -r '.id // empty' 2>/dev/null)
   owner=$(printf '%s' "$reply" | jq -r '.ownerToken // empty' 2>/dev/null)
-  [ -n "$id" ] && [ -n "$owner" ] || return 1
-  (umask 077 && echo "$id $owner $(now_ms)" >"$STATE/recording.tmp" && mv "$STATE/recording.tmp" "$STATE/recording")
+  case "$id" in "" | *[!0-9A-Za-z_-]*) return 1 ;; esac
+  [ -n "$owner" ] || return 1
+  (umask 077 && echo "$id $owner $1" >"$STATE/recording.tmp" && mv "$STATE/recording.tmp" "$STATE/recording")
   : >"$STATE/alive.$id"
-  # Hex drops a recording whose owner goes quiet for ten seconds.
+  # Hex drops a recording whose owner goes quiet for ten seconds. This stops when the recording
+  # is finished or cancelled, and after two minutes whatever happens.
   (while [ -e "$STATE/alive.$id" ] && [ "$SECONDS" -lt 120 ]; do
-    sleep 3
-    hex POST "/dictations/$id/heartbeat" --max-time 3 -H "X-Hex-Dictation-Token: $owner" >/dev/null
+    sleep "$HEARTBEAT_S"
+    [ -e "$STATE/alive.$id" ] && HEX_OWNER="$owner" hex POST "/dictations/$id/heartbeat" --max-time 3 >/dev/null
   done) &
 }
 
 hex_end() { # finish|cancel, id, owner -> prints the transcript for finish
   local reply
   rm -f "$STATE/alive.$2"
-  reply=$(hex POST "/dictations/$2/$1" --max-time 60 -H "X-Hex-Dictation-Token: $3") || return 1
+  reply=$(HEX_OWNER="$3" hex POST "/dictations/$2/$1" --max-time 60) || return 1
   [ "$1" = finish ] && printf '%s' "$reply" | jq -r '.transcript // empty' 2>/dev/null
 }
 
-# Returns when the speaker has stopped: speech was heard and then END_OF_SPEECH_S of quiet,
-# or nothing was said for NO_SPEECH_S, or MAX_LISTEN_S passed. The quiet level is whatever the
-# room turns out to be, so it needs no tuning per microphone. A second double tap ends it too.
+# Returns when the speaker has stopped, and prints why. The microphone level Hex reports is
+# judged against the room, so a loud room or another microphone needs no setting:
+# - the quiet level is the lowest "quietest tenth" seen so far. It only ever goes down, so a
+#   long stretch of talking cannot raise it;
+# - speech is present once the loud tenth stands well above the quiet tenth. Room noise is
+#   steady, speech is not. A single click is too brief to move either;
+# - it ends when speech was heard and END_OF_SPEECH_S of quiet followed, when nothing was said
+#   for NO_SPEECH_S, when the stop file appears (the key again), or after MAX_LISTEN_S.
+# The first half second is left out: Hex reports near-total silence while the microphone opens.
 wait_for_end_of_speech() { # id, owner
-  hex GET "/dictations/$1/levels" -N --max-time "$MAX_LISTEN_S" -H "X-Hex-Dictation-Token: $2" |
-    END_S="$END_OF_SPEECH_S" NONE_S="$NO_SPEECH_S" STOP_FILE="$STATE/listening.stop" perl -MTime::HiRes=time -ne '
-      BEGIN { $start = $last = time; $quiet = 0; $loud = 0 }
-      next unless /"rmsDb":\s*(-?[\d.]+)/;
-      exit 0 if -e $ENV{STOP_FILE};                 # the key was pressed again
-      $level = $1; $now = time; $step = $now - $last; $last = $now;
-      push @heard, $level;
-      @sorted = sort { $a <=> $b } @heard;
-      # The quiet fifth of what was heard so far. A lowest value would not do: Hex reports
-      # near-total silence for an instant while the microphone opens.
-      $floor = $sorted[int($#sorted * 0.2)];
-      $loud += $step if $level > $floor + 10;
-      $speech = $loud >= 0.3;                       # a click or a cough is not speech
-      $quiet = $level < $floor + 6 ? $quiet + $step : 0;
-      exit 0 if $speech && $quiet >= $ENV{END_S};
-      exit 0 if !$speech && $now - $start >= $ENV{NONE_S};'
+  HEX_OWNER="$2" hex GET "/dictations/$1/levels" -N --max-time "$MAX_LISTEN_S" |
+    END_S="$END_OF_SPEECH_S" NONE_S="$NO_SPEECH_S" MAX_S="$MAX_LISTEN_S" STOP_FILE="$STATE/listening.stop" \
+      perl -MTime::HiRes=time -MIO::Select -e '
+      $start = $last = time; $quiet = 0; $buffer = "";
+      $input = IO::Select->new(\*STDIN);
+      sub done { print "$_[0]\n"; exit 0 }
+      while (1) {
+        $now = time;
+        done("key") if -e $ENV{STOP_FILE};
+        done("nothing said") if !$speech && $now - $start >= $ENV{NONE_S};
+        done("limit") if $now - $start >= $ENV{MAX_S};
+        next unless $input->can_read(0.2);       # also wakes with no sample, for the checks above
+        sysread(STDIN, $chunk, 8192) or done("stream ended");
+        $buffer .= $chunk;
+        while ($buffer =~ s/^(.*?)\n//) {
+          next unless $1 =~ /"rmsDb":\s*(-?[\d.]+)/;
+          $level = $1; $now = time;
+          $step = $now - $last; $step = 0.2 if $step > 0.2;   # a stall is not a long sample
+          $last = $now;
+          next if $now - $start < 0.5 || $level < -90;
+          push @heard, $level;
+          next if @heard < 20;                    # a tenth of fewer would be one stray sample
+          @sorted = sort { $a <=> $b } @heard;
+          $low = $sorted[int($#sorted * 0.1)];
+          $high = $sorted[int($#sorted * 0.9)];
+          $floor = $low if !defined $floor || $low < $floor;
+          $speech ||= $high - $floor >= 12;
+          $quiet = $level < $floor + 6 ? $quiet + $step : 0;
+          done("quiet") if $speech && $quiet >= $ENV{END_S};
+        }
+      }'
 }
 
 body() { # jq filter, jq args... -> path of a JSON body file
@@ -263,7 +291,8 @@ report_heard() { # turn dir
 # --- the two key events -------------------------------------------------------------
 
 start() {
-  local warm stopped id owner
+  local warm stopped id owner pressed
+  pressed=$(now_ms)
   [ -f "$LOG" ] && [ "$(wc -c <"$LOG")" -gt 1000000 ] && : >"$LOG"
   log "start"
   # While Janet is listening after a double tap, another double tap means "that's it".
@@ -274,7 +303,7 @@ start() {
   fi
   # The microphone comes first: nothing below may delay the recording.
   stopped=$(stop_reply)
-  hex_start || {
+  hex_start "$pressed" || {
     notify "Janet" "Hex is not running."
     exit 1
   }
@@ -295,7 +324,7 @@ start() {
 
 stop() {
   local released text status id dir file count=0 event="" line end="false" reply="" waited=0
-  local hex_id hex_owner began
+  local hex_id hex_owner pressed why
   released=$(now_ms)
   log "released"
   # A quick tap can run this before `start` has begun the recording. Wait for it, briefly.
@@ -307,22 +336,23 @@ stop() {
     log "no recording to end"
     exit 0
   }
-  read -r hex_id hex_owner began <"$STATE/recording"
-  # A release whose own press never started a recording must not end the next press's one.
-  if [ $((began - released)) -gt 1000 ]; then
+  read -r hex_id hex_owner pressed <"$STATE/recording"
+  case "${pressed:-}" in "" | *[!0-9]*) pressed=0 ;; esac
+  # A release whose own press never started a recording must not end a later press's one.
+  if [ "$pressed" -gt "$released" ]; then
     log "the recording belongs to a later press"
     exit 0
   fi
   rm -f "$STATE/recording"
-  if [ $((released - began)) -lt "$LATCH_MS" ]; then
+  if [ $((released - pressed)) -lt "$LATCH_MS" ]; then
     # A tap, not a hold: listen until the speaker stops.
     rm -f "$STATE/listening.stop"
     echo $$ >"$STATE/listening.pid"
     log "listening"
-    wait_for_end_of_speech "$hex_id" "$hex_owner"
+    why=$(wait_for_end_of_speech "$hex_id" "$hex_owner")
     rm -f "$STATE/listening.pid"
     released=$(now_ms)
-    log "speaker stopped"
+    log "stopped listening: ${why:-no level stream}"
   fi
   text=$(hex_end finish "$hex_id" "$hex_owner")
   status=$?
