@@ -19,6 +19,7 @@ from websockets.exceptions import InvalidStatus
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
 import janet_phone  # noqa: E402
+import matrix_notice  # noqa: E402
 
 TOKEN = "Bearer right"
 
@@ -90,7 +91,8 @@ class CallTest(unittest.IsolatedAsyncioTestCase):
             listen="127.0.0.1:0", gateway=f"http://127.0.0.1:{self.gateway.server_port}",
             stt=f"127.0.0.1:{self.stt.server_address[1]}", tier="guest", channel="phone-test",
             disclosure="This is an automated assistant for Parker.",
-            notify=["sh", "-c", f"cat > {self.dir}/notice"], record_dir=str(self.dir / "calls"),
+            notify=["sh", "-c", f"cat > {self.dir}/notice; echo $JANET_PHONE_DESTINATION > {self.dir}/destination"],
+            record_dir=str(self.dir / "calls"),
             endpoint={"silence_ms": 200})
         self.server = await janet_phone.serve(
             lambda ws: janet_phone.handle(ws, config), "127.0.0.1", 0,
@@ -131,6 +133,7 @@ class CallTest(unittest.IsolatedAsyncioTestCase):
             self.assertTrue(any(isinstance(message, bytes) for message in seen))
         notice = await self._notice()
         self.assertIn("Janet: This is an automated assistant for Parker.", notice)
+        self.assertEqual((self.dir / "destination").read_text().strip(), "notebook")
         self.assertIn("Caller: what is this", notice)
         self.assertIn("Janet: You said what is this.", notice)
         self.assertLess(notice.index("automated assistant"), notice.index("Caller: what is this"))
@@ -196,6 +199,51 @@ class CallTest(unittest.IsolatedAsyncioTestCase):
             async with connect(self.url, additional_headers={"Authorization": "Bearer wrong"}):
                 pass
         self.assertEqual(refused.exception.response.status_code, 403)
+
+
+class DestinationTest(unittest.TestCase):
+    def config(self, **changes) -> janet_phone.Config:
+        base = dict(listen="", gateway="", stt="", tier="guest", channel="phone", disclosure="")
+        return janet_phone.Config(**{**base, **changes})
+
+    def test_only_a_real_inbound_call_reaches_the_owner(self):
+        self.assertEqual(janet_phone.destination(self.config(source="inbound")), "owner")
+
+    def test_a_bridge_that_does_not_say_what_it_is_goes_to_the_notebook(self):
+        self.assertEqual(janet_phone.destination(self.config()), "notebook")
+
+    def test_test_and_dev_calls_go_to_the_notebook_whatever_the_source_says(self):
+        for changes in ({"source": "test"}, {"source": "app"}, {"source": "inbound", "channel": "desk-test"},
+                        {"source": "inbound", "channel": "phone-dev"}, {"source": "inbound", "channel": "Desk-TEST"}):
+            self.assertEqual(janet_phone.destination(self.config(**changes)), "notebook", changes)
+
+
+class NoticeRoutingTest(unittest.TestCase):
+    def test_a_file_name_carries_its_destination(self):
+        self.assertEqual(matrix_notice.destination_of("1794981808582657005.notebook.txt"), "notebook")
+
+    def test_a_file_name_without_a_destination_has_none(self):
+        for name in ("1794981808582657005.txt", "1794981808582657005..txt", "a.owner.notebook.txt", "owner.txt"):
+            self.assertEqual(matrix_notice.destination_of(name), "", name)
+
+    def test_a_record_with_no_room_is_set_aside_and_later_records_still_go(self):
+        outbox, sent = Path(tempfile.mkdtemp()), []
+        (outbox / "1.txt").write_text("old format")
+        (outbox / "2.notebook.txt").write_text("a test call")
+
+        def send(to, text):
+            sent.append((to, text))
+            raise KeyboardInterrupt  # leaves the endless loop once the routable record is reached
+
+        with self.assertRaises(KeyboardInterrupt):
+            matrix_notice.watch(outbox, {"owner": "!a:x", "notebook": "!b:x"}, send)
+        self.assertEqual(sent, [("notebook", "a test call")])
+        self.assertTrue((outbox / "1.unrouted").exists())
+
+    def test_two_destinations_cannot_share_a_room(self):
+        self.assertEqual(matrix_notice.rooms_of(["owner=!a:x", "notebook=!b:x"]), {"owner": "!a:x", "notebook": "!b:x"})
+        with self.assertRaises(ValueError):
+            matrix_notice.rooms_of(["owner=!a:x", "notebook=!a:x"])
 
 
 class EndpointerTest(unittest.TestCase):
