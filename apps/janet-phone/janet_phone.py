@@ -138,8 +138,9 @@ class Gateway:
         try:
             response = self._open(f"/v1/conversations/{conversation}/turns", {"text": text})
         except urllib.error.HTTPError as error:
-            if error.code == 404 or (error.code == 409 and b"ended" in error.read()):
-                raise Ended from None
+            gone = {404: b"no such conversation", 409: b"ended"}.get(error.code)
+            if gone and gone in error.read():
+                raise Ended(f"{error.code}: the head no longer has the conversation") from None
             raise
         with response:
             kind = ""
@@ -177,6 +178,7 @@ class Call:
         self.speaking: asyncio.Task | None = None
         self.heard: list[str] = []
         self.rate = 0
+        self.over = False
         self.tape = {"caller": bytearray(), "janet": bytearray()}
 
     async def run(self) -> None:
@@ -213,6 +215,7 @@ class Call:
         except ConnectionClosed:
             pass
         finally:
+            self.over = True
             listener.cancel()
             if self.speaking is not None:
                 self.speaking.cancel()
@@ -264,8 +267,11 @@ class Call:
                 yield from self.gateway.turn(self.conversation, text)
             except Ended:
                 # A voice host that was asleep can take longer to say the disclosure than the head
-                # keeps an idle conversation. The call goes on in a new one.
-                self.conversation = self.gateway.open(self.config)
+                # keeps an idle conversation. The call goes on in a new one, unless it is already over.
+                if self.over:
+                    raise
+                old, self.conversation = self.conversation, self.gateway.open(self.config)
+                log.info("call %s: reopened as %s", old, self.conversation)
                 yield from self.gateway.turn(self.conversation, text)
 
         def produce() -> None:
