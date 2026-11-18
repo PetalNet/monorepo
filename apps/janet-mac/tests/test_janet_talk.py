@@ -742,6 +742,17 @@ class InstallTest(unittest.TestCase):
         self.assertEqual(self.rules(1)[1], "mine")
         self.assertEqual(self.rules(0), ["other profile"])
 
+    def test_off_a_mac_it_fetches_no_models_and_builds_no_python_environment(self):
+        for name in ("curl", "python3"):
+            path = self.home / "stub" / name
+            path.write_text(f'#!/usr/bin/env bash\necho "$*" >>"$HOME/{name}-calls"\nexit 1\n')
+            path.chmod(0o755)
+        (self.home / "stub" / "uname").write_text("#!/usr/bin/env bash\necho Linux\n")
+        (self.home / "stub" / "uname").chmod(0o755)
+        self.assertEqual(self.install().returncode, 0)
+        self.assertFalse((self.home / "curl-calls").exists())
+        self.assertFalse((self.home / "python3-calls").exists())
+
     def test_running_it_twice_keeps_one_rule_and_the_original_backup(self):
         self.install()
         self.install()
