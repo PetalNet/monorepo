@@ -1,0 +1,5 @@
+Name: Janet Call
+Summary: Call Janet as a real phone call
+License: Unknown
+SourceCode: https://github.com/PetalNet/monorepo/tree/main/apps/janet-call-android
+AllowedAPKSigningKeys: a132547d48a2a4ab1ce79b343eacc02d1d7b27440b92a99ff27ef3110096e5a9

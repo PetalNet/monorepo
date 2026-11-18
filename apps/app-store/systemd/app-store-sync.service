@@ -1,0 +1,9 @@
+[Unit]
+Description=Pull new APKs from GitHub releases into the app store
+
+[Service]
+Type=oneshot
+Environment=APP_STORE_DIR=/home/docker/app-store
+Environment=FDROID=/home/docker/fdroid/.venv/bin/fdroid
+Environment=APKSIGNER=/home/docker/android-sdk/build-tools/35.0.0/apksigner
+ExecStart=/home/docker/releases/app-store/current/apps/app-store/sync.sh
