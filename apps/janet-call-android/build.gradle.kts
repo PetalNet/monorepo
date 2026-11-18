@@ -33,7 +33,9 @@ android {
 }
 
 dependencies {
-	implementation("com.squareup.okhttp3:okhttp:5.5.1")
+	// OkHttp 5.5 needs compileSdk 37, which no released Android Gradle plugin builds against yet.
+	// .github/renovate.json holds it below 5 until this project can compile against 37.
+	implementation("com.squareup.okhttp3:okhttp:4.12.1")
 	testImplementation("junit:junit:4.13.2")
 	testImplementation("org.json:json:20240303")
 }

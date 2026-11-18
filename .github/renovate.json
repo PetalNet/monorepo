@@ -16,6 +16,11 @@
 	"automergeStrategy": "squash",
 	"packageRules": [
 		{
+			"description": "OkHttp 5.5 requires compileSdk 37 and apps/janet-call-android compiles against 35; #705 broke its build. Lift this with the compileSdk bump.",
+			"matchPackageNames": ["com.squareup.okhttp3:okhttp"],
+			"allowedVersions": "<5"
+		},
+		{
 			"matchPackageNames": ["/eslint/"],
 			"groupName": "eslint"
 		},
