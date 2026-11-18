@@ -470,7 +470,7 @@ function makeTx(
 			retire(id, { status: "retracted", reason, at: now }).pipe(Effect.andThen(claim(id))),
 		putSource: Effect.fnUntraced(function* (input: NewSource) {
 			// Scanned and checked whole before any part is written, so a refused source leaves nothing
-			// behind even when the caller carries on with the transaction.
+			// behind even when the caller carries on with the transaction, as migration does.
 			yield* refuseSecrets(input, `${tier}/sources/${input.id}`);
 
 			const home = view.locate(input.id);

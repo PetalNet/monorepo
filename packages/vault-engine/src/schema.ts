@@ -90,6 +90,8 @@ export const Source = Schema.Struct({
 	kind: SourceKind,
 	title: Line,
 	url: Schema.optionalKey(Url),
+	/** Where a migrated document came from; never a public URL. */
+	origin: Schema.optionalKey(Line),
 	sourceType: SourceType,
 	captured: Timestamp,
 	shelfLifeDays: Schema.optionalKey(PositiveInt),

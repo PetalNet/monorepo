@@ -10,6 +10,7 @@ import { Argument, Command, Flag } from "effect/cli";
 import { operations, refresh } from "./api.ts";
 import { Vault } from "./engine.ts";
 import { CaptureFailed, SecretFound, WriteRejected } from "./errors.ts";
+import { ManifestEntry, migrate } from "./migrate.ts";
 import { lint, project } from "./project.ts";
 import { reindex } from "./recall.ts";
 import { Cite } from "./research.ts";
@@ -173,6 +174,40 @@ const commands = [
 			"Flag claims whose sources were retired; finishes an interrupted retirement.",
 		),
 	),
+	Command.make(
+		"migrate",
+		{
+			manifest: Argument.String("manifest"),
+			deny: optional(Flag.String("deny")),
+			denyPassing: Flag.Int("deny-passing").pipe(Flag.withDefault(0)),
+			report: optional(Flag.String("report")),
+		},
+		({ manifest, deny, denyPassing, report }) =>
+			Effect.gen(function* () {
+				const fs = yield* FileSystem.FileSystem;
+				const entries = yield* Schema.decodeEffect(
+					Schema.Array(Schema.fromJsonString(ManifestEntry)),
+				)((yield* fs.readFileString(manifest)).split("\n").filter(Boolean));
+				const keywords = Option.isSome(deny)
+					? yield* Schema.decodeEffect(Schema.fromJsonString(Schema.Array(Schema.String)))(
+							yield* fs.readFileString(deny.value),
+						)
+					: [];
+				const result = yield* migrate(entries, keywords, denyPassing);
+
+				if (Option.isSome(report)) {
+					yield* fs.writeFileString(report.value, JSON.stringify(result, null, 1));
+				}
+
+				yield* refresh;
+
+				yield* print({
+					migrated: result.migrated.length,
+					excluded: result.excluded.length,
+					partial: result.partial.length,
+				});
+			}),
+	).pipe(Command.withDescription("Copy documents in; report exclusions.")),
 ];
 
 /**

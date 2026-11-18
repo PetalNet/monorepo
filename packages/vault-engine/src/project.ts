@@ -285,8 +285,9 @@ function render(view: VaultView, now: Date): Map<string, string> {
 			"type: source",
 			`kind: ${source.kind}`,
 			`tier: ${tier}`,
-			`aliases: ${JSON.stringify([alias(source.title)])}`,
+			`aliases: ${JSON.stringify([...new Set([alias(source.title), ...(source.origin === undefined ? [] : [path.basename(source.origin).replace(/\.[a-z]+$/, "")])])])}`,
 			...(source.url === undefined ? [] : [`url: ${yaml(source.url)}`]),
+			...(source.origin === undefined ? [] : [`origin: ${yaml(source.origin)}`]),
 			`source_type: ${source.sourceType}`,
 			`captured: ${day(source.captured)}`,
 			...(source.shelfLifeDays === undefined
