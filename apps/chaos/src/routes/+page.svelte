@@ -3,6 +3,7 @@
 	import Countdown from "$lib/components/Countdown.svelte";
 	import DoorReading from "$lib/components/DoorReading.svelte";
 	import DoorStrip from "$lib/components/DoorStrip.svelte";
+	import HitBox from "$lib/components/HitBox.svelte";
 	import StatusBoard from "$lib/components/StatusBoard.svelte";
 	import { weekday } from "$lib/format";
 
@@ -52,6 +53,8 @@
 	{/key}
 
 	<StatusBoard board={data.board} />
+
+	<HitBox check={data.hit} door={data.reading.door.id} />
 </main>
 
 <style>
