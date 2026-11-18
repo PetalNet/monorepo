@@ -71,6 +71,7 @@
 			"apps/courier",
 			"apps/dispatcher",
 			"apps/fold-cards",
+			"apps/janet-conversation",
 			"apps/janet-desk",
 			"apps/janet-mac",
 			"apps/janet-voice-gateway",

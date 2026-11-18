@@ -1,0 +1,12 @@
+{
+	"domain": "janet_conversation",
+	"name": "Janet",
+	"codeowners": [],
+	"config_flow": true,
+	"dependencies": ["conversation"],
+	"documentation": "https://github.com/PetalNet/monorepo/tree/main/apps/janet-conversation",
+	"integration_type": "service",
+	"iot_class": "local_push",
+	"issue_tracker": "https://github.com/PetalNet/monorepo/issues",
+	"version": "0.1.0"
+}
