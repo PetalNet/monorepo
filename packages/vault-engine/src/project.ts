@@ -188,6 +188,10 @@ function render(view: VaultView, now: Date): Map<string, string> {
 
 		fields.push(`[basis:: ${claim.sourceType}]`);
 
+		if (claim.verdict !== undefined) {
+			fields.push(`[verdict:: ${claim.verdict}]`);
+		}
+
 		if (claim.stale && claim.status === "active") {
 			fields.push(`[stale:: ${day(claim.stale.since)} ${claim.stale.sources.join(" ")}]`);
 		}
@@ -359,7 +363,7 @@ function render(view: VaultView, now: Date): Map<string, string> {
 		"---",
 		"# Vault",
 		"",
-		"This vault is generated from the vault engine. Edits made here are overwritten; write through the engine (`vault remember`).",
+		"This vault is generated from the vault engine. Edits made here are overwritten; write through the engine (`vault remember`, `vault research-run`).",
 	];
 
 	for (const tier of tiers) {

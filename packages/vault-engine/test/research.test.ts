@@ -6,10 +6,84 @@ import { TestClock } from "effect/testing";
 
 import { Vault } from "../src/engine.ts";
 import { reindex } from "../src/recall.ts";
-import { remember, researchCheck } from "../src/research.ts";
+import { remember, researchCheck, researchRun } from "../src/research.ts";
+import type { ResearchRunInput } from "../src/research.ts";
 import { SOURCE, claimInput, seed, seeded, state, test, write } from "./tools.ts";
 
 describe("research run", () => {
+	const input = (extra: Partial<ResearchRunInput> = {}): ResearchRunInput => ({
+		question: "How big should a vault note be?",
+		summary: "Topic notes with claim-level IDs.",
+		topics: [
+			{
+				title: "Note granularity",
+				summary: "How big a vault note should be.",
+			},
+		],
+		passages: [{ key: "t3", source: SOURCE, text: "Table 3: Recall@5 +12.0." }],
+		claims: [
+			{
+				key: "a",
+				topic: "Note granularity",
+				heading: "Retrieval unit",
+				text: "Proposition indexing beats passage indexing.",
+				verdict: "supported",
+				sourceType: "PRIMARY",
+				links: [{ rel: "supports", to: "t3" }],
+			},
+		],
+		answer: ["a"],
+		gaps: [{ ref: "https://example.org/paywalled", reason: "subscription required" }],
+		...extra,
+	});
+
+	test("counts a source the vault already cited as reused, and refuses a source it never saved", () =>
+		Effect.gen(function* () {
+			yield* write("shared", (tx) =>
+				seed(tx).pipe(Effect.andThen(tx.addClaim(claimInput("Already cites the source.")))),
+			);
+
+			const run = yield* researchRun(
+				"shared",
+				input({
+					passages: [{ key: "t3", source: SOURCE, text: "Proposition indexing raises Recall@5." }],
+				}),
+			);
+
+			expect(run.reused).toEqual([SOURCE]);
+			expect(run.created).toEqual(run.answer);
+
+			yield* write("shared", (tx) =>
+				tx.putSource({
+					id: "doc-0000000000000001",
+					kind: "research",
+					title: "Earlier lab research",
+					sourceType: "DERIVED",
+					captured: "2026-10-18T00:00:00.000Z",
+					passages: { s1: "An earlier finding." },
+				}),
+			);
+
+			const fromLab = yield* researchRun(
+				"shared",
+				input({
+					passages: [{ key: "t3", source: "doc-0000000000000001", text: "An earlier finding." }],
+				}),
+			);
+
+			expect(fromLab.reused).toEqual(["doc-0000000000000001"]);
+			expect(fromLab.created).toEqual(fromLab.answer);
+
+			expect(
+				(yield* Effect.flip(
+					researchRun(
+						"shared",
+						input({ passages: [{ key: "t3", source: "src-ffffffffffffffffffff", text: "x" }] }),
+					),
+				)).message,
+			).toMatch(/capture the source/);
+		}));
+
 	test("checks the vault first and names the sources worth re-checking", () =>
 		Effect.gen(function* () {
 			yield* write("shared", (tx) =>
@@ -34,6 +108,34 @@ describe("research run", () => {
 					url: `https://example.org/${SOURCE}`,
 				},
 			]);
+		}));
+
+	test("keeps topics apart when their titles slug the same", () =>
+		Effect.gen(function* () {
+			const titles = ["C++", "C#", "日本語の研究"];
+			const run = yield* researchRun("shared", {
+				question: "Which language?",
+				summary: "Three topics.",
+				topics: titles.map((title) => ({ title, summary: `About ${title}.` })),
+				claims: titles.map((topic) => ({
+					key: topic,
+					topic,
+					heading: "Notes",
+					text: `A guess about ${topic}.`,
+					verdict: "new" as const,
+					sourceType: "GUESS" as const,
+					links: [],
+				})),
+				answer: ["C++"],
+			});
+			const { topics, claims } = yield* state("shared");
+
+			expect(run.topics.map((id) => topics[id]?.title)).toEqual(titles);
+			expect(run.created.map((id) => topics[claims[id]?.topic ?? ""]?.title)).toEqual(titles);
+
+			const again = yield* remember("shared", { text: "Again.", topic: "C#" });
+
+			expect(again.topic).toBe(run.topics[1]);
 		}));
 });
 

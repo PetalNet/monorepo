@@ -5,6 +5,7 @@ import { Effect, FileSystem } from "effect";
 
 import { Vault } from "../src/engine.ts";
 import { lint, project } from "../src/project.ts";
+import { researchRun } from "../src/research.ts";
 import {
 	OTHER,
 	SOURCE,
@@ -45,13 +46,18 @@ describe("projection", () => {
 		Effect.gen(function* () {
 			const claim = yield* write("shared", (tx) =>
 				seed(tx).pipe(
-					Effect.andThen(tx.addClaim(claimInput("Claims retrieve better than passages."))),
+					Effect.andThen(
+						tx.addClaim({
+							...claimInput("Claims retrieve better than passages."),
+							verdict: "supported",
+						}),
+					),
 				),
 			);
 			const out = yield* projected;
 
 			expect(yield* readText(out, "shared/Topics/Note granularity.md")).toContain(
-				`## Retrieval unit\n- Claims retrieve better than passages. [supports:: [[${SOURCE}#^p1|Dense X Retrieval]]] [basis:: PRIMARY] ^${claim.id}\n`,
+				`## Retrieval unit\n- Claims retrieve better than passages. [supports:: [[${SOURCE}#^p1|Dense X Retrieval]]] [basis:: PRIMARY] [verdict:: supported] ^${claim.id}\n`,
 			);
 
 			expect(yield* readText(out, `shared/Sources/capture/${SOURCE}.md`)).toContain(
@@ -354,7 +360,7 @@ describe("projected text", () => {
 			]);
 		}));
 
-	test("writes claim text as plain text", () =>
+	test("writes claim text, summaries and headings as plain text", () =>
 		Effect.gen(function* () {
 			yield* seeded;
 
@@ -362,13 +368,34 @@ describe("projected text", () => {
 				"shared",
 				claimInput("See [[Secret plans]] and [verdict:: contradicted] <!-- hide %% this"),
 			);
+			yield* researchRun("shared", {
+				question: "Is <!-- this hidden?",
+				summary: "A summary with [[a link]] and a back\\slash.",
+				topics: [{ title: "Odd topic", summary: "Notes on <!-- comments" }],
+				claims: [
+					{
+						key: "a",
+						topic: "Odd topic",
+						heading: "A [field:: x] heading",
+						text: "A guess.",
+						verdict: "new",
+						sourceType: "GUESS",
+						links: [],
+					},
+				],
+				answer: ["a"],
+				gaps: [{ ref: "https://example.org/x", reason: "blocked %% by a wall" }],
+			});
 			const out = yield* projected;
+			const topic = yield* readText(out, "shared/Topics/Odd topic.md");
 
 			expect(yield* readText(out, "shared/Topics/Note granularity.md")).toContain(
 				String.raw`- See \[\[Secret plans\]\] and \[verdict:\: contradicted\] \<!-- hide %\% this [supports:: [[${SOURCE}#^p1|Dense X Retrieval]]] [basis:: PRIMARY] ^${claim.id}`,
 			);
 
-			expect(yield* lint(out)).toMatchObject({ problems: [], claimBlocks: 1 });
+			expect(topic).toContain(String.raw`Notes on \<!-- comments`);
+			expect(topic).toContain(String.raw`## A \[field:\: x\] heading`);
+			expect(yield* lint(out)).toMatchObject({ problems: [], claimBlocks: 2 });
 		}));
 
 	test("keeps comment markers in titles out of file names, links and aliases", () =>

@@ -10,6 +10,7 @@ export const tiers = Tier.literals;
 
 export const SourceType = Schema.Literals(["PRIMARY", "DIRECT", "DERIVED", "GUESS"]);
 export const Relation = Schema.Literals(["source", "supports", "contradicts", "replaces"]);
+export const Verdict = Schema.Literals(["supported", "mixed", "contradicted", "new"]);
 
 const pattern = (regExp: RegExp) => Schema.String.check(Schema.isPattern(regExp));
 
@@ -17,6 +18,7 @@ const pattern = (regExp: RegExp) => Schema.String.check(Schema.isPattern(regExp)
 const ClaimId = pattern(/^c-[a-z0-9]{8}$/);
 const SourceId = pattern(/^(?:src|doc)-[a-z0-9]{8,40}$/);
 const TopicId = pattern(/^t-[a-z0-9]+(?:-[a-z0-9]+)*$/);
+const RunId = pattern(/^run-\d{4}-\d{2}-\d{2}-[a-z0-9]+(?:-[a-z0-9]+)*$/);
 const PassageId = pattern(/^[a-z][a-z0-9-]{0,30}$/);
 const Timestamp = pattern(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?Z$/);
 const Url = Schema.String.check(
@@ -48,6 +50,7 @@ export const Claim = Schema.Struct({
 	status: Schema.Literals(["active", "superseded", "retracted"]),
 	supersededBy: Schema.optionalKey(ClaimId),
 	reason: Schema.optionalKey(Line),
+	verdict: Schema.optionalKey(Verdict),
 	/** Set when a cited source was replaced or retracted. */
 	stale: Schema.optionalKey(
 		Schema.Struct({
@@ -58,6 +61,7 @@ export const Claim = Schema.Struct({
 	created: Timestamp,
 	updated: Timestamp,
 	agent: Text,
+	run: Schema.optionalKey(RunId),
 }).check(
 	Schema.makeFilter(
 		(claim) =>
@@ -107,6 +111,26 @@ export const Topic = Schema.Struct({
 	headings: Schema.Array(Line),
 });
 export type Topic = typeof Topic.Type;
+
+export const Gap = Schema.Struct({ ref: Line, reason: Line });
+
+const Ref = Schema.Union([ClaimId, SourceId]);
+
+export const Run = Schema.Struct({
+	id: RunId,
+	question: Line,
+	summary: Text,
+	date: Timestamp,
+	agent: Text,
+	topics: Schema.Array(TopicId),
+	answer: Schema.Array(ClaimId),
+	created: Schema.Array(Ref),
+	updated: Schema.Array(Ref),
+	reused: Schema.Array(Ref),
+	stale: Schema.Array(Ref),
+	gaps: Schema.Array(Gap),
+});
+export type Run = typeof Run.Type;
 
 const DEFAULT_SHELF_LIFE_DAYS = 365;
 

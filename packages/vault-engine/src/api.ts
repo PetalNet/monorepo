@@ -15,8 +15,15 @@ import {
 	renderCard,
 	renderPassage,
 } from "./recall.ts";
-import { Recheck, RememberInput, remember, researchCheck } from "./research.ts";
-import { Claim, Text, Tier } from "./schema.ts";
+import {
+	Recheck,
+	RememberInput,
+	ResearchRunInput,
+	remember,
+	researchCheck,
+	researchRun,
+} from "./research.ts";
+import { Claim, Run, Text, Tier } from "./schema.ts";
 
 /**
  * Brings the read side (claim index, and the projection when configured) up to date. The write is
@@ -121,6 +128,19 @@ export const operations = [
 						check.claims.map((card) => card.id),
 					),
 				),
+			),
+		errors,
+	}),
+	operation({
+		name: "research_run",
+		description:
+			"Record a finished research run: topics, quoted passages, claims with verdicts and typed links, reused IDs and gaps. Every cited source must already be in the vault. Returns the run, the root of the tree.",
+		input: Schema.Struct({ ...ResearchRunInput.fields, tier }),
+		output: Schema.Struct({ run: Run }),
+		handler: ({ tier: chosen = "shared", ...input }) =>
+			researchRun(chosen, input).pipe(
+				Effect.tap(() => refresh),
+				Effect.map((run) => ({ run })),
 			),
 		errors,
 	}),

@@ -7,7 +7,7 @@ import { LoroDoc } from "loro-crdt";
 import type { Value } from "loro-crdt";
 
 import { SecretFound, TierUnreadable, WriteRejected } from "./errors.ts";
-import { Claim, Source, Topic, tiers } from "./schema.ts";
+import { Claim, Run, Source, Topic, tiers } from "./schema.ts";
 import type { Link, Tier } from "./schema.ts";
 import { secretRules } from "./secrets.ts";
 import { TierFiles, stampOf } from "./store.ts";
@@ -17,6 +17,7 @@ export interface TierState {
 	readonly claims: Record<string, Claim>;
 	readonly sources: Record<string, Source>;
 	readonly topics: Record<string, Topic>;
+	readonly runs: Record<string, Run>;
 }
 
 /**
@@ -36,6 +37,7 @@ interface Stored {
 	sourceStatus: Record<string, SourceRetirement>;
 	passages: Record<string, { text: string; heading?: string }>;
 	topics: Record<string, Topic>;
+	runs: Record<string, Run>;
 }
 
 interface Retirement {
@@ -49,7 +51,8 @@ export type SourceRetirement =
 	| { readonly status: "replaced"; readonly replacedBy: string; readonly reason: string }
 	| { readonly status: "retracted"; readonly reason: string };
 
-export type NewClaim = Pick<Claim, "text" | "topic" | "heading" | "links" | "sourceType">;
+export type NewClaim = Pick<Claim, "text" | "topic" | "heading" | "links" | "sourceType"> &
+	Partial<Pick<Claim, "verdict" | "run">>;
 
 export type NewSource = Omit<Source, "agent" | "status" | "replacedBy" | "reason">;
 
@@ -101,6 +104,9 @@ export interface Tx extends VaultView {
 	/** Flags every active claim in this tier that cites a retired source; returns the new flags. */
 	readonly flagDependents: Effect.Effect<string[], WriteRejected | SecretFound>;
 	readonly putTopic: (input: Topic) => Effect.Effect<Topic, WriteRejected | SecretFound>;
+	readonly putRun: (
+		input: Omit<Run, "agent" | "date"> & Partial<Pick<Run, "date">>,
+	) => Effect.Effect<Run, WriteRejected | SecretFound>;
 }
 
 export type VaultError = PlatformError | TierUnreadable;
@@ -149,10 +155,9 @@ const hash = (data: string | Uint8Array) => createHash("sha256").update(data).di
 
 function readState(doc: LoroDoc): TierState {
 	const stored = Object.fromEntries(
-		["claims", "retired", "stale", "sources", "sourceStatus", "passages", "topics"].map((name) => [
-			name,
-			doc.getMap(name).toJSON() as unknown,
-		]),
+		["claims", "retired", "stale", "sources", "sourceStatus", "passages", "topics", "runs"].map(
+			(name) => [name, doc.getMap(name).toJSON() as unknown],
+		),
 	) as unknown as Stored;
 	const sources: Record<string, Source> = {};
 
@@ -195,7 +200,7 @@ function readState(doc: LoroDoc): TierState {
 		};
 	}
 
-	return { claims, sources, topics: stored.topics };
+	return { claims, sources, topics: stored.topics, runs: stored.runs };
 }
 
 /** Every string in a value, keys included, as written: JSON escaping would hide token boundaries. */
@@ -285,6 +290,7 @@ function makeTx(
 		claims: { ...base.claims },
 		sources: { ...base.sources },
 		topics: { ...base.topics },
+		runs: { ...base.runs },
 	};
 	const view = makeView({ ...committed, [tier]: state });
 
@@ -555,6 +561,13 @@ function makeTx(
 		}),
 		putTopic: Effect.fnUntraced(function* (input: Topic) {
 			return yield* write("topics", Topic, input, "topics", input.id, input);
+		}),
+		putRun: Effect.fnUntraced(function* (
+			input: Omit<Run, "agent" | "date"> & Partial<Pick<Run, "date">>,
+		) {
+			const run = { date: now, ...input, agent };
+
+			return yield* write("runs", Run, run, "runs", run.id, run);
 		}),
 	};
 }

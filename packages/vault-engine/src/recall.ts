@@ -17,7 +17,7 @@ const SCHEMA = `
 CREATE TABLE claim(
 	id TEXT PRIMARY KEY, tier TEXT NOT NULL, topic TEXT NOT NULL,
 	title TEXT NOT NULL, heading TEXT NOT NULL, text TEXT NOT NULL, status TEXT NOT NULL,
-	source_type TEXT NOT NULL, freshness TEXT NOT NULL, sources TEXT NOT NULL,
+	source_type TEXT NOT NULL, verdict TEXT, freshness TEXT NOT NULL, sources TEXT NOT NULL,
 	created TEXT NOT NULL, updated TEXT NOT NULL);
 CREATE VIRTUAL TABLE claim_fts USING fts5(id UNINDEXED, text, context, tokenize='porter unicode61');
 CREATE TABLE passage(
@@ -50,6 +50,7 @@ export const ClaimCard = Schema.Struct({
 	text: Schema.String,
 	status: Claim.fields.status,
 	sourceType: Claim.fields.sourceType,
+	verdict: Schema.NullOr(Schema.String),
 	/** What the claim's evidence looks like today: `flagged` means a cited source was retired. */
 	freshness: Schema.Literals(["fresh", "stale", "flagged", "unsourced"]),
 	sources: Schema.Array(SourceRef),
@@ -102,7 +103,7 @@ export const reindex = Effect.gen(function* () {
 				db.exec(SCHEMA);
 				db.exec("BEGIN");
 
-				const claim = db.prepare("INSERT INTO claim VALUES(?,?,?,?,?,?,?,?,?,?,?,?)");
+				const claim = db.prepare("INSERT INTO claim VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?)");
 				const claimFts = db.prepare("INSERT INTO claim_fts VALUES(?,?,?)");
 				const passage = db.prepare("INSERT INTO passage VALUES(?,?,?,?,?,?,?,?)");
 				const passageFts = db.prepare("INSERT INTO passage_fts VALUES(?,?,?,?)");
@@ -150,6 +151,7 @@ export const reindex = Effect.gen(function* () {
 							record.text,
 							record.status,
 							record.sourceType,
+							record.verdict ?? null,
 							evidence,
 							JSON.stringify(sources),
 							record.created,

@@ -4,7 +4,7 @@ import os from "node:os";
 import path from "node:path";
 
 import { NodeRuntime, NodeServices } from "@effect/platform-node";
-import { Config, Console, Effect, Layer, Option, Schema } from "effect";
+import { Config, Console, Effect, FileSystem, Layer, Option, Schema } from "effect";
 import { Argument, Command, Flag } from "effect/cli";
 
 import { operations, refresh } from "./api.ts";
@@ -94,6 +94,23 @@ const commands = [
 	).pipe(
 		Command.withDescription("What the vault holds on a question, and which sources to re-check."),
 	),
+	Command.make(
+		"research-run",
+		{ file: Argument.String("file").pipe(Argument.optional) },
+		({ file }) =>
+			Effect.gen(function* () {
+				const fs = yield* FileSystem.FileSystem;
+				const text = yield* fs.readFileString(Option.getOrElse(file, () => "/dev/stdin"));
+				const input = yield* Schema.decodeEffect(Schema.fromJsonString(Schema.Unknown))(text);
+				const result = yield* call("research_run", input as object);
+
+				yield* print((result as { run: unknown }).run);
+			}),
+	).pipe(
+		Command.withDescription(
+			"Write a research run tree from JSON (a file or stdin); prints the run.",
+		),
+	),
 	Command.make("source").pipe(
 		Command.withDescription("Replace or retract a source."),
 		Command.withSubcommands([
@@ -171,7 +188,7 @@ const VaultLive = Layer.unwrap(
 );
 
 const vault = Command.make("vault").pipe(
-	Command.withDescription("The lab's knowledge vault: sourced claims and recall."),
+	Command.withDescription("The lab's knowledge vault: sourced claims, recall and research runs."),
 	Command.withSubcommands(commands),
 );
 
