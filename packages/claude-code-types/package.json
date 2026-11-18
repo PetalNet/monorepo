@@ -1,0 +1,10 @@
+{
+	"name": "@petalnet/claude-code-types",
+	"version": "0.0.0",
+	"private": true,
+	"description": "Claude Code's mod API declarations, generated from the installed Claude Code",
+	"type": "module",
+	"scripts": {
+		"generate": "scripts/generate.sh"
+	}
+}

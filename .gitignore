@@ -49,3 +49,6 @@
 
 # PetalBoard generates its Prisma client into the app.
 /apps/petalboard/src/lib/server/generated/
+
+# Claude Code writes its mod API declarations beside each mod it loads; the committed copy is packages/claude-code-types.
+**/.claude-plugin/types/
