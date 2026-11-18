@@ -25,7 +25,7 @@ def log(entry: dict) -> None:
 
 def init() -> None:
     out({"type": "system", "subtype": "init", "session_id": SESSION, "mcp_servers": [],
-         "tools": ["Bash"] if "--fake-leak-tools" in argv else []})
+         "tools": ["Bash"] if ("--fake-leak-tools" in argv or "--permission-mode" in argv) else []})
 
 
 def reply_to(prompt: str) -> str:
@@ -54,7 +54,7 @@ def reply_to(prompt: str) -> str:
     return f"You said {said}. That is all I know."
 
 
-log({"argv": argv, "cwd": os.getcwd(), "env": sorted(os.environ)})
+log({"argv": argv, "cwd": os.getcwd(), "env": sorted(os.environ), "base_url": os.environ.get("ANTHROPIC_BASE_URL"), "extra": os.environ.get("MAIN_LIKE_MARK")})
 incoming: queue.Queue = queue.Queue()
 
 

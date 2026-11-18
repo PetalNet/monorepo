@@ -9,9 +9,9 @@ from pathlib import Path
 from . import prompts
 from .conversation import Conversation, Exchange, Journal, TranscriptMark
 from .merge import Hub, HubError, HubRefused
-from . import snapshot
+from . import cache_splice, snapshot
 from .render import fallback_summary, hard_text, soft_text, stub_text
-from .session import LOCKED_FLAGS, ClaudeSession, SessionError, transcript_path
+from .session import LOCKED_FLAGS, ClaudeSession, SessionError, session_env, transcript_path
 from .speech import SIGN_OFF, SpeechStream, is_end_phrase
 
 log = logging.getLogger("janet-voice-head")
@@ -50,6 +50,16 @@ class Config:
     trim_max_bytes: int = 64 * 1024 * 1024
     # 0 makes a fresh copy for every conversation. Forks of one copy share the model's prompt cache.
     trim_reuse_s: float = 0
+    # The fork's request matches main's prompt cache only when it carries main's tools, so this launches it as main is
+    # launched (main's plugins and tool set from main_like_args, main_like_env) with permission mode dontAsk and no
+    # settings files, so no allow rule can run a tool. Plugin hooks still run and read-only tools are still allowed:
+    # deny them with permissions.deny in a --settings file passed in main_like_args. The fork then runs in
+    # main's directory. cache_splice adds a loopback proxy that gives the fork's request main's exact prefix (see
+    # cache_splice.py). Off by default: the lean fork below has no tools at all.
+    main_like_fork: bool = False
+    main_like_args: list[str] = field(default_factory=list)
+    main_like_env: dict[str, str] = field(default_factory=dict)
+    cache_splice: bool = True
     unmerged_channels: list[str] = field(default_factory=list)
 
 
@@ -93,6 +103,7 @@ class Head:
         self.config, self._session_factory = config, session_factory
         self._lives: dict[str, Live] = {}
         self._snapshot: tuple[str, str, float] | None = None
+        self._proxy = None
         self._by_ref: dict[str, str] = {}
         self._lock = threading.Lock()
         self._stop = threading.Event()
@@ -100,6 +111,8 @@ class Head:
         self._journals.mkdir(parents=True, exist_ok=True)
         (config.state_dir / "cold").mkdir(exist_ok=True)
         (config.state_dir / "fork").mkdir(exist_ok=True)
+        if config.main_like_fork and config.cache_splice:
+            self._proxy = cache_splice.serve_in_background(self._main_transcript, self._main_session)
         self._recover()
         threading.Thread(target=self._upkeep_loop, daemon=True).start()
 
@@ -124,7 +137,10 @@ class Head:
                                   client_ref=client_ref, parent_session=parent)
             live = Live(conv, journal)
             try:
-                live.session = self._session_factory(self._argv(conv, resume), self._cwd(conv))
+                if fork and self.config.main_like_fork:
+                    live.session = self._session_factory(self._argv(conv, resume), self._cwd(conv), env=self._main_like_env(), allow_tools=True)
+                else:
+                    live.session = self._session_factory(self._argv(conv, resume), self._cwd(conv))
             except OSError as error:
                 live.record(kind="ending", reason="session_failed_to_start")
                 raise ApiError(503, f"the head session did not start: {error}") from error
@@ -289,6 +305,8 @@ class Head:
 
     def close(self) -> None:
         self._stop.set()
+        if self._proxy is not None:
+            self._proxy.shutdown()
         for live in list(self._lives.values()):
             if live.session is not None:
                 live.session.close()
@@ -309,11 +327,34 @@ class Head:
         return live.conv.channel not in self.config.unmerged_channels
 
     def _cwd(self, conv: Conversation) -> str:
+        if conv.tier == "personal" and self.config.main_like_fork:
+            return self.config.main_cwd
         return str(self.config.state_dir / ("fork" if conv.tier == "personal" else "cold"))
+
+    def _fork_dir(self) -> Path:
+        return transcript_path(self.config.main_cwd if self.config.main_like_fork else str(self.config.state_dir / "fork"), "x").parent
+
+    def _main_transcript(self) -> Path | None:
+        try:
+            return transcript_path(self.config.main_cwd, self.config.hub.main_session())
+        except HubError:
+            return None
+
+    def _main_session(self) -> str | None:
+        try:
+            return self.config.hub.main_session()
+        except HubError:
+            return None
+
+    def _main_like_env(self) -> dict[str, str]:
+        env = {**session_env(), **self.config.main_like_env}
+        if self._proxy is not None:
+            env["ANTHROPIC_BASE_URL"] = self._proxy.url
+        return env
 
     def _resume_target(self, parent: str) -> str:
         """The session id a fork resumes: a trimmed copy of main's transcript when it has a compact boundary, else main's own."""
-        fork_dir = transcript_path(str(self.config.state_dir / "fork"), "x").parent
+        fork_dir = self._fork_dir()
         manifest = self.config.state_dir / "snapshots"
         source = transcript_path(self.config.main_cwd, parent)
         if self.config.trim_transcript and source.exists():
@@ -330,7 +371,8 @@ class Head:
                 self._snapshot = (copy, parent, time.monotonic())
                 snapshot.prune(fork_dir, manifest, 3600, keep=copy)
                 return copy
-        self._expose_parent(parent)
+        if not self.config.main_like_fork:
+            self._expose_parent(parent)
         return parent
 
     def _expose_parent(self, parent: str) -> None:
@@ -340,6 +382,10 @@ class Head:
             link.symlink_to(transcript_path(self.config.main_cwd, parent))
 
     def _argv(self, conv: Conversation, resume: str | None) -> list[str]:
+        if resume and conv.tier == "personal" and self.config.main_like_fork:
+            return [*self.config.claude, "-p", "--input-format", "stream-json", "--output-format", "stream-json", "--verbose",
+                    "--include-partial-messages", "--permission-mode", "dontAsk", "--setting-sources", "", *self.config.main_like_args,
+                    "--resume", resume, "--fork-session", "--model", self.config.model, "--effort", self.config.effort]
         if resume:
             identity = ["--resume", resume, "--fork-session", "--model", self.config.model]
         else:
