@@ -58,7 +58,8 @@ object Calls {
 	fun update(state: CallState = this.state, route: String = this.route) = update {
 		this.state = state
 		activeSinceMs = if (state is CallState.Active) activeSinceMs ?: SystemClock.elapsedRealtime() else null
-		this.route = route
+		// A finished call leaves no sound route behind for the next one to show.
+		this.route = if (inCall) route else ""
 		if (!inCall) muted = false
 	}
 

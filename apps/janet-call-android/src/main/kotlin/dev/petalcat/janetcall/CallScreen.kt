@@ -16,6 +16,7 @@ import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.selection.toggleable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -49,7 +50,9 @@ import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.res.painterResource
+import androidx.compose.ui.semantics.LiveRegionMode
 import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.liveRegion
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
@@ -144,7 +147,12 @@ fun CallScreen(
 		view.keepScreenOn = true
 		onDispose { view.keepScreenOn = false }
 	}
-	LaunchedEffect(connected) { if (connected) view.performHapticFeedback(HapticFeedbackConstants.LONG_PRESS) }
+	// Only the moment it connects: an activity recreated mid-call must not buzz again.
+	LaunchedEffect(connected) {
+		if (ui.sinceMs != null && SystemClock.elapsedRealtime() - ui.sinceMs < 2000) {
+			view.performHapticFeedback(HapticFeedbackConstants.LONG_PRESS)
+		}
+	}
 
 	val topInset = WindowInsets.statusBars.getTop(density)
 	val bottomInset = WindowInsets.navigationBars.getBottom(density)
@@ -171,20 +179,20 @@ fun CallScreen(
 				if (connected) "%d:%02d · %s".format(elapsed / 60, elapsed % 60, status) else status,
 				style = Type.detail,
 				color = palette.g2,
+				modifier = Modifier.semantics { liveRegion = LiveRegionMode.Polite },
 			)
 		}
-		if (ui.route.isNotEmpty()) {
-			val speaker = ui.route == "Speaker"
-			RoundButton(
-				icon = R.drawable.ic_speaker,
-				label = if (speaker) "Speaker, on" else "Speaker, off. Sound is on ${ui.route}",
-				size = 48,
-				iconSize = 20,
-				filled = speaker,
-				modifier = Modifier.align(Alignment.TopEnd).statusBarsPadding().padding(top = 8.dp, end = 16.dp),
-				onClick = onSpeaker,
-			)
-		}
+		val speaker = ui.route == "Speaker"
+		RoundButton(
+			icon = R.drawable.ic_speaker,
+			label = "Speaker",
+			size = 48,
+			iconSize = 20,
+			filled = speaker,
+			checked = speaker,
+			modifier = Modifier.align(Alignment.TopEnd).statusBarsPadding().padding(top = 8.dp, end = 16.dp),
+			onClick = onSpeaker,
+		)
 		Row(
 			Modifier.align(Alignment.BottomCenter).navigationBarsPadding().fillMaxWidth()
 				.padding(start = EDGE.dp, end = EDGE.dp, bottom = BOTTOM.dp),
@@ -197,6 +205,7 @@ fun CallScreen(
 				size = BUTTON,
 				iconSize = 29,
 				filled = ui.muted,
+				checked = !ui.muted,
 				onClick = { onMute(!ui.muted) },
 			)
 			Box(
@@ -230,12 +239,19 @@ fun RoundButton(
 	iconSize: Int,
 	filled: Boolean,
 	modifier: Modifier = Modifier,
+	checked: Boolean? = null,
 	onClick: () -> Unit,
 ) {
 	val palette = LocalPalette.current
+	// A switch says on or off to TalkBack; a plain button just says what it does.
+	val press = if (checked == null) {
+		Modifier.clickable(role = Role.Button, onClick = onClick)
+	} else {
+		Modifier.toggleable(value = checked, role = Role.Switch, onValueChange = { onClick() })
+	}
 	Box(
 		modifier.size(size.dp).clip(CircleShape).background(if (filled) palette.ink else palette.tint)
-			.clickable(role = Role.Button, onClick = onClick).semantics { contentDescription = label },
+			.then(press).semantics { contentDescription = label },
 		contentAlignment = Alignment.Center,
 	) {
 		Icon(painterResource(icon), null, Modifier.size(iconSize.dp), tint = if (filled) palette.onInk else palette.ink)
