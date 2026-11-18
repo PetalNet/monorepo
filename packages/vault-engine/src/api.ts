@@ -44,7 +44,7 @@ export const operations = [
 	operation({
 		name: "remember",
 		description:
-			"Add a single claim to a topic. Give `direct` (who said or observed it, with the quote). A claim without it is stored as a GUESS.",
+			"Add a single claim to a topic. Give `source` (a vault source ID) or `direct` (who said or observed it, with the quote). A claim with neither is stored as a GUESS.",
 		input: RememberInput,
 		output: Claim,
 		handler: (input) => remember("shared", input).pipe(Effect.tap(() => refresh)),

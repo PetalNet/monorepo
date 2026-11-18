@@ -4,8 +4,9 @@ import { Effect, Schema } from "effect";
 
 import { Vault } from "./engine.ts";
 import type { Tx } from "./engine.ts";
+import { WriteRejected } from "./errors.ts";
 import { SourceType, Text, oneLine, slug } from "./schema.ts";
-import type { Link, Tier } from "./schema.ts";
+import type { Link, Source, Tier } from "./schema.ts";
 
 const hash = (text: string) => createHash("sha256").update(text).digest("hex");
 
@@ -43,27 +44,61 @@ export const RememberInput = Schema.Struct({
 	heading: Schema.optionalKey(
 		Text.annotate({ description: "Heading in the topic note. Default: Notes." }),
 	),
+	source: Schema.optionalKey(
+		Text.annotate({
+			description: "A vault source ID.",
+		}),
+	),
 	direct: Schema.optionalKey(
 		Schema.Struct({ title: Text, quote: Text }).annotate({
 			description: "Who said or observed it, with the quote. Recorded as a DIRECT source.",
 		}),
+	),
+	quote: Schema.optionalKey(
+		Text.annotate({ description: "The passage of `source` the claim rests on." }),
 	),
 	sourceType: Schema.optionalKey(SourceType),
 });
 export type RememberInput = typeof RememberInput.Type;
 
 /**
- * Stores one sourced claim. Everything requires a source: a DIRECT record of who said or observed
- * it, or an explicit GUESS.
+ * Stores one sourced claim. Everything requires a source: a captured artifact, a DIRECT record of
+ * who said or observed it, or an explicit GUESS.
  */
 export const remember = Effect.fnUntraced(function* (tier: Tier, input: RememberInput) {
 	const vault = yield* Vault;
+
+	if (input.quote !== undefined && input.source === undefined && input.direct === undefined) {
+		return yield* new WriteRejected({
+			message: "A quote needs the source it was taken from (--source or --direct)",
+		});
+	}
+
+	const captured: Source | undefined =
+		input.source === undefined ? undefined : (yield* vault.view).source(input.source);
+
+	if (input.source !== undefined && captured === undefined) {
+		return yield* new WriteRejected({ message: `Source ${input.source} is not in the vault` });
+	}
 
 	return yield* vault.transact(tier, `remember in ${input.topic}`, (tx) =>
 		Effect.gen(function* () {
 			const [topic = ""] = (yield* upsertTopics(tx, [{ title: input.topic }])).values();
 			const links: Link[] = [];
 			let sourceType = input.sourceType ?? "GUESS";
+
+			if (captured) {
+				const passage =
+					input.quote === undefined ? undefined : yield* tx.addPassage(captured.id, input.quote);
+
+				links.push({
+					rel: "source",
+					target: captured.id,
+					...(passage === undefined ? {} : { passage }),
+				});
+
+				sourceType = input.sourceType ?? captured.sourceType;
+			}
 
 			if (input.direct) {
 				const title = oneLine(input.direct.title);

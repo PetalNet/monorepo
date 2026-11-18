@@ -53,6 +53,7 @@ const commands = [
 			text: words,
 			topic: Flag.String("topic"),
 			heading: optional(Flag.String("heading")),
+			source: optional(Flag.String("source")),
 			quote: optional(Flag.String("quote")),
 			direct: optional(Flag.String("direct")),
 		},
@@ -61,8 +62,9 @@ const commands = [
 				text: flags.text.join(" "),
 				topic: flags.topic,
 				...some("heading", flags.heading),
+				...some("source", flags.source),
 				...Option.match(flags.direct, {
-					onNone: () => ({}),
+					onNone: () => some("quote", flags.quote),
 					onSome: (title) => ({
 						direct: { title, quote: Option.getOrElse(flags.quote, () => "") },
 					}),

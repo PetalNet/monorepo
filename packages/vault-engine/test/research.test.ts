@@ -1,12 +1,14 @@
+import { createHash } from "node:crypto";
+
 import { describe, expect } from "@effect/vitest";
 import { Effect } from "effect";
 
 import { Vault } from "../src/engine.ts";
 import { remember } from "../src/research.ts";
-import { seeded, test } from "./tools.ts";
+import { SOURCE, seeded, state, test } from "./tools.ts";
 
 describe("remember", () => {
-	test("records who said it as a DIRECT source", () =>
+	test("records who said it as a DIRECT source and quotes a known source", () =>
 		Effect.gen(function* () {
 			yield* seeded;
 
@@ -15,6 +17,12 @@ describe("remember", () => {
 				topic: "Note granularity",
 				direct: { title: "Owner in chat 2026-11-17", quote: "A and test on first real tests" },
 			});
+			const cited = yield* remember("shared", {
+				text: "Recall rises.",
+				topic: "Note granularity",
+				source: SOURCE,
+				quote: "Recall@5 +12.0",
+			});
 
 			expect(said.sourceType).toBe("DIRECT");
 
@@ -22,5 +30,30 @@ describe("remember", () => {
 				kind: "direct",
 				sourceType: "DIRECT",
 			});
+
+			expect(cited.links).toEqual([
+				{
+					rel: "source",
+					target: SOURCE,
+					passage: `p-${createHash("sha256").update("Recall@5 +12.0").digest("hex").slice(0, 10)}`,
+				},
+			]);
+		}));
+
+	test("refuses a quote that names no source", () =>
+		Effect.gen(function* () {
+			yield* seeded;
+
+			expect(
+				(yield* Effect.flip(
+					remember("shared", {
+						text: "Claim.",
+						topic: "Note granularity",
+						quote: "floating quote",
+					}),
+				)).message,
+			).toMatch(/quote needs the source/);
+
+			expect((yield* state("shared")).claims).toEqual({});
 		}));
 });
