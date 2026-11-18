@@ -42,7 +42,7 @@ One conversation is one talk-only Claude Code process:
   uses a session that reports any. The one exception is `web_tools` (config, default empty): a
   `personal` head is then launched with exactly `WebSearch`/`WebFetch` (`--tools`, `--permission-mode dontAsk`,
   a `--settings` allow list; MCP and setting sources stay off) and the check becomes an allowlist: it accepts
-  those tools and kills a session that reports any other. Guests never get them. WebFetch is refused for
+  those tools and kills a session that reports any other. Guests never get them. In `main_like_fork` mode the same settings are merged into the `--settings` file in `main_like_args` (Claude reads only the last `--settings`): the blanket deny of those tools is lifted, the allow rule, named-domain denies and hook are added. WebFetch is refused for
   loopback, private, link-local and tailnet addresses and for `*.petalcat.dev`, `*.ts.net`, `localhost` and
   `*.local`: Claude's `WebFetch(domain:...)` deny rules match names only (not `10.*`, checked on 2.1.326), so
   `web_guard.py` runs as a PreToolUse hook that resolves the host and checks every address. Known gap: the

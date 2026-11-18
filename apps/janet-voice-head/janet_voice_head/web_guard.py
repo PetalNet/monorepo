@@ -10,6 +10,7 @@ import json
 import shlex
 import socket
 import sys
+from pathlib import Path
 from urllib.parse import urlsplit
 
 TOOLS = frozenset({"WebSearch", "WebFetch"})
@@ -17,16 +18,36 @@ DENIED_DOMAINS = ("localhost", "petalcat.dev", "*.petalcat.dev", "ts.net", "*.ts
 _DENIED_SUFFIXES = tuple("." + domain.removeprefix("*.") for domain in DENIED_DOMAINS)
 
 
-def settings(tools) -> dict:
-    """The --settings JSON for a head that may use `tools`."""
-    allow = sorted(tools)
-    deny = [f"WebFetch(domain:{domain})" for domain in DENIED_DOMAINS] if "WebFetch" in tools else []
-    result: dict = {"permissions": {"allow": allow, "deny": deny}}
+def settings(tools, base: dict | None = None) -> dict:
+    """The --settings JSON for a head that may use `tools`, merged into `base` (a main-like fork's own settings), which is not modified.
+
+    Claude reads only the last --settings, so a main-like fork's settings and ours have to be one document. A blanket deny of a
+    tool in `tools` is dropped from the base: this is the one place that lifts it.
+    """
+    base = base or {}
+    permissions = base.get("permissions") or {}
+    allow = [*permissions.get("allow", []), *sorted(tools)]
+    deny = [rule for rule in permissions.get("deny", []) if rule not in tools]
+    hooks = dict(base.get("hooks") or {})
     if "WebFetch" in tools:
+        deny += [f"WebFetch(domain:{domain})" for domain in DENIED_DOMAINS]
         # Claude treats any exit but 2 as a hook error and fetches anyway, so a hook that cannot start must still say 2.
         command = f"{shlex.quote(sys.executable)} -I {shlex.quote(__file__)} || exit 2"
-        result["hooks"] = {"PreToolUse": [{"matcher": "WebFetch", "hooks": [{"type": "command", "command": command}]}]}
+        hooks["PreToolUse"] = [*hooks.get("PreToolUse", []), {"matcher": "WebFetch", "hooks": [{"type": "command", "command": command}]}]
+    result = {**base, "permissions": {**permissions, "allow": allow, "deny": deny}}
+    if hooks:
+        result["hooks"] = hooks
     return result
+
+
+def main_like_args(args: list[str], tools) -> list[str]:
+    """`args` (a main-like fork's extra flags) with its --settings file merged with the web settings, or ours added when it has none."""
+    if "--settings" not in args:
+        return [*args, "--settings", json.dumps(settings(tools))]
+    at = args.index("--settings") + 1
+    value = args[at]
+    base = json.loads(value if value.lstrip().startswith("{") else Path(value).read_text(encoding="utf-8"))
+    return [*args[:at], json.dumps(settings(tools, base)), *args[at + 1:]]
 
 
 def refusal(url: str, resolve=socket.getaddrinfo) -> str | None:

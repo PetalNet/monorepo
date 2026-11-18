@@ -9,7 +9,7 @@ from pathlib import Path
 from . import prompts
 from .conversation import Conversation, Exchange, Journal, TranscriptMark
 from .merge import Hub, HubError, HubRefused
-from . import cache_splice, snapshot
+from . import cache_splice, snapshot, web_guard
 from .render import fallback_summary, hard_text, soft_text, stub_text
 from .session import ClaudeSession, locked_flags, SessionError, session_env, transcript_path
 from .speech import SIGN_OFF, SpeechStream, is_end_phrase
@@ -55,7 +55,8 @@ class Config:
     # settings files, so no allow rule can run a tool. Plugin hooks still run and read-only tools are still allowed:
     # deny them with permissions.deny in a --settings file passed in main_like_args. The fork then runs in
     # main's directory. cache_splice adds a loopback proxy that gives the fork's request main's exact prefix (see
-    # cache_splice.py). Off by default: the lean fork below has no tools at all.
+    # cache_splice.py). Off by default: the lean fork below has no tools at all. web_tools works in this mode too: its
+    # settings are merged into the --settings file in main_like_args (see web_guard.main_like_args).
     main_like_fork: bool = False
     main_like_args: list[str] = field(default_factory=list)
     main_like_env: dict[str, str] = field(default_factory=dict)
@@ -384,12 +385,16 @@ class Head:
             link.symlink_to(transcript_path(self.config.main_cwd, parent))
 
     def _web_tools(self, conv: Conversation, resume: str | None) -> tuple[str, ...]:
-        return tuple(self.config.web_tools) if resume and conv.tier == "personal" and not self.config.main_like_fork else ()
+        return tuple(self.config.web_tools) if resume and conv.tier == "personal" else ()
+
+    def _main_like_args(self, conv: Conversation, resume: str | None) -> list[str]:
+        tools = self._web_tools(conv, resume)
+        return web_guard.main_like_args(self.config.main_like_args, tools) if tools else self.config.main_like_args
 
     def _argv(self, conv: Conversation, resume: str | None) -> list[str]:
         if resume and conv.tier == "personal" and self.config.main_like_fork:
             return [*self.config.claude, "-p", "--input-format", "stream-json", "--output-format", "stream-json", "--verbose",
-                    "--include-partial-messages", "--permission-mode", "dontAsk", "--setting-sources", "", *self.config.main_like_args,
+                    "--include-partial-messages", "--permission-mode", "dontAsk", "--setting-sources", "", *self._main_like_args(conv, resume),
                     "--resume", resume, "--fork-session", "--model", self.config.model, "--effort", self.config.effort]
         if resume:
             identity = ["--resume", resume, "--fork-session", "--model", self.config.model]
