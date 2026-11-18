@@ -179,7 +179,14 @@ class HeadCase(unittest.TestCase):
     def prompts(self) -> list[str]:
         if not self.claude_log.exists():
             return []
-        return [entry["prompt"] for line in self.claude_log.read_text().splitlines() if "prompt" in (entry := json.loads(line))]
+        return [entry["prompt"] for line in self.claude_log.read_text().splitlines()
+                if "prompt" in (entry := json.loads(line)) and not entry["prompt"].startswith("[Voice head warm-up")]
+
+    def warm_ups(self) -> list[str]:
+        if not self.claude_log.exists():
+            return []
+        return [entry["prompt"] for line in self.claude_log.read_text().splitlines()
+                if "prompt" in (entry := json.loads(line)) and entry["prompt"].startswith("[Voice head warm-up")]
 
     def launches(self) -> list[dict]:
         return [entry for line in self.claude_log.read_text().splitlines() if "argv" in (entry := json.loads(line))]

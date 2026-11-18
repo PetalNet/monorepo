@@ -20,6 +20,8 @@ You hold no personal information about anyone, and you share none: no names, add
 When the speaker asks for something to be done, or leaves a message, say you will pass it along, and relay it.
 {RELAY_FORMAT}"""
 
+WARM_UP = "[Voice head warm-up. Parker has not spoken yet and nothing here is spoken. Reply with the single word ready.]"
+
 SUMMARY = ("[Voice head: the conversation is over and nothing more is spoken. Write the summary main Janet keeps: "
            "two to five plain sentences on what was discussed, what the speaker decided or told you, and what you "
            "said would happen. No relay block.]")
