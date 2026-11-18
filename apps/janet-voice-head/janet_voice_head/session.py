@@ -33,11 +33,10 @@ def session_env(environ=os.environ) -> dict[str, str]:
 
 
 class ClaudeSession:
-    def __init__(self, argv: list[str], cwd: str, resumed: bool):
+    def __init__(self, argv: list[str], cwd: str):
         self.session_id: str | None = None
         self.account_email: str | None = None
         self.failure: str | None = None
-        self._resumed = resumed
         self._verified = False
         self._initialized = False
         self._ready = threading.Event()
@@ -140,6 +139,8 @@ class ClaudeSession:
             aborted = str(event.get("terminal_reason", "")).startswith("aborted")
             if self._active and (self._answering or aborted or event.get("is_error")):
                 self._events.put(("end", None))
-        # A fork lists its tools when it resumes; a fresh session only on its first turn.
-        if self._initialized and (self._verified or not self._resumed) and not self._ready.is_set():
+        # Ready means the process answers. When it lists its tools varies: a fork used to at
+        # resume and now, like a fresh session, does on its first turn. Either way no text is
+        # passed on before the list has been seen and is empty (the stream_event check above).
+        if self._initialized and not self._ready.is_set():
             self._ready.set()

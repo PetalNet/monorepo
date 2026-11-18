@@ -48,6 +48,8 @@ class Live:
     conv: Conversation
     journal: Journal
     session: ClaudeSession | None = None
+    # Where main's transcript stood when a fork was started from it.
+    fork_point: TranscriptMark | None = None
     last_activity: float = field(default_factory=time.monotonic)
     in_turn: bool = False
     cut_off: str | None = None
@@ -97,7 +99,7 @@ class Head:
                                   client_ref=client_ref, parent_session=parent)
             live = Live(conv, journal)
             try:
-                live.session = self._session_factory(self._argv(conv), self._cwd(conv), fork)
+                live.session = self._session_factory(self._argv(conv), self._cwd(conv))
             except OSError as error:
                 live.record(kind="ending", reason="session_failed_to_start")
                 raise ApiError(503, f"the head session did not start: {error}") from error
@@ -106,7 +108,8 @@ class Head:
             if client_ref:
                 self._by_ref[client_ref] = conv_id
         if fork:
-            threading.Thread(target=self._note_session, args=(live, fork_point), daemon=True).start()
+            live.fork_point = fork_point
+            threading.Thread(target=self._note_session, args=(live,), daemon=True).start()
         return conv_id
 
     def turn(self, conv_id: str, text: str, emit: Emit) -> None:
@@ -165,7 +168,7 @@ class Head:
                     if live.cut_off is not None:
                         live.record(kind="interrupted", n=number, heard_text=live.cut_off)
                     live.in_turn = False
-                self._note_session(live, None)
+                self._note_session(live)
                 if self._merges(live) and live.conv.tier == "personal" and (relay or self.config.soft_merge == "every"):
                     threading.Thread(target=self._soft_merge, args=(live, number), daemon=True).start()
             with live.lock:
@@ -200,7 +203,7 @@ class Head:
                     live.record(kind="ending", reason=reason)
                     self._summarize(live, reason)
                     if live.session is not None:
-                        self._note_session(live, None)
+                        self._note_session(live)
                         live.session.close()
             try:
                 self._merge(live)
@@ -246,16 +249,16 @@ class Head:
             identity = ["--model", self.config.cold_model, "--system-prompt", prompts.COLD_PROFILE]
         return [*self.config.claude, *LOCKED_FLAGS, *identity, "--effort", self.config.effort]
 
-    def _note_session(self, live: Live, fork_point: TranscriptMark | None) -> None:
+    def _note_session(self, live: Live) -> None:
+        """Records the session's id once it is known: at resume for some forks, after the first turn otherwise."""
         session = live.session
-        if fork_point is not None:
-            try:
-                session.wait_ready(self.config.ready_timeout_s)
-            except SessionError as error:
-                log.warning("conversation %s: %s", live.conv.id, error)
+        try:
+            session.wait_ready(self.config.ready_timeout_s)
+        except SessionError as error:
+            log.warning("conversation %s: %s", live.conv.id, error)
         with live.lock:
             if session.session_id and live.conv.session_id is None:
-                live.record(kind="session", session_id=session.session_id, fork_point=fork_point,
+                live.record(kind="session", session_id=session.session_id, fork_point=live.fork_point,
                             transcript=str(transcript_path(self._cwd(live.conv), session.session_id)))
 
     def _summarize(self, live: Live, reason: str) -> None:
