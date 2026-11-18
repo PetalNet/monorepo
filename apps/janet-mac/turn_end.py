@@ -11,6 +11,10 @@ an "um" the wait is much longer. Without them every pause waits the full `quiet_
 As a program it reads mono float32 audio on standard input, prints why it stopped, and exits:
 `done` (judged finished), `quiet` (the speaker stopped), `nothing said`, `key` (the stop file
 appeared), `limit` or `stream ended`.
+
+With `--claim DIR` it listens on while a reply is being made: when speech begins it makes DIR
+and marks it `resumed`, then hears the speaker out as usual. If DIR is already there, the reply
+has begun to play and it stops with `key`.
 """
 
 from __future__ import annotations
@@ -28,6 +32,7 @@ import numpy as np
 RATE = 16000
 FRAME = 512  # the only frame Silero takes at 16 kHz
 FRAME_S = FRAME / RATE
+RESUME_S = 0.3  # unbroken speech that takes the turn back while a reply is being made
 
 
 def _session(path: Path):
@@ -111,9 +116,10 @@ def frames(stream, rate: int):
 class TurnEnd:
     """Fed one frame at a time; says why the turn ended, once it has."""
 
-    def __init__(self, vad: Silero, policy: Policy = Policy(), hearing=None):
+    def __init__(self, vad: Silero, policy: Policy = Policy(), hearing=None, on_start=None):
         self._vad = vad
         self._policy = policy
+        self._on_start = on_start  # called once, when the speaker begins
         self._hearing = hearing  # a turn_judge.Hearing, or None to go by silence alone
         self._judge_at = {round(s / FRAME_S) for s in policy.judge_at_s}
         self._silent = 0
@@ -144,6 +150,8 @@ class TurnEnd:
         # Once a turn has started, one frame of speech is enough to keep it open. Asking for more
         # cut speakers off more often on recorded turns, and no recording was held open by noise.
         if self._speech_run_s >= (FRAME_S if self._started else policy.start_s):
+            if not self._started and self._on_start:
+                self._on_start()
             self._started = True
             self._silence_s = 0.0
             self._silent = 0
@@ -159,6 +167,17 @@ class TurnEnd:
             if verdict == "done" and not self._hold:
                 return "done"
         return "quiet" if self._silence_s >= (policy.hold_s if self._hold else policy.quiet_s) else None
+
+
+def took_the_turn(claim: Path) -> bool:
+    """While a reply is being made, whoever makes this directory first has the turn: the speaker
+    by going on talking (this marks it `resumed`), or the reply by starting to play."""
+    try:
+        claim.mkdir()
+    except FileExistsError:
+        return False
+    (claim / "resumed").touch()
+    return True
 
 
 def hearing(models: Path):
@@ -182,10 +201,10 @@ def main() -> None:
     parser.add_argument("--stop-file", type=Path, help="stop as soon as this file exists")
     parser.add_argument("--max-s", type=float, default=300.0, help="backstop on the whole listen")
     parser.add_argument("--nothing-said-s", type=float, default=Policy.nothing_said_s)
+    parser.add_argument("--claim", type=Path, help="a directory to make when speech begins; when it is there already, stop")
     args = parser.parse_args()
 
     start = time.monotonic()  # before the model loads: the limit is on the whole listen
-    turn_end = TurnEnd(Silero(args.models / "silero_vad.onnx"), Policy(nothing_said_s=args.nothing_said_s), hearing(args.models))
     heard_s = 0.0
     once = threading.Lock()
 
@@ -203,6 +222,13 @@ def main() -> None:
                 stop("limit")
             time.sleep(0.05)
 
+    def claim() -> None:
+        if not took_the_turn(args.claim):
+            stop("key")
+
+    # Going on talking takes more to believe than starting to: a reply is dropped for it.
+    policy = Policy(nothing_said_s=args.nothing_said_s, start_s=RESUME_S if args.claim else Policy.start_s)
+    turn_end = TurnEnd(Silero(args.models / "silero_vad.onnx"), policy, hearing(args.models), claim if args.claim else None)
     threading.Thread(target=watch, daemon=True).start()
     for frame in frames(sys.stdin.buffer, args.rate):
         heard_s += FRAME_S
