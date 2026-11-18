@@ -107,6 +107,8 @@ export const Topic = Schema.Struct({
 	id: TopicId,
 	title: Line,
 	summary: Line,
+	hub: Schema.optionalKey(TopicId),
+	shelfLifeDays: Schema.optionalKey(PositiveInt),
 	/** Heading order in the projected note. Headings not listed sort after these. */
 	headings: Schema.Array(Line),
 });
@@ -135,12 +137,12 @@ export type Run = typeof Run.Type;
 const DEFAULT_SHELF_LIFE_DAYS = 365;
 
 /** A source goes stale once it is older than its shelf life; replacement and retraction win. */
-export function freshness(source: Source, now: Date) {
+export function freshness(source: Source, topicShelfLifeDays: number | undefined, now: Date) {
 	if (source.status !== "active") {
 		return source.status;
 	}
 
-	const days = source.shelfLifeDays ?? DEFAULT_SHELF_LIFE_DAYS;
+	const days = source.shelfLifeDays ?? topicShelfLifeDays ?? DEFAULT_SHELF_LIFE_DAYS;
 	const age = now.getTime() - new Date(source.captured).getTime();
 
 	return age > days * 86_400_000 ? "stale" : "fresh";

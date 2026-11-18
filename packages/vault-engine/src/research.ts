@@ -70,6 +70,8 @@ export const researchCheck = Effect.fnUntraced(function* (question: string) {
 const TopicInput = Schema.Struct({
 	title: Text,
 	summary: Text,
+	hub: Schema.optionalKey(Text),
+	shelfLifeDays: Schema.optionalKey(Schema.Int.check(Schema.isGreaterThan(0))),
 });
 
 export const ResearchRunInput = Schema.Struct({
@@ -131,6 +133,8 @@ interface TopicUpsert {
 	readonly title: string;
 	/** Kept from the existing topic when absent. */
 	readonly summary?: string;
+	readonly hub?: string;
+	readonly shelfLifeDays?: number;
 }
 
 const upsertTopics = Effect.fnUntraced(function* (tx: Tx, topics: readonly TopicUpsert[]) {
@@ -144,12 +148,32 @@ const upsertTopics = Effect.fnUntraced(function* (tx: Tx, topics: readonly Topic
 		const title = oneLine(topic.title);
 		const id = ids.get(title) ?? "";
 		const existing = tx.state.topics[id];
+		const hubTitle = topic.hub === undefined ? undefined : oneLine(topic.hub);
+		const hub =
+			hubTitle === undefined ? existing?.hub : (ids.get(hubTitle) ?? topicId(tx, hubTitle, ids));
+		const shelfLifeDays = topic.shelfLifeDays ?? existing?.shelfLifeDays;
+
+		if (
+			hubTitle !== undefined &&
+			hub !== undefined &&
+			!(hub in tx.state.topics) &&
+			!ids.has(hubTitle)
+		) {
+			yield* tx.putTopic({
+				id: hub,
+				title: hubTitle,
+				summary: `Hub for ${hubTitle}.`,
+				headings: [],
+			});
+		}
 
 		yield* tx.putTopic({
 			id,
 			title: existing?.title ?? title,
 			summary: oneLine(topic.summary ?? existing?.summary ?? title),
 			headings: existing?.headings ?? [],
+			...(hub === undefined ? {} : { hub }),
+			...(shelfLifeDays === undefined ? {} : { shelfLifeDays }),
 		});
 	}
 
@@ -278,7 +302,8 @@ export const researchRun = Effect.fnUntraced(function* (tier: Tier, input: Resea
 				const source = tx.source(id);
 
 				return (
-					claim?.stale !== undefined || (source !== undefined && freshness(source, now) !== "fresh")
+					claim?.stale !== undefined ||
+					(source !== undefined && freshness(source, undefined, now) !== "fresh")
 				);
 			});
 

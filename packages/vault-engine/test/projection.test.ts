@@ -16,6 +16,7 @@ import {
 	readText,
 	seed,
 	seeded,
+	state,
 	tempDir,
 	test,
 	vaultAt,
@@ -451,6 +452,7 @@ describe("run notes", () => {
 			{
 				title: "Note granularity",
 				summary: "How big a vault note should be.",
+				hub: "Agent memory",
 			},
 		],
 		passages: [{ key: "t3", source: SOURCE, text: "Table 3: Recall@5 +12.0." }],
@@ -493,6 +495,8 @@ describe("run notes", () => {
 				stale: [earlier.id],
 				topics: [TOPIC],
 			});
+
+			expect((yield* state("shared")).topics[TOPIC]?.hub).toBe("t-agent-memory");
 
 			const out = yield* projected;
 			const note = yield* readText(out, `shared/Runs/${run.id}.md`);

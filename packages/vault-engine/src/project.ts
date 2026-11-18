@@ -226,12 +226,17 @@ function render(view: VaultView, now: Date): Map<string, string> {
 					a.claim.created.localeCompare(b.claim.created) || a.claim.id.localeCompare(b.claim.id),
 			);
 		const live = mine.filter((placed) => placed.claim.status === "active");
+		const hub = topic.hub === undefined ? undefined : topicNote.get(`${tier}/${topic.hub}`);
 		const lines = [
 			"---",
 			"type: topic",
 			`id: ${topic.id}`,
 			`tier: ${tier}`,
 			`summary: ${yaml(topic.summary)}`,
+			...(hub === undefined ? [] : [`hub: ${yaml(`[[${hub}]]`)}`]),
+			...(topic.shelfLifeDays === undefined
+				? []
+				: [`shelf_life_days: ${String(topic.shelfLifeDays)}`]),
 			"generated: vault-engine",
 			"---",
 			`# ${literal(topic.title)}`,
@@ -261,6 +266,16 @@ function render(view: VaultView, now: Date): Map<string, string> {
 			}
 		}
 
+		const children = Object.values(view.tiers[tier].topics)
+			.filter((other) => other.hub === topic.id)
+			.map((other) => topicNote.get(`${tier}/${other.id}`))
+			.filter((name) => name !== undefined)
+			.toSorted();
+
+		if (children.length > 0) {
+			lines.push("", "## Topics under this hub", ...children.map((name) => `- [[${name}]]`));
+		}
+
 		files.set(`${tier}/Topics/${note}.md`, `${lines.join("\n")}\n`);
 	};
 
@@ -277,7 +292,7 @@ function render(view: VaultView, now: Date): Map<string, string> {
 			...(source.shelfLifeDays === undefined
 				? []
 				: [`shelf_life_days: ${String(source.shelfLifeDays)}`]),
-			`status: ${freshness(source, now)}`,
+			`status: ${freshness(source, undefined, now)}`,
 			...(source.replacedBy === undefined
 				? []
 				: [`replaced_by: ${yaml(`[[${source.replacedBy}]]`)}`]),

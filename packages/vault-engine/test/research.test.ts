@@ -18,6 +18,7 @@ describe("research run", () => {
 			{
 				title: "Note granularity",
 				summary: "How big a vault note should be.",
+				hub: "Agent memory",
 			},
 		],
 		passages: [{ key: "t3", source: SOURCE, text: "Table 3: Recall@5 +12.0." }],
@@ -110,13 +111,13 @@ describe("research run", () => {
 			]);
 		}));
 
-	test("keeps topics apart when their titles slug the same", () =>
+	test("keeps topics apart when their titles slug the same, and keeps a topic's shelf life", () =>
 		Effect.gen(function* () {
 			const titles = ["C++", "C#", "日本語の研究"];
 			const run = yield* researchRun("shared", {
 				question: "Which language?",
 				summary: "Three topics.",
-				topics: titles.map((title) => ({ title, summary: `About ${title}.` })),
+				topics: titles.map((title) => ({ title, summary: `About ${title}.`, shelfLifeDays: 30 })),
 				claims: titles.map((topic) => ({
 					key: topic,
 					topic,
@@ -136,6 +137,7 @@ describe("research run", () => {
 			const again = yield* remember("shared", { text: "Again.", topic: "C#" });
 
 			expect(again.topic).toBe(run.topics[1]);
+			expect((yield* state("shared")).topics[again.topic]?.shelfLifeDays).toBe(30);
 		}));
 });
 

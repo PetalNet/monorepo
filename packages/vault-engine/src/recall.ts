@@ -126,7 +126,7 @@ export const reindex = Effect.gen(function* () {
 											...(link.passage === undefined ? {} : { passage: link.passage }),
 											...(source.url === undefined ? {} : { url: source.url }),
 											captured: source.captured,
-											freshness: freshness(source, now),
+											freshness: freshness(source, topic?.shelfLifeDays, now),
 										},
 									]
 								: [];
@@ -164,7 +164,7 @@ export const reindex = Effect.gen(function* () {
 					}
 
 					for (const source of Object.values(state.sources)) {
-						const fresh = freshness(source, now);
+						const fresh = freshness(source, undefined, now);
 
 						for (const [id, text] of Object.entries(source.passages)) {
 							const heading = source.headings?.[id] ?? "";
