@@ -65,13 +65,17 @@ def write_trimmed(source: Path, dest_dir: Path, max_bytes: int) -> str | None:
     return session_id
 
 
-def prune(dest_dir: Path, manifest: Path, older_than_s: float) -> None:
+def prune(dest_dir: Path, manifest: Path, older_than_s: float, keep: str | None = None) -> None:
     """Deletes the copies this module made that are older than older_than_s. The manifest names them,
     so a fork's own transcript, which lives in the same directory, is never touched."""
     kept, now = [], time.time()
     for line in manifest.read_text().splitlines() if manifest.exists() else []:
         made, _, session_id = line.partition(" ")
-        if now - float(made) > older_than_s:
+        try:
+            old = now - float(made) > older_than_s
+        except ValueError:
+            continue  # a line torn by a crash
+        if old and session_id != keep:
             (dest_dir / f"{session_id}.jsonl").unlink(missing_ok=True)
         else:
             kept.append(line)

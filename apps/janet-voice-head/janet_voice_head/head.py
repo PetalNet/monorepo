@@ -328,7 +328,7 @@ class Head:
             if copy:
                 snapshot.remember(manifest, copy)
                 self._snapshot = (copy, parent, time.monotonic())
-                snapshot.prune(fork_dir, manifest, 3600)
+                snapshot.prune(fork_dir, manifest, 3600, keep=copy)
                 return copy
         self._expose_parent(parent)
         return parent

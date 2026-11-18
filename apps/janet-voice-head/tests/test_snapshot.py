@@ -63,6 +63,15 @@ class TrimTest(unittest.TestCase):
         self.assertFalse((self.dir / "fork" / f"{made}.jsonl").exists())
         self.assertTrue(other.exists())
 
+    def test_a_torn_manifest_line_and_the_copy_in_use_are_survived(self):
+        self.write(boundary("b"))
+        made = snapshot.write_trimmed(self.source, self.dir / "fork", 1 << 30)
+        manifest = self.dir / "manifest"
+        snapshot.remember(manifest, made)
+        manifest.write_text(manifest.read_text() + "12")
+        snapshot.prune(self.dir / "fork", manifest, -1, keep=made)
+        self.assertTrue((self.dir / "fork" / f"{made}.jsonl").exists())
+
 
 if __name__ == "__main__":
     unittest.main()
