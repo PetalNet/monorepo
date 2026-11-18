@@ -26,7 +26,7 @@
 
 <section class="reading" aria-labelledby="door-title">
 	<header>
-		<h1 id="door-title">{door.id === "pre" ? "Pre-season door" : door.label}</h1>
+		<h2 id="door-title" class="title">{door.id === "pre" ? "Pre-season door" : door.label}</h2>
 		<p class="when">{today ? `Today, ${weekday(date)}` : dates}</p>
 	</header>
 
@@ -62,7 +62,7 @@
 					Worst of {reading.shownCount}, added {day(reading.shownDate)}
 				{/if}
 			</p>
-			<h2>{item.name}</h2>
+			<h3>{item.name}</h3>
 			<p class="what">{item.description}</p>
 			<dl>
 				<div>
@@ -131,9 +131,10 @@
 		align-items: baseline;
 		gap: 0 1rem;
 	}
-	h1 {
+	.title {
 		margin: 0;
-		font-size: clamp(2rem, 1.4rem + 2.6vw, 3.25rem);
+		max-inline-size: none;
+		font-size: clamp(1.75rem, 1.3rem + 2.2vw, 3rem);
 		font-weight: 300;
 		line-height: 1.05;
 		text-wrap: balance;
@@ -158,7 +159,7 @@
 		margin: 0;
 		color: var(--color-muted);
 	}
-	h2 {
+	h3 {
 		max-inline-size: 30ch;
 		margin: 0.25rem 0 0;
 		font-size: clamp(1.375rem, 1.2rem + 0.9vw, 1.75rem);

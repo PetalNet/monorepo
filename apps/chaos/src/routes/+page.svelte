@@ -1,8 +1,8 @@
 <script lang="ts">
+	import Bank from "$lib/components/Bank.svelte";
 	import Countdown from "$lib/components/Countdown.svelte";
 	import DoorReading from "$lib/components/DoorReading.svelte";
 	import DoorStrip from "$lib/components/DoorStrip.svelte";
-	import RiskMeter from "$lib/components/RiskMeter.svelte";
 	import StatusBoard from "$lib/components/StatusBoard.svelte";
 	import { weekday } from "$lib/format";
 
@@ -35,7 +35,15 @@
 		</div>
 	</dl>
 
-	<RiskMeter risk={data.risk} checkedAt={data.checkedAt} />
+	<Bank
+		chaos={data.chaos}
+		risk={data.risk}
+		ics={data.ics.gauge}
+		safety={data.safety}
+		gap={data.gap}
+		kevCheckedAt={data.checkedAt}
+		icsCheckedAt={data.ics.checkedAt}
+	/>
 
 	<DoorStrip strip={data.strip} selected={data.reading.door.id} />
 

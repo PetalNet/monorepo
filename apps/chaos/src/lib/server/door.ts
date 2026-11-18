@@ -1,9 +1,10 @@
 import { KEV_CAUSE, worst, type Cause, type KevEntry } from "./kev";
-import { risk, type Risk } from "./risk";
+import { risk } from "./risk";
 import type { Store } from "./store";
+import type { Gauge } from "./weekly";
 
 /** CISA dates entries in US Eastern time, so a door opens and closes on that clock. */
-function doorDate(now: Date): string {
+export function doorDate(now: Date): string {
 	return new Intl.DateTimeFormat("en-CA", { timeZone: "America/New_York" }).format(now);
 }
 
@@ -48,7 +49,7 @@ export interface Panel {
 	date: string;
 	strip: StripDoor[];
 	reading: Reading;
-	risk: Risk;
+	risk: Gauge;
 	/** Additions today. Absent with no pull today, and once the season is over. */
 	addedToday: number | undefined;
 	/** The next door to unlock and the instant it does. Absent once every door is open. */

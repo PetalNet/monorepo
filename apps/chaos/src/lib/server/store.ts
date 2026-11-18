@@ -1,6 +1,9 @@
 import { DatabaseSync } from "node:sqlite";
 
+import type { Alert } from "./alerts";
+import type { Advisory } from "./ics";
 import type { KevEntry } from "./kev";
+import type { Headline, NewsDay } from "./news";
 import type { Claim, ClaimLevel } from "./status/services";
 
 export interface Store {
@@ -17,6 +20,25 @@ export interface Store {
 	size: () => number;
 	/** The first day CISA added anything that is still on the list. */
 	earliestDay: () => string | undefined;
+	/** When a named source was last checked, with its ETag and the start of what our record covers. */
+	source: (
+		id: string,
+	) => { etag: string | undefined; checkedAt: string; since: string | undefined } | undefined;
+	markSource: (id: string, now: Date) => void;
+	/** Replaces the advisory list with this pull. */
+	saveAdvisories: (advisories: readonly Advisory[], etag: string | null, now: Date) => void;
+	advisoryCounts: (from: string, to: string) => Map<string, number>;
+	earliestAdvisory: () => string | undefined;
+	/** Adds alerts to the record. `since` is how far back this pull reached; the first one is kept. */
+	saveAlerts: (alerts: readonly Alert[], since: Date, now: Date) => void;
+	/** Alerts sent at or after `from`, newest first. */
+	alertsSince: (from: Date) => Alert[];
+	saveNewsDay: (day: NewsDay, now: Date) => void;
+	/** Counted days from `from` on, oldest first. */
+	newsDays: (from: string) => NewsDay[];
+	/** Replaces the headlines on show. */
+	saveHeadlines: (headlines: readonly Headline[], now: Date) => void;
+	headlines: () => Headline[];
 	saveClaim: (service: string, claim: Claim, now: Date) => void;
 	claim: (service: string) => (Claim & { checkedAt: string }) | undefined;
 	/** Records one probe and keeps the count of failures in a row, with no long gap between them. */
@@ -55,6 +77,34 @@ export function openStore(file: string): Store {
 			last_modified TEXT,
 			checked_at TEXT NOT NULL
 		);
+		CREATE TABLE IF NOT EXISTS source (
+			id TEXT PRIMARY KEY,
+			etag TEXT,
+			checked_at TEXT NOT NULL,
+			since TEXT
+		);
+		CREATE TABLE IF NOT EXISTS ics_advisory (id TEXT PRIMARY KEY, published TEXT NOT NULL);
+		CREATE INDEX IF NOT EXISTS ics_published ON ics_advisory (published);
+		CREATE TABLE IF NOT EXISTS alert (
+			id TEXT PRIMARY KEY,
+			event TEXT NOT NULL,
+			sent TEXT NOT NULL,
+			area TEXT NOT NULL,
+			headline TEXT NOT NULL
+		);
+		CREATE INDEX IF NOT EXISTS alert_sent ON alert (sent);
+		CREATE TABLE IF NOT EXISTS news_day (
+			day TEXT PRIMARY KEY,
+			articles INTEGER NOT NULL,
+			capped INTEGER NOT NULL,
+			final INTEGER NOT NULL
+		);
+		CREATE TABLE IF NOT EXISTS headline (
+			url TEXT PRIMARY KEY,
+			title TEXT NOT NULL,
+			outlet TEXT NOT NULL,
+			published TEXT NOT NULL
+		);
 		CREATE TABLE IF NOT EXISTS service_claim (
 			service TEXT PRIMARY KEY,
 			level TEXT NOT NULL,
@@ -87,6 +137,39 @@ export function openStore(file: string): Store {
 	const total = db.prepare("SELECT count(*) AS entries FROM kev");
 	const dayBefore = db.prepare("SELECT max(date_added) AS day FROM kev WHERE date_added < ?");
 
+	const getSource = db.prepare(
+		"SELECT etag, checked_at AS checkedAt, since FROM source WHERE id = ?",
+	);
+	// A 304 keeps the stored ETag, and the first `since` is never moved forward.
+	const setSource = db.prepare(`
+		INSERT INTO source (id, etag, checked_at, since) VALUES (?, ?, ?, ?)
+		ON CONFLICT (id) DO UPDATE SET
+			etag = coalesce(excluded.etag, source.etag), checked_at = excluded.checked_at,
+			since = coalesce(source.since, excluded.since)`);
+	const addAdvisory = db.prepare("INSERT INTO ics_advisory (id, published) VALUES (?, ?)");
+	const advisoriesByDay = db.prepare(`
+		SELECT published AS day, count(*) AS added FROM ics_advisory
+		WHERE published BETWEEN ? AND ? GROUP BY published`);
+	const firstAdvisory = db.prepare("SELECT min(published) AS day FROM ics_advisory");
+	const addAlert = db.prepare(`
+		INSERT INTO alert (id, event, sent, area, headline) VALUES (?, ?, ?, ?, ?)
+		ON CONFLICT (id) DO NOTHING`);
+	const alertsFrom = db.prepare(
+		"SELECT id, event, sent, area, headline FROM alert WHERE sent >= ? ORDER BY sent DESC",
+	);
+	const setNewsDay = db.prepare(`
+		INSERT INTO news_day (day, articles, capped, final) VALUES (?, ?, ?, ?)
+		ON CONFLICT (day) DO UPDATE SET
+			articles = excluded.articles, capped = excluded.capped, final = excluded.final`);
+	const getNewsDays = db.prepare(
+		"SELECT day, articles, capped, final FROM news_day WHERE day >= ? ORDER BY day",
+	);
+	const addHeadline = db.prepare(
+		"INSERT OR REPLACE INTO headline (url, title, outlet, published) VALUES (?, ?, ?, ?)",
+	);
+	const getHeadlines = db.prepare(
+		"SELECT title, outlet, url, published FROM headline ORDER BY published DESC",
+	);
 	const setClaim = db.prepare(`
 		INSERT INTO service_claim (service, level, text, checked_at) VALUES (?, ?, ?, ?)
 		ON CONFLICT (service) DO UPDATE SET
@@ -108,7 +191,81 @@ export function openStore(file: string): Store {
 		"SELECT reachable, detail, fails, checked_at AS checkedAt FROM service_probe WHERE service = ?",
 	);
 
+	const atomically = (work: () => void): void => {
+		db.exec("BEGIN");
+
+		try {
+			work();
+			db.exec("COMMIT");
+		} catch (error) {
+			db.exec("ROLLBACK");
+
+			throw error;
+		}
+	};
+
 	return {
+		source(id) {
+			const row = getSource.get(id);
+
+			return (
+				row && {
+					etag: (row.etag as string | null) ?? undefined,
+					checkedAt: row.checkedAt as string,
+					since: (row.since as string | null) ?? undefined,
+				}
+			);
+		},
+		markSource: (id, now) => void setSource.run(id, null, now.toISOString(), null),
+		saveAdvisories(advisories, etag, now) {
+			atomically(() => {
+				db.exec("DELETE FROM ics_advisory");
+
+				for (const advisory of advisories) {
+					addAdvisory.run(advisory.id, advisory.published);
+				}
+
+				setSource.run("ics", etag, now.toISOString(), null);
+			});
+		},
+		advisoryCounts: (from, to) =>
+			new Map(advisoriesByDay.all(from, to).map((row) => [row.day as string, row.added as number])),
+		earliestAdvisory: () => (firstAdvisory.get()?.day as string | null) ?? undefined,
+		saveAlerts(alerts, since, now) {
+			atomically(() => {
+				for (const alert of alerts) {
+					addAlert.run(alert.id, alert.event, alert.sent, alert.area, alert.headline);
+				}
+
+				setSource.run("alerts", null, now.toISOString(), since.toISOString());
+			});
+		},
+		saveNewsDay(day, now) {
+			atomically(() => {
+				setNewsDay.run(day.day, day.articles, Number(day.capped), Number(day.final));
+				setSource.run("news", null, now.toISOString(), null);
+			});
+		},
+		newsDays: (from) =>
+			getNewsDays.all(from).map((row) => ({
+				day: row.day as string,
+				articles: row.articles as number,
+				capped: row.capped === 1,
+				final: row.final === 1,
+			})),
+		saveHeadlines(headlines, now) {
+			atomically(() => {
+				db.exec("DELETE FROM headline");
+
+				for (const headline of headlines) {
+					addHeadline.run(headline.url, headline.title, headline.outlet, headline.published);
+				}
+
+				setSource.run("news", null, now.toISOString(), null);
+			});
+		},
+		headlines: () => getHeadlines.all() as unknown as Headline[],
+		alertsSince: (from) => alertsFrom.all(from.toISOString()) as unknown as Alert[],
 		saveClaim: (service, claim, now) =>
 			void setClaim.run(service, claim.level, claim.text, now.toISOString()),
 		claim(service) {
