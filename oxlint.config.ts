@@ -73,6 +73,9 @@ export const lintConfig = {
 		// Domain failures use Effect error classes and schema-aware checks.
 		"effecttsgo/extends-native-error": "error",
 		"effecttsgo/instance-of-schema": "error",
+		// Typed failures and explicit concurrency; both sit outside Effect's recommended preset.
+		"effecttsgo/effect-try-without-catch": "error",
+		"effecttsgo/missing-concurrency-option": "error",
 		// A conditional radix of 16 or 10 is valid, but the rule cannot prove it.
 		"eslint/radix": "off",
 		// Size limits and presentation preferences are too noisy for this workspace.
@@ -103,8 +106,6 @@ export const lintConfig = {
 		"unicorn/consistent-function-scoping": "off",
 		// Categories must not opt into Effect rules outside its recommended preset.
 		"effecttsgo/any-unknown-in-error-context": "off",
-		"effecttsgo/effect-try-without-catch": "off",
-		"effecttsgo/missing-concurrency-option": "off",
 		"effecttsgo/prefer-schema-tagged-error": "off",
 		"effecttsgo/strict-effect-provide": "off",
 		"effecttsgo/yield-in-call-argument": "off",

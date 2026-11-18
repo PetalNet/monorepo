@@ -420,6 +420,7 @@ export const ActorAuthorityLayer = (config: ActorAuthorityConfig) =>
 				grants: readonly string[] = DEFAULT_CAPABILITIES,
 			) =>
 				Effect.forEach(grants, (capability) => insertCapability(actorIdValue, capability), {
+					concurrency: 1,
 					discard: true,
 				});
 			const serializeContainment = <A, E>(effect: Effect.Effect<A, E>) =>

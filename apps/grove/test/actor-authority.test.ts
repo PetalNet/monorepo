@@ -232,21 +232,24 @@ describe("actor authority", () => {
 	it("rejects capability containment violations with explicit fixes and revokes currentness", async () => {
 		const actors = await run(
 			authority((service) =>
-				Effect.all({
-					owner: service.bindBrowserIdentity({
-						authUserId: "auth-owner",
-						...ownerIdentity,
-						name: "Grove Operator",
-						emailVerified: true,
-					}),
-					guest: service.bindBrowserIdentity({
-						authUserId: "auth-guest",
-						issuer: ownerIdentity.issuer,
-						subject: "guest",
-						name: "Guest",
-						emailVerified: true,
-					}),
-				}),
+				Effect.all(
+					{
+						owner: service.bindBrowserIdentity({
+							authUserId: "auth-owner",
+							...ownerIdentity,
+							name: "Grove Operator",
+							emailVerified: true,
+						}),
+						guest: service.bindBrowserIdentity({
+							authUserId: "auth-guest",
+							issuer: ownerIdentity.issuer,
+							subject: "guest",
+							name: "Guest",
+							emailVerified: true,
+						}),
+					},
+					{ concurrency: 1 },
+				),
 			),
 		);
 		const agent = await run(
@@ -667,7 +670,7 @@ describe("actor authority", () => {
 								personId: owner.actorId,
 								capability,
 							}),
-						{ discard: true },
+						{ concurrency: 1, discard: true },
 					),
 				),
 			),

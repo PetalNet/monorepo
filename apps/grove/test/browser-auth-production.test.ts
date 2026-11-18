@@ -198,20 +198,23 @@ describe("production Grove browser auth composition", () => {
 			.join("; ");
 		const authorityState = () =>
 			runtime.runPromise(
-				Effect.all({
-					actors: sql.unsafe(
-						"select id, kind, name, lifecycle, created_at, updated_at from grove_actors order by id",
-					),
-					people: sql.unsafe(
-						"select actor_id, better_auth_user_id from grove_persons order by actor_id",
-					),
-					identities: sql.unsafe(
-						"select actor_id, issuer, subject, use, created_at from grove_external_identities order by actor_id, issuer, subject",
-					),
-					hosts: sql.unsafe(
-						"select id, runner_id, owner_person_id, created_at from grove_hosts order by id",
-					),
-				}),
+				Effect.all(
+					{
+						actors: sql.unsafe(
+							"select id, kind, name, lifecycle, created_at, updated_at from grove_actors order by id",
+						),
+						people: sql.unsafe(
+							"select actor_id, better_auth_user_id from grove_persons order by actor_id",
+						),
+						identities: sql.unsafe(
+							"select actor_id, issuer, subject, use, created_at from grove_external_identities order by actor_id, issuer, subject",
+						),
+						hosts: sql.unsafe(
+							"select id, runner_id, owner_person_id, created_at from grove_hosts order by id",
+						),
+					},
+					{ concurrency: 1 },
+				),
 			);
 		const beforePreflightInspection = await authorityState();
 		const inspectedUnbound = await runtime.runPromise(
