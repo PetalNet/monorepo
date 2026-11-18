@@ -31,10 +31,12 @@ double tap ends the listening within a fraction of a second. A held press ends o
 wait for quiet.
 
 "Quiet" and "speech" are judged against the room, from the microphone level Hex reports, so a loud
-room or a different microphone needs no setting. The quiet level is the lowest "quietest tenth"
-heard so far and only ever goes down, so a long sentence cannot raise it. Speech is present once
-the loudest tenth stands well above it: room noise is steady and speech is not. One click is too
-brief to count; a cough can. The first half second is ignored while the microphone opens.
+room or a different microphone needs no setting. The room level is the lowest "quietest tenth" heard
+so far and only ever goes down, so a long sentence cannot raise it. A sample is loud when it stands
+10 dB above the room; a real room wanders by several dB, so quiet means "nothing loud", not
+"everything low". Speech is eight loud samples within a second, which a click is not and a cough
+can be. The first half second is ignored while the microphone opens. Each listen logs why it
+ended and what it measured, in `~/Library/Caches/janet-talk/talk.log`.
 
 ## What `janet-talk` does
 

@@ -115,25 +115,32 @@ hex_end() { # finish|cancel, id, owner -> prints the transcript for finish
   [ "$1" = finish ] && printf '%s' "$reply" | jq -r '.transcript // empty' 2>/dev/null
 }
 
-# Returns when the speaker has stopped, and prints why. The microphone level Hex reports is
-# judged against the room, so a loud room or another microphone needs no setting:
-# - the quiet level is the lowest "quietest tenth" seen so far. It only ever goes down, so a
+# Returns when the speaker has stopped, and prints why with what it measured. The microphone
+# level Hex reports is judged against the room, so a loud room or another microphone needs no
+# setting:
+# - the room level is the lowest "quietest tenth" seen so far. It only ever goes down, so a
 #   long stretch of talking cannot raise it;
-# - speech is present once the loud tenth stands well above the quiet tenth. Room noise is
-#   steady, speech is not. A single click is too brief to move either;
-# - it ends when speech was heard and END_OF_SPEECH_S of quiet followed, when nothing was said
-#   for NO_SPEECH_S, when the stop file appears (the key again), or after MAX_LISTEN_S.
+# - a sample is loud when it stands 10 dB above the room. A real room wanders by several dB
+#   and throws the odd louder instant, so quiet is "nothing loud", not "everything low";
+# - speech is eight loud samples within a second: a click or a creak is fewer;
+# - it ends when speech was heard and nothing loud followed for END_OF_SPEECH_S, when nothing
+#   was said for NO_SPEECH_S, when the stop file appears (the key again), or after MAX_LISTEN_S.
 # The first half second is left out: Hex reports near-total silence while the microphone opens.
 wait_for_end_of_speech() { # id, owner
   HEX_OWNER="$2" hex GET "/dictations/$1/levels" -N --max-time "$MAX_LISTEN_S" |
     END_S="$END_OF_SPEECH_S" NONE_S="$NO_SPEECH_S" MAX_S="$MAX_LISTEN_S" STOP_FILE="$STATE/listening.stop" \
       perl -MTime::HiRes=time -MIO::Select -e '
-      $start = $last = time; $quiet = 0; $buffer = "";
+      $start = time; $buffer = "";
       $input = IO::Select->new(\*STDIN);
-      sub done { print "$_[0]\n"; exit 0 }
+      sub done {
+        printf "%s (%d samples, room %.0f dB, loudest %.0f dB, %d loud)\n", $_[0], scalar(@level),
+          $floor // 0, $loudest // 0, scalar(grep { defined $floor && $_ >= $floor + 10 } @level);
+        exit 0;
+      }
       while (1) {
         $now = time;
         done("key") if -e $ENV{STOP_FILE};
+        done("quiet") if $speech && $now - $last_loud >= $ENV{END_S};
         done("nothing said") if !$speech && $now - $start >= $ENV{NONE_S};
         done("limit") if $now - $start >= $ENV{MAX_S};
         next unless $input->can_read(0.2);       # also wakes with no sample, for the checks above
@@ -141,19 +148,19 @@ wait_for_end_of_speech() { # id, owner
         $buffer .= $chunk;
         while ($buffer =~ s/^(.*?)\n//) {
           next unless $1 =~ /"rmsDb":\s*(-?[\d.]+)/;
-          $level = $1; $now = time;
-          $step = $now - $last; $step = 0.2 if $step > 0.2;   # a stall is not a long sample
-          $last = $now;
-          next if $now - $start < 0.5 || $level < -90;
-          push @heard, $level;
-          next if @heard < 20;                    # a tenth of fewer would be one stray sample
-          @sorted = sort { $a <=> $b } @heard;
+          $now = time;
+          next if $now - $start < 0.5 || $1 < -90;
+          push @level, $1; push @at, $now;
+          $loudest = $1 if !defined $loudest || $1 > $loudest;
+          next if @level < 20;                    # a tenth of fewer would be one stray sample
+          @sorted = sort { $a <=> $b } @level;
           $low = $sorted[int($#sorted * 0.1)];
-          $high = $sorted[int($#sorted * 0.9)];
           $floor = $low if !defined $floor || $low < $floor;
-          $speech ||= $high - $floor >= 12;
-          $quiet = $level < $floor + 6 ? $quiet + $step : 0;
-          done("quiet") if $speech && $quiet >= $ENV{END_S};
+          # Judged again from the start each time: the room level may have just come down.
+          @loud = map { $at[$_] } grep { $level[$_] >= $floor + 10 } 0 .. $#level;
+          $last_loud = $loud[-1];
+          # Speech: eight loud samples inside one second, anywhere so far.
+          for $i (7 .. $#loud) { $speech = 1 if $loud[$i] - $loud[$i - 7] <= 1 }
         }
       }'
 }

@@ -38,6 +38,15 @@ STUBS = {
 }
 
 
+# How a real room's level wandered around its middle, in dB, sample by sample: taken from four
+# seconds of a MacBook microphone in a quiet room, including its louder instants.
+ROOM_WANDER = [
+    -1, -2, -1, -2, 1, 0, 1, 1, 1, -1, 0, -2, -1, 0, 0, 1, 0, 7, 4, -2, 2, 3, 1, 1, 0, 1, 2, 0, 0, 0, -1, 1, 0, 2, 0,
+    3, -1, -1, -3, 2, 2, 1, 0, 1, 2, 0, 1, 0, 1, 3, 3, -1, 0, 1, -3, 1, 0, 0, 2, -2, 0, 0, -1, -2, 0, 3, 2, 3, 3, -2,
+    1, -1, 3, 1, 1, 1, -2, 2, -2, -3, -2, -4, -3, -2, -1, 2, 1, 2, 2, -3, -4, -3, 1, -2, 1, 0, 4, 4, 2, 1, -1, 2, 1,
+]
+
+
 class FakeHex(ThreadingHTTPServer):
     """Hex's local dictation API. What it does comes from files the test writes, and it logs each call."""
 
@@ -49,6 +58,7 @@ class FakeHex(ThreadingHTTPServer):
         # (seconds, dB) steps the microphone level goes through while a recording runs.
         self.levels = [(0.0, -50.0)]
         self.heartbeats = 0
+        self.sample = 0
         # When each call arrived, by name, in seconds on the monotonic clock.
         self.at: dict[str, float] = {}
         threading.Thread(target=self.serve_forever, daemon=True).start()
@@ -107,9 +117,13 @@ class _HexHandler(BaseHTTPRequestHandler):
                 until = time.monotonic() + seconds
                 syllable = 0
                 while True:
-                    # Speech is uneven: loud and soft instants alternate. A room's hum is steady.
+                    # Speech is uneven: loud and soft instants alternate. A room wanders.
                     syllable += 1
-                    now = level - 15 if level > -30 and syllable % 2 else level
+                    self.server.sample += 1
+                    if level > -30:
+                        now = level - 15 if syllable % 2 else level
+                    else:
+                        now = level + ROOM_WANDER[self.server.sample % len(ROOM_WANDER)]
                     self.wfile.write(f'data: {{"peakDb":{now},"rmsDb":{now}}}\n\n'.encode())
                     self.wfile.flush()
                     if time.monotonic() >= until:
