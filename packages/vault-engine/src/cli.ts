@@ -10,6 +10,7 @@ import { Argument, Command, Flag } from "effect/cli";
 import { operations } from "./api.ts";
 import { Vault } from "./engine.ts";
 import { WriteRejected } from "./errors.ts";
+import { reindex } from "./recall.ts";
 
 const print = (value: unknown) =>
 	Console.log(typeof value === "string" ? value : JSON.stringify(value, null, 1));
@@ -46,7 +47,9 @@ const commands = [
 			call("recall", { query: query.join(" "), ...some("k", k) }).pipe(
 				Effect.flatMap((result) => print(json ? result : (result as { text: string }).text)),
 			),
-	).pipe(Command.withDescription("Claims matching the query, each with its sources.")),
+	).pipe(
+		Command.withDescription("Claims matching the query, each with its sources and freshness."),
+	),
 	Command.make(
 		"remember",
 		{
@@ -71,6 +74,9 @@ const commands = [
 				}),
 			}).pipe(Effect.flatMap(print)),
 	).pipe(Command.withDescription("Store one sourced claim.")),
+	Command.make("reindex", {}, () => reindex.pipe(Effect.flatMap(print))).pipe(
+		Command.withDescription("Rebuild the claim index."),
+	),
 ];
 
 /** `VAULT_ROOT` is this host's vault and `VAULT_AGENT` names the writer. */

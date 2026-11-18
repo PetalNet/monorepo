@@ -32,7 +32,7 @@ export const operations = [
 	operation({
 		name: "recall",
 		description:
-			"Search the vault's claims. Each result is one claim with its topic and heading and its sources. Cite claims by ID. Call this before researching or answering from memory.",
+			"Search the vault's claims. Each result is one claim with its topic and heading, its sources and how fresh they are. Cite claims by ID. Call this before researching or answering from memory.",
 		input: RecallInput,
 		output: Schema.Struct({
 			claims: Schema.Array(ClaimCard),

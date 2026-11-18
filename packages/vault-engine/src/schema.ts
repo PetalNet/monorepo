@@ -28,6 +28,7 @@ export const Text = Schema.NonEmptyString;
 const Line = Text.check(
 	Schema.makeFilter((value: string) => !/[\r\n]/.test(value) || "must be a single line"),
 );
+const PositiveInt = Schema.Int.check(Schema.isGreaterThan(0));
 
 /** A typed wikilink from a claim to a source passage or to another claim. */
 export const Link = Schema.Struct({
@@ -76,6 +77,7 @@ export const Source = Schema.Struct({
 	url: Schema.optionalKey(Url),
 	sourceType: SourceType,
 	captured: Timestamp,
+	shelfLifeDays: Schema.optionalKey(PositiveInt),
 	/** Passage ID to passage text. The heading a passage sits under is `headings[id]`. */
 	passages: Schema.Record(PassageId, Text),
 	headings: Schema.optionalKey(Schema.Record(PassageId, Line)),
@@ -91,6 +93,16 @@ export const Topic = Schema.Struct({
 	headings: Schema.Array(Line),
 });
 export type Topic = typeof Topic.Type;
+
+const DEFAULT_SHELF_LIFE_DAYS = 365;
+
+/** A source goes stale once it is older than its shelf life. */
+export function freshness(source: Source, now: Date) {
+	const days = source.shelfLifeDays ?? DEFAULT_SHELF_LIFE_DAYS;
+	const age = now.getTime() - new Date(source.captured).getTime();
+
+	return age > days * 86_400_000 ? "stale" : "fresh";
+}
 
 export function slug(text: string): string {
 	const value = text
