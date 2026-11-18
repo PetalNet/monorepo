@@ -29,6 +29,12 @@ object Calls {
 		private set
 	var connection: JanetConnection? = null
 
+	/** True while the caller has muted the microphone. Read on the microphone thread. A new call starts unmuted. */
+	@Volatile var muted = false
+		private set
+
+	fun mute(on: Boolean) = update { muted = on && inCall }
+
 	/** What the call screen shows of the call in progress. */
 	var stage: CallStage? = null
 
@@ -52,7 +58,9 @@ object Calls {
 	fun update(state: CallState = this.state, route: String = this.route) = update {
 		this.state = state
 		activeSinceMs = if (state is CallState.Active) activeSinceMs ?: SystemClock.elapsedRealtime() else null
-		this.route = route
+		// A finished call leaves no sound route behind for the next one to show.
+		this.route = if (inCall) route else ""
+		if (!inCall) muted = false
 	}
 
 	/** Runs [change] on the main thread, then tells the observers. */

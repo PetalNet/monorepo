@@ -27,7 +27,7 @@ class JanetConnection(private val onGone: () -> Unit) : Connection() {
 		setDialing()
 		session = CallSession(
 			pairing,
-			micFactory = { TestHooks.micWav?.let(::WavMic) ?: AudioRecordMic() },
+			micFactory = { MutableMic(TestHooks.micWav?.let(::WavMic) ?: AudioRecordMic()) { Calls.muted } },
 			player = player,
 			stage = stage,
 			onOpen = {

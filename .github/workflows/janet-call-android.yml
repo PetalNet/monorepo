@@ -1,6 +1,7 @@
 name: janet-call-android
 
 # Unit tests and a debug build for every pull request that touches the app.
+# The tests draw every screen; the pictures are kept as the "screens" artifact.
 # The signed release is built from main by janet-call-android-release.yml.
 on:
   pull_request:
@@ -33,3 +34,11 @@ jobs:
 
       - name: Test and build
         run: ./gradlew --no-daemon testDebugUnitTest testReleaseUnitTest assembleDebug
+
+      - name: Keep the drawn screens
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: screens
+          path: apps/janet-call-android/build/screens
+          retention-days: 14

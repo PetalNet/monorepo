@@ -1,21 +1,32 @@
 plugins {
 	id("com.android.application") version "9.0.1"
+	// The Kotlin version the Android plugin above compiles with.
+	id("org.jetbrains.kotlin.plugin.compose") version "2.2.10"
 }
 
 android {
 	namespace = "dev.petalcat.janetcall"
-	compileSdk = 35
+	compileSdk = 36
 
 	defaultConfig {
 		applicationId = "dev.petalcat.janetcall"
 		minSdk = 26
 		targetSdk = 35
-		versionCode = 6
-		versionName = "0.2.3"
+		versionCode = 7
+		versionName = "0.3.0"
 	}
 
 	buildFeatures {
 		buildConfig = true
+		compose = true
+	}
+
+	testOptions {
+		unitTests {
+			// The screen tests draw the real screens, with the app's font and planet.
+			isIncludeAndroidResources = true
+			all { it.systemProperty("roborazzi.test.record", "true") }
+		}
 	}
 
 	compileOptions {
@@ -36,8 +47,15 @@ dependencies {
 	// OkHttp 5.5 needs compileSdk 37, which no released Android Gradle plugin builds against yet.
 	// .github/renovate.json holds it below 5 until this project can compile against 37.
 	implementation("com.squareup.okhttp3:okhttp:4.12.1")
+	implementation(platform("androidx.compose:compose-bom:2025.10.01"))
+	implementation("androidx.compose.foundation:foundation")
+	implementation("androidx.compose.material3:material3")
+	implementation("androidx.activity:activity-compose:1.11.0")
 	testImplementation("junit:junit:4.13.2")
 	testImplementation("org.json:json:20240303")
+	testImplementation("org.robolectric:robolectric:4.14.1")
+	testImplementation("io.github.takahirom.roborazzi:roborazzi:1.43.1")
+	testImplementation("androidx.test:core:1.6.1")
 }
 
 androidComponents {
