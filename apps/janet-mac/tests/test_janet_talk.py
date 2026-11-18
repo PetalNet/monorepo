@@ -277,6 +277,23 @@ class TurnEndModelsTest(TalkCase):
         self.assertEqual(self.head_calls("/turns"), [{"text": "what time is it"}])
 
 
+    def test_models_that_fail_to_run_leave_the_level_rule_to_end_the_listening(self):
+        home = self.root / "turn-end"
+        (home / "venv" / "bin").mkdir(parents=True)
+        python = home / "venv" / "bin" / "python"
+        python.write_text("#!/usr/bin/env bash\nexit 1\n")
+        python.chmod(0o755)
+        self.env["JANET_TALK_TURN_END"] = str(home)
+        self.env["JANET_TALK_LATCH_MS"] = "1000000"
+        self.hex.levels = [(1.0, -50.0), (1.5, -22.0), (30.0, -50.0)]
+        self.talk("start")
+        self.talk("stop")
+        listened = self.hex.at["finish"] - self.hex.at["start"]
+        self.assertGreater(listened, 2.5 + 0.3, "it stopped listening while the speaker was talking")
+        self.assertLess(listened, 2.5 + 1.6)
+        self.assertEqual(self.head_calls("/turns"), [{"text": "what time is it"}])
+
+
 class TalkTest(TalkCase):
     def test_a_press_and_release_speaks_the_reply_in_order_and_shows_it(self):
         self.talk("start")

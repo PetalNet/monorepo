@@ -33,28 +33,6 @@ esac
 
 mkdir -p "$HOME/.local/bin" "$HOME/.config/janet-talk"
 install -m 755 "$here/janet-talk" "$HOME/.local/bin/janet-talk"
-
-# The models that hear when a turn has ended, and a Python environment to run them in. Both
-# models run on this Mac. A download that does not match its checksum stops the install. An
-# install from before this step has no environment, and janet-talk then judges the level instead.
-turn_end="$HOME/.local/share/janet-talk"
-mkdir -p "$turn_end/models"
-install -m 644 "$here/turn_end.py" "$turn_end/turn_end.py"
-model() { # file, sha256, url
-  [ "$(shasum -a 256 "$turn_end/models/$1" 2>/dev/null | cut -d' ' -f1)" = "$2" ] && return 0
-  curl -fsSL --max-time 120 -o "$turn_end/models/$1.part" "$3"
-  [ "$(shasum -a 256 "$turn_end/models/$1.part" | cut -d' ' -f1)" = "$2" ] || {
-    echo "$1 does not match its checksum" >&2
-    exit 1
-  }
-  mv "$turn_end/models/$1.part" "$turn_end/models/$1"
-}
-model smart-turn-v3.2-cpu.onnx 2bb026316b14a660486a75b1733cd3fbab8c2fd0314dc9af7be49f8cca967e4f \
-  https://huggingface.co/pipecat-ai/smart-turn-v3/resolve/main/smart-turn-v3.2-cpu.onnx
-model silero_vad.onnx 1a153a22f4509e292a94e67d6f9b85e8deb25b4988682b7e174c65279d8788e3 \
-  https://raw.githubusercontent.com/snakers4/silero-vad/v6.2/src/silero_vad/data/silero_vad.onnx
-[ -x "$turn_end/venv/bin/python" ] || python3 -m venv "$turn_end/venv"
-"$turn_end/venv/bin/python" -m pip install --quiet --disable-pip-version-check numpy onnxruntime
 printf 'JANET_VOICE_URL="%s"\n' "${url%/}" >"$HOME/.config/janet-talk/config"
 
 # `security -i` reads commands from standard input, which keeps the secrets off the command line.
@@ -100,4 +78,26 @@ if [ -f "$config" ]; then
 else
   echo "Karabiner-Elements has no config yet: open it once, then run this again." >&2
 fi
+# The models that hear when a turn has ended, and a Python environment to run them in. Both
+# models run on this Mac. A download that does not match its checksum stops the install. Until
+# this step has worked, janet-talk judges the microphone level instead.
+turn_end="$HOME/.local/share/janet-talk"
+mkdir -p "$turn_end/models"
+install -m 644 "$here/turn_end.py" "$turn_end/turn_end.py"
+model() { # file, sha256, url
+  [ "$(shasum -a 256 "$turn_end/models/$1" 2>/dev/null | cut -d' ' -f1)" = "$2" ] && return 0
+  curl -fsSL --max-time 120 -o "$turn_end/models/$1.part" "$3"
+  [ "$(shasum -a 256 "$turn_end/models/$1.part" | cut -d' ' -f1)" = "$2" ] || {
+    echo "$1 does not match its checksum" >&2
+    exit 1
+  }
+  mv "$turn_end/models/$1.part" "$turn_end/models/$1"
+}
+model smart-turn-v3.2-cpu.onnx 2bb026316b14a660486a75b1733cd3fbab8c2fd0314dc9af7be49f8cca967e4f \
+  https://huggingface.co/pipecat-ai/smart-turn-v3/resolve/f766f81d3cfdf7737ac64aad813d91bbfd56bf93/smart-turn-v3.2-cpu.onnx
+model silero_vad.onnx 1a153a22f4509e292a94e67d6f9b85e8deb25b4988682b7e174c65279d8788e3 \
+  https://raw.githubusercontent.com/snakers4/silero-vad/v6.2/src/silero_vad/data/silero_vad.onnx
+[ -x "$turn_end/venv/bin/python" ] || python3 -m venv "$turn_end/venv"
+"$turn_end/venv/bin/python" -c 'import numpy, onnxruntime' 2>/dev/null ||
+  "$turn_end/venv/bin/python" -m pip install --quiet --disable-pip-version-check numpy==2.0.2 onnxruntime==1.19.2
 echo "janet-talk installed"

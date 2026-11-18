@@ -4,11 +4,13 @@ import io
 import sys
 import unittest
 from pathlib import Path
+from unittest import mock
 
 import numpy as np
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
-from turn_end import FRAME, FRAME_S, RATE, Policy, TurnEnd, frames, whisper_features  # noqa: E402
+import turn_end  # noqa: E402
+from turn_end import FRAME, FRAME_S, RATE, Policy, Silero, To16k, TurnEnd, frames, whisper_features  # noqa: E402
 
 SPEECH, SILENCE = np.ones(FRAME, np.float32), np.zeros(FRAME, np.float32)
 
@@ -61,9 +63,19 @@ class TurnEndTest(unittest.TestCase):
         self.assertAlmostEqual(seconds, 6.2, delta=0.1)
 
     def test_a_click_is_not_a_turn_and_nothing_said_gives_up(self):
-        why, seconds, asked = listen([(1.0, SILENCE), (0.06, SPEECH), (10.0, SILENCE)], finished=0.99)
+        why, seconds, asked = listen([(1.0, SILENCE), (0.09, SPEECH), (10.0, SILENCE)], finished=0.99)
         self.assertEqual((why, asked), ("nothing said", []))
         self.assertAlmostEqual(seconds, 6.0, delta=0.1)
+
+    def test_stray_instants_the_detector_takes_for_speech_do_not_keep_it_listening(self):
+        blips = [(1.9, SILENCE), (FRAME_S, SPEECH)] * 30
+        why, seconds, _ = listen([(2.0, SPEECH)] + blips, finished=0.3)
+        self.assertEqual(why, "quiet")
+        self.assertAlmostEqual(seconds, 6.0, delta=0.1)
+
+    def test_smart_turn_has_to_be_surer_than_the_threshold_not_merely_at_it(self):
+        why, _, _ = listen([(2.0, SPEECH), (10.0, SILENCE)], finished=0.5, policy=Policy(asks=((1.0, 0.5),)))
+        self.assertEqual(why, "quiet")
 
     def test_smart_turn_hears_at_most_the_last_eight_seconds(self):
         _, _, asked = listen([(20.0, SPEECH), (10.0, SILENCE)], finished=0.99)
@@ -91,9 +103,53 @@ class AudioTest(unittest.TestCase):
         heard = np.concatenate(list(frames(io.BytesIO(tone.tobytes()), RATE)))
         np.testing.assert_array_equal(heard, tone[: len(heard)])
 
-    def test_smart_turn_is_given_eight_seconds_of_features_however_short_the_turn(self):
-        self.assertEqual(whisper_features(self.tone(RATE, 0.5)).shape, (80, 800))
+    def test_a_44_1_khz_stream_comes_out_the_same_however_it_is_cut_into_chunks(self):
+        sound = np.random.default_rng(1).standard_normal(44100).astype(np.float32)
+        whole = To16k(44100)(sound)
+        to_16k = To16k(44100)
+        pieces = np.concatenate([to_16k(piece) for piece in np.split(sound, [7, 1000, 1001, 20000, 20003])])
+        np.testing.assert_allclose(pieces, whole, atol=1e-6)
+        self.assertAlmostEqual(len(whole), RATE, delta=40)
+
+    def test_reads_too_short_to_hold_a_sample_add_nothing_to_the_sound(self):
+        class Dribble(io.BytesIO):
+            def read1(self, size=-1):
+                self.turn = getattr(self, "turn", 0) + 1
+                return super().read(3 if self.turn % 2 else 5001)
+
+        tone = self.tone(48000)
+        ragged = np.concatenate(list(frames(Dribble(tone.tobytes()), 48000)))
+        clean = np.concatenate(list(frames(io.BytesIO(tone.tobytes()), 48000)))
+        np.testing.assert_allclose(ragged, clean[: len(ragged)], atol=1e-6)
+
+    def test_the_features_are_the_ones_whisper_computes(self):
+        # A rising tone over a steady one, three seconds long. The expected values are what
+        # transformers' WhisperFeatureExtractor(chunk_length=8) gives for it, front-padded.
+        t = np.arange(3 * RATE) / RATE
+        sound = (0.3 * np.sin(2 * np.pi * (200 + 300 * t) * t) + 0.1 * np.sin(2 * np.pi * 1500 * t)).astype(np.float32)
+        features = whisper_features(sound)
+        self.assertEqual(features.shape, (80, 800))
+        for (mel, frame), expected in {(0, 0): -0.2087, (5, 520): 0.8456, (40, 650): 0.2402, (79, 799): 0.0587}.items():
+            self.assertAlmostEqual(float(features[mel, frame]), expected, places=3)
+        self.assertAlmostEqual(float(features.mean()), -0.1071, places=3)
         self.assertEqual(whisper_features(self.tone(RATE, 12.0)).shape, (80, 800))
+
+    def test_silero_is_given_its_own_memory_and_the_end_of_the_frame_before(self):
+        class Model:
+            calls = []
+
+            def run(self, _, inputs):
+                self.calls.append(inputs)
+                return np.array([[0.7]], np.float32), inputs["state"] + 1
+
+        with mock.patch.object(turn_end, "_session", return_value=Model()):
+            vad = Silero(Path("unused"))
+        first, second = np.full(FRAME, 0.1, np.float32), np.full(FRAME, 0.2, np.float32)
+        self.assertAlmostEqual(vad(first), 0.7, places=6)
+        vad(second)
+        heard = Model.calls[1]
+        np.testing.assert_array_equal(heard["input"][0], np.concatenate([first[-64:], second]))
+        self.assertTrue((heard["state"] == 1).all())
 
 
 if __name__ == "__main__":

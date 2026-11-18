@@ -38,19 +38,19 @@ Two models decide when the turn has ended, from the microphone audio Hex streams
 it sounds finished. Silence alone cannot tell a finished thought from a pause to think, so the
 longer the silence, the less sure Smart Turn has to be:
 
-| Silence        | The turn ends if Smart Turn is |
-| -------------- | ------------------------------ |
-| 1 s and 1.5 s  | over 98% sure it is finished   |
-| 2 s and 2.5 s  | over 90% sure                  |
-| 3 s            | over 50% sure                  |
-| 4 s            | whatever it says               |
+| Silence       | The turn ends if Smart Turn is |
+| ------------- | ------------------------------ |
+| 1 s and 1.5 s | over 98% sure it is finished   |
+| 2 s and 2.5 s | over 90% sure                  |
+| 3 s           | over 50% sure                  |
+| 4 s           | whatever it says               |
 
-Any speech starts the count again. Each listen logs why it ended and what Smart Turn said, in
+Speech starts the count again; a click does not. Each listen logs why it ended and what Smart Turn said, in
 `~/Library/Caches/janet-talk/talk.log`.
 
-An install made before the models were added has no `~/.local/share/janet-talk/venv`. There,
-"quiet" and "speech" are judged against the room instead, and the listen ends after 1.3 s of
-quiet. They are judged from the microphone level Hex reports, so a loud
+When the models give no verdict (they are not installed, they failed to run, or this Hex has no
+audio stream), "quiet" and "speech" are judged against the room instead, and the listen ends after
+1.3 s of quiet. They are judged from the microphone level Hex reports, so a loud
 room or a different microphone needs no setting. The room level is the lowest "quietest tenth" heard
 so far, and talking cannot raise it. If nothing comes near it for eight seconds, the room itself
 got louder (a fan started), and the level is taken again from those eight seconds. A sample is loud

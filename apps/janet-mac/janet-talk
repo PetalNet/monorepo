@@ -138,14 +138,20 @@ hex_end() { # finish|cancel, id, owner -> prints the transcript for finish
 #   when the stop file appears (the key again), and after MAX_LISTEN_S as a backstop.
 # The first half second is left out: Hex reports near-total silence while the microphone opens.
 wait_for_end_of_speech() { # id, owner
-  # With the turn-end models installed, they decide from the audio itself, and the level rule
-  # below is not used: see turn_end.py.
+  # With the turn-end models installed, they decide from the audio itself: see turn_end.py.
+  # The level rule below is for when they give no verdict: they are not installed, they failed
+  # to run, or this Hex has no audio stream.
+  local why
   if [ -x "$TURN_END/venv/bin/python" ]; then
-    HEX_OWNER="$2" hex GET "/dictations/$1/audio" -N --max-time "$MAX_LISTEN_S" |
+    why=$(HEX_OWNER="$2" hex GET "/dictations/$1/audio" -N --max-time "$((MAX_LISTEN_S + 5))" |
       "$TURN_END/venv/bin/python" "$TURN_END/turn_end.py" --models "$TURN_END/models" \
         --rate "$(cat "$STATE/recording.rate")" --stop-file "$STATE/listening.stop" \
-        --max-s "$MAX_LISTEN_S" --nothing-said-s "$NO_SPEECH_S"
-    return
+        --max-s "$MAX_LISTEN_S" --nothing-said-s "$NO_SPEECH_S" 2>>"$LOG")
+    case "$why" in "" | "stream ended"*) log "turn end models gave no verdict: ${why:-they did not run}" ;; *)
+      echo "$why"
+      return
+      ;;
+    esac
   fi
   HEX_OWNER="$2" hex GET "/dictations/$1/levels" -N --max-time "$MAX_LISTEN_S" |
     END_S="$END_OF_SPEECH_S" NONE_S="$NO_SPEECH_S" MAX_S="$MAX_LISTEN_S" STOP_FILE="$STATE/listening.stop" \

@@ -21,6 +21,7 @@ from __future__ import annotations
 import argparse
 import os
 import sys
+import threading
 import time
 from dataclasses import dataclass
 from pathlib import Path
@@ -103,7 +104,7 @@ class SmartTurn:
 @dataclass(frozen=True)
 class Policy:
     speech: float = 0.5  # Silero chance that counts as speech
-    start_s: float = 0.1  # unbroken speech that starts a turn: a click is shorter
+    start_s: float = 0.1  # unbroken speech that starts a turn or ends a silence: a click is shorter
     # (seconds of silence, how sure Smart Turn must be that the turn is finished). People stop
     # to think after a finished sentence, so a short silence ends the turn only on near certainty.
     asks: tuple[tuple[float, float], ...] = ((1.0, 0.98), (1.5, 0.98), (2.0, 0.9), (2.5, 0.9), (3.0, 0.5))
@@ -140,6 +141,8 @@ def frames(stream, rate: int):
     while chunk := stream.read1(1 << 16):
         raw += chunk
         whole = len(raw) - len(raw) % 4
+        if not whole:
+            continue
         heard, raw = np.frombuffer(raw[:whole], "<f4"), raw[whole:]
         audio = np.concatenate([audio, to_16k(heard) if to_16k else heard])
         while len(audio) >= FRAME:
@@ -167,13 +170,12 @@ class TurnEnd:
         self._heard_s += FRAME_S
         keep = SMART_TURN_S if self._started else LEAD_IN_S
         self._turn = np.concatenate([self._turn, frame])[-int(keep * RATE) :]
-        if self._vad(frame) >= policy.speech:
-            self._speech_run_s += FRAME_S
-            self._started = self._started or self._speech_run_s >= policy.start_s
+        self._speech_run_s = self._speech_run_s + FRAME_S if self._vad(frame) >= policy.speech else 0.0
+        if self._speech_run_s >= policy.start_s:
+            self._started = True
             self._silence_s = 0.0
             self._asks = 0
             return None
-        self._speech_run_s = 0.0
         if not self._started:
             return "nothing said" if self._heard_s >= policy.nothing_said_s else None
         self._silence_s += FRAME_S
@@ -202,21 +204,29 @@ def main() -> None:
     turn_end = TurnEnd(vad, smart_turn, Policy(nothing_said_s=args.nothing_said_s))
     start = time.monotonic()
     heard_s = 0.0
-    why = "stream ended"
+    once = threading.Lock()
+
+    def stop(why: str) -> None:
+        if once.acquire(blocking=False):
+            asked = " ".join(f"{chance:.2f}" for chance in turn_end.asked)
+            print(f"{why} ({heard_s:.1f} s heard, smart turn said {asked or '-'})", flush=True)
+            os._exit(0)  # the audio stream on standard input may never end
+
+    def watch() -> None:
+        # Its own thread, so a stalled audio stream cannot hold up the key or the limit.
+        while True:
+            if args.stop_file and args.stop_file.exists():
+                stop("key")
+            if time.monotonic() - start >= args.max_s:
+                stop("limit")
+            time.sleep(0.05)
+
+    threading.Thread(target=watch, daemon=True).start()
     for frame in frames(sys.stdin.buffer, args.rate):
         heard_s += FRAME_S
-        if verdict := turn_end.feed(frame):
-            why = verdict
-        elif args.stop_file and args.stop_file.exists():
-            why = "key"
-        elif time.monotonic() - start >= args.max_s:
-            why = "limit"
-        else:
-            continue
-        break
-    asked = " ".join(f"{chance:.2f}" for chance in turn_end.asked)
-    print(f"{why} ({heard_s:.1f} s heard, smart turn said {asked or '-'})", flush=True)
-    os._exit(0)  # the audio stream on standard input may never end
+        if why := turn_end.feed(frame):
+            stop(why)
+    stop("stream ended")
 
 
 if __name__ == "__main__":
