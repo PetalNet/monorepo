@@ -32,6 +32,7 @@
 		".github/workflows/ci.yml",
 		".github/workflows/point.yml",
 		".github/actions/**",
+		".config/nextest.toml",
 		"tools/**",
 		"!tools/node_modules/**",
 		"!tools/.turbo/**",

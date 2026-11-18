@@ -1,0 +1,9 @@
+[profile.ci]
+# Report every failure in one run instead of stopping at the first.
+fail-fast = false
+# One retry absorbs a transient failure. The run still passes, and the summary lists the test as flaky.
+retries = 1
+# A test still running after three minutes is killed as hung.
+slow-timeout = { period = "60s", terminate-after = 3 }
+failure-output = "immediate-final"
+final-status-level = "flaky"
