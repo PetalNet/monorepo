@@ -15,7 +15,7 @@ class PairingTest {
 		code: String? = "one-time",
 		expires: Long? = now + 600,
 	): String {
-		val json = JSONObject().put("cf_id", "id.access").put("cf_secret", "s3cret")
+		val json = JSONObject()
 		url?.let { json.put("url", it) }
 		code?.let { json.put("code", it) }
 		expires?.let { json.put("expires", it) }
@@ -27,11 +27,18 @@ class PairingTest {
 	private fun reason(u: String, allowCleartext: Boolean = false) = (parse(u, allowCleartext) as PairingParse.Bad).reason
 
 	@Test
-	fun `a pairing link gives the bridge, the code and the Access credentials`() {
+	fun `a pairing link gives the bridge and the one-time code`() {
 		val link = (parse(payload()) as PairingParse.Ok).link
-		assertEquals(PairingLink("wss://bridge.example/v1/call", "one-time", "id.access", "s3cret", now + 600), link)
+		assertEquals(PairingLink("wss://bridge.example/v1/call", "one-time", now + 600), link)
 		assertEquals("bridge.example", link.host)
 		assertEquals("https://bridge.example/v1/call/pair", bridgeEndpoint(link.url, "pair"))
+	}
+
+	@Test
+	fun `a link that still carries Access credentials pairs like one without them`() {
+		val old = """{"url":"wss://bridge.example/v1/call","code":"one-time","cf_id":"id.access","cf_secret":"s3cret","expires":${now + 600}}"""
+		val u = Base64.getUrlEncoder().withoutPadding().encodeToString(old.toByteArray())
+		assertEquals(parse(payload()), parse(u))
 	}
 
 	@Test
@@ -47,7 +54,7 @@ class PairingTest {
 	}
 
 	@Test
-	fun `a link that claims a long life did not come from the pairing page`() {
+	fun `a link that claims a long life did not come from the bridge`() {
 		assertTrue(parse(payload(expires = now + MAX_LINK_LIFE_S)) is PairingParse.Ok)
 		assertEquals("This is not a Janet Call pairing link.", reason(payload(expires = now + MAX_LINK_LIFE_S + 1)))
 	}

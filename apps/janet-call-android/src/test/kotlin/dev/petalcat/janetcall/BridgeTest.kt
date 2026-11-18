@@ -15,7 +15,7 @@ class BridgeTest {
 	private val server = HttpServer.create(InetSocketAddress("127.0.0.1", 0), 0)
 	private val seen = mutableListOf<Triple<String, Map<String, String>, String>>()
 
-	private fun link() = PairingLink("ws://127.0.0.1:${server.address.port}/v1/call", "one-time", "id.access", "s3cret", Long.MAX_VALUE)
+	private fun link() = PairingLink("ws://127.0.0.1:${server.address.port}/v1/call", "one-time", Long.MAX_VALUE)
 
 	private fun bridgeAnswers(status: Int, body: String = "", headers: Map<String, String> = emptyMap()) {
 		server.createContext("/") { exchange: HttpExchange ->
@@ -35,15 +35,15 @@ class BridgeTest {
 	fun stop() = server.stop(0)
 
 	@Test
-	fun `a good code pairs the phone with the token the bridge issued`() {
-		bridgeAnswers(200, """{"token":"device-token"}""")
+	fun `a good code pairs the phone with the token and the Access credentials the bridge issued`() {
+		bridgeAnswers(200, """{"token":"device-token","cf_id":"id.access","cf_secret":"s3cret"}""")
 		val result = Bridge.pair(link(), "Maker Model")
 		assertEquals(PairResult.Paired(Pairing(link().url, "device-token", "id.access", "s3cret")), result)
 
 		val (line, headers, body) = seen.single()
 		assertEquals("POST /v1/call/pair", line)
-		assertEquals("id.access", headers["cf-access-client-id"])
-		assertEquals("s3cret", headers["cf-access-client-secret"])
+		assertNull("pairing is outside Access", headers["cf-access-client-id"])
+		assertNull("pairing is outside Access", headers["cf-access-client-secret"])
 		assertTrue(headers.getValue("content-type").startsWith("application/json"))
 		assertNull("pairing sends no bearer token", headers["authorization"])
 		assertEquals("one-time", JSONObject(body).getString("code"))
@@ -51,46 +51,43 @@ class BridgeTest {
 	}
 
 	@Test
-	fun `the bridge's own 403 means the code was used or has expired`() {
+	fun `the bridge's own 403 means the code was used, is wrong or has expired`() {
 		bridgeAnswers(403, """{"error":"code already used or expired"}""")
 		assertEquals(
-			"The pairing code was already used or has expired. Open the pairing page again for a new one.",
+			"This pairing link was already used or has expired. Ask for a new one.",
 			refusal(Bridge.pair(link(), "x")),
 		)
 	}
 
 	@Test
-	fun `a 403 that is not the bridge's is Cloudflare Access turning the phone away`() {
+	fun `a 429 says to wait a minute`() {
+		bridgeAnswers(429, """{"error":"too many attempts"}""")
+		assertEquals("Too many pairing attempts. Wait a minute, then open the pairing link again.", refusal(Bridge.pair(link(), "x")))
+	}
+
+	@Test
+	fun `any other answer means the bridge was not reached`() {
 		bridgeAnswers(403, "<html>Forbidden</html>")
-		assertEquals(
-			"This phone could not reach the bridge: Cloudflare Access refused it (HTTP 403).",
-			refusal(Bridge.pair(link(), "x")),
-		)
+		assertEquals("Could not reach the bridge at ${link().host} (HTTP 403).", refusal(Bridge.pair(link(), "x")))
 	}
 
 	@Test
-	fun `a redirect is not followed and reads as Cloudflare Access turning the phone away`() {
+	fun `a redirect is not followed`() {
 		bridgeAnswers(302, headers = mapOf("Location" to "/elsewhere"))
-		assertEquals("Cloudflare Access did not accept this link (HTTP 302).", refusal(Bridge.pair(link(), "x")))
+		assertEquals("Could not reach the bridge at ${link().host} (HTTP 302).", refusal(Bridge.pair(link(), "x")))
 		assertEquals(listOf("POST /v1/call/pair"), seen.map { it.first })
 	}
 
 	@Test
-	fun `any other status is a plain failure`() {
-		bridgeAnswers(500)
-		assertEquals("The bridge could not pair this phone (HTTP 500).", refusal(Bridge.pair(link(), "x")))
-	}
-
-	@Test
-	fun `a 200 without a token does not pair`() {
-		bridgeAnswers(200, "<html>login</html>")
-		assertEquals("The bridge answered without a device token.", refusal(Bridge.pair(link(), "x")))
+	fun `a 200 that is not a whole pairing does not pair`() {
+		bridgeAnswers(200, """{"token":"device-token","cf_id":"id.access"}""")
+		assertEquals("Could not reach the bridge at ${link().host} (HTTP 200).", refusal(Bridge.pair(link(), "x")))
 	}
 
 	@Test
 	fun `an unreachable bridge names the host`() {
 		val port = server.address.port
 		server.stop(0)
-		assertTrue(refusal(Bridge.pair(link(), "x")).startsWith("Could not reach 127.0.0.1:$port: "))
+		assertTrue(refusal(Bridge.pair(link(), "x")).startsWith("Could not reach the bridge at 127.0.0.1:$port: "))
 	}
 }

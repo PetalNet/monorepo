@@ -47,29 +47,32 @@ object Bridge {
 		if (cfSecret.isNotEmpty()) header("CF-Access-Client-Secret", cfSecret)
 	}
 
-	/** Trades the link's one-time code for a device token. Blocks; call it off the main thread. */
+	/**
+	 * Trades the link's one-time code for a device token and the Access credentials. The pairing
+	 * endpoint is outside Cloudflare Access, so the request carries none. Blocks; call it off the
+	 * main thread.
+	 */
 	fun pair(link: PairingLink, deviceName: String): PairResult {
 		val body = JSONObject().put("code", link.code).put("name", deviceName).toString()
 		return try {
 			val request = Request.Builder().url(bridgeEndpoint(link.url, "pair"))
-				.cloudflareAccess(link.cfId, link.cfSecret)
 				.post(body.toRequestBody("application/json".toMediaType()))
 				.build()
 			quick.newCall(request).execute().use { response ->
-				when (response.code) {
-					200 -> pairedFrom(link, response.peekBody(MAX_ANSWER_BYTES).string())
+				val answer = json(response.peekBody(MAX_ANSWER_BYTES).string())
+				val pairing = answer?.takeIf { response.code == 200 }?.let { pairingFrom(link, it) }
+				when {
+					pairing != null -> PairResult.Paired(pairing)
 					// The bridge's own 403 is JSON with an "error". Any other 403 never reached the bridge.
-					403 -> if (json(response.peekBody(MAX_ANSWER_BYTES).string())?.has("error") == true) {
-						PairResult.Refused("The pairing code was already used or has expired. Open the pairing page again for a new one.")
-					} else {
-						PairResult.Refused("This phone could not reach the bridge: Cloudflare Access refused it (HTTP 403).")
-					}
-					in 300..399 -> PairResult.Refused("Cloudflare Access did not accept this link (HTTP ${response.code}).")
-					else -> PairResult.Refused("The bridge could not pair this phone (HTTP ${response.code}).")
+					response.code == 403 && answer?.has("error") == true ->
+						PairResult.Refused("This pairing link was already used or has expired. Ask for a new one.")
+					response.code == 429 ->
+						PairResult.Refused("Too many pairing attempts. Wait a minute, then open the pairing link again.")
+					else -> PairResult.Refused("Could not reach the bridge at ${link.host} (HTTP ${response.code}).")
 				}
 			}
 		} catch (e: IOException) {
-			PairResult.Refused("Could not reach ${link.host}: ${e.message ?: "no connection"}")
+			PairResult.Refused("Could not reach the bridge at ${link.host}: ${e.message ?: "no connection"}")
 		} catch (_: IllegalArgumentException) {
 			PairResult.Refused("The pairing link holds a value that cannot be sent.")
 		}
@@ -113,9 +116,10 @@ object Bridge {
 	private val foreground = Throttle(FOREGROUND_WARM_MS)
 	private const val FOREGROUND_WARM_MS = 60_000L
 
-	private fun pairedFrom(link: PairingLink, body: String): PairResult {
-		val token = json(body)?.optString("token").orEmpty()
-		if (token.isEmpty()) return PairResult.Refused("The bridge answered without a device token.")
-		return PairResult.Paired(Pairing(link.url, token, link.cfId, link.cfSecret))
+	/** Null unless the answer holds all three values: without the Access pair the phone could not call. */
+	private fun pairingFrom(link: PairingLink, answer: JSONObject): Pairing? {
+		val (token, cfId, cfSecret) = listOf("token", "cf_id", "cf_secret").map { answer.optString(it) }
+		if (token.isEmpty() || cfId.isEmpty() || cfSecret.isEmpty()) return null
+		return Pairing(link.url, token, cfId, cfSecret)
 	}
 }
