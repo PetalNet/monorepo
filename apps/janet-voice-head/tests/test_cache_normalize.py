@@ -134,6 +134,19 @@ class ProxyTest(unittest.TestCase):
         self.upstream.release.set()
         self.assertEqual(self.upstream.seen[0][2], body)
 
+    def test_a_chunked_or_malformed_length_request_is_refused_and_the_reply_has_one_server_and_date_header(self):
+        for headers in ({"Transfer-Encoding": "chunked"}, {"Content-Length": "abc"}):
+            connection = http.client.HTTPConnection("127.0.0.1", self.proxy.server_address[1], timeout=10)
+            connection.putrequest("POST", "/v1/messages", skip_accept_encoding=True)
+            for key, value in headers.items():
+                connection.putheader(key, value)
+            connection.endheaders()
+            self.assertEqual(connection.getresponse().status, 400)
+        self.assertEqual(self.upstream.seen, [])
+        reply = self.post("/v1/messages", b"{}")
+        self.assertEqual(len([k for k, _ in reply.getheaders() if k.lower() in ("server", "date")]), 2)
+        reply.read()
+
     def test_other_endpoints_are_not_touched(self):
         body = json.dumps({"tools": [tool("Monitor", "cap 600000ms")]}).encode()
         self.post("/v1/messages/count_tokens", body).read()

@@ -26,6 +26,7 @@ REFERENCE_TTL_S = 30
 SHAPE_MARKER = b'"type":"api-request-shape"'
 HOP_BY_HOP = {"connection", "keep-alive", "proxy-authenticate", "proxy-authorization", "te", "trailers",
               "transfer-encoding", "upgrade", "host", "content-length"}
+REPLY_ONLY = {"server", "date"}  # the proxy sends its own
 
 
 def last_shape(transcript: Path, max_bytes: int = 24 * 1024 * 1024) -> dict | None:
@@ -115,7 +116,14 @@ class _Handler(BaseHTTPRequestHandler):
         self._forward()
 
     def _forward(self):
-        length = int(self.headers.get("Content-Length") or 0)
+        try:
+            length = int(self.headers.get("Content-Length") or 0)
+        except ValueError:
+            length = -1
+        if length < 0 or "transfer-encoding" in self.headers:
+            self.send_error(400, "a Content-Length body is required")
+            self.close_connection = True
+            return
         body = self.rfile.read(length) if length else b""
         if self.command == "POST" and urlsplit(self.path).path == "/v1/messages":
             if self.server.capture:
@@ -130,7 +138,7 @@ class _Handler(BaseHTTPRequestHandler):
             response = upstream.getresponse()
             self.send_response(response.status)
             for key, value in response.getheaders():
-                if key.lower() not in HOP_BY_HOP:
+                if key.lower() not in HOP_BY_HOP | REPLY_ONLY:
                     self.send_header(key, value)
             self.send_header("Transfer-Encoding", "chunked")
             self.end_headers()

@@ -25,8 +25,11 @@ One conversation is one talk-only Claude Code process:
 - **Main-like fork and the cache proxy (off by default).** A fork reads main's prompt cache only when its request
   matches main's byte for byte, and `--tools ""` alone makes it differ. With `main_like_fork = true` a personal fork
   is launched as main is: main's plugins and tool set come from `main_like_args` and `main_like_env`, it runs in main's
-  directory, and every tool is denied at execution (`--permission-mode dontAsk`, no settings files, so no allow rule
-  and no hook can run one). Headless mode still words a few tool definitions differently from main's interactive
+  directory, with `--permission-mode dontAsk` and no settings files, so no allow rule can run a tool. Two things
+  that does not stop: plugin hooks (the plugins named in `main_like_args` are main's own and their hooks run as they do
+  in main), and read-only tools, which dontAsk allows. Put deny rules for them in a `--settings` file in
+  `main_like_args` (`permissions.deny`); a fork told to read a file with Read, Glob, Grep, WebFetch, WebSearch,
+  Edit, Write and Bash denied reported that it could not. Headless mode still words a few tool definitions differently from main's interactive
   session, so with `cache_normalize = true` (the default) the head runs a loopback proxy and points the fork at it with
   `ANTHROPIC_BASE_URL`. The proxy rewrites only the `tools` of `/v1/messages` requests, copying each shared tool's
   definition from main's own last logged request. It adds, removes and reorders nothing, and a request it does not

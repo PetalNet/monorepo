@@ -51,8 +51,9 @@ class Config:
     # 0 makes a fresh copy for every conversation. Forks of one copy share the model's prompt cache.
     trim_reuse_s: float = 0
     # The fork's request matches main's prompt cache only when it carries main's tools, so this launches it as main is
-    # launched (main's plugins and tool set from main_like_args, main_like_env) with every tool denied at execution:
-    # permission mode dontAsk and no settings files, so no allow rule and no hook can run one. The fork then runs in
+    # launched (main's plugins and tool set from main_like_args, main_like_env) with permission mode dontAsk and no
+    # settings files, so no allow rule can run a tool. Plugin hooks still run and read-only tools are still allowed:
+    # deny them with permissions.deny in a --settings file passed in main_like_args. The fork then runs in
     # main's directory. cache_normalize adds a loopback proxy that words the few tool definitions headless mode writes
     # differently the way main writes them. Off by default: the lean fork below has no tools at all.
     main_like_fork: bool = False
