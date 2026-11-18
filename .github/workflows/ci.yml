@@ -300,9 +300,14 @@ jobs:
   codeql-rust:
     needs: select
     if: needs.select.outputs.rust == 'true'
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [courier, point, services]
     uses: $/.github/workflows/codeql.yml
     with:
       language: rust
+      shard: ${{ matrix.shard }}
     permissions:
       contents: read
       security-events: write

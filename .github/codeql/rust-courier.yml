@@ -1,0 +1,7 @@
+# Courier: the five courier crates share courier-core, so they stay in one shard for cross-crate dataflow.
+name: codeql-rust-courier
+paths:
+  - apps/courier
+paths-ignore:
+  - "**/tests"
+  - "**/benches"

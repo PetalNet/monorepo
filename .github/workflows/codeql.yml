@@ -6,16 +6,20 @@ on:
       language:
         type: string
         required: true
+      shard:
+        description: Rust crate group; selects .github/codeql/rust-<shard>.yml and its own SARIF category.
+        type: string
+        default: ""
 
 permissions:
   contents: read
 
 jobs:
   analyze:
-    name: CodeQL (${{ inputs.language }})
+    name: CodeQL (${{ inputs.language }}${{ inputs.shard && format(' {0}', inputs.shard) || '' }})
     runs-on: ubuntu-latest
     concurrency:
-      group: ${{ github.workflow }}-${{ github.ref }}-codeql-${{ inputs.language }}
+      group: ${{ github.workflow }}-${{ github.ref }}-codeql-${{ inputs.language }}-${{ inputs.shard }}
       cancel-in-progress: true
     permissions:
       contents: read
@@ -33,13 +37,15 @@ jobs:
           # CodeQL's none mode still compiles build scripts and procedural macros.
           workspaces: . -> target
           prefix-key: codeql-rust
+          shared-key: ${{ inputs.shard }}
       - uses: github/codeql-action/init@33d7b85da1a04171e211befe2c739303b9a4c066 # v4.39.3
         with:
           languages: ${{ inputs.language }}
           build-mode: none
+          config-file: ${{ inputs.shard && format('.github/codeql/{0}-{1}.yml', inputs.language, inputs.shard) || '' }}
           queries: security-extended
           config: >-
             ${{ inputs.language == 'javascript-typescript' && 'paths: [".", "apps/storybook/.storybook", "apps/grove/src/routes/.well-known"]' || '' }}
       - uses: github/codeql-action/analyze@33d7b85da1a04171e211befe2c739303b9a4c066 # v4.39.3
         with:
-          category: /language:${{ inputs.language }}
+          category: /language:${{ inputs.language }}${{ inputs.shard && format('/shard:{0}', inputs.shard) || '' }}

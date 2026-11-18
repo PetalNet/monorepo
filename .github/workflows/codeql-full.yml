@@ -17,10 +17,16 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        language: [javascript-typescript, actions, python, rust]
+        language: [javascript-typescript, actions, python]
+        shard: [""]
+        include:
+          - { language: rust, shard: courier }
+          - { language: rust, shard: point }
+          - { language: rust, shard: services }
     uses: $/.github/workflows/codeql.yml
     permissions:
       contents: read
       security-events: write
     with:
       language: ${{ matrix.language }}
+      shard: ${{ matrix.shard }}

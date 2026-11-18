@@ -1,0 +1,7 @@
+# Point: server, core and the Flutter MLS bridge all depend on point-core.
+name: codeql-rust-point
+paths:
+  - apps/point
+paths-ignore:
+  - "**/tests"
+  - "**/benches"

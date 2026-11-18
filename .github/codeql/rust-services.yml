@@ -1,0 +1,11 @@
+# Services: independent binaries with no path dependencies on each other.
+name: codeql-rust-services
+paths:
+  - apps/manager
+  - apps/dispatcher
+  - apps/control-plane
+  - apps/box-agent
+  - apps/numbat-sheet/engine
+paths-ignore:
+  - "**/tests"
+  - "**/benches"
