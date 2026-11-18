@@ -116,10 +116,14 @@ object Bridge {
 	private val foreground = Throttle(FOREGROUND_WARM_MS)
 	private const val FOREGROUND_WARM_MS = 60_000L
 
-	/** Null unless the answer holds all three values: without the Access pair the phone could not call. */
-	private fun pairingFrom(link: PairingLink, answer: JSONObject): Pairing? {
-		val (token, cfId, cfSecret) = listOf("token", "cf_id", "cf_secret").map { answer.optString(it) }
-		if (token.isEmpty() || cfId.isEmpty() || cfSecret.isEmpty()) return null
+	/**
+	 * Null unless the answer holds all three values as text: without the Access pair the phone could
+	 * not call. `optString` is not used: on Android it turns a JSON null into the text "null".
+	 */
+	internal fun pairingFrom(link: PairingLink, answer: JSONObject): Pairing? {
+		val (token, cfId, cfSecret) = listOf("token", "cf_id", "cf_secret").map { name ->
+			(answer.opt(name) as? String)?.takeUnless { it.isEmpty() || it == "null" } ?: return null
+		}
 		return Pairing(link.url, token, cfId, cfSecret)
 	}
 }
