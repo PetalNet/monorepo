@@ -5,6 +5,7 @@ import fcntl
 import hashlib
 import hmac
 import html
+import http.client
 import io
 import json
 import logging
@@ -130,6 +131,14 @@ class Codes:
         return by if expires > now else None
 
 
+class _NoRedirect(urllib.request.HTTPRedirectHandler):
+    def redirect_request(self, *args, **kwargs):
+        return None
+
+
+_DIRECT = urllib.request.build_opener(_NoRedirect)
+
+
 @dataclass(frozen=True)
 class SignIn:
     """The single-sign-on client a phone signs in through: an OAuth 2 public client with PKCE.
@@ -165,7 +174,7 @@ class SignIn:
             if error.code in (400, 401, 403):
                 return None
             raise
-        except (ValueError, KeyError, TypeError) as error:
+        except (ValueError, KeyError, TypeError, http.client.HTTPException) as error:
             raise OSError("single sign-on gave an answer that is not usable") from error
         name = who.get("preferred_username")
         return name if isinstance(name, str) and name else None
@@ -174,7 +183,7 @@ class SignIn:
     def _json(request: urllib.request.Request) -> dict:
         request.add_header("Accept", "application/json")
         request.add_header("User-Agent", "janet-phone")
-        with urllib.request.urlopen(request, timeout=10) as response:
+        with _DIRECT.open(request, timeout=10) as response:  # a redirect is an HTTPError, never followed
             answer = json.loads(response.read(1 << 16))
         if not isinstance(answer, dict):
             raise ValueError("not a JSON object")

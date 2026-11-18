@@ -37,7 +37,17 @@ class FakeSso(BaseHTTPRequestHandler):
         self.end_headers()
         self.wfile.write(data)
 
+    broken = ""
+
     def do_POST(self):
+        if FakeSso.broken == "garbage":
+            self.wfile.write(b"garbage\r\n\r\n")
+            return
+        if FakeSso.broken == "redirect":
+            self.send_response(302)
+            self.send_header("location", "http://elsewhere.invalid/token")
+            self.send_header("content-length", "0")
+            return self.end_headers()
         form = {k: v[0] for k, v in parse_qs(self.rfile.read(int(self.headers["content-length"])).decode()).items()}
         FakeSso.seen.append(form)
         challenge, username = FakeSso.codes.pop(form.get("code", ""), ("", ""))
@@ -142,6 +152,13 @@ class SignInTest(unittest.TestCase):
         self.sso.shutdown()
         self.sso.server_close()
         self.assertEqual(self._http("POST", "/v1/call/pair/signin", self._signed_in("parker"))[0], 503)
+        self.assertEqual(self.devices.listing(), [])
+
+    def test_an_answer_that_is_not_http_or_a_redirect_is_not_a_refusal(self):
+        for broken in ("garbage", "redirect"):
+            FakeSso.broken = broken
+            self.addCleanup(setattr, FakeSso, "broken", "")
+            self.assertEqual(self._http("POST", "/v1/call/pair/signin", self._signed_in("parker"))[0], 503, broken)
         self.assertEqual(self.devices.listing(), [])
 
     def test_an_unusable_access_file_refuses_before_the_code_is_spent(self):
