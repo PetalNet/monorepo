@@ -1,0 +1,9 @@
+[project]
+name = "janet-turn"
+version = "0.1.0"
+description = "Hears when a speaker's turn has ended: Silero VAD, a streaming speech model and a fitted judge. Shared by every Janet voice surface."
+requires-python = ">=3.12"
+dependencies = ["numpy>=2", "onnxruntime>=1.19"]
+
+[tool.ruff]
+line-length = 140

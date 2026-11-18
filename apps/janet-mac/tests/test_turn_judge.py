@@ -17,7 +17,7 @@ from turn_judge import Hearing, Judge, cues, filled  # noqa: E402
 
 SPEECH, SILENCE = np.ones(FRAME, np.float32), np.zeros(FRAME, np.float32)
 POLICY = Policy()
-FITTED = Path(__file__).resolve().parent.parent / "turn_judge.json"
+FITTED = Path(__file__).resolve().parents[3] / "packages" / "janet-turn" / "janet_turn" / "turn_judge.json"
 
 
 class Scripted:
@@ -114,8 +114,8 @@ class TurnEndWithAJudgeTest(unittest.TestCase):
             self.assertIsNone(turn_end.hearing(Path(models)))
 
     def test_with_turn_end_installed_alone_listening_goes_by_silence_alone(self):
-        # An install that copied turn_end.py and not turn_judge.py: the import fails.
-        with tempfile.TemporaryDirectory() as models, mock.patch.dict(sys.modules, {"turn_judge": None}):
+        # An install without the package's turn_judge module: the import fails.
+        with tempfile.TemporaryDirectory() as models, mock.patch.dict(sys.modules, {"janet_turn.turn_judge": None}):
             with mock.patch("sys.stderr", io.StringIO()) as said_why:
                 self.assertIsNone(turn_end.hearing(Path(models)))
         self.assertIn("no turn judge", said_why.getvalue())
@@ -199,6 +199,39 @@ class CuesTest(unittest.TestCase):
         ramble = cues(speech, [("\u2581word", i / 3) for i in range(150)] + [("\u2581thing", 58.0)], False, 1840)
         self.assertGreater(judge.done(question), judge.done(ramble))
         self.assertEqual(question["short_asking"], 1.0)
+
+
+class InstalledLayoutTest(unittest.TestCase):
+    """install.sh copies the two shims beside a janet_turn/ directory; the old paths must work from there alone."""
+
+    def install(self, root: Path) -> None:
+        import shutil
+
+        app = Path(__file__).resolve().parent.parent
+        package = app.parents[1] / "packages" / "janet-turn" / "janet_turn"
+        shutil.copy(app / "turn_end.py", root / "turn_end.py")
+        shutil.copy(app / "turn_judge.py", root / "turn_judge.py")
+        (root / "janet_turn").mkdir()
+        for path in (*package.glob("*.py"), package / "turn_judge.json"):
+            shutil.copy(path, root / "janet_turn" / path.name)
+
+    def test_the_old_script_path_runs_the_package_command_line(self):
+        import subprocess
+
+        with tempfile.TemporaryDirectory() as root:
+            self.install(Path(root))
+            done = subprocess.run([sys.executable, str(Path(root) / "turn_end.py"), "--help"], capture_output=True, text=True, cwd=root)
+        self.assertEqual(done.returncode, 0, done.stderr)
+        self.assertIn("--models", done.stdout)
+
+    def test_the_old_import_names_are_the_package_modules(self):
+        import subprocess
+
+        code = "import turn_end, turn_judge, janet_turn.turn_end as a, janet_turn.turn_judge as b; assert turn_end is a and turn_judge is b; print('ok')"
+        with tempfile.TemporaryDirectory() as root:
+            self.install(Path(root))
+            done = subprocess.run([sys.executable, "-c", code], capture_output=True, text=True, cwd=root, env={"PYTHONPATH": root, "PATH": ""})
+        self.assertEqual(done.stdout.strip(), "ok", done.stderr)
 
 
 if __name__ == "__main__":

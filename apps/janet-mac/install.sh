@@ -86,8 +86,12 @@ if [ "$(uname)" = Darwin ]; then
   turn_end="$HOME/.local/share/janet-talk"
   mkdir -p "$turn_end/models"
   rm -f "$turn_end/models/smart-turn-v3.2-cpu.onnx" # an earlier version used it
+  # turn_end.py and turn_judge.py are shims over the shared package (packages/janet-turn), which goes beside them.
+  package="$here/../../packages/janet-turn/janet_turn"
+  mkdir -p "$turn_end/janet_turn"
   install -m 644 "$here/turn_end.py" "$turn_end/turn_end.py"
-  install -m 644 "$here/turn_judge.py" "$here/turn_judge.json" "$turn_end/"
+  install -m 644 "$here/turn_judge.py" "$turn_end/turn_judge.py"
+  install -m 644 "$package"/*.py "$package/turn_judge.json" "$turn_end/janet_turn/"
   model() { # file, sha256, url; fails when the download does not match its checksum
     [ "$(shasum -a 256 "$turn_end/models/$1" 2>/dev/null | cut -d' ' -f1)" = "$2" ] && return 0
     curl -fsSL --max-time 900 -o "$turn_end/models/$1.part" "$3" &&
