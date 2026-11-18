@@ -180,6 +180,9 @@ class PlanetEngine(private val lit: ByteArray) {
 		const val METER_ROWS = 21
 		const val ROWS = GRID + METER_ROWS + 3
 
+		/** The rows above the meter: the planet alone. */
+		const val PLANET_ROWS = GRID
+
 		/** The point the planet scales about, as a fraction of the grid. */
 		const val ORIGIN_X = 0.5f
 		const val ORIGIN_Y = 0.41f

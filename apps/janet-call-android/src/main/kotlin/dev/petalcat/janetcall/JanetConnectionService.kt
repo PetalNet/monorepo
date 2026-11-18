@@ -6,6 +6,7 @@ import android.content.pm.ServiceInfo
 import android.os.Build
 import android.os.Handler
 import android.os.Looper
+import android.os.SystemClock
 import android.telecom.CallAudioState
 import android.telecom.CallEndpoint
 import android.telecom.Connection
@@ -15,9 +16,11 @@ import android.telecom.DisconnectCause
 import android.telecom.PhoneAccountHandle
 import android.telecom.TelecomManager
 
-class JanetConnection(private val onGone: () -> Unit) : Connection() {
+class JanetConnection(private val onGone: (CallRecord) -> Unit) : Connection() {
 	private lateinit var session: CallSession
 	private val main = Handler(Looper.getMainLooper())
+	private val startedMs = System.currentTimeMillis()
+	private var activeAtMs: Long? = null
 
 	fun begin(pairing: Pairing, player: Player, stage: CallStage) {
 		connectionProperties = PROPERTY_SELF_MANAGED
@@ -33,6 +36,7 @@ class JanetConnection(private val onGone: () -> Unit) : Connection() {
 			onOpen = {
 				main.post {
 					setActive()
+					activeAtMs = SystemClock.elapsedRealtime()
 					Calls.update(CallState.Active)
 				}
 			},
@@ -51,7 +55,8 @@ class JanetConnection(private val onGone: () -> Unit) : Connection() {
 		setDisconnected(cause)
 		destroy()
 		Calls.update(CallState.Ended(reason))
-		onGone()
+		val connectedFor = activeAtMs?.let { (SystemClock.elapsedRealtime() - it) / 1000 }
+		onGone(CallRecord(startedMs, (connectedFor ?: 0).toInt(), connectedFor != null))
 	}
 
 	fun hangup() = session.hangup()
@@ -90,7 +95,8 @@ class JanetConnectionService : ConnectionService() {
 	override fun onCreateOutgoingConnection(account: PhoneAccountHandle, request: ConnectionRequest): Connection {
 		val pairing = Settings(this).pairing() ?: return failed(NOT_PAIRED)
 		startForegroundCall()
-		val connection = JanetConnection(onGone = {
+		val connection = JanetConnection(onGone = { record ->
+			CallLog(applicationContext).add(record)
 			Calls.connection = null
 			Calls.stage = null
 			stopForeground(STOP_FOREGROUND_REMOVE)
