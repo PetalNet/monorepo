@@ -20,6 +20,7 @@ class ConversationTest(HeadCase):
 
     def test_a_turn_that_arrives_during_warm_up_waits_for_it_and_is_answered(self):
         self.claude_extra = ["--fake-slow-warm"]
+        self.stop_head()
         self.start_head()
         sentences, done = self.turn(self.open(), "hello there")
         self.assertEqual(sentences, ["You said hello there.", "That is all I know."])

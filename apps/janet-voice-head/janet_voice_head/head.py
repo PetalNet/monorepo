@@ -66,6 +66,7 @@ class Live:
     merge_lock: threading.Lock = field(default_factory=threading.Lock)
     # Clear while a fork's warm-up call is running; the speaker's first turn waits for it.
     warm: threading.Event = field(default_factory=lambda: _set_event())
+    ending: threading.Event = field(default_factory=threading.Event)
 
     def record(self, **fields) -> None:
         with self.lock:
@@ -210,6 +211,7 @@ class Head:
         live = self._live(conv_id)
         with live.end_lock:
             if live.conv.state == "open":
+                live.ending.set()
                 if live.session is not None:
                     live.session.interrupt()
                 with live.turn_lock:
@@ -265,10 +267,10 @@ class Head:
     def _warm_up(self, live: Live) -> None:
         """A fork's first model call reads all of main's context cold and takes seconds. Making it while the speaker is still talking hides that wait."""
         try:
+            live.session.wait_ready(self.config.ready_timeout_s)
             with live.turn_lock:
-                if live.conv.state != "open":
+                if live.conv.state != "open" or live.ending.is_set():
                     return
-                live.session.wait_ready(self.config.ready_timeout_s)
                 for _ in live.session.turn(prompts.WARM_UP, self.config.turn_timeout_s):
                     pass
         except SessionError as error:
