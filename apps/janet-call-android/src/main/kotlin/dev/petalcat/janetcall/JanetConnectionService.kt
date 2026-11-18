@@ -7,6 +7,7 @@ import android.os.Build
 import android.os.Handler
 import android.os.Looper
 import android.telecom.CallAudioState
+import android.telecom.CallEndpoint
 import android.telecom.Connection
 import android.telecom.ConnectionRequest
 import android.telecom.ConnectionService
@@ -65,8 +66,15 @@ class JanetConnection(private val onGone: () -> Unit) : Connection() {
 		Calls.update(route = routeName(state.route))
 	}
 
-	override fun onCallEndpointChanged(callEndpoint: android.telecom.CallEndpoint) {
-		Calls.update(route = callEndpoint.endpointName.toString())
+	override fun onCallEndpointChanged(callEndpoint: CallEndpoint) {
+		Calls.update(
+			route = when (callEndpoint.endpointType) {
+				CallEndpoint.TYPE_SPEAKER -> "Speaker"
+				CallEndpoint.TYPE_BLUETOOTH -> "Bluetooth"
+				CallEndpoint.TYPE_WIRED_HEADSET -> "Headset"
+				else -> "Earpiece"
+			},
+		)
 	}
 
 	private fun routeName(route: Int) = when (route) {

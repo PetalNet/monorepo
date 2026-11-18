@@ -12,10 +12,10 @@ import javax.crypto.spec.GCMParameterSpec
 
 data class Config(val url: String, val token: String, val cfId: String, val cfSecret: String) {
 	/** A reason the call cannot be placed, or null. ws:// is for local test bridges in debug builds only. */
-	fun problem(): String? = when {
+	fun problem(allowCleartext: Boolean = BuildConfig.DEBUG): String? = when {
 		url.isBlank() || token.isBlank() -> "Set the bridge URL and token first"
 		url.startsWith("wss://") -> null
-		url.startsWith("ws://") && BuildConfig.DEBUG -> null
+		url.startsWith("ws://") && allowCleartext -> null
 		else -> "The bridge URL must start with wss://"
 	}
 }

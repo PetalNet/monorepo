@@ -3,3 +3,5 @@ build/
 local.properties
 *.keystore
 *.jks
+.kotlin/
+*.apk

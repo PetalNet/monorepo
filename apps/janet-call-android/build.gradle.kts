@@ -37,3 +37,9 @@ dependencies {
 	testImplementation("junit:junit:4.13.2")
 	testImplementation("org.json:json:20240303")
 }
+
+androidComponents {
+	beforeVariants(selector().withBuildType("release")) { builder ->
+		builder.hostTests["UnitTest"]?.enable = true
+	}
+}

@@ -7,6 +7,7 @@
 			android:name=".DebugControlActivity"
 			android:exported="true"
 			android:excludeFromRecents="true"
+			android:permission="android.permission.DUMP"
 			android:theme="@android:style/Theme.Translucent.NoTitleBar" />
 	</application>
 </manifest>

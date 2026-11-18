@@ -19,7 +19,11 @@ class ProtocolTest {
 
 	@Test
 	fun `release config requires wss`() {
-		assertNull(Config("wss://bridge.example/v1/call", "t", "", "").problem())
+		assertNull(Config("wss://bridge.example/v1/call", "t", "", "").problem(allowCleartext = false))
+		assertEquals(
+			"The bridge URL must start with wss://",
+			Config("ws://bridge.example/v1/call", "t", "", "").problem(allowCleartext = false),
+		)
 		assertEquals("Set the bridge URL and token first", Config("", "t", "", "").problem())
 	}
 

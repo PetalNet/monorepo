@@ -33,24 +33,31 @@ class CallSession(
 	@Volatile private var mic: Mic? = null
 
 	fun start() {
-		val request = Request.Builder().url(config.url)
-			.header("Authorization", "Bearer ${config.token}")
-			.apply {
-				if (config.cfId.isNotEmpty()) header("CF-Access-Client-Id", config.cfId)
-				if (config.cfSecret.isNotEmpty()) header("CF-Access-Client-Secret", config.cfSecret)
-			}
-			.build()
-		socket = http.newWebSocket(request, Listener())
+		try {
+			val request = Request.Builder().url(config.url)
+				.header("Authorization", "Bearer ${config.token}")
+				.apply {
+					if (config.cfId.isNotEmpty()) header("CF-Access-Client-Id", config.cfId)
+					if (config.cfSecret.isNotEmpty()) header("CF-Access-Client-Secret", config.cfSecret)
+				}
+				.build()
+			socket = http.newWebSocket(request, Listener())
+		} catch (e: IllegalArgumentException) {
+			finish(End.Failed("The bridge URL or a credential is not valid"))
+		}
 	}
 
 	fun hangup() = finish(End.Local)
 
 	private fun finish(end: End) {
 		if (!ended.compareAndSet(false, true)) return
-		mic?.stop()
-		player.close(drain = end !is End.Local && end !is End.Failed)
-		socket?.close(1000, "hangup")
-		onEnded(end)
+		try {
+			mic?.stop()
+			player.close(drain = end !is End.Local && end !is End.Failed)
+			socket?.close(1000, "hangup")
+		} finally {
+			onEnded(end)
+		}
 	}
 
 	private fun streamMic(source: Mic) {
@@ -62,6 +69,7 @@ class CallSession(
 				socket?.send(buf.toByteString(0, n))
 			}
 			source.close()
+			finish(End.Failed("Microphone stopped"))
 		}, "janet-mic").start()
 	}
 
@@ -96,10 +104,12 @@ class CallSession(
 		}
 
 		override fun onFailure(webSocket: WebSocket, t: Throwable, response: Response?) {
-			val reason = when (response?.code) {
-				401, 403 -> "Bridge refused the credentials (HTTP ${response.code})"
+			val code = response?.code
+			val reason = when (code) {
+				401, 403 -> "Bridge refused the credentials (HTTP $code)"
+				in 300..399 -> "Bridge redirected the call (HTTP $code); check the URL and Cloudflare Access"
 				null -> t.message ?: "Could not reach the bridge"
-				else -> "Bridge error (HTTP ${response.code})"
+				else -> "Bridge error (HTTP $code)"
 			}
 			finish(End.Failed(reason))
 		}
@@ -109,6 +119,8 @@ class CallSession(
 		val http: OkHttpClient = OkHttpClient.Builder()
 			.connectTimeout(10, TimeUnit.SECONDS)
 			.readTimeout(0, TimeUnit.SECONDS)
+			.followRedirects(false)
+			.followSslRedirects(false)
 			.pingInterval(15, TimeUnit.SECONDS)
 			.build()
 	}

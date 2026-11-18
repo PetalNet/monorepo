@@ -32,7 +32,7 @@ One WebSocket per call: `GET <url>` with `Authorization: Bearer <token>`, plus
 
 ```sh
 echo "sdk.dir=$ANDROID_HOME" > local.properties
-./gradlew testDebugUnitTest assembleDebug assembleRelease
+./gradlew testDebugUnitTest testReleaseUnitTest assembleDebug assembleRelease
 ```
 
 The release build is signed with the machine's debug keystore. There is no keystore in the
@@ -47,8 +47,9 @@ is compiled in.
 ## Scripted calls (debug build only)
 
 The debug build adds `DebugControlActivity`, which is not in the release manifest, so other apps
-cannot reach settings or start calls on a release install. It also allows `ws://` for a local test
-bridge.
+cannot reach settings or start calls on a release install. It requires the `DUMP` permission, which
+only `adb shell` holds, and allows `ws://` for a local test bridge. Debug and release share the
+application id and signing key, so keep the debug build off the real phone.
 
 ```sh
 APP=dev.petalcat.janetcall

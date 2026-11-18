@@ -147,6 +147,8 @@ class Player(private val recorder: (Int) -> WavWriter? = { null }) {
 
 	@Volatile private var draining = false
 
+	private val trackLock = Any()
+
 	@Volatile private var track: AudioTrack? = null
 	@Volatile private var rate = MIC_RATE
 	private var recording: WavWriter? = null
@@ -168,7 +170,7 @@ class Player(private val recorder: (Int) -> WavWriter? = { null }) {
 	fun clear() {
 		generation++
 		queue.removeIf { it is Item.Pcm }
-		track?.apply {
+		withTrack {
 			pause()
 			flush()
 			play()
@@ -179,16 +181,28 @@ class Player(private val recorder: (Int) -> WavWriter? = { null }) {
 	fun close(drain: Boolean) {
 		if (drain) {
 			draining = true
-			queue.put(Item.Stop)
-			return
+		} else {
+			generation++
+			queue.clear()
+			withTrack {
+				pause()
+				flush()
+			}
 		}
-		generation++
-		queue.clear()
 		queue.put(Item.Stop)
-		track?.apply {
-			pause()
-			flush()
+	}
+
+	/** The playback thread releases the track; callers on other threads go through here so they never touch a released one. */
+	private fun withTrack(block: AudioTrack.() -> Unit) = synchronized(trackLock) {
+		try {
+			track?.block()
+		} catch (_: IllegalStateException) {
 		}
+	}
+
+	private fun replaceTrack(next: AudioTrack?) = synchronized(trackLock) {
+		track?.release()
+		track = next
 	}
 
 	private fun loop() {
@@ -200,13 +214,13 @@ class Player(private val recorder: (Int) -> WavWriter? = { null }) {
 						break
 					}
 					is Item.Rate -> {
+						if (item.hz == rate && track != null) continue
 						rate = item.hz
-						track?.release()
-						track = buildTrack(item.hz)
+						replaceTrack(buildTrack(item.hz))
 					}
 					is Item.Pcm -> {
 						if (item.generation != generation) continue
-						if (track == null) track = buildTrack(rate)
+						if (track == null) replaceTrack(buildTrack(rate))
 						if (recording == null) recording = recorder(rate)
 						recording?.write(item.bytes)
 						track?.write(item.bytes, 0, item.bytes.size)
@@ -214,7 +228,7 @@ class Player(private val recorder: (Int) -> WavWriter? = { null }) {
 				}
 			}
 		} finally {
-			track?.release()
+			replaceTrack(null)
 			recording?.close()
 		}
 	}
