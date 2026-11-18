@@ -32,6 +32,17 @@ instructions.
   `{"token", "cf_id", "cf_secret"}`: its device token and the Cloudflare Access service token it
   needs from then on. Neither is ever in a link. Both pair routes must be reachable without Access;
   the exchange answers 429 after ten attempts in a minute, counted for everyone together.
+- **Signing in from the app.** With a `[signin]` table the phone can pair by signing in, with no
+  link at all. The app opens `GET /v1/call/pair/signin?challenge=<PKCE S256 challenge>&state=<state>`
+  in a browser. The bridge answers 302 to single sign-on with its own client id and redirect
+  address, so the app knows only the bridge. Single sign-on returns the browser to `redirect_uri`
+  with `code` and `state`, and the phone trades them at `POST /v1/call/pair/signin`
+  `{"code", "verifier", "name"}` for the same `{"token", "cf_id", "cf_secret"}`. The bridge spends
+  the code at `token_url` with the verifier, asks `userinfo_url` who signed in, and pairs the phone
+  only when that `preferred_username` is in `pair_users`. A 403 with an `error` is a refusal, a
+  503 means single sign-on or the Access file could not be read, and attempts count against the
+  same limits as the code exchange. The client is public (PKCE, no secret), and single sign-on
+  should itself allow only the owner to use it, so the bridge's check is the second of two.
 - **Getting a link.** `--pair-link FILE` asks the running bridge for one and writes it to FILE, which
   only its owner can read. `GET <pair_path>` shows the same link as a QR code; it is for the
   single-sign-on proxy alone:
@@ -103,6 +114,13 @@ pair_users = ["owner"]                        # single sign-on usernames that ma
 pair_path = "/pair"
 proxy_secret_file = "/secrets/proxy-secret"   # the header value the single-sign-on proxy adds
 max_call_s = 900
+
+[signin]                            # leave the table out to turn signing in off
+authorize_url = "https://sso.example/application/o/authorize/"   # where the phone's browser is sent
+token_url = "http://127.0.0.1:9000/application/o/token/"         # may be the provider's own listener
+userinfo_url = "http://127.0.0.1:9000/application/o/userinfo/"
+client_id = "the public client's id"
+redirect_uri = "janetcall://signin"
 
 [endpoint]                          # loudness end-of-speech detector
 threshold = 500
