@@ -23,7 +23,8 @@ def settings(tools) -> dict:
     deny = [f"WebFetch(domain:{domain})" for domain in DENIED_DOMAINS] if "WebFetch" in tools else []
     result: dict = {"permissions": {"allow": allow, "deny": deny}}
     if "WebFetch" in tools:
-        command = f"{shlex.quote(sys.executable)} -I {shlex.quote(__file__)}"
+        # Claude treats any exit but 2 as a hook error and fetches anyway, so a hook that cannot start must still say 2.
+        command = f"{shlex.quote(sys.executable)} -I {shlex.quote(__file__)} || exit 2"
         result["hooks"] = {"PreToolUse": [{"matcher": "WebFetch", "hooks": [{"type": "command", "command": command}]}]}
     return result
 
@@ -33,7 +34,8 @@ def refusal(url: str, resolve=socket.getaddrinfo) -> str | None:
     try:
         parts = urlsplit(url)
         host = (parts.hostname or "").rstrip(".").lower()
-    except ValueError:
+        host = host.encode("idna").decode() if host and not host.isascii() else host
+    except (ValueError, UnicodeError):
         return "not a valid URL"
     if parts.scheme not in ("http", "https") or not host or parts.username is not None:
         return "only plain http and https URLs are fetched"
@@ -46,8 +48,10 @@ def refusal(url: str, resolve=socket.getaddrinfo) -> str | None:
         return f"{host} does not resolve"
     for text in addresses:
         address = ipaddress.ip_address(text)
-        address = getattr(address, "ipv4_mapped", None) or address
-        if not address.is_global:
+        if address.version == 6:
+            embedded = address.ipv4_mapped or (ipaddress.IPv4Address(address.packed[-4:]) if address.packed[:12] in (bytes(12), bytes.fromhex("0064ff9b" + "00" * 8)) else None)
+            address = embedded or address
+        if not address.is_global or address.is_multicast:
             return f"{host} resolves to a private address"
     return None
 

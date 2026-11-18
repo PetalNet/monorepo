@@ -45,7 +45,10 @@ One conversation is one talk-only Claude Code process:
   those tools and kills a session that reports any other. Guests never get them. WebFetch is refused for
   loopback, private, link-local and tailnet addresses and for `*.petalcat.dev`, `*.ts.net`, `localhost` and
   `*.local`: Claude's `WebFetch(domain:...)` deny rules match names only (not `10.*`, checked on 2.1.326), so
-  `web_guard.py` runs as a PreToolUse hook that resolves the host and checks every address.
+  `web_guard.py` runs as a PreToolUse hook that resolves the host and checks every address. Known gap: the
+  hook and the fetch resolve the name separately, so a DNS-rebinding page can still reach a private address; close it
+  with egress rules on the unit if that matters. A search query or URL can also carry text out of the fork's context;
+  only the prompt forbids it.
 - **Soft merge.** The model ends a reply with a `<relay>` block when the speaker asked for
   something to be done. The head strips the block from speech and injects the ask into
   main at once, so main acts during the call.

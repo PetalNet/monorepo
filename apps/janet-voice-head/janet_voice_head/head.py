@@ -232,7 +232,7 @@ class Head:
                     latency["spawn_wait"] = _ms(started)
                     fork = live.conv.tier == "personal"
                     stream = SpeechStream(redact=None if fork else session.account_email)
-                    for delta in session.turn(prompts.turn_prompt(text, fork=fork, cut_off=previous_cut, web=bool(fork and self.config.web_tools and not self.config.main_like_fork)), self.config.turn_timeout_s):
+                    for delta in session.turn(prompts.turn_prompt(text, fork=fork, cut_off=previous_cut, web=self._web_tools(live.conv, True) if fork else ()), self.config.turn_timeout_s):
                         if latency["first_token"] is None:
                             latency["first_token"] = _ms(started)
                         for sentence in stream.feed(delta):
