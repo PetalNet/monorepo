@@ -1,4 +1,4 @@
-# Janet Call for Android
+# Janet for Android
 
 "Call Janet" as a real phone call on an Android phone, with no phone number. The app registers a
 self-managed Telecom `PhoneAccount` and places the call through `TelecomManager.placeCall`, so

@@ -22,6 +22,7 @@ class JanetConnection(private val onGone: (CallRecord) -> Unit) : Connection() {
 	private val main = Handler(Looper.getMainLooper())
 	private val startedMs = System.currentTimeMillis()
 	private var activeAtMs: Long? = null
+	private val ringback = Ringback()
 
 	fun begin(pairing: Pairing, player: Player, stage: CallStage) {
 		connectionProperties = PROPERTY_SELF_MANAGED
@@ -29,6 +30,8 @@ class JanetConnection(private val onGone: (CallRecord) -> Unit) : Connection() {
 		setAddress(android.net.Uri.parse("sip:janet@janet"), TelecomManager.PRESENTATION_ALLOWED)
 		setCallerDisplayName("Janet", TelecomManager.PRESENTATION_ALLOWED)
 		setDialing()
+		// The phone rings back while the call loads, on the call's own stream, so it follows the call to the earpiece or a headset.
+		ringback.start()
 		session = CallSession(
 			pairing,
 			micFactory = { MutableMic(TestHooks.micWav?.let(::WavMic) ?: AudioRecordMic()) { Calls.muted } },
@@ -42,6 +45,7 @@ class JanetConnection(private val onGone: (CallRecord) -> Unit) : Connection() {
 				}
 			},
 			onEnded = { end -> main.post { disconnect(end) } },
+			onFirstAudio = ringback::stop,
 		)
 		session.start()
 	}
@@ -53,6 +57,7 @@ class JanetConnection(private val onGone: (CallRecord) -> Unit) : Connection() {
 			is End.Remote -> DisconnectCause(DisconnectCause.REMOTE, end.reason, end.reason, "janet") to end.reason
 			is End.Failed -> DisconnectCause(DisconnectCause.ERROR, "Call failed", end.reason, "janet") to end.reason
 		}
+		ringback.stop()
 		setDisconnected(cause)
 		destroy()
 		Calls.update(CallState.Ended(reason))
@@ -128,7 +133,7 @@ class JanetConnectionService : ConnectionService() {
 		val manager = getSystemService(NotificationManager::class.java)
 		manager.createNotificationChannel(NotificationChannel("call", "Calls", NotificationManager.IMPORTANCE_LOW))
 		val notification = android.app.Notification.Builder(this, "call")
-			.setSmallIcon(android.R.drawable.sym_action_call)
+			.setSmallIcon(R.drawable.ic_stat_janet)
 			.setContentTitle("Call with Janet")
 			.setOngoing(true)
 			.build()

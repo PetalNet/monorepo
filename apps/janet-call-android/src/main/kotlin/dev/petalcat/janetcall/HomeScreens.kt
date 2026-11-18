@@ -238,7 +238,7 @@ fun ConfirmScreen(screen: Screen.Confirm, onPair: () -> Unit, onCancel: () -> Un
 			Text(screen.host, style = Type.title, color = palette.ink)
 			Spacer(Modifier.height(8.dp))
 			Text(
-				"Janet Call will place its calls through this address" +
+				"Janet will place its calls through this address" +
 					(if (screen.replacing != null) ", in place of ${screen.replacing}" else "") + ".",
 				style = Type.body,
 				color = palette.g1,

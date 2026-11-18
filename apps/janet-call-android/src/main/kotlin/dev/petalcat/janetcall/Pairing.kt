@@ -35,7 +35,7 @@ const val MAX_LINK_LIFE_S = 15 * 60L
 const val MAX_PAYLOAD_CHARS = 4096
 
 const val EXPIRED_LINK = "This pairing link has expired. Ask for a new one."
-private const val BAD_LINK = "This is not a Janet Call pairing link."
+private const val BAD_LINK = "This is not a Janet pairing link."
 
 const val CALL_PATH = "/v1/call"
 

@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+	<string name="app_name">Janet</string>
+	<string name="shortcut_call">Call Janet</string>
+	<string name="shortcut_call_long">Call Janet now</string>
+</resources>
