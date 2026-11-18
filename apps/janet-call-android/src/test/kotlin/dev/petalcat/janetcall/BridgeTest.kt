@@ -62,7 +62,7 @@ class BridgeTest {
 	@Test
 	fun `a 429 says to wait a minute`() {
 		bridgeAnswers(429, """{"error":"too many attempts"}""")
-		assertEquals("Too many pairing attempts. Wait a minute, then open the pairing link again.", refusal(Bridge.pair(link(), "x")))
+		assertEquals("Too many pairing attempts. Wait a minute, then try again.", refusal(Bridge.pair(link(), "x")))
 	}
 
 	@Test
