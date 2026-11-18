@@ -66,10 +66,12 @@ jobs:
         run: |
           tools=$(find "$ANDROID_HOME/build-tools" -mindepth 1 -maxdepth 1 | sort -V | tail -n 1)
           apk=build/outputs/apk/release/janet-call-android-release.apk
-          signer=$("$tools/apksigner" verify --print-certs "$apk" |
-            sed -n 's/^Signer #1 certificate SHA-256 digest: //p')
+          # Newer apksigner labels the signer with an SDK range instead of "#1".
+          certs=$("$tools/apksigner" verify --print-certs "$apk")
+          signer=$(sed -n 's/^Signer .*certificate SHA-256 digest: //p' <<<"$certs" | sort -u)
           if [[ $signer != "$SIGNER_SHA256" ]]; then
             echo "::error::APK is signed by ${signer:-nothing}, expected $SIGNER_SHA256"
+            grep -v '^WARNING' <<<"$certs" || true
             exit 1
           fi
           badging=$("$tools/aapt2" dump badging "$apk")
