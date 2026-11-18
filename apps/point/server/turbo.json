@@ -5,6 +5,10 @@
 		"check": { "dependsOn": [], "inputs": ["$TURBO_DEFAULT$"] },
 		"fmt:check": { "command": ["cargo", "fmt", "--check"] },
 		"lint": { "command": ["cargo", "clippy", "--all-targets", "--locked", "--", "-D", "warnings"] },
-		"test": { "cache": true, "outputs": [] }
+		"test": {
+			"cache": true,
+			"outputs": [],
+			"command": ["cargo", "nextest", "run", "--locked", "--profile=ci", "--no-tests=pass"]
+		}
 	}
 }

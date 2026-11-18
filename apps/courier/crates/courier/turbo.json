@@ -20,7 +20,15 @@
 		"test": {
 			"cache": true,
 			"outputs": [],
-			"command": ["cargo", "test", "--package=courier*", "--locked"]
+			"command": [
+				"cargo",
+				"nextest",
+				"run",
+				"--package=courier*",
+				"--locked",
+				"--profile=ci",
+				"--no-tests=pass"
+			]
 		}
 	}
 }
