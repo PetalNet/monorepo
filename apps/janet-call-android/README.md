@@ -35,7 +35,9 @@ and his gray. The controls are speaker, Hide text or Show text, and hang up.
   speaks and the caller only while she listens.
 - The golden frames in `src/test/resources/planet-reference-frames.txt` come from the reference
   engine: `python3 tools/reference_frames.py path/to/ref/engine2.js` (needs node).
-- The screen stays on during a call and draws about thirty frames a second.
+- The screen stays on during a call and draws about thirty frames a second. After a frame that took
+  more than 7 ms it draws nothing for three times as long as the frame took, so a phone short of
+  CPU slows the planet down and the call's audio keeps its threads running.
 
 ## Pairing
 

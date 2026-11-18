@@ -59,12 +59,16 @@ fun stars(seed: Long, count: Int, clearX: Double, clearY: Double, clearRadius: D
 /** The call screen draws at most one frame in this long: a little under a thirtieth of a second, so every second vsync of a 60 Hz display qualifies. */
 const val FRAME_MS = 30L
 
+/** After a slow frame, the call screen draws nothing for this many times as long as the frame took. */
+const val FRAME_YIELD = 3L
+
 /**
  * How long the call screen waits after a frame before it asks for the next one. [busyMs] is how
- * long the frame took, from its vsync to the end of drawing. The next frame comes [FRAME_MS] after
- * this one's vsync.
+ * long the frame took, from its vsync to the end of drawing. A quick frame is followed [FRAME_MS]
+ * after its vsync. A slow one means the phone is short of CPU, and the call's audio needs what
+ * there is: the wait grows with the frame, so the planet slows down and the microphone does not.
  */
-fun frameGapMs(busyMs: Long): Long = max(FRAME_MS - busyMs, 0L)
+fun frameGapMs(busyMs: Long): Long = max(FRAME_MS - busyMs, FRAME_YIELD * busyMs)
 
 /**
  * The call screen: the planet is the whole interface. Under it, the level meter and one centred
