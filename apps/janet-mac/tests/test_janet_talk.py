@@ -502,6 +502,16 @@ class TalkTest(TalkCase):
         self.assertEqual(len(self.head_calls("/v1/conversations")), 2)
         self.assertEqual([path for path, _ in self.head.calls if "00000000dead" in path], [])
 
+    def test_someone_who_talked_past_the_conversation_s_life_is_answered_without_a_wait(self):
+        self.talk("start")
+        state = Path(self.env["JANET_TALK_STATE"])
+        (state / "conversation.used").write_text(str(int(time.time()) - 600))  # he has been talking a long while
+        began = time.monotonic()
+        self.talk("stop")
+        self.assertLess(time.monotonic() - began, 7, "it waited for a conversation nobody was opening")
+        self.assertEqual(len(self.head_calls("/v1/conversations")), 2)
+        self.assertEqual(self.head_calls("/turns"), [{"text": "what time is it"}])
+
     def test_without_hex_it_says_so_and_calls_nobody(self):
         (self.stub / "hex-start-status").write_text("3")
         self.talk("start", status=1)

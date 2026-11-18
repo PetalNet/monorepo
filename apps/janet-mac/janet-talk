@@ -486,6 +486,8 @@ start() {
   # The microphone comes first: nothing below may delay the recording.
   stopped=$(stop_reply)
   stop_listening_on # Hex records one thing at a time
+  # A conversation gone stale leaves the file: `stop` then knows one is being opened below.
+  conversation_fresh || rm -f "$STATE/conversation"
   media_resume &
   hex_start "$pressed" || {
     notify "Janet" "Hex is not running."
@@ -548,9 +550,10 @@ stop() {
     exit 0
   fi
   load_secrets || exit 1
-  # `start` may still be opening the conversation.
+  # `start` may still be opening the conversation: then there is none on file yet. One that is
+  # on file and has gone stale (he talked for over a minute and a half) is not worth waiting for.
   waited=0
-  while ! conversation_fresh && [ "$waited" -lt 100 ]; do
+  while ! conversation_fresh && [ ! -s "$STATE/conversation" ] && [ "$waited" -lt 100 ]; do
     sleep 0.1
     waited=$((waited + 1))
   done
