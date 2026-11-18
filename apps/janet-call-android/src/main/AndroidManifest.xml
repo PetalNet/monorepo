@@ -17,10 +17,17 @@
 		<activity
 			android:name=".MainActivity"
 			android:exported="true"
-			android:windowSoftInputMode="adjustResize">
+			android:launchMode="singleTask">
 			<intent-filter>
 				<action android:name="android.intent.action.MAIN" />
 				<category android:name="android.intent.category.LAUNCHER" />
+			</intent-filter>
+			<!-- The pairing link. Any app or page can fire it, so MainActivity asks before it pairs. -->
+			<intent-filter>
+				<action android:name="android.intent.action.VIEW" />
+				<category android:name="android.intent.category.DEFAULT" />
+				<category android:name="android.intent.category.BROWSABLE" />
+				<data android:scheme="janetcall" android:host="pair" />
 			</intent-filter>
 		</activity>
 

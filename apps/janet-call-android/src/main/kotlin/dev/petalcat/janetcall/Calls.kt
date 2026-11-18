@@ -41,9 +41,14 @@ object Calls {
 		observers -= observer
 	}
 
-	fun update(state: CallState = this.state, route: String = this.route) = main.post {
+	fun update(state: CallState = this.state, route: String = this.route) = update {
 		this.state = state
 		this.route = route
+	}
+
+	/** Runs [change] on the main thread, then tells the observers. */
+	fun update(change: () -> Unit) = main.post {
+		change()
 		observers.toList().forEach { it() }
 	}
 }
@@ -57,7 +62,7 @@ object Dialer {
 	/** Places the call. Returns a reason it could not be placed, or null. */
 	fun place(context: Context): String? {
 		if (Calls.inCall) return null
-		Settings(context).config().problem()?.let { return it }
+		if (Settings(context).pairing() == null) return NOT_PAIRED
 		val telecom = context.getSystemService(TelecomManager::class.java)
 		val handle = handle(context)
 		telecom.registerPhoneAccount(

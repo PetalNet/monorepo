@@ -3,7 +3,6 @@ package dev.petalcat.janetcall
 import java.io.File
 import org.junit.Assert.assertArrayEquals
 import org.junit.Assert.assertEquals
-import org.junit.Assert.assertNull
 import org.junit.Test
 
 class ProtocolTest {
@@ -15,16 +14,6 @@ class ProtocolTest {
 		assertEquals(ServerMessage.Unknown, parseServerMessage("""{"type":"future-thing"}"""))
 		assertEquals(ServerMessage.Unknown, parseServerMessage("""{"type":"audio","rate":0}"""))
 		assertEquals(ServerMessage.Unknown, parseServerMessage("not json"))
-	}
-
-	@Test
-	fun `release config requires wss`() {
-		assertNull(Config("wss://bridge.example/v1/call", "t", "", "").problem(allowCleartext = false))
-		assertEquals(
-			"The bridge URL must start with wss://",
-			Config("ws://bridge.example/v1/call", "t", "", "").problem(allowCleartext = false),
-		)
-		assertEquals("Set the bridge URL and token first", Config("", "t", "", "").problem())
 	}
 
 	@Test

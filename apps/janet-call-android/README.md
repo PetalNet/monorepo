@@ -14,10 +14,51 @@ Self-managed calls never get the system dialer screen. The app draws its own cal
 (`MainActivity`): state, hang up, and a speaker toggle. Android shows the call in the status bar,
 the car and the Bluetooth headset like any other call.
 
+## Pairing
+
+Nothing is typed into the app and nothing is compiled in. The phone is paired by opening a link,
+normally by scanning the QR code on the bridge's pairing page with the phone's camera:
+
+```text
+janetcall://pair?u=<base64url of UTF-8 JSON, no padding>
+{"url": "wss://HOST/v1/call", "code": "<one-time code>", "cf_id": "...", "cf_secret": "...", "expires": <unix seconds>}
+```
+
+Any app or web page can fire that link, so the app first asks "Pair this phone with HOST?" and sends
+nothing until the answer is yes.
+
+- `url` must be `wss://HOST[:port]/v1/call` with no user, query or fragment. The app rebuilds it
+  from the parsed host in lower case, so the host shown is the host called.
+- A link is refused when it has expired or claims more than 15 minutes of life.
+- A link is taken only when it is opened fresh. It is dropped, with a notice, during a call or while
+  another confirmation is up, and it is not replayed when the app is reopened from recents.
+- Pair is not where Call Janet and Hang up sit, it stays off for a second after the question
+  appears, and it ignores taps that come through an overlay.
+
+On yes, the app trades the code for its own device token:
+
+- `POST https://HOST/v1/call/pair` with `CF-Access-Client-Id`, `CF-Access-Client-Secret` and
+  `{"code": "...", "name": "<manufacturer model>"}`.
+- `200 {"token": "<device token>"}` pairs the phone. A `403` whose body is JSON with an `error`
+  is the bridge saying the code was used or has expired. Any other `403` is Cloudflare Access.
+  Redirects are not followed.
+
+The URL, device token and Cloudflare Access values are stored as one value sealed with an Android
+Keystore AES key. The app shows the bridge host and an Unpair button, which wipes them. There is no
+screen that shows or edits a secret.
+
+Known gaps:
+
+- Another app on the phone can register the `janetcall` scheme and be offered the link, which
+  carries the one-time code and the Access secret. An Android App Link on the bridge's own domain
+  would close that.
+- Unpair wipes the phone. It does not revoke the device token on the bridge.
+- CI does not build this app.
+
 ## Bridge protocol
 
-One WebSocket per call: `GET <url>` with `Authorization: Bearer <token>`, plus
-`CF-Access-Client-Id` and `CF-Access-Client-Secret` when those are set.
+One WebSocket per call: `GET <url>` with `Authorization: Bearer <device token>`,
+`CF-Access-Client-Id` and `CF-Access-Client-Secret`.
 
 - Client to server: binary frames of 20 ms PCM16LE mono 16 kHz microphone audio, from connect to
   hang-up. Closing the socket with 1000 is the hang-up.
@@ -38,17 +79,11 @@ echo "sdk.dir=$ANDROID_HOME" > local.properties
 The release build is signed with the machine's debug keystore. There is no keystore in the
 repository.
 
-## Settings
-
-The launcher screen holds the bridge URL (`wss://`), bearer token, and Cloudflare Access client
-id and secret. The token and Cloudflare values are sealed with an Android Keystore AES key. Nothing
-is compiled in.
-
 ## Scripted calls (debug build only)
 
 The debug build adds `DebugControlActivity`, which is not in the release manifest, so other apps
-cannot reach settings or start calls on a release install. It requires the `DUMP` permission, which
-only `adb shell` holds, and allows `ws://` for a local test bridge. Debug and release share the
+cannot pair a release install or start calls on it. It requires the `DUMP` permission, which only
+`adb shell` holds, and allows `ws://` for a local test bridge. Debug and release share the
 application id and signing key, so keep the debug build off the real phone.
 
 ```sh
@@ -57,9 +92,17 @@ adb install -r build/outputs/apk/debug/janet-call-android-debug.apk
 adb shell pm grant $APP android.permission.RECORD_AUDIO
 adb shell pm grant $APP android.permission.POST_NOTIFICATIONS
 
+# Pair with the `u` payload of a pairing link, without the confirmation. The outcome is in logcat.
+adb shell am start -n $APP/.DebugControlActivity -a $APP.PROVISION --es u PAYLOAD
+adb logcat -d -s JanetCallDebug
+# Or store a pairing directly, and remove it again.
 adb shell am start -n $APP/.DebugControlActivity -a $APP.PROVISION \
-  --es url wss://bridge.example/v1/call --es token TOKEN \
+  --es url wss://bridge.example/v1/call --es token DEVICE_TOKEN \
   --es cf_id ID --es cf_secret SECRET
+adb shell am start -n $APP/.DebugControlActivity -a $APP.UNPAIR
+
+# The link itself, as the camera would open it. This one asks for confirmation.
+adb shell am start -a android.intent.action.VIEW -d "janetcall://pair?u=PAYLOAD"
 
 # A headless emulator has no microphone: stream a 16 kHz mono PCM16 WAV instead, then silence,
 # and record what the app played to out.wav.
