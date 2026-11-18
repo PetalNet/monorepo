@@ -164,7 +164,7 @@ def serve(listen: str, devices: Devices, codes: Codes, *, url: str, access_file:
             code, expires = codes.issue(user)
             link = pairing_link(url, code, expires, json.loads(Path(access_file).read_text()))
             page = PAGE.format(qr=qr_svg(link), link=html.escape(link), minutes=codes.ttl_s // 60, user=html.escape(user))
-            log.info("pairing code issued to %s", user)
+            log.info("pairing code issued")
             self._send(HTTPStatus.OK, page, "text/html; charset=utf-8")
 
         def do_POST(self):
@@ -181,7 +181,8 @@ def serve(listen: str, devices: Devices, codes: Codes, *, url: str, access_file:
                 if by is None:
                     return self._send(HTTPStatus.FORBIDDEN, '{"error": "the pairing code is not valid"}')
                 token = devices.add(str(body.get("name", "")), by)
-                log.info("paired %s for %s", devices.name_of(token), by)
+                # The id only: the device's name and who paired it are in the registry, not the log.
+                log.info("paired device %s", hashlib.sha256(token.encode()).hexdigest()[:12])
                 return self._send(HTTPStatus.OK, json.dumps({"token": token}))
             if routes and path in routes:
                 status, reply = routes[path](self.headers, body)
