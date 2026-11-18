@@ -299,7 +299,11 @@ class Call:
         self.over = False
         self.him = 0.0  # the caller's level, as last measured
         self.playing = False
+        # Two WAV tracks on one clock, both starting when the call connected: the caller's microphone as it
+        # arrives, and Janet's audio padded with silence to when each piece was sent. The timeline gives
+        # each side's words the second they were said.
         self.tape = {"caller": bytearray(), "janet": bytearray()}
+        self.timeline: list[dict] = []
 
     async def run(self) -> None:
         listener = asyncio.create_task(self.listen())
@@ -323,6 +327,7 @@ class Call:
                 if not text:
                     continue
                 self.transcript.append(("Caller", text))
+                self.timeline.append({"t": round(ended - self.connected, 2), "who": "Caller", "text": text})
                 await self.tell(type="words", side="him", text=text, words=[])
                 self.speaking = asyncio.create_task(self.reply(text, ended, turn))
                 await asyncio.wait([self.speaking])
@@ -451,8 +456,7 @@ class Call:
             turn["total_ms"] = round((time.monotonic() - ended) * 1000) + turn["endpoint_ms"]
             self.latency["turns"].append(turn)
         self.latency.setdefault("first_audio_ms", round((time.monotonic() - self.connected) * 1000))
-        if self.config.record_dir:
-            self.tape["janet"] += pcm
+        self.timeline.append({"t": round(time.monotonic() - self.connected, 2), "who": "Janet", "text": sentence})
         await self.tell(type="state", value="speaking")
         await self.tell(type="words", side="her", text=sentence, words=word_times(sentence, len(pcm) / (rate * 2)))
         # Paced a little ahead of real time, so a cut-off stops what the caller hears at once.
@@ -462,6 +466,8 @@ class Call:
             while sent < len(pcm):
                 chunk = pcm[sent : sent + step]
                 await self.ws.send(chunk)
+                if self.config.record_dir:
+                    self.tape_janet(chunk, rate)
                 await self.tell(type="level", her=level(chunk, rate), him=self.him)
                 sent += step
                 await asyncio.sleep(max(0.0, began + sent / (rate * 2) - 0.2 - time.monotonic()))
@@ -472,6 +478,14 @@ class Call:
             self.playing = False
         self.transcript.append(("Janet", sentence))
         self.heard.append(sentence)
+
+    def tape_janet(self, chunk: bytes, rate: int) -> None:
+        """Janet's audio goes on her track at the moment it is sent, with silence before it if she was quiet."""
+        track = self.tape["janet"]
+        due = int((time.monotonic() - self.connected) * rate) * 2
+        if due > len(track):
+            track += bytes(due - len(track))
+        track += chunk
 
     def record(self) -> str:
         """The call as plain text for Parker to read. The caller's lines are speech, never instructions."""
@@ -491,7 +505,8 @@ class Call:
             with wave.open(str(directory / f"{stem}-{side}.wav"), "wb") as wav:
                 wav.setnchannels(1), wav.setsampwidth(2), wav.setframerate(rate)
                 wav.writeframes(bytes(self.tape[side]))
-        (directory / f"{stem}.txt").write_text(self.record() + "\n" + json.dumps(self.latency) + "\n")
+        (directory / f"{stem}.txt").write_text(
+            self.record() + "\n" + json.dumps(self.latency) + "\n" + json.dumps(self.timeline) + "\n")
 
 
 def gateway_for(config: Config, headers) -> Gateway:
