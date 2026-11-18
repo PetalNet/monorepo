@@ -7,15 +7,15 @@
 	let {
 		fraction,
 		steps,
-		majorEvery,
+		majors,
 		hotFrom,
 	}: {
 		/** Where the needle sits, from 0 (left) to 1 (right). */
 		fraction: number | undefined;
 		/** Scale divisions, one minor tick each. */
 		steps: number;
-		/** A numbered major tick every this many steps. */
-		majorEvery: number;
+		/** The steps that carry a numbered major tick. */
+		majors: readonly number[];
 		/** The scale from this fraction up is marked as the heavy end. */
 		hotFrom: number;
 	} = $props();
@@ -34,7 +34,7 @@
 	};
 	const ticks = $derived(
 		Array.from({ length: steps + 1 }, (_, step) => {
-			const major = step % majorEvery === 0;
+			const major = majors.includes(step);
 			const [x1, y1] = point(step / steps, R);
 			const [x2, y2] = point(step / steps, major ? R - 12 : R - 6);
 			const [tx, ty] = point(step / steps, R - 24);

@@ -55,7 +55,7 @@
 		<Dial
 			fraction={gauge.kind === "reading" ? gauge.quieter / gauge.of : undefined}
 			steps={gauge.of}
-			majorEvery={gauge.of / 4}
+			majors={[0, 1, 2, 3, 4].map((quarter) => Math.round((gauge.of * quarter) / 4))}
 			hotFrom={0.9}
 		/>
 	</div>
@@ -69,7 +69,7 @@
 	{:else if gauge.kind === "short"}
 		<p class="value">
 			<strong>Not enough history yet</strong>
-			{gauge.have} of the {gauge.need} days a reading needs
+			{gauge.have} of the {gauge.need} days a reading needs so far
 		</p>
 	{:else}
 		<p class="value">

@@ -7,8 +7,17 @@ import { addDays, rank, type Gauge } from "./weekly";
 const NEWS_TERMS = ["ransomware", "cyberattack", "data breach"] as const;
 /** Google News returns at most this many results, so a term's daily count stops here. */
 const NEWS_CAP = 100;
-/** The last full day is compared with this many days before it. */
+/** The last full day is compared with the settled days among this many days before it. */
 const NEWS_DAYS = 28;
+/** A reading needs at least this many of them: two whole weeks. */
+const NEWS_NEEDED = 14;
+/**
+ * A day is counted only while it is this recent. Google's index thins with age (a day counted a
+ * year later shows about a tenth of its headlines), so a day counted late would read too quiet and
+ * make today look loud. The baseline is therefore built from our own timely counts, never filled in
+ * from the past.
+ */
+const REACH = 2;
 const NEWS_SOURCE = "news";
 
 export interface Headline {
@@ -158,9 +167,9 @@ async function countDay(
 const SETTLE = 3 * 60 * 60 * 1000;
 
 /**
- * One round: count today so far, and count any earlier day that has no final count yet. The first
- * round therefore fills the whole baseline from the feed's own dated results. Rounds are two hours
- * apart unless a day has never been counted. Returns the number of days counted.
+ * One round: count today so far, and count the last two days again until their counts are final.
+ * Rounds are two hours apart unless one of those days has never been counted. Returns the number of
+ * days counted.
  */
 export async function ingestNews(
 	store: Store,
@@ -171,11 +180,10 @@ export async function ingestNews(
 	const today = newsDay(now);
 	const settled = newsDay(new Date(now.getTime() - SETTLE));
 	const checked = store.source(NEWS_SOURCE)?.checkedAt;
-	const known = new Map(
-		store.newsDays(addDays(today, -NEWS_DAYS - 2)).map((day) => [day.day, day]),
+	const known = new Map(store.newsDays(addDays(today, -REACH)).map((day) => [day.day, day]));
+	const open = Array.from({ length: REACH }, (_, back) => addDays(today, -back - 1)).filter(
+		(day) => !known.get(day)?.final,
 	);
-	const earlier = Array.from({ length: NEWS_DAYS + 2 }, (_, back) => addDays(today, -back - 1));
-	const open = earlier.filter((day) => !known.get(day)?.final);
 
 	if (
 		open.every((day) => known.has(day)) &&
@@ -221,13 +229,14 @@ export interface Chaos {
 }
 
 /**
- * The chaos-o-meter: headlines on the last full day against the 28 days before it. Coverage volume
- * measures attention, so it moves this dial and no other.
+ * The chaos-o-meter: headlines on the last full day against the settled days among the 28 before
+ * it, once there are at least 14. Coverage volume measures attention, so it moves this dial and no
+ * other.
  */
 export function chaos(store: Store, now: Date): Chaos {
 	const today = newsDay(now);
 	const checkedAt = store.source(NEWS_SOURCE)?.checkedAt;
-	const days = store.newsDays(addDays(today, -NEWS_DAYS - 2));
+	const days = store.newsDays(addDays(today, -NEWS_DAYS - REACH));
 	const base = {
 		today: days.find((day) => day.day === today),
 		headlines: store.headlines(),
@@ -237,7 +246,7 @@ export function chaos(store: Store, now: Date): Chaos {
 	if (!checkedAt || now.getTime() - Date.parse(checkedAt) > FRESH) {
 		return {
 			...base,
-			gauge: { of: NEWS_DAYS, kind: "stale" },
+			gauge: { of: NEWS_NEEDED, kind: "stale" },
 			day: undefined,
 			capped: false,
 			headlines: [],
@@ -247,19 +256,20 @@ export function chaos(store: Store, now: Date): Chaos {
 	const full = new Map(days.filter((day) => day.final).map((day) => [day.day, day]));
 	// Yesterday's count settles a few hours into today. Until then the dial reads the day before.
 	const last = full.get(addDays(today, -1)) ?? full.get(addDays(today, -2));
-	const wanted = last
-		? Array.from({ length: NEWS_DAYS + 1 }, (_, index) => addDays(last.day, index - NEWS_DAYS))
+	const baseline = last
+		? Array.from({ length: NEWS_DAYS }, (_, index) =>
+				full.get(addDays(last.day, index - NEWS_DAYS)),
+			).filter((day) => day !== undefined)
 		: [];
-	const have = wanted.filter((day) => full.has(day)).length;
 
-	if (!last || have < wanted.length) {
+	if (!last || baseline.length < NEWS_NEEDED) {
 		return {
 			...base,
 			gauge: {
-				of: NEWS_DAYS,
+				of: NEWS_NEEDED,
 				kind: "short",
-				have: last ? have : full.size,
-				need: NEWS_DAYS + 1,
+				have: full.size > 0 ? baseline.length + Number(last !== undefined) : 0,
+				need: NEWS_NEEDED + 1,
 				value: last?.articles ?? 0,
 			},
 			day: last?.day,
@@ -267,12 +277,16 @@ export function chaos(store: Store, now: Date): Chaos {
 		};
 	}
 
+	const ranked = rank([...baseline, last].map((day) => ({ end: day.day, value: day.articles })));
+
 	return {
 		...base,
 		gauge: {
-			of: NEWS_DAYS,
+			of: baseline.length,
 			kind: "reading",
-			...rank(wanted.map((day) => ({ end: day, value: full.get(day)?.articles ?? 0 }))),
+			...ranked,
+			// A baseline day at the feed's limit was at least that loud, so it never counts as quieter.
+			quieter: baseline.filter((day) => !day.capped && day.articles < last.articles).length,
 		},
 		day: last.day,
 		capped: last.capped,

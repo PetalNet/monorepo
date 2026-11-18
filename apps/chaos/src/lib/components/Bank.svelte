@@ -35,7 +35,13 @@
 
 <section class="bank" aria-labelledby="bank-title">
 	<h1 id="bank-title">
-		{gap ? GAPS[gap] : "No headline yet. One of the two meters has no reading."}
+		{#if gap}
+			{GAPS[gap]}
+		{:else if chaos.gauge.kind === "short" && risk.kind === "reading"}
+			No headline yet. The chaos-o-meter has {chaos.gauge.have} of the {chaos.gauge.need} days it needs.
+		{:else}
+			No headline yet. One of the two meters has no reading.
+		{/if}
 	</h1>
 	<p class="how">
 		The chaos-o-meter reads how loud the news is. The cyber risk factor reads what is being
@@ -60,11 +66,15 @@
 			checkedAt={chaos.checkedAt}
 		>
 			{#snippet method()}
-				The needle counts how many of the 28 days before the last full day had strictly fewer
-				headlines containing "ransomware", "cyberattack" or "data breach" in Google News. A day is a
-				US Pacific day, as Google dates it. Each word's count stops at 100, the feed's limit, so a
-				very loud day reads as "or more". This is coverage volume: it measures attention, never
-				risk, and it moves no other dial.
+				The needle counts how many of the settled days among the 28 before the last full day had
+				strictly fewer headlines containing "ransomware", "cyberattack" or "data breach" in Google
+				News. It needs 14 such days. They are our own counts, each taken within two days of its day:
+				Google's index thins with age, so a day counted late would read too quiet and make today
+				look loud. A day is a US Pacific day, as Google dates it, and its count is final three hours
+				after it ends. A story found under two words counts once. Each word's results stop at 100,
+				the feed's limit, so a very loud day reads as "or more", and a past day at the limit never
+				counts as quieter. This is coverage volume: it measures attention, never risk, and it moves
+				no other dial.
 			{/snippet}
 			{#if chaos.headlines.length > 0}
 				<div class="list">
