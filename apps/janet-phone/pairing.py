@@ -21,6 +21,7 @@ from urllib.parse import parse_qs, urlsplit
 log = logging.getLogger("janet-phone")
 MAX_BODY = 4096
 MAX_CODES = 8
+PAIR_ATTEMPTS_A_MINUTE = 10
 
 
 def bearer(header: str | None) -> str:
@@ -82,6 +83,24 @@ class Devices:
 
     def listing(self) -> list[tuple[str, dict]]:
         return [(key[:12], device) for key, device in self._load().items()]
+
+
+class Limit:
+    """At most so many events a minute, counted over the last sixty seconds, for everyone together.
+    The pair exchange is reachable without Cloudflare Access, and requests arrive from one proxy, so
+    there is no caller to count by."""
+
+    def __init__(self, a_minute: int):
+        self.a_minute, self._times, self._lock = a_minute, [], threading.Lock()
+
+    def allows(self, now: float | None = None) -> bool:
+        now = time.monotonic() if now is None else now
+        with self._lock:
+            self._times = [t for t in self._times if now - t < 60]
+            if len(self._times) >= self.a_minute:
+                return False
+            self._times.append(now)
+            return True
 
 
 class Codes:
@@ -177,8 +196,10 @@ def serve(listen: str, devices: Devices, codes: Codes, *, url: str, access_file:
     listener, and without the secret it gets nothing.
     POST /v1/call/pair needs a live one-time code and nothing else, and GET /v1/call/pair is the page
     a pairing link lands on. Both are reachable without Cloudflare Access, since a phone that is not
-    paired has no Access credentials yet: put a rate limit in front of them.
+    paired has no Access credentials yet. The exchange is limited to ten attempts a minute in all.
     """
+
+    attempts = Limit(PAIR_ATTEMPTS_A_MINUTE)
 
     def from_proxy(headers) -> bool:
         try:
@@ -245,6 +266,8 @@ def serve(listen: str, devices: Devices, codes: Codes, *, url: str, access_file:
             if not isinstance(body, dict):
                 return self._send(HTTPStatus.BAD_REQUEST, "{}")
             if path == "/v1/call/pair":
+                if not attempts.allows():
+                    return self._send(HTTPStatus.TOO_MANY_REQUESTS, '{"error": "too many pairing attempts; wait a minute"}')
                 by = codes.redeem(str(body.get("code", "")))
                 if by is None:
                     return self._send(HTTPStatus.FORBIDDEN, '{"error": "the pairing code is not valid"}')

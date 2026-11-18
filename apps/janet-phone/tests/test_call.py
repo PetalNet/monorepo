@@ -416,6 +416,17 @@ class CallTest(unittest.IsolatedAsyncioTestCase):
         self.assertEqual((await asyncio.to_thread(self._http, "GET", "/v1/call/pair?c=<script>&e=1"))[0], 404)
         self.assertEqual((await asyncio.to_thread(self._http, "GET", "/pair?format=link"))[0], 403)
 
+    async def test_the_pair_exchange_allows_ten_attempts_a_minute(self):
+        answers = [(await asyncio.to_thread(self._http, "POST", "/v1/call/pair", {"code": "guess"}))[0] for _ in range(12)]
+        self.assertEqual(answers, [403] * 10 + [429] * 2)
+        # The landing page is not an attempt.
+        self.assertEqual((await asyncio.to_thread(self._http, "GET", "/v1/call/pair?c=" + "a" * 22 + "&e=1"))[0], 200)
+
+    def test_the_limit_forgets_attempts_after_a_minute(self):
+        limit = pairing.Limit(2)
+        self.assertEqual([limit.allows(0), limit.allows(30), limit.allows(31), limit.allows(61), limit.allows(62)],
+                         [True, True, False, True, False])
+
     async def test_a_wrong_or_expired_code_pairs_nothing(self):
         self.assertEqual((await asyncio.to_thread(self._http, "POST", "/v1/call/pair", {"code": "guess"}))[0], 403)
         code, _ = self.codes.issue("parker", now=time.time() - 301)

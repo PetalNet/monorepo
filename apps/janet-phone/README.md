@@ -30,8 +30,8 @@ instructions.
   It lands on a page with one button, which opens the app with `janetcall://pair?u=…` (the bridge's
   address and the code). The phone trades the code at `POST /v1/call/pair` `{"code", "name"}` for
   `{"token", "cf_id", "cf_secret"}`: its device token and the Cloudflare Access service token it
-  needs from then on. Neither is ever in a link. Both pair routes must be reachable without Access
-  and sit behind a rate limit.
+  needs from then on. Neither is ever in a link. Both pair routes must be reachable without Access;
+  the exchange answers 429 after ten attempts in a minute, counted for everyone together.
 - **Getting a link.** `--pair-link FILE` asks the running bridge for one and writes it to FILE, mode
   600. `GET <pair_path>` shows the same link as a QR code; it is for the single-sign-on proxy alone:
   a request must carry the secret in `proxy_secret_file` as `X-Janet-Pair-Proxy`, and only then is
