@@ -85,7 +85,7 @@ export function openStore(file: string): Store {
 		},
 		markChecked: (now) => void setFeed.run(null, now.toISOString()),
 		etag: () => (feed.get()?.etag as string | null | undefined) ?? undefined,
-		checkedAt: () => feed.get()?.["checked_at"] as string | undefined,
+		checkedAt: () => feed.get()?.checked_at as string | undefined,
 		addedOn: (date) =>
 			onDay
 				.all(date)

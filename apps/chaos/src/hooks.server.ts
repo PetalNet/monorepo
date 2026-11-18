@@ -20,14 +20,16 @@ export const init: ServerInit = () => {
 	mkdirSync(dir, { recursive: true });
 	store = openStore(path.join(dir, "chaos.db"));
 
-	const pull = () =>
-		ingestKev(store).then(
-			(result) => console.log(`kev: ${result}`),
-			(error: unknown) => console.error("kev: pull failed, keeping the stored copy", error),
-		);
+	const pull = async (): Promise<void> => {
+		try {
+			console.log(`kev: ${await ingestKev(store)}`);
+		} catch (error) {
+			console.error("kev: pull failed, keeping the stored copy", error);
+		}
+	};
 
 	void pull();
-	setInterval(pull, SIX_HOURS).unref();
+	setInterval(() => void pull(), SIX_HOURS).unref();
 };
 
 export const handle: Handle = ({ event, resolve }) => {

@@ -39,7 +39,7 @@ export function parseCatalog(body: unknown): KevEntry[] {
 	const rows = (body as { vulnerabilities?: unknown } | null)?.vulnerabilities;
 
 	if (!Array.isArray(rows)) {
-		throw new Error("KEV feed: no vulnerabilities array");
+		throw new TypeError("KEV feed: no vulnerabilities array");
 	}
 
 	return rows.map((row: Record<string, unknown>) => ({
