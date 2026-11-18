@@ -78,6 +78,9 @@ catalogs:
     jose:
       specifier: ^6.2.5
       version: 6.2.8
+    loro-crdt:
+      specifier: ^1.18.0
+      version: 1.18.0
     mode-watcher:
       specifier: ^1.1.0
       version: 1.1.0
@@ -1288,6 +1291,37 @@ importers:
         specifier: catalog:prod
         version: 4.6.5
     devDependencies:
+      '@petalnet/tsconfig':
+        specifier: workspace:*
+        version: link:../tsconfig
+      '@types/node':
+        specifier: catalog:types
+        version: 26.6.6
+      typescript:
+        specifier: catalog:dev
+        version: '@typescript/typescript6@6.0.2'
+      vitest:
+        specifier: 5.1.0
+        version: 5.1.0(@opentelemetry/api@1.9.1)(@types/node@26.6.6)(@vitest/coverage-v8@5.1.0)(happy-dom@21.0.4)(vite@8.3.3(@types/node@26.6.6)(esbuild@0.28.1)(jiti@2.7.0)(tsx@4.22.4)(yaml@2.9.0))
+
+  packages/vault-engine:
+    dependencies:
+      '@effect/platform-node':
+        specifier: 'catalog:'
+        version: 4.0.1(effect@4.0.1)(redis@6.2.1(@opentelemetry/api@1.9.1))
+      '@petalnet/effect-api':
+        specifier: workspace:*
+        version: link:../effect-api
+      effect:
+        specifier: 'catalog:'
+        version: 4.0.1
+      loro-crdt:
+        specifier: 'catalog:'
+        version: 1.18.0
+    devDependencies:
+      '@effect/vitest':
+        specifier: 'catalog:'
+        version: 4.0.1(@vitest/coverage-v8@5.1.0)(effect@4.0.1)(vite@8.3.3(@types/node@26.6.6)(esbuild@0.28.1)(jiti@2.7.0)(tsx@4.22.4)(yaml@2.9.0))(vitest@5.1.0)
       '@petalnet/tsconfig':
         specifier: workspace:*
         version: link:../tsconfig
@@ -6398,6 +6432,9 @@ packages:
 
   longest-streak@3.1.0:
     resolution: {integrity: sha512-9Ri+o0JYgehTaVBBDoMqIl8GXtbWg711O3srftcHhZ0dqnETqLaoIK0x17fUw9rFSlK/0NlsKe0Ahhyl5pXE2g==}
+
+  loro-crdt@1.18.0:
+    resolution: {integrity: sha512-e/96j7B6MUMVc+AilrY6c/Q4+0uNGhBIqhRosadqeEM1d9+IMpxYKy2mL22NIj6ILuZfP0fF5cYTkipxgbddHg==}
 
   loupe@3.2.1:
     resolution: {integrity: sha512-CdzqowRJCeLU72bHvWqwRBBlLcMEtIvGrlvef74kMnV2AolS9Y8xUv1I0U/MNAWMhBlKIoyuEgoJ0t/bbwHbLQ==}
@@ -12667,6 +12704,8 @@ snapshots:
   long@5.3.2: {}
 
   longest-streak@3.1.0: {}
+
+  loro-crdt@1.18.0: {}
 
   loupe@3.2.1: {}
 

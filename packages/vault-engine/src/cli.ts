@@ -1,0 +1,99 @@
+#!/usr/bin/env node
+// oxlint-disable effecttsgo/unstable-api-usage -- Effect 4 exposes the CLI through unstable APIs.
+import os from "node:os";
+import path from "node:path";
+
+import { NodeRuntime, NodeServices } from "@effect/platform-node";
+import { Config, Console, Effect, Layer, Option, Schema } from "effect";
+import { Argument, Command, Flag } from "effect/cli";
+
+import { operations } from "./api.ts";
+import { Vault } from "./engine.ts";
+import { WriteRejected } from "./errors.ts";
+
+const print = (value: unknown) =>
+	Console.log(typeof value === "string" ? value : JSON.stringify(value, null, 1));
+
+/** Runs one agent operation exactly as MCP would: its input schema decodes what the flags gave. */
+const call = Effect.fnUntraced(function* (
+	name: (typeof operations)[number]["name"],
+	input: object,
+) {
+	const found = operations.find((each) => each.name === name);
+
+	if (found === undefined) {
+		return yield* Effect.die(`No operation ${name}`);
+	}
+
+	return yield* found.handle(yield* Schema.decodeEffect(found.input)(input));
+});
+
+const optional = <A>(flag: Flag.Flag<A>) => Flag.optional(flag);
+const some = <A>(key: string, value: Option.Option<A>) =>
+	Option.match(value, { onNone: () => ({}), onSome: (found) => ({ [key]: found }) });
+
+const words = Argument.String("text").pipe(Argument.variadic({ min: 1 }));
+
+const commands = [
+	Command.make(
+		"recall",
+		{
+			query: words,
+			k: optional(Flag.Int("k")),
+			json: Flag.Boolean("json").pipe(Flag.withDefault(false)),
+		},
+		({ query, k, json }) =>
+			call("recall", { query: query.join(" "), ...some("k", k) }).pipe(
+				Effect.flatMap((result) => print(json ? result : (result as { text: string }).text)),
+			),
+	).pipe(Command.withDescription("Claims matching the query.")),
+	Command.make(
+		"remember",
+		{
+			text: words,
+			topic: Flag.String("topic"),
+			heading: optional(Flag.String("heading")),
+		},
+		(flags) =>
+			call("remember", {
+				text: flags.text.join(" "),
+				topic: flags.topic,
+				...some("heading", flags.heading),
+			}).pipe(Effect.flatMap(print)),
+	).pipe(Command.withDescription("Store one claim.")),
+];
+
+/** `VAULT_ROOT` is this host's vault and `VAULT_AGENT` names the writer. */
+const VaultLive = Layer.unwrap(
+	Effect.gen(function* () {
+		const root = yield* Config.String("VAULT_ROOT").pipe(
+			Config.withDefault(path.join(os.homedir(), ".local", "share", "vault")),
+		);
+		const agent = yield* Config.String("VAULT_AGENT").pipe(
+			Config.withDefault(os.userInfo().username),
+		);
+
+		return Vault.layer({ root, agent });
+	}),
+);
+
+const vault = Command.make("vault").pipe(
+	Command.withDescription("The lab's knowledge vault: claims and recall."),
+	Command.withSubcommands(commands),
+);
+
+NodeRuntime.runMain(
+	Command.run(vault, { version: "0.0.0" }).pipe(
+		// A refused write is an answer, not a crash: print what was refused and exit 1.
+		Effect.catchIf(Schema.is(WriteRejected), (error) =>
+			Console.error(error.message).pipe(
+				Effect.andThen(
+					Effect.sync(() => {
+						process.exitCode = 1;
+					}),
+				),
+			),
+		),
+		Effect.provide(VaultLive.pipe(Layer.provideMerge(NodeServices.layer))),
+	),
+);
