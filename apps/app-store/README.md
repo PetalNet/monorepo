@@ -55,7 +55,7 @@ State lives outside the checkout, in `APP_STORE_DIR` (`/home/docker/app-store`):
 | Path                         | What                                                             |
 | ---------------------------- | ---------------------------------------------------------------- |
 | `config.yml`, `keystore.p12` | fdroidserver config and the index signing key. Mode 600.         |
-| `htpasswd`                   | The basic auth login.                                            |
+| `htpasswd`                   | The basic auth login. Mode 644, and present before the first up. |
 | `repo/`, `archive/`          | The served repository and the versions fdroidserver retired.     |
 
 The keystore, its password, the fingerprint and the login are in the vault as `appstore-*`.
@@ -69,7 +69,8 @@ systemctl --user daemon-reload && systemctl --user enable --now app-store-sync.t
 ```
 
 The timer runs `sync.sh` from `/home/docker/releases/app-store/current`, a symlink to that checkout.
-It needs `fdroid` (fdroidserver 2.4), `apksigner`, `curl` and `jq`.
+It needs `fdroid` (fdroidserver 2.4), `apksigner`, `curl` and `jq`, and the user needs
+`loginctl enable-linger` for the timer to run while nobody is logged in.
 
 ## iPad
 
