@@ -15,7 +15,14 @@ vi.mock("$app/env/private", () => ({
 	get DATABASE_URL() {
 		return process.env.DATABASE_URL;
 	},
+	SPOTIFY_CLIENT_ID: "",
+	SPOTIFY_CLIENT_SECRET: "",
+	SPOTIFY_REDIRECT_URI: "",
+	RESEND_API_KEY: "",
+	EMAIL_FROM: "",
+	APP_URL: "",
 }));
+
 vi.mock("#lib/server/email.ts", () => ({ sendRsvpEmail: vi.fn() }));
 
 const dir = mkdtempSync(path.join(tmpdir(), "petalboard-potluck-"));

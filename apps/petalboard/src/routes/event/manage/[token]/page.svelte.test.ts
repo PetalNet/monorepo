@@ -129,7 +129,12 @@ describe("manage page: add question", () => {
 			action: new URL("http://localhost/event/manage/token?/addQuestion"),
 			formData: new FormData(form),
 			formElement: form,
-			result: { type: "success", status: 200, data: { success: true, question: added } },
+			result: {
+				type: "success",
+				status: 200,
+				data: { success: true, question: added },
+				location: "/event/manage/token",
+			},
 			// SvelteKit's update() reruns load and hands the page fresh data.
 			update: async () => {
 				props.data = pageData([existing, added]);

@@ -337,6 +337,7 @@ describe("event page dialogs", () => {
 			type: "success",
 			status: 200,
 			data: { type: "requestEditLink", success: true, message: "Check your inbox." },
+			location: "/event/CODE1234",
 		});
 
 		const status = dialog.querySelector('[role="status"]');
@@ -350,7 +351,7 @@ describe("event page dialogs", () => {
 		const { dialog, send } = await openLinkDialog();
 		const finish = await send();
 
-		await finish({ type: "error", status: 500, error: new Error("boom") });
+		await finish({ type: "error", status: 500, error: { message: "boom", status: 500 } });
 
 		expect(dialog.querySelector('[role="alert"]')?.textContent).toBe(
 			"Something went wrong sending your link. Try again in a minute.",
@@ -398,6 +399,7 @@ describe("event page dialogs", () => {
 				type: "failure",
 				status: 400,
 				data: { type: "rsvp", message: "Try again", guestNames: ["Sam", "Alex"] },
+				location: "/event/CODE1234",
 			},
 			update: async () => undefined,
 		});
