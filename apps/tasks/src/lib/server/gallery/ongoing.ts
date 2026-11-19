@@ -79,16 +79,10 @@ export const ongoingOf = (
 		const urls = (pages: readonly Filed[]) =>
 			new Set(pages.flatMap((a) => a.links.map((l) => l.url)));
 		const linkedByMine = urls(mine);
-		const linkedAtAll = urls(artifacts);
 		const found = Option.getOrUndefined(pulls);
 		const inView = pullsInScope(found ?? [], artifacts, scope);
-		// Someone nothing involves yet keeps the pull requests no page links, since none are theirs.
 		const shown = inView.filter(
-			(p) =>
-				!own ||
-				isTheirs(p, interest.login) ||
-				linkedByMine.has(p.url.toLowerCase()) ||
-				(!interest.focused && !linkedAtAll.has(p.url.toLowerCase())),
+			(p) => !own || isTheirs(p, interest.login) || linkedByMine.has(p.url.toLowerCase()),
 		);
 
 		return {

@@ -12,7 +12,12 @@ process.env.TASKS_CONFIG = path.join(tmp, "config.json");
 
 writeFileSync(
 	process.env.TASKS_CONFIG,
-	JSON.stringify({ people: { parker: { name: "Parker", kind: "human", github: "PetalCat" } } }),
+	JSON.stringify({
+		people: {
+			parker: { name: "Parker", kind: "human", github: "PetalCat" },
+			robin: { name: "Robin", kind: "human", github: "Robin-GH" },
+		},
+	}),
 );
 
 const db = await import("#lib/server/db.js");
@@ -47,6 +52,15 @@ const github = Layer.succeed(GitHub, {
 		pull("Acme/Lumen", 3, "someone"),
 		pull("Acme/Elsewhere", 4, "someone"),
 	]),
+	// a closed issue Robin commented on, which no open pull request search would find
+	participants: (urls) =>
+		Effect.succeed(
+			new Map(
+				urls
+					.filter((url) => url === "https://github.com/acme/archive/issues/7")
+					.map((url) => [url, ["someone", "robin-gh"]]),
+			),
+		),
 });
 
 const as = <A, E>(
@@ -70,15 +84,17 @@ beforeAll(() => {
 	publish("lumen-demo", "lumen", { links: ["acme/lumen#3"] });
 	publish("makkit-plan", "makkit", { caps: ["feedback"], audience: ["cooper"] });
 	publish("quiet-note", "quiet");
+	publish("old-decision", "archive", { links: ["https://github.com/acme/archive/issues/7"] });
 	publish("eli-only", "secret", { owner: "eli", visibility: "private" });
 });
 
 describe("a viewer's projects", () => {
-	it("is every project for someone nothing involves", async () => {
-		expect(await mine("newcomer")).toEqual({
-			projects: ["atlas", "harbor", "lumen", "makkit", "quiet"],
-			focused: false,
-		});
+	it("is nothing for someone nothing involves, so the gallery can ask them to pick", async () => {
+		expect(await mine("newcomer")).toEqual({ projects: [], focused: false });
+	});
+
+	it("includes a project whose page links closed work they took part in", async () => {
+		expect(await mine("robin")).toEqual({ projects: ["archive"], focused: true });
 	});
 
 	it("includes the projects whose pages link pull requests they wrote or review", async () => {
@@ -114,13 +130,17 @@ describe("a viewer's projects", () => {
 		expect((await mine("parker")).projects).toEqual(["atlas", "harbor"]);
 	});
 
-	it("does not narrow to a project just because they looked at it", async () => {
+	it("does not make a project theirs just because they looked at it", async () => {
 		await as("browser", opened("makkit"));
 
-		expect(await mine("browser")).toEqual({
-			projects: ["atlas", "harbor", "lumen", "makkit", "quiet"],
-			focused: false,
-		});
+		expect(await mine("browser")).toEqual({ projects: [], focused: false });
+	});
+
+	it("gives a viewer who follows one project that project, plus the ones they open", async () => {
+		await as("picker", choose("quiet", "follow"));
+		await as("picker", opened("makkit"));
+
+		expect(await mine("picker")).toEqual({ projects: ["makkit", "quiet"], focused: true });
 	});
 
 	it("follows and hides by choice, and a cleared choice goes back to involvement", async () => {
@@ -133,15 +153,6 @@ describe("a viewer's projects", () => {
 		await as("parker", choose("harbor", null));
 
 		expect((await mine("parker")).projects).toEqual(["atlas", "harbor"]);
-	});
-
-	it("keeps hidden projects out even when nothing else involves the viewer", async () => {
-		await as("newcomer", choose("makkit", "hide"));
-
-		expect(await mine("newcomer")).toEqual({
-			projects: ["atlas", "harbor", "lumen", "quiet"],
-			focused: false,
-		});
 	});
 
 	it("refuses a project the viewer cannot see", async () => {
@@ -172,10 +183,9 @@ describe("the viewer's own ongoing list", () => {
 		expect((await as("parker", ongoing({ show: "all" }))).more).toBe(0);
 	});
 
-	it("leaves out a hidden project's pull requests for someone nothing involves", async () => {
-		await as("fresh", choose("lumen", "hide"));
-
-		expect(await numbers("fresh")).toEqual([1, 2, 4]);
+	it("is empty for someone nothing involves, and says how much is outside", async () => {
+		expect(await numbers("fresh")).toEqual([]);
+		expect((await as("fresh", ongoing({}))).more).toBe(4);
 		expect(await numbers("fresh", { show: "all" })).toEqual([1, 2, 3, 4]);
 	});
 

@@ -95,7 +95,6 @@
 		<NavSidebar
 			bind:collapsed
 			tree={data.tree}
-			focused={data.focused}
 			open={navOpen}
 			onnavigate={() => (navOpen = false)}
 		/>

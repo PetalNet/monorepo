@@ -9,18 +9,11 @@
 	 * @type {{
 	 * 	collapsed?: boolean;
 	 * 	tree?: any[];
-	 * 	focused?: boolean;
 	 * 	open?: boolean;
 	 * 	onnavigate?: () => void;
 	 * }}
 	 */
-	let {
-		collapsed = $bindable(false),
-		tree = [],
-		focused = false,
-		open = false,
-		onnavigate,
-	} = $props();
+	let { collapsed = $bindable(false), tree = [], open = false, onnavigate } = $props();
 
 	// Which project and piece of work the page is in: from the query on the index, from the
 	// artifact's breadcrumb trail on an artifact page.
@@ -103,7 +96,7 @@
 			onclick={onnavigate}
 		>
 			<Icon name="gallery" size={18} />
-			<span class="lbl">{focused ? "Your projects" : "All projects"}</span>
+			<span class="lbl">Your projects</span>
 		</a>
 
 		{#each mine as p (p.key)}{@render project(p)}{/each}

@@ -22,10 +22,7 @@ interface Interest {
 	/** The projects in the viewer's default view. */
 	readonly mine: ReadonlySet<string>;
 	readonly choices: ReadonlyMap<string, Choice>;
-	/**
-	 * True when a follow or an involvement narrows the view. Otherwise `mine` is every project the
-	 * viewer did not hide.
-	 */
+	/** True when a follow or an involvement gives the viewer projects. Otherwise `mine` is empty. */
 	readonly focused: boolean;
 	/** The viewer's GitHub login, lower-cased, when the config names one. */
 	readonly login: string | undefined;
@@ -44,10 +41,14 @@ export const isTheirs = (pull: Pull, login: string | undefined) =>
 /**
  * Which projects are the viewer's. A project is theirs when they follow it, or when they are
  * involved and have not hidden it: a page there asks them something, they answered one, or a page
- * there links a pull request they wrote or review. Once anything is theirs, a project they opened
- * lately is too. Until then they get every project, hidden ones aside.
+ * there links a pull request or issue they took part in, open or closed. Once anything is theirs, a
+ * project they opened lately is too. Until then nothing is, and the gallery asks them to pick.
  */
-const interest = (pulls: readonly Pull[], artifacts: readonly Filed[]) =>
+const interest = (
+	pulls: readonly Pull[],
+	history: ReadonlyMap<string, readonly string[]>,
+	artifacts: readonly Filed[],
+) =>
 	Effect.gen(function* () {
 		const { user } = yield* Viewer;
 		const login = tasksConfig.people[user]?.github?.toLowerCase();
@@ -55,7 +56,12 @@ const interest = (pulls: readonly Pull[], artifacts: readonly Filed[]) =>
 			involvement: viewerInvolvement(user),
 			rows: viewerProjects(user),
 		}));
-		const theirs = new Set(pulls.filter((p) => isTheirs(p, login)).map((p) => p.url.toLowerCase()));
+		const theirs = new Set([
+			...pulls.filter((p) => isTheirs(p, login)).map((p) => p.url.toLowerCase()),
+			...[...history]
+				.filter(([, logins]) => logins.some((who) => who.toLowerCase() === login))
+				.map(([url]) => url),
+		]);
 		const since = Date.now() - OPENED_DAYS * 86_400_000;
 		const involved = new Set([
 			...read.involvement.filter((i) => i.asked || i.answered).map((i) => projectKey(i.collection)),
@@ -74,9 +80,7 @@ const interest = (pulls: readonly Pull[], artifacts: readonly Filed[]) =>
 		// Looking around is not involvement: a visit adds a project to a view that is already
 		// narrowed, and never narrows one.
 		const focused = all.some(kept);
-		const mine = focused
-			? all.filter((p) => kept(p) || (visited.has(p) && !choices.has(p)))
-			: all.filter((p) => choices.get(p) !== "hide");
+		const mine = focused ? all.filter((p) => kept(p) || (visited.has(p) && !choices.has(p))) : [];
 
 		return {
 			mine: new Set(mine),
@@ -101,7 +105,17 @@ export const viewerInterest = Effect.gen(function* () {
 	return {
 		artifacts,
 		pulls,
-		interest: yield* interest(Option.getOrUndefined(pulls) ?? [], artifacts),
+		interest: yield* interest(
+			Option.getOrUndefined(pulls) ?? [],
+			yield* github.participants([
+				...new Set(
+					artifacts.flatMap((a) =>
+						a.links.filter((l) => l.kind === "pr" || l.kind === "issue").map((l) => l.url),
+					),
+				),
+			]),
+			artifacts,
+		),
 	};
 });
 
