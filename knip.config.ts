@@ -90,6 +90,10 @@ export default (({ strict }) => ({
 		"apps/storybook": {
 			entry: [".storybook/*.ts!", "src/**/*.stories.ts!", "src/**/*.svelte!"],
 		},
+		"apps/janet-matrix-comms": {
+			// Each tool is a command line entry run by path under Node type stripping; archive.ts is imported by both.
+			entry: ["src/{matrix-search,janet-matrix-comms-ingest}.ts!"],
+		},
 		"packages/better-auth-effect-qb-adapter": {
 			entry: ["test/**/*.ts"],
 		},
