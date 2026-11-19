@@ -36,6 +36,11 @@ export const ManifestEntry = Schema.Union([
 		captured: Timestamp,
 		/** Other names the same artifact is cited by: canonical ID, citation reference, final URL. */
 		refs: Schema.optionalKey(Schema.Array(Schema.String)),
+		/**
+		 * Text quoted from the saved artifact, stored as a passage so recall finds a source no claim
+		 * cites yet. The artifact itself stays in vault-cite.
+		 */
+		excerpt: Schema.optionalKey(Text),
 	}),
 ]);
 export type ManifestEntry = typeof ManifestEntry.Type;
@@ -51,6 +56,10 @@ export interface MigrationReport {
 	/** References a migrated document cites that the vault holds no saved source for. */
 	readonly unsavedCitations: { ref: string; citedBy: string }[];
 }
+
+const sha256 = (text: string) => createHash("sha256").update(text).digest("hex");
+/** The ID `addPassage` gives the same text, so quoting an excerpt later reuses its passage. */
+const passageId = (text: string) => `p-${sha256(text).slice(0, 10)}`;
 
 const FRONTMATTER = /^---\n[\s\S]*?\n---\n/;
 
@@ -192,7 +201,9 @@ export const migrate = Effect.fnUntraced(function* (
 		(tx, entry) => {
 			const refs = entry.refs ?? [];
 
-			if (outOfScope([entry.title, entry.url, ...refs].join("\n"))) {
+			const excerpt = entry.excerpt === undefined ? [] : [entry.excerpt];
+
+			if (outOfScope([entry.title, entry.url, ...refs, ...excerpt].join("\n"))) {
 				report.excluded.push({ origin: entry.id, reason: "out of scope" });
 
 				return Effect.void;
@@ -208,11 +219,12 @@ export const migrate = Effect.fnUntraced(function* (
 					url: entry.url,
 					sourceType: "PRIMARY",
 					captured: entry.captured,
-					passages: {},
+					// Keyed by its text, as a quoted passage is: a later excerpt is added beside this one.
+					passages: Object.fromEntries(excerpt.map((text) => [passageId(text), text])),
 				},
 				entry.id,
 				() => {
-					report.migrated.push({ origin: entry.url, id: entry.id, passages: 0 });
+					report.migrated.push({ origin: entry.url, id: entry.id, passages: excerpt.length });
 
 					for (const key of [entry.url, ...refs].flatMap(referenceKeys)) {
 						saved.set(key, { id: entry.id, tier: entry.tier });
@@ -274,7 +286,7 @@ export const migrate = Effect.fnUntraced(function* (
 					cites.push(id ?? url);
 				}
 
-				const id = `doc-${createHash("sha256").update(`${entry.kind}\n${origin}`).digest("hex").slice(0, 16)}`;
+				const id = `doc-${sha256(`${entry.kind}\n${origin}`).slice(0, 16)}`;
 				const passages = Object.fromEntries(kept.map((section) => [section.id, section.text]));
 				const before = tx.state.sources[id]?.passages ?? {};
 

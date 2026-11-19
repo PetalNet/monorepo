@@ -109,6 +109,7 @@ runs the same operations, decoding its flags with each operation's input schema.
 | `history <tier>`, `at <tier> <time>`, `status`                              | The op log, time travel and counts.                                                |
 | `index`, `snapshot <tier>`                                                  | The claim index, or a tier's Loro snapshot, on stdout.                             |
 | `migrate <manifest.jsonl> [--deny file] [--deny-passing N] [--report file]` | Copy documents and vault-cite sources in; report exclusions and unsaved citations. |
+| `collect <spec.json> <out-dir>`                                             | Build a migration manifest from a gallery database, note folders and a cite index. |
 | `serve [--host H] [--port P]`                                               | Serve the agent operations over MCP.                                               |
 
 Run `pnpm --filter @petalnet/vault-engine vault <command>`, or `node src/cli.ts`. Environment:
@@ -140,7 +141,34 @@ path, title, frontmatter, text or URL contains a deny-list keyword is reported b
 stored, as is any entry the secret scan refuses. Matching compares letters and digits only.
 `--deny-passing N` migrates a document with at most N matching sections, without those sections.
 URLs a document cites resolve to saved sources where one exists; the rest are reported as unsaved
-citations. Originals are only read, and rerunning a manifest converges.
+citations. Originals are only read, and rerunning a manifest converges. A `capture` entry may carry
+an `excerpt` of the saved text; it becomes the source's first passage, so recall finds a source
+before any claim cites it.
+
+`vault collect <spec.json> <out-dir>` builds that manifest from where lab content lives. The spec
+(`CollectSpec` in `src/collect.ts`) names up to three kinds of input:
+
+```json
+{
+	"gallery": { "db": "/path/tasks.db", "origin": "gallery" },
+	"notes": [{ "dir": "/path/notes", "origin": "agent-memory", "kind": "memory", "tier": "agent" }],
+	"cite": { "db": "/path/index-v2.sqlite", "tier": "shared" }
+}
+```
+
+- `gallery` reads the `artifacts` table. A `shared` row goes to the `shared` tier and a `private`
+  row to `personal`. An HTML or interactive page becomes markdown: its title, headings, text, list
+  items and links stay; scripts, styles, inline data and embedded media go.
+- `notes` takes the `.md` files directly inside each folder.
+- `cite` reads vault-cite's `sources` table and takes the start of each source's extracted text as
+  its excerpt (`excerptChars`, default 2 000).
+
+One document contributes at most `maxChars` characters (default 100 000); a longer one is stored
+without its tail and says so where it ends. `<out-dir>/collect.json` lists what was cut, which
+pages had no readable text and are stored as their title, which sources had no extracted text, and
+what was skipped, by origin only. Collecting is deterministic, so the two commands can be rerun as
+content grows: new documents are added, and a document edited since it was migrated is reported and
+keeps its migrated version, because passages never change.
 
 ## Recall log
 

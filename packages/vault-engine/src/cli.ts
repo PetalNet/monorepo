@@ -10,6 +10,7 @@ import { Argument, Command, Flag } from "effect/cli";
 import { HttpRouter } from "effect/http";
 
 import { loopbackOnly, operations, refresh, vaultApi } from "./api.ts";
+import { CollectSpec, collect } from "./collect.ts";
 import { Vault } from "./engine.ts";
 import { CaptureFailed, SecretFound, WriteRejected } from "./errors.ts";
 import { ManifestEntry, migrate } from "./migrate.ts";
@@ -235,6 +236,30 @@ const commands = [
 	).pipe(
 		Command.withDescription(
 			"Copy documents and vault-cite sources in; report exclusions and unsaved citations.",
+		),
+	),
+	Command.make(
+		"collect",
+		{ spec: Argument.String("spec"), dir: Argument.String("out-dir") },
+		({ spec, dir }) =>
+			Effect.gen(function* () {
+				const fs = yield* FileSystem.FileSystem;
+				const inputs = yield* Schema.decodeEffect(Schema.fromJsonString(CollectSpec))(
+					yield* fs.readFileString(spec),
+				);
+				const result = yield* collect(inputs, dir);
+
+				yield* print({
+					entries: result.entries,
+					cut: result.cut.length,
+					titleOnly: result.titleOnly.length,
+					withoutText: result.withoutText.length,
+					skipped: result.skipped.length,
+				});
+			}),
+	).pipe(
+		Command.withDescription(
+			"Build a migration manifest from a gallery database, note folders and a vault-cite index.",
 		),
 	),
 	Command.make("status", {}, () =>

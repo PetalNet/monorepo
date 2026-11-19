@@ -8,7 +8,7 @@ import { migrate } from "../src/migrate.ts";
 import type { ManifestEntry } from "../src/migrate.ts";
 import { lint, project } from "../src/project.ts";
 import { recallPassages, reindex } from "../src/recall.ts";
-import { SOURCE, readText, state, stored, tempDir, test, writeText } from "./tools.ts";
+import { OTHER, SOURCE, readText, state, stored, tempDir, test, writeText } from "./tools.ts";
 
 type DocumentEntry = Extract<ManifestEntry, { type: "document" }>;
 
@@ -307,5 +307,38 @@ describe("migration", () => {
 			]);
 
 			expect((yield* source(first?.id ?? ""))?.passages).toEqual({ s1: "# One\nFirst version." });
+		}));
+
+	test("stores a capture's excerpt as a passage a later quote reuses, and refuses one that holds a secret", () =>
+		Effect.gen(function* () {
+			const excerpt = "Proposition indexing raises Recall@5.";
+			const report = yield* migrate(
+				[
+					capture(SOURCE, { excerpt }),
+					capture(OTHER, { excerpt: `Use token ghp_${"a1B2".repeat(9)} to sign in.` }),
+				],
+				[],
+			);
+
+			expect(report.migrated).toEqual([
+				{ origin: "https://example.org/page", id: SOURCE, passages: 1 },
+			]);
+
+			expect(report.excluded).toEqual([{ origin: OTHER, reason: "secret scan: github-pat" }]);
+			expect(yield* source(OTHER)).toBeUndefined();
+
+			const [passage] = Object.keys((yield* source(SOURCE))?.passages ?? {});
+			const quoted = yield* Effect.flatMap(Vault, (vault) =>
+				vault.transact("shared", "quote", (tx) => tx.addPassage(SOURCE, excerpt)),
+			);
+
+			expect(quoted).toBe(passage);
+
+			yield* reindex;
+			expect((yield* recallPassages("proposition indexing"))[0]?.source).toBe(SOURCE);
+
+			expect((yield* migrate([capture(SOURCE, { excerpt })], ["recall@5"])).excluded).toEqual([
+				{ origin: SOURCE, reason: "out of scope" },
+			]);
 		}));
 });
