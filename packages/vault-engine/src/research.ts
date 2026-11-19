@@ -293,7 +293,7 @@ interface TopicUpsert {
 	readonly summary?: string;
 	readonly hub?: string;
 	readonly shelfLifeDays?: number;
-	readonly classification?: typeof TopicClass.Type;
+	readonly classification?: TopicClass;
 }
 
 const upsertTopics = Effect.fnUntraced(function* (tx: Tx, topics: readonly TopicUpsert[]) {
@@ -394,7 +394,7 @@ export const researchRun = Effect.fnUntraced(function* (tier: Tier, input: Resea
 					.filter((item) => item.topic === topic && item.source === source.id)
 					.toSorted((a, b) => a.checkedAt.localeCompare(b.checkedAt));
 				const previous =
-					sourceChecks.filter((item) => item.outcome === "unchanged").at(-1)?.checkedAt ??
+					sourceChecks.findLast((item) => item.outcome === "unchanged")?.checkedAt ??
 					source.captured;
 				const lastCheck = sourceChecks.at(-1)?.checkedAt ?? source.captured;
 				const intervalDays = Math.floor((Date.parse(tx.now) - Date.parse(previous)) / 86_400_000);
@@ -508,8 +508,12 @@ export const researchRun = Effect.fnUntraced(function* (tier: Tier, input: Resea
 					found?.kind === "claims" ? tx.tiers[found.tier].claims[id] : undefined;
 				const source = tx.source(id);
 
-				if (claim?.stale !== undefined) return true;
-				if (source === undefined) return false;
+				if (claim?.stale !== undefined) {
+					return true;
+				}
+				if (source === undefined) {
+					return false;
+				}
 				const sourceTopics = Object.values(tx.state.claims)
 					.filter(
 						(item) => item.status === "active" && item.links.some((link) => link.target === id),

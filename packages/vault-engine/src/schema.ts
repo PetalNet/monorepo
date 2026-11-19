@@ -199,7 +199,7 @@ export function freshnessBasis(
 	const checks = history
 		.filter((check) => check.topic === topic?.id)
 		.toSorted((a, b) => a.checkedAt.localeCompare(b.checkedAt) || a.source.localeCompare(b.source));
-	const sourceCheck = checks.filter((check) => check.source === source.id).at(-1);
+	const sourceCheck = checks.findLast((check) => check.source === source.id);
 	const lastCheckedAt = sourceCheck?.outcome === "unchanged" ? sourceCheck.checkedAt : undefined;
 	const classification = topic?.classification;
 	const initial =
@@ -215,15 +215,15 @@ export function freshnessBasis(
 	return {
 		shelfLifeDays: source.shelfLifeDays ?? topic?.shelfLifeDays ?? days,
 		basis:
-			source.shelfLifeDays !== undefined
-				? "source-override"
-				: topic?.shelfLifeDays !== undefined
-					? "topic-override"
-					: correction !== undefined
-						? "recheck"
-						: classification !== undefined
-							? "classification"
-							: "default",
+			source.shelfLifeDays === undefined
+				? topic?.shelfLifeDays === undefined
+					? correction === undefined
+						? classification === undefined
+							? "default"
+							: "classification"
+						: "recheck"
+					: "topic-override"
+				: "source-override",
 		...(classification === undefined ? {} : { classification }),
 		...(lastCheckedAt === undefined ? {} : { lastCheckedAt }),
 		...(correction === undefined ? {} : { correction }),
@@ -232,8 +232,12 @@ export function freshnessBasis(
 }
 
 export function freshnessWithBasis(source: Source, basis: FreshnessBasis, now: Date) {
-	if (source.status !== "active") return source.status;
-	if (basis.sourceCheck?.outcome === "changed") return "stale";
+	if (source.status !== "active") {
+		return source.status;
+	}
+	if (basis.sourceCheck?.outcome === "changed") {
+		return "stale";
+	}
 	const since = basis.lastCheckedAt ?? source.captured;
 	return now.getTime() - new Date(since).getTime() > basis.shelfLifeDays * 86_400_000
 		? "stale"

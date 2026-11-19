@@ -236,15 +236,15 @@ describe("research run", () => {
 				reason: "New edition",
 			});
 			const reopened = yield* vaultAt(vault.root);
-			const state = (yield* reopened.view).tiers.shared;
-			expect(state.runs[checked.id]?.rechecks?.[0]?.outcome).toBe("unchanged");
-			expect(state.runs[changed.id]?.rechecks?.[0]?.outcome).toBe("changed");
-			expect(state.claims[first.answer[0] ?? ""]?.status).toBe("superseded");
-			expect(state.claims[changed.answer[0] ?? ""]?.links).toContainEqual({
+			const reopenedState = (yield* reopened.view).tiers.shared;
+			expect(reopenedState.runs[checked.id]?.rechecks?.[0]?.outcome).toBe("unchanged");
+			expect(reopenedState.runs[changed.id]?.rechecks?.[0]?.outcome).toBe("changed");
+			expect(reopenedState.claims[first.answer[0] ?? ""]?.status).toBe("superseded");
+			expect(reopenedState.claims[changed.answer[0] ?? ""]?.links).toContainEqual({
 				rel: "replaces",
 				target: first.answer[0],
 			});
-			expect(state.sources[SOURCE]).toMatchObject({
+			expect(reopenedState.sources[SOURCE]).toMatchObject({
 				status: "replaced",
 				replacedBy: "src-aaaaaaaaaaaaaaaaaaaa",
 				passages: { p1: "Proposition indexing raises Recall@5." },
