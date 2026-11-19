@@ -122,6 +122,7 @@ export default (({ strict }) => ({
 				"src/sessionstart-objectives.ts!",
 				"src/objectives-prune.ts!",
 				"src/janet-voice.ts!",
+				"src/promise.ts!",
 			],
 		},
 		"packages/vault-engine": {
