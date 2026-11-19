@@ -28,7 +28,7 @@ export class FollowThrough extends Context.Service<
 >()("tasks/FollowThrough") {}
 
 /** A fixed administrator-configured argv, never a shell command or request-supplied path. */
-export function runControl(argv: readonly string[], command: Command): Promise<unknown> {
+function runControl(argv: readonly string[], command: Command): Promise<unknown> {
 	return new Promise((resolve, reject) => {
 		const [executable, ...args] = argv;
 
@@ -51,7 +51,10 @@ export function runControl(argv: readonly string[], command: Command): Promise<u
 			reject(new Error("unavailable"));
 		});
 
-		child.stdin.on("error", () => reject(new Error("unavailable")));
+		child.stdin.on("error", () => {
+			child.kill("SIGKILL");
+			reject(new Error("unavailable"));
+		});
 
 		child.stdout.on("data", (chunk: Buffer) => {
 			size += chunk.length;
@@ -59,7 +62,9 @@ export function runControl(argv: readonly string[], command: Command): Promise<u
 			if (size > 1024 * 1024) {
 				child.kill("SIGKILL");
 				reject(new Error("too-large"));
-			} else chunks.push(chunk);
+			} else {
+				chunks.push(chunk);
+			}
 		});
 
 		child.on("close", (code) => {
@@ -82,13 +87,15 @@ export function runControl(argv: readonly string[], command: Command): Promise<u
 	});
 }
 
-export function followThroughLayer(argv: readonly string[], operators: readonly string[]) {
+function followThroughLayer(argv: readonly string[], operators: readonly string[]) {
 	return Layer.succeed(FollowThrough, {
 		execute: (command) =>
 			Effect.gen(function* () {
 				const viewer = yield* FollowThroughViewer;
 
-				if (!operators.includes(viewer.user)) return yield* new FollowThroughDenied();
+				if (!operators.includes(viewer.user)) {
+					return yield* new FollowThroughDenied();
+				}
 
 				const raw = yield* Effect.tryPromise({
 					try: () => runControl(argv, command),
@@ -104,10 +111,10 @@ export function followThroughLayer(argv: readonly string[], operators: readonly 
 
 function configuredCommand(): string[] {
 	try {
-		const raw: unknown = JSON.parse(process.env["FOLLOW_THROUGH_COMMAND_ARGV"] || "[]");
+		const raw: unknown = JSON.parse(process.env.FOLLOW_THROUGH_COMMAND_ARGV ?? "[]");
 
 		return Array.isArray(raw) &&
-			raw.every((value): value is string => typeof value === "string" && value.length > 0)
+			raw.every((value: unknown): value is string => typeof value === "string" && value.length > 0)
 			? raw
 			: [];
 	} catch {
@@ -117,7 +124,7 @@ function configuredCommand(): string[] {
 
 export const FollowThroughLive = followThroughLayer(
 	configuredCommand(),
-	(process.env["FOLLOW_THROUGH_OPERATORS"] || "")
+	(process.env.FOLLOW_THROUGH_OPERATORS ?? "")
 		.split(",")
 		.map((name) => name.trim())
 		.filter(Boolean),

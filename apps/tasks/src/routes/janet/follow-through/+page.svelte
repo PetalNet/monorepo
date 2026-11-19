@@ -15,7 +15,9 @@
 	let reason = $state("");
 	let now = $state(Date.now());
 	let controller: AbortController | undefined;
-	const dueCount = $derived(snapshot?.items.filter((item) => item.due <= now).length ?? 0);
+	const dueCount = $derived(
+		snapshot?.items.filter((item) => item.attention === "pending" && item.due <= now).length ?? 0,
+	);
 
 	async function request(endpoint = "promises", payload?: unknown) {
 		if (busy) {
@@ -114,7 +116,7 @@
 		<section class="delivery" aria-labelledby="delivery-title">
 			<div>
 				<h2 id="delivery-title">Reminder delivery</h2>
-				<p>{snapshot.paused ? "Paused by you." : "Enabled in the ledger."}</p>
+				<p>{snapshot.paused ? "Paused in the ledger." : "Enabled in the ledger."}</p>
 				{#if snapshot.scheduler !== "active"}
 					<p class="scheduler">
 						{snapshot.scheduler === "paused"
@@ -139,19 +141,25 @@
 			<p>{snapshot.items.length} open{dueCount ? ` · ${dueCount} due` : ""}</p>
 		</div>
 		{#if snapshot.items.length === 0}
-			<p class="empty">All caught up.</p>
+			<p class="empty">No open promises or reminders.</p>
 		{:else}
 			<ul>
 				{#each snapshot.items as item (item.id)}
 					<li>
 						<div class="item-meta">
-							<span class:due={item.due <= now}
-								>{item.due <= now ? "Due" : "Scheduled"} {date(item.due)}</span
+							<span class:due={item.attention === "pending" && item.due <= now}
+								>{item.attention === "quiet"
+									? `Captured ${date(item.created)}`
+									: item.attention === "review"
+										? "Needs reconciliation"
+										: `${item.due <= now ? "Due" : "Scheduled"} ${date(item.due)}`}</span
 							><span>{item.kind === "reminder" ? "Reminder" : "Promise"} #{item.id}</span>
 						</div>
 						<p class="promise">{item.text}</p>
-						{#if item.escalated}<p class="meta">
+						{#if item.attention === "review"}<p class="meta">
 								Needs reconciliation. Automatic reminders have stopped; this is still open.
+							</p>{:else if item.attention === "quiet"}<p class="meta">
+								Progress acknowledgement. No automatic reminder is scheduled.
 							</p>{/if}
 						<div class="item-footer">
 							{#if item.event && item.room && item.surface === "matrix"}<a

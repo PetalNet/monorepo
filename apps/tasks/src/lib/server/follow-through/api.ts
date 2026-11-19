@@ -37,7 +37,14 @@ export const followThroughApi = createServer({
 		browser: Effect.gen(function* () {
 			const event = yield* SvelteKitRequestEvent;
 
-			if (!event.locals.user) return yield* new FollowThroughDenied();
+			if (
+				!event.locals.user ||
+				(event.request.method !== "GET" &&
+					event.request.method !== "HEAD" &&
+					event.request.headers.get("origin") !== event.url.origin)
+			) {
+				return yield* new FollowThroughDenied();
+			}
 
 			return Context.make(FollowThroughViewer, { user: event.locals.user });
 		}),
@@ -94,4 +101,6 @@ export const followThroughApi = createServer({
 	],
 });
 
-if (import.meta.hot) import.meta.hot.dispose(() => void followThroughApi.dispose());
+if (import.meta.hot) {
+	import.meta.hot.dispose(() => void followThroughApi.dispose());
+}
