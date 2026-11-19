@@ -1,6 +1,6 @@
 import { readFileSync } from "node:fs";
 
-import { Config, Context, Data, Effect, Layer, Option, Schema } from "effect";
+import { Config, Context, Data, Duration, Effect, Layer, Option, Schema } from "effect";
 import { HttpClient, HttpClientRequest, HttpClientResponse } from "effect/http";
 
 export class MatrixNotConfigured extends Data.TaggedError("MatrixNotConfigured") {}
@@ -32,6 +32,7 @@ const send = (homeserver: string, room: string, tokenFile: string, text: string)
 			HttpClientRequest.bearerToken(token),
 			HttpClientRequest.bodyJson({ msgtype: "m.text", body: text }),
 			Effect.flatMap((request) => client.execute(request)),
+			Effect.timeout(Duration.seconds(10)),
 			Effect.flatMap(HttpClientResponse.schemaBodyJson(Sent)),
 			Effect.mapBoth({
 				onSuccess: (sent) => sent.event_id,

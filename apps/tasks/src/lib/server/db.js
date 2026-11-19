@@ -620,7 +620,7 @@ const stringList = (name, v) => {
 };
 
 // Publish or revise a page. A new slug starts at rev 1; republishing an existing slug bumps rev,
-// which is what an open page watches to pick up Janet's revision. collection/caps/audience are replaced when
+// which is what an open page watches to pick up Janet's revision. Every other field is replaced when
 // given and kept when omitted, so a content-only edit never silently re-opens or closes a question.
 /**
  * @param {{
@@ -641,12 +641,12 @@ const stringList = (name, v) => {
 export function upsertArtifact({
 	slug,
 	title,
-	description = "",
-	kind = "markdown",
+	description,
+	kind,
 	content,
-	source = "",
-	owner = "",
-	visibility = "shared",
+	source,
+	owner,
+	visibility,
 	collection,
 	caps,
 	audience,
@@ -655,11 +655,11 @@ export function upsertArtifact({
 		throw new Error("artifact requires slug, title, content");
 	}
 
-	if (!["markdown", "html", "interactive"].includes(kind)) {
+	if (kind !== undefined && !["markdown", "html", "interactive"].includes(kind)) {
 		throw new Error("artifact kind must be markdown|html|interactive");
 	}
 
-	if (visibility !== "shared" && visibility !== "private") {
+	if (visibility !== undefined && visibility !== "shared" && visibility !== "private") {
 		throw new Error("artifact visibility must be shared|private");
 	}
 
@@ -667,31 +667,33 @@ export function upsertArtifact({
 		throw new Error("artifact slug must be lowercase alphanumeric + dashes");
 	}
 
+	// Every optional field is kept when omitted (null -> COALESCE to the stored value), so Janet
+	// revising a page's content never silently makes a private page shared or clears its owner.
+	// A new slug takes the defaults.
 	db.prepare(
 		`INSERT INTO artifacts (slug,title,description,kind,content,source,owner,visibility,collection,caps,audience)
-       VALUES (@slug,@title,@description,@kind,@content,@source,@owner,@visibility,@collection,@caps,@audience)
+       VALUES (@slug,@title,COALESCE(@description,''),COALESCE(@kind,'markdown'),@content,COALESCE(@source,''),
+               COALESCE(@owner,''),COALESCE(@visibility,'shared'),COALESCE(@collection,''),
+               COALESCE(@caps,'[]'),COALESCE(@audience,'[]'))
      ON CONFLICT(slug) DO UPDATE SET
-       title=@title, description=@description, kind=@kind, content=@content, source=@source,
-       owner=@owner, visibility=@visibility,
-       collection=CASE WHEN @setCollection THEN @collection ELSE collection END,
-       caps=CASE WHEN @setCaps THEN @caps ELSE caps END,
-       audience=CASE WHEN @setAudience THEN @audience ELSE audience END,
+       title=@title, content=@content,
+       description=COALESCE(@description, description), kind=COALESCE(@kind, kind),
+       source=COALESCE(@source, source), owner=COALESCE(@owner, owner),
+       visibility=COALESCE(@visibility, visibility), collection=COALESCE(@collection, collection),
+       caps=COALESCE(@caps, caps), audience=COALESCE(@audience, audience),
        rev=rev+1, updated_at=datetime('now')`,
 	).run({
 		slug,
 		title,
-		description,
-		kind,
 		content,
-		source,
-		owner,
-		visibility,
-		collection: collection ?? "",
-		setCollection: collection === undefined ? 0 : 1,
-		caps: stringList("caps", caps ?? []),
-		audience: stringList("audience", audience ?? []),
-		setCaps: caps === undefined ? 0 : 1,
-		setAudience: audience === undefined ? 0 : 1,
+		description: description ?? null,
+		kind: kind ?? null,
+		source: source ?? null,
+		owner: owner ?? null,
+		visibility: visibility ?? null,
+		collection: collection ?? null,
+		caps: caps === undefined ? null : stringList("caps", caps),
+		audience: audience === undefined ? null : stringList("audience", audience),
 	});
 
 	return getArtifact(slug, null);

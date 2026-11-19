@@ -212,7 +212,15 @@
 	// An open page notices Janet's work by polling: a higher rev reloads the frame, and the shim
 	// is told afterwards; a resolved item is announced once.
 	$effect(() => {
-		const timer = setInterval(() => status.refresh(), 3000);
+		if (!isInteractive || !(data.canAnswer || answers.length)) {
+			return;
+		}
+
+		const timer = setInterval(() => {
+			if (!document.hidden) {
+				status.refresh();
+			}
+		}, 3000);
 
 		return () => clearInterval(timer);
 	});
@@ -268,7 +276,8 @@
 		}
 
 		const onMessage = (e) => {
-			if (!isInteractive || e.source !== frameEl?.contentWindow) {
+			// a sandboxed (opaque-origin) frame reports origin "null"; a frame that navigated itself away does not
+			if (!isInteractive || e.source !== frameEl?.contentWindow || e.origin !== "null") {
 				return;
 			}
 

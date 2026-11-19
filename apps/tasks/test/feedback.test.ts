@@ -213,6 +213,35 @@ describe("revise and resolve", () => {
 		expect(state.feedback.map((x: { status: string }) => x.status)).toEqual(["resolved"]);
 	});
 
+	it("keeps visibility, owner, description and source when a republish omits them", () => {
+		db.upsertArtifact({
+			slug: "stays-private",
+			title: "Private page",
+			content: "<p>v1</p>",
+			description: "blurb",
+			source: "notes.md",
+			owner: "parker",
+			visibility: "private",
+		});
+
+		const revised = db.upsertArtifact({
+			slug: "stays-private",
+			title: "Private page",
+			content: "<p>v2</p>",
+		});
+
+		expect(revised).toMatchObject({
+			rev: 2,
+			visibility: "private",
+			owner: "parker",
+			description: "blurb",
+			source: "notes.md",
+			content: "<p>v2</p>",
+		});
+
+		expect(db.getArtifact("stays-private", "elisha")).toBeUndefined();
+	});
+
 	it("shows a viewer only their own answers", async () => {
 		publish("mine", { audience: ["parker", "elisha"] });
 		await run("parker", (f) => f.send({ slug: "mine", anchor: {}, payload: "p" }));
