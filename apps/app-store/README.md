@@ -69,11 +69,11 @@ An app's signing key must never change, or installed copies stop updating.
 
 State lives outside the checkout, in `APP_STORE_DIR` (`/home/docker/app-store`):
 
-| Path                         | What                                                             |
-| ---------------------------- | ---------------------------------------------------------------- |
-| `config.yml`, `keystore.p12` | fdroidserver config and the index signing key. Mode 600.         |
-| `htpasswd`                   | The basic auth login. Mode 644, and present before the first up. |
-| `repo/`, `archive/`          | The served repository and the versions fdroidserver retired.     |
+| Path                         | What                                                                     |
+| ---------------------------- | ------------------------------------------------------------------------ |
+| `config.yml`, `keystore.p12` | fdroidserver config and the index signing key. Mode 600.                 |
+| `htpasswd`                   | The basic auth login. Mode 644, and present before the first up.         |
+| `repo/`, `archive/`          | The served repository and the versions fdroidserver retired.             |
 | `hub/`                       | The generated hub page, API and download links. Written by `hub/hub.sh`. |
 
 The keystore, its password, the fingerprint and the login are in the vault as `appstore-*`.
