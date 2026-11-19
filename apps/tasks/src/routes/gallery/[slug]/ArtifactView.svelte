@@ -1,7 +1,9 @@
 <script>
-	import { inkLayer } from "$lib/ink.js";
 	import { Eraser, Highlighter, PenLine, Trash2, Undo2 } from "@lucide/svelte";
 	import { onMount } from "svelte";
+
+	import { artifactState, sendFeedback } from "#lib/gallery.remote.ts";
+	import { inkLayer } from "#lib/ink.js";
 
 	let { data } = $props();
 	// For HTML artifacts we size the iframe to its content height so the page scrolls as
@@ -42,6 +44,8 @@
 			// opaque origin: nothing to measure. Handshake with the ink bootstrap (?ink=1) instead.
 			inkReady = false;
 			frameEl?.contentWindow?.postMessage({ ink: "init" }, "*");
+			// the reloaded page can take events now; give its scripts a beat to register handlers
+			setTimeout(flushEvents, 250);
 
 			return;
 		}
@@ -167,6 +171,87 @@
 
 		send({ ink: "tool", tool, color });
 	}
+
+	// The janet.* bridge (src/lib/janet-shim.js is the page's side). The page can only ask: who it
+	// is, what it may do and which slug it answers on all come from what we served, never from the
+	// message. Replies go to the opaque origin, so the target is "*"; we only ever answer the frame.
+	let rev = $state((() => data.rev)());
+	let answers = $state.raw([]);
+	const seenResolved = new Set();
+	let pendingEvents = [];
+	const status = artifactState({ slug: (() => data.slug)() });
+	const reply = (id, body) =>
+		frameEl?.contentWindow?.postMessage({ janet: "reply", id, ...body }, "*");
+	const emit = (name, detail) =>
+		frameEl?.contentWindow?.postMessage({ janet: "event", name, detail }, "*");
+
+	async function onJanet(m) {
+		try {
+			if (m.janet === "me") {
+				reply(m.id, { ok: true, result: { user: data.me } });
+			} else if (m.janet === "feedback") {
+				reply(m.id, { ok: true, result: answers });
+			} else if (m.janet === "send") {
+				const a = m.args ?? {};
+				const sent = await sendFeedback({
+					slug: data.slug,
+					anchor: a.anchor ?? {},
+					payload: a.payload,
+					ink: a.ink,
+					crop: a.crop,
+				});
+
+				status.refresh();
+				reply(m.id, { ok: true, result: sent });
+			}
+		} catch (e) {
+			reply(m.id, { ok: false, error: e?.body?.message ?? e?.message ?? "failed" });
+		}
+	}
+
+	// An open page notices Janet's work by polling: a higher rev reloads the frame, and the shim
+	// is told afterwards; a resolved item is announced once.
+	$effect(() => {
+		const timer = setInterval(() => status.refresh(), 3000);
+
+		return () => clearInterval(timer);
+	});
+	$effect(() => {
+		const s = status.current;
+
+		if (!s) {
+			return;
+		}
+
+		answers = s.feedback;
+
+		for (const f of s.feedback) {
+			if (f.status === "resolved" && !seenResolved.has(f.id)) {
+				seenResolved.add(f.id);
+
+				pendingEvents.push([
+					"resolved",
+					{ id: f.id, resolution: f.resolution, rev: f.resolved_rev },
+				]);
+			}
+		}
+
+		if (s.rev > rev) {
+			rev = s.rev;
+			pendingEvents.push(["revised", { rev }]);
+
+			if (frameEl) {
+				frameEl.src = `${frameEl.src.split("&_=")[0]}${frameEl.src.includes("?") ? "&" : "?"}_=${rev}`;
+			}
+		} else if (pendingEvents.length) {
+			flushEvents();
+		}
+	});
+	function flushEvents() {
+		for (const [name, detail] of pendingEvents.splice(0)) {
+			emit(name, detail);
+		}
+	}
 	onMount(() => {
 		if (!isInteractive && overlayEl) {
 			layer = inkLayer(window, {
@@ -183,8 +268,14 @@
 		}
 
 		const onMessage = (e) => {
-			if (isInteractive && e.source === frameEl?.contentWindow && typeof e.data?.ink === "string") {
+			if (!isInteractive || e.source !== frameEl?.contentWindow) {
+				return;
+			}
+
+			if (typeof e.data?.ink === "string") {
 				onInk(e.data);
+			} else if (typeof e.data?.janet === "string" && e.data.janet !== "reply") {
+				onJanet(e.data);
 			}
 		};
 
@@ -284,6 +375,17 @@
 				>open full ↗</a
 			>
 		</header>
+		{#if isInteractive && (data.canAnswer || answers.length)}
+			<div class="bridge mono" aria-live="polite">
+				<span>rev {rev}</span>
+				{#each answers as f (f.id)}
+					<span class="ans" class:done={f.status === "resolved"}>
+						#{f.id}
+						{f.status}{f.resolution ? `: ${f.resolution}` : ""}
+					</span>
+				{/each}
+			</div>
+		{/if}
 		<div class="frame-wrap">
 			<iframe
 				bind:this={frameEl}
@@ -309,6 +411,18 @@
 {/if}
 
 <style>
+	.bridge {
+		display: flex;
+		flex-wrap: wrap;
+		gap: 12px;
+		padding: 6px 16px;
+		font-size: 12px;
+		color: var(--text-3);
+		border-bottom: 1px solid var(--border-sub);
+	}
+	.ans.done {
+		color: var(--text-1);
+	}
 	.back {
 		display: inline-block;
 		color: var(--text-3);

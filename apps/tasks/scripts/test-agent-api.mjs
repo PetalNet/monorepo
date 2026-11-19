@@ -333,6 +333,90 @@ t("saving an empty stroke list deletes the markup row", () => {
 	assert.equal(rpc(full.token, "get_markup", { slug: "ink-page" }).body.markups.length, 0);
 });
 
+// ── feedback: list_feedback / resolve_feedback, confined to the token's projects ──────────────
+DB.upsertArtifact({
+	slug: "demo-a",
+	title: "Demo A",
+	kind: "interactive",
+	content: "<p>a</p>",
+	collection: "alpha",
+	caps: ["feedback"],
+	audience: ["person-a"],
+});
+
+DB.upsertArtifact({
+	slug: "demo-b",
+	title: "Demo B",
+	kind: "interactive",
+	content: "<p>b</p>",
+	collection: "beta",
+	caps: ["feedback"],
+	audience: ["person-a"],
+});
+
+const fbA = DB.insertFeedback({ slug: "demo-a", author: "person-a", anchor: {}, payload: "a" });
+const fbB = DB.insertFeedback({ slug: "demo-b", author: "person-a", anchor: {}, payload: "b" });
+const alphaOnly = mintAgentToken({
+	agent_name: "alpha-agent",
+	scope_projects: ["alpha"],
+	readonly: false,
+});
+
+resetRateLimiter();
+
+t("list_feedback returns the items on one page, with its rev", () => {
+	const r = rpc(full.token, "list_feedback", { slug: "demo-a" });
+
+	assert.equal(r.status, 200);
+	assert.equal(r.body.rev, 1);
+
+	assert.deepEqual(
+		r.body.feedback.map((f) => [f.id, f.status, f.payload]),
+		[[fbA.id, "sent", "a"]],
+	);
+});
+
+t("a project-scoped token sees feedback in its project and nothing in another", () => {
+	assert.equal(rpc(alphaOnly.token, "list_feedback", { slug: "demo-a" }).status, 200);
+	assert.equal(rpc(alphaOnly.token, "list_feedback", { slug: "demo-b" }).status, 404);
+
+	assert.equal(
+		rpc(alphaOnly.token, "resolve_feedback", { id: fbB.id, resolution: "x" }).status,
+		404,
+	);
+
+	assert.equal(DB.getFeedback(fbB.id).status, "sent", "the other project's item is untouched");
+});
+
+t("an assignee-scoped token has no lane in the gallery", () => {
+	assert.equal(rpc(asgOnly.token, "list_feedback", { slug: "demo-a" }).status, 404);
+});
+
+t("resolve_feedback closes the item at the page's current rev", () => {
+	DB.upsertArtifact({ slug: "demo-a", title: "Demo A", kind: "interactive", content: "<p>a2</p>" });
+	const r = rpc(alphaOnly.token, "resolve_feedback", { id: fbA.id, resolution: "went with a" });
+
+	assert.equal(r.status, 200);
+	assert.equal(r.body.resolved.status, "resolved");
+	assert.equal(r.body.resolved.resolved_rev, 2);
+
+	assert.equal(
+		rpc(full.token, "list_feedback", { slug: "demo-a", status: "sent" }).body.feedback.length,
+		0,
+	);
+});
+
+t("a read-only token can list feedback but not resolve it", () => {
+	assert.equal(rpc(ro.token, "list_feedback", { slug: "demo-b" }).status, 200);
+	assert.equal(rpc(ro.token, "resolve_feedback", { id: fbB.id, resolution: "x" }).status, 403);
+	assert.equal(DB.getFeedback(fbB.id).status, "sent");
+});
+
+t("resolve_feedback rejects a malformed request", () => {
+	assert.equal(rpc(full.token, "resolve_feedback", { id: "1", resolution: "x" }).status, 400);
+	assert.equal(rpc(full.token, "resolve_feedback", { id: 999999, resolution: "x" }).status, 404);
+});
+
 // ── report ────────────────────────────────────────────────────────────────────
 let failed = 0;
 

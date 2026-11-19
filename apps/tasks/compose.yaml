@@ -24,7 +24,13 @@ services:
       PUBLIC_GLITCHTIP_DSN: ${PUBLIC_GLITCHTIP_DSN:-}
       PUBLIC_GLITCHTIP_ENV: ${PUBLIC_GLITCHTIP_ENV:-}
       GLITCHTIP_DEBUG: ${GLITCHTIP_DEBUG:-}
-    volumes: ["${TASKS_DATA_DIR:?Set the Tasks data directory}:/data"]
+      # Where answers from published pages are announced: an unencrypted room the bot has joined.
+      MATRIX_HOMESERVER: ${MATRIX_HOMESERVER:-}
+      MATRIX_ROOM: ${MATRIX_ROOM:-}
+      MATRIX_TOKEN_FILE: /run/matrix-token
+    volumes:
+      - "${TASKS_DATA_DIR:?Set the Tasks data directory}:/data"
+      - "${MATRIX_TOKEN_FILE_HOST:-/dev/null}:/run/matrix-token:ro"
     networks: [tasks]
     logging: { driver: json-file, options: { max-size: "1m", max-file: "1" } }
 networks:

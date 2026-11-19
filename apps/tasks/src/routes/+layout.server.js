@@ -1,4 +1,4 @@
-import { tasksConfig } from "$lib/server/config.js";
+import { tasksConfig } from "#lib/server/config.js";
 
 export function load({ locals }) {
 	const { people } = tasksConfig;

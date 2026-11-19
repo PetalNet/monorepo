@@ -1,9 +1,10 @@
 <script>
 	import "../app.css";
-	import { page } from "$app/stores";
-	import Icon from "$lib/Icon.svelte";
-	import NavSidebar from "$lib/NavSidebar.svelte";
-	import { displayName, setPeople } from "$lib/people.js";
+	import { page } from "$app/state";
+
+	import Icon from "#lib/Icon.svelte";
+	import NavSidebar from "#lib/NavSidebar.svelte";
+	import { displayName, setPeople } from "#lib/people.js";
 	let { children, data } = $props();
 	setPeople(data.config.people);
 
@@ -24,7 +25,7 @@
 	const me = $derived(String(data.user || "dev").toLowerCase());
 	const whoName = $derived(displayName(me));
 
-	const path = $derived($page.url.pathname);
+	const path = $derived(page.url.pathname);
 	// the Janet Call home is a bare page for the Android WebView: no tasks chrome
 	const bare = $derived(path === "/janet/home");
 

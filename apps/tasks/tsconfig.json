@@ -1,5 +1,5 @@
 {
-	"extends": "./.svelte-kit/tsconfig.json",
+	"extends": "$app/tsconfig",
 	"compilerOptions": {
 		"allowJs": true,
 		"checkJs": false,
@@ -9,8 +9,23 @@
 		"skipLibCheck": true,
 		"sourceMap": true,
 		"moduleResolution": "bundler",
-		"types": ["node"]
+		"strict": true,
+		"plugins": [
+			{
+				"name": "@effect/language-service",
+				"diagnostics": false,
+				"allowedUnstableApis": ["effect/http"]
+			}
+		],
+		"types": ["node", "$app/types"]
 	},
-	"files": ["svelte.config.js", "vite.config.js"],
-	"include": ["src/**/*.js", "src/**/*.svelte", "server.js", "mcp/**/*.mjs", "scripts/**/*.mjs"]
+	"files": ["vite.config.js"],
+	"include": [
+		"src/**/*.js",
+		"src/**/*.ts",
+		"src/**/*.svelte",
+		"test/**/*.ts",
+		"server.js",
+		"scripts/**/*.mjs"
+	]
 }

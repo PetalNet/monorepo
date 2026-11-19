@@ -1,6 +1,7 @@
-import { getArtifact, getMarkup } from "$lib/server/db.js";
-import { renderMd } from "$lib/server/md.js";
 import { error } from "@sveltejs/kit";
+
+import { getArtifact, getMarkup } from "#lib/server/db.js";
+import { renderMd } from "#lib/server/md.js";
 
 // One artifact reader. getArtifact enforces the same visibility gate as the rest of
 // tasks (private = owner-only) IN SQL, returning undefined for unknown OR forbidden
@@ -22,6 +23,10 @@ export function load({ params, locals }) {
 		description: a.description,
 		kind: a.kind,
 		source: a.source,
+		rev: a.rev,
+		// the page may ask this viewer something: it has the feedback capability and they are in its audience
+		canAnswer:
+			JSON.parse(a.caps).includes("feedback") && JSON.parse(a.audience).includes(locals.user),
 		updated_at: a.updated_at,
 		// only markdown artifacts are rendered here; html ones load via the sandboxed iframe
 		bodyHtml: a.kind === "markdown" ? renderMd(a.content) : "",
