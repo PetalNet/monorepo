@@ -8,7 +8,7 @@
 	},
 	"scripts": {
 		"build": "vite build && node ../../tools/verify-grove-production-boundary.ts",
-		"check": "svelte-kit sync && svelte-check --tsconfig ./tsconfig.json",
+		"check": "svelte-kit sync && svelte-check --tsconfig ./tsconfig.json --tsgo-experimental-api",
 		"check:watch": "svelte-kit sync && svelte-check --tsconfig ./tsconfig.json --watch",
 		"dev": "vite dev",
 		"lint:eslint": "eslint . --max-warnings=0",
