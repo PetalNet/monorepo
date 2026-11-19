@@ -64,7 +64,11 @@ def fetch_ept(
 ) -> tuple[np.ndarray, int]:
     """Download the EPT nodes that overlap the window (given in EPT_CRS), once each. Returns (points, bytes fetched)."""
     directory.mkdir(parents=True, exist_ok=True)
-    root = tuple(json.loads(get(f"{endpoint}/ept.json"))["bounds"])
+    description = json.loads(get(f"{endpoint}/ept.json"))
+    horizontal = str(description.get("srs", {}).get("horizontal", ""))
+    if horizontal != EPT_CRS.split(":")[1]:
+        raise RuntimeError(f"the point store is in EPSG:{horizontal or '?'}; only {EPT_CRS} stores are supported")
+    root = tuple(description["bounds"])
     nodes, pending, seen = [], ["0-0-0-0"], set()
     while pending:
         page = pending.pop()
@@ -92,24 +96,27 @@ def fetch_ept(
     return (np.vstack(parts) if parts else np.empty((0, 4))), fetched
 
 
-def acquire_points(source: Source, tile: Tile, crs: str, cache: Path, get=_get) -> tuple[np.ndarray, dict]:
-    """Points over the tile in the site CRS, with a registry entry. EPT nodes are fetched once and kept."""
-    entry = {"kind": source.kind, "license": source.license, "date": source.date, "bytes_fetched": 0}
+def _points_file(source: Source, tile: Tile, crs: str, cache: Path) -> Path:
+    key = hashlib.sha256(json.dumps([source.location, tile.bounds(), crs]).encode()).hexdigest()[:16]
+    return cache / f"lidar-{key}-points.npy"
+
+
+def _prepare(source: Source, tile: Tile, crs: str, cache: Path, get) -> tuple[np.ndarray, int]:
+    """Points inside the tile in the site CRS, noise removed. Returns (points, bytes fetched)."""
     west, south, east, north = tile.bounds(CELL_M)
+    fetched = 0
     if source.kind == "file":
         path = Path(source.location)
         if not path.is_file():
             raise FileNotFoundError(f"sources.lidar: {path} does not exist")
         points = _read_las(path)
-        entry["path"] = str(path)
     else:
         xs, ys = transform(crs, EPT_CRS, [west, east, west, east], [south, south, north, north])
         window = (min(xs), min(ys), max(xs), max(ys))
         key = hashlib.sha256(source.location.encode()).hexdigest()[:16]
-        points, entry["bytes_fetched"] = fetch_ept(source.location, window, cache / f"lidar-{key}", get)
+        points, fetched = fetch_ept(source.location, window, cache / f"lidar-{key}", get)
         eastings, northings = transform(EPT_CRS, crs, points[:, 0].tolist(), points[:, 1].tolist())
         points = np.column_stack([eastings, northings, points[:, 2], points[:, 3]])
-        entry["endpoint"] = source.location
     keep = ~np.isin(points[:, 3], NOISE_CLASSES)
     keep &= (
         (points[:, 0] >= tile.west)
@@ -117,10 +124,39 @@ def acquire_points(source: Source, tile: Tile, crs: str, cache: Path, get=_get) 
         & (points[:, 1] >= tile.south)
         & (points[:, 1] < tile.north)
     )
-    points = points[keep]
+    return np.ascontiguousarray(points[keep]), fetched
+
+
+def load_points(source: Source, tile: Tile, crs: str, cache: Path, get=_get) -> np.ndarray:
+    """Points over the tile. A point store is read once; afterwards the kept points come from the cache, offline."""
+    if source.kind == "file":
+        return _prepare(source, tile, crs, cache, get)[0]
+    kept = _points_file(source, tile, crs, cache)
+    if not kept.is_file():
+        identify(source, tile, crs, cache, get)
+    return np.load(kept)
+
+
+def identify(source: Source, tile: Tile, crs: str, cache: Path, get=_get) -> dict:
+    """The registry entry for the lidar source, with a hash of the points the build will use."""
+    entry = {"kind": source.kind, "license": source.license, "date": source.date, "bytes_fetched": 0}
+    if source.kind == "file":
+        points = _prepare(source, tile, crs, cache, get)[0]
+        entry["path"] = source.location
+    else:
+        entry["endpoint"] = source.location
+        kept = _points_file(source, tile, crs, cache)
+        if kept.is_file():
+            points = np.load(kept)
+        else:
+            points, entry["bytes_fetched"] = _prepare(source, tile, crs, cache, get)
+            cache.mkdir(parents=True, exist_ok=True)
+            partial = kept.with_suffix(".part.npy")
+            np.save(partial, points)
+            partial.replace(kept)
     entry["points"] = len(points)
-    entry["sha256"] = hashlib.sha256(np.ascontiguousarray(points).tobytes()).hexdigest()
-    return points, entry
+    entry["sha256"] = hashlib.sha256(points.tobytes()).hexdigest()
+    return entry
 
 
 def rasterise(points: np.ndarray, tile: Tile, elevation_m: np.ndarray) -> tuple[np.ndarray, np.ndarray]:

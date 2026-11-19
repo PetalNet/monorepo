@@ -39,7 +39,8 @@ envgen build site.json --out build/ --cache cache/
   Only the tile window plus a 16 m margin is requested, and it is fetched once: the cache key is the service, the window
   and the spacing.
 - `sources.lidar` is optional: a `.las`/`.laz` file, or a public EPT point store
-  (`"kind": "ept"`). With it, two things change.
+  (`"kind": "ept"`, in EPSG:3857). A store is read once; the points kept for the tile are cached,
+  so later builds work offline. With lidar, two things change.
   - Anything standing more than 2 m above the ground, plus 4 m around it for its shadow, is left
     out of the colour map's low-pass, so tree canopy and roofs do not tint the ground. Covered
     ground takes its colour from the open ground around it.
@@ -47,7 +48,7 @@ envgen build site.json --out build/ --cache cache/
     typically as flat facets under roofs. The surface there is blended towards a 4 m smoothing.
     Measured ground is left exactly as it was.
 - `"context": {"size_m": 4032}` is optional: a coarse surround of that side, centred on the tile, as
-  a second heightmap and colour map. It passes 3 m under the detailed surface, so the tile does not
+  a second heightmap and colour map. It passes 1 m under the detailed surface, so the tile does not
   end in a cliff against the sky. Its colour is not masked for tree cover.
 - A stage reruns only when its inputs change. `build.json` lists which stages were reused.
 - The site's CRS must be projected, in metres, and have an EPSG code (a UTM zone, for example).

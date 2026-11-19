@@ -162,3 +162,136 @@ def test_surround_must_be_larger_than_the_tile(tmp_path, capsys):
     site = h.write_site(tmp_path, sources=FILES, context={"size_m": 100})
     assert main(["build", str(site), "--out", str(tmp_path / "out")]) == 1
     assert "larger than the tile" in capsys.readouterr().err
+
+
+def test_a_new_elevation_model_with_lidar_reruns_the_colour_map_too(tmp_path):
+    h.write_dem(tmp_path / "dem.tif")
+    write_imagery_with_dark_tree(tmp_path / "imagery.tif")
+    h.write_las(
+        tmp_path / "points.las", np.vstack([h.ground_returns(), h.returns_above(TREE_WEST, TREE_SOUTH, TREE_SIDE, 9.0)])
+    )
+    site = h.write_site(tmp_path, sources=FILES | LIDAR)
+    out = tmp_path / "out"
+    build(site, out)
+
+    # Raise the ground by 8 m: the canopy is now only 1 m above it, so it stops counting as cover.
+    h.write_dem(tmp_path / "dem.tif", function=lambda e, n: h.plane(e, n) + 8)
+    manifest = build(site, out)
+
+    assert manifest["stages_reused"] == []
+    assert manifest["macro_colour"]["covered_fraction"] == 0
+
+
+def ridge(easting, northing):
+    """plane() with a 6 m ridge running north through the tile, 10 m wide."""
+    return h.plane(easting, northing) + 6.0 * np.exp(-(((easting - h.WEST - 63) / 5.0) ** 2))
+
+
+def test_coarse_surround_stays_under_a_ridge_and_meets_the_ground_beyond_the_tile(tmp_path):
+    h.write_dem(tmp_path / "dem.tif", function=ridge, spacing=1.0, margin=1000.0)
+    h.write_imagery(tmp_path / "imagery.tif", split_easting=h.WEST + 63)
+    out = tmp_path / "out"
+    site = h.write_site(
+        tmp_path, sources=FILES, context={"size_m": 2016}
+    )  # 4 m between surround vertices, 1 m in the tile
+    manifest = build(site, out)
+    tile = load_site(site).tile
+    context, geo = manifest["context"], manifest["georeference"]
+    mid_m = geo["origin_height_m"] + context["location_cm"][2] / 100
+    surround = frame.decode_heights(np.asarray(Image.open(out / context["heightmap"])), mid_m, context["scale"][2])
+    west, south = tile.centre[0] - 1008, tile.centre[1] - 1008
+
+    # The surround as the engine draws it between its vertices, at every detailed vertex of the tile.
+    from scipy import ndimage
+
+    east_index, north_index = np.meshgrid(
+        (tile.west + np.arange(127) - west) / 4, (tile.south + np.arange(127) - south) / 4, indexing="ij"
+    )
+    drawn = ndimage.map_coordinates(surround, [east_index, north_index], order=1)
+    assert (detailed_heights(out, manifest) - drawn).min() >= CONTEXT_SINK_M - 0.05
+
+    # Two surround cells beyond the tile edge it is the real ground again, ridge included.
+    beyond_east = round((tile.east + 8 - west) / 4)
+    on_ridge_north_of_tile = (round((h.WEST + 63 - west) / 4), round((tile.north + 8 - south) / 4))
+    assert surround[beyond_east, 252] == pytest.approx(ridge(west + beyond_east * 4, south + 252 * 4), abs=0.1)
+    assert surround[on_ridge_north_of_tile] == pytest.approx(
+        ridge(h.WEST + 63, south + on_ridge_north_of_tile[1] * 4), abs=0.6
+    )
+    assert surround[on_ridge_north_of_tile] > h.plane(h.WEST + 63, tile.north + 8) + 4
+
+
+class FakePointStore:
+    """A one-node EPT store holding `points` (site CRS), served from memory. Counts requests."""
+
+    def __init__(self, points):
+        import io
+
+        import laspy
+        from rasterio.warp import transform
+
+        xs, ys = transform(h.CRS, "EPSG:3857", points[:, 0].tolist(), points[:, 1].tolist())
+        header = laspy.LasHeader(point_format=3, version="1.2")
+        header.offsets = [min(xs), min(ys), 0.0]
+        header.scales = [0.001, 0.001, 0.001]
+        las = laspy.LasData(header)
+        las.x, las.y, las.z = np.array(xs), np.array(ys), points[:, 2]
+        las.classification = points[:, 3].astype(np.uint8)
+        buffer = io.BytesIO()
+        las.write(buffer, do_compress=True)
+        self.node = buffer.getvalue()
+        self.bounds = [min(xs) - 500, min(ys) - 500, -500, min(xs) + 1500, min(ys) + 1500, 1500]
+        self.requests = 0
+
+    def __call__(self, url):
+        import json
+
+        self.requests += 1
+        if url.endswith("/ept.json"):
+            return json.dumps({"bounds": self.bounds, "srs": {"horizontal": "3857"}}).encode()
+        if url.endswith("/ept-hierarchy/0-0-0-0.json"):
+            return json.dumps({"0-0-0-0": 1000}).encode()
+        assert url.endswith("/ept-data/0-0-0-0.laz"), url
+        return self.node
+
+
+def test_a_point_store_is_read_once_and_then_the_build_works_offline(tmp_path):
+    from envgen.site import Source
+
+    points = np.vstack([h.ground_returns(), h.returns_above(TREE_WEST, TREE_SOUTH, TREE_SIDE, 9.0)])
+    store = FakePointStore(points)
+    source = Source("ept", "https://points.invalid/store", "test", "2030")
+    tile = load_site(h.write_site(tmp_path, sources=FILES)).tile
+
+    first = lidar.identify(source, tile, h.CRS, tmp_path / "cache", get=store)
+    assert store.requests == 3 and first["bytes_fetched"] == len(store.node)
+    inside = (
+        (points[:, 0] >= tile.west)
+        & (points[:, 0] < tile.east)
+        & (points[:, 1] >= tile.south)
+        & (points[:, 1] < tile.north)
+    )
+    assert first["points"] == inside.sum()
+
+    def offline(url):
+        raise AssertionError(f"unexpected request to {url}")
+
+    again = lidar.identify(source, tile, h.CRS, tmp_path / "cache", get=offline)
+    assert again["sha256"] == first["sha256"] and again["bytes_fetched"] == 0
+    kept = lidar.load_points(source, tile, h.CRS, tmp_path / "cache", get=offline)
+    # The round trip through the store's CRS moves a point by well under a centimetre.
+    order = np.lexsort((kept[:, 1].round(1), kept[:, 0].round(1)))
+    expected = points[inside][np.lexsort((points[inside][:, 1], points[inside][:, 0]))]
+    assert np.abs(kept[order][:, :3] - expected[:, :3]).max() < 0.01
+
+
+def test_a_point_store_in_another_crs_is_refused(tmp_path):
+    import json
+
+    from envgen.site import Source
+
+    tile = load_site(h.write_site(tmp_path, sources=FILES)).tile
+    get = lambda url: json.dumps({"bounds": [0, 0, 0, 1, 1, 1], "srs": {"horizontal": "26915"}}).encode()
+    with pytest.raises(RuntimeError, match="only EPSG:3857"):
+        lidar.identify(
+            Source("ept", "https://points.invalid/store", "test", "2030"), tile, h.CRS, tmp_path / "cache", get=get
+        )

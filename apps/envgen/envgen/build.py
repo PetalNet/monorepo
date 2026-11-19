@@ -47,7 +47,7 @@ GAP_SMOOTH_M = 4.0
 
 CONTEXT_MACRO_PIXELS = 512
 # The surround passes under the tile; it sits this far below the detailed surface there so it never shows through.
-CONTEXT_SINK_M = 3.0
+CONTEXT_SINK_M = 1.0
 
 # Stencil values the engine side writes into custom depth, for segmentation cameras.
 STENCIL_CLASSES = {"ground": 1, "grass": 2, "tree": 3, "building": 4, "road": 5, "water": 6, "pad": 7}
@@ -87,7 +87,7 @@ def _fill_gaps(values: np.ndarray, what: str) -> tuple[np.ndarray, float]:
 
 def _sample_cells(cells: np.ndarray, size: int) -> np.ndarray:
     """Nearest-cell resample of a square north-up raster to `size` samples a side over the same ground."""
-    index = np.minimum((np.arange(size) * cells.shape[0] / size).astype(int), cells.shape[0] - 1)
+    index = np.minimum(((np.arange(size) + 0.5) * cells.shape[0] / size).astype(int), cells.shape[0] - 1)
     return cells[np.ix_(index, index)]
 
 
@@ -98,18 +98,15 @@ def _write_rgb(north_up_bands: np.ndarray, path: Path) -> None:
     Image.fromarray(frame.to_unreal_layout(rgb)).save(path)
 
 
-def read_structure(site: Site, cache: Path, dem: Path) -> tuple[np.ndarray, np.ndarray, dict] | None:
-    """(height above ground, ground gap, registry entry) on the lidar grid, or None when the site has no lidar."""
-    if site.lidar is None:
-        return None
+def read_structure(site: Site, cache: Path, dem: Path) -> tuple[np.ndarray, np.ndarray]:
+    """(height above ground, ground gap) on the lidar grid."""
     tile = site.tile
-    points, entry = lidar.acquire_points(site.lidar, tile, site.crs, cache)
+    points = lidar.load_points(site.lidar, tile, site.crs, cache)
     cells = round(tile.size_m / lidar.CELL_M)
     half = lidar.CELL_M / 2
     ground = _warp(dem, site.crs, tile.west + half, tile.north - half, lidar.CELL_M, cells, Resampling.bilinear)[0]
     ground, _ = _fill_gaps(ground, "elevation")
-    height, gap = lidar.rasterise(points, tile, ground)
-    return height, gap, entry
+    return lidar.rasterise(points, tile, ground)
 
 
 def build_elevation(tile: Tile, crs: str, dem: Path, out: Path, ground_gap: np.ndarray | None) -> dict:
@@ -222,7 +219,7 @@ def build_context(
 
     half_cm = site.context_size_m * 100 / 2
     return {
-        "file": "context_heightmap.png",
+        "files": ["context_heightmap.png", "context_colour.png"],
         "heightmap": "context_heightmap.png",
         "colour": "context_colour.png",
         "vertices": vertices,
@@ -264,7 +261,8 @@ def _cached(out: Path, stage: str, key: str, compute) -> dict:
     record_path = out / f".{stage}.json"
     if record_path.is_file():
         record = json.loads(record_path.read_text())
-        if record["key"] == key and (out / record["result"]["file"]).is_file():
+        produced = record["result"].get("files", [record["result"].get("file")])
+        if record["key"] == key and all((out / name).is_file() for name in produced):
             return record["result"] | {"cached": True}
     # Drop the old record first: if this run dies part-way, nothing claims the half-written output is current.
     record_path.unlink(missing_ok=True)
@@ -283,21 +281,28 @@ def build(site_path: Path, out: Path, cache: Path | None = None) -> dict:
     dem, imagery = Path(sources["elevation"]["path"]), Path(sources["imagery"]["path"])
     grid = [tile.west, tile.south, tile.quad_m, tile.quads]
 
-    structure = read_structure(site, cache, dem)
-    height_above_ground, ground_gap = (structure[0], structure[1]) if structure else (None, None)
+    # The lidar's identity is cheap to get; its rasters are only built when a stage has to run.
     lidar_key = None
-    if structure:
-        sources["lidar"] = structure[2]
-        lidar_key = structure[2]["sha256"]
+    if site.lidar:
+        sources["lidar"] = lidar.identify(site.lidar, tile, site.crs, cache)
+        lidar_key = sources["lidar"]["sha256"]
+    structure = {}
+
+    def rasters() -> tuple[np.ndarray | None, np.ndarray | None]:
+        if site.lidar and not structure:
+            structure["height"], structure["gap"] = read_structure(site, cache, dem)
+        return structure.get("height"), structure.get("gap")
 
     stages = {}
     stages["elevation"] = _cached(
         out,
         "elevation",
         _stage_key(grid, site.crs, sources["elevation"]["sha256"], lidar_key, GAP_START_M, GAP_FULL_M, GAP_SMOOTH_M),
-        lambda: build_elevation(tile, site.crs, dem, out, ground_gap),
+        lambda: build_elevation(tile, site.crs, dem, out, rasters()[1]),
     )
     elevation = stages["elevation"]
+    # With lidar, cover is measured against the elevation model, so a new one changes the mask.
+    cover_key = [lidar_key, sources["elevation"]["sha256"]] if lidar_key else None
     stages["macro_colour"] = _cached(
         out,
         "macro_colour",
@@ -305,13 +310,13 @@ def build(site_path: Path, out: Path, cache: Path | None = None) -> dict:
             grid,
             site.crs,
             sources["imagery"]["sha256"],
-            lidar_key,
+            cover_key,
             MACRO_PIXELS,
             MACRO_LOW_PASS_M,
             COVER_HEIGHT_M,
             SHADOW_MARGIN_M,
         ),
-        lambda: build_macro_colour(tile, site.crs, imagery, out, height_above_ground),
+        lambda: build_macro_colour(tile, site.crs, imagery, out, rasters()[0]),
     )
     macro = stages["macro_colour"]
 
@@ -361,13 +366,16 @@ def build(site_path: Path, out: Path, cache: Path | None = None) -> dict:
                 sources["context_imagery"]["sha256"],
                 sha256_file(out / elevation["file"]),
                 CONTEXT_SINK_M,
+                CONTEXT_QUADS,
+                CONTEXT_MACRO_PIXELS,
+                MACRO_LOW_PASS_M,
             ),
             lambda: build_context(
                 site, context_dem, context_imagery, out, read_heights(out, elevation), elevation["origin_height_m"]
             ),
         )
         context = stages["context"]
-        manifest["context"] = {key: value for key, value in context.items() if key not in ("file", "cached")}
+        manifest["context"] = {key: value for key, value in context.items() if key not in ("files", "cached")}
         artifacts += [context["heightmap"], context["colour"]]
 
     manifest["artifacts"] = {name: sha256_file(out / name) for name in artifacts}
