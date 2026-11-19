@@ -298,7 +298,9 @@ and the shadows it casts are where astronomy puts them.
   assemblies, so the host project sets `r.Nanite.Foliage`. Collision is separate and unseen: a cylinder for the
   trunk up to the crown's base and one bounding the crown, from the species' trunk diameter and crown ratio, so a
   tree without a species has none. The receipt counts the trees placed and traces down onto 25 of them: the build
-  fails if one is missing or its top is more than 5 cm under its measured height.
+  fails if one is missing or its top is more than 5 cm under its measured height. The tree actor carries the tag
+  `EnvGenStanding`; the tours look past anything with it when they ask where the ground is, so a camera's height
+  is above the ground and not above a crown.
 - **EnvGen** has the walking pawn, the game mode and the tour actor.
 
 `unreal/Host` is a minimal project that hosts the plugin.

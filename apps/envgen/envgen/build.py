@@ -34,7 +34,7 @@ from .site import (
 
 # Part of every stage key. Bump it by hand when a code change alters a stage's output for the same
 # inputs (frame.py and the resampling included); nothing detects that automatically.
-PIPELINE_VERSION = 9
+PIPELINE_VERSION = 10
 
 MACRO_PIXELS = 1024
 # The macro map carries colour that varies over tens of metres. Finer detail comes from the engine.

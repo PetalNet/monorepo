@@ -4,6 +4,12 @@
 #include "GameFramework/Info.h"
 #include "EnvGenSiteInfo.generated.h"
 
+/** The tag on generated actors that stand on the ground (trees): whatever asks where the ground is looks past them. */
+inline FName EnvGenStandingTag()
+{
+	return FName(TEXT("EnvGenStanding"));
+}
+
 /**
  * Where this level is on Earth, and which stencil value means what.
  * Written by the level build from the manifest; one per level, always named "EnvGenSiteInfo".

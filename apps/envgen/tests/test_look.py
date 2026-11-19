@@ -123,7 +123,9 @@ def test_each_class_carries_its_mean_colour_in_linear_light_for_the_blades_of_gr
     assert colours["paved"] == pytest.approx(expected["paved"], rel=0.08)
 
 
-def test_with_a_reflectance_raster_the_colour_map_is_each_class_at_its_measured_albedo_whatever_the_tone_of_the_photo(tmp_path):
+def test_with_a_reflectance_raster_the_colour_map_is_each_class_at_its_measured_albedo_whatever_the_tone_of_the_photo(
+    tmp_path,
+):
     # A photo whose tone curve squeezes the highlights: it records albedo to the power 0.3. Grass, then paving
     # that is asphalt in the west and concrete in the east. The reflectance raster measures the albedo at 6 m.
     tone = lambda albedo: tuple(round(255 * value**0.3) for value in albedo)

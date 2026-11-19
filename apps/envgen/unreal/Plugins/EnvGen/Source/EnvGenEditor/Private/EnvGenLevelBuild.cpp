@@ -861,6 +861,7 @@ namespace
 	{
 		AActor* Actor = World->SpawnActor<AActor>();
 		Actor->SetActorLabel(TEXT("EnvGenTrees"));
+		Actor->Tags.Add(EnvGenStandingTag());
 		USceneComponent* Root = NewObject<USceneComponent>(Actor, TEXT("Root"));
 		Root->SetMobility(EComponentMobility::Static);
 		Actor->SetRootComponent(Root);

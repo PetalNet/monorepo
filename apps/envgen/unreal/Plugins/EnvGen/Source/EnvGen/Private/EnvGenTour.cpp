@@ -22,17 +22,24 @@ namespace
 	constexpr float TraceTopCm = 200000;
 	constexpr float LookAheadCm = 600;
 
+	/** The ground under a point: the first thing a trace from above meets that does not stand on the ground itself. */
 	bool GroundHeight(const UWorld* World, const FVector& At, float& OutZ)
 	{
-		FHitResult Hit;
 		const FVector Top(At.X, At.Y, TraceTopCm);
 		const FVector Bottom(At.X, At.Y, -TraceTopCm);
-		if (!World->LineTraceSingleByChannel(Hit, Top, Bottom, ECC_WorldStatic))
+		FCollisionQueryParams Params;
+		FHitResult Hit;
+		while (World->LineTraceSingleByChannel(Hit, Top, Bottom, ECC_WorldStatic, Params))
 		{
-			return false;
+			const AActor* Met = Hit.GetActor();
+			if (!Met || !Met->ActorHasTag(EnvGenStandingTag()))
+			{
+				OutZ = Hit.Location.Z;
+				return true;
+			}
+			Params.AddIgnoredActor(Met);
 		}
-		OutZ = Hit.Location.Z;
-		return true;
+		return false;
 	}
 
 	/** Nearest-rank percentile of sorted values: the smallest value with at least Fraction of them at or below it. */
