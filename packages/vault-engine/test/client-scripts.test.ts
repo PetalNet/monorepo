@@ -8,6 +8,7 @@ import {
 	readFileSync,
 	readdirSync,
 	rmSync,
+	utimesSync,
 	writeFileSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
@@ -108,5 +109,29 @@ describe("client scripts", () => {
 
 		expect(partials()).toEqual([]);
 		expect(readFileSync(path.join(replica, "index.sqlite"), "utf8")).toBe("the index it had");
+	}, 20_000);
+
+	test("a pull sweeps partial copies left long ago, and leaves a recent one alone", () => {
+		const { dir, env } = fakeSsh(() => "printf 'a new index'");
+		const replica = path.join(dir, "replica");
+		const hoursAgo = new Date(Date.now() - 3 * 60 * 60 * 1000);
+
+		mkdirSync(replica);
+		writeFileSync(path.join(replica, "index.sqlite.oldold"), "partial");
+		utimesSync(path.join(replica, "index.sqlite.oldold"), hoursAgo, hoursAgo);
+		writeFileSync(path.join(replica, "index.sqlite.newnew"), "partial");
+
+		writeFileSync(
+			path.join(dir, "env"),
+			`VAULT_HOST=vault-host\nVAULT_REMOTE=/vault.sh\nVAULT_REPLICA=${replica}\n`,
+		);
+
+		const ran = spawnSync(path.join(scripts, "client.sh"), ["pull-index"], {
+			env: { ...env, VAULT_ENV: path.join(dir, "env") },
+		});
+
+		expect(ran.status).toBe(0);
+		expect(readdirSync(replica).toSorted()).toEqual(["index.sqlite", "index.sqlite.newnew"]);
+		expect(readFileSync(path.join(replica, "index.sqlite"), "utf8")).toBe("a new index");
 	});
 });
