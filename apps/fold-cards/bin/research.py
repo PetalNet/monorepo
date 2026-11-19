@@ -63,12 +63,13 @@ def check(question, project, session):
         if not all(isinstance(items, list) for items in (claims, passages, recheck)):
             raise ValueError()
         ids = [c['id'] for c in claims]
-        sources = list({s['id'] for c in claims for s in c['sources']} | {p['source'] for p in passages})
+        sources = sorted({s['id'] for c in claims for s in c['sources']} | {p['source'] for p in passages})
         stale = [c['id'] for c in claims if c['freshness'] != 'fresh']
-        if not all(isinstance(x, str) and x for x in [*ids, *sources, *stale]):
+        recheck_ids = [r['id'] for r in recheck]
+        if not all(isinstance(x, str) and x for x in [*ids, *sources, *stale, *recheck_ids]):
             raise ValueError()
-        pointers = {'lab_claims': ids, 'lab_sources': sources,
-                    'recheck': [r['id'] for r in recheck]}
+        pointers = {'lab_claims': ids[:12], 'lab_sources': sources[:24], 'recheck': recheck_ids[:24],
+                    'truncated': len(ids) > 12 or len(sources) > 24 or len(recheck_ids) > 24}
     except (KeyError, TypeError, ValueError):
         raise ResearchError('research_check returned an unsupported response.') from None
     context = prepared + '\nLab research_check provenance:\n' + json.dumps(pointers, ensure_ascii=False)

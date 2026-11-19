@@ -53,6 +53,13 @@ class Research(unittest.TestCase):
         self.assertEqual(json.loads(output.stdout)['hookSpecificOutput']['permissionDecision'], 'deny')
         self.assertNotIn('private diagnostic', output.stdout + output.stderr)
 
+    def test_many_sources_are_bounded_and_report_truncation(self):
+        output = self.web('many sources')
+        context = json.loads(output.stdout)['hookSpecificOutput']['additionalContext']
+        provenance = json.loads(context.split('Lab research_check provenance:\n')[1].split('\nAfter researching')[0])
+        self.assertEqual(len(provenance['lab_sources']), 24)
+        self.assertTrue(provenance['truncated'])
+
     def test_writeback_cannot_skip_replaces_or_lose_pending_on_vault_failure(self):
         self.web('demo question')
         for file in (self.run_file(claims=[]),):
