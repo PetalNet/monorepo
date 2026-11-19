@@ -155,7 +155,7 @@ describe("matrix-local-path-guard as a hook process", () => {
 		return result.stdout;
 	};
 
-	it("prints a deny whose reason names the path and every fix", () => {
+	it("prints a deny whose reason names the path and the fixes", () => {
 		const out = JSON.parse(run(JSON.stringify(send("Full report: /home/agent/report.txt")))) as {
 			hookSpecificOutput: {
 				hookEventName: string;
@@ -168,9 +168,10 @@ describe("matrix-local-path-guard as a hook process", () => {
 		expect(hookEventName).toBe("PreToolUse");
 		expect(permissionDecision).toBe("deny");
 		expect(permissionDecisionReason).toContain("/home/agent/report.txt");
-		expect(permissionDecisionReason).toContain("mcp__hermes-link__send_file");
+		expect(permissionDecisionReason).toContain("inline in the message");
 		expect(permissionDecisionReason).toContain("GitHub URL");
-		expect(permissionDecisionReason).toContain("quote the relevant lines");
+		expect(permissionDecisionReason).toContain("only for images, audio and video");
+		expect(permissionDecisionReason).not.toContain("Send the file");
 	});
 
 	it("prints nothing for an allowed message", () => {

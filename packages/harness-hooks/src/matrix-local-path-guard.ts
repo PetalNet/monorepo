@@ -1,6 +1,7 @@
 // PreToolUse guard for hermes-link send_message: a Matrix reader cannot open a file on Janet's box, so a message
 // that points at one (/home/agent/..., ~/.claude/..., /tmp/..., /run/user/..., /nix/store/...) is useless to them.
-// Denies and names the fix: send the file with send_file, link a GitHub URL, or quote the lines.
+// Denies and names the fix: put the content in the message (short), or link a GitHub URL. send_file is named only for
+// images, audio and video: Eli's phone opens a .txt attachment in Gallery and he will not read it.
 //
 // Flagged: an absolute path under /home, /tmp, /var/tmp, /run/user or /nix/store, a ~/ or $HOME/ path.
 // Passes (deliberately):
@@ -23,7 +24,7 @@ const TOOL = "mcp__hermes-link__send_message";
 const LOCAL =
 	/(?<![\w./:~$-])(?:\/(?:home|tmp|run\/user|nix\/store|var\/tmp)\/[^\s"'`)\]>,;]+|(?:~|\$HOME|\$\{HOME\})\/[^\s"'`)\]>,;]*[^\s"'`)\]>,;.])/u;
 const FIX =
-	"Eli and Parker cannot open files on Janet's box. Send the file with mcp__hermes-link__send_file, link a GitHub URL (a repo file or PR), or quote the relevant lines in the message. If the path is only the subject, say what it holds without the path.";
+	"Eli and Parker cannot open files on Janet's box, and a .txt attachment does not get read either. Put the relevant content inline in the message (keep it short), or link a GitHub URL (a repo file, PR or gist). mcp__hermes-link__send_file is fine only for images, audio and video.";
 
 /** The first local path the message points at, or `null` when it may be sent. */
 export function localPath(text: string): string | null {
