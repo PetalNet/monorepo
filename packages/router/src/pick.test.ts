@@ -278,7 +278,7 @@ describe("brief", () => {
 		expect(control.stdout).toContain("ranked (tier S/code):");
 
 		expect(control.stdout).toMatch(
-			/1\. gpt-6-astra effort=default plan=codex pool=codex rank=64\.10/u,
+			/1\. gpt-6-astra effort=default plan=codex pool=codex \(overflow\) rank=64\.10/u,
 		);
 
 		expect(control.stdout).toMatch(/gemini-4-neon-xhigh \[.*\]: google-ai quota error/u);

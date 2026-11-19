@@ -2,6 +2,8 @@
 // hard rules drop offers (all reasons kept), and the survivors are ranked inside a tier band.
 import type { ServiceName, ServiceReport } from "@petalnet/harness-hooks/quota-sources";
 
+import type { Availability } from "./state.ts";
+
 export type DataClass = "public" | "sensitive";
 
 export interface CatalogModel {
@@ -16,6 +18,8 @@ export interface Catalog {
 	models: CatalogModel[];
 	tiers: Record<string, number>;
 }
+
+export const PLANS: Record<string, { overflow?: true }> = { codex: { overflow: true } };
 
 export interface Pool {
 	id: string;
@@ -203,6 +207,8 @@ export interface State {
 	pools: Pool[];
 	blocks: Block[];
 	floorPct: number;
+	runnableOnly?: boolean;
+	availability?: Availability;
 }
 
 interface PoolState {
@@ -245,7 +251,7 @@ function poolState(pool: Pool, offers: Offer[], state: State): PoolState {
 
 		headroom = Math.min(headroom, left);
 
-		if (left < state.floorPct) {
+		if (left < state.floorPct && !PLANS[pool.plan]?.overflow) {
 			reasons.push(`${limit.id} ${String(left)}% left, resets ${limit.resetLabel ?? "?"}`);
 		}
 	}
@@ -273,6 +279,30 @@ function offerReasons(o: Offer, pools: Map<Pool, PoolState>, state: State): stri
 
 	const pool = o.pool;
 	const reasons = [...(pools.get(pool)?.reasons ?? [])];
+
+	if (
+		state.runnableOnly &&
+		!(
+			o.provider === "codex" ||
+			o.provider === "gemini" ||
+			o.provider.startsWith("agy-") ||
+			o.provider === "claude"
+		)
+	) {
+		reasons.push("no execution adapter");
+	}
+
+	if ((state.availability?.cooldowns[pool.id] ?? 0) > state.nowMs) {
+		reasons.push("pool cooling down");
+	}
+
+	if ((state.availability?.badOffers[`${pool.plan}:${o.id}`] ?? 0) > state.nowMs) {
+		reasons.push("offer invalid for 24h");
+	}
+
+	if (state.availability?.signedOut[pool.plan]) {
+		reasons.push("plan signed out");
+	}
 
 	for (const b of state.blocks) {
 		if (b.untilMs > state.nowMs && (b.family === o.family || b.pool === pool.id)) {

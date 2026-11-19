@@ -3,7 +3,7 @@
 //   route pick --dry --kind <code|ui|research|write|sweep> --tier <S|A|B|C|top|mid|fast|cheap>
 //              --data-class <public|sensitive> <brief-file>
 //
-// Exit codes: 0 picked, 2 bad input (nothing read), 3 no offer survives the hard rules.
+// Exit codes: 0 completed/picked, 1 failed, 2 bad input, 3 no eligible offer, 5 Claude handoff.
 import { readFileSync, realpathSync } from "node:fs";
 import { homedir } from "node:os";
 import { pathToFileURL } from "node:url";
@@ -17,10 +17,13 @@ import {
 	sourceConfigFromEnv,
 } from "@petalnet/harness-hooks/quota-sources";
 
-import { BLOCKS, POOLS, type Catalog, type DataClass, type Pick, pick } from "./pick.ts";
+import { redact } from "./adapters.ts";
+import { BLOCKS, POOLS, PLANS, type Catalog, type DataClass, type Pick, pick } from "./pick.ts";
+import { run } from "./run.ts";
+import { readAvailability } from "./state.ts";
 
 const USAGE =
-	"usage: route pick --dry --kind <code|ui|research|write|sweep> --tier <S|A|B|C|top|mid|fast|cheap> --data-class <public|sensitive> <brief-file>";
+	"usage: route <pick --dry|run> --kind <code|ui|research|write|sweep> --tier <S|A|B|C|top|mid|fast|cheap> --data-class <public|sensitive> <brief-file for pick; brief text for run>";
 const TIER_ALIASES: Record<string, string> = { top: "S", mid: "A", fast: "B", cheap: "C" };
 const KINDS = new Set(["code", "ui", "research", "write", "sweep"]);
 const SECRET_RE =
@@ -71,7 +74,7 @@ export function effectiveDataClass(flag: DataClass, brief: string): DataClass {
 export function formatPick(result: Pick, kind: string, tier: string): string {
 	const lines: string[] = [];
 	const where = (o: Pick["ranked"][number]["offer"]) =>
-		`effort=${o.effort} plan=${o.pool?.plan ?? "-"} pool=${o.pool?.id ?? "-"}`;
+		`effort=${o.effort} plan=${o.pool?.plan ?? "-"} pool=${o.pool?.id ?? "-"}${PLANS[o.pool?.plan ?? ""]?.overflow ? " (overflow)" : ""}`;
 
 	if (result.tier === undefined) {
 		lines.push(`no offer for ${tier}/${kind}: tier ${tier}, one up and one down are all empty`);
@@ -107,6 +110,7 @@ async function main(argv: string[]): Promise<number> {
 			allowPositionals: true,
 			options: {
 				dry: { type: "boolean" },
+				"allow-claude": { type: "boolean" },
 				kind: { type: "string" },
 				tier: { type: "string" },
 				"data-class": { type: "string" },
@@ -125,18 +129,23 @@ async function main(argv: string[]): Promise<number> {
 	const flagClass = values["data-class"];
 
 	if (
-		command !== "pick" ||
-		!values.dry ||
+		(command !== "pick" && command !== "run") ||
+		(command === "pick" && !values.dry) ||
+		(command === "run" && values.dry) ||
 		!KINDS.has(kind) ||
 		!tier ||
 		(flagClass !== "public" && flagClass !== "sensitive")
 	) {
-		process.stderr.write(`${USAGE}\n(only --dry exists in this slice; route run comes next)\n`);
+		process.stderr.write(`${USAGE}\n`);
 
 		return 2;
 	}
 
-	const brief = readBrief(briefFile);
+	const brief = command === "run" ? { text: positionals.slice(1).join(" ") } : readBrief(briefFile);
+
+	if ("text" in brief && !brief.text.trim()) {
+		return 2;
+	}
 
 	if ("error" in brief) {
 		process.stderr.write(`route: ${brief.error}; aborting before any quota read or model call\n`);
@@ -165,23 +174,47 @@ async function main(argv: string[]): Promise<number> {
 		readCodex(config, deps),
 		readClaude(config, deps),
 	]);
-	const result = pick(catalog, kind, tier, {
+	const state = {
 		nowMs: Date.now(),
 		dataClass,
 		reports: { "google-ai": google, codex, claude },
 		exhausted: readJson(`${home}/.local/state/agy-build/exhausted.json`, {}),
 		deny: legacy.deny ?? [],
 		denyPatterns: legacy.deny_patterns ?? [],
-		pools: POOLS,
+		pools: values["allow-claude"]
+			? POOLS.map(({ explicitOnly: _explicit, ...pool }) => pool)
+			: POOLS,
 		blocks: BLOCKS,
 		floorPct: Number(process.env["FLOOR"] ?? 15),
-	});
+		runnableOnly: command === "run",
+		availability: await readAvailability(`${home}/.local/state/router`),
+	};
+	const result = pick(catalog, kind, tier, state);
 
 	process.stdout.write(
-		`route pick --dry kind=${kind} tier=${tier} data-class=${dataClass}${dataClass === flagClass ? "" : " (raised: brief holds a credential)"}\n`,
+		`route ${command}${command === "pick" ? " --dry" : ""} kind=${kind} tier=${tier} data-class=${dataClass}${dataClass === flagClass ? "" : " (raised: brief holds a credential)"}\n`,
 	);
 
-	process.stdout.write(`${formatPick(result, kind, tier)}\n`);
+	process.stdout.write(`${redact(formatPick(result, kind, tier))}\n`);
+
+	if (command === "run") {
+		const executed = await run({
+			catalog,
+			state,
+			kind,
+			tier,
+			brief: brief.text,
+			cwd: process.cwd(),
+			dir: `${home}/.local/state/router`,
+			legacy: `${home}/.local/state/agy-build`,
+			injectPath: `${process.env["HERMES_HOME"] ?? `${home}/.hermes`}/plugins/hermes-cc-link/bin/cc-link-inject`,
+			report: (line) => process.stdout.write(`${redact(line)}\n`),
+		});
+
+		process.stdout.write(readFileSync(executed.outputPath, "utf8"));
+
+		return executed.code;
+	}
 
 	return result.ranked.length > 0 ? 0 : 3;
 }
@@ -190,7 +223,7 @@ if (process.argv[1] && import.meta.url === pathToFileURL(realpathSync(process.ar
 	try {
 		process.exitCode = await main(process.argv.slice(2));
 	} catch (error) {
-		process.stderr.write(`route: ${error instanceof Error ? error.message : "failed"}\n`);
+		process.stderr.write(`route: ${error instanceof Error ? redact(error.message) : "failed"}\n`);
 		process.exitCode = 1;
 	}
 }
