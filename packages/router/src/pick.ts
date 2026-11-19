@@ -229,6 +229,8 @@ export interface State {
 	evidence?: Evidence;
 	nowMs: number;
 	dataClass: DataClass;
+	/** Model makers to exclude, e.g. a reviewer that must differ from the author's family. */
+	notVendor?: readonly string[];
 	reports: Partial<Record<ServiceName, ServiceReport>>;
 	/** From exhausted.json: model id -> epoch seconds its limit resets. */
 	exhausted: Record<string, number>;
@@ -379,6 +381,12 @@ function offerReasons(o: Offer, pools: Map<Pool, PoolState>, state: State): stri
 		reasons.push("unscored");
 	}
 
+	const maker = vendorOf(o.model);
+
+	if (state.notVendor?.includes(maker)) {
+		reasons.push(`model maker ${maker} excluded (--not-vendor)`);
+	}
+
 	if (state.dataClass === "parcs" && pool.plan !== "claude") {
 		reasons.push("parcs brief: claude plan only");
 	}
@@ -414,6 +422,17 @@ export interface Pick {
 }
 
 /** Ranks offers in the requested tier band; if the band is empty, tries one tier up, then one down. */
+/** The company that trained a model, whatever plan serves it (agy serves Claude and GPT too). */
+export function vendorOf(model: string): string {
+	const m = model.toLowerCase();
+
+	if (/^(gpt|o\d|codex)/u.test(m)) return "openai";
+	if (/^(gemini|gemma)/u.test(m)) return "google";
+	if (/(claude|opus|sonnet|haiku|fable)/u.test(m)) return "anthropic";
+
+	return "other";
+}
+
 export function pick(catalog: Catalog, kind: string, tier: string, state: State): Pick {
 	const offers = offersFrom(catalog, kind, state.pools);
 	const pools = new Map(state.pools.map((p) => [p, poolState(p, offers, state)]));

@@ -189,6 +189,7 @@ async function main(argv: string[]): Promise<number> {
 			options: {
 				dry: { type: "boolean" },
 				"allow-claude": { type: "boolean" },
+				"not-vendor": { type: "string", multiple: true },
 				kind: { type: "string" },
 				tier: { type: "string" },
 				"data-class": { type: "string" },
@@ -262,6 +263,7 @@ async function main(argv: string[]): Promise<number> {
 		},
 		nowMs: Date.now(),
 		dataClass,
+		notVendor: (values["not-vendor"] ?? []).flatMap((v) => v.split(",")).map((v) => v.trim().toLowerCase()),
 		reports: { "google-ai": google, codex, claude },
 		exhausted: readJson(`${home}/.local/state/agy-build/exhausted.json`, {}),
 		deny: legacy.deny ?? [],

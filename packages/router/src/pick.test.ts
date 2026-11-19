@@ -395,3 +395,13 @@ describe("brief", () => {
 		expect(parcs.stdout).toContain("parcs brief: claude plan only");
 	});
 });
+
+import { vendorOf } from "./pick.ts";
+import { test as vtest, expect as vexpect } from "vitest";
+vtest("vendorOf names the model maker, not the plan", () => {
+	vexpect(vendorOf("gpt-6-astra")).toBe("openai");
+	vexpect(vendorOf("gemini-4-neon")).toBe("google");
+	vexpect(vendorOf("claude-opus-5-5")).toBe("anthropic");
+	vexpect(vendorOf("fable")).toBe("anthropic");
+	vexpect(vendorOf("qwen3:8b")).toBe("other");
+});
