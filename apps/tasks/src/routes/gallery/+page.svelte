@@ -53,6 +53,15 @@
 		</p>
 	</header>
 
+	<form class="find" method="get" role="search">
+		<input
+			name="link"
+			value={data.link}
+			placeholder="Find by PR or issue: owner/repo#12"
+			aria-label="Find pages by GitHub link"
+		/>
+	</form>
+
 	{#if data.artifacts.length}
 		{#each groups as g (g.project)}
 			<h2 class="project">{g.project || "unfiled"}</h2>
@@ -69,6 +78,7 @@
 										><Icon name="lock" size={11} /> private</span
 									>{/if}
 								<span class="dim age">{ago(a.updated_at)}</span>
+								{#each a.links as l (l.url)}<span class="gh" title={l.url}>{l.label}</span>{/each}
 							</span>
 						</span>
 						<span class="card-arrow"><Icon name="arrow" size={16} /></span>
@@ -82,6 +92,20 @@
 </div>
 
 <style>
+	.find input {
+		width: 100%;
+		max-width: 360px;
+		margin: 8px 0 4px;
+		padding: 6px 10px;
+		font: inherit;
+		font-size: 13px;
+		color: var(--text-1);
+		background: var(--surface-1);
+		border: 1px solid var(--border-sub);
+	}
+	.gh {
+		color: var(--accent-b);
+	}
 	.project {
 		margin: 20px 0 8px;
 		font-size: 12px;

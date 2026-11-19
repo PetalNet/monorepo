@@ -319,6 +319,11 @@
 		<header class="html-head">
 			<a class="back mono" href="/gallery">&larr; gallery</a>
 			<span class="ht-title">{data.title}</span>
+			{#each data.links as l (l.url)}
+				<a class="gh mono" href={l.url} target="_blank" rel="noopener noreferrer" title={l.kind}
+					>{l.label} ↗</a
+				>
+			{/each}
 			{#if isInteractive}<span
 					class="ht-badge mono"
 					title="Runs in a sandboxed frame (no network, no cookies)">interactive</span
@@ -414,12 +419,25 @@
 			<a class="back mono" href="/gallery">&larr; gallery</a>
 			<h1>{data.title}</h1>
 			{#if data.description}<p class="ph-sub">{data.description}</p>{/if}
+			<p class="ph-sub">
+				{#each data.links as l (l.url)}
+					<a class="gh mono" href={l.url} target="_blank" rel="noopener noreferrer" title={l.kind}
+						>{l.label} ↗</a
+					>
+				{/each}
+			</p>
 		</header>
 		<article class="prose long">{@html data.bodyHtml}</article>
 	</div>
 {/if}
 
 <style>
+	.gh {
+		margin-right: 8px;
+		font-size: 12px;
+		color: var(--accent-b);
+		text-decoration: none;
+	}
 	.bridge {
 		display: flex;
 		flex-wrap: wrap;

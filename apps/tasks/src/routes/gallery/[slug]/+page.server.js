@@ -24,6 +24,7 @@ export function load({ params, locals }) {
 		kind: a.kind,
 		source: a.source,
 		rev: a.rev,
+		links: JSON.parse(a.links),
 		// the page may ask this viewer something: it has the feedback capability and they are in its audience
 		canAnswer:
 			JSON.parse(a.caps).includes("feedback") && JSON.parse(a.audience).includes(locals.user),
