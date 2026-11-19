@@ -309,6 +309,30 @@ def test_with_near_infrared_ground_in_shade_is_read_itself_not_given_the_class_o
     assert names == ["grass", "paved"]
     # Shaded paving at column 57 is nearer to sunlit turf (column 70) than to sunlit paving (column 44).
     assert (labels[:, 50:59] == 1).mean() > 0.98 and (labels[:, 61:70] == 0).mean() > 0.98
-    assert fit["hidden_ground"] == "read like any other cell" and any("crown" in prior for prior in fit["priors"])
+    assert fit["hidden_ground"].startswith("read like any other cell") and any(
+        "crown" in prior for prior in fit["priors"]
+    )
     # Without the band, hidden ground can only take its nearest sunlit neighbour's class.
     assert (filled[:, 55:59] == 0).all()
+
+
+def test_a_crown_over_paving_takes_the_paving_but_a_wood_and_a_roof_do_not():
+    labels = np.zeros((80, 160), dtype=np.uint8)
+    labels[:, :80] = 1  # paved on the west half, grass on the east
+    shown = np.ones_like(labels, dtype=bool)
+    shown[10:16, 20:26] = False  # a crown over the paving, read as vegetation
+    labels[10:16, 20:26] = 0
+    shown[10:16, 100:106] = False  # a crown over grass
+    labels[10:16, 100:106] = 0
+    shown[30:70, 5:75] = False  # a wood-sized vegetated patch inside the paving
+    labels[30:70, 5:75] = 0
+    shown[60:70, 90:100] = False  # a roof: hidden, but unvegetated
+    labels[60:70, 90:100] = 1
+
+    out, moved = surface.crown_ground(labels, shown, cell_m=1.0)
+
+    assert (out[10:16, 20:26] == 1).all()
+    assert (out[10:16, 100:106] == 0).all()
+    assert (out[30:70, 5:75] == 0).all()
+    assert (out[60:70, 90:100] == 1).all()
+    assert moved == 36

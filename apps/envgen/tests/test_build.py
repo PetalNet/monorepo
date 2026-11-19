@@ -158,6 +158,28 @@ def test_macro_colour_is_low_passed_at_the_documented_scale(tmp_path):
     assert width_m == pytest.approx(2.563 * MACRO_LOW_PASS_M, rel=0.1)
 
 
+def test_detail_keeps_what_the_macro_colour_low_passes_away(tmp_path):
+    h.write_dem(tmp_path / "dem.tif")
+    # Stripes 2 m wide, brightness 100 and 140 in one class: far finer than the 12 m low-pass.
+    west, north = h.WEST - 60, h.SOUTH + h.SIZE_M + 60
+    eastings = west + np.arange(246) + 0.5
+    rgb = np.full((3, 246, 246), 100, dtype=np.uint8)
+    rgb[:, :, (eastings // 2).astype(int) % 2 == 0] = 140
+    h.write_raster(tmp_path / "imagery.tif", rgb, west, north, 1.0)
+    out = tmp_path / "out"
+    manifest = build(h.write_site(tmp_path), out)
+    detail = manifest["detail"]
+    encoded = np.asarray(Image.open(out / detail["file"])).astype(float)
+    ratio = 2 ** ((encoded[..., 0] - detail["zero"]) / detail["zero"] * detail["log2_range"])
+    macro = macro_colour(out, manifest)[..., 0].astype(float)
+
+    row = ratio[:, 1024]
+    assert detail["pixels"] == ratio.shape[0] == ratio.shape[1]
+    assert row.max() / row.min() > 1.25
+    assert row.mean() == pytest.approx(1.0, abs=0.05)
+    assert macro[:, 512].max() - macro[:, 512].min() < 15
+
+
 def test_grey_imagery_with_an_alpha_band_builds(tmp_path):
     h.write_dem(tmp_path / "dem.tif")
     grey = np.full((2, 250, 250), 120, dtype=np.uint8)
@@ -184,11 +206,11 @@ def test_unchanged_inputs_reuse_stages_and_a_new_dem_reruns_only_elevation(site,
     out = tmp_path / "out"
     assert build(site, out)["stages_reused"] == []
     first = (out / "heightmap.png").read_bytes()
-    assert build(site, out)["stages_reused"] == ["elevation", "surface", "macro_colour"]
+    assert build(site, out)["stages_reused"] == ["elevation", "surface", "macro_colour", "detail"]
     assert (out / "heightmap.png").read_bytes() == first
 
     h.write_dem(tmp_path / "dem.tif", function=lambda e, n: h.plane(e, n) + 5)
-    assert build(site, out)["stages_reused"] == ["surface", "macro_colour"]
+    assert build(site, out)["stages_reused"] == ["surface", "macro_colour", "detail"]
     lowest = h.plane(*load_site(site).tile.bounds()[:2]) + 5
     assert json.loads((out / "build.json").read_text())["landscape"]["min_m"] == pytest.approx(lowest, abs=0.01)
 

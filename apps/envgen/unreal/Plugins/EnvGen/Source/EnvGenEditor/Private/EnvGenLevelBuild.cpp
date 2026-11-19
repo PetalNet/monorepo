@@ -47,6 +47,8 @@
 #include "Materials/MaterialExpressionMultiply.h"
 #include "Materials/MaterialExpressionObjectPositionWS.h"
 #include "Materials/MaterialExpressionPerInstanceRandom.h"
+#include "Materials/MaterialExpressionPower.h"
+#include "Materials/MaterialExpressionSmoothStep.h"
 #include "Materials/MaterialExpressionVertexColor.h"
 #include "Materials/MaterialExpressionTextureSample.h"
 #include "MeshDescription.h"
@@ -73,12 +75,19 @@ namespace
 	const FName PavedLayer(TEXT("paved"));
 	const FName SoilLayer(TEXT("soil"));
 	constexpr int32 DetailPixels = 256;
-	// Grass: a tuft of blades, so many tufts per 100 square metres, drawn out to this far. Looks, not measurements:
-	// the cover's height and density come from no source yet.
+	// A class edge between two weightmap vertices is a straight ramp, which at the camera's distance reads as a blur
+	// several metres wide. The material cuts the ramp to this fraction either side of 0.5 and lets the relief map
+	// move the cut a little: a look, not a measurement.
+	constexpr float EdgeSharpness = 0.12f;
+	constexpr float ReliefInfluence = 0.15f;
+	// Grass: a tuft of blades, so many tufts per 100 square metres, drawn out to this far. The blade height is the
+	// summer mowing height a land-grant university extension guide gives cool-season lawn turf, 3 to 4 inches (publications MG10, G6705).
+	// Density, blade count, radius and the tuft-to-tuft size spread have no source: looks.
 	constexpr int32 TuftBlades = 14;
 	constexpr float TuftRadiusCm = 9.f;
-	constexpr float BladeHeightMinCm = 8.f, BladeHeightMaxCm = 17.f;
-	constexpr float GrassDensityPer100M2 = 1000.f;
+	constexpr float BladeHeightMinCm = 7.6f, BladeHeightMaxCm = 10.2f;
+	constexpr float TuftScaleMin = 0.85f, TuftScaleMax = 1.15f;
+	constexpr float GrassDensityPer100M2 = 2000.f;
 	constexpr int32 GrassStartCullCm = 2500, GrassEndCullCm = 4500;
 	// How far a traced surface point may sit from the height the manifest says it should have.
 	constexpr double SurfaceToleranceCm = 5.0;
@@ -172,6 +181,9 @@ namespace
 		FString Directory;
 		// The tree inventory's file, when the build has one.
 		FString TreesFile;
+		// The photo's fine detail as a ratio to the macro colour: file, and how 8 bits map to a power of two.
+		FString RatioFile;
+		double RatioLog2Range = 1, RatioZero = 127;
 		FSurface Tile;
 		TOptional<FSurface> Surround;
 		TArray<FLayer> Layers;
@@ -278,6 +290,13 @@ namespace
 		{
 			Error = TEXT("the manifest needs surface.albedo and lighting");
 			return false;
+		}
+		const TSharedPtr<FJsonObject>* Ratio = nullptr;
+		if (Root->TryGetObjectField(TEXT("detail"), Ratio))
+		{
+			Out.RatioFile = (*Ratio)->GetStringField(TEXT("file"));
+			Out.RatioLog2Range = (*Ratio)->GetNumberField(TEXT("log2_range"));
+			Out.RatioZero = (*Ratio)->GetNumberField(TEXT("zero"));
 		}
 		const TSharedPtr<FJsonObject>* Trees = nullptr;
 		if (Root->TryGetObjectField(TEXT("trees"), Trees))
@@ -556,9 +575,14 @@ namespace
 		Colour->A.Connect(0, Lit);
 		Colour->B.Connect(0, Tuft);
 		// Thin blades pass light: lit from behind they glow with their own colour rather than going black.
-		Material->SetShadingModel(MSM_TwoSidedFoliage);
+		Material->SetShadingModel(MSM_DefaultLit);
 		UMaterialEditingLibrary::ConnectMaterialProperty(Colour, TEXT(""), MP_BaseColor);
-		UMaterialEditingLibrary::ConnectMaterialProperty(Colour, TEXT(""), MP_SubsurfaceColor);
+		// Lit as the ground under it: a two-sided blade's normal turns over on the side the camera sees, and a blade seen
+		// from the back would take no sun. A world-space up normal does not turn over.
+		Material->bTangentSpaceNormal = false;
+		UMaterialExpressionConstant3Vector* Up = Node<UMaterialExpressionConstant3Vector>(Material, -200, 200);
+		Up->Constant = FLinearColor(0, 0, 1);
+		UMaterialEditingLibrary::ConnectMaterialProperty(Up, TEXT(""), MP_Normal);
 		UMaterialExpressionConstant* Roughness = Node<UMaterialExpressionConstant>(Material, -200, 300);
 		Roughness->R = 0.75f;
 		UMaterialEditingLibrary::ConnectMaterialProperty(Roughness, TEXT(""), MP_Roughness);
@@ -567,23 +591,41 @@ namespace
 	}
 
 	/**
-	 * The ground: per class a scanned material, height-blended where classes meet. Evidence sets the colour that
-	 * varies over tens of metres (the macro colour map times the fitted albedo scale) and the scan adds everything
-	 * finer: its colour divided by its own mean, so it never shifts the colour. Each scan is read at two scales and
-	 * turns, mixed by broad noise, so the repeat does not show from the air.
+	 * The ground: per class a scanned material, blended where classes meet. Evidence sets the colour that varies
+	 * over tens of metres (the macro colour map times the fitted albedo scale) and, when the build has one, what the
+	 * photo shows finer than that (the ratio map: rows, tracks, markings, patches). The scan adds everything finer
+	 * still: its colour divided by its own mean, so it never shifts the colour. Each scan is read at two scales and
+	 * turns, mixed by broad noise, so the repeat does not show from the air. The class weights are cut to a sharp
+	 * edge where they cross one half, so an edge is as crisp as the photo's rather than as wide as a weightmap texel.
 	 */
-	UMaterial* MakeGroundMaterial(UTexture2D* Macro, UTexture2D* Detail, int32 Quads, double QuadCm, float AlbedoScale, const TArray<FLayer>& Layers, ULandscapeGrassType* GrassType,
-		TArray<UPackage*>& Packages)
+	UMaterial* MakeGroundMaterial(UTexture2D* Macro, UTexture2D* Ratio, const FManifest& Manifest, UTexture2D* Detail, int32 Quads, double QuadCm, float AlbedoScale,
+		const TArray<FLayer>& Layers, ULandscapeGrassType* GrassType, TArray<UPackage*>& Packages)
 	{
 		UMaterial* Material = NewAsset<UMaterial>(TEXT("M_Ground"), Packages);
 		UMaterialExpressionMultiply* MacroAlbedo = Node<UMaterialExpressionMultiply>(Material, -700, 0);
 		MacroAlbedo->A.Connect(0, Sample(Material, Macro, Quads, SAMPLERTYPE_Color, 0));
 		MacroAlbedo->ConstB = AlbedoScale;
+		UMaterialExpression* Base = MacroAlbedo;
+		if (Ratio)
+		{
+			// Encoded 8-bit value v in 0..1 is a power of two: 2 ^ (range * (255 v - zero) / zero).
+			UMaterialExpressionMultiply* Scaled = Node<UMaterialExpressionMultiply>(Material, -1000, -300);
+			Scaled->A.Connect(0, Sample(Material, Ratio, Quads, SAMPLERTYPE_LinearColor, -300));
+			Scaled->ConstB = float(Manifest.RatioLog2Range * 255.0 / Manifest.RatioZero);
+			UMaterialExpressionAdd* Exponent = Node<UMaterialExpressionAdd>(Material, -900, -300);
+			Exponent->A.Connect(0, Scaled);
+			Exponent->ConstB = float(-Manifest.RatioLog2Range);
+			UMaterialExpressionConstant* Two = Node<UMaterialExpressionConstant>(Material, -900, -400);
+			Two->R = 2.f;
+			UMaterialExpressionPower* Fine = Node<UMaterialExpressionPower>(Material, -800, -300);
+			Fine->Base.Connect(0, Two);
+			Fine->Exponent.Connect(0, Exponent);
+			UMaterialExpressionMultiply* WithFine = Node<UMaterialExpressionMultiply>(Material, -600, 0);
+			WithFine->A.Connect(0, MacroAlbedo);
+			WithFine->B.Connect(0, Fine);
+			Base = WithFine;
+		}
 		UMaterialExpressionTextureSample* MixNoise = Sample(Material, Detail, 1100.0 / QuadCm, SAMPLERTYPE_LinearGrayscale, 250);
-
-		UMaterialExpressionLandscapeLayerBlend* Colour = Node<UMaterialExpressionLandscapeLayerBlend>(Material, 0, 0);
-		UMaterialExpressionLandscapeLayerBlend* Normal = Node<UMaterialExpressionLandscapeLayerBlend>(Material, 0, 300);
-		UMaterialExpressionLandscapeLayerBlend* Rough = Node<UMaterialExpressionLandscapeLayerBlend>(Material, 0, 600);
 		const auto Mix = [&](UMaterialExpression* A, UMaterialExpression* B, int32 X, int32 Y)
 		{
 			UMaterialExpressionLinearInterpolate* Out = Node<UMaterialExpressionLinearInterpolate>(Material, X, Y);
@@ -592,6 +634,21 @@ namespace
 			Out->Alpha.Connect(1, MixNoise);
 			return Out;
 		};
+		const auto Combine = [&](UMaterialExpression* Sum, UMaterialExpression* Term, int32 X, int32 Y) -> UMaterialExpression*
+		{
+			if (!Sum)
+			{
+				return Term;
+			}
+			UMaterialExpressionAdd* Out = Node<UMaterialExpressionAdd>(Material, X, Y);
+			Out->A.Connect(0, Sum);
+			Out->B.Connect(0, Term);
+			return Out;
+		};
+		UMaterialExpression* ColourSum = nullptr;
+		UMaterialExpression* NormalSum = nullptr;
+		UMaterialExpression* RoughSum = nullptr;
+		UMaterialExpression* WeightSum = nullptr;
 		int32 Row = 0;
 		for (const FLayer& Layer : Layers)
 		{
@@ -605,7 +662,7 @@ namespace
 			Structure->A.Connect(0, Mix(ColourNear, ColourFar, -400, Y));
 			Structure->B.Connect(0, Mean);
 			UMaterialExpressionMultiply* Albedo = Node<UMaterialExpressionMultiply>(Material, -200, Y);
-			Albedo->A.Connect(0, MacroAlbedo);
+			Albedo->A.Connect(0, Base);
 			Albedo->B.Connect(0, Structure);
 
 			UMaterialExpressionTextureSample* NormalNear = Sample(Material, Layer.Normal, Repeat, SAMPLERTYPE_Normal, Y + 500);
@@ -613,21 +670,53 @@ namespace
 			UMaterialExpressionTextureSample* RoughFar = Sample(Material, Layer.Rough, Repeat * 2.3f, SAMPLERTYPE_LinearGrayscale, Y + 1000, 31.f);
 			UMaterialExpressionTextureSample* Relief = Sample(Material, Layer.Relief, Repeat, SAMPLERTYPE_LinearGrayscale, Y + 1250);
 
-			const bool bFirst = Row == 0;
-			const auto Add = [&](UMaterialExpressionLandscapeLayerBlend* Blend, UMaterialExpression* Input)
+			// This class's weight, moved a little by its relief, cut to a sharp edge at one half.
+			UMaterialExpressionLandscapeLayerSample* Weight = Node<UMaterialExpressionLandscapeLayerSample>(Material, 0, Y);
+			Weight->ParameterName = Layer.Name;
+			Weight->PreviewWeight = Row == 0 ? 1 : 0;
+			UMaterialExpressionAdd* Lifted = Node<UMaterialExpressionAdd>(Material, 100, Y);
+			UMaterialExpressionMultiply* ReliefShift = Node<UMaterialExpressionMultiply>(Material, 0, Y + 100);
+			ReliefShift->A.Connect(0, Relief);
+			ReliefShift->ConstB = ReliefInfluence;
+			Lifted->A.Connect(0, Weight);
+			Lifted->B.Connect(0, ReliefShift);
+			UMaterialExpressionAdd* Centred = Node<UMaterialExpressionAdd>(Material, 150, Y);
+			Centred->A.Connect(0, Lifted);
+			Centred->ConstB = -ReliefInfluence / 2;
+			UMaterialExpressionSmoothStep* Cut = Node<UMaterialExpressionSmoothStep>(Material, 200, Y);
+			Cut->Value.Connect(0, Centred);
+			Cut->ConstMin = 0.5f - EdgeSharpness;
+			Cut->ConstMax = 0.5f + EdgeSharpness;
+			// A little of the plain weight keeps the sum above zero where no class reaches one half.
+			UMaterialExpressionMultiply* Floor = Node<UMaterialExpressionMultiply>(Material, 200, Y + 100);
+			Floor->A.Connect(0, Weight);
+			Floor->ConstB = 0.001f;
+			UMaterialExpressionAdd* Sharp = Node<UMaterialExpressionAdd>(Material, 250, Y);
+			Sharp->A.Connect(0, Cut);
+			Sharp->B.Connect(0, Floor);
+
+			const auto Weighted = [&](UMaterialExpression* Input, int32 X)
 			{
-				FLayerBlendInput& Out = Blend->Layers.AddDefaulted_GetRef();
-				Out.LayerName = Layer.Name;
-				Out.BlendType = LB_HeightBlend;
-				Out.PreviewWeight = bFirst ? 1 : 0;
-				Out.LayerInput.Connect(0, Input);
-				Out.HeightInput.Connect(1, Relief);
+				UMaterialExpressionMultiply* Out = Node<UMaterialExpressionMultiply>(Material, X, Y);
+				Out->A.Connect(0, Input);
+				Out->B.Connect(0, Sharp);
+				return Out;
 			};
-			Add(Colour, Albedo);
-			Add(Normal, NormalNear);
-			Add(Rough, Mix(RoughNear, RoughFar, -400, Y + 900));
+			ColourSum = Combine(ColourSum, Weighted(Albedo, 300), 350, Y);
+			NormalSum = Combine(NormalSum, Weighted(NormalNear, 300), 350, Y + 300);
+			RoughSum = Combine(RoughSum, Weighted(Mix(RoughNear, RoughFar, -400, Y + 900), 300), 350, Y + 600);
+			WeightSum = Combine(WeightSum, Sharp, 350, Y + 900);
 			++Row;
 		}
+		UMaterialExpressionDivide* Colour = Node<UMaterialExpressionDivide>(Material, 500, 0);
+		Colour->A.Connect(0, ColourSum);
+		Colour->B.Connect(0, WeightSum);
+		UMaterialExpressionDivide* Normal = Node<UMaterialExpressionDivide>(Material, 500, 300);
+		Normal->A.Connect(0, NormalSum);
+		Normal->B.Connect(0, WeightSum);
+		UMaterialExpressionDivide* Rough = Node<UMaterialExpressionDivide>(Material, 500, 600);
+		Rough->A.Connect(0, RoughSum);
+		Rough->B.Connect(0, WeightSum);
 		if (GrassType)
 		{
 			// Where the grass class has weight, the engine grows tufts of the grass type.
@@ -1153,6 +1242,18 @@ bool FEnvGenLevelBuild::Start(const FString& ManifestPath, const FString& MapPat
 	IFileManager::Get().Delete(*MapFile);
 
 	UTexture2D* Macro = MakeTexture(TEXT("T_MacroColour"), MacroSize.X, MacroSize.Y, TSF_BGRA8, MacroBytes.GetData(), true, State->Packages);
+	UTexture2D* Ratio = nullptr;
+	if (!Manifest.RatioFile.IsEmpty())
+	{
+		TArray64<uint8> RatioBytes;
+		int32 RatioWidth = 0, RatioHeight = 0;
+		if (!DecodePng(Manifest.Directory / Manifest.RatioFile, ERGBFormat::BGRA, 8, RatioBytes, RatioWidth, RatioHeight))
+		{
+			UE_LOG(LogEnvGen, Error, TEXT("cannot decode %s"), *Manifest.RatioFile);
+			return false;
+		}
+		Ratio = MakeTexture(TEXT("T_DetailRatio"), RatioWidth, RatioHeight, TSF_BGRA8, RatioBytes.GetData(), false, State->Packages);
+	}
 	const TArray<uint8> Noise = DetailNoise();
 	UTexture2D* Detail = MakeTexture(TEXT("T_Detail"), DetailPixels, DetailPixels, TSF_G8, Noise.GetData(), false, State->Packages);
 	for (FLayer& Layer : Manifest.Layers)
@@ -1174,11 +1275,11 @@ bool FEnvGenLevelBuild::Start(const FString& ManifestPath, const FString& MapPat
 		Variety.StartCullDistance = FPerPlatformInt(GrassStartCullCm);
 		Variety.EndCullDistance = FPerPlatformInt(GrassEndCullCm);
 		Variety.Scaling = EGrassScaling::Uniform;
-		Variety.ScaleX = FFloatInterval(0.8f, 1.5f);
+		Variety.ScaleX = FFloatInterval(TuftScaleMin, TuftScaleMax);
 		Variety.RandomRotation = true;
 		Variety.AlignToSurface = true;
 	}
-	UMaterial* Material = MakeGroundMaterial(Macro, Detail, Manifest.Tile.Vertices - 1, Manifest.Tile.Scale.X, Manifest.AlbedoScale, Manifest.Layers, GrassType, State->Packages);
+	UMaterial* Material = MakeGroundMaterial(Macro, Ratio, Manifest, Detail, Manifest.Tile.Vertices - 1, Manifest.Tile.Scale.X, Manifest.AlbedoScale, Manifest.Layers, GrassType, State->Packages);
 	for (FLayer& Layer : Manifest.Layers)
 	{
 		Layer.Info = NewAsset<ULandscapeLayerInfoObject>(TEXT("LI_") + Layer.Name.ToString(), State->Packages);

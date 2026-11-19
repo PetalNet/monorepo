@@ -3,9 +3,9 @@
 Builds a game-ready Unreal environment from data: give it a site boundary and public elevation and
 imagery, and it regenerates the level from scratch.
 
-Evidence seeds only low-frequency facts: the shape of the ground and colour that varies over tens of
-metres. The engine generates everything finer, the same way everywhere, so quality does not change
-where one data source ends.
+Evidence seeds the shape of the ground, the colour that varies over tens of metres, and what the photo shows
+between neighbouring half-metre cells (the detail ratio below). The engine generates everything finer, the same way
+everywhere, so quality does not change where one data source ends.
 
 This slice covers the thinnest end-to-end path: site file → elevation → heightmap → Landscape with
 one grass layer tinted by a low-pass colour map → collision, a walking pawn, sun and sky, and scripted
@@ -33,6 +33,7 @@ envgen build site.json --out build/ --cache cache/
 | Cover        | lidar heights, a canopy height raster, both     | `canopy_height.tif`, `sunlit.tif`, north-up at 1 m                                                      |
 | Surface      | the imagery raster, and which ground is sunlit  | `surface_<class>.png`: one 8-bit weightmap per class                                                    |
 | Macro colour | the imagery, the sunlit ground and the classes  | `macro_colour.png`, low-passed at 12 m within each class; albedo when the site has a reflectance raster |
+| Detail       | the imagery, the sunlit ground and the classes  | `detail_ratio.png`: the photo over its own 12 m low-pass, per class, at about 0.5 m, as a power of two  |
 | Surround     | both rasters at coarse spacing, if asked for    | `context_heightmap.png`, `context_colour.png`                                                           |
 | Trees        | the cover rasters, the classes, a survey, a mix | `trees.json`: one row per tree                                                                          |
 | Manifest     | everything above                                | `build.json`: placement, georeference, stencil classes, hashes                                          |
@@ -115,8 +116,12 @@ nearest ground that shows it.
 - With a near-infrared band named in the site file the grass split is on `(NIR - R) / (NIR + R)` instead. Leaves
   reflect near-infrared and absorb red whether green or dry, so dry turf the colour of pale paving is still
   found. Each cell counts by the square of its red plus near-infrared. Every cell is then read itself, shade and
-  cover included: shade dims both bands together, and a cell under cover shows what the cover is. Ground under a
-  crown is therefore the vegetated class and a roof the unvegetated one, which is a prior and listed as one.
+  cover included: shade dims both bands together, and a cell under cover shows what the cover is. A roof is
+  therefore the unvegetated class. A patch of vegetation that cover hides, up to 1000 m2 (a crown, not a wood), then takes the
+  class most of the shown ground within 3 m of it has, so a tree over a car park does not paint grass in it. Both
+  the rule and its two numbers are priors and listed as such. On the real tile it moved 63616 cells (15 900 m2) and the paved share went from 52.4 % to 54.0 % (a 30 m land cover product says 51 %),
+  while the correlation with that product's impervious share by 30 m cell rose from 0.658 to 0.666. The share
+  inside the 2026-09 survey's footprint did not change (2.8 %).
 - Soil against paved: the same method on `(R - B) / (R + G + B)` over the sunlit cells that are not grass.
 - A split is made only when all of these hold. Each group covers at least 1000 m2. The colours are two
   populations: a two-component Gaussian mixture, started from the cut and fitted by EM, has components at
@@ -245,11 +250,30 @@ macro colour map times the albedo scale), and the scan adds structure: its colou
 never shifts the colour. The colour and roughness of each scan are read at two scales and turns, mixed by broad noise, so the repeat does
 not show from the air.
 
-The grass class also grows tufts: Landscape Grass, 14 blades of 8 to 17 cm (scaled 0.8 to 1.5) to a tuft, up to 1000 tufts per 100
-m2 where the class has full weight, drawn out to 45 m, coloured from the class's mean photo colour. The host
+The ground colour also carries the detail ratio (`detail_ratio.png`): each 0.5 m pixel of the photo divided by the
+12 m low-pass of its own class's sunlit ground, in linear light, stored as a power of two (8 bits, 127 steps per
+power, range one stop either way). It brings back what the macro colour leaves out (mowing rows, tracks, lot
+markings, patches of straw) without moving the albedo, which stays the fitted one. It is 1 where cover or shadow
+hides the ground, because the engine draws those, so a roof, which the cover stage counts, stays flat until buildings are
+modelled. The albedo curves are not applied to it: their gamma (0.33 for grass) comes from a fit across 10 m
+pixels, where noise flattens the slope, and would take most of the contrast out. Treating the imagery's tone
+curve as sRGB is a prior. The source is the imagery's date (2024-08 on the real tile), not the target date's, so
+a row mown since is not in it. The ratio is a 2048 pixel texture, about 3 MB on the card.
+
+The class weights are cut to a sharp edge in the material where they cross one half (`EdgeSharpness`, a look), moved
+by 0.15 of the scan's relief: a weightmap texel is 0.5 m and its ramp reads as a blur several metres wide from the
+air.
+
+The grass class also grows tufts: Landscape Grass, 14 blades of 7.6 to 10.2 cm (scaled 0.85 to 1.15) to a tuft, up to 2000 tufts per 100
+m2 where the class has full weight, drawn out to 45 m, coloured from the class's mean photo colour. The blade
+height is the summer mowing height a land-grant university extension guide gives cool-season lawn turf, 3 to 4 inches (its publication codes are MG10 and G6705);
+nothing gives the other values. A blade is lit as the ground under it: its material's normal is world up, because a
+two-sided blade's normal turns over on the side the camera sees and half of them took no sun. That, not the
+colour or the shadows, is why the tufts read black (checked by turning shadows off, then the engine's virtual shadow maps off,
+then the shading model: no change; world-up normal: blade pixels from 38 to 58 in sRGB against 85 for the ground). The host
 project makes grass maps while the game runs (`grass.GrassMap.UseRuntimeGeneration=1`): the level is
-regenerated, never cooked. The tuft size, density and cull distance are looks, not measurements; no source
-gives a cover's height or density yet.
+regenerated, never cooked. The blade count, tuft radius, density, size spread and cull distance are looks, not
+measurements: priors. No source gives a cover's density; the 2026-09 survey's photo could give cover fraction.
 
 The tuft mesh is built in full, not with the fast build. On 5.8.4 the engine built a fast-built tuft's
 instances and drew none of them in a level without trees; with the trees, which are Nanite foliage, in the
@@ -257,6 +281,9 @@ level it drew some. What the fast build leaves out is not known, so this avoids 
 it. A tour counts the tufts the engine has built near the camera (below), which that fault does not change;
 `gates/grass-drawn.ps1` checks they are drawn, by comparing a walk frame with the same frame under
 `grass.Enable=0`.
+
+`r.Shadow.Virtual.MaxPhysicalPages` is 2048 in the host project (the default is 4096 pages, 512 MB): the card's
+peak in the fly tour fell from 7630 to 7350 MiB. Hand-set, not fitted.
 
 `r.Nanite.Streaming.StreamingPoolSize` is 128 MB in the host project. The engine commits its default of 512
 MB on the card whatever the scene needs. 128 is hand-set, not fitted: stills at the fly and walk stations

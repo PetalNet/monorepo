@@ -34,9 +34,15 @@ from .site import (
 
 # Part of every stage key. Bump it by hand when a code change alters a stage's output for the same
 # inputs (frame.py and the resampling included); nothing detects that automatically.
-PIPELINE_VERSION = 10
+PIPELINE_VERSION = 11
 
 MACRO_PIXELS = 1024
+# The fine detail: pixels across the tile (about half a metre, the imagery's own resolution) and the largest
+# ratio it carries, as a power of two either way. 8 bits at 127 steps per power of two.
+DETAIL_PIXELS = 2048
+DETAIL_LOG2_RANGE = 1.0
+DETAIL_ZERO = 127
+DETAIL_FADE_CELLS = 2.0
 # The macro map carries colour that varies over tens of metres. Finer detail comes from the engine.
 MACRO_LOW_PASS_M = 12.0
 
@@ -548,6 +554,60 @@ def build_macro_colour(
     }
 
 
+def build_detail(
+    tile: Tile,
+    crs: str,
+    imagery: Path,
+    out: Path,
+    covering: dict | None,
+    layers: list[dict],
+    bands: list[int] | None = None,
+) -> dict:
+    """What the photo shows finer than the macro colour: each pixel over the class's own smooth colour around it.
+
+    The macro colour is a 12 m low-pass, so mowing rows, tyre tracks, lot markings and patches of straw are gone from
+    it. The ratio of the photo, in linear light, to that same low-pass puts them back without moving the albedo: it is
+    about 1 on average, and 1 wherever cover or shadow hides the ground, because the engine draws those. The albedo
+    curves are not applied to it: their gamma (0.33 for grass) is fitted across 10 m pixels, where noise in the photo
+    flattens the slope, and would take most of the contrast out of what the photo shows between neighbouring cells.
+    """
+    spacing = tile.size_m / DETAIL_PIXELS
+    north_up = _warp(
+        imagery,
+        crs,
+        tile.west + spacing / 2,
+        tile.north - spacing / 2,
+        spacing,
+        DETAIL_PIXELS,
+        Resampling.average,
+        bands[:3] if bands else None,
+    )
+    photo = surface.to_linear(np.stack([_fill_gaps(band, "imagery")[0] for band in north_up]))
+    open_cells = open_ground(out, covering, DETAIL_PIXELS)
+    shares = np.stack([_sample_cells(share, DETAIL_PIXELS) for share in read_weights(out, layers)])
+    own = np.argmax(shares, axis=0)
+    sigma = MACRO_LOW_PASS_M / spacing
+    smooth = np.empty_like(photo)
+    for index, layer in enumerate(layers):
+        mine = own == index
+        passed = _low_pass_of_sunlit(photo, open_cells * mine, sigma)
+        smooth[:, mine] = passed[:, mine]
+    ratio = np.maximum(photo, 1e-4) / np.maximum(smooth, 1e-4)
+    # Where the ground is hidden the ratio is 1, fading in over a few cells so no seam shows at a crown's edge.
+    trust = _blur(open_cells, DETAIL_FADE_CELLS)
+    log_ratio = np.clip(np.log2(ratio) * trust, -DETAIL_LOG2_RANGE, DETAIL_LOG2_RANGE)
+    _write_rgb(DETAIL_ZERO + DETAIL_ZERO * log_ratio / DETAIL_LOG2_RANGE, out / "detail_ratio.png")
+    return {
+        "file": "detail_ratio.png",
+        "pixels": DETAIL_PIXELS,
+        "log2_range": DETAIL_LOG2_RANGE,
+        "zero": DETAIL_ZERO,
+        "low_pass_m": MACRO_LOW_PASS_M,
+        "open_fraction": float(open_cells.mean()),
+        "ratio_p5_p95": [float(2 ** np.percentile(log_ratio, 5)), float(2 ** np.percentile(log_ratio, 95))],
+    }
+
+
 def read_heights(out: Path, elevation: dict) -> np.ndarray:
     """The detailed surface back from its heightmap, north-up, in metres."""
     heights = np.asarray(Image.open(out / elevation["file"]))
@@ -777,6 +837,8 @@ def build(site_path: Path, out: Path, cache: Path | None = None) -> dict:
             surface.GROUP_MIN_M2,
             surface.EDGE_M,
             surface.MAJORITY_CELLS,
+            surface.CROWN_MAX_M2,
+            surface.CROWN_RING_M,
         ),
         lambda: build_surface(site, imagery, out, covering, reflectance),
     )
@@ -807,6 +869,33 @@ def build(site_path: Path, out: Path, cache: Path | None = None) -> dict:
         ),
     )
     macro = stages["macro_colour"]
+    stages["detail"] = _cached(
+        out,
+        "detail",
+        _stage_key(
+            grid,
+            site.crs,
+            sources["imagery"]["sha256"],
+            cover_hashes,
+            [sha256_file(out / name) for name in classes["files"]],
+            DETAIL_PIXELS,
+            DETAIL_LOG2_RANGE,
+            DETAIL_ZERO,
+            DETAIL_FADE_CELLS,
+            MACRO_LOW_PASS_M,
+            bands,
+        ),
+        lambda: build_detail(
+            tile,
+            site.crs,
+            imagery,
+            out,
+            covering,
+            classes["layers"],
+            imagery_bands(site.imagery)[0],
+        ),
+    )
+    detail = stages["detail"]
     inventory = None
     if covering:
         for name, source in (("survey", site.survey), ("tree_mix", site.tree_mix)):
@@ -882,6 +971,7 @@ def build(site_path: Path, out: Path, cache: Path | None = None) -> dict:
         "macro_colour": {
             key: macro[key] for key in ("file", "pixels", "low_pass_m", "filled_fraction", "hidden_fraction")
         },
+        "detail": {key: value for key, value in detail.items() if key not in ("cached",)},
         "surface": {key: value for key, value in classes.items() if key not in ("files", "cached")},
         "lighting": light.lighting(
             site.target_date,
@@ -893,7 +983,7 @@ def build(site_path: Path, out: Path, cache: Path | None = None) -> dict:
         "stencil_classes": STENCIL_CLASSES,
         "sources": sources,
     }
-    artifacts = [elevation["file"], macro["file"], *classes["files"]]
+    artifacts = [elevation["file"], macro["file"], detail["file"], *classes["files"]]
     if covering:
         manifest["cover"] = {key: value for key, value in covering.items() if key not in ("files", "cached")}
         artifacts += covering["files"]

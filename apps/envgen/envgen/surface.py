@@ -38,6 +38,11 @@ MIXTURE_ITERATIONS = 60
 GROUP_MIN_M2 = 1000.0
 # Class edges blend over about this distance. A look, not a measurement.
 EDGE_M = 1.0
+# A crown's ground: vegetation hidden by cover, in patches up to this big, takes the class that most of the shown
+# ground around the patch has. A tree seen from above is vegetation, but its ground is what is around it. A prior.
+CROWN_MAX_M2 = 1000.0
+# How far out from a patch the ground that votes for its class reaches. A prior.
+CROWN_RING_M = 3.0
 # The class of a cell is the majority within this many cells around it (3 by 3).
 MAJORITY_CELLS = 3
 
@@ -209,9 +214,47 @@ def classify(
         labels = labels[tuple(nearest)]
         hidden = "takes the class of the nearest sunlit cell"
     else:
-        hidden = "read like any other cell"
-        priors.append("prior: ground under a crown is the vegetated class, and a roof the unvegetated one")
-    return labels, names, {"splits": splits, "priors": priors, "settings": SETTINGS, "hidden_ground": hidden}
+        hidden = (
+            "read like any other cell; vegetation hidden by cover in patches takes the class of the ground around it"
+        )
+        labels, moved = crown_ground(labels, shown, cell_m)
+        priors.append(
+            "prior: ground under a crown is the class of the shown ground around it, and a roof the unvegetated one"
+        )
+    fit = {"splits": splits, "priors": priors, "settings": SETTINGS, "hidden_ground": hidden}
+    if nir is not None:
+        fit["crown_cells_moved"] = moved
+    return labels, names, fit
+
+
+def crown_ground(labels: np.ndarray, shown: np.ndarray, cell_m: float) -> tuple[np.ndarray, int]:
+    """Give the vegetation that cover hides, patch by patch, the class most of the ground around the patch has.
+
+    The imagery of a cell under a crown shows the crown, so it reads as vegetation whatever lies under it. A tree over
+    a car park then paints a patch of grass in it. Only patches small enough to be crowns (not woods) are moved, and only
+    by the ground that is shown around them. Class 0 is the vegetated class.
+    """
+    hidden = ~shown & (labels == 0)
+    patches, count = ndimage.label(hidden)
+    if not count:
+        return labels, 0
+    reach = max(1, round(CROWN_RING_M / cell_m))
+    ring = ndimage.binary_dilation(hidden, iterations=reach) & shown
+    # Each ring cell votes for the patch nearest it.
+    nearest = ndimage.distance_transform_edt(patches == 0, return_distances=False, return_indices=True)
+    owner = patches[nearest[0], nearest[1]]
+    classes = int(labels.max()) + 1
+    votes = np.bincount(owner[ring] * classes + labels[ring], minlength=(count + 1) * classes).reshape(
+        count + 1, classes
+    )
+    area = np.bincount(patches.ravel(), minlength=count + 1) * cell_m**2
+    winner = votes.argmax(axis=1).astype(labels.dtype)
+    move = (area <= CROWN_MAX_M2) & (votes.sum(axis=1) > 0) & (winner != 0)
+    move[0] = False
+    moved = move[patches] & hidden
+    out = labels.copy()
+    out[moved] = winner[patches][moved]
+    return out, int(moved.sum())
 
 
 def apply_splits(rgb: np.ndarray, nir: np.ndarray | None, splits: list[dict]) -> np.ndarray:
@@ -296,6 +339,8 @@ SETTINGS = {
     "group_min_m2": GROUP_MIN_M2,
     "edge_m": EDGE_M,
     "majority_cells": MAJORITY_CELLS,
+    "crown_max_m2": CROWN_MAX_M2,
+    "crown_ring_m": CROWN_RING_M,
     "pure_share": PURE_SHARE,
     "pure_sunlit": PURE_SUNLIT,
     "pure_min_pixels": PURE_MIN_PIXELS,
