@@ -9,7 +9,8 @@ END_PHRASES = {
     "that's all", "thats all", "that is all", "that's it", "thats it", "that's everything",
     "goodbye", "good bye", "bye", "bye bye", "never mind", "nevermind", "stop listening",
     "we're done", "i'm done", "that'll be all", "that will be all",
-}
+    "hang up", "hang up the call", "end the call", "end call", "end the call now", "hang up the phone",
+}  # a clear goodbye is the whole utterance: "don't hang up" or "can you end the call on the other line" is not one
 SIGN_OFF = "Okay, talk later."
 _SENTENCE_END = re.compile(r"""([.!?]["')\]]?)\s+|\n+""")
 _ABBREVIATION = re.compile(r"\b(?:Mr|Mrs|Ms|Dr|St|vs|etc|e\.g|i\.e|a\.m|p\.m)\.$", re.I)
@@ -31,7 +32,7 @@ def is_backchannel(sentence: str) -> bool:
 
 def is_end_phrase(text: str) -> bool:
     words = re.sub(r"[^a-z' ]", "", text.lower().replace("’", "'")).split()
-    for filler in ("okay", "ok", "thanks", "thank", "you", "janet", "alright", "no", "for", "now"):
+    for filler in ("okay", "ok", "thanks", "thank", "you", "janet", "alright", "no", "for", "now", "please"):
         words = [w for w in words if w != filler]
     return " ".join(words) in END_PHRASES
 

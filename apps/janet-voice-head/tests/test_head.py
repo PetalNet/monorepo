@@ -49,6 +49,20 @@ class ConversationTest(HeadCase):
         self.assertTrue(done["end_conversation"])
         self.assertEqual(self.prompts(), [])
 
+    def test_hang_up_says_goodbye_ends_the_call_and_merges_it(self):
+        conv = self.open()
+        self.turn(conv, "hello there")
+        sentences, done = self.turn(conv, "Hang up.")
+        self.assertEqual(sentences, ["Okay, talk later."])
+        self.assertTrue(done["end_conversation"])
+        self.assertEqual(self.prompts().count(next(p for p in self.prompts() if "hello there" in p)), 1)
+        self.end(conv)
+        self.assertTrue(self.hub.texts("voice-hard"))
+
+    def test_an_ambiguous_phrase_does_not_hang_up(self):
+        _, done = self.turn(self.open(), "don't hang up")
+        self.assertFalse(done["end_conversation"])
+
     def test_the_same_client_ref_gets_the_same_conversation(self):
         self.assertEqual(self.open(client_ref="wake-1"), self.open(client_ref="wake-1"))
         self.assertNotEqual(self.open(client_ref="wake-1"), self.open(client_ref="wake-2"))
