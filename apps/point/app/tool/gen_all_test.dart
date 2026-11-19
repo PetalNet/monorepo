@@ -78,4 +78,4 @@ void main(List<String> args) {
 
 String _alias(String path) => path
     .replaceAll(RegExp(r'\.dart$'), '')
-    .replaceAll(RegExp(r'[^A-Za-z0-9]+'), '_');
+    .replaceAll(RegExp('[^A-Za-z0-9]+'), '_');
