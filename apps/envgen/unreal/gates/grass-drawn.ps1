@@ -1,25 +1,41 @@
 <#
 .SYNOPSIS
-Fails unless grass tufts are drawn, not only built, at a fixed point on the walk tour.
+Fails unless grass tufts are drawn, not only built, where a walker stands on grass.
 
 .DESCRIPTION
-Runs the walk tour twice off-screen at a fixed time step, once as built and once with grass.Enable=0, and
-compares the same frame of each. The tour's own tuft count cannot tell the two apart from a level whose tufts
-are built and not drawn, which is how 5.8.4 treats a tuft mesh made with the fast build in a level without
-Nanite foliage.
+Runs the walk tour twice off-screen at a fixed time step, once as built and once with grass.Enable=0, and compares the
+same frame of each over the ground the walker sees nearby: the lower part of the frame, below the horizon and within
+the tufts' draw distance. The tour's own tuft count cannot tell the two apart from a level whose tufts are built and
+not drawn, which is how 5.8.4 treats a tuft mesh made with the fast build in a level without Nanite foliage.
+
+The gate measures nothing useful where the walker is not on grass, so it refuses such a frame: it reads the grass
+weight of the build at the camera and at 4 m and 8 m along the path, and every one must be the full weight. The frame
+therefore has to be chosen on grass (the default is). With -Noise it also runs the grass-on tour a second time and
+reports how much two identical runs differ over the same ground, the floor the bar has to clear.
 
 .EXAMPLE
-./grass-drawn.ps1 -EngineRoot 'C:\Program Files\Epic Games\UE_5.8' -WorkDir C:\envgen\Host58
+./grass-drawn.ps1 -EngineRoot 'C:\Program Files\Epic Games\UE_5.8' -WorkDir C:\envgen\Host58 -BuildDir C:\envgen\build\site
 #>
 param(
 	[Parameter(Mandatory)] [string] $EngineRoot,
 	[Parameter(Mandatory)] [string] $WorkDir,
-	[int] $Frame = 600,
-	# A pixel differs when any channel is off by more than this, out of 255.
-	[int] $ChannelStep = 24,
-	# Two runs of the same level differed on at most 0.3 % of pixels by that measure, and drawn tufts changed
-	# 3.7 % or more, so the bar sits between them. Hand-set.
-	[double] $MinShare = 0.01
+	# The folder of the build the level was made from: its manifest and surface weights say where the grass is.
+	[Parameter(Mandatory)] [string] $BuildDir,
+	# A walk frame on full grass weight with the camera heading along grass: found by reading the walk path over the
+	# build's grass weight. Frame 600, the walk's station, stands on a class edge and shows paving and sky as well.
+	[int] $Frame = 840,
+	# A pixel differs when any channel is off by more than this, out of 255. Two runs of the same level at a fixed time
+	# step were identical (0 pixels differ, -Noise reports it), so any step above rounding sees a real change; blades that
+	# are lit and coloured as the ground under them move a pixel by 10 to 20, which the earlier step of 24 missed.
+	[int] $ChannelStep = 8,
+	# The top of the ground that counts, as a share of the frame's height from the top: below the horizon of a level
+	# walker, so the sky, which grass cannot change, is not in the denominator.
+	[double] $GroundTop = 0.6,
+	# Of the ground pixels below $GroundTop, the share that grass must change. Held at 1 %, the earlier bar. Drawn
+	# tufts changed 3.7 % of a whole frame (step 24) when they were black; the lit tufts changed 0.7 % of the grass-only
+	# ground at step 24, which is why the step is lower and the bar is not.
+	[double] $MinShare = 0.01,
+	[switch] $Noise
 )
 $ErrorActionPreference = 'Stop'
 Add-Type -AssemblyName System.Drawing
@@ -29,29 +45,71 @@ function Get-Frame([string] $Name, [string[]] $Extra) {
 	Remove-Item $dir -Recurse -Force -ErrorAction SilentlyContinue
 	New-Item -ItemType Directory -Force $dir | Out-Null
 	$arguments = @('-nosound', '-RenderOffscreen', '-ForceRes', '-UseFixedTimeStep', '-FPS=30', "-EnvGenTourFrames=$dir", "-EnvGenTourFrameEvery=$Frame") + $Extra
-	$summary = & (Join-Path $PSScriptRoot '..\run-tour.ps1') -EngineRoot $EngineRoot -WorkDir $WorkDir -Tour walk -Seconds ([int][math]::Ceiling($Frame / 30) + 1) -ExtraArgs $arguments | Out-String | ConvertFrom-Json
+	$summary = & (Join-Path $PSScriptRoot '..\run-tour.ps1') -EngineRoot $EngineRoot -WorkDir $WorkDir -Tour walk -Seconds ([int][math]::Ceiling($Frame / 30) + 3) -ExtraArgs $arguments | Out-String | ConvertFrom-Json
 	$file = Join-Path $dir ('frame_{0:d5}.png' -f $Frame)
 	if (-not (Test-Path $file)) { throw "the tour wrote no $file" }
-	[pscustomobject]@{ File = $file; Built = $summary.grass_tufts_within_25m.median }
+	Copy-Item (Join-Path $WorkDir 'Saved\EnvGen\tour_walk.csv') (Join-Path $dir 'tour.csv')
+	[pscustomobject]@{ File = $file; Csv = (Join-Path $dir 'tour.csv'); Built = $summary.grass_tufts_within_25m.median }
+}
+
+# The share of ground pixels, every fourth each way, on which two frames differ by more than $ChannelStep.
+function Get-Share([string] $First, [string] $Second) {
+	$a = [System.Drawing.Bitmap]::new($First)
+	$b = [System.Drawing.Bitmap]::new($Second)
+	try {
+		if ($a.Width -ne $b.Width -or $a.Height -ne $b.Height) { throw 'the two frames differ in size' }
+		$differ = 0; $seen = 0; $sum = 0
+		for ($y = [int]($a.Height * $GroundTop); $y -lt $a.Height; $y += 4) {
+			for ($x = 0; $x -lt $a.Width; $x += 4) {
+				$p = $a.GetPixel($x, $y); $q = $b.GetPixel($x, $y)
+				$seen++
+				$sum += ([math]::Abs($p.R - $q.R) + [math]::Abs($p.G - $q.G) + [math]::Abs($p.B - $q.B)) / 3
+				if ([math]::Max([math]::Max([math]::Abs($p.R - $q.R), [math]::Abs($p.G - $q.G)), [math]::Abs($p.B - $q.B)) -gt $ChannelStep) { $differ++ }
+			}
+		}
+		[pscustomobject]@{ Share = $differ / $seen; Mean = $sum / $seen }
+	} finally { $a.Dispose(); $b.Dispose() }
+}
+
+# The grass weight of the build, out of 255, at a place given in centimetres from the tile centre. The weight image is
+# indexed [east, north] (rows east, columns north), a pixel to a quad, from the tile's south-west corner.
+function Get-GrassWeight($Manifest, [System.Drawing.Bitmap] $Weights, [double] $NorthCm, [double] $EastCm) {
+	$north = [int][math]::Round(($NorthCm - $Manifest.landscape.location_cm[0]) / $Manifest.landscape.scale[0])
+	$east = [int][math]::Round(($EastCm - $Manifest.landscape.location_cm[1]) / $Manifest.landscape.scale[1])
+	if ($east -lt 0 -or $north -lt 0 -or $north -ge $Weights.Width -or $east -ge $Weights.Height) { return 0 }
+	$Weights.GetPixel($north, $east).R
 }
 
 $with = Get-Frame 'on' @()
-$without = Get-Frame 'off' @('-ini:Engine:[SystemSettings]:grass.Enable=0')
-$a = [System.Drawing.Bitmap]::new($with.File)
-$b = [System.Drawing.Bitmap]::new($without.File)
+$manifest = Get-Content (Join-Path $BuildDir 'build.json') -Raw | ConvertFrom-Json
+$grassFile = ($manifest.surface.layers | Where-Object { $_.name -eq 'grass' }).file
+if (-not $grassFile) { throw 'the build has no grass class' }
+$weights = [System.Drawing.Bitmap]::new((Join-Path $BuildDir $grassFile))
 try {
-	if ($a.Width -ne $b.Width -or $a.Height -ne $b.Height) { throw 'the two frames differ in size' }
-	# Every fourth pixel each way is plenty for a share.
-	$differ = 0; $seen = 0
-	for ($y = 0; $y -lt $a.Height; $y += 4) {
-		for ($x = 0; $x -lt $a.Width; $x += 4) {
-			$p = $a.GetPixel($x, $y); $q = $b.GetPixel($x, $y)
-			$seen++
-			if ([math]::Max([math]::Max([math]::Abs($p.R - $q.R), [math]::Abs($p.G - $q.G)), [math]::Abs($p.B - $q.B)) -gt $ChannelStep) { $differ++ }
-		}
+	$rows = Import-Csv $with.Csv
+	# One second is 4 m of walking: the camera, then 4 m and 8 m ahead.
+	$lowest = 255
+	foreach ($row in $Frame, ($Frame + 30), ($Frame + 60)) {
+		$lowest = [math]::Min($lowest, (Get-GrassWeight $manifest $weights ([double]$rows[$row].x_cm) ([double]$rows[$row].y_cm)))
 	}
-} finally { $a.Dispose(); $b.Dispose() }
-$share = $differ / $seen
-$ok = $share -ge $MinShare
-[ordered]@{ grass_drawn_ok = $ok; frame = $Frame; share_of_pixels_grass_changes = [math]::Round($share, 4); min_share = $MinShare; tufts_built_within_25m_median = $with.Built } | ConvertTo-Json
+} finally { $weights.Dispose() }
+$without = Get-Frame 'off' @('-ini:Engine:[SystemSettings]:grass.Enable=0')
+$measured = Get-Share $with.File $without.File
+$share = $measured.Share
+$result = [ordered]@{ frame = $Frame }
+if ($Noise) {
+	$again = Get-Frame 'on2' @()
+	$twin = Get-Share $with.File $again.File
+	$result.share_two_identical_runs_differ = [math]::Round($twin.Share, 4)
+	$result.mean_abs_diff_two_identical_runs = [math]::Round($twin.Mean, 3)
+}
+$ok = $share -ge $MinShare -and $lowest -ge 250
+$result.grass_drawn_ok = $ok
+$result.share_of_near_ground_pixels_grass_changes = [math]::Round($share, 4)
+$result.mean_abs_diff_grass_on_off = [math]::Round($measured.Mean, 3)
+$result.min_share = $MinShare
+$result.lowest_grass_weight_at_camera_and_ahead = $lowest
+$result.tufts_built_within_25m_median = $with.Built
+$result | ConvertTo-Json
+if ($lowest -lt 250) { Write-Error "frame $Frame is not on full grass weight ($lowest of 255): choose a frame where the walker stands on grass" }
 if (-not $ok) { exit 1 }

@@ -17,7 +17,7 @@ from rasterio.warp import reproject, transform, transform_bounds
 from rasterio.windows import Window, from_bounds
 from scipy import ndimage
 
-from . import cover, frame, lidar, light, surface, trees
+from . import cover, frame, grain, lidar, light, surface, trees, turf
 from .acquire import acquire, sha256_file
 from .site import (
     CONTEXT_QUADS,
@@ -34,7 +34,7 @@ from .site import (
 
 # Part of every stage key. Bump it by hand when a code change alters a stage's output for the same
 # inputs (frame.py and the resampling included); nothing detects that automatically.
-PIPELINE_VERSION = 12
+PIPELINE_VERSION = 13
 
 MACRO_PIXELS = 1024
 # The fine detail: pixels across the tile (about half a metre, the imagery's own resolution) and the largest
@@ -43,6 +43,8 @@ DETAIL_PIXELS = 2048
 DETAIL_LOG2_RANGE = 1.0
 DETAIL_ZERO = 127
 DETAIL_FADE_CELLS = 2.0
+# The survey orthophoto's low-pass runs on its pixels pooled to about this many metres (the imagery's own resolution).
+SURVEY_POOL_M = 0.5
 # The macro map carries colour that varies over tens of metres. Finer detail comes from the engine.
 MACRO_LOW_PASS_M = 12.0
 
@@ -613,6 +615,131 @@ def build_detail(
     }
 
 
+def build_grain(site: Site, out: Path, layers: list[dict]) -> dict:
+    """The centimetre-scale texture of grass, measured from the survey's orthophoto (see grain.py)."""
+    names = [layer["name"] for layer in layers]
+    if "grass" not in names:
+        return {"files": [], "skipped": "the tile has no grass class"}
+    tile = site.tile
+    shares = read_weights(out, layers)
+    measured, reason = grain.measure(
+        Path(site.survey.orthophoto),
+        site.crs,
+        tile.west,
+        tile.north,
+        tile.size_m,
+        shares[names.index("grass")],
+        site.seed,
+    )
+    if measured is None:
+        return {"files": [], "skipped": reason}
+    Image.fromarray(measured.encoded, mode="L").save(out / "grain.png")
+    return {
+        "file": "grain.png",
+        "pixels": grain.PIXELS,
+        "pixel_m": measured.pixel_m,
+        "repeat_m": measured.pixel_m * grain.PIXELS,
+        "sharp_distance_m": grain.sharp_distance_m(measured.pixel_m),
+        "near_share": grain.NEAR_SHARE,
+        "log2_range": grain.LOG2_RANGE,
+        "zero": grain.ZERO,
+        "std_log2": measured.std_log2,
+        "blocks_used": measured.blocks_used,
+        "blocks_seen": measured.blocks_seen,
+        "block_std_range": list(measured.block_std_range),
+        "low_pass_m": grain.LOW_PASS_M,
+        "priors": grain.PRIORS,
+    }
+
+
+def build_survey_detail(site: Site, out: Path, covering: dict | None, layers: list[dict]) -> dict:
+    """The detail ratio again, from the survey's orthophoto at its own pixel size, where its footprint is.
+
+    The same ratio as build_detail's (luminance of each pixel over the class's own 12 m low-pass of sunlit ground, in
+    linear light, a power of two, one stop either way, 1 where cover hides the ground), but a centimetre a pixel, and of
+    luminance only: the file is one channel, because at that size a colour image is hundreds of megabytes. Inside the
+    footprint it replaces the imagery's ratio, which is the same ground a year or two earlier at half a metre.
+    """
+    tile = site.tile
+    shares = np.stack([_sample_cells(share, DETAIL_PIXELS) for share in read_weights(out, layers)])
+    own = np.argmax(shares, axis=0)
+    open_cells = open_ground(out, covering, DETAIL_PIXELS)
+    cell_m = tile.size_m / DETAIL_PIXELS
+    with rasterio.open(site.survey.orthophoto) as source:
+        if str(source.crs) != site.crs or source.count < 4:
+            return {"files": [], "skipped": "the orthophoto is not in the site's CRS with an alpha band"}
+        pixel_m = float(abs(source.transform.a))
+        left, top = source.transform.c, source.transform.f
+        width, height = source.width, source.height
+        factor = max(1, round(SURVEY_POOL_M / pixel_m))
+        rows, columns = -(-height // factor), -(-width // factor)
+        strip = factor * 64
+
+        def read_luminance(first: int) -> tuple[np.ndarray, np.ndarray]:
+            count = min(strip, height - first)
+            data = source.read([1, 2, 3, 4], window=Window(0, first, width, count))
+            valid = data[3] == 255
+            return np.tensordot(grain.LUMA, grain.to_linear(data[:3]), 1) * valid, valid
+
+        def pool(array: np.ndarray) -> np.ndarray:
+            padded = np.pad(array.astype(np.float32), ((0, -array.shape[0] % factor), (0, -array.shape[1] % factor)))
+            return padded.reshape(padded.shape[0] // factor, factor, padded.shape[1] // factor, factor).sum(axis=(1, 3))
+
+        total = np.zeros((rows, columns), dtype=np.float32)
+        seen = np.zeros((rows, columns), dtype=np.float32)
+        for first in range(0, height, strip):
+            luminance, valid = read_luminance(first)
+            pooled_rows = slice(first // factor, first // factor + -(-luminance.shape[0] // factor))
+            total[pooled_rows] += pool(luminance)
+            seen[pooled_rows] += pool(valid)
+        pooled = total / np.maximum(seen, 1)
+        # Which tile cell each pooled cell lies in: its class and whether it shows sunlit ground.
+        x = left + (np.arange(columns) + 0.5) * factor * pixel_m
+        y = top - (np.arange(rows) + 0.5) * factor * pixel_m
+        column = np.floor((x - tile.west) / cell_m).astype(int)
+        row = np.floor((tile.north - y) / cell_m).astype(int)
+        inside = ((row >= 0) & (row < DETAIL_PIXELS))[:, None] & ((column >= 0) & (column < DETAIL_PIXELS))[None, :]
+        at = np.ix_(np.clip(row, 0, DETAIL_PIXELS - 1), np.clip(column, 0, DETAIL_PIXELS - 1))
+        mine = np.where(inside, own[at], -1)
+        sunlit = np.where(inside, open_cells[at], 0) * (seen >= factor * factor / 2)
+        sigma = MACRO_LOW_PASS_M / (factor * pixel_m)
+        smooth = np.ones_like(pooled)
+        for index in range(len(layers)):
+            passed = _low_pass_of_sunlit(pooled[None], sunlit * (mine == index), sigma)[0]
+            smooth = np.where(mine == index, passed, smooth)
+        trust = _blur(sunlit.astype(np.float32), DETAIL_FADE_CELLS)
+        encoded = np.empty((height, width), dtype=np.uint8)
+        for first in range(0, height, strip):
+            luminance, valid = read_luminance(first)
+            count = luminance.shape[0]
+            pooled_rows = slice(first // factor, first // factor + -(-count // factor))
+
+            def spread(array: np.ndarray) -> np.ndarray:
+                return np.repeat(np.repeat(array[pooled_rows], factor, axis=0), factor, axis=1)[:count, :width]
+
+            ratio = np.log2(np.maximum(luminance, 1e-4) / np.maximum(spread(smooth), 1e-4)) * spread(trust) * valid
+            ratio = np.clip(ratio, -DETAIL_LOG2_RANGE, DETAIL_LOG2_RANGE)
+            encoded[first : first + count] = np.rint(DETAIL_ZERO + DETAIL_ZERO * ratio / DETAIL_LOG2_RANGE)
+    Image.fromarray(frame.to_unreal_layout(encoded), mode="L").save(out / "survey_detail.png")
+    return {
+        "file": "survey_detail.png",
+        "pixel_m": pixel_m,
+        "pixels": [width, height],
+        "log2_range": DETAIL_LOG2_RANGE,
+        "zero": DETAIL_ZERO,
+        "low_pass_m": MACRO_LOW_PASS_M,
+        # Where the file lies in the tile, in metres from its south-west corner: east and north extents.
+        "west_m": left - tile.west,
+        "south_m": top - height * pixel_m - tile.south,
+        "east_extent_m": width * pixel_m,
+        "north_extent_m": height * pixel_m,
+        "priors": [
+            f"prior: the low-pass runs on the orthophoto pooled to {factor} pixels ({factor * pixel_m:.2f} m)",
+            "prior: the orthophoto's shadows are taken as they are: its sun is not the imagery's, so the cover stage's shadow does not mask them",
+        ],
+    }
+
+
 def read_heights(out: Path, elevation: dict) -> np.ndarray:
     """The detailed surface back from its heightmap, north-up, in metres."""
     heights = np.asarray(Image.open(out / elevation["file"]))
@@ -901,6 +1028,49 @@ def build(site_path: Path, out: Path, cache: Path | None = None) -> dict:
         ),
     )
     detail = stages["detail"]
+    if site.survey and site.survey.orthophoto:
+        stages["grain"] = _cached(
+            out,
+            "grain",
+            _stage_key(
+                grid,
+                site.crs,
+                sha256_file(Path(site.survey.orthophoto)),
+                [sha256_file(out / name) for name in classes["files"]],
+                site.seed,
+                grain.PIXELS,
+                grain.LOG2_RANGE,
+                grain.ZERO,
+                grain.BLOCK_PX,
+                grain.LOW_PASS_M,
+                grain.QUIET_SHARE,
+                grain.GRASS_PURITY,
+                grain.MIN_BLOCKS,
+                grain.LENS_FOV_DEG,
+                grain.FRAME_PX,
+                grain.NEAR_SHARE,
+            ),
+            lambda: build_grain(site, out, classes["layers"]),
+        )
+    if site.survey and site.survey.orthophoto:
+        stages["survey_detail"] = _cached(
+            out,
+            "survey_detail",
+            _stage_key(
+                grid,
+                site.crs,
+                sha256_file(Path(site.survey.orthophoto)),
+                cover_hashes,
+                [sha256_file(out / name) for name in classes["files"]],
+                DETAIL_PIXELS,
+                DETAIL_LOG2_RANGE,
+                DETAIL_ZERO,
+                DETAIL_FADE_CELLS,
+                MACRO_LOW_PASS_M,
+                SURVEY_POOL_M,
+            ),
+            lambda: build_survey_detail(site, out, covering, classes["layers"]),
+        )
     inventory = None
     if covering:
         for name, source in (("survey", site.survey), ("tree_mix", site.tree_mix)):
@@ -918,6 +1088,11 @@ def build(site_path: Path, out: Path, cache: Path | None = None) -> dict:
                 "terrain": site.survey.terrain,
                 "terrain_sha256": sha256_file(Path(site.survey.terrain)),
             }
+            if site.survey.orthophoto:
+                sources["survey"] |= {
+                    "orthophoto": site.survey.orthophoto,
+                    "orthophoto_sha256": sha256_file(Path(site.survey.orthophoto)),
+                }
         stages["trees"] = _cached(
             out,
             "trees",
@@ -989,6 +1164,16 @@ def build(site_path: Path, out: Path, cache: Path | None = None) -> dict:
         "sources": sources,
     }
     artifacts = [elevation["file"], macro["file"], detail["file"], *classes["files"]]
+    if any(layer["name"] == "grass" for layer in classes["layers"]):
+        manifest["turf"] = turf.describe()
+    if "survey_detail" in stages:
+        manifest["survey_detail"] = {
+            key: value for key, value in stages["survey_detail"].items() if key not in ("files", "cached")
+        }
+        artifacts += [stages["survey_detail"]["file"]] if "file" in stages["survey_detail"] else []
+    if "grain" in stages:
+        manifest["grain"] = {key: value for key, value in stages["grain"].items() if key not in ("files", "cached")}
+        artifacts += [stages["grain"]["file"]] if "file" in stages["grain"] else []
     if covering:
         manifest["cover"] = {key: value for key, value in covering.items() if key not in ("files", "cached")}
         artifacts += covering["files"]

@@ -34,6 +34,8 @@ envgen build site.json --out build/ --cache cache/
 | Surface      | the imagery raster, and which ground is sunlit  | `surface_<class>.png`: one 8-bit weightmap per class                                                    |
 | Macro colour | the imagery, the sunlit ground and the classes  | `macro_colour.png`, low-passed at 12 m within each class; albedo when the site has a reflectance raster |
 | Detail       | the imagery, the sunlit ground and the classes  | `detail_ratio.png`: the photo over its own 12 m low-pass, per class, at about 0.5 m, as a power of two  |
+| Grain        | a survey orthophoto, the grass class            | `grain.png`: a tileable texture with the orthophoto's grass grain                                       |
+| Survey detail | a survey orthophoto, the sunlit ground, classes | `survey_detail.png`: the detail ratio at the orthophoto's pixel size, one channel                       |
 | Surround     | both rasters at coarse spacing, if asked for    | `context_heightmap.png`, `context_colour.png`                                                           |
 | Trees        | the cover rasters, the classes, a survey, a mix | `trees.json`: one row per tree                                                                          |
 | Manifest     | everything above                                | `build.json`: placement, georeference, stencil classes, hashes                                          |
@@ -57,7 +59,9 @@ envgen build site.json --out build/ --cache cache/
   (an atmospherically corrected satellite scene, for example), with `bands` naming red, green and blue. It sets each
   class's albedo (see Albedo and light).
 - `sources.survey` is optional: a newer surface model of part of the tile (`path`) and its terrain model
-  (`terrain`), both files in one vertical frame, any frame. It adds trees the older sources lack (see Trees).
+  (`terrain`), both files in one vertical frame, any frame. It adds trees the older sources lack (see Trees). With
+  `orthophoto` (RGB and an alpha band, in the site's CRS) it also gives the centimetre-scale look of the ground (see
+  Grain and survey detail).
 - `sources.tree_mix` is optional: a JSON file of the region's tree species from a forest inventory (see Trees).
 - `"leaf_off": true` on `sources.lidar` says the survey was flown with the leaves down.
 - `"context": {"size_m": 4032}` is optional: a coarse surround of that side, centred on the tile, as
@@ -264,23 +268,58 @@ The class weights are cut to a sharp edge in the material where they cross one h
 by 0.15 of the scan's relief, centred on 0.5 as if each scan's relief averaged one half (a look): a weightmap texel is 0.5 m and its ramp reads as a blur several metres wide from the
 air.
 
-The grass class also grows tufts: Landscape Grass, 14 blades of 7.6 to 10.2 cm (scaled 0.85 to 1.15, a prior, so 6.5 to 11.7 cm drawn) to a tuft, up to 2000 tufts per 100
-m2 where the class has full weight, drawn out to 45 m, coloured from the class's mean photo colour. The blade
-height is the summer mowing height a land-grant university extension guide gives cool-season lawn turf, 3 to 4 inches (its publication codes are MG10 and G6705);
-nothing gives the other values, and applying a lawn's mowing height to every grass-class cell is itself a prior. Tufts grow on the same sharp edge the ground is drawn with. A blade is lit as the ground under it: its material's normal is world up, because a
-two-sided blade's normal turns over on the side the camera sees and half of them took no sun. That, not the
-colour or the shadows, is why the tufts read black (checked by turning shadows off, then the engine's virtual shadow maps off,
+### Grain and survey detail
+
+The tile's photo is half a metre a pixel, so a field from the air has rows and patches and no blade-scale texture. A
+survey orthophoto (`sources.survey.orthophoto`, 2.3 cm a pixel on the real tile) has it. Two stages use it.
+
+- **Grain** (`grain.py`). The log of each pixel's luminance over its own 0.3 m low-pass, measured on 256-pixel blocks
+  that are pure grass in the tile's class map and have pixels all over. The quietest quarter of those blocks gives a
+  radial power spectrum and a distribution; a 1024 pixel texture (23 m) with that spectrum and distribution, tileable,
+  is written as `grain.png` (a power of two, 127 steps per power, range two stops). The ground material lays it over
+  every grass cell, read at two scales and turns and added in log space, so the strength stays what was measured and the
+  repeat does not show. It fades to 25 % of its strength on ground nearer than a texel a pixel (22 m for a 90 degree lens
+  at 1920 pixels): closer up the texture is magnified and the grain turns to soft blotches, and the tufts carry the
+  texture there. Priors: 0.3 m, the quietest quarter (the survey's grass is partly a hay field and the field being built is
+  lawn), no direction in the grain, the lens, the 25 %. Real tile: 379 of 1519 pure-grass blocks used, strength 0.60 stops
+  (one standard deviation of the log2 ratio).
+- **Survey detail** (`build_survey_detail`). The detail ratio of the previous section, again from the orthophoto at its
+  own pixel size, luminance only (one channel: colour at that size is hundreds of megabytes). The low-pass runs on the
+  orthophoto pooled to 0.5 m. Inside the footprint it replaces the imagery's ratio, which is the same ground a year or two
+  earlier, and the grain is not laid over it. It is a virtual texture (`r.VirtualTextures=True` in the host project), 14439 by
+  13495 pixels on the real tile, mapped by its place in the tile (`survey_detail.west_m` and the extents in the manifest).
+  The orthophoto's own shadows are not masked (its sun is not the imagery's): a prior. On the real tile the footprint is
+  west of the fly and walk stations, so it shows in the walk tour's later frames (about frame 2600) and the overview.
+
+### Grass
+
+The grass class grows tufts: Landscape Grass, three varieties, all numbers in the manifest's `turf` (`turf.py`), none in
+the engine code. Tufts cover a share of the ground, so a bigger tuft is fewer: **near** (18 blades, 9 cm radius, covers 90 %
+of the ground, drawn to 15 m), **clump** (36 blades, 22.5 cm radius, covers 40 %, drawn from 25 m out to 65 m, so the density
+of tufts falls with distance as their size grows), and **tall** (8 blades, 6 cm, covers 4 %, drawn to 50 m). Blade height is the
+summer mowing height a land-grant university extension guide gives cool-season lawn turf, 3 to 4 inches (publications
+MG10 and G6705); the tall variety stands 1.5 times the top of that, a prior (the one-third rule of mowing). Everything
+else is a prior and the manifest's `turf.priors` lists it: blade counts, radii, covers, draw distances, size spread
+(0.85 to 1.15), patchiness (tufts stand in patches 4 m wide, thinning to 0.35 of the density between them, so they are not
+evenly spaced), the blade's brightness from root (0.85) to tip (1.15), and that the small varieties cast no shadow (a small
+tuft's shadow only darkens its own root; checked by eye against the earlier black-rooted tufts).
+A blade's colour is the ground's own macro colour at its place, times the albedo scale, so tufts follow the straw and green the
+data shows. A blade is lit as the ground under it: its material's normal is world up, because a two-sided blade's normal
+turns over on the side the camera sees and half of them took no sun (checked by turning shadows off, then the engine's virtual shadow maps off,
 then the shading model: no change; world-up normal: blade pixels from 38 to 58 in sRGB against 85 for the ground). The host
 project makes grass maps while the game runs (`grass.GrassMap.UseRuntimeGeneration=1`): the level is
-regenerated, never cooked. The blade count, tuft radius, density, size spread and cull distance are looks, not
-measurements: priors. No source gives a cover's density; the 2026-09 survey's photo could give cover fraction.
+regenerated, never cooked. No source gives a cover's density.
+
+At the fly station (30 m up) the nearest ground is about 43 m away, past the near and tall tufts' draw distance (a grass-on against
+`grass.Enable=0` pair differs by a mean 0.45 of 255 and 0.0 % of pixels over 24), so what the fly view shows of grass is the ground's own colour, the detail ratio and the grain.
+`r.MaxAnisotropy=16` and fully loaded textures change nothing there: the softness was the data's resolution, not the engine's filtering.
 
 The tuft mesh is built in full, not with the fast build. On 5.8.4 the engine built a fast-built tuft's
 instances and drew none of them in a level without trees; with the trees, which are Nanite foliage, in the
 level it drew some. What the fast build leaves out is not known, so this avoids the fault without explaining
 it. A tour counts the tufts the engine has built near the camera (below), which that fault does not change;
 `gates/grass-drawn.ps1` checks they are drawn, by comparing a walk frame with the same frame under
-`grass.Enable=0`.
+`grass.Enable=0` over the near ground only (below the horizon), at a frame where the walker stands on full grass weight: the gate reads the build's grass weight at the camera and 4 m and 8 m ahead and refuses a frame that is not. The earlier gate compared the whole frame at the walk station, which stands on a class edge with paving and half sky in view, and passed by 1.12 % against its 1.0 % bar. The bar is the same 1 %; what changed is that the ground measured is grass only. `-Noise` also runs the grass-on tour twice and reports how much identical runs differ.
 
 `r.Shadow.Virtual.MaxPhysicalPages` is 2048 in the host project (the default is 4096 pages, 512 MB): the card's
 peak in the fly tour fell from 7630 to 7350 MiB. Hand-set, not fitted.

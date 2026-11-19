@@ -36,6 +36,8 @@ class Source:
     leaf_off: bool = False
     # A survey's terrain model, beside its surface model at `location`: both in one vertical frame, any frame.
     terrain: str | None = None
+    # A survey's orthophoto (RGB and an alpha band, in the site's CRS): what the ground looks like at centimetre scale.
+    orthophoto: str | None = None
 
     def band(self, name: str) -> int | None:
         return dict(self.bands or ()).get(name)
@@ -72,11 +74,13 @@ class Source:
             bands = tuple(sorted(bands.items()))
         elif name == "reflectance":
             raise SiteError("sources.reflectance: bands is required, naming at least red, green and blue")
-        terrain = None
+        terrain = orthophoto = None
         if name == "survey":
             if kind != "file" or "terrain" not in raw:
                 raise SiteError("sources.survey: kind must be 'file', with path (surface model) and terrain")
             terrain = str((base / raw["terrain"]).resolve())
+            if "orthophoto" in raw:
+                orthophoto = str((base / raw["orthophoto"]).resolve())
         return Source(
             kind,
             location,
@@ -86,6 +90,7 @@ class Source:
             bands,
             bool(raw.get("leaf_off", False)),
             terrain,
+            orthophoto,
         )
 
 
