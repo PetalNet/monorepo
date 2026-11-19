@@ -4,6 +4,7 @@ import { Effect, FileSystem, Option, Schema } from "effect";
 
 import { Vault } from "./engine.ts";
 import type { NewSource, Tx } from "./engine.ts";
+import type { SecretFound, WriteRejected } from "./errors.ts";
 import { SourceType, Text, Tier, oneLine } from "./schema.ts";
 import { secretRules } from "./secrets.ts";
 
@@ -49,6 +50,10 @@ type CaptureEntry = Extract<ManifestEntry, { type: "capture" }>;
 
 export interface MigrationReport {
 	readonly migrated: { origin: string; id: string; passages: number }[];
+	/** The current version already has these document sections. */
+	readonly unchanged: { origin: string; id: string }[];
+	/** Active documents absent from an origin directory represented in this manifest. Never retired. */
+	readonly missing: { origin: string; id: string }[];
 	/** Left out on purpose. Paths and reasons only, never content. */
 	readonly excluded: { origin: string; reason: string }[];
 	/** Documents migrated without the few sections that matched the deny list. */
@@ -158,7 +163,14 @@ export const migrate = Effect.fnUntraced(function* (
 ) {
 	const vault = yield* Vault;
 	const fs = yield* FileSystem.FileSystem;
-	const report: MigrationReport = { migrated: [], excluded: [], partial: [], unsavedCitations: [] };
+	const report: MigrationReport = {
+		migrated: [],
+		unchanged: [],
+		missing: [],
+		excluded: [],
+		partial: [],
+		unsavedCitations: [],
+	};
 	const denied = denyKeywords.map(fold).filter(Boolean);
 	const outOfScope = (text: string) => denied.some((keyword) => fold(text).includes(keyword));
 	/** Reference key to the ID of a capture that is now in the vault. */
@@ -167,7 +179,7 @@ export const migrate = Effect.fnUntraced(function* (
 	/** One transaction per tier; an entry that fails its own checks is reported and the rest go on. */
 	const each = <Entry extends ManifestEntry>(
 		items: readonly Entry[],
-		run: (tx: Tx, entry: Entry) => Effect.Effect<void>,
+		run: (tx: Tx, entry: Entry) => Effect.Effect<void, WriteRejected | SecretFound>,
 	) =>
 		Effect.forEach(
 			[...new Set(items.map((entry) => entry.tier))],
@@ -189,9 +201,11 @@ export const migrate = Effect.fnUntraced(function* (
 	const store = (tx: Tx, source: NewSource, origin: string, onStored: () => void) =>
 		tx.putSource(source).pipe(
 			Effect.andThen(Effect.sync(onStored)),
+			Effect.as(true),
 			Effect.catchTags({
-				SecretFound: (error) => exclude(origin, `secret scan: ${error.rules.join(", ")}`),
-				WriteRejected: () => exclude(origin, "invalid record"),
+				SecretFound: (error) =>
+					exclude(origin, `secret scan: ${error.rules.join(", ")}`).pipe(Effect.as(false)),
+				WriteRejected: () => exclude(origin, "invalid record").pipe(Effect.as(false)),
 			}),
 		);
 
@@ -230,7 +244,7 @@ export const migrate = Effect.fnUntraced(function* (
 						saved.set(key, { id: entry.id, tier: entry.tier });
 					}
 				},
-			);
+			).pipe(Effect.asVoid);
 		},
 	);
 
@@ -286,21 +300,63 @@ export const migrate = Effect.fnUntraced(function* (
 					cites.push(id ?? url);
 				}
 
-				const id = `doc-${sha256(`${entry.kind}\n${origin}`).slice(0, 16)}`;
+				const baseId = `doc-${sha256(`${entry.kind}\n${origin}`).slice(0, 16)}`;
 				const passages = Object.fromEntries(kept.map((section) => [section.id, section.text]));
-				const before = tx.state.sources[id]?.passages ?? {};
+				const headings = Object.fromEntries(
+					kept
+						.filter((section) => section.heading !== "")
+						.map((section) => [section.id, section.heading]),
+				);
+				let before = tx.state.sources[baseId];
+				const visited = new Set<string>();
 
-				// Passages are immutable: a document edited after it was migrated keeps its first version.
-				if (Object.entries(passages).some(([key, text]) => key in before && before[key] !== text)) {
-					report.excluded.push({
-						origin,
-						reason: "changed since it was migrated; the vault keeps the migrated version",
-					});
+				while (before?.status === "replaced") {
+					if (visited.has(before.id) || before.replacedBy === undefined) {
+						yield* exclude(origin, "invalid document replacement chain");
+
+						return;
+					}
+
+					visited.add(before.id);
+					before = tx.state.sources[before.replacedBy];
+
+					if (before?.origin !== origin || before.kind !== entry.kind) {
+						yield* exclude(origin, "document replacement leaves this origin or tier");
+
+						return;
+					}
+				}
+
+				if (before?.status === "retracted") {
+					yield* exclude(origin, "document was retracted");
 
 					return;
 				}
 
-				yield* store(
+				const sectionEntries = (values: Readonly<Record<string, string>>) =>
+					Object.entries(values)
+						.filter(([key]) => /^s\d+$/.test(key))
+						.sort(([a], [b]) => a.localeCompare(b));
+
+				if (
+					before !== undefined &&
+					JSON.stringify(sectionEntries(before.passages)) ===
+						JSON.stringify(sectionEntries(passages)) &&
+					JSON.stringify(sectionEntries(before.headings ?? {})) ===
+						JSON.stringify(sectionEntries(headings))
+				) {
+					report.unchanged.push({ origin, id: before.id });
+
+					return;
+				}
+
+				// Including the previous ID gives a revert its own version instead of reviving a retired one.
+				const id =
+					before === undefined
+						? baseId
+						: `${baseId}${sha256(`${before.id}\n${JSON.stringify({ passages, headings })}`).slice(0, 12)}`;
+
+				const written = yield* store(
 					tx,
 					{
 						id,
@@ -310,11 +366,7 @@ export const migrate = Effect.fnUntraced(function* (
 						sourceType: entry.sourceType,
 						captured: entry.captured,
 						passages,
-						headings: Object.fromEntries(
-							kept
-								.filter((section) => section.heading !== "")
-								.map((section) => [section.id, section.heading]),
-						),
+						headings,
 						...(cites.length === 0 ? {} : { cites: [...new Set(cites)] }),
 					},
 					// An origin that itself trips the scan is withheld from the report.
@@ -333,8 +385,47 @@ export const migrate = Effect.fnUntraced(function* (
 						}
 					},
 				);
+
+				if (written && before !== undefined) {
+					yield* tx.setSourceStatus(before.id, {
+						status: "replaced",
+						replacedBy: id,
+						reason: "original document changed",
+					});
+
+					yield* tx.flagDependents;
+				}
 			}),
 	);
+
+	// Also finishes cross-tier flags if an earlier run stopped after committing a replacement.
+	yield* vault.reconcile("reconcile migrated documents");
+	const documents = entries.filter((entry): entry is DocumentEntry => entry.type === "document");
+	const directory = (origin: string) => origin.slice(0, origin.lastIndexOf("/") + 1);
+	const view = yield* vault.view;
+
+	for (const tier of ["shared", "personal", "agent"] as const) {
+		for (const source of Object.values(view.tiers[tier].sources)) {
+			const origin = source.origin;
+
+			if (
+				origin !== undefined &&
+				source.id.startsWith("doc-") &&
+				source.status === "active" &&
+				documents.some(
+					(entry) =>
+						entry.tier === tier &&
+						entry.kind === source.kind &&
+						directory(entry.origin) === directory(origin),
+				) &&
+				!documents.some(
+					(entry) => entry.tier === tier && entry.kind === source.kind && entry.origin === origin,
+				)
+			) {
+				report.missing.push({ origin, id: source.id });
+			}
+		}
+	}
 
 	return report;
 });

@@ -167,8 +167,17 @@ One document contributes at most `maxChars` characters (default 100 000); a long
 without its tail and says so where it ends. `<out-dir>/collect.json` lists what was cut, which
 pages had no readable text and are stored as their title, which sources had no extracted text, and
 what was skipped, by origin only. Collecting is deterministic, so the two commands can be rerun as
-content grows: new documents are added, and a document edited since it was migrated is reported and
-keeps its migrated version, because passages never change.
+content grows. New documents retain the original ID. Changed sections or headings create a new
+version, mark the previous version replaced, and flag dependent claims across tiers. Existing
+passages and citations stay attached to their original version. Reverting content creates another
+version; identical sections produce no new source or history operations. Extra quoted passages do
+not count as document edits. A refused replacement leaves the current version active.
+
+The report separates `migrated` and `unchanged` documents. `missing` lists active documents absent
+from an origin directory represented by the same kind and tier in the manifest. It never retracts
+them, and cannot detect a directory omitted entirely from the manifest. Manually retracted
+documents are excluded rather than revived. Titles and capture timestamps alone do not create a
+version.
 
 ## Recall log
 

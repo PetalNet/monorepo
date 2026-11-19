@@ -8,7 +8,17 @@ import { migrate } from "../src/migrate.ts";
 import type { ManifestEntry } from "../src/migrate.ts";
 import { lint, project } from "../src/project.ts";
 import { recallPassages, reindex } from "../src/recall.ts";
-import { OTHER, SOURCE, readText, state, stored, tempDir, test, writeText } from "./tools.ts";
+import {
+	OTHER,
+	SOURCE,
+	readText,
+	state,
+	stored,
+	tempDir,
+	test,
+	write,
+	writeText,
+} from "./tools.ts";
 
 type DocumentEntry = Extract<ManifestEntry, { type: "document" }>;
 
@@ -288,25 +298,124 @@ describe("migration", () => {
 			expect(yield* source(SOURCE)).toBeUndefined();
 		}));
 
-	test("converges when the same manifest runs twice, and keeps the first version of a changed document", () =>
+	test("versions edits, additions, removals and reverts while preserving old citations", () =>
 		Effect.gen(function* () {
 			const at = yield* file(yield* tempDir, "a.md", "# One\nFirst version.\n");
 			const [first] = (yield* migrate([document(at)], [])).migrated;
+			const firstId = first?.id ?? "";
 			const before = (yield* state("shared")).sources;
 
 			yield* migrate([document(at)], []);
 			expect((yield* state("shared")).sources).toEqual(before);
 
-			yield* writeText(at, "# Zero\nInserted.\n# One\nFirst version.\n");
+			for (const tier of ["shared", "personal", "agent"] as const) {
+				const topic = `t-${tier}-migration`;
+
+				yield* write(tier, (tx) =>
+					tx.putTopic({
+						id: topic,
+						title: "Migration",
+						summary: "Migration proof",
+						headings: ["Retrieval unit"],
+					}),
+				);
+
+				yield* write(tier, (tx) =>
+					tx.addClaim({
+						text: `${tier}: first version says One.`,
+						topic,
+						heading: "Retrieval unit",
+						sourceType: "DERIVED",
+						links: [{ rel: "supports", target: firstId, passage: "s1" }],
+					}),
+				);
+			}
+
+			let previous = firstId;
+
+			for (const body of [
+				"# One\nEdited.\n",
+				"# One\nEdited.\n# Two\nAdded.\n",
+				"# Two\nAdded.\n",
+				"# One\nFirst version.\n",
+			]) {
+				yield* writeText(at, body);
+				const report = yield* migrate([document(at)], []);
+				const id = report.migrated[0]?.id ?? "";
+
+				expect(report.excluded).toEqual([]);
+				expect(id).not.toBe(previous);
+				expect(id).not.toBe(firstId);
+				expect(yield* source(previous)).toMatchObject({ status: "replaced", replacedBy: id });
+				expect(yield* source(id)).toMatchObject({ status: "active" });
+				const history = yield* stored("shared");
+
+				yield* migrate([document(at)], []);
+				expect(yield* stored("shared")).toBe(history);
+				previous = id;
+			}
+
+			for (const tier of ["shared", "personal", "agent"] as const) {
+				expect(Object.values((yield* state(tier)).claims)[0]).toMatchObject({
+					stale: { sources: [firstId] },
+					links: [{ target: firstId, passage: "s1" }],
+				});
+			}
+
+			expect((yield* source(firstId))?.passages).toEqual({ s1: "# One\nFirst version." });
+		}));
+
+	test("refuses a secret-bearing replacement without retiring the active version", () =>
+		Effect.gen(function* () {
+			const at = yield* file(yield* tempDir, "a.md", "# One\nSafe.\n");
+			const [first] = (yield* migrate([document(at)], [])).migrated;
+			const before = (yield* state("shared")).sources;
+			const secret = `ghp_${"a1B2".repeat(9)}`;
+
+			yield* writeText(at, `# One\n${secret}\n`);
 
 			expect((yield* migrate([document(at)], [])).excluded).toEqual([
-				{
-					origin: at,
-					reason: "changed since it was migrated; the vault keeps the migrated version",
-				},
+				{ origin: at, reason: "secret scan: github-pat" },
 			]);
 
-			expect((yield* source(first?.id ?? ""))?.passages).toEqual({ s1: "# One\nFirst version." });
+			expect((yield* state("shared")).sources).toEqual(before);
+			expect((yield* source(first?.id ?? ""))?.status).toBe("active");
+			expect(yield* stored("shared")).not.toContain(secret);
+		}));
+
+	test("ignores added quotes and metadata-only changes, reports missing originals, and respects retraction", () =>
+		Effect.gen(function* () {
+			const dir = yield* tempDir;
+			const at = yield* file(dir, "a.md", "# One\nSafe.\n");
+			const other = yield* file(dir, "b.md", "# Two\nOther.\n");
+			const first = yield* migrate([document(at), document(other)], []);
+			const id = first.migrated[0]?.id ?? "";
+			const otherId = first.migrated[1]?.id ?? "";
+
+			yield* write("shared", (tx) => tx.addPassage(id, "Safe.", "A quote"));
+			const history = yield* stored("shared");
+			const repeated = yield* migrate(
+				[document(at, { title: "New title", captured: "2026-11-19T00:00:00Z" })],
+				[],
+			);
+
+			expect(repeated.unchanged).toEqual([{ origin: at, id }]);
+			expect(repeated.missing).toEqual([{ origin: other, id: otherId }]);
+			expect((yield* source(otherId))?.status).toBe("active");
+			expect(yield* stored("shared")).toBe(history);
+			expect((yield* migrate([], [])).missing).toEqual([]);
+
+			yield* Effect.flatMap(Vault, (vault) =>
+				vault.retireSource(id, { status: "retracted", reason: "removed by owner" }),
+			);
+
+			yield* writeText(at, "# One\nChanged.\n");
+
+			expect((yield* migrate([document(at)], [])).excluded).toEqual([
+				{ origin: at, reason: "document was retracted" },
+			]);
+
+			expect((yield* source(id))?.status).toBe("retracted");
 		}));
 
 	test("stores a capture's excerpt as a passage a later quote reuses, and refuses one that holds a secret", () =>

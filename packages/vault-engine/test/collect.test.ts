@@ -302,7 +302,16 @@ describe("collect", () => {
 			const before = yield* state("shared");
 			const second = yield* load(spec);
 
-			expect(second.migrated.migrated).toEqual(first.migrated.migrated);
+			expect(second.migrated.migrated).toEqual(
+				first.migrated.migrated.filter((entry) => entry.id === SOURCE),
+			);
+
+			expect(second.migrated.unchanged).toEqual(
+				first.migrated.migrated
+					.filter((entry) => entry.id !== SOURCE)
+					.map(({ origin, id }) => ({ origin, id })),
+			);
+
 			expect(second.migrated.excluded).toEqual([]);
 			expect(yield* state("shared")).toEqual(before);
 		}));

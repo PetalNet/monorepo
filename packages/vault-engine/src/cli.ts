@@ -228,6 +228,8 @@ const commands = [
 
 				yield* print({
 					migrated: result.migrated.length,
+					unchanged: result.unchanged.length,
+					missing: result.missing.length,
 					excluded: result.excluded.length,
 					partial: result.partial.length,
 					unsavedCitations: result.unsavedCitations.length,
