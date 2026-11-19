@@ -18,11 +18,11 @@ interface GsubFeature {
 }
 
 /**
- * Parse a font for layout. opentype.js 2 runs the GSUB `ccmp` feature on every string and throws
- * on chaining-context format 2 lookups, which Inter ships (1.x never applied `ccmp`). Emptying the
+ * Parse a font for layout. opentype.js 2 runs the GSUB `ccmp` feature on every string and throws on
+ * chaining-context format 2 lookups, which Inter ships (1.x never applied `ccmp`). Emptying the
  * lookups of `ccmp` keeps the ligatures and the rest of shaping exactly as they were.
  */
-export function parseFont(bytes: ArrayBuffer): Font {
+function parseFont(bytes: ArrayBuffer): Font {
 	const font = parse(bytes);
 	const features = (font.tables["gsub"] as { features?: GsubFeature[] } | undefined)?.features;
 

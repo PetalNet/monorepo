@@ -1,13 +1,12 @@
 import { serverFonts } from "$lib/server/fonts";
 import { describe, expect, it } from "vitest";
 
-import { parseFont } from "./fonts.ts";
-import { readKerning } from "./kern.ts";
+import { loadFace } from "./fonts.ts";
 
 const load = async (file: string) => {
-	const bytes = await serverFonts.load(file);
+	const { font, kern } = await loadFace(serverFonts, file);
 
-	return { font: parseFont(bytes), kern: await readKerning(bytes) };
+	return { font, kern };
 };
 
 const pairs = ["AV", "To", "Ty", "LT", "Yo", "av", "r.", "F,"];
