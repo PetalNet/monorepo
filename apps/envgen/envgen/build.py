@@ -15,7 +15,7 @@ from rasterio.transform import from_origin
 from rasterio.warp import reproject, transform
 from scipy import ndimage
 
-from . import cover, frame, lidar
+from . import cover, frame, lidar, surface
 from .acquire import acquire, sha256_file
 from .site import (
     CONTEXT_QUADS,
@@ -30,7 +30,7 @@ from .site import (
 
 # Part of every stage key. Bump it by hand when a code change alters a stage's output for the same
 # inputs (frame.py and the resampling included); nothing detects that automatically.
-PIPELINE_VERSION = 3
+PIPELINE_VERSION = 5
 
 MACRO_PIXELS = 1024
 # The macro map carries colour that varies over tens of metres. Finer detail comes from the engine.
@@ -44,6 +44,8 @@ GAP_SMOOTH_M = 4.0
 
 # A cell needs this share of sunlit ground within the low-pass's reach to take its colour from it.
 SUNLIT_REACH_MIN = 0.05
+# The colour map's low-pass runs on blocks this many cells across. A numerical shortcut, not a measurement.
+POOL = 4
 
 CONTEXT_MACRO_PIXELS = 512
 # The surround passes under the tile; it sits this far below the detailed surface there so it never shows through.
@@ -214,39 +216,103 @@ def open_ground(out: Path, covering: dict | None, size: int) -> np.ndarray:
     return (~_sample_cells(hidden, size)).astype(np.float32)
 
 
-def _low_pass_of_sunlit(values: np.ndarray, sunlit: np.ndarray, sigma: float) -> np.ndarray:
-    """A low-pass that only listens to sunlit ground, so cover and shadow take their colour from the ground around them.
+def _blur(values: np.ndarray, sigma: float) -> np.ndarray:
+    """A Gaussian low-pass over the last two axes: one image, or a stack of bands."""
+    return ndimage.gaussian_filter(values, (0,) * (values.ndim - 2) + (sigma, sigma), mode="nearest")
 
-    Deep inside a wood or under a large roof no sunlit ground is within the low-pass's reach; the nearest
-    ground that has some stands in. What hides the ground never tints the result.
+
+def _low_pass_pooled(values: np.ndarray, sunlit: np.ndarray, sigma: float) -> np.ndarray:
+    """The low-pass itself.
+
+    Deep inside a wood or under a large roof no sunlit ground is within
+    the low-pass's reach; the nearest ground that has some stands in. What hides the ground never tints the result.
     """
-    support = ndimage.gaussian_filter(sunlit, sigma, mode="nearest")
-    smooth = ndimage.gaussian_filter(values * sunlit, sigma, mode="nearest") / np.maximum(support, 1e-6)
+    support = _blur(sunlit, sigma)
+    smooth = _blur(values * sunlit, sigma) / np.maximum(support, 1e-6)
     reached = support > SUNLIT_REACH_MIN
     if not reached.any():
-        return ndimage.gaussian_filter(values, sigma, mode="nearest")
+        return _blur(values, sigma)
     if reached.all():
         return smooth
     nearest = ndimage.distance_transform_edt(~reached, return_distances=False, return_indices=True)
     # Nearest-cell copies meet along straight seams; a wider low-pass takes them out of what is only a stand-in.
-    stand_in = ndimage.gaussian_filter(smooth[tuple(nearest)], 4 * sigma, mode="nearest")
+    stand_in = _blur(smooth[..., nearest[0], nearest[1]], 4 * sigma)
     trust = np.clip(support / SUNLIT_REACH_MIN, 0.0, 1.0)
     return smooth * trust + stand_in * (1 - trust)
 
 
-def build_macro_colour(tile: Tile, crs: str, imagery: Path, out: Path, covering: dict | None) -> dict:
+def _low_pass_of_sunlit(values: np.ndarray, sunlit: np.ndarray, sigma: float) -> np.ndarray:
+    """A low-pass that only listens to sunlit ground, so cover and shadow take their colour from the ground around them.
+
+    `values` is one image or a stack of bands, and `sunlit` weights each cell, 0 to 1. A low-pass this wide only
+    shows detail many cells across, so it is computed on blocks of POOL cells and brought back by interpolation.
+    """
+    size = sunlit.shape[0]
+    pool = POOL if size % POOL == 0 and sunlit.shape[1] % POOL == 0 else 1
+    if pool == 1:
+        return _low_pass_pooled(values, sunlit, sigma)
+
+    def blocks(array: np.ndarray) -> np.ndarray:
+        rows, columns = array.shape[-2] // pool, array.shape[-1] // pool
+        return array.reshape(*array.shape[:-2], rows, pool, columns, pool).mean(axis=(-3, -1))
+
+    # Pooling the weighted values and the weights separately keeps the ratio a weighted mean.
+    pooled = _low_pass_pooled(blocks(values * sunlit) / np.maximum(blocks(sunlit), 1e-6), blocks(sunlit), sigma / pool)
+    return ndimage.zoom(pooled, (1,) * (pooled.ndim - 2) + (pool, pool), order=1, mode="nearest", grid_mode=True)
+
+
+def build_surface(site: Site, imagery: Path, out: Path, covering: dict | None) -> dict:
+    """Classify the ground and write one 8-bit weightmap per class, on the Landscape's vertices."""
+    tile = site.tile
+    for stale in out.glob("surface_*.png"):
+        stale.unlink()
+    rgb = _warp(imagery, site.crs, tile.west, tile.north, tile.quad_m, tile.vertices, Resampling.average)
+    rgb = np.stack([_fill_gaps(band, "imagery")[0] for band in rgb])
+    labels, names, fit = surface.classify(rgb, open_ground(out, covering, tile.vertices) > 0, tile.quad_m)
+    layers, unreal = [], []
+    for name, weight in zip(names, surface.weights(labels, len(names), tile.quad_m), strict=True):
+        file = f"surface_{name}.png"
+        unreal.append(frame.to_unreal_layout(weight))
+        Image.fromarray(unreal[-1]).save(out / file)
+        layers.append({"name": name, "file": file, "mean_weight": float(weight.mean()) / 255})
+    return {
+        "files": [layer["file"] for layer in layers],
+        "layers": layers,
+        "check_points": surface.check_points(unreal, names),
+        "vertices": tile.vertices,
+        "edge_m": surface.EDGE_M,
+        "majority_cells": surface.MAJORITY_CELLS,
+        **fit,
+    }
+
+
+def read_weights(out: Path, layers: list[dict]) -> np.ndarray:
+    """The class weights back from their PNGs, north-up, as shares that sum to 1: (classes, rows, columns)."""
+    weights = [np.swapaxes(np.asarray(Image.open(out / layer["file"])), 0, 1)[::-1] for layer in layers]
+    return np.stack(weights).astype(np.float32) / 255
+
+
+def build_macro_colour(
+    tile: Tile, crs: str, imagery: Path, out: Path, covering: dict | None, layers: list[dict]
+) -> dict:
     spacing = tile.size_m / MACRO_PIXELS
     north_up = _warp(
         imagery, crs, tile.west + spacing / 2, tile.north - spacing / 2, spacing, MACRO_PIXELS, Resampling.average
     )
     sigma = MACRO_LOW_PASS_M / spacing
     sunlit = open_ground(out, covering, MACRO_PIXELS)
+    shares = np.stack([_sample_cells(share, MACRO_PIXELS) for share in read_weights(out, layers)])
+    values = np.empty_like(north_up)
     filled = 0.0
-    smooth = np.empty_like(north_up)
     for band in range(north_up.shape[0]):
-        values, fraction = _fill_gaps(north_up[band], "imagery")
+        values[band], fraction = _fill_gaps(north_up[band], "imagery")
         filled = max(filled, fraction)
-        smooth[band] = _low_pass_of_sunlit(values, sunlit, sigma)
+    # Each class is low-passed from its own sunlit ground only, so a road never greys the grass beside it.
+    # The class edge is soft for the engine, but the ground each low-pass listens to is the class's own cells only.
+    own = np.argmax(shares, axis=0)
+    smooth = sum(
+        share * _low_pass_of_sunlit(values, sunlit * (own == index), sigma) for index, share in enumerate(shares)
+    )
     _write_rgb(smooth, out / "macro_colour.png")
     return {
         "file": "macro_colour.png",
@@ -443,6 +509,23 @@ def build(site_path: Path, out: Path, cache: Path | None = None) -> dict:
             ),
         )
         covering = stages["cover"]
+    cover_hashes = [sha256_file(out / name) for name in covering["files"]] if covering else None
+    stages["surface"] = _cached(
+        out,
+        "surface",
+        _stage_key(
+            grid,
+            site.crs,
+            sources["imagery"]["sha256"],
+            cover_hashes,
+            surface.COHERENCE_MIN,
+            surface.GROUP_MIN_M2,
+            surface.EDGE_M,
+            surface.MAJORITY_CELLS,
+        ),
+        lambda: build_surface(site, imagery, out, covering),
+    )
+    classes = stages["surface"]
     stages["macro_colour"] = _cached(
         out,
         "macro_colour",
@@ -450,11 +533,12 @@ def build(site_path: Path, out: Path, cache: Path | None = None) -> dict:
             grid,
             site.crs,
             sources["imagery"]["sha256"],
-            [sha256_file(out / name) for name in covering["files"]] if covering else None,
+            cover_hashes,
+            [sha256_file(out / name) for name in classes["files"]],
             MACRO_PIXELS,
             MACRO_LOW_PASS_M,
         ),
-        lambda: build_macro_colour(tile, site.crs, imagery, out, covering),
+        lambda: build_macro_colour(tile, site.crs, imagery, out, covering, classes["layers"]),
     )
     macro = stages["macro_colour"]
 
@@ -483,10 +567,11 @@ def build(site_path: Path, out: Path, cache: Path | None = None) -> dict:
         "macro_colour": {
             key: macro[key] for key in ("file", "pixels", "low_pass_m", "filled_fraction", "hidden_fraction")
         },
+        "surface": {key: value for key, value in classes.items() if key not in ("files", "cached")},
         "stencil_classes": STENCIL_CLASSES,
         "sources": sources,
     }
-    artifacts = [elevation["file"], macro["file"]]
+    artifacts = [elevation["file"], macro["file"], *classes["files"]]
     if covering:
         manifest["cover"] = {key: value for key, value in covering.items() if key not in ("files", "cached")}
         artifacts += covering["files"]

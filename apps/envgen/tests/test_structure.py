@@ -157,7 +157,7 @@ def test_surround_passes_under_the_tile_and_follows_the_ground_outside_it(tmp_pa
     assert below.min() >= CONTEXT_SINK_M - 0.05
     assert below.max() < CONTEXT_SINK_M + 0.2
     assert (out / context["colour"]).is_file()
-    assert build(site, out)["stages_reused"] == ["elevation", "macro_colour", "context"]
+    assert build(site, out)["stages_reused"] == ["elevation", "surface", "macro_colour", "context"]
 
 
 def test_surround_must_be_larger_than_the_tile(tmp_path, capsys):

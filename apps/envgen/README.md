@@ -31,7 +31,8 @@ envgen build site.json --out build/ --cache cache/
 | Structure    | lidar points, if the site has them           | height above ground, and distance to the nearest ground return |
 | Elevation    | the elevation raster                         | `heightmap.png`, 16-bit, Landscape layout                      |
 | Cover        | lidar heights, a canopy height raster, both  | `canopy_height.tif`, `sunlit.tif`, north-up at 1 m             |
-| Macro colour | the imagery raster, cover and shadow         | `macro_colour.png`, low-passed at 12 m                         |
+| Surface      | the imagery raster, and which ground is sunlit | `surface_<class>.png`: one 8-bit weightmap per class         |
+| Macro colour | the imagery, the sunlit ground and the classes | `macro_colour.png`, low-passed at 12 m within each class     |
 | Surround     | both rasters at coarse spacing, if asked for | `context_heightmap.png`, `context_colour.png`                  |
 | Manifest     | everything above                             | `build.json`: placement, georeference, stencil classes, hashes |
 
@@ -89,6 +90,39 @@ Limits:
   when it holds at most half the smaller peak beside it, a sun at least 25 degrees up, brightness
   compared over 30 m, a shadow ray clearing the ground by 0.5 m, and the searched ranges of growth.
 
+### Surface classes
+
+What kind of ground each cell is comes from the imagery, but the split is fitted to this tile, not set by
+hand. Only sunlit ground is read: cover and shade hide the colour, so those cells take the class of the
+nearest ground that shows it.
+
+- Grass against the rest: Otsu's threshold on `(G - B) / (R + G + B)` over the sunlit cells. Vegetation
+  reflects more green than blue; pavement and soil do not. The index is a share of brightness, so one
+  material in sun and in dim light gives the same value.
+- Soil against paved: the same method on `(R - B) / (R + G + B)`, over the sunlit cells that are neither
+  grass nor dark (dark roofs and asphalt would otherwise decide the spread).
+- A split is made only when the two groups form patches, not scatter (the share of neighbouring cells that
+  agree, beyond chance, is at least 0.5) and each covers at least 1000 m2. Otherwise the tile stays one
+  class, `grass`, which is a prior and is listed as one in `build.json`. The distance between the groups in
+  pooled standard deviations is recorded as `separation`, but it cannot be the test: one Gaussian cut at its
+  mean scores 2.7, and a real tile of turf and pavement 2.1.
+- Every cell is thresholded on its own; its class is then the majority in the 3 by 3 around it, so the class
+  edge lands on the edge in the imagery. The edge is softened over about a metre, and the weights are
+  8-bit and sum to 255 in every cell.
+- The colour map is low-passed within each class, from that class's sunlit ground only, so a road does not
+  grey the grass beside it.
+
+`build.json` has `surface`: each layer's file and share of the tile, check points (vertices where each class should be found, worked out from the weightmaps by position, which the level build compares with the merged Landscape), and for each split the index, what it
+was fitted to, the threshold, the separation and whether a split was made.
+
+Limits:
+
+- A class is named by its colour: the greener side is called grass. A tile of bare ground and pavement with
+  no vegetation would call its greener part grass.
+- Soil is whatever unvegetated bright ground is redder than the rest, which may be clay, a track or red roofing.
+- The criteria in the third bullet (coherence, group size) and the 1 m edge and 3 cell majority are set by hand.
+- Imagery from one date: dry turf can look like soil and green turf like a lawn; the split follows the day.
+
 ### Frame and units
 
 - World X is grid north, Y is grid east, Z is up, in centimetres, with the origin at the tile
@@ -115,15 +149,19 @@ and the shadows it casts are where astronomy puts them.
 
 - **EnvGenEditor** rebuilds the level when the editor starts with `-EnvGenManifest=<build.json>`. It
   deletes what an earlier run generated, then creates the Landscape with collision and one weight
-  layer, the ground material, sun, sky and fog, clamped exposure, a player start, and a site-info
+  layer per surface class, the ground material, sun and sky, a flat horizon plane, clamped exposure, a player start, and a site-info
   actor carrying the georeference and stencil classes. When the manifest has a `context` block it
   also imports that coarse surround as a second Landscape, which passes under the tile so the
   detailed surface does not end in a cliff against the sky. Once the engine has merged the Landscape's
   edit layers it traces the collision surface at fixed points and compares it with the imported
-  heights, reads the weight layer back, saves, and exits. The checks are in
+  heights, reads every weight layer back at fixed points and compares it with the weightmap, saves, and exits. The checks are in
   `Saved/EnvGen/build_receipt.json`. The editor exits with 1 if the manifest cannot be used, the merge
-  does not finish, a trace misses the ground or lands more than 5 cm off, the weight layer is missing,
+  does not finish, a trace misses the ground or lands more than 5 cm off, a weight layer is missing or reads back wrong,
   or the save fails.
+- The **horizon** is a flat plane 50 km across with no collision, a metre under the lowest point of the
+  outermost surface, in that surface's mean colour. Without it the sky's empty lower half shows as a blue
+  band past the surround. There is no distance fog: on 5.8.4 with exponential height fog everything past
+  about 2 km, the plane included, drew dark navy, and planes of 100 km or more did not draw at all.
 - **EnvGen** has the walking pawn, the game mode and the tour actor.
 
 `unreal/Host` is a minimal project that hosts the plugin.
@@ -175,6 +213,6 @@ Before moving to a new engine version, these show whether it can host the work:
 
 ## Not in this slice
 
-Surface classes and the layered material, removing the lighting from the imagery, grass, trees and
+Real ground materials per class, removing the lighting from the imagery, grass, trees and
 buildings, time of day and weather, the
 manual edit layer that regeneration leaves alone, and the simulator exports.

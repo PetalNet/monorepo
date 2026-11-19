@@ -43,7 +43,14 @@ private:
 			{
 				return true;
 			}
-			FPlatformMisc::RequestExitWithStatus(false, bSucceeded ? 0 : 1);
+			// A normal shutdown reports 0 to the caller whatever status was asked for, so a failed build would look
+			// like a good one. Failing leaves at once, with the receipt and the log already written.
+			if (!bSucceeded)
+			{
+				GLog->Flush();
+				FPlatformMisc::RequestExitWithStatus(true, 1);
+			}
+			FPlatformMisc::RequestExitWithStatus(false, 0);
 			return false;
 		}));
 	}

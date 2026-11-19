@@ -2,14 +2,15 @@
 
 #include "AssetRegistry/AssetRegistryModule.h"
 #include "Components/DirectionalLightComponent.h"
-#include "Components/ExponentialHeightFogComponent.h"
 #include "Components/SkyAtmosphereComponent.h"
 #include "Components/SkyLightComponent.h"
+#include "Components/StaticMeshComponent.h"
 #include "Dom/JsonObject.h"
 #include "Engine/DirectionalLight.h"
-#include "Engine/ExponentialHeightFog.h"
 #include "Engine/PostProcessVolume.h"
 #include "Engine/SkyLight.h"
+#include "Engine/StaticMesh.h"
+#include "Engine/StaticMeshActor.h"
 #include "Engine/Texture2D.h"
 #include "Engine/World.h"
 #include "EnvGenGameMode.h"
@@ -28,6 +29,7 @@
 #include "MaterialEditingLibrary.h"
 #include "Materials/Material.h"
 #include "Materials/MaterialExpressionConstant.h"
+#include "Materials/MaterialExpressionConstant3Vector.h"
 #include "Materials/MaterialExpressionLandscapeLayerBlend.h"
 #include "Materials/MaterialExpressionLandscapeLayerCoords.h"
 #include "Materials/MaterialExpressionLinearInterpolate.h"
@@ -49,7 +51,9 @@ namespace
 	const TCHAR* OwnedPath = TEXT("/Game/EnvGen/");
 	const TCHAR* GeneratedPath = TEXT("/Game/EnvGen/Generated");
 	const TCHAR* DefaultMapPath = TEXT("/Game/EnvGen/Maps/Site");
-	const FName GrassLayer(TEXT("Grass"));
+	const FName GrassLayer(TEXT("grass"));
+	const FName PavedLayer(TEXT("paved"));
+	const FName SoilLayer(TEXT("soil"));
 	constexpr int32 DetailPixels = 256;
 	constexpr float PhotoToAlbedo = 0.6f;
 	// How far a traced surface point may sit from the height the manifest says it should have.
@@ -57,6 +61,30 @@ namespace
 	// The engine merges Landscape edit layers over several frames after an import.
 	constexpr int32 MinMergeFrames = 10;
 	constexpr float MergeTimeoutSeconds = 300;
+	// How far a merged layer weight may sit from the imported one, out of 255.
+	constexpr int32 WeightTolerance = 2;
+	// The ground beyond the outermost surface: a flat plane this wide, this far under that surface's lowest point.
+	constexpr double HorizonSizeCm = 5.0e6;
+	constexpr double HorizonSinkCm = 100;
+	// Where the build checks the surface and the layer weights: fractions of the tile along north and east, spread unevenly.
+	const double CheckPoints[][2] = {{0.5, 0.5}, {0.1, 0.2}, {0.9, 0.2}, {0.15, 0.85}, {0.8, 0.9}, {0.33, 0.61}, {0.72, 0.41}, {0.05, 0.5}, {0.5, 0.95}};
+
+	/** One surface class: its weightmap, indexed like the heightmap. */
+	struct FLayer
+	{
+		FName Name;
+		FString File;
+		TArray64<uint8> Weights;
+		ULandscapeLayerInfoObject* Info = nullptr;
+	};
+
+	/** A Landscape vertex where the manifest says what each class weighs, worked out from the weightmaps by position. */
+	struct FCheckPoint
+	{
+		int32 East = 0;
+		int32 North = 0;
+		TMap<FName, int32> Weights;
+	};
 
 	/** One Landscape to import: the detailed tile, or the coarse surround. */
 	struct FSurface
@@ -75,6 +103,8 @@ namespace
 		FString Directory;
 		FSurface Tile;
 		TOptional<FSurface> Surround;
+		TArray<FLayer> Layers;
+		TArray<FCheckPoint> CheckPoints;
 		double TileSizeCm = 0;
 		TSharedPtr<FJsonObject> Georeference;
 		TSharedPtr<FJsonObject> StencilClasses;
@@ -112,6 +142,40 @@ namespace
 		const TSharedPtr<FJsonObject>* Tile = nullptr;
 		const TSharedPtr<FJsonObject>* Geo = nullptr;
 		const TSharedPtr<FJsonObject>* Stencil = nullptr;
+		const TSharedPtr<FJsonObject>* Surface = nullptr;
+		const TArray<TSharedPtr<FJsonValue>>* Layers = nullptr;
+		if (!Root->TryGetObjectField(TEXT("surface"), Surface) || !(*Surface)->TryGetArrayField(TEXT("layers"), Layers) || Layers->IsEmpty())
+		{
+			Error = TEXT("the manifest needs surface.layers, one weightmap per surface class");
+			return false;
+		}
+		const TArray<TSharedPtr<FJsonValue>>* Points = nullptr;
+		if (!(*Surface)->TryGetArrayField(TEXT("check_points"), Points) || Points->IsEmpty())
+		{
+			Error = TEXT("the manifest needs surface.check_points, where each class should be found");
+			return false;
+		}
+		for (const TSharedPtr<FJsonValue>& Value : *Points)
+		{
+			FCheckPoint& Point = Out.CheckPoints.AddDefaulted_GetRef();
+			Point.East = Value->AsObject()->GetIntegerField(TEXT("east"));
+			Point.North = Value->AsObject()->GetIntegerField(TEXT("north"));
+			for (const auto& Weight : Value->AsObject()->GetObjectField(TEXT("weights"))->Values)
+			{
+				Point.Weights.Add(FName(*Weight.Key), int32(Weight.Value->AsNumber()));
+			}
+		}
+		for (const TSharedPtr<FJsonValue>& Value : *Layers)
+		{
+			FLayer& Layer = Out.Layers.AddDefaulted_GetRef();
+			Layer.Name = FName(*Value->AsObject()->GetStringField(TEXT("name")));
+			Layer.File = Value->AsObject()->GetStringField(TEXT("file"));
+			if (Layer.Name != GrassLayer && Layer.Name != PavedLayer && Layer.Name != SoilLayer)
+			{
+				Error = FString::Printf(TEXT("surface layer '%s' has no look in the ground material; known layers are grass, paved and soil"), *Layer.Name.ToString());
+				return false;
+			}
+		}
 		if (!Root->TryGetObjectField(TEXT("landscape"), Landscape) || !Root->TryGetObjectField(TEXT("macro_colour"), Macro) ||
 			!Root->TryGetObjectField(TEXT("tile"), Tile) || !Root->TryGetObjectField(TEXT("georeference"), Geo) ||
 			!Root->TryGetObjectField(TEXT("stencil_classes"), Stencil))
@@ -225,10 +289,11 @@ namespace
 	}
 
 	/**
-	 * One grass layer: the macro colour map across the whole tile, modulated by tiling grey detail at two
-	 * scales. Colour that varies over tens of metres comes from evidence; everything finer is generated.
+	 * One look per surface class, blended by the layer weights. Every class takes its colour from the macro
+	 * colour map across the whole tile, modulated by tiling grey detail. Colour that varies over tens of
+	 * metres comes from evidence; everything finer is generated.
 	 */
-	UMaterial* MakeGroundMaterial(UTexture2D* Macro, UTexture2D* Detail, int32 Quads, double QuadCm, TArray<UPackage*>& Packages)
+	UMaterial* MakeGroundMaterial(UTexture2D* Macro, UTexture2D* Detail, int32 Quads, double QuadCm, const TArray<FLayer>& Layers, TArray<UPackage*>& Packages)
 	{
 		UMaterial* Material = NewAsset<UMaterial>(TEXT("M_Ground"), Packages);
 		const float FineRepeatQuads = 70.0 / QuadCm;
@@ -248,22 +313,37 @@ namespace
 			Out->B.Connect(0, Range);
 			return Out;
 		};
-		UMaterialExpression* Modulated = Modulate(Modulate(MacroSample, Fine, 0.85f, 1.15f, 250), Broad, 0.85f, 1.15f, 500);
 		// An aerial photo records sunlit ground, so as albedo it is too bright until the pipeline delights it.
-		UMaterialExpressionMultiply* Colour = Node<UMaterialExpressionMultiply>(Material, -200, 100);
-		Colour->A.Connect(0, Modulated);
-		Colour->ConstB = PhotoToAlbedo;
+		const auto Albedo = [Material](UMaterialExpression* Colour, int32 Y)
+		{
+			UMaterialExpressionMultiply* Out = Node<UMaterialExpressionMultiply>(Material, -200, Y);
+			Out->A.Connect(0, Colour);
+			Out->ConstB = PhotoToAlbedo;
+			return Out;
+		};
+		// Looser ground is mottled at two scales and rough; a made surface is nearly even and smoother. The macro
+		// colour already differs per class, because each class was low-passed from its own ground.
+		UMaterialExpression* Loose = Albedo(Modulate(Modulate(MacroSample, Fine, 0.85f, 1.15f, 250), Broad, 0.85f, 1.15f, 500), 100);
+		UMaterialExpression* Made = Albedo(Modulate(MacroSample, Fine, 0.96f, 1.04f, 750), 750);
 
-		UMaterialExpressionLandscapeLayerBlend* Blend = Node<UMaterialExpressionLandscapeLayerBlend>(Material, -100, 0);
-		FLayerBlendInput& Layer = Blend->Layers.AddDefaulted_GetRef();
-		Layer.LayerName = GrassLayer;
-		Layer.BlendType = LB_WeightBlend;
-		Layer.PreviewWeight = 1;
-		Layer.LayerInput.Connect(0, Colour);
-		UMaterialEditingLibrary::ConnectMaterialProperty(Blend, TEXT(""), MP_BaseColor);
-
-		UMaterialExpressionConstant* Roughness = Node<UMaterialExpressionConstant>(Material, -100, 300);
-		Roughness->R = 0.9f;
+		UMaterialExpressionLandscapeLayerBlend* Colour = Node<UMaterialExpressionLandscapeLayerBlend>(Material, -100, 0);
+		UMaterialExpressionLandscapeLayerBlend* Roughness = Node<UMaterialExpressionLandscapeLayerBlend>(Material, -100, 300);
+		for (const FLayer& Layer : Layers)
+		{
+			const bool bPaved = Layer.Name == PavedLayer;
+			const bool bFirst = Layer.Name == Layers[0].Name;
+			FLayerBlendInput& ColourInput = Colour->Layers.AddDefaulted_GetRef();
+			ColourInput.LayerName = Layer.Name;
+			ColourInput.BlendType = LB_WeightBlend;
+			ColourInput.PreviewWeight = bFirst ? 1 : 0;
+			ColourInput.LayerInput.Connect(0, bPaved ? Made : Loose);
+			FLayerBlendInput& RoughnessInput = Roughness->Layers.AddDefaulted_GetRef();
+			RoughnessInput.LayerName = Layer.Name;
+			RoughnessInput.BlendType = LB_WeightBlend;
+			RoughnessInput.PreviewWeight = bFirst ? 1 : 0;
+			RoughnessInput.ConstLayerInput = FVector(bPaved ? 0.65 : (Layer.Name == SoilLayer ? 0.95 : 0.9));
+		}
+		UMaterialEditingLibrary::ConnectMaterialProperty(Colour, TEXT(""), MP_BaseColor);
 		UMaterialEditingLibrary::ConnectMaterialProperty(Roughness, TEXT(""), MP_Roughness);
 		UMaterialExpressionConstant* Specular = Node<UMaterialExpressionConstant>(Material, -100, 400);
 		Specular->R = 0.2f;
@@ -291,9 +371,9 @@ namespace
 		return true;
 	}
 
-	/** Import one surface as a Landscape. With a layer, the whole surface is painted with it. */
+	/** Import one surface as a Landscape, painted with the layers' weightmaps. */
 	ALandscape* ImportLandscape(UWorld* World, const TCHAR* Label, const FSurface& Surface, const TArray64<uint8>& HeightBytes, UMaterial* Material, int32 Stencil,
-		ULandscapeLayerInfoObject* Layer)
+		const TArray<FLayer>& Layers)
 	{
 		const int32 Vertices = Surface.Vertices;
 		TArray<uint16> Heights;
@@ -311,13 +391,13 @@ namespace
 		Landscape->LandscapeMaterial = Material;
 		Landscape->bRenderCustomDepth = true;
 		Landscape->CustomDepthStencilValue = Stencil;
-		if (Layer)
+		for (const FLayer& Layer : Layers)
 		{
-			FLandscapeImportLayerInfo& Painted = Weights.Emplace_GetRef(Layer->GetLayerName());
-			Painted.LayerInfo = Layer;
-			Painted.LayerData.Init(255, Vertices * Vertices);
+			FLandscapeImportLayerInfo& Painted = Weights.Emplace_GetRef(Layer.Name);
+			Painted.LayerInfo = Layer.Info;
+			Painted.LayerData.Append(Layer.Weights.GetData(), Layer.Weights.Num());
 			// A weightmap for a layer the Landscape does not list as a target is dropped on import.
-			Landscape->AddTargetLayer(Layer->GetLayerName(), FLandscapeTargetLayerSettings(Layer), false);
+			Landscape->AddTargetLayer(Layer.Name, FLandscapeTargetLayerSettings(Layer.Info), false);
 		}
 		Landscape->Import(FGuid::NewGuid(), 0, 0, Vertices - 1, Vertices - 1, Surface.SectionsPerComponent, Surface.SectionQuads, HeightsPerLayer, nullptr,
 			WeightsPerLayer, ELandscapeImportAlphamapType::Additive, TArrayView<const FLandscapeLayer>());
@@ -344,6 +424,49 @@ namespace
 		return Material;
 	}
 
+	/**
+	 * Flat ground from under the outermost surface to the horizon, in that surface's average colour. Without it
+	 * the sky's empty lower half shows as a blue band past the surface's edge from any height. It only closes the band
+	 * without distance fog, which would turn everything past a couple of kilometres, the plane included, dark.
+	 */
+	void AddHorizon(UWorld* World, const FSurface& Outer, const TArray64<uint8>& HeightBytes, const TArray64<uint8>& ColourBytes, TArray<UPackage*>& Packages)
+	{
+		const uint16* Heights = reinterpret_cast<const uint16*>(HeightBytes.GetData());
+		uint16 Lowest = MAX_uint16;
+		for (int64 Index = 0; Index < HeightBytes.Num() / 2; ++Index)
+		{
+			Lowest = FMath::Min(Lowest, Heights[Index]);
+		}
+		FVector Sum = FVector::ZeroVector;
+		const int64 Pixels = ColourBytes.Num() / 4;
+		for (int64 Pixel = 0; Pixel < Pixels; ++Pixel)
+		{
+			Sum += FVector(FLinearColor(FColor(ColourBytes[Pixel * 4 + 2], ColourBytes[Pixel * 4 + 1], ColourBytes[Pixel * 4])));
+		}
+		UMaterial* Material = NewAsset<UMaterial>(TEXT("M_Horizon"), Packages);
+		UMaterialExpressionConstant3Vector* Colour = Node<UMaterialExpressionConstant3Vector>(Material, -300, 0);
+		Colour->Constant = FLinearColor(Sum / Pixels * PhotoToAlbedo);
+		UMaterialEditingLibrary::ConnectMaterialProperty(Colour, TEXT(""), MP_BaseColor);
+		UMaterialExpressionConstant* Roughness = Node<UMaterialExpressionConstant>(Material, -300, 200);
+		Roughness->R = 0.9f;
+		UMaterialEditingLibrary::ConnectMaterialProperty(Roughness, TEXT(""), MP_Roughness);
+		UMaterialEditingLibrary::RecompileMaterial(Material);
+
+		const double Z = Outer.LocationCm.Z + (double(Lowest) - 32768.0) * Outer.Scale.Z / 128.0 - HorizonSinkCm;
+		AStaticMeshActor* Horizon = World->SpawnActor<AStaticMeshActor>(FVector(0, 0, Z), FRotator::ZeroRotator);
+		Horizon->SetActorLabel(TEXT("EnvGenHorizon"));
+		UStaticMeshComponent* Mesh = Horizon->GetStaticMeshComponent();
+		// The engine's plane is 100 cm on a side.
+		Mesh->SetStaticMesh(LoadObject<UStaticMesh>(nullptr, TEXT("/Engine/BasicShapes/Plane.Plane")));
+		Mesh->SetMaterial(0, Material);
+		Mesh->SetWorldScale3D(FVector(HorizonSizeCm / 100, HorizonSizeCm / 100, 1));
+		// It is only there to be seen: nothing stands on it, and it takes no part in shadows or bounce light.
+		Mesh->SetCollisionEnabled(ECollisionEnabled::NoCollision);
+		Mesh->SetCastShadow(false);
+		Mesh->bAffectDynamicIndirectLighting = false;
+		Mesh->bAffectDistanceFieldLighting = false;
+	}
+
 	void AddSkyAndSun(UWorld* World)
 	{
 		// Sun in the south-east, about 48 degrees up. World +X is north and +Y is east, so the light travels north-west.
@@ -360,10 +483,6 @@ namespace
 		Sky->SetActorLabel(TEXT("EnvGenSkyLight"));
 		Sky->GetLightComponent()->SetMobility(EComponentMobility::Movable);
 		Sky->GetLightComponent()->SetRealTimeCapture(true);
-
-		AExponentialHeightFog* Fog = World->SpawnActor<AExponentialHeightFog>(FVector::ZeroVector, FRotator::ZeroRotator);
-		Fog->SetActorLabel(TEXT("EnvGenFog"));
-		Fog->GetComponent()->SetFogDensity(0.005f);
 
 		// Exposure may adapt only inside a narrow band (EV100), so a camera never whites out.
 		APostProcessVolume* Exposure = World->SpawnActor<APostProcessVolume>(FVector::ZeroVector, FRotator::ZeroRotator);
@@ -406,10 +525,9 @@ namespace
 	{
 		const uint16* Heights = reinterpret_cast<const uint16*>(HeightBytes.GetData());
 		const int32 Last = Manifest.Tile.Vertices - 1;
-		const double Fractions[][2] = {{0.5, 0.5}, {0.1, 0.2}, {0.9, 0.2}, {0.15, 0.85}, {0.8, 0.9}, {0.33, 0.61}, {0.72, 0.41}, {0.05, 0.5}, {0.5, 0.95}};
 		double Worst = 0;
 		Missed = 0;
-		for (const double* Fraction : Fractions)
+		for (const double* Fraction : CheckPoints)
 		{
 			const int32 NorthIndex = FMath::RoundToInt32(Fraction[0] * Last);
 			const int32 EastIndex = FMath::RoundToInt32(Fraction[1] * Last);
@@ -425,21 +543,34 @@ namespace
 		}
 		return Worst;
 	}
-	/** The merged weight of the grass layer at the middle of the Landscape, 0 to 1, or -1 if unreadable. */
-	float GrassWeightAtCentre(ALandscape* Landscape)
+
+	/**
+	 * Read every layer's merged weight back at the manifest's check points and compare it with what the manifest
+	 * says is there. Returns the largest difference out of 255, or 255 if a layer cannot be read. A dropped,
+	 * swapped or transposed weightmap fails this; so does a layer attached to the wrong file.
+	 */
+	int32 WorstWeightError(ALandscape* Landscape, const FManifest& Manifest)
 	{
 		ULandscapeInfo* Info = Landscape->GetLandscapeInfo();
-		ULandscapeLayerInfoObject* Layer = Info->GetLayerInfoByName(GrassLayer);
-		int32 MinX, MinY, MaxX, MaxY;
-		if (!Layer || !Info->GetLandscapeExtent(MinX, MinY, MaxX, MaxY))
-		{
-			return -1;
-		}
-		int32 X1 = (MinX + MaxX) / 2, Y1 = (MinY + MaxY) / 2, X2 = X1, Y2 = Y1;
-		uint8 Weight = 0;
+		int32 Worst = 0;
 		FLandscapeEditDataInterface Edit(Info);
-		Edit.GetWeightDataFast(Layer, X1, Y1, X2, Y2, &Weight, 0);
-		return Weight / 255.f;
+		for (const FCheckPoint& Point : Manifest.CheckPoints)
+		{
+			for (const FLayer& Layer : Manifest.Layers)
+			{
+				ULandscapeLayerInfoObject* Merged = Info->GetLayerInfoByName(Layer.Name);
+				const int32* Expected = Point.Weights.Find(Layer.Name);
+				if (!Merged || !Expected)
+				{
+					return 255;
+				}
+				int32 X1 = Point.North, Y1 = Point.East, X2 = X1, Y2 = Y1;
+				uint8 Weight = 0;
+				Edit.GetWeightDataFast(Merged, X1, Y1, X2, Y2, &Weight, 0);
+				Worst = FMath::Max(Worst, FMath::Abs(int32(Weight) - *Expected));
+			}
+		}
+		return Worst;
 	}
 }
 
@@ -474,6 +605,15 @@ bool FEnvGenLevelBuild::Start(const FString& ManifestPath, const FString& MapPat
 		return false;
 	}
 
+	for (FLayer& Layer : Manifest.Layers)
+	{
+		int32 Width = 0, Height = 0;
+		if (!DecodePng(Manifest.Directory / Layer.File, ERGBFormat::Gray, 8, Layer.Weights, Width, Height) || Width != Manifest.Tile.Vertices || Height != Manifest.Tile.Vertices)
+		{
+			UE_LOG(LogEnvGen, Error, TEXT("%s is not a %dx%d 8-bit grey PNG"), *Layer.File, Manifest.Tile.Vertices, Manifest.Tile.Vertices);
+			return false;
+		}
+	}
 	TArray64<uint8> MacroBytes, SurroundHeightBytes, SurroundColourBytes;
 	FIntPoint MacroSize(0, 0), SurroundColourSize(0, 0);
 	if (!DecodeSurface(Manifest, Manifest.Tile, State->HeightBytes, MacroBytes, MacroSize))
@@ -506,18 +646,29 @@ bool FEnvGenLevelBuild::Start(const FString& ManifestPath, const FString& MapPat
 	UTexture2D* Macro = MakeTexture(TEXT("T_MacroColour"), MacroSize.X, MacroSize.Y, TSF_BGRA8, MacroBytes.GetData(), true, State->Packages);
 	const TArray<uint8> Noise = DetailNoise();
 	UTexture2D* Detail = MakeTexture(TEXT("T_Detail"), DetailPixels, DetailPixels, TSF_G8, Noise.GetData(), false, State->Packages);
-	UMaterial* Material = MakeGroundMaterial(Macro, Detail, Manifest.Tile.Vertices - 1, Manifest.Tile.Scale.X, State->Packages);
-	ULandscapeLayerInfoObject* Grass = NewAsset<ULandscapeLayerInfoObject>(TEXT("LI_Grass"), State->Packages);
-	Grass->SetLayerName(GrassLayer, false);
+	UMaterial* Material = MakeGroundMaterial(Macro, Detail, Manifest.Tile.Vertices - 1, Manifest.Tile.Scale.X, Manifest.Layers, State->Packages);
+	for (FLayer& Layer : Manifest.Layers)
+	{
+		Layer.Info = NewAsset<ULandscapeLayerInfoObject>(TEXT("LI_") + Layer.Name.ToString(), State->Packages);
+		Layer.Info->SetLayerName(Layer.Name, false);
+	}
 
 	const int32 GroundStencil = int32(Manifest.StencilClasses->GetNumberField(TEXT("ground")));
-	State->Landscape = ImportLandscape(State->World, TEXT("EnvGenLandscape"), Manifest.Tile, State->HeightBytes, Material, GroundStencil, Grass);
+	State->Landscape = ImportLandscape(State->World, TEXT("EnvGenLandscape"), Manifest.Tile, State->HeightBytes, Material, GroundStencil, Manifest.Layers);
 	if (Manifest.Surround)
 	{
 		UTexture2D* SurroundColour = MakeTexture(TEXT("T_SurroundColour"), SurroundColourSize.X, SurroundColourSize.Y, TSF_BGRA8, SurroundColourBytes.GetData(), true,
 			State->Packages);
 		UMaterial* SurroundMaterial = MakeSurroundMaterial(SurroundColour, Manifest.Surround->Vertices - 1, State->Packages);
-		State->Surround = ImportLandscape(State->World, TEXT("EnvGenSurround"), *Manifest.Surround, SurroundHeightBytes, SurroundMaterial, GroundStencil, nullptr);
+		State->Surround = ImportLandscape(State->World, TEXT("EnvGenSurround"), *Manifest.Surround, SurroundHeightBytes, SurroundMaterial, GroundStencil, TArray<FLayer>());
+	}
+	if (Manifest.Surround)
+	{
+		AddHorizon(State->World, *Manifest.Surround, SurroundHeightBytes, SurroundColourBytes, State->Packages);
+	}
+	else
+	{
+		AddHorizon(State->World, Manifest.Tile, State->HeightBytes, MacroBytes, State->Packages);
 	}
 	AddSkyAndSun(State->World);
 	AddSiteInfo(State->World, Manifest);
@@ -542,9 +693,9 @@ bool FEnvGenLevelBuild::Finish(float DeltaSeconds, bool& bSucceeded)
 	const double WorstCm = WorstSurfaceErrorCm(State->World, Manifest, State->HeightBytes, Missed);
 	const int32 Components = State->Landscape->LandscapeComponents.Num();
 	const int32 TargetLayers = State->Landscape->GetTargetLayers().Num();
-	const float GrassWeight = GrassWeightAtCentre(State->Landscape);
+	const int32 WeightError = WorstWeightError(State->Landscape, Manifest);
 	const bool bSurfaceOk = Missed == 0 && WorstCm <= SurfaceToleranceCm;
-	const bool bWeightsOk = TargetLayers == 1 && GrassWeight > 0.99f;
+	const bool bWeightsOk = TargetLayers == Manifest.Layers.Num() && WeightError <= WeightTolerance;
 	const bool bSaved = UEditorLoadingAndSavingUtils::SavePackages(State->Packages, false) && UEditorLoadingAndSavingUtils::SaveMap(State->World, State->MapPath);
 	bSucceeded = bMerged && bSurfaceOk && bWeightsOk && bSaved;
 
@@ -560,7 +711,8 @@ bool FEnvGenLevelBuild::Finish(float DeltaSeconds, bool& bSucceeded)
 	Receipt->SetNumberField(TEXT("surface_tolerance_cm"), SurfaceToleranceCm);
 	Receipt->SetBoolField(TEXT("surface_ok"), bSurfaceOk);
 	Receipt->SetNumberField(TEXT("target_layers"), TargetLayers);
-	Receipt->SetNumberField(TEXT("grass_weight_at_centre"), GrassWeight);
+	Receipt->SetNumberField(TEXT("weights_worst_error"), WeightError);
+	Receipt->SetNumberField(TEXT("weights_tolerance"), WeightTolerance);
 	Receipt->SetBoolField(TEXT("weights_ok"), bWeightsOk);
 	Receipt->SetBoolField(TEXT("saved"), bSaved);
 	Receipt->SetBoolField(TEXT("succeeded"), bSucceeded);
@@ -568,8 +720,8 @@ bool FEnvGenLevelBuild::Finish(float DeltaSeconds, bool& bSucceeded)
 	FJsonSerializer::Serialize(Receipt, TJsonWriterFactory<>::Create(&Json));
 	FFileHelper::SaveStringToFile(Json, *(FPaths::ProjectSavedDir() / TEXT("EnvGen") / TEXT("build_receipt.json")));
 
-	UE_LOG(LogEnvGen, Display, TEXT("%s: %d components, merged=%d, surface worst error %.2f cm (%d missed), grass weight %.2f, saved=%d"), *State->MapPath, Components,
-		bMerged, WorstCm, Missed, GrassWeight, bSaved);
+	UE_LOG(LogEnvGen, Display, TEXT("%s: %d components, merged=%d, surface worst error %.2f cm (%d missed), %d layers with worst weight error %d of 255, saved=%d"), *State->MapPath,
+		Components, bMerged, WorstCm, Missed, TargetLayers, WeightError, bSaved);
 	if (!bSucceeded)
 	{
 		UE_LOG(LogEnvGen, Error, TEXT("the level build failed its checks; see Saved/EnvGen/build_receipt.json"));
