@@ -13,6 +13,8 @@
 //! - events from the same source room are serialized (per-room fair lock) so
 //!   relayed messages keep their order even though every event is processed
 //!   in its own supervised task.
+// matrix-sdk 0.19 nests its send futures deeper than the default limit allows.
+#![recursion_limit = "256"]
 
 mod format;
 pub mod idempotency;
@@ -40,7 +42,7 @@ use matrix_sdk::{
         OwnedEventId, OwnedRoomId,
         events::{
             AnySyncMessageLikeEvent, AnySyncTimelineEvent,
-            relation::InReplyTo,
+            relation::{InReplyTo, Reply},
             room::message::{
                 AddMentions, ForwardThread, OriginalSyncRoomMessageEvent, Relation, ReplyMetadata,
                 RoomMessageEventContent, SyncRoomMessageEvent,
@@ -355,9 +357,9 @@ impl Relay {
                     } else {
                         // Extremely unlikely (client without a logged-in
                         // user); fall back to a raw relates_to pointer.
-                        content.relates_to = Some(Relation::Reply {
-                            in_reply_to: InReplyTo::new(target_event_id.clone()),
-                        });
+                        content.relates_to = Some(Relation::Reply(Reply::new(InReplyTo::new(
+                            target_event_id.clone(),
+                        ))));
                     }
                 }
                 media::send_text_bounded(&room_handle, &content, &txn_id).await
@@ -687,7 +689,7 @@ async fn extract_reply_context(
     source_room: &Room,
 ) -> Option<ReplyContext> {
     let in_reply_to_event_id = match content.relates_to.as_ref()? {
-        Relation::Reply { in_reply_to } => in_reply_to.event_id.clone(),
+        Relation::Reply(reply) => reply.in_reply_to.event_id.clone(),
         Relation::Thread(t) => t.in_reply_to.as_ref().map(|r| r.event_id.clone())?,
         Relation::Replacement(_) | _ => return None,
     };

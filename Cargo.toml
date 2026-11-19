@@ -28,17 +28,16 @@ clap = { version = "4", features = ["derive", "env"] }
 dotenvy = "0.15"
 futures-util = "0.3"
 matrix-sdk = { version = "0.19", default-features = false, features = [
-	"anyhow",
 	"e2e-encryption",
 	"sqlite",
-	"rustls-tls",
+	"rustls-aws-lc-rs",
 ] }
 mime = "0.3"
 regex = "1"
 reqwest = { version = "0.13", default-features = false, features = ["json", "rustls"] }
 rpassword = "7"
-# Matrix SDK 0.14 fixes rusqlite to 0.37; Cargo permits one sqlite3 links version.
-rusqlite = { version = "0.37", features = ["bundled"] }
+# matrix-sdk-sqlite 0.19 requires rusqlite ^0.40; Cargo permits one sqlite3 links version.
+rusqlite = { version = "0.40", features = ["bundled"] }
 serde = "1"
 serde_json = "1"
 serde_yaml = "0.9"

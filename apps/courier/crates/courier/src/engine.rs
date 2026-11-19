@@ -28,7 +28,7 @@
 use core::time::Duration;
 use std::sync::Arc;
 
-use matrix_sdk::{Client, config::SyncSettings, ruma::api::client::error::ErrorKind};
+use matrix_sdk::{Client, config::SyncSettings, ruma::api::error::ErrorKind};
 use tracing::{error, info, warn};
 
 use crate::bridges::{self, PushDecision};
@@ -91,7 +91,7 @@ pub fn next_action(outcome: IterationOutcome, backoff: &mut Backoff) -> LoopActi
 #[must_use]
 pub fn classify_sync_error(error: &matrix_sdk::Error) -> IterationOutcome {
     match error.client_api_error_kind() {
-        Some(ErrorKind::UnknownToken { .. }) => IterationOutcome::Fatal,
+        Some(ErrorKind::UnknownToken(_)) => IterationOutcome::Fatal,
         _ => IterationOutcome::Transient,
     }
 }
