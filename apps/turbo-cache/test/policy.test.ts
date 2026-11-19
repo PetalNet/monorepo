@@ -3,7 +3,7 @@ import { describe, expect, it } from "vitest";
 import { ampIssuer, githubIssuer, grant, sameRepositoryPull, type Claims } from "../src/policy.ts";
 
 const policy = {
-	authentikIssuer: "https://id.petalcat.dev/application/o/turbo-cache/",
+	authentikIssuer: "https://auth.petalcat.dev/application/o/turbo-cache/",
 	ampWorkspaceIds: ["workspace"],
 	ampProjectIds: ["project"],
 };
