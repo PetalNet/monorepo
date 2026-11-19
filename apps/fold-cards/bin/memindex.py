@@ -16,6 +16,9 @@ the per-prompt hook can run it under plain python3 -I.
 """
 import argparse, glob, hashlib, json, math, os, re, socket, sqlite3, subprocess, sys, time
 
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import outbound
+
 WORD = re.compile(r'[A-Za-z0-9][A-Za-z0-9_-]{2,}')
 STOP = set('the and for with that this you are was have from what which when where who how not but can will just '
            'into about your they them then than there their reply only use tool tools run say please'.split())
@@ -127,8 +130,8 @@ def answer(s):
             buf += chunk
         s.close()
         return [tuple(x) for x in json.loads(buf)['hits']]
-    except (OSError, ValueError, KeyError) as err:
-        print(f'memindex: embedder failed ({err!r}), nothing attached', file=sys.stderr)
+    except (OSError, ValueError, KeyError):
+        print('memindex: embedder failed, nothing attached', file=sys.stderr)
         return None
 
 
@@ -372,11 +375,16 @@ def main():
     else:
         cands = candidates(a.db, clean(a.text)['body'], a.sources.split(','), json.loads(a.thread)) or []
         kept = {c['pointer'] for c in gate(cands, len(terms_of(clean(a.text)['body'])))}
-        for c in sorted(cands, key=lambda c: -c['cos'])[:20]:
-            print(json.dumps(dict(pointer=c['pointer'], kept=c['pointer'] in kept, cos=round(c['cos'], 3), lex=round(c['lex'], 2),
-                                  p=round(c.get('p', 0), 3), body=' '.join(c['body'].split())[:120])))
+        selected = sorted(cands, key=lambda c: -c['cos'])[:20]
+        lines = [json.dumps(dict(pointer=c['pointer'], kept=c['pointer'] in kept, cos=round(c['cos'], 3), lex=round(c['lex'], 2),
+                                 p=round(c.get('p', 0), 3), body=' '.join(c['body'].split())[:120]), ensure_ascii=False)
+                 for c in selected]
+        outbound.emit('\n'.join(lines), [*outbound.strings(selected)])
     return 0
 
 
 if __name__ == '__main__':
-    sys.exit(main())
+    try:
+        sys.exit(main())
+    except outbound.Refused:
+        sys.exit(outbound.refusal())

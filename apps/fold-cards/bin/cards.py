@@ -14,6 +14,7 @@ import argparse, glob, json, os, re, sys, time
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))  # -I leaves the script directory off sys.path
 import memindex
+import outbound
 
 CHANNEL = re.compile(r'<channel source="[^"]*"([^>]*)>([\s\S]*?)</channel>')
 ATTR = lambda s, k: (re.search(k + r'="([^"]*)"', s) or [None, ''])[1]
@@ -174,10 +175,12 @@ def build(a):
     db.execute('INSERT OR REPLACE INTO progress VALUES (?, ?)', (transcript, resume))
     db.commit()
     if a.ledger_cards and added:
+        ledger = [dict((k, c[k]) for k in ('pointer', 'ts', 'who', 'event_id', 'body')) for c in added]
+        payload = '\n'.join(json.dumps(c, ensure_ascii=False) for c in ledger) + '\n'
+        outbound.check('\n'.join([payload, *outbound.strings(ledger)]))
         try:
             with open(a.ledger_cards, 'x') as out:
-                for c in added:
-                    out.write(json.dumps({k: c[k] for k in ('pointer', 'ts', 'who', 'event_id', 'body')}) + '\n')
+                out.write(payload)
         except FileExistsError:
             pass
     notes = {}
@@ -216,8 +219,8 @@ def thread_of(db_path, room, body, remember=True):
             with open(tmp, 'w') as f:
                 json.dump(rooms, f)
             os.replace(tmp, path)
-        except OSError as err:  # a lost turn costs one follow-up its context; it must not cost the recall
-            print(f'cards: thread not saved ({err!r})', file=sys.stderr)
+        except OSError:  # a lost turn costs one follow-up its context; it must not cost the recall
+            print('cards: thread not saved', file=sys.stderr)
     return [t[1] for t in turns]
 
 
@@ -226,7 +229,7 @@ def query(a):
     migrate(connect(a.db))
     msg = memindex.clean(a.text)
     if msg['kind'] == 'notice' or not msg['body']:
-        print('[]'); return 0
+        outbound.emit_json([]); return 0
     thread = json.loads(a.thread) if a.thread is not None else thread_of(a.db, msg['room'] or msg['kind'], msg['body'])
     sources = a.sources.split(',') if a.sources else ['fold', *note_dirs(a.db), *doc_dirs(a.db)]
     exclude = set(filter(None, (a.exclude or '').split(','))) | {f'{s}:MEMORY.md' for s in note_dirs(a.db)}
@@ -245,7 +248,7 @@ def query(a):
             else:
                 h.update(name=front(c['body'], 'name') or name, description=front(c['body'], 'description') or text[:300])
         out.append(h)
-    print(json.dumps(out))
+    outbound.emit_json(out, [c['body'] for c in hits])
     return 0
 
 
@@ -255,11 +258,12 @@ def unfold(a):
     row = (db.execute('SELECT transcript, start, end FROM card WHERE event_id=?', (p[6:],)).fetchone() if p.startswith('event:')
            else db.execute('SELECT transcript, start, end FROM card WHERE pointer=?', (p,)).fetchone())
     if not row:
-        print('unfold: no card for ' + p, file=sys.stderr); return 1
+        print('unfold: no matching card', file=sys.stderr); return 1
     transcript, start, end = row
     with open(transcript, 'rb') as f:
         f.seek(start)
         chunk = f.read(end - start)
+    out = []
     for line in chunk.splitlines():
         try:
             r = json.loads(line)
@@ -272,7 +276,8 @@ def unfold(a):
             t = text_of(r.get('message', {}).get('content'))
         if a.max_tool_chars and len(t) > a.max_tool_chars:
             t = t[:a.max_tool_chars] + f'\n[... {len(t) - a.max_tool_chars} more chars; --max-tool-chars 0 for all]'
-        print(f'--- {r["type"]} {r.get("uuid", "")} {r.get("timestamp", "")}\n{t}')
+        out.append(f'--- {r["type"]} {r.get("uuid", "")} {r.get("timestamp", "")}\n{t}')
+    outbound.emit('\n'.join(out), [chunk.decode('utf-8')])
     return 0
 
 
@@ -293,4 +298,7 @@ def main():
 
 
 if __name__ == '__main__':
-    sys.exit(main())
+    try:
+        sys.exit(main())
+    except outbound.Refused:
+        sys.exit(outbound.refusal())

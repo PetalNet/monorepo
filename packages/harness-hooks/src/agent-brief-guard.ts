@@ -1,14 +1,17 @@
 // PreToolUse guard for the Agent tool: Janet's main thread gives a worker the goal, what proves it done and hard
-// constraints, not a step-by-step plan; the worker plans. Denies a prompt that holds an ordered procedure:
+// constraints, not a step-by-step plan; the worker plans. Also resolves a project bundle and scans every delegation.
+// Denies a prompt that holds an ordered procedure:
 //   - a run of 3+ consecutively numbered lines (1. / 1) / (1) / Step 1) whose items mostly open with an imperative verb, or
 //   - 3+ sentence- or line-initial sequencers (first, second, third, then, next, after that, finally, lastly).
 // Passes: bullets, numbered facts/questions/deliverables (items that do not open with a verb, or open with a
 // constraint word like Never/Do not/Only), and subagent_type planner. Subagents (agent_id present) are exempt:
-// the hook runs for them too, and only the main thread must not plan for workers. Fails open on bad input.
+// the hook runs for them too, and only the main thread must not plan for workers. Project and scanner checks have no exemption.
 //
-// One file with no dependencies, so Node runs it straight from the source tree: `node agent-brief-guard.ts < payload.json`.
+// Runs from the source tree with Node and the adjacent fold-cards Python CLI.
 import { readFileSync, realpathSync } from "node:fs";
 import { pathToFileURL } from "node:url";
+
+import { prepareDelegation } from "./context-bundle.ts";
 
 const VERBS = new Set(
 	`add apply approve ask audit back bake bring build bump call capture check clone collect commit compare configure confirm
@@ -97,6 +100,17 @@ interface HookInput {
 	readonly tool_input?: { readonly prompt?: unknown; readonly subagent_type?: unknown };
 }
 
+function isHookInput(value: unknown): value is HookInput {
+	return (
+		typeof value === "object" &&
+		value !== null &&
+		"tool_name" in value &&
+		typeof value.tool_name === "string" &&
+		(!("tool_input" in value) ||
+			(typeof value.tool_input === "object" && value.tool_input !== null))
+	);
+}
+
 /** Why a brief is denied, or `null` when it may pass. */
 export function verdict(input: HookInput | null): string | null {
 	if (!["Agent", "Task"].includes(String(input?.tool_name)) || input?.agent_id) {
@@ -134,22 +148,70 @@ function denial(why: string) {
 	};
 }
 
-if (
-	process.argv[1] !== undefined &&
-	import.meta.url === pathToFileURL(realpathSync(process.argv[1])).href
-) {
-	let input: HookInput | null;
-
-	try {
-		input = JSON.parse(readFileSync(0, "utf8")) as HookInput | null;
-	} catch {
-		process.exit(0);
+/** Hook output for every delegation, including planners and nested workers. */
+export function guard(input: HookInput | null) {
+	if (!["Agent", "Task"].includes(String(input?.tool_name))) {
+		return undefined;
 	}
 
 	const why = verdict(input);
 
 	if (why !== null) {
-		process.stdout.write(JSON.stringify(denial(why)));
+		return denial(why);
+	}
+
+	const prompt = input?.tool_input?.prompt;
+
+	if (typeof prompt !== "string") {
+		return {
+			hookSpecificOutput: {
+				hookEventName: "PreToolUse",
+				permissionDecision: "deny",
+				permissionDecisionReason: "Delegation needs a text prompt with a Project: <id> line.",
+			},
+		};
+	}
+
+	const prepared = prepareDelegation(prompt);
+
+	if (prepared.kind === "refused") {
+		return {
+			hookSpecificOutput: {
+				hookEventName: "PreToolUse",
+				permissionDecision: "deny",
+				permissionDecisionReason: prepared.reason,
+			},
+		};
+	}
+
+	return {
+		hookSpecificOutput: {
+			hookEventName: "PreToolUse",
+			permissionDecision: "allow",
+			updatedInput: { ...input?.tool_input, prompt: prepared.prompt },
+		},
+	};
+}
+
+if (
+	process.argv[1] !== undefined &&
+	import.meta.url === pathToFileURL(realpathSync(process.argv[1])).href
+) {
+	try {
+		const parsed: unknown = JSON.parse(readFileSync(0, "utf8"));
+
+		if (!isHookInput(parsed)) {
+			throw new Error("invalid hook input");
+		}
+
+		const output = guard(parsed);
+
+		if (output !== undefined) {
+			process.stdout.write(JSON.stringify(output));
+		}
+	} catch {
+		process.stderr.write("Delegation hook input is invalid.\n");
+		process.exit(2);
 	}
 
 	process.exit(0);
