@@ -27,7 +27,10 @@ def detailed_heights(out, manifest):
 
 
 def write_imagery_with_dark_tree(path):
-    """Uniform light ground with a dark square where the tree stands, and its shadow 3 m to the north."""
+    """Uniform light ground with a darker square where the tree stands, and its shadow 3 m to the north.
+
+    The tree is not dark enough to pass for shade, so only its height can keep it out of the ground colour.
+    """
     west, north = h.WEST - 60, h.SOUTH + h.SIZE_M + 60
     count = int(h.SIZE_M + 120)
     eastings = west + np.arange(count) + 0.5
@@ -35,7 +38,7 @@ def write_imagery_with_dark_tree(path):
     rgb = np.full((3, count, count), 180, dtype=np.uint8)
     dark_e = (eastings >= TREE_WEST) & (eastings < TREE_WEST + TREE_SIDE)
     dark_n = (northings >= TREE_SOUTH) & (northings < TREE_SOUTH + TREE_SIDE + 3)
-    rgb[:, np.ix_(dark_n, dark_e)[0], np.ix_(dark_n, dark_e)[1]] = 30
+    rgb[:, np.ix_(dark_n, dark_e)[0], np.ix_(dark_n, dark_e)[1]] = 160
     h.write_raster(path, rgb, west, north, 1.0)
 
 
@@ -55,7 +58,7 @@ def test_tree_canopy_is_kept_out_of_the_ground_colour(tmp_path):
     plain = build(h.write_site(tmp_path, sources=FILES), tmp_path / "plain")
     masked = build(h.write_site(tmp_path, sources=FILES | LIDAR), tmp_path / "masked")
 
-    assert colour_at_tree(tmp_path / "plain", plain) < 150  # the canopy darkens the map when nothing masks it
+    assert colour_at_tree(tmp_path / "plain", plain) < 172  # the canopy darkens the map when nothing masks it
     assert colour_at_tree(tmp_path / "masked", masked) == pytest.approx(180, abs=3)
     assert masked["macro_colour"]["covered_fraction"] == pytest.approx((TREE_SIDE + 8) ** 2 / h.SIZE_M**2, rel=0.25)
     assert plain["macro_colour"]["covered_fraction"] == 0
@@ -71,7 +74,7 @@ def test_low_vegetation_is_still_ground_colour(tmp_path):
     manifest = build(h.write_site(tmp_path, sources=FILES | LIDAR), out)
 
     assert manifest["macro_colour"]["covered_fraction"] == 0
-    assert colour_at_tree(out, manifest) < 150
+    assert colour_at_tree(out, manifest) < 172
 
 
 def under_roof(easting, northing):

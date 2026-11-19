@@ -140,10 +140,13 @@ def test_macro_colour_uses_the_same_layout_as_the_heightmap(tmp_path):
     assert south_columns[..., 2].mean() < 50 and north_columns[..., 2].mean() > 150
 
 
-def test_macro_colour_is_low_passed_at_the_documented_scale(site, tmp_path):
+def test_macro_colour_is_low_passed_at_the_documented_scale(tmp_path):
+    # Two greens, so both halves are one surface class: the low-pass works within a class.
+    h.write_dem(tmp_path / "dem.tif")
+    h.write_scene(tmp_path / "imagery.tif", (0, 200, 0), [(63, -400, 400, 400, (0, 230, 0))])
     out = tmp_path / "out"
-    manifest = build(site, out)
-    red = macro_colour(out, manifest)[:, 512, 0] / 200.0
+    manifest = build(h.write_site(tmp_path), out)
+    red = (230 - macro_colour(out, manifest)[:, 512, 1]) / 30.0
 
     # A step blurred by a Gaussian of standard deviation s falls from 90% to 10% over 2.563 s.
     metres_per_pixel = manifest["tile"]["size_m"] / manifest["macro_colour"]["pixels"]
@@ -177,16 +180,16 @@ def test_unchanged_inputs_reuse_stages_and_a_new_dem_reruns_only_elevation(site,
     out = tmp_path / "out"
     assert build(site, out)["stages_reused"] == []
     first = (out / "heightmap.png").read_bytes()
-    assert build(site, out)["stages_reused"] == ["elevation", "macro_colour"]
+    assert build(site, out)["stages_reused"] == ["elevation", "surface", "macro_colour"]
     assert (out / "heightmap.png").read_bytes() == first
 
     h.write_dem(tmp_path / "dem.tif", function=lambda e, n: h.plane(e, n) + 5)
-    assert build(site, out)["stages_reused"] == ["macro_colour"]
+    assert build(site, out)["stages_reused"] == ["surface", "macro_colour"]
     lowest = h.plane(*load_site(site).tile.bounds()[:2]) + 5
     assert json.loads((out / "build.json").read_text())["landscape"]["min_m"] == pytest.approx(lowest, abs=0.01)
 
 
-def test_new_imagery_reruns_only_the_colour_stage(site, tmp_path):
+def test_new_imagery_reruns_the_surface_and_colour_stages(site, tmp_path):
     out = tmp_path / "out"
     build(site, out)
     h.write_imagery(tmp_path / "imagery.tif", split_easting=h.WEST + 20)

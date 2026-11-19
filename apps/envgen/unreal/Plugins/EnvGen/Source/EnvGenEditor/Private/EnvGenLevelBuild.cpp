@@ -2,11 +2,13 @@
 
 #include "AssetRegistry/AssetRegistryModule.h"
 #include "Components/DirectionalLightComponent.h"
+#include "Components/ExponentialHeightFogComponent.h"
 #include "Components/SkyAtmosphereComponent.h"
 #include "Components/SkyLightComponent.h"
 #include "Components/StaticMeshComponent.h"
 #include "Dom/JsonObject.h"
 #include "Engine/DirectionalLight.h"
+#include "Engine/ExponentialHeightFog.h"
 #include "Engine/PostProcessVolume.h"
 #include "Engine/SkyLight.h"
 #include "Engine/StaticMesh.h"
@@ -64,7 +66,7 @@ namespace
 	// How far a merged layer weight may sit from the imported one, out of 255.
 	constexpr int32 WeightTolerance = 2;
 	// The ground beyond the outermost surface: a flat plane this wide, this far under that surface's lowest point.
-	constexpr double HorizonSizeCm = 2.0e7;
+	constexpr double HorizonSizeCm = 2.0e6;
 	constexpr double HorizonSinkCm = 100;
 	// The sky atmosphere's planet sits this far under the horizon plane.
 	constexpr double PlanetSinkCm = 1000;
@@ -468,6 +470,10 @@ namespace
 		Sky->SetActorLabel(TEXT("EnvGenSkyLight"));
 		Sky->GetLightComponent()->SetMobility(EComponentMobility::Movable);
 		Sky->GetLightComponent()->SetRealTimeCapture(true);
+
+		AExponentialHeightFog* Fog = World->SpawnActor<AExponentialHeightFog>(FVector::ZeroVector, FRotator::ZeroRotator);
+		Fog->SetActorLabel(TEXT("EnvGenFog"));
+		Fog->GetComponent()->SetFogDensity(0.005f);
 
 		// Exposure may adapt only inside a narrow band (EV100), so a camera never whites out.
 		APostProcessVolume* Exposure = World->SpawnActor<APostProcessVolume>(FVector::ZeroVector, FRotator::ZeroRotator);

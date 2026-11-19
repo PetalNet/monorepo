@@ -147,3 +147,22 @@ def returns_above(west: float, south: float, side: float, height: float) -> np.n
     eastings, northings = np.meshgrid(west + np.arange(side) + 0.5, south + np.arange(side) + 0.5)
     eastings, northings = eastings.ravel(), northings.ravel()
     return np.column_stack([eastings, northings, plane(eastings, northings) + height, np.full(len(eastings), 1)])
+
+
+GRASS, PAVED = (70, 130, 60), (190, 190, 190)
+
+
+def write_scene(path: Path, base: tuple[int, int, int], patches=()) -> None:
+    """Imagery of one colour with rectangles of others: (west, south, east, north, rgb), in metres from the tile's south-west corner."""
+    west, north = WEST - 60, SOUTH + SIZE_M + 60
+    count = int(SIZE_M + 120)
+    eastings = west + np.arange(count) + 0.5 - WEST
+    northings = north - np.arange(count) - 0.5 - SOUTH
+    rgb = np.empty((3, count, count), dtype=np.uint8)
+    rgb[:] = np.array(base, dtype=np.uint8)[:, None, None]
+    for patch_west, patch_south, patch_east, patch_north, colour in patches:
+        rows = (northings >= patch_south) & (northings < patch_north)
+        columns = (eastings >= patch_west) & (eastings < patch_east)
+        for band in range(3):
+            rgb[band][np.ix_(rows, columns)] = colour[band]
+    write_raster(path, rgb, west, north, 1.0)
