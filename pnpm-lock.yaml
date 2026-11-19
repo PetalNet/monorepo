@@ -746,6 +746,8 @@ importers:
 
   apps/janet-voice-head: {}
 
+  apps/janet-voice-note: {}
+
   apps/label-studio:
     devDependencies:
       '@lucide/svelte':

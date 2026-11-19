@@ -80,6 +80,7 @@
 			"apps/janet-call-android",
 			"apps/janet-phone",
 			"apps/janet-voice-gateway",
+			"apps/janet-voice-note",
 			"apps/manager",
 			"apps/point",
 			"apps/janet-voice-head",
