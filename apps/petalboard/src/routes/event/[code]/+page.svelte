@@ -1,7 +1,7 @@
 <script lang="ts">
 	import { PUBLIC_GOOGLE_MAPS_API_KEY } from "$app/env/public";
 	import { enhance } from "$app/forms";
-	import { invalidateAll, goto } from "$app/navigation";
+	import { refreshAll, goto } from "$app/navigation";
 	import { onMount, tick } from "svelte";
 	import { SvelteSet } from "svelte/reactivity";
 
@@ -1458,7 +1458,7 @@
 					await update();
 
 					if (result.type === "failure" && result.data?.potluck) {
-						await invalidateAll();
+						await refreshAll();
 					}
 				};
 			}}
@@ -1779,7 +1779,7 @@
 					await update();
 
 					if (result.type === "failure" && result.data?.potluck) {
-						await invalidateAll();
+						await refreshAll();
 					}
 				};
 			}}

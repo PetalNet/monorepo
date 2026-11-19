@@ -1,5 +1,3 @@
-import { json } from "@sveltejs/kit";
-
 import type { JobResponse } from "#lib/api.ts";
 import { getApp } from "#lib/server/app.ts";
 import { fail } from "#lib/server/http.ts";
@@ -15,5 +13,5 @@ export const GET: RequestHandler = ({ params }) => {
 
 	const response: JobResponse = { job };
 
-	return json(response);
+	return Response.json(response);
 };

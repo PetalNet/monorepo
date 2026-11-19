@@ -1,7 +1,6 @@
 import { readFileSync } from "node:fs";
 
 import { ELEVEN_API_KEY } from "$app/env/private";
-import { json } from "@sveltejs/kit";
 
 import { canRead } from "#lib/server/db.js";
 import { take } from "#lib/server/ratelimit.js";
@@ -38,7 +37,7 @@ export async function POST({ request, params, locals }) {
 	const me = locals.user;
 
 	if (!me) {
-		return json({ error: "unauthorized" }, { status: 401 });
+		return Response.json({ error: "unauthorized" }, { status: 401 });
 	}
 
 	// 2. IDOR / scope — this route is /task/[id]/tts. Only let a caller drive the proxy for
@@ -47,7 +46,7 @@ export async function POST({ request, params, locals }) {
 	const id = Number(params.id);
 
 	if (!Number.isInteger(id) || !canRead(id, me)) {
-		return json({ error: "not-found" }, { status: 404 });
+		return Response.json({ error: "not-found" }, { status: 404 });
 	}
 
 	// No key configured -> 503 (client quietly falls back to Web Speech). Checked before the
@@ -55,7 +54,7 @@ export async function POST({ request, params, locals }) {
 	const key = apiKey();
 
 	if (!key) {
-		return json({ error: "no-tts-key" }, { status: 503 });
+		return Response.json({ error: "no-tts-key" }, { status: 503 });
 	}
 
 	// BODY-SIZE GUARD — reject an oversized request BEFORE buffering/parsing the JSON, so a
@@ -64,7 +63,7 @@ export async function POST({ request, params, locals }) {
 	const contentLength = Number(request.headers.get("content-length") || 0);
 
 	if (contentLength > MAX_TEXT * 4 + 1024) {
-		return json({ error: "too-long", max: MAX_TEXT }, { status: 413 });
+		return Response.json({ error: "too-long", max: MAX_TEXT }, { status: 413 });
 	}
 
 	let pick = "",
@@ -77,13 +76,13 @@ export async function POST({ request, params, locals }) {
 	text = String(text || "").trim();
 
 	if (!text) {
-		return json({ error: "empty" }, { status: 400 });
+		return Response.json({ error: "empty" }, { status: 400 });
 	}
 
 	// 4. INPUT CAP — reject (not silently truncate) oversized input so a huge body can't run
 	//    up cost AND the caller knows their request was refused.
 	if (text.length > MAX_TEXT) {
-		return json({ error: "too-long", max: MAX_TEXT }, { status: 413 });
+		return Response.json({ error: "too-long", max: MAX_TEXT }, { status: 413 });
 	}
 
 	// 3. RATE-LIMIT — charged HERE, after validation, so malformed/empty/oversized requests
@@ -103,7 +102,7 @@ export async function POST({ request, params, locals }) {
 		: perUser;
 
 	if (limited) {
-		return json(
+		return Response.json(
 			{ error: "rate-limited" },
 			{ status: 429, headers: { "retry-after": String(limited.retryAfter) } },
 		);
@@ -112,7 +111,7 @@ export async function POST({ request, params, locals }) {
 	const voice = resolveVoice(String(pick || "default").toLowerCase());
 
 	if (!voice) {
-		return json({ error: "no-tts-voice" }, { status: 503 });
+		return Response.json({ error: "no-tts-voice" }, { status: 503 });
 	}
 
 	// Bound the upstream call — a stalled ElevenLabs request shouldn't tie up the process
@@ -129,11 +128,11 @@ export async function POST({ request, params, locals }) {
 	}).catch(() => null);
 
 	if (!r) {
-		return json({ error: "tts-upstream", status: 504 }, { status: 502 });
+		return Response.json({ error: "tts-upstream", status: 504 }, { status: 502 });
 	}
 
 	if (!r.ok) {
-		return json({ error: "tts-upstream", status: r.status }, { status: 502 });
+		return Response.json({ error: "tts-upstream", status: r.status }, { status: 502 });
 	}
 
 	return new Response(r.body, {

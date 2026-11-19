@@ -33,7 +33,7 @@ vi.mock("$app/forms", () => ({
 }));
 
 vi.mock("$app/navigation", () => ({
-	invalidateAll: async () => undefined,
+	refreshAll: async () => undefined,
 	goto: async (url: URL, options?: { replace?: boolean }) => {
 		if (options?.replace) {
 			window.history.replaceState({}, "", url);

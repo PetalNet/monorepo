@@ -1,5 +1,3 @@
-import { json } from "@sveltejs/kit";
-
 import type { JobResponse } from "#lib/api.ts";
 import { getApp } from "#lib/server/app.ts";
 import { fail, readBody, renderRequestPages } from "#lib/server/http.ts";
@@ -38,5 +36,5 @@ export const POST: RequestHandler = async ({ request }) => {
 	});
 	const response: JobResponse = { job };
 
-	return json(response, { status: 202 });
+	return Response.json(response, { status: 202 });
 };

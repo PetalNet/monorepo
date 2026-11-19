@@ -1,5 +1,3 @@
-import { json } from "@sveltejs/kit";
-
 import { getApp } from "#lib/server/app.ts";
 import { fail } from "#lib/server/http.ts";
 import { isSourceId, readSource, SOURCES } from "#lib/server/sources/index.ts";
@@ -20,5 +18,5 @@ export const GET: RequestHandler = async ({ params }) => {
 
 	const result = await readSource(params.id, config, app.now);
 
-	return result.ok ? json(result.rows) : fail(502, result.error);
+	return result.ok ? Response.json(result.rows) : fail(502, result.error);
 };

@@ -1,5 +1,3 @@
-import { json } from "@sveltejs/kit";
-
 import { searchIndex } from "#lib/server/db.js";
 
 // Lightweight, visibility-gated search index for the top-bar typeahead. Fetched once
@@ -7,5 +5,5 @@ import { searchIndex } from "#lib/server/db.js";
 export function GET({ locals }) {
 	const items = searchIndex(locals.user);
 
-	return json({ items }, { headers: { "cache-control": "private, max-age=20" } });
+	return Response.json({ items }, { headers: { "cache-control": "private, max-age=20" } });
 }

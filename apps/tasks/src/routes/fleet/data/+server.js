@@ -1,5 +1,3 @@
-import { json } from "@sveltejs/kit";
-
 import { deepScrub } from "#lib/server/db.js";
 import { getFleet } from "#lib/server/fleet.js";
 
@@ -9,7 +7,7 @@ import { getFleet } from "#lib/server/fleet.js";
 export function GET({ locals }) {
 	const fleet = getFleet(locals.user);
 
-	return json(deepScrub({ ...fleet, now: Date.now() }), {
+	return Response.json(deepScrub({ ...fleet, now: Date.now() }), {
 		headers: { "cache-control": "no-store" },
 	});
 }

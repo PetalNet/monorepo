@@ -1,5 +1,3 @@
-import { json } from "@sveltejs/kit";
-
 import type { Template } from "#lib/doc.ts";
 import { getApp } from "#lib/server/app.ts";
 import { fail, readBody } from "#lib/server/http.ts";
@@ -15,7 +13,7 @@ const READ_ONLY = "Built-in templates are read-only; save a copy to change it";
 export const GET: RequestHandler = ({ params }) => {
 	const template = findTemplate(getApp().store, params.id);
 
-	return template ? json({ template }) : fail(404, `No template named "${params.id}"`);
+	return template ? Response.json({ template }) : fail(404, `No template named "${params.id}"`);
 };
 
 export const PUT: RequestHandler = async ({ params, request }) => {
@@ -51,7 +49,7 @@ export const PUT: RequestHandler = async ({ params, request }) => {
 		return fail(409, `A template named "${template.name}" already exists`);
 	}
 
-	return json({ template });
+	return Response.json({ template });
 };
 
 export const DELETE: RequestHandler = ({ params }) => {

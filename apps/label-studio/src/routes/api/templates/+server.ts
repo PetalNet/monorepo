@@ -1,5 +1,3 @@
-import { json } from "@sveltejs/kit";
-
 import type { Template } from "#lib/doc.ts";
 import { getApp } from "#lib/server/app.ts";
 import { fail, readBody } from "#lib/server/http.ts";
@@ -8,7 +6,7 @@ import { allTemplates, findTemplate } from "#lib/server/templates.ts";
 
 import type { RequestHandler } from "./$types";
 
-export const GET: RequestHandler = () => json({ templates: allTemplates(getApp().store) });
+export const GET: RequestHandler = () => Response.json({ templates: allTemplates(getApp().store) });
 
 export const POST: RequestHandler = async ({ request }) => {
 	const body = await readBody(request, templateInput);
@@ -29,5 +27,5 @@ export const POST: RequestHandler = async ({ request }) => {
 		return fail(409, `A template named "${template.name}" already exists`);
 	}
 
-	return json({ template }, { status: 201 });
+	return Response.json({ template }, { status: 201 });
 };

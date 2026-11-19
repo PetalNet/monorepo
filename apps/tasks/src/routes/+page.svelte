@@ -1,6 +1,6 @@
 <script>
 	import { enhance } from "$app/forms";
-	import { goto, invalidateAll } from "$app/navigation";
+	import { goto, refreshAll } from "$app/navigation";
 
 	import Icon from "#lib/Icon.svelte";
 	import { displayName, projectName } from "#lib/people.js";
@@ -24,12 +24,12 @@
 
 		return () => clearInterval(id);
 	});
-	// Live desk data: re-fetch the load every minute, ON the minute. invalidateAll() re-runs the
+	// Live desk data: re-fetch the load every minute, ON the minute. refreshAll() re-runs the
 	// server loads and updates `data` reactively — NOT a page reload, so typing/scroll aren't
 	// disrupted and an offline blip just fails quietly (an operator). Aligned to the wall-clock minute.
 	$effect(() => {
 		let interval;
-		const refresh = () => invalidateAll().catch(() => {});
+		const refresh = () => refreshAll().catch(() => {});
 		const timeout = setTimeout(
 			() => {
 				refresh();

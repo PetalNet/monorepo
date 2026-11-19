@@ -1,7 +1,7 @@
 <script lang="ts">
 	import { enhance } from "$app/forms";
 	import { goto } from "$app/navigation";
-	import { invalidateAll } from "$app/navigation";
+	import { refreshAll } from "$app/navigation";
 	import { formatDistanceToNow } from "date-fns";
 	import QRCode from "qrcode";
 	import { onMount } from "svelte";
@@ -87,7 +87,7 @@
 			editingCategories = false;
 			categories = [];
 			// Reload data properly
-			await invalidateAll();
+			await refreshAll();
 		}
 	}
 
@@ -142,7 +142,7 @@
 		});
 
 		if (response.ok) {
-			await invalidateAll();
+			await refreshAll();
 		}
 	}
 
@@ -534,7 +534,7 @@
 				use:enhance={() => {
 					return async ({ result }) => {
 						if (result.type === "success") {
-							await invalidateAll();
+							await refreshAll();
 							showEditModal = false;
 						} else if (result.type === "failure") {
 							alert(result.data?.error || "Failed to update settings");

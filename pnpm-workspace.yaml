@@ -209,7 +209,7 @@ catalog:
   robots-parser: 3.0.1
   "@better-auth/core": 1.7.25
   "@better-auth/test-utils": 1.7.25
-  "@sveltejs/adapter-node": ^6.0.0
+  "@sveltejs/adapter-node": ^6.0.1
   "@effect/platform-node": 4.0.1
   "@effect/sql-pg": 4.0.0
   "@sveltejs/kit": 3.2.0

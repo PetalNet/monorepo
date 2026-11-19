@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { enhance, applyAction } from "$app/forms";
-	import { goto, invalidateAll } from "$app/navigation";
+	import { goto, refreshAll } from "$app/navigation";
 	import { format } from "date-fns";
 	import QRCode from "qrcode";
 	import Sortable from "sortablejs";
@@ -525,7 +525,7 @@
 						use:enhance={() => {
 							return async ({ result }) => {
 								if (result.type === "success") {
-									await invalidateAll();
+									await refreshAll();
 								} else if (result.type === "failure") {
 									alert(result.data?.error || "Failed to update settings");
 								}
@@ -996,7 +996,7 @@
 						return async ({ result }) => {
 							if (result.type === "success") {
 								closeCreateModal();
-								await invalidateAll();
+								await refreshAll();
 							}
 						};
 					}}
@@ -1100,7 +1100,7 @@
 						return async ({ result }) => {
 							if (result.type === "success") {
 								closeJoinModal();
-								await invalidateAll();
+								await refreshAll();
 							}
 						};
 					}}

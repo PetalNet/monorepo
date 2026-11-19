@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { enhance } from "$app/forms";
-	import { invalidateAll, goto } from "$app/navigation";
+	import { refreshAll, goto } from "$app/navigation";
 	import type Sortable from "sortablejs";
 	import { onMount, onDestroy, untrack } from "svelte";
 
@@ -319,7 +319,7 @@
 
 		// Poll for updates
 		pollInterval = setInterval(() => {
-			invalidateAll().catch(() => {
+			refreshAll().catch(() => {
 				// Silently ignore errors (e.g., if page is navigating away)
 			});
 		}, pollDelay);
@@ -544,7 +544,7 @@
 				body: formData,
 			})
 				.then(() => {
-					return invalidateAll();
+					return refreshAll();
 				})
 				.then(() => {
 					// Wait a bit before fading in
@@ -570,7 +570,7 @@
 				body: formData,
 			});
 
-			await invalidateAll();
+			await refreshAll();
 			showWinnersScreen = true;
 		} else if (idx >= 0 && idx < localOrderedGroups.length - 1) {
 			await startPresentation(localOrderedGroups[idx + 1].id);
@@ -601,7 +601,7 @@
 				body: formData,
 			})
 				.then(() => {
-					return invalidateAll();
+					return refreshAll();
 				})
 				.then(() => {
 					// Wait a bit before fading in
@@ -624,7 +624,7 @@
 		fetch("?/removeParticipant", {
 			method: "POST",
 			body: formData,
-		}).then(() => invalidateAll());
+		}).then(() => refreshAll());
 	}
 
 	function removeVotingSession(sessionId: string) {
@@ -639,7 +639,7 @@
 		fetch("?/removeVotingSession", {
 			method: "POST",
 			body: formData,
-		}).then(() => invalidateAll());
+		}).then(() => refreshAll());
 	}
 
 	async function setRating(categoryId: string, stars: number) {
@@ -691,7 +691,7 @@
 			hasVotedForCurrent = event.categories.every((cat: any) => ratings[cat.id] > 0);
 
 			// Refresh to update vote count
-			await invalidateAll();
+			await refreshAll();
 		} finally {
 			savingRating = false;
 		}
@@ -721,7 +721,7 @@
 			body: formData,
 		});
 
-		await invalidateAll();
+		await refreshAll();
 	}
 
 	async function handleLogout() {
@@ -747,7 +747,7 @@
 		});
 
 		// Refresh data to get the server's timestamp
-		await invalidateAll();
+		await refreshAll();
 	}
 
 	async function pauseTimer() {
@@ -758,7 +758,7 @@
 			body: formData,
 		});
 
-		await invalidateAll();
+		await refreshAll();
 	}
 
 	async function resumeTimer() {
@@ -769,7 +769,7 @@
 			body: formData,
 		});
 
-		await invalidateAll();
+		await refreshAll();
 	}
 
 	async function stopTimer() {
@@ -788,7 +788,7 @@
 			body: formData,
 		});
 
-		await invalidateAll();
+		await refreshAll();
 	}
 
 	// Close dropdown when clicking outside
@@ -812,7 +812,7 @@
 			body: formData,
 		});
 
-		await invalidateAll();
+		await refreshAll();
 		showWinnersScreen = true;
 	}
 
@@ -832,7 +832,7 @@
 			body: formData,
 		});
 
-		await invalidateAll();
+		await refreshAll();
 	}
 
 	async function revealPreviousWinner() {
@@ -852,7 +852,7 @@
 			formData.append("step", "0");
 			await fetch("?/revealWinner", { method: "POST", body: formData });
 
-			await invalidateAll();
+			await refreshAll();
 
 			return;
 		}
@@ -872,7 +872,7 @@
 			body: formData,
 		});
 
-		await invalidateAll();
+		await refreshAll();
 	}
 
 	function shootConfetti() {
@@ -929,7 +929,7 @@
 		}
 
 		// Force immediate reload so polling picks up the new timestamp
-		await invalidateAll();
+		await refreshAll();
 	}
 </script>
 
@@ -1429,7 +1429,7 @@
 
 							formData.append("step", "0");
 							await fetch("?/revealWinner", { method: "POST", body: formData });
-							await invalidateAll();
+							await refreshAll();
 						}}
 						class="rounded-xl border-2 border-white/30 bg-white/20 px-8 py-4 text-lg font-bold text-white backdrop-blur-xl transition hover:bg-white/30"
 					>

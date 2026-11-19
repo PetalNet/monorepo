@@ -1,5 +1,3 @@
-import { json } from "@sveltejs/kit";
-
 import type { RequestHandler } from "./$types";
 
 /** The fields we read off a Nominatim search hit. */
@@ -13,7 +11,7 @@ export const GET: RequestHandler = async ({ url }) => {
 	const query = url.searchParams.get("q");
 
 	if (!query) {
-		return json({ error: 'Query parameter "q" is required' }, { status: 400 });
+		return Response.json({ error: 'Query parameter "q" is required' }, { status: 400 });
 	}
 
 	try {
@@ -28,7 +26,7 @@ export const GET: RequestHandler = async ({ url }) => {
 		);
 
 		if (!response.ok) {
-			return json({ error: "Geocoding service unavailable" }, { status: 502 });
+			return Response.json({ error: "Geocoding service unavailable" }, { status: 502 });
 		}
 
 		const results = (await response.json()) as NominatimPlace[];
@@ -39,8 +37,8 @@ export const GET: RequestHandler = async ({ url }) => {
 			lng: parseFloat(r.lon),
 		}));
 
-		return json(formatted);
+		return Response.json(formatted);
 	} catch {
-		return json({ error: "Geocoding failed" }, { status: 500 });
+		return Response.json({ error: "Geocoding failed" }, { status: 500 });
 	}
 };

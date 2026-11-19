@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { goto } from "$app/navigation";
-	import { invalidateAll } from "$app/navigation";
+	import { refreshAll } from "$app/navigation";
 	import { onMount, onDestroy } from "svelte";
 
 	import ParticleBackground from "#lib/components/ParticleBackground.svelte";
@@ -75,7 +75,7 @@
 
 		// Poll for updates every 2 seconds
 		pollInterval = setInterval(() => {
-			invalidateAll();
+			refreshAll();
 		}, 2000);
 	});
 

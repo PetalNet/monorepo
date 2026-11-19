@@ -1,4 +1,3 @@
-import { json } from "@sveltejs/kit";
 import { nanoid } from "nanoid";
 
 import { prisma } from "#lib/server/db.ts";
@@ -8,7 +7,7 @@ import type { RequestHandler } from "./$types";
 export const POST: RequestHandler = async ({ request, locals }) => {
 	// Check if user is authenticated
 	if (!locals.user) {
-		return json({ error: "Unauthorized" }, { status: 401 });
+		return Response.json({ error: "Unauthorized" }, { status: 401 });
 	}
 
 	try {
@@ -16,11 +15,11 @@ export const POST: RequestHandler = async ({ request, locals }) => {
 
 		// Validate required fields
 		if (!data.name) {
-			return json({ error: "Event name is required" }, { status: 400 });
+			return Response.json({ error: "Event name is required" }, { status: 400 });
 		}
 
 		if (!data.categories || data.categories.length === 0) {
-			return json({ error: "At least one rating category is required" }, { status: 400 });
+			return Response.json({ error: "At least one rating category is required" }, { status: 400 });
 		}
 
 		// Generate unique join code
@@ -54,10 +53,10 @@ export const POST: RequestHandler = async ({ request, locals }) => {
 			},
 		});
 
-		return json({ eventId: event.id, joinCode: event.joinCode });
+		return Response.json({ eventId: event.id, joinCode: event.joinCode });
 	} catch (error) {
 		console.error("Error creating event:", error);
 
-		return json({ error: "Failed to create event" }, { status: 500 });
+		return Response.json({ error: "Failed to create event" }, { status: 500 });
 	}
 };

@@ -1,12 +1,10 @@
-import { json } from "@sveltejs/kit";
-
 import { prisma } from "#lib/server/db.ts";
 
 import type { RequestHandler } from "./$types";
 
 export const POST: RequestHandler = async ({ request, params, locals }) => {
 	if (!locals.user) {
-		return json({ error: "Unauthorized" }, { status: 401 });
+		return Response.json({ error: "Unauthorized" }, { status: 401 });
 	}
 
 	const event = await prisma.event.findUnique({
@@ -14,7 +12,7 @@ export const POST: RequestHandler = async ({ request, params, locals }) => {
 	});
 
 	if (event?.hostId !== locals.user.id) {
-		return json({ error: "Forbidden" }, { status: 403 });
+		return Response.json({ error: "Forbidden" }, { status: 403 });
 	}
 
 	const data = await request.json();
@@ -27,7 +25,7 @@ export const POST: RequestHandler = async ({ request, params, locals }) => {
 			},
 		});
 
-		return json({ success: true });
+		return Response.json({ success: true });
 	}
 
 	if (data.action === "reorderCategories") {
@@ -41,8 +39,8 @@ export const POST: RequestHandler = async ({ request, params, locals }) => {
 
 		await prisma.$transaction(updates);
 
-		return json({ success: true });
+		return Response.json({ success: true });
 	}
 
-	return json({ error: "Invalid action" }, { status: 400 });
+	return Response.json({ error: "Invalid action" }, { status: 400 });
 };

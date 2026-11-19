@@ -83,7 +83,9 @@
 	);
 
 	afterNavigate(({ shallow, type }) => {
-		if (shallow && type === "goto") return;
+		if (shallow && type === "goto") {
+			return;
+		}
 
 		// fires once the filtered load has landed, even if counts are unchanged
 		if (!announcePending) {

@@ -1,5 +1,3 @@
-import { json } from "@sveltejs/kit";
-
 import type { RenderResponse } from "#lib/api.ts";
 import { tapeGeometry } from "#lib/doc.ts";
 import { getApp } from "#lib/server/app.ts";
@@ -34,5 +32,5 @@ export const POST: RequestHandler = async ({ request }) => {
 		})),
 	};
 
-	return json(response);
+	return Response.json(response);
 };

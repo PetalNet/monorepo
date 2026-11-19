@@ -1,5 +1,3 @@
-import { json } from "@sveltejs/kit";
-
 import { prisma } from "#lib/server/prisma.ts";
 import { getUserPlaylists, refreshAccessToken } from "#lib/server/spotify.ts";
 
@@ -7,7 +5,7 @@ import type { RequestHandler } from "./$types";
 
 export const GET: RequestHandler = async ({ locals }) => {
 	if (!locals.user) {
-		return json({ error: "Unauthorized" }, { status: 401 });
+		return Response.json({ error: "Unauthorized" }, { status: 401 });
 	}
 
 	const user = await prisma.user.findUnique({
@@ -20,7 +18,7 @@ export const GET: RequestHandler = async ({ locals }) => {
 	});
 
 	if (!user?.spotifyAccessToken || !user?.spotifyRefreshToken) {
-		return json({ error: "Spotify not connected" }, { status: 400 });
+		return Response.json({ error: "Spotify not connected" }, { status: 400 });
 	}
 
 	let accessToken = user.spotifyAccessToken;
@@ -42,17 +40,17 @@ export const GET: RequestHandler = async ({ locals }) => {
 				},
 			});
 		} catch {
-			return json({ error: "Failed to refresh Spotify token" }, { status: 401 });
+			return Response.json({ error: "Failed to refresh Spotify token" }, { status: 401 });
 		}
 	}
 
 	try {
 		const playlists = await getUserPlaylists(accessToken);
 
-		return json({ playlists });
+		return Response.json({ playlists });
 	} catch (error) {
 		console.error("Failed to fetch playlists:", error);
 
-		return json({ error: "Failed to fetch playlists" }, { status: 500 });
+		return Response.json({ error: "Failed to fetch playlists" }, { status: 500 });
 	}
 };
