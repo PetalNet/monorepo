@@ -1,7 +1,7 @@
 import { fail, redirect } from "@sveltejs/kit";
 import { customAlphabet } from "nanoid";
 
-import { Prisma } from "#lib/server/generated/prisma/client";
+import { Prisma } from "#lib/server/generated/prisma/client.ts";
 /* oxlint-disable eslint/no-await-in-loop -- Each attempt retries the insert after a public-code collision. */
 import { prisma } from "#lib/server/prisma.ts";
 import { eventSchema } from "#lib/server/validation.ts";
