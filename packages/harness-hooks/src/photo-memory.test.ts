@@ -11,13 +11,16 @@ import { discover, localVisionUrl, PhotoMemory, type PhotoConfig } from "./photo
 const cleanups: (() => void | Promise<void>)[] = [];
 
 afterEach(async () => {
-	for (const clean of cleanups.splice(0)) await clean();
+	await Array.fromAsync(cleanups.splice(0), (clean) => clean());
 });
 
 async function fixture(options: { remote?: boolean; scan?: string; secret?: boolean } = {}) {
 	const root = mkdtempSync(path.join(tmpdir(), "photo-memory-"));
 
-	cleanups.push(() => rmSync(root, { recursive: true, force: true }));
+	cleanups.push(() => {
+		rmSync(root, { recursive: true, force: true });
+	});
+
 	const media = path.join(root, "media");
 
 	mkdirSync(media);
@@ -85,24 +88,34 @@ async function fixture(options: { remote?: boolean; scan?: string; secret?: bool
 		});
 	});
 
-	await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
+	await new Promise<void>((resolve) => {
+		server.listen(0, "127.0.0.1", resolve);
+	});
 
 	cleanups.push(
 		() =>
-			new Promise<void>((resolve, reject) =>
-				server.close((error) => (error ? reject(error) : resolve())),
-			),
+			new Promise<void>((resolve, reject) => {
+				server.close((error) => {
+					if (error) {
+						reject(error);
+					} else {
+						resolve();
+					}
+				});
+			}),
 	);
 
 	const address = server.address();
 
-	if (!address || typeof address === "string") throw new Error("no server port");
+	if (!address || typeof address === "string") {
+		throw new Error("no server port");
+	}
 
 	const scanner = path.join(root, "scanner.cjs");
 
 	writeFileSync(
 		scanner,
-		options.scan ||
+		options.scan ??
 			"let s='';process.stdin.on('data',c=>s+=c);process.stdin.on('end',()=>process.exit(s.includes('Source event: $photo-event')?0:2));",
 	);
 
@@ -113,7 +126,7 @@ async function fixture(options: { remote?: boolean; scan?: string; secret?: bool
 		legacySpool: path.join(root, "absent.jsonl"),
 		legacyIndex: path.join(root, "absent-index.sqlite"),
 		roots: [media],
-		visionUrl: `http://127.0.0.1:${address.port}`,
+		visionUrl: `http://127.0.0.1:${String(address.port)}`,
 		model: "local-vision",
 		scanner: [process.execPath, scanner],
 		limit: 3,

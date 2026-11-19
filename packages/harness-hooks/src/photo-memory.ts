@@ -59,7 +59,7 @@ function parseDescription(value: unknown): Description {
 		!Array.isArray(value["tags"]) ||
 		value["tags"].length > 12 ||
 		!value["tags"].every(
-			(tag): tag is string =>
+			(tag: unknown): tag is string =>
 				typeof tag === "string" && tag.length > 0 && tag.length <= 80 && !/[\r\n]/u.test(tag),
 		)
 	) {
@@ -67,6 +67,29 @@ function parseDescription(value: unknown): Description {
 	}
 
 	return { description: value["description"].trim(), tags: value["tags"] };
+}
+
+function parsePhoto(value: unknown): Photo {
+	if (
+		!isObject(value) ||
+		typeof value["file"] !== "string" ||
+		typeof value["event"] !== "string" ||
+		typeof value["room"] !== "string" ||
+		typeof value["captured"] !== "string" ||
+		(value["dateSource"] !== "message" &&
+			value["dateSource"] !== "indexed-event" &&
+			value["dateSource"] !== "file-modified")
+	) {
+		throw new Error("invalid-photo");
+	}
+
+	return {
+		file: value["file"],
+		event: value["event"],
+		room: value["room"],
+		captured: value["captured"],
+		dateSource: value["dateSource"],
+	};
 }
 
 /** Only literal private or loopback IPv4 endpoints; no DNS, redirects, proxies, or cloud fallback. */
@@ -128,7 +151,9 @@ async function post(url: URL, endpoint: string, payload: unknown): Promise<unkno
 					}
 				});
 
-				res.on("error", () => reject(new Error("vision-unavailable")));
+				res.on("error", () => {
+					reject(new Error("vision-unavailable"));
+				});
 
 				res.on("end", () => {
 					try {
@@ -141,8 +166,14 @@ async function post(url: URL, endpoint: string, payload: unknown): Promise<unkno
 		);
 		const timer = setTimeout(() => req.destroy(new Error("vision-timeout")), 120_000);
 
-		req.on("close", () => clearTimeout(timer));
-		req.on("error", () => reject(new Error("vision-unavailable")));
+		req.on("close", () => {
+			clearTimeout(timer);
+		});
+
+		req.on("error", () => {
+			reject(new Error("vision-unavailable"));
+		});
+
 		req.end(body);
 	});
 }
@@ -151,8 +182,9 @@ async function post(url: URL, endpoint: string, payload: unknown): Promise<unkno
 export async function describe(config: PhotoConfig, image: Buffer): Promise<Description> {
 	const url = localVisionUrl(config.visionUrl);
 
-	if (!config.model || /(?:cloud|https?:)/iu.test(config.model))
+	if (!config.model || /(?:cloud|https?:)/iu.test(config.model)) {
 		throw new Error("local-model-required");
+	}
 
 	const model = await post(url, "/api/show", { model: config.model });
 
@@ -162,8 +194,9 @@ export async function describe(config: PhotoConfig, image: Buffer): Promise<Desc
 		model["remote_model"] ||
 		!Array.isArray(model["capabilities"]) ||
 		!model["capabilities"].includes("vision")
-	)
+	) {
 		throw new Error("local-vision-model-required");
+	}
 
 	const result = await post(url, "/api/generate", {
 		model: config.model,
@@ -185,8 +218,9 @@ export async function describe(config: PhotoConfig, image: Buffer): Promise<Desc
 		},
 	});
 
-	if (!isObject(result) || result["done"] !== true || typeof result["response"] !== "string")
+	if (!isObject(result) || result["done"] !== true || typeof result["response"] !== "string") {
 		throw new Error("invalid-description");
+	}
 
 	return parseDescription(JSON.parse(result["response"]));
 }
@@ -195,7 +229,9 @@ function rootFiles(roots: string[]): Map<string, string> {
 	const files = new Map<string, string>();
 
 	for (const root of roots) {
-		if (!existsSync(root)) continue;
+		if (!existsSync(root)) {
+			continue;
+		}
 
 		const canonical = realpathSync(root);
 
@@ -214,7 +250,9 @@ export function discover(config: PhotoConfig): Photo[] {
 	const files = rootFiles(config.roots);
 	const found = new Map<string, Photo>();
 	const remember = (body: string, event: string, room: string, ts: number) => {
-		if (!Number.isFinite(ts) || ts <= 0 || ts > 8.64e15) return;
+		if (!Number.isFinite(ts) || ts <= 0 || ts > 8.64e15) {
+			return;
+		}
 
 		for (const [original, file] of files) {
 			if (body.includes(original) && !found.has(file)) {
@@ -250,7 +288,9 @@ export function discover(config: PhotoConfig): Photo[] {
 
 	if (existsSync(config.legacySpool)) {
 		for (const line of readFileSync(config.legacySpool, "utf8").split("\n")) {
-			if (!line.trim()) continue;
+			if (!line.trim()) {
+				continue;
+			}
 
 			const row: unknown = JSON.parse(line);
 
@@ -260,8 +300,9 @@ export function discover(config: PhotoConfig): Photo[] {
 				typeof row["event_id"] === "string" &&
 				typeof row["room_id"] === "string" &&
 				typeof row["ts"] === "number"
-			)
+			) {
 				remember(row["body"], row["event_id"], row["room_id"], row["ts"]);
+			}
 		}
 	}
 
@@ -276,7 +317,9 @@ export function discover(config: PhotoConfig): Photo[] {
 				const name = event.replaceAll(/[^A-Za-z0-9._-]/gu, "_");
 				const time = Number(row["ts"]);
 
-				if (!Number.isFinite(time) || time <= 0 || time > 8.64e15) continue;
+				if (!Number.isFinite(time) || time <= 0 || time > 8.64e15) {
+					continue;
+				}
 
 				indexed.set(
 					name,
@@ -289,8 +332,9 @@ export function discover(config: PhotoConfig): Photo[] {
 			for (const file of files.values()) {
 				const match = indexed.get(path.basename(file, path.extname(file)));
 
-				if (!found.has(file) && match)
+				if (!found.has(file) && match) {
 					found.set(file, { file, ...match, dateSource: "indexed-event" });
+				}
 			}
 		} finally {
 			db.close();
@@ -298,7 +342,7 @@ export function discover(config: PhotoConfig): Photo[] {
 	}
 
 	for (const file of files.values()) {
-		if (!found.has(file))
+		if (!found.has(file)) {
 			found.set(file, {
 				file,
 				event: "",
@@ -306,6 +350,7 @@ export function discover(config: PhotoConfig): Photo[] {
 				captured: statSync(file).mtime.toISOString(),
 				dateSource: "file-modified",
 			});
+		}
 	}
 
 	return [...found.values()];
@@ -372,18 +417,25 @@ export class PhotoMemory {
 				)
 				.all(now, this.config.limit);
 
-			for (const row of rows) {
-				const photo: Photo = JSON.parse(String(row["metadata"]));
+			await Array.fromAsync(rows, async (row) => {
 				const id = String(row["id"]);
 
 				try {
-					if (!this.config.scanner[0]) throw new Error("scanner-unavailable");
+					const photo = parsePhoto(JSON.parse(String(row["metadata"])));
+
+					if (!this.config.scanner[0]) {
+						throw new Error("scanner-unavailable");
+					}
 
 					const allowed = rootFiles(this.config.roots);
 
-					if (![...allowed.values()].includes(photo.file)) throw new Error("image-unavailable");
+					if (![...allowed.values()].includes(photo.file)) {
+						throw new Error("image-unavailable");
+					}
 
-					if (statSync(photo.file).size > MAX_IMAGE) throw new Error("image-too-large");
+					if (statSync(photo.file).size > MAX_IMAGE) {
+						throw new Error("image-too-large");
+					}
 
 					const text = note(
 						photo,
@@ -405,7 +457,7 @@ export class PhotoMemory {
 
 						counts.refused += 1;
 
-						continue;
+						return;
 					}
 
 					if (
@@ -414,8 +466,9 @@ export class PhotoMemory {
 						scanned.signal ||
 						scanned.stdout ||
 						scanned.stderr
-					)
+					) {
 						throw new Error("scanner-unavailable");
+					}
 
 					const destination = path.join(this.config.notes, `photo-${id}.md`);
 
@@ -433,7 +486,7 @@ export class PhotoMemory {
 
 					counts.retry += 1;
 				}
-			}
+			});
 
 			this.db.exec("COMMIT");
 
@@ -448,10 +501,10 @@ export class PhotoMemory {
 
 export function photoConfig(): PhotoConfig {
 	const home = homedir();
-	const root = process.env["PHOTO_MEMORY_DIR"] || path.join(home, ".local/share/photo-memory");
-	const scanner: unknown = JSON.parse(process.env["FOLD_SECRET_SCANNER_ARGV"] || "[]");
+	const root = process.env["PHOTO_MEMORY_DIR"] ?? path.join(home, ".local/share/photo-memory");
+	const scanner: unknown = JSON.parse(process.env["FOLD_SECRET_SCANNER_ARGV"] ?? "[]");
 	const roots: unknown = JSON.parse(
-		process.env["PHOTO_MEDIA_ROOTS"] ||
+		process.env["PHOTO_MEDIA_ROOTS"] ??
 			JSON.stringify([
 				path.join(home, ".hermes-janet/cc-link/media"),
 				path.join(home, ".claude/plugins/matrix-channel/incoming-media"),
@@ -460,25 +513,26 @@ export function photoConfig(): PhotoConfig {
 
 	if (
 		!Array.isArray(scanner) ||
-		!scanner.every((v): v is string => typeof v === "string" && v.length > 0) ||
+		!scanner.every((v: unknown): v is string => typeof v === "string" && v.length > 0) ||
 		!Array.isArray(roots) ||
-		!roots.every((v): v is string => typeof v === "string" && path.isAbsolute(v))
-	)
+		!roots.every((v: unknown): v is string => typeof v === "string" && path.isAbsolute(v))
+	) {
 		throw new Error("invalid-config");
+	}
 
 	return {
 		store: path.join(root, "state.sqlite"),
 		notes: path.join(root, "notes"),
-		history: process.env["PHOTO_HISTORY"] || path.join(home, ".hermes-janet/cc-link/history.db"),
+		history: process.env["PHOTO_HISTORY"] ?? path.join(home, ".hermes-janet/cc-link/history.db"),
 		legacySpool:
-			process.env["PHOTO_LEGACY_SPOOL"] ||
+			process.env["PHOTO_LEGACY_SPOOL"] ??
 			path.join(home, ".claude/plugins/matrix-channel/inbound-spool.jsonl"),
 		legacyIndex:
-			process.env["PHOTO_LEGACY_INDEX"] || path.join(home, ".claude/state/matrix-search.db"),
+			process.env["PHOTO_LEGACY_INDEX"] ?? path.join(home, ".claude/state/matrix-search.db"),
 		roots,
 		scanner,
-		visionUrl: process.env["PHOTO_VISION_URL"] || "",
-		model: process.env["PHOTO_VISION_MODEL"] || "",
+		visionUrl: process.env["PHOTO_VISION_URL"] ?? "",
+		model: process.env["PHOTO_VISION_MODEL"] ?? "",
 		limit: 3,
 	};
 }
@@ -488,11 +542,13 @@ if (process.argv[1] && import.meta.url === pathToFileURL(realpathSync(process.ar
 		const ledger = new PhotoMemory(photoConfig());
 
 		try {
-			if (process.argv[2] === "sweep")
+			if (process.argv[2] === "sweep") {
 				process.stdout.write(`${JSON.stringify(await ledger.sweep())}\n`);
-			else if (process.argv[2] === "status")
+			} else if (process.argv[2] === "status") {
 				process.stdout.write(`${JSON.stringify(ledger.status())}\n`);
-			else throw new Error("usage");
+			} else {
+				throw new Error("usage");
+			}
 		} finally {
 			ledger.close();
 		}
