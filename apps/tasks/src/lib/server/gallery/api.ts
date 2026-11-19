@@ -13,11 +13,15 @@ import {
 	StoreError,
 	Viewer,
 } from "./feedback.ts";
+import { GitHubLive } from "./github.ts";
 import { MatrixPosterLive } from "./matrix.ts";
+import { ongoing } from "./ongoing.ts";
 import {
 	ArtifactState,
 	NeedsYou,
 	NeedsYouItem,
+	Ongoing,
+	OngoingRequest,
 	SendFeedback,
 	Sent,
 	StateRequest,
@@ -91,8 +95,19 @@ const artifactState = operation({
 	errors: feedbackErrors,
 });
 
-const services = FeedbackLive.pipe(
-	Layer.provide(MatrixPosterLive),
+const listOngoing = operation({
+	name: "ongoing.list",
+	description:
+		"What is in motion: open pull requests with their checks and review state, and pages with unresolved answers.",
+	method: "GET",
+	path: "/ongoing",
+	input: OngoingRequest,
+	output: Ongoing,
+	handler: ongoing,
+	errors: { StoreError: feedbackErrors.StoreError },
+});
+
+const services = Layer.merge(FeedbackLive.pipe(Layer.provide(MatrixPosterLive)), GitHubLive).pipe(
 	Layer.provide(FetchHttpClient.layer),
 );
 
@@ -101,7 +116,7 @@ export const galleryApi = createServer({
 	title: "Gallery API",
 	version: "1.0.0",
 	basePath: "/api/v1",
-	operations: [sendFeedback, needsYou, artifactState],
+	operations: [sendFeedback, needsYou, artifactState, listOngoing],
 	services,
 	auth: { browser: browserAuthentication, errors: authenticationErrors, mcp: false },
 });

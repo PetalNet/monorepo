@@ -813,6 +813,18 @@ export const needsYou = (viewer) =>
 		)
 		.all({ viewer });
 
+// Pages with answers nobody has resolved yet, newest answer first. Respects the viewer's
+// visibility like every other listing.
+export const openFeedback = (viewer) =>
+	db
+		.prepare(
+			`SELECT a.slug, a.title, a.collection, COUNT(*) AS count, MAX(f.created_at) AS latest
+       FROM feedback f JOIN artifacts a ON a.slug=f.slug
+       WHERE f.status!='resolved' AND (a.visibility='shared' OR a.owner=@viewer)
+       GROUP BY a.slug ORDER BY latest DESC`,
+		)
+		.all({ viewer });
+
 // The pages that link to a GitHub PR, issue, commit or repo, given any form of the reference
 // ("owner/repo#12", a URL). Respects the viewer's visibility like every other listing; me=null
 // (host scripts) sees everything.

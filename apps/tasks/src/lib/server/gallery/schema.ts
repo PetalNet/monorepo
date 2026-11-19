@@ -45,3 +45,38 @@ export const ArtifactState = Schema.Struct({
 });
 
 export const StateRequest = Schema.Struct({ slug: Schema.String });
+
+/** Which view of the gallery: everything, one project, or one piece of work in it. */
+export const OngoingRequest = Schema.Struct({
+	project: Schema.optional(Schema.String),
+	work: Schema.optional(Schema.String),
+});
+
+const OngoingPull = Schema.Struct({
+	label: Schema.String,
+	repo: Schema.String,
+	number: Schema.Int,
+	title: Schema.String,
+	url: Schema.String,
+	author: Schema.String,
+	bot: Schema.Boolean,
+	updatedAt: Schema.String,
+	ci: Schema.Literals(["failing", "running", "passing", "none"]),
+	review: Schema.Literals(["draft", "changes", "approved", "requested", "none"]),
+	reviewers: Schema.Array(Schema.String),
+	pages: Schema.Int,
+});
+
+export const Ongoing = Schema.Struct({
+	github: Schema.Literals(["ok", "unavailable", "off"]),
+	pulls: Schema.Array(OngoingPull),
+	answers: Schema.Array(
+		Schema.Struct({
+			slug: Schema.String,
+			title: Schema.String,
+			collection: Schema.String,
+			count: Schema.Int,
+			latest: Schema.String,
+		}),
+	),
+});

@@ -40,6 +40,9 @@
 		Search,
 		LogOut,
 		Menu,
+		CircleX,
+		CircleDashed,
+		Circle,
 	} from "@lucide/svelte";
 
 	const MAP = {
@@ -75,6 +78,10 @@
 		shield: ShieldCheck,
 		edit: Pencil,
 		close: X,
+		failing: CircleX,
+		running: CircleDashed,
+		passing: CircleCheck,
+		nochecks: Circle,
 		// chrome
 		more: Ellipsis,
 		car: ChevronDown,
