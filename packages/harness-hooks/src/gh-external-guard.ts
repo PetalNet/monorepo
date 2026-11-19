@@ -223,7 +223,7 @@ export function verdict(cmd: string): string | null {
 	try {
 		return check(cmd);
 	} catch {
-		// Unparseable or absurdly nested: fail closed only when the text can open a PR/issue, else fail open.
+		// Unparsable or absurdly nested: fail closed only when the text can open a PR/issue, else fail open.
 		if (/\bgh\b[\s\S]*\b(pr|issue|api)\b|api\.github\.com/u.test(cmd)) {
 			return "BLOCKED — this command could not be parsed safely (too deeply nested) and mentions gh/api.github.com. Split it into plain commands with an explicit --repo PetalNet/….";
 		}
