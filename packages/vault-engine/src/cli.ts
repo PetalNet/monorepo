@@ -9,7 +9,7 @@ import { Config, Console, Effect, FileSystem, Layer, Option, Schema } from "effe
 import { Argument, Command, Flag } from "effect/cli";
 import { HttpRouter } from "effect/http";
 
-import { operations, refresh, vaultApi } from "./api.ts";
+import { loopbackOnly, operations, refresh, vaultApi } from "./api.ts";
 import { Vault } from "./engine.ts";
 import { CaptureFailed, SecretFound, WriteRejected } from "./errors.ts";
 import { ManifestEntry, migrate } from "./migrate.ts";
@@ -274,9 +274,9 @@ const commands = [
 				yield* Console.error(`vault: MCP at http://${host}:${String(port)}/mcp`);
 
 				return yield* Layer.launch(
-					HttpRouter.serve(Layer.merge(vaultApi, Layer.succeedContext(services))).pipe(
-						Layer.provide(NodeHttpServer.layer(createServer, { host, port })),
-					),
+					HttpRouter.serve(Layer.merge(vaultApi, Layer.succeedContext(services)), {
+						middleware: loopbackOnly,
+					}).pipe(Layer.provide(NodeHttpServer.layer(createServer, { host, port }))),
 				);
 			}),
 	).pipe(Command.withDescription("Serve the agent operations over MCP (Streamable HTTP at /mcp).")),

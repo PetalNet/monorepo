@@ -1,5 +1,6 @@
 import { createEffectApi, operation, operationError } from "@petalnet/effect-api";
 import { Effect, Schema } from "effect";
+import { HttpServerRequest, HttpServerResponse } from "effect/http";
 import { PlatformError } from "effect/PlatformError";
 
 import { Vault } from "./engine.ts";
@@ -218,3 +219,26 @@ export const vaultApi = createEffectApi({
 	operations: [],
 	mcpOperations: operations,
 });
+
+/**
+ * `vault serve` has no credentials: its boundary is the loopback port. A browser page can still
+ * reach that port by DNS rebinding, and it always sends a Host the rebound name controls and, on a
+ * cross-origin request, an Origin. So only a loopback Host is served and any Origin is refused.
+ */
+export const loopbackOnly = <E, R>(
+	app: Effect.Effect<HttpServerResponse.HttpServerResponse, E, R>,
+): Effect.Effect<
+	HttpServerResponse.HttpServerResponse,
+	E,
+	R | HttpServerRequest.HttpServerRequest
+> =>
+	Effect.gen(function* () {
+		const request = yield* HttpServerRequest.HttpServerRequest;
+
+		return isLoopbackHost(request.headers["host"]) && request.headers["origin"] === undefined
+			? yield* app
+			: HttpServerResponse.text("forbidden", { status: 403 });
+	});
+
+const isLoopbackHost = (host: string | undefined): boolean =>
+	host !== undefined && /^(127\.0\.0\.1|localhost|\[::1\])(:\d+)?$/.test(host);

@@ -6,20 +6,27 @@ import { describe, expect } from "@effect/vitest";
 import { Effect, Layer } from "effect";
 import { HttpRouter } from "effect/http";
 
-import { refresh, vaultApi } from "../src/api.ts";
+import { loopbackOnly, refresh, vaultApi } from "../src/api.ts";
 import { Vault } from "../src/engine.ts";
 import { Cite, remember } from "../src/research.ts";
 import { readText, seeded, state, stored, tempDir, test, vaultAt, writeText } from "./tools.ts";
 
 const token = `ghp_${"a1B2".repeat(9)}`;
 
-const mcp = (id: number, method: string, params: Record<string, unknown> = {}) =>
-	new Request("http://vault.test/mcp", {
+const mcp = (
+	id: number,
+	method: string,
+	params: Record<string, unknown> = {},
+	extra: Record<string, string> = {},
+) =>
+	new Request("http://127.0.0.1:7411/mcp", {
 		method: "POST",
 		headers: {
 			accept: "application/json, text/event-stream",
 			"content-type": "application/json",
 			"mcp-protocol-version": "2026-07-28",
+			host: "127.0.0.1:7411",
+			...extra,
 			"mcp-method": method,
 			...(typeof params["name"] === "string" ? { "mcp-name": params["name"] } : {}),
 		},
@@ -105,6 +112,29 @@ describe("MCP", () => {
 			expect(JSON.stringify(refused)).not.toContain(token);
 			expect(Object.keys((yield* state("shared")).claims)).toHaveLength(1);
 			expect(yield* stored("shared")).not.toContain(token);
+
+			yield* Effect.promise(dispose);
+		}));
+});
+
+describe("MCP boundary", () => {
+	test("serves only loopback hosts and refuses any Origin", () =>
+		Effect.gen(function* () {
+			const services = Layer.mergeAll(Layer.succeed(Vault, yield* Vault), Cite.layer([])).pipe(
+				Layer.provideMerge(NodeServices.layer),
+			);
+			const { handler, dispose } = HttpRouter.toWebHandler(Layer.mergeAll(vaultApi, services), {
+				disableLogger: true,
+				middleware: loopbackOnly,
+			});
+			const status = (request: Request) =>
+				Effect.promise(async () => (await handler(request)).status);
+
+			yield* seeded;
+
+			expect(yield* status(mcp(1, "tools/list"))).toBe(200);
+			expect(yield* status(mcp(2, "tools/list", {}, { origin: "https://evil.example" }))).toBe(403);
+			expect(yield* status(mcp(3, "tools/list", {}, { host: "rebound.example:7411" }))).toBe(403);
 
 			yield* Effect.promise(dispose);
 		}));

@@ -125,7 +125,10 @@ One host holds the vault and runs every write. `scripts/vault.sh` is the CLI wit
 settings, and `vault.sh serve` is the MCP server agents on that host connect to. Other hosts use
 `scripts/client.sh`, which runs each command there over ssh and, after a command that writes,
 copies the claim index back, so local readers never need the network. `client.sh tunnel` forwards
-the MCP port and keeps the index copy fresh while it runs. `scripts/deploy.sh` installs a release
+the MCP port and keeps the index copy fresh while it runs. `vault serve` has no credentials: it
+binds loopback, serves only a loopback `Host` and refuses any request carrying an `Origin` (so a web
+page cannot reach it by DNS rebinding), and every write over MCP is attributed to the server's
+`VAULT_AGENT`. Any local process on a host that runs it or its tunnel can write. `scripts/deploy.sh` installs a release
 from `main` into its own directory and switches `current` to it; `scripts/cite-one.sh` runs one
 vault-cite capture, capped and serialized.
 
