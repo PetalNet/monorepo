@@ -261,19 +261,15 @@ impl PointCrypto {
     /// # Errors
     /// Returns an error if MLS group creation or storage fails.
     pub fn create_group(&mut self, group_id: &[u8]) -> Result<Vec<u8>> {
-        let config = MlsGroupCreateConfig::builder()
+        // Group ids are deterministic (per DM pair), so re-creating one after a
+        // peer re-registers must replace the stale stored group.
+        let group = MlsGroup::builder()
             .ciphersuite(CIPHERSUITE)
             .use_ratchet_tree_extension(true)
-            .build();
-
-        let group = MlsGroup::new_with_group_id(
-            &self.provider,
-            &self.signer,
-            &config,
-            GroupId::from_slice(group_id),
-            self.credential.clone(),
-        )
-        .map_err(|e| PointCryptoError::Mls(format!("Create group: {e:?}")))?;
+            .with_group_id(GroupId::from_slice(group_id))
+            .replace_old_group()
+            .build(&self.provider, &self.signer, self.credential.clone())
+            .map_err(|e| PointCryptoError::Mls(format!("Create group: {e:?}")))?;
 
         let gid = group.group_id().as_slice().to_vec();
         self.groups.insert(gid.clone(), group);
@@ -339,7 +335,11 @@ impl PointCrypto {
             .use_ratchet_tree_extension(true)
             .build();
 
-        let group = StagedWelcome::new_from_welcome(&self.provider, &join_config, welcome, None)
+        // A Welcome for a known deterministic group id overwrites the stale one.
+        let group = StagedWelcome::build_from_welcome(&self.provider, &join_config, welcome)
+            .map_err(|e| PointCryptoError::Mls(format!("Stage welcome: {e:?}")))?
+            .replace_old_group()
+            .build()
             .map_err(|e| PointCryptoError::Mls(format!("Stage welcome: {e:?}")))?
             .into_group(&self.provider)
             .map_err(|e| PointCryptoError::Mls(format!("Into group: {e:?}")))?;
@@ -405,6 +405,12 @@ impl PointCrypto {
             | ProcessedMessageContent::ExternalJoinProposalMessage(_) => {
                 Err(PointCryptoError::DecryptionFailed)
             }
+            // Our own message fanned back by the delivery service: it cannot
+            // be decrypted (or, for a commit, was already merged when created).
+            ProcessedMessageContent::OwnPrivateMessage
+            | ProcessedMessageContent::OwnPendingCommit => Err(PointCryptoError::InvalidState(
+                "Own message echoed back".into(),
+            )),
         }
     }
 
@@ -442,6 +448,9 @@ impl PointCrypto {
             | ProcessedMessageContent::ExternalJoinProposalMessage(_) => Err(
                 PointCryptoError::InvalidState("Expected commit message".into()),
             ),
+            // Our own commit is merged when created, so an echo is a no-op.
+            ProcessedMessageContent::OwnPrivateMessage
+            | ProcessedMessageContent::OwnPendingCommit => Ok(()),
         }
     }
 
