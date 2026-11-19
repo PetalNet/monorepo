@@ -94,7 +94,7 @@ it.skipIf(!docker)(
 							audience: "turbo-cache.petalcat.dev",
 							team: "petalnet",
 							privateKey: signingKey.privateKey,
-							authentikIssuer: "https://id.petalcat.dev/",
+							authentikIssuer: "https://auth.petalcat.dev/",
 							ampWorkspaceIds: [],
 							ampProjectIds: [],
 							githubToken: Redacted.make("local-test-credential"),

@@ -1,7 +1,12 @@
+x-logging: &logging
+  driver: json-file
+  options: { max-size: "5m", max-file: "2" }
+
 services:
   exchanger:
     image: ghcr.io/petalnet/turbo-cache:${TURBO_CACHE_IMAGE_SHA:?Set the published commit SHA}
     restart: unless-stopped
+    logging: *logging
     environment:
       SIGNING_KEY_FILE: /run/secrets/signing-key
       GITHUB_READ_TOKEN_FILE: /run/secrets/github-read-token
@@ -23,6 +28,7 @@ services:
   cache:
     image: ducktors/turborepo-remote-cache:2.14.5@sha256:58f0aeeb78d9e5de6ff0fe989fcfaa7ca3df467769780e378a87af8d24806b48
     restart: unless-stopped
+    logging: *logging
     command:
       - node
       - --input-type=module
@@ -45,11 +51,7 @@ services:
       STORAGE_PATH_USE_TMP_FOLDER: "false"
       BODY_LIMIT: "104857600"
     volumes:
-      - type: bind
-        source: ${TURBO_CACHE_NFS_PATH:?Set the existing NFS mount path}
-        target: /data
-        bind:
-          create_host_path: false
+      - cache-data:/data
     ports:
       - "127.0.0.1:43180:3000"
     read_only: true
@@ -59,18 +61,28 @@ services:
   eviction:
     image: alpine:3.24.4@sha256:f59abe656b692d901e184be3445e084786602108599d2a51d229c0f5a48c71bf
     restart: unless-stopped
+    logging: *logging
     user: "1001:1001"
     read_only: true
     cap_drop: [ALL]
     command: [sh, /config/evict.sh]
+    environment:
+      CACHE_MAX_BYTES: ${TURBO_CACHE_MAX_BYTES:-42949672960}
     volumes:
-      - type: bind
-        source: ${TURBO_CACHE_NFS_PATH:?Set the existing NFS mount path}
-        target: /data
-        bind:
-          create_host_path: false
+      - cache-data:/data
       - ./deploy/evict.sh:/config/evict.sh:ro
     security_opt: [no-new-privileges:true]
+
+# The dedicated dataset is mounted by Docker for these two containers alone, soft with a short
+# timeout: a hung NAS fails each read or write with EIO after about 15 s instead of blocking the
+# process forever. Docker refuses to start a container whose mount fails, so nothing can fall
+# back to writing the cache onto the VM's root disk.
+volumes:
+  cache-data:
+    driver_opts:
+      type: nfs
+      o: addr=${TURBO_CACHE_NFS_ADDRESS:?Set the NAS address},nfsvers=4.2,rw,soft,timeo=50,retrans=2
+      device: ${TURBO_CACHE_NFS_EXPORT:?Set the dataset export, for example :/mnt/pool/turbo-cache}
 
 secrets:
   signing-key:

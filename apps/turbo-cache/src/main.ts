@@ -26,10 +26,10 @@ const program = Effect.gen(function* () {
 	const authentikJwks = yield* Config.String("AUTHENTIK_JWKS_URL");
 
 	if (
-		new URL(authentikIssuer).origin !== "https://id.petalcat.dev" ||
-		new URL(authentikJwks).origin !== "https://id.petalcat.dev"
+		new URL(authentikIssuer).origin !== "https://auth.petalcat.dev" ||
+		new URL(authentikJwks).origin !== "https://auth.petalcat.dev"
 	) {
-		return yield* Effect.die("Authentik must use https://id.petalcat.dev");
+		return yield* Effect.die("Authentik must use https://auth.petalcat.dev");
 	}
 
 	const privateKey = createPrivateKey(Redacted.value(yield* secret("SIGNING_KEY")));
