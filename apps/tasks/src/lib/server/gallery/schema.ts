@@ -1,5 +1,7 @@
 import { Schema } from "effect";
 
+import { Pull } from "./github.ts";
+
 /** Where on the page an answer points. The page defines the shape; the platform stores it. */
 const Anchor = Schema.Record(Schema.String, Schema.Unknown);
 
@@ -53,23 +55,17 @@ export const OngoingRequest = Schema.Struct({
 });
 
 const OngoingPull = Schema.Struct({
-	label: Schema.String,
-	repo: Schema.String,
-	number: Schema.Int,
-	title: Schema.String,
-	url: Schema.String,
-	author: Schema.String,
-	bot: Schema.Boolean,
-	updatedAt: Schema.String,
-	ci: Schema.Literals(["failing", "running", "passing", "none"]),
-	review: Schema.Literals(["draft", "changes", "approved", "requested", "none"]),
-	reviewers: Schema.Array(Schema.String),
+	...Pull.fields,
+	/** How many pages the viewer can see that link to this pull request. */
 	pages: Schema.Int,
 });
 
+/** What is in motion in one view of the gallery. */
 export const Ongoing = Schema.Struct({
+	/** "off": no search is configured. "unavailable": GitHub did not answer, so `pulls` is empty. */
 	github: Schema.Literals(["ok", "unavailable", "off"]),
 	pulls: Schema.Array(OngoingPull),
+	/** Pages with answers nobody has resolved yet. */
 	answers: Schema.Array(
 		Schema.Struct({
 			slug: Schema.String,
@@ -80,3 +76,5 @@ export const Ongoing = Schema.Struct({
 		}),
 	),
 });
+
+export type Ongoing = typeof Ongoing.Type;

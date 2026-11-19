@@ -45,7 +45,6 @@
 		<form class="find" method="get" role="search">
 			{#if data.project}<input type="hidden" name="project" value={data.project} />{/if}
 			{#if data.work}<input type="hidden" name="work" value={data.work} />{/if}
-			<!-- a search leaves the ongoing view: it finds pages -->
 			<Icon name="search" size={15} />
 			<input
 				name="link"
@@ -74,19 +73,24 @@
 		<p class="caught">All caught up.</p>
 	{/if}
 
-	{#if data.ongoing}
-		<Ongoing
-			ongoing={data.ongoing}
-			project={data.project}
-			work={data.work}
-			peek={data.view === "ongoing" ? undefined : ONGOING_PEEK}
-		/>
-	{/if}
+	{#await data.streamed.ongoing}
+		<Ongoing />
+	{:then ongoing}
+		{#if ongoing}
+			<Ongoing
+				{ongoing}
+				project={data.project}
+				work={data.work}
+				peek={data.view === "ongoing" ? undefined : ONGOING_PEEK}
+			/>
+			{#if data.view === "ongoing" && ongoing.github !== "unavailable" && !asks.length && !ongoing.pulls.length && !ongoing.answers.length}
+				<p class="empty">Nothing in motion.</p>
+			{/if}
+		{/if}
+	{/await}
 
 	{#if data.view === "ongoing"}
-		{#if !asks.length && !data.ongoing?.pulls.length && !data.ongoing?.answers.length}
-			<p class="empty">Nothing in motion.</p>
-		{/if}
+		<!-- the pages of this scope are one level up -->
 	{:else if !rest.length && !asks.length}
 		<p class="empty">{data.link ? "Nothing links there." : "No artifacts yet."}</p>
 	{:else if data.work}

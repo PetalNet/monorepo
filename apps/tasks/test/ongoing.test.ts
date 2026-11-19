@@ -5,7 +5,7 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 
 import { ConfigProvider, Effect, Layer } from "effect";
-import { FetchHttpClient } from "effect/http";
+import { FetchHttpClient, HttpClient, HttpClientRequest } from "effect/http";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 
 const tmp = mkdtempSync(path.join(tmpdir(), "ongoing-test-"));
@@ -169,14 +169,20 @@ describe("GitHubLive", () => {
 
 		writeFileSync(tokenFile, "t0ken\n");
 
+		const local = `http://127.0.0.1:${(server.address() as AddressInfo).port}/graphql`;
 		const layer = GitHubLive.pipe(
-			Layer.provide(FetchHttpClient.layer),
+			// GitHub's address is fixed, so the test sends its requests to the local server instead
+			Layer.provide(
+				Layer.effect(
+					HttpClient.HttpClient,
+					Effect.map(HttpClient.HttpClient, HttpClient.mapRequest(HttpClientRequest.setUrl(local))),
+				).pipe(Layer.provide(FetchHttpClient.layer)),
+			),
 			Layer.provide(
 				ConfigProvider.layer(
 					ConfigProvider.fromUnknown({
 						GITHUB_PULLS_SEARCH: "org:acme is:pr is:open",
 						GITHUB_TOKEN_FILE: tokenFile,
-						GITHUB_GRAPHQL_URL: `http://127.0.0.1:${(server.address() as AddressInfo).port}/graphql`,
 					}),
 				),
 			),
@@ -288,7 +294,20 @@ describe("GitHubLive", () => {
 		expect(result).toMatchObject({ github: "unavailable", pulls: [] });
 	});
 
-	it("is off without a search and a token file", async () => {
+	it("does not call GitHub with an empty token file", async () => {
+		const github = await serve(() => ({}));
+
+		writeFileSync(path.join(tmp, "github-token"), "");
+
+		const result = await withGitHub(github.layer);
+
+		github.close();
+
+		expect(result.github).toBe("unavailable");
+		expect(github.seen).toEqual([]);
+	});
+
+	it("is off without a search", async () => {
 		const layer = GitHubLive.pipe(
 			Layer.provide(FetchHttpClient.layer),
 			Layer.provide(ConfigProvider.layer(ConfigProvider.fromUnknown({}))),

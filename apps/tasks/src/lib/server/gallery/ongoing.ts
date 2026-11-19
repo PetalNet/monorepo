@@ -1,47 +1,14 @@
 import { Effect, Option } from "effect";
 
-import { inScope, workOf } from "../../gallery-tree.js";
+import { inScope, workOf, type Filed, type Link } from "../../gallery-tree.js";
 import { listArtifacts, openFeedback } from "../db.js";
 import { StoreError, Viewer } from "./feedback.ts";
 import { GitHub, type Pull } from "./github.ts";
+import type { Ongoing, OngoingRequest } from "./schema.ts";
 
-interface Link {
-	readonly url: string;
-	readonly kind: string;
-	readonly label: string;
-}
+type OngoingPull = Ongoing["pulls"][number];
 
-interface Filed {
-	readonly slug: string;
-	readonly collection: string;
-	readonly links: Link[];
-}
-
-export interface OngoingPull extends Pull {
-	/** How many pages the viewer can see that link to this pull request. */
-	readonly pages: number;
-}
-
-/** A page with answers nobody has resolved yet. */
-export interface OpenAnswers {
-	readonly slug: string;
-	readonly title: string;
-	readonly collection: string;
-	readonly count: number;
-	readonly latest: string;
-}
-
-export interface Ongoing {
-	/** "off": no search is configured. "unavailable": GitHub did not answer; `pulls` is empty. */
-	readonly github: "ok" | "unavailable" | "off";
-	readonly pulls: readonly OngoingPull[];
-	readonly answers: readonly OpenAnswers[];
-}
-
-export interface Scope {
-	readonly project?: string | undefined;
-	readonly work?: string | undefined;
-}
+type Scope = typeof OngoingRequest.Type;
 
 const CI_RANK = { failing: 0, running: 1, passing: 2, none: 2 } as const;
 const REVIEW_RANK = { changes: 0, requested: 1, approved: 2, none: 2, draft: 3 } as const;
@@ -50,8 +17,8 @@ const REVIEW_RANK = { changes: 0, requested: 1, approved: 2, none: 2, draft: 3 }
  * The pull requests for one view of the gallery, most urgent first: failing checks, then changes
  * requested, then waiting for review; dependency bots last; newest first within each.
  *
- * Every project sees every pull request. A project sees the ones its pages link to, and a piece of
- * work sees itself.
+ * "All projects" lists every pull request. A project sees the ones its pages link to, and a piece
+ * of work sees itself.
  */
 function pullsInScope(
 	pulls: readonly Pull[],
@@ -97,10 +64,8 @@ export const ongoing = (scope: Scope) =>
 		);
 		const read = yield* Effect.try({
 			try: () => ({
-				artifacts: (listArtifacts(user) as (Omit<Filed, "links"> & { links: string })[]).map(
-					(a) => ({ ...a, links: JSON.parse(a.links) as Link[] }),
-				),
-				answers: openFeedback(user) as OpenAnswers[],
+				artifacts: listArtifacts(user).map((a): Filed => ({ ...a, links: JSON.parse(a.links) })),
+				answers: openFeedback(user),
 			}),
 			catch: (cause) => new StoreError({ cause }),
 		});

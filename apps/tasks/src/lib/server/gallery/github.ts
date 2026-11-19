@@ -8,21 +8,23 @@ export class GitHubUnavailable extends Data.TaggedError("GitHubUnavailable")<{
 }> {}
 
 /** One open pull request, reduced to what the gallery shows. */
-export interface Pull {
+export const Pull = Schema.Struct({
 	/** "owner/repo#12", the form the gallery's link search takes. */
-	readonly label: string;
-	readonly repo: string;
-	readonly number: number;
-	readonly title: string;
-	readonly url: string;
-	readonly author: string;
-	readonly bot: boolean;
-	readonly updatedAt: string;
-	readonly ci: "failing" | "running" | "passing" | "none";
-	readonly review: "draft" | "changes" | "approved" | "requested" | "none";
+	label: Schema.String,
+	repo: Schema.String,
+	number: Schema.Int,
+	title: Schema.String,
+	url: Schema.String,
+	author: Schema.String,
+	bot: Schema.Boolean,
+	updatedAt: Schema.String,
+	ci: Schema.Literals(["failing", "running", "passing", "none"]),
+	review: Schema.Literals(["draft", "changes", "approved", "requested", "none"]),
 	/** Everyone asked to review, or who has reviewed. */
-	readonly reviewers: readonly string[];
-}
+	reviewers: Schema.Array(Schema.String),
+});
+
+export type Pull = typeof Pull.Type;
 
 /**
  * The open pull requests the configured search finds. `undefined` when no search is configured, so
@@ -86,13 +88,13 @@ const QUERY = `query ($q: String!, $after: String) {
   }
 }`;
 
-const CI = {
+const CI: Record<string, Pull["ci"]> = {
 	FAILURE: "failing",
 	ERROR: "failing",
 	PENDING: "running",
 	EXPECTED: "running",
 	SUCCESS: "passing",
-} as const;
+};
 
 const toPull = (node: typeof Node.Type): Pull => {
 	const repo = node.repository.nameWithOwner;
@@ -109,7 +111,7 @@ const toPull = (node: typeof Node.Type): Pull => {
 		author: node.author?.login ?? "ghost",
 		bot: node.author?.type === "Bot",
 		updatedAt: node.updatedAt,
-		ci: state && state in CI ? CI[state as keyof typeof CI] : "none",
+		ci: CI[state ?? ""] ?? "none",
 		// Branch protection is not required for any of this, unlike GitHub's own reviewDecision.
 		review: node.isDraft
 			? "draft"
@@ -143,16 +145,13 @@ export const GitHubLive = Layer.effect(
 			(q) => q.trim() !== "",
 		);
 		const tokenFile = yield* Config.option(Config.String("GITHUB_TOKEN_FILE"));
-		const endpoint = yield* Config.String("GITHUB_GRAPHQL_URL").pipe(
-			Config.withDefault("https://api.github.com/graphql"),
-		);
 
 		if (Option.isNone(search) || Option.isNone(tokenFile)) {
 			return GitHub.of({ openPulls: Effect.undefined });
 		}
 
 		const page = (token: string, after: string | null) =>
-			HttpClientRequest.post(endpoint).pipe(
+			HttpClientRequest.post("https://api.github.com/graphql").pipe(
 				HttpClientRequest.bearerToken(token),
 				HttpClientRequest.setHeader("user-agent", "petalnet-gallery"),
 				HttpClientRequest.bodyJson({ query: QUERY, variables: { q: search.value, after } }),
@@ -166,6 +165,12 @@ export const GitHubLive = Layer.effect(
 				try: () => readFileSync(tokenFile.value, "utf8"),
 				catch: (cause) => new GitHubUnavailable({ cause }),
 			})).trim();
+
+			// compose mounts /dev/null when no token file is set
+			if (!token) {
+				return yield* new GitHubUnavailable({ cause: "GITHUB_TOKEN_FILE is empty" });
+			}
+
 			const pulls: Pull[] = [];
 			let after: string | null = null;
 

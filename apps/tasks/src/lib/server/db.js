@@ -303,6 +303,23 @@ db.exec(`
 // pass null do their own authorization: a share token, or an unscoped agent token. Listing returns metadata only — never the (large) content blob.
 const artVis = (me) => (me ? "WHERE (visibility='shared' OR owner=@me)" : "");
 
+/**
+ * @param {string | null | undefined} me
+ * @returns {{
+ * 	id: number;
+ * 	slug: string;
+ * 	title: string;
+ * 	description: string;
+ * 	kind: string;
+ * 	source: string;
+ * 	owner: string;
+ * 	visibility: string;
+ * 	collection: string;
+ * 	links: string;
+ * 	created_at: string;
+ * 	updated_at: string;
+ * }[]}
+ */
 export const listArtifacts = (me) =>
 	db
 		.prepare(
@@ -815,6 +832,10 @@ export const needsYou = (viewer) =>
 
 // Pages with answers nobody has resolved yet, newest answer first. Respects the viewer's
 // visibility like every other listing.
+/**
+ * @param {string} viewer
+ * @returns {{ slug: string; title: string; collection: string; count: number; latest: string }[]}
+ */
 export const openFeedback = (viewer) =>
 	db
 		.prepare(
