@@ -56,6 +56,13 @@ describe("detect", () => {
 		expect(classify(sentence)).toBeUndefined();
 	});
 
+	it("skips a wall of unpunctuated text quickly", () => {
+		const started = Date.now();
+
+		expect(detect("comes ".repeat(40_000))).toEqual([]);
+		expect(Date.now() - started).toBeLessThan(1000);
+	});
+
 	it("returns each promising sentence of a message and skips quoted and fenced text", () => {
 		const found = detect(
 			"Done with the first half. I'll post the second half after lunch.\n> I'll be late\n```\nI'll run in code\n```\nOn it.",
@@ -83,6 +90,8 @@ describe("parseDue", () => {
 		["I'll have numbers in 2 hours.", T0 + 3 * HOUR],
 		["I'll call at 4:45.", local(15, 17, 45)],
 		["I'll pull it on Jan 22.", local(22, 20)],
+		["You'll have it by Thursday 5pm.", local(15, 18)],
+		["I'll look at it on Thursday.", local(22, 20)],
 	])("reads %j", (sentence, at) => {
 		expect(parseDue(sentence, T0, TZ)?.at).toBe(at);
 	});
@@ -98,6 +107,10 @@ describe("parseDue", () => {
 		expect(when("90m", T0, config)).toBe(T0 + 90 * MINUTE);
 		expect(when("2026-01-20T09:30", T0, config)).toBe(local(20, 9, 30));
 		expect(when("tomorrow", T0, config)).toBe(local(16, 20));
+		expect(when("friday 9", T0, config)).toBe(local(16, 10));
+		expect(when("tomorrow at 9", T0, config)).toBe(local(16, 10));
+		expect(when("2026-01-20T09:30:00Z", T0, config)).toBe(Date.UTC(2026, 0, 20, 9, 30));
+		expect(when("99999999999d", T0, config)).toBeUndefined();
 		expect(when("soonish", T0, config)).toBeUndefined();
 	});
 });
@@ -342,6 +355,80 @@ echo "$*" >> "${dir}/vault.log"; n=$(wc -l < "${dir}/vault.log"); printf '{"id":
 		expect(using((l) => l.item(1))).toMatchObject({ reminders: 1 });
 	});
 
+	it("does not queue twice when the run died right after the hub answered", () => {
+		using((l) => l.addReminder("ping", now + MINUTE, "ping"));
+		say("I'll send the row counts once the import finishes.");
+		sweep();
+		now += 5 * HOUR;
+
+		// The hub takes each prompt, then the process dies before anything about it is stored.
+		const dying = new Ledger(config, {
+			...depsFromEnv(),
+			now: () => now,
+			inject: (prompt, source, key) => {
+				depsFromEnv().inject(prompt, source, key);
+
+				throw new Error("killed");
+			},
+		});
+
+		// A real death skips the catch in the ledger too, so stop the store from recording the failure.
+		dying.db.exec(
+			"CREATE TRIGGER die BEFORE UPDATE ON batch BEGIN SELECT RAISE(ABORT, 'dead'); END",
+		);
+		expect(dying.sweep()).toMatchObject({ errors: [expect.stringContaining("dead") as string] });
+		dying.db.exec("DROP TRIGGER die");
+		dying.close();
+		expect(injected()).toHaveLength(1);
+		now += 5 * MINUTE;
+		sweep();
+		now += 5 * MINUTE;
+		sweep();
+		expect(injected()).toHaveLength(2);
+		expect(injected().map((p) => p.split("|")[0])).toEqual(["ping", "promise-ledger"]);
+		expect(using((l) => l.item(1))).toMatchObject({ state: "done", closed_by: "fired" });
+		expect(using((l) => l.item(2))).toMatchObject({ reminders: 1 });
+	});
+
+	it("keeps reminding when the history cannot be read, and says so", () => {
+		using((l) => l.addReminder("ping", now + MINUTE, "ping"));
+		history.exec("ALTER TABLE entry RENAME TO elsewhere");
+		now += HOUR;
+		expect(sweep()).toMatchObject({
+			remind: { sent: 1 },
+			errors: [expect.stringContaining("ingest:") as string],
+		});
+		expect(injected()).toHaveLength(1);
+	});
+
+	it("does not prompt for a promise snoozed while its prompt was waiting on the hub", () => {
+		say("I'll send the row counts once the import finishes.");
+		sweep();
+		now += 5 * HOUR;
+		writeFileSync(path.join(dir, "down"), "");
+		sweep();
+		using((l) => l.snooze(1, now + 3 * HOUR));
+		rmSync(path.join(dir, "down"));
+		now += 5 * MINUTE;
+		sweep();
+		expect(injected()).toEqual([]);
+		expect(using((l) => l.item(1))).toMatchObject({ reminders: 0 });
+	});
+
+	it("does not close a promise on a report of the thing it was waiting for, and a wrong close can be reopened", () => {
+		say("I'll send the importer build numbers once the fix is merged.");
+		say("I'll mirror the calendar feed into the shared planner as busy blocks.");
+		sweep();
+		now += 2 * MINUTE;
+		say("Merged the importer build fix.");
+		say("The calendar feed is live in the shared planner as busy blocks.");
+		sweep();
+		expect(using((l) => l.item(1))).toMatchObject({ state: "open" });
+		expect(using((l) => l.item(2))).toMatchObject({ state: "done", closed_by: "auto" });
+		expect(statusLine(config.store, now)).toContain("1 closed automatically in the last day");
+		expect(using((l) => l.reopen(2))).toMatchObject({ state: "open", due: now, closed_by: null });
+	});
+
 	it("caps a prompt, spaces prompts, backs off per promise and escalates after the last reminder", () => {
 		for (let i = 0; i < 5; i += 1) {
 			say(`I'll send report number ${String(i)} after the build.`);
@@ -461,7 +548,7 @@ echo "$*" >> "${dir}/vault.log"; n=$(wc -l < "${dir}/vault.log"); printf '{"id":
 		expect(injected()).toHaveLength(1);
 
 		expect(injected()[0]).toMatch(
-			/^water-check\|promise-ledger:[0-9a-f]{12}:1\|Check the plant sensor/u,
+			/^water-check\|promise-ledger:[0-9a-f]{12}:[0-9a-f]{12}\|Check the plant sensor/u,
 		);
 
 		expect(using((l) => l.item(1))).toMatchObject({ state: "done", closed_by: "fired" });

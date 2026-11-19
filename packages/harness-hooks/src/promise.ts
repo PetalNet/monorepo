@@ -5,17 +5,22 @@
 //   promise show <id>                   one item in full
 //   promise done <id[,id...]> [evidence]    close: it was delivered
 //   promise drop <id[,id...]> <reason>      close: it no longer applies
+//   promise reopen <id[,id...]>             undo a close that was wrong; the item is due at once
 //   promise snooze <id[,id...]> <when>      new due time: 90m, 2h, 3d, tomorrow, "friday 9", 2026-01-02T09:00
 //   promise remind <name> <when> [prompt]   a timed reminder; the prompt is read from stdin when omitted
 //   promise pause | resume              stop or restart reminders (capture and closing keep running)
 //   promise status                      the session-start line and the last sweep
 //
 // Times without a zone are read in PROMISE_TZ. Configuration is in the environment (configFromEnv).
-import { readFileSync } from "node:fs";
+import { readFileSync, realpathSync } from "node:fs";
+import { pathToFileURL } from "node:url";
 
 import { instant, parseDue } from "./promise-due.ts";
 import type { Config, Item } from "./promise-ledger.ts";
 import { clip, configFromEnv, depsFromEnv, Ledger, span, statusLine } from "./promise-ledger.ts";
+
+// No due time further out than this: a typo must not store a date the list cannot print.
+const FAR = 5 * 365 * 86_400_000;
 
 function fail(message: string): never {
 	process.stderr.write(`promise: ${message}\n`);
@@ -26,7 +31,7 @@ function fail(message: string): never {
 export function when(text: string, now: number, config: Config): number | undefined {
 	const rel = /^(\d+(?:\.\d+)?)\s*(m|min|h|hr|d)[a-z]*$/iu.exec(text.trim());
 
-	if (rel) {
+	if (rel && Number(rel[1]) <= 10_000) {
 		const unit = rel[2]?.toLowerCase().startsWith("m")
 			? 60_000
 			: rel[2]?.toLowerCase() === "d"
@@ -49,9 +54,16 @@ export function when(text: string, now: number, config: Config): number | undefi
 		);
 	}
 
-	const zoned = Date.parse(text);
+	// Words first ("friday 9", "tomorrow at 9"): Date.parse reads those as dates in 2001.
+	const worded = parseDue(text, now, config)?.at;
 
-	return Number.isNaN(zoned) ? parseDue(text, now, config)?.at : zoned;
+	if (worded !== undefined) {
+		return worded;
+	}
+
+	const zoned = /^\d{4}-\d{2}-\d{2}T/u.test(text.trim()) ? Date.parse(text) : Number.NaN;
+
+	return Number.isNaN(zoned) ? undefined : zoned;
 }
 
 function line(item: Item, now: number, config: Config) {
@@ -109,8 +121,15 @@ function main(argv: string[]) {
 	try {
 		switch (command ?? "") {
 			case "sweep": {
-				// Quiet on stdout: the scheduler delivers whatever a job prints.
-				process.stderr.write(`${JSON.stringify(ledger.sweep())}\n`);
+				const result = ledger.sweep();
+
+				process.stderr.write(`${JSON.stringify(result)}\n`);
+
+				// Quiet on stdout when all is well: the scheduler delivers whatever a job prints, so a failed stage is
+				// the one thing it says there.
+				if ("errors" in result && result.errors.length > 0) {
+					process.stdout.write(`promise sweep: ${result.errors.join("; ")}\n`);
+				}
 
 				break;
 			}
@@ -154,10 +173,18 @@ function main(argv: string[]) {
 				break;
 			}
 
+			case "reopen": {
+				for (const id of ids(rest[0])) {
+					process.stdout.write(`${line(ledger.reopen(id), now, config)}\n`);
+				}
+
+				break;
+			}
+
 			case "snooze": {
 				const due = when(rest.slice(1).join(" "), now, config);
 
-				if (due === undefined || due <= now) {
+				if (due === undefined || due <= now || due > now + FAR) {
 					fail("snooze needs a time ahead: 90m, 2h, 3d, tomorrow, 2026-01-02T09:00");
 				}
 
@@ -172,7 +199,7 @@ function main(argv: string[]) {
 				const [name, at, ...words] = rest;
 				const due = when(at ?? "", now, config);
 
-				if (!name || !/^[\w.-]{1,56}$/u.test(name) || due === undefined) {
+				if (!name || !/^[\w.-]{1,56}$/u.test(name) || due === undefined || due > now + FAR) {
 					fail("usage: promise remind <name> <when> [prompt]");
 				}
 
@@ -196,7 +223,9 @@ function main(argv: string[]) {
 			}
 
 			default: {
-				fail("commands: sweep, list, show, done, drop, snooze, remind, pause, resume, status");
+				fail(
+					"commands: sweep, list, show, done, drop, reopen, snooze, remind, pause, resume, status",
+				);
 			}
 		}
 	} catch (error) {
@@ -206,6 +235,7 @@ function main(argv: string[]) {
 	}
 }
 
-if (process.argv[1] && import.meta.filename === process.argv[1]) {
+// Through a symlink too: the installed command is a link to this file.
+if (process.argv[1] && import.meta.url === pathToFileURL(realpathSync(process.argv[1])).href) {
 	main(process.argv.slice(2));
 }

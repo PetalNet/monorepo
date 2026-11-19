@@ -269,6 +269,23 @@ export class Ledger {
 		return this.must(id);
 	}
 
+	/** Reopens a closed item, for a close that was wrong. It is due at once. */
+	reopen(id: number): Item {
+		const item = this.must(id);
+
+		if (item.state === "open") {
+			throw new Error(`item ${String(id)} is already open`);
+		}
+
+		this.db
+			.prepare(
+				"UPDATE item SET state = 'open', closed = NULL, closed_by = NULL, evidence = NULL, due = ?, due_source = 'reopened' WHERE id = ?",
+			)
+			.run(this.deps.now(), id);
+
+		return this.must(id);
+	}
+
 	/** Moves an open item's due time and gives it a fresh set of reminders. */
 	snooze(id: number, due: number): Item {
 		const item = this.item(id);
@@ -432,41 +449,44 @@ export class Ledger {
 			now,
 		);
 
-		for (const item of due) {
-			this.db.prepare("UPDATE item SET recorded = 1 WHERE id = ?").run(item.id);
+		this.atomic(() => {
+			for (const item of due) {
+				this.db.prepare("UPDATE item SET recorded = 1 WHERE id = ?").run(item.id);
 
-			this.db
-				.prepare("INSERT INTO outbox (item, op, created) VALUES (?, 'record', ?)")
-				.run(item.id, now);
-		}
+				this.db
+					.prepare("INSERT INTO outbox (item, op, created) VALUES (?, 'record', ?)")
+					.run(item.id, now);
+			}
+		});
 
 		return due.length;
 	}
 
 	private attempt(batch: number, prompt: string): CommandResult {
 		const row = this.db.prepare("SELECT key, source FROM batch WHERE id = ?").get(batch);
-		const now = this.deps.now();
-		let result: CommandResult;
 
 		try {
-			result = this.deps.inject(prompt, String(row?.["source"]), String(row?.["key"]));
+			return this.deps.inject(prompt, String(row?.["source"]), String(row?.["key"]));
 		} catch (error) {
-			result = { ok: false, output: String(error) };
+			return { ok: false, output: String(error) };
 		}
+	}
 
-		this.db
-			.prepare(
-				"UPDATE batch SET tries = tries + 1, last_try = ?, response = ?, state = ?, sent = ? WHERE id = ?",
-			)
-			.run(
-				now,
-				result.output.slice(0, 500),
-				result.ok ? "sent" : "pending",
-				result.ok ? now : null,
-				batch,
-			);
+	/** Runs `body` as one transaction: all of it is stored, or none. */
+	private atomic<T>(body: () => T): T {
+		this.db.exec("BEGIN IMMEDIATE");
 
-		return result;
+		try {
+			const value = body();
+
+			this.db.exec("COMMIT");
+
+			return value;
+		} catch (error) {
+			this.db.exec("ROLLBACK");
+
+			throw error;
+		}
 	}
 
 	private afterSent(items: Item[]) {
@@ -529,18 +549,38 @@ export class Ledger {
 			return counts;
 		}
 
+		// A snoozed or closed member of a pending batch is no longer part of it.
 		const openIn = (ids: number[]) =>
-			ids.flatMap((id) => this.items("id = ? AND state = 'open'", id));
+			ids.flatMap((id) => this.items("id = ? AND state = 'open' AND due <= ?", id, now));
 		const send = (batch: number, items: Item[]) => {
 			const result = this.attempt(batch, this.promptFor(items));
 
-			if (result.ok) {
-				this.afterSent(items);
-				counts.sent += 1;
+			// The hub's answer, the items' reminder counts and the prompt spacing are stored together. A run that dies
+			// before this leaves the batch pending, and the retry goes out under the same key.
+			this.atomic(() => {
+				this.db
+					.prepare(
+						"UPDATE batch SET tries = tries + 1, last_try = ?, response = ?, state = ?, sent = ? WHERE id = ?",
+					)
+					.run(
+						now,
+						result.output.slice(0, 500),
+						result.ok ? "sent" : "pending",
+						result.ok ? now : null,
+						batch,
+					);
 
-				if (items[0]?.kind === "promise") {
-					this.setMeta("last_promise_prompt", String(now));
+				if (result.ok) {
+					this.afterSent(items);
+
+					if (items[0]?.kind === "promise") {
+						this.setMeta("last_promise_prompt", String(now));
+					}
 				}
+			});
+
+			if (result.ok) {
+				counts.sent += 1;
 
 				counts.escalated += items.filter(
 					(i) => i.kind === "promise" && i.reminders + 1 > config.backoffMs.length,
@@ -565,18 +605,19 @@ export class Ledger {
 			}
 		}
 
-		const create = (source: string, items: Item[]) => {
-			const r = this.db
-				.prepare("INSERT INTO batch (key, source, items, created) VALUES ('', ?, ?, ?)")
-				.run(source, JSON.stringify(items.map((i) => i.id)), now);
-			const id = Number(r.lastInsertRowid);
-
-			this.db
-				.prepare("UPDATE batch SET key = ? WHERE id = ?")
-				.run(`promise-ledger:${this.meta("nonce") ?? ""}:${String(id)}`, id);
-
-			return id;
-		};
+		// The key is complete in the row from the start: the store's nonce and a random part, never an id that a
+		// recreated store could hand out again.
+		const create = (source: string, items: Item[]) =>
+			Number(
+				this.db
+					.prepare("INSERT INTO batch (key, source, items, created) VALUES (?, ?, ?, ?)")
+					.run(
+						`promise-ledger:${this.meta("nonce") ?? ""}:${randomBytes(6).toString("hex")}`,
+						source,
+						JSON.stringify(items.map((i) => i.id)),
+						now,
+					).lastInsertRowid,
+			);
 
 		for (const reminder of this.items("state = 'open' AND kind = 'reminder' AND due <= ?", now)) {
 			if (!send(create(reminder.name ?? "reminder", [reminder]), [reminder])) {
@@ -737,18 +778,34 @@ export class Ledger {
 			return { skipped: "another sweep is running" };
 		}
 
+		// Each stage runs even if an earlier one failed: a history file that cannot be read must not stop reminders.
+		const errors: string[] = [];
+		const stage = <T>(name: string, body: () => T): T | undefined => {
+			try {
+				return body();
+			} catch (error) {
+				errors.push(`${name}: ${error instanceof Error ? error.message : String(error)}`);
+
+				return undefined;
+			}
+		};
+
 		try {
-			const ingest = this.ingest();
-			const recorded = this.recordOverdue();
-			const remind = this.remind();
-			const vault = this.drainOutbox();
-			const result = { at: new Date(now).toISOString(), ingest, recorded, remind, vault };
+			const result = {
+				at: new Date(now).toISOString(),
+				ingest: stage("ingest", () => this.ingest()),
+				recorded: stage("record", () => this.recordOverdue()),
+				remind: stage("remind", () => this.remind()),
+				vault: stage("vault", () => this.drainOutbox()),
+				errors,
+			};
 
 			this.setMeta("last_sweep", JSON.stringify(result));
 
 			return result;
 		} finally {
-			this.setMeta("lock", "0");
+			// Only this run's lock: after fifteen minutes another run may hold it.
+			this.db.prepare("UPDATE meta SET v = '0' WHERE k = 'lock' AND v = ?").run(String(now));
 		}
 	}
 }
@@ -784,16 +841,22 @@ export function statusLine(store: string, now: number): string {
 		const row = db
 			.prepare(
 				`SELECT
-           COALESCE(SUM(kind = 'promise'), 0) AS open,
-           COALESCE(SUM(kind = 'promise' AND due <= ?), 0) AS overdue,
-           COALESCE(SUM(kind = 'promise' AND escalated = 1), 0) AS escalated,
-           COALESCE(SUM(kind = 'reminder'), 0) AS reminders
-         FROM item WHERE state = 'open'`,
+           COALESCE(SUM(state = 'open' AND kind = 'promise'), 0) AS open,
+           COALESCE(SUM(state = 'open' AND kind = 'promise' AND due <= ?), 0) AS overdue,
+           COALESCE(SUM(state = 'open' AND kind = 'promise' AND escalated = 1), 0) AS escalated,
+           COALESCE(SUM(state = 'open' AND kind = 'reminder'), 0) AS reminders,
+           COALESCE(SUM(closed_by = 'auto' AND closed > ?), 0) AS auto
+         FROM item`,
 			)
-			.get(now);
+			.get(now, now - 24 * HOUR);
 		const n = (key: string) => String(row?.[key] ?? 0);
+		// A wrong automatic close is a dropped promise, so automatic closes are never silent.
+		const auto =
+			Number(row?.["auto"] ?? 0) > 0
+				? ` ${n("auto")} closed automatically in the last day (\`promise list --all\`; \`promise reopen <id>\` if wrong).`
+				: "";
 
-		return `Promise ledger: ${n("open")} open promise(s), ${n("overdue")} overdue (${n("escalated")} out of reminders), ${n("reminders")} timed reminder(s) scheduled. List them with \`promise list\`; close with \`promise done|snooze|drop <id>\`.`;
+		return `Promise ledger: ${n("open")} open promise(s), ${n("overdue")} overdue (${n("escalated")} out of reminders), ${n("reminders")} timed reminder(s) scheduled. List them with \`promise list\`; close with \`promise done|snooze|drop <id>\`.${auto}`;
 	} finally {
 		db.close();
 	}

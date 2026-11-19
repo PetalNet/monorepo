@@ -81,7 +81,11 @@ const HEDGED =
 
 /** The sentence in `later` that delivers `promise`, or undefined. */
 export function delivers(promise: string, later: string, minShared = 3): string | undefined {
-	const own = keywords(promise);
+	// "once the fix is merged" names what the promise waits for, not what it delivers: a report that the fix merged
+	// must not close "I'll send the numbers once the fix is merged".
+	const own = keywords(
+		promise.replaceAll(/\b(?:once|after|when|until|as soon as|before|if|while)\b[^,.;!?]*/giu, " "),
+	);
 
 	for (const sentence of sentences(later)) {
 		if (

@@ -102,7 +102,8 @@ export function sentences(text: string): string[] {
 		for (const part of line.split(/(?<=[.!?])\s+(?=["'(\p{Lu}\d])/u)) {
 			const s = part.replaceAll(/\s+/gu, " ").trim();
 
-			if (s.length > 1) {
+			// A promise is a sentence, not a page: an unpunctuated wall of text is skipped, which also bounds matching.
+			if (s.length > 1 && s.length <= 600) {
 				out.push(s);
 			}
 		}

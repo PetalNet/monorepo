@@ -141,7 +141,7 @@ export function parseDue(sentence: string, now: number, options: DueOptions): Du
 
 	// "Dec 10", "November 25 at 7:45pm": that day at the stated time plus an hour, else 20:00.
 	m = new RegExp(
-		String.raw`\b(${MONTHS.join("|")})[a-z]*\.? (\d{1,2})(?:st|nd|rd|th)?\b(?:,? (?:at |by |around )?${TIME}(?=\W|$))?`,
+		String.raw`\b(${MONTHS.join("|")})[a-z]*\.? (\d{1,2})(?:st|[nr]d|th)?\b(?:,? (?:at |by |around )?${TIME}(?=\W|$))?`,
 		"u",
 	).exec(text);
 
@@ -182,7 +182,14 @@ export function parseDue(sentence: string, now: number, options: DueOptions): Du
 	).exec(text);
 
 	if (m) {
-		const ahead = (WEEKDAYS.indexOf(m[1] ?? "") - w.weekday + 7) % 7 || 7;
+		const days = (WEEKDAYS.indexOf(m[1] ?? "") - w.weekday + 7) % 7;
+		// "by Friday 5pm" said on Friday morning means today; a bare "Friday" said on a Friday means next week.
+		const sameDay =
+			days === 0 &&
+			m[3] !== undefined &&
+			m[5] !== undefined &&
+			on(0, ...clock(m[3], m[4], m[5])) > now;
+		const ahead = days === 0 && !sameDay ? 7 : days;
 
 		if (m[3] !== undefined) {
 			// "Friday 9" means nine in the morning.
@@ -208,7 +215,7 @@ export function parseDue(sentence: string, now: number, options: DueOptions): Du
 	if (/\b(?:overnight|in the morning|this morning|by morning|first thing)\b/u.test(text)) {
 		const today = on(0, 12);
 
-		return found(today > now && w.hour >= resetHour ? today : on(1, 12), "in the morning");
+		return found(today > now ? today : on(1, 12), "in the morning");
 	}
 
 	if (/\bnext week\b/u.test(text)) {
