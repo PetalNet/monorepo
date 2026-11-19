@@ -1,4 +1,5 @@
 import { spawn, spawnSync } from "node:child_process";
+import { once } from "node:events";
 import {
 	chmodSync,
 	existsSync,
@@ -12,16 +13,20 @@ import {
 import { tmpdir } from "node:os";
 import path from "node:path";
 
-import { afterEach, describe, expect, test } from "vitest";
+import { afterEach, describe, expect, test, vi } from "vitest";
 
 const scripts = path.join(import.meta.dirname, "../scripts");
 const made: string[] = [];
 const stops: (() => void)[] = [];
 
 afterEach(() => {
-	for (const stop of stops.splice(0)) stop();
+	for (const stop of stops.splice(0)) {
+		stop();
+	}
 
-	for (const dir of made.splice(0)) rmSync(dir, { recursive: true, force: true });
+	for (const dir of made.splice(0)) {
+		rmSync(dir, { recursive: true, force: true });
+	}
 });
 
 /** A directory holding a stand-in `ssh`, first on PATH, so the scripts run without a network. */
@@ -33,15 +38,10 @@ const fakeSsh = (body: (dir: string) => string) => {
 	writeFileSync(path.join(dir, "bin/ssh"), `#!/usr/bin/env bash\n${body(dir)}\n`);
 	chmodSync(path.join(dir, "bin/ssh"), 0o755);
 
-	return { dir, env: { ...process.env, PATH: `${path.join(dir, "bin")}:${process.env["PATH"]}` } };
-};
-
-const until = async (done: () => boolean) => {
-	for (let tries = 0; tries < 200 && !done(); tries++) {
-		await new Promise((resolve) => setTimeout(resolve, 25));
-	}
-
-	expect(done()).toBe(true);
+	return {
+		dir,
+		env: { ...process.env, PATH: `${path.join(dir, "bin")}:${process.env["PATH"] ?? ""}` },
+	};
 };
 
 describe("client scripts", () => {
@@ -88,13 +88,19 @@ describe("client scripts", () => {
 			env: { ...env, VAULT_ENV: path.join(dir, "env") },
 			stdio: "ignore",
 		});
-		const exited = new Promise((resolve) => pull.once("exit", resolve));
+		const exited = once(pull, "exit");
 		const partials = () => readdirSync(replica).filter((name) => name !== "index.sqlite");
 
-		await until(
-			() =>
-				existsSync(path.join(dir, "ssh.pid")) &&
-				partials().some((name) => readFileSync(path.join(replica, name), "utf8") === "partial"),
+		// Wait until the partial copy is on disk and the stand-in is stalled.
+		await vi.waitFor(
+			() => {
+				expect(existsSync(path.join(dir, "ssh.pid"))).toBe(true);
+
+				expect(partials().map((name) => readFileSync(path.join(replica, name), "utf8"))).toEqual([
+					"partial",
+				]);
+			},
+			{ timeout: 10_000, interval: 25 },
 		);
 
 		pull.kill("SIGTERM");
