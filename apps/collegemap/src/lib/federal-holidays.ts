@@ -6,7 +6,7 @@
  * app already spans 2026-27 and will roll over without anyone remembering to edit it.
  *
  * Every date here is a calendar day, never an instant, and all the arithmetic runs on the integer
- * day numbers of `$lib/dates`. `new Date('2026-07-04').getDay()` is Friday evening anywhere west of
+ * day numbers of `#lib/dates`. `new Date('2026-07-04').getDay()` is Friday evening anywhere west of
  * Greenwich, which would silently shift the Saturday rule by a day and produce holidays nobody
  * has.
  */

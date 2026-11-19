@@ -1,3 +1,5 @@
+import { error } from "@sveltejs/kit";
+
 import {
 	browseLanes,
 	recentDone,
@@ -17,8 +19,7 @@ import {
 	addBlocker,
 	removeBlocker,
 	unfinishedBlockers,
-} from "$lib/server/db.js";
-import { error } from "@sveltejs/kit";
+} from "#lib/server/db.js";
 
 // IDOR guard: a human may only mutate tasks they can write (shared, or their own private).
 const gate = (id, me) => {

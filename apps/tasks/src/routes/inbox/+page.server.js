@@ -4,7 +4,7 @@ import {
 	inboxCounts,
 	listProjects,
 	deepScrub,
-} from "$lib/server/db.js";
+} from "#lib/server/db.js";
 
 function parseOpts(s) {
 	try {
@@ -34,7 +34,7 @@ export function load({ locals }) {
 export const actions = {
 	// answer an open question right from the hub
 	answer: async ({ request, locals }) => {
-		const { answerQuestion, canWrite } = await import("$lib/server/db.js");
+		const { answerQuestion, canWrite } = await import("#lib/server/db.js");
 		const f = await request.formData();
 		const id = Number(f.get("id"));
 

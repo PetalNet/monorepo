@@ -1,8 +1,9 @@
 <script lang="ts">
 	import { goto } from "$app/navigation";
 	import { invalidateAll } from "$app/navigation";
-	import ParticleBackground from "$lib/components/ParticleBackground.svelte";
 	import { onMount, onDestroy } from "svelte";
+
+	import ParticleBackground from "#lib/components/ParticleBackground.svelte";
 
 	import type { PageData } from "./$types";
 

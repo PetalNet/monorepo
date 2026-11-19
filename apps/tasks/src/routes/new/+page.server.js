@@ -1,3 +1,5 @@
+import { redirect } from "@sveltejs/kit";
+
 import {
 	listProjects,
 	ensureProject,
@@ -7,8 +9,7 @@ import {
 	createQuestion,
 	updateTask,
 	nextUpNextRank,
-} from "$lib/server/db.js";
-import { redirect } from "@sveltejs/kit";
+} from "#lib/server/db.js";
 
 export function load({ locals }) {
 	return { projects: listProjects(locals.user) };

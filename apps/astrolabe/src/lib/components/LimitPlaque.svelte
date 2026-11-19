@@ -1,7 +1,8 @@
 <script lang="ts">
-	import { formatDuration } from "$lib/format";
-	import type { LimitReading } from "$lib/limits";
 	import TriangleAlert from "@lucide/svelte/icons/triangle-alert";
+
+	import { formatDuration } from "#lib/format.ts";
+	import type { LimitReading } from "#lib/limits.ts";
 
 	let { reading, now }: { reading: LimitReading; now: number } = $props();
 

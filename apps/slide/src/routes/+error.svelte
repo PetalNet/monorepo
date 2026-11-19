@@ -1,7 +1,8 @@
 <script lang="ts">
-	import { page } from "$app/stores";
-	import Button from "$lib/components/Button.svelte";
-	import ParticleBackground from "$lib/components/ParticleBackground.svelte";
+	import { page } from "$app/state";
+
+	import Button from "#lib/components/Button.svelte";
+	import ParticleBackground from "#lib/components/ParticleBackground.svelte";
 
 	const errorMessages: Record<number, { emoji: string; title: string; message: string }> = {
 		404: {
@@ -23,11 +24,11 @@
 		},
 	};
 
-	const status = $page.status;
+	const status = page.status;
 	const errorInfo = errorMessages[status] || {
 		emoji: "⚠️",
 		title: "Something Went Wrong",
-		message: $page.error?.message || "An unexpected error occurred.",
+		message: page.error?.message || "An unexpected error occurred.",
 	};
 </script>
 
@@ -62,16 +63,19 @@
 		<!-- Action Buttons -->
 		<div class="flex flex-col justify-center gap-4 pt-6 sm:flex-row">
 			<Button onclick={() => window.history.back()}>← Go Back</Button>
+
 			<Button variant="secondary" onclick={() => (window.location.href = "/")}>🏠 Home</Button>
 		</div>
 
 		<!-- Technical Details (for development) -->
-		{#if import.meta.env.DEV && $page.error?.message}
+
+		{#if import.meta.env.DEV && page.error?.message}
 			<details class="mt-8 rounded-lg border border-gray-800 bg-theater-dark p-4 text-left">
-				<summary class="cursor-pointer text-sm text-gray-400 hover:text-gray-300">
-					Technical Details
-				</summary>
-				<pre class="mt-4 overflow-auto text-xs text-red-400">{$page.error.message}</pre>
+				<summary class="cursor-pointer text-sm text-gray-400 hover:text-gray-300"
+					>Technical Details</summary
+				>
+
+				<pre class="mt-4 overflow-auto text-xs text-red-400">{page.error.message}</pre>
 			</details>
 		{/if}
 	</div>

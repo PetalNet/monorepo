@@ -1,20 +1,21 @@
 <script lang="ts">
 	import { goto } from "$app/navigation";
 	import { resolve } from "$app/paths";
-	import type { HistoryEntry } from "$lib/api";
-	import { isTapeWidth } from "$lib/doc";
-	import { editor } from "$lib/editor/editor.svelte";
-	import Banner from "$lib/ui/Banner.svelte";
-	import Button from "$lib/ui/Button.svelte";
-	import { api, errorText, historyPage } from "$lib/ui/client";
-	import JobRow from "$lib/ui/JobRow.svelte";
-	import { jobs } from "$lib/ui/jobs.svelte";
-	import RasterThumb from "$lib/ui/RasterThumb.svelte";
-	import Sheet from "$lib/ui/Sheet.svelte";
-	import Skeleton from "$lib/ui/Skeleton.svelte";
-	import { tapeMmActual } from "$lib/ui/tape";
-	import { formatMm, plainError, relativeTime } from "$lib/ui/words";
 	import { PenLine, RotateCcw } from "@lucide/svelte";
+
+	import type { HistoryEntry } from "#lib/api.ts";
+	import { isTapeWidth } from "#lib/doc.ts";
+	import { editor } from "#lib/editor/editor.svelte.ts";
+	import Banner from "#lib/ui/Banner.svelte";
+	import Button from "#lib/ui/Button.svelte";
+	import { api, errorText, historyPage } from "#lib/ui/client.ts";
+	import JobRow from "#lib/ui/JobRow.svelte";
+	import { jobs } from "#lib/ui/jobs.svelte.ts";
+	import RasterThumb from "#lib/ui/RasterThumb.svelte";
+	import Sheet from "#lib/ui/Sheet.svelte";
+	import Skeleton from "#lib/ui/Skeleton.svelte";
+	import { tapeMmActual } from "#lib/ui/tape.ts";
+	import { formatMm, plainError, relativeTime } from "#lib/ui/words.ts";
 
 	const PAGE = 30;
 

@@ -1,5 +1,6 @@
-import { validateSession } from "$lib/server/auth";
-import type { Handle } from "@sveltejs/kit";
+import type { Handle } from "@sveltejs/kit/hooks";
+
+import { validateSession } from "#lib/server/auth.ts";
 
 export const handle: Handle = async ({ event, resolve }) => {
 	// Log ORIGIN for debugging CSRF issues

@@ -1,4 +1,4 @@
-import type { Store } from "$lib/server/store";
+import type { Store } from "#lib/server/store.ts";
 
 declare global {
 	namespace App {

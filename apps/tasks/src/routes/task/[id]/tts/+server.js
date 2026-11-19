@@ -1,10 +1,11 @@
 import { readFileSync } from "node:fs";
 
-import { env } from "$env/dynamic/private";
-import { canRead } from "$lib/server/db.js";
-import { take } from "$lib/server/ratelimit.js";
-import { VOICES } from "$lib/server/voices.js";
+import { ELEVEN_API_KEY } from "$app/env/private";
 import { json } from "@sveltejs/kit";
+
+import { canRead } from "#lib/server/db.js";
+import { take } from "#lib/server/ratelimit.js";
+import { VOICES } from "#lib/server/voices.js";
 
 // Hard cap on text the proxy will forward to the PAID ElevenLabs key. The reader only
 // ever sends the rendered task body (client clamps to 4800), so a generous-but-bounded
@@ -15,8 +16,8 @@ const MAX_TEXT = 6000;
 // Key resolution: $ELEVEN_API_KEY, else /data/eleven-api-key (the mounted data dir).
 // No key → 503, and the client quietly falls back to the browser's Web Speech API.
 function apiKey() {
-	if (env.ELEVEN_API_KEY) {
-		return env.ELEVEN_API_KEY.trim();
+	if (ELEVEN_API_KEY) {
+		return ELEVEN_API_KEY.trim();
 	}
 
 	try {

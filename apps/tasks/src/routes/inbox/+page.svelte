@@ -1,8 +1,9 @@
 <script>
 	import { enhance } from "$app/forms";
-	import Icon from "$lib/Icon.svelte";
-	import { projectName } from "$lib/people.js";
-	import TaskRow from "$lib/TaskRow.svelte";
+
+	import Icon from "#lib/Icon.svelte";
+	import { projectName } from "#lib/people.js";
+	import TaskRow from "#lib/TaskRow.svelte";
 	let { data } = $props();
 	const projName = $derived(projectName(data.projects));
 

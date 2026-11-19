@@ -1,7 +1,8 @@
 <script>
-	import { inkLayer } from "$lib/ink.js";
 	import { Eraser, Highlighter, PenLine, Trash2, Undo2 } from "@lucide/svelte";
 	import { onMount } from "svelte";
+
+	import { inkLayer } from "#lib/ink.js";
 
 	let { data } = $props();
 	// For HTML artifacts we size the iframe to its content height so the page scrolls as

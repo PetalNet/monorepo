@@ -1,4 +1,4 @@
-import { issuesPage, issuesCounts, listProjects, deepScrub } from "$lib/server/db.js";
+import { issuesPage, issuesCounts, listProjects, deepScrub } from "#lib/server/db.js";
 
 // Bounded pages (task-317): the old loader shipped the ENTIRE open+closed history every visit and
 // split it in JS. Now the open/closed split + comment counts + totals are SQL, and each tab loads

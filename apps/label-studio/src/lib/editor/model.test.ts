@@ -1,5 +1,6 @@
-import { TAPES, type LabelDoc, type ShapeElement, type TextElement } from "$lib/doc";
 import { describe, expect, it, vi } from "vitest";
+
+import { TAPES, type LabelDoc, type ShapeElement, type TextElement } from "#lib/doc.ts";
 
 import {
 	align,

@@ -1,6 +1,7 @@
-import { db } from "$lib/server/db";
-import { users, colleges, settings } from "$lib/server/db/schema";
 import { eq, isNotNull } from "drizzle-orm";
+
+import { db } from "#lib/server/db/index.ts";
+import { users, colleges, settings } from "#lib/server/db/schema.ts";
 
 import type { PageServerLoad } from "./$types";
 

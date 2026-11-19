@@ -7,9 +7,9 @@
 	//
 	// Flat (no per-row card box). The list that wraps these draws 1px hairline
 	// separators; the row only owns a square (un-rounded) hover wash.
-	import Icon from "$lib/Icon.svelte";
-	import { who } from "$lib/people.js";
-	import { statusClass, kindIcon } from "$lib/status.js";
+	import Icon from "#lib/Icon.svelte";
+	import { who } from "#lib/people.js";
+	import { statusClass, kindIcon } from "#lib/status.js";
 
 	let {
 		task, // { id, title, kind, status, priority, project_id, assignee, created_at, updated_at, ... }

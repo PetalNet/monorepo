@@ -1,7 +1,8 @@
 import { crc32, inflateSync } from "node:zlib";
 
-import type { Bitmap } from "$lib/doc";
 import { describe, expect, it } from "vitest";
+
+import type { Bitmap } from "#lib/doc.ts";
 
 import { encodePng } from "./png.ts";
 

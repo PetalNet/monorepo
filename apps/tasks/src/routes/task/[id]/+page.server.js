@@ -1,3 +1,5 @@
+import { error, fail } from "@sveltejs/kit";
+
 import {
 	getTask,
 	listComments,
@@ -16,9 +18,8 @@ import {
 	discoveredFrom,
 	discoveries,
 	closeTask,
-} from "$lib/server/db.js";
-import { renderPm } from "$lib/server/pm-render.js";
-import { error, fail } from "@sveltejs/kit";
+} from "#lib/server/db.js";
+import { renderPm } from "#lib/server/pm-render.js";
 
 // IDOR guard — a human may only mutate a task they can write (shared, or own private).
 const gate = (id, me) => {

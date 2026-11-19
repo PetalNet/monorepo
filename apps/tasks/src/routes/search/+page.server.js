@@ -1,5 +1,5 @@
-import { projectName } from "$lib/people.js";
-import { searchTasks, listProjects } from "$lib/server/db.js";
+import { projectName } from "#lib/people.js";
+import { searchTasks, listProjects } from "#lib/server/db.js";
 
 // Global search results for the top-bar box. Read-only; searchTasks is already
 // visibility-gated (private items you don't own never match). Columns are scrub-safe

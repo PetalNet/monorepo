@@ -1,6 +1,7 @@
 <script>
 	import { enhance } from "$app/forms";
-	import Icon from "$lib/Icon.svelte";
+
+	import Icon from "#lib/Icon.svelte";
 	let { data, form } = $props();
 	let kind = $state("task");
 	const KIND_ICON = { task: "task", doc: "doc", question: "question" };

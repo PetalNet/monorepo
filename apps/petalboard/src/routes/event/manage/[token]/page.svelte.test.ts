@@ -1,7 +1,6 @@
+import type { SubmitFunction } from "$app/forms";
 // @vitest-environment happy-dom
-import type { SubmitFunction } from "@sveltejs/kit";
 import { flushSync, mount, tick, unmount } from "svelte";
-import { readable } from "svelte/store";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import type { PageData } from "./$types";
@@ -17,11 +16,11 @@ vi.mock("$app/forms", () => ({
 	},
 }));
 
-vi.mock("$app/stores", () => ({
-	page: readable({ url: new URL("http://localhost/event/manage/token") }),
+vi.mock("$app/state", () => ({
+	page: { url: new URL("http://localhost/event/manage/token") },
 }));
 
-vi.mock("$env/dynamic/public", () => ({ env: {} }));
+vi.mock("$app/env/public", () => ({ PUBLIC_GOOGLE_MAPS_API_KEY: "" }));
 
 type Question = PageData["event"]["questions"][number];
 

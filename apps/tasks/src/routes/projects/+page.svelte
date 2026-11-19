@@ -1,7 +1,8 @@
 <script>
 	import { enhance } from "$app/forms";
-	import Icon from "$lib/Icon.svelte";
-	import { whoColor as whoColorBase } from "$lib/people.js";
+
+	import Icon from "#lib/Icon.svelte";
+	import { whoColor as whoColorBase } from "#lib/people.js";
 	let { data } = $props();
 	// whoColor single-sourced from $lib/people; this page's falsy-handle fallback is null.
 	const whoColor = (h) => whoColorBase(h, null);

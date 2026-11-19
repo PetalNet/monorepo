@@ -1,4 +1,4 @@
-import type { Bitmap, Border, ShapeElement } from "$lib/doc";
+import type { Bitmap, Border, ShapeElement } from "#lib/doc.ts";
 
 import { dash, fill, fillRect, PathBuilder, reversed, stroke } from "./raster.ts";
 

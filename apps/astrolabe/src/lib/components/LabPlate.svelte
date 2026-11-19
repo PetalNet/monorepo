@@ -1,6 +1,6 @@
 <script lang="ts">
-	import type { Dossier } from "$lib/server/dossier";
-	import { servicesSummary } from "$lib/services";
+	import type { Dossier } from "#lib/server/dossier.ts";
+	import { servicesSummary } from "#lib/services.ts";
 
 	let { dossier }: { dossier: Dossier } = $props();
 

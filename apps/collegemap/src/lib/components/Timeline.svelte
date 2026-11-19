@@ -1,6 +1,7 @@
 <script lang="ts">
-	import type { UserWithCollege } from "$lib/collegeGroups";
 	import { onMount } from "svelte";
+
+	import type { UserWithCollege } from "#lib/collegeGroups.ts";
 
 	let {
 		users,

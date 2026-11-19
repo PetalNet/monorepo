@@ -1,6 +1,7 @@
 <script lang="ts">
 	import { enhance } from "$app/forms";
-	import ParticleBackground from "$lib/components/ParticleBackground.svelte";
+
+	import ParticleBackground from "#lib/components/ParticleBackground.svelte";
 
 	let { form } = $props();
 </script>

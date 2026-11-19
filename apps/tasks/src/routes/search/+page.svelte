@@ -1,5 +1,5 @@
 <script>
-	import TaskRow from "$lib/TaskRow.svelte";
+	import TaskRow from "#lib/TaskRow.svelte";
 
 	let { data } = $props();
 </script>

@@ -1,11 +1,11 @@
 <script lang="ts">
-	import Bank from "$lib/components/Bank.svelte";
-	import Countdown from "$lib/components/Countdown.svelte";
-	import DoorReading from "$lib/components/DoorReading.svelte";
-	import DoorStrip from "$lib/components/DoorStrip.svelte";
-	import HitBox from "$lib/components/HitBox.svelte";
-	import StatusBoard from "$lib/components/StatusBoard.svelte";
-	import { weekday } from "$lib/format";
+	import Bank from "#lib/components/Bank.svelte";
+	import Countdown from "#lib/components/Countdown.svelte";
+	import DoorReading from "#lib/components/DoorReading.svelte";
+	import DoorStrip from "#lib/components/DoorStrip.svelte";
+	import HitBox from "#lib/components/HitBox.svelte";
+	import StatusBoard from "#lib/components/StatusBoard.svelte";
+	import { weekday } from "#lib/format.ts";
 
 	import type { PageProps } from "./$types";
 

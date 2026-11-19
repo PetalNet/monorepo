@@ -1,7 +1,8 @@
-// @vitest-environment happy-dom
-import type { PotluckCategory } from "$lib/potluck";
 import { flushSync, mount, unmount } from "svelte";
 import { afterEach, describe, expect, it, vi } from "vitest";
+
+// @vitest-environment happy-dom
+import type { PotluckCategory } from "#lib/potluck.ts";
 
 import PotluckCategoryChips from "./PotluckCategoryChips.svelte";
 

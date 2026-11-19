@@ -1,6 +1,7 @@
-import { deepScrub } from "$lib/server/db.js";
-import { getFleet } from "$lib/server/fleet.js";
 import { json } from "@sveltejs/kit";
+
+import { deepScrub } from "#lib/server/db.js";
+import { getFleet } from "#lib/server/fleet.js";
 
 // GET /fleet/data -> { agents, totals, now }
 // Polled by the cockpit every few seconds for a live view without a full reload.

@@ -1,7 +1,8 @@
 <script lang="ts">
 	import { resolve } from "$app/paths";
-	import { clock, day, plural } from "$lib/format";
-	import type { HitCheck } from "$lib/server/hit/check";
+
+	import { clock, day, plural } from "#lib/format.ts";
+	import type { HitCheck } from "#lib/server/hit/check.ts";
 
 	import SourceLine from "./SourceLine.svelte";
 

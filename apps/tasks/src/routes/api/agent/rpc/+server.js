@@ -1,5 +1,6 @@
-import { handleAgentRpc, BODY_MAX } from "$lib/server/agent-api.js";
 import { json } from "@sveltejs/kit";
+
+import { handleAgentRpc, BODY_MAX } from "#lib/server/agent-api.js";
 
 // POST /api/agent/rpc  { op, args } — bearer-token RPC for remote headless agents.
 //

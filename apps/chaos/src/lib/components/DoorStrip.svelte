@@ -1,8 +1,9 @@
 <script lang="ts">
 	import { resolve } from "$app/paths";
-	import { day, plural } from "$lib/format";
-	import type { StripDoor } from "$lib/server/door";
 	import Lock from "@lucide/svelte/icons/lock";
+
+	import { day, plural } from "#lib/format.ts";
+	import type { StripDoor } from "#lib/server/door.ts";
 
 	let { strip, selected }: { strip: readonly StripDoor[]; selected: string } = $props();
 

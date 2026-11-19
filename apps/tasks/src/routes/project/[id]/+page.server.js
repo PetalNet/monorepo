@@ -1,5 +1,6 @@
-import { getProject, tasksInProject, deepScrub } from "$lib/server/db.js";
 import { error } from "@sveltejs/kit";
+
+import { getProject, tasksInProject, deepScrub } from "#lib/server/db.js";
 
 // Project drill-in: all of one project's items, grouped by status lane.
 // Visibility mirrors listProjects (the /projects gate): a HUMAN may only open a project

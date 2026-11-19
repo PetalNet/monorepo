@@ -1,6 +1,7 @@
-import { getArtifact, getMarkup } from "$lib/server/db.js";
-import { renderMd } from "$lib/server/md.js";
 import { error } from "@sveltejs/kit";
+
+import { getArtifact, getMarkup } from "#lib/server/db.js";
+import { renderMd } from "#lib/server/md.js";
 
 // One artifact reader. getArtifact enforces the same visibility gate as the rest of
 // tasks (private = owner-only) IN SQL, returning undefined for unknown OR forbidden

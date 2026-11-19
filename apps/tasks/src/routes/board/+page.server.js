@@ -1,4 +1,4 @@
-import { boardData, listProjects, deepScrub } from "$lib/server/db.js";
+import { boardData, listProjects, deepScrub } from "#lib/server/db.js";
 
 // /board — the fleet at a glance (fleet-dispatcher Phase 2, #242). Read-only.
 // boardData pre-derives lease_age_s / lease_state on the server (handy, avoids

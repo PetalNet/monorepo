@@ -1,12 +1,13 @@
 <script>
-	import { page } from "$app/stores";
-	import Icon from "$lib/Icon.svelte";
-	import { humanizeTool } from "$lib/tool.js";
+	import { page } from "$app/state";
+
+	import Icon from "#lib/Icon.svelte";
+	import { humanizeTool } from "#lib/tool.js";
 
 	// Account moved UP to the top bar (task-499); the sidebar foot is now the live Fleet card.
 	let { collapsed = $bindable(false), fleet = null } = $props();
 
-	const path = $derived($page.url.pathname);
+	const path = $derived(page.url.pathname);
 	const isActive = (n) => {
 		const p = path;
 

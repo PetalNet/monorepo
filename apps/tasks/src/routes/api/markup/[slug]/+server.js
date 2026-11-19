@@ -1,5 +1,6 @@
-import { getArtifact, getMarkup, saveMarkup } from "$lib/server/db.js";
 import { json, error } from "@sveltejs/kit";
+
+import { getArtifact, getMarkup, saveMarkup } from "#lib/server/db.js";
 
 // The viewer's own pencil ink for one artifact. Same SSO gate as the rest of the app (the
 // hooks gate sets locals.user), plus the artifact visibility gate, so you can only ink a page

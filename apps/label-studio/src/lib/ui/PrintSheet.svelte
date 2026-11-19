@@ -1,7 +1,8 @@
 <script lang="ts">
-	import type { PrintRequest } from "$lib/api";
-	import type { LabelDoc, Vars } from "$lib/doc";
 	import { ChevronRight, Minus, Plus, Printer, PrinterX } from "@lucide/svelte";
+
+	import type { PrintRequest } from "#lib/api.ts";
+	import type { LabelDoc, Vars } from "#lib/doc.ts";
 
 	import Banner from "./Banner.svelte";
 	import Button from "./Button.svelte";

@@ -1,13 +1,14 @@
 <script>
 	import { goto } from "$app/navigation";
-	import { rankTasks, highlightChunks } from "$lib/fuzzy.js";
-	import Icon from "$lib/Icon.svelte";
-	import { who } from "$lib/people.js";
-	import { statusClass, kindIcon } from "$lib/status.js";
 	// Top-bar instant search (task-506) — Nexus-style typeahead: fuzzy-rank the whole
 	// visible corpus locally and surface a live preview dropdown right under the bar.
 	// ↑/↓ to move, Enter to open (or see all results), Esc to dismiss, ⌘/Ctrl-K to focus.
 	import { onMount } from "svelte";
+
+	import { rankTasks, highlightChunks } from "#lib/fuzzy.js";
+	import Icon from "#lib/Icon.svelte";
+	import { who } from "#lib/people.js";
+	import { statusClass, kindIcon } from "#lib/status.js";
 
 	let { value = "" } = $props();
 

@@ -1,5 +1,5 @@
 <script lang="ts">
-	import Segmented from "$lib/ui/Segmented.svelte";
+	import Segmented from "#lib/ui/Segmented.svelte";
 
 	import AddPanel from "./AddPanel.svelte";
 	import type { PanelTab } from "./editor.svelte";

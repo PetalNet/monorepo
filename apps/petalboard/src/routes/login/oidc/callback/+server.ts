@@ -1,13 +1,14 @@
-import { createSession } from "$lib/server/auth";
+import { error, redirect } from "@sveltejs/kit";
+
+import { createSession } from "#lib/server/auth.ts";
 import {
 	decodeTransaction,
 	exchangeOidcCode,
 	findOrCreateOidcUser,
 	getOidcConfig,
 	sameOidcValue,
-} from "$lib/server/oidc";
-import { prisma } from "$lib/server/prisma";
-import { error, redirect } from "@sveltejs/kit";
+} from "#lib/server/oidc.ts";
+import { prisma } from "#lib/server/prisma.ts";
 
 export const GET = async ({ url, cookies }) => {
 	const transaction = decodeTransaction(cookies.get("oidc_tx"));

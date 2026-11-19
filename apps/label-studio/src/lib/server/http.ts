@@ -1,5 +1,6 @@
-import type { RenderRequest } from "$lib/api";
 import { json } from "@sveltejs/kit";
+
+import type { RenderRequest } from "#lib/api.ts";
 
 import type { App } from "./app.ts";
 import { pageVars, renderPages, resolveDesign, type Design, type Page } from "./labels.ts";

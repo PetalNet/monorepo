@@ -1,8 +1,9 @@
 <script>
 	import { enhance } from "$app/forms";
-	import Icon from "$lib/Icon.svelte";
-	import { projectName, whoColor } from "$lib/people.js";
-	import ProseMark, { preloadProseMark } from "$lib/ProseMark.svelte";
+
+	import Icon from "#lib/Icon.svelte";
+	import { projectName, whoColor } from "#lib/people.js";
+	import ProseMark, { preloadProseMark } from "#lib/ProseMark.svelte";
 	let { data } = $props();
 	const t = $derived(data.task);
 

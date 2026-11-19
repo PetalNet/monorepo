@@ -10,7 +10,7 @@ import {
 	type LabelElement,
 	type Template,
 	type TapeWidthMm,
-} from "$lib/doc";
+} from "#lib/doc.ts";
 
 import { commit, redo, startHistory, undo, type History } from "./history";
 import {

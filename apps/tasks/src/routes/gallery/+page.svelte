@@ -1,5 +1,5 @@
 <script>
-	import Icon from "$lib/Icon.svelte";
+	import Icon from "#lib/Icon.svelte";
 	let { data } = $props();
 	function ago(ts) {
 		if (!ts) {

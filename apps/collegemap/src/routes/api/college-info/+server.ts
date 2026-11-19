@@ -1,7 +1,8 @@
-import { db } from "$lib/server/db";
-import { collegeMetadata } from "$lib/server/db/schema";
 import { json } from "@sveltejs/kit";
 import { eq } from "drizzle-orm";
+
+import { db } from "#lib/server/db/index.ts";
+import { collegeMetadata } from "#lib/server/db/schema.ts";
 
 import type { RequestHandler } from "./$types";
 

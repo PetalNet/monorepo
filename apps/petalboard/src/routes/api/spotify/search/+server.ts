@@ -1,6 +1,7 @@
-import { prisma } from "$lib/server/prisma";
-import { searchTracks, refreshAccessToken } from "$lib/server/spotify";
 import { json, error } from "@sveltejs/kit";
+
+import { prisma } from "#lib/server/prisma.ts";
+import { searchTracks, refreshAccessToken } from "#lib/server/spotify.ts";
 
 import type { RequestHandler } from "./$types";
 

@@ -1,5 +1,6 @@
-import { getMockSession, recordMockChoice } from "$lib/server/db.js";
 import { error, fail } from "@sveltejs/kit";
+
+import { getMockSession, recordMockChoice } from "#lib/server/db.js";
 
 // A mock session = a decision layer over the gallery. The page renders each option's gallery
 // design in the locked sandbox iframe; the choose controls are HERE on the trusted outer page.

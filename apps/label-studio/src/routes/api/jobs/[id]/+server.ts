@@ -1,7 +1,8 @@
-import type { JobResponse } from "$lib/api";
-import { getApp } from "$lib/server/app";
-import { fail } from "$lib/server/http";
 import { json } from "@sveltejs/kit";
+
+import type { JobResponse } from "#lib/api.ts";
+import { getApp } from "#lib/server/app.ts";
+import { fail } from "#lib/server/http.ts";
 
 import type { RequestHandler } from "./$types";
 

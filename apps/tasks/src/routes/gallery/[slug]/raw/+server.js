@@ -1,6 +1,7 @@
-import { injectInk } from "$lib/ink.js";
-import { getArtifact } from "$lib/server/db.js";
 import { error } from "@sveltejs/kit";
+
+import { injectInk } from "#lib/ink.js";
+import { getArtifact } from "#lib/server/db.js";
 
 // Serves a standalone HTML artifact as its own document, for embedding in the
 // sandboxed <iframe> on the reader page (and for the "open full" link).

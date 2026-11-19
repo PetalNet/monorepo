@@ -1,7 +1,7 @@
 <script lang="ts">
 	import "../app.css";
 	import { goto } from "$app/navigation";
-	import { page } from "$app/stores";
+	import { page } from "$app/state";
 
 	let { children, data } = $props();
 
@@ -26,7 +26,7 @@
 
 	// Determine if we should show the nav bar
 	let showNav = $derived(
-		data.user && !$page.url.pathname.startsWith("/auth") && $page.url.pathname !== "/",
+		data.user && !page.url.pathname.startsWith("/auth") && page.url.pathname !== "/",
 	);
 </script>
 

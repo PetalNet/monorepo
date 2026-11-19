@@ -1,6 +1,7 @@
-import type { StatusResponse } from "$lib/api";
-import { getApp } from "$lib/server/app";
 import { json } from "@sveltejs/kit";
+
+import type { StatusResponse } from "#lib/api.ts";
+import { getApp } from "#lib/server/app.ts";
 
 import type { RequestHandler } from "./$types";
 

@@ -1,9 +1,10 @@
 <script>
 	import { enhance } from "$app/forms";
 	import { goto, afterNavigate } from "$app/navigation";
-	import Icon from "$lib/Icon.svelte";
-	import { projectName } from "$lib/people.js";
-	import TaskRow from "$lib/TaskRow.svelte";
+
+	import Icon from "#lib/Icon.svelte";
+	import { projectName } from "#lib/people.js";
+	import TaskRow from "#lib/TaskRow.svelte";
 
 	let { data } = $props();
 
@@ -80,7 +81,10 @@
 			(data.docs?.length ?? 0) +
 			(data.done?.length ?? 0),
 	);
-	afterNavigate(() => {
+
+	afterNavigate(({ shallow, type }) => {
+		if (shallow && type === "goto") return;
+
 		// fires once the filtered load has landed, even if counts are unchanged
 		if (!announcePending) {
 			return;
@@ -239,6 +243,7 @@
 			<span class="sb-count mono" role="status"
 				>{matchCount} match{matchCount === 1 ? "" : "es"}</span
 			>
+
 			<button type="button" class="sb-clear" onclick={() => (query = "")} aria-label="Clear search"
 				>✕</button
 			>
@@ -248,6 +253,7 @@
 	{#if searching && matchCount === 0}
 		<p class="no-matches mono">
 			No tasks match “{query}”.
+
 			<button type="button" class="link-btn" onclick={() => (query = "")}>clear</button>
 		</p>
 	{/if}

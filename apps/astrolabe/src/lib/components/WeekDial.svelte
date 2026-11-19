@@ -10,8 +10,8 @@
 		weekAngle,
 		WEEK_SCALE,
 		windowGeometry,
-	} from "$lib/dial";
-	import type { LimitReading } from "$lib/limits";
+	} from "#lib/dial.ts";
+	import type { LimitReading } from "#lib/limits.ts";
 
 	import DialFace from "./DialFace.svelte";
 	import FiligreeHand from "./FiligreeHand.svelte";

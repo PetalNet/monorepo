@@ -1,6 +1,6 @@
 <script>
-	import Icon from "$lib/Icon.svelte";
-	import { projectName, whoColor as whoColorBase } from "$lib/people.js";
+	import Icon from "#lib/Icon.svelte";
+	import { projectName, whoColor as whoColorBase } from "#lib/people.js";
 	let { data } = $props();
 
 	const projName = $derived(projectName(data.projects));

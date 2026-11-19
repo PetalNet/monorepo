@@ -1,5 +1,5 @@
-import { getApp } from "$lib/server/app";
-import { fail, pngResponse } from "$lib/server/http";
+import { getApp } from "#lib/server/app.ts";
+import { fail, pngResponse } from "#lib/server/http.ts";
 
 import type { RequestHandler } from "./$types";
 

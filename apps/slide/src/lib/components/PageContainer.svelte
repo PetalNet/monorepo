@@ -1,5 +1,5 @@
 <script lang="ts">
-	import ParticleBackground from "$lib/components/ParticleBackground.svelte";
+	import ParticleBackground from "#lib/components/ParticleBackground.svelte";
 
 	let {
 		maxWidth = "4xl",

@@ -1,6 +1,6 @@
 <script>
-	import Icon from "$lib/Icon.svelte";
-	import { projectName, whoColor } from "$lib/people.js";
+	import Icon from "#lib/Icon.svelte";
+	import { projectName, whoColor } from "#lib/people.js";
 	let { data } = $props();
 
 	// whoColor single-sourced from $lib/people (this page's falsy fallback is the default 'var(--text-3)').

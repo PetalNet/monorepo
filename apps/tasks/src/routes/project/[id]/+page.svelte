@@ -1,6 +1,6 @@
 <script>
-	import Icon from "$lib/Icon.svelte";
-	import { whoColor as whoColorBase } from "$lib/people.js";
+	import Icon from "#lib/Icon.svelte";
+	import { whoColor as whoColorBase } from "#lib/people.js";
 	let { data } = $props();
 
 	// per-person colours single-sourced from $lib/people; this page's falsy fallback is null.

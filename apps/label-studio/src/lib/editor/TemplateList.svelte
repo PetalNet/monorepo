@@ -1,11 +1,12 @@
 <script lang="ts">
-	import { resolveVars, sampleVars } from "$lib/editor/persist";
-	import Banner from "$lib/ui/Banner.svelte";
-	import Button from "$lib/ui/Button.svelte";
-	import Skeleton from "$lib/ui/Skeleton.svelte";
-	import TapeLabel from "$lib/ui/TapeLabel.svelte";
-	import { templates } from "$lib/ui/templates.svelte";
 	import { Search } from "@lucide/svelte";
+
+	import { resolveVars, sampleVars } from "#lib/editor/persist.ts";
+	import Banner from "#lib/ui/Banner.svelte";
+	import Button from "#lib/ui/Button.svelte";
+	import Skeleton from "#lib/ui/Skeleton.svelte";
+	import TapeLabel from "#lib/ui/TapeLabel.svelte";
+	import { templates } from "#lib/ui/templates.svelte.ts";
 
 	import { editor } from "./editor.svelte";
 

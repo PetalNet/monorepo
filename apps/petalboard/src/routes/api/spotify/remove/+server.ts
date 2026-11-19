@@ -1,6 +1,7 @@
-import { prisma } from "$lib/server/prisma";
-import { removeTracksFromPlaylist, refreshAccessToken } from "$lib/server/spotify";
 import { json, error } from "@sveltejs/kit";
+
+import { prisma } from "#lib/server/prisma.ts";
+import { removeTracksFromPlaylist, refreshAccessToken } from "#lib/server/spotify.ts";
 
 export const POST = async ({ request, locals }) => {
 	try {

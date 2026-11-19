@@ -1,4 +1,4 @@
-import type { Template } from "$lib/doc";
+import type { Template } from "#lib/doc.ts";
 
 import { api, errorText } from "./client";
 

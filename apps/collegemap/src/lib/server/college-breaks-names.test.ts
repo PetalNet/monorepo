@@ -1,5 +1,6 @@
-import { collegeNames } from "$lib/collegeNames";
 import { describe, expect, it } from "vitest";
+
+import { collegeNames } from "#lib/collegeNames.ts";
 
 import { COLLEGE_NAME_MAP } from "./college-breaks-import";
 

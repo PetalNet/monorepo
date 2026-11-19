@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { applyEventTheme, eventTheme, withAlpha } from "$lib/eventTheme";
+	import { applyEventTheme, eventTheme, withAlpha } from "#lib/eventTheme.ts";
 
 	import type { ActionData, PageData } from "./$types";
 

@@ -1,7 +1,8 @@
 <script lang="ts">
-	import { MAX_PLUS_ONE_NAME_LENGTH } from "$lib/guests";
 	import { X } from "@lucide/svelte";
 	import { slide } from "svelte/transition";
+
+	import { MAX_PLUS_ONE_NAME_LENGTH } from "#lib/guests.ts";
 
 	import type { Person } from "./PlusOnesField.svelte";
 

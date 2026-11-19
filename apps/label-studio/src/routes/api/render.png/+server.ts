@@ -1,6 +1,6 @@
-import { getApp } from "$lib/server/app";
-import { fail, pngResponse, readBody, renderRequestPages } from "$lib/server/http";
-import { renderRequest } from "$lib/server/schemas";
+import { getApp } from "#lib/server/app.ts";
+import { fail, pngResponse, readBody, renderRequestPages } from "#lib/server/http.ts";
+import { renderRequest } from "#lib/server/schemas.ts";
 
 import type { RequestHandler } from "./$types";
 

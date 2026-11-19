@@ -8,8 +8,8 @@ import type {
 	SourceRows,
 	StatusResponse,
 	TemplateInput,
-} from "$lib/api";
-import type { Template } from "$lib/doc";
+} from "#lib/api.ts";
+import type { Template } from "#lib/doc.ts";
 
 /** The message to show for a failed call: the server's own words, else `fallback`. */
 export function errorText(error: unknown, fallback: string): string {

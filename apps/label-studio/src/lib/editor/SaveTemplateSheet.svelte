@@ -1,13 +1,14 @@
 <script lang="ts">
 	import { goto } from "$app/navigation";
 	import { resolve } from "$app/paths";
-	import type { TemplateCategory, TemplateField } from "$lib/doc";
-	import Banner from "$lib/ui/Banner.svelte";
-	import Button from "$lib/ui/Button.svelte";
-	import { CATEGORIES } from "$lib/ui/categories";
-	import { api, errorText } from "$lib/ui/client";
-	import Select from "$lib/ui/Select.svelte";
-	import Sheet from "$lib/ui/Sheet.svelte";
+
+	import type { TemplateCategory, TemplateField } from "#lib/doc.ts";
+	import Banner from "#lib/ui/Banner.svelte";
+	import Button from "#lib/ui/Button.svelte";
+	import { CATEGORIES } from "#lib/ui/categories.ts";
+	import { api, errorText } from "#lib/ui/client.ts";
+	import Select from "#lib/ui/Select.svelte";
+	import Sheet from "#lib/ui/Sheet.svelte";
 
 	import { editor } from "./editor.svelte";
 	import { templateDraft } from "./persist";
@@ -65,7 +66,7 @@
 			});
 
 			open = false;
-			await goto(resolve("/templates"));
+			await goto(resolve("templates"));
 		} catch (error) {
 			failure = errorText(error, "Saving failed");
 		} finally {

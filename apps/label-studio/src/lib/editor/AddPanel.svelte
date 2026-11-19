@@ -1,5 +1,4 @@
 <script lang="ts">
-	import Banner from "$lib/ui/Banner.svelte";
 	import {
 		Barcode,
 		ChevronLeft,
@@ -16,6 +15,8 @@
 		Type,
 	} from "@lucide/svelte";
 	import type { Component } from "svelte";
+
+	import Banner from "#lib/ui/Banner.svelte";
 
 	import { editor } from "./editor.svelte";
 	import IconPicker from "./IconPicker.svelte";

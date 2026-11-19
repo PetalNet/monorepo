@@ -1,6 +1,6 @@
-import type { LabelDoc, RenderOptions } from "$lib/doc";
-import { renderLabel } from "$lib/render";
-import { browserFonts } from "$lib/render/fonts";
+import type { LabelDoc, RenderOptions } from "#lib/doc.ts";
+import { browserFonts } from "#lib/render/fonts.ts";
+import { renderLabel } from "#lib/render/index.ts";
 
 interface Request {
 	id: number;

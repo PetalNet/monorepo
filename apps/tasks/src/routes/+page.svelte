@@ -1,10 +1,11 @@
 <script>
 	import { enhance } from "$app/forms";
 	import { goto, invalidateAll } from "$app/navigation";
-	import Icon from "$lib/Icon.svelte";
-	import { displayName, projectName } from "$lib/people.js";
-	import TaskRow from "$lib/TaskRow.svelte";
-	import { humanizeTool } from "$lib/tool.js";
+
+	import Icon from "#lib/Icon.svelte";
+	import { displayName, projectName } from "#lib/people.js";
+	import TaskRow from "#lib/TaskRow.svelte";
+	import { humanizeTool } from "#lib/tool.js";
 
 	let { data } = $props();
 

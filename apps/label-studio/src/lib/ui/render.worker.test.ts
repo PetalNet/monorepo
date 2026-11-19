@@ -1,6 +1,7 @@
-import { tapeGeometry } from "$lib/doc";
-import { emptyDoc } from "$lib/editor/model";
 import { afterEach, describe, expect, it, vi } from "vitest";
+
+import { tapeGeometry } from "#lib/doc.ts";
+import { emptyDoc } from "#lib/editor/model.ts";
 
 async function loadWorker() {
 	let listener: ((event: { data: unknown }) => void) | undefined;

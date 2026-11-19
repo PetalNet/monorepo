@@ -1,5 +1,6 @@
-import { getTermAudit } from "$lib/server/db.js";
 import { error } from "@sveltejs/kit";
+
+import { getTermAudit } from "#lib/server/db.js";
 
 // Audit is ADMIN-ONLY — it exposes rw keystroke transcripts of a root-equivalent shell. Keep this
 // gate in lockstep with TERM_ADMIN (server.js / docker-compose / fleet/+page.server.js).

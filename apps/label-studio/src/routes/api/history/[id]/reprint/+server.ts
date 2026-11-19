@@ -1,9 +1,10 @@
-import type { JobResponse } from "$lib/api";
-import { getApp } from "$lib/server/app";
-import { fail, readBody } from "$lib/server/http";
-import { roundMm } from "$lib/server/labels";
-import { reprintRequest } from "$lib/server/schemas";
 import { json } from "@sveltejs/kit";
+
+import type { JobResponse } from "#lib/api.ts";
+import { getApp } from "#lib/server/app.ts";
+import { fail, readBody } from "#lib/server/http.ts";
+import { roundMm } from "#lib/server/labels.ts";
+import { reprintRequest } from "#lib/server/schemas.ts";
 
 import type { RequestHandler } from "./$types";
 

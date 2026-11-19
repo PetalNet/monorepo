@@ -1,12 +1,12 @@
 <script lang="ts">
-	import { TAPE_WIDTHS, dotsToMm, mmToDots, type LabelDoc, type TapeWidthMm } from "$lib/doc";
-	import NumberInput from "$lib/ui/NumberInput.svelte";
-	import { printerStatus } from "$lib/ui/printer.svelte";
-	import Row from "$lib/ui/Row.svelte";
-	import Segmented from "$lib/ui/Segmented.svelte";
-	import Select from "$lib/ui/Select.svelte";
-	import Switch from "$lib/ui/Switch.svelte";
-	import { tapeMmActual } from "$lib/ui/tape";
+	import { TAPE_WIDTHS, dotsToMm, mmToDots, type LabelDoc, type TapeWidthMm } from "#lib/doc.ts";
+	import NumberInput from "#lib/ui/NumberInput.svelte";
+	import { printerStatus } from "#lib/ui/printer.svelte.ts";
+	import Row from "#lib/ui/Row.svelte";
+	import Segmented from "#lib/ui/Segmented.svelte";
+	import Select from "#lib/ui/Select.svelte";
+	import Switch from "#lib/ui/Switch.svelte";
+	import { tapeMmActual } from "#lib/ui/tape.ts";
 
 	import { editor } from "./editor.svelte";
 

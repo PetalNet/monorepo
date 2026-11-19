@@ -1,4 +1,4 @@
-import type { DesignRef } from "$lib/api";
+import type { DesignRef } from "#lib/api.ts";
 import {
 	dotsToMm,
 	interpolate,
@@ -9,7 +9,7 @@ import {
 	type Template,
 	type TemplateField,
 	type Vars,
-} from "$lib/doc";
+} from "#lib/doc.ts";
 
 import { encodePng } from "./png.ts";
 

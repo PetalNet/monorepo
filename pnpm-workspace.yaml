@@ -104,8 +104,7 @@ catalogs:
     "@eslint/json": ^2.0.0
     "@eslint/markdown": ^8.0.2
     "@manypkg/cli": ^0.25.1
-    # Kit 2 apps (CollegeMap and Slide); Kit 3 consumers use the default catalog.
-    "@sveltejs/adapter-node": ^5.5.7
+    "@sveltejs/adapter-node": ^6.0.1
     "@sveltejs/vite-plugin-svelte": ^7.0.0
     "@tailwindcss/vite": ^4.3.5
     "@vitest/coverage-v8": 5.1.0
@@ -162,7 +161,7 @@ catalogs:
     "@sentry/core": ^10.78.0
     "@sentry/node": ^10.78.0
     "@sentry/sveltekit": ^10.78.0
-    "@sveltejs/kit": ^3.0.0
+    "@sveltejs/kit": ^3.2.0
     better-sqlite3: ^13.0.0
     bcryptjs: ^3.0.0
     bwip-js: ^4.11.4

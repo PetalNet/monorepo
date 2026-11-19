@@ -1,15 +1,16 @@
 import { mkdirSync } from "node:fs";
 import path from "node:path";
 
-import { building } from "$app/environment";
-import { MODE_COOKIE, parseMode } from "$lib/mode";
-import { ingestAlerts } from "$lib/server/alerts";
-import { ingestIcs } from "$lib/server/ics";
-import { ingestKev } from "$lib/server/ingest";
-import { ingestNews } from "$lib/server/news";
-import { watch } from "$lib/server/status/watch";
-import { openStore, type Store } from "$lib/server/store";
-import type { Handle, ServerInit } from "@sveltejs/kit";
+import { building } from "$app/env";
+import type { Handle, ServerInit } from "@sveltejs/kit/hooks";
+
+import { MODE_COOKIE, parseMode } from "#lib/mode.ts";
+import { ingestAlerts } from "#lib/server/alerts.ts";
+import { ingestIcs } from "#lib/server/ics.ts";
+import { ingestKev } from "#lib/server/ingest.ts";
+import { ingestNews } from "#lib/server/news.ts";
+import { watch } from "#lib/server/status/watch.ts";
+import { openStore, type Store } from "#lib/server/store.ts";
 
 // An unchanged feed answers with no body, so an hourly check costs almost nothing and keeps the
 // page from sitting without current data for long after the door turns over.

@@ -1,9 +1,10 @@
-import type { Template } from "$lib/doc";
-import { getApp } from "$lib/server/app";
-import { fail, readBody } from "$lib/server/http";
-import { templateInput } from "$lib/server/schemas";
-import { allTemplates, findTemplate } from "$lib/server/templates";
 import { json } from "@sveltejs/kit";
+
+import type { Template } from "#lib/doc.ts";
+import { getApp } from "#lib/server/app.ts";
+import { fail, readBody } from "#lib/server/http.ts";
+import { templateInput } from "#lib/server/schemas.ts";
+import { allTemplates, findTemplate } from "#lib/server/templates.ts";
 
 import type { RequestHandler } from "./$types";
 

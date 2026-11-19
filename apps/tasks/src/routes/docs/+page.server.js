@@ -1,4 +1,4 @@
-import { allDocsPage, allDocsCount } from "$lib/server/db.js";
+import { allDocsPage, allDocsCount } from "#lib/server/db.js";
 
 // Bounded page (task-317): the old loader had NO limit and shipped the whole accumulating doc
 // corpus every visit. Now one SQL page (?page=N, 0-based); the project grouping runs over just

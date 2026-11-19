@@ -1,8 +1,9 @@
 <script lang="ts">
 	import { goto } from "$app/navigation";
-	import Button from "$lib/components/Button.svelte";
-	import Card from "$lib/components/Card.svelte";
 	import { onMount } from "svelte";
+
+	import Button from "#lib/components/Button.svelte";
+	import Card from "#lib/components/Card.svelte";
 
 	let showContent = $state(false);
 	let spot1El = $state<HTMLElement>();

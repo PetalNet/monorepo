@@ -1,10 +1,10 @@
-import { publicSafety } from "$lib/server/alerts";
-import { doorDate, panel } from "$lib/server/door";
-import { hitCheck } from "$lib/server/hit/check";
-import { ICS_SOURCE, icsGauge } from "$lib/server/ics";
-import { chaos } from "$lib/server/news";
-import { board } from "$lib/server/status/board";
-import { gap } from "$lib/server/weekly";
+import { publicSafety } from "#lib/server/alerts.ts";
+import { doorDate, panel } from "#lib/server/door.ts";
+import { hitCheck } from "#lib/server/hit/check.ts";
+import { ICS_SOURCE, icsGauge } from "#lib/server/ics.ts";
+import { chaos } from "#lib/server/news.ts";
+import { board } from "#lib/server/status/board.ts";
+import { gap } from "#lib/server/weekly.ts";
 
 import type { PageServerLoad } from "./$types";
 

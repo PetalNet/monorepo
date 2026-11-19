@@ -1,5 +1,5 @@
-import { planWindows, windowKey, type WindowSpan, type WindowSpec } from "$lib/plans";
-import type { ReportedWindow, UsageReadout } from "$lib/server/dossier";
+import { planWindows, windowKey, type WindowSpan, type WindowSpec } from "#lib/plans.ts";
+import type { ReportedWindow, UsageReadout } from "#lib/server/dossier.ts";
 
 const HOUR_MS = 60 * 60 * 1000;
 

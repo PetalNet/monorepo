@@ -1,4 +1,4 @@
-import type { Job, PrintRequest } from "$lib/api";
+import type { Job, PrintRequest } from "#lib/api.ts";
 
 import { api, errorText } from "./client";
 import { printerStatus } from "./printer.svelte";

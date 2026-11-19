@@ -1,5 +1,5 @@
-import type { PrinterState } from "$lib/api";
-import { isTapeWidth, tapeGeometry } from "$lib/doc";
+import type { PrinterState } from "#lib/api.ts";
+import { isTapeWidth, tapeGeometry } from "#lib/doc.ts";
 
 export interface PrintOptions {
 	copies: number;

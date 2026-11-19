@@ -1,8 +1,9 @@
 <script lang="ts">
 	import { invalidateAll } from "$app/navigation";
-	import LabPlate from "$lib/components/LabPlate.svelte";
-	import Orloj from "$lib/components/Orloj.svelte";
 	import { onMount } from "svelte";
+
+	import LabPlate from "#lib/components/LabPlate.svelte";
+	import Orloj from "#lib/components/Orloj.svelte";
 
 	import type { PageProps } from "./$types";
 

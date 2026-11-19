@@ -1,3 +1,5 @@
+import { error } from "@sveltejs/kit";
+
 import {
 	cockpitData,
 	listProjects,
@@ -9,9 +11,8 @@ import {
 	answerQuestion,
 	canWrite,
 	inbox,
-} from "$lib/server/db.js";
-import { getFleet } from "$lib/server/fleet.js";
-import { error } from "@sveltejs/kit";
+} from "#lib/server/db.js";
+import { getFleet } from "#lib/server/fleet.js";
 
 // IDOR guard: a human may only mutate tasks they can write (shared, or their own private).
 const gate = (id, me) => {

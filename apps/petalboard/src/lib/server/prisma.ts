@@ -1,4 +1,4 @@
-import { env } from "$env/dynamic/private";
+import { DATABASE_URL } from "$app/env/private";
 
 import { PrismaClient } from "./generated/prisma/client";
 
@@ -8,7 +8,7 @@ export const prisma =
 	globalForPrisma.prisma ??
 	new PrismaClient({
 		// The generated client does not read .env; SvelteKit's env does, in dev and production.
-		datasourceUrl: env.DATABASE_URL,
+		datasourceUrl: DATABASE_URL,
 		log: process.env.NODE_ENV === "development" ? ["query", "error", "warn"] : ["error"],
 	});
 

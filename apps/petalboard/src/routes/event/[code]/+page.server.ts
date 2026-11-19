@@ -1,4 +1,6 @@
-import { MAX_PLUS_ONES } from "$lib/guests";
+import { error, fail, type Cookies } from "@sveltejs/kit";
+
+import { MAX_PLUS_ONES } from "#lib/guests.ts";
 /* oxlint-disable eslint/no-await-in-loop -- Playlist sync runs one question at a time against the same Spotify session. */
 import {
 	BUSY_MESSAGE,
@@ -6,9 +8,9 @@ import {
 	isBusyTransaction,
 	oneSignupAtATime,
 	potluckView,
-} from "$lib/server/potluck";
-import { prisma } from "$lib/server/prisma";
-import { clientIp, IP_LIMIT, isLimited } from "$lib/server/rateLimit";
+} from "#lib/server/potluck.ts";
+import { prisma } from "#lib/server/prisma.ts";
+import { clientIp, IP_LIMIT, isLimited } from "#lib/server/rateLimit.ts";
 import {
 	clearRsvpCookie,
 	createSession,
@@ -16,16 +18,15 @@ import {
 	readSession,
 	sendEditLink,
 	setRsvpCookie,
-} from "$lib/server/rsvpAccess";
+} from "#lib/server/rsvpAccess.ts";
 import {
 	refreshAccessToken,
 	createPlaylist,
 	replacePlaylistTracks,
 	getSpotifyProfile,
-} from "$lib/server/spotify";
-import type { SpotifyTrack } from "$lib/server/spotify";
-import { editLinkSchema, rsvpSchema } from "$lib/server/validation";
-import { error, fail, type Cookies } from "@sveltejs/kit";
+} from "#lib/server/spotify.ts";
+import type { SpotifyTrack } from "#lib/server/spotify.ts";
+import { editLinkSchema, rsvpSchema } from "#lib/server/validation.ts";
 
 // Named +1s in party order.
 const GUEST_NAMES = { orderBy: { position: "asc" }, select: { name: true } } as const;

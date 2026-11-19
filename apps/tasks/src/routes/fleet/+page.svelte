@@ -1,6 +1,7 @@
 <script>
-	import { humanizeTool } from "$lib/tool.js";
 	import { onMount } from "svelte";
+
+	import { humanizeTool } from "#lib/tool.js";
 
 	let { data } = $props();
 

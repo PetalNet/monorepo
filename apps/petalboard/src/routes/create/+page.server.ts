@@ -1,10 +1,11 @@
-import { Prisma } from "$lib/server/generated/prisma/client";
-/* oxlint-disable eslint/no-await-in-loop -- Each attempt retries the insert after a public-code collision. */
-import { prisma } from "$lib/server/prisma";
-import { eventSchema } from "$lib/server/validation";
-import { parseLocalDateTimeInTimezone } from "$lib/utils/timezones";
 import { fail, redirect } from "@sveltejs/kit";
 import { customAlphabet } from "nanoid";
+
+import { Prisma } from "#lib/server/generated/prisma/client";
+/* oxlint-disable eslint/no-await-in-loop -- Each attempt retries the insert after a public-code collision. */
+import { prisma } from "#lib/server/prisma.ts";
+import { eventSchema } from "#lib/server/validation.ts";
+import { parseLocalDateTimeInTimezone } from "#lib/utils/timezones.ts";
 
 const publicId = customAlphabet("346789ABCDEFGHJKLMNPQRTUVWXY", 8);
 const manageId = customAlphabet("abcdefghijklmnopqrstuvwxyz0123456789", 32);

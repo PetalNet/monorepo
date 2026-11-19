@@ -1,5 +1,6 @@
-import { prisma } from "$lib/server/db";
 import { json } from "@sveltejs/kit";
+
+import { prisma } from "#lib/server/db.ts";
 
 import type { RequestHandler } from "./$types";
 

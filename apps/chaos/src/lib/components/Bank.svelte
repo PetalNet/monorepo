@@ -1,8 +1,8 @@
 <script lang="ts">
-	import { clock, day, plural } from "$lib/format";
-	import type { PublicSafety } from "$lib/server/alerts";
-	import type { Chaos } from "$lib/server/news";
-	import type { Gap, Gauge } from "$lib/server/weekly";
+	import { clock, day, plural } from "#lib/format.ts";
+	import type { PublicSafety } from "#lib/server/alerts.ts";
+	import type { Chaos } from "#lib/server/news.ts";
+	import type { Gap, Gauge } from "#lib/server/weekly.ts";
 
 	import Meter from "./Meter.svelte";
 

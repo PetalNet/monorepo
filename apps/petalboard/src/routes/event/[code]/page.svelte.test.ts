@@ -1,5 +1,5 @@
+import type { SubmitFunction } from "$app/forms";
 // @vitest-environment happy-dom
-import type { SubmitFunction } from "@sveltejs/kit";
 import { flushSync, mount, tick, unmount } from "svelte";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
@@ -34,12 +34,14 @@ vi.mock("$app/forms", () => ({
 
 vi.mock("$app/navigation", () => ({
 	invalidateAll: async () => undefined,
-	replaceState: (url: URL) => {
-		window.history.replaceState({}, "", url);
+	goto: async (url: URL, options?: { replace?: boolean }) => {
+		if (options?.replace) {
+			window.history.replaceState({}, "", url);
+		}
 	},
 }));
 
-vi.mock("$env/dynamic/public", () => ({ env: {} }));
+vi.mock("$app/env/public", () => ({ PUBLIC_GOOGLE_MAPS_API_KEY: "" }));
 
 type Rsvp = PageData["rsvps"][number];
 type Question = PageData["event"]["questions"][number];

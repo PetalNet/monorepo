@@ -1,3 +1,5 @@
+import { error, fail } from "@sveltejs/kit";
+
 import {
 	addComment,
 	answerQuestion,
@@ -6,9 +8,8 @@ import {
 	getTask,
 	listComments,
 	planQuestions,
-} from "$lib/server/db.js";
-import { renderPlanMd, renderMd } from "$lib/server/md.js";
-import { error, fail } from "@sveltejs/kit";
+} from "#lib/server/db.js";
+import { renderPlanMd, renderMd } from "#lib/server/md.js";
 
 const gate = (id, me) => {
 	if (!canWrite(id, me)) {

@@ -1,10 +1,11 @@
 <script>
 	import "../app.css";
-	import { page } from "$app/stores";
-	import Icon from "$lib/Icon.svelte";
-	import NavSidebar from "$lib/NavSidebar.svelte";
-	import { displayName, setPeople } from "$lib/people.js";
-	import SearchBox from "$lib/SearchBox.svelte";
+	import { page } from "$app/state";
+
+	import Icon from "#lib/Icon.svelte";
+	import NavSidebar from "#lib/NavSidebar.svelte";
+	import { displayName, setPeople } from "#lib/people.js";
+	import SearchBox from "#lib/SearchBox.svelte";
 	let { children, data } = $props();
 	setPeople(data.config.people);
 
@@ -25,7 +26,7 @@
 	const me = $derived(String(data.user || "dev").toLowerCase());
 	const whoName = $derived(displayName(me));
 
-	const path = $derived($page.url.pathname);
+	const path = $derived(page.url.pathname);
 	// the Janet Call home is a bare page for the Android WebView: no tasks chrome
 	const bare = $derived(path === "/janet/home");
 	const isActive = (n) => {
@@ -52,7 +53,7 @@
 
 	// top-bar account menu + global search (the bar is now useful, not a section-name parrot)
 	let acctOpen = $state(false);
-	const q = $derived($page.url.searchParams.get("q") ?? "");
+	const q = $derived(page.url.searchParams.get("q") ?? "");
 
 	function toggleTheme() {
 		const next = document.documentElement.dataset.theme === "light" ? "dark" : "light";

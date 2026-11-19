@@ -1,24 +1,6 @@
 <script lang="ts">
 	import { goto } from "$app/navigation";
 	import { resolve } from "$app/paths";
-	import { dotsToMm, placeholders } from "$lib/doc";
-	import Canvas from "$lib/editor/Canvas.svelte";
-	import { editor, type PanelTab, type View } from "$lib/editor/editor.svelte";
-	import EditPane from "$lib/editor/EditPane.svelte";
-	import Fields from "$lib/editor/Fields.svelte";
-	import { insertImage } from "$lib/editor/insert-image";
-	import { createElement } from "$lib/editor/model";
-	import Panel from "$lib/editor/Panel.svelte";
-	import SaveTemplateSheet from "$lib/editor/SaveTemplateSheet.svelte";
-	import { resolveShortcut } from "$lib/editor/shortcuts";
-	import ShortcutSheet from "$lib/editor/ShortcutSheet.svelte";
-	import Button from "$lib/ui/Button.svelte";
-	import { chrome } from "$lib/ui/chrome.svelte";
-	import IconButton from "$lib/ui/IconButton.svelte";
-	import PrintButton from "$lib/ui/PrintButton.svelte";
-	import PrintSheet from "$lib/ui/PrintSheet.svelte";
-	import Segmented from "$lib/ui/Segmented.svelte";
-	import { formatMm } from "$lib/ui/words";
 	import {
 		Eye,
 		FilePlusCorner,
@@ -34,6 +16,25 @@
 		Undo2,
 	} from "@lucide/svelte";
 	import { MediaQuery } from "svelte/reactivity";
+
+	import { dotsToMm, placeholders } from "#lib/doc.ts";
+	import Canvas from "#lib/editor/Canvas.svelte";
+	import { editor, type PanelTab, type View } from "#lib/editor/editor.svelte.ts";
+	import EditPane from "#lib/editor/EditPane.svelte";
+	import Fields from "#lib/editor/Fields.svelte";
+	import { insertImage } from "#lib/editor/insert-image.ts";
+	import { createElement } from "#lib/editor/model.ts";
+	import Panel from "#lib/editor/Panel.svelte";
+	import SaveTemplateSheet from "#lib/editor/SaveTemplateSheet.svelte";
+	import { resolveShortcut } from "#lib/editor/shortcuts.ts";
+	import ShortcutSheet from "#lib/editor/ShortcutSheet.svelte";
+	import Button from "#lib/ui/Button.svelte";
+	import { chrome } from "#lib/ui/chrome.svelte.ts";
+	import IconButton from "#lib/ui/IconButton.svelte";
+	import PrintButton from "#lib/ui/PrintButton.svelte";
+	import PrintSheet from "#lib/ui/PrintSheet.svelte";
+	import Segmented from "#lib/ui/Segmented.svelte";
+	import { formatMm } from "#lib/ui/words.ts";
 
 	/** CSS pixels per printer dot at real size: 96 CSS px per inch over 180 dots per inch. */
 	const ACTUAL_SIZE = 96 / 180;
@@ -199,9 +200,7 @@
 
 <div class="editor" class:wide={wide.current}>
 	{#if wide.current}
-		<aside class="side start">
-			<Panel wide {tab} onchange={setTab} />
-		</aside>
+		<aside class="side start"><Panel wide {tab} onchange={setTab} /></aside>
 	{/if}
 
 	<section class="work">
@@ -247,10 +246,9 @@
 					title="Zoom to fit. 100% is the label's real size."
 					onclick={() => {
 						editor.setZoom(null);
-					}}
+					}}>{Math.round((editor.effectiveZoom / ACTUAL_SIZE) * 100)}%</button
 				>
-					{Math.round((editor.effectiveZoom / ACTUAL_SIZE) * 100)}%
-				</button>
+
 				<IconButton
 					label="Zoom in"
 					onclick={() => {
@@ -274,9 +272,11 @@
 						editor.startBlank(editor.doc.tapeMm);
 					}}><FilePlusCorner /></IconButton
 				>
+
 				<IconButton label="Save as template" disabled={empty} onclick={() => (saving = true)}
 					><Save /></IconButton
 				>
+
 				{#if !phone.current}
 					<IconButton label="Keyboard shortcuts" onclick={() => (help = true)}
 						><Keyboard /></IconButton
@@ -297,9 +297,7 @@
 	{#if wide.current}
 		<aside class="side end-side"><EditPane /></aside>
 	{:else}
-		<section class="dock">
-			<Panel wide={false} {tab} onchange={setTab} />
-		</section>
+		<section class="dock"><Panel wide={false} {tab} onchange={setTab} /></section>
 	{/if}
 </div>
 
@@ -308,9 +306,10 @@
 	<div class="first-run">
 		<p>Start from a template, or add your own text.</p>
 		<div class="first-run-actions">
-			<Button variant="primary" onclick={() => goto(resolve("/templates"))}
+			<Button variant="primary" onclick={() => goto(resolve("templates"))}
 				><LayoutGrid size={16} /> Templates</Button
 			>
+
 			<Button
 				onclick={() => {
 					editor.add("text");
@@ -324,6 +323,7 @@
 {#snippet printIcon()}<Eye />{/snippet}
 
 <PrintSheet bind:open={printing} doc={editor.doc} vars={editor.resolvedVars} {title} {lengthMm} />
+
 <SaveTemplateSheet bind:open={saving} />
 <ShortcutSheet bind:open={help} />
 

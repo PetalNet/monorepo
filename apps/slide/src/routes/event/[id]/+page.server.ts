@@ -1,5 +1,6 @@
-import { prisma } from "$lib/server/db";
 import { redirect, error, fail } from "@sveltejs/kit";
+
+import { prisma } from "#lib/server/db.ts";
 
 import type { PageServerLoad, Actions } from "./$types";
 

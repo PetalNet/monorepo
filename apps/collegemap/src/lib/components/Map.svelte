@@ -1,9 +1,14 @@
 <script lang="ts">
-	import { groupUsersByCollege, type CollegeGroup, type UserWithCollege } from "$lib/collegeGroups";
-	import { getLogoUrl } from "$lib/collegeLogos";
 	import type { Map as LeafletMap, Marker, MarkerOptions, TileLayer } from "leaflet";
 	import { onMount } from "svelte";
 	import { SvelteMap } from "svelte/reactivity";
+
+	import {
+		groupUsersByCollege,
+		type CollegeGroup,
+		type UserWithCollege,
+	} from "#lib/collegeGroups.ts";
+	import { getLogoUrl } from "#lib/collegeLogos.ts";
 
 	interface SelectedCollege {
 		name: string;

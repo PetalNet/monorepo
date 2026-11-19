@@ -1,6 +1,7 @@
-import { serverFonts } from "$lib/server/fonts";
 import { parse } from "opentype.js";
 import { describe, expect, it } from "vitest";
+
+import { serverFonts } from "#lib/server/fonts.ts";
 
 import { readKerning } from "./kern.ts";
 

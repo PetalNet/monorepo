@@ -1,5 +1,6 @@
-import { prisma } from "$lib/server/prisma";
 import { redirect } from "@sveltejs/kit";
+
+import { prisma } from "#lib/server/prisma.ts";
 
 export const load = async ({ locals }) => {
 	if (!locals.user) {

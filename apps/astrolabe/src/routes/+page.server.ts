@@ -1,4 +1,4 @@
-import { buildDossier } from "$lib/server/dossier";
+import { buildDossier } from "#lib/server/dossier.ts";
 
 import type { PageServerLoad } from "./$types";
 

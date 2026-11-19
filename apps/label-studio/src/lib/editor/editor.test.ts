@@ -1,5 +1,6 @@
-import type { LabelDoc, Template, TemplateField } from "$lib/doc";
 import { describe, expect, it } from "vitest";
+
+import type { LabelDoc, Template, TemplateField } from "#lib/doc.ts";
 
 import { editor } from "./editor.svelte";
 import { emptyDoc } from "./model";

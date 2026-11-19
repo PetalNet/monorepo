@@ -2,12 +2,13 @@
 	import { enhance } from "$app/forms";
 	import { goto } from "$app/navigation";
 	import { invalidateAll } from "$app/navigation";
-	import PageContainer from "$lib/components/PageContainer.svelte";
-	import PageHeader from "$lib/components/PageHeader.svelte";
-	import { formatInTimezone, toDateTimeLocal, getTimezoneAbbr } from "$lib/utils/timezone";
 	import { formatDistanceToNow } from "date-fns";
 	import QRCode from "qrcode";
 	import { onMount } from "svelte";
+
+	import PageContainer from "#lib/components/PageContainer.svelte";
+	import PageHeader from "#lib/components/PageHeader.svelte";
+	import { formatInTimezone, toDateTimeLocal, getTimezoneAbbr } from "#lib/utils/timezone.ts";
 
 	let { data } = $props();
 	let qrCodeUrl = $state("");

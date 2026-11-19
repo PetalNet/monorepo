@@ -1,4 +1,4 @@
-import type { TemplateCategory } from "$lib/doc";
+import type { TemplateCategory } from "#lib/doc.ts";
 
 /** Gallery order and names for `TemplateCategory`. */
 export const CATEGORIES: readonly { id: TemplateCategory; name: string }[] = [

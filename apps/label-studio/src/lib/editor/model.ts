@@ -10,8 +10,8 @@ import {
 	type LabelElement,
 	type Symbology,
 	type TapeWidthMm,
-} from "$lib/doc";
-import { DEFAULT_FONT } from "$lib/render/fonts";
+} from "#lib/doc.ts";
+import { DEFAULT_FONT } from "#lib/render/fonts.ts";
 
 /** What the Add menu offers. Several entries share one element kind. */
 export type AddKind =
