@@ -129,6 +129,8 @@ export default (({ strict }) => ({
 		"packages/router": {
 			// The tests import the bin's helpers, which production-mode Knip does not read.
 			ignoreIssues: { "src/**": ["exports"] },
+			// Cross-process locks use the util-linux system command, not an npm binary.
+			ignoreBinaries: ["flock"],
 		},
 		"packages/vault-engine": {
 			entry: ["test/**/*.ts"],
