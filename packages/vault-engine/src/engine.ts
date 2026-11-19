@@ -712,7 +712,10 @@ const makeVault = Effect.fnUntraced(function* (config: VaultConfig) {
 	});
 
 	const loadAll = Effect.map(
-		Effect.all({ shared: load("shared"), personal: load("personal"), agent: load("agent") }),
+		Effect.all(
+			{ shared: load("shared"), personal: load("personal"), agent: load("agent") },
+			{ concurrency: 1 },
+		),
 		(loaded: Record<Tier, Loaded>) => ({
 			loaded,
 			states: {

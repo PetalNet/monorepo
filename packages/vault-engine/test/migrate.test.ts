@@ -136,20 +136,23 @@ describe("migration", () => {
 				Effect.map(file(dir, name, body), (at) =>
 					document(at, { kind: "memory", tier: "agent", sourceType: "DIRECT" }),
 				);
-			const entries = yield* Effect.all([
-				entry("fine.md", "A plain note."),
-				entry("Restricted Project plan.md", "# Plan\nNo keyword in the text."),
-				entry("about.md", "---\ndescription: the Restricted Project site\n---\nBody."),
-				entry(
-					"mostly.md",
-					"# A\nRestricted Project.\n# B\nrestricted project.\n# C\nRESTRICTED PROJECT.\n# D\nOther.",
-				),
-				entry(
-					"passing.md",
-					"# Kept\nUseful text, see https://example.org/kept.\n# Aside\nUsed at the Restricted Project, see https://example.org/dropped.\n# Also kept\nMore.",
-				),
-				entry("leaky.md", `token ${secret}`),
-			]);
+			const entries = yield* Effect.all(
+				[
+					entry("fine.md", "A plain note."),
+					entry("Restricted Project plan.md", "# Plan\nNo keyword in the text."),
+					entry("about.md", "---\ndescription: the Restricted Project site\n---\nBody."),
+					entry(
+						"mostly.md",
+						"# A\nRestricted Project.\n# B\nrestricted project.\n# C\nRESTRICTED PROJECT.\n# D\nOther.",
+					),
+					entry(
+						"passing.md",
+						"# Kept\nUseful text, see https://example.org/kept.\n# Aside\nUsed at the Restricted Project, see https://example.org/dropped.\n# Also kept\nMore.",
+					),
+					entry("leaky.md", `token ${secret}`),
+				],
+				{ concurrency: 1 },
+			);
 			const report = yield* migrate(entries, ["restricted project"], 2);
 			const passing = yield* source(
 				report.migrated.find((item) => item.origin.endsWith("passing.md"))?.id ?? "",
@@ -214,7 +217,7 @@ describe("migration", () => {
 				"restricted **pro**ject",
 				"unrelated",
 			].map((text, index) => file(dir, `${String(index)}.md`, `About the ${text} plan.\n`));
-			const files = yield* Effect.all(writes);
+			const files = yield* Effect.all(writes, { concurrency: 1 });
 			const report = yield* migrate(
 				[...files.map((each) => document(each)), document(path.join(dir, "missing.md"))],
 				["restricted project"],

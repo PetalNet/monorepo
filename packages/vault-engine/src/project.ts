@@ -593,11 +593,14 @@ export const lint = Effect.fnUntraced(function* (out: string) {
 	let claimBlocks = 0;
 	let links = 0;
 
-	const tierNotes = yield* Effect.forEach(tiers, (tier) =>
-		fs.readDirectory(path.join(out, tier), { recursive: true }).pipe(
-			Effect.map((entries) => entries.map((entry) => `${tier}/${entry}`)),
-			Effect.orElseSucceed((): string[] => []),
-		),
+	const tierNotes = yield* Effect.forEach(
+		tiers,
+		(tier) =>
+			fs.readDirectory(path.join(out, tier), { recursive: true }).pipe(
+				Effect.map((entries) => entries.map((entry) => `${tier}/${entry}`)),
+				Effect.orElseSucceed((): string[] => []),
+			),
+		{ concurrency: 1 },
 	);
 
 	for (const relative of ["Index.md", ...tierNotes.flat()]

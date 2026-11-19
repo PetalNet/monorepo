@@ -241,21 +241,24 @@ const commands = [
 		Effect.gen(function* () {
 			const vault = yield* Vault;
 			const view = yield* vault.view;
-			const counts = yield* Effect.forEach(tiers, (each) =>
-				Effect.map(vault.history(each), (history) => {
-					const state = view.tiers[each];
+			const counts = yield* Effect.forEach(
+				tiers,
+				(each) =>
+					Effect.map(vault.history(each), (history) => {
+						const state = view.tiers[each];
 
-					return [
-						each,
-						{
-							claims: Object.keys(state.claims).length,
-							sources: Object.keys(state.sources).length,
-							topics: Object.keys(state.topics).length,
-							runs: Object.keys(state.runs).length,
-							changes: history.length,
-						},
-					] as const;
-				}),
+						return [
+							each,
+							{
+								claims: Object.keys(state.claims).length,
+								sources: Object.keys(state.sources).length,
+								topics: Object.keys(state.topics).length,
+								runs: Object.keys(state.runs).length,
+								changes: history.length,
+							},
+						] as const;
+					}),
+				{ concurrency: 1 },
 			);
 
 			yield* print(Object.fromEntries(counts));

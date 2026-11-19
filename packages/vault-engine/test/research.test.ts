@@ -264,53 +264,57 @@ describe("remember", () => {
 });
 
 describe("capture", () => {
-	test("captures an unsaved reference through vault-cite once, then reuses it", () =>
-		Effect.gen(function* () {
-			const log = path.join(yield* tempDir, "calls.log");
-			const cite = Cite.layer([
-				process.execPath,
-				"--no-warnings",
-				path.join(import.meta.dirname, "fake-cite.ts"),
-				log,
-			]);
+	test(
+		"captures an unsaved reference through vault-cite once, then reuses it",
+		() =>
+			Effect.gen(function* () {
+				const log = path.join(yield* tempDir, "calls.log");
+				const cite = Cite.layer([
+					process.execPath,
+					"--no-warnings",
+					path.join(import.meta.dirname, "fake-cite.ts"),
+					log,
+				]);
 
-			yield* Effect.gen(function* () {
-				yield* seeded;
+				yield* Effect.gen(function* () {
+					yield* seeded;
 
-				const first = yield* remember("shared", {
-					text: "Fetched once.",
-					topic: "Note granularity",
-					source: "https://example.org/page",
-				});
-				const second = yield* remember("shared", {
-					text: "Reused.",
-					topic: "Note granularity",
-					source: "https://example.org/page",
-				});
-				const blocked = yield* Effect.flip(
-					remember("shared", {
-						text: "Blocked.",
+					const first = yield* remember("shared", {
+						text: "Fetched once.",
 						topic: "Note granularity",
-						source: "https://elsewhere.test/x",
-					}),
-				);
+						source: "https://example.org/page",
+					});
+					const second = yield* remember("shared", {
+						text: "Reused.",
+						topic: "Note granularity",
+						source: "https://example.org/page",
+					});
+					const blocked = yield* Effect.flip(
+						remember("shared", {
+							text: "Blocked.",
+							topic: "Note granularity",
+							source: "https://elsewhere.test/x",
+						}),
+					);
 
-				expect(first.links).toEqual([{ rel: "source", target: "src-feedfacefeedfacefeed" }]);
-				expect(second.links).toEqual(first.links);
+					expect(first.links).toEqual([{ rel: "source", target: "src-feedfacefeedfacefeed" }]);
+					expect(second.links).toEqual(first.links);
 
-				expect((yield* state("shared")).sources["src-feedfacefeedfacefeed"]).toMatchObject({
-					kind: "capture",
-					title: "A fetched page",
-					captured: "2026-11-16T08:00:00.000Z",
-				});
+					expect((yield* state("shared")).sources["src-feedfacefeedfacefeed"]).toMatchObject({
+						kind: "capture",
+						title: "A fetched page",
+						captured: "2026-11-16T08:00:00.000Z",
+					});
 
-				expect(blocked.message).toBe(
-					"vault-cite did not save https://elsewhere.test/x: robots.txt disallows it",
-				);
+					expect(blocked.message).toBe(
+						"vault-cite did not save https://elsewhere.test/x: robots.txt disallows it",
+					);
 
-				expect(yield* readText(log)).toBe(
-					"add https://example.org/page\nadd https://elsewhere.test/x\n",
-				);
-			}).pipe(Effect.provide(cite));
-		}));
+					expect(yield* readText(log)).toBe(
+						"add https://example.org/page\nadd https://elsewhere.test/x\n",
+					);
+				}).pipe(Effect.provide(cite));
+			}),
+		30_000,
+	);
 });

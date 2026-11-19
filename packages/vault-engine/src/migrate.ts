@@ -166,10 +166,10 @@ export const migrate = Effect.fnUntraced(function* (
 				const group = items.filter((entry) => entry.tier === tier);
 
 				return vault.transact(tier, `migrate ${String(group.length)} items`, (tx) =>
-					Effect.forEach(group, (entry) => run(tx, entry), { discard: true }),
+					Effect.forEach(group, (entry) => run(tx, entry), { concurrency: 1, discard: true }),
 				);
 			},
-			{ discard: true },
+			{ concurrency: 1, discard: true },
 		);
 
 	const exclude = (origin: string, reason: string) =>
