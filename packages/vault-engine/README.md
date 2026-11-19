@@ -175,6 +175,7 @@ The replacement and stale flags for claims in the same tier commit together; rec
 flags claims in other tiers. Old passages stay intact. Reverting to an older text creates another
 version. A refused replacement leaves the previous source active. Changes to the capture timestamp
 alone do not create a version. A retracted, broken, cyclic or foreign replacement chain is excluded.
+An emptied existing document gets a version with no passages; a new empty document is excluded.
 
 ## Outbound secret scanning
 

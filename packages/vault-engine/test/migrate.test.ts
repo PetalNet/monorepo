@@ -348,6 +348,7 @@ describe("migration", () => {
 			for (const [body, title] of [
 				["# One\nFirst version.\n# Two\nAdded.\n", "a.md"],
 				["# One\nFirst version.\n", "a.md"],
+				["\n", "a.md"],
 				["# One\nFirst version.\n", "Renamed"],
 				["# One\nFirst version.\n", "a.md"],
 			] as const) {
@@ -364,6 +365,14 @@ describe("migration", () => {
 					replacedBy: next,
 				});
 
+				if (body.trim() === "") {
+					expect(yield* source(next)).toMatchObject({ status: "active", passages: {} });
+					const emptyHistory = yield* vault.history("shared");
+
+					expect((yield* migrate([document(at)], [])).migrated[0]?.id).toBe(next);
+					expect(yield* vault.history("shared")).toEqual(emptyHistory);
+				}
+
 				versions.push(next);
 			}
 
@@ -378,7 +387,7 @@ describe("migration", () => {
 			expect(yield* vault.history("shared")).toEqual(history);
 		}));
 
-	test("flags claims in the document tier and other tiers when a version changes", () =>
+	test("flags claims in the document tier and other tiers when a document is emptied", () =>
 		Effect.gen(function* () {
 			const at = yield* file(yield* tempDir, "a.md", "# One\nFirst.\n");
 			const old = (yield* migrate([document(at)], [])).migrated[0]?.id ?? "";
@@ -399,12 +408,25 @@ describe("migration", () => {
 			const shared = yield* add("shared");
 			const personal = yield* add("personal");
 
-			yield* writeText(at, "# One\nChanged.\n");
+			yield* writeText(at, "\n");
 			const report = yield* migrate([document(at)], []);
 
 			expect(report.migrated[0]?.id).not.toBe(old);
+			expect(yield* source(report.migrated[0]?.id ?? "")).toMatchObject({ passages: {} });
 			expect((yield* state("shared")).claims[shared.id]?.stale?.sources).toEqual([old]);
 			expect((yield* state("personal")).claims[personal.id]?.stale?.sources).toEqual([old]);
+		}));
+
+	test("does not treat a document whose sections were all filtered as an empty edit", () =>
+		Effect.gen(function* () {
+			const at = yield* file(yield* tempDir, "a.md", "Safe.\n");
+			const old = (yield* migrate([document(at)], [])).migrated[0]?.id ?? "";
+
+			yield* writeText(at, "Excluded subject.\n");
+			const report = yield* migrate([document(at)], ["excluded subject"], 1);
+
+			expect(report.excluded).toEqual([{ origin: at, reason: "empty document" }]);
+			expect(yield* source(old)).toMatchObject({ status: "active", passages: { s1: "Safe." } });
 		}));
 
 	test("refuses a secret in an update without replacing the active source", () =>

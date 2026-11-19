@@ -317,7 +317,7 @@ export const migrate = Effect.fnUntraced(function* (
 				return;
 			}
 
-			if (kept.length === 0) {
+			if (kept.length === 0 && all.length > 0) {
 				report.excluded.push({ origin: reportOrigin(origin), reason: "empty document" });
 
 				return;
@@ -354,6 +354,13 @@ export const migrate = Effect.fnUntraced(function* (
 			}
 
 			const { root, head: current } = chain;
+
+			if (current === undefined && kept.length === 0) {
+				yield* exclude(origin, "empty document");
+
+				return;
+			}
+
 			const passages = Object.fromEntries(kept.map((section) => [section.id, section.text]));
 			const headings = Object.fromEntries(
 				kept

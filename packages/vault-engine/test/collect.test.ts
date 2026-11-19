@@ -160,6 +160,51 @@ describe("a collected gallery page", () => {
 });
 
 describe("collect", () => {
+	test("guarded collections carry an emptied note through migration", () =>
+		Effect.gen(function* () {
+			const dir = yield* tempDir;
+			const note = path.join(dir, "note.md");
+			const scan = yield* Effect.promise(() =>
+				loadOutboundScanner({
+					...process.env,
+					VAULT_SECRET_PROVIDER_ARGV: JSON.stringify([
+						process.execPath,
+						path.join(import.meta.dirname, "fake-secret-provider.ts"),
+					]),
+					VAULT_SECRET_POLICY: undefined,
+				}),
+			);
+			const spec: CollectSpec = {
+				notes: [{ dir, origin: "notes", kind: "memory", tier: "personal" }],
+			};
+			const migrateCollection = (out: string) =>
+				Effect.gen(function* () {
+					yield* collect(spec, out, scan);
+
+					const entries = yield* Schema.decodeEffect(
+						Schema.Array(Schema.fromJsonString(ManifestEntry)),
+					)((yield* readText(out, "manifest.jsonl")).split("\n").filter(Boolean));
+
+					return yield* migrate(entries, []);
+				});
+
+			yield* writeText(note, "Original text.\n");
+
+			const first = yield* migrateCollection(path.join(dir, "first"));
+			const old = first.migrated[0]?.id ?? "";
+
+			yield* writeText(note, "");
+
+			const second = yield* migrateCollection(path.join(dir, "second"));
+			const next = second.migrated[0]?.id ?? "";
+			const sources = (yield* state("personal")).sources;
+
+			expect(second.excluded).toEqual([]);
+			expect(next).not.toBe(old);
+			expect(sources[old]).toMatchObject({ status: "replaced", replacedBy: next });
+			expect(sources[next]).toMatchObject({ status: "active", passages: {} });
+		}));
+
 	test("guarded collection withholds known values in notes, gallery rows and capture metadata", () =>
 		Effect.gen(function* () {
 			const dir = yield* tempDir;
