@@ -83,3 +83,14 @@ class EndPhraseTest(unittest.TestCase):
         for text in ("don't hang up", "can you hang up the call on the other line", "hang up on him", "end the call after you check the store hours",
                      "stop", "I'm not done", "that's not all", "wait", "how do I hang up", "the call ended badly", "Go ahead and hang up when I say bye"):
             self.assertFalse(is_end_phrase(text), text)
+
+
+class StatusRuleTest(unittest.TestCase):
+    def test_a_fork_is_told_it_cannot_see_mains_work_and_must_never_state_a_cause(self):
+        from janet_voice_head import prompts
+
+        for text in (prompts.turn_prompt("how is the research going", fork=True, cut_off=None),
+                     prompts.turn_prompt("how is the research going", fork=True, cut_off=None, web=("WebSearch",))):
+            self.assertIn("cannot see main Janet's background work", text)
+            self.assertIn("Never state a cause or an outcome you did not see", text)
+            self.assertIn("will have main check", text)
