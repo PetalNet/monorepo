@@ -1,10 +1,12 @@
-import { createHash } from "node:crypto";
+import { createHash, randomBytes } from "node:crypto";
+import { isDeepStrictEqual } from "node:util";
 
 import { Effect, FileSystem, Option, Schema } from "effect";
 
 import { Vault } from "./engine.ts";
-import type { NewSource, Tx } from "./engine.ts";
-import { SourceType, Text, Tier, oneLine } from "./schema.ts";
+import type { NewSource, Tx, VaultView } from "./engine.ts";
+import type { SecretFound, WriteRejected } from "./errors.ts";
+import { Source, SourceType, Text, Tier, oneLine } from "./schema.ts";
 import { secretRules } from "./secrets.ts";
 
 const Timestamp = Text.check(Schema.isPattern(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?Z$/));
@@ -58,6 +60,11 @@ export interface MigrationReport {
 }
 
 const sha256 = (text: string) => createHash("sha256").update(text).digest("hex");
+const reportOrigin = (origin: string) =>
+	secretRules([origin]).length === 0 ? origin : "(origin withheld by the secret scan)";
+// Quoting a source adds `p-` passages; only the imported `sN` sections define its document version.
+const documentSections = (passages: Readonly<Record<string, string>>) =>
+	Object.fromEntries(Object.entries(passages).filter(([id]) => /^s[1-9]\d*$/.test(id)));
 /** The ID `addPassage` gives the same text, so quoting an excerpt later reuses its passage. */
 const passageId = (text: string) => `p-${sha256(text).slice(0, 10)}`;
 
@@ -144,6 +151,41 @@ const fold = (text: string) =>
 		.toLowerCase()
 		.replaceAll(/[^\p{L}\p{N}]+/gu, "");
 
+function documentHead(view: VaultView, entry: DocumentEntry) {
+	const root = `doc-${sha256(`${entry.kind}\n${entry.origin}`).slice(0, 16)}`;
+	const visited = new Set<string>();
+	let current = view.source(root);
+
+	while (current !== undefined) {
+		if (
+			visited.has(current.id) ||
+			view.locate(current.id)?.tier !== entry.tier ||
+			current.kind !== entry.kind ||
+			current.origin !== entry.origin
+		) {
+			return { valid: false } as const;
+		}
+
+		visited.add(current.id);
+
+		if (current.status === "active") {
+			return { valid: true, root, head: current } as const;
+		}
+
+		if (current.status !== "replaced" || current.replacedBy === undefined) {
+			return { valid: false } as const;
+		}
+
+		current = view.source(current.replacedBy);
+
+		if (current === undefined) {
+			return { valid: false } as const;
+		}
+	}
+
+	return { valid: true, root, head: undefined } as const;
+}
+
 /**
  * Copies every manifest entry into the vault or names it in the report. `denyKeywords` is the
  * out-of-scope list: any entry whose path, title, frontmatter or text contains one is excluded
@@ -167,7 +209,7 @@ export const migrate = Effect.fnUntraced(function* (
 	/** One transaction per tier; an entry that fails its own checks is reported and the rest go on. */
 	const each = <Entry extends ManifestEntry>(
 		items: readonly Entry[],
-		run: (tx: Tx, entry: Entry) => Effect.Effect<void>,
+		run: (tx: Tx, entry: Entry) => Effect.Effect<void, SecretFound | WriteRejected>,
 	) =>
 		Effect.forEach(
 			[...new Set(items.map((entry) => entry.tier))],
@@ -183,7 +225,7 @@ export const migrate = Effect.fnUntraced(function* (
 
 	const exclude = (origin: string, reason: string) =>
 		Effect.sync(() => {
-			report.excluded.push({ origin, reason });
+			report.excluded.push({ origin: reportOrigin(origin), reason });
 		});
 
 	const store = (tx: Tx, source: NewSource, origin: string, onStored: () => void) =>
@@ -234,107 +276,164 @@ export const migrate = Effect.fnUntraced(function* (
 		},
 	);
 
-	yield* each(
-		entries.filter((entry): entry is DocumentEntry => entry.type === "document"),
-		(tx, entry) =>
-			Effect.gen(function* () {
-				const { origin } = entry;
-				const body = yield* fs.readFileString(entry.file).pipe(Effect.option);
+	const view = yield* vault.view;
+	const documents = entries
+		.filter((entry): entry is DocumentEntry => entry.type === "document")
+		.filter((entry) => {
+			if (documentHead(view, entry).valid) {
+				return true;
+			}
 
-				if (Option.isNone(body)) {
-					report.excluded.push({ origin, reason: "unreadable" });
+			report.excluded.push({
+				origin: reportOrigin(entry.origin),
+				reason: "invalid document version chain",
+			});
+
+			return false;
+		});
+
+	yield* each(documents, (tx, entry) =>
+		Effect.gen(function* () {
+			const { origin } = entry;
+			const body = yield* fs.readFileString(entry.file).pipe(Effect.option);
+
+			if (Option.isNone(body)) {
+				report.excluded.push({ origin: reportOrigin(origin), reason: "unreadable" });
+
+				return;
+			}
+
+			const frontmatter = FRONTMATTER.exec(body.value)?.[0] ?? "";
+			const all = sections(body.value).map((section, index) => ({
+				...section,
+				id: `s${String(index + 1)}`,
+			}));
+			const kept = all.filter((section) => !outOfScope(`${section.heading}\n${section.text}`));
+			const dropped = all.length - kept.length;
+
+			if (outOfScope(`${origin}\n${entry.title}\n${frontmatter}`) || dropped > passingSections) {
+				report.excluded.push({ origin: reportOrigin(origin), reason: "out of scope" });
+
+				return;
+			}
+
+			if (kept.length === 0) {
+				report.excluded.push({ origin: reportOrigin(origin), reason: "empty document" });
+
+				return;
+			}
+
+			const cites: string[] = [];
+			const unsaved: string[] = [];
+
+			for (const url of citedUrls(kept.map((section) => section.text).join("\n"))) {
+				// A shared document may cite only shared captures; a private one, its own tier's too.
+				const id = referenceKeys(url)
+					.map((key) => saved.get(key))
+					.find(
+						(found) =>
+							found !== undefined && (found.tier === entry.tier || found.tier === "shared"),
+					)?.id;
+
+				if (id === undefined) {
+					unsaved.push(url);
+				}
+
+				cites.push(id ?? url);
+			}
+
+			const chain = documentHead(tx, entry);
+
+			if (!chain.valid) {
+				report.excluded.push({
+					origin: reportOrigin(origin),
+					reason: "invalid document version chain",
+				});
+
+				return;
+			}
+
+			const { root, head: current } = chain;
+			const passages = Object.fromEntries(kept.map((section) => [section.id, section.text]));
+			const headings = Object.fromEntries(
+				kept
+					.filter((section) => section.heading !== "")
+					.map((section) => [section.id, section.heading]),
+			);
+			const citations = [...new Set(cites)];
+
+			const unchanged =
+				current?.title === oneLine(entry.title) &&
+				current.sourceType === entry.sourceType &&
+				isDeepStrictEqual(documentSections(current.passages), passages) &&
+				isDeepStrictEqual(documentSections(current.headings ?? {}), headings) &&
+				isDeepStrictEqual(current.cites ?? [], citations);
+			let id = root;
+
+			if (current !== undefined) {
+				id = current.id;
+
+				if (!unchanged) {
+					do {
+						id = `doc-${randomBytes(12).toString("hex")}`;
+					} while (tx.locate(id) !== undefined);
+				}
+			}
+
+			if (!unchanged) {
+				const candidate: NewSource = {
+					id,
+					kind: entry.kind,
+					title: oneLine(entry.title),
+					origin,
+					sourceType: entry.sourceType,
+					captured: entry.captured,
+					passages,
+					headings,
+					...(citations.length === 0 ? {} : { cites: citations }),
+				};
+
+				if (!Schema.is(Source)({ ...candidate, status: "active", agent: vault.agent })) {
+					yield* exclude(origin, "invalid record");
 
 					return;
 				}
 
-				const frontmatter = FRONTMATTER.exec(body.value)?.[0] ?? "";
-				const all = sections(body.value).map((section, index) => ({
-					...section,
-					id: `s${String(index + 1)}`,
-				}));
-				const kept = all.filter((section) => !outOfScope(`${section.heading}\n${section.text}`));
-				const dropped = all.length - kept.length;
+				const accepted = yield* tx.putSource(candidate).pipe(
+					Effect.as(true),
+					Effect.catchTag("SecretFound", (error) =>
+						exclude(origin, `secret scan: ${error.rules.join(", ")}`).pipe(Effect.as(false)),
+					),
+				);
 
-				if (outOfScope(`${origin}\n${entry.title}\n${frontmatter}`) || dropped > passingSections) {
-					report.excluded.push({ origin, reason: "out of scope" });
-
+				if (!accepted) {
 					return;
 				}
 
-				if (kept.length === 0) {
-					report.excluded.push({ origin, reason: "empty document" });
-
-					return;
-				}
-
-				const cites: string[] = [];
-				const unsaved: string[] = [];
-
-				for (const url of citedUrls(kept.map((section) => section.text).join("\n"))) {
-					// A shared document may cite only shared captures; a private one, its own tier's too.
-					const id = referenceKeys(url)
-						.map((key) => saved.get(key))
-						.find(
-							(found) =>
-								found !== undefined && (found.tier === entry.tier || found.tier === "shared"),
-						)?.id;
-
-					if (id === undefined) {
-						unsaved.push(url);
-					}
-
-					cites.push(id ?? url);
-				}
-
-				const id = `doc-${sha256(`${entry.kind}\n${origin}`).slice(0, 16)}`;
-				const passages = Object.fromEntries(kept.map((section) => [section.id, section.text]));
-				const before = tx.state.sources[id]?.passages ?? {};
-
-				// Passages are immutable: a document edited after it was migrated keeps its first version.
-				if (Object.entries(passages).some(([key, text]) => key in before && before[key] !== text)) {
-					report.excluded.push({
-						origin,
-						reason: "changed since it was migrated; the vault keeps the migrated version",
+				if (current !== undefined) {
+					yield* tx.setSourceStatus(current.id, {
+						status: "replaced",
+						replacedBy: id,
+						reason: "document re-synced",
 					});
 
-					return;
+					yield* tx.flagDependents;
 				}
+			}
 
-				yield* store(
-					tx,
-					{
-						id,
-						kind: entry.kind,
-						title: oneLine(entry.title),
-						origin,
-						sourceType: entry.sourceType,
-						captured: entry.captured,
-						passages,
-						headings: Object.fromEntries(
-							kept
-								.filter((section) => section.heading !== "")
-								.map((section) => [section.id, section.heading]),
-						),
-						...(cites.length === 0 ? {} : { cites: [...new Set(cites)] }),
-					},
-					// An origin that itself trips the scan is withheld from the report.
-					secretRules([origin]).length === 0 ? origin : "(origin withheld by the secret scan)",
-					() => {
-						report.migrated.push({ origin, id, passages: kept.length });
+			report.migrated.push({ origin, id, passages: kept.length });
 
-						if (dropped > 0) {
-							report.partial.push({ origin, sectionsExcluded: dropped });
-						}
+			if (dropped > 0) {
+				report.partial.push({ origin, sectionsExcluded: dropped });
+			}
 
-						// Reported only once the document passed the secret scan, so the report cannot carry a
-						// URL the scan would have refused.
-						for (const ref of unsaved) {
-							report.unsavedCitations.push({ ref, citedBy: origin });
-						}
-					},
-				);
-			}),
+			for (const ref of unsaved) {
+				report.unsavedCitations.push({ ref, citedBy: origin });
+			}
+		}),
 	);
+
+	yield* vault.reconcile("reconcile migrated documents");
 
 	return report;
 });

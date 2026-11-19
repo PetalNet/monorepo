@@ -178,6 +178,32 @@ describe("research run", () => {
 });
 
 describe("remember", () => {
+	test("cites an imported document by ID without asking vault-cite to capture it", () =>
+		Effect.gen(function* () {
+			const id = "doc-abcdef1234567890";
+
+			yield* write("shared", (tx) =>
+				tx.putSource({
+					id,
+					kind: "memory",
+					origin: "notes/kiln.md",
+					title: "Kiln",
+					sourceType: "DERIVED",
+					captured: "2026-11-19T00:00:00.000Z",
+					passages: { s1: "Glaze firing starts at noon." },
+				}),
+			);
+
+			const claim = yield* remember("personal", {
+				text: "Glaze firing starts at noon.",
+				topic: "Firing",
+				source: id,
+			});
+
+			expect(claim.links).toEqual([{ rel: "source", target: id }]);
+			expect(claim.sourceType).toBe("DERIVED");
+		}));
+
 	test("records who said it as a DIRECT source and never fetches for a known source", () =>
 		Effect.gen(function* () {
 			yield* seeded;
