@@ -1,4 +1,4 @@
-import { homeStream } from "$lib/server/home.js";
+import { homeStream } from "#lib/server/home.js";
 
 // GET /janet/home/events: Server-Sent Events for the home page. Behind Authentik like the
 // page itself. no-cache/no-transform + X-Accel-Buffering keep proxies from buffering it.

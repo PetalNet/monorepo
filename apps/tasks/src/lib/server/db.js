@@ -235,6 +235,64 @@ function ensureArtifactColumns() {
 
 ensureArtifactColumns();
 
+// The bridge (janet.* in a published page): every artifact carries a revision, the capabilities
+// its page may use ("feedback"), and the audience that may answer on it. Additive columns with
+// defaults, so the release before this one still reads and writes the same file.
+function ensureBridgeColumns() {
+	const columns = (table) =>
+		new Set(
+			db
+				.prepare(`PRAGMA table_info(${table})`)
+				.all()
+				.map((c) => c.name),
+		);
+	const adds = {
+		artifacts: {
+			rev: "INTEGER NOT NULL DEFAULT 1",
+			caps: "TEXT NOT NULL DEFAULT '[]'",
+			audience: "TEXT NOT NULL DEFAULT '[]'",
+		},
+		// A share link carries its own audience: who a link may answer as is not who the artifact asks.
+		artifact_shares: { audience: "TEXT NOT NULL DEFAULT '[]'" },
+	};
+
+	for (const [table, add] of Object.entries(adds)) {
+		const have = columns(table);
+
+		for (const [name, def] of Object.entries(add)) {
+			if (!have.has(name)) {
+				db.exec(`ALTER TABLE ${table} ADD COLUMN ${name} ${def}`);
+			}
+		}
+	}
+}
+
+ensureBridgeColumns();
+
+// One row per answer a viewer gives on a page. Scoped through slug: the artifact decides the
+// project (collection), visibility and audience, so a row never crosses to another artifact.
+// payload is opaque to the platform (the page defines it); anchor/ink/crop locate it on the page.
+db.exec(`
+  CREATE TABLE IF NOT EXISTS feedback (
+    id              INTEGER PRIMARY KEY,
+    slug            TEXT NOT NULL,
+    rev             INTEGER NOT NULL,
+    author          TEXT NOT NULL,
+    via_share_id    INTEGER,
+    anchor          TEXT NOT NULL DEFAULT '{}',
+    payload         TEXT NOT NULL DEFAULT 'null',
+    ink             TEXT,
+    crop            TEXT,
+    matrix_event_id TEXT,
+    status          TEXT NOT NULL DEFAULT 'sent' CHECK (status IN ('sent','seen','resolved')),
+    resolution      TEXT,
+    resolved_rev    INTEGER,
+    created_at      TEXT NOT NULL DEFAULT (datetime('now'))
+  );
+  CREATE INDEX IF NOT EXISTS idx_feedback_slug ON feedback(slug, rev);
+  CREATE INDEX IF NOT EXISTS idx_feedback_author ON feedback(author, status);
+`);
+
 // --- artifacts / pages gallery ---------------------------------------------
 // Human visibility gate, identical rule to tasks: a private artifact is owner-only.
 // `me` is ALWAYS supplied for web views, so the gate is never skipped there. Callers that
@@ -551,5 +609,201 @@ export function revokeAgentToken(idOrName) {
 		)
 		.run({ v: byId ? Number(idOrName) : String(idOrName) }).changes;
 }
+
+// --- publish + feedback (the bridge) ------------------------------------------
+const stringList = (name, v) => {
+	if (!Array.isArray(v) || v.some((x) => typeof x !== "string" || !x)) {
+		throw new Error(`${name} must be a list of non-empty strings`);
+	}
+
+	return JSON.stringify([...new Set(v)]);
+};
+
+// Publish or revise a page. A new slug starts at rev 1; republishing an existing slug bumps rev,
+// which is what an open page watches to pick up Janet's revision. Every other field is replaced when
+// given and kept when omitted, so a content-only edit never silently re-opens or closes a question.
+/**
+ * @param {{
+ * 	slug: string;
+ * 	title: string;
+ * 	content: string;
+ * 	description?: string;
+ * 	kind?: string;
+ * 	source?: string;
+ * 	owner?: string;
+ * 	visibility?: string;
+ * 	collection?: string;
+ * 	caps?: string[];
+ * 	audience?: string[];
+ * }} page
+ * @returns {Record<string, any>}
+ */
+export function upsertArtifact({
+	slug,
+	title,
+	description,
+	kind,
+	content,
+	source,
+	owner,
+	visibility,
+	collection,
+	caps,
+	audience,
+}) {
+	if (!slug || !title || !content) {
+		throw new Error("artifact requires slug, title, content");
+	}
+
+	if (kind !== undefined && !["markdown", "html", "interactive"].includes(kind)) {
+		throw new Error("artifact kind must be markdown|html|interactive");
+	}
+
+	if (visibility !== undefined && visibility !== "shared" && visibility !== "private") {
+		throw new Error("artifact visibility must be shared|private");
+	}
+
+	if (!/^[a-z0-9][a-z0-9-]*$/.test(slug)) {
+		throw new Error("artifact slug must be lowercase alphanumeric + dashes");
+	}
+
+	// Every optional field is kept when omitted (null -> COALESCE to the stored value), so Janet
+	// revising a page's content never silently makes a private page shared or clears its owner.
+	// A new slug takes the defaults.
+	db.prepare(
+		`INSERT INTO artifacts (slug,title,description,kind,content,source,owner,visibility,collection,caps,audience)
+       VALUES (@slug,@title,COALESCE(@description,''),COALESCE(@kind,'markdown'),@content,COALESCE(@source,''),
+               COALESCE(@owner,''),COALESCE(@visibility,'shared'),COALESCE(@collection,''),
+               COALESCE(@caps,'[]'),COALESCE(@audience,'[]'))
+     ON CONFLICT(slug) DO UPDATE SET
+       title=@title, content=@content,
+       description=COALESCE(@description, description), kind=COALESCE(@kind, kind),
+       source=COALESCE(@source, source), owner=COALESCE(@owner, owner),
+       visibility=COALESCE(@visibility, visibility), collection=COALESCE(@collection, collection),
+       caps=COALESCE(@caps, caps), audience=COALESCE(@audience, audience),
+       rev=rev+1, updated_at=datetime('now')`,
+	).run({
+		slug,
+		title,
+		content,
+		description: description ?? null,
+		kind: kind ?? null,
+		source: source ?? null,
+		owner: owner ?? null,
+		visibility: visibility ?? null,
+		collection: collection ?? null,
+		caps: caps === undefined ? null : stringList("caps", caps),
+		audience: audience === undefined ? null : stringList("audience", audience),
+	});
+
+	return getArtifact(slug, null);
+}
+
+const feedbackRow = (r) =>
+	r && {
+		...r,
+		anchor: JSON.parse(r.anchor),
+		payload: JSON.parse(r.payload),
+		ink: r.ink == null ? null : JSON.parse(r.ink),
+	};
+
+export const getFeedback = (id) =>
+	feedbackRow(db.prepare("SELECT * FROM feedback WHERE id=?").get(id));
+
+export const listFeedback = (slug, { status } = {}) =>
+	db
+		.prepare(
+			`SELECT * FROM feedback WHERE slug=@slug ${status ? "AND status=@status" : ""} ORDER BY id`,
+		)
+		.all({ slug, ...(status ? { status } : {}) })
+		.map(feedbackRow);
+
+// The caller has already authorized the author for this slug (see the Feedback service); the rev
+// is read here, never taken from the caller, so a row always names the page revision it answers.
+export function insertFeedback({ slug, author, via_share_id = null, anchor, payload, ink, crop }) {
+	const a = db.prepare("SELECT rev FROM artifacts WHERE slug=?").get(slug);
+
+	if (!a) {
+		throw new Error("no such artifact");
+	}
+
+	const r = db
+		.prepare(
+			`INSERT INTO feedback (slug, rev, author, via_share_id, anchor, payload, ink, crop)
+       VALUES (@slug, @rev, @author, @via_share_id, @anchor, @payload, @ink, @crop)`,
+		)
+		.run({
+			slug,
+			rev: a.rev,
+			author,
+			via_share_id,
+			anchor: JSON.stringify(anchor ?? {}),
+			payload: JSON.stringify(payload ?? null),
+			ink: ink == null ? null : JSON.stringify(ink),
+			crop: crop ?? null,
+		});
+
+	return getFeedback(Number(r.lastInsertRowid));
+}
+
+export const setFeedbackMatrixEvent = (id, eventId) =>
+	db.prepare("UPDATE feedback SET matrix_event_id=? WHERE id=?").run(eventId, id).changes;
+
+// Janet closes an item. resolved_rev defaults to the artifact's current rev, i.e. the revision
+// she just published in answer. Resolving twice keeps the first resolution.
+/** @param {{ id: number; resolution: string; resolved_rev?: number }} item */
+export function resolveFeedback({ id, resolution, resolved_rev }) {
+	const f = db.prepare("SELECT slug, status FROM feedback WHERE id=?").get(id);
+
+	if (!f) {
+		return undefined;
+	}
+
+	if (f.status !== "resolved") {
+		db.prepare(
+			`UPDATE feedback SET status='resolved', resolution=@resolution,
+         resolved_rev=COALESCE(@resolved_rev, (SELECT rev FROM artifacts WHERE slug=feedback.slug))
+       WHERE id=@id`,
+		).run({ id, resolution: String(resolution ?? ""), resolved_rev: resolved_rev ?? null });
+	}
+
+	return getFeedback(id);
+}
+
+// What an open page polls: the current revision and the viewer's own items on it. Callers
+// authorize the slug first (getArtifact with the viewer).
+/**
+ * @param {string} slug
+ * @param {string} viewer
+ * @returns {{ rev: number; updated_at: string; feedback: any[] } | undefined}
+ */
+export function artifactState(slug, viewer) {
+	const a = db.prepare("SELECT rev, updated_at FROM artifacts WHERE slug=?").get(slug);
+
+	return (
+		a && {
+			rev: a.rev,
+			updated_at: a.updated_at,
+			feedback: db
+				.prepare("SELECT * FROM feedback WHERE slug=? AND author=? ORDER BY id")
+				.all(slug, viewer)
+				.map(feedbackRow),
+		}
+	);
+}
+
+// Artifacts that ask this viewer something they have not answered at the current revision:
+// the viewer is in the audience, the page has the "feedback" capability, and the viewer can see it.
+export const needsYou = (viewer) =>
+	db
+		.prepare(
+			`SELECT a.slug, a.title, a.collection, a.rev, a.updated_at FROM artifacts a
+       WHERE (a.visibility='shared' OR a.owner=@viewer)
+         AND EXISTS (SELECT 1 FROM json_each(a.audience) WHERE value=@viewer)
+         AND EXISTS (SELECT 1 FROM json_each(a.caps) WHERE value='feedback')
+         AND NOT EXISTS (SELECT 1 FROM feedback f WHERE f.slug=a.slug AND f.rev=a.rev AND f.author=@viewer)
+       ORDER BY a.updated_at DESC`,
+		)
+		.all({ viewer });
 
 export default db;

@@ -4,7 +4,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends ca-certificates
 WORKDIR /workspace
 FROM base AS build
 COPY . .
-RUN CI=true pnpm install --frozen-lockfile --filter @petalnet/tasks && pnpm --filter @petalnet/tasks build
+RUN CI=true pnpm install --frozen-lockfile --filter "@petalnet/tasks..." && pnpm --filter @petalnet/tasks build
 # A filtered install still links the workspace root's dev tooling (~900 MB). Ship only the
 # production dependency tree of the tasks package.
 RUN CI=true pnpm --filter @petalnet/tasks deploy --prod /prod
@@ -17,8 +17,9 @@ COPY --from=build /prod/node_modules /workspace/apps/tasks/node_modules
 COPY --from=build /workspace/apps/tasks/package.json /workspace/apps/tasks/package.json
 COPY --from=build /workspace/apps/tasks/build /workspace/apps/tasks/build
 COPY --from=build /workspace/apps/tasks/server.js /workspace/apps/tasks/server.js
-COPY --from=build /workspace/apps/tasks/scripts/mint-agent-token.mjs /workspace/apps/tasks/scripts/sync-makkit-docs.mjs /workspace/apps/tasks/scripts/
+COPY --from=build /workspace/apps/tasks/scripts/mint-agent-token.mjs /workspace/apps/tasks/scripts/sync-makkit-docs.mjs /workspace/apps/tasks/scripts/gallery.mjs /workspace/apps/tasks/scripts/
 COPY --from=build /workspace/apps/tasks/src/lib/server /workspace/apps/tasks/src/lib/server
+COPY --from=build /workspace/apps/tasks/src/lib/janet-shim.js /workspace/apps/tasks/src/lib/janet-shim.js
 WORKDIR /workspace/apps/tasks
 RUN mkdir -p /data
 EXPOSE 8896

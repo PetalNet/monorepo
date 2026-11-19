@@ -1,10 +1,11 @@
 <script>
-	import { page } from "$app/stores";
-	import Icon from "$lib/Icon.svelte";
+	import { page } from "$app/state";
+
+	import Icon from "#lib/Icon.svelte";
 
 	let { collapsed = $bindable(false) } = $props();
 
-	const onGallery = $derived($page.url.pathname.startsWith("/gallery"));
+	const onGallery = $derived(page.url.pathname.startsWith("/gallery"));
 </script>
 
 <aside class="nav" class:collapsed>

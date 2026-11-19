@@ -1,5 +1,5 @@
 <script>
-	import Icon from "$lib/Icon.svelte";
+	import Icon from "#lib/Icon.svelte";
 	let { data } = $props();
 
 	// A project is the gallery's top-level grouping (artifacts.collection); pages filed under

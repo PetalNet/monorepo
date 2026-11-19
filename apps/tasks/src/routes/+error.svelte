@@ -1,7 +1,7 @@
 <script>
-	import { page } from "$app/stores";
-	const status = $derived($page.status);
-	const message = $derived($page.error?.message || "Something went sideways.");
+	import { page } from "$app/state";
+	const status = $derived(page.status);
+	const message = $derived(page.error?.message || "Something went sideways.");
 	const is404 = $derived(status === 404);
 </script>
 

@@ -12,7 +12,14 @@
 // Framework-free on purpose: handleAgentRpc takes plain values and returns { status, body },
 // so scripts/test-agent-api.mjs exercises the REAL handler under plain node; the +server.js
 // route is a thin wrapper.
-import { verifyAgentToken, getArtifact, listMarkup } from "./db.js";
+import {
+	verifyAgentToken,
+	getArtifact,
+	getFeedback,
+	listFeedback,
+	listMarkup,
+	resolveFeedback,
+} from "./db.js";
 import { getHome, setHome, HOME_MAX } from "./home.js";
 
 const bad = (error) => ({ status: 400, body: { error } });
@@ -20,7 +27,7 @@ const notFound = () => ({ status: 404, body: { error: "not_found" } }); // gener
 
 export const BODY_MAX = 32 * 1024; // request-body cap — RPC args are small; anything bigger is abuse
 
-const OPS = new Set(["get_markup", "set_home", "get_home"]);
+const OPS = new Set(["get_markup", "set_home", "get_home", "list_feedback", "resolve_feedback"]);
 
 // ── rate limit: in-memory token bucket per agent_name (60 req/min) ───────────
 // Process-local is fine — better-sqlite3 pins this app to a single process. A restart
@@ -50,6 +57,14 @@ function rateLimited(name, now = Date.now()) {
 }
 
 export const resetRateLimiter = () => buckets.clear(); // test hook only
+
+// Feedback lives on an artifact, and an artifact belongs to a project (its collection). A token
+// scoped to projects may touch feedback only on pages in those projects; an assignee-scoped token
+// has no lane in the gallery. Anything else is the same generic 404 as an unknown id.
+const inLane = (scope, artifact) =>
+	Boolean(artifact) &&
+	scope.assignee == null &&
+	(scope.projects == null || scope.projects.includes(artifact.collection));
 
 // ── op handlers (auth + scope already resolved) ──────────────────────────────
 const ops = {
@@ -88,6 +103,42 @@ const ops = {
 		};
 	},
 
+	// Feedback on one page (every viewer's), optionally only the items still waiting on Janet.
+	list_feedback(scope, args) {
+		if (typeof args.slug !== "string") {
+			return bad("bad_request");
+		}
+
+		const a = getArtifact(args.slug, null);
+
+		if (!inLane(scope, a)) {
+			return notFound();
+		}
+
+		const status = args.status === undefined ? undefined : String(args.status);
+
+		return {
+			status: 200,
+			body: { slug: a.slug, rev: a.rev, feedback: listFeedback(a.slug, { status }) },
+		};
+	},
+
+	// Janet closes an item after answering it. Resolving does not publish: she revises the page
+	// first (a new rev) and resolves against it, so resolved_rev defaults to the current rev.
+	resolve_feedback(scope, args) {
+		if (!Number.isInteger(args.id) || typeof args.resolution !== "string") {
+			return bad("bad_request");
+		}
+
+		const item = getFeedback(args.id);
+
+		if (!item || !inLane(scope, getArtifact(item.slug, null))) {
+			return notFound();
+		}
+
+		return { status: 200, body: { resolved: resolveFeedback(args) } };
+	},
+
 	// Janet's home page (/janet/home). One document, replaced whole. It sits outside the
 	// assignee/project lane model, so only an UNSCOPED token may touch it (scoped = generic 404).
 	set_home(scope, args) {
@@ -121,7 +172,7 @@ const ops = {
 // Ops that only READ. A read-only token may call these and nothing else. Listed
 // explicitly rather than derived by negation: adding a new write op must not
 // accidentally become callable by every read-only token that already exists.
-const READ_OPS = new Set(["get_markup", "get_home"]);
+const READ_OPS = new Set(["get_markup", "get_home", "list_feedback"]);
 
 export function handleAgentRpc({ authorization, rawBody } = {}) {
 	const m = /^Bearer\s+(\S+)$/i.exec(String(authorization ?? "").trim());
