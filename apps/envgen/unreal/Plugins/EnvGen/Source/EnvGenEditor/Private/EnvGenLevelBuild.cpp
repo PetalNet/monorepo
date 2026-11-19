@@ -30,6 +30,7 @@
 #include "Materials/Material.h"
 #include "Materials/MaterialExpressionConstant.h"
 #include "Materials/MaterialExpressionConstant3Vector.h"
+#include "Materials/MaterialExpressionDivide.h"
 #include "Materials/MaterialExpressionLandscapeLayerBlend.h"
 #include "Materials/MaterialExpressionLandscapeLayerCoords.h"
 #include "Materials/MaterialExpressionLinearInterpolate.h"
@@ -55,7 +56,6 @@ namespace
 	const FName PavedLayer(TEXT("paved"));
 	const FName SoilLayer(TEXT("soil"));
 	constexpr int32 DetailPixels = 256;
-	constexpr float PhotoToAlbedo = 0.6f;
 	// How far a traced surface point may sit from the height the manifest says it should have.
 	constexpr double SurfaceToleranceCm = 5.0;
 	// The engine merges Landscape edit layers over several frames after an import.
@@ -69,6 +69,24 @@ namespace
 	// Where the build checks the surface and the layer weights: fractions of the tile along north and east, spread unevenly.
 	const double CheckPoints[][2] = {{0.5, 0.5}, {0.1, 0.2}, {0.9, 0.2}, {0.15, 0.85}, {0.8, 0.9}, {0.33, 0.61}, {0.72, 0.41}, {0.05, 0.5}, {0.5, 0.95}};
 
+	/** The sun and exposure of the target day, from the manifest. */
+	struct FLighting
+	{
+		double GridAzimuthDeg = 0;
+		double ElevationDeg = 0;
+		double SunLux = 0;
+		double ExposureEv100 = 0;
+	};
+
+	/** A scanned ground material for one class: four maps and how much ground one repeat covers. */
+	struct FScan
+	{
+		double SizeCm = 0;
+		int32 Width = 0, Height = 0;
+		TArray64<uint8> Colour, Normal, Rough, Relief;
+		FLinearColor MeanColour = FLinearColor::Black;
+	};
+
 	/** One surface class: its weightmap, indexed like the heightmap. */
 	struct FLayer
 	{
@@ -76,6 +94,7 @@ namespace
 		FString File;
 		TArray64<uint8> Weights;
 		ULandscapeLayerInfoObject* Info = nullptr;
+		FScan Scan;
 	};
 
 	/** A Landscape vertex where the manifest says what each class weighs, worked out from the weightmaps by position. */
@@ -105,6 +124,9 @@ namespace
 		TOptional<FSurface> Surround;
 		TArray<FLayer> Layers;
 		TArray<FCheckPoint> CheckPoints;
+		FLighting Lighting;
+		// Photo colour in linear light times this is albedo; fitted to surfaces of known reflectance.
+		float AlbedoScale = 0.5f;
 		double TileSizeCm = 0;
 		TSharedPtr<FJsonObject> Georeference;
 		TSharedPtr<FJsonObject> StencilClasses;
@@ -193,10 +215,22 @@ namespace
 		Out.TileSizeCm = (*Tile)->GetNumberField(TEXT("size_m")) * 100;
 		Out.Georeference = *Geo;
 		Out.StencilClasses = *Stencil;
+		const TSharedPtr<FJsonObject>* Albedo = nullptr;
+		const TSharedPtr<FJsonObject>* Light = nullptr;
+		if (!(*Surface)->TryGetObjectField(TEXT("albedo"), Albedo) || !Root->TryGetObjectField(TEXT("lighting"), Light))
+		{
+			Error = TEXT("the manifest needs surface.albedo and lighting");
+			return false;
+		}
+		Out.AlbedoScale = float((*Albedo)->GetNumberField(TEXT("scale")));
+		Out.Lighting.GridAzimuthDeg = (*Light)->GetNumberField(TEXT("grid_azimuth_deg"));
+		Out.Lighting.ElevationDeg = (*Light)->GetNumberField(TEXT("elevation_deg"));
+		Out.Lighting.SunLux = (*Light)->GetNumberField(TEXT("sun_lux"));
+		Out.Lighting.ExposureEv100 = (*Light)->GetNumberField(TEXT("exposure_ev100"));
 		return true;
 	}
 
-	bool DecodePng(const FString& Path, ERGBFormat Format, int32 BitDepth, TArray64<uint8>& Raw, int32& Width, int32& Height)
+	bool DecodePng(const FString& Path, ERGBFormat Format, int32 BitDepth, TArray64<uint8>& Raw, int32& Width, int32& Height, EImageFormat Container = EImageFormat::PNG)
 	{
 		TArray64<uint8> Compressed;
 		if (!FFileHelper::LoadFileToArray(Compressed, *Path))
@@ -204,13 +238,74 @@ namespace
 			return false;
 		}
 		IImageWrapperModule& Module = FModuleManager::LoadModuleChecked<IImageWrapperModule>(TEXT("ImageWrapper"));
-		const TSharedPtr<IImageWrapper> Wrapper = Module.CreateImageWrapper(EImageFormat::PNG);
+		const TSharedPtr<IImageWrapper> Wrapper = Module.CreateImageWrapper(Container);
 		if (!Wrapper || !Wrapper->SetCompressed(Compressed.GetData(), Compressed.Num()) || !Wrapper->GetRaw(Format, BitDepth, Raw))
 		{
 			return false;
 		}
 		Width = Wrapper->GetWidth();
 		Height = Wrapper->GetHeight();
+		return true;
+	}
+
+	/**
+	 * Read each class's scanned material from the directory fetch-materials.ps1 filled: four JPEG maps, and the
+	 * size of ground one repeat covers from materials.json. The normal map is OpenGL style and the engine reads
+	 * DirectX style, so its green channel is flipped. Also measures the scan's mean colour in linear light, which
+	 * the material divides out so the scan adds structure and never shifts the colour the evidence set.
+	 */
+	bool LoadScans(const FString& Directory, TArray<FLayer>& Layers, FString& Error)
+	{
+		FString Text;
+		TSharedPtr<FJsonObject> Root;
+		if (Directory.IsEmpty() || !FFileHelper::LoadFileToString(Text, *(Directory / TEXT("materials.json"))) || !FJsonSerializer::Deserialize(TJsonReaderFactory<>::Create(Text), Root) || !Root)
+		{
+			Error = TEXT("pass -EnvGenMaterials=<directory filled by fetch-materials.ps1>");
+			return false;
+		}
+		const TSharedPtr<FJsonObject>* Classes = nullptr;
+		if (!Root->TryGetObjectField(TEXT("classes"), Classes))
+		{
+			Error = TEXT("materials.json has no classes");
+			return false;
+		}
+		for (FLayer& Layer : Layers)
+		{
+			const TSharedPtr<FJsonObject>* Entry = nullptr;
+			if (!(*Classes)->TryGetObjectField(Layer.Name.ToString(), Entry))
+			{
+				Error = FString::Printf(TEXT("materials.json has no scan for class '%s'"), *Layer.Name.ToString());
+				return false;
+			}
+			FScan& Scan = Layer.Scan;
+			Scan.SizeCm = (*Entry)->GetNumberField(TEXT("size_cm"));
+			int32 W = 0, H = 0, W2 = 0, H2 = 0, W3 = 0, H3 = 0, W4 = 0, H4 = 0;
+			const FString Stem = Directory / Layer.Name.ToString() + TEXT("_");
+			if (!DecodePng(Stem + TEXT("base_colour.jpg"), ERGBFormat::BGRA, 8, Scan.Colour, W, H, EImageFormat::JPEG) ||
+				!DecodePng(Stem + TEXT("normal.jpg"), ERGBFormat::BGRA, 8, Scan.Normal, W2, H2, EImageFormat::JPEG) ||
+				!DecodePng(Stem + TEXT("roughness.jpg"), ERGBFormat::Gray, 8, Scan.Rough, W3, H3, EImageFormat::JPEG) ||
+				!DecodePng(Stem + TEXT("height.jpg"), ERGBFormat::Gray, 8, Scan.Relief, W4, H4, EImageFormat::JPEG))
+			{
+				Error = FString::Printf(TEXT("cannot decode the scan maps for '%s' in %s"), *Layer.Name.ToString(), *Directory);
+				return false;
+			}
+			if (W != W2 || H != H2 || W != W3 || H != H3 || W != W4 || H != H4)
+			{
+				Error = FString::Printf(TEXT("the maps of '%s' differ in size"), *Layer.Name.ToString());
+				return false;
+			}
+			Scan.Width = W;
+			Scan.Height = H;
+			FVector Sum = FVector::ZeroVector;
+			const int64 Pixels = int64(W) * H;
+			for (int64 Pixel = 0; Pixel < Pixels; ++Pixel)
+			{
+				Sum += FVector(FLinearColor(FColor(Scan.Colour[Pixel * 4 + 2], Scan.Colour[Pixel * 4 + 1], Scan.Colour[Pixel * 4])));
+				Scan.Normal[Pixel * 4 + 1] = 255 - Scan.Normal[Pixel * 4 + 1];
+			}
+			Sum /= double(Pixels);
+			Scan.MeanColour = FLinearColor(float(Sum.X), float(Sum.Y), float(Sum.Z));
+		}
 		return true;
 	}
 

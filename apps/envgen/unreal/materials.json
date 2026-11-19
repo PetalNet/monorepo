@@ -1,0 +1,86 @@
+{
+  "licence": "CC0 1.0, https://polyhaven.com/license",
+  "resolution": "1k",
+  "format": "jpg",
+  "classes": {
+    "grass": {
+      "asset": "grass_ground",
+      "maps": {
+        "base_colour": {
+          "url": "https://dl.polyhaven.org/file/ph-assets/Textures/jpg/1k/grass_ground/grass_ground_diff_1k.jpg",
+          "md5": "299047258586c762735b7284d3c662c3",
+          "bytes": 876584
+        },
+        "normal": {
+          "url": "https://dl.polyhaven.org/file/ph-assets/Textures/jpg/1k/grass_ground/grass_ground_nor_gl_1k.jpg",
+          "md5": "d518c5b2af6f2c0297bc807b351f511f",
+          "bytes": 1310516
+        },
+        "roughness": {
+          "url": "https://dl.polyhaven.org/file/ph-assets/Textures/jpg/1k/grass_ground/grass_ground_rough_1k.jpg",
+          "md5": "2e6afca246cf6b80bdb53f46fe7e5ce5",
+          "bytes": 328190
+        },
+        "height": {
+          "url": "https://dl.polyhaven.org/file/ph-assets/Textures/jpg/1k/grass_ground/grass_ground_disp_1k.jpg",
+          "md5": "589346708685113d6b3be91ed444c3dc",
+          "bytes": 732755
+        }
+      },
+      "size_cm": 251
+    },
+    "soil": {
+      "asset": "park_dirt",
+      "maps": {
+        "base_colour": {
+          "url": "https://dl.polyhaven.org/file/ph-assets/Textures/jpg/1k/park_dirt/park_dirt_diff_1k.jpg",
+          "md5": "886c84c87cc21d5379675dfa404c9cc9",
+          "bytes": 1146359
+        },
+        "normal": {
+          "url": "https://dl.polyhaven.org/file/ph-assets/Textures/jpg/1k/park_dirt/park_dirt_nor_gl_1k.jpg",
+          "md5": "ce48b10becd7bd2146771909a076b74d",
+          "bytes": 1138665
+        },
+        "roughness": {
+          "url": "https://dl.polyhaven.org/file/ph-assets/Textures/jpg/1k/park_dirt/park_dirt_rough_1k.jpg",
+          "md5": "200f910b3d556bd7ce887a2648e82c76",
+          "bytes": 765277
+        },
+        "height": {
+          "url": "https://dl.polyhaven.org/file/ph-assets/Textures/jpg/1k/park_dirt/park_dirt_disp_1k.jpg",
+          "md5": "43dedf940f2b605af685d15634d05a77",
+          "bytes": 663056
+        }
+      },
+      "size_cm": 300
+    },
+    "paved": {
+      "asset": "concrete_pavement",
+      "maps": {
+        "base_colour": {
+          "url": "https://dl.polyhaven.org/file/ph-assets/Textures/jpg/1k/concrete_pavement/concrete_pavement_diff_1k.jpg",
+          "md5": "b7a0d071a3406d55a1c3e9a73a06df03",
+          "bytes": 926197
+        },
+        "normal": {
+          "url": "https://dl.polyhaven.org/file/ph-assets/Textures/jpg/1k/concrete_pavement/concrete_pavement_nor_gl_1k.jpg",
+          "md5": "025a1d4e910cf3e5b3d63ada43a791d8",
+          "bytes": 1184345
+        },
+        "roughness": {
+          "url": "https://dl.polyhaven.org/file/ph-assets/Textures/jpg/1k/concrete_pavement/concrete_pavement_rough_1k.jpg",
+          "md5": "e5a0fc9831bad12c7b3779179aa706f7",
+          "bytes": 475799
+        },
+        "height": {
+          "url": "https://dl.polyhaven.org/file/ph-assets/Textures/jpg/1k/concrete_pavement/concrete_pavement_disp_1k.jpg",
+          "md5": "f8c4051614ba00adac89cc0f44381b80",
+          "bytes": 722309
+        }
+      },
+      "size_cm": 180
+    }
+  },
+  "note": "size_cm is the ground each scan covers, from the asset's published dimensions, so one repeat is that long"
+}

@@ -182,6 +182,7 @@ def fit_sun(
     return ~out_of_sight, {
         "date": day.isoformat(),
         "fitted_time_utc": when.strftime("%H:%M"),
+        "fitted_solar_time": f"{(best - start) // 60 % 24:02d}:{(best - start) % 60:02d}",
         "azimuth_deg": azimuth,
         "elevation_deg": elevation,
         "crown_spread_m": spread * cell_m,

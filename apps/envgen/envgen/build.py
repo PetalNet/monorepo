@@ -15,7 +15,7 @@ from rasterio.transform import from_origin
 from rasterio.warp import reproject, transform
 from scipy import ndimage
 
-from . import cover, frame, lidar, surface
+from . import cover, frame, lidar, light, surface
 from .acquire import acquire, sha256_file
 from .site import (
     CONTEXT_QUADS,
@@ -30,7 +30,7 @@ from .site import (
 
 # Part of every stage key. Bump it by hand when a code change alters a stage's output for the same
 # inputs (frame.py and the resampling included); nothing detects that automatically.
-PIPELINE_VERSION = 5
+PIPELINE_VERSION = 6
 
 MACRO_PIXELS = 1024
 # The macro map carries colour that varies over tens of metres. Finer detail comes from the engine.
@@ -268,7 +268,8 @@ def build_surface(site: Site, imagery: Path, out: Path, covering: dict | None) -
         stale.unlink()
     rgb = _warp(imagery, site.crs, tile.west, tile.north, tile.quad_m, tile.vertices, Resampling.average)
     rgb = np.stack([_fill_gaps(band, "imagery")[0] for band in rgb])
-    labels, names, fit = surface.classify(rgb, open_ground(out, covering, tile.vertices) > 0, tile.quad_m)
+    shown = open_ground(out, covering, tile.vertices) > 0
+    labels, names, fit = surface.classify(rgb, shown, tile.quad_m)
     layers, unreal = [], []
     for name, weight in zip(names, surface.weights(labels, len(names), tile.quad_m), strict=True):
         file = f"surface_{name}.png"
@@ -280,6 +281,7 @@ def build_surface(site: Site, imagery: Path, out: Path, covering: dict | None) -
         "layers": layers,
         "check_points": surface.check_points(unreal, names),
         "vertices": tile.vertices,
+        "albedo": surface.fit_albedo(surface.class_luminance(rgb, labels, shown, names)),
         **fit,
     }
 
@@ -570,6 +572,13 @@ def build(site_path: Path, out: Path, cache: Path | None = None) -> dict:
             key: macro[key] for key in ("file", "pixels", "low_pass_m", "filled_fraction", "hidden_fraction")
         },
         "surface": {key: value for key, value in classes.items() if key not in ("files", "cached")},
+        "lighting": light.lighting(
+            site.target_date,
+            covering["sun"]["fitted_solar_time"] if covering else None,
+            geo["origin_latitude_deg"],
+            geo["origin_longitude_deg"],
+            geo["true_north_from_grid_north_deg"],
+        ),
         "stencil_classes": STENCIL_CLASSES,
         "sources": sources,
     }

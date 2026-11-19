@@ -253,3 +253,62 @@ SETTINGS = {
     "edge_m": EDGE_M,
     "majority_cells": MAJORITY_CELLS,
 }
+
+# Reflectances of known surfaces, from published tables, used to turn photo brightness into albedo. Each is a
+# prior: (class, which quantile of its sunlit linear luminance, reflectance, the range it is quoted over, what it is).
+ALBEDO_ANCHORS = (
+    (GRASS, "p50", 0.15, (0.10, 0.20), "healthy grass"),
+    (PAVED, "p10", 0.075, (0.05, 0.10), "asphalt"),
+    (PAVED, "p90", 0.30, (0.25, 0.35), "aged concrete"),
+)
+# Used only when the tile has none of the anchoring surfaces.
+ALBEDO_SCALE_PRIOR = 0.5
+
+
+def linear_luminance(rgb: np.ndarray) -> np.ndarray:
+    """Relative luminance of sRGB bands in 0 to 255, in linear light."""
+    encoded = rgb[:3] / 255
+    linear = np.where(encoded <= 0.04045, encoded / 12.92, ((encoded + 0.055) / 1.055) ** 2.4)
+    return 0.2126 * linear[0] + 0.7152 * linear[1] + 0.0722 * linear[2]
+
+
+def class_luminance(rgb: np.ndarray, labels: np.ndarray, shown: np.ndarray, names: list[str]) -> dict[str, dict]:
+    """The 10th, 50th and 90th percentile of each class's sunlit luminance in linear light."""
+    if rgb.shape[0] < 3:
+        return {}
+    luminance = linear_luminance(rgb)
+    out = {}
+    for index, name in enumerate(names):
+        cells = luminance[(labels == index) & shown]
+        if len(cells):
+            out[name] = dict(zip(("p10", "p50", "p90"), (float(value) for value in np.quantile(cells, (0.1, 0.5, 0.9))), strict=True))
+    return out
+
+
+def fit_albedo(luminance: dict[str, dict]) -> dict:
+    """The one scale that turns the photo's linear colour into albedo, fitted to surfaces of known reflectance.
+
+    Sunlit ground in a photo is lit by the sun and sky of the day, so its colour is albedo times that light. The
+    scale is the geometric mean, over the anchors this tile has, of reflectance over measured luminance.
+    """
+    anchors = []
+    for name, quantile, reflectance, quoted, what in ALBEDO_ANCHORS:
+        measured = luminance.get(name, {}).get(quantile)
+        if measured:
+            anchors.append(
+                {"surface": what, "class": name, "quantile": quantile, "measured_luminance": measured, "reflectance_prior": reflectance, "quoted_range": list(quoted)}
+            )
+    if not anchors:
+        return {"scale": ALBEDO_SCALE_PRIOR, "anchors": [], "priors": [f"prior: albedo scale {ALBEDO_SCALE_PRIOR}; no anchoring surface in the tile"]}
+    ratios = np.log([anchor["reflectance_prior"] / anchor["measured_luminance"] for anchor in anchors])
+    scale = float(np.exp(ratios.mean()))
+    for anchor in anchors:
+        fitted = scale * anchor["measured_luminance"]
+        anchor["fitted_reflectance"] = fitted
+        anchor["within_quoted_range"] = anchor["quoted_range"][0] <= fitted <= anchor["quoted_range"][1]
+    return {
+        "scale": scale,
+        "anchors": anchors,
+        "log_spread": float(ratios.std()),
+        "priors": ["prior: the reflectances of healthy grass, asphalt and aged concrete (published ranges)"],
+    }
