@@ -114,6 +114,15 @@ describe("a viewer's projects", () => {
 		expect((await mine("parker")).projects).toEqual(["atlas", "harbor"]);
 	});
 
+	it("does not narrow to a project just because they looked at it", async () => {
+		await as("browser", opened("makkit"));
+
+		expect(await mine("browser")).toEqual({
+			projects: ["atlas", "harbor", "lumen", "makkit", "quiet"],
+			focused: false,
+		});
+	});
+
 	it("follows and hides by choice, and a cleared choice goes back to involvement", async () => {
 		await as("parker", choose("quiet", "follow"));
 		await as("parker", choose("harbor", "hide"));

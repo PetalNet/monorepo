@@ -6,6 +6,7 @@ import path from "node:path";
 
 import { ConfigProvider, Effect, Layer } from "effect";
 import { FetchHttpClient, HttpClient, HttpClientRequest } from "effect/http";
+import { TestClock } from "effect/testing";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 
 const tmp = mkdtempSync(path.join(tmpdir(), "ongoing-test-"));
@@ -301,6 +302,45 @@ describe("GitHubLive", () => {
 
 		expect(twice.map((result) => result.pulls.length)).toEqual([1, 1]);
 		expect(github.seen).toHaveLength(1);
+	});
+
+	it("waits for the refresh when the last result is hours old", async () => {
+		let title = "before";
+		const github = await serve(() => ({
+			data: {
+				search: {
+					pageInfo: { hasNextPage: false, endCursor: null },
+					nodes: [node(1, { title })],
+				},
+			},
+		}));
+		const read = Effect.map(ongoing({ show: "all" }), (result) => result.pulls[0]?.title);
+		const titles = await Effect.runPromise(
+			Effect.gen(function* () {
+				const first = yield* read;
+
+				title = "middle";
+				// two minutes: stale, so this read starts a refresh and still answers at once
+				yield* TestClock.adjust("2 minutes");
+
+				const stale = yield* read;
+
+				// let that refresh land, then leave the gallery alone for two hours
+				yield* TestClock.withLive(Effect.sleep("300 millis"));
+				title = "after";
+				yield* TestClock.adjust("2 hours");
+
+				return [first, stale, yield* read];
+			}).pipe(
+				Effect.provide(github.layer),
+				Effect.provideService(Viewer, { user: "parker" }),
+				Effect.provide(TestClock.layer()),
+			),
+		);
+
+		github.close();
+
+		expect(titles).toEqual(["before", "before", "after"]);
 	});
 
 	it("reports GitHub as unavailable instead of failing the view", async () => {

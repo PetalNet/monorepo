@@ -22,7 +22,10 @@ interface Interest {
 	/** The projects in the viewer's default view. */
 	readonly mine: ReadonlySet<string>;
 	readonly choices: ReadonlyMap<string, Choice>;
-	/** False when nothing involves the viewer, so `mine` is simply every project they did not hide. */
+	/**
+	 * True when a follow or an involvement narrows the view. Otherwise `mine` is every project the
+	 * viewer did not hide.
+	 */
 	readonly focused: boolean;
 	/** The viewer's GitHub login, lower-cased, when the config names one. */
 	readonly login: string | undefined;
@@ -40,9 +43,9 @@ export const isTheirs = (pull: Pull, login: string | undefined) =>
 
 /**
  * Which projects are the viewer's. A project is theirs when they follow it, or when they are
- * involved and have not hidden it: a page there asks them something, they answered one, they opened
- * it lately, or a page there links a pull request they wrote or review. Someone with no involvement
- * anywhere gets every project, hidden ones aside.
+ * involved and have not hidden it: a page there asks them something, they answered one, or a page
+ * there links a pull request they wrote or review. Once anything is theirs, a project they opened
+ * lately is too. Until then they get every project, hidden ones aside.
  */
 const interest = (pulls: readonly Pull[], artifacts: readonly Filed[]) =>
 	Effect.gen(function* () {
@@ -56,22 +59,27 @@ const interest = (pulls: readonly Pull[], artifacts: readonly Filed[]) =>
 		const since = Date.now() - OPENED_DAYS * 86_400_000;
 		const involved = new Set([
 			...read.involvement.filter((i) => i.asked || i.answered).map((i) => projectKey(i.collection)),
-			...read.rows
-				.filter((r) => r.opened_at && Date.parse(`${r.opened_at.replace(" ", "T")}Z`) > since)
-				.map((r) => r.project),
 			...artifacts
 				.filter((a) => a.links.some((l) => theirs.has(l.url)))
 				.map((a) => projectKey(a.collection)),
 		]);
-		const choices = new Map(read.rows.flatMap((r) => (r.choice ? [[r.project, r.choice]] : [])));
-		const all = new Set(artifacts.map((a) => projectKey(a.collection)));
-		const mine = [...all].filter(
-			(p) => choices.get(p) === "follow" || (involved.has(p) && !choices.has(p)),
+		const visited = new Set(
+			read.rows
+				.filter((r) => r.opened_at && Date.parse(`${r.opened_at.replace(" ", "T")}Z`) > since)
+				.map((r) => r.project),
 		);
-		const focused = mine.length > 0;
+		const choices = new Map(read.rows.flatMap((r) => (r.choice ? [[r.project, r.choice]] : [])));
+		const all = [...new Set(artifacts.map((a) => projectKey(a.collection)))];
+		const kept = (p: string) => choices.get(p) === "follow" || (involved.has(p) && !choices.has(p));
+		// Looking around is not involvement: a visit adds a project to a view that is already
+		// narrowed, and never narrows one.
+		const focused = all.some(kept);
+		const mine = focused
+			? all.filter((p) => kept(p) || (visited.has(p) && !choices.has(p)))
+			: all.filter((p) => choices.get(p) !== "hide");
 
 		return {
-			mine: new Set(focused ? mine : [...all].filter((p) => choices.get(p) !== "hide")),
+			mine: new Set(mine),
 			choices,
 			focused,
 			login,
