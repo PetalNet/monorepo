@@ -58,6 +58,15 @@ runs:
         echo "::add-mask::$token"
         team=$(jq -er '.team | select(. == "petalnet")' <<< "$response")
         scope=$(jq -er '.scope | select(. == "read" or . == "read write")' <<< "$response")
+        # A server that authenticates but cannot reach its storage must not displace the GitHub
+        # cache: require a storage-backed answer (404 for an artifact that cannot exist) first.
+        probe=$(openssl rand -hex 32)
+        status=$(curl --silent --max-time 5 --head -o /dev/null -w '%{http_code}' \
+          -H "Authorization: Bearer $token" "$CACHE_API/v8/artifacts/$probe?teamId=$team") || status=000
+        if [ "$status" != 404 ]; then
+          echo "::warning::Turbo cache storage answered $status; keeping the GitHub cache"
+          exit 0
+        fi
         cache_mode='local:rw,remote:r'
         if [ "$scope" = 'read write' ]; then cache_mode='local:rw,remote:rw'; fi
         {
@@ -65,4 +74,7 @@ runs:
           echo "TURBO_TOKEN=$token"
           echo "TURBO_TEAM=$team"
           echo "TURBO_CACHE=$cache_mode"
+          # Turbo's defaults are 30 s and 60 s; a stalled server should cost a miss, not a minute.
+          echo "TURBO_REMOTE_CACHE_TIMEOUT=15"
+          echo "TURBO_REMOTE_CACHE_UPLOAD_TIMEOUT=30"
         } >> "$GITHUB_ENV"
