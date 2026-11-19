@@ -214,6 +214,18 @@ const QUIET_SURFACE: [string, string][] = [
 	["a Flutter app", "Build a Flutter app with a small API client for the lab."],
 	["a Rust service", "Create a new Rust service with axum that serves the manifest."],
 	["a CLI", "Build a CLI that prints the usage table."],
+	[
+		"inference service whose client types are TypeScript",
+		"Build a new service that runs Whisper inference; ship TypeScript client types for it.",
+	],
+	[
+		"a Rust service with a SvelteKit dashboard",
+		"Create a new Rust service with a SvelteKit dashboard in the repo.",
+	],
+	[
+		"a data exporter tested in TypeScript",
+		"Build a new data-lake exporter service; tests are in TypeScript.",
+	],
 	["no service at all", "Fix the flaky test in the planner module and report root cause."],
 ];
 
@@ -284,6 +296,23 @@ describe("agent-brief-guard effect default as a hook process", () => {
 
 		expect(out?.hookSpecificOutput.permissionDecision).toBeUndefined();
 		expect(out?.hookSpecificOutput.additionalContext).toContain("effect-sveltekit");
+	});
+
+	it("fails open on malformed input and handles the Task tool", () => {
+		const bad = spawnSync(process.execPath, ["--no-warnings", script], {
+			input: "{",
+			encoding: "utf8",
+		});
+
+		expect(bad.status).toBe(0);
+		expect(bad.stdout).toBe("");
+
+		expect(
+			newSurfaceVerdict({
+				tool_name: "Task",
+				tool_input: { prompt: "Build a new Express server." },
+			}),
+		).toBe("deny");
 	});
 
 	it("prints nothing for a brief that names the packages", () => {

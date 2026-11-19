@@ -193,11 +193,11 @@ export function newSurfaceVerdict(input: HookInput | null): "deny" | "nudge" | n
 		return null;
 	}
 
-	if (JS_STACK.test(prompt)) {
-		return "deny";
+	if (NOT_JS_WEB.test(prompt)) {
+		return null;
 	}
 
-	return NOT_JS_WEB.test(prompt) ? null : "nudge";
+	return JS_STACK.test(prompt) ? "deny" : "nudge";
 }
 
 function effectDenial() {
