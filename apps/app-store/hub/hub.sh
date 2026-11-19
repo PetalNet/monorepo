@@ -4,6 +4,7 @@
 # app is and which APK is current; nothing here copies an APK.
 # Re-running with nothing changed rewrites the same files.
 set -euo pipefail
+shopt -s extglob
 
 here=$(cd "$(dirname "$0")" && pwd)
 store=${APP_STORE_DIR:?Set the store directory}
@@ -12,7 +13,14 @@ out=${HUB_DIR:-$store/hub}
 config=$here/hub.json
 
 empty='{"apps":[],"packages":{}}'
-index() { [[ -r $1/index-v1.json ]] && cat "$1/index-v1.json" || echo "$empty"; }
+# The public repo is hand-published; a missing index means a bad mount, so keep the old hub.
+# The store has no index until fdroid update has run once.
+index() {
+	if [[ -r $1/index-v1.json ]]; then cat "$1/index-v1.json"; else
+		[[ $2 == optional ]] || { echo "hub: no index in $1, leaving the hub as it was" >&2; exit 1; }
+		echo "$empty"
+	fi
+}
 declare -A dirs=([repo]=$public [store]=$store/repo)
 
 mkdir -p "$out/api/apps" "$out/apps"
@@ -22,6 +30,7 @@ put() {
 	local tmp
 	tmp=$(mktemp "$(dirname "$1")/.tmp.XXXXXX")
 	cat >"$tmp"
+	[[ -s $tmp ]] || { rm -f "$tmp"; echo "hub: refusing to publish an empty $1" >&2; exit 1; }
 	chmod 644 "$tmp"
 	mv -f "$tmp" "$1"
 }
@@ -36,8 +45,8 @@ link() {
 
 records=$(jq -n \
 	--slurpfile config "$config" \
-	--slurpfile repo <(index "${dirs[repo]}") \
-	--slurpfile store <(index "${dirs[store]}") '
+	--slurpfile repo <(index "${dirs[repo]}" required) \
+	--slurpfile store <(index "${dirs[store]}" optional) '
 	{repo: $repo[0], store: $store[0]} as $index
 	| $config[0] as $c
 	| [ $c.apps[] | . as $app
@@ -85,13 +94,22 @@ page_records=$(jq --argjson icons "$with_icons" '[.[]
 	| .icon_url = (if .id as $id | $icons | index($id) then "/apps/\(.id)/icon.png" else null end)
 	| del(.mount, .iconDir, .apk, .icon)]' <<<"$records")
 
-put "$out/api/apps.json" < <(jq '[.[] | del(.icon_url)]' <<<"$page_records")
+api=$(jq '[.[] | del(.icon_url)]' <<<"$page_records")
+put "$out/api/apps.json" <<<"$api"
 while IFS= read -r app; do
-	put "$out/api/apps/$(jq -r .id <<<"$app").json" < <(jq 'del(.icon_url)' <<<"$app")
+	one=$(jq 'del(.icon_url)' <<<"$app")
+	put "$out/api/apps/$(jq -r .id <<<"$app").json" <<<"$one"
 done < <(jq -c '.[]' <<<"$page_records")
 
+# Drop what the current indexes no longer list, so a removed app stops being served.
+keep=$(jq -r '.[].id' <<<"$records" | paste -sd'|')
+for path in "$out"/apps/* "$out"/api/apps/*.json; do
+	slug=$(basename "$path" .json)
+	[[ $slug == @($keep) ]] || rm -rf "$path"
+done
+
 host=$(jq -r .host "$config")
-put "$out/index.html" < <(jq -nr \
+page=$(jq -nr \
 	--rawfile template "$here/index.html" \
 	--arg host "$host" \
 	--argjson apps "$page_records" '
@@ -115,3 +133,4 @@ put "$out/index.html" < <(jq -nr \
 		+ (if $direct then "" else "<p class=\"note\"><span class=\"icon icon-lock\" aria-hidden=\"true\"></span>Private repository. F-Droid asks for the lab login.</p>" end)
 		+ "</li>";
 	$template | split("<!--APPS-->") | join([$apps[] | card] | join(""))')
+put "$out/index.html" <<<"$page"
