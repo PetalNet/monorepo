@@ -1,9 +1,11 @@
 // promise: the command line of the promise ledger (promise-ledger.ts).
 //
 //   promise sweep                       one run of ingest, record, remind and vault outbox (the scheduled job)
+//   promise replay <after-entry-id>      intentional local backfill; 0 reads all history, without injecting
 //   promise list [--all]                open items, or with --all the 50 most recent of any state
+//   promise list --review              open items awaiting explicit reconciliation
 //   promise show <id>                   one item in full
-//   promise done <id[,id...]> [evidence]    close: it was delivered
+//   promise done <id[,id...]> <evidence>    close: it was delivered
 //   promise drop <id[,id...]> <reason>      close: it no longer applies
 //   promise reopen <id[,id...]>             undo a close that was wrong; the item is due at once
 //   promise snooze <id[,id...]> <when>      new due time: 90m, 2h, 3d, tomorrow, "friday 9", 2026-01-02T09:00
@@ -73,16 +75,16 @@ function line(item: Item, now: number, config: Config) {
 		timeStyle: "short",
 	});
 	const open =
-		item.due > now
-			? `due in ${span(item.due - now)}`
-			: `OVERDUE ${span(now - item.due)}${item.escalated ? ", out of reminders" : ""}`;
+		item.due > now ? `due in ${span(item.due - now)}` : `OVERDUE ${span(now - item.due)}`;
 	const state = item.state === "open" ? open : `${item.state} by ${item.closed_by ?? "?"}`;
 	const where =
 		item.kind === "reminder"
 			? `reminder ${item.name ?? ""}`
 			: `${item.surface} ${item.room}`.trim();
 
-	return `#${String(item.id)} ${state} (${local.format(item.due)}) ${where}: ${clip(item.text, 110)}`;
+	const attention = item.state === "open" && item.kind === "promise" ? ` [${item.attention}]` : "";
+
+	return `#${String(item.id)} ${state}${attention} (${local.format(item.due)}) ${where}: ${clip(item.text, 110)}`;
 }
 
 function ids(text: string | undefined): number[] {
@@ -137,13 +139,27 @@ function main(argv: string[]) {
 			case "list": {
 				const items = rest.includes("--all")
 					? ledger.items("1 = 1 ORDER BY id DESC LIMIT 50 --")
-					: ledger.items();
+					: ledger.items(
+							rest.includes("--review")
+								? "state = 'open' AND attention = 'review'"
+								: "state = 'open'",
+						);
 
 				process.stdout.write(
 					items.length > 0
 						? `${items.map((i) => line(i, now, config)).join("\n")}\n`
 						: "nothing open\n",
 				);
+
+				break;
+			}
+
+			case "replay": {
+				if (!/^\d+$/u.test(rest[0] ?? "")) {
+					fail("usage: promise replay <after-entry-id>; 0 reads all history without injecting");
+				}
+
+				process.stdout.write(`${JSON.stringify(ledger.replay(Number(rest[0])))}\n`);
 
 				break;
 			}
@@ -160,14 +176,12 @@ function main(argv: string[]) {
 			case "drop": {
 				const evidence = rest.slice(1).join(" ").trim();
 
-				if (command === "drop" && !evidence) {
-					fail("drop needs a reason");
-				}
-
-				for (const id of ids(rest[0])) {
-					process.stdout.write(
-						`${line(ledger.closeItem(id, command === "done" ? "done" : "dropped", "command", evidence), now, config)}\n`,
-					);
+				for (const item of ledger.reconcile(
+					ids(rest[0]),
+					command === "done" ? "done" : "dropped",
+					evidence,
+				)) {
+					process.stdout.write(`${line(item, now, config)}\n`);
 				}
 
 				break;
@@ -224,7 +238,7 @@ function main(argv: string[]) {
 
 			default: {
 				fail(
-					"commands: sweep, list, show, done, drop, reopen, snooze, remind, pause, resume, status",
+					"commands: sweep, replay, list, show, done, drop, reopen, snooze, remind, pause, resume, status",
 				);
 			}
 		}
