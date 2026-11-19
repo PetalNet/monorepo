@@ -9,7 +9,12 @@ declare global {
 
 const prisma =
 	global.prisma ||
-	new PrismaClient({ adapter: new PrismaBetterSqlite3({ url: env.DATABASE_URL ?? "" }) });
+	new PrismaClient({
+		adapter: new PrismaBetterSqlite3(
+			{ url: env.DATABASE_URL ?? "" },
+			{ timestampFormat: "unixepoch-ms" },
+		),
+	});
 
 if (process.env.NODE_ENV !== "production") {
 	global.prisma = prisma;

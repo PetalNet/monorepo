@@ -121,7 +121,9 @@ describe("OIDC user mapping", () => {
 			stdio: "ignore",
 		});
 
-		prisma = new PrismaClient({ adapter: new PrismaBetterSqlite3({ url: databaseUrl }) });
+		prisma = new PrismaClient({
+			adapter: new PrismaBetterSqlite3({ url: databaseUrl }, { timestampFormat: "unixepoch-ms" }),
+		});
 	}, 60_000);
 
 	afterAll(async () => {
