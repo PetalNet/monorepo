@@ -7,7 +7,11 @@ const script = fileURLToPath(new URL("../../../apps/fold-cards/bin/bundle.py", i
 export function prepareDelegation(
 	prompt: string,
 ):
-	| { readonly kind: "ready"; readonly prompt: string; readonly sourceScope: "private" | "public-only" }
+	| {
+			readonly kind: "ready";
+			readonly prompt: string;
+			readonly sourceScope: "private" | "public-only";
+	  }
 	| { readonly kind: "refused"; readonly reason: string } {
 	if (!/^Project:\s*[a-zA-Z0-9][a-zA-Z0-9._/-]{0,127}\s*$/mu.test(prompt)) {
 		return {
@@ -31,9 +35,18 @@ export function prepareDelegation(
 		output = undefined;
 	}
 
-	if (result.status !== 0 || result.error || result.stderr || !output || typeof output !== "object" ||
-		!("prompt" in output) || typeof output.prompt !== "string" || !output.prompt.startsWith(prompt) ||
-		!("source_scope" in output) || (output.source_scope !== "private" && output.source_scope !== "public-only")) {
+	if (
+		result.status !== 0 ||
+		result.error ||
+		result.stderr ||
+		!output ||
+		typeof output !== "object" ||
+		!("prompt" in output) ||
+		typeof output.prompt !== "string" ||
+		!output.prompt.startsWith(prompt) ||
+		!("source_scope" in output) ||
+		(output.source_scope !== "private" && output.source_scope !== "public-only")
+	) {
 		return {
 			kind: "refused",
 			reason:
