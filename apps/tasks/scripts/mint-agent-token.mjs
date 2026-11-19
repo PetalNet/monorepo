@@ -70,9 +70,7 @@ try {
 const scopeDesc = [
 	// the mode is part of the scope, so it belongs in the receipt: a token you cannot
 	// tell apart from a write-capable one is a token you will misuse later
-	flags.readonly
-		? "READ-ONLY (get_ready, get)"
-		: "READ-WRITE (may publish and edit)",
+	flags.readonly ? "READ-ONLY (get_ready, get)" : "READ-WRITE (may publish and edit)",
 	flags.assignee ? `assignee=${flags.assignee}` : null,
 	flags.projects ? `projects=${flags.projects}` : null,
 ]
