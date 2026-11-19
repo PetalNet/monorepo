@@ -4,8 +4,6 @@
 		"config:best-practices",
 		"preview:dockerCompose",
 		"preview:dockerVersions",
-		":automergeAll",
-		":disableRateLimiting",
 		":pinAllExceptPeerDependencies",
 		":preserveSemverRanges",
 		":semanticCommits"
@@ -14,6 +12,8 @@
 	"minimumReleaseAge": "7 days",
 	"labels": ["dependencies"],
 	"automergeStrategy": "squash",
+	"prConcurrentLimit": 8,
+	"prHourlyLimit": 4,
 	"customManagers": [
 		{
 			"description": "flake.nix pins the devShell's pnpm to the registry tarball version; it must equal packageManager.",
@@ -25,6 +25,32 @@
 		}
 	],
 	"packageRules": [
+		{
+			"description": "Non-major updates merge themselves once the required check (finish) is green. Majors are excluded below: they open a PR that someone migrates and merges, instead of sitting red with automerge armed.",
+			"matchUpdateTypes": ["minor", "patch", "pin", "pinDigest", "digest", "lockFileMaintenance"],
+			"automerge": true
+		},
+		{
+			"description": "Majors can need code changes, so they never automerge. prConcurrentLimit stops them piling up.",
+			"matchUpdateTypes": ["major"],
+			"automerge": false
+		},
+		{
+			"description": "matrix-sdk-sqlite requires a specific rusqlite and Cargo allows one libsqlite3-sys links version, so rusqlite moves only with matrix-sdk (#290 pinned 0.40; #512 wanted 0.42 and could not resolve). Lift when matrix-sdk-sqlite accepts a newer rusqlite.",
+			"matchPackageNames": ["rusqlite"],
+			"allowedVersions": "<0.41"
+		},
+		{
+			"description": "The Dart package, the Rust crate and the generated bindings (apps/point/app/rust/src/frb_generated.rs) must be one version, and Renovate does not regenerate the bindings. Bump together and run flutter_rust_bridge_codegen on the branch before merging.",
+			"matchPackageNames": ["flutter_rust_bridge"],
+			"groupName": "flutter_rust_bridge",
+			"automerge": false
+		},
+		{
+			"description": "very_good_analysis 11 needs Dart ^3.13 (Flutter 3.50); CI pins Flutter 3.44.6. Lift this with the Flutter bump.",
+			"matchPackageNames": ["very_good_analysis"],
+			"allowedVersions": "<11"
+		},
 		{
 			"description": "OkHttp 5.5 requires compileSdk 37 and apps/janet-call-android compiles against 35; #705 broke its build. Lift this with the compileSdk bump.",
 			"matchPackageNames": ["com.squareup.okhttp3:okhttp"],
