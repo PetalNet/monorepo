@@ -2,9 +2,11 @@
 
 `route pick --dry --kind sweep --tier C --data-class public brief.txt` ranks offers without launching a builder. `pick` reads a brief file.
 
-`route run --kind sweep --tier C --data-class public 'Reply with exactly: ok'` launches the highest eligible offer in the current working directory. `run` accepts brief text. An empty tier steps one tier up, then one down. Providers without an execution adapter are excluded before tier selection.
+`route run --kind sweep --tier C --data-class public brief.txt` reads a brief file and launches the highest eligible offer in the current working directory. Each brief needs a registered `Project: <id>` line. Before selection, the router attaches project pointers and requires the shared secret scanner to approve the raw sources and final prompt. Private project bundles raise public runs to sensitive; a separately registered public-only scope reads no private indexes. See the [bundle configuration](../../apps/fold-cards/README.md#project-bundles). A public-only scope does not sandbox the worker's own tools or filesystem access. An empty tier steps one tier up, then one down. Providers without an execution adapter are excluded before tier selection.
 
 Adapters use agy (effort encoded in the slug and passed with `--effort`) or Codex (brief on stdin, explicit effort in `model_reasoning_effort`). Both use the caller's existing credentials and permissions. `--allow-claude` permits Claude selection; it prints a handoff and exits 5 without invoking Claude. Other hard filters still apply.
+
+`--not-vendor <openai|google|anthropic>` excludes that model maker for one invocation, including dry picks, regardless of the hosting plan. Models with an unknown maker are excluded when this flag is set. It only removes offers; quota and data-class rules still apply.
 
 Codex's plan enables paid overflow. Quota windows below the floor do not exclude it, but auth errors and actual pool cooldowns still do.
 

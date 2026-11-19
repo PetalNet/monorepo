@@ -9,6 +9,14 @@ import { POOLS, offersFrom, pick, type State, type Catalog } from "./pick.ts";
 import { run } from "./run.ts";
 import { markUnavailable, readAvailability, seedLedger } from "./state.ts";
 
+vi.mock("@petalnet/harness-hooks/context-bundle", () => ({
+	prepareDelegation: (prompt: string) => ({
+		kind: "ready",
+		prompt,
+		sourceScope: prompt.startsWith("private:") ? "private" : "public-only",
+	}),
+}));
+
 const dirs: string[] = [];
 
 afterEach(async () => {
@@ -76,6 +84,23 @@ async function events(dir: string) {
 			return Object.fromEntries(Object.entries(value)) as Record<string, unknown>;
 		});
 }
+
+it("keeps private bundles away from pools that train on data", async () => {
+	const options = await fixture();
+	const attempts: string[] = [];
+	const result = await run({
+		...options,
+		brief: "private: synthetic project",
+		launch: (offer) => {
+			attempts.push(offer.id);
+
+			return { code: 0, out: "ok", log: "" };
+		},
+	});
+
+	expect(result.code).toBe(0);
+	expect(attempts).toEqual(["gpt-test"]);
+});
 
 it.each([
 	["429 RESOURCE_EXHAUSTED Resets in 2h 3m", "quota", ["gemini-first-high", "gpt-test"]],

@@ -4,6 +4,8 @@ import { mkdir, stat, writeFile, appendFile } from "node:fs/promises";
 import path from "node:path";
 import { setTimeout } from "node:timers/promises";
 
+import { prepareDelegation } from "@petalnet/harness-hooks/context-bundle";
+
 import {
 	adapterErrors,
 	classify,
@@ -13,6 +15,7 @@ import {
 	resetTime,
 	type Execution,
 } from "./adapters.ts";
+import { effectiveDataClass } from "./data-class.ts";
 import { pick, type Catalog, type Offer, type State } from "./pick.ts";
 import { appendEvent, markUnavailable, readAvailability, seedLedger } from "./state.ts";
 
@@ -34,11 +37,22 @@ interface RunOptions {
 export async function run(
 	options: RunOptions,
 ): Promise<{ runId: string; code: number; outputPath: string }> {
-	const { catalog, state, kind, tier, brief, cwd, dir } = options;
+	const { catalog, kind, tier, cwd, dir } = options;
 
-	if (!brief.trim() || !(await stat(cwd)).isDirectory()) {
+	if (!options.brief.trim() || !(await stat(cwd)).isDirectory()) {
 		throw new Error("invalid brief or workdir");
 	}
+
+	const prepared = prepareDelegation(options.brief);
+
+	if (prepared.kind === "refused") throw new Error(prepared.reason);
+
+	const brief = prepared.prompt;
+	const initialClass =
+		prepared.sourceScope === "private" && options.state.dataClass === "public"
+			? "sensitive"
+			: options.state.dataClass;
+	const state: State = { ...options.state, dataClass: effectiveDataClass(initialClass, brief) };
 
 	await seedLedger(dir, options.legacy);
 	const runId = crypto.randomUUID();
@@ -77,6 +91,15 @@ export async function run(
 			const selected = selection.ranked[0];
 
 			if (!selected?.offer.pool) {
+				if (state.dataClass === "parcs") {
+					code = 5;
+
+					tail =
+						"Claude handoff: no eligible effort; caller must launch explicitly on the claude plan.";
+
+					await writeFile(outputPath, tail, { mode: 0o600 });
+				}
+
 				break;
 			}
 

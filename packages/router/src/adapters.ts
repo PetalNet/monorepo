@@ -118,7 +118,7 @@ export function execute(
 			cwd,
 			stdio: ["pipe", "pipe", "pipe"],
 			// Builders run for hours; a 30-minute cap killed them mid-PR (2026-11-19).
-			timeout: Number(process.env.ROUTE_TIMEOUT_MIN ?? 360) * 60 * 1000,
+			timeout: Number(process.env["ROUTE_TIMEOUT_MIN"] ?? 360) * 60 * 1000,
 		});
 		let out = "";
 		let log = "";

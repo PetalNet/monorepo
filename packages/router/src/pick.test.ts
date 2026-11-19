@@ -71,6 +71,41 @@ const why = (result: ReturnType<typeof pick>, id: string) =>
 	result.excluded.find((e) => e.offer.id === id)?.reasons.join("; ") ?? "";
 
 describe("pick", () => {
+	it("excludes the maker across hosts and fails closed for unknown makers", () => {
+		const candidates: Catalog = {
+			tiers: TIERS,
+			models: [
+				{ id: "gpt-6-astra", provider: "agy-gpt", score: 61 },
+				{ id: "gpt-oss-120b", provider: "local", score: 60 },
+				{ id: "gemini-4-neon", provider: "gemini", score: 59 },
+				{ id: "mystery-model", provider: "local", score: 58 },
+			],
+		};
+		const result = pick(
+			candidates,
+			"code",
+			"S",
+			state({
+				notVendor: "openai",
+				blocks: [],
+				pools: POOLS.map(({ service: _service, ...pool }) => pool),
+				reports: {},
+			}),
+		);
+
+		expect(models(result)).toEqual(["gemini-4-neon"]);
+
+		for (const [model, reason] of [
+			["gpt-6-astra", "excluded maker: openai"],
+			["gpt-oss-120b", "excluded maker: openai"],
+			["mystery-model", "model maker unknown"],
+		]) {
+			expect(
+				result.excluded.find((row) => row.offer.model === model)?.reasons.join("; "),
+			).toContain(reason);
+		}
+	});
+
 	it("ranks open offers in the tier band and names model, effort, plan and pool", () => {
 		const result = pick(catalog, "code", "S", state());
 

@@ -7,6 +7,7 @@ import { evidenceKey, EFFORTS, scoreEvidence, type Evidence, type Score } from "
 import type { Availability } from "./state.ts";
 
 export type DataClass = "public" | "sensitive" | "parcs";
+export type Vendor = "openai" | "google" | "anthropic";
 
 export interface CatalogModel {
 	id: string;
@@ -126,6 +127,18 @@ export function familyOf(id: string): string {
 	return /^[a-z]+/u.exec(id)?.[0] ?? id;
 }
 
+function vendorOf(family: string): Vendor | "other" | undefined {
+	if (["gpt", "gpt-oss", "o", "codex"].includes(family)) return "openai";
+
+	if (["gemini", "gemma"].includes(family)) return "google";
+
+	if (["claude", "fable"].includes(family)) return "anthropic";
+
+	if (["qwen", "kimi", "deepseek", "glm", "command"].includes(family)) return "other";
+
+	return undefined;
+}
+
 /**
  * Where each family's maker is based. Shown, never filtered on: the host decides (see
  * offerReasons).
@@ -226,6 +239,7 @@ export function offersFrom(catalog: Catalog, kind: string, pools: Pool[]): Offer
 }
 
 export interface State {
+	notVendor?: Vendor;
 	evidence?: Evidence;
 	nowMs: number;
 	dataClass: DataClass;
@@ -359,6 +373,13 @@ function offerReasons(o: Offer, pools: Map<Pool, PoolState>, state: State): stri
 		if (b.untilMs > state.nowMs && (b.family === o.family || b.pool === pool.id)) {
 			reasons.push(`${b.why} until ${clock(b.untilMs)}`);
 		}
+	}
+
+	if (state.notVendor) {
+		const vendor = vendorOf(o.family);
+
+		if (!vendor) reasons.push("model maker unknown for vendor exclusion");
+		else if (vendor === state.notVendor) reasons.push(`excluded maker: ${vendor}`);
 	}
 
 	if (pool.explicitOnly && state.dataClass !== "parcs") {

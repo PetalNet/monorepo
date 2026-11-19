@@ -19,27 +19,19 @@ import {
 } from "@petalnet/harness-hooks/quota-sources";
 
 import { redact } from "./adapters.ts";
+import { effectiveDataClass } from "./data-class.ts";
 import { evidenceKey, EFFORTS, halfLifeDays, readEvidence } from "./evidence.ts";
 import { readOpenEvidence } from "./open-evidence.ts";
-import {
-	BLOCKS,
-	POOLS,
-	PLANS,
-	type Catalog,
-	type DataClass,
-	type Pick,
-	offersFrom,
-	pick,
-} from "./pick.ts";
+import { BLOCKS, POOLS, PLANS, type Catalog, type Pick, type State, offersFrom, pick } from "./pick.ts";
 import { run } from "./run.ts";
 import { readAvailability } from "./state.ts";
 
 const USAGE =
-	"usage: route pull-evidence | route <pick --dry|explain|run> --kind <code|ui|research|write|sweep|cyber|architecture> --tier <S|A|B|C|top|mid|fast|cheap> --data-class <public|sensitive|parcs> <brief-file for pick; brief text for run>";
+	"usage: route pull-evidence | route <pick --dry|explain|run> --kind <code|ui|research|write|sweep|cyber|architecture> --tier <S|A|B|C|top|mid|fast|cheap> --data-class <public|sensitive|parcs> [--not-vendor <openai|google|anthropic>] <brief-file>";
 const TIER_ALIASES: Record<string, string> = { top: "S", mid: "A", fast: "B", cheap: "C" };
 const KINDS = new Set(["code", "ui", "research", "write", "sweep", "cyber", "architecture"]);
-const SECRET_RE =
-	/gh[pousr]_[A-Za-z0-9]{20,}|github_pat_\w{20,}|sk-[A-Za-z0-9_-]{20,}|AKIA[0-9A-Z]{16}|-----BEGIN [A-Z ]*PRIVATE KEY/u;
+
+export { effectiveDataClass } from "./data-class.ts";
 
 /**
  * A missing file means "none"; a corrupt one is an error, so a broken cooldown list never reads as
@@ -76,15 +68,6 @@ export function readBrief(file: string | undefined): { text: string } | { error:
 	}
 
 	return text.trim() === "" ? { error: `brief ${file} is empty` } : { text };
-}
-
-/** A brief carrying a credential is sensitive whatever the flag says; the class only ever rises. */
-export function effectiveDataClass(flag: DataClass, brief: string): DataClass {
-	if (flag === "parcs" || /\b(?:PARCS|Bridgeton)\b/iu.test(brief)) {
-		return "parcs";
-	}
-
-	return SECRET_RE.test(brief) ? "sensitive" : flag;
 }
 
 export function formatPick(result: Pick, kind: string, tier: string): string {
@@ -191,6 +174,7 @@ async function main(argv: string[]): Promise<number> {
 				kind: { type: "string" },
 				tier: { type: "string" },
 				"data-class": { type: "string" },
+				"not-vendor": { type: "string" },
 			},
 		});
 	} catch {
@@ -204,13 +188,18 @@ async function main(argv: string[]): Promise<number> {
 	const { kind = "" } = values;
 	const tier = TIER_ALIASES[values.tier ?? ""] ?? values.tier ?? (command === "explain" ? "S" : "");
 	const flagClass = values["data-class"] ?? (command === "explain" ? "public" : undefined);
+	const notVendor = values["not-vendor"];
 
 	if (
 		(command !== "pick" && command !== "run" && command !== "explain") ||
 		(command === "pick" && !values.dry) ||
-		(command === "run" && values.dry) ||
+		(command === "run" && (values.dry || positionals.length !== 2)) ||
 		!KINDS.has(kind) ||
 		!tier ||
+		(notVendor !== undefined &&
+			notVendor !== "openai" &&
+			notVendor !== "google" &&
+			notVendor !== "anthropic") ||
 		(flagClass !== "public" && flagClass !== "sensitive" && flagClass !== "parcs")
 	) {
 		process.stderr.write(`${USAGE}\n`);
@@ -218,7 +207,7 @@ async function main(argv: string[]): Promise<number> {
 		return 2;
 	}
 
-	const brief = command === "run" ? { text: positionals.slice(1).join(" ") } : readBrief(briefFile);
+	const brief = readBrief(briefFile);
 
 	if ("text" in brief && !brief.text.trim()) {
 		return 2;
@@ -269,10 +258,33 @@ async function main(argv: string[]): Promise<number> {
 			? POOLS.map(({ explicitOnly: _explicit, ...pool }) => pool)
 			: POOLS,
 		blocks: BLOCKS,
+		...(notVendor === "openai" || notVendor === "google" || notVendor === "anthropic"
+			? { notVendor }
+			: {}),
 		floorPct: Number(process.env["FLOOR"] ?? 15),
 		runnableOnly: command === "run",
 		availability: await readAvailability(`${home}/.local/state/router`),
-	};
+	} satisfies State;
+
+	if (command === "run") {
+		const executed = await run({
+			catalog,
+			state,
+			kind,
+			tier,
+			brief: brief.text,
+			cwd: process.cwd(),
+			dir: `${home}/.local/state/router`,
+			legacy: `${home}/.local/state/agy-build`,
+			injectPath: `${process.env["HERMES_HOME"] ?? `${home}/.hermes`}/plugins/hermes-cc-link/bin/cc-link-inject`,
+			report: (line) => process.stdout.write(`${redact(line)}\n`),
+		});
+
+		process.stdout.write(readFileSync(executed.outputPath, "utf8"));
+
+		return executed.code;
+	}
+
 	const result = pick(catalog, kind, tier, state);
 
 	process.stdout.write(
@@ -328,10 +340,7 @@ async function main(argv: string[]): Promise<number> {
 		}
 	}
 
-	if (
-		dataClass === "parcs" ||
-		(command !== "run" && result.ranked[0]?.offer.pool?.plan === "claude")
-	) {
+	if (dataClass === "parcs" || result.ranked[0]?.offer.pool?.plan === "claude") {
 		const handoff = result.ranked[0]?.offer;
 
 		process.stdout.write(
@@ -339,25 +348,6 @@ async function main(argv: string[]): Promise<number> {
 		);
 
 		return 5;
-	}
-
-	if (command === "run") {
-		const executed = await run({
-			catalog,
-			state,
-			kind,
-			tier,
-			brief: brief.text,
-			cwd: process.cwd(),
-			dir: `${home}/.local/state/router`,
-			legacy: `${home}/.local/state/agy-build`,
-			injectPath: `${process.env["HERMES_HOME"] ?? `${home}/.hermes`}/plugins/hermes-cc-link/bin/cc-link-inject`,
-			report: (line) => process.stdout.write(`${redact(line)}\n`),
-		});
-
-		process.stdout.write(readFileSync(executed.outputPath, "utf8"));
-
-		return executed.code;
 	}
 
 	return result.ranked.length > 0 ? 0 : 3;

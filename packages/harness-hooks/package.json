@@ -4,7 +4,8 @@
 	"private": true,
 	"type": "module",
 	"exports": {
-		"./quota-sources": "./src/quota-sources.ts"
+		"./quota-sources": "./src/quota-sources.ts",
+		"./context-bundle": "./src/context-bundle.ts"
 	},
 	"scripts": {
 		"typecheck": "effect-tsgo tsrs -b",
