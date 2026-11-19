@@ -1,6 +1,6 @@
 // Links an artifact carries out to GitHub: the PR or issue it demos or decides, and repo and commit
 // refs. Stored as a small JSON list of { url, kind, label } on the artifact.
-export const LINK_KINDS = ["pr", "issue", "commit", "repo", "link"];
+const LINK_KINDS = ["pr", "issue", "commit", "repo", "link"];
 
 const URL_FORM =
 	/^https:\/\/github\.com\/([\w.-]+)\/([\w.-]+?)(?:\/(?:(pull|issues)\/(\d+)(?:\/(?:files|commits|checks))?|commit\/([0-9a-f]{7,40})))?\/?$/i;
@@ -48,7 +48,7 @@ const KIND = { pull: "pr", issues: "issue", commit: "commit", repo: "repo" };
 // One link from Janet's page JSON: { url, kind?, label? }, or just the reference string. GitHub
 // references get their kind and a label ("owner/repo#12") for free; any other https URL is kept
 // as a plain link. Anything else (http, javascript:, data:) is refused.
-export function normalizeLink(input) {
+function normalizeLink(input) {
 	const given = typeof input === "string" ? { url: input } : input;
 	const ref = parseGitHub(given?.url);
 	const url = ref ? toUrl(ref) : httpsUrl(given?.url);
