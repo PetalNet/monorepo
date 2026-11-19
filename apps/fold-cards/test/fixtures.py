@@ -28,6 +28,8 @@ def bundle_config(directory):
             db.execute('INSERT INTO claim VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?)', (id, 'personal', 't-demo', 'Demo', 'Decision',
                        'Never emit this decision text', status, 'DIRECT', None, 'fresh',
                        json.dumps([{'id': 'doc-00000001', 'freshness': 'fresh', 'passage': 'p-demo'}]), date, date))
+        db.execute('INSERT INTO passage VALUES(?,?,?,?,?,?,?,?)',
+                   ('doc-00000001', 'p-demo', 'shared', 'memory', 'Demo', 'Evidence', 'Supporting evidence', 'fresh'))
     with closing(sqlite3.connect(paths['history_db'])) as db, db:
         db.executescript('''CREATE TABLE entry(id INTEGER PRIMARY KEY, ts REAL, surface TEXT, channel TEXT, branch TEXT,
             session TEXT, direction TEXT, sender TEXT, text TEXT, audience TEXT, ref TEXT);

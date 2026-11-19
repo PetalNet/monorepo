@@ -97,14 +97,17 @@ def bundle(brief, config_path):
             out['decisions'].append({'pointer': f"vault:{row['tier']}/claim/{row['id']}",
                                      'updated': row['updated'], 'status': 'active'})
             for source in json.loads(row['sources']):
-                out['documents'].append({'pointer': f"vault:{row['tier']}/source/{source['id']}"
+                indexed = db.execute("SELECT tier FROM passage WHERE source=? AND freshness NOT IN ('replaced','retracted') LIMIT 1",
+                                     (source['id'],)).fetchone()
+                if indexed:
+                    out['documents'].append({'pointer': f"vault:{indexed['tier']}/source/{source['id']}"
                                          + (f"#^{source['passage']}" if source.get('passage') else ''),
                                          'freshness': source['freshness']})
                 if source.get('url'):
                     refs.update(GITHUB.findall(source['url']))
         rows = db.execute('SELECT p.source, p.passage, p.tier, p.freshness FROM passage_fts f '
                           'JOIN passage p ON p.source=f.source AND p.passage=f.passage '
-                          'WHERE passage_fts MATCH ? ORDER BY rank LIMIT ?', (query, LIMIT)).fetchall()
+                          "WHERE passage_fts MATCH ? AND p.freshness NOT IN ('replaced','retracted') ORDER BY rank LIMIT ?", (query, LIMIT)).fetchall()
         for row in rows:
             out['documents'].append({'pointer': f"vault:{row['tier']}/source/{row['source']}#^{row['passage']}",
                                      'freshness': row['freshness']})
@@ -182,7 +185,7 @@ def prepare(brief, config_path):
 
 
 def open_pointer(pointer, project, config_path):
-    """Resolve exact source IDs. No search, inferred summary, or second index is involved."""
+    """Resolve exact source IDs within the project's configured scope."""
     config, scope = configuration(config_path, project)
     if scope.get('source_scope') == 'public-only':
         raise BundleError('Public-only projects do not resolve private pointers.')
@@ -192,12 +195,21 @@ def open_pointer(pointer, project, config_path):
         tier, kind, id = address.split('/')
         with closing(connect(config['vault_db'])) as db:
             if kind == 'claim':
-                row = db.execute('SELECT text FROM claim WHERE tier=? AND id=?', (tier, id)).fetchone()
+                row = db.execute("SELECT text FROM claim WHERE tier=? AND id=? AND status='active' "
+                                 f"AND topic IN ({marks(scope['vault_topics'])})",
+                                 (tier, id, *scope['vault_topics'])).fetchone()
                 text = row['text'] if row else None
             elif kind == 'source':
-                rows = db.execute('SELECT text FROM passage WHERE tier=? AND source=?' + (' AND passage=?' if passage else '')
-                                  + ' ORDER BY passage', (tier, id, passage) if passage else (tier, id)).fetchall()
-                text = '\n\n'.join(r['text'] for r in rows) if rows else None
+                linked = db.execute("SELECT 1 FROM claim c, json_each(c.sources) s WHERE c.status='active' "
+                                    f"AND c.topic IN ({marks(scope['vault_topics'])}) AND json_extract(s.value, '$.id')=? LIMIT 1",
+                                    (*scope['vault_topics'], id)).fetchone()
+                matching = linked or db.execute('SELECT 1 FROM passage_fts WHERE passage_fts MATCH ? AND source=? LIMIT 1',
+                                                 (match(scope['query']), id)).fetchone()
+                if matching:
+                    rows = db.execute("SELECT text FROM passage WHERE tier=? AND source=? AND freshness NOT IN ('replaced','retracted')"
+                                      + (' AND passage=?' if passage else '') + ' ORDER BY passage',
+                                      (tier, id, passage) if passage else (tier, id)).fetchall()
+                    text = '\n\n'.join(r['text'] for r in rows) if rows else None
     elif pointer.startswith(('event:', 'hermes:entry/')):
         with closing(connect(config['history_db'])) as db:
             by_event = pointer.startswith('event:')
@@ -228,7 +240,7 @@ def open_pointer(pointer, project, config_path):
                 if row:
                     with open(path) as f:
                         text = f.read(outbound.MAX_BYTES + 1)
-            else:
+            elif 'fold' in scope['fold_sources']:
                 row = db.execute('SELECT transcript, start, end FROM card WHERE pointer=?', (pointer,)).fetchone()
                 if row:
                     with open(row['transcript'], 'rb') as f:

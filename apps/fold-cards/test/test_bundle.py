@@ -27,6 +27,7 @@ class Bundle(unittest.TestCase):
         payload = json.loads(result.stdout.split('newest first):\n')[1])
         self.assertEqual([d['pointer'] for d in payload['decisions']], ['vault:personal/claim/c-00000002'])
         self.assertTrue(payload['documents'])
+        self.assertEqual(payload['documents'][0]['pointer'], 'vault:shared/source/doc-00000001#^p-demo')
         self.assertEqual([x['start'] for x in payload['conversations']], ['event:$event2', 'event:$event1', 'transcript:s1:uuid1'])
         self.assertEqual(payload['agent_sessions'][0]['pointer'], 'agentsview:session/session1?msg=7')
         self.assertEqual(payload['fold_cards'][0]['pointer'], 'session1:uuid2')
@@ -94,6 +95,46 @@ class Bundle(unittest.TestCase):
             denied = subprocess.run(['node', '--no-warnings', str(hook)], input=json.dumps(payload),
                                     env=self.env, capture_output=True, text=True)
             self.assertEqual(json.loads(denied.stdout)['hookSpecificOutput']['permissionDecision'], 'deny')
+
+    def test_open_respects_active_topics_and_fold_sources(self):
+        import sqlite3
+        def opened(pointer):
+            return subprocess.run([sys.executable, '-B', '-I', str(BIN / 'bundle.py'), '--open', pointer,
+                                   '--project', 'demo'], env=self.env, capture_output=True, text=True)
+        with closing(sqlite3.connect(Path(self.temp.name) / 'vault.db')) as db, db:
+            db.execute("INSERT INTO claim SELECT 'c-other', tier, 't-other', title, heading, text, status, source_type, verdict, freshness, sources, created, updated FROM claim WHERE id='c-00000002'")
+        for pointer in ('vault:personal/claim/c-other', 'vault:personal/claim/c-00000001'):
+            result = opened(pointer)
+            self.assertEqual((result.returncode, result.stdout), (2, ''))
+        self.assertEqual(opened('vault:personal/claim/c-00000002').returncode, 0)
+        transcript = Path(self.temp.name) / 'card.jsonl'
+        transcript.write_text('Synthetic card content')
+        with closing(sqlite3.connect(Path(self.temp.name) / 'fold.db')) as db, db:
+            db.execute('INSERT INTO card VALUES(?,?,?,?,?,?,?,?,?)', ('session1:uuid2', 'session1', str(transcript),
+                       0, transcript.stat().st_size, '2026-11-01', 'assistant', '', 'Synthetic card content'))
+        self.assertEqual(opened('session1:uuid2').returncode, 0)
+        config = json.loads(self.config.read_text())
+        config['projects']['demo']['fold_sources'] = []
+        self.config.write_text(json.dumps(config))
+        result = opened('session1:uuid2')
+        self.assertEqual((result.returncode, result.stdout), (2, ''))
+
+    def test_open_sources_requires_topic_link_or_project_query(self):
+        import sqlite3
+        with closing(sqlite3.connect(Path(self.temp.name) / 'vault.db')) as db, db:
+            for id, text, freshness in [('unrelated', 'Unrelated text', 'fresh'),
+                                        ('matching', 'Demo project evidence', 'fresh'),
+                                        ('retired', 'Demo project obsolete evidence', 'retracted')]:
+                db.execute('INSERT INTO passage VALUES(?,?,?,?,?,?,?,?)',
+                           (id, 'p', 'shared', 'memory', 'Source', '', text, freshness))
+                db.execute('INSERT INTO passage_fts VALUES(?,?,?,?)', (id, 'p', text, ''))
+        for id, code in [('doc-00000001', 0), ('matching', 0), ('unrelated', 2), ('retired', 2)]:
+            result = subprocess.run([sys.executable, '-B', '-I', str(BIN / 'bundle.py'), '--open',
+                                     'vault:shared/source/' + id, '--project', 'demo'],
+                                    env=self.env, capture_output=True, text=True)
+            self.assertEqual(result.returncode, code, result.stderr)
+            if code:
+                self.assertEqual(result.stdout, '')
 
 
 if __name__ == '__main__':
