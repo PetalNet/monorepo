@@ -78,6 +78,7 @@
 										><Icon name="lock" size={11} /> private</span
 									>{/if}
 								<span class="dim age">{ago(a.updated_at)}</span>
+								{#each a.links as l (l.url)}<span class="gh" title={l.url}>{l.label}</span>{/each}
 							</span>
 						</span>
 						<span class="card-arrow"><Icon name="arrow" size={16} /></span>
