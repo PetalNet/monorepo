@@ -157,7 +157,9 @@ const busybox = ["/bin/busybox", "/usr/bin/busybox"].find((candidate) => existsS
 it.skipIf(!busybox && !environmentCI)(
 	"reports a cap above 2 GiB without overflowing under busybox awk",
 	async () => {
-		if (!busybox) throw new Error("busybox is required to run this test in CI");
+		if (!busybox) {
+			throw new Error("busybox is required to run this test in CI");
+		}
 
 		await withDirectory(async (directory) => {
 			const data = path.join(directory, "data");
@@ -172,7 +174,7 @@ it.skipIf(!busybox && !environmentCI)(
 			const result = evict(data, {
 				CACHE_MAX_BYTES: String(40 * 1024 ** 3),
 				CACHE_STATUS_FILE: status,
-				PATH: `${bin}:${environmentPath}`,
+				PATH: `${bin}:${environmentPath ?? ""}`,
 			});
 
 			expect(result.status, result.stderr).toBe(0);
