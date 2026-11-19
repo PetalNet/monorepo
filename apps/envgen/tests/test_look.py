@@ -28,7 +28,8 @@ def test_the_albedo_scale_puts_the_median_paving_at_the_reflectance_of_concrete_
         tmp_path,
         grass,
         grey(0.2875 * lit),
-        [(40, 0, 80, 126, grey(0.2875 * lit)), (80, 0, 90, 126, grey(0.0878 * lit))],
+        # Of the paving, 36 % is asphalt, 48 % concrete and 16 % white: the median is concrete, the 90th percentile is not.
+        [(40, 0, 58, 126, grey(0.0878 * lit)), (58, 0, 82, 126, grey(0.2875 * lit)), (82, 0, 90, 126, grey(0.4 * lit))],
     )
 
     fit = manifest["surface"]["albedo"]
