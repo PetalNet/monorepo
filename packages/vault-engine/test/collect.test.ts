@@ -21,6 +21,8 @@ const PAGE = `<!doctype html><html><head><title>Tab title</title><style>h1 { col
 <svg viewBox="0 0 1 1"><text>vector label</text></svg>
 <h2>Glaze</h2>
 <ul><li>Celadon over <a href="https://example.org/celadon">the celadon notes</a></li><li>Tenmoku</li></ul>
+<div data-payload="x>smuggled">Unloading takes a day.</div>
+<button onclick="if(a>b){handler()}">Fire</button>
 <script>const hidden = "scripted words";</script>
 <p>After the script.</p>
 <script>let unclosed = "never shown";
@@ -141,6 +143,8 @@ describe("a collected gallery page", () => {
 					"Bisque firing runs at cone 04 & takes nine hours.",
 					"## Glaze",
 					"- Celadon over [the celadon notes](https://example.org/celadon)\n- Tenmoku",
+					"Unloading takes a day.",
+					"Fire",
 					"After the script.",
 				].join("\n\n"),
 			);
@@ -193,7 +197,7 @@ describe("collect", () => {
 
 			expect((yield* hit("centering practice"))?.tier).toBe("shared");
 			expect((yield* hit("toy"))?.text).toBe("# Title of toy");
-			expect(yield* hit("hidden unclosed swallowed vector")).toBeUndefined();
+			expect(yield* hit("hidden unclosed swallowed vector smuggled handler")).toBeUndefined();
 
 			const stored = JSON.stringify([yield* state("shared"), yield* state("personal")]);
 
@@ -242,21 +246,41 @@ describe("collect", () => {
 			]);
 
 			const { collected, migrated } = yield* load({
-				cite: { db, tier: "shared", excerptChars: 60 },
+				cite: { db, tier: "personal", excerptChars: 60 },
 			});
 
-			expect(collected.entries).toEqual({ "capture/shared": 2 });
+			expect(collected.entries).toEqual({ "capture/personal": 2 });
 			expect(collected.withoutText).toEqual([OTHER]);
 			expect(migrated.migrated.map((item) => item.passages)).toEqual([1, 0]);
 
 			expect(yield* hit("propositions")).toEqual({
 				kind: "capture",
-				tier: "shared",
+				tier: "personal",
 				title: "Dense retrieval",
 				text: "Propositions beat passages. word0 word1 word2 word3 word4",
 			});
 
-			expect(Object.keys((yield* state("shared")).sources).toSorted()).toEqual([SOURCE, OTHER]);
+			expect(Object.keys((yield* state("personal")).sources).toSorted()).toEqual([SOURCE, OTHER]);
+		}));
+
+	test("a second input claiming an origin is left out and reported, not merged into the first", () =>
+		Effect.gen(function* () {
+			const mine = yield* tempDir;
+			const theirs = yield* tempDir;
+
+			yield* writeText(path.join(mine, "plan.md"), "Mine alone.\n");
+			yield* writeText(path.join(theirs, "plan.md"), "For everyone.\n");
+
+			const { collected } = yield* load({
+				notes: [
+					{ dir: mine, origin: "notes", kind: "memory", tier: "agent" },
+					{ dir: theirs, origin: "notes", kind: "memory", tier: "shared" },
+				],
+			});
+
+			expect(collected.skipped).toEqual([{ origin: "notes/plan.md", reason: "repeated origin" }]);
+			expect(Object.keys((yield* state("shared")).sources)).toEqual([]);
+			expect((yield* hit("alone"))?.tier).toBe("agent");
 		}));
 
 	test("collecting and migrating the same inputs again changes nothing", () =>

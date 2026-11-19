@@ -65,15 +65,32 @@ interface CollectReport {
 }
 
 const DATA_URI = /data:[a-z0-9.+-]+\/[a-z0-9.+-]+(?:;[a-z0-9=._-]+)*,[^\s"'<>)\\]*/gi;
+// A tag ends at the first `>` outside its quoted attribute values.
+const ATTRIBUTES = String.raw`((?:"[^"]*"|'[^']*'|[^>"'])*)`;
 // A comment, script or style left open swallows the rest of the page, as it does in a browser.
-const RAW_TEXT = /<!--[\s\S]*?(?:-->|$)|<(script|style)\b[^>]*>[\s\S]*?(?:<\/\1\s*>|$)/gi;
+const RAW_TEXT = new RegExp(
+	String.raw`<!--[\s\S]*?(?:-->|$)|<(script|style)\b${ATTRIBUTES}>[\s\S]*?(?:<\/\1\s*>|$)`,
+	"gi",
+);
+const ANY_TAG = new RegExp(String.raw`<(\/?)([a-z][a-z0-9-]*)\b${ATTRIBUTES}>`, "gi");
+const HREF = /\bhref\s*=\s*(["'])(https?:\/\/[^"'\s]+)\1/i;
+// The patterns below read tags that `bare` has already stripped of every attribute but a link's.
 const EMBEDDED =
-	/<(svg|template|noscript|canvas|audio|video|object|iframe|head|select|math)\b[^>]*>[\s\S]*?<\/\1\s*>/gi;
-const HEADING = /<h([1-6])\b[^>]*>([\s\S]*?)<\/h\1\s*>/gi;
-const LINK = /<a\b[^>]*?\bhref\s*=\s*(["'])(https?:\/\/[^"'\s]+)\1[^>]*>([\s\S]*?)<\/a\s*>/gi;
+	/<(svg|template|noscript|canvas|audio|video|object|iframe|head|select|math)>[\s\S]*?<\/\1>/gi;
+const HEADING = /<h([1-6])>([\s\S]*?)<\/h\1>/gi;
+const LINK = /<a href="([^"]*)">([\s\S]*?)<\/a>/gi;
 const BLOCK =
-	/<\/?(?:p|div|section|article|header|footer|main|nav|aside|ul|ol|table|thead|tbody|tr|pre|blockquote|details|summary|figure|figcaption|dl|dt|dd|form|fieldset|address|title|body|html|hr)\b[^>]*>/gi;
+	/<\/?(?:p|div|section|article|header|footer|main|nav|aside|ul|ol|table|thead|tbody|tr|pre|blockquote|details|summary|figure|figcaption|dl|dt|dd|form|fieldset|address|title|body|html|hr)>/gi;
 const TAG = /<\/?[a-z][^>]*>|<![^>]*>/gi;
+
+/** Every tag without its attributes, so nothing inside an attribute value can pass for text. */
+const bare = (html: string) =>
+	html.replaceAll(ANY_TAG, (_whole, slash, name, attributes) => {
+		const tag = String(name).toLowerCase();
+		const href = tag === "a" && slash === "" ? HREF.exec(String(attributes))?.[2] : undefined;
+
+		return href === undefined ? `<${String(slash)}${tag}>` : `<a href="${href}">`;
+	});
 
 const ENTITIES: Record<string, string> = {
 	lt: "<",
@@ -126,22 +143,21 @@ function htmlToMarkdown(html: string): string {
 	const inline = (inner: string) => oneLine(inner.replaceAll(TAG, " "));
 
 	return decodeEntities(
-		withoutDataUris(html)
-			.replaceAll(RAW_TEXT, " ")
+		withoutDataUris(bare(html.replaceAll(RAW_TEXT, " ")))
 			.replaceAll(EMBEDDED, " ")
 			.replaceAll(HEADING, (_whole, level, inner) => {
 				const text = inline(String(inner));
 
 				return text === "" ? "\n\n" : `\n\n${"#".repeat(Number(level))} ${text}\n\n`;
 			})
-			.replaceAll(LINK, (_whole, _quote, url, inner) => {
+			.replaceAll(LINK, (_whole, url, inner) => {
 				const text = inline(String(inner));
 
 				return text === "" || text === url ? String(url) : `[${text}](${String(url)})`;
 			})
-			.replaceAll(/<br\b[^>]*>/gi, "\n")
-			.replaceAll(/<li\b[^>]*>/gi, "\n- ")
-			.replaceAll(/<\/t[dh]\s*>/gi, " | ")
+			.replaceAll("<br>", "\n")
+			.replaceAll("<li>", "\n- ")
+			.replaceAll(/<\/t[dh]>/g, " | ")
 			.replaceAll(BLOCK, "\n\n")
 			.replaceAll(TAG, ""),
 	)
@@ -252,6 +268,20 @@ export const collect = Effect.fnUntraced(function* (spec: CollectSpec, out: stri
 
 	yield* fs.makeDirectory(staged, { recursive: true });
 
+	const origins = new Set<string>();
+	/** An origin is a document's identity: a second input claiming one is left out, not merged. */
+	const repeated = (origin: string) => {
+		if (!origins.has(origin)) {
+			origins.add(origin);
+
+			return false;
+		}
+
+		report.skipped.push({ origin, reason: "repeated origin" });
+
+		return true;
+	};
+
 	const add = (entry: ManifestEntry) => {
 		const key = `${entry.type === "capture" ? "capture" : entry.kind}/${entry.tier}`;
 
@@ -307,6 +337,11 @@ export const collect = Effect.fnUntraced(function* (spec: CollectSpec, out: stri
 
 					const { slug, kind, visibility } = found.value;
 					const origin = `${gallery.origin}/${slug}`;
+
+					if (repeated(origin)) {
+						continue;
+					}
+
 					const title = oneLine(found.value.title ?? "") || slug;
 					const content = found.value.content ?? "";
 					let text = withoutDataUris(content);
@@ -349,6 +384,10 @@ export const collect = Effect.fnUntraced(function* (spec: CollectSpec, out: stri
 			if (info.type !== "File" || modified === undefined) {
 				report.skipped.push({ origin, reason: "not a regular file" });
 
+				continue;
+			}
+
+			if (repeated(origin)) {
 				continue;
 			}
 
