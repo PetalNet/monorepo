@@ -18,11 +18,8 @@
 			stroke-width="1.8"
 			stroke-linecap="round"
 			stroke-linejoin="round"
+			><path d="M4 13h4l1.5 3h5L16 13h4" /><path d="M4 13 6 5h12l2 8v6H4z" /></symbol
 		>
-			<path d="M4 13h4l1.5 3h5L16 13h4"></path>
-			<path d="M4 13 6 5h12l2 8v6H4z"></path>
-		</symbol>
-
 		<symbol
 			id="e-block"
 			viewBox="0 0 24 24"
@@ -30,12 +27,8 @@
 			stroke="currentColor"
 			stroke-width="1.8"
 			stroke-linecap="round"
-			stroke-linejoin="round"
+			stroke-linejoin="round"><circle cx="12" cy="12" r="9" /><path d="m6 6 12 12" /></symbol
 		>
-			<circle cx="12" cy="12" r="9"></circle>
-			<path d="m6 6 12 12"></path>
-		</symbol>
-
 		<symbol
 			id="e-arrow"
 			viewBox="0 0 24 24"
@@ -43,16 +36,16 @@
 			stroke="currentColor"
 			stroke-width="1.8"
 			stroke-linecap="round"
-			stroke-linejoin="round"><path d="M5 12h14M13 6l6 6-6 6"></path></symbol
+			stroke-linejoin="round"><path d="M5 12h14M13 6l6 6-6 6" /></symbol
 		>
-	</defs>
-</svg>
+	</defs></svg
+>
 
 <div class="screen err">
 	<div class="err-card">
 		<span class="err-ic" class:warn={!is404}>
 			<svg width="26" height="26" aria-hidden="true"
-				><use href="#e-{is404 ? 'inbox' : 'block'}"></use></svg
+				><use href="#e-{is404 ? 'inbox' : 'block'}" /></svg
 			>
 		</span>
 		<div class="err-code mono">{status}</div>
@@ -60,9 +53,8 @@
 		<p class="err-msg">{message}</p>
 		<a class="err-back" href="/">
 			<svg width="14" height="14" style="transform:scaleX(-1)" aria-hidden="true"
-				><use href="#e-arrow"></use></svg
+				><use href="#e-arrow" /></svg
 			>
-
 			back to the board
 		</a>
 	</div>

@@ -2,7 +2,7 @@ import type { KnipConfig } from "knip";
 
 // Knip passes the parsed CLI flags to a config function (KnipConfig's function form).
 export default (({ strict }) => ({
-	ignore: [".agents/skills/impeccable/**", "apps/tasks/static/vendor/**"],
+	ignore: [".agents/skills/impeccable/**"],
 	rules: { cycles: "error" },
 	// Apps keep bundled packages in devDependencies, so strict mode, which counts only
 	// dependencies, would report every bundled import as unlisted. Packages keep the check.
@@ -64,6 +64,8 @@ export default (({ strict }) => ({
 		"apps/petalboard": {
 			// SvelteKit loads src/env.ts by convention.
 			entry: ["src/env.ts!"],
+			// Read by the Prisma CLI through prisma.config.ts, which Knip does not follow.
+			ignore: ["prisma/schema.prisma"],
 			ignoreDependencies: [
 				// Only the gitignored generated Prisma client imports @prisma/client/runtime.
 				"@prisma/client",
@@ -73,9 +75,9 @@ export default (({ strict }) => ({
 			],
 		},
 		"apps/tasks": {
-			// Cron, MCP, and production server entrypoints run directly rather than being imported.
-			entry: ["mcp/*.mjs!", "scripts/*.mjs!", "src/env.ts!"],
-			ignore: ["static/vendor/**"],
+			// Cron and production server entrypoints run directly rather than being imported.
+			entry: ["scripts/*.mjs!"],
+
 			ignoreDependencies: [
 				// CSS @import directives load these fonts, which Knip does not analyze.
 				"@fontsource-variable/geist",
@@ -87,6 +89,12 @@ export default (({ strict }) => ({
 			],
 		},
 		"apps/slide": {
+			// SvelteKit loads src/env.ts by convention.
+			entry: ["src/env.ts!"],
+			// Read by the Prisma CLI through prisma.config.ts, which Knip does not follow.
+			ignore: ["prisma/schema.prisma"],
+			// Only the gitignored generated Prisma client imports @prisma/client/runtime.
+			ignoreDependencies: ["@prisma/client"],
 			ignoreBinaries: ["prisma!"],
 		},
 		"apps/storybook": {

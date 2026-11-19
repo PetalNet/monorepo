@@ -1,4 +1,4 @@
-import { error } from "@sveltejs/kit";
+import { json, error } from "@sveltejs/kit";
 
 import { getArtifact, getMarkup, saveMarkup } from "#lib/server/db.js";
 
@@ -102,7 +102,7 @@ function gate(params, locals) {
 export function GET({ params, locals }) {
 	const a = gate(params, locals);
 
-	return Response.json(
+	return json(
 		getMarkup(a.slug, locals.user) || { author: locals.user, strokes: [], updated_at: null },
 	);
 }
@@ -125,5 +125,5 @@ export async function PUT({ params, locals, request }) {
 
 	const saved = saveMarkup(a.slug, locals.user, strokes);
 
-	return Response.json(saved || { author: locals.user, strokes: [], updated_at: null });
+	return json(saved || { author: locals.user, strokes: [], updated_at: null });
 }

@@ -4,6 +4,7 @@ import * as Sentry from "@sentry/sveltekit";
 import { sequence } from "@sveltejs/kit/hooks";
 
 import { tasksConfig } from "./lib/server/config.js";
+import { galleryApi } from "./lib/server/gallery/api.ts";
 import { sentryOptions } from "./lib/telemetry.js";
 
 // sentryOptions strips credentials (auth headers, cookies, share tokens) from every event.
@@ -77,6 +78,15 @@ async function accessGate({ event, resolve }) {
 
 	return res;
 }
+
+// The gallery's Effect runtime (feedback, Matrix): built once at start, disposed on shutdown.
+export const init = async () => {
+	await galleryApi.initialize();
+
+	process.once("sveltekit:shutdown", () => {
+		void galleryApi.dispose();
+	});
+};
 
 // Without a DSN the SDK is dormant, so the access gate runs on its own.
 export const handle = process.env.GLITCHTIP_DSN

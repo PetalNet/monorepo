@@ -62,7 +62,7 @@ dependencies {
 	testImplementation("junit:junit:4.13.2")
 	testImplementation("org.json:json:20240303")
 	testImplementation("org.robolectric:robolectric:4.17")
-	testImplementation("io.github.takahirom.roborazzi:roborazzi:1.78.0")
+	testImplementation("io.github.takahirom.roborazzi:roborazzi:1.79.0")
 	testImplementation("androidx.test:core:1.7.0")
 }
 

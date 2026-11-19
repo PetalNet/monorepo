@@ -23,7 +23,7 @@
 					name="email"
 					type="email"
 					required
-					class="w-full rounded-lg border border-gray-700 bg-theater-dark px-4 py-2 text-white placeholder-gray-500 focus:border-transparent focus:outline-none focus:ring-2 focus:ring-theater-purple"
+					class="bg-theater-dark focus:ring-theater-purple w-full rounded-lg border border-gray-700 px-4 py-2 text-white placeholder-gray-500 focus:border-transparent focus:ring-2 focus:outline-hidden"
 					placeholder="john@example.com"
 				/>
 			</div>
@@ -35,20 +35,20 @@
 					name="password"
 					type="password"
 					required
-					class="w-full rounded-lg border border-gray-700 bg-theater-dark px-4 py-2 text-white placeholder-gray-500 focus:border-transparent focus:outline-none focus:ring-2 focus:ring-theater-purple"
+					class="bg-theater-dark focus:ring-theater-purple w-full rounded-lg border border-gray-700 px-4 py-2 text-white placeholder-gray-500 focus:border-transparent focus:ring-2 focus:outline-hidden"
 					placeholder="••••••••"
 				/>
 			</div>
 
 			{#if form?.error}
-				<div class="rounded border border-red-500 bg-red-900/30 px-4 py-3 text-red-200">
+				<div class="rounded-sm border border-red-500 bg-red-900/30 px-4 py-3 text-red-200">
 					{form.error}
 				</div>
 			{/if}
 
 			<button
 				type="submit"
-				class="w-full rounded-lg bg-theater-purple px-4 py-2 font-semibold transition-all duration-200 hover:bg-purple-600 focus:outline-none focus:ring-2 focus:ring-theater-purple focus:ring-offset-2 focus:ring-offset-theater-darker"
+				class="bg-theater-purple focus:ring-theater-purple focus:ring-offset-theater-darker w-full rounded-lg px-4 py-2 font-semibold transition-all duration-200 hover:bg-purple-600 focus:ring-2 focus:ring-offset-2 focus:outline-hidden"
 			>
 				Sign In
 			</button>

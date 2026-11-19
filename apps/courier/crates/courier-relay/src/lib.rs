@@ -40,7 +40,7 @@ use matrix_sdk::{
         OwnedEventId, OwnedRoomId,
         events::{
             AnySyncMessageLikeEvent, AnySyncTimelineEvent,
-            relation::InReplyTo,
+            relation::{InReplyTo, Reply},
             room::message::{
                 AddMentions, ForwardThread, OriginalSyncRoomMessageEvent, Relation, ReplyMetadata,
                 RoomMessageEventContent, SyncRoomMessageEvent,
@@ -355,9 +355,9 @@ impl Relay {
                     } else {
                         // Extremely unlikely (client without a logged-in
                         // user); fall back to a raw relates_to pointer.
-                        content.relates_to = Some(Relation::Reply {
-                            in_reply_to: InReplyTo::new(target_event_id.clone()),
-                        });
+                        content.relates_to = Some(Relation::Reply(Reply::new(InReplyTo::new(
+                            target_event_id.clone(),
+                        ))));
                     }
                 }
                 media::send_text_bounded(&room_handle, &content, &txn_id).await
@@ -687,7 +687,7 @@ async fn extract_reply_context(
     source_room: &Room,
 ) -> Option<ReplyContext> {
     let in_reply_to_event_id = match content.relates_to.as_ref()? {
-        Relation::Reply { in_reply_to } => in_reply_to.event_id.clone(),
+        Relation::Reply(reply) => reply.in_reply_to.event_id.clone(),
         Relation::Thread(t) => t.in_reply_to.as_ref().map(|r| r.event_id.clone())?,
         Relation::Replacement(_) | _ => return None,
     };
@@ -699,7 +699,9 @@ async fn extract_reply_context(
     let display = match bound::bounded(
         "relay.load_reply_target",
         LOOKUP_TIMEOUT,
-        source_room.load_or_fetch_event(&in_reply_to_event_id, None),
+        // matrix-sdk 0.19's fetch future is ~17 KiB; box it so it stays off the
+        // callers' stacks (clippy::large_futures).
+        Box::pin(source_room.load_or_fetch_event(&in_reply_to_event_id, None)),
     )
     .await
     {

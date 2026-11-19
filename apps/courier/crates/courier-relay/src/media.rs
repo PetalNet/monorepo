@@ -52,9 +52,11 @@ pub async fn send_text_bounded(
         SEND_TIMEOUT,
         SEND_ATTEMPTS,
         RETRY_BASE_DELAY,
-        || {
+        || async {
             room.send(content.clone())
                 .with_transaction_id(txn_id.clone())
+                .await
+                .map(|sent| sent.response)
         },
     )
     .await
@@ -115,9 +117,11 @@ async fn forward_original(
         SEND_TIMEOUT,
         SEND_ATTEMPTS,
         RETRY_BASE_DELAY,
-        || {
+        || async {
             room.send(event.content.clone())
                 .with_transaction_id(txn_id.clone())
+                .await
+                .map(|sent| sent.response)
         },
     )
     .await

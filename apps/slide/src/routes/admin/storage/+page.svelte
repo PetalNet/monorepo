@@ -28,7 +28,7 @@
 
 	<div class="mb-8 grid grid-cols-1 gap-6 lg:grid-cols-2">
 		<!-- Database Info -->
-		<div class="rounded-lg bg-white p-6 shadow">
+		<div class="rounded-lg bg-white p-6 shadow-sm">
 			<h2 class="mb-4 text-lg font-semibold text-gray-900">Database</h2>
 			<dl class="space-y-3">
 				<div class="flex justify-between">
@@ -65,12 +65,12 @@
 		</div>
 
 		<!-- Record Counts -->
-		<div class="rounded-lg bg-white p-6 shadow">
+		<div class="rounded-lg bg-white p-6 shadow-sm">
 			<h2 class="mb-4 text-lg font-semibold text-gray-900">Records by Table</h2>
 			<dl class="space-y-3">
 				{#each Object.entries(data.database.recordCounts) as [table, count]}
 					<div class="flex justify-between">
-						<dt class="text-sm capitalize text-gray-500">{table}</dt>
+						<dt class="text-sm text-gray-500 capitalize">{table}</dt>
 						<dd class="text-sm font-medium text-gray-900">
 							{count.toLocaleString()}
 						</dd>

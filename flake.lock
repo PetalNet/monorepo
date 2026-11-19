@@ -26,10 +26,38 @@
         "url": "https://channels.nixos.org/nixos-24.11/nixexprs.tar.xz"
       }
     },
+    "pnpm-linux-arm64": {
+      "flake": false,
+      "locked": {
+        "lastModified": 499162500,
+        "narHash": "sha256-ENrbMdGxY3LAz2edOUTjGy9UMCgkf4HpihllApz97Gk=",
+        "type": "tarball",
+        "url": "https://registry.npmjs.org/@pnpm/exe.linux-arm64/-/exe.linux-arm64-12.21.0.tgz"
+      },
+      "original": {
+        "type": "tarball",
+        "url": "https://registry.npmjs.org/@pnpm/exe.linux-arm64/-/exe.linux-arm64-12.21.0.tgz"
+      }
+    },
+    "pnpm-linux-x64": {
+      "flake": false,
+      "locked": {
+        "lastModified": 499162500,
+        "narHash": "sha256-BmsTapF6ckt6vUoMC6kSm7M2CsFXGP/3nhVRApUVBS4=",
+        "type": "tarball",
+        "url": "https://registry.npmjs.org/@pnpm/exe.linux-x64/-/exe.linux-x64-12.21.0.tgz"
+      },
+      "original": {
+        "type": "tarball",
+        "url": "https://registry.npmjs.org/@pnpm/exe.linux-x64/-/exe.linux-x64-12.21.0.tgz"
+      }
+    },
     "root": {
       "inputs": {
         "nixpkgs": "nixpkgs",
-        "nixpkgs-prisma5": "nixpkgs-prisma5"
+        "nixpkgs-prisma5": "nixpkgs-prisma5",
+        "pnpm-linux-arm64": "pnpm-linux-arm64",
+        "pnpm-linux-x64": "pnpm-linux-x64"
       }
     }
   },

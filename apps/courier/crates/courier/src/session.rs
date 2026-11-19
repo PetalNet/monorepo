@@ -231,11 +231,11 @@ async fn login_and_store_session(
 }
 
 fn is_unknown_token_http_error(error: &HttpError) -> bool {
-    use matrix_sdk::ruma::api::client::error::ErrorKind;
+    use matrix_sdk::ruma::api::error::ErrorKind;
 
     matches!(
         error.client_api_error_kind(),
-        Some(ErrorKind::UnknownToken { .. })
+        Some(ErrorKind::UnknownToken(_))
     )
 }
 

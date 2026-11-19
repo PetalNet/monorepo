@@ -23,7 +23,7 @@
 		</h1>
 
 		{#if form?.expired}
-			<p class="mb-6 text-dark-700" role="alert">
+			<p class="text-dark-700 mb-6" role="alert">
 				This link expired or was already used. Links work once, for 1 hour.
 			</p>
 			<a
@@ -31,12 +31,12 @@
 				href="/event/{data.event.publicCode}">Back to the event to get a new link</a
 			>
 		{:else}
-			<p class="mb-6 text-dark-700">Continue to open your RSVP on this browser.</p>
+			<p class="text-dark-700 mb-6">Continue to open your RSVP on this browser.</p>
 			<form method="POST">
 				<input type="hidden" name="token" value={data.token} />
 				<button
 					type="submit"
-					class="min-h-11 w-full rounded-xl px-6 py-3 text-base font-semibold text-white shadow-button transition-colors md:w-auto md:px-8"
+					class="shadow-button min-h-11 w-full rounded-xl px-6 py-3 text-base font-semibold text-white transition-colors md:w-auto md:px-8"
 					style={`background: ${gradient(700)}; box-shadow: 0 14px 28px ${withAlpha(theme.primaryColors[600], 0.33)};`}
 					onmouseover={(e) => (e.currentTarget.style.background = gradient(800))}
 					onmouseout={(e) => (e.currentTarget.style.background = gradient(700))}

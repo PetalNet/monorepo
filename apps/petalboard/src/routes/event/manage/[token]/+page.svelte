@@ -279,35 +279,35 @@
 
 <header class="mb-10 flex items-start justify-between gap-8">
 	<div>
-		<h1 class="mb-2 text-3xl font-bold text-dark-800">{event.title}</h1>
+		<h1 class="text-dark-800 mb-2 text-3xl font-bold">{event.title}</h1>
 		<p class="text-sm text-gray-600">{formatDate(event.date, event.timezone)}</p>
 	</div>
 </header>
 
 {#if isNewlyCreated}
 	<div
-		class="mb-6 rounded-2xl bg-gradient-to-br from-primary-500 to-primary-600 p-8 text-white shadow-2xl"
+		class="from-primary-500 to-primary-600 mb-6 rounded-2xl bg-linear-to-br p-8 text-white shadow-2xl"
 	>
 		<h2 class="mb-3 text-2xl font-bold">🎉 Event created successfully!</h2>
-		<p class="mb-6 text-primary-50">
+		<p class="text-primary-50 mb-6">
 			Your event is live! Share the public link with your guests, and you can always return to this
 			page using the management link.
 		</p>
-		<div class="mb-6 space-y-4 rounded-xl bg-white/10 p-6 backdrop-blur-sm">
+		<div class="mb-6 space-y-4 rounded-xl bg-white/10 p-6 backdrop-blur-xs">
 			<div>
-				<strong class="mb-2 block text-primary-50">Public link (share this):</strong>
+				<strong class="text-primary-50 mb-2 block">Public link (share this):</strong>
 				<code class="block rounded-lg bg-white/20 px-4 py-3 font-mono text-sm"
 					>{page.url.origin}/event/{event.publicCode}</code
 				>
 			</div>
 			<div>
-				<strong class="mb-2 block text-primary-50">Management link (keep this private):</strong>
+				<strong class="text-primary-50 mb-2 block">Management link (keep this private):</strong>
 				<code class="block rounded-lg bg-white/20 px-4 py-3 font-mono text-sm"
 					>{page.url.href.replace("?new", "")}</code
 				>
 			</div>
 		</div>
-		<p class="text-sm text-primary-100">
+		<p class="text-primary-100 text-sm">
 			💡 These links are also available in your <a
 				href="/dashboard"
 				class="underline transition-colors hover:text-white">dashboard</a
@@ -324,7 +324,7 @@
 	<p class="error-banner">{message}</p>
 {/if}
 
-<div class="mb-8 flex gap-2 border-b-2 border-primary-700/10">
+<div class="border-primary-700/10 mb-8 flex gap-2 border-b-2">
 	<button
 		class="tab-btn flex items-center gap-2"
 		class:tab-btn-active={activeTab === "management"}
@@ -347,7 +347,7 @@
 {#if activeTab === "management"}
 	<section class="mb-8">
 		<div class="card mb-8">
-			<h2 class="mb-6 text-2xl font-bold text-dark-800">Edit event</h2>
+			<h2 class="text-dark-800 mb-6 text-2xl font-bold">Edit event</h2>
 			<form
 				method="POST"
 				action="?/updateEvent"
@@ -446,7 +446,7 @@
 					style="border-color: rgba(124, 93, 250, 0.15);"
 				>
 					<summary
-						class="flex cursor-pointer select-none list-none items-center gap-2 bg-gradient-to-r from-primary-50 to-white px-5 py-4 font-semibold hover:from-primary-100"
+						class="from-primary-50 hover:from-primary-100 flex cursor-pointer list-none items-center gap-2 bg-linear-to-r to-white px-5 py-4 font-semibold select-none"
 					>
 						<span class="text-xl">🎨</span>
 						<span>Customize appearance</span>
@@ -560,11 +560,10 @@
 
 		<div class="card">
 			<div class="mb-6 flex items-center justify-between">
-				<h2 class="text-2xl font-bold text-dark-800">Questions</h2>
-
-				<button type="button" class="btn-primary" onclick={() => (showAddQuestionModal = true)}
-					>+ Add Question</button
-				>
+				<h2 class="text-dark-800 text-2xl font-bold">Questions</h2>
+				<button type="button" class="btn-primary" onclick={() => (showAddQuestionModal = true)}>
+					+ Add Question
+				</button>
 			</div>
 
 			{#if questions.length === 0}
@@ -575,11 +574,11 @@
 				<div class="space-y-4">
 					{#each questions as question}
 						{#key question.id}
-							<article class="rounded-xl border border-primary-700/10 bg-white p-6 shadow-sm">
+							<article class="border-primary-700/10 rounded-xl border bg-white p-6 shadow-xs">
 								<header class="mb-4 flex items-start justify-between border-b border-gray-200 pb-4">
 									<div>
 										<div class="mb-2 flex items-center gap-2">
-											<h3 class="text-lg font-bold text-dark-800">{question.label}</h3>
+											<h3 class="text-dark-800 text-lg font-bold">{question.label}</h3>
 											<span
 												class="rounded-lg px-2 py-1 text-xs font-semibold capitalize {question.type ===
 												'text'
@@ -723,9 +722,9 @@
 											type="checkbox"
 											name="required"
 											checked={question.required}
-											class="h-5 w-5 rounded border-primary-700/25 text-primary-600 focus:ring-primary-500"
+											class="border-primary-700/25 text-primary-600 focus:ring-primary-500 h-5 w-5 rounded-sm"
 										/>
-										<span class="font-medium text-dark-900">Required question</span>
+										<span class="text-dark-900 font-medium">Required question</span>
 									</label>
 
 									<label class="flex cursor-pointer flex-col gap-2">
@@ -734,9 +733,9 @@
 												type="checkbox"
 												name="isPublic"
 												checked={question.isPublic}
-												class="h-5 w-5 rounded border-primary-700/25 text-primary-600 focus:ring-primary-500"
+												class="border-primary-700/25 text-primary-600 focus:ring-primary-500 h-5 w-5 rounded-sm"
 											/>
-											<span class="font-medium text-dark-900">Show responses publicly</span>
+											<span class="text-dark-900 font-medium">Show responses publicly</span>
 										</div>
 										<small class="ml-8 text-sm text-gray-600"
 											>Let attendees see what others answered</small
@@ -749,7 +748,7 @@
 											{#if loadingPlaylists}
 												<div class="flex items-center gap-2 py-3 text-sm text-gray-600">
 													<div
-														class="h-4 w-4 animate-spin rounded-full border-2 border-primary-600 border-t-transparent"
+														class="border-primary-600 h-4 w-4 animate-spin rounded-full border-2 border-t-transparent"
 													></div>
 													Loading playlists...
 												</div>
@@ -811,7 +810,7 @@
 								{#if question.type === "potluck" && question.potluck}
 									{@const view = question.potluck}
 									<div class="mt-6 border-t border-gray-200 pt-4">
-										<h4 class="mb-1 font-bold text-dark-800">Current mix</h4>
+										<h4 class="text-dark-800 mb-1 font-bold">Current mix</h4>
 										<p class="mb-3 text-sm text-gray-600">
 											{view.taken.length}
 											{view.taken.length === 1 ? "dish" : "dishes"} signed up. Force a category open to
@@ -827,13 +826,14 @@
 												)}
 
 												<li
-													class="flex flex-wrap items-center gap-x-3 gap-y-1 rounded-lg border border-primary-700/10 px-3 py-2"
+													class="border-primary-700/10 flex flex-wrap items-center gap-x-3 gap-y-1 rounded-lg border px-3 py-2"
 												>
-													<span class="min-w-[7rem] font-semibold text-dark-900"
+													<span class="text-dark-900 min-w-28 font-semibold"
 														>{slot.category.label}</span
 													>
-													<span class="text-sm tabular-nums text-gray-700"
-														>{slot.count} · {total ? Math.round((slot.count / total) * 100) : 0}% of {target}%</span
+													<span class="text-sm text-gray-700 tabular-nums"
+														>{slot.count} · {total ? Math.round((slot.count / total) * 100) : 0}% of
+														{target}%</span
 													>
 
 													<span
@@ -895,7 +895,7 @@
 {#if activeTab === "rsvps"}
 	<section class="mb-8">
 		<div class="mb-6 flex items-center justify-between">
-			<h2 class="flex items-center gap-2 text-2xl font-bold text-dark-800">
+			<h2 class="text-dark-800 flex items-center gap-2 text-2xl font-bold">
 				<span class="text-3xl">✅</span>
 				RSVPs
 				<span class="text-lg font-normal text-gray-500"
@@ -906,11 +906,11 @@
 
 		{#if rsvpsList.length === 0}
 			<div
-				class="mx-auto max-w-[500px] rounded-[24px] border border-primary-700/10 bg-gradient-to-br from-white to-primary-50 px-8 py-16 text-center shadow-xl"
+				class="border-primary-700/10 to-primary-50 mx-auto max-w-[500px] rounded-[24px] border bg-linear-to-br from-white px-8 py-16 text-center shadow-xl"
 			>
 				<div class="mb-4 text-6xl">📋</div>
-				<h3 class="mb-2 text-xl font-bold text-dark-800">No RSVPs yet</h3>
-				<p class="leading-relaxed text-dark-900/70">
+				<h3 class="text-dark-800 mb-2 text-xl font-bold">No RSVPs yet</h3>
+				<p class="text-dark-900/70 leading-relaxed">
 					Share your public link to start collecting responses from guests.
 				</p>
 			</div>
@@ -918,7 +918,7 @@
 			<!-- Summary Stats -->
 			<div class="mb-8 grid grid-cols-1 gap-4 md:grid-cols-3">
 				<div
-					class="rounded-xl border border-green-200 bg-gradient-to-br from-green-50 to-green-100/50 p-5"
+					class="rounded-xl border border-green-200 bg-linear-to-br from-green-50 to-green-100/50 p-5"
 				>
 					<div class="flex items-center gap-3">
 						<span class="text-3xl">✓</span>
@@ -932,7 +932,7 @@
 					</div>
 				</div>
 				<div
-					class="rounded-xl border border-yellow-200 bg-gradient-to-br from-yellow-50 to-yellow-100/50 p-5"
+					class="rounded-xl border border-yellow-200 bg-linear-to-br from-yellow-50 to-yellow-100/50 p-5"
 				>
 					<div class="flex items-center gap-3">
 						<span class="text-3xl">?</span>
@@ -946,7 +946,7 @@
 					</div>
 				</div>
 				<div
-					class="rounded-xl border border-gray-200 bg-gradient-to-br from-gray-50 to-gray-100/50 p-5"
+					class="rounded-xl border border-gray-200 bg-linear-to-br from-gray-50 to-gray-100/50 p-5"
 				>
 					<div class="flex items-center gap-3">
 						<span class="text-3xl">✗</span>
@@ -962,14 +962,14 @@
 			<div class="space-y-4">
 				{#each rsvpsList as rsvp}
 					<article
-						class="rounded-xl border border-primary-700/5 bg-white p-6 shadow-[0_2px_8px_rgba(60,35,110,0.08)] transition-all hover:shadow-[0_4px_12px_rgba(60,35,110,0.12)]"
+						class="border-primary-700/5 rounded-xl border bg-white p-6 shadow-[0_2px_8px_rgba(60,35,110,0.08)] transition-all hover:shadow-[0_4px_12px_rgba(60,35,110,0.12)]"
 					>
 						<div class="flex flex-col gap-4 md:flex-row md:items-start">
 							<!-- Main Info -->
 							<div class="flex-1">
 								<div class="mb-3 flex items-start gap-3">
 									<div class="flex-1">
-										<h3 class="mb-2 flex items-center gap-2 text-xl font-bold text-dark-800">
+										<h3 class="text-dark-800 mb-2 flex items-center gap-2 text-xl font-bold">
 											{rsvp.name}{#if rsvp.guestCount > 1 && rsvp.guestNames.length === 0}
 												<span class="text-base font-normal text-gray-500"
 													>(+{rsvp.guestCount - 1} guest{rsvp.guestCount - 1 === 1
@@ -1008,24 +1008,24 @@
 								</div>
 
 								{#if rsvp.email}
-									<div class="mb-4 flex items-center gap-2 text-sm text-dark-700">
+									<div class="text-dark-700 mb-4 flex items-center gap-2 text-sm">
 										<span class="text-base">✉️</span>
-										<a href="mailto:{rsvp.email}" class="transition-colors hover:text-primary-700"
+										<a href="mailto:{rsvp.email}" class="hover:text-primary-700 transition-colors"
 											>{rsvp.email}</a
 										>
 									</div>
 								{/if}
 
 								{#if rsvp.responses && rsvp.responses.length > 0}
-									<div class="mt-4 rounded-lg bg-primary-700/5 p-4">
-										<h4 class="mb-3 flex items-center gap-2 text-sm font-bold text-dark-800">
+									<div class="bg-primary-700/5 mt-4 rounded-lg p-4">
+										<h4 class="text-dark-800 mb-3 flex items-center gap-2 text-sm font-bold">
 											<span>💬</span> Question Responses
 										</h4>
 										<div class="space-y-3">
 											{#each rsvp.responses as response}
 												<div>
 													<div
-														class="mb-1 text-xs font-semibold uppercase tracking-wider text-primary-700"
+														class="text-primary-700 mb-1 text-xs font-semibold tracking-wider uppercase"
 													>
 														{response.questionLabel}
 													</div>
@@ -1043,12 +1043,12 @@
 																				alt={track.album
 																					? `${track.album} artwork`
 																					: `${track.name} artwork`}
-																				class="h-12 w-12 rounded-lg object-cover shadow-sm"
+																				class="h-12 w-12 rounded-lg object-cover shadow-xs"
 																				loading="lazy"
 																			/>
 																		{/if}
 																		<div class="min-w-0 flex-1">
-																			<p class="truncate text-sm font-semibold text-dark-900">
+																			<p class="text-dark-900 truncate text-sm font-semibold">
 																				{#if track.spotifyUrl}
 																					<a
 																						href={track.spotifyUrl}
@@ -1062,9 +1062,9 @@
 																					{track.name}
 																				{/if}
 																			</p>
-																			<p class="truncate text-xs text-dark-600">{track.artists}</p>
+																			<p class="text-dark-600 truncate text-xs">{track.artists}</p>
 																			{#if track.album}
-																				<p class="truncate text-xs text-dark-500">{track.album}</p>
+																				<p class="text-dark-500 truncate text-xs">{track.album}</p>
 																			{/if}
 																		</div>
 																		<span class="text-lg" aria-hidden="true">🎧</span>
@@ -1072,14 +1072,14 @@
 																{/each}
 															</ul>
 														{:else}
-															<div class="text-sm italic text-dark-600">No songs selected</div>
+															<div class="text-dark-600 text-sm italic">No songs selected</div>
 														{/if}
 													{:else if response.questionType === "potluck"}
-														<div class="text-sm font-medium text-dark-800">
+														<div class="text-dark-800 text-sm font-medium">
 															{describeAnswer(response.questionId, response.value)}
 														</div>
 													{:else}
-														<div class="text-sm font-medium text-dark-800">{response.value}</div>
+														<div class="text-dark-800 text-sm font-medium">{response.value}</div>
 													{/if}
 												</div>
 											{/each}
@@ -1087,7 +1087,7 @@
 									</div>
 								{:else}
 									<div class="mt-4 rounded-lg bg-gray-50 p-3">
-										<p class="flex items-center gap-2 text-sm italic text-gray-500">
+										<p class="flex items-center gap-2 text-sm text-gray-500 italic">
 											<span>📝</span> No question responses
 										</p>
 									</div>
@@ -1135,7 +1135,7 @@
 	<h2 class="mb-4 text-2xl font-bold text-red-700">Danger Zone</h2>
 	<div class="flex flex-col items-start justify-between gap-4 sm:flex-row sm:items-center">
 		<div>
-			<h3 class="mb-2 text-lg font-semibold text-dark-800">Delete this event</h3>
+			<h3 class="text-dark-800 mb-2 text-lg font-semibold">Delete this event</h3>
 			<p class="text-sm text-gray-600">
 				This will permanently delete the event, all slots, and all signups. This action cannot be
 				undone.
@@ -1260,7 +1260,7 @@
 					{#if loadingPlaylists}
 						<div class="flex items-center gap-2 py-3 text-sm text-gray-600">
 							<div
-								class="h-4 w-4 animate-spin rounded-full border-2 border-primary-600 border-t-transparent"
+								class="border-primary-600 h-4 w-4 animate-spin rounded-full border-2 border-t-transparent"
 							></div>
 							Loading playlists...
 						</div>
@@ -1311,9 +1311,9 @@
 				<input
 					type="checkbox"
 					name="required"
-					class="h-5 w-5 rounded border-primary-700/25 text-primary-600 focus:ring-primary-500"
+					class="border-primary-700/25 text-primary-600 focus:ring-primary-500 h-5 w-5 rounded-sm"
 				/>
-				<span class="font-medium text-dark-900">Required question</span>
+				<span class="text-dark-900 font-medium">Required question</span>
 			</label>
 
 			<label class="flex cursor-pointer flex-col gap-2">
@@ -1322,9 +1322,9 @@
 						type="checkbox"
 						name="isPublic"
 						checked={questionType === "potluck"}
-						class="h-5 w-5 rounded border-primary-700/25 text-primary-600 focus:ring-primary-500"
+						class="border-primary-700/25 text-primary-600 focus:ring-primary-500 h-5 w-5 rounded-sm"
 					/>
-					<span class="font-medium text-dark-900">Show responses publicly</span>
+					<span class="text-dark-900 font-medium">Show responses publicly</span>
 				</div>
 				<small class="ml-8 text-sm text-gray-600"
 					>When enabled, all attendees can see everyone's responses to this question</small

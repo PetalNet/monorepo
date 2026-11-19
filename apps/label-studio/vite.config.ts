@@ -5,7 +5,7 @@ import { fontless } from "fontless";
 import { defineConfig } from "vite";
 
 export default defineConfig({
-	ssr: { noExternal: ["fontless/runtime"] },
+	ssr: { noExternal: ["fontless/runtime", "opentype.js"] },
 	plugins: [
 		tailwindcss(),
 		fontless({

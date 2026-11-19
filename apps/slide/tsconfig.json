@@ -4,6 +4,6 @@
 		"sourceMap": true,
 		"strict": true
 	},
-	"files": ["postcss.config.js", "tailwind.config.js"],
+	"files": ["prisma.config.ts"],
 	"include": ["src", "vite.config.ts"]
 }

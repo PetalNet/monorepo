@@ -168,7 +168,7 @@
 						<div class="flex gap-2">
 							<button
 								onclick={() => (showEditModal = true)}
-								class="rounded-lg bg-gray-700 px-4 py-2 text-sm font-semibold transition-all duration-200 hover:bg-gray-600 focus:outline-none focus:ring-2 focus:ring-gray-500 focus:ring-offset-2 focus:ring-offset-theater-darker"
+								class="focus:ring-offset-theater-darker rounded-lg bg-gray-700 px-4 py-2 text-sm font-semibold transition-all duration-200 hover:bg-gray-600 focus:ring-2 focus:ring-gray-500 focus:ring-offset-2 focus:outline-hidden"
 							>
 								✏️ Edit
 							</button>
@@ -184,7 +184,7 @@
 											e.preventDefault();
 										}
 									}}
-									class="rounded-lg bg-red-600 px-4 py-2 text-sm font-semibold transition-all duration-200 hover:bg-red-700 focus:outline-none focus:ring-2 focus:ring-red-500 focus:ring-offset-2 focus:ring-offset-theater-darker"
+									class="focus:ring-offset-theater-darker rounded-lg bg-red-600 px-4 py-2 text-sm font-semibold transition-all duration-200 hover:bg-red-700 focus:ring-2 focus:ring-red-500 focus:ring-offset-2 focus:outline-hidden"
 								>
 									🗑️ Delete Event
 								</button>
@@ -234,7 +234,7 @@
 						<div class="border-t border-gray-700 pt-4">
 							<button
 								onclick={toggleSubmissions}
-								class="w-full rounded-lg px-6 py-3 font-semibold transition-all duration-200 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-offset-theater-darker {submissionsOpen
+								class="focus:ring-offset-theater-darker w-full rounded-lg px-6 py-3 font-semibold transition-all duration-200 focus:ring-2 focus:ring-offset-2 focus:outline-hidden {submissionsOpen
 									? 'border-2 border-red-700 bg-red-900/30 text-red-300 hover:bg-red-900/50 focus:ring-red-500'
 									: 'border-2 border-green-700 bg-green-900/30 text-green-300 hover:bg-green-900/50 focus:ring-green-500'}"
 							>
@@ -252,7 +252,7 @@
 					{#if data.isHost && !editingCategories}
 						<button
 							onclick={startEditingCategories}
-							class="rounded-lg bg-gray-700 px-4 py-2 text-sm font-semibold transition-all duration-200 hover:bg-gray-600 focus:outline-none focus:ring-2 focus:ring-gray-500 focus:ring-offset-2 focus:ring-offset-theater-darker"
+							class="focus:ring-offset-theater-darker rounded-lg bg-gray-700 px-4 py-2 text-sm font-semibold transition-all duration-200 hover:bg-gray-600 focus:ring-2 focus:ring-gray-500 focus:ring-offset-2 focus:outline-hidden"
 						>
 							↕️ Reorder
 						</button>
@@ -270,7 +270,7 @@
 								ondragstart={() => handleDragStart(index)}
 								ondragover={(e) => handleDragOver(e, index)}
 								ondragend={handleDragEnd}
-								class="cursor-move rounded-lg border border-gray-700 bg-theater-darker p-4 transition-colors hover:border-theater-purple {draggedIndex ===
+								class="bg-theater-darker hover:border-theater-purple cursor-move rounded-lg border border-gray-700 p-4 transition-colors {draggedIndex ===
 								index
 									? 'opacity-50'
 									: ''}"
@@ -289,13 +289,13 @@
 						<div class="flex gap-3 pt-2">
 							<button
 								onclick={saveCategoryOrder}
-								class="flex-1 rounded-lg bg-theater-purple px-6 py-3 font-semibold transition-all duration-200 hover:bg-purple-600 focus:outline-none focus:ring-2 focus:ring-theater-purple focus:ring-offset-2 focus:ring-offset-theater-darker"
+								class="bg-theater-purple focus:ring-theater-purple focus:ring-offset-theater-darker flex-1 rounded-lg px-6 py-3 font-semibold transition-all duration-200 hover:bg-purple-600 focus:ring-2 focus:ring-offset-2 focus:outline-hidden"
 							>
 								💾 Save Order
 							</button>
 							<button
 								onclick={cancelCategoryEditing}
-								class="rounded-lg bg-gray-700 px-6 py-3 font-semibold transition-all duration-200 hover:bg-gray-600 focus:outline-none focus:ring-2 focus:ring-gray-500 focus:ring-offset-2 focus:ring-offset-theater-darker"
+								class="focus:ring-offset-theater-darker rounded-lg bg-gray-700 px-6 py-3 font-semibold transition-all duration-200 hover:bg-gray-600 focus:ring-2 focus:ring-gray-500 focus:ring-offset-2 focus:outline-hidden"
 							>
 								Cancel
 							</button>
@@ -304,7 +304,7 @@
 				{:else}
 					<div class="space-y-3">
 						{#each event.categories as category}
-							<div class="rounded-lg border border-gray-700 bg-theater-darker p-4">
+							<div class="bg-theater-darker rounded-lg border border-gray-700 p-4">
 								<h3 class="mb-1 text-lg font-semibold">{category.name}</h3>
 								{#if category.description}
 									<p class="text-sm text-gray-400">{category.description}</p>
@@ -329,7 +329,7 @@
 					<div class="space-y-3">
 						{#each event.groups as group}
 							<div
-								class="rounded-lg border border-gray-700 bg-theater-darker p-5 transition hover:border-gray-600"
+								class="bg-theater-darker rounded-lg border border-gray-700 p-5 transition hover:border-gray-600"
 							>
 								<div class="mb-3 flex items-start justify-between">
 									<div class="flex-1">
@@ -360,11 +360,11 @@
 
 								<!-- Member List -->
 								<div class="mb-3">
-									<p class="mb-2 text-xs uppercase tracking-wide text-gray-500">Team Members</p>
+									<p class="mb-2 text-xs tracking-wide text-gray-500 uppercase">Team Members</p>
 									<div class="flex flex-wrap gap-2">
 										{#each group.members as member}
 											<span
-												class="rounded border border-gray-700 bg-theater-dark px-2 py-1 text-sm"
+												class="bg-theater-dark rounded-sm border border-gray-700 px-2 py-1 text-sm"
 											>
 												{#if member.isLeader}
 													<span class="text-purple-400">👑</span>
@@ -384,7 +384,7 @@
 												<a
 													href={group.submissionLink}
 													target="_blank"
-													class="flex-1 break-all text-sm text-blue-400 underline hover:text-blue-300"
+													class="flex-1 text-sm break-all text-blue-400 underline hover:text-blue-300"
 												>
 													{group.submissionLink}
 												</a>
@@ -416,13 +416,13 @@
 						<p class="mb-2 text-sm text-gray-400">Event Code</p>
 						<div class="flex gap-2">
 							<code
-								class="flex-1 rounded-lg border border-gray-700 bg-theater-darker px-4 py-2 font-mono text-lg text-theater-purple"
+								class="bg-theater-darker text-theater-purple flex-1 rounded-lg border border-gray-700 px-4 py-2 font-mono text-lg"
 							>
 								{event.joinCode}
 							</code>
 							<button
 								onclick={copyJoinCode}
-								class="rounded-lg bg-gray-700 px-4 py-2 font-semibold transition-all duration-200 hover:bg-gray-600 focus:outline-none focus:ring-2 focus:ring-gray-500 focus:ring-offset-2 focus:ring-offset-theater-darker"
+								class="focus:ring-offset-theater-darker rounded-lg bg-gray-700 px-4 py-2 font-semibold transition-all duration-200 hover:bg-gray-600 focus:ring-2 focus:ring-gray-500 focus:ring-offset-2 focus:outline-hidden"
 								title="Copy code"
 							>
 								📋
@@ -438,11 +438,11 @@
 								type="text"
 								readonly
 								value={joinUrl}
-								class="flex-1 rounded-lg border border-gray-700 bg-theater-darker px-4 py-2 text-sm text-gray-300"
+								class="bg-theater-darker flex-1 rounded-lg border border-gray-700 px-4 py-2 text-sm text-gray-300"
 							/>
 							<button
 								onclick={copyJoinUrl}
-								class="rounded-lg bg-gray-700 px-4 py-2 font-semibold transition-all duration-200 hover:bg-gray-600 focus:outline-none focus:ring-2 focus:ring-gray-500 focus:ring-offset-2 focus:ring-offset-theater-darker"
+								class="focus:ring-offset-theater-darker rounded-lg bg-gray-700 px-4 py-2 font-semibold transition-all duration-200 hover:bg-gray-600 focus:ring-2 focus:ring-gray-500 focus:ring-offset-2 focus:outline-hidden"
 								title="Copy URL"
 							>
 								📋
@@ -457,7 +457,7 @@
 							<img
 								src={qrCodeUrl}
 								alt="QR Code"
-								class="mx-auto rounded-lg border-2 border-theater-purple"
+								class="border-theater-purple mx-auto rounded-lg border-2"
 							/>
 						</div>
 					{/if}
@@ -553,7 +553,7 @@
 							name="name"
 							defaultValue={event.name}
 							required
-							class="w-full rounded-lg border border-gray-700 bg-theater-darker px-4 py-2 text-white placeholder-gray-500 focus:border-transparent focus:outline-none focus:ring-2 focus:ring-theater-purple"
+							class="bg-theater-darker focus:ring-theater-purple w-full rounded-lg border border-gray-700 px-4 py-2 text-white placeholder-gray-500 focus:border-transparent focus:ring-2 focus:outline-hidden"
 						/>
 					</div>
 
@@ -566,7 +566,7 @@
 							id="modal-theme"
 							name="theme"
 							defaultValue={event.theme ?? ""}
-							class="w-full rounded-lg border border-gray-700 bg-theater-darker px-4 py-2 text-white placeholder-gray-500 focus:border-transparent focus:outline-none focus:ring-2 focus:ring-theater-purple"
+							class="bg-theater-darker focus:ring-theater-purple w-full rounded-lg border border-gray-700 px-4 py-2 text-white placeholder-gray-500 focus:border-transparent focus:ring-2 focus:outline-hidden"
 						/>
 					</div>
 
@@ -579,7 +579,7 @@
 							name="description"
 							defaultValue={event.description ?? ""}
 							rows="3"
-							class="w-full rounded-lg border border-gray-700 bg-theater-darker px-4 py-2 text-white placeholder-gray-500 focus:border-transparent focus:outline-none focus:ring-2 focus:ring-theater-purple"
+							class="bg-theater-darker focus:ring-theater-purple w-full rounded-lg border border-gray-700 px-4 py-2 text-white placeholder-gray-500 focus:border-transparent focus:ring-2 focus:outline-hidden"
 						></textarea>
 					</div>
 
@@ -595,7 +595,7 @@
 								defaultValue={event.submissionDeadline
 									? toDateTimeLocal(event.submissionDeadline, event.timezone)
 									: ""}
-								class="w-full rounded-lg border border-gray-700 bg-theater-darker px-4 py-2 text-white [color-scheme:dark] focus:border-transparent focus:outline-none focus:ring-2 focus:ring-theater-purple"
+								class="bg-theater-darker focus:ring-theater-purple w-full rounded-lg border border-gray-700 px-4 py-2 text-white scheme-dark focus:border-transparent focus:ring-2 focus:outline-hidden"
 							/>
 						</div>
 
@@ -609,7 +609,7 @@
 								name="maxPresentationTime"
 								defaultValue={event.maxPresentationTime ?? ""}
 								min="1"
-								class="w-full rounded-lg border border-gray-700 bg-theater-darker px-4 py-2 text-white focus:border-transparent focus:outline-none focus:ring-2 focus:ring-theater-purple"
+								class="bg-theater-darker focus:ring-theater-purple w-full rounded-lg border border-gray-700 px-4 py-2 text-white focus:border-transparent focus:ring-2 focus:outline-hidden"
 							/>
 						</div>
 					</div>
@@ -622,7 +622,7 @@
 							id="modal-order"
 							name="orderMode"
 							value={event.orderMode}
-							class="w-full rounded-lg border border-gray-700 bg-theater-darker px-4 py-2 text-white focus:border-transparent focus:outline-none focus:ring-2 focus:ring-theater-purple"
+							class="bg-theater-darker focus:ring-theater-purple w-full rounded-lg border border-gray-700 px-4 py-2 text-white focus:border-transparent focus:ring-2 focus:outline-hidden"
 						>
 							<option value="random">Random</option>
 							<option value="alphabetical">Alphabetical</option>
@@ -632,14 +632,14 @@
 					<div class="flex gap-3 pt-4">
 						<button
 							type="submit"
-							class="flex-1 rounded-lg bg-theater-purple px-6 py-3 font-semibold transition-all duration-200 hover:bg-purple-600 focus:outline-none focus:ring-2 focus:ring-theater-purple focus:ring-offset-2 focus:ring-offset-theater-darker"
+							class="bg-theater-purple focus:ring-theater-purple focus:ring-offset-theater-darker flex-1 rounded-lg px-6 py-3 font-semibold transition-all duration-200 hover:bg-purple-600 focus:ring-2 focus:ring-offset-2 focus:outline-hidden"
 						>
 							💾 Save Changes
 						</button>
 						<button
 							type="button"
 							onclick={() => (showEditModal = false)}
-							class="rounded-lg bg-gray-700 px-6 py-3 font-semibold transition-all duration-200 hover:bg-gray-600 focus:outline-none focus:ring-2 focus:ring-gray-500 focus:ring-offset-2 focus:ring-offset-theater-darker"
+							class="focus:ring-offset-theater-darker rounded-lg bg-gray-700 px-6 py-3 font-semibold transition-all duration-200 hover:bg-gray-600 focus:ring-2 focus:ring-gray-500 focus:ring-offset-2 focus:outline-hidden"
 						>
 							Cancel
 						</button>

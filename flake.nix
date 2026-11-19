@@ -5,10 +5,25 @@
     nixpkgs.url = "https://channels.nixos.org/nixos-unstable/nixexprs.tar.zst";
     # The last release that packages Prisma 5 engines (5.22.0), which Slide pins.
     nixpkgs-prisma5.url = "https://channels.nixos.org/nixos-24.11/nixexprs.tar.xz";
+
+    # The shell's pnpm is the exact version CI uses (packageManager in package.json), so local
+    # Turbo task hashes match CI's and the remote cache is shared. nixpkgs lags it, so it comes
+    # from the npm registry's prebuilt package, locked by flake.lock. Renovate bumps these
+    # version strings together with packageManager (.github/renovate.json), and the shell
+    # fails to evaluate if they drift apart. pnpm itself downloads the Node.js that
+    # devEngines.runtime pins, for every `pnpm run` and `pnpm exec`.
+    pnpm-linux-x64 = {
+      url = "https://registry.npmjs.org/@pnpm/exe.linux-x64/-/exe.linux-x64-12.21.0.tgz";
+      flake = false;
+    };
+    pnpm-linux-arm64 = {
+      url = "https://registry.npmjs.org/@pnpm/exe.linux-arm64/-/exe.linux-arm64-12.21.0.tgz";
+      flake = false;
+    };
   };
 
   outputs =
-    { nixpkgs, nixpkgs-prisma5, ... }:
+    { nixpkgs, nixpkgs-prisma5, ... }@inputs:
     let
       inherit (nixpkgs) lib;
       forAllSystems =
@@ -21,6 +36,23 @@
       devShells = forAllSystems (
         pkgs: pkgs-prisma5:
         let
+          manifest = builtins.fromJSON (builtins.readFile ./package.json);
+          src = inputs."pnpm-linux-${if pkgs.stdenv.hostPlatform.isAarch64 then "arm64" else "x64"}";
+          pnpm = pkgs.stdenv.mkDerivation {
+            pname = "pnpm";
+            version = (builtins.fromJSON (builtins.readFile "${src}/package.json")).version;
+            inherit src;
+            nativeBuildInputs = [ pkgs.autoPatchelfHook ];
+            buildInputs = [ pkgs.stdenv.cc.cc.lib ];
+            dontStrip = true;
+            installPhase = ''
+              install -Dm755 pnpm $out/bin/pnpm
+              ln -s pnpm $out/bin/pn
+              ln -s pnpm $out/bin/pnpx
+            '';
+          };
+          wantedPnpm = lib.removePrefix "pnpm@" manifest.packageManager;
+          wantedNodeMajor = lib.versions.major manifest.devEngines.runtime.version;
           # Prisma has no engine downloads for NixOS, so it must be pointed at nixpkgs'
           # engines (https://wiki.nixos.org/wiki/Prisma), built from the exact Prisma
           # version that runs. PetalBoard and Slide pin different majors, and Slide's
@@ -99,7 +131,15 @@
           '';
         in
         {
-          default = pkgs.mkShell {
+          default =
+            assert lib.assertMsg (pnpm.version == wantedPnpm) ''
+              flake.nix pins pnpm ${pnpm.version} but package.json packageManager wants ${wantedPnpm}.
+              Update the two registry URLs in flake.nix inputs to match, then run `nix flake lock`.
+            '';
+            lib.warnIf (lib.versions.major pkgs.nodejs_26.version != wantedNodeMajor)
+              "The shell's bare node is ${pkgs.nodejs_26.version}, but devEngines.runtime pins Node.js ${wantedNodeMajor}. pnpm still provisions the pinned one; point packages at the matching nodejs_NN."
+              pkgs.mkShell {
+            packages = [ pkgs.nodejs_26 pnpm ];
             shellHook = ''
               export NODE_OPTIONS="--require ${selectEngines}''${NODE_OPTIONS:+ $NODE_OPTIONS}"
             '';

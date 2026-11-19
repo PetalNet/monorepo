@@ -1,3 +1,5 @@
+import { json } from "@sveltejs/kit";
+
 import { handleAgentRpc, BODY_MAX } from "#lib/server/agent-api.js";
 
 // POST /api/agent/rpc  { op, args } — bearer-token RPC for remote headless agents.
@@ -13,7 +15,7 @@ export async function POST({ request }) {
 	const len = Number(request.headers.get("content-length"));
 
 	if (Number.isFinite(len) && len > BODY_MAX) {
-		return Response.json({ error: "body_too_large" }, { status: 413 });
+		return json({ error: "body_too_large" }, { status: 413 });
 	}
 
 	let rawBody;
@@ -29,5 +31,5 @@ export async function POST({ request }) {
 		rawBody,
 	});
 
-	return Response.json(body, { status });
+	return json(body, { status });
 }

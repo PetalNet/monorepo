@@ -176,7 +176,7 @@
 	{#if selectedTracks.length > 0}
 		<div class="space-y-3">
 			{#each selectedTracks as track (track.id)}
-				<div class="to-accent-50/30 rounded-xl bg-gradient-to-br from-primary-50 p-4">
+				<div class="to-accent-50/30 from-primary-50 rounded-xl bg-linear-to-br p-4">
 					<div class="flex items-start gap-4">
 						{#if track.album.images[0]}
 							<img
@@ -190,8 +190,8 @@
 							/>
 						{/if}
 						<div class="min-w-0 flex-1 py-1">
-							<h4 class="truncate text-sm font-semibold text-dark-900">{track.name}</h4>
-							<p class="truncate text-xs text-dark-700/70">
+							<h4 class="text-dark-900 truncate text-sm font-semibold">{track.name}</h4>
+							<p class="text-dark-700/70 truncate text-xs">
 								{track.artists.map((artist) => artist.name).join(", ")}
 							</p>
 						</div>
@@ -233,9 +233,9 @@
 			/>
 
 			{#if isSearching}
-				<div class="absolute right-3 top-1/2 -translate-y-1/2">
+				<div class="absolute top-1/2 right-3 -translate-y-1/2">
 					<div
-						class="h-5 w-5 animate-spin rounded-full border-2 border-primary-600 border-t-transparent"
+						class="border-primary-600 h-5 w-5 animate-spin rounded-full border-2 border-t-transparent"
 					></div>
 				</div>
 			{/if}
@@ -256,7 +256,7 @@
 					{#each searchResults as track (track.id)}
 						<button
 							type="button"
-							class="flex w-full items-center gap-3 p-3 text-left transition-colors hover:bg-primary-50 disabled:cursor-not-allowed disabled:opacity-60"
+							class="hover:bg-primary-50 flex w-full items-center gap-3 p-3 text-left transition-colors disabled:cursor-not-allowed disabled:opacity-60"
 							onclick={() => selectTrack(track)}
 							disabled={limitReached &&
 								!selectedTracks.some((selected) => selected.id === track.id)}
@@ -265,7 +265,7 @@
 								<img
 									src={track.album.images[2].url}
 									alt={track.album.name}
-									class="h-12 w-12 rounded shadow-sm"
+									class="h-12 w-12 rounded-sm shadow-xs"
 									loading="lazy"
 									decoding="async"
 									width="48"
@@ -273,11 +273,11 @@
 								/>
 							{/if}
 							<div class="min-w-0 flex-1">
-								<div class="truncate font-medium text-dark-900">{track.name}</div>
-								<div class="truncate text-sm text-dark-700/70">
+								<div class="text-dark-900 truncate font-medium">{track.name}</div>
+								<div class="text-dark-700/70 truncate text-sm">
 									{track.artists.map((artist) => artist.name).join(", ")}
 								</div>
-								<div class="truncate text-xs text-dark-700/50">{track.album.name}</div>
+								<div class="text-dark-700/50 truncate text-xs">{track.album.name}</div>
 							</div>
 							<div class="text-2xl">
 								{selectedTracks.some((selected) => selected.id === track.id) ? "✅" : "🎵"}
@@ -297,7 +297,7 @@
 		</div>
 
 		{#if limitReached}
-			<p class="text-xs font-medium text-primary-700">
+			<p class="text-primary-700 text-xs font-medium">
 				You've reached the maximum of {limit} song{limit === 1 ? "" : "s"}.
 			</p>
 		{:else if limit}

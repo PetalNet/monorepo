@@ -47,7 +47,14 @@
 	let L: typeof import("leaflet") | undefined;
 	let markersByCollege = new SvelteMap<string, Marker>();
 	let clusterGroup: import("leaflet").MarkerClusterGroup | null = null;
-	let heatLayer: import("leaflet").HeatLayer | null = null;
+	// leaflet.heat 1.x types extend a generic L.Layer<Options> that @types/leaflet 1.9 does not
+	// declare, so its declared class loses every Layer member. Narrow it once here to what we use.
+	type HeatLayerConstructor = new (
+		points: [number, number, number][],
+		options: import("leaflet.heat").HeatLayerOptions,
+	) => import("leaflet").Layer;
+	let HeatLayerClass: HeatLayerConstructor | undefined;
+	let heatLayer: import("leaflet").Layer | null = null;
 	let collegeGroups: CollegeGroup[] = [];
 	const collegeInfoCache = new SvelteMap<string, CollegeInfo>();
 
@@ -92,9 +99,9 @@
 		const init = async () => {
 			const LModule = await import("leaflet");
 
-			// Both plugins extend L, so they load after it and before anything touches the map.
+			// markercluster extends L and leaflet.heat extends L.Layer, so they load after it and before anything touches the map.
 			await import("leaflet.markercluster");
-			await import("leaflet.heat");
+			HeatLayerClass = (await import("leaflet.heat")).HeatLayer as unknown as HeatLayerConstructor;
 
 			if (teardown.signal.aborted) {
 				return;
@@ -141,7 +148,7 @@
 		const leaflet = L;
 		const leafletMap = map;
 
-		if (!leaflet || !leafletMap) {
+		if (!leaflet || !leafletMap || !HeatLayerClass) {
 			return;
 		}
 
@@ -292,7 +299,7 @@
 			leafletMap.removeLayer(heatLayer);
 		}
 
-		heatLayer = leaflet.heatLayer(heatData, {
+		heatLayer = new HeatLayerClass(heatData, {
 			radius: 35,
 			blur: 25,
 			maxZoom: 10,

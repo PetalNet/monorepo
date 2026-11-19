@@ -5,7 +5,6 @@
 	import Icon from "#lib/Icon.svelte";
 	import NavSidebar from "#lib/NavSidebar.svelte";
 	import { displayName, setPeople } from "#lib/people.js";
-	import SearchBox from "#lib/SearchBox.svelte";
 	let { children, data } = $props();
 	setPeople(data.config.people);
 
@@ -29,31 +28,9 @@
 	const path = $derived(page.url.pathname);
 	// the Janet Call home is a bare page for the Android WebView: no tasks chrome
 	const bare = $derived(path === "/janet/home");
-	const isActive = (n) => {
-		const p = path;
-
-		if (n === "desk") {
-			return p === "/";
-		}
-
-		if (n === "browse") {
-			return p === "/browse" || p.startsWith("/task") || p.startsWith("/board");
-		}
-
-		if (n === "fleet") {
-			return p.startsWith("/fleet");
-		}
-
-		if (n === "new") {
-			return p.startsWith("/new");
-		}
-
-		return false;
-	};
 
 	// top-bar account menu + global search (the bar is now useful, not a section-name parrot)
 	let acctOpen = $state(false);
-	const q = $derived(page.url.searchParams.get("q") ?? "");
 
 	function toggleTheme() {
 		const next = document.documentElement.dataset.theme === "light" ? "dark" : "light";
@@ -64,57 +41,6 @@
 			localStorage.setItem("tasks-theme", next);
 		} catch {}
 	}
-
-	// ── "More" sheet (task-335/360): a real dialog, not a checkbox hack ──
-	// The old <label for="more-tgl"> + hidden checkbox was mouse-only: labels aren't
-	// keyboard-operable and the sheet had no Escape/focus handling. Now a button with
-	// aria-expanded opens a dialog that takes focus, traps Tab, closes on Escape and
-	// backdrop, and returns focus to the tab that opened it.
-	let moreOpen = $state(false);
-	let sheetEl = $state(null);
-	let moreBtn = $state(null);
-	function openMore() {
-		moreOpen = true;
-		queueMicrotask(() => sheetEl?.querySelector("a")?.focus());
-	}
-	function closeMore() {
-		moreOpen = false;
-		moreBtn?.focus();
-	}
-	function sheetKeydown(e) {
-		if (e.key === "Escape") {
-			e.preventDefault();
-			closeMore();
-
-			return;
-		}
-
-		if (e.key !== "Tab") {
-			return;
-		}
-
-		const f = [...sheetEl.querySelectorAll("a[href]")];
-
-		if (!f.length) {
-			return;
-		}
-
-		const first = f[0],
-			last = f[f.length - 1];
-
-		if (e.shiftKey && document.activeElement === first) {
-			e.preventDefault();
-			last.focus();
-		} else if (!e.shiftKey && document.activeElement === last) {
-			e.preventDefault();
-			first.focus();
-		}
-	}
-	// close the sheet when a navigation happens from inside it
-	$effect(() => {
-		path;
-		moreOpen = false;
-	});
 </script>
 
 {#if bare}
@@ -125,13 +51,13 @@
 		<a class="skip" href="#main">Skip to content</a>
 
 		<!-- DESKTOP SIDEBAR — Nexus-style grouped nav, collapses to an icon rail -->
-		<NavSidebar bind:collapsed fleet={data.fleet} />
+		<NavSidebar bind:collapsed />
 
 		<!-- MOBILE topbar -->
 		<header class="topbar">
 			<a class="brand" href="/"
 				><span class="brand-mark"><Icon name="brand" size={18} strokeWidth={2} /></span><span
-					class="brand-name">tasks</span
+					class="brand-name">gallery</span
 				></a
 			>
 			<button class="ico-theme" onclick={toggleTheme} title="Theme" aria-label="Theme"
@@ -151,7 +77,7 @@
 					<Icon name={collapsed ? "expand" : "collapse"} size={18} />
 				</button>
 
-				<SearchBox value={q} />
+				<span class="tb-spacer"></span>
 
 				<div class="tb-acct">
 					<button
@@ -190,76 +116,21 @@
 			<div class="main-scroll">{@render children()}</div>
 		</main>
 
-		<!-- MOBILE bottom tab bar + More sheet (a real dialog — keyboard + AT operable, task-335/360) -->
-		<button
-			class="sheet-bd"
-			class:open={moreOpen}
-			tabindex="-1"
-			aria-hidden="true"
-			onclick={closeMore}
-		></button>
-		<div
-			class="sheet"
-			class:open={moreOpen}
-			id="more-sheet"
-			role="dialog"
-			aria-modal="true"
-			tabindex="-1"
-			aria-labelledby="more-sheet-title"
-			bind:this={sheetEl}
-			onkeydown={sheetKeydown}
-		>
-			<h3 id="more-sheet-title">More</h3>
-			<a href="/docs" aria-current={path.startsWith("/docs") ? "page" : undefined}
-				><Icon name="doc" size={20} />Docs</a
-			>
-			<a href="/gallery" aria-current={path.startsWith("/gallery") ? "page" : undefined}
-				><Icon name="gallery" size={20} />Gallery</a
-			>
-			<a href="/projects" aria-current={path.startsWith("/projects") ? "page" : undefined}
-				><Icon name="projects" size={20} />Projects</a
-			>
-		</div>
 		<nav class="tabbar" aria-label="Primary">
 			<a
 				class="tab"
-				class:on={isActive("desk")}
-				aria-current={isActive("desk") ? "page" : undefined}
-				href="/"><Icon name="desk" size={20} /><span>Desk</span></a
-			>
-			<a
-				class="tab"
-				class:on={isActive("browse")}
-				aria-current={isActive("browse") ? "page" : undefined}
-				href="/browse"><Icon name="board" size={20} /><span>Browse</span></a
-			>
-			<a
-				class="tab"
-				class:on={isActive("fleet")}
-				aria-current={isActive("fleet") ? "page" : undefined}
-				href="/fleet"><Icon name="bolt" size={20} /><span>Fleet</span></a
-			>
-			<a
-				class="tab"
-				class:on={isActive("new")}
-				aria-current={isActive("new") ? "page" : undefined}
-				href="/new"><Icon name="plus" size={20} /><span>New</span></a
-			>
-			<button
-				class="tab"
-				type="button"
-				bind:this={moreBtn}
-				aria-haspopup="dialog"
-				aria-expanded={moreOpen}
-				aria-controls="more-sheet"
-				onclick={() => (moreOpen ? closeMore() : openMore())}
-				><Icon name="more" size={20} /><span>More</span></button
+				class:on={path.startsWith("/gallery")}
+				aria-current={path.startsWith("/gallery") ? "page" : undefined}
+				href="/gallery"><Icon name="gallery" size={20} /><span>Gallery</span></a
 			>
 		</nav>
 	</div>
 {/if}
 
 <style>
+	.tb-spacer {
+		flex: 1;
+	}
 	/* ── shell layout ─────────────────────────────────────── */
 	.app {
 		height: 100dvh;
@@ -426,9 +297,7 @@
 
 	/* mobile chrome hidden on desktop */
 	.topbar,
-	.tabbar,
-	.sheet,
-	.sheet-bd {
+	.tabbar {
 		display: none;
 	}
 
@@ -529,52 +398,6 @@
 		}
 
 		/* "More" sheet — the tucked-away secondary nav (state-driven; keyboard-operable) */
-		.sheet-bd.open {
-			display: block;
-			position: fixed;
-			inset: 0;
-			background: rgba(0, 0, 0, 0.5);
-			z-index: 40;
-			cursor: default;
-		}
-		.sheet.open {
-			display: flex;
-		}
-		.sheet {
-			position: fixed;
-			left: 0;
-			right: 0;
-			bottom: 0;
-			z-index: 41;
-			flex-direction: column;
-			gap: 2px;
-			background: var(--surface-1);
-			border-top: 1px solid var(--border);
-			border-radius: var(--radius-lg) var(--radius-lg) 0 0;
-			padding: 10px 12px calc(16px + env(safe-area-inset-bottom));
-		}
-		.sheet h3 {
-			font-size: 10px;
-			text-transform: uppercase;
-			letter-spacing: 0.08em;
-			color: var(--text-4);
-			font-family: var(--mono);
-			padding: 8px 8px 6px;
-		}
-		.sheet a {
-			display: flex;
-			align-items: center;
-			gap: 12px;
-			padding: 13px 12px;
-			border-radius: var(--radius);
-			color: var(--text-2);
-			font-size: 14.5px;
-			font-weight: 500;
-			text-decoration: none;
-		}
-		.sheet a:hover {
-			background: var(--surface-2);
-		}
 	}
 
 	/* focus-visible ring lives in app.css (one global rule, hugging each element's own radius) */

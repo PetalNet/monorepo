@@ -7,6 +7,9 @@
 !packages/*/package.json
 !tools/package.json
 !apps/tasks/
+!packages/effect-api/
+!packages/effect-sveltekit/
+!packages/tsconfig/
 apps/tasks/data/
 apps/tasks/*.db
 apps/tasks/*.db-*
@@ -14,4 +17,4 @@ apps/tasks/.env*
 apps/tasks/node_modules
 apps/tasks/build
 apps/tasks/.svelte-kit
-apps/tasks/fleet-term/
+packages/*/node_modules
