@@ -54,7 +54,9 @@ def check(question, project, session):
     if not project:
         raise ResearchError('Set RESEARCH_PROJECT to a registered project before research.')
     # The same project policy applies to research, and no query leaves before scanning.
-    prepared = bundle.prepare(f'Project: {project}\nGoal: research {question}', os.environ.get('CONTEXT_BUNDLE_CONFIG'))
+    prepared, source_scope = bundle.prepare_result(f'Project: {project}\nGoal: research {question}', os.environ.get('CONTEXT_BUNDLE_CONFIG'))
+    if source_scope == 'public-only':
+        raise ResearchError('The lab-first research hook requires a private project scope; public-only projects cannot query the vault.')
     output = vault(['research-check', question])
     try:
         result = json.loads(output)
