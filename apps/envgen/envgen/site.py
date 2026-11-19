@@ -56,9 +56,12 @@ class Source:
         elif kind == "ept" and name == "lidar":
             location = raw["endpoint"].rstrip("/")
         else:
-            allowed = {"lidar": "'file' or 'ept'", "canopy_height": "'file' or 'cog'", "reflectance": "'file'"}.get(
-                name, "'file' or 'arcgis_imageserver'"
-            )
+            allowed = {
+                "lidar": "'file' or 'ept'",
+                "canopy_height": "'file' or 'cog'",
+                "reflectance": "'file'",
+                "buildings": "'file'",
+            }.get(name, "'file' or 'arcgis_imageserver'")
             raise SiteError(f"sources.{name}: kind must be {allowed}, got {kind!r}")
         for field in ("license", "date"):
             if not raw.get(field):
@@ -151,6 +154,8 @@ class Site:
     survey: Source | None = None
     # optional: a JSON file of the region's tree species, their share and sizes, from a forest inventory
     tree_mix: Source | None = None
+    # optional: building footprints as GeoJSON in WGS84, with optional `height_m` and `num_floors` tags per feature
+    buildings: Source | None = None
 
 
 def acquisition_day(source: Source, name: str) -> date:
@@ -243,4 +248,5 @@ def load_site(path: Path) -> Site:
         ),
         survey=Source.parse(sources["survey"], path.parent, "survey") if "survey" in sources else None,
         tree_mix=Source.parse(sources["tree_mix"], path.parent, "tree_mix") if "tree_mix" in sources else None,
+        buildings=Source.parse(sources["buildings"], path.parent, "buildings") if "buildings" in sources else None,
     )

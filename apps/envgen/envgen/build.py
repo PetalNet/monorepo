@@ -17,7 +17,7 @@ from rasterio.warp import reproject, transform, transform_bounds
 from rasterio.windows import Window, from_bounds
 from scipy import ndimage
 
-from . import cover, frame, grain, lidar, light, surface, trees, turf
+from . import buildings, cover, frame, grain, lidar, light, surface, trees, turf
 from .acquire import acquire, sha256_file
 from .site import (
     CONTEXT_QUADS,
@@ -34,7 +34,7 @@ from .site import (
 
 # Part of every stage key. Bump it by hand when a code change alters a stage's output for the same
 # inputs (frame.py and the resampling included); nothing detects that automatically.
-PIPELINE_VERSION = 13
+PIPELINE_VERSION = 14
 
 MACRO_PIXELS = 1024
 # The fine detail: pixels across the tile (about half a metre, the imagery's own resolution) and the largest
@@ -193,8 +193,12 @@ def build_cover(
     latitude_deg: float,
     longitude_deg: float,
     grid_north_offset_deg: float,
+    roofs: np.ndarray | None = None,
 ) -> dict:
-    """What stands over the ground, and its shadow in the imagery, as rasters any later stage can read."""
+    """What stands over the ground, and its shadow in the imagery, as rasters any later stage can read.
+
+    `roofs` marks the cells a building footprint touches: the ground there is hidden, so nothing is read from a roof.
+    """
     tile = site.tile
     second = None
     if canopy:
@@ -214,6 +218,10 @@ def build_cover(
         brightness,
         lidar.CELL_M,
     )
+    # Roofs the lidar saw are already hidden as cover; these are the roof cells that were still read as ground.
+    roofs_read_as_ground = int((sunlit & roofs).sum()) if roofs is not None else 0
+    if roofs is not None:
+        sunlit = sunlit & ~roofs
     _write_grid(height, out / "canopy_height.tif", site.crs, tile)
     _write_grid(sunlit.astype(np.uint8), out / "sunlit.tif", site.crs, tile)
     return report | {
@@ -223,6 +231,8 @@ def build_cover(
         "cell_m": lidar.CELL_M,
         "sources": [name for name, used in (("lidar", lidar_height is not None), ("canopy_height", canopy)) if used],
         "sunlit_fraction": float(sunlit.mean()),
+        "roof_cells": int(roofs.sum()) if roofs is not None else 0,
+        "roof_cells_read_as_ground_before": roofs_read_as_ground,
         "sun": sun,
     }
 
@@ -237,6 +247,7 @@ def build_trees(
     covering: dict,
     classes: dict,
     lidar_height: np.ndarray | None,
+    footprints: list[dict] | None = None,
 ) -> dict:
     """Find every tree in the canopy heights and write the inventory the engine places trees from."""
     tile = site.tile
@@ -317,7 +328,10 @@ def build_trees(
     narrow, report["not_trees"] = trees.too_narrow(found)
     dropped = trees.masts(narrow, records, len(covers))
     report["not_trees"]["dropped"] = sum(dropped)
-    records = [tree for tree, drop in zip(records, dropped, strict=True) if not drop]
+    # A roof is canopy to a height map. A crown that tops out in a footprint, no higher than the roof, is that roof.
+    roofs = buildings.crowns_on_roofs(found, footprints or [], tile, lidar.CELL_M, lidar_height)
+    report["not_trees"]["roofs"] = sum(roofs)
+    records = [tree for tree, drop, roof in zip(records, dropped, roofs, strict=True) if not drop and not roof]
     (out / "trees.json").write_text(
         json.dumps({"columns": trees.COLUMNS, "trees": [[tree[name] for name in trees.COLUMNS] for tree in records]})
     )
@@ -347,6 +361,57 @@ def build_trees(
         "species_from": mix["source"] if mix else None,
         "priors": priors,
         "settings": trees.SETTINGS,
+    }
+
+
+def build_buildings(
+    site: Site,
+    footprints: list[dict],
+    imagery: Path,
+    out: Path,
+    classes: dict,
+    lidar_height: np.ndarray | None,
+) -> dict:
+    """Measure every footprint's height and roof colour and write the inventory the engine builds massing from."""
+    tile = site.tile
+    bands, _ = imagery_bands(site.imagery)
+    half = lidar.CELL_M / 2
+    cells = round(tile.size_m / lidar.CELL_M)
+    photo = _warp(
+        imagery, site.crs, tile.west + half, tile.north - half, lidar.CELL_M, cells, Resampling.average, bands
+    )
+    photo = np.stack([_fill_gaps(band, "imagery")[0] for band in photo[:3]])
+    albedo = classes["albedo"]
+    curve = albedo.get("curves", {}).get(surface.PAVED)
+    records = buildings.measure(footprints, tile, lidar.CELL_M, lidar_height, photo, curve, albedo["scale"])
+    (out / "buildings.json").write_text(json.dumps({"buildings": records}, separators=(",", ":")))
+    priors = [
+        "prior: roofs are flat and every wall has one albedo; no source gives roof shape or facade colour",
+        "prior: a roof's photo colour becomes albedo by the paved class's curve"
+        if curve
+        else "prior: a roof's photo colour becomes albedo by the global scale",
+    ]
+    by_height = buildings.sources_of(records)
+    if any(kind in by_height for kind in ("prior", "measured")):
+        priors.append(
+            f"prior: buildings with no lidar and no tag take {buildings.FLOOR_M:g} m a floor or the tile's median"
+        )
+    return {
+        "files": ["buildings.json"],
+        "file": "buildings.json",
+        "count": len(records),
+        "height_from": by_height,
+        "by_dataset": {
+            str(name): sum(record["dataset"] == name for record in records)
+            for name in sorted({str(record["dataset"]) for record in records})
+        },
+        "height_m": [float(v) for v in np.quantile([r["height_m"] for r in records], (0.1, 0.5, 0.9))]
+        if records
+        else [],
+        "wall_albedo": buildings.WALL_ALBEDO,
+        "roof_roughness": buildings.ROOF_ROUGHNESS,
+        "priors": priors,
+        "settings": buildings.SETTINGS,
     }
 
 
@@ -458,7 +523,14 @@ def fit_to_reflectance(
         raise SiteError(f"sources.reflectance: {error}") from error
 
 
-def build_surface(site: Site, imagery: Path, out: Path, covering: dict | None, reflectance: Path | None) -> dict:
+def build_surface(
+    site: Site,
+    imagery: Path,
+    out: Path,
+    covering: dict | None,
+    reflectance: Path | None,
+    roofs: np.ndarray | None = None,
+) -> dict:
     """Classify the ground and write one 8-bit weightmap per class, on the Landscape's vertices."""
     tile = site.tile
     for stale in out.glob("surface_*.png"):
@@ -470,6 +542,10 @@ def build_surface(site: Site, imagery: Path, out: Path, covering: dict | None, r
     rgb = rgb[:3]
     shown = open_ground(out, covering, tile.vertices) > 0
     labels, names, fit = surface.classify(rgb, shown, tile.quad_m, nir)
+    if roofs is not None:
+        # The ground under a roof is the class of the ground around it: the roof's own colour is not ground.
+        labels = buildings.label_under(labels, _sample_cells(roofs, tile.vertices))
+        fit["priors"].append("prior: the ground under a building is the class of the nearest ground not under one")
     layers, unreal = [], []
     for name, weight in zip(names, surface.weights(labels, len(names), tile.quad_m), strict=True):
         file = f"surface_{name}.png"
@@ -901,6 +977,22 @@ def build(site_path: Path, out: Path, cache: Path | None = None) -> dict:
         sources["lidar"] = lidar.identify(site.lidar, tile, site.crs, cache)
         lidar_key = sources["lidar"]["sha256"]
     structure = {}
+    footprints, roofs = [], None
+    if site.buildings:
+        path = Path(site.buildings.location)
+        if not path.is_file():
+            raise FileNotFoundError(f"sources.buildings: {path} does not exist")
+        footprints = buildings.load_footprints(path, site.crs, tile)
+        roofs = buildings.mask(footprints, tile, lidar.CELL_M)
+        sources["buildings"] = {
+            "kind": site.buildings.kind,
+            "license": site.buildings.license,
+            "date": site.buildings.date,
+            "bytes_fetched": 0,
+            "path": site.buildings.location,
+            "sha256": sha256_file(path),
+        }
+    buildings_key = [sources["buildings"]["sha256"], buildings.SETTINGS] if site.buildings else None
 
     def rasters() -> tuple[np.ndarray | None, np.ndarray | None]:
         if site.lidar and not structure:
@@ -928,6 +1020,7 @@ def build(site_path: Path, out: Path, cache: Path | None = None) -> dict:
             sources["imagery"]["sha256"],
             sources["canopy_height"]["sha256"] if canopy else None,
             site.imagery.date,
+            buildings_key,
         ]
         stages["cover"] = _cached(
             out,
@@ -943,6 +1036,7 @@ def build(site_path: Path, out: Path, cache: Path | None = None) -> dict:
                 geo["origin_latitude_deg"],
                 geo["origin_longitude_deg"],
                 geo["true_north_from_grid_north_deg"],
+                roofs,
             ),
         )
         covering = stages["cover"]
@@ -974,8 +1068,9 @@ def build(site_path: Path, out: Path, cache: Path | None = None) -> dict:
             surface.MAJORITY_CELLS,
             surface.CROWN_MAX_M2,
             surface.CROWN_RING_M,
+            buildings_key,
         ),
-        lambda: build_surface(site, imagery, out, covering, reflectance),
+        lambda: build_surface(site, imagery, out, covering, reflectance, roofs),
     )
     classes = stages["surface"]
     stages["macro_colour"] = _cached(
@@ -1114,6 +1209,7 @@ def build(site_path: Path, out: Path, cache: Path | None = None) -> dict:
                 bands,
                 classes["splits"],
                 [sources[name] for name in ("survey", "tree_mix") if name in sources],
+                buildings_key,
                 site.seed,
                 trees.SETTINGS,
                 trees.COLUMNS,
@@ -1128,9 +1224,28 @@ def build(site_path: Path, out: Path, cache: Path | None = None) -> dict:
                 covering,
                 classes,
                 rasters()[0],
+                footprints,
             ),
         )
         inventory = stages["trees"]
+    housing = None
+    if site.buildings:
+        stages["buildings"] = _cached(
+            out,
+            "buildings",
+            _stage_key(
+                grid,
+                site.crs,
+                buildings_key,
+                lidar_key,
+                sources["imagery"]["sha256"],
+                bands,
+                classes["albedo"].get("curves", {}).get(surface.PAVED),
+                classes["albedo"]["scale"],
+            ),
+            lambda: build_buildings(site, footprints, imagery, out, classes, rasters()[0]),
+        )
+        housing = stages["buildings"]
 
     half_cm = tile.size_m * 100 / 2
     manifest = {
@@ -1180,6 +1295,9 @@ def build(site_path: Path, out: Path, cache: Path | None = None) -> dict:
     if "grain" in stages:
         manifest["grain"] = {key: value for key, value in stages["grain"].items() if key not in ("files", "cached")}
         artifacts += [stages["grain"]["file"]] if "file" in stages["grain"] else []
+    if housing:
+        manifest["buildings"] = {key: value for key, value in housing.items() if key not in ("files", "cached")}
+        artifacts += housing["files"]
     if covering:
         manifest["cover"] = {key: value for key, value in covering.items() if key not in ("files", "cached")}
         artifacts += covering["files"]

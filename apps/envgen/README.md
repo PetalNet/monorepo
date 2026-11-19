@@ -38,6 +38,7 @@ envgen build site.json --out build/ --cache cache/
 | Survey detail | a survey orthophoto, the sunlit ground, classes | `survey_detail.png`: the detail ratio at the orthophoto's pixel size, one channel                       |
 | Surround     | both rasters at coarse spacing, if asked for    | `context_heightmap.png`, `context_colour.png`                                                           |
 | Trees        | the cover rasters, the classes, a survey, a mix | `trees.json`: one row per tree                                                                          |
+| Buildings    | footprints, lidar, the photo, the classes       | `buildings.json`: one record per building                                                               |
 | Manifest     | everything above                                | `build.json`: placement, georeference, stencil classes, hashes                                          |
 
 - A source is either a local raster (`"kind": "file"`) or an ArcGIS ImageServer
@@ -55,6 +56,9 @@ envgen build site.json --out build/ --cache cache/
 - `sources.imagery.bands` is optional: which band holds what, as 1-based numbers, for a raster whose own tags do
   not say (`{"red": 1, "green": 2, "blue": 3, "nir": 4}`). Without it the first three bands are red, green and
   blue. Naming a near-infrared band changes how vegetation is found (see Surface classes).
+- `sources.buildings` is optional: building footprints as one GeoJSON in WGS84 (`"kind": "file"`), each feature
+  with optional `height_m`, `num_floors`, `id` and `dataset` properties. The site's tools make it from Overture Maps'
+  buildings, which merge OpenStreetMap with Microsoft's machine-learned footprints (see Buildings).
 - `sources.reflectance` is optional: a raster file of measured surface reflectance, 0 to 1, near the target date
   (an atmospherically corrected satellite scene, for example), with `bands` naming red, green and blue. It sets each
   class's albedo (see Albedo and light).
@@ -348,6 +352,31 @@ The tests build synthetic sites and check behaviour: that a known surface lands 
 position after encoding, that sources are fetched once, that stages are reused, and that the sun
 and the shadows it casts are where astronomy puts them.
 
+### Buildings
+
+With a `sources.buildings` file the build writes `buildings.json`: one record per footprint that touches the tile, with
+its rings in metres east and north of the tile centre (outer ring first, then courtyards), a triangulation of the roof,
+a height, a roof albedo, and where each came from.
+
+- **Footprints** are the map's polygons, simplified to 0.3 m. Nothing is placed that no map shows.
+- **Height**, in order of trust: the median lidar height above ground over the footprint pulled in by 1 m (when at
+  least 3 cells say 1.5 m or more); the footprint's own `height_m` tag; its `num_floors` tag times 3 m; the median of
+  the heights the lidar measured on the tile's other buildings. A building newer than the lidar survey is read as
+  flat ground by it, so the tags speak. Every record says which it used (`height_from`), and `build.json` counts them.
+  On the real tile 200 of 207 buildings took the lidar's height, 5 a tag, 2 the tile's median.
+- **Roof colour** is the median photo colour over the footprint, turned into albedo by the paved class's curve (the
+  photo is calibrated per class against the reflectance raster; a roof reads like the unvegetated class, a prior).
+- **Priors, with no source:** roofs are flat (no source gives roof shape); every wall has one albedo of 0.25 (no
+  facade colour); roughness 0.85; 3 m a floor; the 0.3 m simplification, the 4 m2 minimum area, the 1.5 m lidar
+  threshold and the 1 m edge are set by hand. All are in `build.json` under `buildings.settings` and `buildings.priors`.
+- **Roofs out of the ground.** A footprint's cells count as hidden in the cover stage, so no class, colour or detail
+  of the ground is read from a roof (the lidar already hid the roofs it saw as cover; on the real tile the footprints
+  hid 2108 more cells that were still read as ground), and the ground class under a footprint is that of the nearest
+  ground not under one. Nothing double-draws ground and roof.
+
+Limits: the lidar is from 2017. A demolished building is still in the lidar's height where the footprint source is
+older, and a new one has only its tags. Eaves, chimneys, gables and storeys' colour are not modelled.
+
 ## Unreal side
 
 `unreal/Plugins/EnvGen` is one plugin with two modules.
@@ -378,6 +407,13 @@ and the shadows it casts are where astronomy puts them.
   fails if one is missing or its top is more than 5 cm under its measured height. The tree actor carries the tag
   `EnvGenStanding`; the tours look past anything with it when they ask where the ground is, so a camera's height
   is above the ground and not above a crown.
+- **Buildings in the level.** Each footprint is a block: walls from 30 cm under the ground at every corner up to
+  one roof height over the ground at the footprint's anchor point (never under the ground at a corner), a flat roof, and
+  the roof triangles from the pipeline. The blocks are merged into one mesh per 126 m square, so a square is one draw
+  and one collision body (the mesh's own triangles are its collision). The colour is carried in two UV channels, so
+  there is one material and no texture: roofs take their measured albedo and walls 0.25. The receipt counts the
+  buildings placed and traces down onto 25 of them; the build fails if one is missing or its roof is more than 5 cm
+  off. The actors carry `EnvGenStanding` and the building stencil, and the ground check looks past them.
 - **EnvGen** has the walking pawn, the game mode and the tour actor.
 
 `unreal/Host` is a minimal project that hosts the plugin.
@@ -440,5 +476,5 @@ Before moving to a new engine version, these show whether it can host the work:
 
 ## Not in this slice
 
-Buildings, a mesh for each species, wind, weather and a moving sun, the manual edit layer that regeneration leaves alone, and
+Roof shapes, streets, sidewalks, a mesh for each species, wind, weather and a moving sun, the manual edit layer that regeneration leaves alone, and
 the simulator exports.

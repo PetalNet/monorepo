@@ -57,6 +57,9 @@
 #include "Materials/MaterialExpressionSmoothStep.h"
 #include "Materials/MaterialExpressionVertexColor.h"
 #include "Materials/MaterialExpressionWorldPosition.h"
+#include "Materials/MaterialExpressionTextureCoordinate.h"
+#include "PhysicsEngine/BodySetup.h"
+#include "StaticMeshCompiler.h"
 #include "Materials/MaterialExpressionTextureSample.h"
 #include "MeshDescription.h"
 #include "Misc/FileHelper.h"
@@ -183,6 +186,18 @@ namespace
 		FName Kind;
 	};
 
+	/** One building of the inventory: its footprint rings in metres from the tile centre, and what the pipeline measured. */
+	struct FBuilding
+	{
+		double EastM = 0, NorthM = 0, HeightM = 0;
+		FLinearColor RoofAlbedo = FLinearColor::Black;
+		// Outer ring first, then holes; each point is (east, north). Triangles index the rings' points in order.
+		TArray<TArray<FVector2D>> Rings;
+		TArray<FIntVector> RoofTriangles;
+		// Where the roof stands once placed, in centimetres, for the build's own check.
+		double TopCm = 0;
+	};
+
 	/** A tree mesh the engine ships, with the size it has before scaling, read from its bounds. */
 	struct FTreeMesh
 	{
@@ -197,6 +212,9 @@ namespace
 		FString Directory;
 		// The tree inventory's file, when the build has one.
 		FString TreesFile;
+		// The building inventory's file, the albedo every wall has, and the roughness of walls and roofs.
+		FString BuildingsFile;
+		float WallAlbedo = 0.25f, RoofRoughness = 0.85f;
 		// The photo's fine detail as a ratio to the macro colour: file, and how 8 bits map to a power of two.
 		FString RatioFile;
 		double RatioLog2Range = 1, RatioZero = 127;
@@ -372,6 +390,13 @@ namespace
 		if (Root->TryGetObjectField(TEXT("trees"), Trees))
 		{
 			Out.TreesFile = (*Trees)->GetStringField(TEXT("file"));
+		}
+		const TSharedPtr<FJsonObject>* Buildings = nullptr;
+		if (Root->TryGetObjectField(TEXT("buildings"), Buildings))
+		{
+			Out.BuildingsFile = (*Buildings)->GetStringField(TEXT("file"));
+			Out.WallAlbedo = float((*Buildings)->GetNumberField(TEXT("wall_albedo")));
+			Out.RoofRoughness = float((*Buildings)->GetNumberField(TEXT("roof_roughness")));
 		}
 		Out.AlbedoScale = float((*Albedo)->GetNumberField(TEXT("scale")));
 		Out.Lighting.GridAzimuthDeg = (*Light)->GetNumberField(TEXT("grid_azimuth_deg"));
@@ -1301,6 +1326,222 @@ namespace
 		return Worst;
 	}
 
+	/** The building inventory the pipeline wrote. */
+	bool LoadBuildings(const FString& Path, TArray<FBuilding>& Out, FString& Error)
+	{
+		FString Text;
+		TSharedPtr<FJsonObject> Root;
+		const TArray<TSharedPtr<FJsonValue>>* Rows = nullptr;
+		if (!FFileHelper::LoadFileToString(Text, *Path) || !FJsonSerializer::Deserialize(TJsonReaderFactory<>::Create(Text), Root) || !Root || !Root->TryGetArrayField(TEXT("buildings"), Rows))
+		{
+			Error = FString::Printf(TEXT("cannot read the building inventory %s"), *Path);
+			return false;
+		}
+		for (const TSharedPtr<FJsonValue>& Value : *Rows)
+		{
+			const TSharedPtr<FJsonObject> Item = Value->AsObject();
+			FBuilding& Building = Out.AddDefaulted_GetRef();
+			Building.EastM = Item->GetNumberField(TEXT("east_m"));
+			Building.NorthM = Item->GetNumberField(TEXT("north_m"));
+			Building.HeightM = Item->GetNumberField(TEXT("height_m"));
+			const TArray<TSharedPtr<FJsonValue>>& Albedo = Item->GetArrayField(TEXT("roof_albedo"));
+			Building.RoofAlbedo = FLinearColor(float(Albedo[0]->AsNumber()), float(Albedo[1]->AsNumber()), float(Albedo[2]->AsNumber()));
+			for (const TSharedPtr<FJsonValue>& RingValue : Item->GetArrayField(TEXT("rings")))
+			{
+				TArray<FVector2D>& Ring = Building.Rings.AddDefaulted_GetRef();
+				for (const TSharedPtr<FJsonValue>& Point : RingValue->AsArray())
+				{
+					Ring.Add(FVector2D(Point->AsArray()[0]->AsNumber(), Point->AsArray()[1]->AsNumber()));
+				}
+			}
+			for (const TSharedPtr<FJsonValue>& Triangle : Item->GetArrayField(TEXT("roof_triangles")))
+			{
+				const TArray<TSharedPtr<FJsonValue>>& Corners = Triangle->AsArray();
+				Building.RoofTriangles.Add(FIntVector(int32(Corners[0]->AsNumber()), int32(Corners[1]->AsNumber()), int32(Corners[2]->AsNumber())));
+			}
+		}
+		return true;
+	}
+
+	/** A building's colour is carried in two UV channels, (red, green) and (blue, unused), so it needs no texture. */
+	UMaterial* MakeBuildingMaterial(float Roughness, TArray<UPackage*>& Packages)
+	{
+		UMaterial* Material = NewAsset<UMaterial>(TEXT("M_Building"), Packages);
+		UMaterialExpressionTextureCoordinate* Uv0 = Node<UMaterialExpressionTextureCoordinate>(Material, -900, 0);
+		Uv0->CoordinateIndex = 0;
+		UMaterialExpressionTextureCoordinate* Uv1 = Node<UMaterialExpressionTextureCoordinate>(Material, -900, 200);
+		Uv1->CoordinateIndex = 1;
+		UMaterialExpressionComponentMask* RedGreen = Node<UMaterialExpressionComponentMask>(Material, -600, 0);
+		RedGreen->Input.Connect(0, Uv0);
+		RedGreen->R = true;
+		RedGreen->G = true;
+		UMaterialExpressionComponentMask* Blue = Node<UMaterialExpressionComponentMask>(Material, -600, 200);
+		Blue->Input.Connect(0, Uv1);
+		Blue->R = true;
+		UMaterialExpressionAppendVector* Colour = Node<UMaterialExpressionAppendVector>(Material, -300, 0);
+		Colour->A.Connect(0, RedGreen);
+		Colour->B.Connect(0, Blue);
+		UMaterialEditingLibrary::ConnectMaterialProperty(Colour, TEXT(""), MP_BaseColor);
+		UMaterialExpressionConstant* Rough = Node<UMaterialExpressionConstant>(Material, -300, 200);
+		Rough->R = Roughness;
+		UMaterialEditingLibrary::ConnectMaterialProperty(Rough, TEXT(""), MP_Roughness);
+		UMaterialEditingLibrary::RecompileMaterial(Material);
+		return Material;
+	}
+
+	/**
+	 * Stand every building of the inventory on the surface as a flat-roofed block: walls from a little under the
+	 * ground at each footprint corner up to one roof height, a roof of the measured colour, walls of one albedo. The
+	 * blocks are merged into one mesh per square of the tile, so a square is one draw and one collision body.
+	 */
+	TArray<AActor*> AddBuildings(UWorld* World, const FManifest& Manifest, const TArray64<uint8>& HeightBytes, TArray<FBuilding>& Buildings, UMaterial* Material, TArray<UPackage*>& Packages, int32& Placed)
+	{
+		constexpr double SquareM = 126;
+		constexpr double SinkCm = 30;
+		TMap<FIntPoint, TArray<int32>> Squares;
+		for (int32 Index = 0; Index < Buildings.Num(); ++Index)
+		{
+			Squares.FindOrAdd(FIntPoint(FMath::FloorToInt(Buildings[Index].EastM / SquareM), FMath::FloorToInt(Buildings[Index].NorthM / SquareM))).Add(Index);
+		}
+		const int32 Stencil = int32(Manifest.StencilClasses->GetNumberField(TEXT("building")));
+		const FLinearColor Wall(Manifest.WallAlbedo, Manifest.WallAlbedo, Manifest.WallAlbedo);
+		TArray<AActor*> Actors;
+		Placed = 0;
+		for (const TPair<FIntPoint, TArray<int32>>& Square : Squares)
+		{
+			UStaticMesh* Mesh = NewAsset<UStaticMesh>(FString::Printf(TEXT("SM_Buildings_%d_%d"), Square.Key.X, Square.Key.Y), Packages);
+			FMeshDescription Description;
+			FStaticMeshAttributes Attributes(Description);
+			Attributes.Register();
+			TVertexAttributesRef<FVector3f> Positions = Attributes.GetVertexPositions();
+			TVertexInstanceAttributesRef<FVector3f> Normals = Attributes.GetVertexInstanceNormals();
+			TVertexInstanceAttributesRef<FVector2f> Uvs = Attributes.GetVertexInstanceUVs();
+			Uvs.SetNumChannels(2);
+			TPolygonGroupAttributesRef<FName> Slots = Attributes.GetPolygonGroupMaterialSlotNames();
+			const FPolygonGroupID Group = Description.CreatePolygonGroup();
+			Slots[Group] = FName(TEXT("Building"));
+			// A mesh description's polygon faces the side its corners run counter-clockwise on, which here is the side
+			// opposite (B - A) x (C - A) (the build's collision trace proves it). A triangle is turned to face its normal.
+			const auto AddTriangle = [&](FVector A, FVector B, FVector C, const FVector& Normal, const FLinearColor& Colour)
+			{
+				if (FVector::CrossProduct(B - A, C - A).Dot(Normal) > 0)
+				{
+					Swap(B, C);
+				}
+				FVertexInstanceID Corners[3];
+				const FVector* Points[3] = {&A, &B, &C};
+				for (int32 Corner = 0; Corner < 3; ++Corner)
+				{
+					const FVertexID Vertex = Description.CreateVertex();
+					Positions[Vertex] = FVector3f(*Points[Corner]);
+					Corners[Corner] = Description.CreateVertexInstance(Vertex);
+					Normals[Corners[Corner]] = FVector3f(Normal);
+					Uvs.Set(Corners[Corner], 0, FVector2f(Colour.R, Colour.G));
+					Uvs.Set(Corners[Corner], 1, FVector2f(Colour.B, 0));
+				}
+				Description.CreatePolygon(Group, {Corners[0], Corners[1], Corners[2]});
+			};
+			for (const int32 Index : Square.Value)
+			{
+				FBuilding& Building = Buildings[Index];
+				const double AnchorZ = SurfaceZ(Manifest.Tile, HeightBytes, Building.NorthM * 100, Building.EastM * 100);
+				TArray<double> Ground;
+				double Highest = AnchorZ;
+				for (const TArray<FVector2D>& Ring : Building.Rings)
+				{
+					for (const FVector2D& Point : Ring)
+					{
+						Ground.Add(SurfaceZ(Manifest.Tile, HeightBytes, Point.Y * 100, Point.X * 100));
+						Highest = FMath::Max(Highest, Ground.Last());
+					}
+				}
+				// On a slope the roof is a roof height over the anchor, but never under the ground at a corner.
+				Building.TopCm = FMath::Max(AnchorZ + Building.HeightM * 100, Highest + 50);
+				int32 First = 0;
+				const auto Corner = [&](const FVector2D& Point, double Z) { return FVector(Point.Y * 100, Point.X * 100, Z); };
+				for (const TArray<FVector2D>& Ring : Building.Rings)
+				{
+					for (int32 Point = 0; Point < Ring.Num(); ++Point)
+					{
+						const FVector2D& From = Ring[Point];
+						const FVector2D& To = Ring[(Point + 1) % Ring.Num()];
+						const FVector2D Along = To - From;
+						// The solid is on the left of every ring's direction, so outside is on its right.
+						const FVector Outward = FVector(-Along.X, Along.Y, 0).GetSafeNormal();
+						const FVector BottomFrom = Corner(From, Ground[First + Point] - SinkCm), BottomTo = Corner(To, Ground[First + (Point + 1) % Ring.Num()] - SinkCm);
+						const FVector TopFrom = Corner(From, Building.TopCm), TopTo = Corner(To, Building.TopCm);
+						AddTriangle(BottomFrom, BottomTo, TopTo, Outward, Wall);
+						AddTriangle(BottomFrom, TopTo, TopFrom, Outward, Wall);
+					}
+					First += Ring.Num();
+				}
+				TArray<FVector2D> Points;
+				for (const TArray<FVector2D>& Ring : Building.Rings)
+				{
+					Points.Append(Ring);
+				}
+				for (const FIntVector& Triangle : Building.RoofTriangles)
+				{
+					AddTriangle(Corner(Points[Triangle.X], Building.TopCm), Corner(Points[Triangle.Y], Building.TopCm), Corner(Points[Triangle.Z], Building.TopCm), FVector::UpVector, Building.RoofAlbedo);
+				}
+				++Placed;
+			}
+			Mesh->GetStaticMaterials().Add(FStaticMaterial(Material, FName(TEXT("Building"))));
+			UStaticMesh::FBuildMeshDescriptionsParams Params;
+			Params.bBuildSimpleCollision = false;
+			Params.bFastBuild = false;
+			Mesh->BuildFromMeshDescriptions({&Description}, Params);
+			// The engine builds a mesh on another thread and sets its body up when it ends. A building is solid to a
+			// walker: its own triangles are its simple collision, so that is set once the build has finished.
+			FStaticMeshCompilingManager::Get().FinishCompilation({Mesh});
+			Mesh->CreateBodySetup();
+			Mesh->GetBodySetup()->CollisionTraceFlag = CTF_UseComplexAsSimple;
+			Mesh->GetBodySetup()->InvalidatePhysicsData();
+			Mesh->GetBodySetup()->CreatePhysicsMeshes();
+			AStaticMeshActor* Actor = World->SpawnActor<AStaticMeshActor>(FVector::ZeroVector, FRotator::ZeroRotator);
+			Actor->SetActorLabel(FString::Printf(TEXT("EnvGenBuildings_%d_%d"), Square.Key.X, Square.Key.Y));
+			Actor->Tags.Add(EnvGenStandingTag());
+			UStaticMeshComponent* Component = Actor->GetStaticMeshComponent();
+			Component->SetMobility(EComponentMobility::Static);
+			Component->SetStaticMesh(Mesh);
+			Component->SetCollisionProfileName(TEXT("BlockAll"));
+			Component->SetRenderCustomDepth(true);
+			Component->SetCustomDepthStencilValue(Stencil);
+			Actors.Add(Actor);
+		}
+		return Actors;
+	}
+
+	/**
+	 * Trace down onto buildings spread through the inventory, and return how far the worst hit is from the roof the
+	 * build placed, counting the traces that found no building. Trees are ignored: a crown may overhang a roof.
+	 */
+	double WorstBuildingTopErrorCm(UWorld* World, const FManifest& Manifest, const TArray<FBuilding>& Inventory, const AActor* Trees, int32& Checked, int32& Missed)
+	{
+		double Worst = 0;
+		Checked = Missed = 0;
+		FCollisionQueryParams Params;
+		if (Trees)
+		{
+			Params.AddIgnoredActor(Trees);
+		}
+		const int32 Step = FMath::Max(Inventory.Num() / TreeChecks, 1);
+		for (int32 Index = 0; Index < Inventory.Num(); Index += Step)
+		{
+			const FBuilding& Building = Inventory[Index];
+			++Checked;
+			const FVector At(Building.NorthM * 100, Building.EastM * 100, 0);
+			FHitResult Hit;
+			if (!World->LineTraceSingleByChannel(Hit, At + FVector(0, 0, 200000), At - FVector(0, 0, 200000), ECC_WorldStatic, Params) || !Hit.GetActor() || !Hit.GetActor()->ActorHasTag(EnvGenStandingTag()))
+			{
+				++Missed;
+				continue;
+			}
+			Worst = FMath::Max(Worst, FMath::Abs(Hit.Location.Z - Building.TopCm));
+		}
+		return Worst;
+	}
+
 	void AddSkyAndSun(UWorld* World, const FLighting& Lighting)
 	{
 		// World +X is grid north and +Y is east, so a sun at azimuth A lights the ground travelling towards A + 180.
@@ -1355,7 +1596,7 @@ namespace
 	 * Trace the collision surface at vertices spread unevenly over the tile and compare with the heights
 	 * that were imported. A transposed or mirrored import fails this; so does missing collision.
 	 */
-	double WorstSurfaceErrorCm(UWorld* World, const FManifest& Manifest, const TArray64<uint8>& HeightBytes, const AActor* Above, int32& Missed)
+	double WorstSurfaceErrorCm(UWorld* World, const FManifest& Manifest, const TArray64<uint8>& HeightBytes, const TArray<const AActor*>& Above, int32& Missed)
 	{
 		const uint16* Heights = reinterpret_cast<const uint16*>(HeightBytes.GetData());
 		const int32 Last = Manifest.Tile.Vertices - 1;
@@ -1363,9 +1604,12 @@ namespace
 		Missed = 0;
 		// What stands on the ground is not the ground.
 		FCollisionQueryParams Params;
-		if (Above)
+		for (const AActor* Standing : Above)
 		{
-			Params.AddIgnoredActor(Above);
+			if (Standing)
+			{
+				Params.AddIgnoredActor(Standing);
+			}
 		}
 		for (const double* Fraction : CheckPoints)
 		{
@@ -1426,6 +1670,9 @@ struct FEnvGenLevelBuild::FState
 	TArray<FTree> Trees;
 	AActor* TreeActor = nullptr;
 	int32 TreesPlaced = 0;
+	TArray<FBuilding> Buildings;
+	TArray<AActor*> BuildingActors;
+	int32 BuildingsPlaced = 0;
 	int32 MaterialErrors = 0;
 	float Waited = 0;
 	int32 Frames = 0;
@@ -1455,6 +1702,11 @@ bool FEnvGenLevelBuild::Start(const FString& ManifestPath, const FString& MapPat
 		return false;
 	}
 	TArray<FTreeMesh> TreeMeshes;
+	if (!Manifest.BuildingsFile.IsEmpty() && !LoadBuildings(Manifest.Directory / Manifest.BuildingsFile, State->Buildings, Error))
+	{
+		UE_LOG(LogEnvGen, Error, TEXT("%s"), *Error);
+		return false;
+	}
 	if (!Manifest.TreesFile.IsEmpty() && (!LoadTrees(Manifest.Directory / Manifest.TreesFile, State->Trees, Error) || !LoadTreeMeshes(MaterialsDirectory, TreeMeshes, Error)))
 	{
 		UE_LOG(LogEnvGen, Error, TEXT("%s"), *Error);
@@ -1601,6 +1853,11 @@ bool FEnvGenLevelBuild::Start(const FString& ManifestPath, const FString& MapPat
 	{
 		State->TreeActor = AddTrees(State->World, Manifest, State->HeightBytes, State->Trees, TreeMeshes, State->TreesPlaced);
 	}
+	if (!State->Buildings.IsEmpty())
+	{
+		UMaterial* BuildingMaterial = MakeBuildingMaterial(Manifest.RoofRoughness, State->Packages);
+		State->BuildingActors = AddBuildings(State->World, Manifest, State->HeightBytes, State->Buildings, BuildingMaterial, State->Packages, State->BuildingsPlaced);
+	}
 	AddSkyAndSun(State->World, Manifest.Lighting);
 	AddSiteInfo(State->World, Manifest);
 	APlayerStart* PlayerStart = State->World->SpawnActor<APlayerStart>(FVector(0, 0, 150), FRotator::ZeroRotator);
@@ -1632,7 +1889,10 @@ bool FEnvGenLevelBuild::Finish(float DeltaSeconds, bool& bSucceeded)
 
 	const FManifest& Manifest = State->Manifest;
 	int32 Missed = 0;
-	const double WorstCm = WorstSurfaceErrorCm(State->World, Manifest, State->HeightBytes, State->TreeActor, Missed);
+	TArray<const AActor*> Standing;
+	Standing.Add(State->TreeActor);
+	Standing.Append(State->BuildingActors);
+	const double WorstCm = WorstSurfaceErrorCm(State->World, Manifest, State->HeightBytes, Standing, Missed);
 	const int32 Components = State->Landscape->LandscapeComponents.Num();
 	const int32 TargetLayers = State->Landscape->GetTargetLayers().Num();
 	const int32 WeightError = WorstWeightError(State->Landscape, Manifest);
@@ -1641,9 +1901,12 @@ bool FEnvGenLevelBuild::Finish(float DeltaSeconds, bool& bSucceeded)
 	int32 TreesChecked = 0, TreesMissed = 0;
 	const double TreeTopCm = State->TreeActor ? WorstTreeTopErrorCm(State->TreeActor, Manifest, State->HeightBytes, State->Trees, TreesChecked, TreesMissed) : 0;
 	const bool bTreesOk = State->TreesPlaced == State->Trees.Num() && TreesMissed == 0 && TreeTopCm <= SurfaceToleranceCm;
+	int32 BuildingsChecked = 0, BuildingsMissed = 0;
+	const double BuildingTopCm = State->Buildings.IsEmpty() ? 0 : WorstBuildingTopErrorCm(State->World, Manifest, State->Buildings, State->TreeActor, BuildingsChecked, BuildingsMissed);
+	const bool bBuildingsOk = State->BuildingsPlaced == State->Buildings.Num() && BuildingsMissed == 0 && BuildingTopCm <= SurfaceToleranceCm;
 	const bool bSaved = UEditorLoadingAndSavingUtils::SavePackages(State->Packages, false) && UEditorLoadingAndSavingUtils::SaveMap(State->World, State->MapPath);
 	const bool bMaterialsOk = State->MaterialErrors == 0;
-	bSucceeded = bMerged && bSurfaceOk && bWeightsOk && bMaterialsOk && bTreesOk && bSaved;
+	bSucceeded = bMerged && bSurfaceOk && bWeightsOk && bMaterialsOk && bTreesOk && bBuildingsOk && bSaved;
 
 	TSharedRef<FJsonObject> Receipt = MakeShared<FJsonObject>();
 	Receipt->SetStringField(TEXT("map"), State->MapPath);
@@ -1668,6 +1931,12 @@ bool FEnvGenLevelBuild::Finish(float DeltaSeconds, bool& bSucceeded)
 	Receipt->SetNumberField(TEXT("trees_traces_missed"), TreesMissed);
 	Receipt->SetNumberField(TEXT("tree_top_worst_shortfall_cm"), TreeTopCm);
 	Receipt->SetBoolField(TEXT("trees_ok"), bTreesOk);
+	Receipt->SetNumberField(TEXT("buildings_in_inventory"), State->Buildings.Num());
+	Receipt->SetNumberField(TEXT("buildings_placed"), State->BuildingsPlaced);
+	Receipt->SetNumberField(TEXT("buildings_traced"), BuildingsChecked);
+	Receipt->SetNumberField(TEXT("buildings_traces_missed"), BuildingsMissed);
+	Receipt->SetNumberField(TEXT("building_top_worst_error_cm"), BuildingTopCm);
+	Receipt->SetBoolField(TEXT("buildings_ok"), bBuildingsOk);
 	Receipt->SetBoolField(TEXT("saved"), bSaved);
 	Receipt->SetBoolField(TEXT("succeeded"), bSucceeded);
 	FString Json;
