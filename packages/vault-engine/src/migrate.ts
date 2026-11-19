@@ -275,7 +275,7 @@ export const migrate = Effect.fnUntraced(function* (
 					return;
 				}
 
-				if (kept.length === 0) {
+				if (kept.length === 0 && all.length > 0) {
 					report.excluded.push({ origin, reason: "empty document" });
 
 					return;
@@ -329,6 +329,12 @@ export const migrate = Effect.fnUntraced(function* (
 
 				if (before?.status === "retracted") {
 					yield* exclude(origin, "document was retracted");
+
+					return;
+				}
+
+				if (before === undefined && kept.length === 0) {
+					yield* exclude(origin, "empty document");
 
 					return;
 				}

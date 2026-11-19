@@ -337,6 +337,7 @@ describe("migration", () => {
 				"# One\nEdited.\n",
 				"# One\nEdited.\n# Two\nAdded.\n",
 				"# Two\nAdded.\n",
+				"\n",
 				"# One\nFirst version.\n",
 			]) {
 				yield* writeText(at, body);

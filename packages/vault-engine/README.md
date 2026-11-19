@@ -172,6 +172,8 @@ version, mark the previous version replaced, and flag dependent claims across ti
 passages and citations stay attached to their original version. Reverting content creates another
 version; identical sections produce no new source or history operations. Extra quoted passages do
 not count as document edits. A refused replacement leaves the current version active.
+An emptied original gets a version with no passages and flags its old dependents; a new empty
+document is excluded.
 
 The report separates `migrated` and `unchanged` documents. `missing` lists active documents absent
 from an origin directory represented by the same kind and tier in the manifest. It never retracts
@@ -179,10 +181,12 @@ them, and cannot detect a directory omitted entirely from the manifest. Manually
 documents are excluded rather than revived. Titles and capture timestamps alone do not create a
 version.
 
-Before transferring a collected manifest, run `node scripts/scan-known-secrets.mjs <manifest.jsonl>`
+Before transferring a collected manifest, run `node src/scan-known-secrets.ts <manifest.jsonl>`
 with the JSON output of `janet-vault.mjs dump` on standard input. The command refuses a match in
 any manifest field or referenced document and emits no matched content. It compares each nonempty
-secret value and each nonempty trimmed line of multiline values literally; there are no exceptions.
+secret value literally. For JSON credentials it also checks decoded string values; for other
+multiline values it checks trimmed lines except structural braces, brackets and commas. A whole
+credential consisting of punctuation is still checked. There are no entry exceptions.
 A missing, empty or malformed dump, an unreadable manifest or document, an empty manifest, invalid JSON, and entries with missing document files or unknown types fail the scan. Use a pipeline with `pipefail` so a failed dump also fails the job. Snapshot
 each document into a private staging directory before scanning and transfer those same files;
 `collect` can otherwise reference originals that change between the scan and migration. Scan the
