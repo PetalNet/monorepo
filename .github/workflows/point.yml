@@ -59,6 +59,26 @@ jobs:
       - uses: $/.github/actions/setup-turbo
       - run: turbo --skip-infer run fmt:check check lint build test --filter='point-*'
 
+  bridge-lockfile:
+    name: rust bridge lockfile is current
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Install pinned toolchain (rust-toolchain.toml)
+        run: rustup toolchain install
+      # apps/point/app/rust is its own workspace (excluded from the root one) and reaches
+      # openmls and friends only through the point-core path dependency. Renovate looks for a
+      # Cargo.lock next to, or above, the manifest it edits, so it updates apps/point/core and
+      # the root lock but never this one. Fail fast here, with the fix, instead of in flutter-test.
+      - name: Check apps/point/app/rust/Cargo.lock is up to date
+        run: |
+          cargo metadata --locked --format-version 1 --manifest-path apps/point/app/rust/Cargo.toml > /dev/null || {
+            echo "::error file=apps/point/app/rust/Cargo.lock::Cargo.lock is stale. Run: cargo update --workspace --manifest-path apps/point/app/rust/Cargo.toml"
+            exit 1
+          }
+
   flutter-analyze:
     name: flutter (analyze)
     runs-on: ubuntu-latest
