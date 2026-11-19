@@ -1,4 +1,4 @@
-"""One recall index for every memory source: fold cards, memory notes, and Markdown documents.
+"""One recall index for every memory source: fold cards, memory notes, Markdown documents, and vault claims.
 
 Each source writes documents (id, source, ts, meta, body) into the same SQLite file. For each prompt:
   clean       the words the person wrote: the channel tag, untrusted-content trailer, room prefix and media lines go,
@@ -12,9 +12,11 @@ Without the embedder nothing attaches, and the embedder is started for the next 
 the per-prompt hook can run it under plain python3 -I.
 
   memindex.py sync-notes --db DB --dir DIR      index a directory of Markdown notes as source "memory"
+  memindex.py sync-vault --db DB --index FILE   index the active claims of a vault replica as source "vault"
   memindex.py search --db DB --text TEXT [--sources fold,memory] [--thread JSON]   every candidate and the gate's call
 """
 import argparse, glob, hashlib, json, math, os, re, socket, sqlite3, subprocess, sys, time
+from pathlib import Path
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import outbound
@@ -35,17 +37,28 @@ def connect(path):
       CREATE INDEX IF NOT EXISTS doc_source ON doc(source);
       CREATE VIRTUAL TABLE IF NOT EXISTS doc_fts USING fts5(body, tokenize='porter unicode61');
       CREATE TABLE IF NOT EXISTS doc_vec(rowid INTEGER PRIMARY KEY, model TEXT, hash TEXT, vec BLOB);''')
+    if not db.execute("SELECT 1 FROM sqlite_master WHERE name='doc_fts_nonvault'").fetchone():
+        db.execute('BEGIN IMMEDIATE')
+        if not db.execute("SELECT 1 FROM sqlite_master WHERE name='doc_fts_nonvault'").fetchone():
+            db.execute("CREATE VIRTUAL TABLE doc_fts_nonvault USING fts5(body, tokenize='porter unicode61')")
+            db.execute("INSERT INTO doc_fts_nonvault(rowid, body) SELECT f.rowid, f.body FROM doc_fts f JOIN doc d ON d.rowid=f.rowid WHERE d.source!='vault'")
+        db.commit()
     return db
 
 
 def put(db, source, id, ts, body, meta=None, extra=''):
-    """Insert or replace one document. extra is searchable text that is not part of the body."""
+    """Insert or replace one document. extra is searchable text that is not part of the body. A change to meta alone
+    updates it in place, keeping the document's vector."""
     h = hashlib.sha1((body + extra).encode()).hexdigest()[:16]
-    old = db.execute('SELECT rowid, hash FROM doc WHERE id=?', (id,)).fetchone()
-    if old and old[1] == h:
-        return False
+    old = db.execute('SELECT rowid, hash, meta, source, ts FROM doc WHERE id=?', (id,)).fetchone()
+    if old and old[1] == h and old[3] == source:
+        if json.loads(old[2] or '{}') == (meta or {}) and old[4] == ts:
+            return False
+        db.execute('UPDATE doc SET ts=?, meta=? WHERE rowid=?', (ts, json.dumps(meta or {}), old[0]))
+        return True
     if old:
         db.execute('DELETE FROM doc_fts WHERE rowid=?', (old[0],))
+        db.execute('DELETE FROM doc_fts_nonvault WHERE rowid=?', (old[0],))
         db.execute('UPDATE doc SET source=?, ts=?, meta=?, body=?, hash=? WHERE rowid=?',
                    (source, ts, json.dumps(meta or {}), body, h, old[0]))
         rowid = old[0]
@@ -53,13 +66,15 @@ def put(db, source, id, ts, body, meta=None, extra=''):
         rowid = db.execute('INSERT INTO doc(id, source, ts, meta, body, hash) VALUES (?,?,?,?,?,?)',
                            (id, source, ts, json.dumps(meta or {}), body, h)).lastrowid
     db.execute('INSERT INTO doc_fts(rowid, body) VALUES (?, ?)', (rowid, body + ' ' + extra))
+    if source != 'vault':
+        db.execute('INSERT INTO doc_fts_nonvault(rowid, body) VALUES (?, ?)', (rowid, body + ' ' + extra))
     return True
 
 
 def drop(db, id):
     old = db.execute('SELECT rowid FROM doc WHERE id=?', (id,)).fetchone()
     if old:
-        for t in ('doc_fts', 'doc_vec', 'doc'):
+        for t in ('doc_fts', 'doc_fts_nonvault', 'doc_vec', 'doc'):
             db.execute(f'DELETE FROM {t} WHERE rowid=?', (old[0],))
 
 
@@ -88,32 +103,36 @@ def phrase(t):
     return '"' + t.replace('"', '') + '"'
 
 
-def lexical(db, terms, sources):
-    """(candidates in BM25 order, {candidate: matched terms}, {term: idf}, idf bar) for an OR match of the terms."""
-    none = ([], {}, {}, 0)
-    if not terms:
-        return none
-    n = db.execute('SELECT count(*) FROM doc').fetchone()[0]
+def rarity(db, terms, vault=False):
+    """({term: idf} over every document, idf bar) for the terms that occur at all. Each term costs a full FTS count,
+    so a query counts once and every source reuses it. Vault rows count only when the vault is searched, so claims
+    left in the index (sync-vault by hand, or a flag turned off since the last build) never shift other sources."""
+    skip = '' if vault else " AND rowid NOT IN (SELECT rowid FROM doc WHERE source='vault')"
+    n = db.execute("SELECT count(*) FROM doc" + ('' if vault else " WHERE source!='vault'")).fetchone()[0]
     idf = {}
     for t in terms:
-        df = db.execute('SELECT count(*) FROM doc_fts WHERE doc_fts MATCH ?', (phrase(t),)).fetchone()[0]
+        df = db.execute('SELECT count(*) FROM doc_fts WHERE doc_fts MATCH ?' + skip, (phrase(t),)).fetchone()[0]
         if df:
             idf[t] = math.log((n - df + 0.5) / (df + 0.5) + 1)
+    return idf, min(MIN_IDF, 0.5 * math.log((n - 0.5) / 1.5 + 1))
+
+
+def lexical(db, idf, sources, vault=False):
+    """(candidates in BM25 order, {candidate: matched terms}) for an OR match of the terms in idf."""
     if not idf:
-        return none
+        return [], {}
     marks = ','.join('?' * len(sources))
-    rows = db.execute(f'SELECT doc_fts.rowid FROM doc_fts JOIN doc d ON d.rowid=doc_fts.rowid WHERE doc_fts MATCH ? '
-                      f'AND d.source IN ({marks}) ORDER BY bm25(doc_fts) LIMIT {POOL}',
+    fts = 'doc_fts' if vault else 'doc_fts_nonvault'
+    rows = db.execute(f'SELECT {fts}.rowid FROM {fts} JOIN doc d ON d.rowid={fts}.rowid WHERE {fts} MATCH ? '
+                      f'AND d.source IN ({marks}) ORDER BY bm25({fts}) LIMIT {POOL}',
                       (' OR '.join(map(phrase, idf)), *sources)).fetchall()
     cands = [r[0] for r in rows]
-    if not cands:
-        return none
     matched = {r: [] for r in cands}
     ids = ','.join(map(str, cands))
-    for t in idf:
+    for t in idf if cands else ():
         for (r,) in db.execute(f'SELECT rowid FROM doc_fts WHERE doc_fts MATCH ? AND rowid IN ({ids})', (phrase(t),)):
             matched[r].append(t)
-    return cands, matched, idf, min(MIN_IDF, 0.5 * math.log((n - 0.5) / 1.5 + 1))
+    return cands, matched
 
 
 def state_dir(db_path):
@@ -229,6 +248,49 @@ def sync_docs(db, directory, source, max_bytes=100000, skip=r'(^|/)(result|.*\.l
     return changed
 
 
+def drop_source(db, source):
+    """Remove every document of a source; returns how many went."""
+    ids = [id for (id,) in db.execute('SELECT id FROM doc WHERE source=?', (source,)).fetchall()]
+    for id in ids:
+        drop(db, id)
+    db.commit()
+    return len(ids)
+
+
+def sync_vault(db, path, source='vault'):
+    """Mirror the active claims of a vault replica (a SQLite file the vault engine replaces atomically), one document
+    per claim. The replica is opened read-only per sync, so a replaced file is picked up and a missing one is not
+    created; when it cannot be read the mirrored claims are removed and an error is returned."""
+    try:
+        rep = sqlite3.connect(Path(path).expanduser().resolve().as_uri() + '?mode=ro', uri=True, timeout=5)
+        try:
+            rows = rep.execute("SELECT id, title, heading, text, source_type, freshness, sources, updated FROM claim "
+                               "WHERE status='active' AND tier='shared'").fetchall()
+        finally:
+            rep.close()
+    except sqlite3.Error:
+        drop_source(db, source)
+        return {'error': 'vault replica unavailable'}
+    seen, changed = set(), 0
+    for cid, title, heading, text, source_type, freshness, sources, updated in rows:
+        try:
+            links = json.loads(sources or '[]')
+        except ValueError:
+            links = []
+        # what backs the claim, as vault-engine counts it: a source or supports link, never contradicts or replaces
+        first = next((l for l in links if isinstance(l, dict) and l.get('rel') in ('source', 'supports')), {})
+        id = f'{source}:{cid}'
+        seen.add(id)
+        meta = dict(claim=cid, title=title, heading=heading, text=text, source_type=source_type, freshness=freshness,
+                    source_id=first.get('id', ''), source_title=first.get('title', ''), captured=first.get('captured', ''))
+        changed += put(db, source, id, updated, f'{title} > {heading}: {text}', meta)
+    for (id,) in db.execute('SELECT id FROM doc WHERE source=?', (source,)).fetchall():
+        if id not in seen:
+            drop(db, id); changed += 1
+    db.commit()
+    return changed
+
+
 def embed_query(db_path, text, context, context_weight, sources, n, timeout=1.0):
     """Start a search on the resident embedder; returns a function that waits for {rowid: cosine}, or None."""
     sock = os.path.join(state_dir(db_path), 'embed.sock')
@@ -261,8 +323,9 @@ def candidates(db_path, text, sources, thread=(), context_weight=0.5, n=POOL, al
     context = ' '.join(thread)[-1500:] if thread and len(terms) < SHORT else ''
     pending = embed_query(db_path, text[:QUERY_CHARS], context, context_weight, sources, n * 4 if allow else n, timeout)
     lex = {}
+    idf, bar = rarity(db, terms, vault='vault' in sources)
     for s in sources:
-        cands, matched, idf, bar = lexical(db, terms, [s])
+        cands, matched = lexical(db, idf, [s], vault='vault' in sources)
         for rank, r in enumerate(cands):
             mass = sum(idf[t] for t in matched[r])
             lex[r] = (rank, mass if mass >= bar else 0.0)
@@ -308,7 +371,7 @@ FLOOR = 0.25
 RESCORE = dict(bias=-1.415, logit=0.870, lexr=2.148, terms=-0.397)
 STAGE_TWO = {'memory'}  # cards gained nothing from it (test/fit_attach.py), so they attach on stage one's p at 0.5
 THRESHOLDS = {'fold': 0.5, 'memory': 0.35}
-CAPS = {'fold': 2, 'memory': 2}
+CAPS = {'fold': 2, 'memory': 2, 'vault': 1}
 MAX_ATTACH = 3
 TOP = 20
 NO_LEX_RANK = POOL
@@ -348,9 +411,10 @@ def gate(cands, nterms, exclude=(), thresholds=THRESHOLDS, max_attach=MAX_ATTACH
     """The candidates worth attaching, most likely first; usually none. At most CAPS per source, one pointer per
     document, max_attach in all."""
     out, per = [], {}
-    for c in sorted(score(cands, nterms), key=lambda c: -c['p']):
+    for c in sorted(score(cands, nterms), key=lambda c: (-c['p'], c['lex_rank'] if c['source'] == 'vault' and c['lex_rank'] is not None else POOL)):
         doc = c['meta'].get('path') or c['pointer']
-        if c['p'] < thresholds.get(c['source'], 1.1) or c['pointer'] in exclude or per.get(c['source'], 0) >= CAPS.get(c['source'], 1) \
+        eligible = (c['lex'] > 0 and c['dense_rank'] is not None) if c['source'] == 'vault' else c['p'] >= thresholds.get(c['source'], 1.1)
+        if not eligible or c['pointer'] in exclude or per.get(c['source'], 0) >= CAPS.get(c['source'], 1) \
                 or any((o['meta'].get('path') or o['pointer']) == doc for o in out):
             continue
         per[c['source']] = per.get(c['source'], 0) + 1
@@ -366,18 +430,22 @@ def main():
     dflt = os.path.expanduser(os.environ.get('FOLD_STATE_DIR', '~/.claude/state/fold')) + '/cards.db'
     n = sub.add_parser('sync-notes'); n.add_argument('--db', default=dflt); n.add_argument('--dir', required=True)
     n.add_argument('--source', default='memory')
+    v = sub.add_parser('sync-vault'); v.add_argument('--db', default=dflt); v.add_argument('--index', required=True)
     s = sub.add_parser('search', help='every candidate with its features, and which the gate keeps')
     s.add_argument('--db', default=dflt); s.add_argument('--text', required=True)
     s.add_argument('--sources', default='fold'); s.add_argument('--thread', default='[]')
     a = ap.parse_args()
     if a.cmd == 'sync-notes':
         print(json.dumps({'changed': sync_notes(connect(a.db), a.dir, a.source)}))
+    elif a.cmd == 'sync-vault':
+        print(json.dumps({'changed': sync_vault(connect(a.db), a.index)}))
     else:
         cands = candidates(a.db, clean(a.text)['body'], a.sources.split(','), json.loads(a.thread)) or []
         kept = {c['pointer'] for c in gate(cands, len(terms_of(clean(a.text)['body'])))}
         selected = sorted(cands, key=lambda c: -c['cos'])[:20]
         lines = [json.dumps(dict(pointer=c['pointer'], kept=c['pointer'] in kept, cos=round(c['cos'], 3), lex=round(c['lex'], 2),
-                                 p=round(c.get('p', 0), 3), body=' '.join(c['body'].split())[:120]), ensure_ascii=False)
+                                 **({} if c['source'] == 'vault' else {'p': round(c.get('p', 0), 3)}),
+                                 body=' '.join(c['body'].split())[:120]), ensure_ascii=False)
                  for c in selected]
         outbound.emit('\n'.join(lines), [*outbound.strings(selected)])
     return 0
