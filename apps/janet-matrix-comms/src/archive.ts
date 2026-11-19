@@ -6,10 +6,24 @@ import fs from "node:fs";
 import path from "node:path";
 import { DatabaseSync } from "node:sqlite";
 
+/**
+ * The home directory, which every default path hangs off; a missing HOME must not silently mean the
+ * current directory.
+ */
+export function homeDir(): string {
+	const home = emptyToNull(process.env["HOME"]);
+
+	if (home === null) {
+		throw new Error("HOME is not set");
+	}
+
+	return home;
+}
+
 // An empty env value means unset.
 const ARCHIVE =
 	emptyToNull(process.env["JANET_MATRIX_COMMS_DB"]) ??
-	path.join(process.env["HOME"] ?? "", ".local/state/janet-matrix-comms/archive.db");
+	path.join(homeDir(), ".local/state/janet-matrix-comms/archive.db");
 
 export interface ArchivedMessage {
 	event_id: string;

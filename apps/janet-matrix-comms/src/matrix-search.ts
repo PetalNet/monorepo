@@ -30,7 +30,7 @@ import path from "node:path";
 import { DatabaseSync, type SQLInputValue } from "node:sqlite";
 
 import * as archive from "./archive.ts";
-import { emptyToNull } from "./archive.ts";
+import { emptyToNull, homeDir } from "./archive.ts";
 
 // Shapes of the JSON other programs hand us: the homeserver, the plugin's session file and spool.
 interface EventContent {
@@ -87,7 +87,7 @@ interface Session {
 	parts: Buffer[];
 }
 
-const HOME = process.env["HOME"] ?? "";
+const HOME = homeDir();
 const PLUGIN = path.join(HOME, ".claude/plugins/matrix-channel");
 const SESSION = JSON.parse(fs.readFileSync(path.join(PLUGIN, "rust-session.json"), "utf8")) as {
 	homeserver: string;

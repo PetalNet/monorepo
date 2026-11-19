@@ -7,12 +7,12 @@
 import fs from "node:fs";
 import path from "node:path";
 
-import { emptyToNull, openWriter, upsert } from "./archive.ts";
+import { emptyToNull, homeDir, openWriter, upsert } from "./archive.ts";
 
 // An empty env value means unset.
 const SPOOL =
 	emptyToNull(process.env["MATRIX_CHANNEL_SPOOL"]) ??
-	path.join(process.env["HOME"] ?? "", ".claude/plugins/matrix-channel/inbound-spool.jsonl");
+	path.join(homeDir(), ".claude/plugins/matrix-channel/inbound-spool.jsonl");
 
 interface SpoolLine {
 	kind?: unknown;
