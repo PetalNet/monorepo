@@ -9,6 +9,15 @@ import tempfile
 from pathlib import Path
 
 from huggingface_hub import hf_hub_download
+from safetensors.torch import load_file, save_file
+
+
+def load_tied_weights(path: Path) -> dict:
+    weights = load_file(path)
+    # FUTO's GGML binaries use the output projection as the shared token embedding.
+    if "proj_out.weight" in weights:
+        weights["model.decoder.embed_tokens.weight"] = weights.pop("proj_out.weight")
+    return weights
 
 
 def main() -> None:
@@ -20,8 +29,8 @@ def main() -> None:
     parser.add_argument("--tokenizer-repo", default="openai/whisper-tiny.en")
     args = parser.parse_args()
     checkpoint, out = args.checkpoint.resolve(), args.out.resolve()
-    if not checkpoint.is_dir() or not (checkpoint / "config.json").is_file():
-        parser.error("--checkpoint must be a local Hugging Face checkpoint directory")
+    if not (checkpoint / "config.json").is_file() or not (checkpoint / "model.safetensors").is_file():
+        parser.error("--checkpoint must contain config.json and model.safetensors")
     if out.exists():
         parser.error("--out already exists")
     out.parent.mkdir(parents=True, exist_ok=True)
@@ -35,8 +44,10 @@ def main() -> None:
         staged = root / "model"
         staged.mkdir(mode=0o700)
         for path in checkpoint.iterdir():
-            if path.is_file():
+            if path.is_file() and path.name != "model.safetensors":
                 (staged / path.name).symlink_to(path)
+        save_file(load_tied_weights(checkpoint / "model.safetensors"), staged / "model.safetensors",
+                  metadata={"format": "pt"})
         for name in ("vocab.json", "added_tokens.json"):
             if not (staged / name).exists():
                 source = hf_hub_download(repo_id=args.tokenizer_repo, filename=name, token=False)

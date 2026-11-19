@@ -21,6 +21,8 @@ import soundfile as sf
 import torch
 import torch.nn.functional as F
 import transformers
+from huggingface_hub import hf_hub_download
+from safetensors import safe_open
 from transformers import WhisperForConditionalGeneration, WhisperProcessor, get_linear_schedule_with_warmup
 from transformers.modeling_outputs import BaseModelOutput
 
@@ -175,6 +177,9 @@ def main():
     processor_model = args.model.replace("futo-org/acft-", "openai/")
     processor = WhisperProcessor.from_pretrained(processor_model, token=False)
     model = WhisperForConditionalGeneration.from_pretrained(args.model, token=False).cuda()
+    base_weights = hf_hub_download(args.model, "model.safetensors", revision=model.config._commit_hash, token=False)
+    with safe_open(base_weights, framework="pt") as weights, torch.no_grad():
+        model.model.decoder.embed_tokens.weight.copy_(weights.get_tensor("proj_out.weight"))
     prompt_ids = processor.get_prompt_ids(args.prompt.read_text(encoding="utf-8").strip()).tolist() if args.prompt else []
     steps_per_epoch = math.ceil(len(train) / args.accumulation)
     optimizer = torch.optim.AdamW(model.parameters(), lr=args.learning_rate)

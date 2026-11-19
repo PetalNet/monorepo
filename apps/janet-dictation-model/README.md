@@ -15,7 +15,7 @@ python -m pip install '.[train,test]'
 python -m pytest tests
 ```
 
-`transformers==4.46.3` pins the encoder-layer interface used for partial audio context. FUTO checkpoints lack processor files, so training loads the matching OpenAI English processor. Model weights come from FUTO.
+`transformers==4.46.3` pins the encoder-layer interface used for partial audio context. FUTO checkpoints lack processor files, so training loads the matching OpenAI English processor. Model weights come from FUTO. FUTO’s GGML binaries use the HF output projection as their shared token embedding; the trainer, blender and exporter use that same mapping.
 
 On Ubuntu/WSL, `bash wsl_setup.sh` builds a pinned CPU whisper.cpp and downloads the three official English Q8_0 models. It needs Python venv support, Git, curl and a C++ compiler. It checks published-model downloads against the hashes recorded for this experiment; interrupted downloads never become accepted `.bin` files. Let setup finish without an external short timeout.
 
@@ -67,7 +67,7 @@ Compare base and small on validation, then score the selected candidate once on 
 
 The harness uses English, beam 5, best-of 5, zero temperature increment, blank suppression disabled, FUTO’s non-speech token list, a 256-token limit and FUTO’s dynamic audio context. It disables timestamps below 25 seconds. It runs CPU inference. This reproduces configured decoding settings; upstream whisper.cpp and FUTO’s fork can differ elsewhere. Repetition and token-limit flags need inspection, especially on short clips.
 
-Before accepting an adapted model, export FUTO’s unmodified tiny.en checkpoint and compare it with the official tiny Q8_0 binary. Also compare the chosen adapted model with its stock counterpart on a disjoint public English speech set. Install `.[public-check]` and run `python public_data.py --out /private/librispeech --count 40 --seed 42` to prepare a reproducible LibriSpeech test-clean sample. This downloads the pinned 350 MB test-clean Parquet shard, then selects clips of 0.5–30 seconds and preserves its human transcripts. Reuse the resulting manifests with `evaluate.py --split test`. Reject a model that worsens general speech materially, loops, or fails conversion validation. Report which checks actually ran and their sample sizes. Do not infer Galaxy S23 latency from CPU measurements.
+Before accepting an adapted model, export FUTO’s unmodified tiny.en checkpoint and compare it with the official tiny Q8_0 binary. Also compare the chosen adapted model with its stock counterpart on a disjoint public English speech set. Install `.[public-check]` and run `python public_data.py --out /private/librispeech --count 40 --seed 42` to prepare a reproducible LibriSpeech test-clean sample. This downloads the pinned 350 MB test-clean Parquet shard, then selects clips of 0.5–30 seconds and preserves its human transcripts. Reuse the resulting manifests with `evaluate.py --split test`. If general speech regresses, use `blend.py --adapted /private/small/best --base futo-org/acft-whisper-small.en --base-revision REVISION --alpha 0.5 --out /private/small-half`, with the revision recorded in `run.json`. Export and re-evaluate that checkpoint on validation and public speech before using the personal test split. `alpha` is the fraction of adapted weights retained. Reject a model that worsens general speech materially, loops, or fails conversion validation. Report which checks actually ran and their sample sizes. Do not infer Galaxy S23 latency from CPU measurements.
 
 ## Delivery and phone import
 
