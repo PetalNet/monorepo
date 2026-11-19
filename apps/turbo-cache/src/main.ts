@@ -74,13 +74,11 @@ const program = Effect.gen(function* () {
 
 NodeRuntime.runMain(
 	program.pipe(
-		Effect.provide(
-			Layer.mergeAll(
-				NodeServices.layer,
-				FetchHttpClient.layer.pipe(
-					Layer.provide(Layer.succeed(FetchHttpClient.RequestInit, { redirect: "error" })),
-				),
+		Effect.provide([
+			NodeServices.layer,
+			FetchHttpClient.layer.pipe(
+				Layer.provide(Layer.succeed(FetchHttpClient.RequestInit, { redirect: "error" })),
 			),
-		),
+		]),
 	),
 );

@@ -16,8 +16,6 @@ export default (({ strict }) => ({
 		"@effect/language-service",
 		// Selects the tsrs build that effect-tsgo runs; no script names its binary.
 		"tsrs",
-		// The editor language server that .vscode/settings.example.json points at.
-		"@typescript/native",
 	],
 	ignoreExportsUsedInFile: { type: true, interface: true },
 	treatConfigHintsAsErrors: true,
