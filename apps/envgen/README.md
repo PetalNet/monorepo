@@ -164,8 +164,9 @@ seeded yaw.
   saddle to a taller one, and a crown is the ground that drains to it (a watershed). Height is the highest cell;
   the radius is that of the circle covering as much ground as the crown.
 - **Not trees.** Crown width is fitted against height over the tile's own crowns; a crown two robust standard
-  deviations narrower than the fit is dropped. On the real tile that took out 123 of 1502, light masts 28 m
-  tall and 4 m wide among them, and all but 5 were things the second canopy source did not see either.
+  deviations narrower than the fit is dropped, unless every source that looks at it sees it (a cut at two
+  deviations also catches the narrowest real trees). On the real tile 123 of 1502 were that narrow and 118 were
+  dropped, light masts 28 m tall and 4 m wide among them.
 - **Sources.** Lidar heights first, the canopy raster where the lidar shows none, then the survey: its surface
   model minus its own terrain model. The survey only adds crowns. On the real tile a surface model made from
   photographs taken from above showed 6.6 % cover inside its footprint where the lidar showed 15.6 %, and not a
@@ -181,7 +182,7 @@ seeded yaw.
 "p50", "p90"}, "trunk_diameter_m": [intercept, slope], "crown_ratio"}]}`.
 
 Limits: the lidar's heights are as old as its survey; a tree felled since is still there, with lower confidence
-only where a newer source looks. An inventory of forests describes forest trees, not ones grown in the open.
+only where a newer source looks, and the level build does not read confidence, so it stands at full size. An inventory of forests describes forest trees, not ones grown in the open.
 Smoothing, prominence, the 4 m2 minimum, the half-crown rule for "seen" and the two deviations are set by hand
 and listed in `build.json` under `trees.settings`.
 

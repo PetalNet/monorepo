@@ -174,6 +174,8 @@ def test_a_species_is_drawn_from_the_mix_by_the_trees_kind_and_height():
 
     assert tall.count("tall oak") > 190 and short.count("short plum") > 190
     assert "cedar" not in tall + short and unknown.count("cedar") > 100
+    # A measured kind the mix has no species of stays measured, without a species.
+    assert trees.draw_species(MIX[:2], "conifer", 11.0, rng) is None
 
 
 def test_with_a_mix_every_tree_has_a_species_a_trunk_and_a_crown_from_it_and_says_it_is_a_prior(tmp_path):
@@ -206,6 +208,10 @@ def test_a_mast_far_narrower_than_the_tiles_trees_of_its_height_is_not_a_tree():
     flags, fit = trees.too_narrow(found)
 
     # Both masts go. So does the narrowest tree in every forty or so: the price of a cut at two deviations.
-    assert flags[60] and flags[61] and flags[:60].sum() <= 3 and fit["dropped"] == flags.sum()
+    assert flags[60] and flags[61] and flags[:60].sum() <= 3 and fit["narrow"] == flags.sum()
+    # A narrow crown every source sees is a tree; one a second source misses is not; with one source, narrow decides.
+    seen, missed = {"confidence": 1.0}, {"confidence": 0.5}
+    assert trees.masts(np.array([True, True, False]), [seen, missed, missed], 2) == [False, True, False]
+    assert trees.masts(np.array([True, False]), [seen, seen], 1) == [True, False]
     # A few crowns are not enough to say what is narrow.
     assert not trees.too_narrow(found[-5:])[0].any()

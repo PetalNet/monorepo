@@ -31,7 +31,9 @@ SEEN_SHARE = 0.5
 
 # A mast or a pole stands over the ground like a crown, far narrower than a tree that tall. Crown width is fitted
 # against height over the tile's own crowns (a power law, in logarithms); a crown this many robust standard
-# deviations narrower than the fit is not a tree. Hand-set criterion; the fit needs at least this many crowns.
+# deviations narrower than the fit is not a tree, unless every source that looks at it sees it: a cut at two
+# deviations also catches the narrowest real trees, and a second source does not see a mast. Hand-set criterion;
+# the fit needs at least this many crowns.
 NARROW_SIGMAS = 2.0
 NARROW_MIN_CROWNS = 20
 
@@ -117,8 +119,16 @@ def too_narrow(found: list[dict]) -> tuple[np.ndarray, dict]:
         "fitted": True,
         "crown_radius_m": f"{math.exp(offset):.3f} * height_m ** {power:.3f}",
         "sigma_log": float(sigma),
-        "dropped": int(flags.sum()),
+        "narrow": int(flags.sum()),
     }
+
+
+def masts(narrow: np.ndarray, records: list[dict], sources: int) -> list[bool]:
+    """Which records to drop: too narrow for their height and not seen by every source that looks at them.
+
+    With one source there is no second look, and narrow alone decides.
+    """
+    return [bool(flag) and (sources < 2 or tree["confidence"] < 1) for flag, tree in zip(narrow, records, strict=True)]
 
 
 def closure(labels: np.ndarray, found: list[dict], canopy_returns: np.ndarray, all_returns: np.ndarray) -> np.ndarray:
@@ -156,9 +166,14 @@ def _height_likelihood(height_m: float, quantiles: dict) -> float:
     return math.exp(-0.5 * z * z) / sigma
 
 
-def draw_species(mix: list[dict], kind: str | None, height_m: float, rng: np.random.Generator) -> dict:
-    """Draw a species for a tree of this height, from the mix's species of its kind, or of any kind when unknown."""
-    candidates = [entry for entry in mix if kind is None or entry["kind"] == kind] or mix
+def draw_species(mix: list[dict], kind: str | None, height_m: float, rng: np.random.Generator) -> dict | None:
+    """Draw a species for a tree of this height, from the mix's species of its kind, or of any kind when unknown.
+
+    None when the mix has no species of a kind that was measured: the measurement stands, and the tree has no species.
+    """
+    candidates = [entry for entry in mix if kind is None or entry["kind"] == kind]
+    if not candidates:
+        return None
     weights = np.array([entry["share"] * _height_likelihood(height_m, entry["height_m"]) for entry in candidates])
     if weights.sum() <= 0:
         weights = np.array([entry["share"] for entry in candidates])
@@ -218,8 +233,8 @@ def inventory(
             "source": source,
             "yaw_deg": float(rng.uniform(0, 360)),
         }
-        if mix:
-            species = draw_species(mix, kind, crown["height_m"], rng)
+        species = draw_species(mix, kind, crown["height_m"], rng) if mix else None
+        if species:
             intercept, slope = species["trunk_diameter_m"]
             tree |= {
                 "kind": species["kind"],

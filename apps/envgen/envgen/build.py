@@ -287,12 +287,6 @@ def build_trees(
     else:
         report["canopy_is"] = "prior: all cover, roofs included; the imagery has no vegetation split"
     labels, found = trees.crowns(height, (height > cutoff) & vegetated, lidar.CELL_M)
-    narrow, report["not_trees"] = trees.too_narrow(found)
-    for crown, drop in zip(found, narrow, strict=True):
-        if drop:
-            labels[labels == crown["label"]] = 0
-    found = [crown for crown, drop in zip(found, narrow, strict=True) if not drop]
-
     closures, threshold = None, None
     if site.lidar and site.lidar.leaf_off and found:
         points = lidar.load_points(site.lidar, tile, site.crs, cache)
@@ -312,6 +306,10 @@ def build_trees(
         mix["species"] if mix else None,
         site.seed,
     )
+    narrow, report["not_trees"] = trees.too_narrow(found)
+    dropped = trees.masts(narrow, records, len(covers))
+    report["not_trees"]["dropped"] = sum(dropped)
+    records = [tree for tree, drop in zip(records, dropped, strict=True) if not drop]
     (out / "trees.json").write_text(
         json.dumps({"columns": trees.COLUMNS, "trees": [[tree[name] for name in trees.COLUMNS] for tree in records]})
     )
@@ -835,6 +833,8 @@ def build(site_path: Path, out: Path, cache: Path | None = None) -> dict:
                 cover_hashes,
                 lidar_key,
                 site.lidar.leaf_off if site.lidar else None,
+                sources["elevation"]["sha256"],
+                sources["canopy_height"]["sha256"] if site.canopy_height else None,
                 sources["imagery"]["sha256"],
                 bands,
                 classes["splits"],
