@@ -307,7 +307,7 @@ export function renderHome(data: HomeData) {
 
 <section class="section" aria-labelledby="h-access">
 <h2 id="h-access">${icon(ShieldCheck)}Who can use it</h2>
-<p>Every caller trades an identity token for a two-hour cache token. Only a push to main can write.</p>
+<p>Every caller trades an identity token for a two-hour cache token. Only a push to main or a member of <code>turbo-cache-write</code> can write.</p>
 <table>
 <thead><tr><th scope="col">Identity</th><th scope="col">Access</th><th scope="col">Evidence required</th></tr></thead>
 <tbody>${rows}</tbody>
@@ -316,7 +316,7 @@ export function renderHome(data: HomeData) {
 
 <section class="section" aria-labelledby="h-connect">
 <h2 id="h-connect">${icon(Terminal)}Connect a machine</h2>
-<p>Local use is read-only. Ask an administrator to add you to the Authentik group <code>turbo-cache</code>, then open <a href="https://auth.petalcat.dev/if/user/">your Authentik user settings</a> and create an app password under Tokens and App passwords.</p>
+<p>Local use is read-only unless you are also in <code>turbo-cache-write</code>, in which case set <code>TURBO_CACHE=local:rw,remote:rw</code> once the exchanger answers <code>read write</code>. Ask an administrator to add you to the Authentik group <code>turbo-cache</code>, then open <a href="https://auth.petalcat.dev/if/user/">your Authentik user settings</a> and create an app password under Tokens and App passwords.</p>
 <ol class="steps">
 <li><h3>Keep the password out of your history</h3>${code(prepareCommand)}</li>
 <li><h3>Trade it for a cache token and set the Turbo variables</h3>${code(tokenCommand)}</li>
