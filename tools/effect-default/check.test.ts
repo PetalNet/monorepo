@@ -10,7 +10,6 @@ const allowlist = JSON.parse(
 	readFileSync(new URL("allowlist.json", import.meta.url), "utf8"),
 ) as Exception[];
 const root = fileURLToPath(new URL("../..", import.meta.url));
-const none = () => "{}";
 const manifest = (deps: Record<string, string>) => () => JSON.stringify({ dependencies: deps });
 
 describe("effect-default check", () => {
@@ -34,45 +33,53 @@ describe("effect-default check", () => {
 		}
 	});
 
-	it("fails a new Python project and a new Python server", () => {
-		expect(violations(["apps/newsvc/pyproject.toml", "apps/newsvc/app.py"], [], none)).toEqual([
-			"apps/newsvc/pyproject.toml: Python service or script",
-			"apps/newsvc/app.py: Python service or script",
-		]);
+	it("fails a new JS web app or server on another stack", () => {
+		for (const dep of ["@sveltejs/kit", "express", "hono", "fastify"]) {
+			expect(violations(["apps/new/package.json"], [], manifest({ [dep]: "1.0.0" }))).toEqual([
+				"apps/new/package.json: JS web app or server without @petalnet/effect-sveltekit or @petalnet/effect-api",
+			]);
+		}
 	});
 
-	it("lets Python files into an allowlisted project", () => {
-		const entry = { path: "apps/old", reason: "existing Python service" };
+	it("passes a new app built on the Effect packages", () => {
+		const deps = { "@sveltejs/kit": "1.0.0", "@petalnet/effect-sveltekit": "workspace:*" };
 
-		expect(
-			violations(["apps/old/pyproject.toml", "apps/old/new_module.py"], [entry], none),
-		).toEqual([]);
-	});
-
-	it("fails a new app without the Effect packages and passes one with them", () => {
-		expect(violations(["apps/new/package.json"], [], none)).toEqual([
-			"apps/new/package.json: app without @petalnet/effect-sveltekit or @petalnet/effect-api",
-		]);
+		expect(violations(["apps/new/package.json"], [], manifest(deps))).toEqual([]);
 
 		expect(
 			violations(
 				["apps/new/package.json"],
 				[],
-				manifest({ "@petalnet/effect-sveltekit": "workspace:*" }),
+				manifest({ hono: "1.0.0", "@petalnet/effect-api": "workspace:*" }),
 			),
 		).toEqual([]);
+	});
 
+	it("does not touch Python, Rust, Flutter, tooling or non-server packages", () => {
 		expect(
 			violations(
-				["apps/new/package.json"],
+				[
+					"apps/ml/pyproject.toml",
+					"apps/ml/serve.py",
+					"apps/rust/Cargo.toml",
+					"apps/cli/package.json",
+				],
 				[],
-				manifest({ "@petalnet/effect-api": "workspace:*" }),
+				manifest({ effect: "1.0.0" }),
 			),
+		).toEqual([]);
+	});
+
+	it("lets an allowlisted app through", () => {
+		const entry = { path: "apps/old", reason: "predates effect-sveltekit" };
+
+		expect(
+			violations(["apps/old/package.json"], [entry], manifest({ "@sveltejs/kit": "1.0.0" })),
 		).toEqual([]);
 	});
 
 	it("flags an allowlist entry whose files are gone", () => {
-		expect(violations([], [{ path: "apps/gone", reason: "was a service" }], none)).toEqual([
+		expect(violations([], [{ path: "apps/gone", reason: "was a service" }], () => "{}")).toEqual([
 			'allowlist.json: "apps/gone" matches no tracked file; remove the entry',
 		]);
 	});

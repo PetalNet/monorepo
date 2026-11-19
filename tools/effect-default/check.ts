@@ -1,6 +1,7 @@
-// New services and web apps in this repo are built on packages/effect-sveltekit and packages/effect-api.
-// This check scans the tracked files and fails on a Python project, a Python file, or an apps/* package
-// that is neither built on them nor listed in allowlist.json. The allowlist holds the existing exceptions.
+// New JS/TS web apps and API servers in this repo are built on packages/effect-sveltekit and packages/effect-api.
+// This check scans the tracked apps/*/package.json files and fails on one that depends on a JS server or web
+// framework but not on them, unless allowlist.json lists it. Other languages and kinds of project (Python
+// inference and data work, Rust, Flutter, hooks, CLIs) are out of scope and never flagged.
 import { execFileSync } from "node:child_process";
 import { readFileSync } from "node:fs";
 import { fileURLToPath, pathToFileURL } from "node:url";
@@ -11,14 +12,28 @@ export interface Exception {
 }
 
 const BUILT_ON = ["@petalnet/effect-sveltekit", "@petalnet/effect-api"];
+// A package that depends on one of these serves HTTP or renders a web app.
+const SERVER_FRAMEWORKS = [
+	"@sveltejs/kit",
+	"express",
+	"hono",
+	"fastify",
+	"koa",
+	"next",
+	"nuxt",
+	"elysia",
+	"@nestjs/core",
+	"@hapi/hapi",
+	"@remix-run/node",
+];
 const DEP_FIELDS = ["dependencies", "devDependencies", "peerDependencies"] as const;
 
 const covers = (entry: string, file: string) => file === entry || file.startsWith(`${entry}/`);
 
-export const isBuiltOnEffect = (manifest: string) => {
+const dependsOn = (manifest: string, names: readonly string[]) => {
 	const parsed = JSON.parse(manifest) as Record<string, Record<string, string> | undefined>;
 
-	return DEP_FIELDS.some((field) => BUILT_ON.some((name) => parsed[field]?.[name] !== undefined));
+	return DEP_FIELDS.some((field) => names.some((name) => parsed[field]?.[name] !== undefined));
 };
 
 /**
@@ -38,10 +53,16 @@ export function violations(
 			continue;
 		}
 
-		if (/(?:^|\/)pyproject\.toml$/u.test(file) || file.endsWith(".py")) {
-			problems.push(`${file}: Python service or script`);
-		} else if (/^apps\/[^/]+\/package\.json$/u.test(file) && !isBuiltOnEffect(read(file))) {
-			problems.push(`${file}: app without @petalnet/effect-sveltekit or @petalnet/effect-api`);
+		if (!/^apps\/[^/]+\/package\.json$/u.test(file)) {
+			continue;
+		}
+
+		const manifest = read(file);
+
+		if (dependsOn(manifest, SERVER_FRAMEWORKS) && !dependsOn(manifest, BUILT_ON)) {
+			problems.push(
+				`${file}: JS web app or server without @petalnet/effect-sveltekit or @petalnet/effect-api`,
+			);
 		}
 	}
 
@@ -54,9 +75,10 @@ export function violations(
 	return problems;
 }
 
-export const FIX = `New services, APIs and web surfaces in PetalNet are built on packages/effect-sveltekit and packages/effect-api (Effect services and layers, typed errors, SvelteKit remote functions).
+export const FIX = `New JS/TS web apps and API servers in PetalNet are built on packages/effect-sveltekit and packages/effect-api (Effect services and layers, typed errors, SvelteKit remote functions).
 Fix: build it on those two packages. Read both, plus apps/grove, which uses them, and follow it.
-If it truly cannot be, add an entry with a one-line reason to tools/effect-default/allowlist.json in this PR.`;
+If it truly cannot be, add an entry with a one-line reason to tools/effect-default/allowlist.json in this PR.
+Python inference or data work, Rust, Flutter, hooks and CLIs are not covered by this check.`;
 
 if (process.argv[1] !== undefined && import.meta.url === pathToFileURL(process.argv[1]).href) {
 	const files = execFileSync("git", ["ls-files", "-z"], { encoding: "utf8", maxBuffer: 1 << 26 })

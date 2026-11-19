@@ -1,87 +1,34 @@
 [
 	{
 		"path": "apps/astrolabe",
-		"reason": "Read-only SvelteKit status dashboard plus a Python feed collector; predates effect-sveltekit."
-	},
-	{ "path": "apps/chaos", "reason": "Plain SvelteKit app; predates effect-sveltekit." },
-	{
-		"path": "apps/chatterbox-wyoming",
-		"reason": "Wyoming TTS server; Wyoming is a Python protocol and the model runtime is Python."
+		"reason": "Read-only SvelteKit status dashboard; predates effect-sveltekit."
 	},
 	{
-		"path": "apps/clarity-mcp",
-		"reason": "Existing MCP server on plain Effect; not an effect-api consumer."
-	},
-	{ "path": "apps/collegemap", "reason": "Plain SvelteKit app; predates effect-sveltekit." },
-	{
-		"path": "apps/envgen",
-		"reason": "Offline geospatial build CLI on the Python GIS stack; not a service."
+		"path": "apps/chaos",
+		"reason": "Plain SvelteKit app that predates effect-sveltekit."
 	},
 	{
-		"path": "apps/fold-cards",
-		"reason": "Recall-index scripts run by Claude Code mods; local Python with SQLite and embedding models."
+		"path": "apps/collegemap",
+		"reason": "Plain SvelteKit app that predates effect-sveltekit."
 	},
 	{
-		"path": "apps/github-plantuml",
-		"reason": "Existing package without a web surface; not an effect-api consumer."
+		"path": "apps/label-studio",
+		"reason": "Plain SvelteKit app that predates effect-sveltekit."
 	},
 	{
-		"path": "apps/janet-call-android",
-		"reason": "Flutter app; its Python files are offline asset tools."
+		"path": "apps/petalboard",
+		"reason": "Plain SvelteKit app that predates effect-sveltekit."
 	},
 	{
-		"path": "apps/janet-conversation",
-		"reason": "Home Assistant custom component; Home Assistant integrations must be Python."
+		"path": "apps/slide",
+		"reason": "Plain SvelteKit app that predates effect-sveltekit."
 	},
 	{
-		"path": "apps/janet-desk",
-		"reason": "Desk voice client on Wyoming and audio libraries; Python voice stack."
+		"path": "apps/tasks",
+		"reason": "Plain SvelteKit app that predates effect-sveltekit."
 	},
 	{
-		"path": "apps/janet-mac",
-		"reason": "macOS voice scripts sharing the Python janet-turn judge."
-	},
-	{
-		"path": "apps/janet-matrix-comms",
-		"reason": "Existing comms package on plain Effect; not an effect-api consumer."
-	},
-	{
-		"path": "apps/janet-phone",
-		"reason": "Phone-call bridge in the Python voice stack, beside the voice head."
-	},
-	{
-		"path": "apps/janet-voice-gateway",
-		"reason": "HTTP door to the Python voice head and Wyoming voice; part of the Python voice stack."
-	},
-	{
-		"path": "apps/janet-voice-head",
-		"reason": "Claude Code fork-and-merge voice head; the voice stack is Python, with unmigrated tests and harness."
-	},
-	{ "path": "apps/label-studio", "reason": "Plain SvelteKit app; predates effect-sveltekit." },
-	{
-		"path": "apps/manager/docs/contracts/validate.py",
-		"reason": "Schema validator script for the Rust manager's contracts; not a service."
-	},
-	{ "path": "apps/numbat-sheet", "reason": "Vite and Rust-engine spreadsheet app; not a server." },
-	{ "path": "apps/petalboard", "reason": "Plain SvelteKit app; predates effect-sveltekit." },
-	{ "path": "apps/slide", "reason": "Plain SvelteKit app; predates effect-sveltekit." },
-	{ "path": "apps/storybook", "reason": "Storybook workbench for packages/ui; not a service." },
-	{ "path": "apps/tasks", "reason": "Plain SvelteKit app; predates effect-sveltekit." },
-	{
-		"path": "apps/turbo-cache",
-		"reason": "Turborepo remote-cache server on Effect platform-node; not an effect-api consumer."
-	},
-	{ "path": "apps/whoami", "reason": "Plain SvelteKit app; predates effect-sveltekit." },
-	{
-		"path": "packages/janet-line",
-		"reason": "Python audio library shared by the Janet voice surfaces."
-	},
-	{
-		"path": "packages/janet-turn",
-		"reason": "Python turn-end library (Silero VAD, judge) shared by the Janet voice surfaces."
-	},
-	{
-		"path": "packages/vault-cite/scripts/pending.py",
-		"reason": "One-off maintenance script for vault-cite; not a service."
+		"path": "apps/whoami",
+		"reason": "Plain SvelteKit app that predates effect-sveltekit."
 	}
 ]
