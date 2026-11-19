@@ -34,7 +34,7 @@ from .site import (
 
 # Part of every stage key. Bump it by hand when a code change alters a stage's output for the same
 # inputs (frame.py and the resampling included); nothing detects that automatically.
-PIPELINE_VERSION = 17
+PIPELINE_VERSION = 18
 
 MACRO_PIXELS = 1024
 # The fine detail: pixels across the tile (about half a metre, the imagery's own resolution) and the largest
@@ -47,12 +47,24 @@ DETAIL_FADE_CELLS = 2.0
 SURVEY_POOL_M = 0.5
 # The macro map carries colour that varies over tens of metres. Finer detail comes from the engine.
 MACRO_LOW_PASS_M = 12.0
+# A cell of a seasonal class takes the reflectance raster's own colour when pure pixels of it carry at least this much
+# of the low-pass's weight around the cell; with less it keeps the photo's colour through the class's curve.
+MEASURED_REACH_MIN = 0.05
 
 # Where no ground return lies within GAP_START_M the elevation model was interpolated, usually as flat
 # facets under roofs. Blend towards a smoothed surface, fully by GAP_FULL_M.
 GAP_START_M = 3.0
 GAP_FULL_M = 8.0
 GAP_SMOOTH_M = 4.0
+
+# Shadow in the photo, read from the photo (see build_detail). Darkness is looked at down to this many stops; a dark
+# peak counts when one twentieth of a stop of it holds this share of the class's cells, of which there must be this many.
+SHADOW_DARKEST_LOG2 = -3.0
+SHADOW_MIN_SHARE = 0.005
+SHADOW_MIN_CELLS = 10000
+# Shadow is a broad, low peak (penumbra, thin crowns), so the gap beside it is shallow: at most this share of it.
+SHADOW_VALLEY_MAX = 0.8
+SHADOW_EDGE_CELLS = 2
 
 # A cell needs this share of sunlit ground within the low-pass's reach to take its colour from it.
 SUNLIT_REACH_MIN = 0.05
@@ -428,6 +440,40 @@ def open_ground(out: Path, covering: dict | None, size: int) -> np.ndarray:
     return (~_sample_cells(hidden, size)).astype(np.float32)
 
 
+def standing_cover(out: Path, covering: dict | None, size: int) -> np.ndarray | None:
+    """Cells under something that stands over the ground, crowns as wide as the cover stage found them grown."""
+    if not covering:
+        return None
+    with rasterio.open(out / covering["height"]) as file:
+        standing = file.read(1) > covering["cutoff_m"]
+    spread = round(covering["sun"]["crown_spread_m"] / covering["cell_m"])
+    if spread:
+        standing = ndimage.binary_dilation(standing, structure=cover.disc(spread))
+    return _sample_cells(standing, size)
+
+
+def shadow_gap(darkness: np.ndarray) -> float | None:
+    """The log2 darkness that separates ground in the sun from ground in shadow, or None when there is one peak.
+
+    `darkness` is the log2 of each cell over its surround. Sunlit ground peaks at about 0 and shadow well below; the
+    emptiest darkness between the two is the gap, when it holds at most SHADOW_VALLEY_MAX of the darker peak.
+    """
+    if darkness.size < SHADOW_MIN_CELLS:
+        return None
+    edges = np.arange(SHADOW_DARKEST_LOG2, 0.0001, 0.05)
+    counts = np.histogram(np.maximum(darkness, SHADOW_DARKEST_LOG2), bins=edges)[0].astype(float)
+    counts = np.convolve(counts, np.ones(3) / 3, mode="same")
+    # Only what is darker than the main peak is looked at: the gap lies between the shadow's peak and the sunlit one.
+    main = int(np.argmax(counts))
+    darker = np.maximum.accumulate(counts[:main])
+    if main < 3 or darker[-1] < SHADOW_MIN_SHARE * counts.sum():
+        return None
+    valley = int(np.argmin(counts[:main] / np.maximum(darker, 1e-9) + (darker < SHADOW_MIN_SHARE * counts.sum())))
+    if darker[valley] < SHADOW_MIN_SHARE * counts.sum() or counts[valley] > SHADOW_VALLEY_MAX * darker[valley]:
+        return None
+    return float(edges[valley] + 0.025)
+
+
 def _blur(values: np.ndarray, sigma: float) -> np.ndarray:
     """A Gaussian low-pass over the last two axes: one image, or a stack of bands."""
     return ndimage.gaussian_filter(values, (0,) * (values.ndim - 2) + (sigma, sigma), mode="nearest")
@@ -591,8 +637,16 @@ def build_macro_colour(
     layers: list[dict],
     bands: list[int] | None = None,
     curves: dict | None = None,
+    reflectance: Path | None = None,
+    reflectance_bands: list[int] | None = None,
 ) -> dict:
-    """The colour that varies over tens of metres. With `curves` it is written as albedo, class by class."""
+    """The colour that varies over tens of metres. With `curves` it is written as albedo, class by class.
+
+    A class's curve turns the photo's pattern into albedo at the measured level. The photo is of another year, and
+    what grows has changed since: over grass the curve is nearly flat, so every field comes out the class's one
+    colour. With `reflectance`, a seasonal class takes the measurement's own colour pixel by pixel instead, wherever
+    pixels that are purely that class in sunlight are in reach, and the photo's pattern only between them.
+    """
     spacing = tile.size_m / MACRO_PIXELS
     north_up = _warp(
         imagery,
@@ -616,11 +670,17 @@ def build_macro_colour(
     # The class edge is soft for the engine, but the ground each low-pass listens to is the class's own cells only.
     own = np.argmax(shares, axis=0)
     passed = [_low_pass_of_sunlit(values, sunlit * (own == index), sigma) for index in range(len(shares))]
+    measured = {}
     if curves:
-        albedo = sum(
-            share * surface.apply_curve(colour, curves[layer["name"]])
-            for share, colour, layer in zip(shares, passed, layers, strict=True)
-        )
+        by_class = [
+            surface.apply_curve(colour, curves[layer["name"]]) for colour, layer in zip(passed, layers, strict=True)
+        ]
+        for index, layer in enumerate(layers):
+            if reflectance and layer["name"] in surface.SEASONAL:
+                by_class[index], measured[layer["name"]] = _measured_colour(
+                    by_class[index], shares[index], sunlit, tile, crs, reflectance, reflectance_bands, sigma * spacing
+                )
+        albedo = sum(share * colour for share, colour in zip(shares, by_class, strict=True))
         smooth = surface.to_encoded(albedo)
     else:
         smooth = sum(share * colour for share, colour in zip(shares, passed, strict=True))
@@ -631,6 +691,78 @@ def build_macro_colour(
         "low_pass_m": MACRO_LOW_PASS_M,
         "filled_fraction": filled,
         "hidden_fraction": float(1 - sunlit.mean()),
+        "measured": measured,
+    }
+
+
+def _measured_colour(
+    fitted: np.ndarray,
+    share: np.ndarray,
+    sunlit: np.ndarray,
+    tile: Tile,
+    crs: str,
+    reflectance: Path,
+    bands: list[int] | None,
+    low_pass_m: float,
+) -> tuple[np.ndarray, dict]:
+    """One class's albedo (3, n, n, north-up over the tile) moved onto the reflectance raster's own colour.
+
+    On the raster's pixels: the measured colour over the fitted colour, where the pixel is purely this class in
+    sunlight. That ratio is low-passed over the pure pixels only (a mixed pixel says nothing about the class) and
+    read back on the map's cells; a cell with no pure pixel in reach keeps the fitted colour.
+    """
+    size = fitted.shape[-1]
+    cell = tile.size_m / size
+    grid = from_origin(tile.west, tile.north, cell, cell)
+    with rasterio.open(reflectance) as file:
+        west, south, east, north = transform_bounds(crs, file.crs, *tile.bounds())
+        window = from_bounds(west, south, east, north, file.transform).round_offsets().round_lengths()
+        window = window.intersection(Window(0, 0, file.width, file.height))
+        value = file.read(bands or [1, 2, 3], window=window, masked=True).astype(np.float32).filled(np.nan)
+        there, there_crs = file.window_transform(window), file.crs
+        pixel_m = float(abs(file.transform.a))
+
+    def onto(values: np.ndarray) -> np.ndarray:
+        out = np.full(value.shape[1:], np.nan, dtype=np.float32)
+        reproject(
+            values.astype(np.float32),
+            out,
+            src_transform=grid,
+            src_crs=crs,
+            dst_transform=there,
+            dst_crs=there_crs,
+            dst_nodata=np.nan,
+            resampling=Resampling.average,
+        )
+        return out
+
+    own, lit = onto(share), onto(sunlit)
+    model = np.stack([onto(band) for band in fitted])
+    pure = (own >= surface.PURE_SHARE) & (lit >= surface.PURE_SUNLIT)
+    pure &= np.isfinite(value).all(axis=0) & (value > 0).all(axis=0) & np.isfinite(model).all(axis=0)
+    weight = pure.astype(np.float32)
+    log_ratio = np.where(pure, np.log(np.maximum(value, 1e-6) / np.maximum(model, 1e-6)), 0.0)
+    sigma = low_pass_m / pixel_m
+    support = _blur(weight, sigma)
+    smooth = _blur(log_ratio * weight, sigma) / np.maximum(support, 1e-6)
+    trust = np.clip(support / MEASURED_REACH_MIN, 0.0, 1.0)
+    back = np.empty((4, size, size), dtype=np.float32)
+    for index, band in enumerate([*(smooth * trust), trust]):
+        reproject(
+            band.astype(np.float32),
+            back[index],
+            src_transform=there,
+            src_crs=there_crs,
+            dst_transform=grid,
+            dst_crs=crs,
+            resampling=Resampling.bilinear,
+        )
+    mine = share > 0.5
+    return fitted * np.exp(back[:3]), {
+        "pure_pixels": int(pure.sum()),
+        "pixel_m": pixel_m,
+        "share_of_class_in_reach": float((back[3][mine] >= 1).mean()) if mine.any() else 0.0,
+        "reach_min": MEASURED_REACH_MIN,
     }
 
 
@@ -667,14 +799,46 @@ def build_detail(
     shares = np.stack([_sample_cells(share, DETAIL_PIXELS) for share in read_weights(out, layers)])
     own = np.argmax(shares, axis=0)
     sigma = MACRO_LOW_PASS_M / spacing
-    smooth = np.empty_like(photo)
+
+    def smoothed(open_to: np.ndarray) -> np.ndarray:
+        smooth = np.empty_like(photo)
+        for index in range(len(layers)):
+            mine = own == index
+            smooth[:, mine] = _low_pass_of_sunlit(photo, open_to * mine, sigma)[:, mine]
+        return smooth
+
+    smooth = smoothed(open_cells)
+    # The cast shadow the cover stage predicts depends on a fitted time of day, and thin things (poles, wires) are
+    # not in it at all. On a seasonal class the photo shows its own shadows: the ratio has a second, dark peak. What
+    # is darker than the gap between the two peaks is shadow, and nothing standing has to explain it; what the
+    # cover stage only predicted to be in shadow and is not that dark is ground in the sun.
+    shadows = {}
+    standing = standing_cover(out, covering, DETAIL_PIXELS)
     for index, layer in enumerate(layers):
-        mine = own == index
-        passed = _low_pass_of_sunlit(photo, open_cells * mine, sigma)
-        smooth[:, mine] = passed[:, mine]
+        if layer["name"] not in surface.SEASONAL or standing is None:
+            continue
+        mine = (own == index) & ~standing
+        darkness = np.log2(np.maximum(surface.luminous(photo), 1e-4) / np.maximum(surface.luminous(smooth), 1e-4))
+        gap = shadow_gap(darkness[mine])
+        if gap is None:
+            continue
+        dark = mine & (darkness < gap)
+        before = float((open_cells[mine] > 0).mean())
+        open_cells = np.where(
+            mine, ~ndimage.binary_dilation(dark, iterations=SHADOW_EDGE_CELLS), open_cells > 0
+        ).astype(open_cells.dtype)
+        shadows[layer["name"]] = {
+            "gap_log2": gap,
+            "in_shadow": float(dark[mine].mean()),
+            "open_before": before,
+            "open_after": float(open_cells[mine].mean()),
+        }
+    if shadows:
+        smooth = smoothed(open_cells)
     ratio = np.maximum(photo, 1e-4) / np.maximum(smooth, 1e-4)
     # Where the ground is hidden the ratio is 1, fading in over a few cells so no seam shows at a crown's edge.
-    trust = _blur(open_cells, DETAIL_FADE_CELLS)
+    # A hidden cell is 1 exactly, however thin the thing that hides it: the fade is on the open side of the edge only.
+    trust = np.minimum(_blur(open_cells, DETAIL_FADE_CELLS), open_cells)
     log_ratio = np.clip(np.log2(ratio) * trust, -DETAIL_LOG2_RANGE, DETAIL_LOG2_RANGE)
     _write_rgb(DETAIL_ZERO + DETAIL_ZERO * log_ratio / DETAIL_LOG2_RANGE, out / "detail_ratio.png")
     return {
@@ -686,10 +850,13 @@ def build_detail(
         "open_fraction": float(open_cells.mean()),
         "priors": [
             "prior: the imagery's tone curve is sRGB, so its ratio is a ratio of linear light",
+            "prior: living turf is nowhere as dark against the turf around it as its own shadow is; paving can be",
+            f"prior: a shadow's edge is {SHADOW_EDGE_CELLS} cells wider than its dark core",
             f"prior: the ratio is limited to a factor of {2**DETAIL_LOG2_RANGE:g} either way",
             f"prior: the ratio fades to 1 over {DETAIL_FADE_CELLS:g} cells at the edge of hidden ground",
         ],
         "ratio_p5_p95": [float(2 ** np.percentile(log_ratio, 5)), float(2 ** np.percentile(log_ratio, 95))],
+        "shadows": shadows,
     }
 
 
@@ -725,6 +892,9 @@ def build_grain(site: Site, out: Path, layers: list[dict]) -> dict:
         "blocks_used": measured.blocks_used,
         "blocks_seen": measured.blocks_seen,
         "block_std_range": list(measured.block_std_range),
+        "tint": list(measured.tint),
+        "tint_explains": list(measured.tint_explains),
+        "blade_colours": [list(colour) for colour in measured.blade_colours],
         "low_pass_m": grain.LOW_PASS_M,
         "priors": grain.PRIORS,
     }
@@ -1088,6 +1258,7 @@ def build(site_path: Path, out: Path, cache: Path | None = None) -> dict:
             MACRO_LOW_PASS_M,
             bands,
             classes["albedo"].get("curves"),
+            [sources["reflectance"]["sha256"], surface.SEASONAL, MEASURED_REACH_MIN] if reflectance else None,
         ),
         lambda: build_macro_colour(
             tile,
@@ -1098,6 +1269,8 @@ def build(site_path: Path, out: Path, cache: Path | None = None) -> dict:
             classes["layers"],
             imagery_bands(site.imagery)[0],
             classes["albedo"].get("curves"),
+            reflectance,
+            [site.reflectance.band(name) for name in ("red", "green", "blue")] if reflectance else None,
         ),
     )
     macro = stages["macro_colour"]
@@ -1116,6 +1289,14 @@ def build(site_path: Path, out: Path, cache: Path | None = None) -> dict:
             DETAIL_FADE_CELLS,
             MACRO_LOW_PASS_M,
             bands,
+            [
+                SHADOW_DARKEST_LOG2,
+                SHADOW_MIN_SHARE,
+                SHADOW_MIN_CELLS,
+                SHADOW_VALLEY_MAX,
+                SHADOW_EDGE_CELLS,
+                surface.SEASONAL,
+            ],
         ),
         lambda: build_detail(
             tile,
@@ -1146,6 +1327,7 @@ def build(site_path: Path, out: Path, cache: Path | None = None) -> dict:
                 grain.QUIET_SHARE,
                 grain.GRASS_PURITY,
                 grain.MIN_BLOCKS,
+                grain.BLADE_COLOURS,
                 grain.LENS_FOV_DEG,
                 grain.FRAME_PX,
                 grain.NEAR_SHARE,
@@ -1273,7 +1455,8 @@ def build(site_path: Path, out: Path, cache: Path | None = None) -> dict:
             "smoothed_fraction": elevation["smoothed_fraction"],
         },
         "macro_colour": {
-            key: macro[key] for key in ("file", "pixels", "low_pass_m", "filled_fraction", "hidden_fraction")
+            key: macro[key]
+            for key in ("file", "pixels", "low_pass_m", "filled_fraction", "hidden_fraction", "measured")
         },
         "detail": {key: value for key, value in detail.items() if key not in ("cached",)},
         "surface": {key: value for key, value in classes.items() if key not in ("files", "cached")},

@@ -38,6 +38,8 @@ GRASS_PURITY = 0.9
 MIN_BLOCKS = 8
 RADIAL_BINS = 64
 QUANTILES = 1025
+# A blade takes one of this many colours, each as likely as the next: the measured distribution cut in equal shares.
+BLADE_COLOURS = 8
 LUMA = np.array([0.2126, 0.7152, 0.0722], dtype=np.float32)
 
 # Priors: the lens a still is taken with, and how much of the grain is left on ground nearer than one texel a pixel. Up
@@ -59,6 +61,8 @@ PRIORS = [
     f"prior: the field's turf is like the quietest {QUIET_SHARE:.0%} of the survey's grass blocks, which are even and short",
     f"prior: blocks are {BLOCK_PX} pixels, at least {MIN_BLOCKS} are needed, and a block is grass when every tile cell under it is at least {GRASS_PURITY:.0%} grass",
     "prior: the second read of the texture is at 0.61 of the first one's scale and turned 37 degrees",
+    "prior: the orthophoto's tone curve is sRGB; its white balance and exposure cancel in the grain's colour",
+    "prior: a blade is as varied in colour as a pixel of the orthophoto is against its surround",
     "prior: grain has no direction (its spectrum is averaged around the circle), so it can be laid at any turn",
 ]
 
@@ -73,6 +77,12 @@ class Grain:
     blocks_used: int
     blocks_seen: int
     block_std_range: tuple[float, float]
+    # How each band's log ratio goes with the luminance's, as a slope: straw is brighter and redder than the green
+    # around it, so the grain is a colour, not a grey. And how much of each band's variance that one line explains.
+    tint: tuple[float, float, float]
+    tint_explains: tuple[float, float, float]
+    # Colours for single blades, as multipliers of the ground's colour: the grain's distribution cut in equal shares.
+    blade_colours: list[tuple[float, float, float]]
 
 
 def to_linear(encoded: np.ndarray) -> np.ndarray:
@@ -91,10 +101,16 @@ def _radial(power: np.ndarray, side: int, bins: int) -> np.ndarray:
     return total / np.maximum(count, 1)
 
 
-def _block_grain(window: np.ndarray, pixel_m: float) -> np.ndarray:
-    lum = np.tensordot(LUMA, to_linear(window[:3]), 1)
-    low = ndimage.gaussian_filter(lum, LOW_PASS_M / pixel_m, mode="nearest")
-    return np.log2(np.maximum(lum, 1e-4) / np.maximum(low, 1e-4))
+def _block_grain(window: np.ndarray, pixel_m: float) -> tuple[np.ndarray, np.ndarray]:
+    """The log2 of the luminance, and of each band, over its own local low-pass: (rows, columns) and (3, rows, columns)."""
+    linear = to_linear(window[:3])
+    sigma = LOW_PASS_M / pixel_m
+
+    def over_surround(values: np.ndarray) -> np.ndarray:
+        low = ndimage.gaussian_filter(values, sigma, mode="nearest")
+        return np.log2(np.maximum(values, 1e-4) / np.maximum(low, 1e-4))
+
+    return over_surround(np.tensordot(LUMA, linear, 1)), np.stack([over_surround(band) for band in linear])
 
 
 def measure(
@@ -118,7 +134,7 @@ def measure(
         if source.count < 4:
             return None, "the orthophoto has no alpha band to say where it has pixels"
         pixel_m = float(abs(source.transform.a))
-        stds, spectra, samples, seen = [], [], [], 0
+        stds, spectra, samples, bands, seen = [], [], [], [], 0
         window = np.hanning(BLOCK_PX)[:, None] * np.hanning(BLOCK_PX)[None, :]
         for row in range(0, source.height - BLOCK_PX + 1, BLOCK_PX):
             for column in range(0, source.width - BLOCK_PX + 1, BLOCK_PX):
@@ -134,7 +150,8 @@ def measure(
                 if block[3].min() < 255:
                     continue
                 seen += 1
-                g = _block_grain(block, pixel_m)
+                g, by_band = _block_grain(block, pixel_m)
+                bands.append(by_band[:, ::3, ::3].reshape(3, -1))
                 stds.append(float(g.std()))
                 spectra.append(_radial(np.abs(np.fft.rfft2((g - g.mean()) * window)) ** 2, BLOCK_PX, RADIAL_BINS))
                 samples.append(g[::3, ::3].ravel())
@@ -149,8 +166,30 @@ def measure(
     mean_gain = np.log2(np.mean(2**field))
     field = field - mean_gain
     encoded = np.clip(np.rint(ZERO + ZERO * field / LOG2_RANGE), 0, 255).astype(np.uint8)
+    # Each band against the luminance, a line through the origin: a ratio of ratios, so the camera's white balance
+    # and exposure cancel and only its tone curve (taken as sRGB) is assumed.
+    by_band = np.concatenate([bands[i] for i in keep], axis=1)
+    power = float((values**2).sum())
+    tint = [float((values * band).sum() / power) for band in by_band]
+    explains = [
+        float(1 - ((band - slope * values) ** 2).sum() / max((band**2).sum(), 1e-12))
+        for band, slope in zip(by_band, tint, strict=True)
+    ]
+    # A blade's colour: the middle of each equal share of the distribution, less the gain the mean of them would add.
+    middles = np.quantile(values, (np.arange(BLADE_COLOURS) + 0.5) / BLADE_COLOURS) - mean_gain
+    colours = [tuple(float(2 ** (middle * slope)) for slope in tint) for middle in middles]
     return (
-        Grain(encoded, pixel_m, float(field.std()), len(keep), seen, (float(min(stds)), float(max(stds)))),
+        Grain(
+            encoded,
+            pixel_m,
+            float(field.std()),
+            len(keep),
+            seen,
+            (float(min(stds)), float(max(stds))),
+            (tint[0], tint[1], tint[2]),
+            (explains[0], explains[1], explains[2]),
+            colours,
+        ),
         "",
     )
 

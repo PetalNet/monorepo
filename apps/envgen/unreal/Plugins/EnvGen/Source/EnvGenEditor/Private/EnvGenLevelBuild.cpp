@@ -164,7 +164,7 @@ namespace
 	{
 		FName Name;
 		int32 Blades = 0;
-		float RadiusCm = 0, HeightMinCm = 0, HeightMaxCm = 0, DensityPer100M2 = 0, ScaleMin = 1, ScaleMax = 1;
+		float RadiusCm = 0, HeightMinCm = 0, HeightMaxCm = 0, WidthMinCm = 0, WidthMaxCm = 0, DensityPer100M2 = 0, ScaleMin = 1, ScaleMax = 1;
 		int32 StartCullCm = 0, EndCullCm = 0;
 		bool bCastsShadow = true;
 	};
@@ -172,9 +172,10 @@ namespace
 	struct FTurf
 	{
 		TArray<FTuftVariety> Varieties;
-		// Tufts stand in patches this wide, thinning to this share of the density between them.
-		float PatchCm = 400, PatchMin = 0.35f;
 		float RootShade = 1, TipShade = 1;
+		// What a single blade's colour is, as multipliers of the ground's colour under it, each as likely as the next:
+		// measured with the grain. One white entry when the build has no grain.
+		TArray<FLinearColor> BladeColours;
 	};
 
 	/** One tree of the inventory: where it stands from the tile centre, and its measured size. */
@@ -222,6 +223,8 @@ namespace
 		// and how much ground one repeat covers.
 		FString GrainFile;
 		double GrainLog2Range = 1, GrainZero = 127, GrainRepeatCm = 0, GrainSharpCm = 0, GrainNearShare = 1;
+		// How each of red, green and blue goes with the grain's luminance, as a slope in logarithms: the grain's colour.
+		FLinearColor GrainTint = FLinearColor(1, 1, 1);
 		// The survey orthophoto's ratio at its own pixel size, one channel, where its footprint is: file, how 8 bits map to
 		// a power of two, and where the file lies in the tile in metres from its south-west corner.
 		FString SurveyFile;
@@ -361,12 +364,17 @@ namespace
 			Out.GrainRepeatCm = (*Grain)->GetNumberField(TEXT("repeat_m")) * 100;
 			Out.GrainSharpCm = (*Grain)->GetNumberField(TEXT("sharp_distance_m")) * 100;
 			Out.GrainNearShare = (*Grain)->GetNumberField(TEXT("near_share"));
+			const TArray<TSharedPtr<FJsonValue>>& Tint = (*Grain)->GetArrayField(TEXT("tint"));
+			Out.GrainTint = FLinearColor(float(Tint[0]->AsNumber()), float(Tint[1]->AsNumber()), float(Tint[2]->AsNumber()));
+			for (const TSharedPtr<FJsonValue>& Value : (*Grain)->GetArrayField(TEXT("blade_colours")))
+			{
+				const TArray<TSharedPtr<FJsonValue>>& Colour = Value->AsArray();
+				Out.Turf.BladeColours.Add(FLinearColor(float(Colour[0]->AsNumber()), float(Colour[1]->AsNumber()), float(Colour[2]->AsNumber())));
+			}
 		}
 		const TSharedPtr<FJsonObject>* Turf = nullptr;
 		if (Root->TryGetObjectField(TEXT("turf"), Turf))
 		{
-			Out.Turf.PatchCm = float((*Turf)->GetNumberField(TEXT("patch_cm")));
-			Out.Turf.PatchMin = float((*Turf)->GetNumberField(TEXT("patch_min")));
 			Out.Turf.RootShade = float((*Turf)->GetNumberField(TEXT("root_shade")));
 			Out.Turf.TipShade = float((*Turf)->GetNumberField(TEXT("tip_shade")));
 			for (const TSharedPtr<FJsonValue>& Value : (*Turf)->GetArrayField(TEXT("varieties")))
@@ -378,6 +386,8 @@ namespace
 				Variety.RadiusCm = float(Item->GetNumberField(TEXT("radius_cm")));
 				Variety.HeightMinCm = float(Item->GetArrayField(TEXT("height_cm"))[0]->AsNumber());
 				Variety.HeightMaxCm = float(Item->GetArrayField(TEXT("height_cm"))[1]->AsNumber());
+				Variety.WidthMinCm = float(Item->GetArrayField(TEXT("blade_width_cm"))[0]->AsNumber());
+				Variety.WidthMaxCm = float(Item->GetArrayField(TEXT("blade_width_cm"))[1]->AsNumber());
 				Variety.DensityPer100M2 = float(Item->GetNumberField(TEXT("density_per_100m2")));
 				Variety.ScaleMin = float(Item->GetArrayField(TEXT("scale"))[0]->AsNumber());
 				Variety.ScaleMax = float(Item->GetArrayField(TEXT("scale"))[1]->AsNumber());
@@ -580,7 +590,7 @@ namespace
 	}
 
 	/** A tuft of tapered, leaning blades, base at the origin, as geometry so it casts and takes light like turf. */
-	UStaticMesh* MakeGrassTuft(UMaterial* Material, const FTuftVariety& Variety, int32 Index, TArray<UPackage*>& Packages)
+	UStaticMesh* MakeGrassTuft(UMaterial* Material, const FTuftVariety& Variety, const TArray<FLinearColor>& BladeColours, int32 Index, TArray<UPackage*>& Packages)
 	{
 		UStaticMesh* Mesh = NewAsset<UStaticMesh>(TEXT("SM_GrassTuft_") + Variety.Name.ToString(), Packages);
 		FMeshDescription Description;
@@ -593,8 +603,11 @@ namespace
 		TPolygonGroupAttributesRef<FName> Slots = Attributes.GetPolygonGroupMaterialSlotNames();
 		const FPolygonGroupID Group = Description.CreatePolygonGroup();
 		Slots[Group] = FName(TEXT("Blade"));
+		// The blade's own colour rides in the third and fourth UV channels (red and green, then blue): vertex colour is
+		// 8 bits and holds how far up the blade a point is, and the mesh build writes its own unwrap into the second.
+		Uvs.SetNumChannels(4);
 		FRandomStream Random(7 + Index);
-		constexpr int32 Segments = 4;
+		constexpr int32 Segments = 3;
 		for (int32 Blade = 0; Blade < Variety.Blades; ++Blade)
 		{
 			const float Around = Random.FRand() * 2 * PI;
@@ -602,7 +615,8 @@ namespace
 			const float Facing = Random.FRand() * 2 * PI;
 			const FVector2f Along(FMath::Cos(Facing), FMath::Sin(Facing)), Across(-Along.Y, Along.X);
 			const float Height = Random.FRandRange(Variety.HeightMinCm, Variety.HeightMaxCm);
-			const float Width = Random.FRandRange(0.4f, 0.7f);
+			const float Width = Random.FRandRange(Variety.WidthMinCm, Variety.WidthMaxCm) / 2;
+			const FLinearColor Own = BladeColours.IsEmpty() ? FLinearColor::White : BladeColours[Random.RandHelper(BladeColours.Num())];
 			const float Lean = Random.FRandRange(0.2f, 0.6f) * Height;
 			// Left and right edge vertices per level, and one at the tip.
 			TArray<FVertexInstanceID> Left, Right;
@@ -614,7 +628,10 @@ namespace
 				Positions[Vertex] = FVector3f(Plan.X, Plan.Y, Height * T);
 				const FVertexInstanceID Instance = Description.CreateVertexInstance(Vertex);
 				Normals[Instance] = FVector3f(0, 0, 1);
-				Uvs[Instance] = FVector2f(Side * 0.5f + 0.5f, T);
+				Uvs.Set(Instance, 0, FVector2f(Side * 0.5f + 0.5f, T));
+				Uvs.Set(Instance, 1, FVector2f(0.f, 0.f));
+				Uvs.Set(Instance, 2, FVector2f(Own.R, Own.G));
+				Uvs.Set(Instance, 3, FVector2f(Own.B, 0.f));
 				Colours[Instance] = FVector4f(T, T, T, 1.f);
 				return Instance;
 			};
@@ -688,9 +705,26 @@ namespace
 		UMaterialExpressionMultiply* Lit = Node<UMaterialExpressionMultiply>(Material, -350, 100);
 		Lit->A.Connect(0, Albedo);
 		Lit->B.Connect(0, Shade);
-		UMaterialExpressionMultiply* Colour = Node<UMaterialExpressionMultiply>(Material, -200, 100);
-		Colour->A.Connect(0, Lit);
-		Colour->B.Connect(0, Tuft);
+		UMaterialExpressionMultiply* OfTuft = Node<UMaterialExpressionMultiply>(Material, -200, 100);
+		OfTuft->A.Connect(0, Lit);
+		OfTuft->B.Connect(0, Tuft);
+		// The blade's own colour, from the mesh: red and green in the third UV channel, blue in the fourth.
+		UMaterialExpressionTextureCoordinate* RedGreen = Node<UMaterialExpressionTextureCoordinate>(Material, -500, 650);
+		RedGreen->CoordinateIndex = 2;
+		UMaterialExpressionTextureCoordinate* BlueUv = Node<UMaterialExpressionTextureCoordinate>(Material, -500, 750);
+		BlueUv->CoordinateIndex = 3;
+		UMaterialExpressionComponentMask* Blue = Node<UMaterialExpressionComponentMask>(Material, -350, 750);
+		Blue->Input.Connect(0, BlueUv);
+		Blue->R = true;
+		Blue->G = false;
+		Blue->B = false;
+		Blue->A = false;
+		UMaterialExpressionAppendVector* Own = Node<UMaterialExpressionAppendVector>(Material, -200, 700);
+		Own->A.Connect(0, RedGreen);
+		Own->B.Connect(0, Blue);
+		UMaterialExpressionMultiply* Colour = Node<UMaterialExpressionMultiply>(Material, -50, 100);
+		Colour->A.Connect(0, OfTuft);
+		Colour->B.Connect(0, Own);
 		// Thin blades pass light: lit from behind they glow with their own colour rather than going black.
 		Material->SetShadingModel(MSM_DefaultLit);
 		UMaterialEditingLibrary::ConnectMaterialProperty(Colour, TEXT(""), MP_BaseColor);
@@ -872,9 +906,15 @@ namespace
 			}
 			UMaterialExpressionConstant* GrainTwo = Node<UMaterialExpressionConstant>(Material, -800, -600);
 			GrainTwo->R = 2.f;
+			// The grain is a colour: each band goes with the luminance by its own measured slope.
+			UMaterialExpressionConstant3Vector* GrainTint = Node<UMaterialExpressionConstant3Vector>(Material, -800, -450);
+			GrainTint->Constant = Manifest.GrainTint;
+			UMaterialExpressionMultiply* GrainByBand = Node<UMaterialExpressionMultiply>(Material, -780, -500);
+			GrainByBand->A.Connect(0, GrainStrength);
+			GrainByBand->B.Connect(0, GrainTint);
 			UMaterialExpressionPower* GrainPower = Node<UMaterialExpressionPower>(Material, -750, -500);
 			GrainPower->Base.Connect(0, GrainTwo);
-			GrainPower->Exponent.Connect(0, GrainStrength);
+			GrainPower->Exponent.Connect(0, GrainByBand);
 			UMaterialExpressionMultiply* WithGrain = Node<UMaterialExpressionMultiply>(Material, -650, -500);
 			WithGrain->A.Connect(0, Base);
 			WithGrain->B.Connect(0, GrainPower);
@@ -992,25 +1032,12 @@ namespace
 				Sampled->PreviewWeight = 1;
 				Weight = Sampled;
 			}
-			// Tufts stand in patches, not at an even spacing: the noise thins the density between patches.
-			UMaterialExpressionTextureSample* Patches = Sample(Material, Detail, Manifest.Turf.PatchCm * 4 / QuadCm, SAMPLERTYPE_LinearGrayscale, 1200);
-			UMaterialExpressionSmoothStep* InPatch = Node<UMaterialExpressionSmoothStep>(Material, 100, 1200);
-			InPatch->Value.Connect(1, Patches);
-			InPatch->ConstMin = 0.4f;
-			InPatch->ConstMax = 0.6f;
-			UMaterialExpressionLinearInterpolate* PatchShare = Node<UMaterialExpressionLinearInterpolate>(Material, 200, 1200);
-			PatchShare->ConstA = Manifest.Turf.PatchMin;
-			PatchShare->ConstB = 1.f;
-			PatchShare->Alpha.Connect(0, InPatch);
-			UMaterialExpressionMultiply* Thinned = Node<UMaterialExpressionMultiply>(Material, 250, 1200);
-			Thinned->A.Connect(0, Weight);
-			Thinned->B.Connect(0, PatchShare);
 			UMaterialExpressionLandscapeGrassOutput* Output = Node<UMaterialExpressionLandscapeGrassOutput>(Material, 300, 900);
 			Output->GrassTypes.Empty();
 			FGrassInput& Input = Output->GrassTypes.AddDefaulted_GetRef();
 			Input.Name = FName(TEXT("Grass"));
 			Input.GrassType = GrassType;
-			Input.Input.Connect(0, Thinned);
+			Input.Input.Connect(0, Weight);
 		}
 		UMaterialEditingLibrary::ConnectMaterialProperty(Colour, TEXT(""), MP_BaseColor);
 		UMaterialEditingLibrary::ConnectMaterialProperty(Normal, TEXT(""), MP_Normal);
@@ -1814,7 +1841,7 @@ bool FEnvGenLevelBuild::Start(const FString& ManifestPath, const FString& MapPat
 		{
 			const FTuftVariety& Tuft = Manifest.Turf.Varieties[Index];
 			FGrassVariety& Variety = GrassType->GrassVarieties.AddDefaulted_GetRef();
-			Variety.GrassMesh = MakeGrassTuft(BladeMaterial, Tuft, Index, State->Packages);
+			Variety.GrassMesh = MakeGrassTuft(BladeMaterial, Tuft, Manifest.Turf.BladeColours, Index, State->Packages);
 			Variety.GrassDensity = FPerPlatformFloat(Tuft.DensityPer100M2);
 			Variety.StartCullDistance = FPerPlatformInt(Tuft.StartCullCm);
 			Variety.EndCullDistance = FPerPlatformInt(Tuft.EndCullCm);

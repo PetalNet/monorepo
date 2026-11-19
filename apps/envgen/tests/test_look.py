@@ -202,3 +202,44 @@ def test_a_band_the_photo_runs_against_keeps_its_measured_level_and_says_so():
     assert any("runs against" in prior for prior in fit["priors"])
     flat = surface.apply_curve(np.full((3, 2), 128.0) * [[0.5], [1.0], [1.5]], fit["curves"]["grass"])
     assert flat == pytest.approx(np.exp(np.log(measured).mean()), rel=0.01)
+
+
+def test_grass_takes_the_measured_colour_pixel_by_pixel_and_paving_keeps_the_photos_pattern(tmp_path):
+    # One green in the photo from edge to edge of the grass, but the measurement, of another year, says its north
+    # half has dried to straw. Paving is one grey in both.
+    tone = lambda albedo: tuple(round(255 * value**0.45) for value in albedo)
+    green, straw, paving = (0.05, 0.08, 0.04), (0.10, 0.09, 0.05), (0.2, 0.2, 0.2)
+    h.write_dem(tmp_path / "dem.tif")
+    write_noisy_scene(tmp_path / "imagery.tif", tone(green), [(90, 0, 126, 126, tone(paving))])
+    west, north, count = h.WEST - 12, h.SOUTH + h.SIZE_M + 12, 25
+    eastings = west + (np.arange(count) + 0.5) * 6 - h.WEST
+    northings = north - (np.arange(count) + 0.5) * 6 - h.SOUTH
+    measured = np.empty((3, count, count), dtype=np.float32)
+    for band in range(3):
+        grass = np.where(northings > 63, straw[band], green[band])[:, None] * np.ones((1, count))
+        measured[band] = np.where(eastings[None, :] >= 90, paving[band], grass)
+    h.write_raster(tmp_path / "reflectance.tif", measured[::-1], west, north, 6.0)
+    reflectance = {
+        "kind": "file",
+        "path": "reflectance.tif",
+        "license": "test",
+        "date": "2030-06",
+        "bands": {"blue": 1, "green": 2, "red": 3},
+    }
+    files = {
+        "elevation": {"kind": "file", "path": "dem.tif", "license": "test", "date": "2030"},
+        "imagery": {"kind": "file", "path": "imagery.tif", "license": "test", "date": "2030"},
+    }
+    out = tmp_path / "out"
+
+    manifest = build(h.write_site(tmp_path, sources=files | {"reflectance": reflectance}), out)
+
+    colour = np.asarray(Image.open(out / "macro_colour.png")).astype(float)  # [east, north]
+    pixels = colour.shape[0] / h.SIZE_M
+    albedo = lambda east_m, north_m: surface.to_linear(colour[round(east_m * pixels), round(north_m * pixels)])
+    assert albedo(40, 25) == pytest.approx(green, rel=0.12)
+    assert albedo(40, 100) == pytest.approx(straw, rel=0.12)
+    assert albedo(110, 25) == pytest.approx(albedo(110, 100), rel=0.03)
+    report = manifest["macro_colour"]["measured"]
+    assert set(report) == {"grass"} and report["grass"]["pure_pixels"] > 100
+    assert report["grass"]["share_of_class_in_reach"] > 0.9

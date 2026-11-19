@@ -6,7 +6,7 @@ import pytest
 from PIL import Image
 
 from envgen import acquire, frame
-from envgen.build import MACRO_LOW_PASS_M, build
+from envgen.build import MACRO_LOW_PASS_M, build, shadow_gap
 from envgen.cli import main
 from envgen.site import SiteError, load_site, tile_for_boundary
 
@@ -311,3 +311,13 @@ def test_cli_rejects_a_source_without_a_license(tmp_path, capsys):
     }
     assert main(["build", str(h.write_site(tmp_path, sources=sources)), "--out", str(tmp_path / "out")]) == 1
     assert "license is required" in capsys.readouterr().err
+
+
+def test_the_gap_between_sunlit_and_shadowed_ground_is_found_and_one_peak_has_none():
+    rng = np.random.default_rng(1)
+    sunlit = rng.normal(-0.05, 0.2, 90000)
+    shadow = rng.normal(-2.2, 0.35, 10000)
+    gap = shadow_gap(np.concatenate([sunlit, shadow]))
+    assert gap is not None and -1.7 < gap < -0.9
+    assert shadow_gap(sunlit) is None
+    assert shadow_gap(sunlit[:100]) is None

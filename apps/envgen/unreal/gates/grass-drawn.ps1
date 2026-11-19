@@ -13,6 +13,11 @@ weight of the build at the camera and at 4 m and 8 m along the path, and every o
 therefore has to be chosen on grass (the default is). With -Noise it also runs the grass-on tour a second time and
 reports how much two identical runs differ over the same ground, the floor the bar has to clear.
 
+The nearest variety is only drawn close by, and the lower part of the frame is all its own. So the same two frames are
+compared over a second band as well: the ground between where the nearest variety ends and where the farthest ends,
+which only the far varieties (the clump and the tall tuft) can change. The band's rows come from the manifest's draw
+distances, the tour's eye height and the frame's own shape, for level ground and a level camera.
+
 .EXAMPLE
 ./grass-drawn.ps1 -EngineRoot 'C:\Program Files\Epic Games\UE_5.8' -WorkDir C:\envgen\Host58 -BuildDir C:\envgen\build\site
 #>
@@ -35,6 +40,9 @@ param(
 	# tufts changed 3.7 % of a whole frame (step 24) when they were black; the lit tufts changed 0.7 % of the grass-only
 	# ground at step 24, which is why the step is lower and the bar is not.
 	[double] $MinShare = 0.01,
+	# Of the far band's pixels, the share the far varieties must change. Their blades are a pixel or two wide there, so
+	# they move fewer pixels past the step than the near ones; two identical runs differed on none of the band.
+	[double] $MinFarShare = 0.01,
 	[switch] $Noise
 )
 $ErrorActionPreference = 'Stop'
@@ -49,17 +57,18 @@ function Get-Frame([string] $Name, [string[]] $Extra) {
 	$file = Join-Path $dir ('frame_{0:d5}.png' -f $Frame)
 	if (-not (Test-Path $file)) { throw "the tour wrote no $file" }
 	Copy-Item (Join-Path $WorkDir 'Saved\EnvGen\tour_walk.csv') (Join-Path $dir 'tour.csv')
-	[pscustomobject]@{ File = $file; Csv = (Join-Path $dir 'tour.csv'); Built = $summary.grass_tufts_within_25m.median }
+	[pscustomobject]@{ File = $file; Csv = (Join-Path $dir 'tour.csv'); Built = $summary.grass_tufts_within_25m.median; EyeM = $summary.height_above_ground_m }
 }
 
-# The share of ground pixels, every fourth each way, on which two frames differ by more than $ChannelStep.
-function Get-Share([string] $First, [string] $Second) {
+# The share of the pixels between two heights of the frame (shares of its height from the top), every fourth each way,
+# on which two frames differ by more than $ChannelStep.
+function Get-Share([string] $First, [string] $Second, [double] $Top, [double] $Bottom) {
 	$a = [System.Drawing.Bitmap]::new($First)
 	$b = [System.Drawing.Bitmap]::new($Second)
 	try {
 		if ($a.Width -ne $b.Width -or $a.Height -ne $b.Height) { throw 'the two frames differ in size' }
 		$differ = 0; $seen = 0; $sum = 0
-		for ($y = [int]($a.Height * $GroundTop); $y -lt $a.Height; $y += 4) {
+		for ($y = [int]($a.Height * $Top); $y -lt [int]($a.Height * $Bottom); $y += 4) {
 			for ($x = 0; $x -lt $a.Width; $x += 4) {
 				$p = $a.GetPixel($x, $y); $q = $b.GetPixel($x, $y)
 				$seen++
@@ -94,17 +103,35 @@ try {
 	}
 } finally { $weights.Dispose() }
 $without = Get-Frame 'off' @('-ini:Engine:[SystemSettings]:grass.Enable=0')
-$measured = Get-Share $with.File $without.File
+$measured = Get-Share $with.File $without.File $GroundTop 1.0
 $share = $measured.Share
+# Level ground at a distance sits below the horizon by the eye height over the distance, as a share of the frame's
+# height: the frame is as tall as its width times the tangent of half its 90 degree lens, times height over width.
+$varieties = @($manifest.turf.varieties)
+$nearEndCm = ($varieties | Sort-Object end_cull_cm)[0].end_cull_cm
+$farEndCm = ($varieties | Sort-Object end_cull_cm)[-1].end_cull_cm
+$size = [System.Drawing.Bitmap]::new($with.File)
+try { $halfHeight = $size.Height / $size.Width } finally { $size.Dispose() }
+$rowAt = { param($cm) 0.5 + ($with.EyeM * 100 / $cm) / (2 * $halfHeight) }
+$farTop = & $rowAt $farEndCm
+$farBottom = & $rowAt $nearEndCm
+$far = Get-Share $with.File $without.File $farTop $farBottom
 $result = [ordered]@{ frame = $Frame }
 if ($Noise) {
 	$again = Get-Frame 'on2' @()
-	$twin = Get-Share $with.File $again.File
+	$twin = Get-Share $with.File $again.File $GroundTop 1.0
+	$farTwin = Get-Share $with.File $again.File $farTop $farBottom
 	$result.share_two_identical_runs_differ = [math]::Round($twin.Share, 4)
 	$result.mean_abs_diff_two_identical_runs = [math]::Round($twin.Mean, 3)
+	$result.far_share_two_identical_runs_differ = [math]::Round($farTwin.Share, 4)
 }
-$ok = $share -ge $MinShare -and $lowest -ge 250
+$farOk = $varieties.Count -lt 2 -or $far.Share -ge $MinFarShare
+$ok = $share -ge $MinShare -and $farOk -and $lowest -ge 250
 $result.grass_drawn_ok = $ok
+$result.far_varieties_drawn_ok = $farOk
+$result.far_band_rows = @([math]::Round($farTop, 3), [math]::Round($farBottom, 3))
+$result.share_of_far_band_pixels_grass_changes = [math]::Round($far.Share, 4)
+$result.min_far_share = $MinFarShare
 $result.share_of_near_ground_pixels_grass_changes = [math]::Round($share, 4)
 $result.mean_abs_diff_grass_on_off = [math]::Round($measured.Mean, 3)
 $result.min_share = $MinShare

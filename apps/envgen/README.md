@@ -236,10 +236,23 @@ turns the photo's linear colour into albedo, and `lighting` is the sun the level
 Limits:
 
 - The reflectance fit joins two dates. Where the ground changed between the photo and the measurement the curve
-  is flatter than the truth, and the pattern is still the photo's.
+  is flatter than the truth, and the pattern is still the photo's. Grass is the class that changes, so it does not
+  rest on its curve: see below.
 - Reflectance pixels are far coarser than the photo, so the fit sees little of the contrast inside a class and a
   curve is flatter than the photo's real tone curve. The trusted range is of coarse pixels too, so a bright roof
   or a dark patch a few metres across is held to it.
+- **Seasonal classes take the measurement itself** (`surface.SEASONAL`, grass). On the real tile the grass curve's
+  gamma is 0.33 and the photo's pattern explains little of the measurement (luminance correlation 0.26 over pure
+  grass pixels), so every field came out the class's one colour: red over green ran 0.90 to 0.95 (10th to 90th
+  percentile) where Sentinel-2 has 0.73 to 1.09, and no pixel was redder than green where 29 % are. The median was
+  right (0.93 against 0.92). The colour map now multiplies the curve's colour by the measured colour over it,
+  low-passed over the reflectance pixels that are purely the class in sunlight (`PURE_SHARE`, `PURE_SUNLIT`), so
+  a pure pixel's colour is the measurement's; a cell with under 5 % of the low-pass's weight on pure pixels
+  (`MEASURED_REACH_MIN`, hand-set) keeps the curve's colour. Real tile: 1416 pure pixels, 54 % of grass cells in
+  reach. The ground seen from the fly and walk stations is greener than the class median, not pinker (red over
+  green 0.80 and 0.76, 11 % and 12 % of pixels redder than green); the survey orthophoto's pink is its white
+  balance (its blue over green is 0.96 where Sentinel-2 has 0.66 on the same pixels). Paving keeps the photo's
+  pattern: it does not change with the season and its reflectance pixels mix in cars and roofs. A prior.
 - With one anchor the fit's spread is always 0, and nothing acts when the asphalt and grass checks disagree: a tile
   whose median paving is asphalt gets a scale about 3 times too high. Without a cover stage every cell counts
   as sunlit, shade included.
@@ -264,7 +277,19 @@ The ground colour also carries the detail ratio (`detail_ratio.png`): each 0.5 m
 power, range one stop either way). It brings back what the macro colour leaves out (mowing rows, tracks, lot
 markings, patches of straw) without moving the albedo, which stays the fitted one. It is 1 where cover or shadow
 hides the ground, because the engine draws those, so a roof, which the cover stage counts, stays flat until buildings are
-modelled. The albedo curves are not applied to it: their gamma (0.33 for grass) comes from a fit across 10 m
+modelled. A hidden cell is exactly 1, however thin what hides it; the fade is on the open side of the edge.
+
+On a seasonal class the shadow is read from the photo, not from the cover stage's cast. The cast depends on a fitted
+time of day, and on the real tile it lands off the shadows the photo shows (the light poles' shadows run about 45
+degrees east of north; the cast runs at 72), so sunlit turf was flattened and the real shadow kept. The photo shows
+its own shadows: the log ratio of a cell to its surround has a second, dark peak (`shadow_gap`). What is darker than
+the emptiest darkness between the two peaks is shadow, whatever stands or does not stand beside it, and what the
+cast only predicted is ground in the sun again; ground under standing cover stays hidden. Real tile: the gap is at
+-1.43 stops, 8.6 % of the grass not under cover is in shadow, and open grass goes from 80 % to 86 %. Thin shadows
+(a pole's is under two pixels wide) are lighter than the gap after the photo's resampling and stay in the ratio:
+the fly station still shows the light poles' shadows. Priors: the peak must hold 0.5 % of the class's cells, the gap
+at most 0.8 of the dark peak, the shadow's edge is 2 cells wider, and paving is left to the cast (dark asphalt
+beside concrete is as dark as a shadow). The albedo curves are not applied to it: their gamma (0.33 for grass) comes from a fit across 10 m
 pixels, where noise flattens the slope, and would take most of the contrast out. Treating the imagery's tone
 curve as sRGB is a prior, as are the limit of one stop either way (lot paint on asphalt clips there) and the fade over 2 cells at the edge of hidden ground; the manifest's `detail.priors` lists them. The source is the imagery's date (2024-08 on the real tile), not the target date's, so
 a row mown since is not in it. The ratio is a 2048 pixel texture, uncompressed (block compression has steps of about 5 % in a channel, as large as the rows it carries): 16 MB, about 22 with mips.
@@ -288,6 +313,11 @@ survey orthophoto (`sources.survey.orthophoto`, 2.3 cm a pixel on the real tile)
   texture there. Priors: 0.3 m, the quietest quarter (the survey's grass is partly a hay field and the field being built is
   lawn), no direction in the grain, the lens, the 25 %. Real tile: 379 of 1519 pure-grass blocks used, strength 0.60 stops
   (one standard deviation of the log2 ratio).
+  The grain has a colour: each band's log ratio is fitted against the luminance's, a line through the origin
+  (`grain.tint`), and the material raises 2 to the grain times each band's slope. A ratio of ratios, so the camera's
+  white balance and exposure cancel. Real tile: slopes 1.06, 0.99 and 1.03 for red, green and blue, each explaining
+  96 % or more of its band: bright pixels are a little redder, and the grain is close to grey. The same distribution
+  cut in 8 equal shares is the colour of single blades (`grain.blade_colours`, 0.47 to 1.6 of the ground's colour).
 - **Survey detail** (`build_survey_detail`). The detail ratio of the previous section, again from the orthophoto at its
   own pixel size, luminance only (one channel: colour at that size is hundreds of megabytes). The low-pass runs on the
   orthophoto pooled to 0.5 m. Inside the footprint it replaces the imagery's ratio, which is the same ground a year or two
@@ -299,21 +329,25 @@ survey orthophoto (`sources.survey.orthophoto`, 2.3 cm a pixel on the real tile)
 ### Grass
 
 The grass class grows tufts: Landscape Grass, three varieties, all numbers in the manifest's `turf` (`turf.py`), none in
-the engine code. Tufts cover a share of the ground, so a bigger tuft is fewer: **near** (18 blades, 9 cm radius, covers 90 %
-of the ground, drawn to 15 m), **clump** (36 blades, 22.5 cm radius, covers 40 %, drawn from 25 m out to 65 m, so the density
-of tufts falls with distance as their size grows), and **tall** (8 blades, 6 cm, covers 4 %, drawn to 50 m). Blade height is the
+the engine code. A variety is so much leaf over a square metre of ground (its leaf area index), so wider blades are
+fewer: **near** (index 1.0, blades 0.8 to 1.4 cm wide, 24 to a tuft, about 2000 blades a square metre, drawn to 15 m),
+**clump** (index 0.3, drawn from 25 m out to 65 m, with blades as wide as a pixel is at 25 m, 2.6 cm, so the sward
+keeps its texture where a real blade is far under a pixel) and **tall** (index 0.02, drawn to 50 m). Blade height is the
 summer mowing height a land-grant university extension guide gives cool-season lawn turf, 3 to 4 inches (publications
 MG10 and G6705); the tall variety stands 1.5 times the top of that, a prior (the one-third rule of mowing). Everything
-else is a prior and the manifest's `turf.priors` lists it: blade counts, radii, covers, draw distances, size spread
-(0.85 to 1.15), patchiness (tufts stand in patches 4 m wide, thinning to 0.35 of the density between them, so they are not
-evenly spaced), the blade's brightness from root (0.85) to tip (1.15), and that the small varieties cast no shadow (a small
-tuft's shadow only darkens its own root; checked by eye against the earlier black-rooted tufts).
-A blade's colour is the ground's own macro colour at its place, times the albedo scale, so tufts follow the straw and green the
+else is a prior and the manifest's `turf.priors` lists it: the indices (real mown turf has several times the near
+one; what is drawn is the top of the sward), blade counts, radii, widths, draw distances, size spread (0.85 to 1.15),
+the lens, the blade's brightness from root (0.85) to tip (1.15), and that no variety casts a shadow (a tuft's own
+shadow blackens it against a sward that has none). The earlier patch noise, which thinned the tufts between patches
+4 m wide, is gone: it had no source and left bare ground at a walker's feet.
+Each blade has its own colour: one of the 8 the grain stage measured, each as likely as the next, held in the tuft
+mesh's third and fourth UV channels (the mesh build writes its own unwrap into the second).
+That multiplies the ground's own macro colour at the blade's place, times the albedo scale, so tufts follow the straw and green the
 data shows. A blade is lit as the ground under it: its material's normal is world up, because a two-sided blade's normal
 turns over on the side the camera sees and half of them took no sun (checked by turning shadows off, then the engine's virtual shadow maps off,
 then the shading model: no change; world-up normal: blade pixels from 38 to 58 in sRGB against 85 for the ground). The host
 project makes grass maps while the game runs (`grass.GrassMap.UseRuntimeGeneration=1`): the level is
-regenerated, never cooked. No source gives a cover's density.
+regenerated, never cooked. No source gives a sward's density.
 
 At the fly station (30 m up) the nearest ground is about 43 m away, past the near and tall tufts' draw distance (a grass-on against
 `grass.Enable=0` pair differs by a mean 0.45 of 255 and 0.0 % of pixels over 24), so what the fly view shows of grass is the ground's own colour, the detail ratio and the grain.
@@ -325,6 +359,7 @@ level it drew some. What the fast build leaves out is not known, so this avoids 
 it. A tour counts the tufts the engine has built near the camera (below), which that fault does not change;
 `gates/grass-drawn.ps1` checks they are drawn, by comparing a walk frame with the same frame under
 `grass.Enable=0` over the near ground only (below the horizon), at a frame where the walker stands on full grass weight: the gate reads the build's grass weight at the camera and 4 m and 8 m ahead and refuses a frame that is not. The earlier gate compared the whole frame at the walk station, which stands on a class edge with paving and half sky in view, and passed by 1.12 % against its 1.0 % bar. The bar is the same 1 %; what changed is that the ground measured is grass only. `-Noise` also runs the grass-on tour twice and reports how much identical runs differ.
+The same pair of frames is compared over a second band, the ground between where the near variety ends (15 m) and where the farthest ends (65 m), which only the clump and the tall tuft can change; its rows come from the manifest's draw distances, the tour's eye height and the frame's shape, for level ground. The two far varieties are not told apart.
 
 `r.Shadow.Virtual.MaxPhysicalPages` is 2048 in the host project (the default is 4096 pages, 512 MB): the card's
 peak in the fly tour fell from 7630 to 7350 MiB. Hand-set, not fitted.

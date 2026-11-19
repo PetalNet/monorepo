@@ -13,7 +13,8 @@ from envgen.build import build
 
 from . import helpers as h
 from .helpers import CRS, SOUTH, WEST, write_raster
-from .test_trees import scene, survey
+from .test_surface import write_noisy_scene
+from .test_trees import ALONE, scene, sources, survey, write_lidar
 
 PIXEL_M = 0.05
 SIZE_PX = 1024
@@ -92,18 +93,51 @@ def test_an_orthophoto_in_another_projection_is_refused_with_the_reason(tmp_path
     assert CRS in reason
 
 
-def test_each_variety_covers_the_ground_it_says_and_the_tall_one_stands_over_the_mown_height():
+def test_each_variety_has_the_leaf_it_says_and_the_far_one_has_blades_a_pixel_wide_where_it_takes_over():
     grass = turf.describe()
     varieties = {variety["name"]: variety for variety in grass["varieties"]}
     for name, spec in (("near", turf.NEAR), ("clump", turf.CLUMP), ("tall", turf.TALL)):
         variety = varieties[name]
-        covered = variety["density_per_100m2"] / 100 * math.pi * (variety["radius_cm"] / 100) ** 2
-        assert covered == pytest.approx(spec["cover"], rel=0.01)
+        # Blades on a square metre times the area of one, a triangle of the mean width and height.
+        blade_cm2 = np.mean(variety["blade_width_cm"]) * np.mean(variety["height_cm"]) / 2
+        leaf = variety["density_per_100m2"] / 100 * variety["blades"] * blade_cm2 / 10000
+        assert leaf == pytest.approx(spec["leaf_area_index"], rel=0.01)
         assert variety["height_source"]
     assert varieties["tall"]["height_cm"][0] > varieties["near"]["height_cm"][1]
     assert varieties["near"]["density_per_100m2"] > varieties["clump"]["density_per_100m2"]
     assert varieties["clump"]["start_cull_cm"] > varieties["near"]["start_cull_cm"]
+    # One pixel of a 1920 pixel, 90 degree frame at 25 m is 2.6 cm.
+    assert varieties["clump"]["blade_width_cm"][0] == pytest.approx(2.6, abs=0.01)
+    assert varieties["near"]["blade_width_cm"] == list(turf.NEAR_BLADE_WIDTH_CM)
     assert all(prior.startswith("prior:") for prior in grass["priors"])
+
+
+def test_the_grain_carries_the_colour_that_goes_with_brightness_and_blades_take_it_in_equal_shares(tmp_path):
+    # Straw among green: where a pixel is brighter it is redder. Red moves 1.5 times as far as green, blue half as far.
+    rng = np.random.default_rng(3)
+    power = rng.normal(0, 0.4, (SIZE_PX, SIZE_PX))
+    bands = [_grey(0.2 * 2 ** (power * slope)) for slope in (1.5, 1.0, 0.5)]
+    write_raster(tmp_path / "o.tif", np.stack([*bands, np.full_like(bands[0], 255)]), WEST, NORTH, PIXEL_M)
+
+    measured, reason = _measure(tmp_path / "o.tif")
+
+    assert measured is not None, reason
+    red, green, blue = measured.tint
+    assert red / green == pytest.approx(1.5, rel=0.05) and blue / green == pytest.approx(0.5, rel=0.05)
+    assert min(measured.tint_explains) > 0.95
+    colours = np.array(measured.blade_colours)
+    assert len(colours) == grain.BLADE_COLOURS
+    # From dark to bright, and the bright blades are the red ones.
+    assert (np.diff(colours[:, 1]) > 0).all()
+    assert colours[0, 0] < colours[0, 1] < colours[0, 2] and colours[-1, 0] > colours[-1, 1] > colours[-1, 2]
+    # Equal shares of a symmetric distribution: as many blades darker than the ground as brighter.
+    assert np.log2(colours[:, 1]).mean() == pytest.approx(0.0, abs=0.08)
+
+
+def test_a_grey_orthophoto_gives_a_grey_grain(tmp_path):
+    _ortho(tmp_path / "o.tif", sigma_log2=0.4)
+    measured, _ = _measure(tmp_path / "o.tif")
+    assert measured.tint == pytest.approx((1.0, 1.0, 1.0), abs=0.02)
 
 
 def test_the_survey_ratio_shows_the_orthophotos_fine_pattern_on_open_ground_and_nothing_where_cover_hides_it(tmp_path):
@@ -127,9 +161,7 @@ def test_the_survey_ratio_shows_the_orthophotos_fine_pattern_on_open_ground_and_
     assert "survey_detail.png" in manifest["artifacts"] and manifest["sources"]["survey"]["orthophoto_sha256"]
     assert detail["pixel_m"] == pytest.approx(pixel) and detail["east_extent_m"] == pytest.approx(63)
     raw = np.asarray(Image.open(out / "survey_detail.png"))  # [east, north]
-    ratio = (raw.astype(np.float32) - detail["zero"]) * (
-        detail["log2_range"] / detail["zero"]
-    )  # [east, north]
+    ratio = (raw.astype(np.float32) - detail["zero"]) * (detail["log2_range"] / detail["zero"])  # [east, north]
 
     def at(east_m, north_m):
         return ratio[
@@ -145,3 +177,23 @@ def test_the_survey_ratio_shows_the_orthophotos_fine_pattern_on_open_ground_and_
     assert at(120, 115).mean() > at(120, 20).mean() + 0.02  # north is brighter: the file's north axis is the tile's
     assert (raw[-100:, :100] == 0).all()  # no pixel there is 0, not a neutral ratio
     assert (raw[: -100 - 20, :] > 0).all()  # and nowhere else is
+
+
+def test_a_shadow_nothing_standing_explains_is_read_from_the_photo_and_left_out_of_the_detail(tmp_path):
+    # A shadow across open grass, 6 m wide, with about a third of the light. Nothing in the lidar stands beside it.
+    h.write_dem(tmp_path / "dem.tif")
+    dark = tuple(round(value * 0.6) for value in h.GRASS)
+    write_noisy_scene(tmp_path / "imagery.tif", h.GRASS, [(0, 55, 38, 92, h.PAVED), (60, 5, 66, 105, dark)])
+    write_lidar(tmp_path / "points.las", (ALONE,))
+    out = tmp_path / "out"
+
+    manifest = build(h.write_site(tmp_path, sources=sources(lidar={"kind": "file", "path": "points.las"})), out)
+
+    shadow = manifest["detail"]["shadows"]["grass"]
+    assert -1.7 < shadow["gap_log2"] < -0.5
+    assert shadow["in_shadow"] == pytest.approx(6 * 100 / (126 * 126 - 38 * 37), rel=0.3)
+    ratio = np.asarray(Image.open(out / "detail_ratio.png")).astype(int)  # [east, north]
+    pixels = ratio.shape[0] / h.SIZE_M
+    at = lambda east_m, north_m: ratio[round(east_m * pixels), round(north_m * pixels)]
+    assert (at(63, 30) == manifest["detail"]["zero"]).all()  # in the shadow: no darker than the turf around it
+    assert np.abs(at(75, 30) - manifest["detail"]["zero"]).max() < 40  # beside it: the photo's own noise, kept

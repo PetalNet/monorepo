@@ -324,6 +324,10 @@ def check_points(layers: list[np.ndarray], names: list[str]) -> list[dict]:
 # With a measured reflectance raster, each class's albedo is fitted to it. A reflectance pixel counts for a class
 # when this share of it is that class and this share of it is sunlit in the photo. Hand-set criteria.
 PURE_SHARE = 0.9
+# Classes whose colour moves with the season and the year, so a photo of another date cannot place it: they take the
+# reflectance raster's colour pixel by pixel. Paving keeps the photo's pattern: it does not change, and the
+# raster's pixels over it mix in cars and roofs.
+SEASONAL = ("grass",)
 PURE_SUNLIT = 0.8
 # A class needs this many such pixels for a fit of its own. Hand-set.
 PURE_MIN_PIXELS = 30

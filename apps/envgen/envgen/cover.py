@@ -118,7 +118,7 @@ def cast_shadow(
     return shadow
 
 
-def _disc(radius: int) -> np.ndarray:
+def disc(radius: int) -> np.ndarray:
     rows, columns = np.ogrid[-radius : radius + 1, -radius : radius + 1]
     return rows**2 + columns**2 <= radius**2
 
@@ -156,7 +156,7 @@ def fit_sun(
         azimuth, elevation = sun_position(latitude_deg, longitude_deg, midnight + timedelta(minutes=minute))
         if elevation < SUN_MIN_ELEVATION_DEG:
             return -1.0, None, azimuth, elevation
-        grown = ndimage.grey_dilation(standing, footprint=_disc(spread)) * gain if spread or gain != 1 else standing
+        grown = ndimage.grey_dilation(standing, footprint=disc(spread)) * gain if spread or gain != 1 else standing
         out_of_sight = cast_shadow(ground_m, grown, azimuth + grid_north_offset_deg, elevation, cell_m) | (grown > 0)
         inside = out_of_sight[measured_open]
         if not inside.any() or inside.all() or dark.std() < 1e-6:
