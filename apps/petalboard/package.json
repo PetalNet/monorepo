@@ -15,8 +15,9 @@
 		"test": "vitest run"
 	},
 	"dependencies": {
-		"@prisma/client": "catalog:prisma6",
-		"prisma": "catalog:prisma6"
+		"@prisma/adapter-better-sqlite3": "catalog:prod",
+		"@prisma/client": "catalog:prod",
+		"prisma": "catalog:dev"
 	},
 	"devDependencies": {
 		"@lucide/svelte": "catalog:prod",

@@ -10,13 +10,12 @@ WORKDIR /workspace
 FROM base AS build
 RUN npm install -g pnpm@12.11.2
 COPY . .
-# `prepare` runs `prisma generate`, which writes the client and its query engine to
-# src/lib/server/generated.
+# `prepare` runs `prisma generate`, which writes the client to src/lib/server/generated.
 RUN CI=true pnpm install --frozen-lockfile --filter @petalnet/petalboard \
 	&& pnpm --filter @petalnet/petalboard build
 # A filtered install still links the workspace root's dev tooling. Ship only the production
-# dependency tree: @prisma/client for the generated client, and the prisma CLI for
-# `migrate deploy` at start.
+# dependency tree: @prisma/client and the SQLite driver adapter for the generated client, and
+# the prisma CLI for `migrate deploy` at start.
 RUN CI=true pnpm --filter @petalnet/petalboard deploy --prod /prod
 
 FROM base
@@ -27,9 +26,8 @@ ENV NODE_ENV=production PORT=4173 DATABASE_URL=file:/app/data/dev.db
 COPY --from=build /prod/node_modules /workspace/apps/petalboard/node_modules
 COPY --from=build /workspace/apps/petalboard/package.json /workspace/apps/petalboard/package.json
 COPY --from=build /workspace/apps/petalboard/prisma /workspace/apps/petalboard/prisma
+COPY --from=build /workspace/apps/petalboard/prisma.config.ts /workspace/apps/petalboard/prisma.config.ts
 COPY --from=build /workspace/apps/petalboard/build /workspace/apps/petalboard/build
-# The bundled client loads its query engine from the generated directory.
-COPY --from=build /workspace/apps/petalboard/src/lib/server/generated /workspace/apps/petalboard/src/lib/server/generated
 WORKDIR /workspace/apps/petalboard
 RUN mkdir -p /app/data
 EXPOSE 4173

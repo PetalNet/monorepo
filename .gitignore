@@ -47,8 +47,9 @@
 **/.impeccable/live/*.png
 # impeccable-ignore-end
 
-# PetalBoard generates its Prisma client into the app.
+# PetalBoard and Slide generate their Prisma clients into the app.
 /apps/petalboard/src/lib/server/generated/
+/apps/slide/src/lib/server/generated/
 
 # Python bytecode
 __pycache__/

@@ -1,4 +1,5 @@
 import { env } from "$env/dynamic/private";
+import { PrismaBetterSqlite3 } from "@prisma/adapter-better-sqlite3";
 
 import { PrismaClient } from "./generated/prisma/client";
 
@@ -8,7 +9,10 @@ export const prisma =
 	globalForPrisma.prisma ??
 	new PrismaClient({
 		// The generated client does not read .env; SvelteKit's env does, in dev and production.
-		datasourceUrl: env.DATABASE_URL,
+		adapter: new PrismaBetterSqlite3(
+			{ url: env.DATABASE_URL ?? "" },
+			{ timestampFormat: "unixepoch-ms" },
+		),
 		log: process.env.NODE_ENV === "development" ? ["query", "error", "warn"] : ["error"],
 	});
 

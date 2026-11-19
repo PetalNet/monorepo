@@ -62,6 +62,8 @@ export default (({ strict }) => ({
 			ignoreBinaries: ["wasm-bindgen"],
 		},
 		"apps/petalboard": {
+			// Read by the Prisma CLI through prisma.config.ts, which Knip does not follow.
+			ignore: ["prisma/schema.prisma"],
 			ignoreDependencies: [
 				// Only the gitignored generated Prisma client imports @prisma/client/runtime.
 				"@prisma/client",
@@ -85,6 +87,10 @@ export default (({ strict }) => ({
 			],
 		},
 		"apps/slide": {
+			// Read by the Prisma CLI through prisma.config.ts, which Knip does not follow.
+			ignore: ["prisma/schema.prisma"],
+			// Only the gitignored generated Prisma client imports @prisma/client/runtime.
+			ignoreDependencies: ["@prisma/client"],
 			ignoreBinaries: ["prisma!"],
 		},
 		"apps/storybook": {
