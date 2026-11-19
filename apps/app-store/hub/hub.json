@@ -1,0 +1,23 @@
+{
+  "host": "https://app.petalcat.dev",
+  "repos": {
+    "repo": {
+      "dir": "repo",
+      "mount": "/srv/repo",
+      "fingerprint": "f87f8aba330db2a495a524b217a5cddb1ef7f37b7ce2032c599cd731d0d23872",
+      "private": false
+    },
+    "store": {
+      "dir": "store/repo",
+      "mount": "/srv/store/repo",
+      "fingerprint": "13c63e0bdf3dca58c658a0e88a663540a0a2d263a6bd488af35d9f4d22e5a6e3",
+      "private": true
+    }
+  },
+  "apps": [
+    { "slug": "point", "package": "dev.petalcat.point_app", "repo": "repo" },
+    { "slug": "pinch", "package": "com.pinch.pinch", "repo": "repo" },
+    { "slug": "splashed", "package": "com.splashed.splashed", "repo": "repo" },
+    { "slug": "janet-call", "package": "dev.petalcat.janetcall", "repo": "store" }
+  ]
+}

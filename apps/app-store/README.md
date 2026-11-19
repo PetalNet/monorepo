@@ -13,6 +13,22 @@ push to main -> GitHub Actions builds and signs the APK -> GitHub release
 - Index key fingerprint (SHA-256): `13c63e0bdf3dca58c658a0e88a663540a0a2d263a6bd488af35d9f4d22e5a6e3`
 - The lab's older public repository, `https://fdroid.petalcat.dev/repo`, is served by the same
   container and is not managed here beyond that.
+- The app hub, `https://app.petalcat.dev`, is served by the same container. It lists every app in
+  either repository with a direct APK, an Obtainium link and an add-to-F-Droid link.
+
+## The hub
+
+`hub/hub.sh` builds the hub from the two `index-v1.json` files and runs at the end of every
+`sync.sh` run, so a hand-published change to the public repository shows up within five minutes.
+Nothing is copied: `/apps/<slug>/download/<slug>.apk` is a link to the current APK in the public
+repository, so an APK exists once and has one URL for Obtainium.
+
+- `hub/hub.json` maps each slug to a package and a repository, and holds each repository's index
+  key fingerprint. It is the only place an app is added to the hub.
+- `/api/apps` and `/api/apps/<slug>` return the same JSON the old app registry did, from the
+  indexes. `etag` and `color` are gone.
+- An app in the store repository gets an add-to-F-Droid link only. Its APKs stay behind the login
+  and the page never carries it.
 
 ## On the phone
 
@@ -45,6 +61,9 @@ is what guards `/store/`.
 2. Add `metadata/<package>.yml` with `AllowedAPKSigningKeys` set to the SHA-256 of the app's signing
    certificate. `sync.sh` refuses an APK signed by any other key.
 3. Add a line to `apps.tsv`.
+4. Add the app to `hub/hub.json`.
+
+An app in the public repository needs only step 4 and a hand-published APK.
 
 An app's signing key must never change, or installed copies stop updating.
 
@@ -57,12 +76,14 @@ State lives outside the checkout, in `APP_STORE_DIR` (`/home/docker/app-store`):
 | `config.yml`, `keystore.p12` | fdroidserver config and the index signing key. Mode 600.         |
 | `htpasswd`                   | The basic auth login. Mode 644, and present before the first up. |
 | `repo/`, `archive/`          | The served repository and the versions fdroidserver retired.     |
+| `hub/`                       | The generated hub page, API and download links. Written by `hub/hub.sh`. |
 
 The keystore, its password, the fingerprint and the login are in the vault as `appstore-*`.
 
 Deploy from a checkout of main:
 
 ```sh
+APP_STORE_DIR=/home/docker/app-store apps/app-store/hub/hub.sh
 docker compose -f apps/app-store/compose.yaml up -d
 install -m 644 apps/app-store/systemd/app-store-sync.* ~/.config/systemd/user/
 systemctl --user daemon-reload && systemctl --user enable --now app-store-sync.timer

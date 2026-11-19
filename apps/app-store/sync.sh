@@ -91,4 +91,6 @@ if [[ -e $dirty ]]; then
 	if (cd "$store" && "$fdroid" update </dev/null); then rm -f "$dirty"; else failed=1; fi
 fi
 rm -f "$state"/tmp.* "$state"/*.etag.new
+# The public repo is published by hand, so rebuild the hub on every run to pick that up.
+"$here/hub/hub.sh" || failed=1
 exit "$failed"
