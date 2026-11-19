@@ -1,4 +1,4 @@
-"""Stages 2 to 4: elevation, macro colour, manifest. Each stage reads artifacts and writes artifacts."""
+"""Elevation, colour, surround and manifest. Each stage reads artifacts and writes artifacts."""
 
 from __future__ import annotations
 
@@ -15,17 +15,39 @@ from rasterio.transform import from_origin
 from rasterio.warp import reproject, transform
 from scipy import ndimage
 
-from . import frame
+from . import frame, lidar
 from .acquire import acquire, sha256_file
-from .site import LANDSCAPE_SECTION_QUADS, LANDSCAPE_SECTIONS_PER_COMPONENT, SCHEMA_VERSION, Site, Tile, load_site
+from .site import (
+    CONTEXT_QUADS,
+    LANDSCAPE_SECTION_QUADS,
+    LANDSCAPE_SECTIONS_PER_COMPONENT,
+    SCHEMA_VERSION,
+    Site,
+    Tile,
+    load_site,
+)
 
 # Part of every stage key. Bump it by hand when a code change alters a stage's output for the same
 # inputs (frame.py and the resampling included); nothing detects that automatically.
-PIPELINE_VERSION = 1
+PIPELINE_VERSION = 2
 
 MACRO_PIXELS = 1024
 # The macro map carries colour that varies over tens of metres. Finer detail comes from the engine.
 MACRO_LOW_PASS_M = 12.0
+# Anything standing this far above the ground (trees, roofs) is not ground colour.
+COVER_HEIGHT_M = 2.0
+# Cover also darkens the ground beside it with shadow; keep that out of the ground colour too.
+SHADOW_MARGIN_M = 4.0
+
+# Where no ground return lies within GAP_START_M the elevation model was interpolated, usually as flat
+# facets under roofs. Blend towards a smoothed surface, fully by GAP_FULL_M.
+GAP_START_M = 3.0
+GAP_FULL_M = 8.0
+GAP_SMOOTH_M = 4.0
+
+CONTEXT_MACRO_PIXELS = 512
+# The surround passes under the tile; it sits this far below the detailed surface there so it never shows through.
+CONTEXT_SINK_M = 3.0
 
 # Stencil values the engine side writes into custom depth, for segmentation cameras.
 STENCIL_CLASSES = {"ground": 1, "grass": 2, "tree": 3, "building": 4, "road": 5, "water": 6, "pad": 7}
@@ -63,9 +85,44 @@ def _fill_gaps(values: np.ndarray, what: str) -> tuple[np.ndarray, float]:
     return values, fraction
 
 
-def build_elevation(tile: Tile, crs: str, dem: Path, out: Path) -> dict:
+def _sample_cells(cells: np.ndarray, size: int) -> np.ndarray:
+    """Nearest-cell resample of a square north-up raster to `size` samples a side over the same ground."""
+    index = np.minimum((np.arange(size) * cells.shape[0] / size).astype(int), cells.shape[0] - 1)
+    return cells[np.ix_(index, index)]
+
+
+def _write_rgb(north_up_bands: np.ndarray, path: Path) -> None:
+    rgb = np.clip(np.rint(np.moveaxis(north_up_bands, 0, -1)), 0, 255).astype(np.uint8)
+    if rgb.shape[2] == 1:
+        rgb = np.repeat(rgb, 3, axis=2)
+    Image.fromarray(frame.to_unreal_layout(rgb)).save(path)
+
+
+def read_structure(site: Site, cache: Path, dem: Path) -> tuple[np.ndarray, np.ndarray, dict] | None:
+    """(height above ground, ground gap, registry entry) on the lidar grid, or None when the site has no lidar."""
+    if site.lidar is None:
+        return None
+    tile = site.tile
+    points, entry = lidar.acquire_points(site.lidar, tile, site.crs, cache)
+    cells = round(tile.size_m / lidar.CELL_M)
+    half = lidar.CELL_M / 2
+    ground = _warp(dem, site.crs, tile.west + half, tile.north - half, lidar.CELL_M, cells, Resampling.bilinear)[0]
+    ground, _ = _fill_gaps(ground, "elevation")
+    height, gap = lidar.rasterise(points, tile, ground)
+    return height, gap, entry
+
+
+def build_elevation(tile: Tile, crs: str, dem: Path, out: Path, ground_gap: np.ndarray | None) -> dict:
     north_up = _warp(dem, crs, tile.west, tile.north, tile.quad_m, tile.vertices, Resampling.bilinear)[0]
     north_up, filled = _fill_gaps(north_up, "elevation")
+    smoothed = 0.0
+    if ground_gap is not None:
+        gap = _sample_cells(ground_gap, tile.vertices)
+        weight = np.clip((gap - GAP_START_M) / (GAP_FULL_M - GAP_START_M), 0.0, 1.0)
+        weight = ndimage.gaussian_filter(weight, GAP_SMOOTH_M / tile.quad_m / 2, mode="nearest")
+        blurred = ndimage.gaussian_filter(north_up, GAP_SMOOTH_M / tile.quad_m, mode="nearest")
+        north_up = north_up * (1 - weight) + blurred * weight
+        smoothed = float((weight > 0.5).mean())
     heights, mid_m, z_scale = frame.encode_heights(north_up)
     Image.fromarray(frame.to_unreal_layout(heights)).save(out / "heightmap.png")
     centre = tile.vertices // 2
@@ -78,28 +135,103 @@ def build_elevation(tile: Tile, crs: str, dem: Path, out: Path) -> dict:
         "z_scale": z_scale,
         "origin_height_m": float(north_up[centre, centre]),
         "filled_fraction": filled,
+        "smoothed_fraction": smoothed,
     }
 
 
-def build_macro_colour(tile: Tile, crs: str, imagery: Path, out: Path) -> dict:
+def build_macro_colour(tile: Tile, crs: str, imagery: Path, out: Path, height_above_ground: np.ndarray | None) -> dict:
     spacing = tile.size_m / MACRO_PIXELS
     north_up = _warp(
         imagery, crs, tile.west + spacing / 2, tile.north - spacing / 2, spacing, MACRO_PIXELS, Resampling.average
     )
+    sigma = MACRO_LOW_PASS_M / spacing
+    open_ground = np.ones((MACRO_PIXELS, MACRO_PIXELS), dtype=np.float32)
+    if height_above_ground is not None:
+        covered = _sample_cells(height_above_ground, MACRO_PIXELS) > COVER_HEIGHT_M
+        covered = ndimage.binary_dilation(covered, iterations=max(1, round(SHADOW_MARGIN_M / spacing)))
+        open_ground = (~covered).astype(np.float32)
+    # A low-pass that only listens to open ground: covered cells take their colour from the open ground around them.
+    support = ndimage.gaussian_filter(open_ground, sigma, mode="nearest")
     filled = 0.0
     smooth = np.empty_like(north_up)
     for band in range(north_up.shape[0]):
         values, fraction = _fill_gaps(north_up[band], "imagery")
         filled = max(filled, fraction)
-        smooth[band] = ndimage.gaussian_filter(values, MACRO_LOW_PASS_M / spacing, mode="nearest")
-    rgb = np.clip(np.rint(np.moveaxis(smooth, 0, -1)), 0, 255).astype(np.uint8)
-    if rgb.shape[2] == 1:
-        rgb = np.repeat(rgb, 3, axis=2)
-    Image.fromarray(frame.to_unreal_layout(rgb)).save(out / "macro_colour.png")
+        everything = ndimage.gaussian_filter(values, sigma, mode="nearest")
+        from_open = ndimage.gaussian_filter(values * open_ground, sigma, mode="nearest") / np.maximum(support, 1e-6)
+        # Deep inside a large covered area there is no open ground within reach; fall back to the plain low-pass.
+        trust = np.clip(support / 0.05, 0.0, 1.0)
+        smooth[band] = from_open * trust + everything * (1 - trust)
+    _write_rgb(smooth, out / "macro_colour.png")
     return {
         "file": "macro_colour.png",
         "pixels": MACRO_PIXELS,
         "low_pass_m": MACRO_LOW_PASS_M,
+        "filled_fraction": filled,
+        "covered_fraction": float(1 - open_ground.mean()),
+    }
+
+
+def read_heights(out: Path, elevation: dict) -> np.ndarray:
+    """The detailed surface back from its heightmap, north-up, in metres."""
+    heights = np.asarray(Image.open(out / elevation["file"]))
+    metres = frame.decode_heights(heights, elevation["mid_m"], elevation["z_scale"])
+    return np.swapaxes(metres, 0, 1)[::-1]
+
+
+def build_context(
+    site: Site, dem: Path, imagery: Path, out: Path, detailed: np.ndarray, origin_height_m: float
+) -> dict:
+    """A coarse surround centred on the tile, so the detailed surface does not end in a cliff against the sky."""
+    tile = site.tile
+    spacing = site.context_size_m / CONTEXT_QUADS
+    vertices = CONTEXT_QUADS + 1
+    east, north = tile.centre
+    west, top = east - site.context_size_m / 2, north + site.context_size_m / 2
+    surround = _warp(dem, site.crs, west, top, spacing, vertices, Resampling.bilinear)[0]
+    surround, filled = _fill_gaps(surround, "elevation")
+
+    # Under the tile the surround must stay below the detailed surface. Take the lowest detailed height
+    # within one coarse cell of each coarse vertex, and sink below that.
+    reach = math.ceil(spacing / tile.quad_m)
+    lowest = ndimage.minimum_filter(detailed, size=2 * reach + 1, mode="nearest")
+    eastings = west + np.arange(vertices) * spacing
+    northings = top - np.arange(vertices) * spacing
+    columns = np.rint((eastings - tile.west) / tile.quad_m).astype(int)
+    rows = np.rint((tile.north - northings) / tile.quad_m).astype(int)
+    inside_c = (columns >= -reach) & (columns <= tile.quads + reach)
+    inside_r = (rows >= -reach) & (rows <= tile.quads + reach)
+    under = (
+        lowest[np.ix_(np.clip(rows[inside_r], 0, tile.quads), np.clip(columns[inside_c], 0, tile.quads))]
+        - CONTEXT_SINK_M
+    )
+    block = surround[np.ix_(inside_r, inside_c)]
+    surround[np.ix_(inside_r, inside_c)] = np.minimum(block, under)
+
+    heights, mid_m, z_scale = frame.encode_heights(surround)
+    Image.fromarray(frame.to_unreal_layout(heights)).save(out / "context_heightmap.png")
+
+    pixel = site.context_size_m / CONTEXT_MACRO_PIXELS
+    colour = _warp(
+        imagery, site.crs, west + pixel / 2, top - pixel / 2, pixel, CONTEXT_MACRO_PIXELS, Resampling.average
+    )
+    for band in range(colour.shape[0]):
+        values, _ = _fill_gaps(colour[band], "imagery")
+        colour[band] = ndimage.gaussian_filter(values, MACRO_LOW_PASS_M / pixel, mode="nearest")
+    _write_rgb(colour, out / "context_colour.png")
+
+    half_cm = site.context_size_m * 100 / 2
+    return {
+        "file": "context_heightmap.png",
+        "heightmap": "context_heightmap.png",
+        "colour": "context_colour.png",
+        "vertices": vertices,
+        "section_quads": LANDSCAPE_SECTION_QUADS,
+        "sections_per_component": 1,
+        "location_cm": [-half_cm, -half_cm, (mid_m - origin_height_m) * 100],
+        "scale": [spacing * 100, spacing * 100, z_scale],
+        "size_m": site.context_size_m,
+        "sink_m": CONTEXT_SINK_M,
         "filled_fraction": filled,
     }
 
@@ -146,21 +278,42 @@ def build(site_path: Path, out: Path, cache: Path | None = None) -> dict:
     site = load_site(site_path)
     tile = site.tile
     out.mkdir(parents=True, exist_ok=True)
-    sources = acquire(site, cache or out / "cache")
+    cache = cache or out / "cache"
+    sources = acquire(site, cache)
+    dem, imagery = Path(sources["elevation"]["path"]), Path(sources["imagery"]["path"])
     grid = [tile.west, tile.south, tile.quad_m, tile.quads]
 
-    elevation = _cached(
+    structure = read_structure(site, cache, dem)
+    height_above_ground, ground_gap = (structure[0], structure[1]) if structure else (None, None)
+    lidar_key = None
+    if structure:
+        sources["lidar"] = structure[2]
+        lidar_key = structure[2]["sha256"]
+
+    stages = {}
+    stages["elevation"] = _cached(
         out,
         "elevation",
-        _stage_key(grid, site.crs, sources["elevation"]["sha256"]),
-        lambda: build_elevation(tile, site.crs, Path(sources["elevation"]["path"]), out),
+        _stage_key(grid, site.crs, sources["elevation"]["sha256"], lidar_key, GAP_START_M, GAP_FULL_M, GAP_SMOOTH_M),
+        lambda: build_elevation(tile, site.crs, dem, out, ground_gap),
     )
-    macro = _cached(
+    elevation = stages["elevation"]
+    stages["macro_colour"] = _cached(
         out,
         "macro_colour",
-        _stage_key(grid, site.crs, sources["imagery"]["sha256"], MACRO_PIXELS, MACRO_LOW_PASS_M),
-        lambda: build_macro_colour(tile, site.crs, Path(sources["imagery"]["path"]), out),
+        _stage_key(
+            grid,
+            site.crs,
+            sources["imagery"]["sha256"],
+            lidar_key,
+            MACRO_PIXELS,
+            MACRO_LOW_PASS_M,
+            COVER_HEIGHT_M,
+            SHADOW_MARGIN_M,
+        ),
+        lambda: build_macro_colour(tile, site.crs, imagery, out, height_above_ground),
     )
+    macro = stages["macro_colour"]
 
     half_cm = tile.size_m * 100 / 2
     manifest = {
@@ -182,14 +335,42 @@ def build(site_path: Path, out: Path, cache: Path | None = None) -> dict:
             "min_m": elevation["min_m"],
             "max_m": elevation["max_m"],
             "filled_fraction": elevation["filled_fraction"],
+            "smoothed_fraction": elevation["smoothed_fraction"],
         },
-        "macro_colour": {key: macro[key] for key in ("file", "pixels", "low_pass_m", "filled_fraction")},
+        "macro_colour": {
+            key: macro[key] for key in ("file", "pixels", "low_pass_m", "filled_fraction", "covered_fraction")
+        },
         "stencil_classes": STENCIL_CLASSES,
         "sources": sources,
-        "artifacts": {name: sha256_file(out / name) for name in (elevation["file"], macro["file"])},
-        "stages_reused": [
-            name for name, stage in (("elevation", elevation), ("macro_colour", macro)) if stage["cached"]
-        ],
     }
+    artifacts = [elevation["file"], macro["file"]]
+
+    if site.context_size_m:
+        context_dem, context_imagery = (
+            Path(sources["context_elevation"]["path"]),
+            Path(sources["context_imagery"]["path"]),
+        )
+        stages["context"] = _cached(
+            out,
+            "context",
+            _stage_key(
+                grid,
+                site.crs,
+                site.context_size_m,
+                sources["context_elevation"]["sha256"],
+                sources["context_imagery"]["sha256"],
+                sha256_file(out / elevation["file"]),
+                CONTEXT_SINK_M,
+            ),
+            lambda: build_context(
+                site, context_dem, context_imagery, out, read_heights(out, elevation), elevation["origin_height_m"]
+            ),
+        )
+        context = stages["context"]
+        manifest["context"] = {key: value for key, value in context.items() if key not in ("file", "cached")}
+        artifacts += [context["heightmap"], context["colour"]]
+
+    manifest["artifacts"] = {name: sha256_file(out / name) for name in artifacts}
+    manifest["stages_reused"] = [name for name, stage in stages.items() if stage["cached"]]
     (out / "build.json").write_text(json.dumps(manifest, indent=1))
     return manifest

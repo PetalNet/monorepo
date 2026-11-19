@@ -6,7 +6,8 @@ requires-python = ">=3.12"
 dependencies = ["numpy", "pillow", "rasterio", "scipy"]
 
 [project.optional-dependencies]
-test = ["pytest"]
+lidar = ["laspy[lazrs]"]
+test = ["pytest", "laspy[lazrs]"]
 
 [project.scripts]
 envgen = "envgen.cli:main"

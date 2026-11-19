@@ -118,3 +118,32 @@ class FakeImageServer:
             with memory.open(driver="GTiff", width=cols, height=rows, count=1, dtype="float32", nodata=NODATA) as out:
                 out.write(values, 1)
             return memory.read()
+
+
+def write_las(path: Path, points: np.ndarray) -> None:
+    """Write x, y, z, classification rows as a LAS file."""
+    import laspy
+
+    header = laspy.LasHeader(point_format=3, version="1.2")
+    header.offsets = [WEST, SOUTH, 0.0]
+    header.scales = [0.01, 0.01, 0.01]
+    las = laspy.LasData(header)
+    las.x, las.y, las.z = points[:, 0], points[:, 1], points[:, 2]
+    las.classification = points[:, 3].astype(np.uint8)
+    las.write(path)
+
+
+def ground_returns(skip=lambda easting, northing: np.zeros(easting.shape, dtype=bool)) -> np.ndarray:
+    """One ground return per square metre on plane(), over the tile and a little beyond, except where `skip` says."""
+    eastings, northings = np.meshgrid(WEST - 20 + np.arange(170) + 0.5, SOUTH - 20 + np.arange(170) + 0.5)
+    eastings, northings = eastings.ravel(), northings.ravel()
+    keep = ~skip(eastings, northings)
+    eastings, northings = eastings[keep], northings[keep]
+    return np.column_stack([eastings, northings, plane(eastings, northings), np.full(len(eastings), 2)])
+
+
+def returns_above(west: float, south: float, side: float, height: float) -> np.ndarray:
+    """Unclassified returns `height` above plane() over a square: a canopy or a roof."""
+    eastings, northings = np.meshgrid(west + np.arange(side) + 0.5, south + np.arange(side) + 0.5)
+    eastings, northings = eastings.ravel(), northings.ravel()
+    return np.column_stack([eastings, northings, plane(eastings, northings) + height, np.full(len(eastings), 1)])

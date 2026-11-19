@@ -18,7 +18,7 @@ import rasterio
 from rasterio.io import MemoryFile
 from rasterio.transform import from_origin
 
-from .site import Site, Source, Tile
+from .site import CONTEXT_QUADS, Site, Source
 
 # ImageServers cap the size of one export; this is under the common limits.
 MAX_REQUEST_PIXELS = 2048
@@ -63,10 +63,17 @@ def _fetch(url: str) -> bytes:
     return body
 
 
-def fetch_imageserver(source: Source, tile: Tile, epsg: int, elevation: bool, target: Path, fetch) -> int:
-    """Export the tile window in parts of at most MAX_REQUEST_PIXELS and write one GeoTIFF. Returns bytes fetched."""
-    spacing = source.request_spacing_m
-    west, south, east, north = tile.bounds(MARGIN_M)
+def fetch_imageserver(
+    endpoint: str,
+    bounds: tuple[float, float, float, float],
+    spacing: float,
+    epsg: int,
+    elevation: bool,
+    target: Path,
+    fetch,
+) -> int:
+    """Export a window in parts of at most MAX_REQUEST_PIXELS and write one GeoTIFF. Returns bytes fetched."""
+    west, south, east, north = bounds
     width = math.ceil((east - west) / spacing)
     height = math.ceil((north - south) / spacing)
     mosaic = None
@@ -82,7 +89,7 @@ def fetch_imageserver(source: Source, tile: Tile, epsg: int, elevation: bool, ta
                 west + (col0 + cols) * spacing,
                 north - row0 * spacing,
             )
-            body = fetch(_export_url(source.location, part_bounds, (cols, rows), epsg, elevation))
+            body = fetch(_export_url(endpoint, part_bounds, (cols, rows), epsg, elevation))
             fetched += len(body)
             with MemoryFile(body) as memory, memory.open() as part:
                 data = part.read()
@@ -115,25 +122,48 @@ def fetch_imageserver(source: Source, tile: Tile, epsg: int, elevation: bool, ta
     return fetched
 
 
+def _windows(site: Site) -> list[tuple[str, Source, tuple[float, float, float, float], float | None]]:
+    """(registry name, source, window, spacing override) for every raster the build needs."""
+    tile = site.tile
+    wanted = [
+        ("elevation", site.elevation, tile.bounds(MARGIN_M), None),
+        ("imagery", site.imagery, tile.bounds(MARGIN_M), None),
+    ]
+    if site.context_size_m:
+        spacing = site.context_size_m / CONTEXT_QUADS
+        half = site.context_size_m / 2 + spacing
+        east, north = tile.centre
+        window = (east - half, north - half, east + half, north + half)
+        wanted += [
+            ("context_elevation", site.elevation, window, spacing),
+            ("context_imagery", site.imagery, window, spacing),
+        ]
+    return wanted
+
+
 def acquire(site: Site, cache: Path, fetch=None) -> dict:
-    """Make sure every source is on disk. Returns the source registry. `fetch` replaces the HTTP GET in tests."""
+    """Make sure every raster source is on disk. Returns the source registry. `fetch` replaces the HTTP GET in tests."""
     fetch = fetch or _fetch
     epsg = int(site.crs.split(":")[1])
     registry = {}
-    for name, source in (("elevation", site.elevation), ("imagery", site.imagery)):
+    for name, source, window, spacing in _windows(site):
         entry = {"kind": source.kind, "license": source.license, "date": source.date, "bytes_fetched": 0}
         if source.kind == "file":
             path = Path(source.location)
             if not path.is_file():
                 raise FileNotFoundError(f"sources.{name}: {path} does not exist")
         else:
-            window = json.dumps([CACHE_FORMAT, source.location, source.request_spacing_m, site.tile.bounds(MARGIN_M), epsg])
-            key = hashlib.sha256(window.encode()).hexdigest()[:16]
+            spacing = spacing or source.request_spacing_m
+            key = hashlib.sha256(
+                json.dumps([CACHE_FORMAT, source.location, spacing, window, epsg]).encode()
+            ).hexdigest()[:16]
             path = cache / f"{name}-{key}.tif"
             entry["endpoint"] = source.location
-            entry["request_spacing_m"] = source.request_spacing_m
+            entry["request_spacing_m"] = spacing
             if not path.is_file():
-                entry["bytes_fetched"] = fetch_imageserver(source, site.tile, epsg, name == "elevation", path, fetch)
+                entry["bytes_fetched"] = fetch_imageserver(
+                    source.location, window, spacing, epsg, name.endswith("elevation"), path, fetch
+                )
         entry["path"] = str(path)
         entry["sha256"] = sha256_file(path)
         registry[name] = entry

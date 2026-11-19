@@ -24,8 +24,8 @@ class SiteError(ValueError):
 class Source:
     """One evidence source: a local raster, or an ArcGIS ImageServer to clip from."""
 
-    kind: str  # "file" | "arcgis_imageserver"
-    location: str  # path (file) or service endpoint URL (arcgis_imageserver)
+    kind: str  # "file" | "arcgis_imageserver" | "ept"
+    location: str  # path (file) or service endpoint URL
     license: str
     date: str
     request_spacing_m: float | None = None
@@ -35,12 +35,15 @@ class Source:
         kind = raw.get("kind")
         if kind == "file":
             location = str((base / raw["path"]).resolve())
-        elif kind == "arcgis_imageserver":
+        elif kind == "arcgis_imageserver" and name != "lidar":
             location = raw["endpoint"].rstrip("/")
             if "request_spacing_m" not in raw:
                 raise SiteError(f"sources.{name}: an arcgis_imageserver source needs request_spacing_m")
+        elif kind == "ept" and name == "lidar":
+            location = raw["endpoint"].rstrip("/")
         else:
-            raise SiteError(f"sources.{name}: kind must be 'file' or 'arcgis_imageserver', got {kind!r}")
+            allowed = "'file' or 'ept'" if name == "lidar" else "'file' or 'arcgis_imageserver'"
+            raise SiteError(f"sources.{name}: kind must be {allowed}, got {kind!r}")
         for field in ("license", "date"):
             if not raw.get(field):
                 raise SiteError(f"sources.{name}: {field} is required, so the source registry can state it")
@@ -95,6 +98,8 @@ class Site:
     vertical_datum: str
     elevation: Source
     imagery: Source
+    lidar: Source | None  # optional: masks trees and roofs out of the colour map, and finds interpolated ground
+    context_size_m: float | None  # optional: side of a coarse surround, so the tile does not end in a cliff
 
 
 def tile_for_boundary(boundary: list[tuple[float, float]], size_m: float, quad_m: float) -> Tile:
@@ -129,6 +134,19 @@ def projected_metre_crs(text: str) -> str:
     return f"EPSG:{epsg}"
 
 
+# The surround is a second Landscape of this many quads a side: 8 components of 63.
+CONTEXT_QUADS = 504
+
+
+def context_size(raw: dict, tile: Tile) -> float | None:
+    if "context" not in raw:
+        return None
+    size = float(raw["context"]["size_m"])
+    if size <= tile.size_m:
+        raise SiteError(f"context.size_m must be larger than the tile ({tile.size_m:.0f} m), got {size:.0f}")
+    return size
+
+
 def load_site(path: Path) -> Site:
     raw = json.loads(path.read_text())
     if raw.get("schema_version") != SCHEMA_VERSION:
@@ -154,4 +172,6 @@ def load_site(path: Path) -> Site:
         vertical_datum=raw["vertical_datum"],
         elevation=Source.parse(sources["elevation"], path.parent, "elevation"),
         imagery=Source.parse(sources["imagery"], path.parent, "imagery"),
+        lidar=Source.parse(sources["lidar"], path.parent, "lidar") if "lidar" in sources else None,
+        context_size_m=context_size(raw, tile),
     )
