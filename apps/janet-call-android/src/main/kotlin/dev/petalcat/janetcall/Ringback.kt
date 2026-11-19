@@ -34,11 +34,29 @@ class Ringback(private val tone: () -> Tone = { SystemTone() }) {
 	}
 }
 
-private class SystemTone : Tone {
+/**
+ * The tone for a call that was lost, not ended: the fast-busy beeps of a network that dropped the line. It is
+ * a pair of low steady pitches that repeat, so it cannot be taken for Janet's hang-up earcon, which is two
+ * soft notes falling once. Safe to [play] from any thread: a tone that cannot sound is no tone.
+ */
+class DropTone(private val tone: () -> Tone = { SystemTone(ToneGenerator.TONE_SUP_CONGESTION) }) {
+	fun play(handler: android.os.Handler) {
+		val made = runCatching { tone() }.getOrNull() ?: return
+		if (runCatching { made.start() }.isSuccess) handler.postDelayed({ runCatching { made.stop() } }, DROP_TONE_MS)
+		else runCatching { made.stop() }
+	}
+
+	companion object {
+		/** About two beeps of the congestion tone's 250 ms on, 250 ms off. */
+		const val DROP_TONE_MS = 1_000L
+	}
+}
+
+private class SystemTone(private val kind: Int = ToneGenerator.TONE_SUP_RINGTONE) : Tone {
 	private val generator = ToneGenerator(AudioManager.STREAM_VOICE_CALL, VOLUME)
 
 	override fun start() {
-		generator.startTone(ToneGenerator.TONE_SUP_RINGTONE)
+		generator.startTone(kind)
 	}
 
 	override fun stop() {

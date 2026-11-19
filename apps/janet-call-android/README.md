@@ -104,6 +104,17 @@ One WebSocket per call: `GET <url>` with `Authorization: Bearer <device token>`,
   - Every event is optional: a bridge that sends only audio still gets the planet and a live meter.
   - Unknown text types are ignored. HTTP 401 or 403 on the upgrade fails the call with a reason.
 
+## A call that survives the screen turning off
+
+A call runs in a foreground service of type phone call and microphone. While it lasts the app also holds a
+partial wake lock, a Wi-Fi lock and audio focus, so the CPU and the radio do not sleep under the microphone
+thread and the socket when the screen goes off or another app comes up. They are released when the call ends.
+
+The bridge has no way to resume a call: its conversation ends with its socket. So the app does not reconnect.
+When the line is lost mid-call (the socket fails, the bridge closes it with anything but a normal close, or the
+microphone stops delivering for five seconds), the app plays the fast-busy tone and says why on the call screen.
+A hang-up by Janet (`bye`, or a normal close) gets no tone; her own two-note descending earcon comes from the bridge.
+
 ## Warm-up
 
 `POST https://HOST/v1/call/warm` with the device token and the Access headers asks the bridge to
