@@ -58,9 +58,11 @@ GAP_FULL_M = 8.0
 GAP_SMOOTH_M = 4.0
 
 # Shadow in the photo, read from the photo (see build_detail). Darkness is looked at down to this many stops; a dark
-# peak counts when one twentieth of a stop of it holds this share of the class's cells, of which there must be this many.
+# peak counts when one bin of it (after a three-bin mean) holds this share of the class's cells, of which there must be
+# this many.
 SHADOW_DARKEST_LOG2 = -3.0
-SHADOW_MIN_SHARE = 0.005
+SHADOW_BIN_LOG2 = 0.05
+SHADOW_MIN_SHARE = 0.002
 SHADOW_MIN_CELLS = 10000
 # Shadow is a broad, low peak (penumbra, thin crowns), so the gap beside it is shallow: at most this share of it.
 SHADOW_VALLEY_MAX = 0.8
@@ -440,8 +442,8 @@ def open_ground(out: Path, covering: dict | None, size: int) -> np.ndarray:
     return (~_sample_cells(hidden, size)).astype(np.float32)
 
 
-def standing_cover(out: Path, covering: dict | None, size: int) -> np.ndarray | None:
-    """Cells under something that stands over the ground, crowns as wide as the cover stage found them grown."""
+def standing_cover(out: Path, covering: dict | None, size: int, roofs: np.ndarray | None = None) -> np.ndarray | None:
+    """Cells under something that stands over the ground: crowns as wide as the cover stage found them grown, and roofs."""
     if not covering:
         return None
     with rasterio.open(out / covering["height"]) as file:
@@ -449,7 +451,10 @@ def standing_cover(out: Path, covering: dict | None, size: int) -> np.ndarray | 
     spread = round(covering["sun"]["crown_spread_m"] / covering["cell_m"])
     if spread:
         standing = ndimage.binary_dilation(standing, structure=cover.disc(spread))
-    return _sample_cells(standing, size)
+    if roofs is not None:
+        standing = standing | roofs
+    # The imagery and the heights are registered to about a cell of each other, so the edge cell is not trusted.
+    return _sample_cells(ndimage.binary_dilation(standing), size)
 
 
 def shadow_gap(darkness: np.ndarray) -> float | None:
@@ -460,18 +465,22 @@ def shadow_gap(darkness: np.ndarray) -> float | None:
     """
     if darkness.size < SHADOW_MIN_CELLS:
         return None
-    edges = np.arange(SHADOW_DARKEST_LOG2, 0.0001, 0.05)
-    counts = np.histogram(np.maximum(darkness, SHADOW_DARKEST_LOG2), bins=edges)[0].astype(float)
+    edges = np.arange(SHADOW_DARKEST_LOG2, 0.0001, SHADOW_BIN_LOG2)
+    # What is darker than the floor is left out, not piled into the first bin, where it would pass for a peak.
+    counts = np.histogram(darkness, bins=edges)[0].astype(float)
     counts = np.convolve(counts, np.ones(3) / 3, mode="same")
     # Only what is darker than the main peak is looked at: the gap lies between the shadow's peak and the sunlit one.
+    # It is the darkness that is emptiest against the fullest one darker than it. With two dark peaks that is the gap
+    # beside the larger of them, which need not be the one beside the sunlit peak.
     main = int(np.argmax(counts))
-    darker = np.maximum.accumulate(counts[:main])
-    if main < 3 or darker[-1] < SHADOW_MIN_SHARE * counts.sum():
+    least = SHADOW_MIN_SHARE * darkness.size
+    darker = np.maximum.accumulate(counts[:main]) if main else counts[:0]
+    if main < 3 or darker[-1] < least:
         return None
-    valley = int(np.argmin(counts[:main] / np.maximum(darker, 1e-9) + (darker < SHADOW_MIN_SHARE * counts.sum())))
-    if darker[valley] < SHADOW_MIN_SHARE * counts.sum() or counts[valley] > SHADOW_VALLEY_MAX * darker[valley]:
+    valley = int(np.argmin(counts[:main] / np.maximum(darker, 1e-9) + (darker < least)))
+    if darker[valley] < least or counts[valley] > SHADOW_VALLEY_MAX * darker[valley]:
         return None
-    return float(edges[valley] + 0.025)
+    return float(edges[valley] + SHADOW_BIN_LOG2 / 2)
 
 
 def _blur(values: np.ndarray, sigma: float) -> np.ndarray:
@@ -692,6 +701,12 @@ def build_macro_colour(
         "filled_fraction": filled,
         "hidden_fraction": float(1 - sunlit.mean()),
         "measured": measured,
+        "priors": [
+            f"prior: {', '.join(surface.SEASONAL)} changes with the season, so it takes the reflectance raster's colour pixel by pixel; other classes keep the photo's pattern",
+            f"prior: a cell is in reach of the measurement with {MEASURED_REACH_MIN:.0%} of the low-pass's weight on pure pixels",
+        ]
+        if measured
+        else [],
     }
 
 
@@ -746,7 +761,8 @@ def _measured_colour(
     support = _blur(weight, sigma)
     smooth = _blur(log_ratio * weight, sigma) / np.maximum(support, 1e-6)
     trust = np.clip(support / MEASURED_REACH_MIN, 0.0, 1.0)
-    back = np.empty((4, size, size), dtype=np.float32)
+    # Zero is no correction and no trust: what the raster does not reach keeps the fitted colour.
+    back = np.zeros((4, size, size), dtype=np.float32)
     for index, band in enumerate([*(smooth * trust), trust]):
         reproject(
             band.astype(np.float32),
@@ -774,6 +790,7 @@ def build_detail(
     covering: dict | None,
     layers: list[dict],
     bands: list[int] | None = None,
+    roofs: np.ndarray | None = None,
 ) -> dict:
     """What the photo shows finer than the macro colour: each pixel over the class's own smooth colour around it.
 
@@ -813,7 +830,7 @@ def build_detail(
     # is darker than the gap between the two peaks is shadow, and nothing standing has to explain it; what the
     # cover stage only predicted to be in shadow and is not that dark is ground in the sun.
     shadows = {}
-    standing = standing_cover(out, covering, DETAIL_PIXELS)
+    standing = standing_cover(out, covering, DETAIL_PIXELS, roofs)
     for index, layer in enumerate(layers):
         if layer["name"] not in surface.SEASONAL or standing is None:
             continue
@@ -852,6 +869,7 @@ def build_detail(
             "prior: the imagery's tone curve is sRGB, so its ratio is a ratio of linear light",
             "prior: living turf is nowhere as dark against the turf around it as its own shadow is; paving can be",
             f"prior: a shadow's edge is {SHADOW_EDGE_CELLS} cells wider than its dark core",
+            f"prior: shadow is looked for down to {SHADOW_DARKEST_LOG2:g} stops in bins of {SHADOW_BIN_LOG2:g}, meaned over three; its peak holds {SHADOW_MIN_SHARE:.1%} of at least {SHADOW_MIN_CELLS} cells in one bin, and the gap at most {SHADOW_VALLEY_MAX:g} of the peak",
             f"prior: the ratio is limited to a factor of {2**DETAIL_LOG2_RANGE:g} either way",
             f"prior: the ratio fades to 1 over {DETAIL_FADE_CELLS:g} cells at the edge of hidden ground",
         ],
@@ -1258,7 +1276,15 @@ def build(site_path: Path, out: Path, cache: Path | None = None) -> dict:
             MACRO_LOW_PASS_M,
             bands,
             classes["albedo"].get("curves"),
-            [sources["reflectance"]["sha256"], surface.SEASONAL, MEASURED_REACH_MIN] if reflectance else None,
+            [
+                sources["reflectance"]["sha256"],
+                surface.SEASONAL,
+                MEASURED_REACH_MIN,
+                surface.PURE_SHARE,
+                surface.PURE_SUNLIT,
+            ]
+            if reflectance
+            else None,
         ),
         lambda: build_macro_colour(
             tile,
@@ -1291,12 +1317,15 @@ def build(site_path: Path, out: Path, cache: Path | None = None) -> dict:
             bands,
             [
                 SHADOW_DARKEST_LOG2,
+                SHADOW_BIN_LOG2,
                 SHADOW_MIN_SHARE,
                 SHADOW_MIN_CELLS,
                 SHADOW_VALLEY_MAX,
                 SHADOW_EDGE_CELLS,
                 surface.SEASONAL,
             ],
+            [covering["cutoff_m"], covering["sun"]["crown_spread_m"]] if covering else None,
+            buildings_key,
         ),
         lambda: build_detail(
             tile,
@@ -1306,6 +1335,7 @@ def build(site_path: Path, out: Path, cache: Path | None = None) -> dict:
             covering,
             classes["layers"],
             imagery_bands(site.imagery)[0],
+            roofs,
         ),
     )
     detail = stages["detail"]
@@ -1456,7 +1486,7 @@ def build(site_path: Path, out: Path, cache: Path | None = None) -> dict:
         },
         "macro_colour": {
             key: macro[key]
-            for key in ("file", "pixels", "low_pass_m", "filled_fraction", "hidden_fraction", "measured")
+            for key in ("file", "pixels", "low_pass_m", "filled_fraction", "hidden_fraction", "measured", "priors")
         },
         "detail": {key: value for key, value in detail.items() if key not in ("cached",)},
         "surface": {key: value for key, value in classes.items() if key not in ("files", "cached")},

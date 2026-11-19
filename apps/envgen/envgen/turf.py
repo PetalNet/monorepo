@@ -5,7 +5,7 @@ so no blade size, count or distance lives in the engine code. Each variety says 
 
 Three varieties share one rule: a variety is so much leaf over each square metre of ground (its leaf area index), so
 a wider blade is fewer blades. The nearest is the sward itself, blade by blade. The next carries the same texture out
-to where a blade is far under a pixel, with blades as wide as a pixel is at the distance it takes over. A third,
+to where a blade is far under a pixel, with blades as wide as a pixel is where the nearest ends. A third,
 taller and sparse, stands in for what the mower left.
 """
 
@@ -30,7 +30,7 @@ NEAR_BLADE_WIDTH_CM = (0.8, 1.4)
 # a sward that has none), and how much a tuft's size varies. The index of real mown turf is several times the near one: what is
 # drawn is the top of the sward, and the ground's own colour under it is the rest.
 NEAR = {"leaf_area_index": 1.0, "blades": 24, "radius_cm": 9.0, "start_cull_cm": 800, "end_cull_cm": 1500}
-CLUMP = {"leaf_area_index": 0.3, "blades": 24, "radius_cm": 22.5, "start_cull_cm": 2500, "end_cull_cm": 6500}
+CLUMP = {"leaf_area_index": 0.2, "blades": 24, "radius_cm": 22.5, "start_cull_cm": 2500, "end_cull_cm": 6500}
 TALL = {"leaf_area_index": 0.02, "blades": 8, "radius_cm": 6.0, "start_cull_cm": 2500, "end_cull_cm": 5000}
 CASTS_SHADOW = {"near": False, "clump": False, "tall": False}
 SIZE_SPREAD = (0.85, 1.15)
@@ -41,9 +41,11 @@ PRIORS = [
     f"prior: leaf area index drawn: {NEAR['leaf_area_index']:g} (near), {CLUMP['leaf_area_index']:g} (clump), {TALL['leaf_area_index']:g} (tall)",
     "prior: blade count, tuft radius, size spread and draw distance of each variety",
     f"prior: a near blade is {NEAR_BLADE_WIDTH_CM[0]:g} to {NEAR_BLADE_WIDTH_CM[1]:g} cm wide at the root",
-    f"prior: stills have a {LENS_FOV_DEG:g} degree lens and {FRAME_PX} pixels across; a far blade is a pixel wide where its variety takes over",
+    f"prior: stills have a {LENS_FOV_DEG:g} degree lens and {FRAME_PX} pixels across; a far blade is a pixel wide where the near variety ends",
     f"prior: tall tufts stand {TALL_OVER_MOWED:g} times the mowing range (the one-third rule of mowing)",
     f"prior: a blade is {ROOT_SHADE:g} of its colour at the root and {TIP_SHADE:g} at the tip",
+    "prior: no variety casts a shadow",
+    "prior: the clump variety grows in over the distance the near variety shrinks away",
 ]
 
 
@@ -53,8 +55,8 @@ def pixel_cm(distance_cm: float) -> float:
 
 
 def _variety(name: str, spec: dict, height_cm: tuple[float, float], source: str) -> dict:
-    # The clump stands in for the near variety beyond its reach: its blades are at least a pixel wide where it takes over.
-    wide = pixel_cm(spec["start_cull_cm"]) if name == "clump" else 0.0
+    # The clump stands in for the near variety beyond its reach: its blades are at least a pixel wide where that ends.
+    wide = pixel_cm(NEAR["end_cull_cm"]) if name == "clump" else 0.0
     width = (
         max(NEAR_BLADE_WIDTH_CM[0], wide),
         max(NEAR_BLADE_WIDTH_CM[1], wide * NEAR_BLADE_WIDTH_CM[1] / NEAR_BLADE_WIDTH_CM[0]),
@@ -74,6 +76,9 @@ def _variety(name: str, spec: dict, height_cm: tuple[float, float], source: str)
         "scale": list(SIZE_SPREAD),
         "start_cull_cm": spec["start_cull_cm"],
         "end_cull_cm": spec["end_cull_cm"],
+        # The engine shrinks a tuft away between its start and end distance; it has no nearest distance. The clump's
+        # wide blades stand in for the near variety, so they grow in where that one shrinks away.
+        "appear_cm": [NEAR["start_cull_cm"], NEAR["end_cull_cm"]] if name == "clump" else [0, 0],
         "casts_shadow": CASTS_SHADOW[name],
     }
 

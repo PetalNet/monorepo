@@ -321,3 +321,6 @@ def test_the_gap_between_sunlit_and_shadowed_ground_is_found_and_one_peak_has_no
     assert gap is not None and -1.7 < gap < -0.9
     assert shadow_gap(sunlit) is None
     assert shadow_gap(sunlit[:100]) is None
+    # Black cells far under the floor are no peak of their own: the gap stays between the shadow and the sun.
+    black = np.full(5000, -6.0)
+    assert shadow_gap(np.concatenate([sunlit, shadow, black])) == pytest.approx(gap, abs=0.1)

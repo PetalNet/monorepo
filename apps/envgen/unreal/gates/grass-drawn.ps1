@@ -40,9 +40,11 @@ param(
 	# tufts changed 3.7 % of a whole frame (step 24) when they were black; the lit tufts changed 0.7 % of the grass-only
 	# ground at step 24, which is why the step is lower and the bar is not.
 	[double] $MinShare = 0.01,
-	# Of the far band's pixels, the share the far varieties must change. Their blades are a pixel or two wide there, so
-	# they move fewer pixels past the step than the near ones; two identical runs differed on none of the band.
-	[double] $MinFarShare = 0.01,
+	# Of the far band's pixels, the share the far varieties must change. Hand-set between two measurements on the real
+	# tile: with the far varieties the band changes on 64.5 % of its pixels; with their density set to 0 it still
+	# changes on 2.3 % (the ground is not level, so some near blades stand in the band), and the gate must fail that.
+	# Two identical runs differed on none of the band.
+	[double] $MinFarShare = 0.2,
 	[switch] $Noise
 )
 $ErrorActionPreference = 'Stop'
@@ -76,6 +78,7 @@ function Get-Share([string] $First, [string] $Second, [double] $Top, [double] $B
 				if ([math]::Max([math]::Max([math]::Abs($p.R - $q.R), [math]::Abs($p.G - $q.G)), [math]::Abs($p.B - $q.B)) -gt $ChannelStep) { $differ++ }
 			}
 		}
+		if ($seen -eq 0) { throw "no rows of the frame lie between $Top and $Bottom of its height" }
 		[pscustomobject]@{ Share = $differ / $seen; Mean = $sum / $seen }
 	} finally { $a.Dispose(); $b.Dispose() }
 }

@@ -284,10 +284,12 @@ time of day, and on the real tile it lands off the shadows the photo shows (the 
 degrees east of north; the cast runs at 72), so sunlit turf was flattened and the real shadow kept. The photo shows
 its own shadows: the log ratio of a cell to its surround has a second, dark peak (`shadow_gap`). What is darker than
 the emptiest darkness between the two peaks is shadow, whatever stands or does not stand beside it, and what the
-cast only predicted is ground in the sun again; ground under standing cover stays hidden. Real tile: the gap is at
--1.43 stops, 8.6 % of the grass not under cover is in shadow, and open grass goes from 80 % to 86 %. Thin shadows
+cast only predicted is ground in the sun again; ground under standing cover or a roof stays hidden, with the same
+cell of margin the cast had. With two dark peaks the gap is the one beside the larger, a limit. Real tile: the gap is at
+-1.43 stops, 7.6 % of the grass not under cover or a roof is in shadow, and of that grass the open share goes from
+85.8 % to 87.4 %. Thin shadows
 (a pole's is under two pixels wide) are lighter than the gap after the photo's resampling and stay in the ratio:
-the fly station still shows the light poles' shadows. Priors: the peak must hold 0.5 % of the class's cells, the gap
+the fly station still shows the light poles' shadows. Priors: the peak must hold 0.2 % of the class's cells in one bin of 0.05 stops, the gap
 at most 0.8 of the dark peak, the shadow's edge is 2 cells wider, and paving is left to the cast (dark asphalt
 beside concrete is as dark as a shadow). The albedo curves are not applied to it: their gamma (0.33 for grass) comes from a fit across 10 m
 pixels, where noise flattens the slope, and would take most of the contrast out. Treating the imagery's tone
@@ -331,8 +333,8 @@ survey orthophoto (`sources.survey.orthophoto`, 2.3 cm a pixel on the real tile)
 The grass class grows tufts: Landscape Grass, three varieties, all numbers in the manifest's `turf` (`turf.py`), none in
 the engine code. A variety is so much leaf over a square metre of ground (its leaf area index), so wider blades are
 fewer: **near** (index 1.0, blades 0.8 to 1.4 cm wide, 24 to a tuft, about 2000 blades a square metre, drawn to 15 m),
-**clump** (index 0.3, drawn from 25 m out to 65 m, with blades as wide as a pixel is at 25 m, 2.6 cm, so the sward
-keeps its texture where a real blade is far under a pixel) and **tall** (index 0.02, drawn to 50 m). Blade height is the
+**clump** (index 0.2, drawn out to 65 m, with blades as wide as a pixel is at 15 m, where the near variety ends:
+1.6 cm, so the sward keeps its texture where a real blade is far under a pixel) and **tall** (index 0.02, drawn to 50 m). Blade height is the
 summer mowing height a land-grant university extension guide gives cool-season lawn turf, 3 to 4 inches (publications
 MG10 and G6705); the tall variety stands 1.5 times the top of that, a prior (the one-third rule of mowing). Everything
 else is a prior and the manifest's `turf.priors` lists it: the indices (real mown turf has several times the near
@@ -340,6 +342,10 @@ one; what is drawn is the top of the sward), blade counts, radii, widths, draw d
 the lens, the blade's brightness from root (0.85) to tip (1.15), and that no variety casts a shadow (a tuft's own
 shadow blackens it against a sward that has none). The earlier patch noise, which thinned the tufts between patches
 4 m wide, is gone: it had no source and left bare ground at a walker's feet.
+The engine shrinks a tuft away between its start and end distance and has no nearest distance, so a variety is drawn
+from the camera out. The clump's wide blades are kept from a walker's feet by its material: nearer than 8 m a clump
+is drawn in to its own root, and it grows to full size by 15 m, the distances over which the near variety shrinks
+away (`appear_cm` in the manifest). Each variety has its own blade material for that.
 Each blade has its own colour: one of the 8 the grain stage measured, each as likely as the next, held in the tuft
 mesh's third and fourth UV channels (the mesh build writes its own unwrap into the second).
 That multiplies the ground's own macro colour at the blade's place, times the albedo scale, so tufts follow the straw and green the
@@ -359,7 +365,7 @@ level it drew some. What the fast build leaves out is not known, so this avoids 
 it. A tour counts the tufts the engine has built near the camera (below), which that fault does not change;
 `gates/grass-drawn.ps1` checks they are drawn, by comparing a walk frame with the same frame under
 `grass.Enable=0` over the near ground only (below the horizon), at a frame where the walker stands on full grass weight: the gate reads the build's grass weight at the camera and 4 m and 8 m ahead and refuses a frame that is not. The earlier gate compared the whole frame at the walk station, which stands on a class edge with paving and half sky in view, and passed by 1.12 % against its 1.0 % bar. The bar is the same 1 %; what changed is that the ground measured is grass only. `-Noise` also runs the grass-on tour twice and reports how much identical runs differ.
-The same pair of frames is compared over a second band, the ground between where the near variety ends (15 m) and where the farthest ends (65 m), which only the clump and the tall tuft can change; its rows come from the manifest's draw distances, the tour's eye height and the frame's shape, for level ground. The two far varieties are not told apart.
+The same pair of frames is compared over a second band, the ground between where the near variety ends (15 m) and where the farthest ends (65 m), which only the clump and the tall tuft can change; its rows come from the manifest's draw distances, the tour's eye height and the frame's shape, for level ground. The two far varieties are not told apart. Real tile: 64.5 % of the band's pixels change, 2.3 % with the far varieties' density set to 0 (near blades on rising ground), 0 % between identical runs; the bar is 20 %, hand-set between the two.
 
 `r.Shadow.Virtual.MaxPhysicalPages` is 2048 in the host project (the default is 4096 pages, 512 MB): the card's
 peak in the fly tour fell from 7630 to 7350 MiB. Hand-set, not fitted.

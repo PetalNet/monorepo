@@ -38,6 +38,8 @@
 #include "Materials/MaterialExpressionCameraPositionWS.h"
 #include "Materials/MaterialExpressionDistance.h"
 #include "Materials/MaterialExpressionSaturate.h"
+#include "Materials/MaterialExpressionSubtract.h"
+#include "Materials/MaterialExpressionTransformPosition.h"
 #include "Materials/MaterialExpressionComponentMask.h"
 #include "Materials/MaterialExpressionConstant.h"
 #include "Materials/MaterialExpressionConstant3Vector.h"
@@ -166,6 +168,8 @@ namespace
 		int32 Blades = 0;
 		float RadiusCm = 0, HeightMinCm = 0, HeightMaxCm = 0, WidthMinCm = 0, WidthMaxCm = 0, DensityPer100M2 = 0, ScaleMin = 1, ScaleMax = 1;
 		int32 StartCullCm = 0, EndCullCm = 0;
+		// The tuft grows in from nothing to full size between these distances from the camera; both 0 for always full.
+		float AppearFromCm = 0, AppearFullCm = 0;
 		bool bCastsShadow = true;
 	};
 
@@ -391,6 +395,8 @@ namespace
 				Variety.DensityPer100M2 = float(Item->GetNumberField(TEXT("density_per_100m2")));
 				Variety.ScaleMin = float(Item->GetArrayField(TEXT("scale"))[0]->AsNumber());
 				Variety.ScaleMax = float(Item->GetArrayField(TEXT("scale"))[1]->AsNumber());
+				Variety.AppearFromCm = float(Item->GetArrayField(TEXT("appear_cm"))[0]->AsNumber());
+				Variety.AppearFullCm = float(Item->GetArrayField(TEXT("appear_cm"))[1]->AsNumber());
 				Variety.StartCullCm = Item->GetIntegerField(TEXT("start_cull_cm"));
 				Variety.EndCullCm = Item->GetIntegerField(TEXT("end_cull_cm"));
 				Variety.bCastsShadow = Item->GetBoolField(TEXT("casts_shadow"));
@@ -616,7 +622,8 @@ namespace
 			const FVector2f Along(FMath::Cos(Facing), FMath::Sin(Facing)), Across(-Along.Y, Along.X);
 			const float Height = Random.FRandRange(Variety.HeightMinCm, Variety.HeightMaxCm);
 			const float Width = Random.FRandRange(Variety.WidthMinCm, Variety.WidthMaxCm) / 2;
-			const FLinearColor Own = BladeColours.IsEmpty() ? FLinearColor::White : BladeColours[Random.RandHelper(BladeColours.Num())];
+			// Dealt in turn, so a tuft holds the colours in the equal shares they were measured in.
+			const FLinearColor Own = BladeColours.IsEmpty() ? FLinearColor::White : BladeColours[Blade % BladeColours.Num()];
 			const float Lean = Random.FRandRange(0.2f, 0.6f) * Height;
 			// Left and right edge vertices per level, and one at the tip.
 			TArray<FVertexInstanceID> Left, Right;
@@ -662,9 +669,9 @@ namespace
 	 * The blade's material: the grass class's own colour (its mean photo colour times the albedo scale), darker at the
 	 * root and lighter at the tip, and a little different from tuft to tuft.
 	 */
-	UMaterial* MakeBladeMaterial(UTexture2D* Macro, const FManifest& Manifest, TArray<UPackage*>& Packages)
+	UMaterial* MakeBladeMaterial(UTexture2D* Macro, const FManifest& Manifest, const FTuftVariety& Variety, TArray<UPackage*>& Packages)
 	{
-		UMaterial* Material = NewAsset<UMaterial>(TEXT("M_GrassBlade"), Packages);
+		UMaterial* Material = NewAsset<UMaterial>(TEXT("M_GrassBlade_") + Variety.Name.ToString(), Packages);
 		Material->TwoSided = true;
 		Material->bUsedWithInstancedStaticMeshes = true;
 		// The ground's own colour under the blade: the macro map read at the blade's place, as the ground reads it. Along
@@ -737,6 +744,41 @@ namespace
 		UMaterialExpressionConstant* Roughness = Node<UMaterialExpressionConstant>(Material, -200, 300);
 		Roughness->R = 0.75f;
 		UMaterialEditingLibrary::ConnectMaterialProperty(Roughness, TEXT(""), MP_Roughness);
+		if (Variety.AppearFullCm > Variety.AppearFromCm)
+		{
+			// The engine's grass has a farthest distance and no nearest one. A variety that stands in for a nearer one
+			// is drawn in to its own root nearer than where it appears, and grows to full size by where it is full.
+			UMaterialExpressionWorldPosition* Here = Node<UMaterialExpressionWorldPosition>(Material, -1100, 900);
+			Here->WorldPositionShaderOffset = WPT_ExcludeAllShaderOffsets;
+			UMaterialExpressionCameraPositionWS* Eye = Node<UMaterialExpressionCameraPositionWS>(Material, -1100, 1000);
+			UMaterialExpressionDistance* Away = Node<UMaterialExpressionDistance>(Material, -950, 950);
+			Away->A.Connect(0, Here);
+			Away->B.Connect(0, Eye);
+			UMaterialExpressionAdd* Past = Node<UMaterialExpressionAdd>(Material, -800, 950);
+			Past->A.Connect(0, Away);
+			Past->ConstB = -Variety.AppearFromCm;
+			UMaterialExpressionMultiply* Share = Node<UMaterialExpressionMultiply>(Material, -650, 950);
+			Share->A.Connect(0, Past);
+			Share->ConstB = 1.f / (Variety.AppearFullCm - Variety.AppearFromCm);
+			UMaterialExpressionSaturate* Grown = Node<UMaterialExpressionSaturate>(Material, -500, 950);
+			Grown->Input.Connect(0, Share);
+			UMaterialExpressionOneMinus* Missing = Node<UMaterialExpressionOneMinus>(Material, -350, 950);
+			Missing->Input.Connect(0, Grown);
+			// The tuft's own origin in the world: the mesh's local origin, which for an instance is the instance's.
+			UMaterialExpressionConstant3Vector* Origin = Node<UMaterialExpressionConstant3Vector>(Material, -1100, 1150);
+			Origin->Constant = FLinearColor(0, 0, 0);
+			UMaterialExpressionTransformPosition* Root = Node<UMaterialExpressionTransformPosition>(Material, -900, 1150);
+			Root->Input.Connect(0, Origin);
+			Root->TransformSourceType = TRANSFORMPOSSOURCE_Local;
+			Root->TransformType = TRANSFORMPOSSOURCE_World;
+			UMaterialExpressionSubtract* ToRoot = Node<UMaterialExpressionSubtract>(Material, -650, 1150);
+			ToRoot->A.Connect(0, Root);
+			ToRoot->B.Connect(0, Here);
+			UMaterialExpressionMultiply* Offset = Node<UMaterialExpressionMultiply>(Material, -200, 1050);
+			Offset->A.Connect(0, ToRoot);
+			Offset->B.Connect(0, Missing);
+			UMaterialEditingLibrary::ConnectMaterialProperty(Offset, TEXT(""), MP_WorldPositionOffset);
+		}
 		UMaterialEditingLibrary::RecompileMaterial(Material);
 		return Material;
 	}
@@ -904,8 +946,9 @@ namespace
 				Kept->B.Connect(0, Outside);
 				GrainStrength = Kept;
 			}
-			UMaterialExpressionConstant* GrainTwo = Node<UMaterialExpressionConstant>(Material, -800, -600);
-			GrainTwo->R = 2.f;
+			// Three channels: a power takes the width of its base, and the exponent differs by band.
+			UMaterialExpressionConstant3Vector* GrainTwo = Node<UMaterialExpressionConstant3Vector>(Material, -800, -600);
+			GrainTwo->Constant = FLinearColor(2, 2, 2);
 			// The grain is a colour: each band goes with the luminance by its own measured slope.
 			UMaterialExpressionConstant3Vector* GrainTint = Node<UMaterialExpressionConstant3Vector>(Material, -800, -450);
 			GrainTint->Constant = Manifest.GrainTint;
@@ -1836,12 +1879,11 @@ bool FEnvGenLevelBuild::Start(const FString& ManifestPath, const FString& MapPat
 			UE_LOG(LogEnvGen, Error, TEXT("the manifest has a grass class and no turf: it says what grows on it"));
 			return false;
 		}
-		UMaterial* BladeMaterial = MakeBladeMaterial(Macro, Manifest, State->Packages);
 		for (int32 Index = 0; Index < Manifest.Turf.Varieties.Num(); ++Index)
 		{
 			const FTuftVariety& Tuft = Manifest.Turf.Varieties[Index];
 			FGrassVariety& Variety = GrassType->GrassVarieties.AddDefaulted_GetRef();
-			Variety.GrassMesh = MakeGrassTuft(BladeMaterial, Tuft, Manifest.Turf.BladeColours, Index, State->Packages);
+			Variety.GrassMesh = MakeGrassTuft(MakeBladeMaterial(Macro, Manifest, Tuft, State->Packages), Tuft, Manifest.Turf.BladeColours, Index, State->Packages);
 			Variety.GrassDensity = FPerPlatformFloat(Tuft.DensityPer100M2);
 			Variety.StartCullDistance = FPerPlatformInt(Tuft.StartCullCm);
 			Variety.EndCullDistance = FPerPlatformInt(Tuft.EndCullCm);

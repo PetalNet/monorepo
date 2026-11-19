@@ -93,7 +93,7 @@ def test_an_orthophoto_in_another_projection_is_refused_with_the_reason(tmp_path
     assert CRS in reason
 
 
-def test_each_variety_has_the_leaf_it_says_and_the_far_one_has_blades_a_pixel_wide_where_it_takes_over():
+def test_each_variety_has_the_leaf_it_says_and_the_far_one_has_blades_a_pixel_wide_where_the_near_one_ends():
     grass = turf.describe()
     varieties = {variety["name"]: variety for variety in grass["varieties"]}
     for name, spec in (("near", turf.NEAR), ("clump", turf.CLUMP), ("tall", turf.TALL)):
@@ -106,8 +106,11 @@ def test_each_variety_has_the_leaf_it_says_and_the_far_one_has_blades_a_pixel_wi
     assert varieties["tall"]["height_cm"][0] > varieties["near"]["height_cm"][1]
     assert varieties["near"]["density_per_100m2"] > varieties["clump"]["density_per_100m2"]
     assert varieties["clump"]["start_cull_cm"] > varieties["near"]["start_cull_cm"]
-    # One pixel of a 1920 pixel, 90 degree frame at 25 m is 2.6 cm.
-    assert varieties["clump"]["blade_width_cm"][0] == pytest.approx(2.6, abs=0.01)
+    # One pixel of a 1920 pixel, 90 degree frame at 15 m, where the near variety ends, is 1.56 cm.
+    assert varieties["clump"]["blade_width_cm"][0] == pytest.approx(1.56, abs=0.01)
+    # The clump's wide blades are not at a walker's feet: they grow in where the near variety shrinks away.
+    assert varieties["clump"]["appear_cm"] == [varieties["near"]["start_cull_cm"], varieties["near"]["end_cull_cm"]]
+    assert varieties["near"]["appear_cm"] == [0, 0]
     assert varieties["near"]["blade_width_cm"] == list(turf.NEAR_BLADE_WIDTH_CM)
     assert all(prior.startswith("prior:") for prior in grass["priors"])
 
