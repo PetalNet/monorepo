@@ -1,0 +1,9 @@
+[project]
+name = "janet-line"
+version = "0.1.0"
+description = "The quiet sound under a Janet call, so the caller knows the line is open: comfort noise, a thinking texture and a room tone."
+requires-python = ">=3.12"
+dependencies = ["numpy>=2"]
+
+[tool.ruff]
+line-length = 140

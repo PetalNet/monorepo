@@ -17,5 +17,6 @@ RUN mkdir /models \
 WORKDIR /app
 COPY apps/janet-phone/janet_phone.py apps/janet-phone/matrix_notice.py apps/janet-phone/pairing.py ./
 COPY packages/janet-turn/janet_turn ./janet_turn
+COPY packages/janet-line/janet_line ./janet_line
 USER 1000
 ENTRYPOINT ["/opt/venv/bin/python", "/app/janet_phone.py"]
