@@ -1,0 +1,25 @@
+[project]
+name = "envgen"
+version = "0.1.0"
+description = "Builds a game-ready Unreal environment from public elevation and imagery for a site boundary"
+requires-python = ">=3.12"
+dependencies = ["numpy", "pillow", "rasterio", "scipy"]
+
+[project.optional-dependencies]
+test = ["pytest"]
+
+[project.scripts]
+envgen = "envgen.cli:main"
+
+[tool.ruff]
+line-length = 120
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools]
+packages = ["envgen"]

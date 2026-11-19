@@ -1,0 +1,30 @@
+{
+	"schema_version": 1,
+	"site_id": "example",
+	"crs": "EPSG:32613",
+	"boundary": [
+		[500100.0, 4400100.0],
+		[500900.0, 4400100.0],
+		[500900.0, 4400800.0],
+		[500100.0, 4400800.0]
+	],
+	"tile": { "size_m": 1008, "quad_m": 0.5 },
+	"target_date": "2030-06",
+	"seed": 1,
+	"vertical_datum": "state the datum and geoid model of the elevation source here",
+	"sources": {
+		"elevation": {
+			"kind": "arcgis_imageserver",
+			"endpoint": "https://elevation.nationalmap.gov/arcgis/rest/services/3DEPElevation/ImageServer",
+			"request_spacing_m": 1.0,
+			"license": "USGS 3DEP, public domain",
+			"date": "survey date of the lidar under the site"
+		},
+		"imagery": {
+			"kind": "file",
+			"path": "imagery.tif",
+			"license": "licence of the imagery",
+			"date": "acquisition date"
+		}
+	}
+}
