@@ -58,6 +58,8 @@ flutter pub get
 flutter analyze
 cargo build --manifest-path rust/Cargo.toml --locked --release
 LD_LIBRARY_PATH="$PWD/rust/target/release" flutter test
+# one isolate, as CI does (regenerate with `dart run tool/gen_all_test.dart` after adding a test file):
+LD_LIBRARY_PATH="$PWD/rust/target/release" flutter test test/all.dart
 flutter build apk --release
 tool/check_version_code.sh
 tool/check_apk_libs.sh

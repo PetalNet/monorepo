@@ -307,7 +307,8 @@ ProviderContainer _container({
 void main() {
   setUpAll(() async {
     TestWidgetsFlutterBinding.ensureInitialized();
-    await RustLib.init();
+    // One isolate runs every suite via test/all.dart; init is once-only.
+    if (!RustLib.instance.initialized) await RustLib.init();
   });
 
   test(
