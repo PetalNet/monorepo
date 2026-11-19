@@ -1,0 +1,9 @@
+{
+	"name": "@petalnet/fold-cards",
+	"version": "0.0.0",
+	"private": true,
+	"type": "module",
+	"scripts": {
+		"test": "python3 -B -I test/test_cards.py && python3 -B -I test/test_memindex.py && python3 -B -I test/test_recall.py"
+	}
+}
