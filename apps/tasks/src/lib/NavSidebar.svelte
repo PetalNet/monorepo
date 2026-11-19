@@ -1,29 +1,79 @@
 <script>
 	import { page } from "$app/state";
 
+	import { galleryHref, UNFILED } from "#lib/gallery-tree.js";
 	import Icon from "#lib/Icon.svelte";
 
-	let { collapsed = $bindable(false) } = $props();
+	/** @type {{ collapsed?: boolean; tree?: any[]; open?: boolean; onnavigate?: () => void }} */
+	let { collapsed = $bindable(false), tree = [], open = false, onnavigate } = $props();
 
+	// Which project and piece of work the page is in: from the query on the index, from the
+	// artifact's breadcrumb trail on an artifact page.
+	const scope = $derived.by(() => {
+		const q =
+			page.url.pathname === "/gallery"
+				? page.url.searchParams
+				: new URLSearchParams((page.data.crumbs?.at(-1)?.href ?? "").split("?")[1] ?? "");
+
+		return { project: q.get("project") ?? "", work: q.get("work") ?? "" };
+	});
 	const onGallery = $derived(page.url.pathname.startsWith("/gallery"));
+	const everything = $derived(page.url.pathname === "/gallery" && !scope.project && !scope.work);
 </script>
 
-<aside class="nav" class:collapsed>
-	<a class="brand" href="/" aria-label="gallery home">
+<aside class="nav" class:collapsed class:open id="nav">
+	<a class="brand" href="/" aria-label="gallery home" onclick={onnavigate}>
 		<span class="brand-mark"><Icon name="brand" size={18} strokeWidth={1.9} /></span>
 		<span class="wordmark">gallery</span>
 	</a>
 
-	<nav class="groups" aria-label="Main navigation">
+	<nav class="groups" aria-label="Projects">
 		<a
 			class="item"
-			class:on={onGallery}
+			class:on={everything}
 			href="/gallery"
-			aria-current={onGallery ? "page" : undefined}
+			aria-current={everything ? "page" : undefined}
+			onclick={onnavigate}
 		>
 			<Icon name="gallery" size={18} />
-			<span class="lbl">Gallery</span>
+			<span class="lbl">All projects</span>
 		</a>
+
+		{#each tree as p (p.key)}
+			{@const here = onGallery && scope.project === p.key}
+			{@const whole = here && !scope.work}
+			<a
+				class="item"
+				class:on={whole}
+				class:here={here && !whole}
+				href={galleryHref({ project: p.key })}
+				aria-current={whole ? "page" : undefined}
+				title={p.name}
+				onclick={onnavigate}
+			>
+				<Icon name="projects" size={18} />
+				<span class="lbl">{p.key === UNFILED ? "unfiled" : p.name}</span>
+				{#if p.needs}<span class="needs" title="{p.needs} waiting on you">{p.needs}</span>{/if}
+				<span class="n">{p.count}</span>
+			</a>
+			{#if here && p.works.length}
+				<div class="works">
+					{#each p.works as w (w.key)}
+						{@const on = scope.work === w.key}
+						<a
+							class="sub"
+							class:on
+							href={galleryHref({ project: p.key, work: w.key })}
+							aria-current={on ? "page" : undefined}
+							onclick={onnavigate}
+						>
+							<span class="lbl mono">{w.label}</span>
+							<span class="n">{w.count}</span>
+						</a>
+					{/each}
+				</div>
+			{/if}
+		{/each}
 	</nav>
 </aside>
 
@@ -97,10 +147,6 @@
 		opacity: 0;
 	}
 
-	/* primary action — SOLID accent fill so it's clearly distinct from the active-tab tint */
-	/* collapsed: the icon stays exactly where it was (same margin + padding); only the label
-     collapses and the rail narrows — the button never recenters, so the icon never moves (an operator) */
-
 	.groups {
 		flex: 1;
 		display: flex;
@@ -144,6 +190,7 @@
 	.item .lbl {
 		max-width: 140px;
 		overflow: hidden;
+		text-overflow: ellipsis;
 		transition: opacity 0.11s ease;
 	}
 	/* icon pinned: keep base padding/gap; label fades + clips via overflow (no box-collapse) */
@@ -151,7 +198,104 @@
 		opacity: 0;
 	}
 
-	/* FOOT: live Fleet — full roster, the sidebar's bottom anchor (clickable → /fleet) */
-	/* bolt stays put on collapse; label + count fade + clip with the rail (consistent) */
-	/* roster clips/fades + collapses its height on collapse — same .2s as the rail (an operator) */
+	/* counts sit at the end of the row and clip with the label when the rail collapses */
+	.n {
+		margin-inline-start: auto;
+		font-size: 11.5px;
+		font-variant-numeric: tabular-nums;
+		color: var(--text-4);
+		transition: opacity 0.11s ease;
+	}
+	.collapsed .n,
+	.collapsed .needs {
+		opacity: 0;
+	}
+	.needs {
+		min-width: 18px;
+		padding: 0 5px;
+		border-radius: 9px;
+		text-align: center;
+		font-size: 11px;
+		font-weight: 650;
+		line-height: 18px;
+		color: var(--bg);
+		background: var(--accent-b);
+		transition: opacity 0.11s ease;
+	}
+	/* inside the open project but on one of its pieces of work: keep the row quiet, not filled */
+	.item.here {
+		color: var(--text-1);
+	}
+	.collapsed .works {
+		display: none;
+	}
+	.works {
+		display: flex;
+		flex-direction: column;
+		gap: 1px;
+		margin: 0 0 4px 22px;
+		padding-inline-start: 11px;
+		border-inline-start: 1px solid var(--border);
+	}
+	.sub {
+		display: flex;
+		align-items: center;
+		gap: 8px;
+		padding: 5px 9px;
+		border-radius: var(--radius);
+		text-decoration: none;
+		font-size: 12px;
+		color: var(--text-3);
+		transition:
+			background 0.14s,
+			color 0.14s;
+	}
+	.sub .lbl {
+		min-width: 0;
+		overflow: hidden;
+		text-overflow: ellipsis;
+		white-space: nowrap;
+	}
+	.sub:hover {
+		background: var(--surface-2);
+		color: var(--text-1);
+	}
+	.sub.on {
+		background: var(--accent-bg);
+		color: var(--accent-b);
+		font-weight: 600;
+	}
+
+	/* phone: the rail becomes a sheet that slides over the page, opened from the top bar */
+	@container app (max-width: 760px) {
+		.nav {
+			position: fixed;
+			inset-block: 0;
+			inset-inline-start: 0;
+			z-index: 40;
+			--w: min(288px, 86vw);
+			transform: translateX(-100%);
+			visibility: hidden;
+			transition:
+				transform 0.2s cubic-bezier(0.4, 0, 0.2, 1),
+				visibility 0s linear 0.2s;
+		}
+		.nav.open {
+			transform: none;
+			visibility: visible;
+			transition-delay: 0s;
+		}
+		.nav.collapsed {
+			--w: min(288px, 86vw);
+		}
+		.collapsed .works {
+			display: flex;
+		}
+		.collapsed .wordmark,
+		.collapsed .item .lbl,
+		.collapsed .n,
+		.collapsed .needs {
+			opacity: 1;
+		}
+	}
 </style>

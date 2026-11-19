@@ -1,197 +1,202 @@
 <script>
+	import ArtifactCard from "#lib/ArtifactCard.svelte";
+	import { galleryHref, UNFILED } from "#lib/gallery-tree.js";
 	import Icon from "#lib/Icon.svelte";
+
 	let { data } = $props();
 
-	// A project is the gallery's top-level grouping (artifacts.collection); pages filed under
-	// none go last. Groups are alphabetical, pages inside keep the server's newest-first order.
-	const groups = $derived.by(() => {
-		const byProject = new Map();
+	// How many pages one project shows when you are looking at every project; the rest is one click in.
+	const PEEK = 4;
 
-		for (const a of data.artifacts) {
-			byProject.set(a.collection, [...(byProject.get(a.collection) ?? []), a]);
-		}
+	const name = (/** @type {string} */ project) => (project === UNFILED ? "unfiled" : project);
+	const asks = $derived(data.artifacts.filter((a) => a.asked));
+	const rest = $derived(data.artifacts.filter((a) => !a.asked));
+
+	// project > piece of work > artifact, in the order the server returned (newest first)
+	const projects = $derived.by(() => {
+		const byProject = Map.groupBy(rest, (a) => a.collection || UNFILED);
 
 		return [...byProject]
-			.toSorted(([x], [y]) => (x === "") - (y === "") || x.localeCompare(y))
-			.map(([project, artifacts]) => ({ project, artifacts }));
+			.toSorted(([x], [y]) => (x === UNFILED) - (y === UNFILED) || x.localeCompare(y))
+			.map(([key, artifacts]) => ({ key, artifacts }));
 	});
-	function ago(ts) {
-		if (!ts) {
-			return "";
-		}
+	const works = $derived.by(() => {
+		const byWork = Map.groupBy(rest, (a) => a.work);
 
-		const s = Math.round((Date.now() - new Date(ts.replace(" ", "T") + "Z").getTime()) / 1000);
-
-		if (s < 60) {
-			return "just now";
-		}
-
-		if (s < 3600) {
-			return Math.round(s / 60) + "m ago";
-		}
-
-		if (s < 86400) {
-			return Math.round(s / 3600) + "h ago";
-		}
-
-		if (s < 604800) {
-			return Math.round(s / 86400) + "d ago";
-		}
-
-		return Math.round(s / 604800) + "w ago";
-	}
+		return [...byWork]
+			.toSorted(([x], [y]) => (x === "") - (y === ""))
+			.map(([label, artifacts]) => ({ label, artifacts }));
+	});
+	const title = $derived(data.work || (data.project ? name(data.project) : "All projects"));
 </script>
 
-<svelte:head><title>gallery · tasks</title></svelte:head>
+<svelte:head><title>{title} · gallery</title></svelte:head>
 
 <div class="screen gallery">
-	<header class="page-head">
-		<h1>gallery</h1>
-		<p class="ph-sub mono">
-			{data.artifacts.length} page{data.artifacts.length === 1 ? "" : "s"} &amp; writeups · readable in-app
-			behind SSO
-		</p>
+	<header class="head">
+		<h1>{title}</h1>
+		{#if data.workUrl}
+			<a class="out mono" href={data.workUrl} target="_blank" rel="noopener noreferrer">GitHub ↗</a>
+		{/if}
+		<form class="find" method="get" role="search">
+			{#if data.project}<input type="hidden" name="project" value={data.project} />{/if}
+			{#if data.work}<input type="hidden" name="work" value={data.work} />{/if}
+			<Icon name="search" size={15} />
+			<input
+				name="link"
+				value={data.link}
+				placeholder="Find by PR or issue: owner/repo#12"
+				aria-label="Find pages by GitHub link"
+			/>
+			{#if data.link}
+				<a
+					class="clear"
+					href={galleryHref({ project: data.project, work: data.work })}
+					aria-label="Clear search"><Icon name="close" size={14} /></a
+				>
+			{/if}
+		</form>
 	</header>
 
-	<form class="find" method="get" role="search">
-		<input
-			name="link"
-			value={data.link}
-			placeholder="Find by PR or issue: owner/repo#12"
-			aria-label="Find pages by GitHub link"
-		/>
-	</form>
-
-	{#if data.artifacts.length}
-		{#each groups as g (g.project)}
-			<h2 class="project">{g.project || "unfiled"}</h2>
+	{#if asks.length}
+		<section class="block" aria-label="Waiting on you">
+			<h2>Waiting on you</h2>
 			<div class="cards">
-				{#each g.artifacts as a (a.slug)}
-					<a class="card" href="/gallery/{a.slug}">
-						<span class="card-ic"><Icon name="doc" size={18} /></span>
-						<span class="card-main">
-							<span class="card-title">{a.title}</span>
-							{#if a.description}<span class="card-desc">{a.description}</span>{/if}
-							<span class="card-meta mono">
-								<span class="kind-tag">{a.kind === "html" ? "page" : "doc"}</span>
-								{#if a.visibility === "private"}<span class="priv"
-										><Icon name="lock" size={11} /> private</span
-									>{/if}
-								<span class="dim age">{ago(a.updated_at)}</span>
-								{#each a.links as l (l.url)}<span class="gh" title={l.url}>{l.label}</span>{/each}
-							</span>
-						</span>
-						<span class="card-arrow"><Icon name="arrow" size={16} /></span>
-					</a>
-				{/each}
+				{#each asks as a (a.slug)}<ArtifactCard {a} />{/each}
 			</div>
+		</section>
+	{:else if !data.project && !data.link}
+		<p class="caught">All caught up.</p>
+	{/if}
+
+	{#if !rest.length && !asks.length}
+		<p class="empty">{data.link ? "Nothing links there." : "No artifacts yet."}</p>
+	{:else if data.work}
+		<div class="cards">
+			{#each rest as a (a.slug)}<ArtifactCard {a} />{/each}
+		</div>
+	{:else if data.project}
+		{#each works as w (w.label)}
+			<section class="block">
+				{#if w.label}
+					<h2>
+						<a href={galleryHref({ project: data.project, work: w.label })}>{w.label}</a>
+					</h2>
+				{:else if works.length > 1}
+					<h2>Other</h2>
+				{/if}
+				<div class="cards">
+					{#each w.artifacts as a (a.slug)}<ArtifactCard {a} />{/each}
+				</div>
+			</section>
 		{/each}
 	{:else}
-		<p class="empty">No artifacts yet.</p>
+		{#each projects as p (p.key)}
+			<section class="block">
+				<h2><a href={galleryHref({ project: p.key })}>{name(p.key)}</a></h2>
+				<div class="cards">
+					{#each p.artifacts.slice(0, PEEK) as a (a.slug)}<ArtifactCard {a} />{/each}
+				</div>
+				{#if p.artifacts.length > PEEK}
+					<a class="more" href={galleryHref({ project: p.key })}
+						>{p.artifacts.length - PEEK} more in {name(p.key)}</a
+					>
+				{/if}
+			</section>
+		{/each}
 	{/if}
 </div>
 
 <style>
-	.find input {
+	.head {
+		display: flex;
+		flex-wrap: wrap;
+		align-items: center;
+		gap: 12px 16px;
+		margin-bottom: 8px;
+	}
+	h1 {
+		font-size: clamp(24px, 4vw, 30px);
+		font-weight: 700;
+		letter-spacing: -0.025em;
+		line-height: 1.15;
+		margin-inline-end: auto;
+		overflow-wrap: anywhere;
+	}
+	.out {
+		font-size: 12px;
+		color: var(--accent-b);
+		text-decoration: none;
+	}
+	.find {
+		display: flex;
+		align-items: center;
+		gap: 8px;
 		width: 100%;
-		max-width: 360px;
-		margin: 8px 0 4px;
-		padding: 6px 10px;
+		max-width: 340px;
+		padding: 0 10px;
+		height: 40px;
+		background: var(--surface-2);
+		border-radius: var(--radius);
+		color: var(--text-4);
+	}
+	.find input {
+		flex: 1;
+		min-width: 0;
+		height: 100%;
 		font: inherit;
 		font-size: 13px;
 		color: var(--text-1);
-		background: var(--surface-1);
-		border: 1px solid var(--border-sub);
+		background: none;
+		border: 0;
+		outline: none;
 	}
-	.gh {
-		color: var(--accent-b);
+	.find:focus-within {
+		outline: 2px solid var(--accent);
+		outline-offset: 2px;
 	}
-	.project {
-		margin: 20px 0 8px;
+	.clear {
+		display: grid;
+		place-items: center;
+		color: var(--text-3);
+	}
+	.block {
+		margin-top: 28px;
+	}
+	h2 {
+		margin-bottom: 10px;
 		font-size: 12px;
+		font-weight: 600;
 		text-transform: uppercase;
 		letter-spacing: 0.08em;
 		color: var(--text-3);
 	}
+	h2 a {
+		color: inherit;
+		text-decoration: none;
+	}
+	h2 a:hover,
+	.more:hover {
+		color: var(--accent-b);
+	}
 	.cards {
 		display: flex;
 		flex-direction: column;
-		gap: 10px;
-		margin-top: 8px;
+		gap: 8px;
 	}
-	.card {
-		display: flex;
-		align-items: flex-start;
-		gap: 13px;
-		padding: 15px 16px;
-		background: var(--surface-1);
-		border: 1px solid var(--border-sub);
-		border-radius: var(--radius);
-		text-decoration: none;
-		transition:
-			border-color 0.12s,
-			background 0.12s;
+	.block + .cards {
+		margin-top: 28px;
 	}
-	.card:hover {
-		border-color: var(--accent-ln);
-		background: var(--surface-2);
-	}
-	.card-ic {
-		color: var(--accent-b);
-		flex: none;
-		margin-top: 1px;
-	}
-	.card-main {
-		display: flex;
-		flex-direction: column;
-		gap: 4px;
-		min-width: 0;
-		flex: 1;
-	}
-	.card-title {
-		font-size: 15px;
-		font-weight: 600;
-		color: var(--text-1);
-	}
-	.card-desc {
+	.more {
+		display: inline-block;
+		margin-top: 10px;
 		font-size: 13px;
 		color: var(--text-3);
-		line-height: 1.45;
+		text-decoration: none;
 	}
-	.card-meta {
-		display: flex;
-		align-items: center;
-		gap: 10px;
-		font-size: 11px;
-		margin-top: 2px;
-	}
-	.kind-tag {
-		text-transform: uppercase;
-		letter-spacing: 0.07em;
-		color: var(--text-3);
-		background: var(--surface-2);
-		border: 1px solid var(--border-sub);
-		padding: 1px 7px;
-		border-radius: 5px;
-	}
-	.priv {
-		display: inline-flex;
-		align-items: center;
-		gap: 4px;
-		color: var(--text-4);
-	}
-	.age {
-		color: var(--text-4);
-	}
-	.card-arrow {
-		color: var(--text-4);
-		flex: none;
-		margin-top: 2px;
-	}
-	.card:hover .card-arrow {
-		color: var(--accent-b);
-	}
+	.caught,
 	.empty {
+		margin-top: 24px;
 		color: var(--text-4);
 		font-size: 13px;
 	}

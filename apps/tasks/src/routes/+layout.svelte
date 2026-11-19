@@ -1,5 +1,6 @@
 <script>
 	import "../app.css";
+	import { beforeNavigate } from "$app/navigation";
 	import { page } from "$app/state";
 
 	import Icon from "#lib/Icon.svelte";
@@ -8,8 +9,9 @@
 	let { children, data } = $props();
 	setPeople(data.config.people);
 
-	// sidebar collapse — persisted
+	// sidebar collapse — persisted (desktop rail); on a phone the same sidebar is a sheet (navOpen)
 	let collapsed = $state(false);
+	let navOpen = $state(false);
 	$effect(() => {
 		try {
 			collapsed = localStorage.getItem("tasks-nav-collapsed") === "1";
@@ -20,6 +22,21 @@
 			localStorage.setItem("tasks-nav-collapsed", collapsed ? "1" : "0");
 		} catch {}
 	});
+	beforeNavigate(() => {
+		navOpen = false;
+	});
+	// the sheet is a modal on a phone: focus moves into it when it opens and back to the button when it closes
+	let sheetBtn = $state();
+	let wasOpen = false;
+	$effect(() => {
+		if (navOpen) {
+			document.querySelector("#nav a")?.focus();
+		} else if (wasOpen) {
+			sheetBtn?.focus();
+		}
+
+		wasOpen = navOpen;
+	});
 
 	// who's signed in (Authentik -> locals.user -> data.user)
 	const me = $derived(String(data.user || "dev").toLowerCase());
@@ -28,9 +45,8 @@
 	const path = $derived(page.url.pathname);
 	// the Janet Call home is a bare page for the Android WebView: no tasks chrome
 	const bare = $derived(path === "/janet/home");
-
-	// top-bar account menu + global search (the bar is now useful, not a section-name parrot)
-	let acctOpen = $state(false);
+	// where this page sits above the root; each page supplies its own ancestors
+	const crumbs = $derived(page.data.crumbs ?? []);
 
 	function toggleTheme() {
 		const next = document.documentElement.dataset.theme === "light" ? "dark" : "light";
@@ -43,6 +59,8 @@
 	}
 </script>
 
+<svelte:window onkeydown={(e) => e.key === "Escape" && (navOpen = false)} />
+
 {#if bare}
 	{@render children()}
 {:else}
@@ -50,96 +68,70 @@
 		<!-- skip link — first tab stop on every route (task-360) -->
 		<a class="skip" href="#main">Skip to content</a>
 
-		<!-- DESKTOP SIDEBAR — Nexus-style grouped nav, collapses to an icon rail -->
-		<NavSidebar bind:collapsed />
-
-		<!-- MOBILE topbar -->
-		<header class="topbar">
-			<a class="brand" href="/"
-				><span class="brand-mark"><Icon name="brand" size={18} strokeWidth={2} /></span><span
-					class="brand-name">gallery</span
-				></a
-			>
-			<button class="ico-theme" onclick={toggleTheme} title="Theme" aria-label="Theme"
-				><Icon name="moon" size={18} /></button
-			>
-		</header>
+		<NavSidebar
+			bind:collapsed
+			tree={data.tree}
+			open={navOpen}
+			onnavigate={() => (navOpen = false)}
+		/>
+		{#if navOpen}
+			<button
+				class="scrim"
+				aria-label="Close projects"
+				tabindex="-1"
+				onclick={() => (navOpen = false)}
+			></button>
+		{/if}
 
 		<main class="main" id="main" tabindex="-1">
-			<!-- DESKTOP top bar — toggle · global search · account menu (no section-name parrot) -->
-			<header class="topbar-d">
+			<header class="topbar">
 				<button
-					class="tb-toggle"
+					class="tb-btn tb-rail"
 					onclick={() => (collapsed = !collapsed)}
 					aria-label={collapsed ? "Expand sidebar" : "Collapse sidebar"}
 					title={collapsed ? "Expand" : "Collapse"}
 				>
 					<Icon name={collapsed ? "expand" : "collapse"} size={18} />
 				</button>
+				<button
+					class="tb-btn tb-sheet"
+					bind:this={sheetBtn}
+					onclick={() => (navOpen = !navOpen)}
+					aria-label="Open projects"
+					aria-expanded={navOpen}
+					aria-controls="nav"
+				>
+					<Icon name="menu" size={18} />
+				</button>
 
-				<span class="tb-spacer"></span>
+				<nav class="crumbs" aria-label="Breadcrumb">
+					{#each crumbs as c (c.href)}
+						<a href={c.href}>{c.label}</a>
+					{/each}
+					{#if !crumbs.length}<span class="root">gallery</span>{/if}
+				</nav>
 
-				<div class="tb-acct">
-					<button
-						class="acct-btn"
-						class:open={acctOpen}
-						onclick={() => (acctOpen = !acctOpen)}
-						aria-haspopup="menu"
-						aria-expanded={acctOpen}
-						aria-label="Account menu"
-					>
-						<span class="avatar acct-av">{whoName.charAt(0)}</span>
-						<span class="acct-nm">{whoName}</span>
-						<Icon name="chevdown" size={15} />
-					</button>
-					{#if acctOpen}
-						<button
-							class="acct-bd"
-							aria-label="Close menu"
-							tabindex="-1"
-							onclick={() => (acctOpen = false)}
-						></button>
-						<div class="acct-menu" role="menu">
-							<div class="acct-id">
-								<span class="avatar acct-av lg">{whoName.charAt(0)}</span>
-								<span class="acct-who"
-									><span class="nm">{whoName}</span><span class="sub mono">@{me}</span></span
-								>
-							</div>
-							<button class="acct-item" role="menuitem" onclick={toggleTheme}>
-								<Icon name="moon" size={16} /> Toggle theme
-							</button>
-						</div>
-					{/if}
-				</div>
+				<button class="tb-btn" onclick={toggleTheme} title="Toggle theme" aria-label="Toggle theme">
+					<Icon name="moon" size={18} />
+				</button>
+				<span class="who" title="@{me}">
+					<span class="avatar who-av">{whoName.charAt(0)}</span>
+					<span class="who-nm">{whoName}</span>
+				</span>
 			</header>
 			<div class="main-scroll">{@render children()}</div>
 		</main>
-
-		<nav class="tabbar" aria-label="Primary">
-			<a
-				class="tab"
-				class:on={path.startsWith("/gallery")}
-				aria-current={path.startsWith("/gallery") ? "page" : undefined}
-				href="/gallery"><Icon name="gallery" size={20} /><span>Gallery</span></a
-			>
-		</nav>
 	</div>
 {/if}
 
 <style>
-	.tb-spacer {
-		flex: 1;
-	}
-	/* ── shell layout ─────────────────────────────────────── */
 	.app {
 		height: 100dvh;
 		display: flex;
 		overflow: hidden;
 	}
 	/* shell column: a FIXED top bar + a SEPARATE inner scroller, so the bar never moves on
-     overscroll (an operator: "only the page itself should overscroll" — sticky-inside-the-scroller
-     still rubber-banded with the bounce; taking the bar out of the scroller is the real fix). */
+     overscroll (only the page itself should overscroll). */
 	.main {
 		flex: 1;
 		min-width: 0;
@@ -158,11 +150,8 @@
 		overscroll-behavior: contain;
 	}
 
-	/* desktop top bar — holds the sidebar toggle + global search + account.
-     height + vertical center match the sidebar brand/logomark row (no curve — squared chrome) */
-	/* solid chrome — the bar sits above the scroller (content never passes under it),
-     so a translucent blur is pure decoration (glass tell — an operator's /impeccable) */
-	.topbar-d {
+	/* one top bar for every width: 56px so it lines up with the sidebar's brand row. Solid, flat. */
+	.topbar {
 		flex-shrink: 0;
 		z-index: 5;
 		display: flex;
@@ -170,48 +159,68 @@
 		gap: 6px;
 		height: 56px;
 		padding: 0 16px;
-		border-radius: 0;
 		background: var(--surface-1);
 		border-bottom: 1px solid var(--border-sub);
 	}
-	.tb-toggle {
+	.tb-btn {
 		width: 32px;
 		height: 32px;
 		display: grid;
 		place-items: center;
+		flex: none;
 		border-radius: var(--radius);
 		color: var(--text-3);
 		transition:
 			background 0.14s,
 			color 0.14s;
 	}
-	.tb-toggle:hover {
+	.tb-btn:hover {
 		background: var(--surface-2);
 		color: var(--text-1);
 	}
-
-	/* global search is the <SearchBox> component (task-506) — its own scoped styles */
-
-	/* account — moved up from the sidebar foot (an operator) */
-	.tb-acct {
-		margin-left: auto;
-		position: relative;
-		flex-shrink: 0;
+	.tb-sheet {
+		display: none;
 	}
-	.acct-btn {
+	.crumbs {
+		flex: 1;
+		min-width: 0;
+		display: flex;
+		align-items: center;
+		gap: 4px;
+		font-size: 13px;
+		white-space: nowrap;
+		overflow: hidden;
+	}
+	.crumbs a {
+		color: var(--text-3);
+		text-decoration: none;
+		overflow: hidden;
+		text-overflow: ellipsis;
+	}
+	.crumbs a:hover {
+		color: var(--accent-b);
+	}
+	.crumbs a + a::before {
+		content: "/";
+		margin-inline: 4px;
+		color: var(--text-4);
+	}
+	.root {
+		display: none;
+		font-weight: 750;
+		font-size: 16px;
+		color: var(--text-1);
+	}
+	.who {
 		display: flex;
 		align-items: center;
 		gap: 8px;
-		padding: 4px 7px 4px 4px;
-		border-radius: var(--radius);
-		color: var(--text-1);
-		transition: background 0.14s;
+		margin-inline-start: 4px;
+		color: var(--text-2);
+		font-size: 13px;
+		font-weight: 600;
 	}
-	.acct-btn:hover,
-	.acct-btn.open {
-		background: var(--surface-2);
-	}
-	.acct-av {
+	.who-av {
 		width: 26px;
 		height: 26px;
 		font-size: 12px;
@@ -219,185 +228,28 @@
 		background: var(--accent-bg);
 		border-color: var(--accent);
 	}
-	.acct-nm {
-		font-size: 13px;
-		font-weight: 600;
-	}
-	.acct-btn :global(svg) {
-		color: var(--text-4);
-	}
-	.acct-bd {
+	.scrim {
 		position: fixed;
 		inset: 0;
-		z-index: 30;
-		background: transparent;
-	}
-	.acct-menu {
-		position: absolute;
-		top: calc(100% + 6px);
-		right: 0;
-		z-index: 31;
-		min-width: 208px;
-		background: var(--surface-1);
-		border: 1px solid var(--border);
-		border-radius: var(--radius-lg);
-		box-shadow: 0 10px 30px -8px rgba(0, 0, 0, 0.28);
-		padding: 6px;
-		display: flex;
-		flex-direction: column;
-		gap: 1px;
-	}
-	.acct-id {
-		display: flex;
-		align-items: center;
-		gap: 10px;
-		padding: 8px 8px 11px;
-		border-bottom: 1px solid var(--border-sub);
-		margin-bottom: 5px;
-	}
-	.acct-av.lg {
-		width: 34px;
-		height: 34px;
-		font-size: 14px;
-	}
-	.acct-who {
-		display: flex;
-		flex-direction: column;
-		line-height: 1.25;
-		min-width: 0;
-	}
-	.acct-who .nm {
-		font-size: 13.5px;
-		font-weight: 600;
-		color: var(--text-1);
-	}
-	.acct-who .sub {
-		font-size: 11px;
-		color: var(--text-4);
-	}
-	.acct-item {
-		display: flex;
-		align-items: center;
-		gap: 10px;
-		width: 100%;
-		padding: 8px 9px;
-		border-radius: var(--radius);
-		font-size: 13px;
-		color: var(--text-2);
-		text-decoration: none;
-	}
-	.acct-item:hover {
-		background: var(--surface-2);
-		color: var(--text-1);
-	}
-	.acct-item :global(svg) {
-		color: var(--text-4);
-		flex-shrink: 0;
-	}
-
-	/* mobile chrome hidden on desktop */
-	.topbar,
-	.tabbar {
-		display: none;
+		z-index: 39;
+		background: rgba(0, 0, 0, 0.45);
 	}
 
 	/* ── responsive: phone (mirrors the app's 760px container query) ── */
 	@container app (max-width: 760px) {
-		.app {
-			display: flex;
-			flex-direction: column;
-		}
-		.app :global(.nav) {
-			display: none;
-		}
-		.topbar-d {
-			display: none;
-		}
 		.topbar {
-			display: flex;
-			align-items: center;
-			justify-content: space-between;
-			padding: 9px 15px;
-			background: var(--surface-1);
-			border-bottom: 1px solid var(--border-sub);
-			position: sticky;
-			top: 0;
-			z-index: 5;
+			padding: 0 12px;
 		}
-		.topbar .brand {
-			display: flex;
-			align-items: center;
-			gap: 9px;
-			text-decoration: none;
+		.tb-rail,
+		.who-nm {
+			display: none;
 		}
-		.topbar .brand-mark {
+		.tb-sheet {
 			display: grid;
-			place-items: center;
-			color: var(--accent-b);
 		}
-		.topbar .brand-name {
-			font-weight: 750;
-			font-size: 16px;
-			letter-spacing: -0.01em;
-			color: var(--text-1);
+		.root {
+			display: inline;
 		}
-		.topbar .ico-theme {
-			width: 32px;
-			height: 32px;
-			display: grid;
-			place-items: center;
-			border-radius: var(--radius);
-			color: var(--text-3);
-		}
-		.topbar .ico-theme:hover {
-			background: var(--surface-2);
-			color: var(--text-1);
-		}
-		.main {
-			height: auto;
-			flex: 1;
-		}
-
-		.tabbar {
-			display: flex;
-			background: var(--surface-1);
-			border-top: 1px solid var(--border-sub);
-			flex-shrink: 0;
-			padding: 6px 6px calc(6px + env(safe-area-inset-bottom));
-			position: sticky;
-			bottom: 0;
-			z-index: 5;
-		}
-		.tab {
-			flex: 1;
-			min-width: 0;
-			display: flex;
-			flex-direction: column;
-			align-items: center;
-			gap: 3px;
-			padding: 7px 4px;
-			border-radius: var(--radius);
-			color: var(--text-4);
-			font-size: 9.5px;
-			font-weight: 600;
-			text-decoration: none;
-			cursor: pointer;
-			background: none;
-			border: 0;
-			font-family: inherit;
-		}
-		.tab.on {
-			color: var(--accent-b);
-		}
-		/* task-335: labels clip with an ellipsis instead of colliding on ~320px phones */
-		.tab span {
-			max-width: 100%;
-			white-space: nowrap;
-			overflow: hidden;
-			text-overflow: ellipsis;
-		}
-
-		/* "More" sheet — the tucked-away secondary nav (state-driven; keyboard-operable) */
 	}
 
 	/* focus-visible ring lives in app.css (one global rule, hugging each element's own radius) */

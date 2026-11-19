@@ -5,7 +5,7 @@
 	const is404 = $derived(status === 404);
 </script>
 
-<svelte:head><title>{status} · tasks</title></svelte:head>
+<svelte:head><title>{status} · gallery</title></svelte:head>
 
 <!-- self-contained sprite: the error page must render even if the layout load threw (no shell sprite) -->
 <svg width="0" height="0" style="position:absolute" aria-hidden="true"
@@ -51,11 +51,11 @@
 		<div class="err-code mono">{status}</div>
 		<h1>{is404 ? "Nothing here" : "That broke"}</h1>
 		<p class="err-msg">{message}</p>
-		<a class="err-back" href="/">
+		<a class="err-back" href="/gallery">
 			<svg width="14" height="14" style="transform:scaleX(-1)" aria-hidden="true"
 				><use href="#e-arrow" /></svg
 			>
-			back to the board
+			back to the gallery
 		</a>
 	</div>
 </div>
