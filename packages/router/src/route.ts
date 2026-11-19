@@ -1,7 +1,7 @@
 // route: pick a builder offer (model, effort, plan, pool) for a brief from live quota state.
 //
-//   route pick --dry --kind <code|ui|research|write|sweep> --tier <S|A|B|C|top|mid|fast|cheap>
-//              --data-class <public|sensitive> <brief-file>
+//   route pick --dry --kind <code|ui|research|write|sweep|cyber|architecture> --tier <S|A|B|C|top|mid|fast|cheap>
+//              --data-class <public|sensitive|parcs> <brief-file>
 //
 // Exit codes: 0 completed/picked, 1 failed, 2 bad input, 3 no eligible offer, 5 Claude handoff.
 import { readFileSync, realpathSync } from "node:fs";
@@ -18,14 +18,24 @@ import {
 } from "@petalnet/harness-hooks/quota-sources";
 
 import { redact } from "./adapters.ts";
-import { BLOCKS, POOLS, PLANS, type Catalog, type DataClass, type Pick, pick } from "./pick.ts";
+import { evidenceKey, readEvidence } from "./evidence.ts";
+import {
+	BLOCKS,
+	POOLS,
+	PLANS,
+	type Catalog,
+	type DataClass,
+	type Pick,
+	offersFrom,
+	pick,
+} from "./pick.ts";
 import { run } from "./run.ts";
 import { readAvailability } from "./state.ts";
 
 const USAGE =
-	"usage: route <pick --dry|run> --kind <code|ui|research|write|sweep> --tier <S|A|B|C|top|mid|fast|cheap> --data-class <public|sensitive> <brief-file for pick; brief text for run>";
+	"usage: route <pick --dry|explain|run> --kind <code|ui|research|write|sweep|cyber|architecture> --tier <S|A|B|C|top|mid|fast|cheap> --data-class <public|sensitive|parcs> <brief-file for pick; brief text for run>";
 const TIER_ALIASES: Record<string, string> = { top: "S", mid: "A", fast: "B", cheap: "C" };
-const KINDS = new Set(["code", "ui", "research", "write", "sweep"]);
+const KINDS = new Set(["code", "ui", "research", "write", "sweep", "cyber", "architecture"]);
 const SECRET_RE =
 	/gh[pousr]_[A-Za-z0-9]{20,}|github_pat_\w{20,}|sk-[A-Za-z0-9_-]{20,}|AKIA[0-9A-Z]{16}|-----BEGIN [A-Z ]*PRIVATE KEY/u;
 
@@ -68,6 +78,10 @@ export function readBrief(file: string | undefined): { text: string } | { error:
 
 /** A brief carrying a credential is sensitive whatever the flag says; the class only ever rises. */
 export function effectiveDataClass(flag: DataClass, brief: string): DataClass {
+	if (flag === "parcs" || /\b(?:PARCS|Bridgeton)\b/iu.test(brief)) {
+		return "parcs";
+	}
+
 	return SECRET_RE.test(brief) ? "sensitive" : flag;
 }
 
@@ -85,9 +99,9 @@ export function formatPick(result: Pick, kind: string, tier: string): string {
 
 		lines.push(`ranked (tier ${result.tier}/${kind}):`);
 
-		result.ranked.forEach(({ offer: o, rank }, i) => {
+		result.ranked.forEach(({ offer: o, rank, evidence, source }, i) => {
 			lines.push(
-				`  ${String(i + 1)}. ${o.model} ${where(o)} rank=${rank.toFixed(2)} host=${o.pool?.host.name ?? "-"} origin=${o.origin}`,
+				`  ${String(i + 1)}. ${o.model} ${where(o)} rank=${rank.toFixed(2)} ${source === "table" ? "(table) " : ""}cov=${(evidence?.coverage ?? 0).toFixed(2)} n=0 host=${o.pool?.host.name ?? "-"} origin=${o.origin}`,
 			);
 		});
 	}
@@ -125,16 +139,16 @@ async function main(argv: string[]): Promise<number> {
 	const { values, positionals } = parsed;
 	const [command, briefFile] = positionals;
 	const { kind = "" } = values;
-	const tier = TIER_ALIASES[values.tier ?? ""] ?? values.tier ?? "";
-	const flagClass = values["data-class"];
+	const tier = TIER_ALIASES[values.tier ?? ""] ?? values.tier ?? (command === "explain" ? "S" : "");
+	const flagClass = values["data-class"] ?? (command === "explain" ? "public" : undefined);
 
 	if (
-		(command !== "pick" && command !== "run") ||
+		(command !== "pick" && command !== "run" && command !== "explain") ||
 		(command === "pick" && !values.dry) ||
 		(command === "run" && values.dry) ||
 		!KINDS.has(kind) ||
 		!tier ||
-		(flagClass !== "public" && flagClass !== "sensitive")
+		(flagClass !== "public" && flagClass !== "sensitive" && flagClass !== "parcs")
 	) {
 		process.stderr.write(`${USAGE}\n`);
 
@@ -175,6 +189,7 @@ async function main(argv: string[]): Promise<number> {
 		readClaude(config, deps),
 	]);
 	const state = {
+		evidence: readEvidence(`${home}/.claude/shared/aa-models.json`),
 		nowMs: Date.now(),
 		dataClass,
 		reports: { "google-ai": google, codex, claude },
@@ -192,10 +207,62 @@ async function main(argv: string[]): Promise<number> {
 	const result = pick(catalog, kind, tier, state);
 
 	process.stdout.write(
-		`route ${command}${command === "pick" ? " --dry" : ""} kind=${kind} tier=${tier} data-class=${dataClass}${dataClass === flagClass ? "" : " (raised: brief holds a credential)"}\n`,
+		`route ${command}${command === "pick" ? " --dry" : ""} kind=${kind} tier=${tier} data-class=${dataClass}${dataClass === flagClass ? "" : " (raised by brief policy)"}\n`,
 	);
 
 	process.stdout.write(`${redact(formatPick(result, kind, tier))}\n`);
+
+	if (command === "explain") {
+		process.stdout.write(
+			`${state.evidence.notes.join("\n")}\nUnmapped AA slugs: ${state.evidence.unmapped.join(", ")}\n`,
+		);
+
+		const unmapped = offersFrom(catalog, kind, state.pools).filter(
+			(offer) =>
+				!state.evidence.rows.some(
+					(row) => row.model === evidenceKey(offer.model, offer.effort).model,
+				),
+		);
+
+		process.stdout.write(
+			`Catalog models without an AA mapping: ${unmapped.map((offer) => offer.id).join(", ")}\n`,
+		);
+
+		const candidates = [
+			...result.ranked,
+			...result.excluded.map((row) => ({
+				...row,
+				source: `${row.source ?? "table"}; excluded (${row.reasons.join("; ")})`,
+			})),
+		].toSorted((a, b) => b.rank - a.rank);
+
+		for (const row of candidates) {
+			const score = row.evidence;
+
+			if (!score) {
+				continue;
+			}
+
+			process.stdout.write(
+				`${row.offer.id} evidence-effort=${evidenceKey(row.offer.model, row.offer.effort).effort}: ${row.source ?? "table"} cov=${score.coverage.toFixed(2)} use=${score.coverage + 1e-12 >= 0.3 ? "evidence" : "table"} rank=${row.rank.toFixed(3)} Q=${score.q.toFixed(3)} p=${score.p.toFixed(3)} evidence-U=${score.utility.toFixed(3)} lambda=${score.lambda.toFixed(3)} cost=$${score.cost.toFixed(3)} latency=${score.seconds.toFixed(1)}s table=${String(row.offer.score)}\n`,
+			);
+
+			process.stdout.write(
+				`  ${score.signals.map((s) => `${s.signal}=${s.value.toFixed(3)} [${s.kind}; ${s.src}; ${s.asof}; ${s.url}]`).join("\n  ")}\n  missing: ${score.missing.join(", ")}\n  ${score.assumptions.join("; ")}\n`,
+			);
+		}
+	}
+
+	if (
+		dataClass === "parcs" ||
+		(command !== "run" && result.ranked[0]?.offer.pool?.plan === "claude")
+	) {
+		process.stdout.write(
+			"Claude handoff: caller must launch explicitly on the claude plan; listed availability and policy exclusions still apply.\n",
+		);
+
+		return 5;
+	}
 
 	if (command === "run") {
 		const executed = await run({

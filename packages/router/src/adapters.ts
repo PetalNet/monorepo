@@ -161,7 +161,16 @@ export function launch(offer: Offer, brief: string, cwd: string): Promise<Execut
 
 	return execute(
 		"agy",
-		["-p", brief, "--model", offer.id, "--dangerously-skip-permissions", "--output-format", "text"],
+		[
+			"-p",
+			brief,
+			"--model",
+			offer.id,
+			...(offer.effort === "default" ? [] : ["--effort", offer.effort]),
+			"--dangerously-skip-permissions",
+			"--output-format",
+			"text",
+		],
 		"",
 		cwd,
 	);

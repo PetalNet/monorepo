@@ -2,9 +2,10 @@
 // hard rules drop offers (all reasons kept), and the survivors are ranked inside a tier band.
 import type { ServiceName, ServiceReport } from "@petalnet/harness-hooks/quota-sources";
 
+import { evidenceKey, scoreEvidence, type Evidence, type Score } from "./evidence.ts";
 import type { Availability } from "./state.ts";
 
-export type DataClass = "public" | "sensitive";
+export type DataClass = "public" | "sensitive" | "parcs";
 
 export interface CatalogModel {
 	id: string;
@@ -30,6 +31,7 @@ export interface Pool {
 	windows: string[];
 	host: { name: string; country: "us" | "cn" | "unknown" };
 	trainsOnData: "yes" | "no" | "unknown";
+	trainingSource?: string;
 	explicitOnly?: true;
 }
 
@@ -44,7 +46,8 @@ const CLAUDE_POOL = {
 	plan: "claude",
 	service: "claude",
 	host: { name: "Anthropic", country: "us" },
-	trainsOnData: "unknown",
+	trainsOnData: "no",
+	trainingSource: "Parker 2026-11-19",
 	explicitOnly: true,
 } as const;
 
@@ -71,7 +74,8 @@ export const POOLS: Pool[] = [
 		service: "codex",
 		windows: ["codex:5h", "codex:7d"],
 		host: { name: "OpenAI", country: "us" },
-		trainsOnData: "unknown",
+		trainsOnData: "no",
+		trainingSource: "Parker 2026-11-19",
 	},
 	{ ...CLAUDE_POOL, id: "claude", windows: ["claude:5h", "claude:7d"] },
 	{ ...CLAUDE_POOL, id: "claude:fable", windows: ["claude:5h", "claude:7d", "claude:fable"] },
@@ -196,6 +200,7 @@ export function offersFrom(catalog: Catalog, kind: string, pools: Pool[]): Offer
 }
 
 export interface State {
+	evidence?: Evidence;
 	nowMs: number;
 	dataClass: DataClass;
 	reports: Partial<Record<ServiceName, ServiceReport>>;
@@ -310,7 +315,7 @@ function offerReasons(o: Offer, pools: Map<Pool, PoolState>, state: State): stri
 		}
 	}
 
-	if (pool.explicitOnly) {
+	if (pool.explicitOnly && state.dataClass !== "parcs") {
 		reasons.push(`${pool.plan} plan is explicit-use only`);
 	}
 
@@ -328,7 +333,11 @@ function offerReasons(o: Offer, pools: Map<Pool, PoolState>, state: State): stri
 		reasons.push("unscored");
 	}
 
-	if (state.dataClass === "sensitive") {
+	if (state.dataClass === "parcs" && pool.plan !== "claude") {
+		reasons.push("parcs brief: claude plan only");
+	}
+
+	if (state.dataClass !== "public") {
 		if (pool.host.country !== "us") {
 			reasons.push(
 				`sensitive brief: host ${pool.host.name} is in ${pool.host.country === "cn" ? "China" : "an unknown country"}`,
@@ -348,12 +357,14 @@ function offerReasons(o: Offer, pools: Map<Pool, PoolState>, state: State): stri
 export interface Ranked {
 	offer: Offer;
 	rank: number;
+	evidence?: Score;
+	source?: "evidence" | "table";
 }
 
 export interface Pick {
 	tier: string | undefined;
 	ranked: Ranked[];
-	excluded: { offer: Offer; reasons: string[] }[];
+	excluded: (Ranked & { reasons: string[] })[];
 }
 
 /** Ranks offers in the requested tier band; if the band is empty, tries one tier up, then one down. */
@@ -383,16 +394,38 @@ export function pick(catalog: Catalog, kind: string, tier: string, state: State)
 	for (const j of judged) {
 		const inBand = j.offer.score >= lo && j.offer.score < hi;
 
-		if (j.reasons.length === 0 && inBand) {
-			const headroom = j.offer.pool ? (pools.get(j.offer.pool)?.headroom ?? 100) : 0;
+		const headroom = j.offer.pool ? (pools.get(j.offer.pool)?.headroom ?? 100) : 0;
 
-			ranked.push({ offer: j.offer, rank: j.offer.score + j.offer.bonus + headroom / 1000 });
+		const evidence = state.evidence
+			? scoreEvidence(state.evidence, j.offer.model, j.offer.effort, kind, state.nowMs, headroom)
+			: undefined;
+		const useEvidence = evidence !== undefined && evidence.coverage + 1e-12 >= 0.3;
+		const offer = useEvidence
+			? { ...j.offer, effort: evidenceKey(j.offer.model, j.offer.effort).effort }
+			: j.offer;
+		// Convert the historical index to the same 0..1 quality scale for mixed rankings.
+		const tableRank = j.offer.score + j.offer.bonus + headroom / 1000;
+		const rank = state.evidence
+			? useEvidence
+				? evidence.utility
+				: (kind === "sweep" ? 2 : 10) * (0.45 + 0.47 * Math.min(1, tableRank / 100))
+			: tableRank;
+
+		const assessed: Ranked = {
+			offer,
+			rank,
+			...(evidence ? { evidence } : {}),
+			source: useEvidence ? "evidence" : "table",
+		};
+
+		if (j.reasons.length === 0 && inBand) {
+			ranked.push(assessed);
 		} else {
 			const reasons = inBand
 				? j.reasons
 				: [...j.reasons, `score ${String(j.offer.score)} outside tier ${chosen ?? tier}`];
 
-			excluded.push({ offer: j.offer, reasons });
+			excluded.push({ ...assessed, reasons });
 		}
 	}
 

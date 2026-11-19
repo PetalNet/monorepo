@@ -236,7 +236,7 @@ describe("brief", () => {
 		writeFileSync(path.join(dir, "empty"), "\n");
 		writeFileSync(path.join(dir, "brief"), "fix the flaky test\n");
 
-		const route = (brief: string) =>
+		const route = (brief: string, dataClass = "public") =>
 			spawnSync(
 				process.execPath,
 				[
@@ -248,7 +248,7 @@ describe("brief", () => {
 					"--tier",
 					"S",
 					"--data-class",
-					"public",
+					dataClass,
 					path.join(dir, brief),
 				],
 				{
@@ -278,9 +278,15 @@ describe("brief", () => {
 		expect(control.stdout).toContain("ranked (tier S/code):");
 
 		expect(control.stdout).toMatch(
-			/1\. gpt-6-astra effort=default plan=codex pool=codex \(overflow\) rank=64\.10/u,
+			/1\. gpt-6-astra effort=default plan=codex pool=codex \(overflow\) rank=7\.51 \(table\) cov=0\.00/u,
 		);
 
 		expect(control.stdout).toMatch(/gemini-4-neon-xhigh \[.*\]: google-ai quota error/u);
+
+		const parcs = route("brief", "parcs");
+
+		expect(parcs.status).toBe(5);
+		expect(parcs.stdout).toContain("Claude handoff");
+		expect(parcs.stdout).toContain("parcs brief: claude plan only");
 	});
 });
