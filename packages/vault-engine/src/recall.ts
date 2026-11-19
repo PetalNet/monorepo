@@ -5,7 +5,16 @@ import { Clock, Effect, FileSystem, Schema } from "effect";
 import type { PlatformError } from "effect/PlatformError";
 
 import { Vault } from "./engine.ts";
-import { Claim, Relation, Source, Tier, freshness, tiers } from "./schema.ts";
+import {
+	Claim,
+	FreshnessBasis,
+	Relation,
+	Source,
+	Tier,
+	freshnessBasis,
+	freshnessWithBasis,
+	tiers,
+} from "./schema.ts";
 import { secretRules } from "./secrets.ts";
 
 /**
@@ -22,7 +31,7 @@ CREATE TABLE claim(
 CREATE VIRTUAL TABLE claim_fts USING fts5(id UNINDEXED, text, context, tokenize='porter unicode61');
 CREATE TABLE passage(
 	source TEXT NOT NULL, passage TEXT NOT NULL, tier TEXT NOT NULL, kind TEXT NOT NULL,
-	title TEXT NOT NULL, heading TEXT NOT NULL, text TEXT NOT NULL, freshness TEXT NOT NULL,
+	title TEXT NOT NULL, heading TEXT NOT NULL, text TEXT NOT NULL, freshness TEXT NOT NULL, basis TEXT NOT NULL,
 	PRIMARY KEY(source, passage));
 CREATE VIRTUAL TABLE passage_fts USING fts5(source UNINDEXED, passage UNINDEXED, text, context, tokenize='porter unicode61');
 CREATE TABLE meta(key TEXT PRIMARY KEY, value TEXT NOT NULL);
@@ -38,6 +47,7 @@ const SourceRef = Schema.Struct({
 	url: Schema.optionalKey(Schema.String),
 	captured: Schema.String,
 	freshness: SourceFreshness,
+	basis: FreshnessBasis,
 });
 
 export type SourceRef = typeof SourceRef.Type;
@@ -67,6 +77,7 @@ export const PassageHit = Schema.Struct({
 	heading: Schema.String,
 	text: Schema.String,
 	freshness: SourceFreshness,
+	basis: FreshnessBasis,
 	score: Schema.Finite,
 });
 export type PassageHit = typeof PassageHit.Type;
@@ -78,8 +89,12 @@ const ClaimRow = Schema.Struct({
 	sources: Schema.fromJsonString(Schema.Array(SourceRef)),
 	rank: Schema.Finite,
 });
-const { score: _passageScore, ...passageFields } = PassageHit.fields;
-const PassageRow = Schema.Struct({ ...passageFields, rank: Schema.Finite });
+const { score: _passageScore, basis: passageBasis, ...passageFields } = PassageHit.fields;
+const PassageRow = Schema.Struct({
+	...passageFields,
+	basis: Schema.fromJsonString(passageBasis),
+	rank: Schema.Finite,
+});
 
 export const indexPath = (root: string) => path.join(root, "index.sqlite");
 
@@ -105,11 +120,12 @@ export const reindex = Effect.gen(function* () {
 
 				const claim = db.prepare("INSERT INTO claim VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?)");
 				const claimFts = db.prepare("INSERT INTO claim_fts VALUES(?,?,?)");
-				const passage = db.prepare("INSERT INTO passage VALUES(?,?,?,?,?,?,?,?)");
+				const passage = db.prepare("INSERT INTO passage VALUES(?,?,?,?,?,?,?,?,?)");
 				const passageFts = db.prepare("INSERT INTO passage_fts VALUES(?,?,?,?)");
 
 				for (const tier of tiers) {
 					const state = view.tiers[tier];
+					const checks = Object.values(state.runs).flatMap((run) => run.rechecks ?? []);
 
 					for (const record of Object.values(state.claims)) {
 						const topic = state.topics[record.topic];
@@ -117,7 +133,8 @@ export const reindex = Effect.gen(function* () {
 						const sources: SourceRef[] = record.links.flatMap((link) => {
 							const source = view.source(link.target);
 
-							return source
+							const basis = source ? freshnessBasis(source, topic, checks) : undefined;
+							return source && basis
 								? [
 										{
 											id: source.id,
@@ -126,7 +143,8 @@ export const reindex = Effect.gen(function* () {
 											...(link.passage === undefined ? {} : { passage: link.passage }),
 											...(source.url === undefined ? {} : { url: source.url }),
 											captured: source.captured,
-											freshness: freshness(source, topic?.shelfLifeDays, now),
+											freshness: freshnessWithBasis(source, basis, now),
+											basis,
 										},
 									]
 								: [];
@@ -164,12 +182,23 @@ export const reindex = Effect.gen(function* () {
 					}
 
 					for (const source of Object.values(state.sources)) {
-						const fresh = freshness(source, undefined, now);
+						const basis = freshnessBasis(source, undefined, []);
+						const fresh = freshnessWithBasis(source, basis, now);
 
 						for (const [id, text] of Object.entries(source.passages)) {
 							const heading = source.headings?.[id] ?? "";
 
-							passage.run(source.id, id, tier, source.kind, source.title, heading, text, fresh);
+							passage.run(
+								source.id,
+								id,
+								tier,
+								source.kind,
+								source.title,
+								heading,
+								text,
+								fresh,
+								JSON.stringify(basis),
+							);
 							passageFts.run(source.id, id, text, `${source.title} ${heading}`);
 							counted.passages++;
 						}

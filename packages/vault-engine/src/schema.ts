@@ -10,6 +10,9 @@ export const tiers = Tier.literals;
 
 export const SourceType = Schema.Literals(["PRIMARY", "DIRECT", "DERIVED", "GUESS"]);
 export const Relation = Schema.Literals(["source", "supports", "contradicts", "replaces"]);
+export const TopicClass = Schema.Literals(["rapidly-changing", "evolving", "stable"]);
+export type TopicClass = typeof TopicClass.Type;
+
 export const Verdict = Schema.Literals(["supported", "mixed", "contradicted", "new"]);
 
 const pattern = (regExp: RegExp) => Schema.String.check(Schema.isPattern(regExp));
@@ -113,6 +116,7 @@ export const Topic = Schema.Struct({
 	summary: Line,
 	hub: Schema.optionalKey(TopicId),
 	shelfLifeDays: Schema.optionalKey(PositiveInt),
+	classification: Schema.optionalKey(TopicClass),
 	/** Heading order in the projected note. Headings not listed sort after these. */
 	headings: Schema.Array(Line),
 });
@@ -121,6 +125,16 @@ export type Topic = typeof Topic.Type;
 export const Gap = Schema.Struct({ ref: Line, reason: Line });
 
 const Ref = Schema.Union([ClaimId, SourceId]);
+
+export const ResearchRecheck = Schema.Struct({
+	topic: TopicId,
+	source: SourceId,
+	outcome: Schema.Literals(["changed", "unchanged"]),
+	checkedAt: Timestamp,
+	/** Days since capture or the preceding unchanged check of this source. */
+	intervalDays: PositiveInt,
+});
+export type ResearchRecheck = typeof ResearchRecheck.Type;
 
 export const Run = Schema.Struct({
 	id: RunId,
@@ -135,6 +149,7 @@ export const Run = Schema.Struct({
 	reused: Schema.Array(Ref),
 	stale: Schema.Array(Ref),
 	gaps: Schema.Array(Gap),
+	rechecks: Schema.optionalKey(Schema.Array(ResearchRecheck)),
 });
 export type Run = typeof Run.Type;
 
@@ -150,6 +165,79 @@ export function freshness(source: Source, topicShelfLifeDays: number | undefined
 	const age = now.getTime() - new Date(source.captured).getTime();
 
 	return age > days * 86_400_000 ? "stale" : "fresh";
+}
+
+/** Defaults are policy starting points, not observations of a source. */
+const CLASS_SHELF_LIFE_DAYS: Record<TopicClass, number> = {
+	"rapidly-changing": 30,
+	evolving: 90,
+	stable: 365,
+};
+
+export const FreshnessBasis = Schema.Struct({
+	shelfLifeDays: PositiveInt,
+	basis: Schema.Literals([
+		"source-override",
+		"topic-override",
+		"classification",
+		"default",
+		"recheck",
+	]),
+	classification: Schema.optionalKey(TopicClass),
+	lastCheckedAt: Schema.optionalKey(Timestamp),
+	correction: Schema.optionalKey(ResearchRecheck),
+	sourceCheck: Schema.optionalKey(ResearchRecheck),
+});
+export type FreshnessBasis = typeof FreshnessBasis.Type;
+
+/** Derive the policy from the topic's recorded observations, in chronological order. */
+export function freshnessBasis(
+	source: Source,
+	topic: Topic | undefined,
+	history: readonly ResearchRecheck[],
+): FreshnessBasis {
+	const checks = history
+		.filter((check) => check.topic === topic?.id)
+		.toSorted((a, b) => a.checkedAt.localeCompare(b.checkedAt) || a.source.localeCompare(b.source));
+	const sourceCheck = checks.filter((check) => check.source === source.id).at(-1);
+	const lastCheckedAt = sourceCheck?.outcome === "unchanged" ? sourceCheck.checkedAt : undefined;
+	const classification = topic?.classification;
+	const initial =
+		classification === undefined ? DEFAULT_SHELF_LIFE_DAYS : CLASS_SHELF_LIFE_DAYS[classification];
+	let days = initial;
+	for (const check of checks) {
+		days =
+			check.outcome === "changed"
+				? Math.min(days, Math.max(1, Math.floor(check.intervalDays / 2)))
+				: Math.min(initial * 2, Math.max(days, check.intervalDays));
+	}
+	const correction = checks.at(-1);
+	return {
+		shelfLifeDays: source.shelfLifeDays ?? topic?.shelfLifeDays ?? days,
+		basis:
+			source.shelfLifeDays !== undefined
+				? "source-override"
+				: topic?.shelfLifeDays !== undefined
+					? "topic-override"
+					: correction !== undefined
+						? "recheck"
+						: classification !== undefined
+							? "classification"
+							: "default",
+		...(classification === undefined ? {} : { classification }),
+		...(lastCheckedAt === undefined ? {} : { lastCheckedAt }),
+		...(correction === undefined ? {} : { correction }),
+		...(sourceCheck === undefined ? {} : { sourceCheck }),
+	};
+}
+
+export function freshnessWithBasis(source: Source, basis: FreshnessBasis, now: Date) {
+	if (source.status !== "active") return source.status;
+	if (basis.sourceCheck?.outcome === "changed") return "stale";
+	const since = basis.lastCheckedAt ?? source.captured;
+	return now.getTime() - new Date(since).getTime() > basis.shelfLifeDays * 86_400_000
+		? "stale"
+		: "fresh";
 }
 
 export function slug(text: string): string {

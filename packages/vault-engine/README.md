@@ -58,8 +58,23 @@ retirement that was interrupted between tiers.
 
 `vault reindex` rebuilds `<root>/index.sqlite` and swaps it in with one rename. Each claim is
 indexed with its topic title and heading as retrieval context, and stored with its sources and
-their freshness. A source is `fresh` until it is older than its shelf life (the source's own, else
-the topic's, else 365 days); `replaced` and `retracted` override age. Recall reads only this file,
+their freshness. A source is `fresh` until it is older than its shelf life. Explicit source and topic
+`shelfLifeDays` values take precedence, in that order. Otherwise a topic may be classified as
+`rapidly-changing` (30 days), `evolving` (90 days), or `stable` (365 days). An unclassified topic
+uses the existing 365-day default. These are conservative policy starting points, not evidence of
+how often a particular source changes.
+
+A `research_run` can record `rechecks: [{ "topic": "Topic title", "source": "src-…", "outcome":
+"unchanged" | "changed" }]` only for checks actually performed. Each record stores the check time
+and whole days since capture or the previous unchanged check. For a topic without an explicit
+shelf life, replaying its checks shortens the policy to at most half a changed interval (minimum one
+day), and lengthens it to an unchanged interval up to twice the starting policy. This is a policy
+heuristic: a changed interval does not establish when the change occurred. The most recent unchanged
+check of a source restarts its freshness clock for that topic; a changed check marks that source
+stale until it is checked unchanged or replaced. Source retirement and claim replacement remain
+explicit operations. `research_check` and recall expose the policy basis, correction and source
+check so callers can distinguish observations from defaults. Standalone passages have no topic
+context and use source overrides or the unclassified default. After upgrading, rebuild old indexes with `vault reindex`. `replaced` and `retracted` override age. Recall reads only this file,
 as does any other reader such as a per-prompt recall hook.
 
 `vault project [dir]` regenerates the Obsidian vault:

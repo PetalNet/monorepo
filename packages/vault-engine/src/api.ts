@@ -137,7 +137,7 @@ export const operations = [
 	operation({
 		name: "research_run",
 		description:
-			"Record a finished research run: topics, quoted passages, claims with verdicts and typed links, reused IDs and gaps. Every cited source must already be in the vault (use source_add). Returns the run and its run note, the root of the tree.",
+			"Record a finished research run: topics, quoted passages, claims with verdicts and typed links, actual source rechecks, reused IDs and gaps. Every cited source must already be in the vault (use source_add). Returns the run and its run note, the root of the tree.",
 		input: Schema.Struct({ ...ResearchRunInput.fields, tier }),
 		output: Schema.Struct({ run: Run, note: Schema.String }),
 		handler: ({ tier: chosen = "shared", ...input }) =>

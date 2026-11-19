@@ -663,6 +663,7 @@ function danglingOrPrivate(tier: Tier, view: VaultView) {
 			...run.updated,
 			...run.reused,
 			...run.stale,
+			...(run.rechecks ?? []).flatMap((check) => [check.topic, check.source]),
 		]),
 	];
 	const bad = refs.find((id) => !reachable(id));
