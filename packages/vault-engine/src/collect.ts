@@ -133,34 +133,50 @@ const decodeEntities = (text: string) =>
 		return ENTITIES[String(name).toLowerCase()] ?? whole;
 	});
 
-const withoutDataUris = (text: string) => text.replaceAll(DATA_URI, "");
+/**
+ * Removes every match, again and again until none is left: what one pass leaves on either side of a
+ * match could otherwise join into the very thing being removed (`<scr<script></script>ipt>`).
+ */
+function without(text: string, pattern: RegExp, replacement = ""): string {
+	let result = text;
+	let before: string;
+
+	do {
+		before = result;
+		result = result.replaceAll(pattern, replacement);
+	} while (result !== before);
+
+	return result;
+}
+
+const withoutDataUris = (text: string) => without(text, DATA_URI, " ");
 
 /**
  * Reduces an HTML page to the markdown a reader would want from it: headings, text, list items and
  * links. Scripts, styles, comments, inline data and embedded media are dropped with their content.
  */
 function htmlToMarkdown(html: string): string {
-	const inline = (inner: string) => oneLine(inner.replaceAll(TAG, " "));
+	const inline = (inner: string) => oneLine(without(inner, TAG, " "));
 
-	return decodeEntities(
-		withoutDataUris(bare(html.replaceAll(RAW_TEXT, " ")))
-			.replaceAll(EMBEDDED, " ")
-			.replaceAll(HEADING, (_whole, level, inner) => {
-				const text = inline(String(inner));
+	// Raw text goes first, so a data URI cannot eat a comment's end.
+	const tagged = bare(withoutDataUris(without(html, RAW_TEXT, " ")))
+		.replaceAll(EMBEDDED, " ")
+		.replaceAll(HEADING, (_whole, level, inner) => {
+			const text = inline(String(inner));
 
-				return text === "" ? "\n\n" : `\n\n${"#".repeat(Number(level))} ${text}\n\n`;
-			})
-			.replaceAll(LINK, (_whole, url, inner) => {
-				const text = inline(String(inner));
+			return text === "" ? "\n\n" : `\n\n${"#".repeat(Number(level))} ${text}\n\n`;
+		})
+		.replaceAll(LINK, (_whole, url, inner) => {
+			const text = inline(String(inner));
 
-				return text === "" || text === url ? String(url) : `[${text}](${String(url)})`;
-			})
-			.replaceAll("<br>", "\n")
-			.replaceAll("<li>", "\n- ")
-			.replaceAll(/<\/t[dh]>/g, " | ")
-			.replaceAll(BLOCK, "\n\n")
-			.replaceAll(TAG, ""),
-	)
+			return text === "" || text === url ? String(url) : `[${text}](${String(url)})`;
+		})
+		.replaceAll("<br>", "\n")
+		.replaceAll("<li>", "\n- ")
+		.replaceAll(/<\/t[dh]>/g, " | ")
+		.replaceAll(BLOCK, "\n\n");
+
+	return decodeEntities(without(tagged, TAG))
 		.split("\n")
 		.map((line) => line.replaceAll(/[ \t ]+/g, " ").trim())
 		.join("\n")
