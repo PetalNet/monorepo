@@ -4,9 +4,10 @@
 //              --data-class <public|sensitive|parcs> <brief-file>
 //
 // Exit codes: 0 completed/picked, 1 failed, 2 bad input, 3 no eligible offer, 5 Claude handoff.
+import { spawnSync } from "node:child_process";
 import { readFileSync, realpathSync } from "node:fs";
 import { homedir } from "node:os";
-import { pathToFileURL } from "node:url";
+import { fileURLToPath, pathToFileURL } from "node:url";
 import { parseArgs } from "node:util";
 
 import {
@@ -18,7 +19,8 @@ import {
 } from "@petalnet/harness-hooks/quota-sources";
 
 import { redact } from "./adapters.ts";
-import { evidenceKey, readEvidence } from "./evidence.ts";
+import { evidenceKey, halfLifeDays, readEvidence } from "./evidence.ts";
+import { readOpenEvidence } from "./open-evidence.ts";
 import {
 	BLOCKS,
 	POOLS,
@@ -33,7 +35,7 @@ import { run } from "./run.ts";
 import { readAvailability } from "./state.ts";
 
 const USAGE =
-	"usage: route <pick --dry|explain|run> --kind <code|ui|research|write|sweep|cyber|architecture> --tier <S|A|B|C|top|mid|fast|cheap> --data-class <public|sensitive|parcs> <brief-file for pick; brief text for run>";
+	"usage: route pull-evidence | route <pick --dry|explain|run> --kind <code|ui|research|write|sweep|cyber|architecture> --tier <S|A|B|C|top|mid|fast|cheap> --data-class <public|sensitive|parcs> <brief-file for pick; brief text for run>";
 const TIER_ALIASES: Record<string, string> = { top: "S", mid: "A", fast: "B", cheap: "C" };
 const KINDS = new Set(["code", "ui", "research", "write", "sweep", "cyber", "architecture"]);
 const SECRET_RE =
@@ -116,6 +118,20 @@ export function formatPick(result: Pick, kind: string, tier: string): string {
 }
 
 async function main(argv: string[]): Promise<number> {
+	if (argv.length === 1 && argv[0] === "pull-evidence") {
+		const pulled = spawnSync(
+			"python3",
+			[fileURLToPath(new URL("pull_evidence.py", import.meta.url))],
+			{ stdio: "inherit" },
+		);
+
+		if (pulled.error) {
+			process.stderr.write("route: cannot start python3 evidence puller\n");
+		}
+
+		return pulled.status ?? 1;
+	}
+
 	let parsed;
 
 	try {
@@ -188,8 +204,14 @@ async function main(argv: string[]): Promise<number> {
 		readCodex(config, deps),
 		readClaude(config, deps),
 	]);
+	const aa = readEvidence(`${home}/.claude/shared/aa-models.json`);
+	const open = readOpenEvidence(`${home}/.local/state/router/evidence-open.json`);
 	const state = {
-		evidence: readEvidence(`${home}/.claude/shared/aa-models.json`),
+		evidence: {
+			rows: [...aa.rows, ...open.rows],
+			unmapped: [...aa.unmapped.map((name) => `AA: ${name}`), ...open.unmapped],
+			notes: [...aa.notes, ...open.notes],
+		},
 		nowMs: Date.now(),
 		dataClass,
 		reports: { "google-ai": google, codex, claude },
@@ -214,7 +236,7 @@ async function main(argv: string[]): Promise<number> {
 
 	if (command === "explain") {
 		process.stdout.write(
-			`${state.evidence.notes.join("\n")}\nUnmapped AA slugs: ${state.evidence.unmapped.join(", ")}\n`,
+			`${state.evidence.notes.join("\n")}\nUnmapped source names: ${state.evidence.unmapped.join(", ")}\n`,
 		);
 
 		const unmapped = offersFrom(catalog, kind, state.pools).filter(
@@ -225,7 +247,7 @@ async function main(argv: string[]): Promise<number> {
 		);
 
 		process.stdout.write(
-			`Catalog models without an AA mapping: ${unmapped.map((offer) => offer.id).join(", ")}\n`,
+			`Catalog models without evidence: ${unmapped.map((offer) => offer.id).join(", ")}\n`,
 		);
 
 		const candidates = [
@@ -248,8 +270,14 @@ async function main(argv: string[]): Promise<number> {
 			);
 
 			process.stdout.write(
-				`  ${score.signals.map((s) => `${s.signal}=${s.value.toFixed(3)} [${s.kind}; ${s.src}; ${s.asof}; ${s.url}]`).join("\n  ")}\n  missing: ${score.missing.join(", ")}\n  ${score.assumptions.join("; ")}\n`,
+				`  ${score.signals.map((s) => `${s.signal}=${s.value.toFixed(3)} [${s.kind}; ${s.src}; effort=${s.effort}; reporter=${s.reporter ?? s.src}; half-life=${String(halfLifeDays(s))}d; ${s.asof}; ${s.url}]`).join("\n  ")}\n  missing: ${score.missing.join(", ")}\n  ${score.assumptions.join("; ")}\n`,
 			);
+
+			for (const s of score.crossChecks) {
+				process.stdout.write(
+					`  cross-check (unweighted): ${s.signal}=${s.value.toFixed(3)} [${s.kind}; ${s.src}; effort=${s.effort}; reporter=${s.reporter ?? s.src}; half-life=${String(halfLifeDays(s))}d; ${s.asof}; ${s.url}]\n`,
+				);
+			}
 		}
 	}
 

@@ -8,7 +8,7 @@
 	"type": "module",
 	"scripts": {
 		"typecheck": "effect-tsgo tsrs -b",
-		"test": "vitest run"
+		"test": "vitest run && python3 -W error -m unittest discover -s src -p 'test_*.py'"
 	},
 	"dependencies": {
 		"@petalnet/harness-hooks": "workspace:*"

@@ -4,7 +4,7 @@ import path from "node:path";
 
 import { afterEach, expect, it, vi } from "vitest";
 
-import { classify, launch, redact, resetTime } from "./adapters.ts";
+import { classify, execute, launch, redact, resetTime } from "./adapters.ts";
 import { POOLS, offersFrom, pick, type State, type Catalog } from "./pick.ts";
 import { run } from "./run.ts";
 import { markUnavailable, readAvailability, seedLedger } from "./state.ts";
@@ -90,7 +90,7 @@ it.each([
 			attempts.push(offer.id);
 
 			return attempts.length === 1
-				? { code: 1, out: "", log: message }
+				? { code: 1, out: "", log: `AGY_ERROR: ${message}` }
 				: { code: 0, out: "ok", log: "" };
 		},
 	});
@@ -126,7 +126,7 @@ it("retries a transient exactly once after 30 seconds then falls through", async
 			return {
 				code: attempts.length < 3 ? 1 : 0,
 				out: attempts.length < 3 ? "" : "ok",
-				log: attempts.length < 3 ? "503 interrupted" : "",
+				log: attempts.length < 3 ? "ERROR: 503 interrupted" : "",
 			};
 		},
 	});
@@ -229,7 +229,7 @@ it("allows overflow at zero quota but still honors a real cooldown", () => {
 it("parses reset durations and absolute timestamps", () => {
 	expect(resetTime("Resets in 2h 3m 4s", 0)).toBe(7384000);
 	expect(resetTime("reset_at: 2026-11-20T10:00:00Z", 0)).toBe(Date.parse("2026-11-20T10:00:00Z"));
-	expect(classify({ code: 1, out: "", log: "model_not_found" })).toBe("bad-offer");
+	expect(classify({ code: 1, out: "", log: "AGY_ERROR: model_not_found" })).toBe("bad-offer");
 	expect(redact('"api_key": "secret-value"')).not.toContain("secret-value");
 });
 
@@ -335,12 +335,12 @@ it("never returns to an exhausted pool even after its reset expires during fallb
 			attempts.push(offer.id);
 
 			if (attempts.length === 1) {
-				return { code: 1, out: "", log: "429 Resets in 1s" };
+				return { code: 1, out: "", log: "AGY_ERROR: 429 Resets in 1s" };
 			}
 
 			now += 2000;
 
-			return { code: 1, out: "", log: "model_not_found" };
+			return { code: 1, out: "", log: "AGY_ERROR: model_not_found" };
 		},
 	});
 
@@ -350,4 +350,72 @@ it("never returns to an exhausted pool even after its reset expires during fallb
 
 	expect(saved.badOffers["codex:gpt-test"]).toBe(now + 86400000);
 	expect(saved.cooldowns["google-ai:gemini"]).toBeLessThan(now);
+});
+
+it("does not cool down a pool because a failed builder transcript mentions rate limits", async () => {
+	const options = await fixture();
+	const adapter = path.join(options.dir, "adapter");
+
+	await writeFile(
+		adapter,
+		`#!/bin/sh
+printf '%s\\n' 'ERROR: 429 rate limit; Resets in 99h'
+printf '%s\\n' 'builder: saw 429 RESOURCE_EXHAUSTED rate limit' 'quoted ERROR: authentication failed' '500 records' >&2
+exit 1
+`,
+		{ mode: 0o700 },
+	);
+
+	const result = await run({
+		...options,
+		launch: () => execute(adapter, [], "", options.cwd),
+	});
+
+	expect(result.code).toBe(1);
+
+	expect(await readAvailability(options.dir)).toEqual({
+		cooldowns: {},
+		badOffers: {},
+		signedOut: {},
+	});
+
+	const rows = await events(options.dir);
+
+	expect(rows.filter((row) => row["event"] === "launch")).toHaveLength(1);
+	expect(rows.find((row) => row["event"] === "outcome")?.["failureClass"]).toBe("unknown");
+});
+
+it("uses only adapter error lines for cooldown timestamps", async () => {
+	const options = await fixture();
+	const now = Date.now();
+
+	vi.spyOn(Date, "now").mockReturnValue(now);
+
+	await run({
+		...options,
+		launch: () => ({
+			code: 1,
+			out: "Resets in 99h",
+			log: "Resets in 99h\nAGY_ERROR: 429 Resets in 1s",
+		}),
+	});
+
+	expect((await readAvailability(options.dir)).cooldowns["google-ai:gemini"]).toBe(now + 1000);
+});
+
+it.each([
+	["429 RESOURCE_EXHAUSTED", "quota"],
+	["usage limit reached", "quota"],
+	["rate limit reached", "quota"],
+	["quota exceeded", "quota"],
+	["model_not_found", "bad-offer"],
+	["401 authentication failed", "auth"],
+	["503 interrupted", "transient"],
+] as const)("classifies %s only on adapter error lines", (message, expected) => {
+	for (const prefix of ["AGY_ERROR:", "ERROR:"]) {
+		expect(classify({ code: 1, out: "", log: `${prefix} ${message}` })).toBe(expected);
+		expect(classify({ code: 1, out: `${prefix} ${message}`, log: "" })).toBe("unknown");
+		expect(classify({ code: 1, out: "", log: `builder: ${prefix} ${message}` })).toBe("unknown");
+		expect(classify({ code: 0, out: "ok", log: `${prefix} ${message}` })).toBeNull();
+	}
 });

@@ -29,6 +29,14 @@ export function redact(text: string): string {
 		);
 }
 
+/** Only stderr's adapter protocol lines carry failure or reset metadata. */
+export function adapterErrors(result: Execution): string {
+	return result.log
+		.split(/\r?\n/u)
+		.filter((line) => /^(?:AGY_ERROR:|ERROR:)/u.test(line))
+		.join("\n");
+}
+
 export function classify(result: Execution): Failure | null {
 	if (result.code === 0 && result.out.trim()) {
 		if (result.out.trim() === "What would you like to work on?") {
@@ -38,9 +46,9 @@ export function classify(result: Execution): Failure | null {
 		return null;
 	}
 
-	const text = `${result.log}\n${result.out}`;
+	const text = adapterErrors(result);
 
-	if (/\b429\b|RESOURCE_EXHAUSTED|Resets in/iu.test(text)) {
+	if (/\b429\b|RESOURCE_EXHAUSTED|Resets in|\b(?:usage limit|rate limit|quota)\b/iu.test(text)) {
 		return "quota";
 	}
 
@@ -123,7 +131,7 @@ export function execute(
 		});
 
 		child.on("error", () => {
-			log += "adapter could not start";
+			log += "\nERROR: adapter could not start";
 		});
 
 		child.stdin.on("error", () => {
@@ -131,7 +139,11 @@ export function execute(
 		});
 
 		child.on("close", (code, signal) => {
-			resolve({ code: code ?? 1, out, log: signal ? `${log}\ninterrupted (${signal})` : log });
+			resolve({
+				code: code ?? 1,
+				out,
+				log: signal ? `${log}\nERROR: interrupted (${signal})` : log,
+			});
 		});
 
 		child.stdin.end(input);

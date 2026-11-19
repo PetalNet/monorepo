@@ -2,7 +2,7 @@
 // hard rules drop offers (all reasons kept), and the survivors are ranked inside a tier band.
 import type { ServiceName, ServiceReport } from "@petalnet/harness-hooks/quota-sources";
 
-import { evidenceKey, scoreEvidence, type Evidence, type Score } from "./evidence.ts";
+import { evidenceKey, PROFILES, scoreEvidence, type Evidence, type Score } from "./evidence.ts";
 import type { Availability } from "./state.ts";
 
 export type DataClass = "public" | "sensitive" | "parcs";
@@ -396,17 +396,60 @@ export function pick(catalog: Catalog, kind: string, tier: string, state: State)
 
 		const headroom = j.offer.pool ? (pools.get(j.offer.pool)?.headroom ?? 100) : 0;
 
-		const evidence = state.evidence
+		let evidence = state.evidence
 			? scoreEvidence(state.evidence, j.offer.model, j.offer.effort, kind, state.nowMs, headroom)
 			: undefined;
+		let selectedEffort = evidenceKey(j.offer.model, j.offer.effort).effort;
+
+		// Unsuffixed Codex catalog entries permit effort selection; explicit offers stay fixed.
+		if (
+			state.evidence &&
+			evidence &&
+			j.offer.effort === "default" &&
+			j.offer.provider === "codex"
+		) {
+			const efforts = new Set(
+				state.evidence.rows
+					.filter(
+						(row) =>
+							row.model === j.offer.model &&
+							row.kind === "measured" &&
+							row.effort !== "unspecified" &&
+							(PROFILES[kind]?.[row.signal] ?? 0) > 0,
+					)
+					.map((row) => row.effort),
+			);
+			const sourceEvidence = state.evidence;
+			const candidates = [
+				{ effort: selectedEffort, score: evidence },
+				...[...efforts].map((effort) => ({
+					effort,
+					score: scoreEvidence(sourceEvidence, j.offer.model, effort, kind, state.nowMs, headroom),
+				})),
+			];
+			const coverageFloor = candidates.some(({ score }) => score.coverage + 1e-12 >= 0.5)
+				? 0.5
+				: 0.3;
+			const best = candidates
+				.filter(({ score }) => score.coverage + 1e-12 >= coverageFloor)
+				.toSorted((a, b) => b.score.utility - a.score.utility)[0];
+
+			if (best) {
+				evidence = best.score;
+				selectedEffort = best.effort;
+
+				evidence.assumptions.push(
+					`selected ${selectedEffort} by utility among candidate ${kind} efforts with coverage >=${String(coverageFloor)}; catalog effort unspecified`,
+				);
+			}
+		}
+
 		const useEvidence = evidence !== undefined && evidence.coverage + 1e-12 >= 0.3;
-		const offer = useEvidence
-			? { ...j.offer, effort: evidenceKey(j.offer.model, j.offer.effort).effort }
-			: j.offer;
+		const offer = useEvidence ? { ...j.offer, effort: selectedEffort } : j.offer;
 		// Convert the historical index to the same 0..1 quality scale for mixed rankings.
 		const tableRank = j.offer.score + j.offer.bonus + headroom / 1000;
 		const rank = state.evidence
-			? useEvidence
+			? useEvidence && evidence
 				? evidence.utility
 				: (kind === "sweep" ? 2 : 10) * (0.45 + 0.47 * Math.min(1, tableRank / 100))
 			: tableRank;

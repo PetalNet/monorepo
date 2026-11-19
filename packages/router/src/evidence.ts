@@ -9,6 +9,8 @@ export interface EvidenceRow {
 	kind: "measured" | "vendor" | "interpolated" | "family-prior";
 	asof: string;
 	url: string;
+	reporter?: string;
+	halfLifeDays?: number;
 }
 export interface Evidence {
 	rows: EvidenceRow[];
@@ -154,12 +156,14 @@ export const PROFILES: Record<string, Record<string, number>> = {
 		mmmuPro: 0.1,
 	},
 	write: {
-		arena_creative: 0.3,
-		eqbench: 0.25,
+		arena_creative: 0.25,
+		arena_text: 0.1,
+		eqbench_creative_v3: 0.2,
+		eqbench4: 0.05,
 		"personalityBench.scores.slop": 0.07,
 		"personalityBench.scores.direct": 0.06,
 		"personalityBench.scores.informationDense": 0.07,
-		"briefcaseBreakdown.overall.elo": 0.15,
+		"briefcaseBreakdown.overall.elo": 0.1,
 		gdpval: 0.1,
 	},
 	research: {
@@ -219,8 +223,22 @@ export function resolveSignal(
 		return exact;
 	}
 
+	// Upstream's unspecified effort is model-level evidence, never an effort alias.
+	const modelLevel = candidates
+		.filter((r) => r.model === model && r.effort === "unspecified")
+		.toSorted(
+			(a, b) =>
+				RELIABILITY[b.kind] - RELIABILITY[a.kind] || Date.parse(b.asof) - Date.parse(a.asof),
+		)[0];
+
+	if (modelLevel) {
+		return modelLevel;
+	}
+
 	const at = EFFORTS.indexOf(effort);
-	const measured = candidates.filter((r) => r.model === model && r.kind === "measured");
+	const measured = candidates.filter(
+		(r) => r.model === model && r.kind === "measured" && EFFORTS.includes(r.effort),
+	);
 	const lo = measured
 		.filter((r) => EFFORTS.indexOf(r.effort) < at)
 		.toSorted((a, b) => EFFORTS.indexOf(b.effort) - EFFORTS.indexOf(a.effort))[0];
@@ -237,7 +255,7 @@ export function resolveSignal(
 			effort,
 			value: lo.value + fraction * (hi.value - lo.value),
 			kind: "interpolated",
-			src: `AA interpolation ${lo.effort}..${hi.effort}`,
+			src: `${lo.src} interpolation ${lo.effort}..${hi.effort}`,
 			asof: lo.asof < hi.asof ? lo.asof : hi.asof,
 		};
 	}
@@ -249,7 +267,14 @@ export function resolveSignal(
 	const first = peers.toSorted((a, b) => Date.parse(a.asof) - Date.parse(b.asof))[0];
 
 	return first && value !== undefined
-		? { ...first, model, effort, value, kind: "family-prior", src: `AA ${family(model)} median` }
+		? {
+				...first,
+				model,
+				effort,
+				value,
+				kind: "family-prior",
+				src: `${first.src} ${family(model)} median`,
+			}
 		: undefined;
 }
 
@@ -279,6 +304,7 @@ export interface Score {
 	cost: number;
 	seconds: number;
 	signals: EvidenceRow[];
+	crossChecks: EvidenceRow[];
 	missing: string[];
 	assumptions: string[];
 }
@@ -320,8 +346,7 @@ export function scoreEvidence(
 
 		const confidence =
 			RELIABILITY[row.kind] *
-			0.5 **
-				(Math.max(0, now - Date.parse(row.asof)) / 86400000 / (row.kind === "vendor" ? 365 : 180));
+			0.5 ** (Math.max(0, now - Date.parse(row.asof)) / 86400000 / halfLifeDays(row));
 
 		numerator += weight * confidence * percentile(evidence.rows, row);
 		denominator += weight * confidence;
@@ -340,6 +365,21 @@ export function scoreEvidence(
 		"M task: 12000 output tokens at catalog median; V=10 (sweep=2); batch latency=.05/min",
 		"pool fraction proxy=.01 × task dollars; pace unknown, rho=1",
 	];
+
+	if (signals.some((row) => row.effort === "unspecified")) {
+		assumptions.push(
+			"unspecified effort: model-level coverage only; no claim of effort/harness equivalence",
+		);
+	}
+
+	const crossChecks =
+		kind === "code" || kind === "architecture" || kind === "research"
+			? ["epoch_gpqa", "epoch_mirrorcode", "epoch_swe_verified"].flatMap((signal) => {
+					const row = resolveSignal(evidence.rows, key.model, key.effort, signal);
+
+					return row && row.kind !== "family-prior" ? [row] : [];
+				})
+			: [];
 	const metric = (signal: string, fallback: number) => {
 		const row = resolveSignal(evidence.rows, key.model, key.effort, signal);
 
@@ -375,7 +415,19 @@ export function scoreEvidence(
 		cost,
 		seconds,
 		signals,
+		crossChecks,
 		missing,
 		assumptions,
 	};
+}
+
+export function halfLifeDays(row: EvidenceRow): number {
+	return (
+		row.halfLifeDays ??
+		(row.kind === "vendor"
+			? 365
+			: ["Arena", "DesignArena", "EQ-Bench"].includes(row.src)
+				? 90
+				: 180)
+	);
 }

@@ -4,7 +4,15 @@ import { mkdir, stat, writeFile, appendFile } from "node:fs/promises";
 import path from "node:path";
 import { setTimeout } from "node:timers/promises";
 
-import { classify, execute, launch, redact, resetTime, type Execution } from "./adapters.ts";
+import {
+	adapterErrors,
+	classify,
+	execute,
+	launch,
+	redact,
+	resetTime,
+	type Execution,
+} from "./adapters.ts";
 import { pick, type Catalog, type Offer, type State } from "./pick.ts";
 import { appendEvent, markUnavailable, readAvailability, seedLedger } from "./state.ts";
 
@@ -157,7 +165,7 @@ export async function run(
 						dir,
 						"cooldowns",
 						pool.id,
-						resetTime(`${result.log}\n${result.out}`, endedAt),
+						resetTime(adapterErrors(result), endedAt),
 					);
 				}
 
