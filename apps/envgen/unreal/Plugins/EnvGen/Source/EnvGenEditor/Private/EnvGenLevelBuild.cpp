@@ -519,10 +519,9 @@ namespace
 		Mesh->GetStaticMaterials().Add(FStaticMaterial(Material, FName(TEXT("Blade"))));
 		UStaticMesh::FBuildMeshDescriptionsParams Params;
 		Params.bBuildSimpleCollision = false;
-		// A Nanite mesh, and so a full build: on 5.8.4 the engine builds a plain tuft's instances but draws none of
-		// them unless Nanite foliage (the trees) is also in the level. A Nanite tuft draws either way.
+		// A full build, not a fast one: on 5.8.4 the engine builds a fast-built tuft's instances and draws none of
+		// them in a level without Nanite foliage (gates/grass-drawn.ps1). What the fast build leaves out is not known.
 		Params.bFastBuild = false;
-		Mesh->NaniteSettings.bEnabled = true;
 		Mesh->BuildFromMeshDescriptions({&Description}, Params);
 		return Mesh;
 	}

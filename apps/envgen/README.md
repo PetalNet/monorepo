@@ -251,13 +251,16 @@ project makes grass maps while the game runs (`grass.GrassMap.UseRuntimeGenerati
 regenerated, never cooked. The tuft size, density and cull distance are looks, not measurements; no source
 gives a cover's height or density yet.
 
-The tuft is a Nanite mesh. On 5.8.4 the engine builds a plain tuft's instances and draws none of them unless
-Nanite foliage, which the trees are, is also in the level; a level without trees showed bare ground. Why is
-not known. A tour counts the tufts the engine has built near the camera (below), and a pair of stills, one
-taken with `grass.Enable=0`, shows whether they are drawn.
+The tuft mesh is built in full, not with the fast build. On 5.8.4 the engine built a fast-built tuft's
+instances and drew none of them in a level without trees; with the trees, which are Nanite foliage, in the
+level it drew some. What the fast build leaves out is not known, so this avoids the fault without explaining
+it. A tour counts the tufts the engine has built near the camera (below), which that fault does not change;
+`gates/grass-drawn.ps1` checks they are drawn, by comparing a walk frame with the same frame under
+`grass.Enable=0`.
 
 `r.Nanite.Streaming.StreamingPoolSize` is 128 MB in the host project. The engine commits its default of 512
-MB on the card whatever the scene needs, and the trees and tufts draw the same with 128.
+MB on the card whatever the scene needs. 128 is hand-set, not fitted: stills at the fly and walk stations
+and the overview are the same with 128 as with 512, and other views were not compared.
 
 ### Frame and units
 
@@ -347,9 +350,10 @@ A tour also counts grass: each measured frame it adds up the tufts the engine ha
 components within 25 m of the camera, and in the components the camera stands over. The summary has
 `grass_tufts_within_25m`, `fewest_grass_tufts_within_25m` and `frames_with_no_grass_under_the_camera`, and
 the CSV has both counts and the camera's position per frame, so the counts can be set against the grass
-class under the path. A built tuft is not always a drawn one (see Ground materials and grass).
+class under the path. A built tuft is not always a drawn one (see Ground materials and grass), and a component counts whole
+once any of it is within 25 m, so the count is an upper bound for that radius.
 `-EnvGenTourEndCmds="a,b"` runs console commands as the measured period ends, for the engine's own counters
-at that moment, such as `rhi.DumpResourceMemory 40`.
+at that moment, such as `rhi.DumpResourceMemory 40`. A command cannot hold a comma.
 
 For a video, add `-EnvGenTourFrames=<dir> -UseFixedTimeStep -FPS=30`: every measured frame is written as
 a PNG, evenly spaced in game time (`-EnvGenTourFrameEvery=N` keeps every Nth, for stills at fixed points
@@ -364,6 +368,7 @@ Before moving to a new engine version, these show whether it can host the work:
 | The plugin, and any plugin passed with `-ExtraPlugin`, compiles       | `build-level.ps1`                             |
 | A Landscape with collision and a weight layer imports unattended      | `build-level.ps1 -Manifest`, then the receipt |
 | The game starts from a desktop session and a tour records frame times | `run-tour.ps1`                                |
+| Grass tufts are drawn, not only built                                 | `gates/grass-drawn.ps1`                       |
 | A packaged build runs                                                 | `package.ps1`, then `run-tour.ps1 -Exe`       |
 | Meshes made in an older engine load and can be placed on the surface  | `gates/assets_on_surface.py`                  |
 
