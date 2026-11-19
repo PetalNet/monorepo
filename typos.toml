@@ -52,3 +52,8 @@ ba = "ba"
 SER = "SER"
 # India Standard Time, a timezone label in apps/petalboard.
 IST = "IST"
+# wrk is a benchmarking tool in the main-thread-budget command classifier's list.
+wrk = "wrk"
+# Regex fragments in the hook classifiers: "schedul" matches schedule/scheduler, [oOT] is curl's short flags.
+schedul = "schedul"
+OT = "OT"

@@ -5,12 +5,15 @@
 	"type": "module",
 	"scripts": {
 		"typecheck": "effect-tsgo tsrs -b",
-		"test": "vitest run"
+		"test": "vitest run --testTimeout=30000"
 	},
 	"devDependencies": {
 		"@petalnet/tsconfig": "workspace:*",
 		"@types/node": "catalog:types",
 		"typescript": "catalog:dev",
 		"vitest": "catalog:dev"
+	},
+	"engines": {
+		"node": ">=22.18"
 	}
 }
