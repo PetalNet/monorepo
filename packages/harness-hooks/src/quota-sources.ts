@@ -3,7 +3,7 @@
 //   google-ai      agy -p /quota (remaining % inverted to % used)
 //   codex          codex login status (+ latest ~/.codex/sessions rollout when signed in)
 //   cloudflare-ai  Workers AI daily neurons via GraphQL (token from `vault get cf-janet-full-token`)
-//   github-actions PetalNet org monthly private-repo Actions minutes (token from shared/github-pat)
+//   github-actions PetalNet org monthly Actions compute dollars (token from shared/github-pat)
 //   tmobile        1.2 TB cycle + priority-week meter from dot14 ~/.claude/state/data-budget.json
 //
 // Tokens are read once per call, passed directly in Authorization headers, and never printed or returned.
@@ -26,8 +26,8 @@ export interface QuotaLimit {
 	label: string;
 	/** Percentage used (0-100+; may exceed 100 when over a soft/free allocation). */
 	usedPct: number;
-	/** Identifier of the current reset window. */
-	windowId: string;
+	/** Identifier of the current reset window; absent when reset metadata is unavailable. */
+	windowId?: string | undefined;
 	/** Parsed reset time in epoch milliseconds when available. */
 	resetAtMs?: number | undefined;
 	/** Short human-readable reset time. */
@@ -58,6 +58,7 @@ export interface SourceConfig {
 	githubOrg: string;
 	githubTokenFile: string;
 	githubApiUrl: string;
+	/** Monthly included compute allowance in USD (QUOTA_GITHUB_ACTIONS_LIMIT). */
 	githubActionsLimit?: number | undefined;
 	tmobileFile?: string | undefined;
 	tmobileSshHost: string;
@@ -111,11 +112,14 @@ const TZ_OFFSETS: Record<string, string> = {
 	PDT: "-07:00",
 };
 
-const PLAN_INCLUDED_MINUTES: Record<string, number> = {
-	free: 2_000,
-	team: 3_000,
-	pro: 3_000,
-	enterprise: 50_000,
+// GitHub deducts eligible compute costs, not OS-weighted minutes, from these USD allowances.
+// https://docs.github.com/en/billing/concepts/product-billing/github-actions
+// https://docs.github.com/en/billing/reference/product-usage-included
+const PLAN_INCLUDED_COMPUTE: Record<string, number> = {
+	free: 12,
+	team: 18,
+	pro: 18,
+	enterprise: 300,
 };
 
 function envOr(env: NodeJS.ProcessEnv, name: string, fallback: string): string {
@@ -188,7 +192,7 @@ function runCommand(command: string, args: string[], timeoutMs: number): Promise
 					code: exitCode,
 					stdout,
 					stderr,
-					error: err.killed ? `timed out after ${String(timeoutMs)}ms` : err.message,
+					error: err.killed ? `timed out after ${String(timeoutMs)}ms` : "command failed",
 				});
 			},
 		);
@@ -341,15 +345,15 @@ export function parseClaudeUsageJson(text: string, nowMs: number, timeZone: stri
 
 	try {
 		parsed = JSON.parse(text);
-	} catch (err) {
-		const msg = err instanceof Error ? err.message : String(err);
+	} catch {
+		const msg = "invalid usage JSON";
 
 		return {
 			service: "claude",
 			status: "error",
-			summary: `invalid json: ${msg}`,
+			summary: msg,
 			limits: [],
-			error: `invalid json: ${msg}`,
+			error: msg,
 		};
 	}
 
@@ -380,7 +384,7 @@ export function parseClaudeUsageJson(text: string, nowMs: number, timeZone: stri
 			id: "claude:5h",
 			label: "Claude 5h",
 			usedPct: fivePct,
-			windowId: fiveResetMs === undefined ? `5h:${utcDateKey(nowMs)}` : bucketWindowId(fiveResetMs),
+			windowId: fiveResetMs === undefined ? undefined : bucketWindowId(fiveResetMs),
 			resetAtMs: fiveResetMs,
 			resetLabel,
 		});
@@ -403,8 +407,7 @@ export function parseClaudeUsageJson(text: string, nowMs: number, timeZone: stri
 			id: "claude:7d",
 			label: "Claude 7d",
 			usedPct: sevenPct,
-			windowId:
-				sevenResetMs === undefined ? `7d:${utcDateKey(nowMs)}` : bucketWindowId(sevenResetMs),
+			windowId: sevenResetMs === undefined ? undefined : bucketWindowId(sevenResetMs),
 			resetAtMs: sevenResetMs,
 			resetLabel: sevenResetLabel,
 		});
@@ -437,8 +440,7 @@ export function parseClaudeUsageJson(text: string, nowMs: number, timeZone: stri
 			id: `claude:${slug(name)}`,
 			label: `Claude ${name}`,
 			usedPct: pct,
-			windowId:
-				scopedResetMs === undefined ? `scoped:${utcDateKey(nowMs)}` : bucketWindowId(scopedResetMs),
+			windowId: scopedResetMs === undefined ? undefined : bucketWindowId(scopedResetMs),
 			resetAtMs: scopedResetMs,
 			resetLabel: scopedResetLabel,
 		});
@@ -469,7 +471,7 @@ export function parseClaudeUsageJson(text: string, nowMs: number, timeZone: stri
 }
 
 /** Parses plain-text output from `~/.claude/bin/usage` ("5h … · 7d N% · Fable N%"). */
-export function parseClaudeUsageText(text: string, nowMs: number): ServiceReport {
+export function parseClaudeUsageText(text: string, _nowMs: number): ServiceReport {
 	const line = text.trim().split(/\r?\n/u)[0]?.trim() ?? "";
 
 	if (!line) {
@@ -487,7 +489,6 @@ export function parseClaudeUsageText(text: string, nowMs: number): ServiceReport
 		.split("·")
 		.map((s) => s.trim())
 		.filter(Boolean);
-	const dayKey = utcDateKey(nowMs);
 
 	for (const seg of segments) {
 		if (/\b5h\s+idle\b/iu.test(seg)) {
@@ -501,7 +502,6 @@ export function parseClaudeUsageText(text: string, nowMs: number): ServiceReport
 				id: "claude:7d",
 				label: "Claude 7d",
 				usedPct: Number(sevenMatch[1]),
-				windowId: `7d:${dayKey}`,
 			});
 
 			continue;
@@ -514,7 +514,6 @@ export function parseClaudeUsageText(text: string, nowMs: number): ServiceReport
 				id: "claude:5h",
 				label: "Claude 5h",
 				usedPct: Number(fiveMatch[1]),
-				windowId: `5h:${dayKey}`,
 			});
 
 			continue;
@@ -529,7 +528,6 @@ export function parseClaudeUsageText(text: string, nowMs: number): ServiceReport
 				id: `claude:${slug(name)}`,
 				label: `Claude ${name}`,
 				usedPct: Number(scopedMatch[2]),
-				windowId: `scoped:${dayKey}`,
 			});
 		}
 	}
@@ -538,9 +536,9 @@ export function parseClaudeUsageText(text: string, nowMs: number): ServiceReport
 		return {
 			service: "claude",
 			status: "error",
-			summary: `could not parse usage: ${line}`,
+			summary: "could not parse usage",
 			limits: [],
-			error: `could not parse usage: ${line}`,
+			error: "could not parse usage",
 		};
 	}
 
@@ -559,8 +557,7 @@ export async function readClaude(config: SourceConfig, deps: SourceDeps): Promis
 	const result = await deps.exec(config.claudeUsageCmd, ["--json"], 15_000);
 
 	if (result.code !== 0) {
-		const errText = result.stderr.trim();
-		const msg = errText === "" ? (result.error ?? `exit ${String(result.code)}`) : errText;
+		const msg = `quota command failed (exit ${String(result.code)})`;
 
 		return {
 			service: "claude",
@@ -587,7 +584,7 @@ const ANSI_RE = new RegExp(`${String.fromCodePoint(0x1b)}\\[[0-9;]*[a-zA-Z]`, "g
 /** Parses `agy -p /quota` (both TSV non-TTY and aligned TTY tables) into % used limits. */
 export function parseAgyQuota(
 	text: string,
-	nowMs: number,
+	_nowMs: number,
 	timeZone = "America/Chicago",
 ): ServiceReport {
 	const cleaned = text.replace(ANSI_RE, "");
@@ -632,8 +629,7 @@ export function parseAgyQuota(
 				? "7d"
 				: slug(windowDesc);
 		const resetAtMs = parseResetTimestamp(resetText);
-		const windowId =
-			resetAtMs === undefined ? `${windowTag}:${utcDateKey(nowMs)}` : bucketWindowId(resetAtMs);
+		const windowId = resetAtMs === undefined ? undefined : bucketWindowId(resetAtMs);
 		const fallbackReset = resetText === "" ? undefined : resetText;
 		const resetLabel =
 			resetAtMs === undefined ? fallbackReset : formatResetShort(resetAtMs, timeZone);
@@ -655,14 +651,12 @@ export function parseAgyQuota(
 	}
 
 	if (limits.length === 0) {
-		const snippet = cleaned.trim().split(/\r?\n/u)[0] ?? "empty output";
-
 		return {
 			service: "google-ai",
 			status: "error",
-			summary: `no quota rows parsed (${snippet})`,
+			summary: "no quota rows parsed",
 			limits: [],
-			error: `no quota rows parsed (${snippet})`,
+			error: "no quota rows parsed",
 		};
 	}
 
@@ -685,8 +679,7 @@ export async function readGoogleAi(config: SourceConfig, deps: SourceDeps): Prom
 	const result = await deps.exec(config.agyCmd, ["-p", "/quota"], 25_000);
 
 	if (result.code !== 0) {
-		const errText = result.stderr.trim();
-		const msg = errText === "" ? (result.error ?? `exit ${String(result.code)}`) : errText;
+		const msg = `quota command failed (exit ${String(result.code)})`;
 
 		return {
 			service: "google-ai",
@@ -711,10 +704,10 @@ export function parseCodexLoginStatus(
 	const combined = `${stdout}\n${stderr}`.trim();
 
 	if (code !== 0 || /\b(not logged in|signed out|logged out)\b/iu.test(combined)) {
-		return { signedIn: false, detail: combined || "signed out" };
+		return { signedIn: false, detail: "signed out" };
 	}
 
-	return { signedIn: true, detail: combined || "signed in" };
+	return { signedIn: true, detail: "signed in" };
 }
 
 /** Parses OpenAI Codex session `rate_limits` snapshot (`primary` 5h, `secondary` 7d). */
@@ -758,8 +751,7 @@ export function parseCodexRateLimits(raw: unknown, nowMs: number, timeZone: stri
 			id,
 			label: `Codex ${short}`,
 			usedPct: pct,
-			windowId:
-				resetAtMs === undefined ? `${short}:${utcDateKey(nowMs)}` : bucketWindowId(resetAtMs),
+			windowId: resetAtMs === undefined ? undefined : bucketWindowId(resetAtMs),
 			resetAtMs,
 			resetLabel,
 		});
@@ -880,9 +872,9 @@ export async function readCodex(config: SourceConfig, deps: SourceDeps): Promise
 		return {
 			service: "codex",
 			status: "error",
-			summary: result.error,
+			summary: "codex login status failed",
 			limits: [],
-			error: result.error,
+			error: "codex login status failed",
 		};
 	}
 
@@ -935,8 +927,7 @@ export function parseCloudflareNeurons(
 	const gqlErrors = Array.isArray(raw["errors"]) ? raw["errors"] : [];
 
 	if (gqlErrors.length > 0) {
-		const first = isRecord(gqlErrors[0]) ? asString(gqlErrors[0]["message"]) : undefined;
-		const msg = first ?? "cloudflare graphql error";
+		const msg = "cloudflare graphql error";
 
 		return {
 			service: "cloudflare-ai",
@@ -1018,9 +1009,7 @@ export async function readCloudflareAi(
 	const tokenResult = await deps.exec(config.vaultCmd, ["get", config.cfVaultKey], 15_000);
 
 	if (tokenResult.code !== 0) {
-		const msg = tokenResult.error
-			? `vault get failed: ${tokenResult.error}`
-			: `vault get failed (exit ${String(tokenResult.code)})`;
+		const msg = `vault get failed (exit ${String(tokenResult.code)})`;
 
 		return {
 			service: "cloudflare-ai",
@@ -1059,8 +1048,8 @@ export async function readCloudflareAi(
 			}),
 			timeoutMs: 15_000,
 		});
-	} catch (err) {
-		const msg = err instanceof Error ? err.message : "request failed";
+	} catch {
+		const msg = "request failed";
 
 		return {
 			service: "cloudflare-ai",
@@ -1096,29 +1085,15 @@ export async function readCloudflareAi(
 	}
 }
 
-// --- 5. GitHub Actions minutes (PetalNet org) ---
+// --- 5. GitHub Actions compute (PetalNet org) ---
 
-function runnerMultiplier(sku: string): number {
-	const lower = sku.toLowerCase();
-
-	if (lower.includes("macos")) {
-		return 10;
-	}
-
-	if (lower.includes("windows")) {
-		return 2;
-	}
-
-	return 1;
-}
-
-/** Parses GitHub org billing usage items into monthly private-repo Actions minutes vs included cap. */
+/** Parses GitHub billing amounts against the monthly included compute allowance in USD. */
 export function parseGitHubActionsUsage(
 	raw: unknown,
 	publicRepos: ReadonlySet<string>,
 	year: number,
 	month: number,
-	includedMinutes: number,
+	includedCompute: number,
 	org: string,
 ): ServiceReport {
 	if (!isRecord(raw) || !Array.isArray(raw["usageItems"])) {
@@ -1131,7 +1106,7 @@ export function parseGitHubActionsUsage(
 		};
 	}
 
-	let privateMinutes = 0;
+	let privateCompute = 0;
 	let publicMinutes = 0;
 
 	for (const item of raw["usageItems"]) {
@@ -1148,20 +1123,34 @@ export function parseGitHubActionsUsage(
 
 		const quantity = asNumber(item["quantity"]) ?? 0;
 		const repo = asString(item["repositoryName"]) ?? "";
-		const sku = asString(item["sku"]) ?? "";
 
 		if (repo !== "" && publicRepos.has(repo)) {
 			publicMinutes += quantity;
 		} else {
-			privateMinutes += quantity * runnerMultiplier(sku);
+			const grossAmount = asNumber(item["grossAmount"]);
+			const pricePerUnit = asNumber(item["pricePerUnit"]);
+			const amount =
+				grossAmount ?? (pricePerUnit === undefined ? undefined : quantity * pricePerUnit);
+
+			if (amount === undefined || amount < 0) {
+				return {
+					service: "github-actions",
+					status: "error",
+					summary: "missing github compute billing amount",
+					limits: [],
+					error: "missing github compute billing amount",
+				};
+			}
+
+			privateCompute += amount;
 		}
 	}
 
-	const usedPct = Math.round((privateMinutes / includedMinutes) * 1000) / 10;
+	const usedPct = Math.round((privateCompute / includedCompute) * 1000) / 10;
 	const windowId = `${String(year)}-${String(month).padStart(2, "0")}`;
 	const resetAtMs = Date.UTC(year, month, 1);
 	const resetLabel = formatDateShort(resetAtMs, "UTC");
-	const detail = `${fmtInt(privateMinutes)}/${fmtInt(includedMinutes)} private min`;
+	const detail = `$${privateCompute.toFixed(2)}/$${includedCompute.toFixed(2)} private compute`;
 
 	return {
 		service: "github-actions",
@@ -1169,7 +1158,7 @@ export function parseGitHubActionsUsage(
 		summary: `${detail} (${fmtPct(usedPct)}%) · public ${fmtInt(publicMinutes)} min · resets ${resetLabel}`,
 		limits: [
 			{
-				id: "github-actions:private-minutes",
+				id: "github-actions:compute",
 				label: `GitHub Actions (${org} private)`,
 				usedPct,
 				windowId,
@@ -1181,7 +1170,7 @@ export function parseGitHubActionsUsage(
 	};
 }
 
-/** Reads GitHub Actions minutes for the configured org from the GitHub billing API. */
+/** Reads GitHub Actions compute costs for the configured org from the GitHub billing API. */
 export async function readGitHubActions(
 	config: SourceConfig,
 	deps: SourceDeps,
@@ -1194,9 +1183,9 @@ export async function readGitHubActions(
 		return {
 			service: "github-actions",
 			status: "error",
-			summary: `cannot read ${config.githubTokenFile}`,
+			summary: "cannot read github token file",
 			limits: [],
-			error: `cannot read ${config.githubTokenFile}`,
+			error: "cannot read github token file",
 		};
 	}
 
@@ -1252,7 +1241,7 @@ export async function readGitHubActions(
 		return fetchPublicRepos(page + 1, names);
 	}
 
-	async function resolveIncludedMinutes(): Promise<number> {
+	async function resolveIncludedCompute(): Promise<number> {
 		if (config.githubActionsLimit !== undefined) {
 			return config.githubActionsLimit;
 		}
@@ -1260,24 +1249,24 @@ export async function readGitHubActions(
 		const res = await deps.http(`${base}/orgs/${org}`, { headers, timeoutMs: 15_000 });
 
 		if (!res.ok) {
-			return 2_000;
+			return 12;
 		}
 
 		const parsed: unknown = JSON.parse(res.text);
 		const plan =
 			isRecord(parsed) && isRecord(parsed["plan"]) ? asString(parsed["plan"]["name"]) : undefined;
 
-		return (plan ? PLAN_INCLUDED_MINUTES[plan.toLowerCase()] : undefined) ?? 2_000;
+		return (plan ? PLAN_INCLUDED_COMPUTE[plan.toLowerCase()] : undefined) ?? 12;
 	}
 
 	try {
-		const [usageRes, publicRepos, includedMinutes] = await Promise.all([
+		const [usageRes, publicRepos, includedCompute] = await Promise.all([
 			deps.http(
 				`${base}/orgs/${org}/settings/billing/usage?year=${String(year)}&month=${String(month)}`,
 				{ headers, timeoutMs: 15_000 },
 			),
 			fetchPublicRepos(),
-			resolveIncludedMinutes(),
+			resolveIncludedCompute(),
 		]);
 
 		if (!usageRes.ok) {
@@ -1297,11 +1286,11 @@ export async function readGitHubActions(
 			publicRepos,
 			year,
 			month,
-			includedMinutes,
+			includedCompute,
 			config.githubOrg,
 		);
-	} catch (err) {
-		const msg = err instanceof Error ? err.message : "github api failed";
+	} catch {
+		const msg = "github api failed";
 
 		return {
 			service: "github-actions",
@@ -1418,9 +1407,9 @@ export async function readTMobile(config: SourceConfig, deps: SourceDeps): Promi
 			return {
 				service: "tmobile",
 				status: "error",
-				summary: `cannot read ${config.tmobileFile}`,
+				summary: "cannot read data-budget file",
 				limits: [],
-				error: `cannot read ${config.tmobileFile}`,
+				error: "cannot read data-budget file",
 			};
 		}
 	} else {
@@ -1440,8 +1429,7 @@ export async function readTMobile(config: SourceConfig, deps: SourceDeps): Promi
 		);
 
 		if (result.code !== 0) {
-			const errText = result.stderr.trim();
-			const msg = errText === "" ? (result.error ?? `ssh exit ${String(result.code)}`) : errText;
+			const msg = `data-budget ssh failed (exit ${String(result.code)})`;
 
 			return {
 				service: "tmobile",

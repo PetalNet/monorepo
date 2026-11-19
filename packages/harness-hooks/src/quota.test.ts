@@ -217,7 +217,7 @@ describe("quota source parsers", () => {
 		expect(report.limits[0]?.windowId).toBe("2026-11-19");
 	});
 
-	it("parses GitHub Actions private-repo minutes with OS multipliers and excludes public repos", () => {
+	it("parses GitHub Actions private-repo compute costs and excludes public repos", () => {
 		const raw = {
 			usageItems: [
 				{
@@ -231,6 +231,7 @@ describe("quota source parsers", () => {
 					product: "actions",
 					sku: "Actions Linux",
 					quantity: 177,
+					pricePerUnit: 0.006,
 					unitType: "Minutes",
 					repositoryName: "hermes-cc-link",
 				},
@@ -238,6 +239,7 @@ describe("quota source parsers", () => {
 					product: "actions",
 					sku: "Actions Windows",
 					quantity: 50,
+					pricePerUnit: 0.01,
 					unitType: "Minutes",
 					repositoryName: "private-win",
 				},
@@ -250,13 +252,13 @@ describe("quota source parsers", () => {
 				},
 			],
 		};
-		const report = parseGitHubActionsUsage(raw, new Set(["monorepo"]), 2026, 11, 2_000, "PetalNet");
+		const report = parseGitHubActionsUsage(raw, new Set(["monorepo"]), 2026, 11, 12, "PetalNet");
 
 		expect(report.status).toBe("ok");
-		// 177 * 1 + 50 * 2 = 277 private minutes => 13.9% of 2,000
-		expect(report.limits[0]?.usedPct).toBe(13.9);
+		// $1.062 Linux + $0.50 Windows = 13% of the $12 allowance.
+		expect(report.limits[0]?.usedPct).toBe(13);
 		expect(report.limits[0]?.windowId).toBe("2026-11");
-		expect(report.summary).toContain("277/2,000 private min");
+		expect(report.summary).toContain("$1.56/$12.00 private compute");
 		expect(report.summary).toContain("public 74,634 min");
 	});
 
@@ -734,6 +736,7 @@ printf '%s | %s\\n' "$*" "$body" >> "${injectLog}"`,
 								product: "actions",
 								sku: "Actions Linux",
 								quantity: 200,
+								pricePerUnit: 0.006,
 								unitType: "Minutes",
 								repositoryName: "hermes-cc-link",
 							},

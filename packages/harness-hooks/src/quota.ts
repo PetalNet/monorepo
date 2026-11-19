@@ -101,10 +101,8 @@ async function main(argv: string[]): Promise<void> {
 if (process.argv[1] && import.meta.url === pathToFileURL(realpathSync(process.argv[1])).href) {
 	try {
 		await main(process.argv.slice(2));
-	} catch (error: unknown) {
-		const msg = error instanceof Error ? error.message : String(error);
-
-		process.stderr.write(`quota: ${msg}\n`);
+	} catch {
+		process.stderr.write("quota: operation failed\n");
 		process.exitCode = 1;
 	}
 }

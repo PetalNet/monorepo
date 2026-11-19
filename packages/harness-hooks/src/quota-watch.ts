@@ -179,7 +179,7 @@ function runInject(
 		encoding: "utf8",
 		timeout: 30_000,
 	});
-	const output = `${result.stdout}${result.stderr}`.trim() || (result.error?.message ?? "");
+	const output = result.status === 0 ? "" : `cc-link-inject failed (exit ${String(result.status)})`;
 
 	return { ok: result.status === 0, output };
 }
@@ -303,6 +303,10 @@ export async function runCheck(
 		}
 
 		for (const limit of report.limits) {
+			if (limit.windowId === undefined) {
+				continue;
+			}
+
 			const prev = nextLimits.get(limit.id);
 			const same = prev !== undefined && isSameWindow(prev, limit);
 
