@@ -8,7 +8,7 @@
 		"build": "vite build",
 		"start": "node server.js",
 		"preview": "vite preview",
-		"check": "svelte-kit sync && svelte-check --tsconfig ./tsconfig.json",
+		"check": "svelte-kit sync && svelte-check --tsconfig ./tsconfig.json --tsgo-experimental-api",
 		"lint:eslint": "eslint . --max-warnings=0",
 		"prepare": "svelte-kit sync",
 		"test": "node scripts/test-public-share.mjs && node scripts/test-access.mjs && node scripts/test-agent-api.mjs && node scripts/test-janet-home.mjs && node scripts/test-telemetry.mjs && node scripts/test-keeper.mjs && node scripts/test-makkit-docs.mjs"

@@ -10,7 +10,7 @@
 		"lint:eslint": "eslint . --max-warnings=0",
 		"preview": "vite preview",
 		"test": "vitest run",
-		"typecheck": "svelte-check --tsconfig ./tsconfig.json"
+		"typecheck": "svelte-check --tsconfig ./tsconfig.json --tsgo-experimental-api"
 	},
 	"devDependencies": {
 		"@petalnet/tsconfig": "workspace:*",
