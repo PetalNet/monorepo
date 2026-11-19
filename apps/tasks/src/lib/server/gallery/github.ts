@@ -214,7 +214,7 @@ export const GitHubLive = Layer.effect(
 		);
 
 		const scope = yield* Effect.scope;
-		const first = yield* Deferred.make<void>();
+		const first = yield* Deferred.make<undefined>();
 		const last = yield* Ref.make<
 			{ at: number; exit: Exit.Exit<readonly Pull[], GitHubUnavailable> } | undefined
 		>(undefined);
