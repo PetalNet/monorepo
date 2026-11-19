@@ -28,7 +28,7 @@
 		{
 			"description": "One Node.js everywhere: devEngines, every Dockerfile FROM node:, and @types/node move in a single PR that automerges. recreateWhen always keeps a branch whose update was already merged (by hand or by an earlier PR) from being stranded with automerge disabled.",
 			"matchDatasources": ["node-version", "docker"],
-			"matchPackageNames": ["node", "docker.io/library/node"],
+			"matchPackageNames": ["node"],
 			"groupName": "node.js",
 			"automerge": true,
 			"recreateWhen": "always"
