@@ -7,7 +7,7 @@ import { basename } from "node:path";
 // Exit codes: 0 completed/picked, 1 failed, 2 bad input, 3 no eligible offer, 5 Claude handoff.
 import { spawnSync } from "node:child_process";
 import { readFileSync, realpathSync } from "node:fs";
-import { homedir } from "node:os";
+import { userInfo, homedir } from "node:os";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { parseArgs } from "node:util";
 
@@ -356,7 +356,12 @@ async function main(argv: string[]): Promise<number> {
 			cwd: process.cwd(),
 			dir: `${home}/.local/state/router`,
 			legacy: `${home}/.local/state/agy-build`,
-			injectPath: `${process.env["HERMES_HOME"] ?? `${home}/.hermes`}/plugins/hermes-cc-link/bin/cc-link-inject`,
+			// Only the real account notifies the session: tests that run under a temp HOME, or set
+			// ROUTE_NO_INJECT=1, must not ping Janet with their fake runs.
+			injectPath:
+				process.env["ROUTE_NO_INJECT"] === "1" || home !== userInfo().homedir
+					? "true"
+					: `${process.env["HERMES_HOME"] ?? `${home}/.hermes`}/plugins/hermes-cc-link/bin/cc-link-inject`,
 			report: (line) => process.stdout.write(`${redact(line)}\n`),
 		});
 
