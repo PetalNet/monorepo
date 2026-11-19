@@ -1,13 +1,13 @@
 import { serverFonts } from "$lib/server/fonts";
-import { parse } from "opentype.js";
 import { describe, expect, it } from "vitest";
 
+import { parseFont } from "./fonts.ts";
 import { readKerning } from "./kern.ts";
 
 const load = async (file: string) => {
 	const bytes = await serverFonts.load(file);
 
-	return { font: parse(bytes), kern: await readKerning(bytes) };
+	return { font: parseFont(bytes), kern: await readKerning(bytes) };
 };
 
 const pairs = ["AV", "To", "Ty", "LT", "Yo", "av", "r.", "F,"];

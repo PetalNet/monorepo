@@ -12,6 +12,29 @@ export interface FontFamily {
 	files: Record<FontStyle, string>;
 }
 
+interface GsubFeature {
+	tag: string;
+	feature: { lookupListIndexes: number[] };
+}
+
+/**
+ * Parse a font for layout. opentype.js 2 runs the GSUB `ccmp` feature on every string and throws
+ * on chaining-context format 2 lookups, which Inter ships (1.x never applied `ccmp`). Emptying the
+ * lookups of `ccmp` keeps the ligatures and the rest of shaping exactly as they were.
+ */
+export function parseFont(bytes: ArrayBuffer): Font {
+	const font = parse(bytes);
+	const features = (font.tables["gsub"] as { features?: GsubFeature[] } | undefined)?.features;
+
+	for (const { tag, feature } of features ?? []) {
+		if (tag === "ccmp") {
+			feature.lookupListIndexes = [];
+		}
+	}
+
+	return font;
+}
+
 const family = (id: FontId, label: string): FontFamily => ({
 	id,
 	label,
@@ -103,7 +126,7 @@ export function loadFace(source: FontSource, file: string): Promise<Face> {
 	}
 
 	const loading = source.load(file).then(async (bytes) => {
-		const font = parse(bytes);
+		const font = parseFont(bytes);
 
 		return { font, kern: await readKerning(bytes), ...lineBox(font) };
 	});
