@@ -83,8 +83,14 @@ function title(head: string) {
 }
 
 // Open work: anything waiting, blocked, queued, pending or with a next step. Over-matching only keeps an item live.
-export const OPEN =
-	/\bWAIT(ING|S)?\b|waiting|\bnext( action)?:|\bTODO\b|BLOCKED|READY-ON-GO|\bHARD\b|\bACTIVE\b|in progress|🔄|\bpending\b|\bQUEUED\b|\bOPEN\b|asked (Parker|Eli)|not yet|still (need|missing|open)|follow-?ups?|\bTARGET\b|\bwatch\b|⚠|\byet\b|re-?running|\bresum|\basks?\b|my call|unanswered|\bdecid|\bdecision|\bmorning\b|\bstill\b|running|\bplan|schedul|on deploy|\bthen\b|\bbug\b|\bsend\b|committed|draft|offer|\bnext\b|\bwill\b|\bafter\b|\bonce\b|\buntil\b|remaining|\bQ\b|question|to do\b|\bwhile\b|parked|untried|fixing/iu;
+// Who a question can be "asked" of is deployment configuration: OBJECTIVES_ASKED_NAMES, an alternation.
+const ASKED_ENV = process.env["OBJECTIVES_ASKED_NAMES"];
+const ASKED = ASKED_ENV === undefined || ASKED_ENV === "" ? "human" : ASKED_ENV;
+
+export const OPEN = new RegExp(
+	String.raw`\bWAIT(ING|S)?\b|waiting|\bnext( action)?:|\bTODO\b|BLOCKED|READY-ON-GO|\bHARD\b|\bACTIVE\b|in progress|🔄|\bpending\b|\bQUEUED\b|\bOPEN\b|asked (${ASKED})|not yet|still (need|missing|open)|follow-?ups?|\bTARGET\b|\bwatch\b|⚠|\byet\b|re-?running|\bresum|\basks?\b|my call|unanswered|\bdecid|\bdecision|\bmorning\b|\bstill\b|running|\bplan|schedul|on deploy|\bthen\b|\bbug\b|\bsend\b|committed|draft|offer|\bnext\b|\bwill\b|\bafter\b|\bonce\b|\buntil\b|remaining|\bQ\b|question|to do\b|\bwhile\b|parked|untried|fixing`,
+	"iu",
+);
 
 const DONE =
 	/✅|\bDONE\b|RESOLVED|MERGED|DELIVERED|SUBMITTED|\bLIVE\b|\bFIXED\b|SUPERSEDED|CLOSED|COMPLETE|\bAPPLIED\b|\bSKIPPED\b/u;

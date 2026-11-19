@@ -1,9 +1,14 @@
 import { spawnSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
 
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 
 import { verdict } from "./resolver-guard.ts";
+
+// The guard reads its own repo name from the environment when it loads.
+vi.hoisted(() => {
+	process.env["RESOLVER_GUARD_REPO"] = "lab-repo";
+});
 
 // Built from pieces so this file does not trip the rule it tests.
 const dotted = (...parts: (number | string)[]) => parts.join(".");
@@ -63,21 +68,21 @@ describe("resolver-guard verdict", () => {
 		"curl http://10.0.0.5/x",
 		"echo v1.1.1.1.2",
 		"ls -la",
-		"dig @192.168.1.14 example.com",
+		"dig @10.0.0.53 example.com",
 	])("passes the look-alike %s", (command) => {
 		expect(verdict(bash(command))).toBeNull();
 	});
 
 	it("passes a local resolver in Write and Edit", () => {
-		expect(verdict(write("/etc/resolv.conf", "nameserver 192.168.1.14\n"))).toBeNull();
-		expect(verdict(edit("/etc/x", "dns=192.168.1.14"))).toBeNull();
+		expect(verdict(write("/etc/resolv.conf", "nameserver 10.0.0.53\n"))).toBeNull();
+		expect(verdict(edit("/etc/x", "dns=10.0.0.53"))).toBeNull();
 	});
 
 	it("allows the hook's own repo and fixtures by path, but not other paths", () => {
 		const w = (p: string) => write(p, `x = "${ONE}"`);
 
-		expect(verdict(w("/work/janet-nix-demo/modules/guards/test.mjs"))).toBeNull();
-		expect(verdict(w("/home/me/janet-nix/modules/guards/resolver-guard.mjs"))).toBeNull();
+		expect(verdict(w("/work/lab-repo-demo/modules/guards/test.mjs"))).toBeNull();
+		expect(verdict(w("/home/me/lab-repo/modules/guards/resolver-guard.mjs"))).toBeNull();
 		expect(verdict(w("/work/proj/test/fixtures/dns.json"))).toBeNull();
 		expect(verdict(w("/work/proj/src/dns.json"))).toMatch(/^BLOCKED/u);
 	});
@@ -85,14 +90,14 @@ describe("resolver-guard verdict", () => {
 	it("allows a Bash command by repo cwd or a cd or git -C into the repo", () => {
 		const grep = `grep -rn ${ONE} .`;
 
-		expect(verdict(bash(grep, "/work/janet-nix-demo"))).toBeNull();
-		expect(verdict(bash(`cd /work/janet-nix-demo && grep -rn ${ONE} modules`))).toBeNull();
+		expect(verdict(bash(grep, "/work/lab-repo-demo"))).toBeNull();
+		expect(verdict(bash(`cd /work/lab-repo-demo && grep -rn ${ONE} modules`))).toBeNull();
 		expect(verdict(bash(grep, "/work/proj"))).toMatch(/^BLOCKED/u);
 	});
 
 	it("never exempts a network or DNS tool by location", () => {
-		expect(verdict(bash(`dig @${EIGHT} x`, "/work/janet-nix-demo"))).toMatch(/^BLOCKED/u);
-		expect(verdict(bash(`git -C ~/janet-nix status; dig @${EIGHT} x`))).toMatch(/^BLOCKED/u);
+		expect(verdict(bash(`dig @${EIGHT} x`, "/work/lab-repo-demo"))).toMatch(/^BLOCKED/u);
+		expect(verdict(bash(`git -C ~/lab-repo status; dig @${EIGHT} x`))).toMatch(/^BLOCKED/u);
 	});
 
 	it("ignores other tools, empty input and missing fields", () => {

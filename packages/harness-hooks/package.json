@@ -12,5 +12,8 @@
 		"@types/node": "catalog:types",
 		"typescript": "catalog:dev",
 		"vitest": "catalog:dev"
+	},
+	"engines": {
+		"node": ">=22.18"
 	}
 }

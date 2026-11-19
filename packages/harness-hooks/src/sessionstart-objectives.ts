@@ -14,7 +14,10 @@ function envOr(name: string, fallback: string) {
 	return v === undefined || v === "" ? fallback : v;
 }
 
-const LEDGER = envOr("OBJECTIVES_LEDGER", "/home/agent/.claude/shared/open-objectives.md");
+const LEDGER = envOr(
+	"OBJECTIVES_LEDGER",
+	`${process.env["HOME"] ?? ""}/.claude/shared/open-objectives.md`,
+);
 let out = "";
 
 try {
@@ -29,10 +32,9 @@ try {
 
 // Background-agent output files from the last day: possible unhandled worker results across a restart. Older ones
 // (thousands accumulate) are not worth a line each.
-const ROOTS = envOr(
-	"TASK_OUTPUT_ROOTS",
-	"/tmp/claude-1000/-home-agent:/home/agent/.hermes-janet/cache/scratch/claude-1000/-home-agent",
-).split(":");
+const ROOTS = envOr("TASK_OUTPUT_ROOTS", "")
+	.split(":")
+	.filter((r) => r !== "");
 const hits: [number, string][] = [];
 
 for (const root of ROOTS) {

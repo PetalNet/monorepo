@@ -1,6 +1,6 @@
 // PreToolUse(Bash) guard enforcing push-to-fork-never-open-external-prs.
 // DENIES any command that OPENS or REOPENS a pull request OR CREATES an issue against a repo NOT owned by the lab
-// (PetalNet), Parker (ParkerH27, PetalCat), or Janet's own account (returnsvoidjanet). Third-party contributions:
+// (the owners in GH_GUARD_ALLOW_OWNERS, a comma-separated list; default petalnet). Third-party contributions:
 // push the branch to a FORK and let a HUMAN open the upstream PR or issue.
 // The command is tokenised with shell.ts, so only real `gh`/`curl` invocations count: text inside quotes, heredocs
 // (commit messages, PR bodies) never matches, a flag must be a real argv token, and every command in a chain, pipe,
@@ -14,12 +14,17 @@ import { pathToFileURL } from "node:url";
 
 import { splitCommands } from "./shell.ts";
 
-const ALLOW_OWNERS = new Set(["petalnet", "parkerh27", "petalcat", "returnsvoidjanet"]);
+const ALLOW_OWNERS = new Set(
+	(process.env["GH_GUARD_ALLOW_OWNERS"] ?? "petalnet")
+		.split(",")
+		.map((o) => o.trim().toLowerCase())
+		.filter((o) => o !== ""),
+);
 
 type Env = Readonly<Record<string, string>>;
 
 const external = (what: string, owner: string) =>
-	`BLOCKED — opening a ${what} on '${owner}/…' is a THIRD-PARTY repo. Golden rule (push-to-fork-never-open-external-prs): push your branch to a fork and let a HUMAN open the upstream PR or issue; never open one on a repo the lab doesn't own. If this genuinely is a lab repo, add its owner to gh-external-guard.ts's allowlist (currently PetalNet/ParkerH27/PetalCat/returnsvoidjanet) — don't work around this.`;
+	`BLOCKED — opening a ${what} on '${owner}/…' is a THIRD-PARTY repo. Golden rule (push-to-fork-never-open-external-prs): push your branch to a fork and let a HUMAN open the upstream PR or issue; never open one on a repo the lab doesn't own. If this genuinely is a lab repo, add its owner to GH_GUARD_ALLOW_OWNERS — don't work around this.`;
 const noRepo = (what: string) =>
 	`BLOCKED — 'gh ${what} create/reopen' with no --repo. For a fork this targets the EXTERNAL upstream. Golden rule: push to the fork + a HUMAN opens the upstream PR or issue. If this is a lab repo, re-run with an explicit --repo PetalNet/… (allowlisted).`;
 

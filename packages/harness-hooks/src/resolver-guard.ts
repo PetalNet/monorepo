@@ -1,6 +1,6 @@
 // PreToolUse guard for Bash, Write and Edit: no public DNS resolvers (standing rule "NEVER 1.1.1.1").
-// The lab resolves through its own AdGuard (see dot14-dns-off-adguard); a public resolver in a command or file
-// bypasses split-horizon DNS and filtering. Allowed by path: the hook's own repo (janet-nix checkouts) and test
+// The lab resolves through its own AdGuard; a public resolver in a command or file
+// bypasses split-horizon DNS and filtering. Allowed by path: the hook's own repo (checkouts whose name starts with RESOLVER_GUARD_REPO, if set) and test
 // fixtures, which must name the addresses to test for them. Fails open on any parse error.
 //
 // One file with no dependencies: `node resolver-guard.ts < payload.json`.
@@ -9,11 +9,21 @@ import { pathToFileURL } from "node:url";
 
 const IP =
 	/(?<![\d.])(1\.1\.1\.1|1\.0\.0\.1|8\.8\.8\.8|8\.8\.4\.4|9\.9\.9\.9|149\.112\.112\.112)(?!\.?\d)|(2001:4860:4860::88(?:88|44)|2606:4700:4700::1(?:111|001)|2620:fe::(?:fe|9))|\b(dns\.google|cloudflare-dns\.com|dns\.quad9\.net)\b/iu;
-const ALLOWED_PATH = /(^|\/)janet-nix[\w.-]*\/|(^|\/)(tests?|fixtures?|__fixtures__)\//u;
+// The hook's own repo, by name (deployment configuration); unset means only test and fixture paths are exempt.
+const REPO = (process.env["RESOLVER_GUARD_REPO"] ?? "").replaceAll(/[^\w.-]/gu, "");
+const ALLOWED_PATH = new RegExp(
+	String.raw`${REPO === "" ? "" : String.raw`(^|\/)${REPO}[\w.-]*\/|`}(^|\/)(tests?|fixtures?|__fixtures__)\/`,
+	"u",
+);
 // A network or DNS tool is never exempted by location: the address would really be used.
 const NET_TOOL = /\b(dig|nslookup|host|drill|kdig|resolvectl|curl|wget|ping|nc|ssh|telnet)\b/u;
 const REPO_CMD =
-	/^\s*cd\s+["']?[^\s"';&|]*janet-nix[\w.-]*(\/|["']?\s*(&&|;|$))|\bgit\s+-C\s+["']?[^\s"']*janet-nix[\w.-]*/u;
+	REPO === ""
+		? /(?!)/u
+		: new RegExp(
+				String.raw`^\s*cd\s+["']?[^\s"';&|]*${REPO}[\w.-]*(\/|["']?\s*(&&|;|$))|\bgit\s+-C\s+["']?[^\s"']*${REPO}[\w.-]*`,
+				"u",
+			);
 
 interface HookInput {
 	readonly tool_name?: unknown;
@@ -61,9 +71,9 @@ export function verdict(input: HookInput | null): string | null {
 
 	return (
 		`BLOCKED: ${String(found)} is a public DNS resolver. Standing rule: never use public resolvers (NEVER 1.1.1.1). ` +
-		`Fix: use the lab's local resolver (the AdGuard instance on .14, see memory dot14-dns-off-adguard) or the system resolver, ` +
+		`Fix: use the lab's local resolver (the lab's AdGuard) or the system resolver, ` +
 		`and drop the address from this ${input.tool_name === "Bash" ? "command" : "content"}. ` +
-		`A test or the guard's own repo (a janet-nix checkout) or a test/fixtures path may name it.`
+		`A test or the guard's own repo (RESOLVER_GUARD_REPO) or a test/fixtures path may name it.`
 	);
 }
 
