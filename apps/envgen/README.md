@@ -74,7 +74,8 @@ The loop wobbles in and out, so the true ground speed varies around the nominal 
 above the centre instead, for comparing the ground with a map.
 
 For a video, add `-EnvGenTourFrames=<dir> -UseFixedTimeStep -FPS=30`: every measured frame is written as
-a PNG, evenly spaced in game time. Frame times from that run mean nothing; measure in a separate run.
+a PNG, evenly spaced in game time (`-EnvGenTourFrameEvery=N` keeps every Nth, for stills at fixed points
+on the path). Frame times from that run mean nothing; measure in a separate run.
 
 ### Checking an engine version
 

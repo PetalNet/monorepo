@@ -32,6 +32,7 @@ void AEnvGenGameMode::StartPlay()
 	Tour->bExitWhenDone = !FParse::Param(FCommandLine::Get(), TEXT("EnvGenTourStay"));
 	Tour->bCsvProfile = FParse::Param(FCommandLine::Get(), TEXT("EnvGenTourCsv"));
 	FParse::Value(FCommandLine::Get(), TEXT("EnvGenTourFrames="), Tour->FrameDirectory);
+	FParse::Value(FCommandLine::Get(), TEXT("EnvGenTourFrameEvery="), Tour->FrameEvery);
 	if (APlayerController* Player = GetWorld()->GetFirstPlayerController())
 	{
 		Player->SetViewTarget(Tour);

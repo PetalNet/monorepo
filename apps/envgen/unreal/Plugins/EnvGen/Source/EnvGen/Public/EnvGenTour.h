@@ -66,6 +66,10 @@ public:
 	UPROPERTY(EditAnywhere, Category = "Tour")
 	FString FrameDirectory;
 
+	/** Write only every Nth measured frame: 1 for a video, larger for a few stills at fixed points on the path. */
+	UPROPERTY(EditAnywhere, Category = "Tour")
+	int32 FrameEvery = 1;
+
 private:
 	FVector PointAt(float Angle) const;
 	void Finish();

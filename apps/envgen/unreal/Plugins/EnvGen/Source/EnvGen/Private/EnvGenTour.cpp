@@ -168,7 +168,7 @@ void AEnvGenTour::Tick(float DeltaSeconds)
 	}
 	if (bRecording)
 	{
-		if (!FrameDirectory.IsEmpty())
+		if (!FrameDirectory.IsEmpty() && FrameMs.Num() % FMath::Max(FrameEvery, 1) == 0)
 		{
 			FScreenshotRequest::RequestScreenshot(FrameDirectory / FString::Printf(TEXT("frame_%05d.png"), FrameMs.Num()), false, false);
 		}
