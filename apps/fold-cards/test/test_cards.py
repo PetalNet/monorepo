@@ -4,6 +4,7 @@ import json, os, subprocess, sys, tempfile, unittest
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from fake_embedder import FakeEmbedder
 from test_memindex import memindex
+from fixtures import scanner_env
 
 CARDS = os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', 'bin', 'cards.py')
 S = '00000000-0000-4000-8000-000000000001'
@@ -35,7 +36,7 @@ ROWS = [
 
 
 def run(*args):
-    return subprocess.run([sys.executable, '-I', CARDS, *args], capture_output=True, text=True, check=True).stdout
+    return subprocess.run([sys.executable, '-I', CARDS, *args], env=scanner_env(), capture_output=True, text=True, check=True).stdout
 
 
 class Cards(unittest.TestCase):
@@ -115,7 +116,7 @@ class Cards(unittest.TestCase):
         self.assertEqual(got, [('memory:shed.md', 'shed-code', 'The shed padlock code lives here', os.path.join(notes, 'shed.md'))])
         self.assertEqual(self.query('shed padlock code', '--sources', 'fold'), [])
         doc = json.loads(subprocess.run([sys.executable, '-I', os.path.join(os.path.dirname(CARDS), 'memindex.py'), 'search', '--db', self.db,
-                                         '--sources', 'shared', '--text', 'shed padlock'], capture_output=True, text=True, check=True).stdout.splitlines()[0])
+                                         '--sources', 'shared', '--text', 'shed padlock'], env=scanner_env(), capture_output=True, text=True, check=True).stdout.splitlines()[0])
         self.assertEqual((doc['pointer'], doc['kept']), ('shared:garden.md#0', False))
 
     def test_without_a_thread_argument_the_room_thread_is_kept_between_prompts(self):
