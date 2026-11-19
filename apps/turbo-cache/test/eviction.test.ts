@@ -151,9 +151,10 @@ it("writes a status file with the surviving totals and the last eviction time", 
 });
 
 // The eviction sidecar runs alpine's busybox awk, whose printf %d wraps at 32 bits; gawk and mawk do not, so the test must run under busybox.
+const { CI: environmentCI, PATH: environmentPath } = process.env;
 const busybox = ["/bin/busybox", "/usr/bin/busybox"].find((candidate) => existsSync(candidate));
 
-it.skipIf(!busybox && !process.env.CI)(
+it.skipIf(!busybox && !environmentCI)(
 	"reports a cap above 2 GiB without overflowing under busybox awk",
 	async () => {
 		if (!busybox) throw new Error("busybox is required to run this test in CI");
@@ -171,7 +172,7 @@ it.skipIf(!busybox && !process.env.CI)(
 			const result = evict(data, {
 				CACHE_MAX_BYTES: String(40 * 1024 ** 3),
 				CACHE_STATUS_FILE: status,
-				PATH: `${bin}:${process.env.PATH}`,
+				PATH: `${bin}:${environmentPath}`,
 			});
 
 			expect(result.status, result.stderr).toBe(0);
