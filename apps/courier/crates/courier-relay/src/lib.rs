@@ -13,8 +13,6 @@
 //! - events from the same source room are serialized (per-room fair lock) so
 //!   relayed messages keep their order even though every event is processed
 //!   in its own supervised task.
-// matrix-sdk 0.19 nests its send futures deeper than the default limit allows.
-#![recursion_limit = "256"]
 
 mod format;
 pub mod idempotency;
@@ -701,7 +699,9 @@ async fn extract_reply_context(
     let display = match bound::bounded(
         "relay.load_reply_target",
         LOOKUP_TIMEOUT,
-        source_room.load_or_fetch_event(&in_reply_to_event_id, None),
+        // matrix-sdk 0.19's fetch future is ~17 KiB; box it so it stays off the
+        // callers' stacks (clippy::large_futures).
+        Box::pin(source_room.load_or_fetch_event(&in_reply_to_event_id, None)),
     )
     .await
     {
