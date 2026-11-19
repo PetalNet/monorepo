@@ -18,6 +18,8 @@ The compaction mod (`fold`) runs `build` before each compaction, and the recall 
 
 Candidate text travels to the scanner on stdin. Unconfigured scanners, hits, process errors, timeouts, nonzero exits, or unexpected stdout/stderr refuse the entire result. Nothing is streamed before approval. Raw source text and final output are checked together, before truncation and JSON escaping can hide an exact match. An empty retrieval also requires a configured scanner. Index construction stays local; writing an index does not authorize releasing its contents.
 
+This guard does not cover direct vault operations. `packages/vault-engine/src/api.ts` returns `recall` and `research_check` results through MCP, and `packages/vault-engine/src/cli.ts` prints the same operation results. Those paths need the shared scanner at their output boundary before they can safely return model-bound private text. The separately maintained Hermes and fleet-recall entrypoints are outside this repository; their output boundaries need the same integration. The bundle's read-only access to their indexes does not guard those entrypoints.
+
 Python remains the implementation language because the recall index and its hooks already use the standard library and SQLite under `python3 -I`. No service or dependency is added.
 
 ## Project bundles
