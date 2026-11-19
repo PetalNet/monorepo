@@ -5,11 +5,15 @@
 The fixture rows carry stage one's p1, the BM25 rank, the message's term count, a weight and a judged label (helpful).
 Rows the old gate attached have weight 1; the rest are a sample of the near misses and carry the inverse sampling rate,
 so weighted precision and recall estimate what the new gate would do over every candidate stage one lets through.
+Stage two applies to the sources in memindex.STAGE_TWO (memory notes). It did nothing for cards: at every threshold
+their precision stayed at stage one's, so cards keep stage one's threshold.
 
-Without --fit it scores the shipped RESCORE and THRESHOLDS on the fixture and FAILs unless precision beats the old gate
-by PRECISION_GAIN and at least KEEP_HELPFUL of the helpful pairs the old gate attached survive. With --fit it refits the
-weights by ridge-regularised logistic regression on 60% of the prompts, measures the shipped threshold on the other 40%,
-repeats that over SPLITS random splits (a single split moves precision by 0.1), and prints the weights fitted on every row.
+Without --fit it scores the shipped RESCORE and THRESHOLDS on the fixture and FAILs unless the precision of what attaches
+beats the old gate by PRECISION_GAIN and at least KEEP_HELPFUL of the helpful pairs the old gate attached survive.
+That check is in-sample: the shipped weights were fitted on every row, and the threshold, FLOOR and the feature set were
+chosen on this same week. With --fit it refits the weights on 60% of the prompts and measures the other 40%, repeats
+that over SPLITS random splits (one split moves precision by 0.1), and prints the weights fitted on every row. Only the
+weights are held out there; a fresh week of judgements is the real test.
 """
 import argparse, json, math, os, random, statistics, sys
 
@@ -62,29 +66,45 @@ def scorer(weights):
     return lambda r: 1 / (1 + math.exp(-(weights['bias'] + sum(weights[n] * r['f'][n] for n in NAMES))))
 
 
-def kept_by(rows, score, thr):
-    return [r for r in rows if r['p1'] >= memindex.FLOOR and score(r) >= thr]
+def attaches(r, score):
+    t = memindex.THRESHOLDS[r['source']]
+    return score(r) >= t if r['source'] in memindex.STAGE_TWO and r['p1'] >= memindex.FLOOR else r['source'] not in memindex.STAGE_TWO and r['p1'] >= t
+
+
+def kept_by(rows, score):
+    return [r for r in rows if attaches(r, score)]
+
+
+def staged(rows):
+    return [r for r in rows if r['source'] in memindex.STAGE_TWO and r['p1'] >= memindex.FLOOR]
+
+
+def measure(rows, kept):
+    """(precision, recall, helpful old-gate pairs kept, attachments relative to the old gate) over rows, weighted."""
+    ks = {id(r) for r in kept}
+    n, tp, pos = (sum(r['weight'] for r in rows if cond(r)) for cond in (lambda r: id(r) in ks, lambda r: id(r) in ks and r['helpful'], lambda r: r['helpful']))
+    old = [r for r in rows if r['old_gate']]
+    good = [r for r in old if r['helpful']]
+    return tp / max(n, 1), tp / max(pos, 1), sum(id(r) in ks for r in good) / max(len(good), 1), len(ks) / max(len(old), 1)
 
 
 def held_out(rows, splits=SPLITS):
-    """Mean and spread of the shipped threshold's held-out numbers over random 60/40 splits by prompt, weights refitted on
-    each train part: (precision, recall, helpful old-gate pairs kept, attachments relative to the old gate), old gate first."""
+    """Mean and spread of the shipped thresholds' held-out numbers over random 60/40 splits by prompt, weights refitted on
+    each train part, for all sources and each one; the old gate first."""
     groups = sorted({r['group'] for r in rows})
-    out = {'old gate': [], 'new gate': []}
+    out = {}
     for seed in range(splits):
         random.Random(seed).shuffle(groups)
         train_groups = set(groups[:int(0.6 * len(groups))])
-        train = [r for r in rows if r['group'] in train_groups and r['p1'] >= memindex.FLOOR]
         test = [r for r in rows if r['group'] not in train_groups]
-        old = [r for r in test if r['old_gate']]
-        for name, kept in (('old gate', old), ('new gate', kept_by(test, scorer(fit(train)), memindex.THRESHOLDS['fold']))):
-            ks = {id(r) for r in kept}
-            n, tp, pos = (sum(r['weight'] for r in test if cond(r)) for cond in (lambda r: id(r) in ks, lambda r: id(r) in ks and r['helpful'], lambda r: r['helpful']))
-            good = [r for r in old if r['helpful']]
-            out[name].append((tp / max(n, 1), tp / max(pos, 1), sum(id(r) in ks for r in good) / max(len(good), 1), len(kept) / max(len(old), 1)))
-    for name, v in out.items():
+        s = scorer(fit(staged([r for r in rows if r['group'] in train_groups])))
+        for src in (None, *sorted({r['source'] for r in rows})):
+            part = [r for r in test if src is None or r['source'] == src]
+            out.setdefault((src or 'all', 'old gate'), []).append(measure(part, [r for r in part if r['old_gate']]))
+            out.setdefault((src or 'all', 'new gate'), []).append(measure(part, kept_by(part, s)))
+    for (src, name), v in out.items():
         m = [statistics.mean(x[i] for x in v) for i in range(4)]
-        print(f'{name:9s} precision {m[0]:.3f} (sd {statistics.pstdev(x[0] for x in v):.3f})  recall {m[1]:.3f}  helpful old-gate pairs kept {m[2]:.2f}  attachments x{m[3]:.2f}')
+        print(f'{src:7s} {name:8s} precision {m[0]:.3f} (sd {statistics.pstdev(x[0] for x in v):.3f})  recall {m[1]:.3f}  helpful old-gate pairs kept {m[2]:.2f}  attachments x{m[3]:.2f}')
 
 
 def main():
@@ -98,17 +118,15 @@ def main():
     print(f'{len(rows)} pairs, {len({r["group"] for r in rows})} prompts; the old gate attached {len(old)} at precision {old_p:.3f}')
     if a.fit:
         held_out(rows)
-        print('weights fitted on every row', {k: round(v, 3) for k, v in fit([r for r in rows if r['p1'] >= memindex.FLOOR]).items()})
+        print('weights fitted on every row', {k: round(v, 3) for k, v in fit(staged(rows)).items()})
         return 0
-    assert memindex.THRESHOLDS['fold'] == memindex.THRESHOLDS['memory']
     s = scorer(dict(bias=memindex.RESCORE['bias'], **{n: memindex.RESCORE[n] for n in NAMES}))
-    kept = kept_by(rows, s, memindex.THRESHOLDS['fold'])
-    ks = {id(r) for r in kept}
-    n, tp = (sum(r['weight'] for r in rows if cond(r)) for cond in (lambda r: id(r) in ks, lambda r: id(r) in ks and r['helpful']))
-    good = [r for r in old if r['helpful']]
-    keep = sum(id(r) in ks for r in good) / len(good)
-    print(f'shipped: precision {tp / n:.3f}, helpful old-gate pairs kept {keep:.2f}')
-    ok = tp / n >= old_p + PRECISION_GAIN and keep >= KEEP_HELPFUL
+    for src in sorted({r['source'] for r in rows}):
+        part = [r for r in rows if r['source'] == src]
+        print(f'shipped {src:7s} precision {measure(part, kept_by(part, s))[0]:.3f}, old gate {sum(r["helpful"] for r in part if r["old_gate"]) / sum(r["old_gate"] for r in part):.3f}')
+    prec, _, keep, volume = measure(rows, kept_by(rows, s))
+    print(f'shipped all     precision {prec:.3f}, helpful old-gate pairs kept {keep:.2f}, attachments x{volume:.2f}')
+    ok = prec >= old_p + PRECISION_GAIN and keep >= KEEP_HELPFUL
     print('OK' if ok else f'FAIL: need precision >= {old_p + PRECISION_GAIN:.3f} and helpful kept >= {KEEP_HELPFUL}')
     return 0 if ok else 1
 

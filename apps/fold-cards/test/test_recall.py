@@ -109,25 +109,31 @@ class Gate(unittest.TestCase):
         self.assertEqual(self.ids(field('shared') + [cand('doc#0', 'shared', 0.95, 9, '/doc.md')]), [])
 
     def test_caps_per_source_one_pointer_per_document_and_in_all(self):
-        cs = field() + [cand(f'c{i}', cos=0.95 - i / 100, lex=9, lex_rank=i, path='/same' if i < 2 else None) for i in range(4)]
+        cs = field() + [cand(f'c{i}', cos=0.95 - i / 20, lex=9, lex_rank=i, path='/same' if i < 2 else None) for i in range(4)]
         cs += field('memory') + [cand(f'n{i}', 'memory', 0.95 - i / 100, 9, lex_rank=i) for i in range(3)]
         everything = {'fold': 1e-6, 'memory': 1e-6}
         got = self.ids(cs, thresholds=everything, max_attach=10)
         self.assertEqual(sorted(got), ['c0', 'c2', 'n0', 'n1'])
         self.assertEqual(len(self.ids(cs, thresholds=everything)), memindex.MAX_ATTACH)
 
-    def test_a_keyword_only_match_loses_to_a_candidate_high_in_bm25_order(self):
+    def test_a_keyword_only_note_loses_to_one_high_in_bm25_order(self):
         # the same cosine and the same rare term; only the BM25 rank differs
-        self.assertEqual(self.ids(field() + [cand('bait', cos=0.72, lex=6, lex_rank=40)], nterms=24), [])
-        self.assertEqual(self.ids(field() + [cand('hit', cos=0.72, lex=6, lex_rank=0)], nterms=24), ['hit'])
+        note = lambda rank: field('memory') + [cand('n', 'memory', cos=0.74, lex=6, lex_rank=rank)]
+        self.assertEqual(self.ids(note(0)), ['n'])
+        self.assertEqual(self.ids(note(40)), [])
 
-    def test_a_long_message_needs_more_than_a_short_one(self):
-        c = lambda: field() + [cand('hit', cos=0.72, lex=6, lex_rank=40)]
-        self.assertEqual(self.ids(c(), nterms=4), ['hit'])
-        self.assertEqual(self.ids(c(), nterms=24), [])
+    def test_a_long_message_needs_more_of_a_note(self):
+        note = lambda: field('memory') + [cand('n', 'memory', cos=0.74, lex=6, lex_rank=0)]
+        self.assertEqual(self.ids(note(), nterms=4), ['n'])
+        self.assertEqual(self.ids(note(), nterms=24), [])
 
-    def test_stage_one_below_the_floor_never_reaches_stage_two(self):
-        cs = field() + [cand('weak', cos=0.70, lex=0, lex_rank=0)]
+    def test_a_card_attaches_on_stage_one_whatever_its_bm25_rank(self):
+        card = lambda rank: field() + [cand('c', cos=0.80, lex=6, lex_rank=rank)]
+        self.assertEqual(self.ids(card(0)), ['c'])
+        self.assertEqual(self.ids(card(40)), ['c'])
+
+    def test_a_note_below_the_stage_one_floor_never_reaches_stage_two(self):
+        cs = field('memory') + [cand('weak', 'memory', cos=0.70, lex=0, lex_rank=0)]
         memindex.score(cs, 4)
         self.assertLess(cs[-1]['p1'], memindex.FLOOR)
         self.assertEqual(cs[-1]['p'], 0.0)

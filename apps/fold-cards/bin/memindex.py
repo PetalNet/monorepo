@@ -296,14 +296,15 @@ MODELS = {
     'fold': dict(bias=-3.689, cos=-0.643, z=1.013, lex=1.233, lex_mass=0.19, rank=-0.367, terms=0.175),
     'memory': dict(bias=-5.136, cos=-0.516, z=1.104, lex=1.248, lex_mass=1.497, rank=0.122, terms=-1.014),
 }
-# Stage two scores what stage one lets through (p1 >= FLOOR): its logit, where the candidate stands in BM25 order, and the
-# message length. A candidate with no lexical match has no rank and gets the last place. Fitted by test/fit_attach.py on 543
-# candidate pairs from 1,327 real prompts of one week, each judged by reading the prompt and what would be attached. Stage one
-# alone attached 390 of them at precision 0.39. Its misses were keyword matches ("amp" on an Amp-skills message) and long
-# pasted messages, which match everything a little; both now cost score, and a candidate high in BM25 order gains.
+# For memory notes, stage two scores what stage one lets through (p1 >= FLOOR): its logit, where the note stands in BM25
+# order, and the message length. A note with no lexical match has no rank and gets the last place. Fitted by
+# test/fit_attach.py on the 308 note pairs of 543 judged (prompt, attachment) pairs from one week. Stage one alone attached
+# notes at precision 0.39; its misses were keyword matches ("amp" on an Amp-skills message) and long pasted messages,
+# which match everything a little; both now cost score, and a note high in BM25 order gains. Cards gained nothing from it.
 FLOOR = 0.25
-RESCORE = dict(bias=-0.503, logit=0.931, lexr=1.424, terms=-0.732)
-THRESHOLDS = {'fold': 0.35, 'memory': 0.35}
+RESCORE = dict(bias=-1.415, logit=0.870, lexr=2.148, terms=-0.397)
+STAGE_TWO = {'memory'}  # cards gained nothing from it (test/fit_attach.py), so they attach on stage one's p at 0.5
+THRESHOLDS = {'fold': 0.5, 'memory': 0.35}
 CAPS = {'fold': 2, 'memory': 2}
 MAX_ATTACH = 3
 TOP = 20
@@ -312,7 +313,7 @@ NO_LEX_RANK = POOL
 
 def stage_two_features(c, nterms):
     p1 = min(max(c['p1'], 1e-6), 1 - 1e-6)
-    return dict(logit=math.log(p1 / (1 - p1)), lexr=1 / (1 + (NO_LEX_RANK if c['lex_rank'] is None else c['lex_rank'])), terms=min(nterms, 20) / 10)
+    return dict(logit=math.log(p1 / (1 - p1)), lexr=1 / (1 + (NO_LEX_RANK if c.get('lex_rank') is None else c['lex_rank'])), terms=min(nterms, 20) / 10)
 
 
 def stage_two(c, nterms):
@@ -336,10 +337,7 @@ def score(cands, nterms):
             x = dict(cos=c['cos'], z=(c['cos'] - mu) / sd, lex=1.0 if c['lex'] > 0 else 0.0, lex_mass=min(c['lex'], 20) / 10,
                      rank=1 / (1 + rank), terms=min(nterms, 20) / 10)
             c['p1'] = 1 / (1 + math.exp(-(w['bias'] + sum(w[f] * v for f, v in x.items()))))
-            if c['p1'] < FLOOR:
-                c['p'] = 0.0
-            else:
-                c['p'] = stage_two(c, nterms)
+            c['p'] = (stage_two(c, nterms) if c['p1'] >= FLOOR else 0.0) if s in STAGE_TWO else c['p1']
     return cands
 
 
