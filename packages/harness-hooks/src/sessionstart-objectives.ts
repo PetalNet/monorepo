@@ -76,6 +76,19 @@ if (hits.length > 0) {
 	out += `\n${String(hits.length)} background-agent output file(s) changed in the last 24 h (check whether a completed worker result is unhandled before assuming it landed). Newest: ${newest}\n`;
 }
 
+// The promise ledger (promise-ledger.ts) gets one line: the counts and the command, never the list. Loaded here, and
+// guarded, so a missing or broken ledger cannot cost the objectives index above.
+try {
+	const { configFromEnv, statusLine } = await import("./promise-ledger.ts");
+	const line = statusLine(configFromEnv().store, Date.now());
+
+	if (line) {
+		out += `\n${line}\n`;
+	}
+} catch {
+	/* fail open */
+}
+
 if (out) {
 	process.stdout.write(
 		JSON.stringify({
