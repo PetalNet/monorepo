@@ -288,7 +288,7 @@ survey orthophoto (`sources.survey.orthophoto`, 2.3 cm a pixel on the real tile)
   orthophoto pooled to 0.5 m. Inside the footprint it replaces the imagery's ratio, which is the same ground a year or two
   earlier, and the grain is not laid over it. It is a virtual texture (`r.VirtualTextures=True` in the host project), 14439 by
   13495 pixels on the real tile, mapped by its place in the tile (`survey_detail.west_m` and the extents in the manifest).
-  The orthophoto's own shadows are not masked (its sun is not the imagery's): a prior. On the real tile the footprint is
+  Where the orthophoto has no pixel (its footprint is not a box) the file holds 0 and the material keeps the imagery's ratio and the grain there. The orthophoto's own shadows are not masked (its sun is not the imagery's): a prior. On the real tile the footprint is
   west of the fly and walk stations, so it shows in the walk tour's later frames (about frame 2600) and the overview.
 
 ### Grass

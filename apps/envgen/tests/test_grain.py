@@ -112,8 +112,13 @@ def test_the_survey_ratio_shows_the_orthophotos_fine_pattern_on_open_ground_and_
     west, north, pixel = h.WEST + 63, h.SOUTH + h.SIZE_M, 0.05
     eastings = west + (np.arange(int(63 / pixel)) + 0.5) * pixel
     stripes = np.where(eastings // 1.0 % 2 == 0, 0.25, 0.15)[None, :] * np.ones((int(h.SIZE_M / pixel), 1))
+    # Brighter over the northern 26 m, which tells north from south; and no pixels in one corner.
+    northings = north - (np.arange(int(h.SIZE_M / pixel)) + 0.5) * pixel
+    stripes = stripes * np.where(northings > h.SOUTH + 100, 1.5, 1.0)[:, None]
     grey = _grey(stripes)
-    write_raster(tmp_path / "ortho.tif", np.stack([grey, grey, grey, np.full_like(grey, 255)]), west, north, pixel)
+    alpha = np.full_like(grey, 255)
+    alpha[-100:, -100:] = 0  # the south-east corner, 5 m square
+    write_raster(tmp_path / "ortho.tif", np.stack([grey, grey, grey, alpha]), west, north, pixel)
     extra["survey"]["orthophoto"] = "ortho.tif"
     out = tmp_path / "out"
     manifest = build(scene(tmp_path, **extra), out)
@@ -121,7 +126,8 @@ def test_the_survey_ratio_shows_the_orthophotos_fine_pattern_on_open_ground_and_
     detail = manifest["survey_detail"]
     assert "survey_detail.png" in manifest["artifacts"] and manifest["sources"]["survey"]["orthophoto_sha256"]
     assert detail["pixel_m"] == pytest.approx(pixel) and detail["east_extent_m"] == pytest.approx(63)
-    ratio = (np.asarray(Image.open(out / "survey_detail.png")).astype(np.float32) - detail["zero"]) * (
+    raw = np.asarray(Image.open(out / "survey_detail.png"))  # [east, north]
+    ratio = (raw.astype(np.float32) - detail["zero"]) * (
         detail["log2_range"] / detail["zero"]
     )  # [east, north]
 
@@ -136,3 +142,6 @@ def test_the_survey_ratio_shows_the_orthophotos_fine_pattern_on_open_ground_and_
     # Bright stripes of 0.25 over dark of 0.15 are 0.74 octaves apart.
     assert open_grass.max() - open_grass.min() == pytest.approx(np.log2(0.25 / 0.15), abs=0.25)
     assert np.abs(at(90, 75)).max() < 0.05  # on the roof
+    assert at(120, 115).mean() > at(120, 20).mean() + 0.02  # north is brighter: the file's north axis is the tile's
+    assert (raw[-100:, :100] == 0).all()  # no pixel there is 0, not a neutral ratio
+    assert (raw[: -100 - 20, :] > 0).all()  # and nowhere else is

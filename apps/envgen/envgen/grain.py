@@ -57,6 +57,8 @@ PRIORS = [
     f"prior: stills have a {LENS_FOV_DEG:g} degree lens and {FRAME_PX} pixels across; closer than a texel a pixel the grain fades to {NEAR_SHARE:.0%}",
     f"prior: grain is what is finer than {LOW_PASS_M:g} m; the tile's own photo carries what is coarser",
     f"prior: the field's turf is like the quietest {QUIET_SHARE:.0%} of the survey's grass blocks, which are even and short",
+    f"prior: blocks are {BLOCK_PX} pixels, at least {MIN_BLOCKS} are needed, and a block is grass when every tile cell under it is at least {GRASS_PURITY:.0%} grass",
+    "prior: the second read of the texture is at 0.61 of the first one's scale and turned 37 degrees",
     "prior: grain has no direction (its spectrum is averaged around the circle), so it can be laid at any turn",
 ]
 

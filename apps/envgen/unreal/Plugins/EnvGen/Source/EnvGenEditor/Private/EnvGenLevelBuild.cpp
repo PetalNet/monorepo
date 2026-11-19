@@ -774,11 +774,20 @@ namespace
 				Inner->Input.Connect(0, Outside);
 				UMaterialExpressionSaturate* Inside = Node<UMaterialExpressionSaturate>(Material, -400, -1450);
 				Inside->Input.Connect(0, Inner);
-				InSurvey = Inside;
+				// 0 in the file is a pixel the orthophoto does not have: there the imagery's ratio and the grain stand.
+				UMaterialExpressionMultiply* Has = Node<UMaterialExpressionMultiply>(Material, -650, -1350);
+				Has->A.Connect(1, SurveySample);
+				Has->ConstB = 255.f;
+				UMaterialExpressionSaturate* HasPixel = Node<UMaterialExpressionSaturate>(Material, -550, -1350);
+				HasPixel->Input.Connect(0, Has);
+				UMaterialExpressionMultiply* Covered = Node<UMaterialExpressionMultiply>(Material, -300, -1450);
+				Covered->A.Connect(0, Inside);
+				Covered->B.Connect(0, HasPixel);
+				InSurvey = Covered;
 				UMaterialExpressionLinearInterpolate* Replaced = Node<UMaterialExpressionLinearInterpolate>(Material, -450, -1250);
 				Replaced->A.Connect(0, Fine);
 				Replaced->B.Connect(0, SurveyFine);
-				Replaced->Alpha.Connect(0, Inside);
+				Replaced->Alpha.Connect(0, Covered);
 				FineUsed = Replaced;
 			}
 			UMaterialExpressionMultiply* WithFine = Node<UMaterialExpressionMultiply>(Material, -600, 0);

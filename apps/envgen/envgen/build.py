@@ -657,7 +657,7 @@ def build_survey_detail(site: Site, out: Path, covering: dict | None, layers: li
 
     The same ratio as build_detail's (luminance of each pixel over the class's own 12 m low-pass of sunlit ground, in
     linear light, a power of two, one stop either way, 1 where cover hides the ground), but a centimetre a pixel, and of
-    luminance only: the file is one channel, because at that size a colour image is hundreds of megabytes. Inside the
+    luminance only: the file is one channel (0 where the orthophoto has no pixel, else 1 to 254), because at that size a colour image is hundreds of megabytes. Inside the
     footprint it replaces the imagery's ratio, which is the same ground a year or two earlier at half a metre.
     """
     tile = site.tile
@@ -717,9 +717,12 @@ def build_survey_detail(site: Site, out: Path, covering: dict | None, layers: li
             def spread(array: np.ndarray) -> np.ndarray:
                 return np.repeat(np.repeat(array[pooled_rows], factor, axis=0), factor, axis=1)[:count, :width]
 
-            ratio = np.log2(np.maximum(luminance, 1e-4) / np.maximum(spread(smooth), 1e-4)) * spread(trust) * valid
+            ratio = np.log2(np.maximum(luminance, 1e-4) / np.maximum(spread(smooth), 1e-4)) * spread(trust)
             ratio = np.clip(ratio, -DETAIL_LOG2_RANGE, DETAIL_LOG2_RANGE)
-            encoded[first : first + count] = np.rint(DETAIL_ZERO + DETAIL_ZERO * ratio / DETAIL_LOG2_RANGE)
+            level = np.clip(np.rint(DETAIL_ZERO + DETAIL_ZERO * ratio / DETAIL_LOG2_RANGE), 1, 2 * DETAIL_ZERO)
+            # 0 is reserved for "the orthophoto has no pixel here": the footprint is not a box, and the material
+            # keeps the imagery's ratio and the grain wherever the file says 0.
+            encoded[first : first + count] = np.where(valid, level, 0)
     Image.fromarray(frame.to_unreal_layout(encoded), mode="L").save(out / "survey_detail.png")
     return {
         "file": "survey_detail.png",
@@ -1049,6 +1052,9 @@ def build(site_path: Path, out: Path, cache: Path | None = None) -> dict:
                 grain.LENS_FOV_DEG,
                 grain.FRAME_PX,
                 grain.NEAR_SHARE,
+                grain.RADIAL_BINS,
+                grain.QUANTILES,
+                grain.LUMA.tolist(),
             ),
             lambda: build_grain(site, out, classes["layers"]),
         )

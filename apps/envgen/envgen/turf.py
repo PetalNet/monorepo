@@ -16,7 +16,7 @@ import math
 # and G6705). The tufts' blades are that tall.
 MOWING_HEIGHT_CM = (3 * 2.54, 4 * 2.54)
 # A prior: turf is mown when it has grown a half again over its cutting height (the one-third rule of mowing), so the
-# tall variety stands at 1.5 times the top of the mowing range.
+# tall variety stands at 1.5 times the mowing range.
 TALL_OVER_MOWED = 1.5
 # Priors, looks with no source: how big a tuft is, how many blades it has, how much ground each variety covers, how far
 # out each is drawn, whether it casts a shadow (a small tuft's own shadow only darkens its root), and how much a tuft's
@@ -42,7 +42,9 @@ ROOT_SHADE, TIP_SHADE = 0.85, 1.15
 PRIORS = [
     f"prior: a tuft covers {NEAR['cover']:.0%} (near), {CLUMP['cover']:.0%} (clump) and {TALL['cover']:.0%} (tall) of the ground",
     "prior: blade count, tuft radius, size spread and draw distance of each variety",
-    f"prior: tall tufts stand {TALL_OVER_MOWED:g} times the top of the mowing range (the one-third rule of mowing)",
+    f"prior: tall tufts stand {TALL_OVER_MOWED:g} times the mowing range (the one-third rule of mowing)",
+    "prior: the patch noise is cut between 0.4 and 0.6 of its range",
+    "prior: patch thinning lowers the cover each variety has by its share of the density; the covers above are before it",
     f"prior: tufts stand in patches {PATCH_CM:g} cm wide, thinning to {PATCH_MIN:g} of the density between them",
     f"prior: a blade is {ROOT_SHADE:g} of its colour at the root and {TIP_SHADE:g} at the tip",
 ]
