@@ -49,16 +49,21 @@ jobs:
         run: pnpm ci-manager select
 
   root-check:
+    permissions:
+      contents: read
+      id-token: write
     runs-on: ubuntu-latest
     steps:
       - uses: $/.github/actions/setup
-      - uses: rharkor/caching-for-turbo@760158c05c47e7a764f78e9a22ca3b5a6ed8c52e # v2.5.2
+      - uses: $/.github/actions/setup-turbo
         with:
-          cache-prefix: turbo-${{ runner.os }}-${{ runner.arch }}-
-          use-relative-cache-path: true
+          install-turbo: "false"
       - run: pnpm check:root
 
   check:
+    permissions:
+      contents: read
+      id-token: write
     needs: select
     if: needs.select.outputs.js == 'true'
     runs-on: ubuntu-latest
@@ -69,16 +74,18 @@ jobs:
       - uses: $/.github/actions/setup
         with:
           fetch-depth: 0
-      - uses: rharkor/caching-for-turbo@760158c05c47e7a764f78e9a22ca3b5a6ed8c52e # v2.5.2
+      - uses: $/.github/actions/setup-turbo
         with:
-          cache-prefix: turbo-${{ runner.os }}-${{ runner.arch }}-
-          use-relative-cache-path: true
+          install-turbo: "false"
       - if: needs.select.outputs.affected == 'true'
         run: pnpm check:packages --affected
       - if: needs.select.outputs.affected != 'true'
         run: pnpm check:packages
 
   test:
+    permissions:
+      contents: read
+      id-token: write
     needs: select
     if: needs.select.outputs.js == 'true'
     runs-on: ubuntu-latest
@@ -89,10 +96,9 @@ jobs:
       - uses: $/.github/actions/setup
         with:
           fetch-depth: 0
-      - uses: rharkor/caching-for-turbo@760158c05c47e7a764f78e9a22ca3b5a6ed8c52e # v2.5.2
+      - uses: $/.github/actions/setup-turbo
         with:
-          cache-prefix: turbo-${{ runner.os }}-${{ runner.arch }}-
-          use-relative-cache-path: true
+          install-turbo: "false"
       # The PDF, OCR and browser controls need system tools; install them only
       # when vault-cite or its dependencies change, to save CI minutes.
       - id: vault
@@ -122,6 +128,9 @@ jobs:
         run: pnpm test
 
   build:
+    permissions:
+      contents: read
+      id-token: write
     needs: select
     if: needs.select.outputs.js == 'true'
     runs-on: ubuntu-latest
@@ -133,16 +142,18 @@ jobs:
       - uses: $/.github/actions/setup
         with:
           fetch-depth: 0
-      - uses: rharkor/caching-for-turbo@760158c05c47e7a764f78e9a22ca3b5a6ed8c52e # v2.5.2
+      - uses: $/.github/actions/setup-turbo
         with:
-          cache-prefix: turbo-${{ runner.os }}-${{ runner.arch }}-
-          use-relative-cache-path: true
+          install-turbo: "false"
       - if: needs.select.outputs.affected == 'true'
         run: pnpm build --affected
       - if: needs.select.outputs.affected != 'true'
         run: pnpm build
 
   manager-rust:
+    permissions:
+      contents: read
+      id-token: write
     needs: select
     if: needs.select.outputs.manager-rust == 'true'
     runs-on: ubuntu-latest
@@ -166,6 +177,9 @@ jobs:
             run: turbo --skip-infer run test:tmux --filter=agent-manager
 
   courier-rust:
+    permissions:
+      contents: read
+      id-token: write
     needs: select
     if: needs.select.outputs.courier-rust == 'true'
     runs-on: ubuntu-latest
@@ -201,6 +215,9 @@ jobs:
       - run: turbo --skip-infer run check lint build test --filter=courier
 
   dispatcher-rust:
+    permissions:
+      contents: read
+      id-token: write
     needs: select
     if: needs.select.outputs.dispatcher-rust == 'true'
     runs-on: ubuntu-latest
@@ -217,6 +234,9 @@ jobs:
       - run: turbo --skip-infer run fmt:check check lint test --filter=dispatcher
 
   control-plane-rust:
+    permissions:
+      contents: read
+      id-token: write
     needs: select
     if: needs.select.outputs.control-plane-rust == 'true'
     runs-on: ubuntu-latest
@@ -233,6 +253,9 @@ jobs:
       - run: turbo --skip-infer run fmt:check check lint test --filter=control-plane
 
   box-agent-rust:
+    permissions:
+      contents: read
+      id-token: write
     needs: select
     if: needs.select.outputs.box-agent-rust == 'true'
     runs-on: ubuntu-latest
@@ -249,6 +272,9 @@ jobs:
       - run: turbo --skip-infer run fmt:check check lint test --filter=box-agent
 
   point:
+    permissions:
+      contents: read
+      id-token: write
     needs: select
     if: needs.select.outputs.point == 'true'
     uses: $/.github/workflows/point.yml

@@ -1,0 +1,26 @@
+{
+	"name": "@petalnet/turbo-cache",
+	"version": "0.0.1",
+	"private": true,
+	"files": [
+		"dist/src"
+	],
+	"type": "module",
+	"scripts": {
+		"build": "tsc -b",
+		"start": "node dist/src/main.js",
+		"typecheck": "tsc -b",
+		"test": "vitest run"
+	},
+	"dependencies": {
+		"@effect/platform-node": "catalog:",
+		"effect": "catalog:",
+		"jose": "catalog:"
+	},
+	"devDependencies": {
+		"@petalnet/tsconfig": "workspace:*",
+		"@types/node": "catalog:types",
+		"typescript": "catalog:dev",
+		"vitest": "catalog:dev"
+	}
+}
