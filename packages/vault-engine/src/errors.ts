@@ -1,6 +1,16 @@
 // oxlint-disable unicorn/throw-new-error -- TaggedError is a class factory, not a constructor.
 import { Schema } from "effect";
 
+/** Configuration, provider and input failures; never carries the offending data. */
+export class ScannerUnavailable extends Schema.TaggedError<
+	ScannerUnavailable,
+	{ readonly brand: unique symbol }
+>()("ScannerUnavailable", {}) {
+	override get message() {
+		return "scanner-unavailable";
+	}
+}
+
 /** A write the vault refuses. Nothing of it is saved. */
 export class WriteRejected extends Schema.TaggedError<
 	WriteRejected,

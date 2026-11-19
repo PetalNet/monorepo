@@ -12,8 +12,9 @@ import { HttpRouter } from "effect/http";
 import { loopbackOnly, operations, refresh, vaultApi } from "./api.ts";
 import { CollectSpec, collect } from "./collect.ts";
 import { Vault } from "./engine.ts";
-import { CaptureFailed, SecretFound, WriteRejected } from "./errors.ts";
+import { CaptureFailed, ScannerUnavailable, SecretFound, WriteRejected } from "./errors.ts";
 import { ManifestEntry, migrate } from "./migrate.ts";
+import { loadOutboundScanner } from "./outbound-scan.ts";
 import { lint, project } from "./project.ts";
 import { indexPath, reindex } from "./recall.ts";
 import { Cite } from "./research.ts";
@@ -240,14 +241,24 @@ const commands = [
 	),
 	Command.make(
 		"collect",
-		{ spec: Argument.String("spec"), dir: Argument.String("out-dir") },
-		({ spec, dir }) =>
+		{
+			spec: Argument.String("spec"),
+			dir: Argument.String("out-dir"),
+			guarded: Flag.Boolean("guarded").pipe(Flag.withDefault(false)),
+		},
+		({ spec, dir, guarded }) =>
 			Effect.gen(function* () {
+				const scan = guarded
+					? yield* Effect.tryPromise({
+							try: () => loadOutboundScanner(),
+							catch: () => new ScannerUnavailable(),
+						})
+					: undefined;
 				const fs = yield* FileSystem.FileSystem;
 				const inputs = yield* Schema.decodeEffect(Schema.fromJsonString(CollectSpec))(
 					yield* fs.readFileString(spec),
 				);
-				const result = yield* collect(inputs, dir);
+				const result = yield* collect(inputs, dir, scan);
 
 				yield* print({
 					entries: result.entries,
@@ -256,7 +267,16 @@ const commands = [
 					withoutText: result.withoutText.length,
 					skipped: result.skipped.length,
 				});
-			}),
+			}).pipe(
+				Effect.catchCause((cause) =>
+					guarded
+						? Effect.sync(() => {
+								process.stderr.write('{"error":"guarded-collection-unavailable"}\n');
+								process.exitCode = 2;
+							})
+						: Effect.failCause(cause),
+				),
+			),
 	).pipe(
 		Command.withDescription(
 			"Build a migration manifest from a gallery database, note folders and a vault-cite index.",
