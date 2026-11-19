@@ -110,6 +110,16 @@
 			"groupName": "effect"
 		},
 		{
+			"description": "effect-qb 0.24.2 (latest) peers on effect >=4.0.0 <4.1.0, so effect 4.1.x cannot install under strict peers (#579). Lift when effect-qb widens its peer range.",
+			"matchPackageNames": ["effect", "/^@effect\\//"],
+			"allowedVersions": "<4.1"
+		},
+		{
+			"description": "adapter-node 6 peers on SvelteKit 3 and 5.x peers on Kit 2, so neither can move alone (#561/#643 had to be one change).",
+			"matchPackageNames": ["@sveltejs/kit", "@sveltejs/adapter-node"],
+			"groupName": "sveltekit"
+		},
+		{
 			"matchPackageNames": ["drizzle-orm", "drizzle-kit"],
 			"groupName": "drizzle"
 		},
