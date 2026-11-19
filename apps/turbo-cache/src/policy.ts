@@ -19,6 +19,35 @@ export const Claims = Schema.Struct({
 	groups: Schema.optional(Schema.Array(Schema.String)),
 });
 
+// Shown on the home page; keep in step with `grant` below and the README table.
+export const accessTable = [
+	{
+		identity: "GitHub main push",
+		access: "read and write",
+		evidence: "Workload identity of PetalNet/monorepo (name and immutable IDs), push to main",
+	},
+	{
+		identity: "Same-repo pull request",
+		access: "read",
+		evidence: "Same repository, and the GitHub API confirms the head and base are this repository",
+	},
+	{
+		identity: "Amp orb",
+		access: "read",
+		evidence: "Configured workspace and project, exchanged token",
+	},
+	{
+		identity: "Authentik user",
+		access: "read",
+		evidence: "Member of the turbo-cache group",
+	},
+	{
+		identity: "Everything else",
+		access: "denied",
+		evidence: "Forks, merge groups, Dependabot, pull_request_target, invalid or expired tokens",
+	},
+] as const;
+
 export interface Policy {
 	readonly authentikIssuer: string;
 	readonly ampWorkspaceIds: readonly string[];

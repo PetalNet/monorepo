@@ -6,7 +6,7 @@ const run = promisify(execFile);
 
 // The exact image compose deploys, so the test exercises the shipped ducktors build.
 export const cacheImage =
-	"ducktors/turborepo-remote-cache:2.14.3@sha256:781b0549dca80cf5aca27bf416fc766d44cad57333a7368098a755c5f12b8822";
+	"ducktors/turborepo-remote-cache:3.0.3@sha256:2ad6692bf9c5eed7a3c12f606820abd0af3b2b0f081c7d3bf40f2a015fe27a2f";
 
 export async function dockerAvailable() {
 	if (process.platform !== "linux") {

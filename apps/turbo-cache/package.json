@@ -14,8 +14,11 @@
 	},
 	"dependencies": {
 		"@effect/platform-node": "catalog:",
+		"@fontsource-variable/geist": "catalog:prod",
+		"@fontsource-variable/geist-mono": "catalog:prod",
 		"effect": "catalog:",
-		"jose": "catalog:"
+		"jose": "catalog:",
+		"lucide": "catalog:prod"
 	},
 	"devDependencies": {
 		"@petalnet/tsconfig": "workspace:*",

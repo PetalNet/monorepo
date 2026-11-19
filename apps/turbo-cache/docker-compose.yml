@@ -16,6 +16,11 @@ services:
       AMP_PROJECT_IDS: ${AMP_PROJECT_IDS:-}
       OIDC_AUDIENCE: turbo-cache.petalcat.dev
       TURBO_TEAM: petalnet
+      CACHE_URL: http://cache:3000
+      BUILD_SHA: ${TURBO_CACHE_IMAGE_SHA}
+    user: "1001:1001"
+    volumes:
+      - state:/state
     secrets:
       - signing-key
       - github-read-token
@@ -68,8 +73,13 @@ services:
     command: [sh, /config/evict.sh]
     environment:
       CACHE_MAX_BYTES: ${TURBO_CACHE_MAX_BYTES:-42949672960}
+      CACHE_STATUS_FILE: /state/storage.json
+    # The exchanger's image creates /state owned by 1001:1001; the volume takes that ownership
+    # from whichever container mounts it first.
+    depends_on: [exchanger]
     volumes:
       - cache-data:/data
+      - state:/state
       - ./deploy/evict.sh:/config/evict.sh:ro
     security_opt: [no-new-privileges:true]
 
@@ -78,6 +88,8 @@ services:
 # process forever. Docker refuses to start a container whose mount fails, so nothing can fall
 # back to writing the cache onto the VM's root disk.
 volumes:
+  # Small local volume: the exchanger's hit and miss counts and the eviction sidecar's status.
+  state:
   cache-data:
     driver_opts:
       type: nfs

@@ -15,6 +15,21 @@ OIDC token lacks a head-repository claim, so the exchanger checks the signed PR
 number through GitHub's API. Missing credentials or API failures deny PR access.
 The repository name and immutable IDs must all match to prevent transfer or rename squatting.
 
+## Home page
+
+`GET /` on the exchanger is a status page: artifact count and bytes against the cap, the last
+eviction pass, remote hits and misses over 24 hours, the policy table above and the local
+connection steps. `/stats.json` has the same numbers, and the page refreshes itself from `/_live`.
+None of it carries token or key material.
+
+- Storage numbers and the last eviction time come from `/state/storage.json`, which the
+  eviction sidecar rewrites after every pass.
+- Hit and miss counts come from the events Turbo posts to `POST /v8/artifacts/events` after
+  each remote lookup. The route sends that one path to the exchanger, which forwards it to
+  ducktors unchanged and counts the `REMOTE` `HIT`/`MISS` events only when ducktors accepted
+  the token. Counts live in hourly buckets in `/state/events.json` (the `state` volume), so a
+  redeploy keeps them. Local-only hits never reach the server.
+
 ## Deploy
 
 Compose pulls `ghcr.io/petalnet/turbo-cache:<commit-sha>` and never builds an image.
@@ -37,7 +52,9 @@ Outside compose, `SIGNING_KEY` and `GITHUB_READ_TOKEN` accept environment secret
 Authentik tokens must include the dedicated audience and a `groups` array.
 
 Install `deploy/traefik.yml` in the existing file-provider directory and route
-`turbo-cache.petalcat.dev` through the Cloudflare tunnel. **Do not attach Authentik
+`turbo-cache.petalcat.dev` through the Cloudflare tunnel. It sends `/`, `/_live`, `/stats.json`,
+`/assets/*.woff2`, `/exchange`, `/.well-known/jwks.json` and `POST /v8/artifacts/events` to the
+exchanger and everything else to the cache. **Do not attach Authentik
 forward-auth:** Turbo sends bearer tokens and cannot follow login redirects.
 Check both exchanger routes after installing the routing configuration:
 
@@ -47,7 +64,8 @@ curl --fail --silent --show-error https://turbo-cache.petalcat.dev/.well-known/j
 test "$(curl --silent --show-error -o /dev/null -w '%{http_code}' -X POST https://turbo-cache.petalcat.dev/exchange)" = 401
 ```
 
-Docker mounts the dataset for the cache and eviction containers alone (a named NFS
+The exchanger and the eviction sidecar share a small local `state` volume (created owned by
+1001:1001, from the exchanger image). Docker mounts the dataset for the cache and eviction containers alone (a named NFS
 volume), `soft` with `timeo=50,retrans=2`. A hung NAS fails each read and write with
 an I/O error within seconds, which Turbo treats as a cache miss, instead of freezing the
 server's worker threads. Docker will not start a container whose volume fails to mount, so
@@ -131,5 +149,5 @@ permit any valid token.
 Its JWT dependency accepts RS256 and EdDSA, but not ES256. This exchanger uses
 RS256. ducktors' `/v8/clean` endpoint requires write access, so eviction operates directly on storage.
 
-The integration test runs the pinned ducktors image with docker and host networking.
+The integration test runs the pinned ducktors image (v3.0.3, the same digest compose deploys) with docker and host networking.
 It is skipped on machines without docker and required in CI.

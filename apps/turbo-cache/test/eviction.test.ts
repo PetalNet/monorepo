@@ -1,5 +1,14 @@
 import { spawnSync } from "node:child_process";
-import { mkdtemp, readdir, readFile, rm, symlink, utimes, writeFile } from "node:fs/promises";
+import {
+	mkdir,
+	mkdtemp,
+	readdir,
+	readFile,
+	rm,
+	symlink,
+	utimes,
+	writeFile,
+} from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 
@@ -90,5 +99,49 @@ it("leaves a cache under its cap alone", async () => {
 
 		expect(result.status, result.stderr).toBe(0);
 		expect(await readdir(directory)).toEqual(["a"]);
+	});
+});
+
+it("writes a status file with the surviving totals and the last eviction time", async () => {
+	await withDirectory(async (directory) => {
+		const data = path.join(directory, "data");
+		const status = path.join(directory, "storage.json");
+		const now = Date.now();
+
+		await mkdir(data);
+		await Promise.all(
+			["a", "b", "c", "d", "e"].map(async (name, index) => {
+				const file = path.join(data, name);
+				const written = new Date(now - (5 - index) * 3600 * 1000);
+
+				await writeFile(file, "x".repeat(1000));
+				await utimes(file, written, written);
+			}),
+		);
+
+		const first = evict(data, { CACHE_MAX_BYTES: "3000", CACHE_STATUS_FILE: status });
+
+		expect(first.status, first.stderr).toBe(0);
+
+		const afterFirst = JSON.parse(await readFile(status, "utf8")) as Record<string, number>;
+
+		expect(afterFirst).toMatchObject({
+			files: 2,
+			bytes: 2000,
+			max_bytes: 3000,
+			evicted_files: 3,
+			evicted_bytes: 3000,
+		});
+		expect(afterFirst["last_eviction"]).toBeGreaterThan(0);
+
+		// A pass that evicts nothing reports zero but keeps when eviction last happened.
+		const second = evict(data, { CACHE_MAX_BYTES: "3000", CACHE_STATUS_FILE: status });
+
+		expect(second.status, second.stderr).toBe(0);
+		expect(JSON.parse(await readFile(status, "utf8"))).toMatchObject({
+			files: 2,
+			evicted_files: 0,
+			last_eviction: afterFirst["last_eviction"],
+		});
 	});
 });
