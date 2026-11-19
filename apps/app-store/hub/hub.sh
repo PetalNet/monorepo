@@ -43,10 +43,14 @@ link() {
 	mv -fT "$tmp" "$2"
 }
 
+# Read both before building anything: a failure inside <(...) would not stop the script.
+public_index=$(index "${dirs[repo]}" required)
+store_index=$(index "${dirs[store]}" optional)
+
 records=$(jq -n \
 	--slurpfile config "$config" \
-	--slurpfile repo <(index "${dirs[repo]}" required) \
-	--slurpfile store <(index "${dirs[store]}" optional) '
+	--slurpfile repo <(printf %s "$public_index") \
+	--slurpfile store <(printf %s "$store_index") '
 	{repo: $repo[0], store: $store[0]} as $index
 	| $config[0] as $c
 	| [ $c.apps[] | . as $app
