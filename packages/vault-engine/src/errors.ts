@@ -2,12 +2,12 @@
 import { Schema } from "effect";
 
 /** A write the vault refuses. Nothing of it is saved. */
-export class WriteRejected extends Schema.TaggedError<WriteRejected>()("WriteRejected", {
+export class WriteRejected extends Schema.TaggedError<WriteRejected, { readonly brand: unique symbol }>()("WriteRejected", {
 	message: Schema.String,
 }) {}
 
 /** The secret scan matched. Only rule IDs are carried: the matched text never leaves the scan. */
-export class SecretFound extends Schema.TaggedError<SecretFound>()("SecretFound", {
+export class SecretFound extends Schema.TaggedError<SecretFound, { readonly brand: unique symbol }>()("SecretFound", {
 	rules: Schema.Array(Schema.String),
 	where: Schema.String,
 }) {
@@ -17,7 +17,7 @@ export class SecretFound extends Schema.TaggedError<SecretFound>()("SecretFound"
 }
 
 /** Vault-cite did not save a reference. Record it as a gap. */
-export class CaptureFailed extends Schema.TaggedError<CaptureFailed>()("CaptureFailed", {
+export class CaptureFailed extends Schema.TaggedError<CaptureFailed, { readonly brand: unique symbol }>()("CaptureFailed", {
 	ref: Schema.String,
 	reason: Schema.String,
 }) {
@@ -27,7 +27,7 @@ export class CaptureFailed extends Schema.TaggedError<CaptureFailed>()("CaptureF
 }
 
 /** A tier file that Loro cannot read. */
-export class TierUnreadable extends Schema.TaggedError<TierUnreadable>()("TierUnreadable", {
+export class TierUnreadable extends Schema.TaggedError<TierUnreadable, { readonly brand: unique symbol }>()("TierUnreadable", {
 	tier: Schema.String,
 	reason: Schema.String,
 }) {
