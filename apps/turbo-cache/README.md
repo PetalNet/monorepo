@@ -68,6 +68,58 @@ below the dataset's 50 GiB quota so that in-flight uploads never hit the quota.
 Cloudflare's [100 MB upload cap](https://developers.cloudflare.com/support/troubleshooting/http-status-codes/4xx-client-error/error-413/)
 limits artifact size through the tunnel. The cache's body limit is 104857600 bytes.
 
+## Local use (read-only)
+
+Members of the Authentik group `turbo-cache` can read the cache from a checkout. They cannot
+write: only a main push can. Authentik signs the tokens (provider and application
+`turbo-cache`, client ID `turbo-cache.petalcat.dev`, RS256); the exchanger turns one into a
+two-hour cache token.
+
+1. In Authentik, open User settings, Tokens and App passwords, and create an **App password**.
+   An administrator adds you to `turbo-cache` first.
+2. Trade it for a cache token and export the Turbo variables. Put your username and the app
+   password in `AK_USER` and `AK_APP_PASSWORD` first (read the password with `read -rs`, so it
+   stays out of the command line and shell history):
+
+   ```bash
+   identity=$(printf %s "$AK_APP_PASSWORD" |
+     curl --fail --silent --show-error https://auth.petalcat.dev/application/o/token/ \
+       -d grant_type=password -d client_id=turbo-cache.petalcat.dev -d scope='openid profile' \
+       --data-urlencode username="$AK_USER" --data-urlencode password@- |
+     jq -er .access_token) &&
+   TURBO_TOKEN=$(curl --fail --silent --show-error -X POST -H "Authorization: Bearer $identity" \
+     https://turbo-cache.petalcat.dev/exchange | jq -er .access_token) &&
+   export TURBO_API=https://turbo-cache.petalcat.dev TURBO_TEAM=petalnet TURBO_TOKEN \
+     TURBO_CACHE=local:rw,remote:r TURBO_REMOTE_CACHE_TIMEOUT=15
+   ```
+
+3. Run Turbo as usual. The token lasts two hours; repeat step 2 for a new one. Turbo prints
+   `cache hit, replaying logs` for local and remote hits alike. To see a remote hit, run with
+   `--cache=remote:r` after deleting a task's output (for example `dist`): the output comes
+   back from the cache. On the LAN the host resolves to Traefik directly, and off it the
+   request goes through the Cloudflare tunnel.
+
+`curl https://turbo-cache.petalcat.dev/v8/artifacts/status` answers 200 when the server is up.
+
+## Provisioned state
+
+Everything outside the repository that the stack depends on, so it can be rebuilt:
+
+- TrueNAS dataset `JeremyBearimy/turbo-cache`: 50 GiB quota, atime on, POSIX ACL, owned by
+  1001:1001 (mode 0750), shared by NFS to `10.10.10.14` only.
+- Authentik: group `turbo-cache`; OAuth2 provider and application `turbo-cache` (public client,
+  client ID `turbo-cache.petalcat.dev`, password and authorization-code grants, RS256 with the
+  default self-signed key, application bound to the group).
+- Lab vault: `turbo-cache-signing-key` (RSA 3072, PKCS8) and `turbo-cache-github-token`
+  (fine-grained, read-only Pull requests and Contents on this repository, expires 2027-11-19).
+- .14: `/home/docker/releases/turbo-cache/<sha>` is the release checkout, `current` points at
+  it, `runtime.env` (mode 600) holds the variables above, `secrets/` holds the two files projected
+  from the vault, and `compose.override.yaml` gives the stack its own /24. The image is built
+  there with `docker build -f apps/turbo-cache/Dockerfile -t ghcr.io/petalnet/turbo-cache:<sha> .`.
+  Never delete `/data/petalnet` on the volume: the cache server creates that directory once and
+  fails every upload while it is missing.
+- Traefik route: `dynamic/turbo-cache.yml` in PetalNet/traefik.
+
 ## Upstream constraints
 
 [ducktors JWT authorization](https://github.com/ducktors/turborepo-remote-cache/blob/v2.14.3/src/plugins/remote-cache/auth/jwt.ts)
