@@ -120,22 +120,39 @@ def card_of(session, transcript, rows):
                 end=rows[-1][2], ts=first.get('timestamp', ''), who=who, event_id=event_id, body=body)
 
 
-def note_dirs(db_path):
-    """{source: directory} from index.notes in <state>/config.json; each directory of .md files is mirrored."""
+def config(db_path):
     try:
         with open(os.path.join(os.path.dirname(os.path.abspath(db_path)), 'config.json')) as f:
-            return json.load(f).get('index', {}).get('notes', {})
+            return json.load(f)
     except (OSError, ValueError):
         return {}
+
+
+def note_dirs(db_path):
+    """{source: directory} from index.notes in <state>/config.json; each directory of .md files is mirrored."""
+    return config(db_path).get('index', {}).get('notes', {})
 
 
 def doc_dirs(db_path):
     """{source: directory} from index.docs in <state>/config.json; each directory's Markdown is indexed in chunks."""
-    try:
-        with open(os.path.join(os.path.dirname(os.path.abspath(db_path)), 'config.json')) as f:
-            return json.load(f).get('index', {}).get('docs', {})
-    except (OSError, ValueError):
-        return {}
+    return config(db_path).get('index', {}).get('docs', {})
+
+
+def recall_sources(db_path):
+    """The sources a prompt is searched in: fold, every notes and docs source, and the vault only when index.vault names
+    its replica and recall.vault is true."""
+    cfg = config(db_path)
+    vault = ['vault'] if cfg.get('index', {}).get('vault') and cfg.get('recall', {}).get('vault') is True else []
+    return ['fold', *cfg.get('index', {}).get('notes', {}), *cfg.get('index', {}).get('docs', {}), *vault]
+
+
+def claim_card(m):
+    """One line for a vault claim: where it sits, what it says, and what backs it. The parts are cut, never the line,
+    so the source and freshness always show."""
+    backing = [f'source: {(m.get("source_title") or m.get("source_id"))[:120]}'] if m.get('source_title') or m.get('source_id') else []
+    backing += [f'captured {m["captured"][:10]}'] if m.get('captured') else []
+    return (f'[claim {m["claim"]}] {m["title"][:120]} > {m["heading"][:120]}: {" ".join(m["text"].split())[:400]} '
+            f'({m["source_type"]}; {", ".join(backing + [m["freshness"]])})')
 
 
 def build(a):
@@ -185,6 +202,11 @@ def build(a):
         notes[src] = memindex.sync_notes(db, os.path.expanduser(d), src)
     for src, d in doc_dirs(a.db).items():
         notes[src] = memindex.sync_docs(db, os.path.expanduser(d), src)
+    # Vault rows count in every source's BM25 rarity, so they are indexed only while recall searches the vault.
+    if 'vault' in recall_sources(a.db):
+        notes['vault'] = memindex.sync_vault(db, config(a.db)['index']['vault'])
+    elif dropped := memindex.drop_source(db, 'vault'):
+        notes['vault'] = -dropped
     print(json.dumps({'transcript': transcript, 'added': len(added), 'offset': resume, 'notes': notes}))
     return 0
 
@@ -222,13 +244,14 @@ def thread_of(db_path, room, body, remember=True):
 
 
 def query(a):
-    """The memory notes, documents and cards worth attaching to this prompt; usually none."""
+    """The memory notes, documents, vault claims and cards worth attaching to this prompt; usually none."""
     migrate(connect(a.db))
     msg = memindex.clean(a.text)
     if msg['kind'] == 'notice' or not msg['body']:
         print('[]'); return 0
     thread = json.loads(a.thread) if a.thread is not None else thread_of(a.db, msg['room'] or msg['kind'], msg['body'])
-    sources = a.sources.split(',') if a.sources else ['fold', *note_dirs(a.db), *doc_dirs(a.db)]
+    allowed = recall_sources(a.db)
+    sources = [s for s in a.sources.split(',') if s != 'vault' or s in allowed] if a.sources else allowed
     exclude = set(filter(None, (a.exclude or '').split(','))) | {f'{s}:MEMORY.md' for s in note_dirs(a.db)}
     cands = memindex.candidates(a.db, msg['body'], sources, thread)
     hits = memindex.gate(cands or [], len(memindex.terms_of(msg['body'])), exclude)[:a.k]
@@ -237,7 +260,9 @@ def query(a):
         m = c['meta']
         h = dict(pointer=c['pointer'], source=c['source'], ts=c['ts'], who=m.get('who', c['source']), event_id=m.get('event_id', ''),
                  path=m.get('path'), body=c['body'], p=round(c['p'], 3))
-        if c['source'] != 'fold':
+        if c['source'] == 'vault':
+            h.update(card=claim_card(m))
+        elif c['source'] != 'fold':
             name = os.path.basename(m.get('path') or c['pointer']).removesuffix('.md')
             text = re.sub(r'^---\n[\s\S]*?\n---\n', '', c['body']).strip()
             if m.get('title'):  # a document chunk: its title and section, then the chunk

@@ -3,7 +3,7 @@ import json, os, subprocess, sys, tempfile, unittest
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from fake_embedder import FakeEmbedder
-from test_memindex import memindex
+from test_memindex import memindex, claim, replica
 
 CARDS = os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', 'bin', 'cards.py')
 S = '00000000-0000-4000-8000-000000000001'
@@ -117,6 +117,50 @@ class Cards(unittest.TestCase):
         doc = json.loads(subprocess.run([sys.executable, '-I', os.path.join(os.path.dirname(CARDS), 'memindex.py'), 'search', '--db', self.db,
                                          '--sources', 'shared', '--text', 'shed padlock'], capture_output=True, text=True, check=True).stdout.splitlines()[0])
         self.assertEqual((doc['pointer'], doc['kept']), ('shared:garden.md#0', False))
+
+    def flag(self, on):
+        with open(os.path.join(self.d, 'config.json'), 'w') as f:
+            json.dump({'index': {'vault': os.path.join(self.d, 'index.sqlite')}, 'recall': {'vault': on}}, f)
+
+    def vault(self, on, claims):
+        replica(os.path.join(self.d, 'index.sqlite'), claims)
+        self.flag(on)
+        return json.loads(run('build', '--db', self.db, '--session', S, '--transcript', self.t))
+
+    def vault_rows(self):
+        db = memindex.connect(self.db)
+        try:
+            return db.execute("SELECT count(*) FROM doc WHERE source='vault'").fetchone()[0]
+        finally:
+            db.close()
+
+    def test_vault_claims_are_indexed_searched_and_attached_only_with_the_flag_on(self):
+        claims = [claim('c-1', 'The shed padlock is a 4-digit Abus.')]
+        out = self.vault(False, claims)
+        self.assertEqual((out['notes'], self.vault_rows()), ({}, 0), 'with the flag off no claim is indexed, so none shifts BM25 rarity')
+        self.assertEqual(self.vault(True, claims)['notes'], {'vault': 1})
+        emb = self.embed(('vault:c-1', 0.95))
+        self.flag(False)
+        for args in ((), ('--sources', 'fold,vault')):
+            self.assertEqual(self.query('which padlock is on the shed?', *args), [])
+            self.assertNotIn('vault', emb.requests[-1]['sources'], 'with the flag off the vault is not searched at all')
+        self.flag(True)
+        self.assertEqual([h['pointer'] for h in self.query('which padlock is on the shed?')], ['vault:c-1'])
+        self.assertIn('vault', emb.requests[-1]['sources'])
+        out = self.vault(False, claims)
+        self.assertLess(out['notes']['vault'], 0, 'the build reports what it removed')
+        self.assertEqual(self.vault_rows(), 0, 'turning the flag off removes the claims')
+
+    def test_a_claim_card_carries_its_source_and_freshness(self):
+        self.vault(True, [claim('c-1', 'The shed padlock is a 4-digit Abus.', freshness='stale'),
+                          claim('c-2', 'The shed gets a shelf in spring.', sources=[])])
+        emb = self.embed(('vault:c-1', 0.95), ('vault:c-2', 0.66))
+        hit, = self.query('which padlock is on the shed?')
+        self.assertEqual(hit['card'], '[claim c-1] Shed > Locks: The shed padlock is a 4-digit Abus. '
+                                      '(PRIMARY; source: Hardware receipt, captured 2026-11-02, stale)')
+        emb.hits = [[r, {0.95: 0.66, 0.66: 0.95}.get(cos, cos)] for r, cos in emb.hits]
+        hit, = self.query('when does the shed get a shelf?')
+        self.assertEqual(hit['card'], '[claim c-2] Shed > Locks: The shed gets a shelf in spring. (PRIMARY; fresh)')
 
     def test_without_a_thread_argument_the_room_thread_is_kept_between_prompts(self):
         run('build', '--db', self.db, '--session', S, '--transcript', self.t)

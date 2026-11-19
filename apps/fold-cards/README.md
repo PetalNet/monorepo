@@ -33,6 +33,16 @@ Without the embedder nothing attaches; the first query starts it for the next pr
 
 A second fixture grades what the gate attached, not what the ranker found: 543 real (prompt, attachment) pairs from one week (2026-11-11 to 18), 129 of them attached live, each judged helpful or not by reading the prompt and the attached note or card. Before the second stage the gate attached 413 of them at precision 0.385 (46 of the 129 live ones helped). Cards stayed at 0.37: the rescoring did nothing for them at any threshold, so only notes use it. For notes, precision went from 0.39 to 0.58 with 77% of the helpful ones kept; with cards, over everything the gate attaches, from 0.385 to 0.48, 85% of the helpful kept, and 38% fewer attachments. Of the 129 attached live, the new gate keeps 65, 32 of them helpful (precision 0.49, 70% of the helpful ones). The held-out figure refits the three weights on 60% of the prompts and measures the other 40%, averaged over 200 splits (precision 0.48, sd 0.05 between splits). Only the weights are held out: the threshold, the floor and the features were chosen on the same week, so the figures are likely a little high. `test/fit_attach.py` reproduces the numbers and refits the weights. Both fixtures are real conversation, so they are kept private, beside the deployment's config, and not in this repository.
 
+**Vault claims** are a fourth source, off by default. `index.vault` in the fold `<state>/config.json` names a local read replica of the vault (`@petalnet/vault-engine` writes it as `<root>/index.sqlite`) (a SQLite file with a `claim` table that the vault engine replaces atomically); `cards.py build` opens it read-only and mirrors its active `shared`-tier claims as one document each (personal and agent tiers never enter recall), `<title> > <heading>: <text>`, dropping claims that were superseded, retracted or removed. An unreadable replica leaves the claims already indexed in place and does not stop the build. Prompts search the vault only when `recall.vault` is also `true` (default `false`); with it off the vault costs a prompt nothing. A claim attaches as one line:
+
+```text
+[claim c-7f3k2abc] Note granularity > Retrieval unit: <text> (PRIMARY; source: Dense X Retrieval, captured 2026-11-17, fresh)
+```
+
+The vault has no graded labels yet, so it borrows the memory model behind a stricter threshold (p >= 0.6) and a cap of one claim per prompt. That choice is unfitted. `test/eval_recall.py --fixture FIXTURE --vault --vault-grades FILE` lists every claim that attaches on the 59 prompts so it can be graded, and the model is refit from those grades.
+
+The graded fixture and the vault grades are real conversation, so they are kept private, beside the deployment's config, and not in this repository.
+
 ## Tests
 
 ```sh
