@@ -369,11 +369,10 @@ a height, a roof albedo, and where each came from.
   photo is calibrated per class against the reflectance raster; a roof reads like the unvegetated class, a prior).
 - **Priors, with no source:** roofs are flat (no source gives roof shape); every wall has one albedo of 0.25 (no
   facade colour); roughness 0.85; 3 m a floor; the 0.3 m simplification, the 4 m2 minimum area, the 1.5 m lidar
-  threshold, the 3-cell minimum, the 1 m edge and the 3.5 m clearance below are set by hand. All are in `build.json` under `buildings.settings` and `buildings.priors`.
-- **Roofs are not trees.** A canopy map counts a roof as canopy. A crown whose top lies in a footprint (pulled in 1 m) and
-  stands less than 3.5 m over the roof the lidar saw is that roof and is dropped (87 on the real tile). The 3.5 m is a prior
-  fitted by eye: the tile's crowns in footprints split into a mass within 3.2 m of the roof and a few from 4.1 m up.
-  Tag-only roofs have no lidar roof to compare, so crowns over them stay.
+  threshold, the 3-cell minimum and the 1 m edge are set by hand. All are in `build.json` under `buildings.settings` and `buildings.priors`.
+- **Roofs are not trees.** A canopy map counts a roof as canopy, and a tree is placed at its crown's top, so a crown
+  whose top lies in a footprint (edge cells included) would stand in a building. It is dropped (142 on the real tile,
+  most of them roofs; the few that were real crowns over a roof's edge go with them). The rule is a prior.
 - **Roofs out of the ground.** A footprint's cells count as hidden in the cover stage, so no class, colour or detail
   of the ground is read from a roof (the lidar already hid the roofs it saw as cover; on the real tile the footprints
   hid 2108 more cells that were still read as ground), and the ground class under a footprint is that of the nearest

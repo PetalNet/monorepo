@@ -34,7 +34,7 @@ from .site import (
 
 # Part of every stage key. Bump it by hand when a code change alters a stage's output for the same
 # inputs (frame.py and the resampling included); nothing detects that automatically.
-PIPELINE_VERSION = 15
+PIPELINE_VERSION = 17
 
 MACRO_PIXELS = 1024
 # The fine detail: pixels across the tile (about half a metre, the imagery's own resolution) and the largest
@@ -328,9 +328,9 @@ def build_trees(
     narrow, report["not_trees"] = trees.too_narrow(found)
     dropped = trees.masts(narrow, records, len(covers))
     report["not_trees"]["dropped"] = sum(dropped)
-    # A roof is canopy to a height map. A crown that tops out in a footprint, no higher than the roof, is that roof.
-    roofs = buildings.crowns_on_roofs(found, footprints or [], tile, lidar.CELL_M, lidar_height)
-    report["not_trees"]["roofs"] = sum(roofs)
+    # A roof is canopy to a height map, and a tree stands at its crown's top: a crown topping out in a footprint is no tree.
+    roofs = buildings.crowns_in_footprints(found, footprints or [], tile, lidar.CELL_M)
+    report["not_trees"]["in_footprints"] = sum(roofs)
     records = [tree for tree, drop, roof in zip(records, dropped, roofs, strict=True) if not drop and not roof]
     (out / "trees.json").write_text(
         json.dumps({"columns": trees.COLUMNS, "trees": [[tree[name] for name in trees.COLUMNS] for tree in records]})
@@ -344,9 +344,7 @@ def build_trees(
     if threshold is None:
         priors.append("prior: no tree's kind is measured; kinds follow the inventory's mix, or broadleaf without one")
     if footprints:
-        priors.append(
-            f"prior: a crown whose top is in a footprint is the roof unless it stands {buildings.ROOF_CLEARANCE_M:g} m over it"
-        )
+        priors.append("prior: a tree stands at its crown's top, so a crown whose top is in a footprint is not a tree")
     if "survey" in report:
         unseen = sum(tree["source"] != "survey" and tree["confidence"] < 1 for tree in records)
         report["survey"]["crowns_added"] = sum(tree["source"] == "survey" for tree in records)

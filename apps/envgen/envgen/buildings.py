@@ -40,9 +40,6 @@ LIDAR_MIN_M = 1.5
 # The lidar's cells inside a footprint are read this far from its edge, where a wall or an eave would mix in.
 EDGE_M = 1.0
 LIDAR_MIN_CELLS = 3
-# A canopy crown whose top lies in a footprint is the roof itself unless it stands this far above it. A prior: the
-# real tile's crowns in footprints split into a mass within 3.2 m of the roof and a few from 4.1 m up.
-ROOF_CLEARANCE_M = 3.5
 # Walls have no colour source: one albedo for all of them. A prior.
 WALL_ALBEDO = 0.25
 ROOF_ROUGHNESS = 0.85
@@ -53,7 +50,6 @@ SETTINGS = {
     "lidar_min_m": LIDAR_MIN_M,
     "edge_m": EDGE_M,
     "lidar_min_cells": LIDAR_MIN_CELLS,
-    "roof_clearance_m": ROOF_CLEARANCE_M,
     "wall_albedo": WALL_ALBEDO,
     "roof_roughness": ROOF_ROUGHNESS,
 }
@@ -131,23 +127,19 @@ def lidar_roof_heights(
     return heights
 
 
-def crowns_on_roofs(
-    crowns: Sequence[dict], footprints: Sequence[dict], tile: Tile, cell_m: float, lidar_height: np.ndarray | None
-) -> list[bool]:
-    """Which crowns are a roof the canopy map counted: the top lies in a footprint, no higher than the roof stands.
+def crowns_in_footprints(crowns: Sequence[dict], footprints: Sequence[dict], tile: Tile, cell_m: float) -> list[bool]:
+    """Which crowns have their top in a footprint (edge cells too).
 
-    A tree over a roof's edge stands well above it and stays. `crowns` have `row`, `column` and `height_m`.
+    A tree is placed at its crown's top, so one whose top is in a building would stand in it. In a height map a roof is
+    canopy too, and these are mostly roofs; the few that are a real crown over a roof's edge are lost with them.
+    `crowns` have `row` and `column`.
     """
-    roofs = lidar_roof_heights(footprints, tile, cell_m, lidar_height)
     cells = round(tile.size_m / cell_m)
-    owner = np.full((cells, cells), -1, dtype=np.int32)
-    for number, item in enumerate(footprints):
-        owner[_inside(item["polygon"], tile, cell_m)] = number
-    flags = []
-    for crown in crowns:
-        number = int(owner[crown["row"], crown["column"]])
-        flags.append(number >= 0 and roofs[number] is not None and crown["height_m"] < roofs[number] + ROOF_CLEARANCE_M)
-    return flags
+    owned = np.zeros((cells, cells), dtype=bool)
+    transform = from_origin(tile.west, tile.north, cell_m, cell_m)
+    for item in footprints:
+        owned |= features.rasterize([(item["polygon"], 1)], out_shape=(cells, cells), transform=transform).astype(bool)
+    return [bool(owned[crown["row"], crown["column"]]) for crown in crowns]
 
 
 def triangulate(polygon: Polygon) -> tuple[list[list[tuple[float, float]]], list[list[int]]]:

@@ -195,15 +195,13 @@ def test_a_footprint_over_the_tiles_edge_is_cut_there(tmp_path):
     assert found["polygon"].bounds[0] == pytest.approx(h.WEST, abs=1e-3)
 
 
-def test_a_crown_that_is_a_roof_goes_and_a_tree_over_the_roof_stays():
-    cells = round(TILE.size_m)
-    lidar = np.zeros((cells, cells), dtype=np.float32)
-    lidar[(cells - 80) : (cells - 60), 30:50] = 6.0
+def test_a_crown_with_its_top_in_a_footprint_is_no_tree_and_one_beside_it_stays():
     footprints = [{"polygon": moved(ROOF), "tags": {}}]
-    row, column = cells - 70, 40
-    roof = {"row": row, "column": column, "height_m": 6.4}
-    tree_over_it = {"row": row, "column": column + 3, "height_m": 14.0}
-    beside = {"row": row, "column": 10, "height_m": 6.4}
-    flags = buildings.crowns_on_roofs([roof, tree_over_it, beside], footprints, TILE, 1.0, lidar)
-    assert flags == [True, False, False]
-    assert buildings.crowns_on_roofs([roof], footprints, TILE, 1.0, None) == [False]
+    cells = round(TILE.size_m)
+    row = cells - 70
+    inside = {"row": row, "column": 40}
+    over_a_tag_only_roof = {"row": row, "column": 33}
+    on_the_edge = {"row": row, "column": 30}  # the footprint's outermost cell
+    beside = {"row": row, "column": 10}
+    flags = buildings.crowns_in_footprints([inside, over_a_tag_only_roof, on_the_edge, beside], footprints, TILE, 1.0)
+    assert flags == [True, True, True, False]
