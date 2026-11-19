@@ -41,7 +41,7 @@
 		try {
 			await openedProject({ project });
 
-			// opening a project makes it yours, so the sidebar moves it up
+			// a visit can add the project to a narrowed view, so the sidebar moves it up
 			if (data.tree.some((p) => p.key === project && !p.mine && !p.choice)) {
 				await invalidate("gallery:tree");
 			}

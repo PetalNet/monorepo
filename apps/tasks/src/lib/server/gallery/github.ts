@@ -149,8 +149,8 @@ const MAX_PAGES = 10;
 const FRESH = { ok: 60_000, failed: 10_000 };
 
 /**
- * A result older than this is not shown as it is: the read waits for the refresh, up to WAIT. With
- * two viewers the last visit is often hours back, and checks and reviews have moved since.
+ * A read that finds a result older than this waits for the refresh, up to WAIT, before it answers.
+ * With two viewers the last visit is often hours back, and checks and reviews have moved since.
  */
 const TOO_OLD = 5 * 60_000;
 const WAIT = Duration.seconds(3);
@@ -217,7 +217,8 @@ export const GitHubLive = Layer.effect(
 			return pulls;
 		}).pipe(
 			Effect.timeout(Duration.seconds(10)),
-			Effect.mapError((cause) => new GitHubUnavailable({ cause })),
+			// a defect too: a stored one would fail every page until the next refresh
+			Effect.catchCause((cause) => Effect.fail(new GitHubUnavailable({ cause }))),
 		);
 
 		const scope = yield* Effect.scope;
@@ -270,7 +271,7 @@ export const GitHubLive = Layer.effect(
 
 			yield* Deferred.await(done).pipe(Effect.timeoutOption(WAIT));
 
-			return yield* (yield* Ref.get(last))?.exit ?? result.exit;
+			return yield* ((yield* Ref.get(last)) ?? result).exit;
 		});
 
 		return GitHub.of({ openPulls });

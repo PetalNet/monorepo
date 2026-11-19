@@ -304,7 +304,7 @@ describe("GitHubLive", () => {
 		expect(github.seen).toHaveLength(1);
 	});
 
-	it("does not show a result from hours ago: a read that late waits for the refresh", async () => {
+	it("waits for the refresh when the last result is hours old", async () => {
 		let title = "before";
 		const github = await serve(() => ({
 			data: {

@@ -22,7 +22,10 @@ interface Interest {
 	/** The projects in the viewer's default view. */
 	readonly mine: ReadonlySet<string>;
 	readonly choices: ReadonlyMap<string, Choice>;
-	/** False when nothing involves the viewer, so `mine` is simply every project they did not hide. */
+	/**
+	 * True when a follow or an involvement narrows the view. Otherwise `mine` is every project the
+	 * viewer did not hide.
+	 */
 	readonly focused: boolean;
 	/** The viewer's GitHub login, lower-cased, when the config names one. */
 	readonly login: string | undefined;
