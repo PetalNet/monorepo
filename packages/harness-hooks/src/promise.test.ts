@@ -376,6 +376,7 @@ echo "$*" >> "${dir}/vault.log"; n=$(wc -l < "${dir}/vault.log"); printf '{"id":
 		dying.db.exec(
 			"CREATE TRIGGER die BEFORE UPDATE ON batch BEGIN SELECT RAISE(ABORT, 'dead'); END",
 		);
+
 		expect(dying.sweep()).toMatchObject({ errors: [expect.stringContaining("dead") as string] });
 		dying.db.exec("DROP TRIGGER die");
 		dying.close();
@@ -394,10 +395,12 @@ echo "$*" >> "${dir}/vault.log"; n=$(wc -l < "${dir}/vault.log"); printf '{"id":
 		using((l) => l.addReminder("ping", now + MINUTE, "ping"));
 		history.exec("ALTER TABLE entry RENAME TO elsewhere");
 		now += HOUR;
+
 		expect(sweep()).toMatchObject({
 			remind: { sent: 1 },
 			errors: [expect.stringContaining("ingest:") as string],
 		});
+
 		expect(injected()).toHaveLength(1);
 	});
 
