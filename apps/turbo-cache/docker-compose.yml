@@ -21,7 +21,7 @@ services:
     security_opt: [no-new-privileges:true]
 
   cache:
-    image: ducktors/turborepo-remote-cache:2.14.3@sha256:781b0549dca80cf5aca27bf416fc766d44cad57333a7368098a755c5f12b8822
+    image: ducktors/turborepo-remote-cache:2.14.5@sha256:58f0aeeb78d9e5de6ff0fe989fcfaa7ca3df467769780e378a87af8d24806b48
     restart: unless-stopped
     command:
       - node
