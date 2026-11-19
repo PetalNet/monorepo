@@ -117,7 +117,7 @@ nearest ground that shows it.
   reflect near-infrared and absorb red whether green or dry, so dry turf the colour of pale paving is still
   found. Each cell counts by the square of its red plus near-infrared. Every cell is then read itself, shade and
   cover included: shade dims both bands together, and a cell under cover shows what the cover is. A roof is
-  therefore the unvegetated class. A patch of vegetation that cover hides, up to 1000 m2 (a crown, not a wood), then takes the
+  therefore the unvegetated class. A patch of vegetation that cover or shade hides, up to 1000 m2 (a crown, not a wood), then takes the
   class most of the shown ground within 3 m of it has, so a tree over a car park does not paint grass in it. Both
   the rule and its two numbers are priors and listed as such. On the real tile it moved 63616 cells (15 900 m2) and the paved share went from 52.4 % to 54.0 % (a 30 m land cover product says 51 %),
   while the correlation with that product's impervious share by 30 m cell rose from 0.658 to 0.666. The share
@@ -257,17 +257,17 @@ markings, patches of straw) without moving the albedo, which stays the fitted on
 hides the ground, because the engine draws those, so a roof, which the cover stage counts, stays flat until buildings are
 modelled. The albedo curves are not applied to it: their gamma (0.33 for grass) comes from a fit across 10 m
 pixels, where noise flattens the slope, and would take most of the contrast out. Treating the imagery's tone
-curve as sRGB is a prior. The source is the imagery's date (2024-08 on the real tile), not the target date's, so
-a row mown since is not in it. The ratio is a 2048 pixel texture, about 3 MB on the card.
+curve as sRGB is a prior, as are the limit of one stop either way (lot paint on asphalt clips there) and the fade over 2 cells at the edge of hidden ground; the manifest's `detail.priors` lists them. The source is the imagery's date (2024-08 on the real tile), not the target date's, so
+a row mown since is not in it. The ratio is a 2048 pixel texture, uncompressed (block compression has steps of about 5 % in a channel, as large as the rows it carries): 16 MB, about 22 with mips.
 
-The class weights are cut to a sharp edge in the material where they cross one half (`EdgeSharpness`, a look), moved
-by 0.15 of the scan's relief: a weightmap texel is 0.5 m and its ramp reads as a blur several metres wide from the
+The class weights are cut to a sharp edge in the material where they cross one half (`EdgeSharpness` 0.12, a look), moved
+by 0.15 of the scan's relief, centred on 0.5 as if each scan's relief averaged one half (a look): a weightmap texel is 0.5 m and its ramp reads as a blur several metres wide from the
 air.
 
-The grass class also grows tufts: Landscape Grass, 14 blades of 7.6 to 10.2 cm (scaled 0.85 to 1.15) to a tuft, up to 2000 tufts per 100
+The grass class also grows tufts: Landscape Grass, 14 blades of 7.6 to 10.2 cm (scaled 0.85 to 1.15, a prior, so 6.5 to 11.7 cm drawn) to a tuft, up to 2000 tufts per 100
 m2 where the class has full weight, drawn out to 45 m, coloured from the class's mean photo colour. The blade
 height is the summer mowing height a land-grant university extension guide gives cool-season lawn turf, 3 to 4 inches (its publication codes are MG10 and G6705);
-nothing gives the other values. A blade is lit as the ground under it: its material's normal is world up, because a
+nothing gives the other values, and applying a lawn's mowing height to every grass-class cell is itself a prior. Tufts grow on the same sharp edge the ground is drawn with. A blade is lit as the ground under it: its material's normal is world up, because a
 two-sided blade's normal turns over on the side the camera sees and half of them took no sun. That, not the
 colour or the shadows, is why the tufts read black (checked by turning shadows off, then the engine's virtual shadow maps off,
 then the shading model: no change; world-up normal: blade pixels from 38 to 58 in sRGB against 85 for the ground). The host

@@ -649,6 +649,7 @@ namespace
 		UMaterialExpression* NormalSum = nullptr;
 		UMaterialExpression* RoughSum = nullptr;
 		UMaterialExpression* WeightSum = nullptr;
+		UMaterialExpression* GrassSharp = nullptr;
 		int32 Row = 0;
 		for (const FLayer& Layer : Layers)
 		{
@@ -706,23 +707,36 @@ namespace
 			NormalSum = Combine(NormalSum, Weighted(NormalNear, 300), 350, Y + 300);
 			RoughSum = Combine(RoughSum, Weighted(Mix(RoughNear, RoughFar, -400, Y + 900), 300), 350, Y + 600);
 			WeightSum = Combine(WeightSum, Sharp, 350, Y + 900);
+			if (Layer.Name == GrassLayer)
+			{
+				GrassSharp = Cut;
+			}
 			++Row;
 		}
+		UMaterialExpressionAdd* SafeSum = Node<UMaterialExpressionAdd>(Material, 450, 900);
+		SafeSum->A.Connect(0, WeightSum);
+		SafeSum->ConstB = 1e-4f;
 		UMaterialExpressionDivide* Colour = Node<UMaterialExpressionDivide>(Material, 500, 0);
 		Colour->A.Connect(0, ColourSum);
-		Colour->B.Connect(0, WeightSum);
+		Colour->B.Connect(0, SafeSum);
 		UMaterialExpressionDivide* Normal = Node<UMaterialExpressionDivide>(Material, 500, 300);
 		Normal->A.Connect(0, NormalSum);
-		Normal->B.Connect(0, WeightSum);
+		Normal->B.Connect(0, SafeSum);
 		UMaterialExpressionDivide* Rough = Node<UMaterialExpressionDivide>(Material, 500, 600);
 		Rough->A.Connect(0, RoughSum);
-		Rough->B.Connect(0, WeightSum);
+		Rough->B.Connect(0, SafeSum);
 		if (GrassType)
 		{
-			// Where the grass class has weight, the engine grows tufts of the grass type.
-			UMaterialExpressionLandscapeLayerSample* Weight = Node<UMaterialExpressionLandscapeLayerSample>(Material, 0, 900);
-			Weight->ParameterName = GrassLayer;
-			Weight->PreviewWeight = 1;
+			// Where the grass class has weight, the engine grows tufts of the grass type: on the same sharp edge the
+			// ground is drawn with, so no tuft stands on ground that reads as paving.
+			UMaterialExpression* Weight = GrassSharp;
+			if (!Weight)
+			{
+				UMaterialExpressionLandscapeLayerSample* Sampled = Node<UMaterialExpressionLandscapeLayerSample>(Material, 0, 900);
+				Sampled->ParameterName = GrassLayer;
+				Sampled->PreviewWeight = 1;
+				Weight = Sampled;
+			}
 			UMaterialExpressionLandscapeGrassOutput* Output = Node<UMaterialExpressionLandscapeGrassOutput>(Material, 300, 900);
 			Output->GrassTypes.Empty();
 			FGrassInput& Input = Output->GrassTypes.AddDefaulted_GetRef();
@@ -1252,7 +1266,8 @@ bool FEnvGenLevelBuild::Start(const FString& ManifestPath, const FString& MapPat
 			UE_LOG(LogEnvGen, Error, TEXT("cannot decode %s"), *Manifest.RatioFile);
 			return false;
 		}
-		Ratio = MakeTexture(TEXT("T_DetailRatio"), RatioWidth, RatioHeight, TSF_BGRA8, RatioBytes.GetData(), false, State->Packages);
+		// Uncompressed: block compression would put steps of about 5 % in a texture whose job is small ratios.
+		Ratio = MakeTexture(TEXT("T_DetailRatio"), RatioWidth, RatioHeight, TSF_BGRA8, RatioBytes.GetData(), false, State->Packages, TC_VectorDisplacementmap);
 	}
 	const TArray<uint8> Noise = DetailNoise();
 	UTexture2D* Detail = MakeTexture(TEXT("T_Detail"), DetailPixels, DetailPixels, TSF_G8, Noise.GetData(), false, State->Packages);

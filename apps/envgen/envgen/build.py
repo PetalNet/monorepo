@@ -34,7 +34,7 @@ from .site import (
 
 # Part of every stage key. Bump it by hand when a code change alters a stage's output for the same
 # inputs (frame.py and the resampling included); nothing detects that automatically.
-PIPELINE_VERSION = 11
+PIPELINE_VERSION = 12
 
 MACRO_PIXELS = 1024
 # The fine detail: pixels across the tile (about half a metre, the imagery's own resolution) and the largest
@@ -604,6 +604,11 @@ def build_detail(
         "zero": DETAIL_ZERO,
         "low_pass_m": MACRO_LOW_PASS_M,
         "open_fraction": float(open_cells.mean()),
+        "priors": [
+            "prior: the imagery's tone curve is sRGB, so its ratio is a ratio of linear light",
+            f"prior: the ratio is limited to a factor of {2**DETAIL_LOG2_RANGE:g} either way",
+            f"prior: the ratio fades to 1 over {DETAIL_FADE_CELLS:g} cells at the edge of hidden ground",
+        ],
         "ratio_p5_p95": [float(2 ** np.percentile(log_ratio, 5)), float(2 ** np.percentile(log_ratio, 95))],
     }
 
