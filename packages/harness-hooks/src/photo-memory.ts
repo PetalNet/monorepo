@@ -1,9 +1,14 @@
 import { spawnSync } from "node:child_process";
 import { createHash } from "node:crypto";
 import {
+	closeSync,
+	constants,
 	existsSync,
+	fstatSync,
 	mkdirSync,
+	openSync,
 	readFileSync,
+	readSync,
 	readdirSync,
 	realpathSync,
 	renameSync,
@@ -245,6 +250,36 @@ function rootFiles(roots: string[]): Map<string, string> {
 	return files;
 }
 
+/** Read one bounded regular file from a descriptor, refusing a last-moment symlink replacement. */
+export function readPhoto(file: string): Buffer {
+	const fd = openSync(file, constants.O_RDONLY | constants.O_NOFOLLOW | constants.O_NONBLOCK);
+
+	try {
+		const stat = fstatSync(fd);
+
+		if (!stat.isFile() || stat.size > MAX_IMAGE) {
+			throw new Error("image-unavailable");
+		}
+
+		const bytes = Buffer.alloc(MAX_IMAGE + 1);
+		let size = 0;
+
+		while (size < bytes.length) {
+			const read = readSync(fd, bytes, size, bytes.length - size, null);
+
+			if (read === 0) {
+				return bytes.subarray(0, size);
+			}
+
+			size += read;
+		}
+
+		throw new Error("image-too-large");
+	} finally {
+		closeSync(fd);
+	}
+}
+
 /** Reads metadata locally; neither captions nor history bodies become model input. */
 export function discover(config: PhotoConfig): Photo[] {
 	const files = rootFiles(config.roots);
@@ -433,13 +468,9 @@ export class PhotoMemory {
 						throw new Error("image-unavailable");
 					}
 
-					if (statSync(photo.file).size > MAX_IMAGE) {
-						throw new Error("image-too-large");
-					}
-
 					const text = note(
 						photo,
-						await describe(this.config, readFileSync(photo.file)),
+						await describe(this.config, readPhoto(photo.file)),
 						this.config.model,
 					);
 					const scanned = spawnSync(this.config.scanner[0], this.config.scanner.slice(1), {

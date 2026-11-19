@@ -1,4 +1,13 @@
-import { mkdtempSync, mkdirSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
+import {
+	mkdtempSync,
+	mkdirSync,
+	readFileSync,
+	readdirSync,
+	rmSync,
+	symlinkSync,
+	truncateSync,
+	writeFileSync,
+} from "node:fs";
 import { createServer } from "node:http";
 import { tmpdir } from "node:os";
 import path from "node:path";
@@ -6,12 +15,37 @@ import { DatabaseSync } from "node:sqlite";
 
 import { afterEach, describe as suite, expect, test } from "vitest";
 
-import { discover, localVisionUrl, PhotoMemory, type PhotoConfig } from "./photo-memory.ts";
+import {
+	discover,
+	localVisionUrl,
+	PhotoMemory,
+	readPhoto,
+	type PhotoConfig,
+} from "./photo-memory.ts";
 
 const cleanups: (() => void | Promise<void>)[] = [];
 
 afterEach(async () => {
 	await Array.fromAsync(cleanups.splice(0), (clean) => clean());
+});
+
+test("reads regular images and refuses links and oversized files at the opened descriptor", () => {
+	const root = mkdtempSync(path.join(tmpdir(), "photo-read-"));
+
+	try {
+		const file = path.join(root, "image.png");
+		const link = path.join(root, "replacement.png");
+
+		writeFileSync(file, "synthetic-image");
+		expect(readPhoto(file).toString()).toBe("synthetic-image");
+		symlinkSync(file, link);
+		expect(() => readPhoto(link)).toThrow();
+		expect(() => readPhoto(root)).toThrow();
+		truncateSync(file, 20 * 1024 * 1024 + 1);
+		expect(() => readPhoto(file)).toThrow();
+	} finally {
+		rmSync(root, { recursive: true, force: true });
+	}
 });
 
 async function fixture(options: { remote?: boolean; scan?: string; secret?: boolean } = {}) {
