@@ -225,6 +225,10 @@ def load_site(path: Path) -> Site:
         raise SiteError("boundary needs at least three points, in the site's projected CRS")
     tile = tile_for_boundary(boundary, float(raw["tile"]["size_m"]), float(raw["tile"]["quad_m"]))
     sources = raw["sources"]
+    if "buildings" in sources and "lidar" not in sources and "canopy_height" not in sources:
+        raise SiteError(
+            "sources.buildings needs sources.lidar or sources.canopy_height: the cover stage hides the roofs"
+        )
     for name in ("elevation", "imagery"):
         if name not in sources:
             raise SiteError(f"sources.{name} is required")

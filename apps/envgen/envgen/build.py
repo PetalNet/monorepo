@@ -34,7 +34,7 @@ from .site import (
 
 # Part of every stage key. Bump it by hand when a code change alters a stage's output for the same
 # inputs (frame.py and the resampling included); nothing detects that automatically.
-PIPELINE_VERSION = 14
+PIPELINE_VERSION = 15
 
 MACRO_PIXELS = 1024
 # The fine detail: pixels across the tile (about half a metre, the imagery's own resolution) and the largest
@@ -343,6 +343,10 @@ def build_trees(
         priors.append("prior: each species is drawn from a regional inventory's mix by kind and height, not observed")
     if threshold is None:
         priors.append("prior: no tree's kind is measured; kinds follow the inventory's mix, or broadleaf without one")
+    if footprints:
+        priors.append(
+            f"prior: a crown whose top is in a footprint is the roof unless it stands {buildings.ROOF_CLEARANCE_M:g} m over it"
+        )
     if "survey" in report:
         unseen = sum(tree["source"] != "survey" and tree["confidence"] < 1 for tree in records)
         report["survey"]["crowns_added"] = sum(tree["source"] == "survey" for tree in records)
@@ -1240,6 +1244,7 @@ def build(site_path: Path, out: Path, cache: Path | None = None) -> dict:
                 lidar_key,
                 sources["imagery"]["sha256"],
                 bands,
+                sources["elevation"]["sha256"],
                 classes["albedo"].get("curves", {}).get(surface.PAVED),
                 classes["albedo"]["scale"],
             ),

@@ -18,7 +18,7 @@ from .test_cover import DAY, GROUND, LIDAR, sources
 
 PINK = (200, 120, 130)
 # west, south, east, north in metres from the tile's south-west corner
-ROOF = (40, 40, 60, 60)
+ROOF = (30, 60, 50, 80)  # off the east = north diagonal, so a swapped axis shows
 TILE = Tile(h.WEST, h.SOUTH, 1.0, 126)
 
 
@@ -61,7 +61,7 @@ def test_a_roof_is_triangulated_to_exactly_its_own_area_with_holes_and_corners_k
 def test_height_is_lidar_then_tag_then_floors_then_what_the_lidar_measured_elsewhere():
     cells = round(TILE.size_m)
     lidar = np.zeros((cells, cells), dtype=np.float32)
-    lidar[(cells - 60) : (cells - 40), 40:60] = 6.0  # the lidar sees one roof, 6 m high, at ROOF
+    lidar[(cells - 80) : (cells - 60), 30:50] = 6.0  # the lidar sees one roof, 6 m high, at ROOF
     photo = np.full((3, cells, cells), 100.0)
     named = [
         (ROOF, {"height_m": 12.0}),  # the lidar wins over its own tag
@@ -92,7 +92,7 @@ def test_a_roof_the_lidar_does_not_see_takes_no_height_from_the_ground_it_stands
 def test_a_roof_has_the_colour_of_the_photo_over_it_as_albedo_by_the_curve():
     cells = round(TILE.size_m)
     photo = np.full((3, cells, cells), 50.0)
-    photo[:, (cells - 60) : (cells - 40), 40:60] = np.array(PINK)[:, None, None]
+    photo[:, (cells - 80) : (cells - 60), 30:50] = np.array(PINK)[:, None, None]
     item = {"polygon": moved(ROOF), "tags": {"height_m": 5}}
     curve = {"gain": [1, 1, 1], "gamma": [1, 1, 1], "range": [[0, 1]] * 3}
     plain = buildings.measure([item], TILE, 1.0, None, photo, curve, 1.0)[0]["roof_albedo"]
@@ -145,20 +145,27 @@ def test_a_roof_the_lidar_never_saw_is_still_taken_out_of_the_ground(tmp_path):
     out, manifest = build_with_roof(tmp_path / "with", roof_in_lidar=False, height_m=7.0, dataset="map")
     plain, unmasked = build_with_roof(tmp_path / "without", roof_in_lidar=False, with_footprint=False)
 
-    assert abs(macro_at(plain, unmasked, 50, 50) - GROUND).max() > 20  # the control: the roof tints the ground
-    assert macro_at(out, manifest, 50, 50) == pytest.approx(GROUND, abs=3)
+    assert abs(macro_at(plain, unmasked, 40, 70) - GROUND).max() > 20  # the control: the roof tints the ground
+    assert macro_at(out, manifest, 40, 70) == pytest.approx(GROUND, abs=3)
     assert manifest["cover"]["roof_cells_read_as_ground_before"] > 300
     record = json.loads((out / "buildings.json").read_text())["buildings"][0]
     assert record["height_m"] == 7.0 and record["height_from"].startswith("tag")
+    # metres from the tile's centre: ROOF's middle is 40 east and 70 north of the south-west corner, of 126 m
+    assert (record["east_m"], record["north_m"]) == pytest.approx((40 - 63, 70 - 63), abs=0.5)
+    assert max(point[0] for point in record["rings"][0]) == pytest.approx(50 - 63, abs=0.01)
+    assert max(point[1] for point in record["rings"][0]) == pytest.approx(80 - 63, abs=0.01)
     assert record["roof_albedo"][0] > record["roof_albedo"][2]
     assert manifest["buildings"]["count"] == 1 and manifest["buildings"]["height_from"] == {"tag": 1}
 
 
-def test_a_roof_the_lidar_saw_takes_its_height_from_it_and_a_rerun_reuses_the_stage(tmp_path):
+def test_a_roof_the_lidar_saw_takes_its_height_from_it_and_a_rerun_reuses_the_stage_until_an_input_changes(tmp_path):
     out, manifest = build_with_roof(tmp_path, roof_in_lidar=True, height_m=12.0)
     record = json.loads((out / "buildings.json").read_text())["buildings"][0]
     assert record["height_m"] == pytest.approx(6.0, abs=0.01) and record["height_from"].startswith("lidar")
     assert "buildings" in build(tmp_path / "site.json", out)["stages_reused"]
+    # A new elevation model changes every height above ground, so the stage runs again.
+    h.write_dem(tmp_path / "dem.tif", function=lambda e, n: h.plane(e, n) + 1.0)
+    assert "buildings" not in build(tmp_path / "site.json", out)["stages_reused"]
 
 
 def test_buildings_must_come_from_a_file(tmp_path):
@@ -166,7 +173,13 @@ def test_buildings_must_come_from_a_file(tmp_path):
     h.write_scene(tmp_path / "imagery.tif", GROUND)
     bad = {"buildings": {"kind": "cog", "url": "x"}}
     with pytest.raises(SiteError, match="sources.buildings: kind must be 'file'"):
-        load_site(h.write_site(tmp_path, sources=sources(**bad)))
+        load_site(h.write_site(tmp_path, sources=sources(**LIDAR, **bad)))
+
+
+def test_buildings_without_lidar_or_canopy_are_refused_because_nothing_would_hide_their_roofs(tmp_path):
+    good = {"buildings": {"kind": "file", "path": "b.geojson"}}
+    with pytest.raises(SiteError, match="needs sources.lidar or sources.canopy_height"):
+        load_site(h.write_site(tmp_path, sources=sources(**good)))
 
 
 def test_footprints_off_the_tile_are_left_out(tmp_path):
@@ -185,9 +198,9 @@ def test_a_footprint_over_the_tiles_edge_is_cut_there(tmp_path):
 def test_a_crown_that_is_a_roof_goes_and_a_tree_over_the_roof_stays():
     cells = round(TILE.size_m)
     lidar = np.zeros((cells, cells), dtype=np.float32)
-    lidar[(cells - 60) : (cells - 40), 40:60] = 6.0
+    lidar[(cells - 80) : (cells - 60), 30:50] = 6.0
     footprints = [{"polygon": moved(ROOF), "tags": {}}]
-    row, column = cells - 50, 50
+    row, column = cells - 70, 40
     roof = {"row": row, "column": column, "height_m": 6.4}
     tree_over_it = {"row": row, "column": column + 3, "height_m": 14.0}
     beside = {"row": row, "column": 10, "height_m": 6.4}

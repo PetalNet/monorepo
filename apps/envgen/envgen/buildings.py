@@ -77,8 +77,16 @@ def load_footprints(path: Path, crs: str, tile: Tile) -> list[dict]:
                 part = part.simplify(SIMPLIFY_M)
                 if part.geom_type == "Polygon" and part.area >= MIN_AREA_M2:
                     found.append({"polygon": part, "tags": feature.get("properties", {})})
-    found.sort(key=lambda item: (item["polygon"].centroid.y, item["polygon"].centroid.x, item["tags"].get("id", "")))
+    found.sort(key=lambda item: (item["polygon"].centroid.y, item["polygon"].centroid.x, str(item["tags"].get("id"))))
     return found
+
+
+def _positive(tag) -> bool:
+    """Whether a tag is a number above zero; a map's tags are strings as often as numbers."""
+    try:
+        return float(tag) > 0
+    except (TypeError, ValueError):
+        return False
 
 
 def mask(footprints: Sequence[dict], tile: Tile, cell_m: float) -> np.ndarray:
@@ -184,10 +192,13 @@ def measure(
         lidar_m = seen[number]
         if lidar_m is not None:
             height, from_ = lidar_m, "lidar: median height above ground over the footprint"
-        elif tags.get("height_m"):
+        elif _positive(tags.get("height_m")):
             height, from_ = float(tags["height_m"]), f"tag: height of {tags.get('dataset') or 'the footprint source'}"
-        elif tags.get("num_floors"):
-            height, from_ = tags["num_floors"] * FLOOR_M, f"prior: {FLOOR_M:g} m a floor times the num_floors tag"
+        elif _positive(tags.get("num_floors")):
+            height, from_ = (
+                float(tags["num_floors"]) * FLOOR_M,
+                f"prior: {FLOOR_M:g} m a floor times the num_floors tag",
+            )
         else:
             height, from_ = None, None
         colour = np.median(photo[:, cells], axis=1)
