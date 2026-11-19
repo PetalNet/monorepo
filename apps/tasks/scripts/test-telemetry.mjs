@@ -39,7 +39,7 @@ async function capture(options) {
 		Sentry.getIsolationScope(),
 		Sentry.getCurrentScope(),
 	]) {
-		scope.clear();
+		scope.clearBreadcrumbs();
 	}
 
 	Sentry.init({
@@ -120,9 +120,10 @@ const control = await capture({ tracesSampleRate: 0 });
 const scrubbed = await capture(sentryOptions({ dsn: "unused", environment: "test" }));
 
 await t("control: without the scrub the planted credentials reach the transport", () => {
-	assert.ok(leaks(control).includes(PLANTED.authorization), "bearer reaches an unscrubbed event");
-	assert.ok(leaks(control).includes(PLANTED.cookie), "cookie reaches an unscrubbed event");
+	// Sentry v11 filters credential headers and cookies to "[Filtered]" on its own, so the control
+	// can only prove the capture is real through what the SDK leaves in: URLs and query strings.
 	assert.ok(leaks(control).includes(PLANTED.share), "share token reaches an unscrubbed event");
+	assert.ok(leaks(control).includes(PLANTED.param), "secret query param reaches an unscrubbed event");
 });
 
 await t("scrubbed event carries none of the planted credentials", () => {
