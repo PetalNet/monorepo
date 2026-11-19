@@ -89,6 +89,18 @@ class DictationTest(unittest.IsolatedAsyncioTestCase):
             self.assertTrue(final["result"]["final"])
             self.assertEqual(final["result"]["hypotheses"][0]["transcript"], "hello")
 
+    async def test_stock_konele_handshake(self):
+        async with connect(
+            self.url(),
+            compression=None,
+            additional_headers={"Sec-WebSocket-Protocol": "", "Sec-WebSocket-Extensions": "x-webkit-deflate-frame"},
+        ) as ws:
+            self.assertIsNone(ws.subprotocol)
+            await ws.send(b"\x01\x00" * (CHUNK_BYTES // 2))
+            self.assertFalse(json.loads(await ws.recv())["result"]["final"])
+            await ws.send("EOS")
+            self.assertTrue(json.loads(await ws.recv())["result"]["final"])
+
     async def test_invalid_pcm_and_control_frames(self):
         for messages in (["EOS"], [b"\x00", "EOS"], ["stop"]):
             with self.subTest(messages=messages):

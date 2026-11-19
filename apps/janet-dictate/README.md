@@ -120,6 +120,6 @@ Replay a public PCM16 mono 16 kHz WAV at recording speed against a running real 
   --token-file "$HOME/.config/janet-dictate/token" /path/to/public-speech.wav
 ```
 
-The probe prints transcript events and elapsed times, never the token. It fails unless a partial
+The probe sends Kõnele's upgrade headers and prints transcript events and elapsed times, never the token. It fails unless a partial
 arrives before `EOS` and a nonempty final follows. Use public test speech because its transcript is
 printed. Phone checks, including TLS and offline operation, are in [Android setup](android.md).

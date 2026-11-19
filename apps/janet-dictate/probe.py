@@ -23,7 +23,11 @@ async def probe(url: str, token_file: Path, wav: Path) -> None:
     partial_before_eos = False
     final = None
     started = time.monotonic()
-    async with connect(url + "?" + query, compression=None) as ws:
+    async with connect(
+        url + "?" + query,
+        compression=None,
+        additional_headers={"Sec-WebSocket-Protocol": "", "Sec-WebSocket-Extensions": "x-webkit-deflate-frame"},
+    ) as ws:
 
         async def send():
             nonlocal eos_at

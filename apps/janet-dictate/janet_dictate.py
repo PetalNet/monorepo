@@ -86,6 +86,9 @@ class Dictation:
             return connection.respond(HTTPStatus.BAD_REQUEST, "Use raw PCM16LE mono at 16000 Hz\n")
         if query.get("lang", ["en-US"]) not in (["en-US"], ["en"]):
             return connection.respond(HTTPStatus.BAD_REQUEST, "Only English is supported\n")
+        # Kõnele passes an empty protocol to AndroidAsync, which sends an otherwise invalid empty header.
+        if request.headers.get_all("Sec-WebSocket-Protocol") == [""]:
+            del request.headers["Sec-WebSocket-Protocol"]
         return None
 
     async def handle(self, connection: ServerConnection) -> None:
