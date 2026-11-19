@@ -176,7 +176,7 @@
 				<dt class="text-sm text-gray-500">NODE_ENV</dt>
 				<dd class="text-sm font-medium text-gray-900">
 					<span
-						class="rounded px-2 py-1 {data.environment.nodeEnv === 'production'
+						class="rounded-sm px-2 py-1 {data.environment.nodeEnv === 'production'
 							? 'bg-green-100 text-green-800'
 							: 'bg-yellow-100 text-yellow-800'}"
 					>

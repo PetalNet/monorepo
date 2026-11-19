@@ -215,7 +215,7 @@
 							</div>
 							<div class="ml-4 shrink-0">
 								<span
-									class="rounded px-2 py-1 text-xs font-semibold {event.status === 'live'
+									class="rounded-sm px-2 py-1 text-xs font-semibold {event.status === 'live'
 										? 'bg-green-100 text-green-800'
 										: event.status === 'voting'
 											? 'bg-blue-100 text-blue-800'
