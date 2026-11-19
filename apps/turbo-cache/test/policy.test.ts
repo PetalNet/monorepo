@@ -137,6 +137,12 @@ describe("human policy", () => {
 		expect(grant({ ...github, ...human }, policy, true)).toBe("read");
 	});
 
+	it("grants write only to members of both groups", () => {
+		expect(grant({ ...human, groups: ["turbo-cache", "turbo-cache-write"] }, policy, true)).toBe(
+			"read write",
+		);
+	});
+
 	it.each([[], ["admin"], ["turbo-cache-write"], undefined])("denies nonmembers %j", (groups) => {
 		expect(grant({ ...human, groups }, policy, true)).toBeNull();
 	});

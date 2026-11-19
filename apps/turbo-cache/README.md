@@ -6,10 +6,11 @@
 | Same-repo PR     | Read       | Same name and IDs, `pull_request` event, GitHub API confirms head and base repositories                                               |
 | Amp orb          | Read       | Configured workspace and project IDs, `token_use=exchanged`                                                                           |
 | Authentik user   | Read       | Exact configured issuer, `turbo-cache` group                                                                                          |
+| Authentik writer | Read/write | Exact configured issuer, `turbo-cache` and `turbo-cache-write` groups                                                                 |
 | Everything else  | Denied     | Includes forks, merge groups, Dependabot, `pull_request_target`, and invalid or expired tokens                                        |
 
 All callers need a valid issuer signature and audience `turbo-cache.petalcat.dev`.
-The exchanger issues two-hour tokens. Only a main-push identity can write. A fork
+The exchanger issues two-hour tokens. Only a main-push identity or a `turbo-cache-write` member can write. A fork
 cannot satisfy that event/ref policy, and cannot obtain a PR read token: GitHub's
 OIDC token lacks a head-repository claim, so the exchanger checks the signed PR
 number through GitHub's API. Missing credentials or API failures deny PR access.
@@ -86,10 +87,13 @@ below the dataset's 50 GiB quota so that in-flight uploads never hit the quota.
 Cloudflare's [100 MB upload cap](https://developers.cloudflare.com/support/troubleshooting/http-status-codes/4xx-client-error/error-413/)
 limits artifact size through the tunnel. The cache's body limit is 104857600 bytes.
 
-## Local use (read-only)
+## Local use
 
 Members of the Authentik group `turbo-cache` can read the cache from a checkout. They cannot
-write: only a main push can. Authentik signs the tokens (provider and application
+write unless they are also in `turbo-cache-write`, which lets their builds upload artifacts that
+CI and orbs then reuse; give it only to identities whose toolchain matches CI, because main-push
+CI reads those entries. The exchanger reports the scope it grants, so set `TURBO_CACHE=local:rw,remote:rw`
+only when `/exchange` answers `read write`. Authentik signs the tokens (provider and application
 `turbo-cache`, client ID `turbo-cache.petalcat.dev`, RS256); the exchanger turns one into a
 two-hour cache token.
 
@@ -125,7 +129,7 @@ Everything outside the repository that the stack depends on, so it can be rebuil
 
 - TrueNAS dataset `JeremyBearimy/turbo-cache`: 50 GiB quota, atime on, POSIX ACL, owned by
   1001:1001 (mode 0750), shared by NFS to `10.10.10.14` only.
-- Authentik: group `turbo-cache`; OAuth2 provider and application `turbo-cache` (public client,
+- Authentik: groups `turbo-cache` and `turbo-cache-write`; OAuth2 provider and application `turbo-cache` (public client,
   client ID `turbo-cache.petalcat.dev`, password and authorization-code grants, RS256 with the
   default self-signed key, application bound to the group).
 - Lab vault: `turbo-cache-signing-key` (RSA 3072, PKCS8) and `turbo-cache-github-token`

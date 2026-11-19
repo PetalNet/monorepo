@@ -42,6 +42,11 @@ export const accessTable = [
 		evidence: "Member of the turbo-cache group",
 	},
 	{
+		identity: "Authentik writer",
+		access: "read and write",
+		evidence: "Member of both the turbo-cache and turbo-cache-write groups",
+	},
+	{
 		identity: "Everything else",
 		access: "denied",
 		evidence: "Forks, merge groups, Dependabot, pull_request_target, invalid or expired tokens",
@@ -83,9 +88,11 @@ export function grant(claims: typeof Claims.Type, policy: Policy, sameRepoPull: 
 			: null;
 	}
 
-	return claims.iss === policy.authentikIssuer && claims.groups?.includes("turbo-cache")
-		? "read"
-		: null;
+	if (claims.iss !== policy.authentikIssuer || !claims.groups?.includes("turbo-cache")) {
+		return null;
+	}
+
+	return claims.groups.includes("turbo-cache-write") ? "read write" : "read";
 }
 
 export const PullRequest = Schema.Struct({
