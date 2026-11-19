@@ -66,7 +66,7 @@ export async function load(event) {
 		own,
 		// nothing involves the viewer yet and they follow nothing: the index offers every project to follow
 		pick:
-			own && !interest.focused
+			own && !interest.focused && all.length > 0
 				? [...Map.groupBy(all, (a) => projectKey(a.collection))].map(([key, pages]) => ({
 						key,
 						count: pages.length,
