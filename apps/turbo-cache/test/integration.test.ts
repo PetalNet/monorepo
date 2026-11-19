@@ -94,7 +94,7 @@ it.skipIf(!docker)(
 							audience: "turbo-cache.petalcat.dev",
 							team: "petalnet",
 							privateKey: signingKey.privateKey,
-							authentikIssuer: "https://id.petalcat.dev/",
+							authentikIssuer: "https://auth.petalcat.dev/",
 							ampWorkspaceIds: [],
 							ampProjectIds: [],
 							githubToken: Redacted.make("local-test-credential"),
@@ -252,23 +252,21 @@ it.skipIf(!docker)(
 						});
 					}),
 				).pipe(
-					Effect.provide(
-						Layer.mergeAll(
-							NodeHttpServer.layerHttpServices,
-							Layer.effect(
+					Effect.provide([
+						NodeHttpServer.layerHttpServices,
+						Layer.effect(
+							HttpClient.HttpClient,
+							Effect.map(
 								HttpClient.HttpClient,
-								Effect.map(
-									HttpClient.HttpClient,
-									HttpClient.mapRequest((request) =>
-										HttpClientRequest.setUrl(
-											request,
-											request.url.replace("https://api.github.com", issuerUrl),
-										),
+								HttpClient.mapRequest((request) =>
+									HttpClientRequest.setUrl(
+										request,
+										request.url.replace("https://api.github.com", issuerUrl),
 									),
 								),
-							).pipe(Layer.provide(FetchHttpClient.layer)),
-						),
-					),
+							),
+						).pipe(Layer.provide(FetchHttpClient.layer)),
+					]),
 				),
 			);
 		} finally {

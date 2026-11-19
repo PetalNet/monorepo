@@ -22,11 +22,13 @@ Compose pulls `ghcr.io/petalnet/turbo-cache:<commit-sha>` and never builds an im
 | Variable                        | Value                                                                                               |
 | ------------------------------- | --------------------------------------------------------------------------------------------------- |
 | `TURBO_CACHE_IMAGE_SHA`         | Published exchanger image's commit SHA                                                              |
-| `TURBO_CACHE_NFS_PATH`          | Existing NFS mount for the dedicated 50 GiB dataset, writable by UID/GID 1001:1001                  |
+| `TURBO_CACHE_NFS_ADDRESS`       | NAS address that exports the dedicated dataset                                                      |
+| `TURBO_CACHE_NFS_EXPORT`        | Export of the dedicated 50 GiB dataset (`:/mnt/<pool>/turbo-cache`), writable by UID/GID 1001:1001  |
+| `TURBO_CACHE_MAX_BYTES`         | Optional eviction cap in bytes; defaults to 40 GiB, which leaves headroom under the 50 GiB quota    |
 | `TURBO_CACHE_SIGNING_KEY_FILE`  | External RSA PKCS8 PEM key, at least 2048 bits, readable by UID 1000                                |
 | `TURBO_CACHE_GITHUB_TOKEN_FILE` | External credential with Pull requests: read on PetalNet/monorepo; an empty file disables PR access |
-| `AUTHENTIK_ISSUER`              | Exact provider issuer under `https://id.petalcat.dev`                                               |
-| `AUTHENTIK_JWKS_URL`            | Provider JWKS URL under `https://id.petalcat.dev`                                                   |
+| `AUTHENTIK_ISSUER`              | Exact provider issuer under `https://auth.petalcat.dev`                                             |
+| `AUTHENTIK_JWKS_URL`            | Provider JWKS URL under `https://auth.petalcat.dev`                                                 |
 | `AMP_WORKSPACE_IDS`             | Comma-separated workspace allowlist; empty denies all orbs                                          |
 | `AMP_PROJECT_IDS`               | Comma-separated project allowlist; empty denies all orbs                                            |
 
@@ -45,14 +47,78 @@ curl --fail --silent --show-error https://turbo-cache.petalcat.dev/.well-known/j
 test "$(curl --silent --show-error -o /dev/null -w '%{http_code}' -X POST https://turbo-cache.petalcat.dev/exchange)" = 401
 ```
 
-Eviction runs at 03:00 UTC as UID/GID 1001:1001 with a read-only root filesystem
-and no capabilities. It deletes files with access times at least 14 days old.
-NFS client page caching may not update access times, so even hot artifacts can
-be evicted. The cost is a cache miss. Enable atime on the dataset and mount to
-make the timestamps more useful.
+Docker mounts the dataset for the cache and eviction containers alone (a named NFS
+volume), `soft` with `timeo=50,retrans=2`. A hung NAS fails each read and write with
+an I/O error within seconds, which Turbo treats as a cache miss, instead of freezing the
+server's worker threads. Docker will not start a container whose volume fails to mount, so
+the cache cannot fall back to the VM's root disk. The shared `/services` mount is untouched. A soft mount can fail a write part-way, which
+leaves a truncated artifact: one failed restore or miss, replaced by the next main push.
+Docker keeps a named volume's mount options once it exists, so changing
+`TURBO_CACHE_NFS_ADDRESS` or `TURBO_CACHE_NFS_EXPORT` needs `docker compose down` and
+`docker volume rm <project>_cache-data` first (the data lives on the NAS and is untouched).
+
+Eviction runs every five minutes as UID/GID 1001:1001 with a read-only root filesystem and
+no capabilities. When the files total more than `TURBO_CACHE_MAX_BYTES` it deletes the
+least recently used until 90% of the cap remains, and it always deletes files idle for 14
+days. A file's age is the later of its mtime and atime. The cache server never rewrites
+an artifact it serves, so on a mount that records reads (this one: atime on, relatime) atime
+carries recency, and without it eviction degrades to oldest-written first. The cap sits
+below the dataset's 50 GiB quota so that in-flight uploads never hit the quota.
 
 Cloudflare's [100 MB upload cap](https://developers.cloudflare.com/support/troubleshooting/http-status-codes/4xx-client-error/error-413/)
 limits artifact size through the tunnel. The cache's body limit is 104857600 bytes.
+
+## Local use (read-only)
+
+Members of the Authentik group `turbo-cache` can read the cache from a checkout. They cannot
+write: only a main push can. Authentik signs the tokens (provider and application
+`turbo-cache`, client ID `turbo-cache.petalcat.dev`, RS256); the exchanger turns one into a
+two-hour cache token.
+
+1. In Authentik, open User settings, Tokens and App passwords, and create an **App password**.
+   An administrator adds you to `turbo-cache` first.
+2. Trade it for a cache token and export the Turbo variables. Put your username and the app
+   password in `AK_USER` and `AK_APP_PASSWORD` first (read the password with `read -rs`, so it
+   stays out of the command line and shell history):
+
+   ```bash
+   identity=$(printf %s "$AK_APP_PASSWORD" |
+     curl --fail --silent --show-error https://auth.petalcat.dev/application/o/token/ \
+       -d grant_type=password -d client_id=turbo-cache.petalcat.dev -d scope='openid profile' \
+       --data-urlencode username="$AK_USER" --data-urlencode password@- |
+     jq -er .access_token) &&
+   TURBO_TOKEN=$(curl --fail --silent --show-error -X POST -H "Authorization: Bearer $identity" \
+     https://turbo-cache.petalcat.dev/exchange | jq -er .access_token) &&
+   export TURBO_API=https://turbo-cache.petalcat.dev TURBO_TEAM=petalnet TURBO_TOKEN \
+     TURBO_CACHE=local:rw,remote:r TURBO_REMOTE_CACHE_TIMEOUT=15
+   ```
+
+3. Run Turbo as usual. The token lasts two hours; repeat step 2 for a new one. Turbo prints
+   `cache hit, replaying logs` for local and remote hits alike. To see a remote hit, run with
+   `--cache=remote:r` after deleting a task's output (for example `dist`): the output comes
+   back from the cache. On the LAN the host resolves to Traefik directly, and off it the
+   request goes through the Cloudflare tunnel.
+
+`curl https://turbo-cache.petalcat.dev/v8/artifacts/status` answers 200 when the server is up.
+
+## Provisioned state
+
+Everything outside the repository that the stack depends on, so it can be rebuilt:
+
+- TrueNAS dataset `JeremyBearimy/turbo-cache`: 50 GiB quota, atime on, POSIX ACL, owned by
+  1001:1001 (mode 0750), shared by NFS to `10.10.10.14` only.
+- Authentik: group `turbo-cache`; OAuth2 provider and application `turbo-cache` (public client,
+  client ID `turbo-cache.petalcat.dev`, password and authorization-code grants, RS256 with the
+  default self-signed key, application bound to the group).
+- Lab vault: `turbo-cache-signing-key` (RSA 3072, PKCS8) and `turbo-cache-github-token`
+  (fine-grained, read-only Pull requests and Contents on this repository, expires 2027-11-19).
+- .14: `/home/docker/releases/turbo-cache/<sha>` is the release checkout, `current` points at
+  it, `runtime.env` (mode 600) holds the variables above, `secrets/` holds the two files projected
+  from the vault, and `compose.override.yaml` gives the stack its own /24. The image is built
+  there with `docker build -f apps/turbo-cache/Dockerfile -t ghcr.io/petalnet/turbo-cache:<sha> .`.
+  Never delete `/data/petalnet` on the volume: the cache server creates that directory once and
+  fails every upload while it is missing.
+- Traefik route: `dynamic/turbo-cache.yml` in PetalNet/traefik.
 
 ## Upstream constraints
 
