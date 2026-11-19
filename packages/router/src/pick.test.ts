@@ -1,0 +1,286 @@
+import { spawnSync } from "node:child_process";
+import { chmodSync, existsSync, mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import path from "node:path";
+import { fileURLToPath } from "node:url";
+
+import type { ServiceReport } from "@petalnet/harness-hooks/quota-sources";
+import { describe, expect, it } from "vitest";
+
+import { BLOCKS, type Catalog, type Pool, POOLS, type State, pick } from "./pick.ts";
+import { effectiveDataClass, readBrief } from "./route.ts";
+
+const NOW = Date.parse("2026-11-19T21:00:00Z");
+const TIERS = { S: 57, A: 52, B: 46, C: 0 };
+
+const catalog: Catalog = {
+	tiers: TIERS,
+	models: [
+		{ id: "gemini-4-neon-xhigh", provider: "gemini", score: 61, good: { code: 3 } },
+		{ id: "gemini-4-neon-low", provider: "gemini", score: 50 },
+		{ id: "gpt-6-astra", provider: "codex", score: 61, good: { code: 3 } },
+		{ id: "gpt-6.1-sol", provider: "codex", score: 58 },
+		{ id: "claude-sonnet-5-5-high", provider: "agy-claude", score: 55 },
+		{ id: "opus", provider: "claude", score: 59 },
+		{ id: "fable-max", provider: "claude", score: 65 },
+		{ id: "claude-fable-5-2", provider: "claude", score: 64 },
+	],
+};
+
+function google(used: number): ServiceReport {
+	return {
+		service: "google-ai",
+		status: "ok",
+		summary: "",
+		limits: [
+			{ id: "google-ai:gemini-models:5h", label: "", usedPct: used, resetLabel: "17:34" },
+			{ id: "google-ai:gemini-models:7d", label: "", usedPct: 30 },
+			{ id: "google-ai:claude-and-gpt-models:5h", label: "", usedPct: 20 },
+			{ id: "google-ai:claude-and-gpt-models:7d", label: "", usedPct: 50 },
+		],
+	};
+}
+
+const codex: ServiceReport = {
+	service: "codex",
+	status: "ok",
+	summary: "",
+	limits: [{ id: "codex:5h", label: "", usedPct: 40 }],
+};
+
+function state(over: Partial<State> = {}): State {
+	return {
+		nowMs: NOW,
+		dataClass: "public",
+		reports: { "google-ai": google(10), codex },
+		exhausted: {},
+		deny: [],
+		denyPatterns: [],
+		pools: POOLS,
+		blocks: BLOCKS,
+		floorPct: 15,
+		...over,
+	};
+}
+
+const ids = (result: ReturnType<typeof pick>) => result.ranked.map((r) => r.offer.id);
+const why = (result: ReturnType<typeof pick>, id: string) =>
+	result.excluded.find((e) => e.offer.id === id)?.reasons.join("; ") ?? "";
+
+describe("pick", () => {
+	it("ranks open offers in the tier band and names model, effort, plan and pool", () => {
+		const result = pick(catalog, "code", "S", state());
+
+		expect(ids(result)).toEqual(["gemini-4-neon-xhigh", "gpt-6-astra", "gpt-6.1-sol"]);
+
+		expect(result.ranked[0]?.offer).toMatchObject({
+			model: "gemini-4-neon",
+			effort: "xhigh",
+			pool: { id: "google-ai:gemini", plan: "google-ai" },
+		});
+
+		expect(why(result, "gemini-4-neon-low")).toContain("outside tier S");
+	});
+
+	it("cools the whole pool when one model in it hit its limit", () => {
+		const exhausted = { "gemini-4-neon-xhigh": NOW / 1000 + 3600 };
+		const result = pick(catalog, "code", "B", state({ exhausted }));
+
+		// gemini-4-neon-low is not in exhausted.json, but it shares the pool.
+		expect(why(result, "gemini-4-neon-low")).toContain("pool cooling down");
+		expect(result.tier).toBe("A");
+		expect(ids(result)).not.toContain("gemini-4-neon-low");
+	});
+
+	it("drops a pool whose window is under the floor, and one whose quota cannot be read", () => {
+		const low = pick(catalog, "code", "S", state({ reports: { "google-ai": google(90), codex } }));
+
+		expect(why(low, "gemini-4-neon-xhigh")).toContain("google-ai:gemini-models:5h 10% left");
+		expect(ids(low)).toEqual(["gpt-6-astra", "gpt-6.1-sol"]);
+
+		const unread = pick(catalog, "code", "S", state({ reports: { codex } }));
+
+		expect(why(unread, "gemini-4-neon-xhigh")).toContain("no quota reading for google-ai");
+
+		const signedOut: ServiceReport = {
+			service: "codex",
+			status: "signed-out",
+			summary: "signed out",
+			limits: [],
+		};
+		const out = pick(
+			catalog,
+			"code",
+			"S",
+			state({ reports: { "google-ai": google(10), codex: signedOut } }),
+		);
+
+		expect(ids(out)).toEqual(["gemini-4-neon-xhigh"]);
+
+		const renamed: ServiceReport = {
+			...google(10),
+			limits: [{ id: "google-ai:gemini-ultra-models:5h", label: "", usedPct: 0 }],
+		};
+		const moved = pick(catalog, "code", "S", state({ reports: { "google-ai": renamed, codex } }));
+
+		expect(why(moved, "gemini-4-neon-xhigh")).toContain("no google-ai window matches this pool");
+	});
+
+	it("honors the pools.json deny list by provider, model id and pattern", () => {
+		for (const over of [
+			{ deny: ["gemini"] },
+			{ deny: ["gemini-4-neon-xhigh"] },
+			{ denyPatterns: ["neon"] },
+		]) {
+			const result = pick(catalog, "code", "S", state(over));
+
+			expect(why(result, "gemini-4-neon-xhigh")).toContain("denied in pools.json");
+			expect(ids(result)).toEqual(["gpt-6-astra", "gpt-6.1-sol"]);
+		}
+	});
+
+	it("keeps the Claude plan out and blocks Fable by family and by pool until the weekly reset", () => {
+		const before = pick(catalog, "code", "S", state());
+
+		expect(why(before, "opus")).toContain("explicit-use only");
+
+		for (const id of ["fable-max", "claude-fable-5-2"]) {
+			expect(why(before, id)).toContain("Fable family blocked");
+			expect(why(before, id)).toContain("Fable pool blocked");
+		}
+
+		const after = pick(catalog, "code", "S", state({ nowMs: Date.parse("2026-11-24T10:00:01Z") }));
+
+		expect(why(after, "fable-max")).not.toContain("Fable");
+		expect(why(after, "fable-max")).toContain("explicit-use only");
+	});
+
+	it("never sends a sensitive brief to a China-hosted endpoint or a host that trains on our data", () => {
+		const cnHost: Pool = {
+			id: "test:cn",
+			plan: "cn-api",
+			windows: [],
+			host: { name: "CN cloud", country: "cn" },
+			trainsOnData: "no",
+		};
+		const usHost: Pool = {
+			id: "test:us",
+			plan: "us-api",
+			windows: [],
+			host: { name: "US cloud", country: "us" },
+			trainsOnData: "no",
+		};
+		const cnOrigin: Catalog = {
+			tiers: TIERS,
+			models: [
+				{ id: "qwen-coder-on-cn-host", provider: "api", pool: "test:cn", score: 60 },
+				{ id: "qwen-coder-on-us-host", provider: "api", pool: "test:us", score: 59 },
+				{ id: "gemini-4-neon-xhigh", provider: "gemini", score: 61 },
+			],
+		};
+		const pools = [...POOLS, cnHost, usHost];
+
+		const pub = pick(cnOrigin, "code", "S", state({ pools }));
+
+		expect(ids(pub)).toEqual([
+			"gemini-4-neon-xhigh",
+			"qwen-coder-on-cn-host",
+			"qwen-coder-on-us-host",
+		]);
+
+		const sens = pick(cnOrigin, "code", "S", state({ pools, dataClass: "sensitive" }));
+
+		// A Chinese-origin model hosted outside China is fine; the China host and the training host are not.
+		expect(ids(sens)).toEqual(["qwen-coder-on-us-host"]);
+		expect(why(sens, "qwen-coder-on-cn-host")).toContain("is in China");
+		expect(why(sens, "gemini-4-neon-xhigh")).toContain("trains on our data");
+	});
+
+	it("steps to the next tier only when the asked one is empty", () => {
+		const exhausted = { "gpt-6-astra": NOW / 1000 + 60 };
+		const result = pick(catalog, "code", "S", state({ exhausted, deny: ["gemini-4-neon-xhigh"] }));
+
+		expect(why(result, "gemini-4-neon-xhigh")).toContain("denied in pools.json");
+		expect(result.tier).toBe("A");
+		expect(ids(result)).toEqual(["claude-sonnet-5-5-high"]);
+	});
+});
+
+describe("brief", () => {
+	it("rejects missing, empty and whitespace-only briefs", () => {
+		const dir = mkdtempSync(path.join(tmpdir(), "route-"));
+
+		writeFileSync(path.join(dir, "empty"), "");
+		writeFileSync(path.join(dir, "ws"), " \n\t\n");
+		expect(readBrief(undefined)).toHaveProperty("error");
+		expect(readBrief(path.join(dir, "nope"))).toHaveProperty("error");
+		expect(readBrief(path.join(dir, "empty"))).toHaveProperty("error");
+		expect(readBrief(path.join(dir, "ws"))).toHaveProperty("error");
+	});
+
+	it("raises a brief holding a credential to sensitive, never lowers it", () => {
+		expect(effectiveDataClass("public", `token ghp_${"a".repeat(36)}`)).toBe("sensitive");
+		expect(effectiveDataClass("public", "fix the flaky test")).toBe("public");
+		expect(effectiveDataClass("sensitive", "fix the flaky test")).toBe("sensitive");
+	});
+
+	it("aborts on an empty brief before any quota reader runs", () => {
+		const dir = mkdtempSync(path.join(tmpdir(), "route-"));
+		const marker = path.join(dir, "reader-ran");
+		const reader = path.join(dir, "reader");
+
+		writeFileSync(reader, `#!/bin/sh\ntouch ${marker}\n`);
+		chmodSync(reader, 0o755);
+		mkdirSync(path.join(dir, ".claude/shared"), { recursive: true });
+		writeFileSync(path.join(dir, ".claude/shared/model-tiers.json"), JSON.stringify(catalog));
+		writeFileSync(path.join(dir, "empty"), "\n");
+		writeFileSync(path.join(dir, "brief"), "fix the flaky test\n");
+
+		const route = (brief: string) =>
+			spawnSync(
+				process.execPath,
+				[
+					fileURLToPath(new URL("route.ts", import.meta.url)),
+					"pick",
+					"--dry",
+					"--kind",
+					"code",
+					"--tier",
+					"S",
+					"--data-class",
+					"public",
+					path.join(dir, brief),
+				],
+				{
+					encoding: "utf8",
+					env: {
+						...process.env,
+						HOME: dir,
+						QUOTA_AGY_CMD: reader,
+						QUOTA_CODEX_CMD: reader,
+						QUOTA_CLAUDE_USAGE_CMD: reader,
+					},
+				},
+			);
+
+		const empty = route("empty");
+
+		expect(empty.status).toBe(2);
+		expect(empty.stderr).toContain("is empty");
+		expect(existsSync(marker)).toBe(false);
+
+		// Control: the same setup with a real brief does reach the readers.
+		// The fake readers leave Google unparsable and Codex signed in with no snapshot.
+		const control = route("brief");
+
+		expect(existsSync(marker)).toBe(true);
+		expect(control.status).toBe(0);
+		expect(control.stdout).toContain("ranked (tier S/code):");
+
+		expect(control.stdout).toMatch(
+			/1\. gpt-6-astra effort=default plan=codex pool=codex rank=64\.10/u,
+		);
+
+		expect(control.stdout).toMatch(/gemini-4-neon-xhigh \[.*\]: google-ai quota error/u);
+	});
+});
