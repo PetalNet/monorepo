@@ -99,7 +99,7 @@ const PASSED: [string, string][] = [
 		"a gallery link",
 		"Same link, just reload: https://tasks.petalcat.dev/gallery/janet-voice-mixer",
 	],
-	// Look-alikes written for this guard.
+	// Near misses written for this guard.
 	["a repo-relative nix file", "Edit modules/home/harness-guards.nix and flake.nix."],
 	[
 		"a relative path through home and tmp",
