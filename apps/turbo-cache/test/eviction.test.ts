@@ -148,3 +148,19 @@ it("writes a status file with the surviving totals and the last eviction time", 
 		});
 	});
 });
+
+it("reports a cap above 2 GiB without overflowing", async () => {
+	await withDirectory(async (directory) => {
+		const data = path.join(directory, "data");
+		const status = path.join(directory, "storage.json");
+
+		await mkdir(data);
+		await writeFile(path.join(data, "a"), "x");
+
+		// The live cap is 40 GiB; awk's %d wrapped it to -2147483648 on the status page.
+		const result = evict(data, { CACHE_MAX_BYTES: String(40 * 1024 ** 3), CACHE_STATUS_FILE: status });
+
+		expect(result.status, result.stderr).toBe(0);
+		expect(JSON.parse(await readFile(status, "utf8"))).toMatchObject({ max_bytes: 40 * 1024 ** 3 });
+	});
+});
