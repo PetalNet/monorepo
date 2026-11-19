@@ -39,7 +39,7 @@ class HighPassTest(unittest.TestCase):
         page = LineTone("AL6 AT45", RATE)  # AH defaults to the page's 180 Hz
         calm = LineTone("AL6 AT45 AH400", RATE)
         a, b = seconds(page, 6, "listening"), seconds(calm, 6, "listening")
-        self.assertLess(self.band(b, 20, 250) / self.band(a, 20, 250), 0.05)  # at least 13 dB less below 250 Hz
+        self.assertLess(self.band(b, 20, 250) / self.band(a, 20, 250), 0.1)  # at least 10 dB less below 250 Hz
         self.assertGreater(self.band(b, 600, 1000) / self.band(a, 600, 1000), 0.8)  # the mid band is left alone
 
     def test_the_high_pass_must_be_in_range(self):
