@@ -9,6 +9,7 @@
 !apps/tasks/
 !packages/effect-api/
 !packages/effect-sveltekit/
+!packages/tsconfig/
 apps/tasks/data/
 apps/tasks/*.db
 apps/tasks/*.db-*
