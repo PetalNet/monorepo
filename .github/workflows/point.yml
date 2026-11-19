@@ -111,8 +111,13 @@ jobs:
           cat "$RUNNER_TEMP/bridge.log"
           test -f rust/target/release/libpoint_mls.so
         working-directory: apps/point/app
+      # test/all.dart imports every suite so `flutter test` compiles and boots one isolate
+      # instead of one per file (flutter/flutter#90225). It is generated; CI fails if stale.
+      - name: Check test/all.dart is up to date
+        run: dart run tool/gen_all_test.dart --check
+        working-directory: apps/point/app
       - name: flutter test
         env:
           LD_LIBRARY_PATH: ${{ github.workspace }}/apps/point/app/rust/target/release
-        run: flutter test
+        run: time flutter test test/all.dart
         working-directory: apps/point/app

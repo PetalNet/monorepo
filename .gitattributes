@@ -1,2 +1,5 @@
 .agents/skills/impeccable/** linguist-vendored
 apps/grove/migrations/generated/** linguist-generated=true
+apps/point/app/test/all.dart linguist-generated=true
+apps/point/app/lib/src/rust/** linguist-generated=true
+apps/point/app/rust/src/frb_generated.rs linguist-generated=true

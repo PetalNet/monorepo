@@ -25,7 +25,8 @@ double _haversineM(double lat1, double lon1, double lat2, double lon2) {
 void main() {
   setUpAll(() async {
     TestWidgetsFlutterBinding.ensureInitialized();
-    await RustLib.init();
+    // One isolate runs every suite via test/all.dart; init is once-only.
+    if (!RustLib.instance.initialized) await RustLib.init();
   });
 
   test('stable_fuzz is callable over FFI and byte-deterministic', () {
