@@ -142,14 +142,25 @@ turns the photo's linear colour into albedo, and `lighting` is the sun the level
   the curve). Not fitted to, but reported in `build.json` beside the fit: the darkest paving against a measured
   old asphalt road (0.088), and the grass class against the library's green lawn grass (0.072), because the
   imagery's turf can be dry and brighter.
-- The sun is where astronomy puts it at the target date and at the imagery's solar time of day, which the cover
-  stage fitted, so shadows and lit colour agree. Its strength is a clear-sky direct beam (Meinel and Meinel,
-  Kasten and Young's air mass, 105 lm/W). Exposure is fixed at the EV100 that puts a mid-grey in that sun and
-  sky at mid-grey, plus an offset measured on UE 5.8.4 (`ENGINE_EXPOSURE_OFFSET_EV`): the renderer showed
-  grass 3.5 times brighter than albedo times illuminance over pi.
+- The sun is where astronomy puts it at the target date and at the imagery's mean solar time of day, which the
+  cover stage fitted. The equation of time is not carried over, so on another date the sun can be up to about
+  7 degrees of hour angle off the imagery's. A date and time at which the sun is below 5 degrees is refused. Its strength is a clear-sky direct beam (Meinel and Meinel,
+  Kasten and Young's air mass, 105 lm/W). Exposure is fixed at the EV100 at which a surface renders at its own
+  reflectance before tone mapping, plus an offset tuned on UE 5.8.4 (`ENGINE_EXPOSURE_OFFSET_EV`, a prior listed in
+  the manifest) so that sunlit grass is about as bright as in the photo.
 - Priors, each listed in the manifest: the 15th when the target is a month, noon solar time when there is no
   fitted time, a clear sky, skylight at 20 % of the sun's, 105 lm/W, and that the median paving is concrete.
 - Checked in the engine: the base colour buffer of sunlit grass reads 0.10 in linear light.
+
+Limits:
+
+- With one anchor the fit's spread is always 0, and nothing acts when the asphalt and grass checks disagree: a tile
+  whose median paving is asphalt gets a scale about 3 times too high. Without a cover stage every cell counts
+  as sunlit, shade included.
+- The sun's strength is the beam at the ground, but the engine's atmosphere may attenuate a light a second time.
+  The exposure offset is tuned against the renderer's output and may be hiding that.
+- Exposure compensation is not pinned, and nothing waits for shaders before the level build's compile check, so
+  that check may not see an error.
 
 ### Ground materials and grass
 
@@ -159,10 +170,10 @@ downloads them once and checks the hashes; about 10 MB. Nothing is stored in git
 
 The Landscape material height-blends the classes. Evidence sets the colour that varies over tens of metres (the
 macro colour map times the albedo scale), and the scan adds structure: its colour divided by its own mean, so it
-never shifts the colour. Each scan is read at two scales and turns, mixed by broad noise, so the repeat does not
-show from the air.
+never shifts the colour. The colour and roughness of each scan are read at two scales and turns, mixed by broad noise, so the repeat does
+not show from the air.
 
-The grass class also grows tufts: Landscape Grass, 14 blades of 8 to 17 cm to a tuft, up to 1000 tufts per 100
+The grass class also grows tufts: Landscape Grass, 14 blades of 8 to 17 cm (scaled 0.8 to 1.5) to a tuft, up to 1000 tufts per 100
 m2 where the class has full weight, drawn out to 45 m, coloured from the class's mean photo colour. The host
 project makes grass maps while the game runs (`grass.GrassMap.UseRuntimeGeneration=1`): the level is
 regenerated, never cooked. The tuft size, density and cull distance are looks, not measurements; no source

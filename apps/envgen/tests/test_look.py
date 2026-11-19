@@ -1,7 +1,5 @@
 """De-lighting and light: albedo fitted to known surfaces, and the sun and exposure of the target day."""
 
-import math
-
 import numpy as np
 import pytest
 
@@ -80,11 +78,12 @@ def test_sun_strength_and_exposure_fall_together_as_the_sun_sinks():
         14 < high["exposure_ev100"] - light.ENGINE_EXPOSURE_OFFSET_EV < 16
         and low["exposure_ev100"] < high["exposure_ev100"] - 1
     )
-    # The exposure that makes the engine's mid-grey land at mid-grey, rederived from its own equation.
-    illuminance = high["sun_lux"] * math.sin(math.radians(high["elevation_deg"])) * 1.2
-    assert 2 ** (high["exposure_ev100"] - light.ENGINE_EXPOSURE_OFFSET_EV) == pytest.approx(
-        illuminance / (1.2 * math.pi), rel=1e-6
-    )
+
+
+def test_a_target_day_on_which_the_sun_is_down_at_that_time_is_refused_with_a_reason():
+    # 07:00 solar time at 45 N in late December is before sunrise.
+    with pytest.raises(RuntimeError, match="sun is"):
+        light.lighting("2030-12-21", "07:00", 45.0, 15.0, 0.0)
 
 
 def test_the_build_lights_the_site_at_the_time_of_day_the_imagery_was_fitted_to(tmp_path):

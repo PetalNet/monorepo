@@ -19,10 +19,13 @@ SUN_LUMENS_PER_WATT = 105.0
 SKY_SHARE_OF_SUN = 0.2
 # The camera's lens attenuation constant in the exposure equation, as the engine uses it.
 LENS_ATTENUATION = 1.2
-# What the engine's renderer adds to the textbook exposure: it showed sunlit grass 3.5 times brighter than albedo
-# times illuminance over pi, which is 1.8 EV over. Measured on UE 5.8.4 with the BaseColor buffer (albedo 0.10) against
-# the lit frame at the same station, and set so that sunlit grass in the render is as bright as in the photo.
+# Added to the textbook exposure. The lit frame showed sunlit grass about 3.5 times brighter than the BaseColor buffer
+# (albedo 0.10) times illuminance over pi, which is 1.8 EV over; this offset is 0.95 EV, tuned on UE 5.8.4 so that
+# sunlit grass in the render is about as bright as it is in the photo. It is a tuned prior, not a measurement,
+# and is listed as one in the manifest. The sun may also be attenuated twice (see the README).
 ENGINE_EXPOSURE_OFFSET_EV = 0.95
+# Below this the sun is too low for the clear-sky model, and for the shadows the imagery shows.
+SUN_MIN_ELEVATION_DEG = 5.0
 
 
 def target_day(target_date: str) -> tuple[date, bool]:
@@ -45,10 +48,10 @@ def sun_illuminance_lux(elevation_deg: float) -> float:
 
 
 def exposure_ev100(elevation_deg: float) -> float:
-    """The EV100 that puts a mid-grey surface in sun and sky at mid-grey.
+    """The EV100 at which a surface in sun and sky renders at its own reflectance, before tone mapping.
 
-    A grey of reflectance g under illuminance E has luminance g * E / pi, and the engine scales luminance by
-    1 / (1.2 * 2**EV100), so that grey lands at g when 2**EV100 = E / (1.2 * pi). The engine's own offset is added.
+    A surface of reflectance g under illuminance E has luminance g * E / pi, and the engine scales luminance by
+    1 / (1.2 * 2**EV100), so every reflectance lands at itself when 2**EV100 = E / (1.2 * pi). The tuned offset is added.
     """
     sun_on_ground = sun_illuminance_lux(elevation_deg) * math.sin(math.radians(elevation_deg))
     return math.log2(sun_on_ground * (1 + SKY_SHARE_OF_SUN) / (LENS_ATTENUATION * math.pi)) + ENGINE_EXPOSURE_OFFSET_EV
@@ -74,13 +77,19 @@ def lighting(
         minutes=round(-longitude_deg * 4) + hours * 60 + minutes
     )
     azimuth, elevation = sun_position(latitude_deg, longitude_deg, when)
+    if elevation < SUN_MIN_ELEVATION_DEG:
+        raise RuntimeError(
+            f"the sun is {elevation:.1f} degrees up at {hours:02d}:{minutes:02d} solar time on {day}; "
+            "choose a target date nearer the imagery's season"
+        )
     priors = []
     if day_assumed:
         priors.append(f"prior: the {DAY_OF_MONTH_PRIOR}th of the target month")
     if time_assumed:
         priors.append(f"prior: {SOLAR_TIME_PRIOR} solar time; the imagery's time of day is not known")
     priors += [
-        f"prior: clear sky ({CLEAR_SKY_TRANSMITTANCE} transmittance per air mass), skylight {SKY_SHARE_OF_SUN:.0%} of the sun's",
+        f"prior: clear sky ({CLEAR_SKY_TRANSMITTANCE} ** air mass ** 0.678 of the beam arrives), skylight {SKY_SHARE_OF_SUN:.0%} of the sun's",
+        f"prior: the engine's exposure offset, {ENGINE_EXPOSURE_OFFSET_EV} EV, tuned on UE 5.8.4",
         f"prior: {SUN_LUMENS_PER_WATT:.0f} lm/W for direct sunlight",
     ]
     return {
