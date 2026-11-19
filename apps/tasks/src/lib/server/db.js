@@ -830,6 +830,16 @@ export function artifactState(slug, viewer) {
 
 // Artifacts that ask this viewer something they have not answered at the current revision:
 // the viewer is in the audience, the page has the "feedback" capability, and the viewer can see it.
+/**
+ * @param {string} viewer
+ * @returns {{
+ * 	slug: string;
+ * 	title: string;
+ * 	collection: string;
+ * 	rev: number;
+ * 	updated_at: string;
+ * }[]}
+ */
 export const needsYou = (viewer) =>
 	db
 		.prepare(

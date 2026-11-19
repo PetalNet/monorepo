@@ -1,5 +1,5 @@
 <script>
-	import { refreshAll } from "$app/navigation";
+	import { invalidate } from "$app/navigation";
 
 	import { chooseProject } from "#lib/gallery.remote.ts";
 	import Icon from "#lib/Icon.svelte";
@@ -17,7 +17,7 @@
 
 		try {
 			await chooseProject({ project, choice: choice === next ? null : next });
-			await refreshAll();
+			await invalidate("gallery:tree");
 		} catch {
 			failed = true;
 		} finally {

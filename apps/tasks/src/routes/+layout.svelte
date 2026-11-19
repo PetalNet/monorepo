@@ -1,6 +1,6 @@
 <script>
 	import "../app.css";
-	import { afterNavigate, beforeNavigate } from "$app/navigation";
+	import { afterNavigate, beforeNavigate, invalidate } from "$app/navigation";
 	import { page } from "$app/state";
 
 	import { openedProject } from "#lib/gallery.remote.ts";
@@ -29,12 +29,24 @@
 	// "Projects you opened" counts arrivals: this runs after a real navigation and on the first
 	// load, never for a link that was only preloaded. Once per project per visit is enough.
 	const told = new Set();
-	afterNavigate(() => {
+	afterNavigate(async () => {
 		const project = page.data.opened;
 
-		if (project && !told.has(project)) {
-			told.add(project);
-			void openedProject({ project }).catch(() => told.delete(project));
+		if (!project || told.has(project)) {
+			return;
+		}
+
+		told.add(project);
+
+		try {
+			await openedProject({ project });
+
+			// opening a project makes it yours, so the sidebar moves it up
+			if (data.tree.some((p) => p.key === project && !p.mine && !p.choice)) {
+				await invalidate("gallery:tree");
+			}
+		} catch {
+			told.delete(project);
 		}
 	});
 	// the sheet is a modal on a phone: focus moves into it when it opens and back to the button when it closes

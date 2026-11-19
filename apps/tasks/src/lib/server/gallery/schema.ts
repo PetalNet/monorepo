@@ -77,6 +77,8 @@ export const Ongoing = Schema.Struct({
 	/** "off": no search is configured. "unavailable": GitHub did not answer, so `pulls` is empty. */
 	github: Schema.Literals(["ok", "unavailable", "off"]),
 	pulls: Schema.Array(OngoingPull),
+	/** Pull requests the viewer's own view leaves out; `show=all` lists them. */
+	more: Schema.Int,
 	/** Pages with answers nobody has resolved yet. */
 	answers: Schema.Array(
 		Schema.Struct({

@@ -154,9 +154,37 @@ describe("the viewer's own ongoing list", () => {
 		expect(await numbers("parker")).toEqual([1, 2]);
 	});
 
-	it("is everything when they ask for all, or when nothing involves them", async () => {
+	it("is everything when they ask for all", async () => {
 		expect(await numbers("parker", { show: "all" })).toEqual([1, 2, 3, 4]);
-		expect(await numbers("newcomer")).toEqual([1, 2, 3, 4]);
+	});
+
+	it("says how many pull requests their own view leaves out", async () => {
+		expect((await as("parker", ongoing({}))).more).toBe(2);
+		expect((await as("parker", ongoing({ show: "all" }))).more).toBe(0);
+	});
+
+	it("leaves out a hidden project's pull requests for someone nothing involves", async () => {
+		await as("fresh", choose("lumen", "hide"));
+
+		expect(await numbers("fresh")).toEqual([1, 2, 4]);
+		expect(await numbers("fresh", { show: "all" })).toEqual([1, 2, 3, 4]);
+	});
+
+	it("keeps unresolved answers on a page that asks them something, even in a hidden project", async () => {
+		publish("ask-ada", "hushed", { caps: ["feedback"], audience: ["ada", "cooper"] });
+
+		db.insertFeedback({
+			slug: "ask-ada",
+			author: "cooper",
+			anchor: {},
+			payload: 1,
+			ink: undefined,
+			crop: undefined,
+		});
+
+		await as("ada", choose("hushed", "hide"));
+
+		expect((await as("ada", ongoing({}))).answers.map((a) => a.slug)).toContain("ask-ada");
 	});
 
 	it("is unchanged inside a project", async () => {

@@ -175,7 +175,7 @@ export const FeedbackLive = Layer.effect(
 			needsYou: Effect.gen(function* () {
 				const { user } = yield* Viewer;
 
-				return yield* store(() => needsYou(user) as NeedsYouRow[]);
+				return yield* store(() => needsYou(user));
 			}),
 		});
 	}),

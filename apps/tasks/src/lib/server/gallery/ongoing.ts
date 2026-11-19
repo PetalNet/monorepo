@@ -1,7 +1,7 @@
 import { Effect, Option } from "effect";
 
 import { inScope, projectKey, workOf, type Filed, type Link } from "../../gallery-tree.js";
-import { openFeedback } from "../db.js";
+import { needsYou, openFeedback } from "../db.js";
 import { StoreError, Viewer } from "./feedback.ts";
 import type { Pull } from "./github.ts";
 import { isTheirs, viewerInterest } from "./interest.ts";
@@ -54,27 +54,51 @@ function pullsInScope(
 		);
 }
 
-/** What is in motion for the signed-in viewer, in one view of the gallery. */
-export const ongoing = (scope: Scope) =>
+/**
+ * What is in motion in one view of the gallery, given what the viewer sees. Without a project the
+ * view is the viewer's own unless they ask for everything: their projects' pages, the pull requests
+ * they wrote or review, and the ones those pages link. A page that asks them something counts
+ * wherever it is filed.
+ */
+export const ongoingOf = (
+	{ artifacts, pulls, interest }: Effect.Success<typeof viewerInterest>,
+	scope: Scope,
+) =>
 	Effect.gen(function* () {
 		const { user } = yield* Viewer;
-		const { artifacts, pulls, interest } = yield* viewerInterest;
-		const answers = yield* Effect.try({
-			try: () => openFeedback(user),
+		const read = yield* Effect.try({
+			try: () => ({
+				answers: openFeedback(user),
+				asked: new Set(needsYou(user).map((a) => a.slug)),
+			}),
 			catch: (cause) => new StoreError({ cause }),
 		});
-		// Without a project, the view is the viewer's own unless they ask for everything.
-		const own = !scope.project && !scope.work && scope.show !== "all" && interest.focused;
+		const own = !scope.project && !scope.work && scope.show !== "all";
 		const mine = artifacts.filter((a) => !own || interest.mine.has(projectKey(a.collection)));
 		const slugs = new Set(inScope(mine, scope).map((a) => a.slug));
-		const linked = new Set(mine.flatMap((a) => a.links.map((l) => l.url)));
+		const urls = (pages: readonly Filed[]) =>
+			new Set(pages.flatMap((a) => a.links.map((l) => l.url)));
+		const linkedByMine = urls(mine);
+		const linkedAtAll = urls(artifacts);
 		const found = Option.getOrUndefined(pulls);
+		const inView = pullsInScope(found ?? [], artifacts, scope);
+		// Someone nothing involves yet keeps the pull requests no page links, since none are theirs.
+		const shown = inView.filter(
+			(p) =>
+				!own ||
+				isTheirs(p, interest.login) ||
+				linkedByMine.has(p.url.toLowerCase()) ||
+				(!interest.focused && !linkedAtAll.has(p.url.toLowerCase())),
+		);
 
 		return {
 			github: Option.isNone(pulls) ? "unavailable" : found ? "ok" : "off",
-			pulls: pullsInScope(found ?? [], artifacts, scope).filter(
-				(p) => !own || isTheirs(p, interest.login) || linked.has(p.url.toLowerCase()),
-			),
-			answers: answers.filter((a) => slugs.has(a.slug)),
+			pulls: shown,
+			more: inView.length - shown.length,
+			answers: read.answers.filter((a) => slugs.has(a.slug) || (own && read.asked.has(a.slug))),
 		} satisfies Ongoing;
 	});
+
+/** What is in motion for the signed-in viewer, in one view of the gallery. */
+export const ongoing = (scope: Scope) =>
+	Effect.flatMap(viewerInterest, (seen) => ongoingOf(seen, scope));

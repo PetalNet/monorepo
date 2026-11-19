@@ -1,4 +1,5 @@
 <script>
+	import { afterNavigate } from "$app/navigation";
 	import { page } from "$app/state";
 
 	import { galleryHref, UNFILED } from "#lib/gallery-tree.js";
@@ -38,10 +39,17 @@
 	// The viewer's projects lead. The rest sit behind "Other projects", open when you are in one.
 	const mine = $derived(tree.filter((p) => p.mine));
 	const others = $derived(tree.filter((p) => !p.mine));
-	let othersOpen = $state(false);
-	const showOthers = $derived(
-		othersOpen || (onGallery && others.some((p) => p.key === scope.project)) || (root && all),
+	const otherNeeds = $derived(others.reduce((n, p) => n + p.needs, 0));
+	// Open when you are in one of them or looking at everything, until you toggle it yourself; a
+	// navigation hands the decision back.
+	const inOthers = $derived(
+		(onGallery && others.some((p) => p.key === scope.project)) || (root && all),
 	);
+	let toggled = $state();
+	const showOthers = $derived(toggled ?? inOthers);
+	afterNavigate(() => {
+		toggled = undefined;
+	});
 </script>
 
 {#snippet project(p)}
@@ -106,10 +114,13 @@
 				class="item more"
 				aria-expanded={showOthers}
 				aria-controls="nav-others"
-				onclick={() => (othersOpen = !showOthers)}
+				onclick={() => (toggled = !showOthers)}
 			>
 				<Icon name={showOthers ? "car" : "chevright"} size={18} />
 				<span class="lbl">Other projects</span>
+				{#if otherNeeds && !showOthers}<span class="needs" title="{otherNeeds} waiting on you"
+						>{otherNeeds}</span
+					>{/if}
 				<span class="n">{others.length}</span>
 			</button>
 			<div id="nav-others" hidden={!showOthers}>

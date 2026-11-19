@@ -32,7 +32,8 @@
 			.map(([label, artifacts]) => ({ label, artifacts }));
 	});
 	const scope = $derived(
-		data.work || (data.project ? name(data.project) : data.own ? "Your projects" : "All projects"),
+		data.work ||
+			(data.project ? name(data.project) : data.yours ? "Your projects" : "All projects"),
 	);
 	const title = $derived(data.view === "ongoing" ? "Ongoing" : scope);
 </script>
