@@ -93,6 +93,10 @@ export default (({ strict }) => ({
 		"packages/better-auth-effect-qb-adapter": {
 			entry: ["test/**/*.ts"],
 		},
+		"packages/harness-hooks": {
+			// Each guard is a hook process Claude Code runs by path; the tests import its verdict.
+			entry: ["src/*-guard.ts!"],
+		},
 		"packages/vault-cite": {
 			// The backfill ops scripts are production entrypoints an operator runs by hand, not imported.
 			entry: ["test/**/*.ts", "scripts/*.ts!"],

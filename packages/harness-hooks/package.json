@@ -1,0 +1,16 @@
+{
+	"name": "@petalnet/harness-hooks",
+	"version": "0.0.0",
+	"private": true,
+	"type": "module",
+	"scripts": {
+		"typecheck": "effect-tsgo tsrs -b",
+		"test": "vitest run"
+	},
+	"devDependencies": {
+		"@petalnet/tsconfig": "workspace:*",
+		"@types/node": "catalog:types",
+		"typescript": "catalog:dev",
+		"vitest": "catalog:dev"
+	}
+}
