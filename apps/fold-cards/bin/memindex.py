@@ -6,7 +6,8 @@ Each source writes documents (id, source, ts, meta, body) into the same SQLite f
   candidates  per source, the top POOL by cosine from the resident embedder (bin/embedder.py) and the top POOL by BM25
               over FTS5; a short message's dense query leans toward the last turns of its room
   gate        a per-source logistic model scores each of the TOP closest: cosine, how far it stands above its query's
-              own field (z), and whether a rare query term matched it. Attach above the source's threshold; usually none
+              own field (z), and whether a rare query term matched it. What clears its floor is rescored from that score,
+              its BM25 rank and the message length. Attach above the threshold; usually none
 Without the embedder nothing attaches, and the embedder is started for the next prompt. This module is stdlib-only so
 the per-prompt hook can run it under plain python3 -I.
 
@@ -286,22 +287,42 @@ def candidates(db_path, text, sources, thread=(), context_weight=0.5, n=POOL, al
 
 SHORT = 6
 QUERY_CHARS = 600  # of the message the embedder reads: about 150 tokens; at 1500 a long message took ~300 ms on this CPU
-# Per source, a logistic model of "would this help answer the message", fitted on 59 real prompts and 1,310 candidates
-# graded blind (the private fixture eval_recall.py reads). Cosine alone separates poorly: a generic message pulls generically high cosines,
-# so the models lean on how far a candidate stands above its own query's top TOP (z) and on a rare query term matching
-# it (lex). A source without a model (documents: 7 helpful candidates, none picked precisely) is indexed but never attached.
+# Stage one, per source: a logistic model of "would this help answer the message", fitted on 59 real prompts and 1,310
+# candidates graded blind (the private fixture eval_recall.py reads). Cosine alone separates poorly: a generic message pulls
+# generically high cosines, so the models lean on how far a candidate stands above its own query's top TOP (z) and on a rare
+# query term matching it (lex). A source without a model (documents: 7 helpful candidates, none picked precisely) is
+# indexed but never attached.
 MODELS = {
     'fold': dict(bias=-3.689, cos=-0.643, z=1.013, lex=1.233, lex_mass=0.19, rank=-0.367, terms=0.175),
     'memory': dict(bias=-5.136, cos=-0.516, z=1.104, lex=1.248, lex_mass=1.497, rank=0.122, terms=-1.014),
 }
-THRESHOLDS = {'fold': 0.5, 'memory': 0.4}  # 2-fold CV: precision 0.62, recall 0.18, nothing attached for 75% of prompts
+# Stage two scores what stage one lets through (p1 >= FLOOR): its logit, where the candidate stands in BM25 order, and the
+# message length. A candidate with no lexical match has no rank and gets the last place. Fitted by test/fit_attach.py on 543
+# candidate pairs from 1,327 real prompts of one week, each judged by reading the prompt and what would be attached. Stage one
+# alone attached 390 of them at precision 0.39. Its misses were keyword matches ("amp" on an Amp-skills message) and long
+# pasted messages, which match everything a little; both now cost score, and a candidate high in BM25 order gains.
+FLOOR = 0.25
+RESCORE = dict(bias=-0.503, logit=0.931, lexr=1.424, terms=-0.732)
+THRESHOLDS = {'fold': 0.35, 'memory': 0.35}
 CAPS = {'fold': 2, 'memory': 2}
 MAX_ATTACH = 3
 TOP = 20
+NO_LEX_RANK = POOL
+
+
+def stage_two_features(c, nterms):
+    p1 = min(max(c['p1'], 1e-6), 1 - 1e-6)
+    return dict(logit=math.log(p1 / (1 - p1)), lexr=1 / (1 + (NO_LEX_RANK if c['lex_rank'] is None else c['lex_rank'])), terms=min(nterms, 20) / 10)
+
+
+def stage_two(c, nterms):
+    z = RESCORE['bias'] + sum(RESCORE[f] * v for f, v in stage_two_features(c, nterms).items())
+    return 1 / (1 + math.exp(-z))
 
 
 def score(cands, nterms):
-    """Set each candidate's probability of helping, p. Only the TOP closest of a source with a model are scored."""
+    """Set each candidate's probability of helping: p1 from its source's model, then p from stage two. Only the TOP
+    closest of a source with a model are scored, and only those with p1 >= FLOOR get a p."""
     for s in {c['source'] for c in cands}:
         mine = sorted((c for c in cands if c['source'] == s), key=lambda c: -c['cos'])
         w = MODELS.get(s)
@@ -310,11 +331,15 @@ def score(cands, nterms):
         sd = (sum((x - mu) ** 2 for x in top) / len(top)) ** 0.5 or 0.01
         for rank, c in enumerate(mine):
             if not w or rank >= TOP:
-                c['p'] = 0.0
+                c['p'] = c['p1'] = 0.0
                 continue
             x = dict(cos=c['cos'], z=(c['cos'] - mu) / sd, lex=1.0 if c['lex'] > 0 else 0.0, lex_mass=min(c['lex'], 20) / 10,
                      rank=1 / (1 + rank), terms=min(nterms, 20) / 10)
-            c['p'] = 1 / (1 + math.exp(-(w['bias'] + sum(w[f] * v for f, v in x.items()))))
+            c['p1'] = 1 / (1 + math.exp(-(w['bias'] + sum(w[f] * v for f, v in x.items()))))
+            if c['p1'] < FLOOR:
+                c['p'] = 0.0
+            else:
+                c['p'] = stage_two(c, nterms)
     return cands
 
 
