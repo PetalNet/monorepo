@@ -17,7 +17,7 @@ from rasterio.warp import reproject, transform, transform_bounds
 from rasterio.windows import Window, from_bounds
 from scipy import ndimage
 
-from . import cover, frame, lidar, light, surface
+from . import cover, frame, lidar, light, surface, trees
 from .acquire import acquire, sha256_file
 from .site import (
     CONTEXT_QUADS,
@@ -216,6 +216,126 @@ def build_cover(
         "sources": [name for name, used in (("lidar", lidar_height is not None), ("canopy_height", canopy)) if used],
         "sunlit_fraction": float(sunlit.mean()),
         "sun": sun,
+    }
+
+
+def build_trees(
+    site: Site,
+    cache: Path,
+    dem: Path,
+    imagery: Path,
+    canopy: Path | None,
+    out: Path,
+    covering: dict,
+    classes: dict,
+    lidar_height: np.ndarray | None,
+) -> dict:
+    """Find every tree in the canopy heights and write the inventory the engine places trees from."""
+    tile = site.tile
+    cutoff = covering["cutoff_m"]
+    with rasterio.open(out / covering["height"]) as file:
+        height = file.read(1).astype(np.float32)
+    ground, _ = _fill_gaps(_on_grid(dem, site.crs, tile, Resampling.bilinear)[0], "elevation")
+    # Where each source shows cover (NaN where it does not look), and which source each cell's height came from.
+    covers, seen_by, report = {}, {}, {}
+    if site.survey:
+        surface_m = _on_grid(Path(site.survey.location), site.crs, tile, Resampling.max)[0]
+        terrain_m = _on_grid(Path(site.survey.terrain), site.crs, tile, Resampling.average)[0]
+        inside = np.isfinite(surface_m) & np.isfinite(terrain_m)
+        above = np.where(inside, surface_m - terrain_m, 0.0).astype(np.float32)
+        # The survey's own terrain gives its heights above ground. How well that terrain sits on the elevation
+        # model, on ground both call open, says how far the two frames can be trusted against each other.
+        bare = inside & (above < cutoff) & (height < cutoff)
+        if bare.any():
+            difference = (terrain_m - ground)[bare]
+            offset = float(np.median(difference))
+            report["survey"] = {
+                "footprint_fraction": float(inside.mean()),
+                "terrain_minus_elevation_m": offset,
+                "residual_m": float(1.4826 * np.median(np.abs(difference - offset))),
+                "heights_from": "the survey's surface model minus its own terrain model",
+                "cover_before_fraction": float((height > cutoff)[inside].mean()),
+                "cover_fraction": float((above > cutoff)[inside].mean()),
+            }
+        # A surface model made from photographs taken from above misses crowns: on the first real tile it showed
+        # under half the cover the lidar did, and not a row of trees its own photographs show. So it adds crowns
+        # the older sources lack and removes none; a crown it does not show only loses confidence.
+        adds = inside & (above > cutoff) & (height <= cutoff)
+        height = np.where(adds, above, height)
+        covers["survey"] = np.where(inside, above > cutoff, np.nan)
+        seen_by["survey"] = adds
+    if lidar_height is not None:
+        covers["lidar"] = (lidar_height > cutoff).astype(np.float32)
+        seen_by["lidar"] = lidar_height > cutoff
+    if canopy:
+        second, _ = _fill_gaps(_on_grid(canopy, site.crs, tile, Resampling.bilinear)[0], "canopy height")
+        covers["canopy_height"] = (second > cutoff).astype(np.float32)
+    seen_by["canopy_height" if canopy else "lidar"] = np.ones(height.shape, dtype=bool)
+
+    # Roofs stand over the ground too. What the imagery shows as vegetation is canopy; the rest is not a tree.
+    vegetated = np.ones(height.shape, dtype=bool)
+    if classes["splits"] and classes["splits"][0]["split"]:
+        bands, has_nir = imagery_bands(site.imagery)
+        half = lidar.CELL_M / 2
+        cells = height.shape[0]
+        colour = _warp(
+            imagery, site.crs, tile.west + half, tile.north - half, lidar.CELL_M, cells, Resampling.average, bands
+        )
+        colour = np.stack([_fill_gaps(band, "imagery")[0] for band in colour])
+        vegetated = surface.apply_splits(colour[:3], colour[3] if has_nir else None, classes["splits"]) == 0
+        report["canopy_is"] = "cover the imagery shows as vegetation"
+    else:
+        report["canopy_is"] = "prior: all cover, roofs included; the imagery has no vegetation split"
+    labels, found = trees.crowns(height, (height > cutoff) & vegetated, lidar.CELL_M)
+
+    closures, threshold = None, None
+    if site.lidar and site.lidar.leaf_off and found:
+        points = lidar.load_points(site.lidar, tile, site.crs, cache)
+        closures = trees.closure(labels, found, *lidar.canopy_returns(points, tile, ground, cutoff))
+        areas = np.array([crown["crown_radius_m"] ** 2 for crown in found])
+        threshold, report["kind_fit"] = trees.split_kinds(closures, areas)
+    mix = json.loads(Path(site.tree_mix.location).read_text()) if site.tree_mix else None
+    records = trees.inventory(
+        labels,
+        found,
+        seen_by,
+        covers,
+        lidar.CELL_M,
+        tile.size_m,
+        closures,
+        threshold,
+        mix["species"] if mix else None,
+        site.seed,
+    )
+    (out / "trees.json").write_text(
+        json.dumps({"columns": trees.COLUMNS, "trees": [[tree[name] for name in trees.COLUMNS] for tree in records]})
+    )
+    count = lambda field: {
+        str(value): sum(tree[field] == value for tree in records) for value in sorted({tree[field] for tree in records})
+    }
+    priors = [] if mix else ["prior: no species; no inventory mix in the site file"]
+    if mix:
+        priors.append("prior: each species is drawn from a regional inventory's mix by kind and height, not observed")
+    if threshold is None:
+        priors.append("prior: no tree's kind is measured; kinds follow the inventory's mix, or broadleaf without one")
+    if "survey" in report:
+        unseen = sum(tree["source"] != "survey" and tree["confidence"] < 1 for tree in records)
+        report["survey"]["crowns_added"] = sum(tree["source"] == "survey" for tree in records)
+        report["survey"]["crowns_with_a_source_that_does_not_see_them"] = unseen
+    return report | {
+        "files": ["trees.json"],
+        "file": "trees.json",
+        "count": len(records),
+        "by_source": count("source"),
+        "by_kind": count("kind"),
+        "by_kind_from": count("kind_from"),
+        "by_species": count("species") if mix else {},
+        "height_m": [float(v) for v in np.quantile([t["height_m"] for t in records], (0.1, 0.5, 0.9))]
+        if records
+        else [],
+        "species_from": mix["source"] if mix else None,
+        "priors": priors,
+        "settings": trees.SETTINGS,
     }
 
 
@@ -684,6 +804,53 @@ def build(site_path: Path, out: Path, cache: Path | None = None) -> dict:
         ),
     )
     macro = stages["macro_colour"]
+    inventory = None
+    if covering:
+        for name, source in (("survey", site.survey), ("tree_mix", site.tree_mix)):
+            if source:
+                sources[name] = {
+                    "kind": source.kind,
+                    "license": source.license,
+                    "date": source.date,
+                    "bytes_fetched": 0,
+                    "path": source.location,
+                    "sha256": sha256_file(Path(source.location)),
+                }
+        if site.survey:
+            sources["survey"] |= {
+                "terrain": site.survey.terrain,
+                "terrain_sha256": sha256_file(Path(site.survey.terrain)),
+            }
+        stages["trees"] = _cached(
+            out,
+            "trees",
+            _stage_key(
+                grid,
+                site.crs,
+                cover_hashes,
+                lidar_key,
+                site.lidar.leaf_off if site.lidar else None,
+                sources["imagery"]["sha256"],
+                bands,
+                classes["splits"],
+                [sources[name] for name in ("survey", "tree_mix") if name in sources],
+                site.seed,
+                trees.SETTINGS,
+                trees.COLUMNS,
+            ),
+            lambda: build_trees(
+                site,
+                cache,
+                dem,
+                imagery,
+                Path(sources["canopy_height"]["path"]) if site.canopy_height else None,
+                out,
+                covering,
+                classes,
+                rasters()[0],
+            ),
+        )
+        inventory = stages["trees"]
 
     half_cm = tile.size_m * 100 / 2
     manifest = {
@@ -725,6 +892,8 @@ def build(site_path: Path, out: Path, cache: Path | None = None) -> dict:
     if covering:
         manifest["cover"] = {key: value for key, value in covering.items() if key not in ("files", "cached")}
         artifacts += covering["files"]
+        manifest["trees"] = {key: value for key, value in inventory.items() if key not in ("files", "cached")}
+        artifacts += inventory["files"]
 
     if site.context_size_m:
         context_dem, context_imagery = (

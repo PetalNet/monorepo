@@ -22,7 +22,9 @@ def plane(easting, northing):
     return 100.0 + 0.02 * (easting - WEST) + 0.01 * (northing - SOUTH)
 
 
-def write_raster(path: Path, values: np.ndarray, west: float, north: float, spacing: float) -> None:
+def write_raster(
+    path: Path, values: np.ndarray, west: float, north: float, spacing: float, nodata: float | None = None
+) -> None:
     bands = values if values.ndim == 3 else values[None]
     with rasterio.open(
         path,
@@ -34,6 +36,7 @@ def write_raster(path: Path, values: np.ndarray, west: float, north: float, spac
         dtype=bands.dtype,
         crs=CRS,
         transform=from_origin(west, north, spacing, spacing),
+        nodata=nodata,
     ) as out:
         out.write(bands)
 

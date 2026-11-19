@@ -174,3 +174,18 @@ def rasterise(points: np.ndarray, tile: Tile, elevation_m: np.ndarray) -> tuple[
         raise RuntimeError("the lidar source has no ground-classified returns inside the tile")
     gap = ndimage.distance_transform_edt(~measured) * CELL_M
     return height.astype(np.float32), gap.astype(np.float32)
+
+
+def canopy_returns(
+    points: np.ndarray, tile: Tile, elevation_m: np.ndarray, cutoff_m: float
+) -> tuple[np.ndarray, np.ndarray]:
+    """(returns from above the cutoff, all returns) counted in each cell, north-up at CELL_M."""
+    cells = round(tile.size_m / CELL_M)
+    columns = np.floor((points[:, 0] - tile.west) / CELL_M).astype(int)
+    rows = np.floor((tile.north - points[:, 1]) / CELL_M).astype(int)
+    above = points[:, 2] - elevation_m[rows, columns] > cutoff_m
+    total = np.zeros((cells, cells))
+    canopy = np.zeros((cells, cells))
+    np.add.at(total, (rows, columns), 1)
+    np.add.at(canopy, (rows[above], columns[above]), 1)
+    return canopy, total

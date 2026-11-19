@@ -82,5 +82,17 @@
 			"size_cm": 180
 		}
 	},
-	"note": "size_cm is the ground each scan covers, from the asset's published dimensions, so one repeat is that long"
+	"note": "size_cm is the ground each scan covers, from the asset's published dimensions, so one repeat is that long",
+	"trees": {
+		"source": "sample trees that ship with the engine's Procedural Vegetation Editor plugin; nothing is downloaded or stored",
+		"kinds": {
+			"broadleaf": [
+				"/ProceduralVegetationEditor/SampleAssets/StarterContent/DeciduousTree_01/PVE_Deciduous_Tree_01.PVE_Deciduous_Tree_01",
+				"/ProceduralVegetationEditor/SampleAssets/StarterContent/Deciduous_Shrub_01/PVE_Deciduous_Shrub_01.PVE_Deciduous_Shrub_01"
+			],
+			"conifer": [
+				"/ProceduralVegetationEditor/SampleAssets/StarterContent/ConiferTree_01/PVE_Conifer_01.PVE_Conifer_01"
+			]
+		}
+	}
 }

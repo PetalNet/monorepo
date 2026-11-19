@@ -2,12 +2,15 @@
 
 #include "AssetRegistry/AssetRegistryModule.h"
 #include "Components/DirectionalLightComponent.h"
+#include "Components/InstancedSkinnedMeshComponent.h"
+#include "Components/InstancedStaticMeshComponent.h"
 #include "Components/SkyAtmosphereComponent.h"
 #include "Components/SkyLightComponent.h"
 #include "Components/StaticMeshComponent.h"
 #include "Dom/JsonObject.h"
 #include "Engine/DirectionalLight.h"
 #include "Engine/PostProcessVolume.h"
+#include "Engine/SkinnedAsset.h"
 #include "Engine/SkyLight.h"
 #include "Engine/StaticMesh.h"
 #include "Engine/StaticMeshActor.h"
@@ -84,6 +87,8 @@ namespace
 	constexpr float MergeTimeoutSeconds = 300;
 	// How far a merged layer weight may sit from the imported one, out of 255.
 	constexpr int32 WeightTolerance = 2;
+	// How many trees, spread through the inventory, the build traces down onto to check their collision.
+	constexpr int32 TreeChecks = 25;
 	// The ground beyond the outermost surface: a flat plane this wide, this far under that surface's lowest point.
 	constexpr double HorizonSizeCm = 5.0e6;
 	constexpr double HorizonSinkCm = 100;
@@ -144,9 +149,29 @@ namespace
 		FVector Scale = FVector::OneVector;
 	};
 
+	/** One tree of the inventory: where it stands from the tile centre, and its measured size. */
+	struct FTree
+	{
+		double EastM = 0, NorthM = 0, HeightM = 0, CrownRadiusM = 0, YawDeg = 0;
+		// From the species' inventory records; without them the trunk and crown have no collision.
+		double TrunkDiameterM = 0, CrownRatio = 0;
+		FName Kind;
+	};
+
+	/** A tree mesh the engine ships, with the size it has before scaling, read from its bounds. */
+	struct FTreeMesh
+	{
+		FName Kind;
+		USkinnedAsset* Asset = nullptr;
+		double HeightCm = 0, RadiusCm = 0;
+		UInstancedSkinnedMeshComponent* Instances = nullptr;
+	};
+
 	struct FManifest
 	{
 		FString Directory;
+		// The tree inventory's file, when the build has one.
+		FString TreesFile;
 		FSurface Tile;
 		TOptional<FSurface> Surround;
 		TArray<FLayer> Layers;
@@ -253,6 +278,11 @@ namespace
 		{
 			Error = TEXT("the manifest needs surface.albedo and lighting");
 			return false;
+		}
+		const TSharedPtr<FJsonObject>* Trees = nullptr;
+		if (Root->TryGetObjectField(TEXT("trees"), Trees))
+		{
+			Out.TreesFile = (*Trees)->GetStringField(TEXT("file"));
 		}
 		Out.AlbedoScale = float((*Albedo)->GetNumberField(TEXT("scale")));
 		Out.Lighting.GridAzimuthDeg = (*Light)->GetNumberField(TEXT("grid_azimuth_deg"));
@@ -730,6 +760,198 @@ namespace
 		Mesh->bAffectDistanceFieldLighting = false;
 	}
 
+	/** The inventory the pipeline wrote: a table with named columns. */
+	bool LoadTrees(const FString& Path, TArray<FTree>& Out, FString& Error)
+	{
+		FString Text;
+		TSharedPtr<FJsonObject> Root;
+		const TArray<TSharedPtr<FJsonValue>>* Columns = nullptr;
+		const TArray<TSharedPtr<FJsonValue>>* Rows = nullptr;
+		if (!FFileHelper::LoadFileToString(Text, *Path) || !FJsonSerializer::Deserialize(TJsonReaderFactory<>::Create(Text), Root) || !Root ||
+			!Root->TryGetArrayField(TEXT("columns"), Columns) || !Root->TryGetArrayField(TEXT("trees"), Rows))
+		{
+			Error = FString::Printf(TEXT("cannot read the tree inventory %s"), *Path);
+			return false;
+		}
+		TMap<FString, int32> Column;
+		for (int32 Index = 0; Index < Columns->Num(); ++Index)
+		{
+			Column.Add((*Columns)[Index]->AsString(), Index);
+		}
+		for (const TCHAR* Needed : {TEXT("east_m"), TEXT("north_m"), TEXT("height_m"), TEXT("crown_radius_m"), TEXT("kind"), TEXT("trunk_diameter_m"), TEXT("crown_ratio"), TEXT("yaw_deg")})
+		{
+			if (!Column.Contains(Needed))
+			{
+				Error = FString::Printf(TEXT("the tree inventory has no column '%s'"), Needed);
+				return false;
+			}
+		}
+		for (const TSharedPtr<FJsonValue>& Value : *Rows)
+		{
+			const TArray<TSharedPtr<FJsonValue>>& Row = Value->AsArray();
+			// A missing number (no species, so no trunk) reads as zero.
+			const auto Number = [&](const TCHAR* Name) { double Read = 0; Row[Column[Name]]->TryGetNumber(Read); return Read; };
+			FTree& Tree = Out.AddDefaulted_GetRef();
+			Tree.EastM = Number(TEXT("east_m"));
+			Tree.NorthM = Number(TEXT("north_m"));
+			Tree.HeightM = Number(TEXT("height_m"));
+			Tree.CrownRadiusM = Number(TEXT("crown_radius_m"));
+			Tree.TrunkDiameterM = Number(TEXT("trunk_diameter_m"));
+			Tree.CrownRatio = Number(TEXT("crown_ratio"));
+			Tree.YawDeg = Number(TEXT("yaw_deg"));
+			Tree.Kind = FName(*Row[Column[TEXT("kind")]]->AsString());
+		}
+		return true;
+	}
+
+	/** The meshes materials.json names for each kind of tree. They ship with an engine plugin; nothing is imported. */
+	bool LoadTreeMeshes(const FString& Directory, TArray<FTreeMesh>& Out, FString& Error)
+	{
+		FString Text;
+		TSharedPtr<FJsonObject> Root;
+		const TSharedPtr<FJsonObject>* Trees = nullptr;
+		const TSharedPtr<FJsonObject>* Kinds = nullptr;
+		if (!FFileHelper::LoadFileToString(Text, *(Directory / TEXT("materials.json"))) || !FJsonSerializer::Deserialize(TJsonReaderFactory<>::Create(Text), Root) || !Root ||
+			!Root->TryGetObjectField(TEXT("trees"), Trees) || !(*Trees)->TryGetObjectField(TEXT("kinds"), Kinds))
+		{
+			Error = TEXT("materials.json has no trees.kinds; run fetch-materials.ps1 again");
+			return false;
+		}
+		for (const auto& Kind : (*Kinds)->Values)
+		{
+			for (const TSharedPtr<FJsonValue>& Path : Kind.Value->AsArray())
+			{
+				FTreeMesh& Mesh = Out.AddDefaulted_GetRef();
+				Mesh.Kind = FName(*Kind.Key);
+				Mesh.Asset = LoadObject<USkinnedAsset>(nullptr, *Path->AsString());
+				if (!Mesh.Asset)
+				{
+					Error = FString::Printf(TEXT("cannot load the tree mesh %s; is the plugin it ships in enabled?"), *Path->AsString());
+					return false;
+				}
+				const FBoxSphereBounds Bounds = Mesh.Asset->GetBounds();
+				Mesh.HeightCm = Bounds.Origin.Z + Bounds.BoxExtent.Z;
+				Mesh.RadiusCm = (Bounds.BoxExtent.X + Bounds.BoxExtent.Y) / 2;
+			}
+		}
+		return true;
+	}
+
+	/** The height of the imported surface at a point, in world centimetres, between its four vertices. */
+	double SurfaceZ(const FSurface& Surface, const TArray64<uint8>& HeightBytes, double NorthCm, double EastCm)
+	{
+		const uint16* Heights = reinterpret_cast<const uint16*>(HeightBytes.GetData());
+		const int32 Last = Surface.Vertices - 1;
+		const double North = FMath::Clamp((NorthCm - Surface.LocationCm.X) / Surface.Scale.X, 0.0, double(Last));
+		const double East = FMath::Clamp((EastCm - Surface.LocationCm.Y) / Surface.Scale.Y, 0.0, double(Last));
+		const int32 N0 = FMath::Min(int32(North), Last - 1), E0 = FMath::Min(int32(East), Last - 1);
+		const auto At = [&](int32 E, int32 N) { return double(Heights[E * Surface.Vertices + N]); };
+		const double Low = FMath::Lerp(At(E0, N0), At(E0, N0 + 1), North - N0);
+		const double High = FMath::Lerp(At(E0 + 1, N0), At(E0 + 1, N0 + 1), North - N0);
+		return Surface.LocationCm.Z + (FMath::Lerp(Low, High, East - E0) - 32768.0) * Surface.Scale.Z / 128.0;
+	}
+
+	/**
+	 * Stand every tree of the inventory on the surface, at its measured height and crown width. Each takes the mesh
+	 * of its kind that needs the least stretching. The meshes are instanced, cast shadows, and carry the tree
+	 * stencil. Collision is separate and unseen: a cylinder for the trunk and one bounding the crown, sized from
+	 * the species' inventory records.
+	 */
+	AActor* AddTrees(UWorld* World, const FManifest& Manifest, const TArray64<uint8>& HeightBytes, const TArray<FTree>& Trees, TArray<FTreeMesh>& Meshes, int32& Placed)
+	{
+		AActor* Actor = World->SpawnActor<AActor>();
+		Actor->SetActorLabel(TEXT("EnvGenTrees"));
+		USceneComponent* Root = NewObject<USceneComponent>(Actor, TEXT("Root"));
+		Root->SetMobility(EComponentMobility::Static);
+		Actor->SetRootComponent(Root);
+		Actor->AddInstanceComponent(Root);
+		Root->RegisterComponent();
+		const int32 Stencil = int32(Manifest.StencilClasses->GetNumberField(TEXT("tree")));
+		for (int32 Index = 0; Index < Meshes.Num(); ++Index)
+		{
+			FTreeMesh& Mesh = Meshes[Index];
+			Mesh.Instances = NewObject<UInstancedSkinnedMeshComponent>(Actor, *FString::Printf(TEXT("Trees_%s_%d"), *Mesh.Kind.ToString(), Index));
+			Mesh.Instances->SetupAttachment(Root);
+			Mesh.Instances->SetSkinnedAsset(Mesh.Asset);
+			Mesh.Instances->SetCollisionEnabled(ECollisionEnabled::NoCollision);
+			Mesh.Instances->SetRenderCustomDepth(true);
+			Mesh.Instances->SetCustomDepthStencilValue(Stencil);
+			Actor->AddInstanceComponent(Mesh.Instances);
+			Mesh.Instances->RegisterComponent();
+		}
+		// The engine's cylinder is 100 cm across and 100 cm tall, centred on its origin.
+		UInstancedStaticMeshComponent* Solid = NewObject<UInstancedStaticMeshComponent>(Actor, TEXT("TreeCollision"));
+		Solid->SetupAttachment(Root);
+		Solid->SetStaticMesh(LoadObject<UStaticMesh>(nullptr, TEXT("/Engine/BasicShapes/Cylinder.Cylinder")));
+		Solid->SetMobility(EComponentMobility::Static);
+		Solid->SetCollisionProfileName(TEXT("BlockAll"));
+		Solid->SetVisibility(false);
+		Solid->SetHiddenInGame(true);
+		Solid->SetCastShadow(false);
+		Actor->AddInstanceComponent(Solid);
+		Solid->RegisterComponent();
+
+		Placed = 0;
+		for (const FTree& Tree : Trees)
+		{
+			FTreeMesh* Best = nullptr;
+			for (FTreeMesh& Mesh : Meshes)
+			{
+				const auto Stretch = [&](const FTreeMesh& Of) { return FMath::Abs(FMath::Loge(Tree.HeightM * 100 / Of.HeightCm)); };
+				if (Mesh.Kind == Tree.Kind && (!Best || Stretch(Mesh) < Stretch(*Best)))
+				{
+					Best = &Mesh;
+				}
+			}
+			if (!Best)
+			{
+				continue;
+			}
+			const FVector Foot(Tree.NorthM * 100, Tree.EastM * 100, SurfaceZ(Manifest.Tile, HeightBytes, Tree.NorthM * 100, Tree.EastM * 100));
+			const double Wide = Tree.CrownRadiusM * 100 / Best->RadiusCm, Tall = Tree.HeightM * 100 / Best->HeightCm;
+			Best->Instances->AddInstance(FTransform(FRotator(0, Tree.YawDeg, 0), Foot, FVector(Wide, Wide, Tall)), 0, true);
+			++Placed;
+			if (Tree.TrunkDiameterM > 0 && Tree.CrownRatio > 0)
+			{
+				const double HeightCm = Tree.HeightM * 100, CrownCm = HeightCm * Tree.CrownRatio;
+				Solid->AddInstance(FTransform(FRotator::ZeroRotator, Foot + FVector(0, 0, (HeightCm - CrownCm) / 2), FVector(Tree.TrunkDiameterM, Tree.TrunkDiameterM, (HeightCm - CrownCm) / 100)), true);
+				Solid->AddInstance(FTransform(FRotator::ZeroRotator, Foot + FVector(0, 0, HeightCm - CrownCm / 2), FVector(Tree.CrownRadiusM * 2, Tree.CrownRadiusM * 2, CrownCm / 100)), true);
+			}
+		}
+		return Actor;
+	}
+
+	/**
+	 * Trace down onto trees spread through the inventory, against their collision alone. Returns how far the worst
+	 * hit is from the tree's measured top, and counts the trees a trace passed through.
+	 */
+	double WorstTreeTopErrorCm(AActor* Trees, const FManifest& Manifest, const TArray64<uint8>& HeightBytes, const TArray<FTree>& Inventory, int32& Checked, int32& Missed)
+	{
+		UInstancedStaticMeshComponent* Solid = Trees->FindComponentByClass<UInstancedStaticMeshComponent>();
+		double Worst = 0;
+		Checked = Missed = 0;
+		const int32 Step = FMath::Max(Inventory.Num() / TreeChecks, 1);
+		for (int32 Index = 0; Index < Inventory.Num(); Index += Step)
+		{
+			const FTree& Tree = Inventory[Index];
+			if (Tree.TrunkDiameterM <= 0 || Tree.CrownRatio <= 0)
+			{
+				continue;
+			}
+			++Checked;
+			const FVector Foot(Tree.NorthM * 100, Tree.EastM * 100, SurfaceZ(Manifest.Tile, HeightBytes, Tree.NorthM * 100, Tree.EastM * 100));
+			FHitResult Hit;
+			// A taller neighbour's crown may reach over this tree's top, so the hit may be higher, never lower.
+			if (!Solid || !Solid->LineTraceComponent(Hit, Foot + FVector(0, 0, 200000), Foot, FCollisionQueryParams()))
+			{
+				++Missed;
+				continue;
+			}
+			Worst = FMath::Max(Worst, Foot.Z + Tree.HeightM * 100 - Hit.Location.Z);
+		}
+		return Worst;
+	}
+
 	void AddSkyAndSun(UWorld* World, const FLighting& Lighting)
 	{
 		// World +X is grid north and +Y is east, so a sun at azimuth A lights the ground travelling towards A + 180.
@@ -784,12 +1006,18 @@ namespace
 	 * Trace the collision surface at vertices spread unevenly over the tile and compare with the heights
 	 * that were imported. A transposed or mirrored import fails this; so does missing collision.
 	 */
-	double WorstSurfaceErrorCm(UWorld* World, const FManifest& Manifest, const TArray64<uint8>& HeightBytes, int32& Missed)
+	double WorstSurfaceErrorCm(UWorld* World, const FManifest& Manifest, const TArray64<uint8>& HeightBytes, const AActor* Above, int32& Missed)
 	{
 		const uint16* Heights = reinterpret_cast<const uint16*>(HeightBytes.GetData());
 		const int32 Last = Manifest.Tile.Vertices - 1;
 		double Worst = 0;
 		Missed = 0;
+		// What stands on the ground is not the ground.
+		FCollisionQueryParams Params;
+		if (Above)
+		{
+			Params.AddIgnoredActor(Above);
+		}
 		for (const double* Fraction : CheckPoints)
 		{
 			const int32 NorthIndex = FMath::RoundToInt32(Fraction[0] * Last);
@@ -797,7 +1025,7 @@ namespace
 			const double Expected = Manifest.Tile.LocationCm.Z + (double(Heights[EastIndex * Manifest.Tile.Vertices + NorthIndex]) - 32768.0) * Manifest.Tile.Scale.Z / 128.0;
 			const FVector At(Manifest.Tile.LocationCm.X + NorthIndex * Manifest.Tile.Scale.X, Manifest.Tile.LocationCm.Y + EastIndex * Manifest.Tile.Scale.Y, 0);
 			FHitResult Hit;
-			if (!World->LineTraceSingleByChannel(Hit, At + FVector(0, 0, 200000), At - FVector(0, 0, 200000), ECC_WorldStatic))
+			if (!World->LineTraceSingleByChannel(Hit, At + FVector(0, 0, 200000), At - FVector(0, 0, 200000), ECC_WorldStatic, Params))
 			{
 				++Missed;
 				continue;
@@ -846,6 +1074,9 @@ struct FEnvGenLevelBuild::FState
 	UWorld* World = nullptr;
 	ALandscape* Landscape = nullptr;
 	ALandscape* Surround = nullptr;
+	TArray<FTree> Trees;
+	AActor* TreeActor = nullptr;
+	int32 TreesPlaced = 0;
 	int32 MaterialErrors = 0;
 	float Waited = 0;
 	int32 Frames = 0;
@@ -870,6 +1101,12 @@ bool FEnvGenLevelBuild::Start(const FString& ManifestPath, const FString& MapPat
 	}
 
 	if (!LoadScans(MaterialsDirectory, Manifest.Layers, Error))
+	{
+		UE_LOG(LogEnvGen, Error, TEXT("%s"), *Error);
+		return false;
+	}
+	TArray<FTreeMesh> TreeMeshes;
+	if (!Manifest.TreesFile.IsEmpty() && (!LoadTrees(Manifest.Directory / Manifest.TreesFile, State->Trees, Error) || !LoadTreeMeshes(MaterialsDirectory, TreeMeshes, Error)))
 	{
 		UE_LOG(LogEnvGen, Error, TEXT("%s"), *Error);
 		return false;
@@ -962,6 +1199,10 @@ bool FEnvGenLevelBuild::Start(const FString& ManifestPath, const FString& MapPat
 	{
 		AddHorizon(State->World, Manifest.Tile, State->HeightBytes, MacroBytes, Manifest.AlbedoScale, State->Packages);
 	}
+	if (!State->Trees.IsEmpty())
+	{
+		State->TreeActor = AddTrees(State->World, Manifest, State->HeightBytes, State->Trees, TreeMeshes, State->TreesPlaced);
+	}
 	AddSkyAndSun(State->World, Manifest.Lighting);
 	AddSiteInfo(State->World, Manifest);
 	APlayerStart* PlayerStart = State->World->SpawnActor<APlayerStart>(FVector(0, 0, 150), FRotator::ZeroRotator);
@@ -993,15 +1234,18 @@ bool FEnvGenLevelBuild::Finish(float DeltaSeconds, bool& bSucceeded)
 
 	const FManifest& Manifest = State->Manifest;
 	int32 Missed = 0;
-	const double WorstCm = WorstSurfaceErrorCm(State->World, Manifest, State->HeightBytes, Missed);
+	const double WorstCm = WorstSurfaceErrorCm(State->World, Manifest, State->HeightBytes, State->TreeActor, Missed);
 	const int32 Components = State->Landscape->LandscapeComponents.Num();
 	const int32 TargetLayers = State->Landscape->GetTargetLayers().Num();
 	const int32 WeightError = WorstWeightError(State->Landscape, Manifest);
 	const bool bSurfaceOk = Missed == 0 && WorstCm <= SurfaceToleranceCm;
 	const bool bWeightsOk = TargetLayers == Manifest.Layers.Num() && WeightError <= WeightTolerance;
+	int32 TreesChecked = 0, TreesMissed = 0;
+	const double TreeTopCm = State->TreeActor ? WorstTreeTopErrorCm(State->TreeActor, Manifest, State->HeightBytes, State->Trees, TreesChecked, TreesMissed) : 0;
+	const bool bTreesOk = State->TreesPlaced == State->Trees.Num() && TreesMissed == 0 && TreeTopCm <= SurfaceToleranceCm;
 	const bool bSaved = UEditorLoadingAndSavingUtils::SavePackages(State->Packages, false) && UEditorLoadingAndSavingUtils::SaveMap(State->World, State->MapPath);
 	const bool bMaterialsOk = State->MaterialErrors == 0;
-	bSucceeded = bMerged && bSurfaceOk && bWeightsOk && bMaterialsOk && bSaved;
+	bSucceeded = bMerged && bSurfaceOk && bWeightsOk && bMaterialsOk && bTreesOk && bSaved;
 
 	TSharedRef<FJsonObject> Receipt = MakeShared<FJsonObject>();
 	Receipt->SetStringField(TEXT("map"), State->MapPath);
@@ -1020,6 +1264,12 @@ bool FEnvGenLevelBuild::Finish(float DeltaSeconds, bool& bSucceeded)
 	Receipt->SetBoolField(TEXT("weights_ok"), bWeightsOk);
 	Receipt->SetNumberField(TEXT("material_compile_errors"), State->MaterialErrors);
 	Receipt->SetBoolField(TEXT("materials_ok"), bMaterialsOk);
+	Receipt->SetNumberField(TEXT("trees_in_inventory"), State->Trees.Num());
+	Receipt->SetNumberField(TEXT("trees_placed"), State->TreesPlaced);
+	Receipt->SetNumberField(TEXT("trees_traced"), TreesChecked);
+	Receipt->SetNumberField(TEXT("trees_traces_missed"), TreesMissed);
+	Receipt->SetNumberField(TEXT("tree_top_worst_shortfall_cm"), TreeTopCm);
+	Receipt->SetBoolField(TEXT("trees_ok"), bTreesOk);
 	Receipt->SetBoolField(TEXT("saved"), bSaved);
 	Receipt->SetBoolField(TEXT("succeeded"), bSucceeded);
 	FString Json;

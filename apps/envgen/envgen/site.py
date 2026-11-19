@@ -32,6 +32,10 @@ class Source:
     request_spacing_m: float | None = None
     # Which band of a raster holds what, by name and 1-based number, when the file's own tags do not say.
     bands: tuple[tuple[str, int], ...] | None = None
+    # A lidar survey flown with the leaves down: how much of a crown stops the laser then tells its kind.
+    leaf_off: bool = False
+    # A survey's terrain model, beside its surface model at `location`: both in one vertical frame, any frame.
+    terrain: str | None = None
 
     def band(self, name: str) -> int | None:
         return dict(self.bands or ()).get(name)
@@ -68,7 +72,21 @@ class Source:
             bands = tuple(sorted(bands.items()))
         elif name == "reflectance":
             raise SiteError("sources.reflectance: bands is required, naming at least red, green and blue")
-        return Source(kind, location, raw["license"], raw["date"], raw.get("request_spacing_m"), bands)
+        terrain = None
+        if name == "survey":
+            if kind != "file" or "terrain" not in raw:
+                raise SiteError("sources.survey: kind must be 'file', with path (surface model) and terrain")
+            terrain = str((base / raw["terrain"]).resolve())
+        return Source(
+            kind,
+            location,
+            raw["license"],
+            raw["date"],
+            raw.get("request_spacing_m"),
+            bands,
+            bool(raw.get("leaf_off", False)),
+            terrain,
+        )
 
 
 @dataclass(frozen=True)
@@ -124,6 +142,10 @@ class Site:
     context_size_m: float | None  # optional: side of a coarse surround, so the tile does not end in a cliff
     # optional: measured surface reflectance (0 to 1) near the target date, which sets each class's albedo
     reflectance: Source | None = None
+    # optional: a newer surface model and terrain model of part of the tile, which wins there for what stands
+    survey: Source | None = None
+    # optional: a JSON file of the region's tree species, their share and sizes, from a forest inventory
+    tree_mix: Source | None = None
 
 
 def acquisition_day(source: Source, name: str) -> date:
@@ -214,4 +236,6 @@ def load_site(path: Path) -> Site:
         reflectance=(
             Source.parse(sources["reflectance"], path.parent, "reflectance") if "reflectance" in sources else None
         ),
+        survey=Source.parse(sources["survey"], path.parent, "survey") if "survey" in sources else None,
+        tree_mix=Source.parse(sources["tree_mix"], path.parent, "tree_mix") if "tree_mix" in sources else None,
     )
