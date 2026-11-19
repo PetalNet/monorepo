@@ -1,4 +1,4 @@
-"""Elevation, colour, surround and manifest. Each stage reads artifacts and writes artifacts."""
+"""Elevation, surface classes, colour, surround and manifest. Each stage reads artifacts and writes artifacts."""
 
 from __future__ import annotations
 
@@ -15,7 +15,7 @@ from rasterio.transform import from_origin
 from rasterio.warp import reproject, transform
 from scipy import ndimage
 
-from . import frame, lidar
+from . import frame, lidar, surface
 from .acquire import acquire, sha256_file
 from .site import (
     CONTEXT_QUADS,
@@ -29,7 +29,7 @@ from .site import (
 
 # Part of every stage key. Bump it by hand when a code change alters a stage's output for the same
 # inputs (frame.py and the resampling included); nothing detects that automatically.
-PIPELINE_VERSION = 2
+PIPELINE_VERSION = 3
 
 MACRO_PIXELS = 1024
 # The macro map carries colour that varies over tens of metres. Finer detail comes from the engine.
@@ -38,6 +38,14 @@ MACRO_LOW_PASS_M = 12.0
 COVER_HEIGHT_M = 2.0
 # Cover also darkens the ground beside it with shadow; keep that out of the ground colour too.
 SHADOW_MARGIN_M = 4.0
+# Shadows run much further than that margin, and trees grow after a lidar survey. Ground darker than this
+# share of the open ground around it is taken to be in shade or under a tree, and is not ground colour
+# either. Vegetation is compared with vegetation, so turf beside bright concrete is not mistaken for shade.
+SHADE_RATIO = 0.85
+SHADE_REFERENCE_M = 30.0
+SHADE_PASSES = 3
+# Ground needs this much sunlit ground within the low-pass's reach to take its colour from it.
+OWN_CLASS_MIN = 0.02
 
 # Where no ground return lies within GAP_START_M the elevation model was interpolated, usually as flat
 # facets under roofs. Blend towards a smoothed surface, fully by GAP_FULL_M.
@@ -136,29 +144,87 @@ def build_elevation(tile: Tile, crs: str, dem: Path, out: Path, ground_gap: np.n
     }
 
 
-def build_macro_colour(tile: Tile, crs: str, imagery: Path, out: Path, height_above_ground: np.ndarray | None) -> dict:
+def _within(values: np.ndarray, listen: np.ndarray, reach: float) -> tuple[np.ndarray, np.ndarray]:
+    """A low-pass that only listens to some cells. Returns it with how much there was to listen to."""
+    listen = listen.astype(np.float32)
+    support = ndimage.gaussian_filter(listen, reach, mode="nearest")
+    return ndimage.gaussian_filter(values * listen, reach, mode="nearest") / np.maximum(support, 1e-6), support
+
+
+def _ground_view(
+    tile: Tile, crs: str, imagery: Path, height_above_ground: np.ndarray | None
+) -> tuple[np.ndarray, np.ndarray, np.ndarray, float]:
+    """The imagery on the macro grid, north-up; its cells not under cover; those also in the light; fraction filled."""
     spacing = tile.size_m / MACRO_PIXELS
     north_up = _warp(
         imagery, crs, tile.west + spacing / 2, tile.north - spacing / 2, spacing, MACRO_PIXELS, Resampling.average
     )
-    sigma = MACRO_LOW_PASS_M / spacing
-    open_ground = np.ones((MACRO_PIXELS, MACRO_PIXELS), dtype=np.float32)
+    filled = 0.0
+    for band in range(north_up.shape[0]):
+        north_up[band], fraction = _fill_gaps(north_up[band], "imagery")
+        filled = max(filled, fraction)
+    open_ground = np.ones((MACRO_PIXELS, MACRO_PIXELS), dtype=bool)
     if height_above_ground is not None:
         covered = _sample_cells(height_above_ground, MACRO_PIXELS) > COVER_HEIGHT_M
-        covered = ndimage.binary_dilation(covered, iterations=max(1, round(SHADOW_MARGIN_M / spacing)))
-        open_ground = (~covered).astype(np.float32)
-    # A low-pass that only listens to open ground: covered cells take their colour from the open ground around them.
-    support = ndimage.gaussian_filter(open_ground, sigma, mode="nearest")
-    filled = 0.0
-    smooth = np.empty_like(north_up)
+        open_ground = ~ndimage.binary_dilation(covered, iterations=max(1, round(SHADOW_MARGIN_M / spacing)))
+    brightness = north_up.mean(axis=0)
+    reach = SHADE_REFERENCE_M / spacing
+    green = surface.green(north_up) if north_up.shape[0] >= 3 else np.zeros(brightness.shape, dtype=bool)
+    lit = open_ground
+    # The shade itself drags down what counts as usual, so judge again against what was left in the light.
+    for _ in range(SHADE_PASSES):
+        usual, _ = _within(brightness, lit, reach)
+        among_green, support = _within(brightness, lit & green, reach)
+        usual = np.where(green & (support > OWN_CLASS_MIN), among_green, usual)
+        lit = open_ground & (brightness >= SHADE_RATIO * usual)
+    return north_up, open_ground, lit, filled
+
+
+def build_surface(tile: Tile, crs: str, imagery: Path, out: Path, height_above_ground: np.ndarray | None) -> dict:
+    """One weightmap per surface class, on the Landscape's vertices."""
+    spacing = tile.size_m / MACRO_PIXELS
+    north_up, _, lit, _ = _ground_view(tile, crs, imagery, height_above_ground)
+    grass = surface.grass_fraction(north_up, lit, spacing)
+    # From pixel centres to vertices, which start on the tile's edge.
+    at = np.arange(tile.vertices) * tile.quad_m / spacing - 0.5
+    rows, columns = np.meshgrid(at, at, indexing="ij")
+    on_vertices = ndimage.map_coordinates(grass, [rows, columns], order=1, mode="nearest")
+    layers = []
+    for name, weight in surface.weights(on_vertices).items():
+        Image.fromarray(frame.to_unreal_layout(weight)).save(out / f"weight_{name}.png")
+        layers.append({"name": name, "file": f"weight_{name}.png", "fraction": float(weight.mean() / 255)})
+    return {"files": [layer["file"] for layer in layers], "layers": layers, "classifier": "colour_threshold"}
+
+
+def read_weight(out: Path, file: str, size: int) -> np.ndarray:
+    """A class weight back from its weightmap, north-up, 0 to 1, at `size` samples a side."""
+    weight = np.swapaxes(np.asarray(Image.open(out / file)), 0, 1)[::-1]
+    return _sample_cells(weight, size).astype(np.float32) / 255
+
+
+def build_macro_colour(
+    tile: Tile, crs: str, imagery: Path, out: Path, height_above_ground: np.ndarray | None, layers: list[dict]
+) -> dict:
+    north_up, open_ground, lit, filled = _ground_view(tile, crs, imagery, height_above_ground)
+    sigma = MACRO_LOW_PASS_M / (tile.size_m / MACRO_PIXELS)
+    smooth = np.zeros_like(north_up)
     for band in range(north_up.shape[0]):
-        values, fraction = _fill_gaps(north_up[band], "imagery")
-        filled = max(filled, fraction)
-        everything = ndimage.gaussian_filter(values, sigma, mode="nearest")
-        from_open = ndimage.gaussian_filter(values * open_ground, sigma, mode="nearest") / np.maximum(support, 1e-6)
-        # Deep inside a large covered area there is no open ground within reach; fall back to the plain low-pass.
-        trust = np.clip(support / 0.05, 0.0, 1.0)
-        smooth[band] = from_open * trust + everything * (1 - trust)
+        # Sunlit ground of any class. Where none is within reach, deep under a wood or a large roof, the
+        # nearest ground that has some stands in; cover and shade themselves never tint the map.
+        sunlit, support = _within(north_up[band], lit, sigma)
+        reached = support > OWN_CLASS_MIN
+        if not reached.any():
+            sunlit = ndimage.gaussian_filter(north_up[band], sigma, mode="nearest")
+        elif not reached.all():
+            nearest = ndimage.distance_transform_edt(~reached, return_distances=False, return_indices=True)
+            sunlit = ndimage.gaussian_filter(sunlit[tuple(nearest)], sigma, mode="nearest")
+        # Each class takes its colour from sunlit ground of its own class, so a road does not grey the
+        # grass beside it. With none of its own within reach it takes the colour of any sunlit ground.
+        for layer in layers:
+            member = read_weight(out, layer["file"], MACRO_PIXELS)
+            own, support = _within(north_up[band], member * lit, sigma)
+            trust = np.clip(support / OWN_CLASS_MIN, 0.0, 1.0)
+            smooth[band] += member * (own * trust + sunlit * (1 - trust))
     _write_rgb(smooth, out / "macro_colour.png")
     return {
         "file": "macro_colour.png",
@@ -166,6 +232,7 @@ def build_macro_colour(tile: Tile, crs: str, imagery: Path, out: Path, height_ab
         "low_pass_m": MACRO_LOW_PASS_M,
         "filled_fraction": filled,
         "covered_fraction": float(1 - open_ground.mean()),
+        "shaded_fraction": float((open_ground & ~lit).mean()),
     }
 
 
@@ -303,20 +370,35 @@ def build(site_path: Path, out: Path, cache: Path | None = None) -> dict:
     elevation = stages["elevation"]
     # With lidar, cover is measured against the elevation model, so a new one changes the mask.
     cover_key = [lidar_key, sources["elevation"]["sha256"]] if lidar_key else None
+    view_key = [
+        grid,
+        site.crs,
+        sources["imagery"]["sha256"],
+        cover_key,
+        MACRO_PIXELS,
+        COVER_HEIGHT_M,
+        SHADOW_MARGIN_M,
+        SHADE_RATIO,
+        SHADE_REFERENCE_M,
+        SHADE_PASSES,
+    ]
+    stages["surface"] = _cached(
+        out,
+        "surface",
+        _stage_key(view_key, surface.CLASSES, surface.PARAMETERS),
+        lambda: build_surface(tile, site.crs, imagery, out, rasters()[0]),
+    )
+    layers = stages["surface"]["layers"]
     stages["macro_colour"] = _cached(
         out,
         "macro_colour",
         _stage_key(
-            grid,
-            site.crs,
-            sources["imagery"]["sha256"],
-            cover_key,
-            MACRO_PIXELS,
+            view_key,
             MACRO_LOW_PASS_M,
-            COVER_HEIGHT_M,
-            SHADOW_MARGIN_M,
+            OWN_CLASS_MIN,
+            [sha256_file(out / layer["file"]) for layer in layers],
         ),
-        lambda: build_macro_colour(tile, site.crs, imagery, out, rasters()[0]),
+        lambda: build_macro_colour(tile, site.crs, imagery, out, rasters()[0], layers),
     )
     macro = stages["macro_colour"]
 
@@ -343,12 +425,14 @@ def build(site_path: Path, out: Path, cache: Path | None = None) -> dict:
             "smoothed_fraction": elevation["smoothed_fraction"],
         },
         "macro_colour": {
-            key: macro[key] for key in ("file", "pixels", "low_pass_m", "filled_fraction", "covered_fraction")
+            key: macro[key]
+            for key in ("file", "pixels", "low_pass_m", "filled_fraction", "covered_fraction", "shaded_fraction")
         },
+        "surface": {"classifier": stages["surface"]["classifier"], "layers": layers},
         "stencil_classes": STENCIL_CLASSES,
         "sources": sources,
     }
-    artifacts = [elevation["file"], macro["file"]]
+    artifacts = [elevation["file"], macro["file"], *stages["surface"]["files"]]
 
     if site.context_size_m:
         context_dem, context_imagery = (
