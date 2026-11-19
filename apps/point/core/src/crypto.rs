@@ -256,6 +256,15 @@ impl PointCrypto {
         Ok(serialized)
     }
 
+    /// Forget a group and erase its persisted state, if present.
+    fn drop_group(&mut self, group_id: &[u8]) -> Result<()> {
+        if let Some(mut old) = self.groups.remove(group_id) {
+            old.delete(self.provider.storage())
+                .map_err(|e| PointCryptoError::Mls(format!("Delete stale group: {e:?}")))?;
+        }
+        Ok(())
+    }
+
     /// Create an MLS group with the supplied identifier.
     ///
     /// # Errors
@@ -263,6 +272,7 @@ impl PointCrypto {
     pub fn create_group(&mut self, group_id: &[u8]) -> Result<Vec<u8>> {
         // Group ids are deterministic (per DM pair), so re-creating one after a
         // peer re-registers must replace the stale stored group.
+        self.drop_group(group_id)?;
         let group = MlsGroup::builder()
             .ciphersuite(CIPHERSUITE)
             .use_ratchet_tree_extension(true)
@@ -336,11 +346,14 @@ impl PointCrypto {
             .build();
 
         // A Welcome for a known deterministic group id overwrites the stale one.
-        let group = StagedWelcome::build_from_welcome(&self.provider, &join_config, welcome)
-            .map_err(|e| PointCryptoError::Mls(format!("Stage welcome: {e:?}")))?
+        let staged = StagedWelcome::build_from_welcome(&self.provider, &join_config, welcome)
+            .map_err(|e| PointCryptoError::Mls(format!("Build welcome: {e:?}")))?
             .replace_old_group()
             .build()
-            .map_err(|e| PointCryptoError::Mls(format!("Stage welcome: {e:?}")))?
+            .map_err(|e| PointCryptoError::Mls(format!("Stage welcome: {e:?}")))?;
+        let stale_gid = staged.group_context().group_id().as_slice().to_vec();
+        self.drop_group(&stale_gid)?;
+        let group = staged
             .into_group(&self.provider)
             .map_err(|e| PointCryptoError::Mls(format!("Into group: {e:?}")))?;
 
@@ -449,8 +462,11 @@ impl PointCrypto {
                 PointCryptoError::InvalidState("Expected commit message".into()),
             ),
             // Our own commit is merged when created, so an echo is a no-op.
-            ProcessedMessageContent::OwnPrivateMessage
-            | ProcessedMessageContent::OwnPendingCommit => Ok(()),
+            ProcessedMessageContent::OwnPendingCommit => Ok(()),
+            // Unauthenticated own-sender hint: never report it as a commit.
+            ProcessedMessageContent::OwnPrivateMessage => Err(PointCryptoError::InvalidState(
+                "Own message echoed back".into(),
+            )),
         }
     }
 
