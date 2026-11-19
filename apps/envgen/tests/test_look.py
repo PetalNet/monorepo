@@ -6,6 +6,7 @@ from PIL import Image
 
 from envgen import light, surface
 from envgen.build import build
+from envgen.site import SiteError
 
 from . import helpers as h
 from .test_cover import DAY, LIDAR, TREE, sources, tree_returns
@@ -144,14 +145,11 @@ def test_with_a_reflectance_raster_the_colour_map_is_each_classs_measured_albedo
         "date": "2030-06",
         "bands": {"blue": 1, "green": 2, "red": 3},
     }
-    site = h.write_site(
-        tmp_path,
-        sources={
-            "elevation": {"kind": "file", "path": "dem.tif", "license": "test", "date": "2030"},
-            "imagery": {"kind": "file", "path": "imagery.tif", "license": "test", "date": "2030"},
-            "reflectance": reflectance,
-        },
-    )
+    files = {
+        "elevation": {"kind": "file", "path": "dem.tif", "license": "test", "date": "2030"},
+        "imagery": {"kind": "file", "path": "imagery.tif", "license": "test", "date": "2030"},
+    }
+    site = h.write_site(tmp_path, sources=files | {"reflectance": reflectance}, context={"size_m": 504})
     out = tmp_path / "out"
 
     manifest = build(site, out)
@@ -172,3 +170,33 @@ def test_with_a_reflectance_raster_the_colour_map_is_each_classs_measured_albedo
     assert checks[("old asphalt road (GDS376)", "p10")]["measured_reflectance"] == pytest.approx(0.09, rel=0.05)
     assert checks[("light grey concrete road (GDS375)", "p90")]["measured_reflectance"] == pytest.approx(0.28, rel=0.05)
     assert manifest["sources"]["reflectance"]["date"] == "2030-06"
+    # The surround is albedo by the same split and curves, without a near-infrared band too.
+    surround = np.asarray(Image.open(out / manifest["context"]["colour"])).astype(float)
+    pixels = surround.shape[0] / 504
+    around = lambda east_m, north_m: surface.to_linear(
+        surround[round((east_m + 189) * pixels), round((north_m + 189) * pixels)]
+    )
+    # Out here the low-pass is as wide as a strip of paving, so the two pavings blend; neither is the grass's level.
+    assert around(20, 60) == pytest.approx(grass, rel=0.25)
+    assert asphalt[0] < around(52, 60)[0] < around(78, 60)[0] < concrete[0] and around(78, 60)[0] > 0.15
+
+    # A raster in other units, or one that does not cover the tile, is refused, not quietly dropped.
+    h.write_raster(tmp_path / "reflectance.tif", measured[::-1] * 10000, west, north, 6.0)
+    with pytest.raises(SiteError, match="0 to 1"):
+        build(site, tmp_path / "scaled")
+    h.write_raster(tmp_path / "reflectance.tif", measured[::-1], west + 5000, north, 6.0)
+    with pytest.raises(SiteError, match="usable pixels"):
+        build(site, tmp_path / "elsewhere")
+
+
+def test_a_band_the_photo_runs_against_keeps_its_measured_level_and_says_so():
+    # 100 pixels of one class. The photo is brighter where the measurement is darker: the ground changed.
+    photo = np.tile(np.linspace(0.2, 0.6, 100), (3, 1))
+    measured = np.tile(np.linspace(0.12, 0.06, 100), (3, 1))
+
+    fit = surface.fit_reflectance(photo, measured, np.ones((1, 100)), np.ones(100), ["grass"])
+
+    assert fit["curves"]["grass"]["gamma"] == [0.0, 0.0, 0.0]
+    assert any("runs against" in prior for prior in fit["priors"])
+    flat = surface.apply_curve(np.full((3, 2), 128.0) * [[0.5], [1.0], [1.5]], fit["curves"]["grass"])
+    assert flat == pytest.approx(np.exp(np.log(measured).mean()), rel=0.01)

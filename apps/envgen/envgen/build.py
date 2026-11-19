@@ -11,6 +11,7 @@ import numpy as np
 import rasterio
 from PIL import Image
 from rasterio.enums import Resampling
+from rasterio.errors import WindowError
 from rasterio.transform import from_origin
 from rasterio.warp import reproject, transform, transform_bounds
 from rasterio.windows import Window, from_bounds
@@ -24,6 +25,7 @@ from .site import (
     LANDSCAPE_SECTIONS_PER_COMPONENT,
     SCHEMA_VERSION,
     Site,
+    SiteError,
     Source,
     Tile,
     acquisition_day,
@@ -304,8 +306,13 @@ def fit_to_reflectance(
     tile = site.tile
     with rasterio.open(reflectance) as file:
         west, south, east, north = transform_bounds(site.crs, file.crs, *tile.bounds())
+        # Whole pixels only; a part pixel at the east or south edge is left out. The pixels must be coarser than
+        # the tile's cells, or the means below are of nothing.
         window = from_bounds(west, south, east, north, file.transform).round_offsets().round_lengths()
-        window = window.intersection(Window(0, 0, file.width, file.height))
+        try:
+            window = window.intersection(Window(0, 0, file.width, file.height))
+        except WindowError:
+            raise SiteError("sources.reflectance: the raster has no usable pixels over the tile") from None
         bands = [site.reflectance.band(name) for name in ("red", "green", "blue")]
         measured = file.read(bands, window=window, masked=True).astype(np.float32).filled(np.nan)
         sunlit = _onto_raster(shown, tile, site.crs, file, window)
@@ -314,7 +321,10 @@ def fit_to_reflectance(
         photo /= np.maximum(sunlit, 1e-6)
         shares = np.stack([_onto_raster(labels == index, tile, site.crs, file, window) for index in range(len(names))])
     flat = lambda array: array.reshape(*array.shape[:-2], -1)
-    return surface.fit_reflectance(flat(photo), flat(measured), flat(shares), flat(sunlit), names)
+    try:
+        return surface.fit_reflectance(flat(photo), flat(measured), flat(shares), flat(sunlit), names)
+    except ValueError as error:
+        raise SiteError(f"sources.reflectance: {error}") from error
 
 
 def build_surface(site: Site, imagery: Path, out: Path, covering: dict | None, reflectance: Path | None) -> dict:
@@ -336,8 +346,8 @@ def build_surface(site: Site, imagery: Path, out: Path, covering: dict | None, r
         Image.fromarray(unreal[-1]).save(out / file)
         layers.append({"name": name, "file": file, "mean_weight": float(weight.mean()) / 255})
     luminance = surface.class_luminance(rgb, labels, shown, names)
-    albedo = fit_to_reflectance(site, reflectance, rgb, labels, shown, names) if reflectance else {}
-    if albedo:
+    if reflectance:
+        albedo = fit_to_reflectance(site, reflectance, rgb, labels, shown, names)
         albedo["reflectance_date"] = site.reflectance.date
     else:
         albedo = surface.fit_albedo(luminance)
@@ -469,13 +479,7 @@ def build_context(
     )
     colour = np.stack([_fill_gaps(band, "imagery")[0] for band in colour])
     curves = (classes or {}).get("albedo", {}).get("curves")
-    vegetated = None
-    if curves and has_nir and len(classes["layers"]) == 2:
-        # The surround takes the tile's fitted vegetation split and each class's fitted curve.
-        vegetated = (colour[3] - colour[0]) / np.maximum(colour[3] + colour[0], 1.0) >= classes["splits"][0][
-            "threshold"
-        ]
-    colour = colour[:3]
+    nir, colour = (colour[3] if has_nir else None), colour[:3]
     clear = np.ones(colour.shape[1:], dtype=np.float32)
     if canopy:
         # The share of each coarse pixel that no canopy stands over. The surround has no lidar and no shadow.
@@ -493,19 +497,18 @@ def build_context(
             )
         clear = 1 - clear
     sigma = MACRO_LOW_PASS_M / pixel
-    if vegetated is None:
+    if not curves:
         colour = _low_pass_of_sunlit(colour, clear, sigma)
-        if curves:
-            # No split to tell the classes apart out here: the tile's first class stands in for all of it.
-            colour = surface.to_encoded(surface.apply_curve(colour, curves[classes["layers"][0]["name"]]))
     else:
-        share = _blur(vegetated.astype(np.float32), sigma)
-        names = [layer["name"] for layer in classes["layers"]]
-        colour = surface.to_encoded(
-            share * surface.apply_curve(_low_pass_of_sunlit(colour, clear * vegetated, sigma), curves[names[0]])
-            + (1 - share)
-            * surface.apply_curve(_low_pass_of_sunlit(colour, clear * ~vegetated, sigma), curves[names[1]])
-        )
+        # The surround takes the tile's fitted splits and each class's fitted curve, so it is albedo as well.
+        labels = surface.apply_splits(colour, nir, classes["splits"])
+        albedo = np.zeros_like(colour)
+        for index, layer in enumerate(classes["layers"]):
+            own = (labels == index).astype(np.float32)
+            if own.any():
+                passed = _low_pass_of_sunlit(colour, clear * own, sigma)
+                albedo += _blur(own, sigma) * surface.apply_curve(passed, curves[layer["name"]])
+        colour = surface.to_encoded(albedo)
     _write_rgb(colour, out / "context_colour.png")
 
     half_cm = site.context_size_m * 100 / 2
@@ -635,7 +638,7 @@ def build(site_path: Path, out: Path, cache: Path | None = None) -> dict:
             sources["imagery"]["sha256"],
             cover_hashes,
             bands,
-            sources["reflectance"]["sha256"] if reflectance else None,
+            [sources["reflectance"]["sha256"], site.reflectance.date] if reflectance else None,
             surface.PURE_SHARE,
             surface.PURE_SUNLIT,
             surface.PURE_MIN_PIXELS,

@@ -214,6 +214,21 @@ def classify(
     return labels, names, {"splits": splits, "priors": priors, "settings": SETTINGS, "hidden_ground": hidden}
 
 
+def apply_splits(rgb: np.ndarray, nir: np.ndarray | None, splits: list[dict]) -> np.ndarray:
+    """The class index of cells of other imagery, by the thresholds a tile's `classify` fitted and recorded."""
+    green, red, _ = indices(rgb)
+    labels = np.zeros(rgb.shape[1:], dtype=np.uint8)
+    if not splits or not splits[0]["split"]:
+        return labels
+    vegetation = green
+    if splits[0]["index"] == NIR_INDEX:
+        vegetation = (nir - rgb[0]) / np.maximum(nir + rgb[0], 1.0)
+    labels[vegetation < splits[0]["threshold"]] = 1
+    if len(splits) > 1 and splits[1]["split"]:
+        labels[(labels == 1) & (red >= splits[1]["threshold"])] = 2
+    return labels
+
+
 def weights(labels: np.ndarray, count: int, cell_m: float) -> list[np.ndarray]:
     """8-bit weights per class, which sum to 255 in every cell.
 
@@ -269,6 +284,9 @@ PURE_SHARE = 0.9
 PURE_SUNLIT = 0.8
 # A class needs this many such pixels for a fit of its own. Hand-set.
 PURE_MIN_PIXELS = 30
+# Reflectance is a share of the light, 0 to 1; snow and glints go a little over. Above this the raster is in
+# other units (scaled integers, say).
+REFLECTANCE_MAX = 1.5
 
 # Every value set by hand in this module, for the manifest: none is a measurement.
 SETTINGS = {
@@ -406,19 +424,31 @@ def fit_reflectance(
     """
     valid = np.isfinite(photo).all(axis=0) & np.isfinite(measured).all(axis=0) & (photo > 0).all(axis=0)
     valid &= (measured > 0).all(axis=0) & (sunlit >= PURE_SUNLIT)
-    curves, checks, priors = {}, [], []
+    if valid.sum() < PURE_MIN_PIXELS:
+        raise ValueError(
+            f"the reflectance raster has {int(valid.sum())} usable pixels over the tile's sunlit ground; "
+            f"{PURE_MIN_PIXELS} are needed. Check its extent, its bands and its no-data value"
+        )
+    if np.quantile(measured[:, valid], 0.99) > REFLECTANCE_MAX:
+        raise ValueError("the reflectance raster is not on a 0 to 1 scale; apply its scale and offset first")
+    curves, checks, priors, own = {}, [], [], set()
     for index, name in enumerate(names):
         pure = valid & (shares[index] >= PURE_SHARE)
         if pure.sum() < PURE_MIN_PIXELS:
             priors.append(f"prior: {name} has too few pure reflectance pixels; it takes the fit over all ground")
             pure = valid
-        if pure.sum() < PURE_MIN_PIXELS:
-            return {}
+        else:
+            own.add(name)
         x, y = np.log(photo[:, pure]), np.log(measured[:, pure])
         gamma, offset, rms = [], [], []
         for band in range(3):
             spread = x[band].var()
             slope = float(((x[band] - x[band].mean()) * (y[band] - y[band].mean())).mean() / spread) if spread else 0.0
+            if slope < 0:
+                # Brighter in the photo and darker in the measurement: the ground changed between the two, and
+                # the photo's pattern cannot be trusted for this band. The class keeps its measured level alone.
+                slope = 0.0
+                priors.append(f"prior: {name} band {band} is flat at its measured level; the photo runs against it")
             gamma.append(slope)
             offset.append(float(y[band].mean() - slope * x[band].mean()))
             rms.append(float(np.sqrt(((y[band] - offset[-1] - slope * x[band]) ** 2).mean())))
@@ -434,7 +464,8 @@ def fit_reflectance(
             "rms_log_residual": rms,
         }
     for name, quantile, reflectance, what in REFLECTANCE_CHECKS:
-        if name in curves:
+        # A class that took the fit over all ground has no measurement of its own to check.
+        if name in own:
             checks.append(
                 {
                     "surface": what,

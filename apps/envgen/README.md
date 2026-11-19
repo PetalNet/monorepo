@@ -165,7 +165,9 @@ turns the photo's linear colour into albedo, and `lighting` is the sun the level
   over all ground, listed as a prior). A photo's tone curve is unknown and need not be linear: on the real tile
   map-tagged concrete was only 1.13 times as bright as asphalt in the photo, against 3.3 in the library, so no one
   scale could fit both. The measurement sets each class's level and its season; the photo places the pattern. A
-  curve is trusted only between the 1st and 99th percentile of the reflectance it was fitted to. The surround
+  curve is trusted only between the 1st and 99th percentile of the reflectance it was fitted to. A band whose
+  fitted power is negative (the ground changed between the two dates) keeps its measured level alone, listed as a
+  prior. A raster that misses the tile or is not on a 0 to 1 scale is refused. The surround
   takes the tile's split and curves. The library spectra become checks, reported in `build.json`: the paved
   class's 10th and 90th percentile against asphalt and concrete, and the grass median against green lawn. On the
   real tile these read 0.082 against 0.088, 0.200 against 0.288, and 0.071 against 0.072.
@@ -184,7 +186,8 @@ Limits:
 - The reflectance fit joins two dates. Where the ground changed between the photo and the measurement the curve
   is flatter than the truth, and the pattern is still the photo's.
 - Reflectance pixels are far coarser than the photo, so the fit sees little of the contrast inside a class and a
-  curve is flatter than the photo's real tone curve.
+  curve is flatter than the photo's real tone curve. The trusted range is of coarse pixels too, so a bright roof
+  or a dark patch a few metres across is held to it.
 - With one anchor the fit's spread is always 0, and nothing acts when the asphalt and grass checks disagree: a tile
   whose median paving is asphalt gets a scale about 3 times too high. Without a cover stage every cell counts
   as sunlit, shade included.
