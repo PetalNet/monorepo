@@ -38,18 +38,22 @@ test("page controls persist changes without running a sweep or resuming the sche
 			paused: true,
 			scheduler: "paused",
 		});
+
 		expect(control(ledger, { action: "resume" }, jobs)).toMatchObject({
 			paused: false,
 			scheduler: "paused",
 		});
+
 		expect(readFileSync(jobs, "utf8")).toBe(scheduler);
 		control(ledger, { action: "snooze", id: reminder.id, hours: 24 }, jobs);
 		expect(ledger.item(reminder.id)?.due).toBe(1_000_000 + 24 * 3_600_000);
 		control(ledger, { action: "drop", id: reminder.id, reason: "No longer needed" }, jobs);
+
 		expect(ledger.item(reminder.id)).toMatchObject({
 			state: "dropped",
 			evidence: "No longer needed",
 		});
+
 		expect(control(ledger, { action: "snapshot" }, jobs).items).toEqual([]);
 		expect(injections).toBe(0);
 	} finally {
