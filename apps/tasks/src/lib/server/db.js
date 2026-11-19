@@ -303,6 +303,23 @@ db.exec(`
 // pass null do their own authorization: a share token, or an unscoped agent token. Listing returns metadata only — never the (large) content blob.
 const artVis = (me) => (me ? "WHERE (visibility='shared' OR owner=@me)" : "");
 
+/**
+ * @param {string | null | undefined} me
+ * @returns {{
+ * 	id: number;
+ * 	slug: string;
+ * 	title: string;
+ * 	description: string;
+ * 	kind: string;
+ * 	source: string;
+ * 	owner: string;
+ * 	visibility: string;
+ * 	collection: string;
+ * 	links: string;
+ * 	created_at: string;
+ * 	updated_at: string;
+ * }[]}
+ */
 export const listArtifacts = (me) =>
 	db
 		.prepare(
@@ -810,6 +827,22 @@ export const needsYou = (viewer) =>
          AND EXISTS (SELECT 1 FROM json_each(a.caps) WHERE value='feedback')
          AND NOT EXISTS (SELECT 1 FROM feedback f WHERE f.slug=a.slug AND f.rev=a.rev AND f.author=@viewer)
        ORDER BY a.updated_at DESC`,
+		)
+		.all({ viewer });
+
+// Pages with answers nobody has resolved yet, newest answer first. Respects the viewer's
+// visibility like every other listing.
+/**
+ * @param {string} viewer
+ * @returns {{ slug: string; title: string; collection: string; count: number; latest: string }[]}
+ */
+export const openFeedback = (viewer) =>
+	db
+		.prepare(
+			`SELECT a.slug, a.title, a.collection, COUNT(*) AS count, MAX(f.created_at) AS latest
+       FROM feedback f JOIN artifacts a ON a.slug=f.slug
+       WHERE f.status!='resolved' AND (a.visibility='shared' OR a.owner=@viewer)
+       GROUP BY a.slug ORDER BY latest DESC`,
 		)
 		.all({ viewer });
 

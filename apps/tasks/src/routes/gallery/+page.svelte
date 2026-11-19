@@ -2,11 +2,14 @@
 	import ArtifactCard from "#lib/ArtifactCard.svelte";
 	import { galleryHref, UNFILED } from "#lib/gallery-tree.js";
 	import Icon from "#lib/Icon.svelte";
+	import Ongoing from "#lib/Ongoing.svelte";
 
 	let { data } = $props();
 
 	// How many pages one project shows when you are looking at every project; the rest is one click in.
 	const PEEK = 4;
+	// How many pull requests the index shows above its pages; ?view=ongoing shows them all.
+	const ONGOING_PEEK = 5;
 
 	const name = (/** @type {string} */ project) => (project === UNFILED ? "unfiled" : project);
 	const asks = $derived(data.artifacts.filter((a) => a.asked));
@@ -27,7 +30,8 @@
 			.toSorted(([x], [y]) => (x === "") - (y === ""))
 			.map(([label, artifacts]) => ({ label, artifacts }));
 	});
-	const title = $derived(data.work || (data.project ? name(data.project) : "All projects"));
+	const scope = $derived(data.work || (data.project ? name(data.project) : "All projects"));
+	const title = $derived(data.view === "ongoing" ? "Ongoing" : scope);
 </script>
 
 <svelte:head><title>{title} · gallery</title></svelte:head>
@@ -69,7 +73,21 @@
 		<p class="caught">All caught up.</p>
 	{/if}
 
-	{#if !rest.length && !asks.length}
+	{#if data.ongoing}
+		<Ongoing
+			ongoing={data.ongoing}
+			project={data.project}
+			work={data.work}
+			peek={data.view === "ongoing" ? undefined : ONGOING_PEEK}
+		/>
+		{#if data.view === "ongoing" && data.ongoing.github !== "unavailable" && !asks.length && !data.ongoing.pulls.length && !data.ongoing.answers.length}
+			<p class="empty">Nothing in motion.</p>
+		{/if}
+	{/if}
+
+	{#if data.view === "ongoing"}
+		<!-- the pages of this scope are one level up -->
+	{:else if !rest.length && !asks.length}
 		<p class="empty">{data.link ? "Nothing links there." : "No artifacts yet."}</p>
 	{:else if data.work}
 		<div class="cards">

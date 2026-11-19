@@ -84,8 +84,12 @@ export const inScope = (artifacts, { project, work }) =>
  * A gallery URL for one view state. Every filter lives in the query string so a link reproduces the
  * view.
  */
-export function galleryHref({ project, work, link } = {}) {
+export function galleryHref({ project, work, link, view } = {}) {
 	const q = new URLSearchParams();
+
+	if (view) {
+		q.set("view", view);
+	}
 
 	if (project) {
 		q.set("project", project);

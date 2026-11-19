@@ -1,10 +1,12 @@
-/** "3h ago" for a SQLite UTC timestamp ("2026-11-19 02:30:29"). */
+/** "3h ago" for a SQLite UTC timestamp ("2026-11-19 02:30:29") or an ISO one. */
 export function ago(ts) {
 	if (!ts) {
 		return "";
 	}
 
-	const s = Math.round((Date.now() - new Date(`${ts.replace(" ", "T")}Z`).getTime()) / 1000);
+	const s = Math.round(
+		(Date.now() - new Date(ts.includes("T") ? ts : `${ts.replace(" ", "T")}Z`).getTime()) / 1000,
+	);
 
 	if (s < 60) {
 		return "just now";
