@@ -117,7 +117,8 @@ export function execute(
 		const child = spawn(command, args, {
 			cwd,
 			stdio: ["pipe", "pipe", "pipe"],
-			timeout: 30 * 60 * 1000,
+			// Builders run for hours; a 30-minute cap killed them mid-PR (2026-11-19).
+			timeout: Number(process.env.ROUTE_TIMEOUT_MIN ?? 360) * 60 * 1000,
 		});
 		let out = "";
 		let log = "";
