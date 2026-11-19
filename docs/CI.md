@@ -29,6 +29,13 @@ the Point workflow, including Flutter/bridge files outside the package graph.
 Root Cargo and toolchain inputs select the app workflows that consume them.
 CodeQL language rules are independent of app workflow selection.
 
+## Dependency cache
+
+`pnpm/setup` restores the pnpm store by lockfile hash, falling back to the newest
+store for the same runtimes, so a lockfile change downloads only the difference.
+Only `main` saves the store: pull request caches are visible to that pull
+request alone and would crowd out the shared Turbo and Rust caches.
+
 ## Merge protection
 
 Require **`finish`** (GitHub Actions integration `15368`) in the
