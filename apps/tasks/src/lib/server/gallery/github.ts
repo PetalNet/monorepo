@@ -1,6 +1,7 @@
 import { readFileSync } from "node:fs";
 
 import {
+	Array,
 	Clock,
 	Config,
 	Context,
@@ -45,7 +46,17 @@ export type Pull = typeof Pull.Type;
  */
 export class GitHub extends Context.Service<
 	GitHub,
-	{ readonly openPulls: Effect.Effect<readonly Pull[] | undefined, GitHubUnavailable> }
+	{
+		readonly openPulls: Effect.Effect<readonly Pull[] | undefined, GitHubUnavailable>;
+		/**
+		 * Who took part in each pull request or issue, open or closed, keyed by the URL as given: a
+		 * pull request's author and reviewers, an issue's author and commenters. A URL GitHub cannot
+		 * answer for is absent, and nothing here fails: history only ever adds to what is yours.
+		 */
+		readonly participants: (
+			urls: readonly string[],
+		) => Effect.Effect<ReadonlyMap<string, readonly string[]>>;
+	}
 >()("tasks/GitHub") {}
 
 const Actor = Schema.NullOr(Schema.Struct({ type: Schema.String, login: Schema.String }));
@@ -139,6 +150,64 @@ const toPull = (node: typeof Node.Type): Pull => {
 	};
 };
 
+interface Ref {
+	readonly url: string;
+	readonly owner: string;
+	readonly repo: string;
+	readonly number: number;
+}
+
+/** A pull request or issue URL as the gallery stores it, or undefined for any other link. */
+const parseRef = (url: string): Ref | undefined => {
+	const m = /^https:\/\/github\.com\/([\w.-]+)\/([\w.-]+)\/(?:pull|issues)\/(\d+)$/.exec(url);
+
+	return m?.[1] && m[2] && m[3]
+		? { url, owner: m[1], repo: m[2], number: Number(m[3]) }
+		: undefined;
+};
+
+const People = Schema.Struct({
+	nodes: Schema.Array(
+		Schema.Struct({ author: Schema.NullOr(Schema.Struct({ login: Schema.String })) }),
+	),
+});
+
+const Participants = Schema.Struct({
+	data: Schema.Record(
+		Schema.String,
+		Schema.NullOr(
+			Schema.Struct({
+				issueOrPullRequest: Schema.NullOr(
+					Schema.Struct({
+						author: Schema.optional(Schema.NullOr(Schema.Struct({ login: Schema.String }))),
+						reviews: Schema.optional(People),
+						comments: Schema.optional(People),
+					}),
+				),
+			}),
+		),
+	),
+});
+
+// One aliased lookup per reference. Owner and repository names passed parseRef's pattern, so they
+// are safe inside the query text.
+const participantsQuery = (refs: readonly Ref[]) =>
+	`query {${refs
+		.map(
+			(ref, i) => `
+  r${i}: repository(owner: "${ref.owner}", name: "${ref.repo}") {
+    issueOrPullRequest(number: ${ref.number}) {
+      ... on PullRequest { author { login } reviews(first: 100) { nodes { author { login } } } }
+      ... on Issue { author { login } comments(first: 100) { nodes { author { login } } } }
+    }
+  }`,
+		)
+		.join("")}
+}`;
+
+/** How long a pull request's or issue's participants stand before they are asked for again. */
+const HISTORY_FRESH = 60 * 60_000;
+
 /** Pages are 100 pull requests; ten is far past any real backlog and bounds a runaway search. */
 const MAX_PAGES = 10;
 
@@ -176,9 +245,25 @@ export const GitHubLive = Layer.effect(
 		const tokenFile = yield* Config.option(Config.String("GITHUB_TOKEN_FILE"));
 
 		if (Option.isNone(search) || Option.isNone(tokenFile)) {
-			return GitHub.of({ openPulls: Effect.undefined });
+			return GitHub.of({
+				openPulls: Effect.undefined,
+				participants: () => Effect.succeed(new Map()),
+			});
 		}
 
+		const readToken = Effect.gen(function* () {
+			const token = (yield* Effect.try({
+				try: () => readFileSync(tokenFile.value, "utf8"),
+				catch: (cause) => new GitHubUnavailable({ cause }),
+			})).trim();
+
+			// compose mounts /dev/null when no token file is set
+			if (!token) {
+				return yield* new GitHubUnavailable({ cause: "GITHUB_TOKEN_FILE is empty" });
+			}
+
+			return token;
+		});
 		const page = (token: string, after: string | null) =>
 			HttpClientRequest.post("https://api.github.com/graphql").pipe(
 				HttpClientRequest.bearerToken(token),
@@ -190,16 +275,7 @@ export const GitHubLive = Layer.effect(
 			);
 
 		const fetchAll = Effect.gen(function* () {
-			const token = (yield* Effect.try({
-				try: () => readFileSync(tokenFile.value, "utf8"),
-				catch: (cause) => new GitHubUnavailable({ cause }),
-			})).trim();
-
-			// compose mounts /dev/null when no token file is set
-			if (!token) {
-				return yield* new GitHubUnavailable({ cause: "GITHUB_TOKEN_FILE is empty" });
-			}
-
+			const token = yield* readToken;
 			const pulls: Pull[] = [];
 			let after: string | null = null;
 
@@ -274,6 +350,50 @@ export const GitHubLive = Layer.effect(
 			return yield* ((yield* Ref.get(last)) ?? result).exit;
 		});
 
-		return GitHub.of({ openPulls });
+		const known = new Map<string, { at: number; logins: readonly string[] }>();
+		const ask = (refs: readonly Ref[]) =>
+			Effect.gen(function* () {
+				const token = yield* readToken;
+				const body = yield* HttpClientRequest.post("https://api.github.com/graphql").pipe(
+					HttpClientRequest.bearerToken(token),
+					HttpClientRequest.setHeader("user-agent", "petalnet-gallery"),
+					HttpClientRequest.bodyJson({ query: participantsQuery(refs) }),
+					Effect.flatMap((request) => client.execute(request)),
+					Effect.flatMap(HttpClientResponse.schemaBodyJson(Participants)),
+				);
+				const at = yield* Clock.currentTimeMillis;
+
+				// a repository the token cannot read comes back null: remembered as nobody
+				refs.forEach((ref, i) => {
+					const item = body.data[`r${i}`]?.issueOrPullRequest;
+					const actors = [
+						item?.author,
+						...((item?.reviews ?? item?.comments)?.nodes.map((n) => n.author) ?? []),
+					];
+
+					known.set(ref.url, { at, logins: [...new Set(actors.flatMap((a) => a?.login ?? []))] });
+				});
+			});
+		const participants = (urls: readonly string[]) =>
+			Effect.gen(function* () {
+				const now = yield* Clock.currentTimeMillis;
+				const due = urls
+					.filter((url) => now - (known.get(url)?.at ?? -Infinity) > HISTORY_FRESH)
+					.flatMap((url) => parseRef(url) ?? []);
+
+				// closed work rarely changes, so this is one request for new links and then none for an hour
+				yield* Effect.forEach(Array.chunksOf(due, 40), ask, { discard: true, concurrency: 1 }).pipe(
+					Effect.timeout(WAIT),
+					Effect.catchCause((cause) =>
+						Effect.logWarning("pull request history unavailable", cause),
+					),
+				);
+
+				return new Map(
+					urls.flatMap((url) => (known.has(url) ? [[url, known.get(url)!.logins]] : [])),
+				);
+			});
+
+		return GitHub.of({ openPulls, participants });
 	}),
 );

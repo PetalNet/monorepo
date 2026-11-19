@@ -35,7 +35,9 @@
 
 {#if ongoing.pulls.length || ongoing.more || ongoing.answers.length || ongoing.github === "unavailable"}
 	<section class="block" aria-label="Ongoing">
-		{#if peek}<h2>Ongoing</h2>{/if}
+		{#if peek && (shown.length || ongoing.answers.length || ongoing.github === "unavailable")}
+			<h2>Ongoing</h2>
+		{/if}
 		{#if ongoing.github === "unavailable"}
 			<p class="note" role="status">GitHub did not answer, so pull requests are missing here.</p>
 		{/if}
@@ -94,7 +96,9 @@
 		{/if}
 		{#if ongoing.more}
 			<a class="all" href={galleryHref({ show: "all", view: "ongoing" })}
-				>{ongoing.more} more outside your projects</a
+				>{ongoing.more}
+				{shown.length ? "more" : ongoing.more === 1 ? "open pull request" : "open pull requests"} outside
+				your projects</a
 			>
 		{/if}
 	</section>

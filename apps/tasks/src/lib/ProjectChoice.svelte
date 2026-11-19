@@ -65,7 +65,8 @@
 		font: inherit;
 		font-size: 13px;
 		color: var(--text-2);
-		background: var(--surface-2);
+		/* a list that is itself a filled surface sets --choice-bg one step up */
+		background: var(--choice-bg, var(--surface-2));
 		border: 0;
 		border-radius: var(--radius-sm);
 		cursor: pointer;
@@ -74,6 +75,7 @@
 			color 0.12s;
 	}
 	button:hover {
+		color: var(--text-1);
 		background: var(--surface-3);
 	}
 	button[aria-pressed="true"] {

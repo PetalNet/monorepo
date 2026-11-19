@@ -63,8 +63,16 @@ export async function load(event) {
 		opened: project,
 		work,
 		show,
-		// the index is narrowed to projects that involve the viewer, not just to ones they did not hide
-		yours: own && interest.focused,
+		own,
+		// nothing involves the viewer yet and they follow nothing: the index offers every project to follow
+		pick:
+			own && !interest.focused && all.length > 0
+				? [...Map.groupBy(all, (a) => projectKey(a.collection))].map(([key, pages]) => ({
+						key,
+						count: pages.length,
+						choice: interest.choices.get(key),
+					}))
+				: undefined,
 		// how many projects the viewer's own view leaves out
 		others: own ? projects.size - interest.mine.size : 0,
 		choice: interest.choices.get(project),
@@ -74,7 +82,7 @@ export async function load(event) {
 			...(view && !project
 				? [
 						{
-							label: own && interest.focused ? "Your projects" : "All projects",
+							label: own ? "Your projects" : "All projects",
 							href: galleryHref({ show }),
 						},
 					]

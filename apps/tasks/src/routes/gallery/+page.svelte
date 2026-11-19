@@ -32,8 +32,7 @@
 			.map(([label, artifacts]) => ({ label, artifacts }));
 	});
 	const scope = $derived(
-		data.work ||
-			(data.project ? name(data.project) : data.yours ? "Your projects" : "All projects"),
+		data.work || (data.project ? name(data.project) : data.own ? "Your projects" : "All projects"),
 	);
 	const title = $derived(data.view === "ongoing" ? "Ongoing" : scope);
 </script>
@@ -80,6 +79,21 @@
 		<p class="caught">All caught up.</p>
 	{/if}
 
+	{#if data.pick && !data.view}
+		<section class="block" aria-label="Pick projects to follow">
+			<h2>Pick projects to follow</h2>
+			<ul class="pick">
+				{#each data.pick.toSorted((x, y) => (x.key === UNFILED) - (y.key === UNFILED) || x.key.localeCompare(y.key)) as p (p.key)}
+					<li>
+						<a href={galleryHref({ project: p.key })}>{name(p.key)}</a>
+						<span class="count mono">{p.count} {p.count === 1 ? "page" : "pages"}</span>
+						<ProjectChoice project={p.key} choice={p.choice} />
+					</li>
+				{/each}
+			</ul>
+		</section>
+	{/if}
+
 	{#if data.ongoing}
 		<Ongoing
 			ongoing={data.ongoing}
@@ -95,6 +109,8 @@
 
 	{#if data.view === "ongoing"}
 		<!-- the pages of this scope are one level up -->
+	{:else if data.pick}
+		<!-- nothing is theirs yet: the list below offers every project -->
 	{:else if !rest.length && !asks.length}
 		<p class="empty">{data.link ? "Nothing links there." : "No artifacts yet."}</p>
 	{:else if data.work}
@@ -132,7 +148,7 @@
 		{/each}
 	{/if}
 
-	{#if data.others && !data.view}
+	{#if data.others && !data.pick && !data.view}
 		<a class="more others" href={galleryHref({ show: "all" })}
 			>{data.others} other {data.others === 1 ? "project" : "projects"}</a
 		>
@@ -225,6 +241,38 @@
 		font-size: 13px;
 		color: var(--text-3);
 		text-decoration: none;
+	}
+	/* one filled surface, rows separated by hairline rules, like the ongoing list */
+	.pick {
+		--choice-bg: var(--surface-3);
+		list-style: none;
+		margin: 0;
+		padding: 0;
+		background: var(--surface-2);
+		border-radius: var(--radius);
+	}
+	.pick li {
+		display: flex;
+		flex-wrap: wrap;
+		align-items: center;
+		gap: 8px 16px;
+		padding: 12px 16px;
+	}
+	.pick li + li {
+		border-block-start: 1px solid var(--border);
+	}
+	.pick a {
+		font-size: 14px;
+		color: var(--text-1);
+		text-decoration: none;
+	}
+	.pick a:hover {
+		color: var(--accent-b);
+	}
+	.pick .count {
+		margin-inline-end: auto;
+		font-size: 12px;
+		color: var(--text-3);
 	}
 	.others {
 		margin-block-start: 28px;

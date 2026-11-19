@@ -65,6 +65,7 @@ describe("pull requests in a view", () => {
 			pull("Acme/Atlas#5", { ci: "failing", bot: true }),
 			pull("Acme/Atlas#6", { review: "draft" }),
 		]),
+		participants: () => Effect.succeed(new Map()),
 	});
 	const numbers = async (scope: { project?: string; work?: string; show?: "all" }) =>
 		(await withGitHub(github, "parker", scope)).pulls.map((p) => p.number);
@@ -130,7 +131,10 @@ describe("ongoing", () => {
 		answer("mine", "parker");
 		db.resolveFeedback({ id: answer("closed", "eli").id, resolution: "done" });
 
-		const off = Layer.succeed(GitHub, { openPulls: Effect.undefined });
+		const off = Layer.succeed(GitHub, {
+			openPulls: Effect.undefined,
+			participants: () => Effect.succeed(new Map()),
+		});
 		const seen = async (user: string) =>
 			(await withGitHub(off, user)).answers.map((a) => [a.slug, a.count]);
 
@@ -147,7 +151,9 @@ describe("ongoing", () => {
 });
 
 describe("GitHubLive", () => {
-	const serve = async (respond: (body: { variables: { after: string | null } }) => unknown) => {
+	const serve = async (
+		respond: (body: { query: string; variables?: { after: string | null } }) => unknown,
+	) => {
 		const seen: { auth: string | undefined; q: string }[] = [];
 		const server = createServer((req, res) => {
 			let raw = "";
@@ -155,9 +161,16 @@ describe("GitHubLive", () => {
 			req.on("data", (chunk: Buffer) => (raw += chunk.toString()));
 
 			req.on("end", () => {
-				const body = JSON.parse(raw) as { variables: { q: string; after: string | null } };
+				const body = JSON.parse(raw) as {
+					query: string;
+					variables?: { q: string; after: string | null };
+				};
 
-				seen.push({ auth: req.headers.authorization, q: body.variables.q });
+				// `seen` is the searches; the participants lookup has no variables
+				if (body.variables) {
+					seen.push({ auth: req.headers.authorization, q: body.variables.q });
+				}
+
 				res.setHeader("content-type", "application/json");
 				res.end(JSON.stringify(respond(body)));
 			});
@@ -211,7 +224,7 @@ describe("GitHubLive", () => {
 		const github = await serve(({ variables }) => ({
 			data: {
 				search:
-					variables.after === null
+					variables?.after === null
 						? {
 								pageInfo: { hasNextPage: true, endCursor: "c1" },
 								nodes: [
@@ -341,6 +354,70 @@ describe("GitHubLive", () => {
 		github.close();
 
 		expect(titles).toEqual(["before", "before", "after"]);
+	});
+
+	it("reads who took part in linked pull requests and issues, once", async () => {
+		const queries: string[] = [];
+		const github = await serve(({ query }) => {
+			if (!query.includes("issueOrPullRequest")) {
+				return {
+					data: { search: { pageInfo: { hasNextPage: false, endCursor: null }, nodes: [] } },
+				};
+			}
+
+			queries.push(query);
+
+			return {
+				data: {
+					r0: {
+						issueOrPullRequest: {
+							author: { login: "ada" },
+							reviews: {
+								nodes: [
+									{ author: { login: "Eli" } },
+									{ author: null },
+									{ author: { login: "Eli" } },
+								],
+							},
+						},
+					},
+					r1: {
+						issueOrPullRequest: {
+							author: null,
+							comments: { nodes: [{ author: { login: "cooper" } }] },
+						},
+					},
+					// a repository the token cannot read
+					r2: null,
+				},
+			};
+		});
+		const urls = [
+			"https://github.com/acme/atlas/pull/1",
+			"https://github.com/acme/atlas/issues/2",
+			"https://github.com/other/private/pull/3",
+			"https://github.com/acme/atlas/commit/abc1234",
+		];
+		const [first, second] = await Effect.runPromise(
+			Effect.flatMap(GitHub, (service) =>
+				Effect.all([service.participants(urls), service.participants(urls)], { concurrency: 1 }),
+			).pipe(Effect.provide(github.layer)),
+		);
+
+		github.close();
+
+		expect(Object.fromEntries(first)).toEqual({
+			"https://github.com/acme/atlas/pull/1": ["ada", "Eli"],
+			"https://github.com/acme/atlas/issues/2": ["cooper"],
+			"https://github.com/other/private/pull/3": [],
+		});
+
+		expect(second).toEqual(first);
+		expect(queries).toHaveLength(1);
+
+		expect(queries[0]).toContain(
+			'repository(owner: "acme", name: "atlas") {\n    issueOrPullRequest(number: 2)',
+		);
 	});
 
 	it("reports GitHub as unavailable instead of failing the view", async () => {
