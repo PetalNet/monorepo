@@ -30,7 +30,8 @@ envgen build site.json --out build/ --cache cache/
 | Acquire      | `site.json` sources                          | each source clipped to the tile, once, into the cache          |
 | Structure    | lidar points, if the site has them           | height above ground, and distance to the nearest ground return |
 | Elevation    | the elevation raster                         | `heightmap.png`, 16-bit, Landscape layout                      |
-| Macro colour | the imagery raster                           | `macro_colour.png`, low-passed at 12 m                         |
+| Cover        | lidar heights, a canopy height raster, both  | `canopy_height.tif`, `shadow.tif`, north-up at 1 m             |
+| Macro colour | the imagery raster, cover and shadow         | `macro_colour.png`, low-passed at 12 m                         |
 | Surround     | both rasters at coarse spacing, if asked for | `context_heightmap.png`, `context_colour.png`                  |
 | Manifest     | everything above                             | `build.json`: placement, georeference, stencil classes, hashes |
 
@@ -40,22 +41,44 @@ envgen build site.json --out build/ --cache cache/
   and the spacing.
 - `sources.lidar` is optional: a `.las`/`.laz` file, or a public EPT point store
   (`"kind": "ept"`, in EPSG:3857). A store is read once; the points kept for the tile are cached,
-  so later builds work offline. With lidar, two things change.
-  - Anything standing more than 2 m above the ground, plus 4 m around it for its shadow, is left
-    out of the colour map's low-pass, so tree canopy and roofs do not tint the ground. Covered
-    ground takes its colour from the open ground around it.
-  - Where no ground return lies within 3 m, the elevation model was interpolated across the gap,
-    typically as flat facets under roofs. The surface there is blended towards a 4 m smoothing.
-    Measured ground is left exactly as it was.
+  so later builds work offline. Where no ground return lies within 3 m, the elevation model was
+  interpolated across the gap, typically as flat facets under roofs. The surface there is blended
+  towards a 4 m smoothing. Measured ground is left exactly as it was.
+- `sources.canopy_height` is optional: a raster of canopy height in metres, as a file or as a
+  cloud-optimised GeoTIFF read by window (`"kind": "cog"`, with a `url` GDAL can open, such as
+  `/vsicurl/https://...`). Only the window over the tile, and over the surround, is read, once.
 - `"context": {"size_m": 4032}` is optional: a coarse surround of that side, centred on the tile, as
   a second heightmap and colour map. It passes 1 m under the detailed surface, so the tile does not
-  end in a cliff against the sky. Its colour is not masked for tree cover.
+  end in a cliff against the sky. With a canopy height raster its colour leaves canopy out; the
+  lidar and the shadow cover only the tile.
 - A stage reruns only when its inputs change. `build.json` lists which stages were reused.
 - The site's CRS must be projected, in metres, and have an EPSG code (a UTM zone, for example).
 - The tile is a square centred on the boundary, snapped to whole metres. Its side must be a whole
   number of Landscape components (126 quads), for example 1008 m at 0.5 m per quad.
 
 See [`examples/site.example.json`](./examples/site.example.json) for the schema.
+
+### Cover and shadow
+
+What stands over the ground is measured, not read off the colour of the imagery. With lidar, a
+canopy height raster, or both, the cover stage writes two rasters that later stages read:
+
+- `canopy_height.tif`: height above ground. Lidar is first: the highest return in each cell minus
+  the elevation model. Where the canopy raster shows cover and the lidar does not, its height fills
+  in, which catches trees that grew after the lidar survey. `build.json` states how much of the tile
+  each source covers and how far they agree.
+- `shadow.tif`: ground the sun did not reach when the imagery was taken, cast from the cover and
+  the terrain. The sun's path comes from the tile's position and the imagery's date, which must
+  start with `YYYY-MM-DD`. The time of day is fitted: the one that best matches where the open
+  ground is dark. `build.json` gives the fitted time, the sun's direction and the correlation.
+
+Cover starts at the height where the lidar's heights are sparsest between ground clutter and
+canopy; with no such gap it is 2 m, and `build.json` says which. Ground under cover or in shadow,
+and one cell around it, is left out of the colour map's low-pass and takes its colour from the
+sunlit ground around it.
+
+Trees newer than both sources are still in the colour map, and a shadow is only as long as the
+heights that cast it: a tree that has grown since the survey casts a longer one than is removed.
 
 ### Frame and units
 
@@ -74,7 +97,8 @@ python -m pytest
 ```
 
 The tests build synthetic sites and check behaviour: that a known surface lands at the right world
-position after encoding, that sources are fetched once, and that stages are reused.
+position after encoding, that sources are fetched once, that stages are reused, and that the sun
+and the shadows it casts are where astronomy puts them.
 
 ## Unreal side
 

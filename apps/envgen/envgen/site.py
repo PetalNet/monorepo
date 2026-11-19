@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 from dataclasses import dataclass
+from datetime import date
 from pathlib import Path
 
 from rasterio.crs import CRS
@@ -22,10 +23,10 @@ class SiteError(ValueError):
 
 @dataclass(frozen=True)
 class Source:
-    """One evidence source: a local raster, or an ArcGIS ImageServer to clip from."""
+    """One evidence source: a local file, or a service or remote raster to clip from."""
 
-    kind: str  # "file" | "arcgis_imageserver" | "ept"
-    location: str  # path (file) or service endpoint URL
+    kind: str  # "file" | "arcgis_imageserver" | "ept" | "cog"
+    location: str  # path (file), service endpoint, or the URL of a cloud-optimised GeoTIFF
     license: str
     date: str
     request_spacing_m: float | None = None
@@ -35,14 +36,18 @@ class Source:
         kind = raw.get("kind")
         if kind == "file":
             location = str((base / raw["path"]).resolve())
-        elif kind == "arcgis_imageserver" and name != "lidar":
+        elif kind == "cog" and name == "canopy_height":
+            location = raw["url"]
+        elif kind == "arcgis_imageserver" and name in ("elevation", "imagery"):
             location = raw["endpoint"].rstrip("/")
             if "request_spacing_m" not in raw:
                 raise SiteError(f"sources.{name}: an arcgis_imageserver source needs request_spacing_m")
         elif kind == "ept" and name == "lidar":
             location = raw["endpoint"].rstrip("/")
         else:
-            allowed = "'file' or 'ept'" if name == "lidar" else "'file' or 'arcgis_imageserver'"
+            allowed = {"lidar": "'file' or 'ept'", "canopy_height": "'file' or 'cog'"}.get(
+                name, "'file' or 'arcgis_imageserver'"
+            )
             raise SiteError(f"sources.{name}: kind must be {allowed}, got {kind!r}")
         for field in ("license", "date"):
             if not raw.get(field):
@@ -99,7 +104,18 @@ class Site:
     elevation: Source
     imagery: Source
     lidar: Source | None  # optional: masks trees and roofs out of the colour map, and finds interpolated ground
+    canopy_height: Source | None  # optional: a raster of canopy height in metres, for cover the lidar missed
     context_size_m: float | None  # optional: side of a coarse surround, so the tile does not end in a cliff
+
+
+def acquisition_day(source: Source, name: str) -> date:
+    """The day a source was taken, which its date has to start with when the sun's position that day matters."""
+    try:
+        return date.fromisoformat(source.date[:10])
+    except ValueError:
+        raise SiteError(
+            f"sources.{name}: date must start with the acquisition day as YYYY-MM-DD to cast shadows, got {source.date!r}"
+        ) from None
 
 
 def tile_for_boundary(boundary: list[tuple[float, float]], size_m: float, quad_m: float) -> Tile:
@@ -173,5 +189,8 @@ def load_site(path: Path) -> Site:
         elevation=Source.parse(sources["elevation"], path.parent, "elevation"),
         imagery=Source.parse(sources["imagery"], path.parent, "imagery"),
         lidar=Source.parse(sources["lidar"], path.parent, "lidar") if "lidar" in sources else None,
+        canopy_height=(
+            Source.parse(sources["canopy_height"], path.parent, "canopy_height") if "canopy_height" in sources else None
+        ),
         context_size_m=context_size(raw, tile),
     )

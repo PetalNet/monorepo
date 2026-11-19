@@ -27,11 +27,17 @@
 			"license": "USGS 3DEP, public domain",
 			"date": "survey date of the lidar under the site"
 		},
+		"canopy_height": {
+			"kind": "cog",
+			"url": "/vsicurl/https://example.com/canopy-height/tile.tif",
+			"license": "licence of the canopy height raster",
+			"date": "date of the imagery it was derived from"
+		},
 		"imagery": {
 			"kind": "file",
 			"path": "imagery.tif",
 			"license": "licence of the imagery",
-			"date": "acquisition date"
+			"date": "2030-06-15, the acquisition day, which places the sun"
 		}
 	}
 }

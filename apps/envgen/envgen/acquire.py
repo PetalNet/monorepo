@@ -17,6 +17,8 @@ import numpy as np
 import rasterio
 from rasterio.io import MemoryFile
 from rasterio.transform import from_origin
+from rasterio.warp import transform_bounds
+from rasterio.windows import Window, from_bounds
 
 from .site import CONTEXT_QUADS, Site, Source
 
@@ -122,6 +124,32 @@ def fetch_imageserver(
     return fetched
 
 
+def fetch_cog_window(url: str, bounds: tuple[float, float, float, float], epsg: int, target: Path) -> int:
+    """Read only the window over `bounds` from a cloud-optimised GeoTIFF and keep it. Returns the bytes kept."""
+    # Without the directory listing GDAL would ask for first, only the header and the window's blocks are fetched.
+    with rasterio.Env(GDAL_DISABLE_READDIR_ON_OPEN="EMPTY_DIR"), rasterio.open(url) as remote:
+        window = from_bounds(*transform_bounds(f"EPSG:{epsg}", remote.crs, *bounds), remote.transform)
+        window = window.round_offsets().round_lengths().intersection(Window(0, 0, remote.width, remote.height))
+        data = remote.read(window=window)
+        profile = {
+            "driver": "GTiff",
+            "width": data.shape[2],
+            "height": data.shape[1],
+            "count": data.shape[0],
+            "dtype": data.dtype,
+            "crs": remote.crs,
+            "transform": remote.window_transform(window),
+            "nodata": remote.nodata,
+            "compress": "deflate",
+        }
+    target.parent.mkdir(parents=True, exist_ok=True)
+    partial = target.with_suffix(".part")
+    with rasterio.open(partial, "w", **profile) as out:
+        out.write(data)
+    partial.replace(target)
+    return target.stat().st_size
+
+
 def _windows(site: Site) -> list[tuple[str, Source, tuple[float, float, float, float], float | None]]:
     """(registry name, source, window, spacing override) for every raster the build needs."""
     tile = site.tile
@@ -129,6 +157,8 @@ def _windows(site: Site) -> list[tuple[str, Source, tuple[float, float, float, f
         ("elevation", site.elevation, tile.bounds(MARGIN_M), None),
         ("imagery", site.imagery, tile.bounds(MARGIN_M), None),
     ]
+    if site.canopy_height:
+        wanted.append(("canopy_height", site.canopy_height, tile.bounds(MARGIN_M), None))
     if site.context_size_m:
         spacing = site.context_size_m / CONTEXT_QUADS
         half = site.context_size_m / 2 + spacing
@@ -138,6 +168,8 @@ def _windows(site: Site) -> list[tuple[str, Source, tuple[float, float, float, f
             ("context_elevation", site.elevation, window, spacing),
             ("context_imagery", site.imagery, window, spacing),
         ]
+        if site.canopy_height:
+            wanted.append(("context_canopy_height", site.canopy_height, window, None))
     return wanted
 
 
@@ -152,6 +184,12 @@ def acquire(site: Site, cache: Path, fetch=None) -> dict:
             path = Path(source.location)
             if not path.is_file():
                 raise FileNotFoundError(f"sources.{name}: {path} does not exist")
+        elif source.kind == "cog":
+            key = hashlib.sha256(json.dumps([CACHE_FORMAT, source.location, window, epsg]).encode()).hexdigest()[:16]
+            path = cache / f"{name}-{key}.tif"
+            entry["url"] = source.location
+            if not path.is_file():
+                entry["bytes_fetched"] = fetch_cog_window(source.location, window, epsg, path)
         else:
             spacing = spacing or source.request_spacing_m
             key = hashlib.sha256(

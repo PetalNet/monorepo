@@ -14,7 +14,8 @@ from . import helpers as h
 LIDAR = {"lidar": {"kind": "file", "path": "points.las", "license": "test", "date": "2030"}}
 FILES = {
     "elevation": {"kind": "file", "path": "dem.tif", "license": "test", "date": "2030"},
-    "imagery": {"kind": "file", "path": "imagery.tif", "license": "test", "date": "2030"},
+    # The day fixes the sun's path: at this latitude it stands 45 degrees up at noon on the equinox.
+    "imagery": {"kind": "file", "path": "imagery.tif", "license": "test", "date": "2030-09-22"},
 }
 # A 20 m square of tree canopy in the middle of the tile.
 TREE_WEST, TREE_SOUTH, TREE_SIDE = h.WEST + 53, h.SOUTH + 53, 20
@@ -27,14 +28,14 @@ def detailed_heights(out, manifest):
 
 
 def write_imagery_with_dark_tree(path):
-    """Uniform light ground with a dark square where the tree stands, and its shadow 3 m to the north."""
+    """Uniform light ground with a dark square where the tree stands, and its noon shadow 9 m to the north."""
     west, north = h.WEST - 60, h.SOUTH + h.SIZE_M + 60
     count = int(h.SIZE_M + 120)
     eastings = west + np.arange(count) + 0.5
     northings = north - np.arange(count) - 0.5
     rgb = np.full((3, count, count), 180, dtype=np.uint8)
     dark_e = (eastings >= TREE_WEST) & (eastings < TREE_WEST + TREE_SIDE)
-    dark_n = (northings >= TREE_SOUTH) & (northings < TREE_SOUTH + TREE_SIDE + 3)
+    dark_n = (northings >= TREE_SOUTH) & (northings < TREE_SOUTH + TREE_SIDE + 9)
     rgb[:, np.ix_(dark_n, dark_e)[0], np.ix_(dark_n, dark_e)[1]] = 30
     h.write_raster(path, rgb, west, north, 1.0)
 
@@ -57,8 +58,9 @@ def test_tree_canopy_is_kept_out_of_the_ground_colour(tmp_path):
 
     assert colour_at_tree(tmp_path / "plain", plain) < 150  # the canopy darkens the map when nothing masks it
     assert colour_at_tree(tmp_path / "masked", masked) == pytest.approx(180, abs=3)
-    assert masked["macro_colour"]["covered_fraction"] == pytest.approx((TREE_SIDE + 8) ** 2 / h.SIZE_M**2, rel=0.25)
-    assert plain["macro_colour"]["covered_fraction"] == 0
+    assert masked["cover"]["covered_fraction"] == pytest.approx(TREE_SIDE**2 / h.SIZE_M**2, rel=0.05)
+    assert masked["cover"]["shaded_fraction"] == pytest.approx(TREE_SIDE * 9 / h.SIZE_M**2, rel=0.25)
+    assert "cover" not in plain
 
 
 def test_low_vegetation_is_still_ground_colour(tmp_path):
@@ -70,7 +72,7 @@ def test_low_vegetation_is_still_ground_colour(tmp_path):
     out = tmp_path / "out"
     manifest = build(h.write_site(tmp_path, sources=FILES | LIDAR), out)
 
-    assert manifest["macro_colour"]["covered_fraction"] == 0
+    assert manifest["cover"]["covered_fraction"] == 0
     assert colour_at_tree(out, manifest) < 150
 
 
@@ -179,7 +181,7 @@ def test_a_new_elevation_model_with_lidar_reruns_the_colour_map_too(tmp_path):
     manifest = build(site, out)
 
     assert manifest["stages_reused"] == []
-    assert manifest["macro_colour"]["covered_fraction"] == 0
+    assert manifest["cover"]["covered_fraction"] == 0
 
 
 def ridge(easting, northing):

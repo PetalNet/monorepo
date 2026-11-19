@@ -1,4 +1,4 @@
-"""Elevation, colour, surround and manifest. Each stage reads artifacts and writes artifacts."""
+"""Elevation, cover, colour, surround and manifest. Each stage reads artifacts and writes artifacts."""
 
 from __future__ import annotations
 
@@ -15,7 +15,7 @@ from rasterio.transform import from_origin
 from rasterio.warp import reproject, transform
 from scipy import ndimage
 
-from . import frame, lidar
+from . import cover, frame, lidar
 from .acquire import acquire, sha256_file
 from .site import (
     CONTEXT_QUADS,
@@ -24,26 +24,26 @@ from .site import (
     SCHEMA_VERSION,
     Site,
     Tile,
+    acquisition_day,
     load_site,
 )
 
 # Part of every stage key. Bump it by hand when a code change alters a stage's output for the same
 # inputs (frame.py and the resampling included); nothing detects that automatically.
-PIPELINE_VERSION = 2
+PIPELINE_VERSION = 3
 
 MACRO_PIXELS = 1024
 # The macro map carries colour that varies over tens of metres. Finer detail comes from the engine.
 MACRO_LOW_PASS_M = 12.0
-# Anything standing this far above the ground (trees, roofs) is not ground colour.
-COVER_HEIGHT_M = 2.0
-# Cover also darkens the ground beside it with shadow; keep that out of the ground colour too.
-SHADOW_MARGIN_M = 4.0
 
 # Where no ground return lies within GAP_START_M the elevation model was interpolated, usually as flat
 # facets under roofs. Blend towards a smoothed surface, fully by GAP_FULL_M.
 GAP_START_M = 3.0
 GAP_FULL_M = 8.0
 GAP_SMOOTH_M = 4.0
+
+# A cell needs this share of sunlit ground within the low-pass's reach to take its colour from it.
+SUNLIT_REACH_MIN = 0.05
 
 CONTEXT_MACRO_PIXELS = 512
 # The surround passes under the tile; it sits this far below the detailed surface there so it never shows through.
@@ -136,36 +136,126 @@ def build_elevation(tile: Tile, crs: str, dem: Path, out: Path, ground_gap: np.n
     }
 
 
-def build_macro_colour(tile: Tile, crs: str, imagery: Path, out: Path, height_above_ground: np.ndarray | None) -> dict:
+def _on_grid(path: Path, crs: str, tile: Tile, resampling: Resampling) -> np.ndarray:
+    """A raster's bands on the cover grid: north-up cells of lidar.CELL_M over the tile."""
+    half = lidar.CELL_M / 2
+    cells = round(tile.size_m / lidar.CELL_M)
+    return _warp(path, crs, tile.west + half, tile.north - half, lidar.CELL_M, cells, resampling)
+
+
+def _write_grid(values: np.ndarray, path: Path, crs: str, tile: Tile) -> None:
+    with rasterio.open(
+        path,
+        "w",
+        driver="GTiff",
+        width=values.shape[1],
+        height=values.shape[0],
+        count=1,
+        dtype=values.dtype,
+        crs=crs,
+        transform=from_origin(tile.west, tile.north, lidar.CELL_M, lidar.CELL_M),
+        compress="deflate",
+    ) as file:
+        file.write(values, 1)
+
+
+def build_cover(
+    site: Site,
+    dem: Path,
+    imagery: Path,
+    canopy: Path | None,
+    out: Path,
+    lidar_height: np.ndarray | None,
+    latitude_deg: float,
+    longitude_deg: float,
+    grid_north_offset_deg: float,
+) -> dict:
+    """What stands over the ground, and its shadow in the imagery, as rasters any later stage can read."""
+    tile = site.tile
+    second = None
+    if canopy:
+        second, _ = _fill_gaps(_on_grid(canopy, site.crs, tile, Resampling.bilinear)[0], "canopy height")
+    height, report = cover.combine(lidar_height, second)
+    ground, _ = _fill_gaps(_on_grid(dem, site.crs, tile, Resampling.bilinear)[0], "elevation")
+    brightness = _on_grid(imagery, site.crs, tile, Resampling.average)
+    brightness = np.mean([_fill_gaps(band, "imagery")[0] for band in brightness], axis=0)
+    shadow, sun = cover.fit_sun(
+        acquisition_day(site.imagery, "imagery"),
+        latitude_deg,
+        longitude_deg,
+        grid_north_offset_deg,
+        ground,
+        height,
+        report["cutoff_m"],
+        brightness,
+        lidar.CELL_M,
+    )
+    _write_grid(height, out / "canopy_height.tif", site.crs, tile)
+    _write_grid(shadow.astype(np.uint8), out / "shadow.tif", site.crs, tile)
+    return report | {
+        "files": ["canopy_height.tif", "shadow.tif"],
+        "height": "canopy_height.tif",
+        "shadow": "shadow.tif",
+        "cell_m": lidar.CELL_M,
+        "sources": [name for name, used in (("lidar", lidar_height is not None), ("canopy_height", canopy)) if used],
+        "shaded_fraction": float(shadow.mean()),
+        "sun": sun,
+    }
+
+
+def open_ground(out: Path, covering: dict | None, size: int) -> np.ndarray:
+    """Which of `size` by `size` north-up cells over the tile show sunlit ground: 1 where they do, else 0."""
+    if covering is None:
+        return np.ones((size, size), dtype=np.float32)
+    with rasterio.open(out / covering["height"]) as file:
+        hidden = file.read(1) > covering["cutoff_m"]
+    with rasterio.open(out / covering["shadow"]) as file:
+        hidden |= file.read(1) > 0
+    # The imagery and the heights are registered to about a cell of each other, so the edge cell is not trusted.
+    hidden = ndimage.binary_dilation(hidden)
+    return (~_sample_cells(hidden, size)).astype(np.float32)
+
+
+def _low_pass_of_sunlit(values: np.ndarray, sunlit: np.ndarray, sigma: float) -> np.ndarray:
+    """A low-pass that only listens to sunlit ground, so cover and shadow take their colour from the ground around them.
+
+    Deep inside a wood or under a large roof no sunlit ground is within the low-pass's reach; the nearest
+    ground that has some stands in. What hides the ground never tints the result.
+    """
+    support = ndimage.gaussian_filter(sunlit, sigma, mode="nearest")
+    smooth = ndimage.gaussian_filter(values * sunlit, sigma, mode="nearest") / np.maximum(support, 1e-6)
+    reached = support > SUNLIT_REACH_MIN
+    if not reached.any():
+        return ndimage.gaussian_filter(values, sigma, mode="nearest")
+    if reached.all():
+        return smooth
+    nearest = ndimage.distance_transform_edt(~reached, return_distances=False, return_indices=True)
+    # Nearest-cell copies meet along straight seams; a wider low-pass takes them out of what is only a stand-in.
+    stand_in = ndimage.gaussian_filter(smooth[tuple(nearest)], 4 * sigma, mode="nearest")
+    trust = np.clip(support / SUNLIT_REACH_MIN, 0.0, 1.0)
+    return smooth * trust + stand_in * (1 - trust)
+
+
+def build_macro_colour(tile: Tile, crs: str, imagery: Path, out: Path, covering: dict | None) -> dict:
     spacing = tile.size_m / MACRO_PIXELS
     north_up = _warp(
         imagery, crs, tile.west + spacing / 2, tile.north - spacing / 2, spacing, MACRO_PIXELS, Resampling.average
     )
     sigma = MACRO_LOW_PASS_M / spacing
-    open_ground = np.ones((MACRO_PIXELS, MACRO_PIXELS), dtype=np.float32)
-    if height_above_ground is not None:
-        covered = _sample_cells(height_above_ground, MACRO_PIXELS) > COVER_HEIGHT_M
-        covered = ndimage.binary_dilation(covered, iterations=max(1, round(SHADOW_MARGIN_M / spacing)))
-        open_ground = (~covered).astype(np.float32)
-    # A low-pass that only listens to open ground: covered cells take their colour from the open ground around them.
-    support = ndimage.gaussian_filter(open_ground, sigma, mode="nearest")
+    sunlit = open_ground(out, covering, MACRO_PIXELS)
     filled = 0.0
     smooth = np.empty_like(north_up)
     for band in range(north_up.shape[0]):
         values, fraction = _fill_gaps(north_up[band], "imagery")
         filled = max(filled, fraction)
-        everything = ndimage.gaussian_filter(values, sigma, mode="nearest")
-        from_open = ndimage.gaussian_filter(values * open_ground, sigma, mode="nearest") / np.maximum(support, 1e-6)
-        # Deep inside a large covered area there is no open ground within reach; fall back to the plain low-pass.
-        trust = np.clip(support / 0.05, 0.0, 1.0)
-        smooth[band] = from_open * trust + everything * (1 - trust)
+        smooth[band] = _low_pass_of_sunlit(values, sunlit, sigma)
     _write_rgb(smooth, out / "macro_colour.png")
     return {
         "file": "macro_colour.png",
         "pixels": MACRO_PIXELS,
         "low_pass_m": MACRO_LOW_PASS_M,
         "filled_fraction": filled,
-        "covered_fraction": float(1 - open_ground.mean()),
+        "hidden_fraction": float(1 - sunlit.mean()),
     }
 
 
@@ -177,7 +267,14 @@ def read_heights(out: Path, elevation: dict) -> np.ndarray:
 
 
 def build_context(
-    site: Site, dem: Path, imagery: Path, out: Path, detailed: np.ndarray, origin_height_m: float
+    site: Site,
+    dem: Path,
+    imagery: Path,
+    canopy: Path | None,
+    cutoff_m: float | None,
+    out: Path,
+    detailed: np.ndarray,
+    origin_height_m: float,
 ) -> dict:
     """A coarse surround centred on the tile, so the detailed surface does not end in a cliff against the sky."""
     tile = site.tile
@@ -212,9 +309,24 @@ def build_context(
     colour = _warp(
         imagery, site.crs, west + pixel / 2, top - pixel / 2, pixel, CONTEXT_MACRO_PIXELS, Resampling.average
     )
+    clear = np.ones(colour.shape[1:], dtype=np.float32)
+    if canopy:
+        # The share of each coarse pixel that no canopy stands over. The surround has no lidar and no shadow.
+        with rasterio.open(canopy) as file:
+            standing = (file.read(1) > cutoff_m).astype(np.float32)
+            reproject(
+                standing,
+                clear,
+                src_transform=file.transform,
+                src_crs=file.crs,
+                dst_transform=from_origin(west, top, pixel, pixel),
+                dst_crs=site.crs,
+                resampling=Resampling.average,
+            )
+        clear = 1 - clear
     for band in range(colour.shape[0]):
         values, _ = _fill_gaps(colour[band], "imagery")
-        colour[band] = ndimage.gaussian_filter(values, MACRO_LOW_PASS_M / pixel, mode="nearest")
+        colour[band] = _low_pass_of_sunlit(values, clear, MACRO_LOW_PASS_M / pixel)
     _write_rgb(colour, out / "context_colour.png")
 
     half_cm = site.context_size_m * 100 / 2
@@ -301,8 +413,37 @@ def build(site_path: Path, out: Path, cache: Path | None = None) -> dict:
         lambda: build_elevation(tile, site.crs, dem, out, rasters()[1]),
     )
     elevation = stages["elevation"]
-    # With lidar, cover is measured against the elevation model, so a new one changes the mask.
-    cover_key = [lidar_key, sources["elevation"]["sha256"]] if lidar_key else None
+    geo = georeference(site, elevation["origin_height_m"])
+    covering = None
+    if site.lidar or site.canopy_height:
+        canopy = Path(sources["canopy_height"]["path"]) if site.canopy_height else None
+        # Cover is measured against the elevation model and its shadow fitted to the imagery, so either changes it.
+        cover_key = [
+            grid,
+            site.crs,
+            lidar_key,
+            sources["elevation"]["sha256"],
+            sources["imagery"]["sha256"],
+            sources["canopy_height"]["sha256"] if canopy else None,
+            site.imagery.date,
+        ]
+        stages["cover"] = _cached(
+            out,
+            "cover",
+            _stage_key(cover_key),
+            lambda: build_cover(
+                site,
+                dem,
+                imagery,
+                canopy,
+                out,
+                rasters()[0],
+                geo["origin_latitude_deg"],
+                geo["origin_longitude_deg"],
+                geo["true_north_from_grid_north_deg"],
+            ),
+        )
+        covering = stages["cover"]
     stages["macro_colour"] = _cached(
         out,
         "macro_colour",
@@ -310,13 +451,11 @@ def build(site_path: Path, out: Path, cache: Path | None = None) -> dict:
             grid,
             site.crs,
             sources["imagery"]["sha256"],
-            cover_key,
+            [sha256_file(out / name) for name in covering["files"]] if covering else None,
             MACRO_PIXELS,
             MACRO_LOW_PASS_M,
-            COVER_HEIGHT_M,
-            SHADOW_MARGIN_M,
         ),
-        lambda: build_macro_colour(tile, site.crs, imagery, out, rasters()[0]),
+        lambda: build_macro_colour(tile, site.crs, imagery, out, covering),
     )
     macro = stages["macro_colour"]
 
@@ -327,7 +466,7 @@ def build(site_path: Path, out: Path, cache: Path | None = None) -> dict:
         "site_id": site.site_id,
         "target_date": site.target_date,
         "seed": site.seed,
-        "georeference": georeference(site, elevation["origin_height_m"]),
+        "georeference": geo,
         "tile": {"west_m": tile.west, "south_m": tile.south, "size_m": tile.size_m, "quad_m": tile.quad_m},
         "landscape": {
             "heightmap": elevation["file"],
@@ -343,12 +482,15 @@ def build(site_path: Path, out: Path, cache: Path | None = None) -> dict:
             "smoothed_fraction": elevation["smoothed_fraction"],
         },
         "macro_colour": {
-            key: macro[key] for key in ("file", "pixels", "low_pass_m", "filled_fraction", "covered_fraction")
+            key: macro[key] for key in ("file", "pixels", "low_pass_m", "filled_fraction", "hidden_fraction")
         },
         "stencil_classes": STENCIL_CLASSES,
         "sources": sources,
     }
     artifacts = [elevation["file"], macro["file"]]
+    if covering:
+        manifest["cover"] = {key: value for key, value in covering.items() if key not in ("files", "cached")}
+        artifacts += covering["files"]
 
     if site.context_size_m:
         context_dem, context_imagery = (
@@ -364,6 +506,7 @@ def build(site_path: Path, out: Path, cache: Path | None = None) -> dict:
                 site.context_size_m,
                 sources["context_elevation"]["sha256"],
                 sources["context_imagery"]["sha256"],
+                [sources["context_canopy_height"]["sha256"], covering["cutoff_m"]] if site.canopy_height else None,
                 sha256_file(out / elevation["file"]),
                 CONTEXT_SINK_M,
                 CONTEXT_QUADS,
@@ -371,7 +514,14 @@ def build(site_path: Path, out: Path, cache: Path | None = None) -> dict:
                 MACRO_LOW_PASS_M,
             ),
             lambda: build_context(
-                site, context_dem, context_imagery, out, read_heights(out, elevation), elevation["origin_height_m"]
+                site,
+                context_dem,
+                context_imagery,
+                Path(sources["context_canopy_height"]["path"]) if site.canopy_height else None,
+                covering["cutoff_m"] if covering else None,
+                out,
+                read_heights(out, elevation),
+                elevation["origin_height_m"],
             ),
         )
         context = stages["context"]
