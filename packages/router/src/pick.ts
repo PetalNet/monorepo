@@ -2,7 +2,8 @@
 // hard rules drop offers (all reasons kept), and the survivors are ranked inside a tier band.
 import type { ServiceName, ServiceReport } from "@petalnet/harness-hooks/quota-sources";
 
-import { evidenceKey, PROFILES, scoreEvidence, type Evidence, type Score } from "./evidence.ts";
+import { supportedEfforts, type Effort } from "./effort.ts";
+import { evidenceKey, EFFORTS, scoreEvidence, type Evidence, type Score } from "./evidence.ts";
 import type { Availability } from "./state.ts";
 
 export type DataClass = "public" | "sensitive" | "parcs";
@@ -172,7 +173,7 @@ export interface Offer {
 	id: string;
 	provider: string;
 	model: string;
-	effort: string;
+	effort: Effort;
 	family: string;
 	origin: string;
 	score: number;
@@ -181,21 +182,46 @@ export interface Offer {
 }
 
 export function offersFrom(catalog: Catalog, kind: string, pools: Pool[]): Offer[] {
-	return catalog.models.map((m) => {
-		const effort = /-(low|medium|high|xhigh|max)$/u.exec(m.id)?.[1];
+	const groups = new Map<string, CatalogModel>();
+
+	for (const m of catalog.models) {
+		const model = m.id.replace(/-(none|low|medium|high|xhigh|max)$/u, "");
+		const key = `${m.provider}:${poolIdOf(m) ?? ""}:${evidenceKey(model, "default").model}`;
+		const previous = groups.get(key);
+
+		if (!previous || m.score > previous.score) {
+			groups.set(key, m);
+		}
+	}
+
+	return [...groups.values()].flatMap((m) => {
+		const suffix = /-(none|low|medium|high|xhigh|max)$/u.exec(m.id)?.[1];
+		const catalogEffort: Effort =
+			suffix === "none" ||
+			suffix === "low" ||
+			suffix === "medium" ||
+			suffix === "high" ||
+			suffix === "xhigh" ||
+			suffix === "max"
+				? suffix
+				: "default";
+		const model = suffix ? m.id.slice(0, -suffix.length - 1) : m.id;
 		const family = familyOf(m.id);
 
-		return {
-			id: m.id,
+		return supportedEfforts(m.provider, model, catalogEffort).map((effort) => ({
+			id:
+				effort !== "default" && (m.provider === "gemini" || m.provider.startsWith("agy-"))
+					? `${model}-${effort}`
+					: model,
 			provider: m.provider,
-			model: effort ? m.id.slice(0, -effort.length - 1) : m.id,
-			effort: effort ?? "default",
+			model,
+			effort,
 			family,
 			origin: ORIGIN[family] ?? "unknown",
 			score: m.score,
 			bonus: m.good?.[kind] ?? 0,
 			pool: pools.find((p) => p.id === poolIdOf(m)),
-		};
+		}));
 	});
 }
 
@@ -231,6 +257,16 @@ const clock = (ms: number) =>
 		hour12: false,
 	});
 
+function matchesOfferId(offer: Offer, id: string): boolean {
+	const suffix = /-(none|low|medium|high|xhigh|max)$/u.exec(id)?.[1];
+	const model = suffix ? id.slice(0, -suffix.length - 1) : id;
+
+	return (
+		evidenceKey(model, "default").model === evidenceKey(offer.model, "default").model &&
+		(!suffix || suffix === offer.effort)
+	);
+}
+
 function poolState(pool: Pool, offers: Offer[], state: State): PoolState {
 	const reasons: string[] = [];
 	let headroom = 100;
@@ -262,9 +298,12 @@ function poolState(pool: Pool, offers: Offer[], state: State): PoolState {
 	}
 
 	// One limit hit exhausts the whole pool, so a model-keyed entry cools every pool-mate.
-	const hits = offers
-		.filter((o) => o.pool === pool && (state.exhausted[o.id] ?? 0) * 1000 > state.nowMs)
-		.map((o) => ({ id: o.id, untilMs: (state.exhausted[o.id] ?? 0) * 1000 }))
+	const hits = Object.entries(state.exhausted)
+		.filter(
+			([id, until]) =>
+				until * 1000 > state.nowMs && offers.some((o) => o.pool === pool && matchesOfferId(o, id)),
+		)
+		.map(([id, until]) => ({ id, untilMs: until * 1000 }))
 		.toSorted((a, b) => b.untilMs - a.untilMs);
 	const last = hits[0];
 
@@ -301,7 +340,14 @@ function offerReasons(o: Offer, pools: Map<Pool, PoolState>, state: State): stri
 		reasons.push("pool cooling down");
 	}
 
-	if ((state.availability?.badOffers[`${pool.plan}:${o.id}`] ?? 0) > state.nowMs) {
+	if (
+		Object.entries(state.availability?.badOffers ?? {}).some(
+			([key, until]) =>
+				until > state.nowMs &&
+				key.startsWith(`${pool.plan}:`) &&
+				matchesOfferId(o, key.slice(pool.plan.length + 1)),
+		)
+	) {
 		reasons.push("offer invalid for 24h");
 	}
 
@@ -322,7 +368,7 @@ function offerReasons(o: Offer, pools: Map<Pool, PoolState>, state: State): stri
 	const id = o.id.toLowerCase();
 
 	if (
-		state.deny.includes(o.id) ||
+		state.deny.some((denied) => matchesOfferId(o, denied)) ||
 		state.deny.includes(o.provider) ||
 		state.denyPatterns.some((p) => id.includes(p))
 	) {
@@ -396,66 +442,20 @@ export function pick(catalog: Catalog, kind: string, tier: string, state: State)
 
 		const headroom = j.offer.pool ? (pools.get(j.offer.pool)?.headroom ?? 100) : 0;
 
-		let evidence = state.evidence
+		const evidence = state.evidence
 			? scoreEvidence(state.evidence, j.offer.model, j.offer.effort, kind, state.nowMs, headroom)
 			: undefined;
-		let selectedEffort = evidenceKey(j.offer.model, j.offer.effort).effort;
-
-		// Unsuffixed Codex catalog entries permit effort selection; explicit offers stay fixed.
-		if (
-			state.evidence &&
-			evidence &&
-			j.offer.effort === "default" &&
-			j.offer.provider === "codex"
-		) {
-			const efforts = new Set(
-				state.evidence.rows
-					.filter(
-						(row) =>
-							row.model === j.offer.model &&
-							row.kind === "measured" &&
-							row.effort !== "unspecified" &&
-							(PROFILES[kind]?.[row.signal] ?? 0) > 0,
-					)
-					.map((row) => row.effort),
-			);
-			const sourceEvidence = state.evidence;
-			const candidates = [
-				{ effort: selectedEffort, score: evidence },
-				...[...efforts].map((effort) => ({
-					effort,
-					score: scoreEvidence(sourceEvidence, j.offer.model, effort, kind, state.nowMs, headroom),
-				})),
-			];
-			const coverageFloor = candidates.some(({ score }) => score.coverage + 1e-12 >= 0.5)
-				? 0.5
-				: 0.3;
-			const best = candidates
-				.filter(({ score }) => score.coverage + 1e-12 >= coverageFloor)
-				.toSorted((a, b) => b.score.utility - a.score.utility)[0];
-
-			if (best) {
-				evidence = best.score;
-				selectedEffort = best.effort;
-
-				evidence.assumptions.push(
-					`selected ${selectedEffort} by utility among candidate ${kind} efforts with coverage >=${String(coverageFloor)}; catalog effort unspecified`,
-				);
-			}
-		}
-
 		const useEvidence = evidence !== undefined && evidence.coverage + 1e-12 >= 0.3;
-		const offer = useEvidence ? { ...j.offer, effort: selectedEffort } : j.offer;
 		// Convert the historical index to the same 0..1 quality scale for mixed rankings.
 		const tableRank = j.offer.score + j.offer.bonus + headroom / 1000;
 		const rank = state.evidence
-			? useEvidence && evidence
+			? useEvidence
 				? evidence.utility
-				: (kind === "sweep" ? 2 : 10) * (0.45 + 0.47 * Math.min(1, tableRank / 100))
+				: (kind === "sweep" ? 1 : 10) * (0.45 + 0.47 * Math.min(1, tableRank / 100))
 			: tableRank;
 
 		const assessed: Ranked = {
-			offer,
+			offer: j.offer,
 			rank,
 			...(evidence ? { evidence } : {}),
 			source: useEvidence ? "evidence" : "table",
@@ -472,7 +472,15 @@ export function pick(catalog: Catalog, kind: string, tier: string, state: State)
 		}
 	}
 
-	ranked.sort((a, b) => b.rank - a.rank);
+	ranked.sort(
+		(a, b) =>
+			Number(b.source === "evidence") - Number(a.source === "evidence") ||
+			b.rank - a.rank ||
+			// Prefer directly observed inputs when utility ties an endpoint interpolation.
+			(a.evidence?.signals.filter((s) => s.kind === "interpolated").length ?? 0) -
+				(b.evidence?.signals.filter((s) => s.kind === "interpolated").length ?? 0) ||
+			EFFORTS.indexOf(a.offer.effort) - EFFORTS.indexOf(b.offer.effort),
+	);
 
 	return { tier: chosen, ranked, excluded };
 }

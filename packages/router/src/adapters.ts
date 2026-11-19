@@ -152,9 +152,6 @@ export function execute(
 
 export function launch(offer: Offer, brief: string, cwd: string): Promise<Execution> {
 	if (offer.provider === "codex") {
-		const effort =
-			offer.effort === "default" ? [] : ["-c", `model_reasoning_effort="${offer.effort}"`];
-
 		return execute(
 			"codex",
 			[
@@ -162,7 +159,8 @@ export function launch(offer: Offer, brief: string, cwd: string): Promise<Execut
 				"--skip-git-repo-check",
 				"-m",
 				offer.model,
-				...effort,
+				"-c",
+				`model_reasoning_effort=${offer.effort}`,
 				"--dangerously-bypass-approvals-and-sandbox",
 				"-",
 			],
@@ -177,7 +175,7 @@ export function launch(offer: Offer, brief: string, cwd: string): Promise<Execut
 			"-p",
 			brief,
 			"--model",
-			offer.id,
+			offer.effort === "default" ? offer.model : `${offer.model}-${offer.effort}`,
 			...(offer.effort === "default" ? [] : ["--effort", offer.effort]),
 			"--dangerously-skip-permissions",
 			"--output-format",

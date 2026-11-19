@@ -19,7 +19,7 @@ import {
 } from "@petalnet/harness-hooks/quota-sources";
 
 import { redact } from "./adapters.ts";
-import { evidenceKey, halfLifeDays, readEvidence } from "./evidence.ts";
+import { evidenceKey, EFFORTS, halfLifeDays, readEvidence } from "./evidence.ts";
 import { readOpenEvidence } from "./open-evidence.ts";
 import {
 	BLOCKS,
@@ -106,6 +106,53 @@ export function formatPick(result: Pick, kind: string, tier: string): string {
 				`  ${String(i + 1)}. ${o.model} ${where(o)} rank=${rank.toFixed(2)} ${source === "table" ? "(table) " : ""}cov=${(evidence?.coverage ?? 0).toFixed(2)} n=0 host=${o.pool?.host.name ?? "-"} origin=${o.origin}`,
 			);
 		});
+	}
+
+	const selected = result.ranked[0];
+
+	if (selected) {
+		const { offer, evidence } = selected;
+		const curve = [...result.ranked, ...result.excluded]
+			.filter((r) => r.offer.model === offer.model && r.offer.pool === offer.pool)
+			.toSorted((a, b) => EFFORTS.indexOf(a.offer.effort) - EFFORTS.indexOf(b.offer.effort));
+		const at = curve.indexOf(selected);
+
+		lines.push(
+			`chosen: ${offer.model} effort=${offer.effort}${evidence?.signals.some((s) => s.kind === "interpolated") ? " (includes interpolated evidence)" : ""}`,
+		);
+
+		const signed = (value: number, digits = 3) =>
+			`${value >= 0 ? "+" : ""}${value.toFixed(digits)}`;
+
+		for (const neighbor of [curve[at - 1], curve[at + 1]]) {
+			if (!neighbor) {
+				continue;
+			}
+
+			const other = neighbor.evidence;
+
+			if (!evidence || !other || selected.source !== "evidence" || neighbor.source !== "evidence") {
+				lines.push(
+					`  vs ${neighbor.offer.effort}: table fallback; insufficient evidence for a quality/cost/time comparison`,
+				);
+
+				continue;
+			}
+
+			const qualityGain = evidence.value * (evidence.p - other.p);
+			const costDelta = evidence.cost - other.cost;
+			const timeDelta = evidence.seconds - other.seconds;
+			const utilityDelta = evidence.utility - other.utility;
+			const reasons = result.excluded.find((r) => r === neighbor)?.reasons;
+
+			lines.push(
+				`  vs ${neighbor.offer.effort}: ΔQ=${signed(evidence.q - other.q)} quality-value=${signed(qualityGain)} task-cost=$${signed(costDelta)} pool-charge=${signed(evidence.lambda * 0.01 * costDelta)} time=${signed(timeDelta, 1)}s time-charge=${signed((evidence.latencyPerMinute * timeDelta) / 60)} ΔU=${signed(utilityDelta)}${reasons ? `; excluded: ${reasons.join("; ")}` : Math.abs(utilityDelta) < 1e-12 ? "; tied utility: prefer observed inputs, then lower effort" : "; quality gain versus cost and time"}`,
+			);
+		}
+
+		if (selected.source === "evidence" && result.ranked.some((r) => r.source === "table")) {
+			lines.push("  evidence-backed offers precede table-only fallback within the eligible tier");
+		}
 	}
 
 	lines.push("excluded:");
@@ -247,7 +294,7 @@ async function main(argv: string[]): Promise<number> {
 		);
 
 		process.stdout.write(
-			`Catalog models without evidence: ${unmapped.map((offer) => offer.id).join(", ")}\n`,
+			`Catalog models without evidence: ${[...new Set(unmapped.map((offer) => offer.model))].join(", ")}\n`,
 		);
 
 		const candidates = [
@@ -266,7 +313,7 @@ async function main(argv: string[]): Promise<number> {
 			}
 
 			process.stdout.write(
-				`${row.offer.id} evidence-effort=${evidenceKey(row.offer.model, row.offer.effort).effort}: ${row.source ?? "table"} cov=${score.coverage.toFixed(2)} use=${score.coverage + 1e-12 >= 0.3 ? "evidence" : "table"} rank=${row.rank.toFixed(3)} Q=${score.q.toFixed(3)} p=${score.p.toFixed(3)} evidence-U=${score.utility.toFixed(3)} lambda=${score.lambda.toFixed(3)} cost=$${score.cost.toFixed(3)} latency=${score.seconds.toFixed(1)}s table=${String(row.offer.score)}\n`,
+				`${row.offer.id} evidence-effort=${evidenceKey(row.offer.model, row.offer.effort).effort}: ${row.source ?? "table"} cov=${score.coverage.toFixed(2)} use=${score.coverage + 1e-12 >= 0.3 ? "evidence" : "table"} rank=${row.rank.toFixed(3)} Q=${score.q.toFixed(3)} p=${score.p.toFixed(3)} evidence-U=${score.utility.toFixed(3)} lambda=${score.lambda.toFixed(3)} cost=$${score.cost.toFixed(3)} latency=${score.seconds.toFixed(1)}s tokens=${score.tokens.toFixed(0)} speed=${score.speed.toFixed(1)}/s TTFT=${score.ttft.toFixed(1)}s table=${String(row.offer.score)}\n`,
 			);
 
 			process.stdout.write(
@@ -285,8 +332,10 @@ async function main(argv: string[]): Promise<number> {
 		dataClass === "parcs" ||
 		(command !== "run" && result.ranked[0]?.offer.pool?.plan === "claude")
 	) {
+		const handoff = result.ranked[0]?.offer;
+
 		process.stdout.write(
-			"Claude handoff: caller must launch explicitly on the claude plan; listed availability and policy exclusions still apply.\n",
+			`Claude handoff: ${handoff ? `model=${handoff.model} effort=${handoff.effort}; ` : "no eligible effort; "}caller must launch explicitly on the claude plan; listed availability and policy exclusions still apply.\n`,
 		);
 
 		return 5;

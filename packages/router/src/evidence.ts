@@ -96,7 +96,9 @@ export function normalizeAA(raw: unknown): Evidence {
 	for (const record of models) {
 		const slug = field(record, "slug");
 		const release = field(record, "release.slug");
-		const effort = field(record, "effort.slug");
+		const effort =
+			field(record, "effort.slug") ??
+			(typeof slug === "string" && slug.endsWith("-non-reasoning") ? "none" : undefined);
 		const asof = field(record, "fetchedAt") ?? field(raw, "fetchedAt");
 		const model = typeof release === "string" ? ALIASES[release] : undefined;
 
@@ -104,7 +106,7 @@ export function normalizeAA(raw: unknown): Evidence {
 			typeof slug !== "string" ||
 			!model ||
 			typeof effort !== "string" ||
-			!["low", "medium", "high", "xhigh", "max"].includes(effort)
+			!EFFORTS.includes(effort)
 		) {
 			result.unmapped.push(typeof slug === "string" ? slug : "invalid record");
 
@@ -183,15 +185,17 @@ export const PROFILES: Record<string, Record<string, number>> = {
 	},
 	sweep: { automationBenchPartialScore: 0.5, tau2: 0.25, terminalBench40: 0.25 },
 	cyber: {
-		aa_cyber_index: 0.3,
-		cwe_bench: 0.25,
+		aa_cyber_index: 0.7,
 		cybergym: 0.15,
-		vendor_security: 0.15,
 		cybench: 0.15,
 	},
 };
-const RELIABILITY = { measured: 1, vendor: 0.6, interpolated: 0.5, "family-prior": 0.3 };
-const EFFORTS = ["low", "medium", "high", "xhigh", "max"];
+// Curve estimates retain their measurements' weight: discounting only an interior point can
+// pull it toward a stronger family prior and invent a quality gain over both endpoints.
+const RELIABILITY = { measured: 1, vendor: 0.6, interpolated: 1, "family-prior": 0.3 };
+
+export const EFFORTS = ["none", "low", "medium", "high", "xhigh", "max"];
+
 const lower = (signal: string) =>
 	signal === "omniscienceHallucinationRate" || signal === "personalityBench.scores.slop";
 const family = (model: string) => model.split("-")[0] ?? model;
@@ -231,14 +235,14 @@ export function resolveSignal(
 				RELIABILITY[b.kind] - RELIABILITY[a.kind] || Date.parse(b.asof) - Date.parse(a.asof),
 		)[0];
 
-	if (modelLevel) {
-		return modelLevel;
-	}
-
 	const at = EFFORTS.indexOf(effort);
-	const measured = candidates.filter(
-		(r) => r.model === model && r.kind === "measured" && EFFORTS.includes(r.effort),
-	);
+	const measured = EFFORTS.flatMap((level) => {
+		const row = candidates
+			.filter((r) => r.model === model && r.kind === "measured" && r.effort === level)
+			.toSorted((a, b) => Date.parse(b.asof) - Date.parse(a.asof))[0];
+
+		return row ? [row] : [];
+	});
 	const lo = measured
 		.filter((r) => EFFORTS.indexOf(r.effort) < at)
 		.toSorted((a, b) => EFFORTS.indexOf(b.effort) - EFFORTS.indexOf(a.effort))[0];
@@ -258,6 +262,21 @@ export function resolveSignal(
 			src: `${lo.src} interpolation ${lo.effort}..${hi.effort}`,
 			asof: lo.asof < hi.asof ? lo.asof : hi.asof,
 		};
+	}
+
+	const endpoint = lo ?? hi;
+
+	if (at !== -1 && endpoint) {
+		return {
+			...endpoint,
+			effort,
+			kind: "interpolated",
+			src: `${endpoint.src} interpolation clamped to ${endpoint.effort} (outside measured curve)`,
+		};
+	}
+
+	if (modelLevel) {
+		return modelLevel;
 	}
 
 	const peers = candidates.filter(
@@ -303,6 +322,11 @@ export interface Score {
 	lambda: number;
 	cost: number;
 	seconds: number;
+	tokens: number;
+	speed: number;
+	ttft: number;
+	value: number;
+	latencyPerMinute: number;
 	signals: EvidenceRow[];
 	crossChecks: EvidenceRow[];
 	missing: string[];
@@ -360,9 +384,11 @@ export function scoreEvidence(
 
 	const k0 = 0.15 * total;
 	const q = (numerator + k0 * (familyQuality / total)) / (denominator + k0);
+	const value = kind === "sweep" ? 1 : 10;
+	const latencyPerMinute = kind === "sweep" ? 0.2 : 0.05;
 	const assumptions = [
 		"n=0; uncalibrated p0=.45+.47Q",
-		"M task: 12000 output tokens at catalog median; V=10 (sweep=2); batch latency=.05/min",
+		`M task: 12000 output tokens at catalog median; V=${String(value)}; latency=${String(latencyPerMinute)}/min (routine sweep favors turnaround)`,
 		"pool fraction proxy=.01 × task dollars; pace unknown, rho=1",
 	];
 
@@ -372,14 +398,17 @@ export function scoreEvidence(
 		);
 	}
 
-	const crossChecks =
-		kind === "code" || kind === "architecture" || kind === "research"
-			? ["epoch_gpqa", "epoch_mirrorcode", "epoch_swe_verified"].flatMap((signal) => {
-					const row = resolveSignal(evidence.rows, key.model, key.effort, signal);
+	const crossCheckSignals =
+		kind === "cyber"
+			? ["aa_cwe_bench", "aa_deepsec_bench", "aa_cybergym_e2e"]
+			: kind === "code" || kind === "architecture" || kind === "research"
+				? ["epoch_gpqa", "epoch_mirrorcode", "epoch_swe_verified"]
+				: [];
+	const crossChecks = crossCheckSignals.flatMap((signal) => {
+		const row = resolveSignal(evidence.rows, key.model, key.effort, signal);
 
-					return row && row.kind !== "family-prior" ? [row] : [];
-				})
-			: [];
+		return row && row.kind !== "family-prior" ? [row] : [];
+	});
 	const metric = (signal: string, fallback: number) => {
 		const row = resolveSignal(evidence.rows, key.model, key.effort, signal);
 
@@ -401,8 +430,8 @@ export function scoreEvidence(
 	const scale = 12000 / baseline;
 	const cost = Math.max(0, metric("intelligenceIndexCostPerTask.cost.total", 1) * scale);
 	const speed = metric("headline.outputSpeed", 50);
-	const seconds =
-		Math.max(0, metric("headline.timeToFirstToken", 2)) + (tokens * scale) / Math.max(1, speed);
+	const ttft = Math.max(0, metric("headline.timeToFirstToken", 2));
+	const seconds = ttft + (tokens * scale) / Math.max(1, speed);
 	const lambda = 0.5 + 2 * (1 - Math.min(100, Math.max(0, headroom)) / 100) ** 2;
 	const p = 0.45 + 0.47 * q;
 
@@ -410,10 +439,15 @@ export function scoreEvidence(
 		q,
 		coverage: present / total,
 		p,
-		utility: (kind === "sweep" ? 2 : 10) * p - lambda * 0.01 * cost - (0.05 * seconds) / 60,
+		utility: value * p - lambda * 0.01 * cost - (latencyPerMinute * seconds) / 60,
 		lambda,
 		cost,
 		seconds,
+		tokens: tokens * scale,
+		speed,
+		ttft,
+		value,
+		latencyPerMinute,
 		signals,
 		crossChecks,
 		missing,

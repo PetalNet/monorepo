@@ -136,6 +136,61 @@ it("retries a transient exactly once after 30 seconds then falls through", async
 	expect(attempts).toEqual(["gemini-first-high", "gemini-first-high", "gemini-second-low"]);
 });
 
+it("skips sibling efforts after exhausting a model's transient retry", async () => {
+	const options = await fixture();
+	const attempts: string[] = [];
+	const sleeps: number[] = [];
+	const result = await run({
+		...options,
+		catalog: {
+			tiers: { C: 0 },
+			models: [
+				{ id: "gemini-4-neon-xhigh", provider: "gemini", score: 40 },
+				{ id: "gpt-test", provider: "codex", score: 38 },
+			],
+		},
+		sleep: (ms) => sleeps.push(ms),
+		launch: (offer) => {
+			attempts.push(offer.id);
+
+			return offer.provider === "gemini"
+				? { code: 1, out: "", log: "AGY_ERROR: 503 unavailable" }
+				: { code: 0, out: "ok", log: "" };
+		},
+	});
+
+	expect(result.code).toBe(0);
+	expect(attempts).toEqual(["gemini-4-neon-low", "gemini-4-neon-low", "gpt-test"]);
+	expect(sleeps).toEqual([30000]);
+	expect((await readAvailability(options.dir)).badOffers).toEqual({});
+});
+
+it("keeps bad-offer failures scoped to an agy effort variant", async () => {
+	const options = await fixture();
+	const attempts: string[] = [];
+	const result = await run({
+		...options,
+		catalog: {
+			tiers: { C: 0 },
+			models: [{ id: "gemini-4-neon-xhigh", provider: "gemini", score: 40 }],
+		},
+		launch: (offer) => {
+			attempts.push(offer.id);
+
+			return attempts.length === 1
+				? { code: 1, out: "", log: "AGY_ERROR: model_not_found" }
+				: { code: 0, out: "ok", log: "" };
+		},
+	});
+
+	expect(result.code).toBe(0);
+	expect(attempts).toEqual(["gemini-4-neon-low", "gemini-4-neon-medium"]);
+
+	expect(Object.keys((await readAvailability(options.dir)).badOffers)).toEqual([
+		"google-ai:gemini-4-neon-low",
+	]);
+});
+
 it.each(["", "What would you like to work on?"])(
 	"stops empty/sentinel output without retry",
 	async (out) => {
@@ -295,7 +350,10 @@ it("hands Claude off without launching an adapter", async () => {
 	});
 
 	expect(result.code).toBe(5);
-	expect(await readFile(result.outputPath, "utf8")).toContain("Claude handoff");
+
+	expect(await readFile(result.outputPath, "utf8")).toContain(
+		"Claude handoff: model=opus effort=low",
+	);
 });
 
 it("filters unsupported adapters before choosing a tier", () => {

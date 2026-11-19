@@ -41,6 +41,7 @@ class PullerTests(unittest.TestCase):
         for name, expected in [
             ("GPT-6 Astra (Max)", ("gpt-6-astra", "max")),
             ("openai/gpt-6-astra_high", ("gpt-6-astra", "high")),
+            ("openai/gpt-6-astra_none", ("gpt-6-astra", "none")),
             ("Claude Opus 5.5", ("claude-opus-5-5", "unspecified")),
             ("Gemini 4 Neon (High)", ("gemini-4-neon", "high")),
             ("Claude Opus 4.6", None),
@@ -132,6 +133,28 @@ class PullerTests(unittest.TestCase):
         for value, date in [(float("nan"), DATE), (float("inf"), DATE), (True, DATE), (1, "yesterday")]:
             with self.subTest(value=value, date=date), self.assertRaises(ValueError):
                 evidence.Rows(CATALOG).add("GPT-6 Astra", value, "x", "Arena", date, "https://example.test")
+
+    def test_aa_cyber_keeps_effort_release_harness_and_zero_scores(self):
+        model = {"slug": "gpt-6-astra", "name": "GPT-6 Astra (Max)",
+                 "release": {"slug": "gpt-6-astra"}, "effort": {"slug": "max"},
+                 "cyberIndex": 30, "cweBench": 0.6, "deepsecBench": 0.3, "cybergymE2e": 0}
+        variant = {**model, "slug": "gpt-6-astra-daybreak-blue",
+                   "release": {"slug": "gpt-6-astra-daybreak-blue"}}
+        flight = "1:" + json.dumps([model, variant, model]) + "\n2:I[123]\n"
+        html = '<script>self.__next_f.push(' + json.dumps([1, flight]) + ')</script>'
+        html += '<script>throw Error("must not execute")</script>'
+        rows = evidence.Rows(CATALOG)
+        evidence.aa_cyber(FixtureCache((html.encode(), DATE)), rows)
+        self.assertEqual(len(rows.rows), 4)
+        self.assertEqual({r["signal"] for r in rows.rows},
+                         {"aa_cyber_index", "aa_cwe_bench", "aa_deepsec_bench", "aa_cybergym_e2e"})
+        self.assertTrue(all(r["model"] == "gpt-6-astra" and r["effort"] == "max"
+                            and r["kind"] == "measured" and r["halfLifeDays"] == 180
+                            and r["asof"] == DATE and "Stirrup" in r["reporter"] for r in rows.rows))
+        self.assertEqual(rows.rows[-1]["value"], 0)
+        self.assertEqual(rows.unmapped, {"AA Cyber: gpt-6-astra-daybreak-blue (max)"})
+        with self.assertRaises(ValueError):
+            evidence.aa_cyber(FixtureCache((b"<html>No model data</html>", DATE)), rows)
 
     def test_cache_reuses_original_fetch_date_and_never_persists_credentials(self):
         with tempfile.TemporaryDirectory() as directory:

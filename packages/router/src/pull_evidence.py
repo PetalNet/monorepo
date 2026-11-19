@@ -1,6 +1,6 @@
 """Official evidence downloads; Python's stdlib supplies CSV and ZIP readers.
 
-No website scraping, fuzzy model matching, remote code execution or data publication.
+No fuzzy model matching, remote code execution or data publication.
 """
 import csv
 import fcntl
@@ -27,8 +27,10 @@ SHORT = {"opus": "claude-opus-5-5", "sonnet": "claude-sonnet-5-5",
          "haiku": "claude-haiku-5-5", "fable": "claude-fable-5-2"}
 # Only spelling aliases, never a different generation, preview or harness.
 SPELLINGS = {"claude-opus-5.5": "claude-opus-5-5", "claude-sonnet-5.5": "claude-sonnet-5-5",
-             "claude-haiku-5.5": "claude-haiku-5-5", "claude-fable-5.2": "claude-fable-5-2"}
-EFFORT = r"low|medium|high|xhigh|max"
+             "claude-haiku-5.5": "claude-haiku-5-5", "claude-fable-5.2": "claude-fable-5-2",
+             "gemini-3-8-flash": "gemini-3.8-flash", "gpt-6-1-sol": "gpt-6.1-sol",
+             "gpt-6-1-terra": "gpt-6.1-terra"}
+EFFORT = r"none|low|medium|high|xhigh|max"
 
 
 def timestamp():
@@ -227,12 +229,57 @@ def cybench(cache, result):
     result.notes.append("Cybench unguided end-to-end CSV: internal use; model-card footnotes retain vendor status; asof=fetch time, not eval date; subsets/harnesses differ; https://cybench.github.io")
 
 
+def aa_cyber(cache, result):
+    url = "https://artificialanalysis.ai/evaluations/artificial-analysis-cyber-index"
+    data, asof = cache.get(url)
+    flight = []
+    for match in re.finditer(r"self\.__next_f\.push\((\[.*?\])\)</script>", data.decode(), re.S):
+        chunk = json.loads(match[1])
+        if len(chunk) == 2 and chunk[0] == 1 and isinstance(chunk[1], str):
+            flight.append(chunk[1])
+    pending = []
+    for line in "".join(flight).splitlines():
+        match = re.match(r"^[\da-f]+:(.*)$", line)
+        if match:
+            try:
+                pending.append(json.loads(match[1]))
+            except json.JSONDecodeError:
+                # Flight also contains module references and control records.
+                pass
+    seen = set()
+    while pending:
+        row = pending.pop()
+        if isinstance(row, list):
+            pending.extend(row)
+        elif isinstance(row, dict):
+            if "release" not in row or "cyberIndex" not in row:
+                pending.extend(row.values())
+                continue
+            effort = (row.get("effort") or {}).get("slug", "unspecified")
+            if effort != "unspecified" and not re.fullmatch(EFFORT, effort):
+                raise ValueError("unknown AA cyber effort")
+            key = (row["slug"], effort)
+            if key in seen:
+                continue
+            seen.add(key)
+            name = row["release"]["slug"]
+            if effort != "unspecified":
+                name += " (" + effort + ")"
+            for field, signal in [("cyberIndex", "aa_cyber_index"), ("cweBench", "aa_cwe_bench"),
+                                  ("deepsecBench", "aa_deepsec_bench"), ("cybergymE2e", "aa_cybergym_e2e")]:
+                result.add(name, row.get(field), signal, "AA Cyber", asof, url,
+                           reporter="Artificial Analysis; harness=Stirrup; variant=" + row["name"])
+    if not seen:
+        raise ValueError("AA cyber model records missing")
+    result.notes.append("Artificial Analysis Cyber Index: https://artificialanalysis.ai; public embedded JSON; internal use; asof=fetch time; independent defensive evaluations in Stirrup; three components are cross-checks, not extra votes; CyberGym-E2E-AA is distinct from CyberGym Level 1")
+
+
 PULLERS = {
     "arena-webdev": lambda c, r: arena(c, r, "webdev", "overall", "arena_webdev"),
     "arena-text": lambda c, r: arena(c, r, "text", "overall", "arena_text"),
     "arena-creative": lambda c, r: arena(c, r, "text", "creative_writing", "arena_creative"),
     "eq-creative": eq_creative, "eq4": eq_four, "design": design,
-    "epoch": epoch, "cybergym": cybergym, "cybench": cybench,
+    "epoch": epoch, "cybergym": cybergym, "cybench": cybench, "aa-cyber": aa_cyber,
 }
 
 

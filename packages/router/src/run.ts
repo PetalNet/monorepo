@@ -177,6 +177,10 @@ export async function run(
 					await markUnavailable(dir, "signedOut", pool.plan, endedAt);
 				}
 
+				if (failureClass === "transient" && retry === 1) {
+					attempted.add(offer.model);
+				}
+
 				if (failureClass !== "transient" || retry === 1) {
 					break;
 				}

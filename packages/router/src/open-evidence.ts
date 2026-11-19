@@ -48,7 +48,7 @@ export function normalizeOpenEvidence(raw: unknown): Evidence {
 			typeof model !== "string" ||
 			!model ||
 			typeof effort !== "string" ||
-			!["low", "medium", "high", "xhigh", "max", "unspecified"].includes(effort) ||
+			!["none", "low", "medium", "high", "xhigh", "max", "unspecified"].includes(effort) ||
 			typeof signal !== "string" ||
 			!signal ||
 			typeof src !== "string" ||

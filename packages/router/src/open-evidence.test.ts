@@ -45,6 +45,7 @@ it("loads provenance and model-level effort, rejecting malformed artifacts", () 
 	const input = evidence([row("arena_webdev", "unspecified", 0)]);
 
 	expect(normalizeOpenEvidence(input)).toEqual(input);
+	expect(normalizeOpenEvidence(evidence([row("epoch_gpqa", "none")])).rows[0]?.effort).toBe("none");
 
 	for (const bad of [
 		{ value: NaN },
@@ -79,18 +80,18 @@ it("loads provenance and model-level effort, rejecting malformed artifacts", () 
 	}
 });
 
-it("keeps unspecified effort visible and never maps a measured max onto medium", () => {
+it("keeps unspecified effort visible and labels a max-only curve as interpolation", () => {
 	const modelLevel = row("eqbench_creative_v3", "unspecified");
 
 	expect(resolveSignal([modelLevel], "gpt-test", "medium", modelLevel.signal)).toEqual(modelLevel);
 
 	expect(resolveSignal([row("arena_webdev")], "gpt-test", "medium", "arena_webdev")?.kind).toBe(
-		"family-prior",
+		"interpolated",
 	);
 
 	expect(
 		scoreEvidence(evidence([row("arena_webdev")]), "gpt-test", "medium", "ui", now, 100).coverage,
-	).toBe(0);
+	).toBeCloseTo(0.35);
 
 	const measured = row("eqbench_creative_v3", "medium", 2);
 
@@ -125,11 +126,19 @@ it("reports Epoch cross-checks without changing quality or coverage", () => {
 
 it("selects an observed effort with sufficient coverage and sends it to Codex", async () => {
 	const catalog = { tiers: { S: 57 }, models: [{ id: "gpt-test", provider: "codex", score: 60 }] };
-	const rows = [row("arena_webdev"), row("frontierCode20"), row("mmmuPro")];
+	const rows = [
+		row("arena_webdev", "xhigh"),
+		row("frontierCode20", "xhigh"),
+		row("mmmuPro", "xhigh"),
+	];
 	const result = pick(catalog, "ui", "S", { ...state, evidence: evidence(rows) });
 	const selected = result.ranked[0];
 
-	expect(selected).toMatchObject({ source: "evidence", offer: { id: "gpt-test", effort: "max" } });
+	expect(selected).toMatchObject({
+		source: "evidence",
+		offer: { id: "gpt-test", effort: "xhigh" },
+	});
+
 	expect(selected?.evidence?.coverage).toBeCloseTo(0.55);
 
 	if (!selected) {
@@ -144,7 +153,7 @@ it("selects an observed effort with sufficient coverage and sends it to Codex", 
 		const executed = await launch(selected.offer, "Synthetic test brief", dir);
 
 		expect(executed.code).toBe(0);
-		expect(executed.out).toContain('model_reasoning_effort="max"');
+		expect(executed.out).toContain("model_reasoning_effort=xhigh");
 	} finally {
 		vi.unstubAllEnvs();
 		rmSync(dir, { recursive: true, force: true });
@@ -161,12 +170,12 @@ it("selects an observed effort with sufficient coverage and sends it to Codex", 
 	const fixed = { ...catalog, models: [{ id: "gpt-test-medium", provider: "codex", score: 60 }] };
 
 	expect(pick(fixed, "ui", "S", { ...state, evidence: evidence(rows) }).ranked[0]).toMatchObject({
-		source: "table",
-		offer: { effort: "medium" },
+		source: "evidence",
+		offer: { effort: "xhigh" },
 	});
 });
 
-it("prefers adequately covered effort over a higher utility sparse estimate", () => {
+it("fills missing levels from their own model curve and retains interpolation provenance", () => {
 	const rows = [
 		row("eqbench_creative_v3", "unspecified"),
 		row("arena_text"),
@@ -180,12 +189,18 @@ it("prefers adequately covered effort over a higher utility sparse estimate", ()
 	const medium = scoreEvidence(input, "gpt-test", "medium", "write", now, 100);
 	const max = scoreEvidence(input, "gpt-test", "max", "write", now, 100);
 
-	expect(medium.coverage).toBeCloseTo(0.4);
-	expect(max.coverage).toBeCloseTo(0.55);
+	expect(medium.coverage).toBeCloseTo(0.75);
+	expect(max.coverage).toBeCloseTo(0.75);
 	expect(medium.utility).toBeGreaterThan(max.utility);
+
+	expect(medium.signals.find((s) => s.signal === "arena_text")).toMatchObject({
+		kind: "interpolated",
+		effort: "medium",
+	});
+
 	const catalog = { tiers: { S: 57 }, models: [{ id: "gpt-test", provider: "codex", score: 60 }] };
 
 	expect(pick(catalog, "write", "S", { ...state, evidence: input }).ranked[0]?.offer.effort).toBe(
-		"max",
+		"medium",
 	);
 });

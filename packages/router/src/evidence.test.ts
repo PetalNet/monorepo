@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import { normalizeAA, resolveSignal, scoreEvidence, type EvidenceRow } from "./evidence.ts";
 import { POOLS, pick, type State } from "./pick.ts";
-import { effectiveDataClass } from "./route.ts";
+import { effectiveDataClass, formatPick } from "./route.ts";
 const now = Date.parse("2026-11-19T00:00:00Z");
 const row = (model: string, effort: string, signal: string, value: number): EvidenceRow => ({
 	model,
@@ -153,15 +153,19 @@ describe("Parker policy", () => {
 			],
 		};
 
-		expect(
-			pick(catalog, "code", "S", { ...state, dataClass: "sensitive" }).ranked.map(
-				(r) => r.offer.id,
+		expect([
+			...new Set(
+				pick(catalog, "code", "S", { ...state, dataClass: "sensitive" }).ranked.map(
+					(r) => r.offer.id,
+				),
 			),
-		).toEqual(["gpt-6-astra"]);
+		]).toEqual(["gpt-6-astra"]);
 
-		expect(
-			pick(catalog, "code", "S", { ...state, dataClass: "parcs" }).ranked.map((r) => r.offer.id),
-		).toEqual(["opus"]);
+		expect([
+			...new Set(
+				pick(catalog, "code", "S", { ...state, dataClass: "parcs" }).ranked.map((r) => r.offer.id),
+			),
+		]).toEqual(["opus"]);
 
 		expect(effectiveDataClass("public", "Prepare Bridgeton brief")).toBe("parcs");
 		expect(effectiveDataClass("parcs", `sk-${"x".repeat(30)}`)).toBe("parcs");
@@ -222,4 +226,130 @@ it("decays old measured evidence toward the family prior and inverts hallucinati
 	expect(scoreEvidence(evidence, "gpt-test", "high", "research", now, 100).q).toBeGreaterThan(
 		scoreEvidence(evidence, "gpt-peer", "high", "research", now, 100).q,
 	);
+});
+
+it("scores each effort's cost, tokens, speed and TTFT, interpolating only missing inputs", () => {
+	const metrics = [
+		["intelligenceIndexCostPerTask.cost.total", 1, 3],
+		["intelligenceIndexOutputTokensPerTask.output", 6000, 18000],
+		["headline.outputSpeed", 40, 80],
+		["headline.timeToFirstToken", 2, 10],
+	] as const;
+	const rows = metrics.flatMap(([signal, low, high]) => [
+		row("gpt-test", "low", signal, low),
+		row("gpt-test", "high", signal, high),
+	]);
+
+	rows.push(row("gpt-test", "medium", "headline.timeToFirstToken", 3));
+	const evidence = { rows, notes: [], unmapped: [] };
+	const low = scoreEvidence(evidence, "gpt-test", "low", "code", now, 100);
+	const medium = scoreEvidence(evidence, "gpt-test", "medium", "code", now, 100);
+	const high = scoreEvidence(evidence, "gpt-test", "high", "code", now, 100);
+
+	expect(low).toMatchObject({ cost: 1, tokens: 6000, speed: 40, ttft: 2, seconds: 152 });
+	expect(medium).toMatchObject({ cost: 2, tokens: 12000, speed: 60, ttft: 3, seconds: 203 });
+	expect(high).toMatchObject({ cost: 3, tokens: 18000, speed: 80, ttft: 10, seconds: 235 });
+	expect(medium.signals.filter((s) => s.kind === "interpolated")).toHaveLength(3);
+
+	expect(medium.signals.find((s) => s.signal === "headline.timeToFirstToken")?.kind).toBe(
+		"measured",
+	);
+
+	expect(resolveSignal(rows, "gpt-test", "xhigh", metrics[0][0])).toMatchObject({
+		value: 3,
+		kind: "interpolated",
+		src: "AA interpolation clamped to high (outside measured curve)",
+	});
+});
+
+it("keeps interpolated quality between equally fresh measured endpoints despite a stronger family prior", () => {
+	const rows = [
+		row("gpt-test", "low", "aa_cyber_index", 0),
+		row("gpt-test", "high", "aa_cyber_index", 0.1),
+		...Array.from({ length: 10 }, (_, i) =>
+			row(`gpt-peer-${String(i)}`, "high", "aa_cyber_index", i + 1),
+		),
+	];
+	const input = { rows, notes: [], unmapped: [] };
+	const quality = (effort: string) => scoreEvidence(input, "gpt-test", effort, "cyber", now, 100).q;
+
+	expect(quality("medium")).toBeGreaterThanOrEqual(quality("low"));
+	expect(quality("medium")).toBeLessThanOrEqual(quality("high"));
+});
+
+it("chooses low for a routine sweep and xhigh for code from the same effort curve", () => {
+	const rows = ["low", "medium", "high", "xhigh"].flatMap((effort, i) => [
+		row("gpt-test", effort, "automationBenchPartialScore", 0.9),
+		row("gpt-test", effort, "tau2", 0.9),
+		row("gpt-test", effort, "terminalBench40", 0.4 + i * 0.15),
+		row("gpt-test", effort, "frontierCode20", 0.4 + i * 0.15),
+		row("gpt-test", effort, "intelligenceIndexCostPerTask.cost.total", 0.1 + i * 0.2),
+		row("gpt-test", effort, "intelligenceIndexOutputTokensPerTask.output", 3000 + i * 6000),
+		row("gpt-test", effort, "headline.outputSpeed", 60),
+		row("gpt-test", effort, "headline.timeToFirstToken", 2 + i * 5),
+	]);
+	const input = { ...state, evidence: { rows, notes: [], unmapped: [] } };
+	const catalog = { tiers: { S: 57 }, models: [{ id: "gpt-test", provider: "codex", score: 60 }] };
+	const sweep = pick(catalog, "sweep", "S", input);
+	const code = pick(catalog, "code", "S", input);
+
+	expect(sweep.ranked[0]?.offer.effort).toBe("low");
+	expect(code.ranked[0]?.offer.effort).toBe("xhigh");
+	expect(sweep.ranked).toHaveLength(5);
+	expect(formatPick(sweep, "sweep", "S")).toContain("vs medium: ΔQ=");
+
+	expect(formatPick(code, "code", "S")).toMatch(
+		/vs high: .*quality-value=.*task-cost=.*time=.*ΔU=/u,
+	);
+});
+
+it("uses exact cyber evidence ahead of a higher table-only score and does not count its components twice", () => {
+	const rows = [
+		row("gpt-test", "high", "aa_cyber_index", 40),
+		row("gpt-test", "high", "aa_cwe_bench", 0.5),
+	];
+	const result = pick(
+		{
+			tiers: { S: 57 },
+			models: [
+				{ id: "gpt-test", provider: "codex", score: 60 },
+				{ id: "gpt-peer", provider: "codex", score: 99 },
+			],
+		},
+		"cyber",
+		"S",
+		{ ...state, evidence: { rows, notes: [], unmapped: [] } },
+	);
+
+	expect(result.ranked[0]).toMatchObject({
+		source: "evidence",
+		offer: { model: "gpt-test", effort: "high" },
+		evidence: { coverage: 0.7 },
+	});
+
+	expect(result.ranked[0]?.evidence?.crossChecks).toHaveLength(1);
+	expect(result.ranked.find((r) => r.offer.model === "gpt-peer")?.evidence?.coverage).toBe(0);
+});
+
+it("normalizes AA non-reasoning records as none without assigning unspecified records an effort", () => {
+	const result = normalizeAA({
+		fetchedAt: new Date(now).toISOString(),
+		models: [
+			{
+				slug: "gpt-6-luna-non-reasoning",
+				release: { slug: "gpt-6-luna" },
+				effort: null,
+				intelligenceIndex: 10,
+			},
+			{
+				slug: "gpt-6-luna-unknown",
+				release: { slug: "gpt-6-luna" },
+				effort: null,
+				intelligenceIndex: 20,
+			},
+		],
+	});
+
+	expect(result.rows[0]).toMatchObject({ effort: "none", value: 10 });
+	expect(result.unmapped).toEqual(["gpt-6-luna-unknown"]);
 });
