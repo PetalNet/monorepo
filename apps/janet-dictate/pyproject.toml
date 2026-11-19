@@ -1,0 +1,19 @@
+[project]
+name = "janet-dictate"
+version = "0.1.0"
+description = "Live Parakeet dictation over Kõnele's WebSocket protocol"
+requires-python = ">=3.12"
+dependencies = ["janet-turn", "websockets>=15,<17"]
+
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools]
+py-modules = ["janet_dictate"]
+
+[project.scripts]
+janet-dictate = "janet_dictate:main"
+
+[tool.ruff]
+line-length = 120
