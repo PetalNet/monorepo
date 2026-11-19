@@ -4,6 +4,7 @@ import * as Sentry from "@sentry/sveltekit";
 import { sequence } from "@sveltejs/kit/hooks";
 
 import { tasksConfig } from "./lib/server/config.js";
+import { followThroughApi } from "./lib/server/follow-through/api.ts";
 import { galleryApi } from "./lib/server/gallery/api.ts";
 import { sentryOptions } from "./lib/telemetry.js";
 
@@ -82,9 +83,11 @@ async function accessGate({ event, resolve }) {
 // The gallery's Effect runtime (feedback, Matrix): built once at start, disposed on shutdown.
 export const init = async () => {
 	await galleryApi.initialize();
+	await followThroughApi.initialize();
 
 	process.once("sveltekit:shutdown", () => {
 		void galleryApi.dispose();
+		void followThroughApi.dispose();
 	});
 };
 

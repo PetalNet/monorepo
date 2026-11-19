@@ -95,6 +95,7 @@
 		</article>
 	</main>
 	<footer>
+		<a href="/janet/follow-through">Promises</a>
 		<a class="call" href="janetcall://call">
 			<svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true"
 				><path
