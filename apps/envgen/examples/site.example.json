@@ -37,7 +37,15 @@
 			"kind": "file",
 			"path": "imagery.tif",
 			"license": "licence of the imagery",
-			"date": "2030-06-15, the acquisition day, which places the sun"
+			"date": "2030-06-15, the acquisition day, which places the sun",
+			"bands": { "red": 1, "green": 2, "blue": 3, "nir": 4 }
+		},
+		"reflectance": {
+			"kind": "file",
+			"path": "reflectance.tif",
+			"license": "licence of the reflectance raster",
+			"date": "2030-06, near the target date",
+			"bands": { "blue": 1, "green": 2, "red": 3 }
 		}
 	}
 }

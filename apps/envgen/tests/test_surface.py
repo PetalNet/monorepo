@@ -249,3 +249,66 @@ def test_a_split_needs_patches_not_scatter():
 
     assert blocks[0] == pytest.approx(0.02, abs=0.005) and blocks[1]["split"]
     assert scattered[0] is None and scattered[1]["reason"] == "the groups do not form patches"
+
+
+TURF, LOT = (170, 160, 150), (200, 195, 185)  # dry turf and pale paving: nearly the same share of green
+TURF_NIR, LOT_NIR = 200, 150  # leaves, dry or green, reflect near-infrared; paving does not
+
+
+def four_band(shape, lot):
+    """Red, green, blue and near-infrared of dry turf with paving where `lot` is true, with a photo's grain."""
+    bands = np.empty((4, *shape))
+    for band, (turf, paving) in enumerate(zip((*TURF, TURF_NIR), (*LOT, LOT_NIR), strict=True)):
+        bands[band] = np.where(lot, paving, turf)
+    return noisy(bands, 11)
+
+
+def write_four_band_scene(path, lot_west, lot_east):
+    west, north, count = h.WEST - 60, h.SOUTH + h.SIZE_M + 60, int(h.SIZE_M + 120)
+    eastings = west + np.arange(count) + 0.5 - h.WEST
+    lot = np.broadcast_to((eastings >= lot_west) & (eastings < lot_east), (count, count))
+    h.write_raster(path, four_band((count, count), lot).astype(np.uint8), west, north, 1.0)
+
+
+def test_dry_turf_the_colour_of_paving_is_grass_when_the_site_names_a_near_infrared_band(tmp_path):
+    h.write_dem(tmp_path / "dem.tif")
+    write_four_band_scene(tmp_path / "imagery.tif", 40, 90)
+    imagery = {"kind": "file", "path": "imagery.tif", "license": "test", "date": "2030"}
+    elevation = {"kind": "file", "path": "dem.tif", "license": "test", "date": "2030"}
+    bands = {"red": 1, "green": 2, "blue": 3, "nir": 4}
+
+    by_colour = build(h.write_site(tmp_path, sources={"elevation": elevation, "imagery": imagery}), tmp_path / "a")
+    named = h.write_site(tmp_path, sources={"elevation": elevation, "imagery": imagery | {"bands": bands}})
+    manifest = build(named, tmp_path / "b")
+
+    # Colour alone cannot tell them apart, so the tile stays one class; the near-infrared band can.
+    assert [layer["name"] for layer in by_colour["surface"]["layers"]] == ["grass"]
+    by_name = layers(tmp_path / "b", manifest)
+    assert at(by_name["grass"], 20, 60) == 255 and at(by_name["paved"], 65, 60) == 255
+    assert at(by_name["grass"], 110, 60) == 255
+    fit = manifest["surface"]["splits"][0]
+    assert fit["index"] == surface.NIR_INDEX and fit["split"]
+    ndvi = lambda red, nir: (nir - red) / (nir + red)
+    assert ndvi(LOT[0], LOT_NIR) < fit["threshold"] < ndvi(TURF[0], TURF_NIR)
+
+
+def test_with_near_infrared_ground_in_shade_is_read_itself_not_given_the_class_of_the_sunlit_ground_beside_it():
+    shape = (80, 80)
+    lot = np.zeros(shape, dtype=bool)
+    lot[:, 30:60] = True
+    bands = four_band(shape, lot)
+    # A shadow lies over the east of the paving and the turf beyond it: dimmer in every band, and not sunlit.
+    shade = np.zeros(shape, dtype=bool)
+    shade[:, 45:70] = True
+    bands[:, shade] *= 0.4
+    sunlit = ~shade
+
+    labels, names, fit = surface.classify(bands[:3], sunlit, 1.0, nir=bands[3])
+    filled, _, _ = surface.classify(bands[:3] + [[[0]], [[40]], [[0]]], sunlit, 1.0)
+
+    assert names == ["grass", "paved"]
+    # Shaded paving at column 57 is nearer to sunlit turf (column 70) than to sunlit paving (column 44).
+    assert (labels[:, 50:59] == 1).mean() > 0.98 and (labels[:, 61:70] == 0).mean() > 0.98
+    assert fit["hidden_ground"] == "read like any other cell" and any("crown" in prior for prior in fit["priors"])
+    # Without the band, hidden ground can only take its nearest sunlit neighbour's class.
+    assert (filled[:, 55:59] == 0).all()

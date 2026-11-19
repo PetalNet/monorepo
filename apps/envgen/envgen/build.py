@@ -12,7 +12,8 @@ import rasterio
 from PIL import Image
 from rasterio.enums import Resampling
 from rasterio.transform import from_origin
-from rasterio.warp import reproject, transform
+from rasterio.warp import reproject, transform, transform_bounds
+from rasterio.windows import Window, from_bounds
 from scipy import ndimage
 
 from . import cover, frame, lidar, light, surface
@@ -23,6 +24,7 @@ from .site import (
     LANDSCAPE_SECTIONS_PER_COMPONENT,
     SCHEMA_VERSION,
     Site,
+    Source,
     Tile,
     acquisition_day,
     load_site,
@@ -30,7 +32,7 @@ from .site import (
 
 # Part of every stage key. Bump it by hand when a code change alters a stage's output for the same
 # inputs (frame.py and the resampling included); nothing detects that automatically.
-PIPELINE_VERSION = 8
+PIPELINE_VERSION = 9
 
 MACRO_PIXELS = 1024
 # The macro map carries colour that varies over tens of metres. Finer detail comes from the engine.
@@ -56,17 +58,27 @@ STENCIL_CLASSES = {"ground": 1, "grass": 2, "tree": 3, "building": 4, "road": 5,
 
 
 def _warp(
-    path: Path, crs: str, west: float, north: float, spacing: float, size: int, resampling: Resampling
+    path: Path,
+    crs: str,
+    west: float,
+    north: float,
+    spacing: float,
+    size: int,
+    resampling: Resampling,
+    bands: list[int] | None = None,
 ) -> np.ndarray:
-    """Resample every band of a raster onto a north-up square grid whose first pixel centre is (west, north)."""
+    """Resample bands of a raster onto a north-up square grid whose first pixel centre is (west, north).
+
+    `bands` are 1-based band numbers. Without them: RGB when there are at least three bands; otherwise the first
+    band alone (grey, or grey plus alpha).
+    """
     with rasterio.open(path) as source:
-        # RGB when there are at least three bands; otherwise the first band alone (grey, or grey plus alpha).
-        bands = 3 if source.count >= 3 else 1
-        out = np.full((bands, size, size), np.nan, dtype=np.float32)
-        for band in range(bands):
+        bands = bands or list(range(1, (3 if source.count >= 3 else 1) + 1))
+        out = np.full((len(bands), size, size), np.nan, dtype=np.float32)
+        for index, band in enumerate(bands):
             reproject(
-                rasterio.band(source, band + 1),
-                out[band],
+                rasterio.band(source, band),
+                out[index],
                 dst_transform=from_origin(west - spacing / 2, north + spacing / 2, spacing, spacing),
                 dst_crs=crs,
                 dst_nodata=np.nan,
@@ -261,15 +273,62 @@ def _low_pass_of_sunlit(values: np.ndarray, sunlit: np.ndarray, sigma: float) ->
     return ndimage.zoom(pooled, (1,) * (pooled.ndim - 2) + (pool, pool), order=1, mode="nearest", grid_mode=True)
 
 
-def build_surface(site: Site, imagery: Path, out: Path, covering: dict | None) -> dict:
+def imagery_bands(source: Source) -> tuple[list[int] | None, bool]:
+    """Which bands to read for red, green, blue and, when the site names one, near-infrared. And whether it does."""
+    if not source.bands:
+        return None, False
+    nir = source.band("nir")
+    return [source.band("red"), source.band("green"), source.band("blue")] + ([nir] if nir else []), bool(nir)
+
+
+def _onto_raster(values: np.ndarray, tile: Tile, crs: str, like: rasterio.DatasetReader, window) -> np.ndarray:
+    """The mean of cells on the tile's vertices (north-up) over each pixel of a window of another raster."""
+    out = np.full((round(window.height), round(window.width)), np.nan, dtype=np.float32)
+    reproject(
+        values.astype(np.float32),
+        out,
+        src_transform=from_origin(tile.west - tile.quad_m / 2, tile.north + tile.quad_m / 2, tile.quad_m, tile.quad_m),
+        src_crs=crs,
+        dst_transform=like.window_transform(window),
+        dst_crs=like.crs,
+        dst_nodata=np.nan,
+        resampling=Resampling.average,
+    )
+    return out
+
+
+def fit_to_reflectance(
+    site: Site, reflectance: Path, rgb: np.ndarray, labels: np.ndarray, shown: np.ndarray, names: list[str]
+) -> dict:
+    """Bring the photo, the classes and the sunlit ground onto the reflectance raster's pixels and fit to them."""
+    tile = site.tile
+    with rasterio.open(reflectance) as file:
+        west, south, east, north = transform_bounds(site.crs, file.crs, *tile.bounds())
+        window = from_bounds(west, south, east, north, file.transform).round_offsets().round_lengths()
+        window = window.intersection(Window(0, 0, file.width, file.height))
+        bands = [site.reflectance.band(name) for name in ("red", "green", "blue")]
+        measured = file.read(bands, window=window, masked=True).astype(np.float32).filled(np.nan)
+        sunlit = _onto_raster(shown, tile, site.crs, file, window)
+        linear = surface.to_linear(rgb[:3])
+        photo = np.stack([_onto_raster(band * shown, tile, site.crs, file, window) for band in linear])
+        photo /= np.maximum(sunlit, 1e-6)
+        shares = np.stack([_onto_raster(labels == index, tile, site.crs, file, window) for index in range(len(names))])
+    flat = lambda array: array.reshape(*array.shape[:-2], -1)
+    return surface.fit_reflectance(flat(photo), flat(measured), flat(shares), flat(sunlit), names)
+
+
+def build_surface(site: Site, imagery: Path, out: Path, covering: dict | None, reflectance: Path | None) -> dict:
     """Classify the ground and write one 8-bit weightmap per class, on the Landscape's vertices."""
     tile = site.tile
     for stale in out.glob("surface_*.png"):
         stale.unlink()
-    rgb = _warp(imagery, site.crs, tile.west, tile.north, tile.quad_m, tile.vertices, Resampling.average)
+    bands, has_nir = imagery_bands(site.imagery)
+    rgb = _warp(imagery, site.crs, tile.west, tile.north, tile.quad_m, tile.vertices, Resampling.average, bands)
     rgb = np.stack([_fill_gaps(band, "imagery")[0] for band in rgb])
+    nir = rgb[3] if has_nir else None
+    rgb = rgb[:3]
     shown = open_ground(out, covering, tile.vertices) > 0
-    labels, names, fit = surface.classify(rgb, shown, tile.quad_m)
+    labels, names, fit = surface.classify(rgb, shown, tile.quad_m, nir)
     layers, unreal = [], []
     for name, weight in zip(names, surface.weights(labels, len(names), tile.quad_m), strict=True):
         file = f"surface_{name}.png"
@@ -277,15 +336,23 @@ def build_surface(site: Site, imagery: Path, out: Path, covering: dict | None) -
         Image.fromarray(unreal[-1]).save(out / file)
         layers.append({"name": name, "file": file, "mean_weight": float(weight.mean()) / 255})
     luminance = surface.class_luminance(rgb, labels, shown, names)
+    albedo = fit_to_reflectance(site, reflectance, rgb, labels, shown, names) if reflectance else {}
+    if albedo:
+        albedo["reflectance_date"] = site.reflectance.date
+    else:
+        albedo = surface.fit_albedo(luminance)
     for layer in layers:
-        if layer["name"] in luminance:
+        if layer["name"] in albedo.get("curves", {}):
+            # The colour the engine gives what grows on the class: the measured one when there is a measurement.
+            layer["mean_linear_rgb"] = albedo["curves"][layer["name"]]["median_reflectance"]
+        elif layer["name"] in luminance:
             layer["mean_linear_rgb"] = luminance[layer["name"]]["mean_linear_rgb"]
     return {
         "files": [layer["file"] for layer in layers],
         "layers": layers,
         "check_points": surface.check_points(unreal, names),
         "vertices": tile.vertices,
-        "albedo": surface.fit_albedo(luminance),
+        "albedo": albedo,
         **fit,
     }
 
@@ -297,11 +364,26 @@ def read_weights(out: Path, layers: list[dict]) -> np.ndarray:
 
 
 def build_macro_colour(
-    tile: Tile, crs: str, imagery: Path, out: Path, covering: dict | None, layers: list[dict]
+    tile: Tile,
+    crs: str,
+    imagery: Path,
+    out: Path,
+    covering: dict | None,
+    layers: list[dict],
+    bands: list[int] | None = None,
+    curves: dict | None = None,
 ) -> dict:
+    """The colour that varies over tens of metres. With `curves` it is written as albedo, class by class."""
     spacing = tile.size_m / MACRO_PIXELS
     north_up = _warp(
-        imagery, crs, tile.west + spacing / 2, tile.north - spacing / 2, spacing, MACRO_PIXELS, Resampling.average
+        imagery,
+        crs,
+        tile.west + spacing / 2,
+        tile.north - spacing / 2,
+        spacing,
+        MACRO_PIXELS,
+        Resampling.average,
+        bands[:3] if bands else None,
     )
     sigma = MACRO_LOW_PASS_M / spacing
     sunlit = open_ground(out, covering, MACRO_PIXELS)
@@ -314,9 +396,15 @@ def build_macro_colour(
     # Each class is low-passed from its own sunlit ground only, so a road never greys the grass beside it.
     # The class edge is soft for the engine, but the ground each low-pass listens to is the class's own cells only.
     own = np.argmax(shares, axis=0)
-    smooth = sum(
-        share * _low_pass_of_sunlit(values, sunlit * (own == index), sigma) for index, share in enumerate(shares)
-    )
+    passed = [_low_pass_of_sunlit(values, sunlit * (own == index), sigma) for index in range(len(shares))]
+    if curves:
+        albedo = sum(
+            share * surface.apply_curve(colour, curves[layer["name"]])
+            for share, colour, layer in zip(shares, passed, layers, strict=True)
+        )
+        smooth = surface.to_encoded(albedo)
+    else:
+        smooth = sum(share * colour for share, colour in zip(shares, passed, strict=True))
     _write_rgb(smooth, out / "macro_colour.png")
     return {
         "file": "macro_colour.png",
@@ -343,6 +431,7 @@ def build_context(
     out: Path,
     detailed: np.ndarray,
     origin_height_m: float,
+    classes: dict | None = None,
 ) -> dict:
     """A coarse surround centred on the tile, so the detailed surface does not end in a cliff against the sky."""
     tile = site.tile
@@ -374,9 +463,19 @@ def build_context(
     Image.fromarray(frame.to_unreal_layout(heights)).save(out / "context_heightmap.png")
 
     pixel = site.context_size_m / CONTEXT_MACRO_PIXELS
+    bands, has_nir = imagery_bands(site.imagery)
     colour = _warp(
-        imagery, site.crs, west + pixel / 2, top - pixel / 2, pixel, CONTEXT_MACRO_PIXELS, Resampling.average
+        imagery, site.crs, west + pixel / 2, top - pixel / 2, pixel, CONTEXT_MACRO_PIXELS, Resampling.average, bands
     )
+    colour = np.stack([_fill_gaps(band, "imagery")[0] for band in colour])
+    curves = (classes or {}).get("albedo", {}).get("curves")
+    vegetated = None
+    if curves and has_nir and len(classes["layers"]) == 2:
+        # The surround takes the tile's fitted vegetation split and each class's fitted curve.
+        vegetated = (colour[3] - colour[0]) / np.maximum(colour[3] + colour[0], 1.0) >= classes["splits"][0][
+            "threshold"
+        ]
+    colour = colour[:3]
     clear = np.ones(colour.shape[1:], dtype=np.float32)
     if canopy:
         # The share of each coarse pixel that no canopy stands over. The surround has no lidar and no shadow.
@@ -393,9 +492,20 @@ def build_context(
                 resampling=Resampling.average,
             )
         clear = 1 - clear
-    for band in range(colour.shape[0]):
-        values, _ = _fill_gaps(colour[band], "imagery")
-        colour[band] = _low_pass_of_sunlit(values, clear, MACRO_LOW_PASS_M / pixel)
+    sigma = MACRO_LOW_PASS_M / pixel
+    if vegetated is None:
+        colour = _low_pass_of_sunlit(colour, clear, sigma)
+        if curves:
+            # No split to tell the classes apart out here: the tile's first class stands in for all of it.
+            colour = surface.to_encoded(surface.apply_curve(colour, curves[classes["layers"][0]["name"]]))
+    else:
+        share = _blur(vegetated.astype(np.float32), sigma)
+        names = [layer["name"] for layer in classes["layers"]]
+        colour = surface.to_encoded(
+            share * surface.apply_curve(_low_pass_of_sunlit(colour, clear * vegetated, sigma), curves[names[0]])
+            + (1 - share)
+            * surface.apply_curve(_low_pass_of_sunlit(colour, clear * ~vegetated, sigma), curves[names[1]])
+        )
     _write_rgb(colour, out / "context_colour.png")
 
     half_cm = site.context_size_m * 100 / 2
@@ -460,6 +570,8 @@ def build(site_path: Path, out: Path, cache: Path | None = None) -> dict:
     cache = cache or out / "cache"
     sources = acquire(site, cache)
     dem, imagery = Path(sources["elevation"]["path"]), Path(sources["imagery"]["path"])
+    reflectance = Path(sources["reflectance"]["path"]) if site.reflectance else None
+    bands = [site.imagery.bands, site.reflectance.bands if site.reflectance else None]
     grid = [tile.west, tile.south, tile.quad_m, tile.quads]
 
     # The lidar's identity is cheap to get; its rasters are only built when a stage has to run.
@@ -522,6 +634,12 @@ def build(site_path: Path, out: Path, cache: Path | None = None) -> dict:
             site.crs,
             sources["imagery"]["sha256"],
             cover_hashes,
+            bands,
+            sources["reflectance"]["sha256"] if reflectance else None,
+            surface.PURE_SHARE,
+            surface.PURE_SUNLIT,
+            surface.PURE_MIN_PIXELS,
+            surface.REFLECTANCE_CHECKS,
             surface.SEPARATION_MIN,
             surface.COHERENCE_MIN,
             surface.MIXTURE_SAMPLE,
@@ -534,7 +652,7 @@ def build(site_path: Path, out: Path, cache: Path | None = None) -> dict:
             surface.EDGE_M,
             surface.MAJORITY_CELLS,
         ),
-        lambda: build_surface(site, imagery, out, covering),
+        lambda: build_surface(site, imagery, out, covering, reflectance),
     )
     classes = stages["surface"]
     stages["macro_colour"] = _cached(
@@ -548,8 +666,19 @@ def build(site_path: Path, out: Path, cache: Path | None = None) -> dict:
             [sha256_file(out / name) for name in classes["files"]],
             MACRO_PIXELS,
             MACRO_LOW_PASS_M,
+            bands,
+            classes["albedo"].get("curves"),
         ),
-        lambda: build_macro_colour(tile, site.crs, imagery, out, covering, classes["layers"]),
+        lambda: build_macro_colour(
+            tile,
+            site.crs,
+            imagery,
+            out,
+            covering,
+            classes["layers"],
+            imagery_bands(site.imagery)[0],
+            classes["albedo"].get("curves"),
+        ),
     )
     macro = stages["macro_colour"]
 
@@ -614,6 +743,9 @@ def build(site_path: Path, out: Path, cache: Path | None = None) -> dict:
                 CONTEXT_QUADS,
                 CONTEXT_MACRO_PIXELS,
                 MACRO_LOW_PASS_M,
+                bands,
+                classes["albedo"].get("curves"),
+                classes["splits"],
             ),
             lambda: build_context(
                 site,
@@ -624,6 +756,7 @@ def build(site_path: Path, out: Path, cache: Path | None = None) -> dict:
                 out,
                 read_heights(out, elevation),
                 elevation["origin_height_m"],
+                classes,
             ),
         )
         context = stages["context"]

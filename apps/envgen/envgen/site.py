@@ -30,6 +30,11 @@ class Source:
     license: str
     date: str
     request_spacing_m: float | None = None
+    # Which band of a raster holds what, by name and 1-based number, when the file's own tags do not say.
+    bands: tuple[tuple[str, int], ...] | None = None
+
+    def band(self, name: str) -> int | None:
+        return dict(self.bands or ()).get(name)
 
     @staticmethod
     def parse(raw: dict, base: Path, name: str) -> Source:
@@ -45,14 +50,25 @@ class Source:
         elif kind == "ept" and name == "lidar":
             location = raw["endpoint"].rstrip("/")
         else:
-            allowed = {"lidar": "'file' or 'ept'", "canopy_height": "'file' or 'cog'"}.get(
+            allowed = {"lidar": "'file' or 'ept'", "canopy_height": "'file' or 'cog'", "reflectance": "'file'"}.get(
                 name, "'file' or 'arcgis_imageserver'"
             )
             raise SiteError(f"sources.{name}: kind must be {allowed}, got {kind!r}")
         for field in ("license", "date"):
             if not raw.get(field):
                 raise SiteError(f"sources.{name}: {field} is required, so the source registry can state it")
-        return Source(kind, location, raw["license"], raw["date"], raw.get("request_spacing_m"))
+        bands = raw.get("bands")
+        if bands is not None:
+            if not all(isinstance(number, int) and number >= 1 for number in bands.values()) or not {
+                "red",
+                "green",
+                "blue",
+            } <= set(bands):
+                raise SiteError(f"sources.{name}: bands must give red, green and blue as 1-based band numbers")
+            bands = tuple(sorted(bands.items()))
+        elif name == "reflectance":
+            raise SiteError("sources.reflectance: bands is required, naming at least red, green and blue")
+        return Source(kind, location, raw["license"], raw["date"], raw.get("request_spacing_m"), bands)
 
 
 @dataclass(frozen=True)
@@ -106,6 +122,8 @@ class Site:
     lidar: Source | None  # optional: masks trees and roofs out of the colour map, and finds interpolated ground
     canopy_height: Source | None  # optional: a raster of canopy height in metres, for cover the lidar missed
     context_size_m: float | None  # optional: side of a coarse surround, so the tile does not end in a cliff
+    # optional: measured surface reflectance (0 to 1) near the target date, which sets each class's albedo
+    reflectance: Source | None = None
 
 
 def acquisition_day(source: Source, name: str) -> date:
@@ -193,4 +211,7 @@ def load_site(path: Path) -> Site:
             Source.parse(sources["canopy_height"], path.parent, "canopy_height") if "canopy_height" in sources else None
         ),
         context_size_m=context_size(raw, tile),
+        reflectance=(
+            Source.parse(sources["reflectance"], path.parent, "reflectance") if "reflectance" in sources else None
+        ),
     )

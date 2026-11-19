@@ -2,13 +2,14 @@
 
 import numpy as np
 import pytest
+from PIL import Image
 
 from envgen import light, surface
 from envgen.build import build
 
 from . import helpers as h
 from .test_cover import DAY, LIDAR, TREE, sources, tree_returns
-from .test_surface import grass_and_paved
+from .test_surface import grass_and_paved, write_noisy_scene
 
 
 def srgb(linear):
@@ -119,3 +120,55 @@ def test_each_class_carries_its_mean_colour_in_linear_light_for_the_blades_of_gr
     }
     assert colours["grass"] == pytest.approx(expected["grass"], rel=0.08)
     assert colours["paved"] == pytest.approx(expected["paved"], rel=0.08)
+
+
+def test_with_a_reflectance_raster_the_colour_map_is_each_classs_measured_albedo_whatever_the_photos_tone(tmp_path):
+    # A photo whose tone curve squeezes the highlights: it records albedo to the power 0.3. Grass, then paving
+    # that is asphalt in the west and concrete in the east. The reflectance raster measures the albedo at 6 m.
+    tone = lambda albedo: tuple(round(255 * value**0.3) for value in albedo)
+    grass, asphalt, concrete = (0.06, 0.08, 0.04), (0.09, 0.09, 0.09), (0.28, 0.28, 0.28)
+    h.write_dem(tmp_path / "dem.tif")
+    patches = [(40, 0, 65, 126, tone(asphalt)), (65, 0, 90, 126, tone(concrete))]
+    write_noisy_scene(tmp_path / "imagery.tif", tone(grass), patches)
+    west, north, count = h.WEST - 12, h.SOUTH + h.SIZE_M + 12, 25
+    eastings = west + (np.arange(count) + 0.5) * 6 - h.WEST
+    measured = np.empty((3, count, count), dtype=np.float32)
+    for band in range(3):
+        row = np.where(eastings < 40, grass[band], np.where(eastings < 65, asphalt[band], concrete[band]))
+        measured[band] = np.where(eastings >= 90, grass[band], row)[None, :]
+    h.write_raster(tmp_path / "reflectance.tif", measured[::-1], west, north, 6.0)
+    reflectance = {
+        "kind": "file",
+        "path": "reflectance.tif",
+        "license": "test",
+        "date": "2030-06",
+        "bands": {"blue": 1, "green": 2, "red": 3},
+    }
+    site = h.write_site(
+        tmp_path,
+        sources={
+            "elevation": {"kind": "file", "path": "dem.tif", "license": "test", "date": "2030"},
+            "imagery": {"kind": "file", "path": "imagery.tif", "license": "test", "date": "2030"},
+            "reflectance": reflectance,
+        },
+    )
+    out = tmp_path / "out"
+
+    manifest = build(site, out)
+
+    fit = manifest["surface"]["albedo"]
+    assert fit["scale"] == 1.0 and set(fit["curves"]) == {"grass", "paved"}
+    # The curve undoes the photo's tone: reflectance goes as the photo's linear colour to a power well above 1.
+    assert min(fit["curves"]["paved"]["gamma"]) > 1.5
+    colour = np.asarray(Image.open(out / "macro_colour.png")).astype(float)
+    pixels = colour.shape[0] / h.SIZE_M
+    albedo = lambda east_m, north_m: surface.to_linear(colour[round(east_m * pixels), round(north_m * pixels)])
+    assert albedo(20, 60) == pytest.approx(grass, rel=0.2)
+    assert albedo(52, 60) == pytest.approx(asphalt, rel=0.2)
+    assert albedo(78, 60) == pytest.approx(concrete, rel=0.2)
+    by_name = {layer["name"]: layer for layer in manifest["surface"]["layers"]}
+    assert by_name["grass"]["mean_linear_rgb"] == pytest.approx(grass, rel=0.05)
+    checks = {(check["surface"], check["quantile"]): check for check in fit["checks"]}
+    assert checks[("old asphalt road (GDS376)", "p10")]["measured_reflectance"] == pytest.approx(0.09, rel=0.05)
+    assert checks[("light grey concrete road (GDS375)", "p90")]["measured_reflectance"] == pytest.approx(0.28, rel=0.05)
+    assert manifest["sources"]["reflectance"]["date"] == "2030-06"

@@ -17,6 +17,9 @@ GRASS, PAVED, SOIL = "grass", "paved", "soil"
 # Both are shares of the cell's brightness, so a shaded or dim cell of the same material gives the same value.
 GREEN_INDEX = "(G - B) / (R + G + B)"
 RED_INDEX = "(R - B) / (R + G + B)"
+# With a near-infrared band the vegetation split uses it instead: leaves reflect near-infrared strongly and absorb
+# red whether they are green or dry, which colour alone cannot tell from pale ground.
+NIR_INDEX = "(NIR - R) / (NIR + R)"
 
 # A split is made only when the colours are two populations and the cells of each form patches.
 # Two populations: a two-component Gaussian mixture is fitted to the colours, and its components must sit at least
@@ -150,10 +153,15 @@ def _split(
     return threshold, record | {"split": True}
 
 
-def classify(rgb: np.ndarray, sunlit: np.ndarray, cell_m: float) -> tuple[np.ndarray, list[str], dict]:
+def classify(
+    rgb: np.ndarray, sunlit: np.ndarray, cell_m: float, nir: np.ndarray | None = None
+) -> tuple[np.ndarray, list[str], dict]:
     """A class for every cell. Returns the class index map, the class names and what was fitted.
 
-    `sunlit` marks cells whose imagery shows ground in sunlight; only those are fitted to and read.
+    `sunlit` marks cells whose imagery shows ground in sunlight; every split is fitted to those only. Without a
+    near-infrared band only those are read too, and the rest take the class of the nearest one. With `nir` every
+    cell is read: the index is a ratio of two bands, which shade dims together, and a cell under cover shows what
+    the cover is, so ground under a crown is classed with the vegetation and a roof with the unvegetated ground.
     """
     shape = rgb.shape[1:]
     shown = sunlit.astype(bool)
@@ -162,7 +170,7 @@ def classify(rgb: np.ndarray, sunlit: np.ndarray, cell_m: float) -> tuple[np.nda
         return (
             np.zeros(shape, dtype=np.uint8),
             [PRIOR_SINGLE_CLASS],
-            {"splits": [], "priors": [f"prior: one class, {PRIOR_SINGLE_CLASS}; {reason}"]},
+            {"splits": [], "priors": [f"prior: one class, {PRIOR_SINGLE_CLASS}; {reason}"], "settings": SETTINGS},
         )
     green, red, brightness = indices(rgb)
     # Each cell counts in a fit by its brightness squared: an index is a ratio, and with the same noise in every
@@ -170,8 +178,14 @@ def classify(rgb: np.ndarray, sunlit: np.ndarray, cell_m: float) -> tuple[np.nda
     # not decide where the cut falls.
     brightness = brightness**2
     what = "sunlit cells, each weighted by its squared brightness"
+    vegetation, vegetation_weight, vegetation_index, fitted_to = green, brightness, GREEN_INDEX, what
+    if nir is not None:
+        # The same argument, for the two bands this index is made of.
+        total = np.maximum(nir + rgb[0], 1.0)
+        vegetation, vegetation_weight, vegetation_index = (nir - rgb[0]) / total, total**2, NIR_INDEX
+        fitted_to = "sunlit cells, each weighted by the square of its red plus near-infrared"
     splits = []
-    greener, record = _split(green, brightness, shown, cell_m, what, GREEN_INDEX)
+    greener, record = _split(vegetation, vegetation_weight, shown, cell_m, fitted_to, vegetation_index)
     splits.append(record | {"separates": "grass from other ground"})
     labels = np.zeros(shape, dtype=np.uint8)
     names = [PRIOR_SINGLE_CLASS]
@@ -180,7 +194,7 @@ def classify(rgb: np.ndarray, sunlit: np.ndarray, cell_m: float) -> tuple[np.nda
         priors.append(f"prior: one class, {PRIOR_SINGLE_CLASS}; {record['reason']}")
     else:
         names = [GRASS, PAVED]
-        labels[:] = np.where(green >= greener, 0, 1)
+        labels[:] = np.where(vegetation >= greener, 0, 1)
         other = shown & (labels == 1)
         redder, record = _split(
             red, brightness, other, cell_m, "the sunlit cells that are not grass, " + what.split(", ")[1], RED_INDEX
@@ -189,10 +203,15 @@ def classify(rgb: np.ndarray, sunlit: np.ndarray, cell_m: float) -> tuple[np.nda
         if redder is not None:
             names.append(SOIL)
             labels[(labels == 1) & (red >= redder)] = 2
-    # Ground the imagery does not show takes the class of the nearest ground it does.
-    nearest = ndimage.distance_transform_edt(~shown, return_distances=False, return_indices=True)
-    labels = labels[tuple(nearest)]
-    return labels, names, {"splits": splits, "priors": priors, "settings": SETTINGS}
+    if nir is None:
+        # Ground the imagery does not show takes the class of the nearest ground it does.
+        nearest = ndimage.distance_transform_edt(~shown, return_distances=False, return_indices=True)
+        labels = labels[tuple(nearest)]
+        hidden = "takes the class of the nearest sunlit cell"
+    else:
+        hidden = "read like any other cell"
+        priors.append("prior: ground under a crown is the vegetated class, and a roof the unvegetated one")
+    return labels, names, {"splits": splits, "priors": priors, "settings": SETTINGS, "hidden_ground": hidden}
 
 
 def weights(labels: np.ndarray, count: int, cell_m: float) -> list[np.ndarray]:
@@ -244,6 +263,13 @@ def check_points(layers: list[np.ndarray], names: list[str]) -> list[dict]:
     ]
 
 
+# With a measured reflectance raster, each class's albedo is fitted to it. A reflectance pixel counts for a class
+# when this share of it is that class and this share of it is sunlit in the photo. Hand-set criteria.
+PURE_SHARE = 0.9
+PURE_SUNLIT = 0.8
+# A class needs this many such pixels for a fit of its own. Hand-set.
+PURE_MIN_PIXELS = 30
+
 # Every value set by hand in this module, for the manifest: none is a measurement.
 SETTINGS = {
     "kind": "prior",
@@ -252,6 +278,9 @@ SETTINGS = {
     "group_min_m2": GROUP_MIN_M2,
     "edge_m": EDGE_M,
     "majority_cells": MAJORITY_CELLS,
+    "pure_share": PURE_SHARE,
+    "pure_sunlit": PURE_SUNLIT,
+    "pure_min_pixels": PURE_MIN_PIXELS,
 }
 
 # Luminous reflectance of surfaces measured with a spectrometer, used to turn the photo's brightness into albedo.
@@ -270,6 +299,14 @@ CHECKS = (
 )
 # Used only when the tile has none of the anchoring surfaces.
 ALBEDO_SCALE_PRIOR = 0.5
+
+# The same library spectra, now as checks on a fit that does not use them: which quantile of a class's measured
+# luminous reflectance each should be near.
+REFLECTANCE_CHECKS = (
+    (PAVED, "p10", 0.0878, "old asphalt road (GDS376)"),
+    (PAVED, "p90", 0.2875, "light grey concrete road (GDS375)"),
+    (GRASS, "p50", 0.0722, "green lawn grass (GDS91)"),
+)
 
 
 def class_luminance(rgb: np.ndarray, labels: np.ndarray, shown: np.ndarray, names: list[str]) -> dict[str, dict]:
@@ -338,3 +375,90 @@ def fit_albedo(luminance: dict[str, dict]) -> dict:
         "source": "USGS Spectral Library v7, ASD spectra weighted by the CIE 1931 y-bar curve over 380 to 780 nm",
         "priors": ["prior: the median sunlit paving is concrete"],
     }
+
+
+def to_linear(encoded: np.ndarray) -> np.ndarray:
+    """sRGB-encoded values, 0 to 255, as linear light, 0 to 1."""
+    encoded = np.clip(encoded, 0, 255) / 255
+    return np.where(encoded <= 0.04045, encoded / 12.92, ((encoded + 0.055) / 1.055) ** 2.4)
+
+
+def to_encoded(linear: np.ndarray) -> np.ndarray:
+    """Linear light, 0 to 1, as sRGB-encoded values, 0 to 255."""
+    linear = np.clip(linear, 0, 1)
+    return 255 * np.where(linear <= 0.0031308, 12.92 * linear, 1.055 * linear ** (1 / 2.4) - 0.055)
+
+
+def luminous(rgb: np.ndarray) -> np.ndarray:
+    return 0.2126 * rgb[0] + 0.7152 * rgb[1] + 0.0722 * rgb[2]
+
+
+def fit_reflectance(
+    photo: np.ndarray, measured: np.ndarray, shares: np.ndarray, sunlit: np.ndarray, names: list[str]
+) -> dict:
+    """Fit, for each class and band, the curve that turns the photo's linear colour into measured reflectance.
+
+    Every argument is on the reflectance raster's pixels: `photo` the mean linear colour of the photo's sunlit
+    cells in each (3, pixels), `measured` the reflectance (3, pixels), `shares` each class's share of each pixel
+    (classes, pixels) and `sunlit` the sunlit share. A photo's tone curve is not known and need not be linear, so
+    each curve is a power law, `reflectance = gain * photo ** gamma`, fitted by least squares in logarithms over the
+    pixels that are one class and in sunlight. The measurement sets the level; the photo places the pattern.
+    """
+    valid = np.isfinite(photo).all(axis=0) & np.isfinite(measured).all(axis=0) & (photo > 0).all(axis=0)
+    valid &= (measured > 0).all(axis=0) & (sunlit >= PURE_SUNLIT)
+    curves, checks, priors = {}, [], []
+    for index, name in enumerate(names):
+        pure = valid & (shares[index] >= PURE_SHARE)
+        if pure.sum() < PURE_MIN_PIXELS:
+            priors.append(f"prior: {name} has too few pure reflectance pixels; it takes the fit over all ground")
+            pure = valid
+        if pure.sum() < PURE_MIN_PIXELS:
+            return {}
+        x, y = np.log(photo[:, pure]), np.log(measured[:, pure])
+        gamma, offset, rms = [], [], []
+        for band in range(3):
+            spread = x[band].var()
+            slope = float(((x[band] - x[band].mean()) * (y[band] - y[band].mean())).mean() / spread) if spread else 0.0
+            gamma.append(slope)
+            offset.append(float(y[band].mean() - slope * x[band].mean()))
+            rms.append(float(np.sqrt(((y[band] - offset[-1] - slope * x[band]) ** 2).mean())))
+        quantiles = np.quantile(luminous(measured[:, pure]), (0.1, 0.5, 0.9))
+        curves[name] = {
+            "gain": [float(np.exp(value)) for value in offset],
+            "gamma": gamma,
+            # The curve is only trusted over the reflectance it was fitted to.
+            "range": [[float(v) for v in np.quantile(measured[band, pure], (0.01, 0.99))] for band in range(3)],
+            "median_reflectance": [float(np.median(measured[band, pure])) for band in range(3)],
+            "luminous_reflectance": dict(zip(("p10", "p50", "p90"), (float(v) for v in quantiles), strict=True)),
+            "pixels": int(pure.sum()),
+            "rms_log_residual": rms,
+        }
+    for name, quantile, reflectance, what in REFLECTANCE_CHECKS:
+        if name in curves:
+            checks.append(
+                {
+                    "surface": what,
+                    "class": name,
+                    "quantile": quantile,
+                    "spectrum_reflectance": reflectance,
+                    "measured_reflectance": curves[name]["luminous_reflectance"][quantile],
+                }
+            )
+    return {
+        # The colour map is written as albedo, so the engine multiplies it by one.
+        "scale": 1.0,
+        "curves": curves,
+        "checks": checks,
+        "source": "each class fitted to the site's reflectance raster; checked against USGS Spectral Library v7 "
+        "ASD spectra weighted by the CIE 1931 y-bar curve over 380 to 780 nm",
+        "priors": priors,
+    }
+
+
+def apply_curve(encoded: np.ndarray, curve: dict) -> np.ndarray:
+    """Photo colour (3, ...), sRGB-encoded 0 to 255, as linear albedo by one class's fitted curve."""
+    linear = np.maximum(to_linear(encoded), 1e-4)
+    shape = (3,) + (1,) * (encoded.ndim - 1)
+    albedo = np.reshape(curve["gain"], shape) * linear ** np.reshape(curve["gamma"], shape)
+    low, high = (np.reshape([band[side] for band in curve["range"]], shape) for side in (0, 1))
+    return np.clip(albedo, low, high)

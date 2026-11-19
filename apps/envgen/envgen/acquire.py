@@ -159,6 +159,8 @@ def _windows(site: Site) -> list[tuple[str, Source, tuple[float, float, float, f
     ]
     if site.canopy_height:
         wanted.append(("canopy_height", site.canopy_height, tile.bounds(MARGIN_M), None))
+    if site.reflectance:
+        wanted.append(("reflectance", site.reflectance, tile.bounds(MARGIN_M), None))
     if site.context_size_m:
         spacing = site.context_size_m / CONTEXT_QUADS
         half = site.context_size_m / 2 + spacing

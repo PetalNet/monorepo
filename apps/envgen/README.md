@@ -25,16 +25,16 @@ pip install -e ".[test]"
 envgen build site.json --out build/ --cache cache/
 ```
 
-| Stage        | Reads                                          | Writes                                                         |
-| ------------ | ---------------------------------------------- | -------------------------------------------------------------- |
-| Acquire      | `site.json` sources                            | each source clipped to the tile, once, into the cache          |
-| Structure    | lidar points, if the site has them             | height above ground, and distance to the nearest ground return |
-| Elevation    | the elevation raster                           | `heightmap.png`, 16-bit, Landscape layout                      |
-| Cover        | lidar heights, a canopy height raster, both    | `canopy_height.tif`, `sunlit.tif`, north-up at 1 m             |
-| Surface      | the imagery raster, and which ground is sunlit | `surface_<class>.png`: one 8-bit weightmap per class           |
-| Macro colour | the imagery, the sunlit ground and the classes | `macro_colour.png`, low-passed at 12 m within each class       |
-| Surround     | both rasters at coarse spacing, if asked for   | `context_heightmap.png`, `context_colour.png`                  |
-| Manifest     | everything above                               | `build.json`: placement, georeference, stencil classes, hashes |
+| Stage        | Reads                                          | Writes                                                                                                  |
+| ------------ | ---------------------------------------------- | ------------------------------------------------------------------------------------------------------- |
+| Acquire      | `site.json` sources                            | each source clipped to the tile, once, into the cache                                                   |
+| Structure    | lidar points, if the site has them             | height above ground, and distance to the nearest ground return                                          |
+| Elevation    | the elevation raster                           | `heightmap.png`, 16-bit, Landscape layout                                                               |
+| Cover        | lidar heights, a canopy height raster, both    | `canopy_height.tif`, `sunlit.tif`, north-up at 1 m                                                      |
+| Surface      | the imagery raster, and which ground is sunlit | `surface_<class>.png`: one 8-bit weightmap per class                                                    |
+| Macro colour | the imagery, the sunlit ground and the classes | `macro_colour.png`, low-passed at 12 m within each class; albedo when the site has a reflectance raster |
+| Surround     | both rasters at coarse spacing, if asked for   | `context_heightmap.png`, `context_colour.png`                                                           |
+| Manifest     | everything above                               | `build.json`: placement, georeference, stencil classes, hashes                                          |
 
 - A source is either a local raster (`"kind": "file"`) or an ArcGIS ImageServer
   (`"kind": "arcgis_imageserver"`), which covers USGS 3DEP elevation and many state imagery services.
@@ -48,6 +48,12 @@ envgen build site.json --out build/ --cache cache/
 - `sources.canopy_height` is optional: a raster of canopy height in metres, as a file or as a
   cloud-optimised GeoTIFF read by window (`"kind": "cog"`, with a `url` GDAL can open, such as
   `/vsicurl/https://...`). Only the window over the tile, and over the surround, is read, once.
+- `sources.imagery.bands` is optional: which band holds what, as 1-based numbers, for a raster whose own tags do
+  not say (`{"red": 1, "green": 2, "blue": 3, "nir": 4}`). Without it the first three bands are red, green and
+  blue. Naming a near-infrared band changes how vegetation is found (see Surface classes).
+- `sources.reflectance` is optional: a raster file of measured surface reflectance, 0 to 1, near the target date
+  (an atmospherically corrected satellite scene, for example), with `bands` naming red, green and blue. It sets each
+  class's albedo (see Albedo and light).
 - `"context": {"size_m": 4032}` is optional: a coarse surround of that side, centred on the tile, as
   a second heightmap and colour map. It passes 1 m under the detailed surface, so the tile does not
   end in a cliff against the sky. With a canopy height raster its colour leaves canopy out; the
@@ -101,6 +107,11 @@ nearest ground that shows it.
   material in sun and in dim light gives the same value. Each cell counts by its squared brightness: with the
   same noise in every channel an index's variance goes as one over that, so dark roofs and asphalt, which
   lean blue, do not decide where the cut falls.
+- With a near-infrared band named in the site file the grass split is on `(NIR - R) / (NIR + R)` instead. Leaves
+  reflect near-infrared and absorb red whether green or dry, so dry turf the colour of pale paving is still
+  found. Each cell counts by the square of its red plus near-infrared. Every cell is then read itself, shade and
+  cover included: shade dims both bands together, and a cell under cover shows what the cover is. Ground under a
+  crown is therefore the vegetated class and a roof the unvegetated one, which is a prior and listed as one.
 - Soil against paved: the same method on `(R - B) / (R + G + B)` over the sunlit cells that are not grass.
 - A split is made only when all of these hold. Each group covers at least 1000 m2. The colours are two
   populations: a two-component Gaussian mixture, started from the cut and fitted by EM, has components at
@@ -122,8 +133,14 @@ Landscape); for each split the index, what it was fitted to, the threshold, the 
 the coherence and whether a split was made, with the reason when not; and `settings`, every value set by hand
 (tagged `prior`).
 
+On one real tile the colour index had put 60 % of the ground in `paved`. More than half of that was hidden ground
+filled from its nearest sunlit neighbour, and dry turf read as paving. With the near-infrared band `paved` is 52 %,
+against 51 % impervious in a 30 m land cover product (correlation by 30 m cell 0.76, from 0.66), and inside a
+recent low-altitude survey of the open field it fell from 14 % to 3 %.
+
 Limits:
 
+- With near-infrared, synthetic turf is `paved`, and ground under a street tree is `grass`.
 - A class is named by its colour: the greener side is called grass. A tile of bare ground and pavement with
   no vegetation would call its greener part grass.
 - Soil is whatever unvegetated bright ground is redder than the rest, which may be clay, a track or red roofing.
@@ -142,6 +159,16 @@ turns the photo's linear colour into albedo, and `lighting` is the sun the level
   the curve). Not fitted to, but reported in `build.json` beside the fit: the darkest paving against a measured
   old asphalt road (0.088), and the grass class against the library's green lawn grass (0.072), because the
   imagery's turf can be dry and brighter.
+- With `sources.reflectance` the scale is 1 and the colour map itself is albedo. For each class and band a power
+  law, `reflectance = gain * photo ** gamma`, is fitted by least squares in logarithms over the reflectance pixels
+  that are at least 90 % that class and 80 % sunlit in the photo (at least 30 of them; else the class takes the fit
+  over all ground, listed as a prior). A photo's tone curve is unknown and need not be linear: on the real tile
+  map-tagged concrete was only 1.13 times as bright as asphalt in the photo, against 3.3 in the library, so no one
+  scale could fit both. The measurement sets each class's level and its season; the photo places the pattern. A
+  curve is trusted only between the 1st and 99th percentile of the reflectance it was fitted to. The surround
+  takes the tile's split and curves. The library spectra become checks, reported in `build.json`: the paved
+  class's 10th and 90th percentile against asphalt and concrete, and the grass median against green lawn. On the
+  real tile these read 0.082 against 0.088, 0.200 against 0.288, and 0.071 against 0.072.
 - The sun is where astronomy puts it at the target date and at the imagery's mean solar time of day, which the
   cover stage fitted. The equation of time is not carried over, so on another date the sun can be up to about
   7 degrees of hour angle off the imagery's. A date and time at which the sun is below 5 degrees is refused. Its strength is a clear-sky direct beam (Meinel and Meinel,
@@ -154,6 +181,10 @@ turns the photo's linear colour into albedo, and `lighting` is the sun the level
 
 Limits:
 
+- The reflectance fit joins two dates. Where the ground changed between the photo and the measurement the curve
+  is flatter than the truth, and the pattern is still the photo's.
+- Reflectance pixels are far coarser than the photo, so the fit sees little of the contrast inside a class and a
+  curve is flatter than the photo's real tone curve.
 - With one anchor the fit's spread is always 0, and nothing acts when the asphalt and grass checks disagree: a tile
   whose median paving is asphalt gets a scale about 3 times too high. Without a cover stage every cell counts
   as sunlit, shade included.
