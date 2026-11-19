@@ -109,6 +109,7 @@ it("writes a status file with the surviving totals and the last eviction time", 
 		const now = Date.now();
 
 		await mkdir(data);
+
 		await Promise.all(
 			["a", "b", "c", "d", "e"].map(async (name, index) => {
 				const file = path.join(data, name);
@@ -132,12 +133,14 @@ it("writes a status file with the surviving totals and the last eviction time", 
 			evicted_files: 3,
 			evicted_bytes: 3000,
 		});
+
 		expect(afterFirst["last_eviction"]).toBeGreaterThan(0);
 
 		// A pass that evicts nothing reports zero but keeps when eviction last happened.
 		const second = evict(data, { CACHE_MAX_BYTES: "3000", CACHE_STATUS_FILE: status });
 
 		expect(second.status, second.stderr).toBe(0);
+
 		expect(JSON.parse(await readFile(status, "utf8"))).toMatchObject({
 			files: 2,
 			evicted_files: 0,

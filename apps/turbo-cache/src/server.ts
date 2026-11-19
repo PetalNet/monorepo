@@ -123,17 +123,21 @@ export const application = (exchanger: Exchanger, site?: Site) => {
 				}
 			}
 
-			const answer = yield* Effect.tryPromise(async () => {
-				const response = await fetch(`${site.cacheUrl}${request.url}`, {
-					method: "POST",
-					headers,
-					body,
-					redirect: "error",
-					signal: AbortSignal.timeout(10_000),
-				});
+			const answer = yield* Effect.promise(async () => {
+				try {
+					const response = await fetch(`${site.cacheUrl}${request.url}`, {
+						method: "POST",
+						headers,
+						body,
+						redirect: "error",
+						signal: AbortSignal.timeout(10_000),
+					});
 
-				return { response, text: await response.text() };
-			}).pipe(Effect.orElseSucceed(() => null));
+					return { response, text: await response.text() };
+				} catch {
+					return null;
+				}
+			});
 
 			if (answer === null) {
 				return HttpServerResponse.empty({ status: 502 });

@@ -44,7 +44,7 @@ function icon(node: IconNode, label = "") {
 
 const gib = 1024 ** 3;
 
-export function formatBytes(bytes: number) {
+function formatBytes(bytes: number) {
 	if (bytes >= gib) {
 		return `${(bytes / gib).toFixed(bytes >= 10 * gib ? 1 : 2)} GiB`;
 	}
@@ -53,10 +53,10 @@ export function formatBytes(bytes: number) {
 		return `${(bytes / 1024 ** 2).toFixed(1)} MiB`;
 	}
 
-	return `${Math.round(bytes / 1024)} KiB`;
+	return `${String(Math.round(bytes / 1024))} KiB`;
 }
 
-export function formatAgo(from: number, now: number) {
+function formatAgo(from: number, now: number) {
 	const seconds = Math.max(0, Math.round((now - from) / 1000));
 
 	if (seconds < 90) {
@@ -64,17 +64,17 @@ export function formatAgo(from: number, now: number) {
 	}
 
 	if (seconds < 5400) {
-		return `${Math.round(seconds / 60)} minutes ago`;
+		return `${String(Math.round(seconds / 60))} minutes ago`;
 	}
 
 	if (seconds < 36 * 3600) {
-		return `${Math.round(seconds / 3600)} hours ago`;
+		return `${String(Math.round(seconds / 3600))} hours ago`;
 	}
 
-	return `${Math.round(seconds / 86400)} days ago`;
+	return `${String(Math.round(seconds / 86400))} days ago`;
 }
 
-const utc = (ms: number) => new Date(ms).toISOString().slice(0, 16).replace("T", " ") + " UTC";
+const utc = (ms: number) => `${new Date(ms).toISOString().slice(0, 16).replace("T", " ")} UTC`;
 const count = (n: number) => n.toLocaleString("en-US");
 
 function storageCard(data: HomeData) {
@@ -100,7 +100,7 @@ function storageCard(data: HomeData) {
 	return `<section class="card" aria-labelledby="h-storage">
 	<h2 id="h-storage">${icon(HardDrive)}Storage</h2>
 	<p class="figure"><span class="num">${formatBytes(storage.bytes)}</span> <span class="of">of ${formatBytes(storage.max_bytes)} cap</span></p>
-	<div class="meter" role="meter" aria-label="Cache used" aria-valuemin="0" aria-valuemax="${storage.max_bytes}" aria-valuenow="${storage.bytes}"><span class="fill" style="inline-size:${(share * 100).toFixed(1)}%"></span></div>
+	<div class="meter" role="meter" aria-label="Cache used" aria-valuemin="0" aria-valuemax="${String(storage.max_bytes)}" aria-valuenow="${String(storage.bytes)}"><span class="fill" style="inline-size:${(share * 100).toFixed(1)}%"></span></div>
 	<dl class="facts">
 		<div><dt>Artifacts</dt><dd>${count(storage.files)}</dd></div>
 		<div><dt>Used</dt><dd>${(share * 100).toFixed(1)}% of cap</dd></div>
@@ -119,7 +119,7 @@ function trafficCard(data: HomeData) {
 	const rate = total === 0 ? null : (events.hit / total) * 100;
 	const bars = events.hours
 		.map((hour) => {
-			const label = `${new Date(hour.start).toISOString().slice(11, 13)}:00 UTC, ${hour.hit} hits, ${hour.miss} misses`;
+			const label = `${new Date(hour.start).toISOString().slice(11, 13)}:00 UTC, ${String(hour.hit)} hits, ${String(hour.miss)} misses`;
 			const hit = (hour.hit / peak) * 100;
 			const miss = (hour.miss / peak) * 100;
 

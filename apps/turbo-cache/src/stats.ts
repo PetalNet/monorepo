@@ -25,7 +25,7 @@ export interface CacheEvents {
 }
 
 // Turbo reports one event per task it looked up remotely: { source, event: HIT | MISS }.
-const Event = Schema.Struct({ source: Schema.String, event: Schema.String });
+const isEvent = Schema.is(Schema.Struct({ source: Schema.String, event: Schema.String }));
 
 export function parseEvents(body: string): { hit: number; miss: number } {
 	const counts = { hit: 0, miss: 0 };
@@ -42,15 +42,13 @@ export function parseEvents(body: string): { hit: number; miss: number } {
 	}
 
 	for (const item of parsed.slice(0, 1000) as unknown[]) {
-		const event = Schema.decodeUnknownExit(Event)(item);
-
-		if (event._tag !== "Success" || event.value.source !== "REMOTE") {
+		if (!isEvent(item) || item.source !== "REMOTE") {
 			continue;
 		}
 
-		if (event.value.event === "HIT") {
+		if (item.event === "HIT") {
 			counts.hit += 1;
-		} else if (event.value.event === "MISS") {
+		} else if (item.event === "MISS") {
 			counts.miss += 1;
 		}
 	}
@@ -59,7 +57,7 @@ export function parseEvents(body: string): { hit: number; miss: number } {
 }
 
 export function createEventCounter(now: () => number = Date.now, saved?: typeof Saved.Type) {
-	let since = saved?.since ?? now();
+	const since = saved?.since ?? now();
 	const buckets = new Map<number, { hit: number; miss: number }>(
 		Object.entries(saved?.buckets ?? {}).map(([start, bucket]) => [Number(start), { ...bucket }]),
 	);

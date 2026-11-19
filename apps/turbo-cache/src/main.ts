@@ -83,6 +83,7 @@ const program = Effect.gen(function* () {
 			console.error("could not save cache events", error);
 		}
 	};
+
 	const saveTimer = setInterval(() => void save(), 15_000);
 
 	saveTimer.unref();

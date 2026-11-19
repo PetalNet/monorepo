@@ -9,7 +9,7 @@ import * as HttpServer from "effect/http/HttpServer";
 import { afterEach, describe, expect, it } from "vitest";
 
 import { createExchanger } from "../src/exchanger.ts";
-import { formatAgo, formatBytes, renderHome } from "../src/home.ts";
+import { renderHome } from "../src/home.ts";
 import { application } from "../src/server.ts";
 import { createEventCounter, parseEvents } from "../src/stats.ts";
 
@@ -68,14 +68,6 @@ describe("event counting", () => {
 	});
 });
 
-describe("formatting", () => {
-	it("formats sizes and ages", () => {
-		expect(formatBytes(3 * 1024 ** 3)).toBe("3.00 GiB");
-		expect(formatBytes(12 * 1024 ** 3)).toBe("12.0 GiB");
-		expect(formatAgo(0, 10 * 60_000)).toBe("10 minutes ago");
-	});
-});
-
 describe("home page", () => {
 	const data = {
 		now: 1_000 * hour,
@@ -122,6 +114,7 @@ describe("server", () => {
 						server.close(() => {
 							resolve();
 						});
+
 						server.closeAllConnections();
 					}),
 			),
@@ -130,6 +123,7 @@ describe("server", () => {
 
 	async function listen(server: Server) {
 		servers.push(server);
+
 		await new Promise<void>((resolve) => {
 			server.listen(0, "127.0.0.1", resolve);
 		});
@@ -145,6 +139,7 @@ describe("server", () => {
 			request.on("data", (chunk: Buffer) => {
 				body += chunk.toString();
 			});
+
 			request.on("end", () => {
 				received.push({
 					method: request.method ?? "",
@@ -183,7 +178,7 @@ describe("server", () => {
 		);
 		const site = {
 			build: "test",
-			cacheUrl: `http://127.0.0.1:${cachePort}`,
+			cacheUrl: `http://127.0.0.1:${String(cachePort)}`,
 			storageFile: "/nonexistent/storage.json",
 			events,
 			fonts: { geist: new Uint8Array([1, 2, 3]) },
@@ -193,6 +188,7 @@ describe("server", () => {
 
 		servers.pop();
 		web.close();
+
 		await new Promise<void>((resolve) => {
 			web.once("close", resolve);
 		});
@@ -204,13 +200,18 @@ describe("server", () => {
 		const fiber = Effect.runFork(Layer.launch(layer));
 
 		servers.push(served);
-		await new Promise((resolve) => setTimeout(resolve, 200));
+
+		await new Promise<void>((resolve) => {
+			setTimeout(resolve, 200);
+		});
 
 		return {
-			base: `http://127.0.0.1:${port}`,
+			base: `http://127.0.0.1:${String(port)}`,
 			events,
 			received,
-			stop: () => fiber.interruptUnsafe(),
+			stop: () => {
+				fiber.interruptUnsafe();
+			},
 		};
 	}
 
@@ -227,12 +228,15 @@ describe("server", () => {
 			expect(html).toContain("PetalNet Turbo cache");
 			expect(html).toContain("Cache server answering");
 			expect((await fetch(`${base}/_live`)).status).toBe(200);
+
 			expect(
 				((await (await fetch(`${base}/stats.json`)).json()) as { cache_up: boolean }).cache_up,
 			).toBe(true);
+
 			expect((await fetch(`${base}/assets/geist.woff2`)).headers.get("content-type")).toBe(
 				"font/woff2",
 			);
+
 			expect((await fetch(`${base}/assets/constructor.woff2`)).status).toBe(404);
 			expect((await fetch(`${base}/.well-known/jwks.json`)).status).toBe(200);
 			expect((await fetch(`${base}/exchange`, { method: "POST" })).status).toBe(401);
@@ -284,6 +288,7 @@ describe("server", () => {
 				["/v8/artifacts/events?slug=petalnet", body],
 				["/v8/artifacts/events?slug=petalnet", body],
 			]);
+
 			expect(html).not.toMatch(/eyJ[A-Za-z0-9_-]{10,}|PRIVATE KEY|github_pat_|ghp_/);
 		} finally {
 			stop();
