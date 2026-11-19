@@ -76,7 +76,7 @@ const WRITE_METHOD = /^(POST|PUT|PATCH|DELETE)$/iu;
 // repos/o/r/(pulls|issues) in an endpoint or URL, any case, with a query string allowed.
 const endpoint = (a: string) =>
 	/^\/?repos\/([^/]+)\/[^/]+\/(pulls|issues)$/iu.exec(
-		a.replace(/^https?:\/\/api\.github\.com/iu, "").replace(/\?.*$/u, ""),
+		a.replace(/^https?:\/\/api\.github\.com(?=[/?#]|$)/iu, "").replace(/\?.*$/u, ""),
 	);
 
 const isExternalHit = (m: RegExpExecArray | null, writes: boolean): m is RegExpExecArray =>
@@ -144,7 +144,7 @@ function checkCurl(args: readonly string[]): string | null {
 	);
 
 	for (const x of args) {
-		const m = /api\.github\.com\/repos\/([^/\s]+)\/[^/\s]+\/(pulls|issues)\b/iu.exec(x);
+		const m = /(?:^|[^\w.-])api\.github\.com\/repos\/([^/\s]+)\/[^/\s]+\/(pulls|issues)\b/iu.exec(x);
 
 		if (isExternalHit(m, writes)) {
 			return hitReason(m);

@@ -4,7 +4,7 @@
 // Before writing it re-parses the exact texts it is about to write and refuses unless every original line is in one of
 // them and no item with an open marker left the ledger. It writes the ledger through a temp file and rename, and only
 // if the ledger is byte-identical to what it read, so a concurrent append is never lost.
-import { appendFileSync, existsSync, readFileSync, renameSync, writeFileSync } from "node:fs";
+import { appendFileSync, readFileSync, renameSync, writeFileSync } from "node:fs";
 
 import { prunePlan, verify } from "./objectives-index-ledger.ts";
 
@@ -34,11 +34,20 @@ if (flag === "--write" && moved.length > 0) {
 
 	const stamp = new Date().toISOString().slice(0, 10);
 
-	const lead = existsSync(archivePath)
-		? "\n"
-		: "# Open Objectives Archive\n\nFinished items moved out of open-objectives.md. Nothing here is live.\n";
+	const entry = `\n## Archived ${stamp} by objectives-prune\n\n${archived}\n`;
+	const header =
+		"# Open Objectives Archive\n\nFinished items moved out of open-objectives.md. Nothing here is live.\n";
 
-	appendFileSync(archivePath, `${lead}\n## Archived ${stamp} by objectives-prune\n\n${archived}\n`);
+	try {
+		// "ax" creates the file and fails if it already exists, so no check-then-write gap.
+		appendFileSync(archivePath, header + entry, { flag: "ax" });
+	} catch (error) {
+		if ((error as NodeJS.ErrnoException).code !== "EEXIST") {
+			throw error;
+		}
+
+		appendFileSync(archivePath, `\n${entry}`);
+	}
 
 	writeFileSync(`${ledgerPath}.prune-tmp`, newLedger);
 	renameSync(`${ledgerPath}.prune-tmp`, ledgerPath);

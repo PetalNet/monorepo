@@ -20,12 +20,12 @@
 import { createHash } from "node:crypto";
 import {
 	closeSync,
+	fstatSync,
 	mkdirSync,
 	openSync,
 	readFileSync,
 	readSync,
 	realpathSync,
-	statSync,
 	writeFileSync,
 } from "node:fs";
 import { pathToFileURL } from "node:url";
@@ -84,12 +84,13 @@ function readTail(path: string): string | null {
 	let fd: number | undefined;
 
 	try {
-		const size = statSync(path).size;
+		fd = openSync(path, "r");
+
+		const size = fstatSync(fd).size;
 		const start = Math.max(0, size - TAIL_BYTES);
 		const len = size - start;
 		const buf = Buffer.alloc(len);
 
-		fd = openSync(path, "r");
 		readSync(fd, buf, 0, len, start);
 
 		return buf.toString("utf8");
