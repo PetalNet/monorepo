@@ -1,3 +1,4 @@
+import { basename } from "node:path";
 // route: pick a builder offer (model, effort, plan, pool) for a brief from live quota state.
 //
 //   route pick --dry --kind <code|ui|research|write|sweep|cyber|architecture> --tier <S|A|B|C|top|mid|fast|cheap>
@@ -348,6 +349,8 @@ async function main(argv: string[]): Promise<number> {
 			kind,
 			tier,
 			brief: brief.text,
+			dataClass,
+			briefName: /^\S+\.md$/u.test(brief.text.trim()) ? basename(brief.text.trim(), ".md") : "",
 			cwd: process.cwd(),
 			dir: `${home}/.local/state/router`,
 			legacy: `${home}/.local/state/agy-build`,

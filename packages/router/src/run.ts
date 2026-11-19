@@ -26,6 +26,9 @@ interface RunOptions {
 	dir: string;
 	legacy: string;
 	injectPath: string;
+	/** Recorded on every ledger event so viewers can apply the privacy class and show a name. */
+	dataClass?: string;
+	briefName?: string;
 	launch?: (offer: Offer, brief: string, cwd: string) => Promise<Execution> | Execution;
 	sleep?: (ms: number) => unknown;
 	report?: (line: string) => void;
@@ -102,6 +105,8 @@ export async function run(
 					logPath,
 					startedAt,
 					briefHash: createHash("sha256").update(brief).digest("hex"),
+					dataClass: options.dataClass ?? "unknown",
+					briefName: options.briefName ?? "",
 				};
 
 				await appendEvent(dir, { ...metadata, event: "launch" });
