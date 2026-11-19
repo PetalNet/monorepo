@@ -57,20 +57,25 @@ describe("notify", () => {
 	});
 
 	it("announces a promoted command once, after it finishes, with exit code and output tail", async () => {
-		const r = promote("sleep 1; echo finished-marker; exit 3", "S1");
+		const r = promote("sleep 4; echo finished-marker; exit 3", "S1");
 
 		expect(r.stdout).toMatch(/still running/u);
 		expect(readdirSync(out).some((f) => f.endsWith(".job"))).toBe(true);
 		expect(notify(), "still running: no notice yet").toBeNull();
-		await sleep(1800);
-		const n = notify();
+
+		let n = notify();
+
+		for (let i = 0; i < 40 && n === null; i++) {
+			await sleep(500);
+			n = notify();
+		}
 
 		expect(n?.hookEventName).toBe("PostToolUse");
 		expect(n?.additionalContext).toMatch(/finished with exit code 3/u);
 		expect(n?.additionalContext).toMatch(/finished-marker/u);
 		expect(n?.additionalContext).toMatch(/\.out/u);
 		expect(notify(), "announced once only").toBeNull();
-	}, 15000);
+	}, 30000);
 
 	it("lets another session, and subagents, leave the notice alone", async () => {
 		promote("sleep 1; echo mine", "S2");

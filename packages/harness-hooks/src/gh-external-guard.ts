@@ -144,7 +144,9 @@ function checkCurl(args: readonly string[]): string | null {
 	);
 
 	for (const x of args) {
-		const m = /(?:^|[^\w.-])api\.github\.com\/repos\/([^/\s]+)\/[^/\s]+\/(pulls|issues)\b/iu.exec(x);
+		const m = /(?:^|[^\w.-])api\.github\.com\/repos\/([^/\s]+)\/[^/\s]+\/(pulls|issues)\b/iu.exec(
+			x,
+		);
 
 		if (isExternalHit(m, writes)) {
 			return hitReason(m);
