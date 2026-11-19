@@ -32,7 +32,9 @@ them.
 - **EnvGenEditor** rebuilds the level when the editor starts with `-EnvGenManifest=<build.json>`. It
   deletes what an earlier run generated, then creates the Landscape with collision and one weight
   layer, the ground material, sun, sky and fog, clamped exposure, a player start, and a site-info
-  actor carrying the georeference and stencil classes. Once the engine has merged the Landscape's
+  actor carrying the georeference and stencil classes. When the manifest has a `context` block it
+  also imports that coarse surround as a second Landscape, which passes under the tile so the
+  detailed surface does not end in a cliff against the sky. Once the engine has merged the Landscape's
   edit layers it traces the collision surface at fixed points and compares it with the imported
   heights, reads the weight layer back, saves, and exits. The checks are in
   `Saved/EnvGen/build_receipt.json`. The editor exits with 1 if the manifest cannot be used, the merge

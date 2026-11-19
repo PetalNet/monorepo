@@ -58,16 +58,23 @@ namespace
 	constexpr int32 MinMergeFrames = 10;
 	constexpr float MergeTimeoutSeconds = 300;
 
-	struct FManifest
+	/** One Landscape to import: the detailed tile, or the coarse surround. */
+	struct FSurface
 	{
-		FString Directory;
 		FString HeightmapFile;
-		FString MacroColourFile;
+		FString ColourFile;
 		int32 Vertices = 0;
 		int32 SectionQuads = 0;
 		int32 SectionsPerComponent = 0;
 		FVector LocationCm = FVector::ZeroVector;
 		FVector Scale = FVector::OneVector;
+	};
+
+	struct FManifest
+	{
+		FString Directory;
+		FSurface Tile;
+		TOptional<FSurface> Surround;
 		double TileSizeCm = 0;
 		TSharedPtr<FJsonObject> Georeference;
 		TSharedPtr<FJsonObject> StencilClasses;
@@ -76,6 +83,19 @@ namespace
 	FVector ReadVector(const TArray<TSharedPtr<FJsonValue>>& Values)
 	{
 		return FVector(Values[0]->AsNumber(), Values[1]->AsNumber(), Values[2]->AsNumber());
+	}
+
+	FSurface ReadSurface(const FJsonObject& Block, const FString& ColourFile)
+	{
+		FSurface Out;
+		Out.HeightmapFile = Block.GetStringField(TEXT("heightmap"));
+		Out.ColourFile = ColourFile;
+		Out.Vertices = Block.GetIntegerField(TEXT("vertices"));
+		Out.SectionQuads = Block.GetIntegerField(TEXT("section_quads"));
+		Out.SectionsPerComponent = Block.GetIntegerField(TEXT("sections_per_component"));
+		Out.LocationCm = ReadVector(Block.GetArrayField(TEXT("location_cm")));
+		Out.Scale = ReadVector(Block.GetArrayField(TEXT("scale")));
+		return Out;
 	}
 
 	bool LoadManifest(const FString& Path, FManifest& Out, FString& Error)
@@ -100,13 +120,12 @@ namespace
 			return false;
 		}
 		Out.Directory = FPaths::GetPath(Path);
-		Out.HeightmapFile = (*Landscape)->GetStringField(TEXT("heightmap"));
-		Out.MacroColourFile = (*Macro)->GetStringField(TEXT("file"));
-		Out.Vertices = (*Landscape)->GetIntegerField(TEXT("vertices"));
-		Out.SectionQuads = (*Landscape)->GetIntegerField(TEXT("section_quads"));
-		Out.SectionsPerComponent = (*Landscape)->GetIntegerField(TEXT("sections_per_component"));
-		Out.LocationCm = ReadVector((*Landscape)->GetArrayField(TEXT("location_cm")));
-		Out.Scale = ReadVector((*Landscape)->GetArrayField(TEXT("scale")));
+		Out.Tile = ReadSurface(**Landscape, (*Macro)->GetStringField(TEXT("file")));
+		const TSharedPtr<FJsonObject>* Context = nullptr;
+		if (Root->TryGetObjectField(TEXT("context"), Context))
+		{
+			Out.Surround = ReadSurface(**Context, (*Context)->GetStringField(TEXT("colour")));
+		}
 		Out.TileSizeCm = (*Tile)->GetNumberField(TEXT("size_m")) * 100;
 		Out.Georeference = *Geo;
 		Out.StencilClasses = *Stencil;
@@ -254,33 +273,53 @@ namespace
 		return Material;
 	}
 
-	ALandscape* ImportLandscape(UWorld* World, const FManifest& Manifest, const TArray64<uint8>& HeightBytes, UMaterial* Material, int32 GroundStencil, TArray<UPackage*>& Packages)
+	/** Decode a surface's heightmap and colour map. False, with a logged reason, when either is unusable. */
+	bool DecodeSurface(const FManifest& Manifest, const FSurface& Surface, TArray64<uint8>& HeightBytes, TArray64<uint8>& ColourBytes, FIntPoint& ColourSize)
 	{
-		const int32 Vertices = Manifest.Vertices;
+		int32 Width = 0, Height = 0;
+		if (!DecodePng(Manifest.Directory / Surface.HeightmapFile, ERGBFormat::Gray, 16, HeightBytes, Width, Height) || Width != Surface.Vertices ||
+			Height != Surface.Vertices)
+		{
+			UE_LOG(LogEnvGen, Error, TEXT("%s is not a %dx%d 16-bit grey PNG"), *Surface.HeightmapFile, Surface.Vertices, Surface.Vertices);
+			return false;
+		}
+		if (!DecodePng(Manifest.Directory / Surface.ColourFile, ERGBFormat::BGRA, 8, ColourBytes, ColourSize.X, ColourSize.Y))
+		{
+			UE_LOG(LogEnvGen, Error, TEXT("cannot decode %s"), *Surface.ColourFile);
+			return false;
+		}
+		return true;
+	}
+
+	/** Import one surface as a Landscape. With a layer, the whole surface is painted with it. */
+	ALandscape* ImportLandscape(UWorld* World, const TCHAR* Label, const FSurface& Surface, const TArray64<uint8>& HeightBytes, UMaterial* Material, int32 Stencil,
+		ULandscapeLayerInfoObject* Layer)
+	{
+		const int32 Vertices = Surface.Vertices;
 		TArray<uint16> Heights;
 		Heights.SetNumUninitialized(Vertices * Vertices);
 		FMemory::Memcpy(Heights.GetData(), HeightBytes.GetData(), Heights.Num() * sizeof(uint16));
 
-		ULandscapeLayerInfoObject* LayerInfo = NewAsset<ULandscapeLayerInfoObject>(TEXT("LI_Grass"), Packages);
-		LayerInfo->SetLayerName(GrassLayer, false);
-		FLandscapeImportLayerInfo GrassImport(GrassLayer);
-		GrassImport.LayerInfo = LayerInfo;
-		GrassImport.LayerData.Init(255, Vertices * Vertices);
-
 		TMap<FGuid, TArray<uint16>> HeightsPerLayer;
 		HeightsPerLayer.Add(FGuid(), MoveTemp(Heights));
 		TMap<FGuid, TArray<FLandscapeImportLayerInfo>> WeightsPerLayer;
-		WeightsPerLayer.Add(FGuid(), {GrassImport});
+		TArray<FLandscapeImportLayerInfo>& Weights = WeightsPerLayer.Add(FGuid());
 
-		ALandscape* Landscape = World->SpawnActor<ALandscape>(Manifest.LocationCm, FRotator::ZeroRotator);
-		Landscape->SetActorLabel(TEXT("EnvGenLandscape"));
-		Landscape->SetActorRelativeScale3D(Manifest.Scale);
+		ALandscape* Landscape = World->SpawnActor<ALandscape>(Surface.LocationCm, FRotator::ZeroRotator);
+		Landscape->SetActorLabel(Label);
+		Landscape->SetActorRelativeScale3D(Surface.Scale);
 		Landscape->LandscapeMaterial = Material;
 		Landscape->bRenderCustomDepth = true;
-		Landscape->CustomDepthStencilValue = GroundStencil;
-		// A weightmap for a layer the Landscape does not list as a target is dropped on import.
-		Landscape->AddTargetLayer(GrassLayer, FLandscapeTargetLayerSettings(LayerInfo), false);
-		Landscape->Import(FGuid::NewGuid(), 0, 0, Vertices - 1, Vertices - 1, Manifest.SectionsPerComponent, Manifest.SectionQuads, HeightsPerLayer, nullptr,
+		Landscape->CustomDepthStencilValue = Stencil;
+		if (Layer)
+		{
+			FLandscapeImportLayerInfo& Painted = Weights.Emplace_GetRef(Layer->GetLayerName());
+			Painted.LayerInfo = Layer;
+			Painted.LayerData.Init(255, Vertices * Vertices);
+			// A weightmap for a layer the Landscape does not list as a target is dropped on import.
+			Landscape->AddTargetLayer(Layer->GetLayerName(), FLandscapeTargetLayerSettings(Layer), false);
+		}
+		Landscape->Import(FGuid::NewGuid(), 0, 0, Vertices - 1, Vertices - 1, Surface.SectionsPerComponent, Surface.SectionQuads, HeightsPerLayer, nullptr,
 			WeightsPerLayer, ELandscapeImportAlphamapType::Additive, TArrayView<const FLandscapeLayer>());
 
 		ULandscapeInfo* Info = Landscape->GetLandscapeInfo();
@@ -288,6 +327,21 @@ namespace
 		Info->UpdateLayerInfoMap(Landscape);
 		Landscape->RegisterAllComponents();
 		return Landscape;
+	}
+
+	/** The surround's material: its own colour map across it, and nothing finer. It is only ever seen from far away. */
+	UMaterial* MakeSurroundMaterial(UTexture2D* Colour, int32 Quads, TArray<UPackage*>& Packages)
+	{
+		UMaterial* Material = NewAsset<UMaterial>(TEXT("M_Surround"), Packages);
+		UMaterialExpressionMultiply* Albedo = Node<UMaterialExpressionMultiply>(Material, -300, 0);
+		Albedo->A.Connect(0, Sample(Material, Colour, Quads, SAMPLERTYPE_Color, 0));
+		Albedo->ConstB = PhotoToAlbedo;
+		UMaterialEditingLibrary::ConnectMaterialProperty(Albedo, TEXT(""), MP_BaseColor);
+		UMaterialExpressionConstant* Roughness = Node<UMaterialExpressionConstant>(Material, -300, 200);
+		Roughness->R = 0.9f;
+		UMaterialEditingLibrary::ConnectMaterialProperty(Roughness, TEXT(""), MP_Roughness);
+		UMaterialEditingLibrary::RecompileMaterial(Material);
+		return Material;
 	}
 
 	void AddSkyAndSun(UWorld* World)
@@ -351,7 +405,7 @@ namespace
 	double WorstSurfaceErrorCm(UWorld* World, const FManifest& Manifest, const TArray64<uint8>& HeightBytes, int32& Missed)
 	{
 		const uint16* Heights = reinterpret_cast<const uint16*>(HeightBytes.GetData());
-		const int32 Last = Manifest.Vertices - 1;
+		const int32 Last = Manifest.Tile.Vertices - 1;
 		const double Fractions[][2] = {{0.5, 0.5}, {0.1, 0.2}, {0.9, 0.2}, {0.15, 0.85}, {0.8, 0.9}, {0.33, 0.61}, {0.72, 0.41}, {0.05, 0.5}, {0.5, 0.95}};
 		double Worst = 0;
 		Missed = 0;
@@ -359,8 +413,8 @@ namespace
 		{
 			const int32 NorthIndex = FMath::RoundToInt32(Fraction[0] * Last);
 			const int32 EastIndex = FMath::RoundToInt32(Fraction[1] * Last);
-			const double Expected = Manifest.LocationCm.Z + (double(Heights[EastIndex * Manifest.Vertices + NorthIndex]) - 32768.0) * Manifest.Scale.Z / 128.0;
-			const FVector At(Manifest.LocationCm.X + NorthIndex * Manifest.Scale.X, Manifest.LocationCm.Y + EastIndex * Manifest.Scale.Y, 0);
+			const double Expected = Manifest.Tile.LocationCm.Z + (double(Heights[EastIndex * Manifest.Tile.Vertices + NorthIndex]) - 32768.0) * Manifest.Tile.Scale.Z / 128.0;
+			const FVector At(Manifest.Tile.LocationCm.X + NorthIndex * Manifest.Tile.Scale.X, Manifest.Tile.LocationCm.Y + EastIndex * Manifest.Tile.Scale.Y, 0);
 			FHitResult Hit;
 			if (!World->LineTraceSingleByChannel(Hit, At + FVector(0, 0, 200000), At - FVector(0, 0, 200000), ECC_WorldStatic))
 			{
@@ -397,6 +451,7 @@ struct FEnvGenLevelBuild::FState
 	TArray<UPackage*> Packages;
 	UWorld* World = nullptr;
 	ALandscape* Landscape = nullptr;
+	ALandscape* Surround = nullptr;
 	float Waited = 0;
 	int32 Frames = 0;
 };
@@ -419,17 +474,14 @@ bool FEnvGenLevelBuild::Start(const FString& ManifestPath, const FString& MapPat
 		return false;
 	}
 
-	TArray64<uint8> MacroBytes;
-	int32 Width = 0, Height = 0, MacroWidth = 0, MacroHeight = 0;
-	if (!DecodePng(Manifest.Directory / Manifest.HeightmapFile, ERGBFormat::Gray, 16, State->HeightBytes, Width, Height) || Width != Manifest.Vertices ||
-		Height != Manifest.Vertices)
+	TArray64<uint8> MacroBytes, SurroundHeightBytes, SurroundColourBytes;
+	FIntPoint MacroSize(0, 0), SurroundColourSize(0, 0);
+	if (!DecodeSurface(Manifest, Manifest.Tile, State->HeightBytes, MacroBytes, MacroSize))
 	{
-		UE_LOG(LogEnvGen, Error, TEXT("%s is not a %dx%d 16-bit grey PNG"), *Manifest.HeightmapFile, Manifest.Vertices, Manifest.Vertices);
 		return false;
 	}
-	if (!DecodePng(Manifest.Directory / Manifest.MacroColourFile, ERGBFormat::BGRA, 8, MacroBytes, MacroWidth, MacroHeight))
+	if (Manifest.Surround && !DecodeSurface(Manifest, *Manifest.Surround, SurroundHeightBytes, SurroundColourBytes, SurroundColourSize))
 	{
-		UE_LOG(LogEnvGen, Error, TEXT("cannot decode %s"), *Manifest.MacroColourFile);
 		return false;
 	}
 
@@ -451,13 +503,22 @@ bool FEnvGenLevelBuild::Start(const FString& ManifestPath, const FString& MapPat
 	IFileManager::Get().DeleteDirectory(*GeneratedDirectory, false, true);
 	IFileManager::Get().Delete(*MapFile);
 
-	UTexture2D* Macro = MakeTexture(TEXT("T_MacroColour"), MacroWidth, MacroHeight, TSF_BGRA8, MacroBytes.GetData(), true, State->Packages);
+	UTexture2D* Macro = MakeTexture(TEXT("T_MacroColour"), MacroSize.X, MacroSize.Y, TSF_BGRA8, MacroBytes.GetData(), true, State->Packages);
 	const TArray<uint8> Noise = DetailNoise();
 	UTexture2D* Detail = MakeTexture(TEXT("T_Detail"), DetailPixels, DetailPixels, TSF_G8, Noise.GetData(), false, State->Packages);
-	UMaterial* Material = MakeGroundMaterial(Macro, Detail, Manifest.Vertices - 1, Manifest.Scale.X, State->Packages);
+	UMaterial* Material = MakeGroundMaterial(Macro, Detail, Manifest.Tile.Vertices - 1, Manifest.Tile.Scale.X, State->Packages);
+	ULandscapeLayerInfoObject* Grass = NewAsset<ULandscapeLayerInfoObject>(TEXT("LI_Grass"), State->Packages);
+	Grass->SetLayerName(GrassLayer, false);
 
 	const int32 GroundStencil = int32(Manifest.StencilClasses->GetNumberField(TEXT("ground")));
-	State->Landscape = ImportLandscape(State->World, Manifest, State->HeightBytes, Material, GroundStencil, State->Packages);
+	State->Landscape = ImportLandscape(State->World, TEXT("EnvGenLandscape"), Manifest.Tile, State->HeightBytes, Material, GroundStencil, Grass);
+	if (Manifest.Surround)
+	{
+		UTexture2D* SurroundColour = MakeTexture(TEXT("T_SurroundColour"), SurroundColourSize.X, SurroundColourSize.Y, TSF_BGRA8, SurroundColourBytes.GetData(), true,
+			State->Packages);
+		UMaterial* SurroundMaterial = MakeSurroundMaterial(SurroundColour, Manifest.Surround->Vertices - 1, State->Packages);
+		State->Surround = ImportLandscape(State->World, TEXT("EnvGenSurround"), *Manifest.Surround, SurroundHeightBytes, SurroundMaterial, GroundStencil, nullptr);
+	}
 	AddSkyAndSun(State->World);
 	AddSiteInfo(State->World, Manifest);
 	APlayerStart* PlayerStart = State->World->SpawnActor<APlayerStart>(FVector(0, 0, 150), FRotator::ZeroRotator);
@@ -470,7 +531,7 @@ bool FEnvGenLevelBuild::Finish(float DeltaSeconds, bool& bSucceeded)
 {
 	State->Waited += DeltaSeconds;
 	++State->Frames;
-	const bool bMerged = State->Frames > MinMergeFrames && State->Landscape->IsUpToDate();
+	const bool bMerged = State->Frames > MinMergeFrames && State->Landscape->IsUpToDate() && (!State->Surround || State->Surround->IsUpToDate());
 	if (!bMerged && State->Waited < MergeTimeoutSeconds)
 	{
 		return false;
@@ -491,6 +552,7 @@ bool FEnvGenLevelBuild::Finish(float DeltaSeconds, bool& bSucceeded)
 	Receipt->SetStringField(TEXT("map"), State->MapPath);
 	Receipt->SetStringField(TEXT("engine"), FEngineVersion::Current().ToString());
 	Receipt->SetNumberField(TEXT("landscape_components"), Components);
+	Receipt->SetNumberField(TEXT("surround_components"), State->Surround ? State->Surround->LandscapeComponents.Num() : 0);
 	Receipt->SetBoolField(TEXT("edit_layers_merged"), bMerged);
 	Receipt->SetNumberField(TEXT("merge_seconds"), State->Waited);
 	Receipt->SetNumberField(TEXT("surface_points_missed"), Missed);
