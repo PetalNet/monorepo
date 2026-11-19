@@ -21,7 +21,8 @@ python janet_voice_note.py say --tts gpu-host.local:10230 --voice default --out 
 - `hear` prints the transcript and nothing else on standard output. It reads any file ffmpeg reads
   and sends the whole recording as one utterance, however long.
 - `say` prints the path of the finished file and nothing else on standard output. The text is one
-  request; the voice server splits it into sentences itself. `-` as the text reads standard input.
+  request; the voice server splits it into sentences itself. `-` as the text reads standard input,
+  which is the safe way to pass text that may start with a dash.
   The file is Opus in Ogg at 48 kbit/s, brought to -14 LUFS so it plays as loud as other media, and
   it appears only when it is whole.
 - Both report on standard error which program and model answered, where, and how long it took. The
@@ -32,11 +33,12 @@ python janet_voice_note.py say --tts gpu-host.local:10230 --voice default --out 
 
 ## When the voice host is off
 
-| Exit status | Meaning                                                   |
-| :---------- | :-------------------------------------------------------- |
-| 0           | done                                                      |
-| 1           | the server answered and then failed, or ffmpeg failed     |
-| 3           | nothing answers on the server's port                      |
+| Exit status | Meaning                                               |
+| :---------- | :---------------------------------------------------- |
+| 0           | done                                                  |
+| 1           | the server answered and then failed, or ffmpeg failed |
+| 2           | the command line is wrong                             |
+| 3           | nothing answers on the server's port                  |
 
 Status 3 is the one a caller can act on, by waiting or by using another path. `say` can wake the
 host first:

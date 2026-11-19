@@ -87,12 +87,13 @@ def _exchange(server: tuple[str, int], read_timeout: float, request: bytes, on_e
                     raise ServerError(fields.get("text", "server error"))
                 if (result := on_event(kind, fields, payload)) is not None:
                     return result
-        except (OSError, ValueError) as error:
-            raise ServerError(str(error)) from None
+        except (OSError, ValueError, KeyError, TypeError) as error:
+            raise ServerError(f"bad reply from the server: {error!r}") from None
 
 
 def describe(server: tuple[str, int], service: str) -> str:
-    """What is serving right now, as "program model, model". The model behind a port can change."""
+    """What is serving right now, as "program model/model". The model behind a port can change.
+    Only the report uses it, so a server that answers the port but not this is "unknown"."""
 
     def on_event(kind, fields, _payload):
         if kind != "info":
@@ -102,7 +103,10 @@ def describe(server: tuple[str, int], service: str) -> str:
             for program in fields.get(service) or []
         ) or "unknown"
 
-    return _exchange(server, 10.0, event("describe"), on_event)
+    try:
+        return _exchange(server, 10.0, event("describe"), on_event)
+    except ServerError:
+        return "unknown"
 
 
 def transcribe(server: tuple[str, int], pcm: bytes, language: str) -> str:
@@ -146,7 +150,10 @@ def awake(server: tuple[str, int], wake: Wake | None) -> None:
     except Unreachable:
         if wake is None:
             raise
-    wake.send()
+    try:
+        wake.send()
+    except OSError as error:
+        raise Unreachable(f"wake: {error}") from None
     print(f"wake: sent to the voice host, waiting up to {wake.wait:.0f} s", file=sys.stderr)
     deadline = time.monotonic() + wake.wait
     while True:
@@ -159,11 +166,15 @@ def awake(server: tuple[str, int], wake: Wake | None) -> None:
             time.sleep(2)
 
 
+def _ffmpeg(command: list[str], audio: bytes | None = None) -> subprocess.CompletedProcess:
+    try:
+        return subprocess.run(command, input=audio, capture_output=True)
+    except OSError as error:
+        raise ServerError(f"cannot run {command[0]}: {error}") from None
+
+
 def decode(ffmpeg: str, path: Path) -> bytes:
-    run = subprocess.run(
-        [ffmpeg, "-nostdin", "-loglevel", "error", "-i", str(path), "-ar", str(RATE), "-ac", "1", "-f", "s16le", "-"],
-        capture_output=True,
-    )
+    run = _ffmpeg([ffmpeg, "-nostdin", "-loglevel", "error", "-i", str(path), "-ar", str(RATE), "-ac", "1", "-f", "s16le", "-"])
     if run.returncode or not run.stdout:
         raise ServerError(f"ffmpeg could not read {path}: {run.stderr.decode(errors='replace').strip()}")
     return run.stdout
@@ -172,10 +183,10 @@ def decode(ffmpeg: str, path: Path) -> bytes:
 def encode(ffmpeg: str, rate: int, pcm: bytes, out: Path) -> None:
     """Writes an Opus voice note. The file appears only when it is whole."""
     part = out.with_name(out.name + ".part")
-    run = subprocess.run(
+    run = _ffmpeg(
         [ffmpeg, "-nostdin", "-y", "-loglevel", "error", "-f", "s16le", "-ar", str(rate), "-ac", "1", "-i", "-",
          "-af", LOUDNESS, "-c:a", "libopus", "-b:a", "48k", "-ar", "48000", "-ac", "1", "-f", "ogg", str(part)],
-        input=pcm, capture_output=True,
+        pcm,
     )  # fmt: skip
     if run.returncode:
         part.unlink(missing_ok=True)

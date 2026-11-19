@@ -162,6 +162,26 @@ class NoteTest(unittest.TestCase):
             self.assertEqual(card.recv(200), b"\xff" * 6 + bytes.fromhex("aabbcc001122") * 16)
             self.assertIn("wake", err)
 
+    def test_say_reports_a_wake_packet_that_cannot_be_sent_as_unreachable(self):
+        status, out, _ = self.run_note(
+            "say", "--tts", closed_port(), "--out", str(self.dir / "no.ogg"),
+            "--wake-mac", "aa:bb:cc:00:11:22", "--wake-broadcast", "no-such-host.invalid:9", "Hello.",
+        )  # fmt: skip
+        self.assertEqual((status, out), (note.UNREACHABLE, ""))
+
+    def test_a_missing_ffmpeg_is_one_line_not_a_traceback(self):
+        server = self.server()
+        self.ffmpeg.unlink()
+        status, out, err = self.run_note("say", "--tts", server.at, "--out", str(self.dir / "no.ogg"), "Hello.")
+        self.assertEqual((status, out), (1, ""))
+        self.assertIn("cannot run", err)
+
+    def test_the_wire_format_is_a_json_header_line_then_data_then_payload(self):
+        sent = note.event("audio-chunk", {"rate": 16000}, b"\x01\x02")
+        self.assertEqual(sent, b'{"type": "audio-chunk", "data_length": 15, "payload_length": 2}\n{"rate": 16000}\x01\x02')
+        inline = io.BytesIO(b'{"type": "transcript", "data": {"text": "hi"}}\n')
+        self.assertEqual(note.read_event(inline), ("transcript", {"text": "hi"}, b""))
+
     def test_say_refuses_empty_text(self):
         server = self.server()
         status, out, _ = self.run_note("say", "--tts", server.at, "--out", str(self.dir / "no.ogg"), "  ")
