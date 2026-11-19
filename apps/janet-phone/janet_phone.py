@@ -385,7 +385,7 @@ class Call:
                 turn["stt_ms"] = round((time.monotonic() - mark) * 1000)
                 if not text:
                     continue
-                log.info("call %s: heard %r, %.1f s into the call (stt %d ms)", self.conversation, text[:60], time.monotonic() - self.connected, turn["stt_ms"])
+                log.info("call %s: heard %d chars, %.1f s into the call (stt %d ms)", self.conversation, len(text), time.monotonic() - self.connected, turn["stt_ms"])
                 self.transcript.append(("Caller", text))
                 self.timeline.append({"t": round(ended - self.connected, 2), "who": "Caller", "text": text})
                 await self.tell(type="words", side="him", text=text, words=[])
@@ -543,7 +543,7 @@ class Call:
             self.latency["turns"].append(turn)
         self.latency.setdefault("first_audio_ms", round((time.monotonic() - self.connected) * 1000))
         self.timeline.append({"t": round(time.monotonic() - self.connected, 2), "who": "Janet", "text": sentence})
-        log.info("call %s: saying %r, %.1f s into the call (%d ms of audio)", self.conversation, sentence[:60], time.monotonic() - self.connected, len(pcm) * 500 // rate)
+        log.info("call %s: saying %d chars, %.1f s into the call (%d ms of audio)", self.conversation, len(sentence), time.monotonic() - self.connected, len(pcm) * 500 // rate)
         await self.tell(type="state", value="speaking")
         await self.tell(type="words", side="her", text=sentence, words=word_times(sentence, len(pcm) / (rate * 2)))
         # Paced a little ahead of real time, so a cut-off stops what the caller hears at once.
