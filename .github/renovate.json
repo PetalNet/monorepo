@@ -14,6 +14,16 @@
 	"minimumReleaseAge": "7 days",
 	"labels": ["dependencies"],
 	"automergeStrategy": "squash",
+	"customManagers": [
+		{
+			"description": "flake.nix pins the devShell's pnpm to the registry tarball version; it must equal packageManager.",
+			"customType": "regex",
+			"managerFilePatterns": ["/^flake\\.nix$/"],
+			"matchStrings": ["exe\\.linux-(?:x64|arm64)-(?<currentValue>\\d+\\.\\d+\\.\\d+)\\.tgz"],
+			"depNameTemplate": "pnpm",
+			"datasourceTemplate": "npm"
+		}
+	],
 	"packageRules": [
 		{
 			"description": "OkHttp 5.5 requires compileSdk 37 and apps/janet-call-android compiles against 35; #705 broke its build. Lift this with the compileSdk bump.",
@@ -38,6 +48,14 @@
 			"matchPackageNames": ["@types/node"],
 			"groupName": "node.js",
 			"automerge": true,
+			"recreateWhen": "always"
+		},
+		{
+			"description": "One pnpm everywhere: packageManager, the CI pnpm/setup read of it, and the two flake.nix tarball URLs move in a single PR, so the devShell never lags CI. Not automerged: flake.nix changes need `nix flake lock` before they merge (nix re-locks a changed input URL on the first `nix develop`).",
+			"matchDatasources": ["npm"],
+			"matchPackageNames": ["pnpm"],
+			"groupName": "pnpm",
+			"automerge": false,
 			"recreateWhen": "always"
 		},
 		{

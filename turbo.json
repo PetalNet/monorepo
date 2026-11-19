@@ -9,6 +9,7 @@
 		"PNPM_CONFIG_VERIFY_DEPS_BEFORE_RUN",
 		"CARGO_INCREMENTAL",
 		"CI",
+		"NODE_OPTIONS",
 		"CITE_BROWSER_TESTS",
 		"CITE_CHROMIUM_EXECUTABLE",
 		"DATABASE_URL",
@@ -44,7 +45,7 @@
 		"!packages/**/coverage/**",
 		"!packages/**/.cache/**"
 	],
-	"globalEnv": ["NODE_ENV", "NODE_OPTIONS", "TZ", "PUBLIC_*", "VITE_*"],
+	"globalEnv": ["NODE_ENV", "TZ", "PUBLIC_*", "VITE_*"],
 	"tasks": {
 		"build": {
 			"dependsOn": ["^build"],
