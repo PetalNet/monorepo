@@ -48,6 +48,20 @@ class Bundle(unittest.TestCase):
         env.pop('FOLD_SECRET_SCANNER_ARGV')
         self.assertEqual(self.run_bundle(env=env).stdout, '')
 
+    def test_public_scope_never_opens_private_indexes_and_still_scans(self):
+        config = {'projects': {'public-demo': {'source_scope': 'public-only',
+                  'public_pointers': ['https://github.com/example/demo']}}}
+        self.config.write_text(json.dumps(config))
+        brief = 'Project: public-demo\nReview the public code.'
+        result = self.run_bundle(brief)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn('https://github.com/example/demo', result.stdout)
+        self.assertNotIn('event:$event', result.stdout)
+        self.assertEqual(self.run_bundle(brief + '\nfixture-secret').stdout, '')
+        config['projects']['public-demo']['public_pointers'] = ['file:///private/history']
+        self.config.write_text(json.dumps(config))
+        self.assertEqual(self.run_bundle(brief).stdout, '')
+
     def test_pointers_resolve_through_the_same_guard(self):
         for pointer, content in [('vault:personal/claim/c-00000002', 'Never emit this decision text'),
                                  ('event:$event2', 'Demo project discussion'),
