@@ -12,6 +12,11 @@ END_PHRASES = {
     "hang up", "hang up the call", "end the call", "end call", "end the call now", "hang up the phone",
 }  # a clear goodbye is the whole utterance: "don't hang up" or "can you end the call on the other line" is not one
 SIGN_OFF = "Okay, talk later."
+# Speech is synthesized a piece at a time and a piece is not heard until it is whole, so a long first sentence delays the first
+# sound by its whole synthesis time (measured: 154 characters took 5.2 s). A piece that has run this long without a sentence end
+# is cut at its next comma, so the first sound starts after about a clause.
+CLAUSE_AT = 60  # characters a piece may run before it is cut at a comma
+CLAUSE_MIN = 28  # no piece is cut shorter than this
 _SENTENCE_END = re.compile(r"""([.!?]["')\]]?)\s+|\n+""")
 _ABBREVIATION = re.compile(r"\b(?:Mr|Mrs|Ms|Dr|St|vs|etc|e\.g|i\.e|a\.m|p\.m)\.$", re.I)
 _MARKUP = re.compile(r"[*_`#]+|^\s*[-•]\s+", re.M)
@@ -129,6 +134,9 @@ class SpeechStream:
             out.append(self._pending[start:match.end()])
             start = match.end()
         rest = self._pending[start:]
+        while not final and len(rest) >= CLAUSE_AT and (comma := rest.find(", ", CLAUSE_MIN)) != -1 and comma + 2 < len(rest):
+            out.append(rest[: comma + 1])
+            rest = rest[comma + 2:]
         if final:
             out.append(rest.removesuffix(_unfinished_relay_tag(rest)) if drop_partial_tag else rest)
             rest = ""

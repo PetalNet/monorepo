@@ -94,3 +94,22 @@ class StatusRuleTest(unittest.TestCase):
             self.assertIn("cannot see main Janet's background work", text)
             self.assertIn("Never state a cause or an outcome you did not see", text)
             self.assertIn("will have main check", text)
+
+
+class ClauseTest(unittest.TestCase):
+    TEXT = "Doing well, thanks for asking, and honestly I'm just glad to hear from you tonight, so what is on your mind? Short one."
+
+    def test_a_long_sentence_is_cut_at_a_comma_as_it_streams_so_the_first_sound_starts_early(self):
+        for step in (1, 3, 7):
+            spoken, _, _, whole = run(self.TEXT, step)
+            self.assertEqual(spoken[0], "Doing well, thanks for asking,", step)
+            self.assertEqual(" ".join(spoken), self.TEXT, step)  # nothing is lost or reordered
+
+    def test_a_short_sentence_or_one_without_a_comma_is_not_cut(self):
+        for text in ("Yes, that works fine for me.", "A long sentence with no comma in it at all but plenty of words so it runs past the limit easily."):
+            for step in (1, 4):
+                self.assertEqual(run(text, step)[0], [text], (text, step))
+
+    def test_the_first_piece_of_a_cut_sentence_is_never_shorter_than_the_minimum(self):
+        spoken, *_ = run("Well, ok, so, then, there it is and that is how it goes for a long time now, sure.", 2)
+        self.assertTrue(all(len(piece) >= 28 for piece in spoken[:-1]), spoken)
