@@ -95,37 +95,41 @@ Closing the socket hangs up.
 
 ```toml
 listen = "127.0.0.1:8793"
-gateway = "http://127.0.0.1:8792"   # janet-voice-gateway
-stt = "stt-host.local:10300"        # Wyoming speech-to-text
-tier = "guest"                      # the head tier every call on this bridge gets
+gateway = "http://127.0.0.1:8792" # janet-voice-gateway
+stt = "stt-host.local:10300" # Wyoming speech-to-text
+tier = "guest" # the head tier every call on this bridge gets
 channel = "phone"
 disclosure = "Hi, this is Janet, an automated assistant for Parker. This call is being transcribed."
-source = "test"                     # "inbound" only for a real line from the outside
-notify = ["sh", "-c", "f=/outbox/$(date +%s%N); cat > $f.tmp && mv $f.tmp $f.$JANET_PHONE_DESTINATION.txt"]
-record_dir = ""                     # set to keep both sides of every call as WAV files
-cache_dir = "/state/cache"          # the disclosure's audio, kept across restarts
-max_calls = 2                       # the head's own max_open is the real ceiling
-head_token_file = "/secrets/head-token"       # the voice head's bearer token
-devices_file = "/state/devices.json"          # paired phones, by token hash
-http_listen = "127.0.0.1:8794"                # pairing page and pairing exchange
-public_url = "wss://voice.example/v1/call"    # where a paired phone calls
-access_file = "/secrets/access.json"          # {"client_id", "client_secret"} of the Access service token
-pair_users = ["owner"]                        # single sign-on usernames that may pair a phone
+source = "test" # "inbound" only for a real line from the outside
+notify = [
+	"sh",
+	"-c",
+	"f=/outbox/$(date +%s%N); cat > $f.tmp && mv $f.tmp $f.$JANET_PHONE_DESTINATION.txt",
+]
+record_dir = "" # set to keep both sides of every call as WAV files
+cache_dir = "/state/cache" # the disclosure's audio, kept across restarts
+max_calls = 2 # the head's own max_open is the real ceiling
+head_token_file = "/secrets/head-token" # the voice head's bearer token
+devices_file = "/state/devices.json" # paired phones, by token hash
+http_listen = "127.0.0.1:8794" # pairing page and pairing exchange
+public_url = "wss://voice.example/v1/call" # where a paired phone calls
+access_file = "/secrets/access.json" # {"client_id", "client_secret"} of the Access service token
+pair_users = ["owner"] # single sign-on usernames that may pair a phone
 pair_path = "/pair"
-proxy_secret_file = "/secrets/proxy-secret"   # the header value the single-sign-on proxy adds
+proxy_secret_file = "/secrets/proxy-secret" # the header value the single-sign-on proxy adds
 max_call_s = 900
 
-[signin]                            # leave the table out to turn signing in off
-authorize_url = "https://sso.example/application/o/authorize/"   # where the phone's browser is sent
-token_url = "http://127.0.0.1:9000/application/o/token/"         # may be the provider's own listener
+[signin] # leave the table out to turn signing in off
+authorize_url = "https://sso.example/application/o/authorize/" # where the phone's browser is sent
+token_url = "http://127.0.0.1:9000/application/o/token/" # may be the provider's own listener
 userinfo_url = "http://127.0.0.1:9000/application/o/userinfo/"
 client_id = "the public client's id"
 redirect_uri = "janetcall://signin"
 
-turn_models = "/models"             # silero_vad.onnx and the Parakeet files: the shared turn detector (below)
-line_tone = "AL4 AT40 AH400 AW83 BC2 BL11 BR7 BF2 BO6 DL0 DW48 U37 V80"   # the call's background sound (below); empty is off
+turn_models = "/models" # silero_vad.onnx and the Parakeet files: the shared turn detector (below)
+line_tone = "AL4 AT40 AH400 AW83 BC2 BL11 BR7 BF2 BO6 DL0 DW48 U37 V80" # the call's background sound (below); empty is off
 
-[endpoint]                          # the fallback loudness detector, used only without turn_models
+[endpoint] # the fallback loudness detector, used only without turn_models
 threshold = 500
 silence_ms = 700
 ```

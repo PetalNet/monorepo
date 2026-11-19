@@ -142,7 +142,7 @@ Replace the `<style>` block starting around line 600 with Tailwind classes. Use 
 <button class="btn-primary">Click me</button>
 <!-- OR with inline classes: -->
 <button
-	class="px-7 py-3.5 rounded-full bg-primary-gradient text-white font-semibold cursor-pointer shadow-button hover:-translate-y-px"
+	class="bg-primary-gradient shadow-button cursor-pointer rounded-full px-7 py-3.5 font-semibold text-white hover:-translate-y-px"
 >
 	Click me
 </button>
@@ -172,7 +172,7 @@ Replace the `<style>` block starting around line 600 with Tailwind classes. Use 
 <input
 	type="text"
 	name="title"
-	class="rounded-xl border border-primary-700/25 px-4 py-3 font-inherit bg-white/90 focus:outline-none focus:border-primary-700 focus:ring-4 focus:ring-primary-700/18"
+	class="border-primary-700/25 font-inherit focus:border-primary-700 focus:ring-primary-700/18 rounded-xl border bg-white/90 px-4 py-3 focus:ring-4 focus:outline-none"
 />
 ```
 
@@ -198,7 +198,7 @@ Replace the `<style>` block starting around line 600 with Tailwind classes. Use 
 ```svelte
 <div class="card">Content</div>
 <!-- OR: -->
-<div class="bg-white rounded-[20px] p-6 lg:p-10 shadow-card">Content</div>
+<div class="shadow-card rounded-[20px] bg-white p-6 lg:p-10">Content</div>
 ```
 
 ### Status Badges
@@ -219,7 +219,7 @@ Replace the `<style>` block starting around line 600 with Tailwind classes. Use 
 **New:**
 
 ```svelte
-<span class="badge-attending px-3 py-1 rounded-full text-xs font-semibold"> ✓ Attending </span>
+<span class="badge-attending rounded-full px-3 py-1 text-xs font-semibold"> ✓ Attending </span>
 ```
 
 ## 🧪 Testing Checklist

@@ -88,7 +88,7 @@ Based on Lighthouse audit results, the following optimizations have been impleme
 		<!-- Load map here -->
 	{:else}
 		<!-- Placeholder with proper dimensions -->
-		<div class="w-full h-[200px] bg-gray-100 rounded-xl"></div>
+		<div class="h-[200px] w-full rounded-xl bg-gray-100"></div>
 	{/if}
 </div>
 ```

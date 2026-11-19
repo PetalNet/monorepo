@@ -141,7 +141,7 @@ export function sweepResidualSecrets(episodes: EpisodeStore): {
 
 /**
  * Streams rows out of a recall-index SQLite db (~/.claude/bin/recall-index's `messages` FTS5 table
- * + `file_state` cursor shape) in batches, never loading the whole table into memory, and writes
+ * and `file_state` cursor shape) in batches, never loading the whole table into memory, and writes
  * immutable episode rows into the vault store. Re-running with the same db path only adds messages
  * past the last-seen rowid (per-source-path cursor), so it never duplicates.
  */

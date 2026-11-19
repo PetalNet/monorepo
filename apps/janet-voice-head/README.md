@@ -74,7 +74,7 @@ Bearer token on every `POST`. Bodies and replies are JSON.
 - The same `client_ref` returns the same conversation, so a client can retry the call.
 - A turn streams one `sentence` event (`{"text"}`) per speakable sentence, then one
   `done` event: `{"end_conversation": bool, "latency_ms": {"first_token", "first_sentence",
-"total", "spawn_wait"}}`. A turn that arrives before the session is ready waits for it.
+  "total", "spawn_wait"}}`. A turn that arrives before the session is ready waits for it.
 - An end phrase ("that's all", "goodbye", "never mind") gets a sign-off sentence without a
   model call and `end_conversation: true`. The client then calls `end`.
 - `interrupt` stops a reply that is still being generated. `heard_text` is what the speaker
@@ -136,18 +136,18 @@ Every host-specific value comes from a TOML file outside the repository:
 
 ```toml
 listen = ["127.0.0.1:8791"]
-token_file = "/path/to/voice-head-token"   # created with mode 600 when absent
+token_file = "/path/to/voice-head-token" # created with mode 600 when absent
 state_dir = "/path/to/state"
 main_cwd = "/path/main/runs/in"
 # The command that starts Claude Code. Put a memory cap in front of it.
 claude = ["systemd-run", "--user", "--scope", "--quiet", "-p", "MemoryMax=2G", "claude"]
-model = "opus"            # personal tier; a fork answers fastest on the parent's model
-cold_model = "haiku"      # room and guest tiers
+model = "opus" # personal tier; a fork answers fastest on the parent's model
+cold_model = "haiku" # room and guest tiers
 effort = "low"
-soft_merge = "asks"       # or "every": relay every exchange, at one turn of main each
+soft_merge = "asks" # or "every": relay every exchange, at one turn of main each
 idle_timeout_s = 120
 max_open = 2
-unmerged_channels = ["desk-test"]   # test channels: answered and journaled, never delivered
+unmerged_channels = ["desk-test"] # test channels: answered and journaled, never delivered
 
 [hub]
 url = "http://127.0.0.1:8980"

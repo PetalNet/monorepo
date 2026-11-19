@@ -108,7 +108,8 @@ getUserTimezone();
 Always show the timezone abbreviation or name:
 
 ```svelte
-{formatInTimezone(date, timezone)} {getTimezoneAbbr(timezone)}
+{formatInTimezone(date, timezone)}
+{getTimezoneAbbr(timezone)}
 ```
 
 ### When Using datetime-local Inputs

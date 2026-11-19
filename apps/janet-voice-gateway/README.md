@@ -38,16 +38,16 @@ Every host-specific value comes from a TOML file outside the repository:
 
 ```toml
 listen = ["127.0.0.1:8792"]
-token_file = "/path/to/voice-head-token"   # the same file the voice head uses
+token_file = "/path/to/voice-head-token" # the same file the voice head uses
 head = "http://127.0.0.1:8791"
 
 [voice]
 wyoming = "gpu-host.local:10230"
-name = "default"                           # the Wyoming voice name
-mac = "aa:bb:cc:dd:ee:ff"                  # the voice host's network card
-broadcast = "192.0.2.255:9"                # broadcast address of the network both hosts share
+name = "default" # the Wyoming voice name
+mac = "aa:bb:cc:dd:ee:ff" # the voice host's network card
+broadcast = "192.0.2.255:9" # broadcast address of the network both hosts share
 
-[access]                                   # optional; see Exposure
+[access] # optional; see Exposure
 certs_url = "https://<team>.cloudflareaccess.com/cdn-cgi/access/certs"
 issuer = "https://<team>.cloudflareaccess.com"
 audience = "<the Access application's AUD tag>"

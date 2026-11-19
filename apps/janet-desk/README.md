@@ -58,31 +58,31 @@ long-lived access token for the client.
 [home_assistant]
 url = "http://homeassistant.local:8123"
 token_file = "/path/to/ha-token"
-pipeline = "Janet"                       # the Assist pipeline's name
+pipeline = "Janet" # the Assist pipeline's name
 
 [head]
 url = "http://voice-head.local:8791"
 token_file = "/path/to/head-token"
-channel = "desk"                         # optional
+channel = "desk" # optional
 
 [voice]
 wyoming = "tcp://127.0.0.1:10230"
 name = "janet"
 
 [audio]
-microphone = ""                          # a name from --list-devices; empty is the system default
-output = ""                              # same; the default is read once, at start
+microphone = "" # a name from --list-devices; empty is the system default
+output = "" # same; the default is read once, at start
 headphones = ["Headphones (My Headset)"] # outputs that count as private
-volume = 1.0                             # optional
+volume = 1.0 # optional
 
-[conversation]                           # optional
+[conversation] # optional
 follow_up_seconds = 6.0
 barge_in_seconds = 0.3
-stall_seconds = 30.0                     # give up on a transcript after this long
-think_seconds = 180.0                    # give up waiting for the first spoken sentence after this long
+stall_seconds = 30.0 # give up on a transcript after this long
+think_seconds = 180.0 # give up waiting for the first spoken sentence after this long
 
-[service]                                # optional
-stop_file = "/path/to/stop"              # creating this file stops the client gracefully
+[service] # optional
+stop_file = "/path/to/stop" # creating this file stops the client gracefully
 ```
 
 ```sh
