@@ -211,7 +211,7 @@
 			placeholder={loadError
 				? "Enter location (e.g., '123 Main St' or 'Online')"
 				: "Start typing an address..."}
-			class="font-inherit w-full rounded-xl border px-4 py-3 pr-10 text-dark-900 transition-all focus:bg-white focus:outline-none"
+			class="font-inherit text-dark-900 w-full rounded-xl border px-4 py-3 pr-10 transition-all focus:bg-white focus:outline-hidden"
 			class:border-red-600={error}
 			class:focus:shadow-[0_0_0_3px_rgba(194,59,75,0.18)]={error}
 			class:border-primary-700={!error}
@@ -237,7 +237,7 @@
 			</button>
 		{/if}
 		{#if isLoading}
-			<span class="absolute right-4 top-1/2 -translate-y-1/2 animate-spin text-xl text-primary-700"
+			<span class="text-primary-700 absolute top-1/2 right-4 -translate-y-1/2 animate-spin text-xl"
 				>⟳</span
 			>
 		{/if}
@@ -263,7 +263,7 @@
 							}
 						}}
 					>
-						<div class="mb-1 font-medium text-dark-900">{suggestion.placePrediction.text.text}</div>
+						<div class="text-dark-900 mb-1 font-medium">{suggestion.placePrediction.text.text}</div>
 						{#if suggestion.placePrediction.structuredFormat?.secondaryText?.text}
 							<div class="text-sm" style="color: rgba(42, 23, 72, 0.6);">
 								{suggestion.placePrediction.structuredFormat.secondaryText.text}
@@ -291,12 +291,12 @@
 		>
 			<div bind:this={mapElement} class="h-[300px] w-full"></div>
 			<div
-				class="absolute bottom-4 left-4 right-4 flex items-center gap-2 rounded-xl p-3 px-4 shadow-[0_4px_12px_rgba(0,0,0,0.1)] backdrop-blur-sm"
+				class="absolute right-4 bottom-4 left-4 flex items-center gap-2 rounded-xl p-3 px-4 shadow-[0_4px_12px_rgba(0,0,0,0.1)] backdrop-blur-xs"
 				style="background-color: rgba(255, 255, 255, 0.95);"
 			>
-				<span class="flex-shrink-0 text-xl">📍</span>
+				<span class="shrink-0 text-xl">📍</span>
 				<span
-					class="overflow-hidden text-ellipsis whitespace-nowrap text-sm font-medium text-dark-900"
+					class="text-dark-900 overflow-hidden text-sm font-medium text-ellipsis whitespace-nowrap"
 					>{value}</span
 				>
 			</div>

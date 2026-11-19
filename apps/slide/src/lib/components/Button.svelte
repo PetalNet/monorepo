@@ -16,7 +16,7 @@
 	} = $props();
 
 	const baseClasses =
-		"px-4 py-2 rounded-lg font-semibold transition-all duration-200 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-offset-theater-darker disabled:opacity-50 disabled:cursor-not-allowed";
+		"px-4 py-2 rounded-lg font-semibold transition-all duration-200 focus:outline-hidden focus:ring-2 focus:ring-offset-2 focus:ring-offset-theater-darker disabled:opacity-50 disabled:cursor-not-allowed";
 
 	const variantClasses = {
 		primary: "bg-theater-purple hover:bg-purple-600 focus:ring-theater-purple",

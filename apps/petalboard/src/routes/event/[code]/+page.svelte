@@ -540,27 +540,27 @@
 	<article class="card event-card mb-8">
 		<div class="flex flex-col gap-6 md:flex-row md:items-start md:justify-between">
 			<div class="flex-1">
-				<h1 class="mb-4 text-4xl font-bold text-dark-900 md:text-4xl">
+				<h1 class="text-dark-900 mb-4 text-4xl font-bold md:text-4xl">
 					{#if event.emoji}
 						<span class="mr-2">{event.emoji}</span>
 					{/if}
 					{event.title}
 				</h1>
 				<div class="mb-4 flex flex-col gap-2">
-					<p class="prose m-0 text-sm text-dark-700 md:text-base">
+					<p class="prose text-dark-700 m-0 text-sm md:text-base">
 						📅 {formatDate(event.date, event.timezone)}
 						<a class="ml-1 whitespace-nowrap" href="/event/{event.publicCode}/calendar.ics" download
 							>Add to calendar</a
 						>
 					</p>
 					{#if event.endDate}
-						<p class="m-0 text-sm text-dark-700 md:text-base">
+						<p class="text-dark-700 m-0 text-sm md:text-base">
 							⏰ Until {formatShortDate(event.endDate, event.timezone)}
 						</p>
 					{/if}
 					{#if event.location}
 						<div class="flex flex-col gap-3">
-							<p class="prose m-0 break-words text-sm text-dark-700 md:text-base">
+							<p class="prose text-dark-700 m-0 text-sm wrap-break-word md:text-base">
 								📍 {event.location}
 								<a
 									class="ml-1 whitespace-nowrap"
@@ -579,7 +579,7 @@
 							{/if}
 						</div>
 					{/if}
-					<p id="after-map" class="m-0 text-sm text-dark-700 md:text-base" tabindex="-1">
+					<p id="after-map" class="text-dark-700 m-0 text-sm md:text-base" tabindex="-1">
 						👥 {people.coming}
 						{people.coming === 1 ? "person" : "people"} coming{#if people.maybe > 0}, {people.maybe}
 							maybe{/if}
@@ -587,7 +587,7 @@
 				</div>
 				{#if event.description}
 					<div
-						class="prose prose-sm md:prose-base my-4 max-w-none text-sm leading-relaxed text-dark-800 md:text-base"
+						class="prose prose-sm md:prose-base text-dark-800 my-4 max-w-none text-sm leading-relaxed md:text-base"
 					>
 						<!-- eslint-disable-next-line svelte/no-at-html-tags -- renderMarkdown sanitizes its HTML. -->
 						{@html renderMarkdown(event.description)}
@@ -610,12 +610,12 @@
 
 			<div class="flex w-full flex-col gap-3 md:w-auto">
 				{#if myRsvp}
-					<div class="text-base text-dark-700">
+					<div class="text-dark-700 text-base">
 						{rsvpStatusLabel(myRsvp.status)}
 						{#if success && (formType === "rsvp" || formType === "updateRsvp")}
-							<span class="saved-note ml-2 text-sm text-dark-700/70" role="status">Saved</span>
+							<span class="saved-note text-dark-700/70 ml-2 text-sm" role="status">Saved</span>
 						{:else if success && formType === "cancelRsvp"}
-							<span class="ml-2 text-sm text-dark-700/70" role="status">RSVP cancelled</span>
+							<span class="text-dark-700/70 ml-2 text-sm" role="status">RSVP cancelled</span>
 						{/if}
 					</div>
 				{:else if !rsvpAtLimit}
@@ -643,9 +643,9 @@
 					>
 				{/if}
 				{#if formType === "rsvp" && form?.alreadyRegistered && message}
-					<p class="text-sm text-dark-700/70" role="status">{message}</p>
+					<p class="text-dark-700/70 text-sm" role="status">{message}</p>
 				{:else if success && formType === "cancelRsvp"}
-					<p class="text-sm text-dark-700/70" role="status">RSVP cancelled</p>
+					<p class="text-dark-700/70 text-sm" role="status">RSVP cancelled</p>
 				{:else if message && !success && !showRsvpModal && !showEditModal && !showLinkModal}
 					<p class="text-sm text-red-700" role="alert">{message}</p>
 				{/if}
@@ -660,7 +660,7 @@
 		{@const notAttendingList = rsvps.filter((r: any) => r.status === "not_attending")}
 
 		<section class="card event-card mb-8">
-			<h2 class="mb-6 text-xl font-bold text-dark-900 md:text-xl">Who's coming</h2>
+			<h2 class="text-dark-900 mb-6 text-xl font-bold md:text-xl">Who's coming</h2>
 
 			<!-- RSVPs List -->
 			<div class="flex flex-col gap-4">
@@ -672,7 +672,7 @@
 						ontoggle={(e) => (showAttending = (e.target as HTMLDetailsElement)?.open ?? false)}
 					>
 						<summary
-							class="flex cursor-pointer select-none list-none items-center justify-between px-4 py-3.5 text-base font-semibold transition-all hover:opacity-90 md:px-6 md:py-4 md:text-lg"
+							class="flex cursor-pointer list-none items-center justify-between px-4 py-3.5 text-base font-semibold transition-all select-none hover:opacity-90 md:px-6 md:py-4 md:text-lg"
 						>
 							<span class="flex items-center gap-2">
 								<span
@@ -689,30 +689,30 @@
 									class="panel-list-item flex items-center justify-between gap-3 rounded-xl p-3 transition-all md:gap-4 md:p-4"
 								>
 									<div class="flex min-w-0 flex-1 flex-col gap-1">
-										<strong class="truncate text-sm text-dark-900 md:text-base"
+										<strong class="text-dark-900 truncate text-sm md:text-base"
 											>{rsvp.name}{#if rsvp.guestCount > 1 && rsvp.guestNames.length === 0}
-												<span class="font-normal text-dark-600"
+												<span class="text-dark-600 font-normal"
 													>(+{rsvp.guestCount - 1} guest{rsvp.guestCount - 1 === 1
 														? ""
 														: "s"})</span
 												>{/if}</strong
 										>
 										{#if rsvp.guestNames.length > 0}
-											<span class="text-xs text-dark-600 md:text-sm"
+											<span class="text-dark-600 text-xs md:text-sm"
 												>with {partyLabel(rsvp.guestCount, rsvp.guestNames)}</span
 											>
 										{/if}
 										{#if rsvp.email && isOwner}
-											<span class="truncate text-xs text-dark-700 md:text-sm">{rsvp.email}</span>
+											<span class="text-dark-700 truncate text-xs md:text-sm">{rsvp.email}</span>
 										{/if}
-										<span class="text-xs text-dark-600"
+										<span class="text-dark-600 text-xs"
 											>{formatShortDate(rsvp.createdAt, event.timezone)}</span
 										>
 									</div>
 									{#if rsvp.id === myRsvp?.id}
 										<button
 											type="button"
-											class="inline-flex min-h-11 min-w-11 flex-shrink-0 cursor-pointer items-center justify-center border-none bg-none p-2 text-xl opacity-60 transition-opacity hover:opacity-100"
+											class="inline-flex min-h-11 min-w-11 shrink-0 cursor-pointer items-center justify-center border-none bg-none p-2 text-xl opacity-60 transition-opacity hover:opacity-100"
 											title="Edit my RSVP"
 											aria-label="Edit my RSVP"
 											onclick={openEditModal}
@@ -735,7 +735,7 @@
 						ontoggle={(e) => (showMaybe = (e.target as HTMLDetailsElement)?.open ?? false)}
 					>
 						<summary
-							class="flex cursor-pointer select-none list-none items-center justify-between px-4 py-3.5 text-base font-semibold transition-all hover:opacity-90 md:px-6 md:py-4 md:text-lg"
+							class="flex cursor-pointer list-none items-center justify-between px-4 py-3.5 text-base font-semibold transition-all select-none hover:opacity-90 md:px-6 md:py-4 md:text-lg"
 						>
 							<span class="flex items-center gap-2">
 								<span
@@ -752,30 +752,30 @@
 									class="panel-list-item flex items-center justify-between gap-3 rounded-xl p-3 transition-all md:gap-4 md:p-4"
 								>
 									<div class="flex min-w-0 flex-1 flex-col gap-1">
-										<strong class="truncate text-sm text-dark-900 md:text-base"
+										<strong class="text-dark-900 truncate text-sm md:text-base"
 											>{rsvp.name}{#if rsvp.guestCount > 1 && rsvp.guestNames.length === 0}
-												<span class="font-normal text-dark-600"
+												<span class="text-dark-600 font-normal"
 													>(+{rsvp.guestCount - 1} guest{rsvp.guestCount - 1 === 1
 														? ""
 														: "s"})</span
 												>{/if}</strong
 										>
 										{#if rsvp.guestNames.length > 0}
-											<span class="text-xs text-dark-600 md:text-sm"
+											<span class="text-dark-600 text-xs md:text-sm"
 												>with {partyLabel(rsvp.guestCount, rsvp.guestNames)}</span
 											>
 										{/if}
 										{#if rsvp.email && isOwner}
-											<span class="truncate text-xs text-dark-700 md:text-sm">{rsvp.email}</span>
+											<span class="text-dark-700 truncate text-xs md:text-sm">{rsvp.email}</span>
 										{/if}
-										<span class="text-xs text-dark-600"
+										<span class="text-dark-600 text-xs"
 											>{formatShortDate(rsvp.createdAt, event.timezone)}</span
 										>
 									</div>
 									{#if rsvp.id === myRsvp?.id}
 										<button
 											type="button"
-											class="inline-flex min-h-11 min-w-11 flex-shrink-0 cursor-pointer items-center justify-center border-none bg-none p-2 text-xl opacity-60 transition-opacity hover:opacity-100"
+											class="inline-flex min-h-11 min-w-11 shrink-0 cursor-pointer items-center justify-center border-none bg-none p-2 text-xl opacity-60 transition-opacity hover:opacity-100"
 											title="Edit my RSVP"
 											aria-label="Edit my RSVP"
 											onclick={openEditModal}
@@ -798,7 +798,7 @@
 						ontoggle={(e) => (showNotAttending = (e.target as HTMLDetailsElement)?.open ?? false)}
 					>
 						<summary
-							class="flex cursor-pointer select-none list-none items-center justify-between px-4 py-3.5 text-base font-semibold transition-all hover:opacity-80 md:px-6 md:py-4 md:text-lg"
+							class="flex cursor-pointer list-none items-center justify-between px-4 py-3.5 text-base font-semibold transition-all select-none hover:opacity-80 md:px-6 md:py-4 md:text-lg"
 						>
 							<span class="flex items-center gap-2">
 								<span
@@ -816,30 +816,30 @@
 									class="panel-list-item flex items-center justify-between gap-3 rounded-xl p-3 transition-all md:gap-4 md:p-4"
 								>
 									<div class="flex min-w-0 flex-1 flex-col gap-1">
-										<strong class="truncate text-sm text-dark-900 md:text-base"
+										<strong class="text-dark-900 truncate text-sm md:text-base"
 											>{rsvp.name}{#if rsvp.guestCount > 1 && rsvp.guestNames.length === 0}
-												<span class="font-normal text-dark-600"
+												<span class="text-dark-600 font-normal"
 													>(+{rsvp.guestCount - 1} guest{rsvp.guestCount - 1 === 1
 														? ""
 														: "s"})</span
 												>{/if}</strong
 										>
 										{#if rsvp.guestNames.length > 0}
-											<span class="text-xs text-dark-600 md:text-sm"
+											<span class="text-dark-600 text-xs md:text-sm"
 												>with {partyLabel(rsvp.guestCount, rsvp.guestNames)}</span
 											>
 										{/if}
 										{#if rsvp.email && isOwner}
-											<span class="truncate text-xs text-dark-700 md:text-sm">{rsvp.email}</span>
+											<span class="text-dark-700 truncate text-xs md:text-sm">{rsvp.email}</span>
 										{/if}
-										<span class="text-xs text-dark-600"
+										<span class="text-dark-600 text-xs"
 											>{formatShortDate(rsvp.createdAt, event.timezone)}</span
 										>
 									</div>
 									{#if rsvp.id === myRsvp?.id}
 										<button
 											type="button"
-											class="inline-flex min-h-11 min-w-11 flex-shrink-0 cursor-pointer items-center justify-center border-none bg-none p-2 text-xl opacity-60 transition-opacity hover:opacity-100"
+											class="inline-flex min-h-11 min-w-11 shrink-0 cursor-pointer items-center justify-center border-none bg-none p-2 text-xl opacity-60 transition-opacity hover:opacity-100"
 											title="Edit my RSVP"
 											aria-label="Edit my RSVP"
 											onclick={openEditModal}
@@ -864,10 +864,10 @@
 				class="mb-6 flex flex-col gap-3 border-b pb-4 md:flex-row md:items-center md:justify-between md:gap-4"
 				style="border-color: {primaryColors[600]}20;"
 			>
-				<h2 class="m-0 text-xl font-bold text-dark-900 md:text-xl">{question.label}</h2>
+				<h2 class="text-dark-900 m-0 text-xl font-bold md:text-xl">{question.label}</h2>
 			</div>
 			{#if view.config.providing}
-				<p class="m-0 mb-4 text-sm text-dark-700 md:text-base">
+				<p class="text-dark-700 m-0 mb-4 text-sm md:text-base">
 					<strong>Hosts are providing:</strong>
 					{view.config.providing}
 				</p>
@@ -877,8 +877,8 @@
 					{@const dishes = view.taken.filter((t) => t.category === slot.category.id)}
 					<li>
 						<div class="flex items-center justify-between gap-3">
-							<strong class="text-sm text-dark-900 md:text-base">{slot.category.label}</strong>
-							<span class="flex items-center gap-2 text-sm text-dark-600">
+							<strong class="text-dark-900 text-sm md:text-base">{slot.category.label}</strong>
+							<span class="text-dark-600 flex items-center gap-2 text-sm">
 								{slot.count}
 								{#if slot.status === "needed-most"}
 									<span
@@ -900,7 +900,7 @@
 							</span>
 						</div>
 						{#if dishes.length > 0}
-							<p class="m-0 mt-1 text-sm text-dark-700">
+							<p class="text-dark-700 m-0 mt-1 text-sm">
 								{dishes.map((d) => (d.name ? `${d.dish} (${d.name})` : d.dish)).join(", ")}
 							</p>
 						{/if}
@@ -921,7 +921,7 @@
 					class="mb-6 flex flex-col gap-3 border-b pb-4 md:flex-row md:items-center md:justify-between md:gap-4"
 					style="border-color: {primaryColors[600]}20;"
 				>
-					<h2 class="m-0 text-xl font-bold text-dark-900 md:text-xl">{question.label}</h2>
+					<h2 class="text-dark-900 m-0 text-xl font-bold md:text-xl">{question.label}</h2>
 					{#if question.quantity}
 						<span
 							class="badge-status"
@@ -942,7 +942,7 @@
 					{/if}
 				</div>
 				{#if question.description}
-					<div class="prose prose-sm m-0 mb-6 max-w-none text-sm leading-relaxed text-dark-700">
+					<div class="prose prose-sm text-dark-700 m-0 mb-6 max-w-none text-sm leading-relaxed">
 						<!-- eslint-disable-next-line svelte/no-at-html-tags -- renderMarkdown sanitizes its HTML. -->
 						{@html renderMarkdown(question.description)}
 					</div>
@@ -976,7 +976,7 @@
 												>
 													<div class="flex w-full items-center gap-3 sm:w-auto sm:gap-4">
 														<span
-															class="index-badge w-6 flex-shrink-0 text-center text-xs font-bold sm:w-8 sm:text-sm"
+															class="index-badge w-6 shrink-0 text-center text-xs font-bold sm:w-8 sm:text-sm"
 															style="color: {primaryColors[700]};">{index + 1}</span
 														>
 														{#if entry.track.image}
@@ -985,12 +985,12 @@
 																alt={entry.track.album
 																	? `${entry.track.album} artwork`
 																	: `${entry.track.name} artwork`}
-																class="h-12 w-12 flex-shrink-0 rounded-lg object-cover sm:h-14 sm:w-14"
+																class="h-12 w-12 shrink-0 rounded-lg object-cover sm:h-14 sm:w-14"
 																loading="lazy"
 															/>
 														{/if}
 														<div class="min-w-0 flex-1 space-y-0.5">
-															<p class="truncate text-sm font-semibold text-dark-900">
+															<p class="text-dark-900 truncate text-sm font-semibold">
 																{#if entry.track.spotifyUrl}
 																	<a
 																		href={entry.track.spotifyUrl}
@@ -1004,15 +1004,15 @@
 																	{entry.track.name}
 																{/if}
 															</p>
-															<p class="truncate text-xs text-dark-600">{entry.track.artists}</p>
+															<p class="text-dark-600 truncate text-xs">{entry.track.artists}</p>
 															{#if entry.track.album}
-																<p class="truncate text-xs text-dark-500">{entry.track.album}</p>
+																<p class="text-dark-500 truncate text-xs">{entry.track.album}</p>
 															{/if}
 														</div>
 													</div>
-													<div class="flex flex-shrink-0 items-center gap-2 sm:ml-auto">
+													<div class="flex shrink-0 items-center gap-2 sm:ml-auto">
 														<span
-															class="contributor-chip inline-flex items-center gap-1 whitespace-nowrap rounded-full px-2 py-1 text-xs font-semibold"
+															class="contributor-chip inline-flex items-center gap-1 rounded-full px-2 py-1 text-xs font-semibold whitespace-nowrap"
 															style="background-color: {primaryColors[100]}; color: {primaryColors[800]};"
 														>
 															<span aria-hidden="true">👤</span>
@@ -1020,7 +1020,7 @@
 															<span class="sm:hidden">{entry.contributor.split(" ")[0]}</span>
 														</span>
 														<span
-															class="song-note flex-shrink-0 text-lg sm:text-xl"
+															class="song-note shrink-0 text-lg sm:text-xl"
 															style="color: {primaryColors[700]};"
 															aria-hidden="true">♪</span
 														>
@@ -1034,7 +1034,7 @@
 											"mt-3",
 										)}
 									{:else}
-										<p class="text-sm italic text-gray-500">No songs yet from attendees.</p>
+										<p class="text-sm text-gray-500 italic">No songs yet from attendees.</p>
 									{/if}
 								</div>
 							</div>
@@ -1065,7 +1065,7 @@
 												>
 													<div class="flex w-full items-center gap-3 sm:w-auto sm:gap-4">
 														<span
-															class="index-badge w-6 flex-shrink-0 text-center text-xs font-bold sm:w-8 sm:text-sm"
+															class="index-badge w-6 shrink-0 text-center text-xs font-bold sm:w-8 sm:text-sm"
 															style="color: {primaryColors[700]};">{index + 1}</span
 														>
 														{#if entry.track.image}
@@ -1074,12 +1074,12 @@
 																alt={entry.track.album
 																	? `${entry.track.album} artwork`
 																	: `${entry.track.name} artwork`}
-																class="h-12 w-12 flex-shrink-0 rounded-lg object-cover sm:h-14 sm:w-14"
+																class="h-12 w-12 shrink-0 rounded-lg object-cover sm:h-14 sm:w-14"
 																loading="lazy"
 															/>
 														{/if}
 														<div class="min-w-0 flex-1 space-y-0.5">
-															<p class="truncate text-sm font-semibold text-dark-900">
+															<p class="text-dark-900 truncate text-sm font-semibold">
 																{#if entry.track.spotifyUrl}
 																	<a
 																		href={entry.track.spotifyUrl}
@@ -1093,15 +1093,15 @@
 																	{entry.track.name}
 																{/if}
 															</p>
-															<p class="truncate text-xs text-dark-600">{entry.track.artists}</p>
+															<p class="text-dark-600 truncate text-xs">{entry.track.artists}</p>
 															{#if entry.track.album}
-																<p class="truncate text-xs text-dark-500">{entry.track.album}</p>
+																<p class="text-dark-500 truncate text-xs">{entry.track.album}</p>
 															{/if}
 														</div>
 													</div>
-													<div class="flex flex-shrink-0 items-center gap-2 sm:ml-auto">
+													<div class="flex shrink-0 items-center gap-2 sm:ml-auto">
 														<span
-															class="contributor-chip inline-flex items-center gap-1 whitespace-nowrap rounded-full px-2 py-1 text-xs font-semibold"
+															class="contributor-chip inline-flex items-center gap-1 rounded-full px-2 py-1 text-xs font-semibold whitespace-nowrap"
 															style="background-color: {primaryColors[100]}; color: {primaryColors[800]};"
 														>
 															<span aria-hidden="true">👤</span>
@@ -1109,7 +1109,7 @@
 															<span class="sm:hidden">{entry.contributor.split(" ")[0]}</span>
 														</span>
 														<span
-															class="song-note flex-shrink-0 text-lg sm:text-xl"
+															class="song-note shrink-0 text-lg sm:text-xl"
 															style="color: {primaryColors[700]};"
 															aria-hidden="true">♪</span
 														>
@@ -1123,7 +1123,7 @@
 											"mt-3",
 										)}
 									{:else}
-										<p class="text-sm italic text-gray-500">No songs yet from “Maybe” guests.</p>
+										<p class="text-sm text-gray-500 italic">No songs yet from “Maybe” guests.</p>
 									{/if}
 								</div>
 							</div>
@@ -1155,7 +1155,7 @@
 												>
 													<div class="flex w-full items-center gap-3 sm:w-auto sm:gap-4">
 														<span
-															class="index-badge w-6 flex-shrink-0 text-center text-xs font-bold sm:w-8 sm:text-sm"
+															class="index-badge w-6 shrink-0 text-center text-xs font-bold sm:w-8 sm:text-sm"
 															style="color: {primaryColors[700]};">{index + 1}</span
 														>
 														{#if entry.track.image}
@@ -1164,12 +1164,12 @@
 																alt={entry.track.album
 																	? `${entry.track.album} artwork`
 																	: `${entry.track.name} artwork`}
-																class="h-12 w-12 flex-shrink-0 rounded-lg object-cover sm:h-14 sm:w-14"
+																class="h-12 w-12 shrink-0 rounded-lg object-cover sm:h-14 sm:w-14"
 																loading="lazy"
 															/>
 														{/if}
 														<div class="min-w-0 flex-1 space-y-0.5">
-															<p class="truncate text-sm font-semibold text-dark-900">
+															<p class="text-dark-900 truncate text-sm font-semibold">
 																{#if entry.track.spotifyUrl}
 																	<a
 																		href={entry.track.spotifyUrl}
@@ -1183,15 +1183,15 @@
 																	{entry.track.name}
 																{/if}
 															</p>
-															<p class="truncate text-xs text-dark-600">{entry.track.artists}</p>
+															<p class="text-dark-600 truncate text-xs">{entry.track.artists}</p>
 															{#if entry.track.album}
-																<p class="truncate text-xs text-dark-500">{entry.track.album}</p>
+																<p class="text-dark-500 truncate text-xs">{entry.track.album}</p>
 															{/if}
 														</div>
 													</div>
-													<div class="flex flex-shrink-0 items-center gap-2 sm:ml-auto">
+													<div class="flex shrink-0 items-center gap-2 sm:ml-auto">
 														<span
-															class="contributor-chip inline-flex items-center gap-1 whitespace-nowrap rounded-full px-2 py-1 text-xs font-semibold"
+															class="contributor-chip inline-flex items-center gap-1 rounded-full px-2 py-1 text-xs font-semibold whitespace-nowrap"
 															style="background-color: {primaryColors[100]}; color: {primaryColors[800]};"
 														>
 															<span aria-hidden="true">👤</span>
@@ -1199,7 +1199,7 @@
 															<span class="sm:hidden">{entry.contributor.split(" ")[0]}</span>
 														</span>
 														<span
-															class="song-note flex-shrink-0 text-lg sm:text-xl"
+															class="song-note shrink-0 text-lg sm:text-xl"
 															style="color: {primaryColors[700]};"
 															aria-hidden="true">♪</span
 														>
@@ -1213,7 +1213,7 @@
 											"mt-3",
 										)}
 									{:else}
-										<p class="text-sm italic text-gray-500">
+										<p class="text-sm text-gray-500 italic">
 											No songs yet from guests marked “Not Attending”.
 										</p>
 									{/if}
@@ -1243,8 +1243,8 @@
 										{#each attendingResponses as response}
 											<li class="panel-list-item flex items-start gap-3 rounded-xl p-3">
 												<div class="min-w-0 flex-1">
-													<p class="mb-1 text-sm font-semibold text-dark-900">{response.name}</p>
-													<p class="whitespace-pre-wrap break-words text-sm text-dark-700">
+													<p class="text-dark-900 mb-1 text-sm font-semibold">{response.name}</p>
+													<p class="text-dark-700 text-sm wrap-break-word whitespace-pre-wrap">
 														{response.value}
 													</p>
 												</div>
@@ -1274,8 +1274,8 @@
 										{#each maybeResponses as response}
 											<li class="panel-list-item flex items-start gap-3 rounded-xl p-3">
 												<div class="min-w-0 flex-1">
-													<p class="mb-1 text-sm font-semibold text-dark-900">{response.name}</p>
-													<p class="whitespace-pre-wrap break-words text-sm text-dark-700">
+													<p class="text-dark-900 mb-1 text-sm font-semibold">{response.name}</p>
+													<p class="text-dark-700 text-sm wrap-break-word whitespace-pre-wrap">
 														{response.value}
 													</p>
 												</div>
@@ -1306,8 +1306,8 @@
 										{#each notAttendingResponses as response}
 											<li class="panel-list-item flex items-start gap-3 rounded-xl p-3">
 												<div class="min-w-0 flex-1">
-													<p class="mb-1 text-sm font-semibold text-dark-900">{response.name}</p>
-													<p class="whitespace-pre-wrap break-words text-sm text-dark-700">
+													<p class="text-dark-900 mb-1 text-sm font-semibold">{response.name}</p>
+													<p class="text-dark-700 text-sm wrap-break-word whitespace-pre-wrap">
 														{response.value}
 													</p>
 												</div>

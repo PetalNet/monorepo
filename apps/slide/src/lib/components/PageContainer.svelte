@@ -18,7 +18,7 @@
 	};
 </script>
 
-<div class="relative min-h-screen overflow-hidden bg-theater-background">
+<div class="bg-theater-background relative min-h-screen overflow-hidden">
 	<ParticleBackground />
 
 	<div class="relative z-10 {maxWidthClasses[maxWidth]} mx-auto p-4 md:p-8">

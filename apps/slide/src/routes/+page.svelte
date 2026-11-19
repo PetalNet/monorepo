@@ -193,16 +193,16 @@
 		<!-- Hero Section -->
 		<div class="animate-fade-in space-y-6" class:opacity-0={!showContent}>
 			<!-- Mic Icon with Glow -->
-			<div class="relative mb-4 inline-block animate-float text-8xl">
+			<div class="animate-float relative mb-4 inline-block text-8xl">
 				<div
-					class="absolute inset-0 scale-150 rounded-full bg-theater-purple-glow/30 blur-2xl"
+					class="bg-theater-purple-glow/30 absolute inset-0 scale-150 rounded-full blur-2xl"
 				></div>
 				<span class="relative">🎤</span>
 			</div>
 
 			<!-- Title with Gradient -->
 			<h1
-				class="bg-gradient-to-r from-theater-purple-light via-theater-purple-glow to-pink-500 bg-clip-text text-7xl font-extrabold leading-tight tracking-tight text-transparent md:text-8xl"
+				class="from-theater-purple-light via-theater-purple-glow bg-linear-to-r to-pink-500 bg-clip-text text-7xl leading-tight font-extrabold tracking-tight text-transparent md:text-8xl"
 			>
 				SlideNight
 			</h1>
@@ -219,27 +219,27 @@
 
 		<!-- Energy Badges -->
 		<div
-			class="flex animate-slide-up flex-wrap justify-center gap-3"
+			class="animate-slide-up flex flex-wrap justify-center gap-3"
 			style="animation-delay: 0.2s"
 			class:opacity-0={!showContent}
 		>
 			<span
-				class="group rounded-full border border-theater-purple/30 bg-theater-elevated px-5 py-2.5 text-sm font-medium transition-all duration-300 hover:border-theater-purple/50 hover:bg-theater-purple/10 hover:shadow-glow-sm"
+				class="group border-theater-purple/30 bg-theater-elevated hover:border-theater-purple/50 hover:bg-theater-purple/10 hover:shadow-glow-sm rounded-full border px-5 py-2.5 text-sm font-medium transition-all duration-300"
 			>
 				<span class="inline-block transition-transform group-hover:scale-110">📱</span> QR Code Voting
 			</span>
 			<span
-				class="group rounded-full border border-theater-teal/30 bg-theater-elevated px-5 py-2.5 text-sm font-medium transition-all duration-300 hover:border-theater-teal/50 hover:bg-theater-teal/10 hover:shadow-glow-sm"
+				class="group border-theater-teal/30 bg-theater-elevated hover:border-theater-teal/50 hover:bg-theater-teal/10 hover:shadow-glow-sm rounded-full border px-5 py-2.5 text-sm font-medium transition-all duration-300"
 			>
 				<span class="inline-block transition-transform group-hover:scale-110">⏱️</span> Live Timer Control
 			</span>
 			<span
-				class="group rounded-full border border-theater-gold/30 bg-theater-elevated px-5 py-2.5 text-sm font-medium transition-all duration-300 hover:border-theater-gold/50 hover:bg-theater-gold/10 hover:shadow-glow-sm"
+				class="group border-theater-gold/30 bg-theater-elevated hover:border-theater-gold/50 hover:bg-theater-gold/10 hover:shadow-glow-sm rounded-full border px-5 py-2.5 text-sm font-medium transition-all duration-300"
 			>
 				<span class="inline-block transition-transform group-hover:scale-110">🏆</span> Automatic Scoring
 			</span>
 			<span
-				class="group rounded-full border border-pink-500/30 bg-theater-elevated px-5 py-2.5 text-sm font-medium transition-all duration-300 hover:border-pink-500/50 hover:bg-pink-500/10 hover:shadow-glow-sm"
+				class="group bg-theater-elevated hover:shadow-glow-sm rounded-full border border-pink-500/30 px-5 py-2.5 text-sm font-medium transition-all duration-300 hover:border-pink-500/50 hover:bg-pink-500/10"
 			>
 				<span class="inline-block transition-transform group-hover:scale-110">🎉</span> Confetti Reveals
 			</span>
@@ -247,17 +247,17 @@
 
 		<!-- Action Cards -->
 		<div
-			class="mx-auto grid max-w-4xl animate-slide-up gap-6 md:grid-cols-2"
+			class="animate-slide-up mx-auto grid max-w-4xl gap-6 md:grid-cols-2"
 			style="animation-delay: 0.4s"
 			class:opacity-0={!showContent}
 		>
 			<!-- Host Section -->
 			<div
-				class="group relative space-y-6 overflow-hidden rounded-2xl border border-gray-800/50 bg-theater-elevated p-8 transition-all duration-300 hover:border-theater-purple/50 hover:shadow-stage"
+				class="group bg-theater-elevated hover:border-theater-purple/50 hover:shadow-stage relative space-y-6 overflow-hidden rounded-2xl border border-gray-800/50 p-8 transition-all duration-300"
 			>
 				<!-- Glow effect on hover -->
 				<div
-					class="absolute inset-0 bg-gradient-to-br from-theater-purple/5 to-transparent opacity-0 transition-opacity duration-500 group-hover:opacity-100"
+					class="from-theater-purple/5 absolute inset-0 bg-linear-to-br to-transparent opacity-0 transition-opacity duration-500 group-hover:opacity-100"
 				></div>
 
 				<div class="relative z-10 space-y-6">
@@ -276,13 +276,13 @@
 					<div class="flex flex-col gap-3">
 						<button
 							onclick={() => goto("/auth/signup")}
-							class="w-full rounded-xl bg-theater-purple px-6 py-3.5 font-semibold text-white transition-all duration-200 hover:scale-105 hover:bg-theater-purple/90 hover:shadow-glow"
+							class="bg-theater-purple hover:bg-theater-purple/90 hover:shadow-glow w-full rounded-xl px-6 py-3.5 font-semibold text-white transition-all duration-200 hover:scale-105"
 						>
 							Create Account
 						</button>
 						<button
 							onclick={() => goto("/auth/login")}
-							class="w-full rounded-xl border border-gray-700 bg-theater-dark px-6 py-3.5 font-semibold text-white transition-all duration-200 hover:border-theater-purple/50 hover:bg-theater-elevated"
+							class="bg-theater-dark hover:border-theater-purple/50 hover:bg-theater-elevated w-full rounded-xl border border-gray-700 px-6 py-3.5 font-semibold text-white transition-all duration-200"
 						>
 							Sign In
 						</button>
@@ -292,11 +292,11 @@
 
 			<!-- Join Event Section -->
 			<div
-				class="group relative space-y-6 overflow-hidden rounded-2xl border border-gray-800/50 bg-theater-elevated p-8 transition-all duration-300 hover:border-theater-teal/30 hover:shadow-glow-sm"
+				class="group bg-theater-elevated hover:border-theater-teal/30 hover:shadow-glow-sm relative space-y-6 overflow-hidden rounded-2xl border border-gray-800/50 p-8 transition-all duration-300"
 			>
 				<!-- Hover Glow Overlay -->
 				<div
-					class="pointer-events-none absolute inset-0 bg-gradient-to-br from-theater-teal/5 via-transparent to-transparent opacity-0 transition-opacity duration-500 group-hover:opacity-100"
+					class="from-theater-teal/5 pointer-events-none absolute inset-0 bg-linear-to-br via-transparent to-transparent opacity-0 transition-opacity duration-500 group-hover:opacity-100"
 				></div>
 
 				<div class="relative z-10">
@@ -328,7 +328,7 @@
 						type="text"
 						name="code"
 						placeholder="Enter event code..."
-						class="w-full rounded-xl border border-gray-700 bg-theater-dark px-5 py-4 text-center font-mono text-xl uppercase tracking-widest text-white placeholder-gray-500 transition-all duration-200 focus:border-theater-teal focus:shadow-glow-sm focus:outline-none focus:ring-2 focus:ring-theater-teal"
+						class="bg-theater-dark focus:border-theater-teal focus:shadow-glow-sm focus:ring-theater-teal w-full rounded-xl border border-gray-700 px-5 py-4 text-center font-mono text-xl tracking-widest text-white uppercase placeholder-gray-500 transition-all duration-200 focus:ring-2 focus:outline-hidden"
 						required
 						maxlength="8"
 					/>
@@ -341,7 +341,7 @@
 		<div class="grid gap-8 pt-16 text-left md:grid-cols-3">
 			<!-- Feature 1 - Easy Registration -->
 			<div
-				class="animate-fade-in rounded-2xl border border-gray-800/50 bg-theater-elevated p-8 opacity-0 transition-all duration-300 [animation-delay:0.6s] [animation-fill-mode:forwards] hover:border-theater-purple/30 hover:shadow-glow-sm"
+				class="animate-fade-in bg-theater-elevated hover:border-theater-purple/30 hover:shadow-glow-sm rounded-2xl border border-gray-800/50 p-8 opacity-0 transition-all duration-300 [animation-delay:0.6s] [animation-fill-mode:forwards]"
 			>
 				<div class="mb-4 inline-block text-4xl transition-transform duration-300 hover:scale-110">
 					📝
@@ -355,7 +355,7 @@
 
 			<!-- Feature 2 - Live Presentation Mode -->
 			<div
-				class="animate-fade-in rounded-2xl border border-gray-800/50 bg-theater-elevated p-8 opacity-0 transition-all duration-300 [animation-delay:0.8s] [animation-fill-mode:forwards] hover:border-theater-teal/30 hover:shadow-glow-sm"
+				class="animate-fade-in bg-theater-elevated hover:border-theater-teal/30 hover:shadow-glow-sm rounded-2xl border border-gray-800/50 p-8 opacity-0 transition-all duration-300 [animation-delay:0.8s] [animation-fill-mode:forwards]"
 			>
 				<div class="mb-4 inline-block text-4xl transition-transform duration-300 hover:scale-110">
 					🎬
@@ -369,7 +369,7 @@
 
 			<!-- Feature 3 - Dramatic Results -->
 			<div
-				class="animate-fade-in rounded-2xl border border-gray-800/50 bg-theater-elevated p-8 opacity-0 transition-all duration-300 [animation-delay:1.0s] [animation-fill-mode:forwards] hover:border-theater-gold/30 hover:shadow-glow-sm"
+				class="animate-fade-in bg-theater-elevated hover:border-theater-gold/30 hover:shadow-glow-sm rounded-2xl border border-gray-800/50 p-8 opacity-0 transition-all duration-300 [animation-delay:1.0s] [animation-fill-mode:forwards]"
 			>
 				<div class="mb-4 inline-block text-4xl transition-transform duration-300 hover:scale-110">
 					🏆
@@ -387,27 +387,27 @@
 			<h3 class="mb-8 text-center text-2xl font-bold tracking-tight">Perfect For:</h3>
 			<div class="flex flex-wrap justify-center gap-4">
 				<span
-					class="rounded-full border border-gray-800/50 bg-theater-elevated px-6 py-3 text-gray-300 transition-all duration-200 hover:border-theater-purple/30 hover:text-theater-purple-light"
+					class="bg-theater-elevated hover:border-theater-purple/30 hover:text-theater-purple-light rounded-full border border-gray-800/50 px-6 py-3 text-gray-300 transition-all duration-200"
 				>
 					<span class="mr-2">🎓</span>College Organizations
 				</span>
 				<span
-					class="rounded-full border border-gray-800/50 bg-theater-elevated px-6 py-3 text-gray-300 transition-all duration-200 hover:border-theater-teal/30 hover:text-theater-teal"
+					class="bg-theater-elevated hover:border-theater-teal/30 hover:text-theater-teal rounded-full border border-gray-800/50 px-6 py-3 text-gray-300 transition-all duration-200"
 				>
 					<span class="mr-2">🏢</span>Team Building Events
 				</span>
 				<span
-					class="rounded-full border border-gray-800/50 bg-theater-elevated px-6 py-3 text-gray-300 transition-all duration-200 hover:border-theater-gold/30 hover:text-theater-gold"
+					class="bg-theater-elevated hover:border-theater-gold/30 hover:text-theater-gold rounded-full border border-gray-800/50 px-6 py-3 text-gray-300 transition-all duration-200"
 				>
 					<span class="mr-2">🎮</span>Game Nights
 				</span>
 				<span
-					class="rounded-full border border-gray-800/50 bg-theater-elevated px-6 py-3 text-gray-300 transition-all duration-200 hover:border-pink-400/30 hover:text-pink-400"
+					class="bg-theater-elevated rounded-full border border-gray-800/50 px-6 py-3 text-gray-300 transition-all duration-200 hover:border-pink-400/30 hover:text-pink-400"
 				>
 					<span class="mr-2">🎨</span>Creative Communities
 				</span>
 				<span
-					class="rounded-full border border-gray-800/50 bg-theater-elevated px-6 py-3 text-gray-300 transition-all duration-200 hover:border-theater-purple/30 hover:text-theater-purple-light"
+					class="bg-theater-elevated hover:border-theater-purple/30 hover:text-theater-purple-light rounded-full border border-gray-800/50 px-6 py-3 text-gray-300 transition-all duration-200"
 				>
 					<span class="mr-2">🎉</span>Party Competitions
 				</span>

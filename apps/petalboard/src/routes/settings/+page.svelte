@@ -47,7 +47,7 @@
 
 <div class="mx-auto max-w-[800px]">
 	<header class="mb-8">
-		<h1 class="mb-2 flex items-center gap-2 text-3xl font-bold text-dark-800">
+		<h1 class="text-dark-800 mb-2 flex items-center gap-2 text-3xl font-bold">
 			<span class="text-4xl">⚙️</span>
 			Settings
 		</h1>
@@ -64,7 +64,7 @@
 
 	<!-- Profile Settings -->
 	<section class="card mb-6">
-		<h2 class="mb-6 flex items-center gap-2 text-2xl font-bold text-dark-800">
+		<h2 class="text-dark-800 mb-6 flex items-center gap-2 text-2xl font-bold">
 			<span class="text-2xl">👤</span>
 			Profile Information
 		</h2>
@@ -104,7 +104,7 @@
 
 	<!-- Account Information -->
 	<section class="card mb-6">
-		<h2 class="mb-6 flex items-center gap-2 text-2xl font-bold text-dark-800">
+		<h2 class="text-dark-800 mb-6 flex items-center gap-2 text-2xl font-bold">
 			<span class="text-2xl">📊</span>
 			Account Information
 		</h2>
@@ -121,21 +121,21 @@
 			</div>
 			<div class="flex items-center justify-between py-3">
 				<span class="font-medium text-gray-600">User ID</span>
-				<span class="font-mono text-sm text-dark-800">{data.user.id}</span>
+				<span class="text-dark-800 font-mono text-sm">{data.user.id}</span>
 			</div>
 		</div>
 	</section>
 
 	<!-- Spotify Integration -->
 	<section class="card mb-6">
-		<h2 class="mb-6 flex items-center gap-2 text-2xl font-bold text-dark-800">
+		<h2 class="text-dark-800 mb-6 flex items-center gap-2 text-2xl font-bold">
 			<span class="text-2xl">🎵</span>
 			Spotify Integration
 		</h2>
 		<div class="space-y-4">
 			{#if data.user.spotifyAccessToken}
 				<div
-					class="rounded-xl border border-green-200 bg-gradient-to-br from-green-50 to-green-100/50 p-5"
+					class="rounded-xl border border-green-200 bg-linear-to-br from-green-50 to-green-100/50 p-5"
 				>
 					<div class="flex items-start justify-between gap-4">
 						<div class="flex items-center gap-3">
@@ -145,7 +145,7 @@
 								✓
 							</div>
 							<div>
-								<h3 class="font-semibold text-dark-900">Spotify Connected</h3>
+								<h3 class="text-dark-900 font-semibold">Spotify Connected</h3>
 								<p class="text-sm text-green-700">
 									You can now add playlist questions to your events
 								</p>
@@ -171,17 +171,17 @@
 				</div>
 			{:else}
 				<div
-					class="rounded-xl border border-primary-700/10 bg-gradient-to-br from-white to-primary-50 p-5"
+					class="border-primary-700/10 to-primary-50 rounded-xl border bg-linear-to-br from-white p-5"
 				>
 					<div class="flex items-start gap-4">
 						<div
-							class="flex h-12 w-12 items-center justify-center rounded-full bg-primary-100 text-2xl"
+							class="bg-primary-100 flex h-12 w-12 items-center justify-center rounded-full text-2xl"
 						>
 							🎵
 						</div>
 						<div class="flex-1">
-							<h3 class="mb-2 font-semibold text-dark-900">Connect Spotify</h3>
-							<p class="mb-4 text-sm text-dark-700">
+							<h3 class="text-dark-900 mb-2 font-semibold">Connect Spotify</h3>
+							<p class="text-dark-700 mb-4 text-sm">
 								Connect your Spotify account to create collaborative playlist questions for your
 								events. Guests can suggest songs to add to your event playlist!
 							</p>
@@ -209,7 +209,7 @@
 		</h2>
 		<div class="flex flex-col items-start justify-between gap-4 sm:flex-row sm:items-center">
 			<div>
-				<h3 class="mb-2 text-lg font-semibold text-dark-800">Delete Account</h3>
+				<h3 class="text-dark-800 mb-2 text-lg font-semibold">Delete Account</h3>
 				<p class="text-sm text-gray-600">
 					This will permanently delete your account, all your events, and all associated data. This
 					action cannot be undone.

@@ -18,37 +18,37 @@
 <PageContainer>
 	<PageHeader title="Events" subtitle={`All events in the system. Total: ${data.events.length}`} />
 
-	<div class="overflow-hidden rounded-lg bg-white shadow">
+	<div class="overflow-hidden rounded-lg bg-white shadow-sm">
 		<table class="min-w-full divide-y divide-gray-200">
 			<thead class="bg-gray-50">
 				<tr>
 					<th
-						class="px-6 py-3 text-left text-xs font-medium uppercase tracking-wider text-gray-500"
+						class="px-6 py-3 text-left text-xs font-medium tracking-wider text-gray-500 uppercase"
 					>
 						Event
 					</th>
 					<th
-						class="px-6 py-3 text-left text-xs font-medium uppercase tracking-wider text-gray-500"
+						class="px-6 py-3 text-left text-xs font-medium tracking-wider text-gray-500 uppercase"
 					>
 						Host
 					</th>
 					<th
-						class="px-6 py-3 text-left text-xs font-medium uppercase tracking-wider text-gray-500"
+						class="px-6 py-3 text-left text-xs font-medium tracking-wider text-gray-500 uppercase"
 					>
 						Status
 					</th>
 					<th
-						class="px-6 py-3 text-left text-xs font-medium uppercase tracking-wider text-gray-500"
+						class="px-6 py-3 text-left text-xs font-medium tracking-wider text-gray-500 uppercase"
 					>
 						Stats
 					</th>
 					<th
-						class="px-6 py-3 text-left text-xs font-medium uppercase tracking-wider text-gray-500"
+						class="px-6 py-3 text-left text-xs font-medium tracking-wider text-gray-500 uppercase"
 					>
 						Created
 					</th>
 					<th
-						class="px-6 py-3 text-right text-xs font-medium uppercase tracking-wider text-gray-500"
+						class="px-6 py-3 text-right text-xs font-medium tracking-wider text-gray-500 uppercase"
 					>
 						Actions
 					</th>
@@ -57,19 +57,19 @@
 			<tbody class="divide-y divide-gray-200 bg-white">
 				{#each data.events as event}
 					<tr>
-						<td class="whitespace-nowrap px-6 py-4">
+						<td class="px-6 py-4 whitespace-nowrap">
 							<div>
 								<div class="text-sm font-medium text-gray-900">{event.name}</div>
 								<div class="text-sm text-gray-500">Code: {event.joinCode}</div>
 							</div>
 						</td>
-						<td class="whitespace-nowrap px-6 py-4">
+						<td class="px-6 py-4 whitespace-nowrap">
 							<div class="text-sm text-gray-900">{event.host.name}</div>
 							<div class="text-sm text-gray-500">{event.host.email}</div>
 						</td>
-						<td class="whitespace-nowrap px-6 py-4">
+						<td class="px-6 py-4 whitespace-nowrap">
 							<span
-								class="inline-flex rounded-full px-2 text-xs font-semibold leading-5 {event.status ===
+								class="inline-flex rounded-full px-2 text-xs leading-5 font-semibold {event.status ===
 								'live'
 									? 'bg-green-100 text-green-800'
 									: event.status === 'voting'
@@ -81,15 +81,15 @@
 								{event.status}
 							</span>
 						</td>
-						<td class="whitespace-nowrap px-6 py-4 text-sm text-gray-500">
+						<td class="px-6 py-4 text-sm whitespace-nowrap text-gray-500">
 							{event._count.groups} groups •
 							{event._count.votes} votes •
 							{event._count.judges} judges
 						</td>
-						<td class="whitespace-nowrap px-6 py-4 text-sm text-gray-500">
+						<td class="px-6 py-4 text-sm whitespace-nowrap text-gray-500">
 							{formatDate(event.createdAt)}
 						</td>
-						<td class="whitespace-nowrap px-6 py-4 text-right text-sm font-medium">
+						<td class="px-6 py-4 text-right text-sm font-medium whitespace-nowrap">
 							<a href="/event/{event.id}" class="text-blue-600 hover:text-blue-900" target="_blank">
 								View
 							</a>

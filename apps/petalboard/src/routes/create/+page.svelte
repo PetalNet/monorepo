@@ -60,18 +60,18 @@
 </script>
 
 <h1 class="mb-2">Create an event</h1>
-<p class="mb-8 max-w-[60ch] text-dark-900/75">
+<p class="text-dark-900/75 mb-8 max-w-[60ch]">
 	Set up your event, then share the public link with your guests. You can always come back to update
 	slots or details from the manage link.
 </p>
 
 {#if message}
-	<p class="bg-red-500/12 mb-6 max-w-[620px] rounded-2xl px-4 py-3 text-red-900">{message}</p>
+	<p class="mb-6 max-w-[620px] rounded-2xl bg-red-500/12 px-4 py-3 text-red-900">{message}</p>
 {/if}
 
 <form
 	method="POST"
-	class="grid w-full max-w-[620px] gap-6 rounded-[20px] bg-white p-6 shadow-card lg:p-10"
+	class="shadow-card grid w-full max-w-[620px] gap-6 rounded-[20px] bg-white p-6 lg:p-10"
 >
 	<label class="form-label text-dark-800">
 		<span>Event title</span>
@@ -79,7 +79,7 @@
 			name="title"
 			required
 			value={values.title ?? ""}
-			class="font-inherit focus:ring-primary-700/18 rounded-xl border border-primary-700/25 bg-white/90 px-4 py-3 focus:border-primary-700 focus:outline-none focus:ring-4"
+			class="font-inherit focus:ring-primary-700/18 border-primary-700/25 focus:border-primary-700 rounded-xl border bg-white/90 px-4 py-3 focus:ring-4 focus:outline-hidden"
 		/>
 		{#if errors.title}
 			<small class="text-red-600">{errors.title[0]}</small>
@@ -93,7 +93,7 @@
 			name="date"
 			required
 			value={values.date ?? ""}
-			class="font-inherit focus:ring-primary-700/18 rounded-xl border border-primary-700/25 bg-white/90 px-4 py-3 focus:border-primary-700 focus:outline-none focus:ring-4"
+			class="font-inherit focus:ring-primary-700/18 border-primary-700/25 focus:border-primary-700 rounded-xl border bg-white/90 px-4 py-3 focus:ring-4 focus:outline-hidden"
 		/>
 		{#if errors.date}
 			<small class="text-red-600">{errors.date[0]}</small>
@@ -106,7 +106,7 @@
 			type="datetime-local"
 			name="endDate"
 			value={values.endDate ?? ""}
-			class="font-inherit focus:ring-primary-700/18 rounded-xl border border-primary-700/25 bg-white/90 px-4 py-3 focus:border-primary-700 focus:outline-none focus:ring-4"
+			class="font-inherit focus:ring-primary-700/18 border-primary-700/25 focus:border-primary-700 rounded-xl border bg-white/90 px-4 py-3 focus:ring-4 focus:outline-hidden"
 		/>
 		{#if errors.endDate}
 			<small class="text-red-600">{errors.endDate[0]}</small>
@@ -119,7 +119,7 @@
 			name="timezone"
 			required
 			value={values.timezone ?? defaultTimezone}
-			class="font-inherit focus:ring-primary-700/18 rounded-xl border border-primary-700/25 bg-white/90 px-4 py-3 focus:border-primary-700 focus:outline-none focus:ring-4"
+			class="font-inherit focus:ring-primary-700/18 border-primary-700/25 focus:border-primary-700 rounded-xl border bg-white/90 px-4 py-3 focus:ring-4 focus:outline-hidden"
 		>
 			{#each COMMON_TIMEZONES as tz}
 				<option value={tz.value}>{tz.label}</option>
@@ -141,7 +141,7 @@
 			min="1"
 			placeholder="No limit"
 			value={values.rsvpLimit ?? ""}
-			class="font-inherit focus:ring-primary-700/18 rounded-xl border border-primary-700/25 bg-white/90 px-4 py-3 focus:border-primary-700 focus:outline-none focus:ring-4"
+			class="font-inherit focus:ring-primary-700/18 border-primary-700/25 focus:border-primary-700 rounded-xl border bg-white/90 px-4 py-3 focus:ring-4 focus:outline-hidden"
 		/>
 		{#if errors.rsvpLimit}
 			<small class="text-red-600">{errors.rsvpLimit[0]}</small>
@@ -156,7 +156,7 @@
 			min="0"
 			max="19"
 			value={values.maxPlusOnes ?? ""}
-			class="font-inherit focus:ring-primary-700/18 rounded-xl border border-primary-700/25 bg-white/90 px-4 py-3 focus:border-primary-700 focus:outline-none focus:ring-4"
+			class="font-inherit focus:ring-primary-700/18 border-primary-700/25 focus:border-primary-700 rounded-xl border bg-white/90 px-4 py-3 focus:ring-4 focus:outline-hidden"
 		/>
 		<small class="text-sm text-gray-600">Leave blank for no limit</small>
 		{#if errors.maxPlusOnes}
@@ -174,7 +174,7 @@
 		<textarea
 			name="description"
 			rows="4"
-			class="font-inherit focus:ring-primary-700/18 resize-y rounded-xl border border-primary-700/25 bg-white/90 px-4 py-3 focus:border-primary-700 focus:outline-none focus:ring-4"
+			class="font-inherit focus:ring-primary-700/18 border-primary-700/25 focus:border-primary-700 resize-y rounded-xl border bg-white/90 px-4 py-3 focus:ring-4 focus:outline-hidden"
 			style="white-space: pre-wrap;">{values.description ?? ""}</textarea
 		>
 		<small class="text-sm text-gray-600"
@@ -190,7 +190,7 @@
 		<button
 			type="button"
 			onclick={() => (showCustomization = !showCustomization)}
-			class="mb-4 flex items-center gap-2 font-semibold text-dark-800 transition-colors hover:text-primary-700"
+			class="text-dark-800 hover:text-primary-700 mb-4 flex items-center gap-2 font-semibold transition-colors"
 		>
 			<span>{showCustomization ? "▼" : "▶"}</span>
 			<span>Customize appearance</span>
@@ -211,7 +211,7 @@
 										input.value = emoji;
 									}
 								}}
-								class="flex h-10 w-10 items-center justify-center rounded-lg text-2xl transition-colors hover:bg-primary-100"
+								class="hover:bg-primary-100 flex h-10 w-10 items-center justify-center rounded-lg text-2xl transition-colors"
 							>
 								{emoji}
 							</button>
@@ -222,7 +222,7 @@
 						placeholder="Or type any emoji (e.g., 🎉)"
 						maxlength="10"
 						value={values.emoji ?? ""}
-						class="font-inherit focus:ring-primary-700/18 rounded-xl border border-primary-700/25 bg-white/90 px-4 py-3 text-2xl focus:border-primary-700 focus:outline-none focus:ring-4"
+						class="font-inherit focus:ring-primary-700/18 border-primary-700/25 focus:border-primary-700 rounded-xl border bg-white/90 px-4 py-3 text-2xl focus:ring-4 focus:outline-hidden"
 					/>
 					{#if errors.emoji}
 						<small class="text-red-600">{errors.emoji[0]}</small>
@@ -233,7 +233,7 @@
 					<span>Primary color</span>
 					<select
 						name="primaryColor"
-						class="font-inherit focus:ring-primary-700/18 rounded-xl border border-primary-700/25 bg-white/90 px-4 py-3 focus:border-primary-700 focus:outline-none focus:ring-4"
+						class="font-inherit focus:ring-primary-700/18 border-primary-700/25 focus:border-primary-700 rounded-xl border bg-white/90 px-4 py-3 focus:ring-4 focus:outline-hidden"
 					>
 						<option
 							value="violet"
@@ -266,7 +266,7 @@
 					<span>Secondary color</span>
 					<select
 						name="secondaryColor"
-						class="font-inherit focus:ring-primary-700/18 rounded-xl border border-primary-700/25 bg-white/90 px-4 py-3 focus:border-primary-700 focus:outline-none focus:ring-4"
+						class="font-inherit focus:ring-primary-700/18 border-primary-700/25 focus:border-primary-700 rounded-xl border bg-white/90 px-4 py-3 focus:ring-4 focus:outline-hidden"
 					>
 						<option
 							value="pink"
@@ -302,7 +302,7 @@
 						name="backgroundImage"
 						placeholder="https://example.com/image.jpg"
 						value={values.backgroundImage ?? ""}
-						class="font-inherit focus:ring-primary-700/18 rounded-xl border border-primary-700/25 bg-white/90 px-4 py-3 focus:border-primary-700 focus:outline-none focus:ring-4"
+						class="font-inherit focus:ring-primary-700/18 border-primary-700/25 focus:border-primary-700 rounded-xl border bg-white/90 px-4 py-3 focus:ring-4 focus:outline-hidden"
 					/>
 					<small class="text-dark-700/60">Use a high-quality image for best results</small>
 					{#if errors.backgroundImage}
@@ -315,7 +315,7 @@
 
 	<button
 		type="submit"
-		class="cursor-pointer justify-self-start rounded-full border-none bg-primary-gradient px-7 py-3.5 font-semibold text-white shadow-button hover:-translate-y-px"
+		class="bg-primary-gradient shadow-button cursor-pointer justify-self-start rounded-full border-none px-7 py-3.5 font-semibold text-white hover:-translate-y-px"
 		>Create event</button
 	>
 </form>

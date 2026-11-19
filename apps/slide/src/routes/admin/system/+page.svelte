@@ -52,7 +52,7 @@
 	<PageHeader title="System Information" subtitle="Server process and memory details" />
 
 	<!-- Process Info -->
-	<div class="mb-6 rounded-lg bg-white p-6 shadow">
+	<div class="mb-6 rounded-lg bg-white p-6 shadow-sm">
 		<h2 class="mb-4 text-lg font-semibold text-gray-900">Process Information</h2>
 		<dl class="grid grid-cols-1 gap-4 sm:grid-cols-2">
 			<div>
@@ -77,7 +77,7 @@
 	</div>
 
 	<!-- Memory Usage -->
-	<div class="mb-6 rounded-lg bg-white p-6 shadow">
+	<div class="mb-6 rounded-lg bg-white p-6 shadow-sm">
 		<h2 class="mb-4 text-lg font-semibold text-gray-900">Memory Usage</h2>
 
 		<div class="mb-6">
@@ -140,7 +140,7 @@
 	</div>
 
 	<!-- System Info -->
-	<div class="mb-6 rounded-lg bg-white p-6 shadow">
+	<div class="mb-6 rounded-lg bg-white p-6 shadow-sm">
 		<h2 class="mb-4 text-lg font-semibold text-gray-900">System Information</h2>
 		<dl class="grid grid-cols-1 gap-4 sm:grid-cols-2">
 			<div>
@@ -169,7 +169,7 @@
 	</div>
 
 	<!-- Environment -->
-	<div class="rounded-lg bg-white p-6 shadow">
+	<div class="rounded-lg bg-white p-6 shadow-sm">
 		<h2 class="mb-4 text-lg font-semibold text-gray-900">Environment</h2>
 		<dl class="space-y-3">
 			<div class="flex justify-between">

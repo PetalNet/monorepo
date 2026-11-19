@@ -37,10 +37,10 @@
 
 <svelte:window onclick={handleClickOutside} />
 
-<div class="min-h-screen bg-theater-darker">
+<div class="bg-theater-darker min-h-screen">
 	{#if showNav}
 		<!-- Top Navigation Bar -->
-		<nav class="sticky top-0 z-50 border-b border-gray-800 bg-theater-dark">
+		<nav class="bg-theater-dark sticky top-0 z-50 border-b border-gray-800">
 			<div class="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8">
 				<div class="flex h-16 items-center justify-between">
 					<!-- Logo/Brand -->
@@ -59,7 +59,7 @@
 							class="flex items-center gap-3 rounded-lg px-3 py-2 transition hover:bg-gray-800"
 						>
 							<div
-								class="flex h-8 w-8 items-center justify-center rounded-full bg-theater-purple font-semibold text-white"
+								class="bg-theater-purple flex h-8 w-8 items-center justify-center rounded-full font-semibold text-white"
 							>
 								{data.user?.name?.charAt(0).toUpperCase()}
 							</div>
@@ -83,7 +83,7 @@
 
 						{#if accountDropdownOpen}
 							<div
-								class="absolute right-0 mt-2 w-56 rounded-lg border border-gray-800 bg-theater-dark py-2 shadow-xl"
+								class="bg-theater-dark absolute right-0 mt-2 w-56 rounded-lg border border-gray-800 py-2 shadow-xl"
 							>
 								<!-- User Info -->
 								<div class="border-b border-gray-800 px-4 py-3">

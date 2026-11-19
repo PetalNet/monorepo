@@ -121,7 +121,7 @@
 		class:event-header={isEventPage}
 	>
 		<a
-			class="brand-link flex items-center gap-2 font-brand text-2xl font-bold lg:text-[1.85rem]"
+			class="brand-link font-brand flex items-center gap-2 text-2xl font-bold lg:text-[1.85rem]"
 			href="/"
 			onclick={closeMobileNav}
 		>
@@ -261,7 +261,7 @@
 	</aside>
 
 	<main
-		class="mx-auto box-border w-full max-w-full flex-1 overflow-x-hidden px-4 pb-20 pt-6 lg:px-12 lg:py-12"
+		class="mx-auto box-border w-full max-w-full flex-1 overflow-x-hidden px-4 pt-6 pb-20 lg:px-12 lg:py-12"
 	>
 		{@render children()}
 	</main>

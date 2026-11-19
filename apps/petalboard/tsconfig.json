@@ -12,5 +12,5 @@
 		"moduleResolution": "bundler",
 		"types": ["node"]
 	},
-	"files": ["postcss.config.js", "prisma.config.ts", "svelte.config.js", "tailwind.config.js"]
+	"files": ["prisma.config.ts", "svelte.config.js"]
 }

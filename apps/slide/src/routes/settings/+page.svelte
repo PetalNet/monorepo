@@ -75,11 +75,11 @@
 						type="text"
 						value={data.user.name}
 						disabled
-						class="flex-1 rounded-lg border border-gray-700 bg-theater-darker px-4 py-2 text-white"
+						class="bg-theater-darker flex-1 rounded-lg border border-gray-700 px-4 py-2 text-white"
 					/>
 					<button
 						onclick={openNameEdit}
-						class="rounded-lg bg-theater-purple px-4 py-2 text-white transition hover:bg-purple-700"
+						class="bg-theater-purple rounded-lg px-4 py-2 text-white transition hover:bg-purple-700"
 					>
 						Edit
 					</button>
@@ -94,11 +94,11 @@
 						type="email"
 						value={data.user.email}
 						disabled
-						class="flex-1 rounded-lg border border-gray-700 bg-theater-darker px-4 py-2 text-white"
+						class="bg-theater-darker flex-1 rounded-lg border border-gray-700 px-4 py-2 text-white"
 					/>
 					<button
 						onclick={openEmailEdit}
-						class="rounded-lg bg-theater-purple px-4 py-2 text-white transition hover:bg-purple-700"
+						class="bg-theater-purple rounded-lg px-4 py-2 text-white transition hover:bg-purple-700"
 					>
 						Edit
 					</button>
@@ -113,11 +113,11 @@
 						type="password"
 						value="••••••••••••"
 						disabled
-						class="flex-1 rounded-lg border border-gray-700 bg-theater-darker px-4 py-2 text-white"
+						class="bg-theater-darker flex-1 rounded-lg border border-gray-700 px-4 py-2 text-white"
 					/>
 					<button
 						onclick={openPasswordEdit}
-						class="rounded-lg bg-theater-purple px-4 py-2 text-white transition hover:bg-purple-700"
+						class="bg-theater-purple rounded-lg px-4 py-2 text-white transition hover:bg-purple-700"
 					>
 						Change
 					</button>
@@ -136,7 +136,7 @@
 					<h3 class="font-medium text-white">Dark Mode</h3>
 					<p class="text-sm text-gray-400">Always enabled for the best theater experience</p>
 				</div>
-				<div class="relative inline-flex h-6 w-11 items-center rounded-full bg-theater-purple">
+				<div class="bg-theater-purple relative inline-flex h-6 w-11 items-center rounded-full">
 					<span class="inline-block h-4 w-4 translate-x-6 transform rounded-full bg-white"></span>
 				</div>
 			</div>
@@ -156,7 +156,7 @@
 							Permanently delete your account and all associated data. This action cannot be undone.
 						</p>
 						<p class="text-sm text-red-400">⚠️ This will delete:</p>
-						<ul class="ml-2 mt-1 list-inside list-disc text-sm text-gray-400">
+						<ul class="mt-1 ml-2 list-inside list-disc text-sm text-gray-400">
 							<li>All events you've hosted</li>
 							<li>All presentation registrations</li>
 							<li>All votes and submissions</li>
@@ -177,7 +177,7 @@
 
 <!-- Delete Account Confirmation Modal -->
 {#if showDeleteConfirm}
-	<div class="fixed inset-0 z-50 flex items-center justify-center bg-black/80 p-4 backdrop-blur-sm">
+	<div class="fixed inset-0 z-50 flex items-center justify-center bg-black/80 p-4 backdrop-blur-xs">
 		<div class="glass-strong w-full max-w-md rounded-xl border-red-900/50 p-8 shadow-2xl">
 			<h3 class="mb-4 text-2xl font-bold text-red-400">⚠️ Delete Account</h3>
 
@@ -192,7 +192,7 @@
 					type="text"
 					bind:value={deleteConfirmText}
 					placeholder="Type DELETE"
-					class="w-full rounded-lg border border-red-700 bg-theater-darker px-4 py-2 text-white focus:border-red-500 focus:outline-none"
+					class="bg-theater-darker w-full rounded-lg border border-red-700 px-4 py-2 text-white focus:border-red-500 focus:outline-hidden"
 				/>
 			</div>
 
@@ -222,7 +222,7 @@
 <!-- Edit Name Modal -->
 {#if editingName}
 	<div
-		class="fixed inset-0 z-50 flex items-center justify-center bg-black/80 p-4 backdrop-blur-sm"
+		class="fixed inset-0 z-50 flex items-center justify-center bg-black/80 p-4 backdrop-blur-xs"
 		onclick={(e) => e.target === e.currentTarget && closeModals()}
 		role="button"
 		tabindex="0"
@@ -270,7 +270,7 @@
 						type="text"
 						bind:value={newName}
 						required
-						class="w-full rounded-lg border border-gray-700 bg-theater-darker px-4 py-2 text-white focus:border-theater-purple focus:outline-none"
+						class="bg-theater-darker focus:border-theater-purple w-full rounded-lg border border-gray-700 px-4 py-2 text-white focus:outline-hidden"
 						placeholder="Your name"
 					/>
 				</div>
@@ -278,7 +278,7 @@
 				<div class="flex gap-3">
 					<button
 						type="submit"
-						class="flex-1 rounded-lg bg-theater-purple py-3 font-semibold text-white transition hover:bg-purple-700"
+						class="bg-theater-purple flex-1 rounded-lg py-3 font-semibold text-white transition hover:bg-purple-700"
 					>
 						Save Changes
 					</button>
@@ -298,7 +298,7 @@
 <!-- Edit Email Modal -->
 {#if editingEmail}
 	<div
-		class="fixed inset-0 z-50 flex items-center justify-center bg-black/80 p-4 backdrop-blur-sm"
+		class="fixed inset-0 z-50 flex items-center justify-center bg-black/80 p-4 backdrop-blur-xs"
 		onclick={(e) => e.target === e.currentTarget && closeModals()}
 		role="button"
 		tabindex="0"
@@ -348,7 +348,7 @@
 						type="email"
 						bind:value={newEmail}
 						required
-						class="w-full rounded-lg border border-gray-700 bg-theater-darker px-4 py-2 text-white focus:border-theater-purple focus:outline-none"
+						class="bg-theater-darker focus:border-theater-purple w-full rounded-lg border border-gray-700 px-4 py-2 text-white focus:outline-hidden"
 						placeholder="your@email.com"
 					/>
 				</div>
@@ -363,7 +363,7 @@
 						type="password"
 						bind:value={emailPassword}
 						required
-						class="w-full rounded-lg border border-gray-700 bg-theater-darker px-4 py-2 text-white focus:border-theater-purple focus:outline-none"
+						class="bg-theater-darker focus:border-theater-purple w-full rounded-lg border border-gray-700 px-4 py-2 text-white focus:outline-hidden"
 						placeholder="Confirm with your password"
 					/>
 					<p class="mt-1 text-xs text-gray-400">Required to verify your identity</p>
@@ -372,7 +372,7 @@
 				<div class="flex gap-3">
 					<button
 						type="submit"
-						class="flex-1 rounded-lg bg-theater-purple py-3 font-semibold text-white transition hover:bg-purple-700"
+						class="bg-theater-purple flex-1 rounded-lg py-3 font-semibold text-white transition hover:bg-purple-700"
 					>
 						Save Changes
 					</button>
@@ -392,7 +392,7 @@
 <!-- Change Password Modal -->
 {#if editingPassword}
 	<div
-		class="fixed inset-0 z-50 flex items-center justify-center bg-black/80 p-4 backdrop-blur-sm"
+		class="fixed inset-0 z-50 flex items-center justify-center bg-black/80 p-4 backdrop-blur-xs"
 		onclick={(e) => e.target === e.currentTarget && closeModals()}
 		role="button"
 		tabindex="0"
@@ -441,7 +441,7 @@
 						type="password"
 						bind:value={currentPassword}
 						required
-						class="w-full rounded-lg border border-gray-700 bg-theater-darker px-4 py-2 text-white focus:border-theater-purple focus:outline-none"
+						class="bg-theater-darker focus:border-theater-purple w-full rounded-lg border border-gray-700 px-4 py-2 text-white focus:outline-hidden"
 						placeholder="Enter current password"
 					/>
 				</div>
@@ -457,7 +457,7 @@
 						bind:value={newPassword}
 						required
 						minlength="8"
-						class="w-full rounded-lg border border-gray-700 bg-theater-darker px-4 py-2 text-white focus:border-theater-purple focus:outline-none"
+						class="bg-theater-darker focus:border-theater-purple w-full rounded-lg border border-gray-700 px-4 py-2 text-white focus:outline-hidden"
 						placeholder="At least 8 characters"
 					/>
 				</div>
@@ -473,7 +473,7 @@
 						bind:value={confirmPassword}
 						required
 						minlength="8"
-						class="w-full rounded-lg border border-gray-700 bg-theater-darker px-4 py-2 text-white focus:border-theater-purple focus:outline-none"
+						class="bg-theater-darker focus:border-theater-purple w-full rounded-lg border border-gray-700 px-4 py-2 text-white focus:outline-hidden"
 						placeholder="Re-enter new password"
 					/>
 				</div>
@@ -481,7 +481,7 @@
 				<div class="flex gap-3">
 					<button
 						type="submit"
-						class="flex-1 rounded-lg bg-theater-purple py-3 font-semibold text-white transition hover:bg-purple-700"
+						class="bg-theater-purple flex-1 rounded-lg py-3 font-semibold text-white transition hover:bg-purple-700"
 					>
 						Change Password
 					</button>

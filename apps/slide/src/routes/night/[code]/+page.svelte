@@ -117,7 +117,7 @@
 		if (isLeader && isYou) {
 			return {
 				text: "👑 You (Leader)",
-				color: "bg-gradient-to-r from-yellow-500 to-purple-600 text-white font-bold",
+				color: "bg-linear-to-r from-yellow-500 to-purple-600 text-white font-bold",
 			};
 		}
 
@@ -277,7 +277,7 @@
 	<!-- === JOIN EVENT CALL-TO-ACTION (For non-participants) === -->
 	{#if !data.user}
 		<div
-			class="rounded-xl border-2 border-purple-700 bg-gradient-to-r from-purple-900/40 via-theater-dark to-purple-900/40 p-6 shadow-lg ring-2 ring-purple-700/30 md:p-8"
+			class="via-theater-dark rounded-xl border-2 border-purple-700 bg-linear-to-r from-purple-900/40 to-purple-900/40 p-6 shadow-lg ring-2 ring-purple-700/30 md:p-8"
 		>
 			<div class="text-center">
 				<h2 class="mb-3 text-2xl font-bold sm:text-3xl">🎉 You're Invited to Join This Event!</h2>
@@ -287,7 +287,7 @@
 				<div class="flex flex-wrap justify-center gap-4">
 					<a
 						href="/auth/signup?redirectTo=/night/{data.event.joinCode}"
-						class="rounded-lg bg-theater-purple px-8 py-4 text-lg font-bold text-white shadow-lg transition hover:bg-purple-600"
+						class="bg-theater-purple rounded-lg px-8 py-4 text-lg font-bold text-white shadow-lg transition hover:bg-purple-600"
 					>
 						✨ Sign Up to Join
 					</a>
@@ -302,7 +302,7 @@
 		</div>
 	{:else if data.userGroups.length === 0}
 		<div
-			class="rounded-xl border-2 border-purple-700 bg-gradient-to-r from-purple-900/40 via-theater-dark to-purple-900/40 p-6 shadow-lg ring-2 ring-purple-700/30 md:p-8"
+			class="via-theater-dark rounded-xl border-2 border-purple-700 bg-linear-to-r from-purple-900/40 to-purple-900/40 p-6 shadow-lg ring-2 ring-purple-700/30 md:p-8"
 		>
 			<div class="text-center">
 				<h2 class="mb-3 text-2xl font-bold sm:text-3xl">👋 Ready to Join This Event?</h2>
@@ -312,7 +312,7 @@
 				<div class="flex flex-wrap justify-center gap-4">
 					<button
 						onclick={openCreateModal}
-						class="rounded-lg bg-theater-purple px-8 py-4 text-lg font-bold text-white shadow-lg transition hover:bg-purple-600"
+						class="bg-theater-purple rounded-lg px-8 py-4 text-lg font-bold text-white shadow-lg transition hover:bg-purple-600"
 					>
 						✨ Create Presentation
 					</button>
@@ -330,7 +330,7 @@
 	<!-- === LIVE STATUS BANNER === -->
 	{#if data.event.currentPresentationId || data.event.status === "completed"}
 		<div
-			class="rounded-xl border-2 bg-gradient-to-r from-red-900/40 via-theater-dark to-red-900/40 p-4 shadow-lg md:p-6 {data
+			class="via-theater-dark rounded-xl border-2 bg-linear-to-r from-red-900/40 to-red-900/40 p-4 shadow-lg md:p-6 {data
 				.event.status === 'completed'
 				? 'border-green-700'
 				: 'border-red-700'} ring-2 {data.event.status === 'completed'
@@ -355,7 +355,7 @@
 				</div>
 				<a
 					href="/night/{data.event.joinCode}/live"
-					class="flex items-center gap-2 whitespace-nowrap rounded-lg bg-red-600 px-6 py-3 font-bold text-white shadow-lg transition-all hover:bg-red-700"
+					class="flex items-center gap-2 rounded-lg bg-red-600 px-6 py-3 font-bold whitespace-nowrap text-white shadow-lg transition-all hover:bg-red-700"
 				>
 					<span class="h-2 w-2 animate-pulse rounded-full bg-white"></span>
 					{data.event.status === "completed" ? "View Results" : "Join Live Event"}
@@ -369,10 +369,12 @@
 		<div class="mb-4 flex flex-col justify-between gap-3 sm:flex-row sm:items-start sm:gap-4">
 			<div class="min-w-0 flex-1">
 				<div class="mb-1 flex flex-wrap items-center gap-2">
-					<h1 class="break-words text-2xl font-bold sm:text-3xl md:text-4xl">{data.event.name}</h1>
+					<h1 class="text-2xl font-bold wrap-break-word sm:text-3xl md:text-4xl">
+						{data.event.name}
+					</h1>
 					{#if data.isHost}
 						<span
-							class="whitespace-nowrap rounded-full border border-purple-700 bg-purple-900/50 px-2 py-1 text-xs text-purple-300 sm:px-3 sm:text-sm"
+							class="rounded-full border border-purple-700 bg-purple-900/50 px-2 py-1 text-xs whitespace-nowrap text-purple-300 sm:px-3 sm:text-sm"
 							>👑 Host</span
 						>
 					{/if}
@@ -382,7 +384,7 @@
 			<div class="flex gap-2">
 				<a
 					href="/dashboard"
-					class="self-start whitespace-nowrap rounded-lg bg-theater-purple px-3 py-2 text-sm text-white transition hover:bg-purple-600 sm:px-4 sm:py-2 sm:text-base"
+					class="bg-theater-purple self-start rounded-lg px-3 py-2 text-sm whitespace-nowrap text-white transition hover:bg-purple-600 sm:px-4 sm:py-2 sm:text-base"
 					>← Back</a
 				>
 			</div>
@@ -397,9 +399,9 @@
 			<p class="mb-4 text-sm text-gray-400 sm:mb-6 sm:text-base">{data.event.description}</p>
 		{/if}
 		<div class="grid grid-cols-2 gap-2 sm:gap-4 md:grid-cols-4">
-			<div class="rounded-lg bg-theater-darker p-3 sm:p-4">
+			<div class="bg-theater-darker rounded-lg p-3 sm:p-4">
 				<p class="mb-1 text-xs text-gray-400 sm:text-sm">Submissions</p>
-				<p class="break-words text-lg font-bold sm:text-xl">
+				<p class="text-lg font-bold wrap-break-word sm:text-xl">
 					{#if (data.event as any).submissionsClosed}
 						🔒 Closed
 					{:else if data.deadlinePassed}
@@ -409,10 +411,10 @@
 					{/if}
 				</p>
 			</div>
-			<div class="rounded-lg bg-theater-darker p-3 sm:p-4">
+			<div class="bg-theater-darker rounded-lg p-3 sm:p-4">
 				<p class="mb-1 text-xs text-gray-400 sm:text-sm">Deadline</p>
 				<p
-					class="break-words text-sm font-semibold sm:text-lg"
+					class="text-sm font-semibold wrap-break-word sm:text-lg"
 					class:text-red-400={data.deadlinePassed}
 				>
 					{#if data.event.submissionDeadline}
@@ -431,13 +433,13 @@
 					{/if}
 				</p>
 			</div>
-			<div class="rounded-lg bg-theater-darker p-3 sm:p-4">
+			<div class="bg-theater-darker rounded-lg p-3 sm:p-4">
 				<p class="mb-1 text-xs text-gray-400 sm:text-sm">Max Time</p>
 				<p class="text-lg font-bold sm:text-xl">
 					{data.event.maxPresentationTime ? `${data.event.maxPresentationTime} min` : "Unlimited"}
 				</p>
 			</div>
-			<div class="rounded-lg bg-theater-darker p-3 sm:p-4">
+			<div class="bg-theater-darker rounded-lg p-3 sm:p-4">
 				<p class="mb-1 text-xs text-gray-400 sm:text-sm">Presentations</p>
 				<p class="text-lg font-bold sm:text-xl">{data.event._count?.groups || 0}</p>
 			</div>
@@ -457,7 +459,7 @@
 			</summary>
 			<div class="mt-6 space-y-6">
 				<!-- QR Code & Join Info -->
-				<div class="rounded-lg border border-gray-700 bg-theater-darker p-4">
+				<div class="bg-theater-darker rounded-lg border border-gray-700 p-4">
 					<h3 class="mb-4 text-lg font-semibold">Share Event</h3>
 					<div class="flex flex-col gap-4 md:flex-row">
 						{#if qrCodeUrl}
@@ -476,12 +478,12 @@
 									Join Code
 									<div class="mt-1 flex gap-2">
 										<code
-											class="flex-1 rounded border border-gray-700 bg-theater-dark px-4 py-3 text-center font-mono text-lg font-bold text-purple-300"
+											class="bg-theater-dark flex-1 rounded-sm border border-gray-700 px-4 py-3 text-center font-mono text-lg font-bold text-purple-300"
 											>{data.event.joinCode}</code
 										>
 										<button
 											onclick={copyJoinCode}
-											class="rounded bg-theater-purple px-4 py-3 font-semibold text-white transition hover:bg-purple-600"
+											class="bg-theater-purple rounded-sm px-4 py-3 font-semibold text-white transition hover:bg-purple-600"
 											>📋 Copy</button
 										>
 									</div>
@@ -494,11 +496,11 @@
 										<input
 											readonly
 											value={joinUrl}
-											class="flex-1 rounded border border-gray-700 bg-theater-dark px-4 py-3 font-mono text-sm text-gray-300"
+											class="bg-theater-dark flex-1 rounded-sm border border-gray-700 px-4 py-3 font-mono text-sm text-gray-300"
 										/>
 										<button
 											onclick={copyJoinUrl}
-											class="rounded bg-theater-purple px-4 py-3 font-semibold text-white transition hover:bg-purple-600"
+											class="bg-theater-purple rounded-sm px-4 py-3 font-semibold text-white transition hover:bg-purple-600"
 											>📋 Copy</button
 										>
 									</div>
@@ -530,7 +532,7 @@
 								}
 							};
 						}}
-						class="space-y-4 rounded-lg border border-gray-700 bg-theater-darker p-4"
+						class="bg-theater-darker space-y-4 rounded-lg border border-gray-700 p-4"
 					>
 						<h3 class="mb-2 text-lg font-semibold">Event Settings</h3>
 						<label class="block">
@@ -540,7 +542,7 @@
 								type="text"
 								required
 								defaultValue={data.event.name}
-								class="w-full rounded-lg border border-gray-700 bg-theater-dark px-3 py-2 text-white focus:border-theater-purple focus:outline-none"
+								class="bg-theater-dark focus:border-theater-purple w-full rounded-lg border border-gray-700 px-3 py-2 text-white focus:outline-hidden"
 							/>
 						</label>
 						<label class="block">
@@ -549,7 +551,7 @@
 								name="theme"
 								type="text"
 								defaultValue={data.event.theme || ""}
-								class="w-full rounded-lg border border-gray-700 bg-theater-dark px-3 py-2 text-white focus:border-theater-purple focus:outline-none"
+								class="bg-theater-dark focus:border-theater-purple w-full rounded-lg border border-gray-700 px-3 py-2 text-white focus:outline-hidden"
 							/>
 						</label>
 						<label class="block">
@@ -557,7 +559,7 @@
 							<textarea
 								name="description"
 								rows="3"
-								class="w-full rounded-lg border border-gray-700 bg-theater-dark px-3 py-2 text-white focus:border-theater-purple focus:outline-none"
+								class="bg-theater-dark focus:border-theater-purple w-full rounded-lg border border-gray-700 px-3 py-2 text-white focus:outline-hidden"
 								>{data.event.description || ""}</textarea
 							>
 						</label>
@@ -566,7 +568,7 @@
 							<select
 								name="timezone"
 								value={data.event.timezone || "America/New_York"}
-								class="w-full rounded-lg border border-gray-700 bg-theater-dark px-3 py-2 text-white focus:border-theater-purple focus:outline-none"
+								class="bg-theater-dark focus:border-theater-purple w-full rounded-lg border border-gray-700 px-3 py-2 text-white focus:outline-hidden"
 							>
 								<option value="America/New_York">Eastern (EST/EDT)</option>
 								<option value="America/Chicago">Central (CST/CDT)</option>
@@ -596,7 +598,7 @@
 								defaultValue={data.event.submissionDeadline
 									? toDateTimeLocal(data.event.submissionDeadline, data.event.timezone)
 									: ""}
-								class="w-full rounded-lg border border-gray-700 bg-theater-dark px-3 py-2 text-white [color-scheme:dark] focus:border-theater-purple focus:outline-none"
+								class="bg-theater-dark focus:border-theater-purple w-full rounded-lg border border-gray-700 px-3 py-2 text-white scheme-dark focus:outline-hidden"
 							/>
 						</label>
 						<label class="block">
@@ -606,7 +608,7 @@
 								type="number"
 								min="0"
 								defaultValue={data.event.maxPresentationTime || ""}
-								class="w-full rounded-lg border border-gray-700 bg-theater-dark px-3 py-2 text-white focus:border-theater-purple focus:outline-none"
+								class="bg-theater-dark focus:border-theater-purple w-full rounded-lg border border-gray-700 px-3 py-2 text-white focus:outline-hidden"
 							/>
 						</label>
 						<div class="flex items-center gap-3">
@@ -615,7 +617,7 @@
 								type="checkbox"
 								id="submissionsClosed"
 								defaultChecked={(data.event as any).submissionsClosed}
-								class="h-4 w-4 rounded border-gray-700 bg-theater-dark text-theater-purple focus:ring-theater-purple"
+								class="bg-theater-dark text-theater-purple focus:ring-theater-purple h-4 w-4 rounded-sm border-gray-700"
 							/>
 							<label for="submissionsClosed" class="text-sm text-gray-300"
 								>Close submissions (prevent new presentations)</label
@@ -623,14 +625,14 @@
 						</div>
 						<button
 							type="submit"
-							class="w-full rounded-lg bg-theater-purple py-2 font-semibold text-white transition hover:bg-purple-600"
+							class="bg-theater-purple w-full rounded-lg py-2 font-semibold text-white transition hover:bg-purple-600"
 						>
 							💾 Save Settings
 						</button>
 					</form>
 
 					<!-- Manage All Presentations -->
-					<div class="rounded-lg border border-gray-700 bg-theater-darker p-4">
+					<div class="bg-theater-darker rounded-lg border border-gray-700 p-4">
 						<div class="mb-3 flex items-center justify-between">
 							<h3 class="text-lg font-semibold">🎯 Presentation Order</h3>
 							<span class="text-sm text-gray-400">{data.event.groups.length} total</span>
@@ -644,7 +646,7 @@
 							{:else}
 								{#each [...data.event.groups].sort((a, b) => (a.presentationOrder || 999) - (b.presentationOrder || 999)) as group, idx}
 									<div
-										class="flex cursor-move items-center gap-2 rounded-lg border border-gray-800 bg-theater-dark p-3 transition hover:border-theater-purple/50"
+										class="bg-theater-dark hover:border-theater-purple/50 flex cursor-move items-center gap-2 rounded-lg border border-gray-800 p-3 transition"
 										data-id={group.id}
 									>
 										<button
@@ -654,7 +656,7 @@
 											<span class="text-lg">⋮⋮</span>
 										</button>
 										<span class="w-8 font-mono text-sm text-gray-400">#{idx + 1}</span>
-										<span class="flex-shrink-0 text-xl">{group.emoji || "📊"}</span>
+										<span class="shrink-0 text-xl">{group.emoji || "📊"}</span>
 										<div class="min-w-0 flex-1">
 											<p class="truncate font-semibold text-white">{group.name}</p>
 											<div class="flex items-center gap-2 text-xs text-gray-400">
@@ -674,13 +676,13 @@
 				<!-- Advanced Management Options -->
 				<div class="mt-6 grid gap-6 md:grid-cols-2">
 					<!-- Rating Categories -->
-					<div class="rounded-lg border border-gray-700 bg-theater-darker p-4">
+					<div class="bg-theater-darker rounded-lg border border-gray-700 p-4">
 						<h3 class="mb-3 text-lg font-semibold">📊 Rating Categories</h3>
 						<div class="mb-4 max-h-60 space-y-2 overflow-y-auto">
 							{#if data.event.categories && data.event.categories.length > 0}
 								{#each data.event.categories.sort((a: any, b: any) => a.order - b.order) as category}
 									<div
-										class="flex items-center gap-2 rounded-lg border border-gray-800 bg-theater-dark p-2"
+										class="bg-theater-dark flex items-center gap-2 rounded-lg border border-gray-800 p-2"
 									>
 										<span class="text-sm text-gray-400">#{category.order + 1}</span>
 										<div class="min-w-0 flex-1">
@@ -704,7 +706,7 @@
 					</div>
 
 					<!-- Participant Management -->
-					<div class="rounded-lg border border-gray-700 bg-theater-darker p-4 md:col-span-2">
+					<div class="bg-theater-darker rounded-lg border border-gray-700 p-4 md:col-span-2">
 						<h3 class="mb-3 text-lg font-semibold">� Participant Management</h3>
 						{#if data.event.groups.length > 0}
 							{@const participantMap = new Map()}
@@ -815,7 +817,7 @@
 					<button
 						onclick={openCreateModal}
 						disabled={(data.event as any).submissionsClosed || data.deadlinePassed}
-						class="whitespace-nowrap rounded-lg bg-theater-purple px-3 py-2 text-sm font-semibold text-white transition hover:bg-purple-600 disabled:cursor-not-allowed disabled:opacity-50 sm:px-4 sm:text-base"
+						class="bg-theater-purple rounded-lg px-3 py-2 text-sm font-semibold whitespace-nowrap text-white transition hover:bg-purple-600 disabled:cursor-not-allowed disabled:opacity-50 sm:px-4 sm:text-base"
 						title={(data.event as any).submissionsClosed || data.deadlinePassed
 							? "Submissions are closed"
 							: ""}
@@ -825,7 +827,7 @@
 					<button
 						onclick={openJoinModal}
 						disabled={(data.event as any).submissionsClosed || data.deadlinePassed}
-						class="whitespace-nowrap rounded-lg bg-gray-700 px-3 py-2 text-sm font-semibold text-white transition hover:bg-gray-600 disabled:cursor-not-allowed disabled:opacity-50 sm:px-4 sm:text-base"
+						class="rounded-lg bg-gray-700 px-3 py-2 text-sm font-semibold whitespace-nowrap text-white transition hover:bg-gray-600 disabled:cursor-not-allowed disabled:opacity-50 sm:px-4 sm:text-base"
 						title={(data.event as any).submissionsClosed || data.deadlinePassed
 							? "Submissions are closed"
 							: ""}
@@ -881,13 +883,13 @@
 					{#if isUserInGroup}
 						<!-- User's Presentation - Gradient background with manage button -->
 						<div
-							class="rounded-xl border-2 border-theater-purple bg-gradient-to-br from-purple-900/40 via-theater-dark to-theater-dark p-4 shadow-lg ring-2 ring-theater-purple/30 transition hover:ring-theater-purple/50 sm:p-5"
+							class="border-theater-purple via-theater-dark to-theater-dark ring-theater-purple/30 hover:ring-theater-purple/50 rounded-xl border-2 bg-linear-to-br from-purple-900/40 p-4 shadow-lg ring-2 transition sm:p-5"
 						>
 							<div class="mb-3 flex items-start gap-3">
-								<span class="flex-shrink-0 text-3xl sm:text-4xl">{group.emoji || "📊"}</span>
+								<span class="shrink-0 text-3xl sm:text-4xl">{group.emoji || "📊"}</span>
 								<div class="min-w-0 flex-1">
 									<h3
-										class="mb-2 break-words text-lg font-bold leading-tight text-white sm:text-xl"
+										class="mb-2 text-lg leading-tight font-bold wrap-break-word text-white sm:text-xl"
 									>
 										{group.name}
 									</h3>
@@ -924,7 +926,7 @@
 							</div>
 							<button
 								onclick={() => openManage(group)}
-								class="w-full rounded-lg bg-theater-purple py-2.5 font-bold text-white transition hover:bg-purple-600"
+								class="bg-theater-purple w-full rounded-lg py-2.5 font-bold text-white transition hover:bg-purple-600"
 							>
 								⚙️ Manage Presentation
 							</button>
@@ -932,13 +934,13 @@
 					{:else}
 						<!-- Other Presentations - Simple display only -->
 						<div
-							class="rounded-xl border border-gray-800 bg-theater-darker p-4 opacity-90 shadow-lg sm:p-5"
+							class="bg-theater-darker rounded-xl border border-gray-800 p-4 opacity-90 shadow-lg sm:p-5"
 						>
 							<div class="mb-3 flex items-start gap-3">
-								<span class="flex-shrink-0 text-3xl sm:text-4xl">{group.emoji || "📊"}</span>
+								<span class="shrink-0 text-3xl sm:text-4xl">{group.emoji || "📊"}</span>
 								<div class="min-w-0 flex-1">
 									<h3
-										class="mb-2 break-words text-lg font-bold leading-tight text-white sm:text-xl"
+										class="mb-2 text-lg leading-tight font-bold wrap-break-word text-white sm:text-xl"
 									>
 										{group.name}
 									</h3>
@@ -977,7 +979,7 @@
 				aria-label="Close create modal"
 			></button>
 			<div
-				class="animate-in fade-in slide-in-from-bottom-4 relative w-full max-w-lg rounded-xl border border-purple-700 bg-theater-dark p-6 shadow-2xl duration-200"
+				class="animate-in fade-in slide-in-from-bottom-4 bg-theater-dark relative w-full max-w-lg rounded-xl border border-purple-700 p-6 shadow-2xl duration-200"
 			>
 				<div class="mb-4 flex items-center justify-between">
 					<h3 class="flex items-center gap-2 text-xl font-bold sm:text-2xl">
@@ -1022,19 +1024,19 @@
 								}
 							}}
 							placeholder="Type or pick emoji"
-							class="mb-3 w-full rounded-lg border border-gray-700 bg-theater-darker px-4 py-3 text-center text-2xl text-white placeholder:text-base placeholder:text-gray-500 focus:border-theater-purple focus:outline-none"
+							class="bg-theater-darker focus:border-theater-purple mb-3 w-full rounded-lg border border-gray-700 px-4 py-3 text-center text-2xl text-white placeholder:text-base placeholder:text-gray-500 focus:outline-hidden"
 						/>
 						<div class="mb-2 text-center text-xs text-gray-400">Quick picks:</div>
 						<div
-							class="grid grid-cols-8 gap-2 rounded-lg border border-gray-700 bg-theater-darker p-3"
+							class="bg-theater-darker grid grid-cols-8 gap-2 rounded-lg border border-gray-700 p-3"
 						>
 							{#each emojiOptions as emoji}
 								<button
 									type="button"
 									onclick={() => (selectedEmoji = emoji)}
-									class="rounded-lg p-2 text-2xl transition hover:bg-theater-purple/20 {selectedEmoji ===
+									class="hover:bg-theater-purple/20 rounded-lg p-2 text-2xl transition {selectedEmoji ===
 									emoji
-										? 'bg-theater-purple ring-2 ring-theater-purple'
+										? 'bg-theater-purple ring-theater-purple ring-2'
 										: 'hover:scale-110'}">{emoji}</button
 								>
 							{/each}
@@ -1048,7 +1050,7 @@
 							type="text"
 							required
 							placeholder="Enter a name for your presentation"
-							class="w-full rounded-lg border border-gray-700 bg-theater-darker px-4 py-3 text-white placeholder:text-gray-500 focus:border-theater-purple focus:outline-none"
+							class="bg-theater-darker focus:border-theater-purple w-full rounded-lg border border-gray-700 px-4 py-3 text-white placeholder:text-gray-500 focus:outline-hidden"
 						/>
 					</div>
 					{#if form?.error}
@@ -1063,7 +1065,7 @@
 						>
 						<button
 							type="submit"
-							class="flex-1 rounded-lg bg-theater-purple py-3 font-bold text-white transition hover:bg-purple-600"
+							class="bg-theater-purple flex-1 rounded-lg py-3 font-bold text-white transition hover:bg-purple-600"
 							>✨ Create</button
 						>
 					</div>
@@ -1082,7 +1084,7 @@
 				aria-label="Close join modal"
 			></button>
 			<div
-				class="animate-in fade-in slide-in-from-bottom-4 relative w-full max-w-lg rounded-xl border border-purple-700 bg-theater-dark p-6 shadow-2xl duration-200"
+				class="animate-in fade-in slide-in-from-bottom-4 bg-theater-dark relative w-full max-w-lg rounded-xl border border-purple-700 p-6 shadow-2xl duration-200"
 			>
 				<div class="mb-4 flex items-center justify-between">
 					<h3 class="flex items-center gap-2 text-xl font-bold sm:text-2xl">
@@ -1114,7 +1116,7 @@
 							required
 							placeholder="Enter 8-character code"
 							maxlength="8"
-							class="w-full rounded-lg border border-gray-700 bg-theater-darker px-4 py-3 text-center font-mono text-xl uppercase tracking-widest text-white placeholder:text-gray-500 focus:border-theater-purple focus:outline-none"
+							class="bg-theater-darker focus:border-theater-purple w-full rounded-lg border border-gray-700 px-4 py-3 text-center font-mono text-xl tracking-widest text-white uppercase placeholder:text-gray-500 focus:outline-hidden"
 						/>
 						<p class="mt-2 text-xs text-gray-400">
 							Get the invite code from your presentation leader.
@@ -1132,7 +1134,7 @@
 						>
 						<button
 							type="submit"
-							class="flex-1 rounded-lg bg-theater-purple py-3 font-bold text-white transition hover:bg-purple-600"
+							class="bg-theater-purple flex-1 rounded-lg py-3 font-bold text-white transition hover:bg-purple-600"
 							>🤝 Join Team</button
 						>
 					</div>
@@ -1151,7 +1153,7 @@
 				aria-label="Close categories modal"
 			></button>
 			<div
-				class="animate-in fade-in slide-in-from-bottom-4 relative w-full max-w-2xl rounded-xl border border-purple-700 bg-theater-dark p-6 shadow-2xl duration-200"
+				class="animate-in fade-in slide-in-from-bottom-4 bg-theater-dark relative w-full max-w-2xl rounded-xl border border-purple-700 p-6 shadow-2xl duration-200"
 			>
 				<div class="mb-4 flex items-center justify-between">
 					<h3 class="text-xl font-bold sm:text-2xl">📊 Manage Rating Categories</h3>
@@ -1166,14 +1168,14 @@
 
 				<div class="mb-6 max-h-96 space-y-3 overflow-y-auto">
 					{#each editingCategories as category, index}
-						<div class="rounded-lg border border-gray-700 bg-theater-darker p-4">
+						<div class="bg-theater-darker rounded-lg border border-gray-700 p-4">
 							<div class="mb-3 flex items-start gap-3">
 								<div class="flex flex-col gap-1 pt-2">
 									<button
 										type="button"
 										onclick={() => moveCategoryUp(index)}
 										disabled={index === 0}
-										class="rounded bg-gray-700 px-2 py-1 text-xs text-white transition hover:bg-gray-600 disabled:cursor-not-allowed disabled:opacity-30"
+										class="rounded-sm bg-gray-700 px-2 py-1 text-xs text-white transition hover:bg-gray-600 disabled:cursor-not-allowed disabled:opacity-30"
 										title="Move up"
 									>
 										▲
@@ -1182,7 +1184,7 @@
 										type="button"
 										onclick={() => moveCategoryDown(index)}
 										disabled={index === editingCategories.length - 1}
-										class="rounded bg-gray-700 px-2 py-1 text-xs text-white transition hover:bg-gray-600 disabled:cursor-not-allowed disabled:opacity-30"
+										class="rounded-sm bg-gray-700 px-2 py-1 text-xs text-white transition hover:bg-gray-600 disabled:cursor-not-allowed disabled:opacity-30"
 										title="Move down"
 									>
 										▼
@@ -1199,7 +1201,7 @@
 											bind:value={category.name}
 											placeholder="e.g., Content Quality, Presentation Style"
 											required
-											class="w-full rounded-lg border border-gray-700 bg-theater-dark px-3 py-2 text-white placeholder:text-gray-500 focus:border-theater-purple focus:outline-none"
+											class="bg-theater-dark focus:border-theater-purple w-full rounded-lg border border-gray-700 px-3 py-2 text-white placeholder:text-gray-500 focus:outline-hidden"
 										/>
 									</div>
 									<div>
@@ -1211,14 +1213,14 @@
 											type="text"
 											bind:value={category.description}
 											placeholder="Brief description of what to rate"
-											class="w-full rounded-lg border border-gray-700 bg-theater-dark px-3 py-2 text-white placeholder:text-gray-500 focus:border-theater-purple focus:outline-none"
+											class="bg-theater-dark focus:border-theater-purple w-full rounded-lg border border-gray-700 px-3 py-2 text-white placeholder:text-gray-500 focus:outline-hidden"
 										/>
 									</div>
 								</div>
 								<button
 									type="button"
 									onclick={() => removeCategory(index)}
-									class="flex-shrink-0 rounded-lg bg-red-600 px-3 py-2 text-sm font-semibold text-white transition hover:bg-red-700"
+									class="shrink-0 rounded-lg bg-red-600 px-3 py-2 text-sm font-semibold text-white transition hover:bg-red-700"
 									title="Remove category"
 								>
 									🗑️
@@ -1246,7 +1248,7 @@
 					<button
 						type="button"
 						onclick={saveCategories}
-						class="flex-1 rounded-lg bg-theater-purple py-3 font-bold text-white transition hover:bg-purple-600"
+						class="bg-theater-purple flex-1 rounded-lg py-3 font-bold text-white transition hover:bg-purple-600"
 						>💾 Save Categories</button
 					>
 				</div>
@@ -1268,13 +1270,13 @@
 					aria-label="Close management panel"
 				></button>
 				<div
-					class="animate-in fade-in slide-in-from-bottom-4 relative my-auto w-full max-w-4xl overflow-hidden rounded-xl border border-gray-800 bg-theater-dark shadow-2xl duration-200"
+					class="animate-in fade-in slide-in-from-bottom-4 bg-theater-dark relative my-auto w-full max-w-4xl overflow-hidden rounded-xl border border-gray-800 shadow-2xl duration-200"
 				>
 					<div class="flex items-start justify-between border-b border-gray-800 p-4 sm:p-6">
 						<div class="mr-2 flex min-w-0 flex-1 items-center gap-2 sm:gap-3">
-							<span class="flex-shrink-0 text-2xl sm:text-3xl">{managed.group.emoji || "📊"}</span>
+							<span class="shrink-0 text-2xl sm:text-3xl">{managed.group.emoji || "📊"}</span>
 							<div class="min-w-0 flex-1">
-								<h3 class="break-words text-xl font-bold sm:text-2xl">{managed.group.name}</h3>
+								<h3 class="text-xl font-bold wrap-break-word sm:text-2xl">{managed.group.name}</h3>
 								<p class="text-xs text-gray-400 sm:text-sm">
 									{managed.group.members.length} member{managed.group.members.length === 1
 										? ""
@@ -1283,28 +1285,28 @@
 							</div>
 						</div>
 						<button
-							class="flex-shrink-0 p-1 text-xl text-gray-400 hover:text-white sm:text-2xl"
+							class="shrink-0 p-1 text-xl text-gray-400 hover:text-white sm:text-2xl"
 							onclick={closeManage}>✕</button
 						>
 					</div>
 					<div class="px-3 pt-3 sm:px-6 sm:pt-4">
 						<div class="mb-3 flex gap-1 overflow-x-auto sm:mb-4 sm:gap-2">
 							<button
-								class="whitespace-nowrap rounded-lg border px-3 py-2 text-xs sm:px-4 sm:text-base {activeTab ===
+								class="rounded-lg border px-3 py-2 text-xs whitespace-nowrap sm:px-4 sm:text-base {activeTab ===
 								'members'
 									? 'border-theater-purple text-white'
 									: 'border-gray-700 text-gray-300'}"
 								onclick={() => (activeTab = "members")}>Members</button
 							>
 							<button
-								class="whitespace-nowrap rounded-lg border px-3 py-2 text-xs sm:px-4 sm:text-base {activeTab ===
+								class="rounded-lg border px-3 py-2 text-xs whitespace-nowrap sm:px-4 sm:text-base {activeTab ===
 								'presentation'
 									? 'border-theater-purple text-white'
 									: 'border-gray-700 text-gray-300'}"
 								onclick={() => (activeTab = "presentation")}>Presentation</button
 							>
 							<button
-								class="whitespace-nowrap rounded-lg border px-3 py-2 text-xs sm:px-4 sm:text-base {activeTab ===
+								class="rounded-lg border px-3 py-2 text-xs whitespace-nowrap sm:px-4 sm:text-base {activeTab ===
 								'danger'
 									? 'border-red-600 text-red-400'
 									: 'border-gray-700 text-gray-300'}"
@@ -1315,7 +1317,7 @@
 					<div class="space-y-4 p-3 sm:space-y-6 sm:p-6">
 						{#if activeTab === "members"}
 							<div>
-								<h4 class="mb-3 text-sm font-semibold uppercase tracking-wide text-gray-400">
+								<h4 class="mb-3 text-sm font-semibold tracking-wide text-gray-400 uppercase">
 									Team Members
 								</h4>
 								<div class="space-y-2">
@@ -1353,12 +1355,12 @@
 										<p class="mb-2 text-sm text-gray-400">Invite Code</p>
 										<div class="flex items-center gap-2">
 											<code
-												class="flex-1 rounded-lg border border-gray-700 bg-theater-darker px-4 py-3 font-mono text-lg font-bold tracking-wider text-purple-300"
+												class="bg-theater-darker flex-1 rounded-lg border border-gray-700 px-4 py-3 font-mono text-lg font-bold tracking-wider text-purple-300"
 												>{managed.group.inviteCode}</code
 											>
 											<button
 												onclick={() => copyInviteCode(managed.group.inviteCode)}
-												class="rounded-lg bg-theater-purple px-4 py-3 text-sm font-semibold text-white transition hover:bg-purple-600"
+												class="bg-theater-purple rounded-lg px-4 py-3 text-sm font-semibold text-white transition hover:bg-purple-600"
 												>📋 Copy</button
 											>
 										</div>
@@ -1368,9 +1370,9 @@
 						{/if}
 						{#if activeTab === "presentation"}
 							{#if managed.isLeader}
-								<div class="mb-4 rounded-lg border border-gray-700 bg-theater-dark p-4">
+								<div class="bg-theater-dark mb-4 rounded-lg border border-gray-700 p-4">
 									<div class="mb-3 flex items-center justify-between">
-										<h5 class="text-sm font-semibold uppercase tracking-wide text-gray-400">
+										<h5 class="text-sm font-semibold tracking-wide text-gray-400 uppercase">
 											Presentation Identity
 										</h5>
 									</div>
@@ -1398,19 +1400,19 @@
 													}
 												}}
 												placeholder="Type or pick emoji"
-												class="mb-3 w-full rounded-lg border border-gray-700 bg-theater-darker px-4 py-3 text-center text-2xl text-white placeholder:text-base placeholder:text-gray-500 focus:border-theater-purple focus:outline-none"
+												class="bg-theater-darker focus:border-theater-purple mb-3 w-full rounded-lg border border-gray-700 px-4 py-3 text-center text-2xl text-white placeholder:text-base placeholder:text-gray-500 focus:outline-hidden"
 											/>
 											<div class="mb-2 text-center text-xs text-gray-400">Quick picks:</div>
 											<div
-												class="grid grid-cols-8 gap-2 rounded-lg border border-gray-700 bg-theater-darker p-3"
+												class="bg-theater-darker grid grid-cols-8 gap-2 rounded-lg border border-gray-700 p-3"
 											>
 												{#each emojiOptions as emoji}
 													<button
 														type="button"
 														onclick={() => (editEmoji = emoji)}
-														class="rounded-lg p-2 text-2xl transition hover:bg-theater-purple/20 {editEmoji ===
+														class="hover:bg-theater-purple/20 rounded-lg p-2 text-2xl transition {editEmoji ===
 														emoji
-															? 'bg-theater-purple ring-2 ring-theater-purple'
+															? 'bg-theater-purple ring-theater-purple ring-2'
 															: 'hover:scale-110'}">{emoji}</button
 													>
 												{/each}
@@ -1426,13 +1428,13 @@
 												name="name"
 												required
 												bind:value={editName}
-												class="w-full rounded-lg border border-gray-700 bg-theater-darker px-4 py-3 text-white placeholder:text-gray-500 focus:border-theater-purple focus:outline-none"
+												class="bg-theater-darker focus:border-theater-purple w-full rounded-lg border border-gray-700 px-4 py-3 text-white placeholder:text-gray-500 focus:outline-hidden"
 											/>
 										</div>
 										<div class="flex gap-2">
 											<button
 												type="submit"
-												class="flex-1 rounded-lg bg-theater-purple py-2 font-semibold text-white transition hover:bg-purple-600"
+												class="bg-theater-purple flex-1 rounded-lg py-2 font-semibold text-white transition hover:bg-purple-600"
 												>💾 Save</button
 											>
 											<button
@@ -1449,7 +1451,7 @@
 								</div>
 							{/if}
 							<div class="rounded-lg border border-gray-700 p-4">
-								<h5 class="mb-2 text-sm font-semibold uppercase tracking-wide text-gray-400">
+								<h5 class="mb-2 text-sm font-semibold tracking-wide text-gray-400 uppercase">
 									Presentation Submission
 								</h5>
 								{#if (data.event as any).submissionsClosed}
@@ -1463,7 +1465,7 @@
 												<a
 													href={managed.group.submissionLink}
 													target="_blank"
-													class="break-all text-sm text-blue-400 underline hover:text-blue-300"
+													class="text-sm break-all text-blue-400 underline hover:text-blue-300"
 													>{managed.group.submissionLink}</a
 												>
 											</div>
@@ -1472,13 +1474,13 @@
 								{:else}
 									{#if managed.group.status === "submitted" && managed.group.submissionLink}
 										<div class="mb-4 rounded-lg border border-green-500/30 bg-green-900/30 p-4">
-											<p class="mb-2 text-sm font-bold uppercase tracking-wide text-green-300">
+											<p class="mb-2 text-sm font-bold tracking-wide text-green-300 uppercase">
 												✅ Current Submission
 											</p>
 											<a
 												href={managed.group.submissionLink}
 												target="_blank"
-												class="break-all text-sm text-blue-400 underline hover:text-blue-300"
+												class="text-sm break-all text-blue-400 underline hover:text-blue-300"
 												>{managed.group.submissionLink}</a
 											>
 											<p class="mt-2 text-xs text-gray-400">Submit again below to update.</p>
@@ -1501,11 +1503,11 @@
 											value={managed.group.status === "submitted"
 												? managed.group.submissionLink
 												: ""}
-											class="w-full rounded-lg border border-gray-700 bg-theater-dark px-4 py-3 text-white transition placeholder:text-gray-500 focus:border-theater-purple focus:outline-none"
+											class="bg-theater-dark focus:border-theater-purple w-full rounded-lg border border-gray-700 px-4 py-3 text-white transition placeholder:text-gray-500 focus:outline-hidden"
 										/>
 										<button
 											type="submit"
-											class="w-full rounded-lg bg-theater-purple py-3 text-lg font-bold text-white transition hover:bg-purple-600"
+											class="bg-theater-purple w-full rounded-lg py-3 text-lg font-bold text-white transition hover:bg-purple-600"
 											>{managed.group.status === "submitted"
 												? "🔄 Update Presentation"
 												: "🎯 Submit Presentation"}</button
@@ -1517,7 +1519,7 @@
 						{#if activeTab === "danger" && managed.isLeader}
 							<div class="border-t border-gray-700 pt-2"></div>
 							<div>
-								<h5 class="mb-2 text-sm font-semibold uppercase tracking-wide text-gray-400">
+								<h5 class="mb-2 text-sm font-semibold tracking-wide text-gray-400 uppercase">
 									Danger Zone
 								</h5>
 								<form method="POST" action="?/deleteGroup" use:enhance>
