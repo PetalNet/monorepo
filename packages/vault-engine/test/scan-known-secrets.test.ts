@@ -17,10 +17,15 @@ test("scans all manifest values and document text without disclosing matches", (
 }) => {
 	const dir = mkdtempSync(path.join(tmpdir(), "vault-scan-"));
 
-	onTestFinished(() => rmSync(dir, { recursive: true, force: true }));
+	onTestFinished(() => {
+		rmSync(dir, { recursive: true, force: true });
+	});
+
 	const manifest = path.join(dir, "manifest.jsonl");
 	const doc = path.join(dir, "note.md");
-	const write = (entry: unknown) => writeFileSync(manifest, JSON.stringify(entry) + "\n");
+	const write = (entry: unknown) => {
+		writeFileSync(manifest, `${JSON.stringify(entry)}\n`);
+	};
 
 	writeFileSync(doc, "ordinary document");
 	write({ type: "document", file: doc, title: "ordinary" });
@@ -46,7 +51,7 @@ test("scans all manifest values and document text without disclosing matches", (
 		manifest,
 		JSON.stringify({ type: "capture", excerpt: secret }).replace(
 			secret,
-			"\\u0073" + secret.slice(1),
+			`\\u0073${secret.slice(1)}`,
 		),
 	);
 
@@ -67,7 +72,10 @@ test("scans all manifest values and document text without disclosing matches", (
 test("fails closed for missing, empty, malformed, or unreadable inputs", ({ onTestFinished }) => {
 	const dir = mkdtempSync(path.join(tmpdir(), "vault-scan-"));
 
-	onTestFinished(() => rmSync(dir, { recursive: true, force: true }));
+	onTestFinished(() => {
+		rmSync(dir, { recursive: true, force: true });
+	});
+
 	const manifest = path.join(dir, "manifest.jsonl");
 
 	writeFileSync(manifest, JSON.stringify({ type: "capture" }));

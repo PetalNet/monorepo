@@ -1,11 +1,15 @@
 #!/usr/bin/env node
-import { readFile } from "node:fs/promises";
-import { text } from "node:stream/consumers";
+import { readFileSync } from "node:fs";
+import { text as readStdin } from "node:stream/consumers";
 
 function strings(value: unknown): string[] {
-	if (typeof value === "string") return [value];
+	if (typeof value === "string") {
+		return [value];
+	}
 
-	if (Array.isArray(value)) return value.flatMap(strings);
+	if (Array.isArray(value)) {
+		return value.flatMap(strings);
+	}
 
 	if (value !== null && typeof value === "object") {
 		return Object.entries(value).flatMap(([key, item]) => [key, ...strings(item)]);
@@ -15,10 +19,13 @@ function strings(value: unknown): string[] {
 }
 
 function secretValues(value: unknown): string[] {
-	if (typeof value === "string") return [value];
+	if (typeof value === "string") {
+		return [value];
+	}
 
-	if (value !== null && typeof value === "object")
+	if (value !== null && typeof value === "object") {
 		return Object.values(value).flatMap(secretValues);
+	}
 
 	return [];
 }
@@ -33,54 +40,75 @@ function candidates(value: string): string[] {
 			...value
 				.split(/\r?\n/)
 				.map((line) => line.trim())
-				.filter((line) => !/^[{}\[\],\s]*$/.test(line)),
+				.filter((line) => !/^[{}[\],\s]*$/.test(line)),
 		];
 	}
 }
 
 async function scan(manifestPath: string) {
-	const dump: unknown = JSON.parse(await text(process.stdin));
+	const dump: unknown = JSON.parse(await readStdin(process.stdin));
 
-	if (dump === null || typeof dump !== "object" || Array.isArray(dump)) throw new Error();
+	if (dump === null || typeof dump !== "object" || Array.isArray(dump)) {
+		throw new Error("invalid dump");
+	}
 
 	const values: unknown[] = Object.values(dump);
 
-	if (values.length === 0 || !values.every((value) => typeof value === "string")) throw new Error();
+	if (values.length === 0 || !values.every((value) => typeof value === "string")) {
+		throw new Error("empty or invalid dump values");
+	}
 
 	const secrets = new Set(values.flatMap(candidates).filter(Boolean));
 
-	if (secrets.size === 0) throw new Error();
+	if (secrets.size === 0) {
+		throw new Error("no known values");
+	}
 
 	const containsSecret = (text: string) => [...secrets].some((secret) => text.includes(secret));
-	const manifest = await readFile(manifestPath, "utf8");
+	const manifest = readFileSync(manifestPath, "utf8");
 
-	if (containsSecret(manifest)) return false;
+	if (containsSecret(manifest)) {
+		return false;
+	}
 
 	let entries = 0;
 
 	for (const line of manifest.split("\n")) {
-		if (line.trim() === "") continue;
+		if (line.trim() === "") {
+			continue;
+		}
 
 		entries++;
 		const entry: unknown = JSON.parse(line);
 
-		if (entry === null || typeof entry !== "object" || Array.isArray(entry)) throw new Error();
+		if (entry === null || typeof entry !== "object" || Array.isArray(entry)) {
+			throw new Error("invalid manifest entry");
+		}
 
-		if (strings(entry).some(containsSecret)) return false;
+		if (strings(entry).some(containsSecret)) {
+			return false;
+		}
 
-		if (!("type" in entry)) throw new Error();
+		if (!("type" in entry)) {
+			throw new Error("missing manifest entry type");
+		}
 
 		if (entry.type === "document") {
-			if (!("file" in entry) || typeof entry.file !== "string" || entry.file === "")
-				throw new Error();
+			if (!("file" in entry) || typeof entry.file !== "string" || entry.file === "") {
+				throw new Error("invalid document path");
+			}
 
-			if (containsSecret(await readFile(entry.file, "utf8"))) return false;
+			if (containsSecret(readFileSync(entry.file, "utf8"))) {
+				return false;
+			}
 		} else if (entry.type !== "capture") {
-			throw new Error();
+			throw new Error("unknown manifest entry type");
 		}
 	}
 
-	if (entries === 0) throw new Error();
+	if (entries === 0) {
+		throw new Error("empty manifest");
+	}
 
 	return true;
 }

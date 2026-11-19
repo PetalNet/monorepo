@@ -342,7 +342,7 @@ export const migrate = Effect.fnUntraced(function* (
 				const sectionEntries = (values: Readonly<Record<string, string>>) =>
 					Object.entries(values)
 						.filter(([key]) => /^s\d+$/.test(key))
-						.sort(([a], [b]) => a.localeCompare(b));
+						.toSorted(([a], [b]) => a.localeCompare(b));
 
 				if (
 					before !== undefined &&

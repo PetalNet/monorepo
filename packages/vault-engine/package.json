@@ -3,7 +3,8 @@
 	"version": "0.0.0",
 	"private": true,
 	"bin": {
-		"vault": "./src/cli.ts"
+		"vault": "./src/cli.ts",
+		"vault-scan-known-secrets": "./src/scan-known-secrets.ts"
 	},
 	"type": "module",
 	"scripts": {
