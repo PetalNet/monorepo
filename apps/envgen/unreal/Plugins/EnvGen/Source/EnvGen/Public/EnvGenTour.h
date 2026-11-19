@@ -70,6 +70,9 @@ public:
 	UPROPERTY(EditAnywhere, Category = "Tour")
 	int32 FrameEvery = 1;
 
+	/** Console commands run as the measured period ends, for reading the engine's own counters at that moment. */
+	TArray<FString> EndCommands;
+
 private:
 	FVector PointAt(float Angle) const;
 	void Finish();
@@ -85,4 +88,7 @@ private:
 	TArray<float> GpuMs;
 	TArray<float> GameThreadMs;
 	TArray<float> RenderThreadMs;
+	TArray<FVector2f> Places;
+	TArray<float> GrassUnder;
+	TArray<float> GrassNear;
 };

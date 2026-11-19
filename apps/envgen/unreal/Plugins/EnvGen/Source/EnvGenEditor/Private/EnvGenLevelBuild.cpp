@@ -519,7 +519,10 @@ namespace
 		Mesh->GetStaticMaterials().Add(FStaticMaterial(Material, FName(TEXT("Blade"))));
 		UStaticMesh::FBuildMeshDescriptionsParams Params;
 		Params.bBuildSimpleCollision = false;
-		Params.bFastBuild = true;
+		// A Nanite mesh, and so a full build: on 5.8.4 the engine builds a plain tuft's instances but draws none of
+		// them unless Nanite foliage (the trees) is also in the level. A Nanite tuft draws either way.
+		Params.bFastBuild = false;
+		Mesh->NaniteSettings.bEnabled = true;
 		Mesh->BuildFromMeshDescriptions({&Description}, Params);
 		return Mesh;
 	}

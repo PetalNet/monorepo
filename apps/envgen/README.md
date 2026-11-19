@@ -251,6 +251,14 @@ project makes grass maps while the game runs (`grass.GrassMap.UseRuntimeGenerati
 regenerated, never cooked. The tuft size, density and cull distance are looks, not measurements; no source
 gives a cover's height or density yet.
 
+The tuft is a Nanite mesh. On 5.8.4 the engine builds a plain tuft's instances and draws none of them unless
+Nanite foliage, which the trees are, is also in the level; a level without trees showed bare ground. Why is
+not known. A tour counts the tufts the engine has built near the camera (below), and a pair of stills, one
+taken with `grass.Enable=0`, shows whether they are drawn.
+
+`r.Nanite.Streaming.StreamingPoolSize` is 128 MB in the host project. The engine commits its default of 512
+MB on the card whatever the scene needs, and the trees and tufts draw the same with 128.
+
 ### Frame and units
 
 - World X is grid north, Y is grid east, Z is up, in centimetres, with the origin at the tile
@@ -334,6 +342,14 @@ open. `-EnvGenTourCsv` also records the engine's CSV profile for the measured pe
 The loop wobbles in and out, so the true ground speed varies around the nominal one; the summary's
 `distance_m` is the path actually covered in the measured period. `-EnvGenTour=overview` holds still
 above the centre instead, for comparing the ground with a map.
+
+A tour also counts grass: each measured frame it adds up the tufts the engine has built in the grass
+components within 25 m of the camera, and in the components the camera stands over. The summary has
+`grass_tufts_within_25m`, `fewest_grass_tufts_within_25m` and `frames_with_no_grass_under_the_camera`, and
+the CSV has both counts and the camera's position per frame, so the counts can be set against the grass
+class under the path. A built tuft is not always a drawn one (see Ground materials and grass).
+`-EnvGenTourEndCmds="a,b"` runs console commands as the measured period ends, for the engine's own counters
+at that moment, such as `rhi.DumpResourceMemory 40`.
 
 For a video, add `-EnvGenTourFrames=<dir> -UseFixedTimeStep -FPS=30`: every measured frame is written as
 a PNG, evenly spaced in game time (`-EnvGenTourFrameEvery=N` keeps every Nth, for stills at fixed points

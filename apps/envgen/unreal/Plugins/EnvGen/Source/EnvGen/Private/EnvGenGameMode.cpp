@@ -31,6 +31,11 @@ void AEnvGenGameMode::StartPlay()
 	FParse::Value(FCommandLine::Get(), TEXT("EnvGenTourSeconds="), Tour->MeasuredSeconds);
 	Tour->bExitWhenDone = !FParse::Param(FCommandLine::Get(), TEXT("EnvGenTourStay"));
 	Tour->bCsvProfile = FParse::Param(FCommandLine::Get(), TEXT("EnvGenTourCsv"));
+	FString EndCommands;
+	if (FParse::Value(FCommandLine::Get(), TEXT("EnvGenTourEndCmds="), EndCommands, false))
+	{
+		EndCommands.ParseIntoArray(Tour->EndCommands, TEXT(","));
+	}
 	FParse::Value(FCommandLine::Get(), TEXT("EnvGenTourFrames="), Tour->FrameDirectory);
 	FParse::Value(FCommandLine::Get(), TEXT("EnvGenTourFrameEvery="), Tour->FrameEvery);
 	if (APlayerController* Player = GetWorld()->GetFirstPlayerController())

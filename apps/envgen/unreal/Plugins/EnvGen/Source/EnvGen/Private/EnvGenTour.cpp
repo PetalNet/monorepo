@@ -7,7 +7,10 @@
 #include "Engine/World.h"
 #include "EnvGenSiteInfo.h"
 #include "HAL/PlatformTime.h"
+#include "Components/HierarchicalInstancedStaticMeshComponent.h"
+#include "EngineUtils.h"
 #include "Kismet/KismetSystemLibrary.h"
+#include "LandscapeProxy.h"
 #include "Misc/App.h"
 #include "Misc/FileHelper.h"
 #include "Misc/Paths.h"
@@ -21,6 +24,7 @@ namespace
 {
 	constexpr float TraceTopCm = 200000;
 	constexpr float LookAheadCm = 600;
+	constexpr double GrassReachCm = 2500;
 
 	/** The ground under a point: the first thing a trace from above meets that does not stand on the ground itself. */
 	bool GroundHeight(const UWorld* World, const FVector& At, float& OutZ)
@@ -40,6 +44,30 @@ namespace
 			Params.AddIgnoredActor(Met);
 		}
 		return false;
+	}
+
+	/**
+	 * Grass tufts the engine has built in the grass components whose footprint comes within Reach of a point: Under
+	 * counts only the components the point stands on. Zero on grass ground means the walker has outrun the grass.
+	 */
+	void CountGrass(const UWorld* World, const FVector& At, double ReachCm, int32& OutUnder, int32& OutNear)
+	{
+		OutUnder = OutNear = 0;
+		for (TActorIterator<ALandscapeProxy> Proxy(World); Proxy; ++Proxy)
+		{
+			for (const UHierarchicalInstancedStaticMeshComponent* Grass : Proxy->FoliageComponents)
+			{
+				if (!Grass || Grass->NumBuiltRenderInstances <= 0)
+				{
+					continue;
+				}
+				const FBox Box = Grass->Bounds.GetBox();
+				const FVector2D Nearest(FMath::Clamp(At.X, Box.Min.X, Box.Max.X), FMath::Clamp(At.Y, Box.Min.Y, Box.Max.Y));
+				const double Away = FVector2D::Distance(Nearest, FVector2D(At.X, At.Y));
+				OutUnder += Away <= 0 ? Grass->NumBuiltRenderInstances : 0;
+				OutNear += Away <= ReachCm ? Grass->NumBuiltRenderInstances : 0;
+			}
+		}
 	}
 
 	/** Nearest-rank percentile of sorted values: the smallest value with at least Fraction of them at or below it. */
@@ -192,6 +220,11 @@ void AEnvGenTour::Tick(float DeltaSeconds)
 		GpuMs.Add(FPlatformTime::ToMilliseconds(RHIGetGPUFrameCycles()));
 		GameThreadMs.Add(FPlatformTime::ToMilliseconds(GGameThreadTime));
 		RenderThreadMs.Add(FPlatformTime::ToMilliseconds(GRenderThreadTime));
+		int32 Under = 0, Near = 0;
+		CountGrass(GetWorld(), Here, GrassReachCm, Under, Near);
+		Places.Add(FVector2f(Here.X, Here.Y));
+		GrassUnder.Add(Under);
+		GrassNear.Add(Near);
 		if (Elapsed >= WarmUpSeconds + MeasuredSeconds)
 		{
 			Finish();
@@ -202,6 +235,10 @@ void AEnvGenTour::Tick(float DeltaSeconds)
 void AEnvGenTour::Finish()
 {
 	bFinished = true;
+	for (const FString& Command : EndCommands)
+	{
+		UKismetSystemLibrary::ExecuteConsoleCommand(this, Command);
+	}
 	if (bCsvProfile)
 	{
 		UKismetSystemLibrary::ExecuteConsoleCommand(this, TEXT("csvprofile stop"));
@@ -212,11 +249,15 @@ void AEnvGenTour::Finish()
 	{
 		GEngine->GameViewport->GetViewportSize(Viewport);
 	}
-	int32 Over33 = 0, Over16 = 0;
+	int32 Over33 = 0, Over16 = 0, NoGrassUnder = 0;
 	for (const float Ms : FrameMs)
 	{
 		Over33 += Ms > 33.33f;
 		Over16 += Ms > 16.67f;
+	}
+	for (const float Tufts : GrassUnder)
+	{
+		NoGrassUnder += Tufts <= 0;
 	}
 
 	TSharedRef<FJsonObject> Out = MakeShared<FJsonObject>();
@@ -232,6 +273,9 @@ void AEnvGenTour::Finish()
 	Out->SetNumberField(TEXT("height_above_ground_m"), HeightAboveGroundCm / 100);
 	Out->SetNumberField(TEXT("frames_over_33ms"), Over33);
 	Out->SetNumberField(TEXT("frames_over_16_7ms"), Over16);
+	Out->SetNumberField(TEXT("frames_with_no_grass_under_the_camera"), NoGrassUnder);
+	Out->SetNumberField(TEXT("fewest_grass_tufts_within_25m"), GrassNear.IsEmpty() ? 0 : FMath::Min(GrassNear));
+	Out->SetObjectField(TEXT("grass_tufts_within_25m"), Summarise(GrassNear));
 	Out->SetObjectField(TEXT("frame_ms"), Summarise(FrameMs));
 	Out->SetObjectField(TEXT("gpu_ms"), Summarise(GpuMs));
 	Out->SetObjectField(TEXT("game_thread_ms"), Summarise(GameThreadMs));
@@ -242,10 +286,10 @@ void AEnvGenTour::Finish()
 	const FString Stem = FPaths::ProjectSavedDir() / TEXT("EnvGen") / (TEXT("tour_") + Name);
 	FFileHelper::SaveStringToFile(Json, *(Stem + TEXT(".json")));
 
-	FString Csv = TEXT("frame_ms,gpu_ms,game_thread_ms,render_thread_ms\n");
+	FString Csv = TEXT("frame_ms,gpu_ms,game_thread_ms,render_thread_ms,x_cm,y_cm,grass_tufts_under,grass_tufts_within_25m\n");
 	for (int32 Index = 0; Index < FrameMs.Num(); ++Index)
 	{
-		Csv += FString::Printf(TEXT("%.3f,%.3f,%.3f,%.3f\n"), FrameMs[Index], GpuMs[Index], GameThreadMs[Index], RenderThreadMs[Index]);
+		Csv += FString::Printf(TEXT("%.3f,%.3f,%.3f,%.3f,%.0f,%.0f,%.0f,%.0f\n"), FrameMs[Index], GpuMs[Index], GameThreadMs[Index], RenderThreadMs[Index], Places[Index].X, Places[Index].Y, GrassUnder[Index], GrassNear[Index]);
 	}
 	FFileHelper::SaveStringToFile(Csv, *(Stem + TEXT(".csv")));
 	UE_LOG(LogTemp, Display, TEXT("EnvGen: tour '%s' wrote %s.json (%d frames)"), *Name, *Stem, FrameMs.Num());
