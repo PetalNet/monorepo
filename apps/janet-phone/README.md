@@ -141,6 +141,13 @@ while listening, a low hum that fades in while Janet works on a reply and out wh
 voice. It is mixed into the audio the bridge already sends, from the pipeline's state (listening, thinking, speaking). To retune it,
 send a new code and set `line_tone`.
 
+**Hang-up earcon and who ended the call.** With `hangup_earcon` (the earcon code of [`packages/janet-line`](../../packages/janet-line),
+e.g. `"HL40 HP880 HI5 HN150 HG30"`: level, first pitch in Hz, fall in semitones, note and gap length in ms), a short soft descending
+blip is played before the line closes whenever Janet ends the call (the head ends the conversation, or the call reaches `max_call_s`).
+A hang-up from the phone or a dropped connection gets none. Each call's last log line says which: `ended by Janet (...)` or
+`ended by the far side (close code ..., the phone's microphone was last heard N s ago)`, and `no audio from the phone for 5 s` is
+logged when the microphone uplink stops while the socket is still open.
+
 Run it with `python janet_phone.py --config /path/to/phone.toml`, or build the `Dockerfile` from the repository root
 (`docker build -f apps/janet-phone/Dockerfile .`); the image carries the models.
 

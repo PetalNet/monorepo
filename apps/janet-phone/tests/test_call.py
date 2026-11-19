@@ -13,6 +13,7 @@ import tempfile
 import threading
 import time
 import unittest
+from unittest import mock
 import urllib.error
 import urllib.request
 import wave
@@ -205,6 +206,63 @@ class CallTest(unittest.IsolatedAsyncioTestCase):
         self.assertGreater(len(hum), 5)
         rms = float(np.sqrt(np.mean(np.square(quiet.astype(np.float64)))))
         self.assertTrue(0 < rms < 1500, rms)  # a hiss, not silence and not speech
+
+    async def _server_with(self, **changes):
+        import dataclasses
+
+        config = dataclasses.replace(self.config, **changes)
+        server = await janet_phone.serve(
+            lambda ws: janet_phone.handle(ws, config), "127.0.0.1", 0,
+            process_request=lambda ws, request: janet_phone.admit(ws, request, config, self.devices))
+        self.addAsyncCleanup(server.wait_closed)
+        self.addCleanup(server.close)
+        return f"ws://127.0.0.1:{server.sockets[0].getsockname()[1]}/v1/call"
+
+    async def test_when_janet_ends_the_call_an_earcon_comes_before_the_bye_and_the_log_says_who(self):
+        url = await self._server_with(hangup_earcon="HL40 HP880 HI5 HN150 HG30")
+        FakeStt.texts = ["goodbye"]
+        with self.assertLogs("janet-phone", "INFO") as logs:
+            async with connect(url, additional_headers=self.phone) as ws:
+                while not isinstance(await asyncio.wait_for(ws.recv(), 10), bytes):
+                    pass
+                await asyncio.sleep(0.4)
+                await ws.send(tone(0.5))
+                await ws.send(bytes(16000 * 4))
+                order = []
+                while True:
+                    message = await asyncio.wait_for(ws.recv(), 15)
+                    order.append("audio" if isinstance(message, bytes) else json.loads(message)["type"])
+                    if order[-1] == "bye":
+                        break
+                last_audio = [m for m in order if m == "audio"]
+        self.assertGreater(len(last_audio), 0)
+        self.assertEqual(order[-2], "audio", "the earcon is the last audio before the bye")
+        await asyncio.sleep(0.3)
+        self.assertTrue(any("ended by Janet (the head ended the conversation)" in line for line in logs.output), logs.output)
+
+    async def test_without_an_earcon_code_the_bye_comes_with_no_extra_audio(self):
+        FakeStt.texts = ["goodbye"]
+        async with connect(self.url, additional_headers=self.phone) as ws:
+            while not isinstance(await asyncio.wait_for(ws.recv(), 10), bytes):
+                pass
+            await asyncio.sleep(0.4)
+            await ws.send(tone(0.5))
+            await ws.send(bytes(16000 * 4))
+            seen = await self._until(ws, "bye")
+        self.assertTrue(isinstance(seen[-1], str) and json.loads(seen[-1])["type"] == "bye")
+
+    async def test_a_phone_that_drops_the_line_is_logged_as_the_far_side_and_a_silent_one_is_noticed(self):
+        url = await self._server_with()
+        FakeStt.texts = []
+        with mock.patch.object(janet_phone, "STALL_S", 0.4), self.assertLogs("janet-phone", "INFO") as logs:
+            async with connect(url, additional_headers=self.phone) as ws:
+                await self._until(ws, "state")
+                await asyncio.sleep(1.2)  # the phone sends nothing: a stalled uplink
+            await asyncio.sleep(0.5)
+        text = "\n".join(logs.output)
+        self.assertIn("no audio from the phone", text)
+        self.assertIn("ended by the far side", text)
+        self.assertNotIn("ended by Janet", text)
 
     async def test_speaking_over_a_reply_cuts_it_off(self):
         FakeStt.texts = ["tell me a story", "stop"]
