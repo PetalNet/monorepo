@@ -28,6 +28,8 @@ export function load({ params, locals }) {
 			{ label: a.collection || "unfiled", href: galleryHref({ project }) },
 			...(work ? [{ label: work, href: galleryHref({ project, work }) }] : []),
 		],
+		// the project this page counts as opening
+		opened: project,
 		slug: a.slug,
 		title: a.title,
 		description: a.description,

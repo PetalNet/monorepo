@@ -1,11 +1,26 @@
 <script>
+	import { afterNavigate } from "$app/navigation";
 	import { page } from "$app/state";
 
 	import { galleryHref, UNFILED } from "#lib/gallery-tree.js";
 	import Icon from "#lib/Icon.svelte";
 
-	/** @type {{ collapsed?: boolean; tree?: any[]; open?: boolean; onnavigate?: () => void }} */
-	let { collapsed = $bindable(false), tree = [], open = false, onnavigate } = $props();
+	/**
+	 * @type {{
+	 * 	collapsed?: boolean;
+	 * 	tree?: any[];
+	 * 	focused?: boolean;
+	 * 	open?: boolean;
+	 * 	onnavigate?: () => void;
+	 * }}
+	 */
+	let {
+		collapsed = $bindable(false),
+		tree = [],
+		focused = false,
+		open = false,
+		onnavigate,
+	} = $props();
 
 	// Which project and piece of work the page is in: from the query on the index, from the
 	// artifact's breadcrumb trail on an artifact page.
@@ -18,8 +33,60 @@
 		return { project: q.get("project") ?? "", work: q.get("work") ?? "" };
 	});
 	const onGallery = $derived(page.url.pathname.startsWith("/gallery"));
-	const everything = $derived(page.url.pathname === "/gallery" && !scope.project && !scope.work);
+	const root = $derived(page.url.pathname === "/gallery" && !scope.project && !scope.work);
+	const all = $derived(page.url.searchParams.get("show") === "all");
+
+	// The viewer's projects lead. The rest sit behind "Other projects", open when you are in one.
+	const mine = $derived(tree.filter((p) => p.mine));
+	const others = $derived(tree.filter((p) => !p.mine));
+	const otherNeeds = $derived(others.reduce((n, p) => n + p.needs, 0));
+	// Open when you are in one of them or looking at everything, until you toggle it yourself; a
+	// navigation hands the decision back.
+	const inOthers = $derived(
+		(onGallery && others.some((p) => p.key === scope.project)) || (root && all),
+	);
+	let toggled = $state();
+	const showOthers = $derived(toggled ?? inOthers);
+	afterNavigate(() => {
+		toggled = undefined;
+	});
 </script>
+
+{#snippet project(p)}
+	{@const here = onGallery && scope.project === p.key}
+	{@const whole = here && !scope.work}
+	<a
+		class="item"
+		class:on={whole}
+		class:here={here && !whole}
+		href={galleryHref({ project: p.key })}
+		aria-current={whole ? "page" : undefined}
+		title={p.name}
+		onclick={onnavigate}
+	>
+		<Icon name="projects" size={18} />
+		<span class="lbl">{p.key === UNFILED ? "unfiled" : p.name}</span>
+		{#if p.needs}<span class="needs" title="{p.needs} waiting on you">{p.needs}</span>{/if}
+		<span class="n">{p.count}</span>
+	</a>
+	{#if here && p.works.length}
+		<div class="works">
+			{#each p.works as w (w.key)}
+				{@const on = scope.work === w.key}
+				<a
+					class="sub"
+					class:on
+					href={galleryHref({ project: p.key, work: w.key })}
+					aria-current={on ? "page" : undefined}
+					onclick={onnavigate}
+				>
+					<span class="lbl mono">{w.label}</span>
+					<span class="n">{w.count}</span>
+				</a>
+			{/each}
+		</div>
+	{/if}
+{/snippet}
 
 <aside class="nav" class:collapsed class:open id="nav">
 	<a class="brand" href="/" aria-label="gallery home" onclick={onnavigate}>
@@ -30,50 +97,46 @@
 	<nav class="groups" aria-label="Projects">
 		<a
 			class="item"
-			class:on={everything}
+			class:on={root && !all}
 			href="/gallery"
-			aria-current={everything ? "page" : undefined}
+			aria-current={root && !all ? "page" : undefined}
 			onclick={onnavigate}
 		>
 			<Icon name="gallery" size={18} />
-			<span class="lbl">All projects</span>
+			<span class="lbl">{focused ? "Your projects" : "All projects"}</span>
 		</a>
 
-		{#each tree as p (p.key)}
-			{@const here = onGallery && scope.project === p.key}
-			{@const whole = here && !scope.work}
-			<a
-				class="item"
-				class:on={whole}
-				class:here={here && !whole}
-				href={galleryHref({ project: p.key })}
-				aria-current={whole ? "page" : undefined}
-				title={p.name}
-				onclick={onnavigate}
+		{#each mine as p (p.key)}{@render project(p)}{/each}
+
+		{#if others.length}
+			<button
+				type="button"
+				class="item more"
+				aria-expanded={showOthers}
+				aria-controls="nav-others"
+				onclick={() => (toggled = !showOthers)}
 			>
-				<Icon name="projects" size={18} />
-				<span class="lbl">{p.key === UNFILED ? "unfiled" : p.name}</span>
-				{#if p.needs}<span class="needs" title="{p.needs} waiting on you">{p.needs}</span>{/if}
-				<span class="n">{p.count}</span>
-			</a>
-			{#if here && p.works.length}
-				<div class="works">
-					{#each p.works as w (w.key)}
-						{@const on = scope.work === w.key}
-						<a
-							class="sub"
-							class:on
-							href={galleryHref({ project: p.key, work: w.key })}
-							aria-current={on ? "page" : undefined}
-							onclick={onnavigate}
-						>
-							<span class="lbl mono">{w.label}</span>
-							<span class="n">{w.count}</span>
-						</a>
-					{/each}
-				</div>
-			{/if}
-		{/each}
+				<Icon name={showOthers ? "car" : "chevright"} size={18} />
+				<span class="lbl">Other projects</span>
+				{#if otherNeeds && !showOthers}<span class="needs" title="{otherNeeds} waiting on you"
+						>{otherNeeds}</span
+					>{/if}
+				<span class="n">{others.length}</span>
+			</button>
+			<div id="nav-others" hidden={!showOthers}>
+				<a
+					class="item"
+					class:on={root && all}
+					href={galleryHref({ show: "all" })}
+					aria-current={root && all ? "page" : undefined}
+					onclick={onnavigate}
+				>
+					<Icon name="gallery" size={18} />
+					<span class="lbl">All projects</span>
+				</a>
+				{#each others as p (p.key)}{@render project(p)}{/each}
+			</div>
+		{/if}
 	</nav>
 </aside>
 
@@ -172,6 +235,22 @@
 		transition:
 			background 0.14s,
 			color 0.14s;
+	}
+	/* the disclosure for the projects outside your view: an item that is a button */
+	button.item {
+		inline-size: 100%;
+		font: inherit;
+		font-size: 13.5px;
+		font-weight: 500;
+		text-align: start;
+		background: none;
+		border: 0;
+		cursor: pointer;
+	}
+	#nav-others:not([hidden]) {
+		display: flex;
+		flex-direction: column;
+		gap: 2px;
 	}
 	.item :global(svg) {
 		flex-shrink: 0;

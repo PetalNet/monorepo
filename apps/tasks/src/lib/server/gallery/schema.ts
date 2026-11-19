@@ -48,11 +48,23 @@ export const ArtifactState = Schema.Struct({
 
 export const StateRequest = Schema.Struct({ slug: Schema.String });
 
-/** Which view of the gallery: everything, one project, or one piece of work in it. */
+/** Which view of the gallery: the viewer's own, everything, one project, or one piece of work. */
 export const OngoingRequest = Schema.Struct({
 	project: Schema.optional(Schema.String),
 	work: Schema.optional(Schema.String),
+	/** Without a project the list is the viewer's own; "all" lifts that. */
+	show: Schema.optional(Schema.Literals(["all"])),
 });
+
+/** Follow a project, hide it, or (null) go back to following the viewer's involvement. */
+export const ChooseProject = Schema.Struct({
+	project: Schema.String,
+	choice: Schema.NullOr(Schema.Literals(["follow", "hide"])),
+});
+
+export const OpenedProject = Schema.Struct({ project: Schema.String });
+
+export const Done = Schema.Struct({});
 
 const OngoingPull = Schema.Struct({
 	...Pull.fields,
@@ -65,6 +77,8 @@ export const Ongoing = Schema.Struct({
 	/** "off": no search is configured. "unavailable": GitHub did not answer, so `pulls` is empty. */
 	github: Schema.Literals(["ok", "unavailable", "off"]),
 	pulls: Schema.Array(OngoingPull),
+	/** Pull requests the viewer's own view leaves out; `show=all` lists them. */
+	more: Schema.Int,
 	/** Pages with answers nobody has resolved yet. */
 	answers: Schema.Array(
 		Schema.Struct({

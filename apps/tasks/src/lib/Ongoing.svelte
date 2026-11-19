@@ -8,11 +8,12 @@
 	 * 	ongoing: import("#lib/server/gallery/schema.ts").Ongoing;
 	 * 	project?: string;
 	 * 	work?: string;
+	 * 	show?: "all";
 	 * 	peek?: number;
 	 * }}
 	 */
 	// Without `peek` this is the whole list under the page's own "Ongoing" heading.
-	let { ongoing, project = "", work = "", peek } = $props();
+	let { ongoing, project = "", work = "", show, peek } = $props();
 
 	const CHECKS = {
 		failing: { icon: "failing", text: "Checks failing" },
@@ -32,7 +33,7 @@
 	const hidden = $derived(ongoing.pulls.length - shown.length);
 </script>
 
-{#if ongoing.pulls.length || ongoing.answers.length || ongoing.github === "unavailable"}
+{#if ongoing.pulls.length || ongoing.more || ongoing.answers.length || ongoing.github === "unavailable"}
 	<section class="block" aria-label="Ongoing">
 		{#if peek}<h2>Ongoing</h2>{/if}
 		{#if ongoing.github === "unavailable"}
@@ -87,8 +88,13 @@
 			</ul>
 		{/if}
 		{#if hidden > 0}
-			<a class="more" href={galleryHref({ project, work, view: "ongoing" })}
+			<a class="all" href={galleryHref({ project, work, show, view: "ongoing" })}
 				>All {ongoing.pulls.length} open pull requests</a
+			>
+		{/if}
+		{#if ongoing.more}
+			<a class="all" href={galleryHref({ show: "all", view: "ongoing" })}
+				>{ongoing.more} more outside your projects</a
 			>
 		{/if}
 	</section>
@@ -155,7 +161,7 @@
 	}
 	.title:hover,
 	.pages:hover,
-	.more:hover {
+	.all:hover {
 		color: var(--accent-b);
 	}
 	.meta {
@@ -185,9 +191,10 @@
 		font-size: 13px;
 		color: var(--text-3);
 	}
-	.more {
+	.all {
 		display: inline-block;
 		margin-block-start: 10px;
+		margin-inline-end: 16px;
 		font-size: 13px;
 		color: var(--text-3);
 		text-decoration: none;

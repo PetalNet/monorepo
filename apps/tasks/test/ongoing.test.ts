@@ -47,7 +47,8 @@ const pull = (label: string, extra: Partial<Pull> = {}): Pull => {
 const withGitHub = (
 	layer: Layer.Layer<typeof GitHub.Identifier, unknown>,
 	user = "parker",
-	scope: { project?: string; work?: string } = {},
+	// tests of the list itself ask for everything; test/interest.test.ts covers the viewer's own view
+	scope: { project?: string; work?: string; show?: "all" } = { show: "all" },
 ) =>
 	Effect.runPromise(
 		ongoing(scope).pipe(Effect.provide(layer), Effect.provideService(Viewer, { user })),
@@ -64,7 +65,7 @@ describe("pull requests in a view", () => {
 			pull("Acme/Atlas#6", { review: "draft" }),
 		]),
 	});
-	const numbers = async (scope: { project?: string; work?: string }) =>
+	const numbers = async (scope: { project?: string; work?: string; show?: "all" }) =>
 		(await withGitHub(github, "parker", scope)).pulls.map((p) => p.number);
 
 	beforeAll(() => {
@@ -78,7 +79,7 @@ describe("pull requests in a view", () => {
 	});
 
 	it("puts failing checks first, then review states, drafts and bots last", async () => {
-		expect(await numbers({})).toEqual([4, 3, 2, 1, 6, 5]);
+		expect(await numbers({ show: "all" })).toEqual([4, 3, 2, 1, 6, 5]);
 	});
 
 	it("counts the pages that link to a pull request", async () => {
@@ -290,7 +291,7 @@ describe("GitHubLive", () => {
 			data: { search: { pageInfo: { hasNextPage: false, endCursor: null }, nodes: [node(1)] } },
 		}));
 		const twice = await Effect.runPromise(
-			Effect.all([ongoing({}), ongoing({})], { concurrency: 1 }).pipe(
+			Effect.all([ongoing({ show: "all" }), ongoing({ show: "all" })], { concurrency: 1 }).pipe(
 				Effect.provide(github.layer),
 				Effect.provideService(Viewer, { user: "parker" }),
 			),

@@ -4,6 +4,7 @@
 			"name": "Alice",
 			"color": "#38bdf8",
 			"kind": "human",
+			"github": "alice-on-github",
 			"aliases": []
 		},
 		"bob": {
