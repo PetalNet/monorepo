@@ -226,6 +226,7 @@
 
 <style>
 	.follow-through {
+		--control-accent: color-mix(in srgb, var(--accent-b) 70%, var(--text-1));
 		max-inline-size: 60rem;
 		margin-inline: auto;
 		padding: 24px 16px 48px;
@@ -260,14 +261,13 @@
 		margin-block: 8px 0;
 		max-inline-size: 72ch;
 	}
-	header p,
 	.meta,
 	.list-heading p,
 	.item-meta {
 		color: var(--text-3);
 	}
 	a {
-		color: var(--accent-b);
+		color: var(--control-accent);
 		text-underline-offset: 0.2em;
 	}
 	button,
@@ -296,7 +296,7 @@
 	button:focus-visible,
 	a:focus-visible,
 	input:focus-visible {
-		outline: 2px solid var(--accent-b);
+		outline: 2px solid var(--control-accent);
 		outline-offset: 3px;
 	}
 	.notice {
@@ -314,9 +314,8 @@
 		background: var(--surface-2);
 		margin-block-end: 32px;
 	}
-	.scheduler,
 	.due {
-		color: var(--accent-b);
+		color: var(--control-accent);
 	}
 	.problem {
 		padding: 16px;
@@ -367,7 +366,7 @@
 	input {
 		inline-size: 100%;
 		box-sizing: border-box;
-		caret-color: var(--accent-b);
+		caret-color: var(--control-accent);
 	}
 	.empty {
 		padding-block: 32px;
