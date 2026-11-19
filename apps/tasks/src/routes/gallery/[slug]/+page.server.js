@@ -1,5 +1,6 @@
 import { error } from "@sveltejs/kit";
 
+import { galleryHref, projectKey, workOf } from "#lib/gallery-tree.js";
 import { getArtifact, getMarkup } from "#lib/server/db.js";
 import { renderMd } from "#lib/server/md.js";
 
@@ -17,14 +18,23 @@ export function load({ params, locals }) {
 		throw error(404, "No such artifact");
 	}
 
+	const links = JSON.parse(a.links);
+	const project = projectKey(a.collection);
+	const work = workOf(links)?.label;
+
 	return {
+		// the ancestors of this artifact, nearest the root first; the page itself is the title
+		crumbs: [
+			{ label: a.collection || "unfiled", href: galleryHref({ project }) },
+			...(work ? [{ label: work, href: galleryHref({ project, work }) }] : []),
+		],
 		slug: a.slug,
 		title: a.title,
 		description: a.description,
 		kind: a.kind,
 		source: a.source,
 		rev: a.rev,
-		links: JSON.parse(a.links),
+		links,
 		// the page may ask this viewer something: it has the feedback capability and they are in its audience
 		canAnswer:
 			JSON.parse(a.caps).includes("feedback") && JSON.parse(a.audience).includes(locals.user),

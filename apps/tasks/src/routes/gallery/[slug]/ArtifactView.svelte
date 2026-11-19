@@ -317,17 +317,12 @@
        referrerpolicy keeps the SSO cookie context out either way. -->
 	<div class="html-shell">
 		<header class="html-head">
-			<a class="back mono" href="/gallery">&larr; gallery</a>
 			<span class="ht-title">{data.title}</span>
 			{#each data.links as l (l.url)}
 				<a class="gh mono" href={l.url} target="_blank" rel="noopener noreferrer" title={l.kind}
 					>{l.label} ↗</a
 				>
 			{/each}
-			{#if isInteractive}<span
-					class="ht-badge mono"
-					title="Runs in a sandboxed frame (no network, no cookies)">interactive</span
-				>{/if}
 			{#if marking}
 				<div class="inkbar" role="toolbar" aria-label="Markup tools">
 					{#each COLORS as [c, name] (c)}
@@ -416,7 +411,6 @@
 {:else}
 	<div class="screen detail">
 		<header class="page-head">
-			<a class="back mono" href="/gallery">&larr; gallery</a>
 			<h1>{data.title}</h1>
 			{#if data.description}<p class="ph-sub">{data.description}</p>{/if}
 			<p class="ph-sub">
@@ -450,16 +444,6 @@
 	.ans.done {
 		color: var(--text-1);
 	}
-	.back {
-		display: inline-block;
-		color: var(--text-3);
-		text-decoration: none;
-		font-size: 12px;
-		margin-bottom: 10px;
-	}
-	.back:hover {
-		color: var(--accent-b);
-	}
 
 	/* HTML artifacts get a near-full-bleed shell so a standalone page reads naturally.
      The iframe is sized to its content (no inner scroll) and the whole page scrolls. */
@@ -480,9 +464,6 @@
 		top: 0;
 		z-index: 1;
 	}
-	.html-head .back {
-		margin-bottom: 0;
-	}
 	.ht-title {
 		font-size: 13px;
 		font-weight: 600;
@@ -501,17 +482,6 @@
 	}
 	.raw-link:hover {
 		color: var(--accent-b);
-	}
-	.ht-badge {
-		flex: none;
-		font-size: 10.5px;
-		letter-spacing: 0.04em;
-		text-transform: uppercase;
-		color: var(--accent-b);
-		border: 1px solid var(--border-sub);
-		border-radius: 999px;
-		padding: 1px 8px;
-		cursor: default;
 	}
 	iframe {
 		width: 100%;
@@ -603,8 +573,12 @@
 	}
 	@media (max-width: 640px) {
 		.html-head {
+			flex-wrap: wrap;
 			padding: 10px 14px;
-			gap: 10px;
+			gap: 6px 10px;
+		}
+		.ht-title {
+			flex-basis: 100%;
 		}
 	}
 </style>

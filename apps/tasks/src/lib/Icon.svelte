@@ -39,6 +39,7 @@
 		X,
 		Search,
 		LogOut,
+		Menu,
 	} from "@lucide/svelte";
 
 	const MAP = {
@@ -82,6 +83,7 @@
 		chevright: ChevronRight,
 		search: Search,
 		signout: LogOut,
+		menu: Menu,
 		collapse: PanelLeftClose,
 		expand: PanelLeft,
 		brand: ListChecks,
