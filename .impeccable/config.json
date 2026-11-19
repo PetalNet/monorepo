@@ -4,6 +4,7 @@
 			"**/build/**",
 			"**/storybook-static/**",
 			"apps/tasks/static/vendor/**",
+			"apps/app-store/hub/static/hub.css",
 			"apps/collegemap/src/lib/components/CollegeSearch.svelte",
 			"apps/collegemap/src/lib/components/Map.svelte",
 			"apps/collegemap/src/routes/+layout.svelte",

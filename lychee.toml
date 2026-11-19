@@ -13,5 +13,8 @@ exclude_path = [
 	# SvelteKit page templates: root-relative asset links resolve against the deployed site.
 	"apps/petalboard/src/app.html",
 	"apps/tasks/src/app.html",
+	# Hub page and stylesheet: root-relative /static/ links resolve against the deployed site.
+	"apps/app-store/hub/index.html",
+	"apps/app-store/hub/static/hub.css",
 	"apps/label-studio/src/app.html",
 ]
