@@ -6,7 +6,7 @@ import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
-import { afterAll, describe, expect, it } from "vitest";
+import { afterAll, describe, expect, it, vi } from "vitest";
 
 const here = (name: string) => fileURLToPath(new URL(name, import.meta.url));
 const home = mkdtempSync(path.join(os.tmpdir(), "mtbn-"));
@@ -63,17 +63,23 @@ describe("notify", () => {
 		expect(readdirSync(out).some((f) => f.endsWith(".job"))).toBe(true);
 		expect(notify(), "still running: no notice yet").toBeNull();
 
-		let n = notify();
+		const n = await vi.waitFor(
+			() => {
+				const v = notify();
 
-		for (let i = 0; i < 40 && n === null; i++) {
-			await sleep(500);
-			n = notify();
-		}
+				if (v === null) {
+					throw new Error("no notice yet");
+				}
 
-		expect(n?.hookEventName).toBe("PostToolUse");
-		expect(n?.additionalContext).toMatch(/finished with exit code 3/u);
-		expect(n?.additionalContext).toMatch(/finished-marker/u);
-		expect(n?.additionalContext).toMatch(/\.out/u);
+				return v;
+			},
+			{ timeout: 20_000, interval: 500 },
+		);
+
+		expect(n.hookEventName).toBe("PostToolUse");
+		expect(n.additionalContext).toMatch(/finished with exit code 3/u);
+		expect(n.additionalContext).toMatch(/finished-marker/u);
+		expect(n.additionalContext).toMatch(/\.out/u);
 		expect(notify(), "announced once only").toBeNull();
 	}, 30000);
 
