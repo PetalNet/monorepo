@@ -1,0 +1,9 @@
+{
+	"name": "@petalnet/janet-voice-note",
+	"version": "0.0.0",
+	"private": true,
+	"type": "module",
+	"scripts": {
+		"test": "python3 -B -m unittest discover -s . -t ."
+	}
+}
