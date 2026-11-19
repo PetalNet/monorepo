@@ -10,10 +10,11 @@
 		"dev": "vite dev",
 		"generate": "prisma generate",
 		"lint:eslint": "eslint . --max-warnings=0",
-		"prepare": "prisma generate && svelte-kit sync",
+		"prepare": "svelte-kit sync && prisma generate",
 		"preview": "vite preview"
 	},
 	"dependencies": {
+		"@prisma/adapter-better-sqlite3": "catalog:prod",
 		"@prisma/client": "catalog:prod"
 	},
 	"devDependencies": {

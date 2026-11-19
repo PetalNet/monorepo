@@ -4,6 +4,7 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 
+import { PrismaBetterSqlite3 } from "@prisma/adapter-better-sqlite3";
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { PrismaClient } from "./generated/prisma/client";
@@ -120,7 +121,7 @@ describe("OIDC user mapping", () => {
 			stdio: "ignore",
 		});
 
-		prisma = new PrismaClient({ datasourceUrl: databaseUrl });
+		prisma = new PrismaClient({ adapter: new PrismaBetterSqlite3({ url: databaseUrl }) });
 	}, 60_000);
 
 	afterAll(async () => {
