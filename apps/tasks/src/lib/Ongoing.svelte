@@ -5,14 +5,13 @@
 
 	/**
 	 * @type {{
-	 * 	ongoing?: import("#lib/server/gallery/schema.ts").Ongoing;
+	 * 	ongoing: import("#lib/server/gallery/schema.ts").Ongoing;
 	 * 	project?: string;
 	 * 	work?: string;
 	 * 	peek?: number;
 	 * }}
 	 */
-	// Without `ongoing` this is the skeleton shown while GitHub answers. Without `peek` it is the
-	// whole list under the page's own "Ongoing" heading.
+	// Without `peek` this is the whole list under the page's own "Ongoing" heading.
 	let { ongoing, project = "", work = "", peek } = $props();
 
 	const CHECKS = {
@@ -29,26 +28,11 @@
 		none: "",
 	};
 
-	const shown = $derived(ongoing?.pulls.slice(0, peek) ?? []);
-	const hidden = $derived((ongoing?.pulls.length ?? 0) - shown.length);
+	const shown = $derived(ongoing.pulls.slice(0, peek));
+	const hidden = $derived(ongoing.pulls.length - shown.length);
 </script>
 
-{#if !ongoing}
-	<section class="block" aria-label="Ongoing" aria-busy="true">
-		<h2>Ongoing</h2>
-		<ul class="rows">
-			{#each [56, 40, 48] as width (width)}
-				<li class="row">
-					<span class="state skeleton"></span>
-					<span class="body">
-						<span class="skeleton" style:inline-size="{width}%"></span>
-						<span class="skeleton meta"></span>
-					</span>
-				</li>
-			{/each}
-		</ul>
-	</section>
-{:else if ongoing.pulls.length || ongoing.answers.length || ongoing.github === "unavailable"}
+{#if ongoing.pulls.length || ongoing.answers.length || ongoing.github === "unavailable"}
 	<section class="block" aria-label="Ongoing">
 		{#if peek}<h2>Ongoing</h2>{/if}
 		{#if ongoing.github === "unavailable"}
@@ -187,25 +171,6 @@
 	.pages {
 		color: var(--accent-b);
 		text-decoration: none;
-	}
-	/* a row before its content arrives: an icon, a title and a meta line */
-	.skeleton {
-		block-size: 12px;
-		margin-block: 4px;
-		border-radius: 4px;
-		background: var(--surface-3);
-	}
-	.state.skeleton {
-		inline-size: 16px;
-		block-size: 16px;
-		margin-block: 2px;
-		border-radius: 50%;
-	}
-	.meta.skeleton {
-		inline-size: 32%;
-	}
-	.body:has(.skeleton) {
-		flex: 1;
 	}
 	.sr {
 		position: absolute;

@@ -9,8 +9,6 @@ import { ongoing } from "#lib/server/gallery/ongoing.ts";
 //   ?project=<collection | _>   one project        ?work=<owner/repo#12>   one piece of work in it
 //   ?link=<PR, issue, commit or repo>   only pages that link there ("owner/repo#12" works)
 //   ?view=ongoing   everything in motion in that scope, instead of its pages
-const SLOW = Symbol("slow");
-
 export async function load(event) {
 	const { locals, url } = event;
 	const link = url.searchParams.get("link")?.trim() ?? "";
@@ -31,22 +29,10 @@ export async function load(event) {
 		asked: asked.has(a.slug),
 	}));
 
-	// Not for a search: it finds pages.
-	const inMotion = link
-		? undefined
-		: galleryApi.run(ongoing({ project, work }), event).catch(() => undefined);
-	// A warm cache answers at once and is in the first render. Otherwise the promise is streamed, so
-	// the pages never wait for GitHub.
-	const ready = await Promise.race([
-		inMotion,
-		new Promise((resolve) => {
-			setTimeout(resolve, 150, SLOW);
-		}),
-	]);
-
 	return {
 		view,
-		streamed: { ongoing: ready === SLOW ? inMotion : ready },
+		// a search finds pages, so it has no ongoing list
+		ongoing: link ? undefined : await galleryApi.run(ongoing({ project, work }), event),
 		artifacts: scope,
 		link,
 		project,

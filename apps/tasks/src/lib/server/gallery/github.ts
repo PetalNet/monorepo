@@ -1,6 +1,19 @@
 import { readFileSync } from "node:fs";
 
-import { Config, Context, Data, Duration, Effect, Exit, Layer, Option, Schema } from "effect";
+import {
+	Clock,
+	Config,
+	Context,
+	Data,
+	Deferred,
+	Duration,
+	Effect,
+	Exit,
+	Layer,
+	Option,
+	Ref,
+	Schema,
+} from "effect";
 import { HttpClient, HttpClientRequest, HttpClientResponse } from "effect/http";
 
 export class GitHubUnavailable extends Data.TaggedError("GitHubUnavailable")<{
@@ -130,10 +143,19 @@ const toPull = (node: typeof Node.Type): Pull => {
 const MAX_PAGES = 10;
 
 /**
+ * How long a result stands before a read starts a refresh: a minute, or ten seconds after a
+ * failure.
+ */
+const FRESH = { ok: 60_000, failed: 10_000 };
+
+/**
  * GITHUB_PULLS_SEARCH is a GitHub search ("org:acme is:pr is:open archived:false") and
  * GITHUB_TOKEN_FILE holds a read-only token (pull requests, commit statuses, actions), read on
- * every refresh so a rotated token needs no restart. One refresh a minute serves every viewer; a
- * failed refresh is retried after ten seconds.
+ * every refresh so a rotated token needs no restart.
+ *
+ * A read never waits for GitHub once the first result is in: it returns the last result and, when
+ * that has gone stale, starts one refresh in the background. The first refresh starts with the
+ * layer.
  */
 export const GitHubLive = Layer.effect(
 	GitHub,
@@ -191,9 +213,48 @@ export const GitHubLive = Layer.effect(
 			Effect.mapError((cause) => new GitHubUnavailable({ cause })),
 		);
 
-		const openPulls = yield* Effect.cachedWithTTL(fetchAll, (exit) =>
-			Exit.isSuccess(exit) ? Duration.minutes(1) : Duration.seconds(10),
-		);
+		const scope = yield* Effect.scope;
+		const first = yield* Deferred.make<void>();
+		const last = yield* Ref.make<
+			{ at: number; exit: Exit.Exit<readonly Pull[], GitHubUnavailable> } | undefined
+		>(undefined);
+		const refreshing = yield* Ref.make(false);
+		const refresh = Effect.gen(function* () {
+			if (yield* Ref.getAndSet(refreshing, true)) {
+				return;
+			}
+
+			yield* fetchAll.pipe(
+				Effect.exit,
+				Effect.flatMap((exit) =>
+					Effect.flatMap(Clock.currentTimeMillis, (at) => Ref.set(last, { at, exit })),
+				),
+				Effect.ensuring(
+					Effect.andThen(Ref.set(refreshing, false), Deferred.succeed(first, undefined)),
+				),
+				Effect.forkIn(scope),
+			);
+		});
+
+		yield* refresh;
+
+		const openPulls = Effect.gen(function* () {
+			yield* Deferred.await(first);
+
+			const result = yield* Ref.get(last);
+
+			if (!result) {
+				return yield* new GitHubUnavailable({ cause: "the first refresh was interrupted" });
+			}
+
+			const age = (yield* Clock.currentTimeMillis) - result.at;
+
+			if (age > (Exit.isSuccess(result.exit) ? FRESH.ok : FRESH.failed)) {
+				yield* refresh;
+			}
+
+			return yield* result.exit;
+		});
 
 		return GitHub.of({ openPulls });
 	}),

@@ -73,21 +73,17 @@
 		<p class="caught">All caught up.</p>
 	{/if}
 
-	{#await data.streamed.ongoing}
-		<Ongoing />
-	{:then ongoing}
-		{#if ongoing}
-			<Ongoing
-				{ongoing}
-				project={data.project}
-				work={data.work}
-				peek={data.view === "ongoing" ? undefined : ONGOING_PEEK}
-			/>
-			{#if data.view === "ongoing" && ongoing.github !== "unavailable" && !asks.length && !ongoing.pulls.length && !ongoing.answers.length}
-				<p class="empty">Nothing in motion.</p>
-			{/if}
+	{#if data.ongoing}
+		<Ongoing
+			ongoing={data.ongoing}
+			project={data.project}
+			work={data.work}
+			peek={data.view === "ongoing" ? undefined : ONGOING_PEEK}
+		/>
+		{#if data.view === "ongoing" && data.ongoing.github !== "unavailable" && !asks.length && !data.ongoing.pulls.length && !data.ongoing.answers.length}
+			<p class="empty">Nothing in motion.</p>
 		{/if}
-	{/await}
+	{/if}
 
 	{#if data.view === "ongoing"}
 		<!-- the pages of this scope are one level up -->

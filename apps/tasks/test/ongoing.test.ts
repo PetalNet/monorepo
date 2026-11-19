@@ -285,6 +285,23 @@ describe("GitHubLive", () => {
 		]);
 	});
 
+	it("answers a second read from the last result", async () => {
+		const github = await serve(() => ({
+			data: { search: { pageInfo: { hasNextPage: false, endCursor: null }, nodes: [node(1)] } },
+		}));
+		const twice = await Effect.runPromise(
+			Effect.all([ongoing({}), ongoing({})], { concurrency: 1 }).pipe(
+				Effect.provide(github.layer),
+				Effect.provideService(Viewer, { user: "parker" }),
+			),
+		);
+
+		github.close();
+
+		expect(twice.map((result) => result.pulls.length)).toEqual([1, 1]);
+		expect(github.seen).toHaveLength(1);
+	});
+
 	it("reports GitHub as unavailable instead of failing the view", async () => {
 		const github = await serve(() => ({ message: "Bad credentials" }));
 		const result = await withGitHub(github.layer);
