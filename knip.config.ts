@@ -121,6 +121,7 @@ export default (({ strict }) => ({
 				"src/wake-filter.ts!",
 				"src/sessionstart-objectives.ts!",
 				"src/objectives-prune.ts!",
+				"src/janet-voice.ts!",
 			],
 		},
 		"packages/vault-engine": {
