@@ -179,7 +179,7 @@ def build_cover(
     ground, _ = _fill_gaps(_on_grid(dem, site.crs, tile, Resampling.bilinear)[0], "elevation")
     brightness = _on_grid(imagery, site.crs, tile, Resampling.average)
     brightness = np.mean([_fill_gaps(band, "imagery")[0] for band in brightness], axis=0)
-    shadow, sun = cover.fit_sun(
+    sunlit, sun = cover.fit_sun(
         acquisition_day(site.imagery, "imagery"),
         latitude_deg,
         longitude_deg,
@@ -191,14 +191,14 @@ def build_cover(
         lidar.CELL_M,
     )
     _write_grid(height, out / "canopy_height.tif", site.crs, tile)
-    _write_grid(shadow.astype(np.uint8), out / "shadow.tif", site.crs, tile)
+    _write_grid(sunlit.astype(np.uint8), out / "sunlit.tif", site.crs, tile)
     return report | {
-        "files": ["canopy_height.tif", "shadow.tif"],
+        "files": ["canopy_height.tif", "sunlit.tif"],
         "height": "canopy_height.tif",
-        "shadow": "shadow.tif",
+        "sunlit": "sunlit.tif",
         "cell_m": lidar.CELL_M,
         "sources": [name for name, used in (("lidar", lidar_height is not None), ("canopy_height", canopy)) if used],
-        "shaded_fraction": float(shadow.mean()),
+        "sunlit_fraction": float(sunlit.mean()),
         "sun": sun,
     }
 
@@ -207,10 +207,8 @@ def open_ground(out: Path, covering: dict | None, size: int) -> np.ndarray:
     """Which of `size` by `size` north-up cells over the tile show sunlit ground: 1 where they do, else 0."""
     if covering is None:
         return np.ones((size, size), dtype=np.float32)
-    with rasterio.open(out / covering["height"]) as file:
-        hidden = file.read(1) > covering["cutoff_m"]
-    with rasterio.open(out / covering["shadow"]) as file:
-        hidden |= file.read(1) > 0
+    with rasterio.open(out / covering["sunlit"]) as file:
+        hidden = file.read(1) == 0
     # The imagery and the heights are registered to about a cell of each other, so the edge cell is not trusted.
     hidden = ndimage.binary_dilation(hidden)
     return (~_sample_cells(hidden, size)).astype(np.float32)
@@ -313,7 +311,8 @@ def build_context(
     if canopy:
         # The share of each coarse pixel that no canopy stands over. The surround has no lidar and no shadow.
         with rasterio.open(canopy) as file:
-            standing = (file.read(1) > cutoff_m).astype(np.float32)
+            # Cells the raster has no value for count as clear, not as a canopy of the no-data value's height.
+            standing = (file.read(1, masked=True).filled(0) > cutoff_m).astype(np.float32)
             reproject(
                 standing,
                 clear,

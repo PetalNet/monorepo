@@ -59,7 +59,7 @@ def test_tree_canopy_is_kept_out_of_the_ground_colour(tmp_path):
     assert colour_at_tree(tmp_path / "plain", plain) < 150  # the canopy darkens the map when nothing masks it
     assert colour_at_tree(tmp_path / "masked", masked) == pytest.approx(180, abs=3)
     assert masked["cover"]["covered_fraction"] == pytest.approx(TREE_SIDE**2 / h.SIZE_M**2, rel=0.05)
-    assert masked["cover"]["shaded_fraction"] == pytest.approx(TREE_SIDE * 9 / h.SIZE_M**2, rel=0.25)
+    assert 1 - masked["cover"]["sunlit_fraction"] == pytest.approx(TREE_SIDE * (TREE_SIDE + 9) / h.SIZE_M**2, rel=0.1)
     assert "cover" not in plain
 
 

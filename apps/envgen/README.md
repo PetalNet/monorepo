@@ -30,7 +30,7 @@ envgen build site.json --out build/ --cache cache/
 | Acquire      | `site.json` sources                          | each source clipped to the tile, once, into the cache          |
 | Structure    | lidar points, if the site has them           | height above ground, and distance to the nearest ground return |
 | Elevation    | the elevation raster                         | `heightmap.png`, 16-bit, Landscape layout                      |
-| Cover        | lidar heights, a canopy height raster, both  | `canopy_height.tif`, `shadow.tif`, north-up at 1 m             |
+| Cover        | lidar heights, a canopy height raster, both  | `canopy_height.tif`, `sunlit.tif`, north-up at 1 m             |
 | Macro colour | the imagery raster, cover and shadow         | `macro_colour.png`, low-passed at 12 m                         |
 | Surround     | both rasters at coarse spacing, if asked for | `context_heightmap.png`, `context_colour.png`                  |
 | Manifest     | everything above                             | `build.json`: placement, georeference, stencil classes, hashes |
@@ -67,18 +67,27 @@ canopy height raster, or both, the cover stage writes two rasters that later sta
   the elevation model. Where the canopy raster shows cover and the lidar does not, its height fills
   in, which catches trees that grew after the lidar survey. `build.json` states how much of the tile
   each source covers and how far they agree.
-- `shadow.tif`: ground the sun did not reach when the imagery was taken, cast from the cover and
-  the terrain. The sun's path comes from the tile's position and the imagery's date, which must
-  start with `YYYY-MM-DD`. The time of day is fitted: the one that best matches where the open
-  ground is dark. `build.json` gives the fitted time, the sun's direction and the correlation.
+- `sunlit.tif`: 1 where the imagery shows ground in sunlight, 0 under cover or in its shadow. The
+  shadow is cast from the cover and the terrain. The sun's path comes from the tile's position and
+  the imagery's date, which must start with `YYYY-MM-DD`. Three things are fitted, each to where
+  the ground outside the measured cover is darker than the open ground around it: the time of day,
+  how far crowns have spread since the heights were measured, and how much taller they stand.
+  `build.json` gives all three, the sun's direction and the correlation before and after growth.
 
 Cover starts at the height where the lidar's heights are sparsest between ground clutter and
-canopy; with no such gap it is 2 m, and `build.json` says which. Ground under cover or in shadow,
-and one cell around it, is left out of the colour map's low-pass and takes its colour from the
-sunlit ground around it.
+canopy; with no such gap it is 2 m, and `build.json` says which. Ground that is not sunlit, and one
+cell around it, is left out of the colour map's low-pass and takes its colour from the sunlit
+ground around it.
 
-Trees newer than both sources are still in the colour map, and a shadow is only as long as the
-heights that cast it: a tree that has grown since the survey casts a longer one than is removed.
+Limits:
+
+- Trees newer than both sources are still in the colour map.
+- Growth is one spread and one gain for the whole tile, applied to roofs as well as trees.
+- The canopy raster only adds cover. A tree felled after it was made is still counted.
+- The surround has no shadow, so open ground between its trees keeps the shade it had.
+- These values are set by hand, not measured: the 2 m fallback cutoff, a gap in the heights counting
+  when it holds at most half the smaller peak beside it, a sun at least 25 degrees up, brightness
+  compared over 30 m, a shadow ray clearing the ground by 0.5 m, and the searched ranges of growth.
 
 ### Frame and units
 

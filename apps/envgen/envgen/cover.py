@@ -11,11 +11,17 @@ import math
 from datetime import UTC, date, datetime, timedelta
 
 import numpy as np
+from scipy import ndimage
 
 # Used only when the heights show no gap between what hugs the ground and what stands over it.
 CUTOFF_PRIOR_M = 2.0
 # The lowest sun an aerial survey flies under.
 SUN_MIN_ELEVATION_DEG = 25.0
+# Growth since the heights were measured is searched over these: crowns wider by so many cells, and taller by so much.
+GROWTH_SPREADS = (0, 1, 2, 3, 4)
+GROWTH_GAINS = (1.0, 1.2, 1.4, 1.6, 1.8, 2.0)
+# Brightness is compared with the open ground within about this distance.
+LOCAL_GROUND_M = 30.0
 # A gap in the heights counts when it holds at most this share of the smaller peak beside it.
 VALLEY_MAX = 0.5
 
@@ -25,7 +31,7 @@ def fit_cutoff(height_m: np.ndarray) -> tuple[float, str]:
 
     Returns (cutoff, "histogram valley" or "prior"). Cars, shrubs and noise sit under it; canopy and roofs over it.
     """
-    edges = np.arange(0.5, 10.25, 0.25)
+    edges = np.arange(0.5, 40.25, 0.25)
     counts = np.histogram(height_m, bins=edges)[0].astype(float)
     counts = np.convolve(counts, np.ones(3) / 3, mode="same")
     below = np.maximum.accumulate(counts)
@@ -112,6 +118,11 @@ def cast_shadow(
     return shadow
 
 
+def _disc(radius: int) -> np.ndarray:
+    rows, columns = np.ogrid[-radius : radius + 1, -radius : radius + 1]
+    return rows**2 + columns**2 <= radius**2
+
+
 def fit_sun(
     day: date,
     latitude_deg: float,
@@ -123,43 +134,59 @@ def fit_sun(
     brightness: np.ndarray,
     cell_m: float,
 ) -> tuple[np.ndarray, dict]:
-    """The shadow at the time of day that best explains where the open ground is dark in the imagery.
+    """Which ground the imagery shows in sunlight, with the three things fitted to find it.
 
-    The date fixes the sun's path; only the time along it is searched, first every 20 minutes and
-    then every 5 around the best. Returns the shadow and what was fitted.
+    The date fixes the sun's path; the time along it is searched, first every 20 minutes and then
+    every 5 around the best. Heights are older than the imagery, so trees have grown since: how far
+    crowns have spread and how much taller they stand are searched too. Each is the value that best
+    explains where the ground outside the measured cover is dark. Returns the sunlit ground and the fit.
     """
     standing = np.where(height_m > cutoff_m, height_m, 0.0)
-    open_ground = standing == 0
-    dark = -(brightness[open_ground] - brightness[open_ground].mean())
+    measured_open = standing == 0
+    # Darker than the open ground around it, rather than darker than the tile: turf is not a shadow on concrete.
+    listen = measured_open.astype(np.float32)
+    reach = LOCAL_GROUND_M / cell_m
+    around = ndimage.gaussian_filter(brightness * listen, reach) / np.maximum(
+        ndimage.gaussian_filter(listen, reach), 1e-6
+    )
+    dark = (1 - brightness / np.maximum(around, 1e-6))[measured_open]
     midnight = datetime(day.year, day.month, day.day, tzinfo=UTC)
 
-    def score(minute: int) -> tuple[float, np.ndarray | None, float, float]:
+    def hidden(minute: int, spread: int, gain: float) -> tuple[float, np.ndarray | None, float, float]:
         azimuth, elevation = sun_position(latitude_deg, longitude_deg, midnight + timedelta(minutes=minute))
         if elevation < SUN_MIN_ELEVATION_DEG:
             return -1.0, None, azimuth, elevation
-        shadow = cast_shadow(ground_m, standing, azimuth + grid_north_offset_deg, elevation, cell_m)
-        inside = shadow[open_ground]
+        grown = ndimage.grey_dilation(standing, footprint=_disc(spread)) * gain if spread or gain != 1 else standing
+        out_of_sight = cast_shadow(ground_m, grown, azimuth + grid_north_offset_deg, elevation, cell_m) | (grown > 0)
+        inside = out_of_sight[measured_open]
         if not inside.any() or inside.all() or dark.std() < 1e-6:
-            # Nothing to compare: no shadow falls on open ground, or the imagery is one flat brightness.
-            return 0.0, shadow, azimuth, elevation
-        # How much darker the predicted shadow is than the rest, as a correlation.
-        return float(np.corrcoef(inside, dark)[0, 1]), shadow, azimuth, elevation
+            # Nothing to compare: nothing hides open ground, or the imagery is one flat brightness.
+            return 0.0, out_of_sight, azimuth, elevation
+        # How much darker the ground predicted to be hidden is than the rest, as a correlation.
+        return float(np.corrcoef(inside, dark)[0, 1]), out_of_sight, azimuth, elevation
 
     # The local day runs from solar midnight, which the longitude places in UTC.
     start = round(-longitude_deg * 4)
-    coarse = max(range(start, start + 24 * 60, 20), key=lambda minute: score(minute)[0])
-    best = max(range(coarse - 15, coarse + 20, 5), key=lambda minute: score(minute)[0])
-    correlation, shadow, azimuth, elevation = score(best)
-    if shadow is None:
+    coarse = max(range(start, start + 24 * 60, 20), key=lambda minute: hidden(minute, 0, 1.0)[0])
+    best = max(range(coarse - 15, coarse + 20, 5), key=lambda minute: hidden(minute, 0, 1.0)[0])
+    if hidden(best, 0, 1.0)[1] is None:
         raise RuntimeError(
             f"the sun never rises above {SUN_MIN_ELEVATION_DEG:.0f} degrees on {day}; check the imagery date"
         )
+    spread, gain = max(
+        ((spread, gain) for spread in GROWTH_SPREADS for gain in GROWTH_GAINS),
+        key=lambda growth: hidden(best, *growth)[0],
+    )
+    correlation, out_of_sight, azimuth, elevation = hidden(best, spread, gain)
     when = midnight + timedelta(minutes=best)
-    return shadow & open_ground, {
+    return ~out_of_sight, {
         "date": day.isoformat(),
         "fitted_time_utc": when.strftime("%H:%M"),
-        "fitted_to": "where the open ground is dark in the imagery",
-        "correlation": correlation,
         "azimuth_deg": azimuth,
         "elevation_deg": elevation,
+        "crown_spread_m": spread * cell_m,
+        "height_gain": gain,
+        "fitted_to": "where the ground outside the measured cover is dark in the imagery",
+        "correlation": correlation,
+        "correlation_before_growth": hidden(best, 0, 1.0)[0],
     }

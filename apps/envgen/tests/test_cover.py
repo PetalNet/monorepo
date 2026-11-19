@@ -159,15 +159,16 @@ def test_cover_is_written_as_rasters_on_the_ground_that_other_stages_can_read(tm
     out = tmp_path / "out"
     manifest = build(h.write_site(tmp_path, sources=sources(**LIDAR)), out)
 
-    assert {"canopy_height.tif", "shadow.tif"} <= set(manifest["artifacts"])
+    assert {"canopy_height.tif", "sunlit.tif"} <= set(manifest["artifacts"])
     with rasterio.open(out / manifest["cover"]["height"]) as heights:
         # Asked by position, not by index: the tree, and open ground.
         tree, open_ground = heights.sample([(h.WEST + 63, h.SOUTH + 63), (h.WEST + 20, h.SOUTH + 20)])
         assert tree[0] == pytest.approx(9, abs=0.1) and open_ground[0] == pytest.approx(0, abs=0.1)
         assert heights.crs.to_epsg() == 32633
-    with rasterio.open(out / manifest["cover"]["shadow"]) as shadow:
-        in_shadow, in_sun = shadow.sample([(h.WEST + 63, h.SOUTH + 77), (h.WEST + 63, h.SOUTH + 45)])
-        assert in_shadow[0] == 1 and in_sun[0] == 0
+    with rasterio.open(out / manifest["cover"]["sunlit"]) as sunlit:
+        places = [(h.WEST + 63, h.SOUTH + 77), (h.WEST + 63, h.SOUTH + 63), (h.WEST + 63, h.SOUTH + 45)]
+        in_shadow, under_the_tree, in_sun = sunlit.sample(places)
+        assert in_shadow[0] == 0 and under_the_tree[0] == 0 and in_sun[0] == 1
 
 
 def test_a_remote_canopy_raster_is_read_by_window_once_and_then_the_build_works_without_it(tmp_path):
@@ -219,3 +220,18 @@ def test_shadows_need_the_day_the_imagery_was_taken(tmp_path, capsys):
 
     assert main(["build", str(h.write_site(tmp_path, sources=undated)), "--out", str(tmp_path / "out")]) == 1
     assert "YYYY-MM-DD" in capsys.readouterr().err
+
+
+def test_trees_that_grew_after_the_heights_were_measured_are_fitted_from_the_imagery(tmp_path):
+    h.write_dem(tmp_path / "dem.tif")
+    # The crown is now 3 m wider all round than the 20 m the lidar measured, and its noon shadow longer.
+    h.write_scene(tmp_path / "imagery.tif", GROUND, [(50, 50, 76, 76, DARK), (50, 76, 76, 91, DARK)])
+    h.write_las(tmp_path / "points.las", tree_returns())
+    out = tmp_path / "out"
+    manifest = build(h.write_site(tmp_path, sources=sources(**LIDAR)), out)
+
+    sun = manifest["cover"]["sun"]
+    assert sun["crown_spread_m"] == pytest.approx(3, abs=1) and sun["height_gain"] > 1.2
+    assert sun["correlation"] > sun["correlation_before_growth"]
+    assert colour(out, manifest, 51, 63) == pytest.approx(GROUND, abs=3)
+    assert colour(out, manifest, 63, 80) == pytest.approx(GROUND, abs=3)
