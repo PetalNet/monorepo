@@ -7,23 +7,74 @@ Evidence seeds only low-frequency facts: the shape of the ground and colour that
 metres. The engine generates everything finer, the same way everywhere, so quality does not change
 where one data source ends.
 
-This change is the engine half: the level build, a walking pawn, scripted tours that measure frame
-times, packaging, and the checks used to decide whether an engine version can host the work.
+This slice covers the thinnest end-to-end path: site file → elevation → heightmap → Landscape with
+one grass layer tinted by a low-pass colour map → collision, a walking pawn, sun and sky, and scripted
+tours that measure frame times. It proves the pipeline, scale, collision and the measuring harness.
+It does not attempt the final look.
 
 ## Site files are private
 
 A site file holds a real boundary and its coordinates. Keep site files, build outputs and logs that
-contain them out of this repository; they belong in a private one.
+contain them out of this repository; they belong in a private one. The example and the tests use
+arbitrary coordinates.
 
-## The build manifest
+## Pipeline (Python)
 
-The Unreal side consumes `build.json`: the heightmap and colour map file names, where the Landscape
-sits and how it is scaled, the georeference, and the stencil classes. The pipeline that writes it
-from a site file arrives with the next change.
+```sh
+pip install -e ".[test]"
+envgen build site.json --out build/ --cache cache/
+```
 
-World X is grid north, Y is grid east, Z is up, in centimetres, with the origin at the tile centre.
-Heightmap and colour map are indexed `[row, column] = [east, north]`, which is how a Landscape reads
-them.
+| Stage        | Reads                                        | Writes                                                         |
+| ------------ | -------------------------------------------- | -------------------------------------------------------------- |
+| Acquire      | `site.json` sources                          | each source clipped to the tile, once, into the cache          |
+| Structure    | lidar points, if the site has them           | height above ground, and distance to the nearest ground return |
+| Elevation    | the elevation raster                         | `heightmap.png`, 16-bit, Landscape layout                      |
+| Macro colour | the imagery raster                           | `macro_colour.png`, low-passed at 12 m                         |
+| Surround     | both rasters at coarse spacing, if asked for | `context_heightmap.png`, `context_colour.png`                  |
+| Manifest     | everything above                             | `build.json`: placement, georeference, stencil classes, hashes |
+
+- A source is either a local raster (`"kind": "file"`) or an ArcGIS ImageServer
+  (`"kind": "arcgis_imageserver"`), which covers USGS 3DEP elevation and many state imagery services.
+  Only the tile window plus a 16 m margin is requested, and it is fetched once: the cache key is the service, the window
+  and the spacing.
+- `sources.lidar` is optional: a `.las`/`.laz` file, or a public EPT point store
+  (`"kind": "ept"`, in EPSG:3857). A store is read once; the points kept for the tile are cached,
+  so later builds work offline. With lidar, two things change.
+  - Anything standing more than 2 m above the ground, plus 4 m around it for its shadow, is left
+    out of the colour map's low-pass, so tree canopy and roofs do not tint the ground. Covered
+    ground takes its colour from the open ground around it.
+  - Where no ground return lies within 3 m, the elevation model was interpolated across the gap,
+    typically as flat facets under roofs. The surface there is blended towards a 4 m smoothing.
+    Measured ground is left exactly as it was.
+- `"context": {"size_m": 4032}` is optional: a coarse surround of that side, centred on the tile, as
+  a second heightmap and colour map. It passes 1 m under the detailed surface, so the tile does not
+  end in a cliff against the sky. Its colour is not masked for tree cover.
+- A stage reruns only when its inputs change. `build.json` lists which stages were reused.
+- The site's CRS must be projected, in metres, and have an EPSG code (a UTM zone, for example).
+- The tile is a square centred on the boundary, snapped to whole metres. Its side must be a whole
+  number of Landscape components (126 quads), for example 1008 m at 0.5 m per quad.
+
+See [`examples/site.example.json`](./examples/site.example.json) for the schema.
+
+### Frame and units
+
+- World X is grid north, Y is grid east, Z is up, in centimetres, with the origin at the tile
+  centre. Negating Z gives NED.
+- World Z = 0 is the ground height at the tile centre; `georeference.origin_height_m` states that
+  height in the elevation source's vertical datum, which the site file must name.
+- Grid north is not true north. `georeference.true_north_from_grid_north_deg` gives the difference.
+- Heightmap and colour map are indexed `[row, column] = [east, north]`, which is how a Landscape
+  reads them.
+
+### Tests
+
+```sh
+python -m pytest
+```
+
+The tests build synthetic sites and check behaviour: that a known surface lands at the right world
+position after encoding, that sources are fetched once, and that stages are reused.
 
 ## Unreal side
 
@@ -91,5 +142,6 @@ Before moving to a new engine version, these show whether it can host the work:
 
 ## Not in this slice
 
-Surface classes and the layered material, grass, trees and buildings, time of day and weather, the
+Surface classes and the layered material, removing the lighting from the imagery, grass, trees and
+buildings, time of day and weather, the
 manual edit layer that regeneration leaves alone, and the simulator exports.
