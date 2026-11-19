@@ -29,7 +29,6 @@
 		"@sveltejs/vite-plugin-svelte": "catalog:dev",
 		"@tailwindcss/vite": "catalog:dev",
 		"@types/leaflet": "catalog:types",
-		"@types/leaflet.heat": "catalog:types",
 		"@types/leaflet.markercluster": "catalog:types",
 		"@types/node": "catalog:types",
 		"drizzle-kit": "catalog:dev",
