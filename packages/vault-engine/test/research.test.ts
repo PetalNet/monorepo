@@ -152,6 +152,7 @@ describe("research run", () => {
 	test("records checks, calibrates the topic, and preserves replacements across reopening", () =>
 		Effect.gen(function* () {
 			yield* seeded;
+
 			const first = yield* researchRun(
 				"shared",
 				input({
@@ -160,8 +161,10 @@ describe("research run", () => {
 					],
 				}),
 			);
+
 			yield* reindex;
 			let card = (yield* researchCheck("proposition indexing")).claims[0];
+
 			expect(card?.sources[0]?.basis).toEqual({
 				shelfLifeDays: 30,
 				basis: "classification",
@@ -169,6 +172,7 @@ describe("research run", () => {
 			});
 
 			yield* TestClock.setTime(Date.parse("2027-01-20T00:00:00.000Z"));
+
 			const checked = yield* researchRun(
 				"shared",
 				input({
@@ -176,8 +180,10 @@ describe("research run", () => {
 					rechecks: [{ topic: "Note granularity", source: SOURCE, outcome: "unchanged" }],
 				}),
 			);
+
 			yield* reindex;
 			card = (yield* researchCheck("proposition indexing")).claims[0];
+
 			expect(card?.sources[0]).toMatchObject({
 				freshness: "fresh",
 				basis: {
@@ -188,6 +194,7 @@ describe("research run", () => {
 			});
 
 			yield* TestClock.setTime(Date.parse("2027-02-09T00:00:00.000Z"));
+
 			const changed = yield* researchRun(
 				"shared",
 				input({
@@ -207,9 +214,12 @@ describe("research run", () => {
 					],
 				}),
 			);
+
 			yield* reindex;
 			const check = yield* researchCheck("proposition indexing");
+
 			expect(changed.stale).toContain(SOURCE);
+
 			expect(check.recheck[0]).toMatchObject({
 				id: SOURCE,
 				freshness: "stale",
@@ -219,7 +229,9 @@ describe("research run", () => {
 					sourceCheck: { outcome: "changed", intervalDays: 20 },
 				},
 			});
+
 			const vault = yield* Vault;
+
 			yield* write("shared", (tx) =>
 				tx.putSource({
 					id: "src-aaaaaaaaaaaaaaaaaaaa",
@@ -230,20 +242,25 @@ describe("research run", () => {
 					passages: {},
 				}),
 			);
+
 			yield* vault.retireSource(SOURCE, {
 				status: "replaced",
 				replacedBy: "src-aaaaaaaaaaaaaaaaaaaa",
 				reason: "New edition",
 			});
+
 			const reopened = yield* vaultAt(vault.root);
 			const reopenedState = (yield* reopened.view).tiers.shared;
+
 			expect(reopenedState.runs[checked.id]?.rechecks?.[0]?.outcome).toBe("unchanged");
 			expect(reopenedState.runs[changed.id]?.rechecks?.[0]?.outcome).toBe("changed");
 			expect(reopenedState.claims[first.answer[0] ?? ""]?.status).toBe("superseded");
+
 			expect(reopenedState.claims[changed.answer[0] ?? ""]?.links).toContainEqual({
 				rel: "replaces",
 				target: first.answer[0],
 			});
+
 			expect(reopenedState.sources[SOURCE]).toMatchObject({
 				status: "replaced",
 				replacedBy: "src-aaaaaaaaaaaaaaaaaaaa",
@@ -254,6 +271,7 @@ describe("research run", () => {
 	test("explicit source and topic shelf lives take precedence over classifications and observations", () =>
 		Effect.gen(function* () {
 			yield* seeded;
+
 			yield* write("shared", (tx) =>
 				tx.putSource({
 					id: SOURCE,
@@ -266,6 +284,7 @@ describe("research run", () => {
 					passages: {},
 				}),
 			);
+
 			yield* researchRun(
 				"shared",
 				input({
@@ -280,10 +299,13 @@ describe("research run", () => {
 					rechecks: [{ topic: "Note granularity", source: SOURCE, outcome: "unchanged" }],
 				}),
 			);
+
 			yield* reindex;
+
 			expect(
 				(yield* researchCheck("proposition indexing")).claims[0]?.sources[0]?.basis,
 			).toMatchObject({ shelfLifeDays: 7, basis: "source-override" });
+
 			yield* write("shared", (tx) =>
 				tx.putSource({
 					id: SOURCE,
@@ -295,7 +317,9 @@ describe("research run", () => {
 					passages: {},
 				}),
 			);
+
 			yield* reindex;
+
 			expect(
 				(yield* researchCheck("proposition indexing")).claims[0]?.sources[0]?.basis,
 			).toMatchObject({ shelfLifeDays: 20, basis: "topic-override" });
@@ -304,6 +328,7 @@ describe("research run", () => {
 	test("a personal topic can record a check of a shared source without changing the shared tier", () =>
 		Effect.gen(function* () {
 			yield* seeded;
+
 			const run = yield* researchRun(
 				"personal",
 				input({
@@ -325,9 +350,11 @@ describe("research run", () => {
 					rechecks: [{ topic: "Private analysis", source: SOURCE, outcome: "changed" }],
 				}),
 			);
+
 			expect(run.rechecks?.[0]).toMatchObject({ source: SOURCE, outcome: "changed" });
 			expect(Object.values((yield* state("shared")).runs)).toHaveLength(0);
 			yield* reindex;
+
 			expect((yield* researchCheck("proposition indexing")).claims[0]?.sources[0]?.freshness).toBe(
 				"stale",
 			);

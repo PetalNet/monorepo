@@ -205,13 +205,16 @@ export function freshnessBasis(
 	const initial =
 		classification === undefined ? DEFAULT_SHELF_LIFE_DAYS : CLASS_SHELF_LIFE_DAYS[classification];
 	let days = initial;
+
 	for (const check of checks) {
 		days =
 			check.outcome === "changed"
 				? Math.min(days, Math.max(1, Math.floor(check.intervalDays / 2)))
 				: Math.min(initial * 2, Math.max(days, check.intervalDays));
 	}
+
 	const correction = checks.at(-1);
+
 	return {
 		shelfLifeDays: source.shelfLifeDays ?? topic?.shelfLifeDays ?? days,
 		basis:
@@ -235,10 +238,13 @@ export function freshnessWithBasis(source: Source, basis: FreshnessBasis, now: D
 	if (source.status !== "active") {
 		return source.status;
 	}
+
 	if (basis.sourceCheck?.outcome === "changed") {
 		return "stale";
 	}
+
 	const since = basis.lastCheckedAt ?? source.captured;
+
 	return now.getTime() - new Date(since).getTime() > basis.shelfLifeDays * 86_400_000
 		? "stale"
 		: "fresh";

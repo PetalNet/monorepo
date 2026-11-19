@@ -134,6 +134,7 @@ export const reindex = Effect.gen(function* () {
 							const source = view.source(link.target);
 
 							const basis = source ? freshnessBasis(source, topic, checks) : undefined;
+
 							return source && basis
 								? [
 										{
@@ -199,6 +200,7 @@ export const reindex = Effect.gen(function* () {
 								fresh,
 								JSON.stringify(basis),
 							);
+
 							passageFts.run(source.id, id, text, `${source.title} ${heading}`);
 							counted.passages++;
 						}

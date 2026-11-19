@@ -200,6 +200,7 @@ export const researchCheck = Effect.fnUntraced(function* (question: string) {
 	const sourcesInClaims = new Set(
 		claims.flatMap((card) => card.sources.map((source) => source.id)),
 	);
+
 	for (const hit of passages) {
 		if (hit.freshness !== "fresh" && !sourcesInClaims.has(hit.source) && !recheck.has(hit.source)) {
 			recheck.set(hit.source, {
@@ -372,10 +373,12 @@ export const researchRun = Effect.fnUntraced(function* (tier: Tier, input: Resea
 			const topicIds = yield* upsertTopics(tx, input.topics);
 			const history = Object.values(tx.state.runs).flatMap((run) => run.rechecks ?? []);
 			const rechecks: ResearchRecheck[] = [];
+
 			for (const check of input.rechecks ?? []) {
 				const topic = topicIds.get(oneLine(check.topic));
 				const source = tx.source(check.source);
 				const sourceTier = tx.locate(check.source)?.tier;
+
 				if (
 					topic === undefined ||
 					source === undefined ||
@@ -385,11 +388,13 @@ export const researchRun = Effect.fnUntraced(function* (tier: Tier, input: Resea
 						message: "A recheck needs a run topic and a source in this tier or the shared tier",
 					});
 				}
+
 				if (rechecks.some((item) => item.topic === topic && item.source === source.id)) {
 					return yield* new WriteRejected({
 						message: "A source can be checked only once per topic in a run",
 					});
 				}
+
 				const sourceChecks = history
 					.filter((item) => item.topic === topic && item.source === source.id)
 					.toSorted((a, b) => a.checkedAt.localeCompare(b.checkedAt));
@@ -398,6 +403,7 @@ export const researchRun = Effect.fnUntraced(function* (tier: Tier, input: Resea
 					source.captured;
 				const lastCheck = sourceChecks.at(-1)?.checkedAt ?? source.captured;
 				const intervalDays = Math.floor((Date.parse(tx.now) - Date.parse(previous)) / 86_400_000);
+
 				if (
 					Date.parse(tx.now) - Date.parse(lastCheck) < 86_400_000 ||
 					intervalDays < 1 ||
@@ -408,6 +414,7 @@ export const researchRun = Effect.fnUntraced(function* (tier: Tier, input: Resea
 							"A recheck needs an active source and at least one day since its last check or capture",
 					});
 				}
+
 				rechecks.push({
 					topic,
 					source: source.id,
@@ -416,6 +423,7 @@ export const researchRun = Effect.fnUntraced(function* (tier: Tier, input: Resea
 					intervalDays,
 				});
 			}
+
 			const passageIds = new Map<string, { source: string; passage: string }>();
 			const touched = new Set<string>();
 
@@ -511,14 +519,17 @@ export const researchRun = Effect.fnUntraced(function* (tier: Tier, input: Resea
 				if (claim?.stale !== undefined) {
 					return true;
 				}
+
 				if (source === undefined) {
 					return false;
 				}
+
 				const sourceTopics = Object.values(tx.state.claims)
 					.filter(
 						(item) => item.status === "active" && item.links.some((link) => link.target === id),
 					)
 					.map((item) => tx.state.topics[item.topic]);
+
 				return (sourceTopics.length === 0 ? [undefined] : sourceTopics).some(
 					(topic) =>
 						freshnessWithBasis(
