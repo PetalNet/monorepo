@@ -9,7 +9,7 @@
 	"scripts": {
 		"build": "tsc -b",
 		"typecheck": "tsc -b",
-		"test": "vitest run",
+		"test": "node --test test-scripts/*.node.mjs && vitest run",
 		"vault": "node src/cli.ts"
 	},
 	"dependencies": {

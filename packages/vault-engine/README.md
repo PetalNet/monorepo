@@ -179,6 +179,16 @@ them, and cannot detect a directory omitted entirely from the manifest. Manually
 documents are excluded rather than revived. Titles and capture timestamps alone do not create a
 version.
 
+Before transferring a collected manifest, run `node scripts/scan-known-secrets.mjs <manifest.jsonl>`
+with the JSON output of `janet-vault.mjs dump` on standard input. The command refuses a match in
+any manifest field or referenced document and emits no matched content. It compares each nonempty
+secret value and each nonempty trimmed line of multiline values literally; there are no exceptions.
+A missing, empty or malformed dump, an unreadable manifest or document, an empty manifest, invalid JSON, and entries with missing document files or unknown types fail the scan. Use a pipeline with `pipefail` so a failed dump also fails the job. Snapshot
+each document into a private staging directory before scanning and transfer those same files;
+`collect` can otherwise reference originals that change between the scan and migration. Scan the
+final manifest that will be transferred as well. The check is a preflight, not a substitute for
+the engine's pattern-based secret checks.
+
 ## Recall log
 
 `recall` and `research_check` append what they returned to `<root>/log/recall.jsonl`. With the op
