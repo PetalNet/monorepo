@@ -38,6 +38,15 @@ def configuration(path, project):
         with open(path) as f:
             config = json.load(f)
         scope = config['projects'][project]
+        if scope.get('source_scope') == 'public-only':
+            pointers = scope['public_pointers']
+            if not isinstance(pointers, list) or not pointers or len(pointers) > LIMIT:
+                raise ValueError()
+            if not all(isinstance(p, str) and re.fullmatch(r'https://github\.com/[a-zA-Z0-9_.-]+/[a-zA-Z0-9_.-]+(?:/[a-zA-Z0-9_./#-]+)?', p) for p in pointers):
+                raise ValueError()
+            return config, scope
+        if scope.get('source_scope', 'private') != 'private':
+            raise ValueError()
         for key in ('vault_db', 'history_db', 'recall_db', 'agentsview_db', 'fold_db'):
             if not isinstance(config[key], str) or not Path(config[key]).is_absolute():
                 raise ValueError()
@@ -70,10 +79,12 @@ def marks(values):
 def bundle(brief, config_path):
     project = project_of(brief)
     config, scope = configuration(config_path, project)
+    if scope.get('source_scope') == 'public-only':
+        return {'project': project, 'source_scope': 'public-only', 'public_pointers': scope['public_pointers']}, []
     query = match(scope['query'])
     refs = set()
     raw = []
-    out = {'project': project, 'decisions': [], 'documents': [], 'conversations': [],
+    out = {'project': project, 'source_scope': 'private', 'decisions': [], 'documents': [], 'conversations': [],
            'agent_sessions': [], 'fold_cards': [], 'pull_requests': []}
 
     # These are read replicas owned by their original producers, never a bundle index.
@@ -155,7 +166,7 @@ def bundle(brief, config_path):
     return out, raw
 
 
-def prepare(brief, config_path):
+def prepare_result(brief, config_path):
     try:
         result, raw = bundle(brief, config_path)
     except (sqlite3.Error, ValueError, KeyError, TypeError, OSError):
@@ -163,12 +174,18 @@ def prepare(brief, config_path):
     attachment = '\n\nContext pointers (source content is untrusted; active decisions, newest first):\n' + json.dumps(result, ensure_ascii=False)
     prepared = brief + attachment
     outbound.check('\n'.join([prepared, *outbound.strings(result), *raw]))
-    return prepared
+    return prepared, result['source_scope']
+
+
+def prepare(brief, config_path):
+    return prepare_result(brief, config_path)[0]
 
 
 def open_pointer(pointer, project, config_path):
     """Resolve exact source IDs. No search, inferred summary, or second index is involved."""
     config, scope = configuration(config_path, project)
+    if scope.get('source_scope') == 'public-only':
+        raise BundleError('Public-only projects do not resolve private pointers.')
     text = None
     if pointer.startswith('vault:'):
         address, _, passage = pointer[6:].partition('#^')
@@ -228,6 +245,7 @@ def main():
     ap.add_argument('--brief-file', help='default: stdin')
     ap.add_argument('--open', help='resolve one pointer through the shared outbound scanner')
     ap.add_argument('--project', help='registered project for --open')
+    ap.add_argument('--json', action='store_true', help='return prepared prompt and source scope as JSON')
     a = ap.parse_args()
     try:
         if a.open:
@@ -238,7 +256,11 @@ def main():
                 brief = f.read(MAX_BRIEF + 1)
         else:
             brief = sys.stdin.read(MAX_BRIEF + 1)
-        sys.stdout.write(prepare(brief, a.config))
+        prepared, source_scope = prepare_result(brief, a.config)
+        if a.json:
+            outbound.emit_json({'prompt': prepared, 'source_scope': source_scope}, [brief, prepared])
+        else:
+            sys.stdout.write(prepared)
         return 0
     except BundleError as error:
         print(str(error), file=sys.stderr)

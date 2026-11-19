@@ -7,7 +7,7 @@ const script = fileURLToPath(new URL("../../../apps/fold-cards/bin/bundle.py", i
 export function prepareDelegation(
 	prompt: string,
 ):
-	| { readonly kind: "ready"; readonly prompt: string }
+	| { readonly kind: "ready"; readonly prompt: string; readonly sourceScope: "private" | "public-only" }
 	| { readonly kind: "refused"; readonly reason: string } {
 	if (!/^Project:\s*[a-zA-Z0-9][a-zA-Z0-9._/-]{0,127}\s*$/mu.test(prompt)) {
 		return {
@@ -16,14 +16,24 @@ export function prepareDelegation(
 		};
 	}
 
-	const result = spawnSync("python3", ["-B", "-I", script], {
+	const result = spawnSync("python3", ["-B", "-I", script, "--json"], {
 		input: prompt,
 		encoding: "utf8",
 		timeout: 30_000,
 		maxBuffer: 128 * 1024,
 	});
 
-	if (result.status !== 0 || result.error || result.stderr || !result.stdout.startsWith(prompt)) {
+	let output: unknown;
+
+	try {
+		output = JSON.parse(result.stdout);
+	} catch {
+		output = undefined;
+	}
+
+	if (result.status !== 0 || result.error || result.stderr || !output || typeof output !== "object" ||
+		!("prompt" in output) || typeof output.prompt !== "string" || !output.prompt.startsWith(prompt) ||
+		!("source_scope" in output) || (output.source_scope !== "private" && output.source_scope !== "public-only")) {
 		return {
 			kind: "refused",
 			reason:
@@ -31,5 +41,5 @@ export function prepareDelegation(
 		};
 	}
 
-	return { kind: "ready", prompt: result.stdout };
+	return { kind: "ready", prompt: output.prompt, sourceScope: output.source_scope };
 }
