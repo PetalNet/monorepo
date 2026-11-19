@@ -58,14 +58,14 @@
 	}
 	const pickProject = (e) => {
 		announcePending = true;
-		goto(filterUrl({ project: e.target.value || null }), { keepFocus: true, noScroll: true });
+		goto(filterUrl({ project: e.target.value || null }), { reset: false });
 	};
 	const pickAssignee = (e) => {
 		announcePending = true;
-		goto(filterUrl({ assignee: e.target.value || null }), { keepFocus: true, noScroll: true });
+		goto(filterUrl({ assignee: e.target.value || null }), { reset: false });
 	};
 
-	// task-331: the filter selects navigate in place with keepFocus, so a screen-reader
+	// task-331: the filter selects navigate in place with reset: false, so a screen-reader
 	// user got zero feedback that the board changed. One polite live region announces
 	// the new result count + active filters once the re-queried data lands; the same
 	// region confirms one-tap answers (task-359) since the answered row just vanishes.

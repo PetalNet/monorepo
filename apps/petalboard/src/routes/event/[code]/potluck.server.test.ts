@@ -11,7 +11,11 @@ import type * as PrismaModule from "#lib/server/prisma.ts";
 import type * as ManageServer from "../manage/[token]/+page.server";
 import type * as PageServer from "./+page.server";
 
-vi.mock("$env/dynamic/private", () => ({ env: process.env }));
+vi.mock("$app/env/private", () => ({
+	get DATABASE_URL() {
+		return process.env.DATABASE_URL;
+	},
+}));
 vi.mock("#lib/server/email.ts", () => ({ sendRsvpEmail: vi.fn() }));
 
 const dir = mkdtempSync(path.join(tmpdir(), "petalboard-potluck-"));

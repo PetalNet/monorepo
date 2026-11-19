@@ -187,7 +187,7 @@
 							</p>
 							<a
 								href="/api/spotify/auth"
-								data-sveltekit-preload-data="off"
+								data-sveltekit-preload-data="false"
 								data-sveltekit-reload
 								class="inline-flex items-center gap-2 rounded-lg bg-[#1DB954] px-5 py-2.5 font-semibold text-white transition-all hover:-translate-y-0.5 hover:bg-[#1ed760] hover:shadow-lg"
 							>

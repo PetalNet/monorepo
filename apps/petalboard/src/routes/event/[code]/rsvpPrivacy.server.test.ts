@@ -10,7 +10,11 @@ import type * as PrismaModule from "#lib/server/prisma.ts";
 
 import type * as PageServer from "./+page.server";
 
-vi.mock("$env/dynamic/private", () => ({ env: process.env }));
+vi.mock("$app/env/private", () => ({
+	get DATABASE_URL() {
+		return process.env.DATABASE_URL;
+	},
+}));
 vi.mock("#lib/server/email.ts", () => ({ sendRsvpEmail: vi.fn(async () => undefined) }));
 
 const dir = mkdtempSync(path.join(tmpdir(), "petalboard-rsvp-privacy-"));

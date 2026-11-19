@@ -13,7 +13,11 @@ import type * as AccessModule from "#lib/server/rsvpAccess.ts";
 import type * as PageServer from "./+page.server";
 import type * as EditServer from "./edit/+page.server";
 
-vi.mock("$env/dynamic/private", () => ({ env: process.env }));
+vi.mock("$app/env/private", () => ({
+	get DATABASE_URL() {
+		return process.env.DATABASE_URL;
+	},
+}));
 vi.mock("#lib/server/email.ts", () => ({ sendRsvpEmail: vi.fn(async () => undefined) }));
 
 const dir = mkdtempSync(path.join(tmpdir(), "petalboard-rsvp-access-"));

@@ -861,7 +861,7 @@
 																	);
 																}
 
-																await update({ reset: false, invalidateAll: false });
+																await update({ reset: false, refreshAll: false });
 															};
 														}}
 													>

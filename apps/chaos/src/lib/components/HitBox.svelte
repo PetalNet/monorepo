@@ -20,7 +20,7 @@
 		one against the status board and CISA's exploited list.
 	</p>
 
-	<form method="get" action="{resolve('/')}#hit" data-sveltekit-noscroll data-sveltekit-keepfocus>
+	<form method="get" action="{resolve('/')}#hit" data-sveltekit-reset="false">
 		<input type="hidden" name="door" value={door} />
 		<label for="domain">Domain</label>
 		<div class="field">

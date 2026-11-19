@@ -32,7 +32,7 @@
 						class:today={door.state === "today"}
 						href="{resolve('/')}?door={door.id}"
 						aria-current={door.id === selected ? "true" : undefined}
-						data-sveltekit-noscroll
+						data-sveltekit-reset="false"
 					>
 						<span class="face">{face(door)}</span>
 						<span class="tally" aria-hidden="true">
