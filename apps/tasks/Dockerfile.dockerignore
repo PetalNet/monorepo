@@ -14,4 +14,3 @@ apps/tasks/.env*
 apps/tasks/node_modules
 apps/tasks/build
 apps/tasks/.svelte-kit
-apps/tasks/fleet-term/

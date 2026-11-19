@@ -20,7 +20,7 @@ import { tasksConfig } from "./config.js";
 //
 // [[wikilinks]] (task-514): a rehype pass (rehypeWikilinks) runs AFTER remark-rehype
 // but BEFORE sanitize, so the nodes it creates (`a`/`span`) go through the same
-// allowlist as everything else. We only ever emit relative /task/N hrefs and a fixed
+// allowlist as everything else. We only ever emit a fixed
 // set of class names, both of which the extended schema below permits — no new XSS
 // surface. Sanitize runs last regardless, so even a bug here can't leak raw HTML.
 
@@ -48,13 +48,11 @@ function resolveWikilink(inner) {
 		return null;
 	}
 
-	// task-N / #N  -> real link to the task page.
+	// task-N / #N  -> inert reference; the tracker is gone, so there is no page to link to.
 	const taskMatch = /^(?:task-|#)(\d+)$/i.exec(raw);
 
 	if (taskMatch) {
-		const n = taskMatch[1];
-
-		return el("a", { href: `/task/${n}`, className: ["wikilink", "wl-task"] }, `task-${n}`);
+		return el("span", { className: ["wikilink", "wl-ref"] }, `task-${taskMatch[1]}`);
 	}
 
 	// Bare handle (no spaces/slashes) that matches a known fleet agent.
