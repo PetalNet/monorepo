@@ -37,7 +37,7 @@ regex = "1"
 reqwest = { version = "0.13", default-features = false, features = ["json", "rustls"] }
 rpassword = "7"
 # matrix-sdk-sqlite 0.19 requires rusqlite ^0.40; Cargo permits one sqlite3 links version.
-rusqlite = { version = "0.40", features = ["bundled"] }
+rusqlite = { version = "0.42", features = ["bundled"] }
 serde = "1"
 serde_json = "1"
 serde_yaml = "0.9"
