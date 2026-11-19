@@ -56,7 +56,7 @@
 				{#if p.needs}<span class="needs" title="{p.needs} waiting on you">{p.needs}</span>{/if}
 				<span class="n">{p.count}</span>
 			</a>
-			{#if here && p.works.length && !collapsed}
+			{#if here && p.works.length}
 				<div class="works">
 					{#each p.works as w (w.key)}
 						{@const on = scope.work === w.key}
@@ -190,6 +190,7 @@
 	.item .lbl {
 		max-width: 140px;
 		overflow: hidden;
+		text-overflow: ellipsis;
 		transition: opacity 0.11s ease;
 	}
 	/* icon pinned: keep base padding/gap; label fades + clips via overflow (no box-collapse) */
@@ -224,6 +225,9 @@
 	/* inside the open project but on one of its pieces of work: keep the row quiet, not filled */
 	.item.here {
 		color: var(--text-1);
+	}
+	.collapsed .works {
+		display: none;
 	}
 	.works {
 		display: flex;
@@ -283,6 +287,9 @@
 		}
 		.nav.collapsed {
 			--w: min(288px, 86vw);
+		}
+		.collapsed .works {
+			display: flex;
 		}
 		.collapsed .wordmark,
 		.collapsed .item .lbl,

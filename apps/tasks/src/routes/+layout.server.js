@@ -2,7 +2,10 @@ import { buildTree, projectKey } from "#lib/gallery-tree.js";
 import { tasksConfig } from "#lib/server/config.js";
 import { listArtifacts, needsYou } from "#lib/server/db.js";
 
-export function load({ locals }) {
+export function load({ locals, depends }) {
+	// the sidebar counts change when someone answers a page; ArtifactView invalidates this key then
+	depends("gallery:tree");
+
 	const { people } = tasksConfig;
 	const user = locals.user;
 

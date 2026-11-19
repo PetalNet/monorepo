@@ -77,7 +77,6 @@
 		close: X,
 		// chrome
 		more: Ellipsis,
-		chevdown: ChevronDown,
 		car: ChevronDown,
 		chevleft: ChevronLeft,
 		chevright: ChevronRight,

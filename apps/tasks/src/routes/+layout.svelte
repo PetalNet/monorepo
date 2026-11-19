@@ -25,6 +25,18 @@
 	beforeNavigate(() => {
 		navOpen = false;
 	});
+	// the sheet is a modal on a phone: focus moves into it when it opens and back to the button when it closes
+	let sheetBtn = $state();
+	let wasOpen = false;
+	$effect(() => {
+		if (navOpen) {
+			document.querySelector("#nav a")?.focus();
+		} else if (wasOpen) {
+			sheetBtn?.focus();
+		}
+
+		wasOpen = navOpen;
+	});
 
 	// who's signed in (Authentik -> locals.user -> data.user)
 	const me = $derived(String(data.user || "dev").toLowerCase());
@@ -83,6 +95,7 @@
 				</button>
 				<button
 					class="tb-btn tb-sheet"
+					bind:this={sheetBtn}
 					onclick={() => (navOpen = !navOpen)}
 					aria-label="Open projects"
 					aria-expanded={navOpen}

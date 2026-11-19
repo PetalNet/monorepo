@@ -213,10 +213,6 @@ button {
 	grid-template-columns: 248px 1fr;
 	overflow: hidden;
 }
-.topbar,
-.tabbar {
-	display: none;
-}
 .main {
 	overflow-y: auto;
 	overflow-x: hidden;
@@ -2181,75 +2177,9 @@ button {
 	.sidebar {
 		display: none;
 	}
-	.topbar {
-		display: flex;
-		align-items: center;
-		justify-content: space-between;
-		padding: 11px 15px;
-		background: var(--surface-1);
-		border-bottom: 1px solid var(--border-sub);
-		position: sticky;
-		top: 0;
-		z-index: 5;
-		flex-shrink: 0;
-	}
-	.tb-right {
-		display: flex;
-		align-items: center;
-		gap: 10px;
-	}
 	.main {
 		height: auto;
 		flex: 1;
-	}
-	.tabbar {
-		display: flex;
-		background: var(--surface-1);
-		border-top: 1px solid var(--border-sub);
-		flex-shrink: 0;
-		padding: 6px 6px calc(6px + env(safe-area-inset-bottom));
-	}
-	.tab {
-		flex: 1;
-		min-width: 0;
-		display: flex;
-		flex-direction: column;
-		align-items: center;
-		gap: 3px;
-		padding: 7px;
-		border-radius: var(--radius);
-		color: var(--text-4);
-		font-size: 10px;
-		font-weight: 500;
-		position: relative;
-	}
-	.tab.on {
-		color: var(--accent-b);
-	}
-	/* task-335: labels never overflow their cell into the badge on narrow phones */
-	.tab span {
-		max-width: 100%;
-		white-space: nowrap;
-		overflow: hidden;
-		text-overflow: ellipsis;
-	}
-	.tab-badge {
-		position: absolute;
-		top: 2px;
-		right: 50%;
-		margin-right: -22px;
-		font-family: var(--mono);
-		font-size: 9px;
-		font-weight: 600;
-		min-width: 15px;
-		height: 15px;
-		display: flex;
-		align-items: center;
-		justify-content: center;
-		padding: 0 4px;
-		border-radius: 8px;
-		background: var(--warn);
-		color: #2a1d00;
 	}
 	.screen {
 		padding: 22px 16px 90px;

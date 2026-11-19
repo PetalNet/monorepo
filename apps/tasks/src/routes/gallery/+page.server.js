@@ -28,10 +28,11 @@ export function load({ locals, url }) {
 		link,
 		project,
 		work,
-		workUrl: work ? all.flatMap((a) => a.links).find((l) => l.label === work)?.url : undefined,
+		workUrl: work ? workOf(artifacts[0]?.links ?? [])?.url : undefined,
 		me: locals.user,
-		crumbs: work
-			? [{ label: project === "_" ? "unfiled" : project, href: galleryHref({ project }) }]
-			: [],
+		crumbs:
+			work && project
+				? [{ label: project === "_" ? "unfiled" : project, href: galleryHref({ project }) }]
+				: [],
 	};
 }

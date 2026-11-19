@@ -1,4 +1,5 @@
 <script>
+	import { invalidate } from "$app/navigation";
 	import { Eraser, Highlighter, PenLine, Trash2, Undo2 } from "@lucide/svelte";
 	import { onMount } from "svelte";
 
@@ -202,6 +203,8 @@
 				});
 
 				status.refresh();
+				// the sidebar's "waiting on you" counts changed
+				invalidate("gallery:tree");
 				reply(m.id, { ok: true, result: sent });
 			}
 		} catch (e) {
