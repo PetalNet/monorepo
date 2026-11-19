@@ -280,8 +280,6 @@ def build_surface(site: Site, imagery: Path, out: Path, covering: dict | None) -
         "layers": layers,
         "check_points": surface.check_points(unreal, names),
         "vertices": tile.vertices,
-        "edge_m": surface.EDGE_M,
-        "majority_cells": surface.MAJORITY_CELLS,
         **fit,
     }
 
@@ -518,7 +516,11 @@ def build(site_path: Path, out: Path, cache: Path | None = None) -> dict:
             site.crs,
             sources["imagery"]["sha256"],
             cover_hashes,
+            surface.SEPARATION_MIN,
             surface.COHERENCE_MIN,
+            surface.MIXTURE_SAMPLE,
+            surface.MIXTURE_ITERATIONS,
+            surface.CHECK_POINTS_PER_KIND,
             surface.GROUP_MIN_M2,
             surface.EDGE_M,
             surface.MAJORITY_CELLS,

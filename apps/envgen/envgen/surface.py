@@ -18,16 +18,21 @@ GRASS, PAVED, SOIL = "grass", "paved", "soil"
 GREEN_INDEX = "(G - B) / (R + G + B)"
 RED_INDEX = "(R - B) / (R + G + B)"
 
-# A split is made only when the cells it separates form patches. Noise in one population cut at a threshold
-# gives salt and pepper; two kinds of ground give blocks. Coherence is how far the share of neighbouring cells
-# that agree rises above what random placement of the same shares would give: 0 for random, 1 for blocks.
-# (Ashman's D, the distance between the two groups in pooled standard deviations, cannot tell the cases
-# apart on a real tile: one Gaussian cut at its mean scores 2.7, and a real tile of turf and pavement 2.1.)
-# Hand-set criterion.
+# A split is made only when the colours are two populations and the cells of each form patches.
+# Two populations: a two-component Gaussian mixture is fitted to the colours, and its components must sit at least
+# this many pooled standard deviations apart (Ashman's D; above 2 the mixture has two modes, below it one wide
+# population). D of the two halves of one Gaussian cut at its mean is 2.7, so D is taken from the fitted
+# components, not from the cut. Hand-set criterion, from the literature.
+SEPARATION_MIN = 2.0
+# Patches: noise in one population cut at a threshold gives salt and pepper; two kinds of ground give blocks.
+# Coherence is how far the share of neighbouring cells that agree rises above what random placement of the same
+# shares would give: 0 for random, 1 for blocks. Hand-set criterion.
 COHERENCE_MIN = 0.5
+# The mixture is fitted to at most this many cells, evenly spread through the sorted values, and for this many rounds.
+MIXTURE_SAMPLE = 100_000
+MIXTURE_ITERATIONS = 60
 # A group must cover at least this much ground, or the fit is describing noise. Hand-set.
 GROUP_MIN_M2 = 1000.0
-PERFECT_SEPARATION = 1e6
 # Class edges blend over about this distance. A look, not a measurement.
 EDGE_M = 1.0
 # The class of a cell is the majority within this many cells around it (3 by 3).
@@ -44,16 +49,16 @@ def indices(rgb: np.ndarray) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
     return (green - blue) / total, (red - blue) / total, total / 3
 
 
-def otsu(values: np.ndarray, weights: np.ndarray) -> tuple[float, float]:
-    """The threshold that best splits `values` in two, and Ashman's D for the two groups it makes.
+def otsu(values: np.ndarray, weights: np.ndarray) -> float:
+    """The threshold that best splits `values` in two, each value counting by its weight.
 
     Exact, over the sorted values: a histogram's bin width is set by the extremes, and a few outlying cells
-    would blur the cut. Each value counts by its weight.
+    would blur the cut.
     """
     order = np.argsort(values)
     ordered, weight = values[order].astype(np.float64), weights[order].astype(np.float64)
     if len(ordered) < 2 or ordered[0] == ordered[-1]:
-        return float(ordered[0]), 0.0
+        return float(ordered[0])
     total_weight, total = np.cumsum(weight), np.cumsum(weight * ordered)
     below, above = total_weight[:-1], total_weight[-1] - total_weight[:-1]
     mean_below = total[:-1] / below
@@ -62,17 +67,48 @@ def otsu(values: np.ndarray, weights: np.ndarray) -> tuple[float, float]:
     between = below * above * (mean_above - mean_below) ** 2
     between[ordered[1:] == ordered[:-1]] = -1  # a cut must fall between different values
     cut = int(np.argmax(between))
-    threshold = float((ordered[cut] + ordered[cut + 1]) / 2)
+    return float((ordered[cut] + ordered[cut + 1]) / 2)
 
-    def spread(part: slice) -> tuple[float, float]:
-        mean = np.average(ordered[part], weights=weight[part])
-        return mean, np.average((ordered[part] - mean) ** 2, weights=weight[part])
 
-    (low, low_var), (high, high_var) = spread(slice(None, cut + 1)), spread(slice(cut + 1, None))
-    # Groups with no spread at all are as separate as they can be; a large finite number keeps the manifest valid JSON.
-    return threshold, float(
-        np.sqrt(2) * (high - low) / np.sqrt(low_var + high_var)
-    ) if low_var + high_var else PERFECT_SEPARATION
+def mixture_separation(values: np.ndarray, weights: np.ndarray, threshold: float) -> tuple[float, dict]:
+    """Fit two Gaussians to the values, starting from the groups a threshold makes, and say how far apart they are.
+
+    Returns Ashman's D for the fitted components, and the components. One population fits as two overlapping
+    components and scores low; two populations score high however the cut halves them.
+    """
+    if len(values) > MIXTURE_SAMPLE:
+        keep = np.linspace(0, len(values) - 1, MIXTURE_SAMPLE).astype(int)
+        values, weights = values[keep], weights[keep]
+    values, weights = values.astype(np.float64), weights.astype(np.float64)
+    low = values < threshold
+    means = np.array([np.average(values[low], weights=weights[low]), np.average(values[~low], weights=weights[~low])])
+    variances = np.array(
+        [
+            np.average((values[group] - mean) ** 2, weights=weights[group])
+            for group, mean in ((low, means[0]), (~low, means[1]))
+        ]
+    )
+    shares = np.array([weights[low].sum(), weights[~low].sum()]) / weights.sum()
+    floor = 1e-6 * values.var() + 1e-12
+    for _ in range(MIXTURE_ITERATIONS):
+        density = (
+            shares
+            * np.exp(-((values[:, None] - means) ** 2) / (2 * np.maximum(variances, floor)))
+            / np.sqrt(np.maximum(variances, floor))
+        )
+        responsibility = density / np.maximum(density.sum(axis=1, keepdims=True), 1e-300) * weights[:, None]
+        mass = responsibility.sum(axis=0)
+        shares = mass / mass.sum()
+        means = (responsibility * values[:, None]).sum(axis=0) / mass
+        variances = np.maximum((responsibility * (values[:, None] - means) ** 2).sum(axis=0) / mass, floor)
+    spread = np.sqrt(variances.sum())
+    separation = float(np.sqrt(2) * abs(means[1] - means[0]) / spread)
+    order = np.argsort(means)
+    return separation, {
+        "means": [float(means[i]) for i in order],
+        "sigmas": [float(np.sqrt(variances[i])) for i in order],
+        "shares": [float(shares[i]) for i in order],
+    }
 
 
 def coherence(upper: np.ndarray, mask: np.ndarray) -> float:
@@ -96,13 +132,19 @@ def _split(
     minimum = GROUP_MIN_M2 / cell_m**2
     if mask.sum() < 2 * minimum:
         return None, record | {"split": False, "reason": "too few cells"}
-    threshold, separation = otsu(values[mask], weights[mask])
+    threshold = otsu(values[mask], weights[mask])
     upper = (values >= threshold) & mask
     count = int(upper.sum())
-    record |= {"threshold": threshold, "separation": separation, "upper_fraction": count / int(mask.sum())}
+    record |= {"threshold": threshold, "upper_fraction": count / int(mask.sum())}
     if min(count, int(mask.sum()) - count) < minimum:
         return None, record | {"split": False, "reason": "a group is too small"}
     record["coherence"] = coherence(upper, mask)
+    record["separation"], record["mixture"] = mixture_separation(values[mask], weights[mask], threshold)
+    if record["separation"] < SEPARATION_MIN:
+        return None, record | {"split": False, "reason": "one population: the fitted components overlap"}
+    if record["mixture"]["means"][1] <= 0:
+        # Soil is redder than blue and turf greener than blue; a group merely less blue than a bluer one is neither.
+        return None, record | {"split": False, "reason": "the upper group does not lean to the index's colour"}
     if record["coherence"] < COHERENCE_MIN:
         return None, record | {"split": False, "reason": "the groups do not form patches"}
     return threshold, record | {"split": True}
@@ -123,9 +165,11 @@ def classify(rgb: np.ndarray, sunlit: np.ndarray, cell_m: float) -> tuple[np.nda
             {"splits": [], "priors": [f"prior: one class, {PRIOR_SINGLE_CLASS}; {reason}"]},
         )
     green, red, brightness = indices(rgb)
-    # Each cell counts in a fit by its brightness: an index is a ratio, so it is noisiest where the cell is dark,
-    # and dark roofs and asphalt, which lean blue, must not decide where the cut falls.
-    what = "sunlit cells"
+    # Each cell counts in a fit by its brightness squared: an index is a ratio, and with the same noise in every
+    # channel its variance goes as 1 over the squared brightness. Dark roofs and asphalt, which lean blue, then do
+    # not decide where the cut falls.
+    brightness = brightness**2
+    what = "sunlit cells, each weighted by its squared brightness"
     splits = []
     greener, record = _split(green, brightness, shown, cell_m, what, GREEN_INDEX)
     splits.append(record | {"separates": "grass from other ground"})
@@ -133,22 +177,14 @@ def classify(rgb: np.ndarray, sunlit: np.ndarray, cell_m: float) -> tuple[np.nda
     names = [PRIOR_SINGLE_CLASS]
     priors = []
     if greener is None:
-        priors.append(
-            f"prior: one class, {PRIOR_SINGLE_CLASS}; the sunlit ground does not split into patches of two colours"
-        )
+        priors.append(f"prior: one class, {PRIOR_SINGLE_CLASS}; {record['reason']}")
     else:
         names = [GRASS, PAVED]
         labels[:] = np.where(green >= greener, 0, 1)
         other = shown & (labels == 1)
-        # Dark roofs and asphalt, which lean blue, would decide the spread of redness. Soil is looked for among the
-        # redder half of the rest, where it is either set apart from neutral paving or not there.
-        bright = other & (red >= np.median(red[other])) if other.any() else other
-        if bright.any():
-            redder, record = _split(
-                red, brightness, bright, cell_m, "the redder half of the sunlit cells that are not grass", RED_INDEX
-            )
-        else:
-            redder, record = None, {"index": RED_INDEX, "split": False, "reason": "no bright ground", "cells": 0}
+        redder, record = _split(
+            red, brightness, other, cell_m, "the sunlit cells that are not grass, " + what.split(", ")[1], RED_INDEX
+        )
         splits.append(record | {"separates": "soil from paved"})
         if redder is not None:
             names.append(SOIL)
@@ -156,7 +192,7 @@ def classify(rgb: np.ndarray, sunlit: np.ndarray, cell_m: float) -> tuple[np.nda
     # Ground the imagery does not show takes the class of the nearest ground it does.
     nearest = ndimage.distance_transform_edt(~shown, return_distances=False, return_indices=True)
     labels = labels[tuple(nearest)]
-    return labels, names, {"splits": splits, "priors": priors}
+    return labels, names, {"splits": splits, "priors": priors, "settings": SETTINGS}
 
 
 def weights(labels: np.ndarray, count: int, cell_m: float) -> list[np.ndarray]:
@@ -206,3 +242,14 @@ def check_points(layers: list[np.ndarray], names: list[str]) -> list[dict]:
         }
         for east, north in dict.fromkeys(chosen)
     ]
+
+
+# Every value set by hand in this module, for the manifest: none is a measurement.
+SETTINGS = {
+    "kind": "prior",
+    "separation_min": SEPARATION_MIN,
+    "coherence_min": COHERENCE_MIN,
+    "group_min_m2": GROUP_MIN_M2,
+    "edge_m": EDGE_M,
+    "majority_cells": MAJORITY_CELLS,
+}

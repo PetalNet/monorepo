@@ -75,8 +75,9 @@ def test_the_split_is_fitted_to_the_colours_in_the_tile_not_set_by_hand(tmp_path
     fit = manifest["surface"]["splits"][0]
     index = lambda rgb: (rgb[1] - rgb[2]) / sum(rgb)
     assert index(paved) < fit["threshold"] < index(grass)
-    assert fit["coherence"] > 0.9 and fit["split"]
-    assert fit["fitted_to"] == "sunlit cells" and fit["index"] == surface.GREEN_INDEX
+    assert fit["coherence"] > 0.9 and fit["separation"] > surface.SEPARATION_MIN and fit["split"]
+    assert fit["fitted_to"].startswith("sunlit cells") and fit["index"] == surface.GREEN_INDEX
+    assert fit["mixture"]["means"][0] < fit["threshold"] < fit["mixture"]["means"][1]
 
 
 def test_dark_blue_cells_do_not_pull_the_cut_into_the_paving(tmp_path):
@@ -88,6 +89,8 @@ def test_dark_blue_cells_do_not_pull_the_cut_into_the_paving(tmp_path):
     by_name = layers(out, manifest)
     assert at(by_name["paved"], 65, 50) == 255 and at(by_name["grass"], 20, 50) == 255
     assert manifest["surface"]["splits"][0]["threshold"] > 0
+    # The paving is less blue than the roof, which is no reason to call it soil.
+    assert list(by_name) == ["grass", "paved"]
 
 
 def test_narrow_features_survive_because_each_cell_is_judged_before_any_averaging(tmp_path):
@@ -104,6 +107,38 @@ def test_weights_sum_to_255_whatever_the_rounding():
     labels = np.digitize(ndimage.gaussian_filter(rng.normal(size=(80, 80)), 3), [-0.01, 0.01])
 
     assert (sum(surface.weights(labels, 3, 1.0)).astype(int) == 255).all()
+
+
+def test_one_smooth_population_is_not_split_however_patchy_it_looks():
+    # Turf whose greenness drifts slowly across the tile: cut at its median the halves are big blocks, so patches
+    # alone would split it. Its colours are one wide population, and the fitted mixture's components overlap.
+    rng = np.random.default_rng(3)
+    drift = ndimage.gaussian_filter(rng.normal(size=(160, 160)), 12)
+    drift = drift / drift.std() * 8
+    rgb = np.stack([np.full((160, 160), 100.0), 130 + drift, np.full((160, 160), 90.0)])
+    labels, names, fit = surface.classify(rgb, np.ones((160, 160), dtype=bool), 1.0)
+
+    assert names == ["grass"] and (labels == 0).all()
+    assert fit["splits"][0]["coherence"] > surface.COHERENCE_MIN
+    assert fit["splits"][0]["separation"] < surface.SEPARATION_MIN
+    assert "prior" in fit["priors"][0] and "overlap" in fit["priors"][0]
+
+
+def test_soil_is_found_even_when_it_is_most_of_the_ground_that_is_not_grass(tmp_path):
+    out, manifest = grass_and_paved(tmp_path, h.GRASS, h.PAVED, [(40, 0, 60, 126, h.PAVED), (60, 0, 120, 126, SOIL)])
+
+    by_name = layers(out, manifest)
+    assert list(by_name) == ["grass", "paved", "soil"]
+    assert at(by_name["soil"], 90, 60) == 255 and at(by_name["paved"], 50, 60) == 255
+
+
+def test_every_hand_set_value_is_listed_in_the_manifest_as_a_prior(tmp_path):
+    _, manifest = grass_and_paved(tmp_path, h.GRASS, h.PAVED)
+
+    settings = manifest["surface"]["settings"]
+    assert settings["kind"] == "prior"
+    assert settings["separation_min"] == surface.SEPARATION_MIN and settings["coherence_min"] == surface.COHERENCE_MIN
+    assert settings["group_min_m2"] == surface.GROUP_MIN_M2 and settings["edge_m"] == surface.EDGE_M
 
 
 def test_a_tile_of_one_population_stays_one_class_and_says_the_choice_was_a_prior(tmp_path):

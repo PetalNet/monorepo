@@ -96,31 +96,39 @@ What kind of ground each cell is comes from the imagery, but the split is fitted
 hand. Only sunlit ground is read: cover and shade hide the colour, so those cells take the class of the
 nearest ground that shows it.
 
-- Grass against the rest: Otsu's threshold on `(G - B) / (R + G + B)` over the sunlit cells, each counted by its brightness (an index is a ratio, so it is noisiest where a cell is dark, and dark blue-leaning roofs and asphalt would otherwise take the cut for themselves). Vegetation
+- Grass against the rest: Otsu's threshold on `(G - B) / (R + G + B)` over the sunlit cells. Vegetation
   reflects more green than blue; pavement and soil do not. The index is a share of brightness, so one
-  material in sun and in dim light gives the same value.
-- Soil against paved: the same method on `(R - B) / (R + G + B)`, over the sunlit cells that are neither
-  grass nor dark (dark roofs and asphalt would otherwise decide the spread).
-- A split is made only when the two groups form patches, not scatter (the share of neighbouring cells that
-  agree, beyond chance, is at least 0.5) and each covers at least 1000 m2. Otherwise the tile stays one
-  class, `grass`, which is a prior and is listed as one in `build.json`. The distance between the groups in
-  pooled standard deviations is recorded as `separation`, but it cannot be the test: one Gaussian cut at its
-  mean scores 2.7, and a real tile of turf and pavement 2.1.
+  material in sun and in dim light gives the same value. Each cell counts by its squared brightness: with the
+  same noise in every channel an index's variance goes as one over that, so dark roofs and asphalt, which
+  lean blue, do not decide where the cut falls.
+- Soil against paved: the same method on `(R - B) / (R + G + B)` over the sunlit cells that are not grass.
+- A split is made only when all of these hold. Each group covers at least 1000 m2. The colours are two
+  populations: a two-component Gaussian mixture, started from the cut and fitted by EM, has components at
+  least 2 pooled standard deviations apart (Ashman's D). The two halves of one Gaussian cut at its mean
+  already score 2.7, so D is taken from the fitted components, which overlap for one population. The cells of
+  each group form patches, not scatter (the share of neighbouring cells that agree, beyond chance, is at least
+  0.5). The upper group leans to its index's colour (its mean is above zero): a group merely less blue than a
+  bluer one is not soil. Otherwise the tile stays one class, `grass`, which is a prior and is listed as one in
+  `build.json` with the reason.
 - Every cell is thresholded on its own; its class is then the majority in the 3 by 3 around it, so the class
   edge lands on the edge in the imagery. The edge is softened over about a metre, and the weights are
   8-bit and sum to 255 in every cell.
 - The colour map is low-passed within each class, from that class's sunlit ground only, so a road does not
   grey the grass beside it.
 
-`build.json` has `surface`: each layer's file and share of the tile, check points (vertices where each class should be found, worked out from the weightmaps by position, which the level build compares with the merged Landscape), and for each split the index, what it
-was fitted to, the threshold, the separation and whether a split was made.
+`build.json` has `surface`: each layer's file and share of the tile; check points (vertices where each class
+should be found, worked out from the weightmaps by position, which the level build compares with the merged
+Landscape); for each split the index, what it was fitted to, the threshold, the fitted mixture, the separation,
+the coherence and whether a split was made, with the reason when not; and `settings`, every value set by hand
+(tagged `prior`).
 
 Limits:
 
 - A class is named by its colour: the greener side is called grass. A tile of bare ground and pavement with
   no vegetation would call its greener part grass.
 - Soil is whatever unvegetated bright ground is redder than the rest, which may be clay, a track or red roofing.
-- The criteria in the third bullet (coherence, group size) and the 1 m edge and 3 cell majority are set by hand.
+- The criteria in the third bullet (group size, separation, coherence) and the 1 m edge and 3 cell majority are set by hand, and listed as priors in the manifest.
+- A bare-soil class needs soil that sets itself apart from the other ground by this test. Where it is a small share of unvegetated ground spread through the colours of paving, it is not found and stays paved.
 - Imagery from one date: dry turf can look like soil and green turf like a lawn; the split follows the day.
 
 ### Frame and units
@@ -154,7 +162,7 @@ and the shadows it casts are where astronomy puts them.
   also imports that coarse surround as a second Landscape, which passes under the tile so the
   detailed surface does not end in a cliff against the sky. Once the engine has merged the Landscape's
   edit layers it traces the collision surface at fixed points and compares it with the imported
-  heights, reads every weight layer back at fixed points and compares it with the weightmap, saves, and exits. The checks are in
+  heights, reads every weight layer back at the manifest's check points and compares it with what the manifest says is there, saves, and exits. The checks are in
   `Saved/EnvGen/build_receipt.json`. The editor exits with 1 if the manifest cannot be used, the merge
   does not finish, a trace misses the ground or lands more than 5 cm off, a weight layer is missing or reads back wrong,
   or the save fails.
