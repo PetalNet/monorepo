@@ -2,6 +2,8 @@ package dev.petalcat.janetcall
 
 import android.os.Process
 import android.util.Log
+import android.os.SystemClock
+import java.net.SocketTimeoutException
 import java.util.concurrent.atomic.AtomicBoolean
 import okhttp3.Request
 import okhttp3.Response
@@ -13,7 +15,11 @@ import okio.ByteString.Companion.toByteString
 sealed interface End {
 	data object Local : End
 
+	/** Janet ended it, or the bridge closed the line normally. */
 	data class Remote(val reason: String) : End
+
+	/** The line was lost during a call, so Janet did not end it. The phone plays [DropTone] for it. */
+	data class Dropped(val reason: String) : End
 
 	/** [repair]: only a new pairing can fix it. */
 	data class Failed(val reason: String, val repair: Boolean = false) : End
@@ -32,6 +38,8 @@ class CallSession(
 ) {
 	private val ended = AtomicBoolean(false)
 	private val heard = AtomicBoolean(false)
+	private val opened = AtomicBoolean(false)
+	private val pulse = MicPulse()
 
 	@Volatile private var socket: WebSocket? = null
 
@@ -59,7 +67,7 @@ class CallSession(
 		if (!ended.compareAndSet(false, true)) return
 		try {
 			mic?.stop()
-			player.close(drain = end !is End.Local && end !is End.Failed)
+			player.close(drain = end is End.Remote)
 			socket?.close(1000, "hangup")
 			readerTid?.let { Process.setThreadPriority(it, Process.THREAD_PRIORITY_DEFAULT) }
 		} finally {
@@ -68,6 +76,13 @@ class CallSession(
 	}
 
 	private fun streamMic(source: Mic) {
+		pulse.beat(SystemClock.elapsedRealtime())
+		Thread({
+			while (!ended.get()) {
+				Thread.sleep(WATCH_MS)
+				if (pulse.stalled(SystemClock.elapsedRealtime())) finish(End.Dropped(MIC_STALLED))
+			}
+		}, "janet-mic-watch").apply { isDaemon = true }.start()
 		Thread({
 			Process.setThreadPriority(Process.THREAD_PRIORITY_URGENT_AUDIO)
 			val buf = ByteArray(MIC_CHUNK_BYTES)
@@ -75,13 +90,14 @@ class CallSession(
 			while (!ended.get()) {
 				val n = source.read(buf)
 				if (n <= 0) break
+				pulse.beat(SystemClock.elapsedRealtime())
 				stage.mic(pcmLevel(buf, n), CallStage.nowS())
 				val socket = socket ?: continue
 				if (backlog.admits(socket.queueSize())) socket.send(buf.toByteString(0, n))
 			}
 			source.close()
 			if (backlog.dropped > 0) Log.w("JanetCall", "the uplink fell behind: dropped ${backlog.dropped} microphone frames")
-			finish(End.Failed("Microphone stopped"))
+			finish(End.Dropped(MIC_STALLED))
 		}, "janet-mic").start()
 	}
 
@@ -100,6 +116,7 @@ class CallSession(
 			}
 			mic = source
 			if (ended.get()) source.close() else {
+				opened.set(true)
 				streamMic(source)
 				onOpen()
 			}
@@ -131,7 +148,7 @@ class CallSession(
 		}
 
 		override fun onClosing(webSocket: WebSocket, code: Int, reason: String) {
-			finish(End.Remote("Connection closed by the bridge"))
+			finish(closedBy(code, reason))
 		}
 
 		override fun onFailure(webSocket: WebSocket, t: Throwable, response: Response?) {
@@ -143,7 +160,43 @@ class CallSession(
 				null -> t.message ?: "Could not reach the bridge"
 				else -> "Bridge error (HTTP $code)"
 			}
-			finish(End.Failed(reason, repair))
+			finish(if (opened.get()) lostLine(t) else End.Failed(reason, repair))
 		}
 	}
+
+	private companion object {
+		const val WATCH_MS = 1_000L
+	}
+}
+
+const val MIC_STALLED = "The phone's microphone stopped, so Janet could no longer hear you."
+
+/**
+ * How a call ends when the bridge closes the socket without having sent "bye". Code 1000 is a normal
+ * close. Anything else is the line going away: the bridge closes with 1011 when its keepalive gets
+ * no answer from the phone, and with 1001 or 1012 when it is going down.
+ */
+internal fun closedBy(code: Int, reason: String): End = when {
+	code == 1000 -> End.Remote("The bridge closed the line")
+	code == 1011 && reason.contains("keepalive", ignoreCase = true) ->
+		End.Dropped("The bridge stopped hearing this phone and closed the line. The phone's connection to it stalled.")
+	code == 1001 || code == 1012 || code == 1013 -> End.Dropped("The bridge went away or is restarting.")
+	else -> End.Dropped("The bridge closed the line unexpectedly (code $code${if (reason.isBlank()) "" else ", $reason"}).")
+}
+
+/** The socket failed during a call. OkHttp's own ping that gets no pong is a [SocketTimeoutException]. */
+internal fun lostLine(t: Throwable): End.Dropped = when (t) {
+	is SocketTimeoutException -> End.Dropped("The connection to the bridge stopped responding.")
+	else -> End.Dropped("Lost the connection to the bridge: ${t.message ?: t.javaClass.simpleName}.")
+}
+
+/** When the microphone last delivered a frame, so a capture that stops without an error is noticed. */
+class MicPulse(private val stallMs: Long = 5_000L) {
+	@Volatile private var lastMs = 0L
+
+	fun beat(nowMs: Long) {
+		lastMs = nowMs
+	}
+
+	fun stalled(nowMs: Long) = nowMs - lastMs > stallMs
 }

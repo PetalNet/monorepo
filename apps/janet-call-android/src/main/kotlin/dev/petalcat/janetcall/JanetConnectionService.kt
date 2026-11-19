@@ -23,6 +23,7 @@ class JanetConnection(private val onGone: (CallRecord) -> Unit) : Connection() {
 	private val startedMs = System.currentTimeMillis()
 	private var activeAtMs: Long? = null
 	private val ringback = Ringback()
+	private val dropTone = DropTone()
 
 	fun begin(pairing: Pairing, player: Player, stage: CallStage) {
 		connectionProperties = PROPERTY_SELF_MANAGED
@@ -55,15 +56,31 @@ class JanetConnection(private val onGone: (CallRecord) -> Unit) : Connection() {
 		val (cause, reason) = when (end) {
 			End.Local -> DisconnectCause(DisconnectCause.LOCAL) to "Call ended"
 			is End.Remote -> DisconnectCause(DisconnectCause.REMOTE, end.reason, end.reason, "janet") to end.reason
+			is End.Dropped -> DisconnectCause(DisconnectCause.ERROR, "Call dropped", end.reason, "janet") to end.reason
 			is End.Failed -> DisconnectCause(DisconnectCause.ERROR, "Call failed", end.reason, "janet") to end.reason
 		}
 		ringback.stop()
-		val problem = (end as? End.Failed)?.let { if (it.repair) Problem.RePair(it.reason) else Problem.CallFailed(it.reason) }
-		setDisconnected(cause)
-		destroy()
-		Calls.update(CallState.Ended(reason, problem))
+		val problem = when (end) {
+			is End.Failed -> if (end.repair) Problem.RePair(end.reason) else Problem.CallFailed(end.reason)
+			is End.Dropped -> Problem.CallFailed(end.reason)
+			else -> null
+		}
 		val connectedFor = activeAtMs?.let { (SystemClock.elapsedRealtime() - it) / 1000 }
-		onGone(CallRecord(startedMs, (connectedFor ?: 0).toInt(), connectedFor != null))
+		val record = CallRecord(startedMs, (connectedFor ?: 0).toInt(), connectedFor != null)
+		// The screen stays a call until the teardown, so nothing can place a new call while this one is still alive.
+		val teardown = {
+			Calls.update(CallState.Ended(reason, problem))
+			setDisconnected(cause)
+			destroy()
+			onGone(record)
+		}
+		// A lost line is announced with a tone on the call's own stream, so the call stays up until it has played.
+		if (end is End.Dropped) {
+			dropTone.play(main)
+			main.postDelayed(teardown, DropTone.DROP_TONE_MS)
+		} else {
+			teardown()
+		}
 	}
 
 	fun hangup() = session.hangup()
@@ -101,10 +118,19 @@ class JanetConnection(private val onGone: (CallRecord) -> Unit) : Connection() {
 }
 
 class JanetConnectionService : ConnectionService() {
+	private val hold by lazy { CallHold(this) }
+
+	override fun onDestroy() {
+		hold.stop()
+		super.onDestroy()
+	}
+
 	override fun onCreateOutgoingConnection(account: PhoneAccountHandle, request: ConnectionRequest): Connection {
 		val pairing = Settings(this).pairing() ?: return failed(NOT_PAIRED)
 		startForegroundCall()
+		hold.start()
 		val connection = JanetConnection(onGone = { record ->
+			hold.stop()
 			CallLog(applicationContext).add(record)
 			Calls.connection = null
 			Calls.stage = null
