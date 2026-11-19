@@ -128,13 +128,21 @@ export function familyOf(id: string): string {
 }
 
 function vendorOf(family: string): Vendor | "other" | undefined {
-	if (["gpt", "gpt-oss", "o", "codex"].includes(family)) return "openai";
+	if (["gpt", "gpt-oss", "o", "codex"].includes(family)) {
+		return "openai";
+	}
 
-	if (["gemini", "gemma"].includes(family)) return "google";
+	if (["gemini", "gemma"].includes(family)) {
+		return "google";
+	}
 
-	if (["claude", "fable"].includes(family)) return "anthropic";
+	if (["claude", "fable"].includes(family)) {
+		return "anthropic";
+	}
 
-	if (["qwen", "kimi", "deepseek", "glm", "command"].includes(family)) return "other";
+	if (["qwen", "kimi", "deepseek", "glm", "command"].includes(family)) {
+		return "other";
+	}
 
 	return undefined;
 }
@@ -378,8 +386,11 @@ function offerReasons(o: Offer, pools: Map<Pool, PoolState>, state: State): stri
 	if (state.notVendor) {
 		const vendor = vendorOf(o.family);
 
-		if (!vendor) reasons.push("model maker unknown for vendor exclusion");
-		else if (vendor === state.notVendor) reasons.push(`excluded maker: ${vendor}`);
+		if (!vendor) {
+			reasons.push("model maker unknown for vendor exclusion");
+		} else if (vendor === state.notVendor) {
+			reasons.push(`excluded maker: ${vendor}`);
+		}
 	}
 
 	if (pool.explicitOnly && state.dataClass !== "parcs") {

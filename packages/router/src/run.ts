@@ -45,7 +45,9 @@ export async function run(
 
 	const prepared = prepareDelegation(options.brief);
 
-	if (prepared.kind === "refused") throw new Error(prepared.reason);
+	if (prepared.kind === "refused") {
+		throw new Error(prepared.reason);
+	}
 
 	const brief = prepared.prompt;
 	const initialClass =

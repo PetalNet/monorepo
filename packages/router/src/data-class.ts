@@ -5,7 +5,9 @@ const SECRET_RE =
 
 /** A brief carrying a credential is sensitive whatever the flag says; the class only ever rises. */
 export function effectiveDataClass(flag: DataClass, brief: string): DataClass {
-	if (flag === "parcs" || /\b(?:PARCS|Bridgeton)\b/iu.test(brief)) return "parcs";
+	if (flag === "parcs" || /\b(?:PARCS|Bridgeton)\b/iu.test(brief)) {
+		return "parcs";
+	}
 
 	return SECRET_RE.test(brief) ? "sensitive" : flag;
 }

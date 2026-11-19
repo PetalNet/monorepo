@@ -22,7 +22,16 @@ import { redact } from "./adapters.ts";
 import { effectiveDataClass } from "./data-class.ts";
 import { evidenceKey, EFFORTS, halfLifeDays, readEvidence } from "./evidence.ts";
 import { readOpenEvidence } from "./open-evidence.ts";
-import { BLOCKS, POOLS, PLANS, type Catalog, type Pick, type State, offersFrom, pick } from "./pick.ts";
+import {
+	BLOCKS,
+	POOLS,
+	PLANS,
+	type Catalog,
+	type Pick,
+	type State,
+	offersFrom,
+	pick,
+} from "./pick.ts";
 import { run } from "./run.ts";
 import { readAvailability } from "./state.ts";
 
