@@ -53,6 +53,13 @@ class Research(unittest.TestCase):
         self.assertEqual(json.loads(output.stdout)['hookSpecificOutput']['permissionDecision'], 'deny')
         self.assertNotIn('private diagnostic', output.stdout + output.stderr)
 
+    def test_public_scope_does_not_query_the_private_vault(self):
+        self.config.write_text(json.dumps({'projects': {'demo': {'source_scope': 'public-only',
+                               'public_pointers': ['https://github.com/example/demo']}}}))
+        output = self.web('demo question')
+        self.assertEqual(json.loads(output.stdout)['hookSpecificOutput']['permissionDecision'], 'deny')
+        self.assertFalse((self.root / 'calls.jsonl').exists())
+
     def test_many_sources_are_bounded_and_report_truncation(self):
         output = self.web('many sources')
         context = json.loads(output.stdout)['hookSpecificOutput']['additionalContext']
