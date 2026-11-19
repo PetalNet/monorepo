@@ -1,0 +1,17 @@
+# Site files, fetched sources and build outputs reveal real locations and never belong here.
+site.json
+cache/
+build/
+*.tif
+*.tiff
+*.laz
+__pycache__/
+.pytest_cache/
+.ruff_cache/
+*.egg-info/
+
+# Unreal work products
+Binaries/
+Intermediate/
+Saved/
+DerivedDataCache/

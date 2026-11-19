@@ -34,6 +34,11 @@ extend-exclude = [
 ]
 
 [default.extend-words]
+# Unreal Engine: the UE_ macro prefix and "level of detail".
+UE = "UE"
+LOD = "LOD"
+# North-east-down, the aerospace axis convention.
+NED = "NED"
 # "mis-" prefix (e.g. mis-advertising) reads as a typo but is a valid English prefix.
 mis = "mis"
 # Proper nouns + identifiers that look like typos but aren't.

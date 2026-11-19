@@ -1,0 +1,21 @@
+{
+	"FileVersion": 3,
+	"Version": 1,
+	"VersionName": "0.1",
+	"FriendlyName": "EnvGen",
+	"Description": "Regenerates a level from an envgen build manifest, and provides the pawns and tours to inspect it.",
+	"Category": "World Building",
+	"CanContainContent": true,
+	"Modules": [
+		{
+			"Name": "EnvGen",
+			"Type": "Runtime",
+			"LoadingPhase": "Default"
+		},
+		{
+			"Name": "EnvGenEditor",
+			"Type": "Editor",
+			"LoadingPhase": "Default"
+		}
+	]
+}
