@@ -177,4 +177,21 @@ describe("matrix-reply-threading decide and plain", () => {
 			"[text](url) link",
 		]);
 	});
+
+	it("escapes a line-leading #number so it cannot render as a heading, and nudges the sender to name the repo", () => {
+		const r = send("#807 is merged\nmonorepo #809 too, and `#5` in a fence:\n```\n#12 stays\n```");
+
+		expect(r?.permissionDecision).toBe("allow");
+		expect(r?.updatedInput["text"]).toBe(
+			"\u200B#807 is merged\nmonorepo #809 too, and #5 in a fence:\n#12 stays",
+		);
+		expect(r?.additionalContext).toMatch(/name the repo/u);
+	});
+
+	it("escapes and nudges a bare line-leading #number with nothing else to convert; a named repo is left alone", () => {
+		expect(send("Eli asked:\n  #807 is merged")?.updatedInput["text"]).toBe(
+			"Eli asked:\n  \u200B#807 is merged",
+		);
+		expect(send("monorepo #807 is merged")).toBeNull();
+	});
 });
