@@ -96,7 +96,7 @@ What kind of ground each cell is comes from the imagery, but the split is fitted
 hand. Only sunlit ground is read: cover and shade hide the colour, so those cells take the class of the
 nearest ground that shows it.
 
-- Grass against the rest: Otsu's threshold on `(G - B) / (R + G + B)` over the sunlit cells. Vegetation
+- Grass against the rest: Otsu's threshold on `(G - B) / (R + G + B)` over the sunlit cells, each counted by its brightness (an index is a ratio, so it is noisiest where a cell is dark, and dark blue-leaning roofs and asphalt would otherwise take the cut for themselves). Vegetation
   reflects more green than blue; pavement and soil do not. The index is a share of brightness, so one
   material in sun and in dim light gives the same value.
 - Soil against paved: the same method on `(R - B) / (R + G + B)`, over the sunlit cells that are neither
