@@ -1,9 +1,10 @@
 import { Effect, Option } from "effect";
 
-import { inScope, workOf, type Filed, type Link } from "../../gallery-tree.js";
-import { listArtifacts, openFeedback } from "../db.js";
+import { inScope, projectKey, workOf, type Filed, type Link } from "../../gallery-tree.js";
+import { openFeedback } from "../db.js";
 import { StoreError, Viewer } from "./feedback.ts";
-import { GitHub, type Pull } from "./github.ts";
+import type { Pull } from "./github.ts";
+import { isTheirs, viewerInterest } from "./interest.ts";
 import type { Ongoing, OngoingRequest } from "./schema.ts";
 
 type OngoingPull = Ongoing["pulls"][number];
@@ -17,8 +18,8 @@ const REVIEW_RANK = { changes: 0, requested: 1, approved: 2, none: 2, draft: 3 }
  * The pull requests for one view of the gallery, most urgent first: failing checks, then changes
  * requested, then waiting for review; dependency bots last; newest first within each.
  *
- * "All projects" lists every pull request. A project sees the ones its pages link to, and a piece
- * of work sees itself.
+ * Without a project this is every pull request. A project sees the ones its pages link to, and a
+ * piece of work sees itself.
  */
 function pullsInScope(
 	pulls: readonly Pull[],
@@ -57,25 +58,23 @@ function pullsInScope(
 export const ongoing = (scope: Scope) =>
 	Effect.gen(function* () {
 		const { user } = yield* Viewer;
-		const github = yield* GitHub;
-		const pulls = yield* github.openPulls.pipe(
-			Effect.tapError((error) => Effect.logWarning("open pull requests unavailable", error)),
-			Effect.option,
-		);
-		const read = yield* Effect.try({
-			try: () => ({
-				artifacts: listArtifacts(user).map((a): Filed => ({ ...a, links: JSON.parse(a.links) })),
-				answers: openFeedback(user),
-			}),
+		const { artifacts, pulls, interest } = yield* viewerInterest;
+		const answers = yield* Effect.try({
+			try: () => openFeedback(user),
 			catch: (cause) => new StoreError({ cause }),
 		});
-		const slugs = new Set(inScope(read.artifacts, scope).map((a) => a.slug));
-
+		// Without a project, the view is the viewer's own unless they ask for everything.
+		const own = !scope.project && !scope.work && scope.show !== "all" && interest.focused;
+		const mine = artifacts.filter((a) => !own || interest.mine.has(projectKey(a.collection)));
+		const slugs = new Set(inScope(mine, scope).map((a) => a.slug));
+		const linked = new Set(mine.flatMap((a) => a.links.map((l) => l.url)));
 		const found = Option.getOrUndefined(pulls);
 
 		return {
 			github: Option.isNone(pulls) ? "unavailable" : found ? "ok" : "off",
-			pulls: pullsInScope(found ?? [], read.artifacts, scope),
-			answers: read.answers.filter((a) => slugs.has(a.slug)),
+			pulls: pullsInScope(found ?? [], artifacts, scope).filter(
+				(p) => !own || isTheirs(p, interest.login) || linked.has(p.url.toLowerCase()),
+			),
+			answers: answers.filter((a) => slugs.has(a.slug)),
 		} satisfies Ongoing;
 	});

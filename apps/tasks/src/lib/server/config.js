@@ -9,6 +9,8 @@ const person = z.object({
 		.regex(/^#[0-9a-f]{6}$/i)
 		.optional(),
 	kind: z.enum(["human", "agent"]),
+	/** GitHub login, so the gallery knows which pull requests are theirs. */
+	github: z.string().min(1).optional(),
 	aliases: z.array(z.string().min(1)).default([]),
 });
 

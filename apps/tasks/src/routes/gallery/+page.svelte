@@ -3,6 +3,7 @@
 	import { galleryHref, UNFILED } from "#lib/gallery-tree.js";
 	import Icon from "#lib/Icon.svelte";
 	import Ongoing from "#lib/Ongoing.svelte";
+	import ProjectChoice from "#lib/ProjectChoice.svelte";
 
 	let { data } = $props();
 
@@ -30,7 +31,9 @@
 			.toSorted(([x], [y]) => (x === "") - (y === ""))
 			.map(([label, artifacts]) => ({ label, artifacts }));
 	});
-	const scope = $derived(data.work || (data.project ? name(data.project) : "All projects"));
+	const scope = $derived(
+		data.work || (data.project ? name(data.project) : data.own ? "Your projects" : "All projects"),
+	);
 	const title = $derived(data.view === "ongoing" ? "Ongoing" : scope);
 </script>
 
@@ -39,6 +42,9 @@
 <div class="screen gallery">
 	<header class="head">
 		<h1>{title}</h1>
+		{#if data.project && !data.work && !data.view}
+			<ProjectChoice project={data.project} choice={data.choice} />
+		{/if}
 		{#if data.workUrl}
 			<a class="out mono" href={data.workUrl} target="_blank" rel="noopener noreferrer">GitHub ↗</a>
 		{/if}
@@ -78,6 +84,7 @@
 			ongoing={data.ongoing}
 			project={data.project}
 			work={data.work}
+			show={data.show}
 			peek={data.view === "ongoing" ? undefined : ONGOING_PEEK}
 		/>
 		{#if data.view === "ongoing" && data.ongoing.github !== "unavailable" && !asks.length && !data.ongoing.pulls.length && !data.ongoing.answers.length}
@@ -122,6 +129,12 @@
 				{/if}
 			</section>
 		{/each}
+	{/if}
+
+	{#if data.others && !data.view}
+		<a class="more others" href={galleryHref({ show: "all" })}
+			>{data.others} other {data.others === 1 ? "project" : "projects"}</a
+		>
 	{/if}
 </div>
 
@@ -211,6 +224,9 @@
 		font-size: 13px;
 		color: var(--text-3);
 		text-decoration: none;
+	}
+	.others {
+		margin-block-start: 28px;
 	}
 	.caught,
 	.empty {

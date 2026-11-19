@@ -297,6 +297,18 @@ db.exec(`
   CREATE INDEX IF NOT EXISTS idx_feedback_author ON feedback(author, status);
 `);
 
+// What one viewer chose for one project (follow or hide), and when they last opened it. The key is
+// the project's URL key: the collection, or "_" for unfiled pages.
+db.exec(`
+  CREATE TABLE IF NOT EXISTS viewer_projects (
+    viewer    TEXT NOT NULL,
+    project   TEXT NOT NULL,
+    choice    TEXT CHECK (choice IN ('follow','hide')),
+    opened_at TEXT,
+    PRIMARY KEY (viewer, project)
+  );
+`);
+
 // --- artifacts / pages gallery ---------------------------------------------
 // Human visibility gate, identical rule to tasks: a private artifact is owner-only.
 // `me` is ALWAYS supplied for web views, so the gate is never skipped there. Callers that
@@ -843,6 +855,55 @@ export const openFeedback = (viewer) =>
        FROM feedback f JOIN artifacts a ON a.slug=f.slug
        WHERE f.status!='resolved' AND (a.visibility='shared' OR a.owner=@viewer)
        GROUP BY a.slug ORDER BY latest DESC`,
+		)
+		.all({ viewer });
+
+/**
+ * @param {string} viewer
+ * @returns {{ project: string; choice: "follow" | "hide" | null; opened_at: string | null }[]}
+ */
+export const viewerProjects = (viewer) =>
+	db.prepare("SELECT project, choice, opened_at FROM viewer_projects WHERE viewer=?").all(viewer);
+
+/**
+ * @param {string} viewer
+ * @param {string} project
+ * @param {"follow" | "hide" | null} choice
+ */
+export const setProjectChoice = (viewer, project, choice) =>
+	db
+		.prepare(
+			`INSERT INTO viewer_projects (viewer, project, choice) VALUES (@viewer, @project, @choice)
+       ON CONFLICT (viewer, project) DO UPDATE SET choice=@choice`,
+		)
+		.run({ viewer, project, choice });
+
+/**
+ * @param {string} viewer
+ * @param {string} project
+ */
+export const markProjectOpened = (viewer, project) =>
+	db
+		.prepare(
+			`INSERT INTO viewer_projects (viewer, project, opened_at) VALUES (@viewer, @project, datetime('now'))
+       ON CONFLICT (viewer, project) DO UPDATE SET opened_at=datetime('now')`,
+		)
+		.run({ viewer, project });
+
+// The collections where a page asks this viewer something, and where this viewer left an answer.
+// Respects the viewer's visibility like every other listing.
+/**
+ * @param {string} viewer
+ * @returns {{ collection: string; asked: 0 | 1; answered: 0 | 1 }[]}
+ */
+export const viewerInvolvement = (viewer) =>
+	db
+		.prepare(
+			`SELECT a.collection,
+         MAX(EXISTS (SELECT 1 FROM json_each(a.caps) WHERE value='feedback')
+           AND EXISTS (SELECT 1 FROM json_each(a.audience) WHERE value=@viewer)) AS asked,
+         MAX(EXISTS (SELECT 1 FROM feedback f WHERE f.slug=a.slug AND f.author=@viewer)) AS answered
+       FROM artifacts a WHERE (a.visibility='shared' OR a.owner=@viewer) GROUP BY a.collection`,
 		)
 		.all({ viewer });
 

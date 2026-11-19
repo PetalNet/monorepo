@@ -8,11 +8,12 @@
 	 * 	ongoing: import("#lib/server/gallery/schema.ts").Ongoing;
 	 * 	project?: string;
 	 * 	work?: string;
+	 * 	show?: "all";
 	 * 	peek?: number;
 	 * }}
 	 */
 	// Without `peek` this is the whole list under the page's own "Ongoing" heading.
-	let { ongoing, project = "", work = "", peek } = $props();
+	let { ongoing, project = "", work = "", show, peek } = $props();
 
 	const CHECKS = {
 		failing: { icon: "failing", text: "Checks failing" },
@@ -87,7 +88,7 @@
 			</ul>
 		{/if}
 		{#if hidden > 0}
-			<a class="more" href={galleryHref({ project, work, view: "ongoing" })}
+			<a class="more" href={galleryHref({ project, work, show, view: "ongoing" })}
 				>All {ongoing.pulls.length} open pull requests</a
 			>
 		{/if}

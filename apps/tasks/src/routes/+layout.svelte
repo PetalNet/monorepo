@@ -1,8 +1,9 @@
 <script>
 	import "../app.css";
-	import { beforeNavigate } from "$app/navigation";
+	import { afterNavigate, beforeNavigate } from "$app/navigation";
 	import { page } from "$app/state";
 
+	import { openedProject } from "#lib/gallery.remote.ts";
 	import Icon from "#lib/Icon.svelte";
 	import NavSidebar from "#lib/NavSidebar.svelte";
 	import { displayName, setPeople } from "#lib/people.js";
@@ -24,6 +25,17 @@
 	});
 	beforeNavigate(() => {
 		navOpen = false;
+	});
+	// "Projects you opened" counts arrivals: this runs after a real navigation and on the first
+	// load, never for a link that was only preloaded. Once per project per visit is enough.
+	const told = new Set();
+	afterNavigate(() => {
+		const project = page.data.opened;
+
+		if (project && !told.has(project)) {
+			told.add(project);
+			void openedProject({ project }).catch(() => told.delete(project));
+		}
 	});
 	// the sheet is a modal on a phone: focus moves into it when it opens and back to the button when it closes
 	let sheetBtn = $state();
@@ -71,6 +83,7 @@
 		<NavSidebar
 			bind:collapsed
 			tree={data.tree}
+			focused={data.focused}
 			open={navOpen}
 			onnavigate={() => (navOpen = false)}
 		/>

@@ -41,6 +41,7 @@
 		LogOut,
 		Menu,
 		CircleX,
+		EyeOff,
 		CircleDashed,
 		Circle,
 	} from "@lucide/svelte";
@@ -78,6 +79,7 @@
 		shield: ShieldCheck,
 		edit: Pencil,
 		close: X,
+		hide: EyeOff,
 		failing: CircleX,
 		running: CircleDashed,
 		passing: CircleCheck,

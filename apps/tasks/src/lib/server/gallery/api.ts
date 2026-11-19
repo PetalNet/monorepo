@@ -14,14 +14,18 @@ import {
 	Viewer,
 } from "./feedback.ts";
 import { GitHubLive } from "./github.ts";
+import { choose, opened, ProjectNotFound } from "./interest.ts";
 import { MatrixPosterLive } from "./matrix.ts";
 import { ongoing } from "./ongoing.ts";
 import {
 	ArtifactState,
+	ChooseProject,
+	Done,
 	NeedsYou,
 	NeedsYouItem,
 	Ongoing,
 	OngoingRequest,
+	OpenedProject,
 	SendFeedback,
 	Sent,
 	StateRequest,
@@ -107,6 +111,34 @@ const listOngoing = operation({
 	errors: { StoreError: feedbackErrors.StoreError },
 });
 
+const projectErrors = {
+	ProjectNotFound: operationError(ProjectNotFound, { status: 404, message: "No such project" }),
+	StoreError: feedbackErrors.StoreError,
+} satisfies OperationErrors<ProjectNotFound | StoreError>;
+
+const chooseProject = operation({
+	name: "projects.choose",
+	description:
+		"Follow or hide a project for the signed-in viewer, or clear the choice so it follows their involvement.",
+	method: "PUT",
+	path: "/projects/:project/choice",
+	input: ChooseProject,
+	output: Done,
+	handler: ({ project, choice }) => Effect.as(choose(project, choice), {}),
+	errors: projectErrors,
+});
+
+const openedProject = operation({
+	name: "projects.opened",
+	description: "Record that the signed-in viewer went to a project or one of its pages.",
+	method: "POST",
+	path: "/projects/:project/opened",
+	input: OpenedProject,
+	output: Done,
+	handler: ({ project }) => Effect.as(opened(project), {}),
+	errors: projectErrors,
+});
+
 const services = Layer.merge(FeedbackLive.pipe(Layer.provide(MatrixPosterLive)), GitHubLive).pipe(
 	Layer.provide(FetchHttpClient.layer),
 );
@@ -116,7 +148,7 @@ export const galleryApi = createServer({
 	title: "Gallery API",
 	version: "1.0.0",
 	basePath: "/api/v1",
-	operations: [sendFeedback, needsYou, artifactState, listOngoing],
+	operations: [sendFeedback, needsYou, artifactState, listOngoing, chooseProject, openedProject],
 	services,
 	auth: { browser: browserAuthentication, errors: authenticationErrors, mcp: false },
 });
