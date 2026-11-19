@@ -64,6 +64,11 @@ const DENIED_SHAPES: [string, string, string][] = [
 	["/var/tmp", "dump in /var/tmp/core.1", "/var/tmp/core.1"],
 	["a path on its own line", "Report:\n/tmp/report.txt\nthanks", "/tmp/report.txt"],
 	["a path before a colon", "/tmp/x.log: 40 lines of errors", "/tmp/x.log"],
+	["an italic path", "see _/tmp/a.log_ now", "/tmp/a.log"],
+	["a bold path", "see **/home/agent/x** now", "/home/agent/x"],
+	["a file:// URL", "open file:///home/agent/x.png", "/home/agent/x.png"],
+	["a lone path in a fence", "see:\n```\n/home/agent/report.md\n```", "/home/agent/report.md"],
+	["/root and /dev/shm", "in /root/x and /dev/shm/y", "/root/x"],
 	["a path hidden outside the fence", "```\nok\n```\nnow /home/agent/x", "/home/agent/x"],
 ];
 
@@ -114,7 +119,7 @@ const PASSED: [string, string][] = [
 		"a path quoted in a fence",
 		"Log:\n```\ncd /home/agent/x && ls\ntail ~/.claude/y\n```\nThat is the failing line.",
 	],
-	["a path quoted in a longer fence", "```sh\n/tmp/a\n```\ntext\n```\n/home/b/c\n```"],
+	["a path quoted in a longer fence", "```sh\n/tmp/a\nls\n```\ntext\n```\n/home/b/c\nrm\n```"],
 	["plain prose", "Done. PR is up and CI is green."],
 	["empty text", ""],
 ];

@@ -11,7 +11,7 @@
 //   - NAS paths under /services/ and /mnt/, and /etc, /var/log: shared infrastructure Eli and Parker reach by
 //     mount or SSH, and system files named as a topic, not local scratch that only Janet's VM holds;
 //   - /Users/... and C:\...: a Mac or PC path is named to the person who owns that machine;
-//   - paths inside ``` fences: quoting a log, diff or command is the suggested fix, not a pointer.
+//   - paths inside ``` fences that quote a log, diff or command; a fence holding only a path still counts.
 // Fails open on bad input.
 //
 // One file with no dependencies, so Node runs it straight from the source tree: `node matrix-local-path-guard.ts < payload.json`.
@@ -22,16 +22,21 @@ const TOOL = "mcp__hermes-link__send_message";
 // The lookbehind rejects a root that continues a longer token: word chars, `.`, `/`, `-` (relative or URL paths),
 // `:` (host:/path), `~` and `$`.
 const LOCAL =
-	/(?<![\w./:~$-])(?:\/(?:home|tmp|run\/user|nix\/store|var\/tmp)\/[^\s"'`)\]>,;]+|(?:~|\$HOME|\$\{HOME\})\/[^\s"'`)\]>,;]*[^\s"'`)\]>,;.])/u;
+	/(?<![A-Za-z0-9./:~$-])(?:\/(?:home|root|tmp|run\/user|nix\/store|var\/tmp|dev\/shm)\/[^\s"'`)\]>,;<*]+|(?:~|\$HOME|\$\{HOME\})\/[^\s"'`)\]>,;<*]*[^\s"'`)\]>,;<*.])/u;
 const FIX =
 	"Eli and Parker cannot open files on Janet's box, and a .txt attachment does not get read either. Put the relevant content inline in the message (keep it short), or link a GitHub URL (a repo file, PR or gist). mcp__hermes-link__send_file is fine only for images, audio and video.";
 
 /** The first local path the message points at, or `null` when it may be sent. */
 export function localPath(text: string): string | null {
-	const prose = text.replace(/```[\s\S]*?```/gu, "");
+	// A fence that holds only a path is a pointer in a box, not a quotation.
+	const prose = text
+		.replace(/(?<![A-Za-z0-9])file:\/\/(?=\/)/gu, "")
+		.replace(/```[\s\S]*?```/gu, (fence) =>
+			/^```[^\n]*\n\s*\S+\s*```$/u.test(fence) ? fence : "",
+		);
 	const match = LOCAL.exec(prose);
 
-	return match === null ? null : match[0].replace(/[.:!?]+$/u, "");
+	return match === null ? null : match[0].replace(/[.:!?_]+$/u, "");
 }
 
 interface HookInput {
