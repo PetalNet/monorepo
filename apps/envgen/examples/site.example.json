@@ -18,7 +18,8 @@
 			"kind": "file",
 			"path": "points.laz",
 			"license": "licence of the lidar",
-			"date": "survey date"
+			"date": "survey date",
+			"leaf_off": true
 		},
 		"elevation": {
 			"kind": "arcgis_imageserver",

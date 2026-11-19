@@ -195,3 +195,17 @@ def test_with_a_mix_every_tree_has_a_species_a_trunk_and_a_crown_from_it_and_say
     assert near(found, *SMALL[:2])[0]["species"] in ("short plum", "cedar")
     assert manifest["trees"]["species_from"] == "a test inventory"
     assert any("drawn from a regional inventory" in prior for prior in manifest["trees"]["priors"])
+
+
+def test_a_mast_far_narrower_than_the_tiles_trees_of_its_height_is_not_a_tree():
+    rng = np.random.default_rng(2)
+    heights = rng.uniform(4, 25, 60)
+    found = [{"height_m": h_, "crown_radius_m": 0.5 * h_**0.8 * np.exp(rng.normal(0, 0.2))} for h_ in heights]
+    found += [{"height_m": 28.0, "crown_radius_m": 1.7}, {"height_m": 12.0, "crown_radius_m": 0.6}]
+
+    flags, fit = trees.too_narrow(found)
+
+    # Both masts go. So does the narrowest tree in every forty or so: the price of a cut at two deviations.
+    assert flags[60] and flags[61] and flags[:60].sum() <= 3 and fit["dropped"] == flags.sum()
+    # A few crowns are not enough to say what is narrow.
+    assert not trees.too_narrow(found[-5:])[0].any()

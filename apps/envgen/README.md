@@ -25,16 +25,17 @@ pip install -e ".[test]"
 envgen build site.json --out build/ --cache cache/
 ```
 
-| Stage        | Reads                                          | Writes                                                                                                  |
-| ------------ | ---------------------------------------------- | ------------------------------------------------------------------------------------------------------- |
-| Acquire      | `site.json` sources                            | each source clipped to the tile, once, into the cache                                                   |
-| Structure    | lidar points, if the site has them             | height above ground, and distance to the nearest ground return                                          |
-| Elevation    | the elevation raster                           | `heightmap.png`, 16-bit, Landscape layout                                                               |
-| Cover        | lidar heights, a canopy height raster, both    | `canopy_height.tif`, `sunlit.tif`, north-up at 1 m                                                      |
-| Surface      | the imagery raster, and which ground is sunlit | `surface_<class>.png`: one 8-bit weightmap per class                                                    |
-| Macro colour | the imagery, the sunlit ground and the classes | `macro_colour.png`, low-passed at 12 m within each class; albedo when the site has a reflectance raster |
-| Surround     | both rasters at coarse spacing, if asked for   | `context_heightmap.png`, `context_colour.png`                                                           |
-| Manifest     | everything above                               | `build.json`: placement, georeference, stencil classes, hashes                                          |
+| Stage        | Reads                                           | Writes                                                                                                  |
+| ------------ | ----------------------------------------------- | ------------------------------------------------------------------------------------------------------- |
+| Acquire      | `site.json` sources                             | each source clipped to the tile, once, into the cache                                                   |
+| Structure    | lidar points, if the site has them              | height above ground, and distance to the nearest ground return                                          |
+| Elevation    | the elevation raster                            | `heightmap.png`, 16-bit, Landscape layout                                                               |
+| Cover        | lidar heights, a canopy height raster, both     | `canopy_height.tif`, `sunlit.tif`, north-up at 1 m                                                      |
+| Surface      | the imagery raster, and which ground is sunlit  | `surface_<class>.png`: one 8-bit weightmap per class                                                    |
+| Macro colour | the imagery, the sunlit ground and the classes  | `macro_colour.png`, low-passed at 12 m within each class; albedo when the site has a reflectance raster |
+| Surround     | both rasters at coarse spacing, if asked for    | `context_heightmap.png`, `context_colour.png`                                                           |
+| Trees        | the cover rasters, the classes, a survey, a mix | `trees.json`: one row per tree                                                                          |
+| Manifest     | everything above                                | `build.json`: placement, georeference, stencil classes, hashes                                          |
 
 - A source is either a local raster (`"kind": "file"`) or an ArcGIS ImageServer
   (`"kind": "arcgis_imageserver"`), which covers USGS 3DEP elevation and many state imagery services.
@@ -54,6 +55,10 @@ envgen build site.json --out build/ --cache cache/
 - `sources.reflectance` is optional: a raster file of measured surface reflectance, 0 to 1, near the target date
   (an atmospherically corrected satellite scene, for example), with `bands` naming red, green and blue. It sets each
   class's albedo (see Albedo and light).
+- `sources.survey` is optional: a newer surface model of part of the tile (`path`) and its terrain model
+  (`terrain`), both files in one vertical frame, any frame. It adds trees the older sources lack (see Trees).
+- `sources.tree_mix` is optional: a JSON file of the region's tree species from a forest inventory (see Trees).
+- `"leaf_off": true` on `sources.lidar` says the survey was flown with the leaves down.
 - `"context": {"size_m": 4032}` is optional: a coarse surround of that side, centred on the tile, as
   a second heightmap and colour map. It passes 1 m under the detailed surface, so the tile does not
   end in a cliff against the sky. With a canopy height raster its colour leaves canopy out; the
@@ -148,6 +153,38 @@ Limits:
 - A bare-soil class needs soil that sets itself apart from the other ground by this test. Where it is a small share of unvegetated ground spread through the colours of paving, it is not found and stays paved.
 - Imagery from one date: dry turf can look like soil and green turf like a lawn; the split follows the day.
 
+### Trees
+
+With a cover stage the build writes `trees.json`: one row per tree with its position in metres east and north of
+the tile centre, height, crown radius, kind, species, trunk diameter, crown ratio, confidence, source and a
+seeded yaw.
+
+- **Where and how big** are measured. Cover that the imagery shows as vegetation is canopy; a roof is not. The
+  canopy heights are smoothed over 1 m and split into crowns: a top is a maximum that stands 1 m clear of any
+  saddle to a taller one, and a crown is the ground that drains to it (a watershed). Height is the highest cell;
+  the radius is that of the circle covering as much ground as the crown.
+- **Not trees.** Crown width is fitted against height over the tile's own crowns; a crown two robust standard
+  deviations narrower than the fit is dropped. On the real tile that took out 123 of 1502, light masts 28 m
+  tall and 4 m wide among them, and all but 5 were things the second canopy source did not see either.
+- **Sources.** Lidar heights first, the canopy raster where the lidar shows none, then the survey: its surface
+  model minus its own terrain model. The survey only adds crowns. On the real tile a surface model made from
+  photographs taken from above showed 6.6 % cover inside its footprint where the lidar showed 15.6 %, and not a
+  row of some 25 trees its own photographs show; its terrain sat on the elevation model with a residual of 1.1 m.
+  `build.json` reports both. Confidence is the share of the sources looking at a crown that see it.
+- **Kind** (broadleaf or conifer) is measured only when a leaf-off lidar's returns separate the crowns into two
+  populations by the share each stops, by the same test the surface classes use. On the real tile they did not
+  (nor did winter greenness at 10 m, nor near-infrared brightness), so no kind there is measured.
+- **Species** is a prior, and every tree says so: drawn from the mix by kind and height, each species weighted by
+  its share and by a log-normal through its measured 10th, 50th and 90th percentile height. The mix also gives
+  the trunk diameter (a line fitted to diameter against height) and the crown ratio (the share of the height
+  the crown takes). A mix file is `{"source": ..., "species": [{"name", "kind", "share", "height_m": {"p10",
+"p50", "p90"}, "trunk_diameter_m": [intercept, slope], "crown_ratio"}]}`.
+
+Limits: the lidar's heights are as old as its survey; a tree felled since is still there, with lower confidence
+only where a newer source looks. An inventory of forests describes forest trees, not ones grown in the open.
+Smoothing, prominence, the 4 m2 minimum, the half-crown rule for "seen" and the two deviations are set by hand
+and listed in `build.json` under `trees.settings`.
+
 ### Albedo and light
 
 The photo records ground lit by the sun and sky of the day. `build.json` `surface.albedo` is one scale that
@@ -240,7 +277,8 @@ and the shadows it casts are where astronomy puts them.
 - **EnvGenEditor** rebuilds the level when the editor starts with `-EnvGenManifest=<build.json> -EnvGenMaterials=<directory fetch-materials.ps1 filled>`. It
   deletes what an earlier run generated, then creates the Landscape with collision and one weight
   layer per surface class, the ground material, grass, the sun for the target day and a matching exposure, sky, a flat horizon plane, clamped exposure, a player start, and a site-info
-  actor carrying the georeference and stencil classes. When the manifest has a `context` block it
+  actor carrying the georeference and stencil classes. With a tree inventory it stands every tree on the surface
+  at its measured height and crown width (see Trees in the level). When the manifest has a `context` block it
   also imports that coarse surround as a second Landscape, which passes under the tile so the
   detailed surface does not end in a cliff against the sky. Once the engine has merged the Landscape's
   edit layers it traces the collision surface at fixed points and compares it with the imported
@@ -252,6 +290,14 @@ and the shadows it casts are where astronomy puts them.
   outermost surface, in that surface's mean colour. Without it the sky's empty lower half shows as a blue
   band past the surround. There is no distance fog: on 5.8.4 with exponential height fog everything past
   about 2 km, the plane included, drew dark navy, and planes of 100 km or more did not draw at all.
+- **Trees in the level.** `materials.json` names, for each kind, tree meshes that ship with the engine's
+  Procedural Vegetation Editor plugin (a broadleaf tree, a shrub and a conifer on 5.8); nothing is downloaded or
+  stored. Each tree takes the mesh of its kind that needs the least stretching, scaled to its height and crown
+  radius from the mesh's own bounds, instanced, casting shadows, with the tree stencil. Their leaves are Nanite
+  assemblies, so the host project sets `r.Nanite.Foliage`. Collision is separate and unseen: a cylinder for the
+  trunk up to the crown's base and one bounding the crown, from the species' trunk diameter and crown ratio, so a
+  tree without a species has none. The receipt counts the trees placed and traces down onto 25 of them: the build
+  fails if one is missing or its top is more than 5 cm under its measured height.
 - **EnvGen** has the walking pawn, the game mode and the tour actor.
 
 `unreal/Host` is a minimal project that hosts the plugin.
@@ -304,5 +350,5 @@ Before moving to a new engine version, these show whether it can host the work:
 
 ## Not in this slice
 
-Trees, shrubs and buildings, weather and a moving sun, the manual edit layer that regeneration leaves alone, and
+Buildings, a mesh for each species, wind, weather and a moving sun, the manual edit layer that regeneration leaves alone, and
 the simulator exports.

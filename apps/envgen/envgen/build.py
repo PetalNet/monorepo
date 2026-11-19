@@ -287,6 +287,11 @@ def build_trees(
     else:
         report["canopy_is"] = "prior: all cover, roofs included; the imagery has no vegetation split"
     labels, found = trees.crowns(height, (height > cutoff) & vegetated, lidar.CELL_M)
+    narrow, report["not_trees"] = trees.too_narrow(found)
+    for crown, drop in zip(found, narrow, strict=True):
+        if drop:
+            labels[labels == crown["label"]] = 0
+    found = [crown for crown, drop in zip(found, narrow, strict=True) if not drop]
 
     closures, threshold = None, None
     if site.lidar and site.lidar.leaf_off and found:

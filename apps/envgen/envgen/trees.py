@@ -29,12 +29,20 @@ CROWN_MIN_M2 = 4.0
 # A source counts as seeing a crown when it shows cover over this share of it. Hand-set.
 SEEN_SHARE = 0.5
 
+# A mast or a pole stands over the ground like a crown, far narrower than a tree that tall. Crown width is fitted
+# against height over the tile's own crowns (a power law, in logarithms); a crown this many robust standard
+# deviations narrower than the fit is not a tree. Hand-set criterion; the fit needs at least this many crowns.
+NARROW_SIGMAS = 2.0
+NARROW_MIN_CROWNS = 20
+
 SETTINGS = {
     "kind": "prior",
     "smooth_m": SMOOTH_M,
     "prominence_m": PROMINENCE_M,
     "crown_min_m2": CROWN_MIN_M2,
     "seen_share": SEEN_SHARE,
+    "narrow_sigmas": NARROW_SIGMAS,
+    "narrow_min_crowns": NARROW_MIN_CROWNS,
 }
 
 COLUMNS = (
@@ -92,6 +100,25 @@ def crowns(height_m: np.ndarray, cover: np.ndarray, cell_m: float) -> tuple[np.n
             }
         )
     return labels, found
+
+
+def too_narrow(found: list[dict]) -> tuple[np.ndarray, dict]:
+    """Which crowns are too narrow for their height to be trees, by the tile's own crowns. Returns a flag each, and the fit."""
+    flags = np.zeros(len(found), dtype=bool)
+    if len(found) < NARROW_MIN_CROWNS:
+        return flags, {"fitted": False, "reason": "too few crowns to fit crown width against height"}
+    height = np.log([crown["height_m"] for crown in found])
+    radius = np.log([crown["crown_radius_m"] for crown in found])
+    power, offset = np.polyfit(height, radius, 1)
+    residual = radius - (offset + power * height)
+    sigma = 1.4826 * np.median(np.abs(residual - np.median(residual)))
+    flags = residual < -NARROW_SIGMAS * sigma
+    return flags, {
+        "fitted": True,
+        "crown_radius_m": f"{math.exp(offset):.3f} * height_m ** {power:.3f}",
+        "sigma_log": float(sigma),
+        "dropped": int(flags.sum()),
+    }
 
 
 def closure(labels: np.ndarray, found: list[dict], canopy_returns: np.ndarray, all_returns: np.ndarray) -> np.ndarray:
