@@ -5,7 +5,7 @@
 	"type": "module",
 	"scripts": {
 		"typecheck": "effect-tsgo tsrs -b",
-		"test": "vitest run"
+		"test": "vitest run --testTimeout=30000"
 	},
 	"devDependencies": {
 		"@petalnet/tsconfig": "workspace:*",

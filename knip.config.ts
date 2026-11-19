@@ -95,7 +95,19 @@ export default (({ strict }) => ({
 		},
 		"packages/harness-hooks": {
 			// Each guard is a hook process Claude Code runs by path; the tests import its verdict.
-			entry: ["src/*-guard.ts!"],
+			// Helpers are exported for the tests, which production-mode Knip does not read.
+			ignoreIssues: { "src/**": ["exports"] },
+			entry: [
+				"src/*-guard.ts!",
+				"src/matrix-reply-reminder.ts!",
+				"src/matrix-reply-threading.ts!",
+				"src/main-thread-budget.ts!",
+				"src/main-thread-budget-run.ts!",
+				"src/main-thread-budget-notify.ts!",
+				"src/wake-filter.ts!",
+				"src/sessionstart-objectives.ts!",
+				"src/objectives-prune.ts!",
+			],
 		},
 		"packages/vault-cite": {
 			// The backfill ops scripts are production entrypoints an operator runs by hand, not imported.
