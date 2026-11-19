@@ -4,9 +4,7 @@ import { fileURLToPath } from "node:url";
 const script = fileURLToPath(new URL("../../../apps/fold-cards/bin/bundle.py", import.meta.url));
 
 /** Resolve project pointers and scan the entire brief before a worker receives it. */
-export function prepareDelegation(
-	prompt: string,
-):
+export function prepareDelegation(prompt: string):
 	| {
 			readonly kind: "ready";
 			readonly prompt: string;
