@@ -6,6 +6,12 @@
 // constraint word like Never/Do not/Only), and subagent_type planner. Subagents (agent_id present) are exempt:
 // the hook runs for them too, and only the main thread must not plan for workers. Fails open on bad input.
 //
+// It also enforces the effect-sveltekit/effect-api default for new web and API surfaces. A brief that builds a new service,
+// API, endpoint, server, daemon or web app and does not mention either package is denied when it names a JS/TS stack
+// (express, hono, fastify, koa, a bare +server.ts, SvelteKit, TypeScript), and gets an advisory note otherwise, unless it
+// is plainly something else (model inference, ML or data work, hooks, CLIs, Flutter, Rust). Naming either package, or
+// "not effect-sk because: ...", passes. Read-only subagent types (planner, reviewers, finders) and research briefs are exempt.
+//
 // One file with no dependencies, so Node runs it straight from the source tree: `node agent-brief-guard.ts < payload.json`.
 import { readFileSync, realpathSync } from "node:fs";
 import { pathToFileURL } from "node:url";
@@ -91,6 +97,39 @@ function numberedSteps(text: string) {
 	return best;
 }
 
+// A creation verb, a determiner, up to four plain words (no preposition or conjunction), then the thing created:
+// "build a small FastAPI service", "stand up the new bridge daemon". "build fails", "build it into the website",
+// "create the repo via the GitHub API" and "review the new service" do not match.
+const MAKE = String.raw`(?:build|builds|building|create|creates|creating|implement|implementing|stand up|spin up|scaffold|scaffolding|set up|setting up|develop|developing|bootstrap|ship)`;
+const DET = String.raw`(?:an?|the|new|another|our|small|tiny|simple|standalone|minimal)`;
+const WORDS = String.raw`(?:(?!(?:in|into|on|at|to|from|via|with|for|of|by|against|as|and|or|vs|that|which|it)\b)[\w/+.'“”"-]+ +){0,4}?`;
+const MAKE_A = String.raw`\b${MAKE} +${DET} +${WORDS}`;
+const NEW_SURFACE = new RegExp(
+	String.raw`${MAKE_A}(?:service|api|endpoint|server|daemon|web ?app|web demo|website|microservice|sidecar|connector|bot)s?\b(?! +(?:keys?|tokens?|credentials?|secrets?|calls?|requests?|clients?))`,
+	"iu",
+);
+// A JS/TS server or web stack other than effect-sveltekit: the case that is blocked outright.
+const JS_STACK =
+	/\b(?:express(?:\.js)?|hono|fastify|koa|nestjs|next\.js|nuxt|elysia|sveltekit|typescript|node(?:\.js)? +(?:http +)?(?:server|service|app|api))\b|\+server\.ts/iu;
+// Work that is not a JS web or API surface: model inference, ML and data, hooks, CLIs, mobile, other chosen languages.
+const NOT_JS_WEB =
+	/\b(?:inference|machine learning|ml|embeddings?|whisper|tts|stt|fine-?tun\w*|pytorch|cuda|hooks?|cli|flutter|android|ios|swift|rust|cargo|haskell|wyoming|home assistant|voice|data[- ]lake|exporters?)\b/iu;
+// A brief that investigates, reviews or verifies is not asking for a build, even if it discusses one.
+const READ_ONLY_OPENING =
+	/\b(?:research|review(?:er)?|audit|investigat\w*|evaluator|verifier|adversarial|diagnos\w*|study|validation only)\b/iu;
+const EFFECT_STACK = /effect[- ]?(?:sveltekit|sk|api)\b/iu;
+const READ_ONLY_TYPES = new Set([
+	"planner",
+	"Plan",
+	"code-reviewer",
+	"Explore",
+	"finder",
+	"librarian",
+	"claude-code-guide",
+]);
+const EFFECT_FIX =
+	'Rewrite the brief to build on packages/effect-sveltekit and packages/effect-api in PetalNet/monorepo (Effect services and layers, typed errors, SvelteKit remote functions), and tell the builder to read both packages plus one app that uses them (apps/grove) first. If it truly cannot be built that way, state why in the brief: "not effect-sk because: ...".';
+
 interface HookInput {
 	readonly tool_name?: unknown;
 	readonly agent_id?: unknown;
@@ -109,7 +148,7 @@ export function verdict(input: HookInput | null): string | null {
 		return null;
 	}
 
-	const prompt = tool.prompt.replace(/```[\s\S]*?```/gu, ""); // code and log excerpts are not instructions
+	const prompt = instructions(tool.prompt);
 	const steps = numberedSteps(prompt);
 	const sequencers = (prompt.match(SEQ) ?? []).length;
 
@@ -122,6 +161,62 @@ export function verdict(input: HookInput | null): string | null {
 	}
 
 	return null;
+}
+
+// Code and log excerpts are not instructions; markdown emphasis would split "a **/fetch endpoint**" from its verb.
+const instructions = (prompt: string) =>
+	prompt.replace(/```[\s\S]*?```/gu, "").replace(/[*_`]/gu, "");
+
+/**
+ * How a brief relates to the effect-sveltekit/effect-api default: `deny` for a new JS/TS web or API
+ * surface on another stack, `nudge` for a new service, API or web app in some other language that
+ * does not say why, else `null`.
+ */
+export function newSurfaceVerdict(input: HookInput | null): "deny" | "nudge" | null {
+	if (!["Agent", "Task"].includes(String(input?.tool_name)) || input?.agent_id) {
+		return null;
+	}
+
+	const tool = input?.tool_input ?? {};
+
+	if (READ_ONLY_TYPES.has(String(tool.subagent_type)) || typeof tool.prompt !== "string") {
+		return null;
+	}
+
+	const prompt = instructions(tool.prompt);
+
+	if (
+		EFFECT_STACK.test(prompt) ||
+		READ_ONLY_OPENING.test(prompt.slice(0, 250)) ||
+		!NEW_SURFACE.test(prompt)
+	) {
+		return null;
+	}
+
+	if (JS_STACK.test(prompt)) {
+		return "deny";
+	}
+
+	return NOT_JS_WEB.test(prompt) ? null : "nudge";
+}
+
+function effectDenial() {
+	return {
+		hookSpecificOutput: {
+			hookEventName: "PreToolUse",
+			permissionDecision: "deny",
+			permissionDecisionReason: `BLOCKED: this Agent brief asks for a new JS/TS web app, API or server on a stack other than effect-sveltekit and effect-api. New PetalNet web and API surfaces in JS/TS are built on those packages, not on Express, Hono, Fastify or a bare +server.ts. Fix: ${EFFECT_FIX}`,
+		},
+	};
+}
+
+function effectNudge() {
+	return {
+		hookSpecificOutput: {
+			hookEventName: "PreToolUse",
+			additionalContext: `NOTE: this brief builds a new service, API or web app and does not mention effect-sveltekit or effect-api. PetalNet's default for a JS/TS web or API surface is packages/effect-sveltekit and packages/effect-api (see apps/grove); if the work is JS/TS, rewrite the brief to build on them. A different language is fine when there is a reason (model inference, ML or data work, hooks, CLIs, Flutter, Rust): state it in the brief, for example "not effect-sk because: ...".`,
+		},
+	};
 }
 
 function denial(why: string) {
@@ -148,7 +243,15 @@ if (
 
 	const why = verdict(input);
 
-	if (why !== null) {
+	if (why === null) {
+		const surface = newSurfaceVerdict(input);
+
+		if (surface === "deny") {
+			process.stdout.write(JSON.stringify(effectDenial()));
+		} else if (surface === "nudge") {
+			process.stdout.write(JSON.stringify(effectNudge()));
+		}
+	} else {
 		process.stdout.write(JSON.stringify(denial(why)));
 	}
 

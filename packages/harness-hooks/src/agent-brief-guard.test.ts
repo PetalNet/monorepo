@@ -3,7 +3,7 @@ import { fileURLToPath } from "node:url";
 
 import { describe, expect, it } from "vitest";
 
-import { verdict } from "./agent-brief-guard.ts";
+import { newSurfaceVerdict, verdict } from "./agent-brief-guard.ts";
 
 const agent = (
 	prompt: string,
@@ -160,5 +160,133 @@ describe("agent-brief-guard as a hook process", () => {
 
 	it("fails open on bad input", () => {
 		expect(run("not json")).toBe("");
+	});
+});
+
+// Shapes taken from real past Janet briefs (names and details removed): what fired, and what must stay quiet.
+const DENY_SURFACE: [string, string][] = [
+	[
+		"a small SvelteKit web app",
+		"Build a small web app that shows a friend group when they are all free. Stack: SvelteKit 2 + Svelte 5, TypeScript, pnpm. Deploy to a dev host.",
+	],
+	[
+		"a server in TypeScript or Python, language left open",
+		"Goal: a live server for the notes app. Pick the language that fits (TypeScript/Bun or Express are fine). Create a new HTTP server with a PUT /v1/surface endpoint.",
+	],
+	["Hono", "Stand up a new Hono API that returns the build status, and deploy it behind Traefik."],
+	["a bare +server.ts", "Create an endpoint in a +server.ts route that returns the queue depth."],
+];
+
+const NUDGE_SURFACE: [string, string][] = [
+	[
+		"a small FastAPI service",
+		"Build a small FastAPI service for the media box that rate-limits the downloader.",
+	],
+	[
+		"a read-only MCP server",
+		"Build a read-only MCP server for the campus portal, with three tools.",
+	],
+	["a Python daemon", "Create a new daemon that polls the usage feed and posts to Matrix."],
+];
+
+const QUIET_SURFACE: [string, string][] = [
+	[
+		"names effect-sveltekit",
+		"Build a new web app on packages/effect-sveltekit and effect-api. Read both and apps/grove first.",
+	],
+	[
+		"states a reason",
+		"Build a new HTTP service in Express. not effect-sk because: it must match the vendor's SDK.",
+	],
+	["research", "Research how to build a new Hono service on Bun and compare it with SvelteKit."],
+	["review", "Review the PR that adds a new Express endpoint for correctness and report."],
+	[
+		"validation only",
+		"VALIDATION ONLY: prove we can read the inbox; do not build the production sidecar yet.",
+	],
+	["a fix to an existing app", "Fix the failing test in the SvelteKit app and open a PR."],
+	["a deploy", "Deploy the merged main of the web service to the lab host and verify health."],
+	["a hook", "Write a new Claude Code hook in TypeScript that blocks secrets."],
+	[
+		"model inference",
+		"Build a small service that runs Whisper inference on audio uploaded over HTTP.",
+	],
+	["a Flutter app", "Build a Flutter app with a small API client for the lab."],
+	["a Rust service", "Create a new Rust service with axum that serves the manifest."],
+	["a CLI", "Build a CLI that prints the usage table."],
+	["no service at all", "Fix the flaky test in the planner module and report root cause."],
+];
+
+describe("newSurfaceVerdict", () => {
+	it.each(DENY_SURFACE)("denies %s", (_name, prompt) => {
+		expect(newSurfaceVerdict(agent(prompt))).toBe("deny");
+	});
+
+	it.each(NUDGE_SURFACE)("nudges %s", (_name, prompt) => {
+		expect(newSurfaceVerdict(agent(prompt))).toBe("nudge");
+	});
+
+	it.each(QUIET_SURFACE)("stays quiet for %s", (_name, prompt) => {
+		expect(newSurfaceVerdict(agent(prompt))).toBeNull();
+	});
+
+	it("exempts read-only subagent types and subagents", () => {
+		const prompt = "Build a new Express server.";
+
+		expect(newSurfaceVerdict(agent(prompt, { subagent_type: "code-reviewer" }))).toBeNull();
+		expect(newSurfaceVerdict(agent(prompt, { subagent_type: "planner" }))).toBeNull();
+		expect(newSurfaceVerdict(agent(prompt, {}, { agent_id: "a1" }))).toBeNull();
+	});
+
+	it("ignores other tools, bad input and fenced code", () => {
+		expect(
+			newSurfaceVerdict({ tool_name: "Bash", tool_input: { prompt: "Build an Express server" } }),
+		).toBeNull();
+
+		expect(newSurfaceVerdict(null)).toBeNull();
+
+		expect(
+			newSurfaceVerdict(agent("Fix the bug.\n```\nbuild a new Express server\n```")),
+		).toBeNull();
+	});
+});
+
+describe("agent-brief-guard effect default as a hook process", () => {
+	const script = fileURLToPath(new URL("agent-brief-guard.ts", import.meta.url));
+	const run = (prompt: string) => {
+		const result = spawnSync(process.execPath, ["--no-warnings", script], {
+			input: JSON.stringify(agent(prompt)),
+			encoding: "utf8",
+		});
+
+		expect(result.status).toBe(0);
+
+		return result.stdout === ""
+			? null
+			: (JSON.parse(result.stdout) as { hookSpecificOutput: Record<string, string> });
+	};
+
+	it("denies a new Express service and names the fix", () => {
+		const out = run("Build a new Express server for the dashboard.");
+
+		expect(out?.hookSpecificOutput.permissionDecision).toBe("deny");
+
+		expect(out?.hookSpecificOutput.permissionDecisionReason).toContain(
+			"packages/effect-sveltekit and packages/effect-api",
+		);
+
+		expect(out?.hookSpecificOutput.permissionDecisionReason).toContain("apps/grove");
+		expect(out?.hookSpecificOutput.permissionDecisionReason).toContain("not effect-sk because");
+	});
+
+	it("only nudges a small FastAPI service, without a decision", () => {
+		const out = run("Build a small FastAPI service that returns the time.");
+
+		expect(out?.hookSpecificOutput.permissionDecision).toBeUndefined();
+		expect(out?.hookSpecificOutput.additionalContext).toContain("effect-sveltekit");
+	});
+
+	it("prints nothing for a brief that names the packages", () => {
+		expect(run("Build a new service on effect-api.")).toBeNull();
 	});
 });
