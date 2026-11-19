@@ -61,6 +61,8 @@ The existing `packages/harness-hooks/src/agent-brief-guard.ts` PreToolUse hook a
 
 `bin/research.py hook` is a PreToolUse hook for `WebSearch`, `web.run`, `web__run`, and `mcp__web__run` search requests. Set `RESEARCH_PROJECT` to the registered project and `VAULT_RESEARCH_ARGV` to the existing vault CLI argv, for example `["node", "/checkout/packages/vault-engine/src/cli.ts"]`. It calls the actual `research-check` operation for every question before allowing a web search, attaches the project pointers and checked lab IDs, and refuses on failure. Non-search tools are unchanged. Other web providers need an adapter before they are covered.
 
+The lab-first hook refuses search for public-only projects before calling the private vault. It requires a private project registration for its research-check and writeback flow.
+
 Install `bin/research.py stop` as a Stop hook in the same harness. Successful checks leave per-session receipts in `RESEARCH_STATE_DIR` (default `~/.local/state/lab-research`); receipts contain IDs and a question hash, never source passages. The Stop hook blocks completion until each question has a recorded run or explicit gaps. A failed web search can be closed with gaps rather than fabricated findings.
 
 ```sh
