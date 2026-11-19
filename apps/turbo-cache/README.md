@@ -64,8 +64,8 @@ curl --fail --silent --show-error https://turbo-cache.petalcat.dev/.well-known/j
 test "$(curl --silent --show-error -o /dev/null -w '%{http_code}' -X POST https://turbo-cache.petalcat.dev/exchange)" = 401
 ```
 
-The exchanger and the eviction sidecar share a small local `state` volume (created owned by
-1001:1001, from the exchanger image). Docker mounts the dataset for the cache and eviction containers alone (a named NFS
+The exchanger and the eviction sidecar share a small local `state` volume (created mode 1777 by the
+exchanger image, since the exchanger and the sidecar run as different users). Docker mounts the dataset for the cache and eviction containers alone (a named NFS
 volume), `soft` with `timeo=50,retrans=2`. A hung NAS fails each read and write with
 an I/O error within seconds, which Turbo treats as a cache miss, instead of freezing the
 server's worker threads. Docker will not start a container whose volume fails to mount, so

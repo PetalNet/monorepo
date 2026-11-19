@@ -106,15 +106,18 @@ export function createEventCounter(now: () => number = Date.now, saved?: typeof 
 				miss: hours.reduce((sum, item) => sum + item.miss, 0),
 			};
 		},
-		takeDirty(): typeof Saved.Type | null {
+		/** The state to persist, or null when nothing changed since the last `markSaved`. */
+		pending(): typeof Saved.Type | null {
 			if (!dirty) {
 				return null;
 			}
 
-			dirty = false;
 			prune();
 
 			return { since, buckets: Object.fromEntries(buckets) };
+		},
+		markSaved() {
+			dirty = false;
 		},
 	};
 }

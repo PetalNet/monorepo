@@ -58,10 +58,12 @@ describe("event counting", () => {
 
 		first.record({ hit: 2, miss: 2 });
 
-		const saved = first.takeDirty();
+		const saved = first.pending();
 
 		expect(saved).not.toBeNull();
-		expect(first.takeDirty()).toBeNull();
+		expect(first.pending()).not.toBeNull();
+		first.markSaved();
+		expect(first.pending()).toBeNull();
 		expect(createEventCounter(() => now, saved ?? undefined).snapshot().hit).toBe(2);
 	});
 });
@@ -259,6 +261,21 @@ describe("server", () => {
 			});
 
 			expect(authorized.status).toBe(200);
+
+			// The server may answer 4xx or drop the connection; it must not forward the body.
+			await fetch(url, {
+				method: "POST",
+				body: new ReadableStream({
+					start(controller) {
+						controller.enqueue(new Uint8Array(2_000_000));
+						controller.close();
+					},
+				}),
+				headers: { authorization: "Bearer good" },
+				duplex: "half",
+			} as RequestInit).catch(() => undefined);
+
+			expect(received.filter((item) => item.body.length > 1_048_576)).toEqual([]);
 			expect([events.snapshot().hit, events.snapshot().miss]).toEqual([1, 1]);
 
 			const forwarded = received.filter((item) => item.url.startsWith("/v8/artifacts/events"));

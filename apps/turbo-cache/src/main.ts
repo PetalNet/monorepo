@@ -69,15 +69,24 @@ const program = Effect.gen(function* () {
 	const stateDir = yield* Config.String("STATE_DIR").pipe(Config.withDefault("/state"));
 	const eventsFile = `${stateDir}/events.json`;
 	const events = createEventCounter(Date.now, yield* Effect.promise(() => loadEvents(eventsFile)));
-	const saveTimer = setInterval(() => {
-		const saved = events.takeDirty();
+	const save = async () => {
+		const saved = events.pending();
 
-		if (saved) {
-			saveEvents(eventsFile, saved).catch(() => undefined);
+		if (!saved) {
+			return;
 		}
-	}, 15_000);
+
+		try {
+			await saveEvents(eventsFile, saved);
+			events.markSaved();
+		} catch (error) {
+			console.error("could not save cache events", error);
+		}
+	};
+	const saveTimer = setInterval(() => void save(), 15_000);
 
 	saveTimer.unref();
+	yield* Effect.addFinalizer(() => Effect.promise(save));
 
 	const site = {
 		build: yield* Config.String("BUILD_SHA").pipe(Config.withDefault("dev")),
@@ -110,6 +119,7 @@ const program = Effect.gen(function* () {
 
 NodeRuntime.runMain(
 	program.pipe(
+		Effect.scoped,
 		Effect.provide([
 			NodeServices.layer,
 			FetchHttpClient.layer.pipe(

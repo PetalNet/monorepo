@@ -1,4 +1,6 @@
 import { Effect } from "effect";
+import * as ByteSize from "effect/ByteSize";
+import * as HttpIncomingMessage from "effect/http/HttpIncomingMessage";
 import * as HttpServerRequest from "effect/http/HttpServerRequest";
 import * as HttpServerResponse from "effect/http/HttpServerResponse";
 
@@ -101,7 +103,11 @@ export const application = (exchanger: Exchanger, site?: Site) => {
 				return HttpServerResponse.empty({ status: 413 });
 			}
 
-			const body = yield* request.text.pipe(Effect.orElseSucceed(() => null));
+			// The size limit also covers chunked bodies, which carry no content-length.
+			const body = yield* request.text.pipe(
+				Effect.provideService(HttpIncomingMessage.MaxBodySize, ByteSize.bytes(maxEventsBody)),
+				Effect.orElseSucceed(() => null),
+			);
 
 			if (body === null || body.length > maxEventsBody) {
 				return HttpServerResponse.empty({ status: 400 });

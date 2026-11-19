@@ -18,7 +18,6 @@ services:
       TURBO_TEAM: petalnet
       CACHE_URL: http://cache:3000
       BUILD_SHA: ${TURBO_CACHE_IMAGE_SHA}
-    user: "1001:1001"
     volumes:
       - state:/state
     secrets:
@@ -74,8 +73,8 @@ services:
     environment:
       CACHE_MAX_BYTES: ${TURBO_CACHE_MAX_BYTES:-42949672960}
       CACHE_STATUS_FILE: /state/storage.json
-    # The exchanger's image creates /state owned by 1001:1001; the volume takes that ownership
-    # from whichever container mounts it first.
+    # The exchanger's image creates /state with mode 1777 (the exchanger runs as the image's node
+    # user and this sidecar as 1001); the volume takes that from whichever container mounts it first.
     depends_on: [exchanger]
     volumes:
       - cache-data:/data
