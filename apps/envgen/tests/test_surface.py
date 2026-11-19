@@ -4,6 +4,7 @@ import numpy as np
 import pytest
 import rasterio
 from PIL import Image
+from scipy import ndimage
 
 from envgen import surface
 from envgen.build import build
@@ -79,14 +80,30 @@ def test_the_split_is_fitted_to_the_colours_in_the_tile_not_set_by_hand(tmp_path
 
 
 def test_dark_blue_cells_do_not_pull_the_cut_into_the_paving(tmp_path):
-    # A wide dark roof leans blue, far from both turf and paving in the index. Unweighted, it drags the cut down
-    # until paving counts as grass; counted by brightness it barely matters.
-    roof = (0, 100, 126, 126, (30, 30, 45))
-    out, manifest = grass_and_paved(tmp_path, h.GRASS, h.PAVED, [(40, 0, 90, 100, h.PAVED), roof])
+    # A dark roof leans blue, far from both turf and paving in the index. Counted equally with the rest it takes
+    # the cut for itself, and the paving is then called grass; counted by brightness it barely matters.
+    roof = (100, 0, 126, 126, (30, 28, 34))
+    out, manifest = grass_and_paved(tmp_path, (100, 110, 98), h.PAVED, [(40, 0, 90, 126, h.PAVED), roof])
 
     by_name = layers(out, manifest)
     assert at(by_name["paved"], 65, 50) == 255 and at(by_name["grass"], 20, 50) == 255
     assert manifest["surface"]["splits"][0]["threshold"] > 0
+
+
+def test_narrow_features_survive_because_each_cell_is_judged_before_any_averaging(tmp_path):
+    # A 2 m path through the grass, next to a large paved area that the fit needs. A colour averaged over a
+    # neighbourhood before it is judged would wash the path into the grass.
+    out, manifest = grass_and_paved(tmp_path, h.GRASS, h.PAVED, [(90, 0, 120, 126, h.PAVED), (20, 0, 22, 126, h.PAVED)])
+
+    by_name = layers(out, manifest)
+    assert at(by_name["paved"], 21, 60) == 255 and at(by_name["grass"], 50, 60) == 255
+
+
+def test_weights_sum_to_255_whatever_the_rounding():
+    rng = np.random.default_rng(2)
+    labels = np.digitize(ndimage.gaussian_filter(rng.normal(size=(80, 80)), 3), [-0.01, 0.01])
+
+    assert (sum(surface.weights(labels, 3, 1.0)).astype(int) == 255).all()
 
 
 def test_a_tile_of_one_population_stays_one_class_and_says_the_choice_was_a_prior(tmp_path):

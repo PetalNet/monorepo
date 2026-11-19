@@ -287,7 +287,7 @@ def build_surface(site: Site, imagery: Path, out: Path, covering: dict | None) -
 
 
 def read_weights(out: Path, layers: list[dict]) -> np.ndarray:
-    """The class weights back from their PNGs, north-up, as shares that sum to 1: (classes, rows, columns)."""
+    """The class weights back from their files, north-up, as shares that sum to 1: (classes, rows, columns)."""
     weights = [np.swapaxes(np.asarray(Image.open(out / layer["file"])), 0, 1)[::-1] for layer in layers]
     return np.stack(weights).astype(np.float32) / 255
 

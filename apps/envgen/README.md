@@ -25,16 +25,16 @@ pip install -e ".[test]"
 envgen build site.json --out build/ --cache cache/
 ```
 
-| Stage        | Reads                                        | Writes                                                         |
-| ------------ | -------------------------------------------- | -------------------------------------------------------------- |
-| Acquire      | `site.json` sources                          | each source clipped to the tile, once, into the cache          |
-| Structure    | lidar points, if the site has them           | height above ground, and distance to the nearest ground return |
-| Elevation    | the elevation raster                         | `heightmap.png`, 16-bit, Landscape layout                      |
-| Cover        | lidar heights, a canopy height raster, both  | `canopy_height.tif`, `sunlit.tif`, north-up at 1 m             |
-| Surface      | the imagery raster, and which ground is sunlit | `surface_<class>.png`: one 8-bit weightmap per class         |
-| Macro colour | the imagery, the sunlit ground and the classes | `macro_colour.png`, low-passed at 12 m within each class     |
-| Surround     | both rasters at coarse spacing, if asked for | `context_heightmap.png`, `context_colour.png`                  |
-| Manifest     | everything above                             | `build.json`: placement, georeference, stencil classes, hashes |
+| Stage        | Reads                                          | Writes                                                         |
+| ------------ | ---------------------------------------------- | -------------------------------------------------------------- |
+| Acquire      | `site.json` sources                            | each source clipped to the tile, once, into the cache          |
+| Structure    | lidar points, if the site has them             | height above ground, and distance to the nearest ground return |
+| Elevation    | the elevation raster                           | `heightmap.png`, 16-bit, Landscape layout                      |
+| Cover        | lidar heights, a canopy height raster, both    | `canopy_height.tif`, `sunlit.tif`, north-up at 1 m             |
+| Surface      | the imagery raster, and which ground is sunlit | `surface_<class>.png`: one 8-bit weightmap per class           |
+| Macro colour | the imagery, the sunlit ground and the classes | `macro_colour.png`, low-passed at 12 m within each class       |
+| Surround     | both rasters at coarse spacing, if asked for   | `context_heightmap.png`, `context_colour.png`                  |
+| Manifest     | everything above                               | `build.json`: placement, georeference, stencil classes, hashes |
 
 - A source is either a local raster (`"kind": "file"`) or an ArcGIS ImageServer
   (`"kind": "arcgis_imageserver"`), which covers USGS 3DEP elevation and many state imagery services.

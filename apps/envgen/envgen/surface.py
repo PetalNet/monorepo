@@ -199,6 +199,10 @@ def check_points(layers: list[np.ndarray], names: list[str]) -> list[dict]:
             quantiles = np.linspace(0.1, 0.9, CHECK_POINTS_PER_KIND)
             chosen += [tuple(np.unravel_index(cells[int(q * (len(cells) - 1))], kind.shape)) for q in quantiles]
     return [
-        {"east": int(east), "north": int(north), "weights": {name: int(layer[east, north]) for name, layer in zip(names, layers, strict=True)}}
+        {
+            "east": int(east),
+            "north": int(north),
+            "weights": {name: int(layer[east, north]) for name, layer in zip(names, layers, strict=True)},
+        }
         for east, north in dict.fromkeys(chosen)
     ]
