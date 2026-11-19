@@ -1,11 +1,12 @@
-import { isIsoDate, todayIso, toDay } from "$lib/dates";
-import { mergeBreakRows } from "$lib/server/calendar-breaks";
-import { getRenderedCollegeBreaks } from "$lib/server/college-breaks";
-import { db } from "$lib/server/db";
-import { breaks, colleges, users } from "$lib/server/db/schema";
-import { formText } from "$lib/server/form";
 import { fail } from "@sveltejs/kit";
 import { and, asc, eq } from "drizzle-orm";
+
+import { isIsoDate, todayIso, toDay } from "#lib/dates.ts";
+import { mergeBreakRows } from "#lib/server/calendar-breaks.ts";
+import { getRenderedCollegeBreaks } from "#lib/server/college-breaks.ts";
+import { db } from "#lib/server/db/index.ts";
+import { breaks, colleges, users } from "#lib/server/db/schema.ts";
+import { formText } from "#lib/server/form.ts";
 
 import type { Actions, PageServerLoad } from "./$types";
 

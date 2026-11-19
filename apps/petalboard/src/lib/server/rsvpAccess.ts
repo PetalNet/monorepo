@@ -1,9 +1,10 @@
 import { createHash, randomBytes } from "node:crypto";
 
-import { sendRsvpEmail, type RsvpEmailKind } from "$lib/server/email";
-import { prisma } from "$lib/server/prisma";
-import { EMAIL_LIMIT, IP_LIMIT, SEND_LIMIT, take } from "$lib/server/rateLimit";
 import type { Cookies } from "@sveltejs/kit";
+
+import { sendRsvpEmail, type RsvpEmailKind } from "#lib/server/email.ts";
+import { prisma } from "#lib/server/prisma.ts";
+import { EMAIL_LIMIT, IP_LIMIT, SEND_LIMIT, take } from "#lib/server/rateLimit.ts";
 
 const RSVP_COOKIE = "pb_rsvp";
 const SESSION_SECONDS = 400 * 24 * 60 * 60;

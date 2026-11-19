@@ -1,5 +1,6 @@
-import type { Bitmap, CodeElement, Symbology } from "$lib/doc";
 import type BwipJs from "bwip-js/generic";
+
+import type { Bitmap, CodeElement, Symbology } from "#lib/doc.ts";
 
 import type { Face } from "./fonts.ts";
 import { fillRect } from "./raster.ts";

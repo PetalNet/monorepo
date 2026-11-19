@@ -1,6 +1,7 @@
-import { prisma } from "$lib/server/prisma";
-import { consumeLink, createSession, setRsvpCookie } from "$lib/server/rsvpAccess";
 import { error, fail, redirect } from "@sveltejs/kit";
+
+import { prisma } from "#lib/server/prisma.ts";
+import { consumeLink, createSession, setRsvpCookie } from "#lib/server/rsvpAccess.ts";
 
 async function findEvent(code: string) {
 	const event = await prisma.event.findUnique({

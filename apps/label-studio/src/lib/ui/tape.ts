@@ -1,4 +1,4 @@
-import { DOTS_PER_MM, TAPES, type TapeWidthMm } from "$lib/doc";
+import { DOTS_PER_MM, TAPES, type TapeWidthMm } from "#lib/doc.ts";
 
 /** Physical cassette width; "4" is the 3.5 mm tape. */
 export const tapeMmActual = (width: TapeWidthMm): number => (width === 4 ? 3.5 : width);

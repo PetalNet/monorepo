@@ -3,9 +3,9 @@
  * on the main thread until one takes longer than a frame budget, then move to a Web Worker for the
  * rest of the session.
  */
-import type { Bitmap, LabelDoc, RenderOptions, RenderResult } from "$lib/doc";
-import { renderLabel } from "$lib/render";
-import { browserFonts } from "$lib/render/fonts";
+import type { Bitmap, LabelDoc, RenderOptions, RenderResult } from "#lib/doc.ts";
+import { browserFonts } from "#lib/render/fonts.ts";
+import { renderLabel } from "#lib/render/index.ts";
 
 import RenderWorker from "./render.worker.ts?worker";
 

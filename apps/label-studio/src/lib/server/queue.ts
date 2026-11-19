@@ -1,5 +1,5 @@
-import type { Job, JobStatus, StatusResponse } from "$lib/api";
-import type { LabelDoc, Vars } from "$lib/doc";
+import type { Job, JobStatus, StatusResponse } from "#lib/api.ts";
+import type { LabelDoc, Vars } from "#lib/doc.ts";
 
 import type { Printer, PrintOutcome } from "./printer.ts";
 import type { Store } from "./store.ts";

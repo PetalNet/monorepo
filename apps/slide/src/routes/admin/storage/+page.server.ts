@@ -1,6 +1,6 @@
 import { promises as fs } from "fs";
 
-import { prisma } from "$lib/server/db";
+import { prisma } from "#lib/server/db.ts";
 
 import type { PageServerLoad } from "./$types";
 

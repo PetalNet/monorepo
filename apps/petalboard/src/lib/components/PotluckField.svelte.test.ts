@@ -1,7 +1,8 @@
-// @vitest-environment happy-dom
-import { FRIENDSGIVING_POTLUCK, type PotluckView } from "$lib/potluck";
 import { flushSync, mount, tick, unmount } from "svelte";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+
+// @vitest-environment happy-dom
+import { FRIENDSGIVING_POTLUCK, type PotluckView } from "#lib/potluck.ts";
 
 import PotluckField from "./PotluckField.svelte";
 

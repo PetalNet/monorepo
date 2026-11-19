@@ -2,8 +2,8 @@ import { mkdirSync } from "node:fs";
 import path from "node:path";
 import { DatabaseSync } from "node:sqlite";
 
-import type { HistoryEntry, JobStatus } from "$lib/api";
-import type { LabelDoc, Template, TemplateField, Vars } from "$lib/doc";
+import type { HistoryEntry, JobStatus } from "#lib/api.ts";
+import type { LabelDoc, Template, TemplateField, Vars } from "#lib/doc.ts";
 
 /**
  * Each step runs once, in order; `user_version` records how many have run, so opening an existing

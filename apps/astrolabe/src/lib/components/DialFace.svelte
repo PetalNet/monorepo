@@ -1,6 +1,7 @@
 <script lang="ts">
-	import { polar } from "$lib/dial";
 	import type { Snippet } from "svelte";
+
+	import { polar } from "#lib/dial.ts";
 
 	let {
 		id,

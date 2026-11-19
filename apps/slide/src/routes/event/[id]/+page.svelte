@@ -1,13 +1,14 @@
 <script lang="ts">
 	import { enhance } from "$app/forms";
 	import { goto } from "$app/navigation";
-	import { invalidateAll } from "$app/navigation";
-	import PageContainer from "$lib/components/PageContainer.svelte";
-	import PageHeader from "$lib/components/PageHeader.svelte";
-	import { formatInTimezone, toDateTimeLocal, getTimezoneAbbr } from "$lib/utils/timezone";
+	import { refreshAll } from "$app/navigation";
 	import { formatDistanceToNow } from "date-fns";
 	import QRCode from "qrcode";
 	import { onMount } from "svelte";
+
+	import PageContainer from "#lib/components/PageContainer.svelte";
+	import PageHeader from "#lib/components/PageHeader.svelte";
+	import { formatInTimezone, toDateTimeLocal, getTimezoneAbbr } from "#lib/utils/timezone.ts";
 
 	let { data } = $props();
 	let qrCodeUrl = $state("");
@@ -86,7 +87,7 @@
 			editingCategories = false;
 			categories = [];
 			// Reload data properly
-			await invalidateAll();
+			await refreshAll();
 		}
 	}
 
@@ -141,7 +142,7 @@
 		});
 
 		if (response.ok) {
-			await invalidateAll();
+			await refreshAll();
 		}
 	}
 
@@ -533,7 +534,7 @@
 				use:enhance={() => {
 					return async ({ result }) => {
 						if (result.type === "success") {
-							await invalidateAll();
+							await refreshAll();
 							showEditModal = false;
 						} else if (result.type === "failure") {
 							alert(result.data?.error || "Failed to update settings");

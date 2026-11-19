@@ -1,7 +1,8 @@
 import { createServer, type Server } from "node:http";
 
-import { tapeGeometry } from "$lib/doc";
 import { afterEach, describe, expect, it } from "vitest";
+
+import { tapeGeometry } from "#lib/doc.ts";
 
 import { createPrinter } from "./printer.ts";
 import { listenLocal } from "./testing.ts";

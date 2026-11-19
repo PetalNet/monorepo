@@ -1,10 +1,11 @@
 <script lang="ts">
-	import { ringCapacity } from "$lib/dial";
-	import { limitWindowsFrom, readLimit } from "$lib/limits";
-	import type { Dossier } from "$lib/server/dossier";
-	import { sunCaption } from "$lib/sky";
 	import TriangleAlert from "@lucide/svelte/icons/triangle-alert";
 	import { onMount } from "svelte";
+
+	import { ringCapacity } from "#lib/dial.ts";
+	import { limitWindowsFrom, readLimit } from "#lib/limits.ts";
+	import type { Dossier } from "#lib/server/dossier.ts";
+	import { sunCaption } from "#lib/sky.ts";
 
 	import DayDial from "./DayDial.svelte";
 	import LimitPlaque from "./LimitPlaque.svelte";

@@ -3,15 +3,27 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 
-import { FRIENDSGIVING_POTLUCK, type PotluckConfig } from "$lib/potluck";
-import type * as PrismaModule from "$lib/server/prisma";
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
+
+import { FRIENDSGIVING_POTLUCK, type PotluckConfig } from "#lib/potluck.ts";
+import type * as PrismaModule from "#lib/server/prisma.ts";
 
 import type * as ManageServer from "../manage/[token]/+page.server";
 import type * as PageServer from "./+page.server";
 
-vi.mock("$env/dynamic/private", () => ({ env: process.env }));
-vi.mock("$lib/server/email", () => ({ sendRsvpEmail: vi.fn() }));
+vi.mock("$app/env/private", () => ({
+	get DATABASE_URL() {
+		return process.env.DATABASE_URL;
+	},
+	SPOTIFY_CLIENT_ID: "",
+	SPOTIFY_CLIENT_SECRET: "",
+	SPOTIFY_REDIRECT_URI: "",
+	RESEND_API_KEY: "",
+	EMAIL_FROM: "",
+	APP_URL: "",
+}));
+
+vi.mock("#lib/server/email.ts", () => ({ sendRsvpEmail: vi.fn() }));
 
 const dir = mkdtempSync(path.join(tmpdir(), "petalboard-potluck-"));
 
@@ -69,7 +81,7 @@ async function postAsGuest(
 	fields: Record<string, string>,
 	jar: Jar,
 ): Promise<any> {
-	const { readSession } = await import("$lib/server/rsvpAccess");
+	const { readSession } = await import("#lib/server/rsvpAccess.ts");
 	const event = await prisma.event.findUniqueOrThrow({ where: { publicCode } });
 	const expectedRsvpId = await readSession(cookieJar(jar) as never, event.id);
 
@@ -108,7 +120,7 @@ beforeAll(async () => {
 
 	({ actions } = await import("./+page.server"));
 	({ actions: manageActions } = await import("../manage/[token]/+page.server"));
-	({ prisma } = await import("$lib/server/prisma"));
+	({ prisma } = await import("#lib/server/prisma.ts"));
 }, 60_000);
 
 afterAll(async () => {
@@ -257,7 +269,7 @@ describe("potluck signups", () => {
 		}
 
 		const own = await prisma.rsvp.findFirstOrThrow({ where: { name: "Forced dessert 0" } });
-		const { createSession } = await import("$lib/server/rsvpAccess");
+		const { createSession } = await import("#lib/server/rsvpAccess.ts");
 		const jar: Jar = new Map([["pb_rsvp", await createSession(own.id)]]);
 		const edited = await postAsGuest(
 			"updateRsvp",

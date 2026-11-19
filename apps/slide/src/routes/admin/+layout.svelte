@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { page } from "$app/stores";
+	import { page } from "$app/state";
 
 	const navItems = [
 		{ href: "/admin", label: "Dashboard", icon: "📊" },
@@ -22,7 +22,7 @@
 						{#each navItems as item}
 							<a
 								href={item.href}
-								class="inline-flex items-center border-b-2 px-1 pt-1 text-sm font-medium {$page.url
+								class="inline-flex items-center border-b-2 px-1 pt-1 text-sm font-medium {page.url
 									.pathname === item.href
 									? 'border-red-500 text-gray-900'
 									: 'border-transparent text-gray-500 hover:border-gray-300 hover:text-gray-700'}"
@@ -43,7 +43,5 @@
 		</div>
 	</nav>
 
-	<main class="mx-auto max-w-7xl py-6 sm:px-6 lg:px-8">
-		<slot />
-	</main>
+	<main class="mx-auto max-w-7xl py-6 sm:px-6 lg:px-8"><slot></slot></main>
 </div>

@@ -1,6 +1,7 @@
-import { HEAD_PINS, type Bitmap, type RenderResult } from "$lib/doc";
-import { BUILTIN_TEMPLATES } from "$lib/templates/builtin";
 import { describe, expect, it } from "vitest";
+
+import { HEAD_PINS, type Bitmap, type RenderResult } from "#lib/doc.ts";
+import { BUILTIN_TEMPLATES } from "#lib/templates/builtin.ts";
 
 import { builtinVars, pageVars, renderPages, type Renderer } from "./labels.ts";
 

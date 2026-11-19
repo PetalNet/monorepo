@@ -7,7 +7,7 @@ import {
 	type TemplateCategory,
 	type TemplateField,
 	type Vars,
-} from "$lib/doc";
+} from "#lib/doc.ts";
 
 /** What survives a reload: the document, the template it came from and its field values. */
 export interface Session {

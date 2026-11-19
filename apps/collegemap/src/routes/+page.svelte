@@ -1,15 +1,16 @@
 <script lang="ts">
 	import { resolve } from "$app/paths";
-	import { groupUsersByCollege, type UserWithCollege } from "$lib/collegeGroups";
-	import { getLogoUrl } from "$lib/collegeLogos";
-	import ExportButton from "$lib/components/ExportButton.svelte";
+	import type { Map as LeafletMap } from "leaflet";
+	import { onMount } from "svelte";
+
+	import { groupUsersByCollege, type UserWithCollege } from "#lib/collegeGroups.ts";
 
 	import "leaflet/dist/leaflet.css";
 	import "leaflet.markercluster/dist/MarkerCluster.css";
-	import Map from "$lib/components/Map.svelte";
-	import Timeline from "$lib/components/Timeline.svelte";
-	import type { Map as LeafletMap } from "leaflet";
-	import { onMount } from "svelte";
+	import { getLogoUrl } from "#lib/collegeLogos.ts";
+	import ExportButton from "#lib/components/ExportButton.svelte";
+	import Map from "#lib/components/Map.svelte";
+	import Timeline from "#lib/components/Timeline.svelte";
 
 	import type { PageProps } from "./$types";
 
@@ -150,18 +151,20 @@
 	<header class="header">
 		<div class="header-left">
 			<svg class="header-icon" width="22" height="22" viewBox="0 0 24 24" fill="none">
-				<circle cx="12" cy="12" r="10" stroke="url(#grad)" stroke-width="2" />
-				<circle cx="12" cy="10" r="3" fill="url(#grad)" />
+				<circle cx="12" cy="12" r="10" stroke="url(#grad)" stroke-width="2"></circle>
+
+				<circle cx="12" cy="10" r="3" fill="url(#grad)"></circle>
+
 				<path
 					d="M6 20c0-3.3 2.7-6 6-6s6 2.7 6 6"
 					stroke="url(#grad)"
 					stroke-width="2"
 					stroke-linecap="round"
-				/>
+				></path>
 				<defs>
 					<linearGradient id="grad" x1="0" y1="0" x2="24" y2="24">
-						<stop stop-color="#6366f1" />
-						<stop offset="1" stop-color="#0ea5e9" />
+						<stop stop-color="#6366f1"></stop>
+						<stop offset="1" stop-color="#0ea5e9"></stop>
 					</linearGradient>
 				</defs>
 			</svg>
@@ -169,7 +172,7 @@
 		</div>
 
 		<div class="header-right">
-			<a href={resolve("/calendar")} class="btn-outline btn-icon">
+			<a href={resolve("calendar")} class="btn-outline btn-icon">
 				<svg
 					width="16"
 					height="16"
@@ -180,10 +183,10 @@
 					stroke-linecap="round"
 					stroke-linejoin="round"
 				>
-					<path d="M8 2v4" />
-					<path d="M16 2v4" />
-					<rect width="18" height="18" x="3" y="4" rx="2" />
-					<path d="M3 10h18" />
+					<path d="M8 2v4"></path>
+					<path d="M16 2v4"></path>
+					<rect width="18" height="18" x="3" y="4" rx="2"></rect>
+					<path d="M3 10h18"></path>
 				</svg>
 				<span class="btn-label">Breaks</span>
 			</a>
@@ -200,9 +203,9 @@
 					stroke="currentColor"
 					stroke-width="2"
 				>
-					<rect x="3" y="12" width="5" height="9" rx="1" />
-					<rect x="10" y="3" width="5" height="18" rx="1" />
-					<rect x="17" y="8" width="5" height="13" rx="1" />
+					<rect x="3" y="12" width="5" height="9" rx="1"></rect>
+					<rect x="10" y="3" width="5" height="18" rx="1"></rect>
+					<rect x="17" y="8" width="5" height="13" rx="1"></rect>
 				</svg>
 				<span class="leaderboard-label">Leaderboard</span>
 			</button>
@@ -213,13 +216,13 @@
 					{data.user.lastName}
 				</span>
 				{#if !data.user.hasCollege}
-					<a href={resolve("/profile")} class="btn-primary">Set Your College</a>
+					<a href={resolve("profile")} class="btn-primary">Set Your College</a>
 				{:else}
-					<a href={resolve("/profile")} class="btn-outline">Profile</a>
+					<a href={resolve("profile")} class="btn-outline">Profile</a>
 				{/if}
 			{:else}
-				<a href={resolve("/login")} class="btn-outline">Log In</a>
-				<a href={resolve("/signup")} class="btn-primary">Sign Up</a>
+				<a href={resolve("login")} class="btn-outline">Log In</a>
+				<a href={resolve("signup")} class="btn-primary">Sign Up</a>
 			{/if}
 		</div>
 	</header>
@@ -246,8 +249,8 @@
 				stroke="currentColor"
 				stroke-width="2"
 			>
-				<circle cx="11" cy="11" r="8" />
-				<path d="m21 21-4.35-4.35" />
+				<circle cx="11" cy="11" r="8"></circle>
+				<path d="m21 21-4.35-4.35"></path>
 			</svg>
 			<input
 				bind:this={searchInputEl}
@@ -303,12 +306,10 @@
 										fill="none"
 										stroke="currentColor"
 										stroke-width="2"
-										><path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0 1 18 0z" /><circle
-											cx="12"
-											cy="10"
-											r="3"
-										/></svg
 									>
+										<path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0 1 18 0z"></path>
+										<circle cx="12" cy="10" r="3"></circle>
+									</svg>
 								</div>
 							{/if}
 							<span class="search-result-name">{college.name}</span>
@@ -345,8 +346,8 @@
 					stroke="currentColor"
 					stroke-width="2"
 				>
-					<path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0 1 18 0z" />
-					<circle cx="12" cy="10" r="3" />
+					<path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0 1 18 0z"></path>
+					<circle cx="12" cy="10" r="3"></circle>
 				</svg>
 			</button>
 			<button
@@ -365,8 +366,8 @@
 				>
 					<path
 						d="M12 22c-4.97 0-9-2.69-9-6 0-2.37 2.33-4.46 4-5.5 0 0 1.5 2.5 3 2.5 1.11 0 1-1.5 1-1.5s2.5 1.5 2.5 4c0 1.1-.4 2.1-1 2.8.6-.3 1.2-1 1.5-1.8.5 1.1 1 2.3 1 3.5 0 3.31-1.03 2-3 2z"
-					/>
-					<path d="M12 14c-1 0-2.5-2-2.5-2s.5 3-1 4" />
+					></path>
+					<path d="M12 14c-1 0-2.5-2-2.5-2s.5 3-1 4"></path>
 				</svg>
 			</button>
 			<div class="view-toggle-divider"></div>
@@ -384,8 +385,8 @@
 					stroke="currentColor"
 					stroke-width="2"
 				>
-					<circle cx="12" cy="12" r="10" />
-					<polyline points="12 6 12 12 16 14" />
+					<circle cx="12" cy="12" r="10"></circle>
+					<polyline points="12 6 12 12 16 14"></polyline>
 				</svg>
 			</button>
 			<ExportButton {mapInstance} mapName={data.mapName} />
@@ -404,6 +405,7 @@
 		<!-- Leaderboard -->
 		{#if showLeaderboard}
 			<div class="lb-overlay" onclick={() => (showLeaderboard = false)} role="presentation"></div>
+
 			<aside class="lb-sidebar">
 				<div class="lb-header">
 					<h2 class="lb-title">Top Colleges</h2>
@@ -418,10 +420,8 @@
 							viewBox="0 0 24 24"
 							fill="none"
 							stroke="currentColor"
-							stroke-width="2"
+							stroke-width="2"><path d="M18 6 6 18M6 6l12 12"></path></svg
 						>
-							<path d="M18 6 6 18M6 6l12 12" />
-						</svg>
 					</button>
 				</div>
 

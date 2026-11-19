@@ -1,6 +1,7 @@
-import { findUserByName, verifyPassword, createSession } from "$lib/server/auth";
-import { formText } from "$lib/server/form";
 import { fail, redirect } from "@sveltejs/kit";
+
+import { findUserByName, verifyPassword, createSession } from "#lib/server/auth.ts";
+import { formText } from "#lib/server/form.ts";
 
 import type { Actions, PageServerLoad } from "./$types";
 

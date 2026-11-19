@@ -3,7 +3,7 @@
  * are JSON; errors are `{ error: string }` with a 4xx/5xx status and a message a person can act on
  * ("Cover open", not "HTTP 400").
  */
-import type { LabelDoc, TapeGeometry, Template, TemplateField, Vars } from "$lib/doc";
+import type { LabelDoc, TapeGeometry, Template, TemplateField, Vars } from "#lib/doc.ts";
 
 /** GET /api/status */
 export type PrinterState =

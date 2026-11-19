@@ -2,15 +2,16 @@
 	import "../app.css";
 	import { resolve } from "$app/paths";
 	import { page } from "$app/state";
-	import { editor } from "$lib/editor/editor.svelte";
-	import { chrome } from "$lib/ui/chrome.svelte";
-	import JobRow from "$lib/ui/JobRow.svelte";
-	import { jobs } from "$lib/ui/jobs.svelte";
-	import { printerStatus } from "$lib/ui/printer.svelte";
-	import PrinterSheet from "$lib/ui/PrinterSheet.svelte";
-	import StatusPill from "$lib/ui/StatusPill.svelte";
 	import { History, LayoutGrid, PenTool, Rows3 } from "@lucide/svelte";
 	import type { Snippet } from "svelte";
+
+	import { editor } from "#lib/editor/editor.svelte.ts";
+	import { chrome } from "#lib/ui/chrome.svelte.ts";
+	import JobRow from "#lib/ui/JobRow.svelte";
+	import { jobs } from "#lib/ui/jobs.svelte.ts";
+	import { printerStatus } from "#lib/ui/printer.svelte.ts";
+	import PrinterSheet from "#lib/ui/PrinterSheet.svelte";
+	import StatusPill from "#lib/ui/StatusPill.svelte";
 
 	let { children }: { children: Snippet } = $props();
 

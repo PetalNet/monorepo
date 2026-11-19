@@ -1,7 +1,8 @@
 <script lang="ts">
-	import { env } from "$env/dynamic/public";
-	import { loadGoogleMaps } from "$lib/utils/googleMaps";
+	import { PUBLIC_GOOGLE_MAPS_API_KEY } from "$app/env/public";
 	import { onMount, onDestroy } from "svelte";
+
+	import { loadGoogleMaps } from "#lib/utils/googleMaps.ts";
 
 	let {
 		value = $bindable(""),
@@ -25,7 +26,7 @@
 	let selectedIndex = $state(-1);
 	let sessionToken: google.maps.places.AutocompleteSessionToken | null = null;
 
-	const apiKey = env.PUBLIC_GOOGLE_MAPS_API_KEY;
+	const apiKey = PUBLIC_GOOGLE_MAPS_API_KEY;
 
 	onMount(async () => {
 		if (!apiKey || apiKey === "your-google-maps-api-key") {
@@ -153,10 +154,7 @@
 						fullscreenControl: false,
 					});
 
-					marker = new AdvancedMarkerElement({
-						map: map,
-						position: location,
-					});
+					marker = new AdvancedMarkerElement({ map, position: location });
 				} else if (map && marker) {
 					map.setCenter(location);
 					marker.position = location;
@@ -231,10 +229,8 @@
 				class="address-clear-btn"
 				onclick={clearLocation}
 				aria-label="Clear address"
-				onfocus={() => (selectedIndex = -1)}
+				onfocus={() => (selectedIndex = -1)}>✕</button
 			>
-				✕
-			</button>
 		{/if}
 		{#if isLoading}
 			<span class="text-primary-700 absolute top-1/2 right-4 -translate-y-1/2 animate-spin text-xl"

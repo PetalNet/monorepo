@@ -1,6 +1,6 @@
 import { readFile } from "node:fs/promises";
 
-import type { SourceId, SourceInfo, SourceRows } from "$lib/api";
+import type { SourceId, SourceInfo, SourceRows } from "#lib/api.ts";
 
 import { tlsEnv, type Config, type SourceConfig } from "../config.ts";
 import { getJson } from "./http.ts";

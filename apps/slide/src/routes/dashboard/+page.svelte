@@ -1,9 +1,10 @@
 <script lang="ts">
 	import { goto } from "$app/navigation";
-	import ParticleBackground from "$lib/components/ParticleBackground.svelte";
-	import { formatRelativeWithTimezone, getTimezoneAbbr } from "$lib/utils/timezone";
 	import { formatDistanceToNow } from "date-fns";
 	import { onMount } from "svelte";
+
+	import ParticleBackground from "#lib/components/ParticleBackground.svelte";
+	import { formatRelativeWithTimezone, getTimezoneAbbr } from "#lib/utils/timezone.ts";
 
 	let { data } = $props();
 	let showContent = $state(false);

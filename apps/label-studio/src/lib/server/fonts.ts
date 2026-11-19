@@ -1,7 +1,7 @@
 import { access, readFile } from "node:fs/promises";
 import path from "node:path";
 
-import type { FontSource } from "$lib/render";
+import type { FontSource } from "#lib/render/index.ts";
 
 /** The first existing of `$LABEL_STUDIO_FONT_DIR`, the built client fonts and the source fonts. */
 async function fontDir(): Promise<string> {

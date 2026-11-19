@@ -1,5 +1,6 @@
-import { BUILTIN_TEMPLATES } from "$lib/templates/builtin";
 import { describe, expect, it } from "vitest";
+
+import { BUILTIN_TEMPLATES } from "#lib/templates/builtin.ts";
 
 import { parse } from "./parse.ts";
 import { printRequest, renderRequest, templateInput } from "./schemas.ts";

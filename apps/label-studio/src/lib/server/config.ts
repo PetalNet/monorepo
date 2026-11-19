@@ -1,4 +1,4 @@
-import type { SourceId } from "$lib/api";
+import type { SourceId } from "#lib/api.ts";
 
 export interface SourceConfig {
 	url: string;

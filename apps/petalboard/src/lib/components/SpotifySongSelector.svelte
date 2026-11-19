@@ -1,5 +1,5 @@
 <script lang="ts">
-	import type { SpotifyTrack } from "$lib/server/spotify";
+	import type { SpotifyTrack } from "#lib/server/spotify.ts";
 
 	interface Props {
 		value?: string;

@@ -70,7 +70,7 @@ export const collegeMetadata = sqliteTable("college_metadata", {
  *
  * The dates are TEXT in `YYYY-MM-DD`, not timestamps, on purpose. "Winter break starts Dec 19"
  * means Dec 19 wherever you are standing; storing an instant would let a timezone shift it by a
- * day. See `$lib/dates`.
+ * day. See `#lib/dates.ts`.
  */
 export const breaks = sqliteTable("breaks", {
 	id: text("id")

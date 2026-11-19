@@ -1,5 +1,6 @@
-import { verifyUser, createSession } from "$lib/server/auth";
 import { fail, redirect } from "@sveltejs/kit";
+
+import { verifyUser, createSession } from "#lib/server/auth.ts";
 
 import type { Actions } from "./$types";
 

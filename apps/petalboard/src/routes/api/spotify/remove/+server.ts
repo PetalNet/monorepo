@@ -1,6 +1,7 @@
-import { prisma } from "$lib/server/prisma";
-import { removeTracksFromPlaylist, refreshAccessToken } from "$lib/server/spotify";
-import { json, error } from "@sveltejs/kit";
+import { error } from "@sveltejs/kit";
+
+import { prisma } from "#lib/server/prisma.ts";
+import { removeTracksFromPlaylist, refreshAccessToken } from "#lib/server/spotify.ts";
 
 export const POST = async ({ request, locals }) => {
 	try {
@@ -74,7 +75,7 @@ export const POST = async ({ request, locals }) => {
 		// Remove track from Spotify playlist
 		await removeTracksFromPlaylist(playlistId, [trackUri], accessToken);
 
-		return json({ success: true });
+		return Response.json({ success: true });
 	} catch (err: any) {
 		console.error("Remove track error:", err);
 

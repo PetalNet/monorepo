@@ -1,6 +1,7 @@
-import type { PrinterState } from "$lib/api";
-import { tapeGeometry, type LabelDoc } from "$lib/doc";
 import { afterEach, describe, expect, it } from "vitest";
+
+import type { PrinterState } from "#lib/api.ts";
+import { tapeGeometry, type LabelDoc } from "#lib/doc.ts";
 
 import type { Printer, PrintOptions, PrintOutcome } from "./printer.ts";
 import { PrintQueue, type PrintSpec } from "./queue.ts";

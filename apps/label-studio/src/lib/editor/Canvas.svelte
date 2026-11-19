@@ -1,11 +1,12 @@
 <script lang="ts">
-	import { dotsToMm, mmToDots, tapeGeometry, type Box, type LabelElement } from "$lib/doc";
-	import Dimension from "$lib/ui/Dimension.svelte";
-	import { LiveRender, paint } from "$lib/ui/render.svelte";
-	import Skeleton from "$lib/ui/Skeleton.svelte";
-	import { tapeAcross, tapeMmActual } from "$lib/ui/tape";
 	import type { Snippet } from "svelte";
 	import { SvelteMap } from "svelte/reactivity";
+
+	import { dotsToMm, mmToDots, tapeGeometry, type Box, type LabelElement } from "#lib/doc.ts";
+	import Dimension from "#lib/ui/Dimension.svelte";
+	import { LiveRender, paint } from "#lib/ui/render.svelte.ts";
+	import Skeleton from "#lib/ui/Skeleton.svelte";
+	import { tapeAcross, tapeMmActual } from "#lib/ui/tape.ts";
 
 	import { editor } from "./editor.svelte";
 	import { frameSize, mapElements, unionBox } from "./model";

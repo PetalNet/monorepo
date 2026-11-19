@@ -1,4 +1,4 @@
-import type { DesignRef, PrintRequest, RenderRequest, TemplateInput } from "$lib/api";
+import type { DesignRef, PrintRequest, RenderRequest, TemplateInput } from "#lib/api.ts";
 import {
 	isTapeWidth,
 	type LabelDoc,
@@ -7,7 +7,7 @@ import {
 	type TemplateCategory,
 	type TemplateField,
 	type Vars,
-} from "$lib/doc";
+} from "#lib/doc.ts";
 
 import {
 	array,

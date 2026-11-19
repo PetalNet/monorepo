@@ -16,18 +16,20 @@
 		<div class="auth-card">
 			<div class="auth-logo">
 				<svg width="36" height="36" viewBox="0 0 24 24" fill="none">
-					<circle cx="12" cy="12" r="10" stroke="url(#loginGrad)" stroke-width="2" />
-					<circle cx="12" cy="10" r="3" fill="url(#loginGrad)" />
+					<circle cx="12" cy="12" r="10" stroke="url(#loginGrad)" stroke-width="2"></circle>
+
+					<circle cx="12" cy="10" r="3" fill="url(#loginGrad)"></circle>
+
 					<path
 						d="M6 20c0-3.3 2.7-6 6-6s6 2.7 6 6"
 						stroke="url(#loginGrad)"
 						stroke-width="2"
 						stroke-linecap="round"
-					/>
+					></path>
 					<defs>
 						<linearGradient id="loginGrad" x1="0" y1="0" x2="24" y2="24">
-							<stop stop-color="#6366f1" />
-							<stop offset="1" stop-color="#0ea5e9" />
+							<stop stop-color="#6366f1"></stop>
+							<stop offset="1" stop-color="#0ea5e9"></stop>
 						</linearGradient>
 					</defs>
 				</svg>
@@ -71,7 +73,7 @@
 
 			<p class="auth-link">
 				Don't have an account?
-				<a href={resolve("/signup")}>Sign up</a>
+				<a href={resolve("signup")}>Sign up</a>
 			</p>
 		</div>
 	</div>

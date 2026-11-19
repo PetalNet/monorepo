@@ -1,5 +1,6 @@
-import { deleteSession } from "$lib/server/auth";
 import { redirect } from "@sveltejs/kit";
+
+import { deleteSession } from "#lib/server/auth.ts";
 
 import type { RequestHandler } from "./$types";
 

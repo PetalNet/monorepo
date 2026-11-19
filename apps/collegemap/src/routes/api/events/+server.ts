@@ -1,4 +1,4 @@
-import { subscribe, unsubscribe } from "$lib/server/events";
+import { subscribe, unsubscribe } from "#lib/server/events.ts";
 
 import type { RequestHandler } from "./$types";
 

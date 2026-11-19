@@ -1,10 +1,9 @@
-import type { RenderResponse } from "$lib/api";
-import { tapeGeometry } from "$lib/doc";
-import { getApp } from "$lib/server/app";
-import { fail, readBody, renderRequestPages } from "$lib/server/http";
-import { pngDataUrl } from "$lib/server/png";
-import { renderRequest } from "$lib/server/schemas";
-import { json } from "@sveltejs/kit";
+import type { RenderResponse } from "#lib/api.ts";
+import { tapeGeometry } from "#lib/doc.ts";
+import { getApp } from "#lib/server/app.ts";
+import { fail, readBody, renderRequestPages } from "#lib/server/http.ts";
+import { pngDataUrl } from "#lib/server/png.ts";
+import { renderRequest } from "#lib/server/schemas.ts";
 
 import type { RequestHandler } from "./$types";
 
@@ -33,5 +32,5 @@ export const POST: RequestHandler = async ({ request }) => {
 		})),
 	};
 
-	return json(response);
+	return Response.json(response);
 };

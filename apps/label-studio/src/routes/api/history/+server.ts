@@ -1,6 +1,5 @@
-import { getApp } from "$lib/server/app";
-import { fail } from "$lib/server/http";
-import { json } from "@sveltejs/kit";
+import { getApp } from "#lib/server/app.ts";
+import { fail } from "#lib/server/http.ts";
 
 import type { RequestHandler } from "./$types";
 
@@ -16,5 +15,5 @@ export const GET: RequestHandler = ({ url }) => {
 
 	const before = url.searchParams.get("before") ?? undefined;
 
-	return json({ entries: getApp().store.listHistory(limit, before) });
+	return Response.json({ entries: getApp().store.listHistory(limit, before) });
 };

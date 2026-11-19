@@ -1,15 +1,16 @@
 <script lang="ts">
-	import { invalidateAll } from "$app/navigation";
-	import LabPlate from "$lib/components/LabPlate.svelte";
-	import Orloj from "$lib/components/Orloj.svelte";
+	import { refreshAll } from "$app/navigation";
 	import { onMount } from "svelte";
+
+	import LabPlate from "#lib/components/LabPlate.svelte";
+	import Orloj from "#lib/components/Orloj.svelte";
 
 	import type { PageProps } from "./$types";
 
 	let { data }: PageProps = $props();
 
 	onMount(() => {
-		const interval = window.setInterval(() => void invalidateAll(), 30_000);
+		const interval = window.setInterval(() => void refreshAll(), 30_000);
 
 		return () => {
 			window.clearInterval(interval);

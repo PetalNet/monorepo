@@ -1,6 +1,7 @@
 <script lang="ts">
-	import { placeholders } from "$lib/doc";
 	import { LayoutGrid } from "@lucide/svelte";
+
+	import { placeholders } from "#lib/doc.ts";
 
 	import { editor } from "./editor.svelte";
 

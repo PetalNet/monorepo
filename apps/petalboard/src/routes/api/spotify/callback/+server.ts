@@ -1,6 +1,7 @@
-import { prisma } from "$lib/server/prisma";
-import { exchangeCodeForToken } from "$lib/server/spotify";
 import { redirect } from "@sveltejs/kit";
+
+import { prisma } from "#lib/server/prisma.ts";
+import { exchangeCodeForToken } from "#lib/server/spotify.ts";
 
 import type { RequestHandler } from "./$types";
 

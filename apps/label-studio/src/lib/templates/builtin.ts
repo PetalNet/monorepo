@@ -1,5 +1,5 @@
 /** The read-only gallery: every built-in template, grouped by category in display order. */
-import type { Template } from "$lib/doc";
+import type { Template } from "#lib/doc.ts";
 
 import { GARDEN } from "./garden.ts";
 import { HOME } from "./home.ts";

@@ -1,6 +1,8 @@
 <script lang="ts">
-	import BoxBottom from "$lib/BoxBottom.svelte";
-	import BoxTop from "$lib/BoxTop.svelte";
+	import { SvelteSet } from "svelte/reactivity";
+
+	import BoxBottom from "#lib/BoxBottom.svelte";
+	import BoxTop from "#lib/BoxTop.svelte";
 	import {
 		collectSignals,
 		linkabilityHash,
@@ -8,25 +10,24 @@
 		type Signal,
 		type SignalCategory,
 		type Repro,
-	} from "$lib/collect";
+	} from "#lib/collect.ts";
 	import {
 		checkConsistency,
 		verdictOf,
 		type Contradiction,
 		type EdgeTrace,
 		type Verdict,
-	} from "$lib/consistency";
-	import { INDICATORS, watchDomInjection, type DomFinding } from "$lib/dom-injection";
-	import { detectExtensions, type ExtFinding } from "$lib/extensions";
+	} from "#lib/consistency.ts";
+	import { INDICATORS, watchDomInjection, type DomFinding } from "#lib/dom-injection.ts";
+	import { detectExtensions, type ExtFinding } from "#lib/extensions.ts";
 	import {
 		readCarriedRef,
 		buildJumpUrl,
 		compareHashes,
 		type CarriedRef,
 		type LinkResult,
-	} from "$lib/linkability";
-	import { fetchTrace } from "$lib/trace";
-	import { SvelteSet } from "svelte/reactivity";
+	} from "#lib/linkability.ts";
+	import { fetchTrace } from "#lib/trace.ts";
 
 	import type { PageData } from "./$types";
 

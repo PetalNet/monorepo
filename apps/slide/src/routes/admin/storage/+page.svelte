@@ -1,6 +1,6 @@
 <script lang="ts">
-	import PageContainer from "$lib/components/PageContainer.svelte";
-	import PageHeader from "$lib/components/PageHeader.svelte";
+	import PageContainer from "#lib/components/PageContainer.svelte";
+	import PageHeader from "#lib/components/PageHeader.svelte";
 
 	import type { PageData } from "./$types";
 

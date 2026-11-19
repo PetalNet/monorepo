@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { invalidateAll } from "$app/navigation";
+	import { refreshAll } from "$app/navigation";
 	import { onMount } from "svelte";
 
 	/** A running clock down to `to`. `from` is the server's "now", so the first paint is honest. */
@@ -21,7 +21,7 @@
 			// The door should have unlocked: load the strip again, and keep asking until `to` moves on.
 			if (now >= Date.parse(to) && Date.now() - asked >= RETRY) {
 				asked = Date.now();
-				void invalidateAll();
+				void refreshAll();
 			}
 		};
 

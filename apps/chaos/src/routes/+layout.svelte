@@ -1,8 +1,9 @@
 <script lang="ts">
 	import { resolve } from "$app/paths";
-	import favicon from "$lib/assets/favicon.svg";
-	import ThemeToggle from "$lib/components/ThemeToggle.svelte";
 	import type { Snippet } from "svelte";
+
+	import favicon from "#lib/assets/favicon.svg";
+	import ThemeToggle from "#lib/components/ThemeToggle.svelte";
 
 	import "../app.css";
 

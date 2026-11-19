@@ -1,25 +1,26 @@
 <script lang="ts">
-	import type { SourceId, SourceInfo } from "$lib/api";
-	import { dotsToMm, placeholders, type LabelDoc, type Vars } from "$lib/doc";
-	import { applyMap, autoMap, parseTable, type ColumnMap, type Table } from "$lib/editor/batch";
-	import { editor } from "$lib/editor/editor.svelte";
-	import { resolveVars } from "$lib/editor/persist";
-	import Banner from "$lib/ui/Banner.svelte";
-	import Button from "$lib/ui/Button.svelte";
-	import { chrome } from "$lib/ui/chrome.svelte";
-	import { api, errorText } from "$lib/ui/client";
-	import PrintButton from "$lib/ui/PrintButton.svelte";
-	import PrintSheet from "$lib/ui/PrintSheet.svelte";
-	import Row from "$lib/ui/Row.svelte";
-	import Segmented from "$lib/ui/Segmented.svelte";
-	import Select from "$lib/ui/Select.svelte";
-	import Skeleton from "$lib/ui/Skeleton.svelte";
-	import Switch from "$lib/ui/Switch.svelte";
-	import TapeLabel from "$lib/ui/TapeLabel.svelte";
-	import { templates } from "$lib/ui/templates.svelte";
-	import { formatMm, relativeTime } from "$lib/ui/words";
 	import { CircleCheck, FileUp, Server } from "@lucide/svelte";
 	import { SvelteSet } from "svelte/reactivity";
+
+	import type { SourceId, SourceInfo } from "#lib/api.ts";
+	import { dotsToMm, placeholders, type LabelDoc, type Vars } from "#lib/doc.ts";
+	import { applyMap, autoMap, parseTable, type ColumnMap, type Table } from "#lib/editor/batch.ts";
+	import { editor } from "#lib/editor/editor.svelte.ts";
+	import { resolveVars } from "#lib/editor/persist.ts";
+	import Banner from "#lib/ui/Banner.svelte";
+	import Button from "#lib/ui/Button.svelte";
+	import { chrome } from "#lib/ui/chrome.svelte.ts";
+	import { api, errorText } from "#lib/ui/client.ts";
+	import PrintButton from "#lib/ui/PrintButton.svelte";
+	import PrintSheet from "#lib/ui/PrintSheet.svelte";
+	import Row from "#lib/ui/Row.svelte";
+	import Segmented from "#lib/ui/Segmented.svelte";
+	import Select from "#lib/ui/Select.svelte";
+	import Skeleton from "#lib/ui/Skeleton.svelte";
+	import Switch from "#lib/ui/Switch.svelte";
+	import TapeLabel from "#lib/ui/TapeLabel.svelte";
+	import { templates } from "#lib/ui/templates.svelte.ts";
+	import { formatMm, relativeTime } from "#lib/ui/words.ts";
 
 	type Input = "paste" | "file" | "source";
 

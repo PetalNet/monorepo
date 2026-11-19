@@ -1,4 +1,4 @@
-import type { Bitmap } from "$lib/doc";
+import type { Bitmap } from "#lib/doc.ts";
 
 /** A flattened subpath in pixel space: `[x0, y0, x1, y1, ...]`. */
 export interface Polyline {

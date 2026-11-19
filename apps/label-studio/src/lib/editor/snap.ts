@@ -1,4 +1,4 @@
-import type { Box } from "$lib/doc";
+import type { Box } from "#lib/doc.ts";
 
 /** A guide line the editor draws while snapping, in frame dots. */
 export interface Guide {

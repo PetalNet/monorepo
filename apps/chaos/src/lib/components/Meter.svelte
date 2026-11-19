@@ -1,7 +1,8 @@
 <script lang="ts">
-	import { day } from "$lib/format";
-	import type { Gauge, Level } from "$lib/server/weekly";
 	import type { Snippet } from "svelte";
+
+	import { day } from "#lib/format.ts";
+	import type { Gauge, Level } from "#lib/server/weekly.ts";
 
 	import Dial from "./Dial.svelte";
 	import SourceLine from "./SourceLine.svelte";

@@ -1,13 +1,14 @@
 <script lang="ts">
 	import { enhance } from "$app/forms";
 	import { resolve } from "$app/paths";
-	import CollegeSearch from "$lib/components/CollegeSearch.svelte";
+
+	import CollegeSearch from "#lib/components/CollegeSearch.svelte";
 	import {
 		INSTITUTION_KIND_HINTS,
 		INSTITUTION_KIND_LABELS,
 		INSTITUTION_KINDS,
 		type InstitutionKind,
-	} from "$lib/institutions";
+	} from "#lib/institutions.ts";
 
 	import type { PageProps } from "./$types";
 

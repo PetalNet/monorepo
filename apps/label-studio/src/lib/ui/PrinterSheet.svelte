@@ -1,7 +1,8 @@
 <script lang="ts">
-	import { TAPE_WIDTHS, type TapeWidthMm } from "$lib/doc";
-	import { editor } from "$lib/editor/editor.svelte";
 	import { RefreshCw } from "@lucide/svelte";
+
+	import { TAPE_WIDTHS, type TapeWidthMm } from "#lib/doc.ts";
+	import { editor } from "#lib/editor/editor.svelte.ts";
 
 	import Banner from "./Banner.svelte";
 	import Button from "./Button.svelte";

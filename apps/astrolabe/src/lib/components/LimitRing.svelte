@@ -1,6 +1,6 @@
 <script lang="ts">
-	import { arcPath, polar, tangentRotation, usageLabelAt, type WindowGeometry } from "$lib/dial";
-	import type { LimitReading } from "$lib/limits";
+	import { arcPath, polar, tangentRotation, usageLabelAt, type WindowGeometry } from "#lib/dial.ts";
+	import type { LimitReading } from "#lib/limits.ts";
 
 	let {
 		reading,

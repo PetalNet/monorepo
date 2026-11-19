@@ -1,11 +1,12 @@
 <script lang="ts">
-	import { clock, hour, plural } from "$lib/format";
-	import type { Board, ServiceRow, Verdict } from "$lib/server/status/board";
 	import CircleCheck from "@lucide/svelte/icons/circle-check";
 	import CircleDashed from "@lucide/svelte/icons/circle-dashed";
 	import OctagonX from "@lucide/svelte/icons/octagon-x";
 	import TriangleAlert from "@lucide/svelte/icons/triangle-alert";
 	import Wrench from "@lucide/svelte/icons/wrench";
+
+	import { clock, hour, plural } from "#lib/format.ts";
+	import type { Board, ServiceRow, Verdict } from "#lib/server/status/board.ts";
 
 	let { board }: { board: Board } = $props();
 

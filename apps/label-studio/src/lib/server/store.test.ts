@@ -2,9 +2,10 @@ import { mkdtempSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
 
-import type { HistoryEntry } from "$lib/api";
-import { BUILTIN_TEMPLATES } from "$lib/templates/builtin";
 import { describe, expect, it } from "vitest";
+
+import type { HistoryEntry } from "#lib/api.ts";
+import { BUILTIN_TEMPLATES } from "#lib/templates/builtin.ts";
 
 import { Store } from "./store.ts";
 

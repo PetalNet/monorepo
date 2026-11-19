@@ -1,10 +1,11 @@
-import { interpolate, mmToDots, placeholders, tapeGeometry, type Template } from "$lib/doc";
-import { renderLabel } from "$lib/render";
-import { serverFonts } from "$lib/server/fonts";
-import { pageVars } from "$lib/server/labels";
-import { parse } from "$lib/server/parse";
-import { templateInput } from "$lib/server/schemas";
 import { describe, expect, it } from "vitest";
+
+import { interpolate, mmToDots, placeholders, tapeGeometry, type Template } from "#lib/doc.ts";
+import { renderLabel } from "#lib/render/index.ts";
+import { serverFonts } from "#lib/server/fonts.ts";
+import { pageVars } from "#lib/server/labels.ts";
+import { parse } from "#lib/server/parse.ts";
+import { templateInput } from "#lib/server/schemas.ts";
 
 import { BUILTIN_TEMPLATES } from "./builtin.ts";
 import { escapeQrValue } from "./qr-data.ts";

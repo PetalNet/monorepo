@@ -1,6 +1,6 @@
 <script lang="ts">
-	import AddressInput from "$lib/components/AddressInput.svelte";
-	import { COMMON_TIMEZONES, getUserTimezone } from "$lib/utils/timezones";
+	import AddressInput from "#lib/components/AddressInput.svelte";
+	import { COMMON_TIMEZONES, getUserTimezone } from "#lib/utils/timezones.ts";
 
 	import type { ActionData } from "./$types";
 

@@ -1,7 +1,8 @@
 <script lang="ts">
 	import { enhance } from "$app/forms";
-	import PageContainer from "$lib/components/PageContainer.svelte";
-	import PageHeader from "$lib/components/PageHeader.svelte";
+
+	import PageContainer from "#lib/components/PageContainer.svelte";
+	import PageHeader from "#lib/components/PageHeader.svelte";
 
 	import type { PageData } from "./$types";
 

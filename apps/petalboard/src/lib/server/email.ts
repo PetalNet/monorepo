@@ -1,4 +1,4 @@
-import { env } from "$env/dynamic/private";
+import { RESEND_API_KEY, EMAIL_FROM, APP_URL } from "$app/env/private";
 
 const RESEND_URL = "https://api.resend.com/emails";
 const DEFAULT_FROM = "PetalBoard <rsvp@petalcat.dev>";
@@ -11,17 +11,17 @@ interface Email {
 }
 
 async function sendEmail({ to, subject, html, text }: Email) {
-	if (!env.RESEND_API_KEY) {
+	if (!RESEND_API_KEY) {
 		throw new Error("RESEND_API_KEY is not set");
 	}
 
 	const response = await fetch(RESEND_URL, {
 		method: "POST",
 		headers: {
-			Authorization: `Bearer ${env.RESEND_API_KEY}`,
+			Authorization: `Bearer ${RESEND_API_KEY}`,
 			"Content-Type": "application/json",
 		},
-		body: JSON.stringify({ from: env.EMAIL_FROM || DEFAULT_FROM, to, subject, html, text }),
+		body: JSON.stringify({ from: EMAIL_FROM || DEFAULT_FROM, to, subject, html, text }),
 	});
 
 	if (!response.ok) {
@@ -30,7 +30,7 @@ async function sendEmail({ to, subject, html, text }: Email) {
 }
 
 function appUrl() {
-	return env.APP_URL || "http://localhost:5173";
+	return APP_URL || "http://localhost:5173";
 }
 
 function escapeHtml(value: string) {

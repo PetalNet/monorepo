@@ -1,5 +1,6 @@
-import { FRIENDSGIVING_POTLUCK } from "$lib/potluck";
 import { describe, expect, it } from "vitest";
+
+import { FRIENDSGIVING_POTLUCK } from "#lib/potluck.ts";
 
 import { isBusyTransaction, oneSignupAtATime, potluckView } from "./potluck";
 

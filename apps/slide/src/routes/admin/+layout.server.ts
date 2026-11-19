@@ -1,5 +1,6 @@
-import { validateSession } from "$lib/server/auth";
 import { redirect } from "@sveltejs/kit";
+
+import { validateSession } from "#lib/server/auth.ts";
 
 import type { LayoutServerLoad } from "./$types";
 

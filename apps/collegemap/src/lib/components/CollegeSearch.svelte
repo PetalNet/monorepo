@@ -1,8 +1,8 @@
 <script lang="ts">
-	import { getLogoUrl } from "$lib/collegeLogos";
-	import { collegeNames } from "$lib/collegeNames";
-	import collegesJson from "$lib/colleges.json";
-	import { INSTITUTION_SEARCH_PLACEHOLDERS, type InstitutionKind } from "$lib/institutions";
+	import { getLogoUrl } from "#lib/collegeLogos.ts";
+	import { collegeNames } from "#lib/collegeNames.ts";
+	import collegesJson from "#lib/colleges.json";
+	import { INSTITUTION_SEARCH_PLACEHOLDERS, type InstitutionKind } from "#lib/institutions.ts";
 
 	interface SelectedCollege {
 		name: string;

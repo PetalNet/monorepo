@@ -1,6 +1,7 @@
-import { prisma } from "$lib/server/prisma";
-import { searchTracks, refreshAccessToken } from "$lib/server/spotify";
-import { json, error } from "@sveltejs/kit";
+import { error } from "@sveltejs/kit";
+
+import { prisma } from "#lib/server/prisma.ts";
+import { searchTracks, refreshAccessToken } from "#lib/server/spotify.ts";
 
 import type { RequestHandler } from "./$types";
 
@@ -77,7 +78,7 @@ export const GET: RequestHandler = async ({ url, locals }) => {
 	try {
 		const results = await searchTracks(query, accessToken);
 
-		return json(results);
+		return Response.json(results);
 	} catch (err) {
 		console.error("Search error:", err);
 

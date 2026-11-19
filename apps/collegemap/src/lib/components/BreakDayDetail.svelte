@@ -1,9 +1,10 @@
 <script lang="ts">
-	import type { DayCell } from "$lib/calendar";
-	import { formatRange } from "$lib/dates";
 	import Check from "@lucide/svelte/icons/check";
 	import MapPin from "@lucide/svelte/icons/map-pin";
 	import PartyPopper from "@lucide/svelte/icons/party-popper";
+
+	import type { DayCell } from "#lib/calendar.ts";
+	import { formatRange } from "#lib/dates.ts";
 
 	interface Person {
 		id: string;

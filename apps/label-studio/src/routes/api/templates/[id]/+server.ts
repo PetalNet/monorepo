@@ -1,10 +1,9 @@
-import type { Template } from "$lib/doc";
-import { getApp } from "$lib/server/app";
-import { fail, readBody } from "$lib/server/http";
-import { templateInput } from "$lib/server/schemas";
-import { findTemplate, isBuiltinId } from "$lib/server/templates";
-import { BUILTIN_TEMPLATES } from "$lib/templates/builtin";
-import { json } from "@sveltejs/kit";
+import type { Template } from "#lib/doc.ts";
+import { getApp } from "#lib/server/app.ts";
+import { fail, readBody } from "#lib/server/http.ts";
+import { templateInput } from "#lib/server/schemas.ts";
+import { findTemplate, isBuiltinId } from "#lib/server/templates.ts";
+import { BUILTIN_TEMPLATES } from "#lib/templates/builtin.ts";
 
 import type { RequestHandler } from "./$types";
 
@@ -14,7 +13,7 @@ const READ_ONLY = "Built-in templates are read-only; save a copy to change it";
 export const GET: RequestHandler = ({ params }) => {
 	const template = findTemplate(getApp().store, params.id);
 
-	return template ? json({ template }) : fail(404, `No template named "${params.id}"`);
+	return template ? Response.json({ template }) : fail(404, `No template named "${params.id}"`);
 };
 
 export const PUT: RequestHandler = async ({ params, request }) => {
@@ -50,7 +49,7 @@ export const PUT: RequestHandler = async ({ params, request }) => {
 		return fail(409, `A template named "${template.name}" already exists`);
 	}
 
-	return json({ template });
+	return Response.json({ template });
 };
 
 export const DELETE: RequestHandler = ({ params }) => {

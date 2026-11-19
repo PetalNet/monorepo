@@ -6,7 +6,7 @@
  * places, so all four live in one table with a `kind` beside them rather than in parallel tables —
  * one column, and every join and render path that already existed keeps working.
  *
- * Lives outside `$lib/server` because the picker in the profile needs the same list the schema
+ * Lives outside `#lib/server` because the picker in the profile needs the same list the schema
  * enumerates, and a component may not import server code.
  */
 

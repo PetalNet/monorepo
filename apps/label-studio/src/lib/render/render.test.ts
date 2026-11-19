@@ -1,3 +1,6 @@
+import bwip from "bwip-js/generic";
+import { describe, expect, it, vi } from "vitest";
+
 import {
 	mmToDots,
 	tapeGeometry,
@@ -9,10 +12,8 @@ import {
 	type RenderResult,
 	type ShapeElement,
 	type TextElement,
-} from "$lib/doc";
-import { serverFonts } from "$lib/server/fonts";
-import bwip from "bwip-js/generic";
-import { describe, expect, it, vi } from "vitest";
+} from "#lib/doc.ts";
+import { serverFonts } from "#lib/server/fonts.ts";
 
 import { QR } from "../templates/qr.ts";
 import { renderLabel } from "./index.ts";
