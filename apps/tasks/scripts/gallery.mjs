@@ -14,6 +14,7 @@ import { readFileSync } from "node:fs";
 
 import { JANET_SHIM } from "../src/lib/janet-shim.js";
 import {
+	findArtifactsByLink,
 	getFeedback,
 	listFeedback,
 	resolveFeedback,

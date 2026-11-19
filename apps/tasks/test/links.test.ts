@@ -1,3 +1,4 @@
+import { execFileSync } from "node:child_process";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
@@ -18,17 +19,22 @@ afterAll(() => {
 
 describe("canonicalLink", () => {
 	it.each([
-		["PetalNet/monorepo#818", "https://github.com/PetalNet/monorepo/pull/818"],
+		["PetalNet/monorepo#818", "https://github.com/petalnet/monorepo/pull/818"],
 		[
 			"https://github.com/PetalNet/monorepo/pull/818/",
-			"https://github.com/PetalNet/monorepo/pull/818",
+			"https://github.com/petalnet/monorepo/pull/818",
 		],
 		[
 			"https://github.com/PetalNet/monorepo/pull/818#issuecomment-1",
-			"https://github.com/PetalNet/monorepo/pull/818",
+			"https://github.com/petalnet/monorepo/pull/818",
 		],
-		["PetalNet/monorepo@92c0a75", "https://github.com/PetalNet/monorepo/commit/92c0a75"],
-		["PetalNet/monorepo", "https://github.com/PetalNet/monorepo"],
+		["PetalNet/monorepo@92c0a75", "https://github.com/petalnet/monorepo/commit/92c0a75"],
+		["PetalNet/monorepo", "https://github.com/petalnet/monorepo"],
+		[
+			"https://github.com/PetalNet/monorepo/pull/818/files",
+			"https://github.com/petalnet/monorepo/pull/818",
+		],
+		["petalnet/Monorepo#818", "https://github.com/petalnet/monorepo/pull/818"],
 	])("%s", (input, url) => {
 		expect(canonicalLink(input)).toBe(url);
 	});
@@ -49,7 +55,7 @@ describe("normalizeLinks", () => {
 			]),
 		).toEqual([
 			{
-				url: "https://github.com/PetalNet/monorepo/pull/818",
+				url: "https://github.com/petalnet/monorepo/pull/818",
 				kind: "pr",
 				label: "PetalNet/monorepo#818",
 			},
@@ -106,5 +112,41 @@ describe("find an artifact from its PR", () => {
 		expect(slugs("PetalNet/monorepo#818", null)).toEqual(["demo-pr", "private-pr"]);
 		expect(slugs("PetalNet/monorepo#819", "elisha")).toEqual(["other-pr"]);
 		expect(slugs("not a ref", "parker")).toEqual([]);
+	});
+});
+
+describe("gallery.mjs, Janet's side", () => {
+	const gallery = (input: string | undefined, ...args: string[]) =>
+		JSON.parse(
+			execFileSync(process.execPath, ["scripts/gallery.mjs", ...args], {
+				env: { ...process.env, TASKS_DB_PATH: path.join(tmp, "cli.db") },
+				input,
+				encoding: "utf8",
+			}),
+		);
+
+	it("publishes with the shim inlined, finds the page by its PR, and resolves an answer", () => {
+		const published = gallery(
+			JSON.stringify({
+				slug: "cli-page",
+				title: "CLI page",
+				kind: "interactive",
+				content: "<body><!--janet-shim--></body>",
+				caps: ["feedback"],
+				audience: ["parker"],
+				links: ["PetalNet/monorepo#823"],
+			}),
+			"publish",
+		);
+
+		expect(published).toMatchObject({ slug: "cli-page", rev: 1, audience: ["parker"] });
+		expect(published.links[0]).toMatchObject({ kind: "pr", label: "PetalNet/monorepo#823" });
+
+		expect(
+			gallery(undefined, "find", "https://github.com/PetalNet/monorepo/pull/823"),
+		).toHaveLength(1);
+
+		expect(gallery(undefined, "feedback", "cli-page")).toEqual([]);
+		expect(gallery(undefined, "resolve", "999", "nothing")).toEqual({ error: "no such feedback" });
 	});
 });
