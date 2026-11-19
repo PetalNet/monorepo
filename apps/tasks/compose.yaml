@@ -14,10 +14,12 @@ services:
     ports: ["127.0.0.1:${TASKS_PORT:-8896}:8896"]
     environment:
       PORT: 8896
+      BODY_SIZE_LIMIT: 4M
       ORIGIN: ${ORIGIN:?Set the public origin}
       TASKS_DB_PATH: /data/tasks.db
       TASKS_CONFIG: /data/config.json
       ALLOW: ${ALLOW:?Set the allowed users}
+      TASKS_AGENTS_INGEST_TOKEN: ${TASKS_AGENTS_INGEST_TOKEN:-}
       TZ: ${TZ:-UTC}
       GLITCHTIP_DSN: ${GLITCHTIP_DSN:-}
       GLITCHTIP_ENV: ${GLITCHTIP_ENV:-}

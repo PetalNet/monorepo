@@ -83,6 +83,7 @@
 	<main>
 		<header>
 			<h1>Janet</h1>
+			<a href="/janet/agents">Agents</a>
 			<p class="stamp"><i class:live></i>{ago(updatedAt, now)}</p>
 		</header>
 		<article class="doc">
