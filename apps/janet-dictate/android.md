@@ -19,9 +19,14 @@ source. Device verification is still required before claiming this works on a pa
 4. Under Kõnele's **Recognition services**, open **Kõnele (fast recognition)** settings. Set the
    **Server URL** to the private `wss://…/client/ws/speech?key=…` URL from the endpoint operator.
    Select raw audio and English (`en-US` or `en`). Keep the URL out of screenshots and shared logs.
-5. In FUTO's **Voice Input → External engine**, choose **Kõnele speak & swipe**. Focus a normal
-   text field and tap FUTO's microphone. In Kõnele, select the service to use and tap its microphone.
-   Tap the keyboard button to return to FUTO after dictation.
+5. In FUTO's voice-input settings, select the external engine. If an engine selector is available,
+   choose **Kõnele speak & swipe**. The tested FUTO 0.1.30 instead shows **Disable built-in voice
+   input** and chooses an enabled voice keyboard. In the emulator it picked Google's voice keyboard
+   first, then Kõnele after the Google voice keyboard was disabled. For that version, keep FUTO
+   and Kõnele enabled and disable competing voice keyboards in Android's input-method settings.
+   Sayboard's recognition service works separately from its keyboard; its keyboard need not be enabled.
+6. Focus a normal text field and tap FUTO's microphone. In Kõnele, select the service to use and tap
+   its microphone. Tap the keyboard button to return to FUTO after dictation.
 
 Stock Kõnele requires that second microphone tap. Its keyboard Auto start preference is commented
 out in the inspected source. The similarly named Voice search panel option controls a different
@@ -33,6 +38,10 @@ the session. Use Kõnele's stop control when finished. Selected text suppresses 
 in Kõnele, so test in an empty field with a caret first.
 
 ## Phone acceptance checks
+
+An Android 15 / API 35 emulator with FUTO 0.1.30, Kõnele 1.9.16 and Sayboard 4.2.1 verified the
+FUTO-to-Kõnele switch under the configuration above and installation of `vosk-model-small-en-us-0.15`.
+That setup check did not supply microphone audio or verify recognition, composing text or TLS.
 
 Record the current keyboard selection before testing. Use a blank local note and public test
 speech, not a message composer that could send text to someone.
