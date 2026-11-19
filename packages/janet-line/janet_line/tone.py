@@ -155,7 +155,7 @@ class LineTone:
     def _osc(self, freq: float, t: np.ndarray, kind: str = "sine") -> np.ndarray:
         ph = (freq * t) % 1.0
         if kind == "triangle":
-            return 1 - 4 * np.abs(ph - 0.5)  # Web Audio's triangle: sine-phase, peak 1
+            return 1 - 4 * np.abs(((ph + 0.25) % 1.0) - 0.5)  # Web Audio's triangle: starts at 0 like the sine, peak 1
         return np.sin(2 * np.pi * ph)
 
     def _thinking(self, t: np.ndarray) -> np.ndarray:

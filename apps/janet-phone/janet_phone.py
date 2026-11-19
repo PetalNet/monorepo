@@ -421,16 +421,13 @@ class Call:
             return
         due = time.monotonic()
         while True:
-            if self.playing or not self.rate:
+            line = self.line  # made by say() with the rate it announced, so this never plays at another rate
+            if self.playing or line is None:
                 due = time.monotonic()
                 await asyncio.sleep(LINE_BLOCK_S / 2)
                 continue
-            if self.line is None:
-                self.line = await asyncio.to_thread(make_line, self.config, self.rate)
-                if self.line is None:
-                    return
-            block = self.line.render(int(self.rate * LINE_BLOCK_S), self.phase)[:, 0]
-            chunk = (block * 32768).astype("<i2").tobytes()
+            block = line.render(int(self.rate * LINE_BLOCK_S), self.phase)[:, 0]
+            chunk = mix(bytes(int(self.rate * LINE_BLOCK_S) * 2), block)
             await self.ws.send(chunk)
             if self.config.record_dir:
                 self.tape_janet(chunk, self.rate)
@@ -536,11 +533,9 @@ class Call:
     async def say(self, sentence: str, audio: asyncio.Task, turn: dict | None = None, ended: float = 0.0) -> None:
         rate, pcm = await audio
         if rate != self.rate:
-            self.rate = rate
-            self.line = None
+            line = await asyncio.to_thread(make_line, self.config, rate)
             await self.ws.send(json.dumps({"type": "audio", "rate": rate}))
-        if self.config.line_tone and self.line is None:
-            self.line = await asyncio.to_thread(make_line, self.config, rate)
+            self.rate, self.line = rate, line  # the tone starts only after the device knows the rate
         if turn is not None and "total_ms" not in turn:
             turn["total_ms"] = round((time.monotonic() - ended) * 1000) + turn["endpoint_ms"]
             self.latency["turns"].append(turn)
