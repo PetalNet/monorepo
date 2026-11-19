@@ -134,6 +134,7 @@
 			"outputs": []
 		},
 		"//#lint:impeccable": { "outputs": [] },
+		"//#lint:effect-default": { "outputs": [] },
 		"//#manypkg": { "outputs": [] },
 		"//#dedupe:check": { "cache": false },
 		"//#typesync:check": { "cache": false },
