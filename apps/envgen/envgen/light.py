@@ -19,6 +19,10 @@ SUN_LUMENS_PER_WATT = 105.0
 SKY_SHARE_OF_SUN = 0.2
 # The camera's lens attenuation constant in the exposure equation, as the engine uses it.
 LENS_ATTENUATION = 1.2
+# What the engine's renderer adds to the textbook exposure: it showed sunlit grass 3.5 times brighter than albedo
+# times illuminance over pi, which is 1.8 EV over. Measured on UE 5.8.4 with the BaseColor buffer (albedo 0.10) against
+# the lit frame at the same station, and set so that sunlit grass in the render is as bright as in the photo.
+ENGINE_EXPOSURE_OFFSET_EV = 0.95
 
 
 def target_day(target_date: str) -> tuple[date, bool]:
@@ -44,10 +48,10 @@ def exposure_ev100(elevation_deg: float) -> float:
     """The EV100 that puts a mid-grey surface in sun and sky at mid-grey.
 
     A grey of reflectance g under illuminance E has luminance g * E / pi, and the engine scales luminance by
-    1 / (1.2 * 2**EV100), so that grey lands at g when 2**EV100 = E / (1.2 * pi).
+    1 / (1.2 * 2**EV100), so that grey lands at g when 2**EV100 = E / (1.2 * pi). The engine's own offset is added.
     """
     sun_on_ground = sun_illuminance_lux(elevation_deg) * math.sin(math.radians(elevation_deg))
-    return math.log2(sun_on_ground * (1 + SKY_SHARE_OF_SUN) / (LENS_ATTENUATION * math.pi))
+    return math.log2(sun_on_ground * (1 + SKY_SHARE_OF_SUN) / (LENS_ATTENUATION * math.pi)) + ENGINE_EXPOSURE_OFFSET_EV
 
 
 def lighting(

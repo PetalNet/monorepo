@@ -30,7 +30,7 @@ from .site import (
 
 # Part of every stage key. Bump it by hand when a code change alters a stage's output for the same
 # inputs (frame.py and the resampling included); nothing detects that automatically.
-PIPELINE_VERSION = 6
+PIPELINE_VERSION = 7
 
 MACRO_PIXELS = 1024
 # The macro map carries colour that varies over tens of metres. Finer detail comes from the engine.
@@ -276,12 +276,16 @@ def build_surface(site: Site, imagery: Path, out: Path, covering: dict | None) -
         unreal.append(frame.to_unreal_layout(weight))
         Image.fromarray(unreal[-1]).save(out / file)
         layers.append({"name": name, "file": file, "mean_weight": float(weight.mean()) / 255})
+    luminance = surface.class_luminance(rgb, labels, shown, names)
+    for layer in layers:
+        if layer["name"] in luminance:
+            layer["mean_linear_rgb"] = luminance[layer["name"]]["mean_linear_rgb"]
     return {
         "files": [layer["file"] for layer in layers],
         "layers": layers,
         "check_points": surface.check_points(unreal, names),
         "vertices": tile.vertices,
-        "albedo": surface.fit_albedo(surface.class_luminance(rgb, labels, shown, names)),
+        "albedo": surface.fit_albedo(luminance),
         **fit,
     }
 

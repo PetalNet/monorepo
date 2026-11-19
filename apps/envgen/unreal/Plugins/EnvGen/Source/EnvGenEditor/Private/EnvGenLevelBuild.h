@@ -14,7 +14,7 @@ class FEnvGenLevelBuild
 {
 public:
 	/** Returns false, with a logged reason, when the manifest or its files cannot be used. */
-	bool Start(const FString& ManifestPath, const FString& MapPath);
+	bool Start(const FString& ManifestPath, const FString& MapPath, const FString& MaterialsDirectory);
 
 	/** Returns true when the build has ended; bSucceeded then says how. */
 	bool Finish(float DeltaSeconds, bool& bSucceeded);

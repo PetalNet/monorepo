@@ -87,6 +87,15 @@ bool AEnvGenTour::Configure(const FString& TourName)
 		PitchDeg = 0;
 		return true;
 	}
+	if (TourName == TEXT("stand"))
+	{
+		// The walk's first point, held still: for checking that what streams in around a camera stays.
+		HeightAboveGroundCm = 170;
+		SpeedCmPerSec = 0;
+		RadiiOfTile = FVector2D(0.09, 0.0);
+		PitchDeg = 0;
+		return true;
+	}
 	if (TourName == TEXT("fly"))
 	{
 		HeightAboveGroundCm = 3000;

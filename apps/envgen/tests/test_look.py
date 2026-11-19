@@ -21,27 +21,33 @@ def grey(linear):
     return (srgb(linear),) * 3
 
 
-def test_the_albedo_scale_is_the_one_that_puts_grass_asphalt_and_concrete_at_their_known_reflectances(tmp_path):
-    # Light of 2.5 times the albedo, as a photo in full sun records it: grass 0.15, asphalt 0.075, concrete 0.30.
+def test_the_albedo_scale_is_the_one_that_puts_asphalt_and_concrete_at_their_measured_reflectances(tmp_path):
+    # Light of 2.5 times the albedo, as a photo in full sun records it. Grass of luminance 0.18 in the photo is
+    # reported against the green lawn spectrum rather than fitted to it.
     lit = 2.5
-    grass = (srgb(0.15 * lit * 0.8), srgb(0.15 * lit * 1.1), srgb(0.15 * lit * 0.6))
+    grass = (srgb(0.18 * 0.8), srgb(0.18 * 1.1), srgb(0.18 * 0.6))
     _, manifest = grass_and_paved(
         tmp_path,
         grass,
-        grey(0.30 * lit),
-        [(40, 0, 65, 126, grey(0.30 * lit)), (65, 0, 90, 126, grey(0.075 * lit))],
+        grey(0.2875 * lit),
+        [(40, 0, 65, 126, grey(0.2875 * lit)), (65, 0, 90, 126, grey(0.0878 * lit))],
     )
 
     fit = manifest["surface"]["albedo"]
     assert fit["scale"] == pytest.approx(1 / lit, rel=0.1)
-    assert {anchor["surface"] for anchor in fit["anchors"]} == {"healthy grass", "asphalt", "aged concrete"}
-    assert all(anchor["within_quoted_range"] for anchor in fit["anchors"])
-    assert "prior" in fit["priors"][0]
+    assert {anchor["surface"] for anchor in fit["anchors"]} == {
+        "old asphalt road (GDS376)",
+        "light grey concrete road (GDS375)",
+    }
+    assert fit["anchors"][0]["fitted_reflectance"] == pytest.approx(0.0878, rel=0.15)
+    assert fit["grass_check"]["spectrum_reflectance"] == pytest.approx(0.0722)
+    assert fit["grass_check"]["fitted_reflectance"] == pytest.approx(0.18 / lit, rel=0.25)
+    assert "prior" in fit["priors"][0] and "USGS" in fit["source"]
 
 
 def test_a_brighter_photo_gets_a_smaller_scale():
-    dim = surface.fit_albedo({"grass": {"p50": 0.1}, "paved": {"p10": 0.05, "p90": 0.2}})["scale"]
-    bright = surface.fit_albedo({"grass": {"p50": 0.3}, "paved": {"p10": 0.15, "p90": 0.6}})["scale"]
+    dim = surface.fit_albedo({"paved": {"p10": 0.05, "p90": 0.2}})["scale"]
+    bright = surface.fit_albedo({"paved": {"p10": 0.15, "p90": 0.6}})["scale"]
 
     assert dim == pytest.approx(3 * bright)
 
@@ -74,13 +80,21 @@ def test_grid_north_turns_the_sun_with_the_grid():
 
 
 def test_sun_strength_and_exposure_fall_together_as_the_sun_sinks():
-    high, low = light.lighting("2030-06-21", "12:00", 45.0, 15.0, 0.0), light.lighting("2030-06-21", "17:00", 45.0, 15.0, 0.0)
+    high, low = (
+        light.lighting("2030-06-21", "12:00", 45.0, 15.0, 0.0),
+        light.lighting("2030-06-21", "17:00", 45.0, 15.0, 0.0),
+    )
 
     assert 80_000 < high["sun_lux"] < 125_000 and low["sun_lux"] < high["sun_lux"]
-    assert 14 < high["exposure_ev100"] < 16 and low["exposure_ev100"] < high["exposure_ev100"] - 1
+    assert (
+        14 < high["exposure_ev100"] - light.ENGINE_EXPOSURE_OFFSET_EV < 16
+        and low["exposure_ev100"] < high["exposure_ev100"] - 1
+    )
     # The exposure that makes the engine's mid-grey land at mid-grey, rederived from its own equation.
     illuminance = high["sun_lux"] * math.sin(math.radians(high["elevation_deg"])) * 1.2
-    assert 2 ** high["exposure_ev100"] == pytest.approx(illuminance / (1.2 * math.pi), rel=1e-6)
+    assert 2 ** (high["exposure_ev100"] - light.ENGINE_EXPOSURE_OFFSET_EV) == pytest.approx(
+        illuminance / (1.2 * math.pi), rel=1e-6
+    )
 
 
 def test_the_build_lights_the_site_at_the_time_of_day_the_imagery_was_fitted_to(tmp_path):
@@ -103,3 +117,22 @@ def test_without_cover_the_sun_is_at_noon_as_a_stated_prior(tmp_path):
     assert manifest["lighting"]["solar_time"] == "12:00"
     assert any("12:00" in prior for prior in manifest["lighting"]["priors"])
     assert np.isfinite(manifest["lighting"]["sun_lux"])
+
+
+def test_each_class_carries_its_mean_colour_in_linear_light_for_the_blades_of_grass(tmp_path):
+    _, manifest = grass_and_paved(tmp_path, h.GRASS, h.PAVED)
+
+    colours = {layer["name"]: layer["mean_linear_rgb"] for layer in manifest["surface"]["layers"]}
+    expected = {
+        name: [((c / 255 + 0.055) / 1.055) ** 2.4 for c in rgb]
+        for name, rgb in (("grass", h.GRASS), ("paved", h.PAVED))
+    }
+    assert colours["grass"] == pytest.approx(expected["grass"], rel=0.08)
+    assert colours["paved"] == pytest.approx(expected["paved"], rel=0.08)
+
+
+def test_anchors_that_disagree_are_split_evenly_in_ratio():
+    # Asphalt wants a scale of 1.756 and concrete 0.575; neither wins, the geometric mean does.
+    fit = surface.fit_albedo({"paved": {"p10": 0.05, "p90": 0.5}})
+
+    assert fit["scale"] == pytest.approx(math.sqrt(0.0878 / 0.05 * 0.2875 / 0.5))

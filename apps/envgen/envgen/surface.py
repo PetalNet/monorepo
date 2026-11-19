@@ -254,61 +254,81 @@ SETTINGS = {
     "majority_cells": MAJORITY_CELLS,
 }
 
-# Reflectances of known surfaces, from published tables, used to turn photo brightness into albedo. Each is a
-# prior: (class, which quantile of its sunlit linear luminance, reflectance, the range it is quoted over, what it is).
+# Luminous reflectance of surfaces measured with a spectrometer, used to turn the photo's brightness into albedo.
+# USGS Spectral Library v7 (splib07b, ASD, 0.35 to 2.5 um), each spectrum weighted by the CIE 1931 y-bar curve
+# (Wyman, Sloan and Shirley's 2013 fit) over 380 to 780 nm, so it is the reflectance the eye, and an sRGB
+# luminance, sees. Each anchor is: class, which quantile of its sunlit linear luminance, reflectance, what it is.
+# The assumption (a prior) is that a tile's darkest paving is asphalt and its brightest is concrete.
 ALBEDO_ANCHORS = (
-    (GRASS, "p50", 0.15, (0.10, 0.20), "healthy grass"),
-    (PAVED, "p10", 0.075, (0.05, 0.10), "asphalt"),
-    (PAVED, "p90", 0.30, (0.25, 0.35), "aged concrete"),
+    (PAVED, "p10", 0.0878, "old asphalt road (GDS376)"),
+    (PAVED, "p90", 0.2875, "light grey concrete road (GDS375)"),
 )
+# Not fitted to, but checked against: the library's green lawn grass (GDS91). Dry grass, which this kind of late-season
+# imagery shows, is brighter, so a fitted grass reflectance above it is expected.
+GRASS_CHECK = (GRASS, "p50", 0.0722, "green lawn grass (GDS91)")
 # Used only when the tile has none of the anchoring surfaces.
 ALBEDO_SCALE_PRIOR = 0.5
 
 
-def linear_luminance(rgb: np.ndarray) -> np.ndarray:
-    """Relative luminance of sRGB bands in 0 to 255, in linear light."""
-    encoded = rgb[:3] / 255
-    linear = np.where(encoded <= 0.04045, encoded / 12.92, ((encoded + 0.055) / 1.055) ** 2.4)
-    return 0.2126 * linear[0] + 0.7152 * linear[1] + 0.0722 * linear[2]
-
-
 def class_luminance(rgb: np.ndarray, labels: np.ndarray, shown: np.ndarray, names: list[str]) -> dict[str, dict]:
-    """The 10th, 50th and 90th percentile of each class's sunlit luminance in linear light."""
+    """Each class's sunlit linear luminance (10th, 50th, 90th percentile) and mean colour in linear light."""
     if rgb.shape[0] < 3:
         return {}
-    luminance = linear_luminance(rgb)
+    encoded = rgb[:3] / 255
+    linear = np.where(encoded <= 0.04045, encoded / 12.92, ((encoded + 0.055) / 1.055) ** 2.4)
+    luminance = 0.2126 * linear[0] + 0.7152 * linear[1] + 0.0722 * linear[2]
     out = {}
     for index, name in enumerate(names):
-        cells = luminance[(labels == index) & shown]
-        if len(cells):
-            out[name] = dict(zip(("p10", "p50", "p90"), (float(value) for value in np.quantile(cells, (0.1, 0.5, 0.9))), strict=True))
+        cells = (labels == index) & shown
+        if cells.any():
+            quantiles = np.quantile(luminance[cells], (0.1, 0.5, 0.9))
+            out[name] = dict(zip(("p10", "p50", "p90"), (float(value) for value in quantiles), strict=True)) | {
+                "mean_linear_rgb": [float(band[cells].mean()) for band in linear]
+            }
     return out
 
 
 def fit_albedo(luminance: dict[str, dict]) -> dict:
-    """The one scale that turns the photo's linear colour into albedo, fitted to surfaces of known reflectance.
+    """The one scale that turns the photo's linear colour into albedo, fitted to surfaces of measured reflectance.
 
     Sunlit ground in a photo is lit by the sun and sky of the day, so its colour is albedo times that light. The
     scale is the geometric mean, over the anchors this tile has, of reflectance over measured luminance.
     """
     anchors = []
-    for name, quantile, reflectance, quoted, what in ALBEDO_ANCHORS:
+    for name, quantile, reflectance, what in ALBEDO_ANCHORS:
         measured = luminance.get(name, {}).get(quantile)
         if measured:
             anchors.append(
-                {"surface": what, "class": name, "quantile": quantile, "measured_luminance": measured, "reflectance_prior": reflectance, "quoted_range": list(quoted)}
+                {
+                    "surface": what,
+                    "class": name,
+                    "quantile": quantile,
+                    "measured_luminance": measured,
+                    "reflectance": reflectance,
+                }
             )
     if not anchors:
-        return {"scale": ALBEDO_SCALE_PRIOR, "anchors": [], "priors": [f"prior: albedo scale {ALBEDO_SCALE_PRIOR}; no anchoring surface in the tile"]}
-    ratios = np.log([anchor["reflectance_prior"] / anchor["measured_luminance"] for anchor in anchors])
+        return {
+            "scale": ALBEDO_SCALE_PRIOR,
+            "anchors": [],
+            "priors": [f"prior: albedo scale {ALBEDO_SCALE_PRIOR}; no anchoring surface in the tile"],
+        }
+    ratios = np.log([anchor["reflectance"] / anchor["measured_luminance"] for anchor in anchors])
     scale = float(np.exp(ratios.mean()))
     for anchor in anchors:
-        fitted = scale * anchor["measured_luminance"]
-        anchor["fitted_reflectance"] = fitted
-        anchor["within_quoted_range"] = anchor["quoted_range"][0] <= fitted <= anchor["quoted_range"][1]
-    return {
+        anchor["fitted_reflectance"] = scale * anchor["measured_luminance"]
+    report = {
         "scale": scale,
         "anchors": anchors,
         "log_spread": float(ratios.std()),
-        "priors": ["prior: the reflectances of healthy grass, asphalt and aged concrete (published ranges)"],
+        "source": "USGS Spectral Library v7, ASD spectra weighted by the CIE 1931 y-bar curve over 380 to 780 nm",
+        "priors": ["prior: the tile's darkest paving is asphalt and its brightest is concrete"],
     }
+    name, quantile, reflectance, what = GRASS_CHECK
+    if luminance.get(name, {}).get(quantile):
+        report["grass_check"] = {
+            "surface": what,
+            "spectrum_reflectance": reflectance,
+            "fitted_reflectance": scale * luminance[name][quantile],
+        }
+    return report

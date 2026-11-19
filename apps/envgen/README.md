@@ -131,6 +131,45 @@ Limits:
 - A bare-soil class needs soil that sets itself apart from the other ground by this test. Where it is a small share of unvegetated ground spread through the colours of paving, it is not found and stays paved.
 - Imagery from one date: dry turf can look like soil and green turf like a lawn; the split follows the day.
 
+### Albedo and light
+
+The photo records ground lit by the sun and sky of the day. `build.json` `surface.albedo` is one scale that
+turns the photo's linear colour into albedo, and `lighting` is the sun the level is lit with.
+
+- The scale is fitted so that the tile's darkest sunlit paving (10th percentile of the paved class) has the
+  luminous reflectance of a measured old asphalt road (0.088) and its brightest (90th percentile) that of a
+  measured light grey concrete road (0.288). Both are USGS Spectral Library v7 ASD spectra weighted by the CIE
+  1931 y-bar curve over 380 to 780 nm (Wyman, Sloan and Shirley's 2013 fit of the curve). `build.json` lists each
+  anchor, what it measured and what the scale makes of it. The grass class is not fitted to: its fitted
+  reflectance is reported next to the library's green lawn grass (0.072), because the imagery's turf can be dry
+  and brighter.
+- The sun is where astronomy puts it at the target date and at the imagery's solar time of day, which the cover
+  stage fitted, so shadows and lit colour agree. Its strength is a clear-sky direct beam (Meinel and Meinel,
+  Kasten and Young's air mass, 105 lm/W). Exposure is fixed at the EV100 that puts a mid-grey in that sun and
+  sky at mid-grey, plus an offset measured on UE 5.8.4 (`ENGINE_EXPOSURE_OFFSET_EV`): the renderer showed
+  grass 3.5 times brighter than albedo times illuminance over pi.
+- Priors, each listed in the manifest: the 15th when the target is a month, noon solar time when there is no
+  fitted time, a clear sky, skylight at 20 % of the sun's, 105 lm/W, and that the darkest paving is asphalt and
+  the brightest is concrete.
+- Checked in the engine: the base colour buffer of sunlit grass reads 0.10 in linear light.
+
+### Ground materials and grass
+
+`unreal/materials.json` names one scanned CC0 material per class (Poly Haven, 1K: base colour, normal, roughness,
+height), with a pinned URL and MD5 for every file and the ground one repeat covers. `unreal/fetch-materials.ps1`
+downloads them once and checks the hashes; about 10 MB. Nothing is stored in git.
+
+The Landscape material height-blends the classes. Evidence sets the colour that varies over tens of metres (the
+macro colour map times the albedo scale), and the scan adds structure: its colour divided by its own mean, so it
+never shifts the colour. Each scan is read at two scales and turns, mixed by broad noise, so the repeat does not
+show from the air.
+
+The grass class also grows tufts: Landscape Grass, 14 blades of 8 to 17 cm to a tuft, up to 1000 tufts per 100
+m2 where the class has full weight, drawn out to 45 m, coloured from the class's mean photo colour. The host
+project makes grass maps while the game runs (`grass.GrassMap.UseRuntimeGeneration=1`): the level is
+regenerated, never cooked. The tuft size, density and cull distance are looks, not measurements; no source
+gives a cover's height or density yet.
+
 ### Frame and units
 
 - World X is grid north, Y is grid east, Z is up, in centimetres, with the origin at the tile
@@ -155,16 +194,16 @@ and the shadows it casts are where astronomy puts them.
 
 `unreal/Plugins/EnvGen` is one plugin with two modules.
 
-- **EnvGenEditor** rebuilds the level when the editor starts with `-EnvGenManifest=<build.json>`. It
+- **EnvGenEditor** rebuilds the level when the editor starts with `-EnvGenManifest=<build.json> -EnvGenMaterials=<directory fetch-materials.ps1 filled>`. It
   deletes what an earlier run generated, then creates the Landscape with collision and one weight
-  layer per surface class, the ground material, sun and sky, a flat horizon plane, clamped exposure, a player start, and a site-info
+  layer per surface class, the ground material, grass, the sun for the target day and a matching exposure, sky, a flat horizon plane, clamped exposure, a player start, and a site-info
   actor carrying the georeference and stencil classes. When the manifest has a `context` block it
   also imports that coarse surround as a second Landscape, which passes under the tile so the
   detailed surface does not end in a cliff against the sky. Once the engine has merged the Landscape's
   edit layers it traces the collision surface at fixed points and compares it with the imported
   heights, reads every weight layer back at the manifest's check points and compares it with what the manifest says is there, saves, and exits. The checks are in
   `Saved/EnvGen/build_receipt.json`. The editor exits with 1 if the manifest cannot be used, the merge
-  does not finish, a trace misses the ground or lands more than 5 cm off, a weight layer is missing or reads back wrong,
+  does not finish, a trace misses the ground or lands more than 5 cm off, a weight layer is missing or reads back wrong, a generated material does not compile,
   or the save fails.
 - The **horizon** is a flat plane 50 km across with no collision, a metre under the lowest point of the
   outermost surface, in that surface's mean colour. Without it the sky's empty lower half shows as a blue
@@ -175,7 +214,7 @@ and the shadows it casts are where astronomy puts them.
 `unreal/Host` is a minimal project that hosts the plugin.
 
 ```powershell
-./unreal/build-level.ps1 -EngineRoot <engine install> -WorkDir <scratch dir> -Manifest <path to build.json>
+./unreal/build-level.ps1 -EngineRoot <engine install> -WorkDir <scratch dir> -Manifest <path to build.json> -Materials <directory>
 ```
 
 The script runs the full editor off-screen and unattended, because the engine merges Landscape edit
@@ -198,6 +237,7 @@ open. `-EnvGenTourCsv` also records the engine's CSV profile for the measured pe
 | `walk`     | 1.7 m               | 4 m/s         | 0.09 by 0.14                               |
 | `fly`      | 30 m                | 15 m/s        | 0.22 by 0.30                               |
 | `overview` | 700 m               | still         | looks straight down, north up              |
+| `stand`    | 1.7 m               | still         | the walk's first point                     |
 
 The loop wobbles in and out, so the true ground speed varies around the nominal one; the summary's
 `distance_m` is the path actually covered in the measured period. `-EnvGenTour=overview` holds still
@@ -221,6 +261,5 @@ Before moving to a new engine version, these show whether it can host the work:
 
 ## Not in this slice
 
-Real ground materials per class, removing the lighting from the imagery, grass, trees and
-buildings, time of day and weather, the
-manual edit layer that regeneration leaves alone, and the simulator exports.
+Trees, shrubs and buildings, weather and a moving sun, the manual edit layer that regeneration leaves alone, and
+the simulator exports.

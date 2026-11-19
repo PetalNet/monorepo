@@ -11,6 +11,7 @@
 #include "Engine/SkyLight.h"
 #include "Engine/StaticMesh.h"
 #include "Engine/StaticMeshActor.h"
+#include "Engine/StaticMesh.h"
 #include "Engine/Texture2D.h"
 #include "Engine/World.h"
 #include "EnvGenGameMode.h"
@@ -22,28 +23,41 @@
 #include "IImageWrapper.h"
 #include "IImageWrapperModule.h"
 #include "Landscape.h"
+#include "LandscapeGrassType.h"
 #include "LandscapeEdit.h"
 #include "LandscapeInfo.h"
 #include "LandscapeLayerInfoObject.h"
 #include "LandscapeProxy.h"
 #include "MaterialEditingLibrary.h"
 #include "Materials/Material.h"
+#include "Materials/MaterialExpressionAdd.h"
+#include "Materials/MaterialExpressionAppendVector.h"
+#include "Materials/MaterialExpressionComponentMask.h"
 #include "Materials/MaterialExpressionConstant.h"
 #include "Materials/MaterialExpressionConstant3Vector.h"
 #include "Materials/MaterialExpressionDivide.h"
 #include "Materials/MaterialExpressionLandscapeLayerBlend.h"
+#include "Materials/MaterialExpressionLandscapeGrassOutput.h"
 #include "Materials/MaterialExpressionLandscapeLayerCoords.h"
+#include "Materials/MaterialExpressionLandscapeLayerSample.h"
 #include "Materials/MaterialExpressionLinearInterpolate.h"
 #include "Materials/MaterialExpressionMultiply.h"
+#include "Materials/MaterialExpressionObjectPositionWS.h"
+#include "Materials/MaterialExpressionPerInstanceRandom.h"
+#include "Materials/MaterialExpressionVertexColor.h"
 #include "Materials/MaterialExpressionTextureSample.h"
+#include "MeshDescription.h"
 #include "Misc/FileHelper.h"
+#include "RHIGlobals.h"
 #include "Misc/PackageName.h"
 #include "Misc/Paths.h"
 #include "Modules/ModuleManager.h"
 #include "Serialization/JsonReader.h"
 #include "Serialization/JsonSerializer.h"
 #include "Serialization/JsonWriter.h"
+#include "StaticMeshAttributes.h"
 #include "UObject/Package.h"
+#include "UObject/UObjectIterator.h"
 
 DEFINE_LOG_CATEGORY_STATIC(LogEnvGen, Log, All);
 
@@ -56,6 +70,13 @@ namespace
 	const FName PavedLayer(TEXT("paved"));
 	const FName SoilLayer(TEXT("soil"));
 	constexpr int32 DetailPixels = 256;
+	// Grass: a tuft of blades, so many tufts per 100 square metres, drawn out to this far. Looks, not measurements:
+	// the cover's height and density come from no source yet.
+	constexpr int32 TuftBlades = 14;
+	constexpr float TuftRadiusCm = 9.f;
+	constexpr float BladeHeightMinCm = 8.f, BladeHeightMaxCm = 17.f;
+	constexpr float GrassDensityPer100M2 = 1000.f;
+	constexpr int32 GrassStartCullCm = 2500, GrassEndCullCm = 4500;
 	// How far a traced surface point may sit from the height the manifest says it should have.
 	constexpr double SurfaceToleranceCm = 5.0;
 	// The engine merges Landscape edit layers over several frames after an import.
@@ -95,6 +116,12 @@ namespace
 		TArray64<uint8> Weights;
 		ULandscapeLayerInfoObject* Info = nullptr;
 		FScan Scan;
+		// The class's average photo colour in linear light, from the manifest.
+		FLinearColor MeanColour = FLinearColor::Gray;
+		UTexture2D* Colour = nullptr;
+		UTexture2D* Normal = nullptr;
+		UTexture2D* Rough = nullptr;
+		UTexture2D* Relief = nullptr;
 	};
 
 	/** A Landscape vertex where the manifest says what each class weighs, worked out from the weightmaps by position. */
@@ -192,6 +219,11 @@ namespace
 			FLayer& Layer = Out.Layers.AddDefaulted_GetRef();
 			Layer.Name = FName(*Value->AsObject()->GetStringField(TEXT("name")));
 			Layer.File = Value->AsObject()->GetStringField(TEXT("file"));
+			const TArray<TSharedPtr<FJsonValue>>* Mean = nullptr;
+			if (Value->AsObject()->TryGetArrayField(TEXT("mean_linear_rgb"), Mean) && Mean->Num() == 3)
+			{
+				Layer.MeanColour = FLinearColor(float((*Mean)[0]->AsNumber()), float((*Mean)[1]->AsNumber()), float((*Mean)[2]->AsNumber()));
+			}
 			if (Layer.Name != GrassLayer && Layer.Name != PavedLayer && Layer.Name != SoilLayer)
 			{
 				Error = FString::Printf(TEXT("surface layer '%s' has no look in the ground material; known layers are grass, paved and soil"), *Layer.Name.ToString());
@@ -320,12 +352,13 @@ namespace
 		return Asset;
 	}
 
-	UTexture2D* MakeTexture(const FString& Name, int32 Width, int32 Height, ETextureSourceFormat Format, const uint8* Pixels, bool bSrgb, TArray<UPackage*>& Packages)
+	UTexture2D* MakeTexture(const FString& Name, int32 Width, int32 Height, ETextureSourceFormat Format, const uint8* Pixels, bool bSrgb, TArray<UPackage*>& Packages,
+		TextureCompressionSettings Compression = TC_MAX)
 	{
 		UTexture2D* Texture = NewAsset<UTexture2D>(Name, Packages);
 		Texture->Source.Init(Width, Height, 1, 1, Format, Pixels);
 		Texture->SRGB = bSrgb;
-		Texture->CompressionSettings = Format == TSF_G8 ? TC_Grayscale : TC_Default;
+		Texture->CompressionSettings = Compression != TC_MAX ? Compression : (Format == TSF_G8 ? TC_Grayscale : TC_Default);
 		Texture->LODGroup = TEXTUREGROUP_World;
 		Texture->PostEditChange();
 		return Texture;
@@ -371,79 +404,214 @@ namespace
 		return Cast<T>(UMaterialEditingLibrary::CreateMaterialExpression(Material, T::StaticClass(), X, Y));
 	}
 
-	UMaterialExpressionTextureSample* Sample(UMaterial* Material, UTexture2D* Texture, float QuadsPerRepeat, EMaterialSamplerType Sampler, int32 Y)
+	UMaterialExpressionTextureSample* Sample(UMaterial* Material, UTexture2D* Texture, float QuadsPerRepeat, EMaterialSamplerType Sampler, int32 Y, float TurnDegrees = 0)
 	{
 		// LandscapeLayerCoords divides the vertex index by MappingScale, so one repeat spans MappingScale quads.
 		UMaterialExpressionLandscapeLayerCoords* Coords = Node<UMaterialExpressionLandscapeLayerCoords>(Material, -1100, Y);
 		Coords->MappingScale = QuadsPerRepeat;
+		Coords->MappingRotation = TurnDegrees;
 		UMaterialExpressionTextureSample* Out = Node<UMaterialExpressionTextureSample>(Material, -800, Y);
 		Out->Texture = Texture;
 		Out->SamplerType = Sampler;
+		// One sampler for every texture: a material may bind only 16, and this one has several per class.
+		Out->SamplerSource = SSM_Wrap_WorldGroupSettings;
 		Out->Coordinates.Connect(0, Coords);
 		return Out;
 	}
 
+	/** The compile errors of a material, logged; the level build fails on any, because a material that does not compile draws nothing. */
+	int32 CompileErrors(UMaterial* Material)
+	{
+		int32 Count = 0;
+		if (const FMaterialResource* Resource = Material->GetMaterialResource(GMaxRHIShaderPlatform))
+		{
+			for (const FString& Error : Resource->GetCompileErrors())
+			{
+				UE_LOG(LogEnvGen, Error, TEXT("%s does not compile: %s"), *Material->GetName(), *Error);
+				++Count;
+			}
+		}
+		return Count;
+	}
+
+	/** A tuft of tapered, leaning blades, base at the origin, as geometry so it casts and takes light like turf. */
+	UStaticMesh* MakeGrassTuft(UMaterial* Material, TArray<UPackage*>& Packages)
+	{
+		UStaticMesh* Mesh = NewAsset<UStaticMesh>(TEXT("SM_GrassTuft"), Packages);
+		FMeshDescription Description;
+		FStaticMeshAttributes Attributes(Description);
+		Attributes.Register();
+		TVertexAttributesRef<FVector3f> Positions = Attributes.GetVertexPositions();
+		TVertexInstanceAttributesRef<FVector3f> Normals = Attributes.GetVertexInstanceNormals();
+		TVertexInstanceAttributesRef<FVector2f> Uvs = Attributes.GetVertexInstanceUVs();
+		TVertexInstanceAttributesRef<FVector4f> Colours = Attributes.GetVertexInstanceColors();
+		TPolygonGroupAttributesRef<FName> Slots = Attributes.GetPolygonGroupMaterialSlotNames();
+		const FPolygonGroupID Group = Description.CreatePolygonGroup();
+		Slots[Group] = FName(TEXT("Blade"));
+		FRandomStream Random(7);
+		constexpr int32 Segments = 4;
+		for (int32 Blade = 0; Blade < TuftBlades; ++Blade)
+		{
+			const float Around = Random.FRand() * 2 * PI;
+			const FVector2f Root = FVector2f(FMath::Cos(Around), FMath::Sin(Around)) * Random.FRand() * TuftRadiusCm;
+			const float Facing = Random.FRand() * 2 * PI;
+			const FVector2f Along(FMath::Cos(Facing), FMath::Sin(Facing)), Across(-Along.Y, Along.X);
+			const float Height = Random.FRandRange(BladeHeightMinCm, BladeHeightMaxCm);
+			const float Width = Random.FRandRange(0.4f, 0.7f);
+			const float Lean = Random.FRandRange(0.2f, 0.6f) * Height;
+			// Left and right edge vertices per level, and one at the tip.
+			TArray<FVertexInstanceID> Left, Right;
+			FVertexInstanceID Tip;
+			const auto Add = [&](float T, float Side)
+			{
+				const FVector2f Plan = Root + Along * (Lean * T * T) + Across * (Side * Width * (1.f - T));
+				const FVertexID Vertex = Description.CreateVertex();
+				Positions[Vertex] = FVector3f(Plan.X, Plan.Y, Height * T);
+				const FVertexInstanceID Instance = Description.CreateVertexInstance(Vertex);
+				Normals[Instance] = FVector3f(0, 0, 1);
+				Uvs[Instance] = FVector2f(Side * 0.5f + 0.5f, T);
+				Colours[Instance] = FVector4f(T, T, T, 1.f);
+				return Instance;
+			};
+			for (int32 Level = 0; Level < Segments; ++Level)
+			{
+				Left.Add(Add(float(Level) / Segments, -1.f));
+				Right.Add(Add(float(Level) / Segments, 1.f));
+			}
+			Tip = Add(1.f, 0.f);
+			for (int32 Level = 0; Level < Segments - 1; ++Level)
+			{
+				Description.CreatePolygon(Group, {Left[Level], Right[Level], Right[Level + 1]});
+				Description.CreatePolygon(Group, {Left[Level], Right[Level + 1], Left[Level + 1]});
+			}
+			Description.CreatePolygon(Group, {Left[Segments - 1], Right[Segments - 1], Tip});
+		}
+		Mesh->GetStaticMaterials().Add(FStaticMaterial(Material, FName(TEXT("Blade"))));
+		UStaticMesh::FBuildMeshDescriptionsParams Params;
+		Params.bBuildSimpleCollision = false;
+		Params.bFastBuild = true;
+		Mesh->BuildFromMeshDescriptions({&Description}, Params);
+		return Mesh;
+	}
+
 	/**
-	 * One look per surface class, blended by the layer weights. Every class takes its colour from the macro
-	 * colour map across the whole tile, modulated by tiling grey detail. Colour that varies over tens of
-	 * metres comes from evidence; everything finer is generated.
+	 * The blade's material: the grass class's own colour (its mean photo colour times the albedo scale), darker at the
+	 * root and lighter at the tip, and a little different from tuft to tuft.
 	 */
-	UMaterial* MakeGroundMaterial(UTexture2D* Macro, UTexture2D* Detail, int32 Quads, double QuadCm, const TArray<FLayer>& Layers, TArray<UPackage*>& Packages)
+	UMaterial* MakeBladeMaterial(const FLinearColor& MeanPhotoColour, float AlbedoScale, TArray<UPackage*>& Packages)
+	{
+		UMaterial* Material = NewAsset<UMaterial>(TEXT("M_GrassBlade"), Packages);
+		Material->TwoSided = true;
+		Material->bUsedWithInstancedStaticMeshes = true;
+		UMaterialExpressionConstant3Vector* Albedo = Node<UMaterialExpressionConstant3Vector>(Material, -500, 0);
+		Albedo->Constant = MeanPhotoColour * AlbedoScale;
+
+		// The mesh's vertex colour is how far up the blade the point is: 0 at the root, 1 at the tip.
+		UMaterialExpressionVertexColor* Along = Node<UMaterialExpressionVertexColor>(Material, -800, 400);
+		UMaterialExpressionLinearInterpolate* Shade = Node<UMaterialExpressionLinearInterpolate>(Material, -650, 400);
+		Shade->ConstA = 0.7f;
+		Shade->ConstB = 1.3f;
+		Shade->Alpha.Connect(1, Along);
+		UMaterialExpressionPerInstanceRandom* Random = Node<UMaterialExpressionPerInstanceRandom>(Material, -800, 550);
+		UMaterialExpressionLinearInterpolate* Tuft = Node<UMaterialExpressionLinearInterpolate>(Material, -650, 550);
+		Tuft->ConstA = 0.85f;
+		Tuft->ConstB = 1.15f;
+		Tuft->Alpha.Connect(0, Random);
+		UMaterialExpressionMultiply* Lit = Node<UMaterialExpressionMultiply>(Material, -350, 100);
+		Lit->A.Connect(0, Albedo);
+		Lit->B.Connect(0, Shade);
+		UMaterialExpressionMultiply* Colour = Node<UMaterialExpressionMultiply>(Material, -200, 100);
+		Colour->A.Connect(0, Lit);
+		Colour->B.Connect(0, Tuft);
+		// Thin blades pass light: lit from behind they glow with their own colour rather than going black.
+		Material->SetShadingModel(MSM_TwoSidedFoliage);
+		UMaterialEditingLibrary::ConnectMaterialProperty(Colour, TEXT(""), MP_BaseColor);
+		UMaterialEditingLibrary::ConnectMaterialProperty(Colour, TEXT(""), MP_SubsurfaceColor);
+		UMaterialExpressionConstant* Roughness = Node<UMaterialExpressionConstant>(Material, -200, 300);
+		Roughness->R = 0.75f;
+		UMaterialEditingLibrary::ConnectMaterialProperty(Roughness, TEXT(""), MP_Roughness);
+		UMaterialEditingLibrary::RecompileMaterial(Material);
+		return Material;
+	}
+
+	/**
+	 * The ground: per class a scanned material, height-blended where classes meet. Evidence sets the colour that
+	 * varies over tens of metres (the macro colour map times the fitted albedo scale) and the scan adds everything
+	 * finer: its colour divided by its own mean, so it never shifts the colour. Each scan is read at two scales and
+	 * turns, mixed by broad noise, so the repeat does not show from the air.
+	 */
+	UMaterial* MakeGroundMaterial(UTexture2D* Macro, UTexture2D* Detail, int32 Quads, double QuadCm, float AlbedoScale, const TArray<FLayer>& Layers, ULandscapeGrassType* GrassType,
+		TArray<UPackage*>& Packages)
 	{
 		UMaterial* Material = NewAsset<UMaterial>(TEXT("M_Ground"), Packages);
-		const float FineRepeatQuads = 70.0 / QuadCm;
-		const float BroadRepeatQuads = 1100.0 / QuadCm;
-		UMaterialExpressionTextureSample* MacroSample = Sample(Material, Macro, Quads, SAMPLERTYPE_Color, 0);
-		UMaterialExpressionTextureSample* Fine = Sample(Material, Detail, FineRepeatQuads, SAMPLERTYPE_LinearGrayscale, 250);
-		UMaterialExpressionTextureSample* Broad = Sample(Material, Detail, BroadRepeatQuads, SAMPLERTYPE_LinearGrayscale, 500);
+		UMaterialExpressionMultiply* MacroAlbedo = Node<UMaterialExpressionMultiply>(Material, -700, 0);
+		MacroAlbedo->A.Connect(0, Sample(Material, Macro, Quads, SAMPLERTYPE_Color, 0));
+		MacroAlbedo->ConstB = AlbedoScale;
+		UMaterialExpressionTextureSample* MixNoise = Sample(Material, Detail, 1100.0 / QuadCm, SAMPLERTYPE_LinearGrayscale, 250);
 
-		const auto Modulate = [Material](UMaterialExpression* Colour, UMaterialExpressionTextureSample* Grey, float Low, float High, int32 Y)
+		UMaterialExpressionLandscapeLayerBlend* Colour = Node<UMaterialExpressionLandscapeLayerBlend>(Material, 0, 0);
+		UMaterialExpressionLandscapeLayerBlend* Normal = Node<UMaterialExpressionLandscapeLayerBlend>(Material, 0, 300);
+		UMaterialExpressionLandscapeLayerBlend* Rough = Node<UMaterialExpressionLandscapeLayerBlend>(Material, 0, 600);
+		const auto Mix = [&](UMaterialExpression* A, UMaterialExpression* B, int32 X, int32 Y)
 		{
-			UMaterialExpressionLinearInterpolate* Range = Node<UMaterialExpressionLinearInterpolate>(Material, -500, Y);
-			Range->ConstA = Low;
-			Range->ConstB = High;
-			Range->Alpha.Connect(1, Grey);
-			UMaterialExpressionMultiply* Out = Node<UMaterialExpressionMultiply>(Material, -300, Y);
-			Out->A.Connect(0, Colour);
-			Out->B.Connect(0, Range);
+			UMaterialExpressionLinearInterpolate* Out = Node<UMaterialExpressionLinearInterpolate>(Material, X, Y);
+			Out->A.Connect(0, A);
+			Out->B.Connect(0, B);
+			Out->Alpha.Connect(1, MixNoise);
 			return Out;
 		};
-		// An aerial photo records sunlit ground, so as albedo it is too bright until the pipeline delights it.
-		const auto Albedo = [Material](UMaterialExpression* Colour, int32 Y)
-		{
-			UMaterialExpressionMultiply* Out = Node<UMaterialExpressionMultiply>(Material, -200, Y);
-			Out->A.Connect(0, Colour);
-			Out->ConstB = PhotoToAlbedo;
-			return Out;
-		};
-		// Looser ground is mottled at two scales and rough; a made surface is nearly even and smoother. The macro
-		// colour already differs per class, because each class was low-passed from its own ground.
-		UMaterialExpression* Loose = Albedo(Modulate(Modulate(MacroSample, Fine, 0.85f, 1.15f, 250), Broad, 0.85f, 1.15f, 500), 100);
-		UMaterialExpression* Made = Albedo(Modulate(MacroSample, Fine, 0.96f, 1.04f, 750), 750);
-
-		UMaterialExpressionLandscapeLayerBlend* Colour = Node<UMaterialExpressionLandscapeLayerBlend>(Material, -100, 0);
-		UMaterialExpressionLandscapeLayerBlend* Roughness = Node<UMaterialExpressionLandscapeLayerBlend>(Material, -100, 300);
+		int32 Row = 0;
 		for (const FLayer& Layer : Layers)
 		{
-			const bool bPaved = Layer.Name == PavedLayer;
-			const bool bFirst = Layer.Name == Layers[0].Name;
-			FLayerBlendInput& ColourInput = Colour->Layers.AddDefaulted_GetRef();
-			ColourInput.LayerName = Layer.Name;
-			ColourInput.BlendType = LB_WeightBlend;
-			ColourInput.PreviewWeight = bFirst ? 1 : 0;
-			ColourInput.LayerInput.Connect(0, bPaved ? Made : Loose);
-			FLayerBlendInput& RoughnessInput = Roughness->Layers.AddDefaulted_GetRef();
-			RoughnessInput.LayerName = Layer.Name;
-			RoughnessInput.BlendType = LB_WeightBlend;
-			RoughnessInput.PreviewWeight = bFirst ? 1 : 0;
-			RoughnessInput.ConstLayerInput = FVector(bPaved ? 0.65 : (Layer.Name == SoilLayer ? 0.95 : 0.9));
+			const float Repeat = float(Layer.Scan.SizeCm / QuadCm);
+			const int32 Y = 1000 + Row * 1500;
+			UMaterialExpressionTextureSample* ColourNear = Sample(Material, Layer.Colour, Repeat, SAMPLERTYPE_Color, Y);
+			UMaterialExpressionTextureSample* ColourFar = Sample(Material, Layer.Colour, Repeat * 2.3f, SAMPLERTYPE_Color, Y + 250, 31.f);
+			UMaterialExpressionConstant3Vector* Mean = Node<UMaterialExpressionConstant3Vector>(Material, -500, Y);
+			Mean->Constant = Layer.Scan.MeanColour;
+			UMaterialExpressionDivide* Structure = Node<UMaterialExpressionDivide>(Material, -300, Y);
+			Structure->A.Connect(0, Mix(ColourNear, ColourFar, -400, Y));
+			Structure->B.Connect(0, Mean);
+			UMaterialExpressionMultiply* Albedo = Node<UMaterialExpressionMultiply>(Material, -200, Y);
+			Albedo->A.Connect(0, MacroAlbedo);
+			Albedo->B.Connect(0, Structure);
+
+			UMaterialExpressionTextureSample* NormalNear = Sample(Material, Layer.Normal, Repeat, SAMPLERTYPE_Normal, Y + 500);
+			UMaterialExpressionTextureSample* RoughNear = Sample(Material, Layer.Rough, Repeat, SAMPLERTYPE_LinearGrayscale, Y + 750);
+			UMaterialExpressionTextureSample* RoughFar = Sample(Material, Layer.Rough, Repeat * 2.3f, SAMPLERTYPE_LinearGrayscale, Y + 1000, 31.f);
+			UMaterialExpressionTextureSample* Relief = Sample(Material, Layer.Relief, Repeat, SAMPLERTYPE_LinearGrayscale, Y + 1250);
+
+			const bool bFirst = Row == 0;
+			const auto Add = [&](UMaterialExpressionLandscapeLayerBlend* Blend, UMaterialExpression* Input)
+			{
+				FLayerBlendInput& Out = Blend->Layers.AddDefaulted_GetRef();
+				Out.LayerName = Layer.Name;
+				Out.BlendType = LB_HeightBlend;
+				Out.PreviewWeight = bFirst ? 1 : 0;
+				Out.LayerInput.Connect(0, Input);
+				Out.HeightInput.Connect(1, Relief);
+			};
+			Add(Colour, Albedo);
+			Add(Normal, NormalNear);
+			Add(Rough, Mix(RoughNear, RoughFar, -400, Y + 900));
+			++Row;
+		}
+		if (GrassType)
+		{
+			// Where the grass class has weight, the engine grows tufts of the grass type.
+			UMaterialExpressionLandscapeLayerSample* Weight = Node<UMaterialExpressionLandscapeLayerSample>(Material, 0, 900);
+			Weight->ParameterName = GrassLayer;
+			Weight->PreviewWeight = 1;
+			UMaterialExpressionLandscapeGrassOutput* Output = Node<UMaterialExpressionLandscapeGrassOutput>(Material, 300, 900);
+			Output->GrassTypes.Empty();
+			FGrassInput& Input = Output->GrassTypes.AddDefaulted_GetRef();
+			Input.Name = FName(TEXT("Grass"));
+			Input.GrassType = GrassType;
+			Input.Input.Connect(0, Weight);
 		}
 		UMaterialEditingLibrary::ConnectMaterialProperty(Colour, TEXT(""), MP_BaseColor);
-		UMaterialEditingLibrary::ConnectMaterialProperty(Roughness, TEXT(""), MP_Roughness);
-		UMaterialExpressionConstant* Specular = Node<UMaterialExpressionConstant>(Material, -100, 400);
-		Specular->R = 0.2f;
-		UMaterialEditingLibrary::ConnectMaterialProperty(Specular, TEXT(""), MP_Specular);
-
+		UMaterialEditingLibrary::ConnectMaterialProperty(Normal, TEXT(""), MP_Normal);
+		UMaterialEditingLibrary::ConnectMaterialProperty(Rough, TEXT(""), MP_Roughness);
 		UMaterialEditingLibrary::RecompileMaterial(Material);
 		return Material;
 	}
@@ -505,12 +673,12 @@ namespace
 	}
 
 	/** The surround's material: its own colour map across it, and nothing finer. It is only ever seen from far away. */
-	UMaterial* MakeSurroundMaterial(UTexture2D* Colour, int32 Quads, TArray<UPackage*>& Packages)
+	UMaterial* MakeSurroundMaterial(UTexture2D* Colour, int32 Quads, float AlbedoScale, TArray<UPackage*>& Packages)
 	{
 		UMaterial* Material = NewAsset<UMaterial>(TEXT("M_Surround"), Packages);
 		UMaterialExpressionMultiply* Albedo = Node<UMaterialExpressionMultiply>(Material, -300, 0);
 		Albedo->A.Connect(0, Sample(Material, Colour, Quads, SAMPLERTYPE_Color, 0));
-		Albedo->ConstB = PhotoToAlbedo;
+		Albedo->ConstB = AlbedoScale;
 		UMaterialEditingLibrary::ConnectMaterialProperty(Albedo, TEXT(""), MP_BaseColor);
 		UMaterialExpressionConstant* Roughness = Node<UMaterialExpressionConstant>(Material, -300, 200);
 		Roughness->R = 0.9f;
@@ -524,7 +692,7 @@ namespace
 	 * the sky's empty lower half shows as a blue band past the surface's edge from any height. It only closes the band
 	 * without distance fog, which would turn everything past a couple of kilometres, the plane included, dark.
 	 */
-	void AddHorizon(UWorld* World, const FSurface& Outer, const TArray64<uint8>& HeightBytes, const TArray64<uint8>& ColourBytes, TArray<UPackage*>& Packages)
+	void AddHorizon(UWorld* World, const FSurface& Outer, const TArray64<uint8>& HeightBytes, const TArray64<uint8>& ColourBytes, float AlbedoScale, TArray<UPackage*>& Packages)
 	{
 		const uint16* Heights = reinterpret_cast<const uint16*>(HeightBytes.GetData());
 		uint16 Lowest = MAX_uint16;
@@ -540,7 +708,7 @@ namespace
 		}
 		UMaterial* Material = NewAsset<UMaterial>(TEXT("M_Horizon"), Packages);
 		UMaterialExpressionConstant3Vector* Colour = Node<UMaterialExpressionConstant3Vector>(Material, -300, 0);
-		Colour->Constant = FLinearColor(Sum / Pixels * PhotoToAlbedo);
+		Colour->Constant = FLinearColor(Sum / Pixels * AlbedoScale);
 		UMaterialEditingLibrary::ConnectMaterialProperty(Colour, TEXT(""), MP_BaseColor);
 		UMaterialExpressionConstant* Roughness = Node<UMaterialExpressionConstant>(Material, -300, 200);
 		Roughness->R = 0.9f;
@@ -562,13 +730,13 @@ namespace
 		Mesh->bAffectDistanceFieldLighting = false;
 	}
 
-	void AddSkyAndSun(UWorld* World)
+	void AddSkyAndSun(UWorld* World, const FLighting& Lighting)
 	{
-		// Sun in the south-east, about 48 degrees up. World +X is north and +Y is east, so the light travels north-west.
-		ADirectionalLight* Sun = World->SpawnActor<ADirectionalLight>(FVector(0, 0, 20000), FRotator(-48, -45, 0));
+		// World +X is grid north and +Y is east, so a sun at azimuth A lights the ground travelling towards A + 180.
+		ADirectionalLight* Sun = World->SpawnActor<ADirectionalLight>(FVector(0, 0, 20000), FRotator(-Lighting.ElevationDeg, Lighting.GridAzimuthDeg + 180.0, 0));
 		Sun->SetActorLabel(TEXT("EnvGenSun"));
 		Sun->GetLightComponent()->SetMobility(EComponentMobility::Movable);
-		Sun->GetLightComponent()->SetIntensity(10);
+		Sun->GetLightComponent()->SetIntensity(float(Lighting.SunLux));
 		Cast<UDirectionalLightComponent>(Sun->GetLightComponent())->SetAtmosphereSunLight(true);
 
 		AActor* Atmosphere = World->SpawnActor<AActor>(ASkyAtmosphere::StaticClass(), FTransform::Identity);
@@ -579,14 +747,14 @@ namespace
 		Sky->GetLightComponent()->SetMobility(EComponentMobility::Movable);
 		Sky->GetLightComponent()->SetRealTimeCapture(true);
 
-		// Exposure may adapt only inside a narrow band (EV100), so a camera never whites out.
+		// Exposure is fixed at the EV100 that puts mid-grey in this sun and sky at mid-grey.
 		APostProcessVolume* Exposure = World->SpawnActor<APostProcessVolume>(FVector::ZeroVector, FRotator::ZeroRotator);
 		Exposure->SetActorLabel(TEXT("EnvGenExposure"));
 		Exposure->bUnbound = true;
 		Exposure->Settings.bOverride_AutoExposureMinBrightness = true;
 		Exposure->Settings.bOverride_AutoExposureMaxBrightness = true;
-		Exposure->Settings.AutoExposureMinBrightness = 2.0f;
-		Exposure->Settings.AutoExposureMaxBrightness = 3.5f;
+		Exposure->Settings.AutoExposureMinBrightness = float(Lighting.ExposureEv100);
+		Exposure->Settings.AutoExposureMaxBrightness = float(Lighting.ExposureEv100);
 		// Sharp frames matter more than cinematic blur for inspection and for simulated cameras.
 		Exposure->Settings.bOverride_MotionBlurAmount = true;
 		Exposure->Settings.MotionBlurAmount = 0;
@@ -678,11 +846,12 @@ struct FEnvGenLevelBuild::FState
 	UWorld* World = nullptr;
 	ALandscape* Landscape = nullptr;
 	ALandscape* Surround = nullptr;
+	int32 MaterialErrors = 0;
 	float Waited = 0;
 	int32 Frames = 0;
 };
 
-bool FEnvGenLevelBuild::Start(const FString& ManifestPath, const FString& MapPath)
+bool FEnvGenLevelBuild::Start(const FString& ManifestPath, const FString& MapPath, const FString& MaterialsDirectory)
 {
 	State = MakeShared<FState>();
 	State->MapPath = MapPath.IsEmpty() ? FString(DefaultMapPath) : MapPath;
@@ -700,6 +869,11 @@ bool FEnvGenLevelBuild::Start(const FString& ManifestPath, const FString& MapPat
 		return false;
 	}
 
+	if (!LoadScans(MaterialsDirectory, Manifest.Layers, Error))
+	{
+		UE_LOG(LogEnvGen, Error, TEXT("%s"), *Error);
+		return false;
+	}
 	for (FLayer& Layer : Manifest.Layers)
 	{
 		int32 Width = 0, Height = 0;
@@ -741,7 +915,30 @@ bool FEnvGenLevelBuild::Start(const FString& ManifestPath, const FString& MapPat
 	UTexture2D* Macro = MakeTexture(TEXT("T_MacroColour"), MacroSize.X, MacroSize.Y, TSF_BGRA8, MacroBytes.GetData(), true, State->Packages);
 	const TArray<uint8> Noise = DetailNoise();
 	UTexture2D* Detail = MakeTexture(TEXT("T_Detail"), DetailPixels, DetailPixels, TSF_G8, Noise.GetData(), false, State->Packages);
-	UMaterial* Material = MakeGroundMaterial(Macro, Detail, Manifest.Tile.Vertices - 1, Manifest.Tile.Scale.X, Manifest.Layers, State->Packages);
+	for (FLayer& Layer : Manifest.Layers)
+	{
+		const FString Name = Layer.Name.ToString();
+		const FScan& Scan = Layer.Scan;
+		Layer.Colour = MakeTexture(TEXT("T_") + Name + TEXT("_Colour"), Scan.Width, Scan.Height, TSF_BGRA8, Scan.Colour.GetData(), true, State->Packages);
+		Layer.Normal = MakeTexture(TEXT("T_") + Name + TEXT("_Normal"), Scan.Width, Scan.Height, TSF_BGRA8, Scan.Normal.GetData(), false, State->Packages, TC_Normalmap);
+		Layer.Rough = MakeTexture(TEXT("T_") + Name + TEXT("_Rough"), Scan.Width, Scan.Height, TSF_G8, Scan.Rough.GetData(), false, State->Packages);
+		Layer.Relief = MakeTexture(TEXT("T_") + Name + TEXT("_Relief"), Scan.Width, Scan.Height, TSF_G8, Scan.Relief.GetData(), false, State->Packages);
+	}
+	ULandscapeGrassType* GrassType = nullptr;
+	if (Manifest.Layers.ContainsByPredicate([](const FLayer& Layer) { return Layer.Name == GrassLayer; }))
+	{
+		GrassType = NewAsset<ULandscapeGrassType>(TEXT("LGT_Grass"), State->Packages);
+		FGrassVariety& Variety = GrassType->GrassVarieties.AddDefaulted_GetRef();
+		Variety.GrassMesh = MakeGrassTuft(MakeBladeMaterial(Manifest.Layers[Manifest.Layers.IndexOfByPredicate([](const FLayer& Layer) { return Layer.Name == GrassLayer; })].MeanColour, Manifest.AlbedoScale, State->Packages), State->Packages);
+		Variety.GrassDensity = FPerPlatformFloat(GrassDensityPer100M2);
+		Variety.StartCullDistance = FPerPlatformInt(GrassStartCullCm);
+		Variety.EndCullDistance = FPerPlatformInt(GrassEndCullCm);
+		Variety.Scaling = EGrassScaling::Uniform;
+		Variety.ScaleX = FFloatInterval(0.8f, 1.5f);
+		Variety.RandomRotation = true;
+		Variety.AlignToSurface = true;
+	}
+	UMaterial* Material = MakeGroundMaterial(Macro, Detail, Manifest.Tile.Vertices - 1, Manifest.Tile.Scale.X, Manifest.AlbedoScale, Manifest.Layers, GrassType, State->Packages);
 	for (FLayer& Layer : Manifest.Layers)
 	{
 		Layer.Info = NewAsset<ULandscapeLayerInfoObject>(TEXT("LI_") + Layer.Name.ToString(), State->Packages);
@@ -754,22 +951,33 @@ bool FEnvGenLevelBuild::Start(const FString& ManifestPath, const FString& MapPat
 	{
 		UTexture2D* SurroundColour = MakeTexture(TEXT("T_SurroundColour"), SurroundColourSize.X, SurroundColourSize.Y, TSF_BGRA8, SurroundColourBytes.GetData(), true,
 			State->Packages);
-		UMaterial* SurroundMaterial = MakeSurroundMaterial(SurroundColour, Manifest.Surround->Vertices - 1, State->Packages);
+		UMaterial* SurroundMaterial = MakeSurroundMaterial(SurroundColour, Manifest.Surround->Vertices - 1, Manifest.AlbedoScale, State->Packages);
 		State->Surround = ImportLandscape(State->World, TEXT("EnvGenSurround"), *Manifest.Surround, SurroundHeightBytes, SurroundMaterial, GroundStencil, TArray<FLayer>());
 	}
 	if (Manifest.Surround)
 	{
-		AddHorizon(State->World, *Manifest.Surround, SurroundHeightBytes, SurroundColourBytes, State->Packages);
+		AddHorizon(State->World, *Manifest.Surround, SurroundHeightBytes, SurroundColourBytes, Manifest.AlbedoScale, State->Packages);
 	}
 	else
 	{
-		AddHorizon(State->World, Manifest.Tile, State->HeightBytes, MacroBytes, State->Packages);
+		AddHorizon(State->World, Manifest.Tile, State->HeightBytes, MacroBytes, Manifest.AlbedoScale, State->Packages);
 	}
-	AddSkyAndSun(State->World);
+	AddSkyAndSun(State->World, Manifest.Lighting);
 	AddSiteInfo(State->World, Manifest);
 	APlayerStart* PlayerStart = State->World->SpawnActor<APlayerStart>(FVector(0, 0, 150), FRotator::ZeroRotator);
 	PlayerStart->SetActorLabel(TEXT("EnvGenPlayerStart"));
 	State->World->GetWorldSettings()->DefaultGameMode = AEnvGenGameMode::StaticClass();
+	for (UPackage* Package : State->Packages)
+	{
+		ForEachObjectWithPackage(Package, [&](UObject* Object)
+		{
+			if (UMaterial* Generated = Cast<UMaterial>(Object))
+			{
+				State->MaterialErrors += CompileErrors(Generated);
+			}
+			return true;
+		});
+	}
 	return true;
 }
 
@@ -792,7 +1000,8 @@ bool FEnvGenLevelBuild::Finish(float DeltaSeconds, bool& bSucceeded)
 	const bool bSurfaceOk = Missed == 0 && WorstCm <= SurfaceToleranceCm;
 	const bool bWeightsOk = TargetLayers == Manifest.Layers.Num() && WeightError <= WeightTolerance;
 	const bool bSaved = UEditorLoadingAndSavingUtils::SavePackages(State->Packages, false) && UEditorLoadingAndSavingUtils::SaveMap(State->World, State->MapPath);
-	bSucceeded = bMerged && bSurfaceOk && bWeightsOk && bSaved;
+	const bool bMaterialsOk = State->MaterialErrors == 0;
+	bSucceeded = bMerged && bSurfaceOk && bWeightsOk && bMaterialsOk && bSaved;
 
 	TSharedRef<FJsonObject> Receipt = MakeShared<FJsonObject>();
 	Receipt->SetStringField(TEXT("map"), State->MapPath);
@@ -809,6 +1018,8 @@ bool FEnvGenLevelBuild::Finish(float DeltaSeconds, bool& bSucceeded)
 	Receipt->SetNumberField(TEXT("weights_worst_error"), WeightError);
 	Receipt->SetNumberField(TEXT("weights_tolerance"), WeightTolerance);
 	Receipt->SetBoolField(TEXT("weights_ok"), bWeightsOk);
+	Receipt->SetNumberField(TEXT("material_compile_errors"), State->MaterialErrors);
+	Receipt->SetBoolField(TEXT("materials_ok"), bMaterialsOk);
 	Receipt->SetBoolField(TEXT("saved"), bSaved);
 	Receipt->SetBoolField(TEXT("succeeded"), bSucceeded);
 	FString Json;

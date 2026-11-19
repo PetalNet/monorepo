@@ -13,7 +13,7 @@ param(
 	[string] $EngineRoot,
 	[string] $WorkDir,
 	[string] $Exe,
-	[Parameter(Mandatory)] [ValidateSet('walk', 'fly', 'overview')] [string] $Tour,
+	[Parameter(Mandatory)] [ValidateSet('walk', 'stand', 'fly', 'overview')] [string] $Tour,
 	[int] $Seconds = 60,
 	[int] $TimeoutSeconds = 0,
 	[string[]] $ExtraArgs = @()

@@ -6,7 +6,7 @@
 #include "Modules/ModuleManager.h"
 
 /**
- * Starts the editor with -EnvGenManifest=<path to build.json> [-EnvGenMap=/Game/...] to rebuild the
+ * Starts the editor with -EnvGenManifest=<path to build.json> -EnvGenMaterials=<directory fetch-materials.ps1 filled> [-EnvGenMap=/Game/...] to rebuild the
  * level unattended. The process exits with 0 when the build passed its checks and 1 when it did not.
  */
 class FEnvGenEditorModule : public IModuleInterface
@@ -19,6 +19,7 @@ public:
 			return;
 		}
 		FParse::Value(FCommandLine::Get(), TEXT("EnvGenMap="), MapPath);
+		FParse::Value(FCommandLine::Get(), TEXT("EnvGenMaterials="), MaterialsDirectory);
 		FEditorDelegates::OnEditorInitialized.AddRaw(this, &FEnvGenEditorModule::OnEditorReady);
 	}
 
@@ -31,7 +32,7 @@ public:
 private:
 	void OnEditorReady(double)
 	{
-		if (!Build.Start(ManifestPath, MapPath))
+		if (!Build.Start(ManifestPath, MapPath, MaterialsDirectory))
 		{
 			FPlatformMisc::RequestExitWithStatus(false, 1);
 			return;
@@ -57,6 +58,7 @@ private:
 
 	FString ManifestPath;
 	FString MapPath;
+	FString MaterialsDirectory;
 	FEnvGenLevelBuild Build;
 	FTSTicker::FDelegateHandle Ticker;
 };

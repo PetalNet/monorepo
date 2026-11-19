@@ -29,4 +29,5 @@ foreach ($class in $materials.classes.PSObject.Properties) {
 		}
 	}
 }
+Copy-Item (Join-Path $here 'materials.json') (Join-Path $Directory 'materials.json') -Force
 "downloaded $([math]::Round($downloaded / 1MB, 2)) MB into $Directory"

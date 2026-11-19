@@ -9,7 +9,7 @@ public class EnvGenEditor : ModuleRules
 		// Foliage is here only because the engine's LandscapeEdit.h includes one of its headers.
 		PrivateDependencyModuleNames.AddRange(new[]
 		{
-			"AssetRegistry", "Foliage", "ImageWrapper", "Json", "Landscape", "MaterialEditor", "UnrealEd",
+			"AssetRegistry", "Foliage", "ImageWrapper", "Json", "Landscape", "MaterialEditor", "MeshDescription", "RHI", "StaticMeshDescription", "UnrealEd",
 		});
 	}
 }

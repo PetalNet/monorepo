@@ -13,6 +13,7 @@ param(
 	[Parameter(Mandatory)] [string] $EngineRoot,
 	[Parameter(Mandatory)] [string] $WorkDir,
 	[string] $Manifest,
+	[string] $Materials,
 	[string[]] $ExtraPlugin = @(),
 	[string] $DroneClass,
 	[switch] $SkipCompile,
@@ -53,6 +54,7 @@ if (-not $SkipCompile) {
 }
 
 if ($Manifest) {
+	if (-not $Materials) { throw 'a level build needs -Materials, the directory fetch-materials.ps1 filled' }
 	# The editor changes its working directory, so it needs an absolute path.
 	$manifestPath = (Resolve-Path $Manifest).Path
 	$receipt = Join-Path $WorkDir 'Saved\EnvGen\build_receipt.json'
@@ -60,7 +62,7 @@ if ($Manifest) {
 
 	# The full editor, not a commandlet: the engine merges Landscape edit layers on the GPU over several frames.
 	$editor = Join-Path $EngineRoot 'Engine\Binaries\Win64\UnrealEditor-Cmd.exe'
-	$arguments = @("`"$project`"", "-EnvGenManifest=`"$manifestPath`"", '-RenderOffscreen', '-unattended', '-nosplash', '-nopause', '-stdout')
+	$arguments = @("`"$project`"", "-EnvGenManifest=`"$manifestPath`"", "-EnvGenMaterials=`"$((Resolve-Path $Materials).Path)`"", '-RenderOffscreen', '-unattended', '-nosplash', '-nopause', '-stdout')
 	$process = Start-Process $editor -ArgumentList $arguments -PassThru -NoNewWindow
 	# Windows PowerShell only reports ExitCode for a process whose handle was read before it exited.
 	$null = $process.Handle
