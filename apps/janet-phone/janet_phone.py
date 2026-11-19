@@ -23,7 +23,7 @@ from http import HTTPStatus
 from pathlib import Path
 
 from websockets.asyncio.server import ServerConnection, serve  # noqa: F401
-from websockets.exceptions import ConnectionClosed
+from websockets.exceptions import ConnectionClosed, ConnectionClosedOK
 from websockets.http11 import Request, Response
 
 import pairing
@@ -98,6 +98,27 @@ def make_line(config: "Config", rate: int):
         return None
 
 
+def make_earcon(config: "Config", rate: int) -> bytes | None:
+    """The hang-up earcon (packages/janet-line) as PCM16 mono at `rate`, or None when none is set or it cannot be made."""
+    if not config.hangup_earcon:
+        return None
+    here = Path(__file__).resolve()
+    repo = str(here.parents[2] / "packages" / "janet-line") if len(here.parents) > 2 else ""
+    if repo and Path(repo).is_dir() and repo not in sys.path:
+        sys.path.append(repo)
+    try:
+        import numpy as np
+        from janet_line.earcon import render
+
+        return (render(config.hangup_earcon, rate) * 32768).astype(np.dtype("<i2")).tobytes()
+    except Exception as error:  # noqa: BLE001 - a call ends without its earcon rather than not ending
+        log.warning("no hang-up earcon: %s", error)
+        return None
+
+
+STALL_S = 5.0  # the phone streams its microphone all the time, so this long without a frame means the far side has stopped
+
+
 def mix(pcm: bytes, tone) -> bytes:
     """PCM16 mono with `tone` (float samples, -1..1) added, clipped."""
     import numpy as np
@@ -164,6 +185,9 @@ class Config:
     # The call's background sound, as the tuning page's code (packages/janet-line), e.g. "AL6 AT45 AW83 BC2 BL11 BR7 BF2 BO6 DL0 DW48 U37 V80".
     # Empty is off. It plays while the line is open: comfort noise, a hum while a reply is worked on, ducked under Janet's voice.
     line_tone: str = ""
+    # The short soft descending blip played before Janet closes the line (packages/janet-line, the earcon code, e.g. "HL40 HP880 HI5 HN150 HG30").
+    # Empty is off. The phone's own hang-up and a dropped connection get none: they are not Janet's to announce.
+    hangup_earcon: str = ""
 
 
 def transcribe(address: str, pcm: bytes) -> str:
@@ -355,6 +379,8 @@ class Call:
         self.over = False
         self.him = 0.0  # the caller's level, as last measured
         self.playing = False
+        self.ended_by: str | None = None  # who closed the line, when Janet did; None means the far side (or a failure)
+        self.last_heard = time.monotonic()  # when the phone's microphone last sent a frame
         self.phase = "listening"  # what the pipeline is doing: listening, thinking or speaking
         self.line = None
         # Two WAV tracks on one clock, both starting when the call connected: the caller's microphone as it
@@ -398,17 +424,41 @@ class Call:
                         return
                     log.warning("call %s: reply failed: %s", self.conversation, error)
                 elif self.speaking.result():
-                    await self.ws.send(json.dumps({"type": "bye"}))
+                    await self.hang_up("the head ended the conversation")
                     return
         except ConnectionClosed:
             pass
         finally:
             self.over = True
+            log.info("call %s: %s", self.conversation, self.how_it_ended())
             listener.cancel()
             hum.cancel()
             if self.speaking is not None:
                 self.speaking.cancel()
             await self.ws.close()
+
+    async def hang_up(self, why: str) -> None:
+        """Janet ends the call: the earcon first, so the caller knows it was her, then the bye."""
+        self.ended_by = why
+        tone = await asyncio.to_thread(make_earcon, self.config, self.rate or 24000)
+        try:
+            if tone:
+                rate = self.rate or 24000
+                await self.ws.send(tone)
+                if self.config.record_dir:
+                    self.tape_janet(tone, rate)
+                await asyncio.sleep(len(tone) / (rate * 2) + 0.15)  # let the phone play it before the line closes
+            await self.ws.send(json.dumps({"type": "bye"}))
+        except ConnectionClosed:
+            self.ended_by = None  # the phone had already gone: that is the far side's end
+
+    def how_it_ended(self) -> str:
+        """One log line that tells Janet ending a call from the far side dropping it."""
+        if self.ended_by:
+            return f"ended by Janet ({self.ended_by})"
+        code, reason = getattr(self.ws, "close_code", None), getattr(self.ws, "close_reason", "")
+        quiet = time.monotonic() - self.last_heard
+        return f"ended by the far side (close code {code}, {reason or 'no reason'}; the phone's microphone was last heard {quiet:.1f} s ago)"
 
     async def tell(self, **message) -> None:
         """One event for the caller's screen. A device that does not know an event ignores it."""
@@ -443,7 +493,22 @@ class Call:
         endpointer, heard = await asyncio.to_thread(new_endpointer, self.config), 0
         try:
             async with asyncio.timeout(self.config.max_call_s):
-                async for message in self.ws:
+                stalled = False
+                while True:
+                    try:
+                        # recv() is safe to cancel on a timeout; the async iterator over the socket is not (it ends for good).
+                        message = await asyncio.wait_for(self.ws.recv(), STALL_S)
+                    except TimeoutError:
+                        if not stalled:
+                            stalled = True
+                            log.warning("call %s: no audio from the phone for %.0f s: the far side has stopped sending", self.conversation, STALL_S)
+                        continue
+                    except ConnectionClosedOK:
+                        break
+                    if stalled:
+                        stalled = False
+                        log.info("call %s: audio from the phone again", self.conversation)
+                    self.last_heard = time.monotonic()
                     if not isinstance(message, bytes):
                         continue
                     if self.config.record_dir:
@@ -458,8 +523,10 @@ class Call:
                             await self.cut_off()
                         elif not self.utterances.full():
                             self.utterances.put_nowait((event, time.monotonic()))
-        except (ConnectionClosed, TimeoutError):
+        except ConnectionClosed:
             pass
+        except TimeoutError:
+            await self.hang_up("the call reached its time limit")
         finally:
             self.utterances.shutdown(immediate=True)
             if close := getattr(endpointer, "close", None):
