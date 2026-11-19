@@ -136,21 +136,19 @@ Limits:
 The photo records ground lit by the sun and sky of the day. `build.json` `surface.albedo` is one scale that
 turns the photo's linear colour into albedo, and `lighting` is the sun the level is lit with.
 
-- The scale is fitted so that the tile's darkest sunlit paving (10th percentile of the paved class) has the
-  luminous reflectance of a measured old asphalt road (0.088) and its brightest (90th percentile) that of a
-  measured light grey concrete road (0.288). Both are USGS Spectral Library v7 ASD spectra weighted by the CIE
-  1931 y-bar curve over 380 to 780 nm (Wyman, Sloan and Shirley's 2013 fit of the curve). `build.json` lists each
-  anchor, what it measured and what the scale makes of it. The grass class is not fitted to: its fitted
-  reflectance is reported next to the library's green lawn grass (0.072), because the imagery's turf can be dry
-  and brighter.
+- The scale is fitted so that the median sunlit paving has the luminous reflectance of a measured light grey
+  concrete road (0.288; a prior says the median paving is concrete). The spectrum is a USGS Spectral Library v7
+  ASD measurement weighted by the CIE 1931 y-bar curve over 380 to 780 nm (Wyman, Sloan and Shirley's 2013 fit of
+  the curve). Not fitted to, but reported in `build.json` beside the fit: the darkest paving against a measured
+  old asphalt road (0.088), and the grass class against the library's green lawn grass (0.072), because the
+  imagery's turf can be dry and brighter.
 - The sun is where astronomy puts it at the target date and at the imagery's solar time of day, which the cover
   stage fitted, so shadows and lit colour agree. Its strength is a clear-sky direct beam (Meinel and Meinel,
   Kasten and Young's air mass, 105 lm/W). Exposure is fixed at the EV100 that puts a mid-grey in that sun and
   sky at mid-grey, plus an offset measured on UE 5.8.4 (`ENGINE_EXPOSURE_OFFSET_EV`): the renderer showed
   grass 3.5 times brighter than albedo times illuminance over pi.
 - Priors, each listed in the manifest: the 15th when the target is a month, noon solar time when there is no
-  fitted time, a clear sky, skylight at 20 % of the sun's, 105 lm/W, and that the darkest paving is asphalt and
-  the brightest is concrete.
+  fitted time, a clear sky, skylight at 20 % of the sun's, 105 lm/W, and that the median paving is concrete.
 - Checked in the engine: the base colour buffer of sunlit grass reads 0.10 in linear light.
 
 ### Ground materials and grass

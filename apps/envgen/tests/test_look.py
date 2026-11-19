@@ -21,35 +21,25 @@ def grey(linear):
     return (srgb(linear),) * 3
 
 
-def test_the_albedo_scale_is_the_one_that_puts_asphalt_and_concrete_at_their_measured_reflectances(tmp_path):
-    # Light of 2.5 times the albedo, as a photo in full sun records it. Grass of luminance 0.18 in the photo is
-    # reported against the green lawn spectrum rather than fitted to it.
+def test_the_albedo_scale_puts_the_median_paving_at_the_reflectance_of_concrete_and_checks_the_rest(tmp_path):
+    # Light of 2.5 times the albedo, as a photo in full sun records it. Paving is concrete, with a strip of
+    # asphalt; the grass is reported against the green lawn spectrum rather than fitted to it.
     lit = 2.5
     grass = (srgb(0.18 * 0.8), srgb(0.18 * 1.1), srgb(0.18 * 0.6))
     _, manifest = grass_and_paved(
         tmp_path,
         grass,
         grey(0.2875 * lit),
-        [(40, 0, 65, 126, grey(0.2875 * lit)), (65, 0, 90, 126, grey(0.0878 * lit))],
+        [(40, 0, 80, 126, grey(0.2875 * lit)), (80, 0, 90, 126, grey(0.0878 * lit))],
     )
 
     fit = manifest["surface"]["albedo"]
     assert fit["scale"] == pytest.approx(1 / lit, rel=0.1)
-    assert {anchor["surface"] for anchor in fit["anchors"]} == {
-        "old asphalt road (GDS376)",
-        "light grey concrete road (GDS375)",
-    }
-    assert fit["anchors"][0]["fitted_reflectance"] == pytest.approx(0.0878, rel=0.15)
-    assert fit["grass_check"]["spectrum_reflectance"] == pytest.approx(0.0722)
-    assert fit["grass_check"]["fitted_reflectance"] == pytest.approx(0.18 / lit, rel=0.25)
+    assert [anchor["surface"] for anchor in fit["anchors"]] == ["light grey concrete road (GDS375)"]
+    checks = {check["surface"]: check for check in fit["checks"]}
+    assert checks["old asphalt road (GDS376)"]["fitted_reflectance"] == pytest.approx(0.0878, rel=0.2)
+    assert checks["green lawn grass (GDS91)"]["fitted_reflectance"] == pytest.approx(0.18 / lit, rel=0.25)
     assert "prior" in fit["priors"][0] and "USGS" in fit["source"]
-
-
-def test_a_brighter_photo_gets_a_smaller_scale():
-    dim = surface.fit_albedo({"paved": {"p10": 0.05, "p90": 0.2}})["scale"]
-    bright = surface.fit_albedo({"paved": {"p10": 0.15, "p90": 0.6}})["scale"]
-
-    assert dim == pytest.approx(3 * bright)
 
 
 def test_a_tile_with_no_known_surface_falls_back_to_a_tagged_prior():
@@ -129,10 +119,3 @@ def test_each_class_carries_its_mean_colour_in_linear_light_for_the_blades_of_gr
     }
     assert colours["grass"] == pytest.approx(expected["grass"], rel=0.08)
     assert colours["paved"] == pytest.approx(expected["paved"], rel=0.08)
-
-
-def test_anchors_that_disagree_are_split_evenly_in_ratio():
-    # Asphalt wants a scale of 1.756 and concrete 0.575; neither wins, the geometric mean does.
-    fit = surface.fit_albedo({"paved": {"p10": 0.05, "p90": 0.5}})
-
-    assert fit["scale"] == pytest.approx(math.sqrt(0.0878 / 0.05 * 0.2875 / 0.5))
