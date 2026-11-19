@@ -4,8 +4,10 @@
 //
 //   gallery.mjs publish            page JSON on stdin: slug, title, content, plus optional
 //                                  description, kind, source, owner, visibility, collection (the
-//                                  project), caps, audience. `<!--janet-shim-->` in content becomes
+//                                  project), caps, audience, links (GitHub PR/issue/commit/repo refs:
+//                                  "owner/repo#12", a URL, or { url, kind, label }). `<!--janet-shim-->` in content becomes
 //                                  the inlined janet helper. Republishing a slug bumps its rev.
+//   gallery.mjs find <ref>                  pages that link to a PR, issue, commit or repo
 //   gallery.mjs feedback <slug> [status]    list the answers on a page
 //   gallery.mjs resolve <id> <resolution>   close an answer, at the page's current rev
 import { readFileSync } from "node:fs";
@@ -27,9 +29,23 @@ if (command === "publish") {
 		"<!--janet-shim-->",
 		() => `<script>${JANET_SHIM}</script>`,
 	);
-	const { slug, rev, collection, caps, audience } = upsertArtifact({ ...page, content });
+	const { slug, rev, collection, caps, audience, links } = upsertArtifact({ ...page, content });
 
-	print({ slug, rev, collection, caps: JSON.parse(caps), audience: JSON.parse(audience) });
+	print({
+		slug,
+		rev,
+		collection,
+		caps: JSON.parse(caps),
+		audience: JSON.parse(audience),
+		links: JSON.parse(links),
+	});
+} else if (command === "find" && args[0]) {
+	print(
+		findArtifactsByLink(args[0], null).map(({ links, ...page }) => ({
+			...page,
+			links: JSON.parse(links),
+		})),
+	);
 } else if (command === "feedback" && args[0]) {
 	print(listFeedback(args[0], { status: args[1] }));
 } else if (command === "resolve" && args[0] && args[1]) {
@@ -39,7 +55,7 @@ if (command === "publish") {
 	print(resolved ?? { error: "no such feedback" });
 } else {
 	console.error(
-		"usage: gallery.mjs publish < page.json | feedback <slug> [status] | resolve <id> <resolution>",
+		"usage: gallery.mjs publish < page.json | find <ref> | feedback <slug> [status] | resolve <id> <resolution>",
 	);
 
 	process.exit(2);

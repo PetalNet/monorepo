@@ -4,6 +4,8 @@ import path from "node:path";
 
 import Database from "better-sqlite3";
 
+import { canonicalLink, normalizeLinks } from "../links.js";
+
 // Local SQLite is the source of truth (design: tracker-design-2026-05-26.md).
 // The default MUST be absolute, anchored to the repo's data/ dir (this module lives at
 // src/lib/server/db.js → repo root is three dirs up, then data/). A bare relative 'tasks.db'
@@ -251,6 +253,8 @@ function ensureBridgeColumns() {
 			rev: "INTEGER NOT NULL DEFAULT 1",
 			caps: "TEXT NOT NULL DEFAULT '[]'",
 			audience: "TEXT NOT NULL DEFAULT '[]'",
+			// the GitHub PR/issue/repo/commit refs the page demos or decides (see src/lib/links.js)
+			links: "TEXT NOT NULL DEFAULT '[]'",
 		},
 		// A share link carries its own audience: who a link may answer as is not who the artifact asks.
 		artifact_shares: { audience: "TEXT NOT NULL DEFAULT '[]'" },
@@ -302,7 +306,7 @@ const artVis = (me) => (me ? "WHERE (visibility='shared' OR owner=@me)" : "");
 export const listArtifacts = (me) =>
 	db
 		.prepare(
-			`SELECT id, slug, title, description, kind, source, owner, visibility, collection, created_at, updated_at
+			`SELECT id, slug, title, description, kind, source, owner, visibility, collection, links, created_at, updated_at
    FROM artifacts ${artVis(me)} ORDER BY updated_at DESC`,
 		)
 		.all(me ? { me } : {});
@@ -635,6 +639,7 @@ const stringList = (name, v) => {
  * 	collection?: string;
  * 	caps?: string[];
  * 	audience?: string[];
+ * 	links?: (string | { url: string; kind?: string; label?: string })[];
  * }} page
  * @returns {Record<string, any>}
  */
@@ -650,6 +655,7 @@ export function upsertArtifact({
 	collection,
 	caps,
 	audience,
+	links,
 }) {
 	if (!slug || !title || !content) {
 		throw new Error("artifact requires slug, title, content");
@@ -671,16 +677,16 @@ export function upsertArtifact({
 	// revising a page's content never silently makes a private page shared or clears its owner.
 	// A new slug takes the defaults.
 	db.prepare(
-		`INSERT INTO artifacts (slug,title,description,kind,content,source,owner,visibility,collection,caps,audience)
+		`INSERT INTO artifacts (slug,title,description,kind,content,source,owner,visibility,collection,caps,audience,links)
        VALUES (@slug,@title,COALESCE(@description,''),COALESCE(@kind,'markdown'),@content,COALESCE(@source,''),
                COALESCE(@owner,''),COALESCE(@visibility,'shared'),COALESCE(@collection,''),
-               COALESCE(@caps,'[]'),COALESCE(@audience,'[]'))
+               COALESCE(@caps,'[]'),COALESCE(@audience,'[]'),COALESCE(@links,'[]'))
      ON CONFLICT(slug) DO UPDATE SET
        title=@title, content=@content,
        description=COALESCE(@description, description), kind=COALESCE(@kind, kind),
        source=COALESCE(@source, source), owner=COALESCE(@owner, owner),
        visibility=COALESCE(@visibility, visibility), collection=COALESCE(@collection, collection),
-       caps=COALESCE(@caps, caps), audience=COALESCE(@audience, audience),
+       caps=COALESCE(@caps, caps), audience=COALESCE(@audience, audience), links=COALESCE(@links, links),
        rev=rev+1, updated_at=datetime('now')`,
 	).run({
 		slug,
@@ -694,6 +700,7 @@ export function upsertArtifact({
 		collection: collection ?? null,
 		caps: caps === undefined ? null : stringList("caps", caps),
 		audience: audience === undefined ? null : stringList("audience", audience),
+		links: links === undefined ? null : JSON.stringify(normalizeLinks(links)),
 	});
 
 	return getArtifact(slug, null);
@@ -805,5 +812,37 @@ export const needsYou = (viewer) =>
        ORDER BY a.updated_at DESC`,
 		)
 		.all({ viewer });
+
+// The pages that link to a GitHub PR, issue, commit or repo, given any form of the reference
+// ("owner/repo#12", a URL). Respects the viewer's visibility like every other listing; me=null
+// (host scripts) sees everything.
+/**
+ * @param {string} ref
+ * @param {string | null} me
+ * @returns {{
+ * 	slug: string;
+ * 	title: string;
+ * 	collection: string;
+ * 	rev: number;
+ * 	links: string;
+ * 	updated_at: string;
+ * }[]}
+ */
+export function findArtifactsByLink(ref, me) {
+	const url = canonicalLink(ref);
+
+	if (!url) {
+		return [];
+	}
+
+	return db
+		.prepare(
+			`SELECT slug, title, collection, rev, links, updated_at FROM artifacts a
+       WHERE ${me ? "(a.visibility='shared' OR a.owner=@me) AND" : ""}
+         EXISTS (SELECT 1 FROM json_each(a.links) WHERE json_extract(value,'$.url')=@url)
+       ORDER BY updated_at DESC`,
+		)
+		.all({ url, ...(me ? { me } : {}) });
+}
 
 export default db;

@@ -19,7 +19,7 @@ COPY --from=build /workspace/apps/tasks/build /workspace/apps/tasks/build
 COPY --from=build /workspace/apps/tasks/server.js /workspace/apps/tasks/server.js
 COPY --from=build /workspace/apps/tasks/scripts/mint-agent-token.mjs /workspace/apps/tasks/scripts/sync-makkit-docs.mjs /workspace/apps/tasks/scripts/gallery.mjs /workspace/apps/tasks/scripts/
 COPY --from=build /workspace/apps/tasks/src/lib/server /workspace/apps/tasks/src/lib/server
-COPY --from=build /workspace/apps/tasks/src/lib/janet-shim.js /workspace/apps/tasks/src/lib/janet-shim.js
+COPY --from=build /workspace/apps/tasks/src/lib/janet-shim.js /workspace/apps/tasks/src/lib/links.js /workspace/apps/tasks/src/lib/
 WORKDIR /workspace/apps/tasks
 RUN mkdir -p /data
 EXPOSE 8896
