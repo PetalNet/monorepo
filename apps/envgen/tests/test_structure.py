@@ -201,7 +201,8 @@ def test_coarse_surround_stays_under_a_ridge_and_meets_the_ground_beyond_the_til
     surround = frame.decode_heights(np.asarray(Image.open(out / context["heightmap"])), mid_m, context["scale"][2])
     west, south = tile.centre[0] - 1008, tile.centre[1] - 1008
 
-    # The surround as the engine draws it between its vertices, at every detailed vertex of the tile.
+    # The surround interpolated bilinearly between its vertices, at every detailed vertex of the tile. The engine
+    # draws triangles, which stay within the same four corner heights.
     from scipy import ndimage
 
     east_index, north_index = np.meshgrid(
