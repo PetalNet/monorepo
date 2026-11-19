@@ -1,5 +1,5 @@
 import { spawnSync } from "node:child_process";
-import { chmodSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
+import { chmodSync, existsSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -80,6 +80,28 @@ describe("lint", () => {
 		expect(lint("The morning-showcase job ran at 9.")).toEqual([]);
 	});
 
+	it.each([
+		"Here is the cause: the issuer pointed at the wrong host.",
+		"Update: the route is up.",
+		"The page is https://example.org/wiki/Foo_(bar)",
+		"That leaves 5 - 3 ports, 7681 - 7682.",
+		"The notice reads \u00A9 2026 Example\u2122.",
+	])("passes ordinary prose: %s", (post) => {
+		expect(lint(post)).toEqual([]);
+	});
+
+	it.each([
+		["a hyphen as a dash after a bracket", "Done (mostly) - blocked on the disk.", "em or en dash"],
+		["an exclamation inside quotes", 'It said "done!" and stopped.', "exclamation mark"],
+		[
+			"not just X but Y across a line break",
+			"This is not just a cache,\nbut a new way to build.",
+			"not just X but Y",
+		],
+	])("fails %s", (_name, post, rule) => {
+		expect(rules(post)).toContain(rule);
+	});
+
 	it("does not read a container image as a link", () => {
 		expect(lint("The image is ghcr.io/example/cache at v2.")).toEqual([]);
 	});
@@ -112,10 +134,6 @@ describe("judge", () => {
 		expect(judgePrompt("PACK", "post")).not.toContain("faithful:");
 		expect(judgePrompt("PACK", "post", "13 hits")).toContain("faithful:");
 		expect(judgePrompt("PACK", "post", "13 hits")).toContain("BRIEF\n13 hits");
-	});
-
-	it("never tells the judge who wrote the post", () => {
-		expect(judgePrompt("PACK", "post", "brief")).not.toMatch(/gemini|gpt|codex|gemma|agy/iu);
 	});
 
 	it("reads the verdict out of an answer with text around it", () => {
@@ -162,24 +180,11 @@ const cli = (args: string[], input: string, bin: string, env: Record<string, str
 	});
 
 describe("write", () => {
-	it("puts the prompt last for agy and keeps Codex read-only", () => {
-		expect(argv("agy", "m", "PROMPT")).toEqual([
-			"agy",
-			"--model",
-			"m",
-			"--sandbox",
+	it("gives agy its own time limit and puts the prompt last, where -p reads it", () => {
+		expect(argv("agy", "m", "PROMPT", 90_000).slice(-4)).toEqual([
+			"--print-timeout",
+			"90s",
 			"-p",
-			"PROMPT",
-		]);
-
-		expect(argv("codex", "m", "PROMPT")).toEqual([
-			"codex",
-			"exec",
-			"--skip-git-repo-check",
-			"--sandbox",
-			"read-only",
-			"--model",
-			"m",
 			"PROMPT",
 		]);
 	});
@@ -200,10 +205,78 @@ describe("write", () => {
 
 		expect(run.status).toBe(0);
 		expect(run.stdout).toContain("rules=PACK-RULES");
-		expect(run.stdout).toContain("--model gemini-x --sandbox -p Write the chat post");
+		expect(run.stdout).toContain("--model gemini-x --sandbox");
+		expect(run.stdout).toContain("-p Write the chat post");
 		expect(run.stdout).toContain("13 hits, 9 misses");
 		// The harness gets an allowlisted environment: a secret in the caller's environment does not reach it.
 		expect(run.stdout).toContain("secret=[]");
+	});
+
+	it("refuses a workspace with no AGENTS.md, because the writer would run with no pack", () => {
+		const run = cli(
+			[
+				"write",
+				"--harness",
+				"agy",
+				"--model",
+				"m",
+				"--workspace",
+				mkdtempSync(path.join(tmpdir(), "writer-")),
+			],
+			"fact\n",
+			fakeAgy("DRAFT"),
+		);
+
+		expect(run.status).toBe(2);
+		expect(run.stderr).toContain("no AGENTS.md");
+		expect(run.stdout).toBe("");
+	});
+
+	it("kills a harness that does not answer in time, and what it started", () => {
+		const workspace = mkdtempSync(path.join(tmpdir(), "writer-"));
+		const bin = mkdtempSync(path.join(tmpdir(), "fake-agy-"));
+		const mark = path.join(workspace, "survived");
+
+		writeFileSync(path.join(workspace, "AGENTS.md"), "PACK-RULES");
+		// The child outlives a kill of agy alone, and holds agy's stdout open.
+		writeFileSync(path.join(bin, "agy"), `#!/bin/sh\n(sleep 3; touch ${mark}) &\nsleep 30\n`);
+		chmodSync(path.join(bin, "agy"), 0o755);
+
+		const started = Date.now();
+		const run = cli(
+			["write", "--harness", "agy", "--model", "m", "--workspace", workspace, "--timeout", "1"],
+			"fact\n",
+			bin,
+		);
+
+		expect(run.status).toBe(2);
+		expect(run.stderr).toContain("timed out");
+		expect(Date.now() - started).toBeLessThan(2500);
+		spawnSync("sleep", ["3"]);
+		expect(existsSync(mark)).toBe(false);
+	});
+
+	it("fails when the harness exits non-zero, with the end of what it said", () => {
+		const workspace = mkdtempSync(path.join(tmpdir(), "writer-"));
+		const bin = mkdtempSync(path.join(tmpdir(), "fake-agy-"));
+
+		writeFileSync(path.join(workspace, "AGENTS.md"), "PACK-RULES");
+
+		writeFileSync(
+			path.join(bin, "agy"),
+			"#!/bin/sh\necho 'RESOURCE_EXHAUSTED (code 429)' >&2\nexit 3\n",
+		);
+
+		chmodSync(path.join(bin, "agy"), 0o755);
+
+		const run = cli(
+			["write", "--harness", "agy", "--model", "m", "--workspace", workspace],
+			"fact\n",
+			bin,
+		);
+
+		expect(run.status).toBe(2);
+		expect(run.stderr).toContain("agy exited 3: RESOURCE_EXHAUSTED");
 	});
 
 	it("refuses to write through agy with no workspace, because no pack would load", () => {

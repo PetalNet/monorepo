@@ -7,14 +7,21 @@
 //   node janet-voice.ts write --harness agy --model gemini-4-argon-medium --workspace DIR < brief
 //   node janet-voice.ts check [--judge] [--brief FILE] [--pack FILE] < draft     exit 1 when the draft fails
 //
-// The check has two parts. `lint` is deterministic: the markdown the Matrix hook rejects (plain.ts) plus the
-// punctuation, link and stock-phrase rules that a regex can decide. `judge` is one model call for what a regex
-// cannot decide: the order of the post, padding, tone and, when the brief is given, whether the facts match. The
-// judge never sees who wrote the draft.
+// The check has two parts. `lint` is deterministic: the markdown the Matrix hook detects (plain.ts: bold, backticks,
+// "- " bullets, # headers, [text](url) links, not every markdown form) plus the punctuation, link and stock-phrase
+// rules that a regex can decide. `judge` is one model call for what a regex cannot decide: openers, closers, padding,
+// tone and, when the brief is given, whether the facts match. The judge never sees who wrote the draft. Without
+// --judge the verdict has `judge: null` and says only that the lint is clean.
+//
+// The brief and the draft are untrusted text, and agy and Codex have tools. agy's --sandbox restricts terminal
+// commands only: on 2026-11-19 a headless `agy --sandbox -p` printed a file from outside its working directory when
+// asked, with --mode plan too. So run this where the harness can read nothing but its own sign-in. janet-nix wraps
+// agy in bubblewrap for that (modules/home/janet-writer.nix); run bare, a brief can make the writer quote any file
+// the user can read.
 //
 // One file with no dependencies beyond plain.ts, so Node runs it from the source tree.
 import { spawn } from "node:child_process";
-import { mkdirSync, mkdtempSync, readFileSync, realpathSync } from "node:fs";
+import { existsSync, mkdtempSync, readFileSync, realpathSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
@@ -28,7 +35,7 @@ interface Finding {
 }
 
 const WORDS =
-	"additionally|crucial|delve|delves|delving|enhance|enhances|enhanced|enhancing|foster|fosters|fostering|garner|intricate|pivotal|robust|seamless|seamlessly|showcase|showcases|showcasing|testament|underscore|underscores|vibrant|comprehensive|streamline|streamlines|streamlined|utilize|utilizes|utilized|utilizing|leverage|leverages|leveraged|leveraging|facilitate|facilitates";
+	"additionally|crucial|delve|delves|delving|enhance|enhances|enhanced|enhancing|foster|fosters|fostering|garner|intricate|pivotal|robust|seamless|seamlessly|showcase|showcases|showcasing|testament|underscore|underscores|vibrant|comprehensive|streamline|streamlines|streamlined|utilize|utilizes|utilized|utilizing|leverage|leverages|leveraged|leveraging|facilitate|facilitates|boasts";
 const STOCK =
 	"i hope this helps|let me know if|would you like me to|you're welcome|certainly|of course|great question|you're absolutely right|here's the thing|let's be honest|real talk|let's dive|here's what you need to know|without further ado|it is important to note|in order to|due to the fact that|serves as|stands as|a testament to|game.changer|next.level|cutting.edge|at its core";
 
@@ -36,23 +43,31 @@ const STOCK =
 const RULES: readonly (readonly [string, RegExp])[] = [
 	["code fence", /^\s*(?:```|~~~)/mu],
 	// An en dash between two numbers is a range ("2\u20134 runs"), which Janet writes. Any other dash fails.
-	["em or en dash", /\u2014|(?<!\d)\u2013|\u2013(?!\d)|(?<=\w) -{1,2} (?=\w)/u],
+	[
+		"em or en dash",
+		// A spaced hyphen between two numbers is a subtraction or a range, so one side must be a letter or a bracket.
+		/\u2014|(?<!\d)\u2013|\u2013(?!\d)|(?<=[\p{L}).]) -{1,2} (?=[\w(])|(?<=[\w)]) -{1,2} (?=[\p{L}(])/u,
+	],
 	["curly quote", /[\u2018\u2019\u201C\u201D]/u],
-	["emoji", /\p{Extended_Pictographic}/u],
-	["exclamation mark", /!(?=\s|$)/mu],
+	// Not Extended_Pictographic, which also holds the copyright and trademark signs.
+	["emoji", /\p{Emoji_Presentation}|\uFE0F/u],
+	["exclamation mark", /!(?=[\s"')\]]|$)/mu],
 	["arrow", /->|=>|[\u2190-\u21FF]/u],
 	["doubled apostrophe", /\w''\w/u],
 	// The client links only a full address, and punctuation or brackets touching it break the link.
-	["link not bare", /[([<"']https?:\/\/|https?:\/\/[^\s]*[.,;:)\]>"'!?](?=\s|$)/mu],
+	[
+		"link not bare",
+		/[([<"']https?:\/\/|https?:\/\/[^\s(]*[.,;:)\]>"'!?](?=\s|$)|https?:\/\/\S*[.,;:\]>"'!?](?=\s|$)/mu,
+	],
 	[
 		"link without https://",
 		/(?<![\w/.@-])(?!ghcr\.io|docker\.io)(?:[a-z0-9-]+\.)+(?:dev|com|org|net|io|app)\/[^\s]/iu,
 	],
 	[
 		"label or wrapper",
-		/^\s*(?:subject|message|post|draft|update)\s*:|^\s*here(?:'s| is) (?:the|a|your) /iu,
+		/^\s*(?:subject|message|post|draft)\s*:|^\s*here(?:'s| is) (?:the|a|your) (?:post|message|draft|update|summary)\b/iu,
 	],
-	["not just X but Y", /\bnot (?:just|only|merely)\b[^.?\n]{0,80}\b(?:but|it's|it is)\b/iu],
+	["not just X but Y", /\bnot (?:just|only|merely)\b[^.?]{0,80}\b(?:but|it's|it is)\b/iu],
 	["stock phrase", new RegExp(`(?<![\\w-])(?:${STOCK})(?![\\w-])`, "iu")],
 	// A hyphenated compound is a name ("morning-showcase"), not the word.
 	["inflated word", new RegExp(`(?<![\\w-])(?:${WORDS})(?![\\w-])`, "iu")],
@@ -84,7 +99,7 @@ export const packBody = (skill: string): string => skill.replace(/^---\n[\s\S]*?
 
 // The tells of a default model voice, each from the skill. The judge looks for these and nothing else: Janet's real
 // posts are casual and compact, and a judge asked to grade prose in general fails most of them.
-const CRITERIA = `opener: the post opens with a greeting, praise, or a sentence that announces or frames what it will say ("Here's an update", "I wanted to let you know", "I acknowledge"). Opening with the answer or a short reaction ("Yes", "Fair", "On it", "Honestly, nothing yet") is right.
+const CRITERIA = `opener: the post opens with a greeting, praise, or a sentence that announces or frames what it will say ("Here's an update", "I wanted to let you know", "I acknowledge"). Opening with the answer or a short reaction ("Yes", "Fair", "On it") is right.
 closer: the post ends with an offer of more help, a recap of itself, a sign-off, or a generic conclusion. Ending on a fact, a question or Janet's next step is right.
 corporate: the post reads like an announcement or a press release where a person would just say it: "we are pleased", "the team", "going forward", "enabling", "ensures", "is planned", "I acknowledge". An ordinary passive or an "our" is not this tell.
 performed: the post performs enthusiasm, urgency, gratitude or apology beyond one plain "Sorry".
@@ -142,12 +157,30 @@ export function parseVerdict(answer: string): { pass: boolean; fails: Finding[] 
 
 type Harness = "agy" | "codex" | "ollama";
 
-/** The command line for one headless call. `cwd` is the directory whose AGENTS.md the harness loads. */
-export function argv(harness: "agy" | "codex", model: string, prompt: string): string[] {
-	// agy: its terminal sandbox, and no --dangerously-skip-permissions, so a tool call that needs approval does not run.
-	// `-p` takes the next argument as the prompt, so it goes last.
+/**
+ * The command line for one headless call, which the caller runs in the directory whose AGENTS.md
+ * the harness loads.
+ */
+export function argv(
+	harness: "agy" | "codex",
+	model: string,
+	prompt: string,
+	timeoutMs: number,
+): string[] {
+	// agy: no slash-command expansion of the prompt, and its own time limit under ours. `-p` takes the next argument
+	// as the prompt, so it goes last.
 	return harness === "agy"
-		? ["agy", "--model", model, "--sandbox", "-p", prompt]
+		? [
+				"agy",
+				"--model",
+				model,
+				"--sandbox",
+				"--disable-slash-commands",
+				"--print-timeout",
+				`${String(Math.ceil(timeoutMs / 1000))}s`,
+				"-p",
+				prompt,
+			]
 		: [
 				"codex",
 				"exec",
@@ -174,25 +207,49 @@ function run(cmd: string[], cwd: string, timeoutMs: number): Promise<string> {
 		});
 		let out = "";
 		let err = "";
-		// The harness leads its own process group, so the timeout kills what it started too.
-		const timer = setTimeout(() => {
-			try {
-				process.kill(-(child.pid ?? 0), "SIGKILL");
-			} catch {
-				child.kill("SIGKILL");
+		// The harness leads its own process group, so one signal reaches what it started too.
+		const killGroup = (): void => {
+			if (child.pid !== undefined) {
+				try {
+					process.kill(-child.pid, "SIGKILL");
+				} catch {
+					// The group is already gone.
+				}
 			}
+		};
+
+		// A harness left running after this process dies keeps spending the plan's quota.
+		const onSignal = (): void => {
+			killGroup();
+			process.exit(130);
+		};
+
+		const settle = (): void => {
+			clearTimeout(timer);
+			process.off("exit", killGroup).off("SIGINT", onSignal).off("SIGTERM", onSignal);
+		};
+
+		// The timeout settles the promise itself: a grandchild that left the group can hold the pipes open, and then
+		// `close` never comes.
+		const timer = setTimeout(() => {
+			settle();
+			killGroup();
+			child.stdout.destroy();
+			child.stderr.destroy();
+			reject(new Error(`${String(exe)} timed out after ${String(timeoutMs / 1000)} s`));
 		}, timeoutMs);
 
-		child.stdout.on("data", (d: Buffer) => (out += d.toString()));
-		child.stderr.on("data", (d: Buffer) => (err += d.toString()));
+		process.once("exit", killGroup).once("SIGINT", onSignal).once("SIGTERM", onSignal);
+		child.stdout.setEncoding("utf8").on("data", (d: string) => (out += d));
+		child.stderr.setEncoding("utf8").on("data", (d: string) => (err += d));
 
 		child.on("error", (e) => {
-			clearTimeout(timer);
+			settle();
 			reject(e);
 		});
 
 		child.on("close", (code) => {
-			clearTimeout(timer);
+			settle();
 
 			if (code === 0 && out.trim() !== "") {
 				resolve(out.trim());
@@ -223,7 +280,9 @@ async function call(prompt: string, o: CallOptions): Promise<string> {
 	const timeoutMs = o.timeoutMs ?? 180_000;
 
 	if (o.harness === "ollama") {
-		const host = process.env["OLLAMA_HOST"] ?? "http://127.0.0.1:11434";
+		// Ollama's own setting may be a bare host:port.
+		const set = process.env["OLLAMA_HOST"] ?? "127.0.0.1:11434";
+		const host = set.includes("://") ? set : `http://${set}`;
 		const messages = [
 			...(o.system === undefined ? [] : [{ role: "system", content: o.system }]),
 			{ role: "user", content: prompt },
@@ -241,11 +300,22 @@ async function call(prompt: string, o: CallOptions): Promise<string> {
 		return ((await res.json()) as { message: { content: string } }).message.content.trim();
 	}
 
-	const cwd = o.workspace ?? mkdtempSync(path.join(tmpdir(), "janet-voice-"));
+	if (o.workspace !== undefined) {
+		// A workspace with no AGENTS.md would write with no pack and say nothing.
+		if (!existsSync(path.join(o.workspace, "AGENTS.md"))) {
+			throw new Error(`${o.workspace} has no AGENTS.md, so no pack would load`);
+		}
 
-	mkdirSync(cwd, { recursive: true });
+		return run(argv(o.harness, o.model, prompt, timeoutMs), o.workspace, timeoutMs);
+	}
 
-	return run(argv(o.harness, o.model, prompt), cwd, timeoutMs);
+	const empty = mkdtempSync(path.join(tmpdir(), "janet-voice-"));
+
+	try {
+		return await run(argv(o.harness, o.model, prompt, timeoutMs), empty, timeoutMs);
+	} finally {
+		rmSync(empty, { recursive: true, force: true });
+	}
 }
 
 /**
@@ -304,6 +374,7 @@ async function main(args: string[]): Promise<number> {
 			brief: { type: "string" },
 			judge: { type: "boolean", default: false },
 			"judge-model": { type: "string", default: "claude-opus-5-5-low" },
+			timeout: { type: "string", default: "180" },
 		},
 	});
 	const [command] = positionals;
@@ -314,6 +385,11 @@ async function main(args: string[]): Promise<number> {
 		),
 	);
 	const input = readFileSync(0, "utf8");
+	const timeoutMs = Number(f.timeout) * 1000;
+
+	if (!(timeoutMs > 0)) {
+		throw new Error("--timeout is a number of seconds");
+	}
 
 	if (command === "write") {
 		if (!HARNESSES.has(f.harness) || f.model === undefined) {
@@ -327,6 +403,7 @@ async function main(args: string[]): Promise<number> {
 		const draft = await call(writePrompt(input), {
 			harness: f.harness as Harness,
 			model: f.model,
+			timeoutMs,
 			...(f.harness === "ollama" ? { system: pack } : {}),
 			...(f.workspace === undefined ? {} : { workspace: f.workspace }),
 		});
@@ -340,7 +417,7 @@ async function main(args: string[]): Promise<number> {
 		const verdict = await check(
 			input.trim(),
 			pack,
-			f.judge ? { harness: "agy", model: f["judge-model"] } : undefined,
+			f.judge ? { harness: "agy", model: f["judge-model"], timeoutMs } : undefined,
 			f.brief === undefined ? undefined : readFileSync(f.brief, "utf8"),
 		);
 
