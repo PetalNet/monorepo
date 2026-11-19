@@ -149,7 +149,7 @@ function denial(why: string) {
 }
 
 /** Hook output for every delegation, including planners and nested workers. */
-export function guard(input: HookInput | null) {
+function guard(input: HookInput | null) {
 	if (!["Agent", "Task"].includes(String(input?.tool_name))) {
 		return undefined;
 	}

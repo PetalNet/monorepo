@@ -11,8 +11,9 @@ if sys.argv[1] == 'research-check':
     if sys.argv[2] == 'failure':
         print('private diagnostic must stay local', file=sys.stderr)
         sys.exit(1)
+    sources = [{'id': f'src-{i:08d}'} for i in range(40)] if sys.argv[2] == 'many sources' else [{'id': 'src-12345678'}]
     print(json.dumps({'claims': [{'id': 'c-12345678', 'freshness': 'stale',
-                                 'sources': [{'id': 'src-12345678'}]}], 'passages': [],
+                                 'sources': sources}], 'passages': [],
                       'recheck': [{'id': 'src-12345678'}]}))
 elif sys.argv[1] == 'research-run':
     run = json.load(sys.stdin)
