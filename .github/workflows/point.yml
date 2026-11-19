@@ -70,8 +70,8 @@ jobs:
         run: rustup toolchain install
       # apps/point/app/rust is its own workspace (excluded from the root one) and reaches
       # openmls and friends only through the point-core path dependency. Renovate looks for a
-      # Cargo.lock next to, or above, the manifest it edits, so it updates apps/point/core and
-      # the root lock but never this one. Fail fast here, with the fix, instead of in flutter-test.
+      # Cargo.lock next to, or above, the manifest it edits, so a bump in apps/point/core
+      # refreshes the root lock but not this one (only lock-file maintenance does). Fail fast here, with the fix, instead of in flutter-test.
       - name: Check apps/point/app/rust/Cargo.lock is up to date
         run: |
           cargo metadata --locked --format-version 1 --manifest-path apps/point/app/rust/Cargo.toml > /dev/null || {
