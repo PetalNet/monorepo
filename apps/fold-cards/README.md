@@ -35,7 +35,7 @@ A second fixture grades what the gate attached, not what the ranker found: 543 r
 
 **Vault claims** are a fourth source, off by default. `index.vault` in the fold `<state>/config.json` names a local read replica of the vault (`@petalnet/vault-engine` writes it as `<root>/index.sqlite`) (a SQLite file with a `claim` table that the vault engine replaces atomically); `cards.py build` opens it read-only and mirrors its active `shared`-tier claims as one document each (personal and agent tiers never enter recall), `<title> > <heading>: <text>`, dropping claims that were superseded, retracted or removed. An unreadable replica leaves the claims already indexed in place and does not stop the build. Prompts search the vault only when `recall.vault` is also `true` (default `false`); with it off the vault costs a prompt nothing. A claim attaches as one line:
 
-```
+```text
 [claim c-7f3k2abc] Note granularity > Retrieval unit: <text> (PRIMARY; source: Dense X Retrieval, captured 2026-11-17, fresh)
 ```
 
