@@ -256,24 +256,30 @@ impl PointCrypto {
         Ok(serialized)
     }
 
+    /// Forget a group and erase its persisted state, if present.
+    fn drop_group(&mut self, group_id: &[u8]) -> Result<()> {
+        if let Some(mut old) = self.groups.remove(group_id) {
+            old.delete(self.provider.storage())
+                .map_err(|e| PointCryptoError::Mls(format!("Delete stale group: {e:?}")))?;
+        }
+        Ok(())
+    }
+
     /// Create an MLS group with the supplied identifier.
     ///
     /// # Errors
     /// Returns an error if MLS group creation or storage fails.
     pub fn create_group(&mut self, group_id: &[u8]) -> Result<Vec<u8>> {
-        let config = MlsGroupCreateConfig::builder()
+        // Group ids are deterministic (per DM pair), so re-creating one after a
+        // peer re-registers must replace the stale stored group.
+        self.drop_group(group_id)?;
+        let group = MlsGroup::builder()
             .ciphersuite(CIPHERSUITE)
             .use_ratchet_tree_extension(true)
-            .build();
-
-        let group = MlsGroup::new_with_group_id(
-            &self.provider,
-            &self.signer,
-            &config,
-            GroupId::from_slice(group_id),
-            self.credential.clone(),
-        )
-        .map_err(|e| PointCryptoError::Mls(format!("Create group: {e:?}")))?;
+            .with_group_id(GroupId::from_slice(group_id))
+            .replace_old_group()
+            .build(&self.provider, &self.signer, self.credential.clone())
+            .map_err(|e| PointCryptoError::Mls(format!("Create group: {e:?}")))?;
 
         let gid = group.group_id().as_slice().to_vec();
         self.groups.insert(gid.clone(), group);
@@ -339,8 +345,15 @@ impl PointCrypto {
             .use_ratchet_tree_extension(true)
             .build();
 
-        let group = StagedWelcome::new_from_welcome(&self.provider, &join_config, welcome, None)
-            .map_err(|e| PointCryptoError::Mls(format!("Stage welcome: {e:?}")))?
+        // A Welcome for a known deterministic group id overwrites the stale one.
+        let staged = StagedWelcome::build_from_welcome(&self.provider, &join_config, welcome)
+            .map_err(|e| PointCryptoError::Mls(format!("Build welcome: {e:?}")))?
+            .replace_old_group()
+            .build()
+            .map_err(|e| PointCryptoError::Mls(format!("Stage welcome: {e:?}")))?;
+        let stale_gid = staged.group_context().group_id().as_slice().to_vec();
+        self.drop_group(&stale_gid)?;
+        let group = staged
             .into_group(&self.provider)
             .map_err(|e| PointCryptoError::Mls(format!("Into group: {e:?}")))?;
 
@@ -405,6 +418,12 @@ impl PointCrypto {
             | ProcessedMessageContent::ExternalJoinProposalMessage(_) => {
                 Err(PointCryptoError::DecryptionFailed)
             }
+            // Our own message fanned back by the delivery service: it cannot
+            // be decrypted (or, for a commit, was already merged when created).
+            ProcessedMessageContent::OwnPrivateMessage
+            | ProcessedMessageContent::OwnPendingCommit => Err(PointCryptoError::InvalidState(
+                "Own message echoed back".into(),
+            )),
         }
     }
 
@@ -442,6 +461,12 @@ impl PointCrypto {
             | ProcessedMessageContent::ExternalJoinProposalMessage(_) => Err(
                 PointCryptoError::InvalidState("Expected commit message".into()),
             ),
+            // Our own commit is merged when created, so an echo is a no-op.
+            ProcessedMessageContent::OwnPendingCommit => Ok(()),
+            // Unauthenticated own-sender hint: never report it as a commit.
+            ProcessedMessageContent::OwnPrivateMessage => Err(PointCryptoError::InvalidState(
+                "Own message echoed back".into(),
+            )),
         }
     }
 
