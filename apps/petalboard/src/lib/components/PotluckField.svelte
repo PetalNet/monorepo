@@ -1,13 +1,14 @@
 <script lang="ts">
+	import { tick, untrack } from "svelte";
+	import { fly } from "svelte/transition";
+
 	import {
 		parsePotluckAnswer,
 		standings,
 		unclaimedIdeas,
 		type PotluckAnswer,
 		type PotluckView,
-	} from "$lib/potluck";
-	import { tick, untrack } from "svelte";
-	import { fly } from "svelte/transition";
+	} from "#lib/potluck.ts";
 
 	import PotluckCategoryChips from "./PotluckCategoryChips.svelte";
 

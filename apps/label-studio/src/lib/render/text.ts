@@ -1,5 +1,6 @@
-import type { Bitmap, TextAlign, TextFit, VerticalAlign } from "$lib/doc";
 import type { Glyph } from "opentype.js";
+
+import type { Bitmap, TextAlign, TextFit, VerticalAlign } from "#lib/doc.ts";
 
 import type { Face } from "./fonts.ts";
 import { fill, PathBuilder } from "./raster.ts";

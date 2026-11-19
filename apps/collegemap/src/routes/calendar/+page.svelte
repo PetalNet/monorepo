@@ -1,18 +1,5 @@
 <script lang="ts">
 	import { resolve } from "$app/paths";
-	import {
-		assumedFreeIds,
-		buildMonthView,
-		distinctReasons,
-		pickInitialMonth,
-		shiftMonth,
-		toParticipants,
-		WEEKDAY_LABELS,
-	} from "$lib/calendar";
-	import BreakDayDetail from "$lib/components/BreakDayDetail.svelte";
-	import BreakEditor from "$lib/components/BreakEditor.svelte";
-	import { addDays, formatRange, startOfMonth } from "$lib/dates";
-	import { buildReport } from "$lib/overlap";
 	import ArrowLeft from "@lucide/svelte/icons/arrow-left";
 	import CalendarDays from "@lucide/svelte/icons/calendar-days";
 	import CalendarOff from "@lucide/svelte/icons/calendar-off";
@@ -21,6 +8,20 @@
 	import Info from "@lucide/svelte/icons/info";
 	import PartyPopper from "@lucide/svelte/icons/party-popper";
 	import { untrack } from "svelte";
+
+	import {
+		assumedFreeIds,
+		buildMonthView,
+		distinctReasons,
+		pickInitialMonth,
+		shiftMonth,
+		toParticipants,
+		WEEKDAY_LABELS,
+	} from "#lib/calendar.ts";
+	import BreakDayDetail from "#lib/components/BreakDayDetail.svelte";
+	import BreakEditor from "#lib/components/BreakEditor.svelte";
+	import { addDays, formatRange, startOfMonth } from "#lib/dates.ts";
+	import { buildReport } from "#lib/overlap.ts";
 
 	import type { PageProps } from "./$types";
 
@@ -230,9 +231,9 @@
 		</div>
 		<div class="cal-header-right">
 			{#if data.meId}
-				<a class="cal-link" href={resolve("/profile")}>Profile</a>
+				<a class="cal-link" href={resolve("profile")}>Profile</a>
 			{:else}
-				<a class="cal-link" href={resolve("/login")}>Log in</a>
+				<a class="cal-link" href={resolve("login")}>Log in</a>
 			{/if}
 		</div>
 	</header>

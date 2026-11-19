@@ -1,6 +1,6 @@
 /** Turn each source's reply into label-friendly rows. Replies are parsed, not trusted. */
-import type { SourceRows } from "$lib/api";
-import type { Vars } from "$lib/doc";
+import type { SourceRows } from "#lib/api.ts";
+import type { Vars } from "#lib/doc.ts";
 
 import {
 	array,

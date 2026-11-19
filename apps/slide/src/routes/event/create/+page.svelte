@@ -1,8 +1,9 @@
 <script lang="ts">
 	import { goto } from "$app/navigation";
-	import PageContainer from "$lib/components/PageContainer.svelte";
-	import PageHeader from "$lib/components/PageHeader.svelte";
-	import { COMMON_TIMEZONES, getUserTimezone } from "$lib/utils/timezone";
+
+	import PageContainer from "#lib/components/PageContainer.svelte";
+	import PageHeader from "#lib/components/PageHeader.svelte";
+	import { COMMON_TIMEZONES, getUserTimezone } from "#lib/utils/timezone.ts";
 
 	let loading = $state(false);
 	let error = $state("");

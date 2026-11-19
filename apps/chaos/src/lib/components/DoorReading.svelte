@@ -1,6 +1,6 @@
 <script lang="ts">
-	import { day, plural, weekday } from "$lib/format";
-	import type { Reading } from "$lib/server/door";
+	import { day, plural, weekday } from "#lib/format.ts";
+	import type { Reading } from "#lib/server/door.ts";
 
 	import SourceLine from "./SourceLine.svelte";
 

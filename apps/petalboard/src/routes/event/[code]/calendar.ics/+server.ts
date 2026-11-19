@@ -1,6 +1,7 @@
-import { buildIcs } from "$lib/eventDetails";
-import { prisma } from "$lib/server/prisma";
 import { error } from "@sveltejs/kit";
+
+import { buildIcs } from "#lib/eventDetails.ts";
+import { prisma } from "#lib/server/prisma.ts";
 
 export const GET = async ({ params, url }) => {
 	const event = await prisma.event.findUnique({

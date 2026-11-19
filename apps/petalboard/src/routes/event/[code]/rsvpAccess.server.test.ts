@@ -3,17 +3,29 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 
-import type * as EmailModule from "$lib/server/email";
-import type * as PrismaModule from "$lib/server/prisma";
-import type * as AccessModule from "$lib/server/rsvpAccess";
 import { isRedirect } from "@sveltejs/kit";
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
+
+import type * as EmailModule from "#lib/server/email.ts";
+import type * as PrismaModule from "#lib/server/prisma.ts";
+import type * as AccessModule from "#lib/server/rsvpAccess.ts";
 
 import type * as PageServer from "./+page.server";
 import type * as EditServer from "./edit/+page.server";
 
-vi.mock("$env/dynamic/private", () => ({ env: process.env }));
-vi.mock("$lib/server/email", () => ({ sendRsvpEmail: vi.fn(async () => undefined) }));
+vi.mock("$app/env/private", () => ({
+	get DATABASE_URL() {
+		return process.env.DATABASE_URL;
+	},
+	SPOTIFY_CLIENT_ID: "",
+	SPOTIFY_CLIENT_SECRET: "",
+	SPOTIFY_REDIRECT_URI: "",
+	RESEND_API_KEY: "",
+	EMAIL_FROM: "",
+	APP_URL: "",
+}));
+
+vi.mock("#lib/server/email.ts", () => ({ sendRsvpEmail: vi.fn(async () => undefined) }));
 
 const dir = mkdtempSync(path.join(tmpdir(), "petalboard-rsvp-access-"));
 
@@ -118,9 +130,9 @@ beforeAll(async () => {
 
 	page = await import("./+page.server");
 	edit = await import("./edit/+page.server");
-	access = await import("$lib/server/rsvpAccess");
-	({ prisma } = await import("$lib/server/prisma"));
-	sendRsvpEmail = vi.mocked((await import("$lib/server/email")).sendRsvpEmail);
+	access = await import("#lib/server/rsvpAccess.ts");
+	({ prisma } = await import("#lib/server/prisma.ts"));
+	sendRsvpEmail = vi.mocked((await import("#lib/server/email.ts")).sendRsvpEmail);
 }, 60_000);
 
 afterAll(async () => {

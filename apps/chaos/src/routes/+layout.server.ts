@@ -1,4 +1,4 @@
-import { MODE_COOKIE, parseMode } from "$lib/mode";
+import { MODE_COOKIE, parseMode } from "#lib/mode.ts";
 
 import type { LayoutServerLoad } from "./$types";
 

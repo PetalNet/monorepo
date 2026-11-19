@@ -3,14 +3,26 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 
-import { FRIENDSGIVING_POTLUCK } from "$lib/potluck";
-import type * as PrismaModule from "$lib/server/prisma";
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
+
+import { FRIENDSGIVING_POTLUCK } from "#lib/potluck.ts";
+import type * as PrismaModule from "#lib/server/prisma.ts";
 
 import type * as PageServer from "./+page.server";
 
-vi.mock("$env/dynamic/private", () => ({ env: process.env }));
-vi.mock("$lib/server/email", () => ({ sendRsvpEmail: vi.fn(async () => undefined) }));
+vi.mock("$app/env/private", () => ({
+	get DATABASE_URL() {
+		return process.env.DATABASE_URL;
+	},
+	SPOTIFY_CLIENT_ID: "",
+	SPOTIFY_CLIENT_SECRET: "",
+	SPOTIFY_REDIRECT_URI: "",
+	RESEND_API_KEY: "",
+	EMAIL_FROM: "",
+	APP_URL: "",
+}));
+
+vi.mock("#lib/server/email.ts", () => ({ sendRsvpEmail: vi.fn(async () => undefined) }));
 
 const dir = mkdtempSync(path.join(tmpdir(), "petalboard-rsvp-privacy-"));
 
@@ -81,7 +93,7 @@ beforeAll(async () => {
 	});
 
 	page = await import("./+page.server");
-	({ prisma } = await import("$lib/server/prisma"));
+	({ prisma } = await import("#lib/server/prisma.ts"));
 }, 60_000);
 
 afterAll(async () => {
@@ -186,7 +198,7 @@ describe("RSVP response privacy", () => {
 		);
 
 		const guestJar: Jar = new Map();
-		const { createSession, setRsvpCookie } = await import("$lib/server/rsvpAccess");
+		const { createSession, setRsvpCookie } = await import("#lib/server/rsvpAccess.ts");
 
 		setRsvpCookie(cookies(guestJar) as never, publicCode, await createSession(guestId));
 		const ownRsvp = await load({}, guestJar);

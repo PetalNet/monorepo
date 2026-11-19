@@ -1,6 +1,7 @@
 <script lang="ts">
-	import { slugifyCategory, type PotluckConfig } from "$lib/potluck";
 	import { untrack } from "svelte";
+
+	import { slugifyCategory, type PotluckConfig } from "#lib/potluck.ts";
 
 	let { initial, errors = [] }: { initial: PotluckConfig; errors?: string[] } = $props();
 

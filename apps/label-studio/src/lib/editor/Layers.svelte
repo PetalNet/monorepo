@@ -1,5 +1,4 @@
 <script lang="ts">
-	import type { LabelElement } from "$lib/doc";
 	import {
 		Barcode,
 		Circle,
@@ -14,6 +13,8 @@
 	} from "@lucide/svelte";
 	import type { Component } from "svelte";
 	import { flip } from "svelte/animate";
+
+	import type { LabelElement } from "#lib/doc.ts";
 
 	import { editor } from "./editor.svelte";
 	import { elementLabel, moveToIndex } from "./model";

@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { dotsToMm } from "$lib/doc";
+	import { dotsToMm } from "#lib/doc.ts";
 
 	import Dimension from "./Dimension.svelte";
 

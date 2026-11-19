@@ -1,4 +1,4 @@
-import type { Bitmap, ImageElement } from "$lib/doc";
+import type { Bitmap, ImageElement } from "#lib/doc.ts";
 
 /** Decode the element's base64 luminance, or explain why it can't be used. */
 export function decodeGray(el: ImageElement): Uint8Array | string {

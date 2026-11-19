@@ -1,24 +1,25 @@
 <script lang="ts">
+	import { PUBLIC_GOOGLE_MAPS_API_KEY } from "$app/env/public";
 	import { enhance } from "$app/forms";
-	import { invalidateAll, replaceState } from "$app/navigation";
-	import { env } from "$env/dynamic/public";
+	import { refreshAll, goto } from "$app/navigation";
+	import { onMount, tick } from "svelte";
+	import { SvelteSet } from "svelte/reactivity";
+
 	import PlusOnesField, {
 		newPerson,
 		peopleFor,
 		type Person,
-	} from "$lib/components/PlusOnesField.svelte";
-	import PotluckField from "$lib/components/PotluckField.svelte";
-	import SpotifySongSelector from "$lib/components/SpotifySongSelector.svelte";
-	import { directionsUrl, headcount } from "$lib/eventDetails";
-	import { applyEventTheme, eventTheme, mixColors, withAlpha } from "$lib/eventTheme";
-	import { partyLabel } from "$lib/guests";
-	import { LIST_PREVIEW_SIZE, previewList } from "$lib/listPreview";
-	import { parsePotluckAnswer, slotStatuses, type PotluckView } from "$lib/potluck";
-	import { formatDate, formatShortDate } from "$lib/utils/format";
-	import { loadGoogleMaps } from "$lib/utils/googleMaps";
-	import { renderMarkdown } from "$lib/utils/markdown";
-	import { onMount, tick } from "svelte";
-	import { SvelteSet } from "svelte/reactivity";
+	} from "#lib/components/PlusOnesField.svelte";
+	import PotluckField from "#lib/components/PotluckField.svelte";
+	import SpotifySongSelector from "#lib/components/SpotifySongSelector.svelte";
+	import { directionsUrl, headcount } from "#lib/eventDetails.ts";
+	import { applyEventTheme, eventTheme, mixColors, withAlpha } from "#lib/eventTheme.ts";
+	import { partyLabel } from "#lib/guests.ts";
+	import { LIST_PREVIEW_SIZE, previewList } from "#lib/listPreview.ts";
+	import { parsePotluckAnswer, slotStatuses, type PotluckView } from "#lib/potluck.ts";
+	import { formatDate, formatShortDate } from "#lib/utils/format.ts";
+	import { loadGoogleMaps } from "#lib/utils/googleMaps.ts";
+	import { renderMarkdown } from "#lib/utils/markdown.ts";
 
 	import type { ActionData, PageData } from "./$types";
 
@@ -79,16 +80,17 @@
 	const potluckViews = $derived<Record<string, PotluckView>>(
 		Object.fromEntries(event.questions.flatMap((q: any) => (q.potluck ? [[q.id, q.potluck]] : []))),
 	);
+
 	const potluckRejection = $derived<{
 		formType: string;
 		questionId: string;
 		offered: string[];
 	} | null>((form as any)?.potluck ? { ...(form as any).potluck, formType: form?.type } : null);
+
 	const offeredAfterRejection = (formType: string, questionId: string) =>
 		potluckRejection?.formType === formType && potluckRejection.questionId === questionId
 			? potluckRejection.offered
 			: null;
-
 	const errors = $derived<Record<string, string[]>>(
 		(form?.errors ?? {}) as Record<string, string[]>,
 	);
@@ -174,7 +176,7 @@
 
 		mapLoadRequested = true;
 
-		const apiKey = env.PUBLIC_GOOGLE_MAPS_API_KEY;
+		const apiKey = PUBLIC_GOOGLE_MAPS_API_KEY;
 
 		if (!event.location || !apiKey || apiKey === "your-google-maps-api-key") {
 			return;
@@ -261,10 +263,7 @@
 					zoomControl: true,
 				});
 
-				marker = new AdvancedMarkerElement({
-					map: map,
-					position: location,
-				});
+				marker = new AdvancedMarkerElement({ map, position: location });
 			}
 		} catch (err) {
 			console.error("Failed to geocode address:", err);
@@ -335,6 +334,7 @@
 								)
 								.filter((artist: any): artist is string => Boolean(artist))
 						: [];
+
 					const album =
 						track.album && typeof track.album === "object" && typeof track.album.name === "string"
 							? track.album.name
@@ -496,7 +496,7 @@
 		await openEditModal();
 		// Without this, a reload or a shared copy of the URL reopens the dialog.
 		url.searchParams.delete("edit");
-		replaceState(url, {});
+		goto(url, { shallow: true, replace: true });
 	});
 
 	async function expandList(key: string, button: HTMLElement) {
@@ -569,9 +569,11 @@
 									rel="noreferrer">Directions</a
 								>
 							</p>
-							{#if env.PUBLIC_GOOGLE_MAPS_API_KEY && env.PUBLIC_GOOGLE_MAPS_API_KEY !== "your-google-maps-api-key"}
+
+							{#if PUBLIC_GOOGLE_MAPS_API_KEY && PUBLIC_GOOGLE_MAPS_API_KEY !== "your-google-maps-api-key"}
 								<a href="#after-map" class="sr-only text-sm underline focus:not-sr-only">Skip map</a
 								>
+
 								<div
 									class="h-[200px] w-full overflow-hidden rounded-xl"
 									bind:this={mapElement}
@@ -695,8 +697,10 @@
 													>(+{rsvp.guestCount - 1} guest{rsvp.guestCount - 1 === 1
 														? ""
 														: "s"})</span
-												>{/if}</strong
-										>
+												>
+											{/if}
+										</strong>
+
 										{#if rsvp.guestNames.length > 0}
 											<span class="text-dark-600 text-xs md:text-sm"
 												>with {partyLabel(rsvp.guestCount, rsvp.guestNames)}</span
@@ -758,8 +762,10 @@
 													>(+{rsvp.guestCount - 1} guest{rsvp.guestCount - 1 === 1
 														? ""
 														: "s"})</span
-												>{/if}</strong
-										>
+												>
+											{/if}
+										</strong>
+
 										{#if rsvp.guestNames.length > 0}
 											<span class="text-dark-600 text-xs md:text-sm"
 												>with {partyLabel(rsvp.guestCount, rsvp.guestNames)}</span
@@ -822,8 +828,10 @@
 													>(+{rsvp.guestCount - 1} guest{rsvp.guestCount - 1 === 1
 														? ""
 														: "s"})</span
-												>{/if}</strong
-										>
+												>
+											{/if}
+										</strong>
+
 										{#if rsvp.guestNames.length > 0}
 											<span class="text-dark-600 text-xs md:text-sm"
 												>with {partyLabel(rsvp.guestCount, rsvp.guestNames)}</span
@@ -1450,7 +1458,7 @@
 					await update();
 
 					if (result.type === "failure" && result.data?.potluck) {
-						await invalidateAll();
+						await refreshAll();
 					}
 				};
 			}}
@@ -1692,6 +1700,7 @@
 			{#if showCancelConfirm}
 				<div class="flex justify-center gap-2">
 					<button type="submit" class="btn-danger">Yes, Cancel RSVP</button>
+
 					<button type="button" class="btn-secondary" onclick={() => (showCancelConfirm = false)}
 						>Nevermind</button
 					>
@@ -1770,7 +1779,7 @@
 					await update();
 
 					if (result.type === "failure" && result.data?.potluck) {
-						await invalidateAll();
+						await refreshAll();
 					}
 				};
 			}}

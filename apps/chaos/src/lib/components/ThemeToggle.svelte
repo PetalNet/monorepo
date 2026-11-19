@@ -1,8 +1,9 @@
 <script lang="ts">
-	import { MODE_COOKIE, type Mode } from "$lib/mode";
 	import Monitor from "@lucide/svelte/icons/monitor";
 	import Moon from "@lucide/svelte/icons/moon";
 	import Sun from "@lucide/svelte/icons/sun";
+
+	import { MODE_COOKIE, type Mode } from "#lib/mode.ts";
 
 	let { initial }: { initial: Mode } = $props();
 	// svelte-ignore state_referenced_locally

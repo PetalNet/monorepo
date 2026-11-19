@@ -1,7 +1,7 @@
-import { db } from "$lib/server/db";
-import { collegeMetadata } from "$lib/server/db/schema";
-import { json } from "@sveltejs/kit";
 import { eq } from "drizzle-orm";
+
+import { db } from "#lib/server/db/index.ts";
+import { collegeMetadata } from "#lib/server/db/schema.ts";
 
 import type { RequestHandler } from "./$types";
 
@@ -17,7 +17,10 @@ export const GET: RequestHandler = async ({ url }) => {
 	const name = url.searchParams.get("name");
 
 	if (!name) {
-		return json({ collegeName: "", description: null, thumbnailUrl: null }, { status: 400 });
+		return Response.json(
+			{ collegeName: "", description: null, thumbnailUrl: null },
+			{ status: 400 },
+		);
 	}
 
 	// Check cache
@@ -28,7 +31,7 @@ export const GET: RequestHandler = async ({ url }) => {
 		.get();
 
 	if (cached && Date.now() - cached.fetchedAt.getTime() < CACHE_TTL_MS) {
-		return json({
+		return Response.json({
 			collegeName: cached.collegeName,
 			description: cached.description,
 			thumbnailUrl: cached.thumbnailUrl,
@@ -72,5 +75,5 @@ export const GET: RequestHandler = async ({ url }) => {
 		await db.insert(collegeMetadata).values({ collegeName: name, description, thumbnailUrl });
 	}
 
-	return json({ collegeName: name, description, thumbnailUrl });
+	return Response.json({ collegeName: name, description, thumbnailUrl });
 };

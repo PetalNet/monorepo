@@ -1,5 +1,6 @@
-import { beginOidcLogin, getOidcConfig } from "$lib/server/oidc";
 import { error, redirect } from "@sveltejs/kit";
+
+import { beginOidcLogin, getOidcConfig } from "#lib/server/oidc.ts";
 
 export const GET = async ({ cookies }) => {
 	if (!getOidcConfig()) {
@@ -17,7 +18,7 @@ export const GET = async ({ cookies }) => {
 			maxAge: 10 * 60,
 		});
 
-		throw redirect(302, url);
+		throw redirect(302, url, { external: true });
 	} catch (cause) {
 		if (cause && typeof cause === "object" && "status" in cause) {
 			throw cause;

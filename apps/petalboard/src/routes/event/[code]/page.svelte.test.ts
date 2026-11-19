@@ -1,5 +1,5 @@
+import type { SubmitFunction } from "$app/forms";
 // @vitest-environment happy-dom
-import type { SubmitFunction } from "@sveltejs/kit";
 import { flushSync, mount, tick, unmount } from "svelte";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
@@ -33,13 +33,15 @@ vi.mock("$app/forms", () => ({
 }));
 
 vi.mock("$app/navigation", () => ({
-	invalidateAll: async () => undefined,
-	replaceState: (url: URL) => {
-		window.history.replaceState({}, "", url);
+	refreshAll: async () => undefined,
+	goto: async (url: URL, options?: { replace?: boolean }) => {
+		if (options?.replace) {
+			window.history.replaceState({}, "", url);
+		}
 	},
 }));
 
-vi.mock("$env/dynamic/public", () => ({ env: {} }));
+vi.mock("$app/env/public", () => ({ PUBLIC_GOOGLE_MAPS_API_KEY: "" }));
 
 type Rsvp = PageData["rsvps"][number];
 type Question = PageData["event"]["questions"][number];
@@ -335,6 +337,7 @@ describe("event page dialogs", () => {
 			type: "success",
 			status: 200,
 			data: { type: "requestEditLink", success: true, message: "Check your inbox." },
+			location: "/event/CODE1234",
 		});
 
 		const status = dialog.querySelector('[role="status"]');
@@ -348,7 +351,7 @@ describe("event page dialogs", () => {
 		const { dialog, send } = await openLinkDialog();
 		const finish = await send();
 
-		await finish({ type: "error", status: 500, error: new Error("boom") });
+		await finish({ type: "error", status: 500, error: { message: "boom", status: 500 } });
 
 		expect(dialog.querySelector('[role="alert"]')?.textContent).toBe(
 			"Something went wrong sending your link. Try again in a minute.",
@@ -396,6 +399,7 @@ describe("event page dialogs", () => {
 				type: "failure",
 				status: 400,
 				data: { type: "rsvp", message: "Try again", guestNames: ["Sam", "Alex"] },
+				location: "/event/CODE1234",
 			},
 			update: async () => undefined,
 		});

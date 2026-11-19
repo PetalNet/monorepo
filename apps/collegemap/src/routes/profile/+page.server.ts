@@ -1,11 +1,12 @@
-import { isInstitutionKind } from "$lib/institutions";
-import { clearSession } from "$lib/server/auth";
-import { db } from "$lib/server/db";
-import { users, colleges } from "$lib/server/db/schema";
-import { emit } from "$lib/server/events";
-import { formText } from "$lib/server/form";
 import { fail, redirect } from "@sveltejs/kit";
 import { and, eq } from "drizzle-orm";
+
+import { isInstitutionKind } from "#lib/institutions.ts";
+import { clearSession } from "#lib/server/auth.ts";
+import { db } from "#lib/server/db/index.ts";
+import { users, colleges } from "#lib/server/db/schema.ts";
+import { emit } from "#lib/server/events.ts";
+import { formText } from "#lib/server/form.ts";
 
 import type { Actions, PageServerLoad } from "./$types";
 

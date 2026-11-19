@@ -1,3 +1,4 @@
+import adapter from "@sveltejs/adapter-node";
 import { sveltekit } from "@sveltejs/kit/vite";
 import tailwindcss from "@tailwindcss/vite";
 import { fontless } from "fontless";
@@ -19,6 +20,6 @@ export default defineConfig({
 				{ name: "Geist Mono", provider: "fontsource", weights: [400] },
 			],
 		}),
-		sveltekit(),
+		sveltekit({ adapter: adapter() }),
 	],
 });

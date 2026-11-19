@@ -1,5 +1,6 @@
-import { serverFonts } from "$lib/server/fonts";
 import { describe, expect, it } from "vitest";
+
+import { serverFonts } from "#lib/server/fonts.ts";
 
 import { loadFace } from "./fonts.ts";
 

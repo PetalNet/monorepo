@@ -1,7 +1,8 @@
 <script lang="ts">
-	import Skeleton from "$lib/ui/Skeleton.svelte";
 	import { Icon as LucideIcon, Search } from "@lucide/svelte";
 	import type { IconNode } from "@lucide/svelte";
+
+	import Skeleton from "#lib/ui/Skeleton.svelte";
 
 	import { loadIcons, searchIcons, type IconEntry } from "./icons";
 

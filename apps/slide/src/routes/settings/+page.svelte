@@ -1,8 +1,9 @@
 <script lang="ts">
 	import { enhance } from "$app/forms";
-	import { invalidateAll } from "$app/navigation";
-	import PageContainer from "$lib/components/PageContainer.svelte";
-	import PageHeader from "$lib/components/PageHeader.svelte";
+	import { refreshAll } from "$app/navigation";
+
+	import PageContainer from "#lib/components/PageContainer.svelte";
+	import PageHeader from "#lib/components/PageHeader.svelte";
 
 	let { data, form } = $props();
 
@@ -253,7 +254,7 @@
 						await update();
 
 						if (result.type === "success") {
-							await invalidateAll();
+							await refreshAll();
 
 							setTimeout(() => {
 								closeModals();
@@ -329,7 +330,7 @@
 						await update();
 
 						if (result.type === "success") {
-							await invalidateAll();
+							await refreshAll();
 
 							setTimeout(() => {
 								closeModals();

@@ -1,5 +1,4 @@
-import type { RenderRequest } from "$lib/api";
-import { json } from "@sveltejs/kit";
+import type { RenderRequest } from "#lib/api.ts";
 
 import type { App } from "./app.ts";
 import { pageVars, renderPages, resolveDesign, type Design, type Page } from "./labels.ts";
@@ -8,7 +7,8 @@ import { LIMITS } from "./schemas.ts";
 import { findTemplate } from "./templates.ts";
 
 /** Every API error is `{ error }` with a message a person can act on. */
-export const fail = (status: number, error: string): Response => json({ error }, { status });
+export const fail = (status: number, error: string): Response =>
+	Response.json({ error }, { status });
 
 /** Reads and parses a JSON body. An empty body parses as `{}` when `emptyAsObject`. */
 export async function readBody<T>(

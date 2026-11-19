@@ -1,12 +1,13 @@
 <script lang="ts">
 	import { enhance } from "$app/forms";
 	import { resolve } from "$app/paths";
-	import { formatRange } from "$lib/dates";
-	import type { BreakSource } from "$lib/institutions";
 	import CircleAlert from "@lucide/svelte/icons/circle-alert";
 	import LogIn from "@lucide/svelte/icons/log-in";
 	import Plus from "@lucide/svelte/icons/plus";
 	import Trash2 from "@lucide/svelte/icons/trash-2";
+
+	import { formatRange } from "#lib/dates.ts";
+	import type { BreakSource } from "#lib/institutions.ts";
 
 	interface BreakRow {
 		id: string;
@@ -63,10 +64,8 @@
 		<p class="editor-hint">
 			Log in to add your own dates. Everyone else's breaks stay visible either way.
 		</p>
-		<a class="editor-login" href={resolve("/login")}>
-			<LogIn size={15} aria-hidden="true" />
-			Log in
-		</a>
+		<a class="editor-login" href={resolve("login")}><LogIn size={15} aria-hidden="true" /> Log in</a
+		>
 	{:else}
 		{#if mine.length === 0}
 			<p class="editor-hint">
@@ -129,9 +128,9 @@
 
 			<div class="editor-presets">
 				{#each PRESETS as preset (preset)}
-					<button class="editor-preset" type="button" onclick={() => (label = preset)}>
-						{preset}
-					</button>
+					<button class="editor-preset" type="button" onclick={() => (label = preset)}
+						>{preset}</button
+					>
 				{/each}
 			</div>
 

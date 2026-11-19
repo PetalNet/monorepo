@@ -1,5 +1,6 @@
-import type { Vars } from "$lib/doc";
 import { parse } from "csv-parse/browser/esm/sync";
+
+import type { Vars } from "#lib/doc.ts";
 
 /** Rows of cells with named columns, from pasted text, a CSV file or a lab source. */
 export interface Table {

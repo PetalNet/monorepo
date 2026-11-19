@@ -12,9 +12,9 @@
 		tangentRotation,
 		DAY_SCALE,
 		windowGeometry,
-	} from "$lib/dial";
-	import type { LimitReading } from "$lib/limits";
-	import type { Dossier } from "$lib/server/dossier";
+	} from "#lib/dial.ts";
+	import type { LimitReading } from "#lib/limits.ts";
+	import type { Dossier } from "#lib/server/dossier.ts";
 
 	import DialFace from "./DialFace.svelte";
 	import FiligreeHand from "./FiligreeHand.svelte";

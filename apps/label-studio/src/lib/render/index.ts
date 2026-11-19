@@ -11,7 +11,7 @@ import {
 	type RenderResult,
 	type Rotation,
 	type Vars,
-} from "$lib/doc";
+} from "#lib/doc.ts";
 
 import { escapeQrValue } from "../templates/qr-data.ts";
 import { drawCode, encode, loadBarcodes, type Barcodes } from "./code.ts";

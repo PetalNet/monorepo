@@ -1,29 +1,29 @@
 <script lang="ts">
 	import { enhance } from "$app/forms";
-	import { page } from "$app/stores";
-	import AddressInput from "$lib/components/AddressInput.svelte";
-	import PotluckConfigEditor from "$lib/components/PotluckConfigEditor.svelte";
-	import { partyLabel } from "$lib/guests";
+	import { page } from "$app/state";
+
+	import AddressInput from "#lib/components/AddressInput.svelte";
+	import PotluckConfigEditor from "#lib/components/PotluckConfigEditor.svelte";
+	import { partyLabel } from "#lib/guests.ts";
 	import {
 		FRIENDSGIVING_POTLUCK,
 		parsePotluckAnswer,
 		slotStatuses,
 		type PotluckView,
-	} from "$lib/potluck";
-	import { formatDate, formatShortDate } from "$lib/utils/format";
-	import { COMMON_TIMEZONES, formatDateTimeForInput } from "$lib/utils/timezones";
+	} from "#lib/potluck.ts";
+	import { formatDate, formatShortDate } from "#lib/utils/format.ts";
+	import { COMMON_TIMEZONES, formatDateTimeForInput } from "#lib/utils/timezones.ts";
 
 	import type { ActionData, PageData } from "./$types";
 
 	let { data, form }: { data: PageData; form: ActionData | null } = $props();
 
 	// Check if this is a newly created event
-	const isNewlyCreated = $derived($page.url.searchParams.has("new"));
+	const isNewlyCreated = $derived(page.url.searchParams.has("new"));
 
 	const eventErrors = $derived<Record<string, string[]>>(
 		(form?.type === "updateEvent" && form.errors ? form.errors : {}) as Record<string, string[]>,
 	);
-
 	const addSlotErrors = $derived<Record<string, string[]>>(
 		(form?.type === "addQuestion" && form.errors ? form.errors : {}) as Record<string, string[]>,
 	);
@@ -233,6 +233,7 @@
 								)
 								.filter((artist: string | null): artist is string => Boolean(artist))
 						: [];
+
 					const album =
 						track.album && typeof track.album === "object" && typeof track.album.name === "string"
 							? track.album.name
@@ -296,13 +297,13 @@
 			<div>
 				<strong class="text-primary-50 mb-2 block">Public link (share this):</strong>
 				<code class="block rounded-lg bg-white/20 px-4 py-3 font-mono text-sm"
-					>{$page.url.origin}/event/{event.publicCode}</code
+					>{page.url.origin}/event/{event.publicCode}</code
 				>
 			</div>
 			<div>
 				<strong class="text-primary-50 mb-2 block">Management link (keep this private):</strong>
 				<code class="block rounded-lg bg-white/20 px-4 py-3 font-mono text-sm"
-					>{$page.url.href.replace("?new", "")}</code
+					>{page.url.href.replace("?new", "")}</code
 				>
 			</div>
 		</div>
@@ -327,11 +328,9 @@
 	<button
 		class="tab-btn flex items-center gap-2"
 		class:tab-btn-active={activeTab === "management"}
-		onclick={() => (activeTab = "management")}
+		onclick={() => (activeTab = "management")}><span>⚙️</span> <span>Management</span></button
 	>
-		<span>⚙️</span>
-		<span>Management</span>
-	</button>
+
 	<button
 		class="tab-btn flex items-center gap-2"
 		class:tab-btn-active={activeTab === "rsvps"}
@@ -825,6 +824,7 @@
 														view.config.categories.reduce((sum, c) => sum + c.ratio, 0)) *
 														100,
 												)}
+
 												<li
 													class="border-primary-700/10 flex flex-wrap items-center gap-x-3 gap-y-1 rounded-lg border px-3 py-2"
 												>
@@ -835,6 +835,7 @@
 														>{slot.count} · {total ? Math.round((slot.count / total) * 100) : 0}% of
 														{target}%</span
 													>
+
 													<span
 														class="rounded-full px-2 py-0.5 text-xs font-semibold {slot.status ===
 														'full'
@@ -860,12 +861,14 @@
 																	);
 																}
 
-																await update({ reset: false, invalidateAll: false });
+																await update({ reset: false, refreshAll: false });
 															};
 														}}
 													>
 														<input type="hidden" name="questionId" value={question.id} />
+
 														<input type="hidden" name="categoryId" value={slot.category.id} />
+
 														<input
 															type="hidden"
 															name="forceOpen"

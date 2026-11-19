@@ -1,10 +1,14 @@
 /* oxlint-disable eslint/no-await-in-loop -- Spotify appends track chunks in order; parallel requests would shuffle the playlist. */
-import { env } from "$env/dynamic/private";
+import {
+	SPOTIFY_CLIENT_ID as ENV_SPOTIFY_CLIENT_ID,
+	SPOTIFY_CLIENT_SECRET as ENV_SPOTIFY_CLIENT_SECRET,
+	SPOTIFY_REDIRECT_URI as ENV_SPOTIFY_REDIRECT_URI,
+} from "$app/env/private";
 
-const SPOTIFY_CLIENT_ID = env.SPOTIFY_CLIENT_ID || "";
-const SPOTIFY_CLIENT_SECRET = env.SPOTIFY_CLIENT_SECRET || "";
+const SPOTIFY_CLIENT_ID = ENV_SPOTIFY_CLIENT_ID || "";
+const SPOTIFY_CLIENT_SECRET = ENV_SPOTIFY_CLIENT_SECRET || "";
 const SPOTIFY_REDIRECT_URI =
-	env.SPOTIFY_REDIRECT_URI || "http://localhost:5173/api/spotify/callback";
+	ENV_SPOTIFY_REDIRECT_URI || "http://localhost:5173/api/spotify/callback";
 
 export interface SpotifyTrack {
 	id: string;
@@ -111,16 +115,9 @@ export async function searchTracks(
 	query: string,
 	accessToken: string,
 ): Promise<SpotifySearchResult> {
-	const params = new URLSearchParams({
-		q: query,
-		type: "track",
-		limit: "20",
-	});
-
+	const params = new URLSearchParams({ q: query, type: "track", limit: "20" });
 	const response = await fetch(`https://api.spotify.com/v1/search?${params.toString()}`, {
-		headers: {
-			Authorization: `Bearer ${accessToken}`,
-		},
+		headers: { Authorization: `Bearer ${accessToken}` },
 	});
 
 	if (!response.ok) {

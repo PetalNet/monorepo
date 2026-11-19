@@ -1,10 +1,11 @@
-import { keepOverrides, parsePotluckConfig, potluckConfigSchema } from "$lib/potluck";
-import { potluckView } from "$lib/server/potluck";
-import { prisma } from "$lib/server/prisma";
-import { eventSchema, questionSchema } from "$lib/server/validation";
-import { parseLocalDateTimeInTimezone } from "$lib/utils/timezones";
 import { fail, error, redirect } from "@sveltejs/kit";
 import { z } from "zod";
+
+import { keepOverrides, parsePotluckConfig, potluckConfigSchema } from "#lib/potluck.ts";
+import { potluckView } from "#lib/server/potluck.ts";
+import { prisma } from "#lib/server/prisma.ts";
+import { eventSchema, questionSchema } from "#lib/server/validation.ts";
+import { parseLocalDateTimeInTimezone } from "#lib/utils/timezones.ts";
 
 const questionUpdateSchema = questionSchema.extend({
 	questionId: z.string().cuid(),

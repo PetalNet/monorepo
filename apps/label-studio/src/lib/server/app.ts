@@ -1,5 +1,4 @@
-import { env } from "$env/dynamic/private";
-import { renderLabel } from "$lib/render";
+import { renderLabel } from "#lib/render/index.ts";
 
 import { parseConfig, type Config } from "./config.ts";
 import { serverFonts } from "./fonts.ts";
@@ -42,7 +41,7 @@ let app: App | undefined;
 
 /** The process-wide app, built from the environment on first use. */
 export function getApp(): App {
-	app ??= createApp(parseConfig(env));
+	app ??= createApp(parseConfig(process.env));
 
 	return app;
 }

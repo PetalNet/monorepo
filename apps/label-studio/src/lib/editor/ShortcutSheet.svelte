@@ -1,5 +1,5 @@
 <script lang="ts">
-	import Sheet from "$lib/ui/Sheet.svelte";
+	import Sheet from "#lib/ui/Sheet.svelte";
 
 	import { SHORTCUTS } from "./shortcuts";
 

@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { clock } from "$lib/format";
+	import { clock } from "#lib/format.ts";
 
 	/** Where a reading comes from and when it was last checked. Every instrument ends with one. */
 	let {

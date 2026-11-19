@@ -1,4 +1,4 @@
-import { env } from "$env/dynamic/private";
+import { DATABASE_URL } from "$app/env/private";
 import { PrismaBetterSqlite3 } from "@prisma/adapter-better-sqlite3";
 
 import { PrismaClient } from "./generated/prisma/client";
@@ -11,7 +11,7 @@ const prisma =
 	global.prisma ||
 	new PrismaClient({
 		adapter: new PrismaBetterSqlite3(
-			{ url: env.DATABASE_URL ?? "" },
+			{ url: DATABASE_URL ?? "" },
 			{ timestampFormat: "unixepoch-ms" },
 		),
 	});

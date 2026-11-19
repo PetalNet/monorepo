@@ -1,6 +1,7 @@
-import { prisma } from "$lib/server/db";
 import { error, fail } from "@sveltejs/kit";
 import { nanoid } from "nanoid";
+
+import { prisma } from "#lib/server/db.ts";
 
 import type { PageServerLoad, Actions } from "./$types";
 

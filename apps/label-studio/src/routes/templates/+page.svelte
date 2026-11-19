@@ -1,21 +1,22 @@
 <script lang="ts">
 	import { goto } from "$app/navigation";
 	import { resolve } from "$app/paths";
-	import { dotsToMm, type Template, type TemplateCategory } from "$lib/doc";
-	import { editor } from "$lib/editor/editor.svelte";
-	import { resolveVars, sampleVars } from "$lib/editor/persist";
-	import Banner from "$lib/ui/Banner.svelte";
-	import Button from "$lib/ui/Button.svelte";
-	import { CATEGORIES } from "$lib/ui/categories";
-	import { api, errorText } from "$lib/ui/client";
-	import IconButton from "$lib/ui/IconButton.svelte";
-	import Sheet from "$lib/ui/Sheet.svelte";
-	import Skeleton from "$lib/ui/Skeleton.svelte";
-	import { tapeMmActual } from "$lib/ui/tape";
-	import TapeLabel from "$lib/ui/TapeLabel.svelte";
-	import { templates } from "$lib/ui/templates.svelte";
-	import { formatMm } from "$lib/ui/words";
 	import { Copy, FilePlusCorner, Search, Trash2 } from "@lucide/svelte";
+
+	import { dotsToMm, type Template, type TemplateCategory } from "#lib/doc.ts";
+	import { editor } from "#lib/editor/editor.svelte.ts";
+	import { resolveVars, sampleVars } from "#lib/editor/persist.ts";
+	import Banner from "#lib/ui/Banner.svelte";
+	import Button from "#lib/ui/Button.svelte";
+	import { CATEGORIES } from "#lib/ui/categories.ts";
+	import { api, errorText } from "#lib/ui/client.ts";
+	import IconButton from "#lib/ui/IconButton.svelte";
+	import Sheet from "#lib/ui/Sheet.svelte";
+	import Skeleton from "#lib/ui/Skeleton.svelte";
+	import { tapeMmActual } from "#lib/ui/tape.ts";
+	import TapeLabel from "#lib/ui/TapeLabel.svelte";
+	import { templates } from "#lib/ui/templates.svelte.ts";
+	import { formatMm } from "#lib/ui/words.ts";
 
 	let filter = $state<TemplateCategory | "all">("all");
 	let query = $state("");

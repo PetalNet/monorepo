@@ -1,5 +1,6 @@
-import type { Bitmap } from "$lib/doc";
 import svgpath from "svgpath";
+
+import type { Bitmap } from "#lib/doc.ts";
 
 import { fill, PathBuilder, stroke } from "./raster.ts";
 

@@ -24,9 +24,10 @@
 </script>
 
 <script lang="ts">
-	import { MAX_PLUS_ONES } from "$lib/guests";
 	import { Plus } from "@lucide/svelte";
 	import { tick } from "svelte";
+
+	import { MAX_PLUS_ONES } from "#lib/guests.ts";
 
 	import PlusOnePersonRow from "./PlusOnePersonRow.svelte";
 

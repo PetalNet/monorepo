@@ -1,5 +1,5 @@
-import type { Job, PrinterState } from "$lib/api";
-import type { TapeWidthMm } from "$lib/doc";
+import type { Job, PrinterState } from "#lib/api.ts";
+import type { TapeWidthMm } from "#lib/doc.ts";
 
 import { api, errorText } from "./client";
 import { plainError } from "./words";

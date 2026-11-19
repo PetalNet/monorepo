@@ -1,5 +1,6 @@
-import { MAX_PLUS_ONE_NAME_LENGTH, MAX_PLUS_ONES } from "$lib/guests";
 import { z } from "zod";
+
+import { MAX_PLUS_ONE_NAME_LENGTH, MAX_PLUS_ONES } from "#lib/guests.ts";
 
 const optionalText = (schema: z.ZodString) =>
 	z

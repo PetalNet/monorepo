@@ -1,3 +1,4 @@
+import adapter from "@sveltejs/adapter-node";
 import { sveltekit } from "@sveltejs/kit/vite";
 import tailwindcss from "@tailwindcss/vite";
 import { fontless } from "fontless";
@@ -11,7 +12,12 @@ export default defineConfig({
 			// The faces are named only through --font-sans and --font-serif, so fontless must read custom properties.
 			processCSSVariables: true,
 			families: [
-				{ name: "Geist", provider: "fontsource", weights: [400, 500, 600] },
+				{
+					name: "Geist",
+					provider: "fontsource",
+					weights: [400, 500, 600],
+				},
+
 				{
 					name: "EB Garamond",
 					provider: "fontsource",
@@ -20,6 +26,6 @@ export default defineConfig({
 				},
 			],
 		}),
-		sveltekit(),
+		sveltekit({ adapter: adapter() }),
 	],
 });

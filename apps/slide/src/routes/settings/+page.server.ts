@@ -1,6 +1,7 @@
-import { prisma } from "$lib/server/db";
 import { fail, redirect } from "@sveltejs/kit";
 import { compare, hash } from "bcryptjs";
+
+import { prisma } from "#lib/server/db.ts";
 
 import type { PageServerLoad, Actions } from "./$types";
 

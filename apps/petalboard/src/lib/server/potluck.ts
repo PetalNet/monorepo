@@ -5,7 +5,7 @@ import {
 	parsePotluckConfig,
 	type PotluckAnswer,
 	type PotluckView,
-} from "$lib/potluck";
+} from "#lib/potluck.ts";
 
 import type { Prisma } from "./generated/prisma/client";
 

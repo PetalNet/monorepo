@@ -1,13 +1,4 @@
 <script lang="ts">
-	import { dotsToMm, mmToDots, placeholders, type LabelElement, type Rotation } from "$lib/doc";
-	import { FONTS } from "$lib/render/fonts";
-	import Banner from "$lib/ui/Banner.svelte";
-	import IconButton from "$lib/ui/IconButton.svelte";
-	import NumberInput from "$lib/ui/NumberInput.svelte";
-	import Row from "$lib/ui/Row.svelte";
-	import Segmented from "$lib/ui/Segmented.svelte";
-	import Select from "$lib/ui/Select.svelte";
-	import Switch from "$lib/ui/Switch.svelte";
 	import {
 		AlignCenterHorizontal,
 		AlignCenterVertical,
@@ -27,6 +18,16 @@
 		TextAlignStart,
 		Trash2,
 	} from "@lucide/svelte";
+
+	import { dotsToMm, mmToDots, placeholders, type LabelElement, type Rotation } from "#lib/doc.ts";
+	import { FONTS } from "#lib/render/fonts.ts";
+	import Banner from "#lib/ui/Banner.svelte";
+	import IconButton from "#lib/ui/IconButton.svelte";
+	import NumberInput from "#lib/ui/NumberInput.svelte";
+	import Row from "#lib/ui/Row.svelte";
+	import Segmented from "#lib/ui/Segmented.svelte";
+	import Select from "#lib/ui/Select.svelte";
+	import Switch from "#lib/ui/Switch.svelte";
 
 	import { editor } from "./editor.svelte";
 	import IconPicker from "./IconPicker.svelte";

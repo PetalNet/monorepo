@@ -1,7 +1,8 @@
 import { randomBytes } from "crypto";
 
-import { getSpotifyAuthUrl } from "$lib/server/spotify";
 import { redirect } from "@sveltejs/kit";
+
+import { getSpotifyAuthUrl } from "#lib/server/spotify.ts";
 
 import type { RequestHandler } from "./$types";
 
@@ -23,5 +24,5 @@ export const GET: RequestHandler = async ({ locals, cookies }) => {
 
 	const authUrl = getSpotifyAuthUrl(state);
 
-	throw redirect(302, authUrl);
+	throw redirect(302, authUrl, { external: true });
 };

@@ -33,7 +33,7 @@ export default (({ strict }) => ({
 			// Build-time deploy script run by the Dockerfile, and the ops script an operator runs
 			// against the deployed database to load institutional breaks. Neither is imported by
 			// anything: they are production entrypoints, hence the `!` markers.
-			entry: ["docker/*.ts!", "scripts/*.ts!"],
+			entry: ["docker/*.ts!", "scripts/*.ts!", "src/env.ts!"],
 			drizzle: {
 				config: [],
 				entry: ["drizzle.config.ts"],
@@ -62,6 +62,8 @@ export default (({ strict }) => ({
 			ignoreBinaries: ["wasm-bindgen"],
 		},
 		"apps/petalboard": {
+			// SvelteKit loads src/env.ts by convention.
+			entry: ["src/env.ts!"],
 			// Read by the Prisma CLI through prisma.config.ts, which Knip does not follow.
 			ignore: ["prisma/schema.prisma"],
 			ignoreDependencies: [
@@ -87,6 +89,8 @@ export default (({ strict }) => ({
 			],
 		},
 		"apps/slide": {
+			// SvelteKit loads src/env.ts by convention.
+			entry: ["src/env.ts!"],
 			// Read by the Prisma CLI through prisma.config.ts, which Knip does not follow.
 			ignore: ["prisma/schema.prisma"],
 			// Only the gitignored generated Prisma client imports @prisma/client/runtime.

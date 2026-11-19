@@ -1,5 +1,5 @@
 <script lang="ts">
-	import type { CategoryCounts, PotluckCategory } from "$lib/potluck";
+	import type { CategoryCounts, PotluckCategory } from "#lib/potluck.ts";
 
 	let {
 		questionId,

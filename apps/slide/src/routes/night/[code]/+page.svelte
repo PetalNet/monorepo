@@ -1,17 +1,18 @@
 <script lang="ts">
 	import { enhance, applyAction } from "$app/forms";
-	import { goto, invalidateAll } from "$app/navigation";
-	import PageContainer from "$lib/components/PageContainer.svelte";
+	import { goto, refreshAll } from "$app/navigation";
+	import { format } from "date-fns";
+	import QRCode from "qrcode";
+	import Sortable from "sortablejs";
+	import { onMount } from "svelte";
+
+	import PageContainer from "#lib/components/PageContainer.svelte";
 	import {
 		formatInTimezone,
 		toDateTimeLocal,
 		getTimezoneAbbr,
 		COMMON_TIMEZONES,
-	} from "$lib/utils/timezone";
-	import { format } from "date-fns";
-	import QRCode from "qrcode";
-	import Sortable from "sortablejs";
-	import { onMount } from "svelte";
+	} from "#lib/utils/timezone.ts";
 
 	let { data, form } = $props();
 
@@ -526,7 +527,7 @@
 						use:enhance={() => {
 							return async ({ result }) => {
 								if (result.type === "success") {
-									await invalidateAll();
+									await refreshAll();
 								} else if (result.type === "failure") {
 									alert(result.data?.error || "Failed to update settings");
 								}
@@ -997,7 +998,7 @@
 						return async ({ result }) => {
 							if (result.type === "success") {
 								closeCreateModal();
-								await invalidateAll();
+								await refreshAll();
 							}
 						};
 					}}
@@ -1101,7 +1102,7 @@
 						return async ({ result }) => {
 							if (result.type === "success") {
 								closeJoinModal();
-								await invalidateAll();
+								await refreshAll();
 							}
 						};
 					}}

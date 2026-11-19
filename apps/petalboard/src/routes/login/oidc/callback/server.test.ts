@@ -19,6 +19,7 @@ describe("OIDC callback", () => {
 			set: vi.fn<Cookies["set"]>(),
 			delete: vi.fn<Cookies["delete"]>(),
 			serialize: vi.fn<Cookies["serialize"]>().mockReturnValue(""),
+			parse: vi.fn<Cookies["parse"]>(),
 		} satisfies Cookies;
 		const event = {
 			cookies,

@@ -1,5 +1,5 @@
-import type { Template } from "$lib/doc";
-import { BUILTIN_TEMPLATES } from "$lib/templates/builtin";
+import type { Template } from "#lib/doc.ts";
+import { BUILTIN_TEMPLATES } from "#lib/templates/builtin.ts";
 
 import type { Store } from "./store.ts";
 

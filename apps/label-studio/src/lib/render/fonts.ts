@@ -1,5 +1,6 @@
-import type { FontId } from "$lib/doc";
 import { parse, type Font } from "opentype.js";
+
+import type { FontId } from "#lib/doc.ts";
 
 import type { FontSource } from "./index.ts";
 import { readKerning, type Kerning } from "./kern.ts";

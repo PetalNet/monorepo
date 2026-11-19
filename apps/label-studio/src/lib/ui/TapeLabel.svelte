@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { dotsToMm, tapeGeometry, type LabelDoc, type Vars } from "$lib/doc";
+	import { dotsToMm, tapeGeometry, type LabelDoc, type Vars } from "#lib/doc.ts";
 
 	import Dimension from "./Dimension.svelte";
 	import { LiveRender, paint } from "./render.svelte";
