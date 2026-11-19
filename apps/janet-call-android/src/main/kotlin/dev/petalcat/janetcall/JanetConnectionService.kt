@@ -65,10 +65,11 @@ class JanetConnection(private val onGone: (CallRecord) -> Unit) : Connection() {
 			is End.Dropped -> Problem.CallFailed(end.reason)
 			else -> null
 		}
-		Calls.update(CallState.Ended(reason, problem))
 		val connectedFor = activeAtMs?.let { (SystemClock.elapsedRealtime() - it) / 1000 }
 		val record = CallRecord(startedMs, (connectedFor ?: 0).toInt(), connectedFor != null)
+		// The screen stays a call until the teardown, so nothing can place a new call while this one is still alive.
 		val teardown = {
+			Calls.update(CallState.Ended(reason, problem))
 			setDisconnected(cause)
 			destroy()
 			onGone(record)

@@ -19,7 +19,7 @@ import android.util.Log
 class CallHold(context: Context) {
 	private val app = context.applicationContext
 	private var wake: PowerManager.WakeLock? = null
-	private var wifi: WifiManager.WifiLock? = null
+	private var wifi: List<WifiManager.WifiLock> = emptyList()
 	private var focus: AudioFocusRequest? = null
 	private var started = false
 
@@ -35,15 +35,21 @@ class CallHold(context: Context) {
 					acquire(SAFETY_MS)
 				}
 		}.getOrNull()
-		wifi = runCatching {
-			val mode = if (Build.VERSION.SDK_INT >= 29) WifiManager.WIFI_MODE_FULL_LOW_LATENCY else @Suppress("DEPRECATION") WifiManager.WIFI_MODE_FULL_HIGH_PERF
-			app.getSystemService(WifiManager::class.java)
-				.createWifiLock(mode, "janetcall:call")
-				.apply {
-					setReferenceCounted(false)
-					acquire()
-				}
-		}.getOrNull()
+		// Low latency holds the radio only with the screen on and the app in front; high performance is the lock that
+		// holds it behind another app or with the screen off, and it is deprecated from API 34, so both are taken.
+		wifi = listOfNotNull(
+			if (Build.VERSION.SDK_INT >= 29) WifiManager.WIFI_MODE_FULL_LOW_LATENCY else null,
+			@Suppress("DEPRECATION") WifiManager.WIFI_MODE_FULL_HIGH_PERF,
+		).mapNotNull { mode ->
+			runCatching {
+				app.getSystemService(WifiManager::class.java)
+					.createWifiLock(mode, "janetcall:call")
+					.apply {
+						setReferenceCounted(false)
+						acquire()
+					}
+			}.getOrNull()
+		}
 		focus = runCatching {
 			val request = AudioFocusRequest.Builder(AudioManager.AUDIOFOCUS_GAIN)
 				.setAudioAttributes(
@@ -62,11 +68,11 @@ class CallHold(context: Context) {
 	@Synchronized
 	fun stop() {
 		runCatching { wake?.takeIf { it.isHeld }?.release() }
-		runCatching { wifi?.takeIf { it.isHeld }?.release() }
+		wifi.forEach { lock -> runCatching { if (lock.isHeld) lock.release() } }
 		runCatching { focus?.let { app.getSystemService(AudioManager::class.java).abandonAudioFocusRequest(it) } }
 		started = false
 		wake = null
-		wifi = null
+		wifi = emptyList()
 		focus = null
 	}
 
