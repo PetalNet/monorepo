@@ -131,6 +131,12 @@ class Vault(unittest.TestCase):
     def claims(self):
         return {r[0]: json.loads(r[1]) for r in self.db.execute("SELECT id, meta FROM doc WHERE source='vault'")}
 
+    def test_only_shared_tier_claims_are_mirrored(self):
+        replica(self.rep, [claim('c-a', 'shared fact'), dict(claim('c-b', 'private fact'), tier='personal'),
+                           dict(claim('c-c', 'agent note'), tier='agent')])
+        memindex.sync_vault(self.db, self.rep)
+        self.assertEqual(sorted(self.claims()), ['vault:c-a'])
+
     def test_vault_rows_shift_rarity_only_when_the_vault_is_searched(self):
         memindex.put(self.db, 'memory', 'memory:a', '', 'the server logs rotate weekly', {})
         memindex.put(self.db, 'memory', 'memory:b', '', 'the garden needs water', {})

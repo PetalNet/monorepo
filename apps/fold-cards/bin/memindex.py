@@ -251,7 +251,7 @@ def sync_vault(db, path, source='vault'):
         rep = sqlite3.connect(f'file:{os.path.abspath(os.path.expanduser(path))}?mode=ro', uri=True, timeout=5)
         try:
             rows = rep.execute("SELECT id, title, heading, text, source_type, freshness, sources, updated FROM claim "
-                               "WHERE status='active'").fetchall()
+                               "WHERE status='active' AND tier='shared'").fetchall()
         finally:
             rep.close()
     except sqlite3.Error as err:
