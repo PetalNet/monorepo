@@ -97,6 +97,9 @@ export default (({ strict }) => ({
 			// Each guard is a hook process Claude Code runs by path; the tests import its verdict.
 			entry: ["src/*-guard.ts!"],
 		},
+		"packages/vault-engine": {
+			entry: ["test/**/*.ts"],
+		},
 		"packages/vault-cite": {
 			// The backfill ops scripts are production entrypoints an operator runs by hand, not imported.
 			entry: ["test/**/*.ts", "scripts/*.ts!"],

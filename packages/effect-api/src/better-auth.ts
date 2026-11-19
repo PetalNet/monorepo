@@ -21,7 +21,7 @@ import {
 	type HttpMethod,
 } from "effect/http";
 
-import { inHostRequest, McpAuthentication, McpEndpoint, type McpAuthBoundary } from "./request.js";
+import { inHostRequest, McpAuthentication, McpEndpoint, type McpAuthBoundary } from "./request.ts";
 
 const MCP_MAX_REQUEST_BYTES = 1024 * 1024;
 

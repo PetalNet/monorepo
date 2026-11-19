@@ -1,0 +1,28 @@
+{
+	"name": "@petalnet/vault-engine",
+	"version": "0.0.0",
+	"private": true,
+	"bin": {
+		"vault": "./src/cli.ts"
+	},
+	"type": "module",
+	"scripts": {
+		"build": "tsc -b",
+		"typecheck": "tsc -b",
+		"test": "vitest run",
+		"vault": "node src/cli.ts"
+	},
+	"dependencies": {
+		"@effect/platform-node": "catalog:",
+		"@petalnet/effect-api": "workspace:*",
+		"effect": "catalog:",
+		"loro-crdt": "catalog:"
+	},
+	"devDependencies": {
+		"@effect/vitest": "catalog:",
+		"@petalnet/tsconfig": "workspace:*",
+		"@types/node": "catalog:types",
+		"typescript": "catalog:dev",
+		"vitest": "catalog:dev"
+	}
+}

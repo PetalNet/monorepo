@@ -1,0 +1,12 @@
+{
+	"extends": "@petalnet/tsconfig/base.json",
+	"include": [],
+	"references": [
+		{
+			"path": "./tsconfig.src.json"
+		},
+		{
+			"path": "./test"
+		}
+	]
+}

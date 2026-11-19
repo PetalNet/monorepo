@@ -27,6 +27,7 @@ docs/         repository architecture, migration history, and design specs for
 - `@petalnet/better-auth-effect-qb-adapter`
 - `@petalnet/effect-api` and `@petalnet/effect-sveltekit`
 - `@petalnet/vault-cite` (primary-source capture and evidence search)
+- `@petalnet/vault-engine` (Loro-backed claim store, Obsidian projection, recall and research runs)
 - `@petalnet/tsconfig`, `@petalnet/types`, `@petalnet/ui`, and `@petalnet/utils`
 
 ## Toolchain

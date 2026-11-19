@@ -1,12 +1,12 @@
-export { createEffectApi, type EffectApiConfig } from "./create-api.js";
+export { createEffectApi, type EffectApiConfig } from "./create-api.ts";
 export {
 	McpAccess,
 	McpAuthentication,
 	type McpAuthBoundary,
 	type McpPermissions,
 	type RequestMiddleware,
-} from "./request.js";
-export { failureResponse } from "./rest.js";
+} from "./request.ts";
+export { failureResponse } from "./rest.ts";
 export {
 	operation,
 	operationError,
@@ -17,4 +17,4 @@ export {
 	type HttpMethod,
 	type OperationConfig,
 	type OperationErrors,
-} from "./operation.js";
+} from "./operation.ts";

@@ -1,6 +1,6 @@
 import { Cause, Data, Effect, Schema } from "effect";
 
-import { mapOperationErrors, type ApiOperation, type LogCause } from "./operation.js";
+import { mapOperationErrors, type ApiOperation, type LogCause } from "./operation.ts";
 
 export class InvocationFailure extends Data.TaggedError("InvocationFailure")<{
 	readonly status: number;
