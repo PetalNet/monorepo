@@ -24,7 +24,7 @@ interface GsubFeature {
  */
 function parseFont(bytes: ArrayBuffer): Font {
 	const font = parse(bytes);
-	const features = (font.tables["gsub"] as { features?: GsubFeature[] } | undefined)?.features;
+	const features = (font.tables.gsub as { features?: GsubFeature[] } | undefined)?.features;
 
 	for (const { tag, feature } of features ?? []) {
 		if (tag === "ccmp") {
