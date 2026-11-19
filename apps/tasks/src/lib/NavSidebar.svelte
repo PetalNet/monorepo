@@ -1,128 +1,29 @@
 <script>
 	import { page } from "$app/stores";
 	import Icon from "$lib/Icon.svelte";
-	import { humanizeTool } from "$lib/tool.js";
 
-	// Account moved UP to the top bar (task-499); the sidebar foot is now the live Fleet card.
-	let { collapsed = $bindable(false), fleet = null } = $props();
+	let { collapsed = $bindable(false) } = $props();
 
-	const path = $derived($page.url.pathname);
-	const isActive = (n) => {
-		const p = path;
-
-		if (n === "desk") {
-			return p === "/";
-		}
-
-		if (n === "browse") {
-			return p === "/browse" || p.startsWith("/task") || p.startsWith("/board");
-		}
-
-		if (n === "issues") {
-			return p.startsWith("/issues");
-		}
-
-		if (n === "docs") {
-			return p.startsWith("/docs");
-		}
-
-		if (n === "gallery") {
-			return p.startsWith("/gallery");
-		}
-
-		if (n === "projects") {
-			return p.startsWith("/projects");
-		}
-
-		if (n === "fleet") {
-			return p.startsWith("/fleet");
-		}
-
-		return false;
-	};
-
-	// Nav: Inbox folded into the Desk; Issues retired (an operator); Fleet is the status card below.
-	const groups = [
-		{
-			label: null,
-			items: [
-				{ id: "desk", label: "Desk", href: "/", icon: "desk" },
-				{ id: "browse", label: "Browse", href: "/browse", icon: "board" },
-			],
-		},
-		{
-			label: "Library",
-			items: [
-				{ id: "docs", label: "Docs", href: "/docs", icon: "doc" },
-				{ id: "gallery", label: "Gallery", href: "/gallery", icon: "gallery" },
-				{ id: "projects", label: "Projects", href: "/projects", icon: "projects" },
-			],
-		},
-	];
-
-	const agents = $derived(fleet?.agents ?? []);
-	const working = $derived(fleet?.totals?.working ?? 0);
-	const online = $derived(fleet?.totals?.online ?? 0);
+	const onGallery = $derived($page.url.pathname.startsWith("/gallery"));
 </script>
 
 <aside class="nav" class:collapsed>
-	<a class="brand" href="/" aria-label="tasks home">
+	<a class="brand" href="/" aria-label="gallery home">
 		<span class="brand-mark"><Icon name="brand" size={18} strokeWidth={1.9} /></span>
-		<span class="wordmark">tasks</span>
-	</a>
-
-	<a class="new-btn" href="/new">
-		<Icon name="plus" size={18} strokeWidth={2.2} />
-		<span class="lbl">New task</span>
+		<span class="wordmark">gallery</span>
 	</a>
 
 	<nav class="groups" aria-label="Main navigation">
-		{#each groups as g}
-			{#each g.items as item}
-				{@const on = isActive(item.id)}
-				<a class="item" class:on href={item.href} aria-current={on ? "page" : undefined}>
-					<Icon name={item.icon} size={18} />
-					<span class="lbl">{item.label}</span>
-				</a>
-			{/each}
-		{/each}
+		<a
+			class="item"
+			class:on={onGallery}
+			href="/gallery"
+			aria-current={onGallery ? "page" : undefined}
+		>
+			<Icon name="gallery" size={18} />
+			<span class="lbl">Gallery</span>
+		</a>
 	</nav>
-
-	<!-- FOOT: the live Fleet — full known roster, greyed when offline. Clickable → /fleet. -->
-	<a
-		class="fleet"
-		class:on={isActive("fleet")}
-		href="/fleet"
-		aria-label="Agent fleet — {working} working, {online} online of {agents.length}"
-	>
-		<div class="fleet-head">
-			<Icon name="bolt" size={16} />
-			<span class="lbl">Fleet</span>
-			<span class="fleet-n" class:live={working > 0}
-				>{working ? `${working} working` : `${online}/${agents.length}`}</span
-			>
-		</div>
-		{#if agents.length}
-			<div class="fleet-list">
-				{#each agents as a}
-					<span
-						class="fa"
-						class:off={a.offline}
-						title="{a.handle}{a.host ? ` · ${a.host}` : ''} · {a.offline
-							? a.never_seen
-								? 'never reported'
-								: 'offline'
-							: a.status}{a.current_tool ? ` · ${humanizeTool(a.current_tool)}` : ''}"
-					>
-						<span class="fa-dot s-{a.status}"></span>
-						<span class="fa-h">{a.handle}</span>
-						{#if a.status === "working"}<span class="fa-x mono">working</span>
-						{:else if a.offline}<span class="fa-x off">offline</span>{/if}
-					</span>
-				{/each}
-			</div>
-		{/if}
-	</a>
 </aside>
 
 <style>
@@ -196,41 +97,8 @@
 	}
 
 	/* primary action — SOLID accent fill so it's clearly distinct from the active-tab tint */
-	.new-btn {
-		display: flex;
-		align-items: center;
-		gap: 10px;
-		overflow: hidden;
-		margin: 10px 2px;
-		padding: 9px 11px;
-		border-radius: var(--radius);
-		text-decoration: none;
-		white-space: nowrap;
-		color: #1a1205;
-		background: var(--accent);
-		font-size: 13px;
-		font-weight: 650;
-		transition: background 0.14s;
-	}
-	:global([data-theme="light"]) .new-btn {
-		color: #fff;
-	}
-	.new-btn :global(svg) {
-		flex-shrink: 0;
-	}
-	.new-btn:hover {
-		background: var(--accent-b);
-	}
 	/* collapsed: the icon stays exactly where it was (same margin + padding); only the label
      collapses and the rail narrows — the button never recenters, so the icon never moves (an operator) */
-	.new-btn .lbl {
-		max-width: 160px;
-		overflow: hidden;
-		transition: opacity 0.11s ease;
-	}
-	.collapsed .new-btn .lbl {
-		opacity: 0;
-	}
 
 	.groups {
 		flex: 1;
@@ -283,125 +151,6 @@
 	}
 
 	/* FOOT: live Fleet — full roster, the sidebar's bottom anchor (clickable → /fleet) */
-	.fleet {
-		display: block;
-		margin-top: 8px;
-		padding: 11px 11px 4px;
-		border-top: 1px solid var(--border-sub);
-		text-decoration: none;
-		color: var(--text-3);
-		transition: color 0.14s;
-	}
-	.fleet:hover {
-		color: var(--text-1);
-	}
-	.fleet:hover .fleet-head .lbl {
-		color: var(--text-1);
-	}
-	.fleet.on .fleet-head .lbl {
-		color: var(--accent-b);
-	}
-	.fleet-head {
-		display: flex;
-		align-items: center;
-		gap: 8px;
-		font-size: 11px;
-		font-weight: 700;
-		text-transform: uppercase;
-		letter-spacing: 0.1em;
-		color: var(--text-4);
-		white-space: nowrap;
-	}
-	.fleet-head :global(svg) {
-		flex-shrink: 0;
-	}
-	.fleet-head .fleet-n {
-		margin-left: auto;
-		font-family: var(--mono);
-		font-size: 10.5px;
-		letter-spacing: 0;
-		text-transform: none;
-		font-weight: 500;
-		color: var(--text-4);
-	}
-	.fleet-head .fleet-n.live {
-		color: var(--violet);
-	}
 	/* bolt stays put on collapse; label + count fade + clip with the rail (consistent) */
-	.fleet-head .lbl,
-	.fleet-head .fleet-n {
-		transition: opacity 0.15s ease;
-	}
-	.collapsed .fleet-head .lbl,
-	.collapsed .fleet-head .fleet-n {
-		opacity: 0;
-	}
 	/* roster clips/fades + collapses its height on collapse — same .2s as the rail (an operator) */
-	.fleet-list {
-		display: flex;
-		flex-direction: column;
-		gap: 0;
-		margin-top: 7px;
-		overflow: hidden;
-		max-height: 360px;
-		transition:
-			max-height 0.2s cubic-bezier(0.4, 0, 0.2, 1),
-			opacity 0.2s ease,
-			margin-top 0.2s ease;
-	}
-	.collapsed .fleet-list {
-		max-height: 0;
-		opacity: 0;
-		margin-top: 0;
-	}
-	.fa {
-		display: flex;
-		align-items: center;
-		gap: 8px;
-		padding: 4px 3px;
-		font-size: 12.5px;
-		color: var(--text-2);
-		min-width: 0;
-	}
-	.fa.off {
-		color: var(--text-4);
-	}
-	.fa-h {
-		overflow: hidden;
-		text-overflow: ellipsis;
-		white-space: nowrap;
-	}
-	.fa-x {
-		margin-left: auto;
-		font-size: 9px;
-		text-transform: uppercase;
-		letter-spacing: 0.07em;
-		font-weight: 600;
-	}
-	.fa-x.off {
-		color: var(--text-4);
-	}
-	.fa .fa-x:not(.off) {
-		color: var(--violet);
-	}
-	.fa-dot {
-		width: 7px;
-		height: 7px;
-		border-radius: 50%;
-		flex-shrink: 0;
-		background: var(--text-4);
-	}
-	.fa-dot.s-working {
-		background: var(--violet);
-	}
-	.fa-dot.s-alive {
-		background: var(--info);
-	}
-	.fa-dot.s-idle {
-		background: var(--text-3);
-	}
-	.fa-dot.s-offline {
-		background: var(--text-4);
-		opacity: 0.4;
-	}
 </style>

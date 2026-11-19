@@ -14,23 +14,6 @@ const person = z.object({
 
 const schema = z.object({
 	people: z.record(z.string().min(1), person).default({}),
-	responsibles: z.array(z.string().min(1)).default([]),
-	assignees: z.array(z.string().min(1)).default([]),
-	fleet: z
-		.object({
-			agents: z
-				.array(
-					z.object({
-						handle: z.string().min(1),
-						host: z.string().min(1),
-						term: z.string().url().optional(),
-					}),
-				)
-				.default([]),
-			// Maps a host label as heartbeats report it to the label the UI shows.
-			hostAliases: z.record(z.string().min(1), z.string().min(1)).default({}),
-		})
-		.default({ agents: [], hostAliases: {} }),
 	accessMessage: z.string().min(1).optional(),
 });
 

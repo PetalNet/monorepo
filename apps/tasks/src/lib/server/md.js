@@ -20,7 +20,7 @@ import { tasksConfig } from "./config.js";
 //
 // [[wikilinks]] (task-514): a rehype pass (rehypeWikilinks) runs AFTER remark-rehype
 // but BEFORE sanitize, so the nodes it creates (`a`/`span`) go through the same
-// allowlist as everything else. We only ever emit relative /task/N hrefs and a fixed
+// allowlist as everything else. We only ever emit a fixed
 // set of class names, both of which the extended schema below permits — no new XSS
 // surface. Sanitize runs last regardless, so even a bug here can't leak raw HTML.
 
@@ -32,7 +32,6 @@ const FLEET_AGENTS = new Set([
 	...Object.entries(tasksConfig.people)
 		.filter(([, person]) => person.kind === "agent")
 		.map(([handle]) => handle.toLowerCase()),
-	...tasksConfig.fleet.agents.map((agent) => agent.handle.toLowerCase()),
 	"import",
 ]);
 const FLEET_ROUTE_EXISTS = false;
@@ -49,13 +48,11 @@ function resolveWikilink(inner) {
 		return null;
 	}
 
-	// task-N / #N  -> real link to the task page.
+	// task-N / #N  -> inert reference; the tracker is gone, so there is no page to link to.
 	const taskMatch = /^(?:task-|#)(\d+)$/i.exec(raw);
 
 	if (taskMatch) {
-		const n = taskMatch[1];
-
-		return el("a", { href: `/task/${n}`, className: ["wikilink", "wl-task"] }, `task-${n}`);
+		return el("span", { className: ["wikilink", "wl-ref"] }, `task-${taskMatch[1]}`);
 	}
 
 	// Bare handle (no spaces/slashes) that matches a known fleet agent.
@@ -221,14 +218,4 @@ export function renderMd(src) {
 	}
 
 	return String(processor.processSync(src));
-}
-
-// Plan headings carry their state in plain markdown, so authors can edit them in
-// any markdown editor. The marker becomes a semantic, visible pill only at render.
-export function renderPlanMd(src) {
-	return renderMd(src).replace(
-		/(<h[1-6]>)(.*?)(\s*\{status=(proposed|decided|done)\})(<\/h[1-6]>)/g,
-		(_match, open, title, _marker, status, close) =>
-			`${open}${title}<span class="plan-status plan-status-${status}">${status}</span>${close}`,
-	);
 }

@@ -1,6 +1,20 @@
 <script>
 	import Icon from "$lib/Icon.svelte";
 	let { data } = $props();
+
+	// A project is the gallery's top-level grouping (artifacts.collection); pages filed under
+	// none go last. Groups are alphabetical, pages inside keep the server's newest-first order.
+	const groups = $derived.by(() => {
+		const byProject = new Map();
+
+		for (const a of data.artifacts) {
+			byProject.set(a.collection, [...(byProject.get(a.collection) ?? []), a]);
+		}
+
+		return [...byProject]
+			.toSorted(([x], [y]) => (x === "") - (y === "") || x.localeCompare(y))
+			.map(([project, artifacts]) => ({ project, artifacts }));
+	});
 	function ago(ts) {
 		if (!ts) {
 			return "";
@@ -40,31 +54,41 @@
 	</header>
 
 	{#if data.artifacts.length}
-		<div class="cards">
-			{#each data.artifacts as a (a.slug)}
-				<a class="card" href="/gallery/{a.slug}">
-					<span class="card-ic"><Icon name="doc" size={18} /></span>
-					<span class="card-main">
-						<span class="card-title">{a.title}</span>
-						{#if a.description}<span class="card-desc">{a.description}</span>{/if}
-						<span class="card-meta mono">
-							<span class="kind-tag">{a.kind === "html" ? "page" : "doc"}</span>
-							{#if a.visibility === "private"}<span class="priv"
-									><Icon name="lock" size={11} /> private</span
-								>{/if}
-							<span class="dim age">{ago(a.updated_at)}</span>
+		{#each groups as g (g.project)}
+			<h2 class="project">{g.project || "unfiled"}</h2>
+			<div class="cards">
+				{#each g.artifacts as a (a.slug)}
+					<a class="card" href="/gallery/{a.slug}">
+						<span class="card-ic"><Icon name="doc" size={18} /></span>
+						<span class="card-main">
+							<span class="card-title">{a.title}</span>
+							{#if a.description}<span class="card-desc">{a.description}</span>{/if}
+							<span class="card-meta mono">
+								<span class="kind-tag">{a.kind === "html" ? "page" : "doc"}</span>
+								{#if a.visibility === "private"}<span class="priv"
+										><Icon name="lock" size={11} /> private</span
+									>{/if}
+								<span class="dim age">{ago(a.updated_at)}</span>
+							</span>
 						</span>
-					</span>
-					<span class="card-arrow"><Icon name="arrow" size={16} /></span>
-				</a>
-			{/each}
-		</div>
+						<span class="card-arrow"><Icon name="arrow" size={16} /></span>
+					</a>
+				{/each}
+			</div>
+		{/each}
 	{:else}
 		<p class="empty">No artifacts yet.</p>
 	{/if}
 </div>
 
 <style>
+	.project {
+		margin: 20px 0 8px;
+		font-size: 12px;
+		text-transform: uppercase;
+		letter-spacing: 0.08em;
+		color: var(--text-3);
+	}
 	.cards {
 		display: flex;
 		flex-direction: column;

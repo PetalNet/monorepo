@@ -2,7 +2,7 @@ import type { KnipConfig } from "knip";
 
 // Knip passes the parsed CLI flags to a config function (KnipConfig's function form).
 export default (({ strict }) => ({
-	ignore: [".agents/skills/impeccable/**", "apps/tasks/static/vendor/**"],
+	ignore: [".agents/skills/impeccable/**"],
 	rules: { cycles: "error" },
 	// Apps keep bundled packages in devDependencies, so strict mode, which counts only
 	// dependencies, would report every bundled import as unlisted. Packages keep the check.
@@ -71,9 +71,9 @@ export default (({ strict }) => ({
 			],
 		},
 		"apps/tasks": {
-			// Cron, MCP, and production server entrypoints run directly rather than being imported.
-			entry: ["mcp/*.mjs!", "scripts/*.mjs!"],
-			ignore: ["static/vendor/**"],
+			// Cron and production server entrypoints run directly rather than being imported.
+			entry: ["scripts/*.mjs!"],
+
 			ignoreDependencies: [
 				// CSS @import directives load these fonts, which Knip does not analyze.
 				"@fontsource-variable/geist",

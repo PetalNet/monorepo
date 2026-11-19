@@ -45,7 +45,7 @@ if (!agent_name) {
 // Same treatment scope already gets: you say it out loud or you get nothing.
 if (flags.readonly === undefined) {
 	console.error(
-		"refusing to mint: pass --readonly (may only read) or --write (may close, file, update, claim, reap)",
+		"refusing to mint: pass --readonly (may only read) or --write (may publish and edit)",
 	);
 
 	process.exit(1);
@@ -70,9 +70,7 @@ try {
 const scopeDesc = [
 	// the mode is part of the scope, so it belongs in the receipt: a token you cannot
 	// tell apart from a write-capable one is a token you will misuse later
-	flags.readonly
-		? "READ-ONLY (get_ready, get)"
-		: "READ-WRITE (may close, file, update, claim, reap)",
+	flags.readonly ? "READ-ONLY (get_ready, get)" : "READ-WRITE (may publish and edit)",
 	flags.assignee ? `assignee=${flags.assignee}` : null,
 	flags.projects ? `projects=${flags.projects}` : null,
 ]
