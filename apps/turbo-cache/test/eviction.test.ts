@@ -1,4 +1,5 @@
 import { spawnSync } from "node:child_process";
+import { existsSync } from "node:fs";
 import {
 	mkdir,
 	mkdtemp,
@@ -149,16 +150,27 @@ it("writes a status file with the surviving totals and the last eviction time", 
 	});
 });
 
-it("reports a cap above 2 GiB without overflowing", async () => {
+// The eviction sidecar runs alpine's busybox awk, whose printf %d wraps at 32 bits; gawk and mawk do not, so the test must run under busybox.
+const busybox = ["/bin/busybox", "/usr/bin/busybox"].find((candidate) => existsSync(candidate));
+
+it.skipIf(!busybox && !process.env.CI)("reports a cap above 2 GiB without overflowing under busybox awk", async () => {
+	expect(busybox, "busybox is required to run this test in CI").toBeDefined();
+
 	await withDirectory(async (directory) => {
 		const data = path.join(directory, "data");
+		const bin = path.join(directory, "bin");
 		const status = path.join(directory, "storage.json");
 
 		await mkdir(data);
+		await mkdir(bin);
+		await symlink(busybox!, path.join(bin, "awk"));
 		await writeFile(path.join(data, "a"), "x");
 
-		// The live cap is 40 GiB; awk's %d wrapped it to -2147483648 on the status page.
-		const result = evict(data, { CACHE_MAX_BYTES: String(40 * 1024 ** 3), CACHE_STATUS_FILE: status });
+		const result = evict(data, {
+			CACHE_MAX_BYTES: String(40 * 1024 ** 3),
+			CACHE_STATUS_FILE: status,
+			PATH: `${bin}:${process.env.PATH}`,
+		});
 
 		expect(result.status, result.stderr).toBe(0);
 		expect(JSON.parse(await readFile(status, "utf8"))).toMatchObject({ max_bytes: 40 * 1024 ** 3 });
