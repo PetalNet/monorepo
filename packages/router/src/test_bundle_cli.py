@@ -69,6 +69,11 @@ class RouterBundleCLI(unittest.TestCase):
                                       env=env, cwd=root, capture_output=True, text=True, timeout=30)
             self.assertEqual(excluded.returncode, 3, excluded.stderr + excluded.stdout)
             self.assertFalse((root / 'adapter-prompt').exists())
+            brief.write_text('Project: demo\nPARCS fixture-secret\n')
+            parcs = subprocess.run(argv, env=env, cwd=root, capture_output=True, text=True, timeout=30)
+            self.assertNotEqual(parcs.returncode, 5)
+            self.assertNotIn('fixture-secret', parcs.stdout + parcs.stderr)
+            self.assertFalse((root / 'adapter-prompt').exists())
 
 
 if __name__ == '__main__':
