@@ -34,7 +34,7 @@ evict() {
           }
         }
         if (status != "" && NR > 0) {
-          printf "{\"updated\":%d,\"files\":%d,\"bytes\":%d,\"max_bytes\":%d,\"evicted_files\":%d,\"evicted_bytes\":%d,\"last_eviction\":%s}\n", \
+          printf "{\"updated\":%.0f,\"files\":%.0f,\"bytes\":%.0f,\"max_bytes\":%.0f,\"evicted_files\":%.0f,\"evicted_bytes\":%.0f,\"last_eviction\":%s}\n", \
             now, files, sum, max, gone, gone_bytes, (gone > 0 ? now : previous) > status
         }
       }' |
