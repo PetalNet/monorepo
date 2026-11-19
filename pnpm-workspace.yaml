@@ -110,7 +110,6 @@ catalogs:
     "@tailwindcss/vite": ^4.3.5
     "@vitest/coverage-v8": 5.1.0
     eslint-plugin-svelte: ^3.20.0
-    autoprefixer: ^10.4.20
     drizzle-kit: ^0.31.8
     eslint: ^10.4.1
     # Keep the ESLint compatibility rules aligned with standalone Oxlint.
@@ -122,7 +121,6 @@ catalogs:
     oxfmt: 0.61.0
     oxlint: 1.93.0
     oxlint-tsgolint: 7.0.2007
-    postcss: ^8.5.23
     prisma: ^7.0.0
     svelte-check: ^4.7.0
     # Keep the TS 6 API at the name ecosystem tooling imports. The native TS 7
@@ -190,10 +188,6 @@ catalogs:
     tailwindcss: ^4.3.5
     zod: ^4.0.0
     unified: ^11.0.5
-
-  # Apps still on Tailwind v3 (consolidated to latest v3); not upgraded to v4 yet.
-  legacy:
-    tailwindcss: ^3.4.17
 
 catalog:
   csv-parse: 7.0.3

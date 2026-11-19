@@ -37,7 +37,7 @@
 
 <ParticleBackground />
 
-<div class="flex min-h-screen flex-col items-center justify-center bg-theater-darker p-4">
+<div class="bg-theater-darker flex min-h-screen flex-col items-center justify-center p-4">
 	<div class="w-full max-w-2xl space-y-6 text-center">
 		<!-- Error Icon -->
 		<div class="mb-4 animate-bounce text-9xl">
@@ -45,7 +45,7 @@
 		</div>
 
 		<!-- Error Code -->
-		<div class="text-8xl font-bold text-theater-purple">
+		<div class="text-theater-purple text-8xl font-bold">
 			{status}
 		</div>
 
@@ -67,7 +67,7 @@
 
 		<!-- Technical Details (for development) -->
 		{#if import.meta.env.DEV && $page.error?.message}
-			<details class="mt-8 rounded-lg border border-gray-800 bg-theater-dark p-4 text-left">
+			<details class="bg-theater-dark mt-8 rounded-lg border border-gray-800 p-4 text-left">
 				<summary class="cursor-pointer text-sm text-gray-400 hover:text-gray-300">
 					Technical Details
 				</summary>

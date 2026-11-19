@@ -11,11 +11,11 @@
 </script>
 
 <div class="min-h-screen bg-gray-50">
-	<nav class="border-b bg-white shadow-sm">
+	<nav class="border-b bg-white shadow-xs">
 		<div class="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8">
 			<div class="flex h-16 justify-between">
 				<div class="flex">
-					<div class="flex flex-shrink-0 items-center">
+					<div class="flex shrink-0 items-center">
 						<span class="text-xl font-bold text-red-600">🛡️ Admin Panel</span>
 					</div>
 					<div class="hidden sm:ml-6 sm:flex sm:space-x-8">

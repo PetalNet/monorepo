@@ -58,15 +58,15 @@
 
 	<div class="space-y-3">
 		<div class="flex items-baseline justify-between gap-3">
-			<span class="font-semibold text-dark-900">Dish categories</span>
+			<span class="text-dark-900 font-semibold">Dish categories</span>
 			<small class="text-sm {ratioTotal === 100 ? 'text-gray-600' : 'text-orange-700'}"
 				>Shares total {ratioTotal}%</small
 			>
 		</div>
 		{#each rows as row, i}
-			<div class="space-y-2 rounded-xl border border-primary-700/15 p-3">
+			<div class="border-primary-700/15 space-y-2 rounded-xl border p-3">
 				<div class="flex flex-wrap items-end gap-2">
-					<label class="form-label min-w-[10rem] flex-1">
+					<label class="form-label min-w-40 flex-1">
 						<span class="text-sm">Category</span>
 						<input class="input-field" required maxlength="40" bind:value={row.label} />
 					</label>

@@ -82,7 +82,7 @@
 	}
 </script>
 
-<div class="relative min-h-screen overflow-hidden bg-theater-background">
+<div class="bg-theater-background relative min-h-screen overflow-hidden">
 	<ParticleBackground />
 
 	<!-- Main content -->
@@ -92,7 +92,7 @@
 			class={`mb-6 flex flex-col items-center gap-2 transition-all duration-700 sm:mb-10 sm:gap-3 ${showContent ? "translate-y-0 opacity-100" : "translate-y-4 opacity-0"} animate-fade-in animate-slide-up`}
 		>
 			<h1
-				class="drop-shadow-glow mb-1 bg-gradient-to-r from-theater-purple via-theater-teal to-theater-gold
+				class="drop-shadow-glow from-theater-purple via-theater-teal to-theater-gold mb-1 bg-linear-to-r
 				bg-clip-text text-center text-3xl font-extrabold text-transparent sm:text-4xl md:text-5xl"
 			>
 				Welcome back, {data.user?.name || "Presenter"}!
@@ -100,15 +100,15 @@
 			<p class="text-center text-base text-gray-400 sm:text-lg md:text-xl">Your command center</p>
 			<div class="mt-2 flex gap-3">
 				<div
-					class="rounded-xl border border-theater-purple/30 bg-theater-elevated px-4 py-2 text-center shadow-md"
+					class="border-theater-purple/30 bg-theater-elevated rounded-xl border px-4 py-2 text-center shadow-md"
 				>
-					<div class="text-xl font-bold text-theater-purple">{data.hostedEvents.length}</div>
+					<div class="text-theater-purple text-xl font-bold">{data.hostedEvents.length}</div>
 					<div class="text-xs text-gray-400">Events</div>
 				</div>
 				<div
-					class="rounded-xl border border-theater-teal/30 bg-theater-elevated px-4 py-2 text-center shadow-md"
+					class="border-theater-teal/30 bg-theater-elevated rounded-xl border px-4 py-2 text-center shadow-md"
 				>
-					<div class="text-xl font-bold text-theater-teal">{data.groupMemberships.length}</div>
+					<div class="text-theater-teal text-xl font-bold">{data.groupMemberships.length}</div>
 					<div class="text-xs text-gray-400">Presentations</div>
 				</div>
 			</div>
@@ -162,16 +162,16 @@
 						{#each upcomingDeadlines as item, i}
 							<button
 								onclick={() => goto(item.link)}
-								class={`glass group flex w-full min-w-[280px] max-w-2xl flex-1 basis-[400px] items-center gap-4
-									rounded-2xl p-5 transition-all duration-500 hover:-translate-y-1 hover:scale-[1.02]
-									hover:border-theater-gold/60 hover:shadow-2xl hover:shadow-theater-gold/20 sm:gap-5
+								class={`glass group hover:border-theater-gold/60 hover:shadow-theater-gold/20 flex w-full max-w-2xl min-w-[280px] flex-1 basis-[400px]
+									items-center gap-4 rounded-2xl p-5 transition-all duration-500
+									hover:-translate-y-1 hover:scale-[1.02] hover:shadow-2xl sm:gap-5
 									sm:rounded-3xl sm:p-6
 									${showContent ? "translate-y-0 opacity-100" : "translate-y-4 opacity-0"} animate-fade-in animate-slide-up`}
 								style="transition-delay: {i * 50}ms"
 							>
 								<!-- Emoji -->
 								<span
-									class="flex-shrink-0 text-5xl transition-transform duration-300 group-hover:scale-110 sm:text-6xl"
+									class="shrink-0 text-5xl transition-transform duration-300 group-hover:scale-110 sm:text-6xl"
 									>{item.emoji || "📑"}</span
 								>
 
@@ -182,7 +182,7 @@
 									<!-- Title section -->
 									<div class="min-w-0 flex-1">
 										<h3
-											class="relative mb-1 break-words text-lg font-extrabold leading-tight sm:text-xl"
+											class="relative mb-1 text-lg leading-tight font-extrabold wrap-break-word sm:text-xl"
 										>
 											<span
 												class="text-white transition-opacity duration-300 group-hover:opacity-0"
@@ -190,7 +190,7 @@
 												{item.name}
 											</span>
 											<span
-												class="absolute inset-0 bg-gradient-to-r from-theater-gold to-theater-teal bg-clip-text text-transparent opacity-0 transition-opacity duration-300 group-hover:opacity-100"
+												class="from-theater-gold to-theater-teal absolute inset-0 bg-linear-to-r bg-clip-text text-transparent opacity-0 transition-opacity duration-300 group-hover:opacity-100"
 											>
 												{item.name}
 											</span>
@@ -199,10 +199,10 @@
 									</div>
 
 									<!-- Deadline -->
-									<div class="flex flex-shrink-0 items-center gap-3">
+									<div class="flex shrink-0 items-center gap-3">
 										<div class="text-right">
 											<p
-												class="whitespace-nowrap text-base font-extrabold text-theater-gold sm:text-lg"
+												class="text-theater-gold text-base font-extrabold whitespace-nowrap sm:text-lg"
 											>
 												{formatDistanceToNow(item.deadline, { addSuffix: true })}
 											</p>
@@ -234,7 +234,7 @@
 			{#if data.groupMemberships.length === 0}
 				<section class="flex w-full items-center justify-center py-20 sm:py-28">
 					<div
-						class="mx-auto max-w-md animate-fade-in animate-slide-up rounded-2xl border border-gray-800/50 bg-theater-elevated p-10 text-center shadow-xl sm:p-16"
+						class="animate-fade-in animate-slide-up bg-theater-elevated mx-auto max-w-md rounded-2xl border border-gray-800/50 p-10 text-center shadow-xl sm:p-16"
 					>
 						<div class="mb-6 text-6xl sm:text-7xl">📭</div>
 						<p class="text-lg text-gray-400 sm:text-xl">
@@ -249,9 +249,9 @@
 							{@const eventStatus = getEventStatus(membership.group.event)}
 							{@const groupStatus = getGroupStatus(membership.group)}
 							<div
-								class={`glass group flex w-full min-w-[280px] max-w-2xl flex-1 basis-[400px] flex-col gap-3
-								rounded-2xl p-5 transition-all duration-500 hover:-translate-y-1
-								hover:scale-[1.02] hover:border-theater-teal/60 hover:shadow-2xl hover:shadow-theater-teal/20
+								class={`glass group hover:border-theater-teal/60 hover:shadow-theater-teal/20 flex w-full max-w-2xl min-w-[280px] flex-1 basis-[400px]
+								flex-col gap-3 rounded-2xl p-5 transition-all
+								duration-500 hover:-translate-y-1 hover:scale-[1.02] hover:shadow-2xl
 								sm:rounded-3xl sm:p-6
 								${showContent ? "translate-y-0 opacity-100" : "translate-y-4 opacity-0"} animate-fade-in animate-slide-up`}
 								style="transition-delay: {i * 50}ms"
@@ -262,7 +262,7 @@
 								>
 									<!-- Emoji -->
 									<span
-										class="flex-shrink-0 text-5xl transition-transform duration-300 group-hover:scale-110 sm:text-6xl"
+										class="shrink-0 text-5xl transition-transform duration-300 group-hover:scale-110 sm:text-6xl"
 										>{membership.group.emoji || "📑"}</span
 									>
 
@@ -271,7 +271,7 @@
 										<!-- Title and event -->
 										<div class="min-w-0 flex-1">
 											<h3
-												class="relative mb-1 break-words text-lg font-extrabold leading-tight sm:text-xl"
+												class="relative mb-1 text-lg leading-tight font-extrabold wrap-break-word sm:text-xl"
 											>
 												<span
 													class="text-white transition-opacity duration-300 group-hover:opacity-0"
@@ -279,7 +279,7 @@
 													{membership.group.name}
 												</span>
 												<span
-													class="absolute inset-0 bg-gradient-to-r from-theater-teal to-theater-purple bg-clip-text text-transparent opacity-0 transition-opacity duration-300 group-hover:opacity-100"
+													class="from-theater-teal to-theater-purple absolute inset-0 bg-linear-to-r bg-clip-text text-transparent opacity-0 transition-opacity duration-300 group-hover:opacity-100"
 												>
 													{membership.group.name}
 												</span>
@@ -293,7 +293,7 @@
 													{membership.group.members?.length || 0}
 												</span>
 												{#if membership.isLeader}
-													<span class="flex items-center gap-1 font-bold text-theater-gold">
+													<span class="text-theater-gold flex items-center gap-1 font-bold">
 														<span>⭐</span> Leader
 													</span>
 												{/if}
@@ -310,7 +310,7 @@
 										</div>
 
 										<!-- Status badges -->
-										<div class="flex flex-shrink-0 flex-wrap gap-2">
+										<div class="flex shrink-0 flex-wrap gap-2">
 											<span
 												class={`rounded-xl px-3 py-1.5 text-sm font-bold ${groupStatus.color} whitespace-nowrap shadow-md`}
 											>
@@ -330,7 +330,7 @@
 								{#if eventStatus.showJoin && eventStatus.urgency === "live"}
 									<button
 										onclick={() => goto(`/night/${membership.group.event.joinCode}/live`)}
-										class="flex w-full items-center justify-center gap-2 rounded-xl bg-gradient-to-r from-red-600 to-pink-600 px-4 py-2.5 text-sm font-extrabold text-white shadow-xl shadow-red-900/50 transition-all hover:scale-105 hover:from-red-700 hover:to-pink-700"
+										class="flex w-full items-center justify-center gap-2 rounded-xl bg-linear-to-r from-red-600 to-pink-600 px-4 py-2.5 text-sm font-extrabold text-white shadow-xl shadow-red-900/50 transition-all hover:scale-105 hover:from-red-700 hover:to-pink-700"
 									>
 										<span class="h-2 w-2 animate-pulse rounded-full bg-white"></span>
 										Join Live Event
@@ -350,7 +350,7 @@
 				{#if data.hostedEvents.length > 0}
 					<button
 						onclick={() => goto("/event/create")}
-						class="self-center rounded-xl bg-gradient-to-r from-theater-purple to-theater-gold px-6 py-3 text-base font-bold text-white shadow-lg shadow-theater-purple/50 transition-all hover:scale-105 hover:from-theater-teal hover:to-theater-gold"
+						class="from-theater-purple to-theater-gold shadow-theater-purple/50 hover:from-theater-teal hover:to-theater-gold self-center rounded-xl bg-linear-to-r px-6 py-3 text-base font-bold text-white shadow-lg transition-all hover:scale-105"
 					>
 						+ Create Event
 					</button>
@@ -359,13 +359,13 @@
 			{#if data.hostedEvents.length === 0}
 				<section class="flex w-full items-center justify-center py-20 sm:py-28">
 					<div
-						class="mx-auto max-w-md animate-fade-in animate-slide-up rounded-2xl border border-gray-800/50 bg-theater-elevated p-10 text-center shadow-xl sm:p-16"
+						class="animate-fade-in animate-slide-up bg-theater-elevated mx-auto max-w-md rounded-2xl border border-gray-800/50 p-10 text-center shadow-xl sm:p-16"
 					>
 						<div class="mb-7 text-6xl sm:text-7xl">🎭</div>
 						<p class="mb-7 text-lg text-gray-400 sm:text-xl">You haven't created any events yet.</p>
 						<button
 							onclick={() => goto("/event/create")}
-							class="rounded-2xl bg-gradient-to-r from-theater-purple to-theater-gold px-8 py-4 text-lg font-bold text-white shadow-lg shadow-theater-purple/50 transition-all duration-300 hover:scale-105 hover:from-theater-teal hover:to-theater-gold focus:outline-none focus:ring-2 focus:ring-theater-purple focus:ring-offset-2 focus:ring-offset-theater-background"
+							class="from-theater-purple to-theater-gold shadow-theater-purple/50 hover:from-theater-teal hover:to-theater-gold focus:ring-theater-purple focus:ring-offset-theater-background rounded-2xl bg-linear-to-r px-8 py-4 text-lg font-bold text-white shadow-lg transition-all duration-300 hover:scale-105 focus:ring-2 focus:ring-offset-2 focus:outline-hidden"
 						>
 							Create Your First Event
 						</button>
@@ -377,9 +377,9 @@
 						{#each data.hostedEvents as event, i}
 							{@const status = getEventStatus(event)}
 							<div
-								class={`glass group flex w-full min-w-[280px] max-w-2xl flex-1 basis-[400px] flex-col gap-3
-								rounded-2xl p-5 transition-all duration-500 hover:-translate-y-1
-								hover:scale-[1.02] hover:border-theater-purple/60 hover:shadow-2xl hover:shadow-theater-purple/20
+								class={`glass group hover:border-theater-purple/60 hover:shadow-theater-purple/20 flex w-full max-w-2xl min-w-[280px] flex-1 basis-[400px]
+								flex-col gap-3 rounded-2xl p-5 transition-all
+								duration-500 hover:-translate-y-1 hover:scale-[1.02] hover:shadow-2xl
 								sm:rounded-3xl sm:p-6
 								${showContent ? "translate-y-0 opacity-100" : "translate-y-4 opacity-0"} animate-fade-in animate-slide-up`}
 								style="transition-delay: {i * 50}ms"
@@ -390,7 +390,7 @@
 								>
 									<!-- Emoji -->
 									<span
-										class="flex-shrink-0 text-5xl transition-transform duration-300 group-hover:scale-110 sm:text-6xl"
+										class="shrink-0 text-5xl transition-transform duration-300 group-hover:scale-110 sm:text-6xl"
 										>🎭</span
 									>
 
@@ -399,7 +399,7 @@
 										<!-- Title and info -->
 										<div class="min-w-0 flex-1">
 											<h3
-												class="relative mb-1 break-words text-lg font-extrabold leading-tight sm:text-xl"
+												class="relative mb-1 text-lg leading-tight font-extrabold wrap-break-word sm:text-xl"
 											>
 												<span
 													class="text-white transition-opacity duration-300 group-hover:opacity-0"
@@ -407,18 +407,18 @@
 													{event.name}
 												</span>
 												<span
-													class="absolute inset-0 bg-gradient-to-r from-theater-purple to-theater-gold bg-clip-text text-transparent opacity-0 transition-opacity duration-300 group-hover:opacity-100"
+													class="from-theater-purple to-theater-gold absolute inset-0 bg-linear-to-r bg-clip-text text-transparent opacity-0 transition-opacity duration-300 group-hover:opacity-100"
 												>
 													{event.name}
 												</span>
 											</h3>
 											{#if event.theme}
-												<p class="mb-2 truncate text-sm font-bold text-theater-purple">
+												<p class="text-theater-purple mb-2 truncate text-sm font-bold">
 													🎨 {event.theme}
 												</p>
 											{/if}
 											<div class="flex flex-wrap gap-3 text-xs text-gray-400">
-												<span class="flex items-center gap-1 font-mono font-bold text-theater-teal">
+												<span class="text-theater-teal flex items-center gap-1 font-mono font-bold">
 													<span>🏷️</span>
 													{event.joinCode}
 												</span>
@@ -441,7 +441,7 @@
 										</div>
 
 										<!-- Status badge -->
-										<div class="flex-shrink-0">
+										<div class="shrink-0">
 											<span
 												class={`rounded-xl px-3 py-1.5 text-sm font-bold ${status.color} whitespace-nowrap shadow-md`}
 											>
@@ -454,7 +454,7 @@
 								{#if status.showJoin && status.urgency === "live"}
 									<button
 										onclick={() => goto(`/night/${event.joinCode}/live`)}
-										class="flex w-full items-center justify-center gap-2 rounded-xl bg-gradient-to-r from-red-600 to-pink-600 px-4 py-2.5 text-sm font-extrabold text-white shadow-xl shadow-red-900/50 transition-all hover:scale-105 hover:from-red-700 hover:to-pink-700"
+										class="flex w-full items-center justify-center gap-2 rounded-xl bg-linear-to-r from-red-600 to-pink-600 px-4 py-2.5 text-sm font-extrabold text-white shadow-xl shadow-red-900/50 transition-all hover:scale-105 hover:from-red-700 hover:to-pink-700"
 									>
 										<span class="h-2 w-2 animate-pulse rounded-full bg-white"></span>
 										Join Live Event

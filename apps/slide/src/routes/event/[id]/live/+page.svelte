@@ -159,7 +159,7 @@
 <ParticleBackground />
 
 <div
-	class="animate-gradient relative min-h-screen overflow-hidden bg-gradient-to-br from-purple-400/50 via-pink-400/50 to-blue-400/50 p-4 md:p-8"
+	class="animate-gradient relative min-h-screen overflow-hidden bg-linear-to-br from-purple-400/50 via-pink-400/50 to-blue-400/50 p-4 md:p-8"
 >
 	<!-- Background Shapes -->
 	<div class="pointer-events-none fixed inset-0 z-0 overflow-hidden">
@@ -179,7 +179,7 @@
 				></div>
 			{:else if shape.type === "square"}
 				<div
-					class="animate-float-random absolute rounded-[2rem]"
+					class="animate-float-random absolute rounded-4xl"
 					style="
 						width: {shape.size}px;
 						height: {shape.size}px;
@@ -231,7 +231,7 @@
 		>
 			<div>
 				<h1
-					class="mb-2 bg-gradient-to-r from-purple-400 via-pink-400 to-blue-400 bg-clip-text text-4xl font-bold text-transparent"
+					class="mb-2 bg-linear-to-r from-purple-400 via-pink-400 to-blue-400 bg-clip-text text-4xl font-bold text-transparent"
 				>
 					🔴 {event.name} - LIVE
 				</h1>
@@ -239,7 +239,7 @@
 			</div>
 			<button
 				onclick={endEvent}
-				class="rounded-lg border border-red-400 bg-gradient-to-r from-red-500 to-red-600 px-6 py-3 font-semibold text-white shadow-lg transition hover:from-red-600 hover:to-red-700"
+				class="rounded-lg border border-red-400 bg-linear-to-r from-red-500 to-red-600 px-6 py-3 font-semibold text-white shadow-lg transition hover:from-red-600 hover:to-red-700"
 			>
 				End Event
 			</button>
@@ -252,7 +252,7 @@
 				<p class="mb-4 text-xl text-gray-400">No groups have submitted presentations yet.</p>
 				<button
 					onclick={() => goto(`/event/${event.id}`)}
-					class="rounded-lg bg-theater-purple px-6 py-3 font-semibold text-white transition hover:bg-purple-600"
+					class="bg-theater-purple rounded-lg px-6 py-3 font-semibold text-white transition hover:bg-purple-600"
 				>
 					← Back to Event Settings
 				</button>
@@ -266,7 +266,7 @@
 						class="glass-bright-strong rounded-2xl border-4 border-purple-400/50 p-8 shadow-2xl ring-2 ring-purple-300/30"
 					>
 						<div class="mb-6 text-center">
-							<p class="mb-2 text-sm uppercase tracking-wide text-gray-400">Now Presenting</p>
+							<p class="mb-2 text-sm tracking-wide text-gray-400 uppercase">Now Presenting</p>
 							<h2 class="mb-4 text-4xl font-bold">
 								{currentGroup.emoji || "📊"}
 								{currentGroup.name}
@@ -277,9 +277,9 @@
 						</div>
 
 						<!-- Timer -->
-						<div class="mb-6 rounded-xl border border-gray-700 bg-theater-darker p-8">
+						<div class="bg-theater-darker mb-6 rounded-xl border border-gray-700 p-8">
 							<div class="mb-6 text-center">
-								<p class="mb-2 text-sm uppercase tracking-wide text-gray-400">Timer</p>
+								<p class="mb-2 text-sm tracking-wide text-gray-400 uppercase">Timer</p>
 								<div
 									class="font-mono text-7xl font-bold {timerMinutes === 0 && timerSeconds < 30
 										? 'text-red-400'
@@ -316,11 +316,11 @@
 
 						<!-- Team Members -->
 						<div class="mb-6">
-							<p class="mb-3 text-sm uppercase tracking-wide text-gray-400">Team Members</p>
+							<p class="mb-3 text-sm tracking-wide text-gray-400 uppercase">Team Members</p>
 							<div class="flex flex-wrap gap-2">
 								{#each currentGroup.members as member}
 									<span
-										class="rounded-lg border border-gray-700 bg-theater-darker px-4 py-2 text-white"
+										class="bg-theater-darker rounded-lg border border-gray-700 px-4 py-2 text-white"
 									>
 										{#if member.isLeader}👑{/if}
 										{member.user.name}
@@ -332,7 +332,7 @@
 						<!-- Presentation Link -->
 						{#if currentGroup.submissionLink}
 							<div class="mb-6">
-								<p class="mb-2 text-sm uppercase tracking-wide text-gray-400">Presentation Link</p>
+								<p class="mb-2 text-sm tracking-wide text-gray-400 uppercase">Presentation Link</p>
 								<a
 									href={currentGroup.submissionLink}
 									target="_blank"
@@ -354,7 +354,7 @@
 							</button>
 							<button
 								onclick={openVoting}
-								class="rounded-lg bg-theater-purple px-8 py-3 font-semibold text-white transition hover:bg-purple-600"
+								class="bg-theater-purple rounded-lg px-8 py-3 font-semibold text-white transition hover:bg-purple-600"
 							>
 								⭐ Open Voting
 							</button>
@@ -384,7 +384,7 @@
 									class="w-full rounded-lg border-2 p-4 text-left transition
 										{index === currentGroupIndex
 										? 'border-theater-purple bg-theater-purple text-white'
-										: 'border-gray-700 bg-theater-darker hover:border-gray-600'}"
+										: 'bg-theater-darker border-gray-700 hover:border-gray-600'}"
 								>
 									<div class="mb-1 flex items-center justify-between">
 										<span class="font-semibold">
@@ -392,7 +392,7 @@
 											{group.name}
 										</span>
 										{#if index === currentGroupIndex}
-											<span class="rounded bg-white/20 px-2 py-1 text-xs">NOW</span>
+											<span class="rounded-sm bg-white/20 px-2 py-1 text-xs">NOW</span>
 										{/if}
 									</div>
 									<p class="text-xs text-gray-400">

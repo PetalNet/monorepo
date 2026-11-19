@@ -94,7 +94,7 @@
 					type="text"
 					bind:value={name}
 					required
-					class="w-full rounded-lg border border-gray-700 bg-theater-dark px-4 py-2 text-white placeholder-gray-500 focus:border-transparent focus:outline-none focus:ring-2 focus:ring-theater-purple"
+					class="bg-theater-dark focus:ring-theater-purple w-full rounded-lg border border-gray-700 px-4 py-2 text-white placeholder-gray-500 focus:border-transparent focus:ring-2 focus:outline-hidden"
 					placeholder="Movie Night 2025"
 				/>
 			</div>
@@ -105,7 +105,7 @@
 					id="theme"
 					type="text"
 					bind:value={theme}
-					class="w-full rounded-lg border border-gray-700 bg-theater-dark px-4 py-2 text-white placeholder-gray-500 focus:border-transparent focus:outline-none focus:ring-2 focus:ring-theater-purple"
+					class="bg-theater-dark focus:ring-theater-purple w-full rounded-lg border border-gray-700 px-4 py-2 text-white placeholder-gray-500 focus:border-transparent focus:ring-2 focus:outline-hidden"
 					placeholder="Movies, Travel, Food..."
 				/>
 			</div>
@@ -118,7 +118,7 @@
 					id="description"
 					bind:value={description}
 					rows="3"
-					class="w-full rounded-lg border border-gray-700 bg-theater-dark px-4 py-2 text-white placeholder-gray-500 focus:border-transparent focus:outline-none focus:ring-2 focus:ring-theater-purple"
+					class="bg-theater-dark focus:ring-theater-purple w-full rounded-lg border border-gray-700 px-4 py-2 text-white placeholder-gray-500 focus:border-transparent focus:ring-2 focus:outline-hidden"
 					placeholder="What's this event about?"></textarea>
 			</div>
 		</div>
@@ -132,7 +132,7 @@
 				<select
 					id="timezone"
 					bind:value={timezone}
-					class="w-full rounded-lg border border-gray-700 bg-theater-dark px-4 py-2 text-white [color-scheme:dark] focus:border-transparent focus:outline-none focus:ring-2 focus:ring-theater-purple"
+					class="bg-theater-dark focus:ring-theater-purple w-full rounded-lg border border-gray-700 px-4 py-2 text-white scheme-dark focus:border-transparent focus:ring-2 focus:outline-hidden"
 				>
 					{#each COMMON_TIMEZONES as tz}
 						<option value={tz.value}>{tz.label}</option>
@@ -153,7 +153,7 @@
 					id="submissionDeadline"
 					type="datetime-local"
 					bind:value={submissionDeadline}
-					class="w-full rounded-lg border border-gray-700 bg-theater-dark px-4 py-2 text-white focus:border-transparent focus:outline-none focus:ring-2 focus:ring-theater-purple"
+					class="bg-theater-dark focus:ring-theater-purple w-full rounded-lg border border-gray-700 px-4 py-2 text-white focus:border-transparent focus:ring-2 focus:outline-hidden"
 				/>
 				<p class="mt-1 text-xs text-gray-500">
 					Enter time in <strong
@@ -172,7 +172,7 @@
 					min="1"
 					max="60"
 					placeholder="e.g., 5"
-					class="w-full rounded-lg border border-gray-700 bg-theater-dark px-4 py-2 text-white placeholder-gray-500 focus:border-transparent focus:outline-none focus:ring-2 focus:ring-theater-purple"
+					class="bg-theater-dark focus:ring-theater-purple w-full rounded-lg border border-gray-700 px-4 py-2 text-white placeholder-gray-500 focus:border-transparent focus:ring-2 focus:outline-hidden"
 				/>
 				<p class="mt-1 text-xs text-gray-500">
 					How long should each presentation be? Leave blank for no limit.
@@ -184,7 +184,7 @@
 				<select
 					id="orderMode"
 					bind:value={orderMode}
-					class="w-full rounded-lg border border-gray-700 bg-theater-dark px-4 py-2 text-white focus:border-transparent focus:outline-none focus:ring-2 focus:ring-theater-purple"
+					class="bg-theater-dark focus:ring-theater-purple w-full rounded-lg border border-gray-700 px-4 py-2 text-white focus:border-transparent focus:ring-2 focus:outline-hidden"
 				>
 					<option value="random">Random</option>
 					<option value="alphabetical">Alphabetical</option>
@@ -200,7 +200,7 @@
 				<button
 					type="button"
 					onclick={addCategory}
-					class="rounded-lg bg-gray-700 px-3 py-1 text-sm font-semibold transition-all duration-200 hover:bg-gray-600 focus:outline-none focus:ring-2 focus:ring-gray-500 focus:ring-offset-2 focus:ring-offset-theater-darker"
+					class="focus:ring-offset-theater-darker rounded-lg bg-gray-700 px-3 py-1 text-sm font-semibold transition-all duration-200 hover:bg-gray-600 focus:ring-2 focus:ring-gray-500 focus:ring-offset-2 focus:outline-hidden"
 				>
 					+ Add Category
 				</button>
@@ -210,7 +210,7 @@
 			</p>
 
 			{#each categories as category, index}
-				<div class="space-y-3 rounded-lg border border-gray-700 bg-theater-darker p-4">
+				<div class="bg-theater-darker space-y-3 rounded-lg border border-gray-700 p-4">
 					<div class="flex items-start justify-between gap-3">
 						<div class="flex-1">
 							<label for="cat-name-{index}" class="mb-2 block text-sm font-medium"
@@ -221,7 +221,7 @@
 								type="text"
 								bind:value={category.name}
 								placeholder="e.g., Creativity, Delivery, Impact"
-								class="w-full rounded-lg border border-gray-700 bg-theater-dark px-4 py-2 text-white placeholder-gray-500 focus:border-transparent focus:outline-none focus:ring-2 focus:ring-theater-purple"
+								class="bg-theater-dark focus:ring-theater-purple w-full rounded-lg border border-gray-700 px-4 py-2 text-white placeholder-gray-500 focus:border-transparent focus:ring-2 focus:outline-hidden"
 							/>
 						</div>
 						{#if categories.length > 1}
@@ -244,7 +244,7 @@
 							type="text"
 							bind:value={category.description}
 							placeholder="What should judges consider?"
-							class="w-full rounded-lg border border-gray-700 bg-theater-dark px-4 py-2 text-white placeholder-gray-500 focus:border-transparent focus:outline-none focus:ring-2 focus:ring-theater-purple"
+							class="bg-theater-dark focus:ring-theater-purple w-full rounded-lg border border-gray-700 px-4 py-2 text-white placeholder-gray-500 focus:border-transparent focus:ring-2 focus:outline-hidden"
 						/>
 					</div>
 				</div>
@@ -263,14 +263,14 @@
 			<button
 				type="button"
 				onclick={() => goto("/dashboard")}
-				class="rounded-lg bg-gray-700 px-6 py-3 font-semibold transition-all duration-200 hover:bg-gray-600 focus:outline-none focus:ring-2 focus:ring-gray-500 focus:ring-offset-2 focus:ring-offset-theater-darker"
+				class="focus:ring-offset-theater-darker rounded-lg bg-gray-700 px-6 py-3 font-semibold transition-all duration-200 hover:bg-gray-600 focus:ring-2 focus:ring-gray-500 focus:ring-offset-2 focus:outline-hidden"
 			>
 				Cancel
 			</button>
 			<button
 				type="submit"
 				disabled={loading}
-				class="flex-1 rounded-lg bg-theater-purple px-6 py-3 font-semibold transition-all duration-200 hover:bg-purple-600 focus:outline-none focus:ring-2 focus:ring-theater-purple focus:ring-offset-2 focus:ring-offset-theater-darker disabled:cursor-not-allowed disabled:opacity-50"
+				class="bg-theater-purple focus:ring-theater-purple focus:ring-offset-theater-darker flex-1 rounded-lg px-6 py-3 font-semibold transition-all duration-200 hover:bg-purple-600 focus:ring-2 focus:ring-offset-2 focus:outline-hidden disabled:cursor-not-allowed disabled:opacity-50"
 			>
 				{loading ? "Creating Event..." : "Create Event"}
 			</button>

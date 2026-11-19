@@ -52,7 +52,7 @@
 	<PageHeader title="System Information" subtitle="Server process and memory details" />
 
 	<!-- Process Info -->
-	<div class="mb-6 rounded-lg bg-white p-6 shadow">
+	<div class="mb-6 rounded-lg bg-white p-6 shadow-sm">
 		<h2 class="mb-4 text-lg font-semibold text-gray-900">Process Information</h2>
 		<dl class="grid grid-cols-1 gap-4 sm:grid-cols-2">
 			<div>
@@ -77,7 +77,7 @@
 	</div>
 
 	<!-- Memory Usage -->
-	<div class="mb-6 rounded-lg bg-white p-6 shadow">
+	<div class="mb-6 rounded-lg bg-white p-6 shadow-sm">
 		<h2 class="mb-4 text-lg font-semibold text-gray-900">Memory Usage</h2>
 
 		<div class="mb-6">
@@ -140,7 +140,7 @@
 	</div>
 
 	<!-- System Info -->
-	<div class="mb-6 rounded-lg bg-white p-6 shadow">
+	<div class="mb-6 rounded-lg bg-white p-6 shadow-sm">
 		<h2 class="mb-4 text-lg font-semibold text-gray-900">System Information</h2>
 		<dl class="grid grid-cols-1 gap-4 sm:grid-cols-2">
 			<div>
@@ -169,14 +169,14 @@
 	</div>
 
 	<!-- Environment -->
-	<div class="rounded-lg bg-white p-6 shadow">
+	<div class="rounded-lg bg-white p-6 shadow-sm">
 		<h2 class="mb-4 text-lg font-semibold text-gray-900">Environment</h2>
 		<dl class="space-y-3">
 			<div class="flex justify-between">
 				<dt class="text-sm text-gray-500">NODE_ENV</dt>
 				<dd class="text-sm font-medium text-gray-900">
 					<span
-						class="rounded px-2 py-1 {data.environment.nodeEnv === 'production'
+						class="rounded-sm px-2 py-1 {data.environment.nodeEnv === 'production'
 							? 'bg-green-100 text-green-800'
 							: 'bg-yellow-100 text-yellow-800'}"
 					>

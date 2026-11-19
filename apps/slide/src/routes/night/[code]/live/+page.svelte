@@ -941,7 +941,7 @@
 	<div class="pointer-events-none fixed inset-0 z-50 overflow-hidden">
 		{#each confettiPieces as piece (piece.id)}
 			<div
-				class="absolute h-3 w-3 animate-confetti"
+				class="animate-confetti absolute h-3 w-3"
 				style="
 					left: {piece.left}%;
 					top: -20px;
@@ -956,7 +956,7 @@
 {/if}
 
 <div
-	class="animate-gradient relative min-h-screen overflow-hidden bg-gradient-to-br from-purple-400/60 via-pink-400/55 to-blue-400/60"
+	class="animate-gradient relative min-h-screen overflow-hidden bg-linear-to-br from-purple-400/60 via-pink-400/55 to-blue-400/60"
 >
 	<!-- Background Shapes -->
 	<div class="pointer-events-none fixed inset-0 z-0 overflow-hidden">
@@ -976,7 +976,7 @@
 				></div>
 			{:else if shape.type === "square"}
 				<div
-					class="animate-float-random absolute rounded-[2rem]"
+					class="animate-float-random absolute rounded-4xl"
 					style="
 						width: {shape.size}px;
 						height: {shape.size}px;
@@ -1027,7 +1027,7 @@
 			<div class="absolute inset-0 overflow-hidden">
 				{#each Array(50) as _, i}
 					<div
-						class="absolute h-2 w-2 animate-float rounded-full bg-white/20"
+						class="animate-float absolute h-2 w-2 rounded-full bg-white/20"
 						style="left: {Math.random() * 100}%; top: {Math.random() *
 							100}%; animation-delay: {Math.random() * 5}s; animation-duration: {5 +
 							Math.random() * 5}s;"
@@ -1038,7 +1038,7 @@
 			<!-- Title -->
 			<div class="animate-fade-in-down relative z-10 mb-16 text-center">
 				<h1
-					class="animate-pulse-slow mb-4 whitespace-nowrap bg-gradient-to-r from-yellow-400 via-pink-500 to-purple-600 bg-clip-text text-5xl font-black text-transparent sm:text-7xl md:text-9xl"
+					class="animate-pulse-slow mb-4 bg-linear-to-r from-yellow-400 via-pink-500 to-purple-600 bg-clip-text text-5xl font-black whitespace-nowrap text-transparent sm:text-7xl md:text-9xl"
 				>
 					🏆 WINNERS 🏆
 				</h1>
@@ -1057,7 +1057,7 @@
 					<!-- Third Place (#3) -->
 					{#each topPresentations.third as presentation, idx}
 						<div
-							class="flex w-24 flex-col items-center sm:w-32 md:w-48 lg:min-w-[200px] lg:max-w-[280px] lg:flex-1"
+							class="flex w-24 flex-col items-center sm:w-32 md:w-48 lg:max-w-[280px] lg:min-w-[200px] lg:flex-1"
 							class:animate-slide-up-bounce={winnersRevealStep >= 1}
 							style="
 								opacity: {winnersRevealStep >= 1 ? '1' : '0'};
@@ -1067,7 +1067,7 @@
 							"
 						>
 							<div
-								class="mb-2 w-full transform rounded-lg bg-gradient-to-br from-orange-400 to-orange-600 px-2 py-2 text-center shadow-2xl transition-all hover:scale-105 sm:mb-3 sm:rounded-xl sm:px-4 sm:py-3 md:mb-4 md:rounded-2xl md:px-6 md:py-4 lg:mb-6 lg:rounded-3xl lg:px-8 lg:py-6"
+								class="mb-2 w-full transform rounded-lg bg-linear-to-br from-orange-400 to-orange-600 px-2 py-2 text-center shadow-2xl transition-all hover:scale-105 sm:mb-3 sm:rounded-xl sm:px-4 sm:py-3 md:mb-4 md:rounded-2xl md:px-6 md:py-4 lg:mb-6 lg:rounded-3xl lg:px-8 lg:py-6"
 							>
 								<div
 									class="mb-1 text-3xl sm:mb-2 sm:text-5xl md:mb-3 md:text-6xl lg:text-7xl xl:text-8xl"
@@ -1098,7 +1098,7 @@
 								</div>
 							</div>
 							<div
-								class="md:border-6 flex h-16 w-full items-center justify-center rounded-t-lg border-2 border-orange-700 bg-gradient-to-t from-orange-600 to-orange-400 shadow-2xl sm:h-24 sm:rounded-t-xl sm:border-4 md:h-32 md:rounded-t-2xl lg:h-40 xl:h-48"
+								class="flex h-16 w-full items-center justify-center rounded-t-lg border-2 border-orange-700 bg-linear-to-t from-orange-600 to-orange-400 shadow-2xl sm:h-24 sm:rounded-t-xl sm:border-4 md:h-32 md:rounded-t-2xl md:border-6 lg:h-40 xl:h-48"
 							>
 								<span
 									class="text-3xl font-black text-orange-900 sm:text-5xl md:text-6xl lg:text-7xl xl:text-8xl"
@@ -1111,7 +1111,7 @@
 					<!-- Second Place (#2) -->
 					{#each topPresentations.second as presentation, idx}
 						<div
-							class="flex w-28 flex-col items-center sm:w-36 md:w-52 lg:min-w-[220px] lg:max-w-[300px] lg:flex-1"
+							class="flex w-28 flex-col items-center sm:w-36 md:w-52 lg:max-w-[300px] lg:min-w-[220px] lg:flex-1"
 							class:animate-slide-up-bounce={winnersRevealStep >= 2}
 							style="
 								opacity: {winnersRevealStep >= 2 ? '1' : '0'};
@@ -1121,7 +1121,7 @@
 							"
 						>
 							<div
-								class="mb-3 w-full transform rounded-xl bg-gradient-to-br from-gray-300 to-gray-500 px-4 py-3 text-center shadow-2xl transition-all hover:scale-105 sm:mb-4 sm:rounded-2xl sm:px-6 sm:py-4 md:mb-6 md:rounded-3xl md:px-8 md:py-6"
+								class="mb-3 w-full transform rounded-xl bg-linear-to-br from-gray-300 to-gray-500 px-4 py-3 text-center shadow-2xl transition-all hover:scale-105 sm:mb-4 sm:rounded-2xl sm:px-6 sm:py-4 md:mb-6 md:rounded-3xl md:px-8 md:py-6"
 							>
 								<div class="mb-1 text-2xl sm:text-3xl md:text-4xl lg:text-6xl">
 									{presentation.group.emoji || "�"}
@@ -1148,7 +1148,7 @@
 								</div>
 							</div>
 							<div
-								class="md:border-6 flex h-20 w-full items-center justify-center rounded-t-lg border-2 border-gray-500 bg-gradient-to-t from-gray-400 to-gray-300 shadow-2xl sm:h-32 sm:rounded-t-xl sm:border-4 md:h-40 md:rounded-t-2xl lg:h-48 xl:h-56"
+								class="flex h-20 w-full items-center justify-center rounded-t-lg border-2 border-gray-500 bg-linear-to-t from-gray-400 to-gray-300 shadow-2xl sm:h-32 sm:rounded-t-xl sm:border-4 md:h-40 md:rounded-t-2xl md:border-6 lg:h-48 xl:h-56"
 							>
 								<span
 									class="text-3xl font-black text-gray-800 sm:text-5xl md:text-6xl lg:text-7xl xl:text-8xl"
@@ -1161,7 +1161,7 @@
 					<!-- First Place (#1) -->
 					{#each topPresentations.first as presentation, idx}
 						<div
-							class="relative flex w-32 flex-col items-center sm:w-40 md:w-56 lg:min-w-[240px] lg:max-w-[320px] lg:flex-1"
+							class="relative flex w-32 flex-col items-center sm:w-40 md:w-56 lg:max-w-[320px] lg:min-w-[240px] lg:flex-1"
 							class:animate-slide-up-bounce-large={winnersRevealStep >= 3}
 							style="
 								opacity: {winnersRevealStep >= 3 ? '1' : '0'};
@@ -1171,16 +1171,16 @@
 							"
 						>
 							<div
-								class="sm:border-6 relative mb-3 w-full transform rounded-xl border-4 border-yellow-600 bg-gradient-to-br from-yellow-300 via-yellow-400 to-yellow-500 px-6 py-4 text-center shadow-2xl transition-all hover:scale-105 sm:mb-4 sm:rounded-2xl sm:px-8 sm:py-6 md:mb-6 md:rounded-3xl md:px-10 md:py-8"
+								class="relative mb-3 w-full transform rounded-xl border-4 border-yellow-600 bg-linear-to-br from-yellow-300 via-yellow-400 to-yellow-500 px-6 py-4 text-center shadow-2xl transition-all hover:scale-105 sm:mb-4 sm:rounded-2xl sm:border-6 sm:px-8 sm:py-6 md:mb-6 md:rounded-3xl md:px-10 md:py-8"
 							>
 								{#if winnersRevealStep >= 4}
 									<div
-										class="animate-spin-slow absolute -left-6 -top-8 text-5xl sm:-left-8 sm:-top-10 sm:text-6xl md:-left-10 md:-top-12 md:text-7xl lg:text-8xl"
+										class="animate-spin-slow absolute -top-8 -left-6 text-5xl sm:-top-10 sm:-left-8 sm:text-6xl md:-top-12 md:-left-10 md:text-7xl lg:text-8xl"
 									>
 										👑
 									</div>
 									<div
-										class="animate-spin-slow absolute -right-6 -top-8 text-5xl sm:-right-8 sm:-top-10 sm:text-6xl md:-right-10 md:-top-12 md:text-7xl lg:text-8xl"
+										class="animate-spin-slow absolute -top-8 -right-6 text-5xl sm:-top-10 sm:-right-8 sm:text-6xl md:-top-12 md:-right-10 md:text-7xl lg:text-8xl"
 										style="animation-delay: 0.5s;"
 									>
 										👑
@@ -1237,7 +1237,7 @@
 								{/if}
 							</div>
 							<div
-								class="md:border-6 flex h-24 w-full items-center justify-center rounded-t-lg border-2 border-yellow-600 bg-gradient-to-t from-yellow-500 to-yellow-300 shadow-2xl sm:h-40 sm:rounded-t-xl sm:border-4 md:h-48 md:rounded-t-2xl lg:h-56 xl:h-64"
+								class="flex h-24 w-full items-center justify-center rounded-t-lg border-2 border-yellow-600 bg-linear-to-t from-yellow-500 to-yellow-300 shadow-2xl sm:h-40 sm:rounded-t-xl sm:border-4 md:h-48 md:rounded-t-2xl md:border-6 lg:h-56 xl:h-64"
 							>
 								<span
 									class="text-4xl font-black text-yellow-800 sm:text-6xl md:text-7xl lg:text-8xl xl:text-9xl"
@@ -1254,7 +1254,7 @@
 				<div class="pointer-events-none fixed inset-0 z-50">
 					{#each Array(100) as _, i}
 						<div
-							class="absolute h-3 w-3 animate-confetti"
+							class="animate-confetti absolute h-3 w-3"
 							style="
 								left: {Math.random() * 100}%;
 								top: -10%;
@@ -1398,7 +1398,7 @@
 			<div class="relative z-10 mt-8 flex justify-center">
 				<button
 					onclick={triggerConfettiForEveryone}
-					class="transform rounded-full border-4 border-white/50 bg-gradient-to-r from-pink-500 via-purple-500 to-indigo-500 px-10 py-5 text-xl font-black text-white shadow-2xl transition hover:scale-110 hover:from-pink-600 hover:via-purple-600 hover:to-indigo-600 active:scale-95"
+					class="transform rounded-full border-4 border-white/50 bg-linear-to-r from-pink-500 via-purple-500 to-indigo-500 px-10 py-5 text-xl font-black text-white shadow-2xl transition hover:scale-110 hover:from-pink-600 hover:via-purple-600 hover:to-indigo-600 active:scale-95"
 				>
 					🎉 Confetti Cannon! 🎉
 				</button>
@@ -1416,7 +1416,7 @@
 					{#if nextRevealStep()}
 						<button
 							onclick={revealNextWinner}
-							class="animate-pulse-slow rounded-xl border-4 border-yellow-300 bg-gradient-to-r from-yellow-400 via-yellow-500 to-yellow-600 px-12 py-5 text-2xl font-black text-gray-900 shadow-2xl transition hover:from-yellow-500 hover:via-yellow-600 hover:to-yellow-700"
+							class="animate-pulse-slow rounded-xl border-4 border-yellow-300 bg-linear-to-r from-yellow-400 via-yellow-500 to-yellow-600 px-12 py-5 text-2xl font-black text-gray-900 shadow-2xl transition hover:from-yellow-500 hover:via-yellow-600 hover:to-yellow-700"
 						>
 							{nextRevealStep()?.label || "Next"}
 						</button>
@@ -1467,7 +1467,7 @@
 								<h2 class="mb-4 text-2xl font-bold text-white">📱 Join Link</h2>
 
 								{#if qrCodeUrl}
-									<div class="mb-4 rounded-2xl bg-gradient-to-br from-purple-500 to-pink-500 p-1">
+									<div class="mb-4 rounded-2xl bg-linear-to-br from-purple-500 to-pink-500 p-1">
 										<div class="rounded-xl bg-white p-4">
 											<img
 												src={qrCodeUrl}
@@ -1479,7 +1479,7 @@
 								{/if}
 
 								<div class="mb-4 rounded-lg border border-white/10 bg-white/20 p-3">
-									<p class="break-all text-center font-mono text-sm text-white">
+									<p class="text-center font-mono text-sm break-all text-white">
 										{votingUrl()}
 									</p>
 								</div>
@@ -1514,7 +1514,7 @@
 												</div>
 												<button
 													onclick={() => removeParticipant(participant.userId)}
-													class="rounded bg-red-600/20 px-3 py-1 text-sm text-red-300 transition hover:bg-red-600 hover:text-white"
+													class="rounded-sm bg-red-600/20 px-3 py-1 text-sm text-red-300 transition hover:bg-red-600 hover:text-white"
 												>
 													Remove
 												</button>
@@ -1533,7 +1533,7 @@
 												</div>
 												<button
 													onclick={() => removeVotingSession(session.id)}
-													class="rounded bg-red-600/20 px-3 py-1 text-sm text-red-300 transition hover:bg-red-600 hover:text-white"
+													class="rounded-sm bg-red-600/20 px-3 py-1 text-sm text-red-300 transition hover:bg-red-600 hover:text-white"
 												>
 													Remove
 												</button>
@@ -1653,13 +1653,13 @@
 									<div class="mt-6 space-y-3">
 										<button
 											onclick={() => startPresentation(localOrderedGroups[0].id)}
-											class="w-full transform rounded-xl bg-gradient-to-r from-green-600 to-emerald-600 py-4 text-xl font-bold text-white shadow-lg transition-all hover:scale-105 hover:from-green-700 hover:to-emerald-700"
+											class="w-full transform rounded-xl bg-linear-to-r from-green-600 to-emerald-600 py-4 text-xl font-bold text-white shadow-lg transition-all hover:scale-105 hover:from-green-700 hover:to-emerald-700"
 										>
 											🎬 Start First Presentation
 										</button>
 										<button
 											onclick={showWinners}
-											class="w-full transform rounded-xl bg-gradient-to-r from-yellow-500 to-orange-500 py-4 text-xl font-bold text-white shadow-lg transition-all hover:scale-105 hover:from-yellow-600 hover:to-orange-600"
+											class="w-full transform rounded-xl bg-linear-to-r from-yellow-500 to-orange-500 py-4 text-xl font-bold text-white shadow-lg transition-all hover:scale-105 hover:from-yellow-600 hover:to-orange-600"
 										>
 											🏆 Show Winners Screen
 										</button>
@@ -1682,13 +1682,13 @@
 			class:opacity-0={isTransitioning}
 		>
 			<!-- Top Navigation Bar -->
-			<nav class="fixed left-0 right-0 top-0 z-50 border-b border-gray-800 bg-theater-dark">
+			<nav class="bg-theater-dark fixed top-0 right-0 left-0 z-50 border-b border-gray-800">
 				<div class="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8">
 					<div class="flex h-16 items-center justify-between gap-4">
 						<!-- Logo/Brand -->
 						<button
 							onclick={() => goto("/dashboard")}
-							class="flex flex-shrink-0 items-center gap-2 text-xl font-bold text-white transition hover:text-purple-400"
+							class="flex shrink-0 items-center gap-2 text-xl font-bold text-white transition hover:text-purple-400"
 						>
 							<span class="text-2xl">🎤</span>
 							<span class="hidden sm:inline">SlideNight</span>
@@ -1697,14 +1697,14 @@
 
 						<!-- Center: Progress Bar with Live indicator -->
 						<div class="flex max-w-2xl flex-1 items-center gap-3">
-							<div class="flex flex-shrink-0 items-center gap-2">
+							<div class="flex shrink-0 items-center gap-2">
 								<div class="h-2 w-2 animate-pulse rounded-full bg-red-500"></div>
 								<span class="hidden text-sm text-white/70 md:inline">Live</span>
 							</div>
 
 							{#if canVote && currentPresentation()}
 								<div
-									class="flex flex-shrink-0 items-center gap-2 rounded-lg px-2 py-1 {hasVotedForCurrent
+									class="flex shrink-0 items-center gap-2 rounded-lg px-2 py-1 {hasVotedForCurrent
 										? 'border border-green-500/50 bg-green-500/20'
 										: 'border border-yellow-500/50 bg-yellow-500/20'}"
 								>
@@ -1732,14 +1732,14 @@
 								</div>
 							{/if}
 
-							<div class="flex-shrink-0 text-sm text-white/70">
+							<div class="shrink-0 text-sm text-white/70">
 								{currentPresentationVotes || 0}/{totalPotentialVoters || 0}
 							</div>
 							<div
 								class="h-6 flex-1 overflow-hidden rounded-full border border-gray-600 bg-gray-700"
 							>
 								<div
-									class="flex h-full items-center justify-end bg-gradient-to-r from-yellow-400 via-yellow-500 to-yellow-600 pr-2 transition-all duration-500 ease-out"
+									class="flex h-full items-center justify-end bg-linear-to-r from-yellow-400 via-yellow-500 to-yellow-600 pr-2 transition-all duration-500 ease-out"
 									style="width: {totalPotentialVoters > 0
 										? (currentPresentationVotes / totalPotentialVoters) * 100
 										: 0}%"
@@ -1755,13 +1755,13 @@
 
 						<!-- Right Side - Account Dropdown -->
 						{#if currentUser}
-							<div class="account-dropdown relative flex-shrink-0">
+							<div class="account-dropdown relative shrink-0">
 								<button
 									onclick={() => (accountDropdownOpen = !accountDropdownOpen)}
 									class="flex items-center gap-3 rounded-lg px-3 py-2 transition hover:bg-gray-800"
 								>
 									<div
-										class="flex h-8 w-8 items-center justify-center rounded-full bg-theater-purple font-semibold text-white"
+										class="bg-theater-purple flex h-8 w-8 items-center justify-center rounded-full font-semibold text-white"
 									>
 										{currentUser.name?.charAt(0).toUpperCase()}
 									</div>
@@ -1785,7 +1785,7 @@
 
 								{#if accountDropdownOpen}
 									<div
-										class="absolute right-0 mt-2 w-56 rounded-lg border border-gray-800 bg-theater-dark py-2 shadow-xl"
+										class="bg-theater-dark absolute right-0 mt-2 w-56 rounded-lg border border-gray-800 py-2 shadow-xl"
 									>
 										<!-- User Info -->
 										<div class="border-b border-gray-800 px-4 py-3">
@@ -1856,7 +1856,7 @@
 								{/if}
 							</div>
 						{:else if votingSession}
-							<div class="flex flex-shrink-0 items-center gap-2 px-3 py-2">
+							<div class="flex shrink-0 items-center gap-2 px-3 py-2">
 								<div
 									class="flex h-8 w-8 items-center justify-center rounded-full bg-green-600 font-semibold text-white"
 								>
@@ -1865,7 +1865,7 @@
 								<span class="hidden text-white sm:inline">{votingSession.displayName}</span>
 							</div>
 						{:else}
-							<div class="flex-shrink-0 px-3 py-2">
+							<div class="shrink-0 px-3 py-2">
 								<div
 									class="flex h-8 w-8 items-center justify-center rounded-full bg-gray-700 text-xl"
 								>
@@ -2068,7 +2068,7 @@
 							<button
 								onclick={nextPresentation}
 								class="px-4 py-3 {currentPresentationIndex() === localOrderedGroups.length - 1
-									? 'bg-gradient-to-r from-yellow-500 to-orange-500 hover:from-yellow-600 hover:to-orange-600'
+									? 'bg-linear-to-r from-yellow-500 to-orange-500 hover:from-yellow-600 hover:to-orange-600'
 									: 'bg-blue-600 hover:bg-blue-700'} rounded-lg font-semibold text-white transition"
 							>
 								{#if currentPresentationIndex() === localOrderedGroups.length - 1}
@@ -2125,7 +2125,7 @@
 									<span class="font-bold text-white/30">#{index + 1}</span>
 
 									{#if isCurrent}
-										<span class="rounded bg-green-500 px-2 py-1 text-xs font-bold text-white">
+										<span class="rounded-sm bg-green-500 px-2 py-1 text-xs font-bold text-white">
 											CURRENT
 										</span>
 									{/if}
@@ -2142,7 +2142,7 @@
 <!-- Timer Modal -->
 {#if showTimerModal}
 	<div
-		class="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4 backdrop-blur-sm"
+		class="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4 backdrop-blur-xs"
 		role="dialog"
 		aria-modal="true"
 		tabindex="-1"
@@ -2172,7 +2172,7 @@
 					bind:value={timerMinutes}
 					min="1"
 					max="60"
-					class="w-full rounded-lg border border-gray-700 bg-theater-darker px-4 py-3 text-center text-2xl font-bold text-white focus:border-transparent focus:ring-2 focus:ring-purple-500"
+					class="bg-theater-darker w-full rounded-lg border border-gray-700 px-4 py-3 text-center text-2xl font-bold text-white focus:border-transparent focus:ring-2 focus:ring-purple-500"
 				/>
 			</label>
 
@@ -2203,7 +2203,7 @@
 
 <!-- Join Modal -->
 {#if showJoinModal && !votingSession}
-	<div class="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4 backdrop-blur-sm">
+	<div class="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4 backdrop-blur-xs">
 		<div
 			class="glass-bright-strong w-full max-w-md rounded-2xl border-2 border-purple-400/40 p-8 shadow-2xl"
 		>
@@ -2232,7 +2232,7 @@
 						bind:value={displayName}
 						placeholder="Enter your name..."
 						required
-						class="w-full rounded-lg border border-gray-700 bg-theater-darker px-4 py-3 focus:border-transparent focus:ring-2 focus:ring-purple-500"
+						class="bg-theater-darker w-full rounded-lg border border-gray-700 px-4 py-3 focus:border-transparent focus:ring-2 focus:ring-purple-500"
 					/>
 				</label>
 

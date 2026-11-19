@@ -32,32 +32,32 @@
 		subtitle={`Manage all users in the system. Total: ${data.users.length}`}
 	/>
 
-	<div class="overflow-hidden rounded-lg bg-white shadow">
+	<div class="overflow-hidden rounded-lg bg-white shadow-sm">
 		<table class="min-w-full divide-y divide-gray-200">
 			<thead class="bg-gray-50">
 				<tr>
 					<th
-						class="px-6 py-3 text-left text-xs font-medium uppercase tracking-wider text-gray-500"
+						class="px-6 py-3 text-left text-xs font-medium tracking-wider text-gray-500 uppercase"
 					>
 						User
 					</th>
 					<th
-						class="px-6 py-3 text-left text-xs font-medium uppercase tracking-wider text-gray-500"
+						class="px-6 py-3 text-left text-xs font-medium tracking-wider text-gray-500 uppercase"
 					>
 						Role
 					</th>
 					<th
-						class="px-6 py-3 text-left text-xs font-medium uppercase tracking-wider text-gray-500"
+						class="px-6 py-3 text-left text-xs font-medium tracking-wider text-gray-500 uppercase"
 					>
 						Activity
 					</th>
 					<th
-						class="px-6 py-3 text-left text-xs font-medium uppercase tracking-wider text-gray-500"
+						class="px-6 py-3 text-left text-xs font-medium tracking-wider text-gray-500 uppercase"
 					>
 						Joined
 					</th>
 					<th
-						class="px-6 py-3 text-right text-xs font-medium uppercase tracking-wider text-gray-500"
+						class="px-6 py-3 text-right text-xs font-medium tracking-wider text-gray-500 uppercase"
 					>
 						Actions
 					</th>
@@ -66,36 +66,36 @@
 			<tbody class="divide-y divide-gray-200 bg-white">
 				{#each data.users as user}
 					<tr>
-						<td class="whitespace-nowrap px-6 py-4">
+						<td class="px-6 py-4 whitespace-nowrap">
 							<div>
 								<div class="text-sm font-medium text-gray-900">{user.name}</div>
 								<div class="text-sm text-gray-500">{user.email}</div>
 							</div>
 						</td>
-						<td class="whitespace-nowrap px-6 py-4">
+						<td class="px-6 py-4 whitespace-nowrap">
 							{#if isAdmin(user.email)}
 								<span
-									class="inline-flex rounded-full bg-red-100 px-2 text-xs font-semibold leading-5 text-red-800"
+									class="inline-flex rounded-full bg-red-100 px-2 text-xs leading-5 font-semibold text-red-800"
 								>
 									Admin
 								</span>
 							{:else}
 								<span
-									class="inline-flex rounded-full bg-gray-100 px-2 text-xs font-semibold leading-5 text-gray-800"
+									class="inline-flex rounded-full bg-gray-100 px-2 text-xs leading-5 font-semibold text-gray-800"
 								>
 									User
 								</span>
 							{/if}
 						</td>
-						<td class="whitespace-nowrap px-6 py-4 text-sm text-gray-500">
+						<td class="px-6 py-4 text-sm whitespace-nowrap text-gray-500">
 							{user._count.hostedEvents} events •
 							{user._count.groupMembers} groups •
 							{user._count.votes} votes
 						</td>
-						<td class="whitespace-nowrap px-6 py-4 text-sm text-gray-500">
+						<td class="px-6 py-4 text-sm whitespace-nowrap text-gray-500">
 							{formatDate(user.createdAt)}
 						</td>
-						<td class="whitespace-nowrap px-6 py-4 text-right text-sm font-medium">
+						<td class="px-6 py-4 text-right text-sm font-medium whitespace-nowrap">
 							{#if deletingUserId === user.id}
 								<form method="POST" action="?/deleteUser" use:enhance class="inline">
 									<input type="hidden" name="userId" value={user.id} />

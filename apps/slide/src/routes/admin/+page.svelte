@@ -48,10 +48,10 @@
 
 	<!-- Stats Grid -->
 	<div class="mb-8 grid grid-cols-1 gap-6 sm:grid-cols-2 lg:grid-cols-4">
-		<div class="overflow-hidden rounded-lg bg-white shadow">
+		<div class="overflow-hidden rounded-lg bg-white shadow-sm">
 			<div class="p-5">
 				<div class="flex items-center">
-					<div class="flex-shrink-0">
+					<div class="shrink-0">
 						<span class="text-4xl">👥</span>
 					</div>
 					<div class="ml-5 w-0 flex-1">
@@ -64,10 +64,10 @@
 			</div>
 		</div>
 
-		<div class="overflow-hidden rounded-lg bg-white shadow">
+		<div class="overflow-hidden rounded-lg bg-white shadow-sm">
 			<div class="p-5">
 				<div class="flex items-center">
-					<div class="flex-shrink-0">
+					<div class="shrink-0">
 						<span class="text-4xl">🎯</span>
 					</div>
 					<div class="ml-5 w-0 flex-1">
@@ -80,10 +80,10 @@
 			</div>
 		</div>
 
-		<div class="overflow-hidden rounded-lg bg-white shadow">
+		<div class="overflow-hidden rounded-lg bg-white shadow-sm">
 			<div class="p-5">
 				<div class="flex items-center">
-					<div class="flex-shrink-0">
+					<div class="shrink-0">
 						<span class="text-4xl">📊</span>
 					</div>
 					<div class="ml-5 w-0 flex-1">
@@ -96,10 +96,10 @@
 			</div>
 		</div>
 
-		<div class="overflow-hidden rounded-lg bg-white shadow">
+		<div class="overflow-hidden rounded-lg bg-white shadow-sm">
 			<div class="p-5">
 				<div class="flex items-center">
-					<div class="flex-shrink-0">
+					<div class="shrink-0">
 						<span class="text-4xl">⭐</span>
 					</div>
 					<div class="ml-5 w-0 flex-1">
@@ -116,7 +116,7 @@
 	<!-- System Info Grid -->
 	<div class="mb-8 grid grid-cols-1 gap-6 lg:grid-cols-2">
 		<!-- System Stats -->
-		<div class="rounded-lg bg-white p-6 shadow">
+		<div class="rounded-lg bg-white p-6 shadow-sm">
 			<h2 class="mb-4 text-lg font-semibold text-gray-900">System Information</h2>
 			<dl class="space-y-3">
 				<div class="flex justify-between">
@@ -151,7 +151,7 @@
 		</div>
 
 		<!-- Storage Stats -->
-		<div class="rounded-lg bg-white p-6 shadow">
+		<div class="rounded-lg bg-white p-6 shadow-sm">
 			<h2 class="mb-4 text-lg font-semibold text-gray-900">Storage</h2>
 			<dl class="space-y-3">
 				<div class="flex justify-between">
@@ -170,7 +170,7 @@
 	<!-- Recent Activity Grid -->
 	<div class="grid grid-cols-1 gap-6 lg:grid-cols-2">
 		<!-- Recent Users -->
-		<div class="rounded-lg bg-white shadow">
+		<div class="rounded-lg bg-white shadow-sm">
 			<div class="border-b border-gray-200 px-6 py-5">
 				<h2 class="text-lg font-semibold text-gray-900">Recent Users</h2>
 			</div>
@@ -184,7 +184,7 @@
 								</p>
 								<p class="truncate text-sm text-gray-500">{user.email}</p>
 							</div>
-							<div class="ml-4 flex-shrink-0">
+							<div class="ml-4 shrink-0">
 								<p class="text-xs text-gray-500">{formatDate(user.createdAt)}</p>
 							</div>
 						</div>
@@ -199,7 +199,7 @@
 		</div>
 
 		<!-- Active Events -->
-		<div class="rounded-lg bg-white shadow">
+		<div class="rounded-lg bg-white shadow-sm">
 			<div class="border-b border-gray-200 px-6 py-5">
 				<h2 class="text-lg font-semibold text-gray-900">Active Events</h2>
 			</div>
@@ -213,9 +213,9 @@
 									{event._count.groups} groups • {event._count.votes} votes
 								</p>
 							</div>
-							<div class="ml-4 flex-shrink-0">
+							<div class="ml-4 shrink-0">
 								<span
-									class="rounded px-2 py-1 text-xs font-semibold {event.status === 'live'
+									class="rounded-sm px-2 py-1 text-xs font-semibold {event.status === 'live'
 										? 'bg-green-100 text-green-800'
 										: event.status === 'voting'
 											? 'bg-blue-100 text-blue-800'
