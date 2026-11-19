@@ -264,6 +264,22 @@ class CallTest(unittest.IsolatedAsyncioTestCase):
         self.assertIn("ended by the far side", text)
         self.assertNotIn("ended by Janet", text)
 
+    async def test_a_phone_that_goes_quiet_and_then_sends_again_keeps_its_call(self):
+        url = await self._server_with()
+        FakeStt.texts = []
+        with mock.patch.object(janet_phone, "STALL_S", 0.3), self.assertLogs("janet-phone", "INFO") as logs:
+            async with connect(url, additional_headers=self.phone) as ws:
+                await self._until(ws, "state")
+                await asyncio.sleep(1.0)  # silent for several stall periods
+                await ws.send(tone(0.2))
+                await asyncio.sleep(0.5)
+                await ws.send(bytes(3200))  # the call still hears the phone
+                await asyncio.sleep(0.3)
+            await asyncio.sleep(0.4)
+        text = "\n".join(logs.output)
+        self.assertIn("audio from the phone again", text)
+        self.assertIn("ended by the far side", text)
+
     async def test_speaking_over_a_reply_cuts_it_off(self):
         FakeStt.texts = ["tell me a story", "stop"]
         async with connect(self.url, additional_headers=self.phone) as ws:

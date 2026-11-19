@@ -28,6 +28,8 @@ def parse_code(code: str) -> dict[str, int]:
         if not match or match.group(1) not in DEFAULTS:
             raise ValueError(f"not an earcon code: {part!r}")
         values[match.group(1)] = int(match.group(2))
+    if not 0 <= values["HL"] <= 100:
+        raise ValueError("HL, the level, is 0 to 100")
     if not 100 <= values["HP"] <= 4000:
         raise ValueError("HP, the first pitch in Hz, is 100 to 4000")
     if not 0 <= values["HI"] <= 24:

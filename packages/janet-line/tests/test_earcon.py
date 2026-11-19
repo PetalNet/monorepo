@@ -40,7 +40,7 @@ class EarconTest(unittest.TestCase):
         self.assertAlmostEqual(peak_freq(render("HP440 HN200", RATE)[: int(RATE * 0.2)]), 440, delta=10)
 
     def test_a_bad_code_is_refused(self):
-        for code in ("ZZ1", "HP50", "HI40", "HN5", "HL"):
+        for code in ("ZZ1", "HP50", "HI40", "HN5", "HL", "HL400"):
             with self.assertRaises(ValueError, msg=code):
                 parse_code(code)
 

@@ -23,7 +23,7 @@ from http import HTTPStatus
 from pathlib import Path
 
 from websockets.asyncio.server import ServerConnection, serve  # noqa: F401
-from websockets.exceptions import ConnectionClosed
+from websockets.exceptions import ConnectionClosed, ConnectionClosedOK
 from websockets.http11 import Request, Response
 
 import pairing
@@ -441,16 +441,16 @@ class Call:
         """Janet ends the call: the earcon first, so the caller knows it was her, then the bye."""
         self.ended_by = why
         tone = await asyncio.to_thread(make_earcon, self.config, self.rate or 24000)
-        if tone:
-            rate = self.rate or 24000
-            await self.ws.send(tone)
-            if self.config.record_dir:
-                self.tape_janet(tone, rate)
-            await asyncio.sleep(len(tone) / (rate * 2) + 0.15)  # let the phone play it before the line closes
         try:
+            if tone:
+                rate = self.rate or 24000
+                await self.ws.send(tone)
+                if self.config.record_dir:
+                    self.tape_janet(tone, rate)
+                await asyncio.sleep(len(tone) / (rate * 2) + 0.15)  # let the phone play it before the line closes
             await self.ws.send(json.dumps({"type": "bye"}))
         except ConnectionClosed:
-            pass
+            self.ended_by = None  # the phone had already gone: that is the far side's end
 
     def how_it_ended(self) -> str:
         """One log line that tells Janet ending a call from the far side dropping it."""
@@ -493,16 +493,17 @@ class Call:
         endpointer, heard = await asyncio.to_thread(new_endpointer, self.config), 0
         try:
             async with asyncio.timeout(self.config.max_call_s):
-                stalled, frames = False, self.ws.__aiter__()
+                stalled = False
                 while True:
                     try:
-                        message = await asyncio.wait_for(frames.__anext__(), STALL_S)
+                        # recv() is safe to cancel on a timeout; the async iterator over the socket is not (it ends for good).
+                        message = await asyncio.wait_for(self.ws.recv(), STALL_S)
                     except TimeoutError:
                         if not stalled:
                             stalled = True
                             log.warning("call %s: no audio from the phone for %.0f s: the far side has stopped sending", self.conversation, STALL_S)
                         continue
-                    except StopAsyncIteration:
+                    except ConnectionClosedOK:
                         break
                     if stalled:
                         stalled = False
