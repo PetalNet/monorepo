@@ -183,7 +183,7 @@ no builds (D29). Validator committed as `docs/contracts/validate.py` (reproducib
 - `docs/contracts/CONTRACTS.md` — the human-readable spec (8 contracts, producers/consumers,
   versioning rules, interrupt model, ownership model, flows).
 - `docs/contracts/schemas/{session-state, fleet-event, task-card, queue-lease,
-backchannel-rpc, manager-config}.schema.json` — six JSON Schema 2020-12 files
+  backchannel-rpc, manager-config}.schema.json` — six JSON Schema 2020-12 files
   (session-state also carries heartbeat + channelLock; queue-lease also carries leasePublic).
 - `docs/contracts/DECISIONS.md` — this log: 31 decisions D1–D31, each with a rationale.
 - `docs/contracts/validate.py` — the light validator; 38/38 checks green.

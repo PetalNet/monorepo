@@ -43,18 +43,16 @@ export function proxmox(qemu: unknown, lxc: unknown): Table | null {
 		...containers.value.data.map((guest) => ({ guest, type: "LXC" })),
 	]
 		.toSorted((a, b) => a.guest.vmid - b.guest.vmid)
-		.map(
-			({ guest, type }): Vars => ({
-				vmid: String(guest.vmid),
-				name: guest.name ?? "",
-				type,
-				status: guest.status ?? "",
-				tags: (guest.tags ?? "")
-					.split(/[;,\s]+/)
-					.filter(Boolean)
-					.join(", "),
-			}),
-		);
+		.map(({ guest, type }): Vars => ({
+			vmid: String(guest.vmid),
+			name: guest.name ?? "",
+			type,
+			status: guest.status ?? "",
+			tags: (guest.tags ?? "")
+				.split(/[;,\s]+/)
+				.filter(Boolean)
+				.join(", "),
+		}));
 
 	return {
 		columns: [

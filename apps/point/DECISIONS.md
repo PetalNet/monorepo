@@ -157,7 +157,7 @@ has not shipped anywhere). Security-critical items were designed + verified by F
 - **Collation (verified bug):** `user_shares.CHECK(a<b)` used the DB default collation (en_US.utf8,
   punctuation-ignorable) while Rust orders bytewise → hyphenated username pairs (e.g. `ab-c`,`abb`)
   hit a 23514 → 500 and the share was permanently un-creatable. Fixed: `CHECK (user_a < user_b
-COLLATE "C")` (byte-exact, matches Rust `<` on &str). Verified empirically + an end-to-end test.
+  COLLATE "C")` (byte-exact, matches Rust `<` on &str). Verified empirically + an end-to-end test.
 - **OIDC account takeover:** the callback mapped a mutable `preferred_username` to a local id and
   logged into any matching row (incl. admin). Now OIDC accounts are keyed to the IdP's immutable
   `(oidc_issuer, oidc_subject)` (new columns + unique index); login matches on that pair, never the
@@ -430,7 +430,7 @@ Implementation calls:
 
 - **who_can_add_me is server-side** (`users` column, migration 0004) because inbound share
   requests must be blocked at creation, not hidden by the client. Values `anyone | same_server |
-nobody`; enforcement is **silent-drop** on both the local endpoint and the federated inbox,
+  nobody`; enforcement is **silent-drop** on both the local endpoint and the federated inbox,
   matching the existing anti-enumeration design (a blocked requester sees the same generic ok as
   a nonexistent target, so the setting cannot be probed). `same_server` only bites at the
   federation inbox — local asks are same-server by construction.
@@ -669,7 +669,7 @@ verified by a 2000-sample haversine property test. Acceptance criteria trump pse
 ## 2026-07-17 — D-032 · 1.3 P0: FFI surface for stable_fuzz + bringing point_mls up to the lint gate
 
 - **One bridge call returns center + cell id.** `api::fuzz::stable_fuzz` returns a `FuzzedPoint
-{lat, lon, cell_x, cell_y}` rather than mirroring the two core functions: the P2 caller needs
+  {lat, lon, cell_x, cell_y}` rather than mirroring the two core functions: the P2 caller needs
   the cell id on every fix anyway (re-emit-on-cell-change contract), and one sync FFI hop beats
   two. `fuzz_radius_presets_m()` exposes the build-time presets so Dart never hardcodes them.
 - **`point_mls` was never fmt/clippy-clean** (CI only `cargo build`s it). The P0 gate demands
@@ -717,7 +717,7 @@ verified by a 2000-sample haversine property test. Acceptance criteria trump pse
   feature — every extra audience a colluder controls buys another independent constraint on the
   truth.
 - **The fix.** Derive one grid per **(sharer, radius)**: `HMAC(secret, u64-BE(len(sharer)) ||
-sharer || f64-BE-bits(cell))` — `audience_id` is dropped from the derivation entirely. All
+  sharer || f64-BE-bits(cell))` — `audience_id` is dropped from the derivation entirely. All
   audiences at a given radius now snap the same true point to the **same** cell and emit a
   byte-identical center, so a colluding set of any size learns only that one cell: maximum
   uncertainty (a full cell), no narrowing at any N. This is the privacy-maximizing choice — sharing

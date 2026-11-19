@@ -276,7 +276,7 @@ CodeQL; the only failure ever was `vp fmt` on two new markdown files).
   this account rejects gpt-5.6, as the directive predicted). First
   attempt could not read anything: codex's bubblewrap sandbox cannot
   create user namespaces on this host (`bwrap: loopback: Failed
-RTM_NEWADDR`) and it correctly refused to invent findings. Re-ran with
+  RTM_NEWADDR`) and it correctly refused to invent findings. Re-ran with
   the full diff + post-change tmux.rs + unchanged supervisor.rs/health.rs
   piped via stdin, shell forbidden. 7 findings.
 - **Adversarial subagent** over the branch (read-only; own `n12adv-*`

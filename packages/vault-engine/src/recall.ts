@@ -251,13 +251,11 @@ export const recallClaims = (query: string, options: RecallOptions = {}): Recall
 		options,
 	).pipe(
 		Effect.map((rows) =>
-			rows.map(
-				({ source_type, rank, ...card }): ClaimCard => ({
-					...card,
-					sourceType: source_type,
-					score: -rank,
-				}),
-			),
+			rows.map(({ source_type, rank, ...card }): ClaimCard => ({
+				...card,
+				sourceType: source_type,
+				score: -rank,
+			})),
 		),
 	);
 

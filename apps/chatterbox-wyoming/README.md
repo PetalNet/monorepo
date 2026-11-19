@@ -39,14 +39,14 @@ Every host-specific value comes from a TOML file outside the repository, so the 
 code runs unchanged on another GPU host:
 
 ```toml
-name = "gpu-host-1"                    # instance name, reported by describe and /status
+name = "gpu-host-1" # instance name, reported by describe and /status
 runtime = "/path/to/voice-runtime/outputs/runtime"
-gpu_index = 0                          # nvidia-smi index; the server pins CUDA to it
+gpu_index = 0 # nvidia-smi index; the server pins CUDA to it
 wyoming = ["tcp://127.0.0.1:10230"]
 http = ["127.0.0.1:8735"]
 idle_unload_seconds = 600
 voice_name = "default"
-gain = 1.0                             # output volume multiplier; peaks are soft-limited, not clipped
+gain = 1.0 # output volume multiplier; peaks are soft-limited, not clipped
 log = "/path/to/chatterbox-wyoming.log" # used when there is no console (pythonw)
 ```
 
