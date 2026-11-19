@@ -10,10 +10,10 @@ Configure the worker on the agent host:
 - `VAULT_SECRET_PROVIDER_ARGV` and optional `VAULT_SECRET_POLICY`: the scanner's private provider configuration.
 - `PHOTO_MEMORY_DIR`: queue and notes directory, default `~/.local/share/photo-memory`.
 - `PHOTO_MEDIA_ROOTS`: JSON array of source directories. Defaults to the hub media cache and legacy Matrix incoming-media directory.
-- `PHOTO_HISTORY` and `PHOTO_LEGACY_SPOOL`: optional overrides for the metadata sources.
+- `PHOTO_HISTORY`, `PHOTO_LEGACY_SPOOL` and `PHOTO_LEGACY_INDEX`: optional overrides for the metadata sources.
 
 Include the staged `notes/` directory in guarded `vault collect`, with a stable origin such as `photo-memory`, kind `memory`, and tier `agent`. Schedule a repeating sweep after the scanner is configured. Each run processes at most three pending images. Failures use bounded backoff; a scanner refusal stays refused. No automatic cloud fallback or model download occurs.
 
-Notes preserve the file pointer, source event and room when retained, date provenance, description and tags. Old files without a retained source event are explicitly marked unavailable and use the file modification date, not an invented message date. Media caches can expire; the event pointer is the durable way to recover an original. Descriptions are labelled as model-derived observations.
+Notes preserve the file pointer, source event and room when retained, date provenance, description and tags. The existing Matrix search index also resolves legacy filenames to known event IDs; ambiguous filename matches are not used. Old files without a retained source event are explicitly marked unavailable and use the file modification date, not an invented message date. Media caches can expire; the event pointer is the durable way to recover an original. Descriptions are labelled as model-derived observations.
 
 The worker uses Node and SQLite to match the existing host-side harness tools. Tests run a real local HTTP neighbor and scanner subprocess; the real-model proof belongs in the PR. This is a local ingestion command, not a new web service.

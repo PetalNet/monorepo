@@ -111,6 +111,7 @@ async function fixture(options: { remote?: boolean; scan?: string; secret?: bool
 		notes: path.join(root, "notes"),
 		history,
 		legacySpool: path.join(root, "absent.jsonl"),
+		legacyIndex: path.join(root, "absent-index.sqlite"),
 		roots: [media],
 		visionUrl: `http://127.0.0.1:${address.port}`,
 		model: "local-vision",
@@ -234,5 +235,26 @@ suite("photo memories", () => {
 
 		expect(photos).toHaveLength(2);
 		expect(photos[1]).toMatchObject({ event: "", dateSource: "file-modified" });
+	});
+
+	test("recovers legacy event metadata from the existing index without reading message bodies", async () => {
+		const f = await fixture();
+		const legacy = path.join(f.root, "legacy");
+
+		mkdirSync(legacy);
+		writeFileSync(path.join(legacy, "_older-event.jpg"), "synthetic");
+		const index = new DatabaseSync(f.config.legacyIndex);
+
+		index.exec("CREATE TABLE msg(event_id TEXT,room_id TEXT,ts INTEGER)");
+		index.prepare("INSERT INTO msg VALUES(?,?,?)").run("$older-event", "!old-room", 123_456);
+		index.close();
+		const photos = discover({ ...f.config, roots: [...f.config.roots, legacy] });
+
+		expect(photos[1]).toMatchObject({
+			event: "$older-event",
+			room: "!old-room",
+			captured: "1970-01-01T00:02:03.456Z",
+			dateSource: "indexed-event",
+		});
 	});
 });

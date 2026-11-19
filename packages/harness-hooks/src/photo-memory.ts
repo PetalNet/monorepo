@@ -21,7 +21,7 @@ export interface Photo {
 	event: string;
 	room: string;
 	captured: string;
-	dateSource: "message" | "file-modified";
+	dateSource: "message" | "indexed-event" | "file-modified";
 }
 
 export interface PhotoConfig {
@@ -29,6 +29,7 @@ export interface PhotoConfig {
 	notes: string;
 	history: string;
 	legacySpool: string;
+	legacyIndex: string;
 	roots: string[];
 	visionUrl: string;
 	model: string;
@@ -45,8 +46,7 @@ const EXTENSIONS = new Set([".png", ".jpg", ".jpeg", ".webp", ".gif"]);
 const MAX_IMAGE = 20 * 1024 * 1024;
 const MAX_RESPONSE = 64 * 1024;
 const HOUR = 3_600_000;
-const idFor = (photo: Photo) =>
-	createHash("sha256").update(`${photo.event}\n${photo.file}`).digest("hex").slice(0, 24);
+const idFor = (photo: Photo) => createHash("sha256").update(photo.file).digest("hex").slice(0, 24);
 const isObject = (value: unknown): value is Record<string, unknown> =>
 	typeof value === "object" && value !== null && !Array.isArray(value);
 
@@ -265,6 +265,38 @@ export function discover(config: PhotoConfig): Photo[] {
 		}
 	}
 
+	if (existsSync(config.legacyIndex)) {
+		const db = new DatabaseSync(config.legacyIndex, { readOnly: true });
+
+		try {
+			const indexed = new Map<string, { event: string; room: string; captured: string } | null>();
+
+			for (const row of db.prepare("SELECT event_id, room_id, ts FROM msg").iterate()) {
+				const event = String(row["event_id"]);
+				const name = event.replaceAll(/[^A-Za-z0-9._-]/gu, "_");
+				const time = Number(row["ts"]);
+
+				if (!Number.isFinite(time) || time <= 0 || time > 8.64e15) continue;
+
+				indexed.set(
+					name,
+					indexed.has(name)
+						? null
+						: { event, room: String(row["room_id"]), captured: new Date(time).toISOString() },
+				);
+			}
+
+			for (const file of files.values()) {
+				const match = indexed.get(path.basename(file, path.extname(file)));
+
+				if (!found.has(file) && match)
+					found.set(file, { file, ...match, dateSource: "indexed-event" });
+			}
+		} finally {
+			db.close();
+		}
+	}
+
 	for (const file of files.values()) {
 		if (!found.has(file))
 			found.set(file, {
@@ -441,6 +473,8 @@ export function photoConfig(): PhotoConfig {
 		legacySpool:
 			process.env["PHOTO_LEGACY_SPOOL"] ||
 			path.join(home, ".claude/plugins/matrix-channel/inbound-spool.jsonl"),
+		legacyIndex:
+			process.env["PHOTO_LEGACY_INDEX"] || path.join(home, ".claude/state/matrix-search.db"),
 		roots,
 		scanner,
 		visionUrl: process.env["PHOTO_VISION_URL"] || "",
