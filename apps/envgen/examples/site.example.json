@@ -12,7 +12,14 @@
 	"target_date": "2030-06",
 	"seed": 1,
 	"vertical_datum": "state the datum and geoid model of the elevation source here",
+	"context": { "size_m": 4032 },
 	"sources": {
+		"lidar": {
+			"kind": "file",
+			"path": "points.laz",
+			"license": "licence of the lidar",
+			"date": "survey date"
+		},
 		"elevation": {
 			"kind": "arcgis_imageserver",
 			"endpoint": "https://elevation.nationalmap.gov/arcgis/rest/services/3DEPElevation/ImageServer",

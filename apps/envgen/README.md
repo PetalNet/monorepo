@@ -25,17 +25,30 @@ pip install -e ".[test]"
 envgen build site.json --out build/ --cache cache/
 ```
 
-| Stage        | Reads                | Writes                                                         |
-| ------------ | -------------------- | -------------------------------------------------------------- |
-| Acquire      | `site.json` sources  | each source clipped to the tile, once, into the cache          |
-| Elevation    | the elevation raster | `heightmap.png`, 16-bit, Landscape layout                      |
-| Macro colour | the imagery raster   | `macro_colour.png`, low-passed at 12 m                         |
-| Manifest     | everything above     | `build.json`: placement, georeference, stencil classes, hashes |
+| Stage        | Reads                                        | Writes                                                         |
+| ------------ | -------------------------------------------- | -------------------------------------------------------------- |
+| Acquire      | `site.json` sources                          | each source clipped to the tile, once, into the cache          |
+| Structure    | lidar points, if the site has them           | height above ground, and distance to the nearest ground return |
+| Elevation    | the elevation raster                         | `heightmap.png`, 16-bit, Landscape layout                      |
+| Macro colour | the imagery raster                           | `macro_colour.png`, low-passed at 12 m                         |
+| Surround     | both rasters at coarse spacing, if asked for | `context_heightmap.png`, `context_colour.png`                  |
+| Manifest     | everything above                             | `build.json`: placement, georeference, stencil classes, hashes |
 
 - A source is either a local raster (`"kind": "file"`) or an ArcGIS ImageServer
   (`"kind": "arcgis_imageserver"`), which covers USGS 3DEP elevation and many state imagery services.
   Only the tile window plus a 16 m margin is requested, and it is fetched once: the cache key is the service, the window
   and the spacing.
+- `sources.lidar` is optional: a `.las`/`.laz` file, or a public EPT point store
+  (`"kind": "ept"`). With it, two things change.
+  - Anything standing more than 2 m above the ground, plus 4 m around it for its shadow, is left
+    out of the colour map's low-pass, so tree canopy and roofs do not tint the ground. Covered
+    ground takes its colour from the open ground around it.
+  - Where no ground return lies within 3 m, the elevation model was interpolated across the gap,
+    typically as flat facets under roofs. The surface there is blended towards a 4 m smoothing.
+    Measured ground is left exactly as it was.
+- `"context": {"size_m": 4032}` is optional: a coarse surround of that side, centred on the tile, as
+  a second heightmap and colour map. It passes 3 m under the detailed surface, so the tile does not
+  end in a cliff against the sky. Its colour is not masked for tree cover.
 - A stage reruns only when its inputs change. `build.json` lists which stages were reused.
 - The site's CRS must be projected, in metres, and have an EPSG code (a UTM zone, for example).
 - The tile is a square centred on the boundary, snapped to whole metres. Its side must be a whole
@@ -128,5 +141,6 @@ Before moving to a new engine version, these show whether it can host the work:
 
 ## Not in this slice
 
-Surface classes and the layered material, grass, trees and buildings, time of day and weather, the
+Surface classes and the layered material, removing the lighting from the imagery, grass, trees and
+buildings, time of day and weather, the
 manual edit layer that regeneration leaves alone, and the simulator exports.
