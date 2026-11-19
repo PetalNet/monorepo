@@ -217,24 +217,6 @@ h2 {
   --icon: url("/static/store.svg");
 }
 
-.icon-lock {
-  --icon: url("/static/lock.svg");
-}
-
-.note {
-  display: flex;
-  align-items: center;
-  gap: 0.5rem;
-  color: var(--ink-soft);
-  font-size: 0.875rem;
-  line-height: 1.25rem;
-}
-
-.note .icon {
-  inline-size: 1rem;
-  block-size: 1rem;
-}
-
 @media (max-width: 30rem) {
   .page {
     padding: 2rem 1rem 3rem;

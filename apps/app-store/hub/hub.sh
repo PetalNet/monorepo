@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Build app.petalcat.dev from the two F-Droid indexes: the page, /api/apps and the
+# Build app.petalcat.dev from the public F-Droid index: the page, /api/apps and the
 # direct-download paths. The indexes are the single source of truth for what each
 # app is and which APK is current; nothing here copies an APK.
 # Re-running with nothing changed rewrites the same files.
@@ -10,18 +10,14 @@ here=$(cd "$(dirname "$0")" && pwd)
 store=${APP_STORE_DIR:?Set the store directory}
 public=${PUBLIC_REPO_DIR:-/home/docker/fdroid/repo}
 out=${HUB_DIR:-$store/hub}
-config=$here/hub.json
+config=${HUB_CONFIG:-$here/hub.json}
 
-empty='{"apps":[],"packages":{}}'
-# The public repo is hand-published; a missing index means a bad mount, so keep the old hub.
-# The store has no index until fdroid update has run once.
-index() {
-	if [[ -r $1/index-v1.json ]]; then cat "$1/index-v1.json"; else
-		[[ $2 == optional ]] || { echo "hub: no index in $1, leaving the hub as it was" >&2; exit 1; }
-		echo "$empty"
-	fi
-}
-declare -A dirs=([repo]=$public [store]=$store/repo)
+# Only the public repo is ever read. The store is private and has no business on this page.
+# A missing index means a bad mount, so keep the old hub.
+if [[ ! -r $public/index-v1.json ]]; then
+	echo "hub: no index in $public, leaving the hub as it was" >&2
+	exit 1
+fi
 
 mkdir -p "$out/api/apps" "$out/apps"
 
@@ -43,19 +39,13 @@ link() {
 	mv -fT "$tmp" "$2"
 }
 
-# Read both before building anything: a failure inside <(...) would not stop the script.
-public_index=$(index "${dirs[repo]}" required)
-store_index=$(index "${dirs[store]}" optional)
-
 records=$(jq -n \
 	--slurpfile config "$config" \
-	--slurpfile repo <(printf %s "$public_index") \
-	--slurpfile store <(printf %s "$store_index") '
-	{repo: $repo[0], store: $store[0]} as $index
+	--slurpfile index "$public/index-v1.json" '
+	$index[0] as $ix
 	| $config[0] as $c
 	| [ $c.apps[] | . as $app
-		| $c.repos[$app.repo] as $r
-		| $index[$app.repo] as $ix
+		| ($c.repos[$app.repo] // error("hub.json: unknown repo \($app.repo)")) as $r
 		| ($ix.apps[]? | select(.packageName == $app.package)) as $meta
 		| ($ix.packages[$app.package] // [] | max_by(.versionCode)) as $pkg
 		| select($pkg != null)
@@ -64,7 +54,6 @@ records=$(jq -n \
 			name: ($meta.name // $app.slug),
 			package: $app.package,
 			repo: $app.repo,
-			private: $r.private,
 			version: $pkg.versionName,
 			versionCode: $pkg.versionCode,
 			size: $pkg.size,
@@ -75,22 +64,21 @@ records=$(jq -n \
 			icon: (if $meta.localized["en-US"].icon then "\($app.package)/en-US/\($meta.localized["en-US"].icon)" else null end),
 			mount: $r.mount,
 			iconDir: $r.dir,
-			download_url: (if $r.private then null else "/apps/\($app.slug)/download/\($app.slug).apk" end),
+			download_url: "/apps/\($app.slug)/download/\($app.slug).apk",
 			fdroid_url: "fdroidrepos://\($ix.repo.address | sub("^https://"; ""))?fingerprint=\($r.fingerprint)"
 		} ]')
 
 # Direct downloads and icons: stable paths that point at the repo files.
-# A private repo is never linked, so its APKs stay behind the store login.
 icons=()
 while IFS=$'\t' read -r slug mount apk icon dir; do
 	link "$mount/$apk" "$out/apps/$slug/download/$slug.apk"
-	if [[ $icon != - && -e ${dirs[$dir]}/$icon ]]; then
+	if [[ $icon != - && -e $public/$icon ]]; then
 		link "$mount/$icon" "$out/apps/$slug/icon.png"
 		icons+=("$slug")
 	else
 		rm -f "$out/apps/$slug/icon.png"
 	fi
-done < <(jq -r '.[] | select(.private | not)
+done < <(jq -r '.[]
 	| [.id, .mount, .apk, (.icon // "-"), .repo] | @tsv' <<<"$records")
 
 with_icons=$(jq -n '$ARGS.positional' --args "${icons[@]}")
@@ -118,7 +106,7 @@ page=$(jq -nr \
 	--arg host "$host" \
 	--argjson apps "$page_records" '
 	def card:
-		(if .private | not then .download_url else null end) as $direct
+		.download_url as $direct
 		| @html "<li class=\"app\">"
 		+ "<div class=\"app-head\"><span class=\"app-icon\">"
 		+ (if .icon_url then @html "<img src=\"\(.icon_url)\" alt=\"\" width=\"48\" height=\"48\">"
@@ -126,15 +114,10 @@ page=$(jq -nr \
 		+ @html "</span><div><h2>\(.name)</h2><p class=\"app-meta\">v\(.version) · \(.size / 104857.6 | round / 10) MB · \(.updated | strptime("%Y-%m-%d %H:%M:%S") | mktime | strftime("%b %-d, %Y"))</p></div></div>"
 		+ (if .summary != "" then @html "<p class=\"app-summary\">\(.summary)</p>" else "" end)
 		+ "<div class=\"actions\">"
-		+ (if $direct then
-			@html "<a class=\"btn btn-filled\" href=\"\($direct)\"><span class=\"icon icon-download\" aria-hidden=\"true\"></span>Download APK</a>"
-			+ @html "<a class=\"btn btn-tonal\" href=\"obtainium://add/\($host)\($direct)\"><span class=\"icon icon-obtainium\" aria-hidden=\"true\"></span>Obtainium</a>"
-			+ @html "<a class=\"btn btn-tonal\" href=\"\(.fdroid_url)\"><span class=\"icon icon-fdroid\" aria-hidden=\"true\"></span>F-Droid</a>"
-		else
-			@html "<a class=\"btn btn-filled\" href=\"\(.fdroid_url)\"><span class=\"icon icon-fdroid\" aria-hidden=\"true\"></span>Add to F-Droid</a>"
-		end)
+		+ @html "<a class=\"btn btn-filled\" href=\"\($direct)\"><span class=\"icon icon-download\" aria-hidden=\"true\"></span>Download APK</a>"
+		+ @html "<a class=\"btn btn-tonal\" href=\"obtainium://add/\($host)\($direct)\"><span class=\"icon icon-obtainium\" aria-hidden=\"true\"></span>Obtainium</a>"
+		+ @html "<a class=\"btn btn-tonal\" href=\"\(.fdroid_url)\"><span class=\"icon icon-fdroid\" aria-hidden=\"true\"></span>F-Droid</a>"
 		+ "</div>"
-		+ (if $direct then "" else "<p class=\"note\"><span class=\"icon icon-lock\" aria-hidden=\"true\"></span>Private repository. F-Droid asks for the lab login.</p>" end)
 		+ "</li>";
 	$template | split("<!--APPS-->") | join([$apps[] | card] | join(""))')
 put "$out/index.html" <<<"$page"
