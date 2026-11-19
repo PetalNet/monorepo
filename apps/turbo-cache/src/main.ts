@@ -1,5 +1,7 @@
 import { createPrivateKey } from "node:crypto";
+import { readFileSync } from "node:fs";
 import { createServer } from "node:http";
+import { fileURLToPath } from "node:url";
 
 import * as NodeHttpServer from "@effect/platform-node/NodeHttpServer";
 import * as NodeRuntime from "@effect/platform-node/NodeRuntime";
@@ -11,6 +13,7 @@ import * as HttpServer from "effect/http/HttpServer";
 import { createExchanger } from "./exchanger.ts";
 import { ampIssuer, githubIssuer } from "./policy.ts";
 import { application } from "./server.ts";
+import { createEventCounter, loadEvents, saveEvents } from "./stats.ts";
 
 const secret = Effect.fn(function* (name: string) {
 	const fs = yield* FileSystem.FileSystem;
@@ -63,10 +66,53 @@ const program = Effect.gen(function* () {
 		]),
 	});
 
+	const stateDir = yield* Config.String("STATE_DIR").pipe(Config.withDefault("/state"));
+	const eventsFile = `${stateDir}/events.json`;
+	const events = createEventCounter(Date.now, yield* Effect.promise(() => loadEvents(eventsFile)));
+	const save = async () => {
+		const saved = events.pending();
+
+		if (!saved) {
+			return;
+		}
+
+		try {
+			await saveEvents(eventsFile, saved);
+			events.markSaved();
+		} catch (error) {
+			console.error("could not save cache events", error);
+		}
+	};
+
+	const saveTimer = setInterval(() => void save(), 15_000);
+
+	saveTimer.unref();
+	yield* Effect.addFinalizer(() => Effect.promise(save));
+
+	const site = {
+		build: yield* Config.String("BUILD_SHA").pipe(Config.withDefault("dev")),
+		cacheUrl: yield* Config.String("CACHE_URL").pipe(Config.withDefault("http://cache:3000")),
+		storageFile: `${stateDir}/storage.json`,
+		events,
+		fonts: {
+			geist: readFileSync(
+				fileURLToPath(
+					import.meta.resolve("@fontsource-variable/geist/files/geist-latin-wght-normal.woff2"),
+				),
+			),
+			"geist-mono": readFileSync(
+				fileURLToPath(
+					import.meta
+						.resolve("@fontsource-variable/geist-mono/files/geist-mono-latin-wght-normal.woff2"),
+				),
+			),
+		},
+	};
+
 	const port = yield* Config.Port("PORT").pipe(Config.withDefault(3001));
 
 	return yield* Layer.launch(
-		HttpServer.serve(application(exchanger)).pipe(
+		HttpServer.serve(application(exchanger, site)).pipe(
 			Layer.provide(NodeHttpServer.layer(createServer, { port })),
 		),
 	);
@@ -74,6 +120,7 @@ const program = Effect.gen(function* () {
 
 NodeRuntime.runMain(
 	program.pipe(
+		Effect.scoped,
 		Effect.provide([
 			NodeServices.layer,
 			FetchHttpClient.layer.pipe(

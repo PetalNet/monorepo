@@ -3,7 +3,7 @@
 http:
   routers:
     turbo-cache-exchanger:
-      rule: Host(`turbo-cache.petalcat.dev`) && (Path(`/exchange`) || Path(`/.well-known/jwks.json`))
+      rule: Host(`turbo-cache.petalcat.dev`) && (Path(`/`) || Path(`/_live`) || Path(`/stats.json`) || PathRegexp(`^/assets/[a-z-]+\.woff2$`) || Path(`/exchange`) || Path(`/.well-known/jwks.json`) || (Method(`POST`) && Path(`/v8/artifacts/events`)))
       entryPoints: [web]
       service: turbo-cache-exchanger
     turbo-cache:

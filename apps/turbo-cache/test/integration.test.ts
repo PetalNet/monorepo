@@ -35,7 +35,7 @@ beforeAll(async () => {
 }, 120_000);
 
 it.skipIf(!docker)(
-	"exchanges local issuer tokens and enforces access in unmodified ducktors v2.14.3",
+	"exchanges local issuer tokens and enforces access in unmodified ducktors v3.0.3",
 	async () => {
 		const issuerKey = generateKeyPairSync("rsa", { modulusLength: 2048 });
 		const signingKey = generateKeyPairSync("rsa", { modulusLength: 2048 });

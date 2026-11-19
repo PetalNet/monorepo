@@ -27,6 +27,7 @@
 			"apps/slide/src/routes/night/[code]/+page.svelte",
 			"apps/slide/src/routes/night/[code]/live/+page.svelte",
 			"apps/tasks/src/app.css",
+			"apps/turbo-cache/src/home.ts",
 			"apps/tasks/src/routes/task/[id]/+page.svelte"
 		]
 	}
