@@ -123,7 +123,7 @@ client_id = "the public client's id"
 redirect_uri = "janetcall://signin"
 
 turn_models = "/models"             # silero_vad.onnx and the Parakeet files: the shared turn detector (below)
-line_tone = "AL6 AT45 AW83 BC2 BL11 BR7 BF2 BO6 DL0 DW48 U37 V80"   # the call's background sound (below); empty is off
+line_tone = "AL4 AT40 AH400 AW83 BC2 BL11 BR7 BF2 BO6 DL0 DW48 U37 V80"   # the call's background sound (below); empty is off
 
 [endpoint]                          # the fallback loudness detector, used only without turn_models
 threshold = 500

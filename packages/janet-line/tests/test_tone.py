@@ -29,6 +29,32 @@ class CodeTest(unittest.TestCase):
                 parse_code(code)
 
 
+class HighPassTest(unittest.TestCase):
+    def band(self, x, lo, hi):
+        spectrum = np.abs(np.fft.rfft(x[:, 0])) ** 2
+        freq = np.fft.rfftfreq(len(x), 1 / RATE)
+        return float(spectrum[(freq >= lo) & (freq < hi)].sum())
+
+    def test_a_higher_high_pass_takes_the_rumble_out_of_the_comfort_noise(self):
+        page = LineTone("AL6 AT45", RATE)  # AH defaults to the page's 180 Hz
+        calm = LineTone("AL6 AT45 AH400", RATE)
+        a, b = seconds(page, 6, "listening"), seconds(calm, 6, "listening")
+        self.assertLess(self.band(b, 20, 250) / self.band(a, 20, 250), 0.1)  # at least 10 dB less below 250 Hz
+        self.assertGreater(self.band(b, 600, 1000) / self.band(a, 600, 1000), 0.8)  # the mid band is left alone
+
+    def test_the_high_pass_must_be_in_range(self):
+        for code in ("AH10", "AH5000"):
+            with self.assertRaises(ValueError, msg=code):
+                parse_code(code)
+        self.assertEqual(parse_code("AH400")["AH"], 400)
+
+    def test_the_studio_settings_are_about_6_db_quieter_than_the_first_tuning(self):
+        first = LineTone(PARKER, RATE)
+        studio = LineTone("AL4 AT40 AH400 AW83 BC2 BL11 BR7 BF2 BO6 DL0 DW48 U37 V80", RATE)
+        drop = dbfs(seconds(first, 6, "listening")) - dbfs(seconds(studio, 6, "listening"))
+        self.assertAlmostEqual(drop, 6.5, delta=1.5)
+
+
 class FilterTest(unittest.TestCase):
     def test_lowpass_passes_dc_and_blocks_nyquist_and_highpass_the_reverse(self):
         low, high = Biquad("lowpass", 1000, RATE), Biquad("highpass", 1000, RATE)

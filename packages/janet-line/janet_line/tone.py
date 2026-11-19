@@ -11,6 +11,7 @@ Differences from the page, none audible at these levels: pink noise is shaped in
 the room tone's low-pass is fixed, not swept; the master compressor (threshold -24 dB) is left out because the tone sits far below it.
 
 The code is the page's "Your code": keys and 0 to 100 values, e.g. "AL6 AT45 AW83 BC2 BL11 BR7 BF2 BO6 DL0 DW48 U37 V80".
+One key is ours: AH, the comfort noise's high-pass in Hz (20 to 2000, default 180 as on the page). The page ignores it.
 """
 
 from __future__ import annotations
@@ -20,7 +21,7 @@ import re
 
 import numpy as np
 
-DEFAULTS = {"AL": 8, "AT": 45, "AW": 50, "BC": 0, "BL": 20, "BR": 50, "BF": 8, "BO": 12, "DL": 0, "DW": 50, "U": 55, "V": 80}
+DEFAULTS = {"AH": 180, "AL": 8, "AT": 45, "AW": 50, "BC": 0, "BL": 20, "BR": 50, "BF": 8, "BO": 12, "DL": 0, "DW": 50, "U": 55, "V": 80}
 PHASES = ("listening", "thinking", "speaking")
 
 
@@ -36,6 +37,8 @@ def parse_code(code: str) -> dict[str, int]:
         values[match.group(1)] = int(match.group(2))
     if values["BC"] not in (0, 1, 2):
         raise ValueError("BC is 0, 1 or 2")
+    if not 20 <= values["AH"] <= 2000:
+        raise ValueError("AH, the comfort noise's high-pass in Hz, is 20 to 2000")
     return values
 
 
@@ -119,7 +122,7 @@ class LineTone:
         self._t = 0  # samples rendered
         # A: pink, stereo and mono loops, high-passed at 180 Hz then low-passed by the tone control.
         lp = Biquad("lowpass", 300 * 20 ** (v["AT"] / 100), rate, 0.7)
-        hp = Biquad("highpass", 180, rate)
+        hp = Biquad("highpass", v["AH"], rate)
         stereo = np.stack([_through(_noise("pink", rng, n, rate), (hp, lp)) for _ in range(2)])
         mono = _through(_noise("pink", rng, n, rate), (hp, lp))
         width = v["AW"] / 100
