@@ -1,7 +1,7 @@
 import 'dart:typed_data';
 
-import 'package:flutter/material.dart';
 import 'package:hooks_riverpod/hooks_riverpod.dart';
+import 'package:material_ui/material_ui.dart';
 import 'package:point_app/features/crypto/crypto_service.dart';
 import 'package:point_app/features/people/presentation/verify_sheet.dart';
 import 'package:point_app/features/relay/relay_controller.dart';
@@ -41,11 +41,11 @@ void main() {
 class _Auth extends AuthController {
   @override
   Future<Session?> build() async => const Session(
-        userId: 'parker@point.petalcat.dev',
-        token: 't',
-        displayName: 'Parker H',
-        isAdmin: true,
-      );
+    userId: 'parker@point.petalcat.dev',
+    token: 't',
+    displayName: 'Parker H',
+    isAdmin: true,
+  );
 }
 
 class _FakeCrypto extends CryptoService {

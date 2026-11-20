@@ -144,64 +144,68 @@ void main() {
   group('share edge store', () {
     setUp(() => FlutterSecureStorage.setMockInitialValues({}));
 
-    test('explicit edge wins, audience default fills, initial backstops',
-        () async {
-      final container = ProviderContainer();
-      addTearDown(container.dispose);
-      final store = container.read(shareEdgeStoreProvider.notifier);
-      await store.loaded;
-      const partner = Audience.individual('partner@point.dev');
-      const friends = Audience.group('g-friends');
-      const work = Audience.group('g-work');
+    test(
+      'explicit edge wins, audience default fills, initial backstops',
+      () async {
+        final container = ProviderContainer();
+        addTearDown(container.dispose);
+        final store = container.read(shareEdgeStoreProvider.notifier);
+        await store.loaded;
+        const partner = Audience.individual('partner@point.dev');
+        const friends = Audience.group('g-friends');
+        const work = Audience.group('g-work');
 
-      await store.setEdge(
-        'self',
-        friends,
-        const ShareSetting(fidelity: Fidelity.fuzzed),
-      );
-      await store.setAudienceDefault(
-        work,
-        const ShareSetting(fidelity: Fidelity.off),
-      );
+        await store.setEdge(
+          'self',
+          friends,
+          const ShareSetting(fidelity: Fidelity.fuzzed),
+        );
+        await store.setAudienceDefault(
+          work,
+          const ShareSetting(fidelity: Fidelity.off),
+        );
 
-      final s = container.read(shareEdgeStoreProvider);
-      expect(s.effectiveSetting('self', friends).fidelity, Fidelity.fuzzed);
-      expect(s.effectiveSetting('self', friends).perAudienceDefault, isFalse);
-      expect(s.effectiveSetting('self', work).fidelity, Fidelity.off);
-      expect(s.effectiveSetting('self', work).perAudienceDefault, isTrue);
-      expect(s.effectiveSetting('self', partner), ShareSetting.initial);
-      expect(s.explicitEdge('self', partner), isNull);
-    });
+        final s = container.read(shareEdgeStoreProvider);
+        expect(s.effectiveSetting('self', friends).fidelity, Fidelity.fuzzed);
+        expect(s.effectiveSetting('self', friends).perAudienceDefault, isFalse);
+        expect(s.effectiveSetting('self', work).fidelity, Fidelity.off);
+        expect(s.effectiveSetting('self', work).perAudienceDefault, isTrue);
+        expect(s.effectiveSetting('self', partner), ShareSetting.initial);
+        expect(s.explicitEdge('self', partner), isNull);
+      },
+    );
 
-    test('the same entity holds different fidelity per audience at once',
-        () async {
-      final container = ProviderContainer();
-      addTearDown(container.dispose);
-      final store = container.read(shareEdgeStoreProvider.notifier);
-      await store.loaded;
-      const partner = Audience.individual('partner@point.dev');
-      const friends = Audience.group('g-friends');
-      const work = Audience.group('g-work');
-      await store.setEdge(
-        'self',
-        partner,
-        const ShareSetting(fidelity: Fidelity.precise),
-      );
-      await store.setEdge(
-        'self',
-        friends,
-        const ShareSetting(fidelity: Fidelity.fuzzed),
-      );
-      await store.setEdge(
-        'self',
-        work,
-        const ShareSetting(fidelity: Fidelity.off),
-      );
-      final s = container.read(shareEdgeStoreProvider);
-      expect(s.effectiveSetting('self', partner).fidelity, Fidelity.precise);
-      expect(s.effectiveSetting('self', friends).fidelity, Fidelity.fuzzed);
-      expect(s.effectiveSetting('self', work).fidelity, Fidelity.off);
-    });
+    test(
+      'the same entity holds different fidelity per audience at once',
+      () async {
+        final container = ProviderContainer();
+        addTearDown(container.dispose);
+        final store = container.read(shareEdgeStoreProvider.notifier);
+        await store.loaded;
+        const partner = Audience.individual('partner@point.dev');
+        const friends = Audience.group('g-friends');
+        const work = Audience.group('g-work');
+        await store.setEdge(
+          'self',
+          partner,
+          const ShareSetting(fidelity: Fidelity.precise),
+        );
+        await store.setEdge(
+          'self',
+          friends,
+          const ShareSetting(fidelity: Fidelity.fuzzed),
+        );
+        await store.setEdge(
+          'self',
+          work,
+          const ShareSetting(fidelity: Fidelity.off),
+        );
+        final s = container.read(shareEdgeStoreProvider);
+        expect(s.effectiveSetting('self', partner).fidelity, Fidelity.precise);
+        expect(s.effectiveSetting('self', friends).fidelity, Fidelity.fuzzed);
+        expect(s.effectiveSetting('self', work).fidelity, Fidelity.off);
+      },
+    );
 
     test('edges and defaults persist across a restart', () async {
       final container = ProviderContainer();

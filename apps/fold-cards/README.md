@@ -12,6 +12,68 @@ A card is one finished stretch: a person's prompt and everything up to the next 
 
 The compaction mod (`fold`) runs `build` before each compaction, and the recall mod (`fold-recall`) runs `query` on every prompt. Those mods live in Janet's private config repo and call `bin/cards.py` by path.
 
+## Outbound retrieval
+
+`query`, `unfold`, `memindex.py search`, `build --ledger-cards`, and the bundle/research commands release text only after the shared `vault-scan` command approves it. Set `FOLD_SECRET_SCANNER_ARGV` to a JSON argv array, for example `["node", "/checkout/packages/vault-engine/src/scan-cli.ts"]`. Configure the scanner's `VAULT_SECRET_PROVIDER_ARGV` and private skip policy on the agent host. The scanner combines the vault's rules with known exact secret values. Fold-cards has no fallback outbound regex.
+
+Candidate text travels to the scanner on stdin. Unconfigured scanners, hits, process errors, timeouts, nonzero exits, or unexpected stdout/stderr refuse the entire result. Nothing is streamed before approval. Raw source text and final output are checked together, before truncation and JSON escaping can hide an exact match. An empty retrieval also requires a configured scanner. Index construction stays local; writing an index does not authorize releasing its contents.
+
+This guard does not cover direct vault operations. `packages/vault-engine/src/api.ts` returns `recall` and `research_check` results through MCP, and `packages/vault-engine/src/cli.ts` prints the same operation results. Those paths need the shared scanner at their output boundary before they can safely return model-bound private text. The separately maintained Hermes and fleet-recall entrypoints are outside this repository; their output boundaries need the same integration. The bundle's read-only access to their indexes does not guard those entrypoints.
+
+Python remains the implementation language because the recall index and its hooks already use the standard library and SQLite under `python3 -I`. No service or dependency is added.
+
+## Project bundles
+
+`bin/bundle.py --brief-file BRIEF` prepares a delegation brief. It requires exactly one `Project: <id>` line, resolves that project in `CONTEXT_BUNDLE_CONFIG`, reads existing indexes, and scans the brief plus the pointer attachment. Missing configuration or an unavailable index refuses delegation. Research workers use the same boundary.
+
+The private configuration has this shape (all values below are synthetic):
+
+```json
+{
+	"vault_db": "/state/vault/index.sqlite",
+	"history_db": "/state/hermes/cc-link/history.db",
+	"recall_db": "/state/recall/recall.db",
+	"agentsview_db": "/state/agentsview/sessions.db",
+	"fold_db": "/state/fold/cards.db",
+	"projects": {
+		"demo": {
+			"query": "demo project",
+			"vault_topics": ["t-demo"],
+			"history_channels": ["!demo:example.org"],
+			"agentsview_projects": ["demo"],
+			"fold_sources": ["fold", "memory", "shared"]
+		}
+	}
+}
+```
+
+These are the existing producers' databases, opened read-only. In particular, Hermes' `entry/entry_fts` includes incoming and sent messages, its transcript recall uses `messages`, and agentsview uses `sessions/messages/messages_fts`. Point at the existing local files or read replicas; this command never builds another history index or calls a model. Project configuration selects channels, topics, source names and agentsview projects. The query scopes legacy transcript recall and document search, whose schemas have no project column. Empty scope lists deliberately select no rows.
+
+For a public-code-only task, register a separate project with `"source_scope": "public-only"` and `"public_pointers": ["https://github.com/example/project"]`. The operator must verify that each registered GitHub URL and the brief are public. This scope attaches only those registered URLs, never opens the private indexes, and still requires the shared secret scan. It cannot resolve private pointers. Existing registrations default to `private` and are routed as sensitive when used by the router.
+
+Each source contributes at most eight pointers. Conversations use stable event references or append-only Hermes entry IDs; transcript rows use session/UUID pairs, and agentsview uses session/message ordinals. A conversation range may consist of one event. Active vault claims appear newest first; superseded and retracted decisions are excluded using the vault's status, without guessing which unrelated claims contradict one another. Pull request/review links come from source text. Private tiers are included. No generated summaries are attached.
+
+`bin/bundle.py --open POINTER --project demo` resolves a pointer and scans the source before returning at most 12,000 characters. Its `truncated` field reports a cut. Ordinary pull request links open with the existing web tools. Fold pointers also work with `unfold`.
+
+The existing `packages/harness-hooks/src/agent-brief-guard.ts` PreToolUse hook attaches a bundle through `updatedInput.prompt`, preserving other tool arguments. Project and scanner checks also apply to planners and nested agents. Install the hook with the checkout's `context-bundle.ts` and `apps/fold-cards/bin` files; copying the original standalone guard alone is no longer sufficient. Router callers can invoke `prepareDelegation` from `context-bundle.ts` before launching a worker and must abort on `kind: "refused"`. The router package is maintained on a separate branch and is not changed here.
+
+## Lab-first web research
+
+`bin/research.py hook` is a PreToolUse hook for `WebSearch`, `web.run`, `web__run`, and `mcp__web__run` search requests. Set `RESEARCH_PROJECT` to the registered project and `VAULT_RESEARCH_ARGV` to the existing vault CLI argv, for example `["node", "/checkout/packages/vault-engine/src/cli.ts"]`. It calls the actual `research-check` operation for every question before allowing a web search, attaches the project pointers and checked lab IDs, and refuses on failure. Non-search tools are unchanged. Other web providers need an adapter before they are covered.
+
+The lab-first hook refuses search for public-only projects before calling the private vault. It requires a private project registration for its research-check and writeback flow.
+
+Install `bin/research.py stop` as a Stop hook in the same harness. Successful checks leave per-session receipts in `RESEARCH_STATE_DIR` (default `~/.local/state/lab-research`); receipts contain IDs and a question hash, never source passages. The Stop hook blocks completion until each question has a recorded run or explicit gaps. A failed web search can be closed with gaps rather than fabricated findings.
+
+```sh
+python3 -B -I bin/research.py check --session SESSION --project demo "question"
+python3 -B -I bin/research.py finish --session SESSION --run research-run.json
+```
+
+The run file uses the vault's existing `ResearchRunInput`. Its `question` must match the check. Refreshed claims use `replaces` with a checked claim ID; unresolved stale claims need a `gaps` entry. The wrapper invokes `vault research-run` and clears the receipt only after it succeeds. It reports lab IDs reused, new `src-` captures under `web`, other new sources separately, and replacement IDs. Capture new web evidence with the existing `vault source add` before writeback. A new capture is evidence provenance, not proof that a browser ran.
+
+Freshness remains the vault's responsibility: existing source/topic shelf-life values and its 365-day unknown fallback are preserved. This adapter does not infer shelf life or classify topics from keywords. Typed classifications and recheck-history estimates require the corresponding vault implementation before they can be reported here.
+
 ## How recall ranks
 
 Recall attaches nothing unless something is likely to help. On 59 real prompts graded by hand, the old top-4 recall attached about 4 items to every prompt, and 66% of prompts got only unhelpful ones.
@@ -32,6 +94,10 @@ Without the embedder nothing attaches; the first query starts it for the next pr
 | gate before the second stage, 2-fold cross-validated |      0.62 |   0.18 |                           75% |                                5% |          about 65 |
 
 A second fixture grades what the gate attached, not what the ranker found: 543 real (prompt, attachment) pairs from one week (2026-11-11 to 18), 129 of them attached live, each judged helpful or not by reading the prompt and the attached note or card. Before the second stage the gate attached 413 of them at precision 0.385 (46 of the 129 live ones helped). Cards stayed at 0.37: the rescoring did nothing for them at any threshold, so only notes use it. For notes, precision went from 0.39 to 0.58 with 77% of the helpful ones kept; with cards, over everything the gate attaches, from 0.385 to 0.48, 85% of the helpful kept, and 38% fewer attachments. Of the 129 attached live, the new gate keeps 65, 32 of them helpful (precision 0.49, 70% of the helpful ones). The held-out figure refits the three weights on 60% of the prompts and measures the other 40%, averaged over 200 splits (precision 0.48, sd 0.05 between splits). Only the weights are held out: the threshold, the floor and the features were chosen on the same week, so the figures are likely a little high. `test/fit_attach.py` reproduces the numbers and refits the weights. Both fixtures are real conversation, so they are kept private, beside the deployment's config, and not in this repository.
+
+**Vault claims** are off by default. When `index.vault` names a local vault replica and `recall.vault` is `true`, `cards.py build` mirrors active `shared` claims. Personal and agent claims are excluded. Retired or deleted claims are removed on the next build. If the replica cannot be read, the build removes mirrored claims and reports an error. The flag also controls `cards.py query`, including an explicit `--sources vault` request. `memindex.py search` is a guarded diagnostic that can explicitly search a manually synced index. Run a build after changing the flag or the replica.
+
+A vault candidate is eligible when it has both a qualifying lexical match and a dense match in the embedder's result. The gate can attach at most one claim. It uses lexical rank to order eligible claims; this rule is not a fitted probability and does not report a probability for claims. The available attachment labels cover cards and notes, not vault claims. Keep `recall.vault` off until independent vault labels have been collected and the rule evaluated. Synthetic tests demonstrate the data path, not retrieval precision. Output still requires the outbound scanner described above.
 
 ## Tests
 

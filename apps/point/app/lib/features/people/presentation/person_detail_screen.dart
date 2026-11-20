@@ -1,11 +1,11 @@
 import 'dart:async';
 
-import 'package:flutter/material.dart';
 import 'package:flutter/semantics.dart';
 import 'package:flutter_map/flutter_map.dart';
 import 'package:hooks_riverpod/hooks_riverpod.dart';
 import 'package:kaisel/kaisel.dart';
 import 'package:latlong2/latlong.dart';
+import 'package:material_ui/material_ui.dart';
 import 'package:point_app/features/crypto/verification.dart';
 import 'package:point_app/features/ghost/ghost_controller.dart';
 import 'package:point_app/features/map/presentation/presence_marker.dart';
@@ -273,7 +273,7 @@ class _FocusMapState extends ConsumerState<_FocusMap>
     }
     _cameraFrom = _mapController.camera.center;
     _cameraTarget = point;
-    unawaited(_cameraAnimation.forward(from: 0));
+    _cameraAnimation.forward(from: 0);
   }
 
   @override

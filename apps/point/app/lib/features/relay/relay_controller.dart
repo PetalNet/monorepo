@@ -3,9 +3,9 @@ import 'dart:convert';
 import 'dart:math' as math;
 
 import 'package:flutter/foundation.dart';
-import 'package:flutter/material.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:hooks_riverpod/hooks_riverpod.dart';
+import 'package:material_ui/material_ui.dart';
 import 'package:point_app/features/crypto/crypto_service.dart';
 import 'package:point_app/features/location/data/location_service.dart';
 import 'package:point_app/features/location/location_providers.dart';
@@ -42,8 +42,7 @@ class PeerFix {
   /// device) — the clock that decides alive vs dark. Older clients omit
   /// `alive_at`, so fall back to the position time (their fixes and liveness
   /// coincided).
-  int? get aliveAt =>
-      (data['alive_at'] as num?)?.toInt() ?? timestamp;
+  int? get aliveAt => (data['alive_at'] as num?)?.toInt() ?? timestamp;
 
   /// True when this is a parked keepalive/floor: the device is alive as of
   /// [aliveAt] but hasn't moved since [timestamp]. Absent on old payloads.

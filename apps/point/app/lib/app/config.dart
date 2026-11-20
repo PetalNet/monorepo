@@ -10,8 +10,7 @@ import 'package:flutter/foundation.dart';
 /// `serverBaseUrl` is the bare origin — no trailing slash, no `/api`. The API
 /// client appends the path itself (e.g. `$baseUrl/api/register`).
 abstract final class AppConfig {
-  static const _defineServer =
-      String.fromEnvironment('POINT_SERVER');
+  static const _defineServer = String.fromEnvironment('POINT_SERVER');
 
   static String get serverBaseUrl {
     if (_defineServer.isNotEmpty) return _defineServer;

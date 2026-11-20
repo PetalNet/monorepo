@@ -10,17 +10,20 @@ import { CaptureFailed, WriteRejected } from "./errors.ts";
 import { recallClaims, recallPassages } from "./recall.ts";
 import type { ClaimCard, PassageHit } from "./recall.ts";
 import {
+	FreshnessBasis,
 	Gap,
+	TopicClass,
 	Relation,
 	SourceType,
 	Text,
 	Verdict,
-	freshness,
+	freshnessBasis,
+	freshnessWithBasis,
 	oneLine,
 	slug,
 	tiers,
 } from "./schema.ts";
-import type { Claim, Link, Source, Tier } from "./schema.ts";
+import type { Claim, Link, ResearchRecheck, Source, Tier } from "./schema.ts";
 
 const CiteOutput = Schema.fromJsonString(
 	Schema.Struct({
@@ -129,11 +132,11 @@ export class Cite extends Context.Service<
 export const captureSource = Effect.fnUntraced(function* (tier: Tier, ref: string) {
 	const vault = yield* Vault;
 	const view = yield* vault.view;
-	const existing = ref.startsWith("src-")
-		? view.source(ref)
-		: tiers
-				.flatMap((each) => Object.values(view.tiers[each].sources))
-				.find((source) => source.url === ref && source.status === "active");
+	const existing =
+		view.source(ref) ??
+		tiers
+			.flatMap((each) => Object.values(view.tiers[each].sources))
+			.find((source) => source.url === ref && source.status === "active");
 
 	if (existing) {
 		return existing;
@@ -158,6 +161,7 @@ export const Recheck = Schema.Struct({
 	id: Schema.String,
 	title: Schema.String,
 	freshness: Schema.String,
+	basis: FreshnessBasis,
 	url: Schema.optionalKey(Schema.String),
 });
 
@@ -187,14 +191,24 @@ export const researchCheck = Effect.fnUntraced(function* (question: string) {
 				id: source.id,
 				title: source.title,
 				freshness: source.freshness,
+				basis: source.basis,
 				...(source.url === undefined ? {} : { url: source.url }),
 			});
 		}
 	}
 
+	const sourcesInClaims = new Set(
+		claims.flatMap((card) => card.sources.map((source) => source.id)),
+	);
+
 	for (const hit of passages) {
-		if (hit.freshness !== "fresh" && !recheck.has(hit.source)) {
-			recheck.set(hit.source, { id: hit.source, title: hit.title, freshness: hit.freshness });
+		if (hit.freshness !== "fresh" && !sourcesInClaims.has(hit.source) && !recheck.has(hit.source)) {
+			recheck.set(hit.source, {
+				id: hit.source,
+				title: hit.title,
+				freshness: hit.freshness,
+				basis: hit.basis,
+			});
 		}
 	}
 
@@ -206,6 +220,7 @@ const TopicInput = Schema.Struct({
 	summary: Text,
 	hub: Schema.optionalKey(Text),
 	shelfLifeDays: Schema.optionalKey(Schema.Int.check(Schema.isGreaterThan(0))),
+	classification: Schema.optionalKey(TopicClass),
 });
 
 export const ResearchRunInput = Schema.Struct({
@@ -238,6 +253,16 @@ export const ResearchRunInput = Schema.Struct({
 			replaces: Schema.optionalKey(Text),
 		}),
 	),
+	/** Actual checks performed for a topic and source, never inferred from a claim or guess. */
+	rechecks: Schema.optionalKey(
+		Schema.Array(
+			Schema.Struct({
+				topic: Text,
+				source: Text,
+				outcome: Schema.Literals(["changed", "unchanged"]),
+			}),
+		),
+	),
 	/** Existing claims and sources the answer relies on without changing them. */
 	reused: Schema.optionalKey(Schema.Array(Text)),
 	/** Claim keys or IDs that answer the question. */
@@ -269,6 +294,7 @@ interface TopicUpsert {
 	readonly summary?: string;
 	readonly hub?: string;
 	readonly shelfLifeDays?: number;
+	readonly classification?: TopicClass;
 }
 
 const upsertTopics = Effect.fnUntraced(function* (tx: Tx, topics: readonly TopicUpsert[]) {
@@ -286,6 +312,7 @@ const upsertTopics = Effect.fnUntraced(function* (tx: Tx, topics: readonly Topic
 		const hub =
 			hubTitle === undefined ? existing?.hub : (ids.get(hubTitle) ?? topicId(tx, hubTitle, ids));
 		const shelfLifeDays = topic.shelfLifeDays ?? existing?.shelfLifeDays;
+		const classification = topic.classification ?? existing?.classification;
 
 		if (
 			hubTitle !== undefined &&
@@ -308,6 +335,7 @@ const upsertTopics = Effect.fnUntraced(function* (tx: Tx, topics: readonly Topic
 			headings: existing?.headings ?? [],
 			...(hub === undefined ? {} : { hub }),
 			...(shelfLifeDays === undefined ? {} : { shelfLifeDays }),
+			...(classification === undefined ? {} : { classification }),
 		});
 	}
 
@@ -343,6 +371,59 @@ export const researchRun = Effect.fnUntraced(function* (tier: Tier, input: Resea
 	return yield* vault.transact(tier, `research run: ${input.question.slice(0, 80)}`, (tx) =>
 		Effect.gen(function* () {
 			const topicIds = yield* upsertTopics(tx, input.topics);
+			const history = Object.values(tx.state.runs).flatMap((run) => run.rechecks ?? []);
+			const rechecks: ResearchRecheck[] = [];
+
+			for (const check of input.rechecks ?? []) {
+				const topic = topicIds.get(oneLine(check.topic));
+				const source = tx.source(check.source);
+				const sourceTier = tx.locate(check.source)?.tier;
+
+				if (
+					topic === undefined ||
+					source === undefined ||
+					(sourceTier !== tier && sourceTier !== "shared")
+				) {
+					return yield* new WriteRejected({
+						message: "A recheck needs a run topic and a source in this tier or the shared tier",
+					});
+				}
+
+				if (rechecks.some((item) => item.topic === topic && item.source === source.id)) {
+					return yield* new WriteRejected({
+						message: "A source can be checked only once per topic in a run",
+					});
+				}
+
+				const sourceChecks = history
+					.filter((item) => item.topic === topic && item.source === source.id)
+					.toSorted((a, b) => a.checkedAt.localeCompare(b.checkedAt));
+				const previous =
+					sourceChecks.findLast((item) => item.outcome === "unchanged")?.checkedAt ??
+					source.captured;
+				const lastCheck = sourceChecks.at(-1)?.checkedAt ?? source.captured;
+				const intervalDays = Math.floor((Date.parse(tx.now) - Date.parse(previous)) / 86_400_000);
+
+				if (
+					Date.parse(tx.now) - Date.parse(lastCheck) < 86_400_000 ||
+					intervalDays < 1 ||
+					source.status !== "active"
+				) {
+					return yield* new WriteRejected({
+						message:
+							"A recheck needs an active source and at least one day since its last check or capture",
+					});
+				}
+
+				rechecks.push({
+					topic,
+					source: source.id,
+					outcome: check.outcome,
+					checkedAt: tx.now,
+					intervalDays,
+				});
+			}
+
 			const passageIds = new Map<string, { source: string; passage: string }>();
 			const touched = new Set<string>();
 
@@ -435,9 +516,27 @@ export const researchRun = Effect.fnUntraced(function* (tier: Tier, input: Resea
 					found?.kind === "claims" ? tx.tiers[found.tier].claims[id] : undefined;
 				const source = tx.source(id);
 
-				return (
-					claim?.stale !== undefined ||
-					(source !== undefined && freshness(source, undefined, now) !== "fresh")
+				if (claim?.stale !== undefined) {
+					return true;
+				}
+
+				if (source === undefined) {
+					return false;
+				}
+
+				const sourceTopics = Object.values(tx.state.claims)
+					.filter(
+						(item) => item.status === "active" && item.links.some((link) => link.target === id),
+					)
+					.map((item) => tx.state.topics[item.topic]);
+
+				return (sourceTopics.length === 0 ? [undefined] : sourceTopics).some(
+					(topic) =>
+						freshnessWithBasis(
+							source,
+							freshnessBasis(source, topic, [...history, ...rechecks]),
+							now,
+						) !== "fresh",
 				);
 			});
 
@@ -460,6 +559,7 @@ export const researchRun = Effect.fnUntraced(function* (tier: Tier, input: Resea
 				reused: [...reused],
 				stale,
 				gaps: input.gaps ?? [],
+				...(rechecks.length === 0 ? {} : { rechecks }),
 			});
 		}),
 	);

@@ -42,6 +42,7 @@ dependencies:
   flutter_local_notifications: ^23.0.0
   # dynamic_color is intentionally NOT a dependency: the spec locks dynamic_color
   # OFF (fixed monochrome, no Material You wallpaper hues) — D-015.
+  material_ui: ^1.11.0
 
 dev_dependencies:
   flutter_test:

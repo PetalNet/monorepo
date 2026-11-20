@@ -158,8 +158,7 @@ Person mergePresence(
     // Freshly offline (within [offlineDarkGrace] of the last observation) is
     // not DARK yet: a socket blip must not paint "Dark since now".
     final offlineWithinGrace =
-        !online &&
-        at.difference(serverPresence.observedAt) <= offlineDarkGrace;
+        !online && at.difference(serverPresence.observedAt) <= offlineDarkGrace;
     return Person(
       userId: p.userId,
       displayName: p.displayName,

@@ -1,4 +1,4 @@
-import 'package:flutter/material.dart';
+import 'package:material_ui/material_ui.dart';
 import 'package:point_app/theme/theme_x.dart';
 
 /// The signed-in user's own map marker: a flat photo-dot (monogram fallback in
@@ -44,8 +44,9 @@ class SelfMarker extends StatelessWidget {
               ),
               child: Text(
                 _initials,
-                style: context.text.titleMedium
-                    ?.copyWith(color: context.colors.onSurface),
+                style: context.text.titleMedium?.copyWith(
+                  color: context.colors.onSurface,
+                ),
               ),
             ),
           ),

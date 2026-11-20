@@ -85,25 +85,28 @@ void main() {
       await ws.dispose();
     });
 
-    test('sendEphemeral is dropped when the socket is not authenticated', () async {
-      final queue = RelayQueue(store: MemoryRelayStore());
-      await queue.load();
-      late _FakeChannel channel;
-      final ws = WsService(
-        wsUrl: 'ws://test/ws',
-        queue: queue,
-        connect: (_) => channel = _FakeChannel(),
-      );
-      await ws.start('t');
-      // Only the auth frame has been sent (no auth.ok yet).
-      final before = channel.sent.length;
-      ws.sendEphemeral(
-        jsonEncode({'type': 'location.nudge', 'target_user_id': 'bob@x'}),
-      );
-      expect(channel.sent.length, before, reason: 'dropped, not queued');
-      expect(queue.length, 0);
-      await ws.dispose();
-    });
+    test(
+      'sendEphemeral is dropped when the socket is not authenticated',
+      () async {
+        final queue = RelayQueue(store: MemoryRelayStore());
+        await queue.load();
+        late _FakeChannel channel;
+        final ws = WsService(
+          wsUrl: 'ws://test/ws',
+          queue: queue,
+          connect: (_) => channel = _FakeChannel(),
+        );
+        await ws.start('t');
+        // Only the auth frame has been sent (no auth.ok yet).
+        final before = channel.sent.length;
+        ws.sendEphemeral(
+          jsonEncode({'type': 'location.nudge', 'target_user_id': 'bob@x'}),
+        );
+        expect(channel.sent.length, before, reason: 'dropped, not queued');
+        expect(queue.length, 0);
+        await ws.dispose();
+      },
+    );
 
     test('sends auth first, flushes the durable queue on auth.ok', () async {
       final queue = RelayQueue(store: MemoryRelayStore());

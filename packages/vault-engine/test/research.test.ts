@@ -19,6 +19,7 @@ import {
 	tempDir,
 	test,
 	write,
+	vaultAt,
 } from "./tools.ts";
 
 describe("research run", () => {
@@ -142,9 +143,221 @@ describe("research run", () => {
 					id: SOURCE,
 					title: "Dense X Retrieval",
 					freshness: "stale",
+					basis: { shelfLifeDays: 365, basis: "default" },
 					url: `https://example.org/${SOURCE}`,
 				},
 			]);
+		}));
+
+	test("records checks, calibrates the topic, and preserves replacements across reopening", () =>
+		Effect.gen(function* () {
+			yield* seeded;
+
+			const first = yield* researchRun(
+				"shared",
+				input({
+					topics: [
+						{ title: "Note granularity", summary: "Notes.", classification: "rapidly-changing" },
+					],
+				}),
+			);
+
+			yield* reindex;
+			let card = (yield* researchCheck("proposition indexing")).claims[0];
+
+			expect(card?.sources[0]?.basis).toEqual({
+				shelfLifeDays: 30,
+				basis: "classification",
+				classification: "rapidly-changing",
+			});
+
+			yield* TestClock.setTime(Date.parse("2027-01-20T00:00:00.000Z"));
+
+			const checked = yield* researchRun(
+				"shared",
+				input({
+					topics: [{ title: "Note granularity", summary: "Notes." }],
+					rechecks: [{ topic: "Note granularity", source: SOURCE, outcome: "unchanged" }],
+				}),
+			);
+
+			yield* reindex;
+			card = (yield* researchCheck("proposition indexing")).claims[0];
+
+			expect(card?.sources[0]).toMatchObject({
+				freshness: "fresh",
+				basis: {
+					shelfLifeDays: 60,
+					basis: "recheck",
+					sourceCheck: { outcome: "unchanged", intervalDays: 80 },
+				},
+			});
+
+			yield* TestClock.setTime(Date.parse("2027-02-09T00:00:00.000Z"));
+
+			const changed = yield* researchRun(
+				"shared",
+				input({
+					topics: [{ title: "Note granularity", summary: "Notes." }],
+					rechecks: [{ topic: "Note granularity", source: SOURCE, outcome: "changed" }],
+					claims: [
+						{
+							key: "a",
+							topic: "Note granularity",
+							heading: "Retrieval unit",
+							text: "Proposition indexing beats passage indexing.",
+							verdict: "supported",
+							sourceType: "PRIMARY",
+							links: [{ rel: "supports", to: "t3" }],
+							replaces: first.answer[0] ?? "",
+						},
+					],
+				}),
+			);
+
+			yield* reindex;
+			const check = yield* researchCheck("proposition indexing");
+
+			expect(changed.stale).toContain(SOURCE);
+
+			expect(check.recheck[0]).toMatchObject({
+				id: SOURCE,
+				freshness: "stale",
+				basis: {
+					shelfLifeDays: 10,
+					basis: "recheck",
+					sourceCheck: { outcome: "changed", intervalDays: 20 },
+				},
+			});
+
+			const vault = yield* Vault;
+
+			yield* write("shared", (tx) =>
+				tx.putSource({
+					id: "src-aaaaaaaaaaaaaaaaaaaa",
+					kind: "capture",
+					title: "New edition",
+					sourceType: "PRIMARY",
+					captured: "2027-02-09T00:00:00.000Z",
+					passages: {},
+				}),
+			);
+
+			yield* vault.retireSource(SOURCE, {
+				status: "replaced",
+				replacedBy: "src-aaaaaaaaaaaaaaaaaaaa",
+				reason: "New edition",
+			});
+
+			const reopened = yield* vaultAt(vault.root);
+			const reopenedState = (yield* reopened.view).tiers.shared;
+
+			expect(reopenedState.runs[checked.id]?.rechecks?.[0]?.outcome).toBe("unchanged");
+			expect(reopenedState.runs[changed.id]?.rechecks?.[0]?.outcome).toBe("changed");
+			expect(reopenedState.claims[first.answer[0] ?? ""]?.status).toBe("superseded");
+
+			expect(reopenedState.claims[changed.answer[0] ?? ""]?.links).toContainEqual({
+				rel: "replaces",
+				target: first.answer[0],
+			});
+
+			expect(reopenedState.sources[SOURCE]).toMatchObject({
+				status: "replaced",
+				replacedBy: "src-aaaaaaaaaaaaaaaaaaaa",
+				passages: { p1: "Proposition indexing raises Recall@5." },
+			});
+		}));
+
+	test("explicit source and topic shelf lives take precedence over classifications and observations", () =>
+		Effect.gen(function* () {
+			yield* seeded;
+
+			yield* write("shared", (tx) =>
+				tx.putSource({
+					id: SOURCE,
+					kind: "capture",
+					title: "Dense X Retrieval",
+					sourceType: "PRIMARY",
+					url: `https://example.org/${SOURCE}`,
+					captured: "2026-11-01T00:00:00.000Z",
+					shelfLifeDays: 7,
+					passages: {},
+				}),
+			);
+
+			yield* researchRun(
+				"shared",
+				input({
+					topics: [
+						{
+							title: "Note granularity",
+							summary: "Notes.",
+							classification: "stable",
+							shelfLifeDays: 20,
+						},
+					],
+					rechecks: [{ topic: "Note granularity", source: SOURCE, outcome: "unchanged" }],
+				}),
+			);
+
+			yield* reindex;
+
+			expect(
+				(yield* researchCheck("proposition indexing")).claims[0]?.sources[0]?.basis,
+			).toMatchObject({ shelfLifeDays: 7, basis: "source-override" });
+
+			yield* write("shared", (tx) =>
+				tx.putSource({
+					id: SOURCE,
+					kind: "capture",
+					title: "Dense X Retrieval",
+					sourceType: "PRIMARY",
+					url: `https://example.org/${SOURCE}`,
+					captured: "2026-11-01T00:00:00.000Z",
+					passages: {},
+				}),
+			);
+
+			yield* reindex;
+
+			expect(
+				(yield* researchCheck("proposition indexing")).claims[0]?.sources[0]?.basis,
+			).toMatchObject({ shelfLifeDays: 20, basis: "topic-override" });
+		}));
+
+	test("a personal topic can record a check of a shared source without changing the shared tier", () =>
+		Effect.gen(function* () {
+			yield* seeded;
+
+			const run = yield* researchRun(
+				"personal",
+				input({
+					topics: [
+						{ title: "Private analysis", summary: "Private analysis.", classification: "evolving" },
+					],
+					passages: [],
+					claims: [
+						{
+							key: "a",
+							topic: "Private analysis",
+							heading: "Notes",
+							text: "Proposition indexing.",
+							verdict: "supported",
+							sourceType: "PRIMARY",
+							links: [{ rel: "source", to: SOURCE }],
+						},
+					],
+					rechecks: [{ topic: "Private analysis", source: SOURCE, outcome: "changed" }],
+				}),
+			);
+
+			expect(run.rechecks?.[0]).toMatchObject({ source: SOURCE, outcome: "changed" });
+			expect(Object.values((yield* state("shared")).runs)).toHaveLength(0);
+			yield* reindex;
+
+			expect((yield* researchCheck("proposition indexing")).claims[0]?.sources[0]?.freshness).toBe(
+				"stale",
+			);
 		}));
 
 	test("keeps topics apart when their titles slug the same, and keeps a topic's shelf life", () =>
@@ -178,6 +391,32 @@ describe("research run", () => {
 });
 
 describe("remember", () => {
+	test("cites an imported document by ID without asking vault-cite to capture it", () =>
+		Effect.gen(function* () {
+			const id = "doc-abcdef1234567890";
+
+			yield* write("shared", (tx) =>
+				tx.putSource({
+					id,
+					kind: "memory",
+					origin: "notes/kiln.md",
+					title: "Kiln",
+					sourceType: "DERIVED",
+					captured: "2026-11-19T00:00:00.000Z",
+					passages: { s1: "Glaze firing starts at noon." },
+				}),
+			);
+
+			const claim = yield* remember("personal", {
+				text: "Glaze firing starts at noon.",
+				topic: "Firing",
+				source: id,
+			});
+
+			expect(claim.links).toEqual([{ rel: "source", target: id }]);
+			expect(claim.sourceType).toBe("DERIVED");
+		}));
+
 	test("records who said it as a DIRECT source and never fetches for a known source", () =>
 		Effect.gen(function* () {
 			yield* seeded;

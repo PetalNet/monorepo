@@ -1,5 +1,5 @@
-import 'package:flutter/material.dart';
 import 'package:hooks_riverpod/hooks_riverpod.dart';
+import 'package:material_ui/material_ui.dart';
 import 'package:point_app/features/ghost/ghost_controller.dart';
 import 'package:point_app/features/people/people_controller.dart';
 import 'package:point_app/features/people/presentation/person_detail_screen.dart';
@@ -32,25 +32,25 @@ void main() {
 class _PreviewAuth extends AuthController {
   @override
   Future<Session?> build() async => const Session(
-        userId: 'parker@point.petalcat.dev',
-        token: 't',
-        displayName: 'Parker H',
-        isAdmin: true,
-      );
+    userId: 'parker@point.petalcat.dev',
+    token: 't',
+    displayName: 'Parker H',
+    isAdmin: true,
+  );
 }
 
 class _PreviewPeople extends PeopleController {
   @override
   Future<List<Person>> build() async => const [
-        Person(
-          userId: 'mara@fieldstone.social',
-          displayName: 'Mara Quinn',
-          presence: PresenceState.stale,
-          subtitle: 'Dark since 14:07',
-          lat: 38.627,
-          lon: -90.199,
-        ),
-      ];
+    Person(
+      userId: 'mara@fieldstone.social',
+      displayName: 'Mara Quinn',
+      presence: PresenceState.stale,
+      subtitle: 'Dark since 14:07',
+      lat: 38.627,
+      lon: -90.199,
+    ),
+  ];
 }
 
 class _PreviewGhost extends GhostController {

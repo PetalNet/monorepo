@@ -2,9 +2,9 @@ import 'dart:async';
 
 import 'package:app_links/app_links.dart';
 import 'package:flutter/foundation.dart';
-import 'package:flutter/material.dart';
 import 'package:hooks_riverpod/hooks_riverpod.dart';
 import 'package:kaisel/kaisel.dart';
+import 'package:material_ui/material_ui.dart';
 import 'package:point_app/app/animated_branch_stack.dart';
 import 'package:point_app/app/app_recovery_coordinator.dart';
 import 'package:point_app/app/routes.dart';

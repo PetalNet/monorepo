@@ -14,6 +14,7 @@ import argparse, glob, json, os, re, sys, time
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))  # -I leaves the script directory off sys.path
 import memindex
+import outbound
 
 CHANNEL = re.compile(r'<channel source="[^"]*"([^>]*)>([\s\S]*?)</channel>')
 ATTR = lambda s, k: (re.search(k + r'="([^"]*)"', s) or [None, ''])[1]
@@ -120,22 +121,39 @@ def card_of(session, transcript, rows):
                 end=rows[-1][2], ts=first.get('timestamp', ''), who=who, event_id=event_id, body=body)
 
 
-def note_dirs(db_path):
-    """{source: directory} from index.notes in <state>/config.json; each directory of .md files is mirrored."""
+def config(db_path):
     try:
         with open(os.path.join(os.path.dirname(os.path.abspath(db_path)), 'config.json')) as f:
-            return json.load(f).get('index', {}).get('notes', {})
+            return json.load(f)
     except (OSError, ValueError):
         return {}
+
+
+def note_dirs(db_path):
+    """{source: directory} from index.notes in <state>/config.json; each directory of .md files is mirrored."""
+    return {k: v for k, v in config(db_path).get('index', {}).get('notes', {}).items() if k != 'vault'}
 
 
 def doc_dirs(db_path):
     """{source: directory} from index.docs in <state>/config.json; each directory's Markdown is indexed in chunks."""
-    try:
-        with open(os.path.join(os.path.dirname(os.path.abspath(db_path)), 'config.json')) as f:
-            return json.load(f).get('index', {}).get('docs', {})
-    except (OSError, ValueError):
-        return {}
+    return {k: v for k, v in config(db_path).get('index', {}).get('docs', {}).items() if k != 'vault'}
+
+
+def recall_sources(db_path):
+    """The sources a prompt is searched in: fold, every notes and docs source, and the vault only when index.vault names
+    its replica and recall.vault is true."""
+    cfg = config(db_path)
+    vault = ['vault'] if cfg.get('index', {}).get('vault') and cfg.get('recall', {}).get('vault') is True else []
+    return ['fold', *note_dirs(db_path), *doc_dirs(db_path), *vault]
+
+
+def claim_card(m):
+    """One line for a vault claim: where it sits, what it says, and what backs it. The parts are cut, never the line,
+    so the source and freshness always show."""
+    backing = [f'source: {(m.get("source_title") or m.get("source_id"))[:120]}'] if m.get('source_title') or m.get('source_id') else []
+    backing += [f'captured {m["captured"][:10]}'] if m.get('captured') else []
+    return (f'[claim {m["claim"]}] {m["title"][:120]} > {m["heading"][:120]}: {" ".join(m["text"].split())[:400]} '
+            f'({m["source_type"]}; {", ".join(backing + [m["freshness"]])})')
 
 
 def build(a):
@@ -174,10 +192,12 @@ def build(a):
     db.execute('INSERT OR REPLACE INTO progress VALUES (?, ?)', (transcript, resume))
     db.commit()
     if a.ledger_cards and added:
+        ledger = [dict((k, c[k]) for k in ('pointer', 'ts', 'who', 'event_id', 'body')) for c in added]
+        payload = '\n'.join(json.dumps(c, ensure_ascii=False) for c in ledger) + '\n'
+        outbound.check('\n'.join([payload, *outbound.strings(ledger)]))
         try:
             with open(a.ledger_cards, 'x') as out:
-                for c in added:
-                    out.write(json.dumps({k: c[k] for k in ('pointer', 'ts', 'who', 'event_id', 'body')}) + '\n')
+                out.write(payload)
         except FileExistsError:
             pass
     notes = {}
@@ -185,6 +205,11 @@ def build(a):
         notes[src] = memindex.sync_notes(db, os.path.expanduser(d), src)
     for src, d in doc_dirs(a.db).items():
         notes[src] = memindex.sync_docs(db, os.path.expanduser(d), src)
+    # Vault rows count in every source's BM25 rarity, so they are indexed only while recall searches the vault.
+    if 'vault' in recall_sources(a.db):
+        notes['vault'] = memindex.sync_vault(db, config(a.db)['index']['vault'])
+    elif dropped := memindex.drop_source(db, 'vault'):
+        notes['vault'] = -dropped
     print(json.dumps({'transcript': transcript, 'added': len(added), 'offset': resume, 'notes': notes}))
     return 0
 
@@ -216,19 +241,20 @@ def thread_of(db_path, room, body, remember=True):
             with open(tmp, 'w') as f:
                 json.dump(rooms, f)
             os.replace(tmp, path)
-        except OSError as err:  # a lost turn costs one follow-up its context; it must not cost the recall
-            print(f'cards: thread not saved ({err!r})', file=sys.stderr)
+        except OSError:  # a lost turn costs one follow-up its context; it must not cost the recall
+            print('cards: thread not saved', file=sys.stderr)
     return [t[1] for t in turns]
 
 
 def query(a):
-    """The memory notes, documents and cards worth attaching to this prompt; usually none."""
+    """The memory notes, documents, vault claims and cards worth attaching to this prompt; usually none."""
     migrate(connect(a.db))
     msg = memindex.clean(a.text)
     if msg['kind'] == 'notice' or not msg['body']:
-        print('[]'); return 0
+        outbound.emit_json([]); return 0
     thread = json.loads(a.thread) if a.thread is not None else thread_of(a.db, msg['room'] or msg['kind'], msg['body'])
-    sources = a.sources.split(',') if a.sources else ['fold', *note_dirs(a.db), *doc_dirs(a.db)]
+    allowed = recall_sources(a.db)
+    sources = [s for s in a.sources.split(',') if s != 'vault' or s in allowed] if a.sources else allowed
     exclude = set(filter(None, (a.exclude or '').split(','))) | {f'{s}:MEMORY.md' for s in note_dirs(a.db)}
     cands = memindex.candidates(a.db, msg['body'], sources, thread)
     hits = memindex.gate(cands or [], len(memindex.terms_of(msg['body'])), exclude)[:a.k]
@@ -237,7 +263,10 @@ def query(a):
         m = c['meta']
         h = dict(pointer=c['pointer'], source=c['source'], ts=c['ts'], who=m.get('who', c['source']), event_id=m.get('event_id', ''),
                  path=m.get('path'), body=c['body'], p=round(c['p'], 3))
-        if c['source'] != 'fold':
+        if c['source'] == 'vault':
+            h.pop('p')
+            h.update(card=claim_card(m))
+        elif c['source'] != 'fold':
             name = os.path.basename(m.get('path') or c['pointer']).removesuffix('.md')
             text = re.sub(r'^---\n[\s\S]*?\n---\n', '', c['body']).strip()
             if m.get('title'):  # a document chunk: its title and section, then the chunk
@@ -245,7 +274,7 @@ def query(a):
             else:
                 h.update(name=front(c['body'], 'name') or name, description=front(c['body'], 'description') or text[:300])
         out.append(h)
-    print(json.dumps(out))
+    outbound.emit_json(out, [text for c in hits for text in outbound.strings(c)])
     return 0
 
 
@@ -255,11 +284,12 @@ def unfold(a):
     row = (db.execute('SELECT transcript, start, end FROM card WHERE event_id=?', (p[6:],)).fetchone() if p.startswith('event:')
            else db.execute('SELECT transcript, start, end FROM card WHERE pointer=?', (p,)).fetchone())
     if not row:
-        print('unfold: no card for ' + p, file=sys.stderr); return 1
+        print('unfold: no matching card', file=sys.stderr); return 1
     transcript, start, end = row
     with open(transcript, 'rb') as f:
         f.seek(start)
         chunk = f.read(end - start)
+    out = []
     for line in chunk.splitlines():
         try:
             r = json.loads(line)
@@ -272,7 +302,8 @@ def unfold(a):
             t = text_of(r.get('message', {}).get('content'))
         if a.max_tool_chars and len(t) > a.max_tool_chars:
             t = t[:a.max_tool_chars] + f'\n[... {len(t) - a.max_tool_chars} more chars; --max-tool-chars 0 for all]'
-        print(f'--- {r["type"]} {r.get("uuid", "")} {r.get("timestamp", "")}\n{t}')
+        out.append(f'--- {r["type"]} {r.get("uuid", "")} {r.get("timestamp", "")}\n{t}')
+    outbound.emit('\n'.join(out), [chunk.decode('utf-8')])
     return 0
 
 
@@ -293,4 +324,7 @@ def main():
 
 
 if __name__ == '__main__':
-    sys.exit(main())
+    try:
+        sys.exit(main())
+    except outbound.Refused:
+        sys.exit(outbound.refusal())

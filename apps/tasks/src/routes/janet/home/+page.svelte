@@ -96,6 +96,7 @@
 		</article>
 	</main>
 	<footer>
+		<a class="promises" href="/janet/follow-through">Promises</a>
 		<a class="call" href="janetcall://call">
 			<svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true"
 				><path
@@ -274,12 +275,25 @@
 		color: var(--g2);
 	}
 	footer {
+		display: grid;
+		gap: 8px;
 		padding: 10px 16px;
 		padding-bottom: max(14px, env(safe-area-inset-bottom));
 		max-width: 640px;
 		width: 100%;
 		margin: 0 auto;
 		box-sizing: border-box;
+	}
+	.promises {
+		display: flex;
+		align-items: center;
+		min-block-size: 44px;
+		text-decoration: underline;
+		text-underline-offset: 3px;
+	}
+	.promises:focus-visible {
+		outline: 2px solid var(--petal);
+		outline-offset: 3px;
 	}
 	.call {
 		display: flex;

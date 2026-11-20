@@ -1,5 +1,5 @@
-import 'package:flutter/material.dart';
 import 'package:hooks_riverpod/hooks_riverpod.dart';
+import 'package:material_ui/material_ui.dart';
 import 'package:point_app/features/ghost/who_sees_me.dart';
 import 'package:point_app/features/people/requests_controller.dart';
 import 'package:point_app/theme/theme_x.dart';

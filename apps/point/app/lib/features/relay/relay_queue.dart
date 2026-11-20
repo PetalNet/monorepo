@@ -12,10 +12,10 @@ class RelayItem {
   });
 
   factory RelayItem.fromJson(Map<String, dynamic> j) => RelayItem(
-        audience: j['a'] as String,
-        frame: j['f'] as String,
-        seq: j['s'] as int,
-      );
+    audience: j['a'] as String,
+    frame: j['f'] as String,
+    seq: j['s'] as int,
+  );
 
   /// Routing key (recipient user/group).
   final String audience;
@@ -87,9 +87,9 @@ class RelayQueue {
     _items.add(RelayItem(audience: audience, frame: frame, seq: _seq++));
     if (_items.length > capacity) {
       final staleIdx = _items.indexWhere((i) => i.audience == audience);
-      _items.removeAt(staleIdx >= 0 && staleIdx < _items.length - 1
-          ? staleIdx
-          : 0);
+      _items.removeAt(
+        staleIdx >= 0 && staleIdx < _items.length - 1 ? staleIdx : 0,
+      );
     }
     await _persist();
   }

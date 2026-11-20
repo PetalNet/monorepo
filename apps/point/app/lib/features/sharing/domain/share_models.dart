@@ -83,7 +83,8 @@ final class GroupAudience extends Audience {
 
   @override
   bool operator ==(Object other) =>
-      identical(this, other) || other is GroupAudience && other.groupId == groupId;
+      identical(this, other) ||
+      other is GroupAudience && other.groupId == groupId;
 
   @override
   int get hashCode => Object.hash(runtimeType, groupId);

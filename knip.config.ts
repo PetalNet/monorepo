@@ -123,6 +123,8 @@ export default (({ strict }) => ({
 				"src/objectives-prune.ts!",
 				"src/janet-voice.ts!",
 				"src/promise.ts!",
+				"src/photo-memory.ts!",
+				"src/promise-control.ts!",
 				"src/quota.ts!",
 			],
 		},

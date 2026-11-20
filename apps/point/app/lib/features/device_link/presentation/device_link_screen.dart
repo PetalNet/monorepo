@@ -1,6 +1,6 @@
-import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:kaisel/kaisel.dart';
+import 'package:material_ui/material_ui.dart';
 import 'package:point_app/theme/app_theme.dart';
 import 'package:point_app/theme/theme_x.dart';
 import 'package:qr_flutter/qr_flutter.dart';
@@ -46,16 +46,18 @@ class DeviceLinkScreen extends StatelessWidget {
                     'Your identity stays on your devices. The server never '
                     'adds a device for you.',
                     textAlign: TextAlign.center,
-                    style: context.text.bodyMedium
-                        ?.copyWith(color: context.colors.onSurfaceVariant),
+                    style: context.text.bodyMedium?.copyWith(
+                      color: context.colors.onSurfaceVariant,
+                    ),
                   ),
                   SizedBox(height: context.space.xl),
                   const _QrCard(payload: _payload),
                   SizedBox(height: context.space.xl),
                   Text(
                     'Or enter this code',
-                    style: context.text.labelMedium
-                        ?.copyWith(color: context.colors.onSurfaceVariant),
+                    style: context.text.labelMedium?.copyWith(
+                      color: context.colors.onSurfaceVariant,
+                    ),
                   ),
                   SizedBox(height: context.space.sm),
                   const _FallbackCode(code: _fallbackCode),

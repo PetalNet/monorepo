@@ -2,11 +2,11 @@ import 'dart:async';
 import 'dart:convert';
 
 import 'package:fake_async/fake_async.dart';
-import 'package:flutter/material.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:geolocator/geolocator.dart';
 import 'package:hooks_riverpod/hooks_riverpod.dart';
+import 'package:material_ui/material_ui.dart';
 import 'package:point_app/app/session_transition.dart';
 import 'package:point_app/features/location/data/location_service.dart';
 import 'package:point_app/features/location/domain/location_state_machine.dart';
@@ -462,72 +462,75 @@ void main() {
       });
     });
 
-    test('LAYER 1 wake-gate hysteresis: a single accelerometer bump does NOT '
-        'wake GPS; ~10s of SUSTAINED motion does (location-strategy Layer 1)',
-        () {
-      fakeAsync((async) {
-        final h = _Harness();
-        unawaited(h.service.start());
-        async.flushMicrotasks();
+    test(
+      'LAYER 1 wake-gate hysteresis: a single accelerometer bump does NOT '
+      'wake GPS; ~10s of SUSTAINED motion does (location-strategy Layer 1)',
+      () {
+        fakeAsync((async) {
+          final h = _Harness();
+          unawaited(h.service.start());
+          async.flushMicrotasks();
 
-        // Park it (backgrounded + still) so the accelerometer wake-gate is the
-        // thing arbitrating GPS. The FGS-keepalive stream keeps the isolate
-        // awake, so the accel gate runs in the background too.
-        h.service.onBackground();
-        h.gps.add(_pos());
-        async
-          ..flushMicrotasks()
-          ..elapse(const Duration(seconds: 31)); // → idle, accel armed
-        expect(h.service.activity, LocationActivity.idle);
-        expect(h.accel.hasListener, isTrue);
+          // Park it (backgrounded + still) so the accelerometer wake-gate is the
+          // thing arbitrating GPS. The FGS-keepalive stream keeps the isolate
+          // awake, so the accel gate runs in the background too.
+          h.service.onBackground();
+          h.gps.add(_pos());
+          async
+            ..flushMicrotasks()
+            ..elapse(const Duration(seconds: 31)); // → idle, accel armed
+          expect(h.service.activity, LocationActivity.idle);
+          expect(h.accel.hasListener, isTrue);
 
-        // A well-above-threshold sample (|magnitude| ≫ 1.2g): z well past 1g.
-        AccelerometerEvent motion() =>
-            AccelerometerEvent(0, 0, 9.81 + 6, DateTime.now());
+          // A well-above-threshold sample (|magnitude| ≫ 1.2g): z well past 1g.
+          AccelerometerEvent motion() =>
+              AccelerometerEvent(0, 0, 9.81 + 6, DateTime.now());
 
-        // A lone bump must be ignored (pocket jitter) — no wake. Elapse PAST
-        // the full 10s sustained window: an impl with no grace-gap reset would
-        // let a lone bump's wake timer mature at 10s and fire here. The real
-        // engine cancels the accrual once the 2s grace gap passes with no
-        // further motion, so it must STILL be idle at 12s.
-        h.accel.add(motion());
-        async.elapse(const Duration(seconds: 12)); // well past the 10s window
-        expect(
-          h.service.activity,
-          LocationActivity.idle,
-          reason: 'a single bump must not wake GPS even 12s later (the grace '
-              'gap resets the accrual)',
-        );
-
-        // Pin the 10s threshold — low side: ~8s of SUSTAINED motion (a sample
-        // each second, gaps < the 2s grace) is below the window and must NOT
-        // wake.
-        for (var i = 0; i < 8; i++) {
+          // A lone bump must be ignored (pocket jitter) — no wake. Elapse PAST
+          // the full 10s sustained window: an impl with no grace-gap reset would
+          // let a lone bump's wake timer mature at 10s and fire here. The real
+          // engine cancels the accrual once the 2s grace gap passes with no
+          // further motion, so it must STILL be idle at 12s.
           h.accel.add(motion());
-          async.elapse(const Duration(seconds: 1));
-        }
-        expect(
-          h.service.activity,
-          LocationActivity.idle,
-          reason: '~8s of sustained motion is below the 10s wake threshold',
-        );
+          async.elapse(const Duration(seconds: 12)); // well past the 10s window
+          expect(
+            h.service.activity,
+            LocationActivity.idle,
+            reason:
+                'a single bump must not wake GPS even 12s later (the grace '
+                'gap resets the accrual)',
+          );
 
-        // Pin the 10s threshold — high side: carrying the SAME uninterrupted
-        // burst past ~10s DOES wake.
-        for (var i = 0; i < 3; i++) {
-          h.accel.add(motion());
-          async.elapse(const Duration(seconds: 1));
-        }
-        expect(
-          h.service.activity,
-          LocationActivity.active,
-          reason: 'sustained motion reaching ~10s wakes GPS to active',
-        );
+          // Pin the 10s threshold — low side: ~8s of SUSTAINED motion (a sample
+          // each second, gaps < the 2s grace) is below the window and must NOT
+          // wake.
+          for (var i = 0; i < 8; i++) {
+            h.accel.add(motion());
+            async.elapse(const Duration(seconds: 1));
+          }
+          expect(
+            h.service.activity,
+            LocationActivity.idle,
+            reason: '~8s of sustained motion is below the 10s wake threshold',
+          );
 
-        unawaited(h.close());
-        async.flushMicrotasks();
-      });
-    });
+          // Pin the 10s threshold — high side: carrying the SAME uninterrupted
+          // burst past ~10s DOES wake.
+          for (var i = 0; i < 3; i++) {
+            h.accel.add(motion());
+            async.elapse(const Duration(seconds: 1));
+          }
+          expect(
+            h.service.activity,
+            LocationActivity.active,
+            reason: 'sustained motion reaching ~10s wakes GPS to active',
+          );
+
+          unawaited(h.close());
+          async.flushMicrotasks();
+        });
+      },
+    );
 
     test('LAYER 1 hysteresis: periodic jitter (a bump every ~9s) never wakes — '
         'isolated samples with >2s still gaps keep resetting the accrual', () {
@@ -709,36 +712,39 @@ void main() {
       });
     });
 
-    test('(e) entering parked relays an IMMEDIATE keepalive so there is no dark '
-        'gap before the first 30-minute heartbeat', () {
-      fakeAsync((async) {
-        final h = _Harness();
-        unawaited(h.service.start());
-        async.flushMicrotasks();
-        final seed = _pos(lat: 38.71, lon: -90.45);
-        h.gps.add(seed);
-        async.flushMicrotasks();
-        final beforePark = h.fixes.length; // the live fix
+    test(
+      '(e) entering parked relays an IMMEDIATE keepalive so there is no dark '
+      'gap before the first 30-minute heartbeat',
+      () {
+        fakeAsync((async) {
+          final h = _Harness();
+          unawaited(h.service.start());
+          async.flushMicrotasks();
+          final seed = _pos(lat: 38.71, lon: -90.45);
+          h.gps.add(seed);
+          async.flushMicrotasks();
+          final beforePark = h.fixes.length; // the live fix
 
-        // Ramp to parked (fg stillness 2min). No heartbeat has fired yet.
-        async.elapse(const Duration(minutes: 2, seconds: 1));
-        expect(h.service.activity, LocationActivity.idle);
+          // Ramp to parked (fg stillness 2min). No heartbeat has fired yet.
+          async.elapse(const Duration(minutes: 2, seconds: 1));
+          expect(h.service.activity, LocationActivity.idle);
 
-        // A keepalive left IMMEDIATELY on parking — before the first 30-min
-        // tick — as a PARKED floor of the last-known position (real sample
-        // time), costing no currentPosition request.
-        expect(h.fixes.length, beforePark + 1);
-        expect(h.heartbeatRequests, 0);
-        final ka = h.fixes.last;
-        expect(ka.parked, isTrue);
-        expect(ka.lat, seed.latitude);
-        expect(ka.timestampMs, seed.timestamp.millisecondsSinceEpoch);
-        expect(ka.aliveAtMs, greaterThanOrEqualTo(ka.timestampMs));
+          // A keepalive left IMMEDIATELY on parking — before the first 30-min
+          // tick — as a PARKED floor of the last-known position (real sample
+          // time), costing no currentPosition request.
+          expect(h.fixes.length, beforePark + 1);
+          expect(h.heartbeatRequests, 0);
+          final ka = h.fixes.last;
+          expect(ka.parked, isTrue);
+          expect(ka.lat, seed.latitude);
+          expect(ka.timestampMs, seed.timestamp.millisecondsSinceEpoch);
+          expect(ka.aliveAtMs, greaterThanOrEqualTo(ka.timestampMs));
 
-        unawaited(h.close());
-        async.flushMicrotasks();
-      });
-    });
+          unawaited(h.close());
+          async.flushMicrotasks();
+        });
+      },
+    );
 
     test('(f) DEFECT #2: a parked→active wake in the BACKGROUND swaps the GPS '
         'stream CANCEL-THEN-REOPEN (old canceled BEFORE new opened, to reset '
@@ -746,7 +752,9 @@ void main() {
         '(so the reopen never trips the Android-12 background FGS block)', () {
       fakeAsync((async) {
         final events = <String>[];
-        final accel = StreamController<AccelerometerEvent>.broadcast(sync: true);
+        final accel = StreamController<AccelerometerEvent>.broadcast(
+          sync: true,
+        );
         final opened = <StreamController<Position>>[];
         final fgs = _FakeForegroundService();
         final service = LocationService(

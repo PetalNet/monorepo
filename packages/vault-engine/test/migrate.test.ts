@@ -1,14 +1,27 @@
+import { createHash } from "node:crypto";
 import path from "node:path";
 
 import { describe, expect } from "@effect/vitest";
-import { Effect } from "effect";
+import { Effect, FileSystem } from "effect";
+import { LoroDoc } from "loro-crdt";
 
 import { Vault } from "../src/engine.ts";
 import { migrate } from "../src/migrate.ts";
 import type { ManifestEntry } from "../src/migrate.ts";
 import { lint, project } from "../src/project.ts";
 import { recallPassages, reindex } from "../src/recall.ts";
-import { OTHER, SOURCE, readText, state, stored, tempDir, test, writeText } from "./tools.ts";
+import {
+	OTHER,
+	SOURCE,
+	TOPIC,
+	readText,
+	state,
+	stored,
+	tempDir,
+	test,
+	write,
+	writeText,
+} from "./tools.ts";
 
 type DocumentEntry = Extract<ManifestEntry, { type: "document" }>;
 
@@ -288,26 +301,195 @@ describe("migration", () => {
 			expect(yield* source(SOURCE)).toBeUndefined();
 		}));
 
-	test("converges when the same manifest runs twice, and keeps the first version of a changed document", () =>
+	test("withholds unsafe origins even when a document is unreadable, empty or out of scope", () =>
 		Effect.gen(function* () {
-			const at = yield* file(yield* tempDir, "a.md", "# One\nFirst version.\n");
-			const [first] = (yield* migrate([document(at)], [])).migrated;
-			const before = (yield* state("shared")).sources;
+			const dir = yield* tempDir;
+			const empty = yield* file(dir, "empty.md", "");
+			const denied = yield* file(dir, "denied.md", "An excluded subject.");
+			const origin = `ghp_${"a1B2".repeat(9)}`;
+			const report = yield* migrate(
+				[
+					document(`${dir}/missing.md`, { origin }),
+					document(empty, { origin }),
+					document(denied, { origin }),
+				],
+				["excluded subject"],
+			);
 
-			yield* migrate([document(at)], []);
-			expect((yield* state("shared")).sources).toEqual(before);
-
-			yield* writeText(at, "# Zero\nInserted.\n# One\nFirst version.\n");
-
-			expect((yield* migrate([document(at)], [])).excluded).toEqual([
-				{
-					origin: at,
-					reason: "changed since it was migrated; the vault keeps the migrated version",
-				},
+			expect(report.excluded).toEqual([
+				{ origin: "(origin withheld by the secret scan)", reason: "unreadable" },
+				{ origin: "(origin withheld by the secret scan)", reason: "empty document" },
+				{ origin: "(origin withheld by the secret scan)", reason: "out of scope" },
 			]);
 
-			expect((yield* source(first?.id ?? ""))?.passages).toEqual({ s1: "# One\nFirst version." });
+			expect(JSON.stringify(report)).not.toContain(origin);
 		}));
+
+	test("creates a version for edits and reverts, and leaves unchanged migrations out of history", () =>
+		Effect.gen(function* () {
+			const at = yield* file(yield* tempDir, "a.md", "# One\nFirst version.\n");
+			const vault = yield* Vault;
+			const first = (yield* migrate([document(at)], [])).migrated[0]?.id ?? "";
+
+			expect(first).toBe(
+				`doc-${createHash("sha256").update(`research\n${at}`).digest("hex").slice(0, 16)}`,
+			);
+
+			yield* write("shared", (tx) => tx.addPassage(first, "First version.", "A later quote"));
+
+			const before = yield* vault.history("shared");
+			const same = yield* migrate([document(at, { captured: "2026-10-19T00:00:00.000Z" })], []);
+
+			expect(same.migrated[0]?.id).toBe(first);
+			expect(yield* vault.history("shared")).toEqual(before);
+
+			const versions = [first];
+
+			for (const [body, title] of [
+				["# One\nFirst version.\n# Two\nAdded.\n", "a.md"],
+				["# One\nFirst version.\n", "a.md"],
+				["\n", "a.md"],
+				["# One\nFirst version.\n", "Renamed"],
+				["# One\nFirst version.\n", "a.md"],
+			] as const) {
+				yield* writeText(at, body);
+				const report = yield* migrate([document(at, { title })], []);
+
+				expect(report.excluded).toEqual([]);
+				const next = report.migrated[0]?.id ?? "";
+
+				expect(versions).not.toContain(next);
+
+				expect(yield* source(versions.at(-1) ?? "")).toMatchObject({
+					status: "replaced",
+					replacedBy: next,
+				});
+
+				if (body.trim() === "") {
+					expect(yield* source(next)).toMatchObject({ status: "active", passages: {} });
+					const emptyHistory = yield* vault.history("shared");
+
+					expect((yield* migrate([document(at)], [])).migrated[0]?.id).toBe(next);
+					expect(yield* vault.history("shared")).toEqual(emptyHistory);
+				}
+
+				versions.push(next);
+			}
+
+			expect(yield* source(versions.at(-1) ?? "")).toMatchObject({
+				status: "active",
+				passages: { s1: "# One\nFirst version." },
+			});
+
+			const history = yield* vault.history("shared");
+
+			expect((yield* migrate([document(at)], [])).migrated[0]?.id).toBe(versions.at(-1));
+			expect(yield* vault.history("shared")).toEqual(history);
+		}));
+
+	test("flags claims in the document tier and other tiers when a document is emptied", () =>
+		Effect.gen(function* () {
+			const at = yield* file(yield* tempDir, "a.md", "# One\nFirst.\n");
+			const old = (yield* migrate([document(at)], [])).migrated[0]?.id ?? "";
+			const add = (tier: "shared" | "personal") =>
+				write(tier, (tx) =>
+					Effect.gen(function* () {
+						yield* tx.putTopic({ id: TOPIC, title: "Topic", summary: "Summary", headings: [] });
+
+						return yield* tx.addClaim({
+							text: `Claim in ${tier}.`,
+							topic: TOPIC,
+							heading: "Topic",
+							links: [{ rel: "supports", target: old, passage: "s1" }],
+							sourceType: "DERIVED",
+						});
+					}),
+				);
+			const shared = yield* add("shared");
+			const personal = yield* add("personal");
+
+			yield* writeText(at, "\n");
+			const report = yield* migrate([document(at)], []);
+
+			expect(report.migrated[0]?.id).not.toBe(old);
+			expect(yield* source(report.migrated[0]?.id ?? "")).toMatchObject({ passages: {} });
+			expect((yield* state("shared")).claims[shared.id]?.stale?.sources).toEqual([old]);
+			expect((yield* state("personal")).claims[personal.id]?.stale?.sources).toEqual([old]);
+		}));
+
+	test("does not treat a document whose sections were all filtered as an empty edit", () =>
+		Effect.gen(function* () {
+			const at = yield* file(yield* tempDir, "a.md", "Safe.\n");
+			const old = (yield* migrate([document(at)], [])).migrated[0]?.id ?? "";
+
+			yield* writeText(at, "Excluded subject.\n");
+			const report = yield* migrate([document(at)], ["excluded subject"], 1);
+
+			expect(report.excluded).toEqual([{ origin: at, reason: "empty document" }]);
+			expect(yield* source(old)).toMatchObject({ status: "active", passages: { s1: "Safe." } });
+		}));
+
+	test("refuses a secret in an update without replacing the active source", () =>
+		Effect.gen(function* () {
+			const at = yield* file(yield* tempDir, "a.md", "First.\n");
+			const vault = yield* Vault;
+			const old = (yield* migrate([document(at)], [])).migrated[0]?.id ?? "";
+			const before = yield* vault.history("shared");
+			const secret = `ghp_${"a1B2".repeat(9)}`;
+
+			yield* writeText(at, `Secret: ${secret}\n`);
+			const report = yield* migrate([document(at)], []);
+
+			expect(report.excluded).toEqual([{ origin: at, reason: "secret scan: github-pat" }]);
+			expect(report.migrated).toEqual([]);
+			expect(yield* source(old)).toMatchObject({ status: "active", passages: { s1: "First." } });
+			expect(Object.keys((yield* state("shared")).sources)).toEqual([old]);
+			expect(yield* vault.history("shared")).toEqual(before);
+			expect(yield* stored("shared")).not.toContain(secret);
+		}));
+
+	for (const failure of ["broken", "cycle", "foreign"] as const) {
+		test(`refuses a ${failure} version chain`, () =>
+			Effect.gen(function* () {
+				const at = yield* file(yield* tempDir, "a.md", "First.\n");
+				const vault = yield* Vault;
+				const old = (yield* migrate([document(at)], [])).migrated[0]?.id ?? "";
+				const other = "doc-abcdef1234567890";
+
+				if (failure === "foreign") {
+					yield* write("shared", (tx) =>
+						tx.putSource({
+							id: other,
+							kind: "research",
+							origin: "another document",
+							title: "Other",
+							sourceType: "DERIVED",
+							captured: "2026-10-18T00:00:00.000Z",
+							passages: { s1: "Other." },
+						}),
+					);
+				}
+
+				const doc = LoroDoc.fromSnapshot(yield* vault.snapshot("shared"));
+
+				doc.getMap("sourceStatus").set(old, {
+					status: "replaced",
+					replacedBy: failure === "cycle" ? old : other,
+					reason: "fixture",
+				});
+
+				doc.commit();
+				const fs = yield* FileSystem.FileSystem;
+
+				yield* fs.writeFile(vault.file("shared"), doc.export({ mode: "snapshot" }));
+				const before = yield* vault.history("shared");
+				const report = yield* migrate([document(at)], []);
+
+				expect(report.excluded).toEqual([{ origin: at, reason: "invalid document version chain" }]);
+				expect(report.migrated).toEqual([]);
+				expect(yield* vault.history("shared")).toEqual(before);
+			}));
+	}
 
 	test("stores a capture's excerpt as a passage a later quote reuses, and refuses one that holds a secret", () =>
 		Effect.gen(function* () {

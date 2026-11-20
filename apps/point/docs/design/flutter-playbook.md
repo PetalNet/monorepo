@@ -165,7 +165,7 @@ Pass/fail rubric mirroring the web "impeccable" bar. Most items are a lint or a 
 Point = Android-first Material 3 location-sharing client: map UI, live presence dots, share/contacts surface, ghost on/off toggle, device-linking QR. Concrete calls:
 
 **Stack for Point**
-- **Tooling:** Flutter 3.44.6 is pinned by `app/mise.toml`; install it with Mise.
+- **Tooling:** Flutter 3.50.0 is pinned by `app/mise.toml`; install it with Mise.
   MCP and browser render loops are optional aids, not build prerequisites.
 - **Targets:** Android is the production target. Web is only a possible layout
   aid; this checkout has no iOS or desktop runners.

@@ -2,14 +2,15 @@ import path from "node:path";
 import { DatabaseSync } from "node:sqlite";
 
 import { describe, expect } from "@effect/vitest";
-import { Effect, Schema } from "effect";
+import { Effect, Result, Schema } from "effect";
 
 import { collect } from "../src/collect.ts";
 import type { CollectSpec } from "../src/collect.ts";
 import { ManifestEntry, migrate } from "../src/migrate.ts";
+import { loadOutboundScanner } from "../src/outbound-scan.ts";
 import { lint, project } from "../src/project.ts";
 import { recallPassages, reindex } from "../src/recall.ts";
-import { OTHER, SOURCE, readText, state, tempDir, test, writeText } from "./tools.ts";
+import { OTHER, SOURCE, exists, readText, state, tempDir, test, writeText } from "./tools.ts";
 
 const PIXELS = `data:image/png;base64,${"iVBORw0KGgo".repeat(40_000)}`;
 
@@ -159,6 +160,141 @@ describe("a collected gallery page", () => {
 });
 
 describe("collect", () => {
+	test("guarded collections carry an emptied note through migration", () =>
+		Effect.gen(function* () {
+			const dir = yield* tempDir;
+			const note = path.join(dir, "note.md");
+			const scan = yield* Effect.promise(() =>
+				loadOutboundScanner({
+					...process.env,
+					VAULT_SECRET_PROVIDER_ARGV: JSON.stringify([
+						process.execPath,
+						path.join(import.meta.dirname, "fake-secret-provider.ts"),
+					]),
+					VAULT_SECRET_POLICY: undefined,
+				}),
+			);
+			const spec: CollectSpec = {
+				notes: [{ dir, origin: "notes", kind: "memory", tier: "personal" }],
+			};
+			const migrateCollection = (out: string) =>
+				Effect.gen(function* () {
+					yield* collect(spec, out, scan);
+
+					const entries = yield* Schema.decodeEffect(
+						Schema.Array(Schema.fromJsonString(ManifestEntry)),
+					)((yield* readText(out, "manifest.jsonl")).split("\n").filter(Boolean));
+
+					return yield* migrate(entries, []);
+				});
+
+			yield* writeText(note, "Original text.\n");
+
+			const first = yield* migrateCollection(path.join(dir, "first"));
+			const old = first.migrated[0]?.id ?? "";
+
+			yield* writeText(note, "");
+
+			const second = yield* migrateCollection(path.join(dir, "second"));
+			const next = second.migrated[0]?.id ?? "";
+			const sources = (yield* state("personal")).sources;
+
+			expect(second.excluded).toEqual([]);
+			expect(next).not.toBe(old);
+			expect(sources[old]).toMatchObject({ status: "replaced", replacedBy: next });
+			expect(sources[next]).toMatchObject({ status: "active", passages: {} });
+		}));
+
+	test("guarded collection withholds known values in notes, gallery rows and capture metadata", () =>
+		Effect.gen(function* () {
+			const dir = yield* tempDir;
+			const out = path.join(dir, "out");
+			const db = path.join(dir, "gallery.db");
+			const cite = path.join(dir, "cite.db");
+			const phrase = "amber orchard lantern twelve";
+			const scan = yield* Effect.promise(() =>
+				loadOutboundScanner({
+					...process.env,
+					VAULT_SECRET_PROVIDER_ARGV: JSON.stringify([
+						process.execPath,
+						path.join(import.meta.dirname, "fake-secret-provider.ts"),
+					]),
+					VAULT_SECRET_POLICY: undefined,
+				}),
+			);
+
+			yield* writeText(path.join(dir, "safe.md"), "# Notes\n\nGlaze firing starts at noon.");
+			yield* writeText(path.join(dir, "blocked.md"), `# Private\n\n${phrase}`);
+			yield* writeText(path.join(dir, `${phrase}.md`), "Harmless body; the filename is refused.");
+
+			yield* galleryDb(db, [
+				{ slug: "safe", kind: "html", visibility: "private", content: "<p>Celadon glaze.</p>" },
+				{ slug: "blocked", kind: "markdown", visibility: "shared", content: phrase },
+				{
+					slug: "encoded",
+					kind: "html",
+					visibility: "shared",
+					content: "<p>amber&#32;orchard lantern twelve</p>",
+				},
+			]);
+
+			yield* citeDb(cite, [{ id: SOURCE, title: phrase, text: "Ordinary excerpt." }]);
+
+			const result = yield* collect(
+				{
+					gallery: { db, origin: "gallery" },
+					notes: [{ dir, origin: "notes", kind: "memory", tier: "personal" }],
+					cite: { db: cite, tier: "personal" },
+				},
+				out,
+				scan,
+			);
+			const manifest = yield* readText(out, "manifest.jsonl");
+			const report = yield* readText(out, "collect.json");
+			const entries = yield* Schema.decodeEffect(
+				Schema.Array(Schema.fromJsonString(ManifestEntry)),
+			)(manifest.split("\n").filter(Boolean));
+
+			expect(result.entries).toEqual({ "gallery/personal": 1, "memory/personal": 1 });
+			expect(result.skipped).toHaveLength(5);
+
+			expect(result.skipped.every((skip) => skip.reason === "secret scan: known-secret")).toBe(
+				true,
+			);
+
+			expect(`${manifest}${report}`).not.toContain(phrase);
+
+			expect(
+				result.skipped.some((skip) => skip.origin === "(origin withheld by the secret scan)"),
+			).toBe(true);
+
+			// Editing the original after scanning cannot change the staged copy in the manifest.
+			yield* writeText(path.join(dir, "safe.md"), phrase);
+
+			for (const entry of entries) {
+				expect(entry.type).toBe("document");
+
+				if (entry.type === "document") {
+					expect(entry.file.startsWith(path.join(out, "documents"))).toBe(true);
+					expect(scan([yield* readText(entry.file)])).toEqual([]);
+				}
+			}
+
+			expect((yield* migrate(entries, [])).excluded).toEqual([]);
+		}));
+
+	test("guarded collection refuses an existing output directory before writing", () =>
+		Effect.gen(function* () {
+			const dir = yield* tempDir;
+
+			yield* writeText(path.join(dir, "previous.md"), "A previous unscanned document.");
+			const result = yield* collect({}, dir, () => []).pipe(Effect.result);
+
+			expect(Result.isFailure(result)).toBe(true);
+			expect(yield* exists(dir, "manifest.jsonl")).toBe(false);
+			expect(yield* exists(dir, "documents")).toBe(false);
+		}));
+
 	test("gallery rows are recalled from the tier their visibility maps to, without embedded data", () =>
 		Effect.gen(function* () {
 			const dir = yield* tempDir;
