@@ -39,6 +39,7 @@ envgen build site.json --out build/ --cache cache/
 | Surround      | both rasters at coarse spacing, if asked for    | `context_heightmap.png`, `context_colour.png`                                                           |
 | Trees         | the cover rasters, the classes, a survey, a mix | `trees.json`: one row per tree                                                                          |
 | Buildings     | footprints, lidar, the photo, the classes       | `buildings.json`: one record per building                                                               |
+| Procfill      | survey, coarse imagery, terrain and cover       | `procfill_*.png`, priors, holdout report and a derived tree inventory                                   |
 | Manifest      | everything above                                | `build.json`: placement, georeference, stencil classes, hashes                                          |
 
 - A source is either a local raster (`"kind": "file"`) or an ArcGIS ImageServer
@@ -358,6 +359,13 @@ Stored sampling does not establish the image's independently resolved detail.
   With native masks, standing cover and survey shadows are excluded. A rejected shadow fit uses a conservative
   -1.5-stop darkness prior on seasonal ground; this is not complete shadow removal. On the real tile the footprint is
   west of the fly and walk stations, so it shows in the walk tour's later frames (about frame 2600) and the overview.
+
+### Procedural ground beyond the survey
+
+The optional survey-driven `procfill` stage carries fitted ground appearance into coarse imagery coverage.
+It exports seeded masks, per-mask provenance and confidence, spatial holdout results, and paintable PNG images.
+See [procedural ground masks](docs/procfill.md) for the evidence limits and Unreal integration, and
+[paint procedural ground masks](docs/paint-procfill.md) to replace generated features.
 
 ### Grass
 
