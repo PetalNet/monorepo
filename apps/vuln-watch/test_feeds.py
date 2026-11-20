@@ -269,6 +269,39 @@ class FeedTests(unittest.TestCase):
         result, _ = self.run_ingest([a], config=config)
         self.assertEqual('unaffected', result['advisories'][0]['affected'][0]['verdict'])
 
+    def test_persisted_vendor_rule_survives_next_feed_ingestion(self):
+        a = asset(version='2.0')
+        a.update(service='widget', exposure='internet', packages=[
+            dict(ecosystem='PyPI', name='widget', version='2.0')])
+        at = watcher.now()
+        inv = dict(collected_at=at, assets=[a], gaps=[])
+        path = self.path / 'vendor-restart.sqlite'
+        db = watcher.database(path)
+        original = feeds._advisory(CID, affected=[dict(
+            asset_id=a['id'], verdict='affected', source='osv',
+            package=dict(ecosystem='PyPI', name='widget'), evidence='old affected version')])
+        watcher.reconcile(db, inv, dict(advisories=[original]), at, emit_digest=False)
+        rules = [dict(id=CID, products=['Widget'], severity='HIGH', introduced='0',
+                      fixed_by_major={'2': '2.0'}, summary='Reviewed vendor rule',
+                      url='https://example.test/advisory', fix='Upgrade to 2.0')]
+        overlaid = dict(advisories=[original])
+        watcher.overlay_vendor_rules(overlaid, inv, rules)
+        self.assertEqual(1, watcher.reconcile(db, inv, overlaid, at, emit_digest=False)['closed'])
+        db.close()
+        db = watcher.database(path)
+        self.addCleanup(db.close)
+        config = {'repositories': {a['id']: ['vendor/widget']},
+                  '_tracked_advisories': [json.loads(r[0]) for r in db.execute('SELECT payload FROM advisories')],
+                  '_tracked_osv': [dict(r) for r in db.execute('SELECT * FROM osv_tracking')]}
+        advisory = dict(cve_id=CID, updated_at=at, vulnerabilities=[dict(
+            package=dict(ecosystem='pip', name='widget'), vulnerable_version_range='< 2')])
+        result, _ = self.run_ingest([a], github=[advisory], config=config)
+        summary = watcher.reconcile(db, inv, result, at, emit_digest=False)
+        self.assertEqual((0, 0, 'closed'), (summary['closed'], summary['open'],
+                                          watcher.report(db)['items'][0]['status']))
+        record = result['advisories'][0]
+        self.assertEqual((at, 'Reviewed vendor rule'), (record['modified'], record['summary']))
+
     def test_unavailable_second_osv_binding_cannot_resolve(self):
         a = asset(version='2.0')
         a['packages'] = [dict(ecosystem='PyPI', name=n, version='2.0') for n in ['first', 'second']]
