@@ -70,8 +70,12 @@ def example_loss(model, processor, waveform, text, prompt_ids=None, augment=Fals
     labels = ids[:, 1:].clone()
     labels[:, : len(prompt_ids or [])] = -100
     hidden = partial_encoder(model.model.encoder, features, context)
-    return model(encoder_outputs=BaseModelOutput(last_hidden_state=hidden),
-                 decoder_input_ids=ids[:, :-1], labels=labels, use_cache=False).loss
+    return model(
+        encoder_outputs=BaseModelOutput(last_hidden_state=hidden),
+        decoder_input_ids=ids[:, :-1],
+        labels=labels,
+        use_cache=False,
+    ).loss
 
 
 def in_night_window(now=None):
@@ -96,8 +100,12 @@ def configure_gpu(policy, fraction):
 
 
 def rng_state():
-    return {"python": random.getstate(), "numpy": np.random.get_state(),
-            "torch": torch.get_rng_state(), "cuda": torch.cuda.get_rng_state_all()}
+    return {
+        "python": random.getstate(),
+        "numpy": np.random.get_state(),
+        "torch": torch.get_rng_state(),
+        "cuda": torch.cuda.get_rng_state_all(),
+    }
 
 
 def restore_rng(state):
@@ -108,10 +116,16 @@ def restore_rng(state):
 
 
 def save_last(path, model, optimizer, scheduler, scaler, state, signature):
-    checkpoint = {"model": model.state_dict(), "optimizer": optimizer.state_dict(),
-                  "scheduler": scheduler.state_dict(), "scaler": scaler.state_dict(),
-                  "gradients": {name: p.grad for name, p in model.named_parameters() if p.grad is not None},
-                  "rng": rng_state(), "state": state, "signature": signature}
+    checkpoint = {
+        "model": model.state_dict(),
+        "optimizer": optimizer.state_dict(),
+        "scheduler": scheduler.state_dict(),
+        "scaler": scaler.state_dict(),
+        "gradients": {name: p.grad for name, p in model.named_parameters() if p.grad is not None},
+        "rng": rng_state(),
+        "state": state,
+        "signature": signature,
+    }
     temporary = path.with_suffix(".tmp")
     torch.save(checkpoint, temporary)
     os.replace(temporary, path)
@@ -180,27 +194,46 @@ def main():
     base_weights = hf_hub_download(args.model, "model.safetensors", revision=model.config._commit_hash, token=False)
     with safe_open(base_weights, framework="pt") as weights, torch.no_grad():
         model.model.decoder.embed_tokens.weight.copy_(weights.get_tensor("proj_out.weight"))
-    prompt_ids = processor.get_prompt_ids(args.prompt.read_text(encoding="utf-8").strip()).tolist() if args.prompt else []
+    prompt_ids = (
+        processor.get_prompt_ids(args.prompt.read_text(encoding="utf-8").strip()).tolist() if args.prompt else []
+    )
     steps_per_epoch = math.ceil(len(train) / args.accumulation)
     optimizer = torch.optim.AdamW(model.parameters(), lr=args.learning_rate)
     scheduler = get_linear_schedule_with_warmup(optimizer, 0, steps_per_epoch * args.epochs)
     scaler = torch.amp.GradScaler("cuda")
-    config = {"model": args.model, "processor": processor_model, "epochs": args.epochs, "accumulation": args.accumulation,
-              "learning_rate": args.learning_rate, "seed": args.seed, "spec_augment": args.spec_augment,
-              "prompt": bool(args.prompt), "batch_size": 1, "gpu_policy": args.gpu,
-              "memory_fraction": args.memory_fraction, "transformers": transformers.__version__,
-              "torch": torch.__version__, "model_revision": model.config._commit_hash}
-    signature = {"config": config, "clips_sha256": digest(args.clips), "labels_sha256": digest(args.labels),
-                 "prompt_sha256": digest(args.prompt) if args.prompt else None,
-                 "audio_root": str(args.audio_root.resolve()) if args.audio_root else None}
+    config = {
+        "model": args.model,
+        "processor": processor_model,
+        "epochs": args.epochs,
+        "accumulation": args.accumulation,
+        "learning_rate": args.learning_rate,
+        "seed": args.seed,
+        "spec_augment": args.spec_augment,
+        "prompt": bool(args.prompt),
+        "batch_size": 1,
+        "gpu_policy": args.gpu,
+        "memory_fraction": args.memory_fraction,
+        "transformers": transformers.__version__,
+        "torch": torch.__version__,
+        "model_revision": model.config._commit_hash,
+    }
+    signature = {
+        "config": config,
+        "clips_sha256": digest(args.clips),
+        "labels_sha256": digest(args.labels),
+        "prompt_sha256": digest(args.prompt) if args.prompt else None,
+        "audio_root": str(args.audio_root.resolve()) if args.audio_root else None,
+    }
     args.output.mkdir(parents=True, exist_ok=True)
     state = {"epoch": 0, "step": 0, "best_loss": float("inf")}
     if args.resume:
         state = load_last(args.resume, model, optimizer, scheduler, scaler, signature)
     else:
         optimizer.zero_grad(set_to_none=True)
-    (args.output / "run.json").write_text(json.dumps({"config": config, "gpu": gpu_name,
-        "train_clips": len(train), "val_clips": len(val)}, indent=2) + "\n")
+    (args.output / "run.json").write_text(
+        json.dumps({"config": config, "gpu": gpu_name, "train_clips": len(train), "val_clips": len(val)}, indent=2)
+        + "\n"
+    )
     last = args.output / "last.pt"
 
     def stop_if_needed():

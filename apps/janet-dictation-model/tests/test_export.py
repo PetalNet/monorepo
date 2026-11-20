@@ -9,8 +9,9 @@ def test_futo_projection_becomes_shared_embedding_without_rounding(tmp_path):
     projection = torch.tensor([[3.0003, 4.0004]])
     encoder = torch.tensor([[5.0005]])
     path = tmp_path / "model.safetensors"
-    save_file({"model.decoder.embed_tokens.weight": input_embedding, "proj_out.weight": projection,
-               "encoder": encoder}, path)
+    save_file(
+        {"model.decoder.embed_tokens.weight": input_embedding, "proj_out.weight": projection, "encoder": encoder}, path
+    )
     weights = load_tied_weights(path)
     assert "proj_out.weight" not in weights
     torch.testing.assert_close(weights["model.decoder.embed_tokens.weight"], projection, rtol=0, atol=0)

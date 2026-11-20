@@ -35,6 +35,7 @@ def main() -> None:
         parser.error("--out already exists")
     out.parent.mkdir(parents=True, exist_ok=True)
     import whisper
+
     whisper_dir = Path(whisper.__file__).resolve().parent.parent
     if not (whisper_dir / "whisper/assets/mel_filters.npz").is_file():
         raise FileNotFoundError("installed openai-whisper is missing mel filters")
@@ -46,8 +47,9 @@ def main() -> None:
         for path in checkpoint.iterdir():
             if path.is_file() and path.name != "model.safetensors":
                 (staged / path.name).symlink_to(path)
-        save_file(load_tied_weights(checkpoint / "model.safetensors"), staged / "model.safetensors",
-                  metadata={"format": "pt"})
+        save_file(
+            load_tied_weights(checkpoint / "model.safetensors"), staged / "model.safetensors", metadata={"format": "pt"}
+        )
         for name in ("vocab.json", "added_tokens.json"):
             if not (staged / name).exists():
                 source = hf_hub_download(repo_id=args.tokenizer_repo, filename=name, token=False)

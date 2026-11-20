@@ -1,8 +1,8 @@
 import json
-from pathlib import Path
 import tempfile
 import unittest
 import wave
+from pathlib import Path
 
 from data import load_dataset
 
@@ -18,8 +18,13 @@ class DataTest(unittest.TestCase):
             out.setparams((1, 2, 16000, 0, "NONE", "not compressed"))
             out.writeframes(b"\0\0" * 16000)
         self.clips, self.labels = self.root / "clips.jsonl", self.root / "labels.jsonl"
-        self.row = {"id": "note", "recording": "whole-note", "split": "train",
-                    "wav": r"C:\private\train\note.wav", "seconds": 1.0}
+        self.row = {
+            "id": "note",
+            "recording": "whole-note",
+            "split": "train",
+            "wav": r"C:\private\train\note.wav",
+            "seconds": 1.0,
+        }
         self.clips.write_text(json.dumps(self.row) + "\n")
         self.labels.write_text(json.dumps({"id": "note", "text": "A synthetic test."}) + "\n")
 

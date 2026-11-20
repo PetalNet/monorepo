@@ -38,7 +38,9 @@ def pieces(audio: np.ndarray, longest: float, shortest: float) -> list[tuple[int
     return out
 
 
-def split(seconds: dict[str, float], newest_first: list[str], test_minutes: float, val_minutes: float) -> dict[str, str]:
+def split(
+    seconds: dict[str, float], newest_first: list[str], test_minutes: float, val_minutes: float
+) -> dict[str, str]:
     """Newest recordings fill the held-out set, the next newest the validation set, the rest train."""
     out, test, val = {}, 0.0, 0.0
     for name in newest_first:
@@ -54,7 +56,9 @@ def split(seconds: dict[str, float], newest_first: list[str], test_minutes: floa
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--recordings", type=Path, required=True, help="directory of audio files, one per recording")
-    parser.add_argument("--dates", type=Path, required=True, help="TSV: ISO time, file stem; sets the newest-first order")
+    parser.add_argument(
+        "--dates", type=Path, required=True, help="TSV: ISO time, file stem; sets the newest-first order"
+    )
     parser.add_argument("--out", type=Path, required=True)
     parser.add_argument("--test-minutes", type=float, default=11)
     parser.add_argument("--val-minutes", type=float, default=4)
@@ -88,11 +92,27 @@ def main() -> None:
                 wav = args.out / "clips" / where[name] / f"{name}.{kind}{index:02d}.wav"
                 wav.parent.mkdir(parents=True, exist_ok=True)
                 sf.write(str(wav), audio[name][a:b], RATE, subtype="PCM_16")
-                rows.append({"id": wav.stem, "recording": name, "split": where[name], "wav": str(wav), "seconds": (b - a) / RATE})
+                rows.append(
+                    {
+                        "id": wav.stem,
+                        "recording": name,
+                        "split": where[name],
+                        "wav": str(wav),
+                        "seconds": (b - a) / RATE,
+                    }
+                )
     (args.out / "clips.jsonl").write_text("".join(json.dumps(r) + "\n" for r in rows))
     for part in ("train", "val", "test"):
         mine = [r for r in rows if r["split"] == part]
-        print(part, len({r["recording"] for r in mine}), "recordings", len(mine), "clips", round(sum(r["seconds"] for r in mine) / 60, 1), "min")
+        print(
+            part,
+            len({r["recording"] for r in mine}),
+            "recordings",
+            len(mine),
+            "clips",
+            round(sum(r["seconds"] for r in mine) / 60, 1),
+            "min",
+        )
 
 
 if __name__ == "__main__":

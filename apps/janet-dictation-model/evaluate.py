@@ -22,8 +22,11 @@ def sha256(path: Path) -> str:
 
 def looping(text: str) -> bool:
     words = text.split()
-    return any(words[i:i + size] * 4 == words[i:i + size * 4]
-               for size in range(1, 6) for i in range(len(words) - size * 4 + 1))
+    return any(
+        words[i : i + size] * 4 == words[i : i + size * 4]
+        for size in range(1, 6)
+        for i in range(len(words) - size * 4 + 1)
+    )
 
 
 def score(rows: list[dict], predictions: list[dict]) -> tuple[dict, list[dict]]:
@@ -37,8 +40,9 @@ def score(rows: list[dict], predictions: list[dict]) -> tuple[dict, list[dict]]:
         raise ValueError("prediction ids do not match selected manifest")
     if not rows:
         raise ValueError("selected split is empty")
-    spelling = hf_hub_download("openai/whisper-tiny.en", "normalizer.json",
-                              revision="87c7102498dcde7456f24cfd30239ca606ed9063", token=False)
+    spelling = hf_hub_download(
+        "openai/whisper-tiny.en", "normalizer.json", revision="87c7102498dcde7456f24cfd30239ca606ed9063", token=False
+    )
     normalize = EnglishTextNormalizer(json.loads(Path(spelling).read_text()))
     refs, hyps, results = [], [], []
     for row in rows:
@@ -46,15 +50,28 @@ def score(rows: list[dict], predictions: list[dict]) -> tuple[dict, list[dict]]:
         ref, hyp = normalize(row["text"]), normalize(pred["text"])
         refs.append(ref)
         hyps.append(hyp)
-        results.append({**pred, "reference": row["text"], "normalized_reference": ref,
-                        "normalized_prediction": hyp, "possible_loop": looping(hyp)})
+        results.append(
+            {
+                **pred,
+                "reference": row["text"],
+                "normalized_reference": ref,
+                "normalized_prediction": hyp,
+                "possible_loop": looping(hyp),
+            }
+        )
     words = jiwer.process_words(refs, hyps)
     denominator = words.hits + words.substitutions + words.deletions
-    metrics = {"clips": len(rows), "reference_words": denominator, "hits": words.hits,
-               "substitutions": words.substitutions, "deletions": words.deletions,
-               "insertions": words.insertions, "wer": words.wer if denominator else None,
-               "possible_loops": sum(row["possible_loop"] for row in results),
-               "possible_token_caps": sum(row["max_tokens_reached"] for row in results)}
+    metrics = {
+        "clips": len(rows),
+        "reference_words": denominator,
+        "hits": words.hits,
+        "substitutions": words.substitutions,
+        "deletions": words.deletions,
+        "insertions": words.insertions,
+        "wer": words.wer if denominator else None,
+        "possible_loops": sum(row["possible_loop"] for row in results),
+        "possible_token_caps": sum(row["max_tokens_reached"] for row in results),
+    }
     return metrics, results
 
 
@@ -80,32 +97,58 @@ def main() -> None:
     if args.metrics.exists() or args.predictions.exists():
         parser.error("output files must not already exist")
     from data import load_dataset
+
     rows = [r for r in load_dataset(args.clips, args.labels, args.audio_root) if r["split"] == args.split]
     if not rows:
         raise ValueError("selected split is empty")
     predictions = []
     for row in rows:
-        command = [str(args.decoder.resolve()), "--model", str(args.model), "--wav", str(row["wav"]), "--threads", str(args.threads)]
+        command = [
+            str(args.decoder.resolve()),
+            "--model",
+            str(args.model),
+            "--wav",
+            str(row["wav"]),
+            "--threads",
+            str(args.threads),
+        ]
         if args.prompt_file:
             command += ["--prompt-file", str(args.prompt_file)]
         result = subprocess.run(command, capture_output=True, text=True, check=False)
         if result.returncode:
             raise RuntimeError(f"decoder failed for clip {row['id']} (exit {result.returncode})")
         decoded = json.loads(result.stdout)
-        if (not isinstance(decoded.get("text"), str) or type(decoded.get("tokens")) is not int
-                or type(decoded.get("max_tokens_reached")) is not bool
-                or type(decoded.get("audio_ctx")) is not int or not isinstance(decoded.get("seconds"), (int, float))):
+        if (
+            not isinstance(decoded.get("text"), str)
+            or type(decoded.get("tokens")) is not int
+            or type(decoded.get("max_tokens_reached")) is not bool
+            or type(decoded.get("audio_ctx")) is not int
+            or not isinstance(decoded.get("seconds"), (int, float))
+        ):
             raise ValueError("invalid decoder output")
         predictions.append({"id": row["id"], **decoded})
     metrics, results = score(rows, predictions)
-    metrics.update({"split": args.split, "model_sha256": sha256(args.model),
-                    "decoder_sha256": sha256(args.decoder),
-                    "prompt_sha256": sha256(args.prompt_file) if args.prompt_file else None,
-                    "settings": {"threads": args.threads, "cpu": True, "language": "en", "beam_size": 5,
-                                 "best_of": 5, "temperature_inc": 0, "suppress_blank": False,
-                                 "suppress_non_speech_tokens": True, "max_tokens": 256,
-                                 "audio_ctx": "clamp(ceil(samples / 320) + 32, 160, 1500)",
-                                 "no_timestamps": "samples < 400000"}})
+    metrics.update(
+        {
+            "split": args.split,
+            "model_sha256": sha256(args.model),
+            "decoder_sha256": sha256(args.decoder),
+            "prompt_sha256": sha256(args.prompt_file) if args.prompt_file else None,
+            "settings": {
+                "threads": args.threads,
+                "cpu": True,
+                "language": "en",
+                "beam_size": 5,
+                "best_of": 5,
+                "temperature_inc": 0,
+                "suppress_blank": False,
+                "suppress_non_speech_tokens": True,
+                "max_tokens": 256,
+                "audio_ctx": "clamp(ceil(samples / 320) + 32, 160, 1500)",
+                "no_timestamps": "samples < 400000",
+            },
+        }
+    )
     write_private(args.predictions, "".join(json.dumps(row, ensure_ascii=False) + "\n" for row in results))
     write_private(args.metrics, json.dumps(metrics, indent=2) + "\n")
 

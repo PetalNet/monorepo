@@ -3,12 +3,12 @@
 import argparse
 import io
 import json
-from pathlib import Path
 import random
+from pathlib import Path
 
-from huggingface_hub import hf_hub_download
 import pyarrow.parquet as pq
 import soundfile as sf
+from huggingface_hub import hf_hub_download
 
 REVISION = "71cacbfb7e2354c4226d01e70d77d5fca3d04ba1"
 
@@ -19,8 +19,9 @@ def main() -> None:
     parser.add_argument("--count", type=int, default=40)
     parser.add_argument("--seed", type=int, default=42)
     args = parser.parse_args()
-    parquet = hf_hub_download("openslr/librispeech_asr", "clean/test/0000.parquet",
-                             repo_type="dataset", revision=REVISION, token=False)
+    parquet = hf_hub_download(
+        "openslr/librispeech_asr", "clean/test/0000.parquet", repo_type="dataset", revision=REVISION, token=False
+    )
     table = pq.read_table(parquet)
     total = len(table)
     if not 1 <= args.count <= total:
@@ -40,8 +41,7 @@ def main() -> None:
             continue
         wav = (args.out / "clips" / "test" / (row["id"] + ".wav")).resolve()
         sf.write(wav, waveform, rate, subtype="PCM_16")
-        clips.append({"id": row["id"], "recording": row["id"], "split": "test",
-                      "wav": str(wav), "seconds": seconds})
+        clips.append({"id": row["id"], "recording": row["id"], "split": "test", "wav": str(wav), "seconds": seconds})
         labels.append({"id": row["id"], "text": row["text"]})
         speakers.add(row["speaker_id"])
         selected.append(index)
@@ -51,9 +51,17 @@ def main() -> None:
         raise ValueError("not enough clips within the supported duration range")
     for name, content in (("clips.jsonl", clips), ("labels.jsonl", labels)):
         (args.out / name).write_text("".join(json.dumps(row) + "\n" for row in content))
-    provenance = {"dataset": "openslr/librispeech_asr", "revision": REVISION, "config": "clean", "split": "test",
-                  "seed": args.seed, "row_indices": selected, "clips": len(clips),
-                  "speakers": len(speakers), "seconds": sum(row["seconds"] for row in clips)}
+    provenance = {
+        "dataset": "openslr/librispeech_asr",
+        "revision": REVISION,
+        "config": "clean",
+        "split": "test",
+        "seed": args.seed,
+        "row_indices": selected,
+        "clips": len(clips),
+        "speakers": len(speakers),
+        "seconds": sum(row["seconds"] for row in clips),
+    }
     (args.out / "source.json").write_text(json.dumps(provenance, indent=2) + "\n")
     print(json.dumps(provenance))
 

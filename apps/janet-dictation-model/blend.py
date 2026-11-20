@@ -3,8 +3,8 @@
 import argparse
 import json
 import math
-from pathlib import Path
 import shutil
+from pathlib import Path
 
 from huggingface_hub import hf_hub_download
 from safetensors.torch import save_file
@@ -16,7 +16,9 @@ from export import load_tied_weights
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--adapted", type=Path, required=True)
-    parser.add_argument("--base", choices=("futo-org/acft-whisper-base.en", "futo-org/acft-whisper-small.en"), required=True)
+    parser.add_argument(
+        "--base", choices=("futo-org/acft-whisper-base.en", "futo-org/acft-whisper-small.en"), required=True
+    )
     parser.add_argument("--base-revision", required=True, help="exact base revision from the training run.json")
     parser.add_argument("--alpha", type=float, required=True, help="fraction of adapted weights to retain")
     parser.add_argument("--out", type=Path, required=True)
@@ -37,10 +39,19 @@ def main() -> None:
         if path.is_file() and path.suffix in {".json", ".txt"}:
             shutil.copyfile(path, args.out / path.name)
     save_file(adapted, args.out / "model.safetensors", metadata={"format": "pt"})
-    (args.out / "blend.json").write_text(json.dumps({
-        "base": args.base, "base_revision": args.base_revision, "alpha": args.alpha,
-        "base_sha256": sha256(base_path), "adapted_sha256": sha256(adapted_path),
-    }, indent=2) + "\n")
+    (args.out / "blend.json").write_text(
+        json.dumps(
+            {
+                "base": args.base,
+                "base_revision": args.base_revision,
+                "alpha": args.alpha,
+                "base_sha256": sha256(base_path),
+                "adapted_sha256": sha256(adapted_path),
+            },
+            indent=2,
+        )
+        + "\n"
+    )
 
 
 if __name__ == "__main__":

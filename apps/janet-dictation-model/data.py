@@ -1,11 +1,11 @@
 """Validate the private manifests before training or scoring any clips."""
 
 import argparse
-from collections import Counter
 import json
 import math
-from pathlib import Path, PureWindowsPath
 import wave
+from collections import Counter
+from pathlib import Path, PureWindowsPath
 
 
 def read_rows(path: Path) -> dict[str, dict]:
@@ -53,7 +53,10 @@ def load_dataset(clips: Path, labels: Path, audio_root: Path | None = None) -> l
         paths.add(wav)
         with wave.open(str(wav), "rb") as audio:
             if (audio.getframerate(), audio.getnchannels(), audio.getsampwidth(), audio.getcomptype()) != (
-                16000, 1, 2, "NONE"
+                16000,
+                1,
+                2,
+                "NONE",
             ):
                 raise ValueError("expected uncompressed 16 kHz mono PCM16 WAV")
             frames = audio.getnframes()
@@ -76,13 +79,20 @@ def main() -> None:
     parser.add_argument("--audio-root", type=Path)
     args = parser.parse_args()
     rows = load_dataset(args.clips, args.labels, args.audio_root)
-    print(json.dumps({
-        "clips": len(rows),
-        "recordings": len({row["recording"] for row in rows}),
-        "splits": dict(Counter(row["split"] for row in rows)),
-        "seconds": {part: sum(row["seconds"] for row in rows if row["split"] == part)
-                    for part in ("train", "val", "test")},
-    }, indent=2))
+    print(
+        json.dumps(
+            {
+                "clips": len(rows),
+                "recordings": len({row["recording"] for row in rows}),
+                "splits": dict(Counter(row["split"] for row in rows)),
+                "seconds": {
+                    part: sum(row["seconds"] for row in rows if row["split"] == part)
+                    for part in ("train", "val", "test")
+                },
+            },
+            indent=2,
+        )
+    )
 
 
 if __name__ == "__main__":

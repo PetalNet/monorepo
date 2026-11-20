@@ -14,7 +14,7 @@ import soundfile as sf
 from data import read_rows
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "janet-voice-note"))
-from janet_voice_note import address, describe, transcribe  # noqa: E402
+from janet_voice_note import address, describe, transcribe
 
 
 def main() -> None:
