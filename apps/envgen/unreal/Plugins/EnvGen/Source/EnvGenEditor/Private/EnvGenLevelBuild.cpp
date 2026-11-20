@@ -1033,6 +1033,63 @@ return ((float3((float2(1.6,0.65)*sway+lean)*tip,0) + float3(0,0,(Here.z-Root.z)
 		return Material;
 	}
 
+	UMaterialExpression* RegisteredColour(UMaterial* Material, UTexture2D* Texture, const FSurface& Surface)
+	{
+		auto* Position = Node<UMaterialExpressionWorldPosition>(Material, -1800, -1800);
+		Position->WorldPositionShaderOffset = WPT_ExcludeAllShaderOffsets;
+		auto* Uv = Node<UMaterialExpressionCustom>(Material, -1600, -1800);
+		Uv->OutputType = CMOT_Float2;
+		Uv->Inputs.Empty();
+		FCustomInput& Here = Uv->Inputs.AddDefaulted_GetRef();
+		Here.InputName = TEXT("P");
+		Here.Input.Connect(0, Position);
+		// Exported images run U north and V east, starting at the Landscape's lower corner.
+		Uv->Code = FString::Printf(TEXT("return (P.xy-float2(%.9f,%.9f))/float2(%.9f,%.9f);"),
+			Surface.LocationCm.X, Surface.LocationCm.Y,
+			Surface.Scale.X * (Surface.Vertices - 1), Surface.Scale.Y * (Surface.Vertices - 1));
+		auto* Sampled = Node<UMaterialExpressionTextureSample>(Material, -1400, -1800);
+		Sampled->Texture = Texture;
+		Sampled->SamplerType = SAMPLERTYPE_Color;
+		Sampled->SamplerSource = SSM_Clamp_WorldGroupSettings;
+		Sampled->Coordinates.Connect(0, Uv);
+		return Sampled;
+	}
+
+	UMaterialExpression* ContextAlbedo(UMaterial* Material, UTexture2D* Colour, const FManifest& Manifest)
+	{
+		auto* Albedo = Node<UMaterialExpressionMultiply>(Material, -1200, -1800);
+		Albedo->A.Connect(0, RegisteredColour(Material, Colour, *Manifest.Surround));
+		Albedo->ConstB = Manifest.AlbedoScale;
+		return Albedo;
+	}
+
+	constexpr double ContextBlendWidthCm = 6400;
+
+	UMaterialExpression* BlendContextEdge(UMaterial* Material, UMaterialExpression* Primary, UTexture2D* ContextColour,
+		const FManifest& Manifest)
+	{
+		if (!ContextColour || !Manifest.Surround) return Primary;
+		auto* Position = Node<UMaterialExpressionWorldPosition>(Material, -1800, -2100);
+		Position->WorldPositionShaderOffset = WPT_ExcludeAllShaderOffsets;
+		auto* Blended = Node<UMaterialExpressionCustom>(Material, 700, -1800);
+		Blended->OutputType = CMOT_Float3;
+		Blended->Inputs.Empty();
+		for (const auto& Pair : {TPair<const TCHAR*, UMaterialExpression*>(TEXT("Here"), Position),
+			TPair<const TCHAR*, UMaterialExpression*>(TEXT("Primary"), Primary),
+			TPair<const TCHAR*, UMaterialExpression*>(TEXT("Context"), ContextAlbedo(Material, ContextColour, Manifest))})
+		{
+			FCustomInput& Input = Blended->Inputs.AddDefaulted_GetRef();
+			Input.InputName = Pair.Key;
+			Input.Input.Connect(0, Pair.Value);
+		}
+		const FVector& Low = Manifest.Tile.LocationCm;
+		const double HighNorth = Low.X + Manifest.Tile.Scale.X * (Manifest.Tile.Vertices - 1);
+		const double HighEast = Low.Y + Manifest.Tile.Scale.Y * (Manifest.Tile.Vertices - 1);
+		Blended->Code = FString::Printf(TEXT("float2 d=min(Here.xy-float2(%.9f,%.9f),float2(%.9f,%.9f)-Here.xy); return lerp(Context,Primary,smoothstep(0.0,%.9f,min(d.x,d.y)));"),
+			Low.X, Low.Y, HighNorth, HighEast, ContextBlendWidthCm);
+		return Blended;
+	}
+
 	/**
 	 * The ground: per class a scanned material, blended where classes meet. Evidence sets the colour that varies
 	 * over tens of metres (the macro colour map times the fitted albedo scale) and, when the build has one, what the
@@ -1041,7 +1098,7 @@ return ((float3((float2(1.6,0.65)*sway+lean)*tip,0) + float3(0,0,(Here.z-Root.z)
 	 * physical coordinates; distant colour mixes scales or offsets to hide repeats. The class weights are cut to a sharp
 	 * edge where they cross one half, so an edge is as crisp as the photo's rather than as wide as a weightmap texel.
 	 */
-	UMaterial* MakeGroundMaterial(UTexture2D* Macro, UTexture2D* Ratio, UTexture2D* Survey, UTexture2D* OrthoMasks, UTexture2D* OrthoColour, UTexture2D* FallbackWeights, UTexture2D* Grain, UTexture2D* StreetscapeMask, UTexture2D* ProcfillGrowth, UTexture2D* ProcfillDebug, const FManifest& Manifest, UTexture2D* Detail, UTexture2D* Growth, int32 Quads, double QuadCm, float AlbedoScale,
+	UMaterial* MakeGroundMaterial(UTexture2D* Macro, UTexture2D* SurroundColour, UTexture2D* Ratio, UTexture2D* Survey, UTexture2D* OrthoMasks, UTexture2D* OrthoColour, UTexture2D* FallbackWeights, UTexture2D* Grain, UTexture2D* StreetscapeMask, UTexture2D* ProcfillGrowth, UTexture2D* ProcfillDebug, const FManifest& Manifest, UTexture2D* Detail, UTexture2D* Growth, int32 Quads, double QuadCm, float AlbedoScale,
 		const TArray<FLayer>& Layers, const TArray<ULandscapeGrassType*>& GrassTypes, TArray<UPackage*>& Packages)
 	{
 		UMaterial* Material = NewAsset<UMaterial>(TEXT("M_Ground"), Packages);
@@ -1601,7 +1658,7 @@ return float4(dx,dy);
 			}
 		}
 
-		UMaterialEditingLibrary::ConnectMaterialProperty(Colour, TEXT(""), MP_BaseColor);
+		UMaterialEditingLibrary::ConnectMaterialProperty(BlendContextEdge(Material, Colour, SurroundColour, Manifest), TEXT(""), MP_BaseColor);
 		if (ProcfillDebug && Manifest.bProcfillDebugView)
 		{
 			Material->SetShadingModel(MSM_Unlit);
@@ -1706,39 +1763,18 @@ return normalize(float3(ScanNormal.xy*lerp(1,1.8,close)-slope*Grass,ScanNormal.z
 		return Landscape;
 	}
 
-	UMaterial* MakePavingMaterial(UTexture2D* Macro, const FManifest& Manifest, TArray<UPackage*>& Packages)
+	UMaterial* MakePavingMaterial(UTexture2D* Macro, UTexture2D* SurroundColour, const FManifest& Manifest, TArray<UPackage*>& Packages)
 	{
 		UMaterial* Material = NewAsset<UMaterial>(TEXT("M_RegisteredPaving"), Packages);
-		auto* Position = Node<UMaterialExpressionWorldPosition>(Material, -1400, 0);
-		Position->WorldPositionShaderOffset = WPT_ExcludeAllShaderOffsets;
-		auto* Uv = Node<UMaterialExpressionCustom>(Material, -1200, 0);
-		Uv->OutputType = CMOT_Float2;
-		Uv->Inputs.Empty();
-		FCustomInput& Here = Uv->Inputs.AddDefaulted_GetRef();
-		Here.InputName = TEXT("P");
-		Here.Input.Connect(0, Position);
-		// The registered textures run U north, V east, from the tile's lower corner in world centimetres.
-		Uv->Code = FString::Printf(TEXT("return (P.xy-float2(%.9f,%.9f))/float2(%.9f,%.9f);"),
-			Manifest.Tile.LocationCm.X, Manifest.Tile.LocationCm.Y,
-			Manifest.Tile.Scale.X * (Manifest.Tile.Vertices - 1), Manifest.Tile.Scale.Y * (Manifest.Tile.Vertices - 1));
-		const auto RegisteredSample = [&](UTexture2D* Texture, EMaterialSamplerType Sampler, int32 Y)
-		{
-			auto* TextureSample = Node<UMaterialExpressionTextureSample>(Material, -1000, Y);
-			TextureSample->Texture = Texture;
-			TextureSample->SamplerType = Sampler;
-			TextureSample->SamplerSource = SSM_Clamp_WorldGroupSettings;
-			TextureSample->Coordinates.Connect(0, Uv);
-			return TextureSample;
-		};
 		auto* Albedo = Node<UMaterialExpressionCustom>(Material, -600, 0);
 		Albedo->OutputType = CMOT_Float3;
 		Albedo->Inputs.Empty();
 		FCustomInput& Colour = Albedo->Inputs.AddDefaulted_GetRef();
 		Colour.InputName = TEXT("MacroColour");
-		Colour.Input.Connect(0, RegisteredSample(Macro, SAMPLERTYPE_Color, 0));
+		Colour.Input.Connect(0, RegisteredColour(Material, Macro, Manifest.Tile));
 		// Stall markings are geometry; fine orthophoto detail would also paint flat cars and their shadows.
 		Albedo->Code = FString::Printf(TEXT("return MacroColour.rgb * %.9f;"), Manifest.AlbedoScale);
-		UMaterialEditingLibrary::ConnectMaterialProperty(Albedo, TEXT(""), MP_BaseColor);
+		UMaterialEditingLibrary::ConnectMaterialProperty(BlendContextEdge(Material, Albedo, SurroundColour, Manifest), TEXT(""), MP_BaseColor);
 		auto* Roughness = Node<UMaterialExpressionConstant>(Material, -600, 300);
 		Roughness->R = .87f;
 		UMaterialEditingLibrary::ConnectMaterialProperty(Roughness, TEXT(""), MP_Roughness);
@@ -1747,12 +1783,10 @@ return normalize(float3(ScanNormal.xy*lerp(1,1.8,close)-slope*Grass,ScanNormal.z
 	}
 
 	/** The surround's material: its own colour map across it, and nothing finer. It is only ever seen from far away. */
-	UMaterial* MakeSurroundMaterial(UTexture2D* Colour, int32 Quads, float AlbedoScale, TArray<UPackage*>& Packages)
+	UMaterial* MakeSurroundMaterial(UTexture2D* Colour, const FManifest& Manifest, TArray<UPackage*>& Packages)
 	{
 		UMaterial* Material = NewAsset<UMaterial>(TEXT("M_Surround"), Packages);
-		UMaterialExpressionMultiply* Albedo = Node<UMaterialExpressionMultiply>(Material, -300, 0);
-		Albedo->A.Connect(0, Sample(Material, Colour, Quads, SAMPLERTYPE_Color, 0));
-		Albedo->ConstB = AlbedoScale;
+		UMaterialExpression* Albedo = ContextAlbedo(Material, Colour, Manifest);
 		UMaterialEditingLibrary::ConnectMaterialProperty(Albedo, TEXT(""), MP_BaseColor);
 		UMaterialExpressionConstant* Roughness = Node<UMaterialExpressionConstant>(Material, -300, 200);
 		Roughness->R = 0.9f;
@@ -2428,6 +2462,8 @@ bool FEnvGenLevelBuild::Start(const FString& ManifestPath, const FString& MapPat
 	IFileManager::Get().DeleteDirectory(*GeneratedDirectory, false, true);
 	IFileManager::Get().Delete(*MapFile);
 
+	UTexture2D* SurroundColour = Manifest.Surround ? MakeTexture(TEXT("T_SurroundColour"), SurroundColourSize.X,
+		SurroundColourSize.Y, TSF_BGRA8, SurroundColourBytes.GetData(), true, State->Packages) : nullptr;
 	UTexture2D* Macro = MakeTexture(TEXT("T_MacroColour"), MacroSize.X, MacroSize.Y, TSF_BGRA8, MacroBytes.GetData(), true, State->Packages);
 	UTexture2D* StreetscapeMask = nullptr;
 	if (!Manifest.StreetscapeMaskFile.IsEmpty())
@@ -2570,7 +2606,7 @@ bool FEnvGenLevelBuild::Start(const FString& ManifestPath, const FString& MapPat
 			Variety.AlignToSurface = true;
 		}
 	}
-	UMaterial* Material = MakeGroundMaterial(Macro, Ratio, Survey, OrthoMasks, OrthoColour, FallbackWeights, Grain, StreetscapeMask, ProcfillGrowth, ProcfillDebug, Manifest, Detail, Growth, Manifest.Tile.Vertices - 1, Manifest.Tile.Scale.X, Manifest.AlbedoScale, Manifest.Layers, GrassTypes, State->Packages);
+	UMaterial* Material = MakeGroundMaterial(Macro, SurroundColour, Ratio, Survey, OrthoMasks, OrthoColour, FallbackWeights, Grain, StreetscapeMask, ProcfillGrowth, ProcfillDebug, Manifest, Detail, Growth, Manifest.Tile.Vertices - 1, Manifest.Tile.Scale.X, Manifest.AlbedoScale, Manifest.Layers, GrassTypes, State->Packages);
 	for (FLayer& Layer : Manifest.Layers)
 	{
 		Layer.Info = NewAsset<ULandscapeLayerInfoObject>(TEXT("LI_") + Layer.Name.ToString(), State->Packages);
@@ -2588,9 +2624,7 @@ bool FEnvGenLevelBuild::Start(const FString& ManifestPath, const FString& MapPat
 	}
 	if (Manifest.Surround)
 	{
-		UTexture2D* SurroundColour = MakeTexture(TEXT("T_SurroundColour"), SurroundColourSize.X, SurroundColourSize.Y, TSF_BGRA8, SurroundColourBytes.GetData(), true,
-			State->Packages);
-		UMaterial* SurroundMaterial = MakeSurroundMaterial(SurroundColour, Manifest.Surround->Vertices - 1, Manifest.AlbedoScale, State->Packages);
+		UMaterial* SurroundMaterial = MakeSurroundMaterial(SurroundColour, Manifest, State->Packages);
 		State->Surround = ImportLandscape(State->World, TEXT("EnvGenSurround"), *Manifest.Surround, SurroundHeightBytes, SurroundMaterial, GroundStencil, TArray<FLayer>());
 	}
 	if (Manifest.Surround)
@@ -2610,7 +2644,7 @@ bool FEnvGenLevelBuild::Start(const FString& ManifestPath, const FString& MapPat
 		UMaterial* BuildingMaterial = MakeBuildingMaterial(Manifest.RoofRoughness, State->Packages);
 		State->BuildingActors = AddBuildings(State->World, Manifest, State->HeightBytes, State->Buildings, BuildingMaterial, State->Packages, State->BuildingsPlaced);
 	}
-	UMaterial* PavingMaterial = Manifest.StreetscapeMaskFile.IsEmpty() ? nullptr : MakePavingMaterial(Macro, Manifest, State->Packages);
+	UMaterial* PavingMaterial = Manifest.StreetscapeMaskFile.IsEmpty() ? nullptr : MakePavingMaterial(Macro, SurroundColour, Manifest, State->Packages);
 	if (!BuildEnvGenStreetscape(State->World, ManifestPath,
 		StreetscapeHeight,
 		State->Packages, State->StreetscapeActors, State->StreetscapeReceipt, Error, PavingMaterial))
