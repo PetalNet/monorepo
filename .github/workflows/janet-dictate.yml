@@ -28,4 +28,6 @@ jobs:
           python3 -m venv /tmp/dictate-env
           /tmp/dictate-env/bin/pip install ./packages/janet-turn ./apps/janet-dictate
       - name: Exercise WebSocket protocol
+        env:
+          PYTHONPATH: apps/janet-dictate
         run: /tmp/dictate-env/bin/python -m unittest discover -s apps/janet-dictate/tests -v

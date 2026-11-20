@@ -1,8 +1,9 @@
 # Streaming dictation
 
 Keep FUTO as the keyboard. Its microphone can switch to the Kõnele voice keyboard, which writes
-partial words into the focused text field. Kõnele can use either this lab Parakeet endpoint or
-Sayboard's on-device Vosk recognizer. [Android setup](android.md) covers both.
+partial words into the focused text field using this lab Parakeet endpoint. For offline recognition,
+FUTO can switch directly to Sayboard's voice keyboard and local Vosk model. [Android setup](android.md)
+records both configurations and their incomplete device acceptance checks.
 
 This Python service reuses `packages/janet-turn`'s ONNX decoder and model. Python keeps inference
 in the same process as the WebSocket session, without a second model implementation or a bridge
