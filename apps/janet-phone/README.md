@@ -109,8 +109,8 @@ ring_timeout_s = 45
 
 Deploy the bridge from merged main first. Keep its ring root in the vault (`janet-phone-ring-root`)
 and materialize it as a mode-600 file in the bridge's existing secrets mount. Generate it once with
-at least 32 bytes of random text; retain it across restarts. Rotating it changes every phone's topic;
-reopen Janet Call on the phone afterwards so its listener registers again.
+at least 32 bytes of random text; retain it across restarts. Rotating it changes every phone's topic.
+After rotation, force-stop Janet in Android's app settings, then open it again to register the new topic.
 
 Install the standard-library command on Janet's VM through the monorepo's installer:
 
