@@ -32,21 +32,30 @@ abstract final class AppTheme {
 
     final scheme = isDark
         ? base.copyWith(
-            surface: pureBlack ? const Color(0xFF000000) : const Color(0xFF0E0E0E),
-            surfaceContainerLowest:
-                pureBlack ? const Color(0xFF000000) : const Color(0xFF0A0A0A),
-            surfaceContainerLow:
-                pureBlack ? const Color(0xFF080808) : const Color(0xFF141414),
-            surfaceContainer:
-                pureBlack ? const Color(0xFF0D0D0D) : const Color(0xFF1A1A1A),
-            surfaceContainerHigh:
-                pureBlack ? const Color(0xFF141414) : const Color(0xFF202020),
-            surfaceContainerHighest:
-                pureBlack ? const Color(0xFF1A1A1A) : const Color(0xFF262626),
+            surface: pureBlack
+                ? const Color(0xFF000000)
+                : const Color(0xFF0E0E0E),
+            surfaceContainerLowest: pureBlack
+                ? const Color(0xFF000000)
+                : const Color(0xFF0A0A0A),
+            surfaceContainerLow: pureBlack
+                ? const Color(0xFF080808)
+                : const Color(0xFF141414),
+            surfaceContainer: pureBlack
+                ? const Color(0xFF0D0D0D)
+                : const Color(0xFF1A1A1A),
+            surfaceContainerHigh: pureBlack
+                ? const Color(0xFF141414)
+                : const Color(0xFF202020),
+            surfaceContainerHighest: pureBlack
+                ? const Color(0xFF1A1A1A)
+                : const Color(0xFF262626),
             onSurface: const Color(0xFFF6F6F6),
             onSurfaceVariant: const Color(0xFFA0A0A0),
             outline: const Color(0xFF3A3A3A),
-            outlineVariant: Colors.white.withValues(alpha: pureBlack ? 0.08 : 0.10),
+            outlineVariant: Colors.white.withValues(
+              alpha: pureBlack ? 0.08 : 0.10,
+            ),
             // Inverse pair drives the "you're sharing" inverse-fill signal.
             inverseSurface: const Color(0xFFF6F6F6),
             onInverseSurface: const Color(0xFF0A0A0A),
@@ -95,8 +104,7 @@ abstract final class AppTheme {
         modalElevation: 0,
         showDragHandle: true,
         shape: const RoundedRectangleBorder(
-          borderRadius:
-              BorderRadius.vertical(top: Radius.circular(28)),
+          borderRadius: BorderRadius.vertical(top: Radius.circular(28)),
         ),
       ),
       cardTheme: CardThemeData(
@@ -133,7 +141,8 @@ abstract final class AppTheme {
   /// M3 role-based text theme. Boldness (the monochrome identity lever) comes
   /// from weight contrast: heavy display/headline against regular body.
   static TextTheme _textTheme(Color ink) {
-    TextStyle s(double size, FontWeight w, {double? h, double? ls}) => TextStyle(
+    TextStyle s(double size, FontWeight w, {double? h, double? ls}) =>
+        TextStyle(
           fontFamily: _fontFamily,
           fontSize: size,
           fontWeight: w,

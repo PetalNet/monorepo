@@ -5,8 +5,37 @@ import 'package:point_app/src/rust/api/fuzz.dart';
 import 'package:point_app/src/rust/frb_generated.dart';
 
 const _secret = [
-  115, 109, 111, 107, 101, 45, 116, 101, 115, 116, 45, 115, 101, 99, 114,
-  101, 116, 45, 51, 50, 45, 98, 121, 116, 101, 115, 45, 108, 111, 110, 103,
+  115,
+  109,
+  111,
+  107,
+  101,
+  45,
+  116,
+  101,
+  115,
+  116,
+  45,
+  115,
+  101,
+  99,
+  114,
+  101,
+  116,
+  45,
+  51,
+  50,
+  45,
+  98,
+  121,
+  116,
+  101,
+  115,
+  45,
+  108,
+  111,
+  110,
+  103,
   33,
 ];
 const _sharer = 'janet@point.dev';
@@ -104,7 +133,10 @@ void main() {
       expect(p.lat, first.lat);
       expect(p.lon, first.lon);
     }
-    expect(_haversineM(lat, lon, first.lat, first.lon), lessThanOrEqualTo(1000.0));
+    expect(
+      _haversineM(lat, lon, first.lat, first.lon),
+      lessThanOrEqualTo(1000.0),
+    );
   });
 
   test('crossing a cell boundary moves the snapped center', () {

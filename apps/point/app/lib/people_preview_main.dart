@@ -33,44 +33,44 @@ void main() {
 class _PreviewAuth extends AuthController {
   @override
   Future<Session?> build() async => const Session(
-        userId: 'parker@point.petalcat.dev',
-        token: 't',
-        displayName: 'Parker H',
-        isAdmin: true,
-      );
+    userId: 'parker@point.petalcat.dev',
+    token: 't',
+    displayName: 'Parker H',
+    isAdmin: true,
+  );
 }
 
 class _PreviewPeople extends PeopleController {
   @override
   Future<List<Person>> build() async => const [
-        Person(
-          userId: 'eli@point.petalcat.dev',
-          displayName: 'Eli',
-          presence: PresenceState.live,
-          subtitle: 'Sharing · 2m',
-          lat: 38.631,
-          lon: -90.201,
-        ),
-        // A dark person: frozen last-known + "dark since", stale (last-known)
-        // form, no live pin.
-        Person(
-          userId: 'mara@fieldstone.social',
-          displayName: 'Mara Quinn',
-          presence: PresenceState.stale,
-          subtitle: 'Dark since 14:07',
-          lat: 38.624,
-          lon: -90.192,
-        ),
-      ];
+    Person(
+      userId: 'eli@point.petalcat.dev',
+      displayName: 'Eli',
+      presence: PresenceState.live,
+      subtitle: 'Sharing · 2m',
+      lat: 38.631,
+      lon: -90.201,
+    ),
+    // A dark person: frozen last-known + "dark since", stale (last-known)
+    // form, no live pin.
+    Person(
+      userId: 'mara@fieldstone.social',
+      displayName: 'Mara Quinn',
+      presence: PresenceState.stale,
+      subtitle: 'Dark since 14:07',
+      lat: 38.624,
+      lon: -90.192,
+    ),
+  ];
 }
 
 class _PreviewRequests extends RequestsController {
   @override
   Future<List<ShareRequest>> build() async => const [
-        ShareRequest(
-          id: '1',
-          fromUserId: 'devon@point.petalcat.dev',
-          fromDisplayName: 'Devon R',
-        ),
-      ];
+    ShareRequest(
+      id: '1',
+      fromUserId: 'devon@point.petalcat.dev',
+      fromDisplayName: 'Devon R',
+    ),
+  ];
 }

@@ -50,7 +50,9 @@ Future<String> _run() async {
     final bobGid = await bob.processWelcome(welcome: add.welcome);
 
     final ctBefore = await alice.encrypt(groupId: gid, plaintext: _b('before'));
-    final ptBefore = utf8.decode(await bob.decrypt(groupId: bobGid, ciphertext: ctBefore));
+    final ptBefore = utf8.decode(
+      await bob.decrypt(groupId: bobGid, ciphertext: ctBefore),
+    );
     if (ptBefore != 'before') return 'FAIL: pre-recovery decrypt ($ptBefore)';
 
     // Enroll: export state -> recovery-encrypt -> upload opaque blob.
@@ -59,7 +61,10 @@ Future<String> _run() async {
     final blob = recovery.recoveryEncrypt(state: state, recoveryCode: code);
 
     // The encrypted blob must not leak the plaintext state.
-    final stateHead = utf8.decode(state.take(16).toList(), allowMalformed: true);
+    final stateHead = utf8.decode(
+      state.take(16).toList(),
+      allowMalformed: true,
+    );
     final blobStr = utf8.decode(blob, allowMalformed: true);
     if (stateHead.isNotEmpty && blobStr.contains(stateHead)) {
       return 'FAIL: recovery blob leaks plaintext state';
@@ -78,15 +83,20 @@ Future<String> _run() async {
     // Wrong code must fail closed.
     var wrongCodeRejected = false;
     try {
-      recovery.recoveryDecrypt(blob: serverBlob, recoveryCode: 'WRONG-CODE-0000');
+      recovery.recoveryDecrypt(
+        blob: serverBlob,
+        recoveryCode: 'WRONG-CODE-0000',
+      );
     } on Object {
       wrongCodeRejected = true;
     }
     if (!wrongCodeRejected) return 'FAIL: wrong recovery code was accepted';
 
     // Correct code: decrypt -> restore Alice on the new device.
-    final restoredState =
-        recovery.recoveryDecrypt(blob: serverBlob, recoveryCode: code);
+    final restoredState = recovery.recoveryDecrypt(
+      blob: serverBlob,
+      recoveryCode: code,
+    );
     final aliceNew = PointMls.restore(state: restoredState);
     if (!aliceNew.hasGroup(groupId: gid)) {
       return 'FAIL: recovered Alice lost the group';
@@ -96,7 +106,9 @@ Future<String> _run() async {
     // Bob decrypts.
     const msg = 'fix after account recovery';
     final ctAfter = await aliceNew.encrypt(groupId: gid, plaintext: _b(msg));
-    final ptAfter = utf8.decode(await bob.decrypt(groupId: bobGid, ciphertext: ctAfter));
+    final ptAfter = utf8.decode(
+      await bob.decrypt(groupId: bobGid, ciphertext: ctAfter),
+    );
     if (ptAfter != msg) return 'FAIL: post-recovery decrypt ($ptAfter)';
 
     return 'PASS recovery: enroll → upload → [new device] → fetch → decrypt → '

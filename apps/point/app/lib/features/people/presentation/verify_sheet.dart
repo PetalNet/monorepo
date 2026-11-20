@@ -59,8 +59,10 @@ class _VerifySheetState extends ConsumerState<VerifySheet> {
       if (mounted) setState(() => _number = n);
     } on Object {
       if (mounted) {
-        setState(() => _error =
-            "You'll be able to verify once you've both shared and connected.");
+        setState(
+          () => _error =
+              "You'll be able to verify once you've both shared and connected.",
+        );
       }
     }
   }
@@ -68,7 +70,9 @@ class _VerifySheetState extends ConsumerState<VerifySheet> {
   @override
   Widget build(BuildContext context) {
     final name = widget.person.displayName;
-    final verified = ref.watch(verificationProvider).contains(widget.person.userId);
+    final verified = ref
+        .watch(verificationProvider)
+        .contains(widget.person.userId);
     return SafeArea(
       child: Padding(
         padding: EdgeInsets.fromLTRB(
@@ -86,25 +90,27 @@ class _VerifySheetState extends ConsumerState<VerifySheet> {
             Text(
               'Compare this with the number on $name’s screen. If they '
               'match, your connection is private end to end.',
-              style: context.text.bodyMedium
-                  ?.copyWith(color: context.colors.onSurfaceVariant),
+              style: context.text.bodyMedium?.copyWith(
+                color: context.colors.onSurfaceVariant,
+              ),
             ),
             SizedBox(height: context.space.xl),
             if (_error != null)
               _Unavailable(message: _error!)
             else if (_number == null)
-              const Center(child: Padding(
-                padding: EdgeInsets.all(24),
-                child: CircularProgressIndicator(),
-              ))
+              const Center(
+                child: Padding(
+                  padding: EdgeInsets.all(24),
+                  child: CircularProgressIndicator(),
+                ),
+              )
             else
               _SafetyNumber(number: _number!),
             SizedBox(height: context.space.xl),
             if (_number != null && verified)
               Row(
                 children: [
-                  Icon(Icons.verified_user,
-                      color: context.colors.onSurface),
+                  Icon(Icons.verified_user, color: context.colors.onSurface),
                   SizedBox(width: context.space.sm),
                   Text('Verified', style: context.text.titleMedium),
                   const Spacer(),
@@ -183,8 +189,9 @@ class _Unavailable extends StatelessWidget {
       ),
       child: Text(
         message,
-        style: context.text.bodyMedium
-            ?.copyWith(color: context.colors.onSurfaceVariant),
+        style: context.text.bodyMedium?.copyWith(
+          color: context.colors.onSurfaceVariant,
+        ),
       ),
     );
   }

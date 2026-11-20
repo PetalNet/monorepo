@@ -1,4 +1,3 @@
-
 import 'package:material_ui/material_ui.dart';
 
 /// Keeps every shell branch mounted (so per-branch state survives tab switches,

@@ -3,13 +3,17 @@ import 'package:material_ui/material_ui.dart';
 import 'package:point_app/features/map/presentation/self_marker.dart';
 import 'package:point_app/theme/app_theme.dart';
 
-Widget _wrap(Widget child) =>
-    MaterialApp(theme: AppTheme.dark(pureBlack: true), home: Scaffold(body: child));
+Widget _wrap(Widget child) => MaterialApp(
+  theme: AppTheme.dark(pureBlack: true),
+  home: Scaffold(body: child),
+);
 
 void main() {
   group('SelfMarker', () {
     testWidgets('two-word name → two initials', (tester) async {
-      await tester.pumpWidget(_wrap(const SelfMarker(name: 'Parker Hasenkamp')));
+      await tester.pumpWidget(
+        _wrap(const SelfMarker(name: 'Parker Hasenkamp')),
+      );
       expect(find.text('PH'), findsOneWidget);
     });
 

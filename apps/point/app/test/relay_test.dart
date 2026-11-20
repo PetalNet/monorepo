@@ -90,7 +90,10 @@ void main() {
     expect(payload['parked'], 1);
 
     // And the receiver reads both clocks + the flag back out.
-    final peer = PeerFix(userId: 'p@x', data: Map<String, dynamic>.from(payload));
+    final peer = PeerFix(
+      userId: 'p@x',
+      data: Map<String, dynamic>.from(payload),
+    );
     expect(peer.timestamp, 1000);
     expect(peer.aliveAt, 5000);
     expect(peer.parked, isTrue);
@@ -144,30 +147,33 @@ void main() {
       expect(reloaded.length, 2);
     });
 
-    test('R10 mid-delivery kill: a crash between peek (send) and ack loses '
-        'NOTHING — the whole batch survives to resend, incl. the last fix',
-        () async {
-      final store = MemoryRelayStore();
-      final q = RelayQueue(store: store);
-      await q.load();
-      await q.enqueue('bob@x', 'f0');
-      await q.enqueue('bob@x', 'f1');
-      await q.enqueue('carol@x', 'f2'); // the last pre-offline fix
+    test(
+      'R10 mid-delivery kill: a crash between peek (send) and ack loses '
+      'NOTHING — the whole batch survives to resend, incl. the last fix',
+      () async {
+        final store = MemoryRelayStore();
+        final q = RelayQueue(store: store);
+        await q.load();
+        await q.enqueue('bob@x', 'f0');
+        await q.enqueue('bob@x', 'f1');
+        await q.enqueue('carol@x', 'f2'); // the last pre-offline fix
 
-      // Peek the batch and "send" it (sink.add) — but the process is killed
-      // before any ack persists. Model the kill as a restore from the store.
-      final batch = q.peek(max: 20);
-      expect(batch, hasLength(3));
-      // No ackThrough happened (killed mid-flight).
-      final afterKill = RelayQueue(store: store);
-      await afterKill.load();
-      expect(
-        afterKill.items.map((e) => e.frame),
-        ['f0', 'f1', 'f2'],
-        reason: 'D-019: a mid-delivery kill drops nothing — never removed '
-            'before a confirmed send',
-      );
-    });
+        // Peek the batch and "send" it (sink.add) — but the process is killed
+        // before any ack persists. Model the kill as a restore from the store.
+        final batch = q.peek(max: 20);
+        expect(batch, hasLength(3));
+        // No ackThrough happened (killed mid-flight).
+        final afterKill = RelayQueue(store: store);
+        await afterKill.load();
+        expect(
+          afterKill.items.map((e) => e.frame),
+          ['f0', 'f1', 'f2'],
+          reason:
+              'D-019: a mid-delivery kill drops nothing — never removed '
+              'before a confirmed send',
+        );
+      },
+    );
 
     test('ackThrough is seq-keyed, so a capacity eviction of an in-flight item '
         'never removes the wrong (newer) fix', () async {

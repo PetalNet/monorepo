@@ -21,8 +21,10 @@ Future<void> main() async {
   runApp(_ResultApp(result));
 }
 
-const _base = String.fromEnvironment('POINT_SERVER',
-    defaultValue: 'http://localhost:8330');
+const _base = String.fromEnvironment(
+  'POINT_SERVER',
+  defaultValue: 'http://localhost:8330',
+);
 String get _wsUrl => '${_base.replaceFirst('http', 'ws')}/ws';
 
 Uint8List _u(String s) => Uint8List.fromList(utf8.encode(s));
@@ -33,9 +35,13 @@ Future<String> _run() async {
   try {
     // 1. Register two users on the live server.
     final alice = await api.register(
-        username: 'ea$suffix', password: 'correcthorsebattery');
+      username: 'ea$suffix',
+      password: 'correcthorsebattery',
+    );
     final bob = await api.register(
-        username: 'eb$suffix', password: 'correcthorsebattery');
+      username: 'eb$suffix',
+      password: 'correcthorsebattery',
+    );
 
     // 2. MLS identities; upload a POOL of KeyPackages each (multi-KP fix).
     final aliceMls = CryptoService();
@@ -43,9 +49,8 @@ Future<String> _run() async {
     await aliceMls.init(alice.userId);
     await bobMls.init(bob.userId);
     Future<List<String>> pool(CryptoService c) async => [
-          for (var i = 0; i < 3; i++)
-            base64Encode(await c.generateKeyPackage()),
-        ];
+      for (var i = 0; i < 3; i++) base64Encode(await c.generateKeyPackage()),
+    ];
     await api.uploadKeyPackages(alice.token, await pool(aliceMls));
     await api.uploadKeyPackages(bob.token, await pool(bobMls));
 
@@ -77,15 +82,20 @@ Future<String> _run() async {
       orElse: () => {},
     );
     if (welcome.isEmpty) return 'FAIL: Bob got no Welcome';
-    final bobGid =
-        await bobMls.processWelcome(base64Decode(welcome['payload'] as String));
+    final bobGid = await bobMls.processWelcome(
+      base64Decode(welcome['payload'] as String),
+    );
     await api.ackMlsMessage(bob.token, welcome['id'] as String);
 
     // 6. Connect both over the durable WS; Bob listens for the broadcast.
-    final aliceWs =
-        WsService(wsUrl: _wsUrl, queue: RelayQueue(store: MemoryRelayStore()));
-    final bobWs =
-        WsService(wsUrl: _wsUrl, queue: RelayQueue(store: MemoryRelayStore()));
+    final aliceWs = WsService(
+      wsUrl: _wsUrl,
+      queue: RelayQueue(store: MemoryRelayStore()),
+    );
+    final bobWs = WsService(
+      wsUrl: _wsUrl,
+      queue: RelayQueue(store: MemoryRelayStore()),
+    );
     final got = Completer<String>();
     bobWs.incoming.listen((m) async {
       if (m['type'] == 'location.broadcast' && !got.isCompleted) {

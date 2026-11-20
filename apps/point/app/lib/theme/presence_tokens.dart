@@ -35,11 +35,11 @@ class PresenceTokens extends ThemeExtension<PresenceTokens> {
   final Color faint;
 
   Color toneFor(PresenceState s) => switch (s) {
-        PresenceState.live => ink,
-        PresenceState.away => muted,
-        PresenceState.stale => muted,
-        PresenceState.ghosted => faint,
-      };
+    PresenceState.live => ink,
+    PresenceState.away => muted,
+    PresenceState.stale => muted,
+    PresenceState.ghosted => faint,
+  };
 
   @override
   PresenceTokens copyWith({Color? ink, Color? muted, Color? faint}) {

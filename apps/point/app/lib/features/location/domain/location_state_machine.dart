@@ -51,12 +51,12 @@ class EnginePlan {
 
   @override
   int get hashCode => Object.hash(
-        activity,
-        gpsInterval,
-        distanceFilter,
-        foregroundService,
-        gpsEnabled,
-      );
+    activity,
+    gpsInterval,
+    distanceFilter,
+    foregroundService,
+    gpsEnabled,
+  );
 }
 
 /// Tunables. Kept in one place so the cadence is legible and matches the
@@ -112,10 +112,9 @@ class LocationStateMachine {
     this.config = const EngineConfig(),
     bool sharing = true,
     bool foreground = true,
-  })  : _sharing = sharing,
-        _foreground = foreground,
-        _activity =
-            sharing ? LocationActivity.idle : LocationActivity.ghost;
+  }) : _sharing = sharing,
+       _foreground = foreground,
+       _activity = sharing ? LocationActivity.idle : LocationActivity.ghost;
 
   final EngineConfig config;
   LocationActivity _activity;
@@ -225,14 +224,14 @@ class LocationStateMachine {
     };
     final distanceFilter = switch (_activity) {
       LocationActivity.fast =>
-        _foreground ? config.movingForegroundFilter : config.fastBackgroundFilter,
+        _foreground
+            ? config.movingForegroundFilter
+            : config.fastBackgroundFilter,
       LocationActivity.active =>
         _foreground
             ? config.movingForegroundFilter
             : config.activeBackgroundFilter,
-      LocationActivity.idle ||
-      LocationActivity.sleeping =>
-        config.parkedFilter,
+      LocationActivity.idle || LocationActivity.sleeping => config.parkedFilter,
       LocationActivity.ghost => 0,
     };
     return EnginePlan(

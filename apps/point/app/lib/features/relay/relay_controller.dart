@@ -42,8 +42,7 @@ class PeerFix {
   /// device) — the clock that decides alive vs dark. Older clients omit
   /// `alive_at`, so fall back to the position time (their fixes and liveness
   /// coincided).
-  int? get aliveAt =>
-      (data['alive_at'] as num?)?.toInt() ?? timestamp;
+  int? get aliveAt => (data['alive_at'] as num?)?.toInt() ?? timestamp;
 
   /// True when this is a parked keepalive/floor: the device is alive as of
   /// [aliveAt] but hasn't moved since [timestamp]. Absent on old payloads.

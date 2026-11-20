@@ -34,7 +34,10 @@ const maxStaticRadiusPx = 280.0;
 ///
 /// Returns the geographic radius to cover, and whether the dark on-screen
 /// floor applies; `null` means a plain precise marker.
-({double radiusM, bool dark})? fuzzStaticSpec(Person person, double? accuracyM) {
+({double radiusM, bool dark})? fuzzStaticSpec(
+  Person person,
+  double? accuracyM,
+) {
   if (!person.hasLocation) return null;
   final coarse = accuracyM != null && accuracyM >= approximateAccuracyFloorM;
   final dark = person.presence == PresenceState.stale;

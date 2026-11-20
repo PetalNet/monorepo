@@ -44,8 +44,9 @@ class SelfMarker extends StatelessWidget {
               ),
               child: Text(
                 _initials,
-                style: context.text.titleMedium
-                    ?.copyWith(color: context.colors.onSurface),
+                style: context.text.titleMedium?.copyWith(
+                  color: context.colors.onSurface,
+                ),
               ),
             ),
           ),

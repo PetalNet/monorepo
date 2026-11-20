@@ -181,9 +181,12 @@ void main() {
     testWidgets('the approximate cloud covers the geographic radius on '
         'screen', (tester) async {
       await tester.pumpWidget(
-        mapHost(const [_liveCoarse], {
-          'janet@point.dev': _motion('janet@point.dev', 38.61, -90.21, 800),
-        }),
+        mapHost(
+          const [_liveCoarse],
+          {
+            'janet@point.dev': _motion('janet@point.dev', 38.61, -90.21, 800),
+          },
+        ),
       );
       await tester.pump();
 
@@ -200,9 +203,12 @@ void main() {
     testWidgets('a dark peer with precise last-known accuracy keeps a '
         'readable minimum aura', (tester) async {
       await tester.pumpWidget(
-        mapHost(const [_dark], {
-          'noor@point.dev': _motion('noor@point.dev', 38.63, -90.19, 10),
-        }),
+        mapHost(
+          const [_dark],
+          {
+            'noor@point.dev': _motion('noor@point.dev', 38.63, -90.19, 10),
+          },
+        ),
       );
       await tester.pump();
 

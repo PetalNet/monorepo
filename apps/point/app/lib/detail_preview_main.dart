@@ -32,25 +32,25 @@ void main() {
 class _PreviewAuth extends AuthController {
   @override
   Future<Session?> build() async => const Session(
-        userId: 'parker@point.petalcat.dev',
-        token: 't',
-        displayName: 'Parker H',
-        isAdmin: true,
-      );
+    userId: 'parker@point.petalcat.dev',
+    token: 't',
+    displayName: 'Parker H',
+    isAdmin: true,
+  );
 }
 
 class _PreviewPeople extends PeopleController {
   @override
   Future<List<Person>> build() async => const [
-        Person(
-          userId: 'mara@fieldstone.social',
-          displayName: 'Mara Quinn',
-          presence: PresenceState.stale,
-          subtitle: 'Dark since 14:07',
-          lat: 38.627,
-          lon: -90.199,
-        ),
-      ];
+    Person(
+      userId: 'mara@fieldstone.social',
+      displayName: 'Mara Quinn',
+      presence: PresenceState.stale,
+      subtitle: 'Dark since 14:07',
+      lat: 38.627,
+      lon: -90.199,
+    ),
+  ];
 }
 
 class _PreviewGhost extends GhostController {

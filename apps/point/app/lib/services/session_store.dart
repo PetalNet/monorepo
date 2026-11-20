@@ -8,7 +8,7 @@ import 'package:point_app/services/api/models.dart';
 /// device-linked + recovery-secret backed (M2/M4), separate from login.
 class SessionStore {
   SessionStore([FlutterSecureStorage? storage])
-      : _storage = storage ?? const FlutterSecureStorage();
+    : _storage = storage ?? const FlutterSecureStorage();
 
   static const _key = 'point.session';
   final FlutterSecureStorage _storage;
@@ -25,14 +25,14 @@ class SessionStore {
   }
 
   Future<void> write(Session session) => _storage.write(
-        key: _key,
-        value: jsonEncode({
-          'token': session.token,
-          'user_id': session.userId,
-          'display_name': session.displayName,
-          'is_admin': session.isAdmin,
-        }),
-      );
+    key: _key,
+    value: jsonEncode({
+      'token': session.token,
+      'user_id': session.userId,
+      'display_name': session.displayName,
+      'is_admin': session.isAdmin,
+    }),
+  );
 
   Future<void> clear() => _storage.delete(key: _key);
 }

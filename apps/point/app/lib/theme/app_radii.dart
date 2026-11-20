@@ -36,8 +36,7 @@ class AppRadii extends ThemeExtension<AppRadii> {
 
   /// The top-only 28 radius for bottom sheets (mockup: sheets get big top
   /// corners, square bottom).
-  BorderRadius get sheetTop =>
-      BorderRadius.vertical(top: Radius.circular(xl));
+  BorderRadius get sheetTop => BorderRadius.vertical(top: Radius.circular(xl));
 
   @override
   AppRadii copyWith({

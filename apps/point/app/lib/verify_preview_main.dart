@@ -41,11 +41,11 @@ void main() {
 class _Auth extends AuthController {
   @override
   Future<Session?> build() async => const Session(
-        userId: 'parker@point.petalcat.dev',
-        token: 't',
-        displayName: 'Parker H',
-        isAdmin: true,
-      );
+    userId: 'parker@point.petalcat.dev',
+    token: 't',
+    displayName: 'Parker H',
+    isAdmin: true,
+  );
 }
 
 class _FakeCrypto extends CryptoService {
