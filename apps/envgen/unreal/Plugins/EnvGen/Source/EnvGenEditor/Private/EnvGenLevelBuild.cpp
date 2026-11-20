@@ -766,7 +766,7 @@ return lerp(Texture2DSampleGrad(Scan,ScanSampler,UV,dx,dy).rgb,varied,blend);
 				break;
 			}
 			const float Around = Random.FRand() * 2 * PI;
-			const FVector2f Root = FVector2f(FMath::Cos(Around), FMath::Sin(Around)) * Random.FRand() * Variety.RadiusCm;
+			const FVector2f Root = FVector2f(FMath::Cos(Around), FMath::Sin(Around)) * FMath::Sqrt(Random.FRand()) * Variety.RadiusCm;
 			const float Facing = Random.FRand() * 2 * PI;
 			const FVector2f Along(FMath::Cos(Facing), FMath::Sin(Facing)), Across(-Along.Y, Along.X);
 			const float Height = Random.FRandRange(Variety.HeightMinCm, Variety.HeightMaxCm);
@@ -865,8 +865,8 @@ return lerp(Texture2DSampleGrad(Scan,ScanSampler,UV,dx,dy).rgb,varied,blend);
 		Shade->Alpha.Connect(1, Along);
 		UMaterialExpressionPerInstanceRandom* Random = Node<UMaterialExpressionPerInstanceRandom>(Material, -800, 550);
 		UMaterialExpressionLinearInterpolate* Tuft = Node<UMaterialExpressionLinearInterpolate>(Material, -650, 550);
-		Tuft->ConstA = 0.85f;
-		Tuft->ConstB = 1.15f;
+		Tuft->ConstA = 0.95f;
+		Tuft->ConstB = 1.05f;
 		Tuft->Alpha.Connect(0, Random);
 		UMaterialExpressionMultiply* Lit = Node<UMaterialExpressionMultiply>(Material, -350, 100);
 		Lit->A.Connect(0, Albedo);
@@ -893,13 +893,25 @@ return lerp(Texture2DSampleGrad(Scan,ScanSampler,UV,dx,dy).rgb,varied,blend);
 		Colour->B.Connect(0, Own);
 		// Thin blades pass light: lit from behind they glow with their own colour rather than going black.
 		Material->SetShadingModel(MSM_TwoSidedFoliage);
-		UMaterialEditingLibrary::ConnectMaterialProperty(Colour, TEXT(""), MP_BaseColor);
+		UMaterialExpressionCustom* RootColour = Node<UMaterialExpressionCustom>(Material, 50, 50);
+		RootColour->OutputType = CMOT_Float3;
+		RootColour->Inputs.Empty();
+		for (const auto& Pair : {TPair<const TCHAR*, UMaterialExpression*>(TEXT("Blade"), Colour),
+			TPair<const TCHAR*, UMaterialExpression*>(TEXT("Ground"), Albedo),
+			TPair<const TCHAR*, UMaterialExpression*>(TEXT("Along"), Along)})
+		{
+			FCustomInput& Input = RootColour->Inputs.AddDefaulted_GetRef();
+			Input.InputName = Pair.Key;
+			Input.Input.Connect(0, Pair.Value);
+		}
+		RootColour->Code = FString::Printf(TEXT("return lerp(Ground*%.6f*float3(1.03,0.96,0.8),Blade,smoothstep(0,0.25,Along.r));"), Manifest.Turf.RootShade);
+		UMaterialEditingLibrary::ConnectMaterialProperty(RootColour, TEXT(""), MP_BaseColor);
 		UMaterialExpressionMultiply* Transmitted = Node<UMaterialExpressionMultiply>(Material, 100, 150);
-		Transmitted->A.Connect(0, Colour);
+		Transmitted->A.Connect(0, RootColour);
 		Transmitted->ConstB = 0.45f;
 		UMaterialEditingLibrary::ConnectMaterialProperty(Transmitted, TEXT(""), MP_SubsurfaceColor);
 		UMaterialExpressionLinearInterpolate* Occlusion = Node<UMaterialExpressionLinearInterpolate>(Material, 100, 250);
-		Occlusion->ConstA = 0.55f;
+		Occlusion->ConstA = 0.4f;
 		Occlusion->ConstB = 1.f;
 		Occlusion->Alpha.Connect(1, Along);
 		UMaterialEditingLibrary::ConnectMaterialProperty(Occlusion, TEXT(""), MP_AmbientOcclusion);
@@ -958,7 +970,7 @@ return lerp(Texture2DSampleGrad(Scan,ScanSampler,UV,dx,dy).rgb,varied,blend);
 				: TEXT("1.0");
 			const FString StatureSpread = Variety.Name == FName(TEXT("broadleaf"))
 				? TEXT("lerp(0.75,1.25,Random)")
-				: TEXT("lerp(0.55,1.55,frac(Seed.g+Random*1.61803399))");
+				: TEXT("lerp(0.85,1.2,frac(Seed.g+Random*1.61803399))");
 			Offset->Code = TEXT("float fade = ") + Fade + TEXT("; float spread = ") + StatureSpread + TEXT(R"(;
 float2 p = Root.xy;
 float relief = 0.65*sin(p.x*0.027+p.y*0.013)*sin(p.y*0.039-p.x*0.011);
@@ -1349,6 +1361,24 @@ return max(projected,minimum);
 			DetailAmount->Alpha.Connect(0, DetailShare);
 			UMaterialExpressionMultiply* Albedo = Node<UMaterialExpressionMultiply>(Material, -200, Y);
 			UMaterialExpression* LayerBase = Layer.Name == GrassLayer && GrassBase ? GrassBase : Base;
+			if (Layer.Name == GrassLayer)
+			{
+				UMaterialExpressionCustom* UnderSward = Node<UMaterialExpressionCustom>(Material, -300, Y - 600);
+				UnderSward->OutputType = CMOT_Float3;
+				UnderSward->Inputs.Empty();
+				for (const auto& Pair : {TPair<const TCHAR*, UMaterialExpression*>(TEXT("Surface"), LayerBase),
+					TPair<const TCHAR*, UMaterialExpression*>(TEXT("Macro"), MacroAlbedo),
+					TPair<const TCHAR*, UMaterialExpression*>(TEXT("Here"), GroundPosition),
+					TPair<const TCHAR*, UMaterialExpression*>(TEXT("Eye"), GroundEye)})
+				{
+					FCustomInput& Input = UnderSward->Inputs.AddDefaulted_GetRef();
+					Input.InputName = Pair.Key;
+					Input.Input.Connect(0, Pair.Value);
+				}
+				// Close turf exposes its shaded thatch; distant turf keeps the photo's measured sward colour.
+				UnderSward->Code = FString::Printf(TEXT("return lerp(Macro*%.6f*float3(1.03,0.96,0.8),Surface,smoothstep(300,1500,distance(Here,Eye)));"), Manifest.Turf.RootShade);
+				LayerBase = UnderSward;
+			}
 			if (NativeColour && Layer.OrthoMean)
 			{
 				UMaterialExpressionConstant3Vector* PhotoMean = Node<UMaterialExpressionConstant3Vector>(Material, -600, Y - 300);
