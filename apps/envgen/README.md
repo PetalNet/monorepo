@@ -561,5 +561,5 @@ Before moving to a new engine version, these show whether it can host the work:
 
 ## Not in this slice
 
-Roof shapes, streets, sidewalks, a mesh for each species, wind, weather and a moving sun, the manual edit layer that regeneration leaves alone, and
+Roof shapes, a mesh for each species, wind, weather and a moving sun, the manual edit layer that regeneration leaves alone, and
 the simulator exports.

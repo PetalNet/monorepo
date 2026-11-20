@@ -64,7 +64,7 @@ follows east at heading zero; its depth follows north. Pole height must be suppl
 from a shadow needs the shadow endpoints and solar elevation in its evidence, with the uncertainty stated.
 Unresolved small image objects do not establish benches, parked cars or permanent equipment.
 
-Paving and paint are clipped to the Landscape grid and its 00–11 triangle diagonal, including integer subdivisions of larger quads. The importer samples those same triangle planes. Landscape components beneath these surfaces retain LOD0, with a two-quad border, so terrain distance morphing cannot push through paving. All terrain-contact surfaces keep their full triangle meshes: independent Nanite simplification can otherwise move paving through the terrain or obscure paint. Solid props use Nanite. Geometry and the grass mask are checked before replacing the previous saved level.
+Paving and paint are clipped to the Landscape grid and its 00–11 triangle diagonal, including integer subdivisions of larger quads. The importer samples those same triangle planes. Landscape components beneath these surfaces retain LOD0, with a two-quad border, so terrain distance morphing cannot push through paving. Terrain-contact surfaces use ordinary static meshes to avoid independent Nanite simplification moving paving through the terrain or obscuring paint. Solid props use Nanite. Geometry and the grass mask are checked before replacing the previous saved level.
 
 The stage writes `streetscape.json` and `streetscape_grass.png`, both hashed in `build.json`. The JSON
 contains material batches, vertices, triangle indices, collision flags and optional terrain anchors.
@@ -117,3 +117,11 @@ dimensions without changing the inventory's coordinate frame.
 Regeneration is optional and cached by inventory hash, tile, settings and stage version. A site without the source
 does not generate streetscape assets. Changes to geometry or appearance defaults require a streetscape
 stage-key version update when the change is not represented in `SETTINGS`. No site-specific coordinates or imagery are included in this module.
+
+## Appearance checks
+
+Capture paint and fence details in game mode with the tour's `FScreenshotRequest` path. In this slice's
+UE 5.8.4 comparison, editor `HighResScreenshot` captures fragmented continuous markings at 1920×1080.
+Game captures at the same pose and output resolution restored continuous strokes. Extra editor warm-up frames
+did not remove the artifact. Keep the camera pose, field of view, render fractions and output resolution
+fixed when comparing captures.
