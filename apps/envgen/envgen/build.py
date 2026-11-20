@@ -1888,8 +1888,6 @@ def build(site_path: Path, out: Path, cache: Path | None = None) -> dict:
             key: value for key, value in stages["streetscape"].items() if key not in ("files", "cached")
         }
         artifacts += stages["streetscape"]["files"]
-    if survey_lighting:
-        manifest["lighting"]["survey_fit"] = survey_lighting
     if any(layer["name"] == "grass" for layer in classes["layers"]):
         manifest["turf"] = turf.describe()
         manifest["turf"]["growth"] = {
