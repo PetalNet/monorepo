@@ -390,6 +390,10 @@ def test_raw_survey_colour_invalidates_growth_even_when_derived_maps_are_identic
     pipeline = importlib.import_module("envgen.build")
     monkeypatch.setattr(pipeline, "MACRO_PIXELS", 128)
     monkeypatch.setattr(pipeline, "DETAIL_PIXELS", 256)
+    # Isolate raw-photo cache invalidation from changes in the derived colour transform.
+    monkeypatch.setattr(pipeline, "clean_ortho_colour", lambda rgb, *_: (
+        np.broadcast_to(np.array([80, 120, 40])[:, None, None], rgb.shape).copy(), {}
+    ))
     h.write_dem(tmp_path / "dem.tif")
     h.write_imagery(tmp_path / "imagery.tif", split_easting=h.WEST)
     site_path = h.write_site(tmp_path)
