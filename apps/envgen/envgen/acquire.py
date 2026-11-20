@@ -20,7 +20,7 @@ from rasterio.transform import from_origin
 from rasterio.warp import transform_bounds
 from rasterio.windows import Window, from_bounds
 
-from .site import CONTEXT_QUADS, Site, Source
+from .site import CONTEXT_MACRO_PIXELS, CONTEXT_QUADS, Site, Source
 
 # ImageServers cap the size of one export; this is under the common limits.
 MAX_REQUEST_PIXELS = 2048
@@ -170,7 +170,7 @@ def _windows(site: Site) -> list[tuple[str, Source, tuple[float, float, float, f
         window = (east - half, north - half, east + half, north + half)
         wanted += [
             ("context_elevation", site.elevation, window, spacing),
-            ("context_imagery", site.imagery, window, spacing),
+            ("context_imagery", site.imagery, window, site.context_size_m / CONTEXT_MACRO_PIXELS),
         ]
         if site.canopy_height:
             wanted.append(("context_canopy_height", site.canopy_height, window, None))

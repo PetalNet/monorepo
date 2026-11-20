@@ -14,7 +14,7 @@ from rasterio.warp import transform_bounds
 from envgen import imagery, surface
 from envgen.acquire import _windows, acquire, raster_identity
 from envgen.imagery_config import configure
-from envgen.site import Source, Tile, load_site
+from envgen.site import CONTEXT_MACRO_PIXELS, Source, Tile, load_site
 from envgen.vector_sources import load
 
 from .helpers import CRS, SOUTH, WEST, write_site
@@ -171,7 +171,7 @@ def test_configuration_keeps_service_surround_and_provenance(tmp_path):
     windows = {name: (s, window, spacing) for name, s, window, spacing in _windows(site)}
     assert windows["imagery"][0].request_spacing_m == 0.3
     assert windows["context_imagery"][0] == site.imagery
-    assert windows["context_imagery"][2] == 1
+    assert windows["context_imagery"][2] == 504 / CONTEXT_MACRO_PIXELS
     assert windows["context_imagery"][1][2] - windows["context_imagery"][1][0] == 506
     for name, s, _, _ in _windows(site):
         if s.kind == "file":

@@ -1,12 +1,14 @@
 import json
+import math
 from pathlib import Path
 
 import numpy as np
 import pytest
+import rasterio
 from PIL import Image
 
 from envgen import acquire, frame
-from envgen.build import MACRO_LOW_PASS_M, build, shadow_gap
+from envgen.build import CONTEXT_MACRO_PIXELS, MACRO_LOW_PASS_M, build, shadow_gap
 from envgen.cli import main
 from envgen.site import SiteError, load_site, tile_for_boundary
 
@@ -257,6 +259,44 @@ def test_a_moved_boundary_fetches_its_new_window(tmp_path):
         load_site(h.write_site(tmp_path, sources=h.SERVICE_SOURCES, boundary=moved)), tmp_path / "cache", fetch=server
     )
     assert server.requests == 2
+
+
+def test_context_service_imagery_uses_colour_resolution_and_invalidates_its_cache(tmp_path, monkeypatch):
+    sources = h.SERVICE_SOURCES | {
+        "imagery": h.SERVICE_SOURCES["elevation"] | {"endpoint": "https://imagery.invalid/ImageServer"}
+    }
+    site = load_site(h.write_site(tmp_path, sources=sources, context={"size_m": 4032}))
+    cache = tmp_path / "cache"
+    server = h.FakeImageServer()
+    first = acquire.acquire(site, cache, fetch=server)
+    mesh_spacing = 8.0
+    half_window = 4032 / 2 + mesh_spacing
+    east, north = site.tile.centre
+
+    assert first["context_elevation"]["request_spacing_m"] == mesh_spacing
+    assert first["context_imagery"]["request_spacing_m"] == 4032 / CONTEXT_MACRO_PIXELS
+    for name, spacing in (
+        ("context_elevation", mesh_spacing),
+        ("context_imagery", 4032 / CONTEXT_MACRO_PIXELS),
+    ):
+        with rasterio.open(first[name]["path"]) as raster:
+            assert raster.res == (spacing, spacing)
+            assert (raster.transform.c, raster.transform.f) == (east - half_window, north + half_window)
+            assert raster.shape == (math.ceil(2 * half_window / spacing),) * 2
+
+    requests = server.requests
+    again = acquire.acquire(site, cache, fetch=server)
+    assert server.requests == requests
+    assert all(entry["bytes_fetched"] == 0 for entry in again.values())
+
+    monkeypatch.setattr(acquire, "CONTEXT_MACRO_PIXELS", CONTEXT_MACRO_PIXELS // 2)
+    changed = acquire.acquire(site, cache, fetch=server)
+    assert changed["context_imagery"]["request_spacing_m"] == 4032 / (CONTEXT_MACRO_PIXELS // 2)
+    assert changed["context_imagery"]["path"] != first["context_imagery"]["path"]
+    assert changed["context_imagery"]["bytes_fetched"] > 0
+    for name in ("elevation", "imagery", "context_elevation"):
+        assert changed[name]["path"] == first[name]["path"]
+        assert changed[name]["bytes_fetched"] == 0
 
 
 def test_cells_outside_the_service_coverage_are_filled_not_used_as_heights(tmp_path, monkeypatch):

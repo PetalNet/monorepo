@@ -36,6 +36,7 @@ from . import (
 from . import imagery as imagery_sources
 from .acquire import acquire, sha256_file
 from .site import (
+    CONTEXT_MACRO_PIXELS,
     CONTEXT_QUADS,
     LANDSCAPE_SECTION_QUADS,
     LANDSCAPE_SECTIONS_PER_COMPONENT,
@@ -89,7 +90,6 @@ SUNLIT_REACH_MIN = 0.05
 # The colour map's low-pass runs on blocks this many cells across. A numerical shortcut, not a measurement.
 POOL = 4
 
-CONTEXT_MACRO_PIXELS = 2048
 # Preserve broad developed/vegetated structure in the surround independently of the tile's macro/detail split.
 CONTEXT_LOW_PASS_M = 3.0
 # The surround passes under the tile; it sits this far below the detailed surface there so it never shows through.

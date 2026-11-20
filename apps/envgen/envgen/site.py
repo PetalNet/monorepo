@@ -228,6 +228,7 @@ def projected_metre_crs(text: str) -> str:
 
 # The surround is a second Landscape of this many quads a side: 8 components of 63.
 CONTEXT_QUADS = 504
+CONTEXT_MACRO_PIXELS = 2048
 
 
 def context_size(raw: dict, tile: Tile) -> float | None:
