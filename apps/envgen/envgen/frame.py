@@ -45,3 +45,35 @@ def encode_heights(elevation_m: np.ndarray) -> tuple[np.ndarray, float, float]:
 
 def decode_heights(heights: np.ndarray, mid_m: float, z_scale: float) -> np.ndarray:
     return (heights.astype(np.float64) - HEIGHT_MID) * z_scale / STEPS_PER_SCALE_UNIT / 100.0 + mid_m
+
+
+def sample_heightmap(heights: np.ndarray, surface: dict, points_enu_m: np.ndarray) -> np.ndarray:
+    """Sample exported Landscape triangle planes, returning up metres above the common origin.
+
+    Heights use Unreal layout [east, north]. Each quad's diagonal joins its low/low
+    and high/high corners. Coordinates outside the surface are errors, never edge clamps.
+    """
+    points = np.asarray(points_enu_m, dtype=np.float64)
+    location, scale = np.asarray(surface["location_cm"]), np.asarray(surface["scale"])
+    size = surface["vertices"]
+    if (
+        heights.shape != (size, size) or size < 2 or heights.dtype != np.uint16
+        or points.ndim != 2 or points.shape[1] != 2 or not np.isfinite(points).all()
+        or location.shape != (3,) or scale.shape != (3,)
+        or not np.isfinite(location).all() or not np.isfinite(scale).all() or np.any(scale <= 0)
+    ):
+        raise ValueError("invalid Landscape heightmap, transform or ENU samples")
+    east = (points[:, 0] * 100 - location[1]) / scale[1]
+    north = (points[:, 1] * 100 - location[0]) / scale[0]
+    if np.any((east < 0) | (north < 0) | (east > size - 1) | (north > size - 1)):
+        raise ValueError("terrain sample outside exported Landscape")
+    e0 = np.minimum(np.floor(east).astype(int), size - 2)
+    n0 = np.minimum(np.floor(north).astype(int), size - 2)
+    e, n = east - e0, north - n0
+    h00 = heights[e0, n0].astype(np.float64)
+    h10 = heights[e0 + 1, n0].astype(np.float64)
+    h01 = heights[e0, n0 + 1].astype(np.float64)
+    h11 = heights[e0 + 1, n0 + 1].astype(np.float64)
+    steps = np.where(n >= e, h00 + n * (h01 - h00) + e * (h11 - h01),
+                     h00 + e * (h10 - h00) + n * (h11 - h10))
+    return location[2] / 100 + (steps - HEIGHT_MID) * scale[2] / STEPS_PER_SCALE_UNIT / 100

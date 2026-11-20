@@ -21,6 +21,7 @@ from . import (
     architecture,
     building_imagery,
     buildings,
+    context_geometry,
     cover,
     frame,
     grain,
@@ -1433,12 +1434,18 @@ def _cached(out: Path, stage: str, key: str, compute) -> dict:
     if record_path.is_file():
         record = json.loads(record_path.read_text())
         produced = record["result"].get("files", [record["result"].get("file")])
-        if record["key"] == key and all((out / name).is_file() for name in produced):
+        intact = all((out / name).is_file() for name in produced)
+        if intact and stage == "context_geometry":
+            intact = record.get("output_hashes") == {name: sha256_file(out / name) for name in produced}
+        if record["key"] == key and intact:
             return record["result"] | {"cached": True}
     # Drop the old record first: if this run dies part-way, nothing claims the half-written output is current.
     record_path.unlink(missing_ok=True)
     result = compute()
-    record_path.write_text(json.dumps({"key": key, "result": result}, indent=1))
+    record = {"key": key, "result": result}
+    if stage == "context_geometry":
+        record["output_hashes"] = {name: sha256_file(out / name) for name in result["files"]}
+    record_path.write_text(json.dumps(record, indent=1))
     return result | {"cached": False}
 
 
@@ -2069,6 +2076,28 @@ def build(site_path: Path, out: Path, cache: Path | None = None) -> dict:
         context = stages["context"]
         manifest["context"] = {key: value for key, value in context.items() if key not in ("files", "cached")}
         artifacts += [context["heightmap"], context["colour"]]
+        stages["context_geometry"] = _cached(
+            out,
+            "context_geometry",
+            _stage_key(
+                grid, site.crs, site.context_size_m,
+                {key: value for key, value in context.items() if key not in ("files", "cached")},
+                {name: sources.get(name, {}).get("sha256")
+                 for name in ("buildings", "context_canopy_height", "context_imagery")},
+                sha256_file(out / context["heightmap"]),
+                {name: sha256_file(out / description["file"]) if description else None
+                 for name, description in (("buildings", housing), ("trees", inventory))},
+                classes.get("albedo"), covering["cutoff_m"] if covering else None, site.imagery.bands,
+                context_geometry.SETTINGS,
+            ),
+            lambda: context_geometry.build(site, sources, context, housing, inventory, classes, out,
+                                           cutoff_m=covering["cutoff_m"] if covering else None),
+        )
+        geometry = stages["context_geometry"]
+        manifest["context"]["geometry"] = {
+            key: value for key, value in geometry.items() if key not in ("files", "cached")
+        }
+        artifacts += geometry["files"]
 
     manifest["artifacts"] = {name: sha256_file(out / name) for name in artifacts}
     manifest["stages_reused"] = [name for name, stage in stages.items() if stage["cached"]]
