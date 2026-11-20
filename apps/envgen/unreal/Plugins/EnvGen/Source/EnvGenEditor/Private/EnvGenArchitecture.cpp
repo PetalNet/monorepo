@@ -228,7 +228,7 @@ void FStyle::AddDetails(const TArray<TArray<FVector2D>>& Rings, double RoofZ, co
 					for (int32 Support = 0; Support < Supports; ++Support)
 					{
 						const FVector2D Leg = At+Along*(SeatLength*((Support+0.5)/Supports-0.5));
-						Box(World(Leg, Top+21), U, V, FVector(6, 25, 40), DarkMetal, Emit);
+						Box(World(Leg, Top+21), U, V, FVector(6, 6, 40), FLinearColor(0.28f, 0.29f, 0.30f, Metal), Emit);
 					}
 				}
 			}
@@ -344,13 +344,14 @@ void FStyle::AddDetails(const TArray<TArray<FVector2D>>& Rings, double RoofZ, co
 			for (const FRoofForm& Form : RoofForms)
 			{
 				if (!Fits(Form.At, FVector2D(1,0), FVector2D(0,1), Form.WidthM*0.5, Form.DepthM*0.5, Rings)) { continue; }
-				Box(World(Form.At, RoofZ+6), East, North, FVector(Form.WidthM*100+16, Form.DepthM*100+16, 12), DarkMetal, Emit);
+				const double Width = Form.WidthM-0.4, Depth = Form.DepthM-0.4;
+				Box(World(Form.At, RoofZ+6), East, North, FVector(Width*100+16, Depth*100+16, 12), DarkMetal, Emit);
 				Box(World(Form.At, RoofZ+12+(Form.HeightM*100-12)*0.5), East, North,
-					FVector(Form.WidthM*100, Form.DepthM*100, Form.HeightM*100-12), FLinearColor(0.38f,0.40f,0.40f,Metal), Emit);
+					FVector(Width*100, Depth*100, Form.HeightM*100-12), FLinearColor(0.38f,0.40f,0.40f,Metal), Emit);
 				for (int32 Slat = 0; Slat < 6; ++Slat)
 				{
-					const FVector2D At = Form.At+FVector2D(Form.WidthM*(Slat-2.5)/8,0);
-					Box(World(At, RoofZ+Form.HeightM*100+1), East, North, FVector(Form.WidthM*7, Form.DepthM*65, 2), DarkMetal, Emit);
+					const FVector2D At = Form.At+FVector2D(Width*(Slat-2.5)/8,0);
+					Box(World(At, RoofZ+Form.HeightM*100+1), East, North, FVector(Width*7, Depth*65, 2), DarkMetal, Emit);
 				}
 			}
 			return;

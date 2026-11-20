@@ -446,7 +446,7 @@ a height, a roof albedo, and where each came from.
   photo is calibrated per class against the reflectance raster; a roof reads like the unvegetated class, a prior).
 - **Roof forms** on large light roofs come from compact contrasting regions in the photo. Their locations and
   plan dimensions are image inferences; bounds can include cast shadows and the object type is unconfirmed.
-  Edge-connected shadows and long thin seams are excluded. Sparse clusters are covered by solid photo rectangles at least two cells across; one-cell connections do not fill the space between units. Service-box height is a 0.9 m prior. These forms do
+  Edge-connected shadows and long thin seams are excluded. Sparse clusters are covered by solid photo rectangles at least two cells across; one-cell connections do not fill the space between units. Service-box height is a 0.9 m prior. Fixture bodies are inset 0.2 m per side from those uncertain bounds; their curbs stay inside the bounds so neighbouring volumes remain separate. These forms do
   not change the measured building height or median roof albedo.
 - **Architectural detail:** each record's `architecture` describes its facade and roof kit. Source tags choose
   residential, institutional, commercial, utility or grandstand use. Untagged footprints use area, width and
@@ -455,7 +455,7 @@ a height, a roof albedo, and where each came from.
 - **Priors, with no source:** facade colour, brick or siding, window bays, doors, trim, parapets and HVAC are
   plausible modular details, not surveyed elevations. Roof pitch is 0.38 rise/run, capped at 2.4 m rise. Roof
   roughness is 0.85. Grandstand rows use the tagged footprint and measured height; paired stands face each other.
-  Bench fittings and the larger stand's press box are priors. Each record carries provenance, and
+  Bench fittings (including 6 cm support posts) and the larger stand's press box are priors. Each record carries provenance, and
   `buildings.priors` lists these limitations. A tagged grandstand owns a generic streetscape bleacher when at
   least 25% of the seating plan overlaps its footprint; `claimed_bleachers` records the omitted kit and overlap.
   Separate bleachers remain in the streetscape inventory. The 3 m floor, 0.3 m simplification, 4 m2 minimum area, 1.5 m lidar
