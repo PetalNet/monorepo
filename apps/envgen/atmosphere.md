@@ -34,7 +34,7 @@ The following are presentation priors, not measurements of the site:
 
 Fixed walk, fly and overview tours retain their original 90 degree horizontal field of view and camera paths. Fixed-step captures are visual evidence only; performance uses separate non-fixed-step runs.
 
-SkyAtmosphere contributes the fog colour through `r.SupportSkyAtmosphereAffectsHeightFog`; the fog's independent colour terms are black to avoid adding a second tint. A movable real-time skylight captures atmosphere and clouds for diffuse lighting. Lumen GI, reflections and virtual shadow maps remain enabled. The parallel ground branch adds two-sided foliage shading and subsurface colour to grass; imported tree leaf materials retain their own authored translucency. The ground builder owns those materials.
+SkyAtmosphere contributes the fog colour through `r.SupportSkyAtmosphereAffectsHeightFog`; the fog's independent colour terms are black to avoid adding a second tint. A movable real-time skylight captures atmosphere and clouds for diffuse lighting. Lumen GI, reflections and virtual shadow maps remain enabled. Generated grass uses two-sided foliage shading and subsurface colour in `MakeBladeMaterial`; imported tree leaf materials retain their authored translucency.
 
 The manifest's sun illuminance has already passed through a clear-sky model. `GetAtmosphericLightToMatchIlluminanceOnGround` converts it to the outer-space illuminance the engine expects, using the atmosphere's own transmittance. This prevents a second attenuation. Film grain uses the engine's 128-pixel grain texture explicitly, avoiding a missing default texture proxy on 5.8.4.
 
