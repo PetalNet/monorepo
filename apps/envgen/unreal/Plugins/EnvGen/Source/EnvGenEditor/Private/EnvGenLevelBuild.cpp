@@ -1,6 +1,7 @@
 #include "EnvGenLevelBuild.h"
 #include "EnvGenAtmosphere.h"
 #include "EnvGenStreetscape.h"
+#include "EnvGenArchitecture.h"
 
 #include "AssetRegistry/AssetRegistryModule.h"
 #include "Components/InstancedSkinnedMeshComponent.h"
@@ -193,6 +194,8 @@ namespace
 		// Outer ring first, then holes; each point is (east, north). Triangles index the rings' points in order.
 		TArray<TArray<FVector2D>> Rings;
 		TArray<FIntVector> RoofTriangles;
+		EnvGenArchitecture::FStyle Architecture;
+		FVector2D RoofCheckPoint = FVector2D::ZeroVector;
 		// Where the roof stands once placed, in centimetres, for the build's own check.
 		double TopCm = 0;
 	};
@@ -1753,6 +1756,8 @@ return normalize(float3(ScanNormal.xy-slope*Grass,ScanNormal.z));
 			Building.EastM = Item->GetNumberField(TEXT("east_m"));
 			Building.NorthM = Item->GetNumberField(TEXT("north_m"));
 			Building.HeightM = Item->GetNumberField(TEXT("height_m"));
+			Building.Architecture.Read(Item);
+			Building.RoofCheckPoint = Building.Architecture.RoofCheckPoint(FVector2D(Building.EastM, Building.NorthM));
 			const TArray<TSharedPtr<FJsonValue>>& Albedo = Item->GetArrayField(TEXT("roof_albedo"));
 			Building.RoofAlbedo = FLinearColor(float(Albedo[0]->AsNumber()), float(Albedo[1]->AsNumber()), float(Albedo[2]->AsNumber()));
 			for (const TSharedPtr<FJsonValue>& RingValue : Item->GetArrayField(TEXT("rings")))
@@ -1772,36 +1777,14 @@ return normalize(float3(ScanNormal.xy-slope*Grass,ScanNormal.z));
 		return true;
 	}
 
-	/** A building's colour is carried in two UV channels, (red, green) and (blue, unused), so it needs no texture. */
 	UMaterial* MakeBuildingMaterial(float Roughness, TArray<UPackage*>& Packages)
 	{
-		UMaterial* Material = NewAsset<UMaterial>(TEXT("M_Building"), Packages);
-		UMaterialExpressionTextureCoordinate* Uv0 = Node<UMaterialExpressionTextureCoordinate>(Material, -900, 0);
-		Uv0->CoordinateIndex = 0;
-		UMaterialExpressionTextureCoordinate* Uv1 = Node<UMaterialExpressionTextureCoordinate>(Material, -900, 200);
-		Uv1->CoordinateIndex = 1;
-		UMaterialExpressionComponentMask* RedGreen = Node<UMaterialExpressionComponentMask>(Material, -600, 0);
-		RedGreen->Input.Connect(0, Uv0);
-		RedGreen->R = true;
-		RedGreen->G = true;
-		UMaterialExpressionComponentMask* Blue = Node<UMaterialExpressionComponentMask>(Material, -600, 200);
-		Blue->Input.Connect(0, Uv1);
-		Blue->R = true;
-		UMaterialExpressionAppendVector* Colour = Node<UMaterialExpressionAppendVector>(Material, -300, 0);
-		Colour->A.Connect(0, RedGreen);
-		Colour->B.Connect(0, Blue);
-		UMaterialEditingLibrary::ConnectMaterialProperty(Colour, TEXT(""), MP_BaseColor);
-		UMaterialExpressionConstant* Rough = Node<UMaterialExpressionConstant>(Material, -300, 200);
-		Rough->R = Roughness;
-		UMaterialEditingLibrary::ConnectMaterialProperty(Rough, TEXT(""), MP_Roughness);
-		UMaterialEditingLibrary::RecompileMaterial(Material);
-		return Material;
+		return EnvGenArchitecture::MakeMaterial(GeneratedPath, Roughness, Packages);
 	}
 
 	/**
-	 * Stand every building of the inventory on the surface as a flat-roofed block: walls from a little under the
-	 * ground at each footprint corner up to one roof height, a roof of the measured colour, walls of one albedo. The
-	 * blocks are merged into one mesh per square of the tile, so a square is one draw and one collision body.
+	 * Stand measured footprints on the surface and add the inventory's architectural kit.
+	 * Geometry is merged per tile square for rendering and collision.
 	 */
 	TArray<AActor*> AddBuildings(UWorld* World, const FManifest& Manifest, const TArray64<uint8>& HeightBytes, TArray<FBuilding>& Buildings, UMaterial* Material, TArray<UPackage*>& Packages, int32& Placed)
 	{
@@ -1813,19 +1796,25 @@ return normalize(float3(ScanNormal.xy-slope*Grass,ScanNormal.z));
 			Squares.FindOrAdd(FIntPoint(FMath::FloorToInt(Buildings[Index].EastM / SquareM), FMath::FloorToInt(Buildings[Index].NorthM / SquareM))).Add(Index);
 		}
 		const int32 Stencil = int32(Manifest.StencilClasses->GetNumberField(TEXT("building")));
-		const FLinearColor Wall(Manifest.WallAlbedo, Manifest.WallAlbedo, Manifest.WallAlbedo);
+		const FLinearColor Wall(Manifest.WallAlbedo, Manifest.WallAlbedo, Manifest.WallAlbedo, EnvGenArchitecture::Plain);
 		TArray<AActor*> Actors;
 		Placed = 0;
 		for (const TPair<FIntPoint, TArray<int32>>& Square : Squares)
 		{
 			UStaticMesh* Mesh = NewAsset<UStaticMesh>(FString::Printf(TEXT("SM_Buildings_%d_%d"), Square.Key.X, Square.Key.Y), Packages);
 			FMeshDescription Description;
+			FMeshDescription CollisionDescription;
+			FStaticMeshAttributes(CollisionDescription).Register();
+			FStaticMeshAttributes(CollisionDescription).GetVertexInstanceUVs().SetNumChannels(1);
+			CollisionDescription.CreatePolygonGroup();
+			bool bStructural = true;
+			FVector TextureOrigin = FVector::ZeroVector, RoofU = FVector::ForwardVector, RoofV = FVector::RightVector;
 			FStaticMeshAttributes Attributes(Description);
 			Attributes.Register();
 			TVertexAttributesRef<FVector3f> Positions = Attributes.GetVertexPositions();
 			TVertexInstanceAttributesRef<FVector3f> Normals = Attributes.GetVertexInstanceNormals();
 			TVertexInstanceAttributesRef<FVector2f> Uvs = Attributes.GetVertexInstanceUVs();
-			Uvs.SetNumChannels(2);
+			Uvs.SetNumChannels(4);
 			TPolygonGroupAttributesRef<FName> Slots = Attributes.GetPolygonGroupMaterialSlotNames();
 			const FPolygonGroupID Group = Description.CreatePolygonGroup();
 			Slots[Group] = FName(TEXT("Building"));
@@ -1845,27 +1834,37 @@ return normalize(float3(ScanNormal.xy-slope*Grass,ScanNormal.z));
 					Positions[Vertex] = FVector3f(*Points[Corner]);
 					Corners[Corner] = Description.CreateVertexInstance(Vertex);
 					Normals[Corners[Corner]] = FVector3f(Normal);
-					Uvs.Set(Corners[Corner], 0, FVector2f(Colour.R, Colour.G));
-					Uvs.Set(Corners[Corner], 1, FVector2f(Colour.B, 0));
+					Uvs.Set(Corners[Corner], 2, FVector2f(Colour.R, Colour.G));
+					Uvs.Set(Corners[Corner], 3, FVector2f(Colour.B, Colour.A));
+					const FVector P = (*Points[Corner]-TextureOrigin) * 0.01;
+					const FVector Tangent = FVector::CrossProduct(FVector::UpVector, Normal).GetSafeNormal();
+					Uvs.Set(Corners[Corner], 0, FMath::Abs(Normal.Z) > 0.5 ? FVector2f(P.Dot(RoofU), P.Dot(RoofV)) : FVector2f(P.Dot(Tangent), P.Z));
 				}
 				Description.CreatePolygon(Group, {Corners[0], Corners[1], Corners[2]});
+				if (bStructural) { EnvGenArchitecture::AppendCollisionTriangle(CollisionDescription, A, B, C, Normal); }
 			};
 			for (const int32 Index : Square.Value)
 			{
 				FBuilding& Building = Buildings[Index];
+				const FLinearColor Facade = Building.Architecture.bDetailed ? Building.Architecture.Wall : Wall;
 				const double AnchorZ = SurfaceZ(Manifest.Tile, HeightBytes, Building.NorthM * 100, Building.EastM * 100);
+				bStructural = true;
+				TextureOrigin = FVector(Building.NorthM*100, Building.EastM*100, AnchorZ);
+				RoofU = FVector(Building.Architecture.Along.Y, Building.Architecture.Along.X, 0);
+				RoofV = FVector(Building.Architecture.Along.X, -Building.Architecture.Along.Y, 0);
 				TArray<double> Ground;
-				double Highest = AnchorZ;
+				double RequiredRoofZ = AnchorZ;
 				for (const TArray<FVector2D>& Ring : Building.Rings)
 				{
 					for (const FVector2D& Point : Ring)
 					{
 						Ground.Add(SurfaceZ(Manifest.Tile, HeightBytes, Point.Y * 100, Point.X * 100));
-						Highest = FMath::Max(Highest, Ground.Last());
+						const double Clearance = Building.Architecture.StandRows > 0 ? 0 : 50;
+						RequiredRoofZ = FMath::Max(RequiredRoofZ, Ground.Last()+Clearance-Building.Architecture.RoofOffsetM(Point)*100);
 					}
 				}
 				// On a slope the roof is a roof height over the anchor, but never under the ground at a corner.
-				Building.TopCm = FMath::Max(AnchorZ + Building.HeightM * 100, Highest + 50);
+				Building.TopCm = FMath::Max(AnchorZ + Building.HeightM * 100, RequiredRoofZ);
 				int32 First = 0;
 				const auto Corner = [&](const FVector2D& Point, double Z) { return FVector(Point.Y * 100, Point.X * 100, Z); };
 				for (const TArray<FVector2D>& Ring : Building.Rings)
@@ -1874,13 +1873,7 @@ return normalize(float3(ScanNormal.xy-slope*Grass,ScanNormal.z));
 					{
 						const FVector2D& From = Ring[Point];
 						const FVector2D& To = Ring[(Point + 1) % Ring.Num()];
-						const FVector2D Along = To - From;
-						// The solid is on the left of every ring's direction, so outside is on its right.
-						const FVector Outward = FVector(-Along.X, Along.Y, 0).GetSafeNormal();
-						const FVector BottomFrom = Corner(From, Ground[First + Point] - SinkCm), BottomTo = Corner(To, Ground[First + (Point + 1) % Ring.Num()] - SinkCm);
-						const FVector TopFrom = Corner(From, Building.TopCm), TopTo = Corner(To, Building.TopCm);
-						AddTriangle(BottomFrom, BottomTo, TopTo, Outward, Wall);
-						AddTriangle(BottomFrom, TopTo, TopFrom, Outward, Wall);
+						Building.Architecture.AddWall(From, To, Ground[First+Point]-SinkCm, Ground[First+(Point+1)%Ring.Num()]-SinkCm, Building.TopCm, Facade, AddTriangle);
 					}
 					First += Ring.Num();
 				}
@@ -1889,33 +1882,40 @@ return normalize(float3(ScanNormal.xy-slope*Grass,ScanNormal.z));
 				{
 					Points.Append(Ring);
 				}
-				for (const FIntVector& Triangle : Building.RoofTriangles)
+				const FLinearColor Roof = Building.Architecture.RoofColour(Building.RoofAlbedo);
+				if (!Building.Architecture.AddRoof(Building.TopCm, Roof, AddTriangle))
 				{
-					AddTriangle(Corner(Points[Triangle.X], Building.TopCm), Corner(Points[Triangle.Y], Building.TopCm), Corner(Points[Triangle.Z], Building.TopCm), FVector::UpVector, Building.RoofAlbedo);
+					for (const FIntVector& Triangle : Building.RoofTriangles)
+					{
+						AddTriangle(Corner(Points[Triangle.X], Building.TopCm), Corner(Points[Triangle.Y], Building.TopCm), Corner(Points[Triangle.Z], Building.TopCm), FVector::UpVector, Roof);
+					}
 				}
+				bStructural = false;
+				Building.Architecture.AddDetails(Building.Rings, Building.TopCm, Building.RoofCheckPoint,
+					[&](double East, double North) { return SurfaceZ(Manifest.Tile, HeightBytes, North*100, East*100); }, AddTriangle);
+				Building.TopCm += Building.Architecture.RoofOffsetM(Building.RoofCheckPoint)*100;
 				++Placed;
 			}
 			Mesh->GetStaticMaterials().Add(FStaticMaterial(Material, FName(TEXT("Building"))));
 			UStaticMesh::FBuildMeshDescriptionsParams Params;
 			Params.bBuildSimpleCollision = false;
 			Params.bFastBuild = false;
+			Params.PerLODOverrides.AddDefaulted_GetRef().bUseFullPrecisionUVs = true;
+			Mesh->GetNaniteSettings().bEnabled = true;
+			Mesh->GetNaniteSettings().FallbackPercentTriangles = 1.0f;
+			Mesh->GetNaniteSettings().FallbackRelativeError = 0.0f;
 			Mesh->BuildFromMeshDescriptions({&Description}, Params);
-			// The engine builds a mesh on another thread and sets its body up when it ends. A building is solid to a
-			// walker: its own triangles are its simple collision, so that is set once the build has finished.
 			FStaticMeshCompilingManager::Get().FinishCompilation({Mesh});
-			Mesh->CreateBodySetup();
-			Mesh->GetBodySetup()->CollisionTraceFlag = CTF_UseComplexAsSimple;
-			Mesh->GetBodySetup()->InvalidatePhysicsData();
-			Mesh->GetBodySetup()->CreatePhysicsMeshes();
 			AStaticMeshActor* Actor = World->SpawnActor<AStaticMeshActor>(FVector::ZeroVector, FRotator::ZeroRotator);
 			Actor->SetActorLabel(FString::Printf(TEXT("EnvGenBuildings_%d_%d"), Square.Key.X, Square.Key.Y));
 			Actor->Tags.Add(EnvGenStandingTag());
 			UStaticMeshComponent* Component = Actor->GetStaticMeshComponent();
 			Component->SetMobility(EComponentMobility::Static);
 			Component->SetStaticMesh(Mesh);
-			Component->SetCollisionProfileName(TEXT("BlockAll"));
+			Component->SetCollisionProfileName(TEXT("NoCollision"));
 			Component->SetRenderCustomDepth(true);
 			Component->SetCustomDepthStencilValue(Stencil);
+			EnvGenArchitecture::AttachCollision(Actor, CollisionDescription, GeneratedPath, FString::Printf(TEXT("SM_BuildingCollision_%d_%d"), Square.Key.X, Square.Key.Y), Packages);
 			Actors.Add(Actor);
 		}
 		return Actors;
@@ -1935,19 +1935,20 @@ return normalize(float3(ScanNormal.xy-slope*Grass,ScanNormal.z));
 		{
 			Params.AddIgnoredActor(Trees);
 		}
-		const int32 Step = FMath::Max(Inventory.Num() / TreeChecks, 1);
-		for (int32 Index = 0; Index < Inventory.Num(); Index += Step)
+		for (int32 Index = 0; Index < Inventory.Num(); ++Index)
 		{
 			const FBuilding& Building = Inventory[Index];
 			++Checked;
-			const FVector At(Building.NorthM * 100, Building.EastM * 100, 0);
+			const FVector At(Building.RoofCheckPoint.Y * 100, Building.RoofCheckPoint.X * 100, 0);
 			FHitResult Hit;
 			if (!World->LineTraceSingleByChannel(Hit, At + FVector(0, 0, 200000), At - FVector(0, 0, 200000), ECC_WorldStatic, Params) || !Hit.GetActor() || !Hit.GetActor()->ActorHasTag(EnvGenStandingTag()))
 			{
 				++Missed;
 				continue;
 			}
-			Worst = FMath::Max(Worst, FMath::Abs(Hit.Location.Z - Building.TopCm));
+			const double Error = FMath::Abs(Hit.Location.Z - Building.TopCm);
+			if (Error > SurfaceToleranceCm) { UE_LOG(LogEnvGen, Warning, TEXT("building %d roof collision error %.3f cm"), Index, Error); }
+			Worst = FMath::Max(Worst, Error);
 		}
 		return Worst;
 	}
@@ -2347,7 +2348,14 @@ bool FEnvGenLevelBuild::Finish(float DeltaSeconds, bool& bSucceeded)
 	const bool bTreesOk = State->TreesPlaced == State->Trees.Num() && TreesMissed == 0 && TreeTopCm <= SurfaceToleranceCm;
 	int32 BuildingsChecked = 0, BuildingsMissed = 0;
 	const double BuildingTopCm = State->Buildings.IsEmpty() ? 0 : WorstBuildingTopErrorCm(State->World, Manifest, State->Buildings, State->TreeActor, State->StreetscapeActors, BuildingsChecked, BuildingsMissed);
-	const bool bBuildingsOk = State->BuildingsPlaced == State->Buildings.Num() && BuildingsMissed == 0 && BuildingTopCm <= SurfaceToleranceCm;
+	int32 BuildingNaniteMeshes = 0;
+	for (AActor* Actor : State->BuildingActors)
+	{
+		const UStaticMesh* Mesh = CastChecked<AStaticMeshActor>(Actor)->GetStaticMeshComponent()->GetStaticMesh();
+		BuildingNaniteMeshes += Mesh->HasValidNaniteData() ? 1 : 0;
+	}
+	const bool bBuildingsOk = State->BuildingsPlaced == State->Buildings.Num() && BuildingsMissed == 0 && BuildingTopCm <= SurfaceToleranceCm
+		&& BuildingNaniteMeshes == State->BuildingActors.Num();
 	const bool bSaved = UEditorLoadingAndSavingUtils::SavePackages(State->Packages, false) && UEditorLoadingAndSavingUtils::SaveMap(State->World, State->MapPath);
 	const bool bMaterialsOk = State->MaterialErrors == 0;
 	bSucceeded = bMerged && bSurfaceOk && bWeightsOk && bMaterialsOk && bTreesOk && bBuildingsOk && bSaved;
@@ -2381,6 +2389,8 @@ bool FEnvGenLevelBuild::Finish(float DeltaSeconds, bool& bSucceeded)
 	Receipt->SetNumberField(TEXT("buildings_traced"), BuildingsChecked);
 	Receipt->SetNumberField(TEXT("buildings_traces_missed"), BuildingsMissed);
 	Receipt->SetNumberField(TEXT("building_top_worst_error_cm"), BuildingTopCm);
+	Receipt->SetNumberField(TEXT("building_meshes"), State->BuildingActors.Num());
+	Receipt->SetNumberField(TEXT("building_nanite_meshes"), BuildingNaniteMeshes);
 	Receipt->SetBoolField(TEXT("buildings_ok"), bBuildingsOk);
 	Receipt->SetBoolField(TEXT("saved"), bSaved);
 	Receipt->SetBoolField(TEXT("succeeded"), bSucceeded);
