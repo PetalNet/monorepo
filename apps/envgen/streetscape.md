@@ -59,7 +59,8 @@ Unresolved small image objects do not establish benches, parked cars or permanen
 The stage writes `streetscape.json` and `streetscape_grass.png`, both hashed in `build.json`. The JSON
 contains material batches, vertices, triangle indices, collision flags and optional terrain anchors.
 Paving and painted ribbons follow terrain at each vertex on the Landscape grid, with triangle edges no longer than 2 m.
-Props use a common terrain anchor so stands and goal frames remain rigid; their feet meet the local terrain.
+Props use a common terrain anchor so stands and goal frames remain rigid. Footings extend 0.3 m below
+that anchor, or 0.6 m for bleachers, to cover small ground variations without distorting their frames.
 The grass mask suppresses tufts on paving without changing measured Landscape heights or weights.
 
 Paving and paint share batches within 126 m cells. Batches split at 20,000 triangles. Solid props use
@@ -98,7 +99,8 @@ The material adds filtered 7 mm aggregate and broad weathering. Concrete has 3 m
 sparse, warped 4 m cracks. These are generated detail, not digitized cracks. Ground offsets are 4 cm,
 5 cm for track and 7 cm for paint. Concrete line ribbons sit 6 cm above terrain. The 2048-pixel grass
 mask includes every touched paving cell. Paint leaves grass intact so subpixel lines do not carve wide bare strips.
-Chainlink has a 10 cm pitch and 2 mm wires, filtered away below pixel resolution. Goal nets use coarse geometric wires spaced at most 30 cm.
+Chainlink has a 10 cm pitch and 2 mm wires. The engine's `DitherTemporalAA` function preserves subpixel
+coverage instead of cutting the entire fence away. Goal nets use coarse geometric wires spaced at most 30 cm.
 Poles, rails and supports have six-sided cross sections. These choices can be replaced with measured
 dimensions without changing the inventory's coordinate frame.
 

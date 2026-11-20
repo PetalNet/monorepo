@@ -262,7 +262,7 @@ def test_bench_has_three_seat_slats_two_back_slats_and_frame(tmp_path):
     wood = next(m for m in p["meshes"] if m["material"] == "wood")
     assert len(wood["triangles"]) == 5 * 12
     assert bounds([wood])[0] == pytest.approx((-0.9, 0.9))
-    assert bounds(p["meshes"])[2][0] == 0
+    assert bounds(p["meshes"])[2][0] == -0.3
 
 
 def test_bleacher_rows_rise_away_from_axis_and_have_legs(tmp_path):
@@ -295,7 +295,7 @@ def test_goalpost_has_single_support_crossbar_and_two_uprights(tmp_path):
     m = p["meshes"][0]
     assert m["material"] == "steel_yellow"
     assert len(m["triangles"]) == 5 * 20
-    assert bounds([m])[2] == pytest.approx((0, 5.6))
+    assert bounds([m])[2] == pytest.approx((-0.3, 5.6))
     assert bounds([m])[0] == pytest.approx((-5.64 / 2 - 0.05, 5.64 / 2 + 0.05))
 
 

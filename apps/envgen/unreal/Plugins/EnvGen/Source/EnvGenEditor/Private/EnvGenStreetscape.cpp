@@ -12,8 +12,10 @@
 #include "Materials/MaterialExpressionComponentMask.h"
 #include "Materials/MaterialExpressionConstant.h"
 #include "Materials/MaterialExpressionCustom.h"
+#include "Materials/MaterialExpressionMaterialFunctionCall.h"
 #include "Materials/MaterialExpressionWorldPosition.h"
 #include "Materials/MaterialExpressionTextureCoordinate.h"
+#include "Materials/MaterialFunction.h"
 #include "MeshDescription.h"
 #include "Misc/FileHelper.h"
 #include "Misc/Paths.h"
@@ -136,8 +138,12 @@ return float4(float3(%.5f,%.5f,%.5f)*modulation,saturate(%.5f+.08*(wear-.5)+.08*
 			FCustomInput& Place = Fabric->Inputs.AddDefaulted_GetRef();
 			Place.InputName = TEXT("UV");
 			Place.Input.Connect(0, Coordinates);
-			Fabric->Code = TEXT("float2 cell=abs(frac(float2(UV.x+UV.y,UV.x-UV.y)*10)-.5)*.1; float fw=max(length(fwidth(UV)),.0001); return (1-smoothstep(max(0.,.001-fw),.002+fw,min(cell.x,cell.y)))*min(1.,.002/fw);");
-			UMaterialEditingLibrary::ConnectMaterialProperty(Fabric, TEXT(""), MP_OpacityMask);
+			Fabric->Code = TEXT("float2 cell=abs(frac(float2(UV.x+UV.y,UV.x-UV.y)*10)-.5)*.1; float fw=max(length(fwidth(UV)),.0001); float nearCoverage=(1-smoothstep(max(0.,.001-fw),.002+fw,min(cell.x,cell.y)))*min(1.,.002/fw); return lerp(nearCoverage,.06,saturate((fw-.02)/.05));");
+			auto* Dither = CastChecked<UMaterialExpressionMaterialFunctionCall>(UMaterialEditingLibrary::CreateMaterialExpression(Material, UMaterialExpressionMaterialFunctionCall::StaticClass()));
+			UMaterialFunction* Function = LoadObject<UMaterialFunction>(nullptr, TEXT("/Engine/Functions/Engine_MaterialFunctions02/Utility/DitherTemporalAA.DitherTemporalAA"));
+			if (!Function || !Dither->SetMaterialFunction(Function) || Dither->FunctionInputs.IsEmpty()) return nullptr;
+			Dither->FunctionInputs[0].Input.Connect(0, Fabric);
+			UMaterialEditingLibrary::ConnectMaterialProperty(Dither, TEXT(""), MP_OpacityMask);
 		}
 		UMaterialEditingLibrary::RecompileMaterial(Material);
 		return Material;
@@ -214,7 +220,16 @@ bool BuildEnvGenStreetscape(UWorld* World, const FString& ManifestPath,
 		StencilIds.Add(Key, int32(Id));
 	}
 	TMap<FString, UMaterial*> Materials;
+	struct FPendingMesh
+	{
+		FMeshDescription Description;
+		FString Name;
+		bool bCollision;
+		bool bAnchored;
+	};
+	TArray<FPendingMesh> Pending;
 	int32 TotalTriangles = 0;
+	int32 PrecisionSlivers = 0;
 	for (int32 Index = 0; Index < Rows->Num(); ++Index)
 	{
 		if (!(*Rows)[Index] || (*Rows)[Index]->Type != EJson::Object)
@@ -249,6 +264,7 @@ bool BuildEnvGenStreetscape(UWorld* World, const FString& ManifestPath,
 		}
 		const double Base = bAnchored ? SurfaceHeight(Anchor[1] * 100, Anchor[0] * 100) : 0;
 		TArray<FVector3f> Vertices;
+		TArray<FVector> PreciseVertices;
 		for (const auto& Point : *Points)
 		{
 			TArray<double> P;
@@ -258,8 +274,7 @@ bool BuildEnvGenStreetscape(UWorld* World, const FString& ManifestPath,
 				return false;
 			}
 			const double North = P[1] * 100, East = P[0] * 100;
-			// Rigid seats and frames share the anchor. Feet meet the measured terrain on either side of a slope.
-			const double Ground = bAnchored && P[2] > .05 ? Base : SurfaceHeight(North, East);
+			const double Ground = bAnchored ? Base : SurfaceHeight(North, East);
 			const FVector3f Position(North, East, Ground + P[2] * 100);
 			if (Position.ContainsNaN())
 			{
@@ -267,6 +282,7 @@ bool BuildEnvGenStreetscape(UWorld* World, const FString& ManifestPath,
 				return false;
 			}
 			Vertices.Add(Position);
+			PreciseVertices.Add(FVector(North, East, Ground + P[2] * 100));
 		}
 		FMeshDescription Description;
 		FStaticMeshAttributes Attributes(Description);
@@ -287,10 +303,16 @@ bool BuildEnvGenStreetscape(UWorld* World, const FString& ManifestPath,
 			}
 			// EN to NE swaps handedness: UE polygons face opposite their cross product, matching the inventory.
 			const FVector3f A = Vertices[int32(T[0])], B = Vertices[int32(T[1])], C = Vertices[int32(T[2])];
-			if (FVector3f::CrossProduct(B - A, C - A).SizeSquared() <= 1.e-12f)
+			const FVector DA = PreciseVertices[int32(T[0])], DB = PreciseVertices[int32(T[1])], DC = PreciseVertices[int32(T[2])];
+			if (T[0] == T[1] || T[1] == T[2] || T[0] == T[2])
 			{
 				Error = FString::Printf(TEXT("degenerate triangle in streetscape mesh %d"), Index);
 				return false;
+			}
+			if (FVector::CrossProduct(DB - DA, DC - DA).SizeSquared() == 0 || FVector3f::CrossProduct(B - A, C - A).SizeSquared() <= 1.e-12f)
+			{
+				++PrecisionSlivers;
+				continue;
 			}
 			const FVector3f Normal = -FVector3f::CrossProduct(B - A, C - A).GetSafeNormal();
 			FVertexInstanceID Corners[3];
@@ -318,11 +340,38 @@ bool BuildEnvGenStreetscape(UWorld* World, const FString& ManifestPath,
 			}
 			Description.CreatePolygon(Group, {Corners[0], Corners[1], Corners[2]});
 		}
-		if (!Materials.Contains(Name)) Materials.Add(Name, MakeMaterial(Name, *Finish, Packages));
+		if (Description.Triangles().Num() > 0) Pending.Add({MoveTemp(Description), Name, bCollision, bAnchored});
+	}
+	if (Pending.IsEmpty() && FeatureCount > 0)
+	{
+		Error = TEXT("streetscape has no representable geometry");
+		return false;
+	}
+	if (!Pending.IsEmpty() && !World)
+	{
+		Error = TEXT("streetscape needs a world after validation");
+		return false;
+	}
+	for (int32 Index = 0; Index < Pending.Num(); ++Index)
+	{
+		FPendingMesh& Item = Pending[Index];
+		const FString& Name = Item.Name;
+		FMeshDescription& Description = Item.Description;
+		const bool bCollision = Item.bCollision, bAnchored = Item.bAnchored;
+		if (!Materials.Contains(Name))
+		{
+			UMaterial* Material = MakeMaterial(Name, Finishes.FindChecked(Name), Packages);
+			if (!Material)
+			{
+				Error = TEXT("cannot load the engine's DitherTemporalAA function for chainlink");
+				return false;
+			}
+			Materials.Add(Name, Material);
+		}
 		UStaticMesh* Mesh = Asset<UStaticMesh>(FString::Printf(TEXT("SM_Streetscape_%04d"), Index), Packages);
 		Mesh->GetStaticMaterials().Add(FStaticMaterial(Materials[Name], FName(*Name)));
 		// Small surface ribbons retain their exact outline; solid props can use Nanite and Lumen mesh cards.
-		Mesh->GetNaniteSettings().bEnabled = Name != TEXT("chainlink") && (bCollision || !Name.StartsWith(TEXT("paint_")));
+		Mesh->GetNaniteSettings().bEnabled = Name != TEXT("chainlink") && Name != TEXT("net") && (bCollision || !Name.StartsWith(TEXT("paint_")));
 		Mesh->GetNaniteSettings().FallbackPercentTriangles = 1;
 		Mesh->GetNaniteSettings().FallbackRelativeError = 0;
 		UStaticMesh::FBuildMeshDescriptionsParams Params;
@@ -352,10 +401,11 @@ bool BuildEnvGenStreetscape(UWorld* World, const FString& ManifestPath,
 			: Name.StartsWith(TEXT("paint_")) ? TEXT("marking")
 			: Name == TEXT("asphalt") || Name == TEXT("concrete") ? TEXT("road") : TEXT("ground");
 		Component->SetCustomDepthStencilValue(StencilIds[StencilClass]);
-		TotalTriangles += Triangles->Num();
+		TotalTriangles += Description.Triangles().Num();
 	}
 	Receipt->SetNumberField(TEXT("streetscape_features"), FeatureCount);
-	Receipt->SetNumberField(TEXT("streetscape_meshes"), Rows->Num());
+	Receipt->SetNumberField(TEXT("streetscape_meshes"), Pending.Num());
+	Receipt->SetNumberField(TEXT("streetscape_precision_slivers_skipped"), PrecisionSlivers);
 	Receipt->SetNumberField(TEXT("streetscape_triangles"), TotalTriangles);
 	Receipt->SetObjectField(TEXT("streetscape_counts"), *Counts);
 	TSharedRef<FJsonObject> MaterialPriors = MakeShared<FJsonObject>();

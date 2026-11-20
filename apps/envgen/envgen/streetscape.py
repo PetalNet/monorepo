@@ -48,6 +48,8 @@ BIN_M = 126.0
 MAX_EDGE_M = 2.0
 MAX_MESH_TRIANGLES = 20000
 GRASS_MASK_PIXELS = 2048
+FOOTING_SINK_M = 0.3
+BLEACHER_SINK_M = 0.6
 SETTINGS = {
     "surfaces": SURFACES,
     "lines": LINES,
@@ -56,6 +58,8 @@ SETTINGS = {
     "max_edge_m": MAX_EDGE_M,
     "max_mesh_triangles": MAX_MESH_TRIANGLES,
     "grass_mask_pixels": GRASS_MASK_PIXELS,
+    "footing_sink_m": FOOTING_SINK_M,
+    "bleacher_sink_m": BLEACHER_SINK_M,
 }
 
 
@@ -340,7 +344,7 @@ def _prop(f, meshes, priors):
 
     if kind == "light_pole":
         h = f["height_m"]
-        rod("steel", (0, 0, 0), (0, 0, h), 0.11, 0.06)
+        rod("steel", (0, 0, -FOOTING_SINK_M), (0, 0, h), 0.11, 0.06)
         for i in range(f["arms"]):
             angle = math.tau * i / f["arms"]
             dx, dy = math.cos(angle), math.sin(angle)
@@ -363,7 +367,7 @@ def _prop(f, meshes, priors):
             block("wood", (0, 0.23, z), (length, 0.045, 0.14))
         for x in (-length * 0.35, length * 0.35):
             for y in (-0.17, 0.17):
-                rod("steel", (x, y, 0), (x, y, 0.46), 0.025)
+                rod("steel", (x, y, -FOOTING_SINK_M), (x, y, 0.46), 0.025)
             rod("steel", (x, 0.22, 0.44), (x, 0.22, 0.98), 0.025)
             rod("steel", (x, -0.22, 0.44), (x, 0.24, 0.44), 0.025)
         priors.append(f"{f['id']}: bench seat .48 m high, three .13 m slats; two back slats and steel legs")
@@ -375,14 +379,14 @@ def _prop(f, meshes, priors):
             block("aluminum", (0, y, z), (length, step * 0.55, 0.06))
             for i in range(supports + 1):
                 x = -length / 2 + i * length / supports
-                rod("steel", (x, y, 0), (x, y, z - 0.03), min(0.035, rise / 8))
+                rod("steel", (x, y, -BLEACHER_SINK_M), (x, y, z - 0.03), min(0.035, rise / 8))
                 if row:
-                    rod("steel", (x, y - step, 0.02), (x, y, z - 0.03), min(0.025, rise / 10))
+                    rod("steel", (x, y - step, -BLEACHER_SINK_M), (x, y, z - 0.03), min(0.025, rise / 10))
         priors.append(f"{f['id']}: bleacher seats .55 step deep and .06 m thick; supports <=3 m apart")
     elif kind == "goalpost":
         h, w = f["height_m"], f["width_m"]
         crossbar = h * 0.54
-        rod("steel_yellow", (0, -0.7, 0), (0, -0.7, crossbar), 0.09)
+        rod("steel_yellow", (0, -0.7, -FOOTING_SINK_M), (0, -0.7, crossbar), 0.09)
         rod("steel_yellow", (0, -0.7, crossbar), (0, 0, crossbar), 0.09)
         rod("steel_yellow", (-w / 2, 0, crossbar), (w / 2, 0, crossbar), 0.06)
         for x in (-w / 2, w / 2):
@@ -391,9 +395,9 @@ def _prop(f, meshes, priors):
     elif kind == "soccer_goal":
         h, w, d = f["height_m"], f["width_m"], f["depth_m"]
         for x in (-w / 2, w / 2):
-            rod("paint_white", (x, 0, 0), (x, 0, h), 0.04)
+            rod("paint_white", (x, 0, -FOOTING_SINK_M), (x, 0, h), 0.04)
             rod("paint_white", (x, 0, h), (x, d, h), 0.03)
-            rod("paint_white", (x, d, 0), (x, d, h), 0.03)
+            rod("paint_white", (x, d, -FOOTING_SINK_M), (x, d, h), 0.03)
             rod("paint_white", (x, 0, 0.03), (x, d, 0.03), 0.03)
         rod("paint_white", (-w / 2, 0, h), (w / 2, 0, h), 0.04)
         rod("paint_white", (-w / 2, d, h), (w / 2, d, h), 0.03)
@@ -481,6 +485,9 @@ def build_inventory(path: Path, tile: Tile, out: Path) -> dict:
     exclusions = []
     if features:
         priors.append("Six-sided cylinders; no point lights or ball geometry")
+        priors.append(
+            f"Rigid prop footings extend {FOOTING_SINK_M} m below their anchor; bleacher supports {BLEACHER_SINK_M} m"
+        )
     for f in features:
         first_mesh = len(meshes)
         kind = f["type"]

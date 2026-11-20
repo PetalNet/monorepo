@@ -25,9 +25,18 @@ bool FEnvGenStreetscapeMalformed::RunTest(const FString& Parameters)
 		TEXT("{\"material\":\"asphalt\",\"vertices\":[[0,0,0]],\"triangles\":[],\"collision\":false}"),
 		TEXT("{\"material\":\"asphalt\",\"vertices\":[[0,0,0]],\"triangles\":[[0,0,0]],\"collision\":false}")
 	};
+	const FString ValidRow = TEXT("{\"material\":\"asphalt\",\"vertices\":[[0,0,0.04],[1,0,0.04],[0,1,0.04]],\"triangles\":[[0,1,2]],\"collision\":false}");
+	const FString ValidInventory = TEXT("{\"schema_version\":1,\"feature_count\":1,\"counts\":{\"surface\":1},\"meshes\":[") + ValidRow + TEXT("]}");
+	FFileHelper::SaveStringToFile(ValidInventory, *(Directory / TEXT("geometry.json")));
+	TArray<UPackage*> ControlPackages;
+	TArray<AActor*> ControlActors;
+	FString ControlError;
+	TestFalse(TEXT("valid geometry reaches the world requirement"), BuildEnvGenStreetscape(nullptr, ManifestPath,
+		[](double, double) { return 0.; }, ControlPackages, ControlActors, MakeShared<FJsonObject>(), ControlError));
+	TestEqual(TEXT("positive control parsed successfully"), ControlError, FString(TEXT("streetscape needs a world after validation")));
 	for (const FString& Row : BadRows)
 	{
-		const FString Inventory = TEXT("{\"schema_version\":1,\"feature_count\":1,\"counts\":{\"surface\":1},\"meshes\":[") + Row + TEXT("]}");
+		const FString Inventory = TEXT("{\"schema_version\":1,\"feature_count\":2,\"counts\":{\"surface\":2},\"meshes\":[") + ValidRow + TEXT(",") + Row + TEXT("]}");
 		FFileHelper::SaveStringToFile(Inventory, *(Directory / TEXT("geometry.json")));
 		TArray<UPackage*> Packages;
 		TArray<AActor*> Actors;
@@ -35,6 +44,7 @@ bool FEnvGenStreetscapeMalformed::RunTest(const FString& Parameters)
 		TestFalse(TEXT("invalid geometry is rejected before requiring a world"), BuildEnvGenStreetscape(nullptr, ManifestPath,
 			[](double, double) { return 0.; }, Packages, Actors, MakeShared<FJsonObject>(), Error));
 		TestFalse(TEXT("failure has a diagnostic"), Error.IsEmpty());
+		TestNotEqual(TEXT("invalid geometry fails before world creation"), Error, ControlError);
 		TestTrue(TEXT("failure creates no assets"), Packages.IsEmpty());
 		TestTrue(TEXT("failure places no actors"), Actors.IsEmpty());
 	}
