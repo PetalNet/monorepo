@@ -10,8 +10,7 @@ import 'cold_start_location_cache_test.dart' as cold_start_location_cache_test;
 import 'fresh_install_routing_test.dart' as fresh_install_routing_test;
 import 'fuzz_static_overlay_test.dart' as fuzz_static_overlay_test;
 import 'haptics_test.dart' as haptics_test;
-import 'honest_loading_error_retry_test.dart'
-    as honest_loading_error_retry_test;
+import 'honest_loading_error_retry_test.dart' as honest_loading_error_retry_test;
 import 'invite_test.dart' as invite_test;
 import 'live_marker_active_cue_test.dart' as live_marker_active_cue_test;
 import 'live_tracking_permissions_test.dart' as live_tracking_permissions_test;
@@ -19,8 +18,7 @@ import 'location_engine_session_test.dart' as location_engine_session_test;
 import 'location_fgs_decouple_test.dart' as location_fgs_decouple_test;
 import 'location_state_machine_test.dart' as location_state_machine_test;
 import 'marker_a11y_test.dart' as marker_a11y_test;
-import 'mutation_optimistic_error_ux_test.dart'
-    as mutation_optimistic_error_ux_test;
+import 'mutation_optimistic_error_ux_test.dart' as mutation_optimistic_error_ux_test;
 import 'onboarding_gate_test.dart' as onboarding_gate_test;
 import 'people_presence_test.dart' as people_presence_test;
 import 'person_map_sheet_test.dart' as person_map_sheet_test;
@@ -40,8 +38,7 @@ import 'share_edge_model_test.dart' as share_edge_model_test;
 import 'share_removal_test.dart' as share_removal_test;
 import 'shared_element_transition_test.dart' as shared_element_transition_test;
 import 'stable_fuzz_ffi_test.dart' as stable_fuzz_ffi_test;
-import 'state_transition_animations_test.dart'
-    as state_transition_animations_test;
+import 'state_transition_animations_test.dart' as state_transition_animations_test;
 import 'temp_shares_test.dart' as temp_shares_test;
 import 'watch_nudge_cadence_test.dart' as watch_nudge_cadence_test;
 import 'who_sees_me_test.dart' as who_sees_me_test;
@@ -49,39 +46,24 @@ import 'widgets_test.dart' as widgets_test;
 import 'ws_service_test.dart' as ws_service_test;
 
 void main() {
-  group(
-    'cold_start_location_cache_test.dart',
-    cold_start_location_cache_test.main,
-  );
+  group('cold_start_location_cache_test.dart', cold_start_location_cache_test.main);
   group('fresh_install_routing_test.dart', fresh_install_routing_test.main);
   group('fuzz_static_overlay_test.dart', fuzz_static_overlay_test.main);
   group('haptics_test.dart', haptics_test.main);
-  group(
-    'honest_loading_error_retry_test.dart',
-    honest_loading_error_retry_test.main,
-  );
+  group('honest_loading_error_retry_test.dart', honest_loading_error_retry_test.main);
   group('invite_test.dart', invite_test.main);
   group('live_marker_active_cue_test.dart', live_marker_active_cue_test.main);
-  group(
-    'live_tracking_permissions_test.dart',
-    live_tracking_permissions_test.main,
-  );
+  group('live_tracking_permissions_test.dart', live_tracking_permissions_test.main);
   group('location_engine_session_test.dart', location_engine_session_test.main);
   group('location_fgs_decouple_test.dart', location_fgs_decouple_test.main);
   group('location_state_machine_test.dart', location_state_machine_test.main);
   group('marker_a11y_test.dart', marker_a11y_test.main);
-  group(
-    'mutation_optimistic_error_ux_test.dart',
-    mutation_optimistic_error_ux_test.main,
-  );
+  group('mutation_optimistic_error_ux_test.dart', mutation_optimistic_error_ux_test.main);
   group('onboarding_gate_test.dart', onboarding_gate_test.main);
   group('people_presence_test.dart', people_presence_test.main);
   group('person_map_sheet_test.dart', person_map_sheet_test.main);
   group('profile_live_update_test.dart', profile_live_update_test.main);
-  group(
-    'push_notification_policy_test.dart',
-    push_notification_policy_test.main,
-  );
+  group('push_notification_policy_test.dart', push_notification_policy_test.main);
   group('push_transport_test.dart', push_transport_test.main);
   group('realtime_sync_test.dart', realtime_sync_test.main);
   group('recovery_words_test.dart', recovery_words_test.main);
@@ -94,15 +76,9 @@ void main() {
   group('settings_format_test.dart', settings_format_test.main);
   group('share_edge_model_test.dart', share_edge_model_test.main);
   group('share_removal_test.dart', share_removal_test.main);
-  group(
-    'shared_element_transition_test.dart',
-    shared_element_transition_test.main,
-  );
+  group('shared_element_transition_test.dart', shared_element_transition_test.main);
   group('stable_fuzz_ffi_test.dart', stable_fuzz_ffi_test.main);
-  group(
-    'state_transition_animations_test.dart',
-    state_transition_animations_test.main,
-  );
+  group('state_transition_animations_test.dart', state_transition_animations_test.main);
   group('temp_shares_test.dart', temp_shares_test.main);
   group('watch_nudge_cadence_test.dart', watch_nudge_cadence_test.main);
   group('who_sees_me_test.dart', who_sees_me_test.main);
