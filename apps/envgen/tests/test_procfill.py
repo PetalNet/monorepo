@@ -176,3 +176,115 @@ def test_small_survey_reports_insufficient_heldout_coverage():
     assert report["status"] == "insufficient_coverage"
     assert len(report["folds"]) + len(report["skipped_folds"]) == 5
     assert report["mean_zone_total_variation"] is None
+
+
+@pytest.mark.parametrize("cell_m", [0.25, 0.4921875])
+def test_clump_cover_survives_raster_edges_and_fragmented_support(cell_m):
+    y, x = np.indices((256, 256))
+    eligible = ((x // 8 + y // 8) % 2 == 0) & (x > 10)
+    result = procfill._stamp(
+        eligible.shape, eligible, [[0.141, 1], [0.3, 2], [0.8, 1.5]], 0.32, cell_m, np.random.default_rng(21)
+    )
+    assert (result[eligible] > 0.5).mean() == pytest.approx(0.32, abs=0.015)
+    assert not result[~eligible].any()
+
+
+@pytest.mark.parametrize("share", [0, 0.32, 0.8, 0.95])
+def test_subpixel_clump_cover_reaches_sparse_and_dense_targets(share):
+    eligible = np.ones((256, 256), bool)
+    result = procfill._stamp(eligible.shape, eligible, [[0.141, 1]], share, 0.5, np.random.default_rng(21))
+    assert np.count_nonzero(result > 0.5) == round(eligible.size * share)
+
+
+def test_clump_larger_than_available_cover_is_trimmed_to_budget():
+    eligible = np.ones((16, 16), bool)
+    result = procfill._stamp(eligible.shape, eligible, [[2, 1]], 0.01, 0.25, np.random.default_rng(21))
+    assert np.count_nonzero(result > 0.5) == round(eligible.size * 0.01)
+    assert np.count_nonzero(result) == round(eligible.size * 0.01)
+    assert result.sum() <= round(eligible.size * 0.01)
+
+
+def test_windrow_width_rejects_unrelated_fine_texture():
+    y, x = np.indices((256, 256))
+    cell_m, spacing, width = 0.25, 3.2, 0.75
+    across = (3 * x + 4 * y) * cell_m / 5
+    distance = abs((across + spacing / 2) % spacing - spacing / 2)
+    lines = np.clip((width / 2 + cell_m / 2 - distance) / cell_m, 0, 1)
+    noisy = 120 + 30 * lines + 4 * np.random.default_rng(5).normal(size=x.shape)
+    samples = procfill._windrows(noisy, np.ones(x.shape, bool), np.ones(x.shape, bool), cell_m)
+    rows = samples["samples_spacing_width_normal_deg"]
+    assert len(rows) >= 12
+    assert np.median([row[0] for row in rows]) == pytest.approx(spacing, abs=cell_m)
+    assert np.median([row[1] for row in rows]) == pytest.approx(width, abs=cell_m / 2)
+
+
+@pytest.mark.parametrize("cell_m", [0.25, 0.5])
+@pytest.mark.parametrize("broken", [False, True])
+def test_row_continuity_distinguishes_real_gaps_from_subpixel_width(cell_m, broken):
+    y, x = np.indices((256, 256))
+    distance = abs((x * cell_m + 1) % 2 - 1)
+    lines = np.clip((0.35 / 2 + cell_m / 2 - distance) / cell_m, 0, 1)
+    if broken:
+        lines *= (y * cell_m % 8) < 4
+    support = np.ones(x.shape, bool)
+    samples = procfill._windrows(120 + 30 * lines, support, support, cell_m)
+    assert samples["continuity_samples"]
+    assert np.median(samples["continuity_samples"]) == pytest.approx(0.5 if broken else 1.0, abs=0.1)
+
+
+@pytest.mark.parametrize("phase", [0, 0.25])
+def test_underresolved_row_width_uses_tagged_prior_across_raster_phases(phase):
+    _, x = np.indices((256, 256))
+    distance = abs((x * 0.5 + phase + 1) % 2 - 1)
+    lines = np.clip((0.35 / 2 + 0.5 / 2 - distance) / 0.5, 0, 1)
+    support = np.ones(x.shape, bool)
+    fitted = procfill._windrows(120 + 30 * lines, support, support, 0.5)
+    assert fitted["width_kinds"]
+    assert set(fitted["width_kinds"]) == {"prior: insufficient phase samples"}
+    assert {row[1] for row in fitted["samples_spacing_width_normal_deg"]} == {0.35}
+
+
+@pytest.mark.parametrize("angle", [10, 20, 35])
+@pytest.mark.parametrize("cell_m", [0.25, 0.5])
+def test_windrow_width_does_not_broaden_between_fft_bins(angle, cell_m):
+    y, x = np.indices((256, 256))
+    theta = np.deg2rad(angle)
+    distance = abs(((x * np.cos(theta) + y * np.sin(theta)) * cell_m + 1) % 2 - 1)
+    lines = np.clip((0.35 / 2 + cell_m / 2 - distance) / cell_m, 0, 1)
+    support = np.ones(x.shape, bool)
+    fitted = procfill._windrows(120 + 30 * lines, support, support, cell_m)
+    assert fitted["samples_spacing_width_normal_deg"]
+    assert np.median([row[1] for row in fitted["samples_spacing_width_normal_deg"]]) == pytest.approx(0.35, abs=0.15)
+
+
+def test_large_field_samples_multiple_windrow_widths():
+    observed, classes = observations(256)
+    priors = procfill.fit(observed, classes, observed["valid"], 0.25)
+    priors["zone_share_by_naip_class"] = [[0, 1, 0]] * 4
+    priors["windrows"].update(
+        normal_circular_mean_deg=0,
+        samples_spacing_width_normal_deg=[[2, 0.3, 0], [2, 0.9, 0]],
+        continuity_samples=[1, 1],
+    )
+    grass = np.ones(classes.shape, bool)
+    zero = np.zeros(classes.shape)
+    made = procfill.generate(priors, classes, grass, zero, zero, ~grass, ~grass, 0.25, 42)
+    widths = np.array(
+        [(made["windrow"][y : y + 64, x : x + 64] > 0.5).mean() * 2 for y in (32, 96, 160) for x in (32, 96, 160)]
+    )
+    assert widths.std() > 0.05
+    assert widths.mean() == pytest.approx(0.6, abs=0.2)
+
+
+def test_visible_ground_keeps_fitted_zone_shares_beside_hidden_canopy():
+    observed, classes = observations(256)
+    priors = procfill.fit(observed, classes, observed["valid"], 0.5)
+    grass = np.ones(classes.shape, bool)
+    zero = np.zeros(classes.shape)
+    visible = np.indices(classes.shape)[0] < 128
+    canopy = np.where(visible, 0, 8)
+    made = procfill.generate(priors, classes, grass, zero, canopy, ~grass, ~grass, 0.5, 1, visible=visible)
+    for index in (0, 1):
+        support = visible & (classes == index)
+        shares = np.bincount(made["zones"][support], minlength=3) / support.sum()
+        np.testing.assert_allclose(shares, priors["zone_share_by_naip_class"][index], atol=0.001)
