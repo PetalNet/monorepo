@@ -25,3 +25,6 @@ a7d1bae5f6dc6b03dbbe0cbfd7f63153a3bf4a1c
 
 # apps/tasks first oxfmt pass (2026-11-03)
 bc6e8aebaa9a6563bea583c1774e8d5aa5c1ba95
+
+# style(point): dart format with Dart 3.14 (2026-11-20)
+a8b1113b12e4eb4f26fbf641cd2dcb0606fa9a51
