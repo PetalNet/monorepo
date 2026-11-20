@@ -206,11 +206,11 @@ def test_unchanged_inputs_reuse_stages_and_a_new_dem_reruns_only_elevation(site,
     out = tmp_path / "out"
     assert build(site, out)["stages_reused"] == []
     first = (out / "heightmap.png").read_bytes()
-    assert build(site, out)["stages_reused"] == ["elevation", "surface", "macro_colour", "detail"]
+    assert build(site, out)["stages_reused"] == ["elevation", "surface", "macro_colour", "detail", "growth"]
     assert (out / "heightmap.png").read_bytes() == first
 
     h.write_dem(tmp_path / "dem.tif", function=lambda e, n: h.plane(e, n) + 5)
-    assert build(site, out)["stages_reused"] == ["surface", "macro_colour", "detail"]
+    assert build(site, out)["stages_reused"] == ["surface", "macro_colour", "detail", "growth"]
     lowest = h.plane(*load_site(site).tile.bounds()[:2]) + 5
     assert json.loads((out / "build.json").read_text())["landscape"]["min_m"] == pytest.approx(lowest, abs=0.01)
 
@@ -324,3 +324,93 @@ def test_the_gap_between_sunlit_and_shadowed_ground_is_found_and_one_peak_has_no
     # Black cells far under the floor are no peak of their own: the gap stays between the shadow and the sun.
     black = np.full(5000, -6.0)
     assert shadow_gap(np.concatenate([sunlit, shadow, black])) == pytest.approx(gap, abs=0.1)
+
+
+def test_survey_masks_drive_surface_and_growth_with_alpha_fallback_and_cached_artifacts(tmp_path, monkeypatch):
+    import importlib
+
+    from .test_orthophoto import write_survey
+
+    pipeline = importlib.import_module("envgen.build")
+    # The real build runs on smaller output colour/growth grids; all raster fitting and warping still execute.
+    monkeypatch.setattr(pipeline, "MACRO_PIXELS", 128)
+    monkeypatch.setattr(pipeline, "DETAIL_PIXELS", 256)
+    h.write_dem(tmp_path / "dem.tif")
+    h.write_imagery(tmp_path / "imagery.tif", split_easting=h.WEST)
+    site_path = h.write_site(tmp_path)
+    tile = load_site(site_path).tile
+    path, rgba = write_survey(tmp_path)
+    rgba[3, 20:40, 200:220] = 102  # 40% survey paving, 60% old grass must retain turf
+    h.write_raster(path, rgba, tile.west, tile.north, 0.25)
+    dtm = np.full((126, 126), 100, dtype=np.float32)
+    for name in ("dtm", "dsm"):
+        h.write_raster(tmp_path / f"{name}.tif", dtm, tile.west, tile.north, 1.0)
+    spec = json.loads(site_path.read_text())
+    spec["sources"]["survey"] = {"kind": "file", "path": "dsm.tif", "terrain": "dtm.tif",
+                                 "orthophoto": "ortho.tif", "license": "test", "date": "2030"}
+    site_path.write_text(json.dumps(spec))
+    out = tmp_path / "out"
+    manifest = build(site_path, out)
+    report = manifest["orthophoto"]
+    assert report["file"] == "ortho_masks.png" and report["colour"] == "ortho_colour.png"
+    for name in ("ortho_masks.png", "ortho_masks.tif", "ortho_colour.png", "ortho_colour.tif",
+                 "survey_detail.png", "survey_detail.tif"):
+        assert name in manifest["artifacts"] and (out / name).is_file()
+    weights = {layer["name"]: np.asarray(Image.open(out / layer["file"]))
+               for layer in manifest["surface"]["layers"]}
+    assert weights["grass"][15, 60] > 250
+    assert weights["paved"][63, 60] > 250
+    assert weights["soil"][100, 60] > 250
+    assert weights["grass"][-2, 2] > 250  # alpha hole keeps the old grass, not survey soil
+    fallback = np.asarray(Image.open(out / manifest["surface"]["fallback_weights"]))
+    assert fallback[63, 60].tolist() == [255, 0, 0]
+    assert weights["grass"][52, 119] == pytest.approx(153, abs=2)
+    assert weights["paved"][52, 119] == pytest.approx(102, abs=2)
+    density = np.asarray(Image.open(out / manifest["turf"]["growth"]["file"]))[..., 0]
+    assert density[128, 128] == 0 and density[252, 3] > 0
+    assert density[106, 240] > 0
+    again = build(site_path, out)
+    assert {"orthophoto", "surface", "growth", "survey_detail"} <= set(again["stages_reused"])
+    (out / "ortho_colour.png").unlink()
+    repaired = build(site_path, out)
+    assert "orthophoto" not in repaired["stages_reused"] and "surface" in repaired["stages_reused"]
+    # Newly covered pixels replace the old fallback: this changes mask bytes and all consumers of them.
+    rgba[3, -20:, -20:] = 255
+    h.write_raster(path, rgba, tile.west, tile.north, 0.25)
+    changed = build(site_path, out)
+    assert "orthophoto" not in changed["stages_reused"]
+    assert "surface" not in changed["stages_reused"] and "growth" not in changed["stages_reused"]
+    grass = np.asarray(Image.open(out / "surface_grass.png"))
+    assert grass[-2, 2] == 0
+
+
+def test_raw_survey_colour_invalidates_growth_even_when_derived_maps_are_identical(tmp_path, monkeypatch):
+    import importlib
+
+    pipeline = importlib.import_module("envgen.build")
+    monkeypatch.setattr(pipeline, "MACRO_PIXELS", 128)
+    monkeypatch.setattr(pipeline, "DETAIL_PIXELS", 256)
+    h.write_dem(tmp_path / "dem.tif")
+    h.write_imagery(tmp_path / "imagery.tif", split_easting=h.WEST)
+    site_path = h.write_site(tmp_path)
+    tile = load_site(site_path).tile
+    rgba = np.full((4, 504, 504), 255, dtype=np.uint8)
+    rgba[:3] = np.array([80, 120, 40])[:, None, None]
+    h.write_raster(tmp_path / "ortho.tif", rgba, tile.west, tile.north, .25)
+    for name in ("dtm", "dsm"):
+        h.write_raster(tmp_path / f"{name}.tif", np.full((126, 126), 100, dtype=np.float32),
+                       tile.west, tile.north, 1)
+    spec = json.loads(site_path.read_text())
+    spec["sources"]["survey"] = {"kind": "file", "path": "dsm.tif", "terrain": "dtm.tif",
+                                 "orthophoto": "ortho.tif", "license": "test", "date": "2030"}
+    site_path.write_text(json.dumps(spec))
+    out = tmp_path / "out"
+    before = build(site_path, out)
+    old_growth = np.asarray(Image.open(out / before["turf"]["growth"]["file"])).copy()
+    rgba[1] = 120 + np.random.default_rng(123).choice([-1, 1], (504, 504))
+    h.write_raster(tmp_path / "ortho.tif", rgba, tile.west, tile.north, .25)
+    after = build(site_path, out)
+    for name in ("ortho_masks.png", "ortho_masks.tif", "ortho_colour.png", "ortho_colour.tif"):
+        assert before["artifacts"][name] == after["artifacts"][name]
+    assert "growth" not in after["stages_reused"]
+    assert not np.array_equal(old_growth, np.asarray(Image.open(out / after["turf"]["growth"]["file"])))
