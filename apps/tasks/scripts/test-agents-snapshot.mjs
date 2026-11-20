@@ -353,6 +353,13 @@ const gitlabLinks = await snapshot({
 					exitCode: 0,
 				}),
 				JSON.stringify({ event: "launch", runId: "late-launch", at, dataClass: "sensitive" }),
+				JSON.stringify({ event: "outcome", runId: "prelaunch-unclassified", at, exitCode: 0 }),
+				JSON.stringify({
+					event: "launch",
+					runId: "prelaunch-unclassified",
+					at,
+					dataClass: "public",
+				}),
 			].join("\n");
 		}
 
@@ -363,7 +370,8 @@ const gitlabLinks = await snapshot({
 		if (
 			filePath === "/gl/runs/gl-2.out" ||
 			filePath.startsWith("/gl/runs/no-launch.") ||
-			filePath.startsWith("/gl/runs/late-launch.")
+			filePath.startsWith("/gl/runs/late-launch.") ||
+			filePath.startsWith("/gl/runs/prelaunch-unclassified.")
 		) {
 			throw new Error("must not open conflicted or unlaunched run");
 		}
@@ -378,7 +386,7 @@ assert.deepEqual(gitlabLinks.runs.find((run) => run.id === "gl-1").links, [
 
 assert.equal(gitlabLinks.runs.find((run) => run.id === "gl-2").dataClass, "unknown");
 
-for (const unlaunched of ["no-launch", "late-launch"]) {
+for (const unlaunched of ["no-launch", "late-launch", "prelaunch-unclassified"]) {
 	const item = gitlabLinks.runs.find((run) => run.id === unlaunched);
 
 	assert.equal(item.dataClass, "unknown");

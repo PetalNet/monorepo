@@ -183,17 +183,23 @@ export async function snapshot({
 			continue;
 		}
 
-		if (event.event === "launch" || event.dataClass !== undefined) {
+		const eventName = string(event.event);
+
+		if (
+			eventName === "launch" ||
+			event.dataClass !== undefined ||
+			["attempt", "outcome", "import"].includes(eventName)
+		) {
 			const raw = string(event.dataClass);
 			const dataClass = ["public", "sensitive", "parcs"].includes(raw) ? raw : "unknown";
 			const prior = classes.get(event.runId);
 
-			if (event.event === "launch") {
+			if (eventName === "launch") {
 				classes.set(
 					event.runId,
 					prior === undefined || prior === dataClass ? dataClass : "unknown",
 				);
-			} else if (prior === undefined || prior !== dataClass) {
+			} else if (prior === undefined || (event.dataClass !== undefined && prior !== dataClass)) {
 				classes.set(event.runId, "unknown");
 			}
 		}
