@@ -1668,6 +1668,7 @@ def build(site_path: Path, out: Path, cache: Path | None = None) -> dict:
             out,
             "survey_detail",
             _stage_key(
+                "survey-detail-2",
                 grid,
                 site.crs,
                 sha256_file(Path(site.survey.orthophoto)),
