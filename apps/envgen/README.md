@@ -25,21 +25,21 @@ pip install -e ".[test]"
 envgen build site.json --out build/ --cache cache/
 ```
 
-| Stage        | Reads                                           | Writes                                                                                                  |
-| ------------ | ----------------------------------------------- | ------------------------------------------------------------------------------------------------------- |
-| Acquire      | `site.json` sources                             | each source clipped to the tile, once, into the cache                                                   |
-| Structure    | lidar points, if the site has them              | height above ground, and distance to the nearest ground return                                          |
-| Elevation    | the elevation raster                            | `heightmap.png`, 16-bit, Landscape layout                                                               |
-| Cover        | lidar heights, a canopy height raster, both     | `canopy_height.tif`, `sunlit.tif`, north-up at 1 m                                                      |
-| Surface      | the imagery raster, and which ground is sunlit  | `surface_<class>.png`: one 8-bit weightmap per class                                                    |
-| Macro colour | the imagery, the sunlit ground and the classes  | `macro_colour.png`, low-passed at 12 m within each class; albedo when the site has a reflectance raster |
-| Detail       | the imagery, the sunlit ground and the classes  | `detail_ratio.png`: the photo over its own 12 m low-pass, per class, at about 0.5 m, as a power of two  |
-| Grain        | a survey orthophoto, the grass class            | `grain.png`: a tileable texture with the orthophoto's grass grain                                       |
+| Stage         | Reads                                           | Writes                                                                                                  |
+| ------------- | ----------------------------------------------- | ------------------------------------------------------------------------------------------------------- |
+| Acquire       | `site.json` sources                             | each source clipped to the tile, once, into the cache                                                   |
+| Structure     | lidar points, if the site has them              | height above ground, and distance to the nearest ground return                                          |
+| Elevation     | the elevation raster                            | `heightmap.png`, 16-bit, Landscape layout                                                               |
+| Cover         | lidar heights, a canopy height raster, both     | `canopy_height.tif`, `sunlit.tif`, north-up at 1 m                                                      |
+| Surface       | the imagery raster, and which ground is sunlit  | `surface_<class>.png`: one 8-bit weightmap per class                                                    |
+| Macro colour  | the imagery, the sunlit ground and the classes  | `macro_colour.png`, low-passed at 12 m within each class; albedo when the site has a reflectance raster |
+| Detail        | the imagery, the sunlit ground and the classes  | `detail_ratio.png`: the photo over its own 12 m low-pass, per class, at about 0.5 m, as a power of two  |
+| Grain         | a survey orthophoto, the grass class            | `grain.png`: a tileable texture with the orthophoto's grass grain                                       |
 | Survey detail | a survey orthophoto, the sunlit ground, classes | `survey_detail.png`: the detail ratio at the orthophoto's pixel size, one channel                       |
-| Surround     | both rasters at coarse spacing, if asked for    | `context_heightmap.png`, `context_colour.png`                                                           |
-| Trees        | the cover rasters, the classes, a survey, a mix | `trees.json`: one row per tree                                                                          |
-| Buildings    | footprints, lidar, the photo, the classes       | `buildings.json`: one record per building                                                               |
-| Manifest     | everything above                                | `build.json`: placement, georeference, stencil classes, hashes                                          |
+| Surround      | both rasters at coarse spacing, if asked for    | `context_heightmap.png`, `context_colour.png`                                                           |
+| Trees         | the cover rasters, the classes, a survey, a mix | `trees.json`: one row per tree                                                                          |
+| Buildings     | footprints, lidar, the photo, the classes       | `buildings.json`: one record per building                                                               |
+| Manifest      | everything above                                | `build.json`: placement, georeference, stencil classes, hashes                                          |
 
 - A source is either a local raster (`"kind": "file"`) or an ArcGIS ImageServer
   (`"kind": "arcgis_imageserver"`), which covers USGS 3DEP elevation and many state imagery services.
@@ -193,7 +193,7 @@ seeded yaw.
   its share and by a log-normal through its measured 10th, 50th and 90th percentile height. The mix also gives
   the trunk diameter (a line fitted to diameter against height) and the crown ratio (the share of the height
   the crown takes). A mix file is `{"source": ..., "species": [{"name", "kind", "share", "height_m": {"p10",
-"p50", "p90"}, "trunk_diameter_m": [intercept, slope], "crown_ratio"}]}`.
+  "p50", "p90"}, "trunk_diameter_m": [intercept, slope], "crown_ratio"}]}`.
 
 Limits: the lidar's heights are as old as its survey; a tree felled since is still there, with lower confidence
 only where a newer source looks, and the level build does not read confidence, so it stands at full size. An inventory of forests describes forest trees, not ones grown in the open.
