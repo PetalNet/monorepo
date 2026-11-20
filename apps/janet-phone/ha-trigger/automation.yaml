@@ -51,9 +51,8 @@ actions:
               entity_id: input_text.janet_call_pending
             data:
               value: '{{ snapshot | trim }}'
-    default:
-      - condition: template
-        value_template: "{{ states('input_text.janet_call_pending') not in ['', 'unknown', 'unavailable'] }}"
+  - condition: template
+    value_template: "{{ states('input_text.janet_call_pending') not in ['', 'unknown', 'unavailable'] }}"
   - variables:
       record: "{{ states('input_text.janet_call_pending')[1:] | from_json }}"
   - variables:
