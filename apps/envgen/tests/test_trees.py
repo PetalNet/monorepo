@@ -10,13 +10,32 @@ from envgen.build import build
 from envgen.site import Tile
 
 from . import helpers as h
-from .test_cover import DAY, sources
+from .test_cover import sources
 from .test_surface import write_noisy_scene
 
 ROOF = (70, 60, 110, 90)  # west, south, east, north: a flat roof 8 m up, grey in the imagery
 # east, north, crown radius, height: one tree alone, a small one, and two whose crowns touch.
 ALONE, SMALL, TWINS = (30, 40, 5, 12), (45, 100, 3, 6), ((88, 25, 5, 11), (97, 25, 5, 10))
 NODATA = -9999.0
+
+
+def test_inspected_crowns_refine_only_matched_height_backed_trees():
+    records = [{"east_m": 5., "north_m": 8., "height_m": 9., "crown_radius_m": 5., "source": "lidar"},
+               {"east_m": 30., "north_m": 20., "height_m": 1., "crown_radius_m": 2., "source": "survey"}]
+    observations = {"features": [
+        {"id": "T1", "feature_type": "individual_tree_crown", "confidence": .9,
+         "bounds_projected_m": [102, 204, 112, 212]},
+        {"id": "T2", "feature_type": "individual_tree_crown", "confidence": .9,
+         "bounds_projected_m": [128, 218, 132, 222]},
+        {"id": "V1", "feature_type": "tree_row", "confidence": .99,
+         "bounds_projected_m": [100, 200, 140, 240]},
+    ]}
+    report = trees.refine_crowns(records, observations, (100, 200))
+    assert [entry["observation"] for entry in report["matched"]] == ["T1"]
+    assert records[0]["east_m"] == 7 and records[0]["north_m"] == 8
+    assert records[0]["crown_radius_m"] == pytest.approx(np.sqrt(80) / 2)
+    assert records[0]["height_m"] == 9 and records[0]["source"] == "lidar+orthophoto"
+    assert records[1]["east_m"] == 30 and records[1]["source"] == "survey"
 
 
 def dome(east, north, radius, top):
@@ -176,6 +195,14 @@ def test_a_species_is_drawn_from_the_mix_by_the_trees_kind_and_height():
     assert "cedar" not in tall + short and unknown.count("cedar") > 100
     # A measured kind the mix has no species of stays measured, without a species.
     assert trees.draw_species(MIX[:2], "conifer", 11.0, rng) is None
+
+
+def test_extreme_heights_still_favour_the_species_whose_distribution_fits():
+    rng = np.random.default_rng(4)
+    # Both ordinary likelihoods underflow here; the regional shares alone favour neither broadleaf species.
+    draws = [trees.draw_species(MIX[:2], "broadleaf", 1e20, rng)["name"] for _ in range(100)]
+    assert draws.count("short plum") == 100  # Its fitted distribution has the wider tail.
+    assert trees.draw_species([MIX[0] | {"share": 0}], "broadleaf", 20, rng) is None
 
 
 def test_with_a_mix_every_tree_has_a_species_a_trunk_and_a_crown_from_it_and_says_it_is_a_prior(tmp_path):

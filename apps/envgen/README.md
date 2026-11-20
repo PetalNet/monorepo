@@ -269,8 +269,9 @@ downloads them once and checks the hashes; about 10 MB. Nothing is stored in git
 
 The Landscape material height-blends the classes. Evidence sets the colour that varies over tens of metres (the
 macro colour map times the albedo scale), and the scan adds structure: its colour divided by its own mean, so it
-never shifts the colour. The colour and roughness of each scan are read at two scales and turns, mixed by broad noise, so the repeat does
-not show from the air.
+never shifts the colour. Grass uses two scales and turns. Dirt and paving colour use three overlapping,
+independently offset scan samples to break repeating tiles. Scan colour fades from full strength within 15 m
+to 20% beyond 100 m, allowing the photo's broad pattern to dominate at distance.
 
 The ground colour also carries the detail ratio (`detail_ratio.png`): each 0.5 m pixel of the photo divided by the
 12 m low-pass of its own class's sunlit ground, in linear light, stored as a power of two (8 bits, 127 steps per
@@ -296,14 +297,32 @@ pixels, where noise flattens the slope, and would take most of the contrast out.
 curve as sRGB is a prior, as are the limit of one stop either way (lot paint on asphalt clips there) and the fade over 2 cells at the edge of hidden ground; the manifest's `detail.priors` lists them. The source is the imagery's date (2024-08 on the real tile), not the target date's, so
 a row mown since is not in it. The ratio is a 2048 pixel texture, uncompressed (block compression has steps of about 5 % in a channel, as large as the rows it carries): 16 MB, about 22 with mips.
 
-The class weights are cut to a sharp edge in the material where they cross one half (`EdgeSharpness` 0.12, a look), moved
+The class weights blend around one half (`EdgeSharpness` 0.35, a look), moved
 by 0.15 of the scan's relief, centred on 0.5 as if each scan's relief averaged one half (a look): a weightmap texel is 0.5 m and its ramp reads as a blur several metres wide from the
 air.
 
 ### Grain and survey detail
 
 The tile's photo is half a metre a pixel, so a field from the air has rows and patches and no blade-scale texture. A
-survey orthophoto (`sources.survey.orthophoto`, 2.3 cm a pixel on the real tile) has it. Two stages use it.
+survey orthophoto (`sources.survey.orthophoto`, about 2.3 cm stored sampling on the real tile) has it.
+Stored sampling does not establish the image's independently resolved detail.
+
+- **Orthophoto masks and colour** (`orthophoto.py`). Native mask channels are grass, paving, soil and canopy.
+  The first three sum to the source alpha coverage; canopy is independent. Landscape weights and turf density
+  use averaged masks, while the ground material reads native masks through a virtual texture. Outside the irregular
+  alpha footprint, the original imagery remains in use. A separate colour texture is pooled to at least 25 cm and
+  filtered within each class over 12 m, excluding cover and detected shadows. Its colour divided by its class mean
+  modulates the calibrated seasonal ground, preserving relative survey variation without treating processed RGB as albedo.
+  Native processing runs in overlapping windows, with bounded pooled grids and streamed PNG output.
+  A rejected RGB split remains recorded in the manifest. It does not establish that the ground is all grass.
+- **Optional observations** (`sources.survey.observations`). A schema-1 JSON file must identify the orthophoto's
+  SHA-256 and CRS. Features contain `id`, `feature_type`, `confidence`, and projected `[west, south, east, north]`
+  bounds. High-confidence `bare_soil_*` envelopes restrict a calibrated bright-fragment detector; pixels must also
+  pass its colour, alpha, height and darkness tests. Envelopes are search areas, never filled material masks.
+  Optional `ground_classifier` cuts are `light6_gt`, `red_minus_blue_fraction_lt`, and `exg6_lt`, fitted for that
+  acquisition. Dark or mixed ground remains unresolved. No paving is inferred from these bare-fragment observations.
+  Individually inspected crowns can refine matched height-backed tree positions and widths. Their centres approximate
+  crown centres, not surveyed trunks, and their height retains its original source and date.
 
 - **Grain** (`grain.py`). The log of each pixel's luminance over its own 0.3 m low-pass, measured on 256-pixel blocks
   that are pure grass in the tile's class map and have pixels all over. The quietest quarter of those blocks gives a
@@ -325,13 +344,15 @@ survey orthophoto (`sources.survey.orthophoto`, 2.3 cm a pixel on the real tile)
   orthophoto pooled to 0.5 m. Inside the footprint it replaces the imagery's ratio, which is the same ground a year or two
   earlier, and the grain is not laid over it. It is a virtual texture (`r.VirtualTextures=True` in the host project), 14439 by
   13495 pixels on the real tile, mapped by its place in the tile (`survey_detail.west_m` and the extents in the manifest).
-  Where the orthophoto has no pixel (its footprint is not a box) the file holds 0 and the material keeps the imagery's ratio and the grain there. The orthophoto's own shadows are not masked (its sun is not the imagery's): a prior. On the real tile the footprint is
+  Where the orthophoto has no pixel (its footprint is not a box) the file holds 0 and the material keeps the imagery's ratio and the grain there.
+  With native masks, standing cover and survey shadows are excluded. A rejected shadow fit uses a conservative
+  -1.5-stop darkness prior on seasonal ground; this is not complete shadow removal. On the real tile the footprint is
   west of the fly and walk stations, so it shows in the walk tour's later frames (about frame 2600) and the overview.
 
 ### Grass
 
-The grass class grows tufts: Landscape Grass, three varieties, all numbers in the manifest's `turf` (`turf.py`), none in
-the engine code. A variety is so much leaf over a square metre of ground (its leaf area index), so wider blades are
+The grass class grows Landscape Grass tufts. `turf.py` supplies three blade varieties and a sparse, close-range
+broadleaf variety. A blade variety is so much leaf over a square metre of ground (its leaf area index), so wider blades are
 fewer: **near** (index 1.0, blades 0.8 to 1.4 cm wide, 24 to a tuft, about 2000 blades a square metre, drawn to 15 m),
 **clump** (index 0.2, drawn out to 65 m, with blades as wide as a pixel is at 15 m, where the near variety ends:
 1.6 cm, so the sward keeps its texture where a real blade is far under a pixel) and **tall** (index 0.02, drawn to 50 m). Blade height is the
@@ -339,9 +360,19 @@ summer mowing height a land-grant university extension guide gives cool-season l
 MG10 and G6705); the tall variety stands 1.5 times the top of that, a prior (the one-third rule of mowing). Everything
 else is a prior and the manifest's `turf.priors` lists it: the indices (real mown turf has several times the near
 one; what is drawn is the top of the sward), blade counts, radii, widths, draw distances, size spread (0.85 to 1.15),
-the lens, the blade's brightness from root (0.85) to tip (1.15), and that no variety casts a shadow (a tuft's own
-shadow blackens it against a sward that has none). The earlier patch noise, which thinned the tufts between patches
-4 m wide, is gone: it had no source and left bare ground at a walker's feet.
+the lens, the blade's brightness from root (0.65) to tip (1.12), and that no variety casts a shadow (a tuft's own
+shadow blackens it against a sward that has none).
+
+`turf_growth.png` stores short-tuft density, tall-tuft density, and half the height multiplier. Relative photo
+green/red contrast drives growth, with native survey colour inside its footprint. Correlated 1.2 m noise, terrain
+hollows, 2 m edge fringes and canopy shelter introduce clumps and taller margins. These responses are priors,
+not measured mowing heights: density ranges from 0.18 to 1 and height from 0.45 to 1.8 times the mowing range.
+Grass masks suppress growth on other materials. The broadleaf shape is clover-like and its species and abundance
+are priors. One blade in thirteen receives a restrained straw tint within the seasonal palette.
+
+Blade materials use two-sided foliage transmission, root ambient occlusion, roughness 0.6 and specular 0.25.
+World-position gusts bend tips while retaining roots. Ground and blade roots share 0.65 cm procedural relief;
+its derivatives also perturb ground normals. Wind amplitudes and relief are visual priors, not terrain measurements.
 The engine shrinks a tuft away between its start and end distance and has no nearest distance, so a variety is drawn
 from the camera out. The clump's wide blades are kept from a walker's feet by its material: nearer than 8 m a clump
 is drawn in to its own root, and it grows to full size by 15 m, the distances over which the near variety shrinks
