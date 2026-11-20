@@ -22,6 +22,7 @@ from rasterio.features import rasterize
 from rasterio.transform import from_origin
 from shapely.geometry import LineString, Polygon, box
 
+from . import architecture
 from .site import SiteError, Tile
 
 SURFACES = {"asphalt": 0.04, "concrete": 0.04, "track": 0.05, "gravel": 0.04, "clay": 0.04, "turf": 0.025}
@@ -546,10 +547,15 @@ def load_inventory(path: Path, tile: Tile) -> Inventory:
     return Inventory(features, source, priors, images)
 
 
-def build_inventory(path: Path, tile: Tile, out: Path, *, inventory: Inventory | None = None) -> dict:
+def build_inventory(path: Path, tile: Tile, out: Path, building_footprints=(), *, inventory: Inventory | None = None) -> dict:
     """Write validated geometry and image artifacts, and return the stage description."""
     inventory = inventory if inventory is not None else load_inventory(path, tile)
     features, source, priors = inventory.features, inventory.source, list(inventory.priors)
+    features, claimed = architecture.claim_bleachers(features, building_footprints, tile)
+    if claimed:
+        priors.append(
+            f"Tagged building grandstands own generic bleachers with at least {architecture.GRANDSTAND_CLAIM_SHARE:g} plan overlap"
+        )
     meshes = []
     exclusions = []
     if features:
@@ -603,6 +609,7 @@ def build_inventory(path: Path, tile: Tile, out: Path, *, inventory: Inventory |
         "counts": counts,
         "meshes": meshes,
         "evidence": [{"id": f["id"], "evidence": f["evidence"], "confidence": f["confidence"]} for f in features],
+        "claimed_bleachers": claimed,
     }
     out.mkdir(parents=True, exist_ok=True)
     for name, data in inventory.images.items():
@@ -633,4 +640,5 @@ def build_inventory(path: Path, tile: Tile, out: Path, *, inventory: Inventory |
         "source": source,
         "settings": SETTINGS,
         "priors": priors,
+        "claimed_bleachers": claimed,
     }
