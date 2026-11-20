@@ -25,22 +25,22 @@ pip install -e ".[test]"
 envgen build site.json --out build/ --cache cache/
 ```
 
-| Stage         | Reads                                           | Writes                                                                                                  |
-| ------------- | ----------------------------------------------- | ------------------------------------------------------------------------------------------------------- |
-| Acquire       | `site.json` sources                             | each source clipped to the tile, once, into the cache                                                   |
-| Structure     | lidar points, if the site has them              | height above ground, and distance to the nearest ground return                                          |
-| Elevation     | the elevation raster                            | `heightmap.png`, 16-bit, Landscape layout                                                               |
-| Cover         | lidar heights, a canopy height raster, both     | `canopy_height.tif`, `sunlit.tif`, north-up at 1 m                                                      |
-| Surface       | the imagery raster, and which ground is sunlit  | `surface_<class>.png`: one 8-bit weightmap per class                                                    |
-| Macro colour  | the imagery, the sunlit ground and the classes  | `macro_colour.png`, low-passed at 12 m within each class; albedo when the site has a reflectance raster |
-| Detail        | the imagery, the sunlit ground and the classes  | `detail_ratio.png`: the photo over its own 12 m low-pass, per class, at about 0.5 m, as a power of two  |
-| Grain         | a survey orthophoto, the grass class            | `grain.png`: a tileable texture with the orthophoto's grass grain                                       |
-| Survey detail | a survey orthophoto, the sunlit ground, classes | `survey_detail.png`: the detail ratio at the orthophoto's pixel size, one channel                       |
-| Surround      | both rasters at coarse spacing, if asked for    | `context_heightmap.png`, `context_colour.png`                                                           |
-| Trees         | the cover rasters, the classes, a survey, a mix | `trees.json`: one row per tree                                                                          |
-| Buildings     | footprints, lidar, the photo, the classes       | `buildings.json`: one record per building                                                               |
-| Procfill      | survey, coarse imagery, terrain and cover       | `procfill_*.png`, priors, holdout report and a derived tree inventory                                   |
-| Manifest      | everything above                                | `build.json`: placement, georeference, stencil classes, hashes                                          |
+| Stage         | Reads                                              | Writes                                                                                                  |
+| ------------- | -------------------------------------------------- | ------------------------------------------------------------------------------------------------------- |
+| Acquire       | `site.json` sources                                | each source clipped to the tile, once, into the cache                                                   |
+| Structure     | lidar points, if the site has them                 | height above ground, and distance to the nearest ground return                                          |
+| Elevation     | the elevation raster                               | `heightmap.png`, 16-bit, Landscape layout                                                               |
+| Cover         | lidar heights, a canopy height raster, both        | `canopy_height.tif`, `sunlit.tif`, north-up at 1 m                                                      |
+| Surface       | the imagery raster, and which ground is sunlit     | `surface_<class>.png`: one 8-bit weightmap per class                                                    |
+| Macro colour  | the imagery, the sunlit ground and the classes     | `macro_colour.png`, low-passed at 12 m within each class; albedo when the site has a reflectance raster |
+| Detail        | the imagery, the sunlit ground and the classes     | `detail_ratio.png`: the photo over its own 12 m low-pass, per class, at about 0.5 m, as a power of two  |
+| Grain         | a survey orthophoto, the grass class               | `grain.png`: a tileable texture with the orthophoto's grass grain                                       |
+| Survey detail | a survey orthophoto, the sunlit ground, classes    | `survey_detail.png`: the detail ratio at the orthophoto's pixel size, one channel                       |
+| Surround      | coarse heights and 2048-pixel colour, if asked for | `context_heightmap.png`, `context_colour.png`                                                           |
+| Trees         | the cover rasters, the classes, a survey, a mix    | `trees.json`: one row per tree                                                                          |
+| Buildings     | footprints, lidar, the photo, the classes          | `buildings.json`: one record per building                                                               |
+| Procfill      | survey, coarse imagery, terrain and cover          | `procfill_*.png`, priors, holdout report and a derived tree inventory                                   |
+| Manifest      | everything above                                   | `build.json`: placement, georeference, stencil classes, hashes                                          |
 
 - A source is either a local raster (`"kind": "file"`) or an ArcGIS ImageServer
   (`"kind": "arcgis_imageserver"`), which covers USGS 3DEP elevation and many state imagery services.
@@ -524,8 +524,8 @@ grass from paving without storing site annotations in this repository.
   or the save fails.
 - The **horizon** is a flat plane 50 km across with no collision, a metre under the lowest point of the
   outermost surface, in that surface's mean colour. Without it the sky's empty lower half shows as a blue
-  band past the surround. There is no distance fog: on 5.8.4 with exponential height fog everything past
-  about 2 km, the plane included, drew dark navy, and planes of 100 km or more did not draw at all.
+  band past the surround. The atmosphere's analytic height fog and aerial perspective soften its transition
+  from the source-textured surround; [atmosphere settings](atmosphere.md) records their presentation priors.
 - **Trees in the level.** `materials.json` names, for each kind, tree meshes that ship with the engine's
   Procedural Vegetation Editor plugin (a broadleaf tree, a shrub and a conifer on 5.8); nothing is downloaded or
   stored. Each tree takes the mesh of its kind that needs the least stretching, scaled to its height and crown
