@@ -22,7 +22,7 @@ SETTINGS = {
     "fit_cell_m": 0.5,
     "smooth_m": 0.06,
     "colour_cell_m": 0.25,
-    "colour_frequency": "macro-luminance-pooled-chroma",
+    "colour_frequency": "macro-luminance-pooled-chroma-gamut",
     "chroma_shadow_min_log2": -1.5,
     "blend_edge_m": 12.0,
     "blend_edge_source": "native-alpha-minimum",
