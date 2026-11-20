@@ -24,3 +24,17 @@ def test_sampler_rejects_malformed_exported_heightmap():
     surface = {"vertices": 2, "location_cm": [0, 0, 0], "scale": [100, 100, 100]}
     with pytest.raises(ValueError):
         frame.sample_heightmap(np.zeros((2, 2), dtype=np.uint8), surface, [[0, 0]])
+
+
+def test_projected_boundary_roundoff_is_snapped_but_exterior_points_still_fail():
+    size, centre = 4032.01, 500000.1
+    half = size / 2
+    edge = (centre + half) - centre
+    assert edge > half
+    surface = {"vertices": 505, "location_cm": [-half * 100, -half * 100, 0],
+               "scale": [size / 504 * 100, size / 504 * 100, 100]}
+    heights = np.full((505, 505), 32768, dtype=np.uint16)
+    points = [[edge, 0], [-edge, 0], [0, edge], [0, -edge]]
+    assert frame.sample_heightmap(heights, surface, points) == pytest.approx([0, 0, 0, 0])
+    with pytest.raises(ValueError, match="outside"):
+        frame.sample_heightmap(heights, surface, [[half + 1e-5, 0]])

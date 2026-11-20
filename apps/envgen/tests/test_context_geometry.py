@@ -62,6 +62,23 @@ def triangles(payload, kind):
             yield from vertices[np.asarray(mesh["triangles"])]
 
 
+def test_outer_clipped_building_with_fractional_context_size_and_projected_centre(scene):
+    site, context, out = scene
+    centre = np.array([500000.1, 4200000.1])
+    site.tile = Tile(centre[0] - 504, centre[1] - 504, 0.5, 2016)
+    site.context_size_m = size = 4032.01
+    half = size / 2
+    context.update(size_m=size, vertices=505, location_cm=[-half * 100, -half * 100, 0],
+                   scale=[size / 504 * 100, size / 504 * 100, 100])
+    Image.fromarray(np.full((505, 505), 32768, dtype=np.uint16)).save(out / context["heightmap"])
+    source = footprints(scene, [(shapely.box(half - 10, -10, half + 10, 10), {"height_m": 6})])
+    _, payload = run(scene, source)
+    assert payload["counts"]["buildings"] == 1
+    assert payload["sources"]["buildings"]["outer_boundary_parts"] == 1
+    assert all(-half - 1e-7 <= p[0] <= half + 1e-7 for t in triangles(payload, "building") for p in t)
+    assert all(-half <= p[0] <= half and -half <= p[1] <= half for p in payload["ground_probes"])
+
+
 def test_buildings_preserve_holes_height_priority_primary_ownership_and_deduplicate(scene):
     courtyard = Polygon([(24, 24), (60, 24), (60, 60), (24, 60)],
                         [[(28, 28), (32, 28), (32, 32), (28, 32)]])

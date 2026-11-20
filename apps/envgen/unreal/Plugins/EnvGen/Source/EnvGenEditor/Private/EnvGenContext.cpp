@@ -23,6 +23,7 @@
 
 namespace
 {
+	constexpr double BoundaryToleranceM = 1.e-7;
 	bool ReadJson(const FString& Path, TSharedPtr<FJsonObject>& Object)
 	{
 		FString Text;
@@ -182,10 +183,14 @@ bool BuildEnvGenContext(UWorld* World, const FString& ManifestPath, TArray<UPack
 		for (const auto& Vertex : *Vertices)
 		{
 			TArray<double> V;
-			if (!Numbers(Vertex, 3, V) || Origin[0] + V[0] < Bounds[0] || Origin[0] + V[0] > Bounds[2]
-				|| Origin[1] + V[1] < Bounds[1] || Origin[1] + V[1] > Bounds[3])
+			if (!Numbers(Vertex, 3, V) || Origin[0] + V[0] < Bounds[0] - BoundaryToleranceM
+				|| Origin[0] + V[0] > Bounds[2] + BoundaryToleranceM
+				|| Origin[1] + V[1] < Bounds[1] - BoundaryToleranceM
+				|| Origin[1] + V[1] > Bounds[3] + BoundaryToleranceM)
 			{ Error = TEXT("context vertex outside bounds"); return false; }
-			FVector P(V[1] * 100, V[0] * 100, V[2] * 100);
+			const double East = FMath::Clamp(Origin[0] + V[0], Bounds[0], Bounds[2]) - Origin[0];
+			const double North = FMath::Clamp(Origin[1] + V[1], Bounds[1], Bounds[3]) - Origin[1];
+			FVector P(North * 100, East * 100, V[2] * 100);
 			FVector3f FloatP(P);
 			if (P.ContainsNaN() || FloatP.ContainsNaN() || FVector3f(P + Batch.Origin).ContainsNaN()) { Error = TEXT("invalid context vertex range"); return false; }
 			Batch.Vertices.Add(P);

@@ -26,7 +26,8 @@ from .acquire import sha256_file
 from .site import Tile
 
 SETTINGS = {
-    "version": 1,
+    "version": 2,
+    "boundary_tolerance_m": frame.BOUNDARY_TOLERANCE_M,
     "canopy_cell_m": 32.0,
     "support_cell_m": 8.0,
     "colour_cell_m": 2.0,
@@ -167,6 +168,7 @@ class _Ground:
         points = np.asarray(points, dtype=float).reshape(-1, 2)
         heights = frame.sample_heightmap(self.heights, self.context, points)
         half = self.context["size_m"] / 2
+        points = np.clip(points, -half, half)
         for point, height in zip(points, heights, strict=True):
             key = tuple(np.minimum(7, np.floor((point + half) / (2 * half) * 8)).astype(int))
             self.probes.setdefault(key, [*point.tolist(), float(height)])
@@ -358,7 +360,8 @@ def validate(payload):
             or np.any(triangles < 0) or np.any(triangles >= len(vertices))):
             raise ValueError("malformed context mesh")
         absolute = vertices + origin
-        if np.any(absolute[:, :2] < bounds[:2] - 1e-7) or np.any(absolute[:, :2] > bounds[2:] + 1e-7):
+        if (np.any(absolute[:, :2] < bounds[:2] - frame.BOUNDARY_TOLERANCE_M)
+            or np.any(absolute[:, :2] > bounds[2:] + frame.BOUNDARY_TOLERANCE_M)):
             raise ValueError("context mesh outside bounds")
         corners = vertices[triangles]
         if np.any(np.linalg.norm(np.cross(corners[:, 1] - corners[:, 0], corners[:, 2] - corners[:, 0]), axis=1) <= 1e-10):

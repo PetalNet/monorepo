@@ -17,6 +17,7 @@ HEIGHT_MID = 32768
 # A Landscape at Z scale 100 spans 512 m in 65536 steps: one step is 1/128 of the Z scale, in cm.
 STEPS_PER_SCALE_UNIT = 128
 DEFAULT_Z_SCALE = 100.0
+BOUNDARY_TOLERANCE_M = 1e-7
 
 FRAME = "X=grid north, Y=grid east, Z=up; centimetres; origin at the tile centre"
 
@@ -51,7 +52,8 @@ def sample_heightmap(heights: np.ndarray, surface: dict, points_enu_m: np.ndarra
     """Sample exported Landscape triangle planes, returning up metres above the common origin.
 
     Heights use Unreal layout [east, north]. Each quad's diagonal joins its low/low
-    and high/high corners. Coordinates outside the surface are errors, never edge clamps.
+    and high/high corners. Only numerical boundary noise within 1e-7 m is snapped;
+    exterior coordinates remain errors.
     """
     points = np.asarray(points_enu_m, dtype=np.float64)
     location, scale = np.asarray(surface["location_cm"]), np.asarray(surface["scale"])
@@ -65,8 +67,12 @@ def sample_heightmap(heights: np.ndarray, surface: dict, points_enu_m: np.ndarra
         raise ValueError("invalid Landscape heightmap, transform or ENU samples")
     east = (points[:, 0] * 100 - location[1]) / scale[1]
     north = (points[:, 1] * 100 - location[0]) / scale[0]
-    if np.any((east < 0) | (north < 0) | (east > size - 1) | (north > size - 1)):
+    e_tolerance = BOUNDARY_TOLERANCE_M * 100 / scale[1]
+    n_tolerance = BOUNDARY_TOLERANCE_M * 100 / scale[0]
+    if np.any((east < -e_tolerance) | (north < -n_tolerance)
+              | (east > size - 1 + e_tolerance) | (north > size - 1 + n_tolerance)):
         raise ValueError("terrain sample outside exported Landscape")
+    east, north = np.clip(east, 0, size - 1), np.clip(north, 0, size - 1)
     e0 = np.minimum(np.floor(east).astype(int), size - 2)
     n0 = np.minimum(np.floor(north).astype(int), size - 2)
     e, n = east - e0, north - n0
