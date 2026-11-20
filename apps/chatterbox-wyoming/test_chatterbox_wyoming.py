@@ -1,4 +1,5 @@
 import sys
+import asyncio
 import http.client
 import json
 import threading
@@ -10,7 +11,8 @@ from unittest import mock
 
 import numpy as np
 
-from chatterbox_wyoming import MODEL_RATE, SynthesisError, Voice, http_handler, louder, time_stretch
+from chatterbox_wyoming import MODEL_RATE, SynthesisError, Voice, WyomingHandler, http_handler, louder, time_stretch
+from wyoming.tts import Synthesize
 
 FAKE_TORCH = types.SimpleNamespace(
     cuda=types.SimpleNamespace(synchronize=lambda: None, empty_cache=lambda: None, memory_reserved=lambda: 0)
@@ -35,6 +37,100 @@ class UnloadTest(unittest.TestCase):
         connection.request("POST", "/unload")
         response = connection.getresponse()
         return response.status, json.loads(response.read())
+
+    def test_unload_between_http_sentence_groups(self):
+        gap, release = threading.Event(), threading.Event()
+        self.addCleanup(release.set)
+        self.voice.model = object()
+        self.voice._synthesize = lambda text: np.array([0.1])
+        speak = self.voice.speak
+        calls = []
+
+        def pause_before_second(text):
+            calls.append(text)
+            if len(calls) == 2:
+                gap.set()
+                if not release.wait(3):
+                    raise TimeoutError("sentence gap")
+            return speak(text)
+
+        self.voice.speak = pause_before_second
+        responses = []
+
+        def request():
+            connection = http.client.HTTPConnection(*self.server.server_address, timeout=5)
+            try:
+                connection.request("POST", "/tts", body="First. Second.")
+                response = connection.getresponse()
+                responses.append(response.status)
+                response.read()
+            finally:
+                connection.close()
+
+        thread = threading.Thread(target=request)
+        thread.start()
+        self.addCleanup(thread.join)
+        self.assertTrue(gap.wait(3))
+        self.assertEqual(self.voice.pending, 0)
+        self.assertEqual(self.unload(), (409, {"error": "synthesis in progress or queued"}))
+        self.assertIsNotNone(self.voice.model)
+        release.set()
+        thread.join(timeout=3)
+        self.assertEqual(responses, [200])
+        self.assertEqual(self.unload(), (200, {"unloaded": True}))
+
+    def test_idle_reaper_and_status_respect_request(self):
+        self.voice.model = object()
+        with self.voice.request():
+            self.assertTrue(self.voice.status()["busy"])
+            self.voice.worker.submit(self.voice.unload_if_idle).result(timeout=3)
+            self.assertIsNotNone(self.voice.model)
+        self.assertFalse(self.voice.status()["busy"])
+        self.voice.last_used = 0
+        self.voice.worker.submit(self.voice.unload_if_idle).result(timeout=3)
+        self.assertIsNone(self.voice.model)
+
+    def test_http_failure_releases_request(self):
+        self.voice._synthesize = mock.Mock(side_effect=RuntimeError("failed"))
+        connection = http.client.HTTPConnection(*self.server.server_address, timeout=3)
+        self.addCleanup(connection.close)
+        connection.request("POST", "/tts", body="Hello.")
+        response = connection.getresponse()
+        self.assertEqual(response.status, 500)
+        response.read()
+        self.assertEqual(self.unload(), (200, {"unloaded": False}))
+
+    def test_wyoming_cancellation_releases_request(self):
+        async def run():
+            handler = object.__new__(WyomingHandler)
+            handler.voice = self.voice
+            entered = asyncio.Event()
+
+            async def write_event(event):
+                entered.set()
+                await asyncio.Event().wait()
+
+            handler.write_event = write_event
+            task = asyncio.create_task(handler.handle_event(Synthesize(text="Hello.").event()))
+            await entered.wait()
+            self.assertTrue(self.voice.status()["busy"])
+            task.cancel()
+            with self.assertRaises(asyncio.CancelledError):
+                await task
+
+        asyncio.run(run())
+        self.assertEqual(self.unload(), (200, {"unloaded": False}))
+
+    def test_cancelled_queued_group_releases_pending(self):
+        started, release = threading.Event(), threading.Event()
+        self.addCleanup(release.set)
+        self.voice.worker.submit(lambda: (started.set(), release.wait(3)))
+        self.assertTrue(started.wait(3))
+        future = self.voice.speak("queued")
+        self.assertTrue(future.cancel())
+        self.assertEqual(self.voice.pending, 0)
+        release.set()
+        self.assertEqual(self.unload(), (200, {"unloaded": False}))
 
     def test_unloads_and_is_idempotent(self):
         class Model:
