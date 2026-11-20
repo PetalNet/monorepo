@@ -26,7 +26,7 @@ from .acquire import sha256_file
 from .site import Tile
 
 SETTINGS = {
-    "version": 2,
+    "version": 3,
     "boundary_tolerance_m": frame.BOUNDARY_TOLERANCE_M,
     "canopy_cell_m": 32.0,
     "support_cell_m": 8.0,
@@ -262,6 +262,13 @@ def _canopy_support(site, sources, exclusion, cutoff):
     support = observed & (heights > cutoff)
     before = int(support.sum())
     excluded = rasterize([(exclusion, 1)], out_shape=support.shape, transform=transform, all_touched=True).astype(bool)
+    # GDAL's edge convention can leave cells touching the primary square eligible.
+    west, south, east, north = site.tile.bounds()
+    left = transform.c + np.arange(size) * transform.a
+    top = transform.f + np.arange(size) * transform.e
+    columns = (left <= east) & (left + transform.a >= west)
+    rows = (top >= south) & (top + transform.e <= north)
+    excluded |= rows[:, None] & columns[None, :]
     support &= ~excluded
     # The last coarse cell may extend past a context size that is not a multiple of 8 m.
     if size * SETTINGS["support_cell_m"] > site.context_size_m:
@@ -376,6 +383,8 @@ def validate(payload):
         raise ValueError("invalid context ground probes")
     if np.any(probes[:, :2] < bounds[:2]) or np.any(probes[:, :2] > bounds[2:]):
         raise ValueError("ground probe outside context")
+    if np.any(np.all(np.abs(probes[:, :2]) <= payload["primary_half_m"], axis=1)):
+        raise ValueError("ground probe intersects closed primary bounds")
 
 
 def build(site, sources, context, primary_buildings, primary_trees, classes, out: Path, cutoff_m=None) -> dict:

@@ -162,6 +162,18 @@ def test_optional_source_status_and_empty_geometry(scene, mode, status):
     assert result["counts"] == {"buildings": 0, "canopy_clusters": 0, "batches": 0, "triangles": 0}
 
 
+def test_context_canopy_excludes_closed_primary_bounds_from_meshes_and_probes(scene):
+    sources = canopy(scene, np.full((64, 64), 12, dtype=np.float32))
+    _, payload = run(scene, sources)
+    half = payload["primary_half_m"]
+    primary = shapely.box(-half, -half, half, half)
+    assert payload["counts"]["canopy_clusters"] > 0
+    for triangle in triangles(payload, "canopy"):
+        assert not Polygon(triangle[:, :2]).intersects(primary)
+    assert payload["ground_probes"]
+    assert all(abs(east) > half or abs(north) > half for east, north, _ in payload["ground_probes"])
+
+
 def test_refined_primary_building_excludes_whole_wide_part_outside_tile(scene):
     sources = footprints(scene, [(shapely.box(20, 20, 40, 40), {"height_m": 6})])
     out = scene[2]
