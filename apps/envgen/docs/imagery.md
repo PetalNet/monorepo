@@ -2,7 +2,7 @@
 
 Branch: envgen/new-imagery, based on #848 (974414f6). Worktree: /home/agent/work/envgen-imagery.
 
-Run `python -m envgen.imagery_config SITE DATA OUTPUT` to produce a configured site. On the PC, DATA is `/opt/envgen/data/imagery-hunt-2026-11-19`. It preserves the NAIP ImageServer for tile and 4032 m context; tile acquisition changes from 0.6 to 0.3 m, context remains 8 m. Never replace the service with the tile-only NAIP crop for a context build.
+Run `python -m envgen.imagery_config SITE DATA OUTPUT` to produce a configured site. On the PC, DATA is `/opt/envgen/data/imagery-hunt-2026-11-19`. It preserves the NAIP ImageServer for tile and 4032 m context; tile acquisition changes from 0.6 to 0.3 m. Context imagery uses the 2048-pixel colour budget, about 1.97 m per pixel for that surround, independently of its 8 m terrain grid. Never replace the service with the tile-only NAIP crop for a context build.
 
 Ground: `site.mask_imagery` is RGB+NIR MSDIS 2024 leaf-off, native EPSG:6344 at 15 cm. `imagery.read(source, crs, tile)` reprojects to the requested grid and returns spectral data plus validity. The surface stage applies it only outside fully opaque drone alpha, preserving the existing drone masks and detail path. Your native survey masks should still override the result. Use the source at native resolution for finer paths/soil evidence; do not use winter RGB for colour. Roof edges remain evidence for the buildings builder; roof pixels are excluded from ground as before.
 
