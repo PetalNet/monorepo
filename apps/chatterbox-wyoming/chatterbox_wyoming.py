@@ -18,6 +18,7 @@ import threading
 import time
 import tomllib
 from concurrent.futures import Future, ThreadPoolExecutor
+from contextlib import contextmanager
 from functools import partial
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
@@ -124,18 +125,37 @@ class Voice:
         self.last_used = 0.0
         self.last_rtf: float | None = None
         self.pending = 0
+        self.active_requests = 0
         self.busy = False
         self.counter_lock = threading.Lock()
         self.worker = ThreadPoolExecutor(max_workers=1, thread_name_prefix="gpu")
 
+    @contextmanager
+    def request(self):
+        with self.counter_lock:
+            self.active_requests += 1
+        try:
+            yield
+        finally:
+            with self.counter_lock:
+                self.active_requests -= 1
+                self.last_used = time.monotonic()
+
     def speak(self, text: str) -> Future:
         with self.counter_lock:
             self.pending += 1
-            return self.worker.submit(self._speak, text)
+            future = self.worker.submit(self._speak, text)
+        future.add_done_callback(self._release_cancelled_group)
+        return future
+
+    def _release_cancelled_group(self, future: Future) -> None:
+        if future.cancelled():
+            with self.counter_lock:
+                self.pending -= 1
 
     def unload(self) -> Future | None:
         with self.counter_lock:
-            if self.pending:
+            if self.pending or self.active_requests:
                 return None
             return self.worker.submit(self._unload_requested)
 
@@ -204,8 +224,9 @@ class Voice:
         return audio
 
     def unload_if_idle(self) -> None:
-        if self.model is not None and time.monotonic() - self.last_used >= self.idle_unload:
-            self._unload("after idle")
+        with self.counter_lock:
+            if not self.pending and not self.active_requests and self.model is not None and time.monotonic() - self.last_used >= self.idle_unload:
+                self._unload("after idle")
 
     def _unload(self, why: str) -> None:
         import torch
@@ -216,10 +237,13 @@ class Voice:
         log.info("unloaded %s (free VRAM %s GB)", why, gpu_stats(self.gpu_index)["free_vram_gb"])
 
     def status(self) -> dict:
+        with self.counter_lock:
+            busy = bool(self.busy or self.pending or self.active_requests)
+            queue_depth = max(self.pending - self.busy, 0)
         return {
             "loaded": self.model is not None,
-            "busy": self.busy,
-            "queue_depth": max(self.pending - self.busy, 0),
+            "busy": busy,
+            "queue_depth": queue_depth,
             "last_synth_rtf": None if self.last_rtf is None else round(self.last_rtf, 3),
             "tempo": self.tempo,
             **gpu_stats(self.gpu_index),
@@ -238,17 +262,18 @@ class WyomingHandler(AsyncEventHandler):
         if not Synthesize.is_type(event.type):
             return True
         groups = sentence_groups(Synthesize.from_event(event).text)
-        await self.write_event(AudioStart(rate=OUT_RATE, width=2, channels=1).event())
-        try:
-            for group in groups:
-                audio = await asyncio.wrap_future(self.voice.speak(group))
-                await self.write_event(AudioChunk(rate=OUT_RATE, width=2, channels=1, audio=to_pcm16(audio)).event())
-        except Exception as e:
-            log.exception("synthesis failed")
-            await self.write_event(Error(text=f"synthesis failed: {e!r}"[:500], code="synthesis-failed").event())
-            return False
-        await self.write_event(AudioStop().event())
-        return True
+        with self.voice.request():
+            await self.write_event(AudioStart(rate=OUT_RATE, width=2, channels=1).event())
+            try:
+                for group in groups:
+                    audio = await asyncio.wrap_future(self.voice.speak(group))
+                    await self.write_event(AudioChunk(rate=OUT_RATE, width=2, channels=1, audio=to_pcm16(audio)).event())
+            except Exception as e:
+                log.exception("synthesis failed")
+                await self.write_event(Error(text=f"synthesis failed: {e!r}"[:500], code="synthesis-failed").event())
+                return False
+            await self.write_event(AudioStop().event())
+            return True
 
     async def disconnect(self) -> None:
         # The library's default leaves the socket open, so a client never sees EOF after an error.
@@ -290,16 +315,17 @@ def http_handler(voice: Voice, name: str) -> type[BaseHTTPRequestHandler]:
                 self.send_error(400, "empty text")
                 return
             try:
-                cold, start = voice.model is None, time.perf_counter()
-                audio = np.concatenate([voice.speak(group).result() for group in sentence_groups(text)])
-                secs = time.perf_counter() - start
+                with voice.request():
+                    cold, start = voice.model is None, time.perf_counter()
+                    audio = np.concatenate([voice.speak(group).result() for group in sentence_groups(text)])
+                    secs = time.perf_counter() - start
+                    buf = io.BytesIO()
+                    sf.write(buf, audio, MODEL_RATE, format="WAV", subtype="PCM_16")
+                    self.reply(200, buf.getvalue(), "audio/wav", {"X-Synth-Seconds": f"{secs:.2f}", "X-Cold-Load": str(cold)})
             except Exception as e:
                 log.exception("http synthesis failed")
                 self.send_error(500, repr(e)[:200])
                 return
-            buf = io.BytesIO()
-            sf.write(buf, audio, MODEL_RATE, format="WAV", subtype="PCM_16")
-            self.reply(200, buf.getvalue(), "audio/wav", {"X-Synth-Seconds": f"{secs:.2f}", "X-Cold-Load": str(cold)})
 
     return Handler
 

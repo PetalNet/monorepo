@@ -12,13 +12,13 @@ serves:
   and `GET /status` (read-only JSON for a load balancer: `name`, `loaded`, `busy`,
   `queue_depth`, `last_synth_rtf`, `gpu_name`, `free_vram_gb`, `total_vram_gb`).
   `POST /unload` releases the model and cached GPU memory when no synthesis is active
-  or queued. It returns `200` with `{"unloaded": true}` if it released a model, or
+  or queued, including the gaps between sentence groups in a request. It returns `200` with `{"unloaded": true}` if it released a model, or
   `{"unloaded": false}` if already unloaded. It returns `409` with
   `{"error": "synthesis in progress or queued"}` without unloading when busy. A later
   synthesis loads the model again.
 
 The model loads on the first request and unloads after `idle_unload_seconds` without
-requests, so other GPU applications get the memory back. After each synthesis it also
+requests (default 600 seconds), so other GPU applications get the memory back. Active requests prevent idle unloading, and `/status` reports them as busy. After each synthesis it also
 releases PyTorch's cached GPU blocks, because a long sentence group can briefly need
 much more memory than the loaded model. One worker thread runs every synthesis, so
 requests are serialized. Empty text returns `audio-start` and
