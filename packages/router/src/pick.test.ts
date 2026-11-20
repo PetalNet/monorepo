@@ -71,6 +71,13 @@ const why = (result: ReturnType<typeof pick>, id: string) =>
 	result.excluded.find((e) => e.offer.id === id)?.reasons.join("; ") ?? "";
 
 describe("pick", () => {
+	it("never picks a banned effort level", () => {
+		const result = pick(catalog, "code", "S", state({ bannedEfforts: ["xhigh", "max", "ultra"] }));
+
+		expect(result.ranked.map((r) => r.offer.effort)).not.toContain("xhigh");
+		expect(result.excluded.some((r) => r.reasons.some((why) => why.startsWith("effort xhigh not allowed")))).toBe(true);
+	});
+
 	it("ranks open offers in the tier band and names model, effort, plan and pool", () => {
 		const result = pick(catalog, "code", "S", state());
 

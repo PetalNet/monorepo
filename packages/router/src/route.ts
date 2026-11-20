@@ -263,6 +263,8 @@ async function main(argv: string[]): Promise<number> {
 		},
 		nowMs: Date.now(),
 		dataClass,
+		// Eli 2026-11-19: "xhigh, max aren't allowed to be used by you".
+		bannedEfforts: ["xhigh", "max", "ultra"],
 		notVendor: (values["not-vendor"] ?? []).flatMap((v) => v.split(",")).map((v) => v.trim().toLowerCase()),
 		reports: { "google-ai": google, codex, claude },
 		exhausted: readJson(`${home}/.local/state/agy-build/exhausted.json`, {}),
