@@ -285,39 +285,44 @@ const toolSnapshot = await snapshot({
 
 assert.equal(toolSnapshot.runs[0].turns.length, 4);
 assert.match(JSON.stringify(toolSnapshot), /redacted/);
+
 assert.doesNotMatch(
 	JSON.stringify(toolSnapshot),
 	/hunter2|top-secret-42|dXNlcjpwYXNz|two word secret|my-api-key-99/,
 );
+
+const unclassifiedLedgers = [];
 
 for (const eventName of ["inject", "future-event", ""]) {
 	for (const beforeLaunch of [true, false]) {
 		for (const dataClass of ["public", "sensitive"]) {
 			const launch = { event: "launch", runId: "unclassified", at, dataClass };
 			const unclassified = { event: eventName, runId: "unclassified", at };
-			const ledger = beforeLaunch ? [unclassified, launch] : [launch, unclassified];
-			const classified = await snapshot({
-				stateDir: "/unclassified",
-				now,
-				read: async (filePath) => {
-					assert.equal(
-						filePath,
-						"/unclassified/ledger.jsonl",
-						"must not open unclassified content",
-					);
 
-					return ledger.map(JSON.stringify).join("\n");
-				},
-			});
-			const run = classified.runs[0];
-
-			assert.equal(run.dataClass, "unknown");
-			assert.deepEqual(run.turns, []);
-			assert.equal(run.output, "");
-			assert.deepEqual(run.links, []);
+			unclassifiedLedgers.push(beforeLaunch ? [unclassified, launch] : [launch, unclassified]);
 		}
 	}
 }
+
+await Promise.all(
+	unclassifiedLedgers.map(async (ledger) => {
+		const classified = await snapshot({
+			stateDir: "/unclassified",
+			now,
+			read: async (filePath) => {
+				assert.equal(filePath, "/unclassified/ledger.jsonl", "must not open unclassified content");
+
+				return ledger.map(JSON.stringify).join("\n");
+			},
+		});
+		const run = classified.runs[0];
+
+		assert.equal(run.dataClass, "unknown");
+		assert.deepEqual(run.turns, []);
+		assert.equal(run.output, "");
+		assert.deepEqual(run.links, []);
+	}),
+);
 
 // Producer enforces server schema caps (1000 runs, 100 attempts, 2000 turns, 100 links, 1024 metadata) and 4 MiB byte cap.
 const cappedLedger = [];
