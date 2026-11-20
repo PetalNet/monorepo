@@ -27,11 +27,14 @@ bool AddEnvGenAtmosphere(UWorld* World, const FEnvGenLighting& Lighting, TArray<
 	}
 
 	// +X is grid north, +Y east; light travels away from the measured sun bearing.
-	ADirectionalLight* Sun = World->SpawnActor<ADirectionalLight>(FVector(0, 0, 20000), FRotator(-Lighting.ElevationDeg, Lighting.GridAzimuthDeg + 180.0, 0));
+	ADirectionalLight* Sun = World->SpawnActor<ADirectionalLight>();
 	Sun->SetActorLabel(TEXT("EnvGenSun"));
+	Sun->SetActorLocation(FVector(0, 0, 20000));
+	// SpawnActor combines the requested transform with the light actor's default root rotation.
+	const FRotator BeamRotation(-Lighting.ElevationDeg, Lighting.GridAzimuthDeg + 180.0, 0);
+	Sun->SetActorRotation(BeamRotation);
 	UDirectionalLightComponent* Beam = CastChecked<UDirectionalLightComponent>(Sun->GetLightComponent());
 	Beam->SetMobility(EComponentMobility::Movable);
-	Beam->SetIntensity(float(Lighting.SunLux));
 	Beam->SetAtmosphereSunLight(true);
 	Beam->SetLightSourceAngle(0.5357f);
 	Beam->ContactShadowLength = 0.02f;
@@ -44,10 +47,18 @@ bool AddEnvGenAtmosphere(UWorld* World, const FEnvGenLighting& Lighting, TArray<
 	ASkyAtmosphere* Atmosphere = World->SpawnActor<ASkyAtmosphere>();
 	Atmosphere->SetActorLabel(TEXT("EnvGenSkyAtmosphere"));
 	USkyAtmosphereComponent* Air = Atmosphere->GetComponent();
-	Air->SetMieScatteringScale(1.2f);
+	// This property is an extinction coefficient, not a unitless multiplier.
+	Air->SetMieScatteringScale(Air->MieScatteringScale * 1.2f);
 	Air->SetAerialPespectiveViewDistanceScale(1.0f);
 	// The manifest gives illuminance after atmospheric attenuation, while the component expects outer-space lux.
 	Beam->SetIntensity(Air->GetAtmosphericLightToMatchIlluminanceOnGround(-Beam->GetForwardVector(), float(Lighting.SunLux)));
+	if (!Beam->GetForwardVector().Equals(BeamRotation.Vector(), 1.e-4))
+	{
+		Error = TEXT("the generated sun direction does not match the manifest");
+		return false;
+	}
+	UE_LOG(LogTemp, Display, TEXT("EnvGen atmosphere: elevation=%.3f grid_azimuth=%.3f mie_coefficient=%.6f ground_lux=%.1f outer_lux=%.1f"),
+		Lighting.ElevationDeg, Lighting.GridAzimuthDeg, Air->MieScatteringScale, Lighting.SunLux, Beam->Intensity);
 
 	UPackage* CloudPackage = CreatePackage(TEXT("/Game/EnvGen/Generated/M_AtmosphereClouds"));
 	UMaterialInstanceConstant* FairWeather = NewObject<UMaterialInstanceConstant>(CloudPackage, TEXT("M_AtmosphereClouds"), RF_Public | RF_Standalone);
