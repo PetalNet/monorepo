@@ -37,3 +37,5 @@ The palette is green for measured pixels, blue for inference, orange for generat
 Five spatial folds with 32 m tiles hide one fold at a time. Each fold refits thresholds and priors, excludes a 4 m training buffer, and generates from coarse inputs alone. The report records zone shares and total variation, weed and bare coverage, component size and aspect distributions, windrow spacing and width, and held-out survey crown sizes against the training distribution.
 
 Every skipped fold has a reason. Fewer than five evaluated folds produces `insufficient_coverage`. Validation reports discrepancies rather than declaring a realism pass. The labels come from the same automatic appearance classifier on held-out RGB, not independent manual ground truth. These folds are development diagnostics, not a blind final test.
+
+Holdout generation runs on the pooled survey grid. Exported game masks use the existing detail grid, with spacing in `procfill.cell_m`. Shapes smaller than a game-mask cell cannot retain their outline after export and filtering. The validation numbers describe the sampler's appearance distributions, not rendered pixels.
