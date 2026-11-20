@@ -1,13 +1,13 @@
 // Every message, room and name here is invented. The inject and vault commands are real scripts in a temp
 // directory, so the ledger runs them the way it runs the real ones.
-import { execFileSync } from "node:child_process";
+import { execFileSync, spawnSync } from "node:child_process";
 import { chmodSync, existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { DatabaseSync } from "node:sqlite";
 import { fileURLToPath } from "node:url";
 
-import { afterAll, beforeEach, describe, expect, it } from "vitest";
+import { afterAll, afterEach, beforeEach, describe, expect, it } from "vitest";
 
 import { delivers } from "./promise-close.ts";
 import { classify, detect } from "./promise-detect.ts";
@@ -145,18 +145,25 @@ describe("ledger", () => {
 
 	const say = (
 		text: string,
-		options: { room?: string; surface?: string; direction?: string; ref?: string } = {},
+		options: {
+			room?: string;
+			surface?: string;
+			direction?: string;
+			ref?: string;
+			branch?: string;
+		} = {},
 	) => {
 		entries += 1;
 
 		history
 			.prepare(
-				"INSERT INTO entry (ts, surface, channel, branch, direction, sender, text, ref) VALUES (?, ?, ?, 'main', ?, 'agent', ?, ?)",
+				"INSERT INTO entry (ts, surface, channel, branch, direction, sender, text, ref) VALUES (?, ?, ?, ?, ?, 'agent', ?, ?)",
 			)
 			.run(
 				now / 1000,
 				options.surface ?? "chat",
 				options.room ?? "!room-a",
+				options.branch ?? "main",
 				options.direction ?? "out",
 				text,
 				options.ref ?? `$evt${String(entries)}`,
@@ -166,6 +173,20 @@ describe("ledger", () => {
 	};
 
 	const open = () => new Ledger(config, { ...depsFromEnv(), now: () => now });
+	const cli = (...args: string[]) =>
+		spawnSync(
+			process.execPath,
+			["--no-warnings", fileURLToPath(new URL("promise.ts", import.meta.url)), ...args],
+			{
+				encoding: "utf8",
+				env: {
+					...process.env,
+					PROMISE_STORE: config.store,
+					PROMISE_HISTORY_DB: config.history,
+					PROMISE_TZ: TZ.timeZone,
+				},
+			},
+		);
 	const sweep = () => {
 		const ledger = open();
 
@@ -235,12 +256,15 @@ echo "$*" >> "${dir}/vault.log"; n=$(wc -l < "${dir}/vault.log"); printf '{"id":
 			graceMs: 4 * HOUR,
 			promptEveryMs: HOUR,
 			promptCap: 3,
-			backoffMs: [6 * HOUR, 24 * HOUR],
 		};
 
 		// The first sweep only places the cursor.
 		say("I'll send the old thing that predates the ledger.");
 		sweep();
+	});
+
+	afterEach(() => {
+		history.close();
 	});
 
 	it("starts from now: messages older than the ledger are not promises it tracks", () => {
@@ -253,7 +277,7 @@ echo "$*" >> "${dir}/vault.log"; n=$(wc -l < "${dir}/vault.log"); printf '{"id":
 		say("NONE", { surface: "cli" });
 		sweep();
 
-		const [item, ...rest] = using((l) => l.items());
+		const [progress, item, ...rest] = using((l) => l.items());
 
 		expect(rest).toEqual([]);
 
@@ -268,7 +292,8 @@ echo "$*" >> "${dir}/vault.log"; n=$(wc -l < "${dir}/vault.log"); printf '{"id":
 			due_source: "default",
 		});
 
-		expect(JSON.parse(item?.more ?? "[]")).toEqual(["On it."]);
+		expect(progress).toMatchObject({ text: "On it.", state: "open", attention: "quiet" });
+		expect(item).toMatchObject({ part: 1, attention: "pending", more: "[]" });
 	});
 
 	it("binds a stated time, and ignores the terminal surface", () => {
@@ -298,14 +323,14 @@ echo "$*" >> "${dir}/vault.log"; n=$(wc -l < "${dir}/vault.log"); printf '{"id":
 		const sent = injected();
 
 		expect(sent).toHaveLength(1);
-		expect(sent[0]).toContain("#1 [1m overdue, reminder 1/3] chat !room-a:");
+		expect(sent[0]).toContain("#1 [1m overdue, reconcile once] chat !room-a:");
 		expect(sent[0]).toContain("I'll send the row counts once the import finishes.");
 		expect(sent[0]).toContain("promise done <id>");
 
 		expect(using((l) => l.item(1))).toMatchObject({
 			state: "open",
 			reminders: 1,
-			next_remind: now - 30 * MINUTE + 6 * HOUR,
+			attention: "review",
 		});
 	});
 
@@ -340,7 +365,7 @@ echo "$*" >> "${dir}/vault.log"; n=$(wc -l < "${dir}/vault.log"); printf '{"id":
 		// Put the store back to the moment before the answer was recorded.
 		using((l) => {
 			l.db.exec(
-				"UPDATE batch SET state = 'pending'; UPDATE item SET reminders = 0, next_remind = 0; DELETE FROM meta WHERE k = 'last_promise_prompt'",
+				"UPDATE batch SET state = 'pending'; UPDATE item SET reminders = 0, next_remind = 0, attention = 'pending'; DELETE FROM meta WHERE k = 'last_promise_prompt'",
 			);
 		});
 
@@ -432,7 +457,7 @@ echo "$*" >> "${dir}/vault.log"; n=$(wc -l < "${dir}/vault.log"); printf '{"id":
 		expect(using((l) => l.reopen(2))).toMatchObject({ state: "open", due: now, closed_by: null });
 	});
 
-	it("caps a prompt, spaces prompts, backs off per promise and escalates after the last reminder", () => {
+	it("caps and spaces prompts, then leaves each item open for reconciliation without repeating", () => {
 		for (let i = 0; i < 5; i += 1) {
 			say(`I'll send report number ${String(i)} after the build.`);
 		}
@@ -458,17 +483,21 @@ echo "$*" >> "${dir}/vault.log"; n=$(wc -l < "${dir}/vault.log"); printf '{"id":
 
 		now += 6 * HOUR;
 		sweep();
-		expect(injected()[2]).toContain("reminder 2/3");
 		now += 24 * HOUR;
 		sweep();
-		expect(injected()[3]).toContain("reminder 3/3");
-		expect(using((l) => l.item(1))).toMatchObject({ state: "open", escalated: 1, reminders: 3 });
+
+		expect(using((l) => l.item(1))).toMatchObject({
+			state: "open",
+			attention: "review",
+			reminders: 1,
+		});
+
 		now += 96 * HOUR;
 		sweep();
-		expect(injected()).toHaveLength(4);
+		expect(injected()).toHaveLength(2);
 
 		expect(statusLine(config.store, now)).toContain(
-			"1 open promise(s), 1 overdue (1 out of reminders)",
+			"1 open promise(s), 1 overdue, 1 awaiting reconciliation",
 		);
 	});
 
@@ -506,7 +535,9 @@ echo "$*" >> "${dir}/vault.log"; n=$(wc -l < "${dir}/vault.log"); printf '{"id":
 		expect(injected()[0]?.match(/^#\d+ /gmu)).toEqual(["#2 "]);
 	});
 
-	it("does not close a message's promises on a delivery of only one of them", () => {
+	it("closes separate promises from one message only as each delivery arrives", () => {
+		say("Please mirror the feed and send the counts.", { direction: "in" });
+
 		say(
 			"I'll mirror the calendar feed into the shared planner as busy blocks. I'll also send the row counts tonight.",
 		);
@@ -515,7 +546,247 @@ echo "$*" >> "${dir}/vault.log"; n=$(wc -l < "${dir}/vault.log"); printf '{"id":
 		now += 10 * MINUTE;
 		say("The calendar feed is live in the shared planner as busy blocks.");
 		sweep();
+		expect(using((l) => l.item(1))).toMatchObject({ state: "done" });
+		expect(using((l) => l.item(2))).toMatchObject({ state: "open" });
+		say("I sent the row counts tonight: 412 rows.");
+		sweep();
+		expect(using((l) => l.item(2))).toMatchObject({ state: "done", closed_by: "auto" });
+		expect(using((l) => l.items())).toEqual([]);
+	});
+
+	it("tracks routine progress quietly without pretending it was completed", () => {
+		say("On it. Checking the logs now.");
+		sweep();
+		now += 120 * HOUR;
+		sweep();
+		sweep();
+		expect(injected()).toEqual([]);
+		expect(vaulted()).toEqual([]);
+
+		expect(using((l) => l.items()).map((i) => [i.state, i.attention])).toEqual([
+			["open", "quiet"],
+			["open", "quiet"],
+		]);
+
+		expect(cli("list").stdout).toContain("Checking the logs now.");
+	});
+
+	it("does not complete unsplit compound work on one partial delivery", () => {
+		say("I'll mirror the calendar feed into the shared planner and send the audit report.");
+		sweep();
+		now += 2 * MINUTE;
+		say("The calendar feed is live in the shared planner.");
+		sweep();
 		expect(using((l) => l.item(1))).toMatchObject({ state: "open" });
+	});
+
+	it("requires a delivery action, not a reply, matching topic or dependency milestone", () => {
+		say("Please fix the calendar export configuration.", { direction: "in" });
+		say("I'll fix the calendar export configuration.");
+		sweep();
+
+		for (const reply of [
+			"Done.",
+			"Thanks for waiting.",
+			"I checked the calendar export configuration.",
+			"The calendar export configuration is almost fixed.",
+		]) {
+			now += 2 * MINUTE;
+			say(reply);
+			sweep();
+			expect(using((l) => l.item(1))).toMatchObject({ state: "open" });
+		}
+
+		say("I fixed the calendar export configuration.");
+		sweep();
+		expect(using((l) => l.item(1))).toMatchObject({ state: "done" });
+	});
+
+	it("uses the incoming thread for short artifact reports, including immediate delivery", () => {
+		say("Please send the comparison.", { direction: "in" });
+		say("I'll send the comparison.");
+		sweep();
+		say("Here is the comparison: https://example.test/report/42");
+		sweep();
+		expect(using((l) => l.item(1))).toMatchObject({ state: "done", closed_by: "auto" });
+	});
+
+	it("does not use a different thread, branch or surface as completion evidence", () => {
+		say("Please mirror the feed.", { direction: "in" });
+		say("I'll send the comparison.");
+		sweep();
+		now += 2 * MINUTE;
+		const delivery = "Here is the comparison: https://example.test/report/42";
+
+		say(delivery, { branch: "other" });
+		say(delivery, { surface: "email" });
+		say("Now the other workspace.", { direction: "in" });
+		say(delivery);
+		sweep();
+		expect(using((l) => l.item(1))).toMatchObject({ state: "open" });
+	});
+
+	it("accepts a specific delivery report after an intervening incoming follow-up", () => {
+		say("Please mirror the feed.", { direction: "in" });
+		say("I'll mirror the calendar feed into the shared planner.");
+		sweep();
+		say("How is it going?", { direction: "in" });
+		say("The calendar feed is live in the shared planner.");
+		sweep();
+		expect(using((l) => l.item(1))).toMatchObject({ state: "done" });
+	});
+
+	it("does not complete another recipient's promise from one delivery", () => {
+		say("I'll send Alice the quarterly revenue report.");
+		say("I'll send Bob the quarterly revenue report.");
+
+		sweep();
+		now += 2 * MINUTE;
+		say("I sent Alice the quarterly revenue report.");
+		sweep();
+		expect(using((l) => l.item(1))).toMatchObject({ state: "done" });
+		expect(using((l) => l.item(2))).toMatchObject({ state: "open" });
+	});
+
+	it("leaves indistinguishable obligations open for explicit bulk reconciliation", () => {
+		say("I'll send the quarterly revenue report.");
+		say("I'll send the quarterly revenue report.");
+		sweep();
+		say("I sent the quarterly revenue report.");
+		sweep();
+		expect(using((l) => l.items())).toHaveLength(2);
+	});
+
+	it("replay cannot re-close a reopened item using old delivery evidence", () => {
+		say("I'll send the quarterly revenue report.");
+		sweep();
+		say("I sent the quarterly revenue report.");
+		sweep();
+		now += HOUR;
+		using((l) => l.reopen(1));
+		using((l) => l.replay(1));
+		expect(using((l) => l.item(1))).toMatchObject({ state: "open" });
+	});
+
+	it("explicitly backfills through the CLI without injecting, and replay is idempotent", () => {
+		expect(cli("replay", "0")).toMatchObject({ status: 0 });
+		expect(using((l) => l.items())).toHaveLength(1);
+		expect(cli("replay", "0")).toMatchObject({ status: 0 });
+		expect(using((l) => l.items())).toHaveLength(1);
+		expect(injected()).toEqual([]);
+		expect(cli("replay")).toMatchObject({ status: 2 });
+	});
+
+	it("cold-starts at the high-water mark across incoming and skipped surface rows", () => {
+		say("I'll send a stale report.");
+		say("A terminal message.", { surface: "cli" });
+		say("A new question.", { direction: "in" });
+		using((l) => l.db.prepare("DELETE FROM meta WHERE k = 'cursor'").run());
+		sweep();
+		expect(using((l) => l.meta("cursor"))).toBe(String(entries));
+		expect(using((l) => l.items())).toEqual([]);
+		say("I'll send a fresh report.");
+		sweep();
+		expect(using((l) => l.items())).toHaveLength(1);
+	});
+
+	it("waits for history to exist before choosing the initial high-water mark", () => {
+		const historyPath = config.history;
+
+		config.history += ".absent";
+		using((l) => l.db.prepare("DELETE FROM meta WHERE k = 'cursor'").run());
+		sweep();
+		expect(using((l) => l.meta("cursor"))).toBeUndefined();
+		config.history = historyPath;
+		sweep();
+		expect(using((l) => l.items())).toEqual([]);
+	});
+
+	it("bulk reconciliation requires evidence and applies every selected item or none", () => {
+		say("I'll send the chart. I'll send the table.");
+		sweep();
+		expect(cli("done", "1,2")).toMatchObject({ status: 2 });
+		expect(cli("done", "1,999", "Delivered in the report")).toMatchObject({ status: 2 });
+		expect(using((l) => l.items())).toHaveLength(2);
+		expect(cli("done", "1,2,1", "Delivered in the report")).toMatchObject({ status: 0 });
+		expect(using((l) => l.items("state = 'done'"))).toHaveLength(2);
+	});
+
+	it("timed reminders fire even while an earlier promise injection keeps failing", () => {
+		say("I'll send the importer counts.");
+		sweep();
+		now += 5 * HOUR;
+		writeFileSync(path.join(dir, "down"), "");
+		sweep();
+		rmSync(path.join(dir, "down"));
+		using((l) => l.addReminder("alarm", now, "Check the oven"));
+
+		const ledger = new Ledger(config, {
+			...depsFromEnv(),
+			now: () => now,
+			inject: (prompt, source, key) =>
+				source === "promise-ledger"
+					? { ok: false, output: "promise source unavailable" }
+					: depsFromEnv().inject(prompt, source, key),
+		});
+
+		try {
+			expect(ledger.sweep()).toMatchObject({ remind: { sent: 1, failed: 1 } });
+		} finally {
+			ledger.close();
+		}
+
+		expect(injected()).toHaveLength(1);
+		expect(injected()[0]).toContain("Check the oven");
+		expect(using((l) => l.item(1))).toMatchObject({ state: "open", reminders: 0 });
+		expect(using((l) => l.item(2))).toMatchObject({ state: "done" });
+	});
+
+	it.each(["snooze", "reopen"])(
+		"uses a fresh delivery key after %s when the earlier acknowledgment was lost",
+		(action) => {
+			using((l) => l.addReminder("alarm", now, "Check the oven"));
+
+			const ledger = new Ledger(config, {
+				...depsFromEnv(),
+				now: () => now,
+				inject: (prompt, source, key) => {
+					depsFromEnv().inject(prompt, source, key);
+
+					return { ok: false, output: "acknowledgment lost" };
+				},
+			});
+
+			try {
+				ledger.sweep();
+
+				if (action === "snooze") {
+					ledger.snooze(1, now + HOUR);
+				} else {
+					ledger.closeItem(1, "dropped", "command", "reschedule");
+					ledger.reopen(1);
+				}
+			} finally {
+				ledger.close();
+			}
+
+			now += 2 * HOUR;
+			sweep();
+			sweep();
+			expect(injected()).toHaveLength(2);
+			expect(using((l) => l.item(1))).toMatchObject({ state: "done", closed_by: "fired" });
+		},
+	);
+
+	it.each(["done", "dropped"] as const)("cancels a failed batch when its item is %s", (state) => {
+		using((l) => l.addReminder("alarm", now, "Check the oven"));
+		writeFileSync(path.join(dir, "down"), "");
+		sweep();
+		using((l) => l.reconcile([1], state, "resolved explicitly"));
+		rmSync(path.join(dir, "down"));
+		sweep();
+		expect(injected()).toEqual([]);
+		expect(using((l) => l.item(1))).toMatchObject({ state });
 	});
 
 	it("snoozes with a fresh set of reminders", () => {
@@ -530,7 +801,7 @@ echo "$*" >> "${dir}/vault.log"; n=$(wc -l < "${dir}/vault.log"); printf '{"id":
 		now += 61 * MINUTE;
 		sweep();
 		expect(injected()).toHaveLength(2);
-		expect(injected()[1]).toContain("reminder 1/3");
+		expect(injected()[1]).toContain("reconcile once");
 	});
 
 	it("fires a timed reminder once with its own prompt, even after a long outage", () => {
@@ -596,7 +867,7 @@ echo "$*" >> "${dir}/vault.log"; n=$(wc -l < "${dir}/vault.log"); printf '{"id":
 		expect(rest).toEqual([]);
 
 		expect(record).toMatch(
-			/^remember --tier agent --topic Promises --direct Agent message in chat !room-a, event \$slow --quote I'll send the row counts once the import finishes\. promise [0-9a-f]{12}\/2: made .* still open past its due time/u,
+			/^remember --tier agent --topic Promises --direct Agent message in chat !room-a, event \$slow --quote I'll send the row counts once the import finishes\. promise [0-9a-f]{12}\/2: made .* currently open/u,
 		);
 
 		expect(outcome).toMatch(
@@ -605,6 +876,20 @@ echo "$*" >> "${dir}/vault.log"; n=$(wc -l < "${dir}/vault.log"); printf '{"id":
 
 		expect(using((l) => l.item(2))).toMatchObject({ claim: "c-test0002" });
 		expect(vaulted().join("\n")).not.toContain("quick");
+	});
+
+	it("corrects the durable outcome when a recorded promise is reopened", () => {
+		say("I'll send the quarterly revenue report.");
+		sweep();
+		now += 5 * HOUR;
+		sweep();
+		using((l) => l.reconcile([1], "done", "reported complete"));
+		sweep();
+		using((l) => l.reopen(1));
+		sweep();
+		expect(vaulted().at(-1)).toContain(": reopened ");
+		expect(vaulted().at(-1)).not.toContain("1970");
+		expect(using((l) => l.item(1))).toMatchObject({ state: "open" });
 	});
 
 	it("gives up on a vault write the vault refuses, and keeps retrying one it cannot reach", () => {
@@ -665,7 +950,7 @@ echo "$*" >> "${dir}/vault.log"; n=$(wc -l < "${dir}/vault.log"); printf '{"id":
 
 		// The hook reads the real clock, which is long past this promise's due time.
 		expect(context.split("\n").filter((l) => l.includes("Promise ledger:"))).toEqual([
-			"Promise ledger: 1 open promise(s), 1 overdue (0 out of reminders), 0 timed reminder(s) scheduled. List them with `promise list`; close with `promise done|snooze|drop <id>`.",
+			"Promise ledger: 1 open promise(s), 1 overdue, 0 awaiting reconciliation, 0 quiet progress item(s), 0 timed reminder(s) scheduled. List with `promise list` or `promise list --review`; reconcile with `promise done|snooze|drop <id>`.",
 		]);
 
 		writeFileSync(path.join(dir, "garbage.sqlite"), "not a database");
