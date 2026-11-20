@@ -9,8 +9,8 @@ Configure the worker on the agent host:
 - `FOLD_SECRET_SCANNER_ARGV`: the shared outbound scanner's JSON argv array. Candidate text goes to stdin; only exit 0 with empty stdout and stderr permits a note.
 - `VAULT_SECRET_PROVIDER_ARGV` and optional `VAULT_SECRET_POLICY`: the scanner's private provider configuration.
 - `PHOTO_MEMORY_DIR`: queue and notes directory, default `~/.local/share/photo-memory`.
-- `PHOTO_MEDIA_ROOTS`: JSON array of source directories. Defaults to the hub media cache and legacy Matrix incoming-media directory.
-- `PHOTO_HISTORY`, `PHOTO_LEGACY_SPOOL` and `PHOTO_LEGACY_INDEX`: optional overrides for the metadata sources.
+- `PHOTO_MEDIA_ROOTS`: JSON array of source directories. Defaults to the hub media cache under `HERMES_HOME` (default `~/.hermes-janet`) and legacy Matrix incoming-media directory.
+- `PHOTO_HISTORY`, `PHOTO_LEGACY_SPOOL` and `PHOTO_LEGACY_INDEX`: optional overrides for the metadata sources; `PHOTO_HISTORY` defaults under `HERMES_HOME`.
 
 Include the staged `notes/` directory in guarded `vault collect`, with a stable origin such as `photo-memory`, kind `memory`, and tier `agent`. Schedule a repeating sweep after the scanner is configured. Each run processes at most three pending images. Failures use bounded backoff; a scanner refusal stays refused. No automatic cloud fallback or model download occurs.
 
