@@ -2506,6 +2506,13 @@ bool FEnvGenLevelBuild::Start(const FString& ManifestPath, const FString& MapPat
 
 	const int32 GroundStencil = int32(Manifest.StencilClasses->GetNumberField(TEXT("ground")));
 	State->Landscape = ImportLandscape(State->World, TEXT("EnvGenLandscape"), Manifest.Tile, State->HeightBytes, Material, GroundStencil, Manifest.Layers);
+	// Ground WPO depends only on fixed position and masks; animated vegetation keeps automatic invalidation.
+	State->Landscape->ShadowCacheInvalidationBehavior = EShadowCacheInvalidationBehavior::Rigid;
+	for (ULandscapeComponent* Component : State->Landscape->LandscapeComponents)
+	{
+		Component->ShadowCacheInvalidationBehavior = EShadowCacheInvalidationBehavior::Rigid;
+		Component->MarkRenderStateDirty();
+	}
 	if (Manifest.Surround)
 	{
 		UTexture2D* SurroundColour = MakeTexture(TEXT("T_SurroundColour"), SurroundColourSize.X, SurroundColourSize.Y, TSF_BGRA8, SurroundColourBytes.GetData(), true,
