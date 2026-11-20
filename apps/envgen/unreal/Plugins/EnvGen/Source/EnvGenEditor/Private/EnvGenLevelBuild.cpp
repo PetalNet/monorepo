@@ -981,7 +981,8 @@ float reach=distance(Root,Eye), sway=0;
   sway=sin(dot(p,float2(0.012,0.009))-Time*2.3)*gust*(1-smoothstep(1200,2200,reach));
 }
 float tip = Along.r*Along.r;
-float2 lean=2.0*(0.5+Random)*float2(sin(dot(p,float2(0.003,0.005))),cos(dot(p,float2(-0.004,0.002))));
+float bendAngle=6.2831853*frac(Seed.g*7.13+Random);
+float2 lean=lerp(0.25,3.0,frac(Seed.g*17.31+Random*0.61803399))*float2(cos(bendAngle),sin(bendAngle));
 float stature=clamp(Growth.b*2*spread,0.45,1.8);
 return ((float3((float2(1.6,0.65)*sway+lean)*tip,0) + float3(0,0,(Here.z-Root.z)*(stature-1)+relief))*fade + (Root-Here)*(1-fade))*(1-smoothstep(2200,2500,reach));
 )");

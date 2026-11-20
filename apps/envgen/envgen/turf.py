@@ -18,6 +18,7 @@ from scipy import ndimage
 
 GROWTH_SETTINGS = {
     "kind": "prior",
+    "placement": "fractional surface weight applied once by the engine",
     "patch_m": 1.2,
     "fringe_m": 2.0,
     "density_range": [0.18, 1.0],
@@ -61,7 +62,10 @@ def growth(
     tall = density * np.clip(0.04 + 0.80 * np.maximum(fringe, sheltered) + 0.12 * np.maximum(noise, 0), 0, 1)
     height = np.clip(0.50 + 0.65 * vigour + 0.45 * np.maximum(fringe, sheltered) + 0.20 * noise + 0.10 * moisture,
                      *GROWTH_SETTINGS["height_range"])
-    packed = np.stack([density * inside, tall * inside, height / 2])
+    # The engine multiplies these densities by the surface weight. A majority-class cutoff here
+    # removes all vegetation from mixed path edges before that fractional placement can happen.
+    supported = grass > 0
+    packed = np.stack([density * supported, tall * supported, height / 2])
     return packed.astype(np.float32), {
         "settings": GROWTH_SETTINGS,
         "photo_green_red_log2_p5_p95": [float(low), float(high)],
@@ -73,6 +77,7 @@ def growth(
             "prior: grass grows taller within 2 m of a surface edge and under canopy higher than 2 m",
             "prior: local hollows favour growth; relief is terrain minus its 6 m low-pass",
             "prior: 1.2 m correlated clump noise; density 0.18 to 1 and height 0.45 to 1.8 times the mowing range",
+            "prior: mixed surface pixels retain grass in proportion to their engine placement weight",
         ],
     }
 

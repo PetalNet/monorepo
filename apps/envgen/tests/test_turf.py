@@ -38,3 +38,16 @@ def test_no_grass_or_no_paving_stays_finite_without_inventing_an_edge():
         packed, _ = turf.growth(grass, np.zeros((3, 32, 32)), flat, flat, 1, 0)
         assert np.isfinite(packed).all() and packed.min() >= 0 and packed.max() <= 1
     assert turf.growth(flat, np.zeros((3, 32, 32)), flat, flat, 1, 0)[0][:2].max() == 0
+
+
+def test_mixed_path_edge_retains_grass_for_the_engines_fractional_placement_weight():
+    grass = np.ones((32, 32), dtype=np.float32)
+    grass[:, :8] = 0
+    grass[:, 8:12] = 0.25
+    flat = np.zeros(grass.shape)
+    packed, _ = turf.growth(grass, np.zeros((3, 32, 32)), flat, flat, 0.5, 7)
+
+    placed = packed[:2] * grass
+    assert placed[:, :, :8].max() == 0
+    assert placed[0, :, 8:12].min() > 0
+    assert placed[0, :, 8:12].max() < placed[0, :, 16:].min()
