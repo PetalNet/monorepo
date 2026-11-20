@@ -401,7 +401,10 @@ def test_survey_reservation_matches_actual_survey_detail_coverage(tmp_path, monk
     ortho = {"files": [], "skipped": "unsupported layout"} if ortho_skipped else None
     detail = pipeline.build_survey_detail(site, out, None, [{"name": "grass", "file": "grass.png"}], ortho)
     encoded = np.array(Image.open(out / detail["file"]))
-    assert np.count_nonzero(encoded) == (48 if mixed_coverage else 0)
+    assert detail["weight_channel"] == "alpha"
+    assert encoded.shape[-1] == 4
+    assert np.count_nonzero(encoded[..., 3]) == (48 if mixed_coverage else 0)
+    assert np.all(encoded[..., :3][encoded[..., 3] == 0] == pipeline.DETAIL_ZERO)
 
 
 @pytest.mark.parametrize("incompatible", ["crs", "bands"])
