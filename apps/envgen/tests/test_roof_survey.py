@@ -43,7 +43,8 @@ def test_measured_surface_matches_withheld_roofs(kind):
         part = shapely.Polygon(vertices[indices, :2])
         if part.area > 0:
             surfaces.append(part)
-    assert shapely.union_all(surfaces).symmetric_difference(polygon).area < 1e-6
+    assert sum(part.area for part in surfaces) == pytest.approx(polygon.area, abs=1e-6)
+    assert shapely.union_all(surfaces, grid_size=1e-6).symmetric_difference(polygon).area < 1e-6
     assert result["wall_segments"]
 
 
@@ -175,3 +176,73 @@ def test_uncovered_or_nodata_reference_retains_prior_geometry_and_colour(tmp_pat
     building_imagery.observe(records, refined, path, "EPSG:32615", None, 0.5)
     assert records[0]["imagery_observation"]["status"] == "unresolved"
     assert records[0]["roof_albedo"] == [0.2, 0.2, 0.2]
+
+
+@pytest.mark.parametrize("angle", [0, 17, 33])
+@pytest.mark.parametrize("clockwise", [False, True])
+@pytest.mark.parametrize("kind", ["gabled", "multi-level"])
+def test_measured_walls_cover_the_whole_projected_footprint(angle, clockwise, kind):
+    polygon, points, ground = cloud(kind)
+    radians = np.deg2rad(angle)
+    rotation = np.array([[np.cos(radians), -np.sin(radians)], [np.sin(radians), np.cos(radians)]])
+    origin = np.array([606000.125, 4200000.375])
+    corners = np.asarray(polygon.exterior.coords)[:-1] @ rotation.T + origin
+    polygon = shapely.Polygon(corners[::-1] if clockwise else corners)
+    points[:, :2] = points[:, :2] @ rotation.T + origin
+    ground[:, :2] = ground[:, :2] @ rotation.T + origin
+    result = roof_survey.fit(polygon, points, ground, origin)
+    assert result["status"] == "measured", result
+    lines = [shapely.LineString([s[0][:2], s[1][:2]]) for s in result["wall_segments"]]
+    assert polygon.boundary.difference(shapely.union_all(lines).buffer(1e-5)).length < 1e-5
+    assert sum(line.length for line in lines) == pytest.approx(polygon.length, abs=1e-4)
+
+
+@pytest.mark.parametrize("high_side", [-1, 1])
+@pytest.mark.parametrize("crossing", [False, True])
+def test_roof_step_faces_point_from_the_high_volume_to_the_low_volume(high_side, crossing):
+    polygon, points, ground = cloud("multi-level")
+    if crossing:
+        points[:, 2] = 107 + np.where(points[:, 0] < 0, points[:, 1] * 0.2, -points[:, 1] * 0.2)
+    if high_side < 0:
+        points[:, 2] = 215 - points[:, 2]
+    result = roof_survey.fit(polygon, points, ground, np.zeros(2))
+    assert result["status"] == "measured", result
+    vertices = np.asarray(result["roof_vertices"])
+    vertical, tops = [], []
+    for triangle in result["roof_triangles"]:
+        a, b, c = vertices[triangle]
+        normal = np.cross(b - a, c - a)
+        if abs(normal[2]) < 1e-8 and np.linalg.norm(normal) > 1e-8:
+            vertical.append((normal, (a + b + c) / 3))
+        elif abs(normal[2]) >= 1e-8:
+            assert normal[2] > 0
+            tops.append((np.array([a, b, c]), shapely.Polygon([a[:2], b[:2], c[:2]])))
+
+    def height_at(point):
+        for coords, region in tops:
+            if region.covers(shapely.Point(point)):
+                plane = np.linalg.solve(np.column_stack([coords[:, :2], np.ones(3)]), coords[:, 2])
+                return float(np.dot([*point, 1], plane))
+        raise AssertionError(f"roof does not cover {point}")
+
+    assert vertical
+    for normal, middle in vertical:
+        out = normal[:2] / np.linalg.norm(normal[:2])
+        assert height_at(middle[:2] + out * 1e-4) < height_at(middle[:2] - out * 1e-4)
+
+
+@pytest.mark.parametrize("reverse_parts", [False, True])
+def test_exact_crossing_orients_each_nondegenerate_step_face(reverse_parts):
+    parts = [(box(-2, 0, 0, 2), np.array([0, 1, 0])), (box(0, 0, 2, 2), np.array([0, 0, 1]))]
+    vertices, triangles = roof_survey._mesh(parts[::-1] if reverse_parts else parts, np.zeros(2), 0)
+    vertices = np.asarray(vertices)
+    sides = set()
+    for triangle in triangles:
+        coords = vertices[triangle]
+        normal = np.cross(coords[1] - coords[0], coords[2] - coords[0])
+        assert np.linalg.norm(normal) > 1e-10
+        if abs(normal[2]) < 1e-8:
+            y = coords[:, 1].mean()
+            assert normal[0] * (y - 1) > 0
+            sides.add(np.sign(y - 1))
+    assert sides == {-1, 1}
