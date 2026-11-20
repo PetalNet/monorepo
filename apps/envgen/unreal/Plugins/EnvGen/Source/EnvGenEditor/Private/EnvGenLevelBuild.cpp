@@ -26,6 +26,7 @@
 #include "IImageWrapper.h"
 #include "IImageWrapperModule.h"
 #include "Landscape.h"
+#include "LandscapeComponent.h"
 #include "LandscapeGrassType.h"
 #include "LandscapeEdit.h"
 #include "LandscapeInfo.h"
@@ -2470,6 +2471,13 @@ bool FEnvGenLevelBuild::Start(const FString& ManifestPath, const FString& MapPat
 
 	const int32 GroundStencil = int32(Manifest.StencilClasses->GetNumberField(TEXT("ground")));
 	State->Landscape = ImportLandscape(State->World, TEXT("EnvGenLandscape"), Manifest.Tile, State->HeightBytes, Material, GroundStencil, Manifest.Layers);
+	// Terrain relief is static; its material offset does not require a shadow-cache invalidation each frame.
+	State->Landscape->ShadowCacheInvalidationBehavior = EShadowCacheInvalidationBehavior::Rigid;
+	for (ULandscapeComponent* Component : State->Landscape->LandscapeComponents)
+	{
+		Component->ShadowCacheInvalidationBehavior = EShadowCacheInvalidationBehavior::Rigid;
+		Component->MarkRenderStateDirty();
+	}
 	if (Manifest.Surround)
 	{
 		UTexture2D* SurroundColour = MakeTexture(TEXT("T_SurroundColour"), SurroundColourSize.X, SurroundColourSize.Y, TSF_BGRA8, SurroundColourBytes.GetData(), true,
