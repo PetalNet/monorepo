@@ -1031,20 +1031,28 @@ return ((float3((float2(1.6,0.65)*sway+lean)*tip,0) + float3(0,0,(Here.z-Root.z)
 				SurveySample->Texture = Survey;
 				SurveySample->AutoSetSampleType();
 				SurveySample->Coordinates.Connect(0, PaddedUv(Material, SurveyUv, Survey, -1250));
-				UMaterialExpressionCustom* FineMipBias = Node<UMaterialExpressionCustom>(Material, -1100, -1650);
-				FineMipBias->OutputType = CMOT_Float1;
-				FineMipBias->Inputs.Empty();
-				FCustomInput& Here = FineMipBias->Inputs.AddDefaulted_GetRef();
+				UMaterialExpressionCustom* FineMipLevel = Node<UMaterialExpressionCustom>(Material, -1100, -1650);
+				FineMipLevel->OutputType = CMOT_Float1;
+				FineMipLevel->Inputs.Empty();
+				FCustomInput& Here = FineMipLevel->Inputs.AddDefaulted_GetRef();
 				Here.InputName = TEXT("Here");
 				Here.Input.Connect(0, GroundPosition);
-				FCustomInput& Eye = FineMipBias->Inputs.AddDefaulted_GetRef();
+				FCustomInput& Eye = FineMipLevel->Inputs.AddDefaulted_GetRef();
 				Eye.InputName = TEXT("Eye");
 				Eye.Input.Connect(0, GroundEye);
+				FCustomInput& PhotoUv = FineMipLevel->Inputs.AddDefaulted_GetRef();
+				PhotoUv.InputName = TEXT("UV");
+				PhotoUv.Input.Connect(0, SurveyUv);
 				const double SourcePixelM = Manifest.SurveyNorthM / Survey->Source.GetSizeX();
-				FineMipBias->Code = FString::Printf(TEXT("return %.6f*(1-smoothstep(300,1500,distance(Here,Eye)));"),
+				FineMipLevel->Code = FString::Printf(TEXT(R"(
+float2 texels=UV*float2(%.1f,%.1f), dx=ddx(texels), dy=ddy(texels);
+float projected=0.5*log2(max(max(dot(dx,dx),dot(dy,dy)),1e-8));
+float minimum=%.6f*(1-smoothstep(300,1500,distance(Here,Eye)));
+return max(projected,minimum);
+)"), double(Survey->Source.GetSizeX()), double(Survey->Source.GetSizeY()),
 					FMath::Max(0.0, FMath::Log2(0.1 / SourcePixelM)));
-				SurveySample->MipValueMode = TMVM_MipBias;
-				SurveySample->MipValue.Connect(0, FineMipBias);
+				SurveySample->MipValueMode = TMVM_MipLevel;
+				SurveySample->MipValue.Connect(0, FineMipLevel);
 				UMaterialExpressionMultiply* SurveyScaled = Node<UMaterialExpressionMultiply>(Material, -700, -1250);
 				SurveyScaled->A.Connect(1, SurveySample);
 				SurveyScaled->ConstB = float(Manifest.SurveyLog2Range * 255.0 / Manifest.SurveyZero);
