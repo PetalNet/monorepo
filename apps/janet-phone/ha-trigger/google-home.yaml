@@ -1,0 +1,12 @@
+metadata:
+  name: Janet call me
+  description: Ask Janet to call Parker through the private Home Assistant trigger.
+automations:
+  - starters:
+      - type: assistant.event.OkGoogle
+        eventData: query
+        is: Janet please call me
+    actions:
+      - type: device.command.OnOff
+        devices: Janet call me - Lab
+        on: true

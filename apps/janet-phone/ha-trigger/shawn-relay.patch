@@ -1,0 +1,25 @@
+--- shawn-relay
++++ shawn-relay
+@@ -66,6 +66,22 @@
+             self._send(401, "unauthorized\n")
+             return
+ 
++        if self.path == "/janet-call":
++            try:
++                n = int(self.headers.get("Content-Length", "0"))
++            except ValueError:
++                self._send(400, "invalid length\n")
++                return
++            if not 0 < n <= 65536:
++                self._send(413, "invalid body size\n")
++                return
++            result = subprocess.run(
++                ["/usr/bin/python3", "/home/docker/.local/lib/janet-call-trigger/sender.py", "enqueue"],
++                input=self.rfile.read(n), capture_output=True, timeout=15, check=False,
++            )
++            self._send(202 if result.returncode == 0 else 400)
++            return
++
+         raw = self._read_body()
+         try:
+             payload = json.loads(raw) if raw else {}

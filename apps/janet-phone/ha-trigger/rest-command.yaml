@@ -1,0 +1,8 @@
+janet_call_request:
+  url: http://127.0.0.1:19911/janet-call
+  method: POST
+  headers:
+    Authorization: !secret shawn_relay_token_bearer
+  content_type: application/json
+  payload: '{{ {"request_id": request_id, "message": message} | tojson }}'
+  timeout: 10
