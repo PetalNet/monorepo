@@ -1,4 +1,4 @@
-import 'package:flutter/material.dart';
+import 'package:material_ui/material_ui.dart';
 
 /// 8pt spacing scale (D-015: spacing snaps to an 8dp grid via named tokens, not
 /// arbitrary `EdgeInsets`).

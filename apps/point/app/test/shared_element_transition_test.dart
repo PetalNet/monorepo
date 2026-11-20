@@ -1,8 +1,6 @@
-import 'dart:async';
-
-import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:hooks_riverpod/hooks_riverpod.dart';
+import 'package:material_ui/material_ui.dart';
 import 'package:point_app/app/point_app.dart';
 import 'package:point_app/features/map/presentation/person_map_sheet.dart';
 import 'package:point_app/features/map/presentation/presence_marker.dart';
@@ -78,9 +76,7 @@ class _MapSheetFlightSource extends StatelessWidget {
                     ),
                   ),
                 );
-                unawaited(
-                  Navigator.of(context).push(page.createRoute(context)),
-                );
+                Navigator.of(context).push(page.createRoute(context));
               },
             ),
           ),
@@ -204,11 +200,9 @@ void main() {
       expect(PersonMarkerTransition.isAnimating(_person.userId), isTrue);
       expect(tester.takeException(), isNull);
 
-      unawaited(
-        Navigator.of(
-          tester.element(find.byType(PresenceMarker).last),
-        ).maybePop(),
-      );
+      Navigator.of(
+        tester.element(find.byType(PresenceMarker).last),
+      ).maybePop();
       await tester.pump();
       await tester.pump(const Duration(milliseconds: 80));
 
@@ -279,9 +273,7 @@ void main() {
         ),
       ),
     );
-    unawaited(
-      Navigator.of(sourceContext).push(directPage.createRoute(sourceContext)),
-    );
+    Navigator.of(sourceContext).push(directPage.createRoute(sourceContext));
     await tester.pump();
     await tester.pump(const Duration(milliseconds: 80));
 
@@ -325,7 +317,7 @@ void main() {
       expect(reducedRoute.transitionDuration, Duration.zero);
       expect(reducedRoute.reverseTransitionDuration, Duration.zero);
 
-      unawaited(Navigator.of(routeContext).push(fullRoute));
+      Navigator.of(routeContext).push(fullRoute);
       await tester.pump();
       await tester.pump(const Duration(milliseconds: 80));
 

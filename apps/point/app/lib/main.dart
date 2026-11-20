@@ -1,5 +1,5 @@
-import 'package:flutter/material.dart';
 import 'package:hooks_riverpod/hooks_riverpod.dart';
+import 'package:material_ui/material_ui.dart';
 import 'package:point_app/app/point_app.dart';
 import 'package:point_app/background_engine_main.dart';
 import 'package:point_app/src/rust/frb_generated.dart';

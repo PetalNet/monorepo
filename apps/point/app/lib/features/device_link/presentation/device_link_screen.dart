@@ -1,6 +1,6 @@
-import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:kaisel/kaisel.dart';
+import 'package:material_ui/material_ui.dart';
 import 'package:point_app/theme/app_theme.dart';
 import 'package:point_app/theme/theme_x.dart';
 import 'package:qr_flutter/qr_flutter.dart';

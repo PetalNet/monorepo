@@ -1,4 +1,4 @@
-import 'package:flutter/material.dart';
+import 'package:material_ui/material_ui.dart';
 
 /// Presence is encoded by **form, not color** (D-015). These tokens carry the
 /// greyscale tones the form-based presence dot renders with — never a hue.

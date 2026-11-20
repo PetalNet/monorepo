@@ -1,7 +1,7 @@
 import 'dart:async';
 import 'dart:developer' as developer;
 
-import 'package:flutter/material.dart';
+import 'package:material_ui/material_ui.dart';
 import 'package:point_app/features/location/data/location_service.dart';
 import 'package:point_app/theme/app_theme.dart';
 

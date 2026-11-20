@@ -1,7 +1,7 @@
 import 'dart:convert';
 import 'dart:typed_data';
 
-import 'package:flutter/material.dart';
+import 'package:material_ui/material_ui.dart';
 import 'package:point_app/services/api/point_api.dart';
 import 'package:point_app/src/rust/api/crypto.dart';
 import 'package:point_app/src/rust/api/recovery.dart' as recovery;

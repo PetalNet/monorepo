@@ -1,4 +1,4 @@
-import 'package:flutter/material.dart';
+import 'package:material_ui/material_ui.dart';
 
 /// Typed radius scale (D-015: curvy & slick). Pulled from the theme so leaf
 /// widgets never hardcode `circular(n)`.

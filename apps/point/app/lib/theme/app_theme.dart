@@ -1,4 +1,4 @@
-import 'package:flutter/material.dart';
+import 'package:material_ui/material_ui.dart';
 import 'package:point_app/theme/app_radii.dart';
 import 'package:point_app/theme/app_spacing.dart';
 import 'package:point_app/theme/bridge_accent.dart';

@@ -1,10 +1,10 @@
 import 'dart:async';
 
-import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:hooks_riverpod/hooks_riverpod.dart';
 import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
+import 'package:material_ui/material_ui.dart';
 import 'package:point_app/app/shell_chrome.dart';
 import 'package:point_app/features/ghost/who_sees_me.dart';
 import 'package:point_app/features/people/presentation/people_screen.dart';

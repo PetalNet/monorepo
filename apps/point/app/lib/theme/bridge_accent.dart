@@ -1,4 +1,4 @@
-import 'package:flutter/material.dart';
+import 'package:material_ui/material_ui.dart';
 
 /// The reserved chromatic channel (D-015). v1 spends **zero hue**: the first
 /// appearance of color in the product means "this entity is bridged from

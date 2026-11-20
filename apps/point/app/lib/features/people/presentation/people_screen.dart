@@ -1,9 +1,9 @@
 import 'dart:async';
 
-import 'package:flutter/material.dart';
 import 'package:flutter/semantics.dart';
 import 'package:hooks_riverpod/hooks_riverpod.dart';
 import 'package:kaisel/kaisel.dart';
+import 'package:material_ui/material_ui.dart';
 import 'package:point_app/app/point_app.dart';
 import 'package:point_app/app/routes.dart';
 import 'package:point_app/features/me/avatar_provider.dart';
@@ -461,7 +461,7 @@ class _AnimatedDiffListState<T> extends State<_AnimatedDiffList<T>>
         if (widget.duration == Duration.zero) {
           entry.controller.value = 1;
         } else {
-          unawaited(entry.controller.forward());
+          entry.controller.forward();
         }
         next.add(entry);
         continue;
@@ -473,7 +473,7 @@ class _AnimatedDiffListState<T> extends State<_AnimatedDiffList<T>>
       );
       next.add(_DiffEntry(item: item, controller: controller));
       if (widget.duration != Duration.zero) {
-        unawaited(controller.forward());
+        controller.forward();
       }
     }
 

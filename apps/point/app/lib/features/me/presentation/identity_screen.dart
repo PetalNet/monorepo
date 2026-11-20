@@ -1,10 +1,10 @@
 import 'dart:async';
 
 import 'package:flutter/foundation.dart';
-import 'package:flutter/material.dart';
 import 'package:hooks_riverpod/hooks_riverpod.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:kaisel/kaisel.dart';
+import 'package:material_ui/material_ui.dart';
 import 'package:point_app/features/me/avatar_image.dart';
 import 'package:point_app/features/me/avatar_provider.dart';
 import 'package:point_app/services/auth_controller.dart';

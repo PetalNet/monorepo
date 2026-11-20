@@ -1,6 +1,5 @@
-import 'dart:async';
 
-import 'package:flutter/material.dart';
+import 'package:material_ui/material_ui.dart';
 
 /// Keeps every shell branch mounted (so per-branch state survives tab switches,
 /// like the default `IndexedStack`) **and** animates the switch with a subtle
@@ -43,7 +42,7 @@ class _AnimatedBranchStackState extends State<AnimatedBranchStack>
       if (widget.reduced) {
         _controller.value = 1;
       } else {
-        unawaited(_controller.forward(from: 0));
+        _controller.forward(from: 0);
       }
     }
   }

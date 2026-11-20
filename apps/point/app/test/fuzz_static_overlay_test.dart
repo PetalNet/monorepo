@@ -1,7 +1,7 @@
-import 'package:flutter/material.dart';
 import 'package:flutter_map/flutter_map.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:latlong2/latlong.dart';
+import 'package:material_ui/material_ui.dart';
 import 'package:point_app/features/map/presentation/fuzz_static_overlay.dart';
 import 'package:point_app/features/relay/relay_controller.dart';
 import 'package:point_app/services/api/models.dart';
