@@ -223,8 +223,10 @@ turns the photo's linear colour into albedo, and `lighting` is the sun the level
   takes the tile's split and curves. The library spectra become checks, reported in `build.json`: the paved
   class's 10th and 90th percentile against asphalt and concrete, and the grass median against green lawn. On the
   real tile these read 0.082 against 0.088, 0.200 against 0.288, and 0.071 against 0.072.
-- The sun is where astronomy puts it at the target date and at the imagery's mean solar time of day, which the
-  cover stage fitted. The equation of time is not carried over, so on another date the sun can be up to about
+- The sun is where astronomy puts it at the target date and at the imagery's mean solar time of day. A dated
+  survey with an orthophoto, DSM and DTM fits that time from contemporary shadows; a weak or unavailable survey fit
+  retains the cover stage's imagery fit. `lighting.survey_fit` records the acquisition-day fit and its uncertainty.
+  The equation of time is not carried over, so on another date the sun can be up to about
   7 degrees of hour angle off the imagery's. A date and time at which the sun is below 5 degrees is refused. Its strength is a clear-sky direct beam (Meinel and Meinel,
   Kasten and Young's air mass, 105 lm/W). Exposure is fixed at the EV100 at which a surface renders at its own
   reflectance before tone mapping, plus an offset tuned on UE 5.8.4 (`ENGINE_EXPOSURE_OFFSET_EV`, a prior listed in
@@ -232,6 +234,9 @@ turns the photo's linear colour into albedo, and `lighting` is the sun the level
 - Priors, each listed in the manifest: the 15th when the target is a month, noon solar time when there is no
   fitted time, a clear sky, skylight at 20 % of the sun's, 105 lm/W, and that the median paving is concrete.
 - Checked in the engine: the base colour buffer of sunlit grass reads 0.10 in linear light.
+
+The [outdoor atmosphere profile](./atmosphere.md) documents the volumetric clouds, sky-driven haze, outdoor Lumen
+settings, contact shadows and camera response, including the weather and lens priors.
 
 Limits:
 
@@ -256,10 +261,10 @@ Limits:
 - With one anchor the fit's spread is always 0, and nothing acts when the asphalt and grass checks disagree: a tile
   whose median paving is asphalt gets a scale about 3 times too high. Without a cover stage every cell counts
   as sunlit, shade included.
-- The sun's strength is the beam at the ground, but the engine's atmosphere may attenuate a light a second time.
-  The exposure offset is tuned against the renderer's output and may be hiding that.
-- Exposure compensation is not pinned, and nothing waits for shaders before the level build's compile check, so
-  that check may not see an error.
+- The sun's strength is the beam at the ground. The atmosphere module converts it to the outer-space intensity
+  Unreal expects, avoiding a second attenuation. The inherited exposure offset remains a tuned prior, with the
+  engine exposure bias pinned at +1 EV; this is not a new camera calibration.
+- Nothing waits for shaders before the level build's compile check, so that check may not see an error.
 
 ### Ground materials and grass
 
