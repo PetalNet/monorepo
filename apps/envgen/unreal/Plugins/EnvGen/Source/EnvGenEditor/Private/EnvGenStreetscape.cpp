@@ -43,7 +43,7 @@ namespace
 	{
 		FLinearColor Albedo;
 		float Roughness;
-		float Metalness;
+		float Metallic;
 		int32 Pattern;
 	};
 
@@ -126,7 +126,7 @@ return float4(float3(%.5f,%.5f,%.5f)*modulation,saturate(%.5f+.08*(wear-.5)+.08*
 		Rough->A = true;
 		UMaterialEditingLibrary::ConnectMaterialProperty(Colour, TEXT(""), MP_BaseColor);
 		UMaterialEditingLibrary::ConnectMaterialProperty(Rough, TEXT(""), MP_Roughness);
-		UMaterialEditingLibrary::ConnectMaterialProperty(Constant(Finish.Metalness), TEXT(""), MP_Metallic);
+		UMaterialEditingLibrary::ConnectMaterialProperty(Constant(Finish.Metallic), TEXT(""), MP_Metallic);
 		if (Name == TEXT("chainlink"))
 		{
 			Material->BlendMode = BLEND_Masked;
@@ -414,7 +414,7 @@ bool BuildEnvGenStreetscape(UWorld* World, const FString& ManifestPath,
 		TSharedRef<FJsonObject> Values = MakeShared<FJsonObject>();
 		Values->SetArrayField(TEXT("linear_albedo"), {MakeShared<FJsonValueNumber>(Pair.Value.Albedo.R), MakeShared<FJsonValueNumber>(Pair.Value.Albedo.G), MakeShared<FJsonValueNumber>(Pair.Value.Albedo.B)});
 		Values->SetNumberField(TEXT("roughness"), Pair.Value.Roughness);
-		Values->SetNumberField(TEXT("metallic"), Pair.Value.Metalness);
+		Values->SetNumberField(TEXT("metallic"), Pair.Value.Metallic);
 		MaterialPriors->SetObjectField(Pair.Key, Values);
 	}
 	MaterialPriors->SetNumberField(TEXT("aggregate_cells_per_m"), 140);

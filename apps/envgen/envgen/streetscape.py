@@ -245,9 +245,11 @@ def _planar(polygon, material, z, meshes, tile):
     west, south, east, north = polygon.bounds
     half = tile.size_m / 2
     polygon = polygon.intersection(box(-half, -half, half, half))
-    for ix in range(math.floor(west / BIN_M), math.floor(east / BIN_M) + 1):
-        for iy in range(math.floor(south / BIN_M), math.floor(north / BIN_M) + 1):
-            clipped = polygon.intersection(box(ix * BIN_M, iy * BIN_M, (ix + 1) * BIN_M, (iy + 1) * BIN_M))
+    for east_bin in range(math.floor(west / BIN_M), math.floor(east / BIN_M) + 1):
+        for north_bin in range(math.floor(south / BIN_M), math.floor(north / BIN_M) + 1):
+            clipped = polygon.intersection(
+                box(east_bin * BIN_M, north_bin * BIN_M, (east_bin + 1) * BIN_M, (north_bin + 1) * BIN_M)
+            )
             mesh = _Mesh(material, collision=False)
             # Match the Landscape grid: wider triangles cut through its small rises, leaving holes in roads.
             cell = min(MAX_EDGE_M / math.sqrt(2), tile.quad_m)

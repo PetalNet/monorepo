@@ -78,7 +78,7 @@ def bounds(meshes):
         {"length_m": float("nan")},
         {"heading_deg": float("inf")},
         {"heading_deg": None},
-        {"widht_m": 3},
+        {"unsupported_width_m": 3},
     ],
 )
 def test_invalid_feature_reports_its_id(tmp_path, change):
