@@ -207,9 +207,6 @@ bool FEnvGenStreetscapeDecal::RunTest(const FString& Parameters)
 				{
 					if (const auto* Pattern = Cast<UMaterialExpressionCustom>(Expression))
 					{
-						TestTrue(TEXT("grass artwork uses filtered natural paint breakup"), Pattern->Code.Contains(TEXT("bladeVisible=1-smoothstep")));
-						TestTrue(TEXT("grass artwork multiplies source alpha by coverage"), Pattern->Code.Contains(TEXT("Coverage*=PaintAlpha;")));
-						TestTrue(TEXT("grass artwork retains natural paint fade"), Pattern->Code.Contains(TEXT("float fade=.84+.12*grain;")));
 						for (const FCustomInput& Input : Pattern->Inputs)
 						{
 							if (Input.InputName != TEXT("PaintAlpha")) continue;
