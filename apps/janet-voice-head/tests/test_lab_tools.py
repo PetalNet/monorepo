@@ -232,7 +232,7 @@ class LabToolsTest(unittest.TestCase):
             node = Path(tmp) / "node"
             node.write_text(f"#!{sys.executable}\nimport os, sys\n"
                             "assert sys.argv[1:4] == ['--no-warnings', '--input-type=module', '--eval']\n"
-                            "assert 'readClaude(config, deps)' in sys.argv[4] and 'readCodex(config, deps)' in sys.argv[4]\n"
+                            "assert 'parseClaudeUsageJson' in sys.argv[4] and 'readCodex(config, deps)' in sys.argv[4]\n"
                             "assert 'readAllServices' not in sys.argv[4]\n"
                             "assert len(sys.argv) == 6 and sys.argv[5].endswith('/packages/harness-hooks/src/quota-sources.ts')\n"
                             "assert not any(k in os.environ for k in ('QUOTA_CODEX_CMD', 'QUOTA_CLAUDE_USAGE_CMD', 'NODE_OPTIONS', 'OBJECTIVES_LEDGER'))\n"

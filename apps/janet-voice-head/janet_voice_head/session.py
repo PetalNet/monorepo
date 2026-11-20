@@ -6,6 +6,7 @@ import subprocess
 import threading
 import time
 from collections.abc import Iterator
+from dataclasses import dataclass
 from pathlib import Path
 
 from . import web_guard, lab_tools, call_tools
@@ -34,6 +35,12 @@ ENV_ALLOW = (
 
 class SessionError(Exception):
     pass
+
+
+@dataclass(frozen=True)
+class UnspokenText:
+    """Text after call control still carries relays, but does not supply speech."""
+    text: str
 
 
 def transcript_path(cwd: str, session_id: str) -> Path:
@@ -89,7 +96,7 @@ class ClaudeSession:
         if self.failure:
             raise SessionError(self.failure)
 
-    def turn(self, text: str, timeout: float) -> Iterator[str]:
+    def turn(self, text: str, timeout: float) -> Iterator[str | UnspokenText]:
         if self.failure:
             raise SessionError(self.failure)
         self._answering, self._active = False, True
@@ -105,6 +112,8 @@ class ClaudeSession:
                     raise SessionError(self.failure) from None
                 if kind == "delta":
                     yield value
+                elif kind == "unspoken":
+                    yield UnspokenText(value)
                 elif kind == "end":
                     return
                 else:
@@ -170,13 +179,14 @@ class ClaudeSession:
             inner = event.get("event") or {}
             delta = inner.get("delta") or {}
             if inner.get("type") == "content_block_start" and (inner.get("content_block") or {}).get("type") == "tool_use" and self._active:
+                unspoken = self._call_tool_started and self.call_control.closing_queued
                 if (inner.get("content_block") or {}).get("name") in call_tools.NAMES:
                     self._call_tool_started = True
                 # A lookup begins: end the sentence before it ("one sec, checking.") so it is spoken while the tool runs.
-                self._events.put(("delta", "\n"))
-            if (inner.get("type") == "content_block_delta" and delta.get("type") == "text_delta" and self._active
-                    and not (self._call_tool_started and self.call_control.closing_queued)):
-                self._events.put(("delta", delta.get("text", "")))
+                self._events.put(("unspoken" if unspoken else "delta", "\n"))
+            if inner.get("type") == "content_block_delta" and delta.get("type") == "text_delta" and self._active:
+                unspoken = self._call_tool_started and self.call_control.closing_queued
+                self._events.put(("unspoken" if unspoken else "delta", delta.get("text", "")))
         elif kind == "result":
             # A resumed session reports one result for the resume itself, before any turn.
             aborted = str(event.get("terminal_reason", "")).startswith("aborted")

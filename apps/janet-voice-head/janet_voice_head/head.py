@@ -12,7 +12,7 @@ from .conversation import Conversation, Exchange, Journal, TranscriptMark
 from .merge import Hub, HubError, HubRefused
 from . import cache_splice, snapshot, web_guard
 from .render import fallback_summary, hard_text, soft_text, stub_text
-from .session import ClaudeSession, locked_flags, SessionError, session_env, transcript_path
+from .session import ClaudeSession, locked_flags, SessionError, UnspokenText, session_env, transcript_path
 from .speech import SpeechStream
 
 log = logging.getLogger("janet-voice-head")
@@ -247,13 +247,17 @@ class Head:
                     latency["spawn_wait"] = _ms(started)
                     fork = live.conv.tier == "personal"
                     stream = SpeechStream(redact=None if fork else session.account_email)
+                    speaking = True
                     for delta in session.turn(prompts.turn_prompt(text, fork=fork, cut_off=previous_cut, web=self._web_tools(live.conv, True) if fork else (), lab=live.conv.lab_access), self.config.turn_timeout_s):
                         if latency["first_token"] is None:
                             latency["first_token"] = _ms(started)
-                        for sentence in stream.feed(delta):
-                            speak(sentence)
+                        speaking = not isinstance(delta, UnspokenText)
+                        for sentence in stream.feed(delta.text if isinstance(delta, UnspokenText) else delta):
+                            if speaking:
+                                speak(sentence)
                     for sentence in stream.finish():
-                        speak(sentence)
+                        if speaking:
+                            speak(sentence)
                     live.answered = True
                 except SessionError as error:
                     log.warning("conversation %s: %s", conv_id, error)
@@ -493,7 +497,7 @@ class Head:
         stream = SpeechStream()
         try:
             for delta in live.session.turn(prompts.SUMMARY, self.config.turn_timeout_s):
-                stream.feed(delta)
+                stream.feed(delta.text if isinstance(delta, UnspokenText) else delta)
         except SessionError as error:
             log.warning("conversation %s: no summary: %s", live.conv.id, error)
             return

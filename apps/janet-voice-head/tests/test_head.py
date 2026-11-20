@@ -813,3 +813,14 @@ class ClosingSpeechTest(HeadCase):
         sentences, done = self.turn(conv, "one more topic")
         self.assertEqual(sentences, ["You said one more topic.", "That is all I know."])
         self.assertFalse(done["end_conversation"])
+
+
+    def test_closing_question_preserves_relay_after_the_tool(self):
+        self.stop_head()
+        self.claude_extra += ["--fake-call-relay"]
+        self.start_head()
+        sentences, done = self.tool(self.open(), "ask_to_end_call")
+        self.assertEqual(sentences, ["All set.", QUESTION])
+        self.assertFalse(done["end_conversation"])
+        self.wait_for(lambda: self.hub.texts("voice-soft"), "closing turn lost its relay")
+        self.assertIn("schedule the reminder", self.hub.texts("voice-soft")[0])

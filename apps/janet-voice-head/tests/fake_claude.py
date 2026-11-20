@@ -57,6 +57,8 @@ def reply_to(prompt: str) -> str:
             request = {"jsonrpc": "2.0", "id": 1, "method": "tools/call", "params": {"name": name, "arguments": {}}}
             proc = subprocess.run([server["command"], *server["args"]], input=json.dumps(request) + "\n", capture_output=True, text=True, timeout=5, check=True)
             log({"call_tool": name, "result": json.loads(proc.stdout)["result"]})
+        if "--fake-call-relay" in argv:
+            return "All set.\n<relay>\nask: schedule the reminder\ncommitment: the reminder will be relayed\n</relay>"
         return "All set." if "--fake-call-speech" in argv else ""
     if "what builders are running?" in said:
         servers = json.loads(argv[argv.index("--mcp-config") + 1])["mcpServers"] if "--mcp-config" in argv else {}
