@@ -374,8 +374,8 @@ static bool ProcessStreetscape(UWorld* World, const FString& ManifestPath,
 		}
 		UStaticMesh* Mesh = Asset<UStaticMesh>(FString::Printf(TEXT("SM_Streetscape_%04d"), Index), Packages);
 		Mesh->GetStaticMaterials().Add(FStaticMaterial(Materials[Name], FName(*Name)));
-		// Thin paint retains its exact outline; paving and solid props use Nanite.
-		Mesh->GetNaniteSettings().bEnabled = Name != TEXT("chainlink") && Name != TEXT("net") && (bCollision || !Name.StartsWith(TEXT("paint_")));
+		// Terrain-contact surfaces retain their exact planes; solid props use Nanite.
+		Mesh->GetNaniteSettings().bEnabled = Name != TEXT("chainlink") && Name != TEXT("net") && (bCollision || bAnchored);
 		Mesh->GetNaniteSettings().FallbackPercentTriangles = 1;
 		Mesh->GetNaniteSettings().FallbackRelativeError = 0;
 		UStaticMesh::FBuildMeshDescriptionsParams Params;

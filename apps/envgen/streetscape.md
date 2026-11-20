@@ -64,7 +64,7 @@ follows east at heading zero; its depth follows north. Pole height must be suppl
 from a shadow needs the shadow endpoints and solar elevation in its evidence, with the uncertainty stated.
 Unresolved small image objects do not establish benches, parked cars or permanent equipment.
 
-Paving and paint are clipped to the Landscape grid and its 00–11 triangle diagonal, including integer subdivisions of larger quads. The importer samples those same triangle planes. Landscape components beneath these surfaces retain LOD0, with a two-quad border, so terrain distance morphing cannot push through paving. Paving and solid props use Nanite; thin paint keeps its full triangle mesh. Geometry and the grass mask are checked before replacing the previous saved level.
+Paving and paint are clipped to the Landscape grid and its 00–11 triangle diagonal, including integer subdivisions of larger quads. The importer samples those same triangle planes. Landscape components beneath these surfaces retain LOD0, with a two-quad border, so terrain distance morphing cannot push through paving. All terrain-contact surfaces keep their full triangle meshes: independent Nanite simplification can otherwise move paving through the terrain or obscure paint. Solid props use Nanite. Geometry and the grass mask are checked before replacing the previous saved level.
 
 The stage writes `streetscape.json` and `streetscape_grass.png`, both hashed in `build.json`. The JSON
 contains material batches, vertices, triangle indices, collision flags and optional terrain anchors.
@@ -74,7 +74,7 @@ that anchor, or 0.6 m for bleachers, to cover small ground variations without di
 The grass mask suppresses tufts on paving and clay without changing measured Landscape heights or weights. Turf surfaces keep the measured grass population and cover blurred photographic field markings beneath the vector inventory.
 
 Paving and paint share batches within 126 m cells. Batches split at 20,000 triangles. Solid props use
-Nanite, collision and shadows. Paving also uses Nanite; thin paint ribbons use ordinary opaque meshes over the Landscape's collision. Fences use ordinary masked, two-sided chainlink panels with solid posts and rails. Daytime luminaires
+Nanite, collision and shadows. Paving and paint use ordinary opaque meshes over the Landscape's collision. Fences use ordinary masked, two-sided chainlink panels with solid posts and rails. Daytime luminaires
 do not add dynamic lights. The build receipt records feature counts, mesh counts and triangle counts;
 the existing material, surface, tree and building gates still apply.
 
