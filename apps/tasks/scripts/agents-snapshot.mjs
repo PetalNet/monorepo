@@ -1,4 +1,5 @@
 #!/usr/bin/env -S node --experimental-strip-types
+import { createHash } from "node:crypto";
 import { readFile } from "node:fs/promises";
 import { homedir } from "node:os";
 import path from "node:path";
@@ -251,7 +252,7 @@ export async function snapshot({
 			run.status === "failed" &&
 			(/timed?[_ -]?out|timeout/i.test(last?.failureClass ?? "") || last?.exitCode === 124);
 
-		return clampRun(
+		const value = clampRun(
 			safeValues({
 				id: runId,
 				name: path.basename(run.name),
@@ -271,6 +272,13 @@ export async function snapshot({
 				links,
 			}),
 		);
+
+		// Redaction can collapse distinct legacy IDs; use a stable opaque identity instead.
+		if (value.id !== runId) {
+			value.id = `run-${createHash("sha256").update(runId).digest("hex")}`;
+		}
+
+		return value;
 	});
 
 	return fitSnapshot(new Date(now).toISOString(), runs);
