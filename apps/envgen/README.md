@@ -323,6 +323,9 @@ Stored sampling does not establish the image's independently resolved detail.
   growth and detail replacement. Native evidence masks retain the source coverage unchanged.
   Native alpha gaps are reduced conservatively onto the colour grid before computing physical distances;
   this can move the blend boundary by at most one colour cell, without losing gaps narrower than that cell.
+  Within 3 m of the camera, survey detail is filtered toward 10 cm sampling so photographic blade texture
+  does not compete with the close material scan. A mip-level floor enforces this under magnification and fades
+  out by 15 m, where the projected texel footprint sets the mip. Larger photo patterns remain.
   Native processing runs in overlapping windows, with bounded pooled grids and streamed PNG output.
   A rejected RGB split remains recorded in the manifest. It does not establish that the ground is all grass.
 - **Optional observations** (`sources.survey.observations`). A schema-1 JSON file must identify the orthophoto's
@@ -389,6 +392,7 @@ Grass masks suppress growth on other materials. The broadleaf shape is clover-li
 are priors. One blade in thirteen receives a restrained straw tint within the seasonal palette.
 
 Blade materials use two-sided foliage transmission, root ambient occlusion, roughness 0.6 and specular 0.25.
+Rounded blade normals vary with blade orientation, with an upward bias to keep both visible sides lit.
 World-position gusts bend tips while retaining roots. Ground and blade roots share 0.65 cm procedural relief;
 its derivatives also perturb ground normals. Wind amplitudes and relief are visual priors, not terrain measurements.
 Grass displacement fades to zero between 22 and 25 m; the engine disables its evaluation beyond 25 m.
@@ -401,9 +405,10 @@ away (`appear_cm` in the manifest). Each variety has its own blade material for 
 Each blade has its own colour: one of the 8 the grain stage measured, each as likely as the next, held in the tuft
 mesh's third and fourth UV channels (the mesh build writes its own unwrap into the second).
 That multiplies the ground's own macro colour at the blade's place, times the albedo scale, so tufts follow the straw and green the
-data shows. A blade is lit as the ground under it: its material's normal is world up, because a two-sided blade's normal
-turns over on the side the camera sees and half of them took no sun (checked by turning shadows off, then the engine's virtual shadow maps off,
-then the shading model: no change; world-up normal: blade pixels from 38 to 58 in sRGB against 85 for the ground). The host
+data shows. Earlier host tests used a constant world-up normal after half the two-sided blades took no sun:
+turning shadows off, then virtual shadow maps off, then changing the shading model made no difference;
+the world-up normal moved blade pixels from 38 to 58 in sRGB against 85 for the ground. Rounded,
+upward-biased normals now retain orientation-dependent lighting instead of that constant. The host
 project makes grass maps while the game runs (`grass.GrassMap.UseRuntimeGeneration=1`): the level is
 regenerated, never cooked. No source gives a sward's density.
 

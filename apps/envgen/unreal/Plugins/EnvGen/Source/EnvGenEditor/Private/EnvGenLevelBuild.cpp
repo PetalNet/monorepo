@@ -59,6 +59,7 @@
 #include "Materials/MaterialExpressionSmoothStep.h"
 #include "Materials/MaterialExpressionVertexColor.h"
 #include "Materials/MaterialExpressionWorldPosition.h"
+#include "Materials/MaterialExpressionVertexNormalWS.h"
 #include "Materials/MaterialExpressionTextureCoordinate.h"
 #include "Materials/MaterialExpressionTextureObject.h"
 #include "Materials/MaterialExpressionTime.h"
@@ -789,7 +790,8 @@ return Texture2DSampleGrad(Scan,ScanSampler,UV+ha,dx,dy).rgb*w.x
 				const FVertexID Vertex = Description.CreateVertex();
 				Positions[Vertex] = FVector3f(Plan.X, Plan.Y, Height * T);
 				const FVertexInstanceID Instance = Description.CreateVertexInstance(Vertex);
-				Normals[Instance] = FVector3f(0, 0, 1);
+				Normals[Instance] = FVector3f(Along.X * 0.6f + Across.X * Side * 0.4f,
+					Along.Y * 0.6f + Across.Y * Side * 0.4f, 1.f).GetSafeNormal();
 				Uvs.Set(Instance, 0, FVector2f(Side * 0.5f + 0.5f, T));
 				Uvs.Set(Instance, 1, FVector2f(0.f, 0.f));
 				Uvs.Set(Instance, 2, FVector2f(Own.R, Own.G));
@@ -903,12 +905,16 @@ return Texture2DSampleGrad(Scan,ScanSampler,UV+ha,dx,dy).rgb*w.x
 		UMaterialExpressionConstant* Specular = Node<UMaterialExpressionConstant>(Material, 100, 350);
 		Specular->R = 0.25f;
 		UMaterialEditingLibrary::ConnectMaterialProperty(Specular, TEXT(""), MP_Specular);
-		// Lit as the ground under it: a two-sided blade's normal turns over on the side the camera sees, and a blade seen
-		// from the back would take no sun. A world-space up normal does not turn over.
 		Material->bTangentSpaceNormal = false;
-		UMaterialExpressionConstant3Vector* Up = Node<UMaterialExpressionConstant3Vector>(Material, -200, 200);
-		Up->Constant = FLinearColor(0, 0, 1);
-		UMaterialEditingLibrary::ConnectMaterialProperty(Up, TEXT(""), MP_Normal);
+		UMaterialExpressionVertexNormalWS* BladeNormal = Node<UMaterialExpressionVertexNormalWS>(Material, -500, 200);
+		UMaterialExpressionCustom* RoundedNormal = Node<UMaterialExpressionCustom>(Material, -200, 200);
+		RoundedNormal->OutputType = CMOT_Float3;
+		RoundedNormal->Inputs.Empty();
+		FCustomInput& VertexNormal = RoundedNormal->Inputs.AddDefaulted_GetRef();
+		VertexNormal.InputName = TEXT("N");
+		VertexNormal.Input.Connect(0, BladeNormal);
+		RoundedNormal->Code = TEXT("float3 n=normalize(N); n.z=abs(n.z); return normalize(lerp(float3(0,0,1),n,0.45));");
+		UMaterialEditingLibrary::ConnectMaterialProperty(RoundedNormal, TEXT(""), MP_Normal);
 		UMaterialExpressionConstant* Roughness = Node<UMaterialExpressionConstant>(Material, -200, 300);
 		Roughness->R = 0.6f;
 		UMaterialEditingLibrary::ConnectMaterialProperty(Roughness, TEXT(""), MP_Roughness);
@@ -980,6 +986,9 @@ return ((float3((float2(1.6,0.65)*sway+lean)*tip,0) + float3(0,0,(Here.z-Root.z)
 		const TArray<FLayer>& Layers, const TArray<ULandscapeGrassType*>& GrassTypes, TArray<UPackage*>& Packages)
 	{
 		UMaterial* Material = NewAsset<UMaterial>(TEXT("M_Ground"), Packages);
+		UMaterialExpressionWorldPosition* GroundPosition = Node<UMaterialExpressionWorldPosition>(Material, -1500, 300);
+		GroundPosition->WorldPositionShaderOffset = WPT_ExcludeAllShaderOffsets;
+		UMaterialExpressionCameraPositionWS* GroundEye = Node<UMaterialExpressionCameraPositionWS>(Material, -1500, 400);
 		UMaterialExpressionMultiply* MacroAlbedo = Node<UMaterialExpressionMultiply>(Material, -700, 0);
 		MacroAlbedo->A.Connect(0, Sample(Material, Macro, Quads, SAMPLERTYPE_Color, 0));
 		MacroAlbedo->ConstB = AlbedoScale;
@@ -1035,6 +1044,28 @@ return ((float3((float2(1.6,0.65)*sway+lean)*tip,0) + float3(0,0,(Here.z-Root.z)
 				SurveySample->Texture = Survey;
 				SurveySample->AutoSetSampleType();
 				SurveySample->Coordinates.Connect(0, PaddedUv(Material, SurveyUv, Survey, -1250));
+				UMaterialExpressionCustom* FineMipLevel = Node<UMaterialExpressionCustom>(Material, -1100, -1650);
+				FineMipLevel->OutputType = CMOT_Float1;
+				FineMipLevel->Inputs.Empty();
+				FCustomInput& Here = FineMipLevel->Inputs.AddDefaulted_GetRef();
+				Here.InputName = TEXT("Here");
+				Here.Input.Connect(0, GroundPosition);
+				FCustomInput& Eye = FineMipLevel->Inputs.AddDefaulted_GetRef();
+				Eye.InputName = TEXT("Eye");
+				Eye.Input.Connect(0, GroundEye);
+				FCustomInput& PhotoUv = FineMipLevel->Inputs.AddDefaulted_GetRef();
+				PhotoUv.InputName = TEXT("UV");
+				PhotoUv.Input.Connect(0, SurveyUv);
+				const double SourcePixelM = Manifest.SurveyNorthM / Survey->Source.GetSizeX();
+				FineMipLevel->Code = FString::Printf(TEXT(R"(
+float2 texels=UV*float2(%.1f,%.1f), dx=ddx(texels), dy=ddy(texels);
+float projected=0.5*log2(max(max(dot(dx,dx),dot(dy,dy)),1e-8));
+float minimum=%.6f*(1-smoothstep(300,1500,distance(Here,Eye)));
+return max(projected,minimum);
+)"), double(Survey->Source.GetSizeX()), double(Survey->Source.GetSizeY()),
+					FMath::Max(0.0, FMath::Log2(0.1 / SourcePixelM)));
+				SurveySample->MipValueMode = TMVM_MipLevel;
+				SurveySample->MipValue.Connect(0, FineMipLevel);
 				UMaterialExpressionMultiply* SurveyScaled = Node<UMaterialExpressionMultiply>(Material, -700, -1250);
 				SurveyScaled->A.Connect(1, SurveySample);
 				SurveyScaled->ConstB = float(Manifest.SurveyLog2Range * 255.0 / Manifest.SurveyZero);
@@ -1259,9 +1290,6 @@ return ((float3((float2(1.6,0.65)*sway+lean)*tip,0) + float3(0,0,(Here.z-Root.z)
 				NativeInfluence = Faded;
 			}
 		}
-		UMaterialExpressionWorldPosition* GroundPosition = Node<UMaterialExpressionWorldPosition>(Material, -1500, 300);
-		GroundPosition->WorldPositionShaderOffset = WPT_ExcludeAllShaderOffsets;
-		UMaterialExpressionCameraPositionWS* GroundEye = Node<UMaterialExpressionCameraPositionWS>(Material, -1500, 400);
 		UMaterialExpressionCustom* DetailShare = Node<UMaterialExpressionCustom>(Material, -1200, 350);
 		DetailShare->OutputType = CMOT_Float1;
 		DetailShare->Inputs.Empty();
