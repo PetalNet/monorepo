@@ -320,8 +320,46 @@ def test_survey_detail_streams_its_ratio_and_preserves_true_affine_extents(tmp_p
     assert report["north_extent_m"] == pytest.approx(40.0016)
     assert report["south_m"] == pytest.approx(126-40.0016)
     png = np.asarray(Image.open(tmp_path / report["file"]))
-    assert png.shape == (65, 40)
-    assert (png[-4:, :4] == 0).all()
-    assert np.median(png[png > 0]) == report["zero"]
+    assert png.shape == (65, 40, 4)
+    assert (png[-4:, :4, 3] == 0).all()
+    assert (png[-4:, :4, :3] == report["zero"]).all()
+    assert np.median(png[..., 0]) == report["zero"]
     with rasterio.open(tmp_path / "survey_detail.tif") as raster:
-        assert np.array_equal(png, frame.to_unreal_layout(raster.read(1)))
+        assert np.array_equal(png[..., 0], frame.to_unreal_layout(raster.read(1)))
+
+
+def test_rejected_survey_detail_retains_a_filterable_weight_for_material_fallback(tmp_path, monkeypatch):
+    import importlib
+
+    pipeline = importlib.import_module("envgen.build")
+    monkeypatch.setattr(pipeline, "DETAIL_PIXELS", 64)
+    visible = np.ones((64, 64), dtype=np.float32)
+    visible[:8, :8] = 0
+    monkeypatch.setattr(pipeline, "open_ground", lambda *_: visible)
+    values = np.full((4, 64, 64), 255, dtype=np.uint8)
+    values[:3] = np.where(np.indices((64, 64)).sum(axis=0) % 2, 100, 180)
+    h.write_raster(tmp_path / "ortho.tif", values, tile().west, tile().north, 0.5)
+    spec_path = h.write_site(tmp_path)
+    spec = json.loads(spec_path.read_text())
+    spec["sources"]["survey"] = {"kind": "file", "path": "dsm.tif", "terrain": "dtm.tif",
+                                   "orthophoto": "ortho.tif", "license": "test", "date": "2030"}
+    spec_path.write_text(json.dumps(spec))
+    Image.fromarray(np.full((127, 127), 255, dtype=np.uint8)).save(tmp_path / "grass.png")
+    report = pipeline.build_survey_detail(load_site(spec_path), tmp_path, None,
+                                          [{"name": "grass", "file": "grass.png"}])
+    assert report.get("weight_channel") == "alpha"
+    with rasterio.open(tmp_path / "survey_detail.tif") as raster:
+        ratio, weight = raster.read(1), raster.read(4)
+    assert ratio[4, 4] == report["zero"] and weight[4, 4] == 0
+    assert weight[-8, -8] == 255 and np.ptp(ratio[-12:, -12:]) > 0
+    # A missing native pixel must not darken a neutral valid neighbour when filtering combines them.
+    values[3, -4:, -4:] = 0
+    h.write_raster(tmp_path / "ortho.tif", values, tile().west, tile().north, 0.5)
+    pipeline.build_survey_detail(load_site(spec_path), tmp_path, None,
+                                 [{"name": "grass", "file": "grass.png"}])
+    with rasterio.open(tmp_path / "survey_detail.tif") as raster:
+        missing = raster.read()[:, -1, -1]
+    assert missing.tolist() == [report["zero"], report["zero"], report["zero"], 0]
+    for share in (0.1, 0.5, 0.9):
+        filtered = share * np.array([report["zero"]] * 3 + [255]) + (1 - share) * missing
+        assert filtered[0] == report["zero"] and filtered[3] == pytest.approx(255 * share)

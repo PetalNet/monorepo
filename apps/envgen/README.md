@@ -35,7 +35,7 @@ envgen build site.json --out build/ --cache cache/
 | Macro colour  | the imagery, the sunlit ground and the classes  | `macro_colour.png`, low-passed at 12 m within each class; albedo when the site has a reflectance raster |
 | Detail        | the imagery, the sunlit ground and the classes  | `detail_ratio.png`: the photo over its own 12 m low-pass, per class, at about 0.5 m, as a power of two  |
 | Grain         | a survey orthophoto, the grass class            | `grain.png`: a tileable texture with the orthophoto's grass grain                                       |
-| Survey detail | a survey orthophoto, the sunlit ground, classes | `survey_detail.png`: the detail ratio at the orthophoto's pixel size, one channel                       |
+| Survey detail | a survey orthophoto, the sunlit ground, classes | `survey_detail.png`: weighted luminance detail in RGB, detail weight in alpha                           |
 | Surround      | both rasters at coarse spacing, if asked for    | `context_heightmap.png`, `context_colour.png`                                                           |
 | Trees         | the cover rasters, the classes, a survey, a mix | `trees.json`: one row per tree                                                                          |
 | Buildings     | footprints, lidar, the photo, the classes       | `buildings.json`: one record per building                                                               |
@@ -358,15 +358,22 @@ Stored sampling does not establish the image's independently resolved detail.
   white balance and exposure cancel. Real tile: slopes 1.06, 0.99 and 1.03 for red, green and blue, each explaining
   96 % or more of its band: bright pixels are a little redder, and the grain is close to grey. The same distribution
   cut in 8 equal shares is the colour of single blades (`grain.blade_colours`, 0.47 to 1.6 of the ground's colour).
-- **Survey detail** (`build_survey_detail`). The detail ratio of the previous section, again from the orthophoto at its
-  own pixel size, luminance only (one channel: colour at that size is hundreds of megabytes). The low-pass runs on the
-  orthophoto pooled to 0.5 m. Inside the footprint it replaces the imagery's ratio, which is the same ground a year or two
-  earlier, and the grain is not laid over it. It is a virtual texture (`r.VirtualTextures=True` in the host project), 14439 by
-  13495 pixels on the real tile, mapped by its place in the tile (`survey_detail.west_m` and the extents in the manifest).
-  Where the orthophoto has no pixel (its footprint is not a box) the file holds 0 and the material keeps the imagery's ratio and the grain there.
-  With native masks, standing cover and survey shadows are excluded. A rejected shadow fit uses a conservative
-  -1.5-stop darkness prior on seasonal ground; this is not complete shadow removal. On the real tile the footprint is
-  west of the fly and walk stations, so it shows in the walk tour's later frames (about frame 2600) and the overview.
+- **Survey detail** (`build_survey_detail`). The luminance ratio from the orthophoto at its own pixel size;
+  its low-pass runs on the orthophoto pooled to 0.5 m. RGB repeats the same encoded log2 ratio, multiplied by the
+  detail weight stored in alpha (`survey_detail.weight_channel = "alpha"`). Missing and rejected samples have
+  neutral RGB (127) and zero alpha. The material divides the sampled log ratio by its sampled weight, bounds it
+  to the recorded range, then blends with the older imagery ratio and grass grain by that weight. Both channels
+  share one texture sample, so filtering across a missing sample does not introduce a dark edge. Rejected survey
+  detail therefore permits fallback texture rather than leaving a neutral patch with no grain.
+  This is an uncompressed linear RGBA virtual texture (`r.VirtualTextures=True` in the host project), 14439 by
+  13495 source pixels on the real tile, mapped by `survey_detail.west_m` and the recorded extents. It stores more
+  bytes per texel than the previous G8 format; visible pages stream through Unreal's virtual-texture pools, and
+  runtime allocation and frame cost require measurement. Older manifests without the alpha marker retain their
+  single-channel decoder and zero sentinel.
+  Existing cover masks and the survey's shadow test reject uncertain detail. A rejected shadow fit uses a
+  -1.5-stop darkness prior on seasonal ground; this is not complete shadow removal. Replaced grain is procedural,
+  not recovered detail from hidden ground. On the real tile the footprint is west of the fly and walk stations,
+  so it shows in the walk tour's later frames (about frame 2600) and the overview.
 
 ### Grass
 
