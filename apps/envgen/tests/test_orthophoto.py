@@ -9,7 +9,7 @@ import rasterio
 from PIL import Image
 from rasterio.enums import ColorInterp
 
-from envgen import frame, orthophoto
+from envgen import frame, orthophoto, surface
 from envgen.acquire import sha256_file
 from envgen.build import build_orthophoto, clean_ortho_colour
 from envgen.site import load_site, tile_for_boundary
@@ -193,6 +193,33 @@ def test_colour_removes_crown_and_survey_shadow_without_old_sun(tmp_path):
     assert "grass" in report["shadows"]
     assert colour[:, 170, 200] == pytest.approx([80, 130, 50], abs=3)
     assert colour[:, 220, 175] == pytest.approx([80, 130, 50], abs=3)
+
+
+def test_survey_preserves_fine_hue_without_duplicating_luminance_detail():
+    rows, columns = np.indices((128, 128))
+    alternate = (rows // 4 + columns // 4) % 2 == 0
+    red_luma = surface.luminous(np.array([1.0, 0.0, 0.0]))
+    green_luma = surface.luminous(np.array([0.0, 1.0, 0.0]))
+    shift = np.array([0.05, -0.05 * red_luma / green_luma, 0])[:, None, None]
+    linear = np.array([0.14, 0.15, 0.10])[:, None, None] + shift * np.where(alternate, 1, -1)
+    colour, _ = clean_ortho_colour(surface.to_encoded(linear), np.ones(alternate.shape, dtype=bool),
+                                  np.zeros(alternate.shape, dtype=np.uint8), 0.25)
+    result = surface.to_linear(colour)
+
+    assert result[0, alternate].mean() - result[0, ~alternate].mean() > 0.05
+    assert surface.luminous(result) == pytest.approx(surface.luminous(linear), abs=1e-4)
+
+
+def test_survey_gamut_mapping_keeps_saturated_colour_at_macro_luminance():
+    rgb = np.full((3, 128, 128), 160, dtype=np.float32)
+    rgb[:, 56:72, 56:72] = np.array([255, 0, 0])[:, None, None]
+    colour, _ = clean_ortho_colour(rgb, np.ones((128, 128), dtype=bool), np.ones((128, 128)), 0.25)
+    pixel = surface.to_linear(colour[:, 64, 64])
+
+    assert pixel[0] > pixel[1] * 2
+    assert pixel[1] == pytest.approx(pixel[2])
+    assert pixel.max() <= 1
+    assert surface.luminous(pixel) == pytest.approx(surface.luminous(surface.to_linear(colour[:, 0, 0])), abs=.01)
 
 
 def test_capped_pooled_grids_and_chunk_halos_match_native_classification(tmp_path, monkeypatch):

@@ -765,11 +765,20 @@ def clean_ortho_colour(rgb: np.ndarray, shown: np.ndarray, own: np.ndarray, cell
             shadows[name] = {"gap_log2": gap, "shadow_fraction": float(dark.sum() / max(1, mine.sum()))}
     if shadows:
         passed = smooth(visible)
-    return surface.to_encoded(passed), {
-        "low_pass_m": MACRO_LOW_PASS_M,
-        "open_fraction": float(visible.mean()),
-        "shadows": shadows,
-        "source": "class-specific low-pass of sunlit survey ground in linear light",
+    photo_luma = surface.luminous(photo)
+    macro_luma = surface.luminous(passed)
+    chroma = photo * (macro_luma / np.maximum(photo_luma, 1e-4))[None]
+    saturation = np.minimum(1, (1 - macro_luma) / np.maximum(chroma.max(axis=0) - macro_luma, 1e-4))
+    chroma = macro_luma[None] + (chroma - macro_luma[None]) * saturation[None]
+    # Fine luminance comes from survey_detail; retain hue without applying that brightness signal twice.
+    trusted = (visible & (photo_luma > 1e-4)
+               & (photo_luma >= macro_luma * 2 ** orthophoto.SETTINGS["chroma_shadow_min_log2"]))
+    colour = np.where(trusted[None], chroma, passed)
+    return surface.to_encoded(colour), {
+        "low_pass_m": MACRO_LOW_PASS_M, "open_fraction": float(visible.mean()), "shadows": shadows,
+        "chroma_cell_m": cell_m, "chroma_fraction": float(trusted.mean()),
+        "chroma_shadow_min_log2": orthophoto.SETTINGS["chroma_shadow_min_log2"],
+        "source": "class-specific low-pass luminance and visible pooled survey chroma in linear light",
     }
 
 

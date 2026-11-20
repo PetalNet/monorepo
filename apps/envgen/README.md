@@ -332,15 +332,20 @@ Stored sampling does not establish the image's independently resolved detail.
   The first three sum to the source alpha coverage; canopy is independent. Landscape weights and turf density
   use averaged masks, while the ground material reads native masks through a virtual texture. Outside the irregular
   alpha footprint, the original imagery remains in use. A separate colour texture is pooled to at least 25 cm and
-  filtered within each class over 12 m, excluding cover and detected shadows. Its colour divided by its class mean
-  modulates the calibrated seasonal ground, preserving relative survey variation without treating processed RGB as albedo.
+  filtered within each class over 12 m for luminance, excluding cover and detected shadows. Visible pooled hue
+  remains, retaining brown and green lane variation. Fine luminance comes from survey detail, so the colour layer
+  does not apply it twice. Recolouring into the calibrated seasonal ground preserves luminance and compresses
+  saturation into the material's valid range. Processed survey RGB is not treated as calibrated albedo.
+  Unfitted shadows can retain a colour cast; hue alone cannot distinguish a shadow from coloured ground.
   Its alpha fades survey influence over 12 m inside the irregular coverage boundary for material weights,
   growth and detail replacement. Native evidence masks retain the source coverage unchanged.
   Native alpha gaps are reduced conservatively onto the colour grid before computing physical distances;
   this can move the blend boundary by at most one colour cell, without losing gaps narrower than that cell.
   Within 3 m of the camera, survey detail is filtered toward 10 cm sampling so photographic blade texture
-  does not compete with the close material scan. Automatic temporal mip bias is disabled for this sample. A mip-level floor enforces this under magnification and fades
-  out by 15 m, where the projected texel footprint sets the mip. Larger photo patterns remain.
+  does not compete with the close material scan. Automatic temporal mip bias is disabled for this sample.
+  Pixel UV gradients shorter than 10 cm in world space are enlarged near the camera, fading out by 15 m.
+  Both gradient directions are retained for anisotropic filtering at grazing angles. This bounds individual
+  gradient lengths, not the footprint's minor axis. Larger photo patterns remain.
   Native processing runs in overlapping windows, with bounded pooled grids and streamed PNG output.
   A rejected RGB split remains recorded in the manifest. It does not establish that the ground is all grass.
 - **Optional observations** (`sources.survey.observations`). A schema-1 JSON file must identify the orthophoto's
