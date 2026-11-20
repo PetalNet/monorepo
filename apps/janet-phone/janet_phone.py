@@ -784,11 +784,18 @@ async def serve_forever(config: Config) -> None:
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--config", required=True, type=Path)
-    parser.add_argument("--devices", action="store_true", help="list the paired phones and exit")
-    parser.add_argument("--revoke", metavar="ID", help="unpair the phone whose id starts with ID and exit")
-    parser.add_argument("--pair-link", metavar="FILE", type=Path,
+    actions = parser.add_mutually_exclusive_group()
+    actions.add_argument("--devices", action="store_true", help="list the paired phones and exit")
+    actions.add_argument("--revoke", metavar="ID", help="unpair the phone whose id starts with ID and exit")
+    actions.add_argument("--verify-owner", metavar="ID", help="grant a specific existing phone the configured owner's identity")
+    parser.add_argument("--reason", help="audit reason required with --verify-owner")
+    actions.add_argument("--pair-link", metavar="FILE", type=Path,
                         help="ask the running bridge for a one-time pairing link and write it to FILE, mode 600")
     args = parser.parse_args()
+    if (args.verify_owner is not None) != (args.reason is not None):
+        parser.error("--verify-owner and --reason must be supplied together")
+    if args.verify_owner is not None and (not args.verify_owner or not args.reason.strip()):
+        parser.error("--verify-owner and --reason must not be empty")
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(name)s %(message)s")
     config = Config(**tomllib.loads(args.config.read_text()))
     devices = pairing.Devices(Path(config.devices_file))
@@ -810,11 +817,18 @@ def main() -> None:
             out.write(link)
         os.replace(partial, args.pair_link)
         print(f"wrote a pairing link to {args.pair_link}; it works once and for {config.pair_ttl_s // 60} minutes")
+    elif args.verify_owner:
+        try:
+            name = devices.verify_owner(args.verify_owner, config.lab_owner, args.reason)
+        except ValueError as error:
+            parser.error(str(error))
+        print("verified owner:", args.verify_owner, name)
     elif args.revoke:
         print("unpaired:", devices.revoke(args.revoke) or "nothing: the id must match exactly one phone")
     elif args.devices:
         for ident, device in devices.listing():
-            print(ident, device["paired"], device["paired_by"], device["name"])
+            print(ident, device["paired"], device["paired_by"], device["name"],
+                  "verified" if device.get("identity_verified") is True else "unverified")
     else:
         asyncio.run(serve_forever(config))
 

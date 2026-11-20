@@ -471,13 +471,17 @@ class CallTest(unittest.IsolatedAsyncioTestCase):
             await asyncio.wait_for(ws.recv(), 10)
         self.assertEqual(FakeGateway.seen[0], ("Bearer right", "signed"))
 
-    async def test_only_direct_owner_signin_gets_lab_access(self):
+    async def test_only_verified_owner_gets_lab_access(self):
         from dataclasses import replace
         lab_token = self.dir / "lab-token"
         lab_token.write_text("bridge-lab-test")
         config = replace(self.config, tier="personal", lab_token_file=str(lab_token))
+        granted = self.devices.add("Locally granted owner", "parker")
+        import hashlib
+        self.devices.verify_owner(hashlib.sha256(granted.encode()).hexdigest()[:12], "parker", "Known owner phone")
         tokens = [
             (self.devices.add("SSO owner", "parker", identity_verified=True), "personal", "bridge-lab-test"),
+            (granted, "personal", "bridge-lab-test"),
             (self.devices.add("Other signed-in user", "other", identity_verified=True), "guest", ""),
             (self.devices.add("Shared owner link", "parker"), "guest", ""),
         ]
