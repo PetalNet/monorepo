@@ -396,6 +396,7 @@ def ingest(inventory: dict, config: dict, cache_dir: Path) -> dict:
     candidates = {}
     kev_entries = {}
     osv_results = {}
+    incomplete_github = set()
     max_pages = max(1, min(20, int(config.get('max_pages', 10))))
     kev = client.get('kev', KEV, required='vulnerabilities')
     if kev:
@@ -416,20 +417,25 @@ def ingest(inventory: dict, config: dict, cache_dir: Path) -> dict:
                     candidates.setdefault(cid, set()).add(asset['id'])
     for asset in assets:
         for package in asset.get('packages', []):
+            results = osv_results.setdefault((asset['id'], package.get('ecosystem'), package.get('name')), [])
             if package.get('ecosystem') in ('Nix', 'Docker', 'OCI', 'generic'):
+                results.append((package.get('version'), None))
                 gaps.append(f"osv: unsupported ecosystem {package['ecosystem']} on {asset['id']}; map upstream package identity")
                 continue
             if not all(package.get(k) and str(package[k]).casefold() not in ('unknown', '*', '-', 'latest', 'stable')
                        for k in ('ecosystem', 'name', 'version')):
+                results.append((package.get('version'), None))
                 gaps.append(f"osv: incomplete package identity/version on {asset['id']}")
                 continue
             query = {k: package[k] for k in ('ecosystem', 'name')}
             payload = dict(package=query, version=package['version'])
             seen = set()
             complete = False
+            fresh = True
             gap_count = len(gaps)
             for page in range(max_pages):
                 response = client.get('osv', OSV, payload)
+                fresh &= client.last_fresh
                 if response is None:
                     gaps.append(f"osv: query unavailable for {asset['id']} {package['ecosystem']}/{package['name']}@{package['version']}")
                     break
@@ -460,18 +466,21 @@ def ingest(inventory: dict, config: dict, cache_dir: Path) -> dict:
                     records.append(record)
                 token = response.get('next_page_token')
                 if not token:
-                    complete = len(gaps) == gap_count
+                    complete = fresh and len(gaps) == gap_count
                     break
                 payload['page_token'] = token
             else:
                 gaps.append(f"osv: pagination limit reached on {asset['id']}")
-            osv_results[(asset['id'], package['ecosystem'], package['name'])] = seen if complete else None
+            results.append((package['version'], seen if complete else None))
         for repo in sorted(set(config.get('repositories', {}).get(asset['id'], []) + asset.get('repositories', []))):
             if not isinstance(repo, str) or not re.fullmatch(r'[\w.-]+/[\w.-]+', repo):
+                incomplete_github.add(asset['id'])
                 gaps.append(f"github: invalid repository on {asset['id']}")
                 continue
             for page in range(1, max_pages + 1):
                 response = client.get('github', f'https://api.github.com/repos/{repo}/security-advisories?per_page=100&page={page}', shape=list)
+                if response is None or not client.last_fresh:
+                    incomplete_github.add(asset['id'])
                 if response is None:
                     gaps.append(f"github: repository query unavailable for {asset['id']} {repo}")
                     break
@@ -483,6 +492,7 @@ def ingest(inventory: dict, config: dict, cache_dir: Path) -> dict:
                         continue
                     stats['github'] += 1
                     verdicts = []
+                    packages = []
                     fixes = []
                     for v in advisory.get('vulnerabilities', []):
                         p = v.get('package', {})
@@ -492,6 +502,7 @@ def ingest(inventory: dict, config: dict, cache_dir: Path) -> dict:
                                      x.get('name') == p.get('name') and x.get('ecosystem') == ECOSYSTEM.get(p.get('ecosystem'), p.get('ecosystem'))]
                         patched = v.get('patched_versions') or v.get('first_patched_version')
                         for version in versions:
+                            packages.append((ECOSYSTEM.get(p.get('ecosystem'), p.get('ecosystem')), p.get('name'), version))
                             bounded = _range(version, v.get('vulnerable_version_range'))
                             fixed = patched.removeprefix('v') if isinstance(patched, str) else None
                             comparison = _compare(version, fixed)
@@ -509,6 +520,7 @@ def ingest(inventory: dict, config: dict, cache_dir: Path) -> dict:
                     if fixes:
                         record['fix'] = 'Vendor patched versions: ' + ', '.join(fixes)
                     record['affected'] = [dict(asset_id=asset['id'], verdict=verdict,
+                        source_fresh=client.last_fresh, packages=packages,
                         evidence=f'Configured vendor repository {repo}; package version bounds: {proof}')]
                     records.append(record)
                     if CVE.fullmatch(cid) and verdict == 'unknown':
@@ -516,6 +528,7 @@ def ingest(inventory: dict, config: dict, cache_dir: Path) -> dict:
                 if len(response) < 100:
                     break
             else:
+                incomplete_github.add(asset['id'])
                 gaps.append(f'github: pagination limit reached for {repo}')
     tracked = {a['id']: a for a in config.get('_tracked_advisories', [])}
     bindings = {}
@@ -527,13 +540,20 @@ def ingest(inventory: dict, config: dict, cache_dir: Path) -> dict:
         metadata = tracked.get(cid, _advisory(cid))
         names = {cid, *metadata.get('aliases', [])}
         verdicts = []
+        packages = []
         for binding in group:
-            seen = osv_results.get((asset_id, binding['ecosystem'], binding['name']))
-            verdicts.append(None if seen is None else bool(names.intersection(seen)))
+            results = osv_results.get((asset_id, binding['ecosystem'], binding['name']), [(None, None)])
+            for version, seen in results:
+                packages.append((binding['ecosystem'], binding['name'], version))
+                verdicts.append(None if seen is None else bool(names.intersection(seen)))
         proof = _or(verdicts)
         verdict = 'affected' if proof is True else 'unaffected' if proof is False else 'unknown'
+        if verdict == 'unaffected' and asset_id in incomplete_github:
+            verdict = 'unknown'
         records.append(dict(metadata, affected=[dict(asset_id=asset_id, verdict=verdict,
-            evidence=f'OSV checks across all {len(group)} tracked package bindings: {verdict}')]))
+            osv_exclusions=packages if verdict == 'unaffected' else [],
+            evidence=f'OSV checks across all {len(group)} tracked package bindings: {verdict}'
+                     + ('; GitHub repository coverage incomplete' if asset_id in incomplete_github else ''))]))
     email_ids = _email_ids(config.get('email'), gaps)
     stats['email'] = len(email_ids)
     for cid in email_ids | {c for c in config.get('cve_ids', []) if CVE.fullmatch(c)}:
@@ -566,6 +586,7 @@ def ingest(inventory: dict, config: dict, cache_dir: Path) -> dict:
                 continue
             verdict = evaluate_nvd(cve, asset, assets) if cve and client.last_fresh else 'unknown'
             record['affected'].append(dict(asset_id=asset['id'], verdict=verdict,
+                source_fresh=bool(cve) and client.last_fresh,
                 evidence='NVD complete CPE configuration evaluation' if cve else 'Candidate only; NVD unavailable or not evaluated'))
         records.append(record)
     merged = []
@@ -587,15 +608,23 @@ def ingest(inventory: dict, config: dict, cache_dir: Path) -> dict:
         record['id'] = next(iter(sorted(n for n in names if n.startswith('CVE-'))), record['id'])
         record['aliases'] = sorted(names - {record['id']})
         record['kev'] |= any(n in kev_entries for n in names)
-        by_asset = {}
-        for item in record['affected']:
-            old = by_asset.get(item['asset_id'])
-            rank = {'unaffected': 0, 'unknown': 1, 'affected': 2}
-            if old is None or rank[item['verdict']] > rank[old['verdict']]:
-                by_asset[item['asset_id']] = item
-        record['affected'] = list(by_asset.values())
         merged.append(record)
     for record in merged:
+        exclusions = {item['asset_id']: set(map(tuple, item['osv_exclusions']))
+                      for item in record['affected'] if item.get('osv_exclusions')}
+        by_asset = {}
+        for item in record['affected']:
+            # Only complete tracked OSV exclusions can supersede fresh candidate checks.
+            if (item['verdict'] == 'unknown' and item.get('source_fresh')
+                    and item['asset_id'] in exclusions
+                    and set(map(tuple, item.get('packages', []))) <= exclusions[item['asset_id']]):
+                continue
+            old = by_asset.get(item['asset_id'])
+            rank = {'unaffected': 0, 'unknown': 1, 'affected': 2}
+            if old is None or (rank[item['verdict']], bool(item.get('osv_exclusions'))) > (
+                    rank[old['verdict']], bool(old.get('osv_exclusions'))):
+                by_asset[item['asset_id']] = item
+        record['affected'] = list(by_asset.values())
         for item in record['affected']:
             if item['verdict'] == 'unknown':
                 gaps.append(f"{record['id']} on {item['asset_id']}: unverified applicability; {record['fix']}")

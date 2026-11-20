@@ -1,4 +1,5 @@
-"""Offline boundary tests; fixtures are synthetic and do not claim real CVEs."""
+"""Offline boundary tests, including saved public Caddy advisory responses."""
+import copy
 import imaplib
 import json
 import tempfile
@@ -7,6 +8,7 @@ from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 import feeds
+import watcher
 
 CID = 'CVE-2026-99999'
 APP = 'cpe:2.3:a:vendor:widget:*:*:*:*:*:*:*:*'
@@ -45,6 +47,8 @@ class FeedTests(unittest.TestCase):
             if source == 'kev':
                 return catalog or {'vulnerabilities': []}
             if source == 'nvd':
+                if callable(nvd):
+                    return nvd(url)
                 return {'vulnerabilities': [{'cve': nvd}]} if nvd else None
             if source == 'osv':
                 return osv(payload) if callable(osv) else osv or {}
@@ -274,6 +278,134 @@ class FeedTests(unittest.TestCase):
             if source == 'kev':
                 return {'vulnerabilities': []}
             return {} if payload['package']['name'] == 'first' else None
+        with patch.object(feeds._Client, 'get', get):
+            result = feeds.ingest({'assets': [a]}, config, self.path)
+        self.assertEqual('unknown', result['advisories'][0]['affected'][0]['verdict'])
+
+    def test_saved_caddy_exclusions_close_tracked_findings(self):
+        fixture = json.loads(Path(__file__).with_name('fixtures').joinpath('caddy-reconciliation.json').read_text())
+        a = asset(version=fixture['query']['version'])
+        a.update(service='caddy', product='caddy', exposure='internet',
+                 cpes=['cpe:2.3:a:caddyserver:caddy:*:*:*:*:*:*:*:*'],
+                 evidence=['saved runtime observation'])
+        a['packages'] = [dict(fixture['query']['package'], version=a['version'])]
+        config = {'repositories': {a['id']: ['caddyserver/caddy']}}
+        db = watcher.database(self.path / 'coverage.sqlite')
+        self.addCleanup(db.close)
+        at = watcher.now()
+        inv = dict(collected_at=at, assets=[a], gaps=[])
+        original = []
+        for row in fixture['github']:
+            cid = row.get('cve_id') or row['ghsa_id']
+            original.append(feeds._advisory(cid, aliases=[row['ghsa_id']], affected=[dict(
+                asset_id=a['id'], verdict='affected', source='osv',
+                package=fixture['query']['package'], evidence='OSV exact query at 2.11.2')]))
+        watcher.reconcile(db, inv, dict(advisories=original), at, emit_digest=False)
+        config['_tracked_advisories'] = [json.loads(r[0]) for r in db.execute('SELECT payload FROM advisories')]
+        config['_tracked_osv'] = [dict(r) for r in db.execute('SELECT * FROM osv_tracking')]
+        result, _ = self.run_ingest([a], osv=fixture['osv'], github=fixture['github'], config=config,
+                                  nvd=lambda url: fixture['nvd'][url.split('cveId=')[1]])
+        summary = watcher.reconcile(db, inv, result, at, emit_digest=False)
+        self.assertEqual((7, 0), (summary['closed'], summary['open']))
+        self.assertTrue(all('all 1 tracked package bindings: unaffected' in r['evidence']
+                            for r in watcher.report(db)['items']))
+
+    def test_osv_negative_precedence_requires_complete_fresh_bindings(self):
+        package = dict(ecosystem='PyPI', name='widget', version='2.0')
+        advisory = dict(cve_id=CID, ghsa_id='GHSA-2345-6789-abcd', vulnerabilities=[dict(
+            package=dict(ecosystem='pip', name='widget'), vulnerable_version_range='^1')])
+        base = {'repositories': {'one': ['vendor/widget']},
+                '_tracked_advisories': [feeds._advisory(CID, aliases=[advisory['ghsa_id']])],
+                '_tracked_osv': [dict(advisory=CID, asset='one', ecosystem='PyPI', name='widget')]}
+        cases = ['complete', 'second_complete', 'stale_osv', 'stale_github', 'stale_nvd', 'failed_osv',
+                 'failed_nvd', 'missing_version', 'missing_binding', 'second_binding',
+                 'duplicate_versions', 'duplicate_missing_version', 'affected',
+                 'github_extra_package', 'github_other_version', 'untracked_advisory',
+                 'pagination_limit', 'stale_page', 'github_affected', 'nvd_affected',
+                 'duplicate_versions_reverse', 'duplicate_missing_version_reverse',
+                 'github_later_failure', 'github_missing', 'github_stale_empty',
+                 'github_pagination_limit', 'github_stale_lastpage', 'github_later_success']
+        for case in cases:
+            with self.subTest(case=case):
+                a = asset(version='2.0')
+                a['packages'] = [dict(package)]
+                config = copy.deepcopy(base)
+                github = copy.deepcopy(advisory)
+                if case == 'missing_version':
+                    a['packages'][0]['version'] = None
+                if case in ('missing_binding', 'second_binding', 'second_complete'):
+                    config['_tracked_osv'].append(dict(advisory=CID, asset='one', ecosystem='PyPI', name='other'))
+                    if case != 'missing_binding':
+                        a['packages'].append(dict(package, name='other'))
+                if case.startswith('duplicate_'):
+                    a['packages'].insert(0, dict(package, version=None if 'missing_version' in case else '1.0'))
+                    if case.endswith('_reverse'):
+                        a['packages'].reverse()
+                if case == 'github_affected':
+                    github['vulnerabilities'][0]['vulnerable_version_range'] = '>= 1, < 3'
+                if case == 'github_extra_package':
+                    github['vulnerabilities'].append(dict(package=dict(ecosystem='pip', name='other')))
+                    a['packages'].append(dict(package, name='other'))
+                if case == 'github_other_version':
+                    config['vendor_packages'] = {'one': [dict(repository='vendor/widget', ecosystem='pip', name='widget', version='1.0')]}
+                if case == 'untracked_advisory':
+                    config['_tracked_osv'][0]['advisory'] = 'CVE-2026-99998'
+                if case in ('pagination_limit', 'github_pagination_limit'):
+                    config['max_pages'] = 1
+
+                def get(client, source, url, payload=None, **kwargs):
+                    client.last_fresh = case != 'stale_' + source
+                    if source == 'kev':
+                        return {'vulnerabilities': []}
+                    if source == 'github':
+                        if case == 'github_missing':
+                            return None
+                        if case == 'github_stale_empty':
+                            client.last_fresh = False
+                            return []
+                        if case in ('github_later_failure', 'github_pagination_limit',
+                                    'github_stale_lastpage', 'github_later_success'):
+                            if url.endswith('page=1'):
+                                return [github] * 100
+                            if case == 'github_later_failure':
+                                return None
+                            client.last_fresh = case != 'github_stale_lastpage'
+                            return []
+                        return [github]
+                    if source == 'nvd':
+                        if case == 'failed_nvd':
+                            return None
+                        if case == 'nvd_affected':
+                            return {'vulnerabilities': [dict(cve=cve(dict(cpeMatch=[leaf(versionEndExcluding='3')])))]}
+                        return {'vulnerabilities': [dict(cve=dict(id=CID))]}
+                    if case == 'failed_osv' or (case == 'second_binding' and payload['package']['name'] == 'other'):
+                        return None
+                    if case == 'pagination_limit':
+                        return {'next_page_token': 'next'}
+                    if case == 'stale_page' and 'page_token' not in payload:
+                        client.last_fresh = False
+                        return {'next_page_token': 'next'}
+                    if case == 'affected' or (case.startswith('duplicate_versions') and payload['version'] == '1.0'):
+                        return {'vulns': [dict(id=CID)]}
+                    return {}
+
+                with patch.object(feeds._Client, 'get', get):
+                    result = feeds.ingest({'assets': [a]}, config, self.path)
+                record = next(r for r in result['advisories'] if r['id'] == CID)
+                expected = ('unaffected' if case in ('complete', 'second_complete', 'github_later_success') else
+                            'affected' if case in ('affected', 'duplicate_versions', 'duplicate_versions_reverse',
+                                                  'github_affected', 'nvd_affected') else 'unknown')
+                self.assertEqual(expected, record['affected'][0]['verdict'])
+
+    def test_stale_empty_osv_cache_alone_cannot_prove_remediation(self):
+        a = asset(version='2.0')
+        a['packages'] = [dict(ecosystem='PyPI', name='widget', version='2.0')]
+        config = {'_tracked_osv': [dict(advisory=CID, asset=a['id'], ecosystem='PyPI', name='widget')]}
+
+        def get(client, source, url, payload=None, **kwargs):
+            client.last_fresh = source != 'osv'
+            return {'vulnerabilities': []} if source == 'kev' else {}
+
         with patch.object(feeds._Client, 'get', get):
             result = feeds.ingest({'assets': [a]}, config, self.path)
         self.assertEqual('unknown', result['advisories'][0]['affected'][0]['verdict'])
