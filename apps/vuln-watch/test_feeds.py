@@ -282,7 +282,56 @@ class FeedTests(unittest.TestCase):
             result = feeds.ingest({'assets': [a]}, config, self.path)
         self.assertEqual('unknown', result['advisories'][0]['affected'][0]['verdict'])
 
-    def test_saved_caddy_exclusions_close_tracked_findings(self):
+    def test_unbound_github_packages_keep_tracked_findings_open(self):
+        for bound_range in ('^1', '< 2'):
+            for index, identity in enumerate((dict(ecosystem='pip', name='other'),
+                                              dict(ecosystem='', name='other'),
+                                              dict(ecosystem='pip', name=''))):
+                with self.subTest(bound_range=bound_range, identity=identity):
+                    a = asset(version='2.0')
+                    a.update(service='widget', exposure='internet', packages=[
+                        dict(ecosystem='PyPI', name='widget', version='2.0')])
+                    at = watcher.now()
+                    inv = dict(collected_at=at, assets=[a], gaps=[])
+                    db = watcher.database(self.path / f'unbound-{bound_range[0]}-{index}.sqlite')
+                    self.addCleanup(db.close)
+                    original = feeds._advisory(CID, affected=[dict(
+                        asset_id=a['id'], verdict='affected', source='osv',
+                        package=dict(ecosystem='PyPI', name='widget'),
+                        evidence='OSV exact query at 1.0')])
+                    watcher.reconcile(db, inv, dict(advisories=[original]), at, emit_digest=False)
+                    config = {'repositories': {a['id']: ['vendor/widget']},
+                              '_tracked_advisories': [json.loads(r[0]) for r in db.execute('SELECT payload FROM advisories')],
+                              '_tracked_osv': [dict(r) for r in db.execute('SELECT * FROM osv_tracking')]}
+                    advisory = dict(cve_id=CID, vulnerabilities=[
+                        dict(package=dict(ecosystem='pip', name='widget'), vulnerable_version_range=bound_range),
+                        dict(package=identity, vulnerable_version_range='< 2')])
+                    result, _ = self.run_ingest([a], github=[advisory], config=config,
+                                              nvd=dict(id=CID))
+                    summary = watcher.reconcile(db, inv, result, at, emit_digest=False)
+                    record = next(r for r in result['advisories'] if r['id'] == CID)
+                    self.assertEqual(('unknown', 0, 1, 'open'), (
+                        record['affected'][0]['verdict'], summary['closed'], summary['open'],
+                        watcher.report(db)['items'][0]['status']))
+
+    def test_blank_repository_package_can_use_complete_tracked_exclusions(self):
+        for bound_range in ('^1', '< 2'):
+            with self.subTest(bound_range=bound_range):
+                a = asset(version='2.0')
+                a['packages'] = [dict(ecosystem='PyPI', name='widget', version='2.0')]
+                advisory = dict(cve_id=CID, vulnerabilities=[
+                    dict(package=dict(ecosystem='pip', name='widget'), vulnerable_version_range=bound_range),
+                    dict(package=dict(ecosystem='', name=''), vulnerable_version_range='< 2')])
+                config = {'repositories': {a['id']: ['vendor/widget']},
+                          '_tracked_advisories': [feeds._advisory(CID)],
+                          '_tracked_osv': [dict(advisory=CID, asset=a['id'], ecosystem='PyPI', name='widget')]}
+                result, _ = self.run_ingest([a], github=[advisory], config=config, nvd=dict(id=CID))
+                self.assertEqual('unaffected', result['advisories'][0]['affected'][0]['verdict'])
+                config.pop('_tracked_osv')
+                result, _ = self.run_ingest([a], github=[advisory], config=config)
+                self.assertEqual('unknown', result['advisories'][0]['affected'][0]['verdict'])
+
+    def test_saved_caddy_exclusions_retain_unbound_package_findings(self):
         fixture = json.loads(Path(__file__).with_name('fixtures').joinpath('caddy-reconciliation.json').read_text())
         a = asset(version=fixture['query']['version'])
         a.update(service='caddy', product='caddy', exposure='internet',
@@ -306,9 +355,17 @@ class FeedTests(unittest.TestCase):
         result, _ = self.run_ingest([a], osv=fixture['osv'], github=fixture['github'], config=config,
                                   nvd=lambda url: fixture['nvd'][url.split('cveId=')[1]])
         summary = watcher.reconcile(db, inv, result, at, emit_digest=False)
-        self.assertEqual((7, 0), (summary['closed'], summary['open']))
+        self.assertEqual((4, 3), (summary['closed'], summary['open']))
+        items = watcher.report(db)['items']
+        self.assertEqual({'CVE-2026-52845', 'CVE-2026-52846', 'GHSA-wwhq-w58m-w29c'},
+                         {r['advisory'] for r in items if r['status'] == 'open'})
+        self.assertEqual({'CVE-2026-55458', 'CVE-2026-52844', 'CVE-2026-45692', 'GHSA-gx7w-56w6-g48x'},
+                         {r['advisory'] for r in items if r['status'] == 'closed'})
+        self.assertEqual(3, summary['unknown'])
         self.assertTrue(all('all 1 tracked package bindings: unaffected' in r['evidence']
-                            for r in watcher.report(db)['items']))
+                            for r in items if r['status'] == 'closed'))
+        self.assertTrue(any('unverified applicability' in gap and 'CVE-2026-52845' in gap
+                            for gap in result['gaps']))
 
     def test_osv_negative_precedence_requires_complete_fresh_bindings(self):
         package = dict(ecosystem='PyPI', name='widget', version='2.0')

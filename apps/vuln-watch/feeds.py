@@ -500,6 +500,11 @@ def ingest(inventory: dict, config: dict, cache_dir: Path) -> dict:
                         versions = [x.get('version') for x in bindings if x.get('name') == p.get('name') and x.get('ecosystem') == p.get('ecosystem')]
                         versions += [x.get('version') for x in asset.get('packages', []) if
                                      x.get('name') == p.get('name') and x.get('ecosystem') == ECOSYSTEM.get(p.get('ecosystem'), p.get('ecosystem'))]
+                        if not versions:
+                            verdicts.append(None)
+                            # A blank identity is a repository candidate, not a named package.
+                            if p.get('ecosystem') or p.get('name'):
+                                packages.append((ECOSYSTEM.get(p.get('ecosystem'), p.get('ecosystem')), p.get('name'), None))
                         patched = v.get('patched_versions') or v.get('first_patched_version')
                         for version in versions:
                             packages.append((ECOSYSTEM.get(p.get('ecosystem'), p.get('ecosystem')), p.get('name'), version))
