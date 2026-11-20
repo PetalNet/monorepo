@@ -6,7 +6,7 @@ import { basename } from "node:path";
 //
 // Exit codes: 0 completed/picked, 1 failed, 2 bad input, 3 no eligible offer, 5 Claude handoff.
 import { spawnSync } from "node:child_process";
-import { readFileSync, realpathSync } from "node:fs";
+import { existsSync, readFileSync, realpathSync } from "node:fs";
 import { userInfo, homedir } from "node:os";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { parseArgs } from "node:util";
@@ -38,8 +38,8 @@ import { readAvailability } from "./state.ts";
 const USAGE = `usage:
   route ls  [--for <kind>] [--class <public|sensitive|parcs>] [--not-vendor <maker>]
             what you can run right now: model:effort, plan, quota, quality for <kind>, cost, time
-  route run <model>[:<effort>] [--for <kind>] [--class <class>] <brief-file>
-            run your pick; route checks policy and quota, logs it and pings Janet when it ends
+  route run <model>[:<effort>] [--for <kind>] [--class <class>] <task | task-file | ->
+            run your pick on a task given inline, as a file, or on stdin; route checks policy and quota, logs it and pings Janet when it ends
   route why <model>[:<effort>] [--for <kind>] [--class <class>]
             why a model is or isn't runnable, with its evidence
   route pull-evidence
@@ -260,7 +260,10 @@ async function main(argv: string[]): Promise<number> {
 	const [command, ...rest] = positionals;
 	const kind = values.for ?? "code";
 	const flagClass = values.class ?? "public";
-	const [target, briefFile] = command === "ls" ? [undefined, undefined] : rest;
+	const [target, ...words] = command === "ls" ? [] : rest;
+	// The task is whatever follows the model: a prompt, a file holding one, or "-" for stdin.
+	const asked = words.join(" ");
+	const briefFile = words.length === 1 && existsSync(asked) ? asked : undefined;
 	const [model, effort] = (target ?? "").split(":");
 	// Eli and Parker 2026-11-19: the agent chooses with repo context; route shows the menu, enforces, runs.
 	const tier = "*";
@@ -268,7 +271,7 @@ async function main(argv: string[]): Promise<number> {
 	if (
 		!["ls", "run", "why"].includes(command ?? "") ||
 		(command !== "ls" && !model) ||
-		(command === "run" && !briefFile) ||
+		(command === "run" && !asked) ||
 		!KINDS.has(kind) ||
 		(flagClass !== "public" && flagClass !== "sensitive" && flagClass !== "parcs")
 	) {
@@ -277,7 +280,20 @@ async function main(argv: string[]): Promise<number> {
 		return 2;
 	}
 
-	const brief = command === "run" ? readBrief(briefFile) : { text: "" };
+	const brief =
+		command !== "run"
+			? { text: "" }
+			: asked === "-"
+				? { text: readFileSync(0, "utf8") }
+				: briefFile
+					? readBrief(briefFile)
+					: { text: asked };
+
+	if ("text" in brief && command === "run" && !brief.text.trim()) {
+		process.stderr.write("route: the task is empty; aborting before any quota read or model call\n");
+
+		return 2;
+	}
 
 	if ("error" in brief) {
 		process.stderr.write(`route: ${brief.error}; aborting before any quota read or model call\n`);
@@ -390,9 +406,9 @@ async function main(argv: string[]): Promise<number> {
 			state,
 			kind,
 			tier,
-			brief: briefFile ?? "",
+			brief: briefFile ?? brief.text,
 			dataClass,
-			briefName: basename(briefFile ?? "", ".md"),
+			briefName: briefFile ? basename(briefFile, ".md") : brief.text.trim().slice(0, 60),
 			cwd: process.cwd(),
 			dir: `${home}/.local/state/router`,
 			legacy: `${home}/.local/state/agy-build`,
