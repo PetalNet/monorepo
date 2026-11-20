@@ -373,6 +373,8 @@ bool FEnvGenStreetscapeAthletic::RunTest(const FString& Parameters)
 				const auto* Texture = CastChecked<UTexture2D>(Atlas->Texture);
 				bFoundAtlas = true;
 				TestTrue(TEXT("athletic atlas clamps both UV axes"), Texture->AddressX == TA_Clamp && Texture->AddressY == TA_Clamp);
+				TestTrue(TEXT("athletic atlas supports mip generation with unchanged normalized UVs"),
+					Texture->PowerOfTwoMode == ETexturePowerOfTwoSetting::StretchToPowerOfTwo && Texture->MipGenSettings == TMGS_SimpleAverage);
 				TestFalse(TEXT("opaque atlas does not rescale alpha mip coverage"), Texture->bDoScaleMipsForAlphaCoverage);
 			}
 		}

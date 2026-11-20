@@ -259,6 +259,12 @@ return float4(colour,saturate(%.5f+.08*(wear-.5)+.08*crack));
 		Texture->CompressionSettings = TC_Default;
 		Texture->LODGroup = TEXTUREGROUP_World;
 		Texture->AddressX = Texture->AddressY = TA_Clamp;
+		if (bOpaque)
+		{
+			// NPOT atlases cannot generate mips; stretching retains their full 0..1 registration.
+			Texture->PowerOfTwoMode = ETexturePowerOfTwoSetting::StretchToPowerOfTwo;
+			Texture->MipGenSettings = TMGS_SimpleAverage;
+		}
 		Texture->bDoScaleMipsForAlphaCoverage = !bOpaque;
 		if (!bOpaque) Texture->AlphaCoverageThresholds = FVector4(0, 0, 0, .333f);
 		Texture->PostEditChange();
