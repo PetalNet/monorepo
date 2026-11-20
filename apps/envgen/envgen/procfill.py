@@ -136,12 +136,14 @@ def _windrows(luma, stubble, train, cell_m):
             signal = patch - ndimage.gaussian_filter(patch, 2 / cell_m)
             power = abs(np.fft.fft2(signal * window)) ** 2
             selected = np.where(band, power, 0)
-            iy, ix = np.unravel_index(np.argmax(selected), selected.shape)
-            strength = float(selected[iy, ix] / max(float(power[band].sum()), 1e-9))
+            frequency_row, frequency_column = np.unravel_index(np.argmax(selected), selected.shape)
+            strength = float(selected[frequency_row, frequency_column] / max(float(power[band].sum()), 1e-9))
             if strength < 0.025:
                 continue
-            spacing = 1 / radius[iy, ix]
-            angle = math.degrees(math.atan2(fy[iy, ix], fx[iy, ix])) % 180
+            spacing = 1 / radius[frequency_row, frequency_column]
+            angle = (
+                math.degrees(math.atan2(fy[frequency_row, frequency_column], fx[frequency_row, frequency_column])) % 180
+            )
             # Fraction above half the bright residual, converted to width of one period.
             half = float(np.percentile(signal, 90)) / 2
             width = spacing * float((signal > max(half, 0)).mean())

@@ -869,7 +869,7 @@ def build_detail(
             "prior: the imagery's tone curve is sRGB, so its ratio is a ratio of linear light",
             "prior: living turf is nowhere as dark against the turf around it as its own shadow is; paving can be",
             f"prior: a shadow's edge is {SHADOW_EDGE_CELLS} cells wider than its dark core",
-            f"prior: shadow is looked for down to {SHADOW_DARKEST_LOG2:g} stops in bins of {SHADOW_BIN_LOG2:g}, meaned over three; its peak holds {SHADOW_MIN_SHARE:.1%} of at least {SHADOW_MIN_CELLS} cells in one bin, and the gap at most {SHADOW_VALLEY_MAX:g} of the peak",
+            f"prior: shadow is looked for down to {SHADOW_DARKEST_LOG2:g} stops in bins of {SHADOW_BIN_LOG2:g}, averaged over three; its peak holds {SHADOW_MIN_SHARE:.1%} of at least {SHADOW_MIN_CELLS} cells in one bin, and the gap at most {SHADOW_VALLEY_MAX:g} of the peak",
             f"prior: the ratio is limited to a factor of {2**DETAIL_LOG2_RANGE:g} either way",
             f"prior: the ratio fades to 1 over {DETAIL_FADE_CELLS:g} cells at the edge of hidden ground",
         ],
