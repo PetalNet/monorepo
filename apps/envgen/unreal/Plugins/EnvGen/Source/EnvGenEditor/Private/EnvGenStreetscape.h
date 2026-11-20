@@ -4,6 +4,7 @@
 
 class FJsonObject;
 class AActor;
+class ALandscape;
 class UPackage;
 class UWorld;
 
@@ -19,3 +20,6 @@ bool ValidateEnvGenStreetscape(const FString& ManifestPath,
 /** LOD0 Landscape uses the 00--11 diagonal, rather than a bilinear surface. */
 double EnvGenStreetscapeHeight(const TArray64<uint8>& HeightBytes, int32 Vertices,
 	const FVector& LocationCm, const FVector& Scale, double NorthCm, double EastCm);
+
+/** Keep the imported triangle planes under paving at distance, with a two-quad border for edge morphing. */
+int32 LockEnvGenStreetscapeTerrainLOD(ALandscape* Landscape, const TArray<AActor*>& Actors);

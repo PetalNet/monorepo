@@ -7,6 +7,8 @@
 #include "Engine/StaticMeshActor.h"
 #include "Engine/World.h"
 #include "EnvGenSiteInfo.h"
+#include "Landscape.h"
+#include "LandscapeComponent.h"
 #include "MaterialEditingLibrary.h"
 #include "Materials/Material.h"
 #include "Materials/MaterialExpressionComponentMask.h"
@@ -53,7 +55,7 @@ namespace
 		{TEXT("track"), {FLinearColor(.20f, .065f, .055f), .93f, 0, 3}},
 		{TEXT("gravel"), {FLinearColor(.24f, .22f, .18f), .95f, 0, 4}},
 		{TEXT("clay"), {FLinearColor(.34f, .23f, .14f), .97f, 0, 4}},
-		{TEXT("turf"), {FLinearColor(.13f, .16f, .075f), .96f, 0, 0}},
+		{TEXT("turf"), {FLinearColor(.065f, .08f, .0375f), .96f, 0, 0}},
 		{TEXT("paint_white"), {FLinearColor(.64f, .63f, .57f), .83f, 0, 5}},
 		{TEXT("paint_yellow"), {FLinearColor(.72f, .48f, .045f), .8f, 0, 5}},
 		{TEXT("steel"), {FLinearColor(.26f, .28f, .29f), .55f, .8f, 0}},
@@ -372,7 +374,7 @@ static bool ProcessStreetscape(UWorld* World, const FString& ManifestPath,
 		}
 		UStaticMesh* Mesh = Asset<UStaticMesh>(FString::Printf(TEXT("SM_Streetscape_%04d"), Index), Packages);
 		Mesh->GetStaticMaterials().Add(FStaticMaterial(Materials[Name], FName(*Name)));
-		// Small surface ribbons retain their exact outline; solid props can use Nanite and Lumen mesh cards.
+		// Thin paint retains its exact outline; paving and solid props use Nanite.
 		Mesh->GetNaniteSettings().bEnabled = Name != TEXT("chainlink") && Name != TEXT("net") && (bCollision || !Name.StartsWith(TEXT("paint_")));
 		Mesh->GetNaniteSettings().FallbackPercentTriangles = 1;
 		Mesh->GetNaniteSettings().FallbackRelativeError = 0;
@@ -392,6 +394,7 @@ static bool ProcessStreetscape(UWorld* World, const FString& ManifestPath,
 		AStaticMeshActor* Actor = World->SpawnActor<AStaticMeshActor>();
 		Actor->SetActorLabel(FString::Printf(TEXT("EnvGenStreetscape_%04d_%s"), Index, *Name));
 		Actor->Tags.Add(EnvGenStandingTag());
+		if (!bAnchored && !bCollision) Actor->Tags.Add(FName(TEXT("EnvGenPaving")));
 		Actors.Add(Actor);
 		auto* Component = Actor->GetStaticMeshComponent();
 		Component->SetMobility(EComponentMobility::Static);
@@ -455,4 +458,30 @@ double EnvGenStreetscapeHeight(const TArray64<uint8>& HeightBytes, int32 Vertice
 		? (1 - N) * At(N0, E0) + (N - E) * At(N0 + 1, E0) + E * At(N0 + 1, E0 + 1)
 		: (1 - E) * At(N0, E0) + (E - N) * At(N0, E0 + 1) + N * At(N0 + 1, E0 + 1);
 	return LocationCm.Z + (Height - 32768.0) * Scale.Z / 128.0;
+}
+
+int32 LockEnvGenStreetscapeTerrainLOD(ALandscape* Landscape, const TArray<AActor*>& Actors)
+{
+	TArray<FBox> Paving;
+	for (const AActor* Actor : Actors)
+	{
+		if (Actor->ActorHasTag(FName(TEXT("EnvGenPaving")))) Paving.Add(Actor->GetComponentsBoundingBox(true));
+	}
+	const FVector Scale = Landscape->GetActorScale3D();
+	const double Margin = FMath::Max(FMath::Abs(Scale.X), FMath::Abs(Scale.Y)) * 2;
+	int32 Locked = 0;
+	for (ULandscapeComponent* Component : Landscape->LandscapeComponents)
+	{
+		const FBox Ground = Component->Bounds.GetBox();
+		if (Paving.ContainsByPredicate([&](const FBox& Surface) {
+			return Ground.Min.X <= Surface.Max.X + Margin && Ground.Max.X >= Surface.Min.X - Margin
+				&& Ground.Min.Y <= Surface.Max.Y + Margin && Ground.Max.Y >= Surface.Min.Y - Margin;
+		}))
+		{
+			// A coarser Landscape can rise through a mesh sampled on its LOD0 triangles.
+			Component->SetForcedLOD(0);
+			++Locked;
+		}
+	}
+	return Locked;
 }

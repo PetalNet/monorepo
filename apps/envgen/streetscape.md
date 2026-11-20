@@ -64,7 +64,7 @@ follows east at heading zero; its depth follows north. Pole height must be suppl
 from a shadow needs the shadow endpoints and solar elevation in its evidence, with the uncertainty stated.
 Unresolved small image objects do not establish benches, parked cars or permanent equipment.
 
-Paving and paint are clipped to the Landscape grid and its 00–11 triangle diagonal, including integer subdivisions of larger quads. The importer samples those same triangle planes. Geometry and the grass mask are checked before replacing the previous saved level.
+Paving and paint are clipped to the Landscape grid and its 00–11 triangle diagonal, including integer subdivisions of larger quads. The importer samples those same triangle planes. Landscape components beneath these surfaces retain LOD0, with a two-quad border, so terrain distance morphing cannot push through paving. Paving and solid props use Nanite; thin paint keeps its full triangle mesh. Geometry and the grass mask are checked before replacing the previous saved level.
 
 The stage writes `streetscape.json` and `streetscape_grass.png`, both hashed in `build.json`. The JSON
 contains material batches, vertices, triangle indices, collision flags and optional terrain anchors.
@@ -74,8 +74,7 @@ that anchor, or 0.6 m for bleachers, to cover small ground variations without di
 The grass mask suppresses tufts on paving and clay without changing measured Landscape heights or weights. Turf surfaces keep the measured grass population and cover blurred photographic field markings beneath the vector inventory.
 
 Paving and paint share batches within 126 m cells. Batches split at 20,000 triangles. Solid props use
-Nanite, collision and shadows. Paving also uses Nanite; thin paint ribbons use ordinary opaque meshes
-over the Landscape's collision. Fences use ordinary masked, two-sided chainlink panels with solid posts and rails. Daytime luminaires
+Nanite, collision and shadows. Paving also uses Nanite; thin paint ribbons use ordinary opaque meshes over the Landscape's collision. Fences use ordinary masked, two-sided chainlink panels with solid posts and rails. Daytime luminaires
 do not add dynamic lights. The build receipt records feature counts, mesh counts and triangle counts;
 the existing material, surface, tree and building gates still apply.
 
@@ -96,7 +95,7 @@ build receipt records the material priors below. The geometry artifact preserves
 | Track               | 0.20, 0.065, 0.055  | 0.93       | 0        |
 | Gravel              | 0.24, 0.22, 0.18    | 0.95       | 0        |
 | Clay                | 0.34, 0.23, 0.14    | 0.97       | 0        |
-| Turf                | 0.13, 0.16, 0.075   | 0.96       | 0        |
+| Turf                | 0.065, 0.08, 0.0375 | 0.96       | 0        |
 | White paint         | 0.64, 0.63, 0.57    | 0.83       | 0        |
 | Yellow paint        | 0.72, 0.48, 0.045   | 0.8        | 0        |
 | Steel and chainlink | 0.26, 0.28, 0.29    | 0.55 / 0.6 | 0.8      |
