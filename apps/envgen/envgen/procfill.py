@@ -18,8 +18,8 @@ from skimage.morphology import skeletonize
 
 from . import frame, orthophoto, trees
 
-VERSION = 1
-CACHE_VERSION = 4
+VERSION = 2
+CACHE_VERSION = 5
 SETTINGS = {
     "survey_cell_m": 0.25,
     "survey_max_pixels": 2_000_000,
@@ -30,6 +30,10 @@ SETTINGS = {
     "edge_m": 4.0,
     "slope_rough_degrees": 12.0,
     "windrow_spacing_search_m": [1.0, 5.0],
+    "windrow_peak_tolerance": 0.95,
+    "windrow_min_phase_bins": 16,
+    "windrow_width_prior_m": 0.35,
+    "windrow_segment_m": 3.0,
     "canopy_min_m": 2.0,
 }
 ZONES = ["short", "stubble", "rough"]
@@ -128,6 +132,8 @@ def _windrows(luma, stubble, train, cell_m):
     band = (radius >= 1 / high) & (radius <= 1 / low)
     window = np.outer(np.hanning(size), np.hanning(size))
     rows = []
+    continuity = []
+    width_kinds = []
     for y in range(0, luma.shape[0] - size + 1, size):
         for x in range(0, luma.shape[1] - size + 1, size):
             at = np.s_[y : y + size, x : x + size]
@@ -137,18 +143,60 @@ def _windrows(luma, stubble, train, cell_m):
             signal = patch - ndimage.gaussian_filter(patch, 2 / cell_m)
             power = abs(np.fft.fft2(signal * window)) ** 2
             selected = np.where(band, power, 0)
-            frequency_row, frequency_column = np.unravel_index(np.argmax(selected), selected.shape)
+            # Thin sampled rows can give a harmonic the same power as the fundamental.
+            peaks = band & (selected >= selected.max() * SETTINGS["windrow_peak_tolerance"])
+            frequency_row, frequency_column = np.unravel_index(
+                np.argmin(np.where(peaks, radius, np.inf)), selected.shape
+            )
             strength = float(selected[frequency_row, frequency_column] / max(float(power[band].sum()), 1e-9))
             if strength < 0.025:
                 continue
-            spacing = 1 / radius[frequency_row, frequency_column]
-            angle = (
-                math.degrees(math.atan2(fy[frequency_row, frequency_column], fx[frequency_row, frequency_column])) % 180
+            # Refine the spectral peak before folding; integer-bin phase drifts broaden narrow rows.
+            neighbourhood = np.log(
+                np.maximum(
+                    np.roll(np.roll(power, 1 - frequency_row, axis=0), 1 - frequency_column, axis=1)[:3, :3], 1e-12
+                )
             )
-            # Fraction above half the bright residual, converted to width of one period.
-            half = float(np.percentile(signal, 90)) / 2
-            width = spacing * float((signal > max(half, 0)).mean())
+            centre = neighbourhood[1, 1]
+            gradient = np.array(
+                [(neighbourhood[2, 1] - neighbourhood[0, 1]) / 2, (neighbourhood[1, 2] - neighbourhood[1, 0]) / 2]
+            )
+            cross = (neighbourhood[2, 2] - neighbourhood[2, 0] - neighbourhood[0, 2] + neighbourhood[0, 0]) / 4
+            hessian = np.array(
+                [
+                    [neighbourhood[2, 1] - 2 * centre + neighbourhood[0, 1], cross],
+                    [cross, neighbourhood[1, 2] - 2 * centre + neighbourhood[1, 0]],
+                ]
+            )
+            offset = (
+                np.clip(-np.linalg.solve(hessian, gradient), -0.5, 0.5)
+                if np.linalg.eigvalsh(hessian).max() < -1e-8
+                else np.zeros(2)
+            )
+            normal_y = fy[frequency_row, frequency_column] + offset[0] / (size * cell_m)
+            normal_x = fx[frequency_row, frequency_column] + offset[1] / (size * cell_m)
+            spacing = 1 / math.hypot(normal_x, normal_y)
+            angle = math.degrees(math.atan2(normal_y, normal_x)) % 180
+            # Fold along the fitted normal so unrelated fine texture does not inflate row width.
+            yy, xx = np.indices(patch.shape)
+            bins = np.floor(((normal_y * yy + normal_x * xx) * cell_m % 1) * 64).astype(int) % 64
+            support = stubble[at]
+            counts = np.bincount(bins[support], minlength=64)
+            profile = np.bincount(bins[support], weights=signal[support], minlength=64) / np.maximum(counts, 1)
+            present = np.flatnonzero(counts)
+            profile = np.interp(np.arange(64), present, profile[present], period=64)
+            smooth_profile = ndimage.gaussian_filter1d(profile, 1, mode="wrap")
+            half = (smooth_profile.min() + smooth_profile.max()) / 2
+            width = spacing * float((smooth_profile > half).mean())
+            resolved = present.size >= SETTINGS["windrow_min_phase_bins"]
+            if not resolved:
+                width = SETTINGS["windrow_width_prior_m"]
+            width_kinds.append("fitted" if resolved else "prior: insufficient phase samples")
             rows.append([round(float(spacing), 3), round(float(width), 3), round(angle, 2)])
+            floor, peak = np.percentile(profile, [10, 90])
+            crest = (profile[bins] > (floor + peak) / 2) & support
+            local_half = floor + (profile[bins] - floor) / 2
+            continuity.append(float((signal[crest] > local_half[crest]).mean()) if crest.any() else 1.0)
     angles = np.radians([row[2] * 2 for row in rows])
     mean_normal = (
         float(np.degrees(np.arctan2(np.sin(angles).mean(), np.cos(angles).mean())) / 2 % 180) if len(rows) else 45.0
@@ -156,8 +204,11 @@ def _windrows(luma, stubble, train, cell_m):
     return {
         "normal_circular_mean_deg": mean_normal,
         "samples_spacing_width_normal_deg": rows,
+        "continuity_samples": continuity,
+        "width_kinds": width_kinds,
+        "width_method": "half-height of phase-folded stubble residual, 64 bins smoothed by one bin",
         "kind": "fitted" if rows else "prior",
-        "fallback_spacing_width_normal_deg": [2.0, 0.35, 45.0],
+        "fallback_spacing_width_normal_deg": [2.0, SETTINGS["windrow_width_prior_m"], 45.0],
         "rule": "field principal direction inside; distance contours at edges and around canopy/roads",
     }
 
@@ -227,30 +278,62 @@ def fit(observed, classes, train, cell_m, canopy=None, paths=None):
     }
 
 
-def _stamp(shape, eligible, samples, density, cell_m, rng):
+def _stamp(shape, eligible, samples, share, cell_m, rng):
     result = np.zeros(shape, np.float32)
     positions = np.argwhere(eligible)
     if not len(positions) or not samples:
         return result
-    count = int(rng.poisson(len(positions) * cell_m**2 * density))
-    picked = positions[rng.integers(0, len(positions), count)]
-    sizes = np.array(samples)[rng.integers(len(samples), size=count)]
-    subpixel = sizes[:, 0] * np.sqrt(sizes[:, 1]) <= cell_m / 2
-    result[picked[subpixel, 0], picked[subpixel, 1]] = 1
-    for (row, column), (radius, aspect) in zip(picked[~subpixel], sizes[~subpixel], strict=True):
-        major, minor = radius * math.sqrt(aspect) / cell_m, radius / math.sqrt(aspect) / cell_m
-        extent = math.ceil(major) + 1
-        y0, y1 = max(0, row - extent), min(shape[0], row + extent + 1)
-        x0, x1 = max(0, column - extent), min(shape[1], column + extent + 1)
-        y, x = np.mgrid[y0:y1, x0:x1] - np.array([row, column])[:, None, None]
-        angle = rng.uniform(0, math.tau)
-        u, v = x * math.cos(angle) + y * math.sin(angle), y * math.cos(angle) - x * math.sin(angle)
-        ellipse = (u / max(major, 0.5)) ** 2 + (v / max(minor, 0.5)) ** 2
-        result[y0:y1, x0:x1] = np.maximum(result[y0:y1, x0:x1], np.clip(2 * (1 - ellipse), 0, 1))
-    return result * eligible
+    target = round(len(positions) * np.clip(share, 0, 0.95))
+    covered = 0
+    samples = np.array(samples)
+    area = max(1, float(np.mean(math.pi * samples[:, 0] ** 2 / cell_m**2)))
+    # Count actual raster coverage after clipping/overlap, rather than continuous ellipse area.
+    while covered < target:
+        positions = np.argwhere(eligible & (result <= 0.5))
+        count = max(1, math.ceil(0.7 * (target - covered) / area))
+        picked = positions[rng.choice(len(positions), size=count, replace=False)]
+        sizes = samples[rng.integers(len(samples), size=count)]
+        subpixel = sizes[:, 0] * np.sqrt(sizes[:, 1]) <= cell_m / 2
+        result[picked[subpixel, 0], picked[subpixel, 1]] = 1
+        current = int(np.count_nonzero(result > 0.5))
+        for (row, column), (radius, aspect) in zip(picked[~subpixel], sizes[~subpixel], strict=True):
+            if current >= target:
+                break
+            if result[row, column] > 0.5:
+                continue
+            # The >0.5 contour has the fitted equivalent area despite the softened edge.
+            major = radius * math.sqrt(aspect / 0.75) / cell_m
+            minor = radius / math.sqrt(aspect * 0.75) / cell_m
+            extent = math.ceil(major) + 1
+            y0, y1 = max(0, row - extent), min(shape[0], row + extent + 1)
+            x0, x1 = max(0, column - extent), min(shape[1], column + extent + 1)
+            y, x = np.mgrid[y0:y1, x0:x1] - np.array([row, column])[:, None, None]
+            angle = rng.uniform(0, math.tau)
+            u, v = x * math.cos(angle) + y * math.sin(angle), y * math.cos(angle) - x * math.sin(angle)
+            ellipse = (u / max(major, 0.5)) ** 2 + (v / max(minor, 0.5)) ** 2
+            patch = result[y0:y1, x0:x1]
+            before = int(np.count_nonzero(patch > 0.5))
+            proposed = np.maximum(patch, np.clip(2 * (1 - ellipse), 0, 1)) * eligible[y0:y1, x0:x1]
+            added = (proposed > 0.5) & (patch <= 0.5)
+            remaining = target - current
+            if np.count_nonzero(added) > remaining:
+                # A tiny eligible area may not fit even one measured clump. Trim its outer cells.
+                flat = np.flatnonzero(added)
+                nearest = np.argsort(ellipse.ravel()[flat], kind="stable")
+                cutoff = ellipse.ravel()[flat[nearest[remaining - 1]]]
+                proposed[ellipse > cutoff] = patch[ellipse > cutoff]
+                excess = flat[nearest[remaining:]]
+                proposed.flat[excess] = patch.flat[excess]
+            patch[:] = proposed
+            current += int(np.count_nonzero(patch > 0.5)) - before
+        area = max((current - covered) / count, 1)
+        covered = current
+    return result
 
 
-def generate(priors, classes, grass, elevation, canopy, paths, roads, cell_m, seed, entrances=None, fields=None):
+def generate(
+    priors, classes, grass, elevation, canopy, paths, roads, cell_m, seed, entrances=None, fields=None, visible=None
+):
     """Generate all fine features from coarse constraints alone; never reads hidden survey pixels."""
     rng = np.random.default_rng(seed)
     shape = grass.shape
@@ -270,15 +353,17 @@ def generate(priors, classes, grass, elevation, canopy, paths, roads, cell_m, se
     )
     # Rank within each NAIP class: terrain moves patches without changing their learned area shares.
     uniform = np.zeros(shape, np.float32)
+    visible = canopy < SETTINGS["canopy_min_m"] if visible is None else visible
     for index in range(4):
-        mine = classes == index
-        scores = random[mine]
-        if not scores.size:
-            continue
-        order = np.argsort(scores, kind="stable")
-        ranks = np.empty(scores.size, np.float32)
-        ranks[order] = (np.arange(scores.size) + 0.5) / scores.size
-        uniform[mine] = ranks
+        for shown in (False, True):
+            mine = (classes == index) & grass & (visible == shown)
+            scores = random[mine]
+            if not scores.size:
+                continue
+            order = np.argsort(scores, kind="stable")
+            ranks = np.empty(scores.size, np.float32)
+            ranks[order] = (np.arange(scores.size) + 0.5) / scores.size
+            uniform[mine] = ranks
     zones = np.sum(uniform[..., None] > np.cumsum(probabilities, axis=-1)[..., :2], axis=-1).astype(np.uint8)
     zones[~grass] = 255
     open_field = grass & (tree_distance > 1) & (road_distance > 1)
@@ -287,6 +372,7 @@ def generate(priors, classes, grass, elevation, canopy, paths, roads, cell_m, se
     labels, _ = ndimage.label(open_field)
     windrow = np.zeros(shape, np.float32)
     spacing_samples = priors["windrows"]["samples_spacing_width_normal_deg"]
+    continuity_samples = priors["windrows"].get("continuity_samples", [])
     for index, bounds in enumerate(ndimage.find_objects(labels), 1):
         if bounds is None:
             continue
@@ -297,10 +383,9 @@ def generate(priors, classes, grass, elevation, canopy, paths, roads, cell_m, se
         covariance = np.cov(np.stack([xs, ys]))
         _, vectors = np.linalg.eigh(covariance)
         normal = vectors[:, 0]
+        sample = int(rng.integers(len(spacing_samples))) if spacing_samples else None
         spacing, width, angle = (
-            spacing_samples[int(rng.integers(len(spacing_samples)))]
-            if spacing_samples
-            else priors["windrows"]["fallback_spacing_width_normal_deg"]
+            spacing_samples[sample] if sample is not None else priors["windrows"]["fallback_spacing_width_normal_deg"]
         )
         deviation = math.radians((angle - priors["windrows"]["normal_circular_mean_deg"] + 90) % 180 - 90)
         normal = np.array(
@@ -319,7 +404,20 @@ def generate(priors, classes, grass, elevation, canopy, paths, roads, cell_m, se
         phase = phase * (1 - edge_mix) + boundary * edge_mix
         phase += rng.uniform(0, spacing)
         distance = abs((phase + spacing / 2) % spacing - spacing / 2)
+        if spacing_samples:
+            # A whole connected field must not inherit one unusually narrow training window.
+            step = max(1, round(16 / cell_m))
+            lattice = rng.integers(
+                len(spacing_samples), size=(math.ceil(mask.shape[0] / step) + 2, math.ceil(mask.shape[1] / step) + 2)
+            )
+            widths = np.array(spacing_samples)[:, 1][lattice]
+            width = ndimage.map_coordinates(widths, [y / step, x / step], order=1, mode="nearest")
+            width = np.minimum(width, spacing * 0.95)
         lines = np.clip((width / 2 + cell_m / 2 - distance) / cell_m, 0, 1)
+        continuity = float(np.median(continuity_samples)) if continuity_samples else 1.0
+        if continuity < 1:
+            breaks = _noise(mask.shape, SETTINGS["windrow_segment_m"], cell_m, rng)
+            lines *= breaks >= np.quantile(breaks[mask], 1 - continuity)
         windrow[bounds] = lines * mask * (zones[bounds] == 1)
     # Coarse evidence can identify corridors. Their centre is a candidate desire line, never a new road.
     corridor = grass & (inside_distance < 4) & (path_distance < 12)
@@ -331,15 +429,14 @@ def generate(priors, classes, grass, elevation, canopy, paths, roads, cell_m, se
     wear = np.clip(1 - _distance(centre, cell_m) / max(wear_width / 2, cell_m), 0, 1)
     wear *= grass & (slope < 25)
 
-    def density_for_share(samples, share):
-        area = np.mean([math.pi * radius**2 for radius, _ in samples]) if samples else 1.0
-        return -math.log(max(1 - min(share, 0.95), 0.05)) / max(float(area), cell_m**2)
-
+    rough = grass & (zones == 2)
+    weed_support = rough & (wear == 0)
+    weed_share = priors["weeds"]["rough_cover_share"] * rough.sum() / max(int(weed_support.sum()), 1)
     weeds = _stamp(
         shape,
-        grass & (zones == 2) & (wear == 0),
+        weed_support,
         priors["weeds"]["radius_aspect_samples"],
-        density_for_share(priors["weeds"]["radius_aspect_samples"], priors["weeds"]["rough_cover_share"]),
+        weed_share,
         cell_m,
         rng,
     )
@@ -347,7 +444,7 @@ def generate(priors, classes, grass, elevation, canopy, paths, roads, cell_m, se
         shape,
         grass,
         priors["bare"]["radius_aspect_samples"],
-        density_for_share(priors["bare"]["radius_aspect_samples"], priors["bare"]["ground_cover_share"]),
+        priors["bare"]["ground_cover_share"],
         cell_m,
         rng,
     )
@@ -400,7 +497,18 @@ def validate(observed, classes, elevation, canopy, paths, roads, cell_m, seed):
                 training[name] = observed[name]
         truth, _ = observe(observed["rgb"], observed["valid"], cell_m, thresholds)
         priors = fit(training, classes, train, cell_m, canopy, paths)
-        made = generate(priors, classes, classes < 3, elevation, canopy, paths, roads, cell_m, seed + fold)
+        made = generate(
+            priors,
+            classes,
+            classes < 3,
+            elevation,
+            canopy,
+            paths,
+            roads,
+            cell_m,
+            seed + fold,
+            visible=observed.get("coarse_visible"),
+        )
         real = np.bincount(truth["zones"][test], minlength=3) / test.sum()
         synthetic = np.bincount(made["zones"][test], minlength=3) / test.sum()
 
@@ -420,15 +528,25 @@ def validate(observed, classes, elevation, canopy, paths, roads, cell_m, seed):
                 "real_aspect": summary([part[1] for part in measured_parts]),
                 "generated_aspect": summary([part[1] for part in generated_parts]),
             }
-        real_rows = _windrows(truth["luma"], truth["zones"] == 1, test, cell_m)["samples_spacing_width_normal_deg"]
-        made_rows = _windrows(made["windrow"] * 255, made["zones"] == 1, test, cell_m)[
-            "samples_spacing_width_normal_deg"
-        ]
+        real_fit = _windrows(truth["luma"], truth["zones"] == 1, test, cell_m)
+        made_fit = _windrows(made["windrow"] * 255, made["zones"] == 1, test, cell_m)
+        real_rows = real_fit["samples_spacing_width_normal_deg"]
+        made_rows = made_fit["samples_spacing_width_normal_deg"]
+
+        def fitted_widths(result):
+            return [
+                row[1]
+                for row, kind in zip(result["samples_spacing_width_normal_deg"], result["width_kinds"], strict=True)
+                if kind == "fitted"
+            ]
+
         distributions["windrows"] = {
             "real_spacing_m": summary([row[0] for row in real_rows]),
             "generated_spacing_m": summary([row[0] for row in made_rows]),
-            "real_width_m": summary([row[1] for row in real_rows]),
-            "generated_width_m": summary([row[1] for row in made_rows]),
+            "real_width_m": summary(fitted_widths(real_fit)),
+            "generated_width_m": summary(fitted_widths(made_fit)),
+            "real_width_prior_windows": len(real_rows) - len(fitted_widths(real_fit)),
+            "generated_width_prior_windows": len(made_rows) - len(fitted_widths(made_fit)),
         }
         if "canopy" in observed:
             _, actual_crowns = trees.crowns(
@@ -579,6 +697,7 @@ def build(site, imagery, out, layers, elevation, covering, detail, *, fallback_w
         np.nan_to_num(survey_height(site.survey.location) - survey_height(site.survey.terrain)), 0
     )
     observed, thresholds = observe(survey[:3], valid, survey_cell)
+    observed["coarse_visible"] = shown
     observed["canopy"] = survey_canopy
     observed["canopy_valid"] = survey[3] == 255
     sp = _onto(paths, transform, st, shape, site.crs) > 0.5
@@ -589,7 +708,20 @@ def build(site, imagery, out, layers, elevation, covering, detail, *, fallback_w
     sp = _onto(paths, transform, st, shape, site.crs) > 0.5
     sr = _onto(roads, transform, st, shape, site.crs) > 0.5
     validation = validate(observed, sc, sh, ch, sp, sr, survey_cell, site.seed)
-    masks = generate(priors, classes, grass, heights, canopy, paths, roads, cell_m, site.seed, entrances, fields)
+    masks = generate(
+        priors,
+        classes,
+        grass,
+        heights,
+        canopy,
+        paths,
+        roads,
+        cell_m,
+        site.seed,
+        entrances,
+        fields,
+        visible=open_ground(out, covering, pixels) > 0.5,
+    )
     coverage = _onto(survey[3] > 0, st, transform, grass.shape, site.crs, Resampling.average) > 0
     files = []
     edits = out / "procfill_edits"
@@ -656,9 +788,14 @@ def build(site, imagery, out, layers, elevation, covering, detail, *, fallback_w
     zones = masks["zones"]
     no_grass = (zones == 255) & ("zones" in painted_names)
     bare_wear = np.maximum.reduce([masks["bare"], masks["wear"], no_grass])
-    density = np.where(zones == 0, 0.55, np.where(zones == 1, 0.75, 0.9)) * (1 - bare_wear) * grass
-    tall = np.where(zones == 2, 0.8, 0.05) * (1 - bare_wear) * grass
-    height = np.where(zones == 2, 0.8, np.where(zones == 1, 0.35, 0.25))
+    density = np.where(
+        zones == 0, 0.55, np.where(zones == 1, 0.75 - 0.15 * masks["windrow"], 0.65 + 0.25 * masks["weeds"])
+    )
+    density *= (1 - bare_wear) * grass
+    tall = np.where(zones == 2, 0.25 + 0.55 * masks["weeds"], 0.05) * (1 - bare_wear) * grass
+    height = np.where(
+        zones == 2, 0.4 + 0.4 * masks["weeds"], np.where(zones == 1, 0.35 - 0.10 * masks["windrow"], 0.25)
+    )
 
     def effective(name):
         return masks[name] * grass * ((~coverage) | (name in painted_names))
