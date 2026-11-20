@@ -315,6 +315,8 @@ Stored sampling does not establish the image's independently resolved detail.
   modulates the calibrated seasonal ground, preserving relative survey variation without treating processed RGB as albedo.
   Its alpha fades survey influence over 12 m inside the irregular coverage boundary for material weights,
   growth and detail replacement. Native evidence masks retain the source coverage unchanged.
+  Native alpha gaps are reduced conservatively onto the colour grid before computing physical distances;
+  this can move the blend boundary by at most one colour cell, without losing gaps narrower than that cell.
   Native processing runs in overlapping windows, with bounded pooled grids and streamed PNG output.
   A rejected RGB split remains recorded in the manifest. It does not establish that the ground is all grass.
 - **Optional observations** (`sources.survey.observations`). A schema-1 JSON file must identify the orthophoto's

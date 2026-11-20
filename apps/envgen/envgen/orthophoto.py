@@ -23,6 +23,7 @@ SETTINGS = {
     "smooth_m": 0.06,
     "colour_cell_m": 0.25,
     "blend_edge_m": 12.0,
+    "blend_edge_source": "native-alpha-minimum",
     "canopy_min_m": 2.0,
     "block_pixels": 512,
     "fit_max_pixels": 1_000_000,
@@ -77,9 +78,22 @@ def sample(path: Path, tile, crs: str, size: int, blend_path: Path | None = None
     return target
 
 
-def blend_alpha(alpha: np.ndarray, cell_m: float) -> np.ndarray:
+def exclude_missing(footprint: np.ndarray, alpha: np.ndarray, row: int, column: int,
+                    native_shape: tuple[int, int]) -> None:
+    """A native zero excludes every pooled cell it intersects, without allocating a native distance field."""
+    rows, columns = np.nonzero(alpha == 0)
+    first_row = (rows + row) * footprint.shape[0] // native_shape[0]
+    last_row = ((rows + row + 1) * footprint.shape[0] - 1) // native_shape[0]
+    first_column = (columns + column) * footprint.shape[1] // native_shape[1]
+    last_column = ((columns + column + 1) * footprint.shape[1] - 1) // native_shape[1]
+    for r in (first_row, last_row):
+        for c in (first_column, last_column):
+            footprint[r, c] = False
+
+
+def blend_alpha(alpha: np.ndarray, footprint: np.ndarray, pixel_size_m: tuple[float, float]) -> np.ndarray:
     """Fade survey influence inside its boundary; the native evidence coverage stays intact."""
-    distance = ndimage.distance_transform_edt(np.pad(alpha > 0, 1))[1:-1, 1:-1] * cell_m
+    distance = ndimage.distance_transform_edt(np.pad(footprint, 1), sampling=pixel_size_m)[1:-1, 1:-1]
     share = np.clip(distance / SETTINGS["blend_edge_m"], 0, 1)
     return np.rint(alpha * share**2 * (3 - 2*share)).astype(np.uint8)
 
@@ -160,6 +174,8 @@ def build(path: Path, out: Path, tile, crs: str, labels: np.ndarray, names: list
         sigma = max(SETTINGS["smooth_m"] / pixel_m, 0.5)
         pad = math.ceil(4 * sigma)
         block = SETTINGS["block_pixels"]
+        colour, colour_transform = pooled(SETTINGS["colour_cell_m"], SETTINGS["colour_max_pixels"])
+        footprint = np.ones(colour.shape[1:], dtype=bool)
         with rasterio.open(out / "ortho_masks.tif", "w", **profile) as target:
             # Canopy is data, not alpha: GDAL must not mask out open ground on reprojection.
             target.colorinterp = (ColorInterp.gray,) + (ColorInterp.undefined,) * 3
@@ -179,6 +195,7 @@ def build(path: Path, out: Path, tile, crs: str, labels: np.ndarray, names: list
                     encoded = np.rint(shares[:, row-top:row-top+rows, column-left:column-left+columns]*255)
                     # Encode coverage exactly in the sum of RGB, even at blended class edges.
                     coverage = data[3, row-top:row-top+rows, column-left:column-left+columns].astype(np.int16)
+                    exclude_missing(footprint, coverage, row, column, (source.height, source.width))
                     ground_bytes = encoded[:3].astype(np.int16)
                     largest = np.argmax(ground_bytes, axis=0)
                     correction = coverage-ground_bytes.sum(axis=0)
@@ -186,7 +203,7 @@ def build(path: Path, out: Path, tile, crs: str, labels: np.ndarray, names: list
                         ground_bytes[index] += np.where(largest == index, correction, 0).astype(np.int16)
                     encoded[:3] = ground_bytes
                     target.write(encoded.astype(np.uint8), window=Window(column, row, columns, rows))
-        colour, transform = pooled(SETTINGS["colour_cell_m"], SETTINGS["colour_max_pixels"])
+        transform = colour_transform
         shape = colour.shape[1:]
         visible = ((colour[3] >= 250) & (onto(height, transform, shape) < SETTINGS["canopy_min_m"])
                    & (onto(shown, transform, shape) > 0.5))
@@ -200,7 +217,7 @@ def build(path: Path, out: Path, tile, crs: str, labels: np.ndarray, names: list
         # No visible ground means no evidence for colour. Keep the coarse imagery in that case.
         if not visible.any():
             colour[3] = 0
-        colour[3] = blend_alpha(colour[3], float(transform.a))
+        colour[3] = blend_alpha(colour[3], footprint, (abs(transform.e), transform.a))
         with rasterio.open(out / "ortho_colour.tif", "w", **(profile | {"width": shape[1], "height": shape[0],
                             "transform": transform})) as target:
             target.write(colour)
@@ -214,6 +231,7 @@ def build(path: Path, out: Path, tile, crs: str, labels: np.ndarray, names: list
             "file": "ortho_masks.png", "raster": "ortho_masks.tif", "colour": "ortho_colour.png",
             "colour_raster": "ortho_colour.tif", "colour_pixels": [shape[1], shape[0]],
             "colour_pixel_m": float(transform.a), "colour_processing": report, "mean_linear_rgb": means,
+            "colour_pixel_size_m": [float(transform.a), abs(float(transform.e))],
             "channels": NAMES + ["canopy"], "pixel_m": pixel_m, "pixels": [width, height_px],
             "pixel_size_m": pixel_size_m,
             "west_m": bounds.left-tile.west, "south_m": bounds.bottom-tile.south,

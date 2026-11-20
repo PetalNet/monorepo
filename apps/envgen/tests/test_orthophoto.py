@@ -120,6 +120,32 @@ def test_survey_boundary_fades_influence_without_erasing_native_evidence(tmp_pat
     assert np.allclose(combined.sum(axis=0), 1)
 
 
+def test_feather_retains_a_gap_narrower_than_the_colour_grid(tmp_path):
+    path, data = write_survey(tmp_path, pixel=.1)
+    data[3, 480:780, 630] = 0
+    h.write_raster(path, data, tile().west, tile().north, .1)
+    report = run_survey(tmp_path, path)
+    with rasterio.open(tmp_path / report["raster"]) as source:
+        assert source.read()[:3, 630, 630].sum() == 0
+    with rasterio.open(tmp_path / report["colour_raster"]) as source:
+        alpha = source.read(4)
+    assert alpha[252, 252] == 0
+    assert alpha[252, 256] <= 6  # One metre from the gap is still near the start of the 12 m fade.
+    assert alpha[252, 310] == 255
+
+
+def test_feather_uses_physical_distance_with_unequal_pixel_dimensions(tmp_path):
+    path, _ = write_survey(tmp_path)
+    with rasterio.open(path, "r+") as source:
+        source.transform = rasterio.Affine(.25, 0, tile().west, 0, -.5, tile().north)
+    report = run_survey(tmp_path, path)
+    with rasterio.open(tmp_path / report["colour_raster"]) as source:
+        alpha = source.read(4)
+    assert alpha[24, 250] == 255  # More than 12 m from the north edge.
+    assert alpha[250, 48] == 255  # More than 12 m from the west edge.
+    assert report["colour_pixel_size_m"] == [.25, .5]
+
+
 def test_real_reprojection_blends_only_inside_alpha_coverage(tmp_path):
     path, _ = write_survey(tmp_path)
     report = run_survey(tmp_path, path)
