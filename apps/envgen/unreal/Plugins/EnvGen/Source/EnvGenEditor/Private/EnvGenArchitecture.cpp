@@ -344,7 +344,8 @@ void FStyle::AddDetails(const TArray<TArray<FVector2D>>& Rings, double RoofZ, co
 			for (const FRoofForm& Form : RoofForms)
 			{
 				if (!Fits(Form.At, FVector2D(1,0), FVector2D(0,1), Form.WidthM*0.5, Form.DepthM*0.5, Rings)) { continue; }
-				const double Width = Form.WidthM-0.4, Depth = Form.DepthM-0.4;
+				const double Width = FMath::Max(0.4, Form.WidthM-2*FMath::Min(1.25, Form.WidthM*0.4));
+				const double Depth = FMath::Max(0.4, Form.DepthM-2*FMath::Min(1.25, Form.DepthM*0.4));
 				Box(World(Form.At, RoofZ+6), East, North, FVector(Width*100+16, Depth*100+16, 12), DarkMetal, Emit);
 				Box(World(Form.At, RoofZ+12+(Form.HeightM*100-12)*0.5), East, North,
 					FVector(Width*100, Depth*100, Form.HeightM*100-12), FLinearColor(0.38f,0.40f,0.40f,Metal), Emit);

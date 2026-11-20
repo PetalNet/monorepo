@@ -446,7 +446,7 @@ a height, a roof albedo, and where each came from.
   photo is calibrated per class against the reflectance raster; a roof reads like the unvegetated class, a prior).
 - **Roof forms** on large light roofs come from compact contrasting regions in the photo. Their locations and
   plan dimensions are image inferences; bounds can include cast shadows and the object type is unconfirmed.
-  Edge-connected shadows and long thin seams are excluded. Sparse clusters are covered by solid photo rectangles at least two cells across; one-cell connections do not fill the space between units. Service-box height is a 0.9 m prior. Fixture bodies are inset 0.2 m per side from those uncertain bounds; their curbs stay inside the bounds so neighbouring volumes remain separate. These forms do
+  Edge-connected shadows and long thin seams are excluded. Sparse clusters are covered by solid photo rectangles at least two cells across; one-cell connections do not fill the space between units. Service-box height is a 0.9 m prior. Fixture bodies are inset up to 1.25 m per side from those uncertain bounds, capped at 40% of each dimension while retaining a 0.4 m minimum body width; their curbs stay inside the bounds to leave visible gaps between neighbouring volumes. Building components retain normal mesh shadows and omit the screen-space contact pass, which self-occludes thin seating rows. These forms do
   not change the measured building height or median roof albedo.
 - **Architectural detail:** each record's `architecture` describes its facade and roof kit. Source tags choose
   residential, institutional, commercial, utility or grandstand use. Untagged footprints use area, width and
