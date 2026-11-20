@@ -444,8 +444,21 @@ a height, a roof albedo, and where each came from.
   On the real tile 200 of 207 buildings took the lidar's height, 5 a tag, 2 the tile's median.
 - **Roof colour** is the median photo colour over the footprint, turned into albedo by the paved class's curve (the
   photo is calibrated per class against the reflectance raster; a roof reads like the unvegetated class, a prior).
-- **Priors, with no source:** roofs are flat (no source gives roof shape); every wall has one albedo of 0.25 (no
-  facade colour); roughness 0.85; 3 m a floor; the 0.3 m simplification, the 4 m2 minimum area, the 1.5 m lidar
+- **Roof forms** on large light roofs come from compact contrasting regions in the photo. Their locations and
+  plan dimensions are image inferences; bounds can include cast shadows and the object type is unconfirmed.
+  Edge-connected shadows and long thin seams are excluded. Sparse clusters are covered by solid photo rectangles at least two cells across; one-cell connections do not fill the space between units. Service-box height is a 0.9 m prior. These forms do
+  not change the measured building height or median roof albedo.
+- **Architectural detail:** each record's `architecture` describes its facade and roof kit. Source tags choose
+  residential, institutional, commercial, utility or grandstand use. Untagged footprints use area, width and
+  measured height as a prior. Suitable rectangular residential roofs get a ridge; irregular footprints and
+  courtyards keep their triangulated flat roof. Gabled roofs extend equally above and below the lidar median.
+- **Priors, with no source:** facade colour, brick or siding, window bays, doors, trim, parapets and HVAC are
+  plausible modular details, not surveyed elevations. Roof pitch is 0.38 rise/run, capped at 2.4 m rise. Roof
+  roughness is 0.85. Grandstand rows use the tagged footprint and measured height; paired stands face each other.
+  Bench fittings and the larger stand's press box are priors. Each record carries provenance, and
+  `buildings.priors` lists these limitations. A tagged grandstand owns a generic streetscape bleacher when at
+  least 25% of the seating plan overlaps its footprint; `claimed_bleachers` records the omitted kit and overlap.
+  Separate bleachers remain in the streetscape inventory. The 3 m floor, 0.3 m simplification, 4 m2 minimum area, 1.5 m lidar
   threshold, the 3-cell minimum and the 1 m edge are set by hand. All are in `build.json` under `buildings.settings` and `buildings.priors`.
 - **Roofs are not trees.** A canopy map counts a roof as canopy, and a tree is placed at its crown's top, so a crown
   whose top lies in a footprint (edge cells included) would stand in a building. It is dropped (142 on the real tile,
@@ -456,7 +469,8 @@ a height, a roof albedo, and where each came from.
   ground not under one. Nothing double-draws ground and roof.
 
 Limits: the lidar is from 2017. A demolished building is still in the lidar's height where the footprint source is
-older, and a new one has only its tags. Eaves, chimneys, gables and storeys' colour are not modelled.
+older, and a new one has only its tags. Facade details and roof profiles are approximations; chimneys and interiors
+are not modelled. Roof tags can select flat or gabled profiles; other roof shapes retain flat massing.
 
 ## Unreal side
 
@@ -492,13 +506,17 @@ grass from paving without storing site annotations in this repository.
   fails if one is missing or its top is more than 5 cm under its measured height. The tree actor carries the tag
   `EnvGenStanding`; the tours look past anything with it when they ask where the ground is, so a camera's height
   is above the ground and not above a crown.
-- **Buildings in the level.** Each footprint is a block: walls from 30 cm under the ground at every corner up to
-  one roof height over the ground at the footprint's anchor point (never under the ground at a corner), a flat roof, and
-  the roof triangles from the pipeline. The blocks are merged into one mesh per 126 m square, so a square is one draw
-  and one collision body (the mesh's own triangles are its collision). The colour is carried in two UV channels, so
-  there is one material and no texture: roofs take their measured albedo and walls 0.25. The receipt counts the
-  buildings placed and traces down onto 25 of them; the build fails if one is missing or its roof is more than 5 cm
-  off. The actors carry `EnvGenStanding` and the building stencil, and the ground check looks past them.
+- **Buildings in the level.** Walls extend from 30 cm under the ground to the roof profile. The architecture
+  module adds framed glazing, entrances, roof trim, parapets, rooftop equipment and stepped grandstand seating.
+  Roof colours retain the photo's measured albedo. One opaque material uses metric UVs for brick courses, siding,
+  shingles and membrane seams, with separate roughness for glass and metal. Geometry is joined per 126 m square,
+  built as Nanite. Hidden collision meshes contain walls and roof profiles, including stadium treads and risers;
+  cosmetic frames, trim and equipment do not enlarge the collision mesh or obstruct roof checks. Metric UVs use
+  full precision, and colour channels are separate from the generated lightmap channel. Detail contrast fades
+  with pixel size to preserve distant roof albedo. The receipt counts valid Nanite meshes and traces every
+  building; a missing building, invalid Nanite data or roof error over 5 cm fails the build.
+  Older inventories without `architecture` retain their plain walls and flat roofs. Actors carry
+  `EnvGenStanding` and the building stencil, so ground checks look past them.
 - **EnvGen** has the walking pawn, the game mode and the tour actor.
 
 `unreal/Host` is a minimal project that hosts the plugin.

@@ -19,6 +19,7 @@ from rasterio.features import rasterize
 from rasterio.transform import from_origin
 from shapely.geometry import LineString, Polygon, box
 
+from . import architecture
 from .site import SiteError, Tile
 
 SURFACES = {"asphalt": 0.04, "concrete": 0.04, "track": 0.05, "gravel": 0.04, "clay": 0.04, "turf": 0.025}
@@ -469,7 +470,7 @@ def _bounded(meshes):
     return result
 
 
-def build_inventory(path: Path, tile: Tile, out: Path) -> dict:
+def build_inventory(path: Path, tile: Tile, out: Path, building_footprints=()) -> dict:
     """Validate measured inventory, write streetscape.json, and return its stage description."""
     try:
         raw = json.loads(path.read_text())
@@ -494,6 +495,11 @@ def build_inventory(path: Path, tile: Tile, out: Path) -> dict:
         seen.add(feature["id"])
         features.append(feature)
         priors.extend(defaults)
+    features, claimed = architecture.claim_bleachers(features, building_footprints, tile)
+    if claimed:
+        priors.append(
+            f"Tagged building grandstands own generic bleachers with at least {architecture.GRANDSTAND_CLAIM_SHARE:g} plan overlap"
+        )
     meshes = []
     exclusions = []
     if features:
@@ -542,6 +548,7 @@ def build_inventory(path: Path, tile: Tile, out: Path) -> dict:
         "counts": counts,
         "meshes": meshes,
         "evidence": [{"id": f["id"], "evidence": f["evidence"], "confidence": f["confidence"]} for f in features],
+        "claimed_bleachers": claimed,
     }
     out.mkdir(parents=True, exist_ok=True)
     (out / "streetscape.json").write_text(json.dumps(payload, separators=(",", ":"), allow_nan=False) + "\n")
@@ -570,4 +577,5 @@ def build_inventory(path: Path, tile: Tile, out: Path) -> dict:
         "source": source,
         "settings": SETTINGS,
         "priors": priors,
+        "claimed_bleachers": claimed,
     }

@@ -9,12 +9,12 @@ from PIL import Image
 from pyproj import Transformer
 from shapely.geometry import Polygon
 
-from envgen import buildings, surface
+from envgen import architecture, buildings, surface
 from envgen.build import build
 from envgen.site import SiteError, Tile, load_site
 
 from . import helpers as h
-from .test_cover import DAY, GROUND, LIDAR, sources
+from .test_cover import GROUND, LIDAR, sources
 
 PINK = (200, 120, 130)
 # west, south, east, north in metres from the tile's south-west corner
@@ -159,7 +159,7 @@ def test_a_roof_the_lidar_never_saw_is_still_taken_out_of_the_ground(tmp_path):
 
 
 def test_a_roof_the_lidar_saw_takes_its_height_from_it_and_a_rerun_reuses_the_stage_until_an_input_changes(tmp_path):
-    out, manifest = build_with_roof(tmp_path, roof_in_lidar=True, height_m=12.0)
+    out, _ = build_with_roof(tmp_path, roof_in_lidar=True, height_m=12.0)
     record = json.loads((out / "buildings.json").read_text())["buildings"][0]
     assert record["height_m"] == pytest.approx(6.0, abs=0.01) and record["height_from"].startswith("lidar")
     assert "buildings" in build(tmp_path / "site.json", out)["stages_reused"]
@@ -174,6 +174,15 @@ def test_buildings_must_come_from_a_file(tmp_path):
     bad = {"buildings": {"kind": "cog", "url": "x"}}
     with pytest.raises(SiteError, match="sources.buildings: kind must be 'file'"):
         load_site(h.write_site(tmp_path, sources=sources(**LIDAR, **bad)))
+
+
+def test_an_architecture_change_rebuilds_only_buildings(tmp_path, monkeypatch):
+    out, _ = build_with_roof(tmp_path, roof_in_lidar=True)
+    reused = build(tmp_path / "site.json", out)["stages_reused"]
+    monkeypatch.setattr(architecture, "VERSION", architecture.VERSION + 1)
+    changed = build(tmp_path / "site.json", out)
+    assert "buildings" not in changed["stages_reused"]
+    assert set(changed["stages_reused"]) == set(reused) - {"buildings"}
 
 
 def test_buildings_without_lidar_or_canopy_are_refused_because_nothing_would_hide_their_roofs(tmp_path):
@@ -205,3 +214,22 @@ def test_a_crown_with_its_top_in_a_footprint_is_no_tree_and_one_beside_it_stays(
     beside = {"row": row, "column": 10}
     flags = buildings.crowns_in_footprints([inside, over_a_tag_only_roof, on_the_edge, beside], footprints, TILE, 1.0)
     assert flags == [True, True, True, False]
+
+
+def test_measure_pairs_stands_tagged_as_buildings_and_keeps_generic_buildings_untyped():
+    items = [
+        {"polygon": moved((10, 10, 20, 90)), "tags": {"building": "grandstand"}},
+        {"polygon": moved((100, 10, 110, 90)), "tags": {"class": "yes", "building": "grandstand"}},
+        {"polygon": moved((40, 100, 50, 110)), "tags": {"building": "yes"}},
+    ]
+    photo = np.full((3, 126, 126), 100.0)
+    west, east, generic = buildings.measure(items, TILE, 1.0, None, photo, None, 1.0)
+    for stand, other in ((west, east), (east, west)):
+        style = stand["architecture"]
+        assert style["role"] == "grandstand" and style["roof_shape"] == "stepped"
+        assert style["orientation_from"].startswith("inferred:")
+        along = np.array(style["along"])
+        outward = np.array([-along[1], along[0]])
+        assert np.dot(outward, np.array(style["centre_m"]) - [other["east_m"], other["north_m"]]) > 0
+    assert generic["architecture"]["role"] == "residential"
+    assert generic["architecture"]["role_from"].startswith("prior:")
