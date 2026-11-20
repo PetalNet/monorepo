@@ -166,6 +166,8 @@ class Site:
     buildings: Source | None = None
     # Optional measured streetscape vectors; locations stay in the private site inputs.
     streetscape: Source | None = None
+    building_imagery: Source | None = None
+    building_reference: Source | None = None
 
 
 def acquisition_day(source: Source, name: str) -> date:
@@ -263,5 +265,13 @@ def load_site(path: Path) -> Site:
         survey=Source.parse(sources["survey"], path.parent, "survey") if "survey" in sources else None,
         tree_mix=Source.parse(sources["tree_mix"], path.parent, "tree_mix") if "tree_mix" in sources else None,
         buildings=Source.parse(sources["buildings"], path.parent, "buildings") if "buildings" in sources else None,
-        streetscape=Source.parse(sources["streetscape"], path.parent, "streetscape") if "streetscape" in sources else None,
+        streetscape=Source.parse(sources["streetscape"], path.parent, "streetscape")
+        if "streetscape" in sources
+        else None,
+        building_imagery=Source.parse(sources["building_imagery"], path.parent, "building_imagery")
+        if "building_imagery" in sources
+        else None,
+        building_reference=Source.parse(sources["building_reference"], path.parent, "building_reference")
+        if "building_reference" in sources
+        else None,
     )

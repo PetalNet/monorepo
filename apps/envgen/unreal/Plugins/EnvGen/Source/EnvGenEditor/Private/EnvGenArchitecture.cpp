@@ -104,6 +104,33 @@ void FStyle::Read(const TSharedPtr<FJsonObject>& Building)
 	LengthM = A->GetNumberField(TEXT("length_m")); WidthM = A->GetNumberField(TEXT("width_m"));
 	RiseM = A->GetNumberField(TEXT("rise_m")); ParapetM = A->GetNumberField(TEXT("parapet_m"));
 	StandRows = int32(A->GetNumberField(TEXT("stand_rows"))); StandStepM = A->GetNumberField(TEXT("stand_step_m"));
+	A->TryGetBoolField(TEXT("measured_roof"), bMeasuredRoof);
+	A->TryGetBoolField(TEXT("press_box_prior"), bPressBoxPrior);
+	const TArray<TSharedPtr<FJsonValue>>* Aisles = nullptr;
+	if (A->TryGetArrayField(TEXT("stand_aisles"), Aisles))
+	{
+		StandAisles.Reset();
+		for (const auto& Aisle : *Aisles) { StandAisles.Add(Aisle->AsNumber()); }
+	}
+	const FString Shape = A->GetStringField(TEXT("roof_shape"));
+	RoofFinish = Shape == TEXT("gabled") || Shape == TEXT("hip") || Shape == TEXT("shed") ? Shingle : Membrane;
+	FString Material;
+	if (A->TryGetStringField(TEXT("roof_material"), Material))
+	{
+		RoofFinish = Material == TEXT("metal") ? Metal : Material == TEXT("shingle") ? Shingle : Membrane;
+	}
+	const TArray<TSharedPtr<FJsonValue>>* Segments = nullptr;
+	if (A->TryGetArrayField(TEXT("wall_segments"), Segments))
+	{
+		for (const auto& Segment : *Segments)
+		{
+			const auto& Ends = Segment->AsArray();
+			const auto ReadPoint = [](const TSharedPtr<FJsonValue>& Value) {
+				const auto& P = Value->AsArray(); return FVector(P[0]->AsNumber(), P[1]->AsNumber(), P[2]->AsNumber());
+			};
+			WallSegments.Emplace(ReadPoint(Ends[0]), ReadPoint(Ends[1]));
+		}
+	}
 	for (const auto& V : A->GetArrayField(TEXT("roof_vertices")))
 	{
 		const auto& P = V->AsArray(); RoofVertices.Add(FVector(P[0]->AsNumber(), P[1]->AsNumber(), P[2]->AsNumber()));
@@ -121,12 +148,27 @@ void FStyle::Read(const TSharedPtr<FJsonObject>& Building)
 			FRoofForm& F = RoofForms.AddDefaulted_GetRef();
 			F.At = FVector2D(Form->GetNumberField(TEXT("east_m")), Form->GetNumberField(TEXT("north_m")));
 			F.WidthM = Form->GetNumberField(TEXT("width_m")); F.DepthM = Form->GetNumberField(TEXT("depth_m")); F.HeightM = Form->GetNumberField(TEXT("height_m"));
+			Form->TryGetBoolField(TEXT("observed_plan"), F.bObservedPlan);
+			FString Kind; Form->TryGetStringField(TEXT("kind"), Kind); F.bSkylight = Kind == TEXT("skylight");
 		}
 	}
 }
 
 double FStyle::RoofOffsetM(const FVector2D& Point) const
 {
+	if (bMeasuredRoof)
+	{
+		for (const FIntVector& T : RoofTriangles)
+		{
+			const FVector A = RoofVertices[T.X], B = RoofVertices[T.Y], C = RoofVertices[T.Z];
+			const double Den = (B.Y-C.Y)*(A.X-C.X)+(C.X-B.X)*(A.Y-C.Y);
+			if (FMath::Abs(Den) < 1.e-8) { continue; }
+			const double U = ((B.Y-C.Y)*(Point.X-C.X)+(C.X-B.X)*(Point.Y-C.Y))/Den;
+			const double V = ((C.Y-A.Y)*(Point.X-C.X)+(A.X-C.X)*(Point.Y-C.Y))/Den;
+			if (U >= -1.e-5 && V >= -1.e-5 && U+V <= 1+1.e-5) { return U*A.Z+V*B.Z+(1-U-V)*C.Z; }
+		}
+		return 0;
+	}
 	const double Across = FVector2D::DotProduct(Point-Centre, FVector2D(-Along.Y, Along.X));
 	if (StandRows > 0)
 	{
@@ -138,7 +180,7 @@ double FStyle::RoofOffsetM(const FVector2D& Point) const
 
 FLinearColor FStyle::RoofColour(FLinearColor Colour) const
 {
-	Colour.A = !bDetailed ? Plain : StandRows > 0 ? Concrete : RiseM > 0 ? Shingle : Membrane;
+	Colour.A = !bDetailed ? Plain : StandRows > 0 ? Concrete : RoofFinish;
 	return Colour;
 }
 
@@ -178,6 +220,22 @@ void FStyle::AddWall(FVector2D A, FVector2D B, double GroundA, double GroundB, d
 {
 	const FVector2D Delta = B-A, Across(-Along.Y, Along.X);
 	const FVector Out(-Delta.X, Delta.Y, 0);
+	if (bMeasuredRoof)
+	{
+		const double LengthSquared = Delta.SizeSquared();
+		if (LengthSquared < 1.e-8) { return; }
+		for (const auto& Segment : WallSegments)
+		{
+			const FVector2D P(Segment.Key.X, Segment.Key.Y), Q(Segment.Value.X, Segment.Value.Y);
+			const double From = FVector2D::DotProduct(P-A, Delta)/LengthSquared;
+			const double To = FVector2D::DotProduct(Q-A, Delta)/LengthSquared;
+			if (From < -1.e-5 || From > 1+1.e-5 || To < -1.e-5 || To > 1+1.e-5
+				|| (P-A-Delta*From).Size() > 0.001 || (Q-A-Delta*To).Size() > 0.001) { continue; }
+			Quad(World(P, FMath::Lerp(GroundA, GroundB, From)), World(Q, FMath::Lerp(GroundA, GroundB, To)),
+				World(Q, RoofZ+Segment.Value.Z*100), World(P, RoofZ+Segment.Key.Z*100), Out.GetSafeNormal(), Colour, Emit);
+		}
+		return;
+	}
 	const double SideA = FVector2D::DotProduct(A-Centre, Across), SideB = FVector2D::DotProduct(B-Centre, Across);
 	TArray<double> Cuts{0, 1};
 	if (!FMath::IsNearlyEqual(SideA, SideB, 1.e-8))
@@ -215,11 +273,13 @@ void FStyle::AddDetails(const TArray<TArray<FVector2D>>& Rings, double RoofZ, co
 		for (int32 Row = 0; Row < StandRows; ++Row)
 		{
 			const double Y = -WidthM*0.5+(Row+0.5)*Tread, Top = FirstZ+(Row+1)*StandStepM*100;
-			// A central aisle also keeps the roof-check point on the seating deck, clear of the benches.
-			for (const double Side : {-1.0, 1.0})
+			TArray<double> Cuts{-LengthM*0.5};
+			for (const double Aisle : StandAisles) { Cuts.Add(Aisle*LengthM); }
+			Cuts.Add(LengthM*0.5);
+			for (int32 Section = 1; Section < Cuts.Num(); ++Section)
 			{
-				double SeatLength = FMath::Max(0.0, (LengthM-2.0)*0.5-0.3);
-				const FVector2D At = Centre + Along*(Side*(LengthM+2.0)*0.25) + Across*Y;
+				double SeatLength = FMath::Max(0.0, Cuts[Section]-Cuts[Section-1]-1.2);
+				const FVector2D At = Centre + Along*((Cuts[Section]+Cuts[Section-1])*0.5) + Across*Y;
 				while (SeatLength > 1 && !Fits(At, Along, Across, SeatLength*0.5, 0.2, Rings)) { SeatLength -= 0.25; }
 				if (SeatLength > 1 && Fits(At, Along, Across, SeatLength*0.5, 0.2, Rings))
 				{
@@ -242,7 +302,7 @@ void FStyle::AddDetails(const TArray<TArray<FVector2D>>& Rings, double RoofZ, co
 			if (Fits(Rail, Along, Across, 1.5, 0.03, Rings)) { Box(World(Rail, BackZ+100), U, V, FVector(300, 5, 5), DarkMetal, Emit); }
 		}
 		// The larger stand carries a modest press box; its footprint and fittings are architectural priors.
-		if (LengthM*WidthM > 1000)
+		if (bPressBoxPrior && LengthM*WidthM > 1000)
 		{
 			const FVector2D At = Centre+Across*(WidthM*0.5-1.6);
 			if (Fits(At, Along, Across, 5.2, 1.55, Rings))
@@ -282,8 +342,8 @@ void FStyle::AddDetails(const TArray<TArray<FVector2D>>& Rings, double RoofZ, co
 			}
 			if (ParapetM > 0)
 			{
-				Box(World(Middle, RoofZ+ParapetM*50)-Out*11, Tangent, Out, FVector(Length*100, 22, ParapetM*100), Wall, Emit);
-				Box(World(Middle, RoofZ+ParapetM*100+3)-Out*11, Tangent, Out, FVector(Length*100+10, 30, 6), DarkMetal, Emit);
+				Box(World(Middle, Eave+ParapetM*50)-Out*11, Tangent, Out, FVector(Length*100, 22, ParapetM*100), Wall, Emit);
+				Box(World(Middle, Eave+ParapetM*100+3)-Out*11, Tangent, Out, FVector(Length*100+10, 30, 6), DarkMetal, Emit);
 			}
 			const bool bEntrance = RingIndex == 0 && Edge == EntranceEdge && Length > 3;
 			const double DoorGround = Ground(Middle.X, Middle.Y);
@@ -344,19 +404,22 @@ void FStyle::AddDetails(const TArray<TArray<FVector2D>>& Rings, double RoofZ, co
 			for (const FRoofForm& Form : RoofForms)
 			{
 				if (!Fits(Form.At, FVector2D(1,0), FVector2D(0,1), Form.WidthM*0.5, Form.DepthM*0.5, Rings)) { continue; }
-				const double Width = FMath::Max(0.4, Form.WidthM-2*FMath::Min(1.25, Form.WidthM*0.4));
-				const double Depth = FMath::Max(0.4, Form.DepthM-2*FMath::Min(1.25, Form.DepthM*0.4));
-				Box(World(Form.At, RoofZ+6), East, North, FVector(Width*100+16, Depth*100+16, 12), DarkMetal, Emit);
-				Box(World(Form.At, RoofZ+12+(Form.HeightM*100-12)*0.5), East, North,
-					FVector(Width*100, Depth*100, Form.HeightM*100-12), FLinearColor(0.38f,0.40f,0.40f,Metal), Emit);
+				const double Width = FMath::Max(0.4, Form.WidthM-(Form.bObservedPlan ? 0.16 : 2*FMath::Min(1.25, Form.WidthM*0.4)));
+				const double Depth = FMath::Max(0.4, Form.DepthM-(Form.bObservedPlan ? 0.16 : 2*FMath::Min(1.25, Form.DepthM*0.4)));
+				const double FormZ = RoofZ+RoofOffsetM(Form.At)*100;
+				Box(World(Form.At, FormZ+6), East, North, FVector(Width*100+16, Depth*100+16, 12), DarkMetal, Emit);
+				Box(World(Form.At, FormZ+12+(Form.HeightM*100-12)*0.5), East, North,
+					FVector(Width*100, Depth*100, Form.HeightM*100-12), Form.bSkylight ? Window : FLinearColor(0.38f,0.40f,0.40f,Metal), Emit);
+				if (Form.bSkylight) { continue; }
 				for (int32 Slat = 0; Slat < 6; ++Slat)
 				{
 					const FVector2D At = Form.At+FVector2D(Width*(Slat-2.5)/8,0);
-					Box(World(At, RoofZ+Form.HeightM*100+1), East, North, FVector(Width*7, Depth*65, 2), DarkMetal, Emit);
+					Box(World(At, FormZ+Form.HeightM*100+1), East, North, FVector(Width*7, Depth*65, 2), DarkMetal, Emit);
 				}
 			}
 			return;
 		}
+		if (bMeasuredRoof) { return; }
 		const int32 Units = FMath::Clamp(FMath::FloorToInt(LengthM*WidthM/700), 1, 8);
 		for (int32 I = 0; I < Units; ++I)
 		{

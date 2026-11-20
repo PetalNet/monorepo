@@ -9,7 +9,7 @@ from PIL import Image
 from pyproj import Transformer
 from shapely.geometry import Polygon
 
-from envgen import architecture, buildings, surface
+from envgen import architecture, buildings, cli, roof_survey, surface
 from envgen.build import build
 from envgen.site import SiteError, Tile, load_site
 
@@ -183,6 +183,43 @@ def test_an_architecture_change_rebuilds_only_buildings(tmp_path, monkeypatch):
     changed = build(tmp_path / "site.json", out)
     assert "buildings" not in changed["stages_reused"]
     assert set(changed["stages_reused"]) == set(reused) - {"buildings"}
+
+
+def test_a_roof_survey_change_rebuilds_only_buildings(tmp_path, monkeypatch):
+    out, _ = build_with_roof(tmp_path, roof_in_lidar=True)
+    reused = build(tmp_path / "site.json", out)["stages_reused"]
+    monkeypatch.setattr(roof_survey, "VERSION", roof_survey.VERSION + 1)
+    changed = build(tmp_path / "site.json", out)
+    assert "buildings" not in changed["stages_reused"]
+    assert set(changed["stages_reused"]) == set(reused) - {"buildings"}
+
+
+def test_cli_build_with_roof_imagery_and_reference_records_local_fetches(tmp_path):
+    out, _ = build_with_roof(tmp_path, roof_in_lidar=True)
+    h.write_raster(
+        tmp_path / "roof-reference.tif", np.full((3, 544, 544), 180, dtype=np.uint8), h.WEST - 5, h.SOUTH + 131, 0.25
+    )
+    (tmp_path / "roof-observations.json").write_text(json.dumps({"buildings": {}}))
+    path = tmp_path / "site.json"
+    site = json.loads(path.read_text())
+    for name, filename in [
+        ("building_imagery", "roof-reference.tif"),
+        ("building_reference", "roof-observations.json"),
+    ]:
+        site["sources"][name] = {"kind": "file", "path": filename, "date": "2024", "license": "test fixture"}
+    path.write_text(json.dumps(site))
+    assert cli.main(["build", str(path), "--out", str(out)]) == 0
+    result = json.loads((out / "build.json").read_text())
+    assert result["sources"]["building_imagery"]["bytes_fetched"] == 0
+    assert result["sources"]["building_reference"]["bytes_fetched"] == 0
+    assert len(json.loads((out / "building_accuracy.json").read_text())["buildings"]) == 1
+    reused = build(path, out)["stages_reused"]
+    site["sources"]["building_imagery"]["date"] = "2025"
+    path.write_text(json.dumps(site))
+    corrected = build(path, out)
+    records = json.loads((out / "buildings.json").read_text())["buildings"]
+    assert records[0]["imagery_observation"]["image_date"] == "2025"
+    assert set(corrected["stages_reused"]) == set(reused) - {"buildings"}
 
 
 def test_buildings_without_lidar_or_canopy_are_refused_because_nothing_would_hide_their_roofs(tmp_path):

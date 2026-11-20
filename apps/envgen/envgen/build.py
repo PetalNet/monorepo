@@ -19,6 +19,7 @@ from scipy import ndimage
 
 from . import (
     architecture,
+    building_imagery,
     buildings,
     cover,
     frame,
@@ -26,6 +27,7 @@ from . import (
     lidar,
     light,
     orthophoto,
+    roof_survey,
     streetscape,
     surface,
     survey_light,
@@ -406,6 +408,7 @@ def build_buildings(
     out: Path,
     classes: dict,
     lidar_height: np.ndarray | None,
+    cache: Path | None = None,
 ) -> dict:
     """Write measured massing and the explicitly labeled architectural priors used by the engine."""
     tile = site.tile
@@ -419,7 +422,45 @@ def build_buildings(
     albedo = classes["albedo"]
     curve = albedo.get("curves", {}).get(surface.PAVED)
     records = buildings.measure(footprints, tile, lidar.CELL_M, lidar_height, photo, curve, albedo["scale"])
+    if cache is not None and site.lidar:
+        priors = [
+            {
+                **r,
+                "architecture": {
+                    **r["architecture"],
+                    "centre_m": (np.asarray(r["architecture"]["centre_m"]) + tile.centre).tolist(),
+                },
+            }
+            for r in records
+        ]
+        surveys = roof_survey.measure(footprints, lidar.load_points(site.lidar, tile, site.crs, cache), priors)
+        buildings.apply_surveys(records, surveys, tile)
+    if site.building_imagery:
+        building_imagery.observe(
+            records,
+            footprints,
+            site.building_imagery.location,
+            site.crs,
+            curve,
+            albedo["scale"],
+            site.lidar.date if site.lidar else None,
+            site.building_imagery.date,
+        )
+    if site.building_reference:
+        buildings.apply_reference(records, Path(site.building_reference.location))
     (out / "buildings.json").write_text(json.dumps({"buildings": records}, separators=(",", ":")))
+    accuracy = [
+        {
+            "id": r["id"],
+            "height_m": r["height_m"],
+            "roof_shape": r["architecture"]["roof_shape"],
+            "survey": r.get("roof_survey", {"status": "unavailable"}),
+            "facade": r.get("facade_reference", {"status": "prior"}),
+            "outline": r.get("outline_observation", {"status": "source footprint"}),
+        }
+        for r in records
+    ]
+    (out / "building_accuracy.json").write_text(json.dumps({"buildings": accuracy}, separators=(",", ":")))
     priors = [
         *architecture.PRIORS,
         "prior: a roof's photo colour becomes albedo by the paved class's curve"
@@ -432,7 +473,7 @@ def build_buildings(
             f"prior: buildings with no lidar and no tag take {buildings.FLOOR_M:g} m a floor or the tile's median"
         )
     return {
-        "files": ["buildings.json"],
+        "files": ["buildings.json", "building_accuracy.json"],
         "file": "buildings.json",
         "count": len(records),
         "height_from": by_height,
@@ -448,6 +489,10 @@ def build_buildings(
         "priors": priors,
         "settings": buildings.SETTINGS,
         "architecture_version": architecture.VERSION,
+        "roof_planes_measured": sum(r.get("architecture", {}).get("measured_roof", False) for r in records),
+        "facades_photo_referenced": sum(
+            r.get("facade_reference", {}).get("status") == "photo-referenced" for r in records
+        ),
     }
 
 
@@ -1376,11 +1421,26 @@ def build(site_path: Path, out: Path, cache: Path | None = None) -> dict:
         lidar_key = sources["lidar"]["sha256"]
     structure = {}
     footprints, roofs = [], None
+    for name in ("building_imagery", "building_reference"):
+        source = getattr(site, name)
+        if source:
+            sources[name] = {
+                "kind": source.kind,
+                "license": source.license,
+                "date": source.date,
+                "bytes_fetched": 0,
+                "path": source.location,
+                "sha256": sha256_file(Path(source.location)),
+            }
     if site.buildings:
         path = Path(site.buildings.location)
         if not path.is_file():
             raise FileNotFoundError(f"sources.buildings: {path} does not exist")
         footprints = buildings.load_footprints(path, site.crs, tile)
+        if site.building_imagery:
+            footprints = building_imagery.refine(footprints, site.building_imagery.location, site.crs, tile)
+        if site.building_reference:
+            footprints = buildings.reference_outlines(footprints, Path(site.building_reference.location), tile)
         roofs = buildings.mask(footprints, tile, lidar.CELL_M)
         sources["buildings"] = {
             "kind": site.buildings.kind,
@@ -1390,7 +1450,15 @@ def build(site_path: Path, out: Path, cache: Path | None = None) -> dict:
             "path": site.buildings.location,
             "sha256": sha256_file(path),
         }
-    buildings_key = [sources["buildings"]["sha256"], buildings.SETTINGS] if site.buildings else None
+    buildings_key = (
+        [
+            sources["buildings"]["sha256"],
+            buildings.SETTINGS,
+            hashlib.sha256(b"".join(item["polygon"].wkb for item in footprints)).hexdigest(),
+        ]
+        if site.buildings
+        else None
+    )
 
     def rasters() -> tuple[np.ndarray | None, np.ndarray | None]:
         if site.lidar and not structure:
@@ -1720,13 +1788,19 @@ def build(site_path: Path, out: Path, cache: Path | None = None) -> dict:
                 buildings_key,
                 lidar_key,
                 architecture.VERSION,
+                roof_survey.VERSION if site.lidar else None,
+                sources.get("building_imagery", {}).get("sha256"),
+                building_imagery.VERSION if site.building_imagery else None,
+                site.building_imagery.date if site.building_imagery else None,
+                site.lidar.date if site.lidar else None,
+                sources.get("building_reference", {}).get("sha256"),
                 sources["imagery"]["sha256"],
                 bands,
                 sources["elevation"]["sha256"],
                 classes["albedo"].get("curves", {}).get(surface.PAVED),
                 classes["albedo"]["scale"],
             ),
-            lambda: build_buildings(site, footprints, imagery, out, classes, rasters()[0]),
+            lambda: build_buildings(site, footprints, imagery, out, classes, rasters()[0], cache),
         )
         housing = stages["buildings"]
 
