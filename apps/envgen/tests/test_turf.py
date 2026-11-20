@@ -40,14 +40,25 @@ def test_no_grass_or_no_paving_stays_finite_without_inventing_an_edge():
     assert turf.growth(flat, np.zeros((3, 32, 32)), flat, flat, 1, 0)[0][:2].max() == 0
 
 
-def test_mixed_path_edge_retains_grass_for_the_engines_fractional_placement_weight():
+def test_mixed_path_cells_retain_growth_data_for_material_placement():
     grass = np.ones((32, 32), dtype=np.float32)
     grass[:, :8] = 0
     grass[:, 8:12] = 0.25
     flat = np.zeros(grass.shape)
     packed, _ = turf.growth(grass, np.zeros((3, 32, 32)), flat, flat, 0.5, 7)
 
-    placed = packed[:2] * grass
-    assert placed[:, :, :8].max() == 0
-    assert placed[0, :, 8:12].min() > 0
-    assert placed[0, :, 8:12].max() < placed[0, :, 16:].min()
+    assert packed[:2, :, :8].max() == 0
+    assert np.all(packed[0, :, 8:12] == 1)
+    assert np.all(packed[0, :, 16:] == 1)
+
+
+def test_paving_far_from_the_grass_edge_does_not_receive_the_fringe_height_boost():
+    grass = np.ones((24, 24), dtype=np.float32)
+    grass[:, 12:] = 0.2
+    flat = np.zeros(grass.shape)
+    packed, _ = turf.growth(grass, np.zeros((3, *grass.shape)), flat, flat, 1, 7)
+
+    assert np.all(packed[0] == 1)
+    assert packed[1, :, -3:].max() < 0.2
+    assert packed[1, :, 11:13].min() > 0.3
+    assert packed[2, :, -3:].mean() < packed[2, :, 11:13].mean()

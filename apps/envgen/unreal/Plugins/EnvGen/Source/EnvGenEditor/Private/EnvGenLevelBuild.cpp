@@ -96,6 +96,7 @@ namespace
 	// several metres wide. The material cuts the ramp to this fraction either side of 0.5 and lets the relief map
 	// move the cut a little: a look, not a measurement.
 	constexpr float EdgeSharpness = 0.35f;
+	constexpr float GrassPlacementEdgeSharpness = 0.12f;
 	constexpr float ReliefInfluence = 0.15f;
 	// How far a traced surface point may sit from the height the manifest says it should have.
 	constexpr double SurfaceToleranceCm = 5.0;
@@ -1435,6 +1436,7 @@ return float4(dx,dy);
 		UMaterialExpression* WeightSum = nullptr;
 		UMaterialExpression* GrassSharp = nullptr;
 		UMaterialExpression* GrassPlacement = nullptr;
+		UMaterialExpression* GrassWeight = nullptr;
 		UMaterialExpression* NativeMasks = nullptr;
 		UMaterialExpression* NativeCoverage = nullptr;
 		UMaterialExpression* NativeInfluence = nullptr;
@@ -1614,19 +1616,24 @@ return float4(dx,dy);
 				Replace->Alpha.Connect(0, NativeInfluence);
 				SurfaceWeight = Replace;
 			}
-			UMaterialExpressionAdd* Lifted = Node<UMaterialExpressionAdd>(Material, 100, Y);
 			UMaterialExpressionMultiply* ReliefShift = Node<UMaterialExpressionMultiply>(Material, 0, Y + 100);
 			ReliefShift->A.Connect(0, Relief);
 			ReliefShift->ConstB = ReliefInfluence;
-			Lifted->A.Connect(0, SurfaceWeight);
-			Lifted->B.Connect(0, ReliefShift);
-			UMaterialExpressionAdd* Centred = Node<UMaterialExpressionAdd>(Material, 150, Y);
-			Centred->A.Connect(0, Lifted);
-			Centred->ConstB = -ReliefInfluence / 2;
-			UMaterialExpressionSmoothStep* Cut = Node<UMaterialExpressionSmoothStep>(Material, 200, Y);
-			Cut->Value.Connect(0, Centred);
-			Cut->ConstMin = 0.5f - EdgeSharpness;
-			Cut->ConstMax = 0.5f + EdgeSharpness;
+			const auto Sharpen = [&](UMaterialExpression* Input, float Width, int32 X)
+			{
+				UMaterialExpressionAdd* Lifted = Node<UMaterialExpressionAdd>(Material, X, Y);
+				Lifted->A.Connect(0, Input);
+				Lifted->B.Connect(0, ReliefShift);
+				UMaterialExpressionAdd* Centred = Node<UMaterialExpressionAdd>(Material, X + 50, Y);
+				Centred->A.Connect(0, Lifted);
+				Centred->ConstB = -ReliefInfluence / 2;
+				UMaterialExpressionSmoothStep* Cut = Node<UMaterialExpressionSmoothStep>(Material, X + 100, Y);
+				Cut->Value.Connect(0, Centred);
+				Cut->ConstMin = 0.5f - Width;
+				Cut->ConstMax = 0.5f + Width;
+				return Cut;
+			};
+			UMaterialExpressionSmoothStep* Cut = Sharpen(SurfaceWeight, EdgeSharpness, 100);
 			// A little of the plain weight keeps the sum above zero where no class reaches one half.
 			UMaterialExpressionMultiply* Floor = Node<UMaterialExpressionMultiply>(Material, 200, Y + 100);
 			Floor->A.Connect(0, SurfaceWeight);
@@ -1649,7 +1656,9 @@ return float4(dx,dy);
 			if (Layer.Name == GrassLayer)
 			{
 				GrassSharp = Cut;
-				GrassPlacement = Weight;
+				GrassWeight = Weight;
+				// Placement uses the imported native-blended weights without virtual-texture sampling in the grass pass.
+				GrassPlacement = Sharpen(Weight, GrassPlacementEdgeSharpness, 1500);
 			}
 			++Row;
 		}
@@ -1731,7 +1740,7 @@ return normalize(float3(ScanNormal.xy*lerp(1,1.8,close)-slope*Grass,ScanNormal.z
 			Place.Input.Connect(0, GroundPosition);
 			FCustomInput& Grass = Relief->Inputs.AddDefaulted_GetRef();
 			Grass.InputName = TEXT("Grass");
-			Grass.Input.Connect(0, GrassPlacement);
+			Grass.Input.Connect(0, GrassWeight);
 			Relief->Code = TEXT("return float3(0,0,Grass*0.65*sin(Here.x*0.027+Here.y*0.013)*sin(Here.y*0.039-Here.x*0.011));");
 			UMaterialEditingLibrary::ConnectMaterialProperty(Relief, TEXT(""), MP_WorldPositionOffset);
 		}
