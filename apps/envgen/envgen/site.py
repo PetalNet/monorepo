@@ -63,6 +63,7 @@ class Source:
                 "canopy_height": "'file' or 'cog'",
                 "reflectance": "'file'",
                 "buildings": "'file'",
+                "streetscape": "'file'",
             }.get(name, "'file' or 'arcgis_imageserver'")
             raise SiteError(f"sources.{name}: kind must be {allowed}, got {kind!r}")
         for field in ("license", "date"):
@@ -163,6 +164,8 @@ class Site:
     tree_mix: Source | None = None
     # optional: building footprints as GeoJSON in WGS84, with optional `height_m` and `num_floors` tags per feature
     buildings: Source | None = None
+    # Optional measured streetscape vectors; locations stay in the private site inputs.
+    streetscape: Source | None = None
 
 
 def acquisition_day(source: Source, name: str) -> date:
@@ -260,4 +263,5 @@ def load_site(path: Path) -> Site:
         survey=Source.parse(sources["survey"], path.parent, "survey") if "survey" in sources else None,
         tree_mix=Source.parse(sources["tree_mix"], path.parent, "tree_mix") if "tree_mix" in sources else None,
         buildings=Source.parse(sources["buildings"], path.parent, "buildings") if "buildings" in sources else None,
+        streetscape=Source.parse(sources["streetscape"], path.parent, "streetscape") if "streetscape" in sources else None,
     )

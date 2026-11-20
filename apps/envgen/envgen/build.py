@@ -17,7 +17,7 @@ from rasterio.warp import reproject, transform, transform_bounds
 from rasterio.windows import Window, from_bounds
 from scipy import ndimage
 
-from . import buildings, cover, frame, grain, lidar, light, orthophoto, surface, survey_light, trees, turf
+from . import buildings, cover, frame, grain, lidar, light, orthophoto, streetscape, surface, survey_light, trees, turf
 from .acquire import acquire, sha256_file
 from .site import (
     CONTEXT_QUADS,
@@ -1683,6 +1683,23 @@ def build(site_path: Path, out: Path, cache: Path | None = None) -> dict:
     if survey_lighting:
         solar_time = survey_lighting["solar_time"]
     half_cm = tile.size_m * 100 / 2
+    if site.streetscape:
+        if not Path(site.streetscape.location).is_file():
+            raise SiteError(f"sources.streetscape: {site.streetscape.location} does not exist")
+        sources["streetscape"] = {
+            "kind": "file",
+            "path": site.streetscape.location,
+            "license": site.streetscape.license,
+            "date": site.streetscape.date,
+            "sha256": sha256_file(Path(site.streetscape.location)),
+            "bytes_fetched": 0,
+        }
+        stages["streetscape"] = _cached(
+            out,
+            "streetscape",
+            _stage_key("streetscape-2", grid, sources["streetscape"]["sha256"], streetscape.SETTINGS),
+            lambda: streetscape.build_inventory(Path(site.streetscape.location), tile, out),
+        )
     manifest = {
         "schema_version": SCHEMA_VERSION,
         "pipeline_version": PIPELINE_VERSION,
@@ -1717,7 +1734,7 @@ def build(site_path: Path, out: Path, cache: Path | None = None) -> dict:
             geo["origin_longitude_deg"],
             geo["true_north_from_grid_north_deg"],
         ),
-        "stencil_classes": STENCIL_CLASSES,
+        "stencil_classes": STENCIL_CLASSES | ({"prop": 8, "marking": 9} if site.streetscape else {}),
         "sources": sources,
     }
     artifacts = [elevation["file"], macro["file"], detail["file"], *classes["files"]]
@@ -1726,6 +1743,11 @@ def build(site_path: Path, out: Path, cache: Path | None = None) -> dict:
     if ortho:
         manifest["orthophoto"] = {key: value for key, value in ortho.items() if key not in ("files", "cached")}
         artifacts += ortho["files"]
+    if "streetscape" in stages:
+        manifest["streetscape"] = {
+            key: value for key, value in stages["streetscape"].items() if key not in ("files", "cached")
+        }
+        artifacts += stages["streetscape"]["files"]
     if any(layer["name"] == "grass" for layer in classes["layers"]):
         manifest["turf"] = turf.describe()
         manifest["turf"]["growth"] = {key: value for key, value in stages["growth"].items() if key not in ("files", "cached")}

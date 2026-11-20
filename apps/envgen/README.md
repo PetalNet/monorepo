@@ -460,6 +460,10 @@ older, and a new one has only its tags. Eaves, chimneys, gables and storeys' col
 
 ## Unreal side
 
+Measured paving, field markings and props can be supplied through the optional
+[`sources.streetscape` inventory](./streetscape.md). It generates terrain-following geometry and excludes
+grass from paving without storing site annotations in this repository.
+
 `unreal/Plugins/EnvGen` is one plugin with two modules.
 
 - **EnvGenEditor** rebuilds the level when the editor starts with `-EnvGenManifest=<build.json> -EnvGenMaterials=<directory fetch-materials.ps1 filled>`. It

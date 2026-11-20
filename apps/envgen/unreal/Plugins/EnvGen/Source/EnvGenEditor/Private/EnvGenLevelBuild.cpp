@@ -1,5 +1,6 @@
 #include "EnvGenLevelBuild.h"
 #include "EnvGenAtmosphere.h"
+#include "EnvGenStreetscape.h"
 
 #include "AssetRegistry/AssetRegistryModule.h"
 #include "Components/InstancedSkinnedMeshComponent.h"
@@ -215,6 +216,7 @@ namespace
 		float WallAlbedo = 0.25f, RoofRoughness = 0.85f;
 		// The photo's fine detail as a ratio to the macro colour: file, and how 8 bits map to a power of two.
 		FString RatioFile;
+		FString StreetscapeMaskFile;
 		double RatioLog2Range = 1, RatioZero = 127;
 		// The centimetre-scale grain of grass, measured from a survey orthophoto: file, how 8 bits map to a power of two,
 		// and how much ground one repeat covers.
@@ -430,6 +432,15 @@ namespace
 		if (Root->TryGetObjectField(TEXT("trees"), Trees))
 		{
 			Out.TreesFile = (*Trees)->GetStringField(TEXT("file"));
+		}
+		const TSharedPtr<FJsonObject>* Streetscape = nullptr;
+		if (Root->TryGetObjectField(TEXT("streetscape"), Streetscape))
+		{
+			if (!(*Streetscape)->TryGetStringField(TEXT("grass_mask"), Out.StreetscapeMaskFile) || Out.StreetscapeMaskFile.IsEmpty())
+			{
+				Error = TEXT("streetscape needs a grass_mask filename");
+				return false;
+			}
 		}
 		const TSharedPtr<FJsonObject>* Buildings = nullptr;
 		if (Root->TryGetObjectField(TEXT("buildings"), Buildings))
@@ -947,7 +958,7 @@ return (float3(1.6,0.65,0)*sway*tip + float3(0,0,(Here.z-Root.z)*(Growth.b*2-1)+
 	 * turns, mixed by broad noise, so the repeat does not show from the air. The class weights are cut to a sharp
 	 * edge where they cross one half, so an edge is as crisp as the photo's rather than as wide as a weightmap texel.
 	 */
-	UMaterial* MakeGroundMaterial(UTexture2D* Macro, UTexture2D* Ratio, UTexture2D* Survey, UTexture2D* OrthoMasks, UTexture2D* OrthoColour, UTexture2D* FallbackWeights, UTexture2D* Grain, const FManifest& Manifest, UTexture2D* Detail, UTexture2D* Growth, int32 Quads, double QuadCm, float AlbedoScale,
+	UMaterial* MakeGroundMaterial(UTexture2D* Macro, UTexture2D* Ratio, UTexture2D* Survey, UTexture2D* OrthoMasks, UTexture2D* OrthoColour, UTexture2D* FallbackWeights, UTexture2D* Grain, UTexture2D* StreetscapeMask, const FManifest& Manifest, UTexture2D* Detail, UTexture2D* Growth, int32 Quads, double QuadCm, float AlbedoScale,
 		const TArray<FLayer>& Layers, const TArray<ULandscapeGrassType*>& GrassTypes, TArray<UPackage*>& Packages)
 	{
 		UMaterial* Material = NewAsset<UMaterial>(TEXT("M_Ground"), Packages);
@@ -1340,6 +1351,13 @@ return (float3(1.6,0.65,0)*sway*tip + float3(0,0,(Here.z-Root.z)*(Growth.b*2-1)+
 			UMaterialExpressionTextureSample* GrowthAt = Sample(Material, Growth, Quads, SAMPLERTYPE_LinearColor, 900);
 			UMaterialExpressionLandscapeGrassOutput* Output = Node<UMaterialExpressionLandscapeGrassOutput>(Material, 300, 900);
 			Output->GrassTypes.Empty();
+			if (StreetscapeMask)
+			{
+				auto* Allowed = Node<UMaterialExpressionMultiply>(Material, 200, 1000);
+				Allowed->A.Connect(0, GrassPlacement);
+				Allowed->B.Connect(1, Sample(Material, StreetscapeMask, Quads, SAMPLERTYPE_LinearGrayscale, 1100));
+				GrassPlacement = Allowed;
+			}
 			for (int32 Index = 0; Index < GrassTypes.Num(); ++Index)
 			{
 				const bool bTall = Manifest.Turf.Varieties[Index].Name == FName(TEXT("tall"));
@@ -1907,11 +1925,12 @@ return normalize(float3(ScanNormal.xy-slope*Grass,ScanNormal.z));
 	 * Trace down onto buildings spread through the inventory, and return how far the worst hit is from the roof the
 	 * build placed, counting the traces that found no building. Trees are ignored: a crown may overhang a roof.
 	 */
-	double WorstBuildingTopErrorCm(UWorld* World, const FManifest& Manifest, const TArray<FBuilding>& Inventory, const AActor* Trees, int32& Checked, int32& Missed)
+	double WorstBuildingTopErrorCm(UWorld* World, const FManifest& Manifest, const TArray<FBuilding>& Inventory, const AActor* Trees, const TArray<AActor*>& Streetscape, int32& Checked, int32& Missed)
 	{
 		double Worst = 0;
 		Checked = Missed = 0;
 		FCollisionQueryParams Params;
+		Params.AddIgnoredActors(Streetscape);
 		if (Trees)
 		{
 			Params.AddIgnoredActor(Trees);
@@ -2035,6 +2054,8 @@ struct FEnvGenLevelBuild::FState
 	TArray<AActor*> BuildingActors;
 	int32 BuildingsPlaced = 0;
 	int32 MaterialErrors = 0;
+	TArray<AActor*> StreetscapeActors;
+	TSharedRef<FJsonObject> StreetscapeReceipt = MakeShared<FJsonObject>();
 	float Waited = 0;
 	int32 Frames = 0;
 };
@@ -2112,6 +2133,18 @@ bool FEnvGenLevelBuild::Start(const FString& ManifestPath, const FString& MapPat
 	IFileManager::Get().Delete(*MapFile);
 
 	UTexture2D* Macro = MakeTexture(TEXT("T_MacroColour"), MacroSize.X, MacroSize.Y, TSF_BGRA8, MacroBytes.GetData(), true, State->Packages);
+	UTexture2D* StreetscapeMask = nullptr;
+	if (!Manifest.StreetscapeMaskFile.IsEmpty())
+	{
+		TArray64<uint8> MaskBytes;
+		int32 Width = 0, Height = 0;
+		if (!DecodePng(Manifest.Directory / Manifest.StreetscapeMaskFile, ERGBFormat::Gray, 8, MaskBytes, Width, Height))
+		{
+			UE_LOG(LogEnvGen, Error, TEXT("cannot decode streetscape grass mask"));
+			return false;
+		}
+		StreetscapeMask = MakeTexture(TEXT("T_StreetscapeGrass"), Width, Height, TSF_G8, MaskBytes.GetData(), false, State->Packages, TC_Grayscale);
+	}
 	UTexture2D* Ratio = nullptr;
 	if (!Manifest.RatioFile.IsEmpty())
 	{
@@ -2224,7 +2257,7 @@ bool FEnvGenLevelBuild::Start(const FString& ManifestPath, const FString& MapPat
 			Variety.AlignToSurface = true;
 		}
 	}
-	UMaterial* Material = MakeGroundMaterial(Macro, Ratio, Survey, OrthoMasks, OrthoColour, FallbackWeights, Grain, Manifest, Detail, Growth, Manifest.Tile.Vertices - 1, Manifest.Tile.Scale.X, Manifest.AlbedoScale, Manifest.Layers, GrassTypes, State->Packages);
+	UMaterial* Material = MakeGroundMaterial(Macro, Ratio, Survey, OrthoMasks, OrthoColour, FallbackWeights, Grain, StreetscapeMask, Manifest, Detail, Growth, Manifest.Tile.Vertices - 1, Manifest.Tile.Scale.X, Manifest.AlbedoScale, Manifest.Layers, GrassTypes, State->Packages);
 	for (FLayer& Layer : Manifest.Layers)
 	{
 		Layer.Info = NewAsset<ULandscapeLayerInfoObject>(TEXT("LI_") + Layer.Name.ToString(), State->Packages);
@@ -2256,6 +2289,13 @@ bool FEnvGenLevelBuild::Start(const FString& ManifestPath, const FString& MapPat
 	{
 		UMaterial* BuildingMaterial = MakeBuildingMaterial(Manifest.RoofRoughness, State->Packages);
 		State->BuildingActors = AddBuildings(State->World, Manifest, State->HeightBytes, State->Buildings, BuildingMaterial, State->Packages, State->BuildingsPlaced);
+	}
+	if (!BuildEnvGenStreetscape(State->World, ManifestPath,
+		[&](double North, double East) { return SurfaceZ(Manifest.Tile, State->HeightBytes, North, East); },
+		State->Packages, State->StreetscapeActors, State->StreetscapeReceipt, Error))
+	{
+		UE_LOG(LogEnvGen, Error, TEXT("%s"), *Error);
+		return false;
 	}
 	if (!AddEnvGenAtmosphere(State->World, Manifest.Lighting, State->Packages, Error))
 	{
@@ -2295,6 +2335,7 @@ bool FEnvGenLevelBuild::Finish(float DeltaSeconds, bool& bSucceeded)
 	TArray<const AActor*> Standing;
 	Standing.Add(State->TreeActor);
 	Standing.Append(State->BuildingActors);
+	Standing.Append(State->StreetscapeActors);
 	const double WorstCm = WorstSurfaceErrorCm(State->World, Manifest, State->HeightBytes, Standing, Missed);
 	const int32 Components = State->Landscape->LandscapeComponents.Num();
 	const int32 TargetLayers = State->Landscape->GetTargetLayers().Num();
@@ -2305,13 +2346,14 @@ bool FEnvGenLevelBuild::Finish(float DeltaSeconds, bool& bSucceeded)
 	const double TreeTopCm = State->TreeActor ? WorstTreeTopErrorCm(State->TreeActor, Manifest, State->HeightBytes, State->Trees, TreesChecked, TreesMissed) : 0;
 	const bool bTreesOk = State->TreesPlaced == State->Trees.Num() && TreesMissed == 0 && TreeTopCm <= SurfaceToleranceCm;
 	int32 BuildingsChecked = 0, BuildingsMissed = 0;
-	const double BuildingTopCm = State->Buildings.IsEmpty() ? 0 : WorstBuildingTopErrorCm(State->World, Manifest, State->Buildings, State->TreeActor, BuildingsChecked, BuildingsMissed);
+	const double BuildingTopCm = State->Buildings.IsEmpty() ? 0 : WorstBuildingTopErrorCm(State->World, Manifest, State->Buildings, State->TreeActor, State->StreetscapeActors, BuildingsChecked, BuildingsMissed);
 	const bool bBuildingsOk = State->BuildingsPlaced == State->Buildings.Num() && BuildingsMissed == 0 && BuildingTopCm <= SurfaceToleranceCm;
 	const bool bSaved = UEditorLoadingAndSavingUtils::SavePackages(State->Packages, false) && UEditorLoadingAndSavingUtils::SaveMap(State->World, State->MapPath);
 	const bool bMaterialsOk = State->MaterialErrors == 0;
 	bSucceeded = bMerged && bSurfaceOk && bWeightsOk && bMaterialsOk && bTreesOk && bBuildingsOk && bSaved;
 
 	TSharedRef<FJsonObject> Receipt = MakeShared<FJsonObject>();
+	Receipt->Values.Append(State->StreetscapeReceipt->Values);
 	Receipt->SetStringField(TEXT("map"), State->MapPath);
 	Receipt->SetStringField(TEXT("engine"), FEngineVersion::Current().ToString());
 	Receipt->SetNumberField(TEXT("landscape_components"), Components);
