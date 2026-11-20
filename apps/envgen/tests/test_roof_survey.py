@@ -246,3 +246,28 @@ def test_exact_crossing_orients_each_nondegenerate_step_face(reverse_parts):
             assert normal[0] * (y - 1) > 0
             sides.add(np.sign(y - 1))
     assert sides == {-1, 1}
+
+
+def test_subresolution_plane_boundaries_form_one_connected_roof():
+    parts = [
+        (shapely.box(0, 0, 2, 4), np.array([0.0, 0.0, 200.0])),
+        (shapely.box(2, 0, 4, 2), np.array([0.0, 0.0, 200.12])),
+        (shapely.box(2, 2, 4, 4), np.array([0.0, 0.0, 200.2])),
+    ]
+    vertices, triangles = roof_survey._mesh(parts, np.zeros(2), 200.0)
+    vertices = np.asarray(vertices)
+    faces = vertices[triangles]
+    normals = np.cross(faces[:, 1] - faces[:, 0], faces[:, 2] - faces[:, 0])
+    assert np.all(normals[:, 2] > 0), "subresolution plane labels must not produce vertical roof shards"
+    assert np.isclose(normals[:, 2].sum() / 2, 16.0)
+    at_junction = vertices[np.linalg.norm(vertices[:, :2] - [2, 2], axis=1) < 1e-6, 2]
+    assert len(at_junction) >= 3, "each adjacent roof must include the shared T-junction"
+    assert np.ptp(at_junction) < 1e-8, "adjacent faces must meet at the same height"
+
+
+def test_roof_domain_smoothing_does_not_depend_on_plane_numbers():
+    labels = np.array([[0, 0, 2], [0, 1, 2], [1, 1, 2]], dtype=np.uint8)
+    permutation = np.array([2, 0, 1], dtype=np.uint8)
+    actual = roof_survey._smooth_labels(labels, 3)
+    renamed = roof_survey._smooth_labels(permutation[labels], 3)
+    assert np.array_equal(renamed, permutation[actual])

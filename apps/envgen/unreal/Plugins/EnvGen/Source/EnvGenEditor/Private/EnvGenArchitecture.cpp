@@ -178,6 +178,30 @@ double FStyle::RoofOffsetM(const FVector2D& Point) const
 	return RiseM > 0 ? RiseM * (0.5-FMath::Abs(Across)/(WidthM*0.5)) : 0;
 }
 
+TOptional<double> FStyle::WallOffsetM(const FVector2D& Point, const FVector2D& Direction, double HalfWidth) const
+{
+	if (!bMeasuredRoof)
+	{
+		return FMath::Min(RoofOffsetM(Point-Direction*HalfWidth), RoofOffsetM(Point+Direction*HalfWidth));
+	}
+	double Covered = 0, Lowest = TNumericLimits<double>::Max();
+	for (const auto& Segment : WallSegments)
+	{
+		const FVector2D A(Segment.Key.X, Segment.Key.Y), B(Segment.Value.X, Segment.Value.Y);
+		const double From = FVector2D::DotProduct(A-Point, Direction), To = FVector2D::DotProduct(B-Point, Direction);
+		if ((A-Point-Direction*From).Size() > 0.001 || (B-Point-Direction*To).Size() > 0.001 || FMath::Abs(To-From) < 1.e-6) { continue; }
+		const double Lo = FMath::Max(-HalfWidth, FMath::Min(From, To));
+		const double Hi = FMath::Min(HalfWidth, FMath::Max(From, To));
+		if (Hi <= Lo) { continue; }
+		Covered += Hi-Lo;
+		for (const double At : {Lo, Hi})
+		{
+			Lowest = FMath::Min(Lowest, FMath::Lerp(Segment.Key.Z, Segment.Value.Z, (At-From)/(To-From)));
+		}
+	}
+	return Covered >= HalfWidth*2-1.e-4 ? TOptional<double>(Lowest) : TOptional<double>();
+}
+
 FLinearColor FStyle::RoofColour(FLinearColor Colour) const
 {
 	Colour.A = !bDetailed ? Plain : StandRows > 0 ? Concrete : RoofFinish;
@@ -337,18 +361,23 @@ void FStyle::AddDetails(const TArray<TArray<FVector2D>>& Rings, double RoofZ, co
 			const FVector Tangent(Direction.Y, Direction.X, 0), Out(-Direction.X, Direction.Y, 0);
 			const FVector2D Middle = (A+B)*0.5;
 			const double Eave = RoofZ+RoofOffsetM(Middle)*100;
-			if (FMath::Abs(RoofOffsetM(Middle)-RoofOffsetM(A)) < 0.02)
+			const auto EdgeTop = WallOffsetM(Middle, Direction, Length*0.5);
+			const bool bLevelEdge = EdgeTop.IsSet() && FMath::Abs(RoofOffsetM(Middle)-EdgeTop.GetValue()) < 0.02
+				&& FMath::Abs(RoofOffsetM(A)-RoofOffsetM(B)) < 0.02;
+			if (bLevelEdge)
 			{
 				Box(World(Middle, Eave-12)+Out*4, Tangent, Out, FVector(Length*100, 18, 20), Trim, Emit);
 			}
-			if (ParapetM > 0)
+			if (ParapetM > 0 && bLevelEdge)
 			{
 				Box(World(Middle, Eave+ParapetM*50)-Out*11, Tangent, Out, FVector(Length*100, 22, ParapetM*100), Wall, Emit);
 				Box(World(Middle, Eave+ParapetM*100+3)-Out*11, Tangent, Out, FVector(Length*100+10, 30, 6), DarkMetal, Emit);
 			}
-			const bool bEntrance = RingIndex == 0 && Edge == EntranceEdge && Length > 3;
+			const auto EntranceTop = WallOffsetM(Middle, Direction, 1.1);
+			const bool bEntrance = RingIndex == 0 && Edge == EntranceEdge && Length > 3
+				&& EntranceTop.IsSet() && RoofZ+EntranceTop.GetValue()*100-Ground(Middle.X, Middle.Y) > 260;
 			const double DoorGround = Ground(Middle.X, Middle.Y);
-			if (bEntrance && Eave-DoorGround > 260)
+			if (bEntrance)
 			{
 				Box(World(Middle, DoorGround+110)+Out*7, Tangent, Out, FVector(150, 15, 220), DarkMetal, Emit);
 				Box(World(Middle, DoorGround+150)+Out*16, Tangent, Out, FVector(125, 5, 115), Window, Emit);
@@ -373,22 +402,26 @@ void FStyle::AddDetails(const TArray<TArray<FVector2D>>& Rings, double RoofZ, co
 			{
 				const double Distance = Length*(Bay+0.5)/Bays;
 				const FVector2D Point = A+Direction*Distance;
-				const double Base = Ground(Point.X, Point.Y), Top = RoofZ+RoofOffsetM(Point)*100;
+				const auto WallTop = WallOffsetM(Point, Direction, 0.78);
+				if (!WallTop.IsSet()) { continue; }
+				const double Base = Ground(Point.X, Point.Y), Top = RoofZ+WallTop.GetValue()*100;
 				const int32 Floors = FMath::Clamp(FMath::FloorToInt((Top-Base)/300), 1, 5);
 				for (int32 Floor = 0; Floor < Floors; ++Floor)
 				{
 					if (Floor == 0 && bEntrance && FMath::Abs(Distance-Length*0.5) < 2.1) { continue; }
-					const double Z = Base+175+Floor*300;
-					if (Z+85 > Top-35) { continue; }
+					const double FloorBase = Base+Floor*300;
+					const double Scale = FMath::Min(1.0, (Top-FloorBase-95)/171);
+					if (Scale < 0.65) { continue; }
+					const double Z = FMath::Min(FloorBase+175, Top-35-85.5*Scale);
 					const FVector At = World(Point, Z)+Out*7;
 					for (const double Side : {-1.0, 1.0})
 					{
-						Box(At+Tangent*(Side*68.25), Tangent, Out, FVector(8.5, 14, 155), Trim, Emit);
-						Box(At+FVector(0, 0, Side*73), Tangent, Out, FVector(128, 14, 9), Trim, Emit);
+						Box(At+Tangent*(Side*68.25), Tangent, Out, FVector(8.5, 14, 155*Scale), Trim, Emit);
+						Box(At+FVector(0, 0, Side*73*Scale), Tangent, Out, FVector(128, 14, 9*Scale), Trim, Emit);
 					}
-					Box(At+Out*3, Tangent, Out, FVector(128, 5, 137), Window, Emit);
-					Box(At+Out*6, Tangent, Out, FVector(4, 5, 140), DarkMetal, Emit);
-					Box(At-FVector(0, 0, 81)+Out*10, Tangent, Out, FVector(156, 30, 9), Trim, Emit);
+					Box(At+Out*3, Tangent, Out, FVector(128, 5, 137*Scale), Window, Emit);
+					Box(At+Out*6, Tangent, Out, FVector(4, 5, 140*Scale), DarkMetal, Emit);
+					Box(At-FVector(0, 0, 81*Scale)+Out*10, Tangent, Out, FVector(156, 30, 9*Scale), Trim, Emit);
 				}
 			}
 		}
