@@ -19,7 +19,7 @@ from skimage.morphology import skeletonize
 from . import frame, trees
 
 VERSION = 1
-CACHE_VERSION = 2
+CACHE_VERSION = 3
 SETTINGS = {
     "survey_cell_m": 0.25,
     "survey_max_pixels": 2_000_000,
@@ -487,7 +487,7 @@ def _load(path):
     return np.swapaxes(np.asarray(Image.open(path)), 0, 1)[::-1].copy()
 
 
-def build(site, imagery, out, layers, elevation, covering, detail):
+def build(site, imagery, out, layers, elevation, covering, detail, *, fallback_weights=None):
     """One pipeline stage; all site coordinates and measured rasters stay in private build outputs."""
     from .build import _sample_cells, _warp, imagery_bands, open_ground, read_heights, read_weights
 
@@ -683,6 +683,15 @@ def build(site, imagery, out, layers, elevation, covering, detail):
         names.append("soil")
         weights = np.concatenate([weights, np.zeros_like(weights[:1])])
     exposed = _sample_cells(np.maximum.reduce([effective("bare"), effective("wear"), no_grass]), weights.shape[1])
+    fallback_file = None
+    if fallback_weights:
+        fallback = _load(out / fallback_weights).astype(np.float32)
+        transfer = np.rint(fallback[..., 0] * exposed)
+        fallback[..., 0] -= transfer
+        fallback[..., 2] += transfer
+        fallback_file = "procfill_surface_fallback.png"
+        _save(np.rint(fallback).astype(np.uint8), out / fallback_file)
+        files.append(fallback_file)
     transfer = weights[names.index("grass")] * exposed
     weights[names.index("grass")] -= transfer
     weights[names.index("soil")] += transfer
@@ -739,6 +748,7 @@ def build(site, imagery, out, layers, elevation, covering, detail):
         "evidence_note": "measured applies to drone pixels; appearance labels inferred from them retain inferred provenance",
         "growth_encoding": "RGBA: short density, tall density, height/2, (127+127*overlay_log2)/255",
         "surface_layers": ground_layers,
+        "fallback_weights": fallback_file,
         "surface_check_points": ground_checks,
         "priors_file": "procfill_priors.json",
         "validation_file": "procfill_validation.json",

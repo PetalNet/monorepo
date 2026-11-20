@@ -167,6 +167,15 @@ def test_stage_exports_reproducible_masks_and_reimports_paint(tmp_path):
     assert not weights["grass"].any()
     assert (weights["paved"][90:110, 10:30] == 153).all()
     assert (weights["soil"][90:110, 10:30] == 102).all()
+    fallback = np.stack([mixed, paving, np.zeros_like(mixed)], axis=-1)
+    procfill._save(fallback, tmp_path / "fallback.png")
+    result = procfill.build(*mixed_args, fallback_weights="fallback.png")
+    actual = procfill._load(tmp_path / result["fallback_weights"])
+    assert not actual[..., 0].any()
+    assert (actual[90:110, 10:30, 1] == 153).all()
+    assert (actual[90:110, 10:30, 2] == 102).all()
+    assert (actual.astype(int).sum(axis=-1) == 255).all()
+    np.testing.assert_array_equal(procfill._load(tmp_path / "fallback.png"), fallback)
 
 
 def test_small_survey_reports_insufficient_heldout_coverage():

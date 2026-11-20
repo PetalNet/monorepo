@@ -1812,7 +1812,10 @@ def build(site_path: Path, out: Path, cache: Path | None = None) -> dict:
                 sha256_file(out / inventory["file"]) if inventory else None,
                 [(str(path.relative_to(out)), sha256_file(path)) for path in edits],
             ),
-            lambda: procfill.build(site, imagery, out, classes["layers"], elevation, covering, detail),
+            lambda: procfill.build(
+                site, imagery, out, classes["layers"], elevation, covering, detail,
+                fallback_weights=classes.get("fallback_weights"),
+            ),
         )
 
     half_cm = tile.size_m * 100 / 2
@@ -1907,6 +1910,8 @@ def build(site_path: Path, out: Path, cache: Path | None = None) -> dict:
         manifest["procfill"] = {key: value for key, value in generated.items() if key not in ("files", "cached")}
         manifest["surface"]["layers"] = generated["surface_layers"]
         manifest["surface"]["check_points"] = generated["surface_check_points"]
+        if generated["fallback_weights"]:
+            manifest["surface"]["fallback_weights"] = generated["fallback_weights"]
         manifest["turf"]["growth"] = {
             "file": generated["growth_file"],
             "pixels": generated["pixels"],
