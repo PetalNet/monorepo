@@ -94,13 +94,19 @@ def test_cached_survey_time_follows_the_requested_season_and_preserves_the_acqui
 
     h.write_dem(tmp_path / "dem.tif")
     h.write_scene(tmp_path / "imagery.tif", h.GRASS, [])
+    with rasterio.open(tmp_path / "imagery.tif") as source:
+        rgb = source.read()
+        profile = source.profile | {"count": 4}
+    rgba = np.concatenate([rgb, np.full((1, *rgb.shape[1:]), 255, dtype=rgb.dtype)])
+    with rasterio.open(tmp_path / "survey.tif", "w", **profile) as photo:
+        photo.write(rgba)
     site_path = h.write_site(tmp_path)
     site = json.loads(site_path.read_text())
     site["sources"]["survey"] = {
         "kind": "file",
         "path": "dem.tif",
         "terrain": "dem.tif",
-        "orthophoto": "imagery.tif",
+        "orthophoto": "survey.tif",
         "license": "test",
         "date": "2030-09-05",
     }
