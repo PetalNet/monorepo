@@ -229,10 +229,12 @@ bool BuildEnvGenContext(UWorld* World, const FString& ManifestPath, TArray<UPack
 	if (Batches.IsEmpty()) return true;
 	UMaterial* Material = Asset<UMaterial>(TEXT("M_EnvGenContext"), Packages);
 	auto* Colour = CastChecked<UMaterialExpressionVertexColor>(UMaterialEditingLibrary::CreateMaterialExpression(Material, UMaterialExpressionVertexColor::StaticClass()));
-	UMaterialEditingLibrary::ConnectMaterialProperty(Colour, TEXT("RGB"), MP_BaseColor);
+	if (!UMaterialEditingLibrary::ConnectMaterialProperty(Colour, TEXT(""), MP_BaseColor))
+	{ Error = TEXT("cannot connect context vertex colour"); return false; }
 	auto* Roughness = CastChecked<UMaterialExpressionConstant>(UMaterialEditingLibrary::CreateMaterialExpression(Material, UMaterialExpressionConstant::StaticClass()));
 	Roughness->R = .9f;
-	UMaterialEditingLibrary::ConnectMaterialProperty(Roughness, TEXT(""), MP_Roughness);
+	if (!UMaterialEditingLibrary::ConnectMaterialProperty(Roughness, TEXT(""), MP_Roughness))
+	{ Error = TEXT("cannot connect context roughness"); return false; }
 	UMaterialEditingLibrary::RecompileMaterial(Material);
 	for (int32 Index = 0; Index < Batches.Num(); ++Index)
 	{
