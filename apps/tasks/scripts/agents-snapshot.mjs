@@ -188,7 +188,14 @@ export async function snapshot({
 			const dataClass = ["public", "sensitive", "parcs"].includes(raw) ? raw : "unknown";
 			const prior = classes.get(event.runId);
 
-			classes.set(event.runId, prior === undefined || prior === dataClass ? dataClass : "unknown");
+			if (event.event === "launch") {
+				classes.set(
+					event.runId,
+					prior === undefined || prior === dataClass ? dataClass : "unknown",
+				);
+			} else if (prior === undefined || prior !== dataClass) {
+				classes.set(event.runId, "unknown");
+			}
 		}
 
 		applyLedger(agents, line, runsDir);

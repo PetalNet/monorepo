@@ -338,6 +338,21 @@ const gitlabLinks = await snapshot({
 				JSON.stringify({ event: "launch", runId: "gl-2", at, dataClass: "public" }),
 				JSON.stringify({ event: "attempt", runId: "gl-2", at, dataClass: "parcs" }),
 				JSON.stringify({ event: "outcome", runId: "gl-2", at, exitCode: 0 }),
+				JSON.stringify({
+					event: "outcome",
+					runId: "no-launch",
+					at,
+					dataClass: "sensitive",
+					exitCode: 0,
+				}),
+				JSON.stringify({
+					event: "outcome",
+					runId: "late-launch",
+					at,
+					dataClass: "sensitive",
+					exitCode: 0,
+				}),
+				JSON.stringify({ event: "launch", runId: "late-launch", at, dataClass: "sensitive" }),
 			].join("\n");
 		}
 
@@ -345,8 +360,12 @@ const gitlabLinks = await snapshot({
 			return "MR https://gitlab.com/group/project/-/merge_requests/7 and https://gitlab.com/group/sub/project/-/merge_requests/9";
 		}
 
-		if (filePath === "/gl/runs/gl-2.out") {
-			throw new Error("must not open conflicted parcs run");
+		if (
+			filePath === "/gl/runs/gl-2.out" ||
+			filePath.startsWith("/gl/runs/no-launch.") ||
+			filePath.startsWith("/gl/runs/late-launch.")
+		) {
+			throw new Error("must not open conflicted or unlaunched run");
 		}
 
 		throw Object.assign(new Error("missing"), { code: "ENOENT" });
@@ -358,6 +377,15 @@ assert.deepEqual(gitlabLinks.runs.find((run) => run.id === "gl-1").links, [
 ]);
 
 assert.equal(gitlabLinks.runs.find((run) => run.id === "gl-2").dataClass, "unknown");
+
+for (const unlaunched of ["no-launch", "late-launch"]) {
+	const item = gitlabLinks.runs.find((run) => run.id === unlaunched);
+
+	assert.equal(item.dataClass, "unknown");
+	assert.deepEqual(item.turns, []);
+	assert.equal(item.output, "");
+	assert.deepEqual(item.links, []);
+}
 
 await assert.rejects(
 	snapshot({
