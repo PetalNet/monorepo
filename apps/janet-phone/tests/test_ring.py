@@ -225,6 +225,24 @@ class RingTest(unittest.IsolatedAsyncioTestCase):
                 await call.reply("Outgoing phone call.", time.monotonic(), {"endpoint_ms": 0})
                 self.assertEqual(ring.state, expected)
 
+    async def test_expired_head_receives_audio_check_and_brief_history(self):
+        ring = ringing.Ring("test", self.device, "Take the service offline?", time.time() + 5, time.monotonic() + 5)
+        gateway = mock.Mock()
+        gateway.turn.side_effect = [janet_phone.Ended(), iter([
+            ("sentence", {"text": "I'll pass your decision along."}), ("done", {"end_conversation": False})])]
+        gateway.open.return_value = "replacement"
+        gateway.speech.return_value = (16000, tone(.1))
+        call = janet_phone.Call(mock.AsyncMock(ring=ring), self.config, gateway, "expired")
+        call.transcript = [("Janet", "Can you hear me?"), ("Caller", "Yes, I hear you."),
+                           ("Janet", "I hear you too. Take the service offline?")]
+        await call.reply("Yes, take it offline.", time.monotonic(), {"endpoint_ms": 0})
+        conversation, resumed = gateway.turn.call_args.args
+        self.assertEqual(conversation, "replacement")
+        self.assertIn("Earlier call transcript", resumed)
+        for _, words in call.transcript[:3]:
+            self.assertIn(words, resumed)
+        self.assertIn("Yes, take it offline.", resumed)
+
     async def test_speech_in_progress_does_not_trigger_a_silence_observation(self):
         with mock.patch.object(janet_phone, "RING_SILENCE_S", 0.5):
             task, payload = await self.start_ring("A brief for after the audio check.")
