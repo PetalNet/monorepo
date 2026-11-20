@@ -2069,6 +2069,8 @@ return normalize(float3(ScanNormal.xy*lerp(1,1.8,close)-slope*Grass,ScanNormal.z
 			Component->SetMobility(EComponentMobility::Static);
 			Component->SetStaticMesh(Mesh);
 			Component->SetCollisionProfileName(TEXT("NoCollision"));
+			// Screen-space contact rays self-occlude the thin seating rows; normal mesh shadows remain enabled.
+			Component->SetCastContactShadow(false);
 			Component->SetRenderCustomDepth(true);
 			Component->SetCustomDepthStencilValue(Stencil);
 			EnvGenArchitecture::AttachCollision(Actor, CollisionDescription, GeneratedPath, FString::Printf(TEXT("SM_BuildingCollision_%d_%d"), Square.Key.X, Square.Key.Y), Packages);
