@@ -4,9 +4,9 @@ Footprints are the building polygons of OpenStreetMap and Microsoft's machine-le
 (`sources.buildings`). Each building's height is, in order of trust: the median lidar height above ground over its
 footprint; the footprint's own `height_m` tag; its `num_floors` tag times a floor height; the median of the heights
 the lidar measured on this tile's other buildings. Its roof colour is the median photo colour over its footprint, as
-albedo by the paved class's fitted curve. Nothing else is drawn: roofs are flat and walls are one colour, because no
-source says otherwise.
+albedo by the paved class's fitted curve.
 
+Architectural detail is described separately by architecture.py and labeled as prior where no survey exists.
 The same footprints take roofs out of the ground: the cover stage counts their cells as hidden, so no class, colour
 or detail of the ground is read from a roof.
 """
@@ -25,7 +25,7 @@ from rasterio.transform import from_origin
 from scipy import ndimage
 from shapely.geometry import Polygon, shape
 
-from . import surface
+from . import architecture, surface
 from .site import Tile
 
 # Priors, with no source: a storey is this tall (a rule of thumb for the `num_floors` tag), and a footprint is
@@ -206,6 +206,7 @@ def measure(
                 "height_m": height,
                 "height_from": from_,
                 "roof_albedo": roof_albedo(colour, curve, albedo_scale),
+                "roof_forms": architecture.measure_roof_forms(polygon, cells, photo, tile, cell_m),
                 "area_m2": float(polygon.area),
                 "rings": [[[x - centre_east, y - centre_north] for x, y in ring] for ring in rings],
                 "roof_triangles": triangles,
@@ -224,6 +225,25 @@ def measure(
                     typical,
                     "measured: median lidar height of this tile's buildings",
                 )
+    for record, item in zip(records, footprints, strict=True):
+        opposing = None
+        if architecture.building_kind(item["tags"]) == "grandstand":
+            stands = [
+                other
+                for other, footprint in zip(records, footprints, strict=True)
+                if other is not record
+                and architecture.building_kind(footprint["tags"]) == "grandstand"
+                and np.hypot(other["east_m"] - record["east_m"], other["north_m"] - record["north_m"]) < 250
+            ]
+            if stands:
+                nearest = min(
+                    stands,
+                    key=lambda other: np.hypot(
+                        other["east_m"] - record["east_m"], other["north_m"] - record["north_m"]
+                    ),
+                )
+                opposing = (nearest["east_m"], nearest["north_m"])
+        record["architecture"] = architecture.describe(record, item["tags"], opposing)
     return records
 
 

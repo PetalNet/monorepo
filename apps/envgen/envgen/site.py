@@ -38,6 +38,8 @@ class Source:
     terrain: str | None = None
     # A survey's orthophoto (RGB and an alpha band, in the site's CRS): what the ground looks like at centimetre scale.
     orthophoto: str | None = None
+    # Optional image observations with pixel/projected bounds; evidence for fitting, not finished masks.
+    observations: str | None = None
 
     def band(self, name: str) -> int | None:
         return dict(self.bands or ()).get(name)
@@ -61,6 +63,7 @@ class Source:
                 "canopy_height": "'file' or 'cog'",
                 "reflectance": "'file'",
                 "buildings": "'file'",
+                "streetscape": "'file'",
             }.get(name, "'file' or 'arcgis_imageserver'")
             raise SiteError(f"sources.{name}: kind must be {allowed}, got {kind!r}")
         for field in ("license", "date"):
@@ -77,13 +80,17 @@ class Source:
             bands = tuple(sorted(bands.items()))
         elif name == "reflectance":
             raise SiteError("sources.reflectance: bands is required, naming at least red, green and blue")
-        terrain = orthophoto = None
+        terrain = orthophoto = observations = None
         if name == "survey":
             if kind != "file" or "terrain" not in raw:
                 raise SiteError("sources.survey: kind must be 'file', with path (surface model) and terrain")
             terrain = str((base / raw["terrain"]).resolve())
             if "orthophoto" in raw:
                 orthophoto = str((base / raw["orthophoto"]).resolve())
+            if "observations" in raw:
+                if not orthophoto:
+                    raise SiteError("sources.survey: observations require an orthophoto")
+                observations = str((base / raw["observations"]).resolve())
         return Source(
             kind,
             location,
@@ -94,6 +101,7 @@ class Source:
             bool(raw.get("leaf_off", False)),
             terrain,
             orthophoto,
+            observations,
         )
 
 
@@ -156,6 +164,8 @@ class Site:
     tree_mix: Source | None = None
     # optional: building footprints as GeoJSON in WGS84, with optional `height_m` and `num_floors` tags per feature
     buildings: Source | None = None
+    # Optional measured streetscape vectors; locations stay in the private site inputs.
+    streetscape: Source | None = None
 
 
 def acquisition_day(source: Source, name: str) -> date:
@@ -253,4 +263,5 @@ def load_site(path: Path) -> Site:
         survey=Source.parse(sources["survey"], path.parent, "survey") if "survey" in sources else None,
         tree_mix=Source.parse(sources["tree_mix"], path.parent, "tree_mix") if "tree_mix" in sources else None,
         buildings=Source.parse(sources["buildings"], path.parent, "buildings") if "buildings" in sources else None,
+        streetscape=Source.parse(sources["streetscape"], path.parent, "streetscape") if "streetscape" in sources else None,
     )
