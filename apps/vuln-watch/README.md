@@ -20,6 +20,14 @@ A scan collects current inventory unless `--inventory inventory.json` supplies a
 
 The watcher records patch work for Derek or compose. Operators apply changes with health checks and rollback under the lab update policy. The watcher executes no upgrades. Major upgrades, databases, Proxmox, TrueNAS, and Eli's services require their owners.
 
+## Collect an Ubuntu edge host
+
+`inventory.droplets` accepts entries with `host` (stable inventory identity), `ssh` (SSH target), and an optional `identity_file` pointing to an existing local key. The runtime entries belong in janet-nix. Collection uses batch SSH and runs the bundled `droplet.py` in memory on the remote host. It installs no agent or key.
+
+The collector records distro release, installed binary and source package revisions, cached APT upgrades and security origins, running kernel, reboot status, listeners, running service names, selected effective sshd settings for root and tunnel, and unattended-upgrade settings. Containers retain actual image IDs and OCI version labels. Caddy uses its running binary version. Host Caddy, cloudflared, Docker, mc-router, and running Java processes have separate observations. Docker environment variables and service command lines are excluded.
+
+Assets inherit the edge host's internet exposure; that label does not establish that each package or listener is directly reachable. Host posture retains bind addresses. Ubuntu package revisions remain intact: upstream numeric version ranges cannot establish distro backport status, so distribution advisory matching remains a visible coverage gap. APT results describe the existing cache, with its index timestamp; collection does not refresh or upgrade packages. Failure retains prior observations with their original timestamps.
+
 ## Replay without changing live coverage
 
 Supply an explicit inventory fixture and normalized ingestion file. Every replay post is labeled as a test. Replay files and the database live under `state_dir/replay/`.
