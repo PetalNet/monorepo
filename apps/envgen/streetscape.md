@@ -206,7 +206,7 @@ Add `fields` beside `features` in the inventory to record and override classific
 Each record names one existing `turf`, `athletic_turf` or `natural_grass` surface. Classification is
 `athletic_turf` or `natural_grass`; optional `override` selects either while retaining the original decision
 and evidence. Non-overlapping field polygons, finite headings, positive stripe widths up to 100 m and
-confidence in [0,1] are validated before generation. Heading is counterclockwise from east; bands repeat
+confidence from zero to one are validated before generation. Heading is counterclockwise from east; bands repeat
 along that direction. Defaults are heading zero and 4.572 m stripes. Explicit `athletic_turf` and `natural_grass` surfaces
 also work without a record, using their feature evidence and those defaults. A track is supporting context,
 not proof of synthetic turf. Record imagery cues, available OSM surface tags and facility-owner evidence;
