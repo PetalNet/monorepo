@@ -18,7 +18,7 @@ from scipy import ndimage
 
 GROWTH_SETTINGS = {
     "kind": "prior",
-    "placement": "sharpened imported grass coverage applied once by the engine",
+    "placement": "majority-grass support, with sharpened imported coverage applied by the engine",
     "patch_m": 1.2,
     "fringe_m": 2.0,
     "density_range": [1.0, 1.0],
@@ -63,10 +63,9 @@ def growth(
     tall = np.clip(0.04 + 0.80 * np.maximum(fringe, sheltered) + 0.12 * np.maximum(noise, 0), 0, 1)
     height = np.clip(0.90 + 0.25 * vigour + 0.25 * np.maximum(fringe, sheltered) + 0.10 * noise + 0.05 * moisture,
                      *GROWTH_SETTINGS["height_range"])
-    # The engine multiplies these densities by the surface weight. A majority-class cutoff here
-    # removes all vegetation from mixed path edges before that fractional placement can happen.
-    supported = grass > 0
-    packed = np.stack([density * supported, tall * supported, height / 2])
+    # Fractional engine placement alone still puts full-sized tufts on path-majority cells.
+    # Keep every grass-majority cell at its original density; stop support on the path side.
+    packed = np.stack([density * inside, tall * inside, height / 2])
     return packed.astype(np.float32), {
         "settings": GROWTH_SETTINGS,
         "photo_green_red_log2_p5_p95": [float(low), float(high)],
@@ -79,7 +78,7 @@ def growth(
             "prior: local hollows favour growth; relief is terrain minus its 6 m low-pass",
             "prior: continuous short sward at the original density; photo surface weights alone reduce coverage",
             "prior: 1.2 m correlated height noise; height 0.85 to 1.5 times the mowing range",
-            "prior: mixed surface pixels retain grass in proportion to their engine placement weight",
+            "prior: tuft centres require majority grass; engine weights blend placement at that boundary",
         ],
     }
 
