@@ -35,7 +35,7 @@ envgen build site.json --out build/ --cache cache/
 | Macro colour  | the imagery, the sunlit ground and the classes     | `macro_colour.png`, low-passed at 12 m within each class; albedo when the site has a reflectance raster |
 | Detail        | the imagery, the sunlit ground and the classes     | `detail_ratio.png`: the photo over its own 12 m low-pass, per class, at about 0.5 m, as a power of two  |
 | Grain         | a survey orthophoto, the grass class               | `grain.png`: a tileable texture with the orthophoto's grass grain                                       |
-| Survey detail | a survey orthophoto, the sunlit ground, classes    | `survey_detail.png`: weighted log detail in RGB, usable-detail weight in alpha                       |
+| Survey detail | a survey orthophoto, the sunlit ground, classes    | `survey_detail.png`: weighted log detail in RGB, usable-detail weight in alpha                          |
 | Surround      | coarse heights and 2048-pixel colour, if asked for | `context_heightmap.png`, `context_colour.png`                                                           |
 | Trees         | the cover rasters, the classes, a survey, a mix    | `trees.json`: one row per tree                                                                          |
 | Buildings     | footprints, lidar, the photo, the classes          | `buildings.json`: one record per building                                                               |
@@ -203,7 +203,7 @@ seeded yaw.
   its share and by a log-normal through its measured 10th, 50th and 90th percentile height. The mix also gives
   the trunk diameter (a line fitted to diameter against height) and the crown ratio (the share of the height
   the crown takes). A mix file is `{"source": ..., "species": [{"name", "kind", "share", "height_m": {"p10",
-  "p50", "p90"}, "trunk_diameter_m": [intercept, slope], "crown_ratio"}]}`.
+"p50", "p90"}, "trunk_diameter_m": [intercept, slope], "crown_ratio"}]}`.
 
 Limits: the lidar's heights are as old as its survey; a tree felled since is still there, with lower confidence
 only where a newer source looks, and the level build does not read confidence, so it stands at full size. An inventory of forests describes forest trees, not ones grown in the open.
