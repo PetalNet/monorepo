@@ -1,4 +1,4 @@
-"""Buildings as massing: a footprint from a map, a height from lidar or the map's tags, a roof colour from the photo.
+"""Building footprints, fitted lidar roofs, photo observations, and explicitly labelled fallback geometry.
 
 Footprints are the building polygons of OpenStreetMap and Microsoft's machine-learned footprints, as one GeoJSON
 (`sources.buildings`). Each building's height is, in order of trust: the median lidar height above ground over its
@@ -6,7 +6,8 @@ footprint; the footprint's own `height_m` tag; its `num_floors` tag times a floo
 the lidar measured on this tile's other buildings. Its roof colour is the median photo colour over its footprint, as
 albedo by the paved class's fitted curve.
 
-Architectural detail is described separately by architecture.py and labeled as prior where no survey exists.
+roof_survey.py replaces sufficiently supported roofs with measured surfaces. Architectural detail is described
+separately by architecture.py and labeled as prior where no survey or reviewed observation exists.
 The same footprints take roofs out of the ground: the cover stage counts their cells as hidden, so no class, colour
 or detail of the ground is read from a roof.
 """
@@ -208,6 +209,7 @@ def measure(
                 "roof_albedo": roof_albedo(colour, curve, albedo_scale),
                 "roof_forms": architecture.measure_roof_forms(polygon, cells, photo, tile, cell_m),
                 "area_m2": float(polygon.area),
+                "outline_observation": item.get("outline_observation", {"status": "source footprint"}),
                 "rings": [[[x - centre_east, y - centre_north] for x, y in ring] for ring in rings],
                 "roof_triangles": triangles,
             }
@@ -254,6 +256,158 @@ def sources_of(records: Sequence[dict]) -> dict[str, int]:
         kind = record["height_from"].split(":")[0]
         counts[kind] = counts.get(kind, 0) + 1
     return counts
+
+
+def _stand_style(record: dict) -> dict:
+    old = record["architecture"]
+    along = np.asarray(old["along"])
+    across = np.array([-along[1], along[0]])
+    if np.dot(record.get("stand_gradient", across), across) < 0:
+        along = -along
+    opposite = np.asarray(old["centre_m"]) - np.array([-along[1], along[0]]) * 100
+    result = architecture.describe(record, {"building": "grandstand"}, tuple(opposite))
+    if "stand_gradient" in record:
+        result["orientation_from"] = "lidar: sign of the fitted seating gradient"
+        result["roof_shape_from"] = "lidar: seating slope; individual treads remain reconstructed"
+    return result
+
+
+def apply_surveys(records: list[dict], surveys: list[dict], tile: Tile) -> None:
+    centre = np.array(tile.centre)
+    for record, survey in zip(records, surveys, strict=True):
+        record["roof_survey"] = {
+            key: value
+            for key, value in survey.items()
+            if key not in {"roof_vertices", "roof_triangles", "wall_segments"}
+        }
+        style = record["architecture"]
+        record["facade_reference"] = {"status": "prior", "reason": "no resolved street-photo observations"}
+        if survey["status"] != "measured":
+            continue
+        if style["role"] == "grandstand":
+            if len(survey["planes"]) == 1:
+                plane = survey["planes"][0]
+                along = np.asarray(style["along"])
+                across = np.array([-along[1], along[0]])
+                gradient = np.array([plane["a"], plane["b"]])
+                if abs(np.dot(gradient, along)) > 0.05 or abs(np.dot(gradient, across)) < 0.03:
+                    record["stand_survey"] = {
+                        "status": "unresolved",
+                        "reason": "seating slope conflicts with footprint axes",
+                    }
+                    continue
+                record["height_m"] = survey["height_m"]
+                record["height_from"] = "lidar: seating plane relative to nearby ground"
+                record["stand_rise_m"] = abs(np.dot([plane["a"], plane["b"]], across)) * style["width_m"]
+                record["stand_gradient"] = gradient.tolist()
+                record["stand_survey"] = {
+                    "status": "measured",
+                    "rise_m": record["stand_rise_m"],
+                    "from": "lidar: fitted seating slope",
+                }
+                record["architecture"] = _stand_style(record)
+            continue
+        record["prior_height_m"] = record["height_m"]
+        record["height_m"] = survey["height_m"]
+        record["height_from"] = "lidar: fitted roof relative to nearby ground in the same point cloud"
+        style["roof_shape"] = survey["roof_shape"]
+        style["roof_shape_from"] = "lidar: supported roof-plane slopes and levels; semantic roof type inferred"
+        style["rise_m"] = 0.0
+        style["parapet_m"] = survey.get("parapet_m", 0.0)
+        style["measured_roof"] = True
+        style["roof_vertices"] = [[*(np.asarray(v[:2]) - centre), v[2]] for v in survey["roof_vertices"]]
+        style["roof_triangles"] = survey["roof_triangles"]
+        style["wall_segments"] = [
+            [[*(np.asarray(v[:2]) - centre), v[2]] for v in segment] for segment in survey["wall_segments"]
+        ]
+        record["roof_forms"] = []
+
+
+def apply_reference(records: list[dict], path: Path) -> None:
+    """Apply reviewed observations by stable building ID; source images remain reference-only."""
+    data = json.loads(path.read_text())
+    observations = data.get("buildings", {})
+    if not isinstance(observations, dict):
+        raise TypeError("building_reference.buildings must map building IDs to observations")
+    for record in records:
+        observation = observations.get(str(record["id"]))
+        if observation is None:
+            continue
+        if not isinstance(observation, dict) or not observation.get("source"):
+            raise ValueError(f"building_reference {record['id']}: source is required")
+        record["reference"] = observation
+        if "stand_rows" in observation:
+            rows = observation["stand_rows"]
+            if not isinstance(rows, int) or not 3 <= rows <= 80 or record["architecture"]["role"] != "grandstand":
+                raise ValueError("building_reference stand_rows requires a grandstand and 3 to 80 rows")
+            record["architecture"] = _stand_style(record)
+            record["architecture"]["stand_reference"] = True
+            record["architecture"]["press_box_prior"] = False
+            aisles = np.asarray(observation.get("stand_aisles", [0]), dtype=float)
+            if aisles.ndim != 1 or not np.isfinite(aisles).all() or np.any(abs(aisles) >= 0.48):
+                raise ValueError("building_reference stand_aisles must be finite length fractions within +/- 0.48")
+            record["architecture"]["stand_aisles"] = sorted(aisles.tolist())
+        if "facade" in observation:
+            facade = observation["facade"]
+            if facade.get("material") not in {"brick", "siding", "concrete"}:
+                raise ValueError("building_reference facade.material must be brick, siding or concrete")
+            colour = np.asarray(facade.get("albedo"), dtype=float)
+            if colour.shape != (3,) or not np.isfinite(colour).all() or np.any((colour < 0) | (colour > 1)):
+                raise ValueError("building_reference facade.albedo must contain three finite reflectances")
+            record["architecture"].update(facade=facade["material"], facade_albedo=colour.tolist())
+            record["facade_reference"] = {"status": "photo-referenced", **facade, "source": observation["source"]}
+        if "roof_forms" in observation:
+            forms = observation["roof_forms"]
+            if not isinstance(forms, list):
+                raise TypeError("building_reference roof_forms must be a list")
+            for form in forms:
+                if not isinstance(form, dict):
+                    raise TypeError("building_reference roof form must be an object")
+                numbers = np.asarray(
+                    [form.get(k, np.nan) for k in ["east_m", "north_m", "width_m", "depth_m", "height_m"]], dtype=float
+                )
+                if not np.isfinite(numbers).all() or np.any(numbers[2:4] < 0.3) or not 0.15 <= numbers[4] <= 20:
+                    raise ValueError(
+                        "building_reference roof form requires finite position, positive plan and 0.15 to 20 m height"
+                    )
+                if not form.get("from") or not form.get("height_from"):
+                    raise ValueError("building_reference roof forms require plan and height provenance")
+            record["roof_forms"] = forms
+        if "roof_material" in observation:
+            material = observation["roof_material"]
+            if material not in {"membrane", "shingle", "metal"}:
+                raise ValueError("building_reference roof_material must be membrane, shingle or metal")
+            record["architecture"]["roof_material"] = material
+
+
+def reference_outlines(footprints: list[dict], path: Path, tile: Tile) -> list[dict]:
+    data = json.loads(path.read_text()).get("buildings", {})
+    result = []
+    for number, item in enumerate(footprints):
+        key = str(item["tags"].get("id") or f"footprint-{number}")
+        observation = data.get(key, {})
+        if "outline_m" not in observation:
+            result.append(item)
+            continue
+        if not observation.get("source"):
+            raise ValueError(f"building_reference {key}: source is required")
+        polygon = Polygon(np.asarray(observation["outline_m"], dtype=float) + tile.centre)
+        if not polygon.is_valid or not shapely.box(*tile.bounds()).covers(polygon) or polygon.area < MIN_AREA_M2:
+            raise ValueError(f"building_reference {key}: invalid or out-of-tile outline")
+        if item["polygon"].hausdorff_distance(polygon) > 15:
+            raise ValueError(f"building_reference {key}: outline moves more than 15 m")
+        result.append(
+            {
+                **item,
+                "polygon": polygon,
+                "outline_observation": {
+                    "status": "photo-referenced",
+                    "from": observation["source"],
+                    "uncertainty_m": observation.get("outline_uncertainty_m"),
+                },
+            }
+        )
+    return result
 
 
 def label_under(labels: np.ndarray, covered: np.ndarray) -> np.ndarray:

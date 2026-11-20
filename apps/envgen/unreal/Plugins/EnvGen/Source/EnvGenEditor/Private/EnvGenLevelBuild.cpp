@@ -198,6 +198,7 @@ namespace
 		FVector2D RoofCheckPoint = FVector2D::ZeroVector;
 		// Where the roof stands once placed, in centimetres, for the build's own check.
 		double TopCm = 0;
+		double TerrainLiftCm = 0;
 	};
 
 	/** A tree mesh the engine ships, with the size it has before scaling, read from its bounds. */
@@ -1865,6 +1866,7 @@ return normalize(float3(ScanNormal.xy-slope*Grass,ScanNormal.z));
 				}
 				// On a slope the roof is a roof height over the anchor, but never under the ground at a corner.
 				Building.TopCm = FMath::Max(AnchorZ + Building.HeightM * 100, RequiredRoofZ);
+				Building.TerrainLiftCm = Building.TopCm-(AnchorZ + Building.HeightM * 100);
 				int32 First = 0;
 				const auto Corner = [&](const FVector2D& Point, double Z) { return FVector(Point.Y * 100, Point.X * 100, Z); };
 				for (const TArray<FVector2D>& Ring : Building.Rings)
@@ -2401,6 +2403,9 @@ bool FEnvGenLevelBuild::Finish(float DeltaSeconds, bool& bSucceeded)
 	Receipt->SetNumberField(TEXT("buildings_traced"), BuildingsChecked);
 	Receipt->SetNumberField(TEXT("buildings_traces_missed"), BuildingsMissed);
 	Receipt->SetNumberField(TEXT("building_top_worst_error_cm"), BuildingTopCm);
+	TArray<TSharedPtr<FJsonValue>> BuildingTerrainLifts;
+	for (const FBuilding& Building : State->Buildings) { BuildingTerrainLifts.Add(MakeShared<FJsonValueNumber>(Building.TerrainLiftCm)); }
+	Receipt->SetArrayField(TEXT("building_terrain_lift_cm"), BuildingTerrainLifts);
 	Receipt->SetNumberField(TEXT("building_meshes"), State->BuildingActors.Num());
 	Receipt->SetNumberField(TEXT("building_nanite_meshes"), BuildingNaniteMeshes);
 	Receipt->SetBoolField(TEXT("buildings_ok"), bBuildingsOk);

@@ -60,6 +60,15 @@ envgen build site.json --out build/ --cache cache/
   with optional `height_m`, `num_floors`, `id` and `dataset` properties. It needs `sources.lidar` or
   `sources.canopy_height`, because the cover stage is what hides the roofs from the ground. The site's tools make it from Overture Maps'
   buildings, which merge OpenStreetMap with Microsoft's machine-learned footprints (see Buildings).
+- `sources.building_imagery` optionally supplies a separate roof-reference raster with pixels at most 0.35 m.
+  It uses a local `path`, `license`, and `date`. RGB occupies the first three bands, followed by optional NIR.
+  Its CRS is transformed to the site CRS. It does not replace the imagery used for the context surround.
+- `sources.building_reference` optionally supplies reviewed observations in a local JSON file, with `license` and
+  `date`. Its `buildings` object maps stable building IDs to observations with a required `source`. Supported fields
+  include `outline_m` in metres east and north of the tile centre, `outline_uncertainty_m`, `stand_rows`, `stand_aisles`
+  as fractions of stand length, `roof_material`, `roof_forms`, and facade `material` and linear `albedo`.
+  Roof forms require finite `east_m`, `north_m`, `width_m`, `depth_m`, `height_m`, `from`, and `height_from`.
+  Street photographs remain reference material; their pixels are not packaged as textures.
 - `sources.reflectance` is optional: a raster file of measured surface reflectance, 0 to 1, near the target date
   (an atmospherically corrected satellite scene, for example), with `bands` naming red, green and blue. It sets each
   class's albedo (see Albedo and light).
@@ -436,26 +445,42 @@ With a `sources.buildings` file the build writes `buildings.json`: one record pe
 its edge; parts under 4 m2 are left out), with its rings in metres east and north of the tile centre (outer ring first, then courtyards), a triangulation of the roof,
 a height, a roof albedo, and where each came from.
 
-- **Footprints** are the map's polygons, simplified to 0.3 m. Nothing is placed that no map shows.
-- **Height**, in order of trust: the median lidar height above ground over the footprint pulled in by 1 m (when at
+- **Footprints** start as the map's polygons, simplified to 0.3 m. Optional building imagery can move rectangular
+  edges by at most 1.5 m when all four edges have coherent photo support. Other outlines retain their source geometry.
+  Reviewed outline observations can replace a footprint within 15 m of its source. Every change retains its provenance.
+- **Roof survey** fits planes to non-ground lidar returns inside each footprint. Ground and roof elevations come
+  from the same point cloud, so their relative height does not assume that a separately supplied DEM has the same datum.
+  One fifth of metre cells are held out. A fit requires at least 80% of sampled footprint area within 2 m of a supported
+  return, at least 85% of validation returns within 0.35 m, and a validation 90th percentile error at most 0.6 m.
+  Unsupported fits retain their prior geometry and a rejection reason. Accepted planes generate flat, pitched, or
+  stepped roof surfaces, wall tops, and collision. Roof-type names are inferred from plane slopes and levels.
+  Roof-to-ground eave and ridge heights, held-out errors, supported area, and split-to-split roof-type agreement are
+  written per building to `building_accuracy.json`. Type agreement is a consistency check, not independent survey truth.
+- **Fallback height**, in order of trust: the median lidar height above ground over the footprint pulled in by 1 m (when at
   least 3 cells say 1.5 m or more); the footprint's own `height_m` tag; its `num_floors` tag times 3 m; the median of
   the heights the lidar measured on the tile's other buildings. A building newer than the lidar survey is read as
   flat ground by it, so the tags speak. Every record says which it used (`height_from`), and `build.json` counts them.
-  On the real tile 200 of 207 buildings took the lidar's height, 5 a tag, 2 the tile's median.
 - **Roof colour** is the median photo colour over the footprint, turned into albedo by the paved class's curve (the
   photo is calibrated per class against the reflectance raster; a roof reads like the unvegetated class, a prior).
+  Building imagery replaces this sample when at least 60% of the roof interior has usable pixels. RGB alone does not establish roofing material.
 - **Roof forms** on large light roofs come from compact contrasting regions in the photo. Their locations and
   plan dimensions are image inferences; bounds can include cast shadows and the object type is unconfirmed.
   Edge-connected shadows and long thin seams are excluded. Sparse clusters are covered by solid photo rectangles at least two cells across; one-cell connections do not fill the space between units. Service-box height is a 0.9 m prior. Fixture bodies are inset up to 1.25 m per side from those uncertain bounds, capped at 40% of each dimension while retaining a 0.4 m minimum body width; their curbs stay inside the bounds to leave visible gaps between neighbouring volumes. Building components retain normal mesh shadows and omit the screen-space contact pass, which self-occludes thin seating rows. These forms do
-  not change the measured building height or median roof albedo.
+  not change the measured building height or median roof albedo. Measured roofs omit this generic equipment kit.
+  Explicit photo observations can place unit bodies and skylight candidates with separate plan and height provenance.
+  Their bodies retain the observed plan dimensions, and follow the local measured roof level. A photo does not measure
+  their height. Coherent raised lidar returns on at least three flat-roof edges can supply an inferred parapet height.
 - **Architectural detail:** each record's `architecture` describes its facade and roof kit. Source tags choose
   residential, institutional, commercial, utility or grandstand use. Untagged footprints use area, width and
   measured height as a prior. Suitable rectangular residential roofs get a ridge; irregular footprints and
-  courtyards keep their triangulated flat roof. Gabled roofs extend equally above and below the lidar median.
+  courtyards keep their triangulated flat roof. Gabled priors extend equally above and below the lidar median.
+  An accepted roof survey replaces those profiles. Facades remain priors unless a reviewed facade observation exists.
 - **Priors, with no source:** facade colour, brick or siding, window bays, doors, trim, parapets and HVAC are
   plausible modular details, not surveyed elevations. Roof pitch is 0.38 rise/run, capped at 2.4 m rise. Roof
   roughness is 0.85. Grandstand rows use the tagged footprint and measured height; paired stands face each other.
-  Bench fittings (including 6 cm support posts) and the larger stand's press box are priors. Each record carries provenance, and
+  Bench fittings (including 6 cm support posts) and the larger stand's press box are priors. Reviewed seating outlines,
+  row counts and aisle locations can replace the stand plan. A fitted seating slope replaces its rise, and observed
+  stands omit the generic press box. Each record carries provenance, and
   `buildings.priors` lists these limitations. A tagged grandstand owns a generic streetscape bleacher when at
   least 25% of the seating plan overlaps its footprint; `claimed_bleachers` records the omitted kit and overlap.
   Separate bleachers remain in the streetscape inventory. The 3 m floor, 0.3 m simplification, 4 m2 minimum area, 1.5 m lidar
@@ -468,9 +493,11 @@ a height, a roof albedo, and where each came from.
   hid 2108 more cells that were still read as ground), and the ground class under a footprint is that of the nearest
   ground not under one. Nothing double-draws ground and roof.
 
-Limits: the lidar is from 2017. A demolished building is still in the lidar's height where the footprint source is
-older, and a new one has only its tags. Facade details and roof profiles are approximations; chimneys and interiors
-are not modelled. Roof tags can select flat or gabled profiles; other roof shapes retain flat massing.
+Limits: dated lidar and newer imagery can describe different buildings. Missing roof support is recorded as a change
+review candidate, because sparse sampling and occlusion can produce the same result. Those flags are not confirmed
+construction dates. Absolute alignment between the lidar and the site's terrain datum remains unverified. Unreal's
+build receipt records any additional terrain-clearance lift for every building. Facades without resolved street-photo
+observations, unresolved roofs, fittings, chimneys, and interiors remain priors or unmodelled details.
 
 ## Unreal side
 
