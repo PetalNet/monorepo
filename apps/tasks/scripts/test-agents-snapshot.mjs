@@ -506,4 +506,35 @@ await assert.rejects(
 	/denied/,
 );
 
+const identityEvents = [
+	`legacy-${"a".repeat(64)}`,
+	`legacy-${"b".repeat(64)}`,
+	"ghp_identity_fixture",
+	`long-${"c".repeat(1100)}`,
+	"ordinary-run",
+].map((runId, index) => ({ event: "import", runId, at, kind: `identity-${index}` }));
+
+async function identitySnapshot(ledgerEvents) {
+	return snapshot({
+		stateDir: "/identity",
+		now,
+		read: async (filePath) => {
+			assert.equal(filePath, "/identity/ledger.jsonl");
+
+			return ledgerEvents.map(JSON.stringify).join("\n");
+		},
+	});
+}
+
+const identities = await identitySnapshot(identityEvents);
+const reorderedIdentities = await identitySnapshot(identityEvents.toReversed());
+const idsByKind = (value) => Object.fromEntries(value.runs.map((run) => [run.kind, run.id]));
+
+assert.equal(new Set(identities.runs.map((run) => run.id)).size, identityEvents.length);
+assert.deepEqual(idsByKind(identities), idsByKind(reorderedIdentities));
+
+for (const event of identityEvents.slice(0, -1)) {
+	assert.equal(JSON.stringify(identities).includes(event.runId), false);
+}
+
 console.log("agents snapshot synthetic tests passed");
