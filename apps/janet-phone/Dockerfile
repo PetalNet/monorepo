@@ -15,7 +15,7 @@ RUN mkdir /models \
     && fetch parakeet_vocab.txt 8fe6871fa1df0813fee690d5e5ba8dfd7a66f028b12fce32ab7d51a1d1704e6f "$P/vocab.txt" \
     && fetch parakeet_realtime_eou_120m.int8.onnx 7dbdf3e4f539a78819c71d1fc8c0aaf0be8d34417661a16e643cd47e17c319fd "$P/parakeet_realtime_eou_120m.int8.onnx"
 WORKDIR /app
-COPY apps/janet-phone/janet_phone.py apps/janet-phone/matrix_notice.py apps/janet-phone/pairing.py ./
+COPY apps/janet-phone/janet_phone.py apps/janet-phone/matrix_notice.py apps/janet-phone/pairing.py apps/janet-phone/ringing.py ./
 COPY packages/janet-turn/janet_turn ./janet_turn
 COPY packages/janet-line/janet_line ./janet_line
 USER 1000

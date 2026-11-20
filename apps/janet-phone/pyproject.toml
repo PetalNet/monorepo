@@ -10,6 +10,7 @@ matrix = ["matrix-nio[e2e]"]
 
 [project.scripts]
 janet-phone = "janet_phone:main"
+janet-ring = "janet_ring:main"
 
 [tool.ruff]
 line-length = 120

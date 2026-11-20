@@ -16,6 +16,8 @@ sealed interface CallState {
 
 	data object Connecting : CallState
 
+	data class Ringing(val ring: PendingRing) : CallState
+
 	data object Active : CallState
 
 	/** [problem] is set when the call ended because something went wrong, not because someone hung up. */
@@ -59,7 +61,7 @@ object Calls {
 	private val main = Handler(Looper.getMainLooper())
 	private val observers = mutableListOf<() -> Unit>()
 
-	val inCall: Boolean get() = state is CallState.Connecting || state is CallState.Active
+	val inCall: Boolean get() = state is CallState.Ringing || state is CallState.Connecting || state is CallState.Active
 
 	fun observe(observer: () -> Unit) {
 		observers += observer
@@ -78,9 +80,13 @@ object Calls {
 	}
 
 	/** Runs [change] on the main thread, then tells the observers. */
-	fun update(change: () -> Unit) = main.post {
-		change()
-		observers.toList().forEach { it() }
+	fun update(change: () -> Unit) {
+		val notify = {
+			change()
+			observers.toList().forEach { it() }
+		}
+		// Reserve the line before Telecom can deliver another incoming or outgoing request.
+		if (Looper.myLooper() == Looper.getMainLooper()) notify() else main.post { notify() }
 	}
 }
 
@@ -90,15 +96,9 @@ object Dialer {
 	private fun handle(context: Context) =
 		PhoneAccountHandle(ComponentName(context, JanetConnectionService::class.java), "janet")
 
-	/** Places the call. Returns why it could not be placed, or null. */
-	fun place(context: Context): Problem? {
-		if (Calls.inCall) return null
-		val pairing = Settings(context).pairing() ?: return Problem.Note(NOT_PAIRED)
-		// Speech-to-text and the voice start loading now, while Android sets the call up.
-		Bridge.warm(pairing, Calls.lineSink(context, pairing))
-		val telecom = context.getSystemService(TelecomManager::class.java)
+	private fun register(context: Context): PhoneAccountHandle {
 		val handle = handle(context)
-		telecom.registerPhoneAccount(
+		context.getSystemService(TelecomManager::class.java).registerPhoneAccount(
 			PhoneAccount.builder(handle, "Janet")
 				.setCapabilities(PhoneAccount.CAPABILITY_SELF_MANAGED)
 				.setAddress(ADDRESS)
@@ -106,8 +106,27 @@ object Dialer {
 				.setExtras(Bundle().apply { putBoolean(PhoneAccount.EXTRA_LOG_SELF_MANAGED_CALLS, true) })
 				.build(),
 		)
+		return handle
+	}
+
+	fun incoming(context: Context, id: String) {
+		val handle = register(context)
+		context.getSystemService(TelecomManager::class.java).addNewIncomingCall(handle, Bundle().apply {
+			putParcelable(TelecomManager.EXTRA_INCOMING_CALL_ADDRESS, ADDRESS)
+			putString(IncomingCalls.EXTRA_RING_ID, id)
+		})
+	}
+
+	/** Places the call. Returns why it could not be placed, or null. */
+	fun place(context: Context): Problem? {
+		if (Calls.inCall) return null
+		val pairing = Settings(context).pairing() ?: return Problem.Note(NOT_PAIRED)
+		// Speech-to-text and the voice start loading now, while Android sets the call up.
+		Bridge.warm(pairing, Calls.lineSink(context, pairing))
+		val telecom = context.getSystemService(TelecomManager::class.java)
 		Calls.update(CallState.Connecting)
 		return try {
+			val handle = register(context)
 			telecom.placeCall(ADDRESS, Bundle().apply { putParcelable(TelecomManager.EXTRA_PHONE_ACCOUNT_HANDLE, handle) })
 			null
 		} catch (e: SecurityException) {

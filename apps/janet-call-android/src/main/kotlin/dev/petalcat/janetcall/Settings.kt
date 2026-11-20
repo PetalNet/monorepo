@@ -13,6 +13,7 @@ import org.json.JSONObject
 
 /** The pairing, sealed as one value with an Android Keystore AES key. Nothing here is typed in or shown. */
 class Settings(context: Context) {
+	private val app = context.applicationContext
 	private val prefs = context.getSharedPreferences("janet_call_pairing", Context.MODE_PRIVATE)
 
 	init {
@@ -26,9 +27,13 @@ class Settings(context: Context) {
 			.put("url", pairing.url).put("token", pairing.token)
 			.put("cf_id", pairing.cfId).put("cf_secret", pairing.cfSecret)
 		prefs.edit().putString(KEY, seal(json.toString())).apply()
+		RingService.sync(app)
 	}
 
-	fun clear() = prefs.edit().clear().apply()
+	fun clear() {
+		prefs.edit().clear().apply()
+		RingService.sync(app)
+	}
 
 	/** Null when this phone is not paired, or the stored pairing can no longer be opened or used. */
 	fun pairing(): Pairing? {

@@ -281,6 +281,8 @@ fun SettingsScreen(
 	onBack: () -> Unit,
 	onUnpair: () -> Unit,
 	licences: () -> String,
+	incomingStatus: String? = null,
+	onIncomingSetup: (() -> Unit)? = null,
 ) {
 	val palette = LocalPalette.current
 	var asking by rememberSaveable { mutableStateOf(false) }
@@ -303,6 +305,14 @@ fun SettingsScreen(
 			Spacer(Modifier.height(14.dp))
 			HomePageField(homeUrl, onHomeUrl)
 			Spacer(Modifier.height(14.dp))
+			if (incomingStatus != null && onIncomingSetup != null) {
+				Card("INCOMING CALLS") {
+					Text(incomingStatus, style = Type.body, color = palette.ink)
+					Spacer(Modifier.height(16.dp))
+					Pill("Set up incoming calls", onIncomingSetup, filled = false)
+				}
+				Spacer(Modifier.height(14.dp))
+			}
 			Pill("Open-source licences", { reading = true }, filled = false)
 		}
 		Pill("Unpair this phone", { asking = true }, Modifier.padding(start = SIDE, end = SIDE, bottom = 24.dp), filled = false)
