@@ -361,7 +361,8 @@ def test_invalid_pixels_do_not_contaminate_a_partially_covered_coarse_average(tm
 
 @pytest.mark.parametrize("mixed_coverage", [False, True])
 @pytest.mark.parametrize("tag_alpha", [False, True])
-def test_survey_reservation_matches_actual_survey_detail_coverage(tmp_path, monkeypatch, mixed_coverage, tag_alpha):
+@pytest.mark.parametrize("ortho_skipped", [False, True])
+def test_survey_reservation_matches_actual_survey_detail_coverage(tmp_path, monkeypatch, mixed_coverage, tag_alpha, ortho_skipped):
     from envgen import build as pipeline
 
     winter, drone = tmp_path / "winter.tif", tmp_path / "survey.tif"
@@ -397,7 +398,8 @@ def test_survey_reservation_matches_actual_survey_detail_coverage(tmp_path, monk
     out.mkdir()
     Image.fromarray(np.full((13, 13), 255, dtype=np.uint8)).save(out / "grass.png")
     monkeypatch.setattr(pipeline, "DETAIL_PIXELS", 24)
-    detail = pipeline.build_survey_detail(site, out, None, [{"name": "grass", "file": "grass.png"}])
+    ortho = {"files": [], "skipped": "unsupported layout"} if ortho_skipped else None
+    detail = pipeline.build_survey_detail(site, out, None, [{"name": "grass", "file": "grass.png"}], ortho)
     encoded = np.array(Image.open(out / detail["file"]))
     assert np.count_nonzero(encoded) == (48 if mixed_coverage else 0)
 

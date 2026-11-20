@@ -1173,7 +1173,7 @@ def build_survey_detail(
             passed = _low_pass_of_sunlit(pooled[None], sunlit * (mine == index), sigma)[0]
             smooth = np.where(mine == index, passed, smooth)
         survey_shadows = {}
-        if ortho:
+        if ortho and "raster" in ortho:
             darkness = np.log2(np.maximum(pooled, 1e-4) / np.maximum(smooth, 1e-4))
             for index, layer in enumerate(layers):
                 if layer["name"] not in surface.SEASONAL:
@@ -1211,7 +1211,7 @@ def build_survey_detail(
                         first_column, first_row, min(block, width - first_column), min(block, height - first_row)
                     )
                     data = source.read([1, 2, 3, 4], window=window)
-                    valid = data[3] > 0 if ortho else data[3] == 255
+                    valid = data[3] > 0 if ortho and "raster" in ortho else data[3] == 255
                     luminance = np.tensordot(grain.LUMA, grain.to_linear(data[:3]), 1)
                     ri = np.minimum(
                         ((first_row + np.arange(data.shape[1]) + 0.5) * rows / height).astype(int), rows - 1
