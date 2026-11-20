@@ -6,11 +6,14 @@ anchor changes the terrain sample, never the east/north coordinates of vertices.
 
 from __future__ import annotations
 
+import hashlib
+import io
 import json
 import math
 from collections import Counter
+from dataclasses import dataclass
 from itertools import pairwise
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 
 import numpy as np
 import shapely
@@ -35,6 +38,7 @@ DEFAULTS = {
     "soccer_goal": {"width_m": 7.32, "height_m": 2.44, "depth_m": 2.0},
 }
 GEOMETRY = {
+    "decal": {"image", "bounds_m"},
     "surface": {"ring", "material"},
     "line": {"points", "material", "width_m"},
     "curb": {"points", "width_m", "height_m"},
@@ -51,7 +55,9 @@ MAX_MESH_TRIANGLES = 20000
 GRASS_MASK_PIXELS = 2048
 FOOTING_SINK_M = 0.3
 BLEACHER_SINK_M = 0.6
+DECAL_OFFSET_M = 0.08
 SETTINGS = {
+    "decal_offset_m": DECAL_OFFSET_M,
     "surfaces": SURFACES,
     "lines": LINES,
     "defaults": DEFAULTS,
@@ -107,7 +113,16 @@ def _feature(raw, tile: Tile) -> tuple[dict, list[str]]:
         for key, value in DEFAULTS.get(kind, {}).items()
         if key not in raw
     ]
-    if "point" in GEOMETRY[kind]:
+    if kind == "decal":
+        bounds = f.get("bounds_m")
+        if not isinstance(bounds, list) or len(bounds) != 4:
+            raise SiteError(f"{label}: bounds_m must be [west,south,east,north]")
+        west, south = _point(bounds[:2], f"{label}.bounds_m", tile)
+        east, north = _point(bounds[2:], f"{label}.bounds_m", tile)
+        if west >= east or south >= north:
+            raise SiteError(f"{label}: bounds_m must have west < east and south < north")
+        f["bounds_m"] = [west, south, east, north]
+    elif "point" in GEOMETRY[kind]:
         f["point"] = _point(f.get("point"), label, tile)
     else:
         key = "ring" if kind == "surface" else "points"
@@ -129,7 +144,7 @@ def _feature(raw, tile: Tile) -> tuple[dict, list[str]]:
                 raise SiteError(f"{label}: ring must be simple with nonzero area")
         f[key] = points
     for key in GEOMETRY[kind]:
-        if key.endswith("_m"):
+        if key.endswith("_m") and key != "bounds_m":
             f[key] = _number(f.get(key), f"{label}.{key}", positive=True)
     if kind == "bleacher" and f["rise_m"] <= 0.03:
         raise SiteError(f"{label}: rise_m must exceed the 0.03 m seat underside")
@@ -444,7 +459,7 @@ def _bounded(meshes):
     grouped = {}
     combined = []
     for mesh in meshes:
-        if not mesh["collision"] and "anchor_m" not in mesh:
+        if not mesh["collision"] and "anchor_m" not in mesh and "image" not in mesh:
             x = (min(v[0] for v in mesh["vertices"]) + max(v[0] for v in mesh["vertices"])) / 2
             y = (min(v[1] for v in mesh["vertices"]) + max(v[1] for v in mesh["vertices"])) / 2
             key = (mesh["material"], math.floor(x / BIN_M), math.floor(y / BIN_M))
@@ -470,8 +485,38 @@ def _bounded(meshes):
     return result
 
 
-def build_inventory(path: Path, tile: Tile, out: Path, building_footprints=()) -> dict:
-    """Validate measured inventory, write streetscape.json, and return its stage description."""
+@dataclass
+class Inventory:
+    features: list[dict]
+    source: dict
+    priors: list[str]
+    images: dict[str, bytes]
+
+
+def _decal_image(path: Path, image, label: str) -> tuple[str, bytes]:
+    if not isinstance(image, str) or not image.strip():
+        raise SiteError(f"{label}: image must be a relative PNG path")
+    relative = PurePosixPath(image)
+    if relative.is_absolute() or ".." in relative.parts or "\\" in image or ":" in image:
+        raise SiteError(f"{label}: image must stay within the inventory directory")
+    try:
+        file = (path.parent / image).resolve()
+        if not file.is_relative_to(path.parent.resolve()):
+            raise SiteError(f"{label}: image must stay within the inventory directory")
+        data = file.read_bytes()
+        with Image.open(io.BytesIO(data)) as png:
+            if png.format != "PNG" or png.mode != "RGBA" or data[24:26] != b"\x08\x06":
+                raise SiteError(f"{label}: image must be an 8-bit RGBA PNG")
+            png.load()
+            if png.getchannel("A").getextrema()[1] < 85:
+                raise SiteError(f"{label}: image alpha must reach the 0.333 material cutoff (85/255)")
+    except (OSError, ValueError, Image.DecompressionBombError) as error:
+        raise SiteError(f"{label}: cannot read decal image: {error}") from error
+    return f"streetscape_decal_{hashlib.sha256(data).hexdigest()}.png", data
+
+
+def load_inventory(path: Path, tile: Tile) -> Inventory:
+    """Validate all inputs before cache reuse; retain the exact image bytes hashed by the stage key."""
     try:
         raw = json.loads(path.read_text())
     except (ValueError, OSError) as error:
@@ -487,14 +532,25 @@ def build_inventory(path: Path, tile: Tile, out: Path, building_footprints=()) -
         raise SiteError("streetscape: source needs name, license, date")
     if not isinstance(raw.get("features"), list):
         raise SiteError("streetscape: features must be an array")
-    features, priors, seen = [], [], set()
+    features, priors, seen, images = [], [], set(), {}
     for value in raw["features"]:
         feature, defaults = _feature(value, tile)
         if feature["id"] in seen:
             raise SiteError(f"feature {feature['id']}: duplicate id")
         seen.add(feature["id"])
+        if feature["type"] == "decal":
+            name, data = _decal_image(path, feature.get("image"), f"feature {feature['id']}")
+            feature["image"] = name
+            images[name] = data
         features.append(feature)
         priors.extend(defaults)
+    return Inventory(features, source, priors, images)
+
+
+def build_inventory(path: Path, tile: Tile, out: Path, building_footprints=(), *, inventory: Inventory | None = None) -> dict:
+    """Write validated geometry and image artifacts, and return the stage description."""
+    inventory = inventory if inventory is not None else load_inventory(path, tile)
+    features, source, priors = inventory.features, inventory.source, list(inventory.priors)
     features, claimed = architecture.claim_bleachers(features, building_footprints, tile)
     if claimed:
         priors.append(
@@ -510,7 +566,12 @@ def build_inventory(path: Path, tile: Tile, out: Path, building_footprints=()) -
     for f in features:
         first_mesh = len(meshes)
         kind = f["type"]
-        if kind == "surface":
+        if kind == "decal":
+            _planar(box(*f["bounds_m"]), "paint_decal", DECAL_OFFSET_M, meshes, tile)
+            for mesh in meshes[first_mesh:]:
+                mesh.update(image=f["image"], bounds_m=f["bounds_m"])
+            priors.append(f"{f['id']}: registered RGBA paint terrain offset {DECAL_OFFSET_M} m")
+        elif kind == "surface":
             if f["material"] != "turf":
                 exclusions.append(Polygon(f["ring"]))
             priors.append(f"{f['id']}: {f['material']} terrain offset {SURFACES[f['material']]} m")
@@ -551,6 +612,8 @@ def build_inventory(path: Path, tile: Tile, out: Path, building_footprints=()) -
         "claimed_bleachers": claimed,
     }
     out.mkdir(parents=True, exist_ok=True)
+    for name, data in inventory.images.items():
+        (out / name).write_bytes(data)
     (out / "streetscape.json").write_text(json.dumps(payload, separators=(",", ":"), allow_nan=False) + "\n")
     # Landscape images run [east, north], both increasing; rasterize writes [north descending, east].
     pixels = GRASS_MASK_PIXELS
@@ -570,7 +633,7 @@ def build_inventory(path: Path, tile: Tile, out: Path, building_footprints=()) -
     return {
         "file": "streetscape.json",
         "grass_mask": "streetscape_grass.png",
-        "files": ["streetscape.json", "streetscape_grass.png"],
+        "files": ["streetscape.json", "streetscape_grass.png", *sorted(inventory.images)],
         "feature_count": len(features),
         "triangle_count": sum(len(m["triangles"]) for m in meshes),
         "counts": counts,

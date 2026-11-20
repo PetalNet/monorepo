@@ -1915,6 +1915,12 @@ def build(site_path: Path, out: Path, cache: Path | None = None) -> dict:
     if site.streetscape:
         if not Path(site.streetscape.location).is_file():
             raise SiteError(f"sources.streetscape: {site.streetscape.location} does not exist")
+        streetscape_path = Path(site.streetscape.location)
+        streetscape_inventory = streetscape.load_inventory(streetscape_path, tile)
+        for name, data in streetscape_inventory.images.items():
+            staged = out / name
+            if staged.is_file() and staged.read_bytes() != data:
+                staged.unlink()
         sources["streetscape"] = {
             "kind": "file",
             "path": site.streetscape.location,
@@ -1927,14 +1933,15 @@ def build(site_path: Path, out: Path, cache: Path | None = None) -> dict:
             out,
             "streetscape",
             _stage_key(
-                "streetscape-3",
+                "streetscape-5",
                 grid,
                 sources["streetscape"]["sha256"],
+                sorted(streetscape_inventory.images),
                 streetscape.SETTINGS,
                 buildings_key,
                 architecture.GRANDSTAND_CLAIM_SHARE,
             ),
-            lambda: streetscape.build_inventory(Path(site.streetscape.location), tile, out, footprints),
+            lambda: streetscape.build_inventory(streetscape_path, tile, out, footprints, inventory=streetscape_inventory),
         )
     manifest = {
         "schema_version": SCHEMA_VERSION,
