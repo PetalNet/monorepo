@@ -4,7 +4,7 @@ version = "0.1.0"
 description = "Private ACFT Whisper adaptation and quantized FUTO evaluation"
 requires-python = ">=3.11"
 dependencies = [
-	"huggingface-hub>=0.26,<1",
+	"huggingface-hub>=2.4,<3",
 	"jiwer>=4,<5",
 	"numpy>=1.26,<3",
 	"scipy>=1.11,<2",
