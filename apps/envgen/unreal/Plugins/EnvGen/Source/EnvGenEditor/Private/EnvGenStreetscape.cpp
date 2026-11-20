@@ -5,8 +5,11 @@
 #include "Dom/JsonObject.h"
 #include "Engine/StaticMesh.h"
 #include "Engine/StaticMeshActor.h"
+#include "Engine/Texture2D.h"
 #include "Engine/World.h"
 #include "EnvGenSiteInfo.h"
+#include "IImageWrapper.h"
+#include "IImageWrapperModule.h"
 #include "Landscape.h"
 #include "LandscapeComponent.h"
 #include "MaterialEditingLibrary.h"
@@ -17,10 +20,12 @@
 #include "Materials/MaterialExpressionMaterialFunctionCall.h"
 #include "Materials/MaterialExpressionWorldPosition.h"
 #include "Materials/MaterialExpressionTextureCoordinate.h"
+#include "Materials/MaterialExpressionTextureSample.h"
 #include "Materials/MaterialFunction.h"
 #include "MeshDescription.h"
 #include "Misc/FileHelper.h"
 #include "Misc/Paths.h"
+#include "Modules/ModuleManager.h"
 #include "PhysicsEngine/BodySetup.h"
 #include "Serialization/JsonReader.h"
 #include "Serialization/JsonSerializer.h"
@@ -56,7 +61,7 @@ namespace
 		{TEXT("gravel"), {FLinearColor(.24f, .22f, .18f), .95f, 0, 4}},
 		{TEXT("clay"), {FLinearColor(.34f, .23f, .14f), .97f, 0, 4}},
 		{TEXT("turf"), {FLinearColor(.065f, .08f, .0375f), .96f, 0, 0}},
-		{TEXT("paint_white"), {FLinearColor(.64f, .63f, .57f), .83f, 0, 5}},
+		{TEXT("paint_white"), {FLinearColor(.723f, .716f, .791f), .83f, 0, 5}},
 		{TEXT("paint_yellow"), {FLinearColor(.72f, .48f, .045f), .8f, 0, 5}},
 		{TEXT("steel"), {FLinearColor(.26f, .28f, .29f), .55f, .8f, 0}},
 		{TEXT("aluminum"), {FLinearColor(.46f, .48f, .49f), .46f, .85f, 0}},
@@ -115,7 +120,7 @@ if (%d==2) {
 }
 if (%d==3) modulation*=.9+.16*wear;
 if (%d==4) modulation*=.80+.32*wear;
-if (%d==5) modulation*=.83+.17*wear;
+if (%d==5) modulation=1;
 return float4(float3(%.5f,%.5f,%.5f)*modulation,saturate(%.5f+.08*(wear-.5)+.08*crack));
 )HLSL"), Finish.Pattern, Finish.Pattern, Finish.Pattern, Finish.Pattern, Finish.Pattern,
 			Finish.Albedo.R, Finish.Albedo.G, Finish.Albedo.B, Finish.Roughness);
@@ -168,6 +173,58 @@ return float4(float3(%.5f,%.5f,%.5f)*modulation,saturate(%.5f+.08*(wear-.5)+.08*
 			Out.Add(Number->AsNumber());
 		}
 		return true;
+	}
+
+	struct FDecalImage
+	{
+		TArray64<uint8> Pixels;
+		int32 Width = 0;
+		int32 Height = 0;
+	};
+
+	bool ReadDecal(const FString& Path, FDecalImage& Out)
+	{
+		TArray64<uint8> Compressed;
+		if (!FFileHelper::LoadFileToArray(Compressed, *Path) || Compressed.Num() < 33
+			|| Compressed[24] != 8 || Compressed[25] != 6) return false;
+		IImageWrapperModule& Module = FModuleManager::LoadModuleChecked<IImageWrapperModule>(TEXT("ImageWrapper"));
+		const TSharedPtr<IImageWrapper> Wrapper = Module.CreateImageWrapper(EImageFormat::PNG);
+		if (!Wrapper || !Wrapper->SetCompressed(Compressed.GetData(), Compressed.Num())
+			|| !Wrapper->GetRaw(ERGBFormat::BGRA, 8, Out.Pixels)) return false;
+		Out.Width = Wrapper->GetWidth();
+		Out.Height = Wrapper->GetHeight();
+		if (Out.Width <= 0 || Out.Height <= 0 || Out.Pixels.Num() != int64(Out.Width) * Out.Height * 4) return false;
+		for (int64 I = 3; I < Out.Pixels.Num(); I += 4)
+		{
+			if (Out.Pixels[I] >= 85) return true;
+		}
+		return false;
+	}
+
+	UMaterial* MakeDecalMaterial(int32 Index, const FDecalImage& Image, TArray<UPackage*>& Packages)
+	{
+		UTexture2D* Texture = Asset<UTexture2D>(FString::Printf(TEXT("T_StreetscapeDecal_%04d"), Index), Packages);
+		Texture->Source.Init(Image.Width, Image.Height, 1, 1, TSF_BGRA8, Image.Pixels.GetData());
+		Texture->SRGB = true;
+		Texture->CompressionSettings = TC_Default;
+		Texture->LODGroup = TEXTUREGROUP_World;
+		Texture->AddressX = Texture->AddressY = TA_Clamp;
+		Texture->bDoScaleMipsForAlphaCoverage = true;
+		Texture->AlphaCoverageThresholds = FVector4(0, 0, 0, .333f);
+		Texture->PostEditChange();
+		UMaterial* Material = Asset<UMaterial>(FString::Printf(TEXT("M_StreetscapeDecal_%04d"), Index), Packages);
+		Material->BlendMode = BLEND_Masked;
+		Material->OpacityMaskClipValue = .333f;
+		auto* Sample = CastChecked<UMaterialExpressionTextureSample>(UMaterialEditingLibrary::CreateMaterialExpression(Material, UMaterialExpressionTextureSample::StaticClass()));
+		Sample->Texture = Texture;
+		Sample->SamplerType = SAMPLERTYPE_Color;
+		UMaterialEditingLibrary::ConnectMaterialProperty(Sample, TEXT("RGB"), MP_BaseColor);
+		UMaterialEditingLibrary::ConnectMaterialProperty(Sample, TEXT("A"), MP_OpacityMask);
+		auto* Roughness = CastChecked<UMaterialExpressionConstant>(UMaterialEditingLibrary::CreateMaterialExpression(Material, UMaterialExpressionConstant::StaticClass()));
+		Roughness->R = .83f;
+		UMaterialEditingLibrary::ConnectMaterialProperty(Roughness, TEXT(""), MP_Roughness);
+		UMaterialEditingLibrary::RecompileMaterial(Material);
+		return Material;
 	}
 }
 
@@ -223,10 +280,12 @@ static bool ProcessStreetscape(UWorld* World, const FString& ManifestPath,
 		StencilIds.Add(Key, int32(Id));
 	}
 	TMap<FString, UMaterial*> Materials;
+	TMap<FString, FDecalImage> Decals;
 	struct FPendingMesh
 	{
 		FMeshDescription Description;
 		FString Name;
+		FString Image;
 		bool bCollision;
 		bool bAnchored;
 	};
@@ -253,13 +312,38 @@ static bool ProcessStreetscape(UWorld* World, const FString& ManifestPath,
 			return false;
 		}
 		const FFinish* Finish = Finishes.Find(Name);
-		if (!Finish)
+		const bool bDecal = Name == TEXT("paint_decal");
+		if (!Finish && !bDecal)
 		{
 			Error = TEXT("unknown streetscape finish: ") + Name;
 			return false;
 		}
 		TArray<double> Anchor;
 		const bool bAnchored = Row->HasField(TEXT("anchor_m"));
+		FString Image;
+		TArray<double> Bounds;
+		if (bDecal)
+		{
+			if (bCollision || bAnchored || !Row->TryGetStringField(TEXT("image"), Image) || Image.IsEmpty()
+				|| Image.Contains(TEXT("/")) || Image.Contains(TEXT("\\")) || Image.Contains(TEXT(":"))
+				|| !Image.EndsWith(TEXT(".png")) || !Numbers(Row->TryGetField(TEXT("bounds_m")), 4, Bounds)
+				|| Bounds[0] >= Bounds[2] || Bounds[1] >= Bounds[3]
+				|| !FMath::IsFinite(Bounds[2] - Bounds[0]) || !FMath::IsFinite(Bounds[3] - Bounds[1]))
+			{
+				Error = FString::Printf(TEXT("invalid registered decal in streetscape mesh %d"), Index);
+				return false;
+			}
+			if (!Decals.Contains(Image))
+			{
+				FDecalImage Decal;
+				if (!ReadDecal(FPaths::GetPath(FPaths::GetPath(ManifestPath) / InventoryFile) / Image, Decal))
+				{
+					Error = TEXT("cannot decode visible 8-bit RGBA streetscape decal: ") + Image;
+					return false;
+				}
+				Decals.Add(Image, MoveTemp(Decal));
+			}
+		}
 		if (bAnchored && !Numbers(Row->TryGetField(TEXT("anchor_m")), 2, Anchor))
 		{
 			Error = FString::Printf(TEXT("invalid anchor in streetscape mesh %d"), Index);
@@ -274,6 +358,12 @@ static bool ProcessStreetscape(UWorld* World, const FString& ManifestPath,
 			if (!Numbers(Point, 3, P))
 			{
 				Error = FString::Printf(TEXT("invalid vertex in streetscape mesh %d"), Index);
+				return false;
+			}
+			if (bDecal && (P[0] < Bounds[0] - 1.e-9 || P[0] > Bounds[2] + 1.e-9
+				|| P[1] < Bounds[1] - 1.e-9 || P[1] > Bounds[3] + 1.e-9))
+			{
+				Error = FString::Printf(TEXT("vertex outside registered decal bounds in streetscape mesh %d"), Index);
 				return false;
 			}
 			const double North = P[1] * 100, East = P[0] * 100;
@@ -327,7 +417,14 @@ static bool ProcessStreetscape(UWorld* World, const FString& ManifestPath,
 				Corners[I] = Description.CreateVertexInstance(V);
 				Normals[Corners[I]] = Normal;
 				FVector2f UV;
-				if (Name == TEXT("chainlink"))
+				if (bDecal)
+				{
+					const FVector& EN = PreciseVertices[int32(T[I])];
+					// World X is north, Y is east. PNG row zero is the north edge.
+					UV = FVector2f((EN.Y * .01 - Bounds[0]) / (Bounds[2] - Bounds[0]),
+						(Bounds[3] - EN.X * .01) / (Bounds[3] - Bounds[1]));
+				}
+				else if (Name == TEXT("chainlink"))
 				{
 					UV = FVector2f(FVector3f::DotProduct(P[I], FVector3f(-Normal.Y, Normal.X, 0)), P[I].Z);
 				}
@@ -339,11 +436,11 @@ static bool ProcessStreetscape(UWorld* World, const FString& ManifestPath,
 				{
 					UV = FVector2f(FMath::Abs(Normal.X) > FMath::Abs(Normal.Y) ? P[I].Y : P[I].X, P[I].Z);
 				}
-				UVs.Set(Corners[I], 0, UV * .01f);
+				UVs.Set(Corners[I], 0, bDecal ? UV : UV * .01f);
 			}
 			Description.CreatePolygon(Group, {Corners[0], Corners[1], Corners[2]});
 		}
-		if (Description.Triangles().Num() > 0) Pending.Add({MoveTemp(Description), Name, bCollision, bAnchored});
+		if (Description.Triangles().Num() > 0) Pending.Add({MoveTemp(Description), Name, Image, bCollision, bAnchored});
 	}
 	if (Pending.IsEmpty() && FeatureCount > 0)
 	{
@@ -360,20 +457,22 @@ static bool ProcessStreetscape(UWorld* World, const FString& ManifestPath,
 	{
 		FPendingMesh& Item = Pending[Index];
 		const FString& Name = Item.Name;
+		const FString MaterialKey = Item.Image.IsEmpty() ? Name : Item.Image;
 		FMeshDescription& Description = Item.Description;
 		const bool bCollision = Item.bCollision, bAnchored = Item.bAnchored;
-		if (!Materials.Contains(Name))
+		if (!Materials.Contains(MaterialKey))
 		{
-			UMaterial* Material = MakeMaterial(Name, Finishes.FindChecked(Name), Packages);
+			UMaterial* Material = Item.Image.IsEmpty() ? MakeMaterial(Name, Finishes.FindChecked(Name), Packages)
+				: MakeDecalMaterial(Index, Decals.FindChecked(Item.Image), Packages);
 			if (!Material)
 			{
 				Error = TEXT("cannot load the engine's DitherTemporalAA function for chainlink");
 				return false;
 			}
-			Materials.Add(Name, Material);
+			Materials.Add(MaterialKey, Material);
 		}
 		UStaticMesh* Mesh = Asset<UStaticMesh>(FString::Printf(TEXT("SM_Streetscape_%04d"), Index), Packages);
-		Mesh->GetStaticMaterials().Add(FStaticMaterial(Materials[Name], FName(*Name)));
+		Mesh->GetStaticMaterials().Add(FStaticMaterial(Materials[MaterialKey], FName(*Name)));
 		// Terrain-contact surfaces retain their exact planes; solid props use Nanite.
 		Mesh->GetNaniteSettings().bEnabled = Name != TEXT("chainlink") && Name != TEXT("net") && (bCollision || bAnchored);
 		Mesh->GetNaniteSettings().FallbackPercentTriangles = 1;

@@ -1,6 +1,7 @@
 """Synthetic measured inventories: validation, coverage, terrain sampling and prop dimensions."""
 
 import copy
+import hashlib
 import json
 import math
 
@@ -537,3 +538,204 @@ def test_playing_turf_preserves_grass_and_clay_still_excludes_it(tmp_path):
     assert at(11, 11) == 255
     assert at(15, 15) == 0
     assert {v[2] for mesh in payload["meshes"] if mesh["material"] == "turf" for v in mesh["vertices"]} == {0.025}
+
+
+def decal_png(path):
+    # Distinct compass corners expose transposes and north/south flips in consumer checks.
+    pixels = np.array([[[255, 0, 0, 255], [0, 255, 0, 192]], [[0, 0, 255, 128], [255, 255, 0, 0]]], dtype=np.uint8)
+    Image.fromarray(pixels).save(path)
+    return path.read_bytes()
+
+
+@pytest.mark.parametrize("alpha", [1, 84, 85])
+def test_decal_alpha_reaches_rendered_cutoff(tmp_path, alpha):
+    Image.new("RGBA", (2, 2), (200, 200, 200, alpha)).save(tmp_path / "mark.png")
+    mark = feature("decal", image="mark.png", bounds_m=[1, 2, 3, 4])
+    if alpha < 85:
+        with pytest.raises(SiteError, match="material cutoff"):
+            build(tmp_path, [mark])
+    else:
+        stage, _ = build(tmp_path, [mark])
+        assert stage["counts"] == {"decal": 1}
+
+
+def test_decal_registration_and_content_addressed_artifact(tmp_path):
+    data = decal_png(tmp_path / "mark.png")
+    extent = [123.25, -3.5, 128.75, 2.25]  # crosses spatial bins in both axes
+    stage, payload = build(tmp_path, [feature("decal", image="mark.png", bounds_m=extent)])
+    name = f"streetscape_decal_{hashlib.sha256(data).hexdigest()}.png"
+    assert stage["counts"] == {"decal": 1}
+    assert stage["files"] == ["streetscape.json", "streetscape_grass.png", name]
+    assert (tmp_path / "out" / name).read_bytes() == data
+    for actual, expected_bounds in zip(
+        bounds(payload["meshes"]), [(extent[0], extent[2]), (extent[1], extent[3]), (0.08, 0.08)]
+    ):
+        assert actual == pytest.approx(expected_bounds)
+    assert len(payload["meshes"]) > 1
+    for mesh in payload["meshes"]:
+        assert mesh["material"] == "paint_decal"
+        assert mesh["image"] == name and mesh["bounds_m"] == extent
+        assert not mesh["collision"] and "anchor_m" not in mesh
+    expected = Polygon([(extent[0], extent[1]), (extent[2], extent[1]), (extent[2], extent[3]), (extent[0], extent[3])])
+    assert (
+        unary_union([Polygon([v[:2] for v in t]) for t in triangles(payload)]).symmetric_difference(expected).area
+        < 1e-8
+    )
+    assert np.all(np.asarray(Image.open(tmp_path / "out" / stage["grass_mask"])) == 255)
+
+
+def test_decal_batch_splits_retain_distinct_images_and_registration(tmp_path, monkeypatch):
+    from envgen import streetscape
+
+    monkeypatch.setattr(streetscape, "MAX_MESH_TRIANGLES", 5)
+    decal_png(tmp_path / "a.png")
+    Image.new("RGBA", (2, 2), (30, 60, 90, 255)).save(tmp_path / "b.png")
+    extents = [[10, 10, 14, 13], [11, 11, 15, 14], [12, 12, 16, 15]]
+    stage, payload = build(
+        tmp_path,
+        [
+            {**feature("decal", image=image, bounds_m=extent), "id": str(i)}
+            for i, (image, extent) in enumerate(zip(["a.png", "b.png", "a.png"], extents))
+        ],
+    )
+    assert len(stage["files"]) == 4  # two placements of a.png share one texture
+    for extent in extents:
+        meshes = [m for m in payload["meshes"] if m["bounds_m"] == extent]
+        assert len(meshes) > 1
+        assert all(len(m["triangles"]) <= 5 for m in meshes)
+        assert sum(
+            Polygon([m["vertices"][i][:2] for i in t]).area for m in meshes for t in m["triangles"]
+        ) == pytest.approx(12)
+    assert len({m["image"] for m in payload["meshes"]}) == 2
+
+
+@pytest.mark.parametrize("quad_m", [0.5, 1, 2])
+def test_decal_retains_terrain_planes_across_saddle_diagonal(tmp_path, quad_m):
+    tile = Tile(10000, 20000, quad_m, 3)
+    origin = -tile.size_m / 2
+    decal_png(tmp_path / "mark.png")
+    extent = [origin + 0.1 * quad_m, origin + 0.2 * quad_m, origin + 0.9 * quad_m, origin + 0.8 * quad_m]
+    _, payload = build(tmp_path, [feature("decal", image="mark.png", bounds_m=extent)], tile=tile)
+
+    def terrain(east, north):
+        return 0.2 * (1 - abs((east - north) / quad_m))
+
+    for tri in triangles(payload):
+        lifted = [(e, n, terrain(e, n) + z) for e, n, z in tri]
+        for weights in [(1 / 3,) * 3, (0.2, 0.3, 0.5)]:
+            east, north, height = [sum(w * v[axis] for w, v in zip(weights, lifted)) for axis in range(3)]
+            assert height - terrain(east, north) == pytest.approx(0.08, abs=1e-9)
+
+
+@pytest.mark.parametrize(
+    "change",
+    [
+        {"bounds_m": None},
+        {"bounds_m": [0, 1, 2]},
+        {"bounds_m": [0, 1, 0, 2]},
+        {"bounds_m": [0, 2, 1, 1]},
+        {"bounds_m": [0, 0, 631, 1]},
+        {"bounds_m": [0, 0, float("nan"), 1]},
+        {"bounds_m": [False, 0, 1, 1]},
+        {"image": None},
+        {"image": ""},
+        {"image": "../mark.png"},
+        {"image": "/mark.png"},
+        {"image": "C:\\mark.png"},
+        {"image": "sub\\mark.png"},
+        {"heading_deg": 90},
+    ],
+)
+def test_decal_invalid_registration_or_path_reports_feature(tmp_path, change):
+    decal_png(tmp_path / "mark.png")
+    f = feature("decal", image="mark.png", bounds_m=[1, 2, 3, 4]) | change
+    with pytest.raises(SiteError, match="measured-1"):
+        build(tmp_path, [f])
+    assert not (tmp_path / "out").exists()
+
+
+@pytest.mark.parametrize("image_kind", ["missing", "corrupt", "truncated", "rgb", "palette", "transparent", "jpeg"])
+def test_decal_invalid_image_fails_before_writing_artifacts(tmp_path, image_kind):
+    path = tmp_path / "mark.png"
+    if image_kind == "corrupt":
+        path.write_bytes(b"not a PNG")
+    elif image_kind == "truncated":
+        path.write_bytes(decal_png(path)[:40])
+    elif image_kind != "missing":
+        mode = {"rgb": "RGB", "palette": "P", "jpeg": "RGB"}.get(image_kind, "RGBA")
+        Image.new(mode, (2, 2)).save(path, format="JPEG" if image_kind == "jpeg" else "PNG")
+    with pytest.raises(SiteError, match="measured-1"):
+        build(tmp_path, [feature("decal", image="mark.png", bounds_m=[1, 2, 3, 4])])
+    assert not (tmp_path / "out").exists()
+
+
+def test_decal_relative_subdirectory_and_symlink_escape(tmp_path):
+    directory = tmp_path / "inputs"
+    directory.mkdir()
+    decal_png(directory / "mark.png")
+    build(tmp_path, [feature("decal", image="inputs/mark.png", bounds_m=[1, 2, 3, 4])])
+    path = directory / "inventory.json"
+    path.write_text(json.dumps(inventory([feature("decal", image="outside.png", bounds_m=[1, 2, 3, 4])])))
+    decal_png(tmp_path / "external.png")
+    (directory / "outside.png").symlink_to(tmp_path / "external.png")
+    with pytest.raises(SiteError, match="measured-1.*inventory directory"):
+        build_inventory(path, TILE, tmp_path / "escape-out")
+
+
+def test_decal_build_uses_the_validated_image_snapshot(tmp_path):
+    from envgen.streetscape import load_inventory
+
+    original = decal_png(tmp_path / "mark.png")
+    path = tmp_path / "inventory.json"
+    path.write_text(json.dumps(inventory([feature("decal", image="mark.png", bounds_m=[1, 2, 3, 4])])))
+    prepared = load_inventory(path, TILE)
+    (tmp_path / "mark.png").write_bytes(b"changed after validation")
+    stage = build_inventory(path, TILE, tmp_path / "out", inventory=prepared)
+    image = next(name for name in stage["files"] if name.startswith("streetscape_decal_"))
+    assert (tmp_path / "out" / image).read_bytes() == original
+    assert hashlib.sha256(original).hexdigest() in image
+
+
+def test_pipeline_decal_content_invalidates_cache_and_tracks_artifacts(tmp_path):
+    from envgen.build import build as build_site
+
+    from . import helpers
+
+    helpers.write_dem(tmp_path / "dem.tif")
+    helpers.write_imagery(tmp_path / "imagery.tif", split_easting=helpers.WEST + 63)
+    site = helpers.write_site(tmp_path)
+    raw = json.loads(site.read_text())
+    measured = tmp_path / "measured.json"
+    measured.write_text(json.dumps(inventory([feature("decal", image="mark.png", bounds_m=[1, 2, 3, 4])])))
+    raw["sources"]["streetscape"] = {"kind": "file", "path": measured.name, "license": "CC0", "date": "2030-01-01"}
+    site.write_text(json.dumps(raw))
+    original = decal_png(tmp_path / "mark.png")
+    out = tmp_path / "built"
+    first = build_site(site, out)
+    first_image = next(name for name in first["artifacts"] if name.startswith("streetscape_decal_"))
+    assert first["artifacts"][first_image] == hashlib.sha256(original).hexdigest()
+    assert "streetscape" in build_site(site, out)["stages_reused"]
+    Image.new("RGBA", (2, 2), (255, 0, 255, 255)).save(out / first_image)
+    restored = build_site(site, out)
+    assert "streetscape" not in restored["stages_reused"]
+    assert (out / first_image).read_bytes() == original
+    assert restored["artifacts"][first_image] == hashlib.sha256(original).hexdigest()
+    Image.new("RGBA", (2, 2), (100, 150, 200, 255)).save(tmp_path / "mark.png")
+    changed = build_site(site, out)
+    assert changed["sources"]["streetscape"]["sha256"] == first["sources"]["streetscape"]["sha256"]
+    assert "streetscape" not in changed["stages_reused"]
+    next_image = next(name for name in changed["artifacts"] if name.startswith("streetscape_decal_"))
+    assert first_image != next_image and first_image not in changed["artifacts"]
+    assert (out / next_image).read_bytes() == (tmp_path / "mark.png").read_bytes()
+    assert "streetscape" in build_site(site, out)["stages_reused"]
+    (out / next_image).unlink()
+    assert "streetscape" not in build_site(site, out)["stages_reused"]
+    saved_manifest = (out / "build.json").read_bytes()
+    for bad in [b"not a PNG", None]:
+        if bad is None:
+            (tmp_path / "mark.png").unlink()
+        else:
+            (tmp_path / "mark.png").write_bytes(bad)
+        with pytest.raises(SiteError, match="measured-1"):
+            build_site(site, out)
+        assert (out / "build.json").read_bytes() == saved_manifest
