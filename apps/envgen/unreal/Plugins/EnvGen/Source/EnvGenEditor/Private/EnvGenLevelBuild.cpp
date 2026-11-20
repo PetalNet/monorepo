@@ -1098,31 +1098,46 @@ return ((float3((float2(1.6,0.65)*sway+lean)*tip,0) + float3(0,0,(Here.z-Root.z)
 				UMaterialExpressionTextureSample* SurveySample = Node<UMaterialExpressionTextureSample>(Material, -800, -1250);
 				SurveySample->Texture = Survey;
 				SurveySample->AutoSetSampleType();
-				SurveySample->Coordinates.Connect(0, PaddedUv(Material, SurveyUv, Survey, -1250));
-				UMaterialExpressionCustom* FineMipLevel = Node<UMaterialExpressionCustom>(Material, -1100, -1650);
-				FineMipLevel->OutputType = CMOT_Float1;
-				FineMipLevel->Inputs.Empty();
-				FCustomInput& Here = FineMipLevel->Inputs.AddDefaulted_GetRef();
+				UMaterialExpression* SurveyCoords = PaddedUv(Material, SurveyUv, Survey, -1250);
+				SurveySample->Coordinates.Connect(0, SurveyCoords);
+				UMaterialExpressionCustom* FineGradients = Node<UMaterialExpressionCustom>(Material, -1100, -1650);
+				FineGradients->OutputType = CMOT_Float4;
+				FineGradients->Inputs.Empty();
+				FCustomInput& Here = FineGradients->Inputs.AddDefaulted_GetRef();
 				Here.InputName = TEXT("Here");
 				Here.Input.Connect(0, GroundPosition);
-				FCustomInput& Eye = FineMipLevel->Inputs.AddDefaulted_GetRef();
+				FCustomInput& Eye = FineGradients->Inputs.AddDefaulted_GetRef();
 				Eye.InputName = TEXT("Eye");
 				Eye.Input.Connect(0, GroundEye);
-				FCustomInput& PhotoUv = FineMipLevel->Inputs.AddDefaulted_GetRef();
+				FCustomInput& PhotoUv = FineGradients->Inputs.AddDefaulted_GetRef();
 				PhotoUv.InputName = TEXT("UV");
-				PhotoUv.Input.Connect(0, SurveyUv);
-				const double SourcePixelM = FMath::Min(Manifest.SurveyNorthM / Survey->Source.GetSizeX(),
-					Manifest.SurveyEastM / Survey->Source.GetSizeY());
-				FineMipLevel->Code = FString::Printf(TEXT(R"(
-float2 texels=UV*float2(%.1f,%.1f), dx=ddx(texels), dy=ddy(texels);
-float projected=0.5*log2(max(max(dot(dx,dx),dot(dy,dy)),1e-8));
-float minimum=%.6f*(1-smoothstep(300,1500,distance(Here,Eye)));
-return max(projected,minimum);
-)"), double(Survey->Source.GetSizeX()), double(Survey->Source.GetSizeY()),
-					FMath::Max(0.0, FMath::Log2(0.1 / SourcePixelM)));
-				SurveySample->MipValueMode = TMVM_MipLevel;
+				PhotoUv.Input.Connect(0, SurveyCoords);
+				const double NorthUvM = Manifest.SurveyNorthM * FMath::RoundUpToPowerOfTwo(uint32(Survey->Source.GetSizeX())) / Survey->Source.GetSizeX();
+				const double EastUvM = Manifest.SurveyEastM * FMath::RoundUpToPowerOfTwo(uint32(Survey->Source.GetSizeY())) / Survey->Source.GetSizeY();
+				// Keep both footprint directions so the virtual texture can filter anisotropically at grazing angles.
+				FineGradients->Code = FString::Printf(TEXT(R"(
+float2 dx=ddx(UV), dy=ddy(UV), metres=float2(%.9f,%.9f);
+float minimum=0.1*(1-smoothstep(300,1500,distance(Here,Eye)));
+dx*=max(1,minimum/max(length(dx*metres),1e-8));
+dy*=max(1,minimum/max(length(dy*metres),1e-8));
+return float4(dx,dy);
+)"), NorthUvM, EastUvM);
+				UMaterialExpressionComponentMask* GradientX = Node<UMaterialExpressionComponentMask>(Material, -900, -1650);
+				GradientX->Input.Connect(0, FineGradients);
+				GradientX->R = true;
+				GradientX->G = true;
+				GradientX->B = false;
+				GradientX->A = false;
+				UMaterialExpressionComponentMask* GradientY = Node<UMaterialExpressionComponentMask>(Material, -900, -1750);
+				GradientY->Input.Connect(0, FineGradients);
+				GradientY->R = false;
+				GradientY->G = false;
+				GradientY->B = true;
+				GradientY->A = true;
+				SurveySample->MipValueMode = TMVM_Derivative;
 				SurveySample->AutomaticViewMipBias = false;
-				SurveySample->MipValue.Connect(0, FineMipLevel);
+				SurveySample->CoordinatesDX.Connect(0, GradientX);
+				SurveySample->CoordinatesDY.Connect(0, GradientY);
 				UMaterialExpressionMultiply* SurveyScaled = Node<UMaterialExpressionMultiply>(Material, -700, -1250);
 				SurveyScaled->A.Connect(1, SurveySample);
 				SurveyScaled->ConstB = float(Manifest.SurveyLog2Range * 255.0 / Manifest.SurveyZero);
