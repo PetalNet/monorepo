@@ -51,7 +51,7 @@ props extending beyond the tile fail the build with the feature ID. Surface and 
 | ------------- | ---------------------------------------------------------------------- | --------------------------------------------- |
 | `surface`     | `ring`, `material`: asphalt, concrete, track, gravel, clay or turf     | No inferred boundary                          |
 | `line`        | `points`, `material`: paint_white, paint_yellow or concrete; `width_m` | Paint width 0.1 m; concrete requires width    |
-| `decal`       | `image`, `bounds_m`: registered north-up RGBA paint                  | No inferred dimensions or artwork            |
+| `decal`       | `image`, `bounds_m`: registered north-up RGBA paint                    | No inferred dimensions or artwork             |
 | `curb`        | `points`, `width_m`, `height_m`                                        | Width/height 0.15 m, buried 0.05 m            |
 | `fence`       | `points`, `height_m`; optional `ground_anchor` per segment             | Height 2.4 m, posts at most 3 m apart         |
 | `light_pole`  | `point`, `height_m`; `heading_deg`, `arms`, `floodlight`               | Heading zero, two arms, horizontal luminaires |
