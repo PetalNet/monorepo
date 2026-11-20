@@ -1,0 +1,25 @@
+[project]
+name = "janet-dictation-model"
+version = "0.1.0"
+description = "Private ACFT Whisper adaptation and quantized FUTO evaluation"
+requires-python = ">=3.11"
+dependencies = [
+	"huggingface-hub>=0.26,<1",
+	"jiwer>=4,<5",
+	"numpy>=1.26,<3",
+	"scipy>=1.11,<2",
+	"soundfile>=0.12,<1",
+	"safetensors>=0.4,<1",
+	"transformers==4.46.3",
+]
+
+[project.optional-dependencies]
+train = ["torch>=2.5,<3", "openai-whisper>=20250625"]
+test = ["pytest>=8,<10"]
+public-check = ["pyarrow>=18"]
+
+[tool.setuptools]
+py-modules = ["cut", "data", "label", "train", "evaluate", "export", "public_data", "blend"]
+
+[tool.ruff]
+line-length = 120

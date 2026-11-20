@@ -1,0 +1,11 @@
+.venv/
+private/
+checkpoints/
+results/
+*.bin
+*.safetensors
+*.pt
+*.ogg
+*.wav
+*.jsonl
+*.tsv
