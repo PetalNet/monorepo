@@ -4,6 +4,6 @@
 	"private": true,
 	"type": "module",
 	"scripts": {
-		"test": "python3 -B -I test/test_cards.py && python3 -B -I test/test_memindex.py && python3 -B -I test/test_recall.py"
+		"test": "python3 -B -I test/test_cards.py && python3 -B -I test/test_memindex.py && python3 -B -I test/test_recall.py && python3 -B -I test/test_bundle.py && python3 -B -I test/test_outbound.py && python3 -B -I test/test_research.py"
 	}
 }

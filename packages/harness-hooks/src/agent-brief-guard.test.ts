@@ -154,11 +154,19 @@ describe("agent-brief-guard as a hook process", () => {
 		);
 	});
 
-	it("prints nothing for an allowed brief", () => {
-		expect(run(JSON.stringify(agent("Goal: x. Done when: y.")))).toBe("");
+	it("requires a project even when there is no ordered procedure", () => {
+		expect(run(JSON.stringify(agent("Goal: x. Done when: y.")))).toContain(
+			'"permissionDecision":"deny"',
+		);
 	});
 
-	it("fails open on bad input", () => {
-		expect(run("not json")).toBe("");
+	it("fails closed on bad input", () => {
+		const result = spawnSync(process.execPath, ["--no-warnings", script], {
+			input: "not json",
+			encoding: "utf8",
+		});
+
+		expect(result.status).toBe(2);
+		expect(result.stdout).toBe("");
 	});
 });
