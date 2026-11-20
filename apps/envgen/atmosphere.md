@@ -8,29 +8,29 @@ A date string that names several flights uses its first ISO date as an explicit 
 
 The following are presentation priors, not measurements of the site:
 
-| Setting | Value | Reason |
-| --- | --- | --- |
-| Solar angular diameter | 0.5357 degrees | Earth daylight penumbra rather than a point light |
-| Contact shadows | 0.02 of screen width | Small contact detail without long screen-space shadows |
-| Mie scattering coefficient | 1.2 times the engine default | Mild aerosol haze beyond the site; the component property is a coefficient, not a unitless scale |
-| Aerial perspective scale | 1 | Physical distance rather than an artistic multiplier |
-| Cloud base / depth / trace distance | 1.8 / 2 / 30 km | Fair-weather low cloud layer; weather is unknown |
-| Cloud material | Engine `m_SimpleVolumetricCloud_Inst` | Ships with Unreal; no separately licensed content |
-| Cloud coverage / density | 0.25 / 0.3 | Broken fair-weather cloud, rather than the engine material's dense default |
-| Cloud view / reflection samples | 0.5 / 0.25 scale | Outdoor 3080 budget |
-| Cloud shadow view / reflection samples | 0.5 / 0.25 scale | Outdoor 3080 budget |
-| Cloud shadow extent / map resolution / samples | 8 km / 0.5 / 0.5 | Cover the site and surround with a bounded shadow map |
-| Cloud shadow strength on surface | 0.35 | Preserve survey shadow readability with unknown cloud cover |
-| Cloud ground albedo | sRGB 90, 95, 75 | Vegetated regional ground bounce; not calibrated from the ortho |
-| Fog density / height falloff | 0.0002 / 0.2 | Thin boundary-layer haze |
-| Analytic fog start / max opacity | 150 m / 0.35 | Keep near material detail legible |
-| Volumetric fog | Off | Daylight haze uses the cheaper analytic and aerial-perspective paths |
-| Lumen scene / maximum trace distance | 200 m / 200 m | Nearby outdoor occlusion and bounce |
-| Lumen gather / reflection quality | 1 / 0.5 | Rough outdoor surfaces rarely need expensive mirror traces |
-| Global saturation | 0.98 | Small reduction; no replacement of measured material colour |
-| Vignette / film grain / bloom | 0.12 / 0.06 / 0.1 | Slight lens response; preserve fine detail |
-| Exposure compensation / motion blur | +1 EV / 0 | Preserve the base branch's engine exposure bias, on which its EV100 calibration depends |
-| Playable camera | 73.74 degrees horizontal | 24 mm lens equivalent on a 36 mm sensor |
+| Setting                                        | Value                                 | Reason                                                                                           |
+| ---------------------------------------------- | ------------------------------------- | ------------------------------------------------------------------------------------------------ |
+| Solar angular diameter                         | 0.5357 degrees                        | Earth daylight penumbra rather than a point light                                                |
+| Contact shadows                                | 0.02 of screen width                  | Small contact detail without long screen-space shadows                                           |
+| Mie scattering coefficient                     | 1.2 times the engine default          | Mild aerosol haze beyond the site; the component property is a coefficient, not a unitless scale |
+| Aerial perspective scale                       | 1                                     | Physical distance rather than an artistic multiplier                                             |
+| Cloud base / depth / trace distance            | 1.8 / 2 / 30 km                       | Fair-weather low cloud layer; weather is unknown                                                 |
+| Cloud material                                 | Engine `m_SimpleVolumetricCloud_Inst` | Ships with Unreal; no separately licensed content                                                |
+| Cloud coverage / density                       | 0.25 / 0.3                            | Broken fair-weather cloud, rather than the engine material's dense default                       |
+| Cloud view / reflection samples                | 0.5 / 0.25 scale                      | Outdoor 3080 budget                                                                              |
+| Cloud shadow view / reflection samples         | 0.5 / 0.25 scale                      | Outdoor 3080 budget                                                                              |
+| Cloud shadow extent / map resolution / samples | 8 km / 0.5 / 0.5                      | Cover the site and surround with a bounded shadow map                                            |
+| Cloud shadow strength on surface               | 0.35                                  | Preserve survey shadow readability with unknown cloud cover                                      |
+| Cloud ground albedo                            | sRGB 90, 95, 75                       | Vegetated regional ground bounce; not calibrated from the ortho                                  |
+| Fog density / height falloff                   | 0.0002 / 0.2                          | Thin boundary-layer haze                                                                         |
+| Analytic fog start / max opacity               | 150 m / 0.35                          | Keep near material detail legible                                                                |
+| Volumetric fog                                 | Off                                   | Daylight haze uses the cheaper analytic and aerial-perspective paths                             |
+| Lumen scene / maximum trace distance           | 200 m / 200 m                         | Nearby outdoor occlusion and bounce                                                              |
+| Lumen gather / reflection quality              | 1 / 0.5                               | Rough outdoor surfaces rarely need expensive mirror traces                                       |
+| Global saturation                              | 0.98                                  | Small reduction; no replacement of measured material colour                                      |
+| Vignette / film grain / bloom                  | 0.12 / 0.06 / 0.1                     | Slight lens response; preserve fine detail                                                       |
+| Exposure compensation / motion blur            | +1 EV / 0                             | Preserve the base branch's engine exposure bias, on which its EV100 calibration depends          |
+| Playable camera                                | 73.74 degrees horizontal              | 24 mm lens equivalent on a 36 mm sensor                                                          |
 
 Fixed walk, fly and overview tours retain their original 90 degree horizontal field of view and camera paths. Fixed-step captures are visual evidence only; performance uses separate non-fixed-step runs.
 
