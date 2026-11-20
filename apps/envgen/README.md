@@ -588,8 +588,9 @@ grass from paving without storing site annotations in this repository.
   component policies. They provide visual surroundings rather than physical sensor ground truth.
 - Ground and registered paving blend their final albedo toward the same world-registered surround texture over
   the outer 64 m of the primary tile. This changes colour without changing terrain displacement or grass placement.
-  Paving uses low-frequency registered colour and modeled markings; its fine photographic layer is omitted to
-  avoid painting flat vehicles and shadows. Imagery alignment, visible joins and distant silhouettes still require
+  Modeled paving uses the measured paving-class mean and the normalized pavement scan for close detail, fading
+  that detail between 15 and 30 m. Its markings remain geometry. Aerial colour is omitted within those surfaces
+  because even low-pass colour retains blurred vehicles and tree shadows. Imagery alignment, visible joins and distant silhouettes still require
   native camera review; mesh counts and material compilation alone do not establish their quality.
 - **Trees in the level.** `materials.json` names, for each kind, tree meshes that ship with the engine's
   Procedural Vegetation Editor plugin (a broadleaf tree, a shrub and a conifer on 5.8); nothing is downloaded or

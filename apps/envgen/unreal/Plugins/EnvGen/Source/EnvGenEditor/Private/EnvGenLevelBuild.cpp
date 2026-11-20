@@ -1804,17 +1804,41 @@ return normalize(float3(ScanNormal.xy*lerp(1,1.8,close)-slope*Grass,ScanNormal.z
 		return Landscape;
 	}
 
-	UMaterial* MakePavingMaterial(UTexture2D* Macro, UTexture2D* SurroundColour, const FManifest& Manifest, TArray<UPackage*>& Packages)
+	UMaterial* MakePavingMaterial(UTexture2D* SurroundColour, const FManifest& Manifest, TArray<UPackage*>& Packages)
 	{
+		const FLayer* Paved = Manifest.Layers.FindByPredicate([](const FLayer& Layer) { return Layer.Name == PavedLayer; });
+		if (!Paved) return nullptr;
 		UMaterial* Material = NewAsset<UMaterial>(TEXT("M_RegisteredPaving"), Packages);
+		auto* Position = Node<UMaterialExpressionWorldPosition>(Material, -1400, 0);
+		Position->WorldPositionShaderOffset = WPT_ExcludeAllShaderOffsets;
+		auto* Eye = Node<UMaterialExpressionCameraPositionWS>(Material, -1400, 300);
+		auto* Uv = Node<UMaterialExpressionCustom>(Material, -1200, 0);
+		Uv->OutputType = CMOT_Float2;
+		Uv->Inputs.Empty();
+		FCustomInput& Place = Uv->Inputs.AddDefaulted_GetRef();
+		Place.InputName = TEXT("P");
+		Place.Input.Connect(0, Position);
+		Uv->Code = FString::Printf(TEXT("return P.xy / %.9f;"), Paved->Scan.SizeCm);
+		auto* Scan = Node<UMaterialExpressionTextureSample>(Material, -1000, 0);
+		Scan->Texture = Paved->Colour;
+		Scan->SamplerType = SAMPLERTYPE_Color;
+		Scan->SamplerSource = SSM_Wrap_WorldGroupSettings;
+		Scan->Coordinates.Connect(0, Uv);
 		auto* Albedo = Node<UMaterialExpressionCustom>(Material, -600, 0);
 		Albedo->OutputType = CMOT_Float3;
 		Albedo->Inputs.Empty();
-		FCustomInput& Colour = Albedo->Inputs.AddDefaulted_GetRef();
-		Colour.InputName = TEXT("MacroColour");
-		Colour.Input.Connect(0, RegisteredColour(Material, Macro, Manifest.Tile));
-		// Stall markings are geometry; fine orthophoto detail would also paint flat cars and their shadows.
-		Albedo->Code = FString::Printf(TEXT("return MacroColour.rgb * %.9f;"), Manifest.AlbedoScale);
+		for (const auto& Pair : {TPair<const TCHAR*, UMaterialExpression*>(TEXT("Scan"), Scan),
+			TPair<const TCHAR*, UMaterialExpression*>(TEXT("Here"), Position),
+			TPair<const TCHAR*, UMaterialExpression*>(TEXT("Eye"), Eye)})
+		{
+			FCustomInput& Input = Albedo->Inputs.AddDefaulted_GetRef();
+			Input.InputName = Pair.Key;
+			Input.Input.Connect(0, Pair.Value);
+		}
+		const FLinearColor Mean = Paved->MeanColour * Manifest.AlbedoScale;
+		// Even low-pass aerial colour retains blurred cars and tree shadows inside modeled lots.
+		Albedo->Code = FString::Printf(TEXT("float detail=1-smoothstep(1500,3000,distance(Here,Eye)); float3 pattern=clamp(1+(Scan.rgb/max(float3(%.9f,%.9f,%.9f),1e-4)-1)*1.6,0.2,2.0); return float3(%.9f,%.9f,%.9f)*lerp(1,pattern,detail);"),
+			Paved->Scan.MeanColour.R, Paved->Scan.MeanColour.G, Paved->Scan.MeanColour.B, Mean.R, Mean.G, Mean.B);
 		UMaterialEditingLibrary::ConnectMaterialProperty(BlendContextEdge(Material, Albedo, SurroundColour, Manifest), TEXT(""), MP_BaseColor);
 		auto* Roughness = Node<UMaterialExpressionConstant>(Material, -600, 300);
 		Roughness->R = .87f;
@@ -2699,7 +2723,7 @@ bool FEnvGenLevelBuild::Start(const FString& ManifestPath, const FString& MapPat
 		UMaterial* BuildingMaterial = MakeBuildingMaterial(Manifest.RoofRoughness, State->Packages);
 		State->BuildingActors = AddBuildings(State->World, Manifest, State->HeightBytes, State->Buildings, BuildingMaterial, State->Packages, State->BuildingsPlaced);
 	}
-	UMaterial* PavingMaterial = Manifest.StreetscapeMaskFile.IsEmpty() ? nullptr : MakePavingMaterial(Macro, SurroundColour, Manifest, State->Packages);
+	UMaterial* PavingMaterial = Manifest.StreetscapeMaskFile.IsEmpty() ? nullptr : MakePavingMaterial(SurroundColour, Manifest, State->Packages);
 	if (!BuildEnvGenStreetscape(State->World, ManifestPath,
 		StreetscapeHeight,
 		State->Packages, State->StreetscapeActors, State->StreetscapeReceipt, Error, PavingMaterial))
