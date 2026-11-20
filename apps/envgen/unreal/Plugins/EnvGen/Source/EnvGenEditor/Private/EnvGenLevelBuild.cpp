@@ -1043,7 +1043,8 @@ return ((float3((float2(1.6,0.65)*sway+lean)*tip,0) + float3(0,0,(Here.z-Root.z)
 				FCustomInput& PhotoUv = FineMipLevel->Inputs.AddDefaulted_GetRef();
 				PhotoUv.InputName = TEXT("UV");
 				PhotoUv.Input.Connect(0, SurveyUv);
-				const double SourcePixelM = Manifest.SurveyNorthM / Survey->Source.GetSizeX();
+				const double SourcePixelM = FMath::Min(Manifest.SurveyNorthM / Survey->Source.GetSizeX(),
+					Manifest.SurveyEastM / Survey->Source.GetSizeY());
 				FineMipLevel->Code = FString::Printf(TEXT(R"(
 float2 texels=UV*float2(%.1f,%.1f), dx=ddx(texels), dy=ddy(texels);
 float projected=0.5*log2(max(max(dot(dx,dx),dot(dy,dy)),1e-8));
