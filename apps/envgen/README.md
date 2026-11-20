@@ -281,6 +281,10 @@ overlapping, independently offset samples. This avoids mixing unrelated colour f
 map up close while breaking distant repeats. Scan colour fades from full strength within 15 m
 to 20% beyond 100 m, allowing the photo's broad pattern to dominate at distance.
 
+The fine photographic ratio and recycled grain fade toward neutral near the camera, using a 20% share within
+3 m and full share beyond 20 m. Native masks, growth and low-frequency colour remain in place; the registered
+material scans supply the close surface structure. The distance and share are visual priors.
+
 The ground colour also carries the detail ratio (`detail_ratio.png`): each 0.5 m pixel of the photo divided by the
 12 m low-pass of its own class's sunlit ground, in linear light, stored as a power of two (8 bits, 127 steps per
 power, range one stop either way). It brings back what the macro colour leaves out (mowing rows, tracks, lot

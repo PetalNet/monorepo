@@ -1007,6 +1007,16 @@ return ((float3((float2(1.6,0.65)*sway+lean)*tip,0) + float3(0,0,(Here.z-Root.z)
 		UMaterialExpressionWorldPosition* GroundPosition = Node<UMaterialExpressionWorldPosition>(Material, -1500, 300);
 		GroundPosition->WorldPositionShaderOffset = WPT_ExcludeAllShaderOffsets;
 		UMaterialExpressionCameraPositionWS* GroundEye = Node<UMaterialExpressionCameraPositionWS>(Material, -1500, 400);
+		UMaterialExpressionCustom* PhotoShare = Node<UMaterialExpressionCustom>(Material, -1300, 200);
+		PhotoShare->OutputType = CMOT_Float1;
+		PhotoShare->Inputs.Empty();
+		FCustomInput& PhotoPosition = PhotoShare->Inputs.AddDefaulted_GetRef();
+		PhotoPosition.InputName = TEXT("Here");
+		PhotoPosition.Input.Connect(0, GroundPosition);
+		FCustomInput& PhotoCamera = PhotoShare->Inputs.AddDefaulted_GetRef();
+		PhotoCamera.InputName = TEXT("Eye");
+		PhotoCamera.Input.Connect(0, GroundEye);
+		PhotoShare->Code = TEXT("return lerp(0.2,1.0,smoothstep(300,2000,distance(Here,Eye)));");
 		UMaterialExpressionMultiply* MacroAlbedo = Node<UMaterialExpressionMultiply>(Material, -700, 0);
 		MacroAlbedo->A.Connect(0, Sample(Material, Macro, Quads, SAMPLERTYPE_Color, 0));
 		MacroAlbedo->ConstB = AlbedoScale;
@@ -1139,9 +1149,13 @@ return max(projected,minimum);
 				Replaced->Alpha.Connect(0, Influence);
 				FineUsed = Replaced;
 			}
+			UMaterialExpressionLinearInterpolate* CloseFine = Node<UMaterialExpressionLinearInterpolate>(Material, -600, -100);
+			CloseFine->ConstA = 1.f;
+			CloseFine->B.Connect(0, FineUsed);
+			CloseFine->Alpha.Connect(0, PhotoShare);
 			UMaterialExpressionMultiply* WithFine = Node<UMaterialExpressionMultiply>(Material, -600, 0);
 			WithFine->A.Connect(0, MacroAlbedo);
-			WithFine->B.Connect(0, FineUsed);
+			WithFine->B.Connect(0, CloseFine);
 			Base = WithFine;
 		}
 		// Grass grain: two reads of the measured texture at different scales and turns, added in log space, so the
@@ -1184,13 +1198,16 @@ return max(projected,minimum);
 			UMaterialExpressionMultiply* Faded = Node<UMaterialExpressionMultiply>(Material, -800, -550);
 			Faded->A.Connect(0, Joined);
 			Faded->B.Connect(0, Fade);
-			UMaterialExpression* GrainStrength = Faded;
+			UMaterialExpressionMultiply* CloseGrain = Node<UMaterialExpressionMultiply>(Material, -790, -650);
+			CloseGrain->A.Connect(0, Faded);
+			CloseGrain->B.Connect(0, PhotoShare);
+			UMaterialExpression* GrainStrength = CloseGrain;
 			if (InSurvey)
 			{
 				UMaterialExpressionOneMinus* Outside = Node<UMaterialExpressionOneMinus>(Material, -900, -600);
 				Outside->Input.Connect(0, InSurvey);
 				UMaterialExpressionMultiply* Kept = Node<UMaterialExpressionMultiply>(Material, -780, -600);
-				Kept->A.Connect(0, Faded);
+				Kept->A.Connect(0, CloseGrain);
 				Kept->B.Connect(0, Outside);
 				GrainStrength = Kept;
 			}
