@@ -147,3 +147,22 @@ def test_unmarked_natural_field_has_landscape_only_artifact(tmp_path):
     assert payload["feature_count"] == 1 and payload["meshes"] == []
     assert payload["counts"] == {"surface": 1}
     assert len(payload["fields"]) == 1 and stage["fields"][0]["effective_surface"] == "natural_grass"
+
+
+@pytest.mark.parametrize("surface", ["athletic_turf", "natural_grass"])
+def test_clay_and_track_marks_stay_above_the_hard_surface(tmp_path, surface):
+    raw = scene()
+    raw["fields"][0]["classification"] = surface
+    raw["features"].append(
+        {**feature("surface", material="clay", ring=[[0, 2], [4, 2], [4, 6], [0, 6]]), "id": "infield"}
+    )
+    _, payload, _ = build(tmp_path, raw)
+    assert "grass_paint_white" not in {m["material"] for m in payload["meshes"]}
+    paint = [v for m in payload["meshes"] if m["material"] == "paint_white" for v in m["vertices"]]
+    assert paint and all(v[2] == 0.07 for v in paint)
+    for mesh in payload["meshes"]:
+        if mesh["material"] != "athletic_turf":
+            continue
+        for tri in mesh["triangles"]:
+            centre = [sum(mesh["vertices"][i][axis] for i in tri) / 3 for axis in (0, 1)]
+            assert not (0 < centre[0] < 4 and 2 < centre[1] < 6)

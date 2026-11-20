@@ -569,10 +569,23 @@ def build_inventory(path: Path, tile: Tile, out: Path, *, inventory: Inventory |
     meshes = []
     exclusions = []
     field_records = {f["surface_id"]: f for f in inventory.fields}
+    hard_surfaces = shapely.union_all(
+        [
+            Polygon(f["ring"])
+            for f in features
+            if f["type"] == "surface" and f["material"] not in ("turf", "athletic_turf", "natural_grass")
+        ]
+        + [
+            LineString(f["points"]).buffer(f["width_m"] / 2, cap_style="flat", join_style="mitre")
+            for f in features
+            if f["type"] == "line" and f["material"] == "concrete"
+        ]
+    )
     field_polygons = [
-        (record, Polygon(next(f for f in features if f["id"] == ident)["ring"]))
+        (record, Polygon(next(f for f in features if f["id"] == ident)["ring"]).difference(hard_surfaces))
         for ident, record in field_records.items()
     ]
+    visible_fields = {record["surface_id"]: polygon for record, polygon in field_polygons}
     generated_images = {}
     if features:
         priors.append("24-sided large tubes and 8-sided small rods; no point lights or ball geometry")
@@ -619,7 +632,7 @@ def build_inventory(path: Path, tile: Tile, out: Path, *, inventory: Inventory |
                 priors.append(f"{f['id']}: {material} terrain offset {SURFACES[material]} m")
             # Natural fields use the existing Landscape grass material and its blade population.
             if material != "natural_grass":
-                _planar(Polygon(f["ring"]), material, SURFACES[material], meshes, tile)
+                _planar(visible_fields.get(f["id"], Polygon(f["ring"])), material, SURFACES[material], meshes, tile)
             if material == "athletic_turf":
                 name, data, bounds = colour_atlas(f, features, inventory.images)
                 generated_images[name] = data
