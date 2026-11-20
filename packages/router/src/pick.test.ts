@@ -71,6 +71,12 @@ const why = (result: ReturnType<typeof pick>, id: string) =>
 	result.excluded.find((e) => e.offer.id === id)?.reasons.join("; ") ?? "";
 
 describe("pick", () => {
+	it("runs only the caller's choice", () => {
+		const result = pick(catalog, "code", "S", state({ choice: { model: "gpt-6.1-sol", effort: "high" } }));
+
+		expect(result.ranked.map((r) => `${r.offer.model}:${r.offer.effort}`)).toEqual(["gpt-6.1-sol:high"]);
+	});
+
 	it("never picks a banned effort level", () => {
 		const result = pick(catalog, "code", "S", state({ bannedEfforts: ["xhigh", "max", "ultra"] }));
 

@@ -235,6 +235,8 @@ export interface State {
 	notModel?: readonly string[];
 	/** Effort levels never picked. */
 	bannedEfforts?: readonly string[];
+	/** The caller's own pick; every other offer is excluded. */
+	choice?: { model: string; effort?: string | undefined } | undefined;
 	reports: Partial<Record<ServiceName, ServiceReport>>;
 	/** From exhausted.json: model id -> epoch seconds its limit resets. */
 	exhausted: Record<string, number>;
@@ -389,6 +391,10 @@ function offerReasons(o: Offer, pools: Map<Pool, PoolState>, state: State): stri
 
 	if (state.notVendor?.includes(maker)) {
 		reasons.push(`model maker ${maker} excluded (--not-vendor)`);
+	}
+
+	if (state.choice && (o.model !== state.choice.model || (state.choice.effort && o.effort !== state.choice.effort))) {
+		reasons.push("not the caller's choice");
 	}
 
 	if (state.bannedEfforts?.includes(o.effort)) {

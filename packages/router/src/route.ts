@@ -36,7 +36,7 @@ import { run } from "./run.ts";
 import { readAvailability } from "./state.ts";
 
 const USAGE =
-	"usage: route pull-evidence | route <pick --dry|explain|run> --kind <code|ui|research|write|sweep|cyber|architecture> --tier <S|A|B|C|top|mid|fast|cheap> --data-class <public|sensitive|parcs> <brief-file for pick; brief text for run>";
+	"usage: route pull-evidence | route <pick --dry|explain|run> --kind <code|ui|research|write|sweep|cyber|architecture> --tier <S|A|B|C|top|mid|fast|cheap> --data-class <public|sensitive|parcs> [--model <model> --effort <effort> (required for run)] [--not-vendor <maker>] <brief-file>";
 const TIER_ALIASES: Record<string, string> = { top: "S", mid: "A", fast: "B", cheap: "C" };
 const KINDS = new Set(["code", "ui", "research", "write", "sweep", "cyber", "architecture"]);
 const SECRET_RE =
@@ -190,6 +190,8 @@ async function main(argv: string[]): Promise<number> {
 				dry: { type: "boolean" },
 				"allow-claude": { type: "boolean" },
 				"not-vendor": { type: "string", multiple: true },
+				model: { type: "string" },
+				effort: { type: "string" },
 				kind: { type: "string" },
 				tier: { type: "string" },
 				"data-class": { type: "string" },
@@ -265,6 +267,8 @@ async function main(argv: string[]): Promise<number> {
 		dataClass,
 		// Eli 2026-11-19: "xhigh, max aren't allowed to be used by you".
 		bannedEfforts: ["xhigh", "max", "ultra"],
+		// Eli and Parker 2026-11-19: the caller picks from route's menu; route enforces and runs.
+		choice: values.model ? { model: values.model, effort: values.effort } : undefined,
 		notVendor: (values["not-vendor"] ?? []).flatMap((v) => v.split(",")).map((v) => v.trim().toLowerCase()),
 		reports: { "google-ai": google, codex, claude },
 		exhausted: readJson(`${home}/.local/state/agy-build/exhausted.json`, {}),
@@ -360,6 +364,14 @@ async function main(argv: string[]): Promise<number> {
 		);
 
 		return 5;
+	}
+
+	if (command === "run" && !values.model) {
+		process.stdout.write(
+			"route run needs your choice: pick a model (and effort) from the list above with --model <model> --effort <effort>.\n",
+		);
+
+		return 2;
 	}
 
 	if (command === "run") {
