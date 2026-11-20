@@ -86,9 +86,9 @@ export function readBrief(file: string | undefined): { text: string } | { error:
 	return text.trim() === "" ? { error: `brief ${file} is empty` } : { text };
 }
 
-/** A brief carrying a credential is sensitive whatever the flag says; the class only ever rises. */
+/** "Parcs Labs" is Parker's own LLC, not the Bridgeton PARCS job, so it does not count. A brief carrying a credential is sensitive whatever the flag says; the class only ever rises. */
 export function effectiveDataClass(flag: DataClass, brief: string): DataClass {
-	if (flag === "parcs" || /\b(?:PARCS|Bridgeton)\b/iu.test(brief)) {
+	if (flag === "parcs" || /\bBridgeton\b|\bPARCS\b(?!\s*Labs)/iu.test(brief)) {
 		return "parcs";
 	}
 

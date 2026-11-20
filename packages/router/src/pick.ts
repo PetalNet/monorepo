@@ -377,7 +377,8 @@ function offerReasons(o: Offer, pools: Map<Pool, PoolState>, state: State): stri
 
 	if (
 		state.deny.some((denied) => matchesOfferId(o, denied)) ||
-		state.deny.includes(o.provider) ||
+		// PARCS may only run on Claude, so the blanket Claude deny can't apply to it.
+		(state.deny.includes(o.provider) && !(state.dataClass === "parcs" && pool.plan === "claude")) ||
 		state.denyPatterns.some((p) => id.includes(p))
 	) {
 		reasons.push("denied in pools.json");
