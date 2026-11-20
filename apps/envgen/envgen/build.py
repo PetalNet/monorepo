@@ -686,9 +686,19 @@ def clean_ortho_colour(rgb: np.ndarray, shown: np.ndarray, own: np.ndarray, cell
             shadows[name] = {"gap_log2": gap, "shadow_fraction": float(dark.sum() / max(1, mine.sum()))}
     if shadows:
         passed = smooth(visible)
-    return surface.to_encoded(passed), {
+    photo_luma = surface.luminous(photo)
+    macro_luma = surface.luminous(passed)
+    chroma = photo * (macro_luma / np.maximum(photo_luma, 1e-4))[None]
+    # Fine luminance comes from survey_detail; retain hue without applying that brightness signal twice.
+    trusted = (visible & (photo_luma > 1e-4)
+               & (photo_luma >= macro_luma * 2 ** orthophoto.SETTINGS["chroma_shadow_min_log2"])
+               & (chroma.max(axis=0) <= 1))
+    colour = np.where(trusted[None], chroma, passed)
+    return surface.to_encoded(colour), {
         "low_pass_m": MACRO_LOW_PASS_M, "open_fraction": float(visible.mean()), "shadows": shadows,
-        "source": "class-specific low-pass of sunlit survey ground in linear light",
+        "chroma_cell_m": cell_m, "chroma_fraction": float(trusted.mean()),
+        "chroma_shadow_min_log2": orthophoto.SETTINGS["chroma_shadow_min_log2"],
+        "source": "class-specific low-pass luminance and visible pooled survey chroma in linear light",
     }
 
 
@@ -1123,7 +1133,7 @@ def build_survey_detail(site: Site, out: Path, covering: dict | None, layers: li
                 shown = (mine == index) & (sunlit > 0.5)
                 gap = shadow_gap(darkness[shown])
                 # A small footprint may not contain enough shadow samples for the mixture fit.
-                threshold = gap if gap is not None else -1.5
+                threshold = gap if gap is not None else orthophoto.SETTINGS["chroma_shadow_min_log2"]
                 dark = shown & (darkness < threshold)
                 sunlit = np.where(ndimage.binary_dilation(dark, iterations=SHADOW_EDGE_CELLS), 0, sunlit)
                 survey_shadows[layer["name"]] = {"gap_log2": threshold, "kind": "fitted" if gap else "prior",
