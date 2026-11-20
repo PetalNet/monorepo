@@ -383,7 +383,9 @@ Rounded blade normals vary with blade orientation, with an upward bias to keep b
 World-position gusts bend tips while retaining roots. Ground and blade roots share 0.65 cm procedural relief;
 its derivatives also perturb ground normals. Wind amplitudes and relief are visual priors, not terrain measurements.
 Grass displacement fades to zero between 22 and 25 m; the engine disables its evaluation beyond 25 m.
-Instance-scale height differences and coherent resting lean vary blade posture. The scan's colour contrast
+Curved blades include folded tips and varied resting angles. A stable seed per blade combines with the instance
+seed to vary individual stature within each tuft; the photo still sets its growth envelope. Instance-scale height
+differences and coherent resting lean vary blade posture. The scan's colour contrast
 and close normal strength are increased to retain surface detail where the sward thins; these are visual priors.
 The engine shrinks a tuft away between its start and end distance and has no nearest distance, so a variety is drawn
 from the camera out. The clump's wide blades are kept from a walker's feet by its material: nearer than 8 m a clump

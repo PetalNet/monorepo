@@ -713,7 +713,7 @@ return Texture2DSampleGrad(Scan,ScanSampler,UV+ha,dx,dy).rgb*w.x
 		// 8 bits and holds how far up the blade a point is, and the mesh build writes its own unwrap into the second.
 		Uvs.SetNumChannels(4);
 		FRandomStream Random(7 + Index);
-		constexpr int32 Segments = 3;
+		constexpr int32 Segments = 4;
 		if (Variety.Name == FName(TEXT("broadleaf")))
 		{
 			for (int32 Leaf = 0; Leaf < 3; ++Leaf)
@@ -759,15 +759,19 @@ return Texture2DSampleGrad(Scan,ScanSampler,UV+ha,dx,dy).rgb*w.x
 			const FVector2f Root = FVector2f(FMath::Cos(Around), FMath::Sin(Around)) * Random.FRand() * Variety.RadiusCm;
 			const float Facing = Random.FRand() * 2 * PI;
 			const FVector2f Along(FMath::Cos(Facing), FMath::Sin(Facing)), Across(-Along.Y, Along.X);
-		const float Height = Random.FRandRange(Variety.HeightMinCm, Variety.HeightMaxCm);
+			const float Height = Random.FRandRange(Variety.HeightMinCm, Variety.HeightMaxCm);
 			const float Width = Random.FRandRange(Variety.WidthMinCm, Variety.WidthMaxCm) / 2;
 			// Dealt in turn, so a tuft holds the colours in the equal shares they were measured in.
-		FLinearColor Own = BladeColours.IsEmpty() ? FLinearColor::White : BladeColours[Blade % BladeColours.Num()];
-		if (Blade % 13 == 0)
-		{
-			Own *= FLinearColor(1.10f, 0.94f, 0.72f);
-		}
-			const float Lean = Random.FRandRange(0.2f, 0.6f) * Height;
+			FLinearColor Own = BladeColours.IsEmpty() ? FLinearColor::White : BladeColours[Blade % BladeColours.Num()];
+			if (Blade % 13 == 0)
+			{
+				Own *= FLinearColor(1.10f, 0.94f, 0.72f);
+			}
+			const float Lean = Random.FRandRange(0.15f, 1.35f) * Height;
+			const float Arch = Random.FRandRange(0.f, 0.55f);
+			const float BladeSeed = Random.FRand();
+			const float PeakT = Arch > 1.f / PI ? FMath::Acos(-1.f / (PI * Arch)) / PI : 1.f;
+			const float Peak = PeakT + Arch * FMath::Sin(PI * PeakT);
 			// Left and right edge vertices per level, and one at the tip.
 			TArray<FVertexInstanceID> Left, Right;
 			FVertexInstanceID Tip;
@@ -775,14 +779,14 @@ return Texture2DSampleGrad(Scan,ScanSampler,UV+ha,dx,dy).rgb*w.x
 			{
 				const FVector2f Plan = Root + Along * (Lean * T * T) + Across * (Side * Width * (1.f - T));
 				const FVertexID Vertex = Description.CreateVertex();
-				Positions[Vertex] = FVector3f(Plan.X, Plan.Y, Height * T);
+				Positions[Vertex] = FVector3f(Plan.X, Plan.Y, Height * (T + Arch * FMath::Sin(PI * T)) / Peak);
 				const FVertexInstanceID Instance = Description.CreateVertexInstance(Vertex);
 				Normals[Instance] = FVector3f(Along.X * 0.6f + Across.X * Side * 0.4f,
 					Along.Y * 0.6f + Across.Y * Side * 0.4f, 1.f).GetSafeNormal();
 				Uvs.Set(Instance, 0, FVector2f(Side * 0.5f + 0.5f, T));
 				Uvs.Set(Instance, 1, FVector2f(0.f, 0.f));
 				Uvs.Set(Instance, 2, FVector2f(Own.R, Own.G));
-				Uvs.Set(Instance, 3, FVector2f(Own.B, 0.f));
+				Uvs.Set(Instance, 3, FVector2f(Own.B, BladeSeed));
 				Colours[Instance] = FVector4f(T, T, T, 1.f);
 				return Instance;
 			};
@@ -860,7 +864,7 @@ return Texture2DSampleGrad(Scan,ScanSampler,UV+ha,dx,dy).rgb*w.x
 		UMaterialExpressionMultiply* OfTuft = Node<UMaterialExpressionMultiply>(Material, -200, 100);
 		OfTuft->A.Connect(0, Lit);
 		OfTuft->B.Connect(0, Tuft);
-		// The blade's own colour, from the mesh: red and green in the third UV channel, blue in the fourth.
+		// The blade's own colour, from the mesh: red and green in the third UV channel, blue and a stable blade seed in the fourth.
 		UMaterialExpressionTextureCoordinate* RedGreen = Node<UMaterialExpressionTextureCoordinate>(Material, -500, 650);
 		RedGreen->CoordinateIndex = 2;
 		UMaterialExpressionTextureCoordinate* BlueUv = Node<UMaterialExpressionTextureCoordinate>(Material, -500, 750);
@@ -937,11 +941,15 @@ return Texture2DSampleGrad(Scan,ScanSampler,UV+ha,dx,dy).rgb*w.x
 			Input(TEXT("Growth"), GrowthAt);
 			Input(TEXT("Along"), Along);
 			Input(TEXT("Random"), Random);
+			Input(TEXT("Seed"), BlueUv);
 			Input(TEXT("Time"), Node<UMaterialExpressionTime>(Material, -1100, 1500));
 			const FString Fade = Variety.AppearFullCm > Variety.AppearFromCm
 				? FString::Printf(TEXT("saturate((distance(Here, Eye) - %.3f) / %.3f)"), Variety.AppearFromCm, Variety.AppearFullCm - Variety.AppearFromCm)
 				: TEXT("1.0");
-			Offset->Code = TEXT("float fade = ") + Fade + TEXT(R"(;
+			const FString StatureSpread = Variety.Name == FName(TEXT("broadleaf"))
+				? TEXT("lerp(0.75,1.25,Random)")
+				: TEXT("lerp(0.55,1.55,frac(Seed.g+Random*1.61803399))");
+			Offset->Code = TEXT("float fade = ") + Fade + TEXT("; float spread = ") + StatureSpread + TEXT(R"(;
 float2 p = Root.xy;
 float relief = 0.65*sin(p.x*0.027+p.y*0.013)*sin(p.y*0.039-p.x*0.011);
 float reach=distance(Root,Eye), sway=0;
@@ -951,7 +959,7 @@ float reach=distance(Root,Eye), sway=0;
 }
 float tip = Along.r*Along.r;
 float2 lean=2.0*(0.5+Random)*float2(sin(dot(p,float2(0.003,0.005))),cos(dot(p,float2(-0.004,0.002))));
-float stature=clamp(Growth.b*2*lerp(0.75,1.25,Random),0.45,1.8);
+float stature=clamp(Growth.b*2*spread,0.45,1.8);
 return ((float3((float2(1.6,0.65)*sway+lean)*tip,0) + float3(0,0,(Here.z-Root.z)*(stature-1)+relief))*fade + (Root-Here)*(1-fade))*(1-smoothstep(2200,2500,reach));
 )");
 			UMaterialEditingLibrary::ConnectMaterialProperty(Offset, TEXT(""), MP_WorldPositionOffset);
