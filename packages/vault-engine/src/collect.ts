@@ -5,7 +5,9 @@ import { DatabaseSync } from "node:sqlite";
 import { Effect, FileSystem, Option, Schema } from "effect";
 
 import type { ManifestEntry } from "./migrate.ts";
+import type { OutboundScanner } from "./outbound-scan.ts";
 import { Text, Tier, oneLine } from "./schema.ts";
+import { secretRules } from "./secrets.ts";
 
 const PositiveInt = Schema.Int.check(Schema.isGreaterThan(0));
 
@@ -269,8 +271,13 @@ const readOnly = (file: string) =>
  * and cut documents under `<out>/documents`, and the report as `<out>/collect.json`. The same
  * inputs always give the same manifest and files, so collecting and migrating again converges.
  */
-export const collect = Effect.fnUntraced(function* (spec: CollectSpec, out: string) {
+export const collect = Effect.fnUntraced(function* (
+	spec: CollectSpec,
+	out: string,
+	guard?: OutboundScanner,
+) {
 	const fs = yield* FileSystem.FileSystem;
+	const scan = guard ?? secretRules;
 	const maxChars = spec.maxChars ?? 100_000;
 	const entries: ManifestEntry[] = [];
 	const report: CollectReport = {
@@ -282,9 +289,28 @@ export const collect = Effect.fnUntraced(function* (spec: CollectSpec, out: stri
 	};
 	const staged = path.join(out, "documents");
 
+	if (guard !== undefined) {
+		// A prior collection may contain refused or unscanned files. Only export a fresh directory.
+		yield* fs.makeDirectory(out);
+	}
+
 	yield* fs.makeDirectory(staged, { recursive: true });
 
 	const origins = new Set<string>();
+	const label = (origin: string) =>
+		scan([origin]).length === 0 ? origin : "(origin withheld by the secret scan)";
+	const allowed = (origin: string, texts: string[]) => {
+		const rules = scan(texts);
+
+		if (rules.length === 0) {
+			return true;
+		}
+
+		report.skipped.push({ origin: label(origin), reason: `secret scan: ${rules.join(", ")}` });
+
+		return false;
+	};
+
 	/** An origin is a document's identity: a second input claiming one is left out, not merged. */
 	const repeated = (origin: string) => {
 		if (!origins.has(origin)) {
@@ -293,16 +319,26 @@ export const collect = Effect.fnUntraced(function* (spec: CollectSpec, out: stri
 			return false;
 		}
 
-		report.skipped.push({ origin, reason: "repeated origin" });
+		report.skipped.push({ origin: label(origin), reason: "repeated origin" });
 
 		return true;
 	};
 
 	const add = (entry: ManifestEntry) => {
+		const texts = Object.values(entry).flatMap((value) =>
+			typeof value === "string" ? [value] : value,
+		);
+
+		if (!allowed(entry.type === "capture" ? entry.id : entry.origin, texts)) {
+			return false;
+		}
+
 		const key = `${entry.type === "capture" ? "capture" : entry.kind}/${entry.tier}`;
 
 		entries.push(entry);
 		report.entries[key] = (report.entries[key] ?? 0) + 1;
+
+		return true;
 	};
 
 	/** Applies the cap; the cut text says so where it ends, and the report says how much went. */
@@ -313,17 +349,25 @@ export const collect = Effect.fnUntraced(function* (spec: CollectSpec, out: stri
 
 		const kept = head(text, maxChars, "\n");
 
-		report.cut.push({ origin, chars: text.length, kept: kept.length });
+		report.cut.push({ origin: label(origin), chars: text.length, kept: kept.length });
 
 		return `${kept}\n\n[Cut here: the first ${String(kept.length)} of ${String(text.length)} characters are stored.]\n`;
 	};
 
-	const stage = Effect.fnUntraced(function* (kind: string, origin: string, text: string) {
-		const file = path.join(staged, `${kind}-${sha256(origin).slice(0, 16)}.md`);
+	const stage = Effect.fnUntraced(function* (
+		entry: Omit<Extract<ManifestEntry, { type: "document" }>, "file">,
+		text: string,
+	) {
+		if (!allowed(entry.origin, [...Object.values(entry), text])) {
+			return;
+		}
 
-		yield* fs.writeFileString(file, text);
+		const kept = capped(entry.origin, text);
+		const file = path.join(staged, `${entry.kind}-${sha256(entry.origin).slice(0, 16)}.md`);
 
-		return file;
+		if (allowed(entry.origin, [kept]) && add({ ...entry, file })) {
+			yield* fs.writeFileString(file, kept);
+		}
 	});
 
 	if (spec.gallery !== undefined) {
@@ -344,7 +388,7 @@ export const collect = Effect.fnUntraced(function* (spec: CollectSpec, out: stri
 
 					if (Option.isNone(found) || captured === undefined) {
 						report.skipped.push({
-							origin: `${gallery.origin}/row ${String(n)}`,
+							origin: label(`${gallery.origin}/row ${String(n)}`),
 							reason: "unreadable row",
 						});
 
@@ -360,29 +404,36 @@ export const collect = Effect.fnUntraced(function* (spec: CollectSpec, out: stri
 
 					const title = oneLine(found.value.title ?? "") || slug;
 					const content = found.value.content ?? "";
+
+					if (!allowed(origin, [origin, title, content])) {
+						continue;
+					}
+
 					let text = withoutDataUris(content);
 
 					if (kind !== "markdown") {
 						const body = htmlToMarkdown(content);
 
 						if (body === "") {
-							report.titleOnly.push(origin);
+							report.titleOnly.push(label(origin));
 						}
 
 						// The title leads, so a page of nothing but script still names itself.
 						text = `# ${title}\n\n${body}\n`;
 					}
 
-					add({
-						type: "document",
-						kind: "gallery",
-						tier: visibility === "shared" ? "shared" : "personal",
-						origin,
-						file: yield* stage("gallery", origin, capped(origin, text)),
-						title,
-						captured,
-						sourceType: "DERIVED",
-					});
+					yield* stage(
+						{
+							type: "document",
+							kind: "gallery",
+							tier: visibility === "shared" ? "shared" : "personal",
+							origin,
+							title,
+							captured,
+							sourceType: "DERIVED",
+						},
+						text,
+					);
 				}
 			}),
 		);
@@ -398,7 +449,7 @@ export const collect = Effect.fnUntraced(function* (spec: CollectSpec, out: stri
 			const modified = Option.getOrUndefined(info.mtime);
 
 			if (info.type !== "File" || modified === undefined) {
-				report.skipped.push({ origin, reason: "not a regular file" });
+				report.skipped.push({ origin: label(origin), reason: "not a regular file" });
 
 				continue;
 			}
@@ -408,19 +459,19 @@ export const collect = Effect.fnUntraced(function* (spec: CollectSpec, out: stri
 			}
 
 			const text = yield* fs.readFileString(file);
-			const kept = capped(origin, text);
 
-			add({
-				type: "document",
-				kind: notes.kind,
-				tier: notes.tier,
-				origin,
-				// A note within the cap is read where it lies.
-				file: kept === text ? file : yield* stage(notes.kind, origin, kept),
-				title: noteTitle(text, name),
-				captured: modified.toISOString(),
-				sourceType: "DERIVED",
-			});
+			yield* stage(
+				{
+					type: "document",
+					kind: notes.kind,
+					tier: notes.tier,
+					origin,
+					title: noteTitle(text, name),
+					captured: modified.toISOString(),
+					sourceType: "DERIVED",
+				},
+				text,
+			);
 		}
 	}
 
@@ -444,7 +495,7 @@ export const collect = Effect.fnUntraced(function* (spec: CollectSpec, out: stri
 						found.value.id !== id ||
 						!/^src-[a-f0-9]{20}$/.test(found.value.id)
 					) {
-						report.skipped.push({ origin: String(id), reason: "unreadable source record" });
+						report.skipped.push({ origin: label(String(id)), reason: "unreadable source record" });
 
 						continue;
 					}
@@ -458,7 +509,7 @@ export const collect = Effect.fnUntraced(function* (spec: CollectSpec, out: stri
 					);
 
 					if (excerpt === "") {
-						report.withoutText.push(source.id);
+						report.withoutText.push(label(source.id));
 					}
 
 					add({

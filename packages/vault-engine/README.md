@@ -109,7 +109,7 @@ runs the same operations, decoding its flags with each operation's input schema.
 | `history <tier>`, `at <tier> <time>`, `status`                              | The op log, time travel and counts.                                                |
 | `index`, `snapshot <tier>`                                                  | The claim index, or a tier's Loro snapshot, on stdout.                             |
 | `migrate <manifest.jsonl> [--deny file] [--deny-passing N] [--report file]` | Copy documents and vault-cite sources in; report exclusions and unsaved citations. |
-| `collect <spec.json> <out-dir>`                                             | Build a migration manifest from a gallery database, note folders and a cite index. |
+| `collect <spec.json> <out-dir> [--guarded]`                                 | Build a migration manifest; `--guarded` requires local known-value scanning.       |
 | `serve [--host H] [--port P]`                                               | Serve the agent operations over MCP.                                               |
 
 Run `pnpm --filter @petalnet/vault-engine vault <command>`, or `node src/cli.ts`. Environment:
@@ -166,9 +166,56 @@ before any claim cites it.
 One document contributes at most `maxChars` characters (default 100 000); a longer one is stored
 without its tail and says so where it ends. `<out-dir>/collect.json` lists what was cut, which
 pages had no readable text and are stored as their title, which sources had no extracted text, and
-what was skipped, by origin only. Collecting is deterministic, so the two commands can be rerun as
-content grows: new documents are added, and a document edited since it was migrated is reported and
-keeps its migrated version, because passages never change.
+what was skipped, by origin only. Notes are copied into the collection, so editing the original
+after collection cannot change the text named by the manifest.
+
+Document identity is its kind and origin. Migration follows that document's replacement chain:
+unchanged content is a no-op, and an edit creates a new source and marks the previous head replaced.
+The replacement and stale flags for claims in the same tier commit together; reconciliation then
+flags claims in other tiers. Old passages stay intact. Reverting to an older text creates another
+version. A refused replacement leaves the previous source active. Changes to the capture timestamp
+alone do not create a version. A retracted, broken, cyclic or foreign replacement chain is excluded.
+An emptied existing document gets a version with no passages; a new empty document is excluded.
+
+## Outbound secret scanning
+
+Run `node packages/vault-engine/src/scan-cli.ts` (installed bin: `vault-scan`) on the agent host
+before sending memory, cards, bundles or other text to a storage host or an external model. Send
+the complete candidate on stdin. stdout is always empty. The caller holds the candidate in memory
+and releases it only after exit 0:
+
+- `0`: the rule scan and known-value comparison passed.
+- `1`: a match; stderr is one JSON line with safe rule IDs, such as `{"rules":["known-secret"]}`.
+- `2`: scanner unavailable; stderr is `{"error":"scanner-unavailable"}`. Missing configuration,
+  malformed provider output, timeouts and oversized input all refuse the candidate.
+
+Any nonzero exit or signal must block the outgoing text. The command never returns matched text,
+entry names, offsets or fingerprints. Input must be UTF-8 and at most 16 MiB. The comparison is
+literal, so encoded or transformed values require their own detection rules.
+
+`VAULT_SECRET_PROVIDER_ARGV` is a required JSON argv array, for example
+`["/path/to/private-provider"]`. It runs directly without a shell, with closed stdin and discarded
+stderr. Authentication belongs in the provider's environment, never argv. Provider stdout must be
+a nonempty JSON object mapping entry names to strings, or to nonempty objects of string fields.
+Output is consumed in memory, limited to 16 MiB and 15 seconds. No secret values or derived caches
+are written to disk. Do not install the provider or secret comparison data on the storage host.
+
+`VAULT_SECRET_POLICY` optionally names an absolute path to a private JSON policy. Keep this file
+outside the repository. It accepts `skipEntries` (entry names), `skipFields` (objects with `entry`
+and `field`), and the booleans `skipShortValues`, `skipPaths`, `skipUrls`. Lists default empty and
+booleans default true. Direct string entries use field name `value`. Short values have fewer than
+eight characters. Path skips cover POSIX and Windows paths. URL skips apply to HTTP(S) URLs with no
+userinfo, query, fragment or rule match. URLs with credentials stay in the comparison set. Rule
+checks always run, regardless of policy skips. Invalid policies fail closed.
+
+`vault collect spec.json /fresh/output --guarded` loads this scanner once before collection.
+Gallery rows are read one at a time. Notes, raw gallery content, converted text, manifest metadata
+and capture excerpts are scanned before they are written. Refused documents are omitted; a refused
+origin is withheld from the report. The output directory must not exist, so stale unscanned files
+cannot join a later transfer. Transfer only this completed collection, and preserve or remap the
+manifest's file paths to the scanned copies. Never copy raw inputs to the storage host to scan them
+there. Plain `collect` applies the rule scan only and is unsuitable for outbound transfer. This
+package does not schedule collection or configure remote transport.
 
 ## Recall log
 

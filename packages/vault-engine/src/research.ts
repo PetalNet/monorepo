@@ -129,11 +129,11 @@ export class Cite extends Context.Service<
 export const captureSource = Effect.fnUntraced(function* (tier: Tier, ref: string) {
 	const vault = yield* Vault;
 	const view = yield* vault.view;
-	const existing = ref.startsWith("src-")
-		? view.source(ref)
-		: tiers
-				.flatMap((each) => Object.values(view.tiers[each].sources))
-				.find((source) => source.url === ref && source.status === "active");
+	const existing =
+		view.source(ref) ??
+		tiers
+			.flatMap((each) => Object.values(view.tiers[each].sources))
+			.find((source) => source.url === ref && source.status === "active");
 
 	if (existing) {
 		return existing;

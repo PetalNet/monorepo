@@ -3,13 +3,15 @@
 	"version": "0.0.0",
 	"private": true,
 	"bin": {
-		"vault": "./src/cli.ts"
+		"vault": "./src/cli.ts",
+		"vault-scan": "./src/scan-cli.ts"
 	},
 	"type": "module",
 	"scripts": {
 		"build": "tsc -b",
 		"typecheck": "tsc -b",
 		"test": "vitest run",
+		"scan": "node src/scan-cli.ts",
 		"vault": "node src/cli.ts"
 	},
 	"dependencies": {
