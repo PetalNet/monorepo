@@ -5,13 +5,6 @@ RELAY_TAGS = ("<relay>", "[relay]")
 _RELAY_OPEN = re.compile(r"<relay>|\[relay\]", re.I)
 _RELAY_CLOSE = re.compile(r"</relay>|\[/relay\]", re.I)
 _RELAY_BLOCK = re.compile(r"(?:<relay>|\[relay\]).*?(?:</relay>|\[/relay\]|\Z)", re.I | re.S)
-END_PHRASES = {
-    "that's all", "thats all", "that is all", "that's it", "thats it", "that's everything",
-    "goodbye", "good bye", "bye", "bye bye", "never mind", "nevermind", "stop listening",
-    "we're done", "i'm done", "that'll be all", "that will be all",
-    "hang up", "hang up the call", "end the call", "end call", "end the call now", "hang up the phone",
-}  # a clear goodbye is the whole utterance: "don't hang up" or "can you end the call on the other line" is not one
-SIGN_OFF = "Okay, talk later."
 # Speech is synthesized a piece at a time and a piece is not heard until it is whole, so a long first sentence delays the first
 # sound by its whole synthesis time (measured: 154 characters took 5.2 s). A piece that has run this long without a sentence end
 # is cut at its next comma, so the first sound starts after about a clause.
@@ -33,13 +26,6 @@ def is_backchannel(sentence: str) -> bool:
     text = re.sub(r"[.!?…\u2019]+$", "", sentence.lower().replace("\u2019", "'").strip())
     parts = [p.strip() for p in re.split(r"[,;:]| and | - |\s{2,}", text) if p.strip()]
     return bool(parts) and all(p in _LISTENING or p in _FILLER for p in parts) and any(p in _LISTENING for p in parts)
-
-
-def is_end_phrase(text: str) -> bool:
-    words = re.sub(r"[^a-z' ]", "", text.lower().replace("’", "'")).split()
-    for filler in ("okay", "ok", "thanks", "thank", "you", "janet", "alright", "no", "for", "now", "please"):
-        words = [w for w in words if w != filler]
-    return " ".join(words) in END_PHRASES
 
 
 @dataclass

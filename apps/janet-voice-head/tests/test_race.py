@@ -2,8 +2,10 @@ import tempfile
 import threading
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 from janet_voice_head.head import ApiError, Config, Head
+from janet_voice_head.call_tools import CallControl
 from janet_voice_head.merge import Hub
 from tests.harness import FakeHub
 
@@ -14,7 +16,7 @@ class StubSession:
     failure = None
 
     def __init__(self, *_, **__):
-        pass
+        self.call_control = CallControl()
 
     def wait_ready(self, _timeout):
         pass
@@ -26,7 +28,7 @@ class StubSession:
         pass
 
     def close(self):
-        pass
+        self.call_control.close()
 
 
 class GatedHead(Head):
@@ -70,6 +72,56 @@ class TurnRacingEndTest(unittest.TestCase):
         self.assertIn('"kind": "archived"', records[-1])
         self.assertIn("1. Speaker: first", hub.texts("voice-hard")[0])
         self.assertNotIn("second", hub.texts("voice-hard")[0])
+
+    def stub_call(self):
+        root = Path(self.enterContext(tempfile.TemporaryDirectory()))
+        config = Config(state_dir=root / "state", hub=Hub("http://unused", root / "token", root / "hub", str(root)),
+                        main_cwd=str(root), warm_up=False)
+        head = Head(config, StubSession)
+        self.addCleanup(head.close)
+        conv = head.open("phone-app", "guest", None)
+        return head, conv, head._lives[conv].session
+
+    def test_an_interrupt_after_the_goodbye_was_journaled_cancels_the_end_signal(self):
+        head, conv, session = self.stub_call()
+
+        def ask(*_):
+            session.call_control.call("ask_to_end_call", {})
+            return iter(())
+
+        def end(*_):
+            session.call_control.call("end_call", {})
+            return iter(())
+
+        with patch.object(session, "turn", side_effect=ask):
+            head.turn(conv, "finished", lambda *_: None)
+        events = []
+        with patch.object(session, "turn", side_effect=end), patch.object(
+                head, "_note_session", side_effect=lambda _: head.interrupt(conv, "Okay")):
+            head.turn(conv, "nothing else", lambda name, data: events.append((name, data)))
+        self.assertFalse(next(data for name, data in events if name == "done")["end_conversation"])
+
+    def test_a_question_that_could_not_be_delivered_never_arms_hangup(self):
+        head, conv, session = self.stub_call()
+
+        def ask(*_):
+            session.call_control.call("ask_to_end_call", {})
+            return iter(())
+
+        def disconnected(*_):
+            raise BrokenPipeError()
+
+        with patch.object(session, "turn", side_effect=ask):
+            head.turn(conv, "finished", disconnected)
+
+        def end(*_):
+            self.assertTrue(session.call_control.call("end_call", {})["isError"])
+            return iter(())
+
+        events = []
+        with patch.object(session, "turn", side_effect=end):
+            head.turn(conv, "nothing else", lambda name, data: events.append((name, data)))
+        self.assertFalse(next(data for name, data in events if name == "done")["end_conversation"])
 
 
 if __name__ == "__main__":

@@ -38,7 +38,7 @@ class LabAccessTest(HeadCase):
         self.assertEqual(sentences, ["I cannot check the lab on this call."])
         self.assertNotIn("--resume", self.launches()[0]["argv"])
         argv = self.launches()[0]["argv"]
-        self.assertEqual(json.loads(argv[argv.index("--mcp-config") + 1]), {"mcpServers": {}})
+        self.assertEqual(set(json.loads(argv[argv.index("--mcp-config") + 1])["mcpServers"]), {"janet_call"})
 
     def test_owner_gets_builders_and_other_credentials_cannot_touch_call(self):
         status, reply = self.request("POST", "/v1/conversations", {"channel": "phone-test", "tier": "personal", "client_ref": "owner-call"}, lab=True)
@@ -60,6 +60,15 @@ class LabAccessTest(HeadCase):
         self.assertEqual(status, 200)
         sentences, _ = self.turn(reply["id"], "what builders are running?")
         self.assertEqual(sentences, ["I cannot check the lab on this call."])
+
+    def test_owner_call_tools_do_not_require_a_lab_lookup(self):
+        status, reply = self.request("POST", "/v1/conversations", {"channel": "phone-test", "tier": "personal"}, lab=True)
+        self.assertEqual(status, 200)
+        for tool, expected in (("ask_to_end_call", False), ("end_call", True)):
+            status, events = self.request("POST", f"/v1/conversations/{reply['id']}/turns",
+                                          {"text": "fake-call-tools:" + tool}, lab=True)
+            self.assertEqual(status, 200)
+            self.assertEqual(next(data for name, data in events if name == "done")["end_conversation"], expected)
 
     def test_invalid_lab_credential_is_refused_before_a_fork(self):
         self.lab_token.write_text("wrong")

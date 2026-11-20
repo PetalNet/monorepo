@@ -8,11 +8,11 @@ import time
 from collections.abc import Iterator
 from pathlib import Path
 
-from . import web_guard, lab_tools
+from . import web_guard, lab_tools, call_tools
 
 # Main's hermes-link plugin re-points the hub at whichever session loads it, so a head must load nothing of main's.
 def locked_flags(web_tools: tuple[str, ...] = (), lab: bool = False) -> list[str]:
-    """Only selected web tools and, for a verified owner, the fixed lab MCP server."""
+    """Base tool boundary; ClaudeSession adds its own call-control MCP server."""
     flags = [
         "-p", "--input-format", "stream-json", "--output-format", "stream-json", "--verbose",
         "--include-partial-messages", "--tools", ",".join(web_tools), "--strict-mcp-config",
@@ -52,7 +52,7 @@ class ClaudeSession:
         self.failure: str | None = None
         self._verified = False
         self._allow_tools = allow_tools
-        self._web_tools = frozenset((*web_tools, *(lab_tools.NAMES if lab else ())))
+        self._web_tools = frozenset((*web_tools, *(lab_tools.NAMES if lab else ()), *call_tools.NAMES))
         self._lab = lab
         self._initialized = False
         self._ready = threading.Event()
@@ -60,8 +60,25 @@ class ClaudeSession:
         self._active = False
         self._answering = False
         self._write_lock = threading.Lock()
-        self._proc = subprocess.Popen(argv, cwd=cwd, env=env if env is not None else session_env(), stdin=subprocess.PIPE,
-                                      stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, text=True)
+        argv = web_guard.main_like_args(list(argv), call_tools.NAMES)
+        if "--permission-mode" not in argv:
+            argv += ["--permission-mode", "dontAsk"]
+        servers = {}
+        if "--mcp-config" in argv:
+            at = argv.index("--mcp-config") + 1
+            value = argv[at]
+            servers = json.loads(value if value.lstrip().startswith("{") else Path(value).read_text())["mcpServers"]
+        self.call_control = call_tools.CallControl()
+        if "--mcp-config" in argv:
+            argv[at] = json.dumps({"mcpServers": {**servers, **self.call_control.mcp_config()}})
+        else:
+            argv += ["--mcp-config", json.dumps({"mcpServers": self.call_control.mcp_config()})]
+        try:
+            self._proc = subprocess.Popen(argv, cwd=cwd, env=env if env is not None else session_env(), stdin=subprocess.PIPE,
+                                          stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, text=True)
+        except OSError:
+            self.call_control.close()
+            raise
         threading.Thread(target=self._read, daemon=True).start()
         self._send({"type": "control_request", "request_id": "init", "request": {"subtype": "initialize"}})
 
@@ -104,6 +121,7 @@ class ClaudeSession:
             self._proc.wait(timeout=5)
         except (OSError, subprocess.TimeoutExpired):
             self._proc.kill()
+        self.call_control.close()
 
     def _send(self, message: dict) -> None:
         try:
@@ -137,7 +155,8 @@ class ClaudeSession:
                 self.account_email = (response.get("account") or {}).get("email")
                 self._initialized = True
         elif kind == "system" and event.get("subtype") == "init":
-            if not self._allow_tools and (any(server.get("name") != lab_tools.SERVER or not self._lab for server in (event.get("mcp_servers") or ())) or not self._web_tools.issuperset(event.get("tools") or ())):
+            servers = {call_tools.SERVER, *([lab_tools.SERVER] if self._lab else [])}
+            if not self._allow_tools and (any(server.get("name") not in servers for server in (event.get("mcp_servers") or ())) or not self._web_tools.issuperset(event.get("tools") or ())):
                 return self._fail("the session came up with tools or MCP servers")
             self.session_id, self._verified = event.get("session_id"), True
         elif kind == "system" and event.get("subtype") == "status" and event.get("status") == "requesting":
@@ -160,6 +179,6 @@ class ClaudeSession:
                 self._events.put(("end", None))
         # Ready means the process answers. When it lists its tools varies: a fork used to at
         # resume and now, like a fresh session, does on its first turn. Either way no text is
-        # passed on before the list has been seen and is empty (the stream_event check above).
+        # passed on before the list has been checked against the allowed tools (the stream_event check above).
         if self._initialized and not self._ready.is_set():
             self._ready.set()

@@ -8,6 +8,7 @@ import time
 import unittest
 
 from tests.harness import HeadCase, parse_sse
+from janet_voice_head.call_tools import NAMES as CALL_TOOLS, QUESTION, GOODBYE
 
 
 class ConversationTest(HeadCase):
@@ -42,26 +43,11 @@ class ConversationTest(HeadCase):
         year = time.strftime("%Y")
         self.assertTrue(all("Local time: " in prompt and year in prompt for prompt in self.prompts()))
 
-    def test_an_end_phrase_signs_off_without_a_model_call(self):
+    def test_a_direct_hangup_request_still_reaches_the_model(self):
         conv = self.open()
-        sentences, done = self.turn(conv, "Okay, that's all.")
-        self.assertEqual(len(sentences), 1)
-        self.assertTrue(done["end_conversation"])
-        self.assertEqual(self.prompts(), [])
-
-    def test_hang_up_says_goodbye_ends_the_call_and_merges_it(self):
-        conv = self.open()
-        self.turn(conv, "hello there")
-        sentences, done = self.turn(conv, "Hang up.")
-        self.assertEqual(sentences, ["Okay, talk later."])
-        self.assertTrue(done["end_conversation"])
-        self.assertEqual(self.prompts().count(next(p for p in self.prompts() if "hello there" in p)), 1)
-        self.end(conv)
-        self.assertTrue(self.hub.texts("voice-hard"))
-
-    def test_an_ambiguous_phrase_does_not_hang_up(self):
-        _, done = self.turn(self.open(), "don't hang up")
+        _, done = self.turn(conv, "Hang up.")
         self.assertFalse(done["end_conversation"])
+        self.assertIn("Parker says: Hang up.", self.prompts()[0])
 
     def test_the_same_client_ref_gets_the_same_conversation(self):
         self.assertEqual(self.open(client_ref="wake-1"), self.open(client_ref="wake-1"))
@@ -205,7 +191,6 @@ class HardMergeTest(HeadCase):
 
     def test_a_conversation_with_no_exchange_delivers_nothing(self):
         conv = self.open()
-        self.turn(conv, "never mind")
         self.assertEqual(self.end(conv)[1]["merged"], True)
         self.assertEqual(self.hub.accepted, [])
 
@@ -509,7 +494,7 @@ class TierTest(HeadCase):
         self.turn(self.open("guest"), "hello")
         argv = self.launches()[-1]["argv"]
         self.assertIn("--tools", argv)
-        self.assertNotIn("--permission-mode", argv)
+        self.assertEqual(argv[argv.index("--permission-mode") + 1], "dontAsk")
 
     def test_trimming_can_be_turned_off(self):
         self.stop_head()
@@ -565,24 +550,24 @@ class WebToolsTest(HeadCase):
         self.turn(self.open("personal"), "hello")
         argv = self.launches()[0]["argv"]
         self.assertEqual(self.flag(argv, "--tools"), "WebSearch,WebFetch")
-        self.assertEqual(self.flag(argv, "--mcp-config"), '{"mcpServers":{}}')
+        self.assertEqual(set(json.loads(self.flag(argv, "--mcp-config"))["mcpServers"]), {"janet_call"})
         self.assertIn("--strict-mcp-config", argv)
         self.assertEqual(self.flag(argv, "--setting-sources"), "")
         self.assertEqual(self.flag(argv, "--permission-mode"), "dontAsk")
         settings = json.loads(self.flag(argv, "--settings"))
-        self.assertEqual(settings["permissions"]["allow"], ["WebFetch", "WebSearch"])
+        self.assertEqual(settings["permissions"]["allow"], ["WebFetch", "WebSearch", *CALL_TOOLS])
         self.assertIn("WebFetch(domain:petalcat.dev)", settings["permissions"]["deny"])
         self.assertIn("WebFetch(domain:*.ts.net)", settings["permissions"]["deny"])
         self.assertEqual(settings["hooks"]["PreToolUse"][0]["matcher"], "WebFetch")
 
-    def test_guest_and_room_heads_stay_tool_less(self):
+    def test_guest_and_room_heads_get_only_call_tools(self):
         for tier in ("guest", "room"):
             self.turn(self.open(tier), "hello")
         for launch in self.launches():
             argv = launch["argv"]
             self.assertEqual(self.flag(argv, "--tools"), "")
-            self.assertNotIn("--settings", argv)
-            self.assertNotIn("--permission-mode", argv)
+            self.assertEqual(json.loads(argv[argv.index("--settings") + 1])["permissions"]["allow"], list(CALL_TOOLS))
+            self.assertEqual(argv[argv.index("--permission-mode") + 1], "dontAsk")
 
     def test_a_head_that_reports_a_tool_outside_the_set_is_never_used(self):
         self.stop_head()
@@ -644,7 +629,7 @@ class MainLikeWebToolsTest(HeadCase):
         argv = self.launches()[-1]["argv"]
         settings = self.settings_of(argv)
         self.assertEqual(settings["deniedMcpServers"], [{"serverName": "x"}])
-        self.assertEqual(settings["permissions"]["allow"], ["WebFetch", "WebSearch"])
+        self.assertEqual(settings["permissions"]["allow"], ["WebFetch", "WebSearch", *CALL_TOOLS])
         deny = settings["permissions"]["deny"]
         self.assertTrue({"Bash", "Edit", "WebFetch(domain:petalcat.dev)"} <= set(deny))
         self.assertTrue({"WebFetch", "WebSearch"}.isdisjoint(deny))
@@ -658,13 +643,13 @@ class MainLikeWebToolsTest(HeadCase):
         self.stop_head()
         self.start_head(main_like_fork=True, web_tools=["WebSearch"])
         self.turn(self.open("personal"), "hello")
-        self.assertEqual(self.settings_of(self.launches()[-1]["argv"])["permissions"]["allow"], ["WebSearch"])
+        self.assertEqual(self.settings_of(self.launches()[-1]["argv"])["permissions"]["allow"], ["WebSearch", *CALL_TOOLS])
 
     def test_a_main_like_fork_without_web_tools_keeps_its_args_as_they_are(self):
         self.stop_head()
         self.start_head(main_like_fork=True, main_like_args=["--plugin-dir", "/p"])
         self.turn(self.open("personal"), "hello")
-        self.assertNotIn("--settings", self.launches()[-1]["argv"])
+        self.assertEqual(self.settings_of(self.launches()[-1]["argv"])["permissions"]["allow"], list(CALL_TOOLS))
 
     def test_a_guest_is_still_tool_less_beside_a_main_like_web_fork(self):
         self.stop_head()
@@ -672,16 +657,16 @@ class MainLikeWebToolsTest(HeadCase):
         self.turn(self.open("guest"), "hello")
         argv = self.launches()[-1]["argv"]
         self.assertEqual(argv[argv.index("--tools") + 1], "")
-        self.assertNotIn("--settings", argv)
+        self.assertEqual(json.loads(argv[argv.index("--settings") + 1])["permissions"]["allow"], list(CALL_TOOLS))
 
 
 class WebToolsOffTest(HeadCase):
-    def test_by_default_a_personal_head_has_no_tools(self):
+    def test_by_default_a_personal_head_has_only_call_tools(self):
         self.turn(self.open("personal"), "hello")
         argv = self.launches()[0]["argv"]
         self.assertEqual(argv[argv.index("--tools") + 1], "")
-        self.assertNotIn("--settings", argv)
-        self.assertIn("You have no tools in this head", self.prompts()[0])
+        self.assertEqual(json.loads(argv[argv.index("--settings") + 1])["permissions"]["allow"], list(CALL_TOOLS))
+        self.assertIn("Your only tools control this call", self.prompts()[0])
 
 
 class LateToolListTest(HeadCase):
@@ -735,3 +720,61 @@ class UnsafeSessionTest(HeadCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class AgenticHangupTest(HeadCase):
+    def tool(self, conv, *names):
+        return self.turn(conv, "fake-call-tools:" + ",".join(names))
+
+    def test_model_tool_calls_ask_then_end_with_goodbye_and_merge(self):
+        conv = self.open(channel="phone-app")
+        sentences, done = self.tool(conv, "ask_to_end_call")
+        self.assertEqual(sentences, [QUESTION])
+        self.assertFalse(done["end_conversation"])
+        sentences, done = self.tool(conv, "end_call")
+        self.assertEqual(sentences, [GOODBYE])
+        self.assertTrue(done["end_conversation"])
+        self.end(conv)
+        self.assertIn(QUESTION, self.hub.texts("voice-hard")[0])
+        self.assertIn(GOODBYE, self.hub.texts("voice-hard")[0])
+
+    def test_end_without_question_or_in_the_question_turn_is_refused(self):
+        conv = self.open()
+        self.assertFalse(self.tool(conv, "end_call")[1]["end_conversation"])
+        sentences, done = self.tool(conv, "ask_to_end_call", "end_call")
+        self.assertEqual(sentences, [QUESTION])
+        self.assertFalse(done["end_conversation"])
+
+    def test_a_continued_or_ambiguous_turn_expires_confirmation(self):
+        conv = self.open()
+        for continued in ("Actually, tell me about tomorrow", "I am not sure", "No, but one more thing"):
+            self.tool(conv, "ask_to_end_call")
+            self.assertFalse(self.turn(conv, continued)[1]["end_conversation"])
+            self.assertFalse(self.tool(conv, "end_call")[1]["end_conversation"])
+
+    def test_interruption_during_question_playback_invalidates_consent(self):
+        conv = self.open()
+        self.tool(conv, "ask_to_end_call")
+        self.request("POST", f"/v1/conversations/{conv}/interrupt", {"heard_text": "Is there"})
+        self.assertFalse(self.tool(conv, "end_call")[1]["end_conversation"])
+        self.tool(conv, "ask_to_end_call")
+        self.assertTrue(self.tool(conv, "end_call")[1]["end_conversation"])
+
+    def test_another_conversation_cannot_use_the_question(self):
+        first, second = self.open(), self.open("guest")
+        self.tool(first, "ask_to_end_call")
+        self.assertFalse(self.tool(second, "end_call")[1]["end_conversation"])
+        self.assertTrue(self.tool(first, "end_call")[1]["end_conversation"])
+
+    def test_guest_room_web_and_main_like_sessions_have_the_same_protocol(self):
+        for options, tier in (({}, "guest"), ({}, "room"), ({"web_tools": ["WebSearch"]}, "personal"),
+                              ({"main_like_fork": True}, "personal")):
+            with self.subTest(tier=tier, options=options):
+                self.stop_head()
+                self.start_head(**options)
+                conv = self.open(tier)
+                self.assertFalse(self.tool(conv, "ask_to_end_call")[1]["end_conversation"])
+                sentences, done = self.tool(conv, "end_call")
+                self.assertEqual(sentences, [GOODBYE])
+                self.assertTrue(done["end_conversation"])
+                self.end(conv)

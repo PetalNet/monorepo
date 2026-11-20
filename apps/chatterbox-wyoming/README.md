@@ -11,6 +11,11 @@ serves:
 - HTTP on each configured `http` bind: `POST /tts` (text body, returns a 44.1 kHz WAV)
   and `GET /status` (read-only JSON for a load balancer: `name`, `loaded`, `busy`,
   `queue_depth`, `last_synth_rtf`, `gpu_name`, `free_vram_gb`, `total_vram_gb`).
+  `POST /unload` releases the model and cached GPU memory when no synthesis is active
+  or queued. It returns `200` with `{"unloaded": true}` if it released a model, or
+  `{"unloaded": false}` if already unloaded. It returns `409` with
+  `{"error": "synthesis in progress or queued"}` without unloading when busy. A later
+  synthesis loads the model again.
 
 The model loads on the first request and unloads after `idle_unload_seconds` without
 requests, so other GPU applications get the memory back. After each synthesis it also

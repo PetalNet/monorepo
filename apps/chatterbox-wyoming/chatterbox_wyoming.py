@@ -131,7 +131,19 @@ class Voice:
     def speak(self, text: str) -> Future:
         with self.counter_lock:
             self.pending += 1
-        return self.worker.submit(self._speak, text)
+            return self.worker.submit(self._speak, text)
+
+    def unload(self) -> Future | None:
+        with self.counter_lock:
+            if self.pending:
+                return None
+            return self.worker.submit(self._unload_requested)
+
+    def _unload_requested(self) -> bool:
+        if self.model is None:
+            return False
+        self._unload("on request")
+        return True
 
     def _speak(self, text: str) -> np.ndarray:
         self.busy = True
@@ -263,6 +275,13 @@ def http_handler(voice: Voice, name: str) -> type[BaseHTTPRequestHandler]:
             self.reply(200, json.dumps({"name": name, **voice.status()}).encode(), "application/json")
 
         def do_POST(self):
+            if self.path == "/unload":
+                future = voice.unload()
+                if future is None:
+                    self.reply(409, b'{"error": "synthesis in progress or queued"}', "application/json")
+                else:
+                    self.reply(200, json.dumps({"unloaded": future.result()}).encode(), "application/json")
+                return
             if self.path != "/tts":
                 self.send_error(404)
                 return

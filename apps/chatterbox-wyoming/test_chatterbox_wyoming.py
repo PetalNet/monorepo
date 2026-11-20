@@ -1,16 +1,107 @@
 import sys
+import http.client
+import json
+import threading
 import types
 import unittest
 import weakref
+from http.server import ThreadingHTTPServer
 from unittest import mock
 
 import numpy as np
 
-from chatterbox_wyoming import MODEL_RATE, SynthesisError, Voice, louder, time_stretch
+from chatterbox_wyoming import MODEL_RATE, SynthesisError, Voice, http_handler, louder, time_stretch
 
 FAKE_TORCH = types.SimpleNamespace(
     cuda=types.SimpleNamespace(synchronize=lambda: None, empty_cache=lambda: None, memory_reserved=lambda: 0)
 )
+
+
+class UnloadTest(unittest.TestCase):
+    def setUp(self):
+        self.enterContext(mock.patch.dict(sys.modules, torch=FAKE_TORCH))
+        self.voice = Voice(runtime="", gpu_index=0, idle_unload=600)
+        self.addCleanup(self.voice.worker.shutdown)
+        self.server = ThreadingHTTPServer(("127.0.0.1", 0), http_handler(self.voice, "test"))
+        thread = threading.Thread(target=self.server.serve_forever, daemon=True)
+        thread.start()
+        self.addCleanup(thread.join)
+        self.addCleanup(self.server.server_close)
+        self.addCleanup(self.server.shutdown)
+
+    def unload(self):
+        connection = http.client.HTTPConnection(*self.server.server_address, timeout=3)
+        self.addCleanup(connection.close)
+        connection.request("POST", "/unload")
+        response = connection.getresponse()
+        return response.status, json.loads(response.read())
+
+    def test_unloads_and_is_idempotent(self):
+        class Model:
+            pass
+
+        self.voice.model = Model()
+        reference = weakref.ref(self.voice.model)
+        with mock.patch.object(FAKE_TORCH.cuda, "empty_cache") as empty_cache:
+            self.assertEqual(self.unload(), (200, {"unloaded": True}))
+            self.assertIsNone(reference())
+            self.assertEqual(self.unload(), (200, {"unloaded": False}))
+            empty_cache.assert_called_once()
+
+    def test_refuses_active_and_queued_synthesis(self):
+        started, release = threading.Event(), threading.Event()
+        self.addCleanup(release.set)
+
+        def synthesize(text):
+            started.set()
+            self.assertTrue(release.wait(3))
+            return np.array([0.1])
+
+        self.voice._synthesize = synthesize
+        first = self.voice.speak("first")
+        self.assertTrue(started.wait(3))
+        self.assertEqual(self.unload(), (409, {"error": "synthesis in progress or queued"}))
+        second = self.voice.speak("second")
+        self.assertEqual(self.unload(), (409, {"error": "synthesis in progress or queued"}))
+        release.set()
+        first.result(timeout=3)
+        second.result(timeout=3)
+
+    def test_refuses_queued_synthesis_before_worker_starts(self):
+        started, release = threading.Event(), threading.Event()
+        self.addCleanup(release.set)
+        self.voice.worker.submit(lambda: (started.set(), release.wait(3)))
+        self.assertTrue(started.wait(3))
+        self.voice._synthesize = lambda text: np.array([0.1])
+        queued = self.voice.speak("queued")
+        self.assertEqual(self.unload(), (409, {"error": "synthesis in progress or queued"}))
+        release.set()
+        queued.result(timeout=3)
+
+    def test_synthesis_submitted_during_unload_waits_for_release(self):
+        started, release = threading.Event(), threading.Event()
+        self.addCleanup(release.set)
+        self.voice.model = object()
+        original_unload = self.voice._unload
+
+        def blocked_unload(reason):
+            started.set()
+            self.assertTrue(release.wait(3))
+            original_unload(reason)
+
+        self.voice._unload = blocked_unload
+        self.voice._synthesize = lambda text: np.array([0.1]) if self.voice.model is None else self.fail("model still loaded")
+        responses = []
+        thread = threading.Thread(target=lambda: responses.append(self.unload()))
+        thread.start()
+        self.addCleanup(thread.join)
+        self.assertTrue(started.wait(3))
+        synthesis = self.voice.speak("after unload")
+        self.assertFalse(synthesis.done())
+        release.set()
+        thread.join(timeout=3)
+        self.assertEqual(responses, [(200, {"unloaded": True})])
+        synthesis.result(timeout=3)
 
 
 class FailedSynthesisTest(unittest.TestCase):

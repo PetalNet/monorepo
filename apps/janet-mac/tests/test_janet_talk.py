@@ -34,7 +34,8 @@ STUBS = {
     # Appends the audio it was asked to play, then takes as long as the test says.
     "afplay": '#!/usr/bin/env bash\ntail -c +45 "$1" >>"$STUB/played"; echo >>"$STUB/played"\n'
     'cat "$STUB/media-state" >>"$STUB/media-at-play" 2>/dev/null\n'
-    'sleep "$(cat "$STUB/afplay-seconds")"\n',
+    'sleep "$(cat "$STUB/afplay-seconds")"\n'
+    '[ ! -e "$STUB/afplay-fail" ] || ! tail -c +45 "$1" | grep -Fxq "$(cat "$STUB/afplay-fail")"\n',
     # Stands in for the MediaRemote adapter: one player whose state is a file, and a log of its calls.
     "media": '#!/usr/bin/env bash\necho "$*" >>"$STUB/media-calls"\n[ "$1" = send ] && case "$2" in "" | *[!0-9]*) echo "Parameter command is not an integer: $2" >&2; exit 1;; esac\n[ -e "$STUB/media-state" ] || { echo null; exit 0; }\n'
     'case "$1 $2" in\n  "get "*) echo "{\\"bundleIdentifier\\":\\"com.example.show\\",\\"playing\\":$(cat "$STUB/media-state")}";;\n'
@@ -420,6 +421,22 @@ class TalkTest(TalkCase):
         self.talk("start")
         self.assertEqual(len(self.head_calls("/v1/conversations")), 2)
 
+    def test_failed_synthesis_keeps_a_would_end_turn_open(self):
+        self.voice.fail_texts = {"Second."}
+        self.say("goodbye")
+        self.talk("start")
+        self.talk("stop")
+        self.assertEqual(self.head_calls("/interrupt"), [{"heard_text": "First."}])
+        self.assertEqual(self.head_calls("/end"), [])
+
+    def test_failed_playback_keeps_a_would_end_turn_open(self):
+        (self.stub / "afplay-fail").write_text("Second.")
+        self.say("goodbye")
+        self.talk("start")
+        self.talk("stop")
+        self.assertEqual(self.head_calls("/interrupt"), [{"heard_text": "First."}])
+        self.assertEqual(self.head_calls("/end"), [])
+
     def test_silence_sends_nothing_to_janet(self):
         (self.stub / "hex-status").write_text("4")
         self.say("")
@@ -532,6 +549,7 @@ class TalkTest(TalkCase):
         asked = [request["text"] for request in self.voice.requests_seen]
         self.assertEqual(sorted(asked), ["First.", "Hi.", "Second."])
         self.assertEqual(self.lines("played"), ["Second."])
+        self.assertEqual(self.head_calls("/interrupt"), [{"heard_text": ""}])
         self.notified(["First. Second."])
 
 

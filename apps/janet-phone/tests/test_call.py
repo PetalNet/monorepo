@@ -95,6 +95,23 @@ class FakeStt(socketserver.StreamRequestHandler):
 
 
 class CallTest(unittest.IsolatedAsyncioTestCase):
+    async def test_failed_reply_audio_reports_only_the_completed_prefix(self):
+        for prefix in ([], ["The completed sentence."]):
+            with self.subTest(prefix=prefix):
+                gateway = janet_phone.Gateway(f"http://127.0.0.1:{self.gateway.server_port}", {"Authorization": TOKEN})
+                call = janet_phone.Call(mock.AsyncMock(), self.config, gateway, "0123456789ab")
+                events = [("sentence", {"text": text}) for text in [*prefix, "The unplayed sentence."]]
+                events.append(("done", {"end_conversation": True}))
+                audio = [(16000, tone(.1)) for _ in prefix]
+                with mock.patch.object(gateway, "turn", return_value=iter(events)), mock.patch.object(
+                    gateway, "speech", side_effect=[*audio, OSError("TTS failed")]
+                ):
+                    with self.assertRaises(OSError):
+                        await call.reply("caller turn", time.monotonic(), {"endpoint_ms": 0})
+                interrupts = [body for path, body in FakeGateway.calls if path.endswith("/interrupt")]
+                self.assertEqual(interrupts[-1:], [{"heard_text": " ".join(prefix)}])
+                self.assertFalse(any(path.endswith("/end") for path, _ in FakeGateway.calls))
+
     async def asyncSetUp(self):
         FakeGateway.calls, FakeGateway.seen, FakeGateway.voice_down, FakeGateway.lab_tokens = [], [], False, []
         janet_phone.DISCLOSURES.clear()

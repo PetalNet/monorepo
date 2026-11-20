@@ -591,6 +591,13 @@ class Call:
                 spoken.put_nowait(None)
                 await player
                 return kind == "done" and bool(data.get("end_conversation"))
+        except Exception:
+            try:
+                await asyncio.to_thread(self.gateway.post, f"/v1/conversations/{self.conversation}/interrupt",
+                                        {"heard_text": " ".join(self.heard)})
+            except (OSError, ValueError) as error:
+                log.warning("call %s: could not report incomplete playback: %s", self.conversation, error)
+            raise
         finally:
             for task in (player, *voices):
                 task.cancel()

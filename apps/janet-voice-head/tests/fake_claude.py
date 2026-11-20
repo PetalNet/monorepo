@@ -29,6 +29,8 @@ def init() -> None:
     servers = json.loads(argv[argv.index("--mcp-config") + 1])["mcpServers"] if "--mcp-config" in argv else {}
     if "janet_lab" in servers:
         tools += ["mcp__janet_lab__" + name for name in ("builders", "objectives", "health", "pull_requests")]
+    if "janet_call" in servers:
+        tools += ["mcp__janet_call__" + name for name in ("ask_to_end_call", "end_call")]
     if "--fake-leak-tools" in argv or ("--permission-mode" in argv and not tools):
         tools = [*tools, "Bash"]
     out({"type": "system", "subtype": "init", "session_id": SESSION, "mcp_servers": [{"name": name} for name in servers], "tools": tools})
@@ -42,7 +44,18 @@ def reply_to(prompt: str) -> str:
         time.sleep(WARM_DELAY)
         return "ready"
     if "conversation is over" in prompt:
+        if "--fake-slow-summary" in argv:
+            time.sleep(2)
         return "They talked about test things."
+    if said.startswith("fake-call-tools:"):
+        servers = json.loads(argv[argv.index("--mcp-config") + 1])["mcpServers"]
+        server = servers["janet_call"]
+        for name in said.removeprefix("fake-call-tools:").split(","):
+            out({"type": "stream_event", "event": {"type": "content_block_start", "content_block": {"type": "tool_use", "name": "mcp__janet_call__" + name}}})
+            request = {"jsonrpc": "2.0", "id": 1, "method": "tools/call", "params": {"name": name, "arguments": {}}}
+            proc = subprocess.run([server["command"], *server["args"]], input=json.dumps(request) + "\n", capture_output=True, text=True, timeout=5, check=True)
+            log({"call_tool": name, "result": json.loads(proc.stdout)["result"]})
+        return "[silent]"
     if "what builders are running?" in said:
         servers = json.loads(argv[argv.index("--mcp-config") + 1])["mcpServers"] if "--mcp-config" in argv else {}
         if "janet_lab" not in servers:
