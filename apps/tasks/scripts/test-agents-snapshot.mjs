@@ -510,18 +510,18 @@ const identityEvents = [
 	`legacy-${"a".repeat(64)}`,
 	`legacy-${"b".repeat(64)}`,
 	"ghp_identity_fixture",
-	"long-" + "c".repeat(1100),
+	`long-${"c".repeat(1100)}`,
 	"ordinary-run",
 ].map((runId, index) => ({ event: "import", runId, at, kind: `identity-${index}` }));
 
-async function identitySnapshot(events) {
+async function identitySnapshot(ledgerEvents) {
 	return snapshot({
 		stateDir: "/identity",
 		now,
 		read: async (filePath) => {
 			assert.equal(filePath, "/identity/ledger.jsonl");
 
-			return events.map(JSON.stringify).join("\n");
+			return ledgerEvents.map(JSON.stringify).join("\n");
 		},
 	});
 }
