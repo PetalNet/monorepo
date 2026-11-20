@@ -159,10 +159,13 @@ def test_surround_passes_under_the_tile_and_follows_the_ground_outside_it(tmp_pa
     assert below.min() >= CONTEXT_SINK_M - 0.05
     assert below.max() < CONTEXT_SINK_M + 0.2
     assert (out / context["colour"]).is_file()
-    assert build(site, out)["stages_reused"] == ["elevation", "surface", "macro_colour", "detail", "growth", "context"]
+    assert build(site, out)["stages_reused"] == [
+        "elevation", "surface", "macro_colour", "detail", "growth", "context", "context_geometry"
+    ]
     monkeypatch.setattr(importlib.import_module("envgen.build"), "CONTEXT_LOW_PASS_M", 6.0)
     changed = build(site, out)
-    assert changed["stages_reused"] == ["elevation", "surface", "macro_colour", "detail", "growth"]
+    assert changed["stages_reused"] == ["elevation", "surface", "macro_colour", "detail", "growth", "context_geometry"]
+    assert changed["artifacts"][context["geometry"]["file"]] == manifest["artifacts"][context["geometry"]["file"]]
     assert changed["artifacts"][context["colour"]] != manifest["artifacts"][context["colour"]]
 
 
