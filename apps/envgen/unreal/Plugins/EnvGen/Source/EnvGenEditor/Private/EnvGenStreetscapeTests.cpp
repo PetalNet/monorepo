@@ -34,6 +34,13 @@ bool FEnvGenStreetscapeMalformed::RunTest(const FString& Parameters)
 	TestFalse(TEXT("valid geometry reaches the world requirement"), BuildEnvGenStreetscape(nullptr, ManifestPath,
 		[](double, double) { return 0.; }, ControlPackages, ControlActors, MakeShared<FJsonObject>(), ControlError));
 	TestEqual(TEXT("positive control parsed successfully"), ControlError, FString(TEXT("streetscape needs a world after validation")));
+	const FString Sliver = TEXT("{\"material\":\"asphalt\",\"vertices\":[[400,0,0.04],[400.00001,0,0.04],[400,0.00001,0.04]],\"triangles\":[[0,1,2]],\"collision\":false}");
+	const FString SliverInventory = TEXT("{\"schema_version\":1,\"feature_count\":2,\"counts\":{\"surface\":2},\"meshes\":[") + ValidRow + TEXT(",") + Sliver + TEXT("]}");
+	FFileHelper::SaveStringToFile(SliverInventory, *(Directory / TEXT("geometry.json")));
+	FString SliverError;
+	TestFalse(TEXT("sub-precision clipping slivers do not reject the valid mesh"), BuildEnvGenStreetscape(nullptr, ManifestPath,
+		[](double, double) { return 0.; }, ControlPackages, ControlActors, MakeShared<FJsonObject>(), SliverError));
+	TestEqual(TEXT("sliver reached the same validated state"), SliverError, ControlError);
 	for (const FString& Row : BadRows)
 	{
 		const FString Inventory = TEXT("{\"schema_version\":1,\"feature_count\":2,\"counts\":{\"surface\":2},\"meshes\":[") + ValidRow + TEXT(",") + Row + TEXT("]}");
