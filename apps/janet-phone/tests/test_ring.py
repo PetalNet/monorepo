@@ -226,11 +226,11 @@ class RingTest(unittest.IsolatedAsyncioTestCase):
                 self.assertEqual(ring.state, expected)
 
     async def test_speech_in_progress_does_not_trigger_a_silence_observation(self):
-        with mock.patch.object(janet_phone, "RING_SILENCE_S", 0.1):
+        with mock.patch.object(janet_phone, "RING_SILENCE_S", 0.5):
             task, payload = await self.start_ring("A brief for after the audio check.")
             async with connect(self.url, additional_headers={**self.phone, "X-Janet-Ring": payload["id"]}) as ws:
                 self.assertEqual((await task)[1]["status"], "audio_connected")
-                for _ in range(20):
+                for _ in range(50):
                     await ws.send(tone(.02))
                     await asyncio.sleep(.02)
                 self.assertFalse(any(path.endswith("/turns") and "no caller speech arrived" in body["text"]
