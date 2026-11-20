@@ -68,7 +68,7 @@ class FakeGateway(BaseHTTPRequestHandler):
             return self._send(500, b"{}")
         if self.path.endswith("/turns"):
             done = {"end_conversation": body["text"] == "goodbye"}
-            sentence = json.dumps({"text": "You said " + body["text"] + "."})
+            sentence = json.dumps({"text": "Can you hear me?" if body["text"].startswith("Outgoing phone call.") else "You said " + body["text"] + "."})
             events = f'event: sentence\ndata: {sentence}\n\nevent: done\ndata: {json.dumps(done)}\n\n'
             return self._send(200, events.encode())
         return self._send(200, b'{"merged": true}')
@@ -100,7 +100,7 @@ class CallTest(unittest.IsolatedAsyncioTestCase):
         for prefix in ([], ["The completed sentence."]):
             with self.subTest(prefix=prefix):
                 gateway = janet_phone.Gateway(f"http://127.0.0.1:{self.gateway.server_port}", {"Authorization": TOKEN})
-                call = janet_phone.Call(mock.AsyncMock(), self.config, gateway, "0123456789ab")
+                call = janet_phone.Call(mock.AsyncMock(ring=None), self.config, gateway, "0123456789ab")
                 events = [("sentence", {"text": text}) for text in [*prefix, "The unplayed sentence."]]
                 events.append(("done", {"end_conversation": True}))
                 audio = [(16000, tone(.1)) for _ in prefix]

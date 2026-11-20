@@ -107,10 +107,13 @@ Closing the socket hangs up.
 ## Incoming calls
 
 `janet-ring "<reason>"` rings one paired Android phone. The command waits for the bridge to send
-the reason's full speech audio and exits zero on `audio_connected`. Decline, timeout, busy, transport,
+a complete, successful voice-head reply with speech audio and exits zero on `audio_connected`. Filler alone and failed head turns do not count. Decline, timeout, busy, transport,
 gateway and speech failures exit nonzero and print their status. This confirms audio transport to the
 client, not that a person heard it. The default deadline is 45 seconds, including connection and speech.
-Use a short reason; a reason whose audio exceeds the deadline times out.
+The reason goes to the voice head as quoted, untrusted context. Its ring-call prompt is built in
+`Call.reply` on every ring turn: greet, check that both sides can hear, wait for confirmation, then give the brief and
+ask for the decision. The bridge reports eight seconds without caller speech to the head once;
+the model decides how to re-ask. The bridge never speaks the brief before the audio check.
 
 Enable rings on the bridge with these top-level configuration values, before any TOML table:
 
@@ -232,7 +235,8 @@ Run it with `python janet_phone.py --config /path/to/phone.toml`, or build the `
   hours by default) loses its last turns.
 - The head ends a conversation that sits idle. When that happens mid-call (a sleeping voice host can
   take minutes to say the disclosure), the call continues in a new conversation, which does not
-  remember the earlier turns.
+  remember the earlier turns. A ring-initiated call closes if its head expires, since a fresh head
+  would lose the audio check and decision context. Expiry before initial ring success returns nonzero.
 - The call record carries the caller's words. Post it where a person reads it, not where an agent
   with tools takes messages as instructions.
 

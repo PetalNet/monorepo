@@ -18,7 +18,8 @@ Android shows the call in the status bar, the car and the Bluetooth headset like
 Janet can ring this phone with `janet-ring "<reason>"` on her VM. The bridge must have incoming
 calls enabled first, as described in [its setup instructions](../janet-phone/README.md#incoming-calls).
 The phone validates each ring through the paired bridge before registering an incoming Telecom
-call. Answer opens the normal Janet voice call, starting with her disclosure and the reason.
+call. Answer opens the normal Janet voice call. After the disclosure, Janet checks that both sides
+can hear each other before giving the reason and asking for the decision.
 
 After installing version 0.8.0 or later:
 
