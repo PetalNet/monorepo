@@ -49,6 +49,19 @@ instructions.
   a request must carry the secret in `proxy_secret_file` as `X-Janet-Pair-Proxy`, and only then is
   its `X-authentik-username` believed and checked against `pair_users`. Each pairing is announced
   through the notify command. If a paired phone is lost, unpair it and rotate the Access token.
+- **Restoring an existing owner's phone.** A host administrator can run
+  `janet-phone --config CONFIG --devices` to inspect device ids, names, pairing history and verification.
+  After identifying the owner's physical phone, run
+  `janet-phone --config CONFIG --verify-owner ID --reason "Why this device belongs to the owner"`.
+  ID must contain at least 12 hex characters and match exactly one existing phone paired by
+  `lab_owner`. This local command requires write access to the pairing store; there is no HTTP grant
+  route. It keeps the phone's token and pairing history and records the owner, local admin authority,
+  UTC time and reason in `owner_grants` before marking that device verified. Repeating a verified
+  grant makes no change. Other devices, including shared links issued by the owner, stay unverified.
+  With the lab gate enabled, verified owner phones receive personal tier and lab tools; other
+  pairings receive guest tier. Unpair that device with `--revoke ID` to remove its access. Revoked
+  devices with grants remain in the store as inactive records so their audit history survives;
+  they cannot call, be granted again, or appear in `--devices`.
 - **Bounded.** At most `max_calls` calls at once (503 beyond that), `max_call_s` seconds per call,
   30 s per utterance, and four utterances waiting for a turn.
 - **Cut-off.** When the caller speaks over a reply, the bridge stops sending it, tells the device to
