@@ -328,6 +328,13 @@ survey orthophoto (`sources.survey.orthophoto`, 2.3 cm a pixel on the real tile)
   Where the orthophoto has no pixel (its footprint is not a box) the file holds 0 and the material keeps the imagery's ratio and the grain there. The orthophoto's own shadows are not masked (its sun is not the imagery's): a prior. On the real tile the footprint is
   west of the fly and walk stations, so it shows in the walk tour's later frames (about frame 2600) and the overview.
 
+### Procedural ground beyond the survey
+
+The optional survey-driven `procfill` stage carries fitted ground appearance into coarse imagery coverage.
+It exports seeded masks, per-mask provenance and confidence, spatial holdout results, and paintable PNGs.
+See [procedural ground masks](docs/procfill.md) for the evidence limits and Unreal integration, and
+[paint procedural ground masks](docs/paint-procfill.md) to replace generated features.
+
 ### Grass
 
 The grass class grows tufts: Landscape Grass, three varieties, all numbers in the manifest's `turf` (`turf.py`), none in

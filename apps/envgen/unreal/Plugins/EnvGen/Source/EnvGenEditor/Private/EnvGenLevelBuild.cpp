@@ -37,6 +37,7 @@
 #include "Materials/MaterialExpressionAppendVector.h"
 #include "Materials/MaterialExpressionCameraPositionWS.h"
 #include "Materials/MaterialExpressionDistance.h"
+#include "Materials/MaterialExpressionEyeAdaptation.h"
 #include "Materials/MaterialExpressionSaturate.h"
 #include "Materials/MaterialExpressionSubtract.h"
 #include "Materials/MaterialExpressionTransformPosition.h"
@@ -187,7 +188,7 @@ namespace
 	{
 		double EastM = 0, NorthM = 0, HeightM = 0, CrownRadiusM = 0, YawDeg = 0;
 		// From the species' inventory records; without them the trunk and crown have no collision.
-		double TrunkDiameterM = 0, CrownRatio = 0;
+		double TrunkDiameterM = 0, CrownRatio = 0, VisualCrownScale = 1;
 		FName Kind;
 	};
 
@@ -231,8 +232,10 @@ namespace
 		FLinearColor GrainTint = FLinearColor(1, 1, 1);
 		// The survey orthophoto's ratio at its own pixel size, one channel, where its footprint is: file, how 8 bits map to
 		// a power of two, and where the file lies in the tile in metres from its south-west corner.
+		FString ProcfillGrowthFile, ProcfillDebugFile;
 		FString SurveyFile;
 		double SurveyLog2Range = 1, SurveyZero = 127, SurveyWestM = 0, SurveySouthM = 0, SurveyEastM = 1, SurveyNorthM = 1;
+		bool bProcfillDebugView = false;
 		FTurf Turf;
 		FSurface Tile;
 		TOptional<FSurface> Surround;
@@ -347,6 +350,13 @@ namespace
 			Out.RatioFile = (*Ratio)->GetStringField(TEXT("file"));
 			Out.RatioLog2Range = (*Ratio)->GetNumberField(TEXT("log2_range"));
 			Out.RatioZero = (*Ratio)->GetNumberField(TEXT("zero"));
+		}
+		const TSharedPtr<FJsonObject>* Procfill = nullptr;
+		if (Root->TryGetObjectField(TEXT("procfill"), Procfill))
+		{
+			Out.ProcfillGrowthFile = (*Procfill)->GetStringField(TEXT("growth_file"));
+			Out.ProcfillDebugFile = (*Procfill)->GetStringField(TEXT("debug_file"));
+			(*Procfill)->TryGetBoolField(TEXT("debug_view"), Out.bProcfillDebugView);
 		}
 		const TSharedPtr<FJsonObject>* Survey = nullptr;
 		if (Root->TryGetObjectField(TEXT("survey_detail"), Survey) && (*Survey)->HasField(TEXT("file")))
@@ -791,7 +801,7 @@ namespace
 	 * turns, mixed by broad noise, so the repeat does not show from the air. The class weights are cut to a sharp
 	 * edge where they cross one half, so an edge is as crisp as the photo's rather than as wide as a weightmap texel.
 	 */
-	UMaterial* MakeGroundMaterial(UTexture2D* Macro, UTexture2D* Ratio, UTexture2D* Survey, UTexture2D* Grain, const FManifest& Manifest, UTexture2D* Detail, int32 Quads, double QuadCm, float AlbedoScale,
+	UMaterial* MakeGroundMaterial(UTexture2D* Macro, UTexture2D* Ratio, UTexture2D* Survey, UTexture2D* Grain, UTexture2D* ProcfillGrowth, UTexture2D* ProcfillDebug, const FManifest& Manifest, UTexture2D* Detail, int32 Quads, double QuadCm, float AlbedoScale,
 		const TArray<FLayer>& Layers, ULandscapeGrassType* GrassType, TArray<UPackage*>& Packages)
 	{
 		UMaterial* Material = NewAsset<UMaterial>(TEXT("M_Ground"), Packages);
@@ -963,6 +973,29 @@ namespace
 			WithGrain->B.Connect(0, GrainPower);
 			GrassBase = WithGrain;
 		}
+		if (ProcfillGrowth)
+		{
+			UMaterialExpressionMultiply* Encoded = Node<UMaterialExpressionMultiply>(Material, -600, -1500);
+			Encoded->A.Connect(4, Sample(Material, ProcfillGrowth, Quads, SAMPLERTYPE_LinearColor, -1500));
+			Encoded->ConstB = 255.f / 127.f;
+			UMaterialExpressionAdd* Exponent = Node<UMaterialExpressionAdd>(Material, -500, -1500);
+			Exponent->A.Connect(0, Encoded);
+			Exponent->ConstB = -1.f;
+			UMaterialExpressionConstant* Two = Node<UMaterialExpressionConstant>(Material, -500, -1700);
+			Two->R = 2.f;
+			UMaterialExpressionPower* Ratio = Node<UMaterialExpressionPower>(Material, -400, -1500);
+			Ratio->Base.Connect(0, Two);
+			Ratio->Exponent.Connect(0, Exponent);
+			const auto Overlay = [&](UMaterialExpression* Input)
+			{
+				UMaterialExpressionMultiply* Result = Node<UMaterialExpressionMultiply>(Material, -300, -1500);
+				Result->A.Connect(0, Input);
+				Result->B.Connect(0, Ratio);
+				return Result;
+			};
+			Base = Overlay(Base);
+			if (GrassBase) GrassBase = Overlay(GrassBase);
+		}
 		UMaterialExpressionTextureSample* MixNoise = Sample(Material, Detail, 1100.0 / QuadCm, SAMPLERTYPE_LinearGrayscale, 250);
 		const auto Mix = [&](UMaterialExpression* A, UMaterialExpression* B, int32 X, int32 Y)
 		{
@@ -1075,6 +1108,13 @@ namespace
 				Sampled->PreviewWeight = 1;
 				Weight = Sampled;
 			}
+			if (ProcfillGrowth)
+			{
+				UMaterialExpressionMultiply* Density = Node<UMaterialExpressionMultiply>(Material, 100, 1200);
+				Density->A.Connect(0, Weight);
+				Density->B.Connect(1, Sample(Material, ProcfillGrowth, Quads, SAMPLERTYPE_LinearColor, 1300));
+				Weight = Density;
+			}
 			UMaterialExpressionLandscapeGrassOutput* Output = Node<UMaterialExpressionLandscapeGrassOutput>(Material, 300, 900);
 			Output->GrassTypes.Empty();
 			FGrassInput& Input = Output->GrassTypes.AddDefaulted_GetRef();
@@ -1083,6 +1123,14 @@ namespace
 			Input.Input.Connect(0, Weight);
 		}
 		UMaterialEditingLibrary::ConnectMaterialProperty(Colour, TEXT(""), MP_BaseColor);
+		if (ProcfillDebug && Manifest.bProcfillDebugView)
+		{
+			Material->SetShadingModel(MSM_Unlit);
+			UMaterialExpressionDivide* Visible = Node<UMaterialExpressionDivide>(Material, -1000, -1500);
+			Visible->A.Connect(0, Sample(Material, ProcfillDebug, Quads, SAMPLERTYPE_LinearColor, -1500));
+			Visible->B.Connect(0, Node<UMaterialExpressionEyeAdaptation>(Material, -1200, -1700));
+			UMaterialEditingLibrary::ConnectMaterialProperty(Visible, TEXT(""), MP_EmissiveColor);
+		}
 		UMaterialEditingLibrary::ConnectMaterialProperty(Normal, TEXT(""), MP_Normal);
 		UMaterialEditingLibrary::ConnectMaterialProperty(Rough, TEXT(""), MP_Roughness);
 		UMaterialEditingLibrary::RecompileMaterial(Material);
@@ -1239,6 +1287,7 @@ namespace
 			Tree.NorthM = Number(TEXT("north_m"));
 			Tree.HeightM = Number(TEXT("height_m"));
 			Tree.CrownRadiusM = Number(TEXT("crown_radius_m"));
+			if (Column.Contains(TEXT("visual_crown_scale"))) Tree.VisualCrownScale = FMath::Clamp(Number(TEXT("visual_crown_scale")), 0.7, 1.0);
 			Tree.TrunkDiameterM = Number(TEXT("trunk_diameter_m"));
 			Tree.CrownRatio = Number(TEXT("crown_ratio"));
 			Tree.YawDeg = Number(TEXT("yaw_deg"));
@@ -1353,7 +1402,7 @@ namespace
 			}
 			const FVector Foot(Tree.NorthM * 100, Tree.EastM * 100, SurfaceZ(Manifest.Tile, HeightBytes, Tree.NorthM * 100, Tree.EastM * 100));
 			const double Wide = Tree.CrownRadiusM * 100 / Best->RadiusCm, Tall = Tree.HeightM * 100 / Best->HeightCm;
-			Best->Instances->AddInstance(FTransform(FRotator(0, Tree.YawDeg, 0), Foot, FVector(Wide, Wide, Tall)), 0, true);
+			Best->Instances->AddInstance(FTransform(FRotator(0, Tree.YawDeg, 0), Foot, FVector(Wide * Tree.VisualCrownScale, Wide * Tree.VisualCrownScale, Tall)), 0, true);
 			++Placed;
 			if (Tree.TrunkDiameterM > 0 && Tree.CrownRatio > 0)
 			{
@@ -1859,6 +1908,24 @@ bool FEnvGenLevelBuild::Start(const FString& ManifestPath, const FString& MapPat
 		// A virtual texture: at a centimetre a pixel the file is hundreds of megabytes, and only the pages in view are resident.
 		Survey = MakeTexture(TEXT("T_SurveyDetail"), SurveyWidth, SurveyHeight, TSF_G8, SurveyBytes.GetData(), false, State->Packages, TC_Grayscale, true);
 	}
+	UTexture2D* ProcfillGrowth = nullptr;
+	UTexture2D* ProcfillDebug = nullptr;
+	for (bool bDebug : {false, true})
+	{
+		const FString& File = bDebug ? Manifest.ProcfillDebugFile : Manifest.ProcfillGrowthFile;
+		if (File.IsEmpty()) continue;
+		TArray64<uint8> Bytes;
+		int32 Width = 0, Height = 0;
+		if (!DecodePng(Manifest.Directory / File, ERGBFormat::BGRA, 8, Bytes, Width, Height))
+		{
+			UE_LOG(LogEnvGen, Error, TEXT("cannot decode procfill mask %s"), *File);
+			return false;
+		}
+		UTexture2D* Texture = MakeTexture(bDebug ? TEXT("T_ProcfillDebug") : TEXT("T_ProcfillGrowth"),
+			Width, Height, TSF_BGRA8, Bytes.GetData(), false, State->Packages, TC_VectorDisplacementmap);
+		if (bDebug) { ProcfillDebug = Texture; Texture->Filter = TF_Nearest; }
+		else { ProcfillGrowth = Texture; }
+	}
 	const TArray<uint8> Noise = DetailNoise();
 	UTexture2D* Detail = MakeTexture(TEXT("T_Detail"), DetailPixels, DetailPixels, TSF_G8, Noise.GetData(), false, State->Packages);
 	for (FLayer& Layer : Manifest.Layers)
@@ -1894,7 +1961,7 @@ bool FEnvGenLevelBuild::Start(const FString& ManifestPath, const FString& MapPat
 			Variety.AlignToSurface = true;
 		}
 	}
-	UMaterial* Material = MakeGroundMaterial(Macro, Ratio, Survey, Grain, Manifest, Detail, Manifest.Tile.Vertices - 1, Manifest.Tile.Scale.X, Manifest.AlbedoScale, Manifest.Layers, GrassType, State->Packages);
+	UMaterial* Material = MakeGroundMaterial(Macro, Ratio, Survey, Grain, ProcfillGrowth, ProcfillDebug, Manifest, Detail, Manifest.Tile.Vertices - 1, Manifest.Tile.Scale.X, Manifest.AlbedoScale, Manifest.Layers, GrassType, State->Packages);
 	for (FLayer& Layer : Manifest.Layers)
 	{
 		Layer.Info = NewAsset<ULandscapeLayerInfoObject>(TEXT("LI_") + Layer.Name.ToString(), State->Packages);

@@ -17,7 +17,7 @@ from rasterio.warp import reproject, transform, transform_bounds
 from rasterio.windows import Window, from_bounds
 from scipy import ndimage
 
-from . import buildings, cover, frame, grain, lidar, light, surface, trees, turf
+from . import buildings, cover, frame, grain, lidar, light, procfill, surface, trees, turf
 from .acquire import acquire, sha256_file
 from .site import (
     CONTEXT_QUADS,
@@ -1462,6 +1462,32 @@ def build(site_path: Path, out: Path, cache: Path | None = None) -> dict:
         )
         housing = stages["buildings"]
 
+    if site.survey and site.survey.orthophoto and any(layer["name"] == "grass" for layer in classes["layers"]):
+        edits = sorted([*out.glob("procfill_edits/*.png"), *out.glob("procfill_context/*.png")])
+        stages["procfill"] = _cached(
+            out,
+            "procfill",
+            _stage_key(
+                grid,
+                site.crs,
+                site.seed,
+                procfill.VERSION,
+                procfill.SETTINGS,
+                [
+                    sha256_file(Path(path))
+                    for path in (site.survey.orthophoto, site.survey.location, site.survey.terrain)
+                ],
+                sources["imagery"]["sha256"],
+                [sha256_file(out / name) for name in classes["files"]],
+                sha256_file(out / detail["file"]),
+                sha256_file(out / elevation["file"]),
+                cover_hashes,
+                sha256_file(out / inventory["file"]) if inventory else None,
+                [(str(path.relative_to(out)), sha256_file(path)) for path in edits],
+            ),
+            lambda: procfill.build(site, imagery, out, classes["layers"], elevation, covering, detail),
+        )
+
     half_cm = tile.size_m * 100 / 2
     manifest = {
         "schema_version": SCHEMA_VERSION,
@@ -1511,6 +1537,20 @@ def build(site_path: Path, out: Path, cache: Path | None = None) -> dict:
     if "grain" in stages:
         manifest["grain"] = {key: value for key, value in stages["grain"].items() if key not in ("files", "cached")}
         artifacts += [stages["grain"]["file"]] if "file" in stages["grain"] else []
+    if "procfill" in stages and "skipped" not in stages["procfill"]:
+        generated = stages["procfill"]
+        manifest["procfill"] = {key: value for key, value in generated.items() if key not in ("files", "cached")}
+        manifest["surface"]["layers"] = generated["surface_layers"]
+        manifest["surface"]["check_points"] = generated["surface_check_points"]
+        manifest["turf"]["growth"] = {
+            "file": generated["growth_file"],
+            "pixels": generated["pixels"],
+            "channels": ["short_density", "tall_density", "height_over_two", "overlay_log2"],
+            "source": "procfill priors conditioned on coarse ground constraints",
+        }
+        artifacts += generated["files"]
+        if inventory and generated["trees_file"]:
+            inventory = inventory | {"file": generated["trees_file"]}
     if housing:
         manifest["buildings"] = {key: value for key, value in housing.items() if key not in ("files", "cached")}
         artifacts += housing["files"]
