@@ -185,23 +185,18 @@ export async function snapshot({
 
 		const eventName = string(event.event);
 
-		if (
-			eventName === "launch" ||
-			event.dataClass !== undefined ||
-			["attempt", "outcome", "import"].includes(eventName)
-		) {
-			const raw = string(event.dataClass);
-			const dataClass = ["public", "sensitive", "parcs"].includes(raw) ? raw : "unknown";
-			const prior = classes.get(event.runId);
+		const raw = string(event.dataClass);
+		const dataClass = ["public", "sensitive", "parcs"].includes(raw) ? raw : "unknown";
+		const prior = classes.get(event.runId);
+		const inheritsClass = ["attempt", "outcome", "import"].includes(eventName);
 
-			if (eventName === "launch") {
-				classes.set(
-					event.runId,
-					prior === undefined || prior === dataClass ? dataClass : "unknown",
-				);
-			} else if (prior === undefined || (event.dataClass !== undefined && prior !== dataClass)) {
-				classes.set(event.runId, "unknown");
-			}
+		if (eventName === "launch") {
+			classes.set(event.runId, prior === undefined || prior === dataClass ? dataClass : "unknown");
+		} else if (
+			prior === undefined ||
+			(event.dataClass === undefined ? !inheritsClass : prior !== dataClass)
+		) {
+			classes.set(event.runId, "unknown");
 		}
 
 		applyLedger(agents, line, runsDir);

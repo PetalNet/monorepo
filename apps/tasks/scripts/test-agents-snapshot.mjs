@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { performance } from "node:perf_hooks";
 
 import { snapshot } from "./agents-snapshot.mjs";
 import { redact } from "./agents-view/safe.ts";
@@ -223,6 +224,99 @@ for (const safeId of [
 	"https://github.com/org/task-123/pull/42",
 ]) {
 	assert.equal(redact(safeId), safeId);
+}
+
+for (const raw of [
+	String.raw`{\"password\":\"hunter2\",\"secret_key\":\"top-secret-42\",\"Authorization\":\"Basic dXNlcjpwYXNz\"}`,
+	String.raw`PASSWORD=\"two word secret\" curl -d '{\"password\":\"hunter2\",\"api_key\":\"my-api-key-99\"}'`,
+]) {
+	assert.doesNotMatch(
+		redact(raw),
+		/hunter2|top-secret-42|dXNlcjpwYXNz|two word secret|my-api-key-99/,
+	);
+}
+
+const hostile = "a-".repeat(32768);
+const redactionStart = performance.now();
+
+assert.equal(redact(hostile), "[redacted]");
+assert.ok(performance.now() - redactionStart < 1000, "64 KiB redaction exceeded 1 second");
+
+const toolInputs = [
+	{
+		file_path: "/tmp/cfg.json",
+		content: JSON.stringify({
+			password: "hunter2",
+			secret_key: "top-secret-42",
+			Authorization: "Basic dXNlcjpwYXNz",
+		}),
+	},
+	{
+		command:
+			'PASSWORD="two word secret" curl -d \'{"password":"hunter2","api_key":"my-api-key-99"}\'',
+	},
+];
+const toolSnapshot = await snapshot({
+	stateDir: "/tools",
+	now,
+	read: async (filePath) => {
+		if (filePath === "/tools/ledger.jsonl") {
+			return JSON.stringify({ event: "launch", runId: "tools", at, dataClass: "sensitive" });
+		}
+
+		return toolInputs
+			.map((input, index) =>
+				JSON.stringify({
+					type: "assistant",
+					message: { content: [{ type: "tool_use", id: String(index), name: "Write", input }] },
+				}),
+			)
+			.concat(
+				toolInputs.map((output, index) =>
+					JSON.stringify({
+						type: "item.completed",
+						item: { id: `output-${index}`, type: "tool_call", tool: "test", input: "safe", output },
+					}),
+				),
+			)
+			.join("\n");
+	},
+});
+
+assert.equal(toolSnapshot.runs[0].turns.length, 4);
+assert.match(JSON.stringify(toolSnapshot), /redacted/);
+assert.doesNotMatch(
+	JSON.stringify(toolSnapshot),
+	/hunter2|top-secret-42|dXNlcjpwYXNz|two word secret|my-api-key-99/,
+);
+
+for (const eventName of ["inject", "future-event", ""]) {
+	for (const beforeLaunch of [true, false]) {
+		for (const dataClass of ["public", "sensitive"]) {
+			const launch = { event: "launch", runId: "unclassified", at, dataClass };
+			const unclassified = { event: eventName, runId: "unclassified", at };
+			const ledger = beforeLaunch ? [unclassified, launch] : [launch, unclassified];
+			const classified = await snapshot({
+				stateDir: "/unclassified",
+				now,
+				read: async (filePath) => {
+					assert.equal(
+						filePath,
+						"/unclassified/ledger.jsonl",
+						"must not open unclassified content",
+					);
+
+					return ledger.map(JSON.stringify).join("\n");
+				},
+			});
+			const run = classified.runs[0];
+
+			assert.equal(run.dataClass, "unknown");
+			assert.deepEqual(run.turns, []);
+			assert.equal(run.output, "");
+			assert.deepEqual(run.links, []);
+		}
+	}
 }
 
 // Producer enforces server schema caps (1000 runs, 100 attempts, 2000 turns, 100 links, 1024 metadata) and 4 MiB byte cap.

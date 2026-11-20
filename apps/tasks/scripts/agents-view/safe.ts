@@ -3,23 +3,23 @@
 // Provider token patterns align with gitleaks / packages/vault-engine/src/secrets.ts.
 const PEM_BLOCK =
 	/-----BEGIN[ A-Z0-9_-]{0,100}PRIVATE KEY(?: BLOCK)?-----[\s\S]*?(?:-----END[ A-Z0-9_-]{0,100}PRIVATE KEY(?: BLOCK)?-----|$)/g;
-const URL_CREDENTIALS = /(\b[a-z][a-z0-9+.-]*:\/\/)[^\s/@:]*:[^\s/@]+@/gi;
+const URL_CREDENTIALS = /((?<![a-z0-9+.-])[a-z][a-z0-9+.-]*:\/\/)[^\s/@:]*:[^\s/@]+@/gi;
 const QUOTED_AUTH =
-	/(\b(?:proxy-)?authorization["']?\s*[:=]\s*(?:(?:bearer|basic|token)\s+)?)(["'`])((?:\\[^\r\n]|(?!\2)[^\\\r\n])+?)\2/gi;
+	/(\b(?:proxy-)?authorization(?:\\*["'])?\s*[:=]\s*(?:(?:bearer|basic|token)\s+)?)(\\*["'`])((?:(?!\2)(?:\\[^\r\n]|[^\\\r\n]))+?)\2/gi;
 const UNQUOTED_AUTH =
-	/(\b(?:proxy-)?authorization["']?\s*[:=]\s*["']?(?:bearer|basic|token)\s+)[^\s"',;<>`]+/gi;
+	/(\b(?:proxy-)?authorization(?:\\*["'])?\s*[:=]\s*(?:\\*["'])?(?:bearer|basic|token)\s+)[^\\\s"',;<>`]+/gi;
 const PROVIDER_TOKEN =
 	/(?<![A-Za-z0-9_-])(?:(?:A3T[A-Z0-9]|AKIA|ASIA|ABIA|ACCA)[0-9A-Z]{16}\b|(?:gh[pousr]|github_pat)_[A-Za-z0-9_]+|glpat-[A-Za-z0-9_-]+|xox[a-z]-[A-Za-z0-9-]+|sk-[A-Za-z0-9_-]+|(?:sk|rk)_(?:test|live|prod)_[A-Za-z0-9]+|AIza[A-Za-z0-9_-]+|npm_[A-Za-z0-9]{36}\b|pypi-AgEIcHlwaS5vcmc[\w-]+|SG\.[\w=-]{16,}\.[\w=-]{16,}|SK[0-9a-fA-F]{32}\b|\d{8,10}:AA[\w-]{33}\b|(?:syt|mat|mct)_[\w=-]{6,}_[\w=-]{10,}(?:_[\w=-]{4,})?|tskey-[a-z]+-[\w-]+|AGE-SECRET-KEY-1[QPZRY9X8GF2TVDW0S3JN54KHCE6MUA7L]{58}\b|hf_[A-Za-z0-9]{20,}|eyJ[\w-]+\.eyJ[\w-]+\.[\w=-]*|eyJ[\w-]+\.[\w-]+\.[\w=-]+)/g;
 const QUOTED_ASSIGNMENT =
-	/(\b(?:[\w-]*(?:token|secret|password|passwd|passphrase)|[\w-]+[_-](?:key|pwd)|api[_-]?key)["'`]?\s*(?:=|:|=>|:=)\s*)(["'`])((?:\\[^\r\n]|(?!\2)[^\\\r\n])+?)\2/gi;
+	/((?<![\w-])(?:[\w-]*(?:token|secret|password|passwd|passphrase)|[\w-]+[_-](?:key|pwd)|api[_-]?key)(?:\\*["'`])?\s*(?:=>|:=|=|:)\s*)(\\*["'`])((?:(?!\2)(?:\\[^\r\n]|[^\\\r\n]))+?)\2/gi;
 const UNQUOTED_ASSIGNMENT =
-	/(\b(?:[\w-]*(?:token|secret|password|passwd|passphrase)|[\w-]+[_-](?:key|pwd)|api[_-]?key)["'`]?\s*(?:=|:|=>|:=)\s*["'`]?)[^\s"'`,;}]+/gi;
+	/((?<![\w-])(?:[\w-]*(?:token|secret|password|passwd|passphrase)|[\w-]+[_-](?:key|pwd)|api[_-]?key)(?:\\*["'`])?\s*(?:=>|:=|=|:)\s*(?:\\*["'`])?)[^\\\s"'`,;}]+/gi;
 
 export function redact(text: string): string {
 	return plainText(text)
 		.replace(PEM_BLOCK, "[redacted]")
 		.replace(URL_CREDENTIALS, "$1[redacted]@")
-		.replace(/\b[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}\b/gi, "[email]")
+		.replace(/(?<![A-Z0-9._%+-])[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}\b/gi, "[email]")
 		.replace(/(\/(?:home|Users)\/)[^/\s"'<>:]+/g, "$1[user]")
 		.replace(/~[A-Za-z0-9_.-]+(?=\/)/g, "~[user]")
 		.replace(/([A-Z]:\\Users\\)[^\\\s"'<>:]+/gi, "$1[user]")
