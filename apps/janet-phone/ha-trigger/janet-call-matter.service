@@ -1,0 +1,17 @@
+[Unit]
+Description=Only the Janet call helper exposed to Google Home over Matter
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+User=docker
+UMask=0077
+Environment=MATTERBRIDGE_LINK_LOCAL_PLUGINS=false
+WorkingDirectory=/home/docker/.local/lib/janet-call-matter
+ExecStart=/usr/bin/node /home/docker/.local/lib/janet-call-matter/node_modules/matterbridge/bin/matterbridge.js --homedir /home/docker/.local/state/janet-call-matter --bridge --novirtual --bind 127.0.0.1 --frontend 8283 --mdnsinterface ens18 --port 5540 --service --delay 0 --no-ansi --logger info --matterlogger warn --productName "Janet call bridge"
+Restart=always
+RestartSec=5
+TimeoutStopSec=60
+
+[Install]
+WantedBy=multi-user.target
