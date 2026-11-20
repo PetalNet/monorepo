@@ -1,254 +1,254 @@
 {
-  "query": {
-    "version": "2.11.9",
-    "package": {
-      "ecosystem": "Go",
-      "name": "github.com/caddyserver/caddy/v2"
-    }
-  },
-  "osv": {},
-  "github": [
-    {
-      "ghsa_id": "GHSA-8qx7-j2v2-x6q5",
-      "cve_id": "CVE-2026-55458",
-      "vulnerabilities": [
-        {
-          "package": {
-            "ecosystem": "go",
-            "name": "github.com/caddyserver/caddy/v2"
-          },
-          "vulnerable_version_range": "<=v2.11.4",
-          "patched_versions": "v2.11.5",
-          "vulnerable_functions": []
-        }
-      ]
-    },
-    {
-      "ghsa_id": "GHSA-qrp7-cvwr-j2c6",
-      "cve_id": "CVE-2026-52844",
-      "vulnerabilities": [
-        {
-          "package": {
-            "ecosystem": "",
-            "name": ""
-          },
-          "vulnerable_version_range": "< v2.11.4",
-          "patched_versions": "v2.11.4",
-          "vulnerable_functions": []
-        }
-      ]
-    },
-    {
-      "ghsa_id": "GHSA-f59h-q822-g45g",
-      "cve_id": "CVE-2026-52845",
-      "vulnerabilities": [
-        {
-          "package": {
-            "ecosystem": "go",
-            "name": "github.com/caddyserver/caddy/v2/modules/caddyhttp"
-          },
-          "vulnerable_version_range": "< v2.11.4",
-          "patched_versions": "v2.11.4",
-          "vulnerable_functions": []
-        }
-      ]
-    },
-    {
-      "ghsa_id": "GHSA-vcc4-2c75-vc9v",
-      "cve_id": "CVE-2026-52846",
-      "vulnerabilities": [
-        {
-          "package": {
-            "ecosystem": "go",
-            "name": "github.com/caddyserver/caddy"
-          },
-          "vulnerable_version_range": "<= 2.11.3",
-          "patched_versions": "v2.11.4",
-          "vulnerable_functions": []
-        }
-      ]
-    },
-    {
-      "ghsa_id": "GHSA-wwhq-w58m-w29c",
-      "cve_id": null,
-      "vulnerabilities": [
-        {
-          "package": {
-            "ecosystem": "go",
-            "name": "github.com/caddyserver/caddy/v2/modules/caddyhttp"
-          },
-          "vulnerable_version_range": "<=2.11.2",
-          "patched_versions": "",
-          "vulnerable_functions": []
-        }
-      ]
-    },
-    {
-      "ghsa_id": "GHSA-x5w9-xh9r-mvfc",
-      "cve_id": "CVE-2026-45692",
-      "vulnerabilities": [
-        {
-          "package": {
-            "ecosystem": "go",
-            "name": "github.com/caddyserver/caddy/v2"
-          },
-          "vulnerable_version_range": "v2.4.0 and later",
-          "patched_versions": "v2.11.3",
-          "vulnerable_functions": []
-        }
-      ]
-    },
-    {
-      "ghsa_id": "GHSA-gx7w-56w6-g48x",
-      "cve_id": null,
-      "vulnerabilities": [
-        {
-          "package": {
-            "ecosystem": "go",
-            "name": "github.com/caddyserver/caddy/v2"
-          },
-          "vulnerable_version_range": "< v2.11.3",
-          "patched_versions": "v2.11.3",
-          "vulnerable_functions": []
-        }
-      ]
-    }
-  ],
-  "nvd": {
-    "CVE-2026-55458": {
-      "vulnerabilities": [
-        {
-          "cve": {
-            "id": "CVE-2026-55458",
-            "vulnStatus": "Awaiting Analysis"
-          }
-        }
-      ]
-    },
-    "CVE-2026-52844": {
-      "vulnerabilities": [
-        {
-          "cve": {
-            "id": "CVE-2026-52844",
-            "vulnStatus": "Analyzed",
-            "configurations": [
-              {
-                "operator": "AND",
-                "nodes": [
-                  {
-                    "operator": "OR",
-                    "negate": false,
-                    "cpeMatch": [
-                      {
-                        "vulnerable": true,
-                        "criteria": "cpe:2.3:a:caddyserver:caddy:*:*:*:*:*:*:*:*",
-                        "versionEndExcluding": "2.11.4",
-                        "matchCriteriaId": "6CC2FFA3-3F35-452A-A0B6-C1B66C0C73E6"
-                      }
-                    ]
-                  },
-                  {
-                    "operator": "OR",
-                    "negate": false,
-                    "cpeMatch": [
-                      {
-                        "vulnerable": false,
-                        "criteria": "cpe:2.3:o:microsoft:windows:-:*:*:*:*:*:*:*",
-                        "matchCriteriaId": "A2572D17-1DE6-457B-99CC-64AFD54487EA"
-                      }
-                    ]
-                  }
-                ]
-              }
-            ]
-          }
-        }
-      ]
-    },
-    "CVE-2026-52845": {
-      "vulnerabilities": [
-        {
-          "cve": {
-            "id": "CVE-2026-52845",
-            "vulnStatus": "Modified",
-            "configurations": [
-              {
-                "nodes": [
-                  {
-                    "operator": "OR",
-                    "negate": false,
-                    "cpeMatch": [
-                      {
-                        "vulnerable": true,
-                        "criteria": "cpe:2.3:a:caddyserver:caddy:*:*:*:*:*:*:*:*",
-                        "versionEndExcluding": "2.11.4",
-                        "matchCriteriaId": "6CC2FFA3-3F35-452A-A0B6-C1B66C0C73E6"
-                      }
-                    ]
-                  }
-                ]
-              }
-            ]
-          }
-        }
-      ]
-    },
-    "CVE-2026-52846": {
-      "vulnerabilities": [
-        {
-          "cve": {
-            "id": "CVE-2026-52846",
-            "vulnStatus": "Analyzed",
-            "configurations": [
-              {
-                "nodes": [
-                  {
-                    "operator": "OR",
-                    "negate": false,
-                    "cpeMatch": [
-                      {
-                        "vulnerable": true,
-                        "criteria": "cpe:2.3:a:caddyserver:caddy:*:*:*:*:*:*:*:*",
-                        "versionEndExcluding": "2.11.4",
-                        "matchCriteriaId": "6CC2FFA3-3F35-452A-A0B6-C1B66C0C73E6"
-                      }
-                    ]
-                  }
-                ]
-              }
-            ]
-          }
-        }
-      ]
-    },
-    "CVE-2026-45692": {
-      "vulnerabilities": [
-        {
-          "cve": {
-            "id": "CVE-2026-45692",
-            "vulnStatus": "Modified",
-            "configurations": [
-              {
-                "nodes": [
-                  {
-                    "operator": "OR",
-                    "negate": false,
-                    "cpeMatch": [
-                      {
-                        "vulnerable": true,
-                        "criteria": "cpe:2.3:a:caddyserver:caddy:*:*:*:*:*:*:*:*",
-                        "versionStartIncluding": "2.4.0",
-                        "versionEndExcluding": "2.11.3",
-                        "matchCriteriaId": "115ED3C7-B19F-49F8-AA4E-6CFC10BF4365"
-                      }
-                    ]
-                  }
-                ]
-              }
-            ]
-          }
-        }
-      ]
-    }
-  }
+	"query": {
+		"version": "2.11.9",
+		"package": {
+			"ecosystem": "Go",
+			"name": "github.com/caddyserver/caddy/v2"
+		}
+	},
+	"osv": {},
+	"github": [
+		{
+			"ghsa_id": "GHSA-8qx7-j2v2-x6q5",
+			"cve_id": "CVE-2026-55458",
+			"vulnerabilities": [
+				{
+					"package": {
+						"ecosystem": "go",
+						"name": "github.com/caddyserver/caddy/v2"
+					},
+					"vulnerable_version_range": "<=v2.11.4",
+					"patched_versions": "v2.11.5",
+					"vulnerable_functions": []
+				}
+			]
+		},
+		{
+			"ghsa_id": "GHSA-qrp7-cvwr-j2c6",
+			"cve_id": "CVE-2026-52844",
+			"vulnerabilities": [
+				{
+					"package": {
+						"ecosystem": "",
+						"name": ""
+					},
+					"vulnerable_version_range": "< v2.11.4",
+					"patched_versions": "v2.11.4",
+					"vulnerable_functions": []
+				}
+			]
+		},
+		{
+			"ghsa_id": "GHSA-f59h-q822-g45g",
+			"cve_id": "CVE-2026-52845",
+			"vulnerabilities": [
+				{
+					"package": {
+						"ecosystem": "go",
+						"name": "github.com/caddyserver/caddy/v2/modules/caddyhttp"
+					},
+					"vulnerable_version_range": "< v2.11.4",
+					"patched_versions": "v2.11.4",
+					"vulnerable_functions": []
+				}
+			]
+		},
+		{
+			"ghsa_id": "GHSA-vcc4-2c75-vc9v",
+			"cve_id": "CVE-2026-52846",
+			"vulnerabilities": [
+				{
+					"package": {
+						"ecosystem": "go",
+						"name": "github.com/caddyserver/caddy"
+					},
+					"vulnerable_version_range": "<= 2.11.3",
+					"patched_versions": "v2.11.4",
+					"vulnerable_functions": []
+				}
+			]
+		},
+		{
+			"ghsa_id": "GHSA-wwhq-w58m-w29c",
+			"cve_id": null,
+			"vulnerabilities": [
+				{
+					"package": {
+						"ecosystem": "go",
+						"name": "github.com/caddyserver/caddy/v2/modules/caddyhttp"
+					},
+					"vulnerable_version_range": "<=2.11.2",
+					"patched_versions": "",
+					"vulnerable_functions": []
+				}
+			]
+		},
+		{
+			"ghsa_id": "GHSA-x5w9-xh9r-mvfc",
+			"cve_id": "CVE-2026-45692",
+			"vulnerabilities": [
+				{
+					"package": {
+						"ecosystem": "go",
+						"name": "github.com/caddyserver/caddy/v2"
+					},
+					"vulnerable_version_range": "v2.4.0 and later",
+					"patched_versions": "v2.11.3",
+					"vulnerable_functions": []
+				}
+			]
+		},
+		{
+			"ghsa_id": "GHSA-gx7w-56w6-g48x",
+			"cve_id": null,
+			"vulnerabilities": [
+				{
+					"package": {
+						"ecosystem": "go",
+						"name": "github.com/caddyserver/caddy/v2"
+					},
+					"vulnerable_version_range": "< v2.11.3",
+					"patched_versions": "v2.11.3",
+					"vulnerable_functions": []
+				}
+			]
+		}
+	],
+	"nvd": {
+		"CVE-2026-55458": {
+			"vulnerabilities": [
+				{
+					"cve": {
+						"id": "CVE-2026-55458",
+						"vulnStatus": "Awaiting Analysis"
+					}
+				}
+			]
+		},
+		"CVE-2026-52844": {
+			"vulnerabilities": [
+				{
+					"cve": {
+						"id": "CVE-2026-52844",
+						"vulnStatus": "Analyzed",
+						"configurations": [
+							{
+								"operator": "AND",
+								"nodes": [
+									{
+										"operator": "OR",
+										"negate": false,
+										"cpeMatch": [
+											{
+												"vulnerable": true,
+												"criteria": "cpe:2.3:a:caddyserver:caddy:*:*:*:*:*:*:*:*",
+												"versionEndExcluding": "2.11.4",
+												"matchCriteriaId": "6CC2FFA3-3F35-452A-A0B6-C1B66C0C73E6"
+											}
+										]
+									},
+									{
+										"operator": "OR",
+										"negate": false,
+										"cpeMatch": [
+											{
+												"vulnerable": false,
+												"criteria": "cpe:2.3:o:microsoft:windows:-:*:*:*:*:*:*:*",
+												"matchCriteriaId": "A2572D17-1DE6-457B-99CC-64AFD54487EA"
+											}
+										]
+									}
+								]
+							}
+						]
+					}
+				}
+			]
+		},
+		"CVE-2026-52845": {
+			"vulnerabilities": [
+				{
+					"cve": {
+						"id": "CVE-2026-52845",
+						"vulnStatus": "Modified",
+						"configurations": [
+							{
+								"nodes": [
+									{
+										"operator": "OR",
+										"negate": false,
+										"cpeMatch": [
+											{
+												"vulnerable": true,
+												"criteria": "cpe:2.3:a:caddyserver:caddy:*:*:*:*:*:*:*:*",
+												"versionEndExcluding": "2.11.4",
+												"matchCriteriaId": "6CC2FFA3-3F35-452A-A0B6-C1B66C0C73E6"
+											}
+										]
+									}
+								]
+							}
+						]
+					}
+				}
+			]
+		},
+		"CVE-2026-52846": {
+			"vulnerabilities": [
+				{
+					"cve": {
+						"id": "CVE-2026-52846",
+						"vulnStatus": "Analyzed",
+						"configurations": [
+							{
+								"nodes": [
+									{
+										"operator": "OR",
+										"negate": false,
+										"cpeMatch": [
+											{
+												"vulnerable": true,
+												"criteria": "cpe:2.3:a:caddyserver:caddy:*:*:*:*:*:*:*:*",
+												"versionEndExcluding": "2.11.4",
+												"matchCriteriaId": "6CC2FFA3-3F35-452A-A0B6-C1B66C0C73E6"
+											}
+										]
+									}
+								]
+							}
+						]
+					}
+				}
+			]
+		},
+		"CVE-2026-45692": {
+			"vulnerabilities": [
+				{
+					"cve": {
+						"id": "CVE-2026-45692",
+						"vulnStatus": "Modified",
+						"configurations": [
+							{
+								"nodes": [
+									{
+										"operator": "OR",
+										"negate": false,
+										"cpeMatch": [
+											{
+												"vulnerable": true,
+												"criteria": "cpe:2.3:a:caddyserver:caddy:*:*:*:*:*:*:*:*",
+												"versionStartIncluding": "2.4.0",
+												"versionEndExcluding": "2.11.3",
+												"matchCriteriaId": "115ED3C7-B19F-49F8-AA4E-6CFC10BF4365"
+											}
+										]
+									}
+								]
+							}
+						]
+					}
+				}
+			]
+		}
+	}
 }
