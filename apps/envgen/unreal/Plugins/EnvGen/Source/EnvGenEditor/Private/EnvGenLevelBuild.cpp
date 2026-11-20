@@ -1,17 +1,12 @@
 #include "EnvGenLevelBuild.h"
+#include "EnvGenAtmosphere.h"
 
 #include "AssetRegistry/AssetRegistryModule.h"
-#include "Components/DirectionalLightComponent.h"
 #include "Components/InstancedSkinnedMeshComponent.h"
 #include "Components/InstancedStaticMeshComponent.h"
-#include "Components/SkyAtmosphereComponent.h"
-#include "Components/SkyLightComponent.h"
 #include "Components/StaticMeshComponent.h"
 #include "Dom/JsonObject.h"
-#include "Engine/DirectionalLight.h"
-#include "Engine/PostProcessVolume.h"
 #include "Engine/SkinnedAsset.h"
-#include "Engine/SkyLight.h"
 #include "Engine/StaticMesh.h"
 #include "Engine/StaticMeshActor.h"
 #include "Engine/StaticMesh.h"
@@ -107,14 +102,6 @@ namespace
 	// Where the build checks the surface and the layer weights: fractions of the tile along north and east, spread unevenly.
 	const double CheckPoints[][2] = {{0.5, 0.5}, {0.1, 0.2}, {0.9, 0.2}, {0.15, 0.85}, {0.8, 0.9}, {0.33, 0.61}, {0.72, 0.41}, {0.05, 0.5}, {0.5, 0.95}};
 
-	/** The sun and exposure of the target day, from the manifest. */
-	struct FLighting
-	{
-		double GridAzimuthDeg = 0;
-		double ElevationDeg = 0;
-		double SunLux = 0;
-		double ExposureEv100 = 0;
-	};
 
 	/** A scanned ground material for one class: four maps and how much ground one repeat covers. */
 	struct FScan
@@ -238,7 +225,7 @@ namespace
 		TOptional<FSurface> Surround;
 		TArray<FLayer> Layers;
 		TArray<FCheckPoint> CheckPoints;
-		FLighting Lighting;
+		FEnvGenLighting Lighting;
 		// Photo colour in linear light times this is albedo; fitted to surfaces of known reflectance.
 		float AlbedoScale = 0.5f;
 		double TileSizeCm = 0;
@@ -1612,36 +1599,6 @@ namespace
 		return Worst;
 	}
 
-	void AddSkyAndSun(UWorld* World, const FLighting& Lighting)
-	{
-		// World +X is grid north and +Y is east, so a sun at azimuth A lights the ground travelling towards A + 180.
-		ADirectionalLight* Sun = World->SpawnActor<ADirectionalLight>(FVector(0, 0, 20000), FRotator(-Lighting.ElevationDeg, Lighting.GridAzimuthDeg + 180.0, 0));
-		Sun->SetActorLabel(TEXT("EnvGenSun"));
-		Sun->GetLightComponent()->SetMobility(EComponentMobility::Movable);
-		Sun->GetLightComponent()->SetIntensity(float(Lighting.SunLux));
-		Cast<UDirectionalLightComponent>(Sun->GetLightComponent())->SetAtmosphereSunLight(true);
-
-		AActor* Atmosphere = World->SpawnActor<AActor>(ASkyAtmosphere::StaticClass(), FTransform::Identity);
-		Atmosphere->SetActorLabel(TEXT("EnvGenSkyAtmosphere"));
-
-		ASkyLight* Sky = World->SpawnActor<ASkyLight>(FVector(0, 0, 20000), FRotator::ZeroRotator);
-		Sky->SetActorLabel(TEXT("EnvGenSkyLight"));
-		Sky->GetLightComponent()->SetMobility(EComponentMobility::Movable);
-		Sky->GetLightComponent()->SetRealTimeCapture(true);
-
-		// Exposure is fixed at the EV100 that puts mid-grey in this sun and sky at mid-grey.
-		APostProcessVolume* Exposure = World->SpawnActor<APostProcessVolume>(FVector::ZeroVector, FRotator::ZeroRotator);
-		Exposure->SetActorLabel(TEXT("EnvGenExposure"));
-		Exposure->bUnbound = true;
-		Exposure->Settings.bOverride_AutoExposureMinBrightness = true;
-		Exposure->Settings.bOverride_AutoExposureMaxBrightness = true;
-		Exposure->Settings.AutoExposureMinBrightness = float(Lighting.ExposureEv100);
-		Exposure->Settings.AutoExposureMaxBrightness = float(Lighting.ExposureEv100);
-		// Sharp frames matter more than cinematic blur for inspection and for simulated cameras.
-		Exposure->Settings.bOverride_MotionBlurAmount = true;
-		Exposure->Settings.MotionBlurAmount = 0;
-	}
-
 	void AddSiteInfo(UWorld* World, const FManifest& Manifest)
 	{
 		AEnvGenSiteInfo* Site = World->SpawnActor<AEnvGenSiteInfo>();
@@ -1927,7 +1884,11 @@ bool FEnvGenLevelBuild::Start(const FString& ManifestPath, const FString& MapPat
 		UMaterial* BuildingMaterial = MakeBuildingMaterial(Manifest.RoofRoughness, State->Packages);
 		State->BuildingActors = AddBuildings(State->World, Manifest, State->HeightBytes, State->Buildings, BuildingMaterial, State->Packages, State->BuildingsPlaced);
 	}
-	AddSkyAndSun(State->World, Manifest.Lighting);
+	if (!AddEnvGenAtmosphere(State->World, Manifest.Lighting, State->Packages, Error))
+	{
+		UE_LOG(LogEnvGen, Error, TEXT("%s"), *Error);
+		return false;
+	}
 	AddSiteInfo(State->World, Manifest);
 	APlayerStart* PlayerStart = State->World->SpawnActor<APlayerStart>(FVector(0, 0, 150), FRotator::ZeroRotator);
 	PlayerStart->SetActorLabel(TEXT("EnvGenPlayerStart"));
