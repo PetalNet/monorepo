@@ -563,7 +563,7 @@ namespace
 	}
 
 	UTexture2D* MakeTexture(const FString& Name, int32 Width, int32 Height, ETextureSourceFormat Format, const uint8* Pixels, bool bSrgb, TArray<UPackage*>& Packages,
-		TextureCompressionSettings Compression = TC_MAX, bool bVirtual = false)
+		TextureCompressionSettings Compression = TC_MAX, bool bVirtual = false, FColor VirtualPadding = FColor::Black)
 	{
 		UTexture2D* Texture = NewAsset<UTexture2D>(Name, Packages);
 		Texture->Source.Init(Width, Height, 1, 1, Format, Pixels);
@@ -574,6 +574,8 @@ namespace
 		if (bVirtual)
 		{
 			Texture->PowerOfTwoMode = ETexturePowerOfTwoSetting::PadToPowerOfTwo;
+			Texture->PaddingColor = VirtualPadding;
+			Texture->bPadWithBorderColor = false;
 			Texture->AddressX = TA_Clamp;
 			Texture->AddressY = TA_Clamp;
 		}
@@ -2414,8 +2416,11 @@ bool FEnvGenLevelBuild::Start(const FString& ManifestPath, const FString& MapPat
 			return false;
 		}
 		// A virtual texture: at a centimetre a pixel the file is hundreds of megabytes, and only the pages in view are resident.
+		const uint8 Neutral = uint8(Manifest.SurveyZero);
+		// Virtual-texture padding carries the same neutral log and zero weight as missing source pixels.
 		Survey = MakeTexture(TEXT("T_SurveyDetail"), SurveyWidth, SurveyHeight, Manifest.bSurveyWeighted ? TSF_BGRA8 : TSF_G8,
-			SurveyBytes.GetData(), false, State->Packages, Manifest.bSurveyWeighted ? TC_VectorDisplacementmap : TC_Grayscale, true);
+			SurveyBytes.GetData(), false, State->Packages, Manifest.bSurveyWeighted ? TC_VectorDisplacementmap : TC_Grayscale, true,
+			Manifest.bSurveyWeighted ? FColor(Neutral, Neutral, Neutral, 0) : FColor::Black);
 	}
 	UTexture2D* OrthoMasks = nullptr;
 	UTexture2D* OrthoColour = nullptr;
