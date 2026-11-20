@@ -317,8 +317,11 @@ Stored sampling does not establish the image's independently resolved detail.
   The first three sum to the source alpha coverage; canopy is independent. Landscape weights and turf density
   use averaged masks, while the ground material reads native masks through a virtual texture. Outside the irregular
   alpha footprint, the original imagery remains in use. A separate colour texture is pooled to at least 25 cm and
-  filtered within each class over 12 m, excluding cover and detected shadows. Its colour divided by its class mean
-  modulates the calibrated seasonal ground, preserving relative survey variation without treating processed RGB as albedo.
+  filtered within each class over 12 m for luminance, excluding cover and detected shadows. Visible pooled hue
+  remains, retaining brown and green lane variation. Fine luminance comes from survey detail, so the colour layer
+  does not apply it twice. Recolouring into the calibrated seasonal ground preserves luminance and compresses
+  saturation into the material's valid range. Processed survey RGB is not treated as calibrated albedo.
+  Unfitted shadows can retain a colour cast; hue alone cannot distinguish a shadow from coloured ground.
   Its alpha fades survey influence over 12 m inside the irregular coverage boundary for material weights,
   growth and detail replacement. Native evidence masks retain the source coverage unchanged.
   Native alpha gaps are reduced conservatively onto the colour grid before computing physical distances;
