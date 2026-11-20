@@ -52,6 +52,7 @@ function runControl(argv: readonly string[], command: Command): Promise<unknown>
 		});
 
 		child.stdin.on("error", () => {
+			clearTimeout(timer);
 			child.kill("SIGKILL");
 			reject(new Error("unavailable"));
 		});
@@ -60,6 +61,7 @@ function runControl(argv: readonly string[], command: Command): Promise<unknown>
 			size += chunk.length;
 
 			if (size > 1024 * 1024) {
+				clearTimeout(timer);
 				child.kill("SIGKILL");
 				reject(new Error("too-large"));
 			} else {

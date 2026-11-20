@@ -171,7 +171,7 @@
 							<div class="actions">
 								<button
 									disabled={busy}
-									aria-label={`Snooze promise ${item.id} for one day`}
+									aria-label={`Snooze ${item.kind} ${item.id} for one day`}
 									onclick={() => request(`promises/${item.id}/snooze`, { hours: 24 })}
 									>Snooze a day</button
 								><button
@@ -203,7 +203,7 @@
 									disabled={busy}
 								/>
 								<div class="actions">
-									<button type="submit" disabled={busy || !reason.trim()}>Drop promise</button
+									<button type="submit" disabled={busy || !reason.trim()}>Drop {item.kind}</button
 									><button
 										type="button"
 										disabled={busy}

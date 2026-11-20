@@ -6,7 +6,7 @@ export const SnapshotRequest = Schema.Struct({});
 export const DeliveryControl = Schema.Struct({ paused: Schema.Boolean });
 export const DropRequest = Schema.Struct({
 	id: Id,
-	reason: Schema.String.check(Schema.isMinLength(1), Schema.isMaxLength(500)),
+	reason: Schema.String.check(Schema.isPattern(/\S/u), Schema.isMaxLength(500)),
 });
 export const SnoozeRequest = Schema.Struct({
 	id: Id,

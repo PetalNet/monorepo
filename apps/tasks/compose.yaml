@@ -18,6 +18,8 @@ services:
       TASKS_DB_PATH: /data/tasks.db
       TASKS_CONFIG: /data/config.json
       ALLOW: ${ALLOW:?Set the allowed users}
+      FOLLOW_THROUGH_OPERATORS: ${FOLLOW_THROUGH_OPERATORS:-}
+      FOLLOW_THROUGH_COMMAND_ARGV: ${FOLLOW_THROUGH_COMMAND_ARGV:-}
       TZ: ${TZ:-UTC}
       GLITCHTIP_DSN: ${GLITCHTIP_DSN:-}
       GLITCHTIP_ENV: ${GLITCHTIP_ENV:-}
