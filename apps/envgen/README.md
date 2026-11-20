@@ -377,7 +377,8 @@ Stored sampling does not establish the image's independently resolved detail.
 
 ### Grass
 
-The grass class grows Landscape Grass tufts. `turf.py` supplies three blade varieties and a sparse, close-range
+The grass class grows Landscape Grass tufts. Placement sharpens the imported grass coverage with the same relief rule
+as the visible surface. The two-metre taller-growth fringe follows both sides of the grass edge and stops beyond it. `turf.py` supplies three blade varieties and a sparse, close-range
 broadleaf variety. A blade variety is so much leaf over a square metre of ground (its leaf area index), so wider blades are
 fewer: **near** (index 1.0, blades 0.8 to 1.4 cm wide, 24 to a tuft, about 2000 blades a square metre, drawn to 15 m),
 **clump** (index 0.2, drawn out to 65 m, with blades as wide as a pixel is at 15 m, where the near variety ends:

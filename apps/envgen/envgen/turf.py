@@ -18,7 +18,7 @@ from scipy import ndimage
 
 GROWTH_SETTINGS = {
     "kind": "prior",
-    "placement": "fractional surface weight applied once by the engine",
+    "placement": "sharpened imported grass coverage applied once by the engine",
     "patch_m": 1.2,
     "fringe_m": 2.0,
     "density_range": [1.0, 1.0],
@@ -47,8 +47,9 @@ def growth(
     low, high = np.percentile(signal[inside], [5, 95]) if inside.any() else (0.0, 0.0)
     vigour = np.clip((signal - low) / (high - low), 0, 1) if high - low > 1e-5 else np.full(grass.shape, 0.6)
     fringe = (
-        np.clip(1 - ndimage.distance_transform_edt(inside) * cell_m / GROWTH_SETTINGS["fringe_m"], 0, 1)
-        if (~inside).any()
+        np.clip(1 - np.where(inside, ndimage.distance_transform_edt(inside),
+                             ndimage.distance_transform_edt(~inside)) * cell_m / GROWTH_SETTINGS["fringe_m"], 0, 1)
+        if inside.any() and (~inside).any()
         else np.zeros(grass.shape)
     )
     sheltered = ndimage.gaussian_filter((canopy > 2).astype(float), sigma)
