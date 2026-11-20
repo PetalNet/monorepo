@@ -388,6 +388,7 @@ class Call:
         self.over = False
         self.him = 0.0  # the caller's level, as last measured
         self.playing = False
+        self.caller_speaking = False
         self.ended_by: str | None = None  # who closed the line, when Janet did; None means the far side (or a failure)
         self.last_heard = time.monotonic()  # when the phone's microphone last sent a frame
         self.phase = "listening"  # what the pipeline is doing: listening, thinking or speaking
@@ -418,6 +419,8 @@ class Call:
                     timeout = RING_SILENCE_S if self.ring and not silence_reported else None
                     pcm, ended = await asyncio.wait_for(self.utterances.get(), timeout)
                 except TimeoutError:
+                    if self.caller_speaking:
+                        continue
                     silence_reported = True
                     self.speaking = asyncio.create_task(self.reply(
                         "Outgoing phone call: no caller speech arrived for eight seconds.",
@@ -549,9 +552,12 @@ class Call:
                             await self.tell(type="level", her=0.0, him=self.him)
                     for event in endpointer.feed(message):
                         if event == "start":
+                            self.caller_speaking = True
                             await self.cut_off()
-                        elif not self.utterances.full():
-                            self.utterances.put_nowait((event, time.monotonic()))
+                        else:
+                            self.caller_speaking = False
+                            if not self.utterances.full():
+                                self.utterances.put_nowait((event, time.monotonic()))
         except ConnectionClosed:
             pass
         except TimeoutError:
@@ -606,6 +612,9 @@ class Call:
             try:
                 for kind, data in stream():
                     loop.call_soon_threadsafe(events.put_nowait, (kind, data))
+                    if kind == "done":
+                        return
+                loop.call_soon_threadsafe(events.put_nowait, ("failed", {"error": "head stream ended without done"}))
             except Exception as error:  # noqa: BLE001 - the consumer must always get a last item
                 loop.call_soon_threadsafe(events.put_nowait, ("failed", {"error": str(error)}))
 

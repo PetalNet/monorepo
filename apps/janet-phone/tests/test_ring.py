@@ -214,6 +214,7 @@ class RingTest(unittest.IsolatedAsyncioTestCase):
               ("done", {"end_conversation": True})], "head_failed"),
             ([("sentence", {"text": "Can you hear me?"}),
               ("failed", {"error": "broken stream"})], "head_failed"),
+            ([("sentence", {"text": "Can you hear me?"})], "head_failed"),
         ]:
             with self.subTest(expected=expected):
                 ring = ringing.Ring("test", self.device, "A brief for later", time.time() + 5, time.monotonic() + 5)
@@ -223,6 +224,17 @@ class RingTest(unittest.IsolatedAsyncioTestCase):
                 call = janet_phone.Call(mock.AsyncMock(ring=ring), self.config, gateway, "test")
                 await call.reply("Outgoing phone call.", time.monotonic(), {"endpoint_ms": 0})
                 self.assertEqual(ring.state, expected)
+
+    async def test_speech_in_progress_does_not_trigger_a_silence_observation(self):
+        with mock.patch.object(janet_phone, "RING_SILENCE_S", 0.1):
+            task, payload = await self.start_ring("A brief for after the audio check.")
+            async with connect(self.url, additional_headers={**self.phone, "X-Janet-Ring": payload["id"]}) as ws:
+                self.assertEqual((await task)[1]["status"], "audio_connected")
+                for _ in range(20):
+                    await ws.send(tone(.02))
+                    await asyncio.sleep(.02)
+                self.assertFalse(any(path.endswith("/turns") and "no caller speech arrived" in body["text"]
+                                     for path, body in FakeGateway.calls))
 
     async def test_wrong_device_guesses_replays_and_revoked_devices_open_no_gateway(self):
         other = self.devices.add("Other", "owner")
