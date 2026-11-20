@@ -70,21 +70,6 @@ class CutOffNoteTest(unittest.TestCase):
         self.assertIn("The speaker started talking", prompts.turn_prompt("next", fork=False, cut_off=""))
 
 
-class EndPhraseTest(unittest.TestCase):
-    def test_a_clear_goodbye_or_hang_up_ends_the_call(self):
-        from janet_voice_head.speech import is_end_phrase
-
-        for text in ("Hang up.", "hang up now", "Please hang up", "End the call.", "Okay, end call", "Bye Janet", "That's all, thank you", "Okay, goodbye."):
-            self.assertTrue(is_end_phrase(text), text)
-
-    def test_an_ambiguous_phrase_never_does(self):
-        from janet_voice_head.speech import is_end_phrase
-
-        for text in ("don't hang up", "can you hang up the call on the other line", "hang up on him", "end the call after you check the store hours",
-                     "stop", "I'm not done", "that's not all", "wait", "how do I hang up", "the call ended badly", "Go ahead and hang up when I say bye"):
-            self.assertFalse(is_end_phrase(text), text)
-
-
 class StatusRuleTest(unittest.TestCase):
     def test_a_fork_is_told_it_cannot_see_mains_work_and_must_never_state_a_cause(self):
         from janet_voice_head import prompts

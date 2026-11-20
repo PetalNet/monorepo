@@ -6,13 +6,13 @@ from collections.abc import Callable
 from dataclasses import dataclass, field
 from pathlib import Path
 
-from . import prompts, lab_tools
+from . import prompts, lab_tools, call_tools
 from .conversation import Conversation, Exchange, Journal, TranscriptMark
 from .merge import Hub, HubError, HubRefused
 from . import cache_splice, snapshot, web_guard
 from .render import fallback_summary, hard_text, soft_text, stub_text
 from .session import ClaudeSession, locked_flags, SessionError, session_env, transcript_path
-from .speech import SIGN_OFF, SpeechStream, is_end_phrase
+from .speech import SpeechStream
 
 log = logging.getLogger("janet-voice-head")
 NO_ANSWER = "Sorry, I could not answer that."
@@ -172,7 +172,7 @@ class Head:
         # A cold fork takes seconds to its first word. Until then one short line keeps the speaker from sitting in silence.
         # Never on a turn that starts warm, and at most once, and never after the real reply has begun.
         cold = (self.config.bridge_after_s > 0 and self.config.bridge_phrases and live.conv.tier == "personal"
-                and not live.answered and not live.conv.exchanges and not is_end_phrase(text))
+                and not live.answered and not live.conv.exchanges)
 
         def bridge() -> None:
             with emit_lock:
@@ -219,6 +219,7 @@ class Head:
                         emit("sentence", {"text": sentence})
                     except OSError:
                         client_connected = False
+                        live.session.call_control.interrupt()
                         live.session.interrupt()
 
         try:
@@ -226,16 +227,13 @@ class Head:
                 live.in_turn, live.cut_off, live.last_activity = True, None, time.monotonic()
                 number = len(live.conv.exchanges) + 1
                 previous_cut = live.conv.exchanges[-1].heard_before_cutoff if live.conv.exchanges else None
-            stream, end, session = SpeechStream(), False, live.session
+            stream, end, hangup, session = SpeechStream(), False, False, live.session
             if live.early_cut is not None:
                 pass  # the speaker cut in while this turn was still waiting: nothing is asked of the model
-            elif is_end_phrase(text):
-                say(SIGN_OFF)
-                live.record(kind="sign_off", heard=text)
-                end = True
             else:
                 try:
                     session.wait_ready(self.config.ready_timeout_s)
+                    session.call_control.begin_turn()
                     latency["spawn_wait"] = _ms(started)
                     fork = live.conv.tier == "personal"
                     stream = SpeechStream(redact=None if fork else session.account_email)
@@ -250,6 +248,14 @@ class Head:
                 except SessionError as error:
                     log.warning("conversation %s: %s", conv_id, error)
                     end = True
+                with live.lock:
+                    question, hangup = session.call_control.finish_turn(
+                        not end and client_connected and live.cut_off is None and not live.ending.is_set())
+                    if question or hangup:
+                        closing = call_tools.QUESTION if question else call_tools.GOODBYE
+                        say(closing)
+                        stream.text += " " + closing
+                        end = hangup and client_connected and live.cut_off is None
                 relay = stream.relay
                 if latency["first_sentence"] is None and live.cut_off is None:
                     # A reply with nothing to say is silence, not an apology: Parker may have paused mid-thought. Only a failure apologises.
@@ -269,16 +275,19 @@ class Head:
                 live.in_turn, live.last_activity = False, time.monotonic()
             latency["total"] = _ms(started)
             timer.cancel()
-            with emit_lock:
+            with live.lock, emit_lock:
                 spoken.set()
                 if bridge_ms:
                     latency["bridge"] = bridge_ms[0]
                 if client_connected:
                     try:
+                        end = end and (not hangup or session.call_control.end_requested)
                         emit("done", {"end_conversation": end, "latency_ms": latency})
                     except OSError:
                         pass
         finally:
+            if live.in_turn:
+                live.session.call_control.interrupt()
             timer.cancel()
             live.turn_pending = False
             live.in_turn = False
@@ -287,6 +296,7 @@ class Head:
     def interrupt(self, conv_id: str, heard_text: str) -> None:
         live = self._open_live(conv_id)
         with live.lock:
+            live.session.call_control.interrupt()
             if live.in_turn:
                 live.cut_off = heard_text
                 live.session.interrupt()
