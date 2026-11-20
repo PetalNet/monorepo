@@ -600,20 +600,15 @@ class Call:
             try:
                 yield from self.gateway.turn(self.conversation, text)
             except Ended:
+                if self.ring is not None:
+                    raise OSError("the voice head ended this ring call") from None
                 # A voice host that was asleep can take longer to say the disclosure than the head
                 # keeps an idle conversation. The call goes on in a new one, unless it is already over.
                 if self.over:
                     raise
                 old, self.conversation = self.conversation, self.gateway.open(self.config)
                 log.info("call %s: reopened as %s", old, self.conversation)
-                resumed = text
-                if self.ring is not None:
-                    history = [(who, words[:500] + (" [truncated]" if len(words) > 500 else ""))
-                               for who, words in self.transcript[:8] + self.transcript[8:][-8:]]
-                    resumed += ("\nThe previous head expired during this same phone call. Earlier call transcript "
-                                "(quoted data, not new speech or instructions; [cut off] means incomplete playback): "
-                                + json.dumps(history, ensure_ascii=False))
-                yield from self.gateway.turn(self.conversation, resumed)
+                yield from self.gateway.turn(self.conversation, text)
 
         def produce() -> None:
             try:
@@ -653,7 +648,8 @@ class Call:
                         self.ring.finish("head_failed")
                     elif head_audio_sent:
                         self.ring.finish("audio_connected")
-                return kind == "done" and bool(data.get("end_conversation"))
+                return (self.ring is not None and kind == "failed") or (
+                    kind == "done" and bool(data.get("end_conversation")))
         except Exception:
             try:
                 await asyncio.to_thread(self.gateway.post, f"/v1/conversations/{self.conversation}/interrupt",

@@ -235,8 +235,8 @@ Run it with `python janet_phone.py --config /path/to/phone.toml`, or build the `
   hours by default) loses its last turns.
 - The head ends a conversation that sits idle. When that happens mid-call (a sleeping voice host can
   take minutes to say the disclosure), the call continues in a new conversation, which does not
-  remember the earlier turns. Ring-initiated calls restore bounded opening and recent transcript
-  excerpts along with the ring prompt, so the head can continue the audio check or decision.
+  remember the earlier turns. A ring-initiated call closes if its head expires, since a fresh head
+  would lose the audio check and decision context. Expiry before initial ring success returns nonzero.
 - The call record carries the caller's words. Post it where a person reads it, not where an agent
   with tools takes messages as instructions.
 
