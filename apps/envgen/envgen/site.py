@@ -38,6 +38,10 @@ class Source:
     terrain: str | None = None
     # A survey's orthophoto (RGB and an alpha band, in the site's CRS): what the ground looks like at centimetre scale.
     orthophoto: str | None = None
+    attribution: str | None = None
+    license_url: str | None = None
+    license_conflict: str | None = None
+    internal_only: bool = False
 
     def band(self, name: str) -> int | None:
         return dict(self.bands or ()).get(name)
@@ -61,6 +65,9 @@ class Source:
                 "canopy_height": "'file' or 'cog'",
                 "reflectance": "'file'",
                 "buildings": "'file'",
+                "mask_imagery": "'file'",
+                "microsoft_buildings": "'file'",
+                "osm_features": "'file'",
             }.get(name, "'file' or 'arcgis_imageserver'")
             raise SiteError(f"sources.{name}: kind must be {allowed}, got {kind!r}")
         for field in ("license", "date"):
@@ -77,6 +84,8 @@ class Source:
             bands = tuple(sorted(bands.items()))
         elif name == "reflectance":
             raise SiteError("sources.reflectance: bands is required, naming at least red, green and blue")
+        if name == "mask_imagery" and (bands is None or "nir" not in dict(bands)):
+            raise SiteError("sources.mask_imagery: bands must name red, green, blue and nir")
         terrain = orthophoto = None
         if name == "survey":
             if kind != "file" or "terrain" not in raw:
@@ -94,6 +103,10 @@ class Source:
             bool(raw.get("leaf_off", False)),
             terrain,
             orthophoto,
+            raw.get("attribution"),
+            raw.get("license_url"),
+            raw.get("license_conflict"),
+            bool(raw.get("internal_only", False)),
         )
 
 
@@ -156,6 +169,9 @@ class Site:
     tree_mix: Source | None = None
     # optional: building footprints as GeoJSON in WGS84, with optional `height_m` and `num_floors` tags per feature
     buildings: Source | None = None
+    mask_imagery: Source | None = None
+    microsoft_buildings: Source | None = None
+    osm_features: Source | None = None
 
 
 def acquisition_day(source: Source, name: str) -> date:
@@ -253,4 +269,15 @@ def load_site(path: Path) -> Site:
         survey=Source.parse(sources["survey"], path.parent, "survey") if "survey" in sources else None,
         tree_mix=Source.parse(sources["tree_mix"], path.parent, "tree_mix") if "tree_mix" in sources else None,
         buildings=Source.parse(sources["buildings"], path.parent, "buildings") if "buildings" in sources else None,
+        mask_imagery=Source.parse(sources["mask_imagery"], path.parent, "mask_imagery")
+        if "mask_imagery" in sources
+        else None,
+        microsoft_buildings=(
+            Source.parse(sources["microsoft_buildings"], path.parent, "microsoft_buildings")
+            if "microsoft_buildings" in sources
+            else None
+        ),
+        osm_features=Source.parse(sources["osm_features"], path.parent, "osm_features")
+        if "osm_features" in sources
+        else None,
     )

@@ -17,7 +17,7 @@ from rasterio.warp import reproject, transform, transform_bounds
 from rasterio.windows import Window, from_bounds
 from scipy import ndimage
 
-from . import buildings, cover, frame, grain, lidar, light, surface, trees, turf
+from . import buildings, cover, frame, grain, imagery as imagery_sources, lidar, light, surface, trees, turf
 from .acquire import acquire, sha256_file
 from .site import (
     CONTEXT_QUADS,
@@ -592,6 +592,7 @@ def build_surface(
     tile = site.tile
     for stale in out.glob("surface_*.png"):
         stale.unlink()
+    (out / "leafoff_masks.tif").unlink(missing_ok=True)
     bands, has_nir = imagery_bands(site.imagery)
     rgb = _warp(imagery, site.crs, tile.west, tile.north, tile.quad_m, tile.vertices, Resampling.average, bands)
     rgb = np.stack([_fill_gaps(band, "imagery")[0] for band in rgb])
@@ -599,6 +600,18 @@ def build_surface(
     rgb = rgb[:3]
     shown = open_ground(out, covering, tile.vertices) > 0
     labels, names, fit = surface.classify(rgb, shown, tile.quad_m, nir)
+    mask_files = []
+    if site.mask_imagery:
+        mask_reference = np.array([imagery_sources.NAMES.index(name) for name in names], dtype=np.uint8)[labels]
+        labels, names, evidence = imagery_sources.classify(site, labels, names)
+        fit["mask_sources"] = evidence
+        mask_fit = evidence["evidence"]["mask_imagery"].get("fit")
+        if mask_fit and mask_fit["splits"] and mask_fit["splits"][0]["split"]:
+            native = imagery_sources.write_native_masks(
+                site.mask_imagery, mask_fit["splits"], out / "leafoff_masks.tif", mask_reference, tile, site.crs
+            )
+            fit["mask_sources"]["native"] = native
+            mask_files.append(native["file"])
     if roofs is not None:
         # The ground under a roof is the class of the ground around it: the roof's own colour is not ground.
         labels = buildings.label_under(labels, _sample_cells(roofs, tile.vertices))
@@ -622,7 +635,7 @@ def build_surface(
         elif layer["name"] in luminance:
             layer["mean_linear_rgb"] = luminance[layer["name"]]["mean_linear_rgb"]
     return {
-        "files": [layer["file"] for layer in layers],
+        "files": [layer["file"] for layer in layers] + mask_files,
         "layers": layers,
         "check_points": surface.check_points(unreal, names),
         "vertices": tile.vertices,
@@ -1240,6 +1253,8 @@ def build(site_path: Path, out: Path, cache: Path | None = None) -> dict:
             sources["imagery"]["sha256"],
             cover_hashes,
             bands,
+            [sources["mask_imagery"]["raster_files"], site.mask_imagery.bands, imagery_sources.VERSION,
+             sources.get("survey_orthophoto")] if site.mask_imagery else None,
             [sources["reflectance"]["sha256"], site.reflectance.date] if reflectance else None,
             surface.PURE_SHARE,
             surface.PURE_SUNLIT,
