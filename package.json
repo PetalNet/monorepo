@@ -85,6 +85,7 @@
 			"apps/manager",
 			"apps/point",
 			"apps/janet-voice-head",
+			"apps/vuln-watch",
 			"packages/janet-line",
 			"packages/janet-turn",
 			"tools/*"
