@@ -25,6 +25,7 @@ from rasterio import features
 from rasterio.transform import from_origin
 from scipy import ndimage
 from shapely.geometry import Polygon, shape
+from shapely.ops import split
 
 from . import architecture, surface
 from .site import Tile
@@ -386,6 +387,34 @@ def reference_outlines(footprints: list[dict], path: Path, tile: Tile) -> list[d
     for number, item in enumerate(footprints):
         key = str(item["tags"].get("id") or f"footprint-{number}")
         observation = data.get(key, {})
+        if "roof_breaklines_m" in observation:
+            lines = np.asarray(observation["roof_breaklines_m"], dtype=float)
+            uncertainty = observation.get("roof_boundary_uncertainty_m")
+            if (
+                not observation.get("source")
+                or lines.ndim != 3
+                or lines.shape[1:] != (2, 2)
+                or not 1 <= len(lines) <= 8
+                or not np.isfinite(lines).all()
+                or (uncertainty is not None and (not np.isfinite(uncertainty) or uncertainty < 0))
+            ):
+                raise ValueError(f"building_reference {key}: invalid or unsourced roof breaklines")
+            lines = [shapely.LineString(line + tile.centre) for line in lines]
+            if any(line.length < 1 or not item["polygon"].buffer(15).covers(line) for line in lines):
+                raise ValueError(
+                    f"building_reference {key}: roof breaklines must be near the footprint and at least 1 m long"
+                )
+            item = {
+                **item,
+                "roof_breaklines": lines,
+                "roof_boundary_observation": {
+                    "status": "photo-referenced",
+                    "from": observation["source"],
+                    "uncertainty_m": uncertainty,
+                    "breakline_count": len(lines),
+                    "note": "segments extend across the footprint; heights remain lidar-derived",
+                },
+            }
         if "outline_m" not in observation:
             result.append(item)
             continue
@@ -407,6 +436,17 @@ def reference_outlines(footprints: list[dict], path: Path, tile: Tile) -> list[d
                 },
             }
         )
+    for item in result:
+        polygon = item["polygon"]
+        reach = np.linalg.norm(np.ptp(np.asarray(polygon.exterior.coords), axis=0)) * 4
+        for boundary in item.get("roof_breaklines", []):
+            xy = np.asarray(boundary.coords)
+            direction = (xy[1] - xy[0]) / boundary.length
+            middle = xy.mean(axis=0)
+            extended = shapely.LineString([middle - direction * reach, middle + direction * reach])
+            regions = [part for part in split(polygon, extended).geoms if part.area > 0.01]
+            if len(regions) < 2:
+                raise ValueError("building_reference: roof breakline must partition the final footprint")
     return result
 
 

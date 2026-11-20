@@ -203,7 +203,7 @@ seeded yaw.
   its share and by a log-normal through its measured 10th, 50th and 90th percentile height. The mix also gives
   the trunk diameter (a line fitted to diameter against height) and the crown ratio (the share of the height
   the crown takes). A mix file is `{"source": ..., "species": [{"name", "kind", "share", "height_m": {"p10",
-"p50", "p90"}, "trunk_diameter_m": [intercept, slope], "crown_ratio"}]}`.
+  "p50", "p90"}, "trunk_diameter_m": [intercept, slope], "crown_ratio"}]}`.
 
 Limits: the lidar's heights are as old as its survey; a tree felled since is still there, with lower confidence
 only where a newer source looks, and the level build does not read confidence, so it stands at full size. An inventory of forests describes forest trees, not ones grown in the open.
@@ -677,3 +677,16 @@ Before moving to a new engine version, these show whether it can host the work:
 
 A mesh for each species, tree wind, weather and a moving sun, the manual edit layer that regeneration leaves alone, and
 the simulator exports.
+
+Reviewed `building_reference` observations may include up to eight `roof_breaklines_m`
+segments, each containing two `[east_m, north_m]` endpoints relative to the tile centre.
+The source is required; `roof_boundary_uncertainty_m` records digitization uncertainty.
+Segments extend across the footprint to partition roof masses without changing the
+footprint or ground mask. Heights still come from LiDAR planes. For these partitions,
+3 m training neighbourhoods identify upward planar patches; the validation mask uses
+training returns and withheld XY positions only, never withheld elevations. Reports
+retain raw and selected return counts and both raw and selected validation errors.
+At most 2% of the footprint may inherit an adjacent plane where a narrow partition
+has insufficient returns; this inferred area is reported. Existing area coverage and
+withheld mesh agreement thresholds still apply. Photograph boundaries and LiDAR
+heights can have different acquisition dates and registration errors.

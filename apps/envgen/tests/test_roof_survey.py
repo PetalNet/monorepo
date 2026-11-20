@@ -296,3 +296,96 @@ def test_broad_observed_roof_domains_keep_their_assignment():
     labels[:, 6:] = 1
     result = roof_survey._coherent_labels(labels, np.ones(labels.shape, dtype=bool))
     assert np.array_equal(result, labels)
+
+
+def test_photo_boundary_keeps_oblique_roof_step_straight():
+    polygon, points, ground = cloud("flat")
+    points[:, 2] = 100 + np.where(points[:, 0] + 0.3 * points[:, 1] < 0, 6, 9)
+    tagged = np.column_stack([points, np.ones(len(points))])
+    ground = np.column_stack([ground, np.full(len(ground), 2)])
+    boundary = shapely.LineString([[-2.1, 7], [2.1, -7]])
+    result = roof_survey.measure([{"polygon": polygon, "roof_breaklines": [boundary]}], np.vstack([tagged, ground]))[0]
+    assert result["status"] == "measured", result
+    vertices = np.asarray(result["roof_vertices"])
+    steps = [vertices[t] for t in result["roof_triangles"] if shapely.Polygon(vertices[t, :2]).area < 1e-8]
+    assert steps
+    assert max(abs(v[0] + 0.3 * v[1]) for step in steps for v in step) < 2e-5
+    assert result["domain_source"] == "photo-referenced breaklines"
+    assert result["validation_mae_m"] < 0.1
+
+
+def test_wrong_photo_boundary_cannot_override_withheld_lidar():
+    polygon, points, ground = cloud("multi-level")
+    result = roof_survey.measure(
+        [{"polygon": polygon, "roof_breaklines": [shapely.LineString([[3.5, -7], [3.5, 7]])]}],
+        np.vstack(
+            [np.column_stack([points, np.ones(len(points))]), np.column_stack([ground, np.full(len(ground), 2)])]
+        ),
+    )[0]
+    assert result["status"] == "unresolved", result
+
+
+def test_roof_neighbourhood_mask_retains_roofs_and_rejects_wall_interiors():
+    u, v = np.meshgrid(np.linspace(-8, 8, 33), np.linspace(-6, 6, 25))
+    roof = np.column_stack([u.ravel(), v.ravel(), np.full(u.size, 10)])
+    wall = np.column_stack([u.ravel(), np.full(u.size, 20), v.ravel() + 10])
+    points = np.vstack([roof, wall])
+    mask = roof_survey._roof_candidates(points, np.array([[0, 0], [0, 20]]))
+    assert mask.tolist() == [True, False]
+
+
+@pytest.mark.parametrize(
+    "observation",
+    [
+        {"roof_breaklines_m": [[[0, 0], [10, 0]]]},
+        {"source": "photo", "roof_breaklines_m": [[[0, 0], [float("nan"), 0]]]},
+        {"source": "photo", "roof_breaklines_m": [[[1000, 0], [1010, 0]]]},
+        {"source": "photo", "roof_breaklines_m": [[[0, 0], [10, 0]]] * 9},
+    ],
+)
+def test_invalid_photo_breaklines_fail_at_reference_boundary(tmp_path, observation):
+    path = tmp_path / "reference.json"
+    path.write_text(json.dumps({"buildings": {"test": observation}}))
+    with pytest.raises(ValueError, match="building_reference"):
+        buildings.reference_outlines(
+            [{"polygon": box(55, 55, 75, 75), "tags": {"id": "test"}}], path, Tile(0, 0, 1, 126)
+        )
+
+
+def test_boundary_only_reference_does_not_move_ground_mask(tmp_path):
+    polygon = box(55, 55, 75, 75)
+    path = tmp_path / "reference.json"
+    path.write_text(
+        json.dumps(
+            {
+                "buildings": {
+                    "test": {
+                        "source": "aerial",
+                        "roof_breaklines_m": [[[-8, 0], [12, 0]]],
+                        "roof_boundary_uncertainty_m": 0.45,
+                    }
+                }
+            }
+        )
+    )
+    result = buildings.reference_outlines([{"polygon": polygon, "tags": {"id": "test"}}], path, Tile(0, 0, 1, 126))[0]
+    assert result["polygon"].equals_exact(polygon, 0)
+    assert result["roof_boundary_observation"]["from"] == "aerial"
+    assert result["roof_boundary_observation"]["uncertainty_m"] == 0.45
+    assert list(result["roof_breaklines"][0].coords) == [(55, 63), (75, 63)]
+
+
+@pytest.mark.parametrize("outline", [None, [[-8, -8], [12, -8], [12, -2], [-8, -2]]])
+def test_photo_breakline_must_partition_final_outline(tmp_path, outline):
+    observation = {
+        "source": "photo",
+        "roof_breaklines_m": [[[-8, 15 if outline is None else 0], [12, 15 if outline is None else 0]]],
+    }
+    if outline is not None:
+        observation["outline_m"] = outline
+    path = tmp_path / "reference.json"
+    path.write_text(json.dumps({"buildings": {"test": observation}}))
+    with pytest.raises(ValueError, match="partition the final footprint"):
+        buildings.reference_outlines(
+            [{"polygon": box(55, 55, 75, 75), "tags": {"id": "test"}}], path, Tile(0, 0, 1, 126)
+        )

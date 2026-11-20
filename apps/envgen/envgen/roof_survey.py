@@ -16,8 +16,9 @@ from scipy import ndimage
 from scipy.spatial import cKDTree
 from shapely.affinity import translate
 from shapely.geometry import Polygon, shape
+from shapely.ops import split
 
-VERSION = 6
+VERSION = 7
 TOLERANCE_M = 0.22
 MIN_POINTS = 30
 MAX_PLANES = 8
@@ -75,6 +76,106 @@ def _planes(points: np.ndarray) -> list[np.ndarray]:
             found.append(plane)
         remaining = remaining[~inliers]
     return found
+
+
+def _roof_candidates(reference: np.ndarray, query_xy=None) -> np.ndarray:
+    """Use training neighbourhoods only; query elevations never enter this selection."""
+    query_xy = reference[:, :2] if query_xy is None else query_xy
+    tree = cKDTree(reference[:, :2])
+    selected = np.zeros(len(query_xy), dtype=bool)
+    for index, neighbours in enumerate(tree.query_ball_point(query_xy, 3.0)):
+        if len(neighbours) < 6:
+            continue
+        values, vectors = np.linalg.eigh(np.cov(reference[neighbours, :3].T))
+        selected[index] = (
+            abs(vectors[2, 0]) >= 1 / np.sqrt(1 + 1.5**2)
+            and values[0] <= 0.08 * values.sum()
+            and values[1] > 0.1 * values[2]
+        )
+    return selected
+
+
+def _envelope_parts(polygon, planes, mode="min"):
+    west, south, east, north = polygon.bounds
+    parts = []
+    for value, plane in enumerate(planes):
+        region = polygon
+        for other, other_plane in enumerate(planes):
+            if other == value:
+                continue
+            difference = (plane - other_plane) * (1 if mode == "min" else -1)
+            normal = difference[:2]
+            if np.linalg.norm(normal) < 1e-7:
+                if difference[2] > 0:
+                    region = Polygon()
+                continue
+            on_line = -difference[2] * normal / np.dot(normal, normal)
+            tangent = np.array([-normal[1], normal[0]]) / np.linalg.norm(normal)
+            direction = normal / np.linalg.norm(normal)
+            reach = max(east - west, north - south) * 100 + np.linalg.norm(on_line)
+            half = Polygon(
+                [
+                    on_line - tangent * reach,
+                    on_line + tangent * reach,
+                    on_line + tangent * reach - direction * reach * 2,
+                    on_line - tangent * reach - direction * reach * 2,
+                ]
+            )
+            region = region.intersection(half)
+        for part in getattr(region, "geoms", [region]):
+            if part.geom_type == "Polygon" and part.area > 0.01:
+                parts.append((part, plane))
+    return parts
+
+
+def _photo_domains(polygon, train, breaklines, global_planes):
+    regions = [polygon]
+    reach = np.linalg.norm(np.ptp(np.asarray(polygon.exterior.coords), axis=0)) * 4
+    for boundary in breaklines:
+        xy = np.asarray(boundary.coords)
+        direction = xy[1] - xy[0]
+        direction /= np.linalg.norm(direction)
+        middle = xy.mean(axis=0)
+        line = shapely.LineString([middle - direction * reach, middle + direction * reach])
+        regions = [part for region in regions for part in split(region, line).geoms if part.area > 1e-6]
+    parts, pending = [], []
+    for region in regions:
+        sample = train[shapely.contains_xy(region, train[:, 0], train[:, 1])]
+        planes = np.asarray(_planes(sample)) if len(sample) >= MIN_POINTS else np.empty((0, 3))
+        if not len(planes):
+            if len(sample) < MIN_POINTS:
+                pending.append(region)
+                continue
+            planes = global_planes
+        values = sample[:, :2] @ planes[:, :2].T + planes[:, 2]
+        chosen = None
+        for count in range(1, len(planes) + 1):
+            for mode in ("min", "max"):
+                error = abs(getattr(values[:, :count], mode)(axis=1) - sample[:, 2])
+                if np.mean(error <= 0.35) >= 0.85 and np.quantile(error, 0.9) <= 0.6:
+                    chosen = (planes[:count], mode)
+                    break
+            if chosen is not None:
+                break
+        if chosen is None:
+            index = np.median(abs(values - sample[:, 2, None]), axis=0).argmin()
+            chosen = (planes[index : index + 1], "min")
+        parts.extend(_envelope_parts(region, *chosen))
+    inferred_area = sum(region.area for region in pending)
+    # Small unobserved strips inherit an adjacent roof, never a new height or extrusion.
+    if not parts or inferred_area > polygon.area * 0.02:
+        return None, inferred_area
+    while pending:
+        shared, i, j = max(
+            (a.boundary.intersection(b.boundary).length, i, j)
+            for i, a in enumerate(pending)
+            for j, (b, _) in enumerate(parts)
+        )
+        if shared < 1e-6:
+            return None, inferred_area
+        region, plane = parts[j]
+        parts[j] = (shapely.union_all([region, pending.pop(i)], grid_size=1e-6), plane)
+    return parts, inferred_area
 
 
 def _smooth_labels(image: np.ndarray, count: int) -> np.ndarray:
@@ -245,7 +346,9 @@ def _sample_mesh(vertices, triangles, xy):
     return result
 
 
-def fit(polygon: Polygon, points: np.ndarray, ground: np.ndarray, anchor: np.ndarray, prior=None) -> dict:
+def fit(
+    polygon: Polygon, points: np.ndarray, ground: np.ndarray, anchor: np.ndarray, prior=None, breaklines=None
+) -> dict:
     """Fit in local coordinates, returning measured geometry only when held-out support is sufficient."""
     centre = np.array(polygon.centroid.coords[0])
     local_polygon = translate(polygon, -centre[0], -centre[1])
@@ -263,11 +366,31 @@ def fit(polygon: Polygon, points: np.ndarray, ground: np.ndarray, anchor: np.nda
         return {**base, "reason": "nearby ground is not sufficiently supported"}
     ground_plane = np.linalg.lstsq(design[keep], ground[keep, 2], rcond=None)[0]
     ground_z = float(ground_plane[2])
-    local = local[local[:, 2] > ground_z + 1.5]
+    local = local[local[:, 2] > _predict(local[:, :2] + centre - anchor, ground_plane) + 1.5]
     # A metre cell belongs to one split, so adjacent returns cannot leak across the split.
     cells = np.floor(local[:, :2]).astype(np.int64)
     held = (cells[:, 0] * 73856093 + cells[:, 1] * 19349663) % 5 == 0
     train, test = local[~held], local[held]
+    raw_test = test
+    selection = {}
+    if breaklines:
+        reference = train
+        train_mask = _roof_candidates(reference)
+        test_mask = _roof_candidates(reference, test[:, :2])
+        selection = {
+            "roof_selection": "upward planar training neighbourhoods; validation selection uses XY only",
+            "roof_selection_radius_m": 3.0,
+            "roof_selection_min_neighbours": 6,
+            "roof_selection_max_slope": 1.5,
+            "roof_selection_max_scatter_ratio": 0.08,
+            "roof_selection_min_spread_ratio": 0.1,
+            "raw_training_returns": len(train),
+            "raw_validation_returns": len(test),
+            "selected_training_returns": int(train_mask.sum()),
+            "selected_validation_returns": int(test_mask.sum()),
+        }
+        base.update(selection)
+        train, test = train[train_mask], test[test_mask]
     if len(train) < MIN_POINTS or len(test) < 15:
         return {**base, "reason": "insufficient spatial validation returns"}
     planes = _planes(train)
@@ -295,44 +418,32 @@ def fit(polygon: Polygon, points: np.ndarray, ground: np.ndarray, anchor: np.nda
     image = support_labels[nearest].reshape(xx.shape).astype(np.uint8)
     image = _smooth_labels(image, len(planes))
     transform = from_origin(west, north, spacing, spacing)
-    parts = []
     envelope = train[:, :2] @ planes[:, :2].T + planes[:, 2]
     use_envelope = np.mean(abs(envelope.min(axis=1) - train[:, 2]) <= TOLERANCE_M) >= 0.85
-    if not use_envelope:
+    inferred_area = 0.0
+    if breaklines:
+        local_lines = [translate(line, -centre[0], -centre[1]) for line in breaklines]
+        parts, inferred_area = _photo_domains(local_polygon, train, local_lines, planes)
+        if parts is None:
+            return {
+                **base,
+                "reason": "photo regions lack supported roof planes",
+                "inferred_domain_area_m2": inferred_area,
+            }
+        planes = np.unique(np.asarray([plane for _, plane in parts]), axis=0)
+    elif use_envelope:
+        parts = _envelope_parts(local_polygon, planes)
+    else:
         image = _coherent_labels(image, grid_inside.reshape(image.shape))
         if image is None:
             return {**base, "reason": "no coherent multi-level roof domain at the sampling resolution"}
-    for value in range(len(planes)):
-        if use_envelope:
-            region = local_polygon
-            for other in range(len(planes)):
-                if other == value:
-                    continue
-                difference = planes[value] - planes[other]
-                normal = difference[:2]
-                if np.linalg.norm(normal) < 1e-7:
-                    if difference[2] > 0:
-                        region = Polygon()
-                    continue
-                on_line = -difference[2] * normal / np.dot(normal, normal)
-                tangent = np.array([-normal[1], normal[0]]) / np.linalg.norm(normal)
-                direction = normal / np.linalg.norm(normal)
-                reach = max(east - west, north - south) * 100 + np.linalg.norm(on_line)
-                half = Polygon(
-                    [
-                        on_line - tangent * reach,
-                        on_line + tangent * reach,
-                        on_line + tangent * reach - direction * reach * 2,
-                        on_line - tangent * reach - direction * reach * 2,
-                    ]
-                )
-                region = region.intersection(half)
-        else:
+        parts = []
+        for value in range(len(planes)):
             regions = [shape(g) for g, v in shapes((image == value).astype(np.uint8), transform=transform) if v == 1]
             region = shapely.union_all(regions).intersection(local_polygon)
-        for part in getattr(region, "geoms", [region]):
-            if part.geom_type == "Polygon" and part.area > 0.01:
-                parts.append((part, planes[value]))
+            for part in getattr(region, "geoms", [region]):
+                if part.geom_type == "Polygon" and part.area > 0.01:
+                    parts.append((part, planes[value]))
 
     # Sampling the actual fitted domains measures extrapolation, rather than choosing the best
     # plane separately for every validation return.
@@ -355,6 +466,17 @@ def fit(polygon: Polygon, points: np.ndarray, ground: np.ndarray, anchor: np.nda
     agreement = float(np.mean(error <= 0.35)) if len(error) else 0.0
     if finite.mean() < 0.95 or agreement < 0.85 or np.quantile(error, 0.9) > 0.6:
         return {**base, "reason": "held-out surface agreement below threshold", "validation_share_035m": agreement}
+    if breaklines:
+        raw_predicted = _sample_mesh(vertices, triangles, raw_test[:, :2] + centre) + roof_z
+        raw_finite = np.isfinite(raw_predicted)
+        raw_error = abs(raw_predicted[raw_finite] - raw_test[raw_finite, 2])
+        base.update(
+            {
+                "raw_validation_mae_m": float(raw_error.mean()),
+                "raw_validation_share_035m": float(np.mean(raw_error <= 0.35)),
+                "raw_validation_surface_share": float(raw_finite.mean()),
+            }
+        )
     heights = np.asarray(vertices)[:, 2] + roof_z
     height = roof_z - ground_z
     if not 1.5 <= height <= 100:
@@ -397,8 +519,10 @@ def fit(polygon: Polygon, points: np.ndarray, ground: np.ndarray, anchor: np.nda
         "planes": [{"a": float(p[0]), "b": float(p[1]), "z_at_centroid_m": float(p[2])} for p in planes],
         "fit_share": coverage,
         "area_share_within_2m": area_share,
-        "domain_cell_m": spacing,
-        "domain_core_m": CORE_CELLS * spacing if not use_envelope else None,
+        "domain_cell_m": None if breaklines else spacing,
+        "domain_core_m": CORE_CELLS * spacing if not use_envelope and not breaklines else None,
+        "domain_source": "photo-referenced breaklines" if breaklines else "lidar plane domains",
+        "inferred_domain_area_m2": inferred_area,
         "validation_returns": int(finite.sum()),
         "validation_mae_m": float(error.mean()),
         "validation_p90_m": float(np.quantile(error, 0.9)),
@@ -430,7 +554,16 @@ def measure(footprints: list[dict], points: np.ndarray, priors=None) -> list[dic
         near = ground[ground_tree.query_ball_point(anchor, min(radius + 12, 80))] if ground_tree else ground
         if len(near):
             near = near[~shapely.intersects_xy(polygon.buffer(1), near[:, 0], near[:, 1])]
-        result = fit(polygon, candidates[inside], near, anchor, priors[index] if priors is not None else None)
+        result = fit(
+            polygon,
+            candidates[inside],
+            near,
+            anchor,
+            priors[index] if priors is not None else None,
+            item.get("roof_breaklines"),
+        )
+        if "roof_boundary_observation" in item:
+            result["boundary_observation"] = item["roof_boundary_observation"]
         if result["status"] == "measured" and len(result["planes"]) == 1 and result["roof_shape"] == "flat":
             p = result["planes"][0]
             edge = candidates[
