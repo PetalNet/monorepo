@@ -120,7 +120,7 @@ contains material batches, vertices, triangle indices, collision flags and optio
 Paving and painted ribbons follow terrain at each vertex on the Landscape grid, with triangle edges no longer than 2 m.
 Props use a common terrain anchor so stands and goal frames remain rigid. Footings extend 0.3 m below
 that anchor, or 0.6 m for bleachers, to cover small ground variations without distorting their frames.
-The grass mask suppresses tufts on paving and clay without changing measured Landscape heights or weights. Turf surfaces keep the measured grass population and cover blurred photographic field markings beneath the vector inventory.
+The grass mask suppresses tufts on paving and clay without changing measured Landscape heights or weights. Legacy `turf` surfaces without field records keep the measured grass population and cover blurred photographic field markings beneath the vector inventory.
 
 Paving and paint share batches within 126 m cells. Batches split at 20,000 triangles. Solid props use
 Nanite, collision and shadows. Paving and vector paint use ordinary opaque meshes over the Landscape's collision. Registered paint uses masked meshes. Fences use ordinary masked, two-sided chainlink panels with solid posts and rails. Daytime luminaires
@@ -207,8 +207,8 @@ Each record names one existing `turf`, `athletic_turf` or `natural_grass` surfac
 `athletic_turf` or `natural_grass`; optional `override` selects either while retaining the original decision
 and evidence. Non-overlapping field polygons, finite headings, positive stripe widths up to 100 m and
 confidence in [0,1] are validated before generation. Heading is counterclockwise from east; bands repeat
-along that direction. Defaults are heading zero and 4.572 m stripes. An explicit `athletic_turf` surface
-also works without a record, using its feature evidence and those defaults. A track is supporting context,
+along that direction. Defaults are heading zero and 4.572 m stripes. Explicit `athletic_turf` and `natural_grass` surfaces
+also work without a record, using their feature evidence and those defaults. A track is supporting context,
 not proof of synthetic turf. Record imagery cues, available OSM surface tags and facility-owner evidence;
 record absent tags honestly. Both the original and effective decisions appear in the stage and output JSON.
 
