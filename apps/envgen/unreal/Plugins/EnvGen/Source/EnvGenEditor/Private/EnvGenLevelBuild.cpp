@@ -713,7 +713,7 @@ return Texture2DSampleGrad(Scan,ScanSampler,UV+ha,dx,dy).rgb*w.x
 		// 8 bits and holds how far up the blade a point is, and the mesh build writes its own unwrap into the second.
 		Uvs.SetNumChannels(4);
 		FRandomStream Random(7 + Index);
-		constexpr int32 Segments = 4;
+		constexpr int32 Segments = 3;
 		if (Variety.Name == FName(TEXT("broadleaf")))
 		{
 			for (int32 Leaf = 0; Leaf < 3; ++Leaf)
