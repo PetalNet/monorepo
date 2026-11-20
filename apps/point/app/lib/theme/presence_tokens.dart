@@ -1,4 +1,4 @@
-import 'package:flutter/material.dart';
+import 'package:material_ui/material_ui.dart';
 
 /// Presence is encoded by **form, not color** (D-015). These tokens carry the
 /// greyscale tones the form-based presence dot renders with — never a hue.
@@ -35,11 +35,11 @@ class PresenceTokens extends ThemeExtension<PresenceTokens> {
   final Color faint;
 
   Color toneFor(PresenceState s) => switch (s) {
-        PresenceState.live => ink,
-        PresenceState.away => muted,
-        PresenceState.stale => muted,
-        PresenceState.ghosted => faint,
-      };
+    PresenceState.live => ink,
+    PresenceState.away => muted,
+    PresenceState.stale => muted,
+    PresenceState.ghosted => faint,
+  };
 
   @override
   PresenceTokens copyWith({Color? ink, Color? muted, Color? faint}) {

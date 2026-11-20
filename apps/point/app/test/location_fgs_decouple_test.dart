@@ -111,7 +111,11 @@ Position _pos({double speed = 0, int tsMs = 1752357600000}) => Position(
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
 
-  ({LocationService service, _GeolocatorCacheFake geo, _FakeForegroundService fgs})
+  ({
+    LocationService service,
+    _GeolocatorCacheFake geo,
+    _FakeForegroundService fgs,
+  })
   build() {
     final geo = _GeolocatorCacheFake();
     final fgs = _FakeForegroundService();
@@ -273,8 +277,7 @@ void main() {
   test('Defect #1: a FIX-DRIVEN cadence change (background active→fast, >5 m/s) '
       'ACTUALLY reopens the stream. The reopen fires from inside the position '
       "callback; deferring it off that firing stack lets geolocator's onCancel "
-      'reset its cache so the new cadence is honored (not the stale cached one)',
-      () {
+      'reset its cache so the new cadence is honored (not the stale cached one)', () {
     fakeAsync((async) {
       final h = build();
       unawaited(h.service.start());
@@ -305,7 +308,8 @@ void main() {
       expect(
         h.geo.openCount,
         3,
-        reason: 'fix-driven active→fast reopened the stream (deferred off the '
+        reason:
+            'fix-driven active→fast reopened the stream (deferred off the '
             'firing stack); before the fix the cache swallowed it and it stuck '
             'at 2',
       );
@@ -339,7 +343,11 @@ void main() {
       async
         ..elapse(const Duration(seconds: 5))
         ..flushMicrotasks();
-      expect(h.fgs.running, isTrue, reason: 're-armed and retried after refusal');
+      expect(
+        h.fgs.running,
+        isTrue,
+        reason: 're-armed and retried after refusal',
+      );
       expect(h.fgs.startCount, greaterThanOrEqualTo(2));
 
       unawaited(h.service.dispose());
@@ -373,8 +381,11 @@ void main() {
         ..flushMicrotasks()
         ..elapse(const Duration(seconds: 5))
         ..flushMicrotasks();
-      expect(h.fgs.startCount, greaterThanOrEqualTo(2),
-          reason: 're-armed after the promotion refusal');
+      expect(
+        h.fgs.startCount,
+        greaterThanOrEqualTo(2),
+        reason: 're-armed after the promotion refusal',
+      );
 
       // The OS now allows it: a CONFIRMED promotion latches and cancels the
       // re-arm — no unbounded churn once the survival service is truly up.
@@ -385,8 +396,11 @@ void main() {
       async
         ..elapse(const Duration(seconds: 30))
         ..flushMicrotasks();
-      expect(h.fgs.startCount, settled,
-          reason: 'a confirmed promotion stops the retries');
+      expect(
+        h.fgs.startCount,
+        settled,
+        reason: 'a confirmed promotion stops the retries',
+      );
 
       unawaited(h.service.dispose());
       async.flushMicrotasks();

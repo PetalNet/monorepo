@@ -1,4 +1,4 @@
-import 'package:flutter/material.dart';
+import 'package:material_ui/material_ui.dart';
 import 'package:point_app/theme/theme_x.dart';
 
 /// Shown while the persisted session is restored (auth resolves, then the

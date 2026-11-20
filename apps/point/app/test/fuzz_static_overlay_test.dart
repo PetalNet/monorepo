@@ -1,7 +1,7 @@
-import 'package:flutter/material.dart';
 import 'package:flutter_map/flutter_map.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:latlong2/latlong.dart';
+import 'package:material_ui/material_ui.dart';
 import 'package:point_app/features/map/presentation/fuzz_static_overlay.dart';
 import 'package:point_app/features/relay/relay_controller.dart';
 import 'package:point_app/services/api/models.dart';
@@ -181,9 +181,12 @@ void main() {
     testWidgets('the approximate cloud covers the geographic radius on '
         'screen', (tester) async {
       await tester.pumpWidget(
-        mapHost(const [_liveCoarse], {
-          'janet@point.dev': _motion('janet@point.dev', 38.61, -90.21, 800),
-        }),
+        mapHost(
+          const [_liveCoarse],
+          {
+            'janet@point.dev': _motion('janet@point.dev', 38.61, -90.21, 800),
+          },
+        ),
       );
       await tester.pump();
 
@@ -200,9 +203,12 @@ void main() {
     testWidgets('a dark peer with precise last-known accuracy keeps a '
         'readable minimum aura', (tester) async {
       await tester.pumpWidget(
-        mapHost(const [_dark], {
-          'noor@point.dev': _motion('noor@point.dev', 38.63, -90.19, 10),
-        }),
+        mapHost(
+          const [_dark],
+          {
+            'noor@point.dev': _motion('noor@point.dev', 38.63, -90.19, 10),
+          },
+        ),
       );
       await tester.pump();
 

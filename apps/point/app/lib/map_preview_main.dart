@@ -1,7 +1,7 @@
 import 'dart:async';
 
-import 'package:flutter/material.dart';
 import 'package:hooks_riverpod/hooks_riverpod.dart';
+import 'package:material_ui/material_ui.dart';
 import 'package:point_app/features/location/data/location_service.dart';
 import 'package:point_app/features/location/self_location_provider.dart';
 import 'package:point_app/features/map/presentation/map_screen.dart';
@@ -58,68 +58,68 @@ class _PreviewApp extends StatelessWidget {
 class _PreviewAuth extends AuthController {
   @override
   Future<Session?> build() async => const Session(
-        userId: 'parker@point.petalcat.dev',
-        token: 't',
-        displayName: 'Parker H',
-        isAdmin: true,
-      );
+    userId: 'parker@point.petalcat.dev',
+    token: 't',
+    displayName: 'Parker H',
+    isAdmin: true,
+  );
 }
 
 class _PreviewPeople extends PeopleController {
   @override
   Future<List<Person>> build() async => const [
-        Person(
-          userId: 'eli@point.petalcat.dev',
-          displayName: 'Eli',
-          presence: PresenceState.live,
-          subtitle: '0.4 mi · moving',
-          lat: 38.631,
-          lon: -90.201,
-        ),
-        Person(
-          userId: 'mara@point.petalcat.dev',
-          displayName: 'Mara Q',
-          presence: PresenceState.away,
-          subtitle: 'Last seen 20m ago',
-          lat: 38.624,
-          lon: -90.192,
-        ),
-        // Task 751 fixtures: a DARK peer (frozen last-known + static aura) and
-        // an APPROXIMATE peer (coarse fix -> static over the fuzz radius).
-        Person(
-          userId: 'noor@point.petalcat.dev',
-          displayName: 'Noor',
-          presence: PresenceState.stale,
-          subtitle: 'Last place · Dark since 14:07',
-          lat: 38.633,
-          lon: -90.191,
-          darkSinceAt: 1747145220000,
-        ),
-        Person(
-          userId: 'janet@point.petalcat.dev',
-          displayName: 'Janet',
-          presence: PresenceState.live,
-          subtitle: 'Sharing · ±800 m · now',
-          lat: 38.620,
-          lon: -90.205,
-        ),
-      ];
+    Person(
+      userId: 'eli@point.petalcat.dev',
+      displayName: 'Eli',
+      presence: PresenceState.live,
+      subtitle: '0.4 mi · moving',
+      lat: 38.631,
+      lon: -90.201,
+    ),
+    Person(
+      userId: 'mara@point.petalcat.dev',
+      displayName: 'Mara Q',
+      presence: PresenceState.away,
+      subtitle: 'Last seen 20m ago',
+      lat: 38.624,
+      lon: -90.192,
+    ),
+    // Task 751 fixtures: a DARK peer (frozen last-known + static aura) and
+    // an APPROXIMATE peer (coarse fix -> static over the fuzz radius).
+    Person(
+      userId: 'noor@point.petalcat.dev',
+      displayName: 'Noor',
+      presence: PresenceState.stale,
+      subtitle: 'Last place · Dark since 14:07',
+      lat: 38.633,
+      lon: -90.191,
+      darkSinceAt: 1747145220000,
+    ),
+    Person(
+      userId: 'janet@point.petalcat.dev',
+      displayName: 'Janet',
+      presence: PresenceState.live,
+      subtitle: 'Sharing · ±800 m · now',
+      lat: 38.620,
+      lon: -90.205,
+    ),
+  ];
 }
 
 /// A coarse (fuzzed-scale) fix for Janet so the approximate path renders.
 class _PreviewLive extends LivePresence {
   @override
   Map<String, PeerMarkerMotion> build() => {
-        'janet@point.petalcat.dev': PeerMarkerMotion.initial(
-          PeerFix(
-            userId: 'janet@point.petalcat.dev',
-            data: {
-              'lat': 38.620,
-              'lon': -90.205,
-              'accuracy': 800,
-              'timestamp': DateTime.now().millisecondsSinceEpoch,
-            },
-          ),
-        ),
-      };
+    'janet@point.petalcat.dev': PeerMarkerMotion.initial(
+      PeerFix(
+        userId: 'janet@point.petalcat.dev',
+        data: {
+          'lat': 38.620,
+          'lon': -90.205,
+          'accuracy': 800,
+          'timestamp': DateTime.now().millisecondsSinceEpoch,
+        },
+      ),
+    ),
+  };
 }

@@ -7,8 +7,9 @@ for shipped behavior.
 
 ## Non-negotiables
 
-- **Flutter 3.44.6** is pinned in `mise.toml` (and CI). Install it from this
-  directory with `mise install --yes flutter`, then run `flutter pub get`.
+- **Flutter 3.50.0** is pinned in `mise.toml` (and CI), with the CMake and Ninja
+  that `flutter test` needs. Install them from this directory with
+  `mise install --yes`, then run `flutter pub get`.
   The `pubspec.yaml` SDK floor is Dart 3.10. **Zero `flutter analyze` warnings**
   is a gate.
 - **State: Riverpod** (`hooks_riverpod`). Leaf-local ephemeral state may use `setState`; shared
@@ -53,7 +54,7 @@ emulator. Web may be useful for layout iteration but cannot validate those
 platform paths. This repository does not contain iOS or desktop runner projects.
 
 ```sh
-mise install --yes flutter
+mise install --yes
 flutter pub get
 flutter analyze
 cargo build --manifest-path rust/Cargo.toml --locked --release

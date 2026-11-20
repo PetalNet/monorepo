@@ -3,9 +3,9 @@ import 'dart:math' as math;
 import 'dart:typed_data';
 import 'dart:ui' show PointMode;
 
-import 'package:flutter/material.dart';
 import 'package:flutter_map/flutter_map.dart';
 import 'package:latlong2/latlong.dart';
+import 'package:material_ui/material_ui.dart';
 import 'package:point_app/features/relay/relay_controller.dart';
 import 'package:point_app/services/api/models.dart';
 import 'package:point_app/theme/presence_tokens.dart';
@@ -34,7 +34,10 @@ const maxStaticRadiusPx = 280.0;
 ///
 /// Returns the geographic radius to cover, and whether the dark on-screen
 /// floor applies; `null` means a plain precise marker.
-({double radiusM, bool dark})? fuzzStaticSpec(Person person, double? accuracyM) {
+({double radiusM, bool dark})? fuzzStaticSpec(
+  Person person,
+  double? accuracyM,
+) {
   if (!person.hasLocation) return null;
   final coarse = accuracyM != null && accuracyM >= approximateAccuracyFloorM;
   final dark = person.presence == PresenceState.stale;

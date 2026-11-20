@@ -58,10 +58,13 @@ abstract interface class ForegroundServiceController {
 /// The real Android implementation over a platform channel. On non-Android
 /// targets (web/desktop tests, the geolocator web impl) every call is a no-op —
 /// there is no background service there.
-class PlatformForegroundServiceController implements ForegroundServiceController {
+class PlatformForegroundServiceController
+    implements ForegroundServiceController {
   PlatformForegroundServiceController();
 
-  static const _channel = MethodChannel('dev.petalcat.point/foreground_service');
+  static const _channel = MethodChannel(
+    'dev.petalcat.point/foreground_service',
+  );
 
   final _promotions = StreamController<bool>.broadcast();
   bool _handlerBound = false;

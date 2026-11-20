@@ -1,7 +1,7 @@
 import 'dart:convert';
 import 'dart:typed_data';
 
-import 'package:flutter/material.dart';
+import 'package:material_ui/material_ui.dart';
 import 'package:point_app/src/rust/api/crypto.dart';
 import 'package:point_app/src/rust/frb_generated.dart';
 
@@ -31,7 +31,9 @@ Future<String> _runCheck() async {
 
     // Before restart: sanity roundtrip.
     final ct0 = await alice.encrypt(groupId: gid, plaintext: _b('before'));
-    final pt0 = utf8.decode(await bob.decrypt(groupId: bobGid, ciphertext: ct0));
+    final pt0 = utf8.decode(
+      await bob.decrypt(groupId: bobGid, ciphertext: ct0),
+    );
     if (pt0 != 'before') return 'FAIL: pre-restart decrypt ($pt0)';
 
     // Export Alice's state, then RESTART her from the blob.

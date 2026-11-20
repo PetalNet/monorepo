@@ -69,20 +69,23 @@ void main() {
       expect(
         parkedHeartbeat,
         heartbeat,
-        reason: 'people_presence.parkedHeartbeat must mirror the real '
+        reason:
+            'people_presence.parkedHeartbeat must mirror the real '
             'LocationService.heartbeat',
       );
       expect(darkAfter, const Duration(minutes: 45));
       expect(
         heartbeat < darkAfter,
         isTrue,
-        reason: 'a parked-alive phone checks in every $heartbeat; the dark '
+        reason:
+            'a parked-alive phone checks in every $heartbeat; the dark '
             'verdict must wait past that with margin or a live phone reads dead',
       );
       expect(
         darkAfter - heartbeat,
         greaterThanOrEqualTo(const Duration(minutes: 10)),
-        reason: 'margin covers acquisition + relay + the 30s viewer tick + skew',
+        reason:
+            'margin covers acquisition + relay + the 30s viewer tick + skew',
       );
     });
 
@@ -197,7 +200,9 @@ void main() {
           'lon': -90.2,
           'accuracy': 12,
           'timestamp': parkedSince, // REAL last-sample time (old)
-          'alive_at': ago(const Duration(minutes: 5)), // last keepalive (recent)
+          'alive_at': ago(
+            const Duration(minutes: 5),
+          ), // last keepalive (recent)
           'parked': 1,
         },
       );
@@ -206,7 +211,10 @@ void main() {
       expect(merged.presence, PresenceState.live);
       expect(merged.hasLocation, isTrue);
       // … but honestly parked since the real sample time — never "now"/"5m".
-      expect(merged.subtitle, 'Parked · here since ${clockHm(parkedSince)} · ±12 m');
+      expect(
+        merged.subtitle,
+        'Parked · here since ${clockHm(parkedSince)} · ±12 m',
+      );
       expect(merged.subtitle, isNot(contains('now')));
     });
 
@@ -255,33 +263,36 @@ void main() {
     // Task 750: the server flips offline the instant a socket drops, so a
     // peer with a fresh fix used to read "Dark since 11:05" AT 11:05. Within
     // [offlineDarkGrace] of the last liveness signal they must stay live.
-    test('server offline with a fresh fix stays live through the grace (750)', () {
-      final disconnectedAt = now.subtract(const Duration(seconds: 5));
-      final fix = PeerFix(
-        userId: away.userId,
-        data: {
-          'lat': 38.6,
-          'lon': -90.2,
-          'timestamp': ago(const Duration(seconds: 10)),
-        },
-      );
-
-      final merged = mergePresence(
-        away,
-        fix,
-        serverPresence: PeerPresence(
+    test(
+      'server offline with a fresh fix stays live through the grace (750)',
+      () {
+        final disconnectedAt = now.subtract(const Duration(seconds: 5));
+        final fix = PeerFix(
           userId: away.userId,
-          online: false,
-          observedAt: disconnectedAt,
-        ),
-        now: now,
-      );
+          data: {
+            'lat': 38.6,
+            'lon': -90.2,
+            'timestamp': ago(const Duration(seconds: 10)),
+          },
+        );
 
-      expect(merged.presence, PresenceState.live);
-      expect(merged.hasLocation, isTrue);
-      expect(merged.lat, 38.6);
-      expect(merged.subtitle, isNot(contains('Dark')));
-    });
+        final merged = mergePresence(
+          away,
+          fix,
+          serverPresence: PeerPresence(
+            userId: away.userId,
+            online: false,
+            observedAt: disconnectedAt,
+          ),
+          now: now,
+        );
+
+        expect(merged.presence, PresenceState.live);
+        expect(merged.hasLocation, isTrue);
+        expect(merged.lat, 38.6);
+        expect(merged.subtitle, isNot(contains('Dark')));
+      },
+    );
 
     test('offline turns dark only past the grace boundary, stamped with the '
         'last liveness signal — never "now" (750)', () {
@@ -352,25 +363,28 @@ void main() {
       expect(merged.subtitle, isNot(contains('Dark')));
     });
 
-    test('the offline grace never outlasts the liveness dark verdict (750)', () {
-      // The grace shields a socket blip, not a dead phone: a peer whose
-      // device has been quiet past [darkAfter] darks regardless.
-      expect(offlineDarkGrace < darkAfter, isTrue);
-      final fix = PeerFix(
-        userId: away.userId,
-        data: {
-          'lat': 38.6,
-          'lon': -90.2,
-          'timestamp': ago(const Duration(minutes: 50)),
-        },
-      );
-      final merged = mergePresence(away, fix, now: now);
-      expect(merged.presence, PresenceState.stale);
-      expect(
-        merged.darkSinceAt,
-        ago(const Duration(minutes: 50)),
-      );
-    });
+    test(
+      'the offline grace never outlasts the liveness dark verdict (750)',
+      () {
+        // The grace shields a socket blip, not a dead phone: a peer whose
+        // device has been quiet past [darkAfter] darks regardless.
+        expect(offlineDarkGrace < darkAfter, isTrue);
+        final fix = PeerFix(
+          userId: away.userId,
+          data: {
+            'lat': 38.6,
+            'lon': -90.2,
+            'timestamp': ago(const Duration(minutes: 50)),
+          },
+        );
+        final merged = mergePresence(away, fix, now: now);
+        expect(merged.presence, PresenceState.stale);
+        expect(
+          merged.darkSinceAt,
+          ago(const Duration(minutes: 50)),
+        );
+      },
+    );
 
     test('uncertain sender clock keeps last place but is not plotted live', () {
       final fix = PeerFix(
@@ -416,23 +430,25 @@ void main() {
       );
     });
 
-    test('server offline without a fix holds off dark through the grace (750)',
-        () {
-      final merged = mergePresence(
-        away,
-        null,
-        serverPresence: PeerPresence(
-          userId: away.userId,
-          online: false,
-          observedAt: now,
-        ),
-        now: now,
-      );
+    test(
+      'server offline without a fix holds off dark through the grace (750)',
+      () {
+        final merged = mergePresence(
+          away,
+          null,
+          serverPresence: PeerPresence(
+            userId: away.userId,
+            online: false,
+            observedAt: now,
+          ),
+          now: now,
+        );
 
-      expect(merged.presence, PresenceState.away);
-      expect(merged.subtitle, isNot(contains('Dark')));
-      expect(merged.hasLocation, isFalse);
-    });
+        expect(merged.presence, PresenceState.away);
+        expect(merged.subtitle, isNot(contains('Dark')));
+        expect(merged.hasLocation, isFalse);
+      },
+    );
 
     test('fix without coordinates → unchanged', () {
       const fix = PeerFix(userId: 'eli@point.dev', data: {'speed': 1});

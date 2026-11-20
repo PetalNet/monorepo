@@ -10,6 +10,9 @@ analyzer:
     - "**/*.freezed.dart"
     # flutter_rust_bridge generated bindings — not ours to lint.
     - "lib/src/rust/**"
+    - "build/**"
+    - "android/**"
+    - "web/**"
 
 linter:
   rules:

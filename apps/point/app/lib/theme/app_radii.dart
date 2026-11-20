@@ -1,4 +1,4 @@
-import 'package:flutter/material.dart';
+import 'package:material_ui/material_ui.dart';
 
 /// Typed radius scale (D-015: curvy & slick). Pulled from the theme so leaf
 /// widgets never hardcode `circular(n)`.
@@ -36,8 +36,7 @@ class AppRadii extends ThemeExtension<AppRadii> {
 
   /// The top-only 28 radius for bottom sheets (mockup: sheets get big top
   /// corners, square bottom).
-  BorderRadius get sheetTop =>
-      BorderRadius.vertical(top: Radius.circular(xl));
+  BorderRadius get sheetTop => BorderRadius.vertical(top: Radius.circular(xl));
 
   @override
   AppRadii copyWith({

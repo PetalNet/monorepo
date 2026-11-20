@@ -1,7 +1,6 @@
-import 'dart:async';
 import 'dart:math' as math;
 
-import 'package:flutter/material.dart';
+import 'package:material_ui/material_ui.dart';
 import 'package:point_app/features/me/presentation/settings_widgets.dart';
 import 'package:point_app/theme/presence_tokens.dart';
 import 'package:point_app/theme/theme_x.dart';
@@ -82,7 +81,7 @@ class _PresenceDotState extends State<PresenceDot>
     if (widget.state != PresenceState.live || _reducedMotion) {
       _resetAcknowledgment();
     } else if (receivedNewUpdate) {
-      unawaited(_controller.forward(from: 0));
+      _controller.forward(from: 0);
     }
   }
 

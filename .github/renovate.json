@@ -47,11 +47,6 @@
 			"automerge": false
 		},
 		{
-			"description": "very_good_analysis 11 needs Dart ^3.13 (Flutter 3.50); CI pins Flutter 3.44.6. Lift this with the Flutter bump.",
-			"matchPackageNames": ["very_good_analysis"],
-			"allowedVersions": "<11"
-		},
-		{
 			"description": "OkHttp 5.5 requires compileSdk 37 and apps/janet-call-android compiles against 35; #705 broke its build. Lift this with the compileSdk bump.",
 			"matchPackageNames": ["com.squareup.okhttp3:okhttp"],
 			"allowedVersions": "<5"

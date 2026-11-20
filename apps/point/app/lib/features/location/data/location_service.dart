@@ -735,8 +735,7 @@ class LocationService {
       // a linear 1.2·g, mixing units: it fired at ~0.6 m/s² collinear — a
       // buzzing desk — yet needed ~3.43 m/s² of pure lateral, under-detecting
       // smooth car acceleration.)
-      final magnitude =
-          math.sqrt(e.x * e.x + e.y * e.y + e.z * e.z) - 9.81;
+      final magnitude = math.sqrt(e.x * e.x + e.y * e.y + e.z * e.z) - 9.81;
       if (magnitude.abs() > _motionThreshold) _onMotionSample();
     });
   }
@@ -766,8 +765,9 @@ class LocationService {
 
   void _armStillness() {
     _stillnessTimer?.cancel();
-    final window =
-        _machine.foreground ? _stillnessForeground : _stillnessBackground;
+    final window = _machine.foreground
+        ? _stillnessForeground
+        : _stillnessBackground;
     _stillnessTimer = Timer(window, () {
       _machine.onStillness();
       _apply();

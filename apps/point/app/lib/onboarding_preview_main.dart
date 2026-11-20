@@ -1,8 +1,8 @@
 import 'dart:typed_data';
 
-import 'package:flutter/material.dart';
 import 'package:hooks_riverpod/hooks_riverpod.dart';
 import 'package:kaisel/kaisel.dart';
+import 'package:material_ui/material_ui.dart';
 import 'package:point_app/app/routes.dart';
 import 'package:point_app/features/auth/presentation/login_screen.dart';
 import 'package:point_app/features/ghost/ghost_controller.dart';

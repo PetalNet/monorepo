@@ -64,11 +64,12 @@ class EntityRegistry extends Notifier<List<Entity>> {
     ],
   );
 
-  Future<void> remove(String entityId) =>
-      _update((entities) => [
-        for (final e in entities)
-          if (e.id != entityId) e,
-      ]);
+  Future<void> remove(String entityId) => _update(
+    (entities) => [
+      for (final e in entities)
+        if (e.id != entityId) e,
+    ],
+  );
 
   Entity? byId(String entityId) {
     for (final e in state) {

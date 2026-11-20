@@ -1,6 +1,6 @@
-import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:hooks_riverpod/hooks_riverpod.dart';
+import 'package:material_ui/material_ui.dart';
 import 'package:point_app/features/location/tracking_permissions.dart';
 import 'package:point_app/features/map/presentation/live_tracking_health_banner.dart';
 import 'package:point_app/theme/app_theme.dart';

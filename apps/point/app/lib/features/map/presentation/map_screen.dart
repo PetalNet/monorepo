@@ -1,11 +1,11 @@
 import 'dart:async';
 import 'dart:math' as math;
 
-import 'package:flutter/material.dart';
 import 'package:flutter_map/flutter_map.dart';
 import 'package:hooks_riverpod/hooks_riverpod.dart';
 import 'package:kaisel/kaisel.dart';
 import 'package:latlong2/latlong.dart';
+import 'package:material_ui/material_ui.dart';
 import 'package:point_app/app/app_recovery_coordinator.dart';
 import 'package:point_app/app/point_app.dart';
 import 'package:point_app/app/routes.dart';
@@ -126,7 +126,7 @@ class _MapScreenState extends ConsumerState<MapScreen>
     _cameraTarget = point;
     _cameraZoomFrom = _mapController.camera.zoom;
     _cameraZoomTarget = MapScreen._neighborhoodZoom;
-    unawaited(_cameraAnimation.forward(from: 0));
+    _cameraAnimation.forward(from: 0);
   }
 
   void _onMapPositionChanged(MapCamera _, bool hasGesture) {
@@ -575,7 +575,7 @@ class _PeopleMarkersState extends State<_PeopleMarkers>
           ..person = person
           ..exiting = false;
         if (existing.controller.value < 1) {
-          unawaited(existing.controller.forward());
+          existing.controller.forward();
         }
         continue;
       }
@@ -588,7 +588,7 @@ class _PeopleMarkersState extends State<_PeopleMarkers>
         person: person,
         controller: controller,
       );
-      unawaited(controller.forward());
+      controller.forward();
     }
 
     for (final entry in _entries.values.toList()) {
@@ -682,50 +682,48 @@ class _PeopleMarkersState extends State<_PeopleMarkers>
       MapController.of(context).move(center, math.min(camera.zoom + 2, 18));
       return;
     }
-    unawaited(
-      showModalBottomSheet<void>(
-        context: context,
-        builder: (sheetContext) => SafeArea(
-          child: ListView.builder(
-            shrinkWrap: true,
-            padding: EdgeInsets.only(bottom: sheetContext.space.sm),
-            itemCount: cluster.entries.length + 1,
-            itemBuilder: (context, index) {
-              if (index == 0) {
-                return Padding(
-                  padding: EdgeInsets.fromLTRB(
-                    sheetContext.space.lg,
-                    sheetContext.space.sm,
-                    sheetContext.space.lg,
-                    sheetContext.space.xs,
-                  ),
-                  child: Text(
-                    'People here',
-                    style: sheetContext.text.titleMedium,
+    showModalBottomSheet<void>(
+      context: context,
+      builder: (sheetContext) => SafeArea(
+        child: ListView.builder(
+          shrinkWrap: true,
+          padding: EdgeInsets.only(bottom: sheetContext.space.sm),
+          itemCount: cluster.entries.length + 1,
+          itemBuilder: (context, index) {
+            if (index == 0) {
+              return Padding(
+                padding: EdgeInsets.fromLTRB(
+                  sheetContext.space.lg,
+                  sheetContext.space.sm,
+                  sheetContext.space.lg,
+                  sheetContext.space.xs,
+                ),
+                child: Text(
+                  'People here',
+                  style: sheetContext.text.titleMedium,
+                ),
+              );
+            }
+            final entry = cluster.entries[index - 1];
+            return ListTile(
+              leading: const Icon(Icons.person_outline),
+              title: Text(entry.person.displayName),
+              subtitle: Text(entry.person.subtitle),
+              onTap: () {
+                Navigator.of(sheetContext).pop();
+                unawaited(
+                  PersonMapSheet.show(
+                    context,
+                    person: entry.person,
+                    onFocus: () => widget.onFocus(entry.person),
+                    onOpenDetail: () => context.push(
+                      PersonDetailRoute(entry.person.userId),
+                    ),
                   ),
                 );
-              }
-              final entry = cluster.entries[index - 1];
-              return ListTile(
-                leading: const Icon(Icons.person_outline),
-                title: Text(entry.person.displayName),
-                subtitle: Text(entry.person.subtitle),
-                onTap: () {
-                  Navigator.of(sheetContext).pop();
-                  unawaited(
-                    PersonMapSheet.show(
-                      context,
-                      person: entry.person,
-                      onFocus: () => widget.onFocus(entry.person),
-                      onOpenDetail: () => context.push(
-                        PersonDetailRoute(entry.person.userId),
-                      ),
-                    ),
-                  );
-                },
-              );
-            },
-          ),
+              },
+            );
+          },
         ),
       ),
     );

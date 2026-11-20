@@ -90,8 +90,8 @@ jobs:
         with:
           channel: stable
           # Pin to the version the client is built + verified against (kaisel
-          # 0.22.0 needs Dart 3.10+; this ships Dart 3.12).
-          flutter-version: 3.44.6
+          # 0.22.0 needs Dart 3.10+; this ships Dart 3.14).
+          flutter-version: 3.50.0
       - run: flutter pub get
         working-directory: apps/point/app
       - run: flutter analyze
@@ -115,7 +115,7 @@ jobs:
       - uses: subosito/flutter-action@1a449444c387b1966244ae4d4f8c696479add0b2 # v2.23.0
         with:
           channel: stable
-          flutter-version: 3.44.6
+          flutter-version: 3.50.0
       # `flutter test` runs webcrypto's native-assets hook, which compiles BoringSSL (about two
       # minutes). Cache the built library with the package source: the hook rebuilds when a source
       # file is newer than its output, so both must restore together. The key follows the lockfile.

@@ -2,8 +2,8 @@ import 'dart:async';
 import 'dart:convert';
 import 'dart:typed_data';
 
-import 'package:flutter/material.dart';
 import 'package:geolocator/geolocator.dart';
+import 'package:material_ui/material_ui.dart';
 import 'package:point_app/features/crypto/crypto_service.dart';
 import 'package:point_app/features/relay/relay_queue.dart';
 import 'package:point_app/features/relay/ws_service.dart';
@@ -25,8 +25,10 @@ Future<void> main() async {
   runApp(const _TrackApp());
 }
 
-const _base =
-    String.fromEnvironment('POINT_SERVER', defaultValue: 'http://localhost:8330');
+const _base = String.fromEnvironment(
+  'POINT_SERVER',
+  defaultValue: 'http://localhost:8330',
+);
 const _runId = String.fromEnvironment('RUNID', defaultValue: 'dev');
 const _fixCount = int.fromEnvironment('FIX_COUNT', defaultValue: 5);
 const _ghostCount = int.fromEnvironment('GHOST_COUNT', defaultValue: 2);
@@ -88,13 +90,16 @@ class _TrackAppState extends State<_TrackApp> {
 
       // A registers and uploads a KeyPackage pool.
       final a = await api.register(
-          username: 'tracka_$_runId', password: 'correcthorsebattery');
+        username: 'tracka_$_runId',
+        password: 'correcthorsebattery',
+      );
       const bId = 'trackb_$_runId@localhost';
       _line('A=${a.userId}  ->  B=$bId');
       final mls = CryptoService();
       await mls.init(a.userId);
       await api.uploadKeyPackages(a.token, [
-        for (var i = 0; i < 3; i++) base64Encode(await mls.generateKeyPackage()),
+        for (var i = 0; i < 3; i++)
+          base64Encode(await mls.generateKeyPackage()),
       ]);
 
       // Share with B, then wait until B has accepted (authz needs the share).
@@ -103,7 +108,8 @@ class _TrackAppState extends State<_TrackApp> {
       var shared = false;
       for (var i = 0; i < 60 && !shared; i++) {
         final active = await api.activeShares(a.token);
-        shared = active.any((s) => (s['user_id'] ?? s['peer_id']) == bId) ||
+        shared =
+            active.any((s) => (s['user_id'] ?? s['peer_id']) == bId) ||
             active.isNotEmpty;
         if (!shared) await Future<void>.delayed(const Duration(seconds: 1));
       }
@@ -133,8 +139,10 @@ class _TrackAppState extends State<_TrackApp> {
       _line('Welcome sent → B');
 
       // Connect the real WS relay.
-      final ws =
-          WsService(wsUrl: _wsUrl, queue: RelayQueue(store: MemoryRelayStore()));
+      final ws = WsService(
+        wsUrl: _wsUrl,
+        queue: RelayQueue(store: MemoryRelayStore()),
+      );
       await ws.start(a.token);
       await Future<void>.delayed(const Duration(seconds: 1));
 
@@ -163,8 +171,10 @@ class _TrackAppState extends State<_TrackApp> {
       for (var seq = 1; seq <= _fixCount; seq++) {
         final p = await _fix();
         await relay(seq, p);
-        _line('sent seq=$seq (${p.latitude.toStringAsFixed(5)}, '
-            '${p.longitude.toStringAsFixed(5)})');
+        _line(
+          'sent seq=$seq (${p.latitude.toStringAsFixed(5)}, '
+          '${p.longitude.toStringAsFixed(5)})',
+        );
         await Future<void>.delayed(const Duration(seconds: 2));
       }
 
@@ -183,8 +193,10 @@ class _TrackAppState extends State<_TrackApp> {
       await ws.dispose();
       api.close();
       _ok = true;
-      _set('DONE — A sent $_fixCount live fixes, then ghosted + sent '
-          '$_ghostCount decoys');
+      _set(
+        'DONE — A sent $_fixCount live fixes, then ghosted + sent '
+        '$_ghostCount decoys',
+      );
     } on Object catch (e) {
       _set('ERROR: $e');
     } finally {
@@ -214,9 +226,13 @@ class _TrackAppState extends State<_TrackApp> {
                   ),
                 ),
                 const SizedBox(height: 8),
-                Text(_status,
-                    style:
-                        const TextStyle(color: Colors.tealAccent, fontSize: 13)),
+                Text(
+                  _status,
+                  style: const TextStyle(
+                    color: Colors.tealAccent,
+                    fontSize: 13,
+                  ),
+                ),
                 const SizedBox(height: 12),
                 Expanded(
                   child: ListView(
@@ -224,9 +240,13 @@ class _TrackAppState extends State<_TrackApp> {
                       for (final l in _log)
                         Padding(
                           padding: const EdgeInsets.symmetric(vertical: 2),
-                          child: Text(l,
-                              style: const TextStyle(
-                                  color: Colors.white60, fontSize: 12)),
+                          child: Text(
+                            l,
+                            style: const TextStyle(
+                              color: Colors.white60,
+                              fontSize: 12,
+                            ),
+                          ),
                         ),
                     ],
                   ),
