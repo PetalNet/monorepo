@@ -542,7 +542,7 @@ def ingest(inventory: dict, config: dict, cache_dir: Path) -> dict:
     for (cid, asset_id), group in bindings.items():
         if not any(a['id'] == asset_id for a in assets):
             continue
-        metadata = tracked.get(cid, _advisory(cid))
+        metadata = _advisory(cid, **tracked.get(cid, {}))
         names = {cid, *metadata.get('aliases', [])}
         verdicts = []
         packages = []
