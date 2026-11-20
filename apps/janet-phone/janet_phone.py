@@ -130,6 +130,34 @@ def mix(pcm: bytes, tone) -> bytes:
     return np.clip(voice + tone[: len(voice)] * 32768, -32768, 32767).astype("<i2").tobytes()
 
 
+def trim_edges(pcm: bytes, rate: int) -> bytes:
+    """Trim quiet PCM16 mono edges, retaining 50 ms before speech and 200 ms after it."""
+    import numpy as np
+
+    samples = np.frombuffer(pcm, "<i2")
+    if not len(samples):
+        return pcm
+    window = max(1, rate // 100)
+    starts = np.arange(0, len(samples), window)
+    power = np.add.reduceat(samples.astype(np.float64) ** 2, starts) / np.minimum(window, len(samples) - starts)
+    speech = np.flatnonzero(power >= (32768 * .01) ** 2)  # -40 dBFS in 10 ms windows
+    if not len(speech):
+        return pcm
+    start = max(0, int(starts[speech[0]]) - round(.05 * rate))
+    stop = min(len(samples), int(starts[speech[-1]]) + window + round(.2 * rate))
+    trimmed = samples[start:stop].copy()
+    fade = min(round(.005 * rate), len(trimmed) // 2)
+    if fade:
+        # Fade only quiet guards, never a clip that begins or ends in speech.
+        leading = min(fade, int(starts[speech[0]]) - start)
+        trailing = min(fade, stop - int(starts[speech[-1]]) - window)
+        if leading > 0:
+            trimmed[:leading] = np.rint(trimmed[:leading] * np.linspace(0, 1, leading)).astype("<i2")
+        if trailing > 0:
+            trimmed[-trailing:] = np.rint(trimmed[-trailing:] * np.linspace(0, 1, trailing)[::-1]).astype("<i2")
+    return trimmed.tobytes()
+
+
 def new_endpointer(config: "Config"):
     """The shared turn detector (packages/janet-turn) when its models are installed, else the loudness rule above."""
     models = Path(config.turn_models) if config.turn_models else None
@@ -383,6 +411,7 @@ class Call:
         # A caller who talks faster than turns complete loses the oldest-waiting speech, not memory.
         self.utterances: asyncio.Queue[tuple[bytes, float]] = asyncio.Queue(maxsize=4)
         self.speaking: asyncio.Task | None = None
+        self.voice: asyncio.Task | None = None
         self.heard: list[str] = []
         self.rate = 0
         self.over = False
@@ -581,7 +610,8 @@ class Call:
 
     async def reply(self, text: str, ended: float, turn: dict) -> bool:
         """Speaks one reply. Each sentence is synthesized as it arrives, while earlier ones play."""
-        loop, events, spoken = asyncio.get_running_loop(), asyncio.Queue(), asyncio.Queue()
+        loop, events, pending, spoken = asyncio.get_running_loop(), asyncio.Queue(), asyncio.Queue(), asyncio.Queue()
+        stopped = threading.Event()
         head_audio_sent = False
         if self.ring is not None:
             text = ("Outgoing phone call. If the two-way audio check has not been completed in this conversation, "
@@ -613,12 +643,16 @@ class Call:
         def produce() -> None:
             try:
                 for kind, data in stream():
+                    if stopped.is_set():
+                        return
                     loop.call_soon_threadsafe(events.put_nowait, (kind, data))
                     if kind == "done":
                         return
-                loop.call_soon_threadsafe(events.put_nowait, ("failed", {"error": "head stream ended without done"}))
+                if not stopped.is_set():
+                    loop.call_soon_threadsafe(events.put_nowait, ("failed", {"error": "head stream ended without done"}))
             except Exception as error:  # noqa: BLE001 - the consumer must always get a last item
-                loop.call_soon_threadsafe(events.put_nowait, ("failed", {"error": str(error)}))
+                if not stopped.is_set():
+                    loop.call_soon_threadsafe(events.put_nowait, ("failed", {"error": str(error)}))
 
         async def play() -> None:
             nonlocal head_audio_sent
@@ -627,20 +661,39 @@ class Call:
                 await self.say(sentence, audio, turn, ended)
                 head_audio_sent |= not bridge and bool(audio.result()[1])
 
+        async def synthesize() -> None:
+            while (item := await pending.get()) is not None:
+                sentence, audio = item
+                try:
+                    result = await self.synthesize(sentence, turn)
+                except Exception as error:  # noqa: BLE001 - playback reports a failed synthesis
+                    if not audio.cancelled():
+                        audio.set_exception(error)
+                    return
+                if not audio.cancelled():
+                    audio.set_result(result)
+
         loop.run_in_executor(None, produce)
-        player, voices = asyncio.create_task(play()), []
+        player, producer = asyncio.create_task(play()), asyncio.create_task(synthesize())
         self.heard = []
         mark = time.monotonic()
+        event = None
         try:
             while True:
-                kind, data = await events.get()
+                event = asyncio.create_task(events.get())
+                await asyncio.wait([event, player], return_when=asyncio.FIRST_COMPLETED)
+                if player.done():
+                    await player
+                kind, data = event.result()
                 if kind == "sentence":
                     turn.setdefault("head_ms", round((time.monotonic() - mark) * 1000))
-                    voices.append(asyncio.create_task(self.synthesize(data["text"], turn)))
-                    spoken.put_nowait((data["text"], voices[-1], data.get("bridge", False)))
+                    item = (data["text"], loop.create_future())
+                    pending.put_nowait(item)
+                    spoken.put_nowait((*item, data.get("bridge", False)))
                     continue
                 if kind == "failed":
                     log.warning("call %s: turn failed: %s", self.conversation, data["error"])
+                pending.put_nowait(None)
                 spoken.put_nowait(None)
                 await player
                 if self.ring is not None and self.ring.state != "audio_connected":
@@ -658,19 +711,30 @@ class Call:
                 log.warning("call %s: could not report incomplete playback: %s", self.conversation, error)
             raise
         finally:
-            for task in (player, *voices):
+            stopped.set()
+            if event is not None:
+                event.cancel()
+            for task in (player, producer):
                 task.cancel()
+            await asyncio.gather(player, producer, return_exceptions=True)
 
     async def synthesize(self, sentence: str, turn: dict | None = None) -> tuple[int, bytes]:
+        # Cancelling to_thread does not stop its HTTP request. A new reply waits for that request,
+        # while cancellation drops all sentences the ordered producer has not submitted yet.
+        if self.voice is not None:
+            await asyncio.wait([self.voice])
         mark = time.monotonic()
-        audio = await asyncio.to_thread(self.gateway.speech, sentence)
+        self.voice = asyncio.create_task(asyncio.to_thread(self.gateway.speech, sentence))
+        self.voice.add_done_callback(lambda done: done.exception() if not done.cancelled() else None)
+        audio = await asyncio.shield(self.voice)
         if turn is not None:
             turn.setdefault("tts_ms", round((time.monotonic() - mark) * 1000))
         return audio
 
-    async def say(self, sentence: str, audio: asyncio.Task, turn: dict | None = None, ended: float = 0.0,
+    async def say(self, sentence: str, audio: asyncio.Future, turn: dict | None = None, ended: float = 0.0,
                   connect_ring: bool = False) -> None:
         rate, pcm = await audio
+        pcm = trim_edges(pcm, rate)
         if rate != self.rate:
             line = await asyncio.to_thread(make_line, self.config, rate)
             await self.ws.send(json.dumps({"type": "audio", "rate": rate}))

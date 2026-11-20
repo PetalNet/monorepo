@@ -66,6 +66,10 @@ instructions.
   30 s per utterance, and four utterances waiting for a turn.
 - **Cut-off.** When the caller speaks over a reply, the bridge stops sending it, tells the device to
   drop what it has queued, and tells the head how much was heard.
+- **Speech in order.** One producer submits sentences in text order while earlier audio plays.
+  Cutting off a reply drops unsent sentences. The next reply waits for any HTTP synthesis still in
+  flight. Before mixing the line tone, the bridge trims quiet chunk edges to 50 ms before speech
+  and 200 ms after it, with 5 ms fades in the retained quiet edges.
 - **Records of test calls stay out of the owner's room.** The bridge decides each record's
   destination in code: `owner` only when `source = "inbound"` and the channel is not a test or dev
   channel, `notebook` for everything else, including a bridge whose config does not say. The notify
