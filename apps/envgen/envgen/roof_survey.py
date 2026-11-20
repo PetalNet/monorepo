@@ -17,10 +17,12 @@ from scipy.spatial import cKDTree
 from shapely.affinity import translate
 from shapely.geometry import Polygon, shape
 
-VERSION = 5
+VERSION = 6
 TOLERANCE_M = 0.22
 MIN_POINTS = 30
 MAX_PLANES = 8
+DOMAIN_SPACING_M = 1.0
+CORE_CELLS = 3
 
 
 def _predict(xy: np.ndarray, plane: np.ndarray) -> np.ndarray:
@@ -85,6 +87,17 @@ def _smooth_labels(image: np.ndarray, count: int) -> np.ndarray:
     maximum = votes.max(axis=0)
     unique = (votes == maximum).sum(axis=0) == 1
     return np.where(unique, votes.argmax(axis=0), image).astype(np.uint8)
+
+
+def _coherent_labels(image: np.ndarray, inside: np.ndarray) -> np.ndarray | None:
+    seeds = np.full(image.shape, -1, dtype=np.int16)
+    for value in np.unique(image[inside]):
+        core = ndimage.binary_opening((image == value) & inside, structure=np.ones((CORE_CELLS, CORE_CELLS)))
+        seeds[core] = value
+    if not np.any(seeds >= 0):
+        return None
+    nearest = ndimage.distance_transform_edt(seeds < 0, return_distances=False, return_indices=True)
+    return seeds[tuple(nearest)].astype(np.uint8)
 
 
 def _surface(parts):
@@ -269,7 +282,7 @@ def fit(polygon: Polygon, points: np.ndarray, ground: np.ndarray, anchor: np.nda
     if coverage < 0.70:
         return {**base, "reason": "plane coverage below 70 percent", "fit_share": coverage}
     west, south, east, north = local_polygon.bounds
-    spacing = 1.0
+    spacing = DOMAIN_SPACING_M
     xs = np.arange(west + spacing / 2, east + spacing / 2, spacing)
     ys = np.arange(north - spacing / 2, south - spacing / 2, -spacing)
     xx, yy = np.meshgrid(xs, ys)
@@ -285,6 +298,10 @@ def fit(polygon: Polygon, points: np.ndarray, ground: np.ndarray, anchor: np.nda
     parts = []
     envelope = train[:, :2] @ planes[:, :2].T + planes[:, 2]
     use_envelope = np.mean(abs(envelope.min(axis=1) - train[:, 2]) <= TOLERANCE_M) >= 0.85
+    if not use_envelope:
+        image = _coherent_labels(image, grid_inside.reshape(image.shape))
+        if image is None:
+            return {**base, "reason": "no coherent multi-level roof domain at the sampling resolution"}
     for value in range(len(planes)):
         if use_envelope:
             region = local_polygon
@@ -380,6 +397,8 @@ def fit(polygon: Polygon, points: np.ndarray, ground: np.ndarray, anchor: np.nda
         "planes": [{"a": float(p[0]), "b": float(p[1]), "z_at_centroid_m": float(p[2])} for p in planes],
         "fit_share": coverage,
         "area_share_within_2m": area_share,
+        "domain_cell_m": spacing,
+        "domain_core_m": CORE_CELLS * spacing if not use_envelope else None,
         "validation_returns": int(finite.sum()),
         "validation_mae_m": float(error.mean()),
         "validation_p90_m": float(np.quantile(error, 0.9)),

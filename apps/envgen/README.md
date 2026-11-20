@@ -455,6 +455,8 @@ a height, a roof albedo, and where each came from.
   Unsupported fits retain their prior geometry and a rejection reason. Accepted planes generate flat, pitched, or
   stepped roof surfaces, wall tops, and collision. Roof-type names are inferred from plane slopes and levels.
   Shared boundary vertices join fitted levels within 0.44 m (twice the plane-fit tolerance); larger steps remain.
+  Multi-level domains need a 3 by 3 m interior patch. Narrow fragments take the nearest surviving domain;
+  roofs without a coherent patch retain their priors. This regularization and its 1 m grid are recorded per fit.
   Validation samples the resulting triangles, including these joins, rather than the separate plane equations.
   Roof-to-ground eave and ridge heights, held-out errors, supported area, and split-to-split roof-type agreement are
   written per building to `building_accuracy.json`. Type agreement is a consistency check, not independent survey truth.
