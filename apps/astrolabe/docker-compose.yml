@@ -8,14 +8,14 @@ services:
     environment:
       LAB_LAT: ${LAB_LAT:-51.4769}
       LAB_LON: ${LAB_LON:--0.0005}
-      QUOTA_USAGE_PATH: /shared/quota-usage.json
+      QUOTA_USAGE_PATH: /shared/quotas/quota-usage.json
       BACKUP_LOG: /logs/backup-offsite.log
       KUMA_DB: /kuma/kuma.db
       KUMA_URL: ${KUMA_URL:-https://kuma.petalcat.dev}
       HOST_HEALTH_PATH: /shared/host-health-state.json
       MOOD_PATH: /shared/janet-mood.json
     volumes:
-      - /home/docker/.claude/shared/quota-usage.json:/shared/quota-usage.json:ro
+      - /home/docker/.claude/shared/astrolabe-quota:/shared/quotas:ro
       - /home/docker/.claude/shared/host-health-state.json:/shared/host-health-state.json:ro
       - /tmp/janet-mood.json:/shared/janet-mood.json:ro
       - /home/docker/backup-offsite.log:/logs/backup-offsite.log:ro

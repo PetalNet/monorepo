@@ -13,7 +13,7 @@ The server accepts `QUOTA_USAGE_PATH`, `BACKUP_LOG`, `KUMA_DB`, `HOST_HEALTH_PAT
 
 ## Quota feed
 
-The dashboard reads `/shared/quota-usage.json` by default. The producer must provide a JSON object with `generatedAt` in epoch milliseconds and a `services` array. Each service has `service`, `status` (`ok`, `signed-out`, or `error`), and `limits`. Each limit has `id`, `label`, and `usedPct`, with optional `resetAtMs` and `resetLabel`. The feed must exclude account data, summaries, errors, and credentials. Compose expects the file at `/home/docker/.claude/shared/quota-usage.json` on the host; provision it before starting the container.
+The dashboard reads `/shared/quota-usage.json` by default. The producer must provide a JSON object with `generatedAt` in epoch milliseconds and a `services` array. Each service has `service`, `status` (`ok`, `signed-out`, or `error`), and `limits`. Each limit has `id`, `label`, and `usedPct`, with optional `resetAtMs` and `resetLabel`. The feed must exclude account data, summaries, errors, and credentials. Compose mounts `/home/docker/.claude/shared/astrolabe-quota` read-only; provision the directory before starting the container.
 
 The feed is stale after 15 minutes. Stale figures and figures for windows that have reset are hidden. Five-hour and seven-day limits identified by `:5h` and `:7d` suffixes can appear on the dials; all limits appear on plaques. Ollama Cloud is listed as having no limit feed until a report is available.
 
