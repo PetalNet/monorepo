@@ -16,14 +16,17 @@ import urllib.request
 import urllib.parse
 from pathlib import Path
 
+import droplet
+
 
 def run(args, timeout=90):
     result = subprocess.run(args, capture_output=True, text=True, timeout=timeout, check=True)
     return result.stdout
 
 
-def ssh(host, command, timeout=90):
-    return run(['ssh', '-o', 'BatchMode=yes', '-o', 'ConnectTimeout=5', host, command], timeout)
+def ssh(host, command, timeout=90, identity_file=None):
+    identity = ['-i', str(Path(identity_file).expanduser()), '-o', 'IdentitiesOnly=yes'] if identity_file else []
+    return run(['ssh', '-o', 'BatchMode=yes', '-o', 'ConnectTimeout=5', *identity, host, command], timeout)
 
 
 def asset(host, service, product, version=None, **kwargs):
@@ -240,6 +243,12 @@ else:
     source('10.10.10.11', home_assistant)
     source('10.10.10.12', truenas)
     source('proxmox', proxmox)
+    for edge in settings.get('droplets', []):
+        def collect_edge():
+            items, edge_gaps = droplet.collect(edge, ssh)
+            gaps.extend(edge_gaps)
+            return items
+        source(edge['host'], collect_edge)
     for item in assets:
         item['observed_at'] = observed_at
         if not item.get('version'):
