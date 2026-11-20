@@ -2763,6 +2763,7 @@ bool FEnvGenLevelBuild::Finish(float DeltaSeconds, bool& bSucceeded)
 	}
 	const bool bBuildingsOk = State->BuildingsPlaced == State->Buildings.Num() && BuildingsMissed == 0 && BuildingTopCm <= SurfaceToleranceCm
 		&& BuildingNaniteMeshes == State->BuildingActors.Num();
+
 	TSharedRef<FJsonObject> Receipt = MakeShared<FJsonObject>();
 	FString ContextError;
 	const bool bContextOk = FinishEnvGenContext(State->Surround, State->ContextGeometry, Receipt, ContextError);
