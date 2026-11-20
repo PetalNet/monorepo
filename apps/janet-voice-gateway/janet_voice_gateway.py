@@ -311,7 +311,8 @@ class Handler(BaseHTTPRequestHandler):
         try:
             # The caller's own header goes through, so the head checks the token a second time.
             upstream.request("POST", route, body=body, headers={
-                "Authorization": self.headers.get("Authorization", ""), "content-type": "application/json"})
+                "Authorization": self.headers.get("Authorization", ""), "content-type": "application/json",
+                "X-Janet-Lab-Token": self.headers.get("X-Janet-Lab-Token", "")})
             response = upstream.getresponse()
             streaming = response.getheader("content-type", "").startswith("text/event-stream")
             if response.status != 200 or not streaming:

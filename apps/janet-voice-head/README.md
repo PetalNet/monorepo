@@ -173,3 +173,42 @@ server between the hub's accept and the journal write. Run them from this direct
 ```sh
 python -m unittest discover -s tests -t .
 ```
+
+## Read-only lab access on Parker's phone
+
+Set `lab_token_file` to a local private credential file. The head creates it mode 600 if absent.
+The ordinary bearer still authenticates the voice transport. A personal fork additionally requires
+`X-Janet-Lab-Token` to match this separate credential; without it, a personal request becomes a
+fresh guest session. An incorrect supplied credential returns 403. The credential is required on
+turn, interrupt and end requests for that conversation, and client references cannot cross tiers.
+With `lab_token_file` unset, existing tier behavior is retained and no lab tools are enabled.
+
+The phone bridge holds a copy of this credential and sends it only for a device enrolled through
+Parker's direct SSO sign-in (`identity_verified` and `paired_by == lab_owner`), on a personal line.
+Shared pairing links and older enrollments do not establish the recipient's identity. Re-sign in
+from the app after upgrading. A guest line stays guest even for Parker. Phones cannot forward an
+identity header of their own. Desk headphone selection is not speaker verification, so desk/Mac
+clients without this credential remain guests when the lab gate is enabled.
+
+The MCP allowlist is `builders`, `objectives`, `health`, and `pull_requests`, under `janet_lab`.
+Every tool takes an empty object; commands, paths, repository names and shell text are not inputs.
+Builders return only unit names and states, never descriptions, logs or task prompts. Objectives
+come only from `~/.claude/shared/open-objectives.md` (no symlink). Health uses `uptime`, `free -m`,
+and `df -h /`; it does not invoke the health watcher, which writes state and can send alerts.
+PRs use fixed `gh pr list --repo` commands for `PetalNet/monorepo` and `PetalNet/janet-nix`; the
+host needs existing GitHub CLI authentication, otherwise this lookup reports unavailable.
+Messages, recall, calendar, arbitrary files, secret tools and write commands are not exposed.
+
+Each lookup has a three-second total command deadline and a 12 KB per-source output limit.
+The lean fork loads only this stdio MCP server and its configured public web tools, with no shell,
+file editing tools, inherited MCP configuration or main plugins. Lab access refuses main-like
+fork mode. Tool startup is checked against the same allowlist before any answer is spoken.
+The head flushes the short spoken filler when the model starts a tool call. Writes continue
+through the existing relay to main Janet.
+
+Python extends the existing voice runtime without a new service framework or dependency.
+Run the suites with the phone's existing websockets, numpy and qrcode dependencies available.
+The opt-in `tests/prove_lab_call.py --output <directory> --tts <host:port>` runs real Claude,
+the live systemctl tool, HTTP gateway, device admission, phone reply and Wyoming synthesis.
+It scripts the STT text and uses an isolated parent session, registry and hub; it does not inject
+into main or send notifications. It writes Parker/guest WAVs and a JSON proof transcript.

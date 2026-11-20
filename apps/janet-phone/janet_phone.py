@@ -3,6 +3,7 @@
 import argparse
 import array
 import asyncio
+import dataclasses
 import hashlib
 import io
 import json
@@ -168,6 +169,8 @@ class Config:
     # speaks to the gateway with the voice head's token, which never leaves the lab.
     head_token_file: str = ""
     devices_file: str = ""
+    lab_token_file: str = ""
+    lab_owner: str = "parker"
     # Pairing a phone: the plain-HTTP listener, the public wss:// address phones are told to call,
     # the Cloudflare Access service token they need to reach it, and who may open the pairing page.
     http_listen: str = ""
@@ -665,12 +668,16 @@ class Call:
             self.record() + "\n" + json.dumps(self.latency) + "\n" + json.dumps(self.timeline) + "\n")
 
 
-def gateway_for(config: Config, headers) -> Gateway:
+def gateway_for(config: Config, headers, *, parker: bool = False) -> Gateway:
     """The gateway as the bridge calls it for one request: the head's token from the bridge, and the
     Cloudflare Access assertion that came with the request, which the gateway also demands."""
     forwarded = {"Authorization": "Bearer " + Path(config.head_token_file).read_text().strip()}
     if assertion := headers.get("Cf-Access-Jwt-Assertion"):
         forwarded["Cf-Access-Jwt-Assertion"] = assertion
+    if parker and config.lab_token_file:
+        token = Path(config.lab_token_file).read_text().strip()
+        if token:
+            forwarded["X-Janet-Lab-Token"] = token
     return Gateway(config.gateway, forwarded)
 
 
@@ -687,9 +694,11 @@ async def admit(ws: ServerConnection, request: Request, config: Config, devices:
     if len(OPEN) >= config.max_calls:
         return ws.respond(HTTPStatus.SERVICE_UNAVAILABLE, "busy\n")
     ws.device = device
-    ws.gateway = gateway_for(config, {"Cf-Access-Jwt-Assertion": (request.headers.get_all("Cf-Access-Jwt-Assertion") or [""])[0]})
+    parker = config.tier == "personal" and devices.owner_of(pairing.bearer(authorization[0])) == config.lab_owner
     try:
-        ws.conversation = await asyncio.to_thread(ws.gateway.open, config)
+        ws.gateway = gateway_for(config, {"Cf-Access-Jwt-Assertion": (request.headers.get_all("Cf-Access-Jwt-Assertion") or [""])[0]}, parker=parker)
+        ws.call_config = dataclasses.replace(config, tier="personal" if "X-Janet-Lab-Token" in ws.gateway.headers else "guest")
+        ws.conversation = await asyncio.to_thread(ws.gateway.open, ws.call_config)
     except urllib.error.HTTPError as error:
         log.warning("call refused: %s", error)
         return ws.respond(HTTPStatus.FORBIDDEN if error.code in (401, 403) else HTTPStatus.BAD_GATEWAY, "refused\n")
@@ -700,6 +709,7 @@ async def admit(ws: ServerConnection, request: Request, config: Config, devices:
 
 
 async def handle(ws: ServerConnection, config: Config) -> None:
+    config = ws.call_config
     call = Call(ws, config, ws.gateway, ws.conversation, ws.device)
     # A sleeping voice host starts waking now, while the caller hears the cached disclosure.
     threading.Thread(target=warm, args=(config, ws.gateway), daemon=True).start()
