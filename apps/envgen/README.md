@@ -193,7 +193,7 @@ seeded yaw.
   its share and by a log-normal through its measured 10th, 50th and 90th percentile height. The mix also gives
   the trunk diameter (a line fitted to diameter against height) and the crown ratio (the share of the height
   the crown takes). A mix file is `{"source": ..., "species": [{"name", "kind", "share", "height_m": {"p10",
-"p50", "p90"}, "trunk_diameter_m": [intercept, slope], "crown_ratio"}]}`.
+  "p50", "p90"}, "trunk_diameter_m": [intercept, slope], "crown_ratio"}]}`.
 
 Limits: the lidar's heights are as old as its survey; a tree felled since is still there, with lower confidence
 only where a newer source looks, and the level build does not read confidence, so it stands at full size. An inventory of forests describes forest trees, not ones grown in the open.
@@ -381,7 +381,8 @@ shadow blackens it against a sward that has none).
 green/red contrast drives growth, with native survey colour inside its footprint. Correlated 1.2 m noise, terrain
 hollows, 2 m edge fringes and canopy shelter introduce clumps and taller margins. These responses are priors,
 not measured mowing heights: density ranges from 0.18 to 1 and height from 0.45 to 1.8 times the mowing range.
-Grass masks suppress growth on other materials. The broadleaf shape is clover-like and its species and abundance
+Pure non-grass masks suppress growth. Mixed path edges retain vegetation in proportion to the engine's surface
+weight, without an earlier majority-class cutoff. The broadleaf shape is clover-like and its species and abundance
 are priors. One blade in thirteen receives a restrained straw tint within the seasonal palette.
 
 Blade materials use two-sided foliage transmission, root ambient occlusion, roughness 0.6 and specular 0.25.
@@ -390,8 +391,8 @@ World-position gusts bend tips while retaining roots. Ground and blade roots sha
 its derivatives also perturb ground normals. Wind amplitudes and relief are visual priors, not terrain measurements.
 Grass displacement fades to zero between 22 and 25 m; the engine disables its evaluation beyond 25 m.
 Curved blades include folded tips and varied resting angles. A stable seed per blade combines with the instance
-seed to vary individual stature within each tuft; the photo still sets its growth envelope. Instance-scale height
-differences and coherent resting lean vary blade posture. The scan's colour contrast
+seed to vary individual stature and resting bend within each tuft; the photo still sets its growth envelope.
+The extra bend stays within 3 cm and leaves roots fixed. The scan's colour contrast
 and close normal strength are increased to retain surface detail where the sward thins; these are visual priors.
 The engine shrinks a tuft away between its start and end distance and has no nearest distance, so a variety is drawn
 from the camera out. The clump's wide blades are kept from a walker's feet by its material: nearer than 8 m a clump
