@@ -2352,8 +2352,7 @@ bool FEnvGenLevelBuild::Start(const FString& ManifestPath, const FString& MapPat
 			Variety.AlignToSurface = true;
 		}
 	}
-	UMaterial* Material = MakeGroundMaterial(Macro, Ratio, Survey, OrthoMasks, OrthoColour, FallbackWeights, Grain, StreetscapeMask, Manifest, Detail, Growth, Manifest.Tile.Vertices - 1, Manifest.Tile.Scale.X, Manifest.AlbedoScale, Manifest.Layers, GrassTypes, State->Packages);
-	UMaterial* Material = MakeGroundMaterial(Macro, Ratio, Survey, Grain, ProcfillGrowth, ProcfillDebug, Manifest, Detail, Manifest.Tile.Vertices - 1, Manifest.Tile.Scale.X, Manifest.AlbedoScale, Manifest.Layers, GrassType, State->Packages);
+	UMaterial* Material = MakeGroundMaterial(Macro, Ratio, Survey, OrthoMasks, OrthoColour, FallbackWeights, Grain, StreetscapeMask, ProcfillGrowth, ProcfillDebug, Manifest, Detail, Growth, Manifest.Tile.Vertices - 1, Manifest.Tile.Scale.X, Manifest.AlbedoScale, Manifest.Layers, GrassTypes, State->Packages);
 	for (FLayer& Layer : Manifest.Layers)
 	{
 		Layer.Info = NewAsset<ULandscapeLayerInfoObject>(TEXT("LI_") + Layer.Name.ToString(), State->Packages);
