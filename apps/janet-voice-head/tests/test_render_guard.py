@@ -1,6 +1,7 @@
 import json
 import os
 import subprocess
+import sys
 import tempfile
 import threading
 import unittest
@@ -35,7 +36,7 @@ class RenderGuardTest(unittest.TestCase):
         self.addCleanup(server.shutdown)
         threading.Thread(target=server.serve_forever, daemon=True).start()
         ssh = root / "ssh"
-        ssh.write_text('#!/usr/bin/env python3\nimport os\nprint(os.environ["FAKE_TTS_STATUS"])\n')
+        ssh.write_text(f'#!{sys.executable}\nimport os\nprint(os.environ["FAKE_TTS_STATUS"])\n')
         ssh.chmod(0o755)
         self.env = {**os.environ, "PATH": str(root) + os.pathsep + os.environ["PATH"],
                     "VOICE_HEAD_URL": f"http://127.0.0.1:{server.server_port}",
