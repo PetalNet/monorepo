@@ -1706,7 +1706,7 @@ return normalize(float3(ScanNormal.xy*lerp(1,1.8,close)-slope*Grass,ScanNormal.z
 		return Landscape;
 	}
 
-	UMaterial* MakePavingMaterial(UTexture2D* Macro, UTexture2D* Ratio, const FManifest& Manifest, TArray<UPackage*>& Packages)
+	UMaterial* MakePavingMaterial(UTexture2D* Macro, const FManifest& Manifest, TArray<UPackage*>& Packages)
 	{
 		UMaterial* Material = NewAsset<UMaterial>(TEXT("M_RegisteredPaving"), Packages);
 		auto* Position = Node<UMaterialExpressionWorldPosition>(Material, -1400, 0);
@@ -1736,18 +1736,8 @@ return normalize(float3(ScanNormal.xy*lerp(1,1.8,close)-slope*Grass,ScanNormal.z
 		FCustomInput& Colour = Albedo->Inputs.AddDefaulted_GetRef();
 		Colour.InputName = TEXT("MacroColour");
 		Colour.Input.Connect(0, RegisteredSample(Macro, SAMPLERTYPE_Color, 0));
-		if (Ratio)
-		{
-			FCustomInput& Fine = Albedo->Inputs.AddDefaulted_GetRef();
-			Fine.InputName = TEXT("DetailRatio");
-			Fine.Input.Connect(0, RegisteredSample(Ratio, SAMPLERTYPE_LinearColor, 200));
-			Albedo->Code = FString::Printf(TEXT("return MacroColour.rgb * %.9f * exp2(%.9f * (255.0 * DetailRatio.rgb - %.9f) / %.9f);"),
-				Manifest.AlbedoScale, Manifest.RatioLog2Range, Manifest.RatioZero, Manifest.RatioZero);
-		}
-		else
-		{
-			Albedo->Code = FString::Printf(TEXT("return MacroColour.rgb * %.9f;"), Manifest.AlbedoScale);
-		}
+		// Stall markings are geometry; fine orthophoto detail would also paint flat cars and their shadows.
+		Albedo->Code = FString::Printf(TEXT("return MacroColour.rgb * %.9f;"), Manifest.AlbedoScale);
 		UMaterialEditingLibrary::ConnectMaterialProperty(Albedo, TEXT(""), MP_BaseColor);
 		auto* Roughness = Node<UMaterialExpressionConstant>(Material, -600, 300);
 		Roughness->R = .87f;
@@ -2620,7 +2610,7 @@ bool FEnvGenLevelBuild::Start(const FString& ManifestPath, const FString& MapPat
 		UMaterial* BuildingMaterial = MakeBuildingMaterial(Manifest.RoofRoughness, State->Packages);
 		State->BuildingActors = AddBuildings(State->World, Manifest, State->HeightBytes, State->Buildings, BuildingMaterial, State->Packages, State->BuildingsPlaced);
 	}
-	UMaterial* PavingMaterial = Manifest.StreetscapeMaskFile.IsEmpty() ? nullptr : MakePavingMaterial(Macro, Ratio, Manifest, State->Packages);
+	UMaterial* PavingMaterial = Manifest.StreetscapeMaskFile.IsEmpty() ? nullptr : MakePavingMaterial(Macro, Manifest, State->Packages);
 	if (!BuildEnvGenStreetscape(State->World, ManifestPath,
 		StreetscapeHeight,
 		State->Packages, State->StreetscapeActors, State->StreetscapeReceipt, Error, PavingMaterial))
