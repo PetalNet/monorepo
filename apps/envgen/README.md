@@ -317,6 +317,8 @@ Stored sampling does not establish the image's independently resolved detail.
   growth and detail replacement. Native evidence masks retain the source coverage unchanged.
   Native alpha gaps are reduced conservatively onto the colour grid before computing physical distances;
   this can move the blend boundary by at most one colour cell, without losing gaps narrower than that cell.
+  Within 3 m of the camera, survey detail is filtered toward 10 cm sampling so photographic blade texture
+  does not compete with the close material scan. The bias fades out by 15 m; larger photo patterns remain.
   Native processing runs in overlapping windows, with bounded pooled grids and streamed PNG output.
   A rejected RGB split remains recorded in the manifest. It does not establish that the ground is all grass.
 - **Optional observations** (`sources.survey.observations`). A schema-1 JSON file must identify the orthophoto's

@@ -967,6 +967,9 @@ return ((float3((float2(1.6,0.65)*sway+lean)*tip,0) + float3(0,0,(Here.z-Root.z)
 		const TArray<FLayer>& Layers, const TArray<ULandscapeGrassType*>& GrassTypes, TArray<UPackage*>& Packages)
 	{
 		UMaterial* Material = NewAsset<UMaterial>(TEXT("M_Ground"), Packages);
+		UMaterialExpressionWorldPosition* GroundPosition = Node<UMaterialExpressionWorldPosition>(Material, -1500, 300);
+		GroundPosition->WorldPositionShaderOffset = WPT_ExcludeAllShaderOffsets;
+		UMaterialExpressionCameraPositionWS* GroundEye = Node<UMaterialExpressionCameraPositionWS>(Material, -1500, 400);
 		UMaterialExpressionMultiply* MacroAlbedo = Node<UMaterialExpressionMultiply>(Material, -700, 0);
 		MacroAlbedo->A.Connect(0, Sample(Material, Macro, Quads, SAMPLERTYPE_Color, 0));
 		MacroAlbedo->ConstB = AlbedoScale;
@@ -1022,6 +1025,20 @@ return ((float3((float2(1.6,0.65)*sway+lean)*tip,0) + float3(0,0,(Here.z-Root.z)
 				SurveySample->Texture = Survey;
 				SurveySample->AutoSetSampleType();
 				SurveySample->Coordinates.Connect(0, PaddedUv(Material, SurveyUv, Survey, -1250));
+				UMaterialExpressionCustom* FineMipBias = Node<UMaterialExpressionCustom>(Material, -1100, -1650);
+				FineMipBias->OutputType = CMOT_Float1;
+				FineMipBias->Inputs.Empty();
+				FCustomInput& Here = FineMipBias->Inputs.AddDefaulted_GetRef();
+				Here.InputName = TEXT("Here");
+				Here.Input.Connect(0, GroundPosition);
+				FCustomInput& Eye = FineMipBias->Inputs.AddDefaulted_GetRef();
+				Eye.InputName = TEXT("Eye");
+				Eye.Input.Connect(0, GroundEye);
+				const double SourcePixelM = Manifest.SurveyNorthM / Survey->Source.GetSizeX();
+				FineMipBias->Code = FString::Printf(TEXT("return %.6f*(1-smoothstep(300,1500,distance(Here,Eye)));"),
+					FMath::Max(0.0, FMath::Log2(0.1 / SourcePixelM)));
+				SurveySample->MipValueMode = TMVM_MipBias;
+				SurveySample->MipValue.Connect(0, FineMipBias);
 				UMaterialExpressionMultiply* SurveyScaled = Node<UMaterialExpressionMultiply>(Material, -700, -1250);
 				SurveyScaled->A.Connect(1, SurveySample);
 				SurveyScaled->ConstB = float(Manifest.SurveyLog2Range * 255.0 / Manifest.SurveyZero);
@@ -1223,9 +1240,6 @@ return ((float3((float2(1.6,0.65)*sway+lean)*tip,0) + float3(0,0,(Here.z-Root.z)
 				NativeInfluence = Faded;
 			}
 		}
-		UMaterialExpressionWorldPosition* GroundPosition = Node<UMaterialExpressionWorldPosition>(Material, -1500, 300);
-		GroundPosition->WorldPositionShaderOffset = WPT_ExcludeAllShaderOffsets;
-		UMaterialExpressionCameraPositionWS* GroundEye = Node<UMaterialExpressionCameraPositionWS>(Material, -1500, 400);
 		UMaterialExpressionCustom* DetailShare = Node<UMaterialExpressionCustom>(Material, -1200, 350);
 		DetailShare->OutputType = CMOT_Float1;
 		DetailShare->Inputs.Empty();
