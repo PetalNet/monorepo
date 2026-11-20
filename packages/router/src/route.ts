@@ -35,9 +35,16 @@ import {
 import { run } from "./run.ts";
 import { readAvailability } from "./state.ts";
 
-const USAGE =
-	"usage: route pull-evidence | route <pick --dry|explain|run> --kind <code|ui|research|write|sweep|cyber|architecture> --tier <S|A|B|C|top|mid|fast|cheap> --data-class <public|sensitive|parcs> [--model <model> --effort <effort> (required for run)] [--not-vendor <maker>] <brief-file>";
-const TIER_ALIASES: Record<string, string> = { top: "S", mid: "A", fast: "B", cheap: "C" };
+const USAGE = `usage:
+  route ls  [--for <kind>] [--class <public|sensitive|parcs>] [--not-vendor <maker>]
+            what you can run right now: model:effort, plan, quota, quality for <kind>, cost, time
+  route run <model>[:<effort>] [--for <kind>] [--class <class>] <brief-file>
+            run your pick; route checks policy and quota, logs it and pings Janet when it ends
+  route why <model>[:<effort>] [--for <kind>] [--class <class>]
+            why a model is or isn't runnable, with its evidence
+  route pull-evidence
+kinds: code ui research write sweep cyber architecture (default code). class defaults to public and rises
+automatically for briefs that carry credentials (sensitive) or PARCS/Bridgeton (parcs).`;
 const KINDS = new Set(["code", "ui", "research", "write", "sweep", "cyber", "architecture"]);
 const SECRET_RE =
 	/gh[pousr]_[A-Za-z0-9]{20,}|github_pat_\w{20,}|sk-[A-Za-z0-9_-]{20,}|AKIA[0-9A-Z]{16}|-----BEGIN [A-Z ]*PRIVATE KEY/u;
@@ -86,6 +93,56 @@ export function effectiveDataClass(flag: DataClass, brief: string): DataClass {
 	}
 
 	return SECRET_RE.test(brief) ? "sensitive" : flag;
+}
+
+/** One line per quota source, as the reader summarized it. */
+export function formatQuota(reports: Record<string, { status: string; summary: string }>): string {
+	return Object.entries(reports)
+		.map(([name, r]) => `quota ${name}: ${r.status === "ok" ? r.summary : r.status}`)
+		.join("\n");
+}
+
+/** The runnable menu, best first: what a caller needs to choose. */
+export function formatMenu(result: Pick, kind: string): string {
+	if (result.ranked.length === 0) {
+		return `nothing runnable for ${kind} right now; route why <model> shows the reasons`;
+	}
+
+	const rows = result.ranked.map(({ offer: o, evidence: e, source }) => [
+		`${o.model}:${o.effort}`,
+		o.pool?.id ?? "-",
+		e ? `Q=${e.q.toFixed(2)}` : `score=${String(o.score)}`,
+		e ? `$${e.cost.toFixed(2)}` : "",
+		e ? `~${Math.round(e.seconds / 60)}m` : "",
+		source === "evidence" ? "" : "(no evidence)",
+	]);
+	const widths = rows[0]!.map((_, i) => Math.max(...rows.map((r) => r[i]!.length)));
+
+	return [
+		`runnable for ${kind} (best first; Q = expected quality 0-1 per task):`,
+		...rows.map((r) => `  ${r.map((cell, i) => cell.padEnd(widths[i]!)).join("  ").trimEnd()}`),
+		`${String(result.excluded.filter((x) => !x.reasons.includes("not the caller's choice")).length)} more not runnable: route why <model>`,
+	].join("\n");
+}
+
+/** Every offer of one model, runnable or not, with the reasons. */
+export function formatWhy(result: Pick, model: string): string {
+	const mine = [
+		...result.ranked.map((r) => ({ ...r, reasons: [] as string[] })),
+		...result.excluded,
+	].filter((r) => r.offer.model === model);
+
+	if (mine.length === 0) {
+		return `${model}: not in the catalog (route ls lists what exists)`;
+	}
+
+	return mine
+		.map(({ offer: o, reasons, evidence: e }) => {
+			const why = reasons.filter((r) => r !== "not the caller's choice");
+
+			return `${o.model}:${o.effort} [${o.pool?.id ?? "-"}] ${why.length ? `blocked: ${why.join("; ")}` : "runnable"}${e ? ` Q=${e.q.toFixed(2)} cost=$${e.cost.toFixed(2)} ~${Math.round(e.seconds / 60)}m` : ""}`;
+		})
+		.join("\n");
 }
 
 export function formatPick(result: Pick, kind: string, tier: string): string {
@@ -187,14 +244,10 @@ async function main(argv: string[]): Promise<number> {
 			args: argv,
 			allowPositionals: true,
 			options: {
-				dry: { type: "boolean" },
-				"allow-claude": { type: "boolean" },
+				for: { type: "string" },
+				class: { type: "string" },
 				"not-vendor": { type: "string", multiple: true },
-				model: { type: "string" },
-				effort: { type: "string" },
-				kind: { type: "string" },
-				tier: { type: "string" },
-				"data-class": { type: "string" },
+				"allow-claude": { type: "boolean" },
 			},
 		});
 	} catch {
@@ -204,17 +257,19 @@ async function main(argv: string[]): Promise<number> {
 	}
 
 	const { values, positionals } = parsed;
-	const [command, briefFile] = positionals;
-	const { kind = "" } = values;
-	const tier = TIER_ALIASES[values.tier ?? ""] ?? values.tier ?? (command === "explain" ? "S" : "");
-	const flagClass = values["data-class"] ?? (command === "explain" ? "public" : undefined);
+	const [command, ...rest] = positionals;
+	const kind = values.for ?? "code";
+	const flagClass = values.class ?? "public";
+	const [target, briefFile] = command === "ls" ? [undefined, undefined] : rest;
+	const [model, effort] = (target ?? "").split(":");
+	// Eli and Parker 2026-11-19: the agent chooses with repo context; route shows the menu, enforces, runs.
+	const tier = "*";
 
 	if (
-		(command !== "pick" && command !== "run" && command !== "explain") ||
-		(command === "pick" && !values.dry) ||
-		(command === "run" && values.dry) ||
+		!["ls", "run", "why"].includes(command ?? "") ||
+		(command !== "ls" && !model) ||
+		(command === "run" && !briefFile) ||
 		!KINDS.has(kind) ||
-		!tier ||
 		(flagClass !== "public" && flagClass !== "sensitive" && flagClass !== "parcs")
 	) {
 		process.stderr.write(`${USAGE}\n`);
@@ -222,11 +277,7 @@ async function main(argv: string[]): Promise<number> {
 		return 2;
 	}
 
-	const brief = command === "run" ? { text: positionals.slice(1).join(" ") } : readBrief(briefFile);
-
-	if ("text" in brief && !brief.text.trim()) {
-		return 2;
-	}
+	const brief = command === "run" ? readBrief(briefFile) : { text: "" };
 
 	if ("error" in brief) {
 		process.stderr.write(`route: ${brief.error}; aborting before any quota read or model call\n`);
@@ -236,12 +287,6 @@ async function main(argv: string[]): Promise<number> {
 
 	const home = homedir();
 	const catalog = readJson<Catalog>(`${home}/.claude/shared/model-tiers.json`);
-
-	if (!(tier in catalog.tiers)) {
-		process.stderr.write(`route: unknown tier ${tier}\n`);
-
-		return 2;
-	}
 
 	const dataClass = effectiveDataClass(flagClass, brief.text);
 	const legacy = readJson<{ deny?: string[]; deny_patterns?: string[] }>(
@@ -268,7 +313,7 @@ async function main(argv: string[]): Promise<number> {
 		// Eli 2026-11-19: "xhigh, max aren't allowed to be used by you".
 		bannedEfforts: ["xhigh", "max", "ultra"],
 		// Eli and Parker 2026-11-19: the caller picks from route's menu; route enforces and runs.
-		choice: values.model ? { model: values.model, effort: values.effort } : undefined,
+		choice: command === "ls" ? undefined : { model: model ?? "", effort: effort || undefined },
 		notVendor: (values["not-vendor"] ?? []).flatMap((v) => v.split(",")).map((v) => v.trim().toLowerCase()),
 		reports: { "google-ai": google, codex, claude },
 		exhausted: readJson(`${home}/.local/state/agy-build/exhausted.json`, {}),
@@ -279,7 +324,7 @@ async function main(argv: string[]): Promise<number> {
 			: POOLS,
 		blocks: BLOCKS,
 		floorPct: Number(process.env["FLOOR"] ?? 15),
-		runnableOnly: command === "run",
+		runnableOnly: true,
 		availability: await readAvailability(`${home}/.local/state/router`),
 	};
 	let result = pick(catalog, kind, tier, state);
@@ -301,61 +346,34 @@ async function main(argv: string[]): Promise<number> {
 	}
 
 	process.stdout.write(
-		`route ${command}${command === "pick" ? " --dry" : ""} kind=${kind} tier=${tier} data-class=${dataClass}${dataClass === flagClass ? "" : " (raised by brief policy)"}\n`,
+		`${dataClass === flagClass ? "" : `class raised to ${dataClass} by the brief\n`}${redact(formatQuota(state.reports))}\n`,
 	);
 
-	process.stdout.write(`${redact(formatPick(result, kind, tier))}\n`);
+	if (command === "ls") {
+		process.stdout.write(`${redact(formatMenu(result, kind))}\n`);
 
-	if (command === "explain") {
-		process.stdout.write(
-			`${state.evidence.notes.join("\n")}\nUnmapped source names: ${state.evidence.unmapped.join(", ")}\n`,
-		);
+		return result.ranked.length > 0 ? 0 : 3;
+	}
 
-		const unmapped = offersFrom(catalog, kind, state.pools).filter(
-			(offer) =>
-				!state.evidence.rows.some(
-					(row) => row.model === evidenceKey(offer.model, offer.effort).model,
-				),
-		);
+	if (command === "why" || result.ranked.length === 0) {
+		process.stdout.write(`${redact(formatWhy(result, model ?? ""))}\n`);
 
-		process.stdout.write(
-			`Catalog models without evidence: ${[...new Set(unmapped.map((offer) => offer.model))].join(", ")}\n`,
-		);
-
-		const candidates = [
-			...result.ranked,
-			...result.excluded.map((row) => ({
-				...row,
-				source: `${row.source ?? "table"}; excluded (${row.reasons.join("; ")})`,
-			})),
-		].toSorted((a, b) => b.rank - a.rank);
-
-		for (const row of candidates) {
-			const score = row.evidence;
-
-			if (!score) {
-				continue;
-			}
-
-			process.stdout.write(
-				`${row.offer.id} evidence-effort=${evidenceKey(row.offer.model, row.offer.effort).effort}: ${row.source ?? "table"} cov=${score.coverage.toFixed(2)} use=${score.coverage + 1e-12 >= 0.3 ? "evidence" : "table"} rank=${row.rank.toFixed(3)} Q=${score.q.toFixed(3)} p=${score.p.toFixed(3)} evidence-U=${score.utility.toFixed(3)} lambda=${score.lambda.toFixed(3)} cost=$${score.cost.toFixed(3)} latency=${score.seconds.toFixed(1)}s tokens=${score.tokens.toFixed(0)} speed=${score.speed.toFixed(1)}/s TTFT=${score.ttft.toFixed(1)}s table=${String(row.offer.score)}\n`,
-			);
-
-			process.stdout.write(
-				`  ${score.signals.map((s) => `${s.signal}=${s.value.toFixed(3)} [${s.kind}; ${s.src}; effort=${s.effort}; reporter=${s.reporter ?? s.src}; half-life=${String(halfLifeDays(s))}d; ${s.asof}; ${s.url}]`).join("\n  ")}\n  missing: ${score.missing.join(", ")}\n  ${score.assumptions.join("; ")}\n`,
-			);
-
-			for (const s of score.crossChecks) {
-				process.stdout.write(
-					`  cross-check (unweighted): ${s.signal}=${s.value.toFixed(3)} [${s.kind}; ${s.src}; effort=${s.effort}; reporter=${s.reporter ?? s.src}; half-life=${String(halfLifeDays(s))}d; ${s.asof}; ${s.url}]\n`,
-				);
-			}
+		if (command === "why") {
+			return result.ranked.length > 0 ? 0 : 3;
 		}
+
+		const alternatives = pick(catalog, kind, tier, { ...state, choice: undefined }).ranked.slice(0, 3);
+
+		process.stdout.write(
+			`${target} can't run now. Best runnable instead: ${alternatives.map((r) => `${r.offer.model}:${r.offer.effort}`).join(", ") || "none"}\n`,
+		);
+
+		return 3;
 	}
 
 	if (
 		dataClass === "parcs" ||
-		(command !== "run" && result.ranked[0]?.offer.pool?.plan === "claude")
+		(command === "why" && result.ranked[0]?.offer.pool?.plan === "claude")
 	) {
 		const handoff = result.ranked[0]?.offer;
 
@@ -366,23 +384,15 @@ async function main(argv: string[]): Promise<number> {
 		return 5;
 	}
 
-	if (command === "run" && !values.model) {
-		process.stdout.write(
-			"route run needs your choice: pick a model (and effort) from the list above with --model <model> --effort <effort>.\n",
-		);
-
-		return 2;
-	}
-
 	if (command === "run") {
 		const executed = await run({
 			catalog,
 			state,
 			kind,
 			tier,
-			brief: brief.text,
+			brief: briefFile ?? "",
 			dataClass,
-			briefName: /^\S+\.md$/u.test(brief.text.trim()) ? basename(brief.text.trim(), ".md") : "",
+			briefName: basename(briefFile ?? "", ".md"),
 			cwd: process.cwd(),
 			dir: `${home}/.local/state/router`,
 			legacy: `${home}/.local/state/agy-build`,

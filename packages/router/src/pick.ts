@@ -459,13 +459,18 @@ export function pick(catalog: Catalog, kind: string, tier: string, state: State)
 	const at = order.findIndex(([t]) => t === tier);
 	const tries = [order[at], order[at - 1], order[at + 1]].filter((t) => t !== undefined);
 	const band = (t: string) => {
+		// "*" is no tier: the caller chooses, so every eligible offer is listed.
+		if (t === "*") {
+			return [-Infinity, Infinity] as const;
+		}
+
 		const i = order.findIndex(([name]) => name === t);
 		const lo = order[i]?.[1] ?? 0;
 
 		return [lo, order[i - 1]?.[1] ?? Infinity] as const;
 	};
 
-	const chosen = tries.find(([t]) => {
+	const chosen = tier === "*" ? "*" : tries.find(([t]) => {
 		const [lo, hi] = band(t);
 
 		return judged.some((j) => j.reasons.length === 0 && j.offer.score >= lo && j.offer.score < hi);

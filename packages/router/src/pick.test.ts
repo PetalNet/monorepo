@@ -354,57 +354,39 @@ describe("brief", () => {
 		writeFileSync(path.join(dir, "empty"), "\n");
 		writeFileSync(path.join(dir, "brief"), "fix the flaky test\n");
 
-		const route = (brief: string, dataClass = "public") =>
-			spawnSync(
-				process.execPath,
-				[
-					fileURLToPath(new URL("route.ts", import.meta.url)),
-					"pick",
-					"--dry",
-					"--kind",
-					"code",
-					"--tier",
-					"S",
-					"--data-class",
-					dataClass,
-					path.join(dir, brief),
-				],
-				{
-					encoding: "utf8",
-					env: {
-						...process.env,
-						HOME: dir,
-						QUOTA_AGY_CMD: reader,
-						QUOTA_CODEX_CMD: reader,
-						QUOTA_CLAUDE_USAGE_CMD: reader,
-					},
+		const route = (...args: string[]) =>
+			spawnSync(process.execPath, [fileURLToPath(new URL("route.ts", import.meta.url)), ...args], {
+				encoding: "utf8",
+				env: {
+					...process.env,
+					HOME: dir,
+					QUOTA_AGY_CMD: reader,
+					QUOTA_CODEX_CMD: reader,
+					QUOTA_CLAUDE_USAGE_CMD: reader,
 				},
-			);
+			});
 
-		const empty = route("empty");
+		const empty = route("run", "gpt-6-astra:none", path.join(dir, "empty"));
 
 		expect(empty.status).toBe(2);
 		expect(empty.stderr).toContain("is empty");
 		expect(existsSync(marker)).toBe(false);
 
-		// Control: the same setup with a real brief does reach the readers.
+		// Control: listing does reach the readers.
 		// The fake readers leave Google unparsable and Codex signed in with no snapshot.
-		const control = route("brief");
+		const control = route("ls");
 
 		expect(existsSync(marker)).toBe(true);
 		expect(control.status).toBe(0);
-		expect(control.stdout).toContain("ranked (tier S/code):");
+		expect(control.stdout).toContain("runnable for code");
+		expect(control.stdout).toMatch(/gpt-6-astra:none\s+codex/u);
 
-		expect(control.stdout).toMatch(
-			/1\. gpt-6-astra effort=none plan=codex pool=codex \(overflow\) rank=7\.51 \(table\) cov=0\.00/u,
-		);
+		const why = route("why", "gemini-4-neon:xhigh");
 
-		expect(control.stdout).toMatch(/gemini-4-neon-xhigh \[.*\]: google-ai quota error/u);
+		expect(why.stdout).toMatch(/gemini-4-neon:xhigh \[.*\] blocked: .*google-ai quota error/u);
 
-		const parcs = route("brief", "parcs");
+		const parcs = route("why", "gpt-6-astra", "--class", "parcs");
 
-		expect(parcs.status).toBe(5);
-		expect(parcs.stdout).toContain("Claude handoff");
 		expect(parcs.stdout).toContain("parcs brief: claude plan only");
 	});
 });
