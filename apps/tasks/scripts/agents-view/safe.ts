@@ -163,7 +163,11 @@ export function content(value: unknown): string {
 			.join("\n");
 	}
 
-	return value === undefined ? "" : JSON.stringify(value);
+	return value === undefined
+		? ""
+		: JSON.stringify(value, (_key, item: unknown) =>
+				typeof item === "string" ? redact(item) : item,
+			);
 }
 
 export function prLinks(text: string): string[] {

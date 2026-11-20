@@ -255,6 +255,7 @@ const toolInputs = [
 		command:
 			'PASSWORD="two word secret" curl -d \'{"password":"hunter2","api_key":"my-api-key-99"}\'',
 	},
+	{ content: JSON.stringify({ password: 'quoted "inner secret" suffix' }) },
 ];
 const toolSnapshot = await snapshot({
 	stateDir: "/tools",
@@ -283,12 +284,12 @@ const toolSnapshot = await snapshot({
 	},
 });
 
-assert.equal(toolSnapshot.runs[0].turns.length, 4);
+assert.equal(toolSnapshot.runs[0].turns.length, 6);
 assert.match(JSON.stringify(toolSnapshot), /redacted/);
 
 assert.doesNotMatch(
 	JSON.stringify(toolSnapshot),
-	/hunter2|top-secret-42|dXNlcjpwYXNz|two word secret|my-api-key-99/,
+	/hunter2|top-secret-42|dXNlcjpwYXNz|two word secret|my-api-key-99|inner secret|suffix/,
 );
 
 const unclassifiedLedgers = [];
