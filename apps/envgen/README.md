@@ -392,13 +392,19 @@ shadow blackens it against a sward that has none).
 
 `turf_growth.png` stores short-tuft density, tall-tuft density, and half the height multiplier. Relative photo
 green/red contrast drives growth, with native survey colour inside its footprint. Correlated 1.2 m noise, terrain
-hollows, 2 m edge fringes and canopy shelter introduce clumps and taller margins. These responses are priors,
-not measured mowing heights: density ranges from 0.18 to 1 and height from 0.45 to 1.8 times the mowing range.
+hollows, 2 m edge fringes and canopy shelter introduce height variation and taller margins. These responses are priors,
+not measured mowing heights. The short sward retains the original full density; surface weights alone reduce coverage.
+The height envelope ranges from 0.85 to 1.5 times the mowing range.
 Pure non-grass masks suppress growth. Mixed path edges retain vegetation in proportion to the engine's surface
 weight, without an earlier majority-class cutoff. The broadleaf shape is clover-like and its species and abundance
 are priors. One blade in thirteen receives a restrained straw tint within the seasonal palette.
 
-Blade materials use two-sided foliage transmission, root ambient occlusion, roughness 0.6 and specular 0.25.
+Blade materials use two-sided foliage transmission, root ambient occlusion (0.4 at the base), roughness 0.6 and specular 0.25.
+Within 3 m, ground and blade roots share a shaded, straw-tinted macro colour modulated by the same normalized grass scan.
+The ground returns to the photographic sward colour between 3 and 15 m; this is a close-contact blend, not exact sampling
+of every distant ground layer. The substrate tint and shading are priors. Blade-specific colour returns over the lowest
+quarter of each blade. Roots are distributed uniformly over each tuft disk, and tuft brightness varies only 5% so
+individual blade colour and height carry the variation instead of whole repeated bundles.
 Rounded blade normals vary with blade orientation, with an upward bias to keep both visible sides lit.
 World-position gusts bend tips while retaining roots. Ground and blade roots share 0.65 cm procedural relief;
 its derivatives also perturb ground normals. Wind amplitudes and relief are visual priors, not terrain measurements.

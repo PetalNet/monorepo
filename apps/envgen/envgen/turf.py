@@ -21,8 +21,8 @@ GROWTH_SETTINGS = {
     "placement": "fractional surface weight applied once by the engine",
     "patch_m": 1.2,
     "fringe_m": 2.0,
-    "density_range": [0.18, 1.0],
-    "height_range": [0.45, 1.8],
+    "density_range": [1.0, 1.0],
+    "height_range": [0.85, 1.5],
     "relief_m": 6.0,
 }
 
@@ -58,9 +58,9 @@ def growth(
     rng = np.random.default_rng(seed)
     noise = ndimage.gaussian_filter(rng.standard_normal(grass.shape), sigma)
     noise = np.clip(noise / max(float(noise.std()), 1e-6), -2, 2) / 2
-    density = np.clip(0.18 + 0.82 * vigour + 0.10 * noise + 0.08 * moisture, *GROWTH_SETTINGS["density_range"])
-    tall = density * np.clip(0.04 + 0.80 * np.maximum(fringe, sheltered) + 0.12 * np.maximum(noise, 0), 0, 1)
-    height = np.clip(0.50 + 0.65 * vigour + 0.45 * np.maximum(fringe, sheltered) + 0.20 * noise + 0.10 * moisture,
+    density = np.ones(grass.shape)
+    tall = np.clip(0.04 + 0.80 * np.maximum(fringe, sheltered) + 0.12 * np.maximum(noise, 0), 0, 1)
+    height = np.clip(0.90 + 0.25 * vigour + 0.25 * np.maximum(fringe, sheltered) + 0.10 * noise + 0.05 * moisture,
                      *GROWTH_SETTINGS["height_range"])
     # The engine multiplies these densities by the surface weight. A majority-class cutoff here
     # removes all vegetation from mixed path edges before that fractional placement can happen.
@@ -73,10 +73,11 @@ def growth(
         "height_multiplier_p5_p95": np.percentile(height[inside], [5, 95]).tolist() if inside.any() else [],
         "source": "de-shadowed photo detail ratio, surface weights, canopy height and terrain elevation",
         "priors": [
-            "prior: relative green/red photo contrast maps to turf density and height, not a measured mowing height",
+            "prior: relative green/red photo contrast maps to turf height, not a measured mowing height",
             "prior: grass grows taller within 2 m of a surface edge and under canopy higher than 2 m",
             "prior: local hollows favour growth; relief is terrain minus its 6 m low-pass",
-            "prior: 1.2 m correlated clump noise; density 0.18 to 1 and height 0.45 to 1.8 times the mowing range",
+            "prior: continuous short sward at the original density; photo surface weights alone reduce coverage",
+            "prior: 1.2 m correlated height noise; height 0.85 to 1.5 times the mowing range",
             "prior: mixed surface pixels retain grass in proportion to their engine placement weight",
         ],
     }
