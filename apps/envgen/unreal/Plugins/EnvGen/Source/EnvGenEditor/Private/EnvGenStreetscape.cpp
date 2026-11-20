@@ -426,11 +426,40 @@ static bool ProcessStreetscape(UWorld* World, const FString& ManifestPath,
 		|| !Inventory->TryGetNumberField(TEXT("feature_count"), FeatureCount) || !FMath::IsFinite(FeatureCount)
 		|| FeatureCount < 0 || FeatureCount > MAX_int32 || FMath::FloorToDouble(FeatureCount) != FeatureCount
 		|| !Inventory->TryGetObjectField(TEXT("counts"), Counts) || !Inventory->TryGetArrayField(TEXT("meshes"), Rows)
-		|| (FeatureCount > 0 && Rows->IsEmpty())
 		|| !Manifest->TryGetObjectField(TEXT("stencil_classes"), Stencils))
 	{
 		Error = TEXT("cannot read streetscape geometry schema 1");
 		return false;
+	}
+	bool bLandscapeOnly = false;
+	if (FeatureCount > 0 && Rows->IsEmpty())
+	{
+		const TArray<TSharedPtr<FJsonValue>>* Fields = nullptr;
+		double SurfaceCount = 0;
+		bLandscapeOnly = Inventory->TryGetArrayField(TEXT("fields"), Fields) && Fields->Num() == int32(FeatureCount)
+			&& (*Counts)->Values.Num() == 1 && (*Counts)->TryGetNumberField(TEXT("surface"), SurfaceCount)
+			&& SurfaceCount == FeatureCount;
+		TSet<FString> Ids;
+		if (bLandscapeOnly)
+		{
+			for (const auto& Field : *Fields)
+			{
+				FString Id, Surface;
+				if (!Field || Field->Type != EJson::Object
+					|| !Field->AsObject()->TryGetStringField(TEXT("surface_id"), Id) || Id.IsEmpty() || Ids.Contains(Id)
+					|| !Field->AsObject()->TryGetStringField(TEXT("effective_surface"), Surface) || Surface != TEXT("natural_grass"))
+				{
+					bLandscapeOnly = false;
+					break;
+				}
+				Ids.Add(Id);
+			}
+		}
+		if (!bLandscapeOnly)
+		{
+			Error = TEXT("empty streetscape geometry requires only classified natural-grass surfaces");
+			return false;
+		}
 	}
 	TMap<FString, int32> StencilIds;
 	for (const FString& Key : {FString(TEXT("ground")), FString(TEXT("road")), FString(TEXT("prop")), FString(TEXT("marking"))})
@@ -637,7 +666,7 @@ static bool ProcessStreetscape(UWorld* World, const FString& ManifestPath,
 		if (Description.Triangles().Num() > 0) Pending.Add({MoveTemp(Description), Name, Image, Heading, StripeWidth,
 			bRegistered ? Bounds[2] - Bounds[0] : 0, bRegistered ? Bounds[3] - Bounds[1] : 0, bCollision, bAnchored});
 	}
-	if (Pending.IsEmpty() && FeatureCount > 0)
+	if (Pending.IsEmpty() && FeatureCount > 0 && !bLandscapeOnly)
 	{
 		Error = TEXT("streetscape has no representable geometry");
 		return false;

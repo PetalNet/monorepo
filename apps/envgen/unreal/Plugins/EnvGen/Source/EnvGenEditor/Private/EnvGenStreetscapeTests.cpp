@@ -89,6 +89,31 @@ bool FEnvGenStreetscapeMalformed::RunTest(const FString& Parameters)
 	return true;
 }
 
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FEnvGenNaturalFields, "EnvGen.Streetscape.NaturalFields",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool FEnvGenNaturalFields::RunTest(const FString& Parameters)
+{
+	const FString Directory = FPaths::ProjectSavedDir() / TEXT("Automation/NaturalFields");
+	IFileManager::Get().MakeDirectory(*Directory, true);
+	const FString Manifest = Directory / TEXT("build.json");
+	FFileHelper::SaveStringToFile(TEXT(R"JSON({"streetscape":{"file":"geometry.json"},"stencil_classes":{"ground":1,"road":5,"prop":8,"marking":9}})JSON"), *Manifest);
+	const FString Valid = TEXT(R"JSON({"schema_version":1,"feature_count":1,"counts":{"surface":1},"meshes":[],"fields":[{"surface_id":"field","effective_surface":"natural_grass"}]})JSON");
+	const auto Check = [&](const FString& Json, bool bExpected) {
+	 FFileHelper::SaveStringToFile(Json, *(Directory / TEXT("geometry.json")));
+	 FString Error;
+	 TestEqual(TEXT("landscape-only field preflight"), ValidateEnvGenStreetscape(Manifest,
+	  [](double, double) { return 0.; }, Error), bExpected);
+	};
+	Check(Valid, true);
+	Check(Valid.Replace(TEXT("natural_grass"), TEXT("athletic_turf")), false);
+	Check(Valid.Replace(TEXT("\"surface\":1"), TEXT("\"decal\":1")), false);
+	Check(Valid.Replace(TEXT("\"feature_count\":1"), TEXT("\"feature_count\":2")), false);
+	Check(Valid.Replace(TEXT("\"surface_id\":\"field\""), TEXT("\"surface_id\":\"\"")), false);
+	IFileManager::Get().DeleteDirectory(*Directory, false, true);
+	return true;
+}
+
 IMPLEMENT_SIMPLE_AUTOMATION_TEST(FEnvGenStreetscapeDecal, "EnvGen.Streetscape.RegisteredDecal",
 	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
 

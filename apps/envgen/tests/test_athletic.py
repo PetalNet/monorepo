@@ -137,3 +137,13 @@ def test_direct_natural_surface_classifies_its_paint(tmp_path):
     assert payload["fields"][0]["effective_surface"] == "natural_grass"
     assert "grass_paint_white" in {m["material"] for m in payload["meshes"]}
     assert all(v[2] == 0.027 for m in payload["meshes"] if m["material"] == "grass_paint_white" for v in m["vertices"])
+
+
+def test_unmarked_natural_field_has_landscape_only_artifact(tmp_path):
+    raw = scene()
+    raw["features"] = raw["features"][:1]
+    raw["fields"][0]["classification"] = "natural_grass"
+    stage, payload, _ = build(tmp_path, raw)
+    assert payload["feature_count"] == 1 and payload["meshes"] == []
+    assert payload["counts"] == {"surface": 1}
+    assert len(payload["fields"]) == 1 and stage["fields"][0]["effective_surface"] == "natural_grass"
