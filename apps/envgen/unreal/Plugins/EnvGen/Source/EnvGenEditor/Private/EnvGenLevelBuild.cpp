@@ -2359,6 +2359,7 @@ struct FEnvGenLevelBuild::FState
 {
 	FManifest Manifest;
 	FString MapPath;
+	FString ReceiptPath;
 	TArray64<uint8> HeightBytes;
 	TArray<UPackage*> Packages;
 	UWorld* World = nullptr;
@@ -2381,6 +2382,13 @@ struct FEnvGenLevelBuild::FState
 bool FEnvGenLevelBuild::Start(const FString& ManifestPath, const FString& MapPath, const FString& MaterialsDirectory)
 {
 	State = MakeShared<FState>();
+	State->ReceiptPath = FPaths::ProjectSavedDir() / TEXT("EnvGen") / TEXT("build_receipt.json");
+	if (!IFileManager::Get().MakeDirectory(*FPaths::GetPath(State->ReceiptPath), true)
+		|| !IFileManager::Get().Delete(*State->ReceiptPath, false, true))
+	{
+		UE_LOG(LogEnvGen, Error, TEXT("cannot prepare the build receipt: %s"), *State->ReceiptPath);
+		return false;
+	}
 	State->MapPath = MapPath.IsEmpty() ? FString(DefaultMapPath) : MapPath;
 	// The target map is deleted and rewritten, so it may only be one of ours.
 	if (!State->MapPath.StartsWith(OwnedPath))
@@ -2725,9 +2733,11 @@ bool FEnvGenLevelBuild::Finish(float DeltaSeconds, bool& bSucceeded)
 	Receipt->SetBoolField(TEXT("context_geometry_ok"), bContextOk);
 	Receipt->SetStringField(TEXT("context_geometry_error"), ContextError);
 	Receipt->SetNumberField(TEXT("context_blend_width_m"), State->Surround ? ContextBlendWidthCm / 100 : 0);
-	const bool bSaved = UEditorLoadingAndSavingUtils::SavePackages(State->Packages, false) && UEditorLoadingAndSavingUtils::SaveMap(State->World, State->MapPath);
 	const bool bMaterialsOk = State->MaterialErrors == 0;
-	bSucceeded = bMerged && bSurfaceOk && bWeightsOk && bMaterialsOk && bTreesOk && bBuildingsOk && bContextOk && bSaved;
+	const bool bValidated = bMerged && bSurfaceOk && bWeightsOk && bMaterialsOk && bTreesOk && bBuildingsOk && bContextOk;
+	const bool bSaved = bValidated && UEditorLoadingAndSavingUtils::SavePackages(State->Packages, false)
+		&& UEditorLoadingAndSavingUtils::SaveMap(State->World, State->MapPath);
+	bSucceeded = bSaved;
 
 	Receipt->Values.Append(State->StreetscapeReceipt->Values);
 	Receipt->SetStringField(TEXT("map"), State->MapPath);
@@ -2766,8 +2776,14 @@ bool FEnvGenLevelBuild::Finish(float DeltaSeconds, bool& bSucceeded)
 	Receipt->SetBoolField(TEXT("saved"), bSaved);
 	Receipt->SetBoolField(TEXT("succeeded"), bSucceeded);
 	FString Json;
-	FJsonSerializer::Serialize(Receipt, TJsonWriterFactory<>::Create(&Json));
-	FFileHelper::SaveStringToFile(Json, *(FPaths::ProjectSavedDir() / TEXT("EnvGen") / TEXT("build_receipt.json")));
+	const FString PendingReceipt = State->ReceiptPath + TEXT(".tmp");
+	if (!FJsonSerializer::Serialize(Receipt, TJsonWriterFactory<>::Create(&Json))
+		|| !FFileHelper::SaveStringToFile(Json, *PendingReceipt)
+		|| IFileManager::Get().Move(*State->ReceiptPath, *PendingReceipt, true, true) != COPY_OK)
+	{
+		bSucceeded = false;
+		UE_LOG(LogEnvGen, Error, TEXT("cannot publish the build receipt: %s"), *State->ReceiptPath);
+	}
 
 	UE_LOG(LogEnvGen, Display, TEXT("%s: %d components, merged=%d, surface worst error %.2f cm (%d missed), %d layers with worst weight error %d of 255, saved=%d"), *State->MapPath,
 		Components, bMerged, WorstCm, Missed, TargetLayers, WeightError, bSaved);

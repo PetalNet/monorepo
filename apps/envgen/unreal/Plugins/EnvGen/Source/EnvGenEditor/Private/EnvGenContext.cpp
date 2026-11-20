@@ -162,6 +162,7 @@ bool BuildEnvGenContext(UWorld* World, const FString& ManifestPath, TArray<UPack
 		ParsedProbes.Add(V);
 	}
 	TArray<FBatch> Batches;
+	TSet<FString> MeshKinds;
 	int32 Total = 0;
 	for (const auto& Row : *Meshes)
 	{
@@ -209,10 +210,13 @@ bool BuildEnvGenContext(UWorld* World, const FString& ManifestPath, TArray<UPack
 		}
 		Total += Batch.Triangles.Num();
 		if (Total > 1500000) { Error = TEXT("context triangle budget exceeded"); return false; }
+		MeshKinds.Add(Batch.Kind);
 		Batches.Add(MoveTemp(Batch));
 	}
 	if (Total != TriangleCount || (BatchCount == 0 && (Buildings || Canopy)) || (BatchCount > 0 && !World))
 	{ Error = TEXT("context counts or world invalid"); return false; }
+	if ((Buildings > 0) != MeshKinds.Contains(TEXT("building")) || (Canopy > 0) != MeshKinds.Contains(TEXT("canopy")))
+	{ Error = TEXT("context feature counts disagree with mesh kinds"); return false; }
 
 	State.bPresent = true;
 	State.GroundProbesCm = MoveTemp(ParsedProbes);
