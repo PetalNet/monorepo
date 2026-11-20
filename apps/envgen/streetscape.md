@@ -49,7 +49,7 @@ props extending beyond the tile fail the build with the feature ID. Surface and 
 
 | Type          | Geometry and measurements                                              | Defaults where no measurement exists          |
 | ------------- | ---------------------------------------------------------------------- | --------------------------------------------- |
-| `surface`     | `ring`, `material`: asphalt, concrete, track, gravel or clay           | No inferred boundary                          |
+| `surface`     | `ring`, `material`: asphalt, concrete, track, gravel, clay or turf     | No inferred boundary                          |
 | `line`        | `points`, `material`: paint_white, paint_yellow or concrete; `width_m` | Paint width 0.1 m; concrete requires width    |
 | `curb`        | `points`, `width_m`, `height_m`                                        | Width/height 0.15 m, buried 0.05 m            |
 | `fence`       | `points`, `height_m`; optional `ground_anchor` per segment             | Height 2.4 m, posts at most 3 m apart         |
@@ -64,12 +64,14 @@ follows east at heading zero; its depth follows north. Pole height must be suppl
 from a shadow needs the shadow endpoints and solar elevation in its evidence, with the uncertainty stated.
 Unresolved small image objects do not establish benches, parked cars or permanent equipment.
 
+Paving and paint are clipped to the Landscape grid and its 00–11 triangle diagonal, including integer subdivisions of larger quads. The importer samples those same triangle planes. Geometry and the grass mask are checked before replacing the previous saved level.
+
 The stage writes `streetscape.json` and `streetscape_grass.png`, both hashed in `build.json`. The JSON
 contains material batches, vertices, triangle indices, collision flags and optional terrain anchors.
 Paving and painted ribbons follow terrain at each vertex on the Landscape grid, with triangle edges no longer than 2 m.
 Props use a common terrain anchor so stands and goal frames remain rigid. Footings extend 0.3 m below
 that anchor, or 0.6 m for bleachers, to cover small ground variations without distorting their frames.
-The grass mask suppresses tufts on paving without changing measured Landscape heights or weights.
+The grass mask suppresses tufts on paving and clay without changing measured Landscape heights or weights. Turf surfaces keep the measured grass population and cover blurred photographic field markings beneath the vector inventory.
 
 Paving and paint share batches within 126 m cells. Batches split at 20,000 triangles. Solid props use
 Nanite, collision and shadows. Paving also uses Nanite; thin paint ribbons use ordinary opaque meshes
@@ -94,6 +96,7 @@ build receipt records the material priors below. The geometry artifact preserves
 | Track               | 0.20, 0.065, 0.055  | 0.93       | 0        |
 | Gravel              | 0.24, 0.22, 0.18    | 0.95       | 0        |
 | Clay                | 0.34, 0.23, 0.14    | 0.97       | 0        |
+| Turf                | 0.13, 0.16, 0.075   | 0.96       | 0        |
 | White paint         | 0.64, 0.63, 0.57    | 0.83       | 0        |
 | Yellow paint        | 0.72, 0.48, 0.045   | 0.8        | 0        |
 | Steel and chainlink | 0.26, 0.28, 0.29    | 0.55 / 0.6 | 0.8      |
@@ -105,11 +108,11 @@ build receipt records the material priors below. The geometry artifact preserves
 
 The material adds filtered 7 mm aggregate and broad weathering. Concrete has 3 m joints; asphalt has
 sparse, warped 4 m cracks. These are generated detail, not digitized cracks. Ground offsets are 4 cm,
-5 cm for track and 7 cm for paint. Concrete line ribbons sit 6 cm above terrain. The 2048-pixel grass
-mask includes every touched paving cell. Paint leaves grass intact so subpixel lines do not carve wide bare strips.
+5 cm for track, 2.5 cm for turf and 7 cm for paint. Concrete line ribbons sit 6 cm above terrain. The 2048-pixel grass
+mask includes every touched paving or clay cell; turf leaves grass enabled. Paint leaves grass intact so subpixel lines do not carve wide bare strips.
 Chainlink has a 10 cm pitch and 2 mm wires. The engine's `DitherTemporalAA` function preserves subpixel
 coverage instead of cutting the entire fence away. Goal nets use coarse geometric wires spaced at most 30 cm.
-Poles, rails and supports have six-sided cross sections. These choices can be replaced with measured
+Tubes with a radius of at least 4 cm have 24 sides; smaller rods have eight sides. These choices can be replaced with measured
 dimensions without changing the inventory's coordinate frame.
 
 Regeneration is optional and cached by inventory hash, tile, settings and stage version. A site without the source

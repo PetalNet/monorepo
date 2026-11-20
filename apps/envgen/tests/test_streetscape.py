@@ -52,6 +52,24 @@ def triangles(payload):
             yield [mesh["vertices"][i] for i in triangle]
 
 
+def mesh_pieces(mesh):
+    parent = list(range(len(mesh["vertices"])))
+
+    def root(i):
+        while parent[i] != i:
+            parent[i] = parent[parent[i]]
+            i = parent[i]
+        return i
+
+    for triangle in mesh["triangles"]:
+        for i in triangle[1:]:
+            parent[root(i)] = root(triangle[0])
+    pieces = {}
+    for i, vertex in enumerate(mesh["vertices"]):
+        pieces.setdefault(root(i), []).append(vertex)
+    return list(pieces.values())
+
+
 def bounds(meshes):
     vertices = [v for mesh in meshes for v in mesh["vertices"]]
     return [(min(v[i] for v in vertices), max(v[i] for v in vertices)) for i in range(3)]
@@ -191,7 +209,8 @@ def test_default_paint_width_and_thin_long_line_are_compact(tmp_path):
     area = sum(Polygon([v[:2] for v in t]).area for t in triangles(payload))
     assert area == pytest.approx(100)
     assert bounds(payload["meshes"])[1] == pytest.approx((8.95, 9.05))
-    assert sum(len(m["triangles"]) for m in payload["meshes"]) <= 4000
+    # The strip straddles two quad rows; each half needs three triangles to retain the terrain diagonal.
+    assert sum(len(m["triangles"]) for m in payload["meshes"]) <= 6000
 
 
 def test_anchor_changes_terrain_sample_without_translating_coordinates(tmp_path):
@@ -282,10 +301,10 @@ def test_light_pole_has_tapered_mast_and_exact_head_count(tmp_path, arms):
     _, p = build(tmp_path, [feature("light_pole", point=[0, 0], height_m=12, arms=arms)])
     mast = next(m for m in p["meshes"] if m["material"] == "steel")
     heads = next(m for m in p["meshes"] if m["material"] == "lamp_dark")
-    assert len(heads["triangles"]) == arms * 12
+    assert len(mesh_pieces(heads)) == arms
     assert max(v[2] for v in mast["vertices"]) == 12
-    assert max(math.hypot(v[0], v[1]) for v in mast["vertices"][:6]) == pytest.approx(0.11)
-    assert max(math.hypot(v[0], v[1]) for v in mast["vertices"][6:12]) == pytest.approx(0.06)
+    assert max(math.hypot(v[0], v[1]) for v in mast["vertices"] if v[2] == -0.3) == pytest.approx(0.11)
+    assert max(math.hypot(v[0], v[1]) for v in mast["vertices"] if v[2] == 12) == pytest.approx(0.06)
     assert bounds([heads])[2] == pytest.approx((12 * 0.92 - 0.1, 12 * 0.92 + 0.1))
 
 
@@ -294,7 +313,7 @@ def test_goalpost_has_single_support_crossbar_and_two_uprights(tmp_path):
     assert len(p["meshes"]) == 1
     m = p["meshes"][0]
     assert m["material"] == "steel_yellow"
-    assert len(m["triangles"]) == 5 * 20
+    assert len(mesh_pieces(m)) == 5
     assert bounds([m])[2] == pytest.approx((-0.3, 5.6))
     assert bounds([m])[0] == pytest.approx((-5.64 / 2 - 0.05, 5.64 / 2 + 0.05))
 
@@ -303,22 +322,17 @@ def test_soccer_goal_open_front_and_full_sparse_box_net(tmp_path):
     _, p = build(tmp_path, [feature("soccer_goal", point=[0, 0])])
     frame = next(m for m in p["meshes"] if m["material"] == "paint_white")
     net = next(m for m in p["meshes"] if m["material"] == "net")
-    assert len(frame["triangles"]) == 10 * 20
+    assert len(mesh_pieces(frame)) == 10
     assert 2.44 <= max(v[2] for v in frame["vertices"]) <= 2.48
     assert max(v[2] for v in frame["vertices"]) >= 2.47
     assert min(v[0] for v in frame["vertices"]) < -3.66
     assert max(v[1] for v in net["vertices"]) >= 2
     # No wire spans the open goal mouth: each runs at the back, roof, or a side.
-    for i in range(0, len(net["vertices"]), 12):
-        ends = [net["vertices"][i : i + 6], net["vertices"][i + 6 : i + 12]]
-        a, b = [[sum(v[j] for v in ring) / 6 for j in range(3)] for ring in ends]
+    for wire in mesh_pieces(net):
         assert (
-            abs(a[1] - 2) < 1e-8
-            and abs(b[1] - 2) < 1e-8
-            or abs(a[2] - 2.44) < 1e-8
-            and abs(b[2] - 2.44) < 1e-8
-            or abs(abs(a[0]) - 3.66) < 1e-8
-            and abs(a[0] - b[0]) < 1e-8
+            all(abs(v[1] - 2) <= 0.003 + 1e-8 for v in wire)
+            or all(abs(v[2] - 2.44) <= 0.003 + 1e-8 for v in wire)
+            or all(abs(abs(v[0]) - 3.66) <= 0.003 + 1e-8 for v in wire)
         )
 
 
@@ -326,8 +340,8 @@ def test_fence_post_spacing_rails_lattice_and_long_fence_budget(tmp_path):
     stage, p = build(tmp_path, [feature("fence", points=[[0, 0], [9, 0]])])
     m = p["meshes"][0]
     assert "anchor_m" not in m
-    # First four rods are posts, each six vertices at bottom and six at top.
-    post_x = [sum(v[0] for v in m["vertices"][i : i + 6]) / 6 for i in range(0, 48, 12)]
+    posts = [piece for piece in mesh_pieces(m) if max(v[2] for v in piece) - min(v[2] for v in piece) > 2.4]
+    post_x = sorted(sum(v[0] for v in piece) / len(piece) for piece in posts)
     assert post_x == pytest.approx([0, 3, 6, 9])
     assert bounds([m])[2][0] == pytest.approx(-0.05)
     assert 2.4 <= bounds([m])[2][1] <= 2.403
@@ -483,3 +497,43 @@ def test_pipeline_tracks_source_reuses_stage_and_rebuilds_missing_mask(tmp_path)
     assert "streetscape" not in absent
     assert "streetscape" not in absent["sources"]
     assert "streetscape.json" not in absent["artifacts"]
+
+
+@pytest.mark.parametrize("quad_m", [0.5, 1.0, 2.0])
+def test_paving_clearance_across_a_nonplanar_landscape_quad(tmp_path, quad_m):
+    tile = Tile(10000, 20000, quad_m, 3)
+    origin = -tile.size_m / 2
+    ring = [[origin + x * quad_m, origin + y * quad_m] for x, y in [(0.1, 0.4), (0.9, 0.4), (0.5, 0.8)]]
+    _, payload = build(tmp_path, [feature("surface", ring=ring, material="asphalt")], tile=tile)
+
+    def terrain(east, north):
+        x, y = (east - origin) / quad_m, (north - origin) / quad_m
+        # Landscape's 00--11 diagonal joins two high corners of this saddle.
+        return 0.2 * (1 - abs(x - y))
+
+    for triangle in triangles(payload):
+        lifted = [(e, n, terrain(e, n) + z) for e, n, z in triangle]
+        for weights in [(1 / 3,) * 3, (0.2, 0.3, 0.5), (0.6, 0.1, 0.3)]:
+            east, north, height = [sum(w * v[axis] for w, v in zip(weights, lifted)) for axis in range(3)]
+            assert height - terrain(east, north) == pytest.approx(0.04, abs=1e-9)
+
+
+def test_playing_turf_preserves_grass_and_clay_still_excludes_it(tmp_path):
+    _, payload = build(
+        tmp_path,
+        [
+            feature("surface", material="turf", ring=[[10, 10], [20, 10], [20, 20], [10, 20]]),
+            {**feature("surface", material="clay", ring=[[13, 13], [17, 13], [17, 17], [13, 17]]), "id": "clay"},
+        ],
+    )
+    mask = np.asarray(Image.open(tmp_path / "out" / "streetscape_grass.png"))
+
+    def at(east, north):
+        return mask[
+            int((east + TILE.size_m / 2) / TILE.size_m * mask.shape[0]),
+            int((north + TILE.size_m / 2) / TILE.size_m * mask.shape[1]),
+        ]
+
+    assert at(11, 11) == 255
+    assert at(15, 15) == 0
+    assert {v[2] for mesh in payload["meshes"] if mesh["material"] == "turf" for v in mesh["vertices"]} == {0.025}

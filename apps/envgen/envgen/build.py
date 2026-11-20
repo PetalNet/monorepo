@@ -1697,7 +1697,7 @@ def build(site_path: Path, out: Path, cache: Path | None = None) -> dict:
         stages["streetscape"] = _cached(
             out,
             "streetscape",
-            _stage_key("streetscape-2", grid, sources["streetscape"]["sha256"], streetscape.SETTINGS),
+            _stage_key("streetscape-3", grid, sources["streetscape"]["sha256"], streetscape.SETTINGS),
             lambda: streetscape.build_inventory(Path(site.streetscape.location), tile, out),
         )
     manifest = {
