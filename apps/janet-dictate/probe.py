@@ -3,17 +3,23 @@
 import argparse
 import asyncio
 import json
+import sys
 import time
 import wave
 from pathlib import Path
 from urllib.parse import urlencode
 
 from websockets.asyncio.client import connect
+from websockets.exceptions import InvalidURI
+from websockets.uri import parse_uri
 
 from janet_dictate import PCM_TYPE, RATE
 
 
 async def probe(url: str, token_file: Path, wav: Path) -> None:
+    parsed = parse_uri(url)
+    if parsed.query or "?" in url or parsed.username is not None:
+        raise InvalidURI(url, "base URL must not contain a query or credentials")
     with wave.open(str(wav)) as audio:
         if (audio.getframerate(), audio.getnchannels(), audio.getsampwidth()) != (RATE, 1, 2):
             raise ValueError("WAV must be PCM16 mono at 16000 Hz")
@@ -54,10 +60,19 @@ async def probe(url: str, token_file: Path, wav: Path) -> None:
         raise RuntimeError("expected live partials before EOS and a nonempty final transcript")
 
 
-if __name__ == "__main__":
+def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--url", required=True, help="WebSocket URL without query parameters")
     parser.add_argument("--token-file", required=True, type=Path)
     parser.add_argument("wav", type=Path)
-    args = parser.parse_args()
-    asyncio.run(probe(args.url, args.token_file, args.wav))
+    args = parser.parse_args(argv)
+    try:
+        asyncio.run(probe(args.url, args.token_file, args.wav))
+    except Exception as error:  # noqa: BLE001 - transport exceptions may contain the credential-bearing URL
+        print(f"probe failed ({type(error).__name__}); check the URL, WAV, token file and server", file=sys.stderr)
+        return 1
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

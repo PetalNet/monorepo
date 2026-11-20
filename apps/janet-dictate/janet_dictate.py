@@ -16,11 +16,15 @@ from janet_turn.turn_judge import CHUNK, RATE, Words
 from websockets.asyncio.server import ServerConnection, serve
 from websockets.exceptions import ConnectionClosed
 from websockets.http11 import Request, Response
+from websockets.protocol import OPEN
 
 log = logging.getLogger("janet-dictate")
 PCM_TYPE = "audio/x-raw, layout=(string)interleaved, rate=(int)16000, format=(string)S16LE, channels=(int)1"
 CHUNK_BYTES = CHUNK * 2
 FLUSH_CHUNKS = 7  # The exported model needs about one second after the last sample to release its tail.
+# Stock Kõnele starts recording before the socket upgrades and sends up to 35 s in its first frame.
+MAX_MESSAGE_BYTES = 35 * RATE * 2
+SEND_TIMEOUT = 2
 
 
 @dataclass(frozen=True)
@@ -91,9 +95,20 @@ class Dictation:
             del request.headers["Sec-WebSocket-Protocol"]
         return None
 
+    async def _send(self, connection: ServerConnection, payload: str) -> bool:
+        try:
+            async with asyncio.timeout(SEND_TIMEOUT):
+                await connection.send(payload)
+            return True
+        except TimeoutError:
+            connection.transport.abort()
+            return False
+        except ConnectionClosed:
+            return False
+
     async def handle(self, connection: ServerConnection) -> None:
         if self.active >= self.config.max_sessions:
-            await connection.send(json.dumps({"status": 9}))
+            await self._send(connection, json.dumps({"status": 9}))
             return
         self.active += 1
         inference = None
@@ -106,32 +121,44 @@ class Dictation:
                     message = await asyncio.wait_for(connection.recv(), self.config.idle_seconds)
                     if message == "EOS":
                         if received == 0 or len(transcript.pending) % 2:
-                            await connection.send(json.dumps({"status": 5}))
+                            await self._send(connection, json.dumps({"status": 5}))
                             return
                         inference = asyncio.create_task(asyncio.to_thread(transcript.finish))
                         text = await asyncio.shield(inference)
-                        await connection.send(result(text, final=True) if text else json.dumps({"status": 1}))
+                        await self._send(connection, result(text, final=True) if text else json.dumps({"status": 1}))
                         return
                     if not isinstance(message, bytes):
-                        await connection.send(json.dumps({"status": 5}))
+                        await self._send(connection, json.dumps({"status": 5}))
                         return
                     received += len(message)
                     if received > self.config.max_seconds * RATE * 2:
-                        await connection.send(json.dumps({"status": 2}))
+                        await self._send(connection, json.dumps({"status": 2}))
                         return
-                    inference = asyncio.create_task(asyncio.to_thread(transcript.feed, message))
-                    text = await asyncio.shield(inference)
-                    if text and text != sent:
-                        await connection.send(result(text))
-                        sent = text
+                    for offset in range(0, len(message), CHUNK_BYTES):
+                        if connection.state is not OPEN:
+                            return
+                        piece = message[offset : offset + CHUNK_BYTES]
+                        if len(transcript.pending) + len(piece) < CHUNK_BYTES:
+                            transcript.pending += piece
+                            continue
+                        inference = asyncio.create_task(asyncio.to_thread(transcript.feed, piece))
+                        text = await asyncio.shield(inference)
+                        if text and text != sent:
+                            if not await self._send(connection, result(text)):
+                                return
+                            sent = text
         except TimeoutError:
-            await connection.send(json.dumps({"status": 2}))
+            await self._send(connection, json.dumps({"status": 2}))
         except ConnectionClosed:
             pass
         except Exception as error:  # noqa: BLE001 - ONNX failures terminate only the affected connection
             # Neither speech nor the credential-bearing request URL belongs in a server log.
             log.error("decoder failed: %s", type(error).__name__)
-            await connection.close(code=1011, reason="Decoder unavailable")
+            try:
+                async with asyncio.timeout(SEND_TIMEOUT):
+                    await connection.close(code=1011, reason="Decoder unavailable")
+            except TimeoutError:
+                connection.transport.abort()
         finally:
             # Cancelling an await doesn't stop ONNX on its worker thread; retain its slot until it exits.
             if inference is not None:
@@ -139,19 +166,33 @@ class Dictation:
             self.active -= 1
 
 
+def transport_logger() -> logging.Logger:
+    """Suppress websockets tracebacks and debug logs that can include credential-bearing request lines."""
+    logger = logging.getLogger("janet-dictate.transport")
+    logger.handlers = [logging.NullHandler()]
+    logger.propagate = False
+    logger.setLevel(logging.CRITICAL + 1)
+    return logger
+
+
+def serve_dictation(app: Dictation, host: str, port: int) -> serve:
+    return serve(
+        app.handle,
+        host,
+        port,
+        process_request=app.authorize,
+        max_size=MAX_MESSAGE_BYTES,
+        max_queue=4,
+        compression=None,
+        close_timeout=SEND_TIMEOUT,
+        logger=transport_logger(),
+    )
+
+
 async def run(config: Config) -> None:
     words = Words(config.models / "parakeet_realtime_eou_120m.int8.onnx", config.models / "parakeet_vocab.txt")
     app = Dictation(config, words)
-    async with serve(
-        app.handle,
-        config.host,
-        config.port,
-        process_request=app.authorize,
-        max_size=32000,
-        max_queue=4,
-        compression=None,
-        close_timeout=2,
-    ):
+    async with serve_dictation(app, config.host, config.port):
         log.info("ready on %s:%s", config.host, config.port)
         await asyncio.Future()
 

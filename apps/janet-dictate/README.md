@@ -85,8 +85,9 @@ The endpoint implements Kõnele's kaldi-gstreamer protocol:
 
 - `GET /client/ws/speech?key=…`, followed by Kõnele's own query parameters. The exact raw content
   type is checked; FLAC and non-English requests are rejected before upgrade.
-- Binary PCM16LE mono 16 kHz frames, normally about 200 ms each. Frame boundaries may split a
-  sample. The decoder consumes 160 ms chunks and has separate state for each connection.
+- Binary PCM16LE mono 16 kHz frames, normally about 200 ms each, or a single pre-buffered
+  initial frame up to 35 seconds (1,120,000 bytes) from stock Kõnele. Frame boundaries may split a
+  sample. Large frames are sliced into 160 ms chunks for decoding, with separate state per connection.
 - Changed cumulative hypotheses are sent immediately with `status: 0` and `result.final: false`.
   Kõnele uses these to replace the current composing text.
 - Text `EOS` pads the final chunk and feeds seven silent chunks, as required by the
@@ -97,7 +98,7 @@ The endpoint implements Kõnele's kaldi-gstreamer protocol:
   decoder slot. An inference failure closes with code `1011`. Disconnect discards that session.
 
 The default limits are two active decoders, two minutes of audio and elapsed time, ten seconds
-without a message, 32,000 bytes per message, and four queued frames. Browser origins are rejected.
+without a message, 1,120,000 bytes per message, and four queued frames. Browser origins are rejected.
 No audio or transcripts are persisted. The optional Kõnele server-status screen is not implemented;
 its worker-count indicator is not a health check for this endpoint.
 
