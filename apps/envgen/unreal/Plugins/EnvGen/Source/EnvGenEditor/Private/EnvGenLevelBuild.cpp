@@ -61,6 +61,7 @@
 #include "Materials/MaterialExpressionSmoothStep.h"
 #include "Materials/MaterialExpressionVertexColor.h"
 #include "Materials/MaterialExpressionWorldPosition.h"
+#include "Materials/MaterialExpressionVertexNormalWS.h"
 #include "Materials/MaterialExpressionTextureCoordinate.h"
 #include "Materials/MaterialExpressionTextureObject.h"
 #include "Materials/MaterialExpressionTime.h"
@@ -776,7 +777,8 @@ return Texture2DSampleGrad(Scan,ScanSampler,UV+ha,dx,dy).rgb*w.x
 				const FVertexID Vertex = Description.CreateVertex();
 				Positions[Vertex] = FVector3f(Plan.X, Plan.Y, Height * T);
 				const FVertexInstanceID Instance = Description.CreateVertexInstance(Vertex);
-				Normals[Instance] = FVector3f(0, 0, 1);
+				Normals[Instance] = FVector3f(Along.X * 0.6f + Across.X * Side * 0.4f,
+					Along.Y * 0.6f + Across.Y * Side * 0.4f, 1.f).GetSafeNormal();
 				Uvs.Set(Instance, 0, FVector2f(Side * 0.5f + 0.5f, T));
 				Uvs.Set(Instance, 1, FVector2f(0.f, 0.f));
 				Uvs.Set(Instance, 2, FVector2f(Own.R, Own.G));
@@ -890,12 +892,16 @@ return Texture2DSampleGrad(Scan,ScanSampler,UV+ha,dx,dy).rgb*w.x
 		UMaterialExpressionConstant* Specular = Node<UMaterialExpressionConstant>(Material, 100, 350);
 		Specular->R = 0.25f;
 		UMaterialEditingLibrary::ConnectMaterialProperty(Specular, TEXT(""), MP_Specular);
-		// Lit as the ground under it: a two-sided blade's normal turns over on the side the camera sees, and a blade seen
-		// from the back would take no sun. A world-space up normal does not turn over.
 		Material->bTangentSpaceNormal = false;
-		UMaterialExpressionConstant3Vector* Up = Node<UMaterialExpressionConstant3Vector>(Material, -200, 200);
-		Up->Constant = FLinearColor(0, 0, 1);
-		UMaterialEditingLibrary::ConnectMaterialProperty(Up, TEXT(""), MP_Normal);
+		UMaterialExpressionVertexNormalWS* BladeNormal = Node<UMaterialExpressionVertexNormalWS>(Material, -500, 200);
+		UMaterialExpressionCustom* RoundedNormal = Node<UMaterialExpressionCustom>(Material, -200, 200);
+		RoundedNormal->OutputType = CMOT_Float3;
+		RoundedNormal->Inputs.Empty();
+		FCustomInput& VertexNormal = RoundedNormal->Inputs.AddDefaulted_GetRef();
+		VertexNormal.InputName = TEXT("N");
+		VertexNormal.Input.Connect(0, BladeNormal);
+		RoundedNormal->Code = TEXT("float3 n=normalize(N); n.z=abs(n.z); return normalize(lerp(float3(0,0,1),n,0.45));");
+		UMaterialEditingLibrary::ConnectMaterialProperty(RoundedNormal, TEXT(""), MP_Normal);
 		UMaterialExpressionConstant* Roughness = Node<UMaterialExpressionConstant>(Material, -200, 300);
 		Roughness->R = 0.6f;
 		UMaterialEditingLibrary::ConnectMaterialProperty(Roughness, TEXT(""), MP_Roughness);

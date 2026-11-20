@@ -378,6 +378,7 @@ Grass masks suppress growth on other materials. The broadleaf shape is clover-li
 are priors. One blade in thirteen receives a restrained straw tint within the seasonal palette.
 
 Blade materials use two-sided foliage transmission, root ambient occlusion, roughness 0.6 and specular 0.25.
+Rounded blade normals vary with blade orientation, with an upward bias to keep both visible sides lit.
 World-position gusts bend tips while retaining roots. Ground and blade roots share 0.65 cm procedural relief;
 its derivatives also perturb ground normals. Wind amplitudes and relief are visual priors, not terrain measurements.
 Grass displacement fades to zero between 22 and 25 m; the engine disables its evaluation beyond 25 m.
