@@ -50,12 +50,16 @@ def reply_to(prompt: str) -> str:
     if said.startswith("fake-call-tools:"):
         servers = json.loads(argv[argv.index("--mcp-config") + 1])["mcpServers"]
         server = servers["janet_call"]
+        if "--fake-call-speech" in argv:
+            out({"type": "stream_event", "event": {"type": "content_block_delta", "delta": {"type": "text_delta", "text": "All set."}}})
         for name in said.removeprefix("fake-call-tools:").split(","):
             out({"type": "stream_event", "event": {"type": "content_block_start", "content_block": {"type": "tool_use", "name": "mcp__janet_call__" + name}}})
             request = {"jsonrpc": "2.0", "id": 1, "method": "tools/call", "params": {"name": name, "arguments": {}}}
             proc = subprocess.run([server["command"], *server["args"]], input=json.dumps(request) + "\n", capture_output=True, text=True, timeout=5, check=True)
             log({"call_tool": name, "result": json.loads(proc.stdout)["result"]})
-        return "[silent]"
+        if "--fake-call-relay" in argv:
+            return "All set.\n<relay>\nask: schedule the reminder\ncommitment: the reminder will be relayed\n</relay>"
+        return "All set." if "--fake-call-speech" in argv else ""
     if "what builders are running?" in said:
         servers = json.loads(argv[argv.index("--mcp-config") + 1])["mcpServers"] if "--mcp-config" in argv else {}
         if "janet_lab" not in servers:
@@ -70,7 +74,7 @@ def reply_to(prompt: str) -> str:
         log({"lab_result": text, "lab_error": result["isError"]})
         return "The running builders are: " + text.replace("\n", "; ") + "."
     if "silentcase" in said:
-        return "[silent]"
+        return ""
     if "fillercase" in said:
         return "Go ahead, I'm listening."
     if "relayfirst" in said:

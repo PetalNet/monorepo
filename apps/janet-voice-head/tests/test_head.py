@@ -600,11 +600,11 @@ class WebToolsTest(HeadCase):
 
 
 class SilenceTest(HeadCase):
-    def test_a_fragment_the_model_answers_with_nothing_or_filler_is_met_with_silence_not_an_apology(self):
+    def test_model_speech_is_preserved_and_empty_output_is_not_an_apology(self):
         conv = self.open("personal")
-        for text in ("silentcase so", "fillercase and then"):
+        for text, expected in (("silentcase so", []), ("fillercase and then", ["Go ahead, I'm listening."])):
             sentences, done = self.turn(conv, text)
-            self.assertEqual(sentences, [], text)
+            self.assertEqual(sentences, expected, text)
             self.assertFalse(done["end_conversation"])
 
     def test_a_failure_still_apologises(self):
@@ -778,3 +778,49 @@ class AgenticHangupTest(HeadCase):
                 self.assertEqual(sentences, [GOODBYE])
                 self.assertTrue(done["end_conversation"])
                 self.end(conv)
+
+
+class ClosingSpeechTest(HeadCase):
+    def setUp(self):
+        super().setUp()
+        self.stop_head()
+        self.claude_extra = ["--fake-call-speech"]
+        self.start_head()
+
+    def tool(self, conv, name):
+        return self.turn(conv, "fake-call-tools:" + name)
+
+    def test_call_control_continuation_is_not_spoken_twice(self):
+        sentences, done = self.tool(self.open(), "ask_to_end_call")
+        self.assertEqual(sentences, ["All set.", QUESTION])
+        self.assertFalse(done["end_conversation"])
+
+    def test_confirmed_close_speaks_only_one_goodbye(self):
+        conv = self.open()
+        self.tool(conv, "ask_to_end_call")
+        sentences, done = self.tool(conv, "end_call")
+        self.assertEqual(sentences, [GOODBYE])
+        self.assertTrue(done["end_conversation"])
+
+    def test_refused_call_control_keeps_the_models_explanation(self):
+        sentences, done = self.tool(self.open(), "end_call")
+        self.assertEqual(sentences, ["All set.", "All set."])
+        self.assertFalse(done["end_conversation"])
+
+    def test_continued_topic_keeps_its_reply_after_a_closing_question(self):
+        conv = self.open()
+        self.tool(conv, "ask_to_end_call")
+        sentences, done = self.turn(conv, "one more topic")
+        self.assertEqual(sentences, ["You said one more topic.", "That is all I know."])
+        self.assertFalse(done["end_conversation"])
+
+
+    def test_closing_question_preserves_relay_after_the_tool(self):
+        self.stop_head()
+        self.claude_extra += ["--fake-call-relay"]
+        self.start_head()
+        sentences, done = self.tool(self.open(), "ask_to_end_call")
+        self.assertEqual(sentences, ["All set.", QUESTION])
+        self.assertFalse(done["end_conversation"])
+        self.wait_for(lambda: self.hub.texts("voice-soft"), "closing turn lost its relay")
+        self.assertIn("schedule the reminder", self.hub.texts("voice-soft")[0])

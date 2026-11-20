@@ -15,19 +15,6 @@ _ABBREVIATION = re.compile(r"\b(?:Mr|Mrs|Ms|Dr|St|vs|etc|e\.g|i\.e|a\.m|p\.m)\.$
 _MARKUP = re.compile(r"[*_`#]+|^\s*[-•]\s+", re.M)
 
 
-_LISTENING = ("go ahead", "go on", "keep going", "carry on", "i'm listening", "im listening", "i am listening", "i'm here", "im here",
-              "i'm still here", "i'm all ears", "i'm still listening", "i'm ready", "take your time", "no rush", "ready when you are",
-              "i'm with you", "i hear you", "[silent]", "<silent>")
-_FILLER = ("parker",)
-
-
-def is_backchannel(sentence: str) -> bool:
-    """A sentence that only tells the speaker the line is open ("Go ahead, I'm listening."), which is noise when they paused mid-thought."""
-    text = re.sub(r"[.!?…\u2019]+$", "", sentence.lower().replace("\u2019", "'").strip())
-    parts = [p.strip() for p in re.split(r"[,;:]| and | - |\s{2,}", text) if p.strip()]
-    return bool(parts) and all(p in _LISTENING or p in _FILLER for p in parts) and any(p in _LISTENING for p in parts)
-
-
 @dataclass
 class Relay:
     asks: list[str] = field(default_factory=list)
@@ -68,7 +55,6 @@ class SpeechStream:
         self._block: str | None = None
         self._relay = Relay()
         self._redact = re.compile(re.escape(redact), re.I) if redact else None
-        self._dropped: list[str] = []
 
     def feed(self, delta: str) -> list[str]:
         self.text += delta
@@ -103,8 +89,6 @@ class SpeechStream:
     @property
     def spoken(self) -> str:
         text = _speakable(_RELAY_BLOCK.sub("", self.text))
-        for dropped in self._dropped:
-            text = text.replace(dropped, "", 1)
         return " ".join(text.split())
 
     def _absorb(self, block: str) -> None:
@@ -130,5 +114,4 @@ class SpeechStream:
         sentences = [_speakable(s) for s in out]
         if self._redact:
             sentences = [self._redact.sub("a private address", s) for s in sentences]
-        self._dropped += [s for s in sentences if re.search(r"\w", s) and is_backchannel(s)]
-        return [s for s in sentences if re.search(r"\w", s) and not is_backchannel(s)]
+        return [s for s in sentences if re.search(r"\w", s)]

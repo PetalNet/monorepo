@@ -1,6 +1,6 @@
 import unittest
 
-from janet_voice_head.speech import SpeechStream, is_backchannel
+from janet_voice_head.speech import SpeechStream
 
 
 def run(text: str, step: int | None = None) -> tuple[list[str], list[str], list[str], str]:
@@ -44,19 +44,12 @@ if __name__ == "__main__":
     unittest.main()
 
 
-class BackchannelTest(unittest.TestCase):
-    def test_filler_that_only_says_the_line_is_open_is_not_spoken(self):
-        for text in ("Go ahead, I'm listening.", "Go ahead.", "I'm listening, Parker.", "Take your time.", "[silent]"):
-            spoken, _, _, whole = run(text)
-            self.assertEqual((spoken, whole), ([], ""), text)
-
-    def test_an_answer_that_uses_the_same_words_is_spoken(self):
-        for text in ("Mm.", "Mm-hm.", "Hmm.", "Uh-huh.", "Okay.", "Yes.", "Sure, go ahead.", "Yes, I hear you.", "Okay, I'm ready.", "Go ahead and order the filament.", "I'm here to help with store hours."):
-            self.assertEqual(run(text)[0], [text], text)
-
-    def test_filler_before_a_real_answer_is_dropped_and_the_answer_kept(self):
-        spoken, _, _, whole = run("Go ahead, I'm listening. The store closes at nine.", 5)
-        self.assertEqual((spoken, whole), (["The store closes at nine."], "The store closes at nine."))
+class SpokenTextTest(unittest.TestCase):
+    def test_model_speech_is_preserved_without_phrase_filtering(self):
+        for text in ("Go ahead, I'm listening.", "Take your time.", "Yes, I'm here.", "Mm.", "Okay.", "Go ahead and order the filament."):
+            for step in (None, 1, 5):
+                self.assertEqual(run(text, step)[0], [text], (text, step))
+                self.assertEqual(run(text, step)[3], text)
 
 
 class CutOffNoteTest(unittest.TestCase):

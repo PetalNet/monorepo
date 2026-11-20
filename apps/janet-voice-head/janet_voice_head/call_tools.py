@@ -13,7 +13,7 @@ QUESTION = "Is there anything else you'd like to discuss?"
 GOODBYE = "Okay, talk later."
 DESCRIPTIONS = {
     "ask_to_end_call": "Queue the spoken closing question before ending this call. Use when the caller seems done, even if they directly requested hangup. Use this tool instead of asking the question yourself: the head appends it after your reply. This does not end the call.",
-    "end_call": "End this call only when the caller's current turn confirms nothing else remains after the head's closing question on the previous turn. Interpret the entire caller turn: a new topic, uncertainty, or a request to continue is not consent. The head appends goodbye after your reply, then signals the client to end after playback; do not repeat goodbye. Refused without a completed question on the immediately previous turn.",
+    "end_call": "End this call only when the caller's current turn confirms nothing else remains after the head's closing question on the previous turn. Interpret the entire caller turn: a new topic, uncertainty, or a request to continue is not consent. The head speaks one goodbye, then signals the client to end after playback. Extra model speech on this turn is discarded. Refused without a completed question on the immediately previous turn.",
 }
 NAMES = tuple(f"mcp__{SERVER}__{name}" for name in DESCRIPTIONS)
 
@@ -44,10 +44,12 @@ class CallControl:
     def mcp_config(self) -> dict:
         return {SERVER: {"command": sys.executable, "args": ["-I", str(Path(__file__).resolve()), self.path]}}
 
-    def begin_turn(self) -> None:
+    def begin_turn(self) -> bool:
+        """Return whether this turn answers the previous closing question."""
         with self._lock:
             self._active, self._eligible = True, self._ready
             self._ready = self._question = self._end = False
+            return self._eligible
 
     def interrupt(self) -> None:
         with self._lock:
@@ -58,6 +60,11 @@ class CallControl:
             question, end = completed and self._question, completed and self._end
             self._active, self._ready = False, question
             return question, end
+
+    @property
+    def closing_queued(self) -> bool:
+        with self._lock:
+            return self._question or self._end
 
     @property
     def end_requested(self) -> bool:
@@ -77,7 +84,7 @@ class CallControl:
                 message, error = "No completed closing question on the immediately previous turn. Use ask_to_end_call and wait for a later caller turn.", True
             else:
                 self._end = True
-                message, error = "Goodbye is queued for playback after your reply. The client may end after playing it.", False
+                message, error = "Goodbye is queued for playback. The client may end after playing it.", False
             return {"content": [{"type": "text", "text": message}], "isError": error}
 
     def close(self) -> None:
