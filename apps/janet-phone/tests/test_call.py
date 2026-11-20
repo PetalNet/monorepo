@@ -66,7 +66,8 @@ class FakeGateway(BaseHTTPRequestHandler):
             return self._send(500, b"{}")
         if self.path.endswith("/turns"):
             done = {"end_conversation": body["text"] == "goodbye"}
-            events = f'event: sentence\ndata: {{"text": "You said {body["text"]}."}}\n\nevent: done\ndata: {json.dumps(done)}\n\n'
+            sentence = json.dumps({"text": "You said " + body["text"] + "."})
+            events = f'event: sentence\ndata: {sentence}\n\nevent: done\ndata: {json.dumps(done)}\n\n'
             return self._send(200, events.encode())
         return self._send(200, b'{"merged": true}')
 

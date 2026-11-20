@@ -13,6 +13,45 @@ layer that this single-call app has no use for.
 Self-managed calls never get the system dialer screen, so the app draws its own (`CallScreen`).
 Android shows the call in the status bar, the car and the Bluetooth headset like any other call.
 
+## Receiving a call
+
+Janet can ring this phone with `janet-ring "<reason>"` on her VM. The bridge must have incoming
+calls enabled first, as described in [its setup instructions](../janet-phone/README.md#incoming-calls).
+The phone validates each ring through the paired bridge before registering an incoming Telecom
+call. Answer opens the normal Janet voice call, starting with her disclosure and the reason.
+
+After installing version 0.8.0 or later:
+
+1. Open Janet once. Your existing pairing works; pair again only if Janet says the pairing is
+   missing or revoked.
+2. Open Settings, then **Set up incoming calls**. Grant microphone and notification access.
+3. Return to Janet and tap the setup button again. Allow unrestricted battery use so the incoming
+   connection can receive messages while the screen is off. On phones with vendor battery controls,
+   also allow background or autostart operation for Janet.
+4. On Android 14 and later, allow full-screen calls when the setup button opens that setting.
+   Keep the **Incoming calls** notification channel at high importance, with ringtone and vibration.
+5. To receive calls during Do Not Disturb, grant Janet Do Not Disturb access. Return to setup and
+   open the Incoming calls channel, then allow it to override Do Not Disturb. Android, the phone's
+   volume settings, and your channel choices determine whether it sounds.
+
+The ongoing **Incoming call connection** notification should say **Listening for incoming calls**.
+No ntfy app or Google Play Services is required. The listener uses an ntfy WebSocket in a
+foreground service. It reconnects after network loss and restarts after reboot, once you unlock
+the phone. Force-stopping Janet or stopping its foreground service disables delivery until you
+open it again. Calls sent while the listener is disconnected can be missed because wakes are
+not cached. A connection loss during a call still ends that call.
+
+For the real-phone check, lock the phone and leave it idle. Have Janet run:
+
+```sh
+janet-ring "This is the incoming call test."
+```
+
+Answer from the lock screen and confirm that you hear the reason and can talk to Janet. Repeat
+once with Decline and once without answering. Janet's command must print `declined` or `timeout`
+and exit nonzero for those cases. Also test answering from the Bluetooth headset you use; that
+activity handoff depends on Android and the phone vendor's background-launch rules.
+
 ## The call screen
 
 The planet is the whole interface. Janet is a pixel planet that turns slowly, pulls in and spins

@@ -34,6 +34,10 @@ def bearer(header: str | None) -> str:
     return header[7:] if header and header.startswith("Bearer ") else ""
 
 
+def device_hash(token: str) -> str:
+    return hashlib.sha256(token.encode()).hexdigest()
+
+
 class Devices:
     """The phones that may call. The file holds a hash of each device's token, never the token, and is
     read on every check, so removing an entry revokes that phone at once."""
@@ -62,14 +66,14 @@ class Devices:
         """The name of the device this token belongs to, or None when no device holds it."""
         if not token:
             return None
-        device = self._load().get(hashlib.sha256(token.encode()).hexdigest())
+        device = self._load().get(device_hash(token))
         return None if device is None else device["name"]
 
     def add(self, name: str, by: str) -> str:
         token = secrets.token_urlsafe(32)
         with self._locked():
             devices = self._load()
-            devices[hashlib.sha256(token.encode()).hexdigest()] = {
+            devices[device_hash(token)] = {
                 "name": " ".join(name.split())[:80] or "phone", "paired_by": by,
                 "paired": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())}
             self._save(devices)
@@ -88,7 +92,10 @@ class Devices:
         return name
 
     def listing(self) -> list[tuple[str, dict]]:
-        return [(key[:12], device) for key, device in self._load().items()]
+        return [(key[:12], device) for key, device in self.identities()]
+
+    def identities(self) -> list[tuple[str, dict]]:
+        return list(self._load().items())
 
 
 class Limit:
@@ -251,7 +258,7 @@ a.button, button {{ display: inline-block; margin: .5rem; padding: .6rem 1rem; b
 
 def serve(listen: str, devices: Devices, codes: Codes, *, url: str, access_file: str, users: list[str],
           proxy_secret_file: str, page_path: str = "/pair", routes: dict | None = None,
-          on_paired=None, signin: SignIn | None = None) -> ThreadingHTTPServer:
+          on_paired=None, signin: SignIn | None = None, pairing_fields=None) -> ThreadingHTTPServer:
     """The bridge's plain-HTTP side: the pairing page, the pairing exchange, and any extra POST routes.
 
     The pairing page (GET page_path) is for the single-sign-on proxy alone. A request must carry the
@@ -376,6 +383,8 @@ def serve(listen: str, devices: Devices, codes: Codes, *, url: str, access_file:
                         log.info("sign-in refused: the account may not pair a phone")
                         return self._send(HTTPStatus.FORBIDDEN, '{"error": "this account may not pair a phone"}')
                 token = devices.add(str(body.get("name", "")), by)
+                if pairing_fields is not None:
+                    reply.update(pairing_fields(token))
                 # The id only: the device's name and who paired it are in the registry, not the log.
                 log.info("paired device %s", hashlib.sha256(token.encode()).hexdigest()[:12])
                 if on_paired is not None:

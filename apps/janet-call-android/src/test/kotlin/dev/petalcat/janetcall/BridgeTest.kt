@@ -16,6 +16,7 @@ class BridgeTest {
 	private val seen = mutableListOf<Triple<String, Map<String, String>, String>>()
 
 	private fun link() = PairingLink("ws://127.0.0.1:${server.address.port}/v1/call", "one-time", Long.MAX_VALUE)
+	private fun pairing() = Pairing(link().url, "device-token", "id.access", "s3cret")
 
 	private fun bridgeAnswers(status: Int, body: String = "", headers: Map<String, String> = emptyMap()) {
 		server.createContext("/") { exchange: HttpExchange ->
@@ -33,6 +34,42 @@ class BridgeTest {
 
 	@After
 	fun stop() = server.stop(0)
+
+	@Test
+	fun `pending ring is authenticated and checked against the requested id`() {
+		bridgeAnswers(200, """{"id":"ring_1","reason":"Please answer","expires":101.5}""")
+		assertEquals("Please answer", (Bridge.pendingRing(pairing(), "ring_1", 100) as RingCheck.Live).ring.reason)
+		val (line, headers, body) = seen.single()
+		assertEquals("POST /v1/call/ring/pending", line)
+		assertEquals("Bearer device-token", headers["authorization"])
+		assertEquals("id.access", headers["cf-access-client-id"])
+		assertEquals("s3cret", headers["cf-access-client-secret"])
+		assertEquals("ring_1", JSONObject(body).getString("id"))
+	}
+
+	@Test
+	fun `a rejected pending request cannot ring`() {
+		bridgeAnswers(409, """{"error":"expired"}""")
+		assertEquals(RingCheck.Gone, Bridge.pendingRing(pairing(), "ring_1", 100))
+	}
+
+	@Test
+	fun `a temporary bridge failure leaves the notice retryable`() {
+		bridgeAnswers(503)
+		assertEquals(RingCheck.Retry, Bridge.pendingRing(pairing(), "ring_1", 100))
+	}
+
+	@Test
+	fun `an Access denial can recover before the notice expires`() {
+		bridgeAnswers(403, "<html>Access denied</html>")
+		assertEquals(RingCheck.Retry, Bridge.pendingRing(pairing(), "ring_1", 100))
+	}
+
+	@Test
+	fun `a device denial cannot ring and stays bounded by notice expiry`() {
+		bridgeAnswers(403, "{}")
+		assertEquals(RingCheck.Retry, Bridge.pendingRing(pairing(), "ring_1", 100))
+	}
 
 	@Test
 	fun `a good code pairs the phone with the token and the Access credentials the bridge issued`() {

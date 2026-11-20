@@ -33,6 +33,9 @@ class MainActivity : ComponentActivity() {
 	private var screen by mutableStateOf<Screen>(Screen.Welcome(null))
 	private var callUi by mutableStateOf(CallUi(null, "", false))
 	private var callStage by mutableStateOf<CallStage?>(null)
+	private var incoming by mutableStateOf<PendingRing?>(null)
+	private var incomingReady by mutableStateOf(false)
+	private var incomingStatus by mutableStateOf("")
 	private val settings by lazy { Settings(this) }
 	private val log by lazy { CallLog(this) }
 	private val config by lazy { AppConfig(this) }
@@ -61,10 +64,17 @@ class MainActivity : ComponentActivity() {
 	@Composable
 	private fun Root() {
 		val shown = screen
+		val ring = incoming
 		var settingsOpen by rememberSaveable { mutableStateOf(false) }
 		// A phone that is no longer paired has no settings to leave open.
 		if (shown !is Screen.Home) settingsOpen = false
 		when {
+			ring != null -> IncomingCallScreen(
+				ring,
+				onAnswer = { if (IncomingCalls.matching(this, ring.id) != null) IncomingCallActivity.answer(this, ring.id) },
+				onDecline = { if (IncomingCalls.matching(this, ring.id) != null) Calls.connection?.onReject() },
+				ready = incomingReady,
+			)
 			inCall -> CallScreen(
 				ui = callUi,
 				stage = callStage,
@@ -82,6 +92,8 @@ class MainActivity : ComponentActivity() {
 					unpair()
 				},
 				licences = { licenceText(this) },
+				incomingStatus = incomingStatus,
+				onIncomingSetup = { IncomingSetup.openNext(this) },
 			)
 			// Something to fix comes before the page: the page is for when all is well.
 			shown is Screen.Home && (shown.problem != null || shown.line == Line.Revoked) -> HomeScreen(
@@ -122,8 +134,15 @@ class MainActivity : ComponentActivity() {
 	override fun onStart() {
 		super.onStart()
 		Calls.observe(observer)
+		RingService.sync(this)
 		settings.pairing()?.let { Bridge.warmOnForeground(it, SystemClock.elapsedRealtime(), Calls.lineSink(this, it)) }
 		render()
+	}
+
+	override fun onResume() {
+		super.onResume()
+		IncomingNotification.channel(this)
+		incomingStatus = IncomingSetup.status(this)
 	}
 
 	override fun onStop() {
@@ -177,6 +196,8 @@ class MainActivity : ComponentActivity() {
 		// A question asked before the call must not be waiting under the first tap after it.
 		if (Calls.inCall) pending = null
 		inCall = Calls.inCall
+		incoming = (Calls.state as? CallState.Ringing)?.ring
+		incomingReady = Calls.connection != null
 		if (inCall) {
 			callUi = CallUi(Calls.activeSinceMs, Calls.route, Calls.muted)
 			callStage = Calls.stage
@@ -265,6 +286,12 @@ class MainActivity : ComponentActivity() {
 
 	override fun onRequestPermissionsResult(code: Int, permissions: Array<String>, results: IntArray) {
 		super.onRequestPermissionsResult(code, permissions, results)
+		if (code == IncomingSetup.PERMISSIONS) {
+			incomingStatus = IncomingSetup.status(this)
+			RingService.sync(this)
+			return
+		}
+		if (code != 1) return
 		if (checkSelfPermission(Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED) {
 			placeCall()
 		} else {

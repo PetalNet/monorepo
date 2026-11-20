@@ -91,6 +91,58 @@ starts. At most once a minute.
 
 Closing the socket hangs up.
 
+## Incoming calls
+
+`janet-ring "<reason>"` rings one paired Android phone. The command waits for the bridge to send
+the reason's full speech audio and exits zero on `audio_connected`. Decline, timeout, busy, transport,
+gateway and speech failures exit nonzero and print their status. This confirms audio transport to the
+client, not that a person heard it. The default deadline is 45 seconds, including connection and speech.
+Use a short reason; a reason whose audio exceeds the deadline times out.
+
+Enable rings on the bridge with these top-level configuration values, before any TOML table:
+
+```toml
+ring_secret_file = "/secrets/ring-root"
+ntfy_url = "https://ntfy.petalcat.dev"
+ring_timeout_s = 45
+```
+
+Deploy the bridge from merged main first. Keep its ring root in the vault (`janet-phone-ring-root`)
+and materialize it as a mode-600 file in the bridge's existing secrets mount. Generate it once with
+at least 32 bytes of random text; retain it across restarts. Rotating it changes every phone's topic;
+reopen Janet Call on the phone afterwards so its listener registers again.
+
+Install the standard-library command on Janet's VM through the monorepo's installer:
+
+```sh
+apps/janet-phone/install-ring.sh --ssh dot14 --container janet-phone \
+  --config /etc/janet-phone/phone.toml
+~/.claude/bin/janet-ring "The water sensor needs your attention."
+```
+
+For a bridge on the same machine, omit `--ssh` and `--container` and pass its config path. The
+control client sends the root only to a numeric loopback listener. SSH uses the existing host key
+and key authentication; it does not put credentials in URLs. With more than one paired device,
+select one with `--device <hash-prefix>` from the bridge's existing `--devices` listing.
+Pass that option to the installer to keep it as the default for the one-command invocation.
+
+Pairing derives a different unguessable ntfy topic for each device, using HMAC-SHA256 of its token
+hash under the vault root. Base64url encoding keeps the complete topic within ntfy's 64-character
+limit. `POST /v1/call/ring/register` returns that topic to an authenticated phone, so an existing
+pairing can enable incoming calls without pairing again. The topic stays in the listener's memory.
+No device bearer token or reason is published to ntfy, and message caching is disabled.
+
+The wake message contains only an opaque ring ID and its expiry. Before showing a call the phone
+fetches the reason from authenticated `POST /v1/call/ring/pending` with `{"id":"..."}`. Answering
+uses the existing authenticated call socket plus `X-Janet-Ring: <id>`; the bridge reserves the live
+ring for the same device token before opening a conversation. A wrong device, duplicate answer,
+expired ring or revoked token cannot open that conversation. `POST /v1/call/ring/decline` accepts
+`{"id":"...","status":"declined"}` (or `busy`).
+
+Janet reads the disclosure, then "I'm calling because: <reason>", and supplies the reason to the
+normal voice conversation as quoted, untrusted context. Android wake and permission setup is in
+the [phone instructions](../janet-call-android/README.md).
+
 ## Configuration
 
 ```toml
@@ -168,8 +220,6 @@ Run it with `python janet_phone.py --config /path/to/phone.toml`, or build the `
 - The head ends a conversation that sits idle. When that happens mid-call (a sleeping voice host can
   take minutes to say the disclosure), the call continues in a new conversation, which does not
   remember the earlier turns.
-- A call whose WebSocket handshake fails after the gateway accepted it leaves a conversation open
-  until the head's idle timeout ends it.
 - The call record carries the caller's words. Post it where a person reads it, not where an agent
   with tools takes messages as instructions.
 
@@ -180,3 +230,8 @@ The tests run the real bridge against a fake gateway and a fake speech-to-text s
 ```sh
 python -m unittest discover -s tests -t .
 ```
+
+`python tools/prove-ring.py` additionally uses the actual lab ntfy server and the command's HTTP
+control path for ring, authenticated answer with PCM audio, decline and timeout. Speech and the
+voice gateway remain test servers. It creates an ephemeral device and topic, publishes no reason
+to ntfy, and does not call a real phone. It needs the same dependencies as the test suite.

@@ -35,6 +35,7 @@ class CallSession(
 	private val onEnded: (End) -> Unit,
 	/** Janet's first audio has arrived: the ringback tone stops here. Called once, off the main thread. */
 	private val onFirstAudio: () -> Unit = {},
+	private val ringId: String? = null,
 ) {
 	private val ended = AtomicBoolean(false)
 	private val heard = AtomicBoolean(false)
@@ -49,10 +50,15 @@ class CallSession(
 
 	fun start() {
 		try {
+			if (ringId != null && !validRingId(ringId)) {
+				finish(End.Failed("The incoming call is invalid."))
+				return
+			}
 			val request = with(Bridge) {
 				Request.Builder().url(pairing.url)
 					.header("Authorization", "Bearer ${pairing.token}")
 					.cloudflareAccess(pairing.cfId, pairing.cfSecret)
+					.apply { ringId?.let { header("X-Janet-Ring", it) } }
 					.build()
 			}
 			socket = Bridge.http.newWebSocket(request, Listener())

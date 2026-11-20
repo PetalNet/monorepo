@@ -87,6 +87,43 @@ object Bridge {
 
 	private const val MAX_ANSWER_BYTES = 64 * 1024L
 
+	/** Blocks; callers must use a background thread. A failed or malformed response is not a ring. */
+	fun registerRing(pairing: Pairing): RingRegistration? =
+		ringRequest(pairing, "register", JSONObject())?.takeIf { it.code in 200..299 }?.body?.let(::parseRingRegistration)
+
+	fun pendingRing(pairing: Pairing, id: String, nowS: Long): RingCheck {
+		if (!validRingId(id)) return RingCheck.Gone
+		val answer = ringRequest(pairing, "pending", JSONObject().put("id", id)) ?: return RingCheck.Retry
+		return when (answer.code) {
+			in 200..299 -> answer.body?.let { parsePendingRing(it, id, nowS) }?.let { RingCheck.Live(it) } ?: RingCheck.Gone
+			400, 409 -> RingCheck.Gone
+			else -> RingCheck.Retry
+		}
+	}
+
+	fun declineRing(pairing: Pairing, id: String, busy: Boolean = false): Boolean {
+		if (!validRingId(id)) return false
+		val body = JSONObject().put("id", id).put("status", if (busy) "busy" else "declined")
+		return ringRequest(pairing, "decline", body)?.let { it.code in 200..299 } == true
+	}
+
+	private data class RingAnswer(val code: Int, val body: JSONObject?)
+
+	private fun ringRequest(pairing: Pairing, endpoint: String, body: JSONObject): RingAnswer? = try {
+		val request = Request.Builder().url(bridgeEndpoint(pairing.url, "ring/$endpoint"))
+			.header("Authorization", "Bearer ${pairing.token}")
+			.cloudflareAccess(pairing.cfId, pairing.cfSecret)
+			.post(body.toString().toRequestBody("application/json".toMediaType()))
+			.build()
+		quick.newCall(request).execute().use { response ->
+			RingAnswer(response.code, json(response.peekBody(MAX_ANSWER_BYTES).string()))
+		}
+	} catch (_: IOException) {
+		null
+	} catch (_: IllegalArgumentException) {
+		null
+	}
+
 	/**
 	 * Asks the bridge to load speech-to-text and the voice, so the call's first audio does not wait
 	 * for them. The bridge answers at once and warms in the background. Never blocks, and a failure
