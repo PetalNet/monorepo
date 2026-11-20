@@ -11,6 +11,7 @@
 #include "MaterialEditingLibrary.h"
 #include "Materials/Material.h"
 #include "Materials/MaterialExpressionVertexColor.h"
+#include "Materials/MaterialExpressionConstant.h"
 #include "MeshDescription.h"
 #include "Misc/FileHelper.h"
 #include "Misc/Paths.h"
@@ -112,12 +113,13 @@ bool BuildEnvGenContext(UWorld* World, const FString& ManifestPath, TArray<UPack
 		return true;
 	}
 	FString File, Frame, Hash;
-	double Version = 0, Half = 0;
+	double Version = 0, Half = 0, PrimarySize = 0, ContextSize = 0;
 	TSharedPtr<FJsonObject> Data;
 	const TSharedPtr<FJsonObject>* Counts = nullptr;
 	const TSharedPtr<FJsonObject>* Sources = nullptr;
 	const TSharedPtr<FJsonObject>* Settings = nullptr;
 	const TSharedPtr<FJsonObject>* Stencils = nullptr;
+	const TSharedPtr<FJsonObject>* Tile = nullptr;
 	const TArray<TSharedPtr<FJsonValue>> *Meshes = nullptr, *Probes = nullptr;
 	TArray<double> Bounds;
 	int32 Buildings, Canopy, BatchCount, TriangleCount, BuildingStencil, TreeStencil;
@@ -130,6 +132,11 @@ bool BuildEnvGenContext(UWorld* World, const FString& ManifestPath, TArray<UPack
 		|| !IsHexHash(Hash)
 		|| !Numbers(Data->TryGetField(TEXT("bounds_enu_m")), 4, Bounds)
 		|| !Data->TryGetNumberField(TEXT("primary_half_m"), Half) || !FMath::IsFinite(Half) || Half <= 0
+		|| !Manifest->TryGetObjectField(TEXT("tile"), Tile) || !(*Tile)->TryGetNumberField(TEXT("size_m"), PrimarySize)
+		|| !(*Context)->TryGetNumberField(TEXT("size_m"), ContextSize) || !FMath::IsFinite(ContextSize)
+		|| !FMath::IsNearlyEqual(Half * 2, PrimarySize, 1.e-6)
+		|| !FMath::IsNearlyEqual(Bounds[0], -ContextSize / 2, 1.e-6) || !FMath::IsNearlyEqual(Bounds[1], -ContextSize / 2, 1.e-6)
+		|| !FMath::IsNearlyEqual(Bounds[2], ContextSize / 2, 1.e-6) || !FMath::IsNearlyEqual(Bounds[3], ContextSize / 2, 1.e-6)
 		|| Bounds[0] >= -Half || Bounds[1] >= -Half || Bounds[2] <= Half || Bounds[3] <= Half
 		|| !Data->TryGetObjectField(TEXT("counts"), Counts) || !Data->TryGetObjectField(TEXT("sources"), Sources)
 		|| !Data->TryGetObjectField(TEXT("settings"), Settings) || !Data->TryGetArrayField(TEXT("meshes"), Meshes)
@@ -137,6 +144,7 @@ bool BuildEnvGenContext(UWorld* World, const FString& ManifestPath, TArray<UPack
 		|| !Count(**Counts, TEXT("buildings"), MAX_int32, Buildings) || !Count(**Counts, TEXT("canopy_clusters"), MAX_int32, Canopy)
 		|| !Count(**Counts, TEXT("batches"), 1024, BatchCount) || !Count(**Counts, TEXT("triangles"), 1500000, TriangleCount)
 		|| BatchCount != Meshes->Num() || !Manifest->TryGetObjectField(TEXT("stencil_classes"), Stencils)
+		|| (TriangleCount > 0 && Probes->IsEmpty())
 		|| !Count(**Stencils, TEXT("building"), 255, BuildingStencil) || BuildingStencil == 0
 		|| !Count(**Stencils, TEXT("tree"), 255, TreeStencil) || TreeStencil == 0)
 	{
@@ -164,7 +172,7 @@ bool BuildEnvGenContext(UWorld* World, const FString& ManifestPath, TArray<UPack
 		if (!Row.IsValid() || !Row->TryGetObject(Object) || !(*Object)->TryGetStringField(TEXT("kind"), Batch.Kind)
 			|| (Batch.Kind != TEXT("building") && Batch.Kind != TEXT("canopy"))
 			|| !Numbers((*Object)->TryGetField(TEXT("origin_enu_m")), 3, Origin)
-			|| !(*Object)->TryGetArrayField(TEXT("vertices"), Vertices) || Vertices->IsEmpty()
+			|| !(*Object)->TryGetArrayField(TEXT("vertices"), Vertices) || Vertices->IsEmpty() || Vertices->Num() > 60000
 			|| !(*Object)->TryGetArrayField(TEXT("triangles"), Triangles) || Triangles->IsEmpty() || Triangles->Num() > 20000
 			|| !(*Object)->TryGetArrayField(TEXT("colours"), Colours) || Colours->Num() != Triangles->Num())
 		{ Error = TEXT("invalid context mesh"); return false; }
@@ -213,6 +221,9 @@ bool BuildEnvGenContext(UWorld* World, const FString& ManifestPath, TArray<UPack
 	UMaterial* Material = Asset<UMaterial>(TEXT("M_EnvGenContext"), Packages);
 	auto* Colour = CastChecked<UMaterialExpressionVertexColor>(UMaterialEditingLibrary::CreateMaterialExpression(Material, UMaterialExpressionVertexColor::StaticClass()));
 	UMaterialEditingLibrary::ConnectMaterialProperty(Colour, TEXT("RGB"), MP_BaseColor);
+	auto* Roughness = CastChecked<UMaterialExpressionConstant>(UMaterialEditingLibrary::CreateMaterialExpression(Material, UMaterialExpressionConstant::StaticClass()));
+	Roughness->R = .9f;
+	UMaterialEditingLibrary::ConnectMaterialProperty(Roughness, TEXT(""), MP_Roughness);
 	UMaterialEditingLibrary::RecompileMaterial(Material);
 	for (int32 Index = 0; Index < Batches.Num(); ++Index)
 	{

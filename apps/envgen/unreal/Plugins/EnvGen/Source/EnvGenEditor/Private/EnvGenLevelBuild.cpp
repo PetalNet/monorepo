@@ -2,6 +2,7 @@
 #include "EnvGenAtmosphere.h"
 #include "EnvGenStreetscape.h"
 #include "EnvGenArchitecture.h"
+#include "EnvGenContext.h"
 
 #include "AssetRegistry/AssetRegistryModule.h"
 #include "Components/InstancedSkinnedMeshComponent.h"
@@ -2372,6 +2373,7 @@ struct FEnvGenLevelBuild::FState
 	int32 MaterialErrors = 0;
 	TArray<AActor*> StreetscapeActors;
 	TSharedRef<FJsonObject> StreetscapeReceipt = MakeShared<FJsonObject>();
+	FEnvGenContextState ContextGeometry;
 	float Waited = 0;
 	int32 Frames = 0;
 };
@@ -2662,6 +2664,11 @@ bool FEnvGenLevelBuild::Start(const FString& ManifestPath, const FString& MapPat
 	AddSiteInfo(State->World, Manifest);
 	APlayerStart* PlayerStart = State->World->SpawnActor<APlayerStart>(FVector(0, 0, 150), FRotator::ZeroRotator);
 	PlayerStart->SetActorLabel(TEXT("EnvGenPlayerStart"));
+	if (!BuildEnvGenContext(State->World, ManifestPath, State->Packages, State->ContextGeometry, Error))
+	{
+		UE_LOG(LogEnvGen, Error, TEXT("context geometry failed: %s"), *Error);
+		return false;
+	}
 	State->World->GetWorldSettings()->DefaultGameMode = AEnvGenGameMode::StaticClass();
 	for (UPackage* Package : State->Packages)
 	{
@@ -2712,11 +2719,16 @@ bool FEnvGenLevelBuild::Finish(float DeltaSeconds, bool& bSucceeded)
 	}
 	const bool bBuildingsOk = State->BuildingsPlaced == State->Buildings.Num() && BuildingsMissed == 0 && BuildingTopCm <= SurfaceToleranceCm
 		&& BuildingNaniteMeshes == State->BuildingActors.Num();
+	TSharedRef<FJsonObject> Receipt = MakeShared<FJsonObject>();
+	FString ContextError;
+	const bool bContextOk = FinishEnvGenContext(State->Surround, State->ContextGeometry, Receipt, ContextError);
+	Receipt->SetBoolField(TEXT("context_geometry_ok"), bContextOk);
+	Receipt->SetStringField(TEXT("context_geometry_error"), ContextError);
+	Receipt->SetNumberField(TEXT("context_blend_width_m"), State->Surround ? ContextBlendWidthCm / 100 : 0);
 	const bool bSaved = UEditorLoadingAndSavingUtils::SavePackages(State->Packages, false) && UEditorLoadingAndSavingUtils::SaveMap(State->World, State->MapPath);
 	const bool bMaterialsOk = State->MaterialErrors == 0;
-	bSucceeded = bMerged && bSurfaceOk && bWeightsOk && bMaterialsOk && bTreesOk && bBuildingsOk && bSaved;
+	bSucceeded = bMerged && bSurfaceOk && bWeightsOk && bMaterialsOk && bTreesOk && bBuildingsOk && bContextOk && bSaved;
 
-	TSharedRef<FJsonObject> Receipt = MakeShared<FJsonObject>();
 	Receipt->Values.Append(State->StreetscapeReceipt->Values);
 	Receipt->SetStringField(TEXT("map"), State->MapPath);
 	Receipt->SetStringField(TEXT("engine"), FEngineVersion::Current().ToString());
