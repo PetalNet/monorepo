@@ -14,7 +14,7 @@
 		"check": "svelte-kit sync && svelte-check --tsconfig ./tsconfig.json --tsgo-experimental-api",
 		"lint:eslint": "eslint . --max-warnings=0",
 		"prepare": "svelte-kit sync",
-		"test": "node scripts/test-public-share.mjs && node scripts/test-agent-api.mjs && node scripts/test-janet-home.mjs && node scripts/test-telemetry.mjs && node scripts/test-makkit-docs.mjs && vitest run"
+		"test": "node scripts/test-public-share.mjs && node scripts/test-agent-api.mjs && node scripts/test-janet-home.mjs && node scripts/test-telemetry.mjs && node scripts/test-makkit-docs.mjs && node --experimental-strip-types scripts/test-agents-snapshot.mjs && vitest run"
 	},
 	"dependencies": {
 		"@sentry/core": "catalog:prod",

@@ -3,6 +3,7 @@
 import * as Sentry from "@sentry/sveltekit";
 import { sequence } from "@sveltejs/kit/hooks";
 
+import { agentsApi, ingestRequest } from "./lib/server/agents/api.ts";
 import { tasksConfig } from "./lib/server/config.js";
 import { followThroughApi } from "./lib/server/follow-through/api.ts";
 import { galleryApi } from "./lib/server/gallery/api.ts";
@@ -40,6 +41,10 @@ const isPublicShare = (pathname) => pathname === "/s" || pathname.startsWith("/s
 const isAgentApi = (pathname) => pathname === "/api/agent" || pathname.startsWith("/api/agent/");
 
 async function accessGate({ event, resolve }) {
+	if (event.url.pathname === "/api/agent/agents/snapshot") {
+		return ingestRequest(event);
+	}
+
 	const user = event.request.headers.get("x-authentik-username") || "";
 
 	if (ALLOW.length > 0 && !isPublicShare(event.url.pathname) && !isAgentApi(event.url.pathname)) {
@@ -82,11 +87,15 @@ async function accessGate({ event, resolve }) {
 
 // The gallery's Effect runtime (feedback, Matrix): built once at start, disposed on shutdown.
 export const init = async () => {
-	await galleryApi.initialize();
-	await followThroughApi.initialize();
+	await Promise.all([
+		galleryApi.initialize(),
+		agentsApi.initialize(),
+		followThroughApi.initialize(),
+	]);
 
 	process.once("sveltekit:shutdown", () => {
 		void galleryApi.dispose();
+		void agentsApi.dispose();
 		void followThroughApi.dispose();
 	});
 };
