@@ -23,6 +23,8 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 import numpy as np
 import soundfile as sf
+from audiotsm import wsola
+from audiotsm.io.array import ArrayReader, ArrayWriter
 from scipy.signal import resample_poly
 from wyoming.audio import AudioChunk, AudioStart, AudioStop
 from wyoming.error import Error
@@ -62,6 +64,23 @@ def louder(audio: np.ndarray, gain: float, knee: float = 0.8) -> np.ndarray:
     return np.where(over > 0, bent, scaled)
 
 
+def time_stretch(audio: np.ndarray, tempo: float) -> np.ndarray:
+    """Change speech duration with WSOLA while retaining its pitch."""
+    if tempo == 1.0 or len(audio) == 0:
+        return audio
+    # audiotsm flushes complete frames only. Supply silence so it also processes the final phoneme.
+    padded = np.pad(audio, (0, 4096)).astype(np.float32, copy=False)
+    writer = ArrayWriter(channels=1)
+    # A 128-sample alignment search (2.9 ms at 44.1 kHz) keeps per-group CPU latency small.
+    wsola(channels=1, speed=tempo, tolerance=128).run(ArrayReader(padded[np.newaxis, :]), writer)
+    out = writer.data[0]
+    # Frame alignment can move the final sound past the nominal duration. Trim only
+    # appended silence there, otherwise a sentence ending in a short consonant is cut off.
+    nonzero = np.flatnonzero(out)
+    end = max(round(len(audio) / tempo), int(nonzero[-1]) + 1 if len(nonzero) else 0)
+    return out[:end]
+
+
 def gpu_stats(index: int) -> dict:
     """Read the GPU from nvidia-smi so status checks never create a CUDA context in this process."""
     try:
@@ -96,7 +115,10 @@ class SynthesisError(RuntimeError):
 class Voice:
     """Owns the model. All model work runs on one worker thread, which serializes requests."""
 
-    def __init__(self, runtime: str, gpu_index: int, idle_unload: float, gain: float = 1.0):
+    def __init__(self, runtime: str, gpu_index: int, idle_unload: float, gain: float = 1.0, tempo: float = 1.0):
+        if not 0.5 <= tempo <= 2.0:
+            raise ValueError("tempo must be finite and between 0.5 and 2.0")
+        self.tempo = tempo
         self.runtime, self.gpu_index, self.idle_unload, self.gain = runtime, gpu_index, idle_unload, gain
         self.model = None
         self.last_used = 0.0
@@ -115,7 +137,11 @@ class Voice:
         self.busy = True
         try:
             try:
-                return louder(self._synthesize(text), self.gain)
+                audio = self._synthesize(text)
+                start = time.perf_counter()
+                audio = time_stretch(audio, self.tempo)
+                log.info("tempo %.3f: %.1f ms", self.tempo, (time.perf_counter() - start) * 1000)
+                return louder(audio, self.gain)
             except Exception as e:
                 log.exception("synthesis failed")
                 failure = repr(e)
@@ -183,6 +209,7 @@ class Voice:
             "busy": self.busy,
             "queue_depth": max(self.pending - self.busy, 0),
             "last_synth_rtf": None if self.last_rtf is None else round(self.last_rtf, 3),
+            "tempo": self.tempo,
             **gpu_stats(self.gpu_index),
         }
 
@@ -266,7 +293,13 @@ async def reaper(voice: Voice) -> None:
 
 async def serve(config: dict) -> None:
     name, gpu_index = config["name"], config.get("gpu_index", 0)
-    voice = Voice(config["runtime"], gpu_index, config.get("idle_unload_seconds", 600), config.get("gain", 1.0))
+    voice = Voice(
+        config["runtime"],
+        gpu_index,
+        config.get("idle_unload_seconds", 600),
+        config.get("gain", 1.0),
+        config.get("tempo", 1.0),
+    )
     upstream = Attribution(name="Resemble AI", url="https://github.com/resemble-ai/chatterbox")
     voice_info = TtsVoice(
         name=config.get("voice_name", "default"),

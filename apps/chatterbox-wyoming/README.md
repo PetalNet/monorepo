@@ -30,7 +30,7 @@ runtime's tested dependencies (torch 2.8.0+cu128 and numpy 1.26.4). Install this
 package's dependencies into that same environment:
 
 ```sh
-uv pip install --python <runtime-venv>/python numpy scipy soundfile "wyoming>=1.8,<2"
+uv pip install --python <runtime-venv>/python numpy scipy soundfile "wyoming>=1.8,<2" "audiotsm==0.1.2"
 ```
 
 ## Configuration
@@ -47,6 +47,7 @@ http = ["127.0.0.1:8735"]
 idle_unload_seconds = 600
 voice_name = "default"
 gain = 1.0 # output volume multiplier; peaks are soft-limited, not clipped
+tempo = 1.0 # pitch-preserving speed multiplier, 0.5 to 2.0; 1.08 speaks 8% faster
 log = "/path/to/chatterbox-wyoming.log" # used when there is no console (pythonw)
 ```
 
@@ -58,6 +59,10 @@ python chatterbox_wyoming.py --config /path/to/config.toml
 
 The log records each cold load, every synthesis with its real-time factor, and free
 VRAM.
+
+Tempo uses audiotsm's WSOLA on each synthesized sentence group, before gain and
+resampling, for both HTTP and Wyoming. The default 1.0 bypasses stretching entirely.
+Each group's stretch time is logged in milliseconds; `/status` reports the active tempo.
 
 ## Tests
 

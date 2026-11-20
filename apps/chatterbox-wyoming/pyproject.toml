@@ -4,7 +4,7 @@ version = "0.1.0"
 description = "Wyoming TTS server for a Chatterbox Turbo voice runtime"
 requires-python = ">=3.12"
 # torch and the voice runtime's own packages come from the runtime environment (see README).
-dependencies = ["numpy", "scipy", "soundfile", "wyoming>=1.8,<2"]
+dependencies = ["numpy", "scipy", "soundfile", "wyoming>=1.8,<2", "audiotsm==0.1.2"]
 
 [project.scripts]
 chatterbox-wyoming = "chatterbox_wyoming:main"
