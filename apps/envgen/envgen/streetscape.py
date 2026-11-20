@@ -11,7 +11,7 @@ import io
 import json
 import math
 from collections import Counter
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from itertools import pairwise
 from pathlib import Path, PurePosixPath
 
@@ -22,9 +22,19 @@ from rasterio.features import rasterize
 from rasterio.transform import from_origin
 from shapely.geometry import LineString, Polygon, box
 
+from .athletic import ATLAS_SPACING_M, classify_fields, colour_atlas, marking_polygon
 from .site import SiteError, Tile
 
-SURFACES = {"asphalt": 0.04, "concrete": 0.04, "track": 0.05, "gravel": 0.04, "clay": 0.04, "turf": 0.025}
+SURFACES = {
+    "asphalt": 0.04,
+    "concrete": 0.04,
+    "track": 0.05,
+    "gravel": 0.04,
+    "clay": 0.04,
+    "turf": 0.025,
+    "athletic_turf": 0.025,
+    "natural_grass": 0.025,
+}
 LINES = {"paint_white": 0.07, "paint_yellow": 0.07, "concrete": 0.06}
 DEFAULTS = {
     "line": {"width_m": 0.1},
@@ -56,6 +66,8 @@ FOOTING_SINK_M = 0.3
 BLEACHER_SINK_M = 0.6
 DECAL_OFFSET_M = 0.08
 SETTINGS = {
+    "athletic_surface_version": 1,
+    "athletic_atlas_spacing_m": ATLAS_SPACING_M,
     "decal_offset_m": DECAL_OFFSET_M,
     "surfaces": SURFACES,
     "lines": LINES,
@@ -259,6 +271,8 @@ def _polygons(geometry):
 
 
 def _planar(polygon, material, z, meshes, tile):
+    if polygon.is_empty:
+        return
     # Clip before triangulation: bounded meshes and edges, including concave polygons and holes from buffers.
     west, south, east, north = polygon.bounds
     half = tile.size_m / 2
@@ -490,6 +504,7 @@ class Inventory:
     source: dict
     priors: list[str]
     images: dict[str, bytes]
+    fields: list[dict] = field(default_factory=list)
 
 
 def _decal_image(path: Path, image, label: str) -> tuple[str, bytes]:
@@ -543,7 +558,8 @@ def load_inventory(path: Path, tile: Tile) -> Inventory:
             images[name] = data
         features.append(feature)
         priors.extend(defaults)
-    return Inventory(features, source, priors, images)
+    fields = classify_fields(raw.get("fields", []), features)
+    return Inventory(features, source, priors, images, fields)
 
 
 def build_inventory(path: Path, tile: Tile, out: Path, *, inventory: Inventory | None = None) -> dict:
@@ -552,6 +568,12 @@ def build_inventory(path: Path, tile: Tile, out: Path, *, inventory: Inventory |
     features, source, priors = inventory.features, inventory.source, list(inventory.priors)
     meshes = []
     exclusions = []
+    field_records = {f["surface_id"]: f for f in inventory.fields}
+    field_polygons = [
+        (record, Polygon(next(f for f in features if f["id"] == ident)["ring"]))
+        for ident, record in field_records.items()
+    ]
+    generated_images = {}
     if features:
         priors.append("24-sided large tubes and 8-sided small rods; no point lights or ball geometry")
         priors.append(
@@ -560,16 +582,54 @@ def build_inventory(path: Path, tile: Tile, out: Path, *, inventory: Inventory |
     for f in features:
         first_mesh = len(meshes)
         kind = f["type"]
-        if kind == "decal":
+        record = field_records.get(f["id"])
+        marking = marking_polygon(f)
+        if field_polygons and marking is not None:
+            remaining = marking
+            for field_record, polygon in field_polygons:
+                inside = remaining.intersection(polygon)
+                if inside.is_empty:
+                    continue
+                remaining = remaining.difference(polygon)
+                if field_record["effective_surface"] == "natural_grass":
+                    if kind == "decal":
+                        _planar(inside, "grass_paint_decal", 0.027, meshes, tile)
+                        for mesh in meshes[first_mesh:]:
+                            mesh.update(image=f["image"], bounds_m=f["bounds_m"])
+                    else:
+                        _planar(inside, "grass_" + f["material"], 0.027, meshes, tile)
+            if kind == "line":
+                _planar(remaining, f["material"], LINES[f["material"]], meshes, tile)
+            elif not remaining.is_empty:
+                _planar(remaining, "paint_decal", DECAL_OFFSET_M, meshes, tile)
+                for mesh in meshes[first_mesh:]:
+                    mesh.update(image=f["image"], bounds_m=f["bounds_m"])
+        elif kind == "decal":
             _planar(box(*f["bounds_m"]), "paint_decal", DECAL_OFFSET_M, meshes, tile)
             for mesh in meshes[first_mesh:]:
                 mesh.update(image=f["image"], bounds_m=f["bounds_m"])
             priors.append(f"{f['id']}: registered RGBA paint terrain offset {DECAL_OFFSET_M} m")
         elif kind == "surface":
-            if f["material"] != "turf":
+            material = record["effective_surface"] if record else f["material"]
+            if material not in ("turf", "natural_grass"):
                 exclusions.append(Polygon(f["ring"]))
-            priors.append(f"{f['id']}: {f['material']} terrain offset {SURFACES[f['material']]} m")
-            _planar(Polygon(f["ring"]), f["material"], SURFACES[f["material"]], meshes, tile)
+            if material == "natural_grass":
+                priors.append(f"{f['id']}: existing Landscape grass; no surface overlay")
+            else:
+                priors.append(f"{f['id']}: {material} terrain offset {SURFACES[material]} m")
+            # Natural fields use the existing Landscape grass material and its blade population.
+            if material != "natural_grass":
+                _planar(Polygon(f["ring"]), material, SURFACES[material], meshes, tile)
+            if material == "athletic_turf":
+                name, data, bounds = colour_atlas(f, features, inventory.images)
+                generated_images[name] = data
+                for mesh in meshes[first_mesh:]:
+                    mesh.update(
+                        image=name,
+                        bounds_m=bounds,
+                        heading_deg=record["heading_deg"],
+                        stripe_width_m=record["stripe_width_m"],
+                    )
         elif kind == "line":
             if f["material"] == "concrete":
                 exclusions.append(
@@ -603,9 +663,12 @@ def build_inventory(path: Path, tile: Tile, out: Path, *, inventory: Inventory |
         "counts": counts,
         "meshes": meshes,
         "evidence": [{"id": f["id"], "evidence": f["evidence"], "confidence": f["confidence"]} for f in features],
+        "fields": inventory.fields,
     }
     out.mkdir(parents=True, exist_ok=True)
-    for name, data in inventory.images.items():
+    used_images = {mesh["image"] for mesh in meshes if "image" in mesh}
+    output_images = {name: data for name, data in (inventory.images | generated_images).items() if name in used_images}
+    for name, data in output_images.items():
         (out / name).write_bytes(data)
     (out / "streetscape.json").write_text(json.dumps(payload, separators=(",", ":"), allow_nan=False) + "\n")
     # Landscape images run [east, north], both increasing; rasterize writes [north descending, east].
@@ -626,11 +689,12 @@ def build_inventory(path: Path, tile: Tile, out: Path, *, inventory: Inventory |
     return {
         "file": "streetscape.json",
         "grass_mask": "streetscape_grass.png",
-        "files": ["streetscape.json", "streetscape_grass.png", *sorted(inventory.images)],
+        "files": ["streetscape.json", "streetscape_grass.png", *sorted(output_images)],
         "feature_count": len(features),
         "triangle_count": sum(len(m["triangles"]) for m in meshes),
         "counts": counts,
         "source": source,
+        "fields": inventory.fields,
         "settings": SETTINGS,
         "priors": priors,
     }

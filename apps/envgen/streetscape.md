@@ -177,3 +177,53 @@ UE 5.8.4 comparison, editor `HighResScreenshot` captures fragmented continuous m
 Game captures at the same pose and output resolution restored continuous strokes. Extra editor warm-up frames
 did not remove the artifact. Keep the camera pose, field of view, render fractions and output resolution
 fixed when comparing captures.
+
+## Athletic turf and natural fields
+
+`athletic_turf` is a synthetic surface class. It excludes natural grass blades within its polygon.
+Markings intersecting that field become color regions in one opaque registered atlas on the field mesh,
+including local RGBA artwork. All colors share filtered tuft rows, black infill, fiber normals, roughness
+and grazing reflection. Alternating pile direction and narrow roll seams follow the configured heading.
+These are appearance priors. There are no raised marking ribbons, dry patches, soil or grass clumps.
+
+Add `fields` beside `features` in the inventory to record and override classifications:
+
+```json
+{
+	"fields": [
+		{
+			"surface_id": "playing-field",
+			"classification": "athletic_turf",
+			"evidence": "Survey crop A: uniform engineered rows and inlaid logo; OSM surface=artificial_turf",
+			"confidence": 0.95,
+			"heading_deg": 90,
+			"stripe_width_m": 4.572
+		}
+	]
+}
+```
+
+Each record names one existing `turf`, `athletic_turf` or `natural_grass` surface. Classification is
+`athletic_turf` or `natural_grass`; optional `override` selects either while retaining the original decision
+and evidence. Non-overlapping field polygons, finite headings, positive stripe widths up to 100 m and
+confidence in [0,1] are validated before generation. Heading is counterclockwise from east; bands repeat
+along that direction. Defaults are heading zero and 4.572 m stripes. An explicit `athletic_turf` surface
+also works without a record, using its feature evidence and those defaults. A track is supporting context,
+not proof of synthetic turf. Record imagery cues, available OSM surface tags and facility-owner evidence;
+record absent tags honestly. Both the original and effective decisions appear in the stage and output JSON.
+
+Natural fields retain the Landscape's grass material and blade population, without a flat field overlay.
+Lines split at field boundaries: paint in grass uses a faded, fiber-broken finish 2.7 cm above terrain;
+portions on clay or paving retain the existing paint finish. Natural-field image marks use the same
+grass-paint finish. `turf` without a field record retains its legacy behavior.
+
+Synthetic color atlases target 3 cm texels, bounded by 8192 pixels per side and 32 million pixels total.
+They are opaque color textures with content-addressed filenames, included in the manifest artifact hashes.
+Input images are validated and hashed before cache lookup; atlases bake from those immutable bytes.
+Registration remains independent of mesh batching. Keep restricted artwork in local assets. Look for the
+official mark before segmenting an aerial. An older official vector mark was available in the university's
+visitor guide; its current identity uses a different design.
+
+Material references: [FieldTurf systems](https://fieldturf.com/en/products/detail/turf-systems/) and
+[FieldTurf infill](https://fieldturf.com/en/products/detail/infill-systems-2/).
+Artwork reference: [official athletics logos](https://brand.mst.edu/logos/miner-athletics-logos/).

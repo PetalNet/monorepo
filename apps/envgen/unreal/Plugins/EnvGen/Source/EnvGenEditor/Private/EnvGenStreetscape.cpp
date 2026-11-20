@@ -21,6 +21,8 @@
 #include "Materials/MaterialExpressionWorldPosition.h"
 #include "Materials/MaterialExpressionTextureCoordinate.h"
 #include "Materials/MaterialExpressionTextureSample.h"
+#include "Materials/MaterialExpressionTextureObject.h"
+#include "Materials/MaterialExpressionVertexNormalWS.h"
 #include "Materials/MaterialFunction.h"
 #include "MeshDescription.h"
 #include "Misc/FileHelper.h"
@@ -61,6 +63,10 @@ namespace
 		{TEXT("gravel"), {FLinearColor(.24f, .22f, .18f), .95f, 0, 4}},
 		{TEXT("clay"), {FLinearColor(.34f, .23f, .14f), .97f, 0, 4}},
 		{TEXT("turf"), {FLinearColor(.065f, .08f, .0375f), .96f, 0, 0}},
+		{TEXT("natural_grass"), {FLinearColor(.065f, .08f, .0375f), .96f, 0, 0}},
+		{TEXT("athletic_turf"), {FLinearColor::FromSRGBColor(FColor(48, 100, 56)), .78f, 0, 0}},
+		{TEXT("grass_paint_white"), {FLinearColor(.723f, .716f, .791f), .96f, 0, 0}},
+		{TEXT("grass_paint_yellow"), {FLinearColor(.72f, .48f, .045f), .96f, 0, 0}},
 		{TEXT("paint_white"), {FLinearColor(.723f, .716f, .791f), .83f, 0, 5}},
 		{TEXT("paint_yellow"), {FLinearColor(.72f, .48f, .045f), .8f, 0, 5}},
 		{TEXT("steel"), {FLinearColor(.26f, .28f, .29f), .55f, .8f, 0}},
@@ -72,7 +78,7 @@ namespace
 		{TEXT("chainlink"), {FLinearColor(.26f, .28f, .29f), .6f, .8f, 0}},
 	};
 
-	UMaterial* MakeMaterial(const FString& Name, const FFinish& Finish, TArray<UPackage*>& Packages)
+	UMaterial* MakeMaterial(const FString& Name, const FFinish& Finish, TArray<UPackage*>& Packages, UTexture2D* PaintImage = nullptr)
 	{
 		UMaterial* Material = Asset<UMaterial>(TEXT("M_Streetscape_") + Name, Packages);
 		const auto Constant = [&](float Value)
@@ -121,9 +127,49 @@ if (%d==2) {
 if (%d==3) modulation*=.9+.16*wear;
 if (%d==4) modulation*=.80+.32*wear;
 if (%d==5) modulation=1;
-return float4(float3(%.5f,%.5f,%.5f)*modulation,saturate(%.5f+.08*(wear-.5)+.08*crack));
+#if %d
+float3 colour=PaintColour*modulation;
+#else
+float3 colour=float3(%.5f,%.5f,%.5f)*modulation;
+#endif
+#if %d
+float2 blade=q*float2(65,230);
+float bladeVisible=1-smoothstep(.25,1.,max(fwidth(blade.x),fwidth(blade.y)));
+float grain=lerp(.5,n.value(blade),bladeVisible);
+Coverage=lerp(1.,smoothstep(.08,.20,grain),bladeVisible);
+#if %d
+Coverage*=PaintAlpha;
+#endif
+float fade=.84+.12*grain;
+colour=lerp(float3(.065,.08,.0375)*modulation,colour,fade);
+#endif
+return float4(colour,saturate(%.5f+.08*(wear-.5)+.08*crack));
 )HLSL"), Finish.Pattern, Finish.Pattern, Finish.Pattern, Finish.Pattern, Finish.Pattern,
-			Finish.Albedo.R, Finish.Albedo.G, Finish.Albedo.B, Finish.Roughness);
+			PaintImage ? 1 : 0, Finish.Albedo.R, Finish.Albedo.G, Finish.Albedo.B,
+			Name.StartsWith(TEXT("grass_paint_")) ? 1 : 0, PaintImage ? 1 : 0, Finish.Roughness);
+		if (PaintImage)
+		{
+			auto* Sample = CastChecked<UMaterialExpressionTextureSample>(UMaterialEditingLibrary::CreateMaterialExpression(Material, UMaterialExpressionTextureSample::StaticClass()));
+			Sample->Texture = PaintImage;
+			Sample->SamplerType = SAMPLERTYPE_Color;
+			FCustomInput& ColourInput = Pattern->Inputs.AddDefaulted_GetRef();
+			ColourInput.InputName = TEXT("PaintColour");
+			ColourInput.Input.Connect(0, Sample);
+			FCustomInput& AlphaInput = Pattern->Inputs.AddDefaulted_GetRef();
+			AlphaInput.InputName = TEXT("PaintAlpha");
+			AlphaInput.Input.Connect(4, Sample);
+		}
+		if (Name.StartsWith(TEXT("grass_paint_")))
+		{
+			Material->BlendMode = BLEND_Masked;
+			Material->OpacityMaskClipValue = .333f;
+			FCustomOutput& Coverage = Pattern->AdditionalOutputs.AddDefaulted_GetRef();
+			Coverage.OutputName = TEXT("Coverage");
+			Coverage.OutputType = CMOT_Float1;
+			// Match turf's world-space distribution; a thin paint coat keeps the terrain normal.
+			Pattern->RebuildOutputs();
+			UMaterialEditingLibrary::ConnectMaterialProperty(Pattern, TEXT("Coverage"), MP_OpacityMask);
+		}
 		auto* Colour = CastChecked<UMaterialExpressionComponentMask>(UMaterialEditingLibrary::CreateMaterialExpression(Material, UMaterialExpressionComponentMask::StaticClass()));
 		Colour->Input.Connect(0, Pattern);
 		Colour->R = Colour->G = Colour->B = true;
@@ -180,6 +226,7 @@ return float4(float3(%.5f,%.5f,%.5f)*modulation,saturate(%.5f+.08*(wear-.5)+.08*
 		TArray64<uint8> Pixels;
 		int32 Width = 0;
 		int32 Height = 0;
+		bool bOpaque = true;
 	};
 
 	bool ReadDecal(const FString& Path, FDecalImage& Out)
@@ -194,14 +241,17 @@ return float4(float3(%.5f,%.5f,%.5f)*modulation,saturate(%.5f+.08*(wear-.5)+.08*
 		Out.Width = Wrapper->GetWidth();
 		Out.Height = Wrapper->GetHeight();
 		if (Out.Width <= 0 || Out.Height <= 0 || Out.Pixels.Num() != int64(Out.Width) * Out.Height * 4) return false;
+		bool bVisible = false;
+		Out.bOpaque = true;
 		for (int64 I = 3; I < Out.Pixels.Num(); I += 4)
 		{
-			if (Out.Pixels[I] >= 85) return true;
+			bVisible |= Out.Pixels[I] >= 85;
+			Out.bOpaque &= Out.Pixels[I] == 255;
 		}
-		return false;
+		return bVisible;
 	}
 
-	UMaterial* MakeDecalMaterial(int32 Index, const FDecalImage& Image, TArray<UPackage*>& Packages)
+	UTexture2D* MakeRegisteredTexture(int32 Index, const FDecalImage& Image, bool bOpaque, TArray<UPackage*>& Packages)
 	{
 		UTexture2D* Texture = Asset<UTexture2D>(FString::Printf(TEXT("T_StreetscapeDecal_%04d"), Index), Packages);
 		Texture->Source.Init(Image.Width, Image.Height, 1, 1, TSF_BGRA8, Image.Pixels.GetData());
@@ -209,9 +259,17 @@ return float4(float3(%.5f,%.5f,%.5f)*modulation,saturate(%.5f+.08*(wear-.5)+.08*
 		Texture->CompressionSettings = TC_Default;
 		Texture->LODGroup = TEXTUREGROUP_World;
 		Texture->AddressX = Texture->AddressY = TA_Clamp;
-		Texture->bDoScaleMipsForAlphaCoverage = true;
-		Texture->AlphaCoverageThresholds = FVector4(0, 0, 0, .333f);
+		Texture->bDoScaleMipsForAlphaCoverage = !bOpaque;
+		if (!bOpaque) Texture->AlphaCoverageThresholds = FVector4(0, 0, 0, .333f);
 		Texture->PostEditChange();
+		return Texture;
+	}
+
+	UMaterial* MakeDecalMaterial(int32 Index, const FDecalImage& Image, TArray<UPackage*>& Packages, bool bGrassPaint)
+	{
+		UTexture2D* Texture = MakeRegisteredTexture(Index, Image, false, Packages);
+		if (bGrassPaint)
+			return MakeMaterial(FString::Printf(TEXT("grass_paint_decal_%04d"), Index), Finishes.FindChecked(TEXT("grass_paint_white")), Packages, Texture);
 		UMaterial* Material = Asset<UMaterial>(FString::Printf(TEXT("M_StreetscapeDecal_%04d"), Index), Packages);
 		Material->BlendMode = BLEND_Masked;
 		Material->OpacityMaskClipValue = .333f;
@@ -223,6 +281,112 @@ return float4(float3(%.5f,%.5f,%.5f)*modulation,saturate(%.5f+.08*(wear-.5)+.08*
 		auto* Roughness = CastChecked<UMaterialExpressionConstant>(UMaterialEditingLibrary::CreateMaterialExpression(Material, UMaterialExpressionConstant::StaticClass()));
 		Roughness->R = .83f;
 		UMaterialEditingLibrary::ConnectMaterialProperty(Roughness, TEXT(""), MP_Roughness);
+		UMaterialEditingLibrary::RecompileMaterial(Material);
+		return Material;
+	}
+
+	UMaterial* MakeAthleticMaterial(int32 Index, const FDecalImage& Image, double Heading, double StripeWidth,
+		double Width, double Height, TArray<UPackage*>& Packages)
+	{
+		UMaterial* Material = Asset<UMaterial>(FString::Printf(TEXT("M_StreetscapeAthletic_%04d"), Index), Packages);
+		Material->BlendMode = BLEND_Opaque;
+		Material->bTangentSpaceNormal = false;
+		auto* Position = CastChecked<UMaterialExpressionWorldPosition>(UMaterialEditingLibrary::CreateMaterialExpression(Material, UMaterialExpressionWorldPosition::StaticClass()));
+		auto* Normal = CastChecked<UMaterialExpressionVertexNormalWS>(UMaterialEditingLibrary::CreateMaterialExpression(Material, UMaterialExpressionVertexNormalWS::StaticClass()));
+		auto* UV = CastChecked<UMaterialExpressionTextureCoordinate>(UMaterialEditingLibrary::CreateMaterialExpression(Material, UMaterialExpressionTextureCoordinate::StaticClass()));
+		auto* Atlas = CastChecked<UMaterialExpressionTextureObject>(UMaterialEditingLibrary::CreateMaterialExpression(Material, UMaterialExpressionTextureObject::StaticClass()));
+		Atlas->Texture = MakeRegisteredTexture(Index, Image, true, Packages);
+		Atlas->SamplerType = SAMPLERTYPE_Color;
+		auto* Fiber = CastChecked<UMaterialExpressionCustom>(UMaterialEditingLibrary::CreateMaterialExpression(Material, UMaterialExpressionCustom::StaticClass()));
+		Fiber->Inputs.Empty();
+		Fiber->OutputType = CMOT_Float3;
+		const auto Input = [&](const TCHAR* Name, UMaterialExpression* Expression)
+		{
+			FCustomInput& Value = Fiber->Inputs.AddDefaulted_GetRef();
+			Value.InputName = Name;
+			Value.Input.Connect(0, Expression);
+		};
+		const auto Scalar = [&](const TCHAR* Name, double Value)
+		{
+			auto* Expression = CastChecked<UMaterialExpressionConstant>(UMaterialEditingLibrary::CreateMaterialExpression(Material, UMaterialExpressionConstant::StaticClass()));
+			Expression->R = float(Value);
+			Input(Name, Expression);
+		};
+		Input(TEXT("P"), Position);
+		Input(TEXT("N"), Normal);
+		Input(TEXT("UV"), UV);
+		Input(TEXT("Atlas"), Atlas);
+		const double Radians = FMath::DegreesToRadians(FMath::Fmod(Heading, 360.));
+		Scalar(TEXT("HeadingCos"), FMath::Cos(Radians));
+		Scalar(TEXT("HeadingSin"), FMath::Sin(Radians));
+		Scalar(TEXT("StripeWidth"), FMath::Max(StripeWidth, .001));
+		Scalar(TEXT("StripeResolvable"), StripeWidth >= .001 ? 1 : 0);
+		Scalar(TEXT("InvWidth"), 1. / FMath::Max(Width, .003));
+		Scalar(TEXT("InvHeight"), 1. / FMath::Max(Height, .003));
+		for (const auto& Output : {TPair<FName, ECustomMaterialOutputType>(TEXT("FiberNormal"), CMOT_Float3),
+			TPair<FName, ECustomMaterialOutputType>(TEXT("Roughness"), CMOT_Float1),
+			TPair<FName, ECustomMaterialOutputType>(TEXT("Specular"), CMOT_Float1)})
+		{
+			FCustomOutput& Value = Fiber->AdditionalOutputs.AddDefaulted_GetRef();
+			Value.OutputName = Output.Key;
+			Value.OutputType = Output.Value;
+		}
+		// Appearance priors: 10 mm tuft rows, 3 mm edge breakup, low ribbons and sparse infill.
+		// Every atlas RGB (including its default green) goes through this one fiber finish.
+		Fiber->Code = TEXT(R"HLSL(
+struct Noise {
+ float hash(float2 p) { return frac(sin(dot(p,float2(127.1,311.7)))*43758.5453); }
+ float value(float2 p) {
+  float2 i=floor(p), f=frac(p); f=f*f*(3-2*f);
+  return lerp(lerp(hash(i),hash(i+float2(1,0)),f.x),lerp(hash(i+float2(0,1)),hash(i+1),f.x),f.y);
+ }
+};
+Noise n;
+float2 along=float2(HeadingCos,HeadingSin), across=float2(-HeadingSin,HeadingCos);
+float2 en=P.yx*.01;
+float2 q=float2(dot(en,along),dot(en,across));
+float row=q.y/.01;
+float rowVisible=1-smoothstep(.25,1.,fwidth(row));
+float ribbon=cos(row*6.2831853)*rowVisible;
+float2 fiberCell=q*float2(200,333.3333);
+float detailVisible=1-smoothstep(.25,1.,max(fwidth(fiberCell.x),fwidth(fiberCell.y)));
+float fiber=n.value(fiberCell);
+float crumbNear=smoothstep(.79,.94,n.hash(floor(fiberCell)))*smoothstep(.25,.75,-ribbon);
+float crumb=lerp(.012,crumbNear,detailVisible);
+
+// Jitter only the artwork by at most 1.5 mm per axis. Preserve the unjittered gradients for mips.
+float2 jitter=(float2(fiber,n.value(fiberCell+17.3))-.5)*.003*detailVisible;
+float2 jitterEN=along*jitter.x+across*jitter.y;
+float2 atlasUV=saturate(UV+float2(jitterEN.x*InvWidth,-jitterEN.y*InvHeight));
+float3 colour=Texture2DSampleGrad(Atlas,AtlasSampler,atlasUV,ddx(UV),ddy(UV)).rgb;
+
+float stripe=q.x/StripeWidth;
+float stripeVisible=(1-smoothstep(.25,1.,fwidth(stripe)))*StripeResolvable;
+float stripeFW=max(fwidth(stripe)*3.14159265,.001);
+float direction=(2*smoothstep(-stripeFW,stripeFW,sin(stripe*3.14159265))-1)*stripeVisible;
+float seamDistance=abs(frac(stripe+.5)-.5)*StripeWidth;
+float seamFW=max(fwidth(q.x),.0001);
+float seam=(1-smoothstep(max(0.,.002-seamFW),.002+seamFW,seamDistance))*min(1.,.002/seamFW)*stripeVisible;
+float modulation=1.+.035*direction+.035*ribbon+.025*(fiber-.5)*detailVisible-.035*seam;
+
+float3 up=normalize(N);
+float3 axis=float3(HeadingSin,HeadingCos,0);
+float3 tangent=axis-up*dot(up,axis);
+tangent=normalize(tangent+float3(0,0,1)*step(dot(tangent,tangent),.000001));
+float3 side=normalize(cross(tangent,up));
+float acrossSlope=.08*sin(row*6.2831853)*rowVisible;
+float alongSlope=.025*(fiber-.5)*detailVisible;
+FiberNormal=normalize(up+side*acrossSlope+tangent*alongSlope);
+// Directional roughness and dielectric Fresnel give every inlaid color the same grazing sheen.
+Roughness=clamp(.78+.035*direction-.035*ribbon+.08*crumb,.65,.9);
+Specular=.32-.12*crumb;
+return lerp(colour*modulation,float3(.008,.009,.008),crumb);
+)HLSL");
+		Fiber->RebuildOutputs();
+		UMaterialEditingLibrary::ConnectMaterialProperty(Fiber, TEXT(""), MP_BaseColor);
+		UMaterialEditingLibrary::ConnectMaterialProperty(Fiber, TEXT("FiberNormal"), MP_Normal);
+		UMaterialEditingLibrary::ConnectMaterialProperty(Fiber, TEXT("Roughness"), MP_Roughness);
+		UMaterialEditingLibrary::ConnectMaterialProperty(Fiber, TEXT("Specular"), MP_Specular);
 		UMaterialEditingLibrary::RecompileMaterial(Material);
 		return Material;
 	}
@@ -286,8 +450,17 @@ static bool ProcessStreetscape(UWorld* World, const FString& ManifestPath,
 		FMeshDescription Description;
 		FString Name;
 		FString Image;
+		double Heading;
+		double StripeWidth;
+		double Width;
+		double Height;
 		bool bCollision;
 		bool bAnchored;
+		FString MaterialKey() const
+		{
+			return FString::Printf(TEXT("%s|%s|%.17g|%.17g|%.17g|%.17g"),
+				*Name, *Image, Heading, StripeWidth, Width, Height);
+		}
 	};
 	TArray<FPendingMesh> Pending;
 	int32 TotalTriangles = 0;
@@ -312,7 +485,9 @@ static bool ProcessStreetscape(UWorld* World, const FString& ManifestPath,
 			return false;
 		}
 		const FFinish* Finish = Finishes.Find(Name);
-		const bool bDecal = Name == TEXT("paint_decal");
+		const bool bDecal = Name == TEXT("paint_decal") || Name == TEXT("grass_paint_decal");
+		const bool bAthletic = Name == TEXT("athletic_turf");
+		const bool bRegistered = bDecal || bAthletic;
 		if (!Finish && !bDecal)
 		{
 			Error = TEXT("unknown streetscape finish: ") + Name;
@@ -322,7 +497,21 @@ static bool ProcessStreetscape(UWorld* World, const FString& ManifestPath,
 		const bool bAnchored = Row->HasField(TEXT("anchor_m"));
 		FString Image;
 		TArray<double> Bounds;
-		if (bDecal)
+		double Heading = 0, StripeWidth = 0;
+		if (bAthletic)
+		{
+			const auto HeadingValue = Row->TryGetField(TEXT("heading_deg"));
+			const auto StripeValue = Row->TryGetField(TEXT("stripe_width_m"));
+			if (!HeadingValue || HeadingValue->Type != EJson::Number || !StripeValue || StripeValue->Type != EJson::Number
+				|| !Row->TryGetNumberField(TEXT("heading_deg"), Heading) || !FMath::IsFinite(Heading)
+				|| !Row->TryGetNumberField(TEXT("stripe_width_m"), StripeWidth) || !FMath::IsFinite(StripeWidth)
+				|| StripeWidth <= 0 || StripeWidth > 100)
+			{
+				Error = FString::Printf(TEXT("athletic turf mesh %d needs finite heading_deg and stripe_width_m in (0,100]"), Index);
+				return false;
+			}
+		}
+		if (bRegistered)
 		{
 			if (bCollision || bAnchored || !Row->TryGetStringField(TEXT("image"), Image) || Image.IsEmpty()
 				|| Image.Contains(TEXT("/")) || Image.Contains(TEXT("\\")) || Image.Contains(TEXT(":"))
@@ -330,7 +519,7 @@ static bool ProcessStreetscape(UWorld* World, const FString& ManifestPath,
 				|| Bounds[0] >= Bounds[2] || Bounds[1] >= Bounds[3]
 				|| !FMath::IsFinite(Bounds[2] - Bounds[0]) || !FMath::IsFinite(Bounds[3] - Bounds[1]))
 			{
-				Error = FString::Printf(TEXT("invalid registered decal in streetscape mesh %d"), Index);
+				Error = FString::Printf(TEXT("invalid registered image in streetscape mesh %d"), Index);
 				return false;
 			}
 			if (!Decals.Contains(Image))
@@ -342,6 +531,11 @@ static bool ProcessStreetscape(UWorld* World, const FString& ManifestPath,
 					return false;
 				}
 				Decals.Add(Image, MoveTemp(Decal));
+			}
+			if (bAthletic && !Decals.FindChecked(Image).bOpaque)
+			{
+				Error = TEXT("athletic turf atlas must have alpha 255 in every pixel: ") + Image;
+				return false;
 			}
 		}
 		if (bAnchored && !Numbers(Row->TryGetField(TEXT("anchor_m")), 2, Anchor))
@@ -360,10 +554,10 @@ static bool ProcessStreetscape(UWorld* World, const FString& ManifestPath,
 				Error = FString::Printf(TEXT("invalid vertex in streetscape mesh %d"), Index);
 				return false;
 			}
-			if (bDecal && (P[0] < Bounds[0] - 1.e-9 || P[0] > Bounds[2] + 1.e-9
+			if (bRegistered && (P[0] < Bounds[0] - 1.e-9 || P[0] > Bounds[2] + 1.e-9
 				|| P[1] < Bounds[1] - 1.e-9 || P[1] > Bounds[3] + 1.e-9))
 			{
-				Error = FString::Printf(TEXT("vertex outside registered decal bounds in streetscape mesh %d"), Index);
+				Error = FString::Printf(TEXT("vertex outside registered image bounds in streetscape mesh %d"), Index);
 				return false;
 			}
 			const double North = P[1] * 100, East = P[0] * 100;
@@ -417,7 +611,7 @@ static bool ProcessStreetscape(UWorld* World, const FString& ManifestPath,
 				Corners[I] = Description.CreateVertexInstance(V);
 				Normals[Corners[I]] = Normal;
 				FVector2f UV;
-				if (bDecal)
+				if (bRegistered)
 				{
 					const FVector& EN = PreciseVertices[int32(T[I])];
 					// World X is north, Y is east. PNG row zero is the north edge.
@@ -436,11 +630,12 @@ static bool ProcessStreetscape(UWorld* World, const FString& ManifestPath,
 				{
 					UV = FVector2f(FMath::Abs(Normal.X) > FMath::Abs(Normal.Y) ? P[I].Y : P[I].X, P[I].Z);
 				}
-				UVs.Set(Corners[I], 0, bDecal ? UV : UV * .01f);
+				UVs.Set(Corners[I], 0, bRegistered ? UV : UV * .01f);
 			}
 			Description.CreatePolygon(Group, {Corners[0], Corners[1], Corners[2]});
 		}
-		if (Description.Triangles().Num() > 0) Pending.Add({MoveTemp(Description), Name, Image, bCollision, bAnchored});
+		if (Description.Triangles().Num() > 0) Pending.Add({MoveTemp(Description), Name, Image, Heading, StripeWidth,
+			bRegistered ? Bounds[2] - Bounds[0] : 0, bRegistered ? Bounds[3] - Bounds[1] : 0, bCollision, bAnchored});
 	}
 	if (Pending.IsEmpty() && FeatureCount > 0)
 	{
@@ -457,13 +652,15 @@ static bool ProcessStreetscape(UWorld* World, const FString& ManifestPath,
 	{
 		FPendingMesh& Item = Pending[Index];
 		const FString& Name = Item.Name;
-		const FString MaterialKey = Item.Image.IsEmpty() ? Name : Item.Image;
+		const FString MaterialKey = Item.MaterialKey();
 		FMeshDescription& Description = Item.Description;
 		const bool bCollision = Item.bCollision, bAnchored = Item.bAnchored;
 		if (!Materials.Contains(MaterialKey))
 		{
-			UMaterial* Material = Item.Image.IsEmpty() ? MakeMaterial(Name, Finishes.FindChecked(Name), Packages)
-				: MakeDecalMaterial(Index, Decals.FindChecked(Item.Image), Packages);
+			UMaterial* Material = Name == TEXT("athletic_turf")
+				? MakeAthleticMaterial(Index, Decals.FindChecked(Item.Image), Item.Heading, Item.StripeWidth, Item.Width, Item.Height, Packages)
+				: Item.Image.IsEmpty() ? MakeMaterial(Name, Finishes.FindChecked(Name), Packages)
+				: MakeDecalMaterial(Index, Decals.FindChecked(Item.Image), Packages, Name == TEXT("grass_paint_decal"));
 			if (!Material)
 			{
 				Error = TEXT("cannot load the engine's DitherTemporalAA function for chainlink");
@@ -502,7 +699,7 @@ static bool ProcessStreetscape(UWorld* World, const FString& ManifestPath,
 		Component->SetCastShadow(bCollision);
 		Component->SetRenderCustomDepth(true);
 		const FString StencilClass = bAnchored || bCollision ? TEXT("prop")
-			: Name.StartsWith(TEXT("paint_")) ? TEXT("marking")
+			: Name.StartsWith(TEXT("paint_")) || Name.StartsWith(TEXT("grass_paint_")) ? TEXT("marking")
 			: Name == TEXT("asphalt") || Name == TEXT("concrete") ? TEXT("road") : TEXT("ground");
 		Component->SetCustomDepthStencilValue(StencilIds[StencilClass]);
 		TotalTriangles += Description.Triangles().Num();
@@ -519,6 +716,35 @@ static bool ProcessStreetscape(UWorld* World, const FString& ManifestPath,
 		Values->SetArrayField(TEXT("linear_albedo"), {MakeShared<FJsonValueNumber>(Pair.Value.Albedo.R), MakeShared<FJsonValueNumber>(Pair.Value.Albedo.G), MakeShared<FJsonValueNumber>(Pair.Value.Albedo.B)});
 		Values->SetNumberField(TEXT("roughness"), Pair.Value.Roughness);
 		Values->SetNumberField(TEXT("metallic"), Pair.Value.Metallic);
+		if (Pair.Key == TEXT("athletic_turf"))
+		{
+			Values->SetStringField(TEXT("basis"), TEXT("documented appearance priors; not a measured physical survey"));
+			Values->SetStringField(TEXT("colour_source"), TEXT("opaque registered atlas RGB, including default green and inlaid markings"));
+			Values->SetStringField(TEXT("heading_convention"), TEXT("EN degrees counterclockwise from east"));
+			Values->SetNumberField(TEXT("machine_row_spacing_m"), .01);
+			Values->SetNumberField(TEXT("artwork_edge_breakup_m"), .003);
+			Values->SetNumberField(TEXT("roll_seam_half_width_m"), .002);
+			Values->SetNumberField(TEXT("distant_crumb_fraction"), .012);
+			Values->SetNumberField(TEXT("specular"), .32);
+			Values->SetNumberField(TEXT("minimum_resolved_stripe_width_m"), .001);
+			TArray<TSharedPtr<FJsonValue>> Registrations;
+			TSet<FString> Seen;
+			for (const FPendingMesh& Item : Pending)
+			{
+				if (Item.Name != Pair.Key) continue;
+				const FString Key = Item.MaterialKey();
+				if (Seen.Contains(Key)) continue;
+				Seen.Add(Key);
+				TSharedRef<FJsonObject> Registration = MakeShared<FJsonObject>();
+				Registration->SetStringField(TEXT("image"), Item.Image);
+				Registration->SetNumberField(TEXT("heading_deg"), Item.Heading);
+				Registration->SetNumberField(TEXT("stripe_width_m"), Item.StripeWidth);
+				Registration->SetNumberField(TEXT("atlas_width_m"), Item.Width);
+				Registration->SetNumberField(TEXT("atlas_height_m"), Item.Height);
+				Registrations.Add(MakeShared<FJsonValueObject>(Registration));
+			}
+			Values->SetArrayField(TEXT("registrations"), Registrations);
+		}
 		MaterialPriors->SetObjectField(Pair.Key, Values);
 	}
 	MaterialPriors->SetNumberField(TEXT("aggregate_cells_per_m"), 140);
