@@ -100,10 +100,10 @@ bool FEnvGenNaturalFields::RunTest(const FString& Parameters)
 	FFileHelper::SaveStringToFile(TEXT(R"JSON({"streetscape":{"file":"geometry.json"},"stencil_classes":{"ground":1,"road":5,"prop":8,"marking":9}})JSON"), *Manifest);
 	const FString Valid = TEXT(R"JSON({"schema_version":1,"feature_count":1,"counts":{"surface":1},"meshes":[],"fields":[{"surface_id":"field","effective_surface":"natural_grass"}]})JSON");
 	const auto Check = [&](const FString& Json, bool bExpected) {
-	 FFileHelper::SaveStringToFile(Json, *(Directory / TEXT("geometry.json")));
-	 FString Error;
-	 TestEqual(TEXT("landscape-only field preflight"), ValidateEnvGenStreetscape(Manifest,
-	  [](double, double) { return 0.; }, Error), bExpected);
+		FFileHelper::SaveStringToFile(Json, *(Directory / TEXT("geometry.json")));
+		FString Error;
+		TestEqual(TEXT("landscape-only field preflight"), ValidateEnvGenStreetscape(Manifest,
+			[](double, double) { return 0.; }, Error), bExpected);
 	};
 	Check(Valid, true);
 	Check(Valid.Replace(TEXT("natural_grass"), TEXT("athletic_turf")), false);
