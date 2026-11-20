@@ -22,8 +22,8 @@ The following are presentation priors, not measurements of the site:
 | Cloud shadow extent / map resolution / samples | 8 km / 0.5 / 0.5                      | Cover the site and surround with a bounded shadow map                                            |
 | Cloud shadow strength on surface               | 0.35                                  | Preserve survey shadow readability with unknown cloud cover                                      |
 | Cloud ground albedo                            | sRGB 90, 95, 75                       | Vegetated regional ground bounce; not calibrated from the ortho                                  |
-| Fog density / height falloff                   | 0.0002 / 0.2                          | Thin boundary-layer haze                                                                         |
-| Analytic fog start / max opacity               | 150 m / 0.35                          | Keep near material detail legible                                                                |
+| Fog density / height falloff                   | 0.001 / 0.2                           | Subdue the transition from source-textured context to the flat far horizon                         |
+| Analytic fog start / max opacity               | 500 m / 0.85                          | Keep the immediate scene clear while allowing stronger haze at distance                            |
 | Volumetric fog                                 | Off                                   | Daylight haze uses the cheaper analytic and aerial-perspective paths                             |
 | Lumen scene / maximum trace distance           | 200 m / 200 m                         | Nearby outdoor occlusion and bounce                                                              |
 | Lumen gather / reflection quality              | 1 / 0.5                               | Rough outdoor surfaces rarely need expensive mirror traces                                       |

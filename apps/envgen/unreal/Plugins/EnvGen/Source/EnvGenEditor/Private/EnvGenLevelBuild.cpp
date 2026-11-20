@@ -1624,6 +1624,56 @@ return normalize(float3(ScanNormal.xy*lerp(1,1.8,close)-slope*Grass,ScanNormal.z
 		return Landscape;
 	}
 
+	UMaterial* MakePavingMaterial(UTexture2D* Macro, UTexture2D* Ratio, const FManifest& Manifest, TArray<UPackage*>& Packages)
+	{
+		UMaterial* Material = NewAsset<UMaterial>(TEXT("M_RegisteredPaving"), Packages);
+		auto* Position = Node<UMaterialExpressionWorldPosition>(Material, -1400, 0);
+		Position->WorldPositionShaderOffset = WPT_ExcludeAllShaderOffsets;
+		auto* Uv = Node<UMaterialExpressionCustom>(Material, -1200, 0);
+		Uv->OutputType = CMOT_Float2;
+		Uv->Inputs.Empty();
+		FCustomInput& Here = Uv->Inputs.AddDefaulted_GetRef();
+		Here.InputName = TEXT("P");
+		Here.Input.Connect(0, Position);
+		// The registered textures run U north, V east, from the tile's lower corner in world centimetres.
+		Uv->Code = FString::Printf(TEXT("return (P.xy-float2(%.9f,%.9f))/float2(%.9f,%.9f);"),
+			Manifest.Tile.LocationCm.X, Manifest.Tile.LocationCm.Y,
+			Manifest.Tile.Scale.X * (Manifest.Tile.Vertices - 1), Manifest.Tile.Scale.Y * (Manifest.Tile.Vertices - 1));
+		const auto RegisteredSample = [&](UTexture2D* Texture, EMaterialSamplerType Sampler, int32 Y)
+		{
+			auto* TextureSample = Node<UMaterialExpressionTextureSample>(Material, -1000, Y);
+			TextureSample->Texture = Texture;
+			TextureSample->SamplerType = Sampler;
+			TextureSample->SamplerSource = SSM_Clamp_WorldGroupSettings;
+			TextureSample->Coordinates.Connect(0, Uv);
+			return TextureSample;
+		};
+		auto* Albedo = Node<UMaterialExpressionCustom>(Material, -600, 0);
+		Albedo->OutputType = CMOT_Float3;
+		Albedo->Inputs.Empty();
+		FCustomInput& Colour = Albedo->Inputs.AddDefaulted_GetRef();
+		Colour.InputName = TEXT("MacroColour");
+		Colour.Input.Connect(0, RegisteredSample(Macro, SAMPLERTYPE_Color, 0));
+		if (Ratio)
+		{
+			FCustomInput& Fine = Albedo->Inputs.AddDefaulted_GetRef();
+			Fine.InputName = TEXT("DetailRatio");
+			Fine.Input.Connect(0, RegisteredSample(Ratio, SAMPLERTYPE_LinearColor, 200));
+			Albedo->Code = FString::Printf(TEXT("return MacroColour.rgb * %.9f * exp2(%.9f * (255.0 * DetailRatio.rgb - %.9f) / %.9f);"),
+				Manifest.AlbedoScale, Manifest.RatioLog2Range, Manifest.RatioZero, Manifest.RatioZero);
+		}
+		else
+		{
+			Albedo->Code = FString::Printf(TEXT("return MacroColour.rgb * %.9f;"), Manifest.AlbedoScale);
+		}
+		UMaterialEditingLibrary::ConnectMaterialProperty(Albedo, TEXT(""), MP_BaseColor);
+		auto* Roughness = Node<UMaterialExpressionConstant>(Material, -600, 300);
+		Roughness->R = .87f;
+		UMaterialEditingLibrary::ConnectMaterialProperty(Roughness, TEXT(""), MP_Roughness);
+		UMaterialEditingLibrary::RecompileMaterial(Material);
+		return Material;
+	}
+
 	/** The surround's material: its own colour map across it, and nothing finer. It is only ever seen from far away. */
 	UMaterial* MakeSurroundMaterial(UTexture2D* Colour, int32 Quads, float AlbedoScale, TArray<UPackage*>& Packages)
 	{
@@ -1641,8 +1691,8 @@ return normalize(float3(ScanNormal.xy*lerp(1,1.8,close)-slope*Grass,ScanNormal.z
 
 	/**
 	 * Flat ground from under the outermost surface to the horizon, in that surface's average colour. Without it
-	 * the sky's empty lower half shows as a blue band past the surface's edge from any height. It only closes the band
-	 * without distance fog, which would turn everything past a couple of kilometres, the plane included, dark.
+	 * the sky's empty lower half shows as a blue band past the surface's edge from any height. The atmosphere's
+	 * nonvolumetric haze subdues the transition from the source-textured surround to this uniform far ground.
 	 */
 	void AddHorizon(UWorld* World, const FSurface& Outer, const TArray64<uint8>& HeightBytes, const TArray64<uint8>& ColourBytes, float AlbedoScale, TArray<UPackage*>& Packages)
 	{
@@ -2480,9 +2530,10 @@ bool FEnvGenLevelBuild::Start(const FString& ManifestPath, const FString& MapPat
 		UMaterial* BuildingMaterial = MakeBuildingMaterial(Manifest.RoofRoughness, State->Packages);
 		State->BuildingActors = AddBuildings(State->World, Manifest, State->HeightBytes, State->Buildings, BuildingMaterial, State->Packages, State->BuildingsPlaced);
 	}
+	UMaterial* PavingMaterial = Manifest.StreetscapeMaskFile.IsEmpty() ? nullptr : MakePavingMaterial(Macro, Ratio, Manifest, State->Packages);
 	if (!BuildEnvGenStreetscape(State->World, ManifestPath,
 		StreetscapeHeight,
-		State->Packages, State->StreetscapeActors, State->StreetscapeReceipt, Error))
+		State->Packages, State->StreetscapeActors, State->StreetscapeReceipt, Error, PavingMaterial))
 	{
 		UE_LOG(LogEnvGen, Error, TEXT("%s"), *Error);
 		return false;

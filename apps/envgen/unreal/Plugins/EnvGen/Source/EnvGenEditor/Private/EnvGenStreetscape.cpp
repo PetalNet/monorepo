@@ -173,7 +173,8 @@ return float4(float3(%.5f,%.5f,%.5f)*modulation,saturate(%.5f+.08*(wear-.5)+.08*
 
 static bool ProcessStreetscape(UWorld* World, const FString& ManifestPath,
 	TFunctionRef<double(double, double)> SurfaceHeight,
-	TArray<UPackage*>& Packages, TArray<AActor*>& Actors, TSharedRef<FJsonObject> Receipt, FString& Error, bool bValidateOnly)
+	TArray<UPackage*>& Packages, TArray<AActor*>& Actors, TSharedRef<FJsonObject> Receipt, FString& Error, bool bValidateOnly,
+	UMaterialInterface* PavingMaterial)
 {
 	TSharedPtr<FJsonObject> Manifest;
 	if (!ReadJson(ManifestPath, Manifest))
@@ -362,18 +363,24 @@ static bool ProcessStreetscape(UWorld* World, const FString& ManifestPath,
 		const FString& Name = Item.Name;
 		FMeshDescription& Description = Item.Description;
 		const bool bCollision = Item.bCollision, bAnchored = Item.bAnchored;
-		if (!Materials.Contains(Name))
+		UMaterialInterface* Material = !bAnchored && !bCollision && (Name == TEXT("asphalt") || Name == TEXT("concrete"))
+			? PavingMaterial : nullptr;
+		if (!Material)
 		{
-			UMaterial* Material = MakeMaterial(Name, Finishes.FindChecked(Name), Packages);
-			if (!Material)
+			if (!Materials.Contains(Name))
 			{
-				Error = TEXT("cannot load the engine's DitherTemporalAA function for chainlink");
-				return false;
+				UMaterial* FinishMaterial = MakeMaterial(Name, Finishes.FindChecked(Name), Packages);
+				if (!FinishMaterial)
+				{
+					Error = TEXT("cannot load the engine's DitherTemporalAA function for chainlink");
+					return false;
+				}
+				Materials.Add(Name, FinishMaterial);
 			}
-			Materials.Add(Name, Material);
+			Material = Materials[Name];
 		}
 		UStaticMesh* Mesh = Asset<UStaticMesh>(FString::Printf(TEXT("SM_Streetscape_%04d"), Index), Packages);
-		Mesh->GetStaticMaterials().Add(FStaticMaterial(Materials[Name], FName(*Name)));
+		Mesh->GetStaticMaterials().Add(FStaticMaterial(Material, FName(*Name)));
 		// Terrain-contact surfaces retain their exact planes; solid props use Nanite.
 		Mesh->GetNaniteSettings().bEnabled = Name != TEXT("chainlink") && Name != TEXT("net") && (bCollision || bAnchored);
 		Mesh->GetNaniteSettings().FallbackPercentTriangles = 1;
@@ -431,9 +438,10 @@ static bool ProcessStreetscape(UWorld* World, const FString& ManifestPath,
 
 bool BuildEnvGenStreetscape(UWorld* World, const FString& ManifestPath,
 	TFunctionRef<double(double, double)> SurfaceHeight,
-	TArray<UPackage*>& Packages, TArray<AActor*>& Actors, TSharedRef<FJsonObject> Receipt, FString& Error)
+	TArray<UPackage*>& Packages, TArray<AActor*>& Actors, TSharedRef<FJsonObject> Receipt, FString& Error,
+	UMaterialInterface* PavingMaterial)
 {
-	return ProcessStreetscape(World, ManifestPath, SurfaceHeight, Packages, Actors, Receipt, Error, false);
+	return ProcessStreetscape(World, ManifestPath, SurfaceHeight, Packages, Actors, Receipt, Error, false, PavingMaterial);
 }
 
 bool ValidateEnvGenStreetscape(const FString& ManifestPath,
@@ -441,7 +449,7 @@ bool ValidateEnvGenStreetscape(const FString& ManifestPath,
 {
 	TArray<UPackage*> Packages;
 	TArray<AActor*> Actors;
-	return ProcessStreetscape(nullptr, ManifestPath, SurfaceHeight, Packages, Actors, MakeShared<FJsonObject>(), Error, true);
+	return ProcessStreetscape(nullptr, ManifestPath, SurfaceHeight, Packages, Actors, MakeShared<FJsonObject>(), Error, true, nullptr);
 }
 
 double EnvGenStreetscapeHeight(const TArray64<uint8>& HeightBytes, int32 Vertices,

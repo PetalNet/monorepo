@@ -89,7 +89,9 @@ SUNLIT_REACH_MIN = 0.05
 # The colour map's low-pass runs on blocks this many cells across. A numerical shortcut, not a measurement.
 POOL = 4
 
-CONTEXT_MACRO_PIXELS = 512
+CONTEXT_MACRO_PIXELS = 2048
+# Preserve broad developed/vegetated structure in the surround independently of the tile's macro/detail split.
+CONTEXT_LOW_PASS_M = 3.0
 # The surround passes under the tile; it sits this far below the detailed surface there so it never shows through.
 CONTEXT_SINK_M = 1.0
 
@@ -1317,7 +1319,7 @@ def build_context(
                 resampling=Resampling.average,
             )
         clear = 1 - clear
-    sigma = MACRO_LOW_PASS_M / pixel
+    sigma = CONTEXT_LOW_PASS_M / pixel
     if not curves:
         colour = _low_pass_of_sunlit(colour, clear, sigma)
     else:
@@ -1957,7 +1959,7 @@ def build(site_path: Path, out: Path, cache: Path | None = None) -> dict:
                 CONTEXT_SINK_M,
                 CONTEXT_QUADS,
                 CONTEXT_MACRO_PIXELS,
-                MACRO_LOW_PASS_M,
+                CONTEXT_LOW_PASS_M,
                 bands,
                 classes["albedo"].get("curves"),
                 classes["splits"],

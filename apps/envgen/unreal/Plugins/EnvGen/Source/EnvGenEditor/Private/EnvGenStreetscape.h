@@ -5,13 +5,16 @@
 class FJsonObject;
 class AActor;
 class ALandscape;
+class UMaterialInterface;
 class UPackage;
 class UWorld;
 
-/** Imports the optional streetscape inventory, in tile-centred east/north metres. */
+/** Imports the optional inventory in tile-centred east/north metres.
+ * PavingMaterial overrides only unanchored, noncollision asphalt/concrete. */
 bool BuildEnvGenStreetscape(UWorld* World, const FString& ManifestPath,
 	TFunctionRef<double(double NorthCm, double EastCm)> SurfaceHeight,
-	TArray<UPackage*>& Packages, TArray<AActor*>& Actors, TSharedRef<FJsonObject> Receipt, FString& Error);
+	TArray<UPackage*>& Packages, TArray<AActor*>& Actors, TSharedRef<FJsonObject> Receipt, FString& Error,
+	UMaterialInterface* PavingMaterial = nullptr);
 
 /** Checks the complete artifact without creating assets or requiring a world. */
 bool ValidateEnvGenStreetscape(const FString& ManifestPath,

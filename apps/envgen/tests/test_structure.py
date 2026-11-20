@@ -1,11 +1,13 @@
 """What lidar adds: ground colour without trees in it, smoothing where the ground was not measured, and the surround."""
 
+import importlib
+
 import numpy as np
 import pytest
 from PIL import Image
 
-from envgen import frame, lidar
-from envgen.build import CONTEXT_SINK_M, build
+from envgen import frame, lidar, surface
+from envgen.build import CONTEXT_SINK_M, build, build_context
 from envgen.cli import main
 from envgen.site import load_site
 
@@ -132,7 +134,7 @@ def test_ept_pages_select_only_nodes_over_the_window():
     assert pages == ["2-0-0-0"]
 
 
-def test_surround_passes_under_the_tile_and_follows_the_ground_outside_it(tmp_path):
+def test_surround_passes_under_the_tile_and_follows_the_ground_outside_it(tmp_path, monkeypatch):
     h.write_dem(tmp_path / "dem.tif", spacing=2.0, margin=260.0)
     h.write_imagery(tmp_path / "imagery.tif", split_easting=h.WEST + 63)
     out = tmp_path / "out"
@@ -158,6 +160,52 @@ def test_surround_passes_under_the_tile_and_follows_the_ground_outside_it(tmp_pa
     assert below.max() < CONTEXT_SINK_M + 0.2
     assert (out / context["colour"]).is_file()
     assert build(site, out)["stages_reused"] == ["elevation", "surface", "macro_colour", "detail", "growth", "context"]
+    monkeypatch.setattr(importlib.import_module("envgen.build"), "CONTEXT_LOW_PASS_M", 6.0)
+    changed = build(site, out)
+    assert changed["stages_reused"] == ["elevation", "surface", "macro_colour", "detail", "growth"]
+    assert changed["artifacts"][context["colour"]] != manifest["artifacts"][context["colour"]]
+
+
+@pytest.mark.parametrize("calibrated", [False, True])
+def test_surround_keeps_source_corridors_calibration_and_nodata_filling(tmp_path, calibrated):
+    site = load_site(h.write_site(tmp_path, context={"size_m": 2016}))
+    west, north = site.tile.centre[0] - 1008, site.tile.centre[1] + 1008
+    dem, imagery = tmp_path / "dem.tif", tmp_path / "imagery.tif"
+    h.write_raster(dem, np.full((1008, 1008), 100, dtype=np.float32), west, north, 2)
+    rgb = np.full((3, 1008, 1008), 180, dtype=np.uint8)
+    rgb[:, :504] = np.array(h.GRASS)[:, None, None]
+    rgb[:, 504:, 247:257] = 80  # A 20 m corridor, with no geometry inferred from it.
+    rgb[:, 700:710, 700:710] = 0
+    h.write_raster(imagery, rgb, west, north, 2, nodata=0)
+    curves = {
+        name: {"gain": [gain] * 3, "gamma": [1] * 3, "range": [[0, 1]] * 3}
+        for name, gain in (("grass", 0.8), ("paved", 0.5))
+    }
+    classes = {
+        "layers": [{"name": "grass"}, {"name": "paved"}],
+        "splits": [{"split": True, "index": "green", "threshold": 0.1}],
+        "albedo": {"curves": curves},
+    }
+    result = build_context(
+        site, dem, imagery, None, None, tmp_path, np.full((127, 127), 100), 100,
+        classes if calibrated else None,
+    )
+    north_up = np.swapaxes(np.asarray(Image.open(tmp_path / result["colour"])), 0, 1)[::-1]
+
+    def at(source_row, source_column):
+        row, column = (int((index + 0.5) / 1008 * north_up.shape[0]) for index in (source_row, source_column))
+        return north_up[row, column].astype(float)
+
+    def expected(colour, name):
+        value = np.array(colour, dtype=np.float32)[:, None, None]
+        if calibrated:
+            value = surface.to_encoded(surface.apply_curve(value, curves[name]))
+        return value[:, 0, 0]
+
+    assert at(750, 252) == pytest.approx(expected((80, 80, 80), "paved"), abs=8)
+    assert at(750, 350) == pytest.approx(expected((180, 180, 180), "paved"), abs=2)
+    assert at(705, 705) == pytest.approx(expected((180, 180, 180), "paved"), abs=2)
+    assert at(250, 350) == pytest.approx(expected(h.GRASS, "grass"), abs=2)
 
 
 def test_surround_must_be_larger_than_the_tile(tmp_path, capsys):
