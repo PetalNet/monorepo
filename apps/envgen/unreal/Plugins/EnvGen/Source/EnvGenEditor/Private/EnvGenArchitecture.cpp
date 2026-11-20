@@ -210,7 +210,8 @@ bool FStyle::AddRoof(double RoofZ, FLinearColor Colour, FTriangle Emit) const
 		const FVector A = At(T.X), B = At(T.Y), C = At(T.Z);
 		FVector Normal = FVector::CrossProduct(B-A, C-A).GetSafeNormal();
 		const FVector Across(Along.X, -Along.Y, 0);
-		if (Normal.Z < 0 || (FMath::Abs(Normal.Z) < 0.01 && Normal.Dot(Across) > 0)) { Normal *= -1; }
+		// Measured EN faces are outward-wound; swapping EN into UE axes reverses that winding.
+		if (bMeasuredRoof || Normal.Z < 0 || (FMath::Abs(Normal.Z) < 0.01 && Normal.Dot(Across) > 0)) { Normal *= -1; }
 		Emit(A, B, C, Normal, Colour);
 	}
 	return true;

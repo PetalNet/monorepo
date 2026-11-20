@@ -17,7 +17,7 @@ from scipy.spatial import cKDTree
 from shapely.affinity import translate
 from shapely.geometry import Polygon, shape
 
-VERSION = 3
+VERSION = 4
 TOLERANCE_M = 0.22
 MIN_POINTS = 30
 MAX_PLANES = 8
@@ -80,28 +80,85 @@ def _mesh(parts: list[tuple[Polygon, np.ndarray]], centre: np.ndarray, roof_z: f
     for region, plane in parts:
         for triangle in shapely.constrained_delaunay_triangles(region).geoms:
             start = len(vertices)
-            for xy in np.asarray(triangle.exterior.coords)[:3]:
+            coords = np.asarray(triangle.exterior.coords)[:3]
+            a, b = coords[1] - coords[0], coords[2] - coords[0]
+            signed_area = a[0] * b[1] - a[1] * b[0]
+            if abs(signed_area) < 1e-10:
+                continue
+            if signed_area < 0:
+                coords = coords[::-1]
+            for xy in coords:
                 vertices.append([*(xy + centre), float(_predict(xy, plane) - roof_z)])
             triangles.append([start, start + 1, start + 2])
     # Vertical faces close measured steps between adjacent roof levels.
     for i, (region, plane) in enumerate(parts):
         for other, other_plane in parts[i + 1 :]:
-            common = region.boundary.intersection(other.boundary)
+            common = shapely.set_precision(region.boundary, 1e-6).intersection(
+                shapely.set_precision(other.boundary, 1e-6)
+            )
             for line in getattr(common, "geoms", [common]):
                 if line.geom_type != "LineString":
                     continue
                 coords = np.asarray(line.coords)
                 for a, b in pairwise(coords):
-                    za, zb = _predict(a, plane), _predict(b, plane)
-                    oa, ob = _predict(a, other_plane), _predict(b, other_plane)
-                    if max(abs(za - oa), abs(zb - ob)) < 0.02:
-                        continue
-                    start = len(vertices)
-                    vertices.extend(
-                        [[*(xy + centre), float(z - roof_z)] for xy, z in [(a, za), (b, zb), (b, ob), (a, oa)]]
-                    )
-                    triangles.extend([[start, start + 1, start + 2], [start, start + 2, start + 3]])
+                    da = _predict(a, plane) - _predict(a, other_plane)
+                    db = _predict(b, plane) - _predict(b, other_plane)
+                    cuts = [a, b]
+                    if da * db < 0:
+                        cuts.insert(1, a + (b - a) * da / (da - db))
+                    for p, q in pairwise(cuts):
+                        zp, zq = _predict(p, plane), _predict(q, plane)
+                        op, oq = _predict(p, other_plane), _predict(q, other_plane)
+                        delta = q - p
+                        if np.linalg.norm(delta) < 1e-3 or max(abs(zp - op), abs(zq - oq)) < 0.02:
+                            continue
+                        left = np.array([-delta[1], delta[0]]) / np.linalg.norm(delta)
+                        middle = (p + q) / 2
+                        toward_other = -left if region.covers(shapely.Point(middle + left * 1e-5)) else left
+                        outward = (
+                            toward_other if _predict(middle, plane) > _predict(middle, other_plane) else -toward_other
+                        )
+                        quad = np.array([[*p, zp], [*q, zq], [*q, oq], [*p, op]])
+                        start = len(vertices)
+                        vertices.extend([[*(v[:2] + centre), float(v[2] - roof_z)] for v in quad])
+                        for t in [(0, 1, 2), (0, 2, 3)]:
+                            normal = np.cross(quad[t[1]] - quad[t[0]], quad[t[2]] - quad[t[0]])
+                            if np.linalg.norm(normal) < 1e-10:
+                                continue
+                            reverse = np.dot(normal[:2], outward) < 0
+                            triangles.append([start + i for i in (t[::-1] if reverse else t)])
     return vertices, triangles
+
+
+def _walls(polygon: Polygon, parts, centre: np.ndarray, roof_z: float) -> list:
+    segments = []
+    buffered = [(region.buffer(1e-6), plane) for region, plane in parts]
+    for ring in [polygon.exterior, *polygon.interiors]:
+        for a, b in pairwise(np.asarray(ring.coords)):
+            delta = b - a
+            length = np.linalg.norm(delta)
+            if length < 1e-7:
+                continue
+            direction = delta / length
+            boundary = shapely.LineString([a, b])
+            cuts = [0.0, float(length)]
+            # Overlay endpoints can differ by a few ULPs along a projected footprint edge.
+            for region, _ in buffered:
+                clipped = boundary.intersection(region)
+                for line in getattr(clipped, "geoms", [clipped]):
+                    if line.geom_type == "LineString" and not line.is_empty:
+                        cuts.extend(np.clip((np.asarray(line.coords)[[0, -1]] - a) @ direction, 0, length).tolist())
+            ordered = [0.0]
+            for cut in sorted(cuts):
+                if cut - ordered[-1] > 1e-3 and length - cut > 1e-3:
+                    ordered.append(cut)
+            ordered.append(float(length))
+            for lo, hi in pairwise(ordered):
+                middle = shapely.Point(a + direction * ((lo + hi) / 2))
+                _, plane = min(parts, key=lambda item: item[0].distance(middle))
+                ends = [a + direction * lo, a + direction * hi]
+                segments.append([[*(xy + centre), float(_predict(xy, plane) - roof_z)] for xy in ends])
+    return segments
 
 
 def fit(polygon: Polygon, points: np.ndarray, ground: np.ndarray, anchor: np.ndarray, prior=None) -> dict:
@@ -234,17 +291,7 @@ def fit(polygon: Polygon, points: np.ndarray, ground: np.ndarray, anchor: np.nda
             else None,
         }
     vertices, triangles = _mesh(parts, centre, roof_z)
-    edge_heights = []
-    for ring in [local_polygon.exterior, *local_polygon.interiors]:
-        coords = np.asarray(ring.coords)
-        for a, b in pairwise(coords):
-            boundary = shapely.LineString([a, b])
-            for region, plane in parts:
-                clipped = boundary.intersection(region)
-                for line in getattr(clipped, "geoms", [clipped]):
-                    if line.geom_type == "LineString" and line.length > 0.01:
-                        endpoints = np.asarray(line.coords)[[0, -1]]
-                        edge_heights.append([[*(xy + centre), float(_predict(xy, plane) - roof_z)] for xy in endpoints])
+    edge_heights = _walls(local_polygon, parts, centre, roof_z)
     return {
         **base,
         "status": "measured",
