@@ -44,6 +44,8 @@ def reply_to(prompt: str) -> str:
         time.sleep(WARM_DELAY)
         return "ready"
     if "conversation is over" in prompt:
+        if "--fake-slow-summary" in argv:
+            time.sleep(2)
         return "They talked about test things."
     if said.startswith("fake-call-tools:"):
         servers = json.loads(argv[argv.index("--mcp-config") + 1])["mcpServers"]

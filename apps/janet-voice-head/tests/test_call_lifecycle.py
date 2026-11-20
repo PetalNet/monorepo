@@ -1,4 +1,5 @@
 import sys
+import threading
 
 from tests.harness import HeadCase
 
@@ -78,3 +79,18 @@ class CallLifecycleTest(HeadCase):
         self.configure_unload()
         self.wait_for(self.unloaded.exists, "recovered call did not release TTS")
         self.assertEqual(self.request("GET", "/v1/calls")[1], {"active_calls": 0})
+
+    def test_slow_summary_does_not_delay_gpu_release(self):
+        self.claude_extra = ["--fake-slow-summary"]
+        self.configure_unload()
+        conv = self.open()
+        self.turn(conv, "hello")
+        self.turn(conv, "more")
+        ending = threading.Thread(target=self.end, args=(conv,))
+        ending.start()
+        try:
+            self.wait_for(lambda: "conversation is over" in self.claude_log.read_text(), "summary never started")
+            self.assertTrue(ending.is_alive())
+            self.assertTrue(self.unloaded.exists(), "GPU release waited for the model's summary")
+        finally:
+            ending.join(timeout=10)

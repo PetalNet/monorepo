@@ -316,6 +316,8 @@ class Head:
         with live.end_lock:
             if live.conv.state == "open":
                 live.ending.set()
+                self._tts_release_pending = True
+                self._release_tts()
                 if live.session is not None:
                     live.session.interrupt()
                 with live.turn_lock:
@@ -324,8 +326,6 @@ class Head:
                     if live.session is not None:
                         self._note_session(live)
                         live.session.close()
-                self._tts_release_pending = True
-                self._release_tts()
             try:
                 self._merge(live)
             except HubError as error:
