@@ -18,7 +18,7 @@ from shapely.ops import split
 
 from .site import Tile
 
-VERSION = 5
+VERSION = 6
 HOUSE_MAX_M2 = 320.0
 INSTITUTION_MIN_M2 = 900.0
 RECTANGULAR_SHARE = 0.96
@@ -194,6 +194,8 @@ def describe(record: dict, tags: dict, opposite_stand: tuple[float, float] | Non
     )
     rise = min(width * ROOF_PITCH / 2, MAX_ROOF_RISE_M) if pitched else 0.0
     stand_rows = max(3, min(40, round(width / 0.85))) if role == "grandstand" and rectangular and width >= 3 else 0
+    if stand_rows and record.get("reference", {}).get("stand_rows"):
+        stand_rows = record["reference"]["stand_rows"]
     result = {
         "role": role,
         "role_from": f"tag: {kind}" if kind else "prior: footprint area, width and measured height",
@@ -209,7 +211,7 @@ def describe(record: dict, tags: dict, opposite_stand: tuple[float, float] | Non
         "width_m": width,
         "rise_m": rise,
         "stand_rows": stand_rows,
-        "stand_step_m": record["height_m"] * 2 / stand_rows if stand_rows else 0,
+        "stand_step_m": record.get("stand_rise_m", record["height_m"] * 2) / stand_rows if stand_rows else 0,
         "parapet_m": 0.32 if not pitched and role in {"institution", "commercial"} else 0.0,
         "detail_from": "prior: modular facade and roof kit; see buildings.priors",
         "orientation_from": "inferred: rows rise away from the nearest opposing tagged stand"
@@ -235,7 +237,7 @@ def describe(record: dict, tags: dict, opposite_stand: tuple[float, float] | Non
             for triangle in shapely.constrained_delaunay_triangles(part).geoms:
                 start = len(result["roof_vertices"])
                 for point in list(triangle.exterior.coords)[:3]:
-                    result["roof_vertices"].append([*point, -record["height_m"] + (row + 1) * step])
+                    result["roof_vertices"].append([*point, (row + 1 - stand_rows * 0.5) * step])
                 result["roof_triangles"].append([start, start + 1, start + 2])
         for row in range(1, stand_rows):
             boundary = -width / 2 + row * width / stand_rows
@@ -251,7 +253,7 @@ def describe(record: dict, tags: dict, opposite_stand: tuple[float, float] | Non
                     for a, b in pairwise(points):
                         if a == b:
                             continue
-                        low = -record["height_m"] + row * step
+                        low = (row - stand_rows * 0.5) * step
                         high = low + step
                         start = len(result["roof_vertices"])
                         result["roof_vertices"].extend([[*a, low], [*b, low], [*b, high], [*a, high]])

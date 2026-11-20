@@ -19,12 +19,16 @@ struct FRoofForm
 {
 	FVector2D At = FVector2D::ZeroVector;
 	double WidthM = 0, DepthM = 0, HeightM = 0;
+	bool bObservedPlan = false, bSkylight = false;
 };
 
 struct FStyle
 {
 
 	bool bDetailed = false;
+	bool bMeasuredRoof = false;
+	bool bPressBoxPrior = true;
+	int32 RoofFinish = Membrane;
 	FString Role;
 	FLinearColor Wall = FLinearColor(0.25f, 0.25f, 0.25f, Plain);
 	FVector2D Centre = FVector2D::ZeroVector, Along = FVector2D(1, 0);
@@ -33,7 +37,9 @@ struct FStyle
 	double StandStepM = 0;
 	TArray<FVector> RoofVertices;
 	TArray<FIntVector> RoofTriangles;
+	TArray<TPair<FVector, FVector>> WallSegments;
 	TArray<FRoofForm> RoofForms;
+	TArray<double> StandAisles{0};
 
 	void Read(const TSharedPtr<FJsonObject>& Building);
 	double RoofOffsetM(const FVector2D& Point) const;

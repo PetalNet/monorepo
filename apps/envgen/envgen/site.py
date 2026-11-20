@@ -182,6 +182,8 @@ class Site:
     mask_imagery: Source | None = None
     microsoft_buildings: Source | None = None
     osm_features: Source | None = None
+    building_imagery: Source | None = None
+    building_reference: Source | None = None
 
 
 def acquisition_day(source: Source, name: str) -> date:
@@ -291,5 +293,11 @@ def load_site(path: Path) -> Site:
         ),
         osm_features=Source.parse(sources["osm_features"], path.parent, "osm_features")
         if "osm_features" in sources
+        else None,
+        building_imagery=Source.parse(sources["building_imagery"], path.parent, "building_imagery")
+        if "building_imagery" in sources
+        else None,
+        building_reference=Source.parse(sources["building_reference"], path.parent, "building_reference")
+        if "building_reference" in sources
         else None,
     )
