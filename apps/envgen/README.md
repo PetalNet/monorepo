@@ -570,6 +570,19 @@ grass from paving without storing site annotations in this repository.
   outermost surface, in that surface's mean colour. Without it the sky's empty lower half shows as a blue
   band past the surround. The atmosphere's analytic height fog and aerial perspective soften its transition
   from the source-textured surround; [atmosphere settings](atmosphere.md) records their presentation priors.
+- **Context geometry** uses the existing wider building footprints and canopy-height raster when present.
+  `context_geometry.json` contains coarse static mesh batches grounded against the exported context heightmap.
+  Primary building and tree inventories remain separate. Footprints crossing the primary tile are omitted from
+  context massing, with the omitted area recorded. Tagged building heights take precedence over floor-count
+  and six-metre priors; distant facades remain unresolved. Canopy records describe supported clusters, not
+  individual measured trees or species. These meshes have no collision, animation, or cast shadows.
+  The receipt reports context counts and terrain probes separately, and saved-level checks must preserve their
+  component policies. They provide visual surroundings rather than physical sensor ground truth.
+- Ground and registered paving blend their final albedo toward the same world-registered surround texture over
+  the outer 64 m of the primary tile. This changes colour without changing terrain displacement or grass placement.
+  Paving uses low-frequency registered colour and modeled markings; its fine photographic layer is omitted to
+  avoid painting flat vehicles and shadows. Imagery alignment, visible joins and distant silhouettes still require
+  native camera review; mesh counts and material compilation alone do not establish their quality.
 - **Trees in the level.** `materials.json` names, for each kind, tree meshes that ship with the engine's
   Procedural Vegetation Editor plugin (a broadleaf tree, a shrub and a conifer on 5.8); nothing is downloaded or
   stored. Each tree takes the mesh of its kind that needs the least stretching, scaled to its height and crown
