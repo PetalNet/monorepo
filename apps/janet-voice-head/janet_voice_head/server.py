@@ -94,6 +94,10 @@ class Handler(BaseHTTPRequestHandler):
     def do_GET(self):
         if self.path == "/health":
             return self._json(200, {"ok": True, "version": __version__})
+        if self.path == "/v1/calls":
+            if not self._authorized():
+                return self._json(401, {"error": "bearer token required"})
+            return self._json(200, self.head.call_status())
         self._json(404, {"error": "not found"})
 
     def do_POST(self):

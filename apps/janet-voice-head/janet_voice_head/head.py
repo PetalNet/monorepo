@@ -1,4 +1,5 @@
 import logging
+import subprocess
 import threading
 import time
 import uuid
@@ -65,6 +66,7 @@ class Config:
     # Public web tools from web_guard.TOOLS. Guests never get them; the lab MCP server is gated separately.
     web_tools: list[str] = field(default_factory=list)
     lab_token_file: str = ""
+    tts_unload_command: list[str] = field(default_factory=list)
 
 
 def _set_event() -> threading.Event:
@@ -111,6 +113,7 @@ class Head:
         self._by_ref: dict[str, str] = {}
         self._lock = threading.Lock()
         self._stop = threading.Event()
+        self._tts_release_pending = False
         self._journals = config.state_dir / "conversations"
         self._journals.mkdir(parents=True, exist_ok=True)
         (config.state_dir / "cold").mkdir(exist_ok=True)
@@ -155,6 +158,8 @@ class Head:
                 raise ApiError(503, f"the head session did not start: {error}") from error
             finally:
                 self._lives[conv_id] = live
+                if live.conv.state != "open":
+                    self._tts_release_pending = True
             if client_ref:
                 self._by_ref[client_ref] = conv_id
         if fork:
@@ -319,6 +324,8 @@ class Head:
                     if live.session is not None:
                         self._note_session(live)
                         live.session.close()
+                self._tts_release_pending = True
+                self._release_tts()
             try:
                 self._merge(live)
             except HubError as error:
@@ -331,8 +338,32 @@ class Head:
         if self._proxy is not None:
             self._proxy.shutdown()
         for live in list(self._lives.values()):
+            live.ending.set()
             if live.session is not None:
                 live.session.close()
+        self._tts_release_pending = True
+        self._release_tts()
+
+    def call_status(self) -> dict:
+        with self._lock:
+            return {"active_calls": sum(live.conv.state == "open" and not live.ending.is_set()
+                                        for live in self._lives.values())}
+
+    def _release_tts(self) -> None:
+        if not self._tts_release_pending or not self.config.tts_unload_command:
+            return
+        # Opening a call and releasing its GPU must not race. Busy TTS is retried by upkeep.
+        with self._lock:
+            if any(live.conv.state == "open" and not live.ending.is_set() for live in self._lives.values()):
+                return
+            try:
+                result = subprocess.run(self.config.tts_unload_command, timeout=5,
+                                        stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+                if result.returncode == 0:
+                    self._tts_release_pending = False
+                    log.info("last call ended; TTS unloaded")
+            except (OSError, subprocess.TimeoutExpired):
+                log.warning("TTS unload unavailable; will retry")
 
     def _live(self, conv_id: str) -> Live:
         live = self._lives.get(conv_id)
@@ -538,6 +569,7 @@ class Head:
                 self._by_ref[conv.client_ref] = conv.id
             if conv.state == "open":
                 live.record(kind="ending", reason="head_restart")
+                self._tts_release_pending = True
 
     def _upkeep_loop(self) -> None:
         while True:
@@ -548,6 +580,7 @@ class Head:
                     log.warning("conversation %s: %s", live.conv.id, error)
                 except Exception:
                     log.exception("conversation %s: upkeep failed", live.conv.id)
+            self._release_tts()
             if self._stop.wait(2):
                 return
 

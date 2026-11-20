@@ -37,12 +37,16 @@ One conversation is one voice Claude Code process:
   `splice skipped: <why>` when main's request is older than the cache lifetime, belongs to another session, the first
   message does not correspond, or the tail would answer a tool call the prefix does not hold. Measured on a 160k-token
   fork, first call: 14,303 read and 162,156 written without it, 176,459 read and 0 written with it.
-- **Tool boundary.** By default the process runs with no tools, no MCP servers, no settings, and an
-  allowlisted environment. The head reads the session's own report of its tools and never
-  uses a session that reports any. One exception is `web_tools` (config, default empty): a
-  `personal` head is then launched with exactly `WebSearch`/`WebFetch` (`--tools`, `--permission-mode dontAsk`,
-  a `--settings` allow list; MCP and setting sources stay off) and the check becomes an allowlist: it accepts
-  those tools and kills a session that reports any other. Guests never get them. In `main_like_fork` mode the same settings are merged into the `--settings` file in `main_like_args` (Claude reads only the last `--settings`): the blanket deny of those tools is lifted, the allow rule, named-domain denies and hook are added. WebFetch is refused for
+- **Call control.** Every session gets a private MCP server with `ask_to_end_call` and
+  `end_call`. The first tool makes the head append a closing question. Only the immediately
+  following caller turn can use `end_call`; the model decides whether the caller confirmed
+  nothing else remains. Interrupted replies clear that permission. The head appends goodbye
+  before signaling the client to hang up after playback. Caller speech is never phrase matched.
+- **Tool boundary.** The process has an allowlisted environment and only the call-control
+  MCP server by default. The head checks the session's reported tools and refuses unexpected
+  tools or servers. With `web_tools` (config, default empty), a `personal` head also gets
+  `WebSearch`/`WebFetch` (`--tools`, `--permission-mode dontAsk`, a `--settings` allow list).
+  Setting sources stay off. Guests never get web tools. In `main_like_fork` mode the same settings are merged into the `--settings` file in `main_like_args` (Claude reads only the last `--settings`): the blanket deny of those tools is lifted, the allow rule, named-domain denies and hook are added. WebFetch is refused for
   loopback, private, link-local and tailnet addresses and for `*.petalcat.dev`, `*.ts.net`, `localhost` and
   `*.local`: Claude's `WebFetch(domain:...)` deny rules match names only (not `10.*`, checked on 2.1.326), so
   `web_guard.py` runs as a PreToolUse hook that resolves the host and checks every address. Known gap: the
@@ -61,11 +65,12 @@ One conversation is one voice Claude Code process:
 
 ## API
 
-Bearer token on every `POST`. Bodies and replies are JSON.
+Bearer token on every `POST` and on `GET /v1/calls`. Bodies and replies are JSON.
 
 | Call                                    | Body                                  | Reply                              |
 | :-------------------------------------- | :------------------------------------ | :--------------------------------- |
 | `GET /health`                           |                                       | `{"ok": true, "version": "0.1.0"}` |
+| `GET /v1/calls`                         |                                       | `{"active_calls": 0}`             |
 | `POST /v1/conversations`                | `{"channel", "tier"?, "client_ref"?}` | `{"id"}`                           |
 | `POST /v1/conversations/{id}/turns`     | `{"text"}`                            | `text/event-stream`                |
 | `POST /v1/conversations/{id}/interrupt` | `{"heard_text"}`                      | `{"ok": true}`                     |
@@ -76,12 +81,31 @@ Bearer token on every `POST`. Bodies and replies are JSON.
 - A turn streams one `sentence` event (`{"text"}`) per speakable sentence, then one
   `done` event: `{"end_conversation": bool, "latency_ms": {"first_token", "first_sentence",
   "total", "spawn_wait"}}`. A turn that arrives before the session is ready waits for it.
-- An end phrase ("that's all", "goodbye", "never mind") gets a sign-off sentence without a
-  model call and `end_conversation: true`. The client then calls `end`.
+- When the caller seems done, the model uses the call-control tools to ask whether anything
+  else remains, then signs off after a later confirmation. The client drains the goodbye
+  audio before calling `end`.
 - `interrupt` stops a reply that is still being generated. `heard_text` is what the speaker
   heard before cutting in; the head tells the model so on the next turn and in the merge.
 - `end` is idempotent. A conversation with no turn for `idle_timeout_s` ends itself, so a
   crashed client still gets its conversation merged.
+- `GET /v1/calls` counts live conversations across every channel, including calls that have
+  not sent a turn yet. Ending calls stop counting before their transcript merges into main.
+  No conversation identifiers or transcripts are exposed.
+
+## Release the speech GPU after calls
+
+`tts_unload_command` is an optional fixed argument list executed after the last call ends,
+including idle timeout, shutdown, startup failure, and restart recovery. A nonzero exit or
+five-second timeout is retried by the two-second upkeep loop. Opening a call and submitting
+an unload are serialized, so a release cannot race a new call. A second live call delays it.
+The command carries no caller text. The deployed command uses SSH to request Chatterbox's
+loopback-only `POST /unload`; busy synthesis returns 409 and is retried.
+
+[`scripts/render-guard.sh`](scripts/render-guard.sh) permits renders only when this head
+reports zero active calls, TTS is unloaded with no active or queued synthesis, and at least
+5 GB of VRAM is free. Unavailable or invalid status pauses rendering. It reads the voice
+bearer from `~/.hermes-janet/secrets/voice-head-token` and queries PC status over SSH.
+`VOICE_HEAD_URL`, `VOICE_HEAD_TOKEN_FILE`, and `VOICE_TTS_SSH` override those locations.
 
 ## Exactly once
 
@@ -148,6 +172,7 @@ effort = "low"
 soft_merge = "asks" # or "every": relay every exchange, at one turn of main each
 idle_timeout_s = 120
 max_open = 2
+tts_unload_command = ["ssh", "-oBatchMode=yes", "-oConnectTimeout=2", "gpu-host.local", "curl --fail --silent --max-time 2 -X POST http://127.0.0.1:8735/unload"]
 unmerged_channels = ["desk-test"] # test channels: answered and journaled, never delivered
 
 [hub]
