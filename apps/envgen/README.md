@@ -202,7 +202,7 @@ seeded yaw.
   its share and by a log-normal through its measured 10th, 50th and 90th percentile height. The mix also gives
   the trunk diameter (a line fitted to diameter against height) and the crown ratio (the share of the height
   the crown takes). A mix file is `{"source": ..., "species": [{"name", "kind", "share", "height_m": {"p10",
-  "p50", "p90"}, "trunk_diameter_m": [intercept, slope], "crown_ratio"}]}`.
+"p50", "p90"}, "trunk_diameter_m": [intercept, slope], "crown_ratio"}]}`.
 
 Limits: the lidar's heights are as old as its survey; a tree felled since is still there, with lower confidence
 only where a newer source looks, and the level build does not read confidence, so it stands at full size. An inventory of forests describes forest trees, not ones grown in the open.
