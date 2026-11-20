@@ -26,7 +26,7 @@ class SynthesisTest(unittest.IsolatedAsyncioTestCase):
         gateway = mock.Mock()
         gateway.turn.side_effect = stream
         gateway.speech.side_effect = OSError("TTS failed")
-        call = janet_phone.Call(mock.AsyncMock(), config(), gateway, "test")
+        call = janet_phone.Call(mock.AsyncMock(ring=None), config(), gateway, "test")
         reply = asyncio.create_task(call.reply("hello", time.monotonic(), {"endpoint_ms": 0}))
         try:
             with self.assertRaisesRegex(OSError, "TTS failed"):
@@ -55,7 +55,7 @@ class SynthesisTest(unittest.IsolatedAsyncioTestCase):
             return 16000, np.full(16000, 8000, dtype="<i2").tobytes()
 
         gateway.speech.side_effect = speech
-        ws = mock.AsyncMock()
+        ws = mock.AsyncMock(ring=None)
         call = janet_phone.Call(ws, config(), gateway, "test")
         reply = asyncio.create_task(call.reply("hello", time.monotonic(), {"endpoint_ms": 0}))
         try:
@@ -91,7 +91,7 @@ class SynthesisTest(unittest.IsolatedAsyncioTestCase):
             return 16000, np.full(1600, 8000, dtype="<i2").tobytes()
 
         gateway.speech.side_effect = speech
-        call = janet_phone.Call(mock.AsyncMock(), config(), gateway, "test")
+        call = janet_phone.Call(mock.AsyncMock(ring=None), config(), gateway, "test")
         old = asyncio.create_task(call.reply("old", time.monotonic(), {"endpoint_ms": 0}))
         new = None
         try:
@@ -118,7 +118,7 @@ class TrimTest(unittest.IsolatedAsyncioTestCase):
         rate = 16000
         voice = np.full(rate, 8000, dtype="<i2")
         pcm = np.concatenate([np.zeros(3200, dtype="<i2"), voice, np.zeros(6400, dtype="<i2")]).tobytes()
-        ws = mock.AsyncMock()
+        ws = mock.AsyncMock(ring=None)
         call = janet_phone.Call(ws, config(), mock.Mock(), "test")
         line = mock.Mock()
         line.render.side_effect = lambda count, phase: np.full((count, 1), .01)
