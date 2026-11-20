@@ -276,7 +276,23 @@ async function main(argv: string[]): Promise<number> {
 		runnableOnly: command === "run",
 		availability: await readAvailability(`${home}/.local/state/router`),
 	};
-	const result = pick(catalog, kind, tier, state);
+	let result = pick(catalog, kind, tier, state);
+
+	// Parker 2026-11-19 ("I dont care. use the router"): when no other vendor can take the review,
+	// fall back to the router's best different model, never the one that wrote the work.
+	if (result.ranked.length === 0 && state.notVendor.length > 0) {
+		const parent = process.env["ROUTE_PARENT_MODEL"];
+		const fallback = { ...state, notVendor: [], notModel: parent ? [parent] : [] };
+		const retry = pick(catalog, kind, tier, fallback);
+
+		if (retry.ranked.length > 0) {
+			process.stdout.write(
+				`no offer outside ${state.notVendor.join(",")}; falling back to the best different model${parent ? ` (excluding ${parent})` : ""}\n`,
+			);
+			Object.assign(state, fallback);
+			result = retry;
+		}
+	}
 
 	process.stdout.write(
 		`route ${command}${command === "pick" ? " --dry" : ""} kind=${kind} tier=${tier} data-class=${dataClass}${dataClass === flagClass ? "" : " (raised by brief policy)"}\n`,

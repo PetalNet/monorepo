@@ -231,6 +231,8 @@ export interface State {
 	dataClass: DataClass;
 	/** Model makers to exclude, e.g. a reviewer that must differ from the author's family. */
 	notVendor?: readonly string[];
+	/** Exact models to skip, such as the parent agent's own model in a same-vendor review fallback. */
+	notModel?: readonly string[];
 	reports: Partial<Record<ServiceName, ServiceReport>>;
 	/** From exhausted.json: model id -> epoch seconds its limit resets. */
 	exhausted: Record<string, number>;
@@ -385,6 +387,10 @@ function offerReasons(o: Offer, pools: Map<Pool, PoolState>, state: State): stri
 
 	if (state.notVendor?.includes(maker)) {
 		reasons.push(`model maker ${maker} excluded (--not-vendor)`);
+	}
+
+	if (state.notModel?.includes(o.model)) {
+		reasons.push(`model ${o.model} excluded (wrote the work under review)`);
 	}
 
 	if (state.dataClass === "parcs" && pool.plan !== "claude") {

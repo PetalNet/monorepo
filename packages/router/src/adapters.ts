@@ -112,10 +112,12 @@ export function execute(
 	args: string[],
 	input: string,
 	cwd: string,
+	env: NodeJS.ProcessEnv = process.env,
 ): Promise<Execution> {
 	return new Promise((resolve) => {
 		const child = spawn(command, args, {
 			cwd,
+			env,
 			stdio: ["pipe", "pipe", "pipe"],
 			// Builders run for hours; a 30-minute cap killed them mid-PR (2026-11-19).
 			timeout: Number(process.env.ROUTE_TIMEOUT_MIN ?? 360) * 60 * 1000,
@@ -152,6 +154,9 @@ export function execute(
 }
 
 export function launch(offer: Offer, brief: string, cwd: string): Promise<Execution> {
+	// A helper this agent routes for review can then avoid the exact model that wrote the work.
+	const env = { ...process.env, ROUTE_PARENT_MODEL: offer.model };
+
 	if (offer.provider === "codex") {
 		return execute(
 			"codex",
@@ -167,6 +172,7 @@ export function launch(offer: Offer, brief: string, cwd: string): Promise<Execut
 			],
 			brief,
 			cwd,
+			env,
 		);
 	}
 
@@ -184,5 +190,6 @@ export function launch(offer: Offer, brief: string, cwd: string): Promise<Execut
 		],
 		"",
 		cwd,
+		env,
 	);
 }
