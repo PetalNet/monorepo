@@ -646,7 +646,7 @@ namespace
 		return Out;
 	}
 
-	UMaterialExpression* BombColour(UMaterial* Material, UTexture2D* Texture, float Repeat, int32 Y)
+	UMaterialExpression* BombColour(UMaterial* Material, UTexture2D* Texture, float Repeat, UMaterialExpression* Position, UMaterialExpression* Eye, int32 Y)
 	{
 		UMaterialExpressionLandscapeLayerCoords* Uv = Node<UMaterialExpressionLandscapeLayerCoords>(Material, -1400, Y);
 		Uv->MappingScale = Repeat;
@@ -661,8 +661,17 @@ namespace
 		FCustomInput& Image = Bomb->Inputs.AddDefaulted_GetRef();
 		Image.InputName = TEXT("Scan");
 		Image.Input.Connect(0, Scan);
-		// Overlapping triangular cells hide the boundary between independently offset scan tiles.
+		FCustomInput& Here = Bomb->Inputs.AddDefaulted_GetRef();
+		Here.InputName = TEXT("Here");
+		Here.Input.Connect(0, Position);
+		FCustomInput& Camera = Bomb->Inputs.AddDefaulted_GetRef();
+		Camera.InputName = TEXT("Eye");
+		Camera.Input.Connect(0, Eye);
+		// Close colour stays registered with the scan normal and relief. Offset cells hide distant repeats.
 		Bomb->Code = TEXT(R"(
+float2 dx=ddx(UV), dy=ddy(UV);
+float blend=smoothstep(1500,3000,distance(Here,Eye));
+[branch] if(blend<=0) return Texture2DSampleGrad(Scan,ScanSampler,UV,dx,dy).rgb;
 float2 skew = float2(UV.x + UV.y*0.57735027, UV.y*1.15470054);
 float2 cell = floor(skew), f = frac(skew);
 float2 a, b, c; float3 w;
@@ -672,10 +681,11 @@ float2 ha=frac(sin(float2(dot(a,float2(127.1,311.7)),dot(a,float2(269.5,183.3)))
 float2 hb=frac(sin(float2(dot(b,float2(127.1,311.7)),dot(b,float2(269.5,183.3))))*43758.5453);
 float2 hc=frac(sin(float2(dot(c,float2(127.1,311.7)),dot(c,float2(269.5,183.3))))*43758.5453);
 w *= w; w *= w; w /= max(dot(w,1),0.00001);
-float2 dx=ddx(UV), dy=ddy(UV);
-return Texture2DSampleGrad(Scan,ScanSampler,UV+ha,dx,dy).rgb*w.x
+float3 varied=Texture2DSampleGrad(Scan,ScanSampler,UV+ha,dx,dy).rgb*w.x
      + Texture2DSampleGrad(Scan,ScanSampler,UV+hb,dx,dy).rgb*w.y
      + Texture2DSampleGrad(Scan,ScanSampler,UV+hc,dx,dy).rgb*w.z;
+[branch] if(blend>=1) return varied;
+return lerp(Texture2DSampleGrad(Scan,ScanSampler,UV,dx,dy).rgb,varied,blend);
 )");
 		return Bomb;
 	}
@@ -973,8 +983,8 @@ return ((float3((float2(1.6,0.65)*sway+lean)*tip,0) + float3(0,0,(Here.z-Root.z)
 	 * The ground: per class a scanned material, blended where classes meet. Evidence sets the colour that varies
 	 * over tens of metres (the macro colour map times the fitted albedo scale) and, when the build has one, what the
 	 * photo shows finer than that (the ratio map: rows, tracks, markings, patches). The scan adds everything finer
-	 * still: its colour divided by its own mean, so it never shifts the colour. Each scan is read at two scales and
-	 * turns, mixed by broad noise, so the repeat does not show from the air. The class weights are cut to a sharp
+	 * still: its colour divided by its own mean, so it never shifts the colour. Close scan maps use the same
+	 * physical coordinates; distant colour mixes scales or offsets to hide repeats. The class weights are cut to a sharp
 	 * edge where they cross one half, so an edge is as crisp as the photo's rather than as wide as a weightmap texel.
 	 */
 	UMaterial* MakeGroundMaterial(UTexture2D* Macro, UTexture2D* Ratio, UTexture2D* Survey, UTexture2D* OrthoMasks, UTexture2D* OrthoColour, UTexture2D* FallbackWeights, UTexture2D* Grain, const FManifest& Manifest, UTexture2D* Detail, UTexture2D* Growth, int32 Quads, double QuadCm, float AlbedoScale,
@@ -1188,12 +1198,25 @@ return max(projected,minimum);
 			GrassBase = WithGrain;
 		}
 		UMaterialExpressionTextureSample* MixNoise = Sample(Material, Detail, 1100.0 / QuadCm, SAMPLERTYPE_LinearGrayscale, 250);
+		UMaterialExpressionCustom* ScanMix = Node<UMaterialExpressionCustom>(Material, -900, 350);
+		ScanMix->OutputType = CMOT_Float1;
+		ScanMix->Inputs.Empty();
+		FCustomInput& MixPattern = ScanMix->Inputs.AddDefaulted_GetRef();
+		MixPattern.InputName = TEXT("Pattern");
+		MixPattern.Input.Connect(1, MixNoise);
+		FCustomInput& MixPosition = ScanMix->Inputs.AddDefaulted_GetRef();
+		MixPosition.InputName = TEXT("Here");
+		MixPosition.Input.Connect(0, GroundPosition);
+		FCustomInput& MixCamera = ScanMix->Inputs.AddDefaulted_GetRef();
+		MixCamera.InputName = TEXT("Eye");
+		MixCamera.Input.Connect(0, GroundEye);
+		ScanMix->Code = TEXT("return Pattern*smoothstep(1500,3000,distance(Here,Eye));");
 		const auto Mix = [&](UMaterialExpression* A, UMaterialExpression* B, int32 X, int32 Y)
 		{
 			UMaterialExpressionLinearInterpolate* Out = Node<UMaterialExpressionLinearInterpolate>(Material, X, Y);
 			Out->A.Connect(0, A);
 			Out->B.Connect(0, B);
-			Out->Alpha.Connect(1, MixNoise);
+			Out->Alpha.Connect(0, ScanMix);
 			return Out;
 		};
 		const auto Combine = [&](UMaterialExpression* Sum, UMaterialExpression* Term, int32 X, int32 Y) -> UMaterialExpression*
@@ -1287,7 +1310,7 @@ return max(projected,minimum);
 			}
 			else
 			{
-				ScanColour = BombColour(Material, Layer.Colour, Repeat, Y);
+				ScanColour = BombColour(Material, Layer.Colour, Repeat, GroundPosition, GroundEye, Y);
 			}
 			UMaterialExpressionConstant3Vector* Mean = Node<UMaterialExpressionConstant3Vector>(Material, -500, Y);
 			Mean->Constant = Layer.Scan.MeanColour;

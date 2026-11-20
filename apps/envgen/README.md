@@ -269,8 +269,10 @@ downloads them once and checks the hashes; about 10 MB. Nothing is stored in git
 
 The Landscape material height-blends the classes. Evidence sets the colour that varies over tens of metres (the
 macro colour map times the albedo scale), and the scan adds structure: its colour divided by its own mean, so it
-never shifts the colour. Grass uses two scales and turns. Dirt and paving colour use three overlapping,
-independently offset scan samples to break repeating tiles. Scan colour fades from full strength within 15 m
+never shifts the colour. Within 15 m, colour, normal and roughness use the same physical scan coordinates.
+Between 15 and 30 m, grass gradually mixes two scales and turns; dirt and paving colour transition to three
+overlapping, independently offset samples. This avoids mixing unrelated colour features against one normal
+map up close while breaking distant repeats. Scan colour fades from full strength within 15 m
 to 20% beyond 100 m, allowing the photo's broad pattern to dominate at distance.
 
 The ground colour also carries the detail ratio (`detail_ratio.png`): each 0.5 m pixel of the photo divided by the
