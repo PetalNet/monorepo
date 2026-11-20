@@ -422,10 +422,14 @@ play_turn() { # turn dir
         : >"$dir/media"
         media_pause
       }
-      afplay "$dir/$i.wav"
-      echo "$i" >"$dir/played"
+      if afplay "$dir/$i.wav"; then
+        [ -e "$dir/playback-failed" ] || echo "$i" >"$dir/played"
+      else
+        : >"$dir/playback-failed"
+      fi
       i=$((i + 1))
     elif [ -e "$dir/$i.failed" ]; then
+      : >"$dir/playback-failed"
       i=$((i + 1))
     elif [ -e "$dir/count" ] && [ "$i" -gt "$(cat "$dir/count")" ]; then
       break
@@ -433,6 +437,9 @@ play_turn() { # turn dir
       sleep 0.05
     fi
   done
+  if [ ! -e "$dir/claim/resumed" ] && { [ ! -e "$dir/count" ] || [ "$i" -le "$(cat "$dir/count")" ]; }; then
+    : >"$dir/playback-failed"
+  fi
   # A reply with nothing to play is over too: nothing is left to claim back.
   mkdir "$dir/claim" 2>/dev/null && : >"$dir/claim/speaking"
   media_resume
@@ -643,7 +650,11 @@ stop() {
     }
     id=$(cat "$STATE/conversation")
   done
-  [ "$end" = true ] && [ ! -e "$dir/claim/resumed" ] && end_conversation end_phrase
+  if [ ! -e "$dir/claim/resumed" ] && [ -e "$dir/playback-failed" ]; then
+    report_heard "$dir"
+  elif [ "$end" = true ] && [ ! -e "$dir/claim/resumed" ]; then
+    end_conversation end_phrase
+  fi
   log "done after $(($(now_ms) - released)) ms"
   rm -f "$STATE/turn.pid"
   find "$STATE" -maxdepth 1 -name 'turn.*' -type d -mmin +10 -exec rm -rf {} + 2>/dev/null
