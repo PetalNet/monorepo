@@ -19,6 +19,7 @@ from skimage.morphology import skeletonize
 from . import frame, trees
 
 VERSION = 1
+CACHE_VERSION = 2
 SETTINGS = {
     "survey_cell_m": 0.25,
     "survey_max_pixels": 2_000_000,

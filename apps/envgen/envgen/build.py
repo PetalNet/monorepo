@@ -1472,6 +1472,7 @@ def build(site_path: Path, out: Path, cache: Path | None = None) -> dict:
                 site.crs,
                 site.seed,
                 procfill.VERSION,
+                procfill.CACHE_VERSION,
                 procfill.SETTINGS,
                 [
                     sha256_file(Path(path))
