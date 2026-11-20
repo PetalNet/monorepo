@@ -76,6 +76,7 @@
 			"apps/fold-cards",
 			"apps/janet-conversation",
 			"apps/janet-desk",
+			"apps/janet-dictate",
 			"apps/janet-mac",
 			"apps/janet-call-android",
 			"apps/janet-phone",
