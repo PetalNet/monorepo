@@ -2779,7 +2779,7 @@ bool FEnvGenLevelBuild::Finish(float DeltaSeconds, bool& bSucceeded)
 	const FString PendingReceipt = State->ReceiptPath + TEXT(".tmp");
 	if (!FJsonSerializer::Serialize(Receipt, TJsonWriterFactory<>::Create(&Json))
 		|| !FFileHelper::SaveStringToFile(Json, *PendingReceipt)
-		|| IFileManager::Get().Move(*State->ReceiptPath, *PendingReceipt, true, true) != COPY_OK)
+		|| !IFileManager::Get().Move(*State->ReceiptPath, *PendingReceipt, true, true))
 	{
 		bSucceeded = false;
 		UE_LOG(LogEnvGen, Error, TEXT("cannot publish the build receipt: %s"), *State->ReceiptPath);
