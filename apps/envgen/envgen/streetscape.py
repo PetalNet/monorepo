@@ -547,7 +547,9 @@ def load_inventory(path: Path, tile: Tile) -> Inventory:
     return Inventory(features, source, priors, images)
 
 
-def build_inventory(path: Path, tile: Tile, out: Path, building_footprints=(), *, inventory: Inventory | None = None) -> dict:
+def build_inventory(
+    path: Path, tile: Tile, out: Path, building_footprints=(), *, inventory: Inventory | None = None
+) -> dict:
     """Write validated geometry and image artifacts, and return the stage description."""
     inventory = inventory if inventory is not None else load_inventory(path, tile)
     features, source, priors = inventory.features, inventory.source, list(inventory.priors)

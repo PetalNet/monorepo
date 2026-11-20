@@ -1863,7 +1863,9 @@ def build(site_path: Path, out: Path, cache: Path | None = None) -> dict:
                 buildings_key,
                 architecture.GRANDSTAND_CLAIM_SHARE,
             ),
-            lambda: streetscape.build_inventory(streetscape_path, tile, out, footprints, inventory=streetscape_inventory),
+            lambda: streetscape.build_inventory(
+                streetscape_path, tile, out, footprints, inventory=streetscape_inventory
+            ),
         )
     manifest = {
         "schema_version": SCHEMA_VERSION,

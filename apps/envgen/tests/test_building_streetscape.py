@@ -7,9 +7,9 @@ from shapely.affinity import translate
 from shapely.geometry import Polygon
 
 from envgen.site import SiteError, Tile
-from envgen.streetscape import build_inventory
+from envgen.streetscape import build_inventory, load_inventory
 
-from .test_streetscape import feature, inventory
+from .test_streetscape import decal_png, feature, inventory
 
 TILE = Tile(10000, 20000, 1, 126)
 
@@ -50,3 +50,27 @@ def test_invalid_seating_is_rejected_even_when_a_grandstand_would_own_it(tmp_pat
     path.write_text(json.dumps(inventory([invalid])))
     with pytest.raises(SiteError):
         build_inventory(path, TILE, tmp_path, stand())
+
+
+def test_prevalidated_paint_and_building_owned_seating_coexist(tmp_path):
+    original = decal_png(tmp_path / "mark.png")
+    path = tmp_path / "input.json"
+    path.write_text(
+        json.dumps(
+            inventory(
+                [
+                    seating("inside", 18, 12),
+                    feature("decal", id="paint", image="mark.png", bounds_m=[-5, -5, 5, 5]),
+                ]
+            )
+        )
+    )
+    prepared = load_inventory(path, TILE)
+    (tmp_path / "mark.png").write_bytes(b"changed after validation")
+    out = tmp_path / "out"
+    stage = build_inventory(path, TILE, out, stand(), inventory=prepared)
+    assert stage["counts"] == {"decal": 1}
+    assert [item["id"] for item in stage["claimed_bleachers"]] == ["inside"]
+    image = next(name for name in stage["files"] if name.startswith("streetscape_decal_"))
+    assert (out / image).read_bytes() == original
+    assert [item["id"] for item in prepared.features] == ["inside", "paint"]
