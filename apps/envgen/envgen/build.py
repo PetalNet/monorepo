@@ -1841,7 +1841,7 @@ def build(site_path: Path, out: Path, cache: Path | None = None) -> dict:
             out,
             "streetscape",
             _stage_key(
-                "streetscape-2",
+                "streetscape-3",
                 grid,
                 sources["streetscape"]["sha256"],
                 streetscape.SETTINGS,

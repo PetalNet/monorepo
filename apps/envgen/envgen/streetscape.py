@@ -22,7 +22,7 @@ from shapely.geometry import LineString, Polygon, box
 from . import architecture
 from .site import SiteError, Tile
 
-SURFACES = {"asphalt": 0.04, "concrete": 0.04, "track": 0.05, "gravel": 0.04, "clay": 0.04}
+SURFACES = {"asphalt": 0.04, "concrete": 0.04, "track": 0.05, "gravel": 0.04, "clay": 0.04, "turf": 0.025}
 LINES = {"paint_white": 0.07, "paint_yellow": 0.07, "concrete": 0.06}
 DEFAULTS = {
     "line": {"width_m": 0.1},
@@ -57,6 +57,8 @@ SETTINGS = {
     "defaults": DEFAULTS,
     "bin_m": BIN_M,
     "max_edge_m": MAX_EDGE_M,
+    "terrain_topology": "landscape_00_11_triangles",
+    "rod_sides": {"large": 24, "small": 8},
     "max_mesh_triangles": MAX_MESH_TRIANGLES,
     "grass_mask_pixels": GRASS_MASK_PIXELS,
     "footing_sink_m": FOOTING_SINK_M,
@@ -213,17 +215,18 @@ class _Mesh:
         norm = math.sqrt(sum(v * v for v in u))
         u = tuple(v / norm for v in u)
         v = (axis[1] * u[2] - axis[2] * u[1], axis[2] * u[0] - axis[0] * u[2], axis[0] * u[1] - axis[1] * u[0])
+        sides = SETTINGS["rod_sides"]["large" if radius >= 0.04 else "small"]
         vertices = []
         for centre, r in ((start, radius), (end, radius if top_radius is None else top_radius)):
-            for i in range(6):
-                angle = i * math.tau / 6
+            for i in range(sides):
+                angle = i * math.tau / sides
                 vertices.append([centre[j] + r * (u[j] * math.cos(angle) + v[j] * math.sin(angle)) for j in range(3)])
         triangles = []
-        for i in range(6):
-            k = (i + 1) % 6
-            triangles.extend(((i, k, k + 6), (i, k + 6, i + 6)))
-        triangles.extend((0, i + 1, i) for i in range(1, 5))
-        triangles.extend((6, i + 6, i + 7) for i in range(1, 5))
+        for i in range(sides):
+            k = (i + 1) % sides
+            triangles.extend(((i, k, k + sides), (i, k + sides, i + sides)))
+        triangles.extend((0, i + 1, i) for i in range(1, sides - 1))
+        triangles.extend((sides, i + sides, i + sides + 1) for i in range(1, sides - 1))
         self.add(vertices, triangles)
 
 
@@ -252,21 +255,29 @@ def _planar(polygon, material, z, meshes, tile):
                 box(east_bin * BIN_M, north_bin * BIN_M, (east_bin + 1) * BIN_M, (north_bin + 1) * BIN_M)
             )
             mesh = _Mesh(material, collision=False)
-            # Match the Landscape grid: wider triangles cut through its small rises, leaving holes in roads.
-            cell = min(MAX_EDGE_M / math.sqrt(2), tile.quad_m)
+            # Integer subdivisions preserve Landscape's 00--11 diagonal and tile-centred grid origin.
+            cell = tile.quad_m / math.ceil(tile.quad_m * math.sqrt(2) / MAX_EDGE_M)
             if clipped.is_empty:
                 continue
             x0, y0, x1, y1 = clipped.bounds
-            for gx in range(math.floor(x0 / cell), math.ceil(x1 / cell)):
-                for gy in range(math.floor(y0 / cell), math.ceil(y1 / cell)):
-                    patch = clipped.intersection(box(gx * cell, gy * cell, (gx + 1) * cell, (gy + 1) * cell))
-                    for part in _polygons(patch):
-                        for triangle in shapely.constrained_delaunay_triangles(part).geoms:
-                            points = list(triangle.exterior.coords)[:3]
-                            a, b, c = points
-                            if (b[0] - a[0]) * (c[1] - a[1]) - (b[1] - a[1]) * (c[0] - a[0]) < 0:
-                                points.reverse()
-                            mesh.add([(x, y, z) for x, y in points], [(0, 1, 2)])
+            for gx in range(math.floor((x0 + half) / cell), math.ceil((x1 + half) / cell)):
+                for gy in range(math.floor((y0 + half) / cell), math.ceil((y1 + half) / cell)):
+                    patch_west, patch_south = gx * cell - half, gy * cell - half
+                    corners = [
+                        (patch_west, patch_south),
+                        (patch_west + cell, patch_south),
+                        (patch_west + cell, patch_south + cell),
+                        (patch_west, patch_south + cell),
+                    ]
+                    for indices in [(0, 1, 2), (0, 2, 3)]:
+                        patch = clipped.intersection(Polygon([corners[i] for i in indices]))
+                        for part in _polygons(patch):
+                            for triangle in shapely.constrained_delaunay_triangles(part).geoms:
+                                points = list(triangle.exterior.coords)[:3]
+                                a, b, c = points
+                                if (b[0] - a[0]) * (c[1] - a[1]) - (b[1] - a[1]) * (c[0] - a[0]) < 0:
+                                    points.reverse()
+                                mesh.add([(x, y, z) for x, y in points], [(0, 1, 2)])
             if mesh.data["triangles"]:
                 meshes.append(mesh.data)
 
@@ -492,7 +503,7 @@ def build_inventory(path: Path, tile: Tile, out: Path, building_footprints=()) -
     meshes = []
     exclusions = []
     if features:
-        priors.append("Six-sided cylinders; no point lights or ball geometry")
+        priors.append("24-sided large tubes and 8-sided small rods; no point lights or ball geometry")
         priors.append(
             f"Rigid prop footings extend {FOOTING_SINK_M} m below their anchor; bleacher supports {BLEACHER_SINK_M} m"
         )
@@ -500,7 +511,8 @@ def build_inventory(path: Path, tile: Tile, out: Path, building_footprints=()) -
         first_mesh = len(meshes)
         kind = f["type"]
         if kind == "surface":
-            exclusions.append(Polygon(f["ring"]))
+            if f["material"] != "turf":
+                exclusions.append(Polygon(f["ring"]))
             priors.append(f"{f['id']}: {f['material']} terrain offset {SURFACES[f['material']]} m")
             _planar(Polygon(f["ring"]), f["material"], SURFACES[f["material"]], meshes, tile)
         elif kind == "line":

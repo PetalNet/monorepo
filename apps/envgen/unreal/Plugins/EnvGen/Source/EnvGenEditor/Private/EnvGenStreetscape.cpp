@@ -53,6 +53,7 @@ namespace
 		{TEXT("track"), {FLinearColor(.20f, .065f, .055f), .93f, 0, 3}},
 		{TEXT("gravel"), {FLinearColor(.24f, .22f, .18f), .95f, 0, 4}},
 		{TEXT("clay"), {FLinearColor(.34f, .23f, .14f), .97f, 0, 4}},
+		{TEXT("turf"), {FLinearColor(.13f, .16f, .075f), .96f, 0, 0}},
 		{TEXT("paint_white"), {FLinearColor(.64f, .63f, .57f), .83f, 0, 5}},
 		{TEXT("paint_yellow"), {FLinearColor(.72f, .48f, .045f), .8f, 0, 5}},
 		{TEXT("steel"), {FLinearColor(.26f, .28f, .29f), .55f, .8f, 0}},
@@ -168,9 +169,9 @@ return float4(float3(%.5f,%.5f,%.5f)*modulation,saturate(%.5f+.08*(wear-.5)+.08*
 	}
 }
 
-bool BuildEnvGenStreetscape(UWorld* World, const FString& ManifestPath,
+static bool ProcessStreetscape(UWorld* World, const FString& ManifestPath,
 	TFunctionRef<double(double, double)> SurfaceHeight,
-	TArray<UPackage*>& Packages, TArray<AActor*>& Actors, TSharedRef<FJsonObject> Receipt, FString& Error)
+	TArray<UPackage*>& Packages, TArray<AActor*>& Actors, TSharedRef<FJsonObject> Receipt, FString& Error, bool bValidateOnly)
 {
 	TSharedPtr<FJsonObject> Manifest;
 	if (!ReadJson(ManifestPath, Manifest))
@@ -347,6 +348,7 @@ bool BuildEnvGenStreetscape(UWorld* World, const FString& ManifestPath,
 		Error = TEXT("streetscape has no representable geometry");
 		return false;
 	}
+	if (bValidateOnly) return true;
 	if (!Pending.IsEmpty() && !World)
 	{
 		Error = TEXT("streetscape needs a world after validation");
@@ -422,4 +424,35 @@ bool BuildEnvGenStreetscape(UWorld* World, const FString& ManifestPath,
 	MaterialPriors->SetNumberField(TEXT("asphalt_crack_spacing_m"), 4);
 	Receipt->SetObjectField(TEXT("streetscape_material_priors"), MaterialPriors);
 	return true;
+}
+
+bool BuildEnvGenStreetscape(UWorld* World, const FString& ManifestPath,
+	TFunctionRef<double(double, double)> SurfaceHeight,
+	TArray<UPackage*>& Packages, TArray<AActor*>& Actors, TSharedRef<FJsonObject> Receipt, FString& Error)
+{
+	return ProcessStreetscape(World, ManifestPath, SurfaceHeight, Packages, Actors, Receipt, Error, false);
+}
+
+bool ValidateEnvGenStreetscape(const FString& ManifestPath,
+	TFunctionRef<double(double, double)> SurfaceHeight, FString& Error)
+{
+	TArray<UPackage*> Packages;
+	TArray<AActor*> Actors;
+	return ProcessStreetscape(nullptr, ManifestPath, SurfaceHeight, Packages, Actors, MakeShared<FJsonObject>(), Error, true);
+}
+
+double EnvGenStreetscapeHeight(const TArray64<uint8>& HeightBytes, int32 Vertices,
+	const FVector& LocationCm, const FVector& Scale, double NorthCm, double EastCm)
+{
+	const uint16* Heights = reinterpret_cast<const uint16*>(HeightBytes.GetData());
+	const int32 Last = Vertices - 1;
+	const double North = FMath::Clamp((NorthCm - LocationCm.X) / Scale.X, 0.0, double(Last));
+	const double East = FMath::Clamp((EastCm - LocationCm.Y) / Scale.Y, 0.0, double(Last));
+	const int32 N0 = FMath::Min(int32(North), Last - 1), E0 = FMath::Min(int32(East), Last - 1);
+	const auto At = [&](int32 N, int32 E) { return double(Heights[E * Vertices + N]); };
+	const double N = North - N0, E = East - E0;
+	const double Height = N >= E
+		? (1 - N) * At(N0, E0) + (N - E) * At(N0 + 1, E0) + E * At(N0 + 1, E0 + 1)
+		: (1 - E) * At(N0, E0) + (E - N) * At(N0, E0 + 1) + N * At(N0 + 1, E0 + 1);
+	return LocationCm.Z + (Height - 32768.0) * Scale.Z / 128.0;
 }
