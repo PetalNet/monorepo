@@ -323,6 +323,7 @@ Stored sampling does not establish the image's independently resolved detail.
   acquisition. Dark or mixed ground remains unresolved. No paving is inferred from these bare-fragment observations.
   Individually inspected crowns can refine matched height-backed tree positions and widths. Their centres approximate
   crown centres, not surveyed trunks, and their height retains its original source and date.
+  Identified temporary fabric covers stay hidden from ground colour and are excluded from tree-canopy evidence.
 
 - **Grain** (`grain.py`). The log of each pixel's luminance over its own 0.3 m low-pass, measured on 256-pixel blocks
   that are pure grass in the tile's class map and have pixels all over. The quietest quarter of those blocks gives a

@@ -1,5 +1,8 @@
 """Survey masks retain their footprint, native geometry, and real raster sampling behavior."""
 
+import json
+from dataclasses import replace
+
 import numpy as np
 import pytest
 import rasterio
@@ -7,14 +10,54 @@ from PIL import Image
 from rasterio.enums import ColorInterp
 
 from envgen import frame, orthophoto
-from envgen.build import clean_ortho_colour
-from envgen.site import tile_for_boundary
+from envgen.acquire import sha256_file
+from envgen.build import build_orthophoto, clean_ortho_colour
+from envgen.site import load_site, tile_for_boundary
 
 from . import helpers as h
 
 
 def tile():
     return tile_for_boundary(h.BOUNDARY, h.SIZE_M, 1.0)
+
+
+def test_identified_fabric_cover_stays_hidden_but_is_not_tree_canopy(tmp_path):
+    h.write_dem(tmp_path / "dem.tif")
+    h.write_imagery(tmp_path / "imagery.tif", split_easting=h.WEST)
+    rgba = np.full((4, 504, 504), 255, dtype=np.uint8)
+    rgba[:3] = np.array([65, 120, 40])[:, None, None]
+    rgba[:3, 360:408, 96:144] = np.array([40, 110, 220])[:, None, None]
+    h.write_raster(tmp_path / "ortho.tif", rgba, tile().west, tile().north, .25)
+    ground = np.full((126, 126), 100, dtype=np.float32)
+    dsm = ground.copy()
+    dsm[90:102, 24:36] += 3  # Fabric cover over ground.
+    dsm[50:62, 64:76] += 8  # An unannotated height-backed crown remains.
+    for name, data in (("dtm", ground), ("dsm", dsm)):
+        h.write_raster(tmp_path / f"{name}.tif", data, tile().west, tile().north, 1)
+    evidence = {"schema_version": 1, "source": {"sha256": sha256_file(tmp_path / "ortho.tif"), "crs": h.CRS},
+                "features": [{"id": "B1", "feature_type": "temporary_canopy", "confidence": .99,
+                              "bounds_projected_m": [h.WEST+24, h.SOUTH+24, h.WEST+36, h.SOUTH+36]}]}
+    (tmp_path / "observations.json").write_text(json.dumps(evidence))
+    path = h.write_site(tmp_path)
+    spec = json.loads(path.read_text())
+    spec["sources"]["survey"] = {"kind": "file", "path": "dsm.tif", "terrain": "dtm.tif",
+                                 "orthophoto": "ortho.tif", "observations": "observations.json",
+                                 "license": "test", "date": "2030"}
+    path.write_text(json.dumps(spec))
+    site = load_site(path)
+    for name, survey in (("known", site.survey), ("unknown", replace(site.survey, observations=None))):
+        out = tmp_path / name
+        out.mkdir()
+        build_orthophoto(replace(site, survey=survey), tmp_path / "imagery.tif", out, None, None)
+    with rasterio.open(tmp_path / "known" / "ortho_masks.tif") as src:
+        known = src.read()
+    with rasterio.open(tmp_path / "unknown" / "ortho_masks.tif") as src:
+        unknown = src.read()
+    assert unknown[3, 384, 120] == 255
+    assert known[3, 384, 120] == 0 and known[0, 384, 120] == 255
+    assert known[3, 224, 280] == 255
+    with rasterio.open(tmp_path / "known" / "ortho_colour.tif") as src:
+        assert src.read()[:3, 384, 120] == pytest.approx([65, 120, 40], abs=2)
 
 
 def write_survey(tmp_path, pixel=0.25):

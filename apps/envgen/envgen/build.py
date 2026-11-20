@@ -34,7 +34,7 @@ from .site import (
 
 # Part of every stage key. Bump it by hand when a code change alters a stage's output for the same
 # inputs (frame.py and the resampling included); nothing detects that automatically.
-PIPELINE_VERSION = 19
+PIPELINE_VERSION = 20
 
 MACRO_PIXELS = 1024
 # The fine detail: pixels across the tile (about half a metre, the imagery's own resolution) and the largest
@@ -729,6 +729,17 @@ def build_orthophoto(site: Site, imagery: Path, out: Path, covering: dict | None
                           & (north[:, None] >= south) & (north[:, None] <= top))
                 height = np.where(region, np.maximum(height, older), height)
     shown = height < orthophoto.SETTINGS["canopy_min_m"]
+    if evidence:
+        from .observations import non_tree_features
+
+        east = tile.west + np.arange(tile.vertices) * tile.quad_m
+        north = tile.north - np.arange(tile.vertices) * tile.quad_m
+        for feature in non_tree_features(evidence):
+            west, south, right, top = feature["bounds_projected_m"]
+            region = ((east[None] >= west) & (east[None] <= right)
+                      & (north[:, None] >= south) & (north[:, None] <= top))
+            shown &= ~region
+            height = np.where(region, 0, height)
     if roofs is not None:
         roof_cells = _sample_cells(roofs, tile.vertices)
         labels = buildings.label_under(labels, roof_cells)

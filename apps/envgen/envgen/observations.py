@@ -20,6 +20,12 @@ class ObservationError(ValueError):
     """Observation evidence is malformed or belongs to a different survey."""
 
 
+def non_tree_features(evidence: dict) -> list[dict]:
+    """Confidently identified objects which height alone could mistake for vegetation."""
+    return [feature for feature in evidence["features"]
+            if feature["feature_type"] == "temporary_canopy" and feature["confidence"] >= 0.95]
+
+
 def _number(value) -> bool:
     return isinstance(value, (int, float)) and not isinstance(value, bool) and math.isfinite(value)
 
