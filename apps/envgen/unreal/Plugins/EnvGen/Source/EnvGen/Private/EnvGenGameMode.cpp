@@ -29,6 +29,7 @@ void AEnvGenGameMode::StartPlay()
 		return;
 	}
 	FParse::Value(FCommandLine::Get(), TEXT("EnvGenTourSeconds="), Tour->MeasuredSeconds);
+	FParse::Value(FCommandLine::Get(), TEXT("EnvGenTourHoldAtSeconds="), Tour->HoldAtSeconds);
 	Tour->bExitWhenDone = !FParse::Param(FCommandLine::Get(), TEXT("EnvGenTourStay"));
 	Tour->bCsvProfile = FParse::Param(FCommandLine::Get(), TEXT("EnvGenTourCsv"));
 	FString EndCommands;
@@ -38,6 +39,7 @@ void AEnvGenGameMode::StartPlay()
 	}
 	FParse::Value(FCommandLine::Get(), TEXT("EnvGenTourFrames="), Tour->FrameDirectory);
 	FParse::Value(FCommandLine::Get(), TEXT("EnvGenTourFrameEvery="), Tour->FrameEvery);
+	FParse::Value(FCommandLine::Get(), TEXT("EnvGenTourFrameStart="), Tour->FrameStart);
 	if (APlayerController* Player = GetWorld()->GetFirstPlayerController())
 	{
 		Player->SetViewTarget(Tour);

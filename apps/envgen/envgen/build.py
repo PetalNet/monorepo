@@ -617,7 +617,8 @@ def build_surface(
         _write_rgb(fallback, out / fallback_weights)
         weights, expanded = orthophoto.blend(
             np.asarray(weights, dtype=np.float32) / 255, names,
-            orthophoto.sample(out / ortho["raster"], tile, site.crs, tile.vertices),
+            orthophoto.sample(out / ortho["raster"], tile, site.crs, tile.vertices,
+                              out / ortho["colour_raster"]),
         )
         labels = np.array([expanded.index(name) for name in names], dtype=np.uint8)[labels]
         names = expanded
@@ -1043,7 +1044,8 @@ def build_growth(site: Site, out: Path, layers: list[dict], detail: dict, elevat
     grass = _sample_cells(read_weights(out, layers)[[layer["name"] for layer in layers].index("grass")], pixels)
     if ortho and "raster" in ortho:
         fallback = np.asarray(Image.open(out / fallback_weights)).swapaxes(0, 1)[::-1, :, 0].astype(np.float32) / 255
-        native = orthophoto.sample(out / ortho["raster"], site.tile, site.crs, pixels)
+        native = orthophoto.sample(out / ortho["raster"], site.tile, site.crs, pixels,
+                                  out / ortho["colour_raster"])
         coverage = np.clip(native[:3].sum(axis=0), 0, 1)
         grass = native[0] + _sample_cells(fallback, pixels) * (1 - coverage)
     encoded = np.asarray(Image.open(out / detail["file"])).swapaxes(0, 1)[::-1]

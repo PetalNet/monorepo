@@ -340,7 +340,7 @@ def test_survey_masks_drive_surface_and_growth_with_alpha_fallback_and_cached_ar
     site_path = h.write_site(tmp_path)
     tile = load_site(site_path).tile
     path, rgba = write_survey(tmp_path)
-    rgba[3, 20:40, 200:220] = 102  # 40% survey paving, 60% old grass must retain turf
+    rgba[3, 120:140, 200:220] = 102  # Interior: 40% survey paving, 60% old grass must retain turf.
     h.write_raster(path, rgba, tile.west, tile.north, 0.25)
     dtm = np.full((126, 126), 100, dtype=np.float32)
     for name in ("dtm", "dsm"):
@@ -364,11 +364,11 @@ def test_survey_masks_drive_surface_and_growth_with_alpha_fallback_and_cached_ar
     assert weights["grass"][-2, 2] > 250  # alpha hole keeps the old grass, not survey soil
     fallback = np.asarray(Image.open(out / manifest["surface"]["fallback_weights"]))
     assert fallback[63, 60].tolist() == [255, 0, 0]
-    assert weights["grass"][52, 119] == pytest.approx(153, abs=2)
-    assert weights["paved"][52, 119] == pytest.approx(102, abs=2)
+    assert int(weights["grass"][52, 94]) == pytest.approx(153, abs=2)
+    assert int(weights["paved"][52, 94]) == pytest.approx(102, abs=2)
     density = np.asarray(Image.open(out / manifest["turf"]["growth"]["file"]))[..., 0]
     assert density[128, 128] == 0 and density[252, 3] > 0
-    assert density[106, 240] > 0
+    assert density[106, 190] > 0
     again = build(site_path, out)
     assert {"orthophoto", "surface", "growth", "survey_detail"} <= set(again["stages_reused"])
     (out / "ortho_colour.png").unlink()
@@ -381,7 +381,7 @@ def test_survey_masks_drive_surface_and_growth_with_alpha_fallback_and_cached_ar
     assert "orthophoto" not in changed["stages_reused"]
     assert "surface" not in changed["stages_reused"] and "growth" not in changed["stages_reused"]
     grass = np.asarray(Image.open(out / "surface_grass.png"))
-    assert grass[-2, 2] == 0
+    assert 0 < grass[-2, 2] < 255  # New evidence fades into the old grass at the footprint edge.
 
 
 def test_raw_survey_colour_invalidates_growth_even_when_derived_maps_are_identical(tmp_path, monkeypatch):

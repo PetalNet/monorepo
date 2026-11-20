@@ -22,6 +22,7 @@ SETTINGS = {
     "fit_cell_m": 0.5,
     "smooth_m": 0.06,
     "colour_cell_m": 0.25,
+    "blend_edge_m": 12.0,
     "canopy_min_m": 2.0,
     "block_pixels": 512,
     "fit_max_pixels": 1_000_000,
@@ -54,7 +55,7 @@ def masks(rgb: np.ndarray, alpha: np.ndarray, height: np.ndarray, ground: np.nda
     return (shares * alpha[None]).astype(np.float32)
 
 
-def sample(path: Path, tile, crs: str, size: int) -> np.ndarray:
+def sample(path: Path, tile, crs: str, size: int, blend_path: Path | None = None) -> np.ndarray:
     """Average premultiplied mask bands onto Landscape vertices, keeping zero beyond the footprint."""
     target = np.zeros((4, size, size), dtype=np.float32)
     spacing = tile.size_m / (size - 1)
@@ -63,7 +64,24 @@ def sample(path: Path, tile, crs: str, size: int) -> np.ndarray:
             reproject(rasterio.band(source, band + 1), target[band],
                       dst_transform=from_origin(tile.west-spacing/2, tile.north+spacing/2, spacing, spacing),
                       dst_crs=crs, dst_nodata=0, resampling=Resampling.average)
-    return target / 255
+    target /= 255
+    if blend_path:
+        influence = np.zeros((size, size), dtype=np.float32)
+        with rasterio.open(blend_path) as source:
+            reproject(source.read(4).astype(np.float32) / 255, influence,
+                      src_transform=source.transform, src_crs=source.crs,
+                      dst_transform=from_origin(tile.west-spacing/2, tile.north+spacing/2, spacing, spacing),
+                      dst_crs=crs, dst_nodata=0, resampling=Resampling.average)
+        coverage = target[:3].sum(axis=0)
+        target[:3] *= np.minimum(1, influence / np.maximum(coverage, 1e-6))[None]
+    return target
+
+
+def blend_alpha(alpha: np.ndarray, cell_m: float) -> np.ndarray:
+    """Fade survey influence inside its boundary; the native evidence coverage stays intact."""
+    distance = ndimage.distance_transform_edt(np.pad(alpha > 0, 1))[1:-1, 1:-1] * cell_m
+    share = np.clip(distance / SETTINGS["blend_edge_m"], 0, 1)
+    return np.rint(alpha * share**2 * (3 - 2*share)).astype(np.uint8)
 
 
 def blend(weights: np.ndarray, names: list[str], sampled: np.ndarray) -> tuple[np.ndarray, list[str]]:
@@ -182,6 +200,7 @@ def build(path: Path, out: Path, tile, crs: str, labels: np.ndarray, names: list
         # No visible ground means no evidence for colour. Keep the coarse imagery in that case.
         if not visible.any():
             colour[3] = 0
+        colour[3] = blend_alpha(colour[3], float(transform.a))
         with rasterio.open(out / "ortho_colour.tif", "w", **(profile | {"width": shape[1], "height": shape[0],
                             "transform": transform})) as target:
             target.write(colour)
@@ -202,7 +221,7 @@ def build(path: Path, out: Path, tile, crs: str, labels: np.ndarray, names: list
             "classification": fit, "settings": SETTINGS,
             "fragment_classifier": evidence.get("ground_classifier") if evidence else None,
             "mask_encoding": "linear UNorm; RGB sum is coverage; A is independent canopy coverage",
-            "colour_encoding": "sRGB RGB; A is survey coverage; zero alpha keeps coarse imagery",
+            "colour_encoding": "sRGB RGB; A is coverage faded inside the survey boundary; zero keeps coarse imagery",
             "priors": ["RGB splits fitted to sunlit survey ground; dry grass and bare soil may be ambiguous",
                        "canopy requires vegetation and height above 2 m; hidden ground keeps its coarse class",
                        "masks keep native pixels with 6 cm smoothing; pooled colour has no invented detail",

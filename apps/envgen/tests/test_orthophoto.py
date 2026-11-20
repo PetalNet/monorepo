@@ -100,6 +100,26 @@ def test_native_masks_fit_classes_preserve_alpha_and_png_layout(tmp_path):
     assert report["classification"]["splits"][1]["split"]
 
 
+def test_survey_boundary_fades_influence_without_erasing_native_evidence(tmp_path):
+    path, data = write_survey(tmp_path)
+    report = run_survey(tmp_path, path)
+    with rasterio.open(tmp_path / report["raster"]) as source:
+        assert np.array_equal(source.read()[:3].astype(int).sum(axis=0), data[3])
+    with rasterio.open(tmp_path / report["colour_raster"]) as source:
+        alpha = source.read(4)
+    assert alpha[200, 0] < 5
+    assert alpha[200, 80] == 255
+    assert np.all(alpha <= data[3])
+    effective = orthophoto.sample(tmp_path / report["raster"], tile(), h.CRS, 127,
+                                  tmp_path / report["colour_raster"])
+    fallback = np.ones((1, 127, 127), dtype=np.float32)
+    combined, _ = orthophoto.blend(fallback, ["soil"], effective)
+    assert combined[0, 60, 1] < .05
+    assert combined[0, 60, 20] > .99
+    assert combined[2, 60, 1] > .95
+    assert np.allclose(combined.sum(axis=0), 1)
+
+
 def test_real_reprojection_blends_only_inside_alpha_coverage(tmp_path):
     path, _ = write_survey(tmp_path)
     report = run_survey(tmp_path, path)

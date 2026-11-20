@@ -313,6 +313,8 @@ Stored sampling does not establish the image's independently resolved detail.
   alpha footprint, the original imagery remains in use. A separate colour texture is pooled to at least 25 cm and
   filtered within each class over 12 m, excluding cover and detected shadows. Its colour divided by its class mean
   modulates the calibrated seasonal ground, preserving relative survey variation without treating processed RGB as albedo.
+  Its alpha fades survey influence over 12 m inside the irregular coverage boundary for material weights,
+  growth and detail replacement. Native evidence masks retain the source coverage unchanged.
   Native processing runs in overlapping windows, with bounded pooled grids and streamed PNG output.
   A rejected RGB split remains recorded in the manifest. It does not establish that the ground is all grass.
 - **Optional observations** (`sources.survey.observations`). A schema-1 JSON file must identify the orthophoto's
@@ -374,6 +376,9 @@ are priors. One blade in thirteen receives a restrained straw tint within the se
 Blade materials use two-sided foliage transmission, root ambient occlusion, roughness 0.6 and specular 0.25.
 World-position gusts bend tips while retaining roots. Ground and blade roots share 0.65 cm procedural relief;
 its derivatives also perturb ground normals. Wind amplitudes and relief are visual priors, not terrain measurements.
+Grass displacement fades to zero between 22 and 25 m; the engine disables its evaluation beyond 25 m.
+Instance-scale height differences and coherent resting lean vary blade posture. The scan's colour contrast
+and close normal strength are increased to retain surface detail where the sward thins; these are visual priors.
 The engine shrinks a tuft away between its start and end distance and has no nearest distance, so a variety is drawn
 from the camera out. The clump's wide blades are kept from a walker's feet by its material: nearer than 8 m a clump
 is drawn in to its own root, and it grows to full size by 15 m, the distances over which the near variety shrinks
@@ -513,6 +518,8 @@ runs, Space jumps. F swaps to a flying pawn from another plugin when the project
 a fraction of the tile. After an 8 s warm-up it records 60 s of frames (`-EnvGenTourSeconds=` changes
 that), writes `Saved/EnvGen/tour_<name>.json` and `.csv`, and exits; `-EnvGenTourStay` keeps the game
 open. `-EnvGenTourCsv` also records the engine's CSV profile for the measured period.
+For a locked-camera motion check, `-EnvGenTourHoldAtSeconds=20` stops the camera after 20 measured seconds
+while world time continues. `-EnvGenTourFrameStart=630` skips approach captures at 30 fps.
 
 | Tour       | Height above ground | Nominal speed | Loop radii, as a fraction of the tile side |
 | ---------- | ------------------- | ------------- | ------------------------------------------ |
@@ -553,5 +560,5 @@ Before moving to a new engine version, these show whether it can host the work:
 
 ## Not in this slice
 
-Roof shapes, streets, sidewalks, a mesh for each species, wind, weather and a moving sun, the manual edit layer that regeneration leaves alone, and
+Roof shapes, streets, sidewalks, a mesh for each species, tree wind, weather and a moving sun, the manual edit layer that regeneration leaves alone, and
 the simulator exports.
