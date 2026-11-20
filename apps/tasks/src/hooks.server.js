@@ -40,7 +40,9 @@ const isPublicShare = (pathname) => pathname === "/s" || pathname.startsWith("/s
 const isAgentApi = (pathname) => pathname === "/api/agent" || pathname.startsWith("/api/agent/");
 
 async function accessGate({ event, resolve }) {
-	if (event.url.pathname === "/api/agent/agents/snapshot") return ingestRequest(event);
+	if (event.url.pathname === "/api/agent/agents/snapshot") {
+		return ingestRequest(event);
+	}
 
 	const user = event.request.headers.get("x-authentik-username") || "";
 

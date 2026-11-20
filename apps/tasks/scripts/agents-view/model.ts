@@ -1,6 +1,6 @@
 // Adapted from Claude Code agents-view hooks, 291069fa-3ac4-4e01-939f-5d8782460da4.
 export type Status = "running" | "done" | "failed" | "fell back" | "unknown";
-export type Attempt = {
+export interface Attempt {
 	number: number;
 	model: string;
 	effort: string;
@@ -11,9 +11,9 @@ export type Attempt = {
 	exitCode: number | null;
 	failureClass: string;
 	handoff: boolean;
-};
+}
 
-export type Agent = {
+export interface Agent {
 	id: string;
 	source: "router" | "claude" | "legacy";
 	name: string;
@@ -39,7 +39,7 @@ export type Agent = {
 	tokens: number | null;
 	indexed: boolean;
 	imported: boolean;
-};
+}
 
 export function agent(id: string, source: Agent["source"]): Agent {
 	return {
@@ -71,7 +71,7 @@ export function agent(id: string, source: Agent["source"]): Agent {
 	};
 }
 
-export type Turn = {
+export interface Turn {
 	id: string;
 	kind: "assistant" | "user" | "tool" | "event";
 	name: string;
@@ -80,25 +80,13 @@ export type Turn = {
 	resultBytes: number | null;
 	status: "running" | "done" | "failed";
 	at: number;
-};
+}
 
 export function sortedAgents(agents: Iterable<Agent>): Agent[] {
-	return [...agents].sort(
+	return [...agents].toSorted(
 		(a, b) =>
 			Number(b.status === "running") - Number(a.status === "running") ||
 			b.startedAt - a.startedAt ||
 			a.id.localeCompare(b.id),
 	);
-}
-
-export function elapsed(start: number, end: number): string {
-	if (!start) return "time unknown";
-
-	const seconds = Math.max(0, Math.floor((end - start) / 1000));
-
-	if (seconds < 60) return `${seconds}s`;
-
-	if (seconds < 3600) return `${Math.floor(seconds / 60)}m ${seconds % 60}s`;
-
-	return `${Math.floor(seconds / 3600)}h ${Math.floor((seconds % 3600) / 60)}m`;
 }

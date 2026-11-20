@@ -8,7 +8,7 @@ import {
 	number,
 	prLinks,
 	record,
-	redact,
+	short,
 	string,
 	time,
 } from "./safe.ts";
@@ -34,18 +34,22 @@ export class Turns {
 			...new Set([...this.run.links, ...prLinks(turn.text), ...prLinks(turn.result)]),
 		];
 
-		if (!this.keepRows) return;
+		if (!this.keepRows) {
+			return;
+		}
 
 		const previous = this.byId.get(turn.id);
 		const safe = {
 			...turn,
-			name: redact(turn.name),
+			id: short(turn.id, 1024),
+			name: short(turn.name, 1024),
 			text: body(turn.text),
 			result: body(turn.result),
 		};
 
-		if (previous) Object.assign(previous, safe);
-		else {
+		if (previous) {
+			Object.assign(previous, safe);
+		} else {
 			this.rows.push(safe);
 			this.byId.set(turn.id, safe);
 		}
@@ -54,7 +58,9 @@ export class Turns {
 	private tokens(key: string, value: unknown, cumulative = false): void {
 		const u = record(value);
 
-		if (!Object.keys(u).length) return;
+		if (Object.keys(u).length === 0) {
+			return;
+		}
 
 		const total =
 			number(u.total_tokens) ??
@@ -63,7 +69,9 @@ export class Turns {
 				(number(u.cache_creation_input_tokens) ?? 0) +
 				(number(u.cache_read_input_tokens) ?? 0);
 
-		if (cumulative) this.usage.clear();
+		if (cumulative) {
+			this.usage.clear();
+		}
 
 		this.usage.set(key, total);
 		this.run.tokens = [...this.usage.values()].reduce((a, b) => a + b, 0);
@@ -73,7 +81,9 @@ export class Turns {
 		const e = json(line);
 
 		if (!e) {
-			if (line.trim()) this.malformed++;
+			if (line.trim()) {
+				this.malformed++;
+			}
 
 			return;
 		}
@@ -82,23 +92,32 @@ export class Turns {
 		const at = time(e.timestamp) || time(e.at);
 
 		if (at) {
-			if (!this.run.startedAt || at < this.run.startedAt) this.run.startedAt = at;
+			if (!this.run.startedAt || at < this.run.startedAt) {
+				this.run.startedAt = at;
+			}
 
 			this.run.updatedAt = Math.max(this.run.updatedAt, at);
 		}
 
-		if (string(e.cwd)) this.run.cwd = string(e.cwd);
+		if (string(e.cwd)) {
+			this.run.cwd = string(e.cwd);
+		}
 
-		if (string(e.gitBranch)) this.run.branch = redact(string(e.gitBranch));
+		if (string(e.gitBranch)) {
+			this.run.branch = short(string(e.gitBranch), 1024);
+		}
 
-		if (string(e.effort) || string(e.perTurnEffort))
-			this.run.effort = redact(string(e.perTurnEffort) || string(e.effort));
+		if (string(e.effort) || string(e.perTurnEffort)) {
+			this.run.effort = short(string(e.perTurnEffort) || string(e.effort), 1024);
+		}
 
 		const type = string(e.type);
 
-		if (type === "thread.started") this.codexThread++;
-		else if (type.startsWith("item.")) this.codex(e, at);
-		else if (type === "turn.started") {
+		if (type === "thread.started") {
+			this.codexThread++;
+		} else if (type.startsWith("item.")) {
+			this.codex(e, at);
+		} else if (type === "turn.started") {
 			this.codexTurn++;
 			this.activity();
 		} else if (type === "turn.completed") {
@@ -119,22 +138,29 @@ export class Turns {
 			});
 
 			this.finish(true, at);
-		} else if (e.event === "step_update" || e.event === "init" || e.event === "result")
+		} else if (e.event === "step_update" || e.event === "init" || e.event === "result") {
 			this.agy(e, at);
-		else if (type === "assistant" || type === "user") this.claude(e, at);
-		else if (type === "api-request") {
+		} else if (type === "assistant" || type === "user") {
+			this.claude(e, at);
+		} else if (type === "api-request") {
 			const params = record(e.params);
 
-			if (string(params.model)) this.run.model = redact(string(params.model));
+			if (string(params.model)) {
+				this.run.model = short(string(params.model), 1024);
+			}
 
 			const effort = string(record(params.output_config).effort);
 
-			if (effort) this.run.effort = redact(effort);
+			if (effort) {
+				this.run.effort = short(effort, 1024);
+			}
 
 			this.activity();
-		} else if (type === "system" && (e.subtype === "turn_duration" || e.subtype === "stop"))
+		} else if (type === "system" && (e.subtype === "turn_duration" || e.subtype === "stop")) {
 			this.finish(false, at);
-		else if (type === "result") this.finish(e.is_error === true, at);
+		} else if (type === "result") {
+			this.finish(e.is_error === true, at);
+		}
 
 		this.run.indexed = true;
 	}
@@ -224,7 +250,9 @@ export class Turns {
 	private claude(e: Record<string, unknown>, at: number): void {
 		const message = record(e.message);
 
-		if (string(message.model)) this.run.model = redact(string(message.model));
+		if (string(message.model)) {
+			this.run.model = short(string(message.model), 1024);
+		}
 
 		const messageId = string(message.id) || string(e.uuid) || `message:${this.sequence}`;
 
@@ -242,9 +270,11 @@ export class Turns {
 			if (block.type === "text") {
 				const text = string(block.text);
 
-				if (e.type === "user" && !this.run.brief) this.run.brief = body(text, 4000);
+				if (e.type === "user" && !this.run.brief) {
+					this.run.brief = body(text, 4000);
+				}
 
-				if (text)
+				if (text) {
 					this.put({
 						id,
 						kind: e.type === "user" ? "user" : "assistant",
@@ -255,6 +285,7 @@ export class Turns {
 						status: "done",
 						at,
 					});
+				}
 			} else if (block.type === "tool_use") {
 				this.put({
 					id: `tool:${string(block.id) || id}`,
@@ -284,18 +315,24 @@ export class Turns {
 			}
 		});
 
-		if (message.stop_reason === "max_tokens" || e.isApiErrorMessage === true) this.finish(true, at);
-		else if (message.stop_reason === "end_turn" || message.stop_reason === "stop_sequence")
+		if (message.stop_reason === "max_tokens" || e.isApiErrorMessage === true) {
+			this.finish(true, at);
+		} else if (message.stop_reason === "end_turn" || message.stop_reason === "stop_sequence") {
 			this.finish(false, at);
+		}
 	}
 
 	private agy(e: Record<string, unknown>, at: number): void {
 		if (e.event === "init") {
 			const init = record(e.init);
 
-			if (string(init.cwd)) this.run.cwd = string(init.cwd);
+			if (string(init.cwd)) {
+				this.run.cwd = string(init.cwd);
+			}
 
-			if (string(init.model)) this.run.model = redact(string(init.model));
+			if (string(init.model)) {
+				this.run.model = short(string(init.model), 1024);
+			}
 
 			return;
 		}
@@ -306,7 +343,7 @@ export class Turns {
 			this.tokens("agy:total", result.usage, true);
 			this.finish(result.status === "ERROR", at);
 
-			if (result.status === "ERROR")
+			if (result.status === "ERROR") {
 				this.put({
 					id: `agy:error:${this.sequence}`,
 					kind: "event",
@@ -317,6 +354,7 @@ export class Turns {
 					status: "failed",
 					at,
 				});
+			}
 
 			return;
 		}
@@ -346,7 +384,9 @@ export class Turns {
 				at,
 			});
 
-			if (done) this.fragments.delete(id);
+			if (done) {
+				this.fragments.delete(id);
+			}
 		} else if (step.step_type === "tool") {
 			const result = content(tool.output ?? tool.error);
 			const previous = this.byId.get(id);
