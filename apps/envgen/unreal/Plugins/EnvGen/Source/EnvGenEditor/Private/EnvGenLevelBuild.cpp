@@ -659,7 +659,7 @@ namespace
 		return Out;
 	}
 
-	UMaterialExpression* BombColour(UMaterial* Material, UTexture2D* Texture, float Repeat, int32 Y)
+	UMaterialExpression* BombColour(UMaterial* Material, UTexture2D* Texture, float Repeat, UMaterialExpression* Position, UMaterialExpression* Eye, int32 Y)
 	{
 		UMaterialExpressionLandscapeLayerCoords* Uv = Node<UMaterialExpressionLandscapeLayerCoords>(Material, -1400, Y);
 		Uv->MappingScale = Repeat;
@@ -674,8 +674,17 @@ namespace
 		FCustomInput& Image = Bomb->Inputs.AddDefaulted_GetRef();
 		Image.InputName = TEXT("Scan");
 		Image.Input.Connect(0, Scan);
-		// Overlapping triangular cells hide the boundary between independently offset scan tiles.
+		FCustomInput& Here = Bomb->Inputs.AddDefaulted_GetRef();
+		Here.InputName = TEXT("Here");
+		Here.Input.Connect(0, Position);
+		FCustomInput& Camera = Bomb->Inputs.AddDefaulted_GetRef();
+		Camera.InputName = TEXT("Eye");
+		Camera.Input.Connect(0, Eye);
+		// Close colour stays registered with the scan normal and relief. Offset cells hide distant repeats.
 		Bomb->Code = TEXT(R"(
+float2 dx=ddx(UV), dy=ddy(UV);
+float blend=smoothstep(1500,3000,distance(Here,Eye));
+[branch] if(blend<=0) return Texture2DSampleGrad(Scan,ScanSampler,UV,dx,dy).rgb;
 float2 skew = float2(UV.x + UV.y*0.57735027, UV.y*1.15470054);
 float2 cell = floor(skew), f = frac(skew);
 float2 a, b, c; float3 w;
@@ -685,10 +694,11 @@ float2 ha=frac(sin(float2(dot(a,float2(127.1,311.7)),dot(a,float2(269.5,183.3)))
 float2 hb=frac(sin(float2(dot(b,float2(127.1,311.7)),dot(b,float2(269.5,183.3))))*43758.5453);
 float2 hc=frac(sin(float2(dot(c,float2(127.1,311.7)),dot(c,float2(269.5,183.3))))*43758.5453);
 w *= w; w *= w; w /= max(dot(w,1),0.00001);
-float2 dx=ddx(UV), dy=ddy(UV);
-return Texture2DSampleGrad(Scan,ScanSampler,UV+ha,dx,dy).rgb*w.x
+float3 varied=Texture2DSampleGrad(Scan,ScanSampler,UV+ha,dx,dy).rgb*w.x
      + Texture2DSampleGrad(Scan,ScanSampler,UV+hb,dx,dy).rgb*w.y
      + Texture2DSampleGrad(Scan,ScanSampler,UV+hc,dx,dy).rgb*w.z;
+[branch] if(blend>=1) return varied;
+return lerp(Texture2DSampleGrad(Scan,ScanSampler,UV,dx,dy).rgb,varied,blend);
 )");
 		return Bomb;
 	}
@@ -772,15 +782,19 @@ return Texture2DSampleGrad(Scan,ScanSampler,UV+ha,dx,dy).rgb*w.x
 			const FVector2f Root = FVector2f(FMath::Cos(Around), FMath::Sin(Around)) * Random.FRand() * Variety.RadiusCm;
 			const float Facing = Random.FRand() * 2 * PI;
 			const FVector2f Along(FMath::Cos(Facing), FMath::Sin(Facing)), Across(-Along.Y, Along.X);
-		const float Height = Random.FRandRange(Variety.HeightMinCm, Variety.HeightMaxCm);
+			const float Height = Random.FRandRange(Variety.HeightMinCm, Variety.HeightMaxCm);
 			const float Width = Random.FRandRange(Variety.WidthMinCm, Variety.WidthMaxCm) / 2;
 			// Dealt in turn, so a tuft holds the colours in the equal shares they were measured in.
-		FLinearColor Own = BladeColours.IsEmpty() ? FLinearColor::White : BladeColours[Blade % BladeColours.Num()];
-		if (Blade % 13 == 0)
-		{
-			Own *= FLinearColor(1.10f, 0.94f, 0.72f);
-		}
-			const float Lean = Random.FRandRange(0.2f, 0.6f) * Height;
+			FLinearColor Own = BladeColours.IsEmpty() ? FLinearColor::White : BladeColours[Blade % BladeColours.Num()];
+			if (Blade % 13 == 0)
+			{
+				Own *= FLinearColor(1.10f, 0.94f, 0.72f);
+			}
+			const float Lean = Random.FRandRange(0.15f, 1.35f) * Height;
+			const float Arch = Random.FRandRange(0.f, 0.55f);
+			const float BladeSeed = Random.FRand();
+			const float PeakT = Arch > 1.f / PI ? FMath::Acos(-1.f / (PI * Arch)) / PI : 1.f;
+			const float Peak = PeakT + Arch * FMath::Sin(PI * PeakT);
 			// Left and right edge vertices per level, and one at the tip.
 			TArray<FVertexInstanceID> Left, Right;
 			FVertexInstanceID Tip;
@@ -788,14 +802,14 @@ return Texture2DSampleGrad(Scan,ScanSampler,UV+ha,dx,dy).rgb*w.x
 			{
 				const FVector2f Plan = Root + Along * (Lean * T * T) + Across * (Side * Width * (1.f - T));
 				const FVertexID Vertex = Description.CreateVertex();
-				Positions[Vertex] = FVector3f(Plan.X, Plan.Y, Height * T);
+				Positions[Vertex] = FVector3f(Plan.X, Plan.Y, Height * (T + Arch * FMath::Sin(PI * T)) / Peak);
 				const FVertexInstanceID Instance = Description.CreateVertexInstance(Vertex);
 				Normals[Instance] = FVector3f(Along.X * 0.6f + Across.X * Side * 0.4f,
 					Along.Y * 0.6f + Across.Y * Side * 0.4f, 1.f).GetSafeNormal();
 				Uvs.Set(Instance, 0, FVector2f(Side * 0.5f + 0.5f, T));
 				Uvs.Set(Instance, 1, FVector2f(0.f, 0.f));
 				Uvs.Set(Instance, 2, FVector2f(Own.R, Own.G));
-				Uvs.Set(Instance, 3, FVector2f(Own.B, 0.f));
+				Uvs.Set(Instance, 3, FVector2f(Own.B, BladeSeed));
 				Colours[Instance] = FVector4f(T, T, T, 1.f);
 				return Instance;
 			};
@@ -873,7 +887,7 @@ return Texture2DSampleGrad(Scan,ScanSampler,UV+ha,dx,dy).rgb*w.x
 		UMaterialExpressionMultiply* OfTuft = Node<UMaterialExpressionMultiply>(Material, -200, 100);
 		OfTuft->A.Connect(0, Lit);
 		OfTuft->B.Connect(0, Tuft);
-		// The blade's own colour, from the mesh: red and green in the third UV channel, blue in the fourth.
+		// The blade's own colour, from the mesh: red and green in the third UV channel, blue and a stable blade seed in the fourth.
 		UMaterialExpressionTextureCoordinate* RedGreen = Node<UMaterialExpressionTextureCoordinate>(Material, -500, 650);
 		RedGreen->CoordinateIndex = 2;
 		UMaterialExpressionTextureCoordinate* BlueUv = Node<UMaterialExpressionTextureCoordinate>(Material, -500, 750);
@@ -950,11 +964,15 @@ return Texture2DSampleGrad(Scan,ScanSampler,UV+ha,dx,dy).rgb*w.x
 			Input(TEXT("Growth"), GrowthAt);
 			Input(TEXT("Along"), Along);
 			Input(TEXT("Random"), Random);
+			Input(TEXT("Seed"), BlueUv);
 			Input(TEXT("Time"), Node<UMaterialExpressionTime>(Material, -1100, 1500));
 			const FString Fade = Variety.AppearFullCm > Variety.AppearFromCm
 				? FString::Printf(TEXT("saturate((distance(Here, Eye) - %.3f) / %.3f)"), Variety.AppearFromCm, Variety.AppearFullCm - Variety.AppearFromCm)
 				: TEXT("1.0");
-			Offset->Code = TEXT("float fade = ") + Fade + TEXT(R"(;
+			const FString StatureSpread = Variety.Name == FName(TEXT("broadleaf"))
+				? TEXT("lerp(0.75,1.25,Random)")
+				: TEXT("lerp(0.55,1.55,frac(Seed.g+Random*1.61803399))");
+			Offset->Code = TEXT("float fade = ") + Fade + TEXT("; float spread = ") + StatureSpread + TEXT(R"(;
 float2 p = Root.xy;
 float relief = 0.65*sin(p.x*0.027+p.y*0.013)*sin(p.y*0.039-p.x*0.011);
 float reach=distance(Root,Eye), sway=0;
@@ -964,7 +982,7 @@ float reach=distance(Root,Eye), sway=0;
 }
 float tip = Along.r*Along.r;
 float2 lean=2.0*(0.5+Random)*float2(sin(dot(p,float2(0.003,0.005))),cos(dot(p,float2(-0.004,0.002))));
-float stature=clamp(Growth.b*2*lerp(0.75,1.25,Random),0.45,1.8);
+float stature=clamp(Growth.b*2*spread,0.45,1.8);
 return ((float3((float2(1.6,0.65)*sway+lean)*tip,0) + float3(0,0,(Here.z-Root.z)*(stature-1)+relief))*fade + (Root-Here)*(1-fade))*(1-smoothstep(2200,2500,reach));
 )");
 			UMaterialEditingLibrary::ConnectMaterialProperty(Offset, TEXT(""), MP_WorldPositionOffset);
@@ -978,8 +996,8 @@ return ((float3((float2(1.6,0.65)*sway+lean)*tip,0) + float3(0,0,(Here.z-Root.z)
 	 * The ground: per class a scanned material, blended where classes meet. Evidence sets the colour that varies
 	 * over tens of metres (the macro colour map times the fitted albedo scale) and, when the build has one, what the
 	 * photo shows finer than that (the ratio map: rows, tracks, markings, patches). The scan adds everything finer
-	 * still: its colour divided by its own mean, so it never shifts the colour. Each scan is read at two scales and
-	 * turns, mixed by broad noise, so the repeat does not show from the air. The class weights are cut to a sharp
+	 * still: its colour divided by its own mean, so it never shifts the colour. Close scan maps use the same
+	 * physical coordinates; distant colour mixes scales or offsets to hide repeats. The class weights are cut to a sharp
 	 * edge where they cross one half, so an edge is as crisp as the photo's rather than as wide as a weightmap texel.
 	 */
 	UMaterial* MakeGroundMaterial(UTexture2D* Macro, UTexture2D* Ratio, UTexture2D* Survey, UTexture2D* OrthoMasks, UTexture2D* OrthoColour, UTexture2D* FallbackWeights, UTexture2D* Grain, UTexture2D* StreetscapeMask, UTexture2D* ProcfillGrowth, UTexture2D* ProcfillDebug, const FManifest& Manifest, UTexture2D* Detail, UTexture2D* Growth, int32 Quads, double QuadCm, float AlbedoScale,
@@ -1056,7 +1074,8 @@ return ((float3((float2(1.6,0.65)*sway+lean)*tip,0) + float3(0,0,(Here.z-Root.z)
 				FCustomInput& PhotoUv = FineMipLevel->Inputs.AddDefaulted_GetRef();
 				PhotoUv.InputName = TEXT("UV");
 				PhotoUv.Input.Connect(0, SurveyUv);
-				const double SourcePixelM = Manifest.SurveyNorthM / Survey->Source.GetSizeX();
+				const double SourcePixelM = FMath::Min(Manifest.SurveyNorthM / Survey->Source.GetSizeX(),
+					Manifest.SurveyEastM / Survey->Source.GetSizeY());
 				FineMipLevel->Code = FString::Printf(TEXT(R"(
 float2 texels=UV*float2(%.1f,%.1f), dx=ddx(texels), dy=ddy(texels);
 float projected=0.5*log2(max(max(dot(dx,dx),dot(dy,dy)),1e-8));
@@ -1065,6 +1084,7 @@ return max(projected,minimum);
 )"), double(Survey->Source.GetSizeX()), double(Survey->Source.GetSizeY()),
 					FMath::Max(0.0, FMath::Log2(0.1 / SourcePixelM)));
 				SurveySample->MipValueMode = TMVM_MipLevel;
+				SurveySample->AutomaticViewMipBias = false;
 				SurveySample->MipValue.Connect(0, FineMipLevel);
 				UMaterialExpressionMultiply* SurveyScaled = Node<UMaterialExpressionMultiply>(Material, -700, -1250);
 				SurveyScaled->A.Connect(1, SurveySample);
@@ -1215,12 +1235,25 @@ return max(projected,minimum);
 			if (GrassBase) GrassBase = Overlay(GrassBase);
 		}
 		UMaterialExpressionTextureSample* MixNoise = Sample(Material, Detail, 1100.0 / QuadCm, SAMPLERTYPE_LinearGrayscale, 250);
+		UMaterialExpressionCustom* ScanMix = Node<UMaterialExpressionCustom>(Material, -900, 350);
+		ScanMix->OutputType = CMOT_Float1;
+		ScanMix->Inputs.Empty();
+		FCustomInput& MixPattern = ScanMix->Inputs.AddDefaulted_GetRef();
+		MixPattern.InputName = TEXT("Pattern");
+		MixPattern.Input.Connect(1, MixNoise);
+		FCustomInput& MixPosition = ScanMix->Inputs.AddDefaulted_GetRef();
+		MixPosition.InputName = TEXT("Here");
+		MixPosition.Input.Connect(0, GroundPosition);
+		FCustomInput& MixCamera = ScanMix->Inputs.AddDefaulted_GetRef();
+		MixCamera.InputName = TEXT("Eye");
+		MixCamera.Input.Connect(0, GroundEye);
+		ScanMix->Code = TEXT("return Pattern*smoothstep(1500,3000,distance(Here,Eye));");
 		const auto Mix = [&](UMaterialExpression* A, UMaterialExpression* B, int32 X, int32 Y)
 		{
 			UMaterialExpressionLinearInterpolate* Out = Node<UMaterialExpressionLinearInterpolate>(Material, X, Y);
 			Out->A.Connect(0, A);
 			Out->B.Connect(0, B);
-			Out->Alpha.Connect(1, MixNoise);
+			Out->Alpha.Connect(0, ScanMix);
 			return Out;
 		};
 		const auto Combine = [&](UMaterialExpression* Sum, UMaterialExpression* Term, int32 X, int32 Y) -> UMaterialExpression*
@@ -1314,7 +1347,7 @@ return max(projected,minimum);
 			}
 			else
 			{
-				ScanColour = BombColour(Material, Layer.Colour, Repeat, Y);
+				ScanColour = BombColour(Material, Layer.Colour, Repeat, GroundPosition, GroundEye, Y);
 			}
 			UMaterialExpressionConstant3Vector* Mean = Node<UMaterialExpressionConstant3Vector>(Material, -500, Y);
 			Mean->Constant = Layer.Scan.MeanColour;

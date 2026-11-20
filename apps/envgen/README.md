@@ -275,8 +275,10 @@ downloads them once and checks the hashes; about 10 MB. Nothing is stored in git
 
 The Landscape material height-blends the classes. Evidence sets the colour that varies over tens of metres (the
 macro colour map times the albedo scale), and the scan adds structure: its colour divided by its own mean, so it
-never shifts the colour. Grass uses two scales and turns. Dirt and paving colour use three overlapping,
-independently offset scan samples to break repeating tiles. Scan colour fades from full strength within 15 m
+never shifts the colour. Within 15 m, colour, normal and roughness use the same physical scan coordinates.
+Between 15 and 30 m, grass gradually mixes two scales and turns; dirt and paving colour transition to three
+overlapping, independently offset samples. This avoids mixing unrelated colour features against one normal
+map up close while breaking distant repeats. Scan colour fades from full strength within 15 m
 to 20% beyond 100 m, allowing the photo's broad pattern to dominate at distance.
 
 The ground colour also carries the detail ratio (`detail_ratio.png`): each 0.5 m pixel of the photo divided by the
@@ -324,7 +326,7 @@ Stored sampling does not establish the image's independently resolved detail.
   Native alpha gaps are reduced conservatively onto the colour grid before computing physical distances;
   this can move the blend boundary by at most one colour cell, without losing gaps narrower than that cell.
   Within 3 m of the camera, survey detail is filtered toward 10 cm sampling so photographic blade texture
-  does not compete with the close material scan. A mip-level floor enforces this under magnification and fades
+  does not compete with the close material scan. Automatic temporal mip bias is disabled for this sample. A mip-level floor enforces this under magnification and fades
   out by 15 m, where the projected texel footprint sets the mip. Larger photo patterns remain.
   Native processing runs in overlapping windows, with bounded pooled grids and streamed PNG output.
   A rejected RGB split remains recorded in the manifest. It does not establish that the ground is all grass.
@@ -396,7 +398,9 @@ Rounded blade normals vary with blade orientation, with an upward bias to keep b
 World-position gusts bend tips while retaining roots. Ground and blade roots share 0.65 cm procedural relief;
 its derivatives also perturb ground normals. Wind amplitudes and relief are visual priors, not terrain measurements.
 Grass displacement fades to zero between 22 and 25 m; the engine disables its evaluation beyond 25 m.
-Instance-scale height differences and coherent resting lean vary blade posture. The scan's colour contrast
+Curved blades include folded tips and varied resting angles. A stable seed per blade combines with the instance
+seed to vary individual stature within each tuft; the photo still sets its growth envelope. Instance-scale height
+differences and coherent resting lean vary blade posture. The scan's colour contrast
 and close normal strength are increased to retain surface detail where the sward thins; these are visual priors.
 The engine shrinks a tuft away between its start and end distance and has no nearest distance, so a variety is drawn
 from the camera out. The clump's wide blades are kept from a walker's feet by its material: nearer than 8 m a clump
