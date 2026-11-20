@@ -50,7 +50,7 @@ from .site import (
 
 # Part of every stage key. Bump it by hand when a code change alters a stage's output for the same
 # inputs (frame.py and the resampling included); nothing detects that automatically.
-PIPELINE_VERSION = 20
+PIPELINE_VERSION = 21
 
 MACRO_PIXELS = 1024
 # The fine detail: pixels across the tile (about half a metre, the imagery's own resolution) and the largest
@@ -626,7 +626,7 @@ def build_surface(
     mask_files = []
     if site.mask_imagery:
         mask_reference = np.array([imagery_sources.NAMES.index(name) for name in names], dtype=np.uint8)[labels]
-        labels, names, evidence = imagery_sources.classify(site, labels, names)
+        labels, names, evidence = imagery_sources.classify(site, labels, names, reserve_survey=not bool(ortho and "raster" in ortho))
         fit["mask_sources"] = evidence
         mask_fit = evidence["evidence"]["mask_imagery"].get("fit")
         if mask_fit and mask_fit["splits"] and mask_fit["splits"][0]["split"]:
@@ -733,6 +733,8 @@ def build_orthophoto(site: Site, imagery: Path, out: Path, covering: dict | None
     rgb = np.stack([_fill_gaps(band, "imagery")[0] for band in rgb])
     shown = open_ground(out, covering, tile.vertices) > 0
     labels, names, _ = surface.classify(rgb[:3], shown, tile.quad_m, rgb[3] if has_nir else None)
+    if site.mask_imagery:
+        labels, names, _ = imagery_sources.classify(site, labels, names, reserve_survey=False)
     height = np.zeros(labels.shape, dtype=np.float32)
     if covering:
         with rasterio.open(out / covering["height"]) as source:
@@ -1209,7 +1211,7 @@ def build_survey_detail(
                         first_column, first_row, min(block, width - first_column), min(block, height - first_row)
                     )
                     data = source.read([1, 2, 3, 4], window=window)
-                    valid = data[3] > 0
+                    valid = data[3] > 0 if ortho else data[3] == 255
                     luminance = np.tensordot(grain.LUMA, grain.to_linear(data[:3]), 1)
                     ri = np.minimum(
                         ((first_row + np.arange(data.shape[1]) + 0.5) * rows / height).astype(int), rows - 1
@@ -1484,6 +1486,8 @@ def build(site_path: Path, out: Path, cache: Path | None = None) -> dict:
                 site.crs,
                 ortho_inputs,
                 sources["imagery"]["sha256"],
+                [sources["mask_imagery"]["raster_files"], site.mask_imagery.bands, imagery_sources.VERSION]
+                if site.mask_imagery else None,
                 bands,
                 cover_hashes,
                 buildings_key,
@@ -1800,6 +1804,8 @@ def build(site_path: Path, out: Path, cache: Path | None = None) -> dict:
                 procfill.VERSION,
                 procfill.CACHE_VERSION,
                 procfill.SETTINGS,
+                sha256_file(out / stages["growth"]["file"]),
+                [sha256_file(out / name) for name in ortho["files"]] if ortho else None,
                 [
                     sha256_file(Path(path))
                     for path in (site.survey.orthophoto, site.survey.location, site.survey.terrain)
@@ -1815,6 +1821,7 @@ def build(site_path: Path, out: Path, cache: Path | None = None) -> dict:
             lambda: procfill.build(
                 site, imagery, out, classes["layers"], elevation, covering, detail,
                 fallback_weights=classes.get("fallback_weights"),
+                base_growth=stages["growth"], ortho=ortho,
             ),
         )
 

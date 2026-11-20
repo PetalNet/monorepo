@@ -16,10 +16,10 @@ from rasterio.warp import reproject
 from scipy import ndimage
 from skimage.morphology import skeletonize
 
-from . import frame, trees
+from . import frame, orthophoto, trees
 
 VERSION = 1
-CACHE_VERSION = 3
+CACHE_VERSION = 4
 SETTINGS = {
     "survey_cell_m": 0.25,
     "survey_max_pixels": 2_000_000,
@@ -487,7 +487,7 @@ def _load(path):
     return np.swapaxes(np.asarray(Image.open(path)), 0, 1)[::-1].copy()
 
 
-def build(site, imagery, out, layers, elevation, covering, detail, *, fallback_weights=None):
+def build(site, imagery, out, layers, elevation, covering, detail, *, fallback_weights=None, base_growth=None, ortho=None):
     """One pipeline stage; all site coordinates and measured rasters stay in private build outputs."""
     from .build import _sample_cells, _warp, imagery_bands, open_ground, read_heights, read_weights
 
@@ -590,7 +590,7 @@ def build(site, imagery, out, layers, elevation, covering, detail, *, fallback_w
     sr = _onto(roads, transform, st, shape, site.crs) > 0.5
     validation = validate(observed, sc, sh, ch, sp, sr, survey_cell, site.seed)
     masks = generate(priors, classes, grass, heights, canopy, paths, roads, cell_m, site.seed, entrances, fields)
-    coverage = _onto(valid, st, transform, grass.shape, site.crs, Resampling.average) > 0.99
+    coverage = _onto(survey[3] > 0, st, transform, grass.shape, site.crs, Resampling.average) > 0
     files = []
     edits = out / "procfill_edits"
     provenance = np.full(grass.shape, SOURCES["generated"], np.uint8)
@@ -666,6 +666,12 @@ def build(site, imagery, out, layers, elevation, covering, detail, *, fallback_w
     contrast = 0.12 * effective("windrow") - 0.08 * effective("weeds") - 0.10 * effective("wear")
     overlay = np.clip((127 + 127 * contrast) / 255, 0, 1)
     growth = np.stack([density, tall, height, overlay], axis=-1)
+    surface_painted = bool(painted_names & {"zones", "bare", "wear"})
+    if base_growth and ortho and "raster" in ortho and not surface_painted:
+        native = orthophoto.sample(out / ortho["raster"], tile, site.crs, pixels, out / ortho["colour_raster"])
+        influence = np.clip(native[:3].sum(axis=0), 0, 1)[..., None]
+        original = _load(out / base_growth["file"])[..., :3].astype(np.float32) / 255
+        growth[..., :3] = original * influence + growth[..., :3] * (1 - influence)
     _save(np.rint(growth * 255).astype(np.uint8), out / "procfill_growth.png")
     files.append("procfill_growth.png")
     ratio = _load(out / detail["file"]).astype(np.float32)
@@ -749,6 +755,7 @@ def build(site, imagery, out, layers, elevation, covering, detail, *, fallback_w
         "growth_encoding": "RGBA: short density, tall density, height/2, (127+127*overlay_log2)/255",
         "surface_layers": ground_layers,
         "fallback_weights": fallback_file,
+        "override_native_surface": surface_painted,
         "surface_check_points": ground_checks,
         "priors_file": "procfill_priors.json",
         "validation_file": "procfill_validation.json",

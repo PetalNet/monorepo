@@ -125,6 +125,20 @@ def test_stage_exports_reproducible_masks_and_reimports_paint(tmp_path):
     hashes = {name: procfill._hash(tmp_path / name) for name in result["files"]}
     procfill.build(*args)
     assert hashes == {name: procfill._hash(tmp_path / name) for name in result["files"]}
+    original_growth = np.full((64, 64, 3), [17, 31, 47], dtype=np.uint8)
+    procfill._save(original_growth, tmp_path / "original_growth.png")
+    native_masks = np.zeros((4, 64, 64), dtype=np.uint8)
+    native_masks[0] = 255
+    write_raster(tmp_path / "native_masks.tif", native_masks, WEST, tile.north, 1)
+    write_raster(tmp_path / "native_colour.tif", survey, WEST, tile.north, 1)
+    composed = procfill.build(
+        *args, base_growth={"file": "original_growth.png"},
+        ortho={"raster": "native_masks.tif", "colour_raster": "native_colour.tif"},
+    )
+    growth = procfill._load(tmp_path / composed["growth_file"])
+    np.testing.assert_array_equal(growth[10, 10, :3], original_growth[10, 10])
+    assert not np.array_equal(growth[50, 50, :3], original_growth[50, 50])
+    assert not composed["override_native_surface"]
     weights = np.stack([procfill._load(tmp_path / layer["file"]) for layer in result["surface_layers"]])
     assert (weights.astype(int).sum(axis=0) == 255).all()
     measured = procfill._load(tmp_path / "procfill_evidence_source.png") == procfill.SOURCES["measured"]
@@ -137,6 +151,7 @@ def test_stage_exports_reproducible_masks_and_reimports_paint(tmp_path):
     procfill._save(np.full((64, 64), 255, np.uint8), edits / "windrow.png")
     procfill._save(np.full((64, 64), 255, np.uint8), edits / "crown.png")
     painted_result = procfill.build(*args)
+    assert painted_result["override_native_surface"]
     derived = json.loads((tmp_path / painted_result["trees_file"]).read_text())
     assert derived["trees"][0][-1] == pytest.approx(1)
     assert json.loads((tmp_path / "trees.json").read_text()) == original_tree

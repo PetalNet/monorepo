@@ -113,12 +113,12 @@ def survey_coverage(path: str, crs: str, tile: Tile) -> np.ndarray:
     return sampled > 0
 
 
-def classify(site: Site, labels: np.ndarray, names: list[str]) -> tuple[np.ndarray, list[str], dict]:
+def classify(site: Site, labels: np.ndarray, names: list[str], *, reserve_survey: bool = True) -> tuple[np.ndarray, list[str], dict]:
     """Refine fallback masks outside the drone footprint; keep the existing survey path in charge inside it."""
     result = np.array([NAMES.index(name) for name in names], dtype=np.uint8)[labels]
     records = {}
     reserved = np.zeros(labels.shape, dtype=bool)
-    if site.survey and site.survey.orthophoto:
+    if reserve_survey and site.survey and site.survey.orthophoto:
         reserved = survey_coverage(site.survey.orthophoto, site.crs, site.tile)
         records["survey"] = {
             "valid_fraction": float(reserved.mean()),

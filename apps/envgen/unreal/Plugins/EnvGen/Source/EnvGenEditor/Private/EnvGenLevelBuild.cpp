@@ -237,6 +237,7 @@ namespace
 		FString FallbackWeightsFile;
 		double OrthoWestM = 0, OrthoSouthM = 0, OrthoEastM = 1, OrthoNorthM = 1;
 		bool bProcfillDebugView = false;
+		bool bProcfillSurfaceOverride = false;
 		FTurf Turf;
 		FSurface Tile;
 		TOptional<FSurface> Surround;
@@ -359,6 +360,7 @@ namespace
 			Out.ProcfillGrowthFile = (*Procfill)->GetStringField(TEXT("growth_file"));
 			Out.ProcfillDebugFile = (*Procfill)->GetStringField(TEXT("debug_file"));
 			(*Procfill)->TryGetBoolField(TEXT("debug_view"), Out.bProcfillDebugView);
+			(*Procfill)->TryGetBoolField(TEXT("override_native_surface"), Out.bProcfillSurfaceOverride);
 		}
 		const TSharedPtr<FJsonObject>* Survey = nullptr;
 		if (Root->TryGetObjectField(TEXT("survey_detail"), Survey) && (*Survey)->HasField(TEXT("file")))
@@ -1168,14 +1170,14 @@ return ((float3((float2(1.6,0.65)*sway+lean)*tip,0) + float3(0,0,(Here.z-Root.z)
 			Exponent->ConstB = -1.f;
 			UMaterialExpressionConstant* Two = Node<UMaterialExpressionConstant>(Material, -500, -1700);
 			Two->R = 2.f;
-			UMaterialExpressionPower* Ratio = Node<UMaterialExpressionPower>(Material, -400, -1500);
-			Ratio->Base.Connect(0, Two);
-			Ratio->Exponent.Connect(0, Exponent);
+			UMaterialExpressionPower* OverlayRatio = Node<UMaterialExpressionPower>(Material, -400, -1500);
+			OverlayRatio->Base.Connect(0, Two);
+			OverlayRatio->Exponent.Connect(0, Exponent);
 			const auto Overlay = [&](UMaterialExpression* Input)
 			{
 				UMaterialExpressionMultiply* Result = Node<UMaterialExpressionMultiply>(Material, -300, -1500);
 				Result->A.Connect(0, Input);
-				Result->B.Connect(0, Ratio);
+				Result->B.Connect(0, OverlayRatio);
 				return Result;
 			};
 			Base = Overlay(Base);
@@ -1336,7 +1338,7 @@ return ((float3((float2(1.6,0.65)*sway+lean)*tip,0) + float3(0,0,(Here.z-Root.z)
 			Weight->ParameterName = Layer.Name;
 			Weight->PreviewWeight = Row == 0 ? 1 : 0;
 			UMaterialExpression* SurfaceWeight = Weight;
-			if (NativeMasks && OriginalWeights)
+			if (NativeMasks && OriginalWeights && !Manifest.bProcfillSurfaceOverride)
 			{
 				UMaterialExpressionComponentMask* Own = Node<UMaterialExpressionComponentMask>(Material, -400, Y + 100);
 				Own->Input.Connect(0, NativeMasks);
@@ -2315,7 +2317,11 @@ bool FEnvGenLevelBuild::Start(const FString& ManifestPath, const FString& MapPat
 		Layer.Relief = MakeTexture(TEXT("T_") + Name + TEXT("_Relief"), Scan.Width, Scan.Height, TSF_G8, Scan.Relief.GetData(), false, State->Packages);
 	}
 	UTexture2D* Growth = nullptr;
-	if (!Manifest.Turf.GrowthFile.IsEmpty())
+	if (ProcfillGrowth && Manifest.Turf.GrowthFile == Manifest.ProcfillGrowthFile)
+	{
+		Growth = ProcfillGrowth;
+	}
+	else if (!Manifest.Turf.GrowthFile.IsEmpty())
 	{
 		TArray64<uint8> Bytes;
 		int32 Width = 0, Height = 0;

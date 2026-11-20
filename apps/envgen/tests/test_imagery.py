@@ -383,6 +383,9 @@ def test_survey_reservation_matches_actual_survey_detail_coverage(tmp_path, monk
     )
     labels, _, record = imagery.classify(site, np.ones((13, 13), dtype=np.uint8), imagery.NAMES)
     assert labels[6, 2] == 0
+    fallback, _, _ = imagery.classify(site, np.ones((13, 13), dtype=np.uint8), imagery.NAMES, reserve_survey=False)
+    without_survey, _, _ = imagery.classify(replace(site, survey=None), np.ones((13, 13), dtype=np.uint8), imagery.NAMES)
+    np.testing.assert_array_equal(fallback, without_survey)
     if mixed_coverage:
         assert 0 < record["evidence"]["survey"]["valid_fraction"] < 1
         eligible = imagery.survey_coverage(str(drone), CRS, site.tile)
