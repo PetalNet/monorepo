@@ -106,7 +106,7 @@ share its texture and material, including placements with different bounds.
 
 The stage copies the original PNG bytes to `streetscape_decal_<sha256>.png` beside `streetscape.json`.
 Each decal mesh has `material: "paint_decal"`, `image` naming that copy, and the original `bounds_m`.
-Copied PNGs join the stage's `files` and the manifest's hashed `artifacts`. The `streetscape-4` cache key
+Copied PNG files join the stage's `files` and the manifest's hashed `artifacts`. The `streetscape-4` cache key
 includes every image's content hash. Changing PNG bytes at the same input path rebuilds the stage.
 All inputs are validated before cache reuse, and a missing or modified staged PNG triggers a rebuild.
 Unreal preflight decodes every referenced image and checks registration before replacing the saved level.
