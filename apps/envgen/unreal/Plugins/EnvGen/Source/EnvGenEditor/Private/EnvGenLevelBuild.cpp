@@ -24,6 +24,7 @@
 #include "IImageWrapper.h"
 #include "IImageWrapperModule.h"
 #include "Landscape.h"
+#include "LandscapeComponent.h"
 #include "LandscapeGrassType.h"
 #include "LandscapeEdit.h"
 #include "LandscapeInfo.h"
@@ -235,6 +236,7 @@ namespace
 		// a power of two, and where the file lies in the tile in metres from its south-west corner.
 		FString ProcfillGrowthFile, ProcfillDebugFile;
 		FString SurveyFile;
+		bool bSurveyWeighted = false;
 		double SurveyLog2Range = 1, SurveyZero = 127, SurveyWestM = 0, SurveySouthM = 0, SurveyEastM = 1, SurveyNorthM = 1;
 		FString OrthoMasksFile, OrthoColourFile;
 		FString FallbackWeightsFile;
@@ -369,6 +371,16 @@ namespace
 		if (Root->TryGetObjectField(TEXT("survey_detail"), Survey) && (*Survey)->HasField(TEXT("file")))
 		{
 			Out.SurveyFile = (*Survey)->GetStringField(TEXT("file"));
+			FString WeightChannel;
+			if ((*Survey)->TryGetStringField(TEXT("weight_channel"), WeightChannel))
+			{
+				if (WeightChannel != TEXT("alpha"))
+				{
+					UE_LOG(LogEnvGen, Error, TEXT("unsupported survey detail weight channel: %s"), *WeightChannel);
+					return false;
+				}
+				Out.bSurveyWeighted = true;
+			}
 			Out.SurveyLog2Range = (*Survey)->GetNumberField(TEXT("log2_range"));
 			Out.SurveyZero = (*Survey)->GetNumberField(TEXT("zero"));
 			Out.SurveyWestM = (*Survey)->GetNumberField(TEXT("west_m"));
@@ -566,7 +578,7 @@ namespace
 	}
 
 	UTexture2D* MakeTexture(const FString& Name, int32 Width, int32 Height, ETextureSourceFormat Format, const uint8* Pixels, bool bSrgb, TArray<UPackage*>& Packages,
-		TextureCompressionSettings Compression = TC_MAX, bool bVirtual = false)
+		TextureCompressionSettings Compression = TC_MAX, bool bVirtual = false, FColor VirtualPadding = FColor::Black)
 	{
 		UTexture2D* Texture = NewAsset<UTexture2D>(Name, Packages);
 		Texture->Source.Init(Width, Height, 1, 1, Format, Pixels);
@@ -577,6 +589,8 @@ namespace
 		if (bVirtual)
 		{
 			Texture->PowerOfTwoMode = ETexturePowerOfTwoSetting::PadToPowerOfTwo;
+			Texture->PaddingColor = VirtualPadding;
+			Texture->bPadWithBorderColor = false;
 			Texture->AddressX = TA_Clamp;
 			Texture->AddressY = TA_Clamp;
 		}
@@ -1218,7 +1232,24 @@ return float4(dx,dy);
 				SurveyExponent->ConstB = float(-Manifest.SurveyLog2Range);
 				UMaterialExpressionPower* SurveyFine = Node<UMaterialExpressionPower>(Material, -500, -1250);
 				SurveyFine->Base.Connect(0, Two);
-				SurveyFine->Exponent.Connect(0, SurveyExponent);
+				UMaterialExpression* SurveyLog = SurveyExponent;
+				if (Manifest.bSurveyWeighted)
+				{
+					UMaterialExpressionCustom* Restored = Node<UMaterialExpressionCustom>(Material, -550, -1850);
+					Restored->OutputType = CMOT_Float1;
+					Restored->Inputs.Empty();
+					FCustomInput& Value = Restored->Inputs.AddDefaulted_GetRef();
+					Value.InputName = TEXT("Value");
+					Value.Input.Connect(0, SurveyExponent);
+					FCustomInput& Weight = Restored->Inputs.AddDefaulted_GetRef();
+					Weight.InputName = TEXT("Weight");
+					Weight.Input.Connect(4, SurveySample);
+					// Both channels share a texture footprint; rejected samples contribute neutral weighted log contrast.
+					Restored->Code = FString::Printf(TEXT("return clamp(Value / max(Weight,1.0/255.0), -%.6f, %.6f);"),
+						Manifest.SurveyLog2Range, Manifest.SurveyLog2Range);
+					SurveyLog = Restored;
+				}
+				SurveyFine->Exponent.Connect(0, SurveyLog);
 				// Inside when neither coordinate has left 0 to 1: the floor of each is zero.
 				UMaterialExpressionFloor* FloorU = Node<UMaterialExpressionFloor>(Material, -800, -1400);
 				FloorU->Input.Connect(0, SurveyU);
@@ -1235,10 +1266,10 @@ return float4(dx,dy);
 				Inner->Input.Connect(0, Outside);
 				UMaterialExpressionSaturate* Inside = Node<UMaterialExpressionSaturate>(Material, -400, -1450);
 				Inside->Input.Connect(0, Inner);
-				// 0 in the file is a pixel the orthophoto does not have: there the imagery's ratio and the grain stand.
+				// Weighted files carry usable detail in alpha; legacy single-channel files reserve zero for missing pixels.
 				UMaterialExpressionMultiply* Has = Node<UMaterialExpressionMultiply>(Material, -650, -1350);
-				Has->A.Connect(1, SurveySample);
-				Has->ConstB = 255.f;
+				Has->A.Connect(Manifest.bSurveyWeighted ? 4 : 1, SurveySample);
+				Has->ConstB = Manifest.bSurveyWeighted ? 1.f : 255.f;
 				UMaterialExpressionSaturate* HasPixel = Node<UMaterialExpressionSaturate>(Material, -550, -1350);
 				HasPixel->Input.Connect(0, Has);
 				UMaterialExpressionMultiply* Covered = Node<UMaterialExpressionMultiply>(Material, -300, -1450);
@@ -2511,13 +2542,18 @@ bool FEnvGenLevelBuild::Start(const FString& ManifestPath, const FString& MapPat
 	{
 		TArray64<uint8> SurveyBytes;
 		int32 SurveyWidth = 0, SurveyHeight = 0;
-		if (!DecodePng(Manifest.Directory / Manifest.SurveyFile, ERGBFormat::Gray, 8, SurveyBytes, SurveyWidth, SurveyHeight))
+		const ERGBFormat Format = Manifest.bSurveyWeighted ? ERGBFormat::BGRA : ERGBFormat::Gray;
+		if (!DecodePng(Manifest.Directory / Manifest.SurveyFile, Format, 8, SurveyBytes, SurveyWidth, SurveyHeight))
 		{
 			UE_LOG(LogEnvGen, Error, TEXT("cannot decode %s"), *Manifest.SurveyFile);
 			return false;
 		}
 		// A virtual texture: at a centimetre a pixel the file is hundreds of megabytes, and only the pages in view are resident.
-		Survey = MakeTexture(TEXT("T_SurveyDetail"), SurveyWidth, SurveyHeight, TSF_G8, SurveyBytes.GetData(), false, State->Packages, TC_Grayscale, true);
+		const uint8 Neutral = uint8(Manifest.SurveyZero);
+		// Virtual-texture padding carries the same neutral log and zero weight as missing source pixels.
+		Survey = MakeTexture(TEXT("T_SurveyDetail"), SurveyWidth, SurveyHeight, Manifest.bSurveyWeighted ? TSF_BGRA8 : TSF_G8,
+			SurveyBytes.GetData(), false, State->Packages, Manifest.bSurveyWeighted ? TC_VectorDisplacementmap : TC_Grayscale, true,
+			Manifest.bSurveyWeighted ? FColor(Neutral, Neutral, Neutral, 0) : FColor::Black);
 	}
 	UTexture2D* OrthoMasks = nullptr;
 	UTexture2D* OrthoColour = nullptr;

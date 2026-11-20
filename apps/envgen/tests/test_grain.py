@@ -164,7 +164,11 @@ def test_the_survey_ratio_shows_the_orthophotos_fine_pattern_on_open_ground_and_
     assert "survey_detail.png" in manifest["artifacts"] and manifest["sources"]["survey"]["orthophoto_sha256"]
     assert detail["pixel_m"] == pytest.approx(pixel) and detail["east_extent_m"] == pytest.approx(63)
     raw = np.asarray(Image.open(out / "survey_detail.png"))  # [east, north]
-    ratio = (raw.astype(np.float32) - detail["zero"]) * (detail["log2_range"] / detail["zero"])  # [east, north]
+    assert detail["weight_channel"] == "alpha" and raw.shape[-1] == 4
+    weighted_log = (raw[..., 0].astype(np.float32) - detail["zero"]) * (detail["log2_range"] / detail["zero"])
+    weight = raw[..., 3] / 255.0
+    ratio = np.clip(np.divide(weighted_log, weight, out=np.zeros_like(weighted_log), where=weight > 0),
+                    -detail["log2_range"], detail["log2_range"])  # [east, north]
 
     def at(east_m, north_m):
         return ratio[
@@ -178,8 +182,9 @@ def test_the_survey_ratio_shows_the_orthophotos_fine_pattern_on_open_ground_and_
     assert open_grass.max() - open_grass.min() == pytest.approx(np.log2(0.25 / 0.15), abs=0.25)
     assert np.abs(at(90, 75)).max() < 0.05  # on the roof
     assert at(120, 115).mean() > at(120, 20).mean() + 0.02  # north is brighter: the file's north axis is the tile's
-    assert (raw[-100:, :100] == 0).all()  # no pixel there is 0, not a neutral ratio
-    assert (raw[: -100 - 20, :] > 0).all()  # and nowhere else is
+    assert (raw[-100:, :100, 3] == 0).all()  # Missing samples select fallback without biasing filtered contrast.
+    assert (raw[-100:, :100, :3] == detail["zero"]).all()
+    assert (raw[: -100 - 20, :, :3] > 0).all()
 
 
 def test_a_shadow_nothing_standing_explains_is_read_from_the_photo_and_left_out_of_the_detail(tmp_path):

@@ -1187,8 +1187,9 @@ def build_survey_detail(
     """The detail ratio again, from the survey's orthophoto at its own pixel size, where its footprint is.
 
     The same ratio as build_detail's (luminance of each pixel over the class's own 12 m low-pass of sunlit ground, in
-    linear light, a power of two, one stop either way, 1 where cover hides the ground), but a centimetre a pixel, and of
-    luminance only: the file is one channel (0 where the orthophoto has no pixel, else 1 to 254), because at that size a colour image is hundreds of megabytes. Inside the
+    linear light, a power of two, one stop either way, with zero weight where cover hides the ground), but a centimetre a pixel, and of
+    luminance only: RGB stores the same log ratio, premultiplied by the detail weight in alpha. Missing or rejected
+    samples have neutral RGB and zero weight, so filtering does not invent contrast. Inside the
     footprint it replaces the imagery's ratio, which is the same ground a year or two earlier at half a metre.
     """
     tile = site.tile
@@ -1252,7 +1253,7 @@ def build_survey_detail(
         trust = np.minimum(_blur(sunlit.astype(np.float32), DETAIL_FADE_CELLS), sunlit)
         profile = source.profile | {
             "driver": "GTiff",
-            "count": 1,
+            "count": 4,
             "dtype": "uint8",
             "nodata": None,
             "compress": "deflate",
@@ -1277,14 +1278,17 @@ def build_survey_detail(
                         ((first_column + np.arange(data.shape[2]) + 0.5) * columns / width).astype(int), columns - 1
                     )
                     at = np.ix_(ri, ci)
-                    ratio = np.log2(np.maximum(luminance, 1e-4) / np.maximum(smooth[at], 1e-4)) * trust[at]
-                    ratio = np.clip(ratio, -DETAIL_LOG2_RANGE, DETAIL_LOG2_RANGE)
+                    weight = np.where(valid, trust[at], 0)
+                    ratio = np.log2(np.maximum(luminance, 1e-4) / np.maximum(smooth[at], 1e-4))
+                    ratio = np.clip(ratio, -DETAIL_LOG2_RANGE, DETAIL_LOG2_RANGE) * weight
                     level = np.clip(np.rint(DETAIL_ZERO + DETAIL_ZERO * ratio / DETAIL_LOG2_RANGE), 1, 2 * DETAIL_ZERO)
-                    target.write(np.where(valid, level, 0).astype(np.uint8), 1, window=window)
+                    target.write(np.stack([level, level, level, np.rint(weight * 255)]).astype(np.uint8), window=window)
     orthophoto.write_png(out / "survey_detail.tif", out / "survey_detail.png")
     return {
         "file": "survey_detail.png",
         "files": ["survey_detail.png", "survey_detail.tif"],
+        "weight_channel": "alpha",
+        "ratio_encoding": "RGB is a log2 ratio premultiplied by the alpha detail weight; zero weight selects fallback texture",
         "survey_shadows": survey_shadows,
         "pixel_m": pixel_m,
         "pixels": [width, height],
@@ -1754,7 +1758,7 @@ def build(site_path: Path, out: Path, cache: Path | None = None) -> dict:
             out,
             "survey_detail",
             _stage_key(
-                "survey-detail-2",
+                "survey-detail-packed-weight-v1",
                 grid,
                 site.crs,
                 sha256_file(Path(site.survey.orthophoto)),
