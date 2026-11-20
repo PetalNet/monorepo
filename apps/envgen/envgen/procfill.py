@@ -653,7 +653,7 @@ def build(site, imagery, out, layers, elevation, covering, detail):
     files.append("procfill_debug.png")
     # RGB matches the ground builder's density/height contract; alpha carries the detail overlay.
     zones = masks["zones"]
-    no_grass = (zones == 255) & grass
+    no_grass = (zones == 255) & ("zones" in painted_names)
     bare_wear = np.maximum.reduce([masks["bare"], masks["wear"], no_grass])
     density = np.where(zones == 0, 0.55, np.where(zones == 1, 0.75, 0.9)) * (1 - bare_wear) * grass
     tall = np.where(zones == 2, 0.8, 0.05) * (1 - bare_wear) * grass

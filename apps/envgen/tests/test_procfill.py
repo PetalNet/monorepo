@@ -151,6 +151,22 @@ def test_stage_exports_reproducible_masks_and_reimports_paint(tmp_path):
     assert not procfill._load(tmp_path / "procfill_growth.png")[..., :2].any()
     grass_layer = next(layer for layer in result["surface_layers"] if layer["name"] == "grass")
     assert not procfill._load(tmp_path / grass_layer["file"]).any()
+    mixed = np.full((127, 127), 255, np.uint8)
+    mixed[90:110, 10:30] = 102
+    paving = np.zeros_like(mixed)
+    paving[90:110, 10:30] = 153
+    procfill._save(mixed, tmp_path / "grass.png")
+    procfill._save(paving, tmp_path / "paved.png")
+    mixed_args = (
+        *args[:3],
+        [{"name": "grass", "file": "grass.png"}, {"name": "paved", "file": "paved.png"}],
+        *args[4:],
+    )
+    result = procfill.build(*mixed_args)
+    weights = {layer["name"]: procfill._load(tmp_path / layer["file"]) for layer in result["surface_layers"]}
+    assert not weights["grass"].any()
+    assert (weights["paved"][90:110, 10:30] == 153).all()
+    assert (weights["soil"][90:110, 10:30] == 102).all()
 
 
 def test_small_survey_reports_insufficient_heldout_coverage():
