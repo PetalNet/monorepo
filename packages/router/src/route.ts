@@ -33,7 +33,7 @@ import {
 	pick,
 } from "./pick.ts";
 import { run } from "./run.ts";
-import { readAvailability } from "./state.ts";
+import { appendEvent, readAvailability } from "./state.ts";
 
 const USAGE = `usage:
   route ls  [--for <kind>] [--class <public|sensitive|parcs>] [--not-vendor <maker>]
@@ -392,9 +392,24 @@ async function main(argv: string[]): Promise<number> {
 		(command === "why" && result.ranked[0]?.offer.pool?.plan === "claude")
 	) {
 		const handoff = result.ranked[0]?.offer;
+		// The ledger row is what lets the route guard admit the native Claude subagent.
+		const runId = handoff && command === "run" ? crypto.randomUUID() : undefined;
+
+		if (runId && handoff) {
+			await appendEvent(`${home}/.local/state/router`, {
+				event: "handoff",
+				runId,
+				model: handoff.model,
+				effort: handoff.effort,
+				plan: "claude",
+				kind,
+				dataClass,
+				at: Date.now(),
+			});
+		}
 
 		process.stdout.write(
-			`Claude handoff: ${handoff ? `model=${handoff.model} effort=${handoff.effort}; ` : "no eligible effort; "}caller must launch explicitly on the claude plan; listed availability and policy exclusions still apply.\n`,
+			`Claude handoff: ${handoff ? `model=${handoff.model} effort=${handoff.effort}; ` : "no eligible effort; "}caller must launch explicitly on the claude plan${runId ? ` and put "ROUTED ${runId}" in the subagent prompt` : ""}; listed availability and policy exclusions still apply.\n`,
 		);
 
 		return 5;
