@@ -2305,6 +2305,8 @@ bool FEnvGenLevelBuild::Start(const FString& ManifestPath, const FString& MapPat
 		UE_LOG(LogEnvGen, Error, TEXT("%s"), *Error);
 		return false;
 	}
+	State->StreetscapeReceipt->SetNumberField(TEXT("streetscape_lod0_components"),
+		LockEnvGenStreetscapeTerrainLOD(State->Landscape, State->StreetscapeActors));
 	if (!AddEnvGenAtmosphere(State->World, Manifest.Lighting, State->Packages, Error))
 	{
 		UE_LOG(LogEnvGen, Error, TEXT("%s"), *Error);
