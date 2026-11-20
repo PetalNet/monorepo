@@ -931,6 +931,7 @@ return Texture2DSampleGrad(Scan,ScanSampler,UV+ha,dx,dy).rgb*w.x
 			Input(TEXT("Eye"), Eye);
 			Input(TEXT("Growth"), GrowthAt);
 			Input(TEXT("Along"), Along);
+			Input(TEXT("Random"), Random);
 			Input(TEXT("Time"), Node<UMaterialExpressionTime>(Material, -1100, 1500));
 			const FString Fade = Variety.AppearFullCm > Variety.AppearFromCm
 				? FString::Printf(TEXT("saturate((distance(Here, Eye) - %.3f) / %.3f)"), Variety.AppearFromCm, Variety.AppearFullCm - Variety.AppearFromCm)
@@ -944,7 +945,9 @@ float reach=distance(Root,Eye), sway=0;
   sway=sin(dot(p,float2(0.012,0.009))-Time*2.3)*gust*(1-smoothstep(1200,2200,reach));
 }
 float tip = Along.r*Along.r;
-return (float3(1.6,0.65,0)*sway*tip + float3(0,0,(Here.z-Root.z)*(Growth.b*2-1)+relief))*fade + (Root-Here)*(1-fade);
+float2 lean=2.0*(0.5+Random)*float2(sin(dot(p,float2(0.003,0.005))),cos(dot(p,float2(-0.004,0.002))));
+float stature=clamp(Growth.b*2*lerp(0.75,1.25,Random),0.45,1.8);
+return ((float3((float2(1.6,0.65)*sway+lean)*tip,0) + float3(0,0,(Here.z-Root.z)*(stature-1)+relief))*fade + (Root-Here)*(1-fade))*(1-smoothstep(2200,2500,reach));
 )");
 			UMaterialEditingLibrary::ConnectMaterialProperty(Offset, TEXT(""), MP_WorldPositionOffset);
 		}
@@ -1054,11 +1057,23 @@ return (float3(1.6,0.65,0)*sway*tip + float3(0,0,(Here.z-Root.z)*(Growth.b*2-1)+
 				UMaterialExpressionMultiply* Covered = Node<UMaterialExpressionMultiply>(Material, -300, -1450);
 				Covered->A.Connect(0, Inside);
 				Covered->B.Connect(0, HasPixel);
-				InSurvey = Covered;
+				UMaterialExpression* Influence = Covered;
+				if (OrthoColour)
+				{
+					UMaterialExpressionTextureSample* Edge = Node<UMaterialExpressionTextureSample>(Material, -650, -1550);
+					Edge->Texture = OrthoColour;
+					Edge->SamplerType = SAMPLERTYPE_Color;
+					Edge->Coordinates.Connect(0, SurveyUv);
+					UMaterialExpressionMultiply* Faded = Node<UMaterialExpressionMultiply>(Material, -300, -1550);
+					Faded->A.Connect(0, Covered);
+					Faded->B.Connect(4, Edge);
+					Influence = Faded;
+				}
+				InSurvey = Influence;
 				UMaterialExpressionLinearInterpolate* Replaced = Node<UMaterialExpressionLinearInterpolate>(Material, -450, -1250);
 				Replaced->A.Connect(0, Fine);
 				Replaced->B.Connect(0, SurveyFine);
-				Replaced->Alpha.Connect(0, Covered);
+				Replaced->Alpha.Connect(0, Influence);
 				FineUsed = Replaced;
 			}
 			UMaterialExpressionMultiply* WithFine = Node<UMaterialExpressionMultiply>(Material, -600, 0);
@@ -1161,6 +1176,7 @@ return (float3(1.6,0.65,0)*sway*tip + float3(0,0,(Here.z-Root.z)*(Growth.b*2-1)+
 		UMaterialExpression* GrassPlacement = nullptr;
 		UMaterialExpression* NativeMasks = nullptr;
 		UMaterialExpression* NativeCoverage = nullptr;
+		UMaterialExpression* NativeInfluence = nullptr;
 		UMaterialExpressionTextureSample* NativeColour = nullptr;
 		UMaterialExpressionTextureSample* OriginalWeights = FallbackWeights
 			? Sample(Material, FallbackWeights, Quads, SAMPLERTYPE_LinearColor, 650) : nullptr;
@@ -1199,6 +1215,14 @@ return (float3(1.6,0.65,0)*sway*tip + float3(0,0,(Here.z-Root.z)*(Growth.b*2-1)+
 			Shares.Input.Connect(0, Masks);
 			Coverage->Code = TEXT("return all(UV>=0)&&all(UV<=1) ? saturate(dot(Masks.rgb,float3(1,1,1))) : 0;");
 			NativeCoverage = Coverage;
+			NativeInfluence = Coverage;
+			if (NativeColour)
+			{
+				UMaterialExpressionMin* Faded = Node<UMaterialExpressionMin>(Material, -700, 800);
+				Faded->A.Connect(0, Coverage);
+				Faded->B.Connect(4, NativeColour);
+				NativeInfluence = Faded;
+			}
 		}
 		UMaterialExpressionWorldPosition* GroundPosition = Node<UMaterialExpressionWorldPosition>(Material, -1500, 300);
 		GroundPosition->WorldPositionShaderOffset = WPT_ExcludeAllShaderOffsets;
@@ -1234,9 +1258,16 @@ return (float3(1.6,0.65,0)*sway*tip + float3(0,0,(Here.z-Root.z)*(Growth.b*2-1)+
 			UMaterialExpressionDivide* Structure = Node<UMaterialExpressionDivide>(Material, -300, Y);
 			Structure->A.Connect(0, ScanColour);
 			Structure->B.Connect(0, Mean);
+			UMaterialExpressionCustom* TextureContrast = Node<UMaterialExpressionCustom>(Material, -300, Y + 75);
+			TextureContrast->OutputType = CMOT_Float3;
+			TextureContrast->Inputs.Empty();
+			FCustomInput& ScanPattern = TextureContrast->Inputs.AddDefaulted_GetRef();
+			ScanPattern.InputName = TEXT("Pattern");
+			ScanPattern.Input.Connect(0, Structure);
+			TextureContrast->Code = TEXT("return clamp(1+(Pattern-1)*1.6,0.2,2.0);");
 			UMaterialExpressionLinearInterpolate* DetailAmount = Node<UMaterialExpressionLinearInterpolate>(Material, -250, Y + 50);
 			DetailAmount->ConstA = 1.f;
-			DetailAmount->B.Connect(0, Structure);
+			DetailAmount->B.Connect(0, TextureContrast);
 			DetailAmount->Alpha.Connect(0, DetailShare);
 			UMaterialExpressionMultiply* Albedo = Node<UMaterialExpressionMultiply>(Material, -200, Y);
 			UMaterialExpression* LayerBase = Layer.Name == GrassLayer && GrassBase ? GrassBase : Base;
@@ -1295,7 +1326,7 @@ return (float3(1.6,0.65,0)*sway*tip + float3(0,0,(Here.z-Root.z)*(Growth.b*2-1)+
 				Original->A = false;
 				Replace->A.Connect(0, Original);
 				Replace->B.Connect(0, Share);
-				Replace->Alpha.Connect(0, NativeCoverage);
+				Replace->Alpha.Connect(0, NativeInfluence);
 				SurfaceWeight = Replace;
 			}
 			UMaterialExpressionAdd* Lifted = Node<UMaterialExpressionAdd>(Material, 100, Y);
@@ -1389,12 +1420,14 @@ return (float3(1.6,0.65,0)*sway*tip + float3(0,0,(Here.z-Root.z)*(Growth.b*2-1)+
 				Input.Input.Connect(0, Value);
 			};
 			NormalInput(TEXT("Here"), GroundPosition);
+			NormalInput(TEXT("Eye"), GroundEye);
 			NormalInput(TEXT("ScanNormal"), Normal);
 			NormalInput(TEXT("Grass"), GrassSharp);
 			UnevenNormal->Code = TEXT(R"(
 float a=Here.x*0.027+Here.y*0.013, b=Here.y*0.039-Here.x*0.011;
 float2 slope=0.65*float2(0.027*cos(a)*sin(b)-0.011*sin(a)*cos(b),0.013*cos(a)*sin(b)+0.039*sin(a)*cos(b));
-return normalize(float3(ScanNormal.xy-slope*Grass,ScanNormal.z));
+float close=1-smoothstep(600,1800,distance(Here,Eye));
+return normalize(float3(ScanNormal.xy*lerp(1,1.8,close)-slope*Grass,ScanNormal.z));
 )");
 			UMaterialEditingLibrary::ConnectMaterialProperty(UnevenNormal, TEXT(""), MP_Normal);
 			UMaterialExpressionCustom* Relief = Node<UMaterialExpressionCustom>(Material, 500, 1100);
@@ -2251,6 +2284,7 @@ bool FEnvGenLevelBuild::Start(const FString& ManifestPath, const FString& MapPat
 			Variety.GrassDensity = FPerPlatformFloat(Tuft.DensityPer100M2);
 			Variety.StartCullDistance = FPerPlatformInt(Tuft.StartCullCm);
 			Variety.EndCullDistance = FPerPlatformInt(Tuft.EndCullCm);
+			Variety.InstanceWorldPositionOffsetDisableDistance = 2500;
 			Variety.Scaling = EGrassScaling::Uniform;
 			Variety.ScaleX = FFloatInterval(Tuft.ScaleMin, Tuft.ScaleMax);
 			Variety.bCastDynamicShadow = Tuft.bCastsShadow;

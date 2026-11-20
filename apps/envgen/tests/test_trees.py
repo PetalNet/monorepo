@@ -38,6 +38,16 @@ def test_inspected_crowns_refine_only_matched_height_backed_trees():
     assert records[1]["east_m"] == 30 and records[1]["source"] == "survey"
 
 
+def test_identified_fabric_canopy_is_not_a_tree_despite_positive_height():
+    records = [{"east_m": 5., "north_m": 8., "height_m": 3., "crown_radius_m": 2., "source": "survey"},
+               {"east_m": 30., "north_m": 20., "height_m": 9., "crown_radius_m": 4., "source": "lidar"}]
+    observations = {"features": [{"id": "B1", "feature_type": "temporary_canopy", "confidence": .99,
+                                 "bounds_projected_m": [102, 204, 108, 212]}]}
+    report = trees.refine_crowns(records, observations, (100, 200))
+    assert report["identified_objects_excluded"] == 1
+    assert len(records) == 1 and records[0]["source"] == "lidar"
+
+
 def dome(east, north, radius, top):
     """Returns from a rounded crown: one per square metre, highest in the middle."""
     eastings, northings = np.meshgrid(np.arange(-radius, radius + 1.0), np.arange(-radius, radius + 1.0))

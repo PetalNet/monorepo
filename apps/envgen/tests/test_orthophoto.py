@@ -1,5 +1,8 @@
 """Survey masks retain their footprint, native geometry, and real raster sampling behavior."""
 
+import json
+from dataclasses import replace
+
 import numpy as np
 import pytest
 import rasterio
@@ -7,14 +10,54 @@ from PIL import Image
 from rasterio.enums import ColorInterp
 
 from envgen import frame, orthophoto
-from envgen.build import clean_ortho_colour
-from envgen.site import tile_for_boundary
+from envgen.acquire import sha256_file
+from envgen.build import build_orthophoto, clean_ortho_colour
+from envgen.site import load_site, tile_for_boundary
 
 from . import helpers as h
 
 
 def tile():
     return tile_for_boundary(h.BOUNDARY, h.SIZE_M, 1.0)
+
+
+def test_identified_fabric_cover_stays_hidden_but_is_not_tree_canopy(tmp_path):
+    h.write_dem(tmp_path / "dem.tif")
+    h.write_imagery(tmp_path / "imagery.tif", split_easting=h.WEST)
+    rgba = np.full((4, 504, 504), 255, dtype=np.uint8)
+    rgba[:3] = np.array([65, 120, 40])[:, None, None]
+    rgba[:3, 360:408, 96:144] = np.array([40, 110, 220])[:, None, None]
+    h.write_raster(tmp_path / "ortho.tif", rgba, tile().west, tile().north, .25)
+    ground = np.full((126, 126), 100, dtype=np.float32)
+    dsm = ground.copy()
+    dsm[90:102, 24:36] += 3  # Fabric cover over ground.
+    dsm[50:62, 64:76] += 8  # An unannotated height-backed crown remains.
+    for name, data in (("dtm", ground), ("dsm", dsm)):
+        h.write_raster(tmp_path / f"{name}.tif", data, tile().west, tile().north, 1)
+    evidence = {"schema_version": 1, "source": {"sha256": sha256_file(tmp_path / "ortho.tif"), "crs": h.CRS},
+                "features": [{"id": "B1", "feature_type": "temporary_canopy", "confidence": .99,
+                              "bounds_projected_m": [h.WEST+24, h.SOUTH+24, h.WEST+36, h.SOUTH+36]}]}
+    (tmp_path / "observations.json").write_text(json.dumps(evidence))
+    path = h.write_site(tmp_path)
+    spec = json.loads(path.read_text())
+    spec["sources"]["survey"] = {"kind": "file", "path": "dsm.tif", "terrain": "dtm.tif",
+                                 "orthophoto": "ortho.tif", "observations": "observations.json",
+                                 "license": "test", "date": "2030"}
+    path.write_text(json.dumps(spec))
+    site = load_site(path)
+    for name, survey in (("known", site.survey), ("unknown", replace(site.survey, observations=None))):
+        out = tmp_path / name
+        out.mkdir()
+        build_orthophoto(replace(site, survey=survey), tmp_path / "imagery.tif", out, None, None)
+    with rasterio.open(tmp_path / "known" / "ortho_masks.tif") as src:
+        known = src.read()
+    with rasterio.open(tmp_path / "unknown" / "ortho_masks.tif") as src:
+        unknown = src.read()
+    assert unknown[3, 384, 120] == 255
+    assert known[3, 384, 120] == 0 and known[0, 384, 120] == 255
+    assert known[3, 224, 280] == 255
+    with rasterio.open(tmp_path / "known" / "ortho_colour.tif") as src:
+        assert src.read()[:3, 384, 120] == pytest.approx([65, 120, 40], abs=2)
 
 
 def write_survey(tmp_path, pixel=0.25):
@@ -55,6 +98,52 @@ def test_native_masks_fit_classes_preserve_alpha_and_png_layout(tmp_path):
     assert np.array_equal(png, frame.to_unreal_layout(np.moveaxis(encoded, 0, -1)))
     assert report["classification"]["splits"][0]["split"]
     assert report["classification"]["splits"][1]["split"]
+
+
+def test_survey_boundary_fades_influence_without_erasing_native_evidence(tmp_path):
+    path, data = write_survey(tmp_path)
+    report = run_survey(tmp_path, path)
+    with rasterio.open(tmp_path / report["raster"]) as source:
+        assert np.array_equal(source.read()[:3].astype(int).sum(axis=0), data[3])
+    with rasterio.open(tmp_path / report["colour_raster"]) as source:
+        alpha = source.read(4)
+    assert alpha[200, 0] < 5
+    assert alpha[200, 80] == 255
+    assert np.all(alpha <= data[3])
+    effective = orthophoto.sample(tmp_path / report["raster"], tile(), h.CRS, 127,
+                                  tmp_path / report["colour_raster"])
+    fallback = np.ones((1, 127, 127), dtype=np.float32)
+    combined, _ = orthophoto.blend(fallback, ["soil"], effective)
+    assert combined[0, 60, 1] < .05
+    assert combined[0, 60, 20] > .99
+    assert combined[2, 60, 1] > .95
+    assert np.allclose(combined.sum(axis=0), 1)
+
+
+def test_feather_retains_a_gap_narrower_than_the_colour_grid(tmp_path):
+    path, data = write_survey(tmp_path, pixel=.1)
+    data[3, 480:780, 630] = 0
+    h.write_raster(path, data, tile().west, tile().north, .1)
+    report = run_survey(tmp_path, path)
+    with rasterio.open(tmp_path / report["raster"]) as source:
+        assert source.read()[:3, 630, 630].sum() == 0
+    with rasterio.open(tmp_path / report["colour_raster"]) as source:
+        alpha = source.read(4)
+    assert alpha[252, 252] == 0
+    assert alpha[252, 256] <= 6  # One metre from the gap is still near the start of the 12 m fade.
+    assert alpha[252, 310] == 255
+
+
+def test_feather_uses_physical_distance_with_unequal_pixel_dimensions(tmp_path):
+    path, _ = write_survey(tmp_path)
+    with rasterio.open(path, "r+") as source:
+        source.transform = rasterio.Affine(.25, 0, tile().west, 0, -.5, tile().north)
+    report = run_survey(tmp_path, path)
+    with rasterio.open(tmp_path / report["colour_raster"]) as source:
+        alpha = source.read(4)
+    assert alpha[24, 250] == 255  # More than 12 m from the north edge.
+    assert alpha[250, 48] == 255  # More than 12 m from the west edge.
+    assert report["colour_pixel_size_m"] == [.25, .5]
 
 
 def test_real_reprojection_blends_only_inside_alpha_coverage(tmp_path):

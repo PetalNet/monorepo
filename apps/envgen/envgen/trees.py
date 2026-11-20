@@ -260,6 +260,14 @@ def refine_crowns(records: list[dict], observations: dict, centre: tuple[float, 
     Image bounds do not locate trunks or measure heights. Only existing height-backed trees can match;
     rows, overlapping groups and low-confidence candidates leave the height inventory untouched.
     """
+    from .observations import non_tree_features
+
+    objects = non_tree_features(observations)
+    before = len(records)
+    records[:] = [tree for tree in records if not any(
+        feature["bounds_projected_m"][0] <= tree["east_m"] + centre[0] <= feature["bounds_projected_m"][2]
+        and feature["bounds_projected_m"][1] <= tree["north_m"] + centre[1] <= feature["bounds_projected_m"][3]
+        for feature in objects)]
     matched, used = [], set()
     for feature in observations["features"]:
         if feature["feature_type"] != "individual_tree_crown" or feature["confidence"] < 0.8:
@@ -278,5 +286,6 @@ def refine_crowns(records: list[dict], observations: dict, centre: tuple[float, 
         matched.append({"observation": feature["id"], "shift_m": math.hypot(tree["east_m"]-x, tree["north_m"]-y),
                         "old_radius_m": tree["crown_radius_m"], "radius_m": radius})
         tree.update(east_m=x, north_m=y, crown_radius_m=radius, source=tree["source"] + "+orthophoto")
-    return {"matched": matched, "source": "individually inspected crown envelopes; heights retained from height data",
+    return {"matched": matched, "identified_objects_excluded": before - len(records),
+            "source": "individually inspected crown envelopes; heights retained from height data",
             "prior": "a crown-envelope centre approximates the tree position; it is not a surveyed trunk"}

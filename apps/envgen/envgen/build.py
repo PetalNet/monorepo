@@ -48,7 +48,7 @@ from .site import (
 
 # Part of every stage key. Bump it by hand when a code change alters a stage's output for the same
 # inputs (frame.py and the resampling included); nothing detects that automatically.
-PIPELINE_VERSION = 19
+PIPELINE_VERSION = 20
 
 MACRO_PIXELS = 1024
 # The fine detail: pixels across the tile (about half a metre, the imagery's own resolution) and the largest
@@ -635,7 +635,7 @@ def build_surface(
         weights, expanded = orthophoto.blend(
             np.asarray(weights, dtype=np.float32) / 255,
             names,
-            orthophoto.sample(out / ortho["raster"], tile, site.crs, tile.vertices),
+            orthophoto.sample(out / ortho["raster"], tile, site.crs, tile.vertices, out / ortho["colour_raster"]),
         )
         labels = np.array([expanded.index(name) for name in names], dtype=np.uint8)[labels]
         names = expanded
@@ -752,6 +752,17 @@ def build_orthophoto(site: Site, imagery: Path, out: Path, covering: dict | None
                 )
                 height = np.where(region, np.maximum(height, older), height)
     shown = height < orthophoto.SETTINGS["canopy_min_m"]
+    if evidence:
+        from .observations import non_tree_features
+
+        east = tile.west + np.arange(tile.vertices) * tile.quad_m
+        north = tile.north - np.arange(tile.vertices) * tile.quad_m
+        for feature in non_tree_features(evidence):
+            west, south, right, top = feature["bounds_projected_m"]
+            region = ((east[None] >= west) & (east[None] <= right)
+                      & (north[:, None] >= south) & (north[:, None] <= top))
+            shown &= ~region
+            height = np.where(region, 0, height)
     if roofs is not None:
         roof_cells = _sample_cells(roofs, tile.vertices)
         labels = buildings.label_under(labels, roof_cells)
@@ -1064,7 +1075,8 @@ def build_growth(
     grass = _sample_cells(read_weights(out, layers)[[layer["name"] for layer in layers].index("grass")], pixels)
     if ortho and "raster" in ortho:
         fallback = np.asarray(Image.open(out / fallback_weights)).swapaxes(0, 1)[::-1, :, 0].astype(np.float32) / 255
-        native = orthophoto.sample(out / ortho["raster"], site.tile, site.crs, pixels)
+        native = orthophoto.sample(out / ortho["raster"], site.tile, site.crs, pixels,
+                                  out / ortho["colour_raster"])
         coverage = np.clip(native[:3].sum(axis=0), 0, 1)
         grass = native[0] + _sample_cells(fallback, pixels) * (1 - coverage)
     encoded = np.asarray(Image.open(out / detail["file"])).swapaxes(0, 1)[::-1]
