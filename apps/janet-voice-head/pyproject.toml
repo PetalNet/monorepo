@@ -1,7 +1,7 @@
 [project]
 name = "janet-voice-head"
 version = "0.1.0"
-description = "Talk-only voice head for a Claude Code session: fork at wake, soft merge, one hard merge"
+description = "Voice head for a Claude Code session: fork at wake, read-only owner tools, soft and hard merge"
 requires-python = ">=3.12"
 dependencies = []
 

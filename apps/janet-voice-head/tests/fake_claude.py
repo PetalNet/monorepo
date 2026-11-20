@@ -1,6 +1,7 @@
 import json
 import os
 import queue
+import subprocess
 import sys
 import threading
 import time
@@ -25,9 +26,12 @@ def log(entry: dict) -> None:
 
 def init() -> None:
     tools = argv[argv.index("--tools") + 1].split(",") if "--tools" in argv and argv[argv.index("--tools") + 1] else []
+    servers = json.loads(argv[argv.index("--mcp-config") + 1])["mcpServers"] if "--mcp-config" in argv else {}
+    if "janet_lab" in servers:
+        tools += ["mcp__janet_lab__" + name for name in ("builders", "objectives", "health", "pull_requests")]
     if "--fake-leak-tools" in argv or ("--permission-mode" in argv and not tools):
         tools = [*tools, "Bash"]
-    out({"type": "system", "subtype": "init", "session_id": SESSION, "mcp_servers": [], "tools": tools})
+    out({"type": "system", "subtype": "init", "session_id": SESSION, "mcp_servers": [{"name": name} for name in servers], "tools": tools})
 
 
 def reply_to(prompt: str) -> str:
@@ -39,6 +43,19 @@ def reply_to(prompt: str) -> str:
         return "ready"
     if "conversation is over" in prompt:
         return "They talked about test things."
+    if "what builders are running?" in said:
+        servers = json.loads(argv[argv.index("--mcp-config") + 1])["mcpServers"] if "--mcp-config" in argv else {}
+        if "janet_lab" not in servers:
+            return "I cannot check the lab on this call."
+        server = servers["janet_lab"]
+        out({"type": "stream_event", "event": {"type": "content_block_delta", "delta": {"type": "text_delta", "text": "Let me check."}}})
+        out({"type": "stream_event", "event": {"type": "content_block_start", "content_block": {"type": "tool_use", "name": "mcp__janet_lab__builders"}}})
+        request = {"jsonrpc": "2.0", "id": 1, "method": "tools/call", "params": {"name": "builders", "arguments": {}}}
+        proc = subprocess.run([server["command"], *server["args"]], input=json.dumps(request) + "\n", capture_output=True, text=True, timeout=5, check=True)
+        result = json.loads(proc.stdout)["result"]
+        text = result["content"][0]["text"]
+        log({"lab_result": text, "lab_error": result["isError"]})
+        return "The running builders are: " + text.replace("\n", "; ") + "."
     if "silentcase" in said:
         return "[silent]"
     if "fillercase" in said:

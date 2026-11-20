@@ -40,6 +40,7 @@ class Conversation:
     tier: str
     client_ref: str | None
     opened_at: float
+    lab_access: bool = False
     parent_session: str | None = None
     session_id: str | None = None
     fork_point: TranscriptMark | None = None
@@ -62,7 +63,7 @@ def apply(conv: Conversation | None, record: dict) -> Conversation:
     if kind == "opened":
         return Conversation(id=record["id"], channel=record["channel"], tier=record["tier"],
                             client_ref=record.get("client_ref"), opened_at=record["at"],
-                            parent_session=record.get("parent_session"))
+                            parent_session=record.get("parent_session"), lab_access=record.get("lab_access", False))
     assert conv is not None, "a journal starts with its opened record"
     if kind == "session":
         conv.session_id, conv.fork_point, conv.transcript = record["session_id"], _mark(record.get("fork_point")), record.get("transcript")

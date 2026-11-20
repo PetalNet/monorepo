@@ -118,6 +118,7 @@ class SignInTest(unittest.TestCase):
         self.assertEqual(sorted(json.loads(body)), ["cf_id", "cf_secret", "token"])
         self.assertEqual((json.loads(body)["cf_id"], json.loads(body)["cf_secret"]), ("id.access", "s3cret"))
         self.assertEqual(self.devices.name_of(json.loads(body)["token"]), "Galaxy S23")
+        self.assertEqual(self.devices.owner_of(json.loads(body)["token"]), "parker")
         self.assertEqual(self.announced, [("Galaxy S23", "parker")])
         self.assertEqual(FakeSso.seen[0]["redirect_uri"], "janetcall://signin")
         status, body, _ = self._http("POST", "/v1/call/pair/signin", signed_in)
@@ -183,3 +184,15 @@ class SignInTest(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class OwnerIdentityTest(unittest.TestCase):
+    def test_links_and_old_records_are_not_verified_identities(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            devices = pairing.Devices(Path(tmp) / "devices.json")
+            shared_link = devices.add("Guest with Parker's link", "parker")
+            self.assertIsNone(devices.owner_of(shared_link))
+            owner = devices.add("Parker's signed-in phone", "parker", identity_verified=True)
+            self.assertEqual(devices.owner_of(owner), "parker")
+            devices.revoke(hashlib.sha256(owner.encode()).hexdigest()[:12])
+            self.assertIsNone(devices.owner_of(owner))

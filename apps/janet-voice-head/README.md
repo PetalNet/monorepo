@@ -5,7 +5,7 @@ Code session ("main") informed of what was said. A client (the desk client, late
 phone line) sends text it transcribed and speaks the sentences it gets back. The design
 is in [docs/janet-voice/SPEC.md](../../docs/janet-voice/SPEC.md), §9 and §10.
 
-One conversation is one talk-only Claude Code process:
+One conversation is one voice Claude Code process:
 
 - **Fork at wake.** `POST /v1/conversations` starts `claude --resume <main> --fork-session`
   the moment the wake word fires. The process loads main's transcript, so the head knows
@@ -37,9 +37,9 @@ One conversation is one talk-only Claude Code process:
   `splice skipped: <why>` when main's request is older than the cache lifetime, belongs to another session, the first
   message does not correspond, or the tail would answer a tool call the prefix does not hold. Measured on a 160k-token
   fork, first call: 14,303 read and 162,156 written without it, 176,459 read and 0 written with it.
-- **Talk only.** The process runs with no tools, no MCP servers, no settings, and an
+- **Tool boundary.** By default the process runs with no tools, no MCP servers, no settings, and an
   allowlisted environment. The head reads the session's own report of its tools and never
-  uses a session that reports any. The one exception is `web_tools` (config, default empty): a
+  uses a session that reports any. One exception is `web_tools` (config, default empty): a
   `personal` head is then launched with exactly `WebSearch`/`WebFetch` (`--tools`, `--permission-mode dontAsk`,
   a `--settings` allow list; MCP and setting sources stay off) and the check becomes an allowlist: it accepts
   those tools and kills a session that reports any other. Guests never get them. In `main_like_fork` mode the same settings are merged into the `--settings` file in `main_like_args` (Claude reads only the last `--settings`): the blanket deny of those tools is lifted, the allow rule, named-domain denies and hook are added. WebFetch is refused for
@@ -48,7 +48,8 @@ One conversation is one talk-only Claude Code process:
   `web_guard.py` runs as a PreToolUse hook that resolves the host and checks every address. Known gap: the
   hook and the fetch resolve the name separately, so a DNS-rebinding page can still reach a private address; close it
   with egress rules on the unit if that matters. A search query or URL can also carry text out of the fork's context;
-  only the prompt forbids it.
+  only the prompt forbids it. A verified Parker call can also receive the fixed lab MCP allowlist
+  described under "Read-only lab access on Parker's phone" below. It requires a separate credential and a lean fork.
 - **Soft merge.** The model ends a reply with a `<relay>` block when the speaker asked for
   something to be done. The head strips the block from speech and injects the ask into
   main at once, so main acts during the call.
@@ -173,3 +174,44 @@ server between the hub's accept and the journal write. Run them from this direct
 ```sh
 python -m unittest discover -s tests -t .
 ```
+
+## Read-only lab access on Parker's phone
+
+Set `lab_token_file` to a local private credential file. The head creates it mode 600 if absent.
+The ordinary bearer still authenticates the voice transport. A personal fork additionally requires
+`X-Janet-Lab-Token` to match this separate credential; without it, a personal request becomes a
+fresh guest session. An incorrect supplied credential returns 403. The credential is required on
+turn, interrupt and end requests for that conversation, and client references cannot cross tiers.
+With `lab_token_file` unset, existing tier behavior is retained and no lab tools are enabled.
+
+The phone bridge holds a copy of this credential and sends it only for a device enrolled through
+Parker's direct SSO sign-in (`identity_verified` and `paired_by == lab_owner`), on a personal line.
+Shared pairing links and older enrollments do not establish the recipient's identity. Re-sign in
+from the app after upgrading. A guest line stays guest even for Parker. Phones cannot forward an
+identity header of their own. Desk headphone selection is not speaker verification, so desk/Mac
+clients without this credential remain guests when the lab gate is enabled.
+
+The MCP allowlist is `builders`, `objectives`, `health`, and `pull_requests`, under `janet_lab`.
+Every tool takes an empty object; commands, paths, repository names and shell text are not inputs.
+Builders return only unit names and states, never descriptions, logs or task prompts. Objectives
+use the existing `~/.local/state/objectives-index-pkg/bin/sessionstart-objectives` command
+and return only its bounded index entries, with no hook instructions or background-output paths.
+The ledger is opened without following symlinks and passed as stdin, so pathname replacement cannot change the approved source. Health uses `uptime`, `free -m`,
+and `df -h /`; it does not invoke the health watcher, which writes state and can send alerts.
+PRs use fixed `gh pr list --repo` commands for `PetalNet/monorepo` and `PetalNet/janet-nix`; the
+host needs existing GitHub CLI authentication, otherwise this lookup reports unavailable.
+Messages, recall, calendar, arbitrary files, secret tools and write commands are not exposed.
+
+Each lookup has a three-second total command deadline and a 12 KB per-source output limit.
+The lean fork loads only this stdio MCP server and its configured public web tools, with no shell,
+file editing tools, inherited MCP configuration or main plugins. Lab access refuses main-like
+fork mode. Tool startup is checked against the same allowlist before any answer is spoken.
+The head flushes the short spoken filler when the model starts a tool call. Writes continue
+through the existing relay to main Janet.
+
+Python extends the existing voice runtime without a new service framework or dependency.
+Run the suites with the phone's existing websockets, numpy and qrcode dependencies available.
+The opt-in `tests/prove_lab_call.py --output <directory> --tts <host:port>` runs real Claude,
+the live systemctl tool, HTTP gateway, device admission, phone reply and Wyoming synthesis.
+It scripts the STT text and uses an isolated parent session, registry and hub; it does not inject
+into main or send notifications. It writes Parker/guest WAVs and a JSON proof transcript.

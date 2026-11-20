@@ -65,12 +65,16 @@ class Devices:
         device = self._load().get(hashlib.sha256(token.encode()).hexdigest())
         return None if device is None else device["name"]
 
-    def add(self, name: str, by: str) -> str:
+    def owner_of(self, token: str) -> str | None:
+        device = self._load().get(hashlib.sha256(token.encode()).hexdigest()) if token else None
+        return device.get("paired_by") if device and device.get("identity_verified") is True else None
+
+    def add(self, name: str, by: str, *, identity_verified: bool = False) -> str:
         token = secrets.token_urlsafe(32)
         with self._locked():
             devices = self._load()
             devices[hashlib.sha256(token.encode()).hexdigest()] = {
-                "name": " ".join(name.split())[:80] or "phone", "paired_by": by,
+                "name": " ".join(name.split())[:80] or "phone", "paired_by": by, "identity_verified": identity_verified,
                 "paired": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())}
             self._save(devices)
         return token
@@ -375,7 +379,7 @@ def serve(listen: str, devices: Devices, codes: Codes, *, url: str, access_file:
                     if by not in users:
                         log.info("sign-in refused: the account may not pair a phone")
                         return self._send(HTTPStatus.FORBIDDEN, '{"error": "this account may not pair a phone"}')
-                token = devices.add(str(body.get("name", "")), by)
+                token = devices.add(str(body.get("name", "")), by, identity_verified=path == SIGNIN_PATH)
                 # The id only: the device's name and who paired it are in the registry, not the log.
                 log.info("paired device %s", hashlib.sha256(token.encode()).hexdigest()[:12])
                 if on_paired is not None:

@@ -8,18 +8,21 @@ import time
 from collections.abc import Iterator
 from pathlib import Path
 
-from . import web_guard
+from . import web_guard, lab_tools
 
 # Main's hermes-link plugin re-points the hub at whichever session loads it, so a head must load nothing of main's.
-def locked_flags(web_tools: tuple[str, ...] = ()) -> list[str]:
-    """No MCP and no setting sources ever; the built-in tools are exactly `web_tools`, which only a personal head is given."""
+def locked_flags(web_tools: tuple[str, ...] = (), lab: bool = False) -> list[str]:
+    """Only selected web tools and, for a verified owner, the fixed lab MCP server."""
     flags = [
         "-p", "--input-format", "stream-json", "--output-format", "stream-json", "--verbose",
         "--include-partial-messages", "--tools", ",".join(web_tools), "--strict-mcp-config",
-        "--mcp-config", '{"mcpServers":{}}', "--setting-sources", "",
+        "--mcp-config", json.dumps(lab_tools.mcp_config(), separators=(",", ":")) if lab else '{"mcpServers":{}}', "--setting-sources", "",
     ]
-    if web_tools:
-        flags += ["--settings", json.dumps(web_guard.settings(web_tools)), "--permission-mode", "dontAsk"]
+    if web_tools or lab:
+        allowed = (*web_tools, *(lab_tools.NAMES if lab else ()))
+        settings = web_guard.settings(web_tools)
+        settings["permissions"]["allow"] = sorted(allowed)
+        flags += ["--settings", json.dumps(settings), "--permission-mode", "dontAsk"]
     return flags
 
 
@@ -43,13 +46,14 @@ def session_env(environ=os.environ) -> dict[str, str]:
 
 class ClaudeSession:
     def __init__(self, argv: list[str], cwd: str, env: dict[str, str] | None = None, allow_tools: bool = False,
-                 web_tools: tuple[str, ...] = ()):
+                 web_tools: tuple[str, ...] = (), lab: bool = False):
         self.session_id: str | None = None
         self.account_email: str | None = None
         self.failure: str | None = None
         self._verified = False
         self._allow_tools = allow_tools
-        self._web_tools = frozenset(web_tools)
+        self._web_tools = frozenset((*web_tools, *(lab_tools.NAMES if lab else ())))
+        self._lab = lab
         self._initialized = False
         self._ready = threading.Event()
         self._events: queue.Queue = queue.Queue()
@@ -133,7 +137,7 @@ class ClaudeSession:
                 self.account_email = (response.get("account") or {}).get("email")
                 self._initialized = True
         elif kind == "system" and event.get("subtype") == "init":
-            if not self._allow_tools and (event.get("mcp_servers") or not self._web_tools.issuperset(event.get("tools") or ())):
+            if not self._allow_tools and (any(server.get("name") != lab_tools.SERVER or not self._lab for server in (event.get("mcp_servers") or ())) or not self._web_tools.issuperset(event.get("tools") or ())):
                 return self._fail("the session came up with tools or MCP servers")
             self.session_id, self._verified = event.get("session_id"), True
         elif kind == "system" and event.get("subtype") == "status" and event.get("status") == "requesting":
