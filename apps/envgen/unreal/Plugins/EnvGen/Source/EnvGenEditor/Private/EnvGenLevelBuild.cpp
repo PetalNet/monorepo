@@ -1419,7 +1419,7 @@ return float4(dx,dy);
 					Input.Input.Connect(0, Pair.Value);
 				}
 				// Recolouring into the measured material space must not turn survey hue into extra brightness detail.
-				Pattern->Code = TEXT("float3 luma=float3(0.2126,0.7152,0.0722); float3 tinted=Base*Photo/Mean; float target=saturate(dot(Base,luma)*dot(Photo,luma)/max(dot(Mean,luma),1e-4)); float3 colour=tinted*target/max(dot(tinted,luma),1e-4); float chroma=saturate((1-target)/max(max(colour.r,max(colour.g,colour.b))-target,1e-4)); return target+(colour-target)*chroma;");
+				Pattern->Code = TEXT("float3 luma=float3(0.2126,0.7152,0.0722); float3 tinted=Base*Photo/Mean; float target=saturate(dot(Base,luma)*dot(Photo,luma)/max(dot(Mean,luma),1e-4)); float energy=dot(tinted,luma); float3 colour=target+(tinted-energy)*(target/max(energy,1e-4)); float chroma=saturate((1-target)/max(max(colour.r,max(colour.g,colour.b))-target,1e-4)); return target+(colour-target)*chroma;");
 				UMaterialExpressionMin* Covered = Node<UMaterialExpressionMin>(Material, -450, Y - 400);
 				Covered->A.Connect(0, NativeCoverage);
 				Covered->B.Connect(4, NativeColour);
