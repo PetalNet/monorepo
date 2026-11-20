@@ -1407,20 +1407,27 @@ return float4(dx,dy);
 			{
 				UMaterialExpressionConstant3Vector* PhotoMean = Node<UMaterialExpressionConstant3Vector>(Material, -600, Y - 300);
 				PhotoMean->Constant = *Layer.OrthoMean;
-				UMaterialExpressionDivide* Pattern = Node<UMaterialExpressionDivide>(Material, -450, Y - 300);
-				Pattern->A.Connect(0, NativeColour);
-				Pattern->B.Connect(0, PhotoMean);
+				UMaterialExpressionCustom* Pattern = Node<UMaterialExpressionCustom>(Material, -450, Y - 300);
+				Pattern->OutputType = CMOT_Float3;
+				Pattern->Inputs.Empty();
+				for (const auto& Pair : {TPair<const TCHAR*, UMaterialExpression*>(TEXT("Base"), LayerBase),
+					TPair<const TCHAR*, UMaterialExpression*>(TEXT("Photo"), NativeColour),
+					TPair<const TCHAR*, UMaterialExpression*>(TEXT("Mean"), PhotoMean)})
+				{
+					FCustomInput& Input = Pattern->Inputs.AddDefaulted_GetRef();
+					Input.InputName = Pair.Key;
+					Input.Input.Connect(0, Pair.Value);
+				}
+				// Recolouring into the measured material space must not turn survey hue into extra brightness detail.
+				Pattern->Code = TEXT("float3 luma=float3(0.2126,0.7152,0.0722); float3 tinted=Base*Photo/Mean; float target=dot(Base,luma)*dot(Photo,luma)/max(dot(Mean,luma),1e-4); return tinted*target/max(dot(tinted,luma),1e-4);");
 				UMaterialExpressionMin* Covered = Node<UMaterialExpressionMin>(Material, -450, Y - 400);
 				Covered->A.Connect(0, NativeCoverage);
 				Covered->B.Connect(4, NativeColour);
 				UMaterialExpressionLinearInterpolate* Applied = Node<UMaterialExpressionLinearInterpolate>(Material, -300, Y - 300);
-				Applied->ConstA = 1.f;
+				Applied->A.Connect(0, LayerBase);
 				Applied->B.Connect(0, Pattern);
 				Applied->Alpha.Connect(0, Covered);
-				UMaterialExpressionMultiply* WithPattern = Node<UMaterialExpressionMultiply>(Material, -150, Y - 300);
-				WithPattern->A.Connect(0, LayerBase);
-				WithPattern->B.Connect(0, Applied);
-				LayerBase = WithPattern;
+				LayerBase = Applied;
 			}
 			Albedo->A.Connect(0, LayerBase);
 			Albedo->B.Connect(0, DetailAmount);

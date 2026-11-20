@@ -210,6 +210,18 @@ def test_survey_preserves_fine_hue_without_duplicating_luminance_detail():
     assert surface.luminous(result) == pytest.approx(surface.luminous(linear), abs=1e-4)
 
 
+def test_survey_gamut_mapping_keeps_saturated_colour_at_macro_luminance():
+    rgb = np.full((3, 128, 128), 160, dtype=np.float32)
+    rgb[:, 56:72, 56:72] = np.array([255, 0, 0])[:, None, None]
+    colour, _ = clean_ortho_colour(rgb, np.ones((128, 128), dtype=bool), np.ones((128, 128)), 0.25)
+    pixel = surface.to_linear(colour[:, 64, 64])
+
+    assert pixel[0] > pixel[1] * 2
+    assert pixel[1] == pytest.approx(pixel[2])
+    assert pixel.max() <= 1
+    assert surface.luminous(pixel) == pytest.approx(surface.luminous(surface.to_linear(colour[:, 0, 0])), abs=.01)
+
+
 def test_capped_pooled_grids_and_chunk_halos_match_native_classification(tmp_path, monkeypatch):
     path, _ = write_survey(tmp_path)
     large = tmp_path / "large"
