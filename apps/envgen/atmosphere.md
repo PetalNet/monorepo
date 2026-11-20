@@ -12,7 +12,7 @@ The following are presentation priors, not measurements of the site:
 | --- | --- | --- |
 | Solar angular diameter | 0.5357 degrees | Earth daylight penumbra rather than a point light |
 | Contact shadows | 0.02 of screen width | Small contact detail without long screen-space shadows |
-| Mie scattering scale | 1.2 | Mild aerosol haze beyond the site |
+| Mie scattering coefficient | 1.2 times the engine default | Mild aerosol haze beyond the site; the component property is a coefficient, not a unitless scale |
 | Aerial perspective scale | 1 | Physical distance rather than an artistic multiplier |
 | Cloud base / depth / trace distance | 1.8 / 2 / 30 km | Fair-weather low cloud layer; weather is unknown |
 | Cloud material | Engine `m_SimpleVolumetricCloud_Inst` | Ships with Unreal; no separately licensed content |
@@ -37,5 +37,7 @@ Fixed walk, fly and overview tours retain their original 90 degree horizontal fi
 SkyAtmosphere contributes the fog colour through `r.SupportSkyAtmosphereAffectsHeightFog`; the fog's independent colour terms are black to avoid adding a second tint. A movable real-time skylight captures atmosphere and clouds for diffuse lighting. Lumen GI, reflections and virtual shadow maps remain enabled. The parallel ground branch adds two-sided foliage shading and subsurface colour to grass; imported tree leaf materials retain their own authored translucency. The ground builder owns those materials.
 
 The manifest's sun illuminance has already passed through a clear-sky model. `GetAtmosphericLightToMatchIlluminanceOnGround` converts it to the outer-space illuminance the engine expects, using the atmosphere's own transmittance. This prevents a second attenuation. Film grain uses the engine's 128-pixel grain texture explicitly, avoiding a missing default texture proxy on 5.8.4.
+
+The light actor's rotation is set after spawning: its default root rotation otherwise combines with the requested spawn transform. Generation checks the outgoing light direction against the manifest and logs the Mie coefficient and ground/outer-space lux for inspection.
 
 Engine references: [Sky Atmosphere](https://dev.epicgames.com/documentation/en-us/unreal-engine/sky-atmosphere-component-in-unreal-engine), [volumetric cloud properties](https://dev.epicgames.com/documentation/en-us/unreal-engine/volumetric-cloud-component-properties-in-unreal-engine), [physical lighting units](https://dev.epicgames.com/documentation/en-us/unreal-engine/using-physical-lighting-units-in-unreal-engine). The implementation was checked against the installed 5.8.4 headers; current web documentation may describe a newer release.
