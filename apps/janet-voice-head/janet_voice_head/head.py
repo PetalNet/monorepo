@@ -212,9 +212,11 @@ class Head:
         started = time.monotonic()
         latency: dict[str, int | None] = {"first_token": None, "first_sentence": None, "total": None}
         client_connected = True
+        said: list[str] = []
 
         def say(sentence: str) -> None:
             nonlocal client_connected
+            said.append(sentence)
             with emit_lock:
                 spoken.set()
                 if latency["first_sentence"] is None:
@@ -236,9 +238,12 @@ class Head:
             if live.early_cut is not None:
                 pass  # the speaker cut in while this turn was still waiting: nothing is asked of the model
             else:
+                pending_speech: list[str] = []
                 try:
                     session.wait_ready(self.config.ready_timeout_s)
-                    session.call_control.begin_turn()
+                    closing_answer = session.call_control.begin_turn()
+                    # Hold a closing answer until the model decides whether to end: only the tool's goodbye is spoken then.
+                    speak = pending_speech.append if closing_answer else say
                     latency["spawn_wait"] = _ms(started)
                     fork = live.conv.tier == "personal"
                     stream = SpeechStream(redact=None if fork else session.account_email)
@@ -246,9 +251,9 @@ class Head:
                         if latency["first_token"] is None:
                             latency["first_token"] = _ms(started)
                         for sentence in stream.feed(delta):
-                            say(sentence)
+                            speak(sentence)
                     for sentence in stream.finish():
-                        say(sentence)
+                        speak(sentence)
                     live.answered = True
                 except SessionError as error:
                     log.warning("conversation %s: %s", conv_id, error)
@@ -256,10 +261,12 @@ class Head:
                 with live.lock:
                     question, hangup = session.call_control.finish_turn(
                         not end and client_connected and live.cut_off is None and not live.ending.is_set())
+                    if not hangup and live.cut_off is None:
+                        for sentence in pending_speech:
+                            say(sentence)
                     if question or hangup:
                         closing = call_tools.QUESTION if question else call_tools.GOODBYE
                         say(closing)
-                        stream.text += " " + closing
                         end = hangup and client_connected and live.cut_off is None
                 relay = stream.relay
                 if latency["first_sentence"] is None and live.cut_off is None:
@@ -269,7 +276,7 @@ class Head:
                     elif relay:
                         say(RELAYED)
                 with live.lock:
-                    live.record(kind="exchange", n=number, heard=text, said=stream.spoken, asks=relay.asks, commitments=relay.commitments)
+                    live.record(kind="exchange", n=number, heard=text, said=" ".join(said), asks=relay.asks, commitments=relay.commitments)
                     if live.cut_off is not None:
                         live.record(kind="interrupted", n=number, heard_text=live.cut_off)
                     live.in_turn = False
