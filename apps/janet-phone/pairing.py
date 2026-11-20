@@ -67,35 +67,63 @@ class Devices:
         if not token:
             return None
         device = self._load().get(device_hash(token))
-        return None if device is None else device["name"]
+        return None if device is None or device.get("revoked_at") else device["name"]
 
-    def add(self, name: str, by: str) -> str:
+    def owner_of(self, token: str) -> str | None:
+        device = self._load().get(hashlib.sha256(token.encode()).hexdigest()) if token else None
+        return device.get("paired_by") if device and not device.get("revoked_at") and device.get("identity_verified") is True else None
+
+    def add(self, name: str, by: str, *, identity_verified: bool = False) -> str:
         token = secrets.token_urlsafe(32)
         with self._locked():
             devices = self._load()
             devices[device_hash(token)] = {
-                "name": " ".join(name.split())[:80] or "phone", "paired_by": by,
+                "name": " ".join(name.split())[:80] or "phone", "paired_by": by, "identity_verified": identity_verified,
                 "paired": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())}
             self._save(devices)
         return token
 
     def revoke(self, prefix: str) -> str | None:
-        """Removes the one device whose id starts with the prefix and returns its name. Removes
-        nothing when the prefix matches no device or more than one."""
+        """Revokes one matching device, retaining inactive records that have owner grant history."""
         with self._locked():
             devices = self._load()
-            matches = [key for key in devices if prefix and key.startswith(prefix)]
+            matches = [key for key, device in devices.items() if prefix and key.startswith(prefix) and not device.get("revoked_at")]
             if len(matches) != 1:
                 return None
-            name = devices.pop(matches[0])["name"]
+            device = devices[matches[0]]
+            name = device["name"]
+            if device.get("owner_grants"):
+                device["revoked_at"] = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
+            else:
+                del devices[matches[0]]
             self._save(devices)
         return name
+
+    def verify_owner(self, ident: str, owner: str, reason: str) -> str:
+        """Local store administration only; pairing links never call this path."""
+        if not re.fullmatch(r"[0-9a-f]{12,64}", ident) or not owner or not reason.strip():
+            raise ValueError("a device id of at least 12 hex characters, owner and reason are required")
+        with self._locked():
+            devices = self._load()
+            matches = [key for key, device in devices.items() if key.startswith(ident) and not device.get("revoked_at")]
+            if len(matches) != 1:
+                raise ValueError("the id must match exactly one existing phone")
+            device = devices[matches[0]]
+            if device.get("paired_by") != owner:
+                raise ValueError("the phone was not paired by the configured owner")
+            if device.get("identity_verified") is not True:
+                device.setdefault("owner_grants", []).append({
+                    "authority": "local-admin", "owner": owner, "reason": reason.strip(),
+                    "at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())})
+                device["identity_verified"] = True
+                self._save(devices)
+            return device["name"]
 
     def listing(self) -> list[tuple[str, dict]]:
         return [(key[:12], device) for key, device in self.identities()]
 
     def identities(self) -> list[tuple[str, dict]]:
-        return list(self._load().items())
+        return [(key, device) for key, device in self._load().items() if not device.get("revoked_at")]
 
 
 class Limit:
@@ -382,7 +410,7 @@ def serve(listen: str, devices: Devices, codes: Codes, *, url: str, access_file:
                     if by not in users:
                         log.info("sign-in refused: the account may not pair a phone")
                         return self._send(HTTPStatus.FORBIDDEN, '{"error": "this account may not pair a phone"}')
-                token = devices.add(str(body.get("name", "")), by)
+                token = devices.add(str(body.get("name", "")), by, identity_verified=path == SIGNIN_PATH)
                 if pairing_fields is not None:
                     reply.update(pairing_fields(token))
                 # The id only: the device's name and who paired it are in the registry, not the log.

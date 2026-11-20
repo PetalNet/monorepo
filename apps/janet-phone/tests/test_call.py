@@ -39,6 +39,7 @@ class FakeGateway(BaseHTTPRequestHandler):
     calls: list[tuple[str, dict]] = []
     seen: list[tuple[str, str]] = []
     voice_down = False
+    lab_tokens = []
 
     def log_message(self, *args):
         pass
@@ -46,6 +47,7 @@ class FakeGateway(BaseHTTPRequestHandler):
     def do_POST(self):
         body = json.loads(self.rfile.read(int(self.headers["content-length"])))
         self.calls.append((self.path, body))
+        self.lab_tokens.append(self.headers.get("X-Janet-Lab-Token", ""))
         self.seen.append((self.headers.get("Authorization", ""), self.headers.get("Cf-Access-Jwt-Assertion", "")))
         if self.headers.get("Authorization") != TOKEN:
             return self._send(401, b"{}")
@@ -95,7 +97,7 @@ class FakeStt(socketserver.StreamRequestHandler):
 
 class CallTest(unittest.IsolatedAsyncioTestCase):
     async def asyncSetUp(self):
-        FakeGateway.calls, FakeGateway.seen, FakeGateway.voice_down = [], [], False
+        FakeGateway.calls, FakeGateway.seen, FakeGateway.voice_down, FakeGateway.lab_tokens = [], [], False, []
         janet_phone.DISCLOSURES.clear()
         janet_phone.WARMED[0] = 0.0
         self.gateway = ThreadingHTTPServer(("127.0.0.1", 0), FakeGateway)
@@ -469,6 +471,53 @@ class CallTest(unittest.IsolatedAsyncioTestCase):
         async with connect(self.url, additional_headers={**self.phone, "Cf-Access-Jwt-Assertion": "signed"}) as ws:
             await asyncio.wait_for(ws.recv(), 10)
         self.assertEqual(FakeGateway.seen[0], ("Bearer right", "signed"))
+
+    async def test_only_verified_owner_gets_lab_access(self):
+        from dataclasses import replace
+        lab_token = self.dir / "lab-token"
+        lab_token.write_text("bridge-lab-test")
+        config = replace(self.config, tier="personal", lab_token_file=str(lab_token))
+        granted = self.devices.add("Locally granted owner", "parker")
+        import hashlib
+        self.devices.verify_owner(hashlib.sha256(granted.encode()).hexdigest()[:12], "parker", "Known owner phone")
+        tokens = [
+            (self.devices.add("SSO owner", "parker", identity_verified=True), "personal", "bridge-lab-test"),
+            (granted, "personal", "bridge-lab-test"),
+            (self.devices.add("Other signed-in user", "other", identity_verified=True), "guest", ""),
+            (self.devices.add("Shared owner link", "parker"), "guest", ""),
+        ]
+        async def accepted(ws):
+            await ws.send("admitted")
+        server = await janet_phone.serve(accepted, "127.0.0.1", 0,
+            process_request=lambda ws, request: janet_phone.admit(ws, request, config, self.devices))
+        try:
+            url = f"ws://127.0.0.1:{server.sockets[0].getsockname()[1]}/v1/call"
+            for token, tier, credential in tokens:
+                # A supplied identity header from the phone is ignored; only its device registry counts.
+                async with connect(url, additional_headers={"Authorization": "Bearer " + token, "X-Janet-Lab-Token": "forged"}) as ws:
+                    self.assertEqual(await ws.recv(), "admitted")
+                self.assertEqual(FakeGateway.calls[-1][1]["tier"], tier)
+                self.assertEqual(FakeGateway.lab_tokens[-1], credential)
+        finally:
+            server.close()
+            await server.wait_closed()
+
+    async def test_without_the_lab_gate_the_configured_tier_is_preserved(self):
+        from dataclasses import replace
+        config = replace(self.config, tier="personal")
+        async def accepted(ws):
+            await ws.send("admitted")
+        server = await janet_phone.serve(accepted, "127.0.0.1", 0,
+            process_request=lambda ws, request: janet_phone.admit(ws, request, config, self.devices))
+        try:
+            url = f"ws://127.0.0.1:{server.sockets[0].getsockname()[1]}/v1/call"
+            async with connect(url, additional_headers=self.phone) as ws:
+                self.assertEqual(await ws.recv(), "admitted")
+            self.assertEqual(FakeGateway.calls[-1][1]["tier"], "personal")
+            self.assertEqual(FakeGateway.lab_tokens[-1], "")
+        finally:
+            server.close()
+            await server.wait_closed()
 
     async def test_two_authorization_headers_are_refused(self):
         reader, writer = await asyncio.open_connection("127.0.0.1", self.server.sockets[0].getsockname()[1])

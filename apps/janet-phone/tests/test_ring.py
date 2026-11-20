@@ -22,7 +22,7 @@ from websockets.exceptions import ConnectionClosed, InvalidStatus
 import janet_phone
 import pairing
 import ringing
-from tests.test_call import FakeGateway, FakeStt
+from tests.test_call import FakeGateway, FakeStt, tone
 
 
 class RingTest(unittest.IsolatedAsyncioTestCase):
@@ -182,6 +182,79 @@ class RingTest(unittest.IsolatedAsyncioTestCase):
         self.devices.revoke(self.device[:12])
         self.assertEqual((await self.post("/register"))[0], 403)
         await self.refused({**self.phone, "X-Janet-Ring":ident}, 403)
+
+    async def test_speaking_over_initial_reply_interrupts_and_keeps_the_utterance(self):
+        original = janet_phone.Gateway.turn
+        def initial_reply(gateway, conversation, text):
+            if text.startswith("Outgoing phone call."):
+                yield "sentence", {"text": "A long story"}
+                yield "done", {"end_conversation": True}
+            else:
+                yield from original(gateway, conversation, text)
+        FakeStt.texts = ["stop"]
+        with mock.patch.object(janet_phone.Gateway, "turn", initial_reply):
+            task, payload = await self.start_ring("An alert needs attention.")
+            async with connect(self.url, additional_headers={**self.phone, "X-Janet-Ring": payload["id"]}) as ws:
+                async with asyncio.timeout(6):
+                    while True:
+                        message = await ws.recv()
+                        if isinstance(message, str) and json.loads(message).get("text") == "A long story":
+                            break
+                    while not isinstance(await ws.recv(), bytes):
+                        pass
+                    self.assertEqual((await task)[1]["status"], "audio_connected")
+                    await ws.send(tone(0.5))
+                    await ws.send(bytes(32000))
+                    events, caller_words = [], []
+                    try:
+                        while "stop" not in caller_words:
+                            message = await ws.recv()
+                            if isinstance(message, str):
+                                event = json.loads(message)
+                                events.append(event["type"])
+                                if event["type"] == "words" and event.get("side") == "him":
+                                    caller_words.append(event["text"])
+                    except ConnectionClosed:
+                        pass
+                    self.assertIn("clear", events)
+                    self.assertIn("stop", caller_words)
+                    self.assertTrue(any(path.endswith("/interrupt") for path, _ in FakeGateway.calls))
+
+    async def test_incoming_calls_keep_verified_owner_authorization(self):
+        lab_token = self.dir / "lab-token"
+        lab_token.write_text("test-bridge-lab-credential")
+        self.config = dataclasses.replace(self.config, tier="personal", lab_owner="owner", lab_token_file=str(lab_token))
+        for verified, expected_tier, expected_credential in [(False, "guest", ""), (True, "personal", "test-bridge-lab-credential")]:
+            with self.subTest(verified=verified):
+                if verified:
+                    self.devices.verify_owner(self.device[:12], "owner", "Test owner confirmed")
+                FakeGateway.calls, FakeGateway.lab_tokens = [], []
+                task, payload = await self.start_ring("This reason must not grant authority")
+                async with connect(self.url, additional_headers={**self.phone, "X-Janet-Ring": payload["id"],
+                        "X-Janet-Lab-Token": "forged-by-phone"}) as ws:
+                    async with asyncio.timeout(4):
+                        while not task.done():
+                            await ws.recv()
+                    self.assertEqual((await task)[1]["status"], "audio_connected")
+                    opening = next(body for path, body in FakeGateway.calls if path == "/v1/conversations")
+                    self.assertEqual(opening["tier"], expected_tier)
+                    self.assertIn(expected_credential, FakeGateway.lab_tokens)
+                    self.assertNotIn("forged-by-phone", FakeGateway.lab_tokens)
+                    if not verified:
+                        self.assertNotIn("test-bridge-lab-credential", FakeGateway.lab_tokens)
+
+    async def test_retained_revocation_audit_is_excluded_from_ring_selection(self):
+        self.devices.verify_owner(self.device[:12], "owner", "Test owner confirmed")
+        self.devices.revoke(self.device[:12])
+        self.assertIn(self.device, json.loads((self.dir / "devices").read_text()))
+        self.assertEqual((await self.post("", {"reason": "hi", "device": self.device[:12]}, self.root))[0], 409)
+        self.mock_publish.assert_not_called()
+        live = self.devices.add("Live phone", "owner")
+        task, payload = await self.start_ring()
+        self.assertEqual((await self.post("/pending", {"id": payload["id"]}))[0], 403)
+        self.assertEqual((await self.post("/decline", {"id": payload["id"]},
+            {"Authorization": "Bearer " + live}))[0], 200)
+        self.assertEqual((await task)[1]["status"], "declined")
 
     async def test_timeout_cleans_state_and_late_answer_is_refused(self):
         self.rings.timeout = 0.1

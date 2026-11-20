@@ -6,7 +6,7 @@ from collections.abc import Callable
 from dataclasses import dataclass, field
 from pathlib import Path
 
-from . import prompts
+from . import prompts, lab_tools
 from .conversation import Conversation, Exchange, Journal, TranscriptMark
 from .merge import Hub, HubError, HubRefused
 from . import cache_splice, snapshot, web_guard
@@ -62,8 +62,9 @@ class Config:
     main_like_env: dict[str, str] = field(default_factory=dict)
     cache_splice: bool = True
     unmerged_channels: list[str] = field(default_factory=list)
-    # Built-in tools a personal conversation's head may use, from web_guard.TOOLS. Empty keeps every head tool-less. Guests never get them.
+    # Public web tools from web_guard.TOOLS. Guests never get them; the lab MCP server is gated separately.
     web_tools: list[str] = field(default_factory=list)
+    lab_token_file: str = ""
 
 
 def _set_event() -> threading.Event:
@@ -119,12 +120,17 @@ class Head:
         self._recover()
         threading.Thread(target=self._upkeep_loop, daemon=True).start()
 
-    def open(self, channel: str, tier: str, client_ref: str | None) -> str:
+    def open(self, channel: str, tier: str, client_ref: str | None, lab_access: bool = False) -> str:
         with self._lock:
             if client_ref and client_ref in self._by_ref:
-                return self._by_ref[client_ref]
+                previous = self._lives[self._by_ref[client_ref]].conv
+                if (previous.lab_access, previous.tier, previous.channel) != (lab_access, tier, channel):
+                    raise ApiError(403, "client_ref belongs to another caller class")
+                return previous.id
             if sum(live.conv.state == "open" for live in self._lives.values()) >= self.config.max_open:
                 raise ApiError(429, "too many open conversations")
+            if lab_access and (tier != "personal" or self.config.main_like_fork):
+                raise ApiError(400, "lab access requires a lean personal head")
             conv_id = uuid.uuid4().hex[:12]
             journal = Journal(self._journals / f"{conv_id}.jsonl")
             fork = tier == "personal"
@@ -137,13 +143,13 @@ class Head:
             except OSError as error:
                 raise ApiError(503, f"cannot link main's transcript: {error}") from error
             conv = journal.append(None, kind="opened", at=time.time(), id=conv_id, channel=channel, tier=tier,
-                                  client_ref=client_ref, parent_session=parent)
+                                  client_ref=client_ref, parent_session=parent, lab_access=lab_access)
             live = Live(conv, journal)
             try:
                 if fork and self.config.main_like_fork:
                     live.session = self._session_factory(self._argv(conv, resume), self._cwd(conv), env=self._main_like_env(), allow_tools=True)
                 else:
-                    live.session = self._session_factory(self._argv(conv, resume), self._cwd(conv), web_tools=self._web_tools(conv, resume))
+                    live.session = self._session_factory(self._argv(conv, resume), self._cwd(conv), web_tools=self._web_tools(conv, resume), **({"lab": True} if lab_access else {}))
             except (OSError, ValueError) as error:
                 live.record(kind="ending", reason="session_failed_to_start")
                 raise ApiError(503, f"the head session did not start: {error}") from error
@@ -233,7 +239,7 @@ class Head:
                     latency["spawn_wait"] = _ms(started)
                     fork = live.conv.tier == "personal"
                     stream = SpeechStream(redact=None if fork else session.account_email)
-                    for delta in session.turn(prompts.turn_prompt(text, fork=fork, cut_off=previous_cut, web=self._web_tools(live.conv, True) if fork else ()), self.config.turn_timeout_s):
+                    for delta in session.turn(prompts.turn_prompt(text, fork=fork, cut_off=previous_cut, web=self._web_tools(live.conv, True) if fork else (), lab=live.conv.lab_access), self.config.turn_timeout_s):
                         if latency["first_token"] is None:
                             latency["first_token"] = _ms(started)
                         for sentence in stream.feed(delta):
@@ -404,7 +410,7 @@ class Head:
             identity = ["--resume", resume, "--fork-session", "--model", self.config.model]
         else:
             identity = ["--model", self.config.cold_model, "--system-prompt", prompts.COLD_PROFILE]
-        return [*self.config.claude, *locked_flags(self._web_tools(conv, resume)), *identity, "--effort", self.config.effort]
+        return [*self.config.claude, *locked_flags(self._web_tools(conv, resume), lab=conv.lab_access), *identity, "--effort", self.config.effort]
 
     def _warm_up(self, live: Live) -> None:
         """A fork's first model call reads all of main's context cold and takes seconds. Making it while the speaker is still talking hides that wait."""

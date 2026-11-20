@@ -20,6 +20,14 @@ A scan collects current inventory unless `--inventory inventory.json` supplies a
 
 The watcher records patch work for Derek or compose. Operators apply changes with health checks and rollback under the lab update policy. The watcher executes no upgrades. Major upgrades, databases, Proxmox, TrueNAS, and Eli's services require their owners.
 
+## Collect an Ubuntu edge host
+
+`inventory.droplets` accepts entries with `host` (stable inventory identity), `ssh` (SSH target), and an optional `identity_file` pointing to an existing local key. The runtime entries belong in janet-nix. Collection uses batch SSH and runs the bundled `droplet.py` in memory on the remote host. It installs no agent or key.
+
+The collector records distro release, installed binary and source package revisions, cached APT upgrades and security origins, running kernel, reboot status, listeners, running service names, selected effective sshd settings for root and tunnel, and unattended-upgrade settings. Containers retain actual image IDs and OCI version labels. Caddy uses its running binary version. Host Caddy, cloudflared, Docker, mc-router, and running Java processes have separate observations. Docker environment variables and service command lines are excluded.
+
+Assets inherit the edge host's internet exposure; that label does not establish that each package or listener is directly reachable. Host posture retains bind addresses. Ubuntu package revisions remain intact: upstream numeric version ranges cannot establish distro backport status, so distribution advisory matching remains a visible coverage gap. APT results describe the existing cache, with its index timestamp; collection does not refresh or upgrade packages. Failure retains prior observations with their original timestamps.
+
 ## Replay without changing live coverage
 
 Supply an explicit inventory fixture and normalized ingestion file. Every replay post is labeled as a test. Replay files and the database live under `state_dir/replay/`.
@@ -39,6 +47,8 @@ The poster uses the existing Shawn account on .14. It accepts one configured roo
 
 `feeds.ingest(inventory, config, cache_dir)` returns normalized `advisories`, source `stats`, and `gaps`. Applicability checks have an asset ID, `affected`, `unaffected`, or `unknown` verdict, and evidence. KEV names select candidates; version and environmental checks establish applicability. OSV uses exact ecosystem, package, and observed version queries. Persisted OSV bindings require complete checks across every tracked package before closure. GitHub advisories use explicit package bindings. NVD evaluates complete CPE configuration trees, including environmental AND conditions.
 
+A complete, fresh OSV exclusion across all tracked package bindings can supersede fresh unknown applicability checks for the same advisory and asset. Every identified GitHub package needs a version binding, and those versions must also be covered by the exclusions before an unknown check can be superseded. An unbound or partially identified package keeps applicability unknown even when another package's range is known unaffected. Fully blank GitHub package identities are repository-level candidates; complete tracked OSV exclusions can supersede them. Affected evidence still wins. Every observed version of a tracked package and every response page must be checked; stale or incomplete results cannot prove exclusion. Stale, failed, or incomplete coverage from any configured GitHub repository blocks tracked OSV exclusions for that asset.
+
 `product_mappings` match exact observed fields, such as an image repository. `package_identities` supplies ecosystem and name; the watcher inserts the current observed version. `cpe_identity` contains `part:vendor:product`. `repositories` names upstream GitHub repositories. Reviewed `vendor_rules` can add numeric release bounds, CPU prerequisites, and effective runtime mitigation checks. The Java rule requires verified effective JVM flags from `jcmd`, rather than inferring their final value from command-line text.
 
 Optional IMAP settings require `dedicated: true`, an allowed host, a password-file path, and an exact delivered recipient. Headers are checked before fetching bodies; only CVE IDs leave the email parser. The parser uses read-only IMAP and `BODY.PEEK`. It scans a bounded recent window and reports a gap when older messages exceed that window. No automatic list confirmation or mailbox provisioning runs inside the watcher.
@@ -56,3 +66,5 @@ python3 -m unittest discover -s apps/vuln-watch -v
 ```
 
 The dedicated workflow runs these tests on affected pull requests. Tests cover version and CPU conditions, stale observations and caches, recipient isolation, source failures, multiple OSV bindings, replay isolation, persistence, verified closure, reopening, and delivery retries. See [PROOF.md](PROOF.md) for the live replay evidence and remaining rollout work.
+
+`fixtures/caddy-reconciliation.json` contains selected public GitHub advisory fields, NVD configurations, and the empty OSV exact-version response saved during the November 20, 2026 Caddy remediation. The regression uses synthetic asset identities and runs ingestion through SQLite reconciliation without network access. Four of seven findings close; three remain open because their named GitHub packages have no version bindings. A mapping to the main Caddy module alone does not cover a different module path or the repository root package.

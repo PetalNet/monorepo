@@ -66,6 +66,16 @@ class Handler(BaseHTTPRequestHandler):
     def _authorized(self) -> bool:
         return hmac.compare_digest(self.headers.get("Authorization", "").encode("utf-8", "replace"), f"Bearer {self.token}".encode())
 
+    def _lab_authorized(self) -> bool:
+        path = self.head.config.lab_token_file
+        if not path:
+            return False
+        try:
+            token = Path(path).read_text().strip()
+        except OSError:
+            return False
+        return bool(token) and hmac.compare_digest(self.headers.get("X-Janet-Lab-Token", "").encode(), token.encode())
+
     def _body(self) -> dict:
         raw_length = self.headers.get("Content-Length", "0").strip()
         if not (raw_length.isascii() and raw_length.isdigit()):
@@ -100,11 +110,19 @@ class Handler(BaseHTTPRequestHandler):
                 tier = body.get("tier", LEAST_PRIVILEGED)
                 if tier not in TIERS:
                     raise ApiError(400, "tier must be personal, room or guest")
-                return self._json(200, {"id": self.head.open(channel, tier, ref)})
+                verified = self._lab_authorized()
+                if self.headers.get("X-Janet-Lab-Token") and not verified:
+                    raise ApiError(403, "invalid Parker lab credential")
+                if self.head.config.lab_token_file and tier == "personal" and not verified:
+                    tier = LEAST_PRIVILEGED
+                lab = verified and tier == "personal"
+                return self._json(200, {"id": self.head.open(channel, tier, ref, lab_access=lab)})
             match = _CONVERSATION.fullmatch(self.path)
             if match is None:
                 raise ApiError(404, "not found")
             conv_id, action = match.groups()
+            if self.head._live(conv_id).conv.lab_access and not self._lab_authorized():
+                raise ApiError(403, "Parker lab credential required")
             if action == "turns":
                 return self._turn(conv_id, _text(body, "text"))
             if action == "interrupt":
@@ -148,6 +166,8 @@ def main() -> None:
     args = parser.parse_args()
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
     config, listen, token_file = load_config(args.config)
+    if config.lab_token_file:
+        load_or_create_token(Path(config.lab_token_file))
     handler = type("BoundHandler", (Handler,), {"head": Head(config), "token": load_or_create_token(token_file)})
     servers = []
     for bind in listen:
