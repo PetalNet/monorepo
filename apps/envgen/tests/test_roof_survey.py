@@ -246,3 +246,53 @@ def test_exact_crossing_orients_each_nondegenerate_step_face(reverse_parts):
             assert normal[0] * (y - 1) > 0
             sides.add(np.sign(y - 1))
     assert sides == {-1, 1}
+
+
+def test_subresolution_plane_boundaries_form_one_connected_roof():
+    parts = [
+        (shapely.box(0, 0, 2, 4), np.array([0.0, 0.0, 200.0])),
+        (shapely.box(2, 0, 4, 2), np.array([0.0, 0.0, 200.12])),
+        (shapely.box(2, 2, 4, 4), np.array([0.0, 0.0, 200.2])),
+    ]
+    vertices, triangles = roof_survey._mesh(parts, np.zeros(2), 200.0)
+    vertices = np.asarray(vertices)
+    faces = vertices[triangles]
+    normals = np.cross(faces[:, 1] - faces[:, 0], faces[:, 2] - faces[:, 0])
+    assert np.all(normals[:, 2] > 0), "subresolution plane labels must not produce vertical roof shards"
+    assert np.isclose(normals[:, 2].sum() / 2, 16.0)
+    at_junction = vertices[np.linalg.norm(vertices[:, :2] - [2, 2], axis=1) < 1e-6, 2]
+    assert len(at_junction) >= 3, "each adjacent roof must include the shared T-junction"
+    assert np.ptp(at_junction) < 1e-8, "adjacent faces must meet at the same height"
+
+
+def test_roof_domain_smoothing_does_not_depend_on_plane_numbers():
+    labels = np.array([[0, 0, 2], [0, 1, 2], [1, 1, 2]], dtype=np.uint8)
+    permutation = np.array([2, 0, 1], dtype=np.uint8)
+    actual = roof_survey._smooth_labels(labels, 3)
+    renamed = roof_survey._smooth_labels(permutation[labels], 3)
+    assert np.array_equal(renamed, permutation[actual])
+
+
+def test_narrow_domain_fragments_do_not_create_separate_roof_masses():
+    labels = np.zeros((15, 15), dtype=np.uint8)
+    labels[3:10, 7:14] = 1
+    labels[1:3, 10] = 1
+    labels[11:13, 1:3] = 2
+    result = roof_survey._coherent_labels(labels, np.ones(labels.shape, dtype=bool))
+    assert result[6, 10] == 1
+    assert result[1, 10] == 0
+    assert not np.any(result == 2), "a two-cell island is not a measured roof mass"
+
+
+def test_domains_outside_the_footprint_cannot_support_a_narrow_roof():
+    labels = np.ones((12, 12), dtype=np.uint8)
+    inside = np.zeros(labels.shape, dtype=bool)
+    inside[1:11, 5:7] = True
+    assert roof_survey._coherent_labels(labels, inside) is None
+
+
+def test_broad_observed_roof_domains_keep_their_assignment():
+    labels = np.zeros((12, 12), dtype=np.uint8)
+    labels[:, 6:] = 1
+    result = roof_survey._coherent_labels(labels, np.ones(labels.shape, dtype=bool))
+    assert np.array_equal(result, labels)

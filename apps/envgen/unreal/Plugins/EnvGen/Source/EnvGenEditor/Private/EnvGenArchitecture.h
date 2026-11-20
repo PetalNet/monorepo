@@ -43,6 +43,7 @@ struct FStyle
 
 	void Read(const TSharedPtr<FJsonObject>& Building);
 	double RoofOffsetM(const FVector2D& Point) const;
+	TOptional<double> WallOffsetM(const FVector2D& Point, const FVector2D& Direction, double HalfWidth) const;
 	FLinearColor RoofColour(FLinearColor Colour) const;
 	FVector2D RoofCheckPoint(FVector2D Anchor) const;
 	bool AddRoof(double RoofZ, FLinearColor Colour, FTriangle Emit) const;

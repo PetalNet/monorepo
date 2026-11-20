@@ -495,6 +495,10 @@ a height, a roof albedo, and where each came from.
   return, at least 85% of validation returns within 0.35 m, and a validation 90th percentile error at most 0.6 m.
   Unsupported fits retain their prior geometry and a rejection reason. Accepted planes generate flat, pitched, or
   stepped roof surfaces, wall tops, and collision. Roof-type names are inferred from plane slopes and levels.
+  Shared boundary vertices join fitted levels within 0.44 m (twice the plane-fit tolerance); larger steps remain.
+  Multi-level domains need a 3 by 3 m interior patch. Narrow fragments take the nearest surviving domain;
+  roofs without a coherent patch retain their priors. This regularization and its 1 m grid are recorded per fit.
+  Validation samples the resulting triangles, including these joins, rather than the separate plane equations.
   Roof-to-ground eave and ridge heights, held-out errors, supported area, and split-to-split roof-type agreement are
   written per building to `building_accuracy.json`. Type agreement is a consistency check, not independent survey truth.
 - **Fallback height**, in order of trust: the median lidar height above ground over the footprint pulled in by 1 m (when at
@@ -516,6 +520,8 @@ a height, a roof albedo, and where each came from.
   measured height as a prior. Suitable rectangular residential roofs get a ridge; irregular footprints and
   courtyards keep their triangulated flat roof. Gabled priors extend equally above and below the lidar median.
   An accepted roof survey replaces those profiles. Facades remain priors unless a reviewed facade observation exists.
+  Openings must fit below the lowest wall top across their full width; short walls use smaller prior windows.
+  Horizontal trim, parapets and coping require a supported level wall span.
 - **Priors, with no source:** facade colour, brick or siding, window bays, doors, trim, parapets and HVAC are
   plausible modular details, not surveyed elevations. Roof pitch is 0.38 rise/run, capped at 2.4 m rise. Roof
   roughness is 0.85. Grandstand rows use the tagged footprint and measured height; paired stands face each other.

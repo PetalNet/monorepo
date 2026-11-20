@@ -18,7 +18,7 @@ from shapely.ops import split
 
 from .site import Tile
 
-VERSION = 7
+VERSION = 8
 HOUSE_MAX_M2 = 320.0
 INSTITUTION_MIN_M2 = 900.0
 RECTANGULAR_SHARE = 0.96

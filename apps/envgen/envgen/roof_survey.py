@@ -17,10 +17,12 @@ from scipy.spatial import cKDTree
 from shapely.affinity import translate
 from shapely.geometry import Polygon, shape
 
-VERSION = 4
+VERSION = 6
 TOLERANCE_M = 0.22
 MIN_POINTS = 30
 MAX_PLANES = 8
+DOMAIN_SPACING_M = 1.0
+CORE_CELLS = 3
 
 
 def _predict(xy: np.ndarray, plane: np.ndarray) -> np.ndarray:
@@ -75,7 +77,70 @@ def _planes(points: np.ndarray) -> list[np.ndarray]:
     return found
 
 
-def _mesh(parts: list[tuple[Polygon, np.ndarray]], centre: np.ndarray, roof_z: float) -> tuple[list, list]:
+def _smooth_labels(image: np.ndarray, count: int) -> np.ndarray:
+    votes = np.array(
+        [
+            ndimage.convolve((image == value).astype(np.uint8), np.ones((3, 3), dtype=np.uint8), mode="nearest")
+            for value in range(count)
+        ]
+    )
+    maximum = votes.max(axis=0)
+    unique = (votes == maximum).sum(axis=0) == 1
+    return np.where(unique, votes.argmax(axis=0), image).astype(np.uint8)
+
+
+def _coherent_labels(image: np.ndarray, inside: np.ndarray) -> np.ndarray | None:
+    seeds = np.full(image.shape, -1, dtype=np.int16)
+    for value in np.unique(image[inside]):
+        core = ndimage.binary_opening((image == value) & inside, structure=np.ones((CORE_CELLS, CORE_CELLS)))
+        seeds[core] = value
+    if not np.any(seeds >= 0):
+        return None
+    nearest = ndimage.distance_transform_edt(seeds < 0, return_distances=False, return_indices=True)
+    return seeds[tuple(nearest)].astype(np.uint8)
+
+
+def _surface(parts):
+    boundaries = shapely.union_all([region.boundary for region, _ in parts], grid_size=1e-6)
+    noded = []
+    for region in shapely.polygonize(shapely.get_parts(boundaries)).geoms:
+        point = region.representative_point()
+        owner = next((plane for source, plane in parts if source.buffer(2e-6).covers(point)), None)
+        if owner is not None:
+            noded.append((region, owner))
+    levels = {}
+    for region, plane in noded:
+        for ring in [region.exterior, *region.interiors]:
+            for xy in np.asarray(ring.coords):
+                levels.setdefault(tuple(xy), set()).add(float(_predict(xy, plane)))
+    coordinates = np.asarray(list(levels))
+    tree = cKDTree(coordinates)
+    joined = []
+    for values in levels.values():
+        groups = []
+        for z in sorted(values):
+            if not groups or z - groups[-1][0] > 2 * TOLERANCE_M:
+                groups.append([])
+            groups[-1].append(z)
+        joined.append([(z, float(np.mean(group))) for group in groups for z in group])
+
+    def elevation(xy, plane):
+        z = float(_predict(xy, plane))
+        distance, index = tree.query(xy)
+        if distance <= 3e-6:
+            source, target = min(joined[index], key=lambda pair: abs(pair[0] - z))
+            if abs(source - z) < 1e-4:
+                return target
+        return z
+
+    return noded, elevation
+
+
+def _mesh(
+    parts: list[tuple[Polygon, np.ndarray]], centre: np.ndarray, roof_z: float, elevation=None
+) -> tuple[list, list]:
+    if elevation is None:
+        parts, elevation = _surface(parts)
     vertices, triangles = [], []
     for region, plane in parts:
         for triangle in shapely.constrained_delaunay_triangles(region).geoms:
@@ -88,7 +153,7 @@ def _mesh(parts: list[tuple[Polygon, np.ndarray]], centre: np.ndarray, roof_z: f
             if signed_area < 0:
                 coords = coords[::-1]
             for xy in coords:
-                vertices.append([*(xy + centre), float(_predict(xy, plane) - roof_z)])
+                vertices.append([*(xy + centre), elevation(xy, plane) - roof_z])
             triangles.append([start, start + 1, start + 2])
     # Vertical faces close measured steps between adjacent roof levels.
     for i, (region, plane) in enumerate(parts):
@@ -101,23 +166,23 @@ def _mesh(parts: list[tuple[Polygon, np.ndarray]], centre: np.ndarray, roof_z: f
                     continue
                 coords = np.asarray(line.coords)
                 for a, b in pairwise(coords):
-                    da = _predict(a, plane) - _predict(a, other_plane)
-                    db = _predict(b, plane) - _predict(b, other_plane)
-                    cuts = [a, b]
+                    za, zb = elevation(a, plane), elevation(b, plane)
+                    oa, ob = elevation(a, other_plane), elevation(b, other_plane)
+                    da, db = za - oa, zb - ob
+                    cuts = [0.0, 1.0]
                     if da * db < 0:
-                        cuts.insert(1, a + (b - a) * da / (da - db))
-                    for p, q in pairwise(cuts):
-                        zp, zq = _predict(p, plane), _predict(q, plane)
-                        op, oq = _predict(p, other_plane), _predict(q, other_plane)
+                        cuts.insert(1, da / (da - db))
+                    for lo, hi in pairwise(cuts):
+                        p, q = a + (b - a) * lo, a + (b - a) * hi
+                        zp, zq = za + (zb - za) * lo, za + (zb - za) * hi
+                        op, oq = oa + (ob - oa) * lo, oa + (ob - oa) * hi
                         delta = q - p
                         if np.linalg.norm(delta) < 1e-3 or max(abs(zp - op), abs(zq - oq)) < 0.02:
                             continue
                         left = np.array([-delta[1], delta[0]]) / np.linalg.norm(delta)
                         middle = (p + q) / 2
                         toward_other = -left if region.covers(shapely.Point(middle + left * 1e-5)) else left
-                        outward = (
-                            toward_other if _predict(middle, plane) > _predict(middle, other_plane) else -toward_other
-                        )
+                        outward = toward_other if zp + zq > op + oq else -toward_other
                         quad = np.array([[*p, zp], [*q, zq], [*q, oq], [*p, op]])
                         start = len(vertices)
                         vertices.extend([[*(v[:2] + centre), float(v[2] - roof_z)] for v in quad])
@@ -130,7 +195,9 @@ def _mesh(parts: list[tuple[Polygon, np.ndarray]], centre: np.ndarray, roof_z: f
     return vertices, triangles
 
 
-def _walls(polygon: Polygon, parts, centre: np.ndarray, roof_z: float) -> list:
+def _walls(polygon: Polygon, parts, centre: np.ndarray, roof_z: float, elevation=None) -> list:
+    if elevation is None:
+        parts, elevation = _surface(parts)
     segments = []
     buffered = [(region.buffer(1e-6), plane) for region, plane in parts]
     for ring in [polygon.exterior, *polygon.interiors]:
@@ -157,8 +224,25 @@ def _walls(polygon: Polygon, parts, centre: np.ndarray, roof_z: float) -> list:
                 middle = shapely.Point(a + direction * ((lo + hi) / 2))
                 _, plane = min(parts, key=lambda item: item[0].distance(middle))
                 ends = [a + direction * lo, a + direction * hi]
-                segments.append([[*(xy + centre), float(_predict(xy, plane) - roof_z)] for xy in ends])
+                segments.append([[*(xy + centre), elevation(xy, plane) - roof_z] for xy in ends])
     return segments
+
+
+def _sample_mesh(vertices, triangles, xy):
+    vertices = np.asarray(vertices)
+    result = np.full(len(xy), np.nan)
+    for indices in triangles:
+        a, b, c = vertices[indices]
+        u, v = b[:2] - a[:2], c[:2] - a[:2]
+        denominator = u[0] * v[1] - u[1] * v[0]
+        if abs(denominator) < 1e-10:
+            continue
+        relative = xy - a[:2]
+        first = (relative[:, 0] * v[1] - relative[:, 1] * v[0]) / denominator
+        second = (u[0] * relative[:, 1] - u[1] * relative[:, 0]) / denominator
+        inside = (first >= -1e-7) & (second >= -1e-7) & (first + second <= 1 + 1e-7)
+        result[inside] = a[2] + first[inside] * (b[2] - a[2]) + second[inside] * (c[2] - a[2])
+    return result
 
 
 def fit(polygon: Polygon, points: np.ndarray, ground: np.ndarray, anchor: np.ndarray, prior=None) -> dict:
@@ -198,7 +282,7 @@ def fit(polygon: Polygon, points: np.ndarray, ground: np.ndarray, anchor: np.nda
     if coverage < 0.70:
         return {**base, "reason": "plane coverage below 70 percent", "fit_share": coverage}
     west, south, east, north = local_polygon.bounds
-    spacing = 1.0
+    spacing = DOMAIN_SPACING_M
     xs = np.arange(west + spacing / 2, east + spacing / 2, spacing)
     ys = np.arange(north - spacing / 2, south - spacing / 2, -spacing)
     xx, yy = np.meshgrid(xs, ys)
@@ -209,11 +293,15 @@ def fit(polygon: Polygon, points: np.ndarray, ground: np.ndarray, anchor: np.nda
     if area_share < 0.80:
         return {**base, "reason": "supported footprint area below 80 percent", "area_share_within_2m": area_share}
     image = support_labels[nearest].reshape(xx.shape).astype(np.uint8)
-    image = ndimage.median_filter(image, size=3)
+    image = _smooth_labels(image, len(planes))
     transform = from_origin(west, north, spacing, spacing)
     parts = []
     envelope = train[:, :2] @ planes[:, :2].T + planes[:, 2]
     use_envelope = np.mean(abs(envelope.min(axis=1) - train[:, 2]) <= TOLERANCE_M) >= 0.85
+    if not use_envelope:
+        image = _coherent_labels(image, grid_inside.reshape(image.shape))
+        if image is None:
+            return {**base, "reason": "no coherent multi-level roof domain at the sampling resolution"}
     for value in range(len(planes)):
         if use_envelope:
             region = local_polygon
@@ -256,13 +344,18 @@ def fit(polygon: Polygon, points: np.ndarray, ground: np.ndarray, anchor: np.nda
         return result
 
     predicted = predict(test[:, :2])
+    if np.isfinite(predicted).mean() < 0.95:
+        return {**base, "reason": "held-out surface agreement below threshold", "validation_share_035m": 0.0}
+    roof_z = float(np.nanmedian(predicted))
+    parts, elevation = _surface(parts)
+    vertices, triangles = _mesh(parts, centre, roof_z, elevation)
+    predicted = _sample_mesh(vertices, triangles, test[:, :2] + centre) + roof_z
     finite = np.isfinite(predicted)
     error = abs(predicted[finite] - test[finite, 2])
     agreement = float(np.mean(error <= 0.35)) if len(error) else 0.0
     if finite.mean() < 0.95 or agreement < 0.85 or np.quantile(error, 0.9) > 0.6:
         return {**base, "reason": "held-out surface agreement below threshold", "validation_share_035m": agreement}
-    heights = np.concatenate([_predict(np.asarray(p.exterior.coords), plane) for p, plane in parts])
-    roof_z = float(np.median(predicted[finite]))
+    heights = np.asarray(vertices)[:, 2] + roof_z
     height = roof_z - ground_z
     if not 1.5 <= height <= 100:
         return {**base, "reason": "roof height outside supported range"}
@@ -290,8 +383,7 @@ def fit(polygon: Polygon, points: np.ndarray, ground: np.ndarray, anchor: np.nda
             if validation_kind != "unresolved"
             else None,
         }
-    vertices, triangles = _mesh(parts, centre, roof_z)
-    edge_heights = _walls(local_polygon, parts, centre, roof_z)
+    edge_heights = _walls(local_polygon, parts, centre, roof_z, elevation)
     return {
         **base,
         "status": "measured",
@@ -305,6 +397,8 @@ def fit(polygon: Polygon, points: np.ndarray, ground: np.ndarray, anchor: np.nda
         "planes": [{"a": float(p[0]), "b": float(p[1]), "z_at_centroid_m": float(p[2])} for p in planes],
         "fit_share": coverage,
         "area_share_within_2m": area_share,
+        "domain_cell_m": spacing,
+        "domain_core_m": CORE_CELLS * spacing if not use_envelope else None,
         "validation_returns": int(finite.sum()),
         "validation_mae_m": float(error.mean()),
         "validation_p90_m": float(np.quantile(error, 0.9)),
