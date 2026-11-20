@@ -70,7 +70,7 @@ Bearer token on every `POST` and on `GET /v1/calls`. Bodies and replies are JSON
 | Call                                    | Body                                  | Reply                              |
 | :-------------------------------------- | :------------------------------------ | :--------------------------------- |
 | `GET /health`                           |                                       | `{"ok": true, "version": "0.1.0"}` |
-| `GET /v1/calls`                         |                                       | `{"active_calls": 0}`             |
+| `GET /v1/calls`                         |                                       | `{"active_calls": 0}`              |
 | `POST /v1/conversations`                | `{"channel", "tier"?, "client_ref"?}` | `{"id"}`                           |
 | `POST /v1/conversations/{id}/turns`     | `{"text"}`                            | `text/event-stream`                |
 | `POST /v1/conversations/{id}/interrupt` | `{"heard_text"}`                      | `{"ok": true}`                     |
@@ -172,7 +172,13 @@ effort = "low"
 soft_merge = "asks" # or "every": relay every exchange, at one turn of main each
 idle_timeout_s = 120
 max_open = 2
-tts_unload_command = ["ssh", "-oBatchMode=yes", "-oConnectTimeout=2", "gpu-host.local", "curl --fail --silent --max-time 2 -X POST http://127.0.0.1:8735/unload"]
+tts_unload_command = [
+	"ssh",
+	"-oBatchMode=yes",
+	"-oConnectTimeout=2",
+	"gpu-host.local",
+	"curl --fail --silent --max-time 2 -X POST http://127.0.0.1:8735/unload",
+]
 unmerged_channels = ["desk-test"] # test channels: answered and journaled, never delivered
 
 [hub]
