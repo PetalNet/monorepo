@@ -320,7 +320,7 @@ Stored sampling does not establish the image's independently resolved detail.
   Native alpha gaps are reduced conservatively onto the colour grid before computing physical distances;
   this can move the blend boundary by at most one colour cell, without losing gaps narrower than that cell.
   Within 3 m of the camera, survey detail is filtered toward 10 cm sampling so photographic blade texture
-  does not compete with the close material scan. A mip-level floor enforces this under magnification and fades
+  does not compete with the close material scan. Automatic temporal mip bias is disabled for this sample. A mip-level floor enforces this under magnification and fades
   out by 15 m, where the projected texel footprint sets the mip. Larger photo patterns remain.
   Native processing runs in overlapping windows, with bounded pooled grids and streamed PNG output.
   A rejected RGB split remains recorded in the manifest. It does not establish that the ground is all grass.

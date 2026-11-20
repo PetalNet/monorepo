@@ -1071,6 +1071,7 @@ return max(projected,minimum);
 )"), double(Survey->Source.GetSizeX()), double(Survey->Source.GetSizeY()),
 					FMath::Max(0.0, FMath::Log2(0.1 / SourcePixelM)));
 				SurveySample->MipValueMode = TMVM_MipLevel;
+				SurveySample->AutomaticViewMipBias = false;
 				SurveySample->MipValue.Connect(0, FineMipLevel);
 				UMaterialExpressionMultiply* SurveyScaled = Node<UMaterialExpressionMultiply>(Material, -700, -1250);
 				SurveyScaled->A.Connect(1, SurveySample);
