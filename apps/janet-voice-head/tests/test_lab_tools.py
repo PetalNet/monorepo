@@ -1,7 +1,8 @@
 import json
+import os
+import tempfile
 import subprocess
 import sys
-import tempfile
 import time
 import unittest
 from pathlib import Path
@@ -28,6 +29,11 @@ class LabToolsTest(unittest.TestCase):
             response = lab_tools.respond({"id": 1, "method": "tools/call", "params": {"name": "builders"}})
             self.assertNotIn("credential-value", json.dumps(response))
 
+    def test_malformed_source_output_is_unavailable_not_a_server_crash(self):
+        with patch.object(lab_tools, "run", return_value='[{"unit":"route-a.service"}]'):
+            result = lab_tools.respond({"id": 1, "method": "tools/call", "params": {"name": "builders"}})
+        self.assertTrue(result["result"]["isError"])
+
     def test_run_deadline_and_output_limit(self):
         started = time.monotonic()
         with self.assertRaises(TimeoutError):
@@ -36,14 +42,41 @@ class LabToolsTest(unittest.TestCase):
         with self.assertRaises(ValueError):
             lab_tools.run([sys.executable, "-c", "print('x' * 1000000)"], time.monotonic() + 3)
 
-    def test_objectives_symlink_cannot_point_at_credentials(self):
+    def test_objectives_reuse_the_bounded_index_without_hook_instructions(self):
+        payload = {"hookSpecificOutput": {"additionalContext": "OPEN OBJECTIVES: read the file\n- Ship widget | active | next: review\nPromise ledger: 2 open"}}
         with tempfile.TemporaryDirectory() as tmp, patch.object(Path, "home", return_value=Path(tmp)):
             shared = Path(tmp) / ".claude/shared"
             shared.mkdir(parents=True)
-            (Path(tmp) / "credential").write_text("secret")
+            (shared / "open-objectives.md").write_text("- **Ship widget**")
+            with patch.object(lab_tools, "run", return_value=json.dumps(payload)) as run:
+                text = lab_tools.lookup("objectives", {})
+            self.assertEqual(run.call_args.args[0], [str(Path(tmp) / ".local/state/objectives-index-pkg/bin/sessionstart-objectives")])
+        self.assertIn("Ship widget", text)
+        self.assertNotIn("read the file", text)
+        self.assertNotIn("Promise ledger", text)
+
+    def test_objectives_refuse_symlinks_to_other_files(self):
+        with tempfile.TemporaryDirectory() as tmp, patch.object(Path, "home", return_value=Path(tmp)):
+            shared = Path(tmp) / ".claude/shared"
+            shared.mkdir(parents=True)
+            (Path(tmp) / "credential").write_text("- **Secret-shaped objective**")
             (shared / "open-objectives.md").symlink_to(Path(tmp) / "credential")
-            with self.assertRaises(OSError):
+            with self.assertRaises(OSError), patch.object(lab_tools, "run") as run:
                 lab_tools.lookup("objectives", {})
+            run.assert_not_called()
+
+    def test_index_input_is_the_open_source_even_after_path_replacement(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "objectives"
+            path.write_text("approved objectives")
+            fd = os.open(path, os.O_RDONLY | os.O_NOFOLLOW)
+            try:
+                path.unlink()
+                path.write_text("replacement secret")
+                result = lab_tools.run([sys.executable, "-c", "import os; print(open(os.environ['OBJECTIVES_LEDGER']).read())"], time.monotonic() + 3, source_fd=fd)
+                self.assertEqual(result, "approved objectives")
+            finally:
+                os.close(fd)
 
     def test_stdio_transport_lists_only_allowlist_and_returns_bounded_result(self):
         requests = [{"jsonrpc": "2.0", "id": 1, "method": "tools/list"},

@@ -4,6 +4,7 @@ import json
 import os
 import selectors
 import signal
+import stat
 import subprocess
 import sys
 import time
@@ -25,12 +26,14 @@ def mcp_config() -> dict:
     return {"mcpServers": {SERVER: {"command": sys.executable, "args": ["-I", str(Path(__file__).resolve())]}}}
 
 
-def run(argv: list[str], deadline: float) -> str:
+def run(argv: list[str], deadline: float, *, source_fd: int | None = None) -> str:
     """Bound both pipe consumption and the whole process group, including children."""
     env = {key: value for key, value in os.environ.items() if key in (
         "HOME", "PATH", "USER", "LANG", "XDG_RUNTIME_DIR", "DBUS_SESSION_BUS_ADDRESS", "SSL_CERT_FILE", "NIX_SSL_CERT_FILE")}
     env.update(GH_PROMPT_DISABLED="1", GH_PAGER="cat", SYSTEMD_PAGER="cat", SYSTEMD_COLORS="0")
-    proc = subprocess.Popen(argv, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, env=env, start_new_session=True)
+    if source_fd is not None:
+        env["OBJECTIVES_LEDGER"] = "/dev/stdin"
+    proc = subprocess.Popen(argv, stdin=source_fd if source_fd is not None else subprocess.DEVNULL, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, env=env, start_new_session=True)
     output = bytearray()
     try:
         with selectors.DefaultSelector() as poll:
@@ -65,14 +68,17 @@ def lookup(name: str, arguments: dict) -> str:
         units = json.loads(run(["systemctl", "--user", "list-units", "route-*", "--state=running,activating", "--no-pager", "--output=json"], deadline))
         return "\n".join(f"{unit['unit']}: {unit['active']} {unit['sub']}" for unit in units) or "No builders are running."
     if name == "objectives":
-        path = Path.home() / ".claude/shared/open-objectives.md"
-        # O_NOFOLLOW prevents replacing an allowed source with a link to credentials.
-        fd = os.open(path, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK)
-        with os.fdopen(fd, "rb") as source:
-            data = source.read(MAX_OUTPUT + 1)
-        if len(data) > MAX_OUTPUT:
-            raise ValueError("Objectives exceed the voice output limit; ask main Janet for details.")
-        return data.decode("utf-8", "replace")
+        command = Path.home() / ".local/state/objectives-index-pkg/bin/sessionstart-objectives"
+        fd = os.open(Path.home() / ".claude/shared/open-objectives.md", os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK)
+        try:
+            if not stat.S_ISREG(os.fstat(fd).st_mode):
+                raise ValueError("Objectives source must be a regular file.")
+            # The index reads this open inode, even if the pathname is replaced while it runs.
+            context = json.loads(run([str(command)], deadline, source_fd=fd))["hookSpecificOutput"]["additionalContext"]
+        finally:
+            os.close(fd)
+        entries = [line for line in context.splitlines() if line.startswith("- ")]
+        return "Recent open objectives (bounded index):\n" + "\n".join(entries) if entries else "No indexed objectives available."
     if name == "health":
         return run(["uptime"], deadline) + "\n" + run(["free", "-m"], deadline) + "\n" + run(["df", "-h", "/"], deadline)
     return "\n".join(repo + ": " + run([
@@ -97,7 +103,7 @@ def respond(request: dict) -> dict | None:
         try:
             text = lookup(params.get("name"), params.get("arguments", {}))
             result = {"content": [{"type": "text", "text": text}], "isError": False}
-        except (OSError, ValueError, TimeoutError, subprocess.SubprocessError):
+        except (OSError, ValueError, KeyError, TypeError, AttributeError, subprocess.SubprocessError):
             result = {"content": [{"type": "text", "text": "Lab lookup unavailable or refused. Ask main Janet for details."}], "isError": True}
     elif method != "ping":
         return {"jsonrpc": "2.0", "id": request["id"], "error": {"code": -32601, "message": "Method not found"}}

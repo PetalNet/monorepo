@@ -62,7 +62,7 @@ class Config:
     main_like_env: dict[str, str] = field(default_factory=dict)
     cache_splice: bool = True
     unmerged_channels: list[str] = field(default_factory=list)
-    # Built-in tools a personal conversation's head may use, from web_guard.TOOLS. Empty keeps every head tool-less. Guests never get them.
+    # Public web tools from web_guard.TOOLS. Guests never get them; the lab MCP server is gated separately.
     web_tools: list[str] = field(default_factory=list)
     lab_token_file: str = ""
 

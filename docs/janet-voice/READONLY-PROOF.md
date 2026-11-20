@@ -1,6 +1,6 @@
 # Parker-only read-only voice access proof
 
-On 2026-11-20, the opt-in `apps/janet-voice-head/tests/prove_lab_call.py` ran the changed Python stack with real Claude (Sonnet for Parker, Haiku for the guest), the real stdio MCP server, live `systemctl --user`, the HTTP gateway, paired-device admission, `Call.reply`, and Wyoming synthesis at `10.10.10.152:10230`. The scripted input was the STT text, “what builders are running?” An isolated parent session, device registry, and hub kept the test out of main Janet. No production service was restarted and nothing was delivered to main.
+On 2026-11-20, the opt-in `apps/janet-voice-head/tests/prove_lab_call.py` ran the changed Python stack with real Claude (Sonnet for Parker, Haiku for the guest), the real stdio MCP server, live `systemctl --user`, the HTTP gateway, paired-device admission, `Call.reply`, and Wyoming synthesis at `10.10.10.152:10230`. The scripted input was the STT text, "what builders are running?" An isolated parent session, device registry, and hub kept the test out of main Janet. No production service was restarted and nothing was delivered to main.
 
 Parker's phone received this speech, as seven streamed clauses:
 
@@ -36,3 +36,7 @@ This proves the scripted STT-to-phone-audio path with a synthetic, verified owne
 The allowlist is `mcp__janet_lab__builders`, `mcp__janet_lab__objectives`, `mcp__janet_lab__health`, and `mcp__janet_lab__pull_requests`. Every input is an empty object. Fixed argv commands, a three-second total command deadline, output limits, and empty inherited MCP configuration enforce the boundary. No shell, secret lookup, arbitrary file or command input, or write tool is exposed. Messages, recall, and calendar remain outside this allowlist.
 
 Review: `gpt-6.1-terra:high` through the lab router. The first source review found two blockers: link issuers were being treated as verified recipients, and invalid lab credentials could still open personal forks. Both were fixed. A second source and deployment review reported no blocking findings; its local test environment was incomplete, so the implementation's separate test runs and this proof provide runtime validation.
+
+A maintainability and rollout review by `gpt-6-sol:medium` found that an unset bridge lab credential must preserve the configured tier during the staged rollout. The follow-up preserves that behavior and adds a WebSocket control test. Live tool checks also confirmed the full objectives ledger exceeds the output limit, so the tool now uses the existing compact index. It opens the ledger without following symlinks and supplies the open file as stdin, which keeps the source fixed if its pathname changes.
+
+The final source review by `gpt-6.1-terra:medium` confirmed both follow-up blockers resolved. The parent ledger directories remain trusted. Final targeted checks cover symlink refusal, pathname replacement, malformed output, owner and guest admission, and preserving the configured tier before the gate is enabled.

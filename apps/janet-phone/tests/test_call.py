@@ -497,6 +497,23 @@ class CallTest(unittest.IsolatedAsyncioTestCase):
             server.close()
             await server.wait_closed()
 
+    async def test_without_the_lab_gate_the_configured_tier_is_preserved(self):
+        from dataclasses import replace
+        config = replace(self.config, tier="personal")
+        async def accepted(ws):
+            await ws.send("admitted")
+        server = await janet_phone.serve(accepted, "127.0.0.1", 0,
+            process_request=lambda ws, request: janet_phone.admit(ws, request, config, self.devices))
+        try:
+            url = f"ws://127.0.0.1:{server.sockets[0].getsockname()[1]}/v1/call"
+            async with connect(url, additional_headers=self.phone) as ws:
+                self.assertEqual(await ws.recv(), "admitted")
+            self.assertEqual(FakeGateway.calls[-1][1]["tier"], "personal")
+            self.assertEqual(FakeGateway.lab_tokens[-1], "")
+        finally:
+            server.close()
+            await server.wait_closed()
+
     async def test_two_authorization_headers_are_refused(self):
         reader, writer = await asyncio.open_connection("127.0.0.1", self.server.sockets[0].getsockname()[1])
         writer.write(b"GET /v1/call HTTP/1.1\r\nHost: x\r\nUpgrade: websocket\r\nConnection: Upgrade\r\n"

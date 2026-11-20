@@ -186,5 +186,6 @@ python -m unittest discover -s tests -t .
 that owner receives a personal head with lab access. Shared pairing links, old device records,
 other identities and guest lines get guest heads. Re-sign in after upgrading to establish the
 verified identity. The lab token is read by the bridge, never accepted from a phone or returned
-by pairing. Use the matching head/gateway version with the lab gate enabled before enabling
+by pairing. With `lab_token_file` unset, the configured tier keeps its existing behavior.
+Use the matching head/gateway version with the lab gate enabled before enabling
 this setting; see the head's README for the fixed read-only allowlist and provisioning.

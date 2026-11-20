@@ -697,7 +697,8 @@ async def admit(ws: ServerConnection, request: Request, config: Config, devices:
     parker = config.tier == "personal" and devices.owner_of(pairing.bearer(authorization[0])) == config.lab_owner
     try:
         ws.gateway = gateway_for(config, {"Cf-Access-Jwt-Assertion": (request.headers.get_all("Cf-Access-Jwt-Assertion") or [""])[0]}, parker=parker)
-        ws.call_config = dataclasses.replace(config, tier="personal" if "X-Janet-Lab-Token" in ws.gateway.headers else "guest")
+        tier = config.tier if not config.lab_token_file else "personal" if "X-Janet-Lab-Token" in ws.gateway.headers else "guest"
+        ws.call_config = dataclasses.replace(config, tier=tier)
         ws.conversation = await asyncio.to_thread(ws.gateway.open, ws.call_config)
     except urllib.error.HTTPError as error:
         log.warning("call refused: %s", error)
