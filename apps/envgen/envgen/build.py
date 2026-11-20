@@ -17,7 +17,7 @@ from rasterio.warp import reproject, transform, transform_bounds
 from rasterio.windows import Window, from_bounds
 from scipy import ndimage
 
-from . import buildings, cover, frame, grain, lidar, light, orthophoto, surface, trees, turf
+from . import buildings, cover, frame, grain, lidar, light, orthophoto, surface, survey_light, trees, turf
 from .acquire import acquire, sha256_file
 from .site import (
     CONTEXT_QUADS,
@@ -1664,6 +1664,35 @@ def build(site_path: Path, out: Path, cache: Path | None = None) -> dict:
         )
         housing = stages["buildings"]
 
+    survey_lighting = None
+    if site.survey and site.survey.orthophoto:
+        stages["survey_lighting"] = _cached(
+            out,
+            "survey_lighting",
+            _stage_key(
+                site.survey,
+                geo,
+                survey_light.VERSION,
+                [
+                    sha256_file(Path(path))
+                    for path in (site.survey.location, site.survey.terrain, site.survey.orthophoto)
+                ],
+            ),
+            lambda: {
+                "files": [],
+                "lighting": survey_light.from_survey(
+                    site.survey,
+                    geo["origin_latitude_deg"],
+                    geo["origin_longitude_deg"],
+                    geo["true_north_from_grid_north_deg"],
+                    site.crs,
+                ),
+            },
+        )
+        survey_lighting = stages["survey_lighting"]["lighting"]
+    solar_time = covering["sun"]["fitted_solar_time"] if covering else None
+    if survey_lighting:
+        solar_time = survey_lighting["solar_time"]
     half_cm = tile.size_m * 100 / 2
     manifest = {
         "schema_version": SCHEMA_VERSION,
@@ -1694,7 +1723,7 @@ def build(site_path: Path, out: Path, cache: Path | None = None) -> dict:
         "surface": {key: value for key, value in classes.items() if key not in ("files", "cached")},
         "lighting": light.lighting(
             site.target_date,
-            covering["sun"]["fitted_solar_time"] if covering else None,
+            solar_time,
             geo["origin_latitude_deg"],
             geo["origin_longitude_deg"],
             geo["true_north_from_grid_north_deg"],
@@ -1706,6 +1735,8 @@ def build(site_path: Path, out: Path, cache: Path | None = None) -> dict:
     if ortho:
         manifest["orthophoto"] = {key: value for key, value in ortho.items() if key not in ("files", "cached")}
         artifacts += ortho["files"]
+    if survey_lighting:
+        manifest["lighting"]["survey_fit"] = survey_lighting
     if any(layer["name"] == "grass" for layer in classes["layers"]):
         manifest["turf"] = turf.describe()
         manifest["turf"]["growth"] = {key: value for key, value in stages["growth"].items() if key not in ("files", "cached")}
