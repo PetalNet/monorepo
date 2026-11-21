@@ -3,6 +3,10 @@
 // [text](url) links. Code inside a fence is left exactly as written. Anything else passes through byte for byte.
 const FENCE = /^\s*(```|~~~)[^`]*$/u; // a fence line may carry an info string (```js title), never another backtick
 const HEADER = /^#{1,6}\s+/u;
+// A line that opens with "#807" is read as a heading by lenient markdown parsers (marked pedantic: <h1>807 ...). A zero-width
+// space in front stops that and shows as nothing in every client; a backslash would show literally in plain-body ones.
+const REF_LINE = /^(\s*)(#\d+)/u;
+const ZWSP = "\u200B";
 const BULLET = /^(\s*)[-*]\s+/u;
 const BOLD = /(^|[\s([{"'])\*\*(\S(?:[^*\n]*\S)?)\*\*(?=$|[\s.,;:!?)\]}"'])/gu;
 const LINK = /\[([^\]\n]+)\]\((https?:[^)\s]+)\)/gu;
@@ -20,9 +24,10 @@ const DETECT: readonly (readonly [RegExp, string])[] = [
 export const detect = (s: string): string[] =>
 	DETECT.filter(([re]) => re.test(s)).map(([, n]) => n);
 
-export function plain(text: string): { text: string; leftover: string[] } {
+export function plain(text: string): { text: string; leftover: string[]; bareRefs: number } {
 	const out: string[] = [];
 	const prose: string[] = [];
+	let bareRefs = 0;
 	let inFence = false;
 	// One [indent depth, running number] pair per open list level.
 	let counters: [number, number][] = [];
@@ -67,6 +72,11 @@ export function plain(text: string): { text: string; leftover: string[] } {
 			l = l.replace(HEADER, "");
 		}
 
+		if (REF_LINE.test(l)) {
+			l = l.replace(REF_LINE, `$1${ZWSP}$2`);
+			bareRefs++;
+		}
+
 		l = l
 			.replace(BOLD, "$1$2")
 			.replace(LINK, (_m, t: string, u: string) => (t === u ? u : `${t}: ${u}`))
@@ -80,5 +90,6 @@ export function plain(text: string): { text: string; leftover: string[] } {
 	return {
 		text: out.join("\n"),
 		leftover: inFence ? ["unclosed code fence"] : detect(prose.join("\n")),
+		bareRefs,
 	};
 }
