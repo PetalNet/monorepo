@@ -18,7 +18,7 @@ const WINDOW_MS: Record<WindowSpan, number> = {
 export interface LimitWindow {
 	/** Provider, span and model, such as `claude-7d-fable`. Also the window's colour class. */
 	id: string;
-	agent: "Claude" | "Codex";
+	agent: string;
 	span: WindowSpan;
 	model: string | null;
 	/** The configured plan the window was checked against. */

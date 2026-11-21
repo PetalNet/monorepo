@@ -4,7 +4,8 @@ import { promisify } from "node:util";
 
 import * as SunCalc from "suncalc";
 
-import { DEFAULT_PLANS, type Provider, type WindowSpan } from "../plans.js";
+import { type Provider, type WindowSpan } from "../plans.js";
+import { parseQuotaFeed, type QuotaFeed } from "../quota.js";
 import type { ServiceCounts } from "../services.js";
 import { nextSolarEvent, type SolarEvent } from "../sky.js";
 
@@ -70,7 +71,7 @@ export interface Dossier {
 		phase: SolarPhase;
 	};
 	moon: { phase: number; illumination: number; ageDays: number; phaseName: MoonPhaseName };
-	agents: [UsageReadout, UsageReadout];
+	quota: QuotaFeed | null;
 	backup: {
 		lastSuccessAt: number | null;
 		lastAttemptAt: number | null;
@@ -433,20 +434,6 @@ const reportFailure =
 		return fallback;
 	};
 
-const readUsage = async (
-	input: Parameters<typeof usageReadoutFrom>[0] & { path: string; errors: string[] },
-): Promise<UsageReadout> => {
-	let data: JsonRecord | null = null;
-
-	try {
-		data = await parseJsonFile(input.path);
-	} catch {
-		input.errors.push(`${input.slug} usage`);
-	}
-
-	return usageReadoutFrom({ ...input, data });
-};
-
 const readServices = async (
 	dbPath: string,
 ): Promise<Omit<Dossier["services"], "stale" | "kumaUrl">> => {
@@ -533,7 +520,6 @@ const readHost = async (path: string): Promise<Omit<Dossier["host"], "stale">> =
 
 export const buildDossier = async (): Promise<Dossier> => {
 	const now = Date.now();
-	const nowSeconds = Math.floor(now / 1000);
 	const errors: string[] = [];
 	// Royal Observatory, Greenwich. Deployments set LAB_LAT/LAB_LON.
 	const lat = envNumber("LAB_LAT", 51.4769);
@@ -568,29 +554,10 @@ export const buildDossier = async (): Promise<Dossier> => {
 		stale: true,
 	};
 
-	const [agents, backup, services, host, mood] = await Promise.all([
-		Promise.all([
-			readUsage({
-				slug: "janet-primary",
-				label: "Claude",
-				kind: "claude",
-				plan: process.env.CLAUDE_PLAN ?? DEFAULT_PLANS.claude,
-				path: process.env.USAGE_PATH ?? "/shared/janet-usage.json",
-				nowSeconds,
-				errors,
-				data: null,
-			}),
-			readUsage({
-				slug: "codex",
-				label: "Codex",
-				kind: "codex",
-				plan: process.env.CODEX_PLAN ?? DEFAULT_PLANS.codex,
-				path: process.env.CODEX_USAGE_PATH ?? "/shared/codex-usage.json",
-				nowSeconds,
-				errors,
-				data: null,
-			}),
-		]),
+	const [quota, backup, services, host, mood] = await Promise.all([
+		parseJsonFile(process.env.QUOTA_USAGE_PATH ?? "/shared/quota-usage.json")
+			.then(parseQuotaFeed)
+			.catch(reportFailure(errors, "quota", null)),
 		readFile(process.env.BACKUP_LOG ?? "/logs/backup-offsite.log", "utf8")
 			.then(parseBackupLog)
 			.catch(reportFailure(errors, "backup", { lastSuccessAt: null, lastAttemptAt: null })),
@@ -634,7 +601,7 @@ export const buildDossier = async (): Promise<Dossier> => {
 			ageDays: moonAgeDays(phase),
 			phaseName: moonPhaseName(phase),
 		},
-		agents: [agents[0], agents[1]],
+		quota,
 		backup: {
 			...backup,
 			nextScheduledAt: nextBackupAt(now),

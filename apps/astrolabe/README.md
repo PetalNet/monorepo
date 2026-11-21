@@ -9,17 +9,13 @@ pnpm install
 pnpm --filter @petalnet/astrolabe dev
 ```
 
-The server accepts the existing deployment paths through `USAGE_PATH`, `CODEX_USAGE_PATH`, `CLAUDE_PLAN`, `CODEX_PLAN`, `BACKUP_LOG`, `KUMA_DB`, `HOST_HEALTH_PATH`, `MOOD_PATH`, `LAB_LAT`, and `LAB_LON`. `KUMA_URL` is the Uptime Kuma base URL the services section links to; without it, down monitors are named but not linked. Every input is optional at runtime: an unavailable source is represented locally as stale or awaiting data.
+The server accepts `QUOTA_USAGE_PATH`, `BACKUP_LOG`, `KUMA_DB`, `HOST_HEALTH_PATH`, `MOOD_PATH`, `LAB_LAT`, and `LAB_LON`. `KUMA_URL` is the Uptime Kuma base URL the services section links to. Unavailable sources are shown as unavailable or stale.
 
-## Plans
+## Quota feed
 
-`src/lib/plans.ts` lists the limit windows each plan has (`PLANS`), such as Claude Max 20x's weekly and Fable weekly limits or Codex Plus's 5-hour and weekly ones. `DEFAULT_PLANS` picks the plans in use; `CLAUDE_PLAN` and `CODEX_PLAN` override them. The dials and plaques draw the windows the active plans list and fill them from the live feeds. A window the plan lists that the feed doesn't report, one the feed reports that the plan doesn't list, a Codex plan other than the configured one, or a Claude limit kind Astrolabe doesn't read is shown flagged rather than hidden.
+The dashboard reads `/shared/quota-usage.json` by default. The producer must provide a JSON object with `generatedAt` in epoch milliseconds and a `services` array. Each service has `service`, `status` (`ok`, `signed-out`, or `error`), and `limits`. Each limit has `id`, `label`, and `usedPct`, with optional `resetAtMs` and `resetLabel`. The feed must exclude account data, summaries, errors, and credentials. Compose mounts `/home/docker/.claude/shared/astrolabe-quota` read-only; provision the directory before starting the container.
 
-Claude's windows come from the `raw` usage response in `USAGE_PATH` (`five_hour`, `seven_day`, and the `weekly_scoped` entries of `limits`), since the top-level `five_hour_pct` reads 0 when there is no 5-hour window at all.
-
-## Codex usage feed
-
-`feed/codex-usage-snapshot` writes `CODEX_USAGE_PATH`'s file on the host (default `/home/docker/.claude/shared/codex-usage.json`, override with `CODEX_USAGE_OUT`). Cron on .14 runs it every 5 minutes from a release checkout of `main`. It calls `feed/codex-usage --json`, which asks OpenAI for live rate limits through `codex app-server` (`account/rateLimits/read`, no tokens spent; `CODEX_BIN` overrides the binary) and falls back to the newest `~/.codex/sessions` rollout when that fails, with a warning on stderr. The JSON fields match `src/lib/server/dossier.ts`.
+The feed is stale after 15 minutes. Stale figures and figures for windows that have reset are hidden. Five-hour and seven-day limits identified by `:5h` and `:7d` suffixes can appear on the dials; all limits appear on plaques. Ollama Cloud is listed as having no limit feed until a report is available.
 
 ## Container
 
