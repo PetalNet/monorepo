@@ -450,10 +450,10 @@ namespace
 				const TSharedPtr<FJsonObject> Surfaces = (*Calibration)->GetObjectField(TEXT("surfaces"));
 				for (const TCHAR* Name : {TEXT("maintained"), TEXT("worn"), TEXT("edge")})
 				{
-					const TSharedPtr<FJsonObject> Surface = Surfaces->GetObjectField(Name);
-					const FLinearColor Green = Colour(Surface->GetArrayField(TEXT("green")));
-					const FLinearColor Dry = Colour(Surface->GetArrayField(TEXT("dry")));
-					const TArray<TSharedPtr<FJsonValue>>& Mix = Surface->GetArrayField(TEXT("mix"));
+					const TSharedPtr<FJsonObject> Palette = Surfaces->GetObjectField(Name);
+					const FLinearColor Green = Colour(Palette->GetArrayField(TEXT("green")));
+					const FLinearColor Dry = Colour(Palette->GetArrayField(TEXT("dry")));
+					const TArray<TSharedPtr<FJsonValue>>& Mix = Palette->GetArrayField(TEXT("mix"));
 					Out.Turf.FieldMeans.Add(Green * float(Mix[0]->AsNumber()) + Dry * float(Mix[1]->AsNumber()) + Soil * float(Mix[2]->AsNumber()));
 					Out.Turf.VegetationMeans.Add((Green * float(Mix[0]->AsNumber()) + Dry * float(Mix[1]->AsNumber())) / float(Mix[0]->AsNumber() + Mix[1]->AsNumber()));
 					Out.Turf.FieldContrasts.Add(Dry - Green);
