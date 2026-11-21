@@ -91,7 +91,7 @@ object SignIn {
 	var message by mutableStateOf("Sign in with your Janet account to enroll this phone. Shared links give guest access.")
 		private set
 	private var generation = 0
-	private fun callBusy() = Calls.inCall || Calls.state is CallState.Ringing || IncomingCalls.pending != null
+	private fun callBusy() = Calls.inCall || Calls.state is CallState.Ringing
 
 	fun pending(context: Context): PendingSignIn? = Settings(context).pendingSignIn()
 
