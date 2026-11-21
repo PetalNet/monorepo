@@ -24,6 +24,7 @@ import os
 import sys
 import threading
 import time
+from collections import deque
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -128,6 +129,7 @@ class TurnEnd:
         self._speech_run_s = 0.0
         self._started = False
         self._silence_s = 0.0
+        self._speech_s = 0.0
 
     def _judged(self, ask):
         """Asks the judge, if there is one. A judge that fails is dropped: the turn then ends on
@@ -145,6 +147,7 @@ class TurnEnd:
         policy = self._policy
         self._heard_s += FRAME_S
         said = self._vad(frame) >= policy.speech
+        self._speech_s += FRAME_S if said else 0.0
         self._speech_run_s = self._speech_run_s + FRAME_S if said else 0.0
         self._judged(lambda hearing: hearing.hear(frame, said))
         # Once a turn has started, one frame of speech is enough to keep it open. Asking for more
@@ -215,6 +218,8 @@ class Utterances:
         self._max = round(max_s / FRAME_S)
         self._raw = b""
         self._events: list[str | bytes] = []
+        self.endpoints = deque()
+        self._offset = 0
         self._new_turn()
 
     def _new_turn(self) -> None:
@@ -227,16 +232,28 @@ class Utterances:
         self._started = True
         self._events.append("start")
 
+    def gap(self) -> None:
+        """Keep the caller's turn, but require fresh observed silence after a network gap."""
+        self._raw = b""
+        self._turn._silent = 0
+        self._turn._silence_s = 0.0
+        self._turn._speech_run_s = 0.0
+
     def feed(self, pcm: bytes) -> list[str | bytes]:
         self._raw += pcm
         size = FRAME * 2
         while len(self._raw) >= size:
             frame, self._raw = self._raw[:size], self._raw[size:]
             self._frames.append(frame)
+            self._offset += FRAME_S * 1000
             why = self._turn.feed(np.frombuffer(frame, "<i2").astype(np.float32) / 32768)
             if not self._started:
                 del self._frames[: -self._lead - 1]
             if why in ("done", "quiet") or len(self._frames) >= self._max:
+                self.endpoints.append({"audio_end_ms": round(self._offset),
+                                       "speech_ms": round(self._turn._speech_s * 1000),
+                                       "endpoint_ms": round(self._turn._silence_s * 1000),
+                                       "endpoint_reason": why or "limit"})
                 self._events.append(b"".join(self._frames))
                 self.close()
                 self._new_turn()

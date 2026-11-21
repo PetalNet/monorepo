@@ -82,3 +82,10 @@ Each connection carries one request and is then closed. A request with a chunked
 ```sh
 python -m unittest discover -s . -t .
 ```
+
+`POST /v1/tts` also accepts `"format": "pcm"` for incremental audio. The response is
+`application/octet-stream`, containing records with an 8-byte network-byte-order header
+(two unsigned 32-bit integers: sample rate and payload length) followed by mono PCM16
+audio. Rates are 8000–48000 Hz and payloads are at most 16384 bytes. A successful
+HTTP chunked-transfer terminator marks completion; a truncated transfer is an error.
+The default `"wav"` format retains the complete WAV response.

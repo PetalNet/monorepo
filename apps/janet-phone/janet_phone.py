@@ -10,6 +10,7 @@ import json
 import logging
 import math
 import os
+import re
 import socket
 import subprocess
 import sys
@@ -31,6 +32,8 @@ from websockets.http11 import Request, Response
 
 import pairing
 import ringing
+from resumable import ResumableSocket
+from speech_stream import PcmSource, SpeechStream
 
 __version__ = "0.1.0"
 
@@ -40,6 +43,7 @@ FRAME = RATE // 50 * 2  # bytes in 20 ms
 DISCLOSURES: dict[str, tuple[int, bytes]] = {}
 RECORD_LIMIT = 20000  # characters; a Matrix event holds about 64 kB
 OPEN: set[int] = set()  # calls in progress
+SESSIONS: dict[tuple[str, str], ResumableSocket | None] = {}
 
 
 class Endpointer:
@@ -65,6 +69,12 @@ class Endpointer:
         self._frames: list[bytes] = []
         self._speaking = False
         self._loud = self._quiet = 0
+        self._activity: list[bool] = []
+
+    def gap(self) -> None:
+        """Missing samples cannot join two runs of observed silence."""
+        self._quiet = self._loud = 0
+        self._pending = b""
 
     def feed(self, pcm: bytes) -> list[str | bytes]:
         events: list[str | bytes] = []
@@ -78,6 +88,7 @@ class Endpointer:
                 samples = array.array("h", frame)
                 loud = sum(s * s for s in samples) > self.threshold**2 * len(samples)
             self._frames.append(frame)
+            self._activity.append(bool(loud))
             if not self._speaking:
                 self._loud = self._loud + 1 if loud else 0
                 if self._loud >= self.start_frames:
@@ -85,14 +96,17 @@ class Endpointer:
                     events.append("start")
                 else:
                     del self._frames[: -self.lead_frames - self.start_frames]
+                    del self._activity[: -self.lead_frames - self.start_frames]
             else:
                 self._quiet = 0 if loud else self._quiet + 1
                 if self._quiet >= self.silence_frames or len(self._frames) >= self.max_frames:
                     self.endpoints.append({"audio_end_ms": self._offset,
+                                           "speech_ms": sum(self._activity) * self.frame_ms,
                                            "endpoint_ms": self._quiet * self.frame_ms,
                                            "endpoint_reason": "silence" if self._quiet >= self.silence_frames else "limit"})
                     events.append(b"".join(self._frames))
                     self._frames, self._speaking, self._loud = [], False, 0
+                    self._activity = []
         return events
 
 
@@ -277,8 +291,21 @@ def transcribe(address: str, pcm: bytes) -> str:
                 data.update(json.loads(reader.read(header["data_length"])))
             reader.read(header.get("payload_length") or 0)
             if header["type"] == "transcript":
+                segments = data.get("segments", [data])
+                if segments and all(unreliable_segment(segment) for segment in segments):
+                    log.info("speech to text: rejected low-confidence/no-speech result")
+                    return ""
                 return data.get("text", "").strip()
     raise OSError("the speech-to-text server closed the connection")
+
+
+def unreliable_segment(segment: dict) -> bool:
+    """Use recognizer confidence when provided; Wyoming implementations may omit it."""
+    if not isinstance(segment, dict):
+        return False
+    no_speech, logprob = segment.get("no_speech_prob"), segment.get("avg_logprob")
+    return ((isinstance(no_speech, (int, float)) and no_speech >= 0.6)
+            or (isinstance(logprob, (int, float)) and logprob < -1.0))
 
 
 def level(pcm: bytes, rate: int) -> float:
@@ -434,6 +461,10 @@ class Gateway:
                 time.sleep(5)
         raise OSError("the voice host did not wake")
 
+    def speech_chunks(self, text: str, **metadata):
+        """Yield PCM as synthesis produces it, with an interruptible HTTP read."""
+        return PcmSource(self.url + "/v1/tts", self.headers, {"text": text, "format": "pcm", **metadata})
+
 
 class Call:
     def __init__(self, ws: ServerConnection, config: Config, gateway: Gateway, conversation: str, device: str = ""):
@@ -462,11 +493,25 @@ class Call:
         # each side's words the second they were said.
         self.tape = {"caller": bytearray(), "janet": bytearray()}
         self.timeline: list[dict] = []
+        self.opus = getattr(ws, "audio_codec", "pcm") == "opus"
+        self.decoder = self.encoder = None
+        if self.opus:
+            from opus_transport import Decoder
+
+            self.decoder = Decoder(RATE)
+        self.sample_end: int | None = None
+        self.inflight: tuple[bytes, dict] | None = None
+        self.continuation = b""
+        self.active_stream: SpeechStream | None = None
+        self.audio_progress = asyncio.Event()
+        self.received_samples = 0
 
     async def run(self) -> None:
         listener = asyncio.create_task(self.listen())
         hum = asyncio.create_task(self.hum())
         try:
+            if self.opus:
+                await self.tell(type="audio", rate=24000, codec="opus")
             await self.say(self.config.disclosure, asyncio.ensure_future(self.disclosure()))
             if self.ring is not None:
                 self.speaking = asyncio.create_task(self.reply(
@@ -481,9 +526,11 @@ class Call:
                 await self.tell(type="state", value="listening")
                 try:
                     timeout = RING_SILENCE_S if self.ring and not silence_reported else None
+                    received_before = self.received_samples
                     pcm, ended, turn = await asyncio.wait_for(self.utterances.get(), timeout)
                 except TimeoutError:
-                    if self.caller_speaking:
+                    if (self.caller_speaking or self.received_samples - received_before < RING_SILENCE_S * RATE
+                            or time.monotonic() - self.last_heard > .25):
                         continue
                     silence_reported = True
                     self.speaking = asyncio.create_task(self.reply(
@@ -497,6 +544,11 @@ class Call:
                 except asyncio.QueueShutDown:
                     return
                 await self.tell(type="state", value="thinking")
+                self.inflight = (pcm, turn)
+                if turn.get("speech_ms", 1000) < 96:
+                    turn["outcome"] = "insufficient_speech"
+                    self.inflight = None
+                    continue
                 turn["outcome"] = "transcribing"
                 turn["stt_start_at"] = time.time()
                 mark = time.monotonic()
@@ -504,17 +556,23 @@ class Call:
                     text = await asyncio.to_thread(transcribe, self.config.stt, pcm)
                 except (OSError, ValueError) as error:
                     turn["outcome"] = "stt_failed"
+                    self.inflight = None
                     log.warning("call %s: speech to text failed: %s", self.conversation, error)
                     continue
                 turn["stt_ms"] = round((time.monotonic() - mark) * 1000)
                 turn["stt_result_at"] = time.time()
+                if turn.get("superseded"):
+                    continue
                 if not text:
                     turn["outcome"] = "no_transcript"
+                    self.inflight = None
                     continue
                 log.info("call %s: heard %d chars, %.1f s into the call (stt %d ms)", self.conversation, len(text), time.monotonic() - self.connected, turn["stt_ms"])
                 self.transcript.append(("Caller", text))
                 self.timeline.append({"t": round(ended - self.connected, 2), "who": "Caller", "text": text})
                 await self.tell(type="words", side="him", text=text, words=[])
+                if turn.get("superseded"):
+                    continue
                 self.speaking = asyncio.create_task(self.reply(text, ended, turn))
                 await asyncio.wait([self.speaking])
                 if self.speaking.cancelled():
@@ -530,12 +588,18 @@ class Call:
             pass
         finally:
             self.over = True
+            if self.active_stream is not None:
+                self.active_stream.close()
             log.info("call %s: %s", self.conversation, self.how_it_ended())
             listener.cancel()
             hum.cancel()
             if self.speaking is not None:
                 self.speaking.cancel()
             await self.ws.close()
+            await asyncio.gather(listener, hum, return_exceptions=True)
+            for codec in (self.decoder, self.encoder):
+                if codec is not None:
+                    codec.close()
 
     async def hang_up(self, why: str) -> None:
         """Janet ends the call: the earcon first, so the caller knows it was her, then the bye."""
@@ -545,7 +609,7 @@ class Call:
         try:
             if tone:
                 rate = self.rate or 24000
-                await self.ws.send(tone)
+                await self.send_audio(tone, rate)
                 if self.config.record_dir:
                     self.tape_janet(tone, rate)
                 await asyncio.sleep(len(tone) / (rate * 2) + 0.15)  # let the phone play it before the line closes
@@ -583,7 +647,7 @@ class Call:
                 continue
             block = line.render(int(self.rate * LINE_BLOCK_S), self.phase)[:, 0]
             chunk = mix(bytes(int(self.rate * LINE_BLOCK_S) * 2), block)
-            await self.ws.send(chunk)
+            await self.send_audio(chunk, self.rate)
             if self.config.record_dir:
                 self.tape_janet(chunk, self.rate)
             due += LINE_BLOCK_S
@@ -594,7 +658,12 @@ class Call:
 
     async def listen(self) -> None:
         """Reads the caller until the socket closes, however it closes, and then ends the call."""
-        endpointer, heard = await asyncio.to_thread(new_endpointer, self.config), 0
+        endpoint_config = self.config
+        if self.opus and self.config.vad_model and not self.config.turn_models:
+            models = Path(self.config.vad_model).parent
+            if (models / "parakeet_realtime_eou_120m.int8.onnx").exists():
+                endpoint_config = dataclasses.replace(self.config, turn_models=str(models))
+        endpointer, heard = await asyncio.to_thread(new_endpointer, endpoint_config), 0
         try:
             async with asyncio.timeout(self.config.max_call_s):
                 stalled = False
@@ -615,7 +684,28 @@ class Call:
                     received, received_at = time.monotonic(), time.time()
                     self.last_heard = received
                     if not isinstance(message, bytes):
+                        try:
+                            if json.loads(message).get("type") == "hangup":
+                                await self.ws.close()
+                                break
+                        except (ValueError, AttributeError):
+                            pass
                         continue
+                    previous = self.sample_end
+                    if self.decoder is not None:
+                        stamp, message = self.decoder.decode(message)
+                        if previous is not None and stamp < previous:
+                            continue
+                        self.sample_end = stamp + len(message) // 2
+                        gap = previous is not None and stamp != previous
+                    else:
+                        gap = received - getattr(self, "audio_received", received) > 0.25
+                    self.audio_received = received
+                    self.received_samples += len(message) // 2
+                    self.audio_progress.set()
+                    if gap:
+                        endpointer.gap()
+                        log.info("call %s: audio gap; requiring fresh received silence", self.conversation)
                     if self.config.record_dir:
                         self.tape["caller"] += message
                     heard += len(message)
@@ -625,16 +715,27 @@ class Call:
                             await self.tell(type="level", her=0.0, him=self.him)
                     events = endpointer.feed(message)
                     batch_end_ms = (getattr(endpointer, "_offset", 0)
-                                    + len(getattr(endpointer, "_pending", b"")) / (RATE * 2 / 1000))
+                                    + len(getattr(endpointer, "_pending", getattr(endpointer, "_raw", b""))) / (RATE * 2 / 1000))
                     for event in events:
                         if event == "start":
                             self.caller_speaking = True
+                            if self.inflight is not None and "first_audio_at" not in self.inflight[1]:
+                                self.continuation = self.inflight[0]
+                                self.inflight[1].update(superseded=True, outcome="continued")
+                                self.inflight = None
+                            while not self.utterances.empty():
+                                queued, _, previous_turn = self.utterances.get_nowait()
+                                self.continuation += queued
+                                previous_turn.update(superseded=True, outcome="continued")
                             await self.cut_off()
                         else:
                             self.caller_speaking = False
                             endpoint = endpointer.endpoints.popleft() if hasattr(endpointer, "endpoints") else {
                                 "endpoint_ms": None, "endpoint_reason": "shared_detector"}
                             if not self.utterances.full():
+                                if self.continuation:
+                                    event = self.continuation + event
+                                    self.continuation = b""
                                 behind = max(0, batch_end_ms - endpoint.get("audio_end_ms", batch_end_ms)) / 1000
                                 ended = received - behind
                                 endpoint["endpoint_at"] = (received_at - behind
@@ -649,6 +750,10 @@ class Call:
         except TimeoutError:
             await self.hang_up("the call reached its time limit")
         finally:
+            if self.speaking is not None:
+                self.speaking.cancel()
+            if self.active_stream is not None:
+                self.active_stream.close()
             self.utterances.shutdown(immediate=True)
             if close := getattr(endpointer, "close", None):
                 close()
@@ -658,6 +763,8 @@ class Call:
             return
         log.info("call %s: cut off by the caller after %d sentences heard, %.1f s into the call", self.conversation, len(self.heard), time.monotonic() - self.connected)
         self.speaking.cancel()
+        if self.active_stream is not None:
+            self.active_stream.close()
         await self.ws.send(json.dumps({"type": "clear"}))
         heard = {"heard_text": " ".join(self.heard)}
         try:
@@ -719,7 +826,8 @@ class Call:
             while (item := await spoken.get()) is not None:
                 sentence, audio, bridge = item
                 await self.say(sentence, audio, turn, ended)
-                head_audio_sent |= not bridge and bool(audio.result()[1])
+                result = audio.result()
+                head_audio_sent |= not bridge and (isinstance(result, SpeechStream) or bool(result[1]))
 
         async def synthesize() -> None:
             while (item := await pending.get()) is not None:
@@ -789,7 +897,7 @@ class Call:
                 task.cancel()
             await asyncio.gather(player, producer, return_exceptions=True)
 
-    async def synthesize(self, sentence: str, turn: dict | None = None) -> tuple[int, bytes]:
+    async def synthesize(self, sentence: str, turn: dict | None = None) -> tuple[int, bytes] | SpeechStream:
         # Cancelling to_thread does not stop its HTTP request. A new reply waits for that request,
         # while cancellation drops all sentences the ordered producer has not submitted yet.
         if self.voice is not None:
@@ -799,6 +907,10 @@ class Call:
             turn.setdefault("tts_request_at", time.time())
         metadata = ({"conversation_id": self.conversation, "turn": turn["request_turn"]}
                     if turn is not None and "request_turn" in turn else {})
+        if self.opus:
+            stream = SpeechStream(self.gateway.speech_chunks(sentence, **metadata))
+            self.active_stream, self.voice = stream, stream.task
+            return stream
         self.voice = asyncio.create_task(asyncio.to_thread(self.gateway.speech, sentence, **metadata))
         self.voice.add_done_callback(lambda done: done.exception() if not done.cancelled() else None)
         audio = await asyncio.shield(self.voice)
@@ -808,11 +920,18 @@ class Call:
 
     async def say(self, sentence: str, audio: asyncio.Future, turn: dict | None = None, ended: float = 0.0,
                   connect_ring: bool = False) -> None:
-        rate, pcm = await audio
+        result = await audio
+        if isinstance(result, SpeechStream):
+            try:
+                await self.say_stream(sentence, result, turn, ended)
+            finally:
+                result.close()
+            return
+        rate, pcm = result
         pcm = trim_edges(pcm, rate)
         if rate != self.rate:
             line = await asyncio.to_thread(make_line, self.config, rate)
-            await self.ws.send(json.dumps({"type": "audio", "rate": rate}))
+            await self.ws.send(json.dumps({"type": "audio", "rate": rate, **({"codec": "opus"} if self.opus else {})}))
             self.rate, self.line = rate, line  # the tone starts only after the device knows the rate
         self.latency.setdefault("first_audio_ms", round((time.monotonic() - self.connected) * 1000))
         self.timeline.append({"t": round(time.monotonic() - self.connected, 2), "who": "Janet", "text": sentence})
@@ -829,7 +948,7 @@ class Call:
                     chunk = mix(chunk, self.line.render(len(chunk) // 2, "speaking")[:, 0])
                 if self.ring is not None and self.ring.state != "audio_connected" and not self.ring.snapshot():
                     raise OSError("the incoming ring expired before audio")
-                await self.ws.send(chunk)
+                await self.send_audio(chunk, rate)
                 if turn is not None and "first_audio_at" not in turn:
                     elapsed = round((time.monotonic() - ended) * 1000)
                     turn["endpoint_to_audio_ms"] = elapsed if turn.get("endpoint_reason") != "shared_detector" else None
@@ -850,6 +969,76 @@ class Call:
             self.ring.finish("audio_connected")
         self.transcript.append(("Janet", sentence))
         self.heard.append(sentence)
+
+    async def send_audio(self, pcm: bytes, rate: int) -> bool:
+        if not self.opus:
+            await self.ws.send(pcm)
+            return bool(pcm)
+        if self.encoder is None or self.encoder_rate != rate:
+            from opus_transport import Encoder
+
+            if self.encoder is not None:
+                self.encoder.close()
+            self.encoder, self.encoder_rate = Encoder(rate), rate
+        packets = self.encoder.encode(pcm)
+        for packet in packets:
+            await self.ws.send(packet)
+        return bool(packets)
+
+    async def say_stream(self, sentence: str, audio: SpeechStream, turn: dict, ended: float) -> None:
+        began, sent, started, rate = None, 0, False, None
+        audio_sent = False
+        try:
+            async for hz, pcm in audio:
+                if rate is not None and hz != rate:
+                    raise ValueError("speech rate changed within a sentence")
+                rate = hz
+                if not started:
+                    # A stalled uplink provides no evidence that the caller finished speaking.
+                    while time.monotonic() - getattr(self, "audio_received", time.monotonic()) > .25:
+                        self.audio_progress.clear()
+                        await self.audio_progress.wait()
+                    if turn.get("superseded"):
+                        return
+                    if rate != self.rate:
+                        self.line = await asyncio.to_thread(make_line, self.config, rate)
+                        await self.tell(type="audio", rate=rate, codec="opus")
+                        self.rate = rate
+                    await self.tell(type="state", value="speaking")
+                    await self.tell(type="words", side="her", text=sentence, words=[])
+                    self.timeline.append({"t": round(time.monotonic() - self.connected, 2), "who": "Janet", "text": sentence})
+                    self.playing, started, began = True, True, time.monotonic()
+                step = rate // 50 * 2
+                for at in range(0, len(pcm), step):
+                    chunk = pcm[at:at + step]
+                    if self.line is not None:
+                        chunk = mix(chunk, self.line.render(len(chunk) // 2, "speaking")[:, 0])
+                    if self.ring is not None and self.ring.state != "audio_connected" and not self.ring.snapshot():
+                        raise OSError("the incoming ring expired before audio")
+                    delivered = await self.send_audio(chunk, rate)
+                    audio_sent |= delivered
+                    if delivered and "first_audio_at" not in turn:
+                        turn["first_audio_at"] = time.time()
+                        turn["endpoint_to_audio_ms"] = round((time.monotonic() - ended) * 1000)
+                        turn["total_ms"] = (turn["endpoint_to_audio_ms"] + turn["endpoint_ms"]
+                                            if turn.get("endpoint_ms") is not None else None)
+                        turn["tts_ms"] = round((time.time() - turn.get("tts_request_at", time.time())) * 1000)
+                        self.latency.setdefault("first_audio_ms", round((time.monotonic() - self.connected) * 1000))
+                        log.info("call %s: first streaming audio %s", self.conversation, json.dumps(turn))
+                    if self.config.record_dir:
+                        self.tape_janet(chunk, rate)
+                    sent += len(chunk)
+                    await asyncio.sleep(max(0, began + sent / (rate * 2) - 0.08 - time.monotonic()))
+            if not audio_sent:
+                raise OSError("the voice returned no audio")
+            self.transcript.append(("Janet", sentence))
+            self.heard.append(sentence)
+        except asyncio.CancelledError:
+            if started:
+                self.transcript.append(("Janet", sentence + " [cut off]"))
+            raise
+        finally:
+            self.playing = False
 
     def tape_janet(self, chunk: bytes, rate: int) -> None:
         """Janet's audio goes on her track at the moment it is sent, with silence before it if she was quiet."""
@@ -905,6 +1094,24 @@ async def admit(ws: ServerConnection, request: Request, config: Config, devices:
     device = devices.name_of(pairing.bearer(authorization[0])) if len(authorization) == 1 else None
     if device is None:
         return ws.respond(HTTPStatus.FORBIDDEN, "this phone is not paired\n")
+    codecs, sessions = request.headers.get_all("X-Janet-Audio"), request.headers.get_all("X-Janet-Session")
+    ws.session_key = None
+    if codecs or sessions:
+        if (codecs != ["opus"] or len(sessions) != 1
+                or re.fullmatch(r"[0-9a-f]{32}", sessions[0]) is None):
+            return ws.respond(HTTPStatus.BAD_REQUEST, "invalid audio session\n")
+        key = (pairing.device_hash(pairing.bearer(authorization[0])), sessions[0])
+        ws.session_key = key
+        if key in SESSIONS:
+            session = SESSIONS[key]
+            if session is None or session.call is None:
+                return ws.respond(HTTPStatus.SERVICE_UNAVAILABLE, "call is still opening\n")
+            if session.closed or session.call.over:
+                return ws.respond(HTTPStatus.GONE, "call has ended\n")
+            ws.resuming = session
+            ws.conversation, ws.gateway = session.call.conversation, session.call.gateway
+            ws.call_config, ws.device = session.call.config, device
+            return None
     ring_ids = request.headers.get_all("X-Janet-Ring")
     ws.ring = None
     if ring_ids:
@@ -916,12 +1123,17 @@ async def admit(ws: ServerConnection, request: Request, config: Config, devices:
             ws.ring.finish("busy")
         return ws.respond(HTTPStatus.SERVICE_UNAVAILABLE, "busy\n")
     OPEN.add(id(ws))  # reserve before the first await, including gateway startup
+    if ws.session_key is not None:
+        SESSIONS[ws.session_key] = None
     opening = None
 
     async def released():
         await ws.wait_closed()
-        OPEN.discard(id(ws))
-        if ws.ring is not None:
+        if getattr(ws, "session", None) is None:
+            OPEN.discard(id(ws))
+            if ws.session_key is not None:
+                SESSIONS.pop(ws.session_key, None)
+        if ws.ring is not None and getattr(ws, "session", None) is None:
             ws.ring.finish("audio_failed")
         if not getattr(ws, "handled", False) and opening is not None:
             try:
@@ -952,13 +1164,29 @@ async def admit(ws: ServerConnection, request: Request, config: Config, devices:
             ws.ring.finish("gateway_failed")
         log.warning("call failed: %s", error)
         return ws.respond(HTTPStatus.BAD_GATEWAY, "the voice gateway is unreachable\n")
+    if ws.session_key is not None:
+        ws.session = ResumableSocket(ws)
+        ws.session.audio_codec = "opus"
+        SESSIONS[ws.session_key] = ws.session
     return None
 
 
 async def handle(ws: ServerConnection, config: Config) -> None:
     ws.handled = True
+    if session := getattr(ws, "resuming", None):
+        call = session.call
+        snapshot = [json.dumps({"type": "clear"})]
+        if call is not None:
+            snapshot += [json.dumps({"type": "audio", "rate": call.rate or 24000, "codec": "opus"}),
+                         json.dumps({"type": "state", "value": call.phase})]
+        await session.attach(ws, snapshot)
+        await ws.wait_closed()
+        return
     config = ws.call_config
-    call = Call(ws, config, ws.gateway, ws.conversation, ws.device)
+    transport = getattr(ws, "session", None) or ws
+    call = Call(transport, config, ws.gateway, ws.conversation, ws.device)
+    if isinstance(transport, ResumableSocket):
+        transport.call = call
     # A sleeping voice host starts waking now, while the caller hears the cached disclosure.
     threading.Thread(target=warm, args=(config, ws.gateway), daemon=True).start()
     log.info("call %s: answered", call.conversation)
@@ -980,6 +1208,10 @@ async def handle(ws: ServerConnection, config: Config) -> None:
         log.warning("call %s: audio failed: %s", call.conversation, type(error).__name__)
     finally:
         OPEN.discard(id(ws))
+        if ws.session_key is not None:
+            key, session = ws.session_key, transport
+            asyncio.get_running_loop().call_later(25, lambda: SESSIONS.pop(key, None)
+                if SESSIONS.get(key) is session else None)
         if call.ring is not None:
             call.ring.finish("audio_failed")
         log.info("call %s: ended %s", call.conversation, json.dumps(call.latency))

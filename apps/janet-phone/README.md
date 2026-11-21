@@ -106,7 +106,29 @@ For the device's screen the bridge also sends these text messages. A device may 
 the voice and the speech-to-text model, and caches the disclosure. A call does the same when it
 starts. At most once a minute.
 
-Closing the socket hangs up.
+The Android app adds `X-Janet-Audio: opus` and a random `X-Janet-Session` of 32 lowercase hex
+characters. Both directions then carry 20 ms mono Opus packets: `JOP1`, an unsigned 64-bit
+big-endian sample position, and one raw packet. Uplink uses 16 kHz; downlink uses the announced
+rate. The bridge includes `codec: "opus"` in each `audio` event. PCM clients retain the protocol above.
+
+An Opus session survives an abnormal socket loss for 25 seconds. Reattachment requires the same
+device token and session identifier and keeps the same head conversation. The bridge sends
+`clear`, fresh audio metadata, and the current state before resuming audio. Explicit
+`{"type":"hangup"}`, `bye`, and close code 1000 end the call. A closed session refuses reattachment
+for another 25 seconds, preventing a lost goodbye from opening a new conversation.
+
+Opus sample positions expose missing audio. A gap resets the observed-silence counter without
+adding synthetic silence or discarding the caller's existing speech. Speech that resumes before
+the first reply audio cancels that pending reply and joins the previous audio for transcription.
+The existing turn judge runs for Opus callers when the Parakeet models accompany `vad_model`.
+
+The bridge rejects VAD false starts with less than 96 ms of detected speech. When the recognizer
+provides confidence metadata, a result whose segments all have `no_speech_prob >= 0.6` or
+`avg_logprob < -1.0` is discarded. Wyoming servers can omit those fields; the audio gate still applies.
+
+For Opus calls, the gateway's incremental PCM records feed a bounded queue while synthesis
+continues. The first sentence starts synthesis as soon as the head emits it. Fixed disclosure audio
+remains cached. The bridge requires the system `libopus` library; the Docker image installs `libopus0`.
 
 ## Incoming calls
 
@@ -246,8 +268,8 @@ Run it with `python janet_phone.py --config /path/to/phone.toml`, or build the `
 
 - Audio-only detection still waits for a fixed pause; it cannot distinguish a thinking pause from
   a completed thought. The loudness fallback can remain active over background noise until the cap.
-- A reply is synthesized one whole sentence at a time, so the first audio of a reply waits for the
-  first sentence.
+- Synthesis begins at the first complete sentence from the head. The voice runtime can still wait
+  for that whole sentence before producing its first Wyoming audio chunk.
 - Cut-off relies on the calling device cancelling its own echo. A device that plays Janet through a
   loudspeaker without echo cancellation will cut her off with her own voice.
 - The Access assertion a call starts with is used for the whole call. A call that outlasts it (24

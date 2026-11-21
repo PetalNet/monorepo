@@ -174,12 +174,22 @@ class RingTest(unittest.IsolatedAsyncioTestCase):
                 async with asyncio.timeout(3):
                     while not any(path.endswith("/turns") and "no caller speech arrived" in body["text"]
                                   for path, body in FakeGateway.calls):
-                        await asyncio.sleep(.01)
+                        await ws.send(bytes(640))
+                        await asyncio.sleep(.02)
                 self.assertEqual((await task)[1]["status"], "audio_connected")
                 await asyncio.sleep(0.15)
                 observations = [body["text"] for path, body in FakeGateway.calls
                                 if path.endswith("/turns") and "no caller speech arrived" in body["text"]]
                 self.assertEqual(len(observations), 1)
+
+    async def test_missing_ring_audio_is_not_caller_silence(self):
+        with mock.patch.object(janet_phone, "RING_SILENCE_S", 0.05):
+            task, payload = await self.start_ring("A brief after the audio check.")
+            async with connect(self.url, additional_headers={**self.phone, "X-Janet-Ring": payload["id"]}):
+                self.assertEqual((await task)[1]["status"], "audio_connected")
+                await asyncio.sleep(.2)
+                self.assertFalse(any(path.endswith("/turns") and "no caller speech arrived" in body["text"]
+                                     for path, body in FakeGateway.calls))
 
     async def test_reply_after_interrupted_greeting_still_connects_the_ring(self):
         ring = ringing.Ring("test", self.device, "A brief for later", time.time() + 5, time.monotonic() + 5)

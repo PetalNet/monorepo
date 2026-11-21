@@ -4,6 +4,8 @@ import os
 import signal
 import socket
 import subprocess
+import struct
+import threading
 import sys
 import tempfile
 import time
@@ -232,6 +234,29 @@ class VoiceTest(GatewayCase):
         self.assertEqual(body[44:], b"goodmorningParker")
         self.assertEqual(self.voice.requests_seen, [{"text": "good morning Parker", "voice": {"name": "janet"}}])
 
+    def test_pcm_arrives_before_audio_stop_and_large_chunks_are_split(self):
+        self.voice.release_after_first = threading.Event()
+        self.addCleanup(self.voice.release_after_first.set)
+        connection = self.connection()
+        connection.request("POST", "/v1/tts", json.dumps({"text": "a" * 20000 + " bb", "format": "pcm"}), AUTH)
+        response = connection.getresponse()
+        self.assertEqual(response.getheader("content-type"), "application/octet-stream")
+        rate, length = struct.unpack(">II", response.read(8))
+        self.assertEqual((rate, length), (24000, 16384))
+        self.assertEqual(response.read(length), b"a" * length)
+        self.voice.release_after_first.set()
+        remaining = response.read()
+        records = []
+        while remaining:
+            rate, length = struct.unpack(">II", remaining[:8])
+            records.append((rate, remaining[8:8 + length]))
+            remaining = remaining[8 + length:]
+        self.assertEqual(records, [(24000, b"a" * 3616), (24000, b"bb")])
+        self.assertFalse(self.voice.release_timed_out)
+
+    def test_invalid_format_is_rejected(self):
+        self.assertEqual(self.request("POST", "/v1/tts", {"text": "hello", "format": "mp3"}, AUTH)[0], 400)
+
     def test_text_is_required(self):
         for body in ({}, {"text": ""}, {"text": 5}):
             self.assertEqual(self.request("POST", "/v1/tts", body, AUTH)[0], 400)
@@ -255,6 +280,14 @@ class FailingVoiceTest(GatewayCase):
         connection = self.connection()
         connection.request("POST", "/v1/tts", body='{"text": "one two three"}', headers=AUTH)
         response = connection.getresponse()
+        with self.assertRaises(http.client.IncompleteRead):
+            response.read()
+
+    def test_pcm_failure_has_no_final_http_chunk(self):
+        connection = self.connection()
+        connection.request("POST", "/v1/tts", json.dumps({"text": "aa bb", "format": "pcm"}), AUTH)
+        response = connection.getresponse()
+        self.assertEqual(response.read(10), struct.pack(">II", 24000, 2) + b"aa")
         with self.assertRaises(http.client.IncompleteRead):
             response.read()
 

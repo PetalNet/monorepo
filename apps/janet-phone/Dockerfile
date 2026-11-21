@@ -1,7 +1,7 @@
 # Build from the repository root: docker build -f apps/janet-phone/Dockerfile <root>
 FROM debian:trixie-slim@sha256:a72b4433de1cf7d6bae0c4cee74d0547f58601a643b3375f070c51600d63b6b2
 RUN apt-get update \
-    && apt-get install -y --no-install-recommends ca-certificates curl python3 python3-venv python3-websockets python3-matrix-nio python3-qrcode \
+    && apt-get install -y --no-install-recommends ca-certificates curl libopus0 python3 python3-venv python3-websockets python3-matrix-nio python3-qrcode \
     && rm -rf /var/lib/apt/lists/*
 # The shared turn detector's runtime (wheels for the base image's Python 3.13). The venv sees the system packages above.
 RUN python3 -m venv --system-site-packages /opt/venv \
@@ -16,6 +16,7 @@ RUN mkdir /models \
     && fetch parakeet_realtime_eou_120m.int8.onnx 7dbdf3e4f539a78819c71d1fc8c0aaf0be8d34417661a16e643cd47e17c319fd "$P/parakeet_realtime_eou_120m.int8.onnx"
 WORKDIR /app
 COPY apps/janet-phone/janet_phone.py apps/janet-phone/matrix_notice.py apps/janet-phone/pairing.py apps/janet-phone/ringing.py ./
+COPY apps/janet-phone/opus_transport.py apps/janet-phone/resumable.py apps/janet-phone/speech_stream.py ./
 COPY packages/janet-turn/janet_turn ./janet_turn
 COPY packages/janet-line/janet_line ./janet_line
 USER 1000
