@@ -151,6 +151,20 @@ class SignInLifecycleTest {
 		assertEquals(old, Settings(app).pairing())
 	}
 
+	@Test fun `a newly reserved incoming call prevents replacement before its UI state is posted`() {
+		val ready = CountDownLatch(1)
+		SignIn.receive(app, start()) { _, _, _ -> ready.countDown(); PairResult.Paired(fresh) }
+		assertTrue(ready.await(5, TimeUnit.SECONDS))
+		Thread.getAllStackTraces().keys.filter { it.name == "janet-signin" }.forEach { it.join(5000) }
+		val ring = PendingRing("reserved-call", "Test call", System.currentTimeMillis() / 1000.0 + 60)
+		IncomingCalls.offer(app, old, ring)
+		assertNotNull(IncomingCalls.pending)
+		assertEquals("ring state update is still queued", CallState.Idle, Calls.state)
+		idle()
+		assertEquals(old, Settings(app).pairing())
+		assertNotNull(IncomingCalls.matching(app, ring.id))
+	}
+
 	@Test fun `provider denial wrong state expiration and exchange failures keep credentials`() {
 		val callback = start()
 		SignIn.receive(app, callback.replace("state=", "state=wrong")) { _, _, _ -> fail("wrong state"); PairResult.Paired(fresh) }
