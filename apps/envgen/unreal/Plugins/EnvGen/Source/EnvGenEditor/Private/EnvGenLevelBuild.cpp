@@ -1051,7 +1051,8 @@ return lerp(Texture2DSampleGrad(Scan,ScanSampler,UV,dx,dy).rgb,varied,blend);
 		Slots[Group] = FName(TEXT("Blade"));
 		// The blade's own colour rides in the third and fourth UV channels (red and green, then blue): vertex colour is
 		// 8 bits and holds how far up the blade a point is, and the mesh build writes its own unwrap into the second.
-		Uvs.SetNumChannels(Variety.Name != FName(TEXT("broadleaf")) ? 5 : 4);
+		const bool bNear = Variety.Name == FName(TEXT("near"));
+		Uvs.SetNumChannels(bNear || Variety.Name == FName(TEXT("broadleaf")) ? 4 : 5);
 		FRandomStream Random(7 + Index);
 		constexpr int32 Segments = 3;
 		if (Variety.Name == FName(TEXT("broadleaf")))
@@ -1125,11 +1126,11 @@ return lerp(Texture2DSampleGrad(Scan,ScanSampler,UV,dx,dy).rgb,varied,blend);
 				const FVertexInstanceID Instance = Description.CreateVertexInstance(Vertex);
 				Normals[Instance] = FVector3f(Along.X * 0.6f + Across.X * Side * 0.4f,
 					Along.Y * 0.6f + Across.Y * Side * 0.4f, 1.f).GetSafeNormal();
-				Uvs.Set(Instance, 0, FVector2f(Side * 0.5f + 0.5f, T));
+				Uvs.Set(Instance, 0, bNear ? Root : FVector2f(Side * 0.5f + 0.5f, T));
 				Uvs.Set(Instance, 1, FVector2f(0.f, 0.f));
 				Uvs.Set(Instance, 2, FVector2f(Own.R, Own.G));
 				Uvs.Set(Instance, 3, FVector2f(Own.B, BladeSeed));
-				Uvs.Set(Instance, 4, Root);
+				if (!bNear) Uvs.Set(Instance, 4, Root);
 				Colours[Instance] = FVector4f(T, T, T, 1.f);
 				return Instance;
 			};
@@ -1147,12 +1148,12 @@ return lerp(Texture2DSampleGrad(Scan,ScanSampler,UV,dx,dy).rgb,varied,blend);
 			Description.CreatePolygon(Group, {Left[Segments - 1], Right[Segments - 1], Tip});
 		}
 		Mesh->GetStaticMaterials().Add(FStaticMaterial(Material, FName(TEXT("Blade"))));
-		if (Variety.Name == FName(TEXT("near")))
+		if (bNear)
 		{
 			FMeshNaniteSettings& Nanite = Mesh->GetNaniteSettings();
 			Nanite.bEnabled = true;
 			Nanite.ShapePreservation = ENaniteShapePreservation::PreserveArea;
-			// UV4 stores a blade root, not a surface coordinate that can be interpolated between leaves.
+			// UV0 stores a blade root, not a surface coordinate that can be interpolated between leaves.
 			Nanite.bLerpUVs = false;
 		}
 		UStaticMesh::FBuildMeshDescriptionsParams Params;
@@ -1173,6 +1174,12 @@ return lerp(Texture2DSampleGrad(Scan,ScanSampler,UV,dx,dy).rgb,varied,blend);
 		UMaterial* Material = NewAsset<UMaterial>(TEXT("M_GrassBlade_") + Variety.Name.ToString(), Packages);
 		Material->TwoSided = true;
 		Material->bUsedWithInstancedStaticMeshes = true;
+		if (Variety.Name == FName(TEXT("near")))
+		{
+			Material->SetUsageByFlag(MATUSAGE_Nanite, true);
+			// Extend cluster bounds for root collapse, height variation and wind without clamping their motion.
+			Material->MaxWorldPositionOffsetDisplacement = (Variety.RadiusCm + Variety.HeightMaxCm * 2) * Variety.ScaleMax + 10;
+		}
 		// The ground's own colour under the blade: the macro map read at the blade's place, as the ground reads it. Along
 		// the landscape's axes (north, east) one tile is one repeat, from its south-west corner.
 		UMaterialExpressionWorldPosition* Place = Node<UMaterialExpressionWorldPosition>(Material, -1100, -100);
@@ -1199,7 +1206,8 @@ return lerp(Texture2DSampleGrad(Scan,ScanSampler,UV,dx,dy).rgb,varied,blend);
 		if (Variety.Name != FName(TEXT("broadleaf")))
 		{
 			UMaterialExpressionTextureCoordinate* BladeRootUv = Node<UMaterialExpressionTextureCoordinate>(Material, -1500, 1600);
-			BladeRootUv->CoordinateIndex = 4;
+			// Nanite supports four UV channels; near roots use the otherwise unread surface UV0.
+			BladeRootUv->CoordinateIndex = Variety.Name == FName(TEXT("near")) ? 0 : 4;
 			UMaterialExpressionTransformPosition* PerBladeRoot = Node<UMaterialExpressionTransformPosition>(Material, -1300, 1600);
 			UMaterialExpressionAppendVector* LocalRoot = Node<UMaterialExpressionAppendVector>(Material, -1400, 1600);
 			LocalRoot->A.Connect(0, BladeRootUv);
