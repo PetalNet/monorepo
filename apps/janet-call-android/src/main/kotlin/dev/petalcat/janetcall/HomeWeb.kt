@@ -88,10 +88,12 @@ fun homeUrlProblem(url: String): String? {
 }
 
 /** Forgets the sign-in the home WebView holds: its cookies and its page storage. */
-fun forgetWebSession() {
-	CookieManager.getInstance().removeAllCookies(null)
-	CookieManager.getInstance().flush()
+fun forgetWebSession(onForgot: () -> Unit = {}) {
 	android.webkit.WebStorage.getInstance().deleteAllData()
+	CookieManager.getInstance().removeAllCookies {
+		CookieManager.getInstance().flush()
+		onForgot()
+	}
 }
 
 /** The hosts the home WebView may show: the home page's own, and the sign-in page. */

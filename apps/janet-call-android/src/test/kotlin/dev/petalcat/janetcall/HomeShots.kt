@@ -36,7 +36,7 @@ class HomeShots {
 		HomeScreen(Screen.Home("bridge.example.com", Line.Ready, Problem.NoMicrophone, null, emptyList()), {}, {}, now = now, zone = zone)
 	}
 
-	@Test fun welcome() = draw("home-4-welcome") { WelcomeScreen(Screen.Welcome(null)) }
+	@Test fun welcome() = draw("home-4-welcome") { WelcomeScreen(Screen.Welcome(null), onSignIn = {}) }
 
 	@Test fun welcomeFailed() = draw("home-5-welcome-expired", dark = false) {
 		WelcomeScreen(Screen.Welcome(Problem.Note("This pairing link has expired. Ask for a new one.")))
@@ -58,7 +58,19 @@ class HomeShots {
 		HomeWeb(DEFAULT_HOME_URL, {}, {}, { retry -> HomeScreen(Screen.Home("bridge.example.com", Line.Ready, null, null, calls), {}, {}, now = now, zone = zone, onRetry = retry) })
 	}
 
-	@Test fun settings() = draw("home-9-settings") { SettingsScreen("bridge.example.com", DEFAULT_HOME_URL, { null }, {}, {}, { "Geist: SIL Open Font License 1.1" }) }
+	@Test fun settings() = draw("home-9-settings") { SettingsScreen("bridge.example.com", DEFAULT_HOME_URL, { null }, {}, {}, { "Geist: SIL Open Font License 1.1" }, onSignIn = {}) }
+
+	@Test fun signIn() = draw("signin-ready") {
+		SignInScreen(DEFAULT_BRIDGE_URL, "Sign in with your Janet account to enroll this phone. Shared links give guest access.", false, false, onSignIn = {}, onCancel = {}, onBack = {})
+	}
+
+	@Test fun signInWaiting() = draw("signin-waiting", dark = false) {
+		SignInScreen(DEFAULT_BRIDGE_URL, "Finish signing in in your browser, then return to Janet.", true, false, onSignIn = {}, onCancel = {}, onBack = {})
+	}
+
+	@Test fun signInRefused() = draw("signin-refused") {
+		SignInScreen(DEFAULT_BRIDGE_URL, "Sign-in was refused or the code expired. Sign in again with an allowed account.", false, false, onSignIn = {}, onCancel = {}, onBack = {})
+	}
 
 	@Test fun homeCallFailed() = draw("home-15-call-failed") {
 		HomeScreen(Screen.Home("bridge.example.com", Line.Ready, Problem.CallFailed("Could not reach the bridge"), null, calls), {}, {}, now = now, zone = zone)
