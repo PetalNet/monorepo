@@ -49,7 +49,7 @@ FIELD_CALIBRATION = {
     "application_priors": [
         "relative photo green/red contrast interpolates maintained and worn appearance; not a measured condition map",
         "the existing 2 m surface fringe interpolates path-edge appearance",
-        "projected-area mixtures set relative living/dead detail around the site colour; non-soil candidates use dry colour times root shade as low thatch",
+        "projected-area mixtures retain condition colour around one maintained luminance reference; site luminance supplies nearby variation and non-soil candidates use dry colour times root shade as low thatch",
         "living and dead colours mix per texture leaf; mapped condition alone supplies larger wear patterns",
         "calibration fades out from 15 to 30 m to retain the approved orthophoto-led distant appearance",
     ],

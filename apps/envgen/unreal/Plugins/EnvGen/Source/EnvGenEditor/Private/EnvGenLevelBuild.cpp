@@ -822,7 +822,7 @@ return lerp(Texture2DSampleGrad(Scan,ScanSampler,UV,dx,dy).rgb,varied,blend);
 	struct FLawnTextures
 	{
 		TArray<UTexture2D*> Surfaces;
-		TArray<FLinearColor> Means, VegetationMeans, BaseColours;
+		TArray<FLinearColor> Means, BaseColours;
 		UTexture2D* DeadMasks = nullptr;
 		float RepeatCm = 100;
 		UTexture2D* Normal = nullptr;
@@ -899,7 +899,7 @@ return lerp(Texture2DSampleGrad(Scan,ScanSampler,UV,dx,dy).rgb,varied,blend);
 			const FVector3f Mix = Turf.FieldMix[Surface];
 			const FLinearColor BaseColour = Turf.bSoilCandidateIsBareSoil ? Turf.FieldSoil : Turf.FieldDry[Surface] * Turf.RootShade;
 			Result.BaseColours.Add(BaseColour);
-			FVector Mean(0), VegetationMean(0);
+			FVector Mean(0);
 			for (int32 Index = 0; Index < Leaves.Num(); ++Index)
 			{
 				const FColor& Leaf = Leaves[Index];
@@ -912,13 +912,10 @@ return lerp(Texture2DSampleGrad(Scan,ScanSampler,UV,dx,dy).rgb,varied,blend);
 				Packed.A = Rank >= Mix.X + Mix.Y ? uint8(Shade / 1.2f * 255) : 0;
 				const FLinearColor Linear(Packed);
 				Mean += FVector(Linear.R, Linear.G, Linear.B);
-				const FLinearColor Vegetation = Linear + (Turf.FieldDry[Surface] - BaseColour) * (Packed.A / 255.f * 1.2f);
-				VegetationMean += FVector(Vegetation.R, Vegetation.G, Vegetation.B);
 				Colours.Add(Packed);
 			}
-			Mean /= double(Leaves.Num()); VegetationMean /= double(Leaves.Num());
+			Mean /= double(Leaves.Num());
 			Result.Means.Add(FLinearColor(float(Mean.X), float(Mean.Y), float(Mean.Z)));
-			Result.VegetationMeans.Add(FLinearColor(float(VegetationMean.X), float(VegetationMean.Y), float(VegetationMean.Z)));
 			Result.Surfaces.Add(MakeTexture(FString::Printf(TEXT("T_Lawn_%d"), Surface), Pixels, Pixels, TSF_BGRA8,
 				reinterpret_cast<const uint8*>(Colours.GetData()), true, Packages));
 		}
@@ -937,7 +934,7 @@ return lerp(Texture2DSampleGrad(Scan,ScanSampler,UV,dx,dy).rgb,varied,blend);
 	}
 
 	UMaterialExpression* LawnSurface(UMaterial* Material, UMaterialExpression* FarAlbedo, UMaterialExpression* SiteAlbedo, UTexture2D* Condition,
-		const FLawnTextures& Lawn, UMaterialExpression* Coords, UMaterialExpression* Here, UMaterialExpression* Eye, const FManifest& Manifest, bool bVegetation = false)
+		const FLawnTextures& Lawn, UMaterialExpression* Coords, UMaterialExpression* Here, UMaterialExpression* Eye, const FManifest& Manifest, bool bVegetation = false, bool bBladeRoot = false)
 	{
 		if (!Condition || Manifest.Turf.FieldGreen.IsEmpty()) return FarAlbedo;
 		UMaterialExpressionTextureSample* Controls = Node<UMaterialExpressionTextureSample>(Material, -600, -650);
@@ -962,7 +959,6 @@ return lerp(Texture2DSampleGrad(Scan,ScanSampler,UV,dx,dy).rgb,varied,blend);
 			Input.Input.Connect(0, Pair.Value);
 		}
 		FString VegetationCode;
-		FString MeanCode;
 		for (int32 Index = 0; Index < Lawn.Surfaces.Num(); ++Index)
 		{
 			UMaterialExpressionTextureSample* Leaves = Node<UMaterialExpressionTextureSample>(Material, -400, -550 + Index * 100);
@@ -970,11 +966,15 @@ return lerp(Texture2DSampleGrad(Scan,ScanSampler,UV,dx,dy).rgb,varied,blend);
 			Leaves->SamplerType = SAMPLERTYPE_Color;
 			Leaves->SamplerSource = SSM_Wrap_WorldGroupSettings;
 			Leaves->Coordinates.Connect(0, LawnUv);
+			if (bBladeRoot)
+			{
+				// A blade keeps the colour of its root, at the same mip as its living/dead height mask.
+				Leaves->MipValueMode = TMVM_MipLevel;
+				Leaves->ConstMipValue = 0;
+			}
 			FCustomInput& Input = Surface->Inputs.AddDefaulted_GetRef();
 			Input.InputName = FName(*FString::Printf(TEXT("Lawn%d"), Index));
 			Input.Input.Connect(0, Leaves);
-			const FLinearColor Mean = bVegetation ? Lawn.VegetationMeans[Index] : Lawn.Means[Index];
-			MeanCode += FString::Printf(TEXT("float3 Mean%d=float3(%.9f,%.9f,%.9f);"), Index, Mean.R, Mean.G, Mean.B);
 			if (bVegetation)
 			{
 				FCustomInput& Alpha = Surface->Inputs.AddDefaulted_GetRef();
@@ -985,8 +985,10 @@ return lerp(Texture2DSampleGrad(Scan,ScanSampler,UV,dx,dy).rgb,varied,blend);
 			}
 		}
 		const FTurf& Turf = Manifest.Turf;
-		// Photo fractions control local detail; its resolved mean follows the same site colour at every distance.
-		Surface->Code = VegetationCode + MeanCode + FString::Printf(TEXT("float3 lawn=lerp(lerp(Lawn0,Lawn1,Condition.r),Lawn2,Condition.g); float3 mean=lerp(lerp(Mean0,Mean1,Condition.r),Mean2,Condition.g); return lerp(Site*lawn/max(mean,0.0001),Far,smoothstep(%.3f,%.3f,distance(Here,Eye)));"), Turf.CalibrationFadeStartCm, Turf.CalibrationFadeEndCm);
+		// One maintained reference preserves condition colour differences; site luminance supplies local variation.
+		const FLinearColor Reference = Lawn.Means[0];
+		const float ReferenceY = Reference.R * 0.2126f + Reference.G * 0.7152f + Reference.B * 0.0722f;
+		Surface->Code = VegetationCode + FString::Printf(TEXT("float3 lawn=lerp(lerp(Lawn0,Lawn1,Condition.r),Lawn2,Condition.g); float brightness=dot(Site,float3(0.2126,0.7152,0.0722))/max(%.9f,0.0001); return lerp(lawn*brightness,Far,smoothstep(%.3f,%.3f,distance(Here,Eye)));"), ReferenceY, Turf.CalibrationFadeStartCm, Turf.CalibrationFadeEndCm);
 		return Surface;
 	}
 
@@ -1217,7 +1219,7 @@ return lerp(Texture2DSampleGrad(Scan,ScanSampler,UV,dx,dy).rgb,varied,blend);
 		Albedo->A.Connect(0, Ground);
 		Albedo->ConstB = Manifest.AlbedoScale;
 		UMaterialExpressionCameraPositionWS* ColourEye = Node<UMaterialExpressionCameraPositionWS>(Material, -800, -750);
-		UMaterialExpression* FieldAlbedo = LawnSurface(Material, Albedo, Albedo, Condition, Lawn, ColourCoords, Place, ColourEye, Manifest, true);
+		UMaterialExpression* FieldAlbedo = LawnSurface(Material, Albedo, Albedo, Condition, Lawn, ColourCoords, Place, ColourEye, Manifest, true, true);
 
 		// The mesh's vertex colour is how far up the blade the point is: 0 at the root, 1 at the tip.
 		UMaterialExpressionVertexColor* Along = Node<UMaterialExpressionVertexColor>(Material, -800, 400);
@@ -1255,7 +1257,7 @@ return lerp(Texture2DSampleGrad(Scan,ScanSampler,UV,dx,dy).rgb,varied,blend);
 		Colour->B.Connect(0, Own);
 		// Thin blades pass light: lit from behind they glow with their own colour rather than going black.
 		Material->SetShadingModel(MSM_TwoSidedFoliage);
-		UMaterialExpression* Substrate = LawnSurface(Material, Albedo, Albedo, Condition, Lawn, ColourCoords, Place, ColourEye, Manifest);
+		UMaterialExpression* Substrate = LawnSurface(Material, Albedo, Albedo, Condition, Lawn, ColourCoords, Place, ColourEye, Manifest, false, true);
 		UMaterialExpressionCustom* RootColour = Node<UMaterialExpressionCustom>(Material, 50, 50);
 		RootColour->OutputType = CMOT_Float3;
 		RootColour->Inputs.Empty();
