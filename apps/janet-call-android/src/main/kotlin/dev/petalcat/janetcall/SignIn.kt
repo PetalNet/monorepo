@@ -3,6 +3,9 @@ package dev.petalcat.janetcall
 import android.content.Context
 import android.os.Build
 import android.os.SystemClock
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.setValue
 import java.net.URI
 import java.net.URLDecoder
 import java.security.MessageDigest
@@ -79,13 +82,13 @@ fun signInCallback(raw: String, pending: PendingSignIn, wall: Long, elapsed: Lon
 
 /** Main-thread enrollment coordinator; only the HTTP exchange runs on a worker. */
 object SignIn {
-	var open = false
+	var open by mutableStateOf(false)
 		private set
-	var exchanging = false
+	var exchanging by mutableStateOf(false)
 		private set
-	var finishing = false
+	var finishing by mutableStateOf(false)
 		private set
-	var message = "Sign in with your Janet account to enroll this phone. Shared links give guest access."
+	var message by mutableStateOf("Sign in with your Janet account to enroll this phone. Shared links give guest access.")
 		private set
 	private var generation = 0
 	private fun callBusy() = Calls.inCall || Calls.state is CallState.Ringing
