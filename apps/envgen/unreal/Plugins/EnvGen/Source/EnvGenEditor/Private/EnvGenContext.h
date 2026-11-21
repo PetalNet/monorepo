@@ -5,6 +5,7 @@
 class AActor;
 class ALandscape;
 class FJsonObject;
+class UMaterialInterface;
 class UPackage;
 class UWorld;
 
@@ -14,9 +15,10 @@ struct FEnvGenContextState
 	TArray<AActor*> Actors;
 	TArray<FVector> GroundProbesCm;
 	TSharedPtr<FJsonObject> Counts;
+	UMaterialInterface* Material = nullptr;
 };
 
-bool BuildEnvGenContext(UWorld* World, const FString& ManifestPath, TArray<UPackage*>& Packages,
+bool BuildEnvGenContext(UWorld* World, const FString& ManifestPath, UMaterialInterface* Material, TArray<UPackage*>& Packages,
 	FEnvGenContextState& State, FString& Error);
 
 bool FinishEnvGenContext(ALandscape* ContextLandscape, const FEnvGenContextState& State,

@@ -8,10 +8,7 @@
 #include "Engine/World.h"
 #include "Landscape.h"
 #include "LandscapeHeightfieldCollisionComponent.h"
-#include "MaterialEditingLibrary.h"
-#include "Materials/Material.h"
-#include "Materials/MaterialExpressionVertexColor.h"
-#include "Materials/MaterialExpressionConstant.h"
+#include "Materials/MaterialInterface.h"
 #include "MeshDescription.h"
 #include "Misc/FileHelper.h"
 #include "Misc/Paths.h"
@@ -95,7 +92,7 @@ namespace
 	}
 }
 
-bool BuildEnvGenContext(UWorld* World, const FString& ManifestPath, TArray<UPackage*>& Packages,
+bool BuildEnvGenContext(UWorld* World, const FString& ManifestPath, UMaterialInterface* Material, TArray<UPackage*>& Packages,
 	FEnvGenContextState& State, FString& Error)
 {
 	State = FEnvGenContextState();
@@ -227,15 +224,8 @@ bool BuildEnvGenContext(UWorld* World, const FString& ManifestPath, TArray<UPack
 	State.GroundProbesCm = MoveTemp(ParsedProbes);
 	State.Counts = *Counts;
 	if (Batches.IsEmpty()) return true;
-	UMaterial* Material = Asset<UMaterial>(TEXT("M_EnvGenContext"), Packages);
-	auto* Colour = CastChecked<UMaterialExpressionVertexColor>(UMaterialEditingLibrary::CreateMaterialExpression(Material, UMaterialExpressionVertexColor::StaticClass()));
-	if (!UMaterialEditingLibrary::ConnectMaterialProperty(Colour, TEXT(""), MP_BaseColor))
-	{ Error = TEXT("cannot connect context vertex colour"); return false; }
-	auto* Roughness = CastChecked<UMaterialExpressionConstant>(UMaterialEditingLibrary::CreateMaterialExpression(Material, UMaterialExpressionConstant::StaticClass()));
-	Roughness->R = .9f;
-	if (!UMaterialEditingLibrary::ConnectMaterialProperty(Roughness, TEXT(""), MP_Roughness))
-	{ Error = TEXT("cannot connect context roughness"); return false; }
-	UMaterialEditingLibrary::RecompileMaterial(Material);
+	if (!Material) { Error = TEXT("context geometry needs the registered surround material"); return false; }
+	State.Material = Material;
 	for (int32 Index = 0; Index < Batches.Num(); ++Index)
 	{
 		const FBatch& Batch = Batches[Index];
@@ -308,6 +298,8 @@ bool FinishEnvGenContext(ALandscape* ContextLandscape, const FEnvGenContextState
 		const UStaticMesh* Mesh = Component ? Component->GetStaticMesh() : nullptr;
 		if (!IsValid(MeshActor) || !IsValid(Mesh) || Component->GetCollisionEnabled() != ECollisionEnabled::NoCollision)
 		{ Error = TEXT("context actor or mesh invalid"); return false; }
+		if (Component->GetMaterial(0) != State.Material)
+		{ Error = TEXT("context imagery material differs from the surround"); return false; }
 		ActualTriangles += Mesh->GetNumTriangles(0);
 	}
 	int32 ExpectedTriangles = 0;
@@ -333,6 +325,7 @@ bool FinishEnvGenContext(ALandscape* ContextLandscape, const FEnvGenContextState
 		WorstCm = FMath::Max(WorstCm, Best);
 	}
 	Receipt->SetObjectField(TEXT("context_geometry_counts"), State.Counts.ToSharedRef());
+	Receipt->SetStringField(TEXT("context_material"), State.Material ? State.Material->GetPathName() : TEXT(""));
 	Receipt->SetNumberField(TEXT("context_geometry_actors"), State.Actors.Num());
 	Receipt->SetNumberField(TEXT("context_ground_probes"), State.GroundProbesCm.Num());
 	Receipt->SetNumberField(TEXT("context_ground_probe_worst_error_cm"), WorstCm);

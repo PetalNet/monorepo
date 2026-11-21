@@ -2715,9 +2715,10 @@ bool FEnvGenLevelBuild::Start(const FString& ManifestPath, const FString& MapPat
 		Component->ShadowCacheInvalidationBehavior = EShadowCacheInvalidationBehavior::Rigid;
 		Component->MarkRenderStateDirty();
 	}
+	UMaterial* SurroundMaterial = nullptr;
 	if (Manifest.Surround)
 	{
-		UMaterial* SurroundMaterial = MakeSurroundMaterial(SurroundColour, Manifest, State->Packages);
+		SurroundMaterial = MakeSurroundMaterial(SurroundColour, Manifest, State->Packages);
 		State->Surround = ImportLandscape(State->World, TEXT("EnvGenSurround"), *Manifest.Surround, SurroundHeightBytes, SurroundMaterial, GroundStencil, TArray<FLayer>());
 	}
 	if (Manifest.Surround)
@@ -2755,7 +2756,7 @@ bool FEnvGenLevelBuild::Start(const FString& ManifestPath, const FString& MapPat
 	AddSiteInfo(State->World, Manifest);
 	APlayerStart* PlayerStart = State->World->SpawnActor<APlayerStart>(FVector(0, 0, 150), FRotator::ZeroRotator);
 	PlayerStart->SetActorLabel(TEXT("EnvGenPlayerStart"));
-	if (!BuildEnvGenContext(State->World, ManifestPath, State->Packages, State->ContextGeometry, Error))
+	if (!BuildEnvGenContext(State->World, ManifestPath, SurroundMaterial, State->Packages, State->ContextGeometry, Error))
 	{
 		UE_LOG(LogEnvGen, Error, TEXT("context geometry failed: %s"), *Error);
 		return false;
