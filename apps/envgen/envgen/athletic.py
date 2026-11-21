@@ -19,7 +19,11 @@ MAX_ATLAS_SIDE = 8192
 MAX_ATLAS_PIXELS = 32_000_000
 # Appearance priors in sRGB; the renderer applies the same fiber finish to every colour.
 TURF_GREEN = (48, 100, 56, 255)
-MARK_COLOURS = {"paint_white": (232, 231, 239, 255), "paint_yellow": (220, 181, 60, 255)}
+MARK_COLOURS = {
+    "paint_white": (232, 231, 239, 255),
+    "paint_yellow": (220, 181, 60, 255),
+    "paint_black": (24, 27, 25, 255),
+}
 
 
 def classify_fields(raw, features):

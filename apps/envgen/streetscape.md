@@ -50,7 +50,7 @@ props extending beyond the tile fail the build with the feature ID. Surface and 
 | Type          | Geometry and measurements                                              | Defaults where no measurement exists          |
 | ------------- | ---------------------------------------------------------------------- | --------------------------------------------- |
 | `surface`     | `ring`, `material`: asphalt, concrete, track, gravel, clay or turf     | No inferred boundary                          |
-| `line`        | `points`, `material`: paint_white, paint_yellow or concrete; `width_m` | Paint width 0.1 m; concrete requires width    |
+| `line`        | `points`, `material`: paint_white, paint_yellow, paint_black or concrete; `width_m` | Paint width 0.1 m; concrete requires width    |
 | `decal`       | `image`, `bounds_m`: registered north-up RGBA paint                    | No inferred dimensions or artwork             |
 | `curb`        | `points`, `width_m`, `height_m`                                        | Width/height 0.15 m, buried 0.05 m            |
 | `fence`       | `points`, `height_m`; optional `ground_anchor` per segment             | Height 2.4 m, posts at most 3 m apart         |
@@ -182,11 +182,11 @@ fixed when comparing captures.
 
 `athletic_turf` is a synthetic surface class. It excludes natural grass blades within its polygon.
 Markings intersecting that field become color regions in one opaque registered atlas on the field mesh,
-including local RGBA artwork. All colors share streamed 1.7–3.5 cm bent blades near the camera,
+including local RGBA artwork. All colors share streamed 1.7–2.4 cm bent blades near the camera,
 filtered tuft rows, irregular black infill, fiber normals, roughness
 and grazing reflection. Alternating pile direction and narrow roll seams follow the configured heading.
 The pile uses the existing Landscape grass streaming system. Individual blades have two segments
-nearby and one segment at distance. Their height fades from 3 to 12.5 m before culling at 14 m. Per-blade variation breaks up
+nearby and one segment at distance. Their height fades from 6 to 13 m before culling at 14 m. Small irregular black granules sit between the near blades. Per-blade variation breaks up
 repeated patches while retaining manufactured rows.
 Its conservative footprint mask clips fibers at field boundaries to within a mask texel;
 world-projected atlas colors include the

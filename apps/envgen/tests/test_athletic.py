@@ -40,18 +40,23 @@ def build(tmp_path, raw):
     return stage, json.loads((out / "streetscape.json").read_text()), out
 
 
-def test_inlays_are_opaque_colour_in_same_surface(tmp_path):
-    stage, payload, out = build(tmp_path, scene())
+@pytest.mark.parametrize("material", ["paint_white", "paint_yellow", "paint_black"])
+def test_inlays_are_opaque_colour_in_same_surface(tmp_path, material):
+    raw = scene()
+    raw["features"][1]["material"] = material
+    stage, payload, out = build(tmp_path, raw)
     synthetic = [m for m in payload["meshes"] if m["material"] == "athletic_turf"]
     assert synthetic and all(m["heading_deg"] == 88 for m in synthetic)
     assert len({m["image"] for m in synthetic}) == 1
     for mesh in payload["meshes"]:
-        if mesh["material"] == "paint_white":
+        if mesh["material"] == material:
             # Only the parts outside the synthetic field remain separate ribbons.
             assert all(v[0] <= 0 or v[0] >= 4 for v in mesh["vertices"])
     atlas = np.asarray(Image.open(out / synthetic[0]["image"]))
     assert np.all(atlas[:, :, 3] == 255)
-    assert np.mean(atlas[len(atlas) // 2, :, :3]) > np.mean(atlas[0, :, :3])
+    line_mean = np.mean(atlas[len(atlas) // 2, :, :3])
+    field_mean = np.mean(atlas[0, :, :3])
+    assert line_mean < field_mean if material == "paint_black" else line_mean > field_mean
     assert np.min(np.asarray(Image.open(out / "streetscape_grass.png"))) == 0
     assert stage["fields"][0]["effective_surface"] == "athletic_turf"
 

@@ -585,7 +585,7 @@ bool FEnvGenStreetscapeAthletic::RunTest(const FString& Parameters)
 				MinZ = FMath::Min(MinZ, PilePositions[Vertex].Z);
 				MaxZ = FMath::Max(MaxZ, PilePositions[Vertex].Z);
 			}
-			TestTrue(TEXT("pile keeps its physical height before the world-vertical surface offset"), FMath::Abs(MinZ) <= 1.e-5f && MaxZ > 2.f && MaxZ <= 3.21f);
+			TestTrue(TEXT("pile keeps its physical height before the world-vertical surface offset"), FMath::Abs(MinZ) <= 1.e-5f && MaxZ > 1.8f && MaxZ <= 2.21f);
 		}
 		auto* NarrowMask = FindObject<UTexture2D>(nullptr, TEXT("/Game/EnvGen/Generated/T_AthleticPileMask_0008.T_AthleticPileMask_0008"));
 		if (TestNotNull(TEXT("narrow field has a fine footprint mask"), NarrowMask))

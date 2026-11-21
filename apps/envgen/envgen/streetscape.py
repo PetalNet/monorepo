@@ -35,7 +35,7 @@ SURFACES = {
     "athletic_turf": 0.025,
     "natural_grass": 0.025,
 }
-LINES = {"paint_white": 0.07, "paint_yellow": 0.07, "concrete": 0.06}
+LINES = {"paint_white": 0.07, "paint_yellow": 0.07, "paint_black": 0.07, "concrete": 0.06}
 DEFAULTS = {
     "line": {"width_m": 0.1},
     "curb": {"width_m": 0.15, "height_m": 0.15},
