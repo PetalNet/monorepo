@@ -35,6 +35,8 @@ import ringing
 from resumable import ResumableSocket
 from speech_stream import PcmSource, SpeechStream
 
+from barge_in import make_barge_in
+
 __version__ = "0.1.0"
 
 log = logging.getLogger("janet-phone")
@@ -486,6 +488,7 @@ class Call:
         self.him = 0.0  # the caller's level, as last measured
         self.playing = False
         self.caller_speaking = False
+        self.barge_in = None
         self.ended_by: str | None = None  # who closed the line, when Janet did; None means the far side (or a failure)
         self.last_heard = time.monotonic()  # when the phone's microphone last sent a frame
         self.phase = "listening"  # what the pipeline is doing: listening, thinking or speaking
@@ -666,6 +669,8 @@ class Call:
             if (models / "parakeet_realtime_eou_120m.int8.onnx").exists():
                 endpoint_config = dataclasses.replace(self.config, turn_models=str(models))
         endpointer, heard = await asyncio.to_thread(new_endpointer, endpoint_config), 0
+        self.barge_in = await asyncio.to_thread(make_barge_in, self.config)
+        diagnostic_at = 0.0
         try:
             async with asyncio.timeout(self.config.max_call_s):
                 stalled = False
@@ -706,6 +711,7 @@ class Call:
                     self.received_samples += len(message) // 2
                     self.audio_progress.set()
                     if gap:
+                        self.barge_in.gap()
                         endpointer.gap()
                         log.info("call %s: audio gap; requiring fresh received silence", self.conversation)
                     if self.config.record_dir:
@@ -715,21 +721,29 @@ class Call:
                         heard, self.him = 0, level(message, RATE)
                         if not self.playing:
                             await self.tell(type="level", her=0.0, him=self.him)
-                    events = endpointer.feed(message)
+                    active_reply = self.speaking is not None and not self.speaking.done()
+                    accepted = self.barge_in.feed(message, protected=not active_reply or not self.heard, now=received)
+                    if active_reply and received - diagnostic_at >= 1:
+                        diagnostic_at = received
+                        log.info("call %s: barge-in %s", self.conversation, json.dumps(self.barge_in.status))
+                    if active_reply and accepted:
+                        await self.cut_off()
+                    events = endpointer.feed(self.barge_in.caller_audio)
                     batch_end_ms = (getattr(endpointer, "_offset", 0)
-                                    + len(getattr(endpointer, "_pending", getattr(endpointer, "_raw", b""))) / (RATE * 2 / 1000))
+                                    + (len(getattr(endpointer, "_pending", getattr(endpointer, "_raw", b"")))
+                                       + len(self.barge_in.pending)) / (RATE * 2 / 1000))
                     for event in events:
                         if event == "start":
                             self.caller_speaking = True
-                            if self.inflight is not None and "first_audio_at" not in self.inflight[1]:
-                                self.continuation = self.inflight[0]
-                                self.inflight[1].update(superseded=True, outcome="continued")
-                                self.inflight = None
-                            while not self.utterances.empty():
-                                queued, _, previous_turn = self.utterances.get_nowait()
-                                self.continuation += queued
-                                previous_turn.update(superseded=True, outcome="continued")
-                            await self.cut_off()
+                            if not active_reply:
+                                if self.inflight is not None and "first_audio_at" not in self.inflight[1]:
+                                    self.continuation = self.inflight[0]
+                                    self.inflight[1].update(superseded=True, outcome="continued")
+                                    self.inflight = None
+                                while not self.utterances.empty():
+                                    queued, _, previous_turn = self.utterances.get_nowait()
+                                    self.continuation += queued
+                                    previous_turn.update(superseded=True, outcome="continued")
                         else:
                             self.caller_speaking = False
                             endpoint = endpointer.endpoints.popleft() if hasattr(endpointer, "endpoints") else {
@@ -873,13 +887,18 @@ class Call:
                 spoken.put_nowait(None)
                 await player
                 turn["outcome"] = "completed" if kind == "done" else "head_failed"
+                if (kind == "done" and data.get("end_conversation")
+                        and not self.caller_speaking and self.utterances.empty()):
+                    # Let the final microphone frames cross the network and speech-start window.
+                    await asyncio.sleep(.3)
+                end_conversation = (kind == "done" and bool(data.get("end_conversation"))
+                                    and not self.caller_speaking and self.utterances.empty())
                 if self.ring is not None and self.ring.state != "audio_connected":
-                    if kind != "done" or data.get("end_conversation"):
+                    if kind != "done" or end_conversation:
                         self.ring.finish("head_failed")
                     elif head_audio_sent:
                         self.ring.finish("audio_connected")
-                return (self.ring is not None and kind == "failed") or (
-                    kind == "done" and bool(data.get("end_conversation")))
+                return (self.ring is not None and kind == "failed") or end_conversation
         except asyncio.CancelledError:
             turn["outcome"] = "interrupted"
             raise
@@ -962,6 +981,8 @@ class Call:
                 await self.tell(type="level", her=level(chunk, rate), him=self.him)
                 sent += step
                 await asyncio.sleep(max(0.0, began + sent / (rate * 2) - 0.2 - time.monotonic()))
+            # Drain the 200 ms send-ahead before completing a sentence or starting the next one.
+            await asyncio.sleep(max(0.0, began + len(pcm) / (rate * 2) - time.monotonic()))
         except asyncio.CancelledError:
             self.transcript.append(("Janet", sentence + " [cut off]"))
             raise
@@ -973,6 +994,8 @@ class Call:
         self.heard.append(sentence)
 
     async def send_audio(self, pcm: bytes, rate: int) -> bool:
+        if self.barge_in is not None:
+            self.barge_in.played(pcm, rate, time.monotonic())
         if not self.opus:
             await self.ws.send(pcm)
             return bool(pcm)
@@ -1033,6 +1056,7 @@ class Call:
                     await asyncio.sleep(max(0, began + sent / (rate * 2) - 0.08 - time.monotonic()))
             if not audio_sent:
                 raise OSError("the voice returned no audio")
+            await asyncio.sleep(max(0, began + sent / (rate * 2) - time.monotonic()))
             self.transcript.append(("Janet", sentence))
             self.heard.append(sentence)
         except asyncio.CancelledError:
