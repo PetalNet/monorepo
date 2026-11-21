@@ -1,17 +1,15 @@
 #include "EnvGenLevelBuild.h"
+#include "EnvGenAtmosphere.h"
+#include "EnvGenStreetscape.h"
+#include "EnvGenArchitecture.h"
+#include "EnvGenContext.h"
 
 #include "AssetRegistry/AssetRegistryModule.h"
-#include "Components/DirectionalLightComponent.h"
 #include "Components/InstancedSkinnedMeshComponent.h"
 #include "Components/InstancedStaticMeshComponent.h"
-#include "Components/SkyAtmosphereComponent.h"
-#include "Components/SkyLightComponent.h"
 #include "Components/StaticMeshComponent.h"
 #include "Dom/JsonObject.h"
-#include "Engine/DirectionalLight.h"
-#include "Engine/PostProcessVolume.h"
 #include "Engine/SkinnedAsset.h"
-#include "Engine/SkyLight.h"
 #include "Engine/StaticMesh.h"
 #include "Engine/StaticMeshActor.h"
 #include "Engine/StaticMesh.h"
@@ -26,6 +24,7 @@
 #include "IImageWrapper.h"
 #include "IImageWrapperModule.h"
 #include "Landscape.h"
+#include "LandscapeComponent.h"
 #include "LandscapeGrassType.h"
 #include "LandscapeEdit.h"
 #include "LandscapeInfo.h"
@@ -37,12 +36,15 @@
 #include "Materials/MaterialExpressionAppendVector.h"
 #include "Materials/MaterialExpressionCameraPositionWS.h"
 #include "Materials/MaterialExpressionDistance.h"
+#include "Materials/MaterialExpressionEyeAdaptation.h"
 #include "Materials/MaterialExpressionSaturate.h"
 #include "Materials/MaterialExpressionSubtract.h"
 #include "Materials/MaterialExpressionTransformPosition.h"
+#include "Materials/MaterialExpressionTransform.h"
 #include "Materials/MaterialExpressionComponentMask.h"
 #include "Materials/MaterialExpressionConstant.h"
 #include "Materials/MaterialExpressionConstant3Vector.h"
+#include "Materials/MaterialExpressionCustom.h"
 #include "Materials/MaterialExpressionDivide.h"
 #include "Materials/MaterialExpressionLandscapeLayerBlend.h"
 #include "Materials/MaterialExpressionLandscapeGrassOutput.h"
@@ -50,6 +52,7 @@
 #include "Materials/MaterialExpressionLandscapeLayerSample.h"
 #include "Materials/MaterialExpressionLinearInterpolate.h"
 #include "Materials/MaterialExpressionMultiply.h"
+#include "Materials/MaterialExpressionMin.h"
 #include "Materials/MaterialExpressionOneMinus.h"
 #include "Materials/MaterialExpressionAbs.h"
 #include "Materials/MaterialExpressionFloor.h"
@@ -58,8 +61,12 @@
 #include "Materials/MaterialExpressionPower.h"
 #include "Materials/MaterialExpressionSmoothStep.h"
 #include "Materials/MaterialExpressionVertexColor.h"
+#include "Materials/MaterialExpressionVertexInterpolator.h"
 #include "Materials/MaterialExpressionWorldPosition.h"
+#include "Materials/MaterialExpressionVertexNormalWS.h"
 #include "Materials/MaterialExpressionTextureCoordinate.h"
+#include "Materials/MaterialExpressionTextureObject.h"
+#include "Materials/MaterialExpressionTime.h"
 #include "PhysicsEngine/BodySetup.h"
 #include "StaticMeshCompiler.h"
 #include "Materials/MaterialExpressionTextureSample.h"
@@ -90,7 +97,7 @@ namespace
 	// A class edge between two weightmap vertices is a straight ramp, which at the camera's distance reads as a blur
 	// several metres wide. The material cuts the ramp to this fraction either side of 0.5 and lets the relief map
 	// move the cut a little: a look, not a measurement.
-	constexpr float EdgeSharpness = 0.12f;
+	constexpr float EdgeSharpness = 0.35f;
 	constexpr float ReliefInfluence = 0.15f;
 	// How far a traced surface point may sit from the height the manifest says it should have.
 	constexpr double SurfaceToleranceCm = 5.0;
@@ -107,14 +114,6 @@ namespace
 	// Where the build checks the surface and the layer weights: fractions of the tile along north and east, spread unevenly.
 	const double CheckPoints[][2] = {{0.5, 0.5}, {0.1, 0.2}, {0.9, 0.2}, {0.15, 0.85}, {0.8, 0.9}, {0.33, 0.61}, {0.72, 0.41}, {0.05, 0.5}, {0.5, 0.95}};
 
-	/** The sun and exposure of the target day, from the manifest. */
-	struct FLighting
-	{
-		double GridAzimuthDeg = 0;
-		double ElevationDeg = 0;
-		double SunLux = 0;
-		double ExposureEv100 = 0;
-	};
 
 	/** A scanned ground material for one class: four maps and how much ground one repeat covers. */
 	struct FScan
@@ -135,6 +134,7 @@ namespace
 		FScan Scan;
 		// The class's average photo colour in linear light, from the manifest.
 		FLinearColor MeanColour = FLinearColor::Gray;
+		TOptional<FLinearColor> OrthoMean;
 		UTexture2D* Colour = nullptr;
 		UTexture2D* Normal = nullptr;
 		UTexture2D* Rough = nullptr;
@@ -176,10 +176,21 @@ namespace
 	struct FTurf
 	{
 		TArray<FTuftVariety> Varieties;
+		FString GrowthFile;
 		float RootShade = 1, TipShade = 1;
 		// What a single blade's colour is, as multipliers of the ground's colour under it, each as likely as the next:
 		// measured with the grain. One white entry when the build has no grain.
 		TArray<FLinearColor> BladeColours;
+		FString ConditionFile;
+		TArray<FLinearColor> FieldGreen, FieldDry;
+		TArray<FVector3f> FieldMix;
+		FLinearColor FieldSoil;
+		bool bSoilCandidateIsBareSoil = true;
+		float CalibrationFadeStartCm = 0, CalibrationFadeEndCm = 0;
+		float DryTuftMinCm = 0, DryTuftMaxCm = 0;
+		float LawnRepeatCm = 100, DryHeightRatio = 1, EdgeMowingHeightRatio = 1;
+		int32 LawnPixelsPerM = 512, LawnLeavesPerM2 = 16000;
+		float GrazingViewSineStart = 0, GrazingViewSineEnd = 0;
 	};
 
 	/** One tree of the inventory: where it stands from the tile centre, and its measured size. */
@@ -187,7 +198,7 @@ namespace
 	{
 		double EastM = 0, NorthM = 0, HeightM = 0, CrownRadiusM = 0, YawDeg = 0;
 		// From the species' inventory records; without them the trunk and crown have no collision.
-		double TrunkDiameterM = 0, CrownRatio = 0;
+		double TrunkDiameterM = 0, CrownRatio = 0, VisualCrownScale = 1;
 		FName Kind;
 	};
 
@@ -199,8 +210,11 @@ namespace
 		// Outer ring first, then holes; each point is (east, north). Triangles index the rings' points in order.
 		TArray<TArray<FVector2D>> Rings;
 		TArray<FIntVector> RoofTriangles;
+		EnvGenArchitecture::FStyle Architecture;
+		FVector2D RoofCheckPoint = FVector2D::ZeroVector;
 		// Where the roof stands once placed, in centimetres, for the build's own check.
 		double TopCm = 0;
+		double TerrainLiftCm = 0;
 	};
 
 	/** A tree mesh the engine ships, with the size it has before scaling, read from its bounds. */
@@ -222,6 +236,7 @@ namespace
 		float WallAlbedo = 0.25f, RoofRoughness = 0.85f;
 		// The photo's fine detail as a ratio to the macro colour: file, and how 8 bits map to a power of two.
 		FString RatioFile;
+		FString StreetscapeMaskFile;
 		double RatioLog2Range = 1, RatioZero = 127;
 		// The centimetre-scale grain of grass, measured from a survey orthophoto: file, how 8 bits map to a power of two,
 		// and how much ground one repeat covers.
@@ -231,14 +246,22 @@ namespace
 		FLinearColor GrainTint = FLinearColor(1, 1, 1);
 		// The survey orthophoto's ratio at its own pixel size, one channel, where its footprint is: file, how 8 bits map to
 		// a power of two, and where the file lies in the tile in metres from its south-west corner.
+		FString ProcfillGrowthFile, ProcfillDebugFile;
 		FString SurveyFile;
+		bool bSurveyWeighted = false;
 		double SurveyLog2Range = 1, SurveyZero = 127, SurveyWestM = 0, SurveySouthM = 0, SurveyEastM = 1, SurveyNorthM = 1;
+		FString OrthoMasksFile, OrthoColourFile;
+		FString FallbackWeightsFile;
+		double OrthoWestM = 0, OrthoSouthM = 0, OrthoEastM = 1, OrthoNorthM = 1;
+		bool bProcfillDebugView = false;
+		bool bProcfillSurfaceOverride = false;
 		FTurf Turf;
 		FSurface Tile;
 		TOptional<FSurface> Surround;
+		FString ContextGeometryColourFile;
 		TArray<FLayer> Layers;
 		TArray<FCheckPoint> CheckPoints;
-		FLighting Lighting;
+		FEnvGenLighting Lighting;
 		// Photo colour in linear light times this is albedo; fitted to surfaces of known reflectance.
 		float AlbedoScale = 0.5f;
 		double TileSizeCm = 0;
@@ -286,6 +309,7 @@ namespace
 			return false;
 		}
 		const TArray<TSharedPtr<FJsonValue>>* Points = nullptr;
+		(*Surface)->TryGetStringField(TEXT("fallback_weights"), Out.FallbackWeightsFile);
 		if (!(*Surface)->TryGetArrayField(TEXT("check_points"), Points) || Points->IsEmpty())
 		{
 			Error = TEXT("the manifest needs surface.check_points, where each class should be found");
@@ -330,6 +354,7 @@ namespace
 		if (Root->TryGetObjectField(TEXT("context"), Context))
 		{
 			Out.Surround = ReadSurface(**Context, (*Context)->GetStringField(TEXT("colour")));
+			(*Context)->TryGetStringField(TEXT("geometry_colour"), Out.ContextGeometryColourFile);
 		}
 		Out.TileSizeCm = (*Tile)->GetNumberField(TEXT("size_m")) * 100;
 		Out.Georeference = *Geo;
@@ -348,10 +373,28 @@ namespace
 			Out.RatioLog2Range = (*Ratio)->GetNumberField(TEXT("log2_range"));
 			Out.RatioZero = (*Ratio)->GetNumberField(TEXT("zero"));
 		}
+		const TSharedPtr<FJsonObject>* Procfill = nullptr;
+		if (Root->TryGetObjectField(TEXT("procfill"), Procfill))
+		{
+			Out.ProcfillGrowthFile = (*Procfill)->GetStringField(TEXT("growth_file"));
+			Out.ProcfillDebugFile = (*Procfill)->GetStringField(TEXT("debug_file"));
+			(*Procfill)->TryGetBoolField(TEXT("debug_view"), Out.bProcfillDebugView);
+			(*Procfill)->TryGetBoolField(TEXT("override_native_surface"), Out.bProcfillSurfaceOverride);
+		}
 		const TSharedPtr<FJsonObject>* Survey = nullptr;
 		if (Root->TryGetObjectField(TEXT("survey_detail"), Survey) && (*Survey)->HasField(TEXT("file")))
 		{
 			Out.SurveyFile = (*Survey)->GetStringField(TEXT("file"));
+			FString WeightChannel;
+			if ((*Survey)->TryGetStringField(TEXT("weight_channel"), WeightChannel))
+			{
+				if (WeightChannel != TEXT("alpha"))
+				{
+					UE_LOG(LogEnvGen, Error, TEXT("unsupported survey detail weight channel: %s"), *WeightChannel);
+					return false;
+				}
+				Out.bSurveyWeighted = true;
+			}
 			Out.SurveyLog2Range = (*Survey)->GetNumberField(TEXT("log2_range"));
 			Out.SurveyZero = (*Survey)->GetNumberField(TEXT("zero"));
 			Out.SurveyWestM = (*Survey)->GetNumberField(TEXT("west_m"));
@@ -377,8 +420,108 @@ namespace
 			}
 		}
 		const TSharedPtr<FJsonObject>* Turf = nullptr;
+		const TSharedPtr<FJsonObject>* Ortho = nullptr;
+		if (Root->TryGetObjectField(TEXT("orthophoto"), Ortho) && (*Ortho)->HasField(TEXT("file")))
+		{
+			Out.OrthoMasksFile = (*Ortho)->GetStringField(TEXT("file"));
+			Out.OrthoColourFile = (*Ortho)->GetStringField(TEXT("colour"));
+			Out.OrthoWestM = (*Ortho)->GetNumberField(TEXT("west_m"));
+			Out.OrthoSouthM = (*Ortho)->GetNumberField(TEXT("south_m"));
+			Out.OrthoEastM = (*Ortho)->GetNumberField(TEXT("east_extent_m"));
+			Out.OrthoNorthM = (*Ortho)->GetNumberField(TEXT("north_extent_m"));
+			const TSharedPtr<FJsonObject>* Means = nullptr;
+			if ((*Ortho)->TryGetObjectField(TEXT("mean_linear_rgb"), Means))
+			{
+				for (FLayer& Layer : Out.Layers)
+				{
+					const TArray<TSharedPtr<FJsonValue>>* Mean = nullptr;
+					if ((*Means)->TryGetArrayField(Layer.Name.ToString(), Mean) && Mean->Num() == 3)
+					{
+						Layer.OrthoMean = FLinearColor(float((*Mean)[0]->AsNumber()), float((*Mean)[1]->AsNumber()), float((*Mean)[2]->AsNumber()));
+					}
+				}
+			}
+		}
 		if (Root->TryGetObjectField(TEXT("turf"), Turf))
 		{
+			const TSharedPtr<FJsonObject>* Growth = nullptr;
+			if ((*Turf)->TryGetObjectField(TEXT("growth"), Growth))
+			{
+				Out.Turf.GrowthFile = (*Growth)->GetStringField(TEXT("file"));
+				(*Growth)->TryGetStringField(TEXT("condition_file"), Out.Turf.ConditionFile);
+			}
+			const TSharedPtr<FJsonObject>* Calibration = nullptr;
+			if ((*Turf)->TryGetObjectField(TEXT("field_calibration"), Calibration))
+			{
+				if (Out.Turf.ConditionFile.IsEmpty())
+				{
+					Error = TEXT("field calibration requires a turf condition map");
+					return false;
+				}
+				const auto Colour = [](const TArray<TSharedPtr<FJsonValue>>& Values)
+				{
+					return FLinearColor(float(Values[0]->AsNumber()), float(Values[1]->AsNumber()), float(Values[2]->AsNumber()));
+				};
+				const FLinearColor Soil = Colour((*Calibration)->GetArrayField(TEXT("soil")));
+				(*Calibration)->TryGetBoolField(TEXT("soil_candidate_is_bare_soil"), Out.Turf.bSoilCandidateIsBareSoil);
+				const TSharedPtr<FJsonObject> Surfaces = (*Calibration)->GetObjectField(TEXT("surfaces"));
+				for (const TCHAR* Name : {TEXT("maintained"), TEXT("worn"), TEXT("edge")})
+				{
+					const TSharedPtr<FJsonObject> Palette = Surfaces->GetObjectField(Name);
+					const FLinearColor Green = Colour(Palette->GetArrayField(TEXT("green")));
+					const FLinearColor Dry = Colour(Palette->GetArrayField(TEXT("dry")));
+					const TArray<TSharedPtr<FJsonValue>>& Mix = Palette->GetArrayField(TEXT("mix"));
+					Out.Turf.FieldGreen.Add(Green);
+					Out.Turf.FieldDry.Add(Dry);
+					Out.Turf.FieldMix.Add(FVector3f(float(Mix[0]->AsNumber()), float(Mix[1]->AsNumber()), float(Mix[2]->AsNumber())));
+					Out.Turf.FieldSoil = Soil;
+				}
+				const TArray<TSharedPtr<FJsonValue>>& Fade = (*Calibration)->GetArrayField(TEXT("fade_cm"));
+				Out.Turf.CalibrationFadeStartCm = float(Fade[0]->AsNumber());
+				Out.Turf.CalibrationFadeEndCm = float(Fade[1]->AsNumber());
+				const TArray<TSharedPtr<FJsonValue>>& TuftSize = (*Calibration)->GetArrayField(TEXT("dry_tuft_diameter_m"));
+				if (TuftSize.Num() != 2)
+				{
+					Error = TEXT("dry_tuft_diameter_m requires two ordered positive diameters");
+					return false;
+				}
+				Out.Turf.DryTuftMinCm = float(TuftSize[0]->AsNumber() * 100);
+				Out.Turf.DryTuftMaxCm = float(TuftSize[1]->AsNumber() * 100);
+			}
+			const TSharedPtr<FJsonObject>* Response = nullptr;
+			if ((*Turf)->TryGetObjectField(TEXT("canopy_response"), Response))
+			{
+				Out.Turf.LawnRepeatCm = float((*Response)->GetNumberField(TEXT("lawn_repeat_cm")));
+				Out.Turf.LawnPixelsPerM = (*Response)->GetIntegerField(TEXT("lawn_pixels_per_m"));
+				Out.Turf.LawnLeavesPerM2 = (*Response)->GetIntegerField(TEXT("lawn_leaves_per_m2"));
+				Out.Turf.DryHeightRatio = float((*Response)->GetNumberField(TEXT("dry_height_ratio")));
+				Out.Turf.EdgeMowingHeightRatio = float((*Response)->GetNumberField(TEXT("edge_mowing_height_ratio")));
+				const TArray<TSharedPtr<FJsonValue>>* ViewSines = nullptr;
+				if ((*Response)->TryGetArrayField(TEXT("grazing_view_sine_range"), ViewSines))
+				{
+					if (ViewSines->Num() != 2 || (*ViewSines)[0]->Type != EJson::Number || (*ViewSines)[1]->Type != EJson::Number)
+					{
+						Error = TEXT("grazing_view_sine_range requires two numeric sines");
+						return false;
+					}
+					Out.Turf.GrazingViewSineStart = float((*ViewSines)[0]->AsNumber());
+					Out.Turf.GrazingViewSineEnd = float((*ViewSines)[1]->AsNumber());
+					if (Out.Turf.GrazingViewSineStart < 0 || Out.Turf.GrazingViewSineEnd <= Out.Turf.GrazingViewSineStart || Out.Turf.GrazingViewSineEnd > 1)
+					{
+						Error = TEXT("grazing_view_sine_range requires 0 <= start < end <= 1");
+						return false;
+					}
+				}
+			}
+			if (!Out.Turf.FieldGreen.IsEmpty())
+			{
+				if (!FMath::IsFinite(Out.Turf.DryTuftMinCm) || !FMath::IsFinite(Out.Turf.DryTuftMaxCm) || !FMath::IsFinite(Out.Turf.LawnRepeatCm)
+					|| Out.Turf.DryTuftMinCm <= 0 || Out.Turf.DryTuftMaxCm < Out.Turf.DryTuftMinCm || Out.Turf.DryTuftMaxCm > Out.Turf.LawnRepeatCm)
+				{
+					Error = TEXT("dry tuft diameters must be finite, positive, ordered, and fit within the lawn repeat");
+					return false;
+				}
+			}
 			Out.Turf.RootShade = float((*Turf)->GetNumberField(TEXT("root_shade")));
 			Out.Turf.TipShade = float((*Turf)->GetNumberField(TEXT("tip_shade")));
 			for (const TSharedPtr<FJsonValue>& Value : (*Turf)->GetArrayField(TEXT("varieties")))
@@ -406,6 +549,15 @@ namespace
 		if (Root->TryGetObjectField(TEXT("trees"), Trees))
 		{
 			Out.TreesFile = (*Trees)->GetStringField(TEXT("file"));
+		}
+		const TSharedPtr<FJsonObject>* Streetscape = nullptr;
+		if (Root->TryGetObjectField(TEXT("streetscape"), Streetscape))
+		{
+			if (!(*Streetscape)->TryGetStringField(TEXT("grass_mask"), Out.StreetscapeMaskFile) || Out.StreetscapeMaskFile.IsEmpty())
+			{
+				Error = TEXT("streetscape needs a grass_mask filename");
+				return false;
+			}
 		}
 		const TSharedPtr<FJsonObject>* Buildings = nullptr;
 		if (Root->TryGetObjectField(TEXT("buildings"), Buildings))
@@ -513,7 +665,7 @@ namespace
 	}
 
 	UTexture2D* MakeTexture(const FString& Name, int32 Width, int32 Height, ETextureSourceFormat Format, const uint8* Pixels, bool bSrgb, TArray<UPackage*>& Packages,
-		TextureCompressionSettings Compression = TC_MAX, bool bVirtual = false)
+		TextureCompressionSettings Compression = TC_MAX, bool bVirtual = false, FColor VirtualPadding = FColor::Black)
 	{
 		UTexture2D* Texture = NewAsset<UTexture2D>(Name, Packages);
 		Texture->Source.Init(Width, Height, 1, 1, Format, Pixels);
@@ -521,12 +673,70 @@ namespace
 		Texture->CompressionSettings = Compression != TC_MAX ? Compression : (Format == TSF_G8 ? TC_Grayscale : TC_Default);
 		Texture->LODGroup = TEXTUREGROUP_World;
 		Texture->VirtualTextureStreaming = bVirtual;
+		if (bVirtual)
+		{
+			Texture->PowerOfTwoMode = ETexturePowerOfTwoSetting::PadToPowerOfTwo;
+			Texture->PaddingColor = VirtualPadding;
+			Texture->bPadWithBorderColor = false;
+			Texture->AddressX = TA_Clamp;
+			Texture->AddressY = TA_Clamp;
+		}
 		Texture->PostEditChange();
+		if (bVirtual)
+		{
+			UE_LOG(LogEnvGen, Display, TEXT("%s: virtual=%d, source=%dx%d, padding=%d"), *Name, Texture->VirtualTextureStreaming, Width, Height, int32(Texture->PowerOfTwoMode));
+		}
 		return Texture;
 	}
 
+	UTexture2D* MakeRootBoundary(UTexture2D* Masks, UTexture2D* Colour, TArray<UPackage*>& Packages)
+	{
+		const int32 Width = int32(Masks->Source.GetSizeX()), Height = int32(Masks->Source.GetSizeY());
+		const int32 ColourWidth = int32(Colour->Source.GetSizeX()), ColourHeight = int32(Colour->Source.GetSizeY());
+		const int32 SampleWidth = FMath::Max(Width, ColourWidth), SampleHeight = FMath::Max(Height, ColourHeight);
+		const int32 OutWidth = FMath::Min(SampleWidth, 4096), OutHeight = FMath::Min(SampleHeight, 4096);
+		const uint8* MaskBytes = Masks->Source.LockMipReadOnly(0, 0, 0);
+		const uint8* ColourBytes = Colour->Source.LockMipReadOnly(0, 0, 0);
+		TArray<FColor> Pixels;
+		Pixels.SetNumUninitialized(OutWidth * OutHeight);
+		for (int32 Y = 0; Y < OutHeight; ++Y)
+		{
+			for (int32 X = 0; X < OutWidth; ++X)
+			{
+				FVector4f Sum(0, 0, 0, 0);
+				int32 Count = 0;
+				const int32 X0 = X * SampleWidth / OutWidth, X1 = (X + 1) * SampleWidth / OutWidth;
+				const int32 Y0 = Y * SampleHeight / OutHeight, Y1 = (Y + 1) * SampleHeight / OutHeight;
+				for (int32 Sy = Y0; Sy < Y1; ++Sy)
+				{
+					for (int32 Sx = X0; Sx < X1; ++Sx)
+					{
+						const int64 Index = (int64(Sy * Height / SampleHeight) * Width + Sx * Width / SampleWidth) * 4;
+						const int64 ColourIndex = (int64(Sy * ColourHeight / SampleHeight) * ColourWidth + Sx * ColourWidth / SampleWidth) * 4;
+						const float Coverage = FMath::Min((MaskBytes[Index] + MaskBytes[Index + 1] + MaskBytes[Index + 2]) / 255.f, 1.f);
+						const float Influence = FMath::Min(Coverage, ColourBytes[ColourIndex + 3] / 255.f);
+						const float Scale = Influence / (Coverage + 0.0001f) / 255.f;
+						Sum += FVector4f(MaskBytes[Index + 2] * Scale, MaskBytes[Index + 1] * Scale, MaskBytes[Index] * Scale, 1 - Influence);
+						++Count;
+					}
+				}
+				Sum /= float(Count);
+				Pixels[Y * OutWidth + X] = FColor(uint8(FMath::RoundToInt(Sum.X * 255)), uint8(FMath::RoundToInt(Sum.Y * 255)), uint8(FMath::RoundToInt(Sum.Z * 255)), uint8(FMath::RoundToInt(Sum.W * 255)));
+			}
+		}
+		Colour->Source.UnlockMip(0, 0, 0);
+		Masks->Source.UnlockMip(0, 0, 0);
+		UTexture2D* Result = MakeTexture(TEXT("T_TurfRootBoundary"), OutWidth, OutHeight, TSF_BGRA8, reinterpret_cast<const uint8*>(Pixels.GetData()), false, Packages, TC_VectorDisplacementmap);
+		Result->NeverStream = true;
+		Result->MipGenSettings = TMGS_NoMipmaps;
+		Result->AddressX = TA_Clamp;
+		Result->AddressY = TA_Clamp;
+		Result->PostEditChange();
+		return Result;
+	}
+
 	/** Tileable grey noise: a few octaves of value noise on a lattice that wraps at the texture edge. */
-	TArray<uint8> DetailNoise()
+	TArray<uint8> DetailNoise(int32 FirstPeriod = 4)
 	{
 		const auto Lattice = [](int32 X, int32 Y, int32 Period, int32 Octave)
 		{
@@ -542,7 +752,7 @@ namespace
 				float Value = 0, Weight = 0;
 				for (int32 Octave = 0; Octave < 5; ++Octave)
 				{
-					const int32 Period = 4 << Octave;
+					const int32 Period = FirstPeriod << Octave;
 					const float Fx = float(X) * Period / DetailPixels, Fy = float(Y) * Period / DetailPixels;
 					const int32 X0 = FMath::FloorToInt32(Fx), Y0 = FMath::FloorToInt32(Fy);
 					const float Tx = FMath::SmoothStep(0.f, 1.f, Fx - X0), Ty = FMath::SmoothStep(0.f, 1.f, Fy - Y0);
@@ -565,6 +775,24 @@ namespace
 		return Cast<T>(UMaterialEditingLibrary::CreateMaterialExpression(Material, T::StaticClass(), X, Y));
 	}
 
+	UMaterialExpression* PaddedUv(UMaterial* Material, UMaterialExpression* Uv, UTexture2D* Texture, int32 Y)
+	{
+		if (Texture->PowerOfTwoMode != ETexturePowerOfTwoSetting::PadToPowerOfTwo)
+		{
+			return Uv;
+		}
+		UMaterialExpressionCustom* Scaled = Node<UMaterialExpressionCustom>(Material, -850, Y);
+		Scaled->OutputType = CMOT_Float2;
+		Scaled->Inputs.Empty();
+		FCustomInput& Input = Scaled->Inputs.AddDefaulted_GetRef();
+		Input.InputName = TEXT("UV");
+		Input.Input.Connect(0, Uv);
+		const uint32 Width = uint32(Texture->Source.GetSizeX()), Height = uint32(Texture->Source.GetSizeY());
+		Scaled->Code = FString::Printf(TEXT("return UV * float2(%.9f,%.9f);"),
+			double(Width) / FMath::RoundUpToPowerOfTwo(Width), double(Height) / FMath::RoundUpToPowerOfTwo(Height));
+		return Scaled;
+	}
+
 	UMaterialExpressionTextureSample* Sample(UMaterial* Material, UTexture2D* Texture, float QuadsPerRepeat, EMaterialSamplerType Sampler, int32 Y, float TurnDegrees = 0)
 	{
 		// LandscapeLayerCoords divides the vertex index by MappingScale, so one repeat spans MappingScale quads.
@@ -580,6 +808,50 @@ namespace
 		return Out;
 	}
 
+	UMaterialExpression* BombColour(UMaterial* Material, UTexture2D* Texture, float Repeat, UMaterialExpression* Position, UMaterialExpression* Eye, int32 Y)
+	{
+		UMaterialExpressionLandscapeLayerCoords* Uv = Node<UMaterialExpressionLandscapeLayerCoords>(Material, -1400, Y);
+		Uv->MappingScale = Repeat;
+		UMaterialExpressionTextureObject* Scan = Node<UMaterialExpressionTextureObject>(Material, -1400, Y + 100);
+		Scan->Texture = Texture;
+		UMaterialExpressionCustom* Bomb = Node<UMaterialExpressionCustom>(Material, -1000, Y);
+		Bomb->OutputType = CMOT_Float3;
+		Bomb->Inputs.Empty();
+		FCustomInput& Coordinates = Bomb->Inputs.AddDefaulted_GetRef();
+		Coordinates.InputName = TEXT("UV");
+		Coordinates.Input.Connect(0, Uv);
+		FCustomInput& Image = Bomb->Inputs.AddDefaulted_GetRef();
+		Image.InputName = TEXT("Scan");
+		Image.Input.Connect(0, Scan);
+		FCustomInput& Here = Bomb->Inputs.AddDefaulted_GetRef();
+		Here.InputName = TEXT("Here");
+		Here.Input.Connect(0, Position);
+		FCustomInput& Camera = Bomb->Inputs.AddDefaulted_GetRef();
+		Camera.InputName = TEXT("Eye");
+		Camera.Input.Connect(0, Eye);
+		// Close colour stays registered with the scan normal and relief. Offset cells hide distant repeats.
+		Bomb->Code = TEXT(R"(
+float2 dx=ddx(UV), dy=ddy(UV);
+float blend=smoothstep(1500,3000,distance(Here,Eye));
+[branch] if(blend<=0) return Texture2DSampleGrad(Scan,ScanSampler,UV,dx,dy).rgb;
+float2 skew = float2(UV.x + UV.y*0.57735027, UV.y*1.15470054);
+float2 cell = floor(skew), f = frac(skew);
+float2 a, b, c; float3 w;
+if(f.x+f.y < 1) { a=cell; b=cell+float2(1,0); c=cell+float2(0,1); w=float3(1-f.x-f.y,f.x,f.y); }
+else { a=cell+1; b=cell+float2(0,1); c=cell+float2(1,0); w=float3(f.x+f.y-1,1-f.x,1-f.y); }
+float2 ha=frac(sin(float2(dot(a,float2(127.1,311.7)),dot(a,float2(269.5,183.3))))*43758.5453);
+float2 hb=frac(sin(float2(dot(b,float2(127.1,311.7)),dot(b,float2(269.5,183.3))))*43758.5453);
+float2 hc=frac(sin(float2(dot(c,float2(127.1,311.7)),dot(c,float2(269.5,183.3))))*43758.5453);
+w *= w; w *= w; w /= max(dot(w,1),0.00001);
+float3 varied=Texture2DSampleGrad(Scan,ScanSampler,UV+ha,dx,dy).rgb*w.x
+     + Texture2DSampleGrad(Scan,ScanSampler,UV+hb,dx,dy).rgb*w.y
+     + Texture2DSampleGrad(Scan,ScanSampler,UV+hc,dx,dy).rgb*w.z;
+[branch] if(blend>=1) return varied;
+return lerp(Texture2DSampleGrad(Scan,ScanSampler,UV,dx,dy).rgb,varied,blend);
+)");
+		return Bomb;
+	}
+
 	/** The compile errors of a material, logged; the level build fails on any, because a material that does not compile draws nothing. */
 	int32 CompileErrors(UMaterial* Material)
 	{
@@ -593,6 +865,314 @@ namespace
 			}
 		}
 		return Count;
+	}
+
+
+	struct FLawnTextures
+	{
+		TArray<UTexture2D*> Surfaces;
+		TArray<FLinearColor> Means, BaseColours;
+		UTexture2D* DeadMasks = nullptr;
+		float RepeatCm = 100;
+		UTexture2D* Normal = nullptr;
+	};
+
+	FLawnTextures MakeLawnTextures(const FTurf& Turf, TArray<UPackage*>& Packages)
+	{
+		FLawnTextures Result;
+		if (Turf.FieldGreen.IsEmpty()) return Result;
+		Result.RepeatCm = Turf.LawnRepeatCm;
+		const int32 Pixels = FMath::RoundToInt(Turf.LawnRepeatCm / 100 * Turf.LawnPixelsPerM);
+		TArray<FColor> Leaves;
+		Leaves.Init(FColor(90, 128, 255), Pixels * Pixels);
+		FRandomStream Random(71);
+		const int32 LeafCount = FMath::RoundToInt(FMath::Square(Turf.LawnRepeatCm / 100) * Turf.LawnLeavesPerM2);
+		for (int32 Blade = 0; Blade < LeafCount; ++Blade)
+		{
+			const FVector2f Root(Random.FRand() * Pixels, Random.FRand() * Pixels);
+			const float Angle = Random.FRand() * 2 * PI;
+			const FVector2f Along(FMath::Cos(Angle), FMath::Sin(Angle)), Across(-Along.Y, Along.X);
+			const float Length = Random.FRandRange(15, 40), Width = Random.FRandRange(0.7f, 1.5f);
+			const float Curve = Random.FRandRange(-7, 7);
+			const uint8 Palette = uint8(Random.RandRange(0, 255)), Soil = uint8(Random.RandRange(0, 255));
+			for (int32 Step = 0; Step <= FMath::CeilToInt(Length); ++Step)
+			{
+				const float T = FMath::Min(Step / Length, 1.f);
+				const FVector2f Centre = Root + Along * (Length * T) + Across * (Curve * T * T);
+				const int32 Radius = FMath::CeilToInt(Width * (1 - T));
+				for (int32 Dy = -Radius; Dy <= Radius; ++Dy)
+				{
+					for (int32 Dx = -Radius; Dx <= Radius; ++Dx)
+					{
+						if (Dx * Dx + Dy * Dy > FMath::Square(Width * (1 - T) + 0.5f)) continue;
+						const int32 X = (FMath::FloorToInt(Centre.X) + Dx + Pixels) % Pixels;
+						const int32 Y = (FMath::FloorToInt(Centre.Y) + Dy + Pixels) % Pixels;
+						Leaves[Y * Pixels + X] = FColor(uint8(100 + 135 * FMath::Sin(T * PI)), Palette, Soil);
+					}
+				}
+			}
+		}
+		TArray<float> PaletteValues;
+		PaletteValues.Init(0, Leaves.Num());
+		TArray<uint8> SpatialValues;
+		SpatialValues.SetNumUninitialized(Leaves.Num());
+		int64 SpatialHistogram[256] = {};
+		const double TuftDiameter = FMath::Sqrt(double(Turf.DryTuftMinCm) * Turf.DryTuftMaxCm);
+		const int32 FirstPeriod = TuftDiameter > 0
+			? FMath::RoundToInt(FMath::Clamp(double(Turf.LawnRepeatCm) / TuftDiameter, 1.0, double(DetailPixels / 16))) : 4;
+		const TArray<uint8> PaletteNoise = DetailNoise(FirstPeriod);
+		for (int32 Y = 0; Y < Pixels; ++Y)
+		{
+			for (int32 X = 0; X < Pixels; ++X)
+			{
+				const float Fx = (X + 0.5f) * DetailPixels / Pixels - 0.5f, Fy = (Y + 0.5f) * DetailPixels / Pixels - 0.5f;
+				const int32 X0 = FMath::FloorToInt(Fx), Y0 = FMath::FloorToInt(Fy);
+				const auto At = [&](int32 Sx, int32 Sy)
+				{
+					return PaletteNoise[((Sy + DetailPixels) % DetailPixels) * DetailPixels + (Sx + DetailPixels) % DetailPixels] / 255.f;
+				};
+				PaletteValues[Y * Pixels + X] = FMath::Lerp(FMath::Lerp(At(X0, Y0), At(X0 + 1, Y0), Fx - X0),
+					FMath::Lerp(At(X0, Y0 + 1), At(X0 + 1, Y0 + 1), Fx - X0), Fy - Y0);
+				const uint8 Spatial = uint8(FMath::RoundToInt(PaletteValues[Y * Pixels + X] * 255));
+				SpatialValues[Y * Pixels + X] = Spatial;
+				++SpatialHistogram[Spatial];
+			}
+		}
+		uint8 SpatialQuartiles[3] = {};
+		int64 Cumulative = 0;
+		int32 Quantile = 0;
+		for (int32 Bin = 0; Bin < 256; ++Bin)
+		{
+			Cumulative += SpatialHistogram[Bin];
+			while (Quantile < 3 && Cumulative * 4 >= int64(Leaves.Num()) * (Quantile + 1)) SpatialQuartiles[Quantile++] = uint8(Bin);
+		}
+		TArray<uint32> PaletteTies;
+		TArray<int32> PaletteOrder;
+		PaletteTies.Reserve(Leaves.Num());
+		PaletteOrder.Reserve(Leaves.Num());
+		for (int32 Index = 0; Index < Leaves.Num(); ++Index)
+		{
+			uint32 Tie = uint32(Index) + 71u;
+			Tie = (Tie ^ (Tie >> 16)) * 0x7feb352du;
+			Tie = (Tie ^ (Tie >> 15)) * 0x846ca68bu;
+			Tie ^= Tie >> 16;
+			PaletteValues[Index] += Leaves[Index].G * (0.5f / 255) + Leaves[Index].B * (0.05f / 255);
+			PaletteTies.Add(Tie);
+			PaletteOrder.Add(Index);
+		}
+		PaletteOrder.Sort([&](int32 A, int32 B)
+		{
+			return PaletteValues[A] == PaletteValues[B] ? PaletteTies[A] < PaletteTies[B] : PaletteValues[A] < PaletteValues[B];
+		});
+		TArray<float> PaletteRank;
+		PaletteRank.SetNumUninitialized(Leaves.Num());
+		for (int32 Rank = 0; Rank < PaletteOrder.Num(); ++Rank) PaletteRank[PaletteOrder[Rank]] = (Rank + 0.5f) / PaletteOrder.Num();
+		TArray<FColor> Normals;
+		Normals.SetNumUninitialized(Pixels * Pixels);
+		for (int32 Y = 0; Y < Pixels; ++Y)
+		{
+			for (int32 X = 0; X < Pixels; ++X)
+			{
+				const float Dx = (float(Leaves[Y * Pixels + (X + 1) % Pixels].R) - Leaves[Y * Pixels + (X + Pixels - 1) % Pixels].R) / 255.f;
+				const float Dy = (float(Leaves[((Y + 1) % Pixels) * Pixels + X].R) - Leaves[((Y + Pixels - 1) % Pixels) * Pixels + X].R) / 255.f;
+				const FVector3f N = FVector3f(-Dx * 0.6f, -Dy * 0.6f, 1).GetSafeNormal();
+				Normals[Y * Pixels + X] = FColor(uint8((N.X * 0.5f + 0.5f) * 255), uint8((N.Y * 0.5f + 0.5f) * 255), uint8((N.Z * 0.5f + 0.5f) * 255));
+			}
+		}
+		for (int32 Surface = 0; Surface < Turf.FieldGreen.Num(); ++Surface)
+		{
+			TArray<FColor> Colours;
+			Colours.Reserve(Leaves.Num());
+			const FVector3f Mix = Turf.FieldMix[Surface];
+			const FLinearColor BaseColour = Turf.bSoilCandidateIsBareSoil ? Turf.FieldSoil : Turf.FieldDry[Surface] * Turf.RootShade;
+			Result.BaseColours.Add(BaseColour);
+			FVector Mean(0);
+			int64 SpatialTotals[4] = {}, SpatialGreen[4] = {};
+			for (int32 Index = 0; Index < Leaves.Num(); ++Index)
+			{
+				const FColor& Leaf = Leaves[Index];
+				const float Rank = PaletteRank[Index];
+				const uint8 Spatial = SpatialValues[Index];
+				const int32 Bucket = int32(Spatial > SpatialQuartiles[0]) + int32(Spatial > SpatialQuartiles[1]) + int32(Spatial > SpatialQuartiles[2]);
+				++SpatialTotals[Bucket];
+				if (Rank < Mix.X) ++SpatialGreen[Bucket];
+				const FLinearColor Colour = Rank < Mix.X ? Turf.FieldGreen[Surface]
+					: Rank < Mix.X + Mix.Y ? Turf.FieldDry[Surface] : BaseColour;
+				const float Shade = 0.7f + Leaf.R / 255.f * 0.5f;
+				FColor Packed = (Colour * Shade).ToFColorSRGB();
+				// Alpha carries the shaded base contribution so upright blades retain dry vegetation colour.
+				Packed.A = Rank >= Mix.X + Mix.Y ? uint8(Shade / 1.2f * 255) : 0;
+				const FLinearColor Linear(Packed);
+				Mean += FVector(Linear.R, Linear.G, Linear.B);
+				Colours.Add(Packed);
+			}
+			Mean /= double(Leaves.Num());
+			UE_LOG(LogEnvGen, Display, TEXT("Lawn %d texture-pixel green fractions by spatial quartile: %.4f %.4f %.4f %.4f"), Surface,
+				double(SpatialGreen[0]) / FMath::Max<int64>(SpatialTotals[0], 1), double(SpatialGreen[1]) / FMath::Max<int64>(SpatialTotals[1], 1),
+				double(SpatialGreen[2]) / FMath::Max<int64>(SpatialTotals[2], 1), double(SpatialGreen[3]) / FMath::Max<int64>(SpatialTotals[3], 1));
+			Result.Means.Add(FLinearColor(float(Mean.X), float(Mean.Y), float(Mean.Z)));
+			Result.Surfaces.Add(MakeTexture(FString::Printf(TEXT("T_Lawn_%d"), Surface), Pixels, Pixels, TSF_BGRA8,
+				reinterpret_cast<const uint8*>(Colours.GetData()), true, Packages));
+		}
+		TArray<FColor> DeadMasks;
+		DeadMasks.Reserve(PaletteRank.Num());
+		for (float Rank : PaletteRank)
+		{
+			DeadMasks.Add(FColor(Rank >= Turf.FieldMix[0].X ? 255 : 0, Rank >= Turf.FieldMix[1].X ? 255 : 0, Rank >= Turf.FieldMix[2].X ? 255 : 0, 255));
+		}
+		Result.DeadMasks = MakeTexture(TEXT("T_LawnDeadMasks"), Pixels, Pixels, TSF_BGRA8, reinterpret_cast<const uint8*>(DeadMasks.GetData()), false, Packages, TC_VectorDisplacementmap);
+		Result.DeadMasks->NeverStream = true;
+		Result.DeadMasks->MipGenSettings = TMGS_NoMipmaps;
+		Result.DeadMasks->PostEditChange();
+		Result.Normal = MakeTexture(TEXT("T_LawnNormal"), Pixels, Pixels, TSF_BGRA8, reinterpret_cast<const uint8*>(Normals.GetData()), false, Packages, TC_Normalmap);
+		return Result;
+	}
+
+	UMaterialExpression* LawnFarBlend(UMaterial* Material, UMaterialExpression* Here, UMaterialExpression* Eye, UMaterialExpression* SurfaceUp, const FTurf& Turf)
+	{
+		UMaterialExpressionCustom* Blend = Node<UMaterialExpressionCustom>(Material, -1000, -900);
+		Blend->OutputType = CMOT_Float1;
+		Blend->Inputs.Empty();
+		for (const auto& Pair : {TPair<const TCHAR*, UMaterialExpression*>(TEXT("Here"), Here), TPair<const TCHAR*, UMaterialExpression*>(TEXT("Eye"), Eye)})
+		{
+			FCustomInput& Input = Blend->Inputs.AddDefaulted_GetRef();
+			Input.InputName = Pair.Key;
+			Input.Input.Connect(0, Pair.Value);
+		}
+		if (Turf.CalibrationFadeEndCm <= Turf.CalibrationFadeStartCm)
+		{
+			Blend->Code = TEXT("return 1;");
+			return Blend;
+		}
+		const FString Original = FString::Printf(TEXT("smoothstep(%.3f,%.3f,d)"), Turf.CalibrationFadeStartCm, Turf.CalibrationFadeEndCm);
+		float HoldEndCm = 0;
+		for (const FTuftVariety& Variety : Turf.Varieties)
+		{
+			if (Variety.Name == FName(TEXT("clump"))) HoldEndCm = float(Variety.EndCullCm);
+		}
+		Blend->Code = TEXT("float d=distance(Here,Eye); return ") + Original + TEXT(";");
+		if (SurfaceUp && HoldEndCm > Turf.CalibrationFadeEndCm && Turf.GrazingViewSineEnd > Turf.GrazingViewSineStart)
+		{
+			FCustomInput& Up = Blend->Inputs.AddDefaulted_GetRef();
+			Up.InputName = TEXT("Up");
+			Up.Input.Connect(0, SurfaceUp);
+			Blend->Code = TEXT("float d=distance(Here,Eye); ") + FString::Printf(TEXT("float grazing=1-smoothstep(%.6f,%.6f,saturate(dot(normalize(Up),(Eye-Here)/max(d,1)))); return lerp("), Turf.GrazingViewSineStart, Turf.GrazingViewSineEnd)
+				+ Original + FString::Printf(TEXT(",smoothstep(%.3f,%.3f,d),grazing);"), Turf.CalibrationFadeEndCm, HoldEndCm);
+		}
+		return Blend;
+	}
+
+	UMaterialExpression* LawnSurface(UMaterial* Material, UMaterialExpression* FarAlbedo, UMaterialExpression* SiteAlbedo, UTexture2D* Condition,
+		const FLawnTextures& Lawn, UMaterialExpression* Coords, UMaterialExpression* FarBlend, const FManifest& Manifest, bool bVegetation = false, bool bBladeRoot = false)
+	{
+		if (!Condition || Manifest.Turf.FieldGreen.IsEmpty()) return FarAlbedo;
+		UMaterialExpressionTextureSample* Controls = Node<UMaterialExpressionTextureSample>(Material, -600, -650);
+		Controls->Texture = Condition;
+		Controls->SamplerType = SAMPLERTYPE_LinearColor;
+		Controls->SamplerSource = SSM_Wrap_WorldGroupSettings;
+		Controls->Coordinates.Connect(0, Coords);
+		UMaterialExpressionMultiply* LawnUv = Node<UMaterialExpressionMultiply>(Material, -600, -550);
+		LawnUv->A.Connect(0, Coords);
+		LawnUv->ConstB = float(Manifest.TileSizeCm / Lawn.RepeatCm);
+		UMaterialExpressionCustom* Surface = Node<UMaterialExpressionCustom>(Material, -100, -600);
+		Surface->OutputType = CMOT_Float3;
+		Surface->Inputs.Empty();
+		for (const auto& Pair : {TPair<const TCHAR*, UMaterialExpression*>(TEXT("Far"), FarAlbedo),
+			TPair<const TCHAR*, UMaterialExpression*>(TEXT("Site"), SiteAlbedo),
+			TPair<const TCHAR*, UMaterialExpression*>(TEXT("Condition"), Controls),
+			TPair<const TCHAR*, UMaterialExpression*>(TEXT("FarBlend"), FarBlend)})
+		{
+			FCustomInput& Input = Surface->Inputs.AddDefaulted_GetRef();
+			Input.InputName = Pair.Key;
+			Input.Input.Connect(0, Pair.Value);
+		}
+		FString VegetationCode;
+		for (int32 Index = 0; Index < Lawn.Surfaces.Num(); ++Index)
+		{
+			UMaterialExpressionTextureSample* Leaves = Node<UMaterialExpressionTextureSample>(Material, -400, -550 + Index * 100);
+			Leaves->Texture = Lawn.Surfaces[Index];
+			Leaves->SamplerType = SAMPLERTYPE_Color;
+			Leaves->SamplerSource = SSM_Wrap_WorldGroupSettings;
+			Leaves->Coordinates.Connect(0, LawnUv);
+			if (bBladeRoot)
+			{
+				// A blade keeps the colour of its root, at the same mip as its living/dead height mask.
+				Leaves->MipValueMode = TMVM_MipLevel;
+				Leaves->ConstMipValue = 0;
+			}
+			FCustomInput& Input = Surface->Inputs.AddDefaulted_GetRef();
+			Input.InputName = FName(*FString::Printf(TEXT("Lawn%d"), Index));
+			Input.Input.Connect(0, Leaves);
+			if (bVegetation)
+			{
+				FCustomInput& Alpha = Surface->Inputs.AddDefaulted_GetRef();
+				Alpha.InputName = FName(*FString::Printf(TEXT("Soil%d"), Index));
+				Alpha.Input.Connect(4, Leaves);
+				const FLinearColor Delta = (Manifest.Turf.FieldDry[Index] - Lawn.BaseColours[Index]) * 1.2f;
+				VegetationCode += FString::Printf(TEXT("Lawn%d += Soil%d*float3(%.9f,%.9f,%.9f);"), Index, Index, Delta.R, Delta.G, Delta.B);
+			}
+		}
+		const FTurf& Turf = Manifest.Turf;
+		// One maintained reference preserves condition colour differences; site luminance supplies local variation.
+		const FLinearColor Reference = Lawn.Means[0];
+		const float ReferenceY = Reference.R * 0.2126f + Reference.G * 0.7152f + Reference.B * 0.0722f;
+		const float CanopyShade = bVegetation ? 1.f : Turf.RootShade;
+		Surface->Code = VegetationCode + FString::Printf(TEXT("float3 lawn=lerp(lerp(Lawn0,Lawn1,Condition.r),Lawn2,Condition.g); float brightness=dot(Site,float3(0.2126,0.7152,0.0722))/max(%.9f,0.0001); return lerp(lawn*brightness*%.6f,Far,FarBlend);"), ReferenceY, CanopyShade);
+		return Surface;
+	}
+
+	UMaterialExpression* NearSurfaceWeights(UMaterial* Material, UMaterialExpression* Coords, UTexture2D* RootBoundary,
+		UTexture2D* FallbackWeights, const FManifest& Manifest)
+	{
+		UMaterialExpressionTextureSample* FallbackAt = Node<UMaterialExpressionTextureSample>(Material, -900, 1700);
+		FallbackAt->Texture = FallbackWeights;
+		FallbackAt->SamplerType = SAMPLERTYPE_LinearColor;
+		UMaterialExpression* FallbackCoords = Coords;
+		if (Manifest.bProcfillSurfaceOverride || Manifest.OrthoMasksFile.IsEmpty())
+		{
+			UMaterialExpressionCustom* GridUv = Node<UMaterialExpressionCustom>(Material, -1100, 1700);
+			GridUv->OutputType = CMOT_Float2;
+			FCustomInput& Input = GridUv->Inputs.AddDefaulted_GetRef();
+			Input.InputName = TEXT("UV");
+			Input.Input.Connect(0, Coords);
+			GridUv->Code = FString::Printf(TEXT("return (saturate(UV)*%.1f+0.5)/%.1f;"), double(Manifest.Tile.Vertices - 1), double(Manifest.Tile.Vertices));
+			FallbackCoords = GridUv;
+		}
+		FallbackAt->Coordinates.Connect(0, FallbackCoords);
+		FallbackAt->MipValueMode = TMVM_MipLevel;
+		FallbackAt->ConstMipValue = 0;
+		UMaterialExpression* RootWeight = FallbackAt;
+		if (RootBoundary && !Manifest.bProcfillSurfaceOverride)
+		{
+			UMaterialExpressionCustom* NativeUv = Node<UMaterialExpressionCustom>(Material, -900, 1600);
+			NativeUv->OutputType = CMOT_Float2;
+			NativeUv->Inputs.Empty();
+			FCustomInput& In = NativeUv->Inputs.AddDefaulted_GetRef();
+			In.InputName = TEXT("UV");
+			In.Input.Connect(0, Coords);
+			NativeUv->Code = FString::Printf(TEXT("return (UV*%.6f-float2(%.6f,%.6f))/float2(%.6f,%.6f);"), Manifest.TileSizeCm / 100, Manifest.OrthoSouthM, Manifest.OrthoWestM, Manifest.OrthoNorthM, Manifest.OrthoEastM);
+			UMaterialExpressionTextureSample* NativeAt = Node<UMaterialExpressionTextureSample>(Material, -700, 1600);
+			NativeAt->Texture = RootBoundary;
+			NativeAt->SamplerType = SAMPLERTYPE_LinearColor;
+			NativeAt->Coordinates.Connect(0, NativeUv);
+			NativeAt->MipValueMode = TMVM_MipLevel;
+			NativeAt->ConstMipValue = 0;
+			UMaterialExpressionCustom* Combined = Node<UMaterialExpressionCustom>(Material, -500, 1600);
+			Combined->OutputType = CMOT_Float3;
+			Combined->Inputs.Empty();
+			for (const auto& Pair : {TPair<const TCHAR*, UMaterialExpression*>(TEXT("Fallback"), FallbackAt), TPair<const TCHAR*, UMaterialExpression*>(TEXT("Native"), NativeAt), TPair<const TCHAR*, UMaterialExpression*>(TEXT("UV"), NativeUv)})
+			{
+				FCustomInput& Input = Combined->Inputs.AddDefaulted_GetRef();
+				Input.InputName = Pair.Key;
+				Input.Input.Connect(0, Pair.Value);
+			}
+			FCustomInput& Alpha = Combined->Inputs.AddDefaulted_GetRef();
+			Alpha.InputName = TEXT("NativeAlpha");
+			Alpha.Input.Connect(4, NativeAt);
+			Combined->Code = TEXT("float3 weights=all(UV>=0)&&all(UV<1) ? Native.rgb+Fallback.rgb*NativeAlpha : Fallback.rgb; return weights/max(dot(weights,float3(1,1,1)),0.0001);");
+			RootWeight = Combined;
+		}
+		return RootWeight;
 	}
 
 	/** A tuft of tapered, leaning blades, base at the origin, as geometry so it casts and takes light like turf. */
@@ -611,34 +1191,86 @@ namespace
 		Slots[Group] = FName(TEXT("Blade"));
 		// The blade's own colour rides in the third and fourth UV channels (red and green, then blue): vertex colour is
 		// 8 bits and holds how far up the blade a point is, and the mesh build writes its own unwrap into the second.
-		Uvs.SetNumChannels(4);
+		const bool bNear = Variety.Name == FName(TEXT("near"));
+		Uvs.SetNumChannels(bNear || Variety.Name == FName(TEXT("broadleaf")) ? 4 : 5);
 		FRandomStream Random(7 + Index);
 		constexpr int32 Segments = 3;
+		if (Variety.Name == FName(TEXT("broadleaf")))
+		{
+			for (int32 Leaf = 0; Leaf < 3; ++Leaf)
+			{
+				const float Angle = Leaf * 2 * PI / 3;
+				const FVector2f Direction(FMath::Cos(Angle), FMath::Sin(Angle));
+				const FVector2f Across(-Direction.Y, Direction.X);
+				const float Length = Variety.WidthMaxCm;
+				const FVector2f Centre = Direction * Length;
+				const auto Vertex = [&](const FVector2f& Point, float Height, float Shade)
+				{
+					const FVertexID Id = Description.CreateVertex();
+					Positions[Id] = FVector3f(Point.X, Point.Y, Height);
+					const FVertexInstanceID Instance = Description.CreateVertexInstance(Id);
+					Normals[Instance] = FVector3f(0, 0, 1);
+					Uvs.Set(Instance, 0, Point / (Length * 4) + FVector2f(0.5f));
+					Uvs.Set(Instance, 1, FVector2f(0, 0));
+					Uvs.Set(Instance, 2, FVector2f(0.85f, 1.05f));
+					Uvs.Set(Instance, 3, FVector2f(0.8f, 0));
+					Colours[Instance] = FVector4f(Shade, Shade, Shade, 1);
+					return Instance;
+				};
+				const FVertexInstanceID Middle = Vertex(Centre, Variety.HeightMaxCm, 1);
+				Description.CreatePolygon(Group, {Middle, Vertex(FVector2f(0, 0), 0, 0), Vertex(Centre + Across * 0.1f, Variety.HeightMaxCm, 0.8f)});
+				for (int32 Edge = 0; Edge < 8; ++Edge)
+				{
+					const auto Rim = [&](int32 Step)
+					{
+						const float Around = Step * 2 * PI / 8;
+						return Vertex(Centre + Direction * (Length * FMath::Cos(Around)) + Across * (Length * 0.65f * FMath::Sin(Around)), Variety.HeightMinCm, 0.5f);
+					};
+					Description.CreatePolygon(Group, {Middle, Rim(Edge), Rim(Edge + 1)});
+				}
+			}
+		}
 		for (int32 Blade = 0; Blade < Variety.Blades; ++Blade)
 		{
+			if (Variety.Name == FName(TEXT("broadleaf")))
+			{
+				break;
+			}
 			const float Around = Random.FRand() * 2 * PI;
-			const FVector2f Root = FVector2f(FMath::Cos(Around), FMath::Sin(Around)) * Random.FRand() * Variety.RadiusCm;
+			const FVector2f Root = FVector2f(FMath::Cos(Around), FMath::Sin(Around)) * FMath::Sqrt(Random.FRand()) * Variety.RadiusCm;
 			const float Facing = Random.FRand() * 2 * PI;
 			const FVector2f Along(FMath::Cos(Facing), FMath::Sin(Facing)), Across(-Along.Y, Along.X);
 			const float Height = Random.FRandRange(Variety.HeightMinCm, Variety.HeightMaxCm);
 			const float Width = Random.FRandRange(Variety.WidthMinCm, Variety.WidthMaxCm) / 2;
 			// Dealt in turn, so a tuft holds the colours in the equal shares they were measured in.
-			const FLinearColor Own = BladeColours.IsEmpty() ? FLinearColor::White : BladeColours[Blade % BladeColours.Num()];
-			const float Lean = Random.FRandRange(0.2f, 0.6f) * Height;
+			FLinearColor Own = BladeColours.IsEmpty() ? FLinearColor::White : BladeColours[Blade % BladeColours.Num()];
+			if (Blade % 13 == 0)
+			{
+				Own *= FLinearColor(1.10f, 0.94f, 0.72f);
+			}
+			const float Lean = Random.FRandRange(0.15f, 1.35f) * Height;
+			const float Arch = Random.FRandRange(0.f, 0.55f);
+			const float BladeSeed = Random.FRand();
+			const float PeakT = Arch > 1.f / PI ? FMath::Acos(-1.f / (PI * Arch)) / PI : 1.f;
+			const float Peak = PeakT + Arch * FMath::Sin(PI * PeakT);
 			// Left and right edge vertices per level, and one at the tip.
 			TArray<FVertexInstanceID> Left, Right;
 			FVertexInstanceID Tip;
 			const auto Add = [&](float T, float Side)
 			{
-				const FVector2f Plan = Root + Along * (Lean * T * T) + Across * (Side * Width * (1.f - T));
+				const float RootWidth = FMath::Lerp(0.2f, 1.f, FMath::Min(T * 4.f, 1.f));
+				const FVector2f Plan = Root + Along * (Lean * T * T) + Across * (Side * Width * (1.f - T) * RootWidth);
 				const FVertexID Vertex = Description.CreateVertex();
-				Positions[Vertex] = FVector3f(Plan.X, Plan.Y, Height * T);
+				// Keep the flat foot below the surface, including the blade material's small relief offset.
+				Positions[Vertex] = FVector3f(Plan.X, Plan.Y, Height * (T + Arch * FMath::Sin(PI * T)) / Peak - 2.f * (1.f - T));
 				const FVertexInstanceID Instance = Description.CreateVertexInstance(Vertex);
-				Normals[Instance] = FVector3f(0, 0, 1);
-				Uvs.Set(Instance, 0, FVector2f(Side * 0.5f + 0.5f, T));
+				Normals[Instance] = FVector3f(Along.X * 0.6f + Across.X * Side * 0.4f,
+					Along.Y * 0.6f + Across.Y * Side * 0.4f, 1.f).GetSafeNormal();
+				Uvs.Set(Instance, 0, bNear ? Root : FVector2f(Side * 0.5f + 0.5f, T));
 				Uvs.Set(Instance, 1, FVector2f(0.f, 0.f));
 				Uvs.Set(Instance, 2, FVector2f(Own.R, Own.G));
-				Uvs.Set(Instance, 3, FVector2f(Own.B, 0.f));
+				Uvs.Set(Instance, 3, FVector2f(Own.B, BladeSeed));
+				if (!bNear) Uvs.Set(Instance, 4, Root);
 				Colours[Instance] = FVector4f(T, T, T, 1.f);
 				return Instance;
 			};
@@ -656,6 +1288,14 @@ namespace
 			Description.CreatePolygon(Group, {Left[Segments - 1], Right[Segments - 1], Tip});
 		}
 		Mesh->GetStaticMaterials().Add(FStaticMaterial(Material, FName(TEXT("Blade"))));
+		if (bNear)
+		{
+			FMeshNaniteSettings& Nanite = Mesh->GetNaniteSettings();
+			Nanite.bEnabled = true;
+			Nanite.ShapePreservation = ENaniteShapePreservation::PreserveArea;
+			// UV0 stores a blade root, not a surface coordinate that can be interpolated between leaves.
+			Nanite.bLerpUVs = false;
+		}
 		UStaticMesh::FBuildMeshDescriptionsParams Params;
 		Params.bBuildSimpleCollision = false;
 		// A full build, not a fast one: on 5.8.4 the engine builds a fast-built tuft's instances and draws none of
@@ -669,14 +1309,21 @@ namespace
 	 * The blade's material: the grass class's own colour (its mean photo colour times the albedo scale), darker at the
 	 * root and lighter at the tip, and a little different from tuft to tuft.
 	 */
-	UMaterial* MakeBladeMaterial(UTexture2D* Macro, const FManifest& Manifest, const FTuftVariety& Variety, TArray<UPackage*>& Packages)
+	UMaterial* MakeBladeMaterial(UTexture2D* Macro, UTexture2D* Growth, UTexture2D* Condition, UTexture2D* RootBoundary, UTexture2D* FallbackWeights, const FLawnTextures& Lawn, const FManifest& Manifest, const FTuftVariety& Variety, TArray<UPackage*>& Packages)
 	{
 		UMaterial* Material = NewAsset<UMaterial>(TEXT("M_GrassBlade_") + Variety.Name.ToString(), Packages);
 		Material->TwoSided = true;
 		Material->bUsedWithInstancedStaticMeshes = true;
+		if (Variety.Name == FName(TEXT("near")))
+		{
+			Material->SetUsageByFlag(MATUSAGE_Nanite, true);
+			// Extend cluster bounds for root collapse, height variation and wind without clamping their motion.
+			Material->MaxWorldPositionOffsetDisplacement = (Variety.RadiusCm + Variety.HeightMaxCm * 2) * Variety.ScaleMax + 10;
+		}
 		// The ground's own colour under the blade: the macro map read at the blade's place, as the ground reads it. Along
 		// the landscape's axes (north, east) one tile is one repeat, from its south-west corner.
 		UMaterialExpressionWorldPosition* Place = Node<UMaterialExpressionWorldPosition>(Material, -1100, -100);
+		Place->WorldPositionShaderOffset = WPT_ExcludeAllShaderOffsets;
 		UMaterialExpressionComponentMask* Plan = Node<UMaterialExpressionComponentMask>(Material, -950, -100);
 		Plan->Input.Connect(0, Place);
 		Plan->R = true;
@@ -689,6 +1336,36 @@ namespace
 		UMaterialExpressionMultiply* Coords = Node<UMaterialExpressionMultiply>(Material, -650, -100);
 		Coords->A.Connect(0, FromCorner);
 		Coords->ConstB = float(1.0 / Manifest.TileSizeCm);
+		UMaterialExpressionConstant3Vector* Origin = Node<UMaterialExpressionConstant3Vector>(Material, -1100, 1150);
+		Origin->Constant = FLinearColor(0, 0, 0);
+		UMaterialExpressionTransformPosition* Root = Node<UMaterialExpressionTransformPosition>(Material, -900, 1150);
+		Root->Input.Connect(0, Origin);
+		Root->TransformSourceType = Variety.Name == FName(TEXT("near")) ? TRANSFORMPOSSOURCE_Instance : TRANSFORMPOSSOURCE_Local;
+		Root->TransformType = TRANSFORMPOSSOURCE_World;
+		UMaterialExpression* BladeRoot = Root;
+		if (Variety.Name != FName(TEXT("broadleaf")))
+		{
+			UMaterialExpressionTextureCoordinate* BladeRootUv = Node<UMaterialExpressionTextureCoordinate>(Material, -1500, 1600);
+			// Nanite supports four UV channels; near roots use the otherwise unread surface UV0.
+			BladeRootUv->CoordinateIndex = Variety.Name == FName(TEXT("near")) ? 0 : 4;
+			UMaterialExpressionTransformPosition* PerBladeRoot = Node<UMaterialExpressionTransformPosition>(Material, -1300, 1600);
+			UMaterialExpressionAppendVector* LocalRoot = Node<UMaterialExpressionAppendVector>(Material, -1400, 1600);
+			LocalRoot->A.Connect(0, BladeRootUv);
+			LocalRoot->B.Connect(0, Node<UMaterialExpressionConstant>(Material, -1500, 1700));
+			PerBladeRoot->Input.Connect(0, LocalRoot);
+			PerBladeRoot->TransformSourceType = Variety.Name == FName(TEXT("near")) ? TRANSFORMPOSSOURCE_Instance : TRANSFORMPOSSOURCE_Local;
+			PerBladeRoot->TransformType = TRANSFORMPOSSOURCE_World;
+			BladeRoot = PerBladeRoot;
+		}
+		UMaterialExpressionCustom* RootCoords = Node<UMaterialExpressionCustom>(Material, -1100, 1600);
+		RootCoords->OutputType = CMOT_Float2;
+		RootCoords->Inputs.Empty();
+		FCustomInput& RootInput = RootCoords->Inputs.AddDefaulted_GetRef();
+		RootInput.InputName = TEXT("Root");
+		RootInput.Input.Connect(0, BladeRoot);
+		RootCoords->Code = FString::Printf(TEXT("return (Root.xy+%.6f)/%.6f;"), Manifest.TileSizeCm / 2, Manifest.TileSizeCm);
+		UMaterialExpressionVertexInterpolator* ColourCoords = Node<UMaterialExpressionVertexInterpolator>(Material, -650, -300);
+		ColourCoords->Input.Connect(0, RootCoords);
 		UMaterialExpressionTextureSample* Ground = Node<UMaterialExpressionTextureSample>(Material, -500, -100);
 		Ground->Texture = Macro;
 		Ground->SamplerType = SAMPLERTYPE_Color;
@@ -697,6 +1374,20 @@ namespace
 		UMaterialExpressionMultiply* Albedo = Node<UMaterialExpressionMultiply>(Material, -350, -100);
 		Albedo->A.Connect(0, Ground);
 		Albedo->ConstB = Manifest.AlbedoScale;
+		UMaterialExpressionCameraPositionWS* ColourEye = Node<UMaterialExpressionCameraPositionWS>(Material, -800, -750);
+		UMaterialExpression* CanopyUp = nullptr;
+		if (Variety.Name == FName(TEXT("clump")) || Variety.Name == FName(TEXT("tall")))
+		{
+			UMaterialExpressionConstant3Vector* LocalUp = Node<UMaterialExpressionConstant3Vector>(Material, -1200, -850);
+			LocalUp->Constant = FLinearColor(0, 0, 1);
+			UMaterialExpressionTransform* WorldUp = Node<UMaterialExpressionTransform>(Material, -1000, -850);
+			WorldUp->Input.Connect(0, LocalUp);
+			WorldUp->TransformSourceType = TRANSFORMSOURCE_Local;
+			WorldUp->TransformType = TRANSFORM_World;
+			CanopyUp = WorldUp;
+		}
+		UMaterialExpression* LawnBlend = LawnFarBlend(Material, Place, ColourEye, CanopyUp, Manifest.Turf);
+		UMaterialExpression* FieldAlbedo = LawnSurface(Material, Albedo, Albedo, Condition, Lawn, ColourCoords, LawnBlend, Manifest, true, true);
 
 		// The mesh's vertex colour is how far up the blade the point is: 0 at the root, 1 at the tip.
 		UMaterialExpressionVertexColor* Along = Node<UMaterialExpressionVertexColor>(Material, -800, 400);
@@ -706,16 +1397,16 @@ namespace
 		Shade->Alpha.Connect(1, Along);
 		UMaterialExpressionPerInstanceRandom* Random = Node<UMaterialExpressionPerInstanceRandom>(Material, -800, 550);
 		UMaterialExpressionLinearInterpolate* Tuft = Node<UMaterialExpressionLinearInterpolate>(Material, -650, 550);
-		Tuft->ConstA = 0.85f;
-		Tuft->ConstB = 1.15f;
+		Tuft->ConstA = 0.95f;
+		Tuft->ConstB = 1.05f;
 		Tuft->Alpha.Connect(0, Random);
 		UMaterialExpressionMultiply* Lit = Node<UMaterialExpressionMultiply>(Material, -350, 100);
-		Lit->A.Connect(0, Albedo);
+		Lit->A.Connect(0, FieldAlbedo);
 		Lit->B.Connect(0, Shade);
 		UMaterialExpressionMultiply* OfTuft = Node<UMaterialExpressionMultiply>(Material, -200, 100);
 		OfTuft->A.Connect(0, Lit);
 		OfTuft->B.Connect(0, Tuft);
-		// The blade's own colour, from the mesh: red and green in the third UV channel, blue in the fourth.
+		// The blade's own colour, from the mesh: red and green in the third UV channel, blue and a stable blade seed in the fourth.
 		UMaterialExpressionTextureCoordinate* RedGreen = Node<UMaterialExpressionTextureCoordinate>(Material, -500, 650);
 		RedGreen->CoordinateIndex = 2;
 		UMaterialExpressionTextureCoordinate* BlueUv = Node<UMaterialExpressionTextureCoordinate>(Material, -500, 750);
@@ -733,71 +1424,243 @@ namespace
 		Colour->A.Connect(0, OfTuft);
 		Colour->B.Connect(0, Own);
 		// Thin blades pass light: lit from behind they glow with their own colour rather than going black.
-		Material->SetShadingModel(MSM_DefaultLit);
-		UMaterialEditingLibrary::ConnectMaterialProperty(Colour, TEXT(""), MP_BaseColor);
-		// Lit as the ground under it: a two-sided blade's normal turns over on the side the camera sees, and a blade seen
-		// from the back would take no sun. A world-space up normal does not turn over.
-		Material->bTangentSpaceNormal = false;
-		UMaterialExpressionConstant3Vector* Up = Node<UMaterialExpressionConstant3Vector>(Material, -200, 200);
-		Up->Constant = FLinearColor(0, 0, 1);
-		UMaterialEditingLibrary::ConnectMaterialProperty(Up, TEXT(""), MP_Normal);
-		UMaterialExpressionConstant* Roughness = Node<UMaterialExpressionConstant>(Material, -200, 300);
-		Roughness->R = 0.75f;
-		UMaterialEditingLibrary::ConnectMaterialProperty(Roughness, TEXT(""), MP_Roughness);
-		if (Variety.AppearFullCm > Variety.AppearFromCm)
+		Material->SetShadingModel(MSM_TwoSidedFoliage);
+		UMaterialExpression* Substrate = LawnSurface(Material, Albedo, Albedo, Condition, Lawn, ColourCoords, LawnBlend, Manifest, false, true);
+		UMaterialExpressionCustom* RootColour = Node<UMaterialExpressionCustom>(Material, 50, 50);
+		RootColour->OutputType = CMOT_Float3;
+		RootColour->Inputs.Empty();
+		for (const auto& Pair : {TPair<const TCHAR*, UMaterialExpression*>(TEXT("Blade"), Colour),
+			TPair<const TCHAR*, UMaterialExpression*>(TEXT("Ground"), Substrate),
+			TPair<const TCHAR*, UMaterialExpression*>(TEXT("Along"), Along)})
 		{
-			// The engine's grass has a farthest distance and no nearest one. A variety that stands in for a nearer one
-			// is drawn in to its own root nearer than where it appears, and grows to full size by where it is full.
+			FCustomInput& Input = RootColour->Inputs.AddDefaulted_GetRef();
+			Input.InputName = Pair.Key;
+			Input.Input.Connect(0, Pair.Value);
+		}
+		RootColour->Code = TEXT("return lerp(Ground,Blade,smoothstep(0,0.25,Along.r));");
+		UMaterialEditingLibrary::ConnectMaterialProperty(RootColour, TEXT(""), MP_BaseColor);
+		UMaterialExpressionMultiply* Transmitted = Node<UMaterialExpressionMultiply>(Material, 100, 150);
+		Transmitted->A.Connect(0, RootColour);
+		Transmitted->ConstB = 0.45f;
+		UMaterialEditingLibrary::ConnectMaterialProperty(Transmitted, TEXT(""), MP_SubsurfaceColor);
+		UMaterialExpressionLinearInterpolate* Occlusion = Node<UMaterialExpressionLinearInterpolate>(Material, 100, 250);
+		Occlusion->ConstA = 0.4f;
+		Occlusion->ConstB = 1.f;
+		Occlusion->Alpha.Connect(1, Along);
+		UMaterialEditingLibrary::ConnectMaterialProperty(Occlusion, TEXT(""), MP_AmbientOcclusion);
+		UMaterialExpressionConstant* Specular = Node<UMaterialExpressionConstant>(Material, 100, 350);
+		Specular->R = 0.25f;
+		UMaterialEditingLibrary::ConnectMaterialProperty(Specular, TEXT(""), MP_Specular);
+		Material->bTangentSpaceNormal = false;
+		UMaterialExpressionVertexNormalWS* BladeNormal = Node<UMaterialExpressionVertexNormalWS>(Material, -500, 200);
+		UMaterialExpressionCustom* RoundedNormal = Node<UMaterialExpressionCustom>(Material, -200, 200);
+		RoundedNormal->OutputType = CMOT_Float3;
+		RoundedNormal->Inputs.Empty();
+		FCustomInput& VertexNormal = RoundedNormal->Inputs.AddDefaulted_GetRef();
+		VertexNormal.InputName = TEXT("N");
+		VertexNormal.Input.Connect(0, BladeNormal);
+		// Keep the near leaves' authored light response; retain the distant canopy's existing lighting.
+		RoundedNormal->Code = Variety.Name == FName(TEXT("near"))
+			? TEXT("float3 n=normalize(N); n.z=abs(n.z); return n;")
+			: TEXT("float3 n=normalize(N); n.z=abs(n.z); return normalize(lerp(float3(0,0,1),n,0.45));");
+		UMaterialEditingLibrary::ConnectMaterialProperty(RoundedNormal, TEXT(""), MP_Normal);
+		UMaterialExpressionConstant* Roughness = Node<UMaterialExpressionConstant>(Material, -200, 300);
+		Roughness->R = 0.6f;
+		UMaterialEditingLibrary::ConnectMaterialProperty(Roughness, TEXT(""), MP_Roughness);
+		if (Growth)
+		{
 			UMaterialExpressionWorldPosition* Here = Node<UMaterialExpressionWorldPosition>(Material, -1100, 900);
 			Here->WorldPositionShaderOffset = WPT_ExcludeAllShaderOffsets;
 			UMaterialExpressionCameraPositionWS* Eye = Node<UMaterialExpressionCameraPositionWS>(Material, -1100, 1000);
-			UMaterialExpressionDistance* Away = Node<UMaterialExpressionDistance>(Material, -950, 950);
-			Away->A.Connect(0, Here);
-			Away->B.Connect(0, Eye);
-			UMaterialExpressionAdd* Past = Node<UMaterialExpressionAdd>(Material, -800, 950);
-			Past->A.Connect(0, Away);
-			Past->ConstB = -Variety.AppearFromCm;
-			UMaterialExpressionMultiply* Share = Node<UMaterialExpressionMultiply>(Material, -650, 950);
-			Share->A.Connect(0, Past);
-			Share->ConstB = 1.f / (Variety.AppearFullCm - Variety.AppearFromCm);
-			UMaterialExpressionSaturate* Grown = Node<UMaterialExpressionSaturate>(Material, -500, 950);
-			Grown->Input.Connect(0, Share);
-			UMaterialExpressionOneMinus* Missing = Node<UMaterialExpressionOneMinus>(Material, -350, 950);
-			Missing->Input.Connect(0, Grown);
-			// The tuft's own origin in the world: the mesh's local origin, which for an instance is the instance's.
-			UMaterialExpressionConstant3Vector* Origin = Node<UMaterialExpressionConstant3Vector>(Material, -1100, 1150);
-			Origin->Constant = FLinearColor(0, 0, 0);
-			UMaterialExpressionTransformPosition* Root = Node<UMaterialExpressionTransformPosition>(Material, -900, 1150);
-			Root->Input.Connect(0, Origin);
-			Root->TransformSourceType = TRANSFORMPOSSOURCE_Local;
-			Root->TransformType = TRANSFORMPOSSOURCE_World;
-			UMaterialExpressionSubtract* ToRoot = Node<UMaterialExpressionSubtract>(Material, -650, 1150);
-			ToRoot->A.Connect(0, Root);
-			ToRoot->B.Connect(0, Here);
-			UMaterialExpressionMultiply* Offset = Node<UMaterialExpressionMultiply>(Material, -200, 1050);
-			Offset->A.Connect(0, ToRoot);
-			Offset->B.Connect(0, Missing);
-			UMaterialEditingLibrary::ConnectMaterialProperty(Offset, TEXT(""), MP_WorldPositionOffset);
+			UMaterialExpressionTextureSample* GrowthAt = Node<UMaterialExpressionTextureSample>(Material, -900, 1300);
+			GrowthAt->Texture = Growth;
+			GrowthAt->SamplerType = SAMPLERTYPE_LinearColor;
+			GrowthAt->Coordinates.Connect(0, Coords);
+			GrowthAt->MipValueMode = TMVM_MipLevel;
+			GrowthAt->ConstMipValue = 0;
+			UMaterialExpressionTextureSample* ConditionAt = Node<UMaterialExpressionTextureSample>(Material, -900, 1400);
+			ConditionAt->Texture = Condition ? Condition : Growth;
+			ConditionAt->SamplerType = SAMPLERTYPE_LinearColor;
+			ConditionAt->Coordinates.Connect(0, RootCoords);
+			ConditionAt->MipValueMode = TMVM_MipLevel;
+			ConditionAt->ConstMipValue = 0;
+			UMaterialExpressionCustom* DeadCoords = Node<UMaterialExpressionCustom>(Material, -900, 1550);
+			DeadCoords->OutputType = CMOT_Float2;
+			DeadCoords->Inputs.Empty();
+			FCustomInput& DeadRoot = DeadCoords->Inputs.AddDefaulted_GetRef();
+			DeadRoot.InputName = TEXT("Root");
+			DeadRoot.Input.Connect(0, BladeRoot);
+			DeadCoords->Code = FString::Printf(TEXT("return (Root.xy+%.6f)/%.6f;"), Manifest.TileSizeCm / 2, Lawn.RepeatCm);
+			UMaterialExpressionTextureSample* DeadAt = Node<UMaterialExpressionTextureSample>(Material, -650, 1550);
+			DeadAt->Texture = Lawn.DeadMasks ? Lawn.DeadMasks : Growth;
+			DeadAt->SamplerType = SAMPLERTYPE_LinearColor;
+			DeadAt->SamplerSource = SSM_Wrap_WorldGroupSettings;
+			DeadAt->Coordinates.Connect(0, DeadCoords);
+			DeadAt->MipValueMode = TMVM_MipLevel;
+			DeadAt->ConstMipValue = 0;
+			UMaterialExpressionCustom* Offset = Node<UMaterialExpressionCustom>(Material, -200, 1050);
+			Offset->OutputType = CMOT_Float3;
+			const auto Input = [&](const TCHAR* Name, UMaterialExpression* Expression, int32 OutputIndex = 0)
+			{
+				FCustomInput& In = Offset->Inputs.AddDefaulted_GetRef();
+				In.InputName = Name;
+				In.Input.Connect(OutputIndex, Expression);
+			};
+			Offset->Inputs.Empty();
+			Input(TEXT("Here"), Here);
+			Input(TEXT("Root"), Root);
+			Input(TEXT("BladeRoot"), BladeRoot);
+			Input(TEXT("Eye"), Eye);
+			Input(TEXT("Growth"), GrowthAt);
+			Input(TEXT("Condition"), ConditionAt);
+			Input(TEXT("DeadMasks"), DeadAt);
+			Input(TEXT("Along"), Along);
+			Input(TEXT("Random"), Random);
+			Input(TEXT("Seed"), BlueUv);
+			Input(TEXT("Time"), Node<UMaterialExpressionTime>(Material, -1100, 1500));
+			const FString Fade = Variety.Name == FName(TEXT("near"))
+				? FString::Printf(TEXT("1-smoothstep(%.3f,%.3f,distance(Root,Eye))"), float(Variety.StartCullCm), float(Variety.EndCullCm))
+				: Variety.AppearFullCm > Variety.AppearFromCm
+				? FString::Printf(TEXT("saturate((distance(Here, Eye) - %.3f) / %.3f)"), Variety.AppearFromCm, Variety.AppearFullCm - Variety.AppearFromCm)
+				: TEXT("1.0");
+			const FString StatureSpread = Variety.Name == FName(TEXT("broadleaf"))
+				? TEXT("lerp(0.75,1.25,Random)")
+				: TEXT("lerp(0.85,1.2,frac(Seed.g+Random*1.61803399))");
+			FString WornShape;
+			if (Condition && Lawn.DeadMasks && !Manifest.Turf.FieldMix.IsEmpty() && Variety.Name != FName(TEXT("broadleaf")))
+			{
+				WornShape = FString::Printf(TEXT("float dead=lerp(lerp(DeadMasks.r,DeadMasks.g,Condition.r),DeadMasks.b,Condition.g); float close=1-smoothstep(%.3f,%.3f,reach); stature*=lerp(1,lerp(1,%.6f,Condition.r*dead),close);\n"), Manifest.Turf.CalibrationFadeStartCm, Manifest.Turf.CalibrationFadeEndCm, Manifest.Turf.DryHeightRatio);
+				if (Variety.Name == FName(TEXT("tall"))) WornShape += FString::Printf(TEXT("stature*=lerp(1,%.6f,Condition.g*close);\n"), Manifest.Turf.EdgeMowingHeightRatio);
+			}
+			Offset->Code = TEXT("float fade = ") + Fade + TEXT("; float spread = ") + StatureSpread + TEXT(R"(;
+float2 p = Root.xy;
+float relief = 0.65*sin(p.x*0.027+p.y*0.013)*sin(p.y*0.039-p.x*0.011);
+float reach=distance(Root,Eye), sway=0;
+[branch] if(reach < 2200) {
+  float gust=0.55+0.25*sin(dot(p,float2(0.0008,0.0013))-Time*0.71)+0.2*sin(dot(p,float2(0.0031,-0.0017))+Time*1.13);
+  sway=sin(dot(p,float2(0.012,0.009))-Time*2.3)*gust*(1-smoothstep(1200,2200,reach));
+}
+float tip = Along.r*Along.r;
+float bendAngle=6.2831853*frac(Seed.g*7.13+Random);
+float2 lean=lerp(0.25,3.0,frac(Seed.g*17.31+Random*0.61803399))*float2(cos(bendAngle),sin(bendAngle));
+float stature=clamp(Growth.b*2*spread,0.45,1.8);
+)") + WornShape + TEXT(R"(
+return ((float3((float2(1.6,0.65)*sway+lean)*tip,0) + float3(0,0,(Here.z-BladeRoot.z)*(stature-1)+relief))*fade + (Root-Here)*(1-fade))*(1-smoothstep(2200,2500,reach));
+)");
+			UMaterialExpression* FinalOffset = Offset;
+			if (Variety.Name != FName(TEXT("broadleaf")) && FallbackWeights)
+			{
+				UMaterialExpression* RootWeight = NearSurfaceWeights(Material, RootCoords, RootBoundary, FallbackWeights, Manifest);
+				UMaterialExpressionCustom* ClipRoot = Node<UMaterialExpressionCustom>(Material, 100, 1600);
+				ClipRoot->OutputType = CMOT_Float3;
+				ClipRoot->Inputs.Empty();
+				for (const auto& Pair : {TPair<const TCHAR*, UMaterialExpression*>(TEXT("Weights"), RootWeight),
+					TPair<const TCHAR*, UMaterialExpression*>(TEXT("Root"), Root),
+					TPair<const TCHAR*, UMaterialExpression*>(TEXT("Here"), Here),
+					TPair<const TCHAR*, UMaterialExpression*>(TEXT("Offset"), Offset)})
+				{
+					FCustomInput& In = ClipRoot->Inputs.AddDefaulted_GetRef();
+					In.InputName = Pair.Key;
+					In.Input.Connect(0, Pair.Value);
+				}
+				ClipRoot->Code = TEXT("return Weights.r>0.5 ? Offset : Root-Here-float3(0,0,5);");
+				FinalOffset = ClipRoot;
+			}
+			UMaterialEditingLibrary::ConnectMaterialProperty(FinalOffset, TEXT(""), MP_WorldPositionOffset);
 		}
+
 		UMaterialEditingLibrary::RecompileMaterial(Material);
 		return Material;
+	}
+
+	UMaterialExpression* RegisteredColour(UMaterial* Material, UTexture2D* Texture, const FSurface& Surface)
+	{
+		auto* Position = Node<UMaterialExpressionWorldPosition>(Material, -1800, -1800);
+		Position->WorldPositionShaderOffset = WPT_ExcludeAllShaderOffsets;
+		auto* Uv = Node<UMaterialExpressionCustom>(Material, -1600, -1800);
+		Uv->OutputType = CMOT_Float2;
+		Uv->Inputs.Empty();
+		FCustomInput& Here = Uv->Inputs.AddDefaulted_GetRef();
+		Here.InputName = TEXT("P");
+		Here.Input.Connect(0, Position);
+		// Exported images run U north and V east, starting at the Landscape's lower corner.
+		Uv->Code = FString::Printf(TEXT("return (P.xy-float2(%.9f,%.9f))/float2(%.9f,%.9f);"),
+			Surface.LocationCm.X, Surface.LocationCm.Y,
+			Surface.Scale.X * (Surface.Vertices - 1), Surface.Scale.Y * (Surface.Vertices - 1));
+		auto* Sampled = Node<UMaterialExpressionTextureSample>(Material, -1400, -1800);
+		Sampled->Texture = Texture;
+		Sampled->SamplerType = SAMPLERTYPE_Color;
+		Sampled->SamplerSource = SSM_Clamp_WorldGroupSettings;
+		Sampled->Coordinates.Connect(0, Uv);
+		return Sampled;
+	}
+
+	UMaterialExpression* ContextAlbedo(UMaterial* Material, UTexture2D* Colour, const FManifest& Manifest)
+	{
+		auto* Albedo = Node<UMaterialExpressionMultiply>(Material, -1200, -1800);
+		Albedo->A.Connect(0, RegisteredColour(Material, Colour, *Manifest.Surround));
+		Albedo->ConstB = Manifest.AlbedoScale;
+		return Albedo;
+	}
+
+	constexpr double ContextBlendWidthCm = 6400;
+
+	UMaterialExpression* BlendContextEdge(UMaterial* Material, UMaterialExpression* Primary, UTexture2D* ContextColour,
+		const FManifest& Manifest)
+	{
+		if (!ContextColour || !Manifest.Surround) return Primary;
+		auto* Position = Node<UMaterialExpressionWorldPosition>(Material, -1800, -2100);
+		Position->WorldPositionShaderOffset = WPT_ExcludeAllShaderOffsets;
+		auto* Blended = Node<UMaterialExpressionCustom>(Material, 700, -1800);
+		Blended->OutputType = CMOT_Float3;
+		Blended->Inputs.Empty();
+		for (const auto& Pair : {TPair<const TCHAR*, UMaterialExpression*>(TEXT("Here"), Position),
+			TPair<const TCHAR*, UMaterialExpression*>(TEXT("Primary"), Primary),
+			TPair<const TCHAR*, UMaterialExpression*>(TEXT("Context"), ContextAlbedo(Material, ContextColour, Manifest))})
+		{
+			FCustomInput& Input = Blended->Inputs.AddDefaulted_GetRef();
+			Input.InputName = Pair.Key;
+			Input.Input.Connect(0, Pair.Value);
+		}
+		const FVector& Low = Manifest.Tile.LocationCm;
+		const double HighNorth = Low.X + Manifest.Tile.Scale.X * (Manifest.Tile.Vertices - 1);
+		const double HighEast = Low.Y + Manifest.Tile.Scale.Y * (Manifest.Tile.Vertices - 1);
+		Blended->Code = FString::Printf(TEXT("float2 d=min(Here.xy-float2(%.9f,%.9f),float2(%.9f,%.9f)-Here.xy); return lerp(Context,Primary,smoothstep(0.0,%.9f,min(d.x,d.y)));"),
+			Low.X, Low.Y, HighNorth, HighEast, ContextBlendWidthCm);
+		return Blended;
 	}
 
 	/**
 	 * The ground: per class a scanned material, blended where classes meet. Evidence sets the colour that varies
 	 * over tens of metres (the macro colour map times the fitted albedo scale) and, when the build has one, what the
 	 * photo shows finer than that (the ratio map: rows, tracks, markings, patches). The scan adds everything finer
-	 * still: its colour divided by its own mean, so it never shifts the colour. Each scan is read at two scales and
-	 * turns, mixed by broad noise, so the repeat does not show from the air. The class weights are cut to a sharp
+	 * still: its colour divided by its own mean, so it never shifts the colour. Close scan maps use the same
+	 * physical coordinates; distant colour mixes scales or offsets to hide repeats. The class weights are cut to a sharp
 	 * edge where they cross one half, so an edge is as crisp as the photo's rather than as wide as a weightmap texel.
 	 */
-	UMaterial* MakeGroundMaterial(UTexture2D* Macro, UTexture2D* Ratio, UTexture2D* Survey, UTexture2D* Grain, const FManifest& Manifest, UTexture2D* Detail, int32 Quads, double QuadCm, float AlbedoScale,
-		const TArray<FLayer>& Layers, ULandscapeGrassType* GrassType, TArray<UPackage*>& Packages)
+	UMaterial* MakeGroundMaterial(UTexture2D* Macro, UTexture2D* SurroundColour, UTexture2D* Ratio, UTexture2D* Survey, UTexture2D* OrthoMasks, UTexture2D* OrthoColour, UTexture2D* FallbackWeights, UTexture2D* Grain, UTexture2D* Condition, const FLawnTextures& Lawn, UTexture2D* RootBoundary, UTexture2D* RootFallback, UTexture2D* StreetscapeMask, UTexture2D* ProcfillGrowth, UTexture2D* ProcfillDebug, const FManifest& Manifest, UTexture2D* Detail, UTexture2D* Growth, int32 Quads, double QuadCm, float AlbedoScale,
+		const TArray<FLayer>& Layers, const TArray<ULandscapeGrassType*>& GrassTypes, TArray<UPackage*>& Packages)
 	{
 		UMaterial* Material = NewAsset<UMaterial>(TEXT("M_Ground"), Packages);
+		UMaterialExpressionWorldPosition* GroundPosition = Node<UMaterialExpressionWorldPosition>(Material, -1500, 300);
+		GroundPosition->WorldPositionShaderOffset = WPT_ExcludeAllShaderOffsets;
+		UMaterialExpressionCameraPositionWS* GroundEye = Node<UMaterialExpressionCameraPositionWS>(Material, -1500, 400);
+		UMaterialExpression* LawnBlend = LawnFarBlend(Material, GroundPosition, GroundEye, Node<UMaterialExpressionVertexNormalWS>(Material, -1500, 500), Manifest.Turf);
+		UMaterialExpressionCustom* PhotoShare = Node<UMaterialExpressionCustom>(Material, -1300, 200);
+		PhotoShare->OutputType = CMOT_Float1;
+		PhotoShare->Inputs.Empty();
+		FCustomInput& PhotoPosition = PhotoShare->Inputs.AddDefaulted_GetRef();
+		PhotoPosition.InputName = TEXT("Here");
+		PhotoPosition.Input.Connect(0, GroundPosition);
+		FCustomInput& PhotoCamera = PhotoShare->Inputs.AddDefaulted_GetRef();
+		PhotoCamera.InputName = TEXT("Eye");
+		PhotoCamera.Input.Connect(0, GroundEye);
+		PhotoShare->Code = TEXT("return lerp(0.2,1.0,smoothstep(300,2000,distance(Here,Eye)));");
 		UMaterialExpressionMultiply* MacroAlbedo = Node<UMaterialExpressionMultiply>(Material, -700, 0);
 		MacroAlbedo->A.Connect(0, Sample(Material, Macro, Quads, SAMPLERTYPE_Color, 0));
 		MacroAlbedo->ConstB = AlbedoScale;
+		UMaterialExpressionLandscapeLayerCoords* TileCoords = Node<UMaterialExpressionLandscapeLayerCoords>(Material, -1000, -750);
+		TileCoords->MappingScale = float(Quads);
 		UMaterialExpression* Base = MacroAlbedo;
 		// 1 inside the survey's footprint box, 0 outside: the survey's ratio replaces the imagery's there, and the grain,
 		// which is the survey's own fine texture at another place, is not laid over it.
@@ -848,8 +1711,47 @@ namespace
 				SurveyUv->B.Connect(0, SurveyV);
 				UMaterialExpressionTextureSample* SurveySample = Node<UMaterialExpressionTextureSample>(Material, -800, -1250);
 				SurveySample->Texture = Survey;
-				SurveySample->SamplerType = SAMPLERTYPE_LinearGrayscale;
-				SurveySample->Coordinates.Connect(0, SurveyUv);
+				SurveySample->AutoSetSampleType();
+				UMaterialExpression* SurveyCoords = PaddedUv(Material, SurveyUv, Survey, -1250);
+				SurveySample->Coordinates.Connect(0, SurveyCoords);
+				UMaterialExpressionCustom* FineGradients = Node<UMaterialExpressionCustom>(Material, -1100, -1650);
+				FineGradients->OutputType = CMOT_Float4;
+				FineGradients->Inputs.Empty();
+				FCustomInput& Here = FineGradients->Inputs.AddDefaulted_GetRef();
+				Here.InputName = TEXT("Here");
+				Here.Input.Connect(0, GroundPosition);
+				FCustomInput& Eye = FineGradients->Inputs.AddDefaulted_GetRef();
+				Eye.InputName = TEXT("Eye");
+				Eye.Input.Connect(0, GroundEye);
+				FCustomInput& PhotoUv = FineGradients->Inputs.AddDefaulted_GetRef();
+				PhotoUv.InputName = TEXT("UV");
+				PhotoUv.Input.Connect(0, SurveyCoords);
+				const double NorthUvM = Manifest.SurveyNorthM * FMath::RoundUpToPowerOfTwo(uint32(Survey->Source.GetSizeX())) / Survey->Source.GetSizeX();
+				const double EastUvM = Manifest.SurveyEastM * FMath::RoundUpToPowerOfTwo(uint32(Survey->Source.GetSizeY())) / Survey->Source.GetSizeY();
+				// Keep both footprint directions so the virtual texture can filter anisotropically at grazing angles.
+				FineGradients->Code = FString::Printf(TEXT(R"(
+float2 dx=ddx(UV), dy=ddy(UV), metres=float2(%.9f,%.9f);
+float minimum=0.1*(1-smoothstep(300,1500,distance(Here,Eye)));
+dx*=max(1,minimum/max(length(dx*metres),1e-8));
+dy*=max(1,minimum/max(length(dy*metres),1e-8));
+return float4(dx,dy);
+)"), NorthUvM, EastUvM);
+				UMaterialExpressionComponentMask* GradientX = Node<UMaterialExpressionComponentMask>(Material, -900, -1650);
+				GradientX->Input.Connect(0, FineGradients);
+				GradientX->R = true;
+				GradientX->G = true;
+				GradientX->B = false;
+				GradientX->A = false;
+				UMaterialExpressionComponentMask* GradientY = Node<UMaterialExpressionComponentMask>(Material, -900, -1750);
+				GradientY->Input.Connect(0, FineGradients);
+				GradientY->R = false;
+				GradientY->G = false;
+				GradientY->B = true;
+				GradientY->A = true;
+				SurveySample->MipValueMode = TMVM_Derivative;
+				SurveySample->AutomaticViewMipBias = false;
+				SurveySample->CoordinatesDX.Connect(0, GradientX);
+				SurveySample->CoordinatesDY.Connect(0, GradientY);
 				UMaterialExpressionMultiply* SurveyScaled = Node<UMaterialExpressionMultiply>(Material, -700, -1250);
 				SurveyScaled->A.Connect(1, SurveySample);
 				SurveyScaled->ConstB = float(Manifest.SurveyLog2Range * 255.0 / Manifest.SurveyZero);
@@ -858,7 +1760,24 @@ namespace
 				SurveyExponent->ConstB = float(-Manifest.SurveyLog2Range);
 				UMaterialExpressionPower* SurveyFine = Node<UMaterialExpressionPower>(Material, -500, -1250);
 				SurveyFine->Base.Connect(0, Two);
-				SurveyFine->Exponent.Connect(0, SurveyExponent);
+				UMaterialExpression* SurveyLog = SurveyExponent;
+				if (Manifest.bSurveyWeighted)
+				{
+					UMaterialExpressionCustom* Restored = Node<UMaterialExpressionCustom>(Material, -550, -1850);
+					Restored->OutputType = CMOT_Float1;
+					Restored->Inputs.Empty();
+					FCustomInput& Value = Restored->Inputs.AddDefaulted_GetRef();
+					Value.InputName = TEXT("Value");
+					Value.Input.Connect(0, SurveyExponent);
+					FCustomInput& Weight = Restored->Inputs.AddDefaulted_GetRef();
+					Weight.InputName = TEXT("Weight");
+					Weight.Input.Connect(4, SurveySample);
+					// Both channels share a texture footprint; rejected samples contribute neutral weighted log contrast.
+					Restored->Code = FString::Printf(TEXT("return clamp(Value / max(Weight,1.0/255.0), -%.6f, %.6f);"),
+						Manifest.SurveyLog2Range, Manifest.SurveyLog2Range);
+					SurveyLog = Restored;
+				}
+				SurveyFine->Exponent.Connect(0, SurveyLog);
 				// Inside when neither coordinate has left 0 to 1: the floor of each is zero.
 				UMaterialExpressionFloor* FloorU = Node<UMaterialExpressionFloor>(Material, -800, -1400);
 				FloorU->Input.Connect(0, SurveyU);
@@ -875,25 +1794,41 @@ namespace
 				Inner->Input.Connect(0, Outside);
 				UMaterialExpressionSaturate* Inside = Node<UMaterialExpressionSaturate>(Material, -400, -1450);
 				Inside->Input.Connect(0, Inner);
-				// 0 in the file is a pixel the orthophoto does not have: there the imagery's ratio and the grain stand.
+				// Weighted files carry usable detail in alpha; legacy single-channel files reserve zero for missing pixels.
 				UMaterialExpressionMultiply* Has = Node<UMaterialExpressionMultiply>(Material, -650, -1350);
-				Has->A.Connect(1, SurveySample);
-				Has->ConstB = 255.f;
+				Has->A.Connect(Manifest.bSurveyWeighted ? 4 : 1, SurveySample);
+				Has->ConstB = Manifest.bSurveyWeighted ? 1.f : 255.f;
 				UMaterialExpressionSaturate* HasPixel = Node<UMaterialExpressionSaturate>(Material, -550, -1350);
 				HasPixel->Input.Connect(0, Has);
 				UMaterialExpressionMultiply* Covered = Node<UMaterialExpressionMultiply>(Material, -300, -1450);
 				Covered->A.Connect(0, Inside);
 				Covered->B.Connect(0, HasPixel);
-				InSurvey = Covered;
+				UMaterialExpression* Influence = Covered;
+				if (OrthoColour)
+				{
+					UMaterialExpressionTextureSample* Edge = Node<UMaterialExpressionTextureSample>(Material, -650, -1550);
+					Edge->Texture = OrthoColour;
+					Edge->SamplerType = SAMPLERTYPE_Color;
+					Edge->Coordinates.Connect(0, SurveyUv);
+					UMaterialExpressionMultiply* Faded = Node<UMaterialExpressionMultiply>(Material, -300, -1550);
+					Faded->A.Connect(0, Covered);
+					Faded->B.Connect(4, Edge);
+					Influence = Faded;
+				}
+				InSurvey = Influence;
 				UMaterialExpressionLinearInterpolate* Replaced = Node<UMaterialExpressionLinearInterpolate>(Material, -450, -1250);
 				Replaced->A.Connect(0, Fine);
 				Replaced->B.Connect(0, SurveyFine);
-				Replaced->Alpha.Connect(0, Covered);
+				Replaced->Alpha.Connect(0, Influence);
 				FineUsed = Replaced;
 			}
+			UMaterialExpressionLinearInterpolate* CloseFine = Node<UMaterialExpressionLinearInterpolate>(Material, -600, -100);
+			CloseFine->ConstA = 1.f;
+			CloseFine->B.Connect(0, FineUsed);
+			CloseFine->Alpha.Connect(0, PhotoShare);
 			UMaterialExpressionMultiply* WithFine = Node<UMaterialExpressionMultiply>(Material, -600, 0);
 			WithFine->A.Connect(0, MacroAlbedo);
-			WithFine->B.Connect(0, FineUsed);
+			WithFine->B.Connect(0, CloseFine);
 			Base = WithFine;
 		}
 		// Grass grain: two reads of the measured texture at different scales and turns, added in log space, so the
@@ -936,13 +1871,16 @@ namespace
 			UMaterialExpressionMultiply* Faded = Node<UMaterialExpressionMultiply>(Material, -800, -550);
 			Faded->A.Connect(0, Joined);
 			Faded->B.Connect(0, Fade);
-			UMaterialExpression* GrainStrength = Faded;
+			UMaterialExpressionMultiply* CloseGrain = Node<UMaterialExpressionMultiply>(Material, -790, -650);
+			CloseGrain->A.Connect(0, Faded);
+			CloseGrain->B.Connect(0, PhotoShare);
+			UMaterialExpression* GrainStrength = CloseGrain;
 			if (InSurvey)
 			{
 				UMaterialExpressionOneMinus* Outside = Node<UMaterialExpressionOneMinus>(Material, -900, -600);
 				Outside->Input.Connect(0, InSurvey);
 				UMaterialExpressionMultiply* Kept = Node<UMaterialExpressionMultiply>(Material, -780, -600);
-				Kept->A.Connect(0, Faded);
+				Kept->A.Connect(0, CloseGrain);
 				Kept->B.Connect(0, Outside);
 				GrainStrength = Kept;
 			}
@@ -963,13 +1901,49 @@ namespace
 			WithGrain->B.Connect(0, GrainPower);
 			GrassBase = WithGrain;
 		}
+		if (ProcfillGrowth)
+		{
+			UMaterialExpressionMultiply* Encoded = Node<UMaterialExpressionMultiply>(Material, -600, -1500);
+			Encoded->A.Connect(4, Sample(Material, ProcfillGrowth, Quads, SAMPLERTYPE_LinearColor, -1500));
+			Encoded->ConstB = 255.f / 127.f;
+			UMaterialExpressionAdd* Exponent = Node<UMaterialExpressionAdd>(Material, -500, -1500);
+			Exponent->A.Connect(0, Encoded);
+			Exponent->ConstB = -1.f;
+			UMaterialExpressionConstant* Two = Node<UMaterialExpressionConstant>(Material, -500, -1700);
+			Two->R = 2.f;
+			UMaterialExpressionPower* OverlayRatio = Node<UMaterialExpressionPower>(Material, -400, -1500);
+			OverlayRatio->Base.Connect(0, Two);
+			OverlayRatio->Exponent.Connect(0, Exponent);
+			const auto Overlay = [&](UMaterialExpression* Input)
+			{
+				UMaterialExpressionMultiply* Result = Node<UMaterialExpressionMultiply>(Material, -300, -1500);
+				Result->A.Connect(0, Input);
+				Result->B.Connect(0, OverlayRatio);
+				return Result;
+			};
+			Base = Overlay(Base);
+			if (GrassBase) GrassBase = Overlay(GrassBase);
+		}
 		UMaterialExpressionTextureSample* MixNoise = Sample(Material, Detail, 1100.0 / QuadCm, SAMPLERTYPE_LinearGrayscale, 250);
+		UMaterialExpressionCustom* ScanMix = Node<UMaterialExpressionCustom>(Material, -900, 350);
+		ScanMix->OutputType = CMOT_Float1;
+		ScanMix->Inputs.Empty();
+		FCustomInput& MixPattern = ScanMix->Inputs.AddDefaulted_GetRef();
+		MixPattern.InputName = TEXT("Pattern");
+		MixPattern.Input.Connect(1, MixNoise);
+		FCustomInput& MixPosition = ScanMix->Inputs.AddDefaulted_GetRef();
+		MixPosition.InputName = TEXT("Here");
+		MixPosition.Input.Connect(0, GroundPosition);
+		FCustomInput& MixCamera = ScanMix->Inputs.AddDefaulted_GetRef();
+		MixCamera.InputName = TEXT("Eye");
+		MixCamera.Input.Connect(0, GroundEye);
+		ScanMix->Code = TEXT("return Pattern*smoothstep(1500,3000,distance(Here,Eye));");
 		const auto Mix = [&](UMaterialExpression* A, UMaterialExpression* B, int32 X, int32 Y)
 		{
 			UMaterialExpressionLinearInterpolate* Out = Node<UMaterialExpressionLinearInterpolate>(Material, X, Y);
 			Out->A.Connect(0, A);
 			Out->B.Connect(0, B);
-			Out->Alpha.Connect(1, MixNoise);
+			Out->Alpha.Connect(0, ScanMix);
 			return Out;
 		};
 		const auto Combine = [&](UMaterialExpression* Sum, UMaterialExpression* Term, int32 X, int32 Y) -> UMaterialExpression*
@@ -988,23 +1962,154 @@ namespace
 		UMaterialExpression* RoughSum = nullptr;
 		UMaterialExpression* WeightSum = nullptr;
 		UMaterialExpression* GrassSharp = nullptr;
+		UMaterialExpression* GrassPlacement = nullptr;
+		UMaterialExpression* GrassWeight = nullptr;
+		UMaterialExpression* NativeMasks = nullptr;
+		UMaterialExpression* NativeCoverage = nullptr;
+		UMaterialExpression* NativeInfluence = nullptr;
+		UMaterialExpressionTextureSample* NativeColour = nullptr;
+		UMaterialExpressionTextureSample* OriginalWeights = FallbackWeights
+			? Sample(Material, FallbackWeights, Quads, SAMPLERTYPE_LinearColor, 650) : nullptr;
+		if (OrthoMasks)
+		{
+			UMaterialExpressionLandscapeLayerCoords* TileUv = Node<UMaterialExpressionLandscapeLayerCoords>(Material, -1500, 700);
+			TileUv->MappingScale = float(Quads);
+			UMaterialExpressionCustom* Uv = Node<UMaterialExpressionCustom>(Material, -1300, 700);
+			Uv->OutputType = CMOT_Float2;
+			Uv->Inputs.Empty();
+			FCustomInput& Input = Uv->Inputs.AddDefaulted_GetRef();
+			Input.InputName = TEXT("UV");
+			Input.Input.Connect(0, TileUv);
+			Uv->Code = FString::Printf(TEXT("return (UV*%.6f-float2(%.6f,%.6f))/float2(%.6f,%.6f);"),
+				Manifest.TileSizeCm / 100, Manifest.OrthoSouthM, Manifest.OrthoWestM, Manifest.OrthoNorthM, Manifest.OrthoEastM);
+			UMaterialExpressionTextureSample* Masks = Node<UMaterialExpressionTextureSample>(Material, -1100, 700);
+			Masks->Texture = OrthoMasks;
+			Masks->AutoSetSampleType();
+			Masks->Coordinates.Connect(0, PaddedUv(Material, Uv, OrthoMasks, 700));
+			NativeMasks = Masks;
+			if (OrthoColour)
+			{
+				NativeColour = Node<UMaterialExpressionTextureSample>(Material, -1100, 800);
+				NativeColour->Texture = OrthoColour;
+				NativeColour->SamplerType = SAMPLERTYPE_Color;
+				NativeColour->Coordinates.Connect(0, Uv);
+			}
+			UMaterialExpressionCustom* Coverage = Node<UMaterialExpressionCustom>(Material, -900, 700);
+			Coverage->OutputType = CMOT_Float1;
+			Coverage->Inputs.Empty();
+			FCustomInput& At = Coverage->Inputs.AddDefaulted_GetRef();
+			At.InputName = TEXT("UV");
+			At.Input.Connect(0, Uv);
+			FCustomInput& Shares = Coverage->Inputs.AddDefaulted_GetRef();
+			Shares.InputName = TEXT("Masks");
+			Shares.Input.Connect(0, Masks);
+			Coverage->Code = TEXT("return all(UV>=0)&&all(UV<=1) ? saturate(dot(Masks.rgb,float3(1,1,1))) : 0;");
+			NativeCoverage = Coverage;
+			NativeInfluence = Coverage;
+			if (NativeColour)
+			{
+				UMaterialExpressionMin* Faded = Node<UMaterialExpressionMin>(Material, -700, 800);
+				Faded->A.Connect(0, Coverage);
+				Faded->B.Connect(4, NativeColour);
+				NativeInfluence = Faded;
+			}
+		}
+		UMaterialExpression* NearWeights = RootFallback ? NearSurfaceWeights(Material, TileCoords, RootBoundary, RootFallback, Manifest) : nullptr;
+		UMaterialExpressionCustom* DetailShare = Node<UMaterialExpressionCustom>(Material, -1200, 350);
+		DetailShare->OutputType = CMOT_Float1;
+		DetailShare->Inputs.Empty();
+		FCustomInput& PositionInput = DetailShare->Inputs.AddDefaulted_GetRef();
+		PositionInput.InputName = TEXT("Here");
+		PositionInput.Input.Connect(0, GroundPosition);
+		FCustomInput& EyeInput = DetailShare->Inputs.AddDefaulted_GetRef();
+		EyeInput.InputName = TEXT("Eye");
+		EyeInput.Input.Connect(0, GroundEye);
+		DetailShare->Code = TEXT("return lerp(1.0,0.2,smoothstep(1500.0,10000.0,distance(Here,Eye)));");
 		int32 Row = 0;
 		for (const FLayer& Layer : Layers)
 		{
 			const float Repeat = float(Layer.Scan.SizeCm / QuadCm);
 			const int32 Y = 1000 + Row * 1500;
-			UMaterialExpressionTextureSample* ColourNear = Sample(Material, Layer.Colour, Repeat, SAMPLERTYPE_Color, Y);
-			UMaterialExpressionTextureSample* ColourFar = Sample(Material, Layer.Colour, Repeat * 2.3f, SAMPLERTYPE_Color, Y + 250, 31.f);
+			UMaterialExpression* ScanColour = nullptr;
+			if (Layer.Name == GrassLayer)
+			{
+				UMaterialExpressionTextureSample* Near = Sample(Material, Layer.Colour, Repeat, SAMPLERTYPE_Color, Y);
+				UMaterialExpressionTextureSample* Far = Sample(Material, Layer.Colour, Repeat * 2.3f, SAMPLERTYPE_Color, Y + 250, 31.f);
+				ScanColour = Mix(Near, Far, -400, Y);
+			}
+			else
+			{
+				ScanColour = BombColour(Material, Layer.Colour, Repeat, GroundPosition, GroundEye, Y);
+			}
 			UMaterialExpressionConstant3Vector* Mean = Node<UMaterialExpressionConstant3Vector>(Material, -500, Y);
 			Mean->Constant = Layer.Scan.MeanColour;
 			UMaterialExpressionDivide* Structure = Node<UMaterialExpressionDivide>(Material, -300, Y);
-			Structure->A.Connect(0, Mix(ColourNear, ColourFar, -400, Y));
+			Structure->A.Connect(0, ScanColour);
 			Structure->B.Connect(0, Mean);
+			UMaterialExpressionCustom* TextureContrast = Node<UMaterialExpressionCustom>(Material, -300, Y + 75);
+			TextureContrast->OutputType = CMOT_Float3;
+			TextureContrast->Inputs.Empty();
+			FCustomInput& ScanPattern = TextureContrast->Inputs.AddDefaulted_GetRef();
+			ScanPattern.InputName = TEXT("Pattern");
+			ScanPattern.Input.Connect(0, Structure);
+			TextureContrast->Code = TEXT("return clamp(1+(Pattern-1)*1.6,0.2,2.0);");
+			UMaterialExpressionLinearInterpolate* DetailAmount = Node<UMaterialExpressionLinearInterpolate>(Material, -250, Y + 50);
+			DetailAmount->ConstA = 1.f;
+			DetailAmount->B.Connect(0, TextureContrast);
+			DetailAmount->Alpha.Connect(0, DetailShare);
 			UMaterialExpressionMultiply* Albedo = Node<UMaterialExpressionMultiply>(Material, -200, Y);
-			Albedo->A.Connect(0, Layer.Name == GrassLayer && GrassBase ? GrassBase : Base);
-			Albedo->B.Connect(0, Structure);
+			UMaterialExpression* LayerBase = Layer.Name == GrassLayer && GrassBase ? GrassBase : Base;
+			if (NativeColour && Layer.OrthoMean)
+			{
+				UMaterialExpressionConstant3Vector* PhotoMean = Node<UMaterialExpressionConstant3Vector>(Material, -600, Y - 300);
+				PhotoMean->Constant = *Layer.OrthoMean;
+				UMaterialExpressionCustom* Pattern = Node<UMaterialExpressionCustom>(Material, -450, Y - 300);
+				Pattern->OutputType = CMOT_Float3;
+				Pattern->Inputs.Empty();
+				for (const auto& Pair : {TPair<const TCHAR*, UMaterialExpression*>(TEXT("Base"), LayerBase),
+					TPair<const TCHAR*, UMaterialExpression*>(TEXT("Photo"), NativeColour),
+					TPair<const TCHAR*, UMaterialExpression*>(TEXT("Mean"), PhotoMean)})
+				{
+					FCustomInput& Input = Pattern->Inputs.AddDefaulted_GetRef();
+					Input.InputName = Pair.Key;
+					Input.Input.Connect(0, Pair.Value);
+				}
+				// Recolouring into the measured material space must not turn survey hue into extra brightness detail.
+				Pattern->Code = TEXT("float3 luma=float3(0.2126,0.7152,0.0722); float3 tinted=Base*Photo/Mean; float target=saturate(dot(Base,luma)*dot(Photo,luma)/max(dot(Mean,luma),1e-4)); float energy=dot(tinted,luma); float3 colour=target+(tinted-energy)*(target/max(energy,1e-4)); float chroma=saturate((1-target)/max(max(colour.r,max(colour.g,colour.b))-target,1e-4)); return target+(colour-target)*chroma;");
+				UMaterialExpressionMin* Covered = Node<UMaterialExpressionMin>(Material, -450, Y - 400);
+				Covered->A.Connect(0, NativeCoverage);
+				Covered->B.Connect(4, NativeColour);
+				UMaterialExpressionLinearInterpolate* Applied = Node<UMaterialExpressionLinearInterpolate>(Material, -300, Y - 300);
+				Applied->A.Connect(0, LayerBase);
+				Applied->B.Connect(0, Pattern);
+				Applied->Alpha.Connect(0, Covered);
+				LayerBase = Applied;
+			}
+			Albedo->A.Connect(0, LayerBase);
+			Albedo->B.Connect(0, DetailAmount);
+			UMaterialExpression* SurfaceAlbedo = Albedo;
+			if (Layer.Name == GrassLayer)
+			{
+				SurfaceAlbedo = LawnSurface(Material, Albedo, MacroAlbedo, Condition, Lawn, TileCoords, LawnBlend, Manifest);
+			}
 
-			UMaterialExpressionTextureSample* NormalNear = Sample(Material, Layer.Normal, Repeat, SAMPLERTYPE_Normal, Y + 500);
+			UMaterialExpression* NormalNear = Sample(Material, Layer.Normal, Repeat, SAMPLERTYPE_Normal, Y + 500);
+			if (Layer.Name == GrassLayer && !Manifest.Turf.FieldGreen.IsEmpty())
+			{
+				UMaterialExpressionTextureSample* LeafNormal = Sample(Material, Lawn.Normal, float(Lawn.RepeatCm / QuadCm), SAMPLERTYPE_Normal, Y + 550);
+				UMaterialExpressionCustom* FadeNormal = Node<UMaterialExpressionCustom>(Material, -100, Y + 550);
+				FadeNormal->OutputType = CMOT_Float3;
+				for (const auto& Pair : {TPair<const TCHAR*, UMaterialExpression*>(TEXT("Leaf"), LeafNormal),
+					TPair<const TCHAR*, UMaterialExpression*>(TEXT("Scan"), NormalNear),
+					TPair<const TCHAR*, UMaterialExpression*>(TEXT("FarBlend"), LawnBlend)})
+				{
+					FCustomInput& Input = FadeNormal->Inputs.AddDefaulted_GetRef();
+					Input.InputName = Pair.Key;
+					Input.Input.Connect(0, Pair.Value);
+				}
+				FadeNormal->Code = TEXT("return normalize(lerp(Leaf,Scan,FarBlend));");
+				NormalNear = FadeNormal;
+			}
 			UMaterialExpressionTextureSample* RoughNear = Sample(Material, Layer.Rough, Repeat, SAMPLERTYPE_LinearGrayscale, Y + 750);
 			UMaterialExpressionTextureSample* RoughFar = Sample(Material, Layer.Rough, Repeat * 2.3f, SAMPLERTYPE_LinearGrayscale, Y + 1000, 31.f);
 			UMaterialExpressionTextureSample* Relief = Sample(Material, Layer.Relief, Repeat, SAMPLERTYPE_LinearGrayscale, Y + 1250);
@@ -1013,41 +2118,102 @@ namespace
 			UMaterialExpressionLandscapeLayerSample* Weight = Node<UMaterialExpressionLandscapeLayerSample>(Material, 0, Y);
 			Weight->ParameterName = Layer.Name;
 			Weight->PreviewWeight = Row == 0 ? 1 : 0;
-			UMaterialExpressionAdd* Lifted = Node<UMaterialExpressionAdd>(Material, 100, Y);
+			UMaterialExpression* SurfaceWeight = Weight;
+			if (NativeMasks && OriginalWeights && !Manifest.bProcfillSurfaceOverride)
+			{
+				UMaterialExpressionComponentMask* Own = Node<UMaterialExpressionComponentMask>(Material, -400, Y + 100);
+				Own->Input.Connect(0, NativeMasks);
+				Own->R = Layer.Name == GrassLayer;
+				Own->G = Layer.Name == PavedLayer;
+				Own->B = Layer.Name == SoilLayer;
+				Own->A = false;
+				UMaterialExpressionDivide* Share = Node<UMaterialExpressionDivide>(Material, -200, Y + 100);
+				Share->A.Connect(0, Own);
+				UMaterialExpressionAdd* SafeCoverage = Node<UMaterialExpressionAdd>(Material, -400, Y + 200);
+				SafeCoverage->A.Connect(0, NativeCoverage);
+				SafeCoverage->ConstB = 0.0001f;
+				Share->B.Connect(0, SafeCoverage);
+				UMaterialExpressionLinearInterpolate* Replace = Node<UMaterialExpressionLinearInterpolate>(Material, 0, Y + 100);
+				UMaterialExpressionComponentMask* Original = Node<UMaterialExpressionComponentMask>(Material, -200, Y + 200);
+				Original->Input.Connect(0, OriginalWeights);
+				Original->R = Layer.Name == GrassLayer;
+				Original->G = Layer.Name == PavedLayer;
+				Original->B = Layer.Name == SoilLayer;
+				Original->A = false;
+				Replace->A.Connect(0, Original);
+				Replace->B.Connect(0, Share);
+				Replace->Alpha.Connect(0, NativeInfluence);
+				SurfaceWeight = Replace;
+			}
+
 			UMaterialExpressionMultiply* ReliefShift = Node<UMaterialExpressionMultiply>(Material, 0, Y + 100);
 			ReliefShift->A.Connect(0, Relief);
 			ReliefShift->ConstB = ReliefInfluence;
-			Lifted->A.Connect(0, Weight);
-			Lifted->B.Connect(0, ReliefShift);
-			UMaterialExpressionAdd* Centred = Node<UMaterialExpressionAdd>(Material, 150, Y);
-			Centred->A.Connect(0, Lifted);
-			Centred->ConstB = -ReliefInfluence / 2;
-			UMaterialExpressionSmoothStep* Cut = Node<UMaterialExpressionSmoothStep>(Material, 200, Y);
-			Cut->Value.Connect(0, Centred);
-			Cut->ConstMin = 0.5f - EdgeSharpness;
-			Cut->ConstMax = 0.5f + EdgeSharpness;
+			const auto Sharpen = [&](UMaterialExpression* Input, float Width, int32 X)
+			{
+				UMaterialExpressionAdd* Lifted = Node<UMaterialExpressionAdd>(Material, X, Y);
+				Lifted->A.Connect(0, Input);
+				Lifted->B.Connect(0, ReliefShift);
+				UMaterialExpressionAdd* Centred = Node<UMaterialExpressionAdd>(Material, X + 50, Y);
+				Centred->A.Connect(0, Lifted);
+				Centred->ConstB = -ReliefInfluence / 2;
+				UMaterialExpressionSmoothStep* Cut = Node<UMaterialExpressionSmoothStep>(Material, X + 100, Y);
+				Cut->Value.Connect(0, Centred);
+				Cut->ConstMin = 0.5f - Width;
+				Cut->ConstMax = 0.5f + Width;
+				return Cut;
+			};
+			UMaterialExpression* Cut = Sharpen(SurfaceWeight, EdgeSharpness, 100);
+
 			// A little of the plain weight keeps the sum above zero where no class reaches one half.
 			UMaterialExpressionMultiply* Floor = Node<UMaterialExpressionMultiply>(Material, 200, Y + 100);
-			Floor->A.Connect(0, Weight);
+			Floor->A.Connect(0, SurfaceWeight);
 			Floor->ConstB = 0.001f;
 			UMaterialExpressionAdd* Sharp = Node<UMaterialExpressionAdd>(Material, 250, Y);
 			Sharp->A.Connect(0, Cut);
 			Sharp->B.Connect(0, Floor);
+			UMaterialExpression* Composed = Sharp;
+			if (NearWeights)
+			{
+				UMaterialExpressionCustom* Boundary = Node<UMaterialExpressionCustom>(Material, 300, Y + 200);
+				Boundary->OutputType = CMOT_Float1;
+				Boundary->Inputs.Empty();
+				for (const auto& Pair : {TPair<const TCHAR*, UMaterialExpression*>(TEXT("Near"), NearWeights), TPair<const TCHAR*, UMaterialExpression*>(TEXT("Far"), Sharp),
+					TPair<const TCHAR*, UMaterialExpression*>(TEXT("Here"), GroundPosition), TPair<const TCHAR*, UMaterialExpression*>(TEXT("Eye"), GroundEye)})
+				{
+					FCustomInput& Input = Boundary->Inputs.AddDefaulted_GetRef();
+					Input.InputName = Pair.Key;
+					Input.Input.Connect(0, Pair.Value);
+				}
+				const TCHAR* Channel = Layer.Name == GrassLayer ? TEXT("r") : Layer.Name == PavedLayer ? TEXT("g") : TEXT("b");
+				// Reserve the shared grass-majority boundary, then partition its complement between paving and soil.
+				Boundary->Code = FString::Printf(TEXT("float grass=smoothstep(0.495,0.505,Near.r); float paved=smoothstep(0.495,0.505,Near.g/max(Near.g+Near.b,0.0001)); float3 weights=float3(grass,(1-grass)*paved,(1-grass)*(1-paved)); return lerp(weights.%s,Far,smoothstep(1500,3000,distance(Here,Eye)));"), Channel);
+				Composed = Boundary;
+			}
 
 			const auto Weighted = [&](UMaterialExpression* Input, int32 X)
 			{
 				UMaterialExpressionMultiply* Out = Node<UMaterialExpressionMultiply>(Material, X, Y);
 				Out->A.Connect(0, Input);
-				Out->B.Connect(0, Sharp);
+				Out->B.Connect(0, Composed);
 				return Out;
 			};
-			ColourSum = Combine(ColourSum, Weighted(Albedo, 300), 350, Y);
+			ColourSum = Combine(ColourSum, Weighted(SurfaceAlbedo, 300), 350, Y);
 			NormalSum = Combine(NormalSum, Weighted(NormalNear, 300), 350, Y + 300);
 			RoughSum = Combine(RoughSum, Weighted(Mix(RoughNear, RoughFar, -400, Y + 900), 300), 350, Y + 600);
-			WeightSum = Combine(WeightSum, Sharp, 350, Y + 900);
+			WeightSum = Combine(WeightSum, Composed, 350, Y + 900);
 			if (Layer.Name == GrassLayer)
 			{
-				GrassSharp = Cut;
+				GrassSharp = NearWeights ? Composed : Cut;
+				GrassWeight = Weight;
+				// Placement uses the imported native-blended weights without virtual-texture sampling in the grass pass.
+				UMaterialExpressionCustom* Majority = Node<UMaterialExpressionCustom>(Material, 1500, Y);
+				Majority->OutputType = CMOT_Float1;
+				FCustomInput& Support = Majority->Inputs.AddDefaulted_GetRef();
+				Support.InputName = TEXT("Weight");
+				Support.Input.Connect(0, Weight);
+				Majority->Code = TEXT("return Weight > 0.5 ? 1 : 0;");
+				GrassPlacement = Majority;
 			}
 			++Row;
 		}
@@ -1063,28 +2229,111 @@ namespace
 		UMaterialExpressionDivide* Rough = Node<UMaterialExpressionDivide>(Material, 500, 600);
 		Rough->A.Connect(0, RoughSum);
 		Rough->B.Connect(0, SafeSum);
-		if (GrassType)
+		if (!GrassTypes.IsEmpty())
 		{
-			// Where the grass class has weight, the engine grows tufts of the grass type: on the same sharp edge the
-			// ground is drawn with, so no tuft stands on ground that reads as paving.
-			UMaterialExpression* Weight = GrassSharp;
-			if (!Weight)
-			{
-				UMaterialExpressionLandscapeLayerSample* Sampled = Node<UMaterialExpressionLandscapeLayerSample>(Material, 0, 900);
-				Sampled->ParameterName = GrassLayer;
-				Sampled->PreviewWeight = 1;
-				Weight = Sampled;
-			}
+			UMaterialExpressionTextureSample* GrowthAt = Sample(Material, Growth, Quads, SAMPLERTYPE_LinearColor, 900);
 			UMaterialExpressionLandscapeGrassOutput* Output = Node<UMaterialExpressionLandscapeGrassOutput>(Material, 300, 900);
 			Output->GrassTypes.Empty();
-			FGrassInput& Input = Output->GrassTypes.AddDefaulted_GetRef();
-			Input.Name = FName(TEXT("Grass"));
-			Input.GrassType = GrassType;
-			Input.Input.Connect(0, Weight);
+			if (StreetscapeMask)
+			{
+				auto* Allowed = Node<UMaterialExpressionMultiply>(Material, 200, 1000);
+				Allowed->A.Connect(0, GrassPlacement);
+				Allowed->B.Connect(1, Sample(Material, StreetscapeMask, Quads, SAMPLERTYPE_LinearGrayscale, 1100));
+				GrassPlacement = Allowed;
+			}
+			for (int32 Index = 0; Index < GrassTypes.Num(); ++Index)
+			{
+				const bool bTall = Manifest.Turf.Varieties[Index].Name == FName(TEXT("tall"));
+				UMaterialExpressionMultiply* Density = Node<UMaterialExpressionMultiply>(Material, 100, 900 + Index * 100);
+				Density->A.Connect(0, GrassPlacement);
+				UMaterialExpressionCustom* Support = Node<UMaterialExpressionCustom>(Material, 0, 900 + Index * 100);
+				Support->OutputType = CMOT_Float1;
+				Support->Inputs.Empty();
+				FCustomInput& GrowthInput = Support->Inputs.AddDefaulted_GetRef();
+				GrowthInput.InputName = TEXT("Growth");
+				GrowthInput.Input.Connect(0, GrowthAt);
+				Support->Code = bTall ? TEXT("return Growth.g;") : TEXT("return Growth.r;");
+				if (Manifest.Turf.Varieties[Index].Name == FName(TEXT("near")) && RootFallback)
+				{
+					if (NearWeights)
+					{
+						UMaterialExpressionCustom* NearPlacement = Node<UMaterialExpressionCustom>(Material, -100, 900 + Index * 100);
+						NearPlacement->OutputType = CMOT_Float1;
+						FCustomInput& WeightInput = NearPlacement->Inputs.AddDefaulted_GetRef();
+						WeightInput.InputName = TEXT("Weights");
+						WeightInput.Input.Connect(0, NearWeights);
+						FCustomInput& OriginalInput = NearPlacement->Inputs.AddDefaulted_GetRef();
+						OriginalInput.InputName = TEXT("Original");
+						OriginalInput.Input.Connect(0, GrassPlacement);
+						FCustomInput& AllowedInput = NearPlacement->Inputs.AddDefaulted_GetRef();
+						AllowedInput.InputName = TEXT("Allowed");
+						if (StreetscapeMask) AllowedInput.Input.Connect(1, Sample(Material, StreetscapeMask, Quads, SAMPLERTYPE_LinearGrayscale, 1100));
+						else
+						{
+							auto* All = Node<UMaterialExpressionConstant>(Material, -200, 1100);
+							All->R = 1;
+							AllowedInput.Input.Connect(0, All);
+						}
+						// Keep coarse edge candidates whose individual roots may still lie on native grass.
+						NearPlacement->Code = TEXT("return max(Original,(Weights.r>0.5 ? 1 : 0)*Allowed);");
+						Density->A.Connect(0, NearPlacement);
+					}
+					// Individual roots retain full near support; distant varieties keep continuous growth density.
+					Density->ConstB = 1;
+				}
+				else Density->B.Connect(0, Support);
+				FGrassInput& Input = Output->GrassTypes.AddDefaulted_GetRef();
+				Input.Name = Manifest.Turf.Varieties[Index].Name;
+				Input.GrassType = GrassTypes[Index];
+				Input.Input.Connect(0, Density);
+			}
 		}
-		UMaterialEditingLibrary::ConnectMaterialProperty(Colour, TEXT(""), MP_BaseColor);
+
+		UMaterialEditingLibrary::ConnectMaterialProperty(BlendContextEdge(Material, Colour, SurroundColour, Manifest), TEXT(""), MP_BaseColor);
+		if (ProcfillDebug && Manifest.bProcfillDebugView)
+		{
+			Material->SetShadingModel(MSM_Unlit);
+			UMaterialExpressionDivide* Visible = Node<UMaterialExpressionDivide>(Material, -1000, -1500);
+			Visible->A.Connect(0, Sample(Material, ProcfillDebug, Quads, SAMPLERTYPE_LinearColor, -1500));
+			Visible->B.Connect(0, Node<UMaterialExpressionEyeAdaptation>(Material, -1200, -1700));
+			UMaterialEditingLibrary::ConnectMaterialProperty(Visible, TEXT(""), MP_EmissiveColor);
+		}
 		UMaterialEditingLibrary::ConnectMaterialProperty(Normal, TEXT(""), MP_Normal);
 		UMaterialEditingLibrary::ConnectMaterialProperty(Rough, TEXT(""), MP_Roughness);
+		if (GrassSharp)
+		{
+			UMaterialExpressionCustom* UnevenNormal = Node<UMaterialExpressionCustom>(Material, 500, 1000);
+			UnevenNormal->OutputType = CMOT_Float3;
+			UnevenNormal->Inputs.Empty();
+			const auto NormalInput = [&](const TCHAR* Name, UMaterialExpression* Value)
+			{
+				FCustomInput& Input = UnevenNormal->Inputs.AddDefaulted_GetRef();
+				Input.InputName = Name;
+				Input.Input.Connect(0, Value);
+			};
+			NormalInput(TEXT("Here"), GroundPosition);
+			NormalInput(TEXT("Eye"), GroundEye);
+			NormalInput(TEXT("ScanNormal"), Normal);
+			NormalInput(TEXT("Grass"), GrassSharp);
+			UnevenNormal->Code = TEXT(R"(
+float a=Here.x*0.027+Here.y*0.013, b=Here.y*0.039-Here.x*0.011;
+float2 slope=0.65*float2(0.027*cos(a)*sin(b)-0.011*sin(a)*cos(b),0.013*cos(a)*sin(b)+0.039*sin(a)*cos(b));
+float close=1-smoothstep(600,1800,distance(Here,Eye));
+return normalize(float3(ScanNormal.xy*lerp(1,1.8,close)-slope*Grass,ScanNormal.z));
+)");
+			UMaterialEditingLibrary::ConnectMaterialProperty(UnevenNormal, TEXT(""), MP_Normal);
+			UMaterialExpressionCustom* Relief = Node<UMaterialExpressionCustom>(Material, 500, 1100);
+			Relief->OutputType = CMOT_Float3;
+			Relief->Inputs.Empty();
+			FCustomInput& Place = Relief->Inputs.AddDefaulted_GetRef();
+			Place.InputName = TEXT("Here");
+			Place.Input.Connect(0, GroundPosition);
+			FCustomInput& Grass = Relief->Inputs.AddDefaulted_GetRef();
+			Grass.InputName = TEXT("Grass");
+			Grass.Input.Connect(0, GrassWeight);
+			Relief->Code = TEXT("return float3(0,0,Grass*0.65*sin(Here.x*0.027+Here.y*0.013)*sin(Here.y*0.039-Here.x*0.011));");
+			UMaterialEditingLibrary::ConnectMaterialProperty(Relief, TEXT(""), MP_WorldPositionOffset);
+		}
 		UMaterialEditingLibrary::RecompileMaterial(Material);
 		return Material;
 	}
@@ -1145,13 +2394,54 @@ namespace
 		return Landscape;
 	}
 
+	UMaterial* MakePavingMaterial(UTexture2D* SurroundColour, const FManifest& Manifest, TArray<UPackage*>& Packages)
+	{
+		const FLayer* Paved = Manifest.Layers.FindByPredicate([](const FLayer& Layer) { return Layer.Name == PavedLayer; });
+		if (!Paved) return nullptr;
+		UMaterial* Material = NewAsset<UMaterial>(TEXT("M_RegisteredPaving"), Packages);
+		auto* Position = Node<UMaterialExpressionWorldPosition>(Material, -1400, 0);
+		Position->WorldPositionShaderOffset = WPT_ExcludeAllShaderOffsets;
+		auto* Eye = Node<UMaterialExpressionCameraPositionWS>(Material, -1400, 300);
+		auto* Uv = Node<UMaterialExpressionCustom>(Material, -1200, 0);
+		Uv->OutputType = CMOT_Float2;
+		Uv->Inputs.Empty();
+		FCustomInput& Place = Uv->Inputs.AddDefaulted_GetRef();
+		Place.InputName = TEXT("P");
+		Place.Input.Connect(0, Position);
+		Uv->Code = FString::Printf(TEXT("return P.xy / %.9f;"), Paved->Scan.SizeCm);
+		auto* Scan = Node<UMaterialExpressionTextureSample>(Material, -1000, 0);
+		Scan->Texture = Paved->Colour;
+		Scan->SamplerType = SAMPLERTYPE_Color;
+		Scan->SamplerSource = SSM_Wrap_WorldGroupSettings;
+		Scan->Coordinates.Connect(0, Uv);
+		auto* Albedo = Node<UMaterialExpressionCustom>(Material, -600, 0);
+		Albedo->OutputType = CMOT_Float3;
+		Albedo->Inputs.Empty();
+		for (const auto& Pair : {TPair<const TCHAR*, UMaterialExpression*>(TEXT("Scan"), Scan),
+			TPair<const TCHAR*, UMaterialExpression*>(TEXT("Here"), Position),
+			TPair<const TCHAR*, UMaterialExpression*>(TEXT("Eye"), Eye)})
+		{
+			FCustomInput& Input = Albedo->Inputs.AddDefaulted_GetRef();
+			Input.InputName = Pair.Key;
+			Input.Input.Connect(0, Pair.Value);
+		}
+		const FLinearColor Mean = Paved->MeanColour * Manifest.AlbedoScale;
+		// Even low-pass aerial colour retains blurred cars and tree shadows inside modeled lots.
+		Albedo->Code = FString::Printf(TEXT("float detail=1-smoothstep(1500,3000,distance(Here,Eye)); float3 pattern=clamp(1+(Scan.rgb/max(float3(%.9f,%.9f,%.9f),1e-4)-1)*1.6,0.2,2.0); return float3(%.9f,%.9f,%.9f)*lerp(1,pattern,detail);"),
+			Paved->Scan.MeanColour.R, Paved->Scan.MeanColour.G, Paved->Scan.MeanColour.B, Mean.R, Mean.G, Mean.B);
+		UMaterialEditingLibrary::ConnectMaterialProperty(BlendContextEdge(Material, Albedo, SurroundColour, Manifest), TEXT(""), MP_BaseColor);
+		auto* Roughness = Node<UMaterialExpressionConstant>(Material, -600, 300);
+		Roughness->R = .87f;
+		UMaterialEditingLibrary::ConnectMaterialProperty(Roughness, TEXT(""), MP_Roughness);
+		UMaterialEditingLibrary::RecompileMaterial(Material);
+		return Material;
+	}
+
 	/** The surround's material: its own colour map across it, and nothing finer. It is only ever seen from far away. */
-	UMaterial* MakeSurroundMaterial(UTexture2D* Colour, int32 Quads, float AlbedoScale, TArray<UPackage*>& Packages)
+	UMaterial* MakeSurroundMaterial(UTexture2D* Colour, const FManifest& Manifest, TArray<UPackage*>& Packages)
 	{
 		UMaterial* Material = NewAsset<UMaterial>(TEXT("M_Surround"), Packages);
-		UMaterialExpressionMultiply* Albedo = Node<UMaterialExpressionMultiply>(Material, -300, 0);
-		Albedo->A.Connect(0, Sample(Material, Colour, Quads, SAMPLERTYPE_Color, 0));
-		Albedo->ConstB = AlbedoScale;
+		UMaterialExpression* Albedo = ContextAlbedo(Material, Colour, Manifest);
 		UMaterialEditingLibrary::ConnectMaterialProperty(Albedo, TEXT(""), MP_BaseColor);
 		UMaterialExpressionConstant* Roughness = Node<UMaterialExpressionConstant>(Material, -300, 200);
 		Roughness->R = 0.9f;
@@ -1160,10 +2450,26 @@ namespace
 		return Material;
 	}
 
+	UMaterial* MakeContextMaterial(UTexture2D* Colour, const FManifest& Manifest, TArray<UPackage*>& Packages)
+	{
+		UMaterial* Material = NewAsset<UMaterial>(TEXT("M_Context"), Packages);
+		UMaterialEditingLibrary::ConnectMaterialProperty(ContextAlbedo(Material, Colour, Manifest), TEXT(""), MP_BaseColor);
+		auto* Roughness = Node<UMaterialExpressionConstant>(Material, -300, 200);
+		Roughness->R = 0.9f;
+		UMaterialEditingLibrary::ConnectMaterialProperty(Roughness, TEXT(""), MP_Roughness);
+		// The aerial projection observes roofs and ground, not directional facade shading.
+		Material->bTangentSpaceNormal = false;
+		auto* Normal = Node<UMaterialExpressionConstant3Vector>(Material, -300, 400);
+		Normal->Constant = FLinearColor(0, 0, 1);
+		UMaterialEditingLibrary::ConnectMaterialProperty(Normal, TEXT(""), MP_Normal);
+		UMaterialEditingLibrary::RecompileMaterial(Material);
+		return Material;
+	}
+
 	/**
 	 * Flat ground from under the outermost surface to the horizon, in that surface's average colour. Without it
-	 * the sky's empty lower half shows as a blue band past the surface's edge from any height. It only closes the band
-	 * without distance fog, which would turn everything past a couple of kilometres, the plane included, dark.
+	 * the sky's empty lower half shows as a blue band past the surface's edge from any height. The atmosphere's
+	 * nonvolumetric haze subdues the transition from the source-textured surround to this uniform far ground.
 	 */
 	void AddHorizon(UWorld* World, const FSurface& Outer, const TArray64<uint8>& HeightBytes, const TArray64<uint8>& ColourBytes, float AlbedoScale, TArray<UPackage*>& Packages)
 	{
@@ -1239,6 +2545,7 @@ namespace
 			Tree.NorthM = Number(TEXT("north_m"));
 			Tree.HeightM = Number(TEXT("height_m"));
 			Tree.CrownRadiusM = Number(TEXT("crown_radius_m"));
+			if (Column.Contains(TEXT("visual_crown_scale"))) Tree.VisualCrownScale = FMath::Clamp(Number(TEXT("visual_crown_scale")), 0.7, 1.0);
 			Tree.TrunkDiameterM = Number(TEXT("trunk_diameter_m"));
 			Tree.CrownRatio = Number(TEXT("crown_ratio"));
 			Tree.YawDeg = Number(TEXT("yaw_deg"));
@@ -1273,8 +2580,13 @@ namespace
 					return false;
 				}
 				const FBoxSphereBounds Bounds = Mesh.Asset->GetBounds();
-				Mesh.HeightCm = Bounds.Origin.Z + Bounds.BoxExtent.Z;
+				Mesh.HeightCm = 2 * Bounds.BoxExtent.Z;
 				Mesh.RadiusCm = (Bounds.BoxExtent.X + Bounds.BoxExtent.Y) / 2;
+				if (Mesh.HeightCm <= 0 || Mesh.RadiusCm <= 0)
+				{
+					Error = FString::Printf(TEXT("tree mesh %s has empty bounds"), *Path->AsString());
+					return false;
+				}
 			}
 		}
 		return true;
@@ -1296,7 +2608,7 @@ namespace
 
 	/**
 	 * Stand every tree of the inventory on the surface, at its measured height and crown width. Each takes the mesh
-	 * of its kind that needs the least stretching. The meshes are instanced, cast shadows, and carry the tree
+	 * of its kind selected among similarly sized meshes. The meshes are instanced, cast shadows, and carry the tree
 	 * stencil. Collision is separate and unseen: a cylinder for the trunk and one bounding the crown, sized from
 	 * the species' inventory records.
 	 */
@@ -1317,6 +2629,10 @@ namespace
 			Mesh.Instances = NewObject<UInstancedSkinnedMeshComponent>(Actor, *FString::Printf(TEXT("Trees_%s_%d"), *Mesh.Kind.ToString(), Index));
 			Mesh.Instances->SetupAttachment(Root);
 			Mesh.Instances->SetSkinnedAsset(Mesh.Asset);
+			Mesh.Instances->SetMobility(EComponentMobility::Static);
+			Mesh.Instances->PrimaryComponentTick.bCanEverTick = false;
+			// Provider-free assemblies keep their reference pose at every distance.
+			Mesh.Instances->SetAnimationMinScreenSize(1e10f);
 			Mesh.Instances->SetCollisionEnabled(ECollisionEnabled::NoCollision);
 			Mesh.Instances->SetRenderCustomDepth(true);
 			Mesh.Instances->SetCustomDepthStencilValue(Stencil);
@@ -1338,22 +2654,35 @@ namespace
 		Placed = 0;
 		for (const FTree& Tree : Trees)
 		{
-			FTreeMesh* Best = nullptr;
+			double BestStretch = TNumericLimits<double>::Max();
 			for (FTreeMesh& Mesh : Meshes)
 			{
-				const auto Stretch = [&](const FTreeMesh& Of) { return FMath::Abs(FMath::Loge(Tree.HeightM * 100 / Of.HeightCm)); };
-				if (Mesh.Kind == Tree.Kind && (!Best || Stretch(Mesh) < Stretch(*Best)))
+				if (Mesh.Kind == Tree.Kind)
 				{
-					Best = &Mesh;
+					BestStretch = FMath::Min(BestStretch, FMath::Abs(FMath::Loge(Tree.HeightM * 100 / Mesh.HeightCm)));
 				}
 			}
-			if (!Best)
+			TArray<FTreeMesh*> Candidates;
+			for (FTreeMesh& Mesh : Meshes)
+			{
+				if (Mesh.Kind == Tree.Kind && FMath::Abs(FMath::Loge(Tree.HeightM * 100 / Mesh.HeightCm)) <= BestStretch + FMath::Loge(1.25))
+				{
+					Candidates.Add(&Mesh);
+				}
+			}
+			if (Candidates.IsEmpty())
 			{
 				continue;
 			}
+			FRandomStream Choice(FMath::FloorToInt(Tree.YawDeg * 1000000));
+			FTreeMesh* Best = Candidates[Choice.RandRange(0, Candidates.Num() - 1)];
 			const FVector Foot(Tree.NorthM * 100, Tree.EastM * 100, SurfaceZ(Manifest.Tile, HeightBytes, Tree.NorthM * 100, Tree.EastM * 100));
 			const double Wide = Tree.CrownRadiusM * 100 / Best->RadiusCm, Tall = Tree.HeightM * 100 / Best->HeightCm;
-			Best->Instances->AddInstance(FTransform(FRotator(0, Tree.YawDeg, 0), Foot, FVector(Wide, Wide, Tall)), 0, true);
+			const FBoxSphereBounds Bounds = Best->Asset->GetBounds();
+			const FVector Origin = Foot - FVector(0, 0, (Bounds.Origin.Z - Bounds.BoxExtent.Z) * Tall);
+			// Opposing axis changes preserve the measured crown's area, with modest silhouette variation.
+			const double Aspect = Choice.FRandRange(0.9f, 1.1f);
+			Best->Instances->AddInstance(FTransform(FRotator(0, Tree.YawDeg, 0), Origin, FVector(Wide * Aspect * Tree.VisualCrownScale, Wide / Aspect * Tree.VisualCrownScale, Tall)), 0, true);
 			++Placed;
 			if (Tree.TrunkDiameterM > 0 && Tree.CrownRatio > 0)
 			{
@@ -1414,6 +2743,8 @@ namespace
 			Building.EastM = Item->GetNumberField(TEXT("east_m"));
 			Building.NorthM = Item->GetNumberField(TEXT("north_m"));
 			Building.HeightM = Item->GetNumberField(TEXT("height_m"));
+			Building.Architecture.Read(Item);
+			Building.RoofCheckPoint = Building.Architecture.RoofCheckPoint(FVector2D(Building.EastM, Building.NorthM));
 			const TArray<TSharedPtr<FJsonValue>>& Albedo = Item->GetArrayField(TEXT("roof_albedo"));
 			Building.RoofAlbedo = FLinearColor(float(Albedo[0]->AsNumber()), float(Albedo[1]->AsNumber()), float(Albedo[2]->AsNumber()));
 			for (const TSharedPtr<FJsonValue>& RingValue : Item->GetArrayField(TEXT("rings")))
@@ -1433,36 +2764,14 @@ namespace
 		return true;
 	}
 
-	/** A building's colour is carried in two UV channels, (red, green) and (blue, unused), so it needs no texture. */
 	UMaterial* MakeBuildingMaterial(float Roughness, TArray<UPackage*>& Packages)
 	{
-		UMaterial* Material = NewAsset<UMaterial>(TEXT("M_Building"), Packages);
-		UMaterialExpressionTextureCoordinate* Uv0 = Node<UMaterialExpressionTextureCoordinate>(Material, -900, 0);
-		Uv0->CoordinateIndex = 0;
-		UMaterialExpressionTextureCoordinate* Uv1 = Node<UMaterialExpressionTextureCoordinate>(Material, -900, 200);
-		Uv1->CoordinateIndex = 1;
-		UMaterialExpressionComponentMask* RedGreen = Node<UMaterialExpressionComponentMask>(Material, -600, 0);
-		RedGreen->Input.Connect(0, Uv0);
-		RedGreen->R = true;
-		RedGreen->G = true;
-		UMaterialExpressionComponentMask* Blue = Node<UMaterialExpressionComponentMask>(Material, -600, 200);
-		Blue->Input.Connect(0, Uv1);
-		Blue->R = true;
-		UMaterialExpressionAppendVector* Colour = Node<UMaterialExpressionAppendVector>(Material, -300, 0);
-		Colour->A.Connect(0, RedGreen);
-		Colour->B.Connect(0, Blue);
-		UMaterialEditingLibrary::ConnectMaterialProperty(Colour, TEXT(""), MP_BaseColor);
-		UMaterialExpressionConstant* Rough = Node<UMaterialExpressionConstant>(Material, -300, 200);
-		Rough->R = Roughness;
-		UMaterialEditingLibrary::ConnectMaterialProperty(Rough, TEXT(""), MP_Roughness);
-		UMaterialEditingLibrary::RecompileMaterial(Material);
-		return Material;
+		return EnvGenArchitecture::MakeMaterial(GeneratedPath, Roughness, Packages);
 	}
 
 	/**
-	 * Stand every building of the inventory on the surface as a flat-roofed block: walls from a little under the
-	 * ground at each footprint corner up to one roof height, a roof of the measured colour, walls of one albedo. The
-	 * blocks are merged into one mesh per square of the tile, so a square is one draw and one collision body.
+	 * Stand measured footprints on the surface and add the inventory's architectural kit.
+	 * Geometry is merged per tile square for rendering and collision.
 	 */
 	TArray<AActor*> AddBuildings(UWorld* World, const FManifest& Manifest, const TArray64<uint8>& HeightBytes, TArray<FBuilding>& Buildings, UMaterial* Material, TArray<UPackage*>& Packages, int32& Placed)
 	{
@@ -1474,19 +2783,25 @@ namespace
 			Squares.FindOrAdd(FIntPoint(FMath::FloorToInt(Buildings[Index].EastM / SquareM), FMath::FloorToInt(Buildings[Index].NorthM / SquareM))).Add(Index);
 		}
 		const int32 Stencil = int32(Manifest.StencilClasses->GetNumberField(TEXT("building")));
-		const FLinearColor Wall(Manifest.WallAlbedo, Manifest.WallAlbedo, Manifest.WallAlbedo);
+		const FLinearColor Wall(Manifest.WallAlbedo, Manifest.WallAlbedo, Manifest.WallAlbedo, EnvGenArchitecture::Plain);
 		TArray<AActor*> Actors;
 		Placed = 0;
 		for (const TPair<FIntPoint, TArray<int32>>& Square : Squares)
 		{
 			UStaticMesh* Mesh = NewAsset<UStaticMesh>(FString::Printf(TEXT("SM_Buildings_%d_%d"), Square.Key.X, Square.Key.Y), Packages);
 			FMeshDescription Description;
+			FMeshDescription CollisionDescription;
+			FStaticMeshAttributes(CollisionDescription).Register();
+			FStaticMeshAttributes(CollisionDescription).GetVertexInstanceUVs().SetNumChannels(1);
+			CollisionDescription.CreatePolygonGroup();
+			bool bStructural = true;
+			FVector TextureOrigin = FVector::ZeroVector, RoofU = FVector::ForwardVector, RoofV = FVector::RightVector;
 			FStaticMeshAttributes Attributes(Description);
 			Attributes.Register();
 			TVertexAttributesRef<FVector3f> Positions = Attributes.GetVertexPositions();
 			TVertexInstanceAttributesRef<FVector3f> Normals = Attributes.GetVertexInstanceNormals();
 			TVertexInstanceAttributesRef<FVector2f> Uvs = Attributes.GetVertexInstanceUVs();
-			Uvs.SetNumChannels(2);
+			Uvs.SetNumChannels(4);
 			TPolygonGroupAttributesRef<FName> Slots = Attributes.GetPolygonGroupMaterialSlotNames();
 			const FPolygonGroupID Group = Description.CreatePolygonGroup();
 			Slots[Group] = FName(TEXT("Building"));
@@ -1506,27 +2821,38 @@ namespace
 					Positions[Vertex] = FVector3f(*Points[Corner]);
 					Corners[Corner] = Description.CreateVertexInstance(Vertex);
 					Normals[Corners[Corner]] = FVector3f(Normal);
-					Uvs.Set(Corners[Corner], 0, FVector2f(Colour.R, Colour.G));
-					Uvs.Set(Corners[Corner], 1, FVector2f(Colour.B, 0));
+					Uvs.Set(Corners[Corner], 2, FVector2f(Colour.R, Colour.G));
+					Uvs.Set(Corners[Corner], 3, FVector2f(Colour.B, Colour.A));
+					const FVector P = (*Points[Corner]-TextureOrigin) * 0.01;
+					const FVector Tangent = FVector::CrossProduct(FVector::UpVector, Normal).GetSafeNormal();
+					Uvs.Set(Corners[Corner], 0, FMath::Abs(Normal.Z) > 0.5 ? FVector2f(P.Dot(RoofU), P.Dot(RoofV)) : FVector2f(P.Dot(Tangent), P.Z));
 				}
 				Description.CreatePolygon(Group, {Corners[0], Corners[1], Corners[2]});
+				if (bStructural) { EnvGenArchitecture::AppendCollisionTriangle(CollisionDescription, A, B, C, Normal); }
 			};
 			for (const int32 Index : Square.Value)
 			{
 				FBuilding& Building = Buildings[Index];
+				const FLinearColor Facade = Building.Architecture.bDetailed ? Building.Architecture.Wall : Wall;
 				const double AnchorZ = SurfaceZ(Manifest.Tile, HeightBytes, Building.NorthM * 100, Building.EastM * 100);
+				bStructural = true;
+				TextureOrigin = FVector(Building.NorthM*100, Building.EastM*100, AnchorZ);
+				RoofU = FVector(Building.Architecture.Along.Y, Building.Architecture.Along.X, 0);
+				RoofV = FVector(Building.Architecture.Along.X, -Building.Architecture.Along.Y, 0);
 				TArray<double> Ground;
-				double Highest = AnchorZ;
+				double RequiredRoofZ = AnchorZ;
 				for (const TArray<FVector2D>& Ring : Building.Rings)
 				{
 					for (const FVector2D& Point : Ring)
 					{
 						Ground.Add(SurfaceZ(Manifest.Tile, HeightBytes, Point.Y * 100, Point.X * 100));
-						Highest = FMath::Max(Highest, Ground.Last());
+						const double Clearance = Building.Architecture.StandRows > 0 ? 0 : 50;
+						RequiredRoofZ = FMath::Max(RequiredRoofZ, Ground.Last()+Clearance-Building.Architecture.RoofOffsetM(Point)*100);
 					}
 				}
 				// On a slope the roof is a roof height over the anchor, but never under the ground at a corner.
-				Building.TopCm = FMath::Max(AnchorZ + Building.HeightM * 100, Highest + 50);
+				Building.TopCm = FMath::Max(AnchorZ + Building.HeightM * 100, RequiredRoofZ);
+				Building.TerrainLiftCm = Building.TopCm-(AnchorZ + Building.HeightM * 100);
 				int32 First = 0;
 				const auto Corner = [&](const FVector2D& Point, double Z) { return FVector(Point.Y * 100, Point.X * 100, Z); };
 				for (const TArray<FVector2D>& Ring : Building.Rings)
@@ -1535,13 +2861,7 @@ namespace
 					{
 						const FVector2D& From = Ring[Point];
 						const FVector2D& To = Ring[(Point + 1) % Ring.Num()];
-						const FVector2D Along = To - From;
-						// The solid is on the left of every ring's direction, so outside is on its right.
-						const FVector Outward = FVector(-Along.X, Along.Y, 0).GetSafeNormal();
-						const FVector BottomFrom = Corner(From, Ground[First + Point] - SinkCm), BottomTo = Corner(To, Ground[First + (Point + 1) % Ring.Num()] - SinkCm);
-						const FVector TopFrom = Corner(From, Building.TopCm), TopTo = Corner(To, Building.TopCm);
-						AddTriangle(BottomFrom, BottomTo, TopTo, Outward, Wall);
-						AddTriangle(BottomFrom, TopTo, TopFrom, Outward, Wall);
+						Building.Architecture.AddWall(From, To, Ground[First+Point]-SinkCm, Ground[First+(Point+1)%Ring.Num()]-SinkCm, Building.TopCm, Facade, AddTriangle);
 					}
 					First += Ring.Num();
 				}
@@ -1550,33 +2870,42 @@ namespace
 				{
 					Points.Append(Ring);
 				}
-				for (const FIntVector& Triangle : Building.RoofTriangles)
+				const FLinearColor Roof = Building.Architecture.RoofColour(Building.RoofAlbedo);
+				if (!Building.Architecture.AddRoof(Building.TopCm, Roof, AddTriangle))
 				{
-					AddTriangle(Corner(Points[Triangle.X], Building.TopCm), Corner(Points[Triangle.Y], Building.TopCm), Corner(Points[Triangle.Z], Building.TopCm), FVector::UpVector, Building.RoofAlbedo);
+					for (const FIntVector& Triangle : Building.RoofTriangles)
+					{
+						AddTriangle(Corner(Points[Triangle.X], Building.TopCm), Corner(Points[Triangle.Y], Building.TopCm), Corner(Points[Triangle.Z], Building.TopCm), FVector::UpVector, Roof);
+					}
 				}
+				bStructural = false;
+				Building.Architecture.AddDetails(Building.Rings, Building.TopCm, Building.RoofCheckPoint,
+					[&](double East, double North) { return SurfaceZ(Manifest.Tile, HeightBytes, North*100, East*100); }, AddTriangle);
+				Building.TopCm += Building.Architecture.RoofOffsetM(Building.RoofCheckPoint)*100;
 				++Placed;
 			}
 			Mesh->GetStaticMaterials().Add(FStaticMaterial(Material, FName(TEXT("Building"))));
 			UStaticMesh::FBuildMeshDescriptionsParams Params;
 			Params.bBuildSimpleCollision = false;
 			Params.bFastBuild = false;
+			Params.PerLODOverrides.AddDefaulted_GetRef().bUseFullPrecisionUVs = true;
+			Mesh->GetNaniteSettings().bEnabled = true;
+			Mesh->GetNaniteSettings().FallbackPercentTriangles = 1.0f;
+			Mesh->GetNaniteSettings().FallbackRelativeError = 0.0f;
 			Mesh->BuildFromMeshDescriptions({&Description}, Params);
-			// The engine builds a mesh on another thread and sets its body up when it ends. A building is solid to a
-			// walker: its own triangles are its simple collision, so that is set once the build has finished.
 			FStaticMeshCompilingManager::Get().FinishCompilation({Mesh});
-			Mesh->CreateBodySetup();
-			Mesh->GetBodySetup()->CollisionTraceFlag = CTF_UseComplexAsSimple;
-			Mesh->GetBodySetup()->InvalidatePhysicsData();
-			Mesh->GetBodySetup()->CreatePhysicsMeshes();
 			AStaticMeshActor* Actor = World->SpawnActor<AStaticMeshActor>(FVector::ZeroVector, FRotator::ZeroRotator);
 			Actor->SetActorLabel(FString::Printf(TEXT("EnvGenBuildings_%d_%d"), Square.Key.X, Square.Key.Y));
 			Actor->Tags.Add(EnvGenStandingTag());
 			UStaticMeshComponent* Component = Actor->GetStaticMeshComponent();
 			Component->SetMobility(EComponentMobility::Static);
 			Component->SetStaticMesh(Mesh);
-			Component->SetCollisionProfileName(TEXT("BlockAll"));
+			Component->SetCollisionProfileName(TEXT("NoCollision"));
+			// Screen-space contact rays self-occlude the thin seating rows; normal mesh shadows remain enabled.
+			Component->SetCastContactShadow(false);
 			Component->SetRenderCustomDepth(true);
 			Component->SetCustomDepthStencilValue(Stencil);
+			EnvGenArchitecture::AttachCollision(Actor, CollisionDescription, GeneratedPath, FString::Printf(TEXT("SM_BuildingCollision_%d_%d"), Square.Key.X, Square.Key.Y), Packages);
 			Actors.Add(Actor);
 		}
 		return Actors;
@@ -1586,60 +2915,32 @@ namespace
 	 * Trace down onto buildings spread through the inventory, and return how far the worst hit is from the roof the
 	 * build placed, counting the traces that found no building. Trees are ignored: a crown may overhang a roof.
 	 */
-	double WorstBuildingTopErrorCm(UWorld* World, const FManifest& Manifest, const TArray<FBuilding>& Inventory, const AActor* Trees, int32& Checked, int32& Missed)
+	double WorstBuildingTopErrorCm(UWorld* World, const FManifest& Manifest, const TArray<FBuilding>& Inventory, const AActor* Trees, const TArray<AActor*>& Streetscape, int32& Checked, int32& Missed)
 	{
 		double Worst = 0;
 		Checked = Missed = 0;
 		FCollisionQueryParams Params;
+		Params.AddIgnoredActors(Streetscape);
 		if (Trees)
 		{
 			Params.AddIgnoredActor(Trees);
 		}
-		const int32 Step = FMath::Max(Inventory.Num() / TreeChecks, 1);
-		for (int32 Index = 0; Index < Inventory.Num(); Index += Step)
+		for (int32 Index = 0; Index < Inventory.Num(); ++Index)
 		{
 			const FBuilding& Building = Inventory[Index];
 			++Checked;
-			const FVector At(Building.NorthM * 100, Building.EastM * 100, 0);
+			const FVector At(Building.RoofCheckPoint.Y * 100, Building.RoofCheckPoint.X * 100, 0);
 			FHitResult Hit;
 			if (!World->LineTraceSingleByChannel(Hit, At + FVector(0, 0, 200000), At - FVector(0, 0, 200000), ECC_WorldStatic, Params) || !Hit.GetActor() || !Hit.GetActor()->ActorHasTag(EnvGenStandingTag()))
 			{
 				++Missed;
 				continue;
 			}
-			Worst = FMath::Max(Worst, FMath::Abs(Hit.Location.Z - Building.TopCm));
+			const double Error = FMath::Abs(Hit.Location.Z - Building.TopCm);
+			if (Error > SurfaceToleranceCm) { UE_LOG(LogEnvGen, Warning, TEXT("building %d roof collision error %.3f cm"), Index, Error); }
+			Worst = FMath::Max(Worst, Error);
 		}
 		return Worst;
-	}
-
-	void AddSkyAndSun(UWorld* World, const FLighting& Lighting)
-	{
-		// World +X is grid north and +Y is east, so a sun at azimuth A lights the ground travelling towards A + 180.
-		ADirectionalLight* Sun = World->SpawnActor<ADirectionalLight>(FVector(0, 0, 20000), FRotator(-Lighting.ElevationDeg, Lighting.GridAzimuthDeg + 180.0, 0));
-		Sun->SetActorLabel(TEXT("EnvGenSun"));
-		Sun->GetLightComponent()->SetMobility(EComponentMobility::Movable);
-		Sun->GetLightComponent()->SetIntensity(float(Lighting.SunLux));
-		Cast<UDirectionalLightComponent>(Sun->GetLightComponent())->SetAtmosphereSunLight(true);
-
-		AActor* Atmosphere = World->SpawnActor<AActor>(ASkyAtmosphere::StaticClass(), FTransform::Identity);
-		Atmosphere->SetActorLabel(TEXT("EnvGenSkyAtmosphere"));
-
-		ASkyLight* Sky = World->SpawnActor<ASkyLight>(FVector(0, 0, 20000), FRotator::ZeroRotator);
-		Sky->SetActorLabel(TEXT("EnvGenSkyLight"));
-		Sky->GetLightComponent()->SetMobility(EComponentMobility::Movable);
-		Sky->GetLightComponent()->SetRealTimeCapture(true);
-
-		// Exposure is fixed at the EV100 that puts mid-grey in this sun and sky at mid-grey.
-		APostProcessVolume* Exposure = World->SpawnActor<APostProcessVolume>(FVector::ZeroVector, FRotator::ZeroRotator);
-		Exposure->SetActorLabel(TEXT("EnvGenExposure"));
-		Exposure->bUnbound = true;
-		Exposure->Settings.bOverride_AutoExposureMinBrightness = true;
-		Exposure->Settings.bOverride_AutoExposureMaxBrightness = true;
-		Exposure->Settings.AutoExposureMinBrightness = float(Lighting.ExposureEv100);
-		Exposure->Settings.AutoExposureMaxBrightness = float(Lighting.ExposureEv100);
-		// Sharp frames matter more than cinematic blur for inspection and for simulated cameras.
-		Exposure->Settings.bOverride_MotionBlurAmount = true;
-		Exposure->Settings.MotionBlurAmount = 0;
 	}
 
 	void AddSiteInfo(UWorld* World, const FManifest& Manifest)
@@ -1732,6 +3033,7 @@ struct FEnvGenLevelBuild::FState
 {
 	FManifest Manifest;
 	FString MapPath;
+	FString ReceiptPath;
 	TArray64<uint8> HeightBytes;
 	TArray<UPackage*> Packages;
 	UWorld* World = nullptr;
@@ -1744,6 +3046,9 @@ struct FEnvGenLevelBuild::FState
 	TArray<AActor*> BuildingActors;
 	int32 BuildingsPlaced = 0;
 	int32 MaterialErrors = 0;
+	TArray<AActor*> StreetscapeActors;
+	TSharedRef<FJsonObject> StreetscapeReceipt = MakeShared<FJsonObject>();
+	FEnvGenContextState ContextGeometry;
 	float Waited = 0;
 	int32 Frames = 0;
 };
@@ -1751,6 +3056,13 @@ struct FEnvGenLevelBuild::FState
 bool FEnvGenLevelBuild::Start(const FString& ManifestPath, const FString& MapPath, const FString& MaterialsDirectory)
 {
 	State = MakeShared<FState>();
+	State->ReceiptPath = FPaths::ProjectSavedDir() / TEXT("EnvGen") / TEXT("build_receipt.json");
+	if (!IFileManager::Get().MakeDirectory(*FPaths::GetPath(State->ReceiptPath), true)
+		|| !IFileManager::Get().Delete(*State->ReceiptPath, false, true))
+	{
+		UE_LOG(LogEnvGen, Error, TEXT("cannot prepare the build receipt: %s"), *State->ReceiptPath);
+		return false;
+	}
 	State->MapPath = MapPath.IsEmpty() ? FString(DefaultMapPath) : MapPath;
 	// The target map is deleted and rewritten, so it may only be one of ours.
 	if (!State->MapPath.StartsWith(OwnedPath))
@@ -1802,6 +3114,20 @@ bool FEnvGenLevelBuild::Start(const FString& ManifestPath, const FString& MapPat
 		return false;
 	}
 
+	const auto StreetscapeHeight = [&](double North, double East) {
+		return EnvGenStreetscapeHeight(State->HeightBytes, Manifest.Tile.Vertices,
+			Manifest.Tile.LocationCm, Manifest.Tile.Scale, North, East);
+	};
+	TArray64<uint8> StreetscapeMaskBytes;
+	int32 StreetscapeMaskWidth = 0, StreetscapeMaskHeight = 0;
+	if ((!Manifest.StreetscapeMaskFile.IsEmpty() && !DecodePng(Manifest.Directory / Manifest.StreetscapeMaskFile,
+		ERGBFormat::Gray, 8, StreetscapeMaskBytes, StreetscapeMaskWidth, StreetscapeMaskHeight))
+		|| !ValidateEnvGenStreetscape(ManifestPath, StreetscapeHeight, Error))
+	{
+		UE_LOG(LogEnvGen, Error, TEXT("streetscape preflight failed: %s"), Error.IsEmpty() ? TEXT("cannot decode grass mask") : *Error);
+		return false;
+	}
+
 	// From scratch: nothing generated by an earlier run survives. The editor starts on a blank map first,
 	// so the old level and its assets are not loaded when their files go.
 	State->World = UEditorLoadingAndSavingUtils::NewBlankMap(false);
@@ -1820,7 +3146,15 @@ bool FEnvGenLevelBuild::Start(const FString& ManifestPath, const FString& MapPat
 	IFileManager::Get().DeleteDirectory(*GeneratedDirectory, false, true);
 	IFileManager::Get().Delete(*MapFile);
 
+	UTexture2D* SurroundColour = Manifest.Surround ? MakeTexture(TEXT("T_SurroundColour"), SurroundColourSize.X,
+		SurroundColourSize.Y, TSF_BGRA8, SurroundColourBytes.GetData(), true, State->Packages) : nullptr;
 	UTexture2D* Macro = MakeTexture(TEXT("T_MacroColour"), MacroSize.X, MacroSize.Y, TSF_BGRA8, MacroBytes.GetData(), true, State->Packages);
+	UTexture2D* StreetscapeMask = nullptr;
+	if (!Manifest.StreetscapeMaskFile.IsEmpty())
+	{
+		StreetscapeMask = MakeTexture(TEXT("T_StreetscapeGrass"), StreetscapeMaskWidth, StreetscapeMaskHeight,
+			TSF_G8, StreetscapeMaskBytes.GetData(), false, State->Packages, TC_Grayscale);
+	}
 	UTexture2D* Ratio = nullptr;
 	if (!Manifest.RatioFile.IsEmpty())
 	{
@@ -1851,13 +3185,94 @@ bool FEnvGenLevelBuild::Start(const FString& ManifestPath, const FString& MapPat
 	{
 		TArray64<uint8> SurveyBytes;
 		int32 SurveyWidth = 0, SurveyHeight = 0;
-		if (!DecodePng(Manifest.Directory / Manifest.SurveyFile, ERGBFormat::Gray, 8, SurveyBytes, SurveyWidth, SurveyHeight))
+		const ERGBFormat Format = Manifest.bSurveyWeighted ? ERGBFormat::BGRA : ERGBFormat::Gray;
+		if (!DecodePng(Manifest.Directory / Manifest.SurveyFile, Format, 8, SurveyBytes, SurveyWidth, SurveyHeight))
 		{
 			UE_LOG(LogEnvGen, Error, TEXT("cannot decode %s"), *Manifest.SurveyFile);
 			return false;
 		}
 		// A virtual texture: at a centimetre a pixel the file is hundreds of megabytes, and only the pages in view are resident.
-		Survey = MakeTexture(TEXT("T_SurveyDetail"), SurveyWidth, SurveyHeight, TSF_G8, SurveyBytes.GetData(), false, State->Packages, TC_Grayscale, true);
+		const uint8 Neutral = uint8(Manifest.SurveyZero);
+		// Virtual-texture padding carries the same neutral log and zero weight as missing source pixels.
+		Survey = MakeTexture(TEXT("T_SurveyDetail"), SurveyWidth, SurveyHeight, Manifest.bSurveyWeighted ? TSF_BGRA8 : TSF_G8,
+			SurveyBytes.GetData(), false, State->Packages, Manifest.bSurveyWeighted ? TC_VectorDisplacementmap : TC_Grayscale, true,
+			Manifest.bSurveyWeighted ? FColor(Neutral, Neutral, Neutral, 0) : FColor::Black);
+	}
+	UTexture2D* OrthoMasks = nullptr;
+	UTexture2D* OrthoColour = nullptr;
+	UTexture2D* FallbackWeights = nullptr;
+	if (!Manifest.OrthoMasksFile.IsEmpty())
+	{
+		TArray64<uint8> Bytes;
+		int32 Width = 0, Height = 0;
+		if (!DecodePng(Manifest.Directory / Manifest.OrthoMasksFile, ERGBFormat::BGRA, 8, Bytes, Width, Height))
+		{
+			UE_LOG(LogEnvGen, Error, TEXT("cannot decode %s"), *Manifest.OrthoMasksFile);
+			return false;
+		}
+		OrthoMasks = MakeTexture(TEXT("T_OrthoMasks"), Width, Height, TSF_BGRA8, Bytes.GetData(), false, State->Packages, TC_VectorDisplacementmap, true);
+		if (!DecodePng(Manifest.Directory / Manifest.OrthoColourFile, ERGBFormat::BGRA, 8, Bytes, Width, Height))
+		{
+			UE_LOG(LogEnvGen, Error, TEXT("cannot decode %s"), *Manifest.OrthoColourFile);
+			return false;
+		}
+		OrthoColour = MakeTexture(TEXT("T_OrthoColour"), Width, Height, TSF_BGRA8, Bytes.GetData(), true, State->Packages);
+		if (Manifest.FallbackWeightsFile.IsEmpty() || !DecodePng(Manifest.Directory / Manifest.FallbackWeightsFile, ERGBFormat::BGRA, 8, Bytes, Width, Height))
+		{
+			UE_LOG(LogEnvGen, Error, TEXT("native masks need original fallback weights: rebuild the pipeline"));
+			return false;
+		}
+		FallbackWeights = MakeTexture(TEXT("T_SurfaceFallback"), Width, Height, TSF_BGRA8, Bytes.GetData(), false, State->Packages, TC_VectorDisplacementmap);
+	}
+	UTexture2D* ProcfillGrowth = nullptr;
+	UTexture2D* ProcfillDebug = nullptr;
+	for (bool bDebug : {false, true})
+	{
+		const FString& File = bDebug ? Manifest.ProcfillDebugFile : Manifest.ProcfillGrowthFile;
+		if (File.IsEmpty()) continue;
+		TArray64<uint8> Bytes;
+		int32 Width = 0, Height = 0;
+		if (!DecodePng(Manifest.Directory / File, ERGBFormat::BGRA, 8, Bytes, Width, Height))
+		{
+			UE_LOG(LogEnvGen, Error, TEXT("cannot decode procfill mask %s"), *File);
+			return false;
+		}
+		UTexture2D* Texture = MakeTexture(bDebug ? TEXT("T_ProcfillDebug") : TEXT("T_ProcfillGrowth"),
+			Width, Height, TSF_BGRA8, Bytes.GetData(), false, State->Packages, TC_VectorDisplacementmap);
+		if (bDebug) { ProcfillDebug = Texture; Texture->Filter = TF_Nearest; }
+		else { ProcfillGrowth = Texture; }
+	}
+	UTexture2D* RootBoundary = OrthoMasks && OrthoColour ? MakeRootBoundary(OrthoMasks, OrthoColour, State->Packages) : nullptr;
+	UTexture2D* RootFallback = nullptr;
+	if (Manifest.bProcfillSurfaceOverride || !FallbackWeights)
+	{
+		const int32 Vertices = Manifest.Tile.Vertices;
+		TArray64<FColor> Resolved;
+		Resolved.Init(FColor(0, 0, 0, 255), int64(Vertices) * Vertices);
+		for (const FLayer& Layer : Manifest.Layers)
+		{
+			for (int64 Index = 0; Index < Resolved.Num(); ++Index)
+			{
+				if (Layer.Name == GrassLayer) Resolved[Index].R = Layer.Weights[Index];
+				else if (Layer.Name == PavedLayer) Resolved[Index].G = Layer.Weights[Index];
+				else if (Layer.Name == SoilLayer) Resolved[Index].B = Layer.Weights[Index];
+			}
+		}
+		RootFallback = MakeTexture(TEXT("T_TurfRootFallback"), Vertices, Vertices, TSF_BGRA8, reinterpret_cast<const uint8*>(Resolved.GetData()), false, State->Packages, TC_VectorDisplacementmap);
+		RootFallback->AddressX = TA_Clamp;
+		RootFallback->AddressY = TA_Clamp;
+	}
+	else if (FallbackWeights)
+	{
+		const uint8* Bytes = FallbackWeights->Source.LockMipReadOnly(0, 0, 0);
+		RootFallback = MakeTexture(TEXT("T_TurfRootFallback"), int32(FallbackWeights->Source.GetSizeX()), int32(FallbackWeights->Source.GetSizeY()), TSF_BGRA8, Bytes, false, State->Packages, TC_VectorDisplacementmap);
+		FallbackWeights->Source.UnlockMip(0, 0, 0);
+	}
+	if (RootFallback)
+	{
+		RootFallback->NeverStream = true;
+		RootFallback->MipGenSettings = TMGS_NoMipmaps;
+		RootFallback->PostEditChange();
 	}
 	const TArray<uint8> Noise = DetailNoise();
 	UTexture2D* Detail = MakeTexture(TEXT("T_Detail"), DetailPixels, DetailPixels, TSF_G8, Noise.GetData(), false, State->Packages);
@@ -1870,31 +3285,64 @@ bool FEnvGenLevelBuild::Start(const FString& ManifestPath, const FString& MapPat
 		Layer.Rough = MakeTexture(TEXT("T_") + Name + TEXT("_Rough"), Scan.Width, Scan.Height, TSF_G8, Scan.Rough.GetData(), false, State->Packages);
 		Layer.Relief = MakeTexture(TEXT("T_") + Name + TEXT("_Relief"), Scan.Width, Scan.Height, TSF_G8, Scan.Relief.GetData(), false, State->Packages);
 	}
-	ULandscapeGrassType* GrassType = nullptr;
+	UTexture2D* Growth = nullptr;
+	if (ProcfillGrowth && Manifest.Turf.GrowthFile == Manifest.ProcfillGrowthFile)
+	{
+		Growth = ProcfillGrowth;
+	}
+	else if (!Manifest.Turf.GrowthFile.IsEmpty())
+	{
+		TArray64<uint8> Bytes;
+		int32 Width = 0, Height = 0;
+		if (!DecodePng(Manifest.Directory / Manifest.Turf.GrowthFile, ERGBFormat::BGRA, 8, Bytes, Width, Height))
+		{
+			UE_LOG(LogEnvGen, Error, TEXT("cannot decode %s"), *Manifest.Turf.GrowthFile);
+			return false;
+		}
+		Growth = MakeTexture(TEXT("T_TurfGrowth"), Width, Height, TSF_BGRA8, Bytes.GetData(), false, State->Packages, TC_VectorDisplacementmap);
+	}
+	UTexture2D* Condition = nullptr;
+	if (!Manifest.Turf.ConditionFile.IsEmpty())
+	{
+		TArray64<uint8> Bytes;
+		int32 Width = 0, Height = 0;
+		if (!DecodePng(Manifest.Directory / Manifest.Turf.ConditionFile, ERGBFormat::BGRA, 8, Bytes, Width, Height))
+		{
+			UE_LOG(LogEnvGen, Error, TEXT("cannot decode %s"), *Manifest.Turf.ConditionFile);
+			return false;
+		}
+		Condition = MakeTexture(TEXT("T_TurfCondition"), Width, Height, TSF_BGRA8, Bytes.GetData(), false, State->Packages, TC_VectorDisplacementmap);
+	}
+	const FLawnTextures Lawn = MakeLawnTextures(Manifest.Turf, State->Packages);
+	TArray<ULandscapeGrassType*> GrassTypes;
 	if (Manifest.Layers.ContainsByPredicate([](const FLayer& Layer) { return Layer.Name == GrassLayer; }))
 	{
-		GrassType = NewAsset<ULandscapeGrassType>(TEXT("LGT_Grass"), State->Packages);
-		if (Manifest.Turf.Varieties.IsEmpty())
+		if (Manifest.Turf.Varieties.IsEmpty() || !Growth)
 		{
-			UE_LOG(LogEnvGen, Error, TEXT("the manifest has a grass class and no turf: it says what grows on it"));
+			UE_LOG(LogEnvGen, Error, TEXT("the manifest has a grass class and no turf or growth map: rebuild the pipeline"));
 			return false;
 		}
 		for (int32 Index = 0; Index < Manifest.Turf.Varieties.Num(); ++Index)
 		{
 			const FTuftVariety& Tuft = Manifest.Turf.Varieties[Index];
+			ULandscapeGrassType* GrassType = NewAsset<ULandscapeGrassType>(TEXT("LGT_Grass_") + Tuft.Name.ToString(), State->Packages);
+			GrassTypes.Add(GrassType);
 			FGrassVariety& Variety = GrassType->GrassVarieties.AddDefaulted_GetRef();
-			Variety.GrassMesh = MakeGrassTuft(MakeBladeMaterial(Macro, Manifest, Tuft, State->Packages), Tuft, Manifest.Turf.BladeColours, Index, State->Packages);
+			Variety.GrassMesh = MakeGrassTuft(MakeBladeMaterial(Macro, Growth, Condition, RootBoundary, RootFallback, Lawn, Manifest, Tuft, State->Packages), Tuft, Manifest.Turf.BladeColours, Index, State->Packages);
 			Variety.GrassDensity = FPerPlatformFloat(Tuft.DensityPer100M2);
 			Variety.StartCullDistance = FPerPlatformInt(Tuft.StartCullCm);
 			Variety.EndCullDistance = FPerPlatformInt(Tuft.EndCullCm);
+			Variety.InstanceWorldPositionOffsetDisableDistance = RootFallback && Tuft.Name != FName(TEXT("broadleaf"))
+				? FMath::Max(2500, Tuft.EndCullCm) : 2500;
 			Variety.Scaling = EGrassScaling::Uniform;
 			Variety.ScaleX = FFloatInterval(Tuft.ScaleMin, Tuft.ScaleMax);
 			Variety.bCastDynamicShadow = Tuft.bCastsShadow;
 			Variety.RandomRotation = true;
+			Variety.bUseGrid = false;
 			Variety.AlignToSurface = true;
 		}
 	}
-	UMaterial* Material = MakeGroundMaterial(Macro, Ratio, Survey, Grain, Manifest, Detail, Manifest.Tile.Vertices - 1, Manifest.Tile.Scale.X, Manifest.AlbedoScale, Manifest.Layers, GrassType, State->Packages);
+	UMaterial* Material = MakeGroundMaterial(Macro, SurroundColour, Ratio, Survey, OrthoMasks, OrthoColour, FallbackWeights, Grain, Condition, Lawn, RootBoundary, RootFallback, StreetscapeMask, ProcfillGrowth, ProcfillDebug, Manifest, Detail, Growth, Manifest.Tile.Vertices - 1, Manifest.Tile.Scale.X, Manifest.AlbedoScale, Manifest.Layers, GrassTypes, State->Packages);
 	for (FLayer& Layer : Manifest.Layers)
 	{
 		Layer.Info = NewAsset<ULandscapeLayerInfoObject>(TEXT("LI_") + Layer.Name.ToString(), State->Packages);
@@ -1903,11 +3351,17 @@ bool FEnvGenLevelBuild::Start(const FString& ManifestPath, const FString& MapPat
 
 	const int32 GroundStencil = int32(Manifest.StencilClasses->GetNumberField(TEXT("ground")));
 	State->Landscape = ImportLandscape(State->World, TEXT("EnvGenLandscape"), Manifest.Tile, State->HeightBytes, Material, GroundStencil, Manifest.Layers);
+	// Ground WPO depends only on fixed position and masks; animated vegetation keeps automatic invalidation.
+	State->Landscape->ShadowCacheInvalidationBehavior = EShadowCacheInvalidationBehavior::Rigid;
+	for (ULandscapeComponent* Component : State->Landscape->LandscapeComponents)
+	{
+		Component->ShadowCacheInvalidationBehavior = EShadowCacheInvalidationBehavior::Rigid;
+		Component->MarkRenderStateDirty();
+	}
+	UMaterial* SurroundMaterial = nullptr;
 	if (Manifest.Surround)
 	{
-		UTexture2D* SurroundColour = MakeTexture(TEXT("T_SurroundColour"), SurroundColourSize.X, SurroundColourSize.Y, TSF_BGRA8, SurroundColourBytes.GetData(), true,
-			State->Packages);
-		UMaterial* SurroundMaterial = MakeSurroundMaterial(SurroundColour, Manifest.Surround->Vertices - 1, Manifest.AlbedoScale, State->Packages);
+		SurroundMaterial = MakeSurroundMaterial(SurroundColour, Manifest, State->Packages);
 		State->Surround = ImportLandscape(State->World, TEXT("EnvGenSurround"), *Manifest.Surround, SurroundHeightBytes, SurroundMaterial, GroundStencil, TArray<FLayer>());
 	}
 	if (Manifest.Surround)
@@ -1927,10 +3381,42 @@ bool FEnvGenLevelBuild::Start(const FString& ManifestPath, const FString& MapPat
 		UMaterial* BuildingMaterial = MakeBuildingMaterial(Manifest.RoofRoughness, State->Packages);
 		State->BuildingActors = AddBuildings(State->World, Manifest, State->HeightBytes, State->Buildings, BuildingMaterial, State->Packages, State->BuildingsPlaced);
 	}
-	AddSkyAndSun(State->World, Manifest.Lighting);
+	UMaterial* PavingMaterial = Manifest.StreetscapeMaskFile.IsEmpty() ? nullptr : MakePavingMaterial(SurroundColour, Manifest, State->Packages);
+	if (!BuildEnvGenStreetscape(State->World, ManifestPath,
+		StreetscapeHeight,
+		State->Packages, State->StreetscapeActors, State->StreetscapeReceipt, Error, PavingMaterial))
+	{
+		UE_LOG(LogEnvGen, Error, TEXT("%s"), *Error);
+		return false;
+	}
+	State->StreetscapeReceipt->SetNumberField(TEXT("streetscape_lod0_components"),
+		LockEnvGenStreetscapeTerrainLOD(State->Landscape, State->StreetscapeActors));
+	if (!AddEnvGenAtmosphere(State->World, Manifest.Lighting, State->Packages, Error))
+	{
+		UE_LOG(LogEnvGen, Error, TEXT("%s"), *Error);
+		return false;
+	}
 	AddSiteInfo(State->World, Manifest);
 	APlayerStart* PlayerStart = State->World->SpawnActor<APlayerStart>(FVector(0, 0, 150), FRotator::ZeroRotator);
 	PlayerStart->SetActorLabel(TEXT("EnvGenPlayerStart"));
+	UTexture2D* ContextGeometryColour = SurroundColour;
+	if (!Manifest.ContextGeometryColourFile.IsEmpty())
+	{
+		TArray64<uint8> Bytes;
+		int32 Width = 0, Height = 0;
+		if (!DecodePng(Manifest.Directory / Manifest.ContextGeometryColourFile, ERGBFormat::BGRA, 8, Bytes, Width, Height))
+		{
+			UE_LOG(LogEnvGen, Error, TEXT("cannot decode %s"), *Manifest.ContextGeometryColourFile);
+			return false;
+		}
+		ContextGeometryColour = MakeTexture(TEXT("T_ContextGeometryColour"), Width, Height, TSF_BGRA8, Bytes.GetData(), true, State->Packages);
+	}
+	UMaterial* ContextMaterial = Manifest.Surround ? MakeContextMaterial(ContextGeometryColour, Manifest, State->Packages) : nullptr;
+	if (!BuildEnvGenContext(State->World, ManifestPath, ContextMaterial, State->Packages, State->ContextGeometry, Error))
+	{
+		UE_LOG(LogEnvGen, Error, TEXT("context geometry failed: %s"), *Error);
+		return false;
+	}
 	State->World->GetWorldSettings()->DefaultGameMode = AEnvGenGameMode::StaticClass();
 	for (UPackage* Package : State->Packages)
 	{
@@ -1961,6 +3447,7 @@ bool FEnvGenLevelBuild::Finish(float DeltaSeconds, bool& bSucceeded)
 	TArray<const AActor*> Standing;
 	Standing.Add(State->TreeActor);
 	Standing.Append(State->BuildingActors);
+	Standing.Append(State->StreetscapeActors);
 	const double WorstCm = WorstSurfaceErrorCm(State->World, Manifest, State->HeightBytes, Standing, Missed);
 	const int32 Components = State->Landscape->LandscapeComponents.Num();
 	const int32 TargetLayers = State->Landscape->GetTargetLayers().Num();
@@ -1971,13 +3458,29 @@ bool FEnvGenLevelBuild::Finish(float DeltaSeconds, bool& bSucceeded)
 	const double TreeTopCm = State->TreeActor ? WorstTreeTopErrorCm(State->TreeActor, Manifest, State->HeightBytes, State->Trees, TreesChecked, TreesMissed) : 0;
 	const bool bTreesOk = State->TreesPlaced == State->Trees.Num() && TreesMissed == 0 && TreeTopCm <= SurfaceToleranceCm;
 	int32 BuildingsChecked = 0, BuildingsMissed = 0;
-	const double BuildingTopCm = State->Buildings.IsEmpty() ? 0 : WorstBuildingTopErrorCm(State->World, Manifest, State->Buildings, State->TreeActor, BuildingsChecked, BuildingsMissed);
-	const bool bBuildingsOk = State->BuildingsPlaced == State->Buildings.Num() && BuildingsMissed == 0 && BuildingTopCm <= SurfaceToleranceCm;
-	const bool bSaved = UEditorLoadingAndSavingUtils::SavePackages(State->Packages, false) && UEditorLoadingAndSavingUtils::SaveMap(State->World, State->MapPath);
-	const bool bMaterialsOk = State->MaterialErrors == 0;
-	bSucceeded = bMerged && bSurfaceOk && bWeightsOk && bMaterialsOk && bTreesOk && bBuildingsOk && bSaved;
+	const double BuildingTopCm = State->Buildings.IsEmpty() ? 0 : WorstBuildingTopErrorCm(State->World, Manifest, State->Buildings, State->TreeActor, State->StreetscapeActors, BuildingsChecked, BuildingsMissed);
+	int32 BuildingNaniteMeshes = 0;
+	for (AActor* Actor : State->BuildingActors)
+	{
+		const UStaticMesh* Mesh = CastChecked<AStaticMeshActor>(Actor)->GetStaticMeshComponent()->GetStaticMesh();
+		BuildingNaniteMeshes += Mesh->HasValidNaniteData() ? 1 : 0;
+	}
+	const bool bBuildingsOk = State->BuildingsPlaced == State->Buildings.Num() && BuildingsMissed == 0 && BuildingTopCm <= SurfaceToleranceCm
+		&& BuildingNaniteMeshes == State->BuildingActors.Num();
 
 	TSharedRef<FJsonObject> Receipt = MakeShared<FJsonObject>();
+	FString ContextError;
+	const bool bContextOk = FinishEnvGenContext(State->Surround, State->ContextGeometry, Receipt, ContextError);
+	Receipt->SetBoolField(TEXT("context_geometry_ok"), bContextOk);
+	Receipt->SetStringField(TEXT("context_geometry_error"), ContextError);
+	Receipt->SetNumberField(TEXT("context_blend_width_m"), State->Surround ? ContextBlendWidthCm / 100 : 0);
+	const bool bMaterialsOk = State->MaterialErrors == 0;
+	const bool bValidated = bMerged && bSurfaceOk && bWeightsOk && bMaterialsOk && bTreesOk && bBuildingsOk && bContextOk;
+	const bool bSaved = bValidated && UEditorLoadingAndSavingUtils::SavePackages(State->Packages, false)
+		&& UEditorLoadingAndSavingUtils::SaveMap(State->World, State->MapPath);
+	bSucceeded = bSaved;
+
+	Receipt->Values.Append(State->StreetscapeReceipt->Values);
 	Receipt->SetStringField(TEXT("map"), State->MapPath);
 	Receipt->SetStringField(TEXT("engine"), FEngineVersion::Current().ToString());
 	Receipt->SetNumberField(TEXT("landscape_components"), Components);
@@ -2005,12 +3508,23 @@ bool FEnvGenLevelBuild::Finish(float DeltaSeconds, bool& bSucceeded)
 	Receipt->SetNumberField(TEXT("buildings_traced"), BuildingsChecked);
 	Receipt->SetNumberField(TEXT("buildings_traces_missed"), BuildingsMissed);
 	Receipt->SetNumberField(TEXT("building_top_worst_error_cm"), BuildingTopCm);
+	TArray<TSharedPtr<FJsonValue>> BuildingTerrainLifts;
+	for (const FBuilding& Building : State->Buildings) { BuildingTerrainLifts.Add(MakeShared<FJsonValueNumber>(Building.TerrainLiftCm)); }
+	Receipt->SetArrayField(TEXT("building_terrain_lift_cm"), BuildingTerrainLifts);
+	Receipt->SetNumberField(TEXT("building_meshes"), State->BuildingActors.Num());
+	Receipt->SetNumberField(TEXT("building_nanite_meshes"), BuildingNaniteMeshes);
 	Receipt->SetBoolField(TEXT("buildings_ok"), bBuildingsOk);
 	Receipt->SetBoolField(TEXT("saved"), bSaved);
 	Receipt->SetBoolField(TEXT("succeeded"), bSucceeded);
 	FString Json;
-	FJsonSerializer::Serialize(Receipt, TJsonWriterFactory<>::Create(&Json));
-	FFileHelper::SaveStringToFile(Json, *(FPaths::ProjectSavedDir() / TEXT("EnvGen") / TEXT("build_receipt.json")));
+	const FString PendingReceipt = State->ReceiptPath + TEXT(".tmp");
+	if (!FJsonSerializer::Serialize(Receipt, TJsonWriterFactory<>::Create(&Json))
+		|| !FFileHelper::SaveStringToFile(Json, *PendingReceipt)
+		|| !IFileManager::Get().Move(*State->ReceiptPath, *PendingReceipt, true, true))
+	{
+		bSucceeded = false;
+		UE_LOG(LogEnvGen, Error, TEXT("cannot publish the build receipt: %s"), *State->ReceiptPath);
+	}
 
 	UE_LOG(LogEnvGen, Display, TEXT("%s: %d components, merged=%d, surface worst error %.2f cm (%d missed), %d layers with worst weight error %d of 255, saved=%d"), *State->MapPath,
 		Components, bMerged, WorstCm, Missed, TargetLayers, WeightError, bSaved);

@@ -14,6 +14,8 @@ import numpy as np
 from scipy import ndimage
 from skimage.morphology import reconstruction
 from skimage.segmentation import watershed
+from shapely import STRtree
+from shapely.geometry import Point
 
 from . import surface
 
@@ -45,6 +47,7 @@ SETTINGS = {
     "seen_share": SEEN_SHARE,
     "narrow_sigmas": NARROW_SIGMAS,
     "narrow_min_crowns": NARROW_MIN_CROWNS,
+    "building_exclusion": "final crown circle touches or overlaps footprint material; holes retained",
 }
 
 COLUMNS = (
@@ -159,11 +162,11 @@ def split_kinds(closures: np.ndarray, areas: np.ndarray) -> tuple[float | None, 
     return threshold, record | {"split": True}
 
 
-def _height_likelihood(height_m: float, quantiles: dict) -> float:
-    """How likely a species is to be this tall: a log-normal through its measured 10th, 50th and 90th percentile."""
+def _log_height_likelihood(height_m: float, quantiles: dict) -> float:
+    """Log likelihood of this height under the species' measured height distribution."""
     sigma = max((math.log(quantiles["p90"]) - math.log(quantiles["p10"])) / (2 * 1.2816), 0.05)
     z = (math.log(max(height_m, 0.5)) - math.log(quantiles["p50"])) / sigma
-    return math.exp(-0.5 * z * z) / sigma
+    return -0.5 * z * z - math.log(sigma)
 
 
 def draw_species(mix: list[dict], kind: str | None, height_m: float, rng: np.random.Generator) -> dict | None:
@@ -174,9 +177,17 @@ def draw_species(mix: list[dict], kind: str | None, height_m: float, rng: np.ran
     candidates = [entry for entry in mix if kind is None or entry["kind"] == kind]
     if not candidates:
         return None
-    weights = np.array([entry["share"] * _height_likelihood(height_m, entry["height_m"]) for entry in candidates])
-    if weights.sum() <= 0:
-        weights = np.array([entry["share"] for entry in candidates])
+    log_weights = np.array(
+        [
+            math.log(entry["share"]) + _log_height_likelihood(height_m, entry["height_m"])
+            if entry["share"] > 0
+            else -math.inf
+            for entry in candidates
+        ]
+    )
+    if not np.isfinite(log_weights).any():
+        return None
+    weights = np.exp(log_weights - log_weights.max())
     return candidates[int(rng.choice(len(candidates), p=weights / weights.sum()))]
 
 
@@ -244,3 +255,57 @@ def inventory(
             }
         trees.append(tree)
     return trees
+
+
+def crowns_overlapping_buildings(
+    records: list[dict], footprints: list[dict], centre: tuple[float, float]
+) -> list[bool]:
+    """Flag final crown circles touching building material, including outer and hole boundaries.
+
+    Records are tile-relative metres; polygons are in the site's projected metre CRS.
+    Point-to-polygon distance tests the exact circle without approximating it by a buffered polygon.
+    A crown wholly inside a courtyard stays only when it clears the courtyard walls.
+    """
+    if not footprints:
+        return [False] * len(records)
+    index = STRtree([item["polygon"] for item in footprints])
+    return [bool(index.query(Point(tree["east_m"] + centre[0], tree["north_m"] + centre[1]),
+                             predicate="dwithin", distance=tree["crown_radius_m"]).size)
+            for tree in records]
+
+
+def refine_crowns(records: list[dict], observations: dict, centre: tuple[float, float]) -> dict:
+    """Constrain matched crown centres and widths by individually inspected orthophoto crowns.
+
+    Image bounds do not locate trunks or measure heights. Only existing height-backed trees can match;
+    rows, overlapping groups and low-confidence candidates leave the height inventory untouched.
+    """
+    from .observations import non_tree_features
+
+    objects = non_tree_features(observations)
+    before = len(records)
+    records[:] = [tree for tree in records if not any(
+        feature["bounds_projected_m"][0] <= tree["east_m"] + centre[0] <= feature["bounds_projected_m"][2]
+        and feature["bounds_projected_m"][1] <= tree["north_m"] + centre[1] <= feature["bounds_projected_m"][3]
+        for feature in objects)]
+    matched, used = [], set()
+    for feature in observations["features"]:
+        if feature["feature_type"] != "individual_tree_crown" or feature["confidence"] < 0.8:
+            continue
+        west, south, east, north = feature["bounds_projected_m"]
+        x, y = (west + east) / 2 - centre[0], (south + north) / 2 - centre[1]
+        radius = math.sqrt((east - west) * (north - south)) / 2
+        candidates = [(index, tree) for index, tree in enumerate(records) if index not in used
+                      and tree["height_m"] > 2
+                      and abs(tree["east_m"] - x) <= (east - west) / 2 + 1
+                      and abs(tree["north_m"] - y) <= (north - south) / 2 + 1]
+        if not candidates:
+            continue
+        index, tree = min(candidates, key=lambda item: (item[1]["east_m"] - x)**2 + (item[1]["north_m"] - y)**2)
+        used.add(index)
+        matched.append({"observation": feature["id"], "shift_m": math.hypot(tree["east_m"]-x, tree["north_m"]-y),
+                        "old_radius_m": tree["crown_radius_m"], "radius_m": radius})
+        tree.update(east_m=x, north_m=y, crown_radius_m=radius, source=tree["source"] + "+orthophoto")
+    return {"matched": matched, "identified_objects_excluded": before - len(records),
+            "source": "individually inspected crown envelopes; heights retained from height data",
+            "prior": "a crown-envelope centre approximates the tree position; it is not a surveyed trunk"}

@@ -174,6 +174,11 @@ void AEnvGenTour::Tick(float DeltaSeconds)
 	{
 		return;
 	}
+	const bool bHeld = HoldAtSeconds >= 0 && Elapsed >= WarmUpSeconds + HoldAtSeconds;
+	if (bHeld)
+	{
+		SpeedCmPerSec = 0;
+	}
 
 	// Advance by angle; the mean radius turns the nominal speed into an angular rate.
 	const double MeanRadiusCm = (RadiiOfTile.X + RadiiOfTile.Y) / 2 * TileSizeCm;
@@ -191,7 +196,11 @@ void AEnvGenTour::Tick(float DeltaSeconds)
 	float GroundAhead = Ground;
 	GroundHeight(GetWorld(), Ahead, GroundAhead);
 	Ahead.Z = GroundAhead + HeightAboveGroundCm;
-	FRotator Look = Step > 0 ? (Ahead - Here).Rotation() : FRotator::ZeroRotator;
+	FRotator Look = bHeld ? GetActorRotation() : FRotator::ZeroRotator;
+	if (Step > 0)
+	{
+		Look = (Ahead - Here).Rotation();
+	}
 	Look.Pitch = PitchDeg;
 	if (Elapsed > 0)
 	{
@@ -212,7 +221,7 @@ void AEnvGenTour::Tick(float DeltaSeconds)
 	}
 	if (bRecording)
 	{
-		if (!FrameDirectory.IsEmpty() && FrameMs.Num() % FMath::Max(FrameEvery, 1) == 0)
+		if (!FrameDirectory.IsEmpty() && FrameMs.Num() >= FrameStart && FrameMs.Num() % FMath::Max(FrameEvery, 1) == 0)
 		{
 			FScreenshotRequest::RequestScreenshot(FrameDirectory / FString::Printf(TEXT("frame_%05d.png"), FrameMs.Num()), false, false);
 		}
@@ -268,6 +277,8 @@ void AEnvGenTour::Finish()
 	Out->SetBoolField(TEXT("frames_written_to_disk"), !FrameDirectory.IsEmpty());
 	Out->SetNumberField(TEXT("measured_seconds"), MeasuredSeconds);
 	Out->SetNumberField(TEXT("warm_up_seconds"), WarmUpSeconds);
+	Out->SetNumberField(TEXT("camera_hold_at_seconds"), HoldAtSeconds);
+	Out->SetNumberField(TEXT("first_capture_frame"), FrameStart);
 	Out->SetNumberField(TEXT("distance_m"), PathLengthCm / 100);
 	Out->SetNumberField(TEXT("frames_with_no_ground_under_the_camera"), GroundMisses);
 	Out->SetNumberField(TEXT("height_above_ground_m"), HeightAboveGroundCm / 100);

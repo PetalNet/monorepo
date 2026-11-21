@@ -38,6 +38,12 @@ class Source:
     terrain: str | None = None
     # A survey's orthophoto (RGB and an alpha band, in the site's CRS): what the ground looks like at centimetre scale.
     orthophoto: str | None = None
+    # Optional image observations with pixel/projected bounds; evidence for fitting, not finished masks.
+    observations: str | None = None
+    attribution: str | None = None
+    license_url: str | None = None
+    license_conflict: str | None = None
+    internal_only: bool = False
 
     def band(self, name: str) -> int | None:
         return dict(self.bands or ()).get(name)
@@ -61,6 +67,10 @@ class Source:
                 "canopy_height": "'file' or 'cog'",
                 "reflectance": "'file'",
                 "buildings": "'file'",
+                "streetscape": "'file'",
+                "mask_imagery": "'file'",
+                "microsoft_buildings": "'file'",
+                "osm_features": "'file'",
             }.get(name, "'file' or 'arcgis_imageserver'")
             raise SiteError(f"sources.{name}: kind must be {allowed}, got {kind!r}")
         for field in ("license", "date"):
@@ -77,13 +87,19 @@ class Source:
             bands = tuple(sorted(bands.items()))
         elif name == "reflectance":
             raise SiteError("sources.reflectance: bands is required, naming at least red, green and blue")
-        terrain = orthophoto = None
+        if name == "mask_imagery" and (bands is None or "nir" not in dict(bands)):
+            raise SiteError("sources.mask_imagery: bands must name red, green, blue and nir")
+        terrain = orthophoto = observations = None
         if name == "survey":
             if kind != "file" or "terrain" not in raw:
                 raise SiteError("sources.survey: kind must be 'file', with path (surface model) and terrain")
             terrain = str((base / raw["terrain"]).resolve())
             if "orthophoto" in raw:
                 orthophoto = str((base / raw["orthophoto"]).resolve())
+            if "observations" in raw:
+                if not orthophoto:
+                    raise SiteError("sources.survey: observations require an orthophoto")
+                observations = str((base / raw["observations"]).resolve())
         return Source(
             kind,
             location,
@@ -94,6 +110,11 @@ class Source:
             bool(raw.get("leaf_off", False)),
             terrain,
             orthophoto,
+            observations,
+            raw.get("attribution"),
+            raw.get("license_url"),
+            raw.get("license_conflict"),
+            bool(raw.get("internal_only", False)),
         )
 
 
@@ -156,6 +177,13 @@ class Site:
     tree_mix: Source | None = None
     # optional: building footprints as GeoJSON in WGS84, with optional `height_m` and `num_floors` tags per feature
     buildings: Source | None = None
+    # Optional measured streetscape vectors; locations stay in the private site inputs.
+    streetscape: Source | None = None
+    mask_imagery: Source | None = None
+    microsoft_buildings: Source | None = None
+    osm_features: Source | None = None
+    building_imagery: Source | None = None
+    building_reference: Source | None = None
 
 
 def acquisition_day(source: Source, name: str) -> date:
@@ -202,6 +230,7 @@ def projected_metre_crs(text: str) -> str:
 
 # The surround is a second Landscape of this many quads a side: 8 components of 63.
 CONTEXT_QUADS = 504
+CONTEXT_MACRO_PIXELS = 2048
 
 
 def context_size(raw: dict, tile: Tile) -> float | None:
@@ -253,4 +282,22 @@ def load_site(path: Path) -> Site:
         survey=Source.parse(sources["survey"], path.parent, "survey") if "survey" in sources else None,
         tree_mix=Source.parse(sources["tree_mix"], path.parent, "tree_mix") if "tree_mix" in sources else None,
         buildings=Source.parse(sources["buildings"], path.parent, "buildings") if "buildings" in sources else None,
+        streetscape=Source.parse(sources["streetscape"], path.parent, "streetscape") if "streetscape" in sources else None,
+        mask_imagery=Source.parse(sources["mask_imagery"], path.parent, "mask_imagery")
+        if "mask_imagery" in sources
+        else None,
+        microsoft_buildings=(
+            Source.parse(sources["microsoft_buildings"], path.parent, "microsoft_buildings")
+            if "microsoft_buildings" in sources
+            else None
+        ),
+        osm_features=Source.parse(sources["osm_features"], path.parent, "osm_features")
+        if "osm_features" in sources
+        else None,
+        building_imagery=Source.parse(sources["building_imagery"], path.parent, "building_imagery")
+        if "building_imagery" in sources
+        else None,
+        building_reference=Source.parse(sources["building_reference"], path.parent, "building_reference")
+        if "building_reference" in sources
+        else None,
     )

@@ -17,9 +17,29 @@ from rasterio.warp import reproject, transform, transform_bounds
 from rasterio.windows import Window, from_bounds
 from scipy import ndimage
 
-from . import buildings, cover, frame, grain, lidar, light, surface, trees, turf
+from . import (
+    architecture,
+    building_imagery,
+    buildings,
+    context_geometry,
+    cover,
+    frame,
+    grain,
+    lidar,
+    light,
+    orthophoto,
+    procfill,
+    roof_survey,
+    streetscape,
+    surface,
+    survey_light,
+    trees,
+    turf,
+)
+from . import imagery as imagery_sources
 from .acquire import acquire, sha256_file
 from .site import (
+    CONTEXT_MACRO_PIXELS,
     CONTEXT_QUADS,
     LANDSCAPE_SECTION_QUADS,
     LANDSCAPE_SECTIONS_PER_COMPONENT,
@@ -34,7 +54,7 @@ from .site import (
 
 # Part of every stage key. Bump it by hand when a code change alters a stage's output for the same
 # inputs (frame.py and the resampling included); nothing detects that automatically.
-PIPELINE_VERSION = 18
+PIPELINE_VERSION = 21
 
 MACRO_PIXELS = 1024
 # The fine detail: pixels across the tile (about half a metre, the imagery's own resolution) and the largest
@@ -73,7 +93,8 @@ SUNLIT_REACH_MIN = 0.05
 # The colour map's low-pass runs on blocks this many cells across. A numerical shortcut, not a measurement.
 POOL = 4
 
-CONTEXT_MACRO_PIXELS = 512
+# Preserve broad developed/vegetated structure in the surround independently of the tile's macro/detail split.
+CONTEXT_LOW_PASS_M = 3.0
 # The surround passes under the tile; it sits this far below the detailed surface there so it never shows through.
 CONTEXT_SINK_M = 1.0
 
@@ -346,6 +367,14 @@ def build_trees(
     roofs = buildings.crowns_in_footprints(found, footprints or [], tile, lidar.CELL_M)
     report["not_trees"]["in_footprints"] = sum(roofs)
     records = [tree for tree, drop, roof in zip(records, dropped, roofs, strict=True) if not drop and not roof]
+    if site.survey and site.survey.observations:
+        from .observations import read
+
+        evidence = read(Path(site.survey.observations), sha256_file(Path(site.survey.orthophoto)), site.crs)
+        report["orthophoto"] = trees.refine_crowns(records, evidence, tile.centre)
+    overlaps = trees.crowns_overlapping_buildings(records, footprints or [], tile.centre)
+    report["not_trees"]["crown_overlaps_buildings"] = sum(overlaps)
+    records = [tree for tree, overlap in zip(records, overlaps, strict=True) if not overlap]
     (out / "trees.json").write_text(
         json.dumps({"columns": trees.COLUMNS, "trees": [[tree[name] for name in trees.COLUMNS] for tree in records]})
     )
@@ -359,6 +388,8 @@ def build_trees(
         priors.append("prior: no tree's kind is measured; kinds follow the inventory's mix, or broadleaf without one")
     if footprints:
         priors.append("prior: a tree stands at its crown's top, so a crown whose top is in a footprint is not a tree")
+        priors.append("prior: drop a tree whose final measured crown circle touches or overlaps building material; "
+                      "footprint holes stay open; no clearance offsets are invented")
     if "survey" in report:
         unseen = sum(tree["source"] != "survey" and tree["confidence"] < 1 for tree in records)
         report["survey"]["crowns_added"] = sum(tree["source"] == "survey" for tree in records)
@@ -387,8 +418,9 @@ def build_buildings(
     out: Path,
     classes: dict,
     lidar_height: np.ndarray | None,
+    cache: Path | None = None,
 ) -> dict:
-    """Measure every footprint's height and roof colour and write the inventory the engine builds massing from."""
+    """Write measured massing and the explicitly labeled architectural priors used by the engine."""
     tile = site.tile
     bands, _ = imagery_bands(site.imagery)
     half = lidar.CELL_M / 2
@@ -400,9 +432,47 @@ def build_buildings(
     albedo = classes["albedo"]
     curve = albedo.get("curves", {}).get(surface.PAVED)
     records = buildings.measure(footprints, tile, lidar.CELL_M, lidar_height, photo, curve, albedo["scale"])
+    if cache is not None and site.lidar:
+        priors = [
+            {
+                **r,
+                "architecture": {
+                    **r["architecture"],
+                    "centre_m": (np.asarray(r["architecture"]["centre_m"]) + tile.centre).tolist(),
+                },
+            }
+            for r in records
+        ]
+        surveys = roof_survey.measure(footprints, lidar.load_points(site.lidar, tile, site.crs, cache), priors)
+        buildings.apply_surveys(records, surveys, tile)
+    if site.building_imagery:
+        building_imagery.observe(
+            records,
+            footprints,
+            site.building_imagery.location,
+            site.crs,
+            curve,
+            albedo["scale"],
+            site.lidar.date if site.lidar else None,
+            site.building_imagery.date,
+        )
+    if site.building_reference:
+        buildings.apply_reference(records, Path(site.building_reference.location))
     (out / "buildings.json").write_text(json.dumps({"buildings": records}, separators=(",", ":")))
+    accuracy = [
+        {
+            "id": r["id"],
+            "height_m": r["height_m"],
+            "roof_shape": r["architecture"]["roof_shape"],
+            "survey": r.get("roof_survey", {"status": "unavailable"}),
+            "facade": r.get("facade_reference", {"status": "prior"}),
+            "outline": r.get("outline_observation", {"status": "source footprint"}),
+        }
+        for r in records
+    ]
+    (out / "building_accuracy.json").write_text(json.dumps({"buildings": accuracy}, separators=(",", ":")))
     priors = [
-        "prior: roofs are flat and every wall has one albedo; no source gives roof shape or facade colour",
+        *architecture.PRIORS,
         "prior: a roof's photo colour becomes albedo by the paved class's curve"
         if curve
         else "prior: a roof's photo colour becomes albedo by the global scale",
@@ -413,7 +483,7 @@ def build_buildings(
             f"prior: buildings with no lidar and no tag take {buildings.FLOOR_M:g} m a floor or the tile's median"
         )
     return {
-        "files": ["buildings.json"],
+        "files": ["buildings.json", "building_accuracy.json"],
         "file": "buildings.json",
         "count": len(records),
         "height_from": by_height,
@@ -428,6 +498,11 @@ def build_buildings(
         "roof_roughness": buildings.ROOF_ROUGHNESS,
         "priors": priors,
         "settings": buildings.SETTINGS,
+        "architecture_version": architecture.VERSION,
+        "roof_planes_measured": sum(r.get("architecture", {}).get("measured_roof", False) for r in records),
+        "facades_photo_referenced": sum(
+            r.get("facade_reference", {}).get("status") == "photo-referenced" for r in records
+        ),
     }
 
 
@@ -587,11 +662,13 @@ def build_surface(
     covering: dict | None,
     reflectance: Path | None,
     roofs: np.ndarray | None = None,
+    ortho: dict | None = None,
 ) -> dict:
     """Classify the ground and write one 8-bit weightmap per class, on the Landscape's vertices."""
     tile = site.tile
     for stale in out.glob("surface_*.png"):
         stale.unlink()
+    (out / "leafoff_masks.tif").unlink(missing_ok=True)
     bands, has_nir = imagery_bands(site.imagery)
     rgb = _warp(imagery, site.crs, tile.west, tile.north, tile.quad_m, tile.vertices, Resampling.average, bands)
     rgb = np.stack([_fill_gaps(band, "imagery")[0] for band in rgb])
@@ -599,12 +676,40 @@ def build_surface(
     rgb = rgb[:3]
     shown = open_ground(out, covering, tile.vertices) > 0
     labels, names, fit = surface.classify(rgb, shown, tile.quad_m, nir)
+    mask_files = []
+    if site.mask_imagery:
+        mask_reference = np.array([imagery_sources.NAMES.index(name) for name in names], dtype=np.uint8)[labels]
+        labels, names, evidence = imagery_sources.classify(site, labels, names, reserve_survey=not bool(ortho and "raster" in ortho))
+        fit["mask_sources"] = evidence
+        mask_fit = evidence["evidence"]["mask_imagery"].get("fit")
+        if mask_fit and mask_fit["splits"] and mask_fit["splits"][0]["split"]:
+            native = imagery_sources.write_native_masks(
+                site.mask_imagery, mask_fit["splits"], out / "leafoff_masks.tif", mask_reference, tile, site.crs
+            )
+            fit["mask_sources"]["native"] = native
+            mask_files.append(native["file"])
     if roofs is not None:
         # The ground under a roof is the class of the ground around it: the roof's own colour is not ground.
         labels = buildings.label_under(labels, _sample_cells(roofs, tile.vertices))
         fit["priors"].append("prior: the ground under a building is the class of the nearest ground not under one")
+    weights = surface.weights(labels, len(names), tile.quad_m)
+    fallback_weights = None
+    if ortho and "raster" in ortho:
+        fallback_weights = "surface_fallback.png"
+        fallback = np.stack(
+            [weights[names.index(name)] if name in names else np.zeros_like(labels) for name in orthophoto.NAMES]
+        )
+        _write_rgb(fallback, out / fallback_weights)
+        weights, expanded = orthophoto.blend(
+            np.asarray(weights, dtype=np.float32) / 255,
+            names,
+            orthophoto.sample(out / ortho["raster"], tile, site.crs, tile.vertices, out / ortho["colour_raster"]),
+        )
+        labels = np.array([expanded.index(name) for name in names], dtype=np.uint8)[labels]
+        names = expanded
+        weights = np.rint(weights * 255).astype(np.uint8)
     layers, unreal = [], []
-    for name, weight in zip(names, surface.weights(labels, len(names), tile.quad_m), strict=True):
+    for name, weight in zip(names, weights, strict=True):
         file = f"surface_{name}.png"
         unreal.append(frame.to_unreal_layout(weight))
         Image.fromarray(unreal[-1]).save(out / file)
@@ -622,13 +727,129 @@ def build_surface(
         elif layer["name"] in luminance:
             layer["mean_linear_rgb"] = luminance[layer["name"]]["mean_linear_rgb"]
     return {
-        "files": [layer["file"] for layer in layers],
+        "files": [layer["file"] for layer in layers] + ([fallback_weights] if fallback_weights else []) + mask_files,
+        "fallback_weights": fallback_weights,
         "layers": layers,
         "check_points": surface.check_points(unreal, names),
         "vertices": tile.vertices,
         "albedo": albedo,
         **fit,
     }
+
+
+def clean_ortho_colour(rgb: np.ndarray, shown: np.ndarray, own: np.ndarray, cell_m: float) -> tuple[np.ndarray, dict]:
+    """Replace crowns and survey shadows with the class's surrounding sunlit ground colour."""
+    photo = surface.to_linear(rgb.astype(np.float32))
+    sigma = MACRO_LOW_PASS_M / cell_m
+
+    def smooth(open_cells):
+        fallback = _low_pass_of_sunlit(photo, open_cells.astype(np.float32), sigma)
+        result = fallback.copy()
+        for index in range(3):
+            visible = open_cells & (own == index)
+            if visible.any():
+                passed = _low_pass_of_sunlit(photo, visible.astype(np.float32), sigma)
+                result[:, own == index] = passed[:, own == index]
+        return result
+
+    passed = smooth(shown)
+    darkness = np.log2(np.maximum(surface.luminous(photo), 1e-4) / np.maximum(surface.luminous(passed), 1e-4))
+    shadows = {}
+    visible = shown.copy()
+    for index, name in enumerate(orthophoto.NAMES):
+        if name not in surface.SEASONAL:
+            continue
+        mine = (own == index) & shown
+        # A uniformly lit field can sit just above zero because its own shadow lowered the mean.
+        # Centre the sunlit peak inside shadow_gap's negative-stop histogram before fitting it.
+        centre = float(np.median(darkness[mine])) + SHADOW_BIN_LOG2 if mine.any() else 0.0
+        gap = shadow_gap(darkness[mine] - centre)
+        if gap is not None:
+            gap += centre
+            dark = mine & (darkness < gap)
+            visible &= ~ndimage.binary_dilation(dark, iterations=SHADOW_EDGE_CELLS)
+            shadows[name] = {"gap_log2": gap, "shadow_fraction": float(dark.sum() / max(1, mine.sum()))}
+    if shadows:
+        passed = smooth(visible)
+    photo_luma = surface.luminous(photo)
+    macro_luma = surface.luminous(passed)
+    chroma = photo * (macro_luma / np.maximum(photo_luma, 1e-4))[None]
+    saturation = np.minimum(1, (1 - macro_luma) / np.maximum(chroma.max(axis=0) - macro_luma, 1e-4))
+    chroma = macro_luma[None] + (chroma - macro_luma[None]) * saturation[None]
+    # Fine luminance comes from survey_detail; retain hue without applying that brightness signal twice.
+    trusted = (visible & (photo_luma > 1e-4)
+               & (photo_luma >= macro_luma * 2 ** orthophoto.SETTINGS["chroma_shadow_min_log2"]))
+    colour = np.where(trusted[None], chroma, passed)
+    return surface.to_encoded(colour), {
+        "low_pass_m": MACRO_LOW_PASS_M, "open_fraction": float(visible.mean()), "shadows": shadows,
+        "chroma_cell_m": cell_m, "chroma_fraction": float(trusted.mean()),
+        "chroma_shadow_min_log2": orthophoto.SETTINGS["chroma_shadow_min_log2"],
+        "source": "class-specific low-pass luminance and visible pooled survey chroma in linear light",
+    }
+
+
+def build_orthophoto(site: Site, imagery: Path, out: Path, covering: dict | None, roofs: np.ndarray | None) -> dict:
+    tile = site.tile
+    bands, has_nir = imagery_bands(site.imagery)
+    rgb = _warp(imagery, site.crs, tile.west, tile.north, tile.quad_m, tile.vertices, Resampling.average, bands)
+    rgb = np.stack([_fill_gaps(band, "imagery")[0] for band in rgb])
+    shown = open_ground(out, covering, tile.vertices) > 0
+    labels, names, _ = surface.classify(rgb[:3], shown, tile.quad_m, rgb[3] if has_nir else None)
+    if site.mask_imagery:
+        labels, names, _ = imagery_sources.classify(site, labels, names, reserve_survey=False)
+    height = np.zeros(labels.shape, dtype=np.float32)
+    if covering:
+        with rasterio.open(out / covering["height"]) as source:
+            height = _sample_cells(source.read(1), tile.vertices)
+    # The survey and the older imagery have different crowns and sun. Use the survey's own heights,
+    # and let its photo supply shadows; the older sunlit raster would remove the wrong ground.
+    survey_surface = _warp(
+        Path(site.survey.location), site.crs, tile.west, tile.north, tile.quad_m, tile.vertices, Resampling.max
+    )[0]
+    survey_ground = _warp(
+        Path(site.survey.terrain), site.crs, tile.west, tile.north, tile.quad_m, tile.vertices, Resampling.average
+    )[0]
+    inside = np.isfinite(survey_surface) & np.isfinite(survey_ground)
+    height = np.where(inside, np.maximum(survey_surface - survey_ground, 0), height)
+    evidence = None
+    if site.survey.observations:
+        from .observations import read
+
+        evidence = read(Path(site.survey.observations), sha256_file(Path(site.survey.orthophoto)), site.crs)
+        # A photo DSM can miss a crown explicitly seen in the ortho. Retain older height evidence there.
+        if covering:
+            with rasterio.open(out / covering["height"]) as source:
+                older = _sample_cells(source.read(1), tile.vertices)
+            east = tile.west + np.arange(tile.vertices) * tile.quad_m
+            north = tile.north - np.arange(tile.vertices) * tile.quad_m
+            for feature in evidence["features"]:
+                if feature["feature_type"] != "individual_tree_crown" or feature["confidence"] < 0.8:
+                    continue
+                west, south, right, top = feature["bounds_projected_m"]
+                region = (
+                    (east[None] >= west) & (east[None] <= right) & (north[:, None] >= south) & (north[:, None] <= top)
+                )
+                height = np.where(region, np.maximum(height, older), height)
+    shown = height < orthophoto.SETTINGS["canopy_min_m"]
+    if evidence:
+        from .observations import non_tree_features
+
+        east = tile.west + np.arange(tile.vertices) * tile.quad_m
+        north = tile.north - np.arange(tile.vertices) * tile.quad_m
+        for feature in non_tree_features(evidence):
+            west, south, right, top = feature["bounds_projected_m"]
+            region = ((east[None] >= west) & (east[None] <= right)
+                      & (north[:, None] >= south) & (north[:, None] <= top))
+            shown &= ~region
+            height = np.where(region, 0, height)
+    if roofs is not None:
+        roof_cells = _sample_cells(roofs, tile.vertices)
+        labels = buildings.label_under(labels, roof_cells)
+        shown &= ~roof_cells
+        height = np.where(roof_cells, 0, height)
+    return orthophoto.build(
+        Path(site.survey.orthophoto), out, tile, site.crs, labels, names, height, shown, clean_ortho_colour, evidence
+    )
 
 
 def read_weights(out: Path, layers: list[dict]) -> np.ndarray:
@@ -869,7 +1090,7 @@ def build_detail(
             "prior: the imagery's tone curve is sRGB, so its ratio is a ratio of linear light",
             "prior: living turf is nowhere as dark against the turf around it as its own shadow is; paving can be",
             f"prior: a shadow's edge is {SHADOW_EDGE_CELLS} cells wider than its dark core",
-            f"prior: shadow is looked for down to {SHADOW_DARKEST_LOG2:g} stops in bins of {SHADOW_BIN_LOG2:g}, meaned over three; its peak holds {SHADOW_MIN_SHARE:.1%} of at least {SHADOW_MIN_CELLS} cells in one bin, and the gap at most {SHADOW_VALLEY_MAX:g} of the peak",
+            f"prior: shadow is looked for down to {SHADOW_DARKEST_LOG2:g} stops in bins of {SHADOW_BIN_LOG2:g}, averaged over three; its peak holds {SHADOW_MIN_SHARE:.1%} of at least {SHADOW_MIN_CELLS} cells in one bin, and the gap at most {SHADOW_VALLEY_MAX:g} of the peak",
             f"prior: the ratio is limited to a factor of {2**DETAIL_LOG2_RANGE:g} either way",
             f"prior: the ratio fades to 1 over {DETAIL_FADE_CELLS:g} cells at the edge of hidden ground",
         ],
@@ -918,12 +1139,64 @@ def build_grain(site: Site, out: Path, layers: list[dict]) -> dict:
     }
 
 
-def build_survey_detail(site: Site, out: Path, covering: dict | None, layers: list[dict]) -> dict:
+def build_growth(
+    site: Site,
+    out: Path,
+    layers: list[dict],
+    detail: dict,
+    elevation: dict,
+    covering: dict | None,
+    ortho: dict | None = None,
+    fallback_weights: str | None = None,
+) -> dict:
+    """A shared growth map for Landscape placement and blade height, in the tile's engine layout."""
+    pixels = detail["pixels"]
+    grass = _sample_cells(read_weights(out, layers)[[layer["name"] for layer in layers].index("grass")], pixels)
+    if ortho and "raster" in ortho:
+        fallback = np.asarray(Image.open(out / fallback_weights)).swapaxes(0, 1)[::-1, :, 0].astype(np.float32) / 255
+        native = orthophoto.sample(out / ortho["raster"], site.tile, site.crs, pixels,
+                                  out / ortho["colour_raster"])
+        coverage = np.clip(native[:3].sum(axis=0), 0, 1)
+        grass = native[0] + _sample_cells(fallback, pixels) * (1 - coverage)
+    encoded = np.asarray(Image.open(out / detail["file"])).swapaxes(0, 1)[::-1]
+    ratio = (np.moveaxis(encoded.astype(np.float32), -1, 0) - detail["zero"]) * detail["log2_range"] / detail["zero"]
+    if ortho and "raster" in ortho:
+        spacing = site.tile.size_m / pixels
+        photo = _warp(
+            Path(site.survey.orthophoto),
+            site.crs,
+            site.tile.west + spacing / 2,
+            site.tile.north - spacing / 2,
+            spacing,
+            pixels,
+            Resampling.average,
+            [1, 2, 3],
+        )
+        colour = np.log2(np.maximum(np.nan_to_num(photo, nan=0), 1) / 255)
+        # Relative G/R drives growth; the camera's absolute tint never becomes the blade's albedo.
+        ratio = ratio * (1 - coverage[None]) + colour * coverage[None]
+    height = np.asarray(Image.open(out / elevation["file"])).swapaxes(0, 1)[::-1].astype(np.float32)
+    ground = _sample_cells(height, pixels) * elevation["z_scale"] / 12800
+    canopy = np.zeros(grass.shape, dtype=np.float32)
+    if covering:
+        with rasterio.open(out / covering["height"]) as source:
+            canopy = _sample_cells(source.read(1), pixels)
+    packed, report = turf.growth(grass, ratio, canopy, ground, site.tile.size_m / pixels, site.seed)
+    _write_rgb(packed * 255, out / "turf_growth.png")
+    _write_rgb(turf.condition(grass, ratio, site.tile.size_m / pixels) * 255, out / "turf_condition.png")
+    return {"file": "turf_growth.png", "condition_file": "turf_condition.png",
+            "files": ["turf_growth.png", "turf_condition.png"], "pixels": pixels, **report}
+
+
+def build_survey_detail(
+    site: Site, out: Path, covering: dict | None, layers: list[dict], ortho: dict | None = None
+) -> dict:
     """The detail ratio again, from the survey's orthophoto at its own pixel size, where its footprint is.
 
     The same ratio as build_detail's (luminance of each pixel over the class's own 12 m low-pass of sunlit ground, in
-    linear light, a power of two, one stop either way, 1 where cover hides the ground), but a centimetre a pixel, and of
-    luminance only: the file is one channel (0 where the orthophoto has no pixel, else 1 to 254), because at that size a colour image is hundreds of megabytes. Inside the
+    linear light, a power of two, one stop either way, with zero weight where cover hides the ground), but a centimetre a pixel, and of
+    luminance only: RGB stores the same log ratio, premultiplied by the detail weight in alpha. Missing or rejected
+    samples have neutral RGB and zero weight, so filtering does not invent contrast. Inside the
     footprint it replaces the imagery's ratio, which is the same ground a year or two earlier at half a metre.
     """
     tile = site.tile
@@ -931,67 +1204,99 @@ def build_survey_detail(site: Site, out: Path, covering: dict | None, layers: li
     own = np.argmax(shares, axis=0)
     open_cells = open_ground(out, covering, DETAIL_PIXELS)
     cell_m = tile.size_m / DETAIL_PIXELS
-    with rasterio.open(site.survey.orthophoto) as source:
+    with (
+        rasterio.Env(GDAL_CACHEMAX=orthophoto.SETTINGS["gdal_cache_mb"] * 1024**2),
+        rasterio.open(site.survey.orthophoto) as source,
+    ):
         if str(source.crs) != site.crs or source.count < 4:
             return {"files": [], "skipped": "the orthophoto is not in the site's CRS with an alpha band"}
         pixel_m = float(abs(source.transform.a))
         left, top = source.transform.c, source.transform.f
         width, height = source.width, source.height
-        factor = max(1, round(SURVEY_POOL_M / pixel_m))
-        rows, columns = -(-height // factor), -(-width // factor)
-        strip = factor * 64
-
-        def read_luminance(first: int) -> tuple[np.ndarray, np.ndarray]:
-            count = min(strip, height - first)
-            data = source.read([1, 2, 3, 4], window=Window(0, first, width, count))
-            valid = data[3] == 255
-            return np.tensordot(grain.LUMA, grain.to_linear(data[:3]), 1) * valid, valid
-
-        def pool(array: np.ndarray) -> np.ndarray:
-            padded = np.pad(array.astype(np.float32), ((0, -array.shape[0] % factor), (0, -array.shape[1] % factor)))
-            return padded.reshape(padded.shape[0] // factor, factor, padded.shape[1] // factor, factor).sum(axis=(1, 3))
-
-        total = np.zeros((rows, columns), dtype=np.float32)
-        seen = np.zeros((rows, columns), dtype=np.float32)
-        for first in range(0, height, strip):
-            luminance, valid = read_luminance(first)
-            pooled_rows = slice(first // factor, first // factor + -(-luminance.shape[0] // factor))
-            total[pooled_rows] += pool(luminance)
-            seen[pooled_rows] += pool(valid)
-        pooled = total / np.maximum(seen, 1)
-        # Which tile cell each pooled cell lies in: its class and whether it shows sunlit ground.
-        x = left + (np.arange(columns) + 0.5) * factor * pixel_m
-        y = top - (np.arange(rows) + 0.5) * factor * pixel_m
+        bounds = source.bounds
+        rows, columns = orthophoto._shape(width, height, pixel_m, SURVEY_POOL_M, orthophoto.SETTINGS["fit_max_pixels"])
+        pooled_rgba = source.read([1, 2, 3, 4], out_shape=(4, rows, columns), resampling=Resampling.average)
+        pooled = np.tensordot(grain.LUMA, grain.to_linear(pooled_rgba[:3]), 1)
+        pooled_transform = source.transform * source.transform.scale(width / columns, height / rows)
+        x = left + (np.arange(columns) + 0.5) * pooled_transform.a
+        y = top + (np.arange(rows) + 0.5) * pooled_transform.e
         column = np.floor((x - tile.west) / cell_m).astype(int)
         row = np.floor((tile.north - y) / cell_m).astype(int)
         inside = ((row >= 0) & (row < DETAIL_PIXELS))[:, None] & ((column >= 0) & (column < DETAIL_PIXELS))[None, :]
         at = np.ix_(np.clip(row, 0, DETAIL_PIXELS - 1), np.clip(column, 0, DETAIL_PIXELS - 1))
         mine = np.where(inside, own[at], -1)
-        sunlit = np.where(inside, open_cells[at], 0) * (seen >= factor * factor / 2)
-        sigma = MACRO_LOW_PASS_M / (factor * pixel_m)
+        sunlit = np.where(inside, open_cells[at], 0) * (pooled_rgba[3] >= 250)
+        if ortho and "raster" in ortho:
+            with rasterio.open(out / ortho["raster"]) as masks:
+                shares = masks.read(out_shape=(4, rows, columns), resampling=Resampling.average) / 255
+            # A photo DSM can miss roofs and crowns; new cover may hide more, never reopen known cover.
+            sunlit = np.minimum(sunlit, 1 - shares[3])
+            sunlit *= pooled_rgba[3] >= 250
+        sigma = MACRO_LOW_PASS_M / pooled_transform.a
         smooth = np.ones_like(pooled)
         for index in range(len(layers)):
             passed = _low_pass_of_sunlit(pooled[None], sunlit * (mine == index), sigma)[0]
             smooth = np.where(mine == index, passed, smooth)
-        trust = _blur(sunlit.astype(np.float32), DETAIL_FADE_CELLS)
-        encoded = np.empty((height, width), dtype=np.uint8)
-        for first in range(0, height, strip):
-            luminance, valid = read_luminance(first)
-            count = luminance.shape[0]
-            pooled_rows = slice(first // factor, first // factor + -(-count // factor))
-
-            def spread(array: np.ndarray) -> np.ndarray:
-                return np.repeat(np.repeat(array[pooled_rows], factor, axis=0), factor, axis=1)[:count, :width]
-
-            ratio = np.log2(np.maximum(luminance, 1e-4) / np.maximum(spread(smooth), 1e-4)) * spread(trust)
-            ratio = np.clip(ratio, -DETAIL_LOG2_RANGE, DETAIL_LOG2_RANGE)
-            level = np.clip(np.rint(DETAIL_ZERO + DETAIL_ZERO * ratio / DETAIL_LOG2_RANGE), 1, 2 * DETAIL_ZERO)
-            # 0 is reserved for "the orthophoto has no pixel here": the footprint is not a box, and the material
-            # keeps the imagery's ratio and the grain wherever the file says 0.
-            encoded[first : first + count] = np.where(valid, level, 0)
-    Image.fromarray(frame.to_unreal_layout(encoded), mode="L").save(out / "survey_detail.png")
+        survey_shadows = {}
+        if ortho and "raster" in ortho:
+            darkness = np.log2(np.maximum(pooled, 1e-4) / np.maximum(smooth, 1e-4))
+            for index, layer in enumerate(layers):
+                if layer["name"] not in surface.SEASONAL:
+                    continue
+                shown = (mine == index) & (sunlit > 0.5)
+                gap = shadow_gap(darkness[shown])
+                # A small footprint may not contain enough shadow samples for the mixture fit.
+                threshold = gap if gap is not None else -1.5
+                dark = shown & (darkness < threshold)
+                sunlit = np.where(ndimage.binary_dilation(dark, iterations=SHADOW_EDGE_CELLS), 0, sunlit)
+                survey_shadows[layer["name"]] = {
+                    "gap_log2": threshold,
+                    "kind": "fitted" if gap else "prior",
+                    "shadow_fraction": float(dark.mean()),
+                }
+            for index in range(len(layers)):
+                passed = _low_pass_of_sunlit(pooled[None], sunlit * (mine == index), sigma)[0]
+                smooth = np.where(mine == index, passed, smooth)
+        trust = np.minimum(_blur(sunlit.astype(np.float32), DETAIL_FADE_CELLS), sunlit)
+        profile = source.profile | {
+            "driver": "GTiff",
+            "count": 4,
+            "dtype": "uint8",
+            "nodata": None,
+            "compress": "deflate",
+            "tiled": True,
+            "blockxsize": 256,
+            "blockysize": 256,
+        }
+        block = orthophoto.SETTINGS["block_pixels"]
+        with rasterio.open(out / "survey_detail.tif", "w", **profile) as target:
+            for first_row in range(0, height, block):
+                for first_column in range(0, width, block):
+                    window = Window(
+                        first_column, first_row, min(block, width - first_column), min(block, height - first_row)
+                    )
+                    data = source.read([1, 2, 3, 4], window=window)
+                    valid = data[3] > 0 if ortho and "raster" in ortho else data[3] == 255
+                    luminance = np.tensordot(grain.LUMA, grain.to_linear(data[:3]), 1)
+                    ri = np.minimum(
+                        ((first_row + np.arange(data.shape[1]) + 0.5) * rows / height).astype(int), rows - 1
+                    )
+                    ci = np.minimum(
+                        ((first_column + np.arange(data.shape[2]) + 0.5) * columns / width).astype(int), columns - 1
+                    )
+                    at = np.ix_(ri, ci)
+                    weight = np.where(valid, trust[at], 0)
+                    ratio = np.log2(np.maximum(luminance, 1e-4) / np.maximum(smooth[at], 1e-4))
+                    ratio = np.clip(ratio, -DETAIL_LOG2_RANGE, DETAIL_LOG2_RANGE) * weight
+                    level = np.clip(np.rint(DETAIL_ZERO + DETAIL_ZERO * ratio / DETAIL_LOG2_RANGE), 1, 2 * DETAIL_ZERO)
+                    target.write(np.stack([level, level, level, np.rint(weight * 255)]).astype(np.uint8), window=window)
+    orthophoto.write_png(out / "survey_detail.tif", out / "survey_detail.png")
     return {
         "file": "survey_detail.png",
+        "files": ["survey_detail.png", "survey_detail.tif"],
+        "weight_channel": "alpha",
+        "ratio_encoding": "RGB is a log2 ratio premultiplied by the alpha detail weight; zero weight selects fallback texture",
+        "survey_shadows": survey_shadows,
         "pixel_m": pixel_m,
         "pixels": [width, height],
         "log2_range": DETAIL_LOG2_RANGE,
@@ -999,11 +1304,11 @@ def build_survey_detail(site: Site, out: Path, covering: dict | None, layers: li
         "low_pass_m": MACRO_LOW_PASS_M,
         # Where the file lies in the tile, in metres from its south-west corner: east and north extents.
         "west_m": left - tile.west,
-        "south_m": top - height * pixel_m - tile.south,
-        "east_extent_m": width * pixel_m,
-        "north_extent_m": height * pixel_m,
+        "south_m": bounds.bottom - tile.south,
+        "east_extent_m": bounds.right - bounds.left,
+        "north_extent_m": bounds.top - bounds.bottom,
         "priors": [
-            f"prior: the low-pass runs on the orthophoto pooled to {factor} pixels ({factor * pixel_m:.2f} m)",
+            f"prior: the low-pass runs on the orthophoto pooled to {pooled_transform.a:.2f} m",
             "prior: the orthophoto's shadows are taken as they are: its sun is not the imagery's, so the cover stage's shadow does not mask them",
         ],
     }
@@ -1064,6 +1369,16 @@ def build_context(
     colour = np.stack([_fill_gaps(band, "imagery")[0] for band in colour])
     curves = (classes or {}).get("albedo", {}).get("curves")
     nir, colour = (colour[3] if has_nir else None), colour[:3]
+    geometry_colour = colour.copy()
+    if curves:
+        labels = surface.apply_splits(colour, nir, classes["splits"])
+        geometry_albedo = np.zeros_like(colour)
+        for index, layer in enumerate(classes["layers"]):
+            own = labels == index
+            if own.any():
+                geometry_albedo[:, own] = surface.apply_curve(colour[:, own], curves[layer["name"]])
+        geometry_colour = surface.to_encoded(geometry_albedo)
+    _write_rgb(geometry_colour, out / "context_geometry_colour.png")
     clear = np.ones(colour.shape[1:], dtype=np.float32)
     if canopy:
         # The share of each coarse pixel that no canopy stands over. The surround has no lidar and no shadow.
@@ -1080,7 +1395,7 @@ def build_context(
                 resampling=Resampling.average,
             )
         clear = 1 - clear
-    sigma = MACRO_LOW_PASS_M / pixel
+    sigma = CONTEXT_LOW_PASS_M / pixel
     if not curves:
         colour = _low_pass_of_sunlit(colour, clear, sigma)
     else:
@@ -1097,9 +1412,11 @@ def build_context(
 
     half_cm = site.context_size_m * 100 / 2
     return {
-        "files": ["context_heightmap.png", "context_colour.png"],
+        "files": ["context_heightmap.png", "context_colour.png", "context_geometry_colour.png"],
         "heightmap": "context_heightmap.png",
         "colour": "context_colour.png",
+        "geometry_colour": "context_geometry_colour.png",
+        "geometry_colour_source": "registered context imagery with fitted albedo curves; no spatial smoothing",
         "vertices": vertices,
         "section_quads": LANDSCAPE_SECTION_QUADS,
         "sections_per_component": 1,
@@ -1140,12 +1457,18 @@ def _cached(out: Path, stage: str, key: str, compute) -> dict:
     if record_path.is_file():
         record = json.loads(record_path.read_text())
         produced = record["result"].get("files", [record["result"].get("file")])
-        if record["key"] == key and all((out / name).is_file() for name in produced):
+        intact = all((out / name).is_file() for name in produced)
+        if intact and stage == "context_geometry":
+            intact = record.get("output_hashes") == {name: sha256_file(out / name) for name in produced}
+        if record["key"] == key and intact:
             return record["result"] | {"cached": True}
     # Drop the old record first: if this run dies part-way, nothing claims the half-written output is current.
     record_path.unlink(missing_ok=True)
     result = compute()
-    record_path.write_text(json.dumps({"key": key, "result": result}, indent=1))
+    record = {"key": key, "result": result}
+    if stage == "context_geometry":
+        record["output_hashes"] = {name: sha256_file(out / name) for name in result["files"]}
+    record_path.write_text(json.dumps(record, indent=1))
     return result | {"cached": False}
 
 
@@ -1167,12 +1490,28 @@ def build(site_path: Path, out: Path, cache: Path | None = None) -> dict:
         sources["lidar"] = lidar.identify(site.lidar, tile, site.crs, cache)
         lidar_key = sources["lidar"]["sha256"]
     structure = {}
-    footprints, roofs = [], None
+    footprints, tree_exclusions, roofs = [], [], None
+    for name in ("building_imagery", "building_reference"):
+        source = getattr(site, name)
+        if source:
+            sources[name] = {
+                "kind": source.kind,
+                "license": source.license,
+                "date": source.date,
+                "bytes_fetched": 0,
+                "path": source.location,
+                "sha256": sha256_file(Path(source.location)),
+            }
     if site.buildings:
         path = Path(site.buildings.location)
         if not path.is_file():
             raise FileNotFoundError(f"sources.buildings: {path} does not exist")
         footprints = buildings.load_footprints(path, site.crs, tile)
+        if site.building_imagery:
+            footprints = building_imagery.refine(footprints, site.building_imagery.location, site.crs, tile)
+        if site.building_reference:
+            footprints = buildings.reference_outlines(footprints, Path(site.building_reference.location), tile)
+        tree_exclusions = buildings.tree_exclusions(path, site.crs, tile, footprints)
         roofs = buildings.mask(footprints, tile, lidar.CELL_M)
         sources["buildings"] = {
             "kind": site.buildings.kind,
@@ -1182,7 +1521,15 @@ def build(site_path: Path, out: Path, cache: Path | None = None) -> dict:
             "path": site.buildings.location,
             "sha256": sha256_file(path),
         }
-    buildings_key = [sources["buildings"]["sha256"], buildings.SETTINGS] if site.buildings else None
+    buildings_key = (
+        [
+            sources["buildings"]["sha256"],
+            buildings.SETTINGS,
+            hashlib.sha256(b"".join(item["polygon"].wkb for item in footprints)).hexdigest(),
+        ]
+        if site.buildings
+        else None
+    )
 
     def rasters() -> tuple[np.ndarray | None, np.ndarray | None]:
         if site.lidar and not structure:
@@ -1231,6 +1578,43 @@ def build(site_path: Path, out: Path, cache: Path | None = None) -> dict:
         )
         covering = stages["cover"]
     cover_hashes = [sha256_file(out / name) for name in covering["files"]] if covering else None
+    ortho = None
+    ortho_hashes = None
+    ortho_sha256 = None
+    if site.survey and site.survey.orthophoto:
+        ortho_inputs = [
+            sha256_file(Path(path)) for path in (site.survey.orthophoto, site.survey.location, site.survey.terrain)
+        ]
+        ortho_sha256 = ortho_inputs[0]
+        if site.survey.observations:
+            ortho_inputs.append(sha256_file(Path(site.survey.observations)))
+        stages["orthophoto"] = _cached(
+            out,
+            "orthophoto",
+            _stage_key(
+                grid,
+                site.crs,
+                ortho_inputs,
+                sources["imagery"]["sha256"],
+                [sources["mask_imagery"]["raster_files"], site.mask_imagery.bands, imagery_sources.VERSION]
+                if site.mask_imagery else None,
+                bands,
+                cover_hashes,
+                buildings_key,
+                orthophoto.SETTINGS,
+                surface.SETTINGS,
+                MACRO_LOW_PASS_M,
+                SHADOW_DARKEST_LOG2,
+                SHADOW_BIN_LOG2,
+                SHADOW_MIN_SHARE,
+                SHADOW_MIN_CELLS,
+                SHADOW_VALLEY_MAX,
+                SHADOW_EDGE_CELLS,
+            ),
+            lambda: build_orthophoto(site, imagery, out, covering, roofs),
+        )
+        ortho = stages["orthophoto"]
+        ortho_hashes = [sha256_file(out / name) for name in ortho["files"]]
     stages["surface"] = _cached(
         out,
         "surface",
@@ -1240,6 +1624,8 @@ def build(site_path: Path, out: Path, cache: Path | None = None) -> dict:
             sources["imagery"]["sha256"],
             cover_hashes,
             bands,
+            [sources["mask_imagery"]["raster_files"], site.mask_imagery.bands, imagery_sources.VERSION,
+             sources.get("survey_orthophoto")] if site.mask_imagery else None,
             [sources["reflectance"]["sha256"], site.reflectance.date] if reflectance else None,
             surface.PURE_SHARE,
             surface.PURE_SUNLIT,
@@ -1259,8 +1645,9 @@ def build(site_path: Path, out: Path, cache: Path | None = None) -> dict:
             surface.CROWN_MAX_M2,
             surface.CROWN_RING_M,
             buildings_key,
+            ortho_hashes,
         ),
-        lambda: build_surface(site, imagery, out, covering, reflectance, roofs),
+        lambda: build_surface(site, imagery, out, covering, reflectance, roofs, ortho),
     )
     classes = stages["surface"]
     stages["macro_colour"] = _cached(
@@ -1339,6 +1726,26 @@ def build(site_path: Path, out: Path, cache: Path | None = None) -> dict:
         ),
     )
     detail = stages["detail"]
+    if any(layer["name"] == "grass" for layer in classes["layers"]):
+        stages["growth"] = _cached(
+            out,
+            "growth",
+            _stage_key(
+                grid,
+                sha256_file(out / detail["file"]),
+                sha256_file(out / stages["elevation"]["file"]),
+                [sha256_file(out / name) for name in classes["files"]],
+                cover_hashes,
+                site.seed,
+                turf.GROWTH_SETTINGS,
+                "turf-condition-per-root-support-v3",
+                ortho_hashes,
+                ortho_sha256,
+            ),
+            lambda: build_growth(
+                site, out, classes["layers"], detail, stages["elevation"], covering, ortho, classes["fallback_weights"],
+            ),
+        )
     if site.survey and site.survey.orthophoto:
         stages["grain"] = _cached(
             out,
@@ -1372,6 +1779,7 @@ def build(site_path: Path, out: Path, cache: Path | None = None) -> dict:
             out,
             "survey_detail",
             _stage_key(
+                "survey-detail-packed-weight-v1",
                 grid,
                 site.crs,
                 sha256_file(Path(site.survey.orthophoto)),
@@ -1383,8 +1791,10 @@ def build(site_path: Path, out: Path, cache: Path | None = None) -> dict:
                 DETAIL_FADE_CELLS,
                 MACRO_LOW_PASS_M,
                 SURVEY_POOL_M,
+                ortho_hashes,
+                orthophoto.SETTINGS["fit_max_pixels"],
             ),
-            lambda: build_survey_detail(site, out, covering, classes["layers"]),
+            lambda: build_survey_detail(site, out, covering, classes["layers"], ortho),
         )
     inventory = None
     if covering:
@@ -1408,6 +1818,8 @@ def build(site_path: Path, out: Path, cache: Path | None = None) -> dict:
                     "orthophoto": site.survey.orthophoto,
                     "orthophoto_sha256": sha256_file(Path(site.survey.orthophoto)),
                 }
+            if site.survey.observations:
+                sources["survey"]["observations_sha256"] = sha256_file(Path(site.survey.observations))
         stages["trees"] = _cached(
             out,
             "trees",
@@ -1424,6 +1836,7 @@ def build(site_path: Path, out: Path, cache: Path | None = None) -> dict:
                 classes["splits"],
                 [sources[name] for name in ("survey", "tree_mix") if name in sources],
                 buildings_key,
+                hashlib.sha256(b"".join(item["polygon"].wkb for item in tree_exclusions)).hexdigest(),
                 site.seed,
                 trees.SETTINGS,
                 trees.COLUMNS,
@@ -1438,7 +1851,7 @@ def build(site_path: Path, out: Path, cache: Path | None = None) -> dict:
                 covering,
                 classes,
                 rasters()[0],
-                footprints,
+                tree_exclusions,
             ),
         )
         inventory = stages["trees"]
@@ -1452,17 +1865,117 @@ def build(site_path: Path, out: Path, cache: Path | None = None) -> dict:
                 site.crs,
                 buildings_key,
                 lidar_key,
+                architecture.VERSION,
+                roof_survey.VERSION if site.lidar else None,
+                sources.get("building_imagery", {}).get("sha256"),
+                building_imagery.VERSION if site.building_imagery else None,
+                site.building_imagery.date if site.building_imagery else None,
+                site.lidar.date if site.lidar else None,
+                sources.get("building_reference", {}).get("sha256"),
                 sources["imagery"]["sha256"],
                 bands,
                 sources["elevation"]["sha256"],
                 classes["albedo"].get("curves", {}).get(surface.PAVED),
                 classes["albedo"]["scale"],
             ),
-            lambda: build_buildings(site, footprints, imagery, out, classes, rasters()[0]),
+            lambda: build_buildings(site, footprints, imagery, out, classes, rasters()[0], cache),
         )
         housing = stages["buildings"]
 
+    survey_lighting = None
+    if site.survey and site.survey.orthophoto:
+        stages["survey_lighting"] = _cached(
+            out,
+            "survey_lighting",
+            _stage_key(
+                site.survey,
+                geo,
+                survey_light.VERSION,
+                [
+                    sha256_file(Path(path))
+                    for path in (site.survey.location, site.survey.terrain, site.survey.orthophoto)
+                ],
+            ),
+            lambda: {
+                "files": [],
+                "lighting": survey_light.from_survey(
+                    site.survey,
+                    geo["origin_latitude_deg"],
+                    geo["origin_longitude_deg"],
+                    geo["true_north_from_grid_north_deg"],
+                    site.crs,
+                ),
+            },
+        )
+        survey_lighting = stages["survey_lighting"]["lighting"]
+    solar_time = covering["sun"]["fitted_solar_time"] if covering else None
+    if survey_lighting:
+        solar_time = survey_lighting["solar_time"]
+    if site.survey and site.survey.orthophoto and any(layer["name"] == "grass" for layer in classes["layers"]):
+        edits = sorted([*out.glob("procfill_edits/*.png"), *out.glob("procfill_context/*.png")])
+        stages["procfill"] = _cached(
+            out,
+            "procfill",
+            _stage_key(
+                grid,
+                site.crs,
+                site.seed,
+                procfill.VERSION,
+                procfill.CACHE_VERSION,
+                procfill.SETTINGS,
+                sha256_file(out / stages["growth"]["file"]),
+                [sha256_file(out / name) for name in ortho["files"]] if ortho else None,
+                [
+                    sha256_file(Path(path))
+                    for path in (site.survey.orthophoto, site.survey.location, site.survey.terrain)
+                ],
+                sources["imagery"]["sha256"],
+                [sha256_file(out / name) for name in classes["files"]],
+                sha256_file(out / detail["file"]),
+                sha256_file(out / elevation["file"]),
+                cover_hashes,
+                sha256_file(out / inventory["file"]) if inventory else None,
+                [(str(path.relative_to(out)), sha256_file(path)) for path in edits],
+            ),
+            lambda: procfill.build(
+                site, imagery, out, classes["layers"], elevation, covering, detail,
+                fallback_weights=classes.get("fallback_weights"),
+                base_growth=stages["growth"], ortho=ortho,
+            ),
+        )
+
     half_cm = tile.size_m * 100 / 2
+    if site.streetscape:
+        if not Path(site.streetscape.location).is_file():
+            raise SiteError(f"sources.streetscape: {site.streetscape.location} does not exist")
+        streetscape_path = Path(site.streetscape.location)
+        streetscape_inventory = streetscape.load_inventory(streetscape_path, tile)
+        for name, data in streetscape_inventory.images.items():
+            staged = out / name
+            if staged.is_file() and staged.read_bytes() != data:
+                staged.unlink()
+        sources["streetscape"] = {
+            "kind": "file",
+            "path": site.streetscape.location,
+            "license": site.streetscape.license,
+            "date": site.streetscape.date,
+            "sha256": sha256_file(Path(site.streetscape.location)),
+            "bytes_fetched": 0,
+        }
+        stages["streetscape"] = _cached(
+            out,
+            "streetscape",
+            _stage_key(
+                "streetscape-5",
+                grid,
+                sources["streetscape"]["sha256"],
+                sorted(streetscape_inventory.images),
+                streetscape.SETTINGS,
+                buildings_key,
+                architecture.GRANDSTAND_CLAIM_SHARE,
+            ),
+            lambda: streetscape.build_inventory(streetscape_path, tile, out, footprints, inventory=streetscape_inventory),
+        )
     manifest = {
         "schema_version": SCHEMA_VERSION,
         "pipeline_version": PIPELINE_VERSION,
@@ -1492,25 +2005,56 @@ def build(site_path: Path, out: Path, cache: Path | None = None) -> dict:
         "surface": {key: value for key, value in classes.items() if key not in ("files", "cached")},
         "lighting": light.lighting(
             site.target_date,
-            covering["sun"]["fitted_solar_time"] if covering else None,
+            solar_time,
             geo["origin_latitude_deg"],
             geo["origin_longitude_deg"],
             geo["true_north_from_grid_north_deg"],
         ),
-        "stencil_classes": STENCIL_CLASSES,
+        "stencil_classes": STENCIL_CLASSES | ({"prop": 8, "marking": 9} if site.streetscape else {}),
         "sources": sources,
     }
     artifacts = [elevation["file"], macro["file"], detail["file"], *classes["files"]]
+    if survey_lighting:
+        manifest["lighting"]["survey_fit"] = survey_lighting
+    if ortho:
+        manifest["orthophoto"] = {key: value for key, value in ortho.items() if key not in ("files", "cached")}
+        artifacts += ortho["files"]
+    if "streetscape" in stages:
+        manifest["streetscape"] = {
+            key: value for key, value in stages["streetscape"].items() if key not in ("files", "cached")
+        }
+        artifacts += stages["streetscape"]["files"]
     if any(layer["name"] == "grass" for layer in classes["layers"]):
         manifest["turf"] = turf.describe()
+        manifest["turf"]["growth"] = {
+            key: value for key, value in stages["growth"].items() if key not in ("files", "cached")
+        }
+        artifacts += stages["growth"]["files"]
     if "survey_detail" in stages:
         manifest["survey_detail"] = {
             key: value for key, value in stages["survey_detail"].items() if key not in ("files", "cached")
         }
-        artifacts += [stages["survey_detail"]["file"]] if "file" in stages["survey_detail"] else []
+        artifacts += stages["survey_detail"]["files"]
     if "grain" in stages:
         manifest["grain"] = {key: value for key, value in stages["grain"].items() if key not in ("files", "cached")}
         artifacts += [stages["grain"]["file"]] if "file" in stages["grain"] else []
+    if "procfill" in stages and "skipped" not in stages["procfill"]:
+        generated = stages["procfill"]
+        manifest["procfill"] = {key: value for key, value in generated.items() if key not in ("files", "cached")}
+        manifest["surface"]["layers"] = generated["surface_layers"]
+        manifest["surface"]["check_points"] = generated["surface_check_points"]
+        if generated["fallback_weights"]:
+            manifest["surface"]["fallback_weights"] = generated["fallback_weights"]
+        manifest["turf"]["growth"] = {
+            **manifest["turf"]["growth"],
+            "file": generated["growth_file"],
+            "pixels": generated["pixels"],
+            "channels": ["short_density", "tall_density", "height_over_two", "overlay_log2"],
+            "source": "procfill priors conditioned on coarse ground constraints",
+        }
+        artifacts += generated["files"]
+        if inventory and generated["trees_file"]:
+            inventory = inventory | {"file": generated["trees_file"]}
     if housing:
         manifest["buildings"] = {key: value for key, value in housing.items() if key not in ("files", "cached")}
         artifacts += housing["files"]
@@ -1539,7 +2083,8 @@ def build(site_path: Path, out: Path, cache: Path | None = None) -> dict:
                 CONTEXT_SINK_M,
                 CONTEXT_QUADS,
                 CONTEXT_MACRO_PIXELS,
-                MACRO_LOW_PASS_M,
+                CONTEXT_LOW_PASS_M,
+                "context-geometry-colour-v1",
                 bands,
                 classes["albedo"].get("curves"),
                 classes["splits"],
@@ -1558,7 +2103,29 @@ def build(site_path: Path, out: Path, cache: Path | None = None) -> dict:
         )
         context = stages["context"]
         manifest["context"] = {key: value for key, value in context.items() if key not in ("files", "cached")}
-        artifacts += [context["heightmap"], context["colour"]]
+        artifacts += context["files"]
+        stages["context_geometry"] = _cached(
+            out,
+            "context_geometry",
+            _stage_key(
+                grid, site.crs, site.context_size_m,
+                {key: value for key, value in context.items() if key not in ("files", "cached")},
+                {name: sources.get(name, {}).get("sha256")
+                 for name in ("buildings", "context_canopy_height", "context_imagery")},
+                sha256_file(out / context["heightmap"]),
+                {name: sha256_file(out / description["file"]) if description else None
+                 for name, description in (("buildings", housing), ("trees", inventory))},
+                classes.get("albedo"), covering["cutoff_m"] if covering else None, site.imagery.bands,
+                context_geometry.SETTINGS,
+            ),
+            lambda: context_geometry.build(site, sources, context, housing, inventory, classes, out,
+                                           cutoff_m=covering["cutoff_m"] if covering else None),
+        )
+        geometry = stages["context_geometry"]
+        manifest["context"]["geometry"] = {
+            key: value for key, value in geometry.items() if key not in ("files", "cached")
+        }
+        artifacts += geometry["files"]
 
     manifest["artifacts"] = {name: sha256_file(out / name) for name in artifacts}
     manifest["stages_reused"] = [name for name, stage in stages.items() if stage["cached"]]

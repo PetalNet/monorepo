@@ -93,7 +93,7 @@ def test_an_orthophoto_in_another_projection_is_refused_with_the_reason(tmp_path
     assert CRS in reason
 
 
-def test_each_variety_has_the_leaf_it_says_and_the_far_one_has_blades_a_pixel_wide_where_the_near_one_ends():
+def test_varieties_keep_their_leaf_area_and_the_approved_distant_blade_transition():
     grass = turf.describe()
     varieties = {variety["name"]: variety for variety in grass["varieties"]}
     for name, spec in (("near", turf.NEAR), ("clump", turf.CLUMP), ("tall", turf.TALL)):
@@ -106,12 +106,13 @@ def test_each_variety_has_the_leaf_it_says_and_the_far_one_has_blades_a_pixel_wi
     assert varieties["tall"]["height_cm"][0] > varieties["near"]["height_cm"][1]
     assert varieties["near"]["density_per_100m2"] > varieties["clump"]["density_per_100m2"]
     assert varieties["clump"]["start_cull_cm"] > varieties["near"]["start_cull_cm"]
-    # One pixel of a 1920 pixel, 90 degree frame at 15 m, where the near variety ends, is 1.56 cm.
+    # The distant variety retains its original pixel width and 8 to 15 m entrance as near geometry changes.
     assert varieties["clump"]["blade_width_cm"][0] == pytest.approx(1.56, abs=0.01)
-    # The clump's wide blades are not at a walker's feet: they grow in where the near variety shrinks away.
-    assert varieties["clump"]["appear_cm"] == [varieties["near"]["start_cull_cm"], varieties["near"]["end_cull_cm"]]
+    assert varieties["clump"]["appear_cm"] == [800, 1500]
+    assert varieties["near"]["start_cull_cm"] == varieties["clump"]["appear_cm"][0]
+    assert varieties["near"]["end_cull_cm"] == varieties["clump"]["appear_cm"][1]
     assert varieties["near"]["appear_cm"] == [0, 0]
-    assert varieties["near"]["blade_width_cm"] == list(turf.NEAR_BLADE_WIDTH_CM)
+    assert max(varieties["near"]["blade_width_cm"]) < min(varieties["tall"]["blade_width_cm"])
     assert all(prior.startswith("prior:") for prior in grass["priors"])
 
 
@@ -164,7 +165,11 @@ def test_the_survey_ratio_shows_the_orthophotos_fine_pattern_on_open_ground_and_
     assert "survey_detail.png" in manifest["artifacts"] and manifest["sources"]["survey"]["orthophoto_sha256"]
     assert detail["pixel_m"] == pytest.approx(pixel) and detail["east_extent_m"] == pytest.approx(63)
     raw = np.asarray(Image.open(out / "survey_detail.png"))  # [east, north]
-    ratio = (raw.astype(np.float32) - detail["zero"]) * (detail["log2_range"] / detail["zero"])  # [east, north]
+    assert detail["weight_channel"] == "alpha" and raw.shape[-1] == 4
+    weighted_log = (raw[..., 0].astype(np.float32) - detail["zero"]) * (detail["log2_range"] / detail["zero"])
+    weight = raw[..., 3] / 255.0
+    ratio = np.clip(np.divide(weighted_log, weight, out=np.zeros_like(weighted_log), where=weight > 0),
+                    -detail["log2_range"], detail["log2_range"])  # [east, north]
 
     def at(east_m, north_m):
         return ratio[
@@ -178,8 +183,9 @@ def test_the_survey_ratio_shows_the_orthophotos_fine_pattern_on_open_ground_and_
     assert open_grass.max() - open_grass.min() == pytest.approx(np.log2(0.25 / 0.15), abs=0.25)
     assert np.abs(at(90, 75)).max() < 0.05  # on the roof
     assert at(120, 115).mean() > at(120, 20).mean() + 0.02  # north is brighter: the file's north axis is the tile's
-    assert (raw[-100:, :100] == 0).all()  # no pixel there is 0, not a neutral ratio
-    assert (raw[: -100 - 20, :] > 0).all()  # and nowhere else is
+    assert (raw[-100:, :100, 3] == 0).all()  # Missing samples select fallback without biasing filtered contrast.
+    assert (raw[-100:, :100, :3] == detail["zero"]).all()
+    assert (raw[: -100 - 20, :, :3] > 0).all()
 
 
 def test_a_shadow_nothing_standing_explains_is_read_from_the_photo_and_left_out_of_the_detail(tmp_path):
