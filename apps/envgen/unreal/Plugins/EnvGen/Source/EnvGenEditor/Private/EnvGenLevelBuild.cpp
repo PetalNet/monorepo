@@ -1147,6 +1147,14 @@ return lerp(Texture2DSampleGrad(Scan,ScanSampler,UV,dx,dy).rgb,varied,blend);
 			Description.CreatePolygon(Group, {Left[Segments - 1], Right[Segments - 1], Tip});
 		}
 		Mesh->GetStaticMaterials().Add(FStaticMaterial(Material, FName(TEXT("Blade"))));
+		if (Variety.Name == FName(TEXT("near")))
+		{
+			FMeshNaniteSettings& Nanite = Mesh->GetNaniteSettings();
+			Nanite.bEnabled = true;
+			Nanite.ShapePreservation = ENaniteShapePreservation::PreserveArea;
+			// UV4 stores a blade root, not a surface coordinate that can be interpolated between leaves.
+			Nanite.bLerpUVs = false;
+		}
 		UStaticMesh::FBuildMeshDescriptionsParams Params;
 		Params.bBuildSimpleCollision = false;
 		// A full build, not a fast one: on 5.8.4 the engine builds a fast-built tuft's instances and draws none of
