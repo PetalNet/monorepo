@@ -145,17 +145,17 @@ FRAME_PX = 1920
 # Default root widths in centimetres retain the distant geometry; the near variety overrides them with finer leaves.
 NEAR_BLADE_WIDTH_CM = (0.8, 1.4)
 # Priors, looks with no source: the leaf area index each variety is drawn at, how many blades stand in one tuft and
-# how wide the tuft is, how far out each is drawn, that none casts a shadow (a tuft's own shadow blackens it against
-# a sward that has none), and how much a tuft's size varies. The index of real mown turf is several times the near one: what is
-# drawn is the top of the sward, and the ground's own colour under it is the rest.
+# how wide the tuft is, how far out each is drawn, which varieties cast shadows, and how much a tuft's size varies.
+# The index of real mown turf is several times the near one: what is drawn is the top of the sward, and the ground's
+# own colour under it is the rest.
 NEAR = {"leaf_area_index": 2.0, "blades": 66, "blade_width_cm": [0.29, 0.51], "radius_cm": 14.0,
         "start_cull_cm": 800, "end_cull_cm": 3000,
-        "blade_shape": {"kind": "bent", "peak_height_factor": [0.35, 0.8],
-                        "span_height_ratio": [0.15, 0.75], "arch": [0.1, 1.2]}}
+        "blade_shape": {"kind": "bent", "peak_height_factor": [0.25, 0.60],
+                        "span_height_ratio": [0.45, 1.20], "arch": [0.05, 0.45]}}
 CLUMP = {"leaf_area_index": 0.2, "blades": 24, "radius_cm": 22.5, "start_cull_cm": 2500, "end_cull_cm": 6500,
          "appear_cm": [800, 1500]}
 TALL = {"leaf_area_index": 0.02, "blades": 8, "radius_cm": 6.0, "start_cull_cm": 2500, "end_cull_cm": 5000}
-CASTS_SHADOW = {"near": False, "clump": False, "tall": False}
+CASTS_SHADOW = {"near": True, "clump": False, "tall": False}
 SIZE_SPREAD = (0.85, 1.15)
 # A blade's brightness from root to tip. A prior.
 ROOT_SHADE, TIP_SHADE = 0.65, 1.12
@@ -173,13 +173,13 @@ CANOPY_RESPONSE = {
 PRIORS = [
     f"prior: leaf area index drawn: {NEAR['leaf_area_index']:g} (near), {CLUMP['leaf_area_index']:g} (clump), {TALL['leaf_area_index']:g} (tall)",
     "prior: blade count, tuft radius, size spread and draw distance of each variety",
-    f"prior: a near blade is {NEAR['blade_width_cm'][0]:g} to {NEAR['blade_width_cm'][1]:g} cm wide at the root",
+    f"prior: a near blade reference width is {NEAR['blade_width_cm'][0]:g} to {NEAR['blade_width_cm'][1]:g} cm before tuft-area normalization",
     f"prior: stills have a {LENS_FOV_DEG:g} degree lens and {FRAME_PX} pixels across; a far blade is a pixel wide at the clump's full-size distance of {CLUMP['appear_cm'][1] / 100:g} m",
     f"prior: tall tufts stand {TALL_OVER_MOWED:g} times the mowing range (the one-third rule of mowing)",
     f"prior: a blade is {ROOT_SHADE:g} of its colour at the root and {TIP_SHADE:g} at the tip",
-    "prior: no variety casts a shadow",
+    "prior: near blades cast shadows; distant clump and tall varieties retain their original unshadowed setting",
     "prior: the clump variety retains its 8 to 15 m transition; near blades fade over 8 to 15 m in steep views and 15 to 30 m at grazing angles",
-    "prior: near leaves use the explicit bent-shape ranges below the nominal mowing reference, preserving each reference blade's static triangulated surface area; these are not measured November cutting heights",
+    "prior: near leaves use the explicit bent-shape ranges below the nominal mowing reference, preserving the reference tuft's total static triangulated surface area while individual leaf areas vary; these are not measured November cutting heights",
     "prior: a 4 m lawn tile retains 512 pixels and 16000 texture leaves per square metre to avoid a 1 m worn-patch repeat",
     "prior: dead blades reduce to one quarter height at maximum photo wear; surviving grass retains its height and all leaf counts stay full",
     "prior: tall edge blades return to mowing height nearby; near blades retain their height up to the shared grass-majority root boundary",

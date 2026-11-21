@@ -558,13 +558,15 @@ namespace
 				if (Variety.Name == FName(TEXT("near")))
 				{
 					const double PlacementPadUv = (Out.Tile.Scale.X + double(Variety.RadiusCm) * Variety.ScaleMax) / Out.TileSizeCm;
-					if (Variety.StartCullCm < 0 || Variety.EndCullCm <= Variety.StartCullCm
+					if (Variety.Blades <= 0 || Variety.StartCullCm < 0 || Variety.EndCullCm <= Variety.StartCullCm
 						|| !FMath::IsFinite(Variety.RadiusCm) || Variety.RadiusCm < 0
 						|| !FMath::IsFinite(Variety.ScaleMin) || Variety.ScaleMin <= 0
 						|| !FMath::IsFinite(Variety.ScaleMax) || Variety.ScaleMax < Variety.ScaleMin
+						|| !FMath::IsFinite(Variety.HeightMinCm) || Variety.HeightMinCm <= 0 || !FMath::IsFinite(Variety.HeightMaxCm) || Variety.HeightMaxCm < Variety.HeightMinCm
+						|| !FMath::IsFinite(Variety.WidthMinCm) || Variety.WidthMinCm <= 0 || !FMath::IsFinite(Variety.WidthMaxCm) || Variety.WidthMaxCm < Variety.WidthMinCm
 						|| !FMath::IsFinite(PlacementPadUv) || PlacementPadUv <= 0)
 					{
-						Error = TEXT("near cull distances must be ordered and nonnegative, with finite nonnegative radius, positive ordered scale and finite placement padding");
+						Error = TEXT("near blades and dimensions must be finite and positive, with ordered cull distances, nonnegative radius and finite placement padding");
 						return false;
 					}
 				}
@@ -590,10 +592,6 @@ namespace
 					if (!Range(TEXT("peak_height_factor"), Bent.PeakHeightFactor, 1, false)
 						|| !Range(TEXT("span_height_ratio"), Bent.SpanHeightRatio, 3, false)
 						|| !Range(TEXT("arch"), Bent.Arch, 2, true)
-						|| !FMath::IsFinite(Variety.HeightMinCm) || Variety.HeightMinCm <= 0 || Variety.HeightMaxCm < Variety.HeightMinCm
-						|| !FMath::IsFinite(Variety.HeightMaxCm) || !FMath::IsFinite(Variety.RadiusCm) || Variety.RadiusCm < 0
-						|| !FMath::IsFinite(Variety.WidthMinCm) || Variety.WidthMinCm <= 0 || !FMath::IsFinite(Variety.WidthMaxCm) || Variety.WidthMaxCm < Variety.WidthMinCm
-						|| !FMath::IsFinite(Variety.ScaleMin) || Variety.ScaleMin <= 0 || !FMath::IsFinite(Variety.ScaleMax) || Variety.ScaleMax < Variety.ScaleMin
 						|| (double(Variety.RadiusCm) + 10 * double(Variety.HeightMaxCm) + Variety.WidthMaxCm + 10) * FMath::Max(1.f, Variety.ScaleMax) > Out.TileSizeCm)
 					{
 						Error = TEXT("bent blade ranges must be finite and ordered, with peak factors in (0,1], span ratios in (0,3], arch in [0,2], and positive tuft dimensions fitting the tile");
@@ -1259,7 +1257,7 @@ return lerp(Texture2DSampleGrad(Scan,ScanSampler,UV,dx,dy).rgb,varied,blend);
 		FRandomStream Random(7 + Index);
 		FRandomStream ShapeRandom(7919 + Index);
 		float MaxVertexDistance = 0, MaxBladeDistance = 0, MaxSpan = 0;
-		double ReferenceAreaSum = 0, ActualAreaSum = 0, MaxRelativeAreaError = 0;
+		double ReferenceAreaSum = 0, RawAreaSum = 0, ActualAreaSum = 0;
 		constexpr int32 Segments = 3;
 		if (Variety.Name == FName(TEXT("broadleaf")))
 		{
@@ -1296,6 +1294,13 @@ return lerp(Texture2DSampleGrad(Scan,ScanSampler,UV,dx,dy).rgb,varied,blend);
 				}
 			}
 		}
+		struct FGrassBlade
+		{
+			FVector2f Root, Along, Across;
+			float Height, Width, Lean, Arch, Seed;
+			FLinearColor Colour;
+		};
+		TArray<FGrassBlade> Blades;
 		for (int32 Blade = 0; Blade < Variety.Blades; ++Blade)
 		{
 			if (Variety.Name == FName(TEXT("broadleaf")))
@@ -1307,7 +1312,7 @@ return lerp(Texture2DSampleGrad(Scan,ScanSampler,UV,dx,dy).rgb,varied,blend);
 			const float Facing = Random.FRand() * 2 * PI;
 			const FVector2f Along(FMath::Cos(Facing), FMath::Sin(Facing)), Across(-Along.Y, Along.X);
 			float Height = Random.FRandRange(Variety.HeightMinCm, Variety.HeightMaxCm);
-			float Width = Random.FRandRange(Variety.WidthMinCm, Variety.WidthMaxCm) / 2;
+			const float Width = Random.FRandRange(Variety.WidthMinCm, Variety.WidthMaxCm) / 2;
 			// Dealt in turn, so a tuft holds the colours in the equal shares they were measured in.
 			FLinearColor Own = BladeColours.IsEmpty() ? FLinearColor::White : BladeColours[Blade % BladeColours.Num()];
 			if (Blade % 13 == 0)
@@ -1326,8 +1331,20 @@ return lerp(Texture2DSampleGrad(Scan,ScanSampler,UV,dx,dy).rgb,varied,blend);
 				Height *= ShapeRandom.FRandRange(Shape.PeakHeightFactor.X, Shape.PeakHeightFactor.Y);
 				Lean = NominalHeight * ShapeRandom.FRandRange(Shape.SpanHeightRatio.X, Shape.SpanHeightRatio.Y);
 				Arch = ShapeRandom.FRandRange(Shape.Arch.X, Shape.Arch.Y);
-				Width *= float(ReferenceUnitArea / BladeUnitArea(Height, Lean, Arch, Segments));
 			}
+			ReferenceAreaSum += ReferenceArea;
+			RawAreaSum += Width * BladeUnitArea(Height, Lean, Arch, Segments);
+			Blades.Add(FGrassBlade{Root, Along, Across, Height, Width, Lean, Arch, BladeSeed, Own});
+		}
+		const float TuftWidthScale = bNear && Variety.BentShape.IsSet() ? float(ReferenceAreaSum / RawAreaSum) : 1.f;
+		for (const FGrassBlade& Blade : Blades)
+		{
+			const FVector2f& Root = Blade.Root;
+			const FVector2f& Along = Blade.Along;
+			const FVector2f& Across = Blade.Across;
+			const float Height = Blade.Height, Lean = Blade.Lean, Arch = Blade.Arch, BladeSeed = Blade.Seed;
+			const float Width = Blade.Width * TuftWidthScale;
+			const FLinearColor& Own = Blade.Colour;
 			const float Peak = BladeArchPeak(Arch);
 			double ActualArea = 0;
 			// Left and right edge vertices per level, and one at the tip.
@@ -1389,9 +1406,7 @@ return lerp(Texture2DSampleGrad(Scan,ScanSampler,UV,dx,dy).rgb,varied,blend);
 					Normals[Right[Level]] = Normals[Right[Level]].GetSafeNormal();
 				}
 				Normals[Tip] = Normals[Tip].GetSafeNormal();
-				ReferenceAreaSum += ReferenceArea;
 				ActualAreaSum += ActualArea;
-				MaxRelativeAreaError = FMath::Max(MaxRelativeAreaError, FMath::Abs(ActualArea / ReferenceArea - 1));
 				MaxSpan = FMath::Max(MaxSpan, Lean);
 			}
 		}
@@ -1416,8 +1431,8 @@ return lerp(Texture2DSampleGrad(Scan,ScanSampler,UV,dx,dy).rgb,varied,blend);
 			// Collapse is bounded about the tuft origin; growth is bounded about each blade root.
 			Material->MaxWorldPositionOffsetDisplacement = FMath::Max(MaxVertexDistance * Variety.ScaleMax + 5, MaxBladeDistance * Variety.ScaleMax + 6) + 1;
 			UMaterialEditingLibrary::RecompileMaterial(Material);
-			UE_LOG(LogEnvGen, Display, TEXT("Near canopy shape: reference area %.6f cm2, actual area %.6f cm2, max relative error %.8f, max span %.4f cm, max WPO %.4f cm, source vertices %d, triangle polygons %d"),
-				ReferenceAreaSum, ActualAreaSum, MaxRelativeAreaError, MaxSpan, Material->MaxWorldPositionOffsetDisplacement, Description.Vertices().Num(), Description.Polygons().Num());
+			UE_LOG(LogEnvGen, Display, TEXT("Near canopy shape: reference area %.6f cm2, actual area %.6f cm2, total relative error %.8f, max span %.4f cm, max WPO %.4f cm, source vertices %d, triangle polygons %d"),
+				ReferenceAreaSum, ActualAreaSum, FMath::Abs(ActualAreaSum / ReferenceAreaSum - 1), MaxSpan, Material->MaxWorldPositionOffsetDisplacement, Description.Vertices().Num(), Description.Polygons().Num());
 		}
 		Mesh->BuildFromMeshDescriptions({&Description}, Params);
 		return Mesh;
