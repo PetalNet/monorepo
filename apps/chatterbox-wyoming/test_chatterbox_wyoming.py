@@ -282,6 +282,7 @@ class ColdLoadTest(unittest.TestCase):
         self.assertFalse(self.voice.status()["loaded"])
         self.assertTrue(self.voice.status()["cpu_cached"])
         np.testing.assert_array_equal(self.speak(), first)
+        self.assertFalse(self.voice.status()["cpu_cached"])
         self.runtime.OptimizedTurboVoice.assert_called_once_with()
 
     def test_startup_prepares_cpu_cache_and_releases_gpu(self):

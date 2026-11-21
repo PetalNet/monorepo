@@ -282,7 +282,7 @@ class Voice:
             queue_depth = max(self.pending - self.busy, 0)
         return {
             "loaded": self.model is not None,
-            "cpu_cached": self.resident is not None,
+            "cpu_cached": self.model is None and self.resident is not None,
             "busy": busy,
             "queue_depth": queue_depth,
             "last_synth_rtf": None if self.last_rtf is None else round(self.last_rtf, 3),
