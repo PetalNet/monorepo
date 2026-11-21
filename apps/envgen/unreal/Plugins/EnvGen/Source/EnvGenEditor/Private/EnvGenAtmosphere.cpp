@@ -91,10 +91,10 @@ bool AddEnvGenAtmosphere(UWorld* World, const FEnvGenLighting& Lighting, TArray<
 	AExponentialHeightFog* Fog = World->SpawnActor<AExponentialHeightFog>();
 	Fog->SetActorLabel(TEXT("EnvGenHeightFog"));
 	UExponentialHeightFogComponent* Haze = Fog->GetComponent();
-	Haze->SetFogDensity(0.001f);
+	Haze->SetFogDensity(0.05f);
 	Haze->SetFogHeightFalloff(0.2f);
-	// Leave the immediate scene clear; soften the context's transition to the flat far horizon.
-	Haze->SetStartDistance(50000.0f);
+	// Keep the first 100 m clear and blend the coarse context into the horizon.
+	Haze->SetStartDistance(10000.0f);
 	Haze->SetFogMaxOpacity(0.85f);
 	// SkyAtmosphere supplies the scattering colour; a second coloured fog would double the tint.
 	Haze->SetFogInscatteringColor(FLinearColor::Black);

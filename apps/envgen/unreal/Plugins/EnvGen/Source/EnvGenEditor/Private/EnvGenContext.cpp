@@ -224,7 +224,7 @@ bool BuildEnvGenContext(UWorld* World, const FString& ManifestPath, UMaterialInt
 	State.GroundProbesCm = MoveTemp(ParsedProbes);
 	State.Counts = *Counts;
 	if (Batches.IsEmpty()) return true;
-	if (!Material) { Error = TEXT("context geometry needs the registered surround material"); return false; }
+	if (!Material) { Error = TEXT("context geometry needs the registered imagery material"); return false; }
 	State.Material = Material;
 	for (int32 Index = 0; Index < Batches.Num(); ++Index)
 	{
@@ -299,7 +299,7 @@ bool FinishEnvGenContext(ALandscape* ContextLandscape, const FEnvGenContextState
 		if (!IsValid(MeshActor) || !IsValid(Mesh) || Component->GetCollisionEnabled() != ECollisionEnabled::NoCollision)
 		{ Error = TEXT("context actor or mesh invalid"); return false; }
 		if (Component->GetMaterial(0) != State.Material)
-		{ Error = TEXT("context imagery material differs from the surround"); return false; }
+		{ Error = TEXT("context imagery material differs from the generated context material"); return false; }
 		ActualTriangles += Mesh->GetNumTriangles(0);
 	}
 	int32 ExpectedTriangles = 0;

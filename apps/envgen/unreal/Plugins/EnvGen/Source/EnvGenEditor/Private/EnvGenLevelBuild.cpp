@@ -1874,6 +1874,22 @@ return normalize(float3(ScanNormal.xy*lerp(1,1.8,close)-slope*Grass,ScanNormal.z
 		return Material;
 	}
 
+	UMaterial* MakeContextMaterial(UTexture2D* Colour, const FManifest& Manifest, TArray<UPackage*>& Packages)
+	{
+		UMaterial* Material = NewAsset<UMaterial>(TEXT("M_Context"), Packages);
+		UMaterialEditingLibrary::ConnectMaterialProperty(ContextAlbedo(Material, Colour, Manifest), TEXT(""), MP_BaseColor);
+		auto* Roughness = Node<UMaterialExpressionConstant>(Material, -300, 200);
+		Roughness->R = 0.9f;
+		UMaterialEditingLibrary::ConnectMaterialProperty(Roughness, TEXT(""), MP_Roughness);
+		// The aerial projection observes roofs and ground, not directional facade shading.
+		Material->bTangentSpaceNormal = false;
+		auto* Normal = Node<UMaterialExpressionConstant3Vector>(Material, -300, 400);
+		Normal->Constant = FLinearColor(0, 0, 1);
+		UMaterialEditingLibrary::ConnectMaterialProperty(Normal, TEXT(""), MP_Normal);
+		UMaterialEditingLibrary::RecompileMaterial(Material);
+		return Material;
+	}
+
 	/**
 	 * Flat ground from under the outermost surface to the horizon, in that surface's average colour. Without it
 	 * the sky's empty lower half shows as a blue band past the surface's edge from any height. The atmosphere's
@@ -2756,7 +2772,8 @@ bool FEnvGenLevelBuild::Start(const FString& ManifestPath, const FString& MapPat
 	AddSiteInfo(State->World, Manifest);
 	APlayerStart* PlayerStart = State->World->SpawnActor<APlayerStart>(FVector(0, 0, 150), FRotator::ZeroRotator);
 	PlayerStart->SetActorLabel(TEXT("EnvGenPlayerStart"));
-	if (!BuildEnvGenContext(State->World, ManifestPath, SurroundMaterial, State->Packages, State->ContextGeometry, Error))
+	UMaterial* ContextMaterial = Manifest.Surround ? MakeContextMaterial(SurroundColour, Manifest, State->Packages) : nullptr;
+	if (!BuildEnvGenContext(State->World, ManifestPath, ContextMaterial, State->Packages, State->ContextGeometry, Error))
 	{
 		UE_LOG(LogEnvGen, Error, TEXT("context geometry failed: %s"), *Error);
 		return false;
