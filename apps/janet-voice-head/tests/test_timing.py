@@ -32,10 +32,8 @@ class TimingTest(HeadCase):
         usage = by_event["model_usage"]["usage"]
         self.assertEqual(usage, {"input_tokens": 10, "cache_read_input_tokens": 300,
                                  "cache_creation_input_tokens": 20, "output_tokens": 6})
-        journal_path = self.root / "state" / "conversations" / f"{conv}.jsonl"
-        self.wait_for(lambda: '"kind": "timing"' in journal_path.read_text(), "timing was not persisted")
-        journal = [json.loads(line) for line in journal_path.read_text().splitlines()]
-        timing = next(record for record in journal if record["kind"] == "timing")
+        self.wait_for(lambda: any(r["event"] == "head_turn_finished" for r in self.records()), "timing was not logged")
+        timing = next(record for record in self.records() if record["event"] == "head_turn_finished")
         self.assertEqual(timing["usage"], usage)
         self.assertGreaterEqual(timing["latency_ms"]["first_token"], 100)
         self.assertNotIn("private spoken canary", json.dumps(timing))

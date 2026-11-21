@@ -327,10 +327,6 @@ class Head:
         finally:
             timing = {"latency_ms": latency, "request_total_ms": _ms(arrived), "usage": usage}
             observe("head_turn_finished", timing)
-            try:
-                live.record(kind="timing", n=number, turn=turn_number, **timing)
-            except OSError:
-                log.warning("conversation %s: timing journal unavailable", conv_id)
             session.timing_observer = None
             session.call_control.timing_observer = None
             if live.in_turn:

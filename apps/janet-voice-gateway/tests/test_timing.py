@@ -1,8 +1,11 @@
 import http.client
+import io
 from contextlib import closing
 import json
 import threading
+import time
 import unittest
+from unittest import mock
 from http.server import ThreadingHTTPServer
 
 from janet_voice_gateway import Handler, Voice
@@ -10,6 +13,42 @@ from tests.fakes import FakeVoice, MAC, TOKEN
 
 
 class TimingTest(unittest.TestCase):
+    def test_first_sample_is_logged_before_a_slow_or_failed_remainder(self):
+        for fail in (False, True):
+            handler = object.__new__(Handler)
+            handler.voice = mock.Mock()
+            handler.voice.open.return_value.wav.return_value = bytes(64)
+            handler.wfile = io.BytesIO()
+            handler._start_stream = mock.Mock()
+            chunks = []
+            def chunk(data):
+                chunks.append(data)
+                if len(chunks) == 2:
+                    time.sleep(.15)
+                    if fail:
+                        raise OSError("closed after the first sample")
+            handler._chunk = chunk
+            began = time.monotonic()
+            with self.assertLogs(level="INFO") as captured:
+                handler._tts(b'{"text":"a sentence"}')
+            rows = [json.loads(record.getMessage()) for record in captured.records]
+            first = next(row for row in rows if row["event"] == "tts_first_http_audio_sent")
+            self.assertEqual(len(chunks[0]), 46)
+            self.assertLess(first["elapsed_ms"], 100)
+            self.assertGreaterEqual(time.monotonic() - began, .15)
+            self.assertEqual(any(row["event"] == "tts_failed" for row in rows), fail)
+
+    def test_empty_pcm_does_not_claim_audio_sent(self):
+        handler = object.__new__(Handler)
+        handler.voice = mock.Mock()
+        handler.voice.open.return_value.wav.return_value = bytes(44)
+        handler.wfile = io.BytesIO()
+        handler._start_stream = mock.Mock()
+        handler._chunk = mock.Mock()
+        with self.assertLogs(level="INFO") as captured:
+            handler._tts(b'{"text":"a sentence"}')
+        self.assertEqual([json.loads(record.getMessage())["event"] for record in captured.records], ["tts_request"])
+
     def request(self, metadata, fail=False):
         voice = FakeVoice(fail_after_first_chunk=fail)
         voice.delays["private canary"] = 0.12

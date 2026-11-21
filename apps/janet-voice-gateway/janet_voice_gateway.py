@@ -317,8 +317,15 @@ class Handler(BaseHTTPRequestHandler):
         # than a proxy waits for response headers.
         try:
             self._start_stream("audio/wav")
-            self._chunk(synthesis.wav(observe))
-            observe("tts_first_http_audio_sent", {})
+            wav = synthesis.wav(observe)
+            if len(wav) > 44:
+                # The first chunk carries the WAV header and one PCM16 sample.
+                self._chunk(wav[:46])
+                observe("tts_first_http_audio_sent", {})
+                if wav[46:]:
+                    self._chunk(wav[46:])
+            else:
+                self._chunk(wav)
             self.wfile.write(b"0\r\n\r\n")
         except VoiceError as error:
             # No terminating chunk: the client sees a failed transfer, not a short reply.
