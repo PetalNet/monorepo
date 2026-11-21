@@ -469,32 +469,54 @@ return Mask*(.05+.70*grain)*upright;
 	{
 		constexpr int32 Size = 1024, Cells = 64;
 		FRandomStream Random(27011);
-		TArray<FVector4f> Grains;
+		struct FGrain
+		{
+			FVector2f Centre;
+			FVector2f Radius;
+			float Angle;
+			float Height;
+			float Reflectance;
+		};
+		TArray<FGrain> Grains;
 		for (int32 I = 0; I < Cells * Cells; ++I)
-			Grains.Add(FVector4f(Random.FRandRange(.2f, .8f), Random.FRandRange(.2f, .8f),
-				Random.FRandRange(.3f, 1.f), Random.FRandRange(.25f, 1.f)));
+		{
+			const float Radius = Random.FRandRange(.3f, .7f);
+			Grains.Add({FVector2f(Random.FRand(), Random.FRand()),
+				FVector2f(Radius, Radius * Random.FRandRange(.55f, 1.f)),
+				float(Random.FRand() * 2 * PI), float(Random.FRandRange(.35f, 1.f)), float(Random.FRandRange(.2f, 1.f))});
+		}
 		TArray<uint8> Pixels;
 		Pixels.SetNumUninitialized(Size * Size * 4);
 		for (int32 Y = 0; Y < Size; ++Y) for (int32 X = 0; X < Size; ++X)
 		{
 			const FVector2f P((X + .5f) * Cells / Size, (Y + .5f) * Cells / Size);
 			const int32 CellX = FMath::FloorToInt(P.X), CellY = FMath::FloorToInt(P.Y);
-			float First = MAX_flt, Second = MAX_flt;
-			FVector4f Grain(0, 0, 0, 0);
+			float Height = 0, Reflectance = 0, Coverage = 0;
 			for (int32 DY = -1; DY <= 1; ++DY) for (int32 DX = -1; DX <= 1; ++DX)
 			{
 				const int32 GX = CellX + DX, GY = CellY + DY;
-				const FVector4f Candidate = Grains[((GY + Cells) % Cells) * Cells + (GX + Cells) % Cells];
-				const float Distance = (FVector2f(GX + Candidate.X, GY + Candidate.Y) - P).SizeSquared();
-				if (Distance < First) { Second = First; First = Distance; Grain = Candidate; }
-				else Second = FMath::Min(Second, Distance);
+				const FGrain& Grain = Grains[((GY + Cells) % Cells) * Cells + (GX + Cells) % Cells];
+				const FVector2f Offset = P - FVector2f(GX, GY) - Grain.Centre;
+				const float C = FMath::Cos(Grain.Angle), S = FMath::Sin(Grain.Angle);
+				const FVector2f Local((C * Offset.X + S * Offset.Y) / Grain.Radius.X,
+					(-S * Offset.X + C * Offset.Y) / Grain.Radius.Y);
+				const float Angle = FMath::Atan2(Local.Y, Local.X);
+				const float Radius = Local.Size() / (1 + .12f * FMath::Sin(3 * Angle + Grain.Angle) + .08f * FMath::Cos(5 * Angle));
+				const float Edge = 1 - FMath::SmoothStep(.82f, 1.f, Radius);
+				const float Crown = FMath::Pow(FMath::Max(0.f, 1 - Radius * Radius), .35f);
+				const float Surface = Grain.Height * Crown * Edge;
+				// Independent footprints overlap; they never expand to fill a Voronoi cell.
+				if (Surface > Height)
+				{
+					Height = Surface;
+					Reflectance = Grain.Reflectance * Edge * FMath::Clamp(1 + .25f * Local.X - .2f * Local.Y, .5f, 1.f);
+				}
+				Coverage = FMath::Max(Coverage, Edge);
 			}
-			const float Edge = FMath::SmoothStep(.04f, .24f, FMath::Sqrt(Second) - FMath::Sqrt(First));
-			const float Crown = 1 - FMath::Clamp(FMath::Sqrt(First), 0.f, 1.f);
 			uint8* Pixel = Pixels.GetData() + (Y * Size + X) * 4;
-			Pixel[0] = uint8(255 * Edge);
-			Pixel[1] = uint8(255 * Grain.W);
-			Pixel[2] = uint8(255 * Grain.Z * (.65f + .35f * Crown) * Edge);
+			Pixel[0] = uint8(255 * Coverage);
+			Pixel[1] = uint8(255 * Reflectance);
+			Pixel[2] = uint8(255 * Height);
 			Pixel[3] = 255;
 		}
 		UTexture2D* Texture = Asset<UTexture2D>(TEXT("T_AthleticInfill"), Packages);
