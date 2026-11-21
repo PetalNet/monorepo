@@ -172,7 +172,7 @@ namespace
 
 	struct FBentBladeShape
 	{
-		FVector2f PeakHeightFactor, InitialSpanHeightRatio, Arch;
+		FVector2f PeakHeightFactor, SpanHeightRatio, Arch;
 	};
 
 	/** One kind of tuft, from the manifest's `turf`: its size, how many per 100 square metres, and how far out it is drawn. */
@@ -573,7 +573,7 @@ namespace
 							&& (bZeroAllowed ? OutRange.X >= 0 : OutRange.X > 0) && OutRange.Y >= OutRange.X && OutRange.Y <= Maximum;
 					};
 					if (!Range(TEXT("peak_height_factor"), Bent.PeakHeightFactor, 1, false)
-						|| !Range(TEXT("initial_span_height_ratio"), Bent.InitialSpanHeightRatio, 3, false)
+						|| !Range(TEXT("span_height_ratio"), Bent.SpanHeightRatio, 3, false)
 						|| !Range(TEXT("arch"), Bent.Arch, 2, true)
 						|| !FMath::IsFinite(Variety.HeightMinCm) || Variety.HeightMinCm <= 0 || Variety.HeightMaxCm < Variety.HeightMinCm
 						|| !FMath::IsFinite(Variety.HeightMaxCm) || !FMath::IsFinite(Variety.RadiusCm) || Variety.RadiusCm < 0
@@ -1309,19 +1309,8 @@ return lerp(Texture2DSampleGrad(Scan,ScanSampler,UV,dx,dy).rgb,varied,blend);
 				const FBentBladeShape& Shape = Variety.BentShape.GetValue();
 				const float NominalHeight = Height;
 				Height *= ShapeRandom.FRandRange(Shape.PeakHeightFactor.X, Shape.PeakHeightFactor.Y);
-				Lean = NominalHeight * ShapeRandom.FRandRange(Shape.InitialSpanHeightRatio.X, Shape.InitialSpanHeightRatio.Y);
+				Lean = NominalHeight * ShapeRandom.FRandRange(Shape.SpanHeightRatio.X, Shape.SpanHeightRatio.Y);
 				Arch = ShapeRandom.FRandRange(Shape.Arch.X, Shape.Arch.Y);
-				if (BladeUnitArea(Height, Lean, Arch, Segments) < ReferenceUnitArea)
-				{
-					float Low = Lean, High = FMath::Max(Lean, float(ReferenceUnitArea * 2));
-					for (int32 Step = 0; Step < 20; ++Step)
-					{
-						const float Middle = (Low + High) * 0.5f;
-						if (BladeUnitArea(Height, Middle, Arch, Segments) < ReferenceUnitArea) Low = Middle;
-						else High = Middle;
-					}
-					Lean = High;
-				}
 				Width *= float(ReferenceUnitArea / BladeUnitArea(Height, Lean, Arch, Segments));
 			}
 			const float Peak = BladeArchPeak(Arch);

@@ -151,7 +151,7 @@ NEAR_BLADE_WIDTH_CM = (0.8, 1.4)
 NEAR = {"leaf_area_index": 2.0, "blades": 66, "blade_width_cm": [0.29, 0.51], "radius_cm": 14.0,
         "start_cull_cm": 800, "end_cull_cm": 3000,
         "blade_shape": {"kind": "bent", "peak_height_factor": [0.35, 0.8],
-                        "initial_span_height_ratio": [0.8, 2.0], "arch": [0.1, 1.2]}}
+                        "span_height_ratio": [0.15, 0.75], "arch": [0.1, 1.2]}}
 CLUMP = {"leaf_area_index": 0.2, "blades": 24, "radius_cm": 22.5, "start_cull_cm": 2500, "end_cull_cm": 6500,
          "appear_cm": [800, 1500]}
 TALL = {"leaf_area_index": 0.02, "blades": 8, "radius_cm": 6.0, "start_cull_cm": 2500, "end_cull_cm": 5000}
