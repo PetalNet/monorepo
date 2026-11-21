@@ -81,7 +81,35 @@ and his gray. The controls are speaker, Hide text or Show text, and hang up.
 
 ## Pairing
 
-Nothing is typed into the app and nothing is compiled in. The phone is paired by opening a link.
+To enroll the owner's phone with personal Janet and lab access, use **Sign in to Janet** on the
+welcome screen or in Settings. Shared-link pairing remains available for guest access.
+
+1. Install the signed 0.9.0 update over your existing app. Keep your current pairing.
+2. Open **Settings → Sign in to Janet**, or **Sign in to Janet** on an unpaired phone.
+3. Check the bridge address. An already paired phone uses its current bridge. A new phone defaults
+   to `wss://janet-voice.petalcat.dev/v1/call`. Use only a bridge you trust.
+4. Tap **Open sign-in in browser** and sign in with an account the bridge allows.
+5. Allow the browser to return to Janet. Wait for **Signed in** before leaving the sign-in screen.
+6. Return to Settings and confirm **Listening for incoming calls**. Keep the incoming-call
+   permissions you already granted, then test an outgoing call and a locked-screen incoming call.
+
+**Cancel sign-in** leaves the existing pairing available. After an expired code, a refused sign-in,
+or a network error, start a new sign-in. A callback works once and only for the pending request,
+which lasts ten minutes. Activity and process recreation preserve the encrypted pending request.
+If Android stops the process during the exchange, start a new sign-in; the prior pairing remains
+unless the new pairing was already stored successfully. An in-progress or ringing call prevents
+credential replacement. No existing device is revoked by this flow.
+
+The phone creates a fresh PKCE S256 challenge and state, then opens
+`GET /v1/call/pair/signin?challenge=…&state=…` on the selected bridge in the system browser.
+Only `janetcall://signin?code=…&state=…` with the matching pending state is accepted.
+The phone consumes that pending request before posting `{"code", "verifier", "name"}` to
+`/v1/call/pair/signin` over HTTPS on the same bridge. Redirects and incomplete credentials are
+refused. The bridge checks the SSO identity and allowlist; the phone supplies no identity claim.
+The new credentials use the existing Android Keystore storage and restart incoming registration
+only after persistence succeeds. Successful enrollment also clears the previous home-page web session.
+
+The phone can also pair by opening a shared link.
 The bridge's pairing page offers it as a button, so one tap on that page from the phone is enough:
 
 ```text
@@ -121,7 +149,8 @@ Known gaps:
 - Another app on the phone can register the `janetcall` scheme and be offered the link, which
   carries the one-time code. An Android App Link on the bridge's own domain would close that.
 - Unpair wipes the phone. It does not revoke the device token on the bridge.
-- CI does not build this app.
+- A physical owner sign-in, microphone audio, and locked-screen incoming call require the owner's
+  handset. Unit tests and emulator checks do not establish those results.
 
 ## Bridge protocol
 
@@ -169,8 +198,10 @@ echo "sdk.dir=$ANDROID_HOME" > local.properties
 ./gradlew testDebugUnitTest testReleaseUnitTest assembleDebug assembleRelease
 ```
 
-The release build is signed with the machine's debug keystore. There is no keystore in the
-repository.
+Local release builds use the machine's debug keystore and must not be installed over the owner's
+app unless their signer matches. The `janet-call-android-release.yml` workflow builds merged main,
+restores the existing signing key from the `android-release` environment, verifies its certificate,
+and publishes one release per `versionCode`. There is no keystore in the repository.
 
 ## Scripted calls (debug build only)
 

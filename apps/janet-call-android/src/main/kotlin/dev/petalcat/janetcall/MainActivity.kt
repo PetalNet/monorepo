@@ -56,6 +56,7 @@ class MainActivity : ComponentActivity() {
 		// A restored activity is handed the intent it was first started with. That link was already
 		// answered or cancelled, so only a first creation reads it.
 		if (savedInstanceState == null) {
+			takeSignIn(intent)
 			takePairingLink(intent)
 			content.post { takeCallShortcut(intent) }
 		}
@@ -82,6 +83,16 @@ class MainActivity : ComponentActivity() {
 				onSpeaker = ::toggleSpeaker,
 				onHangUp = { Calls.connection?.hangup() },
 			)
+			SignIn.open -> SignInScreen(
+				bridge = settings.pairing()?.url ?: DEFAULT_BRIDGE_URL,
+				message = SignIn.message,
+				waiting = SignIn.pending(this) != null,
+				exchanging = SignIn.exchanging,
+				finishing = SignIn.finishing,
+				onSignIn = ::startSignIn,
+				onCancel = { SignIn.cancel(this) },
+				onBack = { SignIn.close(this) },
+			)
 			shown is Screen.Home && settingsOpen -> SettingsScreen(
 				host = shown.host,
 				homeUrl = config.homeUrl(),
@@ -94,6 +105,7 @@ class MainActivity : ComponentActivity() {
 				licences = { licenceText(this) },
 				incomingStatus = incomingStatus,
 				onIncomingSetup = { IncomingSetup.openNext(this) },
+				onSignIn = { SignIn.show() },
 			)
 			// Something to fix comes before the page: the page is for when all is well.
 			shown is Screen.Home && (shown.problem != null || shown.line == Line.Revoked) -> HomeScreen(
@@ -111,7 +123,7 @@ class MainActivity : ComponentActivity() {
 					HomeScreen(shown, onCall = ::requestCall, onSettings = { settingsOpen = true }, onProblem = ::act, onRetry = retry)
 				},
 			)
-			shown is Screen.Welcome -> WelcomeScreen(shown, onProblem = ::act)
+			shown is Screen.Welcome -> WelcomeScreen(shown, onProblem = ::act, onSignIn = { SignIn.show() })
 			shown is Screen.Pairing -> PairingScreen(shown)
 			shown is Screen.Confirm -> ConfirmScreen(
 				shown,
@@ -126,14 +138,35 @@ class MainActivity : ComponentActivity() {
 
 	override fun onNewIntent(intent: Intent) {
 		super.onNewIntent(intent)
+		takeSignIn(intent)
 		takePairingLink(intent)
 		render()
 		takeCallShortcut(intent)
 	}
 
+	private fun takeSignIn(intent: Intent) {
+		val data = intent.data ?: return
+		if (data.scheme != "janetcall" || data.host != "signin") return
+		setIntent(Intent(this, MainActivity::class.java))
+		if (intent.action != Intent.ACTION_VIEW || intent.flags and Intent.FLAG_ACTIVITY_LAUNCHED_FROM_HISTORY != 0) return
+		SignIn.receive(this, data.toString())
+	}
+
+	private fun startSignIn(url: String) {
+		if (pending != null) return
+		val browser = SignIn.begin(this, url) ?: return
+		try {
+			startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(browser)).addCategory(Intent.CATEGORY_BROWSABLE))
+		} catch (_: android.content.ActivityNotFoundException) {
+			SignIn.cancel(this)
+			Pairer.problem = Problem.Note("Install a browser, then try signing in again.")
+		}
+	}
+
 	override fun onStart() {
 		super.onStart()
 		Calls.observe(observer)
+		SignIn.resume(this)
 		RingService.sync(this)
 		settings.pairing()?.let { Bridge.warmOnForeground(it, SystemClock.elapsedRealtime(), Calls.lineSink(this, it)) }
 		render()
@@ -159,7 +192,7 @@ class MainActivity : ComponentActivity() {
 		// A link is never held to be shown later, when the person no longer expects it.
 		Pairer.problem = when {
 			Calls.inCall -> Problem.Note("Finish the call first, then open the pairing link again.")
-			pending != null || Pairer.host != null -> Problem.Note("Another pairing was already waiting. Answer it, then open the new link again.")
+			pending != null || Pairer.host != null || SignIn.open || SignIn.pending(this) != null -> Problem.Note("Another pairing was already waiting. Answer it, then open the new link again.")
 			else -> when (val parsed = parsePairingPayload(data.getQueryParameter("u").orEmpty(), nowS(), BuildConfig.DEBUG)) {
 				is PairingParse.Bad -> Problem.Note(parsed.reason)
 				is PairingParse.Ok -> {
@@ -181,7 +214,7 @@ class MainActivity : ComponentActivity() {
 		if (intent.flags and Intent.FLAG_ACTIVITY_LAUNCHED_FROM_HISTORY != 0) return
 		when {
 			// A phone the bridge has forgotten cannot call: the screen says what to do.
-			Calls.inCall || pending != null || Pairer.host != null || Calls.line == Line.Revoked -> Unit
+			Calls.inCall || pending != null || Pairer.host != null || SignIn.open || Calls.line == Line.Revoked -> Unit
 			settings.pairing() == null -> {
 				Pairer.problem = Problem.Note("Pair this phone first, then call.")
 				render()
@@ -240,6 +273,7 @@ class MainActivity : ComponentActivity() {
 	}
 
 	private fun unpair() {
+		SignIn.close(this)
 		// The next person to pair this phone must not inherit the last one's sign-in to the home page.
 		forgetWebSession()
 		settings.clear()

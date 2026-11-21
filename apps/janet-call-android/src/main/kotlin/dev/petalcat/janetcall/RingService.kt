@@ -8,7 +8,6 @@ import android.app.Service
 import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
-import android.content.SharedPreferences
 import android.content.pm.ServiceInfo
 import android.net.ConnectivityManager
 import android.net.Network
@@ -33,8 +32,6 @@ class RingService : Service() {
 	private var registering = false
 	private val inbox = RingInbox()
 	private val reconnect = Runnable { connect(generation) }
-	private val prefs by lazy { getSharedPreferences("janet_call_pairing", Context.MODE_PRIVATE) }
-	private val changed = SharedPreferences.OnSharedPreferenceChangeListener { _, _ -> reload() }
 	private val network = object : ConnectivityManager.NetworkCallback() {
 		override fun onAvailable(network: Network) {
 			main.post {
@@ -49,7 +46,6 @@ class RingService : Service() {
 	override fun onCreate() {
 		super.onCreate()
 		showStatus("Connecting for incoming calls")
-		prefs.registerOnSharedPreferenceChangeListener(changed)
 		getSystemService(ConnectivityManager::class.java).registerDefaultNetworkCallback(network)
 	}
 
@@ -182,7 +178,6 @@ class RingService : Service() {
 	override fun onDestroy() {
 		destroyed = true
 		generation++
-		prefs.unregisterOnSharedPreferenceChangeListener(changed)
 		getSystemService(ConnectivityManager::class.java).unregisterNetworkCallback(network)
 		main.removeCallbacksAndMessages(null)
 		socket?.cancel()

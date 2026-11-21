@@ -40,6 +40,12 @@
 				<category android:name="android.intent.category.BROWSABLE" />
 				<data android:scheme="janetcall" android:host="pair" />
 			</intent-filter>
+			<intent-filter>
+				<action android:name="android.intent.action.VIEW" />
+				<category android:name="android.intent.category.DEFAULT" />
+				<category android:name="android.intent.category.BROWSABLE" />
+				<data android:scheme="janetcall" android:host="signin" />
+			</intent-filter>
 			<!-- "Call Janet" on a long press of the launcher icon. It is an explicit intent with a private
 			     action and no intent filter, so no web page or link can start a call. Another installed app
 			     can still send the same explicit intent: it opens the call screen and the usual permission

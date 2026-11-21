@@ -215,11 +215,12 @@ fun HomeScreen(
 }
 
 @Composable
-fun WelcomeScreen(screen: Screen.Welcome, onProblem: (Problem) -> Unit = {}) {
+fun WelcomeScreen(screen: Screen.Welcome, onProblem: (Problem) -> Unit = {}, onSignIn: (() -> Unit)? = null) {
 	val palette = LocalPalette.current
 	Skeleton(
 		headline = "Pair this phone\nwith Janet.",
 		status = "Waiting for a pairing link",
+		action = onSignIn?.let { { Pill("Sign in to Janet", it) } },
 	) {
 		screen.problem?.let { ProblemCard(it) { onProblem(it) } }
 		listOf(
@@ -283,6 +284,7 @@ fun SettingsScreen(
 	licences: () -> String,
 	incomingStatus: String? = null,
 	onIncomingSetup: (() -> Unit)? = null,
+	onSignIn: (() -> Unit)? = null,
 ) {
 	val palette = LocalPalette.current
 	var asking by rememberSaveable { mutableStateOf(false) }
@@ -303,6 +305,12 @@ fun SettingsScreen(
 				Fact("Version", BuildConfig.VERSION_NAME)
 			}
 			Spacer(Modifier.height(14.dp))
+			if (onSignIn != null) {
+				Text("Sign in with your own account for personal Janet and lab access. Shared-link pairings have guest access.", style = Type.body, color = palette.ink)
+				Spacer(Modifier.height(14.dp))
+				Pill("Sign in to Janet", onSignIn, filled = false)
+				Spacer(Modifier.height(14.dp))
+			}
 			HomePageField(homeUrl, onHomeUrl)
 			Spacer(Modifier.height(14.dp))
 			if (incomingStatus != null && onIncomingSetup != null) {
@@ -332,6 +340,38 @@ fun SettingsScreen(
 			text = { Text(licences(), style = Type.detail, modifier = Modifier.verticalScroll(rememberScrollState())) },
 			confirmButton = { TextButton({ reading = false }) { Text("Close") } },
 		)
+	}
+}
+
+@Composable
+fun SignInScreen(
+	bridge: String,
+	message: String,
+	waiting: Boolean,
+	exchanging: Boolean,
+	finishing: Boolean = false,
+	onSignIn: (String) -> Unit,
+	onCancel: () -> Unit,
+	onBack: () -> Unit,
+) {
+	val palette = LocalPalette.current
+	var address by rememberSaveable(bridge) { mutableStateOf(bridge) }
+	BackHandler(onBack = onBack)
+	Skeleton(
+		headline = "Sign in to Janet",
+		status = message,
+		action = { Pill("Back to Janet", onBack, enabled = !finishing) },
+	) {
+		Text("Your browser will open the bridge's sign-in page. Only continue with a bridge you trust.", style = Type.body, color = palette.ink)
+		Spacer(Modifier.height(16.dp))
+		OutlinedTextField(
+			value = address, onValueChange = { address = it }, label = { Text("Bridge address") },
+			enabled = !waiting && !exchanging && !finishing, singleLine = true,
+			keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Uri), modifier = Modifier.fillMaxWidth(),
+		)
+		Spacer(Modifier.height(16.dp))
+		if (waiting || exchanging || finishing) Pill("Cancel sign-in", onCancel, filled = false, enabled = !finishing)
+		else Pill("Open sign-in in browser", { onSignIn(address.trim()) }, enabled = bridgeUrlProblem(address.trim(), false) == null)
 	}
 }
 
