@@ -12,12 +12,12 @@ from pathlib import Path
 from . import web_guard, lab_tools, call_tools
 
 # Main's hermes-link plugin re-points the hub at whichever session loads it, so a head must load nothing of main's.
-def locked_flags(web_tools: tuple[str, ...] = (), lab: bool = False) -> list[str]:
+def locked_flags(web_tools: tuple[str, ...] = (), lab: bool = False, lab_config: dict | None = None) -> list[str]:
     """Base tool boundary; ClaudeSession adds its own call-control MCP server."""
     flags = [
         "-p", "--input-format", "stream-json", "--output-format", "stream-json", "--verbose",
         "--include-partial-messages", "--tools", ",".join(web_tools), "--strict-mcp-config",
-        "--mcp-config", json.dumps(lab_tools.mcp_config(), separators=(",", ":")) if lab else '{"mcpServers":{}}', "--setting-sources", "",
+        "--mcp-config", json.dumps(lab_config or lab_tools.mcp_config(), separators=(",", ":")) if lab else '{"mcpServers":{}}', "--setting-sources", "",
     ]
     if web_tools or lab:
         allowed = (*web_tools, *(lab_tools.NAMES if lab else ()))

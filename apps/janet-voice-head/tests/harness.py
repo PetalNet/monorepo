@@ -43,6 +43,8 @@ class FakeHub:
         self.attempts = 0
         self.down = False
         self.on_accept = None
+        self.matrix_events = []
+        self.history_requests = []
         self._persist([])
         hub = self
 
@@ -62,6 +64,11 @@ class FakeHub:
 
             def do_POST(self):
                 body = json.loads(self.rfile.read(int(self.headers["Content-Length"])))
+                if self.path == "/tool":
+                    if self.headers.get("Authorization") != "Bearer hub-secret":
+                        return self._send(401, {})
+                    hub.history_requests.append(body)
+                    return self._send(200, {"result": json.dumps({"events": hub.matrix_events})})
                 hub.attempts += 1
                 if hub.down:
                     return self._send(503, {})
