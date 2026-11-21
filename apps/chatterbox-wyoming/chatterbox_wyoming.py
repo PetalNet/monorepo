@@ -116,12 +116,15 @@ class SynthesisError(RuntimeError):
 class Voice:
     """Owns the model. All model work runs on one worker thread, which serializes requests."""
 
-    def __init__(self, runtime: str, gpu_index: int, idle_unload: float, gain: float = 1.0, tempo: float = 1.0):
+    def __init__(self, runtime: str, gpu_index: int, idle_unload: float, gain: float = 1.0, tempo: float = 1.0,
+                 retain_cpu_model: bool = False):
         if not 0.5 <= tempo <= 2.0:
             raise ValueError("tempo must be finite and between 0.5 and 2.0")
         self.tempo = tempo
         self.runtime, self.gpu_index, self.idle_unload, self.gain = runtime, gpu_index, idle_unload, gain
         self.model = None
+        self.resident = None
+        self.retain_cpu_model = retain_cpu_model
         self.last_used = 0.0
         self.last_rtf: float | None = None
         self.pending = 0
@@ -199,7 +202,7 @@ class Voice:
             deadline = time.monotonic() + 5.0
             while True:
                 try:
-                    self.model = OptimizedTurboVoice()
+                    self.model = self.resident.reload() if self.resident is not None else OptimizedTurboVoice()
                     break
                 except torch.cuda.OutOfMemoryError as e:
                     failure = repr(e)
@@ -246,10 +249,32 @@ class Voice:
     def _unload(self, why: str) -> None:
         import torch
 
-        self.model = None
+        failure = None
+        try:
+            if self.retain_cpu_model and self.model is not None and why in ("on request", "after idle"):
+                from resident_voice import ResidentVoice
+
+                self.resident = ResidentVoice(self.model)
+                self.resident.offload()
+            else:
+                self.resident = None
+        except Exception as error:
+            log.exception("CPU offload failed")
+            failure = repr(error)
+            self.resident = None
+        finally:
+            self.model = None
         gc.collect()
         torch.cuda.empty_cache()
-        log.info("unloaded %s (free VRAM %s GB)", why, gpu_stats(self.gpu_index)["free_vram_gb"])
+        if failure is not None:
+            raise SynthesisError(failure)
+        log.info("unloaded %s (CPU cached %s, free VRAM %s GB)", why, self.resident is not None,
+                 gpu_stats(self.gpu_index)["free_vram_gb"])
+
+    def prepare(self) -> None:
+        """Pay process startup and kernel warm-up costs before accepting calls."""
+        self._synthesize("Okay.")
+        self._unload("on request")
 
     def status(self) -> dict:
         with self.counter_lock:
@@ -257,6 +282,7 @@ class Voice:
             queue_depth = max(self.pending - self.busy, 0)
         return {
             "loaded": self.model is not None,
+            "cpu_cached": self.model is None and self.resident is not None,
             "busy": busy,
             "queue_depth": queue_depth,
             "last_synth_rtf": None if self.last_rtf is None else round(self.last_rtf, 3),
@@ -348,7 +374,10 @@ def http_handler(voice: Voice, name: str) -> type[BaseHTTPRequestHandler]:
 async def reaper(voice: Voice) -> None:
     while True:
         await asyncio.sleep(30)
-        await asyncio.wrap_future(voice.worker.submit(voice.unload_if_idle))
+        try:
+            await asyncio.wrap_future(voice.worker.submit(voice.unload_if_idle))
+        except SynthesisError:
+            log.exception("idle offload failed; model discarded")
 
 
 async def serve(config: dict) -> None:
@@ -359,7 +388,10 @@ async def serve(config: dict) -> None:
         config.get("idle_unload_seconds", 600),
         config.get("gain", 1.0),
         config.get("tempo", 1.0),
+        config.get("retain_cpu_model", False),
     )
+    if voice.retain_cpu_model:
+        await asyncio.wrap_future(voice.worker.submit(voice.prepare))
     upstream = Attribution(name="Resemble AI", url="https://github.com/resemble-ai/chatterbox")
     voice_info = TtsVoice(
         name=config.get("voice_name", "default"),

@@ -9,5 +9,8 @@ dependencies = ["numpy", "scipy", "soundfile", "wyoming>=1.8,<2", "audiotsm==0.1
 [project.scripts]
 chatterbox-wyoming = "chatterbox_wyoming:main"
 
+[tool.setuptools]
+py-modules = ["chatterbox_wyoming", "resident_voice"]
+
 [tool.ruff]
 line-length = 120

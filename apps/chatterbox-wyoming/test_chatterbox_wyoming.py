@@ -11,7 +11,7 @@ from unittest import mock
 
 import numpy as np
 
-from chatterbox_wyoming import MODEL_RATE, SynthesisError, Voice, WyomingHandler, http_handler, louder, time_stretch
+from chatterbox_wyoming import MODEL_RATE, SynthesisError, Voice, WyomingHandler, http_handler, louder, reaper, time_stretch
 from wyoming.tts import Synthesize
 
 
@@ -267,6 +267,93 @@ class ColdLoadTest(unittest.TestCase):
         self.runtime.OptimizedTurboVoice.assert_called_once_with()
         self.sleep.assert_not_called()
         self.assertIs(self.voice.model, self.model)
+
+    def enable_cpu_cache(self):
+        self.voice.retain_cpu_model = True
+        self.cache = mock.Mock()
+        self.cache.reload.return_value = self.model
+        self.adapter = mock.Mock(return_value=self.cache)
+        self.enterContext(mock.patch.dict(sys.modules, resident_voice=types.SimpleNamespace(ResidentVoice=self.adapter)))
+
+    def test_unloaded_model_serves_the_next_call_without_construction(self):
+        self.enable_cpu_cache()
+        first = self.speak()
+        self.assertTrue(self.voice.unload().result(timeout=3))
+        self.assertFalse(self.voice.status()["loaded"])
+        self.assertTrue(self.voice.status()["cpu_cached"])
+        np.testing.assert_array_equal(self.speak(), first)
+        self.assertFalse(self.voice.status()["cpu_cached"])
+        self.runtime.OptimizedTurboVoice.assert_called_once_with()
+
+    def test_startup_prepares_cpu_cache_and_releases_gpu(self):
+        self.enable_cpu_cache()
+        self.voice.worker.submit(self.voice.prepare).result(timeout=3)
+        self.assertFalse(self.voice.status()["loaded"])
+        self.assertTrue(self.voice.status()["cpu_cached"])
+        self.speak()
+        self.runtime.OptimizedTurboVoice.assert_called_once_with()
+
+    def test_idle_unload_keeps_cpu_cache(self):
+        self.enable_cpu_cache()
+        self.speak()
+        self.advance(601)
+        self.voice.worker.submit(self.voice.unload_if_idle).result(timeout=3)
+        self.assertFalse(self.voice.status()["loaded"])
+        self.assertTrue(self.voice.status()["cpu_cached"])
+        self.speak()
+        self.runtime.OptimizedTurboVoice.assert_called_once_with()
+
+    def test_failed_cached_synthesis_discards_cpu_model(self):
+        self.enable_cpu_cache()
+        self.speak()
+        self.voice.unload().result(timeout=3)
+        self.model.speak.side_effect = RuntimeError("broken synthesis")
+        with self.assertRaisesRegex(SynthesisError, "broken synthesis"):
+            self.speak()
+        self.assertFalse(self.voice.status()["loaded"])
+        self.assertFalse(self.voice.status()["cpu_cached"])
+        self.model.speak.side_effect = None
+        self.speak()
+        self.assertEqual(self.runtime.OptimizedTurboVoice.call_count, 2)
+
+    def test_failed_offload_discards_model_and_allows_reload(self):
+        self.enable_cpu_cache()
+        self.speak()
+        self.cache.offload.side_effect = RuntimeError("offload failed")
+        with self.assertRaisesRegex(SynthesisError, "offload failed"):
+            self.voice.unload().result(timeout=3)
+        self.assertFalse(self.voice.status()["loaded"])
+        self.assertFalse(self.voice.status()["cpu_cached"])
+        self.speak()
+        self.assertEqual(self.runtime.OptimizedTurboVoice.call_count, 2)
+
+    def test_idle_offload_failure_does_not_stop_server_upkeep(self):
+        self.enable_cpu_cache()
+        self.speak()
+        self.advance(601)
+        self.cache.offload.side_effect = RuntimeError("offload failed")
+
+        async def run():
+            with mock.patch("chatterbox_wyoming.asyncio.sleep", new=mock.AsyncMock(
+                    side_effect=[None, None, asyncio.CancelledError])) as sleep:
+                with self.assertRaises(asyncio.CancelledError):
+                    await reaper(self.voice)
+                self.assertEqual(sleep.await_count, 3)
+
+        asyncio.run(run())
+        self.assertFalse(self.voice.status()["loaded"])
+        self.assertFalse(self.voice.status()["cpu_cached"])
+        self.speak()
+        self.assertEqual(self.runtime.OptimizedTurboVoice.call_count, 2)
+
+    def test_reload_oom_discards_partial_cache_before_retry(self):
+        self.enable_cpu_cache()
+        self.speak()
+        self.voice.unload().result(timeout=3)
+        self.cache.reload.side_effect = CudaOutOfMemoryError("upload exhausted")
+        self.speak()
+        self.assertEqual(self.runtime.OptimizedTurboVoice.call_count, 2)
+        self.assertFalse(self.voice.status()["cpu_cached"])
 
     def test_memory_recovers_after_renderer_exit(self):
         def load():
