@@ -590,7 +590,7 @@ bool FEnvGenStreetscapeAthletic::RunTest(const FString& Parameters)
 			TestEqual(TEXT("both pile levels reach the render buffers"), Pile->GetRenderData()->LODResources.Num(), 2);
 			TestTrue(TEXT("distant blades use fewer triangles"), Pile->GetMeshDescription(1)->Triangles().Num() < Pile->GetMeshDescription(0)->Triangles().Num());
 			TestFalse(TEXT("synthetic fibers do not cast large natural-grass shadows"), Variety.bCastDynamicShadow);
-			TestTrue(TEXT("fiber LOD transitions can blend"), CastChecked<UMaterial>(Pile->GetMaterial(0))->DitheredLODTransition);
+			TestFalse(TEXT("bounded-WPO pile avoids HISM dither cutoff gaps"), CastChecked<UMaterial>(Pile->GetMaterial(0))->DitheredLODTransition);
 			TSet<FIntPoint> Roots[2];
 			for (int32 LOD = 0; LOD < 2; ++LOD)
 			{

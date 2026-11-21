@@ -185,7 +185,7 @@ Markings intersecting that field become color regions in one opaque registered a
 including local RGBA artwork. All colors share streamed 1.7–2.4 cm bent blades near the camera,
 filtered tuft rows, irregular black infill, fiber normals, roughness
 and grazing reflection. Alternating pile direction and narrow roll seams follow the configured heading.
-The pile uses the existing Landscape grass streaming system. Individual blades have three segments
+The pile uses the existing Landscape grass streaming system. It uses discrete LOD transitions to avoid a missing-fiber band observed with UE 5.8 HISM dithering. Individual blades have three segments
 nearby and one segment at distance. Their height fades from 3 to 10 m before culling at 11 m. A seamless packed grain texture supplies millimetre-scale height, charcoal reflectance and intergranular occlusion between the near blades. Per-blade variation breaks up
 repeated patches while retaining manufactured rows.
 Its conservative footprint mask clips fibers at field boundaries to within a mask texel;

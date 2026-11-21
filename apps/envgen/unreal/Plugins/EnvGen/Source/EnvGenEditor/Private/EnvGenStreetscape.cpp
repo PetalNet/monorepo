@@ -804,7 +804,8 @@ return lerp(canopy,bed,pileNear);
 		Material->SetShadingModel(MSM_TwoSidedFoliage);
 		Material->bTangentSpaceNormal = false;
 		Material->MaxWorldPositionOffsetDisplacement = 8;
-		Material->DitheredLODTransition = true;
+		// Avoid the bare band seen with UE 5.8 HISM dithering and this bounded WPO.
+		Material->DitheredLODTransition = false;
 		Material->BlendMode = BLEND_Masked;
 		Material->OpacityMaskClipValue = .5f;
 		Material->bUsedWithInstancedStaticMeshes = true;
