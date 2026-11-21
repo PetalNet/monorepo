@@ -195,6 +195,7 @@ namespace
 		FLinearColor FieldSoil;
 		bool bSoilCandidateIsBareSoil = true;
 		float CalibrationFadeStartCm = 0, CalibrationFadeEndCm = 0;
+		float DryTuftMinCm = 0, DryTuftMaxCm = 0;
 		float LawnRepeatCm = 100, DryHeightRatio = 1, EdgeMowingHeightRatio = 1;
 		int32 LawnPixelsPerM = 512, LawnLeavesPerM2 = 16000;
 		float EdgeHeightStartWeight = 0.575f, EdgeHeightFullWeight = 0.575f;
@@ -469,6 +470,9 @@ namespace
 				const TArray<TSharedPtr<FJsonValue>>& Fade = (*Calibration)->GetArrayField(TEXT("fade_cm"));
 				Out.Turf.CalibrationFadeStartCm = float(Fade[0]->AsNumber());
 				Out.Turf.CalibrationFadeEndCm = float(Fade[1]->AsNumber());
+				const TArray<TSharedPtr<FJsonValue>>& TuftSize = (*Calibration)->GetArrayField(TEXT("dry_tuft_diameter_m"));
+				Out.Turf.DryTuftMinCm = float(TuftSize[0]->AsNumber() * 100);
+				Out.Turf.DryTuftMaxCm = float(TuftSize[1]->AsNumber() * 100);
 			}
 			const TSharedPtr<FJsonObject>* Response = nullptr;
 			if ((*Turf)->TryGetObjectField(TEXT("canopy_response"), Response))
@@ -863,9 +867,34 @@ return lerp(Texture2DSampleGrad(Scan,ScanSampler,UV,dx,dy).rgb,varied,blend);
 				}
 			}
 		}
-		TArray<uint64> PaletteKeys;
+		TArray<float> PaletteValues;
+		PaletteValues.Init(0, Leaves.Num());
+		FRandomStream TuftRandom(173);
+		const float TuftDiameter = (Turf.DryTuftMinCm + Turf.DryTuftMaxCm) * 0.5f;
+		if (TuftDiameter > 0)
+		{
+			const int32 PatchCount = FMath::RoundToInt(2 * FMath::Square(Turf.LawnRepeatCm / TuftDiameter));
+			for (int32 Patch = 0; Patch < PatchCount; ++Patch)
+			{
+				const int32 CentreX = TuftRandom.RandRange(0, Pixels - 1), CentreY = TuftRandom.RandRange(0, Pixels - 1);
+				const float Radius = TuftRandom.FRandRange(Turf.DryTuftMinCm, Turf.DryTuftMaxCm) * Pixels / Turf.LawnRepeatCm * 0.5f;
+				const float Strength = TuftRandom.FRandRange(-1, 1);
+				const int32 Reach = FMath::CeilToInt(Radius);
+				for (int32 Dy = -Reach; Dy <= Reach; ++Dy)
+				{
+					for (int32 Dx = -Reach; Dx <= Reach; ++Dx)
+					{
+						const float R2 = (Dx * Dx + Dy * Dy) / FMath::Square(Radius);
+						if (R2 >= 1) continue;
+						const int32 X = (CentreX + Dx + Pixels) % Pixels, Y = (CentreY + Dy + Pixels) % Pixels;
+						PaletteValues[Y * Pixels + X] += Strength * FMath::Square(1 - R2);
+					}
+				}
+			}
+		}
+		TArray<uint32> PaletteTies;
 		TArray<int32> PaletteOrder;
-		PaletteKeys.Reserve(Leaves.Num());
+		PaletteTies.Reserve(Leaves.Num());
 		PaletteOrder.Reserve(Leaves.Num());
 		for (int32 Index = 0; Index < Leaves.Num(); ++Index)
 		{
@@ -873,10 +902,14 @@ return lerp(Texture2DSampleGrad(Scan,ScanSampler,UV,dx,dy).rgb,varied,blend);
 			Tie = (Tie ^ (Tie >> 16)) * 0x7feb352du;
 			Tie = (Tie ^ (Tie >> 15)) * 0x846ca68bu;
 			Tie ^= Tie >> 16;
-			PaletteKeys.Add((uint64(Leaves[Index].G) << 40) | (uint64(Leaves[Index].B) << 32) | Tie);
+			PaletteValues[Index] += Leaves[Index].G * (0.15f / 255) + Leaves[Index].B * (0.015f / 255);
+			PaletteTies.Add(Tie);
 			PaletteOrder.Add(Index);
 		}
-		PaletteOrder.Sort([&](int32 A, int32 B) { return PaletteKeys[A] < PaletteKeys[B]; });
+		PaletteOrder.Sort([&](int32 A, int32 B)
+		{
+			return PaletteValues[A] == PaletteValues[B] ? PaletteTies[A] < PaletteTies[B] : PaletteValues[A] < PaletteValues[B];
+		});
 		TArray<float> PaletteRank;
 		PaletteRank.SetNumUninitialized(Leaves.Num());
 		for (int32 Rank = 0; Rank < PaletteOrder.Num(); ++Rank) PaletteRank[PaletteOrder[Rank]] = (Rank + 0.5f) / PaletteOrder.Num();
