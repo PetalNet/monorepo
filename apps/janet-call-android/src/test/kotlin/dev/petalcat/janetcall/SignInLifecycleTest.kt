@@ -101,6 +101,19 @@ class SignInLifecycleTest {
 		assertEquals(old, Settings(app).pairing())
 	}
 
+	@Test fun `a fresh browser return is handled when Android restores saved activity state`() {
+		val callback = start().replace("code=one-use", "error=access_denied")
+		val intent = android.content.Intent(app, MainActivity::class.java)
+			.setAction(android.content.Intent.ACTION_VIEW).setData(android.net.Uri.parse(callback))
+		val activity = Robolectric.buildActivity(MainActivity::class.java, intent)
+			.create(android.os.Bundle()).start().resume().visible()
+		idle()
+		assertNull("the provider refusal consumed the restored request", Settings(app).pendingSignIn())
+		assertEquals(old, Settings(app).pairing())
+		assertTrue(SignIn.message.contains("declined"))
+		activity.pause().stop().destroy()
+	}
+
 	@Test fun `a matching callback is durably consumed before exchange and cannot replay`() {
 		val callback = start()
 		val started = CountDownLatch(1)

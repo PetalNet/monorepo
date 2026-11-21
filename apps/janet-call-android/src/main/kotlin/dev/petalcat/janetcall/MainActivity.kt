@@ -53,10 +53,12 @@ class MainActivity : ComponentActivity() {
 		super.onCreate(savedInstanceState)
 		content = ComposeView(this).apply { setContent { JanetTheme { Root() } } }
 		setContentView(content)
+		// A browser return can recreate a killed activity with saved state. PKCE consumption, not
+		// activity restoration, decides whether that return is still valid.
+		takeSignIn(intent)
 		// A restored activity is handed the intent it was first started with. That link was already
 		// answered or cancelled, so only a first creation reads it.
 		if (savedInstanceState == null) {
-			takeSignIn(intent)
 			takePairingLink(intent)
 			content.post { takeCallShortcut(intent) }
 		}
