@@ -11,6 +11,8 @@ services:
       - map-data:/data
     environment:
       - DATABASE_URL=file:/data/local.db
+      # Signs session cookies. Generate on the host: openssl rand -base64 48
+      - SESSION_SECRET=${SESSION_SECRET:?set SESSION_SECRET to sign session cookies}
 
 volumes:
   map-data:
