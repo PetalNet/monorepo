@@ -36,6 +36,11 @@ class BargeIn:
         self.reference = np.concatenate((self.reference, samples))[-24000:]
         self.playback_at = now
 
+    def gap(self) -> None:
+        self.pending = b""
+        self.evidence.clear()
+        self.last_frame_at = None
+
     def feed(self, pcm: bytes, *, protected: bool, now: float) -> bool:
         np = self.np
         self.pending += pcm

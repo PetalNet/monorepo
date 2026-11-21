@@ -711,6 +711,7 @@ class Call:
                     self.received_samples += len(message) // 2
                     self.audio_progress.set()
                     if gap:
+                        self.barge_in.gap()
                         endpointer.gap()
                         log.info("call %s: audio gap; requiring fresh received silence", self.conversation)
                     if self.config.record_dir:
@@ -969,8 +970,6 @@ class Call:
                 if self.ring is not None and self.ring.state != "audio_connected" and not self.ring.snapshot():
                     raise OSError("the incoming ring expired before audio")
                 await self.send_audio(chunk, rate)
-                if self.barge_in is not None:
-                    self.barge_in.played(chunk, rate, time.monotonic())
                 if turn is not None and "first_audio_at" not in turn:
                     elapsed = round((time.monotonic() - ended) * 1000)
                     turn["endpoint_to_audio_ms"] = elapsed if turn.get("endpoint_reason") != "shared_detector" else None
@@ -995,6 +994,8 @@ class Call:
         self.heard.append(sentence)
 
     async def send_audio(self, pcm: bytes, rate: int) -> bool:
+        if self.barge_in is not None:
+            self.barge_in.played(pcm, rate, time.monotonic())
         if not self.opus:
             await self.ws.send(pcm)
             return bool(pcm)
@@ -1055,6 +1056,7 @@ class Call:
                     await asyncio.sleep(max(0, began + sent / (rate * 2) - 0.08 - time.monotonic()))
             if not audio_sent:
                 raise OSError("the voice returned no audio")
+            await asyncio.sleep(max(0, began + sent / (rate * 2) - time.monotonic()))
             self.transcript.append(("Janet", sentence))
             self.heard.append(sentence)
         except asyncio.CancelledError:

@@ -60,6 +60,15 @@ class BargeInTest(unittest.TestCase):
         self.assertFalse(gate.feed(bytes(1024), protected=False, now=.24))
         self.assertFalse(gate.feed(speech() * 15, protected=False, now=.48))
 
+    def test_packet_gap_discards_stale_speech_evidence(self):
+        gate = BargeIn(lambda _: .99)
+        for i in range(14):
+            self.assertFalse(gate.feed(speech(), protected=False, now=i * .032))
+        gate.gap()
+        self.assertFalse(gate.feed(speech(), protected=False, now=.45))
+        self.assertEqual(gate.status["speech_ms"], 32)
+        self.assertEqual(gate.status["receive_ms"], 0)
+
     def test_paced_hundred_ms_packets_can_interrupt(self):
         gate = BargeIn(lambda _: .99)
         results = [gate.feed(speech() * 3, protected=False, now=i * .096) for i in range(8)]
