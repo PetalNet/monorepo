@@ -14,8 +14,18 @@ import numpy as np
 from chatterbox_wyoming import MODEL_RATE, SynthesisError, Voice, WyomingHandler, http_handler, louder, time_stretch
 from wyoming.tts import Synthesize
 
+
+class CudaOutOfMemoryError(RuntimeError):
+    pass
+
+
 FAKE_TORCH = types.SimpleNamespace(
-    cuda=types.SimpleNamespace(synchronize=lambda: None, empty_cache=lambda: None, memory_reserved=lambda: 0)
+    cuda=types.SimpleNamespace(
+        synchronize=lambda: None,
+        empty_cache=lambda: None,
+        memory_reserved=lambda: 0,
+        OutOfMemoryError=CudaOutOfMemoryError,
+    )
 )
 
 
@@ -225,6 +235,119 @@ class FailedSynthesisTest(unittest.TestCase):
 
         self.assertEqual(alive_at_load, [[], [False]])
         self.assertEqual([ref() for ref in models], [None, None])
+
+
+class ColdLoadTest(unittest.TestCase):
+    def setUp(self):
+        self.runtime = types.SimpleNamespace(OptimizedTurboVoice=mock.Mock())
+        self.enterContext(mock.patch.dict(sys.modules, torch=FAKE_TORCH, optimized_voice=self.runtime))
+        self.enterContext(mock.patch("chatterbox_wyoming.gpu_stats", return_value={"free_vram_gb": 0}))
+        self.now = 0.0
+        self.enterContext(mock.patch("chatterbox_wyoming.time.monotonic", side_effect=lambda: self.now))
+        self.sleep = self.enterContext(mock.patch("chatterbox_wyoming.time.sleep", side_effect=self.advance))
+        self.voice = Voice("", 0, 600)
+        self.addCleanup(self.voice.worker.shutdown)
+        self.model = mock.Mock()
+        self.model.speak.return_value = np.array([0.1])
+        self.runtime.OptimizedTurboVoice.return_value = self.model
+
+    def advance(self, seconds):
+        self.now += seconds
+
+    def speak(self):
+        with self.voice.request():
+            result = self.voice.speak("Hello.").result(timeout=3)
+        self.assertEqual(self.voice.pending, 0)
+        self.assertFalse(self.voice.status()["busy"])
+        return result
+
+    def test_normal_load_and_warm_synthesis_never_wait(self):
+        self.speak()
+        self.speak()
+        self.runtime.OptimizedTurboVoice.assert_called_once_with()
+        self.sleep.assert_not_called()
+        self.assertIs(self.voice.model, self.model)
+
+    def test_memory_recovers_after_renderer_exit(self):
+        def load():
+            self.assertTrue(self.voice.status()["busy"])
+            self.assertIsNone(self.voice.unload())
+            if self.now < 2.0:
+                raise CudaOutOfMemoryError("CUDA out of memory")
+            return self.model
+
+        self.runtime.OptimizedTurboVoice.side_effect = load
+        np.testing.assert_allclose(self.speak(), [0.1])
+        self.assertEqual(self.now, 2.0)
+        self.assertEqual(self.runtime.OptimizedTurboVoice.call_count, 5)
+
+    def test_exhaustion_is_bounded_and_releases_request(self):
+        self.runtime.OptimizedTurboVoice.side_effect = CudaOutOfMemoryError("CUDA out of memory")
+        with self.assertRaisesRegex(SynthesisError, "CUDA out of memory"):
+            self.speak()
+        self.assertEqual(self.now, 5.0)
+        self.assertEqual(self.runtime.OptimizedTurboVoice.call_count, 10)
+        self.assertIsNone(self.voice.model)
+        self.assertEqual(self.voice.pending, 0)
+        self.assertFalse(self.voice.status()["busy"])
+
+    def test_slow_failed_load_does_not_restart_after_deadline(self):
+        def load():
+            self.advance(6.0)
+            raise CudaOutOfMemoryError("CUDA out of memory")
+
+        self.runtime.OptimizedTurboVoice.side_effect = load
+        with self.assertRaisesRegex(SynthesisError, "CUDA out of memory"):
+            self.speak()
+        self.runtime.OptimizedTurboVoice.assert_called_once_with()
+        self.sleep.assert_not_called()
+
+    def test_non_memory_load_failures_are_not_retried(self):
+        for error in (ValueError("bad checkpoint"), RuntimeError("CUDA device error"), MemoryError("CPU memory")):
+            with self.subTest(error=error):
+                self.runtime.OptimizedTurboVoice.reset_mock()
+                self.runtime.OptimizedTurboVoice.side_effect = error
+                with self.assertRaisesRegex(SynthesisError, str(error)):
+                    self.speak()
+                self.runtime.OptimizedTurboVoice.assert_called_once_with()
+                self.sleep.assert_not_called()
+                self.assertIsNone(self.voice.model)
+
+    def test_partial_model_is_collected_before_retry(self):
+        partials = []
+
+        class PartialModel:
+            def __init__(self):
+                partials.append(weakref.ref(self))
+                self.cycle = self
+                raise CudaOutOfMemoryError("CUDA out of memory")
+
+        def load():
+            if not partials:
+                return PartialModel()
+            self.assertIsNone(partials[0]())
+            return self.model
+
+        self.runtime.OptimizedTurboVoice.side_effect = load
+        with mock.patch.object(FAKE_TORCH.cuda, "empty_cache") as empty_cache:
+
+            def wait(seconds):
+                self.assertIsNone(partials[0]())
+                empty_cache.assert_called_once()
+                self.advance(seconds)
+
+            self.sleep.side_effect = wait
+            self.speak()
+        self.assertEqual(self.runtime.OptimizedTurboVoice.call_count, 2)
+
+    def test_warm_synthesis_oom_is_not_retried(self):
+        self.model.speak.side_effect = CudaOutOfMemoryError("CUDA out of memory")
+        with self.assertRaisesRegex(SynthesisError, "CUDA out of memory"):
+            self.speak()
+        self.runtime.OptimizedTurboVoice.assert_called_once_with()
+        self.model.speak.assert_called_once()
+        self.sleep.assert_not_called()
+        self.assertIsNone(self.voice.model)
 
 
 class GainTest(unittest.TestCase):

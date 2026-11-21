@@ -17,7 +17,12 @@ serves:
   `{"error": "synthesis in progress or queued"}` without unloading when busy. A later
   synthesis loads the model again.
 
-The model loads on the first request and unloads after `idle_unload_seconds` without
+The model loads on the first request. If a cold load runs out of CUDA memory, it
+releases partial model allocations and retries every 500 ms for up to five seconds,
+giving a renderer time to exit when a call starts. A load already in progress can
+finish beyond that window; no further attempt starts after it expires. Other load
+errors and errors during synthesis fail immediately.
+The model unloads after `idle_unload_seconds` without
 requests (default 600 seconds), so other GPU applications get the memory back. Active requests prevent idle unloading, and `/status` reports them as busy. After each synthesis it also
 releases PyTorch's cached GPU blocks, because a long sentence group can briefly need
 much more memory than the loaded model. One worker thread runs every synthesis, so
