@@ -1201,7 +1201,7 @@ return lerp(Texture2DSampleGrad(Scan,ScanSampler,UV,dx,dy).rgb,varied,blend);
 		Origin->Constant = FLinearColor(0, 0, 0);
 		UMaterialExpressionTransformPosition* Root = Node<UMaterialExpressionTransformPosition>(Material, -900, 1150);
 		Root->Input.Connect(0, Origin);
-		Root->TransformSourceType = TRANSFORMPOSSOURCE_Local;
+		Root->TransformSourceType = Variety.Name == FName(TEXT("near")) ? TRANSFORMPOSSOURCE_Instance : TRANSFORMPOSSOURCE_Local;
 		Root->TransformType = TRANSFORMPOSSOURCE_World;
 		UMaterialExpression* BladeRoot = Root;
 		if (Variety.Name != FName(TEXT("broadleaf")))
@@ -1214,7 +1214,7 @@ return lerp(Texture2DSampleGrad(Scan,ScanSampler,UV,dx,dy).rgb,varied,blend);
 			LocalRoot->A.Connect(0, BladeRootUv);
 			LocalRoot->B.Connect(0, Node<UMaterialExpressionConstant>(Material, -1500, 1700));
 			PerBladeRoot->Input.Connect(0, LocalRoot);
-			PerBladeRoot->TransformSourceType = TRANSFORMPOSSOURCE_Local;
+			PerBladeRoot->TransformSourceType = Variety.Name == FName(TEXT("near")) ? TRANSFORMPOSSOURCE_Instance : TRANSFORMPOSSOURCE_Local;
 			PerBladeRoot->TransformType = TRANSFORMPOSSOURCE_World;
 			BladeRoot = PerBladeRoot;
 		}
