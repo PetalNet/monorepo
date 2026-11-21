@@ -141,14 +141,14 @@ TALL_OVER_MOWED = 1.5
 # Priors: the lens and frame a still is taken with. They set how wide a blade has to be to show at a distance.
 LENS_FOV_DEG = 90.0
 FRAME_PX = 1920
-# A prior: a blade of the near variety is this wide at its root, in centimetres. Real blades are a third of it; drawn
-# at a third, a blade is under a pixel beyond two metres and the sward is noise.
+# Default root widths in centimetres retain the distant geometry; the near variety overrides them with finer leaves.
 NEAR_BLADE_WIDTH_CM = (0.8, 1.4)
 # Priors, looks with no source: the leaf area index each variety is drawn at, how many blades stand in one tuft and
 # how wide the tuft is, how far out each is drawn, that none casts a shadow (a tuft's own shadow blackens it against
 # a sward that has none), and how much a tuft's size varies. The index of real mown turf is several times the near one: what is
 # drawn is the top of the sward, and the ground's own colour under it is the rest.
-NEAR = {"leaf_area_index": 2.0, "blades": 24, "radius_cm": 14.0, "start_cull_cm": 600, "end_cull_cm": 1000}
+NEAR = {"leaf_area_index": 2.0, "blades": 48, "blade_width_cm": [0.4, 0.7], "radius_cm": 14.0,
+        "start_cull_cm": 600, "end_cull_cm": 1000}
 CLUMP = {"leaf_area_index": 0.2, "blades": 24, "radius_cm": 22.5, "start_cull_cm": 2500, "end_cull_cm": 6500,
          "appear_cm": [800, 1500]}
 TALL = {"leaf_area_index": 0.02, "blades": 8, "radius_cm": 6.0, "start_cull_cm": 2500, "end_cull_cm": 5000}
@@ -160,8 +160,8 @@ ROOT_SHADE, TIP_SHADE = 0.65, 1.12
 PRIORS = [
     f"prior: leaf area index drawn: {NEAR['leaf_area_index']:g} (near), {CLUMP['leaf_area_index']:g} (clump), {TALL['leaf_area_index']:g} (tall)",
     "prior: blade count, tuft radius, size spread and draw distance of each variety",
-    f"prior: a near blade is {NEAR_BLADE_WIDTH_CM[0]:g} to {NEAR_BLADE_WIDTH_CM[1]:g} cm wide at the root",
-    f"prior: stills have a {LENS_FOV_DEG:g} degree lens and {FRAME_PX} pixels across; a far blade is a pixel wide where the near variety ends",
+    f"prior: a near blade is {NEAR['blade_width_cm'][0]:g} to {NEAR['blade_width_cm'][1]:g} cm wide at the root",
+    f"prior: stills have a {LENS_FOV_DEG:g} degree lens and {FRAME_PX} pixels across; a far blade is a pixel wide at the clump's full-size distance of {CLUMP['appear_cm'][1] / 100:g} m",
     f"prior: tall tufts stand {TALL_OVER_MOWED:g} times the mowing range (the one-third rule of mowing)",
     f"prior: a blade is {ROOT_SHADE:g} of its colour at the root and {TIP_SHADE:g} at the tip",
     "prior: no variety casts a shadow",
@@ -177,9 +177,10 @@ def pixel_cm(distance_cm: float) -> float:
 def _variety(name: str, spec: dict, height_cm: tuple[float, float], source: str) -> dict:
     # Preserve the approved distant blades while the denser near layer ends sooner.
     wide = pixel_cm(spec["appear_cm"][1]) if name == "clump" else 0.0
+    root_width = spec.get("blade_width_cm", NEAR_BLADE_WIDTH_CM)
     width = (
-        max(NEAR_BLADE_WIDTH_CM[0], wide),
-        max(NEAR_BLADE_WIDTH_CM[1], wide * NEAR_BLADE_WIDTH_CM[1] / NEAR_BLADE_WIDTH_CM[0]),
+        max(root_width[0], wide),
+        max(root_width[1], wide * root_width[1] / root_width[0]),
     )
     # A blade tapers from its root width to a point: half its width times its height, both at the middle of their range.
     blade_cm2 = sum(width) / 2 * sum(height_cm) / 2 / 2
