@@ -190,7 +190,7 @@ namespace
 		// measured with the grain. One white entry when the build has no grain.
 		TArray<FLinearColor> BladeColours;
 		FString ConditionFile;
-		TArray<FLinearColor> FieldMeans, FieldContrasts;
+		TArray<FLinearColor> FieldMeans, VegetationMeans, FieldContrasts;
 		float DryTuftCm = 0, CalibrationFadeStartCm = 0, CalibrationFadeEndCm = 0;
 	};
 
@@ -455,6 +455,7 @@ namespace
 					const FLinearColor Dry = Colour(Surface->GetArrayField(TEXT("dry")));
 					const TArray<TSharedPtr<FJsonValue>>& Mix = Surface->GetArrayField(TEXT("mix"));
 					Out.Turf.FieldMeans.Add(Green * float(Mix[0]->AsNumber()) + Dry * float(Mix[1]->AsNumber()) + Soil * float(Mix[2]->AsNumber()));
+					Out.Turf.VegetationMeans.Add((Green * float(Mix[0]->AsNumber()) + Dry * float(Mix[1]->AsNumber())) / float(Mix[0]->AsNumber() + Mix[1]->AsNumber()));
 					Out.Turf.FieldContrasts.Add(Dry - Green);
 				}
 				const TArray<TSharedPtr<FJsonValue>>& Diameter = (*Calibration)->GetArrayField(TEXT("dry_tuft_diameter_m"));
@@ -754,7 +755,7 @@ return lerp(Texture2DSampleGrad(Scan,ScanSampler,UV,dx,dy).rgb,varied,blend);
 	}
 
 	UMaterialExpression* CalibrateTurf(UMaterial* Material, UMaterialExpression* Macro, UTexture2D* Condition,
-		UMaterialExpression* Coords, UMaterialExpression* Here, UMaterialExpression* Eye, const FTurf& Turf)
+		UMaterialExpression* Coords, UMaterialExpression* Here, UMaterialExpression* Eye, const FTurf& Turf, bool bVegetation = false)
 	{
 		if (!Condition || Turf.FieldMeans.IsEmpty())
 		{
@@ -783,7 +784,8 @@ return lerp(Texture2DSampleGrad(Scan,ScanSampler,UV,dx,dy).rgb,varied,blend);
 		};
 		Colour->Code = FString::Printf(TEXT("float blend=1-smoothstep(%.3f,%.3f,distance(Here,Eye));\n[branch] if(blend<=0) return Macro;\n"),
 			Turf.CalibrationFadeStartCm, Turf.CalibrationFadeEndCm);
-		Colour->Code += TEXT("float3 mean=lerp(lerp(") + Vector(Turf.FieldMeans[0]) + TEXT(",") + Vector(Turf.FieldMeans[1]) + TEXT(",Condition.r),") + Vector(Turf.FieldMeans[2]) + TEXT(",Condition.g);\n");
+		const TArray<FLinearColor>& Means = bVegetation ? Turf.VegetationMeans : Turf.FieldMeans;
+		Colour->Code += TEXT("float3 mean=lerp(lerp(") + Vector(Means[0]) + TEXT(",") + Vector(Means[1]) + TEXT(",Condition.r),") + Vector(Means[2]) + TEXT(",Condition.g);\n");
 		Colour->Code += TEXT("float3 contrast=lerp(lerp(") + Vector(Turf.FieldContrasts[0]) + TEXT(",") + Vector(Turf.FieldContrasts[1]) + TEXT(",Condition.r),") + Vector(Turf.FieldContrasts[2]) + TEXT(",Condition.g);\n");
 		Colour->Code += FString::Printf(TEXT("float2 p=Here.xy/%.6f;\n"), Turf.DryTuftCm);
 		// A zero-mean colour modulation retains the projected-area mixture without treating it as blade counts.
@@ -968,7 +970,7 @@ return lerp(Macro,max(mean+contrast*variation,0),blend);
 		Albedo->A.Connect(0, Ground);
 		Albedo->ConstB = Manifest.AlbedoScale;
 		UMaterialExpressionCameraPositionWS* ColourEye = Node<UMaterialExpressionCameraPositionWS>(Material, -800, -750);
-		UMaterialExpression* FieldAlbedo = CalibrateTurf(Material, Albedo, Condition, Coords, Place, ColourEye, Manifest.Turf);
+		UMaterialExpression* FieldAlbedo = CalibrateTurf(Material, Albedo, Condition, Coords, Place, ColourEye, Manifest.Turf, true);
 
 		// The mesh's vertex colour is how far up the blade the point is: 0 at the root, 1 at the tip.
 		UMaterialExpressionVertexColor* Along = Node<UMaterialExpressionVertexColor>(Material, -800, 400);
@@ -1014,7 +1016,8 @@ return lerp(Macro,max(mean+contrast*variation,0),blend);
 		RootScan->SamplerType = SAMPLERTYPE_Color;
 		RootScan->SamplerSource = SSM_Wrap_WorldGroupSettings;
 		RootScan->Coordinates.Connect(0, ScanUv);
-		UMaterialExpression* Substrate = TurfSubstrate(Material, FieldAlbedo, RootScan, GrassLayerData, Manifest.Turf.RootShade);
+		UMaterialExpression* SubstrateAlbedo = CalibrateTurf(Material, Albedo, Condition, Coords, Place, ColourEye, Manifest.Turf);
+		UMaterialExpression* Substrate = TurfSubstrate(Material, SubstrateAlbedo, RootScan, GrassLayerData, Manifest.Turf.RootShade);
 		UMaterialExpressionCustom* RootColour = Node<UMaterialExpressionCustom>(Material, 50, 50);
 		RootColour->OutputType = CMOT_Float3;
 		RootColour->Inputs.Empty();
