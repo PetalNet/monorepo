@@ -185,7 +185,7 @@ Markings intersecting that field become color regions in one opaque registered a
 including local RGBA artwork. All colors share a streamed 1.7–3.5 cm ribbon pile near the camera,
 filtered tuft rows, irregular black infill, fiber normals, roughness
 and grazing reflection. Alternating pile direction and narrow roll seams follow the configured heading.
-The pile uses the existing Landscape grass streaming system. Ribbons carry six narrow filaments;
+The pile uses the existing Landscape grass streaming system. Ribbons carry three flat filaments;
 their height fades from 2 to 5.8 m before instance culling at 6 m. Per-ribbon variation breaks up
 repeated patches while retaining manufactured rows.
 Its conservative footprint mask clips fibers at field boundaries to within a mask texel;
@@ -225,9 +225,10 @@ not proof of synthetic turf. Record imagery cues, available OSM surface tags and
 record absent tags honestly. Both the original and effective decisions appear in the stage and output JSON.
 
 Natural fields retain the Landscape's grass material and blade population, without a flat field overlay.
-Lines split at field boundaries: paint in grass uses a faded, fiber-broken finish 2.7 cm above terrain;
-portions on clay or paving retain the existing paint finish. Natural-field image marks use the same
-grass-paint finish. `turf` without a field record retains its legacy behavior.
+Lines split at field boundaries. Grass paint projects a faded color onto the terrain and natural grass
+blades. Its footprint follows the marking triangles, preserving registered image alpha and color.
+The original mesh remains in the semantic depth pass only. Portions on clay or paving retain the
+existing paint finish. Natural-field image marks use the same projected paint. `turf` without a field record retains its legacy behavior.
 
 Synthetic color atlases target 3 cm texels, bounded by 8192 pixels per side and 32 million pixels total.
 They are opaque color textures with content-addressed filenames, included in the manifest artifact hashes.

@@ -1,6 +1,7 @@
 """Field decisions alter surface construction and markings together."""
 
 import copy
+import io
 import json
 
 import numpy as np
@@ -166,3 +167,12 @@ def test_clay_and_track_marks_stay_above_the_hard_surface(tmp_path, surface):
         for tri in mesh["triangles"]:
             centre = [sum(mesh["vertices"][i][axis] for i in tri) / 3 for axis in (0, 1)]
             assert not (0 < centre[0] < 4 and 2 < centre[1] < 6)
+
+
+def test_synthetic_line_between_atlas_pixel_centers():
+    surface = feature("surface", material="athletic_turf", ring=[[0, 0], [3, 0], [3, 3], [0, 3]])
+    line = feature("line", material="paint_white", points=[[0, 1.5], [3, 1.5]], width_m=0.004)
+    _, data, _ = colour_atlas(surface, [line], {})
+    pixels = np.asarray(Image.open(io.BytesIO(data)))
+    assert np.any(np.all(pixels[49:51, :, :3] > 200, axis=2))
+    assert np.all(pixels[0, :, 0] < 100)

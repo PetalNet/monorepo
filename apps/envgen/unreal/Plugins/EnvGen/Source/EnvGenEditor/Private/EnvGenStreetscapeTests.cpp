@@ -2,6 +2,8 @@
 
 #if WITH_DEV_AUTOMATION_TESTS
 #include "Components/StaticMeshComponent.h"
+#include "Components/DecalComponent.h"
+#include "Engine/DecalActor.h"
 #include "Dom/JsonObject.h"
 #include "Engine/StaticMesh.h"
 #include "Engine/StaticMeshActor.h"
@@ -169,6 +171,18 @@ bool FEnvGenStreetscapeDecal::RunTest(const FString& Parameters)
 			TestTrue(TEXT("no actors on failure"), Actors.IsEmpty());
 			TestNotEqual(TEXT("failure precedes world creation"), Error, FString(TEXT("streetscape needs a world after validation")));
 		}
+		if (bGrassPaint)
+		{
+			for (const FString& Vertices : {
+				FString(TEXT("[[10,20,0.027],[10,23,0.027],[10,26,1.027]]")),
+				FString(TEXT("[[10,20,0.027],[12,23,0.027],[14,26,1.027]]"))})
+			{
+				WriteRow(TEXT("{\"material\":\"grass_paint_decal\",\"image\":\"mark.png\",\"bounds_m\":[10,20,14,26],\"vertices\":")
+					+ Vertices + TEXT(",\"triangles\":[[0,1,2]],\"collision\":false}"));
+				TestFalse(TEXT("vertical and diagonal zero-area paint projections fail preflight"), ValidateEnvGenStreetscape(ManifestPath, Height, Error));
+			}
+			WriteRow(Row);
+		}
 		WriteRow(Row);
 		FFileHelper::SaveStringToFile(TEXT("corrupt PNG"), *ImagePath);
 		TestFalse(TEXT("corrupt PNG fails preflight"), ValidateEnvGenStreetscape(ManifestPath, Height, Error));
@@ -193,10 +207,24 @@ bool FEnvGenStreetscapeDecal::RunTest(const FString& Parameters)
 
 		UWorld* World = UWorld::CreateWorld(EWorldType::Editor, false);
 		if (!TestNotNull(TEXT("test world"), World)) return false;
+		ULandscapeGrassType* NaturalReceiver = nullptr;
+		if (bGrassPaint)
+		{
+			auto* Landscape = World->SpawnActor<ALandscape>();
+			Landscape->SetActorLabel(TEXT("EnvGenLandscape"));
+			auto* Ground = NewObject<UMaterial>();
+			Landscape->LandscapeMaterial = Ground;
+			auto* Output = CastChecked<UMaterialExpressionLandscapeGrassOutput>(UMaterialEditingLibrary::CreateMaterialExpression(Ground, UMaterialExpressionLandscapeGrassOutput::StaticClass()));
+			Output->GrassTypes.Empty();
+			NaturalReceiver = NewObject<ULandscapeGrassType>();
+			NaturalReceiver->GrassVarieties.AddDefaulted_GetRef().bReceivesDecals = false;
+			auto& Input = Output->GrassTypes.AddDefaulted_GetRef();
+			Input.Name = TEXT("NaturalControl"); Input.GrassType = NaturalReceiver;
+		}
 		TArray<UPackage*> Packages;
 		TArray<AActor*> Actors;
 		const bool bBuilt = BuildEnvGenStreetscape(World, ManifestPath, Height, Packages, Actors, MakeShared<FJsonObject>(), Error);
-		if (TestTrue(TEXT("build registered mesh"), bBuilt) && TestEqual(TEXT("one decal mesh"), Actors.Num(), 1))
+		if (TestTrue(TEXT("build registered mesh"), bBuilt) && TestEqual(TEXT("paint projects onto receivers and retains its semantic mesh"), Actors.Num(), bGrassPaint ? 2 : 1))
 		{
 			auto* Component = CastChecked<AStaticMeshActor>(Actors[0])->GetStaticMeshComponent();
 			UStaticMesh* Mesh = Component->GetStaticMesh();
@@ -206,6 +234,35 @@ bool FEnvGenStreetscapeDecal::RunTest(const FString& Parameters)
 			TestTrue(TEXT("decal material is masked"), CastChecked<UMaterial>(Component->GetMaterial(0))->BlendMode == BLEND_Masked);
 			if (bGrassPaint)
 			{
+				TestTrue(TEXT("existing natural blades receive paint"), NaturalReceiver->GrassVarieties[0].bReceivesDecals);
+				TestFalse(TEXT("grass paint has no visible flat overlay"), Component->bRenderInMainPass);
+				TestFalse(TEXT("semantic paint cannot occlude the visible ground"), Component->bRenderInDepthPass);
+				const auto* Projector = Cast<ADecalActor>(Actors[1]);
+				if (TestNotNull(TEXT("grass paint projects onto the blades and terrain"), Projector))
+				{
+					const auto* Projected = CastChecked<UMaterial>(Projector->GetDecal()->GetDecalMaterial());
+					TestTrue(TEXT("paint uses the deferred receiver surface"), Projected->MaterialDomain == MD_DeferredDecal);
+					TestTrue(TEXT("paint fades instead of cutting angular holes"), Projected->BlendMode == BLEND_Translucent);
+					for (UMaterialExpression* Expression : Projected->GetExpressions())
+					{
+						const auto* Sample = Cast<UMaterialExpressionTextureSample>(Expression);
+						if (!Sample) continue;
+						auto* Texture = CastChecked<UTexture2D>(Sample->Texture);
+						TestFalse(TEXT("blended paint mips average alpha without masked coverage inflation"), Texture->bDoScaleMipsForAlphaCoverage);
+						TArray64<uint8> Mip;
+						if (TestTrue(TEXT("read projected artwork"), Texture->Source.GetMipData(Mip, 0)))
+						{
+							const int32 W = Texture->Source.GetSizeX(), H = Texture->Source.GetSizeY();
+							for (int32 Y = 0; Y < 2; ++Y) for (int32 X = 0; X < 2; ++X)
+							{
+								const int64 At = (int64((Y * 2 + 1) * H / 4) * W + (X * 2 + 1) * W / 4) * 4;
+								const int32 Original = (Y * 2 + X) * 4;
+								TestEqual(TEXT("projected paint preserves registered color"), Mip[At + 2], Pixels[Original]);
+								TestEqual(TEXT("projected paint preserves source alpha including holes"), Mip[At + 3], Pixels[Original + 3]);
+							}
+						}
+					}
+				}
 				UMaterial* Material = CastChecked<UMaterial>(Component->GetMaterial(0));
 				bool bFoundAlpha = false;
 				for (UMaterialExpression* Expression : Material->GetExpressions())
@@ -219,7 +276,7 @@ bool FEnvGenStreetscapeDecal::RunTest(const FString& Parameters)
 							bFoundAlpha = Sample && Input.Input.OutputIndex == 4;
 							if (Sample)
 							{
-								const auto* Texture = CastChecked<UTexture2D>(Sample->Texture);
+								auto* Texture = CastChecked<UTexture2D>(Sample->Texture);
 								TestTrue(TEXT("grass artwork clamps registered UVs"), Texture->AddressX == TA_Clamp && Texture->AddressY == TA_Clamp);
 								TestTrue(TEXT("grass artwork retains alpha mip coverage"), Texture->bDoScaleMipsForAlphaCoverage);
 							}
@@ -245,6 +302,105 @@ bool FEnvGenStreetscapeDecal::RunTest(const FString& Parameters)
 		}
 		World->DestroyWorld(false);
 	}
+	WriteRow(TEXT(R"JSON({"material":"grass_paint_white","vertices":[[0.02,0,0.027],[0.024,0,0.027],[0.024,100,0.027],[0.02,100,0.027],[99.996,0,0.027],[100,0,0.027],[100,100,0.027],[99.996,100,0.027]],"triangles":[[0,1,2],[0,2,3],[4,5,6],[4,6,7]],"collision":false})JSON"));
+	UWorld* ThinWorld = UWorld::CreateWorld(EWorldType::Editor, false);
+	TArray<UPackage*> ThinPackages;
+	TArray<AActor*> ThinActors;
+	FString ThinError;
+	if (TestTrue(TEXT("build disconnected subpixel paint in a large bin"), BuildEnvGenStreetscape(ThinWorld, ManifestPath,
+		[](double, double) { return 0.; }, ThinPackages, ThinActors, MakeShared<FJsonObject>(), ThinError)))
+	{
+		for (UPackage* Package : ThinPackages)
+		{
+			auto* Texture = FindObject<UTexture2D>(Package, TEXT("T_GrassPaint_0000"));
+			if (!Texture) continue;
+			TArray64<uint8> Mip;
+			if (TestTrue(TEXT("read narrow paint footprint"), Texture->Source.GetMipData(Mip, 0)))
+			{
+				const int32 W = Texture->Source.GetSizeX(), H = Texture->Source.GetSizeY();
+				const int64 Row = int64(H / 2) * W * 4;
+				TestEqual(TEXT("left 4mm strip survives between pixel centers"), Mip[Row + 3], uint8(255));
+				TestEqual(TEXT("right 4mm strip survives the resolution cap"), Mip[Row + (W - 1) * 4 + 3], uint8(255));
+				TestEqual(TEXT("unpainted gap stays transparent"), Mip[Row + W / 2 * 4 + 3], uint8(0));
+				TestTrue(TEXT("transparent white paint retains RGB for fringe-free filtering"), Mip[Row + W / 2 * 4] > 200);
+			}
+		}
+	}
+	ThinWorld->DestroyWorld(false);
+	WriteRow(TEXT(R"JSON({"material":"grass_paint_white","vertices":[[0,1000000,0.027],[1,1000000.01,0.027],[0,1000000.02,1.027]],"triangles":[[0,1,2]],"collision":false})JSON"));
+	FString CollapsedError;
+	TestFalse(TEXT("paint rejects horizontal collapse after float conversion"), ValidateEnvGenStreetscape(ManifestPath,
+		[](double, double) { return 0.; }, CollapsedError));
+	TArray<uint8> NarrowPixels;
+	NarrowPixels.SetNumZeroed(10000 * 2 * 4);
+	for (int32 Y = 0; Y < 2; ++Y) for (int32 C = 0; C < 4; ++C) NarrowPixels[Y * 10000 * 4 + C] = 255;
+	Wrapper->SetRaw(NarrowPixels.GetData(), NarrowPixels.Num(), 10000, 2, ERGBFormat::RGBA, 8);
+	FFileHelper::SaveArrayToFile(Wrapper->GetCompressed(), *ImagePath);
+	WriteRow(TEXT(R"JSON({"material":"grass_paint_decal","image":"mark.png","bounds_m":[0,0,100,100],"vertices":[[0,0,0.027],[0.004,0,0.027],[0.004,100,0.027],[0,100,0.027],[99.996,0,0.027],[100,0,0.027],[100,100,0.027],[99.996,100,0.027]],"triangles":[[0,1,2],[0,2,3],[4,5,6],[4,6,7]],"collision":false})JSON"));
+	UWorld* NarrowWorld = UWorld::CreateWorld(EWorldType::Editor, false);
+	TArray<UPackage*> NarrowPackages;
+	TArray<AActor*> NarrowActors;
+	FString NarrowError;
+	if (TestTrue(TEXT("build subpixel registered alpha"), BuildEnvGenStreetscape(NarrowWorld, ManifestPath,
+		[](double, double) { return 0.; }, NarrowPackages, NarrowActors, MakeShared<FJsonObject>(), NarrowError)))
+	{
+		for (UPackage* Package : NarrowPackages)
+		{
+			auto* Texture = FindObject<UTexture2D>(Package, TEXT("T_GrassPaint_0000"));
+			if (!Texture) continue;
+			TArray64<uint8> Mip;
+			if (TestTrue(TEXT("read registered narrow footprint"), Texture->Source.GetMipData(Mip, 0)))
+				TestEqual(TEXT("source alpha survives footprint resampling"), Mip[3], uint8(255));
+		}
+	}
+	NarrowWorld->DestroyWorld(false);
+	for (int32 Y = 0; Y < 2; ++Y) for (int32 C = 0; C < 4; ++C)
+	{
+		NarrowPixels[Y * 10000 * 4 + C] = 0;
+		NarrowPixels[(Y * 10000 + 1) * 4 + C] = 255;
+	}
+	Wrapper->SetRaw(NarrowPixels.GetData(), NarrowPixels.Num(), 10000, 2, ERGBFormat::RGBA, 8);
+	FFileHelper::SaveArrayToFile(Wrapper->GetCompressed(), *ImagePath);
+	UWorld* ClippedWorld = UWorld::CreateWorld(EWorldType::Editor, false);
+	TArray<UPackage*> ClippedPackages;
+	TArray<AActor*> ClippedActors;
+	if (TestTrue(TEXT("build paint clipped away from opaque artwork"), BuildEnvGenStreetscape(ClippedWorld, ManifestPath,
+		[](double, double) { return 0.; }, ClippedPackages, ClippedActors, MakeShared<FJsonObject>(), NarrowError)))
+	{
+		for (UPackage* Package : ClippedPackages)
+		{
+			auto* Texture = FindObject<UTexture2D>(Package, TEXT("T_GrassPaint_0000"));
+			if (!Texture) continue;
+			TArray64<uint8> Mip;
+			if (TestTrue(TEXT("read clipped registered footprint"), Texture->Source.GetMipData(Mip, 0)))
+				TestEqual(TEXT("opaque source outside geometry cannot paint the shared pixel"), Mip[3], uint8(0));
+		}
+	}
+	ClippedWorld->DestroyWorld(false);
+	const uint8 OutsidePixels[] = {0,0,0,0, 0,0,0,0, 0,0,0,0, 255,255,255,255};
+	Wrapper->SetRaw(OutsidePixels, sizeof(OutsidePixels), 2, 2, ERGBFormat::RGBA, 8);
+	FFileHelper::SaveArrayToFile(Wrapper->GetCompressed(), *ImagePath);
+	WriteRow(TEXT(R"JSON({"material":"grass_paint_decal","image":"mark.png","bounds_m":[0,0,1,1],"vertices":[[0,1,0.027],[1,1,0.027],[0,0,0.027]],"triangles":[[0,1,2]],"collision":false})JSON"));
+	UWorld* DiagonalWorld = UWorld::CreateWorld(EWorldType::Editor, false);
+	TArray<UPackage*> DiagonalPackages;
+	TArray<AActor*> DiagonalActors;
+	if (TestTrue(TEXT("build paint touching opaque artwork at a diagonal corner"), BuildEnvGenStreetscape(DiagonalWorld, ManifestPath,
+		[](double, double) { return 0.; }, DiagonalPackages, DiagonalActors, MakeShared<FJsonObject>(), NarrowError)))
+	{
+		for (UPackage* Package : DiagonalPackages)
+		{
+			auto* Texture = FindObject<UTexture2D>(Package, TEXT("T_GrassPaint_0000"));
+			if (!Texture) continue;
+			TArray64<uint8> Mip;
+			if (TestTrue(TEXT("read diagonal clipping footprint"), Texture->Source.GetMipData(Mip, 0)))
+			{
+				int32 Covered = 0;
+				for (int64 I = 3; I < Mip.Num(); I += 4) Covered += Mip[I] > 0;
+				TestEqual(TEXT("zero-area diagonal source contact cannot create visible paint"), Covered, 0);
+			}
+		}
+	}
+	DiagonalWorld->DestroyWorld(false);
 	IFileManager::Get().DeleteDirectory(*Directory, false, true);
 	return true;
 }

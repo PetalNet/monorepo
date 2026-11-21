@@ -119,7 +119,11 @@ def colour_atlas(surface, features, images):
         shapes = [(polygon, 255) for polygon in shapes if polygon.intersects(box(*bounds))]
         if shapes:
             mask = rasterize(
-                shapes, out_shape=(height, width), transform=from_bounds(*bounds, width, height), dtype="uint8"
+                shapes,
+                out_shape=(height, width),
+                transform=from_bounds(*bounds, width, height),
+                dtype="uint8",
+                all_touched=True,
             )
             canvas.paste(colour, mask=Image.fromarray(mask))
     for f in features:

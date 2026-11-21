@@ -2,9 +2,11 @@
 
 #include "AssetRegistry/AssetRegistryModule.h"
 #include "Components/StaticMeshComponent.h"
+#include "Components/DecalComponent.h"
 #include "Dom/JsonObject.h"
 #include "Engine/StaticMesh.h"
 #include "Engine/StaticMeshActor.h"
+#include "Engine/DecalActor.h"
 #include "Engine/Texture2D.h"
 #include "Engine/World.h"
 #include "EngineUtils.h"
@@ -75,7 +77,7 @@ namespace
 		{TEXT("clay"), {FLinearColor(.34f, .23f, .14f), .97f, 0, 4}},
 		{TEXT("turf"), {FLinearColor(.065f, .08f, .0375f), .96f, 0, 0}},
 		{TEXT("natural_grass"), {FLinearColor(.065f, .08f, .0375f), .96f, 0, 0}},
-		{TEXT("athletic_turf"), {FLinearColor::FromSRGBColor(FColor(48, 100, 56)), .63f, 0, 0}},
+		{TEXT("athletic_turf"), {FLinearColor::FromSRGBColor(FColor(48, 100, 56)), .56f, 0, 0}},
 		{TEXT("grass_paint_white"), {FLinearColor(.723f, .716f, .791f), .96f, 0, 0}},
 		{TEXT("grass_paint_yellow"), {FLinearColor(.72f, .48f, .045f), .96f, 0, 0}},
 		{TEXT("paint_white"), {FLinearColor(.723f, .716f, .791f), .83f, 0, 5}},
@@ -302,6 +304,160 @@ return float4(colour,saturate(%.5f+.08*(wear-.5)+.08*crack));
 		return Material;
 	}
 
+	void ProjectGrassPaint(UWorld* World, int32 Index, const FMeshDescription& Description,
+		const FDecalImage* Source, const FVector4d& Registration, const FLinearColor& Colour,
+		TArray<UPackage*>& Packages, TArray<AActor*>& Actors)
+	{
+		const auto Positions = FStaticMeshConstAttributes(Description).GetVertexPositions();
+		FBox Bounds(ForceInit);
+		for (const FVertexID Vertex : Description.Vertices().GetElementIDs()) Bounds += FVector(Positions[Vertex]);
+		const double Width = Bounds.Max.Y - Bounds.Min.Y, Height = Bounds.Max.X - Bounds.Min.X;
+		const int32 WidthPx = int32(FMath::Clamp(FMath::CeilToDouble(Width / 2), 8., 4096.));
+		const int32 HeightPx = int32(FMath::Clamp(FMath::CeilToDouble(Height / 2), 8., 4096.));
+		TArray64<uint8> Pixels;
+		Pixels.SetNumZeroed(int64(WidthPx) * HeightPx * 4);
+		const FColor Solid = Colour.ToFColorSRGB();
+		const auto Cross = [](FVector2D A, FVector2D B) { return A.X * B.Y - A.Y * B.X; };
+		const auto Touches = [&](const FVector2D* Triangle, FVector2D Min, FVector2D Max)
+		{
+			if (Max.X <= FMath::Min3(Triangle[0].X, Triangle[1].X, Triangle[2].X)
+				|| Min.X >= FMath::Max3(Triangle[0].X, Triangle[1].X, Triangle[2].X)
+				|| Max.Y <= FMath::Min3(Triangle[0].Y, Triangle[1].Y, Triangle[2].Y)
+				|| Min.Y >= FMath::Max3(Triangle[0].Y, Triangle[1].Y, Triangle[2].Y)) return false;
+			const double Winding = FMath::Sign(Cross(Triangle[1] - Triangle[0], Triangle[2] - Triangle[0]));
+			const FVector2D Middle = (Min + Max) * .5, Half = (Max - Min) * .5;
+			for (int32 Edge = 0; Edge < 3; ++Edge)
+			{
+				const FVector2D Direction = Triangle[(Edge + 1) % 3] - Triangle[Edge];
+				if (Cross(Direction, Middle - Triangle[Edge]) * Winding
+					<= -(FMath::Abs(Direction.X) * Half.Y + FMath::Abs(Direction.Y) * Half.X)) return false;
+			}
+			return true;
+		};
+		const auto ColourAt = [&](int32 X, int32 Y, const FVector2D* Triangle = nullptr)
+		{
+			if (!Source) return Solid;
+			const double East0 = Bounds.Min.Y + double(X) / WidthPx * Width;
+			const double East1 = Bounds.Min.Y + double(X + 1) / WidthPx * Width;
+			const double North0 = Bounds.Max.X - double(Y) / HeightPx * Height;
+			const double North1 = Bounds.Max.X - double(Y + 1) / HeightPx * Height;
+			const int32 U0 = FMath::Clamp(FMath::FloorToInt((East0 * .01 - Registration.X) / Registration.Z * Source->Width), 0, Source->Width - 1);
+			const int32 U1 = FMath::Clamp(FMath::CeilToInt((East1 * .01 - Registration.X) / Registration.Z * Source->Width) - 1, U0, Source->Width - 1);
+			const int32 V0 = FMath::Clamp(FMath::FloorToInt((Registration.Y - North0 * .01) / Registration.W * Source->Height), 0, Source->Height - 1);
+			const int32 V1 = FMath::Clamp(FMath::CeilToInt((Registration.Y - North1 * .01) / Registration.W * Source->Height) - 1, V0, Source->Height - 1);
+			FColor Result(0, 0, 0, 0);
+			for (int32 V = V0; V <= V1; ++V) for (int32 U = U0; U <= U1; ++U)
+			{
+				if (Triangle)
+				{
+					const double X0 = ((Registration.X + double(U) / Source->Width * Registration.Z) * 100 - Bounds.Min.Y) / Width * WidthPx;
+					const double X1 = X0 + Registration.Z * 100 / Source->Width / Width * WidthPx;
+					const double Y0 = (Bounds.Max.X - (Registration.Y - double(V) / Source->Height * Registration.W) * 100) / Height * HeightPx;
+					const double Y1 = Y0 + Registration.W * 100 / Source->Height / Height * HeightPx;
+					if (!Touches(Triangle, FVector2D(FMath::Max(double(X), X0), FMath::Max(double(Y), Y0)),
+						FVector2D(FMath::Min(double(X + 1), X1), FMath::Min(double(Y + 1), Y1)))) continue;
+				}
+				const uint8* At = Source->Pixels.GetData() + (int64(V) * Source->Width + U) * 4;
+				if (At[3] >= Result.A) Result = FColor(At[2], At[1], At[0], At[3]);
+			}
+			return Result;
+		};
+		// Transparent texels retain paint RGB so filtering does not introduce a black fringe.
+		for (int32 Y = 0; Y < HeightPx; ++Y) for (int32 X = 0; X < WidthPx; ++X)
+		{
+			const FColor Pixel = ColourAt(X, Y);
+			uint8* At = Pixels.GetData() + (int64(Y) * WidthPx + X) * 4;
+			At[0] = Pixel.B; At[1] = Pixel.G; At[2] = Pixel.R;
+		}
+		const auto UV = [&](const FVector3f& P) { return FVector2D((P.Y - Bounds.Min.Y) / Width * WidthPx, (Bounds.Max.X - P.X) / Height * HeightPx); };
+		for (const FTriangleID Triangle : Description.Triangles().GetElementIDs())
+		{
+			const auto Corners = Description.GetTriangleVertices(Triangle);
+			const FVector2D A = UV(Positions[Corners[0]]), B = UV(Positions[Corners[1]]), C = UV(Positions[Corners[2]]);
+			const FVector2D Footprint[] = {A, B, C};
+			const int32 X0 = FMath::Clamp(FMath::FloorToInt(FMath::Min3(A.X, B.X, C.X)), 0, WidthPx - 1);
+			const int32 X1 = FMath::Clamp(FMath::CeilToInt(FMath::Max3(A.X, B.X, C.X)), 0, WidthPx - 1);
+			const int32 Y0 = FMath::Clamp(FMath::FloorToInt(FMath::Min3(A.Y, B.Y, C.Y)), 0, HeightPx - 1);
+			const int32 Y1 = FMath::Clamp(FMath::CeilToInt(FMath::Max3(A.Y, B.Y, C.Y)), 0, HeightPx - 1);
+			for (int32 Y = Y0; Y <= Y1; ++Y) for (int32 X = X0; X <= X1; ++X)
+			{
+				if (!Touches(Footprint, FVector2D(X, Y), FVector2D(X + 1, Y + 1))) continue;
+				const FColor Pixel = ColourAt(X, Y, Footprint);
+				uint8* At = Pixels.GetData() + (int64(Y) * WidthPx + X) * 4;
+				if (Pixel.A > At[3]) { At[0] = Pixel.B; At[1] = Pixel.G; At[2] = Pixel.R; At[3] = Pixel.A; }
+			}
+		}
+		UTexture2D* Texture = Asset<UTexture2D>(FString::Printf(TEXT("T_GrassPaint_%04d"), Index), Packages);
+		Texture->Source.Init(WidthPx, HeightPx, 1, 1, TSF_BGRA8, Pixels.GetData());
+		Texture->SRGB = true;
+		Texture->CompressionSettings = TC_Default;
+		Texture->AddressX = Texture->AddressY = TA_Clamp;
+		Texture->PowerOfTwoMode = ETexturePowerOfTwoSetting::StretchToPowerOfTwo;
+		Texture->MipGenSettings = TMGS_SimpleAverage;
+		Texture->bDoScaleMipsForAlphaCoverage = false;
+		Texture->PostEditChange();
+
+		UMaterial* Material = Asset<UMaterial>(FString::Printf(TEXT("M_ProjectedGrassPaint_%04d"), Index), Packages);
+		Material->MaterialDomain = MD_DeferredDecal;
+		Material->BlendMode = BLEND_Translucent;
+		auto* Position = CastChecked<UMaterialExpressionWorldPosition>(UMaterialEditingLibrary::CreateMaterialExpression(Material, UMaterialExpressionWorldPosition::StaticClass()));
+		auto* Coords = CastChecked<UMaterialExpressionCustom>(UMaterialEditingLibrary::CreateMaterialExpression(Material, UMaterialExpressionCustom::StaticClass()));
+		Coords->Inputs.Empty();
+		Coords->OutputType = CMOT_Float2;
+		FCustomInput& PositionInput = Coords->Inputs.AddDefaulted_GetRef();
+		PositionInput.InputName = TEXT("P"); PositionInput.Input.Connect(0, Position);
+		Coords->Code = FString::Printf(TEXT("return float2((P.y-(%.17g))/%.17g,((%.17g)-P.x)/%.17g);"), Bounds.Min.Y, Width, Bounds.Max.X, Height);
+		auto* Sample = CastChecked<UMaterialExpressionTextureSample>(UMaterialEditingLibrary::CreateMaterialExpression(Material, UMaterialExpressionTextureSample::StaticClass()));
+		Sample->Texture = Texture;
+		Sample->SamplerType = SAMPLERTYPE_Color;
+		Sample->Coordinates.Connect(0, Coords);
+		UMaterialEditingLibrary::ConnectMaterialProperty(Sample, TEXT("RGB"), MP_BaseColor);
+		auto* Opacity = CastChecked<UMaterialExpressionCustom>(UMaterialEditingLibrary::CreateMaterialExpression(Material, UMaterialExpressionCustom::StaticClass()));
+		Opacity->Inputs.Empty();
+		Opacity->OutputType = CMOT_Float1;
+		FCustomInput& MaskInput = Opacity->Inputs.AddDefaulted_GetRef();
+		MaskInput.InputName = TEXT("Mask"); MaskInput.Input.Connect(4, Sample);
+		FCustomInput& PlaceInput = Opacity->Inputs.AddDefaulted_GetRef();
+		PlaceInput.InputName = TEXT("P"); PlaceInput.Input.Connect(0, Position);
+		Opacity->Code = TEXT(R"HLSL(
+float2 q=P.xy*.45, i=floor(q), f=frac(q); f=f*f*(3-2*f);
+float a=frac(sin(dot(i,float2(127.1,311.7)))*43758.5453);
+float b=frac(sin(dot(i+float2(1,0),float2(127.1,311.7)))*43758.5453);
+float c=frac(sin(dot(i+float2(0,1),float2(127.1,311.7)))*43758.5453);
+float d=frac(sin(dot(i+1,float2(127.1,311.7)))*43758.5453);
+float visible=1-smoothstep(.25,1.,max(fwidth(q.x),fwidth(q.y)));
+float grain=lerp(.5,lerp(lerp(a,b,f.x),lerp(c,d,f.x),f.y),visible);
+return Mask*(.80+.12*grain);
+)HLSL");
+		UMaterialEditingLibrary::ConnectMaterialProperty(Opacity, TEXT(""), MP_Opacity);
+		UMaterialEditingLibrary::RecompileMaterial(Material);
+		ADecalActor* Actor = World->SpawnActor<ADecalActor>(Bounds.GetCenter(), FRotator(-90, 0, 0));
+		Actor->SetActorLabel(FString::Printf(TEXT("EnvGenGrassPaint_%04d"), Index));
+		Actor->Tags.Add(EnvGenStandingTag());
+		auto* Decal = Actor->GetDecal();
+		Decal->DecalSize = FVector((Bounds.Max.Z - Bounds.Min.Z) * .5 + 100, Width * .5, Height * .5);
+		Decal->SetFadeScreenSize(0);
+		Decal->SetDecalMaterial(Material);
+		Actors.Add(Actor);
+		for (TActorIterator<ALandscape> It(World); It; ++It)
+		{
+			if (It->GetActorLabel() != TEXT("EnvGenLandscape") || !It->LandscapeMaterial) continue;
+			for (UMaterialExpression* Expression : It->LandscapeMaterial->GetMaterial()->GetExpressions())
+			{
+				const auto* Output = Cast<UMaterialExpressionLandscapeGrassOutput>(Expression);
+				if (!Output) continue;
+				for (const FGrassInput& Input : Output->GrassTypes)
+				{
+					if (!Input.GrassType || Input.GrassType->GetName().StartsWith(TEXT("LGT_AthleticPile_"))) continue;
+					bool bChanged = false;
+					for (FGrassVariety& Variety : Input.GrassType->GrassVarieties)
+						if (!Variety.bReceivesDecals) { Variety.bReceivesDecals = true; bChanged = true; }
+					if (bChanged) { Input.GrassType->MarkPackageDirty(); Input.GrassType->PostEditChange(); }
+				}
+			}
+		}
+	}
+
 	UMaterial* MakeAthleticMaterial(int32 Index, UTexture2D* Texture, double Heading, double StripeWidth, TArray<UPackage*>& Packages)
 	{
 		UMaterial* Material = Asset<UMaterial>(FString::Printf(TEXT("M_StreetscapeAthletic_%04d"), Index), Packages);
@@ -367,8 +523,8 @@ float ribbon=cos(row*6.2831853)*rowVisible;
 float2 fiberCell=q*float2(200,333.3333);
 float detailVisible=1-smoothstep(.25,1.,max(fwidth(fiberCell.x),fwidth(fiberCell.y)));
 float fiber=n.value(fiberCell);
-float infill=n.value(q*700)+.35*n.value(q*1213+37.9);
-float crumbNear=smoothstep(.78,1.02,infill)*.55;
+float infill=n.value(q*320)+.35*n.value(q*611+37.9);
+float crumbNear=smoothstep(.72,.98,infill)*.7;
 float crumb=lerp(.012,crumbNear,detailVisible);
 float2 clusterCell=q*40;
 float cluster=n.value(clusterCell);
@@ -385,19 +541,19 @@ float seamDistance=abs(frac(stripe+.5)-.5)*StripeWidth;
 float seamFW=max(fwidth(q.x),.0001);
 float seam=(1-smoothstep(max(0.,.002-seamFW),.002+seamFW,seamDistance))*min(1.,.002/seamFW)*stripeVisible;
 float modulation=lerp(.82,.67,pileNear)+.012*direction+.008*ribbon+.015*(fiber-.5)*detailVisible
- +.012*(cluster-.5)*clusterVisible+.018*(n.value(q*.8)-.5)-.015*seam;
+ +.035*(cluster-.5)*clusterVisible+.018*(n.value(q*.8)-.5)-.015*seam;
 
 float3 up=normalize(N);
 float3 axis=float3(HeadingSin,HeadingCos,0);
 float3 tangent=axis-up*dot(up,axis);
 tangent=normalize(tangent+float3(0,0,1)*step(dot(tangent,tangent),.000001));
 float3 side=normalize(cross(tangent,up));
-float acrossSlope=.025*sin(row*6.2831853)*rowVisible+.07*(cluster-.5)*clusterVisible;
-float alongSlope=.06*(n.value(clusterCell+27.1)-.5)*clusterVisible;
+float acrossSlope=.025*sin(row*6.2831853)*rowVisible+.14*(cluster-.5)*clusterVisible;
+float alongSlope=.12*(n.value(clusterCell+27.1)-.5)*clusterVisible;
 FiberNormal=normalize(up+side*acrossSlope+tangent*alongSlope);
 // Directional roughness and dielectric Fresnel give every inlaid color the same grazing sheen.
-Roughness=clamp(.63+.015*direction+.05*(cluster-.5)*clusterVisible+.08*crumb,.55,.8);
-Specular=.32-.12*crumb;
+Roughness=clamp(.56+.015*direction+.10*(cluster-.5)*clusterVisible+.08*crumb,.45,.8);
+Specular=.45-.18*crumb;
 return lerp(colour*modulation,float3(.008,.009,.008),crumb);
 )HLSL");
 		Fiber->RebuildOutputs();
@@ -583,21 +739,20 @@ return lerp(colour*modulation,float3(.008,.009,.008),crumb);
 		FiberUVInput.InputName = TEXT("UV"); FiberUVInput.Input.Connect(0, FiberUV);
 		FCustomInput& SeedInput = Filaments->Inputs.AddDefaulted_GetRef();
 		SeedInput.InputName = TEXT("Seed"); SeedInput.Input.Connect(3, Vertex);
-		auto* FiberAcross = CastChecked<UMaterialExpressionConstant3Vector>(UMaterialEditingLibrary::CreateMaterialExpression(Material, UMaterialExpressionConstant3Vector::StaticClass()));
-		FiberAcross->Constant = FLinearColor(FMath::Cos(Radians), -FMath::Sin(Radians), 0);
-		FCustomInput& AxisInput = Filaments->Inputs.AddDefaulted_GetRef();
-		AxisInput.InputName = TEXT("Axis"); AxisInput.Input.Connect(0, FiberAcross);
+		FCustomInput& FacingInput = Filaments->Inputs.AddDefaulted_GetRef();
+		FacingInput.InputName = TEXT("Facing"); FacingInput.Input.Connect(2, Vertex);
 		FCustomOutput& FiberNormal = Filaments->AdditionalOutputs.AddDefaulted_GetRef();
 		FiberNormal.OutputName = TEXT("FiberNormal"); FiberNormal.OutputType = CMOT_Float3;
 		FCustomOutput& FiberRoughness = Filaments->AdditionalOutputs.AddDefaulted_GetRef();
 		FiberRoughness.OutputName = TEXT("FiberRoughness"); FiberRoughness.OutputType = CMOT_Float1;
 		Filaments->Code = TEXT(R"HLSL(
-float strand=floor(UV.x*6), crossSection=frac(UV.x*6)-.5, across=abs(crossSection);
+float strand=floor(UV.x*3), crossSection=frac(UV.x*3)-.5, across=abs(crossSection);
 float tip=.84+.16*frac(sin(strand*127.1+Seed*311.7)*43758.5453);
-float edge=max(fwidth(UV.x*6),.001), end=max(fwidth(UV.y),.001);
-FiberNormal=normalize(float3(0,0,1)+Axis*.18*sin(crossSection*3.14159265));
-FiberRoughness=.63+.06*(Seed-.5);
-return Coverage*(1-smoothstep(.36-edge,.36+edge,across))*(1-smoothstep(tip-end,tip+end,UV.y));
+float edge=max(fwidth(UV.x*3),.001), end=max(fwidth(UV.y),.001);
+float3 face=float3(sin(Facing*3.14159265),-cos(Facing*3.14159265),0);
+FiberNormal=normalize(float3(0,0,.75)+face*(.5+.15*sin(crossSection*3.14159265)));
+FiberRoughness=.48+.12*Seed;
+return Coverage*(1-smoothstep(.30-edge,.30+edge,across))*(1-smoothstep(tip-end,tip+end,UV.y));
 )HLSL");
 		Filaments->RebuildOutputs();
 		UMaterialEditingLibrary::ConnectMaterialProperty(Filaments, TEXT(""), MP_OpacityMask);
@@ -618,7 +773,7 @@ return Coverage*(1-smoothstep(.36-edge,.36+edge,across))*(1-smoothstep(tip-end,t
 		UMaterialEditingLibrary::ConnectMaterialProperty(Transmitted, TEXT(""), MP_SubsurfaceColor);
 		auto* Up = CastChecked<UMaterialExpressionConstant3Vector>(UMaterialEditingLibrary::CreateMaterialExpression(Material, UMaterialExpressionConstant3Vector::StaticClass()));
 		Up->Constant = FLinearColor(0, 0, 1);
-		for (const auto& Property : {TPair<EMaterialProperty, float>(MP_Specular, .32f)})
+		for (const auto& Property : {TPair<EMaterialProperty, float>(MP_Specular, .45f)})
 		{
 			auto* Value = CastChecked<UMaterialExpressionConstant>(UMaterialEditingLibrary::CreateMaterialExpression(Material, UMaterialExpressionConstant::StaticClass()));
 			Value->R = Property.Value;
@@ -666,7 +821,7 @@ float2 across=float2(%.17g,%.17g), along=float2(-across.y,across.x);
 float r=frac(sin(Seed*127.1+Instance*311.7)*43758.5453);
 float s=frac(sin(Seed*269.5+Instance*183.3)*2578.543);
 float row=dot(root.xy,across);
-float2 shift=across*(round(row)-row+(r-.5)*.4)+along*(s-.5)*.5;
+float2 shift=across*(round(row)-row+(r-.5)*.6)+along*(s-.5)*.8;
 float turn=(s-.5)*.6;
 float2 tilted=float2(cos(turn)*Delta.x-sin(turn)*Delta.y,sin(turn)*Delta.x+cos(turn)*Delta.y);
 float3 varied=float3(tilted,Delta.z*(.85+.25*r));
@@ -711,7 +866,7 @@ return float3(shift,2.5-dot(shift,N.xy)/max(N.z,.1))+varied*fade-Delta;
 				UVs.Set(VI, 1, FVector2f(0, 0));
 				UVs.Set(VI, 2, P - Root);
 				UVs.Set(VI, 3, FVector2f(BladeHeight * T, 0));
-				Colours[VI] = FVector4f(T, T, Seed, 1);
+				Colours[VI] = FVector4f(T, Facing / PI, Seed, 1);
 				return VI;
 			};
 			const auto L0 = Add(0, -1), R0 = Add(0, 1), L1 = Add(1, -1), R1 = Add(1, 1);
@@ -848,6 +1003,7 @@ static bool ProcessStreetscape(UWorld* World, const FString& ManifestPath,
 	};
 	TArray<FPendingMesh> Pending;
 	int32 TotalTriangles = 0;
+	int32 ProjectedPaintCount = 0;
 	int32 PrecisionSlivers = 0;
 	for (int32 Index = 0; Index < Rows->Num(); ++Index)
 	{
@@ -872,6 +1028,7 @@ static bool ProcessStreetscape(UWorld* World, const FString& ManifestPath,
 		const bool bDecal = Name == TEXT("paint_decal") || Name == TEXT("grass_paint_decal");
 		const bool bAthletic = Name == TEXT("athletic_turf");
 		const bool bRegistered = bDecal || bAthletic;
+		const bool bGrassPaint = Name.StartsWith(TEXT("grass_paint_"));
 		if (!Finish && !bDecal)
 		{
 			Error = TEXT("unknown streetscape finish: ") + Name;
@@ -879,6 +1036,11 @@ static bool ProcessStreetscape(UWorld* World, const FString& ManifestPath,
 		}
 		TArray<double> Anchor;
 		const bool bAnchored = Row->HasField(TEXT("anchor_m"));
+		if (bGrassPaint && (bCollision || bAnchored))
+		{
+			Error = TEXT("grass paint cannot have collision or a prop anchor");
+			return false;
+		}
 		FString Image;
 		TArray<double> Bounds;
 		double Heading = 0, StripeWidth = 0;
@@ -983,6 +1145,12 @@ static bool ProcessStreetscape(UWorld* World, const FString& ManifestPath,
 			if (T[0] == T[1] || T[1] == T[2] || T[0] == T[2])
 			{
 				Error = FString::Printf(TEXT("degenerate triangle in streetscape mesh %d"), Index);
+				return false;
+			}
+			if (bGrassPaint && (FMath::Abs((DB.X - DA.X) * (DC.Y - DA.Y) - (DB.Y - DA.Y) * (DC.X - DA.X)) <= 1.e-12
+				|| FMath::Abs(double(B.X - A.X) * (C.Y - A.Y) - double(B.Y - A.Y) * (C.X - A.X)) <= 1.e-12))
+			{
+				Error = FString::Printf(TEXT("grass paint triangle in mesh %d needs a nonzero horizontal footprint"), Index);
 				return false;
 			}
 			if (FVector::CrossProduct(DB - DA, DC - DA).SizeSquared() == 0 || FVector3f::CrossProduct(B - A, C - A).SizeSquared() <= 1.e-12f)
@@ -1101,10 +1269,21 @@ static bool ProcessStreetscape(UWorld* World, const FString& ManifestPath,
 			: Name.StartsWith(TEXT("paint_")) || Name.StartsWith(TEXT("grass_paint_")) ? TEXT("marking")
 			: Name == TEXT("asphalt") || Name == TEXT("concrete") ? TEXT("road") : TEXT("ground");
 		Component->SetCustomDepthStencilValue(StencilIds[StencilClass]);
+		if (Name.StartsWith(TEXT("grass_paint_")))
+		{
+			// Keep the marking's semantic depth mask; its visible paint projects onto the ground and blades together.
+			Component->SetRenderInMainPass(false);
+			Component->SetRenderInDepthPass(false);
+			ProjectGrassPaint(World, Index, Description, Item.Image.IsEmpty() ? nullptr : &Decals.FindChecked(Item.Image),
+				FVector4d(Item.West, Item.North, Item.Width, Item.Height),
+				Finishes.FindChecked(Item.Image.IsEmpty() ? Name : TEXT("grass_paint_white")).Albedo, Packages, Actors);
+			++ProjectedPaintCount;
+		}
 		TotalTriangles += Description.Triangles().Num();
 	}
 	Receipt->SetNumberField(TEXT("streetscape_features"), FeatureCount);
 	Receipt->SetNumberField(TEXT("streetscape_meshes"), Pending.Num());
+	Receipt->SetNumberField(TEXT("streetscape_projected_paint"), ProjectedPaintCount);
 	Receipt->SetNumberField(TEXT("streetscape_precision_slivers_skipped"), PrecisionSlivers);
 	Receipt->SetNumberField(TEXT("streetscape_triangles"), TotalTriangles);
 	Receipt->SetObjectField(TEXT("streetscape_counts"), *Counts);
@@ -1126,7 +1305,7 @@ static bool ProcessStreetscape(UWorld* World, const FString& ManifestPath,
 			Values->SetNumberField(TEXT("pile_end_cull_m"), 6);
 			Values->SetNumberField(TEXT("roll_seam_half_width_m"), .002);
 			Values->SetNumberField(TEXT("distant_crumb_fraction"), .012);
-			Values->SetNumberField(TEXT("specular"), .32);
+			Values->SetNumberField(TEXT("specular"), .45);
 			Values->SetNumberField(TEXT("minimum_resolved_stripe_width_m"), .001);
 			TArray<TSharedPtr<FJsonValue>> Registrations;
 			TSet<FString> Seen;
