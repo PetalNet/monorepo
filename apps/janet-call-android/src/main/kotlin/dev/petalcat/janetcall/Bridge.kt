@@ -42,6 +42,7 @@ object Bridge {
 		.build()
 
 	private val quick = http.newBuilder().readTimeout(15, TimeUnit.SECONDS).callTimeout(25, TimeUnit.SECONDS).build()
+	private val enrollment = quick.newBuilder().retryOnConnectionFailure(false).build()
 
 	fun Request.Builder.cloudflareAccess(cfId: String, cfSecret: String) = apply {
 		if (cfId.isNotEmpty()) header("CF-Access-Client-Id", cfId)
@@ -83,6 +84,32 @@ object Bridge {
 		JSONObject(body)
 	} catch (_: JSONException) {
 		null
+	}
+
+	/** PKCE exchange goes only to the bridge selected before opening the system browser. */
+	internal fun signIn(pending: PendingSignIn, code: String, deviceName: String, client: OkHttpClient = enrollment): PairResult {
+		if (bridgeUrlProblem(pending.url, false) != null) return PairResult.Refused("Sign-in needs a trusted HTTPS bridge.")
+		return try {
+			val body = JSONObject().put("code", code).put("verifier", pending.verifier).put("name", deviceName)
+			val request = Request.Builder().url(bridgeEndpoint(pending.url, "pair/signin"))
+				.post(body.toString().toRequestBody("application/json".toMediaType())).build()
+			client.newCall(request).execute().use { response ->
+				val answer = json(response.peekBody(MAX_ANSWER_BYTES).string())
+				val pairing = answer?.takeIf { response.code == 200 }?.let {
+					pairingFrom(PairingLink(pending.url, "", 0), it)
+				}
+				when {
+					pairing != null -> PairResult.Paired(pairing)
+					response.code == 403 -> PairResult.Refused("Sign-in was refused or the code expired. Sign in again with an allowed account.")
+					response.code == 429 -> PairResult.Refused("Too many sign-in attempts. Wait a minute, then sign in again.")
+					else -> PairResult.Refused("The bridge could not finish sign-in (HTTP ${response.code}). Try signing in again.")
+				}
+			}
+		} catch (_: IOException) {
+			PairResult.Refused("Could not reach the bridge. Check your connection, then sign in again.")
+		} catch (_: IllegalArgumentException) {
+			PairResult.Refused("Could not send the sign-in request. Start sign-in again.")
+		}
 	}
 
 	private const val MAX_ANSWER_BYTES = 64 * 1024L
