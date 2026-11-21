@@ -259,6 +259,8 @@ bool BuildEnvGenContext(UWorld* World, const FString& ManifestPath, UMaterialInt
 		UStaticMesh* Mesh = Asset<UStaticMesh>(FString::Printf(TEXT("SM_EnvGenContext_%04d"), Index), Packages);
 		Mesh->GetStaticMaterials().Add(FStaticMaterial(Material, TEXT("Context")));
 		Mesh->GetNaniteSettings().bEnabled = false;
+		Mesh->SetNumSourceModels(1);
+		Mesh->GetSourceModel(0).BuildSettings.DistanceFieldResolutionScale = 0;
 		UStaticMesh::FBuildMeshDescriptionsParams Params;
 		Params.bFastBuild = false;
 		Params.bBuildSimpleCollision = false;
