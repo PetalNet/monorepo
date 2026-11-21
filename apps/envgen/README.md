@@ -25,21 +25,22 @@ pip install -e ".[test]"
 envgen build site.json --out build/ --cache cache/
 ```
 
-| Stage        | Reads                                           | Writes                                                                                                  |
-| ------------ | ----------------------------------------------- | ------------------------------------------------------------------------------------------------------- |
-| Acquire      | `site.json` sources                             | each source clipped to the tile, once, into the cache                                                   |
-| Structure    | lidar points, if the site has them              | height above ground, and distance to the nearest ground return                                          |
-| Elevation    | the elevation raster                            | `heightmap.png`, 16-bit, Landscape layout                                                               |
-| Cover        | lidar heights, a canopy height raster, both     | `canopy_height.tif`, `sunlit.tif`, north-up at 1 m                                                      |
-| Surface      | the imagery raster, and which ground is sunlit  | `surface_<class>.png`: one 8-bit weightmap per class                                                    |
-| Macro colour | the imagery, the sunlit ground and the classes  | `macro_colour.png`, low-passed at 12 m within each class; albedo when the site has a reflectance raster |
-| Detail       | the imagery, the sunlit ground and the classes  | `detail_ratio.png`: the photo over its own 12 m low-pass, per class, at about 0.5 m, as a power of two  |
-| Grain        | a survey orthophoto, the grass class            | `grain.png`: a tileable texture with the orthophoto's grass grain                                       |
-| Survey detail | a survey orthophoto, the sunlit ground, classes | `survey_detail.png`: the detail ratio at the orthophoto's pixel size, one channel                       |
-| Surround     | both rasters at coarse spacing, if asked for    | `context_heightmap.png`, `context_colour.png`                                                           |
-| Trees        | the cover rasters, the classes, a survey, a mix | `trees.json`: one row per tree                                                                          |
-| Buildings    | footprints, lidar, the photo, the classes       | `buildings.json`: one record per building                                                               |
-| Manifest     | everything above                                | `build.json`: placement, georeference, stencil classes, hashes                                          |
+| Stage         | Reads                                              | Writes                                                                                                  |
+| ------------- | -------------------------------------------------- | ------------------------------------------------------------------------------------------------------- |
+| Acquire       | `site.json` sources                                | each source clipped to the tile, once, into the cache                                                   |
+| Structure     | lidar points, if the site has them                 | height above ground, and distance to the nearest ground return                                          |
+| Elevation     | the elevation raster                               | `heightmap.png`, 16-bit, Landscape layout                                                               |
+| Cover         | lidar heights, a canopy height raster, both        | `canopy_height.tif`, `sunlit.tif`, north-up at 1 m                                                      |
+| Surface       | the imagery raster, and which ground is sunlit     | `surface_<class>.png`: one 8-bit weightmap per class                                                    |
+| Macro colour  | the imagery, the sunlit ground and the classes     | `macro_colour.png`, low-passed at 12 m within each class; albedo when the site has a reflectance raster |
+| Detail        | the imagery, the sunlit ground and the classes     | `detail_ratio.png`: the photo over its own 12 m low-pass, per class, at about 0.5 m, as a power of two  |
+| Grain         | a survey orthophoto, the grass class               | `grain.png`: a tileable texture with the orthophoto's grass grain                                       |
+| Survey detail | a survey orthophoto, the sunlit ground, classes    | `survey_detail.png`: weighted log detail in RGB, usable-detail weight in alpha                          |
+| Surround      | coarse heights and 2048-pixel colour, if asked for | `context_heightmap.png`, `context_colour.png`                                                           |
+| Trees         | the cover rasters, the classes, a survey, a mix    | `trees.json`: one row per tree                                                                          |
+| Buildings     | footprints, lidar, the photo, the classes          | `buildings.json`: one record per building                                                               |
+| Procfill      | survey, coarse imagery, terrain and cover          | `procfill_*.png`, priors, holdout report and a derived tree inventory                                   |
+| Manifest      | everything above                                   | `build.json`: placement, georeference, stencil classes, hashes                                          |
 
 - A source is either a local raster (`"kind": "file"`) or an ArcGIS ImageServer
   (`"kind": "arcgis_imageserver"`), which covers USGS 3DEP elevation and many state imagery services.
@@ -60,6 +61,15 @@ envgen build site.json --out build/ --cache cache/
   with optional `height_m`, `num_floors`, `id` and `dataset` properties. It needs `sources.lidar` or
   `sources.canopy_height`, because the cover stage is what hides the roofs from the ground. The site's tools make it from Overture Maps'
   buildings, which merge OpenStreetMap with Microsoft's machine-learned footprints (see Buildings).
+- `sources.building_imagery` optionally supplies a separate roof-reference raster with pixels at most 0.35 m.
+  It uses a local `path`, `license`, and `date`. RGB occupies the first three bands, followed by optional NIR.
+  Its CRS is transformed to the site CRS. It does not replace the imagery used for the context surround.
+- `sources.building_reference` optionally supplies reviewed observations in a local JSON file, with `license` and
+  `date`. Its `buildings` object maps stable building IDs to observations with a required `source`. Supported fields
+  include `outline_m` in metres east and north of the tile centre, `outline_uncertainty_m`, `stand_rows`, `stand_aisles`
+  as fractions of stand length, `roof_material`, `roof_forms`, and facade `material` and linear `albedo`.
+  Roof forms require finite `east_m`, `north_m`, `width_m`, `depth_m`, `height_m`, `from`, and `height_from`.
+  Street photographs remain reference material; their pixels are not packaged as textures.
 - `sources.reflectance` is optional: a raster file of measured surface reflectance, 0 to 1, near the target date
   (an atmospherically corrected satellite scene, for example), with `bands` naming red, green and blue. It sets each
   class's albedo (see Albedo and light).
@@ -223,8 +233,10 @@ turns the photo's linear colour into albedo, and `lighting` is the sun the level
   takes the tile's split and curves. The library spectra become checks, reported in `build.json`: the paved
   class's 10th and 90th percentile against asphalt and concrete, and the grass median against green lawn. On the
   real tile these read 0.082 against 0.088, 0.200 against 0.288, and 0.071 against 0.072.
-- The sun is where astronomy puts it at the target date and at the imagery's mean solar time of day, which the
-  cover stage fitted. The equation of time is not carried over, so on another date the sun can be up to about
+- The sun is where astronomy puts it at the target date and at the imagery's mean solar time of day. A dated
+  survey with an orthophoto, DSM and DTM fits that time from contemporary shadows; a weak or unavailable survey fit
+  retains the cover stage's imagery fit. `lighting.survey_fit` records the acquisition-day fit and its uncertainty.
+  The equation of time is not carried over, so on another date the sun can be up to about
   7 degrees of hour angle off the imagery's. A date and time at which the sun is below 5 degrees is refused. Its strength is a clear-sky direct beam (Meinel and Meinel,
   Kasten and Young's air mass, 105 lm/W). Exposure is fixed at the EV100 at which a surface renders at its own
   reflectance before tone mapping, plus an offset tuned on UE 5.8.4 (`ENGINE_EXPOSURE_OFFSET_EV`, a prior listed in
@@ -232,6 +244,9 @@ turns the photo's linear colour into albedo, and `lighting` is the sun the level
 - Priors, each listed in the manifest: the 15th when the target is a month, noon solar time when there is no
   fitted time, a clear sky, skylight at 20 % of the sun's, 105 lm/W, and that the median paving is concrete.
 - Checked in the engine: the base colour buffer of sunlit grass reads 0.10 in linear light.
+
+The [outdoor atmosphere profile](./atmosphere.md) documents the volumetric clouds, sky-driven haze, outdoor Lumen
+settings, contact shadows and camera response, including the weather and lens priors.
 
 Limits:
 
@@ -256,10 +271,10 @@ Limits:
 - With one anchor the fit's spread is always 0, and nothing acts when the asphalt and grass checks disagree: a tile
   whose median paving is asphalt gets a scale about 3 times too high. Without a cover stage every cell counts
   as sunlit, shade included.
-- The sun's strength is the beam at the ground, but the engine's atmosphere may attenuate a light a second time.
-  The exposure offset is tuned against the renderer's output and may be hiding that.
-- Exposure compensation is not pinned, and nothing waits for shaders before the level build's compile check, so
-  that check may not see an error.
+- The sun's strength is the beam at the ground. The atmosphere module converts it to the outer-space intensity
+  Unreal expects, avoiding a second attenuation. The inherited exposure offset remains a tuned prior, with the
+  engine exposure bias pinned at +1 EV; this is not a new camera calibration.
+- Nothing waits for shaders before the level build's compile check, so that check may not see an error.
 
 ### Ground materials and grass
 
@@ -269,8 +284,15 @@ downloads them once and checks the hashes; about 10 MB. Nothing is stored in git
 
 The Landscape material height-blends the classes. Evidence sets the colour that varies over tens of metres (the
 macro colour map times the albedo scale), and the scan adds structure: its colour divided by its own mean, so it
-never shifts the colour. The colour and roughness of each scan are read at two scales and turns, mixed by broad noise, so the repeat does
-not show from the air.
+never shifts the colour. Within 15 m, colour, normal and roughness use the same physical scan coordinates.
+Between 15 and 30 m, grass gradually mixes two scales and turns; dirt and paving colour transition to three
+overlapping, independently offset samples. This avoids mixing unrelated colour features against one normal
+map up close while breaking distant repeats. Scan colour fades from full strength within 15 m
+to 20% beyond 100 m, allowing the photo's broad pattern to dominate at distance.
+
+The fine photographic ratio and recycled grain fade toward neutral near the camera, using a 20% share within
+3 m and full share beyond 20 m. Native masks, growth and low-frequency colour remain in place; the registered
+material scans supply the close surface structure. The distance and share are visual priors.
 
 The ground colour also carries the detail ratio (`detail_ratio.png`): each 0.5 m pixel of the photo divided by the
 12 m low-pass of its own class's sunlit ground, in linear light, stored as a power of two (8 bits, 127 steps per
@@ -296,14 +318,45 @@ pixels, where noise flattens the slope, and would take most of the contrast out.
 curve as sRGB is a prior, as are the limit of one stop either way (lot paint on asphalt clips there) and the fade over 2 cells at the edge of hidden ground; the manifest's `detail.priors` lists them. The source is the imagery's date (2024-08 on the real tile), not the target date's, so
 a row mown since is not in it. The ratio is a 2048 pixel texture, uncompressed (block compression has steps of about 5 % in a channel, as large as the rows it carries): 16 MB, about 22 with mips.
 
-The class weights are cut to a sharp edge in the material where they cross one half (`EdgeSharpness` 0.12, a look), moved
+The class weights blend around one half (`EdgeSharpness` 0.35, a look), moved
 by 0.15 of the scan's relief, centred on 0.5 as if each scan's relief averaged one half (a look): a weightmap texel is 0.5 m and its ramp reads as a blur several metres wide from the
 air.
 
 ### Grain and survey detail
 
 The tile's photo is half a metre a pixel, so a field from the air has rows and patches and no blade-scale texture. A
-survey orthophoto (`sources.survey.orthophoto`, 2.3 cm a pixel on the real tile) has it. Two stages use it.
+survey orthophoto (`sources.survey.orthophoto`, about 2.3 cm stored sampling on the real tile) has it.
+Stored sampling does not establish the image's independently resolved detail.
+
+- **Orthophoto masks and colour** (`orthophoto.py`). Native mask channels are grass, paving, soil and canopy.
+  The first three sum to the source alpha coverage; canopy is independent. Landscape weights and turf density
+  use averaged masks, while the ground material reads native masks through a virtual texture. Outside the irregular
+  alpha footprint, the original imagery remains in use. A separate colour texture is pooled to at least 25 cm and
+  filtered within each class over 12 m for luminance, excluding cover and detected shadows. Visible pooled hue
+  remains, retaining brown and green lane variation. Fine luminance comes from survey detail, so the colour layer
+  does not apply it twice. Recolouring into the calibrated seasonal ground preserves luminance and compresses
+  saturation into the material's valid range. Processed survey RGB is not treated as calibrated albedo.
+  Unfitted shadows can retain a colour cast; hue alone cannot distinguish a shadow from coloured ground.
+  Its alpha fades survey influence over 12 m inside the irregular coverage boundary for material weights,
+  growth and detail replacement. Native evidence masks retain the source coverage unchanged.
+  Native alpha gaps are reduced conservatively onto the colour grid before computing physical distances;
+  this can move the blend boundary by at most one colour cell, without losing gaps narrower than that cell.
+  Within 3 m of the camera, survey detail is filtered toward 10 cm sampling so photographic blade texture
+  does not compete with the close material scan. Automatic temporal mip bias is disabled for this sample.
+  Pixel UV gradients shorter than 10 cm in world space are enlarged near the camera, fading out by 15 m.
+  Both gradient directions are retained for anisotropic filtering at grazing angles. This bounds individual
+  gradient lengths, not the footprint's minor axis. Larger photo patterns remain.
+  Native processing runs in overlapping windows, with bounded pooled grids and streamed PNG output.
+  A rejected RGB split remains recorded in the manifest. It does not establish that the ground is all grass.
+- **Optional observations** (`sources.survey.observations`). A schema-1 JSON file must identify the orthophoto's
+  SHA-256 and CRS. Features contain `id`, `feature_type`, `confidence`, and projected `[west, south, east, north]`
+  bounds. High-confidence `bare_soil_*` envelopes restrict a calibrated bright-fragment detector; pixels must also
+  pass its colour, alpha, height and darkness tests. Envelopes are search areas, never filled material masks.
+  Optional `ground_classifier` cuts are `light6_gt`, `red_minus_blue_fraction_lt`, and `exg6_lt`, fitted for that
+  acquisition. Dark or mixed ground remains unresolved. No paving is inferred from these bare-fragment observations.
+  Individually inspected crowns can refine matched height-backed tree positions and widths. Their centres approximate
+  crown centres, not surveyed trunks, and their height retains its original source and date.
+  Identified temporary fabric covers stay hidden from ground colour and are excluded from tree-canopy evidence.
 
 - **Grain** (`grain.py`). The log of each pixel's luminance over its own 0.3 m low-pass, measured on 256-pixel blocks
   that are pure grass in the tile's class map and have pixels all over. The quietest quarter of those blocks gives a
@@ -320,18 +373,35 @@ survey orthophoto (`sources.survey.orthophoto`, 2.3 cm a pixel on the real tile)
   white balance and exposure cancel. Real tile: slopes 1.06, 0.99 and 1.03 for red, green and blue, each explaining
   96 % or more of its band: bright pixels are a little redder, and the grain is close to grey. The same distribution
   cut in 8 equal shares is the colour of single blades (`grain.blade_colours`, 0.47 to 1.6 of the ground's colour).
-- **Survey detail** (`build_survey_detail`). The detail ratio of the previous section, again from the orthophoto at its
-  own pixel size, luminance only (one channel: colour at that size is hundreds of megabytes). The low-pass runs on the
-  orthophoto pooled to 0.5 m. Inside the footprint it replaces the imagery's ratio, which is the same ground a year or two
-  earlier, and the grain is not laid over it. It is a virtual texture (`r.VirtualTextures=True` in the host project), 14439 by
-  13495 pixels on the real tile, mapped by its place in the tile (`survey_detail.west_m` and the extents in the manifest).
-  Where the orthophoto has no pixel (its footprint is not a box) the file holds 0 and the material keeps the imagery's ratio and the grain there. The orthophoto's own shadows are not masked (its sun is not the imagery's): a prior. On the real tile the footprint is
-  west of the fly and walk stations, so it shows in the walk tour's later frames (about frame 2600) and the overview.
+- **Survey detail** (`build_survey_detail`). The luminance ratio from the orthophoto at its own pixel size;
+  its low-pass runs on the orthophoto pooled to 0.5 m. RGB repeats the same encoded log2 ratio, multiplied by the
+  detail weight stored in alpha (`survey_detail.weight_channel = "alpha"`). Missing and rejected samples have
+  neutral RGB (127) and zero alpha. The material divides the sampled log ratio by its sampled weight, bounds it
+  to the recorded range, then blends with the older imagery ratio and grass grain by that weight. Both channels
+  share one texture sample, so filtering across a missing sample does not introduce a dark edge. Rejected survey
+  detail therefore permits fallback texture rather than leaving a neutral patch with no grain.
+  This is an uncompressed linear RGBA virtual texture (`r.VirtualTextures=True` in the host project), 14439 by
+  13495 source pixels on the real tile, mapped by `survey_detail.west_m` and the recorded extents. It stores more
+  bytes per texel than the previous G8 format; visible pages stream through Unreal's virtual-texture pools, and
+  runtime allocation and frame cost require measurement. Older manifests without the alpha marker retain their
+  single-channel decoder and zero sentinel.
+  Existing cover masks and the survey's shadow test reject uncertain detail. A rejected shadow fit uses a
+  -1.5-stop darkness prior on seasonal ground; this is not complete shadow removal. Replaced grain is procedural,
+  not recovered detail from hidden ground. On the real tile the footprint is west of the fly and walk stations,
+  so it shows in the walk tour's later frames (about frame 2600) and the overview.
+
+### Procedural ground beyond the survey
+
+The optional survey-driven `procfill` stage carries fitted ground appearance into coarse imagery coverage.
+It exports seeded masks, per-mask provenance and confidence, spatial holdout results, and paintable PNG images.
+See [procedural ground masks](docs/procfill.md) for the evidence limits and Unreal integration, and
+[paint procedural ground masks](docs/paint-procfill.md) to replace generated features.
 
 ### Grass
 
-The grass class grows tufts: Landscape Grass, three varieties, all numbers in the manifest's `turf` (`turf.py`), none in
-the engine code. A variety is so much leaf over a square metre of ground (its leaf area index), so wider blades are
+The grass class grows Landscape Grass tufts. Placement sharpens the imported grass coverage with the same relief rule
+as the visible surface. The two-metre taller-growth fringe follows both sides of the grass edge and stops beyond it. `turf.py` supplies three blade varieties and a sparse, close-range
+broadleaf variety. A blade variety is so much leaf over a square metre of ground (its leaf area index), so wider blades are
 fewer: **near** (index 1.0, blades 0.8 to 1.4 cm wide, 24 to a tuft, about 2000 blades a square metre, drawn to 15 m),
 **clump** (index 0.2, drawn out to 65 m, with blades as wide as a pixel is at 15 m, where the near variety ends:
 1.6 cm, so the sward keeps its texture where a real blade is far under a pixel) and **tall** (index 0.02, drawn to 50 m). Blade height is the
@@ -339,9 +409,33 @@ summer mowing height a land-grant university extension guide gives cool-season l
 MG10 and G6705); the tall variety stands 1.5 times the top of that, a prior (the one-third rule of mowing). Everything
 else is a prior and the manifest's `turf.priors` lists it: the indices (real mown turf has several times the near
 one; what is drawn is the top of the sward), blade counts, radii, widths, draw distances, size spread (0.85 to 1.15),
-the lens, the blade's brightness from root (0.85) to tip (1.15), and that no variety casts a shadow (a tuft's own
-shadow blackens it against a sward that has none). The earlier patch noise, which thinned the tufts between patches
-4 m wide, is gone: it had no source and left bare ground at a walker's feet.
+the lens, the blade's brightness from root (0.65) to tip (1.12), and that no variety casts a shadow (a tuft's own
+shadow blackens it against a sward that has none).
+
+`turf_growth.png` stores short-tuft density, tall-tuft density, and half the height multiplier. Relative photo
+green/red contrast drives growth, with native survey colour inside its footprint. Correlated 1.2 m noise, terrain
+hollows, 2 m edge fringes and canopy shelter introduce height variation and taller margins. These responses are priors,
+not measured mowing heights. The short sward retains the original full density within grass-majority support.
+The height envelope ranges from 0.85 to 1.5 times the mowing range.
+Growth support requires majority grass. The material also rejects sampled grass weights at or below 0.5 before
+applying turf density; the engine's surface weight scales the remaining grass-side coverage.
+The broadleaf shape is clover-like and its species and abundance
+are priors. One blade in thirteen receives a restrained straw tint within the seasonal palette.
+
+Blade materials use two-sided foliage transmission, root ambient occlusion (0.4 at the base), roughness 0.6 and specular 0.25.
+Within 3 m, ground and blade roots share a shaded, straw-tinted macro colour modulated by the same normalized grass scan.
+The ground returns to the photographic sward colour between 3 and 15 m; this is a close-contact blend, not exact sampling
+of every distant ground layer. The substrate tint and shading are priors. Blade-specific colour returns over the lowest
+quarter of each blade. Roots are distributed uniformly over each tuft disk, and tuft brightness varies only 5% so
+individual blade colour and height carry the variation instead of whole repeated bundles.
+Rounded blade normals vary with blade orientation, with an upward bias to keep both visible sides lit.
+World-position gusts bend tips while retaining roots. Ground and blade roots share 0.65 cm procedural relief;
+its derivatives also perturb ground normals. Wind amplitudes and relief are visual priors, not terrain measurements.
+Grass displacement fades to zero between 22 and 25 m; the engine disables its evaluation beyond 25 m.
+Curved blades include folded tips and varied resting angles. A stable seed per blade combines with the instance
+seed to vary individual stature and resting bend within each tuft; the photo still sets its growth envelope.
+The extra bend stays within 3 cm and leaves roots fixed. The scan's colour contrast
+and close normal strength are increased to retain surface detail where the sward thins; these are visual priors.
 The engine shrinks a tuft away between its start and end distance and has no nearest distance, so a variety is drawn
 from the camera out. The clump's wide blades are kept from a walker's feet by its material: nearer than 8 m a clump
 is drawn in to its own root, and it grows to full size by 15 m, the distances over which the near variety shrinks
@@ -349,9 +443,10 @@ away (`appear_cm` in the manifest). Each variety has its own blade material for 
 Each blade has its own colour: one of the 8 the grain stage measured, each as likely as the next, held in the tuft
 mesh's third and fourth UV channels (the mesh build writes its own unwrap into the second).
 That multiplies the ground's own macro colour at the blade's place, times the albedo scale, so tufts follow the straw and green the
-data shows. A blade is lit as the ground under it: its material's normal is world up, because a two-sided blade's normal
-turns over on the side the camera sees and half of them took no sun (checked by turning shadows off, then the engine's virtual shadow maps off,
-then the shading model: no change; world-up normal: blade pixels from 38 to 58 in sRGB against 85 for the ground). The host
+data shows. Earlier host tests used a constant world-up normal after half the two-sided blades took no sun:
+turning shadows off, then virtual shadow maps off, then changing the shading model made no difference;
+the world-up normal moved blade pixels from 38 to 58 in sRGB against 85 for the ground. Rounded,
+upward-biased normals now retain orientation-dependent lighting instead of that constant. The host
 project makes grass maps while the game runs (`grass.GrassMap.UseRuntimeGeneration=1`): the level is
 regenerated, never cooked. No source gives a sward's density.
 
@@ -400,16 +495,51 @@ With a `sources.buildings` file the build writes `buildings.json`: one record pe
 its edge; parts under 4 m2 are left out), with its rings in metres east and north of the tile centre (outer ring first, then courtyards), a triangulation of the roof,
 a height, a roof albedo, and where each came from.
 
-- **Footprints** are the map's polygons, simplified to 0.3 m. Nothing is placed that no map shows.
-- **Height**, in order of trust: the median lidar height above ground over the footprint pulled in by 1 m (when at
+- **Footprints** start as the map's polygons, simplified to 0.3 m. Optional building imagery can move rectangular
+  edges by at most 1.5 m when all four edges have coherent photo support. Other outlines retain their source geometry.
+  Reviewed outline observations can replace a footprint within 15 m of its source. Every change retains its provenance.
+- **Roof survey** fits planes to non-ground lidar returns inside each footprint. Ground and roof elevations come
+  from the same point cloud, so their relative height does not assume that a separately supplied DEM has the same datum.
+  One fifth of metre cells are held out. A fit requires at least 80% of sampled footprint area within 2 m of a supported
+  return, at least 85% of validation returns within 0.35 m, and a validation 90th percentile error at most 0.6 m.
+  Unsupported fits retain their prior geometry and a rejection reason. Accepted planes generate flat, pitched, or
+  stepped roof surfaces, wall tops, and collision. Roof-type names are inferred from plane slopes and levels.
+  Shared boundary vertices join fitted levels within 0.44 m (twice the plane-fit tolerance); larger steps remain.
+  Multi-level domains need a 3 by 3 m interior patch. Narrow fragments take the nearest surviving domain;
+  roofs without a coherent patch retain their priors. This regularization and its 1 m grid are recorded per fit.
+  Validation samples the resulting triangles, including these joins, rather than the separate plane equations.
+  Roof-to-ground eave and ridge heights, held-out errors, supported area, and split-to-split roof-type agreement are
+  written per building to `building_accuracy.json`. Type agreement is a consistency check, not independent survey truth.
+- **Fallback height**, in order of trust: the median lidar height above ground over the footprint pulled in by 1 m (when at
   least 3 cells say 1.5 m or more); the footprint's own `height_m` tag; its `num_floors` tag times 3 m; the median of
   the heights the lidar measured on the tile's other buildings. A building newer than the lidar survey is read as
   flat ground by it, so the tags speak. Every record says which it used (`height_from`), and `build.json` counts them.
-  On the real tile 200 of 207 buildings took the lidar's height, 5 a tag, 2 the tile's median.
 - **Roof colour** is the median photo colour over the footprint, turned into albedo by the paved class's curve (the
   photo is calibrated per class against the reflectance raster; a roof reads like the unvegetated class, a prior).
-- **Priors, with no source:** roofs are flat (no source gives roof shape); every wall has one albedo of 0.25 (no
-  facade colour); roughness 0.85; 3 m a floor; the 0.3 m simplification, the 4 m2 minimum area, the 1.5 m lidar
+  Building imagery replaces this sample when at least 60% of the roof interior has usable pixels. RGB alone does not establish roofing material.
+- **Roof forms** on large light roofs come from compact contrasting regions in the photo. Their locations and
+  plan dimensions are image inferences; bounds can include cast shadows and the object type is unconfirmed.
+  Edge-connected shadows and long thin seams are excluded. Sparse clusters are covered by solid photo rectangles at least two cells across; one-cell connections do not fill the space between units. Service-box height is a 0.9 m prior. Fixture bodies are inset up to 1.25 m per side from those uncertain bounds, capped at 40% of each dimension while retaining a 0.4 m minimum body width; their curbs stay inside the bounds to leave visible gaps between neighbouring volumes. Building components retain normal mesh shadows and omit the screen-space contact pass, which self-occludes thin seating rows. These forms do
+  not change the measured building height or median roof albedo. Measured roofs omit this generic equipment kit.
+  Explicit photo observations can place unit bodies and skylight candidates with separate plan and height provenance.
+  Their bodies retain the observed plan dimensions, and follow the local measured roof level. A photo does not measure
+  their height. Coherent raised lidar returns on at least three flat-roof edges can supply an inferred parapet height.
+- **Architectural detail:** each record's `architecture` describes its facade and roof kit. Source tags choose
+  residential, institutional, commercial, utility or grandstand use. Untagged footprints use area, width and
+  measured height as a prior. Suitable rectangular residential roofs get a ridge; irregular footprints and
+  courtyards keep their triangulated flat roof. Gabled priors extend equally above and below the lidar median.
+  An accepted roof survey replaces those profiles. Facades remain priors unless a reviewed facade observation exists.
+  Openings must fit below the lowest wall top across their full width; short walls use smaller prior windows.
+  Horizontal trim, parapets and coping require a supported level wall span.
+- **Priors, with no source:** facade colour, brick or siding, window bays, doors, trim, parapets and HVAC are
+  plausible modular details, not surveyed elevations. Roof pitch is 0.38 rise/run, capped at 2.4 m rise. Roof
+  roughness is 0.85. Grandstand rows use the tagged footprint and measured height; paired stands face each other.
+  Bench fittings (including 6 cm support posts) and the larger stand's press box are priors. Reviewed seating outlines,
+  row counts and aisle locations can replace the stand plan. A fitted seating slope replaces its rise, and observed
+  stands omit the generic press box. Each record carries provenance, and
+  `buildings.priors` lists these limitations. A tagged grandstand owns a generic streetscape bleacher when at
+  least 25% of the seating plan overlaps its footprint; `claimed_bleachers` records the omitted kit and overlap.
+  Separate bleachers remain in the streetscape inventory. The 3 m floor, 0.3 m simplification, 4 m2 minimum area, 1.5 m lidar
   threshold, the 3-cell minimum and the 1 m edge are set by hand. All are in `build.json` under `buildings.settings` and `buildings.priors`.
 - **Roofs are not trees.** A canopy map counts a roof as canopy, and a tree is placed at its crown's top, so a crown
   whose top lies in a footprint (edge cells included) would stand in a building. It is dropped (142 on the real tile,
@@ -419,10 +549,17 @@ a height, a roof albedo, and where each came from.
   hid 2108 more cells that were still read as ground), and the ground class under a footprint is that of the nearest
   ground not under one. Nothing double-draws ground and roof.
 
-Limits: the lidar is from 2017. A demolished building is still in the lidar's height where the footprint source is
-older, and a new one has only its tags. Eaves, chimneys, gables and storeys' colour are not modelled.
+Limits: dated lidar and newer imagery can describe different buildings. Missing roof support is recorded as a change
+review candidate, because sparse sampling and occlusion can produce the same result. Those flags are not confirmed
+construction dates. Absolute alignment between the lidar and the site's terrain datum remains unverified. Unreal's
+build receipt records any additional terrain-clearance lift for every building. Facades without resolved street-photo
+observations, unresolved roofs, fittings, chimneys, and interiors remain priors or unmodelled details.
 
 ## Unreal side
+
+Measured paving, field markings and props can be supplied through the optional
+[`sources.streetscape` inventory](./streetscape.md). It generates terrain-following geometry and excludes
+grass from paving without storing site annotations in this repository.
 
 `unreal/Plugins/EnvGen` is one plugin with two modules.
 
@@ -440,8 +577,22 @@ older, and a new one has only its tags. Eaves, chimneys, gables and storeys' col
   or the save fails.
 - The **horizon** is a flat plane 50 km across with no collision, a metre under the lowest point of the
   outermost surface, in that surface's mean colour. Without it the sky's empty lower half shows as a blue
-  band past the surround. There is no distance fog: on 5.8.4 with exponential height fog everything past
-  about 2 km, the plane included, drew dark navy, and planes of 100 km or more did not draw at all.
+  band past the surround. The atmosphere's analytic height fog and aerial perspective soften its transition
+  from the source-textured surround; [atmosphere settings](atmosphere.md) records their presentation priors.
+- **Context geometry** uses the existing wider building footprints and canopy-height raster when present.
+  `context_geometry.json` contains coarse static mesh batches grounded against the exported context heightmap.
+  Primary building and tree inventories remain separate. Footprints crossing the primary tile are omitted from
+  context massing, with the omitted area recorded. Tagged building heights take precedence over floor-count
+  and six-metre priors; distant facades remain unresolved. Canopy records describe supported clusters, not
+  individual measured trees or species. These meshes have no collision, animation, or cast shadows.
+  The receipt reports context counts and terrain probes separately, and saved-level checks must preserve their
+  component policies. They provide visual surroundings rather than physical sensor ground truth.
+- Ground and registered paving blend their final albedo toward the same world-registered surround texture over
+  the outer 64 m of the primary tile. This changes colour without changing terrain displacement or grass placement.
+  Modeled paving uses the measured paving-class mean and the normalized pavement scan for close detail, fading
+  that detail between 15 and 30 m. Its markings remain geometry. Aerial colour is omitted within those surfaces
+  because even low-pass colour retains blurred vehicles and tree shadows. Imagery alignment, visible joins and distant silhouettes still require
+  native camera review; mesh counts and material compilation alone do not establish their quality.
 - **Trees in the level.** `materials.json` names, for each kind, tree meshes that ship with the engine's
   Procedural Vegetation Editor plugin (a broadleaf tree, a shrub and a conifer on 5.8); nothing is downloaded or
   stored. Each tree takes the mesh of its kind that needs the least stretching, scaled to its height and crown
@@ -452,13 +603,17 @@ older, and a new one has only its tags. Eaves, chimneys, gables and storeys' col
   fails if one is missing or its top is more than 5 cm under its measured height. The tree actor carries the tag
   `EnvGenStanding`; the tours look past anything with it when they ask where the ground is, so a camera's height
   is above the ground and not above a crown.
-- **Buildings in the level.** Each footprint is a block: walls from 30 cm under the ground at every corner up to
-  one roof height over the ground at the footprint's anchor point (never under the ground at a corner), a flat roof, and
-  the roof triangles from the pipeline. The blocks are merged into one mesh per 126 m square, so a square is one draw
-  and one collision body (the mesh's own triangles are its collision). The colour is carried in two UV channels, so
-  there is one material and no texture: roofs take their measured albedo and walls 0.25. The receipt counts the
-  buildings placed and traces down onto 25 of them; the build fails if one is missing or its roof is more than 5 cm
-  off. The actors carry `EnvGenStanding` and the building stencil, and the ground check looks past them.
+- **Buildings in the level.** Walls extend from 30 cm under the ground to the roof profile. The architecture
+  module adds framed glazing, entrances, roof trim, parapets, rooftop equipment and stepped grandstand seating.
+  Roof colours retain the photo's measured albedo. One opaque material uses metric UVs for brick courses, siding,
+  shingles and membrane seams, with separate roughness for glass and metal. Geometry is joined per 126 m square,
+  built as Nanite. Hidden collision meshes contain walls and roof profiles, including stadium treads and risers;
+  cosmetic frames, trim and equipment do not enlarge the collision mesh or obstruct roof checks. Metric UVs use
+  full precision, and colour channels are separate from the generated lightmap channel. Detail contrast fades
+  with pixel size to preserve distant roof albedo. The receipt counts valid Nanite meshes and traces every
+  building; a missing building, invalid Nanite data or roof error over 5 cm fails the build.
+  Older inventories without `architecture` retain their plain walls and flat roofs. Actors carry
+  `EnvGenStanding` and the building stencil, so ground checks look past them.
 - **EnvGen** has the walking pawn, the game mode and the tour actor.
 
 `unreal/Host` is a minimal project that hosts the plugin.
@@ -481,6 +636,8 @@ runs, Space jumps. F swaps to a flying pawn from another plugin when the project
 a fraction of the tile. After an 8 s warm-up it records 60 s of frames (`-EnvGenTourSeconds=` changes
 that), writes `Saved/EnvGen/tour_<name>.json` and `.csv`, and exits; `-EnvGenTourStay` keeps the game
 open. `-EnvGenTourCsv` also records the engine's CSV profile for the measured period.
+For a locked-camera motion check, `-EnvGenTourHoldAtSeconds=20` stops the camera after 20 measured seconds
+while world time continues. `-EnvGenTourFrameStart=630` skips approach captures at 30 fps.
 
 | Tour       | Height above ground | Nominal speed | Loop radii, as a fraction of the tile side |
 | ---------- | ------------------- | ------------- | ------------------------------------------ |
@@ -521,5 +678,18 @@ Before moving to a new engine version, these show whether it can host the work:
 
 ## Not in this slice
 
-Roof shapes, streets, sidewalks, a mesh for each species, wind, weather and a moving sun, the manual edit layer that regeneration leaves alone, and
+A mesh for each species, tree wind, weather and a moving sun, the manual edit layer that regeneration leaves alone, and
 the simulator exports.
+
+Reviewed `building_reference` observations may include up to eight `roof_breaklines_m`
+segments, each containing two `[east_m, north_m]` endpoints relative to the tile centre.
+The source is required; `roof_boundary_uncertainty_m` records digitization uncertainty.
+Segments extend across the footprint to partition roof masses without changing the
+footprint or ground mask. Heights still come from LiDAR planes. For these partitions,
+3 m training neighbourhoods identify upward planar patches; the validation mask uses
+training returns and withheld XY positions only, never withheld elevations. Reports
+retain raw and selected return counts and both raw and selected validation errors.
+At most 2% of the footprint may inherit an adjacent plane where a narrow partition
+has insufficient returns; this inferred area is reported. Existing area coverage and
+withheld mesh agreement thresholds still apply. Photograph boundaries and LiDAR
+heights can have different acquisition dates and registration errors.

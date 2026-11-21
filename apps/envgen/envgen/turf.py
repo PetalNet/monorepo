@@ -13,6 +13,75 @@ from __future__ import annotations
 
 import math
 
+import numpy as np
+from scipy import ndimage
+
+GROWTH_SETTINGS = {
+    "kind": "prior",
+    "placement": "majority-grass support, with sharpened imported coverage applied by the engine",
+    "patch_m": 1.2,
+    "fringe_m": 2.0,
+    "density_range": [1.0, 1.0],
+    "height_range": [0.85, 1.5],
+    "relief_m": 6.0,
+}
+
+
+def growth(
+    grass: np.ndarray,
+    log_ratio: np.ndarray,
+    canopy: np.ndarray,
+    elevation: np.ndarray,
+    cell_m: float,
+    seed: int,
+) -> tuple[np.ndarray, dict]:
+    """RGB: short-tuft density, tall-tuft density, and height divided by two, all in [0, 1].
+
+    The photo supplies the pattern, not a measured blade height. The response of turf to colour,
+    unmown edges, canopy and local hollows is a tagged prior. No new paths or tree positions are drawn.
+    """
+    inside = grass > 0.5
+    sigma = GROWTH_SETTINGS["patch_m"] / cell_m
+    # A relative green/red ratio retains pale wear in the photo without treating its shade as bare ground.
+    signal = ndimage.gaussian_filter(log_ratio[1] - log_ratio[0], sigma)
+    low, high = np.percentile(signal[inside], [5, 95]) if inside.any() else (0.0, 0.0)
+    vigour = np.clip((signal - low) / (high - low), 0, 1) if high - low > 1e-5 else np.full(grass.shape, 0.6)
+    fringe = (
+        np.clip(1 - np.where(inside, ndimage.distance_transform_edt(inside),
+                             ndimage.distance_transform_edt(~inside)) * cell_m / GROWTH_SETTINGS["fringe_m"], 0, 1)
+        if inside.any() and (~inside).any()
+        else np.zeros(grass.shape)
+    )
+    sheltered = ndimage.gaussian_filter((canopy > 2).astype(float), sigma)
+    hollow = ndimage.gaussian_filter(elevation, GROWTH_SETTINGS["relief_m"] / cell_m) - elevation
+    spread = float(np.percentile(np.abs(hollow), 90))
+    moisture = np.clip(hollow / spread, -1, 1) if spread > 1e-5 else np.zeros(grass.shape)
+    rng = np.random.default_rng(seed)
+    noise = ndimage.gaussian_filter(rng.standard_normal(grass.shape), sigma)
+    noise = np.clip(noise / max(float(noise.std()), 1e-6), -2, 2) / 2
+    density = np.ones(grass.shape)
+    tall = np.clip(0.04 + 0.80 * np.maximum(fringe, sheltered) + 0.12 * np.maximum(noise, 0), 0, 1)
+    height = np.clip(0.90 + 0.25 * vigour + 0.25 * np.maximum(fringe, sheltered) + 0.10 * noise + 0.05 * moisture,
+                     *GROWTH_SETTINGS["height_range"])
+    # Fractional engine placement alone still puts full-sized tufts on path-majority cells.
+    # Keep every grass-majority cell at its original density; stop support on the path side.
+    packed = np.stack([density * inside, tall * inside, height / 2])
+    return packed.astype(np.float32), {
+        "settings": GROWTH_SETTINGS,
+        "photo_green_red_log2_p5_p95": [float(low), float(high)],
+        "density_p5_p95": np.percentile(density[inside], [5, 95]).tolist() if inside.any() else [],
+        "height_multiplier_p5_p95": np.percentile(height[inside], [5, 95]).tolist() if inside.any() else [],
+        "source": "de-shadowed photo detail ratio, surface weights, canopy height and terrain elevation",
+        "priors": [
+            "prior: relative green/red photo contrast maps to turf height, not a measured mowing height",
+            "prior: grass grows taller within 2 m of a surface edge and under canopy higher than 2 m",
+            "prior: local hollows favour growth; relief is terrain minus its 6 m low-pass",
+            "prior: continuous short sward at the original density; photo surface weights alone reduce coverage",
+            "prior: 1.2 m correlated height noise; height 0.85 to 1.5 times the mowing range",
+            "prior: tuft centres require majority grass; engine weights blend placement at that boundary",
+        ],
+    }
+
 # Cool-season lawn turf is mown at 3 to 4 inches in summer: a land-grant university extension guide (publications MG10
 # and G6705). The blades are that tall.
 MOWING_HEIGHT_CM = (3 * 2.54, 4 * 2.54)
@@ -35,7 +104,7 @@ TALL = {"leaf_area_index": 0.02, "blades": 8, "radius_cm": 6.0, "start_cull_cm":
 CASTS_SHADOW = {"near": False, "clump": False, "tall": False}
 SIZE_SPREAD = (0.85, 1.15)
 # A blade's brightness from root to tip. A prior.
-ROOT_SHADE, TIP_SHADE = 0.85, 1.15
+ROOT_SHADE, TIP_SHADE = 0.65, 1.12
 
 PRIORS = [
     f"prior: leaf area index drawn: {NEAR['leaf_area_index']:g} (near), {CLUMP['leaf_area_index']:g} (clump), {TALL['leaf_area_index']:g} (tall)",
@@ -93,6 +162,13 @@ def describe() -> dict:
             _variety("near", NEAR, mowed, mowing_source),
             _variety("clump", CLUMP, mowed, mowing_source),
             _variety("tall", TALL, tall, "prior: mowing range times " + f"{TALL_OVER_MOWED:g}"),
+            {
+                "name": "broadleaf", "blades": 3, "radius_cm": 4.0, "height_cm": [2.0, 4.0],
+                "height_source": "prior: clover-like broadleaf weeds, not a species identified in the imagery",
+                "blade_width_cm": [2.0, 3.0], "leaf_area_index": 0.004,
+                "density_per_100m2": 60.0, "scale": [0.7, 1.3], "start_cull_cm": 400,
+                "end_cull_cm": 800, "appear_cm": [0, 0], "casts_shadow": False,
+            },
         ],
         "root_shade": ROOT_SHADE,
         "tip_shade": TIP_SHADE,

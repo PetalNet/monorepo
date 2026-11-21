@@ -52,6 +52,10 @@ public:
 	UPROPERTY(EditAnywhere, Category = "Tour")
 	float MeasuredSeconds = 60;
 
+	/** Hold the camera after this many measured seconds; negative keeps the normal moving tour. */
+	UPROPERTY(EditAnywhere, Category = "Tour")
+	float HoldAtSeconds = -1;
+
 	UPROPERTY(EditAnywhere, Category = "Tour")
 	bool bExitWhenDone = true;
 
@@ -69,6 +73,10 @@ public:
 	/** Write only every Nth measured frame: 1 for a video, larger for a few stills at fixed points on the path. */
 	UPROPERTY(EditAnywhere, Category = "Tour")
 	int32 FrameEvery = 1;
+
+	/** First measured frame eligible for capture, so a held-camera sequence can skip the approach. */
+	UPROPERTY(EditAnywhere, Category = "Tour")
+	int32 FrameStart = 0;
 
 	/** Console commands run as the measured period ends, for reading the engine's own counters at that moment. */
 	TArray<FString> EndCommands;

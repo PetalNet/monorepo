@@ -1,22 +1,149 @@
 """The tree inventory: crowns found where they stand, at their height and width, with what is known of their kind."""
 
 import json
+from types import SimpleNamespace
 
 import numpy as np
 import pytest
+from shapely.affinity import translate
+from shapely.geometry import Polygon, box
 
 from envgen import lidar, trees
-from envgen.build import build
-from envgen.site import Tile
+from envgen.build import build, build_trees, sha256_file
+from envgen.site import Source, Tile
 
 from . import helpers as h
-from .test_cover import DAY, sources
+from .test_cover import sources
+from .test_buildings import geojson, square
 from .test_surface import write_noisy_scene
 
 ROOF = (70, 60, 110, 90)  # west, south, east, north: a flat roof 8 m up, grey in the imagery
 # east, north, crown radius, height: one tree alone, a small one, and two whose crowns touch.
 ALONE, SMALL, TWINS = (30, 40, 5, 12), (45, 100, 3, 6), ((88, 25, 5, 11), (97, 25, 5, 10))
 NODATA = -9999.0
+
+
+def test_pipeline_excludes_boundary_crown_for_wholly_outside_geojson_building(tmp_path):
+    path = tmp_path / "buildings.geojson"
+    primary = (square(*ROOF), {"id": "roof"})
+    geojson(path, [primary])
+    site = scene(tmp_path, crowns=((2, 40, 5, 12), SMALL),
+                 buildings={"kind": "file", "path": path.name})
+    out = tmp_path / "out"
+    baseline = build(site, out)
+    before = inventory(out, baseline)
+    building_inventory = (out / "buildings.json").read_bytes()
+    boundary, off = near(before, 2, 40)
+    assert len(before) == 2 and off <= 1.5
+    assert boundary["east_m"] + 63 > 0  # trunk is inside; its crown reaches beyond the tile
+    assert "trees" in build(site, out)["stages_reused"]
+
+    geojson(path, [primary, (square(-5, 37, -1, 44), {"id": "outside"})])
+    changed = build(site, out)
+    after = inventory(out, changed)
+
+    assert after == [tree for tree in before if tree != boundary]
+    assert changed["trees"]["not_trees"]["crown_overlaps_buildings"] == 1
+    assert "trees" not in changed["stages_reused"]
+    assert (out / "buildings.json").read_bytes() == building_inventory
+    assert changed["buildings"]["count"] == baseline["buildings"]["count"] == 1
+
+
+@pytest.mark.parametrize("x,y,radius,excluded", [
+    (2, 2, 1, True),
+    (-2, 10, 3, True),
+    (-2, 10, 2, True),
+    (-2, 10, 1.999, False),
+    (10, 10, 4.999, False),
+    (10, 10, 5, True),
+    (6, 10, 1.001, True),
+    (-1, -1, 1.4, False),
+    (-1, -1, 1.42, True),
+    (49, 2, 1, True),
+])
+def test_crown_circles_respect_building_holes_edges_and_corners(x, y, radius, excluded):
+    centre = (h.WEST + 63, h.SOUTH + 63)
+    courtyard = Polygon(box(0, 0, 20, 20).exterior.coords, [box(5, 5, 15, 15).exterior.coords])
+    footprints = [{"polygon": translate(polygon, *centre)} for polygon in (courtyard, box(50, 0, 54, 4))]
+    records = [{"east_m": x, "north_m": y, "crown_radius_m": radius, "height_m": 12, "source": "lidar"}]
+    original = [dict(tree) for tree in records]
+
+    assert trees.crowns_overlapping_buildings(records, footprints, centre) == [excluded]
+    assert trees.crowns_overlapping_buildings(records, [], centre) == [False]
+    assert trees.crowns_overlapping_buildings([], footprints, centre) == []
+    assert records == original
+
+
+@pytest.mark.parametrize("orthophoto_shift", [False, True])
+def test_build_drops_final_crown_overlap_without_moving_survivors(tmp_path, orthophoto_shift):
+    tile = Tile(h.WEST, h.SOUTH, 1, 126)
+    rows, columns = np.indices((126, 126))
+    height = np.zeros((126, 126), dtype=np.float32)
+    for column, top in ((30, 12), (60, 9), (90, 7)):
+        distance = np.hypot(columns - column, rows - 85)
+        height += np.where(distance <= 3, top * np.sqrt(np.maximum(1 - .75 * (distance / 3)**2, 0)), 0)
+    ground = tmp_path / "ground.tif"
+    h.write_raster(ground, np.zeros_like(height), tile.west, tile.north, 1)
+    h.write_raster(tmp_path / "height.tif", height, tile.west, tile.north, 1)
+    photo = tmp_path / "photo.bin"
+    photo.write_bytes(b"synthetic orthophoto identity; envelopes supplied below")
+    evidence = tmp_path / "observations.json"
+    evidence.write_text(json.dumps({
+        "schema_version": 1,
+        "source": {"sha256": sha256_file(photo), "crs": h.CRS},
+        "features": [{"id": "T1", "feature_type": "individual_tree_crown", "confidence": .9,
+                      "bounds_projected_m": [h.WEST + 31, h.SOUTH + 37, h.WEST + 37, h.SOUTH + 43]}],
+    }))
+    survey_source = Source("file", str(ground), "test", "2030", terrain=str(ground),
+                           orthophoto=str(photo), observations=str(evidence)) if orthophoto_shift else None
+    site = SimpleNamespace(tile=tile, crs=h.CRS, survey=survey_source, lidar=None, tree_mix=None, seed=1)
+    args = (site, tmp_path, ground, photo, None, tmp_path, {"height": "height.tif", "cutoff_m": 2},
+            {"splits": []}, height)
+    baseline = build_trees(*args)
+    before = inventory(tmp_path, {"trees": baseline})
+    assert len(before) == 3
+    west = 35 if orthophoto_shift else 32
+    footprint = {"polygon": box(h.WEST + west, h.SOUTH + 38, h.WEST + west + 4, h.SOUTH + 42)}
+    report = build_trees(*args, footprints=[footprint])
+    after = inventory(tmp_path, {"trees": report})
+
+    assert after == before[1:]
+    assert report["count"] == 2
+    assert report["not_trees"]["crown_overlaps_buildings"] == 1
+    assert sum(report["by_source"].values()) == 2
+    if orthophoto_shift:
+        assert report["orthophoto"]["matched"][0]["shift_m"] > 3
+        assert before[0]["height_m"] == 12
+        assert before[0]["source"] == "lidar+orthophoto"
+
+
+def test_inspected_crowns_refine_only_matched_height_backed_trees():
+    records = [{"east_m": 5., "north_m": 8., "height_m": 9., "crown_radius_m": 5., "source": "lidar"},
+               {"east_m": 30., "north_m": 20., "height_m": 1., "crown_radius_m": 2., "source": "survey"}]
+    observations = {"features": [
+        {"id": "T1", "feature_type": "individual_tree_crown", "confidence": .9,
+         "bounds_projected_m": [102, 204, 112, 212]},
+        {"id": "T2", "feature_type": "individual_tree_crown", "confidence": .9,
+         "bounds_projected_m": [128, 218, 132, 222]},
+        {"id": "V1", "feature_type": "tree_row", "confidence": .99,
+         "bounds_projected_m": [100, 200, 140, 240]},
+    ]}
+    report = trees.refine_crowns(records, observations, (100, 200))
+    assert [entry["observation"] for entry in report["matched"]] == ["T1"]
+    assert records[0]["east_m"] == 7 and records[0]["north_m"] == 8
+    assert records[0]["crown_radius_m"] == pytest.approx(np.sqrt(80) / 2)
+    assert records[0]["height_m"] == 9 and records[0]["source"] == "lidar+orthophoto"
+    assert records[1]["east_m"] == 30 and records[1]["source"] == "survey"
+
+
+def test_identified_fabric_canopy_is_not_a_tree_despite_positive_height():
+    records = [{"east_m": 5., "north_m": 8., "height_m": 3., "crown_radius_m": 2., "source": "survey"},
+               {"east_m": 30., "north_m": 20., "height_m": 9., "crown_radius_m": 4., "source": "lidar"}]
+    observations = {"features": [{"id": "B1", "feature_type": "temporary_canopy", "confidence": .99,
+                                 "bounds_projected_m": [102, 204, 108, 212]}]}
+    report = trees.refine_crowns(records, observations, (100, 200))
+    assert report["identified_objects_excluded"] == 1
+    assert len(records) == 1 and records[0]["source"] == "lidar"
 
 
 def dome(east, north, radius, top):
@@ -176,6 +303,14 @@ def test_a_species_is_drawn_from_the_mix_by_the_trees_kind_and_height():
     assert "cedar" not in tall + short and unknown.count("cedar") > 100
     # A measured kind the mix has no species of stays measured, without a species.
     assert trees.draw_species(MIX[:2], "conifer", 11.0, rng) is None
+
+
+def test_extreme_heights_still_favour_the_species_whose_distribution_fits():
+    rng = np.random.default_rng(4)
+    # Both ordinary likelihoods underflow here; the regional shares alone favour neither broadleaf species.
+    draws = [trees.draw_species(MIX[:2], "broadleaf", 1e20, rng)["name"] for _ in range(100)]
+    assert draws.count("short plum") == 100  # Its fitted distribution has the wider tail.
+    assert trees.draw_species([MIX[0] | {"share": 0}], "broadleaf", 20, rng) is None
 
 
 def test_with_a_mix_every_tree_has_a_species_a_trunk_and_a_crown_from_it_and_says_it_is_a_prior(tmp_path):

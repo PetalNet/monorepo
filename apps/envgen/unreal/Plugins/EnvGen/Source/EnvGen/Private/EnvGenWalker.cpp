@@ -20,6 +20,8 @@ AEnvGenWalker::AEnvGenWalker()
 	PrimaryActorTick.bCanEverTick = true;
 	GetCapsuleComponent()->InitCapsuleSize(35, CapsuleHalfHeightCm);
 	Camera = CreateDefaultSubobject<UCameraComponent>(TEXT("Camera"));
+	// 24 mm lens on a 36 mm sensor; inspection tours keep their fixed calibration.
+	Camera->SetFieldOfView(73.74f);
 	Camera->SetupAttachment(GetCapsuleComponent());
 	Camera->SetRelativeLocation(FVector(0, 0, EyeHeightCm - CapsuleHalfHeightCm));
 	Camera->bUsePawnControlRotation = true;

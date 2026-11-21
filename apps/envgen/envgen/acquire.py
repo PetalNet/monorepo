@@ -20,7 +20,7 @@ from rasterio.transform import from_origin
 from rasterio.warp import transform_bounds
 from rasterio.windows import Window, from_bounds
 
-from .site import CONTEXT_QUADS, Site, Source
+from .site import CONTEXT_MACRO_PIXELS, CONTEXT_QUADS, Site, Source
 
 # ImageServers cap the size of one export; this is under the common limits.
 MAX_REQUEST_PIXELS = 2048
@@ -161,6 +161,8 @@ def _windows(site: Site) -> list[tuple[str, Source, tuple[float, float, float, f
         wanted.append(("canopy_height", site.canopy_height, tile.bounds(MARGIN_M), None))
     if site.reflectance:
         wanted.append(("reflectance", site.reflectance, tile.bounds(MARGIN_M), None))
+    if site.mask_imagery:
+        wanted.append(("mask_imagery", site.mask_imagery, tile.bounds(MARGIN_M), None))
     if site.context_size_m:
         spacing = site.context_size_m / CONTEXT_QUADS
         half = site.context_size_m / 2 + spacing
@@ -168,11 +170,35 @@ def _windows(site: Site) -> list[tuple[str, Source, tuple[float, float, float, f
         window = (east - half, north - half, east + half, north + half)
         wanted += [
             ("context_elevation", site.elevation, window, spacing),
-            ("context_imagery", site.imagery, window, spacing),
+            ("context_imagery", site.imagery, window, site.context_size_m / CONTEXT_MACRO_PIXELS),
         ]
         if site.canopy_height:
             wanted.append(("context_canopy_height", site.canopy_height, window, None))
     return wanted
+
+
+def source_record(source: Source, path: Path) -> dict:
+    """Identity and reuse conditions of a file actually read by this build."""
+    return {
+        "kind": source.kind,
+        "license": source.license,
+        "date": source.date,
+        "path": str(path),
+        "sha256": sha256_file(path),
+        "bytes_fetched": 0,
+        **{
+            key: value
+            for key in ("attribution", "license_url", "license_conflict", "internal_only")
+            if (value := getattr(source, key))
+        },
+    }
+
+
+def raster_identity(path: Path) -> dict:
+    """Raster bytes and GDAL sidecars that can change the pixels or validity read from them."""
+    with rasterio.open(path) as dataset:
+        files = dataset.files
+    return {str(file): sha256_file(Path(file)) for file in files}
 
 
 def acquire(site: Site, cache: Path, fetch=None) -> dict:
@@ -206,5 +232,17 @@ def acquire(site: Site, cache: Path, fetch=None) -> dict:
                 )
         entry["path"] = str(path)
         entry["sha256"] = sha256_file(path)
+        if name == "mask_imagery":
+            entry["raster_files"] = raster_identity(path)
+        for key in ("attribution", "license_url", "license_conflict", "internal_only"):
+            if value := getattr(source, key):
+                entry[key] = value
         registry[name] = entry
+    for name in ("microsoft_buildings", "osm_features"):
+        if source := getattr(site, name):
+            registry[name] = source_record(source, Path(source.location))
+    if site.mask_imagery and site.survey and site.survey.orthophoto:
+        source = site.survey
+        path = Path(source.orthophoto)
+        registry["survey_orthophoto"] = source_record(source, path) | {"raster_files": raster_identity(path)}
     return registry
