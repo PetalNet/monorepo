@@ -684,7 +684,98 @@ class NoticeRoutingTest(unittest.TestCase):
             matrix_notice.rooms_of(["owner=!a:x", "notebook=!a:x"])
 
 
+class TurnTimingTest(unittest.IsolatedAsyncioTestCase):
+    async def test_batched_endpoint_keeps_time_spent_interrupting(self):
+        ws = mock.AsyncMock()
+        ws.ring = None
+        incoming = asyncio.Queue()
+        await incoming.put(tone(.3) + bytes(6400))
+        ws.recv.side_effect = incoming.get
+        config = janet_phone.Config(listen="", gateway="", stt="", tier="guest", channel="test", disclosure="",
+                                    endpoint={"silence_ms": 200})
+        call = janet_phone.Call(ws, config, mock.Mock(), "000000000001")
+        async def delayed_interrupt():
+            await asyncio.sleep(.1)
+        call.cut_off = mock.AsyncMock(side_effect=delayed_interrupt)
+        before = time.monotonic()
+        task = asyncio.create_task(call.listen())
+        try:
+            for _ in range(100):
+                if not call.utterances.empty():
+                    break
+                await asyncio.sleep(.01)
+            _, ended, timing = call.utterances.get_nowait()
+            self.assertLess(ended - before, .05)
+            self.assertGreaterEqual(time.monotonic() - ended, .09)
+            self.assertIs(call.latency["turns"][0], timing)
+            self.assertNotIn("first_audio_at", timing)
+        finally:
+            task.cancel()
+            await asyncio.gather(task, return_exceptions=True)
+
+    async def test_interruption_before_audio_retains_partial_turn(self):
+        release = threading.Event()
+        gateway = mock.Mock()
+        gateway.turn.return_value = iter([("sentence", {"text": "Wait."}), ("done", {})])
+        gateway.speech.side_effect = lambda _: (release.wait(2), (16000, tone(.1)))[1]
+        config = janet_phone.Config(listen="", gateway="", stt="", tier="guest", channel="test", disclosure="")
+        ws = mock.AsyncMock()
+        ws.ring = None
+        call = janet_phone.Call(ws, config, gateway, "000000000001")
+        timing = {"endpoint_ms": 200}
+        task = asyncio.create_task(call.reply("a turn", time.monotonic(), timing))
+        try:
+            for _ in range(100):
+                if "tts_request_at" in timing:
+                    break
+                await asyncio.sleep(.01)
+            task.cancel()
+            await asyncio.gather(task, return_exceptions=True)
+            self.assertEqual(call.latency["turns"], [timing])
+            self.assertEqual(timing["outcome"], "interrupted")
+            self.assertNotIn("first_audio_at", timing)
+        finally:
+            release.set()
+
+
 class EndpointerTest(unittest.TestCase):
+    def test_vad_ends_speech_over_loud_background_without_waiting_for_the_cap(self):
+        scores = iter([False] * 10 + [True] * 8 + [False] * 50)
+        endpointer = janet_phone.Endpointer(silence_ms=1400, vad=lambda _: next(scores))
+        noise = struct.pack("<h", 1200) * 512
+        events = endpointer.feed(noise * 68)
+        self.assertEqual(events[0], "start")
+        self.assertEqual(len(events), 2)
+        self.assertEqual(endpointer.endpoints.popleft(), {
+            "audio_end_ms": 1984, "endpoint_ms": 1408, "endpoint_reason": "silence"})
+
+    def test_one_vad_frame_of_short_speech_is_kept_with_its_lead_audio(self):
+        scores = iter([False] * 10 + [True] + [False] * 44)
+        endpointer = janet_phone.Endpointer(start_ms=32, silence_ms=1400, vad=lambda _: next(scores))
+        events = endpointer.feed(bytes(1024 * 55))
+        self.assertEqual(events[0], "start")
+        self.assertEqual(len(events), 2)
+        self.assertGreaterEqual(len(events[1]), 1024 * 54)
+
+    def test_pause_before_silence_deadline_keeps_one_turn(self):
+        scores = iter([True] * 8 + [False] * 30 + [True] * 8 + [False] * 44)
+        endpointer = janet_phone.Endpointer(silence_ms=1400, vad=lambda _: next(scores))
+        events = endpointer.feed(bytes(1024 * 90))
+        self.assertEqual(len(events), 2)
+        self.assertEqual(len(endpointer.endpoints), 1)
+
+    def test_cap_reports_limit_instead_of_the_configured_silence(self):
+        endpointer = janet_phone.Endpointer(max_s=1, silence_ms=1400, vad=lambda _: True)
+        events = endpointer.feed(bytes(1024 * 64))
+        self.assertEqual(sum(isinstance(event, bytes) for event in events), 2)
+        self.assertEqual([item["endpoint_reason"] for item in endpointer.endpoints], ["limit", "limit"])
+        self.assertEqual([item["endpoint_ms"] for item in endpointer.endpoints], [0, 0])
+
+    def test_isolated_vad_noise_does_not_start_a_turn(self):
+        scores = iter([False] * 5 + [True] + [False] * 50)
+        endpointer = janet_phone.Endpointer(start_ms=64, silence_ms=1400, vad=lambda _: next(scores))
+        self.assertEqual(endpointer.feed(bytes(1024 * 56)), [])
+
     def test_speech_then_silence_is_one_utterance(self):
         endpointer = janet_phone.Endpointer(silence_ms=200)
         events = endpointer.feed(bytes(16000) + tone(0.5) + bytes(16000))

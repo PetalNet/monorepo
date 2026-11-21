@@ -199,6 +199,8 @@ client_id = "the public client's id"
 redirect_uri = "janetcall://signin"
 
 turn_models = "/models" # silero_vad.onnx and the Parakeet files: the shared turn detector (below)
+# Or omit turn_models and detect speech without loading a transcript-based judge:
+# vad_model = "/models/silero_vad.onnx"
 line_tone = "AL4 AT40 AH400 AW83 BC2 BL11 BR7 BF2 BO6 DL0 DW48 U37 V80" # the call's background sound (below); empty is off
 
 [endpoint] # the fallback loudness detector, used only without turn_models
@@ -209,7 +211,18 @@ silence_ms = 700
 **When a turn ends.** With `turn_models`, the bridge uses the same turn detector as janet-mac
 ([`packages/janet-turn`](../../packages/janet-turn)): Silero VAD, a streaming speech model and a fitted judge. A
 pause of 3 s ends a turn; after an "um" or a trailing "and" it waits 6 s; when the words are finished it ends
-after 1 to 2.5 s. Without `turn_models`, or if the models fail to load, a call uses the loudness rule in `[endpoint]`.
+after 1 to 2.5 s. Without `turn_models`, `vad_model` uses the same Silero speech model with the fixed
+pause allowance in `[endpoint]`. It detects speech from audio without loading the speech-to-text
+model or turn judge. Two consecutive 32 ms frames above 0.3 speech probability start a turn,
+retaining brief acknowledgements without starting on an isolated high-probability frame.
+Without either model, or if loading fails, a call uses the loudness rule in `[endpoint]`.
+
+Endpoint logs include the audio offset, measured quiet interval and whether silence or the maximum
+utterance length ended the turn. Call timing records include STT start/result, head request/first
+sentence, head-reported token/sentence timings, and the first WebSocket audio send. `total_ms` adds
+the measured quiet interval to endpoint-to-audio time; it is not handset playback latency. A
+`limit` endpoint means speech detection never observed a sufficient pause. The shared turn judge
+does not expose its quiet interval, so its `total_ms` is null rather than an assumed setting.
 
 **The line tone.** With `line_tone`, the bridge keeps a quiet sound under the call so the caller knows the line is open
 ([`packages/janet-line`](../../packages/janet-line), ported from the tuning page; the value is that page's code): comfort noise
@@ -229,8 +242,8 @@ Run it with `python janet_phone.py --config /path/to/phone.toml`, or build the `
 
 ## Limits
 
-- End of speech is a loudness threshold and a fixed silence. `Endpointer` is the one place a better
-  detector plugs in.
+- Audio-only detection still waits for a fixed pause; it cannot distinguish a thinking pause from
+  a completed thought. The loudness fallback can remain active over background noise until the cap.
 - A reply is synthesized one whole sentence at a time, so the first audio of a reply waits for the
   first sentence.
 - Cut-off relies on the calling device cancelling its own echo. A device that plays Janet through a
