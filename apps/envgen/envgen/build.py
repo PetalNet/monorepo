@@ -372,6 +372,9 @@ def build_trees(
 
         evidence = read(Path(site.survey.observations), sha256_file(Path(site.survey.orthophoto)), site.crs)
         report["orthophoto"] = trees.refine_crowns(records, evidence, tile.centre)
+    overlaps = trees.crowns_overlapping_buildings(records, footprints or [], tile.centre)
+    report["not_trees"]["crown_overlaps_buildings"] = sum(overlaps)
+    records = [tree for tree, overlap in zip(records, overlaps, strict=True) if not overlap]
     (out / "trees.json").write_text(
         json.dumps({"columns": trees.COLUMNS, "trees": [[tree[name] for name in trees.COLUMNS] for tree in records]})
     )
@@ -385,6 +388,8 @@ def build_trees(
         priors.append("prior: no tree's kind is measured; kinds follow the inventory's mix, or broadleaf without one")
     if footprints:
         priors.append("prior: a tree stands at its crown's top, so a crown whose top is in a footprint is not a tree")
+        priors.append("prior: drop a tree whose final measured crown circle touches or overlaps building material; "
+                      "footprint holes stay open; no clearance offsets are invented")
     if "survey" in report:
         unseen = sum(tree["source"] != "survey" and tree["confidence"] < 1 for tree in records)
         report["survey"]["crowns_added"] = sum(tree["source"] == "survey" for tree in records)

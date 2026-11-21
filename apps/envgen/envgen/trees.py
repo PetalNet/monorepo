@@ -14,6 +14,8 @@ import numpy as np
 from scipy import ndimage
 from skimage.morphology import reconstruction
 from skimage.segmentation import watershed
+from shapely import STRtree
+from shapely.geometry import Point
 
 from . import surface
 
@@ -45,6 +47,7 @@ SETTINGS = {
     "seen_share": SEEN_SHARE,
     "narrow_sigmas": NARROW_SIGMAS,
     "narrow_min_crowns": NARROW_MIN_CROWNS,
+    "building_exclusion": "final crown circle touches or overlaps footprint material; holes retained",
 }
 
 COLUMNS = (
@@ -252,6 +255,23 @@ def inventory(
             }
         trees.append(tree)
     return trees
+
+
+def crowns_overlapping_buildings(
+    records: list[dict], footprints: list[dict], centre: tuple[float, float]
+) -> list[bool]:
+    """Flag final crown circles touching building material, including outer and hole boundaries.
+
+    Records are tile-relative metres; polygons are in the site's projected metre CRS.
+    Point-to-polygon distance tests the exact circle without approximating it by a buffered polygon.
+    A crown wholly inside a courtyard stays only when it clears the courtyard walls.
+    """
+    if not footprints:
+        return [False] * len(records)
+    index = STRtree([item["polygon"] for item in footprints])
+    return [bool(index.query(Point(tree["east_m"] + centre[0], tree["north_m"] + centre[1]),
+                             predicate="dwithin", distance=tree["crown_radius_m"]).size)
+            for tree in records]
 
 
 def refine_crowns(records: list[dict], observations: dict, centre: tuple[float, float]) -> dict:
