@@ -618,8 +618,8 @@ float direction=(2*smoothstep(-stripeFW,stripeFW,sin(stripe*3.14159265))-1)*stri
 float seamDistance=abs(frac(stripe+.5)-.5)*StripeWidth;
 float seamFW=max(fwidth(q.x),.0001);
 float seam=(1-smoothstep(max(0.,.008-seamFW),.008+seamFW,seamDistance))*min(1.,.008/seamFW)*stripeVisible;
-float modulation=.42+.018*direction+.008*ribbon+.015*(fiber-.5)*detailVisible
- +.10*(cluster-.5)*clusterVisible+.018*(n.value(q*.8)-.5)-.04*seam;
+float modulation=.65*(1.+.043*direction+.019*ribbon+.036*(fiber-.5)*detailVisible
+ +.24*(cluster-.5)*clusterVisible+.043*(n.value(q*.8)-.5)-.095*seam);
 
 float3 up=normalize(N);
 float3 axis=float3(HeadingSin,HeadingCos,0);
@@ -634,9 +634,11 @@ float determinant=dot(vx,r1);
 float3 bump=normalize(max(abs(determinant),.000001)*up-sign(determinant)*.08*(ddx_fine(grains.r)*r1+ddy_fine(grains.r)*r2));
 FiberNormal=normalize(lerp(normalize(up+side*acrossSlope+tangent*alongSlope),bump,pileNear));
 // Directional roughness and dielectric Fresnel give every inlaid color the same grazing sheen.
-Roughness=lerp(clamp(.50+.03*direction+.10*(cluster-.5)*clusterVisible+.08*crumb,.45,.8),.88,pileNear);
-Specular=lerp(.45-.18*crumb,.35,pileNear);
-float3 canopy=lerp(colour*modulation,float3(.008,.009,.008),crumb);
+Roughness=lerp(clamp(.75+.03*direction+.10*(cluster-.5)*clusterVisible+.08*crumb,.70,.95),.88,pileNear);
+Specular=lerp(.18-.05*crumb,.35,pileNear);
+// At grazing angles, upright fibers hide more of the infill between their roots.
+float crumbVisible=crumb*saturate(dot(up,normalize(Eye-P)));
+float3 canopy=lerp(min(colour*modulation,.95),float3(.008,.009,.008),crumbVisible);
 float3 bed=lerp(float3(.006,.007,.006),float3(.025,.027,.025),grains.g)*lerp(.35,1.,grains.b);
 return lerp(canopy,bed,pileNear);
 )HLSL");
