@@ -1661,6 +1661,18 @@ return float4(dx,dy);
 				GrassWeight = Weight;
 				// Placement uses the imported native-blended weights without virtual-texture sampling in the grass pass.
 				GrassPlacement = Sharpen(Weight, GrassPlacementEdgeSharpness, 1500);
+				UMaterialExpressionCustom* Majority = Node<UMaterialExpressionCustom>(Material, 1700, Y);
+				Majority->OutputType = CMOT_Float1;
+				Majority->Inputs.Empty();
+				for (const auto& Pair : {TPair<const TCHAR*, UMaterialExpression*>(TEXT("Weight"), Weight),
+					TPair<const TCHAR*, UMaterialExpression*>(TEXT("Placement"), GrassPlacement)})
+				{
+					FCustomInput& Input = Majority->Inputs.AddDefaulted_GetRef();
+					Input.InputName = Pair.Key;
+					Input.Input.Connect(0, Pair.Value);
+				}
+				Majority->Code = TEXT("return Weight > 0.5 ? Placement : 0.0;");
+				GrassPlacement = Majority;
 			}
 			++Row;
 		}
