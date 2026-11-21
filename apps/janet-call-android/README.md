@@ -40,7 +40,7 @@ No ntfy app or Google Play Services is required. The listener uses an ntfy WebSo
 foreground service. It reconnects after network loss and restarts after reboot, once you unlock
 the phone. Force-stopping Janet or stopping its foreground service disables delivery until you
 open it again. Calls sent while the listener is disconnected can be missed because wakes are
-not cached. A connection loss during a call still ends that call.
+not cached. A transient connection loss during a call retries the same session for up to 20 seconds.
 
 For the real-phone check, lock the phone and leave it idle. Have Janet run:
 
@@ -155,13 +155,19 @@ Known gaps:
 ## Bridge protocol
 
 One WebSocket per call: `GET <url>` with `Authorization: Bearer <device token>`,
-`CF-Access-Client-Id` and `CF-Access-Client-Secret`.
+`CF-Access-Client-Id`, `CF-Access-Client-Secret`, `X-Janet-Audio: opus`, and
+`X-Janet-Session: <32 lowercase hex characters>`. The session identifier stays fixed for the call.
 
-- Client to server: binary frames of 20 ms PCM16LE mono 16 kHz microphone audio, from connect to
-  hang-up. Closing the socket with 1000 is the hang-up.
+- Client to server: 20 ms mono Opus packets at 16 kHz. Each binary message is `JOP1`, an unsigned
+  64-bit big-endian sample timestamp, then one raw Opus packet (at most 1275 bytes). Capture timestamps
+  continue across dropped frames and network outages. `{"type":"hangup"}` ends the call; normal
+  close code 1000 remains final.
 - Server to client:
-  - `{"type":"audio","rate":N}` announces the rate of the binary frames that follow.
-  - A binary frame is PCM16LE mono reply audio at that rate, played as it arrives.
+  - `{"type":"audio","rate":N,"codec":"opus"}` announces the native stream rate. Every announcement
+    resets the playback decoder, including when the same session reattaches.
+  - Reply packets use the same Opus framing and timestamps at the announced rate. The platform
+    decoder supplies PCM to a queue bounded to twenty 20 ms pieces plus the AudioTrack buffer.
+    Overflow clears stale playback rather than accumulating speech delay.
   - `{"type":"clear"}` drops the audio queued for playback and the words she had not said yet.
   - `{"type":"bye"}` then a normal close: Janet ended the call.
   - `{"type":"state","value":"listening"|"thinking"|"speaking"}`: what Janet is doing. Without
@@ -179,9 +185,15 @@ A call runs in a foreground service of type phone call and microphone. While it 
 partial wake lock, a Wi-Fi lock and audio focus, so the CPU and the radio do not sleep under the microphone
 thread and the socket when the screen goes off or another app comes up. They are released when the call ends.
 
-The bridge has no way to resume a call: its conversation ends with its socket. So the app does not reconnect.
-When the line is lost mid-call (the socket fails, the bridge closes it with anything but a normal close, or the
-microphone stops delivering for five seconds), the app plays the fast-busy tone and says why on the call screen.
+After a transient socket failure, the app reattaches the same authenticated session with bounded backoff
+for up to 20 seconds. It keeps the Telecom call and microphone open, discards stale uplink data, and waits
+for fresh audio metadata before resuming. Authentication refusals, normal closes, and `bye` are final.
+An offline local hangup ends Telecom immediately and retains only the bounded transport retry to tell
+the bridge; otherwise the bridge expires the session. If recovery fails or the microphone stops delivering
+for five seconds, the app plays the fast-busy tone and says why on the call screen.
+
+Opus uses Android platform MediaCodec APIs. A phone without an Opus encoder cannot start audio and
+receives an error; there is no bundled codec dependency.
 A hang-up by Janet (`bye`, or a normal close) gets no tone; her own two-note descending earcon comes from the bridge.
 
 ## Warm-up

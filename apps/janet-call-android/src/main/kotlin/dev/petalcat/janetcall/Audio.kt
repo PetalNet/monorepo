@@ -6,6 +6,7 @@ import android.media.AudioRecord
 import android.media.AudioTrack
 import android.media.MediaRecorder
 import android.os.Process
+import android.os.Build
 import java.io.File
 import java.io.RandomAccessFile
 import java.nio.ByteBuffer
@@ -32,7 +33,7 @@ const val MIC_BACKLOG_BYTES = MIC_CHUNK_BYTES * 25L
  * its end-of-speech detector nor speech to text can use. The bound covers this queue only, not what
  * the TLS layer and the kernel already hold.
  */
-class MicBacklog {
+class MicBacklog(private val frameBytes: Int = MIC_CHUNK_BYTES, private val limitBytes: Long = MIC_BACKLOG_BYTES) {
 	private var dropping = false
 
 	/** Frames dropped so far. */
@@ -40,8 +41,8 @@ class MicBacklog {
 		private set
 
 	fun admits(queuedBytes: Long): Boolean {
-		if (queuedBytes >= MIC_BACKLOG_BYTES) dropping = true
-		else if (queuedBytes <= MIC_CHUNK_BYTES) dropping = false
+		if (queuedBytes >= limitBytes) dropping = true
+		else if (queuedBytes <= frameBytes) dropping = false
 		if (dropping) dropped++
 		return !dropping
 	}
@@ -189,7 +190,9 @@ class Player(private val stage: CallStage, private val recorder: (Int) -> WavWri
 		data object Stop : Item
 	}
 
-	private val queue = LinkedBlockingQueue<Item>()
+	private val queue = LinkedBlockingQueue<Item>(20)
+	private var announcedRate = MIC_RATE
+	@Volatile private var closed = false
 
 	@Volatile private var generation = 0
 
@@ -205,22 +208,37 @@ class Player(private val stage: CallStage, private val recorder: (Int) -> WavWri
 	private val written = AtomicLong()
 	private val thread = Thread(::loop, "janet-playback").apply { start() }
 
-	fun setRate(hz: Int) = queue.put(Item.Rate(hz))
+	@Synchronized
+	fun setRate(hz: Int) {
+		if (closed || announcedRate == hz) return
+		announcedRate = hz
+		clear()
+		queue.clear()
+		queue.offer(Item.Rate(hz))
+	}
 
+	@Synchronized
 	fun enqueue(pcm: ByteArray) {
-		val piece = rate.coerceAtLeast(8_000) / 50 * 2
-		val gen = generation
+		if (closed) return
+		val piece = announcedRate.coerceAtLeast(8_000) / 50 * 2
 		var i = 0
 		while (i < pcm.size) {
 			val end = minOf(pcm.size, i + piece)
-			queue.put(Item.Pcm(gen, pcm.copyOfRange(i, end)))
+			if (queue.remainingCapacity() == 0) clear()
+			queue.offer(Item.Pcm(generation, pcm.copyOfRange(i, end)))
 			i = end
 		}
 	}
 
 	/** The audio enqueued after this call is the start of sentence [seq], whose words the stage is holding. */
-	fun markSentence(seq: Int) = queue.put(Item.Sentence(generation, seq))
+	@Synchronized
+	fun markSentence(seq: Int) {
+		if (closed) return
+		if (queue.remainingCapacity() == 0) clear()
+		queue.offer(Item.Sentence(generation, seq))
+	}
 
+	@Synchronized
 	fun clear() {
 		generation++
 		queue.removeIf { it is Item.Pcm || it is Item.Sentence }
@@ -233,7 +251,10 @@ class Player(private val stage: CallStage, private val recorder: (Int) -> WavWri
 	}
 
 	/** With [drain], audio already queued still plays out before the track is released. */
+	@Synchronized
 	fun close(drain: Boolean) {
+		if (closed) return
+		closed = true
 		if (drain) {
 			draining = true
 		} else {
@@ -244,7 +265,10 @@ class Player(private val stage: CallStage, private val recorder: (Int) -> WavWri
 				flush()
 			}
 		}
-		queue.put(Item.Stop)
+		if (!queue.offer(Item.Stop)) {
+			queue.poll()
+			queue.offer(Item.Stop)
+		}
 	}
 
 	/** The playback thread releases the track; callers on other threads go through here so they never touch a released one. */
@@ -328,7 +352,10 @@ class Player(private val stage: CallStage, private val recorder: (Int) -> WavWri
 			.setTransferMode(AudioTrack.MODE_STREAM)
 			.setBufferSizeInBytes(maxOf(minBuf, hz / 5 * 2))
 			.build()
-			.also { it.play() }
+			.also {
+				if (Build.VERSION.SDK_INT >= 31) it.setStartThresholdInFrames(hz * 3 / 50)
+				it.play()
+			}
 	}
 
 	private companion object {
