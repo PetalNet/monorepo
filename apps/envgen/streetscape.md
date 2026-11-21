@@ -193,7 +193,7 @@ world-projected atlas colors include the
 markings. Athletic mesh vertices must use the exporter’s 0.025 m terrain offset so pile roots meet
 the surface. Natural grass inputs remain connected to their original varieties.
 These are appearance priors. There are no raised marking ribbons, dry patches, soil or grass clumps.
-Rows are 10 mm apart, with finer strands grouped into 20 mm stitches. Sub-row scraps can show infill without a fiber root; markings use atlas colors
+Rows are 10 mm apart, with strands spread along each row instead of collapsed into coarser stitches. Sub-row scraps can show infill without a fiber root; markings use atlas colors
 inside a full field, rather than separate narrow field polygons.
 Registered surface meshes keep full-precision UVs so wide atlases do not quantize marking positions
 at mesh boundaries.
