@@ -49,8 +49,9 @@ FIELD_CALIBRATION = {
         "relative photo green/red contrast interpolates maintained and worn appearance; not a measured condition map",
         "the existing 2 m surface fringe interpolates path-edge appearance",
         "projected-area mixtures retain condition colour around one maintained luminance reference; site luminance supplies nearby variation and non-soil candidates use dry colour times root shade as low thatch",
-        "living and dead colours mix per texture leaf; mapped condition alone supplies larger wear patterns",
-        "calibration fades out from 15 to 30 m to retain the approved orthophoto-led distant appearance",
+        "living and dead colours mix a tileable multiscale field with per-leaf variation; the conditional dry-tuft range sets its characteristic scale and mapped condition supplies larger wear patterns",
+        "the short ground cover and blade bases use root shade beneath upright leaves; this is a canopy-lighting prior",
+        "calibration fades from 15 to 30 m in steep views; grazing ground views retain short cover through the distant tuft handoff",
     ],
 }
 
@@ -137,7 +138,7 @@ NEAR_BLADE_WIDTH_CM = (0.8, 1.4)
 # how wide the tuft is, how far out each is drawn, that none casts a shadow (a tuft's own shadow blackens it against
 # a sward that has none), and how much a tuft's size varies. The index of real mown turf is several times the near one: what is
 # drawn is the top of the sward, and the ground's own colour under it is the rest.
-NEAR = {"leaf_area_index": 2.0, "blades": 48, "blade_width_cm": [0.4, 0.7], "radius_cm": 14.0,
+NEAR = {"leaf_area_index": 2.0, "blades": 66, "blade_width_cm": [0.29, 0.51], "radius_cm": 14.0,
         "start_cull_cm": 800, "end_cull_cm": 1500}
 CLUMP = {"leaf_area_index": 0.2, "blades": 24, "radius_cm": 22.5, "start_cull_cm": 2500, "end_cull_cm": 6500,
          "appear_cm": [800, 1500]}
@@ -154,7 +155,7 @@ CANOPY_RESPONSE = {
     "lawn_leaves_per_m2": 16000,
     "dry_height_ratio": 0.25,
     "edge_mowing_height_ratio": 1 / TALL_OVER_MOWED,
-    "edge_height_weights": [0.5, 0.7],
+    "grazing_view_sine_range": [0.15, 0.35],
 }
 
 PRIORS = [
@@ -168,8 +169,9 @@ PRIORS = [
     "prior: the clump variety retains its 8 to 15 m transition; near blades overlap that transition above a continuous lawn texture",
     "prior: a 4 m lawn tile retains 512 pixels and 16000 texture leaves per square metre to avoid a 1 m worn-patch repeat",
     "prior: dead blades reduce to one quarter height at maximum photo wear; surviving grass retains its height and all leaf counts stay full",
-    "prior: tall edge blades return to mowing height nearby, and near blades taper in height across grass weights 0.5 to 0.7",
+    "prior: tall edge blades return to mowing height nearby; near blades retain their height up to the shared grass-majority root boundary",
     "prior: worn and edge height responses restore the original geometry over the calibration's 15 to 30 m fade",
+    "prior: at surface-view sines below 0.15, short cover fades over 30 m to the clump cull distance; above 0.35 the original 15 to 30 m material fade remains",
 
 ]
 
