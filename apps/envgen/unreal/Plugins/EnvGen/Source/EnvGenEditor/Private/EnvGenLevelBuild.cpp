@@ -363,6 +363,13 @@ namespace
 			Out.Surround = ReadSurface(**Context, (*Context)->GetStringField(TEXT("colour")));
 		}
 		Out.TileSizeCm = (*Tile)->GetNumberField(TEXT("size_m")) * 100;
+		if (!FMath::IsFinite(Out.TileSizeCm) || Out.TileSizeCm <= 0
+			|| !FMath::IsFinite(Out.Tile.Scale.X) || Out.Tile.Scale.X <= 0
+			|| !FMath::IsFinite(Out.Tile.Scale.Y) || Out.Tile.Scale.Y <= 0)
+		{
+			Error = TEXT("tile size and horizontal terrain scale must be finite and positive");
+			return false;
+		}
 		Out.Georeference = *Geo;
 		Out.StencilClasses = *Stencil;
 		const TSharedPtr<FJsonObject>* Albedo = nullptr;
@@ -548,10 +555,18 @@ namespace
 				Variety.StartCullCm = Item->GetIntegerField(TEXT("start_cull_cm"));
 				Variety.EndCullCm = Item->GetIntegerField(TEXT("end_cull_cm"));
 				Variety.bCastsShadow = Item->GetBoolField(TEXT("casts_shadow"));
-				if (Variety.Name == FName(TEXT("near")) && (Variety.StartCullCm < 0 || Variety.EndCullCm <= Variety.StartCullCm))
+				if (Variety.Name == FName(TEXT("near")))
 				{
-					Error = TEXT("near cull distances must be ordered and nonnegative");
-					return false;
+					const double PlacementPadUv = (Out.Tile.Scale.X + double(Variety.RadiusCm) * Variety.ScaleMax) / Out.TileSizeCm;
+					if (Variety.StartCullCm < 0 || Variety.EndCullCm <= Variety.StartCullCm
+						|| !FMath::IsFinite(Variety.RadiusCm) || Variety.RadiusCm < 0
+						|| !FMath::IsFinite(Variety.ScaleMin) || Variety.ScaleMin <= 0
+						|| !FMath::IsFinite(Variety.ScaleMax) || Variety.ScaleMax < Variety.ScaleMin
+						|| !FMath::IsFinite(PlacementPadUv) || PlacementPadUv <= 0)
+					{
+						Error = TEXT("near cull distances must be ordered and nonnegative, with finite nonnegative radius, positive ordered scale and finite placement padding");
+						return false;
+					}
 				}
 				if (Item->HasField(TEXT("blade_shape")))
 				{
@@ -2296,10 +2311,33 @@ return float4(dx,dy);
 					{
 						UMaterialExpressionCustom* NearPlacement = Node<UMaterialExpressionCustom>(Material, -100, 900 + Index * 100);
 						NearPlacement->OutputType = CMOT_Float1;
+						NearPlacement->Inputs.Empty();
 						FCustomInput& WeightInput = NearPlacement->Inputs.AddDefaulted_GetRef();
 						WeightInput.InputName = TEXT("Weights");
 						WeightInput.Input.Connect(0, NearWeights);
-						NearPlacement->Code = TEXT("return Weights.r>0.5 ? 1 : 0;");
+						// Grass maps interpolate vertex weights. Expand tuft eligibility, while individual roots use the true boundary.
+						const FTuftVariety& Near = Manifest.Turf.Varieties[Index];
+						const double PadUv = (QuadCm + double(Near.RadiusCm) * Near.ScaleMax) / Manifest.TileSizeCm;
+						FString Eligible = TEXT("Weights.r");
+						for (int32 Y = -1; Y <= 1; ++Y)
+						{
+							for (int32 X = -1; X <= 1; ++X)
+							{
+								if (X == 0 && Y == 0) continue;
+								UMaterialExpressionCustom* NeighbourUv = Node<UMaterialExpressionCustom>(Material, -300, 1000);
+								NeighbourUv->OutputType = CMOT_Float2;
+								NeighbourUv->Inputs.Empty();
+								FCustomInput& UvInput = NeighbourUv->Inputs.AddDefaulted_GetRef();
+								UvInput.InputName = TEXT("UV");
+								UvInput.Input.Connect(0, TileCoords);
+								NeighbourUv->Code = FString::Printf(TEXT("return UV+float2(%.12f,%.12f);"), X * PadUv, Y * PadUv);
+								FCustomInput& Neighbour = NearPlacement->Inputs.AddDefaulted_GetRef();
+								Neighbour.InputName = FName(*FString::Printf(TEXT("Neighbour%d"), NearPlacement->Inputs.Num()));
+								Neighbour.Input.Connect(0, NearSurfaceWeights(Material, NeighbourUv, RootBoundary, RootFallback, Manifest));
+								Eligible = FString::Printf(TEXT("max(%s,%s.r)"), *Eligible, *Neighbour.InputName.ToString());
+							}
+						}
+						NearPlacement->Code = FString::Printf(TEXT("return %s>0.5 ? 1 : 0;"), *Eligible);
 						Density->A.Connect(0, NearPlacement);
 					}
 					// Individual roots clip the near layer; whole-tuft clearance remains for distant varieties.
@@ -3180,6 +3218,8 @@ bool FEnvGenLevelBuild::Start(const FString& ManifestPath, const FString& MapPat
 		const uint8* Bytes = FallbackWeights->Source.LockMipReadOnly(0, 0, 0);
 		RootFallback = MakeTexture(TEXT("T_TurfRootFallback"), int32(FallbackWeights->Source.GetSizeX()), int32(FallbackWeights->Source.GetSizeY()), TSF_BGRA8, Bytes, false, State->Packages, TC_VectorDisplacementmap);
 		FallbackWeights->Source.UnlockMip(0, 0, 0);
+		RootFallback->AddressX = TA_Clamp;
+		RootFallback->AddressY = TA_Clamp;
 		RootFallback->NeverStream = true;
 		RootFallback->MipGenSettings = TMGS_NoMipmaps;
 		RootFallback->PostEditChange();
