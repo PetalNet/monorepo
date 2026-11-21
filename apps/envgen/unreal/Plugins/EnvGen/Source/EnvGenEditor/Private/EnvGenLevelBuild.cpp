@@ -193,7 +193,8 @@ namespace
 		TArray<FLinearColor> FieldGreen, FieldDry;
 		TArray<FVector3f> FieldMix;
 		FLinearColor FieldSoil;
-		float DryTuftCm = 0, CalibrationFadeStartCm = 0, CalibrationFadeEndCm = 0;
+		bool bSoilCandidateIsBareSoil = true;
+		float CalibrationFadeStartCm = 0, CalibrationFadeEndCm = 0;
 		float LawnRepeatCm = 100, DryHeightRatio = 1, EdgeMowingHeightRatio = 1;
 		int32 LawnPixelsPerM = 512, LawnLeavesPerM2 = 16000;
 		float EdgeHeightStartWeight = 0.575f, EdgeHeightFullWeight = 0.575f;
@@ -452,6 +453,7 @@ namespace
 					return FLinearColor(float(Values[0]->AsNumber()), float(Values[1]->AsNumber()), float(Values[2]->AsNumber()));
 				};
 				const FLinearColor Soil = Colour((*Calibration)->GetArrayField(TEXT("soil")));
+				(*Calibration)->TryGetBoolField(TEXT("soil_candidate_is_bare_soil"), Out.Turf.bSoilCandidateIsBareSoil);
 				const TSharedPtr<FJsonObject> Surfaces = (*Calibration)->GetObjectField(TEXT("surfaces"));
 				for (const TCHAR* Name : {TEXT("maintained"), TEXT("worn"), TEXT("edge")})
 				{
@@ -464,8 +466,6 @@ namespace
 					Out.Turf.FieldMix.Add(FVector3f(float(Mix[0]->AsNumber()), float(Mix[1]->AsNumber()), float(Mix[2]->AsNumber())));
 					Out.Turf.FieldSoil = Soil;
 				}
-				const TArray<TSharedPtr<FJsonValue>>& Diameter = (*Calibration)->GetArrayField(TEXT("dry_tuft_diameter_m"));
-				Out.Turf.DryTuftCm = float((Diameter[0]->AsNumber() + Diameter[1]->AsNumber()) * 50);
 				const TArray<TSharedPtr<FJsonValue>>& Fade = (*Calibration)->GetArrayField(TEXT("fade_cm"));
 				Out.Turf.CalibrationFadeStartCm = float(Fade[0]->AsNumber());
 				Out.Turf.CalibrationFadeEndCm = float(Fade[1]->AsNumber());
@@ -822,7 +822,7 @@ return lerp(Texture2DSampleGrad(Scan,ScanSampler,UV,dx,dy).rgb,varied,blend);
 	struct FLawnTextures
 	{
 		TArray<UTexture2D*> Surfaces;
-		TArray<FLinearColor> Means, VegetationMeans;
+		TArray<FLinearColor> Means, VegetationMeans, BaseColours;
 		UTexture2D* DeadMasks = nullptr;
 		float RepeatCm = 100;
 		UTexture2D* Normal = nullptr;
@@ -863,42 +863,20 @@ return lerp(Texture2DSampleGrad(Scan,ScanSampler,UV,dx,dy).rgb,varied,blend);
 				}
 			}
 		}
-		// Periodic waves span several tuft scales without an axis-aligned patch lattice.
-		constexpr int32 Modes = 24;
-		TArray<float> WaveCosX, WaveSinX, WaveCosY, WaveSinY;
-		for (int32 Mode = 0; Mode < Modes; ++Mode)
-		{
-			const float Angle = Random.FRand() * 2 * PI;
-			const float Frequency = Result.RepeatCm / (2 * Turf.DryTuftCm) * FMath::Pow(2.f, Random.FRandRange(-1.f, 1.5f));
-			const int32 Kx = FMath::RoundToInt(Frequency * FMath::Cos(Angle));
-			const int32 Ky = FMath::RoundToInt(Frequency * FMath::Sin(Angle));
-			const float Phase = Random.FRand() * 2 * PI;
-			for (int32 Pixel = 0; Pixel < Pixels; ++Pixel)
-			{
-				const float X = 2 * PI * Kx * Pixel / Pixels + Phase, Y = 2 * PI * Ky * Pixel / Pixels;
-				WaveCosX.Add(FMath::Cos(X)); WaveSinX.Add(FMath::Sin(X));
-				WaveCosY.Add(FMath::Cos(Y)); WaveSinY.Add(FMath::Sin(Y));
-			}
-		}
-		TArray<float> PaletteScore;
+		TArray<uint64> PaletteKeys;
 		TArray<int32> PaletteOrder;
-		PaletteScore.SetNumUninitialized(Leaves.Num());
-		for (int32 Y = 0; Y < Pixels; ++Y)
+		PaletteKeys.Reserve(Leaves.Num());
+		PaletteOrder.Reserve(Leaves.Num());
+		for (int32 Index = 0; Index < Leaves.Num(); ++Index)
 		{
-			for (int32 X = 0; X < Pixels; ++X)
-			{
-				float Patch = 0;
-				for (int32 Mode = 0; Mode < Modes; ++Mode)
-				{
-					const int32 Mx = Mode * Pixels + X, My = Mode * Pixels + Y;
-					Patch += WaveCosX[Mx] * WaveCosY[My] - WaveSinX[Mx] * WaveSinY[My];
-				}
-				const int32 Index = Y * Pixels + X;
-				PaletteScore[Index] = 0.35f * Patch / FMath::Sqrt(float(Modes)) + 0.65f * (Leaves[Index].G / 255.f - 0.5f);
-				PaletteOrder.Add(Index);
-			}
+			uint32 Tie = uint32(Index) + 71u;
+			Tie = (Tie ^ (Tie >> 16)) * 0x7feb352du;
+			Tie = (Tie ^ (Tie >> 15)) * 0x846ca68bu;
+			Tie ^= Tie >> 16;
+			PaletteKeys.Add((uint64(Leaves[Index].G) << 40) | (uint64(Leaves[Index].B) << 32) | Tie);
+			PaletteOrder.Add(Index);
 		}
-		PaletteOrder.Sort([&](int32 A, int32 B) { return PaletteScore[A] == PaletteScore[B] ? A < B : PaletteScore[A] < PaletteScore[B]; });
+		PaletteOrder.Sort([&](int32 A, int32 B) { return PaletteKeys[A] < PaletteKeys[B]; });
 		TArray<float> PaletteRank;
 		PaletteRank.SetNumUninitialized(Leaves.Num());
 		for (int32 Rank = 0; Rank < PaletteOrder.Num(); ++Rank) PaletteRank[PaletteOrder[Rank]] = (Rank + 0.5f) / PaletteOrder.Num();
@@ -919,20 +897,22 @@ return lerp(Texture2DSampleGrad(Scan,ScanSampler,UV,dx,dy).rgb,varied,blend);
 			TArray<FColor> Colours;
 			Colours.Reserve(Leaves.Num());
 			const FVector3f Mix = Turf.FieldMix[Surface];
+			const FLinearColor BaseColour = Turf.bSoilCandidateIsBareSoil ? Turf.FieldSoil : Turf.FieldDry[Surface] * Turf.RootShade;
+			Result.BaseColours.Add(BaseColour);
 			FVector Mean(0), VegetationMean(0);
 			for (int32 Index = 0; Index < Leaves.Num(); ++Index)
 			{
 				const FColor& Leaf = Leaves[Index];
 				const float Rank = PaletteRank[Index];
 				const FLinearColor Colour = Rank < Mix.X ? Turf.FieldGreen[Surface]
-					: Rank < Mix.X + Mix.Y ? Turf.FieldDry[Surface] : Turf.FieldSoil;
+					: Rank < Mix.X + Mix.Y ? Turf.FieldDry[Surface] : BaseColour;
 				const float Shade = 0.7f + Leaf.R / 255.f * 0.5f;
 				FColor Packed = (Colour * Shade).ToFColorSRGB();
-				// Linear soil contribution in alpha lets blades use vegetation colour without whitening the canopy.
+				// Alpha carries the shaded base contribution so upright blades retain dry vegetation colour.
 				Packed.A = Rank >= Mix.X + Mix.Y ? uint8(Shade / 1.2f * 255) : 0;
 				const FLinearColor Linear(Packed);
 				Mean += FVector(Linear.R, Linear.G, Linear.B);
-				const FLinearColor Vegetation = Linear + (Turf.FieldDry[Surface] - Turf.FieldSoil) * (Packed.A / 255.f * 1.2f);
+				const FLinearColor Vegetation = Linear + (Turf.FieldDry[Surface] - BaseColour) * (Packed.A / 255.f * 1.2f);
 				VegetationMean += FVector(Vegetation.R, Vegetation.G, Vegetation.B);
 				Colours.Add(Packed);
 			}
@@ -1000,7 +980,7 @@ return lerp(Texture2DSampleGrad(Scan,ScanSampler,UV,dx,dy).rgb,varied,blend);
 				FCustomInput& Alpha = Surface->Inputs.AddDefaulted_GetRef();
 				Alpha.InputName = FName(*FString::Printf(TEXT("Soil%d"), Index));
 				Alpha.Input.Connect(4, Leaves);
-				const FLinearColor Delta = (Manifest.Turf.FieldDry[Index] - Manifest.Turf.FieldSoil) * 1.2f;
+				const FLinearColor Delta = (Manifest.Turf.FieldDry[Index] - Lawn.BaseColours[Index]) * 1.2f;
 				VegetationCode += FString::Printf(TEXT("Lawn%d += Soil%d*float3(%.9f,%.9f,%.9f);"), Index, Index, Delta.R, Delta.G, Delta.B);
 			}
 		}
