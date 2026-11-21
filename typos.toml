@@ -52,3 +52,7 @@ ba = "ba"
 SER = "SER"
 # India Standard Time, a timezone label in apps/petalboard.
 IST = "IST"
+
+[default.extend-identifiers]
+# UE 5.8 exposes this engine flag with this spelling.
+UseGrassVarityPerQualityLevels = "UseGrassVarityPerQualityLevels"
