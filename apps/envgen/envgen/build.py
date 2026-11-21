@@ -1076,7 +1076,9 @@ def build_growth(site: Site, out: Path, layers: list[dict], detail: dict, elevat
             canopy = _sample_cells(source.read(1), pixels)
     packed, report = turf.growth(grass, ratio, canopy, ground, site.tile.size_m / pixels, site.seed)
     _write_rgb(packed * 255, out / "turf_growth.png")
-    return {"file": "turf_growth.png", "files": ["turf_growth.png"], "pixels": pixels, **report}
+    _write_rgb(turf.condition(grass, ratio, site.tile.size_m / pixels) * 255, out / "turf_condition.png")
+    return {"file": "turf_growth.png", "condition_file": "turf_condition.png",
+            "files": ["turf_growth.png", "turf_condition.png"], "pixels": pixels, **report}
 
 
 def build_survey_detail(site: Site, out: Path, covering: dict | None, layers: list[dict],
@@ -1548,6 +1550,7 @@ def build(site_path: Path, out: Path, cache: Path | None = None) -> dict:
                 cover_hashes,
                 site.seed,
                 turf.GROWTH_SETTINGS,
+                "turf-condition-v1",
                 ortho_hashes,
                 ortho_sha256,
             ),
