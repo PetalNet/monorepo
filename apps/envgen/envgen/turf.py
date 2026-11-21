@@ -157,6 +157,16 @@ SIZE_SPREAD = (0.85, 1.15)
 # A blade's brightness from root to tip. A prior.
 ROOT_SHADE, TIP_SHADE = 0.65, 1.12
 
+CANOPY_RESPONSE = {
+    "kind": "prior",
+    "lawn_repeat_cm": 400.0,
+    "lawn_pixels_per_m": 512,
+    "lawn_leaves_per_m2": 16000,
+    "dry_height_ratio": 0.25,
+    "edge_mowing_height_ratio": 1 / TALL_OVER_MOWED,
+    "edge_height_weights": [0.5, 0.7],
+}
+
 PRIORS = [
     f"prior: leaf area index drawn: {NEAR['leaf_area_index']:g} (near), {CLUMP['leaf_area_index']:g} (clump), {TALL['leaf_area_index']:g} (tall)",
     "prior: blade count, tuft radius, size spread and draw distance of each variety",
@@ -166,6 +176,11 @@ PRIORS = [
     f"prior: a blade is {ROOT_SHADE:g} of its colour at the root and {TIP_SHADE:g} at the tip",
     "prior: no variety casts a shadow",
     "prior: the clump variety retains its 8 to 15 m transition; near blades overlap that transition above a continuous lawn texture",
+    "prior: a 4 m lawn tile retains 512 pixels and 16000 texture leaves per square metre to avoid a 1 m worn-patch repeat",
+    "prior: dead blades reduce to one quarter height at maximum photo wear; surviving grass retains its height and all leaf counts stay full",
+    "prior: tall edge blades return to mowing height nearby, and near blades taper in height across grass weights 0.5 to 0.7",
+    "prior: worn and edge height responses restore the original geometry over the calibration's 15 to 30 m fade",
+
 ]
 
 
@@ -223,5 +238,6 @@ def describe() -> dict:
         "root_shade": ROOT_SHADE,
         "tip_shade": TIP_SHADE,
         "field_calibration": FIELD_CALIBRATION,
+        "canopy_response": CANOPY_RESPONSE,
         "priors": PRIORS,
     }
