@@ -134,7 +134,7 @@ def growth(
     }
 
 # Cool-season lawn turf is mown at 3 to 4 inches in summer: a land-grant university extension guide (publications MG10
-# and G6705). The blades are that tall.
+# and G6705). This is the nominal reference; the near layer includes lower, bent leaves.
 MOWING_HEIGHT_CM = (3 * 2.54, 4 * 2.54)
 # A prior: turf is mown when it has grown a half again over its cutting height (the one-third rule of mowing), so the
 # tall variety stands at 1.5 times the mowing range.
@@ -149,7 +149,9 @@ NEAR_BLADE_WIDTH_CM = (0.8, 1.4)
 # a sward that has none), and how much a tuft's size varies. The index of real mown turf is several times the near one: what is
 # drawn is the top of the sward, and the ground's own colour under it is the rest.
 NEAR = {"leaf_area_index": 2.0, "blades": 66, "blade_width_cm": [0.29, 0.51], "radius_cm": 14.0,
-        "start_cull_cm": 800, "end_cull_cm": 1500}
+        "start_cull_cm": 800, "end_cull_cm": 3000,
+        "blade_shape": {"kind": "bent", "peak_height_factor": [0.35, 0.8],
+                        "initial_span_height_ratio": [0.8, 2.0], "arch": [0.1, 1.2]}}
 CLUMP = {"leaf_area_index": 0.2, "blades": 24, "radius_cm": 22.5, "start_cull_cm": 2500, "end_cull_cm": 6500,
          "appear_cm": [800, 1500]}
 TALL = {"leaf_area_index": 0.02, "blades": 8, "radius_cm": 6.0, "start_cull_cm": 2500, "end_cull_cm": 5000}
@@ -176,7 +178,8 @@ PRIORS = [
     f"prior: tall tufts stand {TALL_OVER_MOWED:g} times the mowing range (the one-third rule of mowing)",
     f"prior: a blade is {ROOT_SHADE:g} of its colour at the root and {TIP_SHADE:g} at the tip",
     "prior: no variety casts a shadow",
-    "prior: the clump variety retains its 8 to 15 m transition; near blades overlap that transition above a continuous lawn texture",
+    "prior: the clump variety retains its 8 to 15 m transition; near blades fade over 8 to 15 m in steep views and 15 to 30 m at grazing angles",
+    "prior: near leaves use the explicit bent-shape ranges below the nominal mowing reference, preserving each reference blade's static triangulated surface area; these are not measured November cutting heights",
     "prior: a 4 m lawn tile retains 512 pixels and 16000 texture leaves per square metre to avoid a 1 m worn-patch repeat",
     "prior: dead blades reduce to one quarter height at maximum photo wear; surviving grass retains its height and all leaf counts stay full",
     "prior: tall edge blades return to mowing height nearby; near blades retain their height up to the shared grass-majority root boundary",
@@ -216,6 +219,7 @@ def _variety(name: str, spec: dict, height_cm: tuple[float, float], source: str)
         "end_cull_cm": spec["end_cull_cm"],
         "appear_cm": spec.get("appear_cm", [0, 0]),
         "casts_shadow": CASTS_SHADOW[name],
+        **({"blade_shape": spec["blade_shape"]} if "blade_shape" in spec else {}),
     }
 
 
@@ -226,7 +230,7 @@ def describe() -> dict:
     mowing_source = "a land-grant extension guide's summer mowing height for cool-season turf, 3 to 4 in (MG10, G6705)"
     return {
         "varieties": [
-            _variety("near", NEAR, mowed, mowing_source),
+            _variety("near", NEAR, mowed, mowing_source + "; nominal reference, with lower near-leaf peaks set by the bent-shape prior"),
             _variety("clump", CLUMP, mowed, mowing_source),
             _variety("tall", TALL, tall, "prior: mowing range times " + f"{TALL_OVER_MOWED:g}"),
             {

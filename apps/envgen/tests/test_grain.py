@@ -110,7 +110,8 @@ def test_varieties_keep_their_leaf_area_and_the_approved_distant_blade_transitio
     assert varieties["clump"]["blade_width_cm"][0] == pytest.approx(1.56, abs=0.01)
     assert varieties["clump"]["appear_cm"] == [800, 1500]
     assert varieties["near"]["start_cull_cm"] == varieties["clump"]["appear_cm"][0]
-    assert varieties["near"]["end_cull_cm"] == varieties["clump"]["appear_cm"][1]
+    # Grazing views retain the near canopy farther while the distant entrance stays fixed.
+    assert varieties["near"]["end_cull_cm"] == 3000
     assert varieties["near"]["appear_cm"] == [0, 0]
     assert max(varieties["near"]["blade_width_cm"]) < min(varieties["tall"]["blade_width_cm"])
     assert all(prior.startswith("prior:") for prior in grass["priors"])
