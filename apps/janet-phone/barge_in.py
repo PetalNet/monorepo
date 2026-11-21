@@ -69,8 +69,13 @@ class BargeIn:
                 echo = rms * correlation
             residual = rms * math.sqrt(max(0, 1 - correlation ** 2))
             foreground = probability >= .7 and residual >= threshold and residual > echo
-            pure_echo = correlation >= .8
-            filtered.extend(bytes(1024) if pure_echo else raw)
+            echo_dominated = correlation >= .8
+            if echo_dominated:
+                gain = float(dots[best]) / max(float(energy[best]), 1)
+                remaining = frame - gain * reference[best:best + len(frame)]
+                filtered.extend(np.clip(np.rint(remaining), -32768, 32767).astype("<i2").tobytes())
+            else:
+                filtered.extend(raw)
             if protected:
                 self.evidence.clear()
             else:
@@ -81,7 +86,7 @@ class BargeIn:
             self.status = {"vad": round(probability, 3), "rms": round(rms), "noise_rms": round(self.noise),
                            "echo_rms": round(echo), "correlation": round(correlation, 3),
                            "speech_ms": self.speech_ms, "receive_ms": round(receive_ms),
-                           "echo_only": pure_echo, "first_sentence_protected": protected,
+                           "echo_dominated": echo_dominated, "first_sentence_protected": protected,
                            "accepted": accepted}
         self.caller_audio = bytes(filtered)
         return accepted

@@ -76,7 +76,23 @@ class BargeInTest(unittest.TestCase):
             echo = (playback[i * 512:(i + 1) * 512] * .7).astype("<i2").tobytes()
             self.assertFalse(gate.feed(echo, protected=False, now=i * .032))
         self.assertGreater(gate.status["correlation"], .99)
-        self.assertFalse(any(gate.caller_audio))
+        residual = np.frombuffer(gate.caller_audio, "<i2").astype(np.float32)
+        self.assertLess(float(np.sqrt(np.mean(residual * residual))), 2)
+
+    def test_a_quieter_caller_is_retained_under_louder_echo(self):
+        import numpy as np
+
+        gate = BargeIn(lambda _: .99)
+        rng = np.random.default_rng(17)
+        playback = rng.normal(0, 6000, 16000).astype("<i2")
+        gate.played(playback.tobytes(), 16000, 0)
+        caller = np.frombuffer(speech(500), "<i2")
+        mixed = (caller + playback[:512]).astype("<i2").tobytes()
+        gate.feed(mixed, protected=True, now=.1)
+        remaining = np.frombuffer(gate.caller_audio, "<i2").astype(np.float32)
+        self.assertGreater(float(np.sqrt(np.mean(remaining * remaining))), 100)
+        self.assertGreater(float(np.corrcoef(remaining, caller)[0, 1]), .95)
+        self.assertTrue(gate.status["first_sentence_protected"])
 
     def test_caller_above_echo_can_interrupt(self):
         import numpy as np

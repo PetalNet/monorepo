@@ -523,8 +523,7 @@ class Call:
                     "The phone has answered and the automated-assistant disclosure was sent.",
                     time.monotonic(), {"endpoint_ms": 0}))
                 await asyncio.wait([self.speaking])
-                if (not self.speaking.cancelled() and self.speaking.result()
-                        and not self.caller_speaking and self.utterances.empty()):
+                if not self.speaking.cancelled() and self.speaking.result():
                     await self.hang_up("the head ended the conversation")
                     return
             silence_reported = False
@@ -543,8 +542,7 @@ class Call:
                         "Outgoing phone call: no caller speech arrived for eight seconds.",
                         time.monotonic(), {"endpoint_ms": 0}))
                     await asyncio.wait([self.speaking])
-                    if (not self.speaking.cancelled() and self.speaking.result()
-                            and not self.caller_speaking and self.utterances.empty()):
+                    if not self.speaking.cancelled() and self.speaking.result():
                         await self.hang_up("the head ended the conversation")
                         return
                     continue
@@ -588,7 +586,7 @@ class Call:
                     if isinstance(error, ConnectionClosed):
                         return
                     log.warning("call %s: reply failed: %s", self.conversation, error)
-                elif self.speaking.result() and not self.caller_speaking and self.utterances.empty():
+                elif self.speaking.result():
                     await self.hang_up("the head ended the conversation")
                     return
         except ConnectionClosed:
@@ -888,13 +886,14 @@ class Call:
                 spoken.put_nowait(None)
                 await player
                 turn["outcome"] = "completed" if kind == "done" else "head_failed"
+                end_conversation = (kind == "done" and bool(data.get("end_conversation"))
+                                    and not self.caller_speaking and self.utterances.empty())
                 if self.ring is not None and self.ring.state != "audio_connected":
-                    if kind != "done" or data.get("end_conversation"):
+                    if kind != "done" or end_conversation:
                         self.ring.finish("head_failed")
                     elif head_audio_sent:
                         self.ring.finish("audio_connected")
-                return (self.ring is not None and kind == "failed") or (
-                    kind == "done" and bool(data.get("end_conversation")))
+                return (self.ring is not None and kind == "failed") or end_conversation
         except asyncio.CancelledError:
             turn["outcome"] = "interrupted"
             raise
