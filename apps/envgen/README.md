@@ -415,10 +415,11 @@ shadow blackens it against a sward that has none).
 `turf_growth.png` stores short-tuft density, tall-tuft density, and half the height multiplier. Relative photo
 green/red contrast drives growth, with native survey colour inside its footprint. Correlated 1.2 m noise, terrain
 hollows, 2 m edge fringes and canopy shelter introduce height variation and taller margins. These responses are priors,
-not measured mowing heights. The short sward retains the original full density; surface weights alone reduce coverage.
+not measured mowing heights. The short sward retains the original full density within grass-majority support.
 The height envelope ranges from 0.85 to 1.5 times the mowing range.
-Pure non-grass masks suppress growth. Mixed path edges retain vegetation in proportion to the engine's surface
-weight, without an earlier majority-class cutoff. The broadleaf shape is clover-like and its species and abundance
+Growth support requires majority grass. The material also rejects sampled grass weights at or below 0.5 before
+applying turf density; the engine's surface weight scales the remaining grass-side coverage.
+The broadleaf shape is clover-like and its species and abundance
 are priors. One blade in thirteen receives a restrained straw tint within the seasonal palette.
 
 Blade materials use two-sided foliage transmission, root ambient occlusion (0.4 at the base), roughness 0.6 and specular 0.25.
