@@ -10,10 +10,14 @@
 #include "HAL/FileManager.h"
 #include "IImageWrapper.h"
 #include "IImageWrapperModule.h"
+#include "Landscape.h"
+#include "LandscapeGrassType.h"
+#include "MaterialEditingLibrary.h"
 #include "Materials/Material.h"
 #include "Materials/MaterialExpressionTextureObject.h"
 #include "Materials/MaterialExpressionTextureSample.h"
 #include "Materials/MaterialExpressionCustom.h"
+#include "Materials/MaterialExpressionLandscapeGrassOutput.h"
 #include "MeshDescription.h"
 #include "Misc/AutomationTest.h"
 #include "Misc/FileHelper.h"
@@ -310,6 +314,7 @@ bool FEnvGenStreetscapeAthletic::RunTest(const FString& Parameters)
 		Row.Replace(TEXT("\"stripe_width_m\":4.572"), TEXT("\"stripe_width_m\":100.001")),
 		Row.Replace(TEXT("\"stripe_width_m\":4.572"), TEXT("\"stripe_width_m\":1e309")),
 		Row.Replace(TEXT("\"collision\":false"), TEXT("\"collision\":true")),
+		Row.Replace(TEXT("0.025"), TEXT("0.1")),
 		Row.Replace(TEXT("\"collision\":false"), TEXT("\"collision\":false,\"anchor_m\":[0,0]"))
 	};
 	const auto RejectWithoutMutation = [&]()
@@ -346,14 +351,34 @@ bool FEnvGenStreetscapeAthletic::RunTest(const FString& Parameters)
 		Row.Replace(TEXT("\"heading_deg\":0"), TEXT("\"heading_deg\":90")),
 		Row.Replace(TEXT("\"stripe_width_m\":4.572"), TEXT("\"stripe_width_m\":5")),
 		Row.Replace(TEXT("[10,20,14,26]"), TEXT("[10,20,15,26]")),
-		Row.Replace(TEXT("[10,20,14,26]"), TEXT("[10,20,14,27]")), Decal});
+		Row.Replace(TEXT("[10,20,14,26]"), TEXT("[10,20,14,27]")), Decal,
+		Row.Replace(TEXT("[10,20,14,26]"), TEXT("[20,20,24,26]"))
+			.Replace(TEXT("\"heading_deg\":0"), TEXT("\"heading_deg\":1e300"))
+			.Replace(TEXT("[10,20,0.025]"), TEXT("[20,20,0.025]"))
+			.Replace(TEXT("[14,20,0.025]"), TEXT("[24,20,0.025]"))
+			.Replace(TEXT("[14,26,0.025]"), TEXT("[24,26,0.025]"))
+			.Replace(TEXT("[10,26,0.025]"), TEXT("[20,26,0.025]")),
+		Row.Replace(TEXT("[10,20,14,26]"), TEXT("[10,20,110,120]"))
+			.Replace(TEXT("[14,20,0.025]"), TEXT("[10.01,20,0.025]"))
+			.Replace(TEXT("[14,26,0.025]"), TEXT("[10.01,120,0.025]"))
+			.Replace(TEXT("[10,26,0.025]"), TEXT("[10,120,0.025]"))});
 	UWorld* World = UWorld::CreateWorld(EWorldType::Editor, false);
 	if (!TestNotNull(TEXT("athletic test world"), World)) return false;
+	ALandscape* Landscape = World->SpawnActor<ALandscape>();
+	Landscape->SetActorLabel(TEXT("EnvGenLandscape"));
+	UMaterial* Ground = NewObject<UMaterial>();
+	Landscape->LandscapeMaterial = Ground;
+	auto* GrassOutput = CastChecked<UMaterialExpressionLandscapeGrassOutput>(UMaterialEditingLibrary::CreateMaterialExpression(Ground, UMaterialExpressionLandscapeGrassOutput::StaticClass()));
+	GrassOutput->GrassTypes.Empty();
+	ULandscapeGrassType* NaturalGrass = NewObject<ULandscapeGrassType>();
+	FGrassInput& NaturalInput = GrassOutput->GrassTypes.AddDefaulted_GetRef();
+	NaturalInput.Name = TEXT("NaturalControl");
+	NaturalInput.GrassType = NaturalGrass;
 	TArray<UPackage*> Packages;
 	TArray<AActor*> Actors;
 	const TSharedRef<FJsonObject> Receipt = MakeShared<FJsonObject>();
 	if (TestTrue(TEXT("build split athletic fields"), BuildEnvGenStreetscape(World, ManifestPath, Height, Packages, Actors, Receipt, Error))
-		&& TestEqual(TEXT("one actor per supplied mesh; no marking overlays"), Actors.Num(), 7))
+		&& TestEqual(TEXT("one actor per supplied mesh; no marking overlays"), Actors.Num(), 9))
 	{
 		const auto Component = [&](int32 Index) { return CastChecked<AStaticMeshActor>(Actors[Index])->GetStaticMeshComponent(); };
 		UMaterial* Material = CastChecked<UMaterial>(Component(0)->GetMaterial(0));
@@ -362,6 +387,7 @@ bool FEnvGenStreetscapeAthletic::RunTest(const FString& Parameters)
 		TestEqual(TEXT("athletic field is ground class"), Component(0)->CustomDepthStencilValue, 1);
 		TestFalse(TEXT("athletic field keeps terrain planes"), Component(0)->GetStaticMesh()->GetNaniteSettings().bEnabled);
 		TestEqual(TEXT("identical field bins share a material"), Component(1)->GetMaterial(0), Component(0)->GetMaterial(0));
+		TestNotEqual(TEXT("translated fields cannot share a world-projected pile"), Component(7)->GetMaterial(0), Component(0)->GetMaterial(0));
 		for (int32 I = 2; I <= 6; ++I)
 			TestNotEqual(TEXT("axes, stripe, dimensions and material type cannot alias"), Component(I)->GetMaterial(0), Component(0)->GetMaterial(0));
 		TestTrue(TEXT("same opaque image still uses masked decal behavior"), CastChecked<UMaterial>(Component(6)->GetMaterial(0))->BlendMode == BLEND_Masked);
@@ -379,6 +405,32 @@ bool FEnvGenStreetscapeAthletic::RunTest(const FString& Parameters)
 			}
 		}
 		TestTrue(TEXT("athletic shader samples the registered atlas"), bFoundAtlas);
+		TestEqual(TEXT("one streamed pile per field registration plus existing natural grass"), GrassOutput->GrassTypes.Num(), 8);
+		TestEqual(TEXT("existing natural grass input survives"), GrassOutput->GrassTypes[0].GrassType.Get(), NaturalGrass);
+		for (int32 I = 1; I < GrassOutput->GrassTypes.Num(); ++I)
+		{
+			const FGrassVariety& Variety = GrassOutput->GrassTypes[I].GrassType->GrassVarieties[0];
+			const UStaticMesh* Pile = Variety.GrassMesh;
+			TestNotNull(TEXT("synthetic field has real fiber geometry"), Pile);
+			TestTrue(TEXT("pile ends within four metres"), Variety.EndCullDistance.GetValue() <= 400);
+			TestFalse(TEXT("synthetic fibers do not cast large natural-grass shadows"), Variety.bCastDynamicShadow);
+			const auto PilePositions = FStaticMeshConstAttributes(*Pile->GetMeshDescription(0)).GetVertexPositions();
+			float MinZ = MAX_flt, MaxZ = -MAX_flt;
+			for (const FVertexID Vertex : Pile->GetMeshDescription(0)->Vertices().GetElementIDs())
+			{
+				TestFalse(TEXT("all finite headings produce finite fiber geometry"), PilePositions[Vertex].ContainsNaN());
+				MinZ = FMath::Min(MinZ, PilePositions[Vertex].Z);
+				MaxZ = FMath::Max(MaxZ, PilePositions[Vertex].Z);
+			}
+			TestTrue(TEXT("pile keeps its physical height before the world-vertical surface offset"), FMath::Abs(MinZ) <= 1.e-5f && MaxZ > 2.f && MaxZ <= 3.21f);
+		}
+		auto* NarrowMask = FindObject<UTexture2D>(nullptr, TEXT("/Game/EnvGen/Generated/T_AthleticPileMask_0008.T_AthleticPileMask_0008"));
+		if (TestNotNull(TEXT("narrow field has a fine footprint mask"), NarrowMask))
+		{
+			TArray64<uint8> MaskBytes;
+			TestTrue(TEXT("read actual narrow-field mask"), NarrowMask->Source.GetMipData(MaskBytes, 0));
+			TestTrue(TEXT("a one-centimetre strip in a 100-metre registration retains pile coverage"), MaskBytes.ContainsByPredicate([](uint8 Value) { return Value > 0; }));
+		}
 		const FMeshDescription* Description = Component(0)->GetStaticMesh()->GetMeshDescription(0);
 		if (TestNotNull(TEXT("athletic mesh description"), Description))
 		{
@@ -394,7 +446,7 @@ bool FEnvGenStreetscapeAthletic::RunTest(const FString& Parameters)
 		}
 		const TSharedPtr<FJsonObject> Priors = Receipt->GetObjectField(TEXT("streetscape_material_priors"))->GetObjectField(TEXT("athletic_turf"));
 		TestEqual(TEXT("receipt records machine row appearance prior"), Priors->GetNumberField(TEXT("machine_row_spacing_m")), .01);
-		TestEqual(TEXT("receipt deduplicates identical bins"), Priors->GetArrayField(TEXT("registrations")).Num(), 5);
+		TestEqual(TEXT("receipt deduplicates identical bins"), Priors->GetArrayField(TEXT("registrations")).Num(), 7);
 	}
 	World->DestroyWorld(false);
 	IFileManager::Get().DeleteDirectory(*Directory, false, true);

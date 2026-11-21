@@ -7,21 +7,31 @@
 #include "Engine/StaticMeshActor.h"
 #include "Engine/Texture2D.h"
 #include "Engine/World.h"
+#include "EngineUtils.h"
 #include "EnvGenSiteInfo.h"
 #include "IImageWrapper.h"
 #include "IImageWrapperModule.h"
 #include "Landscape.h"
 #include "LandscapeComponent.h"
+#include "LandscapeGrassType.h"
 #include "MaterialEditingLibrary.h"
 #include "Materials/Material.h"
 #include "Materials/MaterialExpressionComponentMask.h"
+#include "Materials/MaterialExpressionCameraPositionWS.h"
+#include "Materials/MaterialExpressionAppendVector.h"
 #include "Materials/MaterialExpressionConstant.h"
+#include "Materials/MaterialExpressionConstant3Vector.h"
 #include "Materials/MaterialExpressionCustom.h"
+#include "Materials/MaterialExpressionLandscapeGrassOutput.h"
+#include "Materials/MaterialExpressionLandscapeLayerCoords.h"
+#include "Materials/MaterialExpressionVertexColor.h"
 #include "Materials/MaterialExpressionMaterialFunctionCall.h"
+#include "Materials/MaterialExpressionMultiply.h"
 #include "Materials/MaterialExpressionWorldPosition.h"
 #include "Materials/MaterialExpressionTextureCoordinate.h"
 #include "Materials/MaterialExpressionTextureSample.h"
 #include "Materials/MaterialExpressionTextureObject.h"
+#include "Materials/MaterialExpressionTransform.h"
 #include "Materials/MaterialExpressionVertexNormalWS.h"
 #include "Materials/MaterialFunction.h"
 #include "MeshDescription.h"
@@ -291,8 +301,7 @@ return float4(colour,saturate(%.5f+.08*(wear-.5)+.08*crack));
 		return Material;
 	}
 
-	UMaterial* MakeAthleticMaterial(int32 Index, const FDecalImage& Image, double Heading, double StripeWidth,
-		double Width, double Height, TArray<UPackage*>& Packages)
+	UMaterial* MakeAthleticMaterial(int32 Index, UTexture2D* Texture, double Heading, double StripeWidth, TArray<UPackage*>& Packages)
 	{
 		UMaterial* Material = Asset<UMaterial>(FString::Printf(TEXT("M_StreetscapeAthletic_%04d"), Index), Packages);
 		Material->BlendMode = BLEND_Opaque;
@@ -301,7 +310,7 @@ return float4(colour,saturate(%.5f+.08*(wear-.5)+.08*crack));
 		auto* Normal = CastChecked<UMaterialExpressionVertexNormalWS>(UMaterialEditingLibrary::CreateMaterialExpression(Material, UMaterialExpressionVertexNormalWS::StaticClass()));
 		auto* UV = CastChecked<UMaterialExpressionTextureCoordinate>(UMaterialEditingLibrary::CreateMaterialExpression(Material, UMaterialExpressionTextureCoordinate::StaticClass()));
 		auto* Atlas = CastChecked<UMaterialExpressionTextureObject>(UMaterialEditingLibrary::CreateMaterialExpression(Material, UMaterialExpressionTextureObject::StaticClass()));
-		Atlas->Texture = MakeRegisteredTexture(Index, Image, true, Packages);
+		Atlas->Texture = Texture;
 		Atlas->SamplerType = SAMPLERTYPE_Color;
 		auto* Fiber = CastChecked<UMaterialExpressionCustom>(UMaterialEditingLibrary::CreateMaterialExpression(Material, UMaterialExpressionCustom::StaticClass()));
 		Fiber->Inputs.Empty();
@@ -327,8 +336,6 @@ return float4(colour,saturate(%.5f+.08*(wear-.5)+.08*crack));
 		Scalar(TEXT("HeadingSin"), FMath::Sin(Radians));
 		Scalar(TEXT("StripeWidth"), FMath::Max(StripeWidth, .001));
 		Scalar(TEXT("StripeResolvable"), StripeWidth >= .001 ? 1 : 0);
-		Scalar(TEXT("InvWidth"), 1. / FMath::Max(Width, .003));
-		Scalar(TEXT("InvHeight"), 1. / FMath::Max(Height, .003));
 		for (const auto& Output : {TPair<FName, ECustomMaterialOutputType>(TEXT("FiberNormal"), CMOT_Float3),
 			TPair<FName, ECustomMaterialOutputType>(TEXT("Roughness"), CMOT_Float1),
 			TPair<FName, ECustomMaterialOutputType>(TEXT("Specular"), CMOT_Float1)})
@@ -357,14 +364,13 @@ float ribbon=cos(row*6.2831853)*rowVisible;
 float2 fiberCell=q*float2(200,333.3333);
 float detailVisible=1-smoothstep(.25,1.,max(fwidth(fiberCell.x),fwidth(fiberCell.y)));
 float fiber=n.value(fiberCell);
-float crumbNear=smoothstep(.79,.94,n.hash(floor(fiberCell)))*smoothstep(.25,.75,-ribbon);
+float2 beadCell=floor(fiberCell);
+float2 beadCentre=.25+.5*float2(n.hash(beadCell),n.hash(beadCell+27.1));
+float beadDistance=length(frac(fiberCell)-beadCentre);
+float crumbNear=(1-smoothstep(.08,.20,beadDistance))*.35;
 float crumb=lerp(.012,crumbNear,detailVisible);
 
-// Jitter only the artwork by at most 1.5 mm per axis. Preserve the unjittered gradients for mips.
-float2 jitter=(float2(fiber,n.value(fiberCell+17.3))-.5)*.003*detailVisible;
-float2 jitterEN=along*jitter.x+across*jitter.y;
-float2 atlasUV=saturate(UV+float2(jitterEN.x*InvWidth,-jitterEN.y*InvHeight));
-float3 colour=Texture2DSampleGrad(Atlas,AtlasSampler,atlasUV,ddx(UV),ddy(UV)).rgb;
+float3 colour=Texture2DSampleGrad(Atlas,AtlasSampler,UV,ddx(UV),ddy(UV)).rgb;
 
 float stripe=q.x/StripeWidth;
 float stripeVisible=(1-smoothstep(.25,1.,fwidth(stripe)))*StripeResolvable;
@@ -395,6 +401,312 @@ return lerp(colour*modulation,float3(.008,.009,.008),crumb);
 		UMaterialEditingLibrary::ConnectMaterialProperty(Fiber, TEXT("Specular"), MP_Specular);
 		UMaterialEditingLibrary::RecompileMaterial(Material);
 		return Material;
+	}
+
+	bool AddAthleticPile(UWorld* World, int32 Index, UTexture2D* Atlas, double West, double North,
+		double Width, double Height, double Heading, const TArray<const FMeshDescription*>& Surfaces,
+		TArray<UPackage*>& Packages, FString& Error)
+	{
+		ALandscape* Landscape = nullptr;
+		for (TActorIterator<ALandscape> It(World); It; ++It)
+		{
+			if (It->GetActorLabel() == TEXT("EnvGenLandscape")) { Landscape = *It; break; }
+		}
+		if (!Landscape || !Landscape->LandscapeMaterial)
+		{
+			Error = TEXT("athletic pile needs EnvGenLandscape with its ground material");
+			return false;
+		}
+		const double Radians = FMath::DegreesToRadians(FMath::Fmod(Heading, 360.));
+		UMaterial* Ground = Landscape->LandscapeMaterial->GetMaterial();
+		UMaterialExpressionLandscapeGrassOutput* Output = nullptr;
+		for (UMaterialExpression* Expression : Ground->GetExpressions())
+			if (auto* Grass = Cast<UMaterialExpressionLandscapeGrassOutput>(Expression)) { Output = Grass; break; }
+		if (!Output)
+		{
+			Output = CastChecked<UMaterialExpressionLandscapeGrassOutput>(UMaterialEditingLibrary::CreateMaterialExpression(Ground, UMaterialExpressionLandscapeGrassOutput::StaticClass()));
+			Output->GrassTypes.Empty();
+		}
+
+		// Rasterize the supplied field triangles, not their bounding rectangle, so nearby natural grass stays intact.
+		constexpr int32 Resolution = 4096;
+		TArray<uint8> Coverage;
+		Coverage.SetNumZeroed(Resolution * Resolution);
+		for (const FMeshDescription* Surface : Surfaces)
+		{
+			const auto UVs = FStaticMeshConstAttributes(*Surface).GetVertexInstanceUVs();
+			for (const FTriangleID Triangle : Surface->Triangles().GetElementIDs())
+			{
+				const auto Corners = Surface->GetTriangleVertexInstances(Triangle);
+				const FVector2f A = UVs.Get(Corners[0], 0) * Resolution;
+				const FVector2f B = UVs.Get(Corners[1], 0) * Resolution;
+				const FVector2f C = UVs.Get(Corners[2], 0) * Resolution;
+				const auto Cross = [](FVector2f P, FVector2f Q) { return P.X * Q.Y - P.Y * Q.X; };
+				const float Area = Cross(B - A, C - A);
+				if (FMath::Abs(Area) < 1.e-8f) continue;
+				const int32 MinX = FMath::Clamp(FMath::FloorToInt(FMath::Min3(A.X, B.X, C.X)), 0, Resolution - 1);
+				const int32 MaxX = FMath::Clamp(FMath::FloorToInt(FMath::Max3(A.X, B.X, C.X)), 0, Resolution - 1);
+				const int32 MinY = FMath::Clamp(FMath::FloorToInt(FMath::Min3(A.Y, B.Y, C.Y)), 0, Resolution - 1);
+				const int32 MaxY = FMath::Clamp(FMath::FloorToInt(FMath::Max3(A.Y, B.Y, C.Y)), 0, Resolution - 1);
+				const float Winding = FMath::Sign(Area);
+				const auto OverlapsEdge = [&](FVector2f Start, FVector2f End, FVector2f P)
+				{
+					const FVector2f Edge = End - Start;
+					return Cross(Edge, P - Start) * Winding >= -.5f * (FMath::Abs(Edge.X) + FMath::Abs(Edge.Y));
+				};
+				for (int32 Y = MinY; Y <= MaxY; ++Y) for (int32 X = MinX; X <= MaxX; ++X)
+				{
+					const FVector2f P(X + .5f, Y + .5f);
+					if (OverlapsEdge(A, B, P) && OverlapsEdge(B, C, P) && OverlapsEdge(C, A, P))
+						Coverage[Y * Resolution + X] = 255;
+				}
+			}
+		}
+		const auto MaskTexture = [&](const TCHAR* Name, const TArray<uint8>& Pixels)
+		{
+			UTexture2D* Texture = Asset<UTexture2D>(FString::Printf(TEXT("T_Athletic%s_%04d"), Name, Index), Packages);
+			Texture->Source.Init(Resolution, Resolution, 1, 1, TSF_G8, Pixels.GetData());
+			Texture->SRGB = false;
+			Texture->CompressionSettings = TC_Grayscale;
+			Texture->AddressX = Texture->AddressY = TA_Clamp;
+			Texture->PostEditChange();
+			return Texture;
+		};
+		UTexture2D* Mask = MaskTexture(TEXT("PileMask"), Coverage);
+		// Grass maps sample at Landscape resolution. Spawn beyond edges, then clip the final fibers to the fine mask.
+		const double PaddingM = FMath::Max(Landscape->GetActorScale3D().X, Landscape->GetActorScale3D().Y) * .02 + .16;
+		const int32 RadiusX = int32(FMath::Clamp(FMath::CeilToDouble(PaddingM / Width * Resolution), 0., double(Resolution)));
+		const int32 RadiusY = int32(FMath::Clamp(FMath::CeilToDouble(PaddingM / Height * Resolution), 0., double(Resolution)));
+		TArray<uint8> Horizontal, Expanded;
+		Horizontal.SetNumUninitialized(Coverage.Num());
+		Expanded.SetNumUninitialized(Coverage.Num());
+		for (int32 Y = 0; Y < Resolution; ++Y)
+		{
+			int32 Count = 0;
+			for (int32 X = 0; X <= FMath::Min(RadiusX, Resolution - 1); ++X) Count += Coverage[Y * Resolution + X] > 0;
+			for (int32 X = 0; X < Resolution; ++X)
+			{
+				Horizontal[Y * Resolution + X] = Count > 0 ? 255 : 0;
+				if (X - RadiusX >= 0) Count -= Coverage[Y * Resolution + X - RadiusX] > 0;
+				if (X + RadiusX + 1 < Resolution) Count += Coverage[Y * Resolution + X + RadiusX + 1] > 0;
+			}
+		}
+		for (int32 X = 0; X < Resolution; ++X)
+		{
+			int32 Count = 0;
+			for (int32 Y = 0; Y <= FMath::Min(RadiusY, Resolution - 1); ++Y) Count += Horizontal[Y * Resolution + X] > 0;
+			for (int32 Y = 0; Y < Resolution; ++Y)
+			{
+				Expanded[Y * Resolution + X] = Count > 0 ? 255 : 0;
+				if (Y - RadiusY >= 0) Count -= Horizontal[(Y - RadiusY) * Resolution + X] > 0;
+				if (Y + RadiusY + 1 < Resolution) Count += Horizontal[(Y + RadiusY + 1) * Resolution + X] > 0;
+			}
+		}
+		UTexture2D* PlacementMask = MaskTexture(TEXT("PilePlacement"), Expanded);
+
+		const auto WorldUV = [&](UMaterial* Material)
+		{
+			UMaterialExpression* Position;
+			if (Material == Ground)
+			{
+				auto* Coords = CastChecked<UMaterialExpressionLandscapeLayerCoords>(UMaterialEditingLibrary::CreateMaterialExpression(Material, UMaterialExpressionLandscapeLayerCoords::StaticClass()));
+				Coords->MappingScale = 1;
+				Position = Coords;
+			}
+			else
+			{
+				auto* WorldPosition = CastChecked<UMaterialExpressionWorldPosition>(UMaterialEditingLibrary::CreateMaterialExpression(Material, UMaterialExpressionWorldPosition::StaticClass()));
+				WorldPosition->WorldPositionShaderOffset = WPT_Default;
+				Position = WorldPosition;
+			}
+			auto* UV = CastChecked<UMaterialExpressionCustom>(UMaterialEditingLibrary::CreateMaterialExpression(Material, UMaterialExpressionCustom::StaticClass()));
+			UV->Inputs.Empty();
+			FCustomInput& Input = UV->Inputs.AddDefaulted_GetRef();
+			Input.InputName = TEXT("P");
+			Input.Input.Connect(0, Position);
+			UV->OutputType = CMOT_Float2;
+			if (Material == Ground)
+			{
+				const FVector Scale = Landscape->GetActorScale3D(), Location = Landscape->GetActorLocation();
+				UV->Code = FString::Printf(TEXT("return float2((P.y*%.17g+%.17g-(%.17g))/%.17g,((%.17g)-(P.x*%.17g+%.17g))/%.17g);"),
+					Scale.Y * .01, Location.Y * .01, West, Width, North, Scale.X * .01, Location.X * .01, Height);
+			}
+			else
+				UV->Code = FString::Printf(TEXT("return float2((P.y*.01-(%.17g))/%.17g,((%.17g)-P.x*.01)/%.17g);"), West, Width, North, Height);
+			return UV;
+		};
+		const auto CoverageAt = [&](UMaterial* Target, bool bPlacement)
+		{
+			auto* Density = CastChecked<UMaterialExpressionTextureSample>(UMaterialEditingLibrary::CreateMaterialExpression(Target, UMaterialExpressionTextureSample::StaticClass()));
+			Density->Texture = bPlacement ? PlacementMask : Mask;
+			Density->SamplerType = SAMPLERTYPE_LinearGrayscale;
+			Density->Coordinates.Connect(0, WorldUV(Target));
+			// Clamped sampling alone would extend edge texels over the entire landscape.
+			auto* Inside = CastChecked<UMaterialExpressionCustom>(UMaterialEditingLibrary::CreateMaterialExpression(Target, UMaterialExpressionCustom::StaticClass()));
+			Inside->Inputs.Empty();
+			Inside->OutputType = CMOT_Float1;
+			FCustomInput& MaskInput = Inside->Inputs.AddDefaulted_GetRef();
+			MaskInput.InputName = TEXT("Mask"); MaskInput.Input.Connect(1, Density);
+			FCustomInput& UVInput = Inside->Inputs.AddDefaulted_GetRef();
+			UVInput.InputName = TEXT("UV"); UVInput.Input.Connect(0, Density->Coordinates.Expression);
+			const double U = bPlacement ? PaddingM / Width : 0, V = bPlacement ? PaddingM / Height : 0;
+			Inside->Code = FString::Printf(TEXT("return Mask*step(%.17g,UV.x)*step(UV.x,%.17g)*step(%.17g,UV.y)*step(UV.y,%.17g);"), -U, 1 + U, -V, 1 + V);
+			return Inside;
+		};
+
+		UMaterial* Material = Asset<UMaterial>(FString::Printf(TEXT("M_AthleticPile_%04d"), Index), Packages);
+		Material->TwoSided = true;
+		Material->SetShadingModel(MSM_TwoSidedFoliage);
+		Material->bTangentSpaceNormal = false;
+		Material->MaxWorldPositionOffsetDisplacement = 8;
+		Material->BlendMode = BLEND_Masked;
+		Material->OpacityMaskClipValue = .5f;
+		Material->bUsedWithInstancedStaticMeshes = true;
+		auto* Colour = CastChecked<UMaterialExpressionTextureSample>(UMaterialEditingLibrary::CreateMaterialExpression(Material, UMaterialExpressionTextureSample::StaticClass()));
+		Colour->Texture = Atlas;
+		Colour->SamplerType = SAMPLERTYPE_Color;
+		Colour->Coordinates.Connect(0, WorldUV(Material));
+		auto* Vertex = CastChecked<UMaterialExpressionVertexColor>(UMaterialEditingLibrary::CreateMaterialExpression(Material, UMaterialExpressionVertexColor::StaticClass()));
+		auto* FiberUV = CastChecked<UMaterialExpressionTextureCoordinate>(UMaterialEditingLibrary::CreateMaterialExpression(Material, UMaterialExpressionTextureCoordinate::StaticClass()));
+		auto* Filaments = CastChecked<UMaterialExpressionCustom>(UMaterialEditingLibrary::CreateMaterialExpression(Material, UMaterialExpressionCustom::StaticClass()));
+		Filaments->Inputs.Empty();
+		Filaments->OutputType = CMOT_Float1;
+		FCustomInput& CoverageInput = Filaments->Inputs.AddDefaulted_GetRef();
+		CoverageInput.InputName = TEXT("Coverage"); CoverageInput.Input.Connect(0, CoverageAt(Material, false));
+		FCustomInput& FiberUVInput = Filaments->Inputs.AddDefaulted_GetRef();
+		FiberUVInput.InputName = TEXT("UV"); FiberUVInput.Input.Connect(0, FiberUV);
+		FCustomInput& SeedInput = Filaments->Inputs.AddDefaulted_GetRef();
+		SeedInput.InputName = TEXT("Seed"); SeedInput.Input.Connect(3, Vertex);
+		Filaments->Code = TEXT(R"HLSL(
+float strand=floor(UV.x*4), across=abs(frac(UV.x*4)-.5);
+float tip=.84+.16*frac(sin(strand*127.1+Seed*311.7)*43758.5453);
+float edge=max(fwidth(UV.x*4),.001), end=max(fwidth(UV.y),.001);
+return Coverage*(1-smoothstep(.36-edge,.36+edge,across))*(1-smoothstep(tip-end,tip+end,UV.y));
+)HLSL");
+		UMaterialEditingLibrary::ConnectMaterialProperty(Filaments, TEXT(""), MP_OpacityMask);
+		auto* Shade = CastChecked<UMaterialExpressionCustom>(UMaterialEditingLibrary::CreateMaterialExpression(Material, UMaterialExpressionCustom::StaticClass()));
+		Shade->Inputs.Empty();
+		Shade->OutputType = CMOT_Float3;
+		FCustomInput& ColourInput = Shade->Inputs.AddDefaulted_GetRef();
+		ColourInput.InputName = TEXT("Colour"); ColourInput.Input.Connect(0, Colour);
+		FCustomInput& HeightInput = Shade->Inputs.AddDefaulted_GetRef();
+		HeightInput.InputName = TEXT("Height"); HeightInput.Input.Connect(1, Vertex);
+		Shade->Code = TEXT("return Colour*lerp(.75,1.05,Height);");
+		UMaterialEditingLibrary::ConnectMaterialProperty(Shade, TEXT(""), MP_BaseColor);
+		auto* Transmitted = CastChecked<UMaterialExpressionMultiply>(UMaterialEditingLibrary::CreateMaterialExpression(Material, UMaterialExpressionMultiply::StaticClass()));
+		Transmitted->A.Connect(0, Shade);
+		Transmitted->ConstB = .2f;
+		UMaterialEditingLibrary::ConnectMaterialProperty(Transmitted, TEXT(""), MP_SubsurfaceColor);
+		auto* Up = CastChecked<UMaterialExpressionConstant3Vector>(UMaterialEditingLibrary::CreateMaterialExpression(Material, UMaterialExpressionConstant3Vector::StaticClass()));
+		Up->Constant = FLinearColor(0, 0, 1);
+		UMaterialEditingLibrary::ConnectMaterialProperty(Up, TEXT(""), MP_Normal);
+		for (const auto& Property : {TPair<EMaterialProperty, float>(MP_Roughness, .76f), {MP_Specular, .32f}})
+		{
+			auto* Value = CastChecked<UMaterialExpressionConstant>(UMaterialEditingLibrary::CreateMaterialExpression(Material, UMaterialExpressionConstant::StaticClass()));
+			Value->R = Property.Value;
+			UMaterialEditingLibrary::ConnectMaterialProperty(Value, TEXT(""), Property.Key);
+		}
+		auto* Eye = CastChecked<UMaterialExpressionCameraPositionWS>(UMaterialEditingLibrary::CreateMaterialExpression(Material, UMaterialExpressionCameraPositionWS::StaticClass()));
+		auto* Sink = CastChecked<UMaterialExpressionCustom>(UMaterialEditingLibrary::CreateMaterialExpression(Material, UMaterialExpressionCustom::StaticClass()));
+		Sink->Inputs.Empty();
+		Sink->OutputType = CMOT_Float3;
+		FCustomInput& EyeInput = Sink->Inputs.AddDefaulted_GetRef();
+		EyeInput.InputName = TEXT("Eye"); EyeInput.Input.Connect(0, Eye);
+		auto* Position = CastChecked<UMaterialExpressionWorldPosition>(UMaterialEditingLibrary::CreateMaterialExpression(Material, UMaterialExpressionWorldPosition::StaticClass()));
+		Position->WorldPositionShaderOffset = WPT_ExcludeAllShaderOffsets;
+		auto* Delta = CastChecked<UMaterialExpressionTextureCoordinate>(UMaterialEditingLibrary::CreateMaterialExpression(Material, UMaterialExpressionTextureCoordinate::StaticClass()));
+		Delta->CoordinateIndex = 2;
+		auto* HeightUV = CastChecked<UMaterialExpressionTextureCoordinate>(UMaterialEditingLibrary::CreateMaterialExpression(Material, UMaterialExpressionTextureCoordinate::StaticClass()));
+		HeightUV->CoordinateIndex = 3;
+		auto* Z = CastChecked<UMaterialExpressionComponentMask>(UMaterialEditingLibrary::CreateMaterialExpression(Material, UMaterialExpressionComponentMask::StaticClass()));
+		Z->Input.Connect(0, HeightUV); Z->R = true; Z->G = Z->B = Z->A = false;
+		auto* LocalDelta = CastChecked<UMaterialExpressionAppendVector>(UMaterialEditingLibrary::CreateMaterialExpression(Material, UMaterialExpressionAppendVector::StaticClass()));
+		LocalDelta->A.Connect(0, Delta); LocalDelta->B.Connect(0, Z);
+		auto* WorldDelta = CastChecked<UMaterialExpressionTransform>(UMaterialEditingLibrary::CreateMaterialExpression(Material, UMaterialExpressionTransform::StaticClass()));
+		WorldDelta->Input.Connect(0, LocalDelta);
+		WorldDelta->TransformSourceType = TRANSFORMSOURCE_Local;
+		WorldDelta->TransformType = TRANSFORM_World;
+		auto* Normal = CastChecked<UMaterialExpressionTransform>(UMaterialEditingLibrary::CreateMaterialExpression(Material, UMaterialExpressionTransform::StaticClass()));
+		Normal->Input.Connect(0, Up);
+		Normal->TransformSourceType = TRANSFORMSOURCE_Local;
+		Normal->TransformType = TRANSFORM_World;
+		FCustomInput& PositionInput = Sink->Inputs.AddDefaulted_GetRef();
+		PositionInput.InputName = TEXT("P"); PositionInput.Input.Connect(0, Position);
+		FCustomInput& DeltaInput = Sink->Inputs.AddDefaulted_GetRef();
+		DeltaInput.InputName = TEXT("Delta"); DeltaInput.Input.Connect(0, WorldDelta);
+		FCustomInput& NormalInput = Sink->Inputs.AddDefaulted_GetRef();
+		NormalInput.InputName = TEXT("N"); NormalInput.Input.Connect(0, Normal);
+		// Snap roots, rather than patch centres, to world-aligned rows so rotated fields have no patch seams.
+		Sink->Code = FString::Printf(TEXT("float3 root=P-Delta; float2 across=float2(%.17g,%.17g); float row=dot(root.xy,across); float2 shift=across*(round(row)-row); float fade=1-smoothstep(120.,380.,distance(root,Eye)); return float3(shift,2.5-dot(shift,N.xy)/max(N.z,.1))-Delta*(1-fade);"), FMath::Cos(Radians), -FMath::Sin(Radians));
+		UMaterialEditingLibrary::ConnectMaterialProperty(Sink, TEXT(""), MP_WorldPositionOffset);
+		UMaterialEditingLibrary::RecompileMaterial(Material);
+
+		UStaticMesh* Mesh = Asset<UStaticMesh>(FString::Printf(TEXT("SM_AthleticPile_%04d"), Index), Packages);
+		FMeshDescription Description;
+		FStaticMeshAttributes Attributes(Description);
+		Attributes.Register();
+		auto Positions = Attributes.GetVertexPositions();
+		auto Normals = Attributes.GetVertexInstanceNormals();
+		auto UVs = Attributes.GetVertexInstanceUVs();
+		auto Colours = Attributes.GetVertexInstanceColors();
+		UVs.SetNumChannels(4);
+		const FPolygonGroupID Group = Description.CreatePolygonGroup();
+		Attributes.GetPolygonGroupMaterialSlotNames()[Group] = TEXT("Fiber");
+		FRandomStream Random(5107);
+		const float Angle = float(Radians);
+		const FVector2f Along(FMath::Sin(Angle), FMath::Cos(Angle));
+		const FVector2f Across(-Along.Y, Along.X);
+		// A 20 cm patch of even rows, not a radial natural-grass tuft. Grid placement fills the field.
+		for (int32 Row = 0; Row < 20; ++Row) for (int32 Blade = 0; Blade < 20; ++Blade)
+		{
+			const FVector2f Root(-9.5f + Row + Random.FRandRange(-.2f, .2f), -9.5f + Blade + Random.FRandRange(-.25f, .25f));
+			const float BladeHeight = Random.FRandRange(2.f, 3.2f);
+			const FVector2f Lean = Along * Random.FRandRange(.2f, 1.f) + Across * Random.FRandRange(-.35f, .35f);
+			const float Facing = Random.FRand() * PI;
+			const FVector2f Side = FVector2f(FMath::Cos(Facing), FMath::Sin(Facing)) * .3f;
+			const float Seed = Random.FRand();
+			const auto Add = [&](float T, float Edge)
+			{
+				const FVector2f P = Root + Lean * T + Side * Edge;
+				const FVertexID V = Description.CreateVertex();
+				Positions[V] = FVector3f(P.X, P.Y, BladeHeight * T);
+				const FVertexInstanceID VI = Description.CreateVertexInstance(V);
+				Normals[VI] = FVector3f(Lean.X * .25f, Lean.Y * .25f, 1).GetSafeNormal();
+				UVs.Set(VI, 0, FVector2f(Edge * .5f + .5f, T));
+				UVs.Set(VI, 1, FVector2f(0, 0));
+				UVs.Set(VI, 2, P - Root);
+				UVs.Set(VI, 3, FVector2f(BladeHeight * T, 0));
+				Colours[VI] = FVector4f(T, T, Seed, 1);
+				return VI;
+			};
+			const auto L0 = Add(0, -1), R0 = Add(0, 1), L1 = Add(1, -1), R1 = Add(1, 1);
+			Description.CreatePolygon(Group, {L0, R0, R1});
+			Description.CreatePolygon(Group, {L0, R1, L1});
+		}
+		Mesh->GetStaticMaterials().Add(FStaticMaterial(Material, TEXT("Fiber")));
+		UStaticMesh::FBuildMeshDescriptionsParams Params;
+		Params.bFastBuild = false;
+		Params.bBuildSimpleCollision = false;
+		Mesh->BuildFromMeshDescriptions({&Description}, Params);
+		FStaticMeshCompilingManager::Get().FinishCompilation({Mesh});
+		ULandscapeGrassType* Grass = Asset<ULandscapeGrassType>(FString::Printf(TEXT("LGT_AthleticPile_%04d"), Index), Packages);
+		Grass->bEnableDensityScaling = false;
+		FGrassVariety& Variety = Grass->GrassVarieties.AddDefaulted_GetRef();
+		Variety.GrassMesh = Mesh;
+		Variety.GrassDensity = FPerPlatformFloat(2500);
+		Variety.StartCullDistance = FPerPlatformInt(300);
+		Variety.EndCullDistance = FPerPlatformInt(400);
+		Variety.bUseGrid = true;
+		Variety.PlacementJitter = 0;
+		Variety.RandomRotation = false;
+		Variety.AlignToSurface = true;
+		Variety.bCastDynamicShadow = false;
+		FGrassInput& Input = Output->GrassTypes.AddDefaulted_GetRef();
+		Input.Name = FName(*FString::Printf(TEXT("AthleticPile_%04d"), Index));
+		Input.GrassType = Grass;
+		Input.Input.Connect(0, CoverageAt(Ground, true));
+		UMaterialEditingLibrary::RecompileMaterial(Ground);
+		return true;
 	}
 }
 
@@ -489,12 +801,14 @@ static bool ProcessStreetscape(UWorld* World, const FString& ManifestPath,
 		double StripeWidth;
 		double Width;
 		double Height;
+		double West;
+		double North;
 		bool bCollision;
 		bool bAnchored;
 		FString MaterialKey() const
 		{
-			return FString::Printf(TEXT("%s|%s|%.17g|%.17g|%.17g|%.17g"),
-				*Name, *Image, Heading, StripeWidth, Width, Height);
+			return FString::Printf(TEXT("%s|%s|%.17g|%.17g|%.17g|%.17g|%.17g|%.17g"),
+				*Name, *Image, Heading, StripeWidth, Width, Height, West, North);
 		}
 	};
 	TArray<FPendingMesh> Pending;
@@ -589,6 +903,11 @@ static bool ProcessStreetscape(UWorld* World, const FString& ManifestPath,
 				Error = FString::Printf(TEXT("invalid vertex in streetscape mesh %d"), Index);
 				return false;
 			}
+			if (bAthletic && !FMath::IsNearlyEqual(P[2], .025, 1.e-6))
+			{
+				Error = TEXT("athletic turf must follow the landscape at a 0.025 m offset for streamed pile");
+				return false;
+			}
 			if (bRegistered && (P[0] < Bounds[0] - 1.e-9 || P[0] > Bounds[2] + 1.e-9
 				|| P[1] < Bounds[1] - 1.e-9 || P[1] > Bounds[3] + 1.e-9))
 			{
@@ -670,7 +989,8 @@ static bool ProcessStreetscape(UWorld* World, const FString& ManifestPath,
 			Description.CreatePolygon(Group, {Corners[0], Corners[1], Corners[2]});
 		}
 		if (Description.Triangles().Num() > 0) Pending.Add({MoveTemp(Description), Name, Image, Heading, StripeWidth,
-			bRegistered ? Bounds[2] - Bounds[0] : 0, bRegistered ? Bounds[3] - Bounds[1] : 0, bCollision, bAnchored});
+			bRegistered ? Bounds[2] - Bounds[0] : 0, bRegistered ? Bounds[3] - Bounds[1] : 0,
+			bRegistered ? Bounds[0] : 0, bRegistered ? Bounds[3] : 0, bCollision, bAnchored});
 	}
 	if (Pending.IsEmpty() && FeatureCount > 0 && !bLandscapeOnly)
 	{
@@ -692,8 +1012,9 @@ static bool ProcessStreetscape(UWorld* World, const FString& ManifestPath,
 		const bool bCollision = Item.bCollision, bAnchored = Item.bAnchored;
 		if (!Materials.Contains(MaterialKey))
 		{
+			UTexture2D* Atlas = Name == TEXT("athletic_turf") ? MakeRegisteredTexture(Index, Decals.FindChecked(Item.Image), true, Packages) : nullptr;
 			UMaterial* Material = Name == TEXT("athletic_turf")
-				? MakeAthleticMaterial(Index, Decals.FindChecked(Item.Image), Item.Heading, Item.StripeWidth, Item.Width, Item.Height, Packages)
+				? MakeAthleticMaterial(Index, Atlas, Item.Heading, Item.StripeWidth, Packages)
 				: Item.Image.IsEmpty() ? MakeMaterial(Name, Finishes.FindChecked(Name), Packages)
 				: MakeDecalMaterial(Index, Decals.FindChecked(Item.Image), Packages, Name == TEXT("grass_paint_decal"));
 			if (!Material)
@@ -702,6 +1023,13 @@ static bool ProcessStreetscape(UWorld* World, const FString& ManifestPath,
 				return false;
 			}
 			Materials.Add(MaterialKey, Material);
+			if (Atlas)
+			{
+				TArray<const FMeshDescription*> Surfaces;
+				for (const FPendingMesh& Surface : Pending)
+					if (Surface.MaterialKey() == MaterialKey) Surfaces.Add(&Surface.Description);
+				if (!AddAthleticPile(World, Index, Atlas, Item.West, Item.North, Item.Width, Item.Height, Item.Heading, Surfaces, Packages, Error)) return false;
+			}
 		}
 		UStaticMesh* Mesh = Asset<UStaticMesh>(FString::Printf(TEXT("SM_Streetscape_%04d"), Index), Packages);
 		Mesh->GetStaticMaterials().Add(FStaticMaterial(Materials[MaterialKey], FName(*Name)));
@@ -757,7 +1085,9 @@ static bool ProcessStreetscape(UWorld* World, const FString& ManifestPath,
 			Values->SetStringField(TEXT("colour_source"), TEXT("opaque registered atlas RGB, including default green and inlaid markings"));
 			Values->SetStringField(TEXT("heading_convention"), TEXT("EN degrees counterclockwise from east"));
 			Values->SetNumberField(TEXT("machine_row_spacing_m"), .01);
-			Values->SetNumberField(TEXT("artwork_edge_breakup_m"), .003);
+			Values->SetNumberField(TEXT("pile_height_min_m"), .02);
+			Values->SetNumberField(TEXT("pile_height_max_m"), .032);
+			Values->SetNumberField(TEXT("pile_end_cull_m"), 4);
 			Values->SetNumberField(TEXT("roll_seam_half_width_m"), .002);
 			Values->SetNumberField(TEXT("distant_crumb_fraction"), .012);
 			Values->SetNumberField(TEXT("specular"), .32);

@@ -182,9 +182,18 @@ fixed when comparing captures.
 
 `athletic_turf` is a synthetic surface class. It excludes natural grass blades within its polygon.
 Markings intersecting that field become color regions in one opaque registered atlas on the field mesh,
-including local RGBA artwork. All colors share filtered tuft rows, black infill, fiber normals, roughness
+including local RGBA artwork. All colors share a streamed 2–3.2 cm ribbon pile near the camera,
+filtered tuft rows, irregular black infill, fiber normals, roughness
 and grazing reflection. Alternating pile direction and narrow roll seams follow the configured heading.
+The pile uses the existing Landscape grass streaming system. Ribbons carry four narrow filaments;
+their height fades from 1.2 to 3.8 m before instance culling at 4 m.
+Its conservative footprint mask clips fibers at field boundaries to within a mask texel;
+world-projected atlas colors include the
+markings. Athletic mesh vertices must use the exporter’s 0.025 m terrain offset so pile roots meet
+the surface. Natural grass inputs remain connected to their original varieties.
 These are appearance priors. There are no raised marking ribbons, dry patches, soil or grass clumps.
+Rows are 10 mm apart. Sub-row scraps can show infill without a fiber root; markings use atlas colors
+inside a full field, rather than separate narrow field polygons.
 
 Add `fields` beside `features` in the inventory to record and override classifications:
 
