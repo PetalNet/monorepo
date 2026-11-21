@@ -835,9 +835,11 @@ return lerp(Texture2DSampleGrad(Scan,ScanSampler,UV,dx,dy).rgb,varied,blend);
 			FVertexInstanceID Tip;
 			const auto Add = [&](float T, float Side)
 			{
-				const FVector2f Plan = Root + Along * (Lean * T * T) + Across * (Side * Width * (1.f - T));
+				const float RootWidth = FMath::Lerp(0.2f, 1.f, FMath::Min(T * 4.f, 1.f));
+				const FVector2f Plan = Root + Along * (Lean * T * T) + Across * (Side * Width * (1.f - T) * RootWidth);
 				const FVertexID Vertex = Description.CreateVertex();
-				Positions[Vertex] = FVector3f(Plan.X, Plan.Y, Height * (T + Arch * FMath::Sin(PI * T)) / Peak);
+				// Keep the flat foot below the surface, including the blade material's small relief offset.
+				Positions[Vertex] = FVector3f(Plan.X, Plan.Y, Height * (T + Arch * FMath::Sin(PI * T)) / Peak - 2.f * (1.f - T));
 				const FVertexInstanceID Instance = Description.CreateVertexInstance(Vertex);
 				Normals[Instance] = FVector3f(Along.X * 0.6f + Across.X * Side * 0.4f,
 					Along.Y * 0.6f + Across.Y * Side * 0.4f, 1.f).GetSafeNormal();
