@@ -64,7 +64,7 @@ class Endpointer:
         self.start_frames = max(1, math.ceil(start_ms / self.frame_ms))
         self.silence_frames = max(1, math.ceil(silence_ms / self.frame_ms))
         self.lead_frames = math.ceil(lead_ms / self.frame_ms)
-        self.max_frames = math.ceil(max_s * 1000 / self.frame_ms)
+        self.max_frames = max(1, math.ceil(max_s * 1000 / self.frame_ms))
         self.endpoints = deque()
         self._offset = 0
         self._pending = b""
@@ -101,7 +101,7 @@ class Endpointer:
                     del self._activity[: -self.lead_frames - self.start_frames]
             else:
                 self._quiet = 0 if loud else self._quiet + 1
-                if self._quiet >= self.silence_frames or len(self._frames) >= self.max_frames:
+                if self._quiet >= min(self.silence_frames, self.max_frames):
                     self.endpoints.append({"audio_end_ms": self._offset,
                                            "speech_ms": sum(self._activity) * self.frame_ms,
                                            "endpoint_ms": self._quiet * self.frame_ms,
@@ -284,7 +284,24 @@ class Config:
 
 
 def transcribe(address: str, pcm: bytes) -> str:
-    """One utterance through a Wyoming speech-to-text server."""
+    """Recognize one turn in contiguous requests of at most 20 seconds, cutting near quiet audio."""
+    limit, window = 20 * RATE * 2, RATE // 10 * 2
+    parts: list[str] = []
+    start = 0
+    while start < len(pcm):
+        stop = min(start + limit, len(pcm))
+        if stop < len(pcm):
+            quiet = min(range(stop - window, stop - 2 * RATE * 2 - 1, -window),
+                        key=lambda at: sum(s * s for s in array.array("h", pcm[at:at + window])))
+            stop = quiet + window // 2
+        if text := _transcribe_chunk(address, pcm[start:stop]):
+            parts.append(text)
+        start = stop
+    return " ".join(parts)
+
+
+def _transcribe_chunk(address: str, pcm: bytes) -> str:
+    """One bounded request through a Wyoming speech-to-text server."""
     host, _, port = address.rpartition(":")
     info = {"rate": RATE, "width": 2, "channels": 1}
 
