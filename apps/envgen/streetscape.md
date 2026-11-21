@@ -187,9 +187,8 @@ filtered tuft rows, irregular black infill, fiber normals, roughness
 and grazing reflection. Alternating pile direction and narrow roll seams follow the configured heading.
 The pile uses the existing Landscape grass streaming system. It uses discrete LOD transitions to avoid a missing-fiber band observed with UE 5.8 HISM dithering. Each root retains eight strands at both geometry levels. Nearby ribbons have five curve segments and thin cut-end caps; distant ribbons use two segments and omit the unresolved caps. Their height fades from 3 to 10 m before culling at 11 m. A seamless packed grain texture supplies millimetre-scale height, charcoal reflectance and intergranular occlusion between the near blades. Per-blade variation breaks up
 repeated patches while retaining manufactured rows.
-Its conservative footprint mask clips fibers at field boundaries to within a mask texel;
-world-projected atlas colors include the
-markings. Athletic mesh vertices must use the exporter’s 0.025 m terrain offset so pile roots meet
+Its conservative footprint mask clips fibers at field boundaries to within a mask texel.
+Each strand samples its atlas color at its placed root, keeping dyed and inlaid colors fixed along the bent ribbon and its cut end. The field mask still clips the displaced geometry at the field boundary. Athletic mesh vertices must use the exporter’s 0.025 m terrain offset so pile roots meet
 the surface. Natural grass inputs remain connected to their original varieties.
 These are appearance priors. There are no raised marking ribbons, dry patches, soil or grass clumps.
 Rows are 10 mm apart, with strand positions spread along each row. Sub-row scraps can show infill without a fiber root; markings use atlas colors

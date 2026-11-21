@@ -37,6 +37,7 @@
 #include "Materials/MaterialExpressionTransform.h"
 #include "Materials/MaterialExpressionTransformPosition.h"
 #include "Materials/MaterialExpressionVertexNormalWS.h"
+#include "Materials/MaterialExpressionVertexInterpolator.h"
 #include "Materials/MaterialFunction.h"
 #include "MeshDescription.h"
 #include "Misc/FileHelper.h"
@@ -812,18 +813,59 @@ return lerp(canopy,bed,pileNear);
 		auto* Colour = CastChecked<UMaterialExpressionTextureSample>(UMaterialEditingLibrary::CreateMaterialExpression(Material, UMaterialExpressionTextureSample::StaticClass()));
 		Colour->Texture = Atlas;
 		Colour->SamplerType = SAMPLERTYPE_Color;
-		Colour->Coordinates.Connect(0, WorldUV(Material));
 		auto* Vertex = CastChecked<UMaterialExpressionVertexColor>(UMaterialEditingLibrary::CreateMaterialExpression(Material, UMaterialExpressionVertexColor::StaticClass()));
 		UMaterialEditingLibrary::ConnectMaterialProperty(CoverageAt(Material, false), TEXT(""), MP_OpacityMask);
 		auto* Instance = CastChecked<UMaterialExpressionPerInstanceRandom>(UMaterialEditingLibrary::CreateMaterialExpression(Material, UMaterialExpressionPerInstanceRandom::StaticClass()));
 		auto* BladeUV = CastChecked<UMaterialExpressionTextureCoordinate>(UMaterialEditingLibrary::CreateMaterialExpression(Material, UMaterialExpressionTextureCoordinate::StaticClass()));
 		BladeUV->CoordinateIndex = 0;
+		auto* RootUV = CastChecked<UMaterialExpressionTextureCoordinate>(UMaterialEditingLibrary::CreateMaterialExpression(Material, UMaterialExpressionTextureCoordinate::StaticClass()));
+		RootUV->CoordinateIndex = 1;
+		auto* Zero = CastChecked<UMaterialExpressionConstant>(UMaterialEditingLibrary::CreateMaterialExpression(Material, UMaterialExpressionConstant::StaticClass()));
+		Zero->R = 0;
+		auto* LocalRoot = CastChecked<UMaterialExpressionAppendVector>(UMaterialEditingLibrary::CreateMaterialExpression(Material, UMaterialExpressionAppendVector::StaticClass()));
+		LocalRoot->A.Connect(0, RootUV); LocalRoot->B.Connect(0, Zero);
+		auto* Root = CastChecked<UMaterialExpressionTransformPosition>(UMaterialEditingLibrary::CreateMaterialExpression(Material, UMaterialExpressionTransformPosition::StaticClass()));
+		Root->Input.Connect(0, LocalRoot);
+		Root->TransformSourceType = TRANSFORMPOSSOURCE_Local;
+		Root->TransformType = TRANSFORMPOSSOURCE_World;
+		// One placement value keeps dye, geometry and normal rotation on the same strand.
+		auto* Placement = CastChecked<UMaterialExpressionCustom>(UMaterialEditingLibrary::CreateMaterialExpression(Material, UMaterialExpressionCustom::StaticClass()));
+		Placement->Inputs.Empty(); Placement->OutputType = CMOT_Float4;
+		for (const auto& Pair : {TPair<FName, UMaterialExpression*>(TEXT("Root"), Root),
+			TPair<FName, UMaterialExpression*>(TEXT("Seed"), Vertex), TPair<FName, UMaterialExpression*>(TEXT("Instance"), Instance)})
+		{
+			FCustomInput& Input = Placement->Inputs.AddDefaulted_GetRef();
+			Input.InputName = Pair.Key; Input.Input.Connect(Pair.Key == TEXT("Seed") ? 3 : 0, Pair.Value);
+		}
+		Placement->Code = FString::Printf(TEXT(R"HLSL(
+float2 across=float2(%.17g,%.17g), along=float2(-across.y,across.x);
+float r=frac(sin(Seed*127.1+Instance*311.7)*43758.5453);
+float s=frac(sin(Seed*269.5+Instance*183.3)*2578.543);
+float row=dot(Root.xy,across);
+float2 shift=across*(floor(row+.5)-row+(r-.5)*.6)+along*((s-.5)*.9);
+return float4(shift,r,s);
+)HLSL"), FMath::Cos(Radians), -FMath::Sin(Radians));
+		auto* RootColourUV = CastChecked<UMaterialExpressionCustom>(UMaterialEditingLibrary::CreateMaterialExpression(Material, UMaterialExpressionCustom::StaticClass()));
+		RootColourUV->Inputs.Empty(); RootColourUV->OutputType = CMOT_Float2;
+		for (const auto& Pair : {TPair<FName, UMaterialExpression*>(TEXT("Root"), Root), TPair<FName, UMaterialExpression*>(TEXT("Placement"), Placement)})
+		{
+			FCustomInput& Input = RootColourUV->Inputs.AddDefaulted_GetRef();
+			Input.InputName = Pair.Key; Input.Input.Connect(0, Pair.Value);
+		}
+		RootColourUV->Code = FString::Printf(TEXT("return float2(((Root.y+Placement.y)*.01-(%.17g))/%.17g,((%.17g)-(Root.x+Placement.x)*.01)/%.17g);"), West, Width, North, Height);
+		auto* FixedColourUV = CastChecked<UMaterialExpressionVertexInterpolator>(UMaterialEditingLibrary::CreateMaterialExpression(Material, UMaterialExpressionVertexInterpolator::StaticClass()));
+		FixedColourUV->Input.Connect(0, RootColourUV);
+		Colour->Coordinates.Connect(0, FixedColourUV);
+		auto* VariationValue = CastChecked<UMaterialExpressionComponentMask>(UMaterialEditingLibrary::CreateMaterialExpression(Material, UMaterialExpressionComponentMask::StaticClass()));
+		VariationValue->Input.Connect(0, Placement); VariationValue->A = true; VariationValue->R = VariationValue->G = VariationValue->B = false;
+		auto* Variation = CastChecked<UMaterialExpressionVertexInterpolator>(UMaterialEditingLibrary::CreateMaterialExpression(Material, UMaterialExpressionVertexInterpolator::StaticClass()));
+		Variation->Input.Connect(0, VariationValue);
 		auto* BladeNormal = CastChecked<UMaterialExpressionVertexNormalWS>(UMaterialEditingLibrary::CreateMaterialExpression(Material, UMaterialExpressionVertexNormalWS::StaticClass()));
 		auto* Finish = CastChecked<UMaterialExpressionCustom>(UMaterialEditingLibrary::CreateMaterialExpression(Material, UMaterialExpressionCustom::StaticClass()));
 		Finish->Inputs.Empty();
 		Finish->OutputType = CMOT_Float3;
 		for (const auto& Pair : {TPair<FName, UMaterialExpression*>(TEXT("N"), BladeNormal), TPair<FName, UMaterialExpression*>(TEXT("CutEnd"), Vertex),
-			TPair<FName, UMaterialExpression*>(TEXT("Seed"), Vertex), TPair<FName, UMaterialExpression*>(TEXT("Instance"), Instance), TPair<FName, UMaterialExpression*>(TEXT("UV"), BladeUV)})
+			TPair<FName, UMaterialExpression*>(TEXT("Seed"), Vertex), TPair<FName, UMaterialExpression*>(TEXT("Variation"), Variation), TPair<FName, UMaterialExpression*>(TEXT("UV"), BladeUV)})
 		{
 			FCustomInput& Input = Finish->Inputs.AddDefaulted_GetRef();
 			Input.InputName = Pair.Key; Input.Input.Connect(Pair.Key == TEXT("Seed") ? 3 : Pair.Key == TEXT("CutEnd") ? 2 : 0, Pair.Value);
@@ -831,10 +873,9 @@ return lerp(canopy,bed,pileNear);
 		FCustomOutput& Roughness = Finish->AdditionalOutputs.AddDefaulted_GetRef();
 		Roughness.OutputName = TEXT("Roughness"); Roughness.OutputType = CMOT_Float1;
 		Finish->Code = TEXT(R"HLSL(
-if(CutEnd>.5){Roughness=.48+.05*Seed;return normalize(N);}
-float s=frac(sin(Seed*269.5+Instance*183.3)*2578.543);
-float angle=(s-.5)*.6;
+float angle=(Variation-.5)*.6;
 float3 n=float3(cos(angle)*N.x-sin(angle)*N.y,sin(angle)*N.x+cos(angle)*N.y,N.z);
+if(CutEnd>.5){Roughness=.48+.05*Seed;return normalize(n);}
 Roughness=.38+.12*Seed;
 float3 across=normalize(cross(n,float3(0,0,1))+float3(.0001,0,0));
 return normalize(n*.8+float3(0,0,.65)+across*sin((UV.x-.5)*3.14159265)*.35);
@@ -872,16 +913,6 @@ return normalize(n*.8+float3(0,0,.65)+across*sin((UV.x-.5)*3.14159265)*.35);
 		Sink->OutputType = CMOT_Float3;
 		FCustomInput& EyeInput = Sink->Inputs.AddDefaulted_GetRef();
 		EyeInput.InputName = TEXT("Eye"); EyeInput.Input.Connect(0, Eye);
-		auto* RootUV = CastChecked<UMaterialExpressionTextureCoordinate>(UMaterialEditingLibrary::CreateMaterialExpression(Material, UMaterialExpressionTextureCoordinate::StaticClass()));
-		RootUV->CoordinateIndex = 1;
-		auto* Zero = CastChecked<UMaterialExpressionConstant>(UMaterialEditingLibrary::CreateMaterialExpression(Material, UMaterialExpressionConstant::StaticClass()));
-		Zero->R = 0;
-		auto* LocalRoot = CastChecked<UMaterialExpressionAppendVector>(UMaterialEditingLibrary::CreateMaterialExpression(Material, UMaterialExpressionAppendVector::StaticClass()));
-		LocalRoot->A.Connect(0, RootUV); LocalRoot->B.Connect(0, Zero);
-		auto* Root = CastChecked<UMaterialExpressionTransformPosition>(UMaterialEditingLibrary::CreateMaterialExpression(Material, UMaterialExpressionTransformPosition::StaticClass()));
-		Root->Input.Connect(0, LocalRoot);
-		Root->TransformSourceType = TRANSFORMPOSSOURCE_Local;
-		Root->TransformType = TRANSFORMPOSSOURCE_World;
 		auto* Delta = CastChecked<UMaterialExpressionTextureCoordinate>(UMaterialEditingLibrary::CreateMaterialExpression(Material, UMaterialExpressionTextureCoordinate::StaticClass()));
 		Delta->CoordinateIndex = 2;
 		auto* HeightUV = CastChecked<UMaterialExpressionTextureCoordinate>(UMaterialEditingLibrary::CreateMaterialExpression(Material, UMaterialExpressionTextureCoordinate::StaticClass()));
@@ -904,24 +935,17 @@ return normalize(n*.8+float3(0,0,.65)+across*sin((UV.x-.5)*3.14159265)*.35);
 		DeltaInput.InputName = TEXT("Delta"); DeltaInput.Input.Connect(0, WorldDelta);
 		FCustomInput& NormalInput = Sink->Inputs.AddDefaulted_GetRef();
 		NormalInput.InputName = TEXT("N"); NormalInput.Input.Connect(0, Normal);
-		FCustomInput& InstanceInput = Sink->Inputs.AddDefaulted_GetRef();
-		InstanceInput.InputName = TEXT("Instance"); InstanceInput.Input.Connect(0, Instance);
-		FCustomInput& RibbonInput = Sink->Inputs.AddDefaulted_GetRef();
-		RibbonInput.InputName = TEXT("Seed"); RibbonInput.Input.Connect(3, Vertex);
-		// Snap roots, rather than patch centres, to world-aligned rows so rotated fields have no patch seams.
-		Sink->Code = FString::Printf(TEXT(R"HLSL(
+		FCustomInput& PlacementInput = Sink->Inputs.AddDefaulted_GetRef();
+		PlacementInput.InputName = TEXT("Placement"); PlacementInput.Input.Connect(0, Placement);
+		Sink->Code = TEXT(R"HLSL(
 float3 root=Root;
-float2 across=float2(%.17g,%.17g), along=float2(-across.y,across.x);
-float r=frac(sin(Seed*127.1+Instance*311.7)*43758.5453);
-float s=frac(sin(Seed*269.5+Instance*183.3)*2578.543);
-float row=dot(root.xy,across);
-float2 shift=across*(floor(row+.5)-row+(r-.5)*.6)+along*((s-.5)*.9);
-float turn=(s-.5)*.6;
+float2 shift=Placement.xy;
+float turn=(Placement.w-.5)*.6;
 float2 tilted=float2(cos(turn)*Delta.x-sin(turn)*Delta.y,sin(turn)*Delta.x+cos(turn)*Delta.y);
-float3 varied=float3(tilted,Delta.z*(.92+.16*r));
+float3 varied=float3(tilted,Delta.z*(.92+.16*Placement.z));
 float fade=1-smoothstep(300.,1000.,distance(root,Eye));
 return float3(shift,2.5-dot(shift,N.xy)/max(N.z,.1))+varied*fade-Delta;
-)HLSL"), FMath::Cos(Radians), -FMath::Sin(Radians));
+)HLSL");
 		UMaterialEditingLibrary::ConnectMaterialProperty(Sink, TEXT(""), MP_WorldPositionOffset);
 		UMaterialEditingLibrary::RecompileMaterial(Material);
 
