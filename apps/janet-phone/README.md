@@ -272,8 +272,15 @@ Run it with `python janet_phone.py --config /path/to/phone.toml`, or build the `
   a completed thought. The loudness fallback can remain active over background noise until the cap.
 - Synthesis begins at the first complete sentence from the head. The voice runtime can still wait
   for that whole sentence before producing its first Wyoming audio chunk.
-- Cut-off relies on the calling device cancelling its own echo. A device that plays Janet through a
-  loudspeaker without echo cancellation will cut her off with her own voice.
+- Barge-in protects generation and the first sentence of each reply. After that, it requires 480 ms
+  of foreground audio within 800 ms (and 400 ms on the receive clock), with VAD probability at least 0.7
+  above an adaptive noise floor and recent correlated playback echo. Without an audio VAD model,
+  turn detection still uses loudness but automatic interruption is disabled.
+  This uses audio only. It cannot identify who is speaking: a loud nearby person can still interrupt
+  after the first sentence. Device echo cancellation remains useful for room reverberation.
+  Correlated echo is also removed from turn detection. Caller speech queued during a protected
+  sentence is processed before acting on a sign-off. `barge-in` logs report VAD, microphone/noise/echo
+  levels and whether the gate accepted speech.
 - The Access assertion a call starts with is used for the whole call. A call that outlasts it (24
   hours by default) loses its last turns.
 - The head ends a conversation that sits idle. When that happens mid-call (a sleeping voice host can

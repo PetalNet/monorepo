@@ -276,7 +276,7 @@ class RingTest(unittest.IsolatedAsyncioTestCase):
         self.assertEqual((await self.post("/register"))[0], 403)
         await self.refused({**self.phone, "X-Janet-Ring":ident}, 403)
 
-    async def test_speaking_over_initial_reply_interrupts_and_keeps_the_utterance(self):
+    async def test_initial_reply_is_protected_and_keeps_the_utterance(self):
         original = janet_phone.Gateway.turn
         initial = True
         def initial_reply(gateway, conversation, text):
@@ -312,10 +312,10 @@ class RingTest(unittest.IsolatedAsyncioTestCase):
                                     caller_words.append(event["text"])
                     except ConnectionClosed:
                         pass
-                    self.assertIn("clear", events)
+                    self.assertNotIn("clear", events)
                     self.assertIn("stop", caller_words)
                     self.assertEqual((await task)[1]["status"], "audio_connected")
-                    self.assertTrue(any(path.endswith("/interrupt") for path, _ in FakeGateway.calls))
+                    self.assertFalse(any(path.endswith("/interrupt") for path, _ in FakeGateway.calls))
 
     async def test_incoming_calls_keep_verified_owner_authorization(self):
         lab_token = self.dir / "lab-token"

@@ -35,6 +35,8 @@ import ringing
 from resumable import ResumableSocket
 from speech_stream import PcmSource, SpeechStream
 
+from barge_in import make_barge_in
+
 __version__ = "0.1.0"
 
 log = logging.getLogger("janet-phone")
@@ -486,6 +488,7 @@ class Call:
         self.him = 0.0  # the caller's level, as last measured
         self.playing = False
         self.caller_speaking = False
+        self.barge_in = None
         self.ended_by: str | None = None  # who closed the line, when Janet did; None means the far side (or a failure)
         self.last_heard = time.monotonic()  # when the phone's microphone last sent a frame
         self.phase = "listening"  # what the pipeline is doing: listening, thinking or speaking
@@ -520,7 +523,8 @@ class Call:
                     "The phone has answered and the automated-assistant disclosure was sent.",
                     time.monotonic(), {"endpoint_ms": 0}))
                 await asyncio.wait([self.speaking])
-                if not self.speaking.cancelled() and self.speaking.result():
+                if (not self.speaking.cancelled() and self.speaking.result()
+                        and not self.caller_speaking and self.utterances.empty()):
                     await self.hang_up("the head ended the conversation")
                     return
             silence_reported = False
@@ -539,7 +543,8 @@ class Call:
                         "Outgoing phone call: no caller speech arrived for eight seconds.",
                         time.monotonic(), {"endpoint_ms": 0}))
                     await asyncio.wait([self.speaking])
-                    if not self.speaking.cancelled() and self.speaking.result():
+                    if (not self.speaking.cancelled() and self.speaking.result()
+                            and not self.caller_speaking and self.utterances.empty()):
                         await self.hang_up("the head ended the conversation")
                         return
                     continue
@@ -583,7 +588,7 @@ class Call:
                     if isinstance(error, ConnectionClosed):
                         return
                     log.warning("call %s: reply failed: %s", self.conversation, error)
-                elif self.speaking.result():
+                elif self.speaking.result() and not self.caller_speaking and self.utterances.empty():
                     await self.hang_up("the head ended the conversation")
                     return
         except ConnectionClosed:
@@ -666,6 +671,8 @@ class Call:
             if (models / "parakeet_realtime_eou_120m.int8.onnx").exists():
                 endpoint_config = dataclasses.replace(self.config, turn_models=str(models))
         endpointer, heard = await asyncio.to_thread(new_endpointer, endpoint_config), 0
+        self.barge_in = await asyncio.to_thread(make_barge_in, self.config)
+        diagnostic_at = 0.0
         try:
             async with asyncio.timeout(self.config.max_call_s):
                 stalled = False
@@ -715,21 +722,29 @@ class Call:
                         heard, self.him = 0, level(message, RATE)
                         if not self.playing:
                             await self.tell(type="level", her=0.0, him=self.him)
-                    events = endpointer.feed(message)
+                    active_reply = self.speaking is not None and not self.speaking.done()
+                    accepted = self.barge_in.feed(message, protected=not active_reply or not self.heard, now=received)
+                    if active_reply and received - diagnostic_at >= 1:
+                        diagnostic_at = received
+                        log.info("call %s: barge-in %s", self.conversation, json.dumps(self.barge_in.status))
+                    if active_reply and accepted:
+                        await self.cut_off()
+                    events = endpointer.feed(self.barge_in.caller_audio)
                     batch_end_ms = (getattr(endpointer, "_offset", 0)
-                                    + len(getattr(endpointer, "_pending", getattr(endpointer, "_raw", b""))) / (RATE * 2 / 1000))
+                                    + (len(getattr(endpointer, "_pending", getattr(endpointer, "_raw", b"")))
+                                       + len(self.barge_in.pending)) / (RATE * 2 / 1000))
                     for event in events:
                         if event == "start":
                             self.caller_speaking = True
-                            if self.inflight is not None and "first_audio_at" not in self.inflight[1]:
-                                self.continuation = self.inflight[0]
-                                self.inflight[1].update(superseded=True, outcome="continued")
-                                self.inflight = None
-                            while not self.utterances.empty():
-                                queued, _, previous_turn = self.utterances.get_nowait()
-                                self.continuation += queued
-                                previous_turn.update(superseded=True, outcome="continued")
-                            await self.cut_off()
+                            if not active_reply:
+                                if self.inflight is not None and "first_audio_at" not in self.inflight[1]:
+                                    self.continuation = self.inflight[0]
+                                    self.inflight[1].update(superseded=True, outcome="continued")
+                                    self.inflight = None
+                                while not self.utterances.empty():
+                                    queued, _, previous_turn = self.utterances.get_nowait()
+                                    self.continuation += queued
+                                    previous_turn.update(superseded=True, outcome="continued")
                         else:
                             self.caller_speaking = False
                             endpoint = endpointer.endpoints.popleft() if hasattr(endpointer, "endpoints") else {
@@ -951,6 +966,8 @@ class Call:
                 if self.ring is not None and self.ring.state != "audio_connected" and not self.ring.snapshot():
                     raise OSError("the incoming ring expired before audio")
                 await self.send_audio(chunk, rate)
+                if self.barge_in is not None:
+                    self.barge_in.played(chunk, rate, time.monotonic())
                 if turn is not None and "first_audio_at" not in turn:
                     elapsed = round((time.monotonic() - ended) * 1000)
                     turn["endpoint_to_audio_ms"] = elapsed if turn.get("endpoint_reason") != "shared_detector" else None
@@ -962,6 +979,8 @@ class Call:
                 await self.tell(type="level", her=level(chunk, rate), him=self.him)
                 sent += step
                 await asyncio.sleep(max(0.0, began + sent / (rate * 2) - 0.2 - time.monotonic()))
+            # Drain the 200 ms send-ahead before completing a sentence or starting the next one.
+            await asyncio.sleep(max(0.0, began + len(pcm) / (rate * 2) - time.monotonic()))
         except asyncio.CancelledError:
             self.transcript.append(("Janet", sentence + " [cut off]"))
             raise

@@ -27,6 +27,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 import janet_phone  # noqa: E402
 import matrix_notice  # noqa: E402
 import pairing  # noqa: E402
+from barge_in import BargeIn  # noqa: E402
 
 TOKEN = "Bearer right"
 
@@ -69,7 +70,10 @@ class FakeGateway(BaseHTTPRequestHandler):
         if self.path.endswith("/turns"):
             done = {"end_conversation": body["text"] == "goodbye"}
             sentence = json.dumps({"text": "Can you hear me?" if body["text"].startswith("Outgoing phone call.") else "You said " + body["text"] + "."})
-            events = f'event: sentence\ndata: {sentence}\n\nevent: done\ndata: {json.dumps(done)}\n\n'
+            events = f'event: sentence\ndata: {sentence}\n\n'
+            if body['text'] == 'tell me a story':
+                events += 'event: sentence\ndata: {"text": "A second story sentence."}\n\n'
+            events += f'event: done\ndata: {json.dumps(done)}\n\n'
             return self._send(200, events.encode())
         return self._send(200, b'{"merged": true}')
 
@@ -304,15 +308,22 @@ class CallTest(unittest.IsolatedAsyncioTestCase):
         self.assertIn("audio from the phone again", text)
         self.assertIn("ended by the far side", text)
 
-    async def test_speaking_over_a_reply_cuts_it_off(self):
+    @mock.patch("janet_phone.make_barge_in", side_effect=lambda _: BargeIn(lambda _: .99))
+    async def test_speaking_over_a_reply_cuts_it_off(self, _gate):
         FakeStt.texts = ["tell me a story", "stop"]
         async with connect(self.url, additional_headers=self.phone) as ws:
             await ws.send(tone(0.5))
             await ws.send(bytes(16000))
             while {"text": "You said tell me a story."} not in [body for path, body in FakeGateway.calls if path == "/v1/tts"]:
                 await asyncio.sleep(0.02)
-            await asyncio.sleep(0.5)
-            await ws.send(tone(0.5))
+            # The first sentence is protected. Interrupt a later sentence with paced speech.
+            while True:
+                message = await asyncio.wait_for(ws.recv(), 10)
+                if isinstance(message, str) and json.loads(message).get("text") == "A second story sentence.":
+                    break
+            for _ in range(30):
+                await ws.send(tone(.02))
+                await asyncio.sleep(.02)
             await self._until(ws, "clear")
             for _ in range(100):
                 if any(path.endswith("/interrupt") for path, _ in FakeGateway.calls):
@@ -702,7 +713,16 @@ class TurnTimingTest(unittest.IsolatedAsyncioTestCase):
             await asyncio.sleep(.1)
         call.cut_off = mock.AsyncMock(side_effect=delayed_interrupt)
         before = time.monotonic()
-        task = asyncio.create_task(call.listen())
+        gate = mock.Mock()
+        gate.feed.return_value = True
+        gate.status = {}
+        gate.pending = b""
+        gate.caller_audio = tone(.3) + bytes(6400)
+        call.speaking = asyncio.create_task(asyncio.sleep(10))
+        call.heard = ["An earlier sentence."]
+        with mock.patch("janet_phone.make_barge_in", return_value=gate):
+            task = asyncio.create_task(call.listen())
+            await asyncio.sleep(.01)
         try:
             for _ in range(100):
                 if not call.utterances.empty():
@@ -715,7 +735,8 @@ class TurnTimingTest(unittest.IsolatedAsyncioTestCase):
             self.assertNotIn("first_audio_at", timing)
         finally:
             task.cancel()
-            await asyncio.gather(task, return_exceptions=True)
+            call.speaking.cancel()
+            await asyncio.gather(task, call.speaking, return_exceptions=True)
 
     async def test_interruption_before_audio_retains_partial_turn(self):
         release = threading.Event()
