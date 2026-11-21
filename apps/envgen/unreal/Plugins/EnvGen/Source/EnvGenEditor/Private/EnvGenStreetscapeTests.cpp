@@ -238,7 +238,7 @@ bool FEnvGenStreetscapeDecal::RunTest(const FString& Parameters)
 				TestFalse(TEXT("grass paint has no visible flat overlay"), Component->bRenderInMainPass);
 				TestFalse(TEXT("semantic paint cannot occlude the visible ground"), Component->bRenderInDepthPass);
 				const auto* Projector = Cast<ADecalActor>(Actors[1]);
-				if (TestNotNull(TEXT("grass paint projects onto the blades and terrain"), Projector))
+				if (TestNotNull(TEXT("grass paint projects onto existing blades"), Projector))
 				{
 					TestTrue(TEXT("paint projection points down after actor construction"), Projector->GetActorForwardVector().Equals(FVector(0, 0, -1), 1.e-4));
 					const auto* Projected = CastChecked<UMaterial>(Projector->GetDecal()->GetDecalMaterial());
@@ -554,7 +554,7 @@ bool FEnvGenStreetscapeAthletic::RunTest(const FString& Parameters)
 		bool bFoundAtlas = false;
 		for (UMaterialExpression* Expression : Material->GetExpressions())
 		{
-			if (const auto* Atlas = Cast<UMaterialExpressionTextureObject>(Expression))
+			if (const auto* Atlas = Cast<UMaterialExpressionTextureObject>(Expression); Atlas && Atlas->SamplerType == SAMPLERTYPE_Color)
 			{
 				const auto* Texture = CastChecked<UTexture2D>(Atlas->Texture);
 				bFoundAtlas = true;
@@ -565,6 +565,19 @@ bool FEnvGenStreetscapeAthletic::RunTest(const FString& Parameters)
 			}
 		}
 		TestTrue(TEXT("athletic shader samples the registered atlas"), bFoundAtlas);
+		const UTexture2D* Infill = nullptr;
+		for (UMaterialExpression* Expression : Material->GetExpressions())
+		{
+			if (const auto* Sample = Cast<UMaterialExpressionTextureObject>(Expression); Sample && Sample->SamplerType == SAMPLERTYPE_LinearColor)
+				Infill = Cast<UTexture2D>(Sample->Texture);
+		}
+		if (TestNotNull(TEXT("turf binds packed infill data"), Infill))
+		{
+			TestFalse(TEXT("infill height and reflectance are linear data"), Infill->SRGB);
+			TestTrue(TEXT("infill retains uncompressed height precision"), Infill->CompressionSettings == TC_VectorDisplacementmap);
+			TestTrue(TEXT("infill wraps and filters at distance"), Infill->AddressX == TA_Wrap && Infill->AddressY == TA_Wrap && Infill->MipGenSettings == TMGS_SimpleAverage);
+		}
+
 		TestEqual(TEXT("one streamed pile per field registration plus existing natural grass"), GrassOutput->GrassTypes.Num(), 8);
 		TestEqual(TEXT("existing natural grass input survives"), GrassOutput->GrassTypes[0].GrassType.Get(), NaturalGrass);
 		for (int32 I = 1; I < GrassOutput->GrassTypes.Num(); ++I)
@@ -577,6 +590,36 @@ bool FEnvGenStreetscapeAthletic::RunTest(const FString& Parameters)
 			TestEqual(TEXT("both pile levels reach the render buffers"), Pile->GetRenderData()->LODResources.Num(), 2);
 			TestTrue(TEXT("distant blades use fewer triangles"), Pile->GetMeshDescription(1)->Triangles().Num() < Pile->GetMeshDescription(0)->Triangles().Num());
 			TestFalse(TEXT("synthetic fibers do not cast large natural-grass shadows"), Variety.bCastDynamicShadow);
+			TestTrue(TEXT("fiber LOD transitions can blend"), CastChecked<UMaterial>(Pile->GetMaterial(0))->DitheredLODTransition);
+			TSet<FIntPoint> Roots[2];
+			for (int32 LOD = 0; LOD < 2; ++LOD)
+			{
+				const FStaticMeshLODResources& Mesh = Pile->GetRenderData()->LODResources[LOD];
+				const FStaticMeshVertexBuffer& Vertices = Mesh.VertexBuffers.StaticMeshVertexBuffer;
+				for (uint32 Vertex = 0; Vertex < Vertices.GetNumVertices(); ++Vertex)
+				{
+					const FVector2f Root = Vertices.GetVertexUV(Vertex, 1);
+					Roots[LOD].Add(FIntPoint(FMath::RoundToInt(Root.X * 1000), FMath::RoundToInt(Root.Y * 1000)));
+				}
+				int32 SplitRoots = 0;
+				for (int32 Triangle = 0; Triangle < Mesh.IndexBuffer.GetNumIndices(); Triangle += 3)
+				{
+					const FVector2f Root = Vertices.GetVertexUV(Mesh.IndexBuffer.GetIndex(Triangle), 1);
+					if (Root != Vertices.GetVertexUV(Mesh.IndexBuffer.GetIndex(Triangle + 1), 1)
+						|| Root != Vertices.GetVertexUV(Mesh.IndexBuffer.GetIndex(Triangle + 2), 1)) ++SplitRoots;
+				}
+				TestEqual(TEXT("rendered fiber vertices share an exact root before snapping"), SplitRoots, 0);
+			}
+			TestEqual(TEXT("near pile covers every patch root"), Roots[0].Num(), 400);
+			TestEqual(TEXT("far pile retains every near stitch root"), Roots[1].Difference(Roots[0]).Num() + Roots[0].Difference(Roots[1]).Num(), 0);
+			for (int32 Heading : {0, 90}) for (float Phase : {0.f, .25f, .5f})
+			{
+				TSet<int32> Rows;
+				for (const FIntPoint Root : Roots[1])
+					Rows.Add(FMath::FloorToInt((Heading == 0 ? Root.X : Root.Y) / 1000.f + Phase + .5f));
+				TestEqual(TEXT("both field axes retain all centimetre rows at each phase"), Rows.Num(), 20);
+			}
+
 			const auto PilePositions = FStaticMeshConstAttributes(*Pile->GetMeshDescription(0)).GetVertexPositions();
 			float MinZ = MAX_flt, MaxZ = -MAX_flt;
 			for (const FVertexID Vertex : Pile->GetMeshDescription(0)->Vertices().GetElementIDs())

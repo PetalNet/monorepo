@@ -35,6 +35,7 @@
 #include "Materials/MaterialExpressionTextureSample.h"
 #include "Materials/MaterialExpressionTextureObject.h"
 #include "Materials/MaterialExpressionTransform.h"
+#include "Materials/MaterialExpressionTransformPosition.h"
 #include "Materials/MaterialExpressionVertexNormalWS.h"
 #include "Materials/MaterialFunction.h"
 #include "MeshDescription.h"
@@ -422,7 +423,7 @@ return float4(colour,saturate(%.5f+.08*(wear-.5)+.08*crack));
 		FCustomInput& PlaceInput = Opacity->Inputs.AddDefaulted_GetRef();
 		PlaceInput.InputName = TEXT("P"); PlaceInput.Input.Connect(0, Position);
 		Opacity->Code = TEXT(R"HLSL(
-float2 q=P.xy*.9, i=floor(q), f=frac(q); f=f*f*(3-2*f);
+float2 q=(P.xy+P.z*float2(.37,.61))*.9, i=floor(q), f=frac(q); f=f*f*(3-2*f);
 float a=frac(sin(dot(i,float2(127.1,311.7)))*43758.5453);
 float b=frac(sin(dot(i+float2(1,0),float2(127.1,311.7)))*43758.5453);
 float c=frac(sin(dot(i+float2(0,1),float2(127.1,311.7)))*43758.5453);
@@ -431,7 +432,7 @@ float visible=1-smoothstep(.25,1.,max(fwidth(q.x),fwidth(q.y)));
 float grain=lerp(.5,lerp(lerp(a,b,f.x),lerp(c,d,f.x),f.y),visible);
 float3 geometric=cross(ddx(P),ddy(P));
 float upright=1-smoothstep(.45,.8,abs(geometric.z)/max(length(geometric),.000001));
-return Mask*(.35+.60*grain)*upright;
+return Mask*(.05+.70*grain)*upright;
 )HLSL");
 		UMaterialEditingLibrary::ConnectMaterialProperty(Opacity, TEXT(""), MP_Opacity);
 		UMaterialEditingLibrary::RecompileMaterial(Material);
@@ -464,7 +465,50 @@ return Mask*(.35+.60*grain)*upright;
 		}
 	}
 
-	UMaterial* MakeAthleticMaterial(int32 Index, UTexture2D* Texture, double Heading, double StripeWidth, TArray<UPackage*>& Packages)
+	UTexture2D* MakeAthleticInfillTexture(TArray<UPackage*>& Packages)
+	{
+		constexpr int32 Size = 1024, Cells = 64;
+		FRandomStream Random(27011);
+		TArray<FVector4f> Grains;
+		for (int32 I = 0; I < Cells * Cells; ++I)
+			Grains.Add(FVector4f(Random.FRandRange(.2f, .8f), Random.FRandRange(.2f, .8f),
+				Random.FRandRange(.3f, 1.f), Random.FRandRange(.25f, 1.f)));
+		TArray<uint8> Pixels;
+		Pixels.SetNumUninitialized(Size * Size * 4);
+		for (int32 Y = 0; Y < Size; ++Y) for (int32 X = 0; X < Size; ++X)
+		{
+			const FVector2f P((X + .5f) * Cells / Size, (Y + .5f) * Cells / Size);
+			const int32 CellX = FMath::FloorToInt(P.X), CellY = FMath::FloorToInt(P.Y);
+			float First = MAX_flt, Second = MAX_flt;
+			FVector4f Grain(0, 0, 0, 0);
+			for (int32 DY = -1; DY <= 1; ++DY) for (int32 DX = -1; DX <= 1; ++DX)
+			{
+				const int32 GX = CellX + DX, GY = CellY + DY;
+				const FVector4f Candidate = Grains[((GY + Cells) % Cells) * Cells + (GX + Cells) % Cells];
+				const float Distance = (FVector2f(GX + Candidate.X, GY + Candidate.Y) - P).SizeSquared();
+				if (Distance < First) { Second = First; First = Distance; Grain = Candidate; }
+				else Second = FMath::Min(Second, Distance);
+			}
+			const float Edge = FMath::SmoothStep(.04f, .24f, FMath::Sqrt(Second) - FMath::Sqrt(First));
+			const float Crown = 1 - FMath::Clamp(FMath::Sqrt(First), 0.f, 1.f);
+			uint8* Pixel = Pixels.GetData() + (Y * Size + X) * 4;
+			Pixel[0] = uint8(255 * Edge);
+			Pixel[1] = uint8(255 * Grain.W);
+			Pixel[2] = uint8(255 * Grain.Z * (.65f + .35f * Crown) * Edge);
+			Pixel[3] = 255;
+		}
+		UTexture2D* Texture = Asset<UTexture2D>(TEXT("T_AthleticInfill"), Packages);
+		// Linear packed data: height, particle reflectance, intergranular coverage.
+		Texture->Source.Init(Size, Size, 1, 1, TSF_BGRA8, Pixels.GetData());
+		Texture->SRGB = false;
+		Texture->CompressionSettings = TC_VectorDisplacementmap;
+		Texture->MipGenSettings = TMGS_SimpleAverage;
+		Texture->AddressX = Texture->AddressY = TA_Wrap;
+		Texture->PostEditChange();
+		return Texture;
+	}
+
+	UMaterial* MakeAthleticMaterial(int32 Index, UTexture2D* Texture, UTexture2D* InfillTexture, double Heading, double StripeWidth, TArray<UPackage*>& Packages)
 	{
 		UMaterial* Material = Asset<UMaterial>(FString::Printf(TEXT("M_StreetscapeAthletic_%04d"), Index), Packages);
 		Material->BlendMode = BLEND_Opaque;
@@ -496,6 +540,10 @@ return Mask*(.35+.60*grain)*upright;
 		Input(TEXT("Eye"), Eye);
 		Input(TEXT("UV"), UV);
 		Input(TEXT("Atlas"), Atlas);
+		auto* Infill = CastChecked<UMaterialExpressionTextureObject>(UMaterialEditingLibrary::CreateMaterialExpression(Material, UMaterialExpressionTextureObject::StaticClass()));
+		Infill->Texture = InfillTexture;
+		Infill->SamplerType = SAMPLERTYPE_LinearColor;
+		Input(TEXT("Infill"), Infill);
 		const double Radians = FMath::DegreesToRadians(FMath::Fmod(Heading, 360.));
 		Scalar(TEXT("HeadingCos"), FMath::Cos(Radians));
 		Scalar(TEXT("HeadingSin"), FMath::Sin(Radians));
@@ -509,7 +557,7 @@ return Mask*(.35+.60*grain)*upright;
 			Value.OutputName = Output.Key;
 			Value.OutputType = Output.Value;
 		}
-		// Appearance priors: 10 mm tuft rows, 3 mm edge breakup, low ribbons and sparse infill.
+		// Appearance priors: 10 mm tuft rows, 3 mm edge breakup, low ribbons and granular infill.
 		// Every atlas RGB (including its default green) goes through this one fiber finish.
 		Fiber->Code = TEXT(R"HLSL(
 struct Noise {
@@ -547,22 +595,26 @@ float direction=(2*smoothstep(-stripeFW,stripeFW,sin(stripe*3.14159265))-1)*stri
 float seamDistance=abs(frac(stripe+.5)-.5)*StripeWidth;
 float seamFW=max(fwidth(q.x),.0001);
 float seam=(1-smoothstep(max(0.,.008-seamFW),.008+seamFW,seamDistance))*min(1.,.008/seamFW)*stripeVisible;
-float modulation=lerp(.55,.58,pileNear)+.018*direction+.008*ribbon+.015*(fiber-.5)*detailVisible
- +.035*(cluster-.5)*clusterVisible+.018*(n.value(q*.8)-.5)-.04*seam;
+float modulation=.42+.018*direction+.008*ribbon+.015*(fiber-.5)*detailVisible
+ +.10*(cluster-.5)*clusterVisible+.018*(n.value(q*.8)-.5)-.04*seam;
 
 float3 up=normalize(N);
 float3 axis=float3(HeadingSin,HeadingCos,0);
 float3 tangent=axis-up*dot(up,axis);
 tangent=normalize(tangent+float3(0,0,1)*step(dot(tangent,tangent),.000001));
 float3 side=normalize(cross(tangent,up));
-float acrossSlope=.025*sin(row*6.2831853)*rowVisible+.14*(cluster-.5)*clusterVisible;
-float alongSlope=.06*direction+.12*(n.value(clusterCell+27.1)-.5)*clusterVisible;
-FiberNormal=normalize(up+side*acrossSlope+tangent*alongSlope);
+float acrossSlope=.025*sin(row*6.2831853)*rowVisible+.25*(cluster-.5)*clusterVisible;
+float alongSlope=.06*direction+.25*(n.value(clusterCell+27.1)-.5)*clusterVisible;
+float3 grains=Texture2DSampleGrad(Infill,InfillSampler,q*4,ddx(q*4),ddy(q*4)).rgb;
+float3 vx=ddx_fine(P), vy=ddy_fine(P), r1=cross(vy,up), r2=cross(up,vx);
+float determinant=dot(vx,r1);
+float3 bump=normalize(max(abs(determinant),.000001)*up-sign(determinant)*.08*(ddx_fine(grains.r)*r1+ddy_fine(grains.r)*r2));
+FiberNormal=normalize(lerp(normalize(up+side*acrossSlope+tangent*alongSlope),bump,pileNear));
 // Directional roughness and dielectric Fresnel give every inlaid color the same grazing sheen.
 Roughness=lerp(clamp(.50+.03*direction+.10*(cluster-.5)*clusterVisible+.08*crumb,.45,.8),.88,pileNear);
 Specular=lerp(.45-.18*crumb,.35,pileNear);
 float3 canopy=lerp(colour*modulation,float3(.008,.009,.008),crumb);
-float3 bed=float3(.008,.009,.008)*(.8+.4*saturate(infill));
+float3 bed=lerp(float3(.006,.007,.006),float3(.025,.027,.025),grains.g)*lerp(.35,1.,grains.b);
 return lerp(canopy,bed,pileNear);
 )HLSL");
 		Fiber->RebuildOutputs();
@@ -730,6 +782,7 @@ return lerp(canopy,bed,pileNear);
 		Material->SetShadingModel(MSM_TwoSidedFoliage);
 		Material->bTangentSpaceNormal = false;
 		Material->MaxWorldPositionOffsetDisplacement = 8;
+		Material->DitheredLODTransition = true;
 		Material->BlendMode = BLEND_Masked;
 		Material->OpacityMaskClipValue = .5f;
 		Material->bUsedWithInstancedStaticMeshes = true;
@@ -747,10 +800,10 @@ return lerp(canopy,bed,pileNear);
 		Finish->Inputs.Empty();
 		Finish->OutputType = CMOT_Float3;
 		for (const auto& Pair : {TPair<FName, UMaterialExpression*>(TEXT("N"), BladeNormal),
-			TPair<FName, UMaterialExpression*>(TEXT("Seed"), Vertex), TPair<FName, UMaterialExpression*>(TEXT("Instance"), Instance), TPair<FName, UMaterialExpression*>(TEXT("Fiber"), Vertex), TPair<FName, UMaterialExpression*>(TEXT("UV"), BladeUV)})
+			TPair<FName, UMaterialExpression*>(TEXT("Seed"), Vertex), TPair<FName, UMaterialExpression*>(TEXT("Instance"), Instance), TPair<FName, UMaterialExpression*>(TEXT("UV"), BladeUV)})
 		{
 			FCustomInput& Input = Finish->Inputs.AddDefaulted_GetRef();
-			Input.InputName = Pair.Key; Input.Input.Connect(Pair.Key == TEXT("Seed") ? 3 : Pair.Key == TEXT("Fiber") ? 4 : 0, Pair.Value);
+			Input.InputName = Pair.Key; Input.Input.Connect(Pair.Key == TEXT("Seed") ? 3 : 0, Pair.Value);
 		}
 		FCustomOutput& Roughness = Finish->AdditionalOutputs.AddDefaulted_GetRef();
 		Roughness.OutputName = TEXT("Roughness"); Roughness.OutputType = CMOT_Float1;
@@ -758,9 +811,9 @@ return lerp(canopy,bed,pileNear);
 float s=frac(sin(Seed*269.5+Instance*183.3)*2578.543);
 float angle=(s-.5)*.6;
 float3 n=float3(cos(angle)*N.x-sin(angle)*N.y,sin(angle)*N.x+cos(angle)*N.y,N.z);
-Roughness=lerp(.88,.42+.10*Seed,Fiber);
+Roughness=.25+.12*Seed;
 float3 across=normalize(cross(n,float3(0,0,1))+float3(.0001,0,0));
-return normalize(n*.8+float3(0,0,.65*Fiber)+across*(UV.x-.5)*.35*Fiber);
+return normalize(n*.8+float3(0,0,.65)+across*(UV.x-.5)*.35);
 )HLSL");
 		Finish->RebuildOutputs();
 		UMaterialEditingLibrary::ConnectMaterialProperty(Finish, TEXT(""), MP_Normal);
@@ -771,13 +824,11 @@ return normalize(n*.8+float3(0,0,.65*Fiber)+across*(UV.x-.5)*.35*Fiber);
 		Shade->OutputType = CMOT_Float3;
 		FCustomInput& ColourInput = Shade->Inputs.AddDefaulted_GetRef();
 		ColourInput.InputName = TEXT("Colour"); ColourInput.Input.Connect(0, Colour);
-		FCustomInput& KindInput = Shade->Inputs.AddDefaulted_GetRef();
-		KindInput.InputName = TEXT("Fiber"); KindInput.Input.Connect(4, Vertex);
 		FCustomInput& HeightInput = Shade->Inputs.AddDefaulted_GetRef();
 		HeightInput.InputName = TEXT("Height"); HeightInput.Input.Connect(1, Vertex);
 		FCustomInput& ShadeSeed = Shade->Inputs.AddDefaulted_GetRef();
 		ShadeSeed.InputName = TEXT("Seed"); ShadeSeed.Input.Connect(3, Vertex);
-		Shade->Code = TEXT("float3 rubber=lerp(float3(.008,.009,.008),float3(.030,.033,.030),Seed); return lerp(rubber,min(Colour*lerp(.55,1.45,Height)*lerp(.85,1.15,Seed),.95),Fiber);");
+		Shade->Code = TEXT("return min(Colour*lerp(.55,1.45,Height)*lerp(.85,1.15,Seed),.95);");
 		UMaterialEditingLibrary::ConnectMaterialProperty(Shade, TEXT(""), MP_BaseColor);
 		auto* Transmitted = CastChecked<UMaterialExpressionMultiply>(UMaterialEditingLibrary::CreateMaterialExpression(Material, UMaterialExpressionMultiply::StaticClass()));
 		Transmitted->A.Connect(0, Shade);
@@ -797,8 +848,16 @@ return normalize(n*.8+float3(0,0,.65*Fiber)+across*(UV.x-.5)*.35*Fiber);
 		Sink->OutputType = CMOT_Float3;
 		FCustomInput& EyeInput = Sink->Inputs.AddDefaulted_GetRef();
 		EyeInput.InputName = TEXT("Eye"); EyeInput.Input.Connect(0, Eye);
-		auto* Position = CastChecked<UMaterialExpressionWorldPosition>(UMaterialEditingLibrary::CreateMaterialExpression(Material, UMaterialExpressionWorldPosition::StaticClass()));
-		Position->WorldPositionShaderOffset = WPT_ExcludeAllShaderOffsets;
+		auto* RootUV = CastChecked<UMaterialExpressionTextureCoordinate>(UMaterialEditingLibrary::CreateMaterialExpression(Material, UMaterialExpressionTextureCoordinate::StaticClass()));
+		RootUV->CoordinateIndex = 1;
+		auto* Zero = CastChecked<UMaterialExpressionConstant>(UMaterialEditingLibrary::CreateMaterialExpression(Material, UMaterialExpressionConstant::StaticClass()));
+		Zero->R = 0;
+		auto* LocalRoot = CastChecked<UMaterialExpressionAppendVector>(UMaterialEditingLibrary::CreateMaterialExpression(Material, UMaterialExpressionAppendVector::StaticClass()));
+		LocalRoot->A.Connect(0, RootUV); LocalRoot->B.Connect(0, Zero);
+		auto* Root = CastChecked<UMaterialExpressionTransformPosition>(UMaterialEditingLibrary::CreateMaterialExpression(Material, UMaterialExpressionTransformPosition::StaticClass()));
+		Root->Input.Connect(0, LocalRoot);
+		Root->TransformSourceType = TRANSFORMPOSSOURCE_Local;
+		Root->TransformType = TRANSFORMPOSSOURCE_World;
 		auto* Delta = CastChecked<UMaterialExpressionTextureCoordinate>(UMaterialEditingLibrary::CreateMaterialExpression(Material, UMaterialExpressionTextureCoordinate::StaticClass()));
 		Delta->CoordinateIndex = 2;
 		auto* HeightUV = CastChecked<UMaterialExpressionTextureCoordinate>(UMaterialEditingLibrary::CreateMaterialExpression(Material, UMaterialExpressionTextureCoordinate::StaticClass()));
@@ -816,25 +875,23 @@ return normalize(n*.8+float3(0,0,.65*Fiber)+across*(UV.x-.5)*.35*Fiber);
 		Normal->TransformSourceType = TRANSFORMSOURCE_Local;
 		Normal->TransformType = TRANSFORM_World;
 		FCustomInput& PositionInput = Sink->Inputs.AddDefaulted_GetRef();
-		PositionInput.InputName = TEXT("P"); PositionInput.Input.Connect(0, Position);
+		PositionInput.InputName = TEXT("Root"); PositionInput.Input.Connect(0, Root);
 		FCustomInput& DeltaInput = Sink->Inputs.AddDefaulted_GetRef();
 		DeltaInput.InputName = TEXT("Delta"); DeltaInput.Input.Connect(0, WorldDelta);
 		FCustomInput& NormalInput = Sink->Inputs.AddDefaulted_GetRef();
 		NormalInput.InputName = TEXT("N"); NormalInput.Input.Connect(0, Normal);
 		FCustomInput& InstanceInput = Sink->Inputs.AddDefaulted_GetRef();
 		InstanceInput.InputName = TEXT("Instance"); InstanceInput.Input.Connect(0, Instance);
-		FCustomInput& KindOffset = Sink->Inputs.AddDefaulted_GetRef();
-		KindOffset.InputName = TEXT("Fiber"); KindOffset.Input.Connect(4, Vertex);
 		FCustomInput& RibbonInput = Sink->Inputs.AddDefaulted_GetRef();
 		RibbonInput.InputName = TEXT("Seed"); RibbonInput.Input.Connect(3, Vertex);
 		// Snap roots, rather than patch centres, to world-aligned rows so rotated fields have no patch seams.
 		Sink->Code = FString::Printf(TEXT(R"HLSL(
-float3 root=P-Delta;
+float3 root=Root;
 float2 across=float2(%.17g,%.17g), along=float2(-across.y,across.x);
 float r=frac(sin(Seed*127.1+Instance*311.7)*43758.5453);
 float s=frac(sin(Seed*269.5+Instance*183.3)*2578.543);
-float row=dot(root.xy,across);
-float2 shift=across*((round(row)-row)*Fiber+(r-.5)*.6)+along*(s-.5)*.8;
+float row=dot(root.xy,across), stitch=dot(root.xy,along)*.5;
+float2 shift=across*(floor(row+.5)-row+(r-.5)*.25)+along*((floor(stitch+.5)-stitch)*2+(s-.5)*.45);
 float turn=(s-.5)*.6;
 float2 tilted=float2(cos(turn)*Delta.x-sin(turn)*Delta.y,sin(turn)*Delta.x+cos(turn)*Delta.y);
 float3 varied=float3(tilted,Delta.z*(.92+.16*r));
@@ -861,18 +918,20 @@ return float3(shift,2.5-dot(shift,N.xy)/max(N.z,.1))+varied*fade-Delta;
 			const float Angle = float(Radians);
 			const FVector2f Along(FMath::Sin(Angle), FMath::Cos(Angle));
 			const FVector2f Across(-Along.Y, Along.X);
-			for (int32 Row = 0; Row < 20; ++Row) for (int32 Blade = 0; Blade < 20; ++Blade)
+			for (int32 Row = 0; Row < 20; ++Row) for (int32 Stitch = 0; Stitch < 20; ++Stitch)
+			for (int32 Strand = 0; Strand < 3; ++Strand)
 			{
-				const FVector2f Root(-9.5f + Row + Random.FRandRange(-.2f, .2f), -9.5f + Blade + Random.FRandRange(-.25f, .25f));
+				// Keep the same stitch roots in both LODs; only the number and width of strands change.
+				const FVector2f Root(-9.5f + Row, -9.5f + Stitch);
 				const float BladeHeight = Random.FRandRange(1.8f, 2.2f);
 				const FVector2f Lean = Along * Random.FRandRange(-.9f, .9f) + Across * Random.FRandRange(-.5f, .5f);
 				const float Facing = Random.FRand() * PI;
-				FVector2f Side = FVector2f(FMath::Cos(Facing), FMath::Sin(Facing)) * Random.FRandRange(.07f, .115f);
+				FVector2f Side = FVector2f(FMath::Cos(Facing), FMath::Sin(Facing)) * Random.FRandRange(.05f, .085f);
 				const float Seed = Random.FRand();
 				if (Segments == 1)
 				{
-					if ((Row + Blade) % 2) continue;
-					Side *= 2;
+					if (Strand != 1) continue;
+					Side *= 3;
 				}
 				const auto Point = [&](float T, float Edge) { return Root + Lean * (T * T) + Side * Edge; };
 				for (int32 Segment = 0; Segment < Segments; ++Segment)
@@ -886,7 +945,7 @@ return float3(shift,2.5-dot(shift,N.xy)/max(N.z,.1))+varied*fade-Delta;
 						const FVertexInstanceID VI = Description.CreateVertexInstance(V);
 						Normals[VI] = FVector3f::CrossProduct(FVector3f(2 * T * Lean.X, 2 * T * Lean.Y, BladeHeight), FVector3f(Side.X, Side.Y, 0)).GetSafeNormal();
 						UVs.Set(VI, 0, FVector2f(Edge * .5f + .5f, T));
-						UVs.Set(VI, 1, FVector2f(0, 0));
+						UVs.Set(VI, 1, Root);
 						UVs.Set(VI, 2, P - Root);
 						UVs.Set(VI, 3, FVector2f(BladeHeight * T, 0));
 						Colours[VI] = FVector4f(T, 0, Seed, 1);
@@ -897,46 +956,16 @@ return float3(shift,2.5-dot(shift,N.xy)/max(N.z,.1))+varied*fade-Delta;
 					Description.CreatePolygon(Group, {L0, R1, L1});
 				}
 			}
-			if (Segments > 1)
-			{
-				for (int32 Grain = 0; Grain < 240; ++Grain)
-				{
-					const FVector2f Root(Random.FRandRange(-9.7f, 9.7f), Random.FRandRange(-9.7f, 9.7f));
-					const float Radius = Random.FRandRange(.16f, .30f), GrainHeight = Random.FRandRange(.08f, .18f);
-					const float Seed = Random.FRand(), Turn = Random.FRandRange(0.f, 2 * PI);
-					FVector3f Points[5];
-					for (int32 Corner = 0; Corner < 4; ++Corner)
-					{
-						const float CornerAngle = Turn + Corner * HALF_PI, R = Radius * Random.FRandRange(.7f, 1.2f);
-						Points[Corner] = FVector3f(Root.X + R * FMath::Cos(CornerAngle), Root.Y + R * FMath::Sin(CornerAngle), .02f);
-					}
-					Points[4] = FVector3f(Root.X, Root.Y, GrainHeight);
-					for (int32 Face = 0; Face < 4; ++Face)
-					{
-						const FVector3f P[] = {Points[Face], Points[4], Points[(Face + 1) % 4]};
-						const FVector3f N = -FVector3f::CrossProduct(P[1] - P[0], P[2] - P[0]).GetSafeNormal();
-						FVertexInstanceID Corners[3];
-						for (int32 C = 0; C < 3; ++C)
-						{
-							const FVertexID V = Description.CreateVertex(); Positions[V] = P[C];
-							Corners[C] = Description.CreateVertexInstance(V); Normals[Corners[C]] = N;
-							UVs.Set(Corners[C], 0, FVector2f(0, 0)); UVs.Set(Corners[C], 1, FVector2f(0, 0));
-							UVs.Set(Corners[C], 2, FVector2f(P[C].X - Root.X, P[C].Y - Root.Y));
-							UVs.Set(Corners[C], 3, FVector2f(P[C].Z, 0));
-							Colours[Corners[C]] = FVector4f(0, 0, Seed, 0);
-						}
-						Description.CreatePolygon(Group, {Corners[0], Corners[1], Corners[2]});
-					}
-				}
-			}
 			return Description;
 		};
 		FMeshDescription Near = MakePatch(3), Far = MakePatch(1);
 		Mesh->GetStaticMaterials().Add(FStaticMaterial(Material, TEXT("Fiber")));
 		Mesh->SetAutoComputeLODScreenSize(false);
 		Mesh->SetNumSourceModels(2);
+		// UV1 stores constant fiber roots; lightmap unwrapping would overwrite them.
+		for (int32 LOD = 0; LOD < 2; ++LOD) Mesh->GetSourceModel(LOD).BuildSettings.bGenerateLightmapUVs = false;
 		Mesh->GetSourceModel(0).ScreenSize = 1.f;
-		Mesh->GetSourceModel(1).ScreenSize = .2f;
+		Mesh->GetSourceModel(1).ScreenSize = .12f;
 		UStaticMesh::FBuildMeshDescriptionsParams Params;
 		Params.bFastBuild = false;
 		Params.bBuildSimpleCollision = false;
@@ -1045,6 +1074,7 @@ static bool ProcessStreetscape(UWorld* World, const FString& ManifestPath,
 		StencilIds.Add(Key, int32(Id));
 	}
 	TMap<FString, UMaterial*> Materials;
+	UTexture2D* InfillTexture = nullptr;
 	TMap<FString, FDecalImage> Decals;
 	struct FPendingMesh
 	{
@@ -1280,8 +1310,9 @@ static bool ProcessStreetscape(UWorld* World, const FString& ManifestPath,
 		if (!Materials.Contains(MaterialKey))
 		{
 			UTexture2D* Atlas = Name == TEXT("athletic_turf") ? MakeRegisteredTexture(Index, Decals.FindChecked(Item.Image), true, Packages) : nullptr;
+			if (Atlas && !InfillTexture) InfillTexture = MakeAthleticInfillTexture(Packages);
 			UMaterial* Material = Name == TEXT("athletic_turf")
-				? MakeAthleticMaterial(Index, Atlas, Item.Heading, Item.StripeWidth, Packages)
+				? MakeAthleticMaterial(Index, Atlas, InfillTexture, Item.Heading, Item.StripeWidth, Packages)
 				: Item.Image.IsEmpty() ? MakeMaterial(Name, Finishes.FindChecked(Name), Packages)
 				: MakeDecalMaterial(Index, Decals.FindChecked(Item.Image), Packages, Name == TEXT("grass_paint_decal"));
 			if (!Material)
