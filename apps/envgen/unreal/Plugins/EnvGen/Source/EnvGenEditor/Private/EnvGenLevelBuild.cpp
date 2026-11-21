@@ -2467,6 +2467,10 @@ return normalize(float3(ScanNormal.xy*lerp(1,1.8,close)-slope*Grass,ScanNormal.z
 			Mesh.Instances = NewObject<UInstancedSkinnedMeshComponent>(Actor, *FString::Printf(TEXT("Trees_%s_%d"), *Mesh.Kind.ToString(), Index));
 			Mesh.Instances->SetupAttachment(Root);
 			Mesh.Instances->SetSkinnedAsset(Mesh.Asset);
+			Mesh.Instances->SetMobility(EComponentMobility::Static);
+			Mesh.Instances->PrimaryComponentTick.bCanEverTick = false;
+			// Provider-free assemblies keep their reference pose at every distance.
+			Mesh.Instances->SetAnimationMinScreenSize(1e10f);
 			Mesh.Instances->SetCollisionEnabled(ECollisionEnabled::NoCollision);
 			Mesh.Instances->SetRenderCustomDepth(true);
 			Mesh.Instances->SetCustomDepthStencilValue(Stencil);
