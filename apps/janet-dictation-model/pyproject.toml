@@ -10,7 +10,7 @@ dependencies = [
 	"scipy>=1.11,<2",
 	"soundfile>=0.12,<1",
 	"safetensors>=0.4,<1",
-	"transformers==4.46.3",
+	"transformers==5.10.1",
 ]
 
 [project.optional-dependencies]
