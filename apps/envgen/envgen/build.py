@@ -1369,6 +1369,16 @@ def build_context(
     colour = np.stack([_fill_gaps(band, "imagery")[0] for band in colour])
     curves = (classes or {}).get("albedo", {}).get("curves")
     nir, colour = (colour[3] if has_nir else None), colour[:3]
+    geometry_colour = colour.copy()
+    if curves:
+        labels = surface.apply_splits(colour, nir, classes["splits"])
+        geometry_albedo = np.zeros_like(colour)
+        for index, layer in enumerate(classes["layers"]):
+            own = labels == index
+            if own.any():
+                geometry_albedo[:, own] = surface.apply_curve(colour[:, own], curves[layer["name"]])
+        geometry_colour = surface.to_encoded(geometry_albedo)
+    _write_rgb(geometry_colour, out / "context_geometry_colour.png")
     clear = np.ones(colour.shape[1:], dtype=np.float32)
     if canopy:
         # The share of each coarse pixel that no canopy stands over. The surround has no lidar and no shadow.
@@ -1402,9 +1412,11 @@ def build_context(
 
     half_cm = site.context_size_m * 100 / 2
     return {
-        "files": ["context_heightmap.png", "context_colour.png"],
+        "files": ["context_heightmap.png", "context_colour.png", "context_geometry_colour.png"],
         "heightmap": "context_heightmap.png",
         "colour": "context_colour.png",
+        "geometry_colour": "context_geometry_colour.png",
+        "geometry_colour_source": "registered context imagery with fitted albedo curves; no spatial smoothing",
         "vertices": vertices,
         "section_quads": LANDSCAPE_SECTION_QUADS,
         "sections_per_component": 1,
@@ -2072,6 +2084,7 @@ def build(site_path: Path, out: Path, cache: Path | None = None) -> dict:
                 CONTEXT_QUADS,
                 CONTEXT_MACRO_PIXELS,
                 CONTEXT_LOW_PASS_M,
+                "context-geometry-colour-v1",
                 bands,
                 classes["albedo"].get("curves"),
                 classes["splits"],
@@ -2090,7 +2103,7 @@ def build(site_path: Path, out: Path, cache: Path | None = None) -> dict:
         )
         context = stages["context"]
         manifest["context"] = {key: value for key, value in context.items() if key not in ("files", "cached")}
-        artifacts += [context["heightmap"], context["colour"]]
+        artifacts += context["files"]
         stages["context_geometry"] = _cached(
             out,
             "context_geometry",

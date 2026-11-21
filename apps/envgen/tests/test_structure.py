@@ -7,6 +7,7 @@ import pytest
 from PIL import Image
 
 from envgen import frame, lidar, surface
+from envgen.acquire import sha256_file
 from envgen.build import CONTEXT_SINK_M, build, build_context
 from envgen.cli import main
 from envgen.site import load_site
@@ -159,6 +160,8 @@ def test_surround_passes_under_the_tile_and_follows_the_ground_outside_it(tmp_pa
     assert below.min() >= CONTEXT_SINK_M - 0.05
     assert below.max() < CONTEXT_SINK_M + 0.2
     assert (out / context["colour"]).is_file()
+    assert context["geometry_colour"] in manifest["artifacts"]
+    assert manifest["artifacts"][context["geometry_colour"]] == sha256_file(out / context["geometry_colour"])
     assert build(site, out)["stages_reused"] == [
         "elevation", "surface", "macro_colour", "detail", "growth", "context", "context_geometry"
     ]
@@ -179,6 +182,7 @@ def test_surround_keeps_source_corridors_calibration_and_nodata_filling(tmp_path
     rgb[:, :504] = np.array(h.GRASS)[:, None, None]
     rgb[:, 504:, 247:257] = 80  # A 20 m corridor, with no geometry inferred from it.
     rgb[:, 700:710, 700:710] = 0
+    rgb[:, 850:854, 850:854] = 80
     h.write_raster(imagery, rgb, west, north, 2, nodata=0)
     curves = {
         name: {"gain": [gain] * 3, "gamma": [1] * 3, "range": [[0, 1]] * 3}
@@ -209,6 +213,12 @@ def test_surround_keeps_source_corridors_calibration_and_nodata_filling(tmp_path
     assert at(750, 350) == pytest.approx(expected((180, 180, 180), "paved"), abs=2)
     assert at(705, 705) == pytest.approx(expected((180, 180, 180), "paved"), abs=2)
     assert at(250, 350) == pytest.approx(expected(h.GRASS, "grass"), abs=2)
+    geometry = np.swapaxes(np.asarray(Image.open(tmp_path / result["geometry_colour"])), 0, 1)[::-1]
+    row = int(851.5 / 1008 * geometry.shape[0])
+    column = int(851.5 / 1008 * geometry.shape[1])
+    assert geometry[row, column] == pytest.approx(expected((80, 80, 80), "paved"), abs=2)
+    assert np.linalg.norm(north_up[row, column].astype(float) - geometry[row, column]) > 5
+    assert result["geometry_colour"] in result["files"]
 
 
 def test_surround_must_be_larger_than_the_tile(tmp_path, capsys):

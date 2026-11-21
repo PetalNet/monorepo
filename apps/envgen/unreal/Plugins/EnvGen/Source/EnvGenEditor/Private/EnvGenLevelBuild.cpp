@@ -256,6 +256,7 @@ namespace
 		FTurf Turf;
 		FSurface Tile;
 		TOptional<FSurface> Surround;
+		FString ContextGeometryColourFile;
 		TArray<FLayer> Layers;
 		TArray<FCheckPoint> CheckPoints;
 		FEnvGenLighting Lighting;
@@ -351,6 +352,7 @@ namespace
 		if (Root->TryGetObjectField(TEXT("context"), Context))
 		{
 			Out.Surround = ReadSurface(**Context, (*Context)->GetStringField(TEXT("colour")));
+			(*Context)->TryGetStringField(TEXT("geometry_colour"), Out.ContextGeometryColourFile);
 		}
 		Out.TileSizeCm = (*Tile)->GetNumberField(TEXT("size_m")) * 100;
 		Out.Georeference = *Geo;
@@ -3231,7 +3233,19 @@ bool FEnvGenLevelBuild::Start(const FString& ManifestPath, const FString& MapPat
 	AddSiteInfo(State->World, Manifest);
 	APlayerStart* PlayerStart = State->World->SpawnActor<APlayerStart>(FVector(0, 0, 150), FRotator::ZeroRotator);
 	PlayerStart->SetActorLabel(TEXT("EnvGenPlayerStart"));
-	UMaterial* ContextMaterial = Manifest.Surround ? MakeContextMaterial(SurroundColour, Manifest, State->Packages) : nullptr;
+	UTexture2D* ContextGeometryColour = SurroundColour;
+	if (!Manifest.ContextGeometryColourFile.IsEmpty())
+	{
+		TArray64<uint8> Bytes;
+		int32 Width = 0, Height = 0;
+		if (!DecodePng(Manifest.Directory / Manifest.ContextGeometryColourFile, ERGBFormat::BGRA, 8, Bytes, Width, Height))
+		{
+			UE_LOG(LogEnvGen, Error, TEXT("cannot decode %s"), *Manifest.ContextGeometryColourFile);
+			return false;
+		}
+		ContextGeometryColour = MakeTexture(TEXT("T_ContextGeometryColour"), Width, Height, TSF_BGRA8, Bytes.GetData(), true, State->Packages);
+	}
+	UMaterial* ContextMaterial = Manifest.Surround ? MakeContextMaterial(ContextGeometryColour, Manifest, State->Packages) : nullptr;
 	if (!BuildEnvGenContext(State->World, ManifestPath, ContextMaterial, State->Packages, State->ContextGeometry, Error))
 	{
 		UE_LOG(LogEnvGen, Error, TEXT("context geometry failed: %s"), *Error);
