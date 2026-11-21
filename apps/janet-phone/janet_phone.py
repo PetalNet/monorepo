@@ -417,11 +417,14 @@ class Gateway:
                 elif line.startswith("data: "):
                     yield kind, json.loads(line[6:])
 
-    def speech(self, text: str) -> tuple[int, bytes]:
+    def speech(self, text: str, *, conversation_id: str | None = None, turn: int | None = None) -> tuple[int, bytes]:
         """One sentence as (sample rate, mono PCM16). Waits for a voice host that is waking up."""
         for _ in range(24):
             try:
-                with self._open("/v1/tts", {"text": text}, timeout=300) as response:
+                body = {"text": text}
+                if conversation_id is not None and turn is not None:
+                    body.update(conversation_id=conversation_id, turn=turn)
+                with self._open("/v1/tts", body, timeout=300) as response:
                     body = io.BytesIO(response.read())
                 with wave.open(body) as wav:
                     return wav.getframerate(), wav.readframes(wav.getnframes())
@@ -634,7 +637,9 @@ class Call:
                             if not self.utterances.full():
                                 behind = max(0, batch_end_ms - endpoint.get("audio_end_ms", batch_end_ms)) / 1000
                                 ended = received - behind
-                                endpoint["endpoint_at"] = received_at - behind
+                                endpoint["endpoint_at"] = (received_at - behind
+                                                           if "audio_end_ms" in endpoint else None)
+                                endpoint["batch_received_at"] = received_at
                                 endpoint["outcome"] = "queued"
                                 self.latency["turns"].append(endpoint)
                                 log.info("call %s: endpoint %s", self.conversation, json.dumps(endpoint))
@@ -732,11 +737,8 @@ class Call:
         player, producer = asyncio.create_task(play()), asyncio.create_task(synthesize())
         self.heard = []
         mark = time.monotonic()
-<<<<<<< HEAD
         event = None
-=======
         turn["head_request_at"] = time.time()
->>>>>>> ecbd92ca (Fix noisy phone endpointing and retain measured turn timing)
         try:
             while True:
                 event = asyncio.create_task(events.get())
@@ -747,6 +749,8 @@ class Call:
                 if kind == "sentence":
                     turn.setdefault("head_ms", round((time.monotonic() - mark) * 1000))
                     turn.setdefault("first_sentence_at", time.time())
+                    if type(data.get("turn")) is int:
+                        turn["request_turn"] = data["turn"]
                     item = (data["text"], loop.create_future())
                     pending.put_nowait(item)
                     spoken.put_nowait((*item, data.get("bridge", False)))
@@ -793,7 +797,9 @@ class Call:
         mark = time.monotonic()
         if turn is not None:
             turn.setdefault("tts_request_at", time.time())
-        self.voice = asyncio.create_task(asyncio.to_thread(self.gateway.speech, sentence))
+        metadata = ({"conversation_id": self.conversation, "turn": turn["request_turn"]}
+                    if turn is not None and "request_turn" in turn else {})
+        self.voice = asyncio.create_task(asyncio.to_thread(self.gateway.speech, sentence, **metadata))
         self.voice.add_done_callback(lambda done: done.exception() if not done.cancelled() else None)
         audio = await asyncio.shield(self.voice)
         if turn is not None:
@@ -825,9 +831,9 @@ class Call:
                     raise OSError("the incoming ring expired before audio")
                 await self.ws.send(chunk)
                 if turn is not None and "first_audio_at" not in turn:
-                    turn["endpoint_to_audio_ms"] = round((time.monotonic() - ended) * 1000)
-                    turn["total_ms"] = (turn["endpoint_to_audio_ms"] + turn["endpoint_ms"]
-                                        if turn.get("endpoint_ms") is not None else None)
+                    elapsed = round((time.monotonic() - ended) * 1000)
+                    turn["endpoint_to_audio_ms"] = elapsed if turn.get("endpoint_reason") != "shared_detector" else None
+                    turn["total_ms"] = (elapsed + turn["endpoint_ms"] if turn.get("endpoint_ms") is not None else None)
                     turn["first_audio_at"] = time.time()
                     log.info("call %s: first audio %s", self.conversation, json.dumps(turn))
                 if self.config.record_dir:
