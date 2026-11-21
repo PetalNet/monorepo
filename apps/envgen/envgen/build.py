@@ -1183,7 +1183,9 @@ def build_growth(
             canopy = _sample_cells(source.read(1), pixels)
     packed, report = turf.growth(grass, ratio, canopy, ground, site.tile.size_m / pixels, site.seed)
     _write_rgb(packed * 255, out / "turf_growth.png")
-    return {"file": "turf_growth.png", "files": ["turf_growth.png"], "pixels": pixels, **report}
+    _write_rgb(turf.condition(grass, ratio, site.tile.size_m / pixels) * 255, out / "turf_condition.png")
+    return {"file": "turf_growth.png", "condition_file": "turf_condition.png",
+            "files": ["turf_growth.png", "turf_condition.png"], "pixels": pixels, **report}
 
 
 def build_survey_detail(
@@ -1724,11 +1726,12 @@ def build(site_path: Path, out: Path, cache: Path | None = None) -> dict:
                 cover_hashes,
                 site.seed,
                 turf.GROWTH_SETTINGS,
+                "turf-condition-per-root-support-v3",
                 ortho_hashes,
                 ortho_sha256,
             ),
             lambda: build_growth(
-                site, out, classes["layers"], detail, stages["elevation"], covering, ortho, classes["fallback_weights"]
+                site, out, classes["layers"], detail, stages["elevation"], covering, ortho, classes["fallback_weights"],
             ),
         )
     if site.survey and site.survey.orthophoto:
@@ -2031,6 +2034,7 @@ def build(site_path: Path, out: Path, cache: Path | None = None) -> dict:
         if generated["fallback_weights"]:
             manifest["surface"]["fallback_weights"] = generated["fallback_weights"]
         manifest["turf"]["growth"] = {
+            **manifest["turf"]["growth"],
             "file": generated["growth_file"],
             "pixels": generated["pixels"],
             "channels": ["short_density", "tall_density", "height_over_two", "overlay_log2"],

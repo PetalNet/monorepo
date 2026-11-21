@@ -392,6 +392,9 @@ def test_survey_masks_drive_surface_and_growth_with_alpha_fallback_and_cached_ar
     out = tmp_path / "out"
     manifest = build(site_path, out)
     report = manifest["orthophoto"]
+    condition_file = manifest["turf"]["growth"]["condition_file"]
+    assert condition_file in manifest["artifacts"] and (out / condition_file).is_file()
+    assert manifest["turf"]["growth"]["settings"]["placement"].startswith("full grass-majority")
     assert report["file"] == "ortho_masks.png" and report["colour"] == "ortho_colour.png"
     for name in ("ortho_masks.png", "ortho_masks.tif", "ortho_colour.png", "ortho_colour.tif",
                  "survey_detail.png", "survey_detail.tif"):
