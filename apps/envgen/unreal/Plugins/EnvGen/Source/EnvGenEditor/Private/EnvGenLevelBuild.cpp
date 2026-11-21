@@ -509,10 +509,22 @@ namespace
 					}
 				}
 			}
-			if (!Out.Turf.FieldGreen.IsEmpty() && (Out.Turf.DryTuftMinCm <= 0 || Out.Turf.DryTuftMaxCm < Out.Turf.DryTuftMinCm || Out.Turf.DryTuftMaxCm > Out.Turf.LawnRepeatCm))
+			if (!Out.Turf.FieldGreen.IsEmpty())
 			{
-				Error = TEXT("dry tuft diameters must be positive, ordered, and fit within the lawn repeat");
-				return false;
+				if (!FMath::IsFinite(Out.Turf.DryTuftMinCm) || !FMath::IsFinite(Out.Turf.DryTuftMaxCm) || !FMath::IsFinite(Out.Turf.LawnRepeatCm)
+					|| Out.Turf.DryTuftMinCm <= 0 || Out.Turf.DryTuftMaxCm < Out.Turf.DryTuftMinCm || Out.Turf.DryTuftMaxCm > Out.Turf.LawnRepeatCm)
+				{
+					Error = TEXT("dry tuft diameters must be finite, positive, ordered, and fit within the lawn repeat");
+					return false;
+				}
+				const double MeanTuftCm = (double(Out.Turf.DryTuftMinCm) + Out.Turf.DryTuftMaxCm) * 0.5;
+				const double TuftPatches = 2 * FMath::Square(double(Out.Turf.LawnRepeatCm) / MeanTuftCm);
+				const double TextureLeaves = FMath::Square(double(Out.Turf.LawnRepeatCm) / 100) * Out.Turf.LawnLeavesPerM2;
+				if (!FMath::IsFinite(TuftPatches) || TuftPatches > FMath::Min(TextureLeaves, double(MAX_int32 - 1)))
+				{
+					Error = TEXT("dry tuft diameters require more radial patches than the authored leaves or the integer patch limit");
+					return false;
+				}
 			}
 			Out.Turf.RootShade = float((*Turf)->GetNumberField(TEXT("root_shade")));
 			Out.Turf.TipShade = float((*Turf)->GetNumberField(TEXT("tip_shade")));
@@ -898,10 +910,10 @@ return lerp(Texture2DSampleGrad(Scan,ScanSampler,UV,dx,dy).rgb,varied,blend);
 		TArray<float> PaletteValues;
 		PaletteValues.Init(0, Leaves.Num());
 		FRandomStream TuftRandom(173);
-		const float TuftDiameter = (Turf.DryTuftMinCm + Turf.DryTuftMaxCm) * 0.5f;
+		const double TuftDiameter = (double(Turf.DryTuftMinCm) + Turf.DryTuftMaxCm) * 0.5;
 		if (TuftDiameter > 0)
 		{
-			const int32 PatchCount = FMath::RoundToInt(2 * FMath::Square(Turf.LawnRepeatCm / TuftDiameter));
+			const int32 PatchCount = FMath::RoundToInt(2 * FMath::Square(double(Turf.LawnRepeatCm) / TuftDiameter));
 			for (int32 Patch = 0; Patch < PatchCount; ++Patch)
 			{
 				const int32 CentreX = TuftRandom.RandRange(0, Pixels - 1), CentreY = TuftRandom.RandRange(0, Pixels - 1);
