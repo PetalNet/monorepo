@@ -596,6 +596,11 @@ bool FEnvGenStreetscapeAthletic::RunTest(const FString& Parameters)
 			{
 				const FStaticMeshLODResources& Mesh = Pile->GetRenderData()->LODResources[LOD];
 				const FStaticMeshVertexBuffer& Vertices = Mesh.VertexBuffers.StaticMeshVertexBuffer;
+				TestEqual(TEXT("rendered LOD retains the authored triangle budget"), int32(Mesh.IndexBuffer.GetNumIndices() / 3),
+					Pile->GetMeshDescription(LOD)->Triangles().Num());
+				AddInfo(FString::Printf(TEXT("pile LOD%d sourceTriangles=%d renderTriangles=%d reduction=%d percent=%.6g baseLOD=%d"),
+					LOD, Pile->GetMeshDescription(LOD)->Triangles().Num(), Mesh.IndexBuffer.GetNumIndices() / 3,
+					Pile->IsReductionActive(LOD), Pile->GetReductionSettings(LOD).PercentTriangles, Pile->GetReductionSettings(LOD).BaseLODModel));
 				for (uint32 Vertex = 0; Vertex < Vertices.GetNumVertices(); ++Vertex)
 				{
 					const FVector2f Root = Vertices.GetVertexUV(Vertex, 1);
@@ -611,7 +616,16 @@ bool FEnvGenStreetscapeAthletic::RunTest(const FString& Parameters)
 				TestEqual(TEXT("rendered fiber vertices share an exact root before snapping"), SplitRoots, 0);
 			}
 			TestEqual(TEXT("near pile covers every patch root"), Roots[0].Num(), 400);
-			TestEqual(TEXT("far pile retains every near stitch root"), Roots[1].Difference(Roots[0]).Num() + Roots[0].Difference(Roots[1]).Num(), 0);
+			const TSet<FIntPoint> Missing = Roots[0].Difference(Roots[1]), Extra = Roots[1].Difference(Roots[0]);
+			TestEqual(FString::Printf(TEXT("far pile retains every near stitch root (near=%d far=%d missing=%d extra=%d)"),
+				Roots[0].Num(), Roots[1].Num(), Missing.Num(), Extra.Num()), Missing.Num() + Extra.Num(), 0);
+			if (!Missing.IsEmpty() || !Extra.IsEmpty())
+			{
+				FString Detail;
+				for (const FIntPoint Root : Missing) Detail += FString::Printf(TEXT(" missing(%d,%d)"), Root.X, Root.Y);
+				for (const FIntPoint Root : Extra) Detail += FString::Printf(TEXT(" extra(%d,%d)"), Root.X, Root.Y);
+				AddInfo(Detail);
+			}
 			for (int32 Heading : {0, 90}) for (float Phase : {0.f, .25f, .5f})
 			{
 				TSet<int32> Rows;
@@ -652,6 +666,8 @@ bool FEnvGenStreetscapeAthletic::RunTest(const FString& Parameters)
 		}
 		const TSharedPtr<FJsonObject> Priors = Receipt->GetObjectField(TEXT("streetscape_material_priors"))->GetObjectField(TEXT("athletic_turf"));
 		TestEqual(TEXT("receipt records machine row appearance prior"), Priors->GetNumberField(TEXT("machine_row_spacing_m")), .01);
+		TestEqual(TEXT("receipt cull range matches the generated grass settings"), Priors->GetNumberField(TEXT("pile_end_cull_m")),
+			GrassOutput->GrassTypes[1].GrassType->GrassVarieties[0].EndCullDistance.GetValue() / 100.);
 		TestEqual(TEXT("receipt deduplicates identical bins"), Priors->GetArrayField(TEXT("registrations")).Num(), 7);
 	}
 	World->DestroyWorld(false);

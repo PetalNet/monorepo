@@ -963,7 +963,16 @@ return float3(shift,2.5-dot(shift,N.xy)/max(N.z,.1))+varied*fade-Delta;
 		Mesh->SetAutoComputeLODScreenSize(false);
 		Mesh->SetNumSourceModels(2);
 		// UV1 stores constant fiber roots; lightmap unwrapping would overwrite them.
-		for (int32 LOD = 0; LOD < 2; ++LOD) Mesh->GetSourceModel(LOD).BuildSettings.bGenerateLightmapUVs = false;
+		for (int32 LOD = 0; LOD < 2; ++LOD)
+		{
+			FStaticMeshSourceModel& Model = Mesh->GetSourceModel(LOD);
+			Model.BuildSettings.bGenerateLightmapUVs = false;
+			// Both LODs are authored; the default reduction would replace the far mesh with half of LOD0.
+			Model.ReductionSettings.PercentTriangles = 1;
+			Model.ReductionSettings.PercentVertices = 1;
+			Model.ReductionSettings.MaxDeviation = 0;
+			Model.ReductionSettings.BaseLODModel = LOD;
+		}
 		Mesh->GetSourceModel(0).ScreenSize = 1.f;
 		Mesh->GetSourceModel(1).ScreenSize = .12f;
 		UStaticMesh::FBuildMeshDescriptionsParams Params;
@@ -1395,11 +1404,11 @@ static bool ProcessStreetscape(UWorld* World, const FString& ManifestPath,
 			Values->SetStringField(TEXT("colour_source"), TEXT("opaque registered atlas RGB, including default green and inlaid markings"));
 			Values->SetStringField(TEXT("heading_convention"), TEXT("EN degrees counterclockwise from east"));
 			Values->SetNumberField(TEXT("machine_row_spacing_m"), .01);
-			Values->SetNumberField(TEXT("pile_height_min_m"), .017);
-			Values->SetNumberField(TEXT("pile_height_max_m"), .0352);
-			Values->SetNumberField(TEXT("pile_end_cull_m"), 6);
-			Values->SetNumberField(TEXT("roll_seam_half_width_m"), .002);
-			Values->SetNumberField(TEXT("distant_crumb_fraction"), .012);
+			Values->SetNumberField(TEXT("pile_height_min_m"), .01656);
+			Values->SetNumberField(TEXT("pile_height_max_m"), .02376);
+			Values->SetNumberField(TEXT("pile_end_cull_m"), 11);
+			Values->SetNumberField(TEXT("roll_seam_half_width_m"), .008);
+			Values->SetNumberField(TEXT("distant_crumb_fraction"), .36);
 			Values->SetNumberField(TEXT("specular"), .45);
 			Values->SetNumberField(TEXT("minimum_resolved_stripe_width_m"), .001);
 			TArray<TSharedPtr<FJsonValue>> Registrations;
