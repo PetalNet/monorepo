@@ -121,6 +121,8 @@ Opus sample positions expose missing audio. A gap resets the observed-silence co
 adding synthetic silence or discarding the caller's existing speech. Speech that resumes before
 the first reply audio cancels that pending reply and joins the previous audio for transcription.
 The existing turn judge runs for Opus callers when the Parakeet models accompany `vad_model`.
+It retains the configured `endpoint.silence_ms` pause, can finish sooner when speech is complete,
+and waits longer when the judge hears an unfinished thought.
 
 The bridge rejects VAD false starts with less than 96 ms of detected speech. When the recognizer
 provides confidence metadata, a result whose segments all have `no_speech_prob >= 0.6` or

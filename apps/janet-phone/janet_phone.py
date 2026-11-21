@@ -204,7 +204,9 @@ def new_endpointer(config: "Config"):
             parakeet = models / "parakeet_realtime_eou_120m.int8.onnx"
             if not _WORDS and parakeet.exists():
                 _WORDS.append(Words(parakeet, models / "parakeet_vocab.txt"))
-            return Utterances(models, Policy(nothing_said_s=1e9), words=_WORDS[0] if _WORDS else None)
+            return Utterances(models, Policy(nothing_said_s=1e9,
+                                            quiet_s=config.endpoint.get("silence_ms", 3000) / 1000),
+                              words=_WORDS[0] if _WORDS else None)
         except Exception as error:  # noqa: BLE001 - a call must go on with the loudness rule
             log.warning("no shared turn detector, using the loudness rule: %s", error)
     if config.vad_model:
