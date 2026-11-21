@@ -886,6 +886,10 @@ class Call:
                 spoken.put_nowait(None)
                 await player
                 turn["outcome"] = "completed" if kind == "done" else "head_failed"
+                if (kind == "done" and data.get("end_conversation")
+                        and not self.caller_speaking and self.utterances.empty()):
+                    # Let the final microphone frames cross the network and speech-start window.
+                    await asyncio.sleep(.3)
                 end_conversation = (kind == "done" and bool(data.get("end_conversation"))
                                     and not self.caller_speaking and self.utterances.empty())
                 if self.ring is not None and self.ring.state != "audio_connected":

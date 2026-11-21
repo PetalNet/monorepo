@@ -277,6 +277,12 @@ class RingTest(unittest.IsolatedAsyncioTestCase):
         await self.refused({**self.phone, "X-Janet-Ring":ident}, 403)
 
     async def test_initial_reply_is_protected_and_keeps_the_utterance(self):
+        await self._protected_reply_keeps_caller(0)
+
+    async def test_speech_starting_just_before_signoff_is_kept(self):
+        await self._protected_reply_keeps_caller(2.96)
+
+    async def _protected_reply_keeps_caller(self, delay):
         original = janet_phone.Gateway.turn
         initial = True
         def initial_reply(gateway, conversation, text):
@@ -299,7 +305,10 @@ class RingTest(unittest.IsolatedAsyncioTestCase):
                             break
                     while not isinstance(await ws.recv(), bytes):
                         pass
-                    await ws.send(tone(0.5))
+                    await asyncio.sleep(delay)
+                    for _ in range(15):
+                        await ws.send(tone(.02))
+                        await asyncio.sleep(.02)
                     await ws.send(bytes(32000))
                     events, caller_words = [], []
                     try:
