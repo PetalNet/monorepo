@@ -18,7 +18,8 @@ from scipy import ndimage
 
 GROWTH_SETTINGS = {
     "kind": "prior",
-    "placement": "majority-grass support, with sharpened imported coverage applied by the engine",
+    "placement": "majority grass with clearance for the tuft footprint and filtered placement",
+    "placement_clearance_m": 0.5,
     "patch_m": 1.2,
     "fringe_m": 2.0,
     "density_range": [1.0, 1.0],
@@ -66,6 +67,15 @@ def condition(grass: np.ndarray, log_ratio: np.ndarray, cell_m: float) -> np.nda
     return np.stack([wear * inside, edge * inside, np.zeros(grass.shape)]).astype(np.float32)
 
 
+def placement_support(grass: np.ndarray, cell_m: float) -> np.ndarray:
+    """Keep a tuft's footprint inside grass, including half a texel diagonal of placement uncertainty."""
+    inside = grass > 0.5
+    if not inside.any() or inside.all():
+        return inside
+    clearance = GROWTH_SETTINGS["placement_clearance_m"] + cell_m / math.sqrt(2)
+    return ndimage.distance_transform_edt(inside) * cell_m >= clearance
+
+
 def growth(
     grass: np.ndarray,
     log_ratio: np.ndarray,
@@ -104,11 +114,12 @@ def growth(
                      *GROWTH_SETTINGS["height_range"])
     # Fractional engine placement alone still puts full-sized tufts on path-majority cells.
     # Keep every grass-majority cell at its original density; stop support on the path side.
-    packed = np.stack([density * inside, tall * inside, height / 2])
+    support = placement_support(grass, cell_m)
+    packed = np.stack([density * support, tall * support, height / 2])
     return packed.astype(np.float32), {
         "settings": GROWTH_SETTINGS,
         "photo_green_red_log2_p5_p95": [float(low), float(high)],
-        "density_p5_p95": np.percentile(density[inside], [5, 95]).tolist() if inside.any() else [],
+        "density_p5_p95": np.percentile(density[support], [5, 95]).tolist() if support.any() else [],
         "height_multiplier_p5_p95": np.percentile(height[inside], [5, 95]).tolist() if inside.any() else [],
         "source": "de-shadowed photo detail ratio, surface weights, canopy height and terrain elevation",
         "priors": [
@@ -117,7 +128,7 @@ def growth(
             "prior: local hollows favour growth; relief is terrain minus its 6 m low-pass",
             "prior: continuous short sward at the original density; photo surface weights alone reduce coverage",
             "prior: 1.2 m correlated height noise; height 0.85 to 1.5 times the mowing range",
-            "prior: tuft centres require majority grass; engine weights blend placement at that boundary",
+            "prior: 0.5 m tuft footprint clearance plus half a growth-texel diagonal; interior density stays full",
         ],
     }
 

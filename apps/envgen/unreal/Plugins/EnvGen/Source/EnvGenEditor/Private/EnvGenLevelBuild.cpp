@@ -1773,7 +1773,15 @@ return float4(dx,dy);
 				const bool bTall = Manifest.Turf.Varieties[Index].Name == FName(TEXT("tall"));
 				UMaterialExpressionMultiply* Density = Node<UMaterialExpressionMultiply>(Material, 100, 900 + Index * 100);
 				Density->A.Connect(0, GrassPlacement);
-				Density->B.Connect(bTall ? 2 : 1, GrowthAt);
+				UMaterialExpressionCustom* Support = Node<UMaterialExpressionCustom>(Material, 0, 900 + Index * 100);
+				Support->OutputType = CMOT_Float1;
+				Support->Inputs.Empty();
+				FCustomInput& GrowthInput = Support->Inputs.AddDefaulted_GetRef();
+				GrowthInput.InputName = TEXT("Growth");
+				GrowthInput.Input.Connect(0, GrowthAt);
+				// Bilinear samples between a supported cell and an excluded cell must not regrow partial tufts.
+				Support->Code = bTall ? TEXT("return Growth.g * step(0.999, Growth.r);") : TEXT("return step(0.999, Growth.r);");
+				Density->B.Connect(0, Support);
 				FGrassInput& Input = Output->GrassTypes.AddDefaulted_GetRef();
 				Input.Name = Manifest.Turf.Varieties[Index].Name;
 				Input.GrassType = GrassTypes[Index];
