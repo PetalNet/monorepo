@@ -5,6 +5,26 @@ Code session ("main") informed of what was said. A client (the desk client, late
 phone line) sends text it transcribed and speaks the sentences it gets back. The design
 is in [docs/janet-voice/SPEC.md](../../docs/janet-voice/SPEC.md), §9 and §10.
 
+Personal claims in greetings and conversation must come from the caller, inherited
+context, or tool results. The shared prompt rule covers plain, web, lab, and cold heads.
+
+Run the manual grounding eval against real Claude models from the repository root:
+
+```sh
+python3 apps/janet-voice-head/scripts/eval_grounding.py --model sonnet --judge-model sonnet --output /tmp/voice-grounding.json
+```
+
+It opens seven fresh, temporary sessions using the production session wrapper, prompt
+builder, and tool boundaries, with synthetic personal context. Matrix history is
+unavailable in the fixtures. A separate judge checks unsupported claims and two controls
+that require using supplied facts; judge calibration must reject invented history and
+evasion while accepting a factual greeting. Model errors, missing verdicts, and failed
+calibration fail the run. It makes eight model sessions, uses no live personal history,
+and does not run in the unit suite. Results include replies, verdicts, model names, CLI
+version, and the prompt source hash. This small stochastic eval cannot guarantee that
+the model never fabricates or reproduce every inherited conversation; use `desk-test`
+for deployed checks that must not merge into main Janet.
+
 One conversation is one voice Claude Code process:
 
 - **Fork at wake.** `POST /v1/conversations` starts `claude --resume <main> --fork-session`
