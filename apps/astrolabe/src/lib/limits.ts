@@ -24,9 +24,9 @@ export interface LimitWindow {
 	/** The configured plan the window was checked against. */
 	plan: string;
 	/**
-	 * `listed`: the plan lists it and the feed reports it (or there is no feed to check).
-	 * `unreported`: the plan lists it but the feed doesn't. `unlisted`: the feed reports it but the
-	 * plan doesn't.
+	 * `listed`: the plan lists it and the feed reports it (or there is no feed to check), or the plan
+	 * is unknown and the feed's windows are all there is to draw. `unreported`: the plan lists it but
+	 * the feed doesn't. `unlisted`: the feed reports it but the plan doesn't.
 	 */
 	fit: "listed" | "unreported" | "unlisted";
 	/** The provider says this limit is not active. */
@@ -202,7 +202,9 @@ export const limitWindowsFrom = (agents: readonly UsageReadout[]): PlanCheck => 
 				: { span: reported.span, model: reported.model };
 
 		if (listed === null) {
-			notices.push(`${agent.label} plan "${agent.plan}" is not in the plan table`);
+			notices.push(
+				`${agent.label} plan "${agent.plan}" is not in the plan table; showing the limits its feed reports`,
+			);
 		}
 
 		if (agent.reportedPlan !== null && agent.reportedPlan !== agent.plan) {
@@ -245,7 +247,8 @@ export const limitWindowsFrom = (agents: readonly UsageReadout[]): PlanCheck => 
 
 		for (const [key, reported] of reportedByKey) {
 			if (!listedKeys.has(key)) {
-				windows.push(window(asSpec(reported), reported, "unlisted"));
+				// An unknown plan lists nothing, so the feed's windows are all there is to draw.
+				windows.push(window(asSpec(reported), reported, listed === null ? "listed" : "unlisted"));
 			}
 		}
 	}

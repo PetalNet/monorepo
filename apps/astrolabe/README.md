@@ -13,7 +13,7 @@ The server accepts the existing deployment paths through `USAGE_PATH`, `CODEX_US
 
 ## Plans
 
-`src/lib/plans.ts` lists the limit windows each plan has (`PLANS`), such as Claude Max 20x's weekly and Fable weekly limits or Codex Plus's 5-hour and weekly ones. `DEFAULT_PLANS` picks the plans in use; `CLAUDE_PLAN` and `CODEX_PLAN` override them. The dials and plaques draw the windows the active plans list and fill them from the live feeds. A window the plan lists that the feed doesn't report, one the feed reports that the plan doesn't list, a Codex plan other than the configured one, or a Claude limit kind Astrolabe doesn't read is shown flagged rather than hidden.
+`src/lib/plans.ts` lists the limit windows each plan has (`PLANS`), such as Claude Max 20x's weekly and Fable weekly limits, Codex Plus's 5-hour and weekly ones, or Codex Pro's (`prolite`) weekly one. `DEFAULT_PLANS` picks the plans in use; `CLAUDE_PLAN` and `CODEX_PLAN` override them. The dials and plaques draw the windows the active plans list and fill them from the live feeds. A window the plan lists that the feed doesn't report, one the feed reports that the plan doesn't list, a Codex plan other than the configured one, or a Claude limit kind Astrolabe doesn't read is shown flagged rather than hidden. A plan missing from the table gets a warning and the windows its feed reports.
 
 Claude's windows come from the `raw` usage response in `USAGE_PATH` (`five_hour`, `seven_day`, and the `weekly_scoped` entries of `limits`), since the top-level `five_hour_pct` reads 0 when there is no 5-hour window at all.
 
