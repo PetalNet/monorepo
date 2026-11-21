@@ -196,7 +196,22 @@ class Voice:
             sys.path.insert(0, self.runtime)
             from optimized_voice import OptimizedTurboVoice
 
-            self.model = OptimizedTurboVoice()
+            deadline = time.monotonic() + 5.0
+            while True:
+                try:
+                    self.model = OptimizedTurboVoice()
+                    break
+                except torch.cuda.OutOfMemoryError as e:
+                    failure = repr(e)
+                # Drop the failed constructor's traceback before collecting its partial model.
+                self._unload("after cold-load OOM")
+                remaining = deadline - time.monotonic()
+                if remaining <= 0:
+                    raise SynthesisError(failure)
+                log.warning("cold load waiting for VRAM: %s", failure)
+                time.sleep(min(0.5, remaining))
+                if time.monotonic() >= deadline:
+                    raise SynthesisError(failure)
             log.info(
                 "cold load %.1fs (free VRAM %s GB before, %s GB after)",
                 time.perf_counter() - start,
