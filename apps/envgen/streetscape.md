@@ -47,18 +47,18 @@ Headings rotate counterclockwise from east. Unreal swaps east/north and multipli
 Unknown types, misspelled fields, nonfinite numbers, nonpositive dimensions, invalid polygons and
 props extending beyond the tile fail the build with the feature ID. Surface and line polygons clip at the tile edge.
 
-| Type          | Geometry and measurements                                              | Defaults where no measurement exists          |
-| ------------- | ---------------------------------------------------------------------- | --------------------------------------------- |
-| `surface`     | `ring`, `material`: asphalt, concrete, track, gravel, clay or turf     | No inferred boundary                          |
+| Type          | Geometry and measurements                                                           | Defaults where no measurement exists          |
+| ------------- | ----------------------------------------------------------------------------------- | --------------------------------------------- |
+| `surface`     | `ring`, `material`: asphalt, concrete, track, gravel, clay or turf                  | No inferred boundary                          |
 | `line`        | `points`, `material`: paint_white, paint_yellow, paint_black or concrete; `width_m` | Paint width 0.1 m; concrete requires width    |
-| `decal`       | `image`, `bounds_m`: registered north-up RGBA paint                    | No inferred dimensions or artwork             |
-| `curb`        | `points`, `width_m`, `height_m`                                        | Width/height 0.15 m, buried 0.05 m            |
-| `fence`       | `points`, `height_m`; optional `ground_anchor` per segment             | Height 2.4 m, posts at most 3 m apart         |
-| `light_pole`  | `point`, `height_m`; `heading_deg`, `arms`, `floodlight`               | Heading zero, two arms, horizontal luminaires |
-| `bench`       | `point`, `heading_deg`, `length_m`                                     | Length 1.8 m, seat height 0.48 m              |
-| `bleacher`    | Two `points` along its front edge, `rows`, `step_m`, `rise_m`          | Five rows, step 0.8 m, rise 0.35 m            |
-| `goalpost`    | `point`, `heading_deg`, `height_m`, `width_m`                          | Height 5.6 m, width 5.64 m                    |
-| `soccer_goal` | `point`, `heading_deg`, `width_m`, `height_m`, `depth_m`               | 7.32 by 2.44 m, depth 2 m                     |
+| `decal`       | `image`, `bounds_m`: registered north-up RGBA paint                                 | No inferred dimensions or artwork             |
+| `curb`        | `points`, `width_m`, `height_m`                                                     | Width/height 0.15 m, buried 0.05 m            |
+| `fence`       | `points`, `height_m`; optional `ground_anchor` per segment                          | Height 2.4 m, posts at most 3 m apart         |
+| `light_pole`  | `point`, `height_m`; `heading_deg`, `arms`, `floodlight`                            | Heading zero, two arms, horizontal luminaires |
+| `bench`       | `point`, `heading_deg`, `length_m`                                                  | Length 1.8 m, seat height 0.48 m              |
+| `bleacher`    | Two `points` along its front edge, `rows`, `step_m`, `rise_m`                       | Five rows, step 0.8 m, rise 0.35 m            |
+| `goalpost`    | `point`, `heading_deg`, `height_m`, `width_m`                                       | Height 5.6 m, width 5.64 m                    |
+| `soccer_goal` | `point`, `heading_deg`, `width_m`, `height_m`, `depth_m`                            | 7.32 by 2.44 m, depth 2 m                     |
 
 Bleachers rise to the left of the line from their first endpoint to their second. A goal's local width
 follows east at heading zero; its depth follows north. Pole height must be supplied. A height estimated
