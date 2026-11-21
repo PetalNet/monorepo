@@ -189,7 +189,6 @@ namespace
 		// measured with the grain. One white entry when the build has no grain.
 		TArray<FLinearColor> BladeColours;
 		FString ConditionFile;
-		TArray<FLinearColor> FieldMeans, VegetationMeans, FieldContrasts;
 		TArray<FLinearColor> FieldGreen, FieldDry;
 		TArray<FVector3f> FieldMix;
 		FLinearColor FieldSoil;
@@ -456,9 +455,6 @@ namespace
 					const FLinearColor Green = Colour(Palette->GetArrayField(TEXT("green")));
 					const FLinearColor Dry = Colour(Palette->GetArrayField(TEXT("dry")));
 					const TArray<TSharedPtr<FJsonValue>>& Mix = Palette->GetArrayField(TEXT("mix"));
-					Out.Turf.FieldMeans.Add(Green * float(Mix[0]->AsNumber()) + Dry * float(Mix[1]->AsNumber()) + Soil * float(Mix[2]->AsNumber()));
-					Out.Turf.VegetationMeans.Add((Green * float(Mix[0]->AsNumber()) + Dry * float(Mix[1]->AsNumber())) / float(Mix[0]->AsNumber() + Mix[1]->AsNumber()));
-					Out.Turf.FieldContrasts.Add(Dry - Green);
 					Out.Turf.FieldGreen.Add(Green);
 					Out.Turf.FieldDry.Add(Dry);
 					Out.Turf.FieldMix.Add(FVector3f(float(Mix[0]->AsNumber()), float(Mix[1]->AsNumber()), float(Mix[2]->AsNumber())));
@@ -760,49 +756,6 @@ return lerp(Texture2DSampleGrad(Scan,ScanSampler,UV,dx,dy).rgb,varied,blend);
 		return Count;
 	}
 
-	UMaterialExpression* CalibrateTurf(UMaterial* Material, UMaterialExpression* Macro, UTexture2D* Condition,
-		UMaterialExpression* Coords, UMaterialExpression* Here, UMaterialExpression* Eye, const FTurf& Turf, bool bVegetation = false)
-	{
-		if (!Condition || Turf.FieldMeans.IsEmpty())
-		{
-			return Macro;
-		}
-		UMaterialExpressionTextureSample* Controls = Node<UMaterialExpressionTextureSample>(Material, -600, -750);
-		Controls->Texture = Condition;
-		Controls->SamplerType = SAMPLERTYPE_LinearColor;
-		Controls->SamplerSource = SSM_Wrap_WorldGroupSettings;
-		Controls->Coordinates.Connect(0, Coords);
-		UMaterialExpressionCustom* Colour = Node<UMaterialExpressionCustom>(Material, -400, -750);
-		Colour->OutputType = CMOT_Float3;
-		Colour->Inputs.Empty();
-		for (const auto& Pair : {TPair<const TCHAR*, UMaterialExpression*>(TEXT("Macro"), Macro),
-			TPair<const TCHAR*, UMaterialExpression*>(TEXT("Condition"), Controls),
-			TPair<const TCHAR*, UMaterialExpression*>(TEXT("Here"), Here),
-			TPair<const TCHAR*, UMaterialExpression*>(TEXT("Eye"), Eye)})
-		{
-			FCustomInput& Input = Colour->Inputs.AddDefaulted_GetRef();
-			Input.InputName = Pair.Key;
-			Input.Input.Connect(0, Pair.Value);
-		}
-		const auto Vector = [](const FLinearColor& Value)
-		{
-			return FString::Printf(TEXT("float3(%.9f,%.9f,%.9f)"), Value.R, Value.G, Value.B);
-		};
-		Colour->Code = FString::Printf(TEXT("float blend=1-smoothstep(%.3f,%.3f,distance(Here,Eye));\n[branch] if(blend<=0) return Macro;\n"),
-			Turf.CalibrationFadeStartCm, Turf.CalibrationFadeEndCm);
-		const TArray<FLinearColor>& Means = bVegetation ? Turf.VegetationMeans : Turf.FieldMeans;
-		Colour->Code += TEXT("float3 mean=lerp(lerp(") + Vector(Means[0]) + TEXT(",") + Vector(Means[1]) + TEXT(",Condition.r),") + Vector(Means[2]) + TEXT(",Condition.g);\n");
-		Colour->Code += TEXT("float3 contrast=lerp(lerp(") + Vector(Turf.FieldContrasts[0]) + TEXT(",") + Vector(Turf.FieldContrasts[1]) + TEXT(",Condition.r),") + Vector(Turf.FieldContrasts[2]) + TEXT(",Condition.g);\n");
-		Colour->Code += FString::Printf(TEXT("float2 p=Here.xy/%.6f;\n"), Turf.DryTuftCm);
-		// A zero-mean colour modulation retains the projected-area mixture without treating it as blade counts.
-		Colour->Code += TEXT(R"(
-float2 cell=floor(p), f=frac(p); f=f*f*(3-2*f);
-float4 h=frac(sin(float4(dot(cell,float2(127.1,311.7)),dot(cell+float2(1,0),float2(127.1,311.7)),dot(cell+float2(0,1),float2(127.1,311.7)),dot(cell+1,float2(127.1,311.7))))*43758.5453);
-float variation=lerp(lerp(h.x,h.y,f.x),lerp(h.z,h.w,f.x),f.y)-0.5;
-return lerp(Macro,max(mean+contrast*variation,0),blend);
-)");
-		return Colour;
-	}
 
 	struct FLawnTextures
 	{
@@ -844,6 +797,31 @@ return lerp(Macro,max(mean+contrast*variation,0),blend);
 				}
 			}
 		}
+		// Correlate living and dead material over the photo's tuft scale, retaining exact projected-area ranks.
+		const int32 Patches = FMath::Max(1, FMath::RoundToInt(100.f / Turf.DryTuftCm));
+		TArray<float> PatchValues;
+		for (int32 Index = 0; Index < Patches * Patches; ++Index) PatchValues.Add(Random.FRand());
+		TArray<float> PaletteScore;
+		TArray<int32> PaletteOrder;
+		PaletteScore.SetNumUninitialized(Leaves.Num());
+		for (int32 Y = 0; Y < Pixels; ++Y)
+		{
+			for (int32 X = 0; X < Pixels; ++X)
+			{
+				const float U = float(X * Patches) / Pixels, V = float(Y * Patches) / Pixels;
+				const int32 CellX = FMath::FloorToInt(U), CellY = FMath::FloorToInt(V);
+				const float Fx = FMath::SmoothStep(0.f, 1.f, U - CellX), Fy = FMath::SmoothStep(0.f, 1.f, V - CellY);
+				const auto At = [&](int32 Dx, int32 Dy) { return PatchValues[((CellY + Dy) % Patches) * Patches + (CellX + Dx) % Patches]; };
+				const float Patch = FMath::Lerp(FMath::Lerp(At(0, 0), At(1, 0), Fx), FMath::Lerp(At(0, 1), At(1, 1), Fx), Fy);
+				const int32 Index = Y * Pixels + X;
+				PaletteScore[Index] = Patch + 0.12f * Leaves[Index].G / 255.f;
+				PaletteOrder.Add(Index);
+			}
+		}
+		PaletteOrder.Sort([&](int32 A, int32 B) { return PaletteScore[A] == PaletteScore[B] ? A < B : PaletteScore[A] < PaletteScore[B]; });
+		TArray<float> PaletteRank;
+		PaletteRank.SetNumUninitialized(Leaves.Num());
+		for (int32 Rank = 0; Rank < PaletteOrder.Num(); ++Rank) PaletteRank[PaletteOrder[Rank]] = (Rank + 0.5f) / PaletteOrder.Num();
 		TArray<FColor> Normals;
 		Normals.SetNumUninitialized(Pixels * Pixels);
 		for (int32 Y = 0; Y < Pixels; ++Y)
@@ -861,10 +839,12 @@ return lerp(Macro,max(mean+contrast*variation,0),blend);
 			TArray<FColor> Colours;
 			Colours.Reserve(Leaves.Num());
 			const FVector3f Mix = Turf.FieldMix[Surface];
-			for (const FColor& Leaf : Leaves)
+			for (int32 Index = 0; Index < Leaves.Num(); ++Index)
 			{
-				const FLinearColor Colour = Leaf.B / 255.f < Mix.Z ? Turf.FieldSoil
-					: Leaf.G / 255.f < Mix.X / (1 - Mix.Z) ? Turf.FieldGreen[Surface] : Turf.FieldDry[Surface];
+				const FColor& Leaf = Leaves[Index];
+				const float Rank = PaletteRank[Index];
+				const FLinearColor Colour = Rank < Mix.X ? Turf.FieldGreen[Surface]
+					: Rank < Mix.X + Mix.Y ? Turf.FieldDry[Surface] : Turf.FieldSoil;
 				Colours.Add((Colour * (0.7f + Leaf.R / 255.f * 0.5f)).ToFColorSRGB());
 			}
 			Result.Surfaces.Add(MakeTexture(FString::Printf(TEXT("T_Lawn_%d"), Surface), Pixels, Pixels, TSF_BGRA8,
@@ -1068,7 +1048,7 @@ return lerp(Macro,max(mean+contrast*variation,0),blend);
 		Albedo->A.Connect(0, Ground);
 		Albedo->ConstB = Manifest.AlbedoScale;
 		UMaterialExpressionCameraPositionWS* ColourEye = Node<UMaterialExpressionCameraPositionWS>(Material, -800, -750);
-		UMaterialExpression* FieldAlbedo = CalibrateTurf(Material, Albedo, Condition, Coords, Place, ColourEye, Manifest.Turf, true);
+		UMaterialExpression* FieldAlbedo = LawnSurface(Material, Albedo, Condition, Lawn, Coords, Place, ColourEye, Manifest);
 
 		// The mesh's vertex colour is how far up the blade the point is: 0 at the root, 1 at the tip.
 		UMaterialExpressionVertexColor* Along = Node<UMaterialExpressionVertexColor>(Material, -800, 400);
@@ -1106,7 +1086,7 @@ return lerp(Macro,max(mean+contrast*variation,0),blend);
 		Colour->B.Connect(0, Own);
 		// Thin blades pass light: lit from behind they glow with their own colour rather than going black.
 		Material->SetShadingModel(MSM_TwoSidedFoliage);
-		UMaterialExpression* Substrate = LawnSurface(Material, Albedo, Condition, Lawn, Coords, Place, ColourEye, Manifest);
+		UMaterialExpression* Substrate = FieldAlbedo;
 		UMaterialExpressionCustom* RootColour = Node<UMaterialExpressionCustom>(Material, 50, 50);
 		RootColour->OutputType = CMOT_Float3;
 		RootColour->Inputs.Empty();
