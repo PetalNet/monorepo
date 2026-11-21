@@ -8,6 +8,7 @@ from tests.harness import HeadCase, parse_sse
 
 
 class LabAccessTest(HeadCase):
+    overrides = {"unmerged_channels": ["desk-test"]}
     def setUp(self):
         super().setUp()
         self.stop_head()
@@ -81,3 +82,29 @@ class LabAccessTest(HeadCase):
         response.read()
         connection.close()
         self.assertFalse(self.claude_log.exists())
+
+    def test_scripted_personal_matrix_conversation_on_desk_test_never_merges(self):
+        from tests.test_matrix_recent import event
+        self.hub.matrix_events = [event("The synthetic reply", "@janet:test"), event("The synthetic question")]
+        status, opened = self.request("POST", "/v1/conversations", {"channel": "desk-test", "tier": "personal"}, lab=True)
+        self.assertEqual(status, 200)
+        status, events = self.request("POST", f"/v1/conversations/{opened['id']}/turns", {"text": "read recent Matrix messages"}, lab=True)
+        self.assertEqual(status, 200)
+        speech = " ".join(data["text"] for kind, data in events if kind == "sentence")
+        self.assertIn("The synthetic question; The synthetic reply", speech)
+        self.assertEqual(self.hub.history_requests, [{"name": "history", "args": {"room": "janet-dm", "limit": 50}}])
+        status, ended = self.request("POST", f"/v1/conversations/{opened['id']}/end", {"reason": "test"}, lab=True)
+        self.assertEqual(status, 200)
+        self.assertEqual(ended["delivery"], "channel is not merged")
+        self.assertEqual(self.hub.accepted, [])
+
+    def test_guest_room_and_unverified_personal_never_get_matrix(self):
+        for tier, verified in (("guest", True), ("room", True), ("personal", False)):
+            with self.subTest(tier=tier):
+                status, opened = self.request("POST", "/v1/conversations", {"channel": "desk-test", "tier": tier}, lab=verified)
+                self.assertEqual(status, 200)
+                status, events = self.request("POST", f"/v1/conversations/{opened['id']}/turns", {"text": "read recent Matrix messages"})
+                self.assertEqual(status, 200)
+                self.assertEqual([data["text"] for kind, data in events if kind == "sentence"], ["I cannot read recent Matrix messages on this call."])
+                self.request("POST", f"/v1/conversations/{opened['id']}/end", {"reason": "test"})
+        self.assertEqual(self.hub.history_requests, [])

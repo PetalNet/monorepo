@@ -489,7 +489,8 @@ class Head:
             identity = ["--resume", resume, "--fork-session", "--model", self.config.model]
         else:
             identity = ["--model", self.config.cold_model, "--system-prompt", prompts.COLD_PROFILE]
-        return [*self.config.claude, *locked_flags(self._web_tools(conv, resume), lab=conv.lab_access), *identity, "--effort", self.config.effort]
+        lab_config = lab_tools.mcp_config(self.config.hub.url, self.config.hub.token_file) if conv.lab_access else None
+        return [*self.config.claude, *locked_flags(self._web_tools(conv, resume), lab=conv.lab_access, lab_config=lab_config), *identity, "--effort", self.config.effort]
 
     def _warm_up(self, live: Live) -> None:
         """A fork's first model call reads all of main's context cold and takes seconds. Making it while the speaker is still talking hides that wait."""

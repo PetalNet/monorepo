@@ -198,6 +198,20 @@ python -m janet_voice_head.server --config /path/to/head.toml
 
 ## Tests
 
+Verified personal calls with lab access also receive `mcp__janet_lab__matrix_recent`.
+It reads both sides of `janet-dm` through the configured Hermes hub's read-only
+`history` tool. `limit` defaults to 10 and accepts 1 to 50. Results are oldest first,
+with sender IDs and UTC Matrix timestamps, from the latest 50 events. Non-message
+events are skipped. Each message is capped at 1600 characters, and the complete
+result fits 12000 UTF-8 bytes. Truncation is explicit; the newest messages survive
+when the result is too large. The upstream response is capped at 256 KiB and the
+whole lookup shares the lab tools' three-second deadline. Guest, room, and
+unverified personal calls never load this MCP server. No Matrix send tool is exposed.
+
+Personal prompts distinguish inherited Matrix context at the call's snapshot from
+newer messages read with this tool. Test conversations on `desk-test` never merge
+into main.
+
 The tests start the real server as a subprocess, with a fake `claude` binary and a fake
 hub, and drive it over HTTP. They need no model and no network. The crash tests kill the
 server between the hub's accept and the journal write. Run them from this directory:
