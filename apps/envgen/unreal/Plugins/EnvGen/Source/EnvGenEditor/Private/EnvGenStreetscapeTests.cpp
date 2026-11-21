@@ -5,6 +5,7 @@
 #include "Components/StaticMeshComponent.h"
 #include "Components/DecalComponent.h"
 #include "Engine/DecalActor.h"
+#include "Engine/Engine.h"
 #include "Dom/JsonObject.h"
 #include "Engine/StaticMesh.h"
 #include "Engine/StaticMeshActor.h"
@@ -595,7 +596,104 @@ bool FEnvGenStreetscapeAthletic::RunTest(const FString& Parameters)
 		TestEqual(TEXT("existing natural grass input survives"), GrassOutput->GrassTypes[0].GrassType.Get(), NaturalGrass);
 		for (int32 I = 1; I < GrassOutput->GrassTypes.Num(); ++I)
 		{
+			const ULandscapeGrassType* Grass = GrassOutput->GrassTypes[I].GrassType;
+			if (!TestEqual(TEXT("each synthetic field streams fibers and infill"), Grass->GrassVarieties.Num(), 2)) return false;
 			const FGrassVariety& Variety = GrassOutput->GrassTypes[I].GrassType->GrassVarieties[0];
+			TestEqual(TEXT("fiber patch density is preserved"), Variety.GrassDensity.GetValue(), 2500.f);
+			TestFalse(TEXT("synthetic surface density cannot be scaled down"), Grass->bEnableDensityScaling);
+			const FGrassVariety& Crumbs = Grass->GrassVarieties[1];
+			const bool bOriginalQualityMode = GEngine->UseGrassVarityPerQualityLevels;
+			for (const bool bQualityMode : {false, true})
+			{
+				GEngine->UseGrassVarityPerQualityLevels = bQualityMode;
+				const FString Mode = bQualityMode ? TEXT("per-quality") : TEXT("per-platform");
+				TestEqual(Mode + TEXT(" fiber density"), Variety.GetDensity(), 2500.f);
+				TestEqual(Mode + TEXT(" fiber fade start"), Variety.GetStartCullDistance(), 900);
+				TestEqual(Mode + TEXT(" fiber cull end"), Variety.GetEndCullDistance(), 1100);
+				TestEqual(Mode + TEXT(" infill density"), Crumbs.GetDensity(), 2500.f);
+				TestEqual(Mode + TEXT(" infill fade start"), Crumbs.GetStartCullDistance(), 400);
+				TestEqual(Mode + TEXT(" infill cull end"), Crumbs.GetEndCullDistance(), 450);
+			}
+			GEngine->UseGrassVarityPerQualityLevels = bOriginalQualityMode;
+			const UStaticMesh* InfillMesh = Crumbs.GrassMesh;
+			if (!TestNotNull(TEXT("synthetic infill has physical relief"), InfillMesh)) return false;
+			TestEqual(TEXT("infill patches share the fiber spacing"), Crumbs.GrassDensity.GetValue(), Variety.GrassDensity.GetValue());
+			TestTrue(TEXT("unresolved infill is culled within five metres"), Crumbs.EndCullDistance.GetValue() <= 500);
+			TestFalse(TEXT("small infill does not cast distant shadows"), Crumbs.bCastDynamicShadow);
+			TestTrue(TEXT("rubber uses opaque dielectric shading"), CastChecked<UMaterial>(InfillMesh->GetMaterial(0))->GetShadingModels().HasShadingModel(MSM_DefaultLit));
+			if (!TestEqual(TEXT("infill has two source levels"), InfillMesh->GetNumSourceModels(), 2)) return false;
+			if (!TestEqual(TEXT("infill has two authored render levels"), InfillMesh->GetRenderData()->LODResources.Num(), 2)) return false;
+			TSet<FIntPoint> GranuleRoots[2];
+			TSet<FIntVector> GranuleSeeds[2];
+			for (int32 LOD = 0; LOD < 2; ++LOD)
+			{
+				const FMeshDescription* InfillSource = InfillMesh->GetMeshDescription(LOD);
+				if (!TestNotNull(TEXT("infill retains its authored source level"), InfillSource)) return false;
+				const FStaticMeshLODResources& InfillLOD = InfillMesh->GetRenderData()->LODResources[LOD];
+				const FStaticMeshVertexBuffer& InfillUVs = InfillLOD.VertexBuffers.StaticMeshVertexBuffer;
+				const FPositionVertexBuffer& InfillPositions = InfillLOD.VertexBuffers.PositionVertexBuffer;
+				if (!TestTrue(TEXT("infill retains root and collapse channels"), InfillUVs.GetNumTexCoords() >= 4)) return false;
+				const FColorVertexBuffer& InfillColours = InfillLOD.VertexBuffers.ColorVertexBuffer;
+				if (!TestEqual(TEXT("infill color seeds reach the render buffer"), InfillColours.GetNumVertices(), InfillUVs.GetNumVertices())) return false;
+				TestEqual(TEXT("built infill retains its authored facets"), int32(InfillLOD.IndexBuffer.GetNumIndices() / 3), InfillSource->Triangles().Num());
+				TSet<FIntPoint>& Granules = GranuleRoots[LOD];
+				TSet<FIntPoint> TopGranules;
+				TSet<uint8> Shades;
+				int32 SplitGranules = 0, BadFacets = 0, TopFacets = 0;
+				for (uint32 Vertex = 0; Vertex < InfillUVs.GetNumVertices(); ++Vertex)
+				{
+					const FVector2f Root = InfillUVs.GetVertexUV(Vertex, 1);
+					const FVector3f P = InfillPositions.VertexPosition(Vertex);
+					const FVector2f Delta = InfillUVs.GetVertexUV(Vertex, 2);
+					const FVector3f Reconstructed(Root.X + Delta.X, Root.Y + Delta.Y, InfillUVs.GetVertexUV(Vertex, 3).X);
+					if (!((Reconstructed - P).SizeSquared() <= 1.e-10f)) ++BadFacets;
+					if (P.ContainsNaN() || P.Z < -.041f || P.Z > .74f || FVector2f(P.X - Root.X, P.Y - Root.Y).Size() > .51f) ++BadFacets;
+				}
+				for (int32 Triangle = 0; Triangle < InfillLOD.IndexBuffer.GetNumIndices(); Triangle += 3)
+				{
+					const uint32 A = InfillLOD.IndexBuffer.GetIndex(Triangle), B = InfillLOD.IndexBuffer.GetIndex(Triangle + 1), C = InfillLOD.IndexBuffer.GetIndex(Triangle + 2);
+					const FVector2f Root = InfillUVs.GetVertexUV(A, 1);
+					const FIntPoint RootKey(FMath::RoundToInt(Root.X * 1000), FMath::RoundToInt(Root.Y * 1000));
+					Granules.Add(RootKey);
+					const uint8 Shade = InfillColours.VertexColor(A).R;
+					GranuleSeeds[LOD].Add(FIntVector(RootKey.X, RootKey.Y, Shade));
+					Shades.Add(Shade);
+					if (Shade != InfillColours.VertexColor(B).R || Shade != InfillColours.VertexColor(C).R) ++SplitGranules;
+					if (Root != InfillUVs.GetVertexUV(B, 1) || Root != InfillUVs.GetVertexUV(C, 1)) ++SplitGranules;
+					const FVector3f Front = FVector3f::CrossProduct(InfillPositions.VertexPosition(C) - InfillPositions.VertexPosition(A),
+						InfillPositions.VertexPosition(B) - InfillPositions.VertexPosition(A)).GetSafeNormal(1.e-12f);
+					const FVector3f Centre = (InfillPositions.VertexPosition(A) + InfillPositions.VertexPosition(B) + InfillPositions.VertexPosition(C)) / 3;
+					const auto IsTopCentre = [&](uint32 Vertex)
+					{
+						const FVector3f P = InfillPositions.VertexPosition(Vertex);
+						return P.Z > 0 && FVector2f(P.X - Root.X, P.Y - Root.Y).Size() < .00001f;
+					};
+					const bool Top = IsTopCentre(A) || IsTopCentre(B) || IsTopCentre(C);
+					if (Top)
+					{
+						if (Front.Z <= 0) ++BadFacets;
+						else TopGranules.Add(RootKey);
+						++TopFacets;
+					}
+					else if (FVector3f::DotProduct(Front, FVector3f(Centre.X - Root.X, Centre.Y - Root.Y, 0)) <= 0) ++BadFacets;
+					if (Front.IsNearlyZero() || FVector3f::DotProduct(Front, FVector3f(InfillUVs.VertexTangentZ(A))) < .99f
+						|| FVector3f::DotProduct(Front, FVector3f(InfillUVs.VertexTangentZ(B))) < .99f
+						|| FVector3f::DotProduct(Front, FVector3f(InfillUVs.VertexTangentZ(C))) < .99f) ++BadFacets;
+				}
+				TestEqual(TEXT("all 10000 infill granules reach each render buffer"), Granules.Num(), 10000);
+				TestEqual(TEXT("granule faces retain one root and color seed"), SplitGranules, 0);
+				TestEqual(TEXT("infill dimensions, collapse data and rendered facet normals are valid"), BadFacets, 0);
+				TestEqual(TEXT("every rendered crumb retains an upward-facing top"), TopGranules.Num(), 10000);
+				TestEqual(TEXT("each crumb has one color seed"), GranuleSeeds[LOD].Num(), 10000);
+				TestTrue(TEXT("rendered crumb colors retain variation"), Shades.Num() > 1);
+				AddInfo(FString::Printf(TEXT("infill LOD%d granules=%d renderTriangles=%d renderVertices=%u topFacets=%d badFacets=%d"),
+					LOD, Granules.Num(), InfillLOD.IndexBuffer.GetNumIndices() / 3, InfillUVs.GetNumVertices(), TopFacets, BadFacets));
+			}
+			TestTrue(TEXT("distant infill simplifies facets without dropping crumbs"),
+				InfillMesh->GetRenderData()->LODResources[1].IndexBuffer.GetNumIndices() < InfillMesh->GetRenderData()->LODResources[0].IndexBuffer.GetNumIndices());
+			TestTrue(TEXT("both infill levels retain identical roots and color seeds"),
+				GranuleRoots[0].Difference(GranuleRoots[1]).IsEmpty() && GranuleRoots[1].Difference(GranuleRoots[0]).IsEmpty()
+				&& GranuleSeeds[0].Difference(GranuleSeeds[1]).IsEmpty() && GranuleSeeds[1].Difference(GranuleSeeds[0]).IsEmpty());
 			const UStaticMesh* Pile = Variety.GrassMesh;
 			TestNotNull(TEXT("synthetic field has real fiber geometry"), Pile);
 			TestTrue(TEXT("pile has a bounded eleven-metre range"), Variety.EndCullDistance.GetValue() <= 1100);

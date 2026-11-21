@@ -641,6 +641,8 @@ Specular=lerp(.18-.05*crumb,.35,pileNear);
 float crumbVisible=crumb*saturate(dot(up,normalize(Eye-P)));
 float3 canopy=lerp(min(colour*modulation,.95),float3(.008,.009,.008),crumbVisible);
 float3 bed=lerp(float3(.006,.007,.006),float3(.025,.027,.025),grains.g)*lerp(.35,1.,grains.b);
+float contactNear=1-smoothstep(150.,250.,distance(P,Eye));
+bed=lerp(bed,bed*float3(.22,.25,.3),contactNear);
 return lerp(canopy,bed,pileNear);
 )HLSL");
 		Fiber->RebuildOutputs();
@@ -650,6 +652,162 @@ return lerp(canopy,bed,pileNear);
 		UMaterialEditingLibrary::ConnectMaterialProperty(Fiber, TEXT("Specular"), MP_Specular);
 		UMaterialEditingLibrary::RecompileMaterial(Material);
 		return Material;
+	}
+
+	struct FPatchCoordinates
+	{
+		UMaterialExpression* Root;
+		UMaterialExpression* Delta;
+	};
+
+	FPatchCoordinates PatchCoordinates(UMaterial* Material)
+	{
+		auto* RootUV = CastChecked<UMaterialExpressionTextureCoordinate>(UMaterialEditingLibrary::CreateMaterialExpression(Material, UMaterialExpressionTextureCoordinate::StaticClass()));
+		RootUV->CoordinateIndex = 1;
+		auto* Zero = CastChecked<UMaterialExpressionConstant>(UMaterialEditingLibrary::CreateMaterialExpression(Material, UMaterialExpressionConstant::StaticClass()));
+		Zero->R = 0;
+		auto* LocalRoot = CastChecked<UMaterialExpressionAppendVector>(UMaterialEditingLibrary::CreateMaterialExpression(Material, UMaterialExpressionAppendVector::StaticClass()));
+		LocalRoot->A.Connect(0, RootUV); LocalRoot->B.Connect(0, Zero);
+		auto* Root = CastChecked<UMaterialExpressionTransformPosition>(UMaterialEditingLibrary::CreateMaterialExpression(Material, UMaterialExpressionTransformPosition::StaticClass()));
+		Root->Input.Connect(0, LocalRoot);
+		Root->TransformSourceType = TRANSFORMPOSSOURCE_Local;
+		Root->TransformType = TRANSFORMPOSSOURCE_World;
+		auto* DeltaUV = CastChecked<UMaterialExpressionTextureCoordinate>(UMaterialEditingLibrary::CreateMaterialExpression(Material, UMaterialExpressionTextureCoordinate::StaticClass()));
+		DeltaUV->CoordinateIndex = 2;
+		auto* HeightUV = CastChecked<UMaterialExpressionTextureCoordinate>(UMaterialEditingLibrary::CreateMaterialExpression(Material, UMaterialExpressionTextureCoordinate::StaticClass()));
+		HeightUV->CoordinateIndex = 3;
+		auto* Z = CastChecked<UMaterialExpressionComponentMask>(UMaterialEditingLibrary::CreateMaterialExpression(Material, UMaterialExpressionComponentMask::StaticClass()));
+		Z->Input.Connect(0, HeightUV); Z->R = true; Z->G = Z->B = Z->A = false;
+		auto* LocalDelta = CastChecked<UMaterialExpressionAppendVector>(UMaterialEditingLibrary::CreateMaterialExpression(Material, UMaterialExpressionAppendVector::StaticClass()));
+		LocalDelta->A.Connect(0, DeltaUV); LocalDelta->B.Connect(0, Z);
+		auto* Delta = CastChecked<UMaterialExpressionTransform>(UMaterialEditingLibrary::CreateMaterialExpression(Material, UMaterialExpressionTransform::StaticClass()));
+		Delta->Input.Connect(0, LocalDelta);
+		Delta->TransformSourceType = TRANSFORMSOURCE_Local;
+		Delta->TransformType = TRANSFORM_World;
+		return {Root, Delta};
+	}
+
+	UStaticMesh* MakeAthleticInfillMesh(int32 Index, UMaterial* Material, TArray<UPackage*>& Packages)
+	{
+		const auto MakeLevel = [](bool Detailed)
+		{
+			FMeshDescription Description;
+			FStaticMeshAttributes Attributes(Description);
+			Attributes.Register();
+			auto Positions = Attributes.GetVertexPositions();
+			auto Normals = Attributes.GetVertexInstanceNormals();
+			auto UVs = Attributes.GetVertexInstanceUVs();
+			auto Colours = Attributes.GetVertexInstanceColors();
+			UVs.SetNumChannels(4);
+			const FPolygonGroupID Group = Description.CreatePolygonGroup();
+			Attributes.GetPolygonGroupMaterialSlotNames()[Group] = TEXT("Infill");
+			FRandomStream Random(7219);
+			for (int32 X = 0; X < 100; ++X) for (int32 Y = 0; Y < 100; ++Y)
+			{
+				const FVector2f Root(-9.9f + X * .2f + Random.FRandRange(-.06f, .06f),
+					-9.9f + Y * .2f + Random.FRandRange(-.06f, .06f));
+				const float SizeClass = Random.FRand();
+				const float Radius = SizeClass < .5f ? Random.FRandRange(.05f, .15f)
+					: SizeClass < .8f ? Random.FRandRange(.14f, .24f) : Random.FRandRange(.20f, .30f);
+				const float Height = Radius * Random.FRandRange(.45f, 1.2f);
+				const float Base = .06f + .045f * FMath::Sin(Root.X * .7f) * FMath::Cos(Root.Y * .6f) + Random.FRandRange(0, .035f) + (SizeClass > .9f ? .18f : 0.f);
+				const float Aspect = Random.FRandRange(.55f, 1.3f), Inset = Random.FRandRange(.8f, .98f);
+				const float Angle = Random.FRand() * 2 * PI, Seed = Random.FRand();
+				const int32 Corners = Random.RandRange(8, 11), Notch = Random.RandRange(0, Corners - 1);
+				TArray<FVector3f> Top, Belt;
+				FVector2f Minimum(MAX_flt, MAX_flt), Maximum(-MAX_flt, -MAX_flt);
+				float MeanHeight = 0;
+				const auto Rotate = [&](FVector2f P)
+				{
+					return FVector2f(P.X * FMath::Cos(Angle) - P.Y * FMath::Sin(Angle),
+						P.X * FMath::Sin(Angle) + P.Y * FMath::Cos(Angle));
+				};
+				for (int32 Corner = 0; Corner < Corners; ++Corner)
+				{
+					const float A = Corner * 2 * PI / Corners + Random.FRandRange(-.1f, .1f);
+					const bool Chipped = Corner == Notch || Corner == (Notch + Corners / 2) % Corners;
+					const float R = Radius * (Chipped ? Random.FRandRange(.35f, .6f) : Random.FRandRange(.75f, 1.f));
+					const FVector2f Axis(FMath::Cos(A) * R * Aspect, FMath::Sin(A) * R), P = Rotate(Axis);
+					Minimum.X = FMath::Min(Minimum.X, Axis.X); Minimum.Y = FMath::Min(Minimum.Y, Axis.Y);
+					Maximum.X = FMath::Max(Maximum.X, Axis.X); Maximum.Y = FMath::Max(Maximum.Y, Axis.Y);
+					const float Z = Base + Height * Random.FRandRange(.85f, 1.15f);
+					Top.Add(FVector3f(Root.X + P.X * Inset, Root.Y + P.Y * Inset, Z));
+					Belt.Add(FVector3f(Root.X + P.X, Root.Y + P.Y, Base + Height * Random.FRandRange(.35f, .55f)));
+					MeanHeight += Z / Corners;
+				}
+				const auto Triangle = [&](FVector3f A, FVector3f B, FVector3f C)
+				{
+					const FVector3f Normal = FVector3f::CrossProduct(C - A, B - A).GetSafeNormal(1.e-12f);
+					TArray<FVertexInstanceID> Instances;
+					for (const FVector3f P : {A, B, C})
+					{
+						const FVertexID V = Description.CreateVertex();
+						Positions[V] = P;
+						const FVertexInstanceID VI = Description.CreateVertexInstance(V);
+						Normals[VI] = Normal;
+						UVs.Set(VI, 0, FVector2f(P.X, P.Y) - Root);
+						UVs.Set(VI, 1, Root);
+						UVs.Set(VI, 2, FVector2f(P.X, P.Y) - Root);
+						UVs.Set(VI, 3, FVector2f(P.Z, 0));
+						Colours[VI] = FVector4f(Seed, 0, 0, 1);
+						Instances.Add(VI);
+					}
+					Description.CreatePolygon(Group, Instances);
+				};
+				const FVector3f Centre(Root.X, Root.Y, MeanHeight), Bottom(Root.X, Root.Y, -.04f);
+				if (Detailed)
+				{
+					for (int32 Corner = 0; Corner < Corners; ++Corner)
+					{
+						const int32 Next = (Corner + 1) % Corners;
+						Triangle(Centre, Top[Next], Top[Corner]);
+						Triangle(Belt[Corner], Top[Next], Belt[Next]);
+						Triangle(Belt[Corner], Top[Corner], Top[Next]);
+						Triangle(Bottom, Belt[Corner], Belt[Next]);
+					}
+				}
+				else
+				{
+					// Retain every crumb and its footprint; simplify only the unresolved edge fractures.
+					TArray<FVector3f> Rim;
+					for (const FVector2f Axis : {Minimum, FVector2f(Maximum.X, Minimum.Y), Maximum, FVector2f(Minimum.X, Maximum.Y)})
+					{
+						const FVector2f P = Rotate(Axis);
+						Rim.Add(FVector3f(Root.X + P.X, Root.Y + P.Y, MeanHeight));
+					}
+					for (int32 Corner = 0; Corner < 4; ++Corner)
+					{
+						Triangle(Centre, Rim[(Corner + 1) % 4], Rim[Corner]);
+						Triangle(Bottom, Rim[Corner], Rim[(Corner + 1) % 4]);
+					}
+				}
+			}
+			return Description;
+		};
+		FMeshDescription Near = MakeLevel(true), Far = MakeLevel(false);
+		UStaticMesh* Mesh = Asset<UStaticMesh>(FString::Printf(TEXT("SM_AthleticPile_%04d_Infill"), Index), Packages);
+		Mesh->GetStaticMaterials().Add(FStaticMaterial(Material, TEXT("Infill")));
+		Mesh->SetAutoComputeLODScreenSize(false);
+		Mesh->SetNumSourceModels(2);
+		for (int32 LOD = 0; LOD < 2; ++LOD)
+		{
+			FStaticMeshSourceModel& Model = Mesh->GetSourceModel(LOD);
+			Model.BuildSettings.bRecomputeNormals = false;
+			Model.BuildSettings.bGenerateLightmapUVs = false;
+			Model.BuildSettings.bUseFullPrecisionUVs = true;
+			Model.ReductionSettings.PercentTriangles = 1;
+			Model.ReductionSettings.PercentVertices = 1;
+			Model.ReductionSettings.MaxDeviation = 0;
+			Model.ReductionSettings.BaseLODModel = LOD;
+		}
+		Mesh->GetSourceModel(0).ScreenSize = 1.f;
+		Mesh->GetSourceModel(1).ScreenSize = .22f;
+		UStaticMesh::FBuildMeshDescriptionsParams Params;
+		Params.bFastBuild = false;
+		Params.bBuildSimpleCollision = false;
+		Mesh->BuildFromMeshDescriptions({&Near, &Far}, Params);
+		FStaticMeshCompilingManager::Get().FinishCompilation({Mesh});
+		return Mesh;
 	}
 
 	bool AddAthleticPile(UWorld* World, int32 Index, UTexture2D* Atlas, double West, double North,
@@ -807,7 +965,7 @@ return lerp(canopy,bed,pileNear);
 		Material->TwoSided = true;
 		Material->SetShadingModel(MSM_TwoSidedFoliage);
 		Material->bTangentSpaceNormal = false;
-		Material->MaxWorldPositionOffsetDisplacement = 8;
+		Material->MaxWorldPositionOffsetDisplacement = 18;
 		// Avoid the bare band seen with UE 5.8 HISM dithering and this bounded WPO.
 		Material->DitheredLODTransition = false;
 		Material->BlendMode = BLEND_Masked;
@@ -821,16 +979,8 @@ return lerp(canopy,bed,pileNear);
 		auto* Instance = CastChecked<UMaterialExpressionPerInstanceRandom>(UMaterialEditingLibrary::CreateMaterialExpression(Material, UMaterialExpressionPerInstanceRandom::StaticClass()));
 		auto* BladeUV = CastChecked<UMaterialExpressionTextureCoordinate>(UMaterialEditingLibrary::CreateMaterialExpression(Material, UMaterialExpressionTextureCoordinate::StaticClass()));
 		BladeUV->CoordinateIndex = 0;
-		auto* RootUV = CastChecked<UMaterialExpressionTextureCoordinate>(UMaterialEditingLibrary::CreateMaterialExpression(Material, UMaterialExpressionTextureCoordinate::StaticClass()));
-		RootUV->CoordinateIndex = 1;
-		auto* Zero = CastChecked<UMaterialExpressionConstant>(UMaterialEditingLibrary::CreateMaterialExpression(Material, UMaterialExpressionConstant::StaticClass()));
-		Zero->R = 0;
-		auto* LocalRoot = CastChecked<UMaterialExpressionAppendVector>(UMaterialEditingLibrary::CreateMaterialExpression(Material, UMaterialExpressionAppendVector::StaticClass()));
-		LocalRoot->A.Connect(0, RootUV); LocalRoot->B.Connect(0, Zero);
-		auto* Root = CastChecked<UMaterialExpressionTransformPosition>(UMaterialEditingLibrary::CreateMaterialExpression(Material, UMaterialExpressionTransformPosition::StaticClass()));
-		Root->Input.Connect(0, LocalRoot);
-		Root->TransformSourceType = TRANSFORMPOSSOURCE_Local;
-		Root->TransformType = TRANSFORMPOSSOURCE_World;
+		const FPatchCoordinates Coordinates = PatchCoordinates(Material);
+		UMaterialExpression* Root = Coordinates.Root;
 		// One placement value keeps dye, geometry and normal rotation on the same strand.
 		auto* Placement = CastChecked<UMaterialExpressionCustom>(UMaterialEditingLibrary::CreateMaterialExpression(Material, UMaterialExpressionCustom::StaticClass()));
 		Placement->Inputs.Empty(); Placement->OutputType = CMOT_Float4;
@@ -845,7 +995,7 @@ float2 across=float2(%.17g,%.17g), along=float2(-across.y,across.x);
 float r=frac(sin(Seed*127.1+Instance*311.7)*43758.5453);
 float s=frac(sin(Seed*269.5+Instance*183.3)*2578.543);
 float row=dot(Root.xy,across);
-float2 shift=across*(floor(row+.5)-row+(r-.5)*.6)+along*((s-.5)*.9);
+float2 shift=across*(floor(row+.5)-row+(r-.5)*1.)+along*((s-.5)*1.2);
 return float4(shift,r,s);
 )HLSL"), FMath::Cos(Radians), -FMath::Sin(Radians));
 		auto* RootColourUV = CastChecked<UMaterialExpressionCustom>(UMaterialEditingLibrary::CreateMaterialExpression(Material, UMaterialExpressionCustom::StaticClass()));
@@ -896,7 +1046,7 @@ return normalize(n*.8+float3(0,0,.65)+across*sin((UV.x-.5)*3.14159265)*.35);
 		HeightInput.InputName = TEXT("Height"); HeightInput.Input.Connect(1, Vertex);
 		FCustomInput& ShadeSeed = Shade->Inputs.AddDefaulted_GetRef();
 		ShadeSeed.InputName = TEXT("Seed"); ShadeSeed.Input.Connect(3, Vertex);
-		Shade->Code = TEXT("return min(Colour*lerp(.55,1.45,Height)*lerp(.85,1.15,Seed),.95);");
+		Shade->Code = TEXT("float exposed=smoothstep(.05,.45,Height); return min(Colour*lerp(.1,lerp(.55,1.45,Height),exposed)*lerp(.85,1.15,Seed),.95);");
 		UMaterialEditingLibrary::ConnectMaterialProperty(Shade, TEXT(""), MP_BaseColor);
 		auto* Transmitted = CastChecked<UMaterialExpressionMultiply>(UMaterialEditingLibrary::CreateMaterialExpression(Material, UMaterialExpressionMultiply::StaticClass()));
 		Transmitted->A.Connect(0, Shade);
@@ -916,18 +1066,6 @@ return normalize(n*.8+float3(0,0,.65)+across*sin((UV.x-.5)*3.14159265)*.35);
 		Sink->OutputType = CMOT_Float3;
 		FCustomInput& EyeInput = Sink->Inputs.AddDefaulted_GetRef();
 		EyeInput.InputName = TEXT("Eye"); EyeInput.Input.Connect(0, Eye);
-		auto* Delta = CastChecked<UMaterialExpressionTextureCoordinate>(UMaterialEditingLibrary::CreateMaterialExpression(Material, UMaterialExpressionTextureCoordinate::StaticClass()));
-		Delta->CoordinateIndex = 2;
-		auto* HeightUV = CastChecked<UMaterialExpressionTextureCoordinate>(UMaterialEditingLibrary::CreateMaterialExpression(Material, UMaterialExpressionTextureCoordinate::StaticClass()));
-		HeightUV->CoordinateIndex = 3;
-		auto* Z = CastChecked<UMaterialExpressionComponentMask>(UMaterialEditingLibrary::CreateMaterialExpression(Material, UMaterialExpressionComponentMask::StaticClass()));
-		Z->Input.Connect(0, HeightUV); Z->R = true; Z->G = Z->B = Z->A = false;
-		auto* LocalDelta = CastChecked<UMaterialExpressionAppendVector>(UMaterialEditingLibrary::CreateMaterialExpression(Material, UMaterialExpressionAppendVector::StaticClass()));
-		LocalDelta->A.Connect(0, Delta); LocalDelta->B.Connect(0, Z);
-		auto* WorldDelta = CastChecked<UMaterialExpressionTransform>(UMaterialEditingLibrary::CreateMaterialExpression(Material, UMaterialExpressionTransform::StaticClass()));
-		WorldDelta->Input.Connect(0, LocalDelta);
-		WorldDelta->TransformSourceType = TRANSFORMSOURCE_Local;
-		WorldDelta->TransformType = TRANSFORM_World;
 		auto* Normal = CastChecked<UMaterialExpressionTransform>(UMaterialEditingLibrary::CreateMaterialExpression(Material, UMaterialExpressionTransform::StaticClass()));
 		Normal->Input.Connect(0, Up);
 		Normal->TransformSourceType = TRANSFORMSOURCE_Local;
@@ -935,7 +1073,7 @@ return normalize(n*.8+float3(0,0,.65)+across*sin((UV.x-.5)*3.14159265)*.35);
 		FCustomInput& PositionInput = Sink->Inputs.AddDefaulted_GetRef();
 		PositionInput.InputName = TEXT("Root"); PositionInput.Input.Connect(0, Root);
 		FCustomInput& DeltaInput = Sink->Inputs.AddDefaulted_GetRef();
-		DeltaInput.InputName = TEXT("Delta"); DeltaInput.Input.Connect(0, WorldDelta);
+		DeltaInput.InputName = TEXT("Delta"); DeltaInput.Input.Connect(0, Coordinates.Delta);
 		FCustomInput& NormalInput = Sink->Inputs.AddDefaulted_GetRef();
 		NormalInput.InputName = TEXT("N"); NormalInput.Input.Connect(0, Normal);
 		FCustomInput& PlacementInput = Sink->Inputs.AddDefaulted_GetRef();
@@ -1051,18 +1189,79 @@ return float3(shift,2.5-dot(shift,N.xy)/max(N.z,.1))+varied*fade-Delta;
 		Mesh->BuildFromMeshDescriptions({&Near, &Far}, Params);
 		FStaticMeshCompilingManager::Get().FinishCompilation({Mesh});
 
+		UMaterial* Infill = Asset<UMaterial>(FString::Printf(TEXT("M_AthleticInfill_%04d"), Index), Packages);
+		Infill->SetShadingModel(MSM_DefaultLit);
+		Infill->BlendMode = BLEND_Masked;
+		Infill->OpacityMaskClipValue = .5f;
+		Infill->bUsedWithInstancedStaticMeshes = true;
+		Infill->MaxWorldPositionOffsetDisplacement = 4;
+		Infill->DitheredLODTransition = false;
+		UMaterialEditingLibrary::ConnectMaterialProperty(CoverageAt(Infill, false), TEXT(""), MP_OpacityMask);
+		const FPatchCoordinates InfillCoordinates = PatchCoordinates(Infill);
+		auto* InfillEye = CastChecked<UMaterialExpressionCameraPositionWS>(UMaterialEditingLibrary::CreateMaterialExpression(Infill, UMaterialExpressionCameraPositionWS::StaticClass()));
+		auto* InfillOffset = CastChecked<UMaterialExpressionCustom>(UMaterialEditingLibrary::CreateMaterialExpression(Infill, UMaterialExpressionCustom::StaticClass()));
+		InfillOffset->Inputs.Empty(); InfillOffset->OutputType = CMOT_Float3;
+		for (const auto& Pair : {TPair<FName, UMaterialExpression*>(TEXT("Root"), InfillCoordinates.Root),
+			TPair<FName, UMaterialExpression*>(TEXT("Delta"), InfillCoordinates.Delta), TPair<FName, UMaterialExpression*>(TEXT("Eye"), InfillEye)})
+		{
+			FCustomInput& Input = InfillOffset->Inputs.AddDefaulted_GetRef();
+			Input.InputName = Pair.Key; Input.Input.Connect(0, Pair.Value);
+		}
+		// Collapse each crumb to its own root before culling; the fine bed texture remains underneath.
+		InfillOffset->Code = TEXT("return float3(0,0,2.5)-Delta*smoothstep(200.,400.,distance(Root,Eye));");
+		UMaterialEditingLibrary::ConnectMaterialProperty(InfillOffset, TEXT(""), MP_WorldPositionOffset);
+		auto* InfillSeed = CastChecked<UMaterialExpressionVertexColor>(UMaterialEditingLibrary::CreateMaterialExpression(Infill, UMaterialExpressionVertexColor::StaticClass()));
+		auto* InfillInstance = CastChecked<UMaterialExpressionPerInstanceRandom>(UMaterialEditingLibrary::CreateMaterialExpression(Infill, UMaterialExpressionPerInstanceRandom::StaticClass()));
+		auto* InfillHeight = CastChecked<UMaterialExpressionTextureCoordinate>(UMaterialEditingLibrary::CreateMaterialExpression(Infill, UMaterialExpressionTextureCoordinate::StaticClass()));
+		InfillHeight->CoordinateIndex = 3;
+		auto* InfillShade = CastChecked<UMaterialExpressionCustom>(UMaterialEditingLibrary::CreateMaterialExpression(Infill, UMaterialExpressionCustom::StaticClass()));
+		InfillShade->Inputs.Empty(); InfillShade->OutputType = CMOT_Float3;
+		for (const auto& Pair : {TPair<FName, UMaterialExpression*>(TEXT("Seed"), InfillSeed), TPair<FName, UMaterialExpression*>(TEXT("Instance"), InfillInstance),
+			TPair<FName, UMaterialExpression*>(TEXT("Height"), InfillHeight)})
+		{
+			FCustomInput& Input = InfillShade->Inputs.AddDefaulted_GetRef();
+			Input.InputName = Pair.Key; Input.Input.Connect(Pair.Key == TEXT("Seed") ? 1 : 0, Pair.Value);
+		}
+		FCustomOutput& InfillRoughness = InfillShade->AdditionalOutputs.AddDefaulted_GetRef();
+		InfillRoughness.OutputName = TEXT("Roughness"); InfillRoughness.OutputType = CMOT_Float1;
+		InfillShade->Code = TEXT("float v=frac(Seed+Instance*.75487766); float contact=lerp(.1,1.,smoothstep(.02,.03,Height.x)); Roughness=lerp(.45,.78,v); return float3(.008,.012,.018)*lerp(.55,2.2,v)*contact;");
+		InfillShade->RebuildOutputs();
+		UMaterialEditingLibrary::ConnectMaterialProperty(InfillShade, TEXT(""), MP_BaseColor);
+		UMaterialEditingLibrary::ConnectMaterialProperty(InfillShade, TEXT("Roughness"), MP_Roughness);
+		auto* InfillSpecular = CastChecked<UMaterialExpressionConstant>(UMaterialEditingLibrary::CreateMaterialExpression(Infill, UMaterialExpressionConstant::StaticClass()));
+		InfillSpecular->R = .55f;
+		UMaterialEditingLibrary::ConnectMaterialProperty(InfillSpecular, TEXT(""), MP_Specular);
+		UMaterialEditingLibrary::RecompileMaterial(Infill);
+
 		ULandscapeGrassType* Grass = Asset<ULandscapeGrassType>(FString::Printf(TEXT("LGT_AthleticPile_%04d"), Index), Packages);
 		Grass->bEnableDensityScaling = false;
+		const FPerPlatformFloat PatchDensity(2500);
 		FGrassVariety& Variety = Grass->GrassVarieties.AddDefaulted_GetRef();
 		Variety.GrassMesh = Mesh;
-		Variety.GrassDensity = FPerPlatformFloat(2500);
+		Variety.GrassDensity = PatchDensity;
+		Variety.GrassDensityQuality.Default = Variety.GrassDensity.GetValue();
 		Variety.StartCullDistance = FPerPlatformInt(900);
+		Variety.StartCullDistanceQuality.Default = Variety.StartCullDistance.GetValue();
 		Variety.EndCullDistance = FPerPlatformInt(1100);
+		Variety.EndCullDistanceQuality.Default = Variety.EndCullDistance.GetValue();
 		Variety.bUseGrid = true;
 		Variety.PlacementJitter = 0;
 		Variety.RandomRotation = false;
 		Variety.AlignToSurface = true;
 		Variety.bCastDynamicShadow = false;
+		FGrassVariety& Crumbs = Grass->GrassVarieties.AddDefaulted_GetRef();
+		Crumbs.GrassMesh = MakeAthleticInfillMesh(Index, Infill, Packages);
+		Crumbs.GrassDensity = PatchDensity;
+		Crumbs.GrassDensityQuality.Default = Crumbs.GrassDensity.GetValue();
+		Crumbs.StartCullDistance = FPerPlatformInt(400);
+		Crumbs.StartCullDistanceQuality.Default = Crumbs.StartCullDistance.GetValue();
+		Crumbs.EndCullDistance = FPerPlatformInt(450);
+		Crumbs.EndCullDistanceQuality.Default = Crumbs.EndCullDistance.GetValue();
+		Crumbs.bUseGrid = true;
+		Crumbs.PlacementJitter = 0;
+		Crumbs.RandomRotation = false;
+		Crumbs.AlignToSurface = true;
+		Crumbs.bCastDynamicShadow = false;
 		FGrassInput& Input = Output->GrassTypes.AddDefaulted_GetRef();
 		Input.Name = FName(*FString::Printf(TEXT("AthleticPile_%04d"), Index));
 		Input.GrassType = Grass;

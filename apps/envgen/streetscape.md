@@ -185,13 +185,14 @@ Markings intersecting that field become color regions in one opaque registered a
 including local RGBA artwork. All colors share streamed 0.6–1.6 cm cut ribbons near the camera,
 filtered tuft rows, irregular black infill, fiber normals, roughness
 and grazing reflection. Alternating pile direction and narrow roll seams follow the configured heading.
-The pile uses the existing Landscape grass streaming system. It uses discrete LOD transitions to avoid a missing-fiber band observed with UE 5.8 HISM dithering. Each root retains eight strands at both geometry levels. Nearby ribbons have five curve segments and thin cut-end caps; distant ribbons use two segments and omit the unresolved caps. Their height fades from 3 to 10 m before culling at 11 m. A seamless packed grain texture supplies millimetre-scale height, charcoal reflectance and intergranular occlusion between the near blades. Per-blade variation breaks up
+The pile uses the existing Landscape grass streaming system. It uses discrete LOD transitions to avoid a missing-fiber band observed with UE 5.8 HISM dithering. Each root retains eight strands at both geometry levels. Nearby ribbons have five curve segments and thin cut-end caps; distant ribbons use two segments and omit the unresolved caps. Their height fades from 3 to 10 m before culling at 11 m. A separate grass variety adds 10,000 irregular charcoal grains per 20 cm patch, with notched tops, beveled sides and tapered undersides between the fibers. Both geometry levels retain every grain and its color seed. Lower ribbon segments, grain undersides and the nearby backing darken at their contact with the bed. The particles shrink into their roots from 2 to 4 m and cull at 4.5 m. A seamless packed grain texture supplies the underlying bed's normal relief, reflectance and intergranular occlusion. Per-blade variation breaks up
 repeated patches while retaining manufactured rows.
 Its conservative footprint mask clips fibers at field boundaries to within a mask texel.
 Each strand samples its atlas color at its placed root, keeping dyed and inlaid colors fixed along the bent ribbon and its cut end. The field mask still clips the displaced geometry at the field boundary. Athletic mesh vertices must use the exporter’s 0.025 m terrain offset so pile roots meet
 the surface. Natural grass inputs remain connected to their original varieties.
+The authored density and streaming ranges are the same in per-platform and per-quality modes.
 These are appearance priors. There are no raised marking ribbons, dry patches, soil or grass clumps.
-Rows are 10 mm apart, with strand positions spread along each row. Sub-row scraps can show infill without a fiber root; markings use atlas colors
+Rows are 10 mm apart, with strand positions spread within and along each row. Sub-row scraps can show infill without a fiber root; markings use atlas colors
 inside a full field, rather than separate narrow field polygons.
 Registered surface meshes keep full-precision UVs so wide atlases do not quantize marking positions
 at mesh boundaries.
