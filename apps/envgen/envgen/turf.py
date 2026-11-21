@@ -26,6 +26,45 @@ GROWTH_SETTINGS = {
     "relief_m": 6.0,
 }
 
+# November campus JPEG proxies, not absolute albedo or measurements of the September build site.
+FIELD_CALIBRATION = {
+    "source": "Parker's campus grass photographs, 2026-11-20; concrete-normalized linear sRGB proxies",
+    "absolute_albedo_calibrated": False,
+    "in_site_bbox": False,
+    "fractions_basis": "resolved projected image area; never placement or blade-count probabilities",
+    "soil_candidate_is_bare_soil": False,
+    "surfaces": {
+        "maintained": {"green": [0.07810345, 0.10891961, 0.02811268],
+                       "dry": [0.15179425, 0.12629397, 0.05261628], "mix": [0.68874832, 0.29389755, 0.01735413]},
+        "worn": {"green": [0.08249069, 0.10680960, 0.04226161],
+                 "dry": [0.16687493, 0.13658607, 0.10252904], "mix": [0.25776350, 0.65135831, 0.09087819]},
+        "edge": {"green": [0.09223241, 0.12025581, 0.03333555],
+                 "dry": [0.16728298, 0.13328318, 0.05658665], "mix": [0.35807610, 0.60851618, 0.03340772]},
+    },
+    "soil": [0.27434814, 0.24857435, 0.21342961],
+    "dry_tuft_diameter_m": [0.16190692, 0.39658934],
+    "spatial_uncertainty_factor_at_least": 2,
+    "fade_cm": [1500, 3000],
+    "application_priors": [
+        "relative photo green/red contrast interpolates maintained and worn appearance; not a measured condition map",
+        "the existing 2 m surface fringe interpolates path-edge appearance",
+        "projected-area mixtures set mean material colour; soil candidates tint substrate without opening canopy gaps",
+        "dry colour variation uses the conditional tuft diameter; no mowing height, blade density or wind measurement",
+        "calibration fades out from 15 to 30 m to retain the approved orthophoto-led distant appearance",
+    ],
+}
+
+
+def condition(grass: np.ndarray, log_ratio: np.ndarray, cell_m: float) -> np.ndarray:
+    """RGB appearance controls: relative wear, inside-edge proximity, reserved zero. No placement changes."""
+    inside = grass > 0.5
+    signal = ndimage.gaussian_filter(log_ratio[1] - log_ratio[0], GROWTH_SETTINGS["patch_m"] / cell_m)
+    low, high = np.percentile(signal[inside], [5, 95]) if inside.any() else (0.0, 0.0)
+    wear = 1 - np.clip((signal - low) / (high - low), 0, 1) if high - low > 1e-5 else np.zeros(grass.shape)
+    edge = (np.clip(1 - ndimage.distance_transform_edt(inside) * cell_m / GROWTH_SETTINGS["fringe_m"], 0, 1)
+            if inside.any() and (~inside).any() else np.zeros(grass.shape))
+    return np.stack([wear * inside, edge * inside, np.zeros(grass.shape)]).astype(np.float32)
+
 
 def growth(
     grass: np.ndarray,
@@ -172,5 +211,6 @@ def describe() -> dict:
         ],
         "root_shade": ROOT_SHADE,
         "tip_shade": TIP_SHADE,
+        "field_calibration": FIELD_CALIBRATION,
         "priors": PRIORS,
     }

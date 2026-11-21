@@ -63,3 +63,25 @@ def test_paving_far_from_the_grass_edge_does_not_receive_the_fringe_height_boost
     assert packed[:2, :, 12:].max() == 0
     assert packed[1, :, 11].min() > 0.3
     assert packed[2, :, -3:].mean() < packed[2, :, 11:13].mean()
+
+
+def test_appearance_distinguishes_wear_from_edges_without_changing_placement():
+    grass = np.ones((96, 96), dtype=np.float32)
+    grass[:, :12] = 0
+    ratio = np.zeros((3, 96, 96), dtype=np.float32)
+    ratio[1, :, 48:] = 0.15
+    flat = np.zeros(grass.shape)
+    before, _ = turf.growth(grass, ratio, flat, flat, 0.5, 7)
+    appearance = turf.condition(grass, ratio, 0.5)
+
+    assert appearance[:, :, :12].max() == 0
+    assert appearance[0, 12:-12, 20:40].mean() > appearance[0, 12:-12, 60:80].mean()
+    assert appearance[1, :, 12:14].mean() > 0.5
+    assert appearance[1, :, 20:].max() == 0
+    assert np.array_equal(before, turf.growth(grass, ratio, flat, flat, 0.5, 7)[0])
+
+
+def test_uniform_or_empty_photo_does_not_invent_wear_or_an_edge():
+    flat = np.zeros((24, 24))
+    for grass in (flat, flat + 1):
+        assert not turf.condition(grass, np.zeros((3, *grass.shape)), 0.5).any()
