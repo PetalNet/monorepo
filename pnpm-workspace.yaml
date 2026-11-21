@@ -118,7 +118,7 @@ catalogs:
     impeccable: ^4.5.2
     knip: ^6.31.0
     oxfmt: 0.78.0
-    oxlint: 1.93.0
+    oxlint: 1.94.0
     oxlint-tsgolint: 7.0.2007
     prisma: ^7.0.0
     svelte-check: ^4.7.0
@@ -196,12 +196,12 @@ catalog:
   "@better-auth/core": 1.7.25
   "@better-auth/test-utils": 1.7.25
   "@sveltejs/adapter-node": ^6.0.1
-  "@effect/platform-node": 4.0.1
-  "@effect/sql-pg": 4.0.0
+  "@effect/platform-node": 4.0.7
+  "@effect/sql-pg": 4.0.7
   "@sveltejs/kit": 3.3.1
   "@testcontainers/postgresql": ^12.0.0
   better-auth: 1.7.25
-  effect: 4.0.1
+  effect: 4.0.7
   effect-qb: 0.24.2
   mode-watcher: ^1.1.0
   "@effect/tsgo": 0.70.0
@@ -212,7 +212,7 @@ catalog:
   jose: ^6.2.5
   "@modelcontextprotocol/client": 2.4.0
   "@better-auth/mcp": 1.7.25
-  "@effect/vitest": 4.0.1
+  "@effect/vitest": 4.0.7
   drizzle-orm: 1.0.0-rc.5-ab785fc
   drizzle-kit: 1.0.0-rc.5-ab785fc
   fontless: ^1.2.1
