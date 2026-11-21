@@ -78,6 +78,7 @@ class FakeVoice(socketserver.ThreadingTCPServer):
     def __init__(self, fail_after_first_chunk: bool = False, port: int = 0):
         super().__init__(("127.0.0.1", port), _VoiceHandler)
         self.fail_after_first_chunk = fail_after_first_chunk
+        self.chunk_delay = 0.0
         self.fail_texts: set[str] = set()
         self.delays: dict[str, float] = {}
         self.active = self.peak_active = 0
@@ -116,6 +117,8 @@ class _VoiceHandler(socketserver.StreamRequestHandler):
         if request["text"] in self.server.fail_texts:
             return self._event("error", {"text": "CUDA out of memory"})
         for index, word in enumerate(request["text"].split()):
+            if index == 1:
+                time.sleep(self.server.chunk_delay)
             if index == 1 and self.server.fail_after_first_chunk:
                 return self._event("error", {"text": "CUDA out of memory"})
             self._event("audio-chunk", {"rate": 24000, "width": 2, "channels": 1}, word.encode())

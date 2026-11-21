@@ -13,6 +13,7 @@ import threading
 import time
 import tomllib
 import urllib.request
+import uuid
 from dataclasses import dataclass
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
@@ -97,9 +98,10 @@ class Synthesis:
     def __init__(self, sock: socket.socket):
         self._sock = sock
 
-    def wav(self) -> bytes:
+    def wav(self, observe=None) -> bytes:
         """Reads the whole reply and returns it as a mono PCM16 WAV file."""
         pcm, rate = bytearray(), 0
+        first_audio = False
         with self._sock, self._sock.makefile("rb") as reader:
             while True:
                 try:
@@ -109,6 +111,10 @@ class Synthesis:
                 if kind == "audio-chunk":
                     if (fields.get("width"), fields.get("channels")) != (2, 1):
                         raise VoiceError("the voice server must send mono 16-bit audio")
+                    if payload and not first_audio:
+                        first_audio = True
+                        if observe:
+                            observe("tts_first_wyoming_audio", {})
                     rate = fields["rate"]
                     pcm += payload
                 elif kind == "audio-stop":
@@ -281,29 +287,47 @@ class Handler(BaseHTTPRequestHandler):
         self._json(404, {"error": "not found"})
 
     def _tts(self, body: bytes) -> None:
+        started = time.monotonic()
         try:
-            text = json.loads(body or b"{}")["text"]
+            request = json.loads(body or b"{}")
+            text = request["text"]
             if not isinstance(text, str) or not text.strip():
                 raise ValueError
         except (ValueError, KeyError, TypeError):
             return self._json(400, {"error": "text must be a string"})
+        conv, turn = request.get("conversation_id"), request.get("turn")
+        conv = conv if isinstance(conv, str) and re.fullmatch(r"[0-9a-f]{12}", conv) else None
+        turn = turn if type(turn) is int and 0 < turn <= 2147483647 else None
+        request_id = uuid.uuid4().hex
+
+        def observe(event: str, fields: dict) -> None:
+            logging.info("%s", json.dumps({"event": event, "request_id": request_id, "conversation_id": conv,
+                                          "turn": turn, "at": time.time(),
+                                          "elapsed_ms": round((time.monotonic() - started) * 1000), **fields}))
+
+        observe("tts_request", {})
         try:
             synthesis = self.voice.open(text.strip())
         except VoiceAsleep:
+            observe("tts_failed", {"reason": "voice_asleep"})
             self.voice.wake()
             return self._json(503, {"error": "the voice host is asleep; a wake packet was sent", "state": "waking"},
                               {"retry-after": "5"})
         # Headers go out before the audio exists: a cold voice model takes longer to load
         # than a proxy waits for response headers.
-        self._start_stream("audio/wav")
         try:
-            self._chunk(synthesis.wav())
+            self._start_stream("audio/wav")
+            self._chunk(synthesis.wav(observe))
+            observe("tts_first_http_audio_sent", {})
             self.wfile.write(b"0\r\n\r\n")
         except VoiceError as error:
             # No terminating chunk: the client sees a failed transfer, not a short reply.
+            observe("tts_failed", {"reason": "voice_error"})
             logging.warning("voice: %s", error)
         except OSError:
-            pass
+            observe("tts_failed", {"reason": "client_disconnected"})
+        finally:
+            synthesis._sock.close()
 
     def _to_head(self, route: str, body: bytes) -> None:
         url = urlsplit(self.head)
