@@ -216,7 +216,7 @@ class Utterances:
         self._make_vad = make_vad
         self._make_hearing = make_hearing or (lambda: hearing(models, words))
         self._lead = round(lead_s / FRAME_S)
-        self._max = round(max_s / FRAME_S)
+        self._max = max(1, round(max_s / FRAME_S))
         self._raw = b""
         self._events: list[str | bytes] = []
         self.endpoints = deque()
@@ -260,7 +260,7 @@ class Utterances:
             if not self._started:
                 del self._frames[: -self._lead - 1]
                 del self._activity[: -self._lead - 1]
-            if self._started and (why in ("done", "quiet") or len(self._frames) >= self._max):
+            if self._started and (why in ("done", "quiet") or self._turn._silent >= self._max):
                 self.endpoints.append({"audio_end_ms": round(self._offset),
                                        "speech_ms": round(self._turn._speech_s * 1000),
                                        "endpoint_ms": round(self._turn._silence_s * 1000),

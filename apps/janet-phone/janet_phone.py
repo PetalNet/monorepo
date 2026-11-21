@@ -64,7 +64,7 @@ class Endpointer:
         self.start_frames = max(1, math.ceil(start_ms / self.frame_ms))
         self.silence_frames = max(1, math.ceil(silence_ms / self.frame_ms))
         self.lead_frames = math.ceil(lead_ms / self.frame_ms)
-        self.max_frames = math.ceil(max_s * 1000 / self.frame_ms)
+        self.max_frames = max(1, math.ceil(max_s * 1000 / self.frame_ms))
         self.endpoints = deque()
         self._offset = 0
         self._pending = b""
@@ -101,7 +101,7 @@ class Endpointer:
                     del self._activity[: -self.lead_frames - self.start_frames]
             else:
                 self._quiet = 0 if loud else self._quiet + 1
-                if self._quiet >= self.silence_frames or len(self._frames) >= self.max_frames:
+                if self._quiet >= min(self.silence_frames, self.max_frames):
                     self.endpoints.append({"audio_end_ms": self._offset,
                                            "speech_ms": sum(self._activity) * self.frame_ms,
                                            "endpoint_ms": self._quiet * self.frame_ms,
@@ -284,7 +284,26 @@ class Config:
 
 
 def transcribe(address: str, pcm: bytes) -> str:
-    """One utterance through a Wyoming speech-to-text server."""
+    """Recognize a caller turn in bounded, overlapping requests, returning one transcript."""
+    limit, overlap = 20 * RATE * 2, RATE
+    words: list[str] = []
+    start = 0
+    while start < len(pcm):
+        stop = min(start + limit, len(pcm))
+        chunk = _transcribe_chunk(address, pcm[start:stop]).split()
+        previous = [re.sub(r"\W", "", word).casefold() for word in words[-10:]]
+        following = [re.sub(r"\W", "", word).casefold() for word in chunk[:10]]
+        shared = next((n for n in range(min(len(previous), len(following)), 0, -1)
+                       if previous[-n:] == following[:n] and any(following[:n])), 0)
+        words.extend(chunk[shared:])
+        if stop == len(pcm):
+            break
+        start = stop - overlap
+    return " ".join(words)
+
+
+def _transcribe_chunk(address: str, pcm: bytes) -> str:
+    """One bounded request through a Wyoming speech-to-text server."""
     host, _, port = address.rpartition(":")
     info = {"rate": RATE, "width": 2, "channels": 1}
 

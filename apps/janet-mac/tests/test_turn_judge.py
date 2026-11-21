@@ -210,6 +210,20 @@ class TurnEndWithAJudgeTest(unittest.TestCase):
 
 
 class CuesTest(unittest.TestCase):
+    def test_high_confidence_can_finish_without_waiting_for_the_model_end_token(self):
+        hearing = Hearing.__new__(Hearing)
+        hearing._closed = threading.Event()
+        hearing._frames = object()
+        hearing._speech = [True] * 100 + [False] * 31
+        hearing._transcribed_s = len(hearing._speech) * FRAME_S
+        hearing._pieces = [("\u2581hello", 2.9)]
+        hearing._ends = []
+        hearing._judge = Judge(FITTED)
+        with mock.patch.object(hearing._judge, "done", return_value=0.90):
+            self.assertEqual(hearing.verdict(31), "done")
+        with mock.patch.object(hearing._judge, "done", return_value=0.60):
+            self.assertIsNone(hearing.verdict(31))
+
     def test_a_trailing_and_means_more_is_coming(self):
         self.assertTrue(filled(said("we could move it to the other server and")))
 

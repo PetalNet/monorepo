@@ -88,9 +88,26 @@ class UtterancesTest(unittest.TestCase):
     def test_short_safety_limit_never_emits_idle_audio(self):
         self.assertEqual(run(silence(2), max_s=.3), [])
 
-    def test_a_turn_that_never_ends_is_cut_at_the_longest(self):
-        events = run(tone(5.0), max_s=2.0)
-        self.assertTrue(any(isinstance(e, bytes) for e in events))
+    def test_subframe_safety_limit_never_emits_during_speech(self):
+        for limit in (0, .001):
+            with self.subTest(limit=limit):
+                self.assertEqual(run(tone(.5), max_s=limit), ["start"])
+
+    def test_the_safety_limit_never_splits_ongoing_speech(self):
+        events = run(tone(35.0))
+        self.assertEqual(events.count("start"), 1)
+        self.assertFalse(any(isinstance(event, bytes) for event in events))
+
+    def test_the_safety_limit_counts_only_continuous_received_silence(self):
+        detector = utterances(quiet_s=10, max_s=2)
+        events = detector.feed(tone(5) + silence(1.5))
+        self.assertEqual(events.count("start"), 1)
+        self.assertFalse(any(isinstance(event, bytes) for event in events))
+        detector.gap()
+        self.assertEqual(detector.feed(silence(1.5) + tone(.5) + silence(1.5)), [])
+        events = detector.feed(silence(.6))
+        self.assertEqual(len([event for event in events if isinstance(event, bytes)]), 1)
+        self.assertEqual(detector.endpoints.popleft()["endpoint_reason"], "limit")
 
 
 if __name__ == "__main__":

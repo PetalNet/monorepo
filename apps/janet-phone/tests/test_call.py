@@ -102,7 +102,30 @@ class FakeStt(socketserver.StreamRequestHandler):
                 return
 
 
+class TranscribeTest(unittest.TestCase):
+    def test_long_audio_requests_are_bounded_and_overlap_text_is_not_repeated(self):
+        pcm = bytes(41 * janet_phone.RATE * 2)
+        with mock.patch.object(janet_phone, "_transcribe_chunk", side_effect=[
+            "First shared,", "shared second next", "next final."
+        ]) as recognize:
+            text = janet_phone.transcribe("stt:10300", pcm)
+        self.assertEqual(text, "First shared, second next final.")
+        self.assertEqual([len(call.args[1]) for call in recognize.call_args_list], [640000, 640000, 64000])
+
+
 class CallTest(unittest.IsolatedAsyncioTestCase):
+    async def test_a_long_caller_turn_uses_bounded_stt_requests_and_one_reply(self):
+        FakeStt.texts = ["a long caller", "caller turn completed"]
+        async with connect(self.url, additional_headers=self.phone) as ws:
+            while json.loads((await self._until(ws, "state"))[-1])["value"] != "listening":
+                pass
+            await ws.send(tone(31) + bytes(16000))
+            while json.loads((await self._until(ws, "words"))[-1])["side"] != "her":
+                pass
+        turns = [body for path, body in FakeGateway.calls if path.endswith("/turns")]
+        self.assertEqual(turns, [{"text": "a long caller turn completed"}])
+        self.assertEqual(FakeStt.texts, [])
+
     async def test_failed_reply_audio_reports_only_the_completed_prefix(self):
         for prefix in ([], ["The completed sentence."]):
             with self.subTest(prefix=prefix):
@@ -789,12 +812,22 @@ class EndpointerTest(unittest.TestCase):
         self.assertEqual(len(events), 2)
         self.assertEqual(len(endpointer.endpoints), 1)
 
-    def test_cap_reports_limit_instead_of_the_configured_silence(self):
-        endpointer = janet_phone.Endpointer(max_s=1, silence_ms=1400, vad=lambda _: True)
-        events = endpointer.feed(bytes(1024 * 64))
-        self.assertEqual(sum(isinstance(event, bytes) for event in events), 2)
-        self.assertEqual([item["endpoint_reason"] for item in endpointer.endpoints], ["limit", "limit"])
-        self.assertEqual([item["endpoint_ms"] for item in endpointer.endpoints], [0, 0])
+    def test_safety_cap_does_not_split_ongoing_speech(self):
+        endpointer = janet_phone.Endpointer(vad=lambda _: True)
+        events = endpointer.feed(bytes(1024 * 1100))
+        self.assertEqual(events.count("start"), 1)
+        self.assertFalse(any(isinstance(event, bytes) for event in events))
+
+    def test_subframe_safety_cap_never_emits_during_speech(self):
+        endpointer = janet_phone.Endpointer(max_s=0, vad=lambda _: True)
+        self.assertEqual(endpointer.feed(bytes(1024 * 10)), ["start"])
+
+    def test_safety_cap_counts_received_silence_since_the_last_speech(self):
+        scores = iter([True] * 64 + [False] * 20 + [True] * 8 + [False] * 32)
+        endpointer = janet_phone.Endpointer(max_s=1, silence_ms=1400, vad=lambda _: next(scores))
+        events = endpointer.feed(bytes(1024 * 124))
+        self.assertEqual(sum(isinstance(event, bytes) for event in events), 1)
+        self.assertEqual(endpointer.endpoints.popleft()["endpoint_reason"], "limit")
 
     def test_isolated_vad_noise_does_not_start_a_turn(self):
         scores = iter([False] * 5 + [True] + [False] * 50)

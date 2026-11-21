@@ -63,7 +63,7 @@ instructions.
   devices with grants remain in the store as inactive records so their audit history survives;
   they cannot call, be granted again, or appear in `--devices`.
 - **Bounded.** At most `max_calls` calls at once (503 beyond that), `max_call_s` seconds per call,
-  30 s per utterance, and four utterances waiting for a turn.
+  a 30 s continuous-silence backstop, and four utterances waiting for a turn.
 - **Cut-off.** When the caller speaks over a reply, the bridge stops sending it, tells the device to
   drop what it has queued, and tells the head how much was heard.
 - **Speech in order.** One producer submits sentences in text order while earlier audio plays.
@@ -238,20 +238,26 @@ Silero detects speech. Parakeet's partial transcript and the fitted judge choose
 the pause: one second when judged finished, three seconds when uncertain, and six
 seconds after a filled pause, trailing conjunction, or an unfinished indirect
 question such as "can you tell me". A done verdict can also arrive at 1.5, 2, or
-2.5 seconds. The image includes all models. If `turn_models` is omitted, the bridge
+2.5 seconds. A completion probability above 85% can finish a turn without waiting
+for Parakeet's later end token. The image includes all models. If `turn_models` is omitted, the bridge
 looks for Parakeet beside `vad_model`. Without a working speech model, VAD still
 waits three seconds. Network gaps require fresh received silence.
 
 Two consecutive 32 ms frames at or above 0.3 speech probability start a turn.
-`endpoint.lead_ms` and `endpoint.max_s` set the retained lead-in and safety limit.
+`endpoint.lead_ms` sets the retained lead-in. `endpoint.max_s` bounds continuous
+received silence, resetting on speech or a network gap. Ongoing speech keeps the
+turn open regardless of its length. Idle silence retains only the lead-in.
+After the caller finishes, STT uses requests of at most 20 seconds with 0.5 seconds
+of overlap, removes matching overlap words, and submits one combined caller turn
+to the head. These internal recognizer requests never create conversation turns.
 `endpoint.silence_ms`, `endpoint.start_ms`, and `endpoint.threshold` apply only to
 the loudness fallback, used when no VAD model can be loaded.
 
-Endpoint logs include the audio offset, measured quiet interval and whether silence or the maximum
-utterance length ended the turn. Call timing records include STT start/result, head request/first
+Endpoint logs include the audio offset, measured quiet interval, and whether the
+judge, silence policy, or continuous-silence backstop ended the turn. Call timing records include STT start/result, head request/first
 sentence, head-reported token/sentence timings, and the first WebSocket audio send. `total_ms` adds
 the measured quiet interval to endpoint-to-audio time; it is not handset playback latency. A
-`limit` endpoint means speech detection never observed a sufficient pause. The shared detector reports the same audio offsets and quiet intervals.
+`limit` endpoint means continuous received silence reached `endpoint.max_s`. The shared detector reports the same audio offsets and quiet intervals.
 `batch_received_at` records the audio batch's arrival.
 
 **The line tone.** With `line_tone`, the bridge keeps a quiet sound under the call so the caller knows the line is open
