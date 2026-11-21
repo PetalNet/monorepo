@@ -54,6 +54,7 @@ def session_env(environ=os.environ) -> dict[str, str]:
 class ClaudeSession:
     def __init__(self, argv: list[str], cwd: str, env: dict[str, str] | None = None, allow_tools: bool = False,
                  web_tools: tuple[str, ...] = (), lab: bool = False):
+        self.timing_observer = None
         self.session_id: str | None = None
         self.account_email: str | None = None
         self.failure: str | None = None
@@ -102,7 +103,13 @@ class ClaudeSession:
         self._answering, self._active = False, True
         self._call_tool_started = False
         deadline = time.monotonic() + timeout
+        first_token = False
+        seen_usage = set()
+        usage = {}
+        usage_keys = ("input_tokens", "output_tokens", "cache_read_input_tokens", "cache_creation_input_tokens")
         try:
+            if self.timing_observer:
+                self.timing_observer("model_request", {})
             self._send({"type": "user", "message": {"role": "user", "content": text}})
             while True:
                 try:
@@ -110,7 +117,29 @@ class ClaudeSession:
                 except queue.Empty:
                     self._fail("the turn timed out")
                     raise SessionError(self.failure) from None
-                if kind == "delta":
+                if kind == "observation":
+                    event, fields, stamp, at = value
+                    if event == "model_first_token":
+                        if first_token:
+                            continue
+                        first_token = True
+                    elif event == "model_usage":
+                        counts = {key: fields[key] for key in usage_keys
+                                  if isinstance(fields.get(key), int) and not isinstance(fields[key], bool) and fields[key] >= 0}
+                        if fields.get("source") == "result":
+                            usage = counts
+                        else:
+                            message_id = fields.get("message_id")
+                            if not message_id or message_id in seen_usage:
+                                continue
+                            seen_usage.add(message_id)
+                            counts.pop("output_tokens", None)
+                            for key, count in counts.items():
+                                usage[key] = usage.get(key, 0) + count
+                        fields = {"usage": dict(usage), "source": fields["source"]}
+                    if self.timing_observer:
+                        self.timing_observer(event, fields, stamp, at)
+                elif kind == "delta":
                     yield value
                 elif kind == "unspoken":
                     yield UnspokenText(value)
@@ -160,6 +189,13 @@ class ClaudeSession:
 
     def _on_event(self, event: dict) -> None:
         kind = event.get("type")
+
+        def observation(name, fields):
+            self._events.put(("observation", (name, fields, time.monotonic(), time.time())))
+
+        if self._active and kind == "assistant" and not event.get("parent_tool_use_id"):
+            message = event.get("message") or {}
+            observation("model_usage", {**(message.get("usage") or {}), "source": "assistant", "message_id": message.get("id")})
         if kind == "control_response":
             response = (event.get("response") or {}).get("response") or {}
             if "account" in response:
@@ -185,12 +221,16 @@ class ClaudeSession:
                 # A lookup begins: end the sentence before it ("one sec, checking.") so it is spoken while the tool runs.
                 self._events.put(("unspoken" if unspoken else "delta", "\n"))
             if inner.get("type") == "content_block_delta" and delta.get("type") == "text_delta" and self._active:
+                if delta.get("text"):
+                    observation("model_first_token", {})
                 unspoken = self._call_tool_started and self.call_control.closing_queued
                 self._events.put(("unspoken" if unspoken else "delta", delta.get("text", "")))
         elif kind == "result":
             # A resumed session reports one result for the resume itself, before any turn.
             aborted = str(event.get("terminal_reason", "")).startswith("aborted")
             if self._active and (self._answering or aborted or event.get("is_error")):
+                if isinstance(event.get("usage"), dict):
+                    observation("model_usage", {**event["usage"], "source": "result"})
                 self._events.put(("end", None))
         # Ready means the process answers. When it lists its tools varies: a fork used to at
         # resume and now, like a fresh session, does on its first turn. Either way no text is

@@ -6,6 +6,7 @@ import socketserver
 import sys
 import tempfile
 import threading
+import time
 from pathlib import Path
 
 SERVER = "janet_call"
@@ -20,6 +21,7 @@ NAMES = tuple(f"mcp__{SERVER}__{name}" for name in DESCRIPTIONS)
 
 class CallControl:
     def __init__(self):
+        self.timing_observer = None
         self._lock = threading.Lock()
         self._active = self._ready = self._eligible = self._question = self._end = False
         self._closed = False
@@ -72,6 +74,7 @@ class CallControl:
             return self._end
 
     def call(self, name: str, arguments: dict) -> dict:
+        started, at = time.monotonic(), time.time()
         with self._lock:
             if name not in DESCRIPTIONS or arguments != {}:
                 message, error = "Only the listed call tools with empty arguments are allowed.", True
@@ -85,6 +88,9 @@ class CallControl:
             else:
                 self._end = True
                 message, error = "Goodbye is queued for playback. The client may end after playing it.", False
+            if self.timing_observer and name in DESCRIPTIONS:
+                self.timing_observer("call_tool", {"tool": name, "accepted": not error,
+                                                  "duration_ms": round((time.monotonic() - started) * 1000)}, started, at)
             return {"content": [{"type": "text", "text": message}], "isError": error}
 
     def close(self) -> None:

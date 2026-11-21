@@ -129,6 +129,21 @@ while (message := incoming.get()) is not None:
         log({"prompt": prompt})
         init()
         out({"type": "system", "subtype": "status", "status": "requesting"})
+        if "--fake-timing-failure" in argv:
+            for _ in range(2):
+                out({"type": "assistant", "message": {"id": "same-response", "usage": {
+                    "input_tokens": 7, "cache_read_input_tokens": 100, "cache_creation_input_tokens": 20, "output_tokens": 999}}})
+            os._exit(0)
+        if "--fake-timing" in argv:
+            out({"type": "stream_event", "event": {"type": "content_block_start", "content_block": {"type": "tool_use", "name": "WebSearch"}}})
+            time.sleep(0.12)
+            out({"type": "stream_event", "event": {"type": "content_block_delta", "delta": {"type": "text_delta", "text": "Hello"}}})
+            time.sleep(0.12)
+            out({"type": "stream_event", "event": {"type": "content_block_delta", "delta": {"type": "text_delta", "text": " there.\n"}}})
+            for index, counts in enumerate(({"input_tokens": 7, "cache_read_input_tokens": 100}, {"input_tokens": 3, "cache_read_input_tokens": 200})):
+                out({"type": "assistant", "message": {"id": f"response-{index}", "usage": counts}})
+            out({"type": "result", "num_turns": 1, "usage": {"input_tokens": 10, "cache_read_input_tokens": 300, "cache_creation_input_tokens": 20, "output_tokens": 6}})
+            continue
         reply, aborted = reply_to(prompt), False
         if "lookup" in prompt.rsplit(" says: ", 1)[-1]:
             # A lookup: a spoken bridge line, then the tool call, then the answer, with no space between the texts.

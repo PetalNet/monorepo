@@ -8,6 +8,7 @@ import hashlib
 import io
 import json
 import logging
+import math
 import os
 import socket
 import subprocess
@@ -19,6 +20,7 @@ import urllib.error
 import urllib.request
 import uuid
 import wave
+from collections import deque
 from dataclasses import dataclass, field
 from http import HTTPStatus
 from pathlib import Path
@@ -41,16 +43,24 @@ OPEN: set[int] = set()  # calls in progress
 
 
 class Endpointer:
-    """Splits a stream of caller audio into utterances by loudness.
+    """Splits caller audio by speech activity, or loudness when no VAD is supplied.
 
     feed() returns "start" when speech begins, the utterance's PCM when it ends, and None otherwise.
     This is the one place a better end-of-speech detector plugs in.
     """
 
     def __init__(self, threshold: int = 500, start_ms: int = 100, silence_ms: int = 700, lead_ms: int = 300,
-                 max_s: int = 30):
-        self.threshold, self.start_frames, self.silence_frames = threshold, start_ms // 20, silence_ms // 20
-        self.lead_frames, self.max_frames = lead_ms // 20, max_s * 50
+                 max_s: int = 30, vad=None):
+        self._vad = vad
+        self.frame_ms = 32 if vad is not None else 20
+        self.frame_bytes = RATE * self.frame_ms // 1000 * 2
+        self.threshold = threshold
+        self.start_frames = max(1, math.ceil(start_ms / self.frame_ms))
+        self.silence_frames = max(1, math.ceil(silence_ms / self.frame_ms))
+        self.lead_frames = math.ceil(lead_ms / self.frame_ms)
+        self.max_frames = math.ceil(max_s * 1000 / self.frame_ms)
+        self.endpoints = deque()
+        self._offset = 0
         self._pending = b""
         self._frames: list[bytes] = []
         self._speaking = False
@@ -59,10 +69,14 @@ class Endpointer:
     def feed(self, pcm: bytes) -> list[str | bytes]:
         events: list[str | bytes] = []
         self._pending += pcm
-        while len(self._pending) >= FRAME:
-            frame, self._pending = self._pending[:FRAME], self._pending[FRAME:]
-            samples = array.array("h", frame)
-            loud = sum(s * s for s in samples) > self.threshold**2 * len(samples)
+        while len(self._pending) >= self.frame_bytes:
+            frame, self._pending = self._pending[:self.frame_bytes], self._pending[self.frame_bytes:]
+            self._offset += self.frame_ms
+            if self._vad is not None:
+                loud = self._vad(frame)
+            else:
+                samples = array.array("h", frame)
+                loud = sum(s * s for s in samples) > self.threshold**2 * len(samples)
             self._frames.append(frame)
             if not self._speaking:
                 self._loud = self._loud + 1 if loud else 0
@@ -74,6 +88,9 @@ class Endpointer:
             else:
                 self._quiet = 0 if loud else self._quiet + 1
                 if self._quiet >= self.silence_frames or len(self._frames) >= self.max_frames:
+                    self.endpoints.append({"audio_end_ms": self._offset,
+                                           "endpoint_ms": self._quiet * self.frame_ms,
+                                           "endpoint_reason": "silence" if self._quiet >= self.silence_frames else "limit"})
                     events.append(b"".join(self._frames))
                     self._frames, self._speaking, self._loud = [], False, 0
         return events
@@ -176,6 +193,19 @@ def new_endpointer(config: "Config"):
             return Utterances(models, Policy(nothing_said_s=1e9), words=_WORDS[0] if _WORDS else None)
         except Exception as error:  # noqa: BLE001 - a call must go on with the loudness rule
             log.warning("no shared turn detector, using the loudness rule: %s", error)
+    if config.vad_model:
+        try:
+            import numpy as np
+            from janet_turn.turn_end import Silero
+
+            vad = Silero(Path(config.vad_model))
+            log.info("endpoint detector: audio VAD, silence %d ms", config.endpoint.get("silence_ms", 700))
+            endpoint = {"start_ms": 64, **config.endpoint}
+            return Endpointer(**endpoint, vad=lambda pcm: vad(
+                np.frombuffer(pcm, "<i2").astype(np.float32) / 32768) >= 0.3)
+        except Exception as error:  # noqa: BLE001 - calls retain the loudness fallback if the model is unavailable
+            log.warning("audio VAD unavailable, using the loudness rule: %s", error)
+    log.info("endpoint detector: loudness, silence %d ms", config.endpoint.get("silence_ms", 700))
     return Endpointer(**config.endpoint)
 
 
@@ -215,6 +245,8 @@ class Config:
     endpoint: dict = field(default_factory=dict)
     # Directory holding silero_vad.onnx and the Parakeet speech model for the shared turn detector. Empty uses the loudness rule.
     turn_models: str = ""
+    # Audio-only speech detection, independent of the optional transcript-based turn judge.
+    vad_model: str = ""
     # The call's background sound, as the tuning page's code (packages/janet-line), e.g. "AL6 AT45 AW83 BC2 BL11 BR7 BF2 BO6 DL0 DW48 U37 V80".
     # Empty is off. It plays while the line is open: comfort noise, a hum while a reply is worked on, ducked under Janet's voice.
     line_tone: str = ""
@@ -385,11 +417,14 @@ class Gateway:
                 elif line.startswith("data: "):
                     yield kind, json.loads(line[6:])
 
-    def speech(self, text: str) -> tuple[int, bytes]:
+    def speech(self, text: str, *, conversation_id: str | None = None, turn: int | None = None) -> tuple[int, bytes]:
         """One sentence as (sample rate, mono PCM16). Waits for a voice host that is waking up."""
         for _ in range(24):
             try:
-                with self._open("/v1/tts", {"text": text}, timeout=300) as response:
+                body = {"text": text}
+                if conversation_id is not None and turn is not None:
+                    body.update(conversation_id=conversation_id, turn=turn)
+                with self._open("/v1/tts", body, timeout=300) as response:
                     body = io.BytesIO(response.read())
                 with wave.open(body) as wav:
                     return wav.getframerate(), wav.readframes(wav.getnframes())
@@ -409,7 +444,7 @@ class Call:
         self.transcript: list[tuple[str, str]] = []
         self.latency: dict = {"turns": []}
         # A caller who talks faster than turns complete loses the oldest-waiting speech, not memory.
-        self.utterances: asyncio.Queue[tuple[bytes, float]] = asyncio.Queue(maxsize=4)
+        self.utterances: asyncio.Queue[tuple[bytes, float, dict]] = asyncio.Queue(maxsize=4)
         self.speaking: asyncio.Task | None = None
         self.voice: asyncio.Task | None = None
         self.heard: list[str] = []
@@ -446,7 +481,7 @@ class Call:
                 await self.tell(type="state", value="listening")
                 try:
                     timeout = RING_SILENCE_S if self.ring and not silence_reported else None
-                    pcm, ended = await asyncio.wait_for(self.utterances.get(), timeout)
+                    pcm, ended, turn = await asyncio.wait_for(self.utterances.get(), timeout)
                 except TimeoutError:
                     if self.caller_speaking:
                         continue
@@ -462,15 +497,19 @@ class Call:
                 except asyncio.QueueShutDown:
                     return
                 await self.tell(type="state", value="thinking")
-                turn = {"endpoint_ms": self.config.endpoint.get("silence_ms", 700)}
+                turn["outcome"] = "transcribing"
+                turn["stt_start_at"] = time.time()
                 mark = time.monotonic()
                 try:
                     text = await asyncio.to_thread(transcribe, self.config.stt, pcm)
                 except (OSError, ValueError) as error:
+                    turn["outcome"] = "stt_failed"
                     log.warning("call %s: speech to text failed: %s", self.conversation, error)
                     continue
                 turn["stt_ms"] = round((time.monotonic() - mark) * 1000)
+                turn["stt_result_at"] = time.time()
                 if not text:
+                    turn["outcome"] = "no_transcript"
                     continue
                 log.info("call %s: heard %d chars, %.1f s into the call (stt %d ms)", self.conversation, len(text), time.monotonic() - self.connected, turn["stt_ms"])
                 self.transcript.append(("Caller", text))
@@ -501,6 +540,7 @@ class Call:
     async def hang_up(self, why: str) -> None:
         """Janet ends the call: the earcon first, so the caller knows it was her, then the bye."""
         self.ended_by = why
+        self.latency["hangup_at"] = time.time()
         tone = await asyncio.to_thread(make_earcon, self.config, self.rate or 24000)
         try:
             if tone:
@@ -510,6 +550,9 @@ class Call:
                     self.tape_janet(tone, rate)
                 await asyncio.sleep(len(tone) / (rate * 2) + 0.15)  # let the phone play it before the line closes
             await self.ws.send(json.dumps({"type": "bye"}))
+            self.latency["bye_at"] = time.time()
+            log.info("call %s: bye %s", self.conversation, json.dumps({
+                "hangup_at": self.latency["hangup_at"], "bye_at": self.latency["bye_at"]}))
         except ConnectionClosed:
             self.ended_by = None  # the phone had already gone: that is the far side's end
 
@@ -569,7 +612,8 @@ class Call:
                     if stalled:
                         stalled = False
                         log.info("call %s: audio from the phone again", self.conversation)
-                    self.last_heard = time.monotonic()
+                    received, received_at = time.monotonic(), time.time()
+                    self.last_heard = received
                     if not isinstance(message, bytes):
                         continue
                     if self.config.record_dir:
@@ -579,14 +623,27 @@ class Call:
                         heard, self.him = 0, level(message, RATE)
                         if not self.playing:
                             await self.tell(type="level", her=0.0, him=self.him)
-                    for event in endpointer.feed(message):
+                    events = endpointer.feed(message)
+                    batch_end_ms = (getattr(endpointer, "_offset", 0)
+                                    + len(getattr(endpointer, "_pending", b"")) / (RATE * 2 / 1000))
+                    for event in events:
                         if event == "start":
                             self.caller_speaking = True
                             await self.cut_off()
                         else:
                             self.caller_speaking = False
+                            endpoint = endpointer.endpoints.popleft() if hasattr(endpointer, "endpoints") else {
+                                "endpoint_ms": None, "endpoint_reason": "shared_detector"}
                             if not self.utterances.full():
-                                self.utterances.put_nowait((event, time.monotonic()))
+                                behind = max(0, batch_end_ms - endpoint.get("audio_end_ms", batch_end_ms)) / 1000
+                                ended = received - behind
+                                endpoint["endpoint_at"] = (received_at - behind
+                                                           if "audio_end_ms" in endpoint else None)
+                                endpoint["batch_received_at"] = received_at
+                                endpoint["outcome"] = "queued"
+                                self.latency["turns"].append(endpoint)
+                                log.info("call %s: endpoint %s", self.conversation, json.dumps(endpoint))
+                                self.utterances.put_nowait((event, ended, endpoint))
         except ConnectionClosed:
             pass
         except TimeoutError:
@@ -612,6 +669,9 @@ class Call:
         """Speaks one reply. Each sentence is synthesized as it arrives, while earlier ones play."""
         loop, events, pending, spoken = asyncio.get_running_loop(), asyncio.Queue(), asyncio.Queue(), asyncio.Queue()
         stopped = threading.Event()
+        if not any(record is turn for record in self.latency["turns"]):
+            self.latency["turns"].append(turn)
+        turn["outcome"] = "answering"
         head_audio_sent = False
         if self.ring is not None:
             text = ("Outgoing phone call. If the two-way audio check has not been completed in this conversation, "
@@ -678,6 +738,7 @@ class Call:
         self.heard = []
         mark = time.monotonic()
         event = None
+        turn["head_request_at"] = time.time()
         try:
             while True:
                 event = asyncio.create_task(events.get())
@@ -687,15 +748,21 @@ class Call:
                 kind, data = event.result()
                 if kind == "sentence":
                     turn.setdefault("head_ms", round((time.monotonic() - mark) * 1000))
+                    turn.setdefault("first_sentence_at", time.time())
+                    if type(data.get("turn")) is int:
+                        turn["request_turn"] = data["turn"]
                     item = (data["text"], loop.create_future())
                     pending.put_nowait(item)
                     spoken.put_nowait((*item, data.get("bridge", False)))
                     continue
                 if kind == "failed":
                     log.warning("call %s: turn failed: %s", self.conversation, data["error"])
+                if kind == "done":
+                    turn["head_latency_ms"] = data.get("latency_ms", {})
                 pending.put_nowait(None)
                 spoken.put_nowait(None)
                 await player
+                turn["outcome"] = "completed" if kind == "done" else "head_failed"
                 if self.ring is not None and self.ring.state != "audio_connected":
                     if kind != "done" or data.get("end_conversation"):
                         self.ring.finish("head_failed")
@@ -703,7 +770,11 @@ class Call:
                         self.ring.finish("audio_connected")
                 return (self.ring is not None and kind == "failed") or (
                     kind == "done" and bool(data.get("end_conversation")))
+        except asyncio.CancelledError:
+            turn["outcome"] = "interrupted"
+            raise
         except Exception:
+            turn["outcome"] = "playback_failed"
             try:
                 await asyncio.to_thread(self.gateway.post, f"/v1/conversations/{self.conversation}/interrupt",
                                         {"heard_text": " ".join(self.heard)})
@@ -724,7 +795,11 @@ class Call:
         if self.voice is not None:
             await asyncio.wait([self.voice])
         mark = time.monotonic()
-        self.voice = asyncio.create_task(asyncio.to_thread(self.gateway.speech, sentence))
+        if turn is not None:
+            turn.setdefault("tts_request_at", time.time())
+        metadata = ({"conversation_id": self.conversation, "turn": turn["request_turn"]}
+                    if turn is not None and "request_turn" in turn else {})
+        self.voice = asyncio.create_task(asyncio.to_thread(self.gateway.speech, sentence, **metadata))
         self.voice.add_done_callback(lambda done: done.exception() if not done.cancelled() else None)
         audio = await asyncio.shield(self.voice)
         if turn is not None:
@@ -739,9 +814,6 @@ class Call:
             line = await asyncio.to_thread(make_line, self.config, rate)
             await self.ws.send(json.dumps({"type": "audio", "rate": rate}))
             self.rate, self.line = rate, line  # the tone starts only after the device knows the rate
-        if turn is not None and "total_ms" not in turn:
-            turn["total_ms"] = round((time.monotonic() - ended) * 1000) + turn["endpoint_ms"]
-            self.latency["turns"].append(turn)
         self.latency.setdefault("first_audio_ms", round((time.monotonic() - self.connected) * 1000))
         self.timeline.append({"t": round(time.monotonic() - self.connected, 2), "who": "Janet", "text": sentence})
         log.info("call %s: saying %d chars, %.1f s into the call (%d ms of audio)", self.conversation, len(sentence), time.monotonic() - self.connected, len(pcm) * 500 // rate)
@@ -758,6 +830,12 @@ class Call:
                 if self.ring is not None and self.ring.state != "audio_connected" and not self.ring.snapshot():
                     raise OSError("the incoming ring expired before audio")
                 await self.ws.send(chunk)
+                if turn is not None and "first_audio_at" not in turn:
+                    elapsed = round((time.monotonic() - ended) * 1000)
+                    turn["endpoint_to_audio_ms"] = elapsed if turn.get("endpoint_reason") != "shared_detector" else None
+                    turn["total_ms"] = (elapsed + turn["endpoint_ms"] if turn.get("endpoint_ms") is not None else None)
+                    turn["first_audio_at"] = time.time()
+                    log.info("call %s: first audio %s", self.conversation, json.dumps(turn))
                 if self.config.record_dir:
                     self.tape_janet(chunk, rate)
                 await self.tell(type="level", her=level(chunk, rate), him=self.him)

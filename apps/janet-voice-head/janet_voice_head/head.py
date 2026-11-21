@@ -1,3 +1,4 @@
+import json
 import logging
 import subprocess
 import threading
@@ -95,6 +96,7 @@ class Live:
     answered: bool = False
     # A turn has arrived and is waiting for the warm-up or running; a second one is refused at once.
     turn_pending: bool = False
+    timing_turn: int = 0
     # A barge-in that arrived while that turn was still waiting.
     early_cut: str | None = None
     ending: threading.Event = field(default_factory=threading.Event)
@@ -173,6 +175,7 @@ class Head:
     def turn(self, conv_id: str, text: str, emit: Emit) -> None:
         live = self._open_live(conv_id)
         arrived = time.monotonic()
+        arrived_at = time.time()
         spoken, emit_lock, bridge_ms = threading.Event(), threading.Lock(), []
         # A cold fork takes seconds to its first word. Until then one short line keeps the speaker from sitting in silence.
         # Never on a turn that starts warm, and at most once, and never after the real reply has begun.
@@ -185,7 +188,7 @@ class Head:
                     return
                 phrase = self.config.bridge_phrases[int.from_bytes(live.conv.id.encode()[:2], "big") % len(self.config.bridge_phrases)]
                 try:
-                    emit("sentence", {"text": phrase, "bridge": True})
+                    emit("sentence", {"text": phrase, "bridge": True, "conversation_id": conv_id, "turn": turn_number})
                     bridge_ms.append(_ms(arrived))
                 except OSError:
                     pass
@@ -194,6 +197,8 @@ class Head:
             if live.turn_pending:
                 raise ApiError(409, "a turn is already in flight; interrupt it first")
             live.turn_pending, live.early_cut = True, None
+            live.timing_turn += 1
+            turn_number = live.timing_turn
         timer = threading.Timer(self.config.bridge_after_s, bridge)
         timer.daemon = True
         if cold:
@@ -210,6 +215,24 @@ class Head:
             live.turn_pending = False
             raise
         started = time.monotonic()
+        session = live.session
+
+        usage = {}
+
+        def observe(event: str, fields: dict, stamp: float | None = None, at: float | None = None) -> None:
+            if event == "model_first_token":
+                latency["first_token"] = round(((time.monotonic() if stamp is None else stamp) - started) * 1000)
+            if event == "model_usage":
+                usage.clear()
+                usage.update(fields["usage"])
+            log.info("%s", json.dumps({"event": event, "conversation_id": conv_id, "turn": turn_number,
+                                     "at": time.time() if at is None else at,
+                                     "elapsed_ms": round(((time.monotonic() if stamp is None else stamp) - arrived) * 1000),
+                                     **fields}))
+
+        session.timing_observer = observe
+        session.call_control.timing_observer = observe
+        observe("head_request", {}, arrived, arrived_at)
         latency: dict[str, int | None] = {"first_token": None, "first_sentence": None, "total": None}
         client_connected = True
         said: list[str] = []
@@ -221,9 +244,10 @@ class Head:
                 spoken.set()
                 if latency["first_sentence"] is None:
                     latency["first_sentence"] = _ms(started)
+                    observe("head_first_sentence", {})
                 if client_connected:
                     try:
-                        emit("sentence", {"text": sentence})
+                        emit("sentence", {"text": sentence, "conversation_id": conv_id, "turn": turn_number})
                     except OSError:
                         client_connected = False
                         live.session.call_control.interrupt()
@@ -249,8 +273,6 @@ class Head:
                     stream = SpeechStream(redact=None if fork else session.account_email)
                     speaking = True
                     for delta in session.turn(prompts.turn_prompt(text, fork=fork, cut_off=previous_cut, web=self._web_tools(live.conv, True) if fork else (), lab=live.conv.lab_access), self.config.turn_timeout_s):
-                        if latency["first_token"] is None:
-                            latency["first_token"] = _ms(started)
                         speaking = not isinstance(delta, UnspokenText)
                         for sentence in stream.feed(delta.text if isinstance(delta, UnspokenText) else delta):
                             if speaking:
@@ -298,10 +320,15 @@ class Head:
                 if client_connected:
                     try:
                         end = end and (not hangup or session.call_control.end_requested)
-                        emit("done", {"end_conversation": end, "latency_ms": latency})
+                        emit("done", {"end_conversation": end, "latency_ms": latency, "conversation_id": conv_id, "turn": turn_number})
+                        observe("head_done_sent", {"end_conversation": end})
                     except OSError:
                         pass
         finally:
+            timing = {"latency_ms": latency, "request_total_ms": _ms(arrived), "usage": usage}
+            observe("head_turn_finished", timing)
+            session.timing_observer = None
+            session.call_control.timing_observer = None
             if live.in_turn:
                 live.session.call_control.interrupt()
             timer.cancel()
