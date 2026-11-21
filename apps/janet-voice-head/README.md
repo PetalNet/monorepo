@@ -18,9 +18,9 @@ It opens seven fresh, temporary sessions using the production session wrapper, p
 builder, and tool boundaries, with synthetic personal context. Matrix history is
 unavailable in the fixtures. A separate judge checks unsupported claims and two controls
 that require using supplied facts; judge calibration must reject invented history and
-evasion while accepting a factual greeting. Model errors, missing verdicts, and failed
+evasion while accepting a factual greeting and a supported personal claim. Model errors, missing verdicts, and failed
 calibration fail the run. It makes eight model sessions, uses no live personal history,
-and does not run in the unit suite. Results include replies, verdicts, model names, CLI
+and does not run in the unit suite. Results include prompts, tool evidence, replies, verdicts, model names, CLI
 version, and the prompt source hash. This small stochastic eval cannot guarantee that
 the model never fabricates or reproduce every inherited conversation; use `desk-test`
 for deployed checks that must not merge into main Janet.
