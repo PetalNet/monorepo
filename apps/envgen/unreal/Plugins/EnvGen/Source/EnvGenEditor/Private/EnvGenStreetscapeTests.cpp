@@ -24,6 +24,7 @@
 #include "Misc/Paths.h"
 #include "Modules/ModuleManager.h"
 #include "StaticMeshAttributes.h"
+#include "StaticMeshResources.h"
 
 IMPLEMENT_SIMPLE_AUTOMATION_TEST(FEnvGenStreetscapeMalformed, "EnvGen.Streetscape.MalformedGeometry",
 	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
@@ -386,6 +387,8 @@ bool FEnvGenStreetscapeAthletic::RunTest(const FString& Parameters)
 		TestFalse(TEXT("fiber normals are in world space"), Material->bTangentSpaceNormal);
 		TestEqual(TEXT("athletic field is ground class"), Component(0)->CustomDepthStencilValue, 1);
 		TestFalse(TEXT("athletic field keeps terrain planes"), Component(0)->GetStaticMesh()->GetNaniteSettings().bEnabled);
+		TestTrue(TEXT("registered atlas retains full precision in the actual render buffer"),
+			Component(0)->GetStaticMesh()->GetRenderData()->LODResources[0].VertexBuffers.StaticMeshVertexBuffer.GetUseFullPrecisionUVs());
 		TestEqual(TEXT("identical field bins share a material"), Component(1)->GetMaterial(0), Component(0)->GetMaterial(0));
 		TestNotEqual(TEXT("translated fields cannot share a world-projected pile"), Component(7)->GetMaterial(0), Component(0)->GetMaterial(0));
 		for (int32 I = 2; I <= 6; ++I)
@@ -412,7 +415,7 @@ bool FEnvGenStreetscapeAthletic::RunTest(const FString& Parameters)
 			const FGrassVariety& Variety = GrassOutput->GrassTypes[I].GrassType->GrassVarieties[0];
 			const UStaticMesh* Pile = Variety.GrassMesh;
 			TestNotNull(TEXT("synthetic field has real fiber geometry"), Pile);
-			TestTrue(TEXT("pile ends within four metres"), Variety.EndCullDistance.GetValue() <= 400);
+			TestTrue(TEXT("pile ends within six metres"), Variety.EndCullDistance.GetValue() <= 600);
 			TestFalse(TEXT("synthetic fibers do not cast large natural-grass shadows"), Variety.bCastDynamicShadow);
 			const auto PilePositions = FStaticMeshConstAttributes(*Pile->GetMeshDescription(0)).GetVertexPositions();
 			float MinZ = MAX_flt, MaxZ = -MAX_flt;

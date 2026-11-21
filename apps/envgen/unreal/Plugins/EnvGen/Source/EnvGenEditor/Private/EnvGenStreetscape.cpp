@@ -27,6 +27,7 @@
 #include "Materials/MaterialExpressionVertexColor.h"
 #include "Materials/MaterialExpressionMaterialFunctionCall.h"
 #include "Materials/MaterialExpressionMultiply.h"
+#include "Materials/MaterialExpressionPerInstanceRandom.h"
 #include "Materials/MaterialExpressionWorldPosition.h"
 #include "Materials/MaterialExpressionTextureCoordinate.h"
 #include "Materials/MaterialExpressionTextureSample.h"
@@ -74,7 +75,7 @@ namespace
 		{TEXT("clay"), {FLinearColor(.34f, .23f, .14f), .97f, 0, 4}},
 		{TEXT("turf"), {FLinearColor(.065f, .08f, .0375f), .96f, 0, 0}},
 		{TEXT("natural_grass"), {FLinearColor(.065f, .08f, .0375f), .96f, 0, 0}},
-		{TEXT("athletic_turf"), {FLinearColor::FromSRGBColor(FColor(48, 100, 56)), .78f, 0, 0}},
+		{TEXT("athletic_turf"), {FLinearColor::FromSRGBColor(FColor(48, 100, 56)), .63f, 0, 0}},
 		{TEXT("grass_paint_white"), {FLinearColor(.723f, .716f, .791f), .96f, 0, 0}},
 		{TEXT("grass_paint_yellow"), {FLinearColor(.72f, .48f, .045f), .96f, 0, 0}},
 		{TEXT("paint_white"), {FLinearColor(.723f, .716f, .791f), .83f, 0, 5}},
@@ -308,6 +309,7 @@ return float4(colour,saturate(%.5f+.08*(wear-.5)+.08*crack));
 		Material->bTangentSpaceNormal = false;
 		auto* Position = CastChecked<UMaterialExpressionWorldPosition>(UMaterialEditingLibrary::CreateMaterialExpression(Material, UMaterialExpressionWorldPosition::StaticClass()));
 		auto* Normal = CastChecked<UMaterialExpressionVertexNormalWS>(UMaterialEditingLibrary::CreateMaterialExpression(Material, UMaterialExpressionVertexNormalWS::StaticClass()));
+		auto* Eye = CastChecked<UMaterialExpressionCameraPositionWS>(UMaterialEditingLibrary::CreateMaterialExpression(Material, UMaterialExpressionCameraPositionWS::StaticClass()));
 		auto* UV = CastChecked<UMaterialExpressionTextureCoordinate>(UMaterialEditingLibrary::CreateMaterialExpression(Material, UMaterialExpressionTextureCoordinate::StaticClass()));
 		auto* Atlas = CastChecked<UMaterialExpressionTextureObject>(UMaterialEditingLibrary::CreateMaterialExpression(Material, UMaterialExpressionTextureObject::StaticClass()));
 		Atlas->Texture = Texture;
@@ -329,6 +331,7 @@ return float4(colour,saturate(%.5f+.08*(wear-.5)+.08*crack));
 		};
 		Input(TEXT("P"), Position);
 		Input(TEXT("N"), Normal);
+		Input(TEXT("Eye"), Eye);
 		Input(TEXT("UV"), UV);
 		Input(TEXT("Atlas"), Atlas);
 		const double Radians = FMath::DegreesToRadians(FMath::Fmod(Heading, 360.));
@@ -364,11 +367,13 @@ float ribbon=cos(row*6.2831853)*rowVisible;
 float2 fiberCell=q*float2(200,333.3333);
 float detailVisible=1-smoothstep(.25,1.,max(fwidth(fiberCell.x),fwidth(fiberCell.y)));
 float fiber=n.value(fiberCell);
-float2 beadCell=floor(fiberCell);
-float2 beadCentre=.25+.5*float2(n.hash(beadCell),n.hash(beadCell+27.1));
-float beadDistance=length(frac(fiberCell)-beadCentre);
-float crumbNear=(1-smoothstep(.08,.20,beadDistance))*.35;
+float infill=n.value(q*700)+.35*n.value(q*1213+37.9);
+float crumbNear=smoothstep(.78,1.02,infill)*.55;
 float crumb=lerp(.012,crumbNear,detailVisible);
+float2 clusterCell=q*40;
+float cluster=n.value(clusterCell);
+float clusterVisible=1-smoothstep(.25,1.,max(fwidth(clusterCell.x),fwidth(clusterCell.y)));
+float pileNear=1-smoothstep(200.,580.,distance(P,Eye));
 
 float3 colour=Texture2DSampleGrad(Atlas,AtlasSampler,UV,ddx(UV),ddy(UV)).rgb;
 
@@ -379,18 +384,19 @@ float direction=(2*smoothstep(-stripeFW,stripeFW,sin(stripe*3.14159265))-1)*stri
 float seamDistance=abs(frac(stripe+.5)-.5)*StripeWidth;
 float seamFW=max(fwidth(q.x),.0001);
 float seam=(1-smoothstep(max(0.,.002-seamFW),.002+seamFW,seamDistance))*min(1.,.002/seamFW)*stripeVisible;
-float modulation=1.+.035*direction+.035*ribbon+.025*(fiber-.5)*detailVisible-.035*seam;
+float modulation=lerp(.82,.67,pileNear)+.012*direction+.008*ribbon+.015*(fiber-.5)*detailVisible
+ +.012*(cluster-.5)*clusterVisible+.018*(n.value(q*.8)-.5)-.015*seam;
 
 float3 up=normalize(N);
 float3 axis=float3(HeadingSin,HeadingCos,0);
 float3 tangent=axis-up*dot(up,axis);
 tangent=normalize(tangent+float3(0,0,1)*step(dot(tangent,tangent),.000001));
 float3 side=normalize(cross(tangent,up));
-float acrossSlope=.08*sin(row*6.2831853)*rowVisible;
-float alongSlope=.025*(fiber-.5)*detailVisible;
+float acrossSlope=.025*sin(row*6.2831853)*rowVisible+.07*(cluster-.5)*clusterVisible;
+float alongSlope=.06*(n.value(clusterCell+27.1)-.5)*clusterVisible;
 FiberNormal=normalize(up+side*acrossSlope+tangent*alongSlope);
 // Directional roughness and dielectric Fresnel give every inlaid color the same grazing sheen.
-Roughness=clamp(.78+.035*direction-.035*ribbon+.08*crumb,.65,.9);
+Roughness=clamp(.63+.015*direction+.05*(cluster-.5)*clusterVisible+.08*crumb,.55,.8);
 Specular=.32-.12*crumb;
 return lerp(colour*modulation,float3(.008,.009,.008),crumb);
 )HLSL");
@@ -577,13 +583,26 @@ return lerp(colour*modulation,float3(.008,.009,.008),crumb);
 		FiberUVInput.InputName = TEXT("UV"); FiberUVInput.Input.Connect(0, FiberUV);
 		FCustomInput& SeedInput = Filaments->Inputs.AddDefaulted_GetRef();
 		SeedInput.InputName = TEXT("Seed"); SeedInput.Input.Connect(3, Vertex);
+		auto* FiberAcross = CastChecked<UMaterialExpressionConstant3Vector>(UMaterialEditingLibrary::CreateMaterialExpression(Material, UMaterialExpressionConstant3Vector::StaticClass()));
+		FiberAcross->Constant = FLinearColor(FMath::Cos(Radians), -FMath::Sin(Radians), 0);
+		FCustomInput& AxisInput = Filaments->Inputs.AddDefaulted_GetRef();
+		AxisInput.InputName = TEXT("Axis"); AxisInput.Input.Connect(0, FiberAcross);
+		FCustomOutput& FiberNormal = Filaments->AdditionalOutputs.AddDefaulted_GetRef();
+		FiberNormal.OutputName = TEXT("FiberNormal"); FiberNormal.OutputType = CMOT_Float3;
+		FCustomOutput& FiberRoughness = Filaments->AdditionalOutputs.AddDefaulted_GetRef();
+		FiberRoughness.OutputName = TEXT("FiberRoughness"); FiberRoughness.OutputType = CMOT_Float1;
 		Filaments->Code = TEXT(R"HLSL(
-float strand=floor(UV.x*4), across=abs(frac(UV.x*4)-.5);
+float strand=floor(UV.x*6), crossSection=frac(UV.x*6)-.5, across=abs(crossSection);
 float tip=.84+.16*frac(sin(strand*127.1+Seed*311.7)*43758.5453);
-float edge=max(fwidth(UV.x*4),.001), end=max(fwidth(UV.y),.001);
+float edge=max(fwidth(UV.x*6),.001), end=max(fwidth(UV.y),.001);
+FiberNormal=normalize(float3(0,0,1)+Axis*.18*sin(crossSection*3.14159265));
+FiberRoughness=.63+.06*(Seed-.5);
 return Coverage*(1-smoothstep(.36-edge,.36+edge,across))*(1-smoothstep(tip-end,tip+end,UV.y));
 )HLSL");
+		Filaments->RebuildOutputs();
 		UMaterialEditingLibrary::ConnectMaterialProperty(Filaments, TEXT(""), MP_OpacityMask);
+		UMaterialEditingLibrary::ConnectMaterialProperty(Filaments, TEXT("FiberNormal"), MP_Normal);
+		UMaterialEditingLibrary::ConnectMaterialProperty(Filaments, TEXT("FiberRoughness"), MP_Roughness);
 		auto* Shade = CastChecked<UMaterialExpressionCustom>(UMaterialEditingLibrary::CreateMaterialExpression(Material, UMaterialExpressionCustom::StaticClass()));
 		Shade->Inputs.Empty();
 		Shade->OutputType = CMOT_Float3;
@@ -599,8 +618,7 @@ return Coverage*(1-smoothstep(.36-edge,.36+edge,across))*(1-smoothstep(tip-end,t
 		UMaterialEditingLibrary::ConnectMaterialProperty(Transmitted, TEXT(""), MP_SubsurfaceColor);
 		auto* Up = CastChecked<UMaterialExpressionConstant3Vector>(UMaterialEditingLibrary::CreateMaterialExpression(Material, UMaterialExpressionConstant3Vector::StaticClass()));
 		Up->Constant = FLinearColor(0, 0, 1);
-		UMaterialEditingLibrary::ConnectMaterialProperty(Up, TEXT(""), MP_Normal);
-		for (const auto& Property : {TPair<EMaterialProperty, float>(MP_Roughness, .76f), {MP_Specular, .32f}})
+		for (const auto& Property : {TPair<EMaterialProperty, float>(MP_Specular, .32f)})
 		{
 			auto* Value = CastChecked<UMaterialExpressionConstant>(UMaterialEditingLibrary::CreateMaterialExpression(Material, UMaterialExpressionConstant::StaticClass()));
 			Value->R = Property.Value;
@@ -636,8 +654,25 @@ return Coverage*(1-smoothstep(.36-edge,.36+edge,across))*(1-smoothstep(tip-end,t
 		DeltaInput.InputName = TEXT("Delta"); DeltaInput.Input.Connect(0, WorldDelta);
 		FCustomInput& NormalInput = Sink->Inputs.AddDefaulted_GetRef();
 		NormalInput.InputName = TEXT("N"); NormalInput.Input.Connect(0, Normal);
+		auto* Instance = CastChecked<UMaterialExpressionPerInstanceRandom>(UMaterialEditingLibrary::CreateMaterialExpression(Material, UMaterialExpressionPerInstanceRandom::StaticClass()));
+		FCustomInput& InstanceInput = Sink->Inputs.AddDefaulted_GetRef();
+		InstanceInput.InputName = TEXT("Instance"); InstanceInput.Input.Connect(0, Instance);
+		FCustomInput& RibbonInput = Sink->Inputs.AddDefaulted_GetRef();
+		RibbonInput.InputName = TEXT("Seed"); RibbonInput.Input.Connect(3, Vertex);
 		// Snap roots, rather than patch centres, to world-aligned rows so rotated fields have no patch seams.
-		Sink->Code = FString::Printf(TEXT("float3 root=P-Delta; float2 across=float2(%.17g,%.17g); float row=dot(root.xy,across); float2 shift=across*(round(row)-row); float fade=1-smoothstep(120.,380.,distance(root,Eye)); return float3(shift,2.5-dot(shift,N.xy)/max(N.z,.1))-Delta*(1-fade);"), FMath::Cos(Radians), -FMath::Sin(Radians));
+		Sink->Code = FString::Printf(TEXT(R"HLSL(
+float3 root=P-Delta;
+float2 across=float2(%.17g,%.17g), along=float2(-across.y,across.x);
+float r=frac(sin(Seed*127.1+Instance*311.7)*43758.5453);
+float s=frac(sin(Seed*269.5+Instance*183.3)*2578.543);
+float row=dot(root.xy,across);
+float2 shift=across*(round(row)-row+(r-.5)*.4)+along*(s-.5)*.5;
+float turn=(s-.5)*.6;
+float2 tilted=float2(cos(turn)*Delta.x-sin(turn)*Delta.y,sin(turn)*Delta.x+cos(turn)*Delta.y);
+float3 varied=float3(tilted,Delta.z*(.85+.25*r));
+float fade=1-smoothstep(200.,580.,distance(root,Eye));
+return float3(shift,2.5-dot(shift,N.xy)/max(N.z,.1))+varied*fade-Delta;
+)HLSL"), FMath::Cos(Radians), -FMath::Sin(Radians));
 		UMaterialEditingLibrary::ConnectMaterialProperty(Sink, TEXT(""), MP_WorldPositionOffset);
 		UMaterialEditingLibrary::RecompileMaterial(Material);
 
@@ -663,7 +698,7 @@ return Coverage*(1-smoothstep(.36-edge,.36+edge,across))*(1-smoothstep(tip-end,t
 			const float BladeHeight = Random.FRandRange(2.f, 3.2f);
 			const FVector2f Lean = Along * Random.FRandRange(.2f, 1.f) + Across * Random.FRandRange(-.35f, .35f);
 			const float Facing = Random.FRand() * PI;
-			const FVector2f Side = FVector2f(FMath::Cos(Facing), FMath::Sin(Facing)) * .3f;
+			const FVector2f Side = FVector2f(FMath::Cos(Facing), FMath::Sin(Facing)) * .4f;
 			const float Seed = Random.FRand();
 			const auto Add = [&](float T, float Edge)
 			{
@@ -694,8 +729,8 @@ return Coverage*(1-smoothstep(.36-edge,.36+edge,across))*(1-smoothstep(tip-end,t
 		FGrassVariety& Variety = Grass->GrassVarieties.AddDefaulted_GetRef();
 		Variety.GrassMesh = Mesh;
 		Variety.GrassDensity = FPerPlatformFloat(2500);
-		Variety.StartCullDistance = FPerPlatformInt(300);
-		Variety.EndCullDistance = FPerPlatformInt(400);
+		Variety.StartCullDistance = FPerPlatformInt(450);
+		Variety.EndCullDistance = FPerPlatformInt(600);
 		Variety.bUseGrid = true;
 		Variety.PlacementJitter = 0;
 		Variety.RandomRotation = false;
@@ -1040,6 +1075,7 @@ static bool ProcessStreetscape(UWorld* World, const FString& ManifestPath,
 		UStaticMesh::FBuildMeshDescriptionsParams Params;
 		Params.bFastBuild = false;
 		Params.bBuildSimpleCollision = false;
+		if (!Item.Image.IsEmpty()) Params.PerLODOverrides.AddDefaulted_GetRef().bUseFullPrecisionUVs = true;
 		Mesh->BuildFromMeshDescriptions({&Description}, Params);
 		FStaticMeshCompilingManager::Get().FinishCompilation({Mesh});
 		if (bCollision)
@@ -1085,9 +1121,9 @@ static bool ProcessStreetscape(UWorld* World, const FString& ManifestPath,
 			Values->SetStringField(TEXT("colour_source"), TEXT("opaque registered atlas RGB, including default green and inlaid markings"));
 			Values->SetStringField(TEXT("heading_convention"), TEXT("EN degrees counterclockwise from east"));
 			Values->SetNumberField(TEXT("machine_row_spacing_m"), .01);
-			Values->SetNumberField(TEXT("pile_height_min_m"), .02);
-			Values->SetNumberField(TEXT("pile_height_max_m"), .032);
-			Values->SetNumberField(TEXT("pile_end_cull_m"), 4);
+			Values->SetNumberField(TEXT("pile_height_min_m"), .017);
+			Values->SetNumberField(TEXT("pile_height_max_m"), .0352);
+			Values->SetNumberField(TEXT("pile_end_cull_m"), 6);
 			Values->SetNumberField(TEXT("roll_seam_half_width_m"), .002);
 			Values->SetNumberField(TEXT("distant_crumb_fraction"), .012);
 			Values->SetNumberField(TEXT("specular"), .32);
