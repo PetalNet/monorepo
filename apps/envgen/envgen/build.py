@@ -1476,7 +1476,7 @@ def build(site_path: Path, out: Path, cache: Path | None = None) -> dict:
         sources["lidar"] = lidar.identify(site.lidar, tile, site.crs, cache)
         lidar_key = sources["lidar"]["sha256"]
     structure = {}
-    footprints, roofs = [], None
+    footprints, tree_exclusions, roofs = [], [], None
     for name in ("building_imagery", "building_reference"):
         source = getattr(site, name)
         if source:
@@ -1497,6 +1497,7 @@ def build(site_path: Path, out: Path, cache: Path | None = None) -> dict:
             footprints = building_imagery.refine(footprints, site.building_imagery.location, site.crs, tile)
         if site.building_reference:
             footprints = buildings.reference_outlines(footprints, Path(site.building_reference.location), tile)
+        tree_exclusions = buildings.tree_exclusions(path, site.crs, tile, footprints)
         roofs = buildings.mask(footprints, tile, lidar.CELL_M)
         sources["buildings"] = {
             "kind": site.buildings.kind,
@@ -1820,6 +1821,7 @@ def build(site_path: Path, out: Path, cache: Path | None = None) -> dict:
                 classes["splits"],
                 [sources[name] for name in ("survey", "tree_mix") if name in sources],
                 buildings_key,
+                hashlib.sha256(b"".join(item["polygon"].wkb for item in tree_exclusions)).hexdigest(),
                 site.seed,
                 trees.SETTINGS,
                 trees.COLUMNS,
@@ -1834,7 +1836,7 @@ def build(site_path: Path, out: Path, cache: Path | None = None) -> dict:
                 covering,
                 classes,
                 rasters()[0],
-                footprints,
+                tree_exclusions,
             ),
         )
         inventory = stages["trees"]

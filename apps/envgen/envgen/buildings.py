@@ -57,12 +57,11 @@ SETTINGS = {
 }
 
 
-def load_footprints(path: Path, crs: str, tile: Tile) -> list[dict]:
-    """The footprints inside the tile, in the site's CRS, cut at its edge: each `{"polygon", "tags"}`, one per polygon part."""
+def load_footprints(path: Path, crs: str, tile: Tile | None) -> list[dict]:
+    """Projected `{"polygon", "tags"}` parts, clipped and simplified for a tile, or full source outlines without one."""
     collection = json.loads(path.read_text())
     to_site = Transformer.from_crs("EPSG:4326", crs, always_xy=True).transform
-    west, south, east, north = tile.bounds()
-    window = shapely.box(west, south, east, north)
+    window = shapely.box(*tile.bounds()) if tile is not None else None
     found = []
     for feature in collection["features"]:
         geometry = shapely.transform(
@@ -70,12 +69,27 @@ def load_footprints(path: Path, crs: str, tile: Tile) -> list[dict]:
         )
         for whole in getattr(geometry, "geoms", [geometry]):
             # A building over the tile's edge stands on ground the tile does not have, so it is cut there.
-            inside = shapely.make_valid(whole).intersection(window)
+            inside = shapely.make_valid(whole)
+            if window is not None:
+                inside = inside.intersection(window)
             for part in getattr(inside, "geoms", [inside]):
-                part = part.simplify(SIMPLIFY_M)
+                if window is not None:
+                    part = part.simplify(SIMPLIFY_M)
                 if part.geom_type == "Polygon" and part.area >= MIN_AREA_M2:
                     found.append({"polygon": part, "tags": feature.get("properties", {})})
     found.sort(key=lambda item: (item["polygon"].centroid.y, item["polygon"].centroid.x, str(item["tags"].get("id"))))
+    return found
+
+
+def tree_exclusions(path: Path, crs: str, tile: Tile, primary: Sequence[dict]) -> list[dict]:
+    """Keep reviewed/refined primary outlines inside the tile and acquired source material outside it."""
+    window = shapely.box(*tile.bounds())
+    found = list(primary)
+    for item in load_footprints(path, crs, None):
+        outside = item["polygon"].difference(window)
+        for part in getattr(outside, "geoms", [outside]):
+            if part.geom_type == "Polygon" and not part.is_empty:
+                found.append({**item, "polygon": part})
     return found
 
 

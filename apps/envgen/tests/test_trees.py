@@ -14,12 +14,39 @@ from envgen.site import Source, Tile
 
 from . import helpers as h
 from .test_cover import sources
+from .test_buildings import geojson, square
 from .test_surface import write_noisy_scene
 
 ROOF = (70, 60, 110, 90)  # west, south, east, north: a flat roof 8 m up, grey in the imagery
 # east, north, crown radius, height: one tree alone, a small one, and two whose crowns touch.
 ALONE, SMALL, TWINS = (30, 40, 5, 12), (45, 100, 3, 6), ((88, 25, 5, 11), (97, 25, 5, 10))
 NODATA = -9999.0
+
+
+def test_pipeline_excludes_boundary_crown_for_wholly_outside_geojson_building(tmp_path):
+    path = tmp_path / "buildings.geojson"
+    primary = (square(*ROOF), {"id": "roof"})
+    geojson(path, [primary])
+    site = scene(tmp_path, crowns=((2, 40, 5, 12), SMALL),
+                 buildings={"kind": "file", "path": path.name})
+    out = tmp_path / "out"
+    baseline = build(site, out)
+    before = inventory(out, baseline)
+    building_inventory = (out / "buildings.json").read_bytes()
+    boundary, off = near(before, 2, 40)
+    assert len(before) == 2 and off <= 1.5
+    assert boundary["east_m"] + 63 > 0  # trunk is inside; its crown reaches beyond the tile
+    assert "trees" in build(site, out)["stages_reused"]
+
+    geojson(path, [primary, (square(-5, 37, -1, 44), {"id": "outside"})])
+    changed = build(site, out)
+    after = inventory(out, changed)
+
+    assert after == [tree for tree in before if tree != boundary]
+    assert changed["trees"]["not_trees"]["crown_overlaps_buildings"] == 1
+    assert "trees" not in changed["stages_reused"]
+    assert (out / "buildings.json").read_bytes() == building_inventory
+    assert changed["buildings"]["count"] == baseline["buildings"]["count"] == 1
 
 
 @pytest.mark.parametrize("x,y,radius,excluded", [

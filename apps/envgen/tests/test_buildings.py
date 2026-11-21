@@ -9,7 +9,7 @@ from PIL import Image
 from pyproj import Transformer
 from shapely.geometry import Polygon
 
-from envgen import architecture, buildings, cli, roof_survey, surface
+from envgen import architecture, buildings, cli, roof_survey, surface, trees
 from envgen.build import build
 from envgen.site import SiteError, Tile, load_site
 
@@ -239,6 +239,24 @@ def test_a_footprint_over_the_tiles_edge_is_cut_there(tmp_path):
     (found,) = buildings.load_footprints(tmp_path / "b.geojson", h.CRS, TILE)
     assert found["polygon"].area == pytest.approx(200, rel=1e-3)
     assert found["polygon"].bounds[0] == pytest.approx(h.WEST, abs=1e-3)
+
+
+def test_tree_exclusions_keep_source_only_outside_and_primary_corrections_inside(tmp_path):
+    path = tmp_path / "b.geojson"
+    geojson(path, [(square(-10, 10, 10, 30), {"id": "crossing"}),
+                   (square(-20, 50, -10, 60), {"id": "outside"})])
+    primary = buildings.load_footprints(path, h.CRS, TILE)
+    assert len(primary) == 1
+    primary[0] = {**primary[0], "polygon": moved((5, 10, 15, 30)),
+                  "outline_observation": {"status": "reviewed"}}
+    exclusions = buildings.tree_exclusions(path, h.CRS, TILE, primary)
+    records = [{"east_m": x - 63, "north_m": y - 63, "crown_radius_m": 1}
+               for x, y in [(-5, 20), (2, 20), (14, 20), (-15, 55)]]
+
+    assert trees.crowns_overlapping_buildings(records, exclusions, TILE.centre) == [True, False, True, True]
+    assert exclusions[0] is primary[0]
+    assert len(primary) == 1 and primary[0]["polygon"].equals(moved((5, 10, 15, 30)))
+    assert sum(item["polygon"].area for item in exclusions) == pytest.approx(500, abs=1e-3)
 
 
 def test_a_crown_with_its_top_in_a_footprint_is_no_tree_and_one_beside_it_stays():
