@@ -185,8 +185,8 @@ Markings intersecting that field become color regions in one opaque registered a
 including local RGBA artwork. All colors share streamed 1.7–2.4 cm bent blades near the camera,
 filtered tuft rows, irregular black infill, fiber normals, roughness
 and grazing reflection. Alternating pile direction and narrow roll seams follow the configured heading.
-The pile uses the existing Landscape grass streaming system. Individual blades have two segments
-nearby and one segment at distance. Their height fades from 6 to 13 m before culling at 14 m. Small irregular black granules sit between the near blades. Per-blade variation breaks up
+The pile uses the existing Landscape grass streaming system. Individual blades have three segments
+nearby and one segment at distance. Their height fades from 3 to 10 m before culling at 11 m. Small irregular charcoal granules sit on a dark infill bed between the near blades. Per-blade variation breaks up
 repeated patches while retaining manufactured rows.
 Its conservative footprint mask clips fibers at field boundaries to within a mask texel;
 world-projected atlas colors include the
@@ -225,8 +225,9 @@ not proof of synthetic turf. Record imagery cues, available OSM surface tags and
 record absent tags honestly. Both the original and effective decisions appear in the stage and output JSON.
 
 Natural fields retain the Landscape's grass material and blade population, without a flat field overlay.
-Lines split at field boundaries. Grass paint projects a faded color onto the terrain and natural grass
-blades. Its footprint follows the marking triangles, preserving registered image alpha and color.
+Lines split at field boundaries. Grass paint projects a faded color onto grass-like receivers while
+excluding horizontal ground. Sparse areas retain gaps between existing blades. Its footprint follows
+the marking triangles, preserving registered image alpha and color.
 The original mesh remains in the semantic depth pass only. Portions on clay or paving retain the
 existing paint finish. Natural-field image marks use the same projected paint. `turf` without a field record retains its legacy behavior.
 

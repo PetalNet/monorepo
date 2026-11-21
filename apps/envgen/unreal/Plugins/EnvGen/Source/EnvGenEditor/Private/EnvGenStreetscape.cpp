@@ -431,9 +431,7 @@ float visible=1-smoothstep(.25,1.,max(fwidth(q.x),fwidth(q.y)));
 float grain=lerp(.5,lerp(lerp(a,b,f.x),lerp(c,d,f.x),f.y),visible);
 float3 geometric=cross(ddx(P),ddy(P));
 float upright=1-smoothstep(.45,.8,abs(geometric.z)/max(length(geometric),.000001));
-float ground=.12+.10*grain;
-float blades=.35+.60*grain;
-return Mask*lerp(ground,blades,upright);
+return Mask*(.35+.60*grain)*upright;
 )HLSL");
 		UMaterialEditingLibrary::ConnectMaterialProperty(Opacity, TEXT(""), MP_Opacity);
 		UMaterialEditingLibrary::RecompileMaterial(Material);
@@ -533,11 +531,12 @@ float detailVisible=1-smoothstep(.25,1.,max(fwidth(fiberCell.x),fwidth(fiberCell
 float fiber=n.value(fiberCell);
 float infill=n.value(q*320)+.35*n.value(q*611+37.9);
 float crumbNear=smoothstep(.52,.93,infill)*.85;
-float crumb=lerp(.012,crumbNear,detailVisible);
+// Preserve the resolved noise mean when individual infill particles become sub-pixel.
+float crumb=lerp(.36,crumbNear,detailVisible);
 float2 clusterCell=q*40;
 float cluster=n.value(clusterCell);
 float clusterVisible=1-smoothstep(.25,1.,max(fwidth(clusterCell.x),fwidth(clusterCell.y)));
-float pileNear=1-smoothstep(600.,1300.,distance(P,Eye));
+float pileNear=1-smoothstep(300.,1000.,distance(P,Eye));
 
 float3 colour=Texture2DSampleGrad(Atlas,AtlasSampler,UV,ddx(UV),ddy(UV)).rgb;
 
@@ -560,9 +559,11 @@ float acrossSlope=.025*sin(row*6.2831853)*rowVisible+.14*(cluster-.5)*clusterVis
 float alongSlope=.06*direction+.12*(n.value(clusterCell+27.1)-.5)*clusterVisible;
 FiberNormal=normalize(up+side*acrossSlope+tangent*alongSlope);
 // Directional roughness and dielectric Fresnel give every inlaid color the same grazing sheen.
-Roughness=clamp(.50+.03*direction+.10*(cluster-.5)*clusterVisible+.08*crumb,.45,.8);
-Specular=.45-.18*crumb;
-return lerp(colour*modulation,float3(.008,.009,.008),crumb);
+Roughness=lerp(clamp(.50+.03*direction+.10*(cluster-.5)*clusterVisible+.08*crumb,.45,.8),.88,pileNear);
+Specular=lerp(.45-.18*crumb,.35,pileNear);
+float3 canopy=lerp(colour*modulation,float3(.008,.009,.008),crumb);
+float3 bed=float3(.008,.009,.008)*(.8+.4*saturate(infill));
+return lerp(canopy,bed,pileNear);
 )HLSL");
 		Fiber->RebuildOutputs();
 		UMaterialEditingLibrary::ConnectMaterialProperty(Fiber, TEXT(""), MP_BaseColor);
@@ -739,12 +740,14 @@ return lerp(colour*modulation,float3(.008,.009,.008),crumb);
 		auto* Vertex = CastChecked<UMaterialExpressionVertexColor>(UMaterialEditingLibrary::CreateMaterialExpression(Material, UMaterialExpressionVertexColor::StaticClass()));
 		UMaterialEditingLibrary::ConnectMaterialProperty(CoverageAt(Material, false), TEXT(""), MP_OpacityMask);
 		auto* Instance = CastChecked<UMaterialExpressionPerInstanceRandom>(UMaterialEditingLibrary::CreateMaterialExpression(Material, UMaterialExpressionPerInstanceRandom::StaticClass()));
+		auto* BladeUV = CastChecked<UMaterialExpressionTextureCoordinate>(UMaterialEditingLibrary::CreateMaterialExpression(Material, UMaterialExpressionTextureCoordinate::StaticClass()));
+		BladeUV->CoordinateIndex = 0;
 		auto* BladeNormal = CastChecked<UMaterialExpressionVertexNormalWS>(UMaterialEditingLibrary::CreateMaterialExpression(Material, UMaterialExpressionVertexNormalWS::StaticClass()));
 		auto* Finish = CastChecked<UMaterialExpressionCustom>(UMaterialEditingLibrary::CreateMaterialExpression(Material, UMaterialExpressionCustom::StaticClass()));
 		Finish->Inputs.Empty();
 		Finish->OutputType = CMOT_Float3;
 		for (const auto& Pair : {TPair<FName, UMaterialExpression*>(TEXT("N"), BladeNormal),
-			TPair<FName, UMaterialExpression*>(TEXT("Seed"), Vertex), TPair<FName, UMaterialExpression*>(TEXT("Instance"), Instance), TPair<FName, UMaterialExpression*>(TEXT("Fiber"), Vertex)})
+			TPair<FName, UMaterialExpression*>(TEXT("Seed"), Vertex), TPair<FName, UMaterialExpression*>(TEXT("Instance"), Instance), TPair<FName, UMaterialExpression*>(TEXT("Fiber"), Vertex), TPair<FName, UMaterialExpression*>(TEXT("UV"), BladeUV)})
 		{
 			FCustomInput& Input = Finish->Inputs.AddDefaulted_GetRef();
 			Input.InputName = Pair.Key; Input.Input.Connect(Pair.Key == TEXT("Seed") ? 3 : Pair.Key == TEXT("Fiber") ? 4 : 0, Pair.Value);
@@ -756,7 +759,8 @@ float s=frac(sin(Seed*269.5+Instance*183.3)*2578.543);
 float angle=(s-.5)*.6;
 float3 n=float3(cos(angle)*N.x-sin(angle)*N.y,sin(angle)*N.x+cos(angle)*N.y,N.z);
 Roughness=lerp(.88,.42+.10*Seed,Fiber);
-return normalize(n*.8+float3(0,0,.65*Fiber));
+float3 across=normalize(cross(n,float3(0,0,1))+float3(.0001,0,0));
+return normalize(n*.8+float3(0,0,.65*Fiber)+across*(UV.x-.5)*.35*Fiber);
 )HLSL");
 		Finish->RebuildOutputs();
 		UMaterialEditingLibrary::ConnectMaterialProperty(Finish, TEXT(""), MP_Normal);
@@ -771,7 +775,9 @@ return normalize(n*.8+float3(0,0,.65*Fiber));
 		KindInput.InputName = TEXT("Fiber"); KindInput.Input.Connect(4, Vertex);
 		FCustomInput& HeightInput = Shade->Inputs.AddDefaulted_GetRef();
 		HeightInput.InputName = TEXT("Height"); HeightInput.Input.Connect(1, Vertex);
-		Shade->Code = TEXT("return lerp(float3(.008,.009,.008),Colour*lerp(.85,1.25,Height),Fiber);");
+		FCustomInput& ShadeSeed = Shade->Inputs.AddDefaulted_GetRef();
+		ShadeSeed.InputName = TEXT("Seed"); ShadeSeed.Input.Connect(3, Vertex);
+		Shade->Code = TEXT("float3 rubber=lerp(float3(.008,.009,.008),float3(.030,.033,.030),Seed); return lerp(rubber,min(Colour*lerp(.55,1.45,Height)*lerp(.85,1.15,Seed),.95),Fiber);");
 		UMaterialEditingLibrary::ConnectMaterialProperty(Shade, TEXT(""), MP_BaseColor);
 		auto* Transmitted = CastChecked<UMaterialExpressionMultiply>(UMaterialEditingLibrary::CreateMaterialExpression(Material, UMaterialExpressionMultiply::StaticClass()));
 		Transmitted->A.Connect(0, Shade);
@@ -832,7 +838,7 @@ float2 shift=across*((round(row)-row)*Fiber+(r-.5)*.6)+along*(s-.5)*.8;
 float turn=(s-.5)*.6;
 float2 tilted=float2(cos(turn)*Delta.x-sin(turn)*Delta.y,sin(turn)*Delta.x+cos(turn)*Delta.y);
 float3 varied=float3(tilted,Delta.z*(.92+.16*r));
-float fade=1-smoothstep(600.,1300.,distance(root,Eye));
+float fade=1-smoothstep(300.,1000.,distance(root,Eye));
 return float3(shift,2.5-dot(shift,N.xy)/max(N.z,.1))+varied*fade-Delta;
 )HLSL"), FMath::Cos(Radians), -FMath::Sin(Radians));
 		UMaterialEditingLibrary::ConnectMaterialProperty(Sink, TEXT(""), MP_WorldPositionOffset);
@@ -859,7 +865,7 @@ return float3(shift,2.5-dot(shift,N.xy)/max(N.z,.1))+varied*fade-Delta;
 			{
 				const FVector2f Root(-9.5f + Row + Random.FRandRange(-.2f, .2f), -9.5f + Blade + Random.FRandRange(-.25f, .25f));
 				const float BladeHeight = Random.FRandRange(1.8f, 2.2f);
-				const FVector2f Lean = Along * Random.FRandRange(-.7f, .7f) + Across * Random.FRandRange(-.35f, .35f);
+				const FVector2f Lean = Along * Random.FRandRange(-.9f, .9f) + Across * Random.FRandRange(-.5f, .5f);
 				const float Facing = Random.FRand() * PI;
 				FVector2f Side = FVector2f(FMath::Cos(Facing), FMath::Sin(Facing)) * Random.FRandRange(.07f, .115f);
 				const float Seed = Random.FRand();
@@ -872,15 +878,13 @@ return float3(shift,2.5-dot(shift,N.xy)/max(N.z,.1))+varied*fade-Delta;
 				for (int32 Segment = 0; Segment < Segments; ++Segment)
 				{
 					const float T0 = float(Segment) / Segments, T1 = float(Segment + 1) / Segments;
-					const FVector2f Step = Lean * (T1 * T1 - T0 * T0);
-					const FVector3f Face = FVector3f::CrossProduct(FVector3f(Step.X, Step.Y, BladeHeight * (T1 - T0)), FVector3f(Side.X, Side.Y, 0)).GetSafeNormal();
 					const auto Add = [&](float T, float Edge)
 					{
 						const FVector2f P = Point(T, Edge);
 						const FVertexID V = Description.CreateVertex();
 						Positions[V] = FVector3f(P.X, P.Y, BladeHeight * T);
 						const FVertexInstanceID VI = Description.CreateVertexInstance(V);
-						Normals[VI] = Face;
+						Normals[VI] = FVector3f::CrossProduct(FVector3f(2 * T * Lean.X, 2 * T * Lean.Y, BladeHeight), FVector3f(Side.X, Side.Y, 0)).GetSafeNormal();
 						UVs.Set(VI, 0, FVector2f(Edge * .5f + .5f, T));
 						UVs.Set(VI, 1, FVector2f(0, 0));
 						UVs.Set(VI, 2, P - Root);
@@ -893,12 +897,12 @@ return float3(shift,2.5-dot(shift,N.xy)/max(N.z,.1))+varied*fade-Delta;
 					Description.CreatePolygon(Group, {L0, R1, L1});
 				}
 			}
-			if (Segments == 2)
+			if (Segments > 1)
 			{
 				for (int32 Grain = 0; Grain < 240; ++Grain)
 				{
 					const FVector2f Root(Random.FRandRange(-9.7f, 9.7f), Random.FRandRange(-9.7f, 9.7f));
-					const float Radius = Random.FRandRange(.16f, .30f), GrainHeight = Random.FRandRange(.25f, .40f);
+					const float Radius = Random.FRandRange(.16f, .30f), GrainHeight = Random.FRandRange(.08f, .18f);
 					const float Seed = Random.FRand(), Turn = Random.FRandRange(0.f, 2 * PI);
 					FVector3f Points[5];
 					for (int32 Corner = 0; Corner < 4; ++Corner)
@@ -927,12 +931,12 @@ return float3(shift,2.5-dot(shift,N.xy)/max(N.z,.1))+varied*fade-Delta;
 			}
 			return Description;
 		};
-		FMeshDescription Near = MakePatch(2), Far = MakePatch(1);
+		FMeshDescription Near = MakePatch(3), Far = MakePatch(1);
 		Mesh->GetStaticMaterials().Add(FStaticMaterial(Material, TEXT("Fiber")));
 		Mesh->SetAutoComputeLODScreenSize(false);
 		Mesh->SetNumSourceModels(2);
 		Mesh->GetSourceModel(0).ScreenSize = 1.f;
-		Mesh->GetSourceModel(1).ScreenSize = .045f;
+		Mesh->GetSourceModel(1).ScreenSize = .2f;
 		UStaticMesh::FBuildMeshDescriptionsParams Params;
 		Params.bFastBuild = false;
 		Params.bBuildSimpleCollision = false;
@@ -944,8 +948,8 @@ return float3(shift,2.5-dot(shift,N.xy)/max(N.z,.1))+varied*fade-Delta;
 		FGrassVariety& Variety = Grass->GrassVarieties.AddDefaulted_GetRef();
 		Variety.GrassMesh = Mesh;
 		Variety.GrassDensity = FPerPlatformFloat(2500);
-		Variety.StartCullDistance = FPerPlatformInt(1100);
-		Variety.EndCullDistance = FPerPlatformInt(1400);
+		Variety.StartCullDistance = FPerPlatformInt(900);
+		Variety.EndCullDistance = FPerPlatformInt(1100);
 		Variety.bUseGrid = true;
 		Variety.PlacementJitter = 0;
 		Variety.RandomRotation = false;
@@ -1331,7 +1335,7 @@ static bool ProcessStreetscape(UWorld* World, const FString& ManifestPath,
 		Component->SetCustomDepthStencilValue(StencilIds[StencilClass]);
 		if (Name.StartsWith(TEXT("grass_paint_")))
 		{
-			// Keep the marking's semantic depth mask; its visible paint projects onto the ground and blades together.
+			// Keep the footprint's semantic mask while visible paint is restricted to grass-like receivers.
 			Component->SetRenderInMainPass(false);
 			Component->SetRenderInDepthPass(false);
 			ProjectGrassPaint(World, Index, Description, Item.Image.IsEmpty() ? nullptr : &Decals.FindChecked(Item.Image),

@@ -572,7 +572,7 @@ bool FEnvGenStreetscapeAthletic::RunTest(const FString& Parameters)
 			const FGrassVariety& Variety = GrassOutput->GrassTypes[I].GrassType->GrassVarieties[0];
 			const UStaticMesh* Pile = Variety.GrassMesh;
 			TestNotNull(TEXT("synthetic field has real fiber geometry"), Pile);
-			TestTrue(TEXT("pile has a bounded fourteen-metre range"), Variety.EndCullDistance.GetValue() <= 1400);
+			TestTrue(TEXT("pile has a bounded eleven-metre range"), Variety.EndCullDistance.GetValue() <= 1100);
 			TestEqual(TEXT("pile has two geometry levels"), Pile->GetNumSourceModels(), 2);
 			TestEqual(TEXT("both pile levels reach the render buffers"), Pile->GetRenderData()->LODResources.Num(), 2);
 			TestTrue(TEXT("distant blades use fewer triangles"), Pile->GetMeshDescription(1)->Triangles().Num() < Pile->GetMeshDescription(0)->Triangles().Num());
