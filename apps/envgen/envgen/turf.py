@@ -49,8 +49,8 @@ FIELD_CALIBRATION = {
     "application_priors": [
         "relative photo green/red contrast interpolates maintained and worn appearance; not a measured condition map",
         "the existing 2 m surface fringe interpolates path-edge appearance",
-        "projected-area mixtures set mean material colour; soil candidates tint substrate without opening canopy gaps",
-        "dry colour variation uses the conditional tuft diameter; no mowing height, blade density or wind measurement",
+        "projected-area mixtures set relative living/dead detail around the site colour; soil candidates tint substrate without opening canopy gaps",
+        "dry colour variation spans several scales around the conditional tuft diameter; no mowing height, blade density or wind measurement",
         "calibration fades out from 15 to 30 m to retain the approved orthophoto-led distant appearance",
     ],
 }
