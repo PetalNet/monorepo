@@ -216,7 +216,7 @@ proxy_secret_file = "/secrets/proxy-secret" # the header value the single-sign-o
 max_call_s = 900
 
 turn_models = "/models" # silero_vad.onnx and the Parakeet files: the shared turn detector (below)
-# Or omit turn_models and detect speech without loading a transcript-based judge:
+# Or locate the shared judge beside the configured VAD model:
 # vad_model = "/models/silero_vad.onnx"
 line_tone = "AL4 AT40 AH400 AW83 BC2 BL11 BR7 BF2 BO6 DL0 DW48 U37 V80" # the call's background sound (below); empty is off
 
@@ -227,28 +227,32 @@ userinfo_url = "http://127.0.0.1:9000/application/o/userinfo/"
 client_id = "the public client's id"
 redirect_uri = "janetcall://signin"
 
-[endpoint] # the fallback loudness detector, used only without turn_models
+[endpoint] # loudness fallback when neither model configuration works
 threshold = 500
 silence_ms = 700
 ```
 
-**When a turn ends.** With `turn_models`, the bridge uses the same turn detector as janet-mac
-([`packages/janet-turn`](../../packages/janet-turn)): Silero VAD, a streaming speech model and a fitted judge. A
-pause of 3 s ends a turn; after an "um" or a trailing "and" it waits 6 s; when the words are finished it ends
-after 1 to 2.5 s. Without `turn_models`, `vad_model` uses the same Silero speech model with the fixed
-pause allowance in `[endpoint]`. It detects speech from audio without loading the speech-to-text
-model or turn judge. By default, two consecutive 32 ms frames at or above 0.3 speech probability
-start a turn, retaining brief acknowledgements without starting on an isolated high-probability
-frame. `endpoint.start_ms` overrides the 64 ms default.
-Without either model, or if loading fails, a call uses the loudness rule in `[endpoint]`.
+**When a turn ends.** With `turn_models` or `vad_model`, both PCM and Opus use the
+same turn detector as janet-mac ([`packages/janet-turn`](../../packages/janet-turn)).
+Silero detects speech. Parakeet's partial transcript and the fitted judge choose
+the pause: one second when judged finished, three seconds when uncertain, and six
+seconds after a filled pause, trailing conjunction, or an unfinished indirect
+question such as "can you tell me". A done verdict can also arrive at 1.5, 2, or
+2.5 seconds. The image includes all models. If `turn_models` is omitted, the bridge
+looks for Parakeet beside `vad_model`. Without a working speech model, VAD still
+waits three seconds. Network gaps require fresh received silence.
+
+Two consecutive 32 ms frames at or above 0.3 speech probability start a turn.
+`endpoint.lead_ms` and `endpoint.max_s` set the retained lead-in and safety limit.
+`endpoint.silence_ms`, `endpoint.start_ms`, and `endpoint.threshold` apply only to
+the loudness fallback, used when no VAD model can be loaded.
 
 Endpoint logs include the audio offset, measured quiet interval and whether silence or the maximum
 utterance length ended the turn. Call timing records include STT start/result, head request/first
 sentence, head-reported token/sentence timings, and the first WebSocket audio send. `total_ms` adds
 the measured quiet interval to endpoint-to-audio time; it is not handset playback latency. A
-`limit` endpoint means speech detection never observed a sufficient pause. The shared turn judge
-does not expose endpoint positions or its quiet interval, so its `endpoint_at`,
-`endpoint_to_audio_ms` and `total_ms` are null. `batch_received_at` still records the audio batch's arrival.
+`limit` endpoint means speech detection never observed a sufficient pause. The shared detector reports the same audio offsets and quiet intervals.
+`batch_received_at` records the audio batch's arrival.
 
 **The line tone.** With `line_tone`, the bridge keeps a quiet sound under the call so the caller knows the line is open
 ([`packages/janet-line`](../../packages/janet-line), ported from the tuning page; the value is that page's code): comfort noise

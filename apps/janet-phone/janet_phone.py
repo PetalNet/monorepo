@@ -113,6 +113,7 @@ class Endpointer:
 
 
 _WORDS: list = []
+_WORDS_LOCK = threading.Lock()
 LINE_BLOCK_S = 0.05  # the line tone is sent in blocks this long, a block ahead of real time at most
 
 
@@ -198,31 +199,37 @@ def new_endpointer(config: "Config"):
     repo = str(here.parents[2] / "packages" / "janet-turn") if len(here.parents) > 2 else ""
     if repo and Path(repo).is_dir() and repo not in sys.path:  # in the repository; the image has the package beside this file
         sys.path.append(repo)
-    if models and (models / "silero_vad.onnx").exists():
+    # Both transports use the same judge beside the configured VAD model.
+    if models is None and config.vad_model:
+        models = Path(config.vad_model).parent
+    vad_path = models / "silero_vad.onnx" if models else None
+    if vad_path is None or not vad_path.exists():
+        vad_path = Path(config.vad_model) if config.vad_model else None
+    if vad_path and vad_path.exists():
         try:
-            from janet_turn.turn_end import Policy, Utterances
+            from janet_turn.turn_end import Policy, Silero, Utterances, _session
             from janet_turn.turn_judge import Words
 
+            session = _session(vad_path)
+            words = None
             parakeet = models / "parakeet_realtime_eou_120m.int8.onnx"
-            if not _WORDS and parakeet.exists():
-                _WORDS.append(Words(parakeet, models / "parakeet_vocab.txt"))
-            return Utterances(models, Policy(nothing_said_s=1e9,
-                                            quiet_s=config.endpoint.get("silence_ms", 3000) / 1000),
-                              words=_WORDS[0] if _WORDS else None)
+            vocab = models / "parakeet_vocab.txt"
+            if parakeet.exists() and vocab.exists():
+                try:
+                    with _WORDS_LOCK:
+                        if not _WORDS:
+                            _WORDS.append(Words(parakeet, vocab))
+                        words = _WORDS[0]
+                except Exception as error:  # noqa: BLE001 - VAD remains usable without the speech model
+                    log.warning("turn judge unavailable, using three seconds of received silence: %s", error)
+            log.info("endpoint detector: shared VAD, judge %s, silence 1/3/6 s", "enabled" if words else "unavailable")
+            return Utterances(models, Policy(speech=0.3, start_s=0.064, nothing_said_s=1e9), words=words,
+                              lead_s=config.endpoint.get("lead_ms", 300) / 1000,
+                              max_s=config.endpoint.get("max_s", 30),
+                              make_vad=lambda: Silero(vad_path, session),
+                              make_hearing=None if words else lambda: None)
         except Exception as error:  # noqa: BLE001 - a call must go on with the loudness rule
             log.warning("no shared turn detector, using the loudness rule: %s", error)
-    if config.vad_model:
-        try:
-            import numpy as np
-            from janet_turn.turn_end import Silero
-
-            vad = Silero(Path(config.vad_model))
-            log.info("endpoint detector: audio VAD, silence %d ms", config.endpoint.get("silence_ms", 700))
-            endpoint = {"start_ms": 64, **config.endpoint}
-            return Endpointer(**endpoint, vad=lambda pcm: vad(
-                np.frombuffer(pcm, "<i2").astype(np.float32) / 32768) >= 0.3)
-        except Exception as error:  # noqa: BLE001 - calls retain the loudness fallback if the model is unavailable
-            log.warning("audio VAD unavailable, using the loudness rule: %s", error)
     log.info("endpoint detector: loudness, silence %d ms", config.endpoint.get("silence_ms", 700))
     return Endpointer(**config.endpoint)
 
@@ -261,9 +268,9 @@ class Config:
     # Signing in from the app: the [signin] table, whose keys are pairing.SignIn's fields. Empty turns it off.
     signin: dict = field(default_factory=dict)
     endpoint: dict = field(default_factory=dict)
-    # Directory holding silero_vad.onnx and the Parakeet speech model for the shared turn detector. Empty uses the loudness rule.
+    # Directory holding the shared detector models. Otherwise use the directory beside vad_model.
     turn_models: str = ""
-    # Audio-only speech detection, independent of the optional transcript-based turn judge.
+    # Silero speech detection; the shared judge uses the Parakeet files beside this model.
     vad_model: str = ""
     # The call's background sound, as the tuning page's code (packages/janet-line), e.g. "AL6 AT45 AW83 BC2 BL11 BR7 BF2 BO6 DL0 DW48 U37 V80".
     # Empty is off. It plays while the line is open: comfort noise, a hum while a reply is worked on, ducked under Janet's voice.
@@ -663,12 +670,7 @@ class Call:
 
     async def listen(self) -> None:
         """Reads the caller until the socket closes, however it closes, and then ends the call."""
-        endpoint_config = self.config
-        if self.opus and self.config.vad_model and not self.config.turn_models:
-            models = Path(self.config.vad_model).parent
-            if (models / "parakeet_realtime_eou_120m.int8.onnx").exists():
-                endpoint_config = dataclasses.replace(self.config, turn_models=str(models))
-        endpointer, heard = await asyncio.to_thread(new_endpointer, endpoint_config), 0
+        endpointer, heard = await asyncio.to_thread(new_endpointer, self.config), 0
         self.barge_in = await asyncio.to_thread(make_barge_in, self.config)
         diagnostic_at = 0.0
         try:
