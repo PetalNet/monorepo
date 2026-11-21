@@ -114,6 +114,7 @@ def cues(speech: list[bool], pieces: list[tuple[str, float]], ended: bool, pause
     start = next((i for i, said in enumerate(speech) if said), 0)
     words = [(w, at) for w, at in words_of(pieces) if at <= pause * FRAME_S + 0.3]
     last = words[-1][0] if words else ""
+    tail = [word.lower().strip(".,?!:;") for word, _ in words[-4:]]
     clause = len(words)
     for i in range(len(words) - 1, 0, -1):
         if words[i][1] - words[i - 1][1] >= PAUSE_S + 0.4:  # word starts this far apart had a pause between
@@ -136,6 +137,9 @@ def cues(speech: list[bool], pieces: list[tuple[str, float]], ended: bool, pause
         "turn_s": (pause - start) * FRAME_S,
         "leading": float(last in LEADING),
         "joining": float(last in JOINING),
+        # An indirect question still needs its object, even when Parakeet emits an end marker.
+        "unfinished_request": float(len(tail) == 4 and tail[0] in {"can", "could", "would", "will"}
+                                    and tail[1:] == ["you", "tell", "me"]),
         "filler": float(last in FILLERS),
         "closing": float(last in CLOSING),
         "unworded_s": unworded * FRAME_S,
@@ -154,7 +158,8 @@ def cues(speech: list[bool], pieces: list[tuple[str, float]], ended: bool, pause
 def filled(c: dict[str, float]) -> bool:
     """More is coming: an "um" or a word drawn out into the silence (the speech model writes most
     "um"s down as nothing at all, so voice with no word to it counts), or a trailing "and"."""
-    return bool(c["filler"]) or c["unworded_s"] >= UNWORDED_S or bool(c["joining"])
+    return (bool(c["filler"]) or c["unworded_s"] >= UNWORDED_S or bool(c["joining"])
+            or bool(c.get("unfinished_request", 0)))
 
 
 class Judge:
@@ -185,29 +190,41 @@ class Hearing:
         self._pieces: list[tuple[str, float]] = []
         self._ends: list[float] = []  # when the speech model marked an end of utterance
         self._transcribed_s = 0.0
-        self._frames: queue.Queue[np.ndarray] | None = queue.Queue()
-        threading.Thread(target=self._transcribe, args=(models,), daemon=True).start()
+        self._closed = threading.Event()
+        self._frames: queue.Queue[np.ndarray | None] | None = queue.Queue(maxsize=256)
+        self._worker = threading.Thread(target=self._transcribe, args=(models,), daemon=True)
+        self._worker.start()
 
     def close(self) -> None:
         """Ends the speech model's thread. A process that hears one turn never needs it; one that hears many does."""
+        self._closed.set()
         frames = self._frames
         if frames is not None:
-            frames.put(None)
+            try:
+                frames.put_nowait(None)
+            except queue.Full:
+                pass  # The worker sees _closed before taking another frame.
 
     def hear(self, frame: np.ndarray, said: bool) -> None:
-        self._speech.append(said)
         frames = self._frames  # the other thread drops it when the speech model fails
-        if frames is not None:
-            frames.put(frame)
+        if frames is None or self._closed.is_set():
+            return
+        self._speech.append(said)
+        try:
+            frames.put_nowait(frame)
+        except queue.Full:
+            self.close()
+            self._frames = None
+            print("no turn judge: speech model fell behind", file=sys.stderr)
 
     def _transcribe(self, models: Path) -> None:
         frames = self._frames
         try:
             words = self._words.fresh() if self._words else Words(models / "parakeet_realtime_eou_120m.int8.onnx", models / "parakeet_vocab.txt")
             held: list[np.ndarray] = []
-            while True:
+            while not self._closed.is_set():
                 frame = frames.get()
-                if frame is None:
+                if frame is None or self._closed.is_set():
                     return
                 held.append(frame)
                 if len(held) * FRAME == CHUNK:
@@ -224,6 +241,8 @@ class Hearing:
     def verdict(self, silent: int) -> str | None:
         """After `silent` frames of silence: "done", "hold" when more is coming, or None for no
         call. No call is also the answer while the speech model is behind or has not loaded."""
+        if self._frames is None or self._closed.is_set():
+            return None
         now = len(self._speech)
         if now * FRAME_S - self._transcribed_s > 0.5:
             return None

@@ -825,6 +825,96 @@ class NewEndpointerTest(unittest.TestCase):
             (Path(models) / "silero_vad.onnx").write_text("not a model")
             self.assertIsInstance(janet_phone.new_endpointer(self.config(turn_models=models)), janet_phone.Endpointer)
 
+    def judged(self, verdict, **changes):
+        from janet_turn import turn_end
+
+        class Heard:
+            def hear(self, frame, said):
+                pass
+
+            def verdict(self, silent):
+                return verdict
+
+            def close(self):
+                pass
+
+        models = tempfile.TemporaryDirectory()
+        self.addCleanup(models.cleanup)
+        root = Path(models.name)
+        for name in ("silero_vad.onnx", "parakeet_realtime_eou_120m.int8.onnx", "parakeet_vocab.txt"):
+            (root / name).touch()
+        with mock.patch.object(turn_end, "_session"), \
+             mock.patch.object(turn_end, "Silero", return_value=lambda frame: float(abs(frame).max() > .05)), \
+             mock.patch.object(turn_end, "hearing", side_effect=lambda *_: Heard()), \
+             mock.patch("janet_turn.turn_judge.Words", return_value=object()), \
+             mock.patch.object(janet_phone, "_WORDS", []):
+            detector = janet_phone.new_endpointer(self.config(
+                vad_model=str(root / "silero_vad.onnx"), endpoint={"silence_ms": 1400}, **changes))
+            self.assertIsInstance(detector, turn_end.Utterances)
+            # New turns are made after the patches leave scope too.
+            detector._make_hearing = Heard
+        self.addCleanup(detector.close)
+        return detector
+
+    def test_vad_configuration_uses_the_judge_for_a_one_second_finished_turn(self):
+        detector = self.judged("done")
+        events = detector.feed(tone(.5) + bytes(32000 * 2))
+        self.assertEqual(sum(isinstance(event, bytes) for event in events), 1)
+        endpoint = detector.endpoints.popleft()
+        self.assertEqual(endpoint["endpoint_reason"], "done")
+        self.assertAlmostEqual(endpoint["endpoint_ms"], 1000, delta=32)
+
+    def test_uncertain_pause_waits_three_seconds_despite_legacy_endpoint_setting(self):
+        detector = self.judged(None)
+        self.assertEqual(detector.feed(tone(.5) + bytes(32000 * 2)), ["start"])
+        self.assertEqual(len(detector.feed(bytes(32000 * 2))), 1)
+        self.assertAlmostEqual(detector.endpoints.popleft()["endpoint_ms"], 3000, delta=32)
+
+    def test_filled_pause_holds_for_six_seconds(self):
+        detector = self.judged("hold")
+        self.assertEqual(detector.feed(tone(.5) + bytes(32000 * 4)), ["start"])
+        self.assertEqual(len(detector.feed(bytes(32000 * 3))), 1)
+        self.assertAlmostEqual(detector.endpoints.popleft()["endpoint_ms"], 6000, delta=32)
+
+    def test_gap_requires_a_fresh_second_before_a_done_verdict(self):
+        detector = self.judged("done")
+        self.assertEqual(detector.feed(tone(.5) + bytes(24000)), ["start"])
+        detector.gap()
+        self.assertEqual(detector.feed(bytes(24000)), [])
+        self.assertEqual(len(detector.feed(bytes(16000))), 1)
+        self.assertAlmostEqual(detector.endpoints.popleft()["endpoint_ms"], 1000, delta=32)
+
+    def test_explicit_models_take_precedence_over_a_stale_vad_path(self):
+        from janet_turn import turn_end
+
+        with tempfile.TemporaryDirectory() as models:
+            root = Path(models)
+            (root / "silero_vad.onnx").touch()
+            with mock.patch.object(turn_end, "_session") as session, \
+                 mock.patch.object(turn_end, "Silero", return_value=lambda _: 0):
+                detector = janet_phone.new_endpointer(self.config(turn_models=models, vad_model="/missing/vad.onnx"))
+                self.addCleanup(detector.close)
+                self.assertIsInstance(detector, turn_end.Utterances)
+                session.assert_called_once_with(root / "silero_vad.onnx")
+
+    def test_broken_speech_model_keeps_vad_and_three_second_fallback(self):
+        from janet_turn import turn_end
+
+        with tempfile.TemporaryDirectory() as models:
+            root = Path(models)
+            for name in ("silero_vad.onnx", "parakeet_realtime_eou_120m.int8.onnx", "parakeet_vocab.txt"):
+                (root / name).touch()
+            with mock.patch.object(turn_end, "_session"), \
+                 mock.patch.object(turn_end, "Silero", return_value=lambda frame: float(abs(frame).max() > .05)), \
+                 mock.patch("janet_turn.turn_judge.Words", side_effect=RuntimeError("model unavailable")), \
+                 mock.patch.object(janet_phone, "_WORDS", []):
+                detector = janet_phone.new_endpointer(self.config(vad_model=str(root / "silero_vad.onnx")))
+                self.addCleanup(detector.close)
+                self.assertIsInstance(detector, turn_end.Utterances)
+                self.assertEqual(detector.feed(tone(.5) + bytes(64000)), ["start"])
+                self.assertEqual(len(detector.feed(bytes(64000))), 1)
+                self.assertAlmostEqual(detector.endpoints.popleft()["endpoint_ms"], 3000, delta=32)
+
 
 class LineToneTest(unittest.IsolatedAsyncioTestCase):
     def test_mix_adds_the_tone_to_the_voice_and_clips(self):

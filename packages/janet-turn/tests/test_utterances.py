@@ -2,6 +2,7 @@
 
 import sys
 import unittest
+from unittest import mock
 from pathlib import Path
 
 import numpy as np
@@ -69,6 +70,23 @@ class UtterancesTest(unittest.TestCase):
         endpoint = detector.endpoints.popleft()
         self.assertGreaterEqual(endpoint["endpoint_ms"], 300)
         self.assertGreaterEqual(endpoint["speech_ms"], 500)
+
+    def test_long_idle_does_not_load_or_feed_the_speech_model(self):
+        heard = mock.Mock()
+        make_hearing = mock.Mock(return_value=heard)
+        detector = Utterances(Path("."), make_vad=Loudness, make_hearing=make_hearing)
+        self.addCleanup(detector.close)
+        for _ in range(120):
+            self.assertEqual(detector.feed(silence(1)), [])
+        make_hearing.assert_not_called()
+        self.assertEqual(detector.feed(tone(.2)), ["start"])
+        make_hearing.assert_called_once()
+        # Only the retained lead-in and speech onset reach the newly started model.
+        self.assertLess(heard.hear.call_count * FRAME / RATE, .6)
+        self.assertGreater(heard.hear.call_count, round(.2 * RATE / FRAME))
+
+    def test_short_safety_limit_never_emits_idle_audio(self):
+        self.assertEqual(run(silence(2), max_s=.3), [])
 
     def test_a_turn_that_never_ends_is_cut_at_the_longest(self):
         events = run(tone(5.0), max_s=2.0)

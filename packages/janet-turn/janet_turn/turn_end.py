@@ -130,6 +130,7 @@ class TurnEnd:
         self._started = False
         self._silence_s = 0.0
         self._speech_s = 0.0
+        self._last_said = False
 
     def _judged(self, ask):
         """Asks the judge, if there is one. A judge that fails is dropped: the turn then ends on
@@ -146,7 +147,7 @@ class TurnEnd:
     def feed(self, frame: np.ndarray) -> str | None:
         policy = self._policy
         self._heard_s += FRAME_S
-        said = self._vad(frame) >= policy.speech
+        said = self._last_said = self._vad(frame) >= policy.speech
         self._speech_s += FRAME_S if said else 0.0
         self._speech_run_s = self._speech_run_s + FRAME_S if said else 0.0
         self._judged(lambda hearing: hearing.hear(frame, said))
@@ -223,9 +224,10 @@ class Utterances:
         self._new_turn()
 
     def _new_turn(self) -> None:
-        self._turn_hearing = self._make_hearing()
-        self._turn = TurnEnd(self._make_vad(), self._policy, self._turn_hearing, self._on_start)
+        self._turn_hearing = None
+        self._turn = TurnEnd(self._make_vad(), self._policy, on_start=self._on_start)
         self._frames: list[bytes] = []
+        self._activity: list[bool] = []
         self._started = False
 
     def _on_start(self) -> None:
@@ -246,10 +248,19 @@ class Utterances:
             frame, self._raw = self._raw[:size], self._raw[size:]
             self._frames.append(frame)
             self._offset += FRAME_S * 1000
+            was_started = self._started
             why = self._turn.feed(np.frombuffer(frame, "<i2").astype(np.float32) / 32768)
+            self._activity.append(self._turn._last_said)
+            if not was_started and self._started:
+                self._turn_hearing = self._make_hearing()
+                self._turn._hearing = self._turn_hearing
+                for kept, said in zip(self._frames, self._activity):
+                    self._turn._judged(lambda hearing: hearing.hear(
+                        np.frombuffer(kept, "<i2").astype(np.float32) / 32768, said))
             if not self._started:
                 del self._frames[: -self._lead - 1]
-            if why in ("done", "quiet") or len(self._frames) >= self._max:
+                del self._activity[: -self._lead - 1]
+            if self._started and (why in ("done", "quiet") or len(self._frames) >= self._max):
                 self.endpoints.append({"audio_end_ms": round(self._offset),
                                        "speech_ms": round(self._turn._speech_s * 1000),
                                        "endpoint_ms": round(self._turn._silence_s * 1000),

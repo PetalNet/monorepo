@@ -3,6 +3,7 @@
 import io
 import sys
 import tempfile
+import threading
 import time
 import unittest
 from pathlib import Path
@@ -148,6 +149,41 @@ class TurnEndWithAJudgeTest(unittest.TestCase):
         self.assertIsNone(hearing._frames)
         self.assertEqual(why, "quiet")
 
+    def test_slow_inference_is_bounded_and_close_drops_the_backlog(self):
+        entered, release = threading.Event(), threading.Event()
+
+        class SlowWords:
+            calls = 0
+
+            def fresh(self):
+                return self
+
+            def __call__(self, chunk):
+                self.calls += 1
+                entered.set()
+                release.wait(2)
+                return [], False
+
+        words = SlowWords()
+        hearing = Hearing(Path("."), FITTED, words)
+        try:
+            for _ in range(5):
+                hearing.hear(SPEECH, True)
+            self.assertTrue(entered.wait(1))
+            pending = hearing._frames
+            with mock.patch("sys.stderr", io.StringIO()):
+                for _ in range(1000):
+                    hearing.hear(SPEECH, True)
+            self.assertLessEqual(pending.qsize(), 256)
+            self.assertIsNone(hearing._frames)
+            self.assertIsNone(hearing.verdict(31))
+        finally:
+            hearing.close()
+            release.set()
+            hearing._worker.join(2)
+        self.assertFalse(hearing._worker.is_alive())
+        self.assertEqual(words.calls, 1)
+
     def test_a_speech_model_that_keeps_up_lets_a_short_request_end_early(self):
         class HearsAShortRequest:
             def __init__(self, *_):
@@ -176,6 +212,16 @@ class TurnEndWithAJudgeTest(unittest.TestCase):
 class CuesTest(unittest.TestCase):
     def test_a_trailing_and_means_more_is_coming(self):
         self.assertTrue(filled(said("we could move it to the other server and")))
+
+    def test_an_indirect_question_without_its_object_keeps_the_turn(self):
+        for text in ("can you tell me", "Janet could you tell me?", "would you tell me", "will you tell me"):
+            with self.subTest(text=text):
+                self.assertTrue(filled(said(text)))
+
+    def test_a_complete_indirect_question_and_a_statement_do_not_force_a_hold(self):
+        for text in ("can you tell me the time", "you never tell me", "tell me about the weather"):
+            with self.subTest(text=text):
+                self.assertFalse(filled(said(text)))
 
     def test_a_short_answer_that_ends_on_so_is_not_held_open(self):
         answer = said("yeah i think so")
