@@ -17,6 +17,7 @@ import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
@@ -357,21 +358,24 @@ fun SignInScreen(
 	val palette = LocalPalette.current
 	var address by rememberSaveable(bridge) { mutableStateOf(bridge) }
 	BackHandler(onBack = onBack)
-	Skeleton(
-		headline = "Sign in to Janet",
-		status = message,
-		action = { Pill("Back to Janet", onBack, enabled = !finishing) },
-	) {
-		Text("Your browser will open the bridge's sign-in page. Only continue with a bridge you trust.", style = Type.body, color = palette.ink)
-		Spacer(Modifier.height(16.dp))
-		OutlinedTextField(
-			value = address, onValueChange = { address = it }, label = { Text("Bridge address") },
-			enabled = !waiting && !exchanging && !finishing, singleLine = true,
-			keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Uri), modifier = Modifier.fillMaxWidth(),
-		)
-		Spacer(Modifier.height(16.dp))
-		if (waiting || exchanging || finishing) Pill("Cancel sign-in", onCancel, filled = false, enabled = !finishing)
-		else Pill("Open sign-in in browser", { onSignIn(address.trim()) }, enabled = bridgeUrlProblem(address.trim(), false) == null)
+	Column(Modifier.fillMaxSize().background(palette.ground).statusBarsPadding().navigationBarsPadding().imePadding()) {
+		Column(Modifier.weight(1f).verticalScroll(rememberScrollState()).padding(horizontal = SIDE, vertical = 24.dp)) {
+			Text("Sign in to Janet", style = Type.headline, color = palette.ink, modifier = Modifier.semantics { heading() })
+			Spacer(Modifier.height(24.dp))
+			Text("Your browser will open the bridge's sign-in page. Only continue with a bridge you trust.", style = Type.body, color = palette.ink)
+			Spacer(Modifier.height(16.dp))
+			OutlinedTextField(
+				value = address, onValueChange = { address = it }, label = { Text("Bridge address") },
+				enabled = !waiting && !exchanging && !finishing, singleLine = true,
+				keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Uri), modifier = Modifier.fillMaxWidth(),
+			)
+			Spacer(Modifier.height(16.dp))
+			Text(message, style = Type.body, color = palette.g1, modifier = Modifier.semantics { liveRegion = LiveRegionMode.Polite })
+			Spacer(Modifier.height(24.dp))
+			if (waiting || exchanging || finishing) Pill("Cancel sign-in", onCancel, filled = false, enabled = !finishing)
+			else Pill("Open sign-in in browser", { onSignIn(address.trim()) }, enabled = bridgeUrlProblem(address.trim(), false) == null)
+		}
+		Pill("Back to Janet", onBack, Modifier.padding(start = SIDE, end = SIDE, bottom = 24.dp), filled = false, enabled = !finishing)
 	}
 }
 
