@@ -22,6 +22,18 @@ releases partial model allocations and retries every 500 ms for up to five secon
 giving a renderer time to exit when a call starts. A load already in progress can
 finish beyond that window; no further attempt starts after it expires. Other load
 errors and errors during synthesis fail immediately.
+
+For the OptimizedTurboVoice runtime, `retain_cpu_model = true` constructs and warms
+the voice before opening the listeners. Unload then moves the weights and voice
+conditioning to CPU RAM, releases the CUDA graph and cached positional tensors, and
+keeps the tokenizer and model structure for the next call. The next synthesis uploads
+the weights and captures a new graph. `/status` reports `loaded = false` and
+`cpu_cached = true` between calls. This trades several GB of host RAM for a shorter
+GPU-cold start. Process startup still pays the import and construction costs before
+the server becomes ready. Errors discard both GPU and CPU state so the next request
+constructs a fresh model. The option is off by default; other runtimes keep the
+existing load-on-request behavior.
+
 The model unloads after `idle_unload_seconds` without
 requests (default 600 seconds), so other GPU applications get the memory back. Active requests prevent idle unloading, and `/status` reports them as busy. After each synthesis it also
 releases PyTorch's cached GPU blocks, because a long sentence group can briefly need
@@ -55,6 +67,7 @@ gpu_index = 0 # nvidia-smi index; the server pins CUDA to it
 wyoming = ["tcp://127.0.0.1:10230"]
 http = ["127.0.0.1:8735"]
 idle_unload_seconds = 600
+retain_cpu_model = false # OptimizedTurboVoice only; prepare CPU weights before listening
 voice_name = "default"
 gain = 1.0 # output volume multiplier; peaks are soft-limited, not clipped
 tempo = 1.0 # pitch-preserving speed multiplier, 0.5 to 2.0; 1.08 speaks 8% faster
