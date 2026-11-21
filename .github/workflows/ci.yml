@@ -123,9 +123,9 @@ jobs:
           command -v pdfinfo pdftotext pdftoppm tesseract
           pnpm --filter @petalnet/vault-cite test --reporter=verbose
       - if: needs.select.outputs.affected == 'true'
-        run: pnpm test --affected
+        run: pnpm test --affected --concurrency=2
       - if: needs.select.outputs.affected != 'true'
-        run: pnpm test
+        run: pnpm test --concurrency=2
 
   build:
     permissions:

@@ -59,6 +59,17 @@ class UtterancesTest(unittest.TestCase):
     def test_silence_alone_is_no_utterance(self):
         self.assertEqual(run(silence(10.0)), [])
 
+    def test_network_gap_does_not_complete_a_pause(self):
+        detector = utterances(quiet_s=.3)
+        self.assertEqual(detector.feed(tone(.3) + silence(.2)), ["start"])
+        detector.gap()
+        self.assertEqual(detector.feed(silence(.2)), [])
+        events = detector.feed(tone(.3) + silence(.4))
+        self.assertEqual(len([event for event in events if isinstance(event, bytes)]), 1)
+        endpoint = detector.endpoints.popleft()
+        self.assertGreaterEqual(endpoint["endpoint_ms"], 300)
+        self.assertGreaterEqual(endpoint["speech_ms"], 500)
+
     def test_a_turn_that_never_ends_is_cut_at_the_longest(self):
         events = run(tone(5.0), max_s=2.0)
         self.assertTrue(any(isinstance(e, bytes) for e in events))

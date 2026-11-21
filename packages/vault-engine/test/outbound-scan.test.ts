@@ -41,7 +41,8 @@ const run = (input: string | Buffer, extra: NodeJS.ProcessEnv = {}) =>
 		timeout: 20_000,
 	});
 
-describe("outbound scanner", () => {
+// CLI probes allow 20 seconds for their child process before reporting a timeout.
+describe("outbound scanner", { timeout: 25_000 }, () => {
 	it("allows ordinary text and emits no candidate, including on success", () => {
 		const result = run("Glaze firing starts at noon.");
 

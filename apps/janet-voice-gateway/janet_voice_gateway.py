@@ -98,29 +98,34 @@ class Synthesis:
     def __init__(self, sock: socket.socket):
         self._sock = sock
 
-    def wav(self, observe=None) -> bytes:
-        """Reads the whole reply and returns it as a mono PCM16 WAV file."""
-        pcm, rate = bytearray(), 0
+    def chunks(self, observe=None):
         first_audio = False
         with self._sock, self._sock.makefile("rb") as reader:
             while True:
                 try:
                     kind, fields, payload = _read_event(reader)
-                except (OSError, ValueError) as error:
+                    if kind == "audio-chunk":
+                        if (fields.get("width"), fields.get("channels")) != (2, 1):
+                            raise VoiceError("the voice server must send mono 16-bit audio")
+                        rate = fields["rate"]
+                        if payload and not first_audio:
+                            first_audio = True
+                            if observe:
+                                observe("tts_first_wyoming_audio", {})
+                        yield rate, payload
+                    elif kind == "audio-stop":
+                        return
+                    elif kind == "error":
+                        raise VoiceError(fields.get("text", "voice server error"))
+                except (OSError, ValueError, KeyError, TypeError) as error:
                     raise VoiceError(str(error)) from None
-                if kind == "audio-chunk":
-                    if (fields.get("width"), fields.get("channels")) != (2, 1):
-                        raise VoiceError("the voice server must send mono 16-bit audio")
-                    if payload and not first_audio:
-                        first_audio = True
-                        if observe:
-                            observe("tts_first_wyoming_audio", {})
-                    rate = fields["rate"]
-                    pcm += payload
-                elif kind == "audio-stop":
-                    return wav_file(rate or 24000, bytes(pcm))
-                elif kind == "error":
-                    raise VoiceError(fields.get("text", "voice server error"))
+
+    def wav(self, observe=None) -> bytes:
+        """Reads the whole reply and returns it as a mono PCM16 WAV file."""
+        pcm, rate = bytearray(), 24000
+        for rate, payload in self.chunks(observe):
+            pcm += payload
+        return wav_file(rate, bytes(pcm))
 
 
 def _read_event(reader) -> tuple[str, dict, bytes]:
@@ -295,6 +300,9 @@ class Handler(BaseHTTPRequestHandler):
                 raise ValueError
         except (ValueError, KeyError, TypeError):
             return self._json(400, {"error": "text must be a string"})
+        fmt = request.get("format", "wav")
+        if fmt not in ("wav", "pcm"):
+            return self._json(400, {"error": "format must be wav or pcm"})
         conv, turn = request.get("conversation_id"), request.get("turn")
         conv = conv if isinstance(conv, str) and re.fullmatch(r"[0-9a-f]{12}", conv) else None
         turn = turn if type(turn) is int and 0 < turn <= 2147483647 else None
@@ -316,7 +324,22 @@ class Handler(BaseHTTPRequestHandler):
         # Headers go out before the audio exists: a cold voice model takes longer to load
         # than a proxy waits for response headers.
         try:
-            self._start_stream("audio/wav")
+            self._start_stream("application/octet-stream" if fmt == "pcm" else "audio/wav")
+            if fmt == "pcm":
+                first_audio = True
+                for rate, payload in synthesis.chunks(observe):
+                    if type(rate) is not int or not 8000 <= rate <= 48000:
+                        raise VoiceError("invalid voice sample rate")
+                    if len(payload) % 2:
+                        raise VoiceError("the voice server sent an incomplete PCM16 sample")
+                    for offset in range(0, len(payload), 16384):
+                        piece = payload[offset:offset + 16384]
+                        self._chunk(struct.pack(">II", rate, len(piece)) + piece)
+                        if first_audio:
+                            observe("tts_first_http_audio_sent", {})
+                            first_audio = False
+                self.wfile.write(b"0\r\n\r\n")
+                return
             wav = synthesis.wav(observe)
             if len(wav) > 44:
                 # The first chunk carries the WAV header and one PCM16 sample.

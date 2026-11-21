@@ -76,12 +76,15 @@ class FakeGateway(BaseHTTPRequestHandler):
     def _send(self, status: int, body: bytes):
         self.send_response(status)
         self.send_header("content-length", str(len(body)))
+        if body.startswith(b"RIFF"):
+            self.send_header("content-type", "audio/wav")
         self.end_headers()
         self.wfile.write(body)
 
 
 class FakeStt(socketserver.StreamRequestHandler):
     texts: list[str] = []
+    metadata: dict = {}
 
     def handle(self):
         heard = False
@@ -90,7 +93,7 @@ class FakeStt(socketserver.StreamRequestHandler):
             heard = any(self.rfile.read(header.get("payload_length") or 0)) or heard
             if header["type"] == "audio-stop":
                 # Silence, which a warm-up sends, is nobody's utterance.
-                data = json.dumps({"type": "transcript", "data": {"text": self.texts.pop(0) if heard else ""}})
+                data = json.dumps({"type": "transcript", "data": {"text": self.texts.pop(0) if heard else "", **self.metadata}})
                 self.wfile.write(data.encode() + b"\n")
                 return
 
@@ -115,6 +118,7 @@ class CallTest(unittest.IsolatedAsyncioTestCase):
 
     async def asyncSetUp(self):
         FakeGateway.calls, FakeGateway.seen, FakeGateway.voice_down, FakeGateway.lab_tokens = [], [], False, []
+        FakeStt.metadata = {}
         janet_phone.DISCLOSURES.clear()
         janet_phone.WARMED[0] = 0.0
         self.gateway = ThreadingHTTPServer(("127.0.0.1", 0), FakeGateway)
@@ -747,7 +751,7 @@ class EndpointerTest(unittest.TestCase):
         self.assertEqual(events[0], "start")
         self.assertEqual(len(events), 2)
         self.assertEqual(endpointer.endpoints.popleft(), {
-            "audio_end_ms": 1984, "endpoint_ms": 1408, "endpoint_reason": "silence"})
+            "audio_end_ms": 1984, "speech_ms": 256, "endpoint_ms": 1408, "endpoint_reason": "silence"})
 
     def test_one_vad_frame_of_short_speech_is_kept_with_its_lead_audio(self):
         scores = iter([False] * 10 + [True] + [False] * 44)
