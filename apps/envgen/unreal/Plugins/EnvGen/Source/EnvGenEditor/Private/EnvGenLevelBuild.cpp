@@ -199,7 +199,6 @@ namespace
 		float DryTuftMinCm = 0, DryTuftMaxCm = 0;
 		float LawnRepeatCm = 100, DryHeightRatio = 1, EdgeMowingHeightRatio = 1;
 		int32 LawnPixelsPerM = 512, LawnLeavesPerM2 = 16000;
-		float EdgeHeightStartWeight = 0.575f, EdgeHeightFullWeight = 0.575f;
 		float GrazingViewSineStart = 0, GrazingViewSineEnd = 0;
 	};
 
@@ -489,9 +488,6 @@ namespace
 				Out.Turf.LawnLeavesPerM2 = (*Response)->GetIntegerField(TEXT("lawn_leaves_per_m2"));
 				Out.Turf.DryHeightRatio = float((*Response)->GetNumberField(TEXT("dry_height_ratio")));
 				Out.Turf.EdgeMowingHeightRatio = float((*Response)->GetNumberField(TEXT("edge_mowing_height_ratio")));
-				const TArray<TSharedPtr<FJsonValue>>& Edge = (*Response)->GetArrayField(TEXT("edge_height_weights"));
-				Out.Turf.EdgeHeightStartWeight = float(Edge[0]->AsNumber());
-				Out.Turf.EdgeHeightFullWeight = float(Edge[1]->AsNumber());
 				const TArray<TSharedPtr<FJsonValue>>* ViewSines = nullptr;
 				if ((*Response)->TryGetArrayField(TEXT("grazing_view_sine_range"), ViewSines))
 				{
@@ -515,14 +511,6 @@ namespace
 					|| Out.Turf.DryTuftMinCm <= 0 || Out.Turf.DryTuftMaxCm < Out.Turf.DryTuftMinCm || Out.Turf.DryTuftMaxCm > Out.Turf.LawnRepeatCm)
 				{
 					Error = TEXT("dry tuft diameters must be finite, positive, ordered, and fit within the lawn repeat");
-					return false;
-				}
-				const double MeanTuftCm = (double(Out.Turf.DryTuftMinCm) + Out.Turf.DryTuftMaxCm) * 0.5;
-				const double TuftPatches = 2 * FMath::Square(double(Out.Turf.LawnRepeatCm) / MeanTuftCm);
-				const double TextureLeaves = FMath::Square(double(Out.Turf.LawnRepeatCm) / 100) * Out.Turf.LawnLeavesPerM2;
-				if (!FMath::IsFinite(TuftPatches) || TuftPatches > FMath::Min(TextureLeaves, double(MAX_int32 - 1)))
-				{
-					Error = TEXT("dry tuft diameters require more radial patches than the authored leaves or the integer patch limit");
 					return false;
 				}
 			}
@@ -731,7 +719,7 @@ namespace
 	}
 
 	/** Tileable grey noise: a few octaves of value noise on a lattice that wraps at the texture edge. */
-	TArray<uint8> DetailNoise()
+	TArray<uint8> DetailNoise(int32 FirstPeriod = 4)
 	{
 		const auto Lattice = [](int32 X, int32 Y, int32 Period, int32 Octave)
 		{
@@ -747,7 +735,7 @@ namespace
 				float Value = 0, Weight = 0;
 				for (int32 Octave = 0; Octave < 5; ++Octave)
 				{
-					const int32 Period = 4 << Octave;
+					const int32 Period = FirstPeriod << Octave;
 					const float Fx = float(X) * Period / DetailPixels, Fy = float(Y) * Period / DetailPixels;
 					const int32 X0 = FMath::FloorToInt32(Fx), Y0 = FMath::FloorToInt32(Fy);
 					const float Tx = FMath::SmoothStep(0.f, 1.f, Fx - X0), Ty = FMath::SmoothStep(0.f, 1.f, Fy - Y0);
@@ -909,28 +897,37 @@ return lerp(Texture2DSampleGrad(Scan,ScanSampler,UV,dx,dy).rgb,varied,blend);
 		}
 		TArray<float> PaletteValues;
 		PaletteValues.Init(0, Leaves.Num());
-		FRandomStream TuftRandom(173);
-		const double TuftDiameter = (double(Turf.DryTuftMinCm) + Turf.DryTuftMaxCm) * 0.5;
-		if (TuftDiameter > 0)
+		TArray<uint8> SpatialValues;
+		SpatialValues.SetNumUninitialized(Leaves.Num());
+		int64 SpatialHistogram[256] = {};
+		const double TuftDiameter = FMath::Sqrt(double(Turf.DryTuftMinCm) * Turf.DryTuftMaxCm);
+		const int32 FirstPeriod = TuftDiameter > 0
+			? FMath::RoundToInt(FMath::Clamp(double(Turf.LawnRepeatCm) / TuftDiameter, 1.0, double(DetailPixels / 16))) : 4;
+		const TArray<uint8> PaletteNoise = DetailNoise(FirstPeriod);
+		for (int32 Y = 0; Y < Pixels; ++Y)
 		{
-			const int32 PatchCount = FMath::RoundToInt(2 * FMath::Square(double(Turf.LawnRepeatCm) / TuftDiameter));
-			for (int32 Patch = 0; Patch < PatchCount; ++Patch)
+			for (int32 X = 0; X < Pixels; ++X)
 			{
-				const int32 CentreX = TuftRandom.RandRange(0, Pixels - 1), CentreY = TuftRandom.RandRange(0, Pixels - 1);
-				const float Radius = TuftRandom.FRandRange(Turf.DryTuftMinCm, Turf.DryTuftMaxCm) * Pixels / Turf.LawnRepeatCm * 0.5f;
-				const float Strength = TuftRandom.FRandRange(-1, 1);
-				const int32 Reach = FMath::CeilToInt(Radius);
-				for (int32 Dy = -Reach; Dy <= Reach; ++Dy)
+				const float Fx = (X + 0.5f) * DetailPixels / Pixels - 0.5f, Fy = (Y + 0.5f) * DetailPixels / Pixels - 0.5f;
+				const int32 X0 = FMath::FloorToInt(Fx), Y0 = FMath::FloorToInt(Fy);
+				const auto At = [&](int32 Sx, int32 Sy)
 				{
-					for (int32 Dx = -Reach; Dx <= Reach; ++Dx)
-					{
-						const float R2 = (Dx * Dx + Dy * Dy) / FMath::Square(Radius);
-						if (R2 >= 1) continue;
-						const int32 X = (CentreX + Dx + Pixels) % Pixels, Y = (CentreY + Dy + Pixels) % Pixels;
-						PaletteValues[Y * Pixels + X] += Strength * FMath::Square(1 - R2);
-					}
-				}
+					return PaletteNoise[((Sy + DetailPixels) % DetailPixels) * DetailPixels + (Sx + DetailPixels) % DetailPixels] / 255.f;
+				};
+				PaletteValues[Y * Pixels + X] = FMath::Lerp(FMath::Lerp(At(X0, Y0), At(X0 + 1, Y0), Fx - X0),
+					FMath::Lerp(At(X0, Y0 + 1), At(X0 + 1, Y0 + 1), Fx - X0), Fy - Y0);
+				const uint8 Spatial = uint8(FMath::RoundToInt(PaletteValues[Y * Pixels + X] * 255));
+				SpatialValues[Y * Pixels + X] = Spatial;
+				++SpatialHistogram[Spatial];
 			}
+		}
+		uint8 SpatialQuartiles[3] = {};
+		int64 Cumulative = 0;
+		int32 Quantile = 0;
+		for (int32 Bin = 0; Bin < 256; ++Bin)
+		{
+			Cumulative += SpatialHistogram[Bin];
+			while (Quantile < 3 && Cumulative * 4 >= int64(Leaves.Num()) * (Quantile + 1)) SpatialQuartiles[Quantile++] = uint8(Bin);
 		}
 		TArray<uint32> PaletteTies;
 		TArray<int32> PaletteOrder;
@@ -942,7 +939,7 @@ return lerp(Texture2DSampleGrad(Scan,ScanSampler,UV,dx,dy).rgb,varied,blend);
 			Tie = (Tie ^ (Tie >> 16)) * 0x7feb352du;
 			Tie = (Tie ^ (Tie >> 15)) * 0x846ca68bu;
 			Tie ^= Tie >> 16;
-			PaletteValues[Index] += Leaves[Index].G * (0.15f / 255) + Leaves[Index].B * (0.015f / 255);
+			PaletteValues[Index] += Leaves[Index].G * (0.5f / 255) + Leaves[Index].B * (0.05f / 255);
 			PaletteTies.Add(Tie);
 			PaletteOrder.Add(Index);
 		}
@@ -973,10 +970,15 @@ return lerp(Texture2DSampleGrad(Scan,ScanSampler,UV,dx,dy).rgb,varied,blend);
 			const FLinearColor BaseColour = Turf.bSoilCandidateIsBareSoil ? Turf.FieldSoil : Turf.FieldDry[Surface] * Turf.RootShade;
 			Result.BaseColours.Add(BaseColour);
 			FVector Mean(0);
+			int64 SpatialTotals[4] = {}, SpatialGreen[4] = {};
 			for (int32 Index = 0; Index < Leaves.Num(); ++Index)
 			{
 				const FColor& Leaf = Leaves[Index];
 				const float Rank = PaletteRank[Index];
+				const uint8 Spatial = SpatialValues[Index];
+				const int32 Bucket = int32(Spatial > SpatialQuartiles[0]) + int32(Spatial > SpatialQuartiles[1]) + int32(Spatial > SpatialQuartiles[2]);
+				++SpatialTotals[Bucket];
+				if (Rank < Mix.X) ++SpatialGreen[Bucket];
 				const FLinearColor Colour = Rank < Mix.X ? Turf.FieldGreen[Surface]
 					: Rank < Mix.X + Mix.Y ? Turf.FieldDry[Surface] : BaseColour;
 				const float Shade = 0.7f + Leaf.R / 255.f * 0.5f;
@@ -988,6 +990,9 @@ return lerp(Texture2DSampleGrad(Scan,ScanSampler,UV,dx,dy).rgb,varied,blend);
 				Colours.Add(Packed);
 			}
 			Mean /= double(Leaves.Num());
+			UE_LOG(LogEnvGen, Display, TEXT("Lawn %d texture-pixel green fractions by spatial quartile: %.4f %.4f %.4f %.4f"), Surface,
+				double(SpatialGreen[0]) / FMath::Max<int64>(SpatialTotals[0], 1), double(SpatialGreen[1]) / FMath::Max<int64>(SpatialTotals[1], 1),
+				double(SpatialGreen[2]) / FMath::Max<int64>(SpatialTotals[2], 1), double(SpatialGreen[3]) / FMath::Max<int64>(SpatialTotals[3], 1));
 			Result.Means.Add(FLinearColor(float(Mean.X), float(Mean.Y), float(Mean.Z)));
 			Result.Surfaces.Add(MakeTexture(FString::Printf(TEXT("T_Lawn_%d"), Surface), Pixels, Pixels, TSF_BGRA8,
 				reinterpret_cast<const uint8*>(Colours.GetData()), true, Packages));
@@ -1523,7 +1528,6 @@ return ((float3((float2(1.6,0.65)*sway+lean)*tip,0) + float3(0,0,(Here.z-BladeRo
 				ClipRoot->Inputs.Empty();
 				for (const auto& Pair : {TPair<const TCHAR*, UMaterialExpression*>(TEXT("Weights"), RootWeight),
 					TPair<const TCHAR*, UMaterialExpression*>(TEXT("Root"), Root),
-					TPair<const TCHAR*, UMaterialExpression*>(TEXT("BladeRoot"), BladeRoot),
 					TPair<const TCHAR*, UMaterialExpression*>(TEXT("Here"), Here),
 					TPair<const TCHAR*, UMaterialExpression*>(TEXT("Offset"), Offset)})
 				{
@@ -1531,10 +1535,7 @@ return ((float3((float2(1.6,0.65)*sway+lean)*tip,0) + float3(0,0,(Here.z-BladeRo
 					In.InputName = Pair.Key;
 					In.Input.Connect(0, Pair.Value);
 				}
-				// Shorten the whole leaf at the boundary; flattening only Z leaves full-length strands on the paving.
-				const FString EdgeHeight = Manifest.Turf.EdgeHeightFullWeight > Manifest.Turf.EdgeHeightStartWeight
-					? FString::Printf(TEXT("smoothstep(%.6f,%.6f,Weights.r)"), Manifest.Turf.EdgeHeightStartWeight, Manifest.Turf.EdgeHeightFullWeight) : TEXT("1.0");
-				ClipRoot->Code = TEXT("float height=") + EdgeHeight + FString::Printf(TEXT("; float3 edge=Offset; edge+=(Here+Offset-BladeRoot)*(height-1); return lerp(Root-Here-float3(0,0,5),edge,Weights.r>%.6f ? 1.0 : 0.0);"), Manifest.Turf.EdgeHeightStartWeight);
+				ClipRoot->Code = TEXT("return Weights.r>0.5 ? Offset : Root-Here-float3(0,0,5);");
 				FinalOffset = ClipRoot;
 			}
 			UMaterialEditingLibrary::ConnectMaterialProperty(FinalOffset, TEXT(""), MP_WorldPositionOffset);
@@ -2140,7 +2141,17 @@ return float4(dx,dy);
 				Support->Code = bTall ? TEXT("return Growth.g * step(0.999, Growth.r);") : TEXT("return step(0.999, Growth.r);");
 				if (Manifest.Turf.Varieties[Index].Name == FName(TEXT("near")) && FallbackWeights)
 				{
-					// Near leaves are trimmed at their individual roots; whole-tuft clearance remains for distant varieties.
+					if (NearWeights)
+					{
+						UMaterialExpressionCustom* NearPlacement = Node<UMaterialExpressionCustom>(Material, -100, 900 + Index * 100);
+						NearPlacement->OutputType = CMOT_Float1;
+						FCustomInput& WeightInput = NearPlacement->Inputs.AddDefaulted_GetRef();
+						WeightInput.InputName = TEXT("Weights");
+						WeightInput.Input.Connect(0, NearWeights);
+						NearPlacement->Code = TEXT("return Weights.r>0.5 ? 1 : 0;");
+						Density->A.Connect(0, NearPlacement);
+					}
+					// Individual roots clip the near layer; whole-tuft clearance remains for distant varieties.
 					Density->ConstB = 1;
 				}
 				else Density->B.Connect(0, Support);
