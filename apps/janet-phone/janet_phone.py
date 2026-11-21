@@ -284,22 +284,20 @@ class Config:
 
 
 def transcribe(address: str, pcm: bytes) -> str:
-    """Recognize a caller turn in bounded, overlapping requests, returning one transcript."""
-    limit, overlap = 20 * RATE * 2, RATE
-    words: list[str] = []
+    """Recognize one turn in contiguous requests of at most 20 seconds, cutting near quiet audio."""
+    limit, window = 20 * RATE * 2, RATE // 10 * 2
+    parts: list[str] = []
     start = 0
     while start < len(pcm):
         stop = min(start + limit, len(pcm))
-        chunk = _transcribe_chunk(address, pcm[start:stop]).split()
-        previous = [re.sub(r"\W", "", word).casefold() for word in words[-10:]]
-        following = [re.sub(r"\W", "", word).casefold() for word in chunk[:10]]
-        shared = next((n for n in range(min(len(previous), len(following)), 0, -1)
-                       if previous[-n:] == following[:n] and any(following[:n])), 0)
-        words.extend(chunk[shared:])
-        if stop == len(pcm):
-            break
-        start = stop - overlap
-    return " ".join(words)
+        if stop < len(pcm):
+            quiet = min(range(stop - window, stop - 2 * RATE * 2 - 1, -window),
+                        key=lambda at: sum(s * s for s in array.array("h", pcm[at:at + window])))
+            stop = quiet + window // 2
+        if text := _transcribe_chunk(address, pcm[start:stop]):
+            parts.append(text)
+        start = stop
+    return " ".join(parts)
 
 
 def _transcribe_chunk(address: str, pcm: bytes) -> str:

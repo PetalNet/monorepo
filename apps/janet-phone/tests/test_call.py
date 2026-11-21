@@ -103,19 +103,22 @@ class FakeStt(socketserver.StreamRequestHandler):
 
 
 class TranscribeTest(unittest.TestCase):
-    def test_long_audio_requests_are_bounded_and_overlap_text_is_not_repeated(self):
-        pcm = bytes(41 * janet_phone.RATE * 2)
+    def test_long_audio_requests_are_bounded_contiguous_and_keep_repeated_digits(self):
+        pcm = bytes(31 * janet_phone.RATE * 2)
         with mock.patch.object(janet_phone, "_transcribe_chunk", side_effect=[
-            "First shared,", "shared second next", "next final."
+            "the code is four", "four seven"
         ]) as recognize:
             text = janet_phone.transcribe("stt:10300", pcm)
-        self.assertEqual(text, "First shared, second next final.")
-        self.assertEqual([len(call.args[1]) for call in recognize.call_args_list], [640000, 640000, 64000])
+        chunks = [call.args[1] for call in recognize.call_args_list]
+        self.assertEqual(text, "the code is four four seven")
+        self.assertEqual(len(chunks), 2)
+        self.assertTrue(all(len(chunk) <= 20 * janet_phone.RATE * 2 for chunk in chunks))
+        self.assertEqual(b"".join(chunks), pcm)
 
 
 class CallTest(unittest.IsolatedAsyncioTestCase):
     async def test_a_long_caller_turn_uses_bounded_stt_requests_and_one_reply(self):
-        FakeStt.texts = ["a long caller", "caller turn completed"]
+        FakeStt.texts = ["a long caller", "turn completed"]
         async with connect(self.url, additional_headers=self.phone) as ws:
             while json.loads((await self._until(ws, "state"))[-1])["value"] != "listening":
                 pass

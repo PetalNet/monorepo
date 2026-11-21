@@ -247,9 +247,10 @@ Two consecutive 32 ms frames at or above 0.3 speech probability start a turn.
 `endpoint.lead_ms` sets the retained lead-in. `endpoint.max_s` bounds continuous
 received silence, resetting on speech or a network gap. Ongoing speech keeps the
 turn open regardless of its length. Idle silence retains only the lead-in.
-After the caller finishes, STT uses requests of at most 20 seconds with 0.5 seconds
-of overlap, removes matching overlap words, and submits one combined caller turn
-to the head. These internal recognizer requests never create conversation turns.
+After the caller finishes, STT uses contiguous requests of at most 20 seconds,
+choosing a quiet cut within the last two seconds of each full chunk. It submits
+one combined caller turn to the head and preserves repeated words across cuts.
+These internal recognizer requests never create conversation turns.
 `endpoint.silence_ms`, `endpoint.start_ms`, and `endpoint.threshold` apply only to
 the loudness fallback, used when no VAD model can be loaded.
 
