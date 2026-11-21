@@ -148,7 +148,7 @@ NEAR_BLADE_WIDTH_CM = (0.8, 1.4)
 # a sward that has none), and how much a tuft's size varies. The index of real mown turf is several times the near one: what is
 # drawn is the top of the sward, and the ground's own colour under it is the rest.
 NEAR = {"leaf_area_index": 2.0, "blades": 48, "blade_width_cm": [0.4, 0.7], "radius_cm": 14.0,
-        "start_cull_cm": 600, "end_cull_cm": 1000}
+        "start_cull_cm": 800, "end_cull_cm": 1500}
 CLUMP = {"leaf_area_index": 0.2, "blades": 24, "radius_cm": 22.5, "start_cull_cm": 2500, "end_cull_cm": 6500,
          "appear_cm": [800, 1500]}
 TALL = {"leaf_area_index": 0.02, "blades": 8, "radius_cm": 6.0, "start_cull_cm": 2500, "end_cull_cm": 5000}
@@ -165,7 +165,7 @@ PRIORS = [
     f"prior: tall tufts stand {TALL_OVER_MOWED:g} times the mowing range (the one-third rule of mowing)",
     f"prior: a blade is {ROOT_SHADE:g} of its colour at the root and {TIP_SHADE:g} at the tip",
     "prior: no variety casts a shadow",
-    "prior: the clump variety retains its 8 to 15 m transition; a continuous lawn texture covers the near fade",
+    "prior: the clump variety retains its 8 to 15 m transition; near blades overlap that transition above a continuous lawn texture",
 ]
 
 
@@ -175,7 +175,7 @@ def pixel_cm(distance_cm: float) -> float:
 
 
 def _variety(name: str, spec: dict, height_cm: tuple[float, float], source: str) -> dict:
-    # Preserve the approved distant blades while the denser near layer ends sooner.
+    # Preserve the approved distant blades while the denser near layer overlaps their entrance.
     wide = pixel_cm(spec["appear_cm"][1]) if name == "clump" else 0.0
     root_width = spec.get("blade_width_cm", NEAR_BLADE_WIDTH_CM)
     width = (

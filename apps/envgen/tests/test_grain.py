@@ -109,6 +109,8 @@ def test_varieties_keep_their_leaf_area_and_the_approved_distant_blade_transitio
     # The distant variety retains its original pixel width and 8 to 15 m entrance as near geometry changes.
     assert varieties["clump"]["blade_width_cm"][0] == pytest.approx(1.56, abs=0.01)
     assert varieties["clump"]["appear_cm"] == [800, 1500]
+    assert varieties["near"]["start_cull_cm"] == varieties["clump"]["appear_cm"][0]
+    assert varieties["near"]["end_cull_cm"] == varieties["clump"]["appear_cm"][1]
     assert varieties["near"]["appear_cm"] == [0, 0]
     assert max(varieties["near"]["blade_width_cm"]) < min(varieties["tall"]["blade_width_cm"])
     assert all(prior.startswith("prior:") for prior in grass["priors"])
