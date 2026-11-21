@@ -8,7 +8,7 @@ data class TimedWord(val text: String, val start: Double)
 
 /** Text frames the bridge sends. Anything else is [Unknown] and ignored. */
 sealed interface ServerMessage {
-	data class Audio(val rate: Int) : ServerMessage
+	data class Audio(val rate: Int, val codec: String = "pcm") : ServerMessage
 
 	data object Clear : ServerMessage
 
@@ -39,7 +39,7 @@ fun parseServerMessage(text: String): ServerMessage {
 	}
 	return when (json.optString("type")) {
 		"audio" -> json.optInt("rate", 0).takeIf { it in 8_000..48_000 }
-			?.let { ServerMessage.Audio(it) } ?: ServerMessage.Unknown
+			?.let { ServerMessage.Audio(it, json.optString("codec", "pcm")) } ?: ServerMessage.Unknown
 		"clear" -> ServerMessage.Clear
 		"bye" -> ServerMessage.Bye
 		"state" -> when (json.optString("value")) {
