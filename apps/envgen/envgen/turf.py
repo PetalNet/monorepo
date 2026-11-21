@@ -52,7 +52,7 @@ FIELD_CALIBRATION = {
         "projected-area mixtures retain condition colour around one maintained luminance reference; site luminance supplies nearby variation and non-soil candidates use dry colour times root shade as low thatch",
         "living and dead colours group around randomly placed radial patches at the conditional dry-tuft scale, with finer per-leaf variation; mapped condition supplies larger wear patterns",
         "the short ground cover and blade bases use root shade beneath upright leaves; this is a canopy-lighting prior",
-        "calibration fades out from 15 to 30 m to retain the approved orthophoto-led distant appearance",
+        "calibration fades from 15 to 30 m in steep views; grazing ground views retain short cover through the distant tuft handoff",
     ],
 }
 
@@ -166,6 +166,7 @@ CANOPY_RESPONSE = {
     "dry_height_ratio": 0.25,
     "edge_mowing_height_ratio": 1 / TALL_OVER_MOWED,
     "edge_height_weights": [0.5, 0.7],
+    "grazing_view_sine_range": [0.15, 0.35],
 }
 
 PRIORS = [
@@ -181,6 +182,7 @@ PRIORS = [
     "prior: dead blades reduce to one quarter height at maximum photo wear; surviving grass retains its height and all leaf counts stay full",
     "prior: tall edge blades return to mowing height nearby, and near blades taper in height across grass weights 0.5 to 0.7",
     "prior: worn and edge height responses restore the original geometry over the calibration's 15 to 30 m fade",
+    "prior: at surface-view sines below 0.15, short cover fades over 30 m to the clump cull distance; above 0.35 the original 15 to 30 m material fade remains",
 
 ]
 
