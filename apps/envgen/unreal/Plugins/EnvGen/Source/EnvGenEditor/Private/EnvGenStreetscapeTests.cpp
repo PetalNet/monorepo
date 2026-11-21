@@ -592,6 +592,7 @@ bool FEnvGenStreetscapeAthletic::RunTest(const FString& Parameters)
 			TestFalse(TEXT("synthetic fibers do not cast large natural-grass shadows"), Variety.bCastDynamicShadow);
 			TestFalse(TEXT("bounded-WPO pile avoids HISM dither cutoff gaps"), CastChecked<UMaterial>(Pile->GetMaterial(0))->DitheredLODTransition);
 			TSet<FIntPoint> Roots[2];
+			TSet<FIntVector> Strands[2];
 			for (int32 LOD = 0; LOD < 2; ++LOD)
 			{
 				const FStaticMeshLODResources& Mesh = Pile->GetRenderData()->LODResources[LOD];
@@ -601,19 +602,37 @@ bool FEnvGenStreetscapeAthletic::RunTest(const FString& Parameters)
 				AddInfo(FString::Printf(TEXT("pile LOD%d sourceTriangles=%d renderTriangles=%d reduction=%d percent=%.6g baseLOD=%d"),
 					LOD, Pile->GetMeshDescription(LOD)->Triangles().Num(), Mesh.IndexBuffer.GetNumIndices() / 3,
 					Pile->IsReductionActive(LOD), Pile->GetReductionSettings(LOD).PercentTriangles, Pile->GetReductionSettings(LOD).BaseLODModel));
+				const FColorVertexBuffer& Colours = Mesh.VertexBuffers.ColorVertexBuffer;
+				if (!TestEqual(TEXT("pile render buffers retain strand seeds"), Colours.GetNumVertices(), Vertices.GetNumVertices())) return false;
 				for (uint32 Vertex = 0; Vertex < Vertices.GetNumVertices(); ++Vertex)
 				{
 					const FVector2f Root = Vertices.GetVertexUV(Vertex, 1);
 					Roots[LOD].Add(FIntPoint(FMath::RoundToInt(Root.X * 1000), FMath::RoundToInt(Root.Y * 1000)));
+					Strands[LOD].Add(FIntVector(FMath::RoundToInt(Root.X * 1000), FMath::RoundToInt(Root.Y * 1000), Colours.VertexColor(Vertex).B));
 				}
-				int32 SplitRoots = 0;
+				int32 SplitRoots = 0, TipCaps = 0, InwardCaps = 0;
 				for (int32 Triangle = 0; Triangle < Mesh.IndexBuffer.GetNumIndices(); Triangle += 3)
 				{
 					const FVector2f Root = Vertices.GetVertexUV(Mesh.IndexBuffer.GetIndex(Triangle), 1);
 					if (Root != Vertices.GetVertexUV(Mesh.IndexBuffer.GetIndex(Triangle + 1), 1)
 						|| Root != Vertices.GetVertexUV(Mesh.IndexBuffer.GetIndex(Triangle + 2), 1)) ++SplitRoots;
+					const uint32 A = Mesh.IndexBuffer.GetIndex(Triangle), B = Mesh.IndexBuffer.GetIndex(Triangle + 1), C = Mesh.IndexBuffer.GetIndex(Triangle + 2);
+					if (Vertices.GetVertexUV(A, 0).Y == 1 && Vertices.GetVertexUV(B, 0).Y == 1 && Vertices.GetVertexUV(C, 0).Y == 1)
+					{
+						++TipCaps;
+						const FPositionVertexBuffer& Positions = Mesh.VertexBuffers.PositionVertexBuffer;
+						const FVector3f Front = FVector3f::CrossProduct(Positions.VertexPosition(C) - Positions.VertexPosition(A),
+							Positions.VertexPosition(B) - Positions.VertexPosition(A));
+						if (Front.Z <= 0 || Vertices.VertexTangentZ(A).Z <= 0 || Vertices.VertexTangentZ(B).Z <= 0 || Vertices.VertexTangentZ(C).Z <= 0) ++InwardCaps;
+					}
 				}
 				TestEqual(TEXT("rendered fiber vertices share an exact root before snapping"), SplitRoots, 0);
+				if (LOD == 0)
+				{
+					TestTrue(TEXT("near pile retains visible cut-end geometry"), TipCaps > 0);
+					TestEqual(FString::Printf(TEXT("rendered cut ends face out of the pile (%d caps checked)"), TipCaps), InwardCaps, 0);
+				}
+				AddInfo(FString::Printf(TEXT("pile LOD%d renderVertices=%u tipCaps=%d inwardCaps=%d"), LOD, Vertices.GetNumVertices(), TipCaps, InwardCaps));
 			}
 			TestEqual(TEXT("near pile covers every patch root"), Roots[0].Num(), 400);
 			const TSet<FIntPoint> Missing = Roots[0].Difference(Roots[1]), Extra = Roots[1].Difference(Roots[0]);
@@ -626,6 +645,8 @@ bool FEnvGenStreetscapeAthletic::RunTest(const FString& Parameters)
 				for (const FIntPoint Root : Extra) Detail += FString::Printf(TEXT(" extra(%d,%d)"), Root.X, Root.Y);
 				AddInfo(Detail);
 			}
+			TestTrue(TEXT("far pile retains every near strand seed at its root"),
+				Strands[0].Difference(Strands[1]).IsEmpty() && Strands[1].Difference(Strands[0]).IsEmpty());
 			for (int32 Heading : {0, 90}) for (float Phase : {0.f, .25f, .5f})
 			{
 				TSet<int32> Rows;
@@ -642,7 +663,7 @@ bool FEnvGenStreetscapeAthletic::RunTest(const FString& Parameters)
 				MinZ = FMath::Min(MinZ, PilePositions[Vertex].Z);
 				MaxZ = FMath::Max(MaxZ, PilePositions[Vertex].Z);
 			}
-			TestTrue(TEXT("pile keeps its physical height before the world-vertical surface offset"), FMath::Abs(MinZ) <= 1.e-5f && MaxZ > 1.8f && MaxZ <= 2.21f);
+			TestTrue(TEXT("pile keeps its physical height before the world-vertical surface offset"), FMath::Abs(MinZ) <= 1.e-5f && MaxZ > 1.3f && MaxZ <= 1.41f);
 		}
 		auto* NarrowMask = FindObject<UTexture2D>(nullptr, TEXT("/Game/EnvGen/Generated/T_AthleticPileMask_0008.T_AthleticPileMask_0008"));
 		if (TestNotNull(TEXT("narrow field has a fine footprint mask"), NarrowMask))

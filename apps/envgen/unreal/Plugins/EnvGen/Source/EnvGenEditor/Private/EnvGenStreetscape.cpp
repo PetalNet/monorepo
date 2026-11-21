@@ -822,21 +822,22 @@ return lerp(canopy,bed,pileNear);
 		auto* Finish = CastChecked<UMaterialExpressionCustom>(UMaterialEditingLibrary::CreateMaterialExpression(Material, UMaterialExpressionCustom::StaticClass()));
 		Finish->Inputs.Empty();
 		Finish->OutputType = CMOT_Float3;
-		for (const auto& Pair : {TPair<FName, UMaterialExpression*>(TEXT("N"), BladeNormal),
+		for (const auto& Pair : {TPair<FName, UMaterialExpression*>(TEXT("N"), BladeNormal), TPair<FName, UMaterialExpression*>(TEXT("CutEnd"), Vertex),
 			TPair<FName, UMaterialExpression*>(TEXT("Seed"), Vertex), TPair<FName, UMaterialExpression*>(TEXT("Instance"), Instance), TPair<FName, UMaterialExpression*>(TEXT("UV"), BladeUV)})
 		{
 			FCustomInput& Input = Finish->Inputs.AddDefaulted_GetRef();
-			Input.InputName = Pair.Key; Input.Input.Connect(Pair.Key == TEXT("Seed") ? 3 : 0, Pair.Value);
+			Input.InputName = Pair.Key; Input.Input.Connect(Pair.Key == TEXT("Seed") ? 3 : Pair.Key == TEXT("CutEnd") ? 2 : 0, Pair.Value);
 		}
 		FCustomOutput& Roughness = Finish->AdditionalOutputs.AddDefaulted_GetRef();
 		Roughness.OutputName = TEXT("Roughness"); Roughness.OutputType = CMOT_Float1;
 		Finish->Code = TEXT(R"HLSL(
+if(CutEnd>.5){Roughness=.48+.05*Seed;return normalize(N);}
 float s=frac(sin(Seed*269.5+Instance*183.3)*2578.543);
 float angle=(s-.5)*.6;
 float3 n=float3(cos(angle)*N.x-sin(angle)*N.y,sin(angle)*N.x+cos(angle)*N.y,N.z);
-Roughness=.25+.12*Seed;
+Roughness=.38+.12*Seed;
 float3 across=normalize(cross(n,float3(0,0,1))+float3(.0001,0,0));
-return normalize(n*.8+float3(0,0,.65)+across*(UV.x-.5)*.35);
+return normalize(n*.8+float3(0,0,.65)+across*sin((UV.x-.5)*3.14159265)*.35);
 )HLSL");
 		Finish->RebuildOutputs();
 		UMaterialEditingLibrary::ConnectMaterialProperty(Finish, TEXT(""), MP_Normal);
@@ -925,7 +926,7 @@ return float3(shift,2.5-dot(shift,N.xy)/max(N.z,.1))+varied*fade-Delta;
 		UMaterialEditingLibrary::RecompileMaterial(Material);
 
 		UStaticMesh* Mesh = Asset<UStaticMesh>(FString::Printf(TEXT("SM_AthleticPile_%04d"), Index), Packages);
-		const auto MakePatch = [&](int32 Segments)
+		const auto MakePatch = [&](int32 Segments, bool bTipCaps)
 		{
 			FMeshDescription Description;
 			FStaticMeshAttributes Attributes(Description);
@@ -942,46 +943,63 @@ return float3(shift,2.5-dot(shift,N.xy)/max(N.z,.1))+varied*fade-Delta;
 			const FVector2f Along(FMath::Sin(Angle), FMath::Cos(Angle));
 			const FVector2f Across(-Along.Y, Along.X);
 			for (int32 Row = 0; Row < 20; ++Row) for (int32 Stitch = 0; Stitch < 20; ++Stitch)
-			for (int32 Strand = 0; Strand < 3; ++Strand)
+			for (int32 Strand = 0; Strand < 8; ++Strand)
 			{
-				// Keep the same stitch roots in both LODs; only the number and width of strands change.
+				// Keep every strand in both LODs; simplify its curve and omit unresolved cut ends at distance.
 				const FVector2f Root(-9.5f + Row, -9.5f + Stitch);
-				const float BladeHeight = Random.FRandRange(1.8f, 2.2f);
-				const FVector2f Lean = Along * Random.FRandRange(-.9f, .9f) + Across * Random.FRandRange(-.5f, .5f);
+				const float BladeHeight = Random.FRandRange(.6f, 1.4f);
+				const FVector2f Lean = Along * Random.FRandRange(-.45f, .45f) + Across * Random.FRandRange(-.35f, .35f);
 				const float Facing = Random.FRand() * PI;
-				FVector2f Side = FVector2f(FMath::Cos(Facing), FMath::Sin(Facing)) * Random.FRandRange(.05f, .085f);
+				const FVector2f Side = FVector2f(FMath::Cos(Facing), FMath::Sin(Facing)) * Random.FRandRange(.05f, .08f);
 				const float Seed = Random.FRand();
-				if (Segments == 1)
-				{
-					if (Strand != 1) continue;
-					Side *= 3;
-				}
 				const auto Point = [&](float T, float Edge) { return Root + Lean * (T * T) + Side * Edge; };
+				const auto AddVertex = [&](FVector3f P, FVector3f Normal, FVector2f UV, bool bCutEnd)
+				{
+					const FVertexID V = Description.CreateVertex();
+					Positions[V] = P;
+					const FVertexInstanceID VI = Description.CreateVertexInstance(V);
+					Normals[VI] = Normal;
+					UVs.Set(VI, 0, UV);
+					UVs.Set(VI, 1, Root);
+					UVs.Set(VI, 2, FVector2f(P.X, P.Y) - Root);
+					UVs.Set(VI, 3, FVector2f(P.Z, 0));
+					// R is height, G marks cut ends, and B retains the strand seed.
+					Colours[VI] = FVector4f(UV.Y, bCutEnd ? 1.f : 0.f, Seed, 1);
+					return VI;
+				};
+				const FVector3f Side3(Side.X, Side.Y, 0);
+				const auto AddRibbon = [&](float T, float Edge)
+				{
+					const FVector2f P = Point(T, Edge);
+					const FVector3f Tangent(2 * T * Lean.X, 2 * T * Lean.Y, BladeHeight);
+					return AddVertex(FVector3f(P.X, P.Y, BladeHeight * T),
+						FVector3f::CrossProduct(Tangent, Side3).GetSafeNormal(), FVector2f(Edge * .5f + .5f, T), false);
+				};
 				for (int32 Segment = 0; Segment < Segments; ++Segment)
 				{
 					const float T0 = float(Segment) / Segments, T1 = float(Segment + 1) / Segments;
-					const auto Add = [&](float T, float Edge)
-					{
-						const FVector2f P = Point(T, Edge);
-						const FVertexID V = Description.CreateVertex();
-						Positions[V] = FVector3f(P.X, P.Y, BladeHeight * T);
-						const FVertexInstanceID VI = Description.CreateVertexInstance(V);
-						Normals[VI] = FVector3f::CrossProduct(FVector3f(2 * T * Lean.X, 2 * T * Lean.Y, BladeHeight), FVector3f(Side.X, Side.Y, 0)).GetSafeNormal();
-						UVs.Set(VI, 0, FVector2f(Edge * .5f + .5f, T));
-						UVs.Set(VI, 1, Root);
-						UVs.Set(VI, 2, P - Root);
-						UVs.Set(VI, 3, FVector2f(BladeHeight * T, 0));
-						Colours[VI] = FVector4f(T, 0, Seed, 1);
-						return VI;
-					};
-					const auto L0 = Add(T0, -1), R0 = Add(T0, 1), L1 = Add(T1, -1), R1 = Add(T1, 1);
+					const auto L0 = AddRibbon(T0, -1), R0 = AddRibbon(T0, 1), L1 = AddRibbon(T1, -1), R1 = AddRibbon(T1, 1);
 					Description.CreatePolygon(Group, {L0, R0, R1});
 					Description.CreatePolygon(Group, {L0, R1, L1});
+				}
+				if (bTipCaps)
+				{
+					const FVector2f P = Point(1, 0);
+					const FVector3f Tip(P.X, P.Y, BladeHeight);
+					const FVector3f Face = FVector3f::CrossProduct(FVector3f(2 * Lean.X, 2 * Lean.Y, BladeHeight), Side3).GetSafeNormal();
+					const FVector3f CutNormal = FVector3f::CrossProduct(Side3, Face).GetSafeNormal();
+					const FVector3f HalfThickness = Face * .005f;
+					const auto L0 = AddVertex(Tip - Side3 - HalfThickness, CutNormal, FVector2f(0, 1), true);
+					const auto R0 = AddVertex(Tip + Side3 - HalfThickness, CutNormal, FVector2f(1, 1), true);
+					const auto L1 = AddVertex(Tip - Side3 + HalfThickness, CutNormal, FVector2f(0, 1), true);
+					const auto R1 = AddVertex(Tip + Side3 + HalfThickness, CutNormal, FVector2f(1, 1), true);
+					Description.CreatePolygon(Group, {L0, R1, R0});
+					Description.CreatePolygon(Group, {L0, L1, R1});
 				}
 			}
 			return Description;
 		};
-		FMeshDescription Near = MakePatch(3), Far = MakePatch(1);
+		FMeshDescription Near = MakePatch(5, true), Far = MakePatch(2, false);
 		Mesh->GetStaticMaterials().Add(FStaticMaterial(Material, TEXT("Fiber")));
 		Mesh->SetAutoComputeLODScreenSize(false);
 		Mesh->SetNumSourceModels(2);
@@ -989,6 +1007,8 @@ return float3(shift,2.5-dot(shift,N.xy)/max(N.z,.1))+varied*fade-Delta;
 		for (int32 LOD = 0; LOD < 2; ++LOD)
 		{
 			FStaticMeshSourceModel& Model = Mesh->GetSourceModel(LOD);
+			// Preserve smooth ribbon normals and flat cut-end normals.
+			Model.BuildSettings.bRecomputeNormals = false;
 			Model.BuildSettings.bGenerateLightmapUVs = false;
 			// Both LODs are authored; the default reduction would replace the far mesh with half of LOD0.
 			Model.ReductionSettings.PercentTriangles = 1;
@@ -1427,8 +1447,8 @@ static bool ProcessStreetscape(UWorld* World, const FString& ManifestPath,
 			Values->SetStringField(TEXT("colour_source"), TEXT("opaque registered atlas RGB, including default green and inlaid markings"));
 			Values->SetStringField(TEXT("heading_convention"), TEXT("EN degrees counterclockwise from east"));
 			Values->SetNumberField(TEXT("machine_row_spacing_m"), .01);
-			Values->SetNumberField(TEXT("pile_height_min_m"), .01656);
-			Values->SetNumberField(TEXT("pile_height_max_m"), .02376);
+			Values->SetNumberField(TEXT("pile_height_min_m"), .00552);
+			Values->SetNumberField(TEXT("pile_height_max_m"), .015174);
 			Values->SetNumberField(TEXT("pile_end_cull_m"), 11);
 			Values->SetNumberField(TEXT("roll_seam_half_width_m"), .008);
 			Values->SetNumberField(TEXT("distant_crumb_fraction"), .36);

@@ -182,18 +182,17 @@ fixed when comparing captures.
 
 `athletic_turf` is a synthetic surface class. It excludes natural grass blades within its polygon.
 Markings intersecting that field become color regions in one opaque registered atlas on the field mesh,
-including local RGBA artwork. All colors share streamed 1.7–2.4 cm bent blades near the camera,
+including local RGBA artwork. All colors share streamed 0.6–1.6 cm cut ribbons near the camera,
 filtered tuft rows, irregular black infill, fiber normals, roughness
 and grazing reflection. Alternating pile direction and narrow roll seams follow the configured heading.
-The pile uses the existing Landscape grass streaming system. It uses discrete LOD transitions to avoid a missing-fiber band observed with UE 5.8 HISM dithering. Individual blades have three segments
-nearby and one segment at distance. Their height fades from 3 to 10 m before culling at 11 m. A seamless packed grain texture supplies millimetre-scale height, charcoal reflectance and intergranular occlusion between the near blades. Per-blade variation breaks up
+The pile uses the existing Landscape grass streaming system. It uses discrete LOD transitions to avoid a missing-fiber band observed with UE 5.8 HISM dithering. Each root retains eight strands at both geometry levels. Nearby ribbons have five curve segments and thin cut-end caps; distant ribbons use two segments and omit the unresolved caps. Their height fades from 3 to 10 m before culling at 11 m. A seamless packed grain texture supplies millimetre-scale height, charcoal reflectance and intergranular occlusion between the near blades. Per-blade variation breaks up
 repeated patches while retaining manufactured rows.
 Its conservative footprint mask clips fibers at field boundaries to within a mask texel;
 world-projected atlas colors include the
 markings. Athletic mesh vertices must use the exporter’s 0.025 m terrain offset so pile roots meet
 the surface. Natural grass inputs remain connected to their original varieties.
 These are appearance priors. There are no raised marking ribbons, dry patches, soil or grass clumps.
-Rows are 10 mm apart, with strands spread along each row instead of collapsed into coarser stitches. Sub-row scraps can show infill without a fiber root; markings use atlas colors
+Rows are 10 mm apart, with strand positions spread along each row. Sub-row scraps can show infill without a fiber root; markings use atlas colors
 inside a full field, rather than separate narrow field polygons.
 Registered surface meshes keep full-precision UVs so wide atlases do not quantize marking positions
 at mesh boundaries.
