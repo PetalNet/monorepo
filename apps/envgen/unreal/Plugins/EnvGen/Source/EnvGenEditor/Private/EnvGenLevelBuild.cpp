@@ -1364,7 +1364,7 @@ return lerp(Texture2DSampleGrad(Scan,ScanSampler,UV,dx,dy).rgb,varied,blend);
 				if (bNear)
 				{
 					const FVector3f P = Positions[Description.GetVertexInstanceVertex(A)];
-					const FVector3f Cross = FVector3f::CrossProduct(Positions[Description.GetVertexInstanceVertex(B)] - P, Positions[Description.GetVertexInstanceVertex(C)] - P);
+					const FVector3f Cross = FVector3f::CrossProduct(Positions[Description.GetVertexInstanceVertex(C)] - P, Positions[Description.GetVertexInstanceVertex(B)] - P);
 					Normals[A] += Cross;
 					Normals[B] += Cross;
 					Normals[C] += Cross;
@@ -1394,6 +1394,8 @@ return lerp(Texture2DSampleGrad(Scan,ScanSampler,UV,dx,dy).rgb,varied,blend);
 		Mesh->GetStaticMaterials().Add(FStaticMaterial(Material, FName(TEXT("Blade"))));
 		if (bNear)
 		{
+			Mesh->SetNumSourceModels(1);
+			Mesh->GetSourceModel(0).BuildSettings.bRecomputeNormals = false;
 			FMeshNaniteSettings& Nanite = Mesh->GetNaniteSettings();
 			Nanite.bEnabled = true;
 			Nanite.ShapePreservation = ENaniteShapePreservation::PreserveArea;
@@ -1651,7 +1653,7 @@ return lerp(Texture2DSampleGrad(Scan,ScanSampler,UV,dx,dy).rgb,varied,blend);
 				SurfaceUp->A.Connect(0, UpPoint);
 				SurfaceUp->B.Connect(0, Root);
 				Input(TEXT("SurfaceUp"), SurfaceUp);
-				Fade = FString::Printf(TEXT("lerp(1-smoothstep(%.3f,%.3f,reach),sqrt(1-smoothstep(%.3f,%.3f,reach)),1-smoothstep(%.6f,%.6f,saturate(dot(normalize(SurfaceUp),(Eye-Root)/max(reach,1)))))"),
+				Fade = FString::Printf(TEXT("lerp(1-smoothstep(%.3f,%.3f,reach),sqrt(saturate(1-smoothstep(%.3f,%.3f,reach))),1-smoothstep(%.6f,%.6f,saturate(dot(normalize(SurfaceUp),(Eye-Root)/max(reach,1)))))"),
 					float(Variety.StartCullCm), SteepFadeEndCm, SteepFadeEndCm, float(Variety.EndCullCm),
 					Manifest.Turf.GrazingViewSineStart, Manifest.Turf.GrazingViewSineEnd);
 			}
