@@ -51,6 +51,7 @@ FIELD_CALIBRATION = {
         "the existing 2 m surface fringe interpolates path-edge appearance",
         "projected-area mixtures retain condition colour around one maintained luminance reference; site luminance supplies nearby variation and non-soil candidates use dry colour times root shade as low thatch",
         "living and dead colours mix per texture leaf; mapped condition alone supplies larger wear patterns",
+        "the short ground cover and blade bases use root shade beneath upright leaves; this is a canopy-lighting prior",
         "calibration fades out from 15 to 30 m to retain the approved orthophoto-led distant appearance",
     ],
 }

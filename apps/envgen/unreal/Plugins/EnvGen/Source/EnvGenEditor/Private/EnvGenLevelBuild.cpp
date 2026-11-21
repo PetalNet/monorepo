@@ -988,7 +988,8 @@ return lerp(Texture2DSampleGrad(Scan,ScanSampler,UV,dx,dy).rgb,varied,blend);
 		// One maintained reference preserves condition colour differences; site luminance supplies local variation.
 		const FLinearColor Reference = Lawn.Means[0];
 		const float ReferenceY = Reference.R * 0.2126f + Reference.G * 0.7152f + Reference.B * 0.0722f;
-		Surface->Code = VegetationCode + FString::Printf(TEXT("float3 lawn=lerp(lerp(Lawn0,Lawn1,Condition.r),Lawn2,Condition.g); float brightness=dot(Site,float3(0.2126,0.7152,0.0722))/max(%.9f,0.0001); return lerp(lawn*brightness,Far,smoothstep(%.3f,%.3f,distance(Here,Eye)));"), ReferenceY, Turf.CalibrationFadeStartCm, Turf.CalibrationFadeEndCm);
+		const float CanopyShade = bVegetation ? 1.f : Turf.RootShade;
+		Surface->Code = VegetationCode + FString::Printf(TEXT("float3 lawn=lerp(lerp(Lawn0,Lawn1,Condition.r),Lawn2,Condition.g); float brightness=dot(Site,float3(0.2126,0.7152,0.0722))/max(%.9f,0.0001); return lerp(lawn*brightness*%.6f,Far,smoothstep(%.3f,%.3f,distance(Here,Eye)));"), ReferenceY, CanopyShade, Turf.CalibrationFadeStartCm, Turf.CalibrationFadeEndCm);
 		return Surface;
 	}
 
@@ -1307,7 +1308,10 @@ return lerp(Texture2DSampleGrad(Scan,ScanSampler,UV,dx,dy).rgb,varied,blend);
 		FCustomInput& VertexNormal = RoundedNormal->Inputs.AddDefaulted_GetRef();
 		VertexNormal.InputName = TEXT("N");
 		VertexNormal.Input.Connect(0, BladeNormal);
-		RoundedNormal->Code = TEXT("float3 n=normalize(N); n.z=abs(n.z); return normalize(lerp(float3(0,0,1),n,0.45));");
+		// Keep the near leaves' authored light response; retain the distant canopy's existing lighting.
+		RoundedNormal->Code = Variety.Name == FName(TEXT("near"))
+			? TEXT("float3 n=normalize(N); n.z=abs(n.z); return n;")
+			: TEXT("float3 n=normalize(N); n.z=abs(n.z); return normalize(lerp(float3(0,0,1),n,0.45));");
 		UMaterialEditingLibrary::ConnectMaterialProperty(RoundedNormal, TEXT(""), MP_Normal);
 		UMaterialExpressionConstant* Roughness = Node<UMaterialExpressionConstant>(Material, -200, 300);
 		Roughness->R = 0.6f;
@@ -1409,10 +1413,10 @@ return ((float3((float2(1.6,0.65)*sway+lean)*tip,0) + float3(0,0,(Here.z-BladeRo
 					In.InputName = Pair.Key;
 					In.Input.Connect(0, Pair.Value);
 				}
-				// Individual roots follow the shared grass-majority boundary; short edge leaves lie close to the surface.
+				// Shorten the whole leaf at the boundary; flattening only Z leaves full-length strands on the paving.
 				const FString EdgeHeight = Manifest.Turf.EdgeHeightFullWeight > Manifest.Turf.EdgeHeightStartWeight
 					? FString::Printf(TEXT("smoothstep(%.6f,%.6f,Weights.r)"), Manifest.Turf.EdgeHeightStartWeight, Manifest.Turf.EdgeHeightFullWeight) : TEXT("1.0");
-				ClipRoot->Code = TEXT("float height=") + EdgeHeight + FString::Printf(TEXT("; float3 edge=Offset; edge.z+=(Here.z+Offset.z-BladeRoot.z)*(height-1); return lerp(Root-Here-float3(0,0,5),edge,Weights.r>%.6f ? 1.0 : 0.0);"), Manifest.Turf.EdgeHeightStartWeight);
+				ClipRoot->Code = TEXT("float height=") + EdgeHeight + FString::Printf(TEXT("; float3 edge=Offset; edge+=(Here+Offset-BladeRoot)*(height-1); return lerp(Root-Here-float3(0,0,5),edge,Weights.r>%.6f ? 1.0 : 0.0);"), Manifest.Turf.EdgeHeightStartWeight);
 				FinalOffset = ClipRoot;
 			}
 			UMaterialEditingLibrary::ConnectMaterialProperty(FinalOffset, TEXT(""), MP_WorldPositionOffset);
