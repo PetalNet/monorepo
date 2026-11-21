@@ -151,7 +151,8 @@ NEAR_BLADE_WIDTH_CM = (0.8, 1.4)
 NEAR = {"leaf_area_index": 2.0, "blades": 66, "blade_width_cm": [0.29, 0.51], "radius_cm": 14.0,
         "start_cull_cm": 800, "end_cull_cm": 3000,
         "blade_shape": {"kind": "bent", "peak_height_factor": [0.25, 0.60],
-                        "span_height_ratio": [0.45, 1.20], "arch": [0.05, 0.45]}}
+                        "span_height_ratio": [0.45, 1.20], "arch": [0.05, 0.45],
+                        "tip_twist_magnitude_deg": [25.0, 75.0], "cup_depth_half_width": [0.18, 0.36]}}
 CLUMP = {"leaf_area_index": 0.2, "blades": 24, "radius_cm": 22.5, "start_cull_cm": 2500, "end_cull_cm": 6500,
          "appear_cm": [800, 1500]}
 TALL = {"leaf_area_index": 0.02, "blades": 8, "radius_cm": 6.0, "start_cull_cm": 2500, "end_cull_cm": 5000}
@@ -180,6 +181,7 @@ PRIORS = [
     "prior: near blades cast shadows; distant clump and tall varieties retain their original unshadowed setting",
     "prior: the clump variety retains its 8 to 15 m transition; near blades fade over 8 to 15 m in steep views and 15 to 30 m at grazing angles",
     "prior: near leaves use the explicit bent-shape ranges below the nominal mowing reference, preserving the reference tuft's total static triangulated surface area while individual leaf areas vary; these are not measured November cutting heights",
+    "prior: near leaves twist in either direction and cup across their width; uniform scaling about each unchanged root preserves total reference area and changes final peak, reach, width and foot burial together",
     "prior: a 4 m lawn tile retains 512 pixels and 16000 texture leaves per square metre to avoid a 1 m worn-patch repeat",
     "prior: dead blades reduce to one quarter height at maximum photo wear; surviving grass retains its height and all leaf counts stay full",
     "prior: tall edge blades return to mowing height nearby; near blades retain their height up to the shared grass-majority root boundary",

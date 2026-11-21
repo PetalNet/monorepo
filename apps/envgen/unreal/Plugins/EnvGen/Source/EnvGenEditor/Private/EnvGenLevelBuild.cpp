@@ -170,9 +170,15 @@ namespace
 		FVector Scale = FVector::OneVector;
 	};
 
+	struct FNearSectionPrior
+	{
+		FVector2f TipTwistMagnitudeRad, CupDepthHalfWidth;
+	};
+
 	struct FBentBladeShape
 	{
 		FVector2f PeakHeightFactor, SpanHeightRatio, Arch;
+		TOptional<FNearSectionPrior> Section;
 	};
 
 	/** One kind of tuft, from the manifest's `turf`: its size, how many per 100 square metres, and how far out it is drawn. */
@@ -580,14 +586,16 @@ namespace
 						return false;
 					}
 					FBentBladeShape Bent;
-					const auto Range = [&](const TCHAR* Key, FVector2f& OutRange, float Maximum, bool bZeroAllowed)
+					const auto Range = [&](const TCHAR* Key, FVector2f& OutRange, double Maximum, bool bZeroAllowed)
 					{
 						const TArray<TSharedPtr<FJsonValue>>* Values = nullptr;
 						if (!(*Shape)->TryGetArrayField(Key, Values) || Values->Num() != 2
 							|| (*Values)[0]->Type != EJson::Number || (*Values)[1]->Type != EJson::Number) return false;
-						OutRange = FVector2f(float((*Values)[0]->AsNumber()), float((*Values)[1]->AsNumber()));
-						return FMath::IsFinite(OutRange.X) && FMath::IsFinite(OutRange.Y)
-							&& (bZeroAllowed ? OutRange.X >= 0 : OutRange.X > 0) && OutRange.Y >= OutRange.X && OutRange.Y <= Maximum;
+						const double MinimumValue = (*Values)[0]->AsNumber(), MaximumValue = (*Values)[1]->AsNumber();
+						if (!FMath::IsFinite(MinimumValue) || !FMath::IsFinite(MaximumValue)
+							|| (bZeroAllowed ? MinimumValue < 0 : MinimumValue <= 0) || MaximumValue < MinimumValue || MaximumValue > Maximum) return false;
+						OutRange = FVector2f(float(MinimumValue), float(MaximumValue));
+						return FMath::IsFinite(OutRange.X) && FMath::IsFinite(OutRange.Y) && (bZeroAllowed || OutRange.X > 0);
 					};
 					if (!Range(TEXT("peak_height_factor"), Bent.PeakHeightFactor, 1, false)
 						|| !Range(TEXT("span_height_ratio"), Bent.SpanHeightRatio, 3, false)
@@ -596,6 +604,19 @@ namespace
 					{
 						Error = TEXT("bent blade ranges must be finite and ordered, with peak factors in (0,1], span ratios in (0,3], arch in [0,2], and positive tuft dimensions fitting the tile");
 						return false;
+					}
+					if ((*Shape)->HasField(TEXT("tip_twist_magnitude_deg")) || (*Shape)->HasField(TEXT("cup_depth_half_width")))
+					{
+						FNearSectionPrior Section;
+						FVector2f TwistDeg;
+						if (!Range(TEXT("tip_twist_magnitude_deg"), TwistDeg, 90, true)
+								|| !Range(TEXT("cup_depth_half_width"), Section.CupDepthHalfWidth, 0.4, true))
+						{
+							Error = TEXT("near section requires both finite ordered ranges: tip_twist_magnitude_deg in [0,90] and cup_depth_half_width in [0,0.4]");
+							return false;
+						}
+						Section.TipTwistMagnitudeRad = FVector2f(FMath::DegreesToRadians(TwistDeg.X), FMath::DegreesToRadians(TwistDeg.Y));
+						Bent.Section = Section;
 					}
 					Variety.BentShape = Bent;
 				}
@@ -1236,6 +1257,153 @@ return lerp(Texture2DSampleGrad(Scan,ScanSampler,UV,dx,dy).rgb,varied,blend);
 		return Area;
 	}
 
+	struct FGrassBlade
+	{
+		FVector2f Root, Along, Across;
+		float Height, Width, Lean, Arch, Seed;
+		FLinearColor Colour;
+		float TipTwistRad = 0, CupDepthHalfWidth = 0;
+	};
+
+	struct FNearGeometryMetrics
+	{
+		double RawAreaCm2 = 0, FinalAreaCm2 = 0;
+		float AreaScale = 1, MaxVertexDistance = 0, MaxBladeDistance = 0;
+		float MaxPeakCm = 0, MaxRootPlanarCm = 0, MaxWidthCm = 0, MinZCm = 0;
+		float MinNormalWindingDot = 1;
+	};
+
+	TOptional<FNearGeometryMetrics> AppendCuppedNearTuft(FMeshDescription& Mesh, FPolygonGroupID Group,
+		TConstArrayView<FGrassBlade> Blades, double ReferenceAreaCm2)
+	{
+		constexpr int32 Segments = 5, Columns = 3, Tip = Segments * Columns, VertexCount = Tip + 1;
+		struct FLeafGeometry { FVector3f Points[VertexCount]; };
+		TArray<FLeafGeometry> Leaves;
+		Leaves.SetNum(Blades.Num());
+		TArray<FIntVector> Triangles;
+		for (int32 Row = 0; Row < Segments - 1; ++Row)
+		{
+			for (int32 Column = 0; Column < Columns - 1; ++Column)
+			{
+				const int32 A = Row * Columns + Column, B = A + 1, C = B + Columns, D = A + Columns;
+				Triangles.Add(FIntVector(A, B, C));
+				Triangles.Add(FIntVector(A, C, D));
+			}
+		}
+		for (int32 Column = 0; Column < Columns - 1; ++Column)
+		{
+			Triangles.Add(FIntVector((Segments - 1) * Columns + Column, (Segments - 1) * Columns + Column + 1, Tip));
+		}
+		const auto Cross = [](const FLeafGeometry& Leaf, const FIntVector& Triangle)
+		{
+			const FVector3d A(Leaf.Points[Triangle.X]);
+			return FVector3d::CrossProduct(FVector3d(Leaf.Points[Triangle.Z]) - A, FVector3d(Leaf.Points[Triangle.Y]) - A);
+		};
+		FNearGeometryMetrics Metrics;
+		for (int32 I = 0; I < Blades.Num(); ++I)
+		{
+			const FGrassBlade& Blade = Blades[I];
+			FLeafGeometry& Leaf = Leaves[I];
+			const FVector3f Root(Blade.Root.X, Blade.Root.Y, 0), Along(Blade.Along.X, Blade.Along.Y, 0), Across(Blade.Across.X, Blade.Across.Y, 0);
+			const float Peak = BladeArchPeak(Blade.Arch);
+			for (int32 Row = 0; Row <= Segments; ++Row)
+			{
+				const float T = float(Row) / Segments;
+				const FVector3f Centre = Along * (Blade.Lean * T * T)
+					+ FVector3f(0, 0, Blade.Height * (T + Blade.Arch * FMath::Sin(PI * T)) / Peak - 2 * (1 - T));
+				if (Row == Segments)
+				{
+					Leaf.Points[Tip] = Root + Centre;
+					break;
+				}
+				const FVector3f Tangent = (Along * (2 * Blade.Lean * T)
+					+ FVector3f(0, 0, Blade.Height * (1 + Blade.Arch * PI * FMath::Cos(PI * T)) / Peak + 2)).GetSafeNormal();
+				const FVector3f Normal = FVector3f::CrossProduct(Tangent, Across);
+				const float Angle = Blade.TipTwistRad * (3 * T * T - 2 * T * T * T);
+				const FVector3f TwistedAcross = Across * FMath::Cos(Angle) + Normal * FMath::Sin(Angle);
+				const FVector3f TwistedNormal = -Across * FMath::Sin(Angle) + Normal * FMath::Cos(Angle);
+				const float Width = Blade.Width * (1 - T) * FMath::Lerp(0.2f, 1.f, FMath::Min(4 * T, 1.f));
+				const float Cup = Blade.CupDepthHalfWidth * FMath::Sin(PI * T);
+				for (int32 Column = 0; Column < Columns; ++Column)
+				{
+					const float U = 2.f * Column / (Columns - 1) - 1;
+					Leaf.Points[Row * Columns + Column] = Root + Centre + Width * (U * TwistedAcross + Cup * U * U * TwistedNormal);
+				}
+			}
+			for (const FIntVector& Triangle : Triangles)
+			{
+				const double Area = Cross(Leaf, Triangle).Size() * 0.5;
+				if (!FMath::IsFinite(Area) || Area <= 0) return {};
+				Metrics.RawAreaCm2 += Area;
+			}
+		}
+		// Scaling about each unchanged root holds total triangle area without flattening individual leaf variation.
+		Metrics.AreaScale = float(FMath::Sqrt(ReferenceAreaCm2 / Metrics.RawAreaCm2));
+		if (!FMath::IsFinite(Metrics.AreaScale) || Metrics.AreaScale <= 0) return {};
+		FStaticMeshAttributes Attributes(Mesh);
+		auto Positions = Attributes.GetVertexPositions();
+		auto Normals = Attributes.GetVertexInstanceNormals();
+		auto Uvs = Attributes.GetVertexInstanceUVs();
+		auto Colours = Attributes.GetVertexInstanceColors();
+		for (int32 I = 0; I < Blades.Num(); ++I)
+		{
+			const FGrassBlade& Blade = Blades[I];
+			FLeafGeometry& Leaf = Leaves[I];
+			const FVector3f Root(Blade.Root.X, Blade.Root.Y, 0);
+			FVector3f VertexNormals[VertexCount] = {};
+			FVertexInstanceID Instances[VertexCount];
+			for (FVector3f& Point : Leaf.Points)
+			{
+				Point = Root + Metrics.AreaScale * (Point - Root);
+				if (Point.ContainsNaN()) return {};
+				Metrics.MaxVertexDistance = FMath::Max(Metrics.MaxVertexDistance, Point.Size());
+				Metrics.MaxBladeDistance = FMath::Max(Metrics.MaxBladeDistance, (Point - Root).Size());
+				Metrics.MaxRootPlanarCm = FMath::Max(Metrics.MaxRootPlanarCm, FVector2f(Point.X - Root.X, Point.Y - Root.Y).Size());
+				Metrics.MaxPeakCm = FMath::Max(Metrics.MaxPeakCm, Point.Z);
+				Metrics.MinZCm = FMath::Min(Metrics.MinZCm, Point.Z);
+			}
+			for (int32 Row = 0; Row < Segments; ++Row)
+			{
+				Metrics.MaxWidthCm = FMath::Max(Metrics.MaxWidthCm, (Leaf.Points[Row * Columns + Columns - 1] - Leaf.Points[Row * Columns]).Size());
+			}
+			for (const FIntVector& Triangle : Triangles)
+			{
+				const FVector3d FaceNormal = Cross(Leaf, Triangle);
+				const double Area = FaceNormal.Size() * 0.5;
+				if (!FMath::IsFinite(Area) || Area <= 0) return {};
+				Metrics.FinalAreaCm2 += Area;
+				VertexNormals[Triangle.X] += FVector3f(FaceNormal);
+				VertexNormals[Triangle.Y] += FVector3f(FaceNormal);
+				VertexNormals[Triangle.Z] += FVector3f(FaceNormal);
+			}
+			for (int32 V = 0; V < VertexCount; ++V)
+			{
+				const FVertexID Vertex = Mesh.CreateVertex();
+				Positions[Vertex] = Leaf.Points[V];
+				const FVertexInstanceID Instance = Mesh.CreateVertexInstance(Vertex);
+				Instances[V] = Instance;
+				Normals[Instance] = VertexNormals[V].GetSafeNormal();
+				if (Normals[Instance].IsNearlyZero()) return {};
+				Uvs.Set(Instance, 0, Blade.Root);
+				Uvs.Set(Instance, 1, FVector2f(0, 0));
+				Uvs.Set(Instance, 2, FVector2f(Blade.Colour.R, Blade.Colour.G));
+				Uvs.Set(Instance, 3, FVector2f(Blade.Colour.B, Blade.Seed));
+				const float T = V == Tip ? 1.f : float(V / Columns) / Segments;
+				Colours[Instance] = FVector4f(T, T, T, 1);
+			}
+			for (const FIntVector& Triangle : Triangles)
+			{
+				const FVector3f FaceNormal(Cross(Leaf, Triangle).GetSafeNormal());
+				for (const int32 V : {Triangle.X, Triangle.Y, Triangle.Z})
+				{
+					Metrics.MinNormalWindingDot = FMath::Min(Metrics.MinNormalWindingDot, FVector3f::DotProduct(Normals[Instances[V]], FaceNormal));
+				}
+				Mesh.CreatePolygon(Group, {Instances[Triangle.X], Instances[Triangle.Y], Instances[Triangle.Z]});
+			}
+		}
+		return Metrics;
+	}
+
 	/** A tuft of tapered, leaning blades, base at the origin, as geometry so it casts and takes light like turf. */
 	UStaticMesh* MakeGrassTuft(UMaterial* Material, const FTuftVariety& Variety, const TArray<FLinearColor>& BladeColours, int32 Index, TArray<UPackage*>& Packages)
 	{
@@ -1253,6 +1421,7 @@ return lerp(Texture2DSampleGrad(Scan,ScanSampler,UV,dx,dy).rgb,varied,blend);
 		// The blade's own colour rides in the third and fourth UV channels (red and green, then blue): vertex colour is
 		// 8 bits and holds how far up the blade a point is, and the mesh build writes its own unwrap into the second.
 		const bool bNear = Variety.Name == FName(TEXT("near"));
+		const bool bCuppedNear = bNear && Variety.BentShape.IsSet() && Variety.BentShape->Section.IsSet();
 		Uvs.SetNumChannels(bNear || Variety.Name == FName(TEXT("broadleaf")) ? 4 : 5);
 		FRandomStream Random(7 + Index);
 		FRandomStream ShapeRandom(7919 + Index);
@@ -1294,12 +1463,6 @@ return lerp(Texture2DSampleGrad(Scan,ScanSampler,UV,dx,dy).rgb,varied,blend);
 				}
 			}
 		}
-		struct FGrassBlade
-		{
-			FVector2f Root, Along, Across;
-			float Height, Width, Lean, Arch, Seed;
-			FLinearColor Colour;
-		};
 		TArray<FGrassBlade> Blades;
 		for (int32 Blade = 0; Blade < Variety.Blades; ++Blade)
 		{
@@ -1336,78 +1499,106 @@ return lerp(Texture2DSampleGrad(Scan,ScanSampler,UV,dx,dy).rgb,varied,blend);
 			RawAreaSum += Width * BladeUnitArea(Height, Lean, Arch, Segments);
 			Blades.Add(FGrassBlade{Root, Along, Across, Height, Width, Lean, Arch, BladeSeed, Own});
 		}
-		const float TuftWidthScale = bNear && Variety.BentShape.IsSet() ? float(ReferenceAreaSum / RawAreaSum) : 1.f;
-		for (const FGrassBlade& Blade : Blades)
+		if (bCuppedNear)
 		{
-			const FVector2f& Root = Blade.Root;
-			const FVector2f& Along = Blade.Along;
-			const FVector2f& Across = Blade.Across;
-			const float Height = Blade.Height, Lean = Blade.Lean, Arch = Blade.Arch, BladeSeed = Blade.Seed;
-			const float Width = Blade.Width * TuftWidthScale;
-			const FLinearColor& Own = Blade.Colour;
-			const float Peak = BladeArchPeak(Arch);
-			double ActualArea = 0;
-			// Left and right edge vertices per level, and one at the tip.
-			TArray<FVertexInstanceID> Left, Right;
-			FVertexInstanceID Tip;
-			const auto Add = [&](float T, float Side)
+			const FNearSectionPrior& Section = Variety.BentShape->Section.GetValue();
+			// New section draws follow the complete legacy shape pass, so existing leaf dimensions and seeds stay fixed.
+			for (FGrassBlade& Blade : Blades)
 			{
-				const float RootWidth = FMath::Lerp(0.2f, 1.f, FMath::Min(T * 4.f, 1.f));
-				const FVector2f Plan = Root + Along * (Lean * T * T) + Across * (Side * Width * (1.f - T) * RootWidth);
-				const FVertexID Vertex = Description.CreateVertex();
-				// Keep the flat foot below the surface, including the blade material's small relief offset.
-				Positions[Vertex] = FVector3f(Plan.X, Plan.Y, Height * (T + Arch * FMath::Sin(PI * T)) / Peak - 2.f * (1.f - T));
-				const FVertexInstanceID Instance = Description.CreateVertexInstance(Vertex);
-				Normals[Instance] = bNear ? FVector3f::ZeroVector : FVector3f(Along.X * 0.6f + Across.X * Side * 0.4f,
-					Along.Y * 0.6f + Across.Y * Side * 0.4f, 1.f).GetSafeNormal();
-				if (bNear)
-				{
-					MaxVertexDistance = FMath::Max(MaxVertexDistance, Positions[Vertex].Size());
-					MaxBladeDistance = FMath::Max(MaxBladeDistance, (Positions[Vertex] - FVector3f(Root.X, Root.Y, 0)).Size());
-				}
-				Uvs.Set(Instance, 0, bNear ? Root : FVector2f(Side * 0.5f + 0.5f, T));
-				Uvs.Set(Instance, 1, FVector2f(0.f, 0.f));
-				Uvs.Set(Instance, 2, FVector2f(Own.R, Own.G));
-				Uvs.Set(Instance, 3, FVector2f(Own.B, BladeSeed));
-				if (!bNear) Uvs.Set(Instance, 4, Root);
-				Colours[Instance] = FVector4f(T, T, T, 1.f);
-				return Instance;
-			};
-			for (int32 Level = 0; Level < Segments; ++Level)
-			{
-				Left.Add(Add(float(Level) / Segments, -1.f));
-				Right.Add(Add(float(Level) / Segments, 1.f));
+				const float Draw = ShapeRandom.FRand();
+				const float Magnitude = FMath::Lerp(Section.TipTwistMagnitudeRad.X, Section.TipTwistMagnitudeRad.Y, Draw < 0.5f ? Draw * 2 : (Draw - 0.5f) * 2);
+				Blade.TipTwistRad = Draw < 0.5f ? -Magnitude : Magnitude;
+				Blade.CupDepthHalfWidth = ShapeRandom.FRandRange(Section.CupDepthHalfWidth.X, Section.CupDepthHalfWidth.Y);
 			}
-			Tip = Add(1.f, 0.f);
-			const auto Triangle = [&](FVertexInstanceID A, FVertexInstanceID B, FVertexInstanceID C)
+			const TOptional<FNearGeometryMetrics> Geometry = AppendCuppedNearTuft(Description, Group, Blades, ReferenceAreaSum);
+			if (!Geometry.IsSet())
 			{
-				Description.CreatePolygon(Group, {A, B, C});
-				if (bNear)
-				{
-					const FVector3f P = Positions[Description.GetVertexInstanceVertex(A)];
-					const FVector3f Cross = FVector3f::CrossProduct(Positions[Description.GetVertexInstanceVertex(C)] - P, Positions[Description.GetVertexInstanceVertex(B)] - P);
-					Normals[A] += Cross;
-					Normals[B] += Cross;
-					Normals[C] += Cross;
-					ActualArea += Cross.Size() * 0.5;
-				}
-			};
-			for (int32 Level = 0; Level < Segments - 1; ++Level)
-			{
-				Triangle(Left[Level], Right[Level], Right[Level + 1]);
-				Triangle(Left[Level], Right[Level + 1], Left[Level + 1]);
+				UE_LOG(LogEnvGen, Error, TEXT("near cup dimensions cannot produce finite positive-area float geometry with valid normals"));
+				return nullptr;
 			}
-			Triangle(Left[Segments - 1], Right[Segments - 1], Tip);
-			if (bNear)
+			const FNearGeometryMetrics& Metrics = Geometry.GetValue();
+			ActualAreaSum = Metrics.FinalAreaCm2;
+			MaxVertexDistance = Metrics.MaxVertexDistance;
+			MaxBladeDistance = Metrics.MaxBladeDistance;
+			MaxSpan = Metrics.MaxRootPlanarCm;
+			UE_LOG(LogEnvGen, Display, TEXT("Near cup section: raw area %.6f cm2, scale %.6f, final peak %.4f cm, root reach %.4f cm, width %.4f cm, foot %.4f cm, minimum normal-winding dot %.6f"),
+				Metrics.RawAreaCm2, Metrics.AreaScale, Metrics.MaxPeakCm, Metrics.MaxRootPlanarCm, Metrics.MaxWidthCm, Metrics.MinZCm, Metrics.MinNormalWindingDot);
+		}
+		else
+		{
+			const float TuftWidthScale = bNear && Variety.BentShape.IsSet() ? float(ReferenceAreaSum / RawAreaSum) : 1.f;
+			for (const FGrassBlade& Blade : Blades)
 			{
+				const FVector2f& Root = Blade.Root;
+				const FVector2f& Along = Blade.Along;
+				const FVector2f& Across = Blade.Across;
+				const float Height = Blade.Height, Lean = Blade.Lean, Arch = Blade.Arch, BladeSeed = Blade.Seed;
+				const float Width = Blade.Width * TuftWidthScale;
+				const FLinearColor& Own = Blade.Colour;
+				const float Peak = BladeArchPeak(Arch);
+				double ActualArea = 0;
+				// Left and right edge vertices per level, and one at the tip.
+				TArray<FVertexInstanceID> Left, Right;
+				FVertexInstanceID Tip;
+				const auto Add = [&](float T, float Side)
+				{
+					const float RootWidth = FMath::Lerp(0.2f, 1.f, FMath::Min(T * 4.f, 1.f));
+					const FVector2f Plan = Root + Along * (Lean * T * T) + Across * (Side * Width * (1.f - T) * RootWidth);
+					const FVertexID Vertex = Description.CreateVertex();
+					// Keep the flat foot below the surface, including the blade material's small relief offset.
+					Positions[Vertex] = FVector3f(Plan.X, Plan.Y, Height * (T + Arch * FMath::Sin(PI * T)) / Peak - 2.f * (1.f - T));
+					const FVertexInstanceID Instance = Description.CreateVertexInstance(Vertex);
+					Normals[Instance] = bNear ? FVector3f::ZeroVector : FVector3f(Along.X * 0.6f + Across.X * Side * 0.4f,
+						Along.Y * 0.6f + Across.Y * Side * 0.4f, 1.f).GetSafeNormal();
+					if (bNear)
+					{
+						MaxVertexDistance = FMath::Max(MaxVertexDistance, Positions[Vertex].Size());
+						MaxBladeDistance = FMath::Max(MaxBladeDistance, (Positions[Vertex] - FVector3f(Root.X, Root.Y, 0)).Size());
+					}
+					Uvs.Set(Instance, 0, bNear ? Root : FVector2f(Side * 0.5f + 0.5f, T));
+					Uvs.Set(Instance, 1, FVector2f(0.f, 0.f));
+					Uvs.Set(Instance, 2, FVector2f(Own.R, Own.G));
+					Uvs.Set(Instance, 3, FVector2f(Own.B, BladeSeed));
+					if (!bNear) Uvs.Set(Instance, 4, Root);
+					Colours[Instance] = FVector4f(T, T, T, 1.f);
+					return Instance;
+				};
 				for (int32 Level = 0; Level < Segments; ++Level)
 				{
-					Normals[Left[Level]] = Normals[Left[Level]].GetSafeNormal();
-					Normals[Right[Level]] = Normals[Right[Level]].GetSafeNormal();
+					Left.Add(Add(float(Level) / Segments, -1.f));
+					Right.Add(Add(float(Level) / Segments, 1.f));
 				}
-				Normals[Tip] = Normals[Tip].GetSafeNormal();
-				ActualAreaSum += ActualArea;
-				MaxSpan = FMath::Max(MaxSpan, Lean);
+				Tip = Add(1.f, 0.f);
+				const auto Triangle = [&](FVertexInstanceID A, FVertexInstanceID B, FVertexInstanceID C)
+				{
+					Description.CreatePolygon(Group, {A, B, C});
+					if (bNear)
+					{
+						const FVector3f P = Positions[Description.GetVertexInstanceVertex(A)];
+						const FVector3f Cross = FVector3f::CrossProduct(Positions[Description.GetVertexInstanceVertex(C)] - P, Positions[Description.GetVertexInstanceVertex(B)] - P);
+						Normals[A] += Cross;
+						Normals[B] += Cross;
+						Normals[C] += Cross;
+						ActualArea += Cross.Size() * 0.5;
+					}
+				};
+				for (int32 Level = 0; Level < Segments - 1; ++Level)
+				{
+					Triangle(Left[Level], Right[Level], Right[Level + 1]);
+					Triangle(Left[Level], Right[Level + 1], Left[Level + 1]);
+				}
+				Triangle(Left[Segments - 1], Right[Segments - 1], Tip);
+				if (bNear)
+				{
+					for (int32 Level = 0; Level < Segments; ++Level)
+					{
+						Normals[Left[Level]] = Normals[Left[Level]].GetSafeNormal();
+						Normals[Right[Level]] = Normals[Right[Level]].GetSafeNormal();
+					}
+					Normals[Tip] = Normals[Tip].GetSafeNormal();
+					ActualAreaSum += ActualArea;
+					MaxSpan = FMath::Max(MaxSpan, Lean);
+				}
 			}
 		}
 		Mesh->GetStaticMaterials().Add(FStaticMaterial(Material, FName(TEXT("Blade"))));
@@ -3290,6 +3481,7 @@ bool FEnvGenLevelBuild::Start(const FString& ManifestPath, const FString& MapPat
 			GrassTypes.Add(GrassType);
 			FGrassVariety& Variety = GrassType->GrassVarieties.AddDefaulted_GetRef();
 			Variety.GrassMesh = MakeGrassTuft(MakeBladeMaterial(Macro, Growth, Condition, RootBoundary, RootFallback, Lawn, Manifest, Tuft, State->Packages), Tuft, Manifest.Turf.BladeColours, Index, State->Packages);
+			if (!Variety.GrassMesh) return false;
 			Variety.GrassDensity = FPerPlatformFloat(Tuft.DensityPer100M2);
 			Variety.StartCullDistance = FPerPlatformInt(Tuft.StartCullCm);
 			Variety.EndCullDistance = FPerPlatformInt(Tuft.EndCullCm);
