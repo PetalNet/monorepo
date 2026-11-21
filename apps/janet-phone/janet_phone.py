@@ -270,7 +270,7 @@ class Config:
     endpoint: dict = field(default_factory=dict)
     # Directory holding the shared detector models. Otherwise use the directory beside vad_model.
     turn_models: str = ""
-    # Audio-only speech detection, independent of the optional transcript-based turn judge.
+    # Silero speech detection; the shared judge uses the Parakeet files beside this model.
     vad_model: str = ""
     # The call's background sound, as the tuning page's code (packages/janet-line), e.g. "AL6 AT45 AW83 BC2 BL11 BR7 BF2 BO6 DL0 DW48 U37 V80".
     # Empty is off. It plays while the line is open: comfort noise, a hum while a reply is worked on, ducked under Janet's voice.
