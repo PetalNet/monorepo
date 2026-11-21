@@ -211,6 +211,7 @@ namespace
 		float DryTuftMinCm = 0, DryTuftMaxCm = 0;
 		float LawnRepeatCm = 100, DryHeightRatio = 1, EdgeMowingHeightRatio = 1;
 		int32 LawnPixelsPerM = 512, LawnLeavesPerM2 = 16000;
+		TOptional<float> LawnPaletteLeafShare;
 		float GrazingViewSineStart = 0, GrazingViewSineEnd = 0;
 	};
 
@@ -505,6 +506,22 @@ namespace
 				Out.Turf.LawnRepeatCm = float((*Response)->GetNumberField(TEXT("lawn_repeat_cm")));
 				Out.Turf.LawnPixelsPerM = (*Response)->GetIntegerField(TEXT("lawn_pixels_per_m"));
 				Out.Turf.LawnLeavesPerM2 = (*Response)->GetIntegerField(TEXT("lawn_leaves_per_m2"));
+				const TSharedPtr<FJsonValue> LeafShare = (*Response)->TryGetField(TEXT("lawn_palette_leaf_share"));
+				if (LeafShare.IsValid())
+				{
+					if (LeafShare->Type != EJson::Number)
+					{
+						Error = TEXT("lawn_palette_leaf_share must be a number");
+						return false;
+					}
+					const double Value = LeafShare->AsNumber();
+					if (!FMath::IsFinite(Value) || Value < 0 || Value > 1)
+					{
+						Error = TEXT("lawn_palette_leaf_share must be finite and between zero and one");
+						return false;
+					}
+					Out.Turf.LawnPaletteLeafShare = float(Value);
+				}
 				Out.Turf.DryHeightRatio = float((*Response)->GetNumberField(TEXT("dry_height_ratio")));
 				Out.Turf.EdgeMowingHeightRatio = float((*Response)->GetNumberField(TEXT("edge_mowing_height_ratio")));
 				if (!FMath::IsFinite(Out.Turf.DryHeightRatio) || Out.Turf.DryHeightRatio < 0 || Out.Turf.DryHeightRatio > 1
@@ -1018,13 +1035,16 @@ return lerp(Texture2DSampleGrad(Scan,ScanSampler,UV,dx,dy).rgb,varied,blend);
 		TArray<int32> PaletteOrder;
 		PaletteTies.Reserve(Leaves.Num());
 		PaletteOrder.Reserve(Leaves.Num());
+		const float LeafWeight = Turf.LawnPaletteLeafShare.IsSet() ? Turf.LawnPaletteLeafShare.GetValue() / 1.1f : 0.5f;
+		const float SpatialWeight = Turf.LawnPaletteLeafShare.IsSet() ? 1 - Turf.LawnPaletteLeafShare.GetValue() : 1.f;
 		for (int32 Index = 0; Index < Leaves.Num(); ++Index)
 		{
 			uint32 Tie = uint32(Index) + 71u;
 			Tie = (Tie ^ (Tie >> 16)) * 0x7feb352du;
 			Tie = (Tie ^ (Tie >> 15)) * 0x846ca68bu;
 			Tie ^= Tie >> 16;
-			PaletteValues[Index] += Leaves[Index].G * (0.5f / 255) + Leaves[Index].B * (0.05f / 255);
+			PaletteValues[Index] *= SpatialWeight;
+			PaletteValues[Index] += Leaves[Index].G * (LeafWeight / 255) + Leaves[Index].B * (0.1f * LeafWeight / 255);
 			PaletteTies.Add(Tie);
 			PaletteOrder.Add(Index);
 		}
