@@ -956,10 +956,10 @@ return lerp(Texture2DSampleGrad(Scan,ScanSampler,UV,dx,dy).rgb,varied,blend);
 		return Result;
 	}
 
-	UMaterialExpression* LawnSurface(UMaterial* Material, UMaterialExpression* Macro, UTexture2D* Condition,
+	UMaterialExpression* LawnSurface(UMaterial* Material, UMaterialExpression* FarAlbedo, UMaterialExpression* SiteAlbedo, UTexture2D* Condition,
 		const FLawnTextures& Lawn, UMaterialExpression* Coords, UMaterialExpression* Here, UMaterialExpression* Eye, const FManifest& Manifest, bool bVegetation = false)
 	{
-		if (!Condition || Manifest.Turf.FieldGreen.IsEmpty()) return Macro;
+		if (!Condition || Manifest.Turf.FieldGreen.IsEmpty()) return FarAlbedo;
 		UMaterialExpressionTextureSample* Controls = Node<UMaterialExpressionTextureSample>(Material, -600, -650);
 		Controls->Texture = Condition;
 		Controls->SamplerType = SAMPLERTYPE_LinearColor;
@@ -971,7 +971,8 @@ return lerp(Texture2DSampleGrad(Scan,ScanSampler,UV,dx,dy).rgb,varied,blend);
 		UMaterialExpressionCustom* Surface = Node<UMaterialExpressionCustom>(Material, -100, -600);
 		Surface->OutputType = CMOT_Float3;
 		Surface->Inputs.Empty();
-		for (const auto& Pair : {TPair<const TCHAR*, UMaterialExpression*>(TEXT("Macro"), Macro),
+		for (const auto& Pair : {TPair<const TCHAR*, UMaterialExpression*>(TEXT("Far"), FarAlbedo),
+			TPair<const TCHAR*, UMaterialExpression*>(TEXT("Site"), SiteAlbedo),
 			TPair<const TCHAR*, UMaterialExpression*>(TEXT("Condition"), Controls),
 			TPair<const TCHAR*, UMaterialExpression*>(TEXT("Here"), Here),
 			TPair<const TCHAR*, UMaterialExpression*>(TEXT("Eye"), Eye)})
@@ -1005,7 +1006,7 @@ return lerp(Texture2DSampleGrad(Scan,ScanSampler,UV,dx,dy).rgb,varied,blend);
 		}
 		const FTurf& Turf = Manifest.Turf;
 		// Photo fractions control local detail; its resolved mean follows the same site colour at every distance.
-		Surface->Code = VegetationCode + MeanCode + FString::Printf(TEXT("float3 lawn=lerp(lerp(Lawn0,Lawn1,Condition.r),Lawn2,Condition.g); float3 mean=lerp(lerp(Mean0,Mean1,Condition.r),Mean2,Condition.g); return Macro*lerp(lawn/max(mean,0.0001),1,smoothstep(%.3f,%.3f,distance(Here,Eye)));"), Turf.CalibrationFadeStartCm, Turf.CalibrationFadeEndCm);
+		Surface->Code = VegetationCode + MeanCode + FString::Printf(TEXT("float3 lawn=lerp(lerp(Lawn0,Lawn1,Condition.r),Lawn2,Condition.g); float3 mean=lerp(lerp(Mean0,Mean1,Condition.r),Mean2,Condition.g); return lerp(Site*lawn/max(mean,0.0001),Far,smoothstep(%.3f,%.3f,distance(Here,Eye)));"), Turf.CalibrationFadeStartCm, Turf.CalibrationFadeEndCm);
 		return Surface;
 	}
 
@@ -1236,7 +1237,7 @@ return lerp(Texture2DSampleGrad(Scan,ScanSampler,UV,dx,dy).rgb,varied,blend);
 		Albedo->A.Connect(0, Ground);
 		Albedo->ConstB = Manifest.AlbedoScale;
 		UMaterialExpressionCameraPositionWS* ColourEye = Node<UMaterialExpressionCameraPositionWS>(Material, -800, -750);
-		UMaterialExpression* FieldAlbedo = LawnSurface(Material, Albedo, Condition, Lawn, ColourCoords, Place, ColourEye, Manifest, true);
+		UMaterialExpression* FieldAlbedo = LawnSurface(Material, Albedo, Albedo, Condition, Lawn, ColourCoords, Place, ColourEye, Manifest, true);
 
 		// The mesh's vertex colour is how far up the blade the point is: 0 at the root, 1 at the tip.
 		UMaterialExpressionVertexColor* Along = Node<UMaterialExpressionVertexColor>(Material, -800, 400);
@@ -1274,7 +1275,7 @@ return lerp(Texture2DSampleGrad(Scan,ScanSampler,UV,dx,dy).rgb,varied,blend);
 		Colour->B.Connect(0, Own);
 		// Thin blades pass light: lit from behind they glow with their own colour rather than going black.
 		Material->SetShadingModel(MSM_TwoSidedFoliage);
-		UMaterialExpression* Substrate = LawnSurface(Material, Albedo, Condition, Lawn, ColourCoords, Place, ColourEye, Manifest);
+		UMaterialExpression* Substrate = LawnSurface(Material, Albedo, Albedo, Condition, Lawn, ColourCoords, Place, ColourEye, Manifest);
 		UMaterialExpressionCustom* RootColour = Node<UMaterialExpressionCustom>(Material, 50, 50);
 		RootColour->OutputType = CMOT_Float3;
 		RootColour->Inputs.Empty();
@@ -1859,7 +1860,7 @@ return float4(dx,dy);
 			UMaterialExpression* SurfaceAlbedo = Albedo;
 			if (Layer.Name == GrassLayer)
 			{
-				SurfaceAlbedo = LawnSurface(Material, Albedo, Condition, Lawn, TileCoords, GroundPosition, GroundEye, Manifest);
+				SurfaceAlbedo = LawnSurface(Material, Albedo, MacroAlbedo, Condition, Lawn, TileCoords, GroundPosition, GroundEye, Manifest);
 			}
 
 			UMaterialExpression* NormalNear = Sample(Material, Layer.Normal, Repeat, SAMPLERTYPE_Normal, Y + 500);
