@@ -2,6 +2,7 @@
 
 #include "AssetRegistry/AssetRegistryModule.h"
 #include "Components/StaticMeshComponent.h"
+#include "Components/PrimitiveComponent.h"
 #include "Components/DecalComponent.h"
 #include "Dom/JsonObject.h"
 #include "Engine/StaticMesh.h"
@@ -1453,6 +1454,16 @@ static bool ProcessStreetscape(UWorld* World, const FString& ManifestPath,
 			++ProjectedPaintCount;
 		}
 		TotalTriangles += Description.Triangles().Num();
+	}
+	if (ProjectedPaintCount > 0)
+	{
+		for (TActorIterator<AActor> It(World); It; ++It)
+		{
+			if (!It->ActorHasTag(EnvGenStandingTag()) || It->ActorHasTag(FName(TEXT("EnvGenPaving")))) continue;
+			TInlineComponentArray<UPrimitiveComponent*> Components;
+			It->GetComponents(Components);
+			for (UPrimitiveComponent* Component : Components) Component->SetReceivesDecals(false);
+		}
 	}
 	Receipt->SetNumberField(TEXT("streetscape_features"), FeatureCount);
 	Receipt->SetNumberField(TEXT("streetscape_meshes"), Pending.Num());

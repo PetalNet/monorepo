@@ -1,4 +1,5 @@
 #include "EnvGenStreetscape.h"
+#include "EnvGenSiteInfo.h"
 
 #if WITH_DEV_AUTOMATION_TESTS
 #include "Components/StaticMeshComponent.h"
@@ -207,6 +208,15 @@ bool FEnvGenStreetscapeDecal::RunTest(const FString& Parameters)
 
 		UWorld* World = UWorld::CreateWorld(EWorldType::Editor, false);
 		if (!TestNotNull(TEXT("test world"), World)) return false;
+		auto* OwnedProp = World->SpawnActor<AStaticMeshActor>();
+		OwnedProp->Tags.Add(EnvGenStandingTag());
+		OwnedProp->GetStaticMeshComponent()->SetReceivesDecals(true);
+		auto* Paving = World->SpawnActor<AStaticMeshActor>();
+		Paving->Tags.Add(EnvGenStandingTag());
+		Paving->Tags.Add(FName(TEXT("EnvGenPaving")));
+		Paving->GetStaticMeshComponent()->SetReceivesDecals(true);
+		auto* ExternalProp = World->SpawnActor<AStaticMeshActor>();
+		ExternalProp->GetStaticMeshComponent()->SetReceivesDecals(true);
 		ULandscapeGrassType* NaturalReceiver = nullptr;
 		if (bGrassPaint)
 		{
@@ -224,6 +234,9 @@ bool FEnvGenStreetscapeDecal::RunTest(const FString& Parameters)
 		TArray<UPackage*> Packages;
 		TArray<AActor*> Actors;
 		const bool bBuilt = BuildEnvGenStreetscape(World, ManifestPath, Height, Packages, Actors, MakeShared<FJsonObject>(), Error);
+		TestEqual(TEXT("owned standing props reject projected field paint only when it exists"), bool(OwnedProp->GetStaticMeshComponent()->bReceivesDecals), !bGrassPaint);
+		TestTrue(TEXT("paving retains its decal reception"), Paving->GetStaticMeshComponent()->bReceivesDecals);
+		TestTrue(TEXT("unowned actors retain their decal reception"), ExternalProp->GetStaticMeshComponent()->bReceivesDecals);
 		if (TestTrue(TEXT("build registered mesh"), bBuilt) && TestEqual(TEXT("paint projects onto receivers and retains its semantic mesh"), Actors.Num(), bGrassPaint ? 2 : 1))
 		{
 			auto* Component = CastChecked<AStaticMeshActor>(Actors[0])->GetStaticMeshComponent();

@@ -226,6 +226,8 @@ Natural fields retain the Landscape's grass material and blade population, witho
 Lines split at field boundaries. Grass paint projects a faded color onto grass-like receivers while
 excluding horizontal ground. Sparse areas retain gaps between existing blades. Its footprint follows
 the marking triangles, preserving registered image alpha and color.
+Generated trees, buildings, goalposts and fences reject projected decals in scenes with grass paint.
+Paving and props added outside EnvGen keep their decal reception.
 The original mesh remains in the semantic depth pass only. Portions on clay or paving retain the
 existing paint finish. Natural-field image marks use the same projected paint. `turf` without a field record retains its legacy behavior.
 
