@@ -126,7 +126,7 @@ def test_large_registered_image_is_cropped_before_resizing(tmp_path):
 
     _, data, _ = colour_atlas(raw["features"][0], raw["features"], {"mark.png": (tmp_path / "mark.png").read_bytes()})
     atlas = Image.open(io.BytesIO(data))
-    assert atlas.width < 300 and atlas.height < 300
+    assert atlas.width < 512 and atlas.height < 512
     assert atlas.getpixel((atlas.width // 2, atlas.height // 2)) == (240, 200, 30, 255)
 
 
@@ -174,5 +174,6 @@ def test_synthetic_line_between_atlas_pixel_centers():
     line = feature("line", material="paint_white", points=[[0, 1.5], [3, 1.5]], width_m=0.004)
     _, data, _ = colour_atlas(surface, [line], {})
     pixels = np.asarray(Image.open(io.BytesIO(data)))
-    assert np.any(np.all(pixels[49:51, :, :3] > 200, axis=2))
+    center = len(pixels) // 2
+    assert np.any(np.all(pixels[center - 1 : center + 1, :, :3] > 200, axis=2))
     assert np.all(pixels[0, :, 0] < 100)

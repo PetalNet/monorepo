@@ -182,11 +182,11 @@ fixed when comparing captures.
 
 `athletic_turf` is a synthetic surface class. It excludes natural grass blades within its polygon.
 Markings intersecting that field become color regions in one opaque registered atlas on the field mesh,
-including local RGBA artwork. All colors share a streamed 1.7–3.5 cm ribbon pile near the camera,
+including local RGBA artwork. All colors share streamed 1.7–3.5 cm bent blades near the camera,
 filtered tuft rows, irregular black infill, fiber normals, roughness
 and grazing reflection. Alternating pile direction and narrow roll seams follow the configured heading.
-The pile uses the existing Landscape grass streaming system. Ribbons carry three flat filaments;
-their height fades from 2 to 5.8 m before instance culling at 6 m. Per-ribbon variation breaks up
+The pile uses the existing Landscape grass streaming system. Individual blades have two segments
+nearby and one segment at distance. Their height fades from 3 to 12.5 m before culling at 14 m. Per-blade variation breaks up
 repeated patches while retaining manufactured rows.
 Its conservative footprint mask clips fibers at field boundaries to within a mask texel;
 world-projected atlas colors include the
@@ -230,7 +230,7 @@ blades. Its footprint follows the marking triangles, preserving registered image
 The original mesh remains in the semantic depth pass only. Portions on clay or paving retain the
 existing paint finish. Natural-field image marks use the same projected paint. `turf` without a field record retains its legacy behavior.
 
-Synthetic color atlases target 3 cm texels, bounded by 8192 pixels per side and 32 million pixels total.
+Synthetic color atlases target 2 cm texels, bounded by 8192 pixels per side and 32 million pixels total.
 They are opaque color textures with content-addressed filenames, included in the manifest artifact hashes.
 Input images are validated and hashed before cache lookup; atlases bake from those immutable bytes.
 Registration remains independent of mesh batching. Keep restricted artwork in local assets. Look for the

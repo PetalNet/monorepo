@@ -77,7 +77,7 @@ namespace
 		{TEXT("clay"), {FLinearColor(.34f, .23f, .14f), .97f, 0, 4}},
 		{TEXT("turf"), {FLinearColor(.065f, .08f, .0375f), .96f, 0, 0}},
 		{TEXT("natural_grass"), {FLinearColor(.065f, .08f, .0375f), .96f, 0, 0}},
-		{TEXT("athletic_turf"), {FLinearColor::FromSRGBColor(FColor(48, 100, 56)), .56f, 0, 0}},
+		{TEXT("athletic_turf"), {FLinearColor::FromSRGBColor(FColor(48, 100, 56)), .50f, 0, 0}},
 		{TEXT("grass_paint_white"), {FLinearColor(.723f, .716f, .791f), .96f, 0, 0}},
 		{TEXT("grass_paint_yellow"), {FLinearColor(.72f, .48f, .045f), .96f, 0, 0}},
 		{TEXT("paint_white"), {FLinearColor(.723f, .716f, .791f), .83f, 0, 5}},
@@ -431,7 +431,9 @@ return Mask*(.80+.12*grain);
 )HLSL");
 		UMaterialEditingLibrary::ConnectMaterialProperty(Opacity, TEXT(""), MP_Opacity);
 		UMaterialEditingLibrary::RecompileMaterial(Material);
-		ADecalActor* Actor = World->SpawnActor<ADecalActor>(Bounds.GetCenter(), FRotator(-90, 0, 0));
+		ADecalActor* Actor = World->SpawnActor<ADecalActor>(Bounds.GetCenter(), FRotator::ZeroRotator);
+		// The decal CDO already rotates its root. Set the final direction without composing it twice.
+		Actor->SetActorRotation(FRotator(-90, 0, 0));
 		Actor->SetActorLabel(FString::Printf(TEXT("EnvGenGrassPaint_%04d"), Index));
 		Actor->Tags.Add(EnvGenStandingTag());
 		auto* Decal = Actor->GetDecal();
@@ -524,12 +526,12 @@ float2 fiberCell=q*float2(200,333.3333);
 float detailVisible=1-smoothstep(.25,1.,max(fwidth(fiberCell.x),fwidth(fiberCell.y)));
 float fiber=n.value(fiberCell);
 float infill=n.value(q*320)+.35*n.value(q*611+37.9);
-float crumbNear=smoothstep(.72,.98,infill)*.7;
+float crumbNear=smoothstep(.52,.93,infill)*.85;
 float crumb=lerp(.012,crumbNear,detailVisible);
 float2 clusterCell=q*40;
 float cluster=n.value(clusterCell);
 float clusterVisible=1-smoothstep(.25,1.,max(fwidth(clusterCell.x),fwidth(clusterCell.y)));
-float pileNear=1-smoothstep(200.,580.,distance(P,Eye));
+float pileNear=1-smoothstep(300.,1250.,distance(P,Eye));
 
 float3 colour=Texture2DSampleGrad(Atlas,AtlasSampler,UV,ddx(UV),ddy(UV)).rgb;
 
@@ -540,7 +542,7 @@ float direction=(2*smoothstep(-stripeFW,stripeFW,sin(stripe*3.14159265))-1)*stri
 float seamDistance=abs(frac(stripe+.5)-.5)*StripeWidth;
 float seamFW=max(fwidth(q.x),.0001);
 float seam=(1-smoothstep(max(0.,.002-seamFW),.002+seamFW,seamDistance))*min(1.,.002/seamFW)*stripeVisible;
-float modulation=lerp(.82,.67,pileNear)+.012*direction+.008*ribbon+.015*(fiber-.5)*detailVisible
+float modulation=lerp(.74,.58,pileNear)+.006*direction+.008*ribbon+.015*(fiber-.5)*detailVisible
  +.035*(cluster-.5)*clusterVisible+.018*(n.value(q*.8)-.5)-.015*seam;
 
 float3 up=normalize(N);
@@ -549,10 +551,10 @@ float3 tangent=axis-up*dot(up,axis);
 tangent=normalize(tangent+float3(0,0,1)*step(dot(tangent,tangent),.000001));
 float3 side=normalize(cross(tangent,up));
 float acrossSlope=.025*sin(row*6.2831853)*rowVisible+.14*(cluster-.5)*clusterVisible;
-float alongSlope=.12*(n.value(clusterCell+27.1)-.5)*clusterVisible;
+float alongSlope=.045*direction+.12*(n.value(clusterCell+27.1)-.5)*clusterVisible;
 FiberNormal=normalize(up+side*acrossSlope+tangent*alongSlope);
 // Directional roughness and dielectric Fresnel give every inlaid color the same grazing sheen.
-Roughness=clamp(.56+.015*direction+.10*(cluster-.5)*clusterVisible+.08*crumb,.45,.8);
+Roughness=clamp(.50+.03*direction+.10*(cluster-.5)*clusterVisible+.08*crumb,.45,.8);
 Specular=.45-.18*crumb;
 return lerp(colour*modulation,float3(.008,.009,.008),crumb);
 )HLSL");
@@ -729,35 +731,31 @@ return lerp(colour*modulation,float3(.008,.009,.008),crumb);
 		Colour->SamplerType = SAMPLERTYPE_Color;
 		Colour->Coordinates.Connect(0, WorldUV(Material));
 		auto* Vertex = CastChecked<UMaterialExpressionVertexColor>(UMaterialEditingLibrary::CreateMaterialExpression(Material, UMaterialExpressionVertexColor::StaticClass()));
-		auto* FiberUV = CastChecked<UMaterialExpressionTextureCoordinate>(UMaterialEditingLibrary::CreateMaterialExpression(Material, UMaterialExpressionTextureCoordinate::StaticClass()));
-		auto* Filaments = CastChecked<UMaterialExpressionCustom>(UMaterialEditingLibrary::CreateMaterialExpression(Material, UMaterialExpressionCustom::StaticClass()));
-		Filaments->Inputs.Empty();
-		Filaments->OutputType = CMOT_Float1;
-		FCustomInput& CoverageInput = Filaments->Inputs.AddDefaulted_GetRef();
-		CoverageInput.InputName = TEXT("Coverage"); CoverageInput.Input.Connect(0, CoverageAt(Material, false));
-		FCustomInput& FiberUVInput = Filaments->Inputs.AddDefaulted_GetRef();
-		FiberUVInput.InputName = TEXT("UV"); FiberUVInput.Input.Connect(0, FiberUV);
-		FCustomInput& SeedInput = Filaments->Inputs.AddDefaulted_GetRef();
-		SeedInput.InputName = TEXT("Seed"); SeedInput.Input.Connect(3, Vertex);
-		FCustomInput& FacingInput = Filaments->Inputs.AddDefaulted_GetRef();
-		FacingInput.InputName = TEXT("Facing"); FacingInput.Input.Connect(2, Vertex);
-		FCustomOutput& FiberNormal = Filaments->AdditionalOutputs.AddDefaulted_GetRef();
-		FiberNormal.OutputName = TEXT("FiberNormal"); FiberNormal.OutputType = CMOT_Float3;
-		FCustomOutput& FiberRoughness = Filaments->AdditionalOutputs.AddDefaulted_GetRef();
-		FiberRoughness.OutputName = TEXT("FiberRoughness"); FiberRoughness.OutputType = CMOT_Float1;
-		Filaments->Code = TEXT(R"HLSL(
-float strand=floor(UV.x*3), crossSection=frac(UV.x*3)-.5, across=abs(crossSection);
-float tip=.84+.16*frac(sin(strand*127.1+Seed*311.7)*43758.5453);
-float edge=max(fwidth(UV.x*3),.001), end=max(fwidth(UV.y),.001);
-float3 face=float3(sin(Facing*3.14159265),-cos(Facing*3.14159265),0);
-FiberNormal=normalize(float3(0,0,.75)+face*(.5+.15*sin(crossSection*3.14159265)));
-FiberRoughness=.48+.12*Seed;
-return Coverage*(1-smoothstep(.30-edge,.30+edge,across))*(1-smoothstep(tip-end,tip+end,UV.y));
+		UMaterialEditingLibrary::ConnectMaterialProperty(CoverageAt(Material, false), TEXT(""), MP_OpacityMask);
+		auto* Instance = CastChecked<UMaterialExpressionPerInstanceRandom>(UMaterialEditingLibrary::CreateMaterialExpression(Material, UMaterialExpressionPerInstanceRandom::StaticClass()));
+		auto* BladeNormal = CastChecked<UMaterialExpressionVertexNormalWS>(UMaterialEditingLibrary::CreateMaterialExpression(Material, UMaterialExpressionVertexNormalWS::StaticClass()));
+		auto* Finish = CastChecked<UMaterialExpressionCustom>(UMaterialEditingLibrary::CreateMaterialExpression(Material, UMaterialExpressionCustom::StaticClass()));
+		Finish->Inputs.Empty();
+		Finish->OutputType = CMOT_Float3;
+		for (const auto& Pair : {TPair<FName, UMaterialExpression*>(TEXT("N"), BladeNormal),
+			TPair<FName, UMaterialExpression*>(TEXT("Seed"), Vertex), TPair<FName, UMaterialExpression*>(TEXT("Instance"), Instance)})
+		{
+			FCustomInput& Input = Finish->Inputs.AddDefaulted_GetRef();
+			Input.InputName = Pair.Key; Input.Input.Connect(Pair.Key == TEXT("Seed") ? 3 : 0, Pair.Value);
+		}
+		FCustomOutput& Roughness = Finish->AdditionalOutputs.AddDefaulted_GetRef();
+		Roughness.OutputName = TEXT("Roughness"); Roughness.OutputType = CMOT_Float1;
+		Finish->Code = TEXT(R"HLSL(
+float s=frac(sin(Seed*269.5+Instance*183.3)*2578.543);
+float angle=(s-.5)*.6;
+float3 n=float3(cos(angle)*N.x-sin(angle)*N.y,sin(angle)*N.x+cos(angle)*N.y,N.z);
+Roughness=.42+.10*Seed;
+return normalize(n*.8+float3(0,0,.35));
 )HLSL");
-		Filaments->RebuildOutputs();
-		UMaterialEditingLibrary::ConnectMaterialProperty(Filaments, TEXT(""), MP_OpacityMask);
-		UMaterialEditingLibrary::ConnectMaterialProperty(Filaments, TEXT("FiberNormal"), MP_Normal);
-		UMaterialEditingLibrary::ConnectMaterialProperty(Filaments, TEXT("FiberRoughness"), MP_Roughness);
+		Finish->RebuildOutputs();
+		UMaterialEditingLibrary::ConnectMaterialProperty(Finish, TEXT(""), MP_Normal);
+		UMaterialEditingLibrary::ConnectMaterialProperty(Finish, TEXT("Roughness"), MP_Roughness);
+
 		auto* Shade = CastChecked<UMaterialExpressionCustom>(UMaterialEditingLibrary::CreateMaterialExpression(Material, UMaterialExpressionCustom::StaticClass()));
 		Shade->Inputs.Empty();
 		Shade->OutputType = CMOT_Float3;
@@ -809,7 +807,6 @@ return Coverage*(1-smoothstep(.30-edge,.30+edge,across))*(1-smoothstep(tip-end,t
 		DeltaInput.InputName = TEXT("Delta"); DeltaInput.Input.Connect(0, WorldDelta);
 		FCustomInput& NormalInput = Sink->Inputs.AddDefaulted_GetRef();
 		NormalInput.InputName = TEXT("N"); NormalInput.Input.Connect(0, Normal);
-		auto* Instance = CastChecked<UMaterialExpressionPerInstanceRandom>(UMaterialEditingLibrary::CreateMaterialExpression(Material, UMaterialExpressionPerInstanceRandom::StaticClass()));
 		FCustomInput& InstanceInput = Sink->Inputs.AddDefaulted_GetRef();
 		InstanceInput.InputName = TEXT("Instance"); InstanceInput.Input.Connect(0, Instance);
 		FCustomInput& RibbonInput = Sink->Inputs.AddDefaulted_GetRef();
@@ -825,67 +822,83 @@ float2 shift=across*(round(row)-row+(r-.5)*.6)+along*(s-.5)*.8;
 float turn=(s-.5)*.6;
 float2 tilted=float2(cos(turn)*Delta.x-sin(turn)*Delta.y,sin(turn)*Delta.x+cos(turn)*Delta.y);
 float3 varied=float3(tilted,Delta.z*(.85+.25*r));
-float fade=1-smoothstep(200.,580.,distance(root,Eye));
+float fade=1-smoothstep(300.,1250.,distance(root,Eye));
 return float3(shift,2.5-dot(shift,N.xy)/max(N.z,.1))+varied*fade-Delta;
 )HLSL"), FMath::Cos(Radians), -FMath::Sin(Radians));
 		UMaterialEditingLibrary::ConnectMaterialProperty(Sink, TEXT(""), MP_WorldPositionOffset);
 		UMaterialEditingLibrary::RecompileMaterial(Material);
 
 		UStaticMesh* Mesh = Asset<UStaticMesh>(FString::Printf(TEXT("SM_AthleticPile_%04d"), Index), Packages);
-		FMeshDescription Description;
-		FStaticMeshAttributes Attributes(Description);
-		Attributes.Register();
-		auto Positions = Attributes.GetVertexPositions();
-		auto Normals = Attributes.GetVertexInstanceNormals();
-		auto UVs = Attributes.GetVertexInstanceUVs();
-		auto Colours = Attributes.GetVertexInstanceColors();
-		UVs.SetNumChannels(4);
-		const FPolygonGroupID Group = Description.CreatePolygonGroup();
-		Attributes.GetPolygonGroupMaterialSlotNames()[Group] = TEXT("Fiber");
-		FRandomStream Random(5107);
-		const float Angle = float(Radians);
-		const FVector2f Along(FMath::Sin(Angle), FMath::Cos(Angle));
-		const FVector2f Across(-Along.Y, Along.X);
-		// A 20 cm patch of even rows, not a radial natural-grass tuft. Grid placement fills the field.
-		for (int32 Row = 0; Row < 20; ++Row) for (int32 Blade = 0; Blade < 20; ++Blade)
+		const auto MakePatch = [&](int32 Segments)
 		{
-			const FVector2f Root(-9.5f + Row + Random.FRandRange(-.2f, .2f), -9.5f + Blade + Random.FRandRange(-.25f, .25f));
-			const float BladeHeight = Random.FRandRange(2.f, 3.2f);
-			const FVector2f Lean = Along * Random.FRandRange(.2f, 1.f) + Across * Random.FRandRange(-.35f, .35f);
-			const float Facing = Random.FRand() * PI;
-			const FVector2f Side = FVector2f(FMath::Cos(Facing), FMath::Sin(Facing)) * .4f;
-			const float Seed = Random.FRand();
-			const auto Add = [&](float T, float Edge)
+			FMeshDescription Description;
+			FStaticMeshAttributes Attributes(Description);
+			Attributes.Register();
+			auto Positions = Attributes.GetVertexPositions();
+			auto Normals = Attributes.GetVertexInstanceNormals();
+			auto UVs = Attributes.GetVertexInstanceUVs();
+			auto Colours = Attributes.GetVertexInstanceColors();
+			UVs.SetNumChannels(4);
+			const FPolygonGroupID Group = Description.CreatePolygonGroup();
+			Attributes.GetPolygonGroupMaterialSlotNames()[Group] = TEXT("Fiber");
+			FRandomStream Random(5107);
+			const float Angle = float(Radians);
+			const FVector2f Along(FMath::Sin(Angle), FMath::Cos(Angle));
+			const FVector2f Across(-Along.Y, Along.X);
+			for (int32 Row = 0; Row < 20; ++Row) for (int32 Blade = 0; Blade < 20; ++Blade)
 			{
-				const FVector2f P = Root + Lean * T + Side * Edge;
-				const FVertexID V = Description.CreateVertex();
-				Positions[V] = FVector3f(P.X, P.Y, BladeHeight * T);
-				const FVertexInstanceID VI = Description.CreateVertexInstance(V);
-				Normals[VI] = FVector3f(Lean.X * .25f, Lean.Y * .25f, 1).GetSafeNormal();
-				UVs.Set(VI, 0, FVector2f(Edge * .5f + .5f, T));
-				UVs.Set(VI, 1, FVector2f(0, 0));
-				UVs.Set(VI, 2, P - Root);
-				UVs.Set(VI, 3, FVector2f(BladeHeight * T, 0));
-				Colours[VI] = FVector4f(T, Facing / PI, Seed, 1);
-				return VI;
-			};
-			const auto L0 = Add(0, -1), R0 = Add(0, 1), L1 = Add(1, -1), R1 = Add(1, 1);
-			Description.CreatePolygon(Group, {L0, R0, R1});
-			Description.CreatePolygon(Group, {L0, R1, L1});
-		}
+				const FVector2f Root(-9.5f + Row + Random.FRandRange(-.2f, .2f), -9.5f + Blade + Random.FRandRange(-.25f, .25f));
+				const float BladeHeight = Random.FRandRange(2.f, 3.2f);
+				const FVector2f Lean = Along * Random.FRandRange(-1.1f, 1.1f) + Across * Random.FRandRange(-.6f, .6f);
+				const float Facing = Random.FRand() * PI;
+				const FVector2f Side = FVector2f(FMath::Cos(Facing), FMath::Sin(Facing)) * Random.FRandRange(.07f, .115f);
+				const float Seed = Random.FRand();
+				const auto Point = [&](float T, float Edge) { return Root + Lean * (T * T) + Side * Edge; };
+				for (int32 Segment = 0; Segment < Segments; ++Segment)
+				{
+					const float T0 = float(Segment) / Segments, T1 = float(Segment + 1) / Segments;
+					const FVector2f Step = Lean * (T1 * T1 - T0 * T0);
+					const FVector3f Face = FVector3f::CrossProduct(FVector3f(Step.X, Step.Y, BladeHeight * (T1 - T0)), FVector3f(Side.X, Side.Y, 0)).GetSafeNormal();
+					const auto Add = [&](float T, float Edge)
+					{
+						const FVector2f P = Point(T, Edge);
+						const FVertexID V = Description.CreateVertex();
+						Positions[V] = FVector3f(P.X, P.Y, BladeHeight * T);
+						const FVertexInstanceID VI = Description.CreateVertexInstance(V);
+						Normals[VI] = Face;
+						UVs.Set(VI, 0, FVector2f(Edge * .5f + .5f, T));
+						UVs.Set(VI, 1, FVector2f(0, 0));
+						UVs.Set(VI, 2, P - Root);
+						UVs.Set(VI, 3, FVector2f(BladeHeight * T, 0));
+						Colours[VI] = FVector4f(T, 0, Seed, 1);
+						return VI;
+					};
+					const auto L0 = Add(T0, -1), R0 = Add(T0, 1), L1 = Add(T1, -1), R1 = Add(T1, 1);
+					Description.CreatePolygon(Group, {L0, R0, R1});
+					Description.CreatePolygon(Group, {L0, R1, L1});
+				}
+			}
+			return Description;
+		};
+		FMeshDescription Near = MakePatch(2), Far = MakePatch(1);
 		Mesh->GetStaticMaterials().Add(FStaticMaterial(Material, TEXT("Fiber")));
+		Mesh->SetAutoComputeLODScreenSize(false);
+		Mesh->SetNumSourceModels(2);
+		Mesh->GetSourceModel(0).ScreenSize = 1.f;
+		Mesh->GetSourceModel(1).ScreenSize = .045f;
 		UStaticMesh::FBuildMeshDescriptionsParams Params;
 		Params.bFastBuild = false;
 		Params.bBuildSimpleCollision = false;
-		Mesh->BuildFromMeshDescriptions({&Description}, Params);
+		Mesh->BuildFromMeshDescriptions({&Near, &Far}, Params);
 		FStaticMeshCompilingManager::Get().FinishCompilation({Mesh});
+
 		ULandscapeGrassType* Grass = Asset<ULandscapeGrassType>(FString::Printf(TEXT("LGT_AthleticPile_%04d"), Index), Packages);
 		Grass->bEnableDensityScaling = false;
 		FGrassVariety& Variety = Grass->GrassVarieties.AddDefaulted_GetRef();
 		Variety.GrassMesh = Mesh;
 		Variety.GrassDensity = FPerPlatformFloat(2500);
-		Variety.StartCullDistance = FPerPlatformInt(450);
-		Variety.EndCullDistance = FPerPlatformInt(600);
+		Variety.StartCullDistance = FPerPlatformInt(1100);
+		Variety.EndCullDistance = FPerPlatformInt(1400);
 		Variety.bUseGrid = true;
 		Variety.PlacementJitter = 0;
 		Variety.RandomRotation = false;

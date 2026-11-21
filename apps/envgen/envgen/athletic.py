@@ -14,7 +14,7 @@ from shapely.geometry import LineString, Polygon, box
 from .site import SiteError
 
 SURFACE_CLASSES = {"athletic_turf", "natural_grass"}
-ATLAS_SPACING_M = 0.03
+ATLAS_SPACING_M = 0.02
 MAX_ATLAS_SIDE = 8192
 MAX_ATLAS_PIXELS = 32_000_000
 # Appearance priors in sRGB; the renderer applies the same fiber finish to every colour.

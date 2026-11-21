@@ -240,6 +240,7 @@ bool FEnvGenStreetscapeDecal::RunTest(const FString& Parameters)
 				const auto* Projector = Cast<ADecalActor>(Actors[1]);
 				if (TestNotNull(TEXT("grass paint projects onto the blades and terrain"), Projector))
 				{
+					TestTrue(TEXT("paint projection points down after actor construction"), Projector->GetActorForwardVector().Equals(FVector(0, 0, -1), 1.e-4));
 					const auto* Projected = CastChecked<UMaterial>(Projector->GetDecal()->GetDecalMaterial());
 					TestTrue(TEXT("paint uses the deferred receiver surface"), Projected->MaterialDomain == MD_DeferredDecal);
 					TestTrue(TEXT("paint fades instead of cutting angular holes"), Projected->BlendMode == BLEND_Translucent);
@@ -571,7 +572,10 @@ bool FEnvGenStreetscapeAthletic::RunTest(const FString& Parameters)
 			const FGrassVariety& Variety = GrassOutput->GrassTypes[I].GrassType->GrassVarieties[0];
 			const UStaticMesh* Pile = Variety.GrassMesh;
 			TestNotNull(TEXT("synthetic field has real fiber geometry"), Pile);
-			TestTrue(TEXT("pile ends within six metres"), Variety.EndCullDistance.GetValue() <= 600);
+			TestTrue(TEXT("pile has a bounded fourteen-metre range"), Variety.EndCullDistance.GetValue() <= 1400);
+			TestEqual(TEXT("pile has two geometry levels"), Pile->GetNumSourceModels(), 2);
+			TestEqual(TEXT("both pile levels reach the render buffers"), Pile->GetRenderData()->LODResources.Num(), 2);
+			TestTrue(TEXT("distant blades use fewer triangles"), Pile->GetMeshDescription(1)->Triangles().Num() < Pile->GetMeshDescription(0)->Triangles().Num());
 			TestFalse(TEXT("synthetic fibers do not cast large natural-grass shadows"), Variety.bCastDynamicShadow);
 			const auto PilePositions = FStaticMeshConstAttributes(*Pile->GetMeshDescription(0)).GetVertexPositions();
 			float MinZ = MAX_flt, MaxZ = -MAX_flt;
