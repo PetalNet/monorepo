@@ -137,8 +137,9 @@ NEAR_BLADE_WIDTH_CM = (0.8, 1.4)
 # how wide the tuft is, how far out each is drawn, that none casts a shadow (a tuft's own shadow blackens it against
 # a sward that has none), and how much a tuft's size varies. The index of real mown turf is several times the near one: what is
 # drawn is the top of the sward, and the ground's own colour under it is the rest.
-NEAR = {"leaf_area_index": 1.0, "blades": 24, "radius_cm": 9.0, "start_cull_cm": 800, "end_cull_cm": 1500}
-CLUMP = {"leaf_area_index": 0.2, "blades": 24, "radius_cm": 22.5, "start_cull_cm": 2500, "end_cull_cm": 6500}
+NEAR = {"leaf_area_index": 2.0, "blades": 24, "radius_cm": 14.0, "start_cull_cm": 600, "end_cull_cm": 1000}
+CLUMP = {"leaf_area_index": 0.2, "blades": 24, "radius_cm": 22.5, "start_cull_cm": 2500, "end_cull_cm": 6500,
+         "appear_cm": [800, 1500]}
 TALL = {"leaf_area_index": 0.02, "blades": 8, "radius_cm": 6.0, "start_cull_cm": 2500, "end_cull_cm": 5000}
 CASTS_SHADOW = {"near": False, "clump": False, "tall": False}
 SIZE_SPREAD = (0.85, 1.15)
@@ -153,7 +154,7 @@ PRIORS = [
     f"prior: tall tufts stand {TALL_OVER_MOWED:g} times the mowing range (the one-third rule of mowing)",
     f"prior: a blade is {ROOT_SHADE:g} of its colour at the root and {TIP_SHADE:g} at the tip",
     "prior: no variety casts a shadow",
-    "prior: the clump variety grows in over the distance the near variety shrinks away",
+    "prior: the clump variety retains its 8 to 15 m transition; a continuous lawn texture covers the near fade",
 ]
 
 
@@ -163,8 +164,8 @@ def pixel_cm(distance_cm: float) -> float:
 
 
 def _variety(name: str, spec: dict, height_cm: tuple[float, float], source: str) -> dict:
-    # The clump stands in for the near variety beyond its reach: its blades are at least a pixel wide where that ends.
-    wide = pixel_cm(NEAR["end_cull_cm"]) if name == "clump" else 0.0
+    # Preserve the approved distant blades while the denser near layer ends sooner.
+    wide = pixel_cm(spec["appear_cm"][1]) if name == "clump" else 0.0
     width = (
         max(NEAR_BLADE_WIDTH_CM[0], wide),
         max(NEAR_BLADE_WIDTH_CM[1], wide * NEAR_BLADE_WIDTH_CM[1] / NEAR_BLADE_WIDTH_CM[0]),
@@ -184,9 +185,7 @@ def _variety(name: str, spec: dict, height_cm: tuple[float, float], source: str)
         "scale": list(SIZE_SPREAD),
         "start_cull_cm": spec["start_cull_cm"],
         "end_cull_cm": spec["end_cull_cm"],
-        # The engine shrinks a tuft away between its start and end distance; it has no nearest distance. The clump's
-        # wide blades stand in for the near variety, so they grow in where that one shrinks away.
-        "appear_cm": [NEAR["start_cull_cm"], NEAR["end_cull_cm"]] if name == "clump" else [0, 0],
+        "appear_cm": spec.get("appear_cm", [0, 0]),
         "casts_shadow": CASTS_SHADOW[name],
     }
 
