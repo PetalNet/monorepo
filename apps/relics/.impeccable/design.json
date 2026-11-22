@@ -1,0 +1,18 @@
+{
+	"version": 1,
+	"mode": "experience",
+	"colors": {
+		"background": "#171b19",
+		"surface": "#202622",
+		"text": "#f2f0e7",
+		"muted": "#bbc3b8",
+		"accent": "#c2d49b",
+		"lightBackground": "#f2f0e7",
+		"lightText": "#202820",
+		"lightAccent": "#3c552a"
+	},
+	"typography": { "family": "Geist", "body": "16px", "display": "40–72px", "weight": "400–600" },
+	"spacing": { "unit": "8px" },
+	"radius": "2px",
+	"motion": "160ms ease-out; reduced-motion disables transitions"
+}
