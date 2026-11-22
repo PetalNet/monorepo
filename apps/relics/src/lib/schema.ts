@@ -2,13 +2,13 @@ import { Schema } from "effect";
 
 const text = Schema.String.check(Schema.isMaxLength(4000));
 
-export const Name = Schema.Trim.check(Schema.isMinLength(1), Schema.isMaxLength(80));
+const Name = Schema.Trim.check(Schema.isMinLength(1), Schema.isMaxLength(80));
 export const Id = Schema.String.check(Schema.isPattern(/^[A-Za-z0-9_-]{1,100}$/));
-export const Integer = Schema.Finite.check(
+const Integer = Schema.Finite.check(
 	Schema.isInt(),
 	Schema.isBetween({ minimum: 0, maximum: 65535 }),
 );
-export const Image = Schema.String.check(
+const Image = Schema.String.check(
 	Schema.isMaxLength(1000),
 	Schema.isPattern(/^(?:|\/uploads\/[a-zA-Z0-9_./-]+|https:\/\/[^\s]+)$/),
 );
@@ -40,7 +40,7 @@ export const Variety = Schema.Struct({
 	imageUrl: Schema.NullOr(Schema.String),
 });
 export type Variety = typeof Variety.Type;
-export const SetInfo = Schema.Struct({
+const SetInfo = Schema.Struct({
 	id: Schema.Finite,
 	name: Schema.String,
 	description: Schema.NullOr(Schema.String),

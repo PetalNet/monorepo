@@ -1,18 +1,136 @@
 {
-	"version": 1,
-	"mode": "experience",
-	"colors": {
-		"background": "#171b19",
-		"surface": "#202622",
-		"text": "#f2f0e7",
-		"muted": "#cdd4c9",
-		"accent": "#c2d49b",
-		"lightBackground": "#f2f0e7",
-		"lightText": "#202820",
-		"lightAccent": "#3c552a"
+	"schemaVersion": 2,
+	"generatedAt": "2026-11-22T03:16:34.179276Z",
+	"title": "Design System: Petal Relics",
+	"extensions": {
+		"typographyMeta": {
+			"display": {
+				"displayName": "Display",
+				"purpose": "Page headings."
+			},
+			"body": {
+				"displayName": "Body",
+				"purpose": "General reading and controls."
+			}
+		},
+		"shadows": [
+			{
+				"name": "dialog",
+				"value": "0 16px 64px #0006",
+				"purpose": "Separate the confirmation dialog from the page."
+			}
+		],
+		"motion": [
+			{
+				"name": "control",
+				"value": "160ms ease-out",
+				"purpose": "Button and card state changes."
+			},
+			{
+				"name": "card-image",
+				"value": "240ms ease-out",
+				"purpose": "Card image hover scale."
+			}
+		],
+		"breakpoints": [
+			{
+				"name": "540",
+				"value": "540px"
+			},
+			{
+				"name": "600",
+				"value": "600px"
+			},
+			{
+				"name": "650",
+				"value": "650px"
+			},
+			{
+				"name": "700",
+				"value": "700px"
+			},
+			{
+				"name": "800",
+				"value": "800px"
+			},
+			{
+				"name": "1000",
+				"value": "1000px"
+			}
+		]
 	},
-	"typography": { "family": "Geist", "body": "16px", "display": "40–72px", "weight": "400–600" },
-	"spacing": { "unit": "8px" },
-	"radius": "2px",
-	"motion": "160ms ease-out; reduced-motion disables transitions"
+	"components": [
+		{
+			"name": "Primary button",
+			"kind": "button",
+			"description": "The main collection action.",
+			"html": "<button class=\"ds-primary\">Claim relic</button>",
+			"css": ".ds-primary{min-height:48px;padding:12px 24px;border:0;border-radius:2px;background:var(--color-primary);color:var(--color-primary-content);font:500 1rem Geist,sans-serif;transition:background-color 160ms ease-out,color 160ms ease-out,transform 160ms ease-out}.ds-primary:hover{transform:translateY(-1px)}.ds-primary:active{transform:translateY(0)}:focus-visible{outline:2px solid var(--color-primary);outline-offset:4px}@media (prefers-reduced-motion:reduce){*{transition:none!important}}",
+			"refersTo": "button-primary"
+		},
+		{
+			"name": "Ghost button",
+			"kind": "button",
+			"description": "A quieter secondary action.",
+			"html": "<button class=\"ds-ghost\">Cancel</button>",
+			"css": ".ds-ghost{min-height:48px;padding:12px 24px;border:0;border-radius:2px;background:transparent;color:var(--color-base-content);font:500 1rem Geist,sans-serif;transition:background-color 160ms ease-out,transform 160ms ease-out}.ds-ghost:hover{background:var(--color-base-200);transform:translateY(-1px)}.ds-ghost:active{transform:translateY(0)}:focus-visible{outline:2px solid var(--color-primary);outline-offset:4px}@media (prefers-reduced-motion:reduce){*{transition:none!important}}",
+			"refersTo": "button-ghost"
+		},
+		{
+			"name": "Neutral button",
+			"kind": "button",
+			"description": "A filled secondary action.",
+			"html": "<button class=\"ds-neutral\">Action</button>",
+			"css": ".ds-neutral{min-height:48px;padding:12px 24px;border:0;border-radius:2px;background:var(--color-base-300);color:var(--color-base-content);font:500 1rem Geist,sans-serif;transition:transform 160ms ease-out}.ds-neutral:hover{transform:translateY(-1px)}.ds-neutral:active{transform:translateY(0)}:focus-visible{outline:2px solid var(--color-primary);outline-offset:4px}@media (prefers-reduced-motion:reduce){*{transition:none!important}}"
+		},
+		{
+			"name": "Field",
+			"kind": "input",
+			"description": "A labeled text field.",
+			"html": "<label class=\"ds-label\">Your name<input class=\"ds-field\" placeholder=\"What should we call you?\"></label>",
+			"css": ".ds-label{display:grid;gap:8px;color:var(--muted);font:0.875rem Geist,sans-serif}.ds-field{min-height:48px;padding:12px 16px;border:0;border-radius:2px;background:var(--color-base-200);color:var(--color-base-content);font:1rem Geist,sans-serif}.ds-field::placeholder{color:var(--muted);opacity:1}:focus-visible{outline:2px solid var(--color-primary);outline-offset:4px}@media (prefers-reduced-motion:reduce){*{transition:none!important}}",
+			"refersTo": "field"
+		},
+		{
+			"name": "Specimen card",
+			"kind": "card",
+			"description": "A catalog card with a square artwork area and label.",
+			"html": "<a class=\"ds-card\" href=\"#specimen\"><div class=\"ds-photo\">Artwork not yet added</div><div class=\"ds-caption\"><div class=\"ds-meta\"><span>Type</span><span>No. 001</span></div><span class=\"ds-name\">Variety</span></div></a>",
+			"css": ".ds-card{display:block;overflow:hidden;border-radius:2px;background:var(--color-base-200);color:var(--color-base-content);text-decoration:none;font-family:Geist,sans-serif;transition:background-color 160ms ease-out}.ds-card:hover{background:var(--color-base-300)}.ds-photo{aspect-ratio:1;background:var(--photo);color:var(--muted);padding:32px}.ds-caption{padding:24px}.ds-meta{display:flex;justify-content:space-between;margin-bottom:8px;color:var(--muted);font-size:.875rem;font-variant-numeric:tabular-nums}.ds-name{font-size:1.5rem}:focus-visible{outline:2px solid var(--color-primary);outline-offset:4px}@media (prefers-reduced-motion:reduce){*{transition:none!important}}",
+			"refersTo": "specimen-card"
+		},
+		{
+			"name": "Navigation",
+			"kind": "nav",
+			"description": "Collection navigation and theme control.",
+			"html": "<nav class=\"ds-nav\"><a href=\"#collection\">My collection</a><button aria-label=\"Switch theme\">Theme</button></nav>",
+			"css": ".ds-nav{display:flex;align-items:center;gap:24px;font:0.875rem Geist,sans-serif}.ds-nav a{display:flex;align-items:center;min-height:48px;color:var(--muted);text-decoration:none}.ds-nav a:hover{color:var(--color-base-content)}.ds-nav button{min-height:48px;padding:12px;border:0;border-radius:2px;background:transparent;color:var(--color-base-content);font:inherit}.ds-nav button:hover{background:var(--color-base-200)}:focus-visible{outline:2px solid var(--color-primary);outline-offset:4px}@media (prefers-reduced-motion:reduce){*{transition:none!important}}"
+		}
+	],
+	"narrative": {
+		"northStar": "The Specimen Card",
+		"overview": "Parker's selected world is a dark specimen card and museum label, with artwork first and a light theme toggle. Existing photography and real specimen data lead; catalog numbers and hairline rules give the interface its quiet structure. This is a code-led implementation, with no approved raster comp.\n\nThe specimen route is Experience; the private collection and admin tools are Operate. ENERGY 2 / RHYTHM 2 / MOTION 1. The collection uses photographs for owned relics and a custom mushroom silhouette for missing varieties, never substitute artwork.",
+		"keyCharacteristics": [
+			"Real object photography and an oversized catalog number.",
+			"Flat charcoal and warm paper, with a restrained herb-green accent.",
+			"Geist, small corners, hairline divisions and short state transitions."
+		],
+		"rules": [
+			{
+				"name": "The Artwork First Rule",
+				"body": "Let the photograph carry the visual weight; use the accent to guide action and catalog identification.",
+				"section": "colors"
+			}
+		],
+		"dos": [
+			"Do keep real photography and specimen data foremost.",
+			"Do preserve the same hierarchy in both themes and visible keyboard focus.",
+			"Do use silhouettes with an explicit missing or uncollected state."
+		],
+		"donts": [
+			"Don't replace specimen artwork with invented imagery.",
+			"Don't add public owner lists, social rankings, invented lore or unsupported count claims.",
+			"Don't add heavy decorative effects to the flat museum-label world."
+		]
+	}
 }

@@ -39,8 +39,9 @@ await Promise.all(
 			typeof row.indexNumber === "number" &&
 			encodeRelicId({ typeId: row.typeId, varietyId: row.varietyId, index: row.indexNumber }) !==
 				row.id
-		)
-			{throw new Error("Tag ID encoding changed");}
+		) {
+			throw new Error("Tag ID encoding changed");
+		}
 
 		const response = await fetch(`${origin}/relics/${row.id}`, { redirect: "manual" });
 

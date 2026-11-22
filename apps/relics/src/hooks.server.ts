@@ -197,7 +197,7 @@ export const handle = relicsApi.handle(({ event, resolve: render }) =>
 		});
 
 		response.headers.set("X-Content-Type-Options", "nosniff");
-		response.headers.set("Referrer-Policy", "no-referrer");
+		response.headers.set("Referrer-Policy", path === "/restore" ? "no-referrer" : "same-origin");
 		response.headers.set("X-Frame-Options", "DENY");
 
 		if (!path.startsWith("/uploads/")) {
