@@ -281,7 +281,7 @@ export async function checkCodexAlerts(
 	const version =
 		snapshot?.client_version ??
 		(await Promise.resolve()
-			.then(deps.clientVersion ?? codexVersion)
+			.then(() => (deps.clientVersion ? deps.clientVersion() : codexVersion()))
 			.catch(() => undefined));
 	const release = await Promise.resolve()
 		.then(deps.release)
