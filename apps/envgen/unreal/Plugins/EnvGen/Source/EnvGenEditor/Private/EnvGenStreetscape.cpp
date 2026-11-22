@@ -660,9 +660,10 @@ return lerp(canopy,bed,pileNear);
 	{
 		UMaterialExpression* Root;
 		UMaterialExpression* Delta;
+		UMaterialExpressionPreSkinnedPosition* LocalPosition;
 	};
 
-	FPatchCoordinates PatchCoordinates(UMaterial* Material, UMaterialExpressionPreSkinnedPosition* LocalPosition)
+	FPatchCoordinates PatchCoordinates(UMaterial* Material)
 	{
 		auto* RootUV = CastChecked<UMaterialExpressionTextureCoordinate>(UMaterialEditingLibrary::CreateMaterialExpression(Material, UMaterialExpressionTextureCoordinate::StaticClass()));
 		RootUV->CoordinateIndex = 1;
@@ -674,31 +675,14 @@ return lerp(canopy,bed,pileNear);
 		Root->Input.Connect(0, LocalRoot);
 		Root->TransformSourceType = TRANSFORMPOSSOURCE_Local;
 		Root->TransformType = TRANSFORMPOSSOURCE_World;
-		UMaterialExpression* LocalDelta;
-		if (LocalPosition)
-		{
-			auto* Difference = CastChecked<UMaterialExpressionSubtract>(UMaterialEditingLibrary::CreateMaterialExpression(Material, UMaterialExpressionSubtract::StaticClass()));
-			Difference->A.Connect(0, LocalPosition); Difference->B.Connect(0, LocalRoot);
-			LocalDelta = Difference;
-		}
-		else
-		{
-			// Preserve the fiber's packed delta while infill uses the original mesh position.
-			auto* DeltaUV = CastChecked<UMaterialExpressionTextureCoordinate>(UMaterialEditingLibrary::CreateMaterialExpression(Material, UMaterialExpressionTextureCoordinate::StaticClass()));
-			DeltaUV->CoordinateIndex = 2;
-			auto* HeightUV = CastChecked<UMaterialExpressionTextureCoordinate>(UMaterialEditingLibrary::CreateMaterialExpression(Material, UMaterialExpressionTextureCoordinate::StaticClass()));
-			HeightUV->CoordinateIndex = 3;
-			auto* Z = CastChecked<UMaterialExpressionComponentMask>(UMaterialEditingLibrary::CreateMaterialExpression(Material, UMaterialExpressionComponentMask::StaticClass()));
-			Z->Input.Connect(0, HeightUV); Z->R = true; Z->G = Z->B = Z->A = false;
-			auto* EncodedDelta = CastChecked<UMaterialExpressionAppendVector>(UMaterialEditingLibrary::CreateMaterialExpression(Material, UMaterialExpressionAppendVector::StaticClass()));
-			EncodedDelta->A.Connect(0, DeltaUV); EncodedDelta->B.Connect(0, Z);
-			LocalDelta = EncodedDelta;
-		}
+		auto* LocalPosition = CastChecked<UMaterialExpressionPreSkinnedPosition>(UMaterialEditingLibrary::CreateMaterialExpression(Material, UMaterialExpressionPreSkinnedPosition::StaticClass()));
+		auto* LocalDelta = CastChecked<UMaterialExpressionSubtract>(UMaterialEditingLibrary::CreateMaterialExpression(Material, UMaterialExpressionSubtract::StaticClass()));
+		LocalDelta->A.Connect(0, LocalPosition); LocalDelta->B.Connect(0, LocalRoot);
 		auto* Delta = CastChecked<UMaterialExpressionTransform>(UMaterialEditingLibrary::CreateMaterialExpression(Material, UMaterialExpressionTransform::StaticClass()));
 		Delta->Input.Connect(0, LocalDelta);
 		Delta->TransformSourceType = TRANSFORMSOURCE_Local;
 		Delta->TransformType = TRANSFORM_World;
-		return {Root, Delta};
+		return {Root, Delta, LocalPosition};
 	}
 
 	UStaticMesh* MakeAthleticInfillMesh(int32 Index, UMaterial* Material, TArray<UPackage*>& Packages)
@@ -1031,7 +1015,7 @@ return lerp(canopy,bed,pileNear);
 		auto* Instance = CastChecked<UMaterialExpressionPerInstanceRandom>(UMaterialEditingLibrary::CreateMaterialExpression(Material, UMaterialExpressionPerInstanceRandom::StaticClass()));
 		auto* BladeUV = CastChecked<UMaterialExpressionTextureCoordinate>(UMaterialEditingLibrary::CreateMaterialExpression(Material, UMaterialExpressionTextureCoordinate::StaticClass()));
 		BladeUV->CoordinateIndex = 0;
-		const FPatchCoordinates Coordinates = PatchCoordinates(Material, nullptr);
+		const FPatchCoordinates Coordinates = PatchCoordinates(Material);
 		UMaterialExpression* Root = Coordinates.Root;
 		// One placement value keeps dye, geometry and normal rotation on the same strand.
 		auto* Placement = CastChecked<UMaterialExpressionCustom>(UMaterialEditingLibrary::CreateMaterialExpression(Material, UMaterialExpressionCustom::StaticClass()));
@@ -1152,7 +1136,7 @@ return float3(shift,2.5-dot(shift,N.xy)/max(N.z,.1))+varied*fade-Delta;
 			auto Normals = Attributes.GetVertexInstanceNormals();
 			auto UVs = Attributes.GetVertexInstanceUVs();
 			auto Colours = Attributes.GetVertexInstanceColors();
-			UVs.SetNumChannels(4);
+			UVs.SetNumChannels(2);
 			const FPolygonGroupID Group = Description.CreatePolygonGroup();
 			Attributes.GetPolygonGroupMaterialSlotNames()[Group] = TEXT("Fiber");
 			FRandomStream Random(5107);
@@ -1178,8 +1162,6 @@ return float3(shift,2.5-dot(shift,N.xy)/max(N.z,.1))+varied*fade-Delta;
 					Normals[VI] = Normal;
 					UVs.Set(VI, 0, UV);
 					UVs.Set(VI, 1, Root);
-					UVs.Set(VI, 2, FVector2f(P.X, P.Y) - Root);
-					UVs.Set(VI, 3, FVector2f(P.Z, 0));
 					// R is height, G marks cut ends, and B retains the strand seed.
 					Colours[VI] = FVector4f(UV.Y, bCutEnd ? 1.f : 0.f, Seed, 1);
 					return VI;
@@ -1250,8 +1232,7 @@ return float3(shift,2.5-dot(shift,N.xy)/max(N.z,.1))+varied*fade-Delta;
 		Infill->MaxWorldPositionOffsetDisplacement = 4;
 		Infill->DitheredLODTransition = false;
 		UMaterialEditingLibrary::ConnectMaterialProperty(CoverageAt(Infill, false), TEXT(""), MP_OpacityMask);
-		auto* InfillPosition = CastChecked<UMaterialExpressionPreSkinnedPosition>(UMaterialEditingLibrary::CreateMaterialExpression(Infill, UMaterialExpressionPreSkinnedPosition::StaticClass()));
-		const FPatchCoordinates InfillCoordinates = PatchCoordinates(Infill, InfillPosition);
+		const FPatchCoordinates InfillCoordinates = PatchCoordinates(Infill);
 		auto* InfillEye = CastChecked<UMaterialExpressionCameraPositionWS>(UMaterialEditingLibrary::CreateMaterialExpression(Infill, UMaterialExpressionCameraPositionWS::StaticClass()));
 		auto* InfillOffset = CastChecked<UMaterialExpressionCustom>(UMaterialEditingLibrary::CreateMaterialExpression(Infill, UMaterialExpressionCustom::StaticClass()));
 		InfillOffset->Inputs.Empty(); InfillOffset->OutputType = CMOT_Float3;
@@ -1267,7 +1248,7 @@ return float3(shift,2.5-dot(shift,N.xy)/max(N.z,.1))+varied*fade-Delta;
 		auto* InfillSeed = CastChecked<UMaterialExpressionVertexColor>(UMaterialEditingLibrary::CreateMaterialExpression(Infill, UMaterialExpressionVertexColor::StaticClass()));
 		auto* InfillInstance = CastChecked<UMaterialExpressionPerInstanceRandom>(UMaterialEditingLibrary::CreateMaterialExpression(Infill, UMaterialExpressionPerInstanceRandom::StaticClass()));
 		auto* InfillLocalZ = CastChecked<UMaterialExpressionComponentMask>(UMaterialEditingLibrary::CreateMaterialExpression(Infill, UMaterialExpressionComponentMask::StaticClass()));
-		InfillLocalZ->Input.Connect(0, InfillPosition); InfillLocalZ->B = true; InfillLocalZ->R = InfillLocalZ->G = InfillLocalZ->A = false;
+		InfillLocalZ->Input.Connect(0, InfillCoordinates.LocalPosition); InfillLocalZ->B = true; InfillLocalZ->R = InfillLocalZ->G = InfillLocalZ->A = false;
 		auto* InfillHeight = CastChecked<UMaterialExpressionVertexInterpolator>(UMaterialEditingLibrary::CreateMaterialExpression(Infill, UMaterialExpressionVertexInterpolator::StaticClass()));
 		InfillHeight->Input.Connect(0, InfillLocalZ);
 		auto* InfillShade = CastChecked<UMaterialExpressionCustom>(UMaterialEditingLibrary::CreateMaterialExpression(Infill, UMaterialExpressionCustom::StaticClass()));

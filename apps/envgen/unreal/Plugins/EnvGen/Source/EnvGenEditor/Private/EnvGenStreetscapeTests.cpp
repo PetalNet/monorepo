@@ -869,12 +869,88 @@ bool FEnvGenStreetscapeAthletic::RunTest(const FString& Parameters)
 					Pile->IsReductionActive(LOD), Pile->GetReductionSettings(LOD).PercentTriangles, Pile->GetReductionSettings(LOD).BaseLODModel));
 				const FColorVertexBuffer& Colours = Mesh.VertexBuffers.ColorVertexBuffer;
 				if (!TestEqual(TEXT("pile render buffers retain strand seeds"), Colours.GetNumVertices(), Vertices.GetNumVertices())) return false;
+				const FPositionVertexBuffer& FiberPositions = Mesh.VertexBuffers.PositionVertexBuffer;
+				if (!TestEqual(TEXT("fiber positions match retained attributes"), FiberPositions.GetNumVertices(), Vertices.GetNumVertices())) return false;
+				if (!TestEqual(TEXT("fiber retains the expected UV channels"), Vertices.GetNumTexCoords(), uint32(2))) return false;
+				TestFalse(TEXT("fiber retained UVs keep default half precision"), Vertices.GetUseFullPrecisionUVs());
+				TestEqual(TEXT("fiber retains its full triangle count"), int32(Mesh.IndexBuffer.GetNumIndices() / 3), LOD == 0 ? 38400 : 12800);
+				TestEqual(TEXT("fiber retains its built vertex count"), Vertices.GetNumVertices(), LOD == 0 ? 51200u : 19200u);
+				struct FFiberRecord { uint8 Data[68]; };
+				TArray<FFiberRecord> FiberRecords;
+				FiberRecords.Reserve(Vertices.GetNumVertices());
+				FVector3f MinPosition(MAX_flt), MaxPosition(-MAX_flt);
+				int32 InvalidFiberAttributes = 0;
 				for (uint32 Vertex = 0; Vertex < Vertices.GetNumVertices(); ++Vertex)
 				{
 					const FVector2f Root = Vertices.GetVertexUV(Vertex, 1);
 					Roots[LOD].Add(FIntPoint(FMath::RoundToInt(Root.X * 1000), FMath::RoundToInt(Root.Y * 1000)));
 					Strands[LOD].Add(FIntVector(FMath::RoundToInt(Root.X * 1000), FMath::RoundToInt(Root.Y * 1000), Colours.VertexColor(Vertex).B));
+					const FVector3f P = FiberPositions.VertexPosition(Vertex);
+					const FVector2f UV0 = Vertices.GetVertexUV(Vertex, 0);
+					const FVector3f LocalDelta = P - FVector3f(Root.X, Root.Y, 0);
+					const FVector3f TX(Vertices.VertexTangentX(Vertex)), TY(Vertices.VertexTangentY(Vertex)), TZ(Vertices.VertexTangentZ(Vertex));
+					const float Values[16] = { P.X, P.Y, P.Z, UV0.X, UV0.Y, Root.X, Root.Y,
+						TX.X, TX.Y, TX.Z, TY.X, TY.Y, TY.Z, TZ.X, TZ.Y, TZ.Z };
+					for (float Value : Values) if (!FMath::IsFinite(Value)) ++InvalidFiberAttributes;
+					if (UV0.X < 0 || UV0.X > 1 || UV0.Y < 0 || UV0.Y > 1
+						|| FMath::Abs(Root.X) > 9.5f || FMath::Abs(Root.Y) > 9.5f
+						|| Root.X + 9.5f != float(FMath::RoundToInt(Root.X + 9.5f))
+						|| Root.Y + 9.5f != float(FMath::RoundToInt(Root.Y + 9.5f))
+						|| FMath::Abs(LocalDelta.X) > .7f || FMath::Abs(LocalDelta.Y) > .7f
+						|| LocalDelta.Z < 0 || LocalDelta.Z > 1.41f) ++InvalidFiberAttributes;
+					for (int32 Axis = 0; Axis < 3; ++Axis)
+					{
+						MinPosition[Axis] = FMath::Min(MinPosition[Axis], P[Axis]);
+						MaxPosition[Axis] = FMath::Max(MaxPosition[Axis], P[Axis]);
+					}
+					FFiberRecord Record{};
+					FMemory::Memcpy(Record.Data, Values, sizeof(Values));
+					const FColor Color = Colours.VertexColor(Vertex);
+					Record.Data[64] = Color.R; Record.Data[65] = Color.G; Record.Data[66] = Color.B; Record.Data[67] = Color.A;
+					FiberRecords.Add(Record);
 				}
+				TestEqual(TEXT("fiber positions, root UVs and local delta reach remain valid"), InvalidFiberAttributes, 0);
+				struct FFiberTriangleRecord { uint8 Data[204]; };
+				TArray<FFiberTriangleRecord> FiberTriangles;
+				for (int32 Triangle = 0; Triangle < Mesh.IndexBuffer.GetNumIndices(); Triangle += 3)
+				{
+					FFiberTriangleRecord Raw{};
+					for (int32 Corner = 0; Corner < 3; ++Corner)
+						FMemory::Memcpy(Raw.Data + Corner * 68, FiberRecords[Mesh.IndexBuffer.GetIndex(Triangle + Corner)].Data, 68);
+					FFiberTriangleRecord Best = Raw;
+					for (int32 Rotation = 1; Rotation < 3; ++Rotation)
+					{
+						FFiberTriangleRecord Rotated{};
+						for (int32 Corner = 0; Corner < 3; ++Corner)
+							FMemory::Memcpy(Rotated.Data + Corner * 68, Raw.Data + ((Corner + Rotation) % 3) * 68, 68);
+						if (FMemory::Memcmp(Rotated.Data, Best.Data, sizeof(Best.Data)) < 0) Best = Rotated;
+					}
+					FiberTriangles.Add(Best);
+				}
+				FiberTriangles.Sort([](const FFiberTriangleRecord& Left, const FFiberTriangleRecord& Right)
+					{ return FMemory::Memcmp(Left.Data, Right.Data, sizeof(Left.Data)) < 0; });
+				FMD5 FiberTriangleHash;
+				for (const FFiberTriangleRecord& Triangle : FiberTriangles)
+					FiberTriangleHash.Update(Triangle.Data, sizeof(Triangle.Data));
+				uint8 FiberTriangleDigest[16];
+				FiberTriangleHash.Final(FiberTriangleDigest);
+				AddInfo(FString::Printf(TEXT("fiber registration=%d LOD%d orientedTriangleMD5=%s triangleCount=%d"),
+					I, LOD, *BytesToHex(FiberTriangleDigest, sizeof(FiberTriangleDigest)), FiberTriangles.Num()));
+				FiberRecords.Sort([](const FFiberRecord& Left, const FFiberRecord& Right)
+					{ return FMemory::Memcmp(Left.Data, Right.Data, sizeof(Left.Data)) < 0; });
+				FMD5 FiberHash;
+				for (const FFiberRecord& Record : FiberRecords) FiberHash.Update(Record.Data, sizeof(Record.Data));
+				uint8 FiberDigest[16];
+				FiberHash.Final(FiberDigest);
+				const FBoxSphereBounds FiberBounds = Pile->GetBounds();
+				for (const double BoundValue : {FiberBounds.Origin.X, FiberBounds.Origin.Y, FiberBounds.Origin.Z,
+					FiberBounds.BoxExtent.X, FiberBounds.BoxExtent.Y, FiberBounds.BoxExtent.Z, FiberBounds.SphereRadius})
+					TestTrue(TEXT("fiber mesh bounds are finite"), FMath::IsFinite(BoundValue));
+				AddInfo(FString::Printf(TEXT("fiber registration=%d LOD%d retainedAttributeMD5=%s retainedCount=%d positionBounds=%.17g,%.17g,%.17g,%.17g,%.17g,%.17g meshBounds=%.17g,%.17g,%.17g,%.17g,%.17g,%.17g,%.17g"),
+					I, LOD, *BytesToHex(FiberDigest, sizeof(FiberDigest)), FiberRecords.Num(),
+					double(MinPosition.X), double(MinPosition.Y), double(MinPosition.Z), double(MaxPosition.X), double(MaxPosition.Y), double(MaxPosition.Z),
+					FiberBounds.Origin.X, FiberBounds.Origin.Y, FiberBounds.Origin.Z,
+					FiberBounds.BoxExtent.X, FiberBounds.BoxExtent.Y, FiberBounds.BoxExtent.Z, FiberBounds.SphereRadius));
 				int32 SplitRoots = 0, TipCaps = 0, InwardCaps = 0;
 				for (int32 Triangle = 0; Triangle < Mesh.IndexBuffer.GetNumIndices(); Triangle += 3)
 				{
