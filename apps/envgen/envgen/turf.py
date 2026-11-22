@@ -62,10 +62,11 @@ FIELD_CALIBRATION = {
 class ConditionFields:
     physical: np.ndarray
     colour: np.ndarray
+    near_response: np.ndarray
 
 
 def condition(grass: np.ndarray, log_ratio: np.ndarray, cell_m: float) -> ConditionFields:
-    """RGB appearance controls: relative wear, inside-edge proximity, reserved zero. No placement changes."""
+    """Physical RG and independent colour/near continuations; outside values are priors, not measurements."""
     inside = grass > 0.5
     signal = ndimage.gaussian_filter(log_ratio[1] - log_ratio[0], GROWTH_SETTINGS["patch_m"] / cell_m)
     low, high = np.percentile(signal[inside], [5, 95]) if inside.any() else (0.0, 0.0)
@@ -74,10 +75,12 @@ def condition(grass: np.ndarray, log_ratio: np.ndarray, cell_m: float) -> Condit
             if inside.any() and (~inside).any() else np.zeros(grass.shape))
     physical = np.stack([wear * inside, edge * inside, np.zeros(grass.shape)]).astype(np.float32)
     colour = physical.copy()
+    near_response = physical.copy()
     if inside.any() and not inside.all():
         nearest = ndimage.distance_transform_edt(~inside, return_distances=False, return_indices=True)
         colour[:, ~inside] = physical[:, nearest[0, ~inside], nearest[1, ~inside]]
-    return ConditionFields(physical=physical, colour=colour)
+        near_response[:, ~inside] = physical[:, nearest[0, ~inside], nearest[1, ~inside]]
+    return ConditionFields(physical=physical, colour=colour, near_response=near_response)
 
 
 def placement_support(grass: np.ndarray, cell_m: float) -> np.ndarray:

@@ -100,12 +100,13 @@ def test_uniform_or_empty_photo_does_not_invent_wear_or_an_edge():
         assert not turf.condition(grass, np.zeros((3, *grass.shape)), 0.5).physical.any()
 
 
-def test_colour_extends_nearest_grass_without_changing_physical_controls():
+def test_condition_continuations_use_original_nearest_grass_and_preserve_valid_zeros():
     from scipy import ndimage
 
     grass = np.zeros((7, 9), dtype=np.float32)
     grass[1:3, 1:3] = 1
     grass[4:6, 6:8] = 1
+    grass[3, 4] = 0.5
     ratio = np.zeros((3, *grass.shape), dtype=np.float32)
     ratio[1] = np.arange(grass.size).reshape(grass.shape)
     controls = turf.condition(grass, ratio, 0.5)
@@ -118,13 +119,44 @@ def test_colour_extends_nearest_grass_without_changing_physical_controls():
     nearest = ndimage.distance_transform_edt(~inside, return_distances=False, return_indices=True)
     assert np.array_equal(controls.physical, original)
     assert np.array_equal(controls.colour, original[:, nearest[0], nearest[1]])
+    assert np.array_equal(controls.near_response, original[:, nearest[0], nearest[1]])
+    assert np.array_equal(controls.near_response[:, inside], original[:, inside])
+    assert inside[nearest[0], nearest[1]].all()
+    donors = np.argwhere(inside)
+    for row, column in np.argwhere(~inside):
+        distances = ((donors - [row, column]) ** 2).sum(axis=1)
+        chosen = nearest[:, row, column]
+        assert ((chosen - [row, column]) ** 2).sum() == distances.min()
     assert np.any(inside & (original[0] == 0))
     assert np.any((~inside) & (controls.colour[0] == 0))
+    assert np.any((~inside) & (controls.near_response[0] == 0))
+    assert not controls.near_response[2].any()
 
 
-def test_colour_empty_and_full_grass_match_physical():
+def test_condition_continuations_empty_and_full_grass_match_physical():
     for value in (0, 1):
         grass = np.full((5, 7), value, dtype=np.float32)
         controls = turf.condition(grass, np.zeros((3, *grass.shape)), 0.5)
         assert np.array_equal(controls.colour, controls.physical)
+        assert np.array_equal(controls.near_response, controls.physical)
         assert not controls.colour.any()
+
+
+def test_condition_arrays_are_independently_owned():
+    mixed = np.zeros((5, 7), dtype=np.float32)
+    mixed[1:4, 1:6] = 1
+    for grass in (mixed * 0, mixed * 0 + 1, mixed):
+        ratio = np.zeros((3, *grass.shape))
+        ratio[1] = np.arange(grass.size).reshape(grass.shape)
+        controls = turf.condition(grass, ratio, 0.5)
+        arrays = (controls.physical, controls.colour, controls.near_response)
+        for index, array in enumerate(arrays):
+            for other in arrays[index + 1:]:
+                assert not np.shares_memory(array, other)
+        original = controls.physical.copy()
+        original_colour = controls.colour.copy()
+        controls.near_response[:] = 2
+        assert np.array_equal(controls.physical, original)
+        assert np.array_equal(controls.colour, original_colour)
+        controls.colour[:] = 3
+        assert np.array_equal(controls.physical, original)

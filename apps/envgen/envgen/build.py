@@ -37,6 +37,11 @@ from .site import (
 # inputs (frame.py and the resampling included); nothing detects that automatically.
 PIPELINE_VERSION = 20
 
+GROWTH_CONTROL_FILES = (
+    "turf_growth.png", "turf_condition.png", "turf_colour_condition.png", "turf_near_condition.png",
+)
+NEAR_CONDITION_FORMAT = "nearest-grass-physical-rg-v1"
+
 MACRO_PIXELS = 1024
 # The fine detail: pixels across the tile (about half a metre, the imagery's own resolution) and the largest
 # ratio it carries, as a power of two either way. 8 bits at 127 steps per power of two.
@@ -1080,9 +1085,12 @@ def build_growth(site: Site, out: Path, layers: list[dict], detail: dict, elevat
     controls = turf.condition(grass, ratio, site.tile.size_m / pixels)
     _write_rgb(controls.physical * 255, out / "turf_condition.png")
     _write_rgb(controls.colour * 255, out / "turf_colour_condition.png")
-    files = ["turf_growth.png", "turf_condition.png", "turf_colour_condition.png"]
+    _write_rgb(controls.near_response * 255, out / "turf_near_condition.png")
+    files = list(GROWTH_CONTROL_FILES)
     return {"file": files[0], "condition_file": files[1],
             "colour_condition": {"format": "nearest-grass-colour-rg-v1", "file": files[2]},
+            "near_condition": {"format": NEAR_CONDITION_FORMAT, "file": files[3],
+                               "prior": "nearest original grass-majority physical RG continuation; not measured wear or height"},
             "control_sha1": {name: hashlib.sha1((out / name).read_bytes()).hexdigest() for name in files},
             "files": files, "pixels": pixels, **report}
 
@@ -1319,20 +1327,49 @@ def _stage_key(*parts) -> str:
     return hashlib.sha256(json.dumps([PIPELINE_VERSION, *parts], sort_keys=True, default=str).encode()).hexdigest()
 
 
-def _cached(out: Path, stage: str, key: str, compute) -> dict:
+def _cached(out: Path, stage: str, key: str, compute, *, growth_pixels: int | None = None) -> dict:
     """Run a stage unless its inputs are unchanged and its output file is still there."""
     record_path = out / f".{stage}.json"
     if record_path.is_file():
-        record = json.loads(record_path.read_text())
-        produced = record["result"].get("files", [record["result"].get("file")])
-        valid = all((out / name).is_file() for name in produced)
-        if stage == "growth" and valid:
-            digests = record["result"].get("control_sha1", {})
-            valid = set(digests) == set(produced) and all(
-                hashlib.sha1((out / name).read_bytes()).hexdigest() == digests[name] for name in produced
-            )
-        if record["key"] == key and valid:
-            return record["result"] | {"cached": True}
+        try:
+            record = json.loads(record_path.read_text())
+        except (json.JSONDecodeError, UnicodeDecodeError):
+            if stage != "growth":
+                raise
+            record = None
+        if stage == "growth" and (
+            not isinstance(record, dict) or not isinstance(record.get("result"), dict)
+            or not isinstance(record.get("key"), str)
+        ):
+            record = None
+        if record is not None or stage != "growth":
+            produced = record["result"].get("files", [record["result"].get("file")])
+            if stage == "growth":
+                result = record["result"]
+                near = result.get("near_condition")
+                colour = result.get("colour_condition")
+                digests = result.get("control_sha1")
+                valid = (
+                    isinstance(produced, list) and len(produced) == len(GROWTH_CONTROL_FILES)
+                    and all(name in produced for name in GROWTH_CONTROL_FILES)
+                    and result.get("file") == GROWTH_CONTROL_FILES[0]
+                    and result.get("condition_file") == GROWTH_CONTROL_FILES[1]
+                    and isinstance(colour, dict) and colour.get("format") == "nearest-grass-colour-rg-v1"
+                    and colour.get("file") == GROWTH_CONTROL_FILES[2]
+                    and isinstance(near, dict) and near.get("format") == NEAR_CONDITION_FORMAT
+                    and near.get("file") == GROWTH_CONTROL_FILES[3]
+                    and type(result.get("pixels")) is int and result["pixels"] > 0
+                    and result["pixels"] == growth_pixels
+                    and isinstance(digests, dict) and set(digests) == set(GROWTH_CONTROL_FILES)
+                )
+                if valid:
+                    valid = all((out / name).is_file() and
+                                hashlib.sha1((out / name).read_bytes()).hexdigest() == digests[name]
+                                for name in GROWTH_CONTROL_FILES)
+            else:
+                valid = all((out / name).is_file() for name in produced)
+            if record["key"] == key and valid:
+                return record["result"] | {"cached": True}
     # Drop the old record first: if this run dies part-way, nothing claims the half-written output is current.
     record_path.unlink(missing_ok=True)
     if stage == "growth":
@@ -1564,13 +1601,16 @@ def build(site_path: Path, out: Path, cache: Path | None = None) -> dict:
                 cover_hashes,
                 site.seed,
                 turf.GROWTH_SETTINGS,
-                "turf-colour-condition-v1",
+                NEAR_CONDITION_FORMAT,
+                {name: detail[name] for name in ("pixels", "zero", "log2_range")},
+                stages["elevation"]["z_scale"],
                 scipy.__version__,
                 ortho_hashes,
                 ortho_sha256,
             ),
             lambda: build_growth(site, out, classes["layers"], detail, stages["elevation"], covering, ortho,
                                   classes["fallback_weights"]),
+            growth_pixels=detail["pixels"],
         )
     if site.survey and site.survey.orthophoto:
         stages["grain"] = _cached(

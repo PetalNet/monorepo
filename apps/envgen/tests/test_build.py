@@ -371,13 +371,19 @@ def test_survey_masks_drive_surface_and_growth_with_alpha_fallback_and_cached_ar
     growth = manifest["turf"]["growth"]
     colour = growth["colour_condition"]
     assert colour["format"] == "nearest-grass-colour-rg-v1"
-    names = [growth["file"], growth["condition_file"], colour["file"]]
+    near = growth["near_condition"]
+    assert near["format"] == "nearest-grass-physical-rg-v1"
+    names = [growth["file"], growth["condition_file"], colour["file"], near["file"]]
+    assert set(names) == {"turf_growth.png", "turf_condition.png", "turf_colour_condition.png", "turf_near_condition.png"}
     assert set(growth["control_sha1"]) == set(names)
     for name in names:
         assert growth["control_sha1"][name] == hashlib.sha1((out / name).read_bytes()).hexdigest()
         assert name in manifest["artifacts"]
+        assert manifest["artifacts"][name] == hashlib.sha256((out / name).read_bytes()).hexdigest()
         assert Image.open(out / name).size == (growth["pixels"], growth["pixels"])
     assert not np.asarray(Image.open(out / colour["file"]))[..., 2].any()
+    assert Image.open(out / near["file"]).mode == "RGB"
+    assert np.array_equal(np.asarray(Image.open(out / near["file"])), np.asarray(Image.open(out / colour["file"])))
     density = np.asarray(Image.open(out / manifest["turf"]["growth"]["file"]))[..., 0]
     assert density[128, 128] == 0 and density[252, 3] > 0
     assert density[106, 190] > 0
@@ -437,29 +443,149 @@ def test_raw_survey_colour_invalidates_growth_even_when_derived_maps_are_identic
     assert not np.array_equal(old_growth, np.asarray(Image.open(out / after["turf"]["growth"]["file"])))
 
 
-def test_growth_cache_rejects_tampering_and_invalidates_manifest(tmp_path):
+@pytest.mark.parametrize("damage", [
+    "corrupt_growth", "corrupt_physical", "corrupt_colour", "corrupt_near",
+    "missing_growth", "missing_physical", "missing_colour", "missing_near",
+    "incomplete", "duplicate_files", "extra_hash", "missing_hash", "wrong_hash",
+    "missing_metadata", "unsupported_format", "malformed_metadata", "wrong_near_file",
+    "invalid_pixels", "truncated_json", "invalid_utf8", "missing_result", "missing_key",
+    "nonobject_record", "nonobject_result",
+])
+def test_growth_cache_rejects_incomplete_or_damaged_generation(tmp_path, damage):
     import hashlib
-    from envgen.build import _cached
+    from envgen.build import GROWTH_CONTROL_FILES, NEAR_CONDITION_FORMAT, _cached
 
-    files = ["growth.png", "physical.png", "colour.png"]
+    files = list(GROWTH_CONTROL_FILES)
     calls = []
 
     def generate():
         assert not (tmp_path / "build.json").exists()
+        assert not (tmp_path / ".growth.json").exists()
         calls.append(1)
         for name in files:
             (tmp_path / name).write_bytes(name.encode())
-        return {"files": files, "control_sha1": {
+        return {"files": files, "file": files[0], "condition_file": files[1], "pixels": 8,
+                "colour_condition": {"format": "nearest-grass-colour-rg-v1", "file": files[2]},
+                "near_condition": {"format": NEAR_CONDITION_FORMAT, "file": files[3]}, "control_sha1": {
             name: hashlib.sha1((tmp_path / name).read_bytes()).hexdigest() for name in files
         }}
 
     (tmp_path / "build.json").write_text("old")
-    assert not _cached(tmp_path, "growth", "key", generate)["cached"]
-    assert _cached(tmp_path, "growth", "key", generate)["cached"]
-    (tmp_path / "colour.png").write_bytes(b"mixed generation")
+    assert not _cached(tmp_path, "growth", "key", generate, growth_pixels=8)["cached"]
+    assert _cached(tmp_path, "growth", "key", generate, growth_pixels=8)["cached"]
+    record_path = tmp_path / ".growth.json"
+    record = json.loads(record_path.read_text())
+    result = record["result"]
+    roles = ["growth", "physical", "colour", "near"]
+    if damage.startswith("corrupt_"):
+        (tmp_path / files[roles.index(damage.removeprefix("corrupt_"))]).write_bytes(b"mixed generation")
+    elif damage.startswith("missing_") and damage.removeprefix("missing_") in roles:
+        (tmp_path / files[roles.index(damage.removeprefix("missing_"))]).unlink()
+    elif damage == "incomplete":
+        result["files"] = files[:-1]
+        del result["control_sha1"][files[-1]]
+    elif damage == "duplicate_files":
+        result["files"] = files[:-1] + [files[2]]
+    elif damage == "extra_hash":
+        result["control_sha1"]["other.png"] = "0" * 40
+    elif damage == "missing_hash":
+        del result["control_sha1"][files[0]]
+    elif damage == "wrong_hash":
+        result["control_sha1"][files[-1]] = "0" * 40
+    elif damage == "missing_metadata":
+        del result["near_condition"]
+    elif damage == "unsupported_format":
+        result["near_condition"]["format"] = "unknown"
+    elif damage == "malformed_metadata":
+        result["near_condition"] = "not an object"
+    elif damage == "wrong_near_file":
+        result["near_condition"]["file"] = files[2]
+    elif damage == "invalid_pixels":
+        result["pixels"] = 8.5
+    elif damage == "missing_result":
+        del record["result"]
+    elif damage == "missing_key":
+        del record["key"]
+    elif damage == "nonobject_record":
+        record = []
+    elif damage == "nonobject_result":
+        record["result"] = []
+    if damage == "truncated_json":
+        record_path.write_text("{")
+    elif damage == "invalid_utf8":
+        record_path.write_bytes(b"\xff")
+    else:
+        record_path.write_text(json.dumps(record))
     (tmp_path / "build.json").write_text("old")
-    assert not _cached(tmp_path, "growth", "key", generate)["cached"]
+    assert not _cached(tmp_path, "growth", "key", generate, growth_pixels=8)["cached"]
     assert len(calls) == 2
+
+
+def test_non_growth_null_cache_retains_existing_failure_and_files(tmp_path):
+    from envgen.build import _cached
+
+    record = tmp_path / ".detail.json"
+    manifest = tmp_path / "build.json"
+    record.write_text("null")
+    manifest.write_text("old")
+    with pytest.raises(TypeError):
+        _cached(tmp_path, "detail", "key", lambda: pytest.fail("unexpected recomputation"))
+    assert record.read_text() == "null"
+    assert manifest.read_text() == "old"
+
+
+def test_growth_cache_recovers_from_positive_wrong_pixel_count(tmp_path, monkeypatch, site):
+    import importlib
+
+    pipeline = importlib.import_module("envgen.build")
+    monkeypatch.setattr(pipeline, "MACRO_PIXELS", 32)
+    monkeypatch.setattr(pipeline, "DETAIL_PIXELS", 64)
+    out = tmp_path / "out"
+    build(site, out)
+    record_path = out / ".growth.json"
+    record = json.loads(record_path.read_text())
+    record["result"]["pixels"] -= 1
+    record_path.write_text(json.dumps(record))
+
+    rebuilt = build(site, out)
+    assert "growth" not in rebuilt["stages_reused"]
+    repaired = json.loads(record_path.read_text())["result"]
+    assert repaired["pixels"] == 64
+    for name in repaired["files"]:
+        with Image.open(out / name) as image:
+            assert image.size == (repaired["pixels"], repaired["pixels"])
+    assert "growth" in build(site, out)["stages_reused"]
+
+
+@pytest.mark.parametrize(("stage", "field"), [
+    ("detail", "pixels"), ("detail", "zero"), ("detail", "log2_range"), ("elevation", "z_scale"),
+])
+def test_growth_cache_invalidates_on_consumed_decode_metadata(tmp_path, monkeypatch, site, stage, field):
+    import importlib
+
+    pipeline = importlib.import_module("envgen.build")
+    monkeypatch.setattr(pipeline, "MACRO_PIXELS", 32)
+    monkeypatch.setattr(pipeline, "DETAIL_PIXELS", 64)
+    out = tmp_path / "out"
+    build(site, out)
+    assert "growth" in build(site, out)["stages_reused"]
+    record_path = out / f".{stage}.json"
+    record = json.loads(record_path.read_text())
+    source_path = out / record["result"]["file"]
+    original_bytes = source_path.read_bytes()
+    record["result"][field] *= 2
+    record_path.write_text(json.dumps(record))
+
+    def recompute(*args, **kwargs):
+        assert not (out / ".growth.json").exists()
+        assert not (out / "build.json").exists()
+        raise RuntimeError("growth cache invalidated")
+
+    # Stop before decoding: changed pixel metadata deliberately no longer describes the unchanged image.
+    monkeypatch.setattr(pipeline, "build_growth", recompute)
+    with pytest.raises(RuntimeError, match="growth cache invalidated"):
+        build(site, out)
+    assert source_path.read_bytes() == original_bytes
 
 
 def test_colour_writer_uses_existing_unreal_layout_and_rgb_bytes(tmp_path):
