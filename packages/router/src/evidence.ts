@@ -103,7 +103,7 @@ export function normalizeAA(raw: unknown): Evidence {
 		const model =
 			typeof release === "string"
 				? (ALIASES[release] ??
-					(/^gpt-\d+(?:[.-]\d+)?-[a-z]+$/u.test(release)
+					(/^gpt-\d+(?:[.-]\d+)?-[a-z][a-z0-9-]*$/u.test(release)
 						? release.replace(/^(gpt-\d+)-(\d+)-/u, "$1.$2-")
 						: undefined))
 				: undefined;

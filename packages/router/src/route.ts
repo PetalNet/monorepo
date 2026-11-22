@@ -226,11 +226,7 @@ export function formatPick(result: Pick, kind: string, tier: string): string {
 async function main(argv: string[]): Promise<number> {
 	if (argv.length === 1 && argv[0] === "refresh-codex") {
 		const dir = `${homedir()}/.local/state/router`;
-		const snapshot = await discoverCodex(dir, true);
-
-		if (!snapshot) {
-			throw new Error("Codex catalog refresh failed");
-		}
+		const snapshot = await discoverCodex(dir, true).catch(() => undefined);
 
 		await checkCodexAlerts(
 			dir,
@@ -238,11 +234,15 @@ async function main(argv: string[]): Promise<number> {
 			readJson<Catalog>(`${homedir()}/.claude/shared/model-tiers.json`),
 		);
 
+		if (!snapshot) {
+			throw new Error("Codex catalog refresh incomplete");
+		}
+
 		return 0;
 	}
 
 	if (argv.length === 1 && argv[0] === "pull-evidence") {
-		await discoverCodex(`${homedir()}/.local/state/router`, true);
+		await discoverCodex(`${homedir()}/.local/state/router`);
 
 		const pulled = spawnSync(
 			"python3",

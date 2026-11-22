@@ -74,10 +74,6 @@ export function parseModels(raw: unknown): Model[] {
 		return efforts.length > 0 ? [{ slug, efforts: [...new Set(efforts)] }] : [];
 	});
 
-	if (models.length === 0) {
-		throw new TypeError("Codex returned no visible runnable models");
-	}
-
 	return [...new Map(models.map((m) => [m.slug, m])).values()];
 }
 
@@ -147,7 +143,11 @@ export async function discoverCodex(
 
 		try {
 			models = parseModels(JSON.parse(await deps.command(["debug", "models"])));
-		} catch {
+		} catch (error) {
+			if (force) {
+				throw error;
+			}
+
 			return previous?.client_version === version ? previous : undefined;
 		}
 
@@ -162,6 +162,10 @@ export async function discoverCodex(
 
 		return snapshot;
 	} catch {
+		if (force) {
+			throw new Error("Codex model refresh failed");
+		}
+
 		// Never reuse another client's catalog after a downgrade or failed version check.
 		return undefined;
 	}
@@ -198,12 +202,15 @@ export interface Release {
 	publishedAt: number;
 }
 export interface AlertDeps {
-	notify: (message: string) => Promise<void> | void;
+	notify: (message: string, key: string) => Promise<void> | void;
 	release: () => Promise<Release> | Release;
 	now: () => number;
 }
 export const alertDefaults: AlertDeps = {
-	notify: async (message) => {
+	notify: async (message, key) => {
+		const receiver = await readFile(new URL("alert_enqueue.py", import.meta.url), "utf8");
+		const quote = (value: string) => `'${value.replaceAll("'", "'\\''")}'`;
+
 		await exec(
 			"ssh",
 			[
@@ -212,10 +219,11 @@ export const alertDefaults: AlertDeps = {
 				"-o",
 				"ConnectTimeout=10",
 				"dot14",
-				"/home/docker/.claude/bin/shawn-send",
-				"info",
-				"codex-current",
-				`'${message.replaceAll("'", "'\\''")}'`,
+				"python3",
+				"-c",
+				quote(receiver),
+				quote(key),
+				quote(message),
 			],
 			{ timeout: 30_000 },
 		);
@@ -249,7 +257,7 @@ export const alertDefaults: AlertDeps = {
 
 export async function checkCodexAlerts(
 	dir: string,
-	snapshot: Snapshot,
+	snapshot: Snapshot | undefined,
 	catalog: Catalog,
 	deps: AlertDeps = alertDefaults,
 ): Promise<void> {
@@ -257,15 +265,16 @@ export async function checkCodexAlerts(
 		.then(deps.release)
 		.catch(() => undefined);
 	const known = new Set(catalog.models.filter((m) => m.provider === "codex").map((m) => m.id));
-	const events = snapshot.models
+	const events = (snapshot?.models ?? [])
 		.filter((m) => !known.has(m.slug))
 		.map((m) => ({
 			key: `model:${m.slug}`,
-			message: `New Codex model ${m.slug} available on client ${snapshot.client_version}; discovered and added to the router.`,
+			message: `New Codex model ${m.slug} available on client ${snapshot?.client_version ?? "unknown"}; discovered and added to the router.`,
 		}));
 
 	if (
 		release &&
+		snapshot &&
 		compareVersions(snapshot.client_version, release.version) < 0 &&
 		deps.now() - release.publishedAt > 3 * 86_400_000
 	) {
@@ -278,30 +287,78 @@ export async function checkCodexAlerts(
 	await locked(dir, async () => {
 		const file = path.join(dir, "codex-alerts.json");
 		let sent: string[] = [];
+		let pending: { key: string; message: string }[] = [];
 
 		try {
-			const raw: unknown = JSON.parse(await readFile(file, "utf8"));
+			const raw = object(JSON.parse(await readFile(file, "utf8")));
 
-			if (!Array.isArray(raw) || !raw.every((v: unknown) => typeof v === "string")) {
+			if (
+				!Array.isArray(raw["sent"]) ||
+				!raw["sent"].every((v: unknown) => typeof v === "string") ||
+				!Array.isArray(raw["pending"])
+			) {
 				throw new TypeError("invalid Codex alerts state");
 			}
 
-			sent = raw;
+			sent = raw["sent"];
+
+			pending = raw["pending"].map((item: unknown) => {
+				const event = object(item);
+
+				if (typeof event["key"] !== "string" || typeof event["message"] !== "string") {
+					throw new TypeError("invalid pending Codex alert");
+				}
+
+				return { key: event["key"], message: event["message"] };
+			});
 		} catch (error) {
 			if (!(error instanceof Error && "code" in error && error.code === "ENOENT")) {
 				throw error;
 			}
 		}
 
-		for (const event of events.filter((e) => !sent.includes(e.key))) {
-			await deps.notify(event.message);
-			sent.push(event.key);
+		pending = [
+			...new Map(
+				[...pending, ...events]
+					.filter(
+						(e) =>
+							!sent.includes(e.key) &&
+							!(
+								snapshot &&
+								e.key.startsWith("release:") &&
+								compareVersions(snapshot.client_version, e.key.slice(8)) >= 0
+							),
+					)
+					.map((e) => [e.key, e]),
+			).values(),
+		];
+
+		const persist = async () => {
 			const temp = path.join(dir, `.alerts-${crypto.randomUUID()}`);
 
-			await writeFile(temp, JSON.stringify(sent), { mode: 0o600 });
+			await writeFile(temp, JSON.stringify({ sent, pending }), { mode: 0o600 });
 			await rename(temp, file);
+		};
+
+		await persist();
+
+		while (pending.length > 0) {
+			const event = pending[0];
+
+			if (!event) {
+				break;
+			}
+
+			await deps.notify(event.message, event.key);
+			sent.push(event.key);
+			pending.shift();
+			await persist();
 		}
 	});
+
+	if (!release) {
+		throw new Error("Codex release check failed");
+	}
 }
 
 function compareVersions(a: string, b: string): number {

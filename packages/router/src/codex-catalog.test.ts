@@ -1,11 +1,13 @@
-import { mkdtemp, readFile, rm } from "node:fs/promises";
+import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 
+import { launch } from "./adapters.ts";
 import {
 	checkCodexAlerts,
+	alertDefaults,
 	discoverCodex,
 	parseModels,
 	withCodexCatalog,
@@ -26,6 +28,7 @@ async function temp() {
 }
 
 afterEach(async () => {
+	vi.unstubAllEnvs();
 	await Promise.all(dirs.splice(0).map((dir) => rm(dir, { recursive: true, force: true })));
 });
 
@@ -141,9 +144,10 @@ describe("live Codex catalog", () => {
 		const dir = await temp();
 		let version = "0.171.0";
 		let fetches = 0;
+		let now = 1000;
 		let offline = false;
 		const deps = {
-			now: () => 1000,
+			now: () => now,
 			command: (args: string[]) => {
 				if (args[0] === "--version") {
 					return `codex-cli ${version}`;
@@ -164,14 +168,16 @@ describe("live Codex catalog", () => {
 		expect(fetches).toBe(1);
 		expect(await readFile(path.join(dir, "codex-models.json"), "utf8")).not.toContain("persist me");
 		offline = true;
-		expect(await discoverCodex(dir, true, deps)).toEqual(snapshot);
+		now += 3_600_000;
+		await expect(discoverCodex(dir, true, deps)).rejects.toThrow("refresh failed");
+		expect(await discoverCodex(dir, false, deps)).toEqual(snapshot);
 		version = "0.170.0";
 		expect(await discoverCodex(dir, false, deps)).toBeUndefined();
 	});
 
-	it("rejects malformed or empty catalogs without replacing the last valid cache", async () => {
+	it("rejects malformed catalogs without replacing the last valid cache", async () => {
 		expect(() => parseModels({ models: [model("bad shell slug")] })).toThrow();
-		expect(() => parseModels({ models: [model("hidden", "hide")] })).toThrow();
+		expect(parseModels({ models: [model("hidden", "hide")] })).toEqual([]);
 		const dir = await temp();
 
 		await discoverCodex(dir, false, {
@@ -179,12 +185,99 @@ describe("live Codex catalog", () => {
 			command: (args) => (args[0] === "--version" ? "codex-cli 0.171.0" : JSON.stringify(raw)),
 		});
 
-		expect(
-			await discoverCodex(dir, true, {
+		await expect(
+			discoverCodex(dir, true, {
 				now: () => 2000,
 				command: (args) => (args[0] === "--version" ? "codex-cli 0.171.0" : "{}"),
 			}),
-		).toEqual(snapshot);
+		).rejects.toThrow("refresh failed");
+
+		expect(JSON.parse(await readFile(path.join(dir, "codex-models.json"), "utf8"))).toEqual(
+			snapshot,
+		);
+	});
+
+	it("replaces visible models with an authoritative empty catalog on refresh and cache readback", async () => {
+		const dir = await temp();
+		let now = 1000;
+		let visibility = "list";
+		let queries = 0;
+		const deps = {
+			now: () => now,
+			command: (args: string[]) => {
+				if (args[0] === "--version") {
+					return "codex-cli 0.171.0";
+				}
+
+				queries++;
+
+				return JSON.stringify({ models: [model("gpt-7-sol", visibility)] });
+			},
+		};
+
+		await discoverCodex(dir, false, deps);
+		now += 3_600_000;
+		visibility = "hide";
+		const empty = await discoverCodex(dir, false, deps);
+
+		expect(empty?.models).toEqual([]);
+		expect(withCodexCatalog(catalog, empty).models.every((m) => m.provider !== "codex")).toBe(true);
+		expect((await discoverCodex(dir, false, deps))?.models).toEqual([]);
+		expect(queries).toBe(2);
+	});
+
+	it("passes a discovered max-suffixed release verbatim to a real fake executable", async () => {
+		const dir = await temp();
+
+		await writeFile(path.join(dir, "codex"), '#!/bin/sh\nprintf "%s\n" "$@"\ncat\n', {
+			mode: 0o700,
+		});
+
+		vi.stubEnv("PATH", `${dir}:${process.env["PATH"] ?? ""}`);
+
+		const discovered = {
+			...snapshot,
+			models: parseModels({ models: [model("gpt-5.1-codex-max"), model("gpt-5.1-codex")] }),
+		};
+		const offers = offersFrom(withCodexCatalog(catalog, discovered), "code", POOLS);
+
+		expect(new Set(offers.filter((o) => o.provider === "codex").map((o) => o.model))).toEqual(
+			new Set(["gpt-5.1-codex-max", "gpt-5.1-codex"]),
+		);
+
+		const offer = offers.find((o) => o.model === "gpt-5.1-codex-max" && o.effort === "low");
+
+		if (!offer) {
+			throw new Error("missing discovered offer");
+		}
+
+		expect((await launch(offer, "brief", dir)).out).toContain("-m\ngpt-5.1-codex-max\n");
+
+		const denied = pick(withCodexCatalog(catalog, discovered), "code", "*", {
+			...state,
+			deny: ["gpt-5.1-codex-max"],
+		});
+
+		expect(denied.ranked.some((r) => r.offer.model === "gpt-5.1-codex-max")).toBe(false);
+		expect(denied.ranked.some((r) => r.offer.model === "gpt-5.1-codex")).toBe(true);
+	});
+
+	it("retains exact multi-part benchmark release names and preview identities", () => {
+		const result = normalizeAA({
+			fetchedAt: "2026-11-22T00:00:00Z",
+			models: ["gpt-7-1-codex-mini", "gpt-7-1-codex-mini-preview"].map((slug) => ({
+				slug,
+				release: { slug },
+				effort: { slug: "high" },
+				terminalBench40: 70,
+			})),
+		});
+
+		expect(result.unmapped).toEqual([]);
+
+		expect(new Set(result.rows.map((row) => row.model))).toEqual(
+			new Set(["gpt-7.1-codex-mini", "gpt-7.1-codex-mini-preview"]),
+		);
 	});
 });
 
@@ -238,6 +331,75 @@ describe("Codex alerts", () => {
 			notify: () => {
 				throw new Error("must be silent");
 			},
+		});
+	});
+
+	it("reports a failed release check after delivering independent new-model alerts", async () => {
+		const dir = await temp();
+		const sent: string[] = [];
+
+		await expect(
+			checkCodexAlerts(dir, snapshot, catalog, {
+				now: () => 1000,
+				release: () => {
+					throw new Error("offline");
+				},
+				notify: (message) => {
+					sent.push(message);
+				},
+			}),
+		).rejects.toThrow("release check failed");
+
+		expect(sent).toHaveLength(2);
+	});
+
+	it("retries durable pending events even when catalog and discovered models change", async () => {
+		const dir = await temp();
+		const deps = {
+			now: () => 1000,
+			release: () => ({ version: "0.171.0", publishedAt: 0 }),
+			notify: () => {
+				throw new Error("offline");
+			},
+		};
+
+		await expect(checkCodexAlerts(dir, snapshot, catalog, deps)).rejects.toThrow("offline");
+		const sent: string[] = [];
+
+		await checkCodexAlerts(dir, { ...snapshot, models: [] }, withCodexCatalog(catalog, snapshot), {
+			...deps,
+			notify: (message) => {
+				sent.push(message);
+			},
+		});
+
+		expect(sent).toHaveLength(2);
+	});
+
+	it("uses a stable remote event ID and shell-quotes the actual enqueue receiver", async () => {
+		const dir = await temp();
+
+		await writeFile(
+			path.join(dir, "ssh"),
+			'#!/usr/bin/env python3\nimport os,sys\nos.execvp("sh", ["sh", "-c", " ".join(sys.argv[6:])])\n',
+			{ mode: 0o700 },
+		);
+
+		vi.stubEnv("PATH", `${dir}:${process.env["PATH"] ?? ""}`);
+		vi.stubEnv("HOME", dir);
+		const message = "A 'quoted' model with $HOME and $(exit 23)";
+
+		await alertDefaults.notify(message, "model:quoted");
+		await alertDefaults.notify(message, "model:quoted");
+		const { readdir } = await import("node:fs/promises");
+		const outbox = path.join(dir, ".claude/shared/system-outbox");
+		const files = (await readdir(outbox)).filter((name) => name.endsWith(".json"));
+
+		expect(files).toHaveLength(1);
+
+		expect(JSON.parse(await readFile(path.join(outbox, files[0] ?? ""), "utf8"))).toMatchObject({
+			key: "model:quoted",
+			body: `[info] codex-current: ${message}`,
 		});
 	});
 });

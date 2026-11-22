@@ -188,7 +188,7 @@ export function offersFrom(catalog: Catalog, kind: string, pools: Pool[]): Offer
 	const groups = new Map<string, CatalogModel>();
 
 	for (const m of catalog.models) {
-		const model = m.id.replace(/-(none|low|medium|high|xhigh|max)$/u, "");
+		const model = m.efforts ? m.id : m.id.replace(/-(none|low|medium|high|xhigh|max)$/u, "");
 		const key = `${m.provider}:${poolIdOf(m) ?? ""}:${evidenceKey(model, "default").model}`;
 		const previous = groups.get(key);
 
@@ -198,7 +198,7 @@ export function offersFrom(catalog: Catalog, kind: string, pools: Pool[]): Offer
 	}
 
 	return [...groups.values()].flatMap((m) => {
-		const suffix = /-(none|low|medium|high|xhigh|max)$/u.exec(m.id)?.[1];
+		const suffix = m.efforts ? undefined : /-(none|low|medium|high|xhigh|max)$/u.exec(m.id)?.[1];
 		const catalogEffort: Effort =
 			suffix === "none" ||
 			suffix === "low" ||
@@ -270,6 +270,10 @@ const clock = (ms: number) =>
 	});
 
 function matchesOfferId(offer: Offer, id: string): boolean {
+	if (evidenceKey(id, "default").model === evidenceKey(offer.model, "default").model) {
+		return true;
+	}
+
 	const suffix = /-(none|low|medium|high|xhigh|max)$/u.exec(id)?.[1];
 	const model = suffix ? id.slice(0, -suffix.length - 1) : id;
 
