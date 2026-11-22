@@ -41,7 +41,7 @@
 		return at === null
 			? null
 			: dossier.providers.map((provider) => {
-					const { windows, notes } = limitsFrom(provider);
+					const { windows, notes } = limitsFrom(provider, at);
 
 					return { provider, notes, readings: windows.map((window) => readLimit(window, at)) };
 				});

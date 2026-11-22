@@ -38,7 +38,7 @@ const windows = [
 		data: codexFeed,
 		nowSeconds: now / 1000,
 	}),
-].flatMap((provider) => limitsFrom(provider).windows);
+].flatMap((provider) => limitsFrom(provider, now).windows);
 const byId = (id: string) => {
 	const window = windows.find((candidate) => candidate.id === id);
 
@@ -250,6 +250,7 @@ describe("limits from the feeds", () => {
 				data,
 				nowSeconds: 1_794_939_400,
 			}),
+			1_794_939_400_000,
 		);
 	const codex = (data: Record<string, unknown> = codexToday) =>
 		limitsFrom(
@@ -259,6 +260,7 @@ describe("limits from the feeds", () => {
 				data,
 				nowSeconds: 1_794_939_400,
 			}),
+			1_794_939_400_000,
 		);
 	const summary = (limits: ProviderLimits) =>
 		limits.windows.map(({ id, usedPct }) => ({ id, usedPct }));
@@ -272,20 +274,93 @@ describe("limits from the feeds", () => {
 		return window;
 	};
 
-	it("draws exactly the windows each feed reports, with nothing to note", () => {
+	it("keeps Claude's limits and hides Codex's shorter allowance when its week is full", () => {
 		expect(summary(claude())).toEqual([
 			{ id: "claude-7d", usedPct: 8 },
 			{ id: "claude-7d-fable", usedPct: 0 },
 		]);
 
-		expect(summary(codex())).toEqual([
-			{ id: "codex-5h", usedPct: 0 },
-			{ id: "codex-7d", usedPct: 100 },
-		]);
+		expect(summary(codex())).toEqual([{ id: "codex-7d", usedPct: 100 }]);
 
 		expect(claude().notes).toEqual([]);
-		expect(codex().notes).toEqual([]);
+		expect(codex().notes).toEqual(["5-hour hidden: 7-day allowance exhausted"]);
 	});
+
+	it("restores Codex's shorter allowance when its week has room and no limit is reported reached", () => {
+		expect(
+			summary(codex({ ...codexToday, seven_day_pct: 99, rate_limit_reached_type: null })),
+		).toEqual([
+			{ id: "codex-5h", usedPct: 0 },
+			{ id: "codex-7d", usedPct: 99 },
+		]);
+	});
+
+	it("hides Codex's shorter allowance on a provider-reported stop even below 100%", () => {
+		const limits = codex({ ...codexToday, seven_day_pct: 99 });
+
+		expect(summary(limits)).toEqual([{ id: "codex-7d", usedPct: 99 }]);
+		expect(limits.notes).toEqual(["5-hour hidden: provider reports a limit reached"]);
+	});
+
+	it("retires an ambiguous provider stop when the shorter window resets", () => {
+		const reset = codexToday.five_hour_resets_at;
+		const provider = usageReadoutFrom({
+			label: "Codex",
+			kind: "codex",
+			data: { ...codexToday, seven_day_pct: 99 },
+			nowSeconds: reset,
+		});
+
+		expect(summary(limitsFrom(provider, reset * 1000))).toEqual([
+			{ id: "codex-5h", usedPct: 0 },
+			{ id: "codex-7d", usedPct: 99 },
+		]);
+
+		expect(limitsFrom(provider, reset * 1000).notes).toEqual([]);
+	});
+
+	it.each([null, "primary"])(
+		"keeps Codex's only window when no weekly reading exists (%s)",
+		(stop) => {
+			const limits = codex({
+				five_hour_pct: 50,
+				five_hour_resets_at: codexToday.five_hour_resets_at,
+				rate_limit_reached_type: stop,
+				scraped_at: 1_794_939_303,
+			});
+
+			expect(summary(limits)).toEqual([{ id: "codex-5h", usedPct: 50 }]);
+			expect(limits.notes).toEqual([]);
+		},
+	);
+
+	it.each([null, "rate_limit_reached"])(
+		"restores Codex's shorter allowance at the weekly reset (%s)",
+		(stop) => {
+			const reset = codexToday.seven_day_resets_at;
+			const provider = usageReadoutFrom({
+				label: "Codex",
+				kind: "codex",
+				data: {
+					...codexToday,
+					five_hour_resets_at: reset + 3600,
+					rate_limit_reached_type: stop,
+				},
+				nowSeconds: reset,
+			});
+
+			expect(summary(limitsFrom(provider, reset * 1000 - 1))).toEqual([
+				{ id: "codex-7d", usedPct: 100 },
+			]);
+
+			expect(summary(limitsFrom(provider, reset * 1000))).toEqual([
+				{ id: "codex-5h", usedPct: 0 },
+				{ id: "codex-7d", usedPct: 100 },
+			]);
+
+			expect(limitsFrom(provider, reset * 1000).notes).toEqual([]);
+		},
+	);
 
 	it("draws a 5-hour window as soon as Claude reports one", () => {
 		const withFiveHour = {
@@ -345,6 +420,45 @@ describe("limits from the feeds", () => {
 	const withLimits = (limits: unknown[], raw: Record<string, unknown> = {}) => ({
 		...claudeToday,
 		raw: { ...claudeToday.raw, limits, ...raw },
+	});
+
+	it.each([100, 105])("hides Fable when the all-models reading is %s percent", (percent) => {
+		const limits = claude(
+			withLimits([fable(18)], {
+				seven_day: { utilization: percent, resets_at: "2026-11-24T10:00:00Z" },
+			}),
+		);
+
+		expect(summary(limits)).toEqual([{ id: "claude-7d", usedPct: 100 }]);
+		expect(limits.notes).toEqual(["Fable 7-day hidden: all-models 7-day allowance exhausted"]);
+	});
+
+	it("keeps the all-models week when only Fable is full", () => {
+		expect(summary(claude(withLimits([fable(100)])))).toEqual([
+			{ id: "claude-7d", usedPct: 8 },
+			{ id: "claude-7d-fable", usedPct: 100 },
+		]);
+	});
+
+	it("restores Fable at the all-models reset even when Fable resets later", () => {
+		const reset = at("2026-11-24T09:00:00Z");
+		const provider = usageReadoutFrom({
+			label: "Claude",
+			kind: "claude",
+			data: withLimits([fable(18)], {
+				seven_day: { utilization: 100, resets_at: "2026-11-24T09:00:00Z" },
+			}),
+			nowSeconds: reset / 1000,
+		});
+
+		expect(summary(limitsFrom(provider, reset - 1))).toEqual([{ id: "claude-7d", usedPct: 100 }]);
+
+		expect(summary(limitsFrom(provider, reset))).toEqual([
+			{ id: "claude-7d", usedPct: 100 },
+			{ id: "claude-7d-fable", usedPct: 18 },
+		]);
+
+		expect(limitsFrom(provider, reset).notes).toEqual([]);
 	});
 
 	it("keeps one window per identity, the fullest, and says there were more", () => {
@@ -426,7 +540,7 @@ describe("quota feed limits", () => {
 			],
 		},
 		generatedAt + 60_000,
-	).map((readout) => limitsFrom(readout));
+	).map((readout) => limitsFrom(readout, generatedAt + 60_000));
 	const readings = tmobile.windows.map((window) => readLimit(window, generatedAt + 60_000));
 
 	it("reads a limit that is no dial window without a pace, keeping the feed's tenths", () => {
