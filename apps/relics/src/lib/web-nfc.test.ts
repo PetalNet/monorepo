@@ -1,6 +1,12 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-import { nfcError, supportsNfc, writeVerifiedTag } from "./web-nfc";
+import {
+	createTagScanner,
+	idleTagMessage,
+	nfcError,
+	supportsNfc,
+	writeVerifiedTag,
+} from "./web-nfc";
 
 class Reader {
 	onreading:
@@ -10,7 +16,7 @@ class Reader {
 		  }) => void)
 		| null = null;
 	onreadingerror: (() => void) | null = null;
-	scan = vi.fn(() => Promise.resolve());
+	scan = vi.fn((_options: { signal: AbortSignal }) => Promise.resolve());
 	write = vi.fn(() => Promise.resolve());
 	read(url?: string, serialNumber = "tag-A") {
 		this.onreading?.({
@@ -203,5 +209,93 @@ describe("browser NFC writing", () => {
 		expect(nfcError(new DOMException("", "NotReadableError"), false)).toContain("Turn on NFC");
 		expect(nfcError(new DOMException("", "NotAllowedError"), false)).toContain("site settings");
 		expect(nfcError(new DOMException("", "NetworkError"), true)).toContain("Hold one tag still");
+	});
+});
+
+describe("foreground NFC scan", () => {
+	it("shows the same tag again after a new write session starts", async () => {
+		const { reader } = setup();
+		const onRead = vi.fn();
+		const scanner = createTagScanner(onRead, vi.fn());
+
+		await scanner.start();
+		reader.read(url);
+		reader.read(url);
+		expect(onRead).toHaveBeenCalledTimes(1);
+		await scanner.start();
+		reader.read(url);
+		expect(onRead).toHaveBeenCalledTimes(2);
+		expect(reader.scan).toHaveBeenCalledTimes(1);
+		scanner.stop();
+	});
+
+	it("keeps receiving a lingering verified tag without writing or marking twice", async () => {
+		const { reader } = setup();
+		const messages: string[] = [];
+		const saved = vi.fn();
+		const states: string[] = [];
+		const scanner = createTagScanner(
+			(event) => messages.push(idleTagMessage(event, 22, [{ url, number: 21 }])),
+			vi.fn(),
+		);
+
+		await scanner.start();
+
+		const pending = writeVerifiedTag({
+			url,
+			reader: scanner.reader,
+			signal: new AbortController().signal,
+			onState: (state) => states.push(state.kind),
+			confirmOverwrite: () => Promise.resolve(),
+		}).then(saved);
+
+		await until(() => states.includes("waiting"));
+		reader.read();
+		await until(() => states.includes("verifying"));
+		reader.read(url);
+		await pending;
+		reader.read(url);
+		reader.read(url);
+		expect(messages).toEqual(["Already written ✓ #21. You can move it away."]);
+		expect(saved).toHaveBeenCalledTimes(1);
+		expect(reader.write).toHaveBeenCalledTimes(1);
+		expect(reader.scan).toHaveBeenCalledTimes(1);
+		scanner.stop();
+	});
+
+	it("reports blank and foreign tags between writes without writing", async () => {
+		const { reader } = setup();
+		const messages: string[] = [];
+		const scanner = createTagScanner(
+			(event) => messages.push(idleTagMessage(event, 22, [])),
+			vi.fn(),
+		);
+
+		await scanner.start();
+		reader.read();
+		reader.read("https://relics.petalcat.dev/relics/OTHER", "tag-B");
+		expect(messages[0]).toBe("Blank tag. Tap Write to use it for #22.");
+		expect(messages[1]).toContain("https://relics.petalcat.dev/relics/OTHER");
+		expect(reader.write).not.toHaveBeenCalled();
+		scanner.stop();
+	});
+
+	it("releases and reacquires scanning on foreground changes", async () => {
+		const { reader } = setup();
+		const onRead = vi.fn();
+		const scanner = createTagScanner(onRead, vi.fn());
+
+		await scanner.start();
+		const signal = reader.scan.mock.calls[0]?.[0]?.signal;
+
+		scanner.stop();
+		expect(signal.aborted).toBe(true);
+		reader.read();
+		expect(onRead).not.toHaveBeenCalled();
+		await scanner.start();
+		reader.read();
+		expect(onRead).toHaveBeenCalledTimes(1);
+		expect(reader.scan).toHaveBeenCalledTimes(2);
+		scanner.stop();
 	});
 });

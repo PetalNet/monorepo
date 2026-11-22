@@ -1,23 +1,34 @@
 <script lang="ts">
 	import { onMount } from "svelte";
+	import { SvelteMap } from "svelte/reactivity";
 
-	import { nfcError, supportsNfc, writeVerifiedTag, type NfcState } from "../web-nfc";
+	import {
+		createTagScanner,
+		idleTagMessage,
+		nfcError,
+		supportsNfc,
+		writeVerifiedTag,
+		type NfcState,
+	} from "../web-nfc";
 
 	let {
 		url,
 		number,
 		disabled,
+		written,
 		prepare,
 		onactive,
 	}: {
 		url: string;
 		number: number;
 		disabled: boolean;
+		written: readonly { url: string; number: number }[];
 		prepare: () => () => Promise<boolean>;
 		onactive: (active: boolean) => void;
 	} = $props();
 	type State =
 		| { kind: "idle" }
+		| { kind: "read"; message: string }
 		| NfcState
 		| { kind: "saving" }
 		| { kind: "done"; number: number }
@@ -25,6 +36,9 @@
 	let supported = $state(false);
 	let phase = $state<State>({ kind: "idle" });
 	let controller: AbortController | undefined;
+	let granted = false;
+	let scanner: ReturnType<typeof createTagScanner> | undefined;
+	const verified = new SvelteMap<string, number>();
 	let approve: (() => void) | undefined;
 	let active = $derived(
 		["permission", "waiting", "overwrite", "confirming", "writing", "verifying", "saving"].includes(
@@ -33,13 +47,102 @@
 	);
 	onMount(() => {
 		supported = supportsNfc();
-		const stop = () => controller?.abort(new DOMException("Cancelled", "AbortError"));
+
+		if (!supported) {
+			return;
+		}
+
+		let mounted = true;
+
+		scanner = createTagScanner(
+			(event) => {
+				if (active) {
+					return;
+				}
+
+				phase = {
+					kind: "read",
+					message: idleTagMessage(event, number, [
+						...written,
+						...Array.from(verified, ([url, number]) => ({ url, number })),
+					]),
+				};
+			},
+			() => {
+				if (!active) {
+					phase = {
+						kind: "error",
+						message: "This tag could not be read. Hold one NDEF tag still, or try another tag.",
+					};
+				}
+			},
+		);
+
+		const resume = () => {
+			if (!mounted || document.hidden || !granted) {
+				return;
+			}
+
+			void scanner?.start().catch((error: unknown) => {
+				if (mounted && !document.hidden && !active) {
+					phase = { kind: "error", message: nfcError(error, false) };
+				}
+			});
+		};
+
+		const stop = () => {
+			controller?.abort(new DOMException("Cancelled", "AbortError"));
+			scanner?.stop();
+		};
+
+		const visibility = () => {
+			if (document.hidden) {
+				stop();
+			} else {
+				resume();
+			}
+		};
+
+		let permission: PermissionStatus | undefined;
+
+		// Web NFC's permission name is not yet included in TypeScript's DOM library.
+		void navigator.permissions
+			.query({ name: "nfc" as PermissionName })
+			.then((status) => {
+				if (!mounted) {
+					return;
+				}
+
+				permission = status;
+
+				const changed = () => {
+					granted = status.state === "granted";
+
+					if (granted) {
+						resume();
+					} else {
+						stop();
+					}
+				};
+
+				status.onchange = changed;
+				changed();
+			})
+			.catch(() => undefined);
 
 		window.addEventListener("pagehide", stop);
+		document.addEventListener("visibilitychange", visibility);
 
 		return () => {
+			mounted = false;
 			stop();
+
+			if (permission) {
+				permission.onchange = null;
+			}
+
 			window.removeEventListener("pagehide", stop);
+			document.removeEventListener("visibilitychange", visibility);
 		};
 	});
 	$effect(() => {
@@ -72,8 +175,13 @@
 			await writeVerifiedTag({
 				url: targetUrl,
 				signal: session.signal,
+				reader: scanner?.reader,
 				onState: (next) => {
 					phase = next;
+
+					if (next.kind === "waiting") {
+						granted = true;
+					}
 
 					if (next.kind === "writing") {
 						writing = true;
@@ -87,8 +195,9 @@
 
 			session.signal.throwIfAborted();
 			window.clearTimeout(timeout);
-			// End NFC access before saving; the server mutation cannot be cancelled.
+			// Finish the write session while the foreground scan keeps receiving tags.
 			session.abort();
+			verified.set(targetUrl, targetNumber);
 			phase = { kind: "saving" };
 			let saved = false;
 
@@ -129,6 +238,7 @@
 			{#if phase.kind === "idle"}<p>
 					Write here, then read back the exact URL. Your checklist saves automatically.
 				</p>
+			{:else if phase.kind === "read"}<p class="existing">{phase.message}</p>
 			{:else if phase.kind === "permission"}<p>Allow NFC when Chrome asks. Keep this page open.</p>
 			{:else if phase.kind === "waiting"}<p>Hold a blank tag to the back of your phone.</p>
 			{:else if phase.kind === "overwrite"}
@@ -153,7 +263,7 @@
 				</p>
 			{:else if phase.kind === "saving"}<p>URL verified. Saving your checklist…</p>
 			{:else if phase.kind === "done"}<p>
-					Tag #{phase.number} verified and saved. Set it aside for labeling.
+					Tag #{phase.number} verified and saved. Set it aside for labeling. Tap Write for the next tag.
 				</p>
 			{:else if phase.kind === "error"}<p role="alert">{phase.message}</p>{/if}
 		</div>

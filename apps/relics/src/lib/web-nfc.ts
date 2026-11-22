@@ -81,24 +81,134 @@ export function nfcError(error: unknown, writing: boolean): string {
 	}
 }
 
-export async function writeVerifiedTag({
-	url,
-	signal,
-	onState,
-	confirmOverwrite,
-}: {
-	url: string;
-	signal: AbortSignal;
-	onState: (state: NfcState) => void;
-	confirmOverwrite: () => Promise<void>;
-}) {
+export function idleTagMessage(
+	event: NfcReading,
+	next: number,
+	written: readonly { url: string; number: number }[],
+) {
+	const urls = event.message.records
+		.filter((record) => record.recordType === "url")
+		.map((record) => (record.data ? new TextDecoder().decode(record.data) : "Unreadable URL"));
+	const known = written.find((tag) => urls.includes(tag.url));
+
+	if (known) {
+		return `Already written ✓ #${String(known.number)}. You can move it away.`;
+	}
+
+	if (event.message.records.every((record) => record.recordType === "empty")) {
+		return `Blank tag. Tap Write to use it for #${String(next)}.`;
+	}
+
+	return `This tag contains ${urls.join(", ") || "other data"}. Tap Write only if you want to replace it.`;
+}
+
+// The foreground scan owns NFC access; write sessions only borrow its event stream.
+export function createTagScanner(onRead: (event: NfcReading) => void, onError: () => void) {
 	const Reader = window.NDEFReader;
 
 	if (!Reader) {
 		throw new DOMException("NFC unavailable", "NotSupportedError");
 	}
 
-	const reader = new Reader();
+	const physical = new Reader();
+	let scan: { controller: AbortController; ready: Promise<void> } | undefined;
+	let last: { key: string; at: number } | undefined;
+	const reader: NfcReader = {
+		onreading: null,
+		onreadingerror: null,
+		scan: () => start(),
+		write: (message, options) => physical.write(message, options),
+	};
+
+	physical.onreading = (event) => {
+		if (!scan || scan.controller.signal.aborted) {
+			return;
+		}
+
+		if (reader.onreading) {
+			reader.onreading(event);
+
+			return;
+		}
+
+		const key = JSON.stringify([
+			event.serialNumber,
+			event.message.records.map((record) => [
+				record.recordType,
+				record.data ? new TextDecoder().decode(record.data) : "",
+			]),
+		]);
+		const now = Date.now();
+
+		if (last?.key === key && now - last.at < 3000) {
+			return;
+		}
+
+		last = { key, at: now };
+		onRead(event);
+	};
+
+	physical.onreadingerror = () => {
+		if (reader.onreadingerror) {
+			reader.onreadingerror();
+		} else {
+			onError();
+		}
+	};
+
+	function start() {
+		last = undefined;
+
+		if (scan) {
+			return scan.ready;
+		}
+
+		const controller = new AbortController();
+		const ready = physical.scan({ signal: controller.signal });
+		const current = { controller, ready };
+
+		scan = current;
+
+		void ready.catch(() => {
+			if (scan === current) {
+				controller.abort();
+				scan = undefined;
+			}
+		});
+
+		return ready;
+	}
+
+	function stop() {
+		scan?.controller.abort();
+		scan = undefined;
+		last = undefined;
+	}
+
+	return { reader, start, stop };
+}
+
+export async function writeVerifiedTag({
+	url,
+	signal,
+	onState,
+	confirmOverwrite,
+	reader: sharedReader,
+}: {
+	url: string;
+	reader?: NfcReader;
+	signal: AbortSignal;
+	onState: (state: NfcState) => void;
+	confirmOverwrite: () => Promise<void>;
+}) {
+	const Reader = window.NDEFReader;
+
+	const reader = sharedReader ?? (Reader ? new Reader() : undefined);
+
+	if (!reader) {
+		throw new DOMException("NFC unavailable", "NotSupportedError");
+	}
+
 	const tagGuard = new AbortController();
 	const sessionSignal = AbortSignal.any([signal, tagGuard.signal]);
 	let protectedSerial: string | undefined;
