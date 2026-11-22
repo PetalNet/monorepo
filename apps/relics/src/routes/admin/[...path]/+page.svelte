@@ -89,7 +89,10 @@
 		} catch (e) {
 			error = e instanceof Error ? e.message : "Could not save. Please try again.";
 			await tick();
-			errorNotice?.focus();
+
+			if (!writing) {
+				errorNotice?.focus();
+			}
 
 			return false;
 		} finally {

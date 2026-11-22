@@ -958,6 +958,9 @@ importers:
       jose:
         specifier: 'catalog:'
         version: 6.2.8
+      playwright:
+        specifier: 'catalog:'
+        version: 1.65.1
       qrcode:
         specifier: catalog:prod
         version: 1.5.4

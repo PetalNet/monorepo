@@ -1,11 +1,13 @@
 <script lang="ts">
 	import { goto, refreshAll } from "$app/navigation";
 	import { page } from "$app/state";
+	import { onMount, untrack } from "svelte";
 
 	import type { PageData } from "../../routes/admin/[...path]/$types";
 	import { nextCatalogNumber } from "../allocation";
 	import type { CreatureModelId } from "../creatures";
 	import type { AdminCommand } from "../schema";
+	import { readWriterLocation } from "../writer-location";
 	import CreatureColorField from "./CreatureColorField.svelte";
 	import CreatureModelField from "./CreatureModelField.svelte";
 	import RelicPhoto from "./RelicPhoto.svelte";
@@ -23,8 +25,26 @@
 		makeTags?: boolean;
 	} = $props();
 	let step = $state<"home" | "type" | "variety" | "batch">("home");
-	let typeId = $state(0),
-		varietyId = $state(0);
+	let typeId = $state(untrack(() => Number(page.url.searchParams.get("type")) || 0)),
+		varietyId = $state(untrack(() => Number(page.url.searchParams.get("variety")) || 0));
+	let resumeHref = $state("/admin/nfc-writer");
+	onMount(() => {
+		const previous = readWriterLocation();
+
+		if (previous) {
+			resumeHref = previous.pathname + previous.search;
+		}
+
+		if (makeTags && !page.url.searchParams.has("variety") && previous) {
+			varietyId = Number(previous.searchParams.get("variety"));
+		}
+
+		const variety = catalog.varieties.find((item) => item.id === varietyId);
+
+		if (variety) {
+			typeId = variety.typeId;
+		}
+	});
 	let name = $state(""),
 		description = $state(""),
 		image = $state("");
@@ -147,7 +167,7 @@
 				}}>Add a new relic type</button
 			>
 		</div>
-		<a class="resume-link" href="/admin/nfc-writer">Pick up where you left off: write tags</a>
+		<a class="resume-link" href={resumeHref}>Pick up where you left off: write tags</a>
 	</section>
 	<section class="rule existing">
 		<h2>Already have a type?</h2>
