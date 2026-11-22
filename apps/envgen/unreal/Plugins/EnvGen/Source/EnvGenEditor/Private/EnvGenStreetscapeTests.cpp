@@ -26,6 +26,7 @@
 #include "Misc/AutomationTest.h"
 #include "Misc/FileHelper.h"
 #include "Misc/Paths.h"
+#include "Misc/SecureHash.h"
 #include "Modules/ModuleManager.h"
 #include "StaticMeshAttributes.h"
 #include "StaticMeshResources.h"
@@ -641,6 +642,8 @@ bool FEnvGenStreetscapeAthletic::RunTest(const FString& Parameters)
 				TSet<FIntPoint> TopGranules;
 				TMap<FIntPoint, TSet<FIntVector>> TopTriangles;
 				TSet<uint8> Shades;
+				struct FTopRecord { uint8 Data[204]; };
+				TArray<FTopRecord> TopRecords;
 				int32 SplitGranules = 0, BadFacets = 0, TopFacets = 0;
 				for (uint32 Vertex = 0; Vertex < InfillUVs.GetNumVertices(); ++Vertex)
 				{
@@ -679,6 +682,30 @@ bool FEnvGenStreetscapeAthletic::RunTest(const FString& Parameters)
 						if (Front.Z <= 0) ++BadFacets;
 						else TopGranules.Add(RootKey);
 						++TopFacets;
+						FTopRecord RawTop{};
+						const uint32 TopIndices[3] = { A, B, C };
+						for (int32 Corner = 0; Corner < 3; ++Corner)
+						{
+							const uint32 TopVertex = TopIndices[Corner];
+							const FVector3f Pos = InfillPositions.VertexPosition(TopVertex);
+							const FVector2f UV0 = InfillUVs.GetVertexUV(TopVertex, 0), UV1 = InfillUVs.GetVertexUV(TopVertex, 1);
+							const FVector3f TX(InfillUVs.VertexTangentX(TopVertex)), TY(InfillUVs.VertexTangentY(TopVertex)), TZ(InfillUVs.VertexTangentZ(TopVertex));
+							const float Values[16] = { Pos.X, Pos.Y, Pos.Z, UV0.X, UV0.Y, UV1.X, UV1.Y,
+								TX.X, TX.Y, TX.Z, TY.X, TY.Y, TY.Z, TZ.X, TZ.Y, TZ.Z };
+							uint8* Record = RawTop.Data + Corner * 68;
+							FMemory::Memcpy(Record, Values, sizeof(Values));
+							const FColor Color = InfillColours.VertexColor(TopVertex);
+							Record[64] = Color.R; Record[65] = Color.G; Record[66] = Color.B; Record[67] = Color.A;
+						}
+						FTopRecord BestTop = RawTop;
+						for (int32 Rotation = 1; Rotation < 3; ++Rotation)
+						{
+							FTopRecord RotatedTop{};
+							for (int32 Corner = 0; Corner < 3; ++Corner)
+								FMemory::Memcpy(RotatedTop.Data + Corner * 68, RawTop.Data + ((Corner + Rotation) % 3) * 68, 68);
+							if (FMemory::Memcmp(RotatedTop.Data, BestTop.Data, sizeof(BestTop.Data)) < 0) BestTop = RotatedTop;
+						}
+						TopRecords.Add(BestTop);
 						FIntVector Indices{int32(A), int32(B), int32(C)};
 						if (Indices.X > Indices.Y) Swap(Indices.X, Indices.Y);
 						if (Indices.Y > Indices.Z) Swap(Indices.Y, Indices.Z);
@@ -691,6 +718,20 @@ bool FEnvGenStreetscapeAthletic::RunTest(const FString& Parameters)
 						|| FVector3f::DotProduct(Front, FVector3f(InfillUVs.VertexTangentZ(B))) < .18f
 						|| FVector3f::DotProduct(Front, FVector3f(InfillUVs.VertexTangentZ(C))) < .18f) ++BadFacets;
 				}
+				TopRecords.Sort([](const FTopRecord& Left, const FTopRecord& Right)
+					{ return FMemory::Memcmp(Left.Data, Right.Data, sizeof(Left.Data)) < 0; });
+				FMD5 TopHash;
+				const FBoxSphereBounds MeshBounds = InfillMesh->GetBounds();
+				const auto HashBoundScalar = [&TopHash](const auto& Scalar)
+					{ TopHash.Update(reinterpret_cast<const uint8*>(&Scalar), sizeof(Scalar)); };
+				HashBoundScalar(MeshBounds.Origin.X); HashBoundScalar(MeshBounds.Origin.Y); HashBoundScalar(MeshBounds.Origin.Z);
+				HashBoundScalar(MeshBounds.BoxExtent.X); HashBoundScalar(MeshBounds.BoxExtent.Y); HashBoundScalar(MeshBounds.BoxExtent.Z);
+				HashBoundScalar(MeshBounds.SphereRadius);
+				for (const FTopRecord& TopRecord : TopRecords) TopHash.Update(TopRecord.Data, sizeof(TopRecord.Data));
+				uint8 TopDigest[16];
+				TopHash.Final(TopDigest);
+				AddInfo(FString::Printf(TEXT("infill LOD%d topAttributeBoundsMD5=%s topCount=%d"),
+					LOD, *BytesToHex(TopDigest, sizeof(TopDigest)), TopRecords.Num()));
 				TestEqual(TEXT("all 10000 infill granules reach each render buffer"), Granules.Num(), 10000);
 				TestEqual(TEXT("granule faces retain one root and color seed"), SplitGranules, 0);
 				TestEqual(TEXT("infill dimensions, root data and rendered facet normals are valid"), BadFacets, 0);
