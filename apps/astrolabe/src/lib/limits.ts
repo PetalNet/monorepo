@@ -177,8 +177,8 @@ const STATUS_NOTES: Record<UsageReadout["status"], string | null> = {
 	error: "Reading failed",
 };
 
-/** A provider's limits, exactly the ones its feed reports. */
-export const limitsFrom = (provider: UsageReadout): ProviderLimits => {
+/** A provider's limits, omitting narrower allowances already covered by an exhausted limit. */
+export const limitsFrom = (provider: UsageReadout, now: number): ProviderLimits => {
 	const notes = [
 		STATUS_NOTES[provider.status],
 		...provider.unreadKinds.map((kind) => `Reports a ${kind} limit Astrolabe does not read`),
@@ -195,6 +195,32 @@ export const limitsFrom = (provider: UsageReadout): ProviderLimits => {
 
 		if (kept === undefined || (reported.usedPct ?? -1) > (kept.usedPct ?? -1)) {
 			reportedByKey.set(reported.key, reported);
+		}
+	}
+
+	const week = reportedByKey.get("7d");
+	const weekCurrent = week !== undefined && (ms(week.resetsAt) ?? 0) > now;
+	const weekFull = weekCurrent && week.usedPct !== null && week.usedPct >= 100;
+	// A provider-wide stop has no window identity. Retire it after either reported window resets.
+	const providerReached =
+		provider.kind === "codex" &&
+		weekCurrent &&
+		provider.limitReachedType !== null &&
+		Array.from(reportedByKey.values()).every((window) => (ms(window.resetsAt) ?? 0) > now);
+
+	for (const [key, reported] of reportedByKey) {
+		const narrower =
+			(provider.kind === "codex" && key === "5h") ||
+			(provider.kind === "claude" && key.startsWith("7d-") && reported.span === "7-day");
+
+		if (narrower && (weekFull || providerReached)) {
+			reportedByKey.delete(key);
+
+			const reason = weekFull
+				? `${provider.kind === "claude" ? "all-models " : ""}7-day allowance exhausted`
+				: "provider reports a limit reached";
+
+			notes.push(`${reported.name} hidden: ${reason}`);
 		}
 	}
 

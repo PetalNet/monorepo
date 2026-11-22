@@ -89,5 +89,4 @@
 			</p>
 		</div>
 	{/if}
-	{#if reading.window.inactive}<p class="limit-note">Marked inactive</p>{/if}
 </section>
