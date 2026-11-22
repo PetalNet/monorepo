@@ -4,8 +4,11 @@
 	import QRCode from "qrcode";
 	import { untrack } from "svelte";
 
+	import BrowserTagWriter from "#lib/components/BrowserTagWriter.svelte";
+
 	import type { PageData } from "../../routes/admin/[...path]/$types";
 	import type { AdminCommand } from "../schema";
+	let nfcActive = $state(false);
 	let {
 		catalog,
 		save,
@@ -95,13 +98,13 @@
 	async function copy() {
 		try {
 			await navigator.clipboard.writeText(url);
-			copyMessage = "URL copied. Paste it into NFC Tools.";
+			copyMessage = "URL copied.";
 		} catch {
 			copyMessage = "Select the URL above, then choose Copy on your phone.";
 		}
 	}
 	async function markWritten() {
-		if (!writer) {
+		if (!writer || nfcActive || busy) {
 			return;
 		}
 
@@ -119,8 +122,42 @@
 
 		await save({ kind: "written", rangeId: allocation.id, index: current.indexNumber ?? 0 });
 	}
+	function prepareWrite() {
+		const current = writer;
+		const allocation =
+			current &&
+			catalog.ranges.find(
+				(r) =>
+					r.varietyId === current.varietyId &&
+					(r.startIndex === null || r.startIndex <= (current.indexNumber ?? 0)) &&
+					(r.endIndex === null || r.endIndex >= (current.indexNumber ?? 0)),
+			);
+		const following = [...relics.slice(index + 1), ...relics.slice(0, index)].find(
+			(relic) => !isWritten(relic),
+		);
+
+		return async () => {
+			if (!current || !allocation) {
+				return false;
+			}
+
+			const saved = await save({
+				kind: "written",
+				rangeId: allocation.id,
+				index: current.indexNumber ?? 0,
+			});
+
+			if (saved && selected === current.id && following) {
+				selected = following.id;
+			}
+
+			return saved;
+		};
+	}
 	function choose(id: string) {
-		selected = id;
+		if (!nfcActive && !busy) {
+			selected = id;
+		}
 	}
 </script>
 
@@ -138,6 +175,7 @@
 	<label class="field"
 		><span>Variety</span><select
 			class="select"
+			disabled={busy || nfcActive}
 			bind:value={varietyId}
 			onchange={() => {
 				batchId = 0;
@@ -151,6 +189,7 @@
 	<label class="field"
 		><span>Tag batch</span><select
 			class="select"
+			disabled={busy || nfcActive}
 			bind:value={batchId}
 			onchange={() => (selected = "")}
 			><option value={0}>All tags in this variety</option>{#each batches as batch (batch.id)}<option
@@ -167,19 +206,15 @@
 				<h3>{writer.name}</h3>
 				<span class="writing-status">{isWritten(writer) ? "Written" : "To write"}</span>
 			</div>
-			<ol class="instructions">
-				<li>
-					In <strong>NFC Tools</strong>, open <strong>Write</strong>, then
-					<strong>Add a record</strong>, then <strong>URL / URI</strong>.
-				</li>
-				<li>
-					Copy this URL, paste it there, then choose Write and hold a blank tag near your phone’s
-					NFC reader.
-				</li>
-				<li>
-					Tap the tag to open its page. Check the variety and number, then mark it written below.
-				</li>
-			</ol>
+			<BrowserTagWriter
+				{url}
+				number={writer.indexNumber ?? 0}
+				disabled={busy}
+				prepare={prepareWrite}
+				onactive={(active: boolean) => {
+					nfcActive = active;
+				}}
+			/>
 			<label class="field"
 				><span>Tag URL</span><input
 					class="input mono"
@@ -191,7 +226,7 @@
 				/></label
 			>
 			<div class="actions">
-				<button class="btn btn-primary" onclick={copy}><Copy size={16} />Copy URL</button><a
+				<button class="btn btn-ghost" onclick={copy}><Copy size={16} />Copy URL</button><a
 					class="btn btn-ghost"
 					href={url}
 					target="_blank"
@@ -200,7 +235,10 @@
 			</div>
 			{#if copyMessage}<p class="message" role="status">{copyMessage}</p>{/if}
 			<div class="completion rule">
-				<button class="btn btn-primary" disabled={busy || isWritten(writer)} onclick={markWritten}
+				<button
+					class="btn btn-neutral"
+					disabled={busy || nfcActive || isWritten(writer)}
+					onclick={markWritten}
 					><Check size={16} />{isWritten(writer)
 						? "Marked written"
 						: busy
@@ -208,20 +246,20 @@
 							: "Mark written"}</button
 				>
 				<p class="muted small">
-					Mark this only after you write and test the physical tag. This website records progress;
-					NFC Tools writes the tag.
+					Using another writer? Mark this only after writing the exact URL and testing the physical
+					tag.
 				</p>
 			</div>
 			<div class="writer-navigation">
 				<button
 					class="btn btn-ghost"
-					disabled={index <= 0 || busy}
+					disabled={index <= 0 || busy || nfcActive}
 					onclick={() => {
 						choose(relics[index - 1]?.id ?? selected);
 					}}>Previous</button
 				><span class="mono">{index + 1} / {relics.length}</span><button
 					class="btn btn-neutral"
-					disabled={index >= relics.length - 1 || busy}
+					disabled={index >= relics.length - 1 || busy || nfcActive}
 					onclick={() => {
 						choose(relics[index + 1]?.id ?? selected);
 					}}>Next tag</button
@@ -248,7 +286,7 @@
 
 			<button
 				class="btn btn-ghost"
-				disabled={done === relics.length || busy}
+				disabled={done === relics.length || busy || nfcActive}
 				onclick={() => {
 					choose(relics.find((r) => !isWritten(r))?.id ?? selected);
 				}}>Go to next unwritten tag</button
@@ -258,7 +296,7 @@
 						<button
 							class:current={selected === relic.id}
 							aria-current={selected === relic.id ? "true" : undefined}
-							disabled={busy}
+							disabled={busy || nfcActive}
 							onclick={() => {
 								choose(relic.id);
 							}}
@@ -307,17 +345,6 @@
 	}
 	.writing-status {
 		color: var(--color-primary);
-	}
-	.instructions {
-		padding-inline-start: 24px;
-		margin-block: 24px;
-	}
-	.instructions li {
-		padding-inline-start: 8px;
-		margin-block: 16px;
-	}
-	.instructions strong {
-		font-weight: 500;
 	}
 	.completion {
 		margin-block-start: 24px;
