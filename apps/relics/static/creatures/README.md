@@ -24,3 +24,14 @@ The three decoder files in `draco/` are unchanged copies from the prototype's `n
 | draco_wasm_wrapper.js | 8bb2952d2ba7d67e1414f8df819410cb0434a666be53f671fff75f68843d76f6 |
 
 Draco is Apache-2.0, preserved in `draco/LICENSE` from upstream `google/draco` tag 1.5.7. Three.js's MIT license is preserved in `THREE-LICENSE.txt` from the prototype package. Preserve these notices when redistributing the decoder assets.
+
+## Still fallback
+
+When a model is assigned and the real photo is absent or broken, the hero reuses an approved prototype render. It is visibly labeled as a 3D still preview whose color may differ. The real-photo toggle retains the actual photo or the existing “Photo coming soon” placeholder. Arbitrary maker-selected colors apply to the interactive model, not to these fixed renders.
+
+| File                  | Prototype source                       | Bytes | SHA-256                                                          |
+| --------------------- | -------------------------------------- | ----: | ---------------------------------------------------------------- |
+| shroomling-still.webp | renders/shroomling-red-fallback.webp   | 13948 | 87d5a4ccba3a5123184a5a4f88f5c3362181a75b38cecbd2185b022e9ebc88d1 |
+| snail-still.webp      | renders/snail-dark-green-fallback.webp | 12150 | f0964d63b2597a76a2f7bebdaf95c26f03b949265add9b11104bfbfe2c44476d |
+
+The adjacent `.webp.json` provenance files are copied unchanged from the same prototype renders. No image was regenerated or recolored.

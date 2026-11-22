@@ -8,7 +8,7 @@
 	let {
 		modelId,
 		color,
-		src,
+		src: imageUrl,
 		alt,
 	}: {
 		modelId: CreatureModelId | null;
@@ -22,6 +22,8 @@
 	let failed = $state(false);
 	let photo = $state(false);
 	let paused = $state(false);
+	let failedSrc = $state<string | null>(null);
+	let presentation = $derived(modelId ? creatureModels[modelId] : null);
 	let showingScene = $derived(ready && !failed && !photo);
 
 	$effect(() => {
@@ -130,8 +132,8 @@
 </script>
 
 {#key modelId}
-	{#if modelId === null}
-		<RelicPhoto {src} {alt} />
+	{#if presentation === null}
+		<RelicPhoto src={imageUrl} {alt} />
 	{:else}
 		<div class="creature">
 			<div
@@ -139,7 +141,21 @@
 				role={showingScene ? "application" : undefined}
 				aria-label={showingScene ? "3D creature viewer" : undefined}
 			>
-				<div class="photo" hidden={showingScene}><RelicPhoto {src} {alt} /></div>
+				<div class="photo" hidden={showingScene}>
+					{#if photo}
+						<RelicPhoto src={imageUrl} {alt} />
+					{:else if imageUrl && imageUrl !== failedSrc}
+						<img src={imageUrl} {alt} onerror={() => (failedSrc = imageUrl)} />
+					{:else}
+						<div class="still">
+							<img
+								src={presentation.still}
+								alt={`${presentation.label} in a woodland clearing. 3D still preview; color may differ.`}
+							/>
+							<p>3D still preview. Color may differ.</p>
+						</div>
+					{/if}
+				</div>
 				<canvas
 					bind:this={canvas}
 					hidden={!showingScene}
@@ -190,6 +206,27 @@
 	}
 	.photo :global(img) {
 		object-fit: contain;
+	}
+	.photo > img,
+	.still img {
+		display: block;
+		inline-size: 100%;
+		block-size: 100%;
+		border-radius: inherit;
+	}
+	.still {
+		display: flex;
+		flex-direction: column;
+		block-size: 100%;
+	}
+	.still img {
+		flex: 1;
+		min-block-size: 0;
+	}
+	.still p {
+		font: 18px/1.3 var(--font-note);
+		text-align: center;
+		color: var(--muted);
 	}
 	canvas {
 		display: block;

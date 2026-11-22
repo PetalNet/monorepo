@@ -4,6 +4,7 @@ export const creatureModels = {
 	shroomling: {
 		label: "Shroomling",
 		url: "/creatures/shroomling.glb",
+		still: "/creatures/shroomling-still.webp",
 		material: "cap",
 		axis: "height",
 		size: 2.43,
@@ -12,6 +13,7 @@ export const creatureModels = {
 	snail: {
 		label: "Snail",
 		url: "/creatures/snail.glb",
+		still: "/creatures/snail-still.webp",
 		material: "shell",
 		axis: "width",
 		size: 2.85,
@@ -22,6 +24,7 @@ export const creatureModels = {
 	{
 		label: string;
 		url: string;
+		still: string;
 		material: string;
 		axis: "height" | "width";
 		size: number;
