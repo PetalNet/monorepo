@@ -407,7 +407,11 @@ function offerReasons(o: Offer, pools: Map<Pool, PoolState>, state: State): stri
 		reasons.push(`effort ${o.effort} not allowed (Eli 2026-11-19)`);
 	}
 
-	if (state.notModel?.includes(o.model)) {
+	if (
+		state.notModel?.some(
+			(model) => evidenceKey(model, "default").model === evidenceKey(o.model, "default").model,
+		)
+	) {
 		reasons.push(`model ${o.model} excluded (wrote the work under review)`);
 	}
 

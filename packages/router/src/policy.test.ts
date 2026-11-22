@@ -7,7 +7,7 @@ import { fileURLToPath } from "node:url";
 
 import { afterEach, expect, it, vi } from "vitest";
 
-import { hasCredentials, launch } from "./adapters.ts";
+import { hasCredentials, launch, redact } from "./adapters.ts";
 import { offersFrom, pick, POOLS, type Catalog, type State } from "./pick.ts";
 import { effectiveDataClass } from "./route.ts";
 
@@ -45,11 +45,20 @@ it("rejects a provider claiming another provider's privacy and quota pool", asyn
 
 it.each([
 	"xoxb-example-secret",
+	JSON.stringify({ task: `line one\nghp_${"a".repeat(36)}` }),
 	"Authorization: Bearer example-secret",
 	"token = 'example secret'",
 	"-----BEGIN PRIVATE KEY-----\nkey\n-----END PRIVATE KEY-----",
 ])("classifies credentials using the redactor's same detector: %s", (credential) => {
 	expect(hasCredentials(credential)).toBe(true);
+	expect(redact(credential)).not.toBe(credential);
+	const eligible = pick(
+		{ models: [{ id: "gemini-test", provider: "gemini", score: 60 }], tiers: { C: 0 } },
+		"code",
+		"*",
+		{ ...state, dataClass: effectiveDataClass("public", credential) },
+	);
+	expect(eligible.ranked).toEqual([]);
 	expect(effectiveDataClass("public", credential)).toBe("sensitive");
 	expect(effectiveDataClass("parcs", credential)).toBe("parcs");
 });
@@ -121,4 +130,31 @@ it("sends and hashes captured task-file contents and rejects excessive depth bef
 	});
 	expect(limited.status).toBe(4);
 	expect(limited.stderr).toContain("nesting limit");
+	const reordered = spawnSync(
+		process.execPath,
+		[entry, "--class", "parcs", "run", "gpt-test:low", file],
+		{ encoding: "utf8", env: { ...env, ROUTE_DEPTH: "4" } },
+	);
+	expect(reordered.status).toBe(4);
+	expect(reordered.stderr).toContain("nesting limit");
+});
+
+it("excludes the parent's canonical model identity across provider aliases", () => {
+	const models: Catalog = {
+		models: [
+			{ id: "sonnet", provider: "claude", score: 55 },
+			{ id: "claude-sonnet-5-5", provider: "agy-claude", score: 55 },
+		],
+		tiers: { C: 0 },
+	};
+	const result = pick(models, "code", "*", {
+		...state,
+		dataClass: "public",
+		notModel: ["sonnet"],
+		pools: state.pools.map(({ explicitOnly: _, ...pool }) => pool),
+	});
+	expect(result.ranked).toEqual([]);
+	expect(
+		result.excluded.every((r) => r.reasons.some((reason) => reason.includes("wrote the work"))),
+	).toBe(true);
 });
