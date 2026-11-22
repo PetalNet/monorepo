@@ -366,11 +366,28 @@ def test_survey_masks_drive_surface_and_growth_with_alpha_fallback_and_cached_ar
     assert fallback[63, 60].tolist() == [255, 0, 0]
     assert int(weights["grass"][52, 94]) == pytest.approx(153, abs=2)
     assert int(weights["paved"][52, 94]) == pytest.approx(102, abs=2)
+    import hashlib
+
+    growth = manifest["turf"]["growth"]
+    colour = growth["colour_condition"]
+    assert colour["format"] == "nearest-grass-colour-rg-v1"
+    names = [growth["file"], growth["condition_file"], colour["file"]]
+    assert set(growth["control_sha1"]) == set(names)
+    for name in names:
+        assert growth["control_sha1"][name] == hashlib.sha1((out / name).read_bytes()).hexdigest()
+        assert name in manifest["artifacts"]
+        assert Image.open(out / name).size == (growth["pixels"], growth["pixels"])
+    assert not np.asarray(Image.open(out / colour["file"]))[..., 2].any()
     density = np.asarray(Image.open(out / manifest["turf"]["growth"]["file"]))[..., 0]
     assert density[128, 128] == 0 and density[252, 3] > 0
     assert density[106, 190] > 0
     again = build(site_path, out)
     assert {"orthophoto", "surface", "growth", "survey_detail"} <= set(again["stages_reused"])
+    original = {name: (out / name).read_bytes() for name in names}
+    (out / colour["file"]).write_bytes(b"mixed generation")
+    regenerated = build(site_path, out)
+    assert "growth" not in regenerated["stages_reused"]
+    assert all((out / name).read_bytes() == original[name] for name in names)
     (out / "ortho_colour.png").unlink()
     repaired = build(site_path, out)
     assert "orthophoto" not in repaired["stages_reused"] and "surface" in repaired["stages_reused"]
@@ -418,3 +435,43 @@ def test_raw_survey_colour_invalidates_growth_even_when_derived_maps_are_identic
         assert before["artifacts"][name] == after["artifacts"][name]
     assert "growth" not in after["stages_reused"]
     assert not np.array_equal(old_growth, np.asarray(Image.open(out / after["turf"]["growth"]["file"])))
+
+
+def test_growth_cache_rejects_tampering_and_invalidates_manifest(tmp_path):
+    import hashlib
+    from envgen.build import _cached
+
+    files = ["growth.png", "physical.png", "colour.png"]
+    calls = []
+
+    def generate():
+        assert not (tmp_path / "build.json").exists()
+        calls.append(1)
+        for name in files:
+            (tmp_path / name).write_bytes(name.encode())
+        return {"files": files, "control_sha1": {
+            name: hashlib.sha1((tmp_path / name).read_bytes()).hexdigest() for name in files
+        }}
+
+    (tmp_path / "build.json").write_text("old")
+    assert not _cached(tmp_path, "growth", "key", generate)["cached"]
+    assert _cached(tmp_path, "growth", "key", generate)["cached"]
+    (tmp_path / "colour.png").write_bytes(b"mixed generation")
+    (tmp_path / "build.json").write_text("old")
+    assert not _cached(tmp_path, "growth", "key", generate)["cached"]
+    assert len(calls) == 2
+
+
+def test_colour_writer_uses_existing_unreal_layout_and_rgb_bytes(tmp_path):
+    from envgen.build import _write_rgb
+
+    controls = np.array([[[0.0, 0.5, 1.0], [0.1, 0.2, 0.3]],
+                         [[0.3, 0.2, 0.1], [1.0, 0.5, 0.0]],
+                         [[0, 0, 0], [0, 0, 0]]])
+    path = tmp_path / "colour.png"
+    _write_rgb(controls * 255, path)
+    assert np.asarray(Image.open(path)).tolist() == [
+        [[26, 255, 0], [0, 76, 0]],
+        [[51, 128, 0], [128, 51, 0]],
+        [[76, 0, 0], [255, 26, 0]],
+    ]

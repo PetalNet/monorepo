@@ -12,6 +12,7 @@ taller and sparse, stands in for what the mower left.
 from __future__ import annotations
 
 import math
+from dataclasses import dataclass
 
 import numpy as np
 from scipy import ndimage
@@ -57,7 +58,13 @@ FIELD_CALIBRATION = {
 }
 
 
-def condition(grass: np.ndarray, log_ratio: np.ndarray, cell_m: float) -> np.ndarray:
+@dataclass(frozen=True)
+class ConditionFields:
+    physical: np.ndarray
+    colour: np.ndarray
+
+
+def condition(grass: np.ndarray, log_ratio: np.ndarray, cell_m: float) -> ConditionFields:
     """RGB appearance controls: relative wear, inside-edge proximity, reserved zero. No placement changes."""
     inside = grass > 0.5
     signal = ndimage.gaussian_filter(log_ratio[1] - log_ratio[0], GROWTH_SETTINGS["patch_m"] / cell_m)
@@ -65,7 +72,12 @@ def condition(grass: np.ndarray, log_ratio: np.ndarray, cell_m: float) -> np.nda
     wear = 1 - np.clip((signal - low) / (high - low), 0, 1) if high - low > 1e-5 else np.zeros(grass.shape)
     edge = (np.clip(1 - ndimage.distance_transform_edt(inside) * cell_m / GROWTH_SETTINGS["fringe_m"], 0, 1)
             if inside.any() and (~inside).any() else np.zeros(grass.shape))
-    return np.stack([wear * inside, edge * inside, np.zeros(grass.shape)]).astype(np.float32)
+    physical = np.stack([wear * inside, edge * inside, np.zeros(grass.shape)]).astype(np.float32)
+    colour = physical.copy()
+    if inside.any() and not inside.all():
+        nearest = ndimage.distance_transform_edt(~inside, return_distances=False, return_indices=True)
+        colour[:, ~inside] = physical[:, nearest[0, ~inside], nearest[1, ~inside]]
+    return ConditionFields(physical=physical, colour=colour)
 
 
 def placement_support(grass: np.ndarray, cell_m: float) -> np.ndarray:

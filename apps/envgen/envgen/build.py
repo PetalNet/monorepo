@@ -9,6 +9,7 @@ from pathlib import Path
 
 import numpy as np
 import rasterio
+import scipy
 from PIL import Image
 from rasterio.enums import Resampling
 from rasterio.errors import WindowError
@@ -1076,9 +1077,14 @@ def build_growth(site: Site, out: Path, layers: list[dict], detail: dict, elevat
             canopy = _sample_cells(source.read(1), pixels)
     packed, report = turf.growth(grass, ratio, canopy, ground, site.tile.size_m / pixels, site.seed)
     _write_rgb(packed * 255, out / "turf_growth.png")
-    _write_rgb(turf.condition(grass, ratio, site.tile.size_m / pixels) * 255, out / "turf_condition.png")
-    return {"file": "turf_growth.png", "condition_file": "turf_condition.png",
-            "files": ["turf_growth.png", "turf_condition.png"], "pixels": pixels, **report}
+    controls = turf.condition(grass, ratio, site.tile.size_m / pixels)
+    _write_rgb(controls.physical * 255, out / "turf_condition.png")
+    _write_rgb(controls.colour * 255, out / "turf_colour_condition.png")
+    files = ["turf_growth.png", "turf_condition.png", "turf_colour_condition.png"]
+    return {"file": files[0], "condition_file": files[1],
+            "colour_condition": {"format": "nearest-grass-colour-rg-v1", "file": files[2]},
+            "control_sha1": {name: hashlib.sha1((out / name).read_bytes()).hexdigest() for name in files},
+            "files": files, "pixels": pixels, **report}
 
 
 def build_survey_detail(site: Site, out: Path, covering: dict | None, layers: list[dict],
@@ -1319,10 +1325,18 @@ def _cached(out: Path, stage: str, key: str, compute) -> dict:
     if record_path.is_file():
         record = json.loads(record_path.read_text())
         produced = record["result"].get("files", [record["result"].get("file")])
-        if record["key"] == key and all((out / name).is_file() for name in produced):
+        valid = all((out / name).is_file() for name in produced)
+        if stage == "growth" and valid:
+            digests = record["result"].get("control_sha1", {})
+            valid = set(digests) == set(produced) and all(
+                hashlib.sha1((out / name).read_bytes()).hexdigest() == digests[name] for name in produced
+            )
+        if record["key"] == key and valid:
             return record["result"] | {"cached": True}
     # Drop the old record first: if this run dies part-way, nothing claims the half-written output is current.
     record_path.unlink(missing_ok=True)
+    if stage == "growth":
+        (out / "build.json").unlink(missing_ok=True)
     result = compute()
     record_path.write_text(json.dumps({"key": key, "result": result}, indent=1))
     return result | {"cached": False}
@@ -1550,7 +1564,8 @@ def build(site_path: Path, out: Path, cache: Path | None = None) -> dict:
                 cover_hashes,
                 site.seed,
                 turf.GROWTH_SETTINGS,
-                "turf-condition-v1",
+                "turf-colour-condition-v1",
+                scipy.__version__,
                 ortho_hashes,
                 ortho_sha256,
             ),

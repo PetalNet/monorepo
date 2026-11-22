@@ -85,7 +85,7 @@ def test_appearance_distinguishes_wear_from_edges_without_changing_placement():
     ratio[1, :, 48:] = 0.15
     flat = np.zeros(grass.shape)
     before, _ = turf.growth(grass, ratio, flat, flat, 0.5, 7)
-    appearance = turf.condition(grass, ratio, 0.5)
+    appearance = turf.condition(grass, ratio, 0.5).physical
 
     assert appearance[:, :, :12].max() == 0
     assert appearance[0, 12:-12, 20:40].mean() > appearance[0, 12:-12, 60:80].mean()
@@ -97,4 +97,34 @@ def test_appearance_distinguishes_wear_from_edges_without_changing_placement():
 def test_uniform_or_empty_photo_does_not_invent_wear_or_an_edge():
     flat = np.zeros((24, 24))
     for grass in (flat, flat + 1):
-        assert not turf.condition(grass, np.zeros((3, *grass.shape)), 0.5).any()
+        assert not turf.condition(grass, np.zeros((3, *grass.shape)), 0.5).physical.any()
+
+
+def test_colour_extends_nearest_grass_without_changing_physical_controls():
+    from scipy import ndimage
+
+    grass = np.zeros((7, 9), dtype=np.float32)
+    grass[1:3, 1:3] = 1
+    grass[4:6, 6:8] = 1
+    ratio = np.zeros((3, *grass.shape), dtype=np.float32)
+    ratio[1] = np.arange(grass.size).reshape(grass.shape)
+    controls = turf.condition(grass, ratio, 0.5)
+    inside = grass > 0.5
+    signal = ndimage.gaussian_filter(ratio[1] - ratio[0], turf.GROWTH_SETTINGS["patch_m"] / 0.5)
+    low, high = np.percentile(signal[inside], [5, 95])
+    wear = 1 - np.clip((signal - low) / (high - low), 0, 1)
+    edge = np.clip(1 - ndimage.distance_transform_edt(inside) * 0.5 / turf.GROWTH_SETTINGS["fringe_m"], 0, 1)
+    original = np.stack([wear * inside, edge * inside, np.zeros(grass.shape)]).astype(np.float32)
+    nearest = ndimage.distance_transform_edt(~inside, return_distances=False, return_indices=True)
+    assert np.array_equal(controls.physical, original)
+    assert np.array_equal(controls.colour, original[:, nearest[0], nearest[1]])
+    assert np.any(inside & (original[0] == 0))
+    assert np.any((~inside) & (controls.colour[0] == 0))
+
+
+def test_colour_empty_and_full_grass_match_physical():
+    for value in (0, 1):
+        grass = np.full((5, 7), value, dtype=np.float32)
+        controls = turf.condition(grass, np.zeros((3, *grass.shape)), 0.5)
+        assert np.array_equal(controls.colour, controls.physical)
+        assert not controls.colour.any()
