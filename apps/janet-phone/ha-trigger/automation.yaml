@@ -1,0 +1,109 @@
+id: janet_call_request
+alias: Janet call request
+description: Send a timestamped phone location to janet-dm when the call switch is turned on.
+mode: queued
+max: 20
+triggers:
+  - trigger: state
+    entity_id: input_boolean.janet_call_me
+    to: 'on'
+    id: request
+  - trigger: homeassistant
+    event: start
+    id: recovery
+  - trigger: time_pattern
+    minutes: '/1'
+    id: recovery
+actions:
+  - action: input_boolean.turn_off
+    target:
+      entity_id: input_boolean.janet_call_me
+  - choose:
+      - conditions:
+          - condition: trigger
+            id: request
+          - condition: template
+            value_template: "{{ states('input_text.janet_call_pending') in ['', 'unknown', 'unavailable'] }}"
+        sequence:
+          - condition: template
+            value_template: >-
+              {{ as_timestamp(trigger.to_state.last_changed) -
+                 as_timestamp(states('input_datetime.janet_call_last_request'), 0) >= 60 }}
+          - variables:
+              snapshot: >-
+                {% set tracker = states.device_tracker.sm_s916u %}
+                {% set lat = tracker.attributes.get('latitude') %}
+                {% set lon = tracker.attributes.get('longitude') %}
+                {% set accuracy = tracker.attributes.get('gps_accuracy') %}
+                {% set zone = tracker.state if tracker.state|length <= 16 else 'Known zone (long name)' %}
+                {{ 'q' ~ ([trigger.to_state.context.id, as_timestamp(trigger.to_state.last_changed)|int,
+                    zone, lat|float|round(6) if is_number(lat) else none,
+                    lon|float|round(6) if is_number(lon) else none,
+                    accuracy|float|round(0) if is_number(accuracy) else 'unknown',
+                    as_timestamp(tracker.last_updated)|int] | tojson) }}
+          - action: input_datetime.set_datetime
+            target:
+              entity_id: input_datetime.janet_call_last_request
+            data:
+              timestamp: '{{ as_timestamp(trigger.to_state.last_changed) }}'
+          - action: input_text.set_value
+            target:
+              entity_id: input_text.janet_call_pending
+            data:
+              value: '{{ snapshot | trim }}'
+  - condition: template
+    value_template: "{{ states('input_text.janet_call_pending') not in ['', 'unknown', 'unavailable'] }}"
+  - variables:
+      record: "{{ states('input_text.janet_call_pending')[1:] | from_json }}"
+  - variables:
+      request_id: 'ha-call-{{ record[0] }}'
+      message: |-
+        Parker asked: please call me
+        Requested at: {{ as_datetime(record[1]).isoformat() }}
+        Phone zone: {{ 'Away from known zones' if record[2] == 'not_home' else record[2] }}
+        HA tracker last updated: {{ as_datetime(record[6]).isoformat() }}
+        Tracker age when requested: {{ ((record[1] - record[6]) / 60) | round(1) }} minutes
+        {% if is_number(record[3]) and is_number(record[4]) and -90 <= record[3]|float <= 90 and -180 <= record[4]|float <= 180 %}
+        Last reported phone location: https://www.google.com/maps/search/?api=1&query={{ record[3] }},{{ record[4] }}
+        GPS accuracy: {{ record[5] }} m
+        {% else %}
+        Phone coordinates unavailable. Do not assume a current location.
+        {% endif %}
+        {% if record[1] - record[6] > 600 %}
+        Location may be stale. This is the last report, not a fresh GPS fix.
+        {% endif %}
+        Janet: run janet-ring "you asked me to call".
+  - repeat:
+      sequence:
+        - action: rest_command.janet_call_request
+          data:
+            request_id: '{{ request_id }}'
+            message: '{{ message }}'
+          response_variable: relay
+          continue_on_error: true
+        - if:
+            - condition: template
+              value_template: '{{ relay is not defined or relay.status not in [200, 202, 204] }}'
+          then:
+            - delay: '00:00:05'
+      until:
+        - condition: template
+          value_template: '{{ (relay is defined and relay.status in [200, 202, 204]) or repeat.index >= 12 }}'
+  - if:
+      - condition: template
+        value_template: '{{ relay is defined and relay.status in [200, 202, 204] }}'
+    then:
+      - action: input_text.set_value
+        target:
+          entity_id: input_text.janet_call_pending
+        data:
+          value: ''
+      - action: persistent_notification.dismiss
+        data:
+          notification_id: janet_call_delivery_failed
+    else:
+      - action: persistent_notification.create
+        data:
+          notification_id: janet_call_delivery_failed
+          title: Janet call request could not be queued
+          message: The relay did not accept the call request. It will retry each minute. Try the Janet Call app directly if needed.

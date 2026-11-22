@@ -1,0 +1,13 @@
+[Unit]
+Description=Encrypted HA loopback connection to the Janet call relay
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+User=docker
+ExecStart=/usr/bin/ssh -N -T -o BatchMode=yes -o ExitOnForwardFailure=yes -o ServerAliveInterval=10 -o ServerAliveCountMax=3 -i /home/docker/.claude/shared/ha-ssh-key -p 22222 -R 127.0.0.1:19911:127.0.0.1:9911 root@10.10.10.11
+Restart=always
+RestartSec=3
+
+[Install]
+WantedBy=multi-user.target
