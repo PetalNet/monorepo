@@ -1,11 +1,13 @@
 <script lang="ts">
-	let { src, alt }: { src: string | null; alt: string } = $props();
+	let { src: imageUrl, alt: description }: { src: string | null; alt: string } = $props();
 	let failedSrc = $state<string | null>(null);
 </script>
 
-{#if src && src !== failedSrc}<img {src} {alt} onerror={() => (failedSrc = src)} />{:else}<div
-		class="placeholder"
-	>
+{#if imageUrl && imageUrl !== failedSrc}<img
+		src={imageUrl}
+		alt={description}
+		onerror={() => (failedSrc = imageUrl)}
+	/>{:else}<div class="placeholder">
 		<img src="/storybook/snail-placeholder.svg" alt="An illustrated little friend" /><span
 			>Photo coming soon</span
 		>
