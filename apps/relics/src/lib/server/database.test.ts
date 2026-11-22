@@ -225,6 +225,24 @@ describe("catalog and tag continuity", () => {
 		).toEqual({ startIndex: null, endIndex: null, lore: "Legacy story" });
 	});
 
+	it("uses explicit batch stories before legacy fallback without changing old tags", () => {
+		db.sql.exec("INSERT INTO AllocationRange(typeId,varietyId,lore) VALUES (1,1,'Legacy story')");
+		expect(db.card("tag-a").lore).toBe("Legacy story");
+		db.administer(
+			{ kind: "allocate", typeId: 1, varietyId: 1, start: 3, end: 3, lore: "New batch story" },
+			"admin",
+		);
+		expect(db.card(encodeRelicId({ typeId: 1, varietyId: 1, index: 3 })).lore).toBe(
+			"New batch story",
+		);
+		db.administer(
+			{ kind: "allocate", typeId: 1, varietyId: 1, start: 4, end: 4, lore: "" },
+			"admin",
+		);
+		expect(db.card(encodeRelicId({ typeId: 1, varietyId: 1, index: 4 })).lore).toBe("Legacy story");
+		expect(db.card("tag-a").lore).toBe("Legacy story");
+	});
+
 	it("allocates five suggested numbers for a new Snail type and variety", () => {
 		db.administer({ kind: "type", name: "Snail", description: "", imageUrl: "" }, "admin");
 		const typeId = db.adminData().types.find((t) => t.name === "Snail")?.id ?? 0;
