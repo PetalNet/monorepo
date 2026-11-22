@@ -19,7 +19,7 @@ import {
 	sourceConfigFromEnv,
 } from "@petalnet/harness-hooks/quota-sources";
 
-import { redact } from "./adapters.ts";
+import { redact, hasCredentials, routeDepth } from "./adapters.ts";
 import { discoverCodex, withCodexCatalog, checkCodexAlerts } from "./codex-catalog.ts";
 import { evidenceKey, EFFORTS, halfLifeDays, readEvidence } from "./evidence.ts";
 import { readOpenEvidence } from "./open-evidence.ts";
@@ -49,9 +49,6 @@ const USAGE = `usage:
 kinds: code ui research write sweep cyber architecture (default code). class defaults to public and rises
 automatically for briefs that carry credentials (sensitive) or PARCS/Bridgeton (parcs).`;
 const KINDS = new Set(["code", "ui", "research", "write", "sweep", "cyber", "architecture"]);
-const SECRET_RE =
-	/gh[pousr]_[A-Za-z0-9]{20,}|github_pat_\w{20,}|sk-[A-Za-z0-9_-]{20,}|AKIA[0-9A-Z]{16}|-----BEGIN [A-Z ]*PRIVATE KEY/u;
-
 /**
  * A missing file means "none"; a corrupt one is an error, so a broken cooldown list never reads as
  * all-clear.
@@ -98,7 +95,7 @@ export function effectiveDataClass(flag: DataClass, brief: string): DataClass {
 		return "parcs";
 	}
 
-	return SECRET_RE.test(brief) ? "sensitive" : flag;
+	return hasCredentials(brief) ? "sensitive" : flag;
 }
 
 /** One line per quota source, as the reader summarized it. */
@@ -246,6 +243,10 @@ async function main(argv: string[]): Promise<number> {
 		);
 		return 0;
 	}
+	if (argv[0] === "run" && routeDepth() >= 4) {
+		process.stderr.write("route: nesting limit reached (maximum 4)\n");
+		return 4;
+	}
 	if (argv.length === 1 && argv[0] === "pull-evidence") {
 		await discoverCodex(`${homedir()}/.local/state/router`, true);
 		const pulled = spawnSync(
@@ -378,10 +379,14 @@ async function main(argv: string[]): Promise<number> {
 
 	// Parker 2026-11-19 ("I dont care. use the router"): when no other vendor can take the review,
 	// fall back to the router's best different model, never the one that wrote the work.
-	if (result.ranked.length === 0 && state.notVendor.length > 0) {
+	if (
+		result.ranked.length === 0 &&
+		state.notVendor.length > 0 &&
+		pick(catalog, kind, tier, { ...state, choice: undefined }).ranked.length === 0
+	) {
 		const parent = process.env["ROUTE_PARENT_MODEL"];
 		const fallback = { ...state, notVendor: [], notModel: parent ? [parent] : [] };
-		const retry = pick(catalog, kind, tier, fallback);
+		const retry = parent ? pick(catalog, kind, tier, fallback) : result;
 
 		if (retry.ranked.length > 0) {
 			process.stdout.write(
@@ -455,7 +460,7 @@ async function main(argv: string[]): Promise<number> {
 			state,
 			kind,
 			tier,
-			brief: briefFile ?? brief.text,
+			brief: brief.text,
 			dataClass,
 			briefName: briefFile ? basename(briefFile, ".md") : brief.text.trim().slice(0, 60),
 			cwd: process.cwd(),

@@ -6,7 +6,7 @@ import { afterEach, expect, it, vi } from "vitest";
 
 import { launch } from "./adapters.ts";
 import { CODEX_EFFORTS, supportedEfforts } from "./effort.ts";
-import type { Offer } from "./pick.ts";
+import { POOLS, type Offer } from "./pick.ts";
 
 const dirs: string[] = [];
 
@@ -34,7 +34,7 @@ const offer: Offer = {
 	origin: "us",
 	score: 1,
 	bonus: 0,
-	pool: undefined,
+	pool: POOLS.find((pool) => pool.id === "codex"),
 };
 
 it.each(CODEX_EFFORTS)(
@@ -57,6 +57,7 @@ it("keeps agy slug and effort consistent even when the catalog ID encoded anothe
 		{
 			...offer,
 			provider: "gemini",
+			pool: POOLS.find((pool) => pool.id === "google-ai:gemini"),
 			model: "gemini-4-neon",
 			id: "gemini-4-neon-xhigh",
 			effort: "low",

@@ -335,6 +335,8 @@ function offerReasons(o: Offer, pools: Map<Pool, PoolState>, state: State): stri
 
 	const pool = o.pool;
 	const reasons = [...(pools.get(pool)?.reasons ?? [])];
+	const expected = poolIdOf({ id: o.model, provider: o.provider, score: o.score });
+	if (expected && pool.id !== expected) reasons.push("provider and execution pool do not match");
 
 	if (
 		state.runnableOnly &&
