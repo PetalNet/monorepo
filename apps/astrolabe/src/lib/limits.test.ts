@@ -1,8 +1,8 @@
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 
 import { DAY_SCALE, windowGeometry } from "./dial.js";
-import { limitWindowsFrom, readLimit, type LimitWindow } from "./limits.js";
-import { usageReadoutFrom } from "./server/dossier.js";
+import { limitsFrom, readLimit, type LimitWindow, type ProviderLimits } from "./limits.js";
+import { quotaReadouts, usageReadoutFrom } from "./server/dossier.js";
 
 const at = (iso: string) => Date.parse(iso);
 const seconds = (iso: string) => at(iso) / 1000;
@@ -25,24 +25,20 @@ const codexFeed = {
 	credits_balance: 38_426.39,
 };
 const now = at("2026-10-29T15:16:30Z");
-const { windows } = limitWindowsFrom([
+const windows = [
 	usageReadoutFrom({
-		slug: "janet-primary",
 		label: "Claude",
 		kind: "claude",
-		plan: "pro",
 		data: claudeFeed,
 		nowSeconds: now / 1000,
 	}),
 	usageReadoutFrom({
-		slug: "codex",
 		label: "Codex",
 		kind: "codex",
-		plan: "plus",
 		data: codexFeed,
 		nowSeconds: now / 1000,
 	}),
-]);
+].flatMap((provider) => limitsFrom(provider).windows);
 const byId = (id: string) => {
 	const window = windows.find((candidate) => candidate.id === id);
 
@@ -103,11 +99,9 @@ describe("burn-rate projection", () => {
 		const reading = readLimit(
 			{
 				id: "claude-5h",
-				agent: "Claude",
+				provider: "Claude",
+				name: "5-hour",
 				span: "5-hour",
-				model: null,
-				plan: "pro",
-				fit: "listed",
 				inactive: false,
 				usedPct: 20,
 				resetsAt: at("2026-10-29T18:00:00Z"),
@@ -130,11 +124,9 @@ describe("burn-rate projection", () => {
 	it("measures the rate up to when the figure was observed, not up to now", () => {
 		const window: LimitWindow = {
 			id: "codex-7d",
-			agent: "Codex",
+			provider: "Codex",
+			name: "7-day",
 			span: "7-day",
-			model: null,
-			plan: "plus",
-			fit: "listed",
 			inactive: false,
 			usedPct: 50,
 			resetsAt: at("2026-11-05T00:00:00Z"),
@@ -172,11 +164,9 @@ describe("red span when the clocks go back", () => {
 	const resetsAt = at("2026-11-01T06:15:00Z");
 	const spent: LimitWindow = {
 		id: "claude-5h",
-		agent: "Claude",
+		provider: "Claude",
+		name: "5-hour",
 		span: "5-hour",
-		model: null,
-		plan: "pro",
-		fit: "listed",
 		inactive: false,
 		usedPct: 100,
 		resetsAt,
@@ -208,10 +198,10 @@ describe("red span when the clocks go back", () => {
 	});
 });
 
-describe("plan check", () => {
-	// Real feeds from 2026-11-17, trimmed to the fields read. Claude Max 20x has dropped its 5-hour
-	// window (`five_hour: null`, while the top-level five_hour_pct still says 0) and gained a
-	// per-model Fable weekly limit. Codex Plus reports a 5-hour window beside its weekly one.
+describe("limits from the feeds", () => {
+	// Real feeds from 2026-11-17, trimmed to the fields read. Claude has no 5-hour window
+	// (`five_hour: null`, while the top-level five_hour_pct still says 0) and a per-model Fable
+	// weekly limit. Codex reports a 5-hour window beside its weekly one.
 	const claudeToday = {
 		five_hour_pct: 0,
 		five_hour_resets_at: 0,
@@ -252,54 +242,81 @@ describe("plan check", () => {
 		has_credits: true,
 		rate_limit_reached_type: "rate_limit_reached",
 	};
-	const check = (
-		claudePlan: string,
-		codexPlan: string,
-		claude: Record<string, unknown> = claudeToday,
-	) =>
-		limitWindowsFrom([
+	const claude = (data: Record<string, unknown> = claudeToday) =>
+		limitsFrom(
 			usageReadoutFrom({
-				slug: "janet-primary",
 				label: "Claude",
 				kind: "claude",
-				plan: claudePlan,
-				data: claude,
+				data,
 				nowSeconds: 1_794_939_400,
 			}),
+		);
+	const codex = (data: Record<string, unknown> = codexToday) =>
+		limitsFrom(
 			usageReadoutFrom({
-				slug: "codex",
 				label: "Codex",
 				kind: "codex",
-				plan: codexPlan,
-				data: codexToday,
+				data,
 				nowSeconds: 1_794_939_400,
 			}),
+		);
+	const summary = (limits: ProviderLimits) =>
+		limits.windows.map(({ id, usedPct }) => ({ id, usedPct }));
+	const windowOf = (limits: ProviderLimits, id: string) => {
+		const window = limits.windows.find((candidate) => candidate.id === id);
+
+		if (window === undefined) {
+			throw new Error(`missing ${id}`);
+		}
+
+		return window;
+	};
+
+	it("draws exactly the windows each feed reports, with nothing to note", () => {
+		expect(summary(claude())).toEqual([
+			{ id: "claude-7d", usedPct: 8 },
+			{ id: "claude-7d-fable", usedPct: 0 },
 		]);
-	const summary = (result: ReturnType<typeof check>) =>
-		result.windows.map(({ id, fit, usedPct }) => ({ id, fit, usedPct }));
 
-	it("draws Max 20x as weekly plus Fable weekly, and Codex Plus as 5-hour plus weekly", () => {
-		const result = check("max-20x", "plus");
-
-		expect(summary(result)).toEqual([
-			{ id: "claude-7d", fit: "listed", usedPct: 8 },
-			{ id: "claude-7d-fable", fit: "listed", usedPct: 0 },
-			{ id: "codex-5h", fit: "listed", usedPct: 0 },
-			{ id: "codex-7d", fit: "listed", usedPct: 100 },
+		expect(summary(codex())).toEqual([
+			{ id: "codex-5h", usedPct: 0 },
+			{ id: "codex-7d", usedPct: 100 },
 		]);
 
-		expect(result.notices).toEqual([]);
+		expect(claude().notes).toEqual([]);
+		expect(codex().notes).toEqual([]);
+	});
+
+	it("draws a 5-hour window as soon as Claude reports one", () => {
+		const withFiveHour = {
+			...claudeToday,
+			raw: {
+				...claudeToday.raw,
+				five_hour: { utilization: 12, resets_at: "2026-11-17T20:00:00Z" },
+			},
+		};
+
+		expect(summary(claude(withFiveHour))).toEqual([
+			{ id: "claude-5h", usedPct: 12 },
+			{ id: "claude-7d", usedPct: 8 },
+			{ id: "claude-7d-fable", usedPct: 0 },
+		]);
+	});
+
+	it("draws no 5-hour window when Codex's feed has none", () => {
+		const weeklyOnly = {
+			seven_day_pct: 100,
+			seven_day_resets_at: 1_795_016_116,
+			scraped_at: 1_794_939_303,
+		};
+
+		expect(summary(codex(weeklyOnly))).toEqual([{ id: "codex-7d", usedPct: 100 }]);
 	});
 
 	it("reads a full Codex week carried by credits as using credits, despite rate_limit_reached", () => {
 		// The live account: weekly at 100%, rateLimitReachedType "rate_limit_reached",
 		// ordinaryUsageAllowed false, credits.hasCredits true, and work still running on credits.
-		const week = check("max-20x", "plus").windows.find(({ id }) => id === "codex-7d");
-
-		if (week === undefined) {
-			throw new Error("missing codex-7d");
-		}
-
+		const week = windowOf(codex(), "codex-7d");
 		const reading = readLimit(week, at("2026-11-17T18:20:00Z"));
 
 		expect(reading).toMatchObject({ state: "on-credits", usedPct: 100 });
@@ -311,44 +328,10 @@ describe("plan check", () => {
 	});
 
 	it("reads Fable's own reset and the inactive flag", () => {
-		const fable = check("max-20x", "plus").windows.find(({ id }) => id === "claude-7d-fable");
-
-		expect(fable).toMatchObject({ resetsAt: at("2026-11-24T10:00:00Z"), inactive: true });
-	});
-
-	it("flags a 5-hour window the Pro plan lists but Claude no longer reports", () => {
-		const result = check("pro", "plus");
-
-		expect(summary(result).slice(0, 3)).toEqual([
-			{ id: "claude-5h", fit: "unreported", usedPct: null },
-			{ id: "claude-7d", fit: "listed", usedPct: 8 },
-			{ id: "claude-7d-fable", fit: "unlisted", usedPct: 0 },
-		]);
-
-		expect(readLimit(result.windows[0], at("2026-11-17T18:20:00Z")).state).toBe("not-reported");
-	});
-
-	it("flags a 5-hour window Claude reports that Max 20x doesn't list", () => {
-		const withFiveHour = {
-			...claudeToday,
-			raw: {
-				...claudeToday.raw,
-				five_hour: { utilization: 12, resets_at: "2026-11-17T20:00:00Z" },
-			},
-		};
-
-		expect(summary(check("max-20x", "plus", withFiveHour))).toContainEqual({
-			id: "claude-5h",
-			fit: "unlisted",
-			usedPct: 12,
+		expect(windowOf(claude(), "claude-7d-fable")).toMatchObject({
+			resetsAt: at("2026-11-24T10:00:00Z"),
+			inactive: true,
 		});
-	});
-
-	it("names a plan Codex reports that differs from the configured one, and an unknown plan", () => {
-		expect(check("max-20x", "pro").notices).toEqual([
-			'Codex plan "pro" is not in the plan table',
-			"Codex reports the plus plan, but Astrolabe is set to pro",
-		]);
 	});
 
 	const fable = (percent: number, extra: Record<string, unknown> = {}) => ({
@@ -365,78 +348,120 @@ describe("plan check", () => {
 	});
 
 	it("keeps one window per identity, the fullest, and says there were more", () => {
-		const twice = withLimits([
-			fable(3),
-			fable(90, { scope: { model: { display_name: "fable" } } }),
-		]);
+		const result = claude(
+			withLimits([fable(3), fable(90, { scope: { model: { display_name: "fable" } } })]),
+		);
+		const ids = result.windows.map(({ id }) => id);
 
-		for (const plan of ["max-20x", "pro"]) {
-			const result = check(plan, "plus", twice);
-			const ids = result.windows.map(({ id }) => id);
-
-			expect(new Set(ids).size).toBe(ids.length);
-			expect(result.windows.find(({ id }) => id === "claude-7d-fable")?.usedPct).toBe(90);
-
-			expect(result.notices).toContain(
-				"Claude reports more than one Fable 7-day limit; showing the fullest",
-			);
-		}
+		expect(new Set(ids).size).toBe(ids.length);
+		expect(windowOf(result, "claude-7d-fable").usedPct).toBe(90);
+		expect(result.notes).toEqual(["Reports more than one Fable 7-day limit; showing the fullest"]);
 	});
 
 	it("reads a per-model limit with no model name as unread, once", () => {
 		const unnamed = { kind: "weekly_scoped", percent: 1, scope: { model: { display_name: " " } } };
-		const result = check("max-20x", "plus", withLimits([unnamed, unnamed]));
+		const result = claude(withLimits([unnamed, unnamed]));
 
-		expect(result.windows.map(({ id }) => id)).not.toContain("claude-7d-");
-
-		expect(result.notices).toEqual([
-			"Claude reports a weekly_scoped limit Astrolabe does not read",
-		]);
+		expect(result.windows.map(({ id }) => id)).toEqual(["claude-7d"]);
+		expect(result.notes).toEqual(["Reports a weekly_scoped limit Astrolabe does not read"]);
 	});
 
 	it("falls back to weekly_all when seven_day is missing", () => {
 		const weeklyAll = { kind: "weekly_all", percent: 8, resets_at: "2026-11-24T10:00:00Z" };
-		const result = check("max-20x", "plus", withLimits([weeklyAll], { seven_day: null }));
+		const result = claude(withLimits([weeklyAll], { seven_day: null }));
 
-		expect(result.windows[0]).toMatchObject({ id: "claude-7d", fit: "listed", usedPct: 8 });
+		expect(summary(result)).toEqual([{ id: "claude-7d", usedPct: 8 }]);
 	});
 
 	it("names a per-model window Anthropic reports outside limits", () => {
-		const result = check(
-			"max-20x",
-			"plus",
-			withLimits([], { seven_day_opus: { utilization: 70 } }),
-		);
+		const result = claude(withLimits([], { seven_day_opus: { utilization: 70 } }));
 
-		expect(result.notices).toContain(
-			"Claude reports a seven_day_opus limit Astrolabe does not read",
-		);
+		expect(result.notes).toEqual(["Reports a seven_day_opus limit Astrolabe does not read"]);
 	});
 
 	it("does not call a raw per-model window unread when limits gave the same model", () => {
 		const opus = { ...fable(70), scope: { model: { display_name: "Opus" } } };
-		const result = check(
-			"pro",
-			"plus",
-			withLimits([opus], { seven_day_opus: { utilization: 70 } }),
-		);
+		const result = claude(withLimits([opus], { seven_day_opus: { utilization: 70 } }));
 
-		expect(result.notices).toEqual([]);
+		expect(result.notes).toEqual([]);
 		expect(result.windows.map(({ id }) => id)).toContain("claude-7d-opus");
 	});
+});
 
-	it("flags a Codex 5-hour window whose fields are absent, not just null", () => {
-		const codexOnly = limitWindowsFrom([
-			usageReadoutFrom({
-				slug: "codex",
-				label: "Codex",
-				kind: "codex",
-				plan: "plus",
-				data: { seven_day_pct: 100, seven_day_resets_at: 1_795_016_116, scraped_at: 1_794_939_303 },
-				nowSeconds: 1_794_939_400,
-			}),
-		]);
+describe("quota feed limits", () => {
+	const generatedAt = at("2026-11-19T22:44:00Z");
+	const [tmobile, vpn] = quotaReadouts(
+		{
+			generatedAt,
+			services: [
+				{
+					service: "tmobile",
+					label: "T-Mobile",
+					status: "ok",
+					limits: [
+						{
+							id: "tmobile:cycle",
+							label: "Cycle data",
+							usedPct: 43.6,
+							resetAtMs: at("2026-12-13T08:00:00Z"),
+							windowMinutes: null,
+						},
+						{
+							id: "tmobile:priority-week",
+							label: "Priority week",
+							usedPct: 149.3,
+							resetAtMs: at("2026-11-23T08:00:00Z"),
+							windowMinutes: null,
+						},
+						{
+							id: "tmobile:hotspot",
+							label: "Hotspot",
+							usedPct: 149.3,
+							resetAtMs: at("2026-11-19T23:44:00Z"),
+							windowMinutes: 300,
+						},
+					],
+				},
+				{ service: "vpn", label: null, status: "signed-out", limits: [] },
+			],
+		},
+		generatedAt + 60_000,
+	).map((readout) => limitsFrom(readout));
+	const readings = tmobile.windows.map((window) => readLimit(window, generatedAt + 60_000));
 
-		expect(codexOnly.windows[0]).toMatchObject({ id: "codex-5h", fit: "unreported" });
+	it("reads a limit that is no dial window without a pace, keeping the feed's tenths", () => {
+		expect(readings[0]).toMatchObject({
+			window: { id: "tmobile-tmobile:cycle", provider: "T-Mobile", name: "Cycle data", span: null },
+			state: "unpaced",
+			usedPct: 43.6,
+			resetsAt: at("2026-12-13T08:00:00Z"),
+			projectedPct: null,
+			lockoutAt: null,
+		});
+
+		expect(readings[0].leftPct).toBeCloseTo(56.4, 6);
+	});
+
+	it("shows usage past the limit as it is, with nothing left", () => {
+		expect(readings[1]).toMatchObject({ state: "limit-reached", usedPct: 149.3, leftPct: 0 });
+	});
+
+	it("drops a figure once its limit has reset", () => {
+		expect(readLimit(tmobile.windows[0], at("2026-12-13T08:00:00Z")).state).toBe(
+			"reset-since-reading",
+		);
+	});
+
+	it("fills a ring no further than its reset for usage past the limit", () => {
+		// The window began at 18:44 and is 4h 1m old: an hour short of the reset.
+		const geometry = windowGeometry(readings[2], DAY_SCALE);
+
+		expect(readings[2]).toMatchObject({ state: "limit-reached", usedPct: 149.3 });
+		expect(geometry?.fill).toBe(geometry?.reset);
+		expect(geometry?.fill).toBeCloseTo(75, 5);
+	});
+
+	it("notes a service the feed could not read", () => {
+		expect(vpn).toEqual({ windows: [], notes: ["Signed out"] });
 	});
 });

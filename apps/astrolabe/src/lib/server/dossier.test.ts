@@ -1,12 +1,15 @@
 import { describe, expect, it } from "vitest";
 
+import capture from "../fixtures/quota.json";
 import {
 	moonAgeDays,
 	moonPhaseName,
 	parseBackupLog,
+	quotaReadouts,
 	solarPhaseName,
 	usageReadoutFrom,
 } from "./dossier.js";
+import { parseQuotaFeed } from "./quota.js";
 
 describe("moon helpers", () => {
 	it("names lunar phases and scales age across one synodic month", () => {
@@ -51,37 +54,31 @@ describe("backup parsing", () => {
 describe("usage readouts", () => {
 	it("keeps a missing Claude feed stale but not awaiting", () => {
 		const result = usageReadoutFrom({
-			slug: "janet-primary",
 			label: "Claude",
 			kind: "claude",
-			plan: "max-20x",
 			data: null,
 			nowSeconds: 1000,
 		});
 
-		expect(result).toMatchObject({ awaiting: false, stale: true, read: false, windows: [] });
+		expect(result).toMatchObject({ awaiting: false, stale: true, windows: [] });
 	});
 
 	it("marks a missing Codex feed awaiting", () => {
 		const result = usageReadoutFrom({
-			slug: "codex",
 			label: "Codex",
 			kind: "codex",
-			plan: "plus",
 			data: null,
 			nowSeconds: 1000,
 		});
 
-		expect(result).toMatchObject({ awaiting: true, stale: false, read: false, windows: [] });
+		expect(result).toMatchObject({ awaiting: true, stale: false, windows: [] });
 	});
 
 	it("reads a Codex feed whose only window is the 7-day one as 7-day, with no 5-hour window", () => {
 		// codex-usage buckets by window length, so a lone weekly `primary` arrives as seven_day_pct.
 		const codex = usageReadoutFrom({
-			slug: "codex",
 			label: "Codex",
 			kind: "codex",
-			plan: "plus",
 			nowSeconds: 1000,
 			data: {
 				five_hour_pct: null,
@@ -95,20 +92,42 @@ describe("usage readouts", () => {
 		});
 
 		expect(codex.windows).toEqual([
-			{ span: "7-day", model: null, usedPct: 100, resetsAt: 1200, inactive: false },
+			{ key: "7d", name: "7-day", span: "7-day", usedPct: 100, resetsAt: 1200, inactive: false },
 		]);
 
 		expect(codex).toMatchObject({ creditsBalance: 38_426.39, limitReachedType: null });
+	});
+
+	it("names the plan each feed reports, and spells out one it doesn't know", () => {
+		const plan = (kind: "claude" | "codex", data: Record<string, unknown>) =>
+			usageReadoutFrom({
+				label: kind === "codex" ? "Codex" : "Claude",
+				kind,
+				nowSeconds: 1000,
+				data: { scraped_at: 995, ...data },
+			}).plan;
+
+		expect(plan("codex", { plan: "prolite" })).toBe("Pro 100");
+		expect(plan("codex", { plan: "pro" })).toBe("Pro 200");
+		expect(plan("codex", { plan: "constructor" })).toBe("constructor");
+		expect(plan("codex", {})).toBeNull();
+
+		const ultra = { subscription_type: "max", rate_limit_tier: "default_claude_max_20x" };
+
+		expect(plan("claude", ultra)).toBe("Ultra");
+		expect(plan("claude", { ...ultra, rate_limit_tier: "default_claude_max_5x" })).toBe("Max");
+		expect(plan("claude", { subscription_type: "max" })).toBe("Max");
+		expect(plan("claude", { subscription_type: "pro", rate_limit_tier: "some_tier" })).toBe("Pro");
+		// Codex's own field is not Claude's plan.
+		expect(plan("claude", { plan: "prolite" })).toBeNull();
 	});
 
 	it("passes Codex's rate_limit_reached_type through, and ignores it for Claude", () => {
 		const data = { seven_day_pct: 100, rate_limit_reached_type: "primary", scraped_at: 995 };
 		const read = (kind: "claude" | "codex") =>
 			usageReadoutFrom({
-				slug: kind === "codex" ? "codex" : "janet-primary",
 				label: kind === "codex" ? "Codex" : "Claude",
 				kind,
-				plan: "plus",
 				nowSeconds: 1000,
 				data,
 			}).limitReachedType;
@@ -119,10 +138,8 @@ describe("usage readouts", () => {
 
 	it("takes Claude's windows from the raw response, not the zeroed top-level 5-hour fields", () => {
 		const claude = usageReadoutFrom({
-			slug: "janet-primary",
 			label: "Claude",
 			kind: "claude",
-			plan: "max-20x",
 			nowSeconds: 1000,
 			data: {
 				five_hour_pct: 0,
@@ -147,8 +164,15 @@ describe("usage readouts", () => {
 		});
 
 		expect(claude.windows).toEqual([
-			{ span: "7-day", model: null, usedPct: 40, resetsAt: 1200, inactive: false },
-			{ span: "7-day", model: "Fable", usedPct: 5, resetsAt: 1200, inactive: true },
+			{ key: "7d", name: "7-day", span: "7-day", usedPct: 40, resetsAt: 1200, inactive: false },
+			{
+				key: "7d-fable",
+				name: "Fable 7-day",
+				span: "7-day",
+				usedPct: 5,
+				resetsAt: 1200,
+				inactive: true,
+			},
 		]);
 
 		expect(claude.unreadKinds).toEqual(["daily_burst"]);
@@ -156,14 +180,92 @@ describe("usage readouts", () => {
 
 	it("cannot say which windows a Claude snapshot without raw has", () => {
 		const claude = usageReadoutFrom({
-			slug: "janet-primary",
 			label: "Claude",
 			kind: "claude",
-			plan: "max-20x",
 			nowSeconds: 1000,
 			data: { seven_day_pct: 40, scraped_at: 995 },
 		});
 
-		expect(claude).toMatchObject({ read: false, windows: [] });
+		expect(claude.windows).toEqual([]);
+	});
+});
+
+describe("quota feed readouts", () => {
+	const feed = parseQuotaFeed(capture);
+	const minute = 60_000;
+
+	it("reads each service as a provider, with its limits named as the feed names them", () => {
+		const readouts = quotaReadouts(feed, feed.generatedAt + minute);
+		const tmobile = readouts.find((readout) => readout.kind === "tmobile");
+
+		expect(readouts.map((readout) => readout.kind)).toEqual([
+			"claude",
+			"google-ai",
+			"codex",
+			"cloudflare-ai",
+			"github-actions",
+			"tmobile",
+		]);
+
+		// The capture names no service, so each shows as its id.
+		expect(tmobile).toMatchObject({
+			label: "tmobile",
+			plan: null,
+			status: "ok",
+			stale: false,
+			observedAt: 1_795_121_040,
+		});
+
+		expect(tmobile?.windows).toEqual([
+			{
+				key: "tmobile:cycle",
+				name: "T-Mobile cycle data",
+				span: null,
+				usedPct: 43.6,
+				resetsAt: 1_797_141_600,
+				inactive: false,
+			},
+			{
+				key: "tmobile:priority-week",
+				name: "T-Mobile priority week",
+				span: null,
+				usedPct: 149.3,
+				resetsAt: 1_795_413_600,
+				inactive: false,
+			},
+		]);
+	});
+
+	it("puts a limit on a dial only when the feed gives a 5-hour or 7-day window and its reset", () => {
+		const spanOf = (limit: Record<string, unknown>) =>
+			quotaReadouts(
+				parseQuotaFeed({
+					generatedAt: 1000,
+					services: [
+						{
+							service: "google-ai",
+							label: "Google AI",
+							status: "ok",
+							limits: [{ id: "google-ai:gemini", label: "Gemini", usedPct: 1, ...limit }],
+						},
+					],
+				}),
+				2000,
+			)[0].windows[0].span;
+
+		expect(spanOf({ windowMinutes: 300, resetAtMs: 9000 })).toBe("5-hour");
+		expect(spanOf({ windowMinutes: 10_080, resetAtMs: 9000 })).toBe("7-day");
+		expect(spanOf({ windowMinutes: 1440, resetAtMs: 9000 })).toBeNull();
+		expect(spanOf({ windowMinutes: 300 })).toBeNull();
+		// The id's suffix is not the window length.
+		expect(spanOf({ id: "google-ai:gemini:5h", resetAtMs: 9000 })).toBeNull();
+	});
+
+	it("marks a feed stale after 15 minutes and refuses one dated in the future", () => {
+		const staleAt = (now: number) => quotaReadouts(feed, now).map((readout) => readout.stale);
+
+		expect(staleAt(feed.generatedAt + 15 * minute)).not.toContain(true);
+		expect(staleAt(feed.generatedAt + 15 * minute + 1)).not.toContain(false);
+		expect(() => quotaReadouts(feed, feed.generatedAt - 1)).toThrow();
 	});
 });

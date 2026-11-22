@@ -10,6 +10,7 @@ services:
       LAB_LON: ${LAB_LON:--0.0005}
       USAGE_PATH: /shared/janet-usage.json
       CODEX_USAGE_PATH: /shared/codex-usage.json
+      QUOTA_USAGE_PATH: /shared/quotas/quota-usage.json
       BACKUP_LOG: /logs/backup-offsite.log
       KUMA_DB: /kuma/kuma.db
       KUMA_URL: ${KUMA_URL:-https://kuma.petalcat.dev}
@@ -18,6 +19,7 @@ services:
     volumes:
       - /home/docker/.claude/shared/janet-usage.json:/shared/janet-usage.json:ro
       - /home/docker/.claude/shared/codex-usage.json:/shared/codex-usage.json:ro
+      - /home/docker/.claude/shared/astrolabe-quota:/shared/quotas:ro
       - /home/docker/.claude/shared/host-health-state.json:/shared/host-health-state.json:ro
       - /tmp/janet-mood.json:/shared/janet-mood.json:ro
       - /home/docker/backup-offsite.log:/logs/backup-offsite.log:ro

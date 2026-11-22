@@ -23,7 +23,7 @@
 	const startDeg = $derived(geometry.start);
 	const arcDeg = $derived(geometry.reset);
 	const fillSweep = $derived(geometry.fill);
-	// The usage figure sits at the end of the fill. The projection is the plaque's job.
+	// The usage figure sits at the end of the fill. The projection is the plate's job.
 	const usage = $derived.by(() => {
 		if (reading.usedPct === null) {
 			return null;
@@ -54,9 +54,7 @@
 			? null
 			: { from: startDeg + geometry.lockout.from, sweep: geometry.lockout.sweep },
 	);
-	const name = $derived(
-		`${reading.window.agent}${reading.window.model ? ` ${reading.window.model}` : ""} ${reading.window.span === "5-hour" ? "5h" : "7d"}`,
-	);
+	const name = $derived(`${reading.window.provider} ${reading.window.name}`);
 	const at = (epoch: number) =>
 		new Intl.DateTimeFormat(
 			undefined,
@@ -66,7 +64,7 @@
 		).format(epoch);
 	const spoken = $derived(
 		[
-			`${reading.window.agent}${reading.window.model ? ` ${reading.window.model}` : ""} ${reading.window.span}: ${String(Math.round(reading.usedPct ?? 0))}% used`,
+			`${name}: ${String(Math.round(reading.usedPct ?? 0))}% used`,
 			reading.runsOutAt === null ? null : `runs out ${at(reading.runsOutAt)}`,
 			reading.resetsAt === null ? null : `resets ${at(reading.resetsAt)}`,
 		]
@@ -93,7 +91,7 @@
 	};
 </script>
 
-<g class="limit {reading.window.id}" role="img" aria-label={spoken}>
+<g class="limit" data-limit={reading.window.id} role="img" aria-label={spoken}>
 	<title>{name}</title>
 	<path class="groove" d={arcPath(startDeg, geometry.groove, radius)} stroke-width={width} />
 	{#if fillSweep > 0}

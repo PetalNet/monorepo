@@ -160,14 +160,11 @@
 				r={ring.radius}
 				stroke-width={layout.width}
 				role="img"
-				aria-label="{ring.reading.window.agent} {ring.reading.window.span}: {ring.reading.state ===
-				'not-reported'
-					? 'not reported'
-					: 'no reading'}"
+				aria-label="{ring.reading.window.provider} {ring.reading.window.name}: no reading"
 			/>
 		{/if}
 	{:else}
-		<text class="ring-empty" y="-62">No 5-hour limit on these plans</text>
+		<text class="ring-empty" y="-62">No 5-hour limits</text>
 	{/each}
 
 	<FiligreeHand

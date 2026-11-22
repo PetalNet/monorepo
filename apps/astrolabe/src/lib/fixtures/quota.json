@@ -1,0 +1,132 @@
+{
+	"generatedAt": 1795121040000,
+	"services": [
+		{
+			"service": "claude",
+			"status": "ok",
+			"limits": [
+				{
+					"id": "claude:7d",
+					"label": "Claude 7d",
+					"usedPct": 68,
+					"resetAtMs": 1795514401876,
+					"resetLabel": "Nov 24 04:00"
+				},
+				{
+					"id": "claude:fable",
+					"label": "Claude Fable",
+					"usedPct": 10,
+					"resetAtMs": 1795514400876,
+					"resetLabel": "Nov 24 04:00"
+				}
+			]
+		},
+		{
+			"service": "google-ai",
+			"status": "ok",
+			"limits": [
+				{
+					"id": "google-ai:gemini-models:7d",
+					"label": "Google AI Gemini Models 7d",
+					"usedPct": 58,
+					"resetAtMs": 1795641629000,
+					"resetLabel": "Nov 25 15:20"
+				},
+				{
+					"id": "google-ai:gemini-models:5h",
+					"label": "Google AI Gemini Models 5h",
+					"usedPct": 90,
+					"resetAtMs": 1795149291000,
+					"resetLabel": "Nov 19 22:34"
+				},
+				{
+					"id": "google-ai:claude-and-gpt-models:7d",
+					"label": "Google AI Claude and GPT models 7d",
+					"usedPct": 95,
+					"resetAtMs": 1795676487000,
+					"resetLabel": "Nov 26 01:01"
+				},
+				{
+					"id": "google-ai:claude-and-gpt-models:5h",
+					"label": "Google AI Claude and GPT models 5h",
+					"usedPct": 0,
+					"resetAtMs": 1795160663000,
+					"resetLabel": "Nov 20 01:44"
+				},
+				{
+					"id": "google-ai:gemini-4-argon:7d",
+					"label": "Google AI Gemini 4 Argon 7d",
+					"usedPct": 51,
+					"resetAtMs": 1795633124000,
+					"resetLabel": "Nov 25 12:58"
+				}
+			]
+		},
+		{
+			"service": "codex",
+			"status": "ok",
+			"limits": [
+				{
+					"id": "codex:5h",
+					"label": "Codex 5h",
+					"usedPct": 44,
+					"resetAtMs": 1795160022000,
+					"resetLabel": "Nov 20 01:33"
+				},
+				{
+					"id": "codex:7d",
+					"label": "Codex 7d",
+					"usedPct": 39,
+					"resetAtMs": 1795644869000,
+					"resetLabel": "Nov 25 16:14"
+				}
+			]
+		},
+		{
+			"service": "cloudflare-ai",
+			"status": "ok",
+			"limits": [
+				{
+					"id": "cloudflare-ai:daily",
+					"label": "Cloudflare Workers AI daily neurons",
+					"usedPct": 0,
+					"resetAtMs": 1795219200000,
+					"resetLabel": "00:00 UTC"
+				}
+			]
+		},
+		{
+			"service": "github-actions",
+			"status": "ok",
+			"limits": [
+				{
+					"id": "github-actions:compute",
+					"label": "GitHub Actions",
+					"usedPct": 15.5,
+					"resetAtMs": 1796083200000,
+					"resetLabel": "Dec 1 UTC"
+				}
+			]
+		},
+		{
+			"service": "tmobile",
+			"status": "ok",
+			"limits": [
+				{
+					"id": "tmobile:cycle",
+					"label": "T-Mobile cycle data",
+					"usedPct": 43.6,
+					"resetAtMs": 1797141600000,
+					"resetLabel": "Dec 13"
+				},
+				{
+					"id": "tmobile:priority-week",
+					"label": "T-Mobile priority week",
+					"usedPct": 149.3,
+					"resetAtMs": 1795413600000,
+					"resetLabel": "Nov 23"
+				}
+			]
+		}
+	]
+}
