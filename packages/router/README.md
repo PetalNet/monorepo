@@ -80,3 +80,13 @@ OpenAI/Codex and Anthropic/Claude account training opt-outs are recorded as `Par
 ## Slice 4 prerequisites
 
 Join launch and outcome events by run and attempt, distinguish process completion from a quality label, and define labels per kind (CI/merge for code, check results for sweep, explicit ratings for other kinds). Imported logs remain unlabelled. Pool failures, auth failures, handoffs and invalid offers must never increment beta. Preserve selected effort and interpolation provenance in learning inputs; pool effort into model × kind until data supports finer cells. Gate posterior routing on at least 30 labels per kind. Decay evidence toward its prior rather than shrinking the prior. Record actual tokens, cost, TTFT, runtime and quota deltas; fit the current task-size, effort-cost and success assumptions against them. Validate sweep value/time policy, handle selection bias, and keep Claude excluded from exploration. Add convergence, decay, quota-failure and spend-cap simulations before enabling any exploration.
+
+## Automatic Codex discovery
+
+`ls`, `why`, and `run` refresh the installed client's `codex debug models` catalog hourly and whenever `codex --version` changes. `route refresh-codex` forces a refresh and checks alerts. The updater's daily timer invokes it, including after a cache miss or no-op. The sanitized cache records `client_version`, fetch time, visible slugs and advertised efforts in `~/.local/state/router/codex-models.json`. Model instruction templates are discarded. Same-client cached data survives a failed refresh; another client's catalog is never reused after a version change.
+
+Discovered releases inherit 90% of the lowest positive catalog score in their named family, or 35 without a family match. They display `new, unproven; family prior` until task evidence has sufficient coverage. Evidence for exact new releases overrides this prior through the normal scorer. `pull-evidence` includes discovered releases and normalizes decimal slug spellings without substituting generations.
+
+Hidden slugs, including `gpt-reserve` and `codex-auto-review`, stay out of the catalog. Discovery offers only advertised `none`, `low`, `medium` and `high` efforts. Existing model bans, quota checks, data policy and explicit Claude selection still apply.
+
+`refresh-codex` posts each newly discovered model once through the lab alert relay. It also alerts once per stable Codex release when the installed client is behind and that release is more than three days old. Successful notifications are recorded atomically in `codex-alerts.json` under the router lock; delivery failures retry on the next check. Unchanged healthy checks produce no output.
