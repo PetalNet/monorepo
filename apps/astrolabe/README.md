@@ -49,9 +49,17 @@ Other fields are ignored, so a service's error text never reaches the page. A fe
 
 Compose mounts the directory `/home/docker/.claude/shared/astrolabe-quota` rather than the file, so the job can replace the file by renaming a new one over it. Create the directory as the job's user before starting the container; Docker otherwise creates it owned by root.
 
+## Feed scripts
+
+The scripts in `feed/` run on the host, where the logins are, and write the files the container reads. They are TypeScript with no dependencies, which Node runs from a checkout by stripping the types: no install or build step, and Node 22.18 or newer. `pnpm test` runs their tests with the app's.
+
+## Claude usage feed
+
+`feed/claude-usage-snapshot.ts` writes `USAGE_PATH`'s file on the host (default `/home/docker/.claude/shared/janet-usage.json`, override with `CLAUDE_USAGE_OUT`). Cron on .14 runs it every 2 minutes from a release checkout of `main`. It runs `/home/docker/.claude/bin/usage-fetch.js`, which reads a claude.ai session key and organization id from `~/.config/claude-matrix-channel/usage.toml` and asks claude.ai for that organization's usage, and keeps the whole response as `raw`. The usage response names no plan, so the script adds `subscription_type` and `rate_limit_tier` from the Claude Code login (`subscriptionType` and `rateLimitTier` under `claudeAiOauth` in `~/.claude/.credentials.json`); the login's tokens never reach the snapshot. Nothing checks that the session key and the login belong to one account: where they differ, the plate shows one account's usage under the other's plan. It then copies the snapshot to the agent VM over SSH, which may fail without failing the run.
+
 ## Codex usage feed
 
-`feed/codex-usage-snapshot` writes `CODEX_USAGE_PATH`'s file on the host (default `/home/docker/.claude/shared/codex-usage.json`, override with `CODEX_USAGE_OUT`). Cron on .14 runs it every 5 minutes from a release checkout of `main`. It calls `feed/codex-usage --json`, which asks OpenAI for live rate limits through `codex app-server` (`account/rateLimits/read`, no tokens spent; `CODEX_BIN` overrides the binary) and falls back to the newest `~/.codex/sessions` rollout when that fails, with a warning on stderr. The JSON fields match `src/lib/server/dossier.ts`.
+`feed/codex-usage-snapshot.ts` writes `CODEX_USAGE_PATH`'s file on the host (default `/home/docker/.claude/shared/codex-usage.json`, override with `CODEX_USAGE_OUT`). Cron on .14 runs it every 5 minutes from a release checkout of `main`. It writes what `feed/codex-usage.ts --json` prints: that script asks OpenAI for live rate limits through `codex app-server` (`account/rateLimits/read`, no tokens spent; `CODEX_BIN` overrides the binary) and falls back to the newest `~/.codex/sessions` rollout when that fails, with a warning on stderr. The JSON fields match `src/lib/server/dossier.ts`.
 
 ## Container
 

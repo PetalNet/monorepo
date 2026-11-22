@@ -29,6 +29,14 @@ export default (({ strict }) => ({
 			entry: ["enroll-grove-dev-agent.ts"],
 			project: ["**/*.ts"],
 		},
+		"apps/astrolabe": {
+			// Cron on the host runs the usage feed scripts directly; nothing imports them.
+			entry: [
+				"feed/claude-usage-snapshot.ts!",
+				"feed/codex-usage-snapshot.ts!",
+				"feed/codex-usage.ts!",
+			],
+		},
 		"apps/collegemap": {
 			// Build-time deploy script run by the Dockerfile, and the ops script an operator runs
 			// against the deployed database to load institutional breaks. Neither is imported by
