@@ -62,7 +62,7 @@ export function decide(input: HookInput | null): Decision | null {
 	}
 
 	const original = t[field] as string;
-	const { text: converted, leftover } = plain(original);
+	const { text: converted, leftover, bareRefs } = plain(original);
 
 	// Not confident (markdown it can't safely convert, like 2**3 or a titled link) or nothing left: deny as before.
 	if (leftover.length > 0 || (!converted.trim() && converted !== original)) {
@@ -78,12 +78,20 @@ export function decide(input: HookInput | null): Decision | null {
 		return null;
 	}
 
+	// A line-leading #807 has no repo before it, so the reader cannot tell which repo or whether it is an issue or a PR.
+	const nudge = bareRefs
+		? 'If a line-leading #number is an issue or PR, name the repo before it (for example "monorepo #807"). '
+		: "";
+	const markdownNote =
+		converted.replaceAll("\u200B", "") === original
+			? ""
+			: "Your message had markdown, which the reader's client shows raw; it was sent converted to plain text. Write plain text next time.";
+
 	// updatedInput replaces the whole input, so every other argument is carried over unchanged.
 	return {
 		permissionDecision: "allow",
 		updatedInput: { ...t, [field]: converted },
-		additionalContext:
-			"Your message had markdown, which the reader's client shows raw; it was sent converted to plain text. Write plain text next time.",
+		additionalContext: nudge + markdownNote,
 	};
 }
 
