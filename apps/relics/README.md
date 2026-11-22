@@ -28,7 +28,7 @@ Uploads accept PNG, JPEG and WebP with file-signature checks, up to 8 MB. Store 
 
 ## Deploy and migrate
 
-Deploy only a reviewed commit on `main`. Build the root context with `apps/relics/Dockerfile`. `compose.yml` keeps the replacement on loopback port 48218 while the legacy service remains on 48217. Traefik’s Relics service must switch to 48218 only after health and data checks pass.
+Deploy only a reviewed commit on `main`. Build the root context with `apps/relics/Dockerfile`. `compose.yml` uses the existing loopback port 48217. Set `RELICS_HTTP_PORT=48218` for parallel validation while the legacy service is running. At cutover, use port 48217 after stopping the old container; the existing Traefik route stays valid.
 
 Before deployment:
 
@@ -36,7 +36,7 @@ Before deployment:
 2. Pause writes to the legacy service during the final copy. Copy the database and uploads to a separate private data directory, owned by container UID 1000.
 3. Start the new image against the copied directory. Startup adds collection, device, recovery, admin-session and migration tables in one transaction; it retains legacy tables, IDs, allocation records and owner associations.
 4. Compare every legacy relic ID, owner ID and upload checksum. Check every `/relics/{id}` URL. `scripts/continuity.ts` checks the copied database against the backup and fetches all tag pages.
-5. Switch Traefik, check the public URL and health, then stop the legacy container. Keep the old image, data and proxy config for rollback.
+5. Once the replacement is healthy on 48218, stop the legacy container, take the final data copy, and recreate the replacement with `RELICS_HTTP_PORT=48217`. Check the public URL and health. Keep the old image, container and data for rollback.
 
 After collectors begin using the new service, its database is authoritative. A rollback must account for claims and releases since cutover; restoring the old backup would lose them. Back up the new database and uploads regularly. Do not run old and new services with independent writable copies after cutover.
 

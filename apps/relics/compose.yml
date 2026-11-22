@@ -16,7 +16,7 @@ services:
       ADDRESS_HEADER: x-forwarded-for
       XFF_DEPTH: 1
     ports:
-      - 127.0.0.1:48218:4173
+      - 127.0.0.1:${RELICS_HTTP_PORT:-48217}:4173
     volumes:
       - ${RELICS_DATA_DIR:?Set the private data directory}:/app/data
     mem_limit: 512m
