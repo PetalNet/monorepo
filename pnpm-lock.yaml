@@ -904,6 +904,67 @@ importers:
         specifier: catalog:prod
         version: 4.6.5
 
+  apps/relics:
+    dependencies:
+      bcryptjs:
+        specifier: catalog:prod
+        version: 3.0.3
+    devDependencies:
+      '@lucide/svelte':
+        specifier: catalog:prod
+        version: 1.24.0(svelte@5.57.2(@typescript-eslint/types@8.72.2))
+      '@petalnet/effect-api':
+        specifier: workspace:*
+        version: link:../../packages/effect-api
+      '@petalnet/effect-sveltekit':
+        specifier: workspace:*
+        version: link:../../packages/effect-sveltekit
+      '@sveltejs/adapter-node':
+        specifier: catalog:dev
+        version: 6.0.4(@sveltejs/kit@3.4.0(@opentelemetry/api@1.9.1)(@sveltejs/vite-plugin-svelte@7.1.2(svelte@5.57.2(@typescript-eslint/types@8.72.2))(vite@8.3.3(@types/node@26.6.6)(esbuild@0.28.1)(jiti@2.7.0)(tsx@4.22.4)(yaml@2.9.0)))(@typescript/typescript6@6.0.2)(svelte@5.57.2(@typescript-eslint/types@8.72.2))(vite@8.3.3(@types/node@26.6.6)(esbuild@0.28.1)(jiti@2.7.0)(tsx@4.22.4)(yaml@2.9.0)))
+      '@sveltejs/kit':
+        specifier: catalog:prod
+        version: 3.4.0(@opentelemetry/api@1.9.1)(@sveltejs/vite-plugin-svelte@7.1.2(svelte@5.57.2(@typescript-eslint/types@8.72.2))(vite@8.3.3(@types/node@26.6.6)(esbuild@0.28.1)(jiti@2.7.0)(tsx@4.22.4)(yaml@2.9.0)))(@typescript/typescript6@6.0.2)(svelte@5.57.2(@typescript-eslint/types@8.72.2))(vite@8.3.3(@types/node@26.6.6)(esbuild@0.28.1)(jiti@2.7.0)(tsx@4.22.4)(yaml@2.9.0))
+      '@sveltejs/vite-plugin-svelte':
+        specifier: catalog:dev
+        version: 7.1.2(svelte@5.57.2(@typescript-eslint/types@8.72.2))(vite@8.3.3(@types/node@26.6.6)(esbuild@0.28.1)(jiti@2.7.0)(tsx@4.22.4)(yaml@2.9.0))
+      '@tailwindcss/vite':
+        specifier: catalog:dev
+        version: 4.3.5(vite@8.3.3(@types/node@26.6.6)(esbuild@0.28.1)(jiti@2.7.0)(tsx@4.22.4)(yaml@2.9.0))
+      '@types/node':
+        specifier: catalog:types
+        version: 26.6.6
+      daisyui:
+        specifier: catalog:prod
+        version: 5.6.18
+      effect:
+        specifier: 'catalog:'
+        version: 4.0.1
+      fontless:
+        specifier: 'catalog:'
+        version: 1.2.1(esbuild@0.28.1)(jiti@2.7.0)(lightningcss@1.33.0)(postcss@8.5.29)(rolldown@1.2.12)(rollup@4.62.2)(vite@8.3.3(@types/node@26.6.6)(esbuild@0.28.1)(jiti@2.7.0)(tsx@4.22.4)(yaml@2.9.0))
+      jose:
+        specifier: 'catalog:'
+        version: 6.2.8
+      svelte:
+        specifier: catalog:prod
+        version: 5.57.2(@typescript-eslint/types@8.72.2)
+      svelte-check:
+        specifier: catalog:dev
+        version: 4.7.8(@typescript/typescript6@6.0.2)(picomatch@4.0.7)(svelte@5.57.2(@typescript-eslint/types@8.72.2))
+      tailwindcss:
+        specifier: catalog:prod
+        version: 4.3.5
+      typescript:
+        specifier: catalog:dev
+        version: '@typescript/typescript6@6.0.2'
+      vite:
+        specifier: ^8.3.3
+        version: 8.3.3(@types/node@26.6.6)(esbuild@0.28.1)(jiti@2.7.0)(tsx@4.22.4)(yaml@2.9.0)
+      vitest:
+        specifier: 5.1.1
+        version: 5.1.1(@opentelemetry/api@1.9.1)(@types/node@26.6.6)(@vitest/coverage-v8@5.1.1)(happy-dom@21.0.4)(vite@8.3.3(@types/node@26.6.6)(esbuild@0.28.1)(jiti@2.7.0)(tsx@4.22.4)(yaml@2.9.0))
+
   apps/slide:
     dependencies:
       '@prisma/adapter-better-sqlite3':

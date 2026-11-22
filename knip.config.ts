@@ -20,6 +20,9 @@ export default (({ strict }) => ({
 	ignoreExportsUsedInFile: { type: true, interface: true },
 	treatConfigHintsAsErrors: true,
 	workspaces: {
+		"apps/relics": {
+			entry: ["scripts/*.ts!"],
+		},
 		"apps/turbo-cache": {
 			entry: ["src/main.ts!", "test/**/*.ts"],
 		},
