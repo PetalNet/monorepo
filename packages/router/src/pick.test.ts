@@ -72,16 +72,27 @@ const why = (result: ReturnType<typeof pick>, id: string) =>
 
 describe("pick", () => {
 	it("runs only the caller's choice", () => {
-		const result = pick(catalog, "code", "S", state({ choice: { model: "gpt-6.1-sol", effort: "high" } }));
+		const result = pick(
+			catalog,
+			"code",
+			"S",
+			state({ choice: { model: "gpt-6.1-sol", effort: "high" } }),
+		);
 
-		expect(result.ranked.map((r) => `${r.offer.model}:${r.offer.effort}`)).toEqual(["gpt-6.1-sol:high"]);
+		expect(result.ranked.map((r) => `${r.offer.model}:${r.offer.effort}`)).toEqual([
+			"gpt-6.1-sol:high",
+		]);
 	});
 
 	it("never picks a banned effort level", () => {
 		const result = pick(catalog, "code", "S", state({ bannedEfforts: ["xhigh", "max", "ultra"] }));
 
 		expect(result.ranked.map((r) => r.offer.effort)).not.toContain("xhigh");
-		expect(result.excluded.some((r) => r.reasons.some((why) => why.startsWith("effort xhigh not allowed")))).toBe(true);
+		expect(
+			result.excluded.some((r) =>
+				r.reasons.some((why) => why.startsWith("effort xhigh not allowed")),
+			),
+		).toBe(true);
 	});
 
 	it("ranks open offers in the tier band and names model, effort, plan and pool", () => {
@@ -346,6 +357,7 @@ describe("brief", () => {
 		const dir = mkdtempSync(path.join(tmpdir(), "route-"));
 		const marker = path.join(dir, "reader-ran");
 		const reader = path.join(dir, "reader");
+		writeFileSync(path.join(dir, "codex"), "#!/bin/sh\nexit 1\n", { mode: 0o755 });
 
 		writeFileSync(reader, `#!/bin/sh\ntouch ${marker}\n`);
 		chmodSync(reader, 0o755);
@@ -360,6 +372,7 @@ describe("brief", () => {
 				env: {
 					...process.env,
 					HOME: dir,
+					PATH: `${dir}:${process.env["PATH"] ?? ""}`,
 					QUOTA_AGY_CMD: reader,
 					QUOTA_CODEX_CMD: reader,
 					QUOTA_CLAUDE_USAGE_CMD: reader,
@@ -391,8 +404,9 @@ describe("brief", () => {
 	});
 });
 
-import { vendorOf } from "./pick.ts";
 import { test as vtest, expect as vexpect } from "vitest";
+
+import { vendorOf } from "./pick.ts";
 vtest("vendorOf names the model maker, not the plan", () => {
 	vexpect(vendorOf("gpt-6-astra")).toBe("openai");
 	vexpect(vendorOf("gemini-4-neon")).toBe("google");

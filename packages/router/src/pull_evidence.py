@@ -94,6 +94,7 @@ def model_key(name, catalog):
             name = name[len(prefix):]
             break
     name = SPELLINGS.get(name.replace(" ", "-"), name.replace(" ", "-"))
+    name = re.sub(r"^(gpt-\d+)-(\d+)-", r"\1.\2-", name)
     return (name, effort) if name in catalog else None
 
 
@@ -286,6 +287,10 @@ PULLERS = {
 def pull(state=STATE, catalog_file=None):
     catalog_file = catalog_file or Path.home() / ".claude/shared/model-tiers.json"
     catalog = catalog_ids(json.loads(catalog_file.read_text()))
+    discovered = state / "codex-models.json"
+    if discovered.exists():
+        snapshot = json.loads(discovered.read_text())
+        catalog.update(row["slug"] for row in snapshot["models"])
     cache = Cache(state / "evidence-raw")
     output = state / "evidence-open.json"
     previous = json.loads(output.read_text()) if output.exists() else {"sources": {}}

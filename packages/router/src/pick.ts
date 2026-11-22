@@ -9,6 +9,8 @@ import type { Availability } from "./state.ts";
 export type DataClass = "public" | "sensitive" | "parcs";
 
 export interface CatalogModel {
+	efforts?: readonly Effort[];
+	unproven?: boolean;
 	id: string;
 	provider: string;
 	score: number;
@@ -170,6 +172,7 @@ export function poolIdOf(m: CatalogModel): string | undefined {
 }
 
 export interface Offer {
+	unproven?: boolean;
 	id: string;
 	provider: string;
 	model: string;
@@ -208,12 +211,13 @@ export function offersFrom(catalog: Catalog, kind: string, pools: Pool[]): Offer
 		const model = suffix ? m.id.slice(0, -suffix.length - 1) : m.id;
 		const family = familyOf(m.id);
 
-		return supportedEfforts(m.provider, model, catalogEffort).map((effort) => ({
+		return (m.efforts ?? supportedEfforts(m.provider, model, catalogEffort)).map((effort) => ({
 			id:
 				effort !== "default" && (m.provider === "gemini" || m.provider.startsWith("agy-"))
 					? `${model}-${effort}`
 					: model,
 			provider: m.provider,
+			unproven: m.unproven ?? false,
 			model,
 			effort,
 			family,
@@ -394,7 +398,10 @@ function offerReasons(o: Offer, pools: Map<Pool, PoolState>, state: State): stri
 		reasons.push(`model maker ${maker} excluded (--not-vendor)`);
 	}
 
-	if (state.choice && (o.model !== state.choice.model || (state.choice.effort && o.effort !== state.choice.effort))) {
+	if (
+		state.choice &&
+		(o.model !== state.choice.model || (state.choice.effort && o.effort !== state.choice.effort))
+	) {
 		reasons.push("not the caller's choice");
 	}
 
@@ -471,11 +478,16 @@ export function pick(catalog: Catalog, kind: string, tier: string, state: State)
 		return [lo, order[i - 1]?.[1] ?? Infinity] as const;
 	};
 
-	const chosen = tier === "*" ? "*" : tries.find(([t]) => {
-		const [lo, hi] = band(t);
+	const chosen =
+		tier === "*"
+			? "*"
+			: tries.find(([t]) => {
+					const [lo, hi] = band(t);
 
-		return judged.some((j) => j.reasons.length === 0 && j.offer.score >= lo && j.offer.score < hi);
-	})?.[0];
+					return judged.some(
+						(j) => j.reasons.length === 0 && j.offer.score >= lo && j.offer.score < hi,
+					);
+				})?.[0];
 	const [lo, hi] = band(chosen ?? tier);
 	const ranked: Ranked[] = [];
 	const excluded: Pick["excluded"] = [];

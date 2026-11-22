@@ -1,4 +1,3 @@
-import { basename } from "node:path";
 // route: pick a builder offer (model, effort, plan, pool) for a brief from live quota state.
 //
 //   route pick --dry --kind <code|ui|research|write|sweep|cyber|architecture> --tier <S|A|B|C|top|mid|fast|cheap>
@@ -8,6 +7,7 @@ import { basename } from "node:path";
 import { spawnSync } from "node:child_process";
 import { existsSync, readFileSync, realpathSync } from "node:fs";
 import { userInfo, homedir } from "node:os";
+import { basename } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { parseArgs } from "node:util";
 
@@ -20,6 +20,7 @@ import {
 } from "@petalnet/harness-hooks/quota-sources";
 
 import { redact } from "./adapters.ts";
+import { discoverCodex, withCodexCatalog, checkCodexAlerts } from "./codex-catalog.ts";
 import { evidenceKey, EFFORTS, halfLifeDays, readEvidence } from "./evidence.ts";
 import { readOpenEvidence } from "./open-evidence.ts";
 import {
@@ -42,6 +43,8 @@ const USAGE = `usage:
             run your pick on a task given inline, as a file, or on stdin; route checks policy and quota, logs it and pings Janet when it ends
   route why <model>[:<effort>] [--for <kind>] [--class <class>]
             why a model is or isn't runnable, with its evidence
+  route refresh-codex
+            refresh installed-client models and post new-model or stale-client alerts once
   route pull-evidence
 kinds: code ui research write sweep cyber architecture (default code). class defaults to public and rises
 automatically for briefs that carry credentials (sensitive) or PARCS/Bridgeton (parcs).`;
@@ -86,7 +89,10 @@ export function readBrief(file: string | undefined): { text: string } | { error:
 	return text.trim() === "" ? { error: `brief ${file} is empty` } : { text };
 }
 
-/** "Parcs Labs" is Parker's own LLC, not the Bridgeton PARCS job, so it does not count. A brief carrying a credential is sensitive whatever the flag says; the class only ever rises. */
+/**
+ * "Parcs Labs" is Parker's own LLC, not the Bridgeton PARCS job, so it does not count. A brief
+ * carrying a credential is sensitive whatever the flag says; the class only ever rises.
+ */
 export function effectiveDataClass(flag: DataClass, brief: string): DataClass {
 	if (flag === "parcs" || /\bBridgeton\b|\bPARCS\b(?!\s*Labs)/iu.test(brief)) {
 		return "parcs";
@@ -114,13 +120,19 @@ export function formatMenu(result: Pick, kind: string): string {
 		e ? `Q=${e.q.toFixed(2)}` : `score=${String(o.score)}`,
 		e ? `$${e.cost.toFixed(2)}` : "",
 		e ? `~${Math.round(e.seconds / 60)}m` : "",
-		source === "evidence" ? "" : "(no evidence)",
+		source === "evidence" ? "" : o.unproven ? "(new, unproven; family prior)" : "(no evidence)",
 	]);
 	const widths = rows[0]!.map((_, i) => Math.max(...rows.map((r) => r[i]!.length)));
 
 	return [
 		`runnable for ${kind} (best first; Q = expected quality 0-1 per task):`,
-		...rows.map((r) => `  ${r.map((cell, i) => cell.padEnd(widths[i]!)).join("  ").trimEnd()}`),
+		...rows.map(
+			(r) =>
+				`  ${r
+					.map((cell, i) => cell.padEnd(widths[i]!))
+					.join("  ")
+					.trimEnd()}`,
+		),
 		`${String(result.excluded.filter((x) => !x.reasons.includes("not the caller's choice")).length)} more not runnable: route why <model>`,
 	].join("\n");
 }
@@ -223,7 +235,19 @@ export function formatPick(result: Pick, kind: string, tier: string): string {
 }
 
 async function main(argv: string[]): Promise<number> {
+	if (argv.length === 1 && argv[0] === "refresh-codex") {
+		const dir = `${homedir()}/.local/state/router`;
+		const snapshot = await discoverCodex(dir, true);
+		if (!snapshot) throw new Error("Codex catalog refresh failed");
+		await checkCodexAlerts(
+			dir,
+			snapshot,
+			readJson<Catalog>(`${homedir()}/.claude/shared/model-tiers.json`),
+		);
+		return 0;
+	}
 	if (argv.length === 1 && argv[0] === "pull-evidence") {
+		await discoverCodex(`${homedir()}/.local/state/router`, true);
 		const pulled = spawnSync(
 			"python3",
 			[fileURLToPath(new URL("pull_evidence.py", import.meta.url))],
@@ -290,7 +314,9 @@ async function main(argv: string[]): Promise<number> {
 					: { text: asked };
 
 	if ("text" in brief && command === "run" && !brief.text.trim()) {
-		process.stderr.write("route: the task is empty; aborting before any quota read or model call\n");
+		process.stderr.write(
+			"route: the task is empty; aborting before any quota read or model call\n",
+		);
 
 		return 2;
 	}
@@ -302,7 +328,10 @@ async function main(argv: string[]): Promise<number> {
 	}
 
 	const home = homedir();
-	const catalog = readJson<Catalog>(`${home}/.claude/shared/model-tiers.json`);
+	const catalog = withCodexCatalog(
+		readJson<Catalog>(`${home}/.claude/shared/model-tiers.json`),
+		await discoverCodex(`${home}/.local/state/router`),
+	);
 
 	const dataClass = effectiveDataClass(flagClass, brief.text);
 	const legacy = readJson<{ deny?: string[]; deny_patterns?: string[] }>(
@@ -330,7 +359,9 @@ async function main(argv: string[]): Promise<number> {
 		bannedEfforts: ["xhigh", "max", "ultra"],
 		// Eli and Parker 2026-11-19: the caller picks from route's menu; route enforces and runs.
 		choice: command === "ls" ? undefined : { model: model ?? "", effort: effort || undefined },
-		notVendor: (values["not-vendor"] ?? []).flatMap((v) => v.split(",")).map((v) => v.trim().toLowerCase()),
+		notVendor: (values["not-vendor"] ?? [])
+			.flatMap((v) => v.split(","))
+			.map((v) => v.trim().toLowerCase()),
 		reports: { "google-ai": google, codex, claude },
 		exhausted: readJson(`${home}/.local/state/agy-build/exhausted.json`, {}),
 		deny: legacy.deny ?? [],
@@ -378,7 +409,10 @@ async function main(argv: string[]): Promise<number> {
 			return result.ranked.length > 0 ? 0 : 3;
 		}
 
-		const alternatives = pick(catalog, kind, tier, { ...state, choice: undefined }).ranked.slice(0, 3);
+		const alternatives = pick(catalog, kind, tier, { ...state, choice: undefined }).ranked.slice(
+			0,
+			3,
+		);
 
 		process.stdout.write(
 			`${target} can't run now. Best runnable instead: ${alternatives.map((r) => `${r.offer.model}:${r.offer.effort}`).join(", ") || "none"}\n`,
