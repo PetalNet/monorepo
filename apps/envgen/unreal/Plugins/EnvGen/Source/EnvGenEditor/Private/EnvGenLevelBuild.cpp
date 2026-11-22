@@ -3556,6 +3556,9 @@ bool FEnvGenLevelBuild::Start(const FString& ManifestPath, const FString& MapPat
 			return false;
 		}
 		Growth = MakeTexture(TEXT("T_TurfGrowth"), Width, Height, TSF_BGRA8, Bytes.GetData(), false, State->Packages, TC_VectorDisplacementmap);
+		// Grass maps need the full control before pixel streaming demand exists.
+		Growth->NeverStream = true;
+		Growth->PostEditChange();
 	}
 	UTexture2D* Condition = nullptr;
 	if (!Manifest.Turf.ConditionFile.IsEmpty())
