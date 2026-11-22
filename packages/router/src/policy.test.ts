@@ -123,7 +123,12 @@ it("sends and hashes captured task-file contents and rejects excessive depth bef
 	const reader = path.join(dir, "reader");
 
 	await writeFile(reader, "#!/bin/sh\nexit 0\n", { mode: 0o700 });
-	await writeFile(path.join(dir, "codex"), "#!/bin/sh\ncat\n", { mode: 0o700 });
+
+	await writeFile(
+		path.join(dir, "codex"),
+		'#!/bin/sh\ncase "$1" in --version|debug) exit 1;; esac\ncat\n',
+		{ mode: 0o700 },
+	);
 
 	const env = {
 		...process.env,

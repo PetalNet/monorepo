@@ -55,7 +55,7 @@ export async function readAvailability(dir: string): Promise<Availability> {
 	return result;
 }
 
-async function locked<T>(dir: string, action: () => Promise<T>): Promise<T> {
+export async function locked<T>(dir: string, action: () => Promise<T>): Promise<T> {
 	await mkdir(dir, { recursive: true, mode: 0o700 });
 
 	const lock = spawn(

@@ -359,6 +359,8 @@ describe("brief", () => {
 		const marker = path.join(dir, "reader-ran");
 		const reader = path.join(dir, "reader");
 
+		writeFileSync(path.join(dir, "codex"), "#!/bin/sh\nexit 1\n", { mode: 0o755 });
+
 		writeFileSync(reader, `#!/bin/sh\ntouch ${marker}\n`);
 		chmodSync(reader, 0o755);
 		mkdirSync(path.join(dir, ".claude/shared"), { recursive: true });
@@ -372,6 +374,7 @@ describe("brief", () => {
 				env: {
 					...process.env,
 					HOME: dir,
+					PATH: `${dir}:${process.env["PATH"] ?? ""}`,
 					QUOTA_AGY_CMD: reader,
 					QUOTA_CODEX_CMD: reader,
 					QUOTA_CLAUDE_USAGE_CMD: reader,

@@ -20,6 +20,7 @@ import {
 } from "@petalnet/harness-hooks/quota-sources";
 
 import { redact, hasCredentials, routeDepth } from "./adapters.ts";
+import { discoverCodex, withCodexCatalog, checkCodexAlerts } from "./codex-catalog.ts";
 import { EFFORTS, readEvidence } from "./evidence.ts";
 import { readOpenEvidence } from "./open-evidence.ts";
 import { BLOCKS, POOLS, PLANS, type Catalog, type DataClass, type Pick, pick } from "./pick.ts";
@@ -33,6 +34,8 @@ const USAGE = `usage:
             run your pick on a task given inline, as a file, or on stdin; route checks policy and quota, logs it and pings Janet when it ends
   route why <model>[:<effort>] [--for <kind>] [--class <class>]
             why a model is or isn't runnable, with its evidence
+  route refresh-codex
+            refresh installed-client models and post new-model or stale-client alerts once
   route pull-evidence
 kinds: code ui research write sweep cyber architecture (default code). class defaults to public and rises
 automatically for briefs that carry credentials (sensitive) or PARCS/Bridgeton (parcs).`;
@@ -106,7 +109,7 @@ export function formatMenu(result: Pick, kind: string): string {
 		e ? `Q=${e.q.toFixed(2)}` : `score=${String(o.score)}`,
 		e ? `$${e.cost.toFixed(2)}` : "",
 		e ? `~${String(Math.round(e.seconds / 60))}m` : "",
-		source === "evidence" ? "" : "(no evidence)",
+		source === "evidence" ? "" : o.unproven ? "(new, unproven; family prior)" : "(no evidence)",
 	]);
 	const widths = (rows[0] ?? []).map((_, i) => Math.max(...rows.map((r) => (r[i] ?? "").length)));
 
@@ -221,7 +224,26 @@ export function formatPick(result: Pick, kind: string, tier: string): string {
 }
 
 async function main(argv: string[]): Promise<number> {
+	if (argv.length === 1 && argv[0] === "refresh-codex") {
+		const dir = `${homedir()}/.local/state/router`;
+		const snapshot = await discoverCodex(dir, true).catch(() => undefined);
+
+		await checkCodexAlerts(
+			dir,
+			snapshot,
+			readJson<Catalog>(`${homedir()}/.claude/shared/model-tiers.json`),
+		);
+
+		if (!snapshot) {
+			throw new Error("Codex catalog refresh incomplete");
+		}
+
+		return 0;
+	}
+
 	if (argv.length === 1 && argv[0] === "pull-evidence") {
+		await discoverCodex(`${homedir()}/.local/state/router`);
+
 		const pulled = spawnSync(
 			"python3",
 			[fileURLToPath(new URL("pull_evidence.py", import.meta.url))],
@@ -309,7 +331,10 @@ async function main(argv: string[]): Promise<number> {
 	}
 
 	const home = homedir();
-	const catalog = readJson<Catalog>(`${home}/.claude/shared/model-tiers.json`);
+	const catalog = withCodexCatalog(
+		readJson<Catalog>(`${home}/.claude/shared/model-tiers.json`),
+		await discoverCodex(`${home}/.local/state/router`),
+	);
 
 	const dataClass = effectiveDataClass(flagClass, brief.text);
 	const legacy = readJson<{ deny?: string[]; deny_patterns?: string[] }>(

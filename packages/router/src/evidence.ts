@@ -100,7 +100,13 @@ export function normalizeAA(raw: unknown): Evidence {
 			field(record, "effort.slug") ??
 			(typeof slug === "string" && slug.endsWith("-non-reasoning") ? "none" : undefined);
 		const asof = field(record, "fetchedAt") ?? field(raw, "fetchedAt");
-		const model = typeof release === "string" ? ALIASES[release] : undefined;
+		const model =
+			typeof release === "string"
+				? (ALIASES[release] ??
+					(/^gpt-\d+(?:[.-]\d+)?-[a-z][a-z0-9-]*$/u.test(release)
+						? release.replace(/^(gpt-\d+)-(\d+)-/u, "$1.$2-")
+						: undefined))
+				: undefined;
 
 		if (
 			typeof slug !== "string" ||

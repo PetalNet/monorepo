@@ -56,6 +56,20 @@ class PullerTests(unittest.TestCase):
                                                           {"id": "gemini-4-neon-high"}]}),
                          {"claude-opus-5-5", "gemini-4-neon"})
 
+    def test_discovered_future_release_gets_evidence_without_static_catalog_edit(self):
+        with tempfile.TemporaryDirectory() as directory:
+            state = Path(directory)
+            catalog = state / "catalog.json"
+            catalog.write_text(json.dumps({"models": [{"id": "gpt-6-astra"}]}))
+            (state / "codex-models.json").write_text(json.dumps({"client_version": "0.171.0", "models": [{"slug": "gpt-7.1-astra"}]}))
+            def sample(_cache, rows):
+                rows.add("gpt-7-1-astra (high)", 1500, "arena_webdev", "Arena", DATE, "https://example.test")
+            with patch.object(evidence, "PULLERS", {"sample": sample}), contextlib.redirect_stdout(io.StringIO()):
+                self.assertEqual(evidence.pull(state, catalog), 0)
+            rows = json.loads((state / "evidence-open.json").read_text())["rows"]
+            self.assertEqual(rows[0]["model"], "gpt-7.1-astra")
+            self.assertEqual(rows[0]["effort"], "high")
+
     def test_arena_pagination_provenance_unmapped_and_zero_scores(self):
         cache = FixtureCache(arena_page(["GPT-6 Astra (Max)"], 2),
                              arena_page(["GPT-6 Astra Preview"], 2))
