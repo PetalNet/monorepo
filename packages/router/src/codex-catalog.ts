@@ -127,7 +127,7 @@ export async function discoverCodex(
 }
 
 export function withCodexCatalog(catalog: Catalog, snapshot: Snapshot | undefined): Catalog {
-	if (!snapshot) return catalog;
+	if (!snapshot) return { ...catalog, models: catalog.models.filter((m) => !HIDDEN.has(m.id)) };
 	const known = new Map(catalog.models.filter((m) => m.provider === "codex").map((m) => [m.id, m]));
 	const models = snapshot.models.map((m): CatalogModel => {
 		const prior = known.get(m.slug);
@@ -203,7 +203,7 @@ export async function checkCodexAlerts(
 		.filter((m) => !known.has(m.slug))
 		.map((m) => ({
 			key: `model:${m.slug}`,
-			message: `New Codex model ${m.slug} available on client ${snapshot.client_version}; new, unproven family prior until evidence arrives.`,
+			message: `New Codex model ${m.slug} available on client ${snapshot.client_version}; discovered and added to the router.`,
 		}));
 	if (
 		release &&
