@@ -479,7 +479,7 @@ namespace
 					for (const auto& Entry : (*Hashes)->Values)
 					{
 						FString Hash;
-						if (Entry.Value->TryGetString(Hash)) Out.Turf.ControlSha1.Add(Entry.Key, Hash);
+						if (Entry.Value->TryGetString(Hash)) Out.Turf.ControlSha1.Add(FString(*Entry.Key), Hash);
 					}
 			}
 			const TSharedPtr<FJsonObject>* Calibration = nullptr;
