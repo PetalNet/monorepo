@@ -560,7 +560,7 @@ export class RelicsDatabase {
 							}
 						}
 
-						if (collisions.length) {
+						if (collisions.length > 0) {
 							throw new Conflict({
 								message: `Catalog numbers ${collisions.join(", ")} are already in use for ${variety.typeName} / ${variety.name}. Use next free numbers to try again.`,
 							});

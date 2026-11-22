@@ -6,17 +6,17 @@ export function nextCatalogNumber({
 }: {
 	typeId: number;
 	varietyId: number;
-	relics: ReadonlyArray<{
+	relics: readonly {
 		typeId: number | null;
 		varietyId: number | null;
 		indexNumber: number | null;
-	}>;
-	ranges: ReadonlyArray<{
+	}[];
+	ranges: readonly {
 		typeId: number;
 		varietyId: number;
 		startIndex: number | null;
 		endIndex: number | null;
-	}>;
+	}[];
 }) {
 	return (
 		Math.max(

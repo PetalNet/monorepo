@@ -265,12 +265,12 @@ describe("catalog and tag continuity", () => {
 
 		expect(nextCatalogNumber({ ...before, typeId: 1, varietyId: 1 })).toBe(6);
 
-		expect(() =>
+		expect(() => {
 			db.administer(
 				{ kind: "allocate", typeId: 1, varietyId: 1, start: 1, end: 6, lore: "" },
 				"admin",
-			),
-		).toThrow("Catalog numbers 2, 4, 5 are already in use");
+			);
+		}).toThrow("Catalog numbers 2, 4, 5 are already in use");
 
 		expect(db.adminData()).toEqual(before);
 	});
