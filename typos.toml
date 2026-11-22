@@ -16,6 +16,8 @@ extend-exclude = [
 	"apps/point/docs/design/**",
 	# Prebuilt ProseMark editor bundle (minified third-party code), vendored as-is.
 	"apps/tasks/static/vendor/**",
+	# Upstream Draco decoder identifiers stay byte-faithful.
+	"apps/relics/static/creatures/draco/*.js",
 	# Voice spec: Parker's design rulings are quoted verbatim, typos included,
 	# because paraphrasing a ruling is what caused the misattributions that spec
 	# documents. His spelling is not ours to correct. Only the files that carry
