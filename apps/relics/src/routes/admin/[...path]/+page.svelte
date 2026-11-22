@@ -446,6 +446,11 @@
 			{busy}
 			onactive={(active: boolean) => {
 				writing = active;
+
+				if (active) {
+					message = "";
+					error = "";
+				}
 			}}
 		/>{/key}
 {:else}<p class="message">Choose a tool from the navigation above.</p>{/if}

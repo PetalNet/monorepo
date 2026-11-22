@@ -323,6 +323,31 @@ function inOrder<T>(items: readonly T[], visit: (item: T) => Promise<void>) {
 						process.env.RELICS_QA_SLOW === "1" || (color === 0 && number === 0),
 					);
 
+					if (color === 0 && number === 0) {
+						await page.evaluate(() => {
+							window.nfcMock.allow(false);
+						});
+
+						await page.getByRole("button", { name: "Write tag #1", exact: true }).tap();
+
+						const failure = page
+							.getByRole("alert")
+							.filter({ hasText: "NFC permission was blocked" });
+
+						await failure.waitFor();
+						assert.equal(await page.getByText("Saved.", { exact: true }).count(), 0);
+						const failureBox = await failure.boundingBox();
+						const writeBox = await page
+							.getByRole("button", { name: "Write tag #1", exact: true })
+							.boundingBox();
+
+						assert.ok(failureBox && writeBox && failureBox.y < writeBox.y);
+
+						await page.evaluate(() => {
+							window.nfcMock.allow();
+						});
+					}
+
 					if (color === 0 && number === 1) {
 						await combo(page, "Workshop tool").selectOption("");
 

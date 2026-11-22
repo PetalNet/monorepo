@@ -383,13 +383,15 @@
 		<section class="checklist" hidden={nfcActive}>
 			<h3>Writing checklist</h3>
 
-			<button
-				class="btn btn-ghost"
-				disabled={done === relics.length || busy || nfcActive}
-				onclick={() => {
-					choose(relics.find((r) => !isWritten(r))?.id ?? selected);
-				}}>Go to next unwritten tag</button
-			>
+			{#if !finished}
+				<button
+					class="btn btn-ghost"
+					disabled={done === relics.length || busy || nfcActive}
+					onclick={() => {
+						choose(relics.find((r) => !isWritten(r))?.id ?? selected);
+					}}>Go to next unwritten tag</button
+				>
+			{/if}
 			<ul>
 				{#each relics as relic (relic.id)}<li>
 						<button

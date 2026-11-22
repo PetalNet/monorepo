@@ -264,6 +264,7 @@
 
 {#if supported}
 	<div class="browser-writer" class:active>
+		{#if phase.kind === "error"}<p role="alert">{phase.message}</p>{/if}
 		{#if active && phase.kind !== "overwrite" && phase.kind !== "saving"}
 			<img
 				class="holding-art"
@@ -330,7 +331,7 @@
 					Tag #{phase.number} is written and verified. Your checklist could not be saved. Check your internet
 					connection, then save again. You do not need to rewrite the tag.
 				</p>
-			{:else if phase.kind === "error"}<p role="alert">{phase.message}</p>{/if}
+			{/if}
 		</div>
 		{#if phase.kind === "unsaved"}<button
 				class="btn btn-primary write-button"
