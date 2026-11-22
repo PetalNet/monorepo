@@ -12,19 +12,84 @@ taller and sparse, stands in for what the mower left.
 from __future__ import annotations
 
 import math
+from dataclasses import dataclass
 
 import numpy as np
 from scipy import ndimage
 
 GROWTH_SETTINGS = {
     "kind": "prior",
-    "placement": "majority-grass support, with sharpened imported coverage applied by the engine",
+    "placement": "majority grass with clearance for the tuft footprint and filtered placement",
+    "placement_clearance_m": 0.5,
     "patch_m": 1.2,
     "fringe_m": 2.0,
     "density_range": [1.0, 1.0],
     "height_range": [0.85, 1.5],
     "relief_m": 6.0,
 }
+
+# November campus JPEG proxies, not absolute albedo or measurements of the September build site.
+FIELD_CALIBRATION = {
+    "source": "Parker's campus grass photographs, 2026-11-20; concrete-normalized linear sRGB proxies",
+    "absolute_albedo_calibrated": False,
+    "in_site_bbox": False,
+    "fractions_basis": "resolved projected image area; never placement or blade-count probabilities",
+    "soil_candidate_is_bare_soil": False,
+    "surfaces": {
+        "maintained": {"green": [0.07810345, 0.10891961, 0.02811268],
+                       "dry": [0.15179425, 0.12629397, 0.05261628], "mix": [0.68874832, 0.29389755, 0.01735413]},
+        "worn": {"green": [0.08249069, 0.10680960, 0.04226161],
+                 "dry": [0.16687493, 0.13658607, 0.10252904], "mix": [0.25776350, 0.65135831, 0.09087819]},
+        "edge": {"green": [0.09223241, 0.12025581, 0.03333555],
+                 "dry": [0.16728298, 0.13328318, 0.05658665], "mix": [0.35807610, 0.60851618, 0.03340772]},
+    },
+    "soil": [0.27434814, 0.24857435, 0.21342961],
+    "dry_tuft_diameter_m": [0.16190692, 0.39658934],
+    "spatial_uncertainty_factor_at_least": 2,
+    "fade_cm": [1500, 3000],
+    "application_priors": [
+        "relative photo green/red contrast interpolates maintained and worn appearance; not a measured condition map",
+        "the existing 2 m surface fringe interpolates path-edge appearance",
+        "projected-area mixtures retain condition colour around one maintained luminance reference; site luminance supplies nearby variation and non-soil candidates use dry colour times root shade as low thatch",
+        "living and dead colours mix a tileable multiscale field with per-leaf variation; the conditional dry-tuft range sets its characteristic scale and mapped condition supplies larger wear patterns",
+        "the short ground cover and blade bases use root shade beneath upright leaves; this is a canopy-lighting prior",
+        "calibration fades from 15 to 30 m in steep views; grazing ground views retain short cover through the distant tuft handoff",
+    ],
+}
+
+
+@dataclass(frozen=True)
+class ConditionFields:
+    physical: np.ndarray
+    colour: np.ndarray
+    near_response: np.ndarray
+
+
+def condition(grass: np.ndarray, log_ratio: np.ndarray, cell_m: float) -> ConditionFields:
+    """Physical RG and independent colour/near continuations; outside values are priors, not measurements."""
+    inside = grass > 0.5
+    signal = ndimage.gaussian_filter(log_ratio[1] - log_ratio[0], GROWTH_SETTINGS["patch_m"] / cell_m)
+    low, high = np.percentile(signal[inside], [5, 95]) if inside.any() else (0.0, 0.0)
+    wear = 1 - np.clip((signal - low) / (high - low), 0, 1) if high - low > 1e-5 else np.zeros(grass.shape)
+    edge = (np.clip(1 - ndimage.distance_transform_edt(inside) * cell_m / GROWTH_SETTINGS["fringe_m"], 0, 1)
+            if inside.any() and (~inside).any() else np.zeros(grass.shape))
+    physical = np.stack([wear * inside, edge * inside, np.zeros(grass.shape)]).astype(np.float32)
+    colour = physical.copy()
+    near_response = physical.copy()
+    if inside.any() and not inside.all():
+        nearest = ndimage.distance_transform_edt(~inside, return_distances=False, return_indices=True)
+        colour[:, ~inside] = physical[:, nearest[0, ~inside], nearest[1, ~inside]]
+        near_response[:, ~inside] = physical[:, nearest[0, ~inside], nearest[1, ~inside]]
+    return ConditionFields(physical=physical, colour=colour, near_response=near_response)
+
+
+def placement_support(grass: np.ndarray, cell_m: float) -> np.ndarray:
+    """Keep a tuft's footprint inside grass, including half a texel diagonal of placement uncertainty."""
+    inside = grass > 0.5
+    if not inside.any() or inside.all():
+        return inside
+    clearance = GROWTH_SETTINGS["placement_clearance_m"] + cell_m / math.sqrt(2)
+    return ndimage.distance_transform_edt(inside) * cell_m >= clearance
 
 
 def growth(
@@ -65,11 +130,12 @@ def growth(
                      *GROWTH_SETTINGS["height_range"])
     # Fractional engine placement alone still puts full-sized tufts on path-majority cells.
     # Keep every grass-majority cell at its original density; stop support on the path side.
-    packed = np.stack([density * inside, tall * inside, height / 2])
+    support = placement_support(grass, cell_m)
+    packed = np.stack([density * support, tall * support, height / 2])
     return packed.astype(np.float32), {
         "settings": GROWTH_SETTINGS,
         "photo_green_red_log2_p5_p95": [float(low), float(high)],
-        "density_p5_p95": np.percentile(density[inside], [5, 95]).tolist() if inside.any() else [],
+        "density_p5_p95": np.percentile(density[support], [5, 95]).tolist() if support.any() else [],
         "height_multiplier_p5_p95": np.percentile(height[inside], [5, 95]).tolist() if inside.any() else [],
         "source": "de-shadowed photo detail ratio, surface weights, canopy height and terrain elevation",
         "priors": [
@@ -78,12 +144,12 @@ def growth(
             "prior: local hollows favour growth; relief is terrain minus its 6 m low-pass",
             "prior: continuous short sward at the original density; photo surface weights alone reduce coverage",
             "prior: 1.2 m correlated height noise; height 0.85 to 1.5 times the mowing range",
-            "prior: tuft centres require majority grass; engine weights blend placement at that boundary",
+            "prior: 0.5 m tuft footprint clearance plus half a growth-texel diagonal; interior density stays full",
         ],
     }
 
 # Cool-season lawn turf is mown at 3 to 4 inches in summer: a land-grant university extension guide (publications MG10
-# and G6705). The blades are that tall.
+# and G6705). This is the nominal reference; the near layer includes lower, bent leaves.
 MOWING_HEIGHT_CM = (3 * 2.54, 4 * 2.54)
 # A prior: turf is mown when it has grown a half again over its cutting height (the one-third rule of mowing), so the
 # tall variety stands at 1.5 times the mowing range.
@@ -91,30 +157,54 @@ TALL_OVER_MOWED = 1.5
 # Priors: the lens and frame a still is taken with. They set how wide a blade has to be to show at a distance.
 LENS_FOV_DEG = 90.0
 FRAME_PX = 1920
-# A prior: a blade of the near variety is this wide at its root, in centimetres. Real blades are a third of it; drawn
-# at a third, a blade is under a pixel beyond two metres and the sward is noise.
+# Default root widths in centimetres retain the distant geometry; the near variety overrides them with finer leaves.
 NEAR_BLADE_WIDTH_CM = (0.8, 1.4)
 # Priors, looks with no source: the leaf area index each variety is drawn at, how many blades stand in one tuft and
-# how wide the tuft is, how far out each is drawn, that none casts a shadow (a tuft's own shadow blackens it against
-# a sward that has none), and how much a tuft's size varies. The index of real mown turf is several times the near one: what is
-# drawn is the top of the sward, and the ground's own colour under it is the rest.
-NEAR = {"leaf_area_index": 1.0, "blades": 24, "radius_cm": 9.0, "start_cull_cm": 800, "end_cull_cm": 1500}
-CLUMP = {"leaf_area_index": 0.2, "blades": 24, "radius_cm": 22.5, "start_cull_cm": 2500, "end_cull_cm": 6500}
+# how wide the tuft is, how far out each is drawn, which varieties cast shadows, and how much a tuft's size varies.
+# The index of real mown turf is several times the near one: what is drawn is the top of the sward, and the ground's
+# own colour under it is the rest.
+NEAR = {"leaf_area_index": 2.0, "blades": 66, "blade_width_cm": [0.29, 0.51], "radius_cm": 14.0,
+        "start_cull_cm": 800, "end_cull_cm": 3000,
+        "blade_shape": {"kind": "bent", "peak_height_factor": [0.25, 0.60],
+                        "span_height_ratio": [0.45, 1.20], "arch": [0.05, 0.45],
+                        "tip_twist_magnitude_deg": [25.0, 75.0], "cup_depth_half_width": [0.18, 0.36]}}
+CLUMP = {"leaf_area_index": 0.2, "blades": 24, "radius_cm": 22.5, "start_cull_cm": 2500, "end_cull_cm": 6500,
+         "appear_cm": [800, 1500]}
 TALL = {"leaf_area_index": 0.02, "blades": 8, "radius_cm": 6.0, "start_cull_cm": 2500, "end_cull_cm": 5000}
-CASTS_SHADOW = {"near": False, "clump": False, "tall": False}
+CASTS_SHADOW = {"near": True, "clump": False, "tall": False}
 SIZE_SPREAD = (0.85, 1.15)
 # A blade's brightness from root to tip. A prior.
 ROOT_SHADE, TIP_SHADE = 0.65, 1.12
 
+CANOPY_RESPONSE = {
+    "kind": "prior",
+    "lawn_repeat_cm": 400.0,
+    "lawn_pixels_per_m": 512,
+    "lawn_leaves_per_m2": 16000,
+    "lawn_palette_leaf_share": 0.8,
+    "dry_height_ratio": 0.25,
+    "edge_mowing_height_ratio": 1 / TALL_OVER_MOWED,
+    "grazing_view_sine_range": [0.15, 0.35],
+}
+
 PRIORS = [
     f"prior: leaf area index drawn: {NEAR['leaf_area_index']:g} (near), {CLUMP['leaf_area_index']:g} (clump), {TALL['leaf_area_index']:g} (tall)",
     "prior: blade count, tuft radius, size spread and draw distance of each variety",
-    f"prior: a near blade is {NEAR_BLADE_WIDTH_CM[0]:g} to {NEAR_BLADE_WIDTH_CM[1]:g} cm wide at the root",
-    f"prior: stills have a {LENS_FOV_DEG:g} degree lens and {FRAME_PX} pixels across; a far blade is a pixel wide where the near variety ends",
+    f"prior: a near blade reference width is {NEAR['blade_width_cm'][0]:g} to {NEAR['blade_width_cm'][1]:g} cm before tuft-area normalization",
+    f"prior: stills have a {LENS_FOV_DEG:g} degree lens and {FRAME_PX} pixels across; a far blade is a pixel wide at the clump's full-size distance of {CLUMP['appear_cm'][1] / 100:g} m",
     f"prior: tall tufts stand {TALL_OVER_MOWED:g} times the mowing range (the one-third rule of mowing)",
     f"prior: a blade is {ROOT_SHADE:g} of its colour at the root and {TIP_SHADE:g} at the tip",
-    "prior: no variety casts a shadow",
-    "prior: the clump variety grows in over the distance the near variety shrinks away",
+    "prior: near blades cast shadows; distant clump and tall varieties retain their original unshadowed setting",
+    "prior: the clump variety retains its 8 to 15 m transition; near blades fade over 8 to 15 m in steep views and 15 to 30 m at grazing angles",
+    "prior: near leaves use the explicit bent-shape ranges below the nominal mowing reference, preserving the reference tuft's total static triangulated surface area while individual leaf areas vary; these are not measured November cutting heights",
+    "prior: near leaves twist in either direction and cup across their width; uniform scaling about each unchanged root preserves total reference area and changes final peak, reach, width and foot burial together",
+    "prior: a 4 m lawn tile retains 512 pixels and 16000 texture leaves per square metre to avoid a 1 m worn-patch repeat",
+    f"prior: lawn palette ranks weight per-leaf colour at {CANOPY_RESPONSE['lawn_palette_leaf_share']:.0%} and the field at tuft scale at {1 - CANOPY_RESPONSE['lawn_palette_leaf_share']:.0%}, preserving calibrated texture-pixel fractions and mapped wear",
+    "prior: dead blades reduce to one quarter height at maximum photo wear; surviving grass retains its height and all leaf counts stay full",
+    "prior: tall edge blades return to mowing height nearby; near blades retain their height up to the shared grass-majority root boundary",
+    "prior: worn and edge height responses restore the original geometry over the calibration's 15 to 30 m fade",
+    "prior: at surface-view sines below 0.15, short cover fades over 30 m to the clump cull distance; above 0.35 the original 15 to 30 m material fade remains",
+
 ]
 
 
@@ -124,11 +214,12 @@ def pixel_cm(distance_cm: float) -> float:
 
 
 def _variety(name: str, spec: dict, height_cm: tuple[float, float], source: str) -> dict:
-    # The clump stands in for the near variety beyond its reach: its blades are at least a pixel wide where that ends.
-    wide = pixel_cm(NEAR["end_cull_cm"]) if name == "clump" else 0.0
+    # Preserve the approved distant blades while the denser near layer overlaps their entrance.
+    wide = pixel_cm(spec["appear_cm"][1]) if name == "clump" else 0.0
+    root_width = spec.get("blade_width_cm", NEAR_BLADE_WIDTH_CM)
     width = (
-        max(NEAR_BLADE_WIDTH_CM[0], wide),
-        max(NEAR_BLADE_WIDTH_CM[1], wide * NEAR_BLADE_WIDTH_CM[1] / NEAR_BLADE_WIDTH_CM[0]),
+        max(root_width[0], wide),
+        max(root_width[1], wide * root_width[1] / root_width[0]),
     )
     # A blade tapers from its root width to a point: half its width times its height, both at the middle of their range.
     blade_cm2 = sum(width) / 2 * sum(height_cm) / 2 / 2
@@ -145,10 +236,9 @@ def _variety(name: str, spec: dict, height_cm: tuple[float, float], source: str)
         "scale": list(SIZE_SPREAD),
         "start_cull_cm": spec["start_cull_cm"],
         "end_cull_cm": spec["end_cull_cm"],
-        # The engine shrinks a tuft away between its start and end distance; it has no nearest distance. The clump's
-        # wide blades stand in for the near variety, so they grow in where that one shrinks away.
-        "appear_cm": [NEAR["start_cull_cm"], NEAR["end_cull_cm"]] if name == "clump" else [0, 0],
+        "appear_cm": spec.get("appear_cm", [0, 0]),
         "casts_shadow": CASTS_SHADOW[name],
+        **({"blade_shape": spec["blade_shape"]} if "blade_shape" in spec else {}),
     }
 
 
@@ -159,7 +249,7 @@ def describe() -> dict:
     mowing_source = "a land-grant extension guide's summer mowing height for cool-season turf, 3 to 4 in (MG10, G6705)"
     return {
         "varieties": [
-            _variety("near", NEAR, mowed, mowing_source),
+            _variety("near", NEAR, mowed, mowing_source + "; nominal reference, with lower near-leaf peaks set by the bent-shape prior"),
             _variety("clump", CLUMP, mowed, mowing_source),
             _variety("tall", TALL, tall, "prior: mowing range times " + f"{TALL_OVER_MOWED:g}"),
             {
@@ -172,5 +262,7 @@ def describe() -> dict:
         ],
         "root_shade": ROOT_SHADE,
         "tip_shade": TIP_SHADE,
+        "field_calibration": FIELD_CALIBRATION,
+        "canopy_response": CANOPY_RESPONSE,
         "priors": PRIORS,
     }

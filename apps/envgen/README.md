@@ -395,6 +395,23 @@ green/red contrast drives growth, with native survey colour inside its footprint
 hollows, 2 m edge fringes and canopy shelter introduce height variation and taller margins. These responses are priors,
 not measured mowing heights. The short sward retains the original full density; surface weights alone reduce coverage.
 The height envelope ranges from 0.85 to 1.5 times the mowing range.
+
+Growth generation also writes `turf_condition.png` (original physical RG), `turf_colour_condition.png`
+(colour authority), and `turf_near_condition.png` (near physical response). The near control copies the
+original physical RG inside `grass > 0.5`, including legitimate zeros, and continues it outside from
+the nearest original grass cell using the same EDT donor selection as colour. This is a continuation
+prior, not measured wear or height. Empty masks retain physical zeros; full masks retain physical values.
+Colour and near response own separate arrays and files even when their bytes agree.
+
+The manifest names the near format `nearest-grass-physical-rg-v1`. All four files and their SHA-1s
+form one growth generation; the artifact inventory also records each SHA-256. Its cache key includes
+the near policy, consumed detail decode metadata and elevation scale. Calibrated native imports require
+four distinct controls, matching hashes and positive integral square dimensions from metadata; old or
+malformed calibrated builds require a pipeline rebuild. Near controls must be RGB8 PNG with reserved B zero.
+The native importer creates a distinct linear, uncompressed `T_TurfNearCondition`, with streaming disabled,
+full mips and zero LOD bias. Only near physical response samples it at root coordinates and mip zero.
+Other varieties keep the original physical control, Growth keeps vertex coordinates, and Lawn keeps colour.
+
 Pure non-grass masks suppress growth. Mixed path edges retain vegetation in proportion to the engine's surface
 weight, without an earlier majority-class cutoff. The broadleaf shape is clover-like and its species and abundance
 are priors. One blade in thirteen receives a restrained straw tint within the seasonal palette.
