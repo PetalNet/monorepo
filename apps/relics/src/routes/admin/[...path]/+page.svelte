@@ -60,18 +60,25 @@
 		writerIndex = $state(0),
 		copyMessage = $state("");
 	$effect(() => {
-		if (!catalog.types.some((t) => t.id === typeId)) {typeId = catalog.types.at(0)?.id ?? 0;}
+		if (!catalog.types.some((t) => t.id === typeId)) {
+			typeId = catalog.types.at(0)?.id ?? 0;
+		}
 
-		if (!catalog.types.some((t) => t.id === varietyType))
-			{varietyType = catalog.types.at(0)?.id ?? 0;}
+		if (!catalog.types.some((t) => t.id === varietyType)) {
+			varietyType = catalog.types.at(0)?.id ?? 0;
+		}
 
-		if (!catalog.varieties.some((v) => v.typeId === typeId && v.id === varietyId))
-			{varietyId = catalog.varieties.find((v) => v.typeId === typeId)?.id ?? 0;}
+		if (!catalog.varieties.some((v) => v.typeId === typeId && v.id === varietyId)) {
+			varietyId = catalog.varieties.find((v) => v.typeId === typeId)?.id ?? 0;
+		}
 
-		if (!catalog.ranges.some((r) => r.id === rangeId)) {rangeId = catalog.ranges.at(0)?.id ?? 0;}
+		if (!catalog.ranges.some((r) => r.id === rangeId)) {
+			rangeId = catalog.ranges.at(0)?.id ?? 0;
+		}
 
-		if (!catalog.varieties.some((v) => v.id === writerVariety))
-			{writerVariety = catalog.varieties.at(0)?.id ?? 0;}
+		if (!catalog.varieties.some((v) => v.id === writerVariety)) {
+			writerVariety = catalog.varieties.at(0)?.id ?? 0;
+		}
 	});
 	let writerRelics = $derived(
 		catalog.relics

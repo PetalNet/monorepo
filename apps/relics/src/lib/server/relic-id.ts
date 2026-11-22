@@ -1,5 +1,5 @@
 const charset = "23456789ABCDEFGHJKLMNPQRSTUVWXYZ";
-const cipher = "MPWZQVXLDTYSNHJCF A92E36BKR748U5".replaceAll(" ", "");
+const cipher = "MPWZQVXLDTYSNHJCFA92E36BKRG748U5";
 const toBase = (value: number, width: number) => {
 	let result = "";
 

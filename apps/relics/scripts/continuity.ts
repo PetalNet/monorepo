@@ -1,5 +1,7 @@
 import { createHash } from "node:crypto";
 import { DatabaseSync } from "node:sqlite";
+
+import { encodeRelicId } from "../src/lib/server/relic-id.ts";
 const [beforePath, afterPath, origin] = process.argv.slice(2);
 
 if (!beforePath || !afterPath || !origin) {
@@ -23,13 +25,22 @@ if (oldUsers !== JSON.stringify(after.prepare("SELECT * FROM User ORDER BY id").
 	throw new Error("Legacy owner records changed");
 }
 
-const rows = before.prepare("SELECT id FROM Relic ORDER BY id").all();
+const rows = before.prepare("SELECT id,typeId,varietyId,indexNumber FROM Relic ORDER BY id").all();
 
 await Promise.all(
 	rows.map(async (row) => {
 		if (typeof row.id !== "string") {
 			throw new TypeError("Invalid ID");
 		}
+
+		if (
+			typeof row.typeId === "number" &&
+			typeof row.varietyId === "number" &&
+			typeof row.indexNumber === "number" &&
+			encodeRelicId({ typeId: row.typeId, varietyId: row.varietyId, index: row.indexNumber }) !==
+				row.id
+		)
+			{throw new Error("Tag ID encoding changed");}
 
 		const response = await fetch(`${origin}/relics/${row.id}`, { redirect: "manual" });
 

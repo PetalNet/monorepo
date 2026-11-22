@@ -245,13 +245,13 @@ it("keeps range lore inherited and raw artwork overrides empty in admin editors"
 });
 
 it("rejects duplicate names and missing catalog edits without reporting a service outage", () => {
-	expect(() =>{ 
-		db.administer({ kind: "type", name: "Shroomling", description: "", imageUrl: "" }, "admin"); },
-	).toThrow(Conflict);
+	expect(() => {
+		db.administer({ kind: "type", name: "Shroomling", description: "", imageUrl: "" }, "admin");
+	}).toThrow(Conflict);
 
-	expect(() =>{  db.administer({ kind: "range", id: 999, lore: "Missing" }, "admin"); }).toThrow(
-		"no longer exists",
-	);
+	expect(() => {
+		db.administer({ kind: "range", id: 999, lore: "Missing" }, "admin");
+	}).toThrow("no longer exists");
 });
 
 it("does not invalidate a pending email verification when another link is requested", () => {
@@ -263,4 +263,14 @@ it("does not invalidate a pending email verification when another link is reques
 	const restored = db.consumeMagic(pending);
 
 	expect(db.collection(restored).email).toBe("new@example.invalid");
+});
+
+it("retains the complete legacy substitution alphabet across catalog sizes", () => {
+	expect(encodeRelicId({ typeId: 1, varietyId: 1, index: 0 })).toBe("MMMMPVMMNQJZMMDFM");
+	expect(encodeRelicId({ typeId: 5, varietyId: 2, index: 39 })).toBe("MMMMPVMPQDL3MMFQM");
+	expect(encodeRelicId({ typeId: 500, varietyId: 250, index: 5000 })).toBe("PPMMKTPJKMAPPPWNJ");
+
+	expect(encodeRelicId({ typeId: 65535, varietyId: 65535, index: 65535 })).toBe(
+		"PPMPDCM555785U5L4",
+	);
 });
