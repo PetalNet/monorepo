@@ -7,7 +7,7 @@
 import { spawnSync } from "node:child_process";
 import { existsSync, readFileSync, realpathSync } from "node:fs";
 import { userInfo, homedir } from "node:os";
-import { basename } from "node:path";
+import path from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { parseArgs } from "node:util";
 
@@ -21,18 +21,9 @@ import {
 
 import { redact, hasCredentials, routeDepth } from "./adapters.ts";
 import { discoverCodex, withCodexCatalog, checkCodexAlerts } from "./codex-catalog.ts";
-import { evidenceKey, EFFORTS, halfLifeDays, readEvidence } from "./evidence.ts";
+import { EFFORTS, readEvidence } from "./evidence.ts";
 import { readOpenEvidence } from "./open-evidence.ts";
-import {
-	BLOCKS,
-	POOLS,
-	PLANS,
-	type Catalog,
-	type DataClass,
-	type Pick,
-	offersFrom,
-	pick,
-} from "./pick.ts";
+import { BLOCKS, POOLS, PLANS, type Catalog, type DataClass, type Pick, pick } from "./pick.ts";
 import { run } from "./run.ts";
 import { appendEvent, readAvailability } from "./state.ts";
 
@@ -49,6 +40,7 @@ const USAGE = `usage:
 kinds: code ui research write sweep cyber architecture (default code). class defaults to public and rises
 automatically for briefs that carry credentials (sensitive) or PARCS/Bridgeton (parcs).`;
 const KINDS = new Set(["code", "ui", "research", "write", "sweep", "cyber", "architecture"]);
+
 /**
  * A missing file means "none"; a corrupt one is an error, so a broken cooldown list never reads as
  * all-clear.
@@ -116,17 +108,17 @@ export function formatMenu(result: Pick, kind: string): string {
 		o.pool?.id ?? "-",
 		e ? `Q=${e.q.toFixed(2)}` : `score=${String(o.score)}`,
 		e ? `$${e.cost.toFixed(2)}` : "",
-		e ? `~${Math.round(e.seconds / 60)}m` : "",
+		e ? `~${String(Math.round(e.seconds / 60))}m` : "",
 		source === "evidence" ? "" : o.unproven ? "(new, unproven; family prior)" : "(no evidence)",
 	]);
-	const widths = rows[0]!.map((_, i) => Math.max(...rows.map((r) => r[i]!.length)));
+	const widths = (rows[0] ?? []).map((_, i) => Math.max(...rows.map((r) => (r[i] ?? "").length)));
 
 	return [
 		`runnable for ${kind} (best first; Q = expected quality 0-1 per task):`,
 		...rows.map(
 			(r) =>
 				`  ${r
-					.map((cell, i) => cell.padEnd(widths[i]!))
+					.map((cell, i) => cell.padEnd(widths[i] ?? 0))
 					.join("  ")
 					.trimEnd()}`,
 		),
@@ -149,7 +141,7 @@ export function formatWhy(result: Pick, model: string): string {
 		.map(({ offer: o, reasons, evidence: e }) => {
 			const why = reasons.filter((r) => r !== "not the caller's choice");
 
-			return `${o.model}:${o.effort} [${o.pool?.id ?? "-"}] ${why.length ? `blocked: ${why.join("; ")}` : "runnable"}${e ? ` Q=${e.q.toFixed(2)} cost=$${e.cost.toFixed(2)} ~${Math.round(e.seconds / 60)}m` : ""}`;
+			return `${o.model}:${o.effort} [${o.pool?.id ?? "-"}] ${why.length > 0 ? `blocked: ${why.join("; ")}` : "runnable"}${e ? ` Q=${e.q.toFixed(2)} cost=$${e.cost.toFixed(2)} ~${String(Math.round(e.seconds / 60))}m` : ""}`;
 		})
 		.join("\n");
 }
@@ -235,17 +227,23 @@ async function main(argv: string[]): Promise<number> {
 	if (argv.length === 1 && argv[0] === "refresh-codex") {
 		const dir = `${homedir()}/.local/state/router`;
 		const snapshot = await discoverCodex(dir, true);
-		if (!snapshot) throw new Error("Codex catalog refresh failed");
+
+		if (!snapshot) {
+			throw new Error("Codex catalog refresh failed");
+		}
+
 		await checkCodexAlerts(
 			dir,
 			snapshot,
 			readJson<Catalog>(`${homedir()}/.claude/shared/model-tiers.json`),
 		);
+
 		return 0;
 	}
 
 	if (argv.length === 1 && argv[0] === "pull-evidence") {
 		await discoverCodex(`${homedir()}/.local/state/router`, true);
+
 		const pulled = spawnSync(
 			"python3",
 			[fileURLToPath(new URL("pull_evidence.py", import.meta.url))],
@@ -280,10 +278,13 @@ async function main(argv: string[]): Promise<number> {
 
 	const { values, positionals } = parsed;
 	const [command, ...rest] = positionals;
+
 	if (command === "run" && routeDepth() >= 4) {
 		process.stderr.write("route: nesting limit reached (maximum 4)\n");
+
 		return 4;
 	}
+
 	const kind = values.for ?? "code";
 	const flagClass = values.class ?? "public";
 	const [target, ...words] = command === "ls" ? [] : rest;
@@ -307,13 +308,13 @@ async function main(argv: string[]): Promise<number> {
 	}
 
 	const brief =
-		command !== "run"
-			? { text: "" }
-			: asked === "-"
+		command === "run"
+			? asked === "-"
 				? { text: readFileSync(0, "utf8") }
 				: briefFile
 					? readBrief(briefFile)
-					: { text: asked };
+					: { text: asked }
+			: { text: "" };
 
 	if ("text" in brief && command === "run" && !brief.text.trim()) {
 		process.stderr.write(
@@ -360,7 +361,10 @@ async function main(argv: string[]): Promise<number> {
 		// Eli 2026-11-19: "xhigh, max aren't allowed to be used by you".
 		bannedEfforts: ["xhigh", "max", "ultra"],
 		// Eli and Parker 2026-11-19: the caller picks from route's menu; route enforces and runs.
-		choice: command === "ls" ? undefined : { model: model ?? "", effort: effort || undefined },
+		choice:
+			command === "ls"
+				? undefined
+				: { model: model ?? "", effort: effort === "" ? undefined : effort },
 		notVendor: (values["not-vendor"] ?? [])
 			.flatMap((v) => v.split(","))
 			.map((v) => v.trim().toLowerCase()),
@@ -393,6 +397,7 @@ async function main(argv: string[]): Promise<number> {
 			process.stdout.write(
 				`no offer outside ${state.notVendor.join(",")}; falling back to the best different model${parent ? ` (excluding ${parent})` : ""}\n`,
 			);
+
 			Object.assign(state, fallback);
 			result = retry;
 		}
@@ -421,7 +426,7 @@ async function main(argv: string[]): Promise<number> {
 		);
 
 		process.stdout.write(
-			`${target} can't run now. Best runnable instead: ${alternatives.map((r) => `${r.offer.model}:${r.offer.effort}`).join(", ") || "none"}\n`,
+			`${target ?? ""} can't run now. Best runnable instead: ${alternatives.map((r) => `${r.offer.model}:${r.offer.effort}`).join(", ") || "none"}\n`,
 		);
 
 		return 3;
@@ -463,7 +468,7 @@ async function main(argv: string[]): Promise<number> {
 			tier,
 			brief: brief.text,
 			dataClass,
-			briefName: briefFile ? basename(briefFile, ".md") : brief.text.trim().slice(0, 60),
+			briefName: briefFile ? path.basename(briefFile, ".md") : brief.text.trim().slice(0, 60),
 			cwd: process.cwd(),
 			dir: `${home}/.local/state/router`,
 			legacy: `${home}/.local/state/agy-build`,

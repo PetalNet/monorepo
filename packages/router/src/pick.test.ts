@@ -88,9 +88,10 @@ describe("pick", () => {
 		const result = pick(catalog, "code", "S", state({ bannedEfforts: ["xhigh", "max", "ultra"] }));
 
 		expect(result.ranked.map((r) => r.offer.effort)).not.toContain("xhigh");
+
 		expect(
 			result.excluded.some((r) =>
-				r.reasons.some((why) => why.startsWith("effort xhigh not allowed")),
+				r.reasons.some((reason) => reason.startsWith("effort xhigh not allowed")),
 			),
 		).toBe(true);
 	});
@@ -357,6 +358,7 @@ describe("brief", () => {
 		const dir = mkdtempSync(path.join(tmpdir(), "route-"));
 		const marker = path.join(dir, "reader-ran");
 		const reader = path.join(dir, "reader");
+
 		writeFileSync(path.join(dir, "codex"), "#!/bin/sh\nexit 1\n", { mode: 0o755 });
 
 		writeFileSync(reader, `#!/bin/sh\ntouch ${marker}\n`);
@@ -394,9 +396,11 @@ describe("brief", () => {
 		expect(control.stdout).toContain("runnable for code");
 		expect(control.stdout).toMatch(/gpt-6-astra:none\s+codex/u);
 
-		const why = route("why", "gemini-4-neon:xhigh");
+		const explanation = route("why", "gemini-4-neon:xhigh");
 
-		expect(why.stdout).toMatch(/gemini-4-neon:xhigh \[.*\] blocked: .*google-ai quota error/u);
+		expect(explanation.stdout).toMatch(
+			/gemini-4-neon:xhigh \[.*\] blocked: .*google-ai quota error/u,
+		);
 
 		const parcs = route("why", "gpt-6-astra", "--class", "parcs");
 
@@ -407,6 +411,7 @@ describe("brief", () => {
 import { test as vtest, expect as vexpect } from "vitest";
 
 import { vendorOf } from "./pick.ts";
+
 vtest("vendorOf names the model maker, not the plan", () => {
 	vexpect(vendorOf("gpt-6-astra")).toBe("openai");
 	vexpect(vendorOf("gemini-4-neon")).toBe("google");
