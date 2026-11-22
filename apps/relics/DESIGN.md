@@ -25,22 +25,25 @@ colors:
   light-error: "#9d2e1b"
 typography:
   display:
-    fontFamily: "Geist, sans-serif"
+    fontFamily: "Schibsted Grotesk, sans-serif"
     fontSize: "clamp(2.5rem, 6vw, 4.5rem)"
     fontWeight: 400
     lineHeight: 1.06
   headline:
-    fontFamily: "Geist, sans-serif"
+    fontFamily: "Schibsted Grotesk, sans-serif"
     fontSize: "1.75rem"
     fontWeight: 400
     lineHeight: 1.2
   body:
-    fontFamily: "Geist, sans-serif"
+    fontFamily: "Schibsted Grotesk, sans-serif"
     fontSize: "1rem"
     lineHeight: 1.55
   small:
-    fontFamily: "Geist, sans-serif"
+    fontFamily: "Schibsted Grotesk, sans-serif"
     fontSize: "0.875rem"
+  mono:
+    fontFamily: "IBM Plex Mono, monospace"
+    fontWeight: 400
 rounded:
   label: "2px"
 spacing:
@@ -88,13 +91,13 @@ The specimen route is Experience; the private collection and admin tools are Ope
 
 - Real object photography and an oversized catalog number.
 - Flat charcoal and warm paper, with a restrained herb-green accent.
-- Geist, small corners, hairline divisions and short state transitions.
+- Schibsted Grotesk, small corners, hairline divisions and short state transitions.
 
 ### Review evidence
 
 The reproducible concept seed is `fb9a05f1`, assigned index 6. `.impeccable-seed-proof.txt` contains the corroborating seeded roll. Parker's explicit museum/specimen direction governs the result, as the seed's own user-pinned override permits. No challenger direction or raster comp was adopted.
 
-QUALITY BAR for this pinned, code-led world: one real specimen photograph leads; the adjacent catalog label carries a large number, type, variety and ownership action. On phones the photo stacks above the label and repeated catalog rows recede. The collection uses equally sized specimen cards, original photography for owned varieties and explicit mushroom silhouettes for missing varieties. Text never crowds its neighboring field. Warm paper and charcoal green remain flat, with one herb-green accent, Geist typography, 2px corners and hairline divisions. Claim opens a short inline form, then the collection is the visible reward. Both themes retain the same hierarchy, and all text clears AA contrast plus the lab's APCA targets.
+QUALITY BAR for this pinned, code-led world: one real specimen photograph leads; the adjacent catalog label carries a large number, type, variety and ownership action. On phones the photo stacks above the label and repeated catalog rows recede. The collection uses equally sized specimen cards, original photography for owned varieties and explicit mushroom silhouettes for missing varieties. Text never crowds its neighboring field. Warm paper and charcoal green remain flat, with one herb-green accent, Schibsted Grotesk typography, 2px corners and hairline divisions. Claim opens a short inline form, then the collection is the visible reward. Both themes retain the same hierarchy, and all text clears AA contrast plus the lab's APCA targets.
 
 ## Colors
 
@@ -112,13 +115,13 @@ Charcoal green and warm paper exchange background and text roles between themes.
 
 ## Typography
 
-Geist is self-hosted through fontless, with sans-serif fallback. Regular-weight headings and body copy keep the label direct; tabular numerals align catalog numbers. No letter-spacing overrides are used.
+Schibsted Grotesk is self-hosted through fontless at weights 400, 500 and 600, with sans-serif fallback, for text and display. Regular-weight headings and body copy keep the label direct. IBM Plex Mono 400, with monospace fallback, identifies catalog numbers, relic IDs and tabular figures; its fixed-width numerals reinforce the specimen-label hierarchy. Both families follow the lab typography standard. The root layout renders fontless-generated global font faces and preloads into the SvelteKit head, so the configured families load in SSR as well as client navigation. Fontless supplies metric-adjusted fallbacks and swap behavior. No letter-spacing overrides are used.
 
 The body is 16px with a 1.55 line height; the standard heading scale is in frontmatter. The specimen number is 6rem on wide screens, 5rem at 1000px and 3rem at 700px. Small supporting text is 0.875rem; photo captions can be 0.75rem.
 
 ## Layout
 
-Main content is capped at 1280px, with 48px horizontal padding, reduced to 24px at 800px and 20px at 540px. Spacing commonly follows 8px increments. The specimen uses a two-column image and label layout, stacking image above label at 700px; repeated type and variety rows recede on the smaller layout. Collection cards use three columns, then two at 800px and below. Admin tables scroll horizontally when needed.
+Main content is capped at 1280px, with 48px horizontal padding, reduced to 24px at 800px and 20px at 540px. Spacing commonly follows 8px increments. The specimen uses a two-column image and label layout, stacking image above label at 700px; repeated type and variety rows recede on the smaller layout. The phone identity label reserves 128px for the monospace catalog number. Collection cards use three columns, then two at 800px and below. Admin tables scroll horizontally when needed.
 
 ## Elevation & Depth
 

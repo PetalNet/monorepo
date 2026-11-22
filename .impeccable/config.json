@@ -31,14 +31,6 @@
 			"apps/tasks/src/routes/task/[id]/+page.svelte"
 		],
 		"ignoreRules": [],
-		"ignoreValues": [
-			{
-				"rule": "overused-font",
-				"value": "geist",
-				"files": ["apps/relics/src/theme.css"],
-				"createdAt": "2026-11-22T03:23:43.448Z",
-				"reason": "Lab requirement: the explicitly requested eli-design-mode skill requires Geist, self-hosted via fontless; the independent visual review confirmed the type matches the specimen-label direction."
-			}
-		]
+		"ignoreValues": []
 	}
 }

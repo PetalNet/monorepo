@@ -11,6 +11,10 @@
 			"body": {
 				"displayName": "Body",
 				"purpose": "General reading and controls."
+			},
+			"mono": {
+				"displayName": "Mono",
+				"purpose": "Catalog numbers, relic IDs and tabular figures, using IBM Plex Mono 400."
 			}
 		},
 		"shadows": [
@@ -65,7 +69,7 @@
 			"kind": "button",
 			"description": "The main collection action.",
 			"html": "<button class=\"ds-primary\">Claim relic</button>",
-			"css": ".ds-primary{min-height:48px;padding:12px 24px;border:0;border-radius:2px;background:var(--color-primary);color:var(--color-primary-content);font:500 1rem Geist,sans-serif;transition:background-color 160ms ease-out,color 160ms ease-out,transform 160ms ease-out}.ds-primary:hover{transform:translateY(-1px)}.ds-primary:active{transform:translateY(0)}:focus-visible{outline:2px solid var(--color-primary);outline-offset:4px}@media (prefers-reduced-motion:reduce){*{transition:none!important}}",
+			"css": ".ds-primary{min-height:48px;padding:12px 24px;border:0;border-radius:2px;background:var(--color-primary);color:var(--color-primary-content);font:500 1rem 'Schibsted Grotesk',sans-serif;transition:background-color 160ms ease-out,color 160ms ease-out,transform 160ms ease-out}.ds-primary:hover{transform:translateY(-1px)}.ds-primary:active{transform:translateY(0)}:focus-visible{outline:2px solid var(--color-primary);outline-offset:4px}@media (prefers-reduced-motion:reduce){*{transition:none!important}}",
 			"refersTo": "button-primary"
 		},
 		{
@@ -73,7 +77,7 @@
 			"kind": "button",
 			"description": "A quieter secondary action.",
 			"html": "<button class=\"ds-ghost\">Cancel</button>",
-			"css": ".ds-ghost{min-height:48px;padding:12px 24px;border:0;border-radius:2px;background:transparent;color:var(--color-base-content);font:500 1rem Geist,sans-serif;transition:background-color 160ms ease-out,transform 160ms ease-out}.ds-ghost:hover{background:var(--color-base-200);transform:translateY(-1px)}.ds-ghost:active{transform:translateY(0)}:focus-visible{outline:2px solid var(--color-primary);outline-offset:4px}@media (prefers-reduced-motion:reduce){*{transition:none!important}}",
+			"css": ".ds-ghost{min-height:48px;padding:12px 24px;border:0;border-radius:2px;background:transparent;color:var(--color-base-content);font:500 1rem 'Schibsted Grotesk',sans-serif;transition:background-color 160ms ease-out,transform 160ms ease-out}.ds-ghost:hover{background:var(--color-base-200);transform:translateY(-1px)}.ds-ghost:active{transform:translateY(0)}:focus-visible{outline:2px solid var(--color-primary);outline-offset:4px}@media (prefers-reduced-motion:reduce){*{transition:none!important}}",
 			"refersTo": "button-ghost"
 		},
 		{
@@ -81,22 +85,22 @@
 			"kind": "button",
 			"description": "A filled secondary action.",
 			"html": "<button class=\"ds-neutral\">Action</button>",
-			"css": ".ds-neutral{min-height:48px;padding:12px 24px;border:0;border-radius:2px;background:var(--color-base-300);color:var(--color-base-content);font:500 1rem Geist,sans-serif;transition:transform 160ms ease-out}.ds-neutral:hover{transform:translateY(-1px)}.ds-neutral:active{transform:translateY(0)}:focus-visible{outline:2px solid var(--color-primary);outline-offset:4px}@media (prefers-reduced-motion:reduce){*{transition:none!important}}"
+			"css": ".ds-neutral{min-height:48px;padding:12px 24px;border:0;border-radius:2px;background:var(--color-base-300);color:var(--color-base-content);font:500 1rem 'Schibsted Grotesk',sans-serif;transition:transform 160ms ease-out}.ds-neutral:hover{transform:translateY(-1px)}.ds-neutral:active{transform:translateY(0)}:focus-visible{outline:2px solid var(--color-primary);outline-offset:4px}@media (prefers-reduced-motion:reduce){*{transition:none!important}}"
 		},
 		{
 			"name": "Field",
 			"kind": "input",
 			"description": "A labeled text field.",
 			"html": "<label class=\"ds-label\">Your name<input class=\"ds-field\" placeholder=\"What should we call you?\"></label>",
-			"css": ".ds-label{display:grid;gap:8px;color:var(--muted);font:0.875rem Geist,sans-serif}.ds-field{min-height:48px;padding:12px 16px;border:0;border-radius:2px;background:var(--color-base-200);color:var(--color-base-content);font:1rem Geist,sans-serif}.ds-field::placeholder{color:var(--muted);opacity:1}:focus-visible{outline:2px solid var(--color-primary);outline-offset:4px}@media (prefers-reduced-motion:reduce){*{transition:none!important}}",
+			"css": ".ds-label{display:grid;gap:8px;color:var(--muted);font:0.875rem 'Schibsted Grotesk',sans-serif}.ds-field{min-height:48px;padding:12px 16px;border:0;border-radius:2px;background:var(--color-base-200);color:var(--color-base-content);font:1rem 'Schibsted Grotesk',sans-serif}.ds-field::placeholder{color:var(--muted);opacity:1}:focus-visible{outline:2px solid var(--color-primary);outline-offset:4px}@media (prefers-reduced-motion:reduce){*{transition:none!important}}",
 			"refersTo": "field"
 		},
 		{
 			"name": "Specimen card",
 			"kind": "card",
 			"description": "A catalog card with a square artwork area and label.",
-			"html": "<a class=\"ds-card\" href=\"#specimen\"><div class=\"ds-photo\">Artwork not yet added</div><div class=\"ds-caption\"><div class=\"ds-meta\"><span>Type</span><span>No. 001</span></div><span class=\"ds-name\">Variety</span></div></a>",
-			"css": ".ds-card{display:block;overflow:hidden;border-radius:2px;background:var(--color-base-200);color:var(--color-base-content);text-decoration:none;font-family:Geist,sans-serif;transition:background-color 160ms ease-out}.ds-card:hover{background:var(--color-base-300)}.ds-photo{aspect-ratio:1;background:var(--photo);color:var(--muted);padding:32px}.ds-caption{padding:24px}.ds-meta{display:flex;justify-content:space-between;margin-bottom:8px;color:var(--muted);font-size:.875rem;font-variant-numeric:tabular-nums}.ds-name{font-size:1.5rem}:focus-visible{outline:2px solid var(--color-primary);outline-offset:4px}@media (prefers-reduced-motion:reduce){*{transition:none!important}}",
+			"html": "<a class=\"ds-card\" href=\"#specimen\"><div class=\"ds-photo\">Artwork not yet added</div><div class=\"ds-caption\"><div class=\"ds-meta\"><span>Type</span><span class=\"ds-number\">No. 001</span></div><span class=\"ds-name\">Variety</span></div></a>",
+			"css": ".ds-card{display:block;overflow:hidden;border-radius:2px;background:var(--color-base-200);color:var(--color-base-content);text-decoration:none;font-family:'Schibsted Grotesk',sans-serif;transition:background-color 160ms ease-out}.ds-card:hover{background:var(--color-base-300)}.ds-photo{aspect-ratio:1;background:var(--photo);color:var(--muted);padding:32px}.ds-caption{padding:24px}.ds-meta{display:flex;justify-content:space-between;margin-bottom:8px;color:var(--muted);font-size:.875rem;font-variant-numeric:tabular-nums}.ds-number{font-family:'IBM Plex Mono',monospace}.ds-name{font-size:1.5rem}:focus-visible{outline:2px solid var(--color-primary);outline-offset:4px}@media (prefers-reduced-motion:reduce){*{transition:none!important}}",
 			"refersTo": "specimen-card"
 		},
 		{
@@ -104,7 +108,7 @@
 			"kind": "nav",
 			"description": "Collection navigation and theme control.",
 			"html": "<nav class=\"ds-nav\"><a href=\"#collection\">My collection</a><button aria-label=\"Switch theme\">Theme</button></nav>",
-			"css": ".ds-nav{display:flex;align-items:center;gap:24px;font:0.875rem Geist,sans-serif}.ds-nav a{display:flex;align-items:center;min-height:48px;color:var(--muted);text-decoration:none}.ds-nav a:hover{color:var(--color-base-content)}.ds-nav button{min-height:48px;padding:12px;border:0;border-radius:2px;background:transparent;color:var(--color-base-content);font:inherit}.ds-nav button:hover{background:var(--color-base-200)}:focus-visible{outline:2px solid var(--color-primary);outline-offset:4px}@media (prefers-reduced-motion:reduce){*{transition:none!important}}"
+			"css": ".ds-nav{display:flex;align-items:center;gap:24px;font:0.875rem 'Schibsted Grotesk',sans-serif}.ds-nav a{display:flex;align-items:center;min-height:48px;color:var(--muted);text-decoration:none}.ds-nav a:hover{color:var(--color-base-content)}.ds-nav button{min-height:48px;padding:12px;border:0;border-radius:2px;background:transparent;color:var(--color-base-content);font:inherit}.ds-nav button:hover{background:var(--color-base-200)}:focus-visible{outline:2px solid var(--color-primary);outline-offset:4px}@media (prefers-reduced-motion:reduce){*{transition:none!important}}"
 		}
 	],
 	"narrative": {
@@ -113,7 +117,7 @@
 		"keyCharacteristics": [
 			"Real object photography and an oversized catalog number.",
 			"Flat charcoal and warm paper, with a restrained herb-green accent.",
-			"Geist, small corners, hairline divisions and short state transitions."
+			"Schibsted Grotesk, small corners, hairline divisions and short state transitions."
 		],
 		"rules": [
 			{
