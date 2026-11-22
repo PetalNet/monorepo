@@ -40,7 +40,10 @@ function getOidcConfig() {
 		issuer,
 		clientId,
 		clientSecret,
-		requiredGroup: process.env.OIDC_REQUIRED_GROUP ?? "relics-admins",
+		requiredGroups: [
+			process.env.OIDC_REQUIRED_GROUP ?? "authentik Admins",
+			process.env.RELICS_ADMIN_GROUP ?? "relics-admins",
+		],
 		redirectUri: `${origin}/login/oidc/callback`,
 	};
 }
@@ -171,7 +174,9 @@ export async function exchangeOidcCode(code: string, transaction: typeof Transac
 			!sameOidcValue(payload.nonce, transaction.nonce) ||
 			!payload.sub ||
 			!Array.isArray(payload.groups) ||
-			!payload.groups.includes(config.requiredGroup) ||
+			!config.requiredGroups.some(
+				(group) => Array.isArray(payload.groups) && payload.groups.includes(group),
+			) ||
 			(Array.isArray(payload.aud) && payload.aud.length > 1 && payload.azp !== config.clientId)
 		) {
 			return null;

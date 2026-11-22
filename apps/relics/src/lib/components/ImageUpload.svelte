@@ -1,10 +1,15 @@
 <script lang="ts">
 	import { Schema } from "effect";
+	import { onDestroy } from "svelte";
 
 	import { command } from "../client";
-	let { url = $bindable("") } = $props();
-	let busy = $state(false),
-		error = $state("");
+	let { url = $bindable(""), busy = $bindable(false) } = $props();
+	let error = $state("");
+	let active = true;
+	onDestroy(() => {
+		active = false;
+		busy = false;
+	});
 	async function upload(event: Event) {
 		const input = event.currentTarget;
 
@@ -39,29 +44,43 @@
 				await command("admin/upload", { data: btoa(binary) }),
 			);
 
-			url = result.url;
+			if (active) {
+				url = result.url;
+			}
 		} catch (e) {
-			error = e instanceof Error ? e.message : "Upload failed.";
+			if (active) {
+				error = e instanceof Error ? e.message : "Upload failed.";
+			}
 		} finally {
-			busy = false;
+			if (active) {
+				busy = false;
+			}
 		}
 	}
 </script>
 
 <label class="field"
-	><span>Image URL</span><input
-		class="input"
-		bind:value={url}
-		placeholder="/uploads/… or https://…"
-	/></label
-><label class="field"
-	><span>{busy ? "Uploading…" : "Or upload artwork (PNG, JPEG, WebP; up to 8 MB)"}</span><input
+	><span>{busy ? "Uploading photo…" : "Upload a photo (PNG, JPEG or WebP; up to 8 MB)"}</span><input
 		type="file"
 		accept="image/png,image/jpeg,image/webp"
 		onchange={upload}
 		disabled={busy}
 	/></label
->{#if url}<img class="upload-preview" src={url} alt="Artwork preview" />{/if}{#if error}<p
+>
+<p class="upload-help">
+	Choose a photo from your phone or computer. Wait for the preview, then save the form.
+</p>
+<details>
+	<summary>Use a photo URL instead</summary><label class="field"
+		><span>Image URL</span><input
+			class="input"
+			bind:value={url}
+			disabled={busy}
+			placeholder="/uploads/… or https://…"
+		/></label
+	>
+</details>
+{#if url}<img class="upload-preview" src={url} alt="Artwork preview" />{/if}{#if error}<p
 		class="message error"
 		role="alert"
 	>
@@ -69,6 +88,10 @@
 	</p>{/if}
 
 <style>
+	.upload-help {
+		color: var(--muted);
+		font-size: 0.875rem;
+	}
 	.upload-preview {
 		width: 120px;
 		height: 120px;
