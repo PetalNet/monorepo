@@ -9,7 +9,10 @@ import { expect, it, onTestFinished } from "vitest";
 const runFetcher = (config: string, status = 200) => {
 	const home = mkdtempSync(path.join(tmpdir(), "usage-fetch-"));
 
-	onTestFinished(() => rmSync(home, { recursive: true }));
+	onTestFinished(() => {
+		rmSync(home, { recursive: true });
+	});
+
 	mkdirSync(path.join(home, ".config/claude-matrix-channel"), { recursive: true });
 	writeFileSync(path.join(home, ".config/claude-matrix-channel/usage.toml"), config);
 	const raw = path.join(home, "raw.json");
@@ -53,7 +56,7 @@ it("writes the full usage response to stdout and the raw feed without credential
 	expect(result.status).toBe(0);
 	expect(result.stdout).toBe(JSON.stringify(body));
 	expect(raw).toBe(JSON.stringify(body, null, 2));
-	expect(result.stdout + result.stderr + raw).not.toContain("test-secret");
+	expect(result.stdout + result.stderr + (raw ?? "")).not.toContain("test-secret");
 });
 
 it("fails without publishing when configuration is incomplete", () => {

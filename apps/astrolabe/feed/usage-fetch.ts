@@ -8,9 +8,9 @@ const OUT_PATH =
 	process.env.CLAUDE_USAGE_RAW_OUT ?? "/home/docker/.claude/shared/janet-usage-raw.json";
 
 function readCfg() {
-	const text = readFileSync(CFG_PATH, "utf-8");
+	const text = readFileSync(CFG_PATH, "utf8");
 	const get = (key: string) => {
-		const m = text.match(new RegExp(`^${key}\\s*=\\s*"([^"]+)"`, "m"));
+		const m = new RegExp(`^${key}\\s*=\\s*"([^"]+)"`, "m").exec(text);
 
 		return m ? m[1] : null;
 	};
@@ -43,7 +43,7 @@ async function main() {
 	const res = await fetch(url, { headers });
 
 	if (!res.ok) {
-		console.error(`usage-fetch: HTTP ${res.status}`);
+		console.error(`usage-fetch: HTTP ${String(res.status)}`);
 		process.exit(2);
 	}
 
@@ -53,7 +53,9 @@ async function main() {
 	process.stdout.write(JSON.stringify(body));
 }
 
-main().catch((err: unknown) => {
+try {
+	await main();
+} catch (err) {
 	console.error(`usage-fetch: ${err instanceof Error ? err.message : "request failed"}`);
 	process.exit(2);
-});
+}
