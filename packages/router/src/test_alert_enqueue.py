@@ -24,7 +24,7 @@ class AlertEnqueueTests(unittest.TestCase):
             enqueue(outbox, "release:0.172.0", "Client behind")
             self.assertEqual(len(list(outbox.glob("*.json"))), 1)
 
-    def test_failed_delivery_remains_visible_without_requeueing(self):
+    def test_failed_delivery_remains_visible_without_requeuing(self):
         with tempfile.TemporaryDirectory() as directory:
             outbox = Path(directory)
             enqueue(outbox, "model:gpt-7.1-sol", "New model")
