@@ -34,7 +34,7 @@ use std::{
 use anyhow::{Context as _, Result};
 use async_trait::async_trait;
 use matrix_sdk::{
-    Client,
+    Client, RoomState,
     room::{MessagesOptions, Room},
     ruma::{
         OwnedEventId, OwnedRoomId,
@@ -228,20 +228,19 @@ impl Plugin for Relay {
 }
 
 impl Relay {
-    /// Log loudly at startup if a configured relay room has no local handle —
-    /// the historical dead-leg failure mode (the bot silently skipped the
-    /// room at relay time with a per-message WARN nobody saw).
+    /// Register mapped rooms for health checks, including idle rooms.
     fn validate_rooms(&self, client: &Client, plan: &RelayPlan) {
         for room_id in plan.map.keys() {
             // Every configured room is also a destination for its peers;
             // pre-register so quiet legs are visible in reports from boot.
             self.health.register(room_id.as_str());
-            if client.get_room(room_id).is_none() {
-                self.health
-                    .record_failure(room_id.as_str(), "room handle missing at startup");
+            if client
+                .get_room(room_id)
+                .is_none_or(|room| room.state() != RoomState::Joined)
+            {
                 error!(
                     room = %room_id,
-                    "Configured relay room is NOT available (not joined / bridge gone?) — this leg is dead until fixed"
+                    "Configured relay room is not joined"
                 );
             }
         }
@@ -747,4 +746,34 @@ fn room_message_from_raw(
         return None;
     };
     Some(event)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[tokio::test]
+    async fn registering_missing_rooms_does_not_invent_send_failures() {
+        let client = Client::builder()
+            .homeserver_url("http://localhost:1")
+            .server_versions([matrix_sdk::ruma::api::MatrixVersion::V1_11])
+            .build()
+            .await
+            .unwrap();
+        let health = Arc::new(RelayHealth::new());
+        let relay = Relay::new(Arc::clone(&health));
+        let room = matrix_sdk::ruma::room_id!("!missing:hs").to_owned();
+        let plan = RelayPlan {
+            map: HashMap::from([(room, vec![])]),
+            ..RelayPlan::default()
+        };
+
+        relay.validate_rooms(&client, &plan);
+
+        let report = health.report();
+        assert_eq!(report.len(), 1);
+        assert_eq!(report[0].room, "!missing:hs");
+        assert_eq!(report[0].consecutive_failures, 0);
+        assert_eq!(report[0].failed, 0);
+    }
 }
