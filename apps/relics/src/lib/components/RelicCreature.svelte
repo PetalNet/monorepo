@@ -55,6 +55,7 @@
 
 			failed = true;
 			ready = false;
+			photo = false;
 			abort.abort();
 			current?.dispose();
 			viewer = null;
@@ -177,7 +178,11 @@
 				</div>
 			{/if}
 			<span class="sr-only" role="status"
-				>{failed ? "3D couldn't open. The photo is still available." : ""}</span
+				>{failed
+					? imageUrl && imageUrl !== failedSrc
+						? "3D couldn't open. The real photo is shown instead."
+						: "3D couldn't open. A 3D still preview is shown instead; its color may differ."
+					: ""}</span
 			>
 		</div>
 	{/if}
