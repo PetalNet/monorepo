@@ -90,7 +90,10 @@ s = replace_once(s, '''        await client.refresh_tokens()
         self.client = client''', '''        refreshing = True
 
         async def save_rotated_cookies(updated: Cookies) -> None:
-            if not refreshing and self.client is not client:
+            if refreshing:
+                if cookies is not None:
+                    return
+            elif self.client is not client:
                 return
             self.cookies = updated
             await self.save()

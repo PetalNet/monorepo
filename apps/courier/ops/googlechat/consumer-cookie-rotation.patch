@@ -139,7 +139,7 @@
          self._channel = None
 --- a/mautrix_googlechat/user.py
 +++ b/mautrix_googlechat/user.py
-@@ -264,7 +264,19 @@
+@@ -264,7 +264,22 @@
              max_retries=3,
              retry_backoff_base=2,
          )
@@ -147,7 +147,10 @@
 +        refreshing = True
 +
 +        async def save_rotated_cookies(updated: Cookies) -> None:
-+            if not refreshing and self.client is not client:
++            if refreshing:
++                if cookies is not None:
++                    return
++            elif self.client is not client:
 +                return
 +            self.cookies = updated
 +            await self.save()

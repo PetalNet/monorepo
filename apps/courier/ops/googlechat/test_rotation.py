@@ -265,7 +265,7 @@ class RotationTests(unittest.IsolatedAsyncioTestCase):
                 for name in ['on_stream_event', 'on_connect', 'on_reconnect', 'on_disconnect']:
                     setattr(self, name, modified.Event(name))
             async def refresh_tokens(self):
-                await self._session.fetch('GET', outer.base_url+'/check')
+                await self._session.fetch('GET', outer.base_url+'/rotate')
             @property
             def cookies(self):
                 return self._session.get_auth_cookies()
@@ -280,7 +280,7 @@ class RotationTests(unittest.IsolatedAsyncioTestCase):
                 db.commit()
         user = make_bridge_harness(LocalClient)
         user.mxid, user.gcid = '@fake:test.invalid', 'FAKE-ID'
-        user.cookies = modified.Cookies(**self.fields)
+        user.cookies = None
         user.client = None
         user.user_agent = user.notice_room = user.revision = None
         user.periodic_sync_task = None
@@ -291,22 +291,28 @@ class RotationTests(unittest.IsolatedAsyncioTestCase):
         user.start = user._periodic_sync = no_op
         for name in ['on_stream_event', 'on_connect', 'on_reconnect', 'on_disconnect']:
             setattr(user, name, no_op)
-        self.assertTrue(await user.connect())
+        self.assertTrue(await user.connect(modified.Cookies(**self.fields)))
         await user.conn_task
         await user.periodic_sync_task
+        initial = json.loads(db.execute('SELECT cookies FROM user').fetchone()[0])
+        self.assertEqual(initial['secure_1psidts'], 'FAKE-ROTATED-1')
         await sessions[0].fetch('GET', self.base_url+'/rotate')
         stored = json.loads(db.execute('SELECT cookies FROM user').fetchone()[0])
-        self.assertEqual(stored['secure_1psidts'], 'FAKE-ROTATED-1')
+        self.assertEqual(stored['secure_1psidts'], 'FAKE-ROTATED-2')
         self.assertEqual(stored['secure_3psidts'], 'FAKE-3PSIDTS')
         restarted = self.new_session(fields=stored)
         await restarted.fetch('GET', self.base_url+'/check')
         self.assertEqual(self.requests[-1].count('__Secure-1PSIDTS='), 1)
-        self.assertIn('__Secure-1PSIDTS=FAKE-ROTATED-1', self.requests[-1])
+        self.assertIn('__Secure-1PSIDTS=FAKE-ROTATED-2', self.requests[-1])
 
     async def test_refresh_failure_persists_rotations_before_client_is_installed(self):
-        for endpoint, error in [('/rotate', KeyError),
-                                ('/delete-required', modified.exceptions.NotLoggedInError)]:
-            with self.subTest(endpoint=endpoint):
+        for endpoint, error, replacement in [
+            ('/rotate', KeyError, False),
+            ('/delete-required', modified.exceptions.NotLoggedInError, False),
+            ('/rotate', KeyError, True),
+            ('/delete-required', modified.exceptions.NotLoggedInError, True),
+        ]:
+            with self.subTest(endpoint=endpoint, replacement=replacement):
                 outer = self
                 sessions = []
 
@@ -339,18 +345,23 @@ class RotationTests(unittest.IsolatedAsyncioTestCase):
                 user.user_agent = user.notice_room = user.revision = None
                 user.db = DB()
                 user.log = logging.getLogger('fake-refresh')
+                candidate = modified.Cookies(**{**self.fields, 'ssid': 'FAKE-NEW-SSID'}) if replacement else None
                 with self.assertRaises(error):
-                    await user.connect()
+                    await user.connect(candidate)
                 self.assertIs(user.client, previous_client)
                 stored = json.loads(db.execute('SELECT cookies FROM user').fetchone()[0])
-                expected = 'FAKE-ROTATED-AFTER-DELETE' if endpoint.endswith('required') else f'FAKE-ROTATED-{self.counter}'
+                expected = self.fields['secure_1psidts'] if replacement else (
+                    'FAKE-ROTATED-AFTER-DELETE' if endpoint.endswith('required') else f'FAKE-ROTATED-{self.counter}')
                 self.assertEqual(stored['secure_1psidts'], expected)
+                if replacement:
+                    self.assertEqual(stored, self.fields)
+                    self.assertEqual(user.cookies._asdict(), self.fields)
                 restored = self.new_session(fields=stored)
                 jar = restored._cookie_jar.filter_cookies(URL(self.base_url))
                 self.assertEqual(jar['__Secure-1PSIDTS'].value, expected)
-                if endpoint.endswith('required'):
+                if endpoint.endswith('required') and not replacement:
                     self.assertNotIn('SID', jar)
-                else:
+                elif not endpoint.endswith('required'):
                     from http.cookies import SimpleCookie
                     late = SimpleCookie()
                     late['__Secure-1PSIDTS'] = 'FAKE-LATE-FAILED-CLIENT'
