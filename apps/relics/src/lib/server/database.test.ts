@@ -220,6 +220,47 @@ describe("catalog and tag continuity", () => {
 			db.administer({ kind: "written", rangeId: 1, index: 10 }, "admin");
 		}
 
-		expect(db.adminData().ranges[0]?.writtenIndices).toBe("[10]");
+		expect(db.adminData().ranges[0]?.writtenIndices).toEqual([10]);
 	});
+});
+
+it("keeps range lore inherited and raw artwork overrides empty in admin editors", () => {
+	db.sql.prepare("UPDATE RelicType SET imageUrl=? WHERE id=1").run("/uploads/type.png");
+
+	db.administer(
+		{ kind: "allocate", typeId: 1, varietyId: 1, start: 20, end: 21, lore: "First range lore" },
+		"admin",
+	);
+
+	const id = encodeRelicId({ typeId: 1, varietyId: 1, index: 20 });
+
+	expect(db.card(id).lore).toBe("First range lore");
+	expect(db.adminData().relics.find((r) => r.id === id)?.imageUrl).toBeNull();
+	expect(db.adminData().relics.find((r) => r.id === id)?.lore).toBeNull();
+	expect(db.adminData().varieties[0]?.imageUrl).toBeNull();
+	db.administer({ kind: "range", id: 1, lore: "Edited range lore" }, "admin");
+	expect(db.card(id).lore).toBe("Edited range lore");
+	db.administer({ kind: "range", id: 1, lore: "" }, "admin");
+	expect(db.card(id).lore).toBeNull();
+});
+
+it("rejects duplicate names and missing catalog edits without reporting a service outage", () => {
+	expect(() =>{ 
+		db.administer({ kind: "type", name: "Shroomling", description: "", imageUrl: "" }, "admin"); },
+	).toThrow(Conflict);
+
+	expect(() =>{  db.administer({ kind: "range", id: 999, lore: "Missing" }, "admin"); }).toThrow(
+		"no longer exists",
+	);
+});
+
+it("does not invalidate a pending email verification when another link is requested", () => {
+	const token = claim();
+	const owner = db.requireCollector(token);
+	const pending = db.createMagic(owner.id, "new@example.invalid");
+
+	db.createMagic(owner.id, "old@example.invalid");
+	const restored = db.consumeMagic(pending);
+
+	expect(db.collection(restored).email).toBe("new@example.invalid");
 });

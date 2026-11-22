@@ -3,7 +3,7 @@ FROM node:26.13.1-bookworm-slim@sha256:5df79989ed685e09f0a98019db4cebfb22fb9df1a
 WORKDIR /workspace
 RUN npm install -g pnpm@12.21.0
 COPY . .
-RUN CI=true pnpm install --frozen-lockfile --filter @petalnet/relics... \
+RUN --mount=type=cache,target=/root/.local/share/pnpm/store CI=true pnpm install --frozen-lockfile --filter @petalnet/relics... \
  && pnpm --filter @petalnet/relics check \
  && pnpm --filter @petalnet/relics test \
  && pnpm --filter @petalnet/relics build \

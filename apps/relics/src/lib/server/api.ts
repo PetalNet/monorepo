@@ -28,7 +28,7 @@ async function sendLink(email: string, token: string) {
 		});
 	}
 
-	const link = `${process.env.ORIGIN}/restore?token=${token}`;
+	const link = `${process.env.ORIGIN.replace(/\/+$/, "")}/restore?token=${token}`;
 	const result = await fetch("https://api.resend.com/emails", {
 		method: "POST",
 		signal: AbortSignal.timeout(15000),
@@ -173,13 +173,9 @@ const operations = [
 
 					store.limit(`email:${owner.id}`);
 					const email = input.email.toLowerCase();
-					const existing = store.recoveryCollector(email);
 
-					if (existing && existing.id !== owner.id) {
-						throw new Conflict({
-							message: "That email restores another collection. Ask an admin to combine them.",
-						});
-					}
+					store.limit(`email-ip:${event.getClientAddress()}`, 20);
+					store.limit(`email-address:${email}`);
 
 					const token = store.createMagic(owner.id, email);
 

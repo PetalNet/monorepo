@@ -28,6 +28,21 @@ export const handle = relicsApi.handle(({ event, resolve: render }) =>
 		const store = yield* RelicsStore;
 		const path = event.url.pathname;
 
+		if (event.request.method === "GET") {
+			const aliases: Record<string, string> = {
+				"/relics": "/collection",
+				"/account": "/collection",
+				"/login": "/legacy",
+				"/register": "/",
+				"/nfc-writer": "/admin/nfc-writer",
+			};
+			const destination = aliases[path];
+
+			if (destination) {
+				return new Response(null, { status: 302, headers: { Location: destination } });
+			}
+		}
+
 		if (
 			event.request.method !== "GET" &&
 			event.request.method !== "HEAD" &&
@@ -38,14 +53,16 @@ export const handle = relicsApi.handle(({ event, resolve: render }) =>
 
 		const response = yield* attempt(async () => {
 			if (path === "/health") {
-				return new Response(store.sql.prepare("SELECT 1").get() ? "ok" : "unavailable");
+				const healthy = Boolean(store.sql.prepare("SELECT 1").get());
+
+				return new Response(healthy ? "ok" : "unavailable", { status: healthy ? 200 : 503 });
 			}
 
 			if (path === "/login/oidc") {
 				store.limit(`oidc:${event.getClientAddress()}`, 30);
 				const login = await beginOidcLogin();
 
-				event.cookies.set("relics_oidc", login.transaction, {
+				const cookie = event.cookies.serialize("relics_oidc", login.transaction, {
 					path: "/login/oidc",
 					httpOnly: true,
 					secure: event.url.protocol === "https:",
@@ -53,7 +70,10 @@ export const handle = relicsApi.handle(({ event, resolve: render }) =>
 					maxAge: 600,
 				});
 
-				return new Response(null, { status: 302, headers: { Location: login.url } });
+				return new Response(null, {
+					status: 302,
+					headers: { Location: login.url, "Set-Cookie": cookie },
+				});
 			}
 
 			if (path === "/login/oidc/callback") {
@@ -78,7 +98,7 @@ export const handle = relicsApi.handle(({ event, resolve: render }) =>
 					});
 				}
 
-				event.cookies.set("relics_admin", store.createAdmin(claims.subject), {
+				const cookie = event.cookies.serialize("relics_admin", store.createAdmin(claims.subject), {
 					path: "/",
 					httpOnly: true,
 					secure: event.url.protocol === "https:",
@@ -86,7 +106,22 @@ export const handle = relicsApi.handle(({ event, resolve: render }) =>
 					maxAge: 28800,
 				});
 
-				return new Response(null, { status: 303, headers: { Location: "/admin" } });
+				const headers = new Headers({ Location: "/admin" });
+
+				headers.append("Set-Cookie", cookie);
+
+				headers.append(
+					"Set-Cookie",
+					event.cookies.serialize("relics_oidc", "", {
+						path: "/login/oidc",
+						maxAge: 0,
+						httpOnly: true,
+						secure: event.url.protocol === "https:",
+						sameSite: "lax",
+					}),
+				);
+
+				return new Response(null, { status: 303, headers });
 			}
 
 			if (path === "/logout" && event.request.method === "POST") {
@@ -100,7 +135,19 @@ export const handle = relicsApi.handle(({ event, resolve: render }) =>
 
 				event.cookies.delete("relics_admin", { path: "/" });
 
-				return new Response(null, { status: 303, headers: { Location: "/" } });
+				return new Response(null, {
+					status: 303,
+					headers: {
+						Location: "/",
+						"Set-Cookie": event.cookies.serialize("relics_admin", "", {
+							path: "/",
+							maxAge: 0,
+							httpOnly: true,
+							secure: event.url.protocol === "https:",
+							sameSite: "lax",
+						}),
+					},
+				});
 			}
 
 			if (path.startsWith("/uploads/")) {

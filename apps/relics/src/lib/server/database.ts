@@ -54,6 +54,11 @@ export class RelicsDatabase {
 
 		this.transaction(() => {
 			this.sql.exec(legacySchema);
+
+			this.sql.exec(
+				"CREATE TABLE IF NOT EXISTS Collector(id TEXT PRIMARY KEY,name TEXT NOT NULL,email TEXT UNIQUE)",
+			);
+
 			const columns = this.sql.prepare("PRAGMA table_info(Relic)").all();
 
 			if (!columns.some((x) => x.name === "collectorId")) {
@@ -308,9 +313,7 @@ export class RelicsDatabase {
 	createMagic(collectorId: string, email: string) {
 		const token = newToken();
 
-		this.sql
-			.prepare("DELETE FROM MagicLink WHERE expiresAt<? OR collectorId=?")
-			.run(Date.now(), collectorId);
+		this.sql.prepare("DELETE FROM MagicLink WHERE expiresAt<?").run(Date.now());
 
 		this.sql
 			.prepare("INSERT INTO MagicLink VALUES (?,?,?,?)")
@@ -343,6 +346,7 @@ export class RelicsDatabase {
 			}
 
 			this.sql.prepare("UPDATE Collector SET email=? WHERE id=?").run(link.email, link.collectorId);
+			this.sql.prepare("DELETE FROM MagicLink WHERE collectorId=?").run(link.collectorId);
 
 			return this.createDevice(link.collectorId);
 		});
@@ -379,7 +383,10 @@ export class RelicsDatabase {
 				}),
 				"SELECT id,name,description,imageUrl FROM RelicType ORDER BY id",
 			),
-			varieties: this.collection().varieties,
+			varieties: this.many(
+				Variety,
+				"SELECT v.id,v.typeId,v.name,t.name typeName,v.description,v.imageUrl FROM RelicVariety v JOIN RelicType t ON t.id=v.typeId ORDER BY v.id",
+			),
 			ranges: this.many(
 				Schema.Struct({
 					id: Schema.Finite,
@@ -391,7 +398,12 @@ export class RelicsDatabase {
 					writtenIndices: nullableText,
 				}),
 				"SELECT id,typeId,varietyId,startIndex,endIndex,lore,writtenIndices FROM AllocationRange ORDER BY id",
-			),
+			).map((range) => ({
+				...range,
+				writtenIndices: Schema.decodeUnknownSync(Schema.Array(Schema.Finite))(
+					JSON.parse(range.writtenIndices ?? "[]"),
+				),
+			})),
 			relics: this.many(
 				Schema.Struct({
 					id: Schema.String,
@@ -401,8 +413,11 @@ export class RelicsDatabase {
 					indexNumber: Schema.NullOr(Schema.Finite),
 					ownerId: nullableText,
 					collectorId: nullableText,
+					description: nullableText,
+					lore: nullableText,
+					imageUrl: nullableText,
 				}),
-				"SELECT id,name,typeId,varietyId,indexNumber,ownerId,collectorId FROM Relic ORDER BY typeId,varietyId,indexNumber",
+				"SELECT id,name,typeId,varietyId,indexNumber,ownerId,collectorId,description,lore,imageUrl FROM Relic ORDER BY typeId,varietyId,indexNumber",
 			),
 			collectors: this.many(ownerSchema, "SELECT * FROM Collector ORDER BY name"),
 			legacyOwners: this.many(
@@ -411,189 +426,198 @@ export class RelicsDatabase {
 			),
 		};
 	}
+	private update(query: string, ...params: SQLInputValue[]) {
+		if (this.sql.prepare(query).run(...params).changes !== 1) {
+			throw new Missing({ message: "This catalog entry no longer exists. Refresh and try again." });
+		}
+	}
 	administer(command: AdminCommand, subject: string) {
-		this.transaction(() => {
-			switch (command.kind) {
-				case "type": {
-					if (command.id === undefined) {
-						this.sql
-							.prepare("INSERT INTO RelicType(name,description,imageUrl) VALUES (?,?,?)")
-							.run(command.name, command.description || null, command.imageUrl || null);
-					} else {
-						this.sql
-							.prepare("UPDATE RelicType SET name=?,description=?,imageUrl=? WHERE id=?")
-							.run(command.name, command.description || null, command.imageUrl || null, command.id);
-					}
-
-					break;
-				}
-				case "variety": {
-					if (command.id === undefined) {
-						this.sql
-							.prepare(
-								"INSERT INTO RelicVariety(typeId,name,description,imageUrl) VALUES (?,?,?,?)",
-							)
-							.run(
-								command.typeId,
+		try {
+			this.transaction(() => {
+				switch (command.kind) {
+					case "type": {
+						if (command.id === undefined) {
+							this.sql
+								.prepare("INSERT INTO RelicType(name,description,imageUrl) VALUES (?,?,?)")
+								.run(command.name, command.description || null, command.imageUrl || null);
+						} else {
+							this.update(
+								"UPDATE RelicType SET name=?,description=?,imageUrl=? WHERE id=?",
 								command.name,
 								command.description || null,
 								command.imageUrl || null,
+								command.id,
 							);
-					} else {
-						this.sql
-							.prepare(
+						}
+
+						break;
+					}
+					case "variety": {
+						if (command.id === undefined) {
+							this.sql
+								.prepare(
+									"INSERT INTO RelicVariety(typeId,name,description,imageUrl) VALUES (?,?,?,?)",
+								)
+								.run(
+									command.typeId,
+									command.name,
+									command.description || null,
+									command.imageUrl || null,
+								);
+						} else {
+							this.update(
 								"UPDATE RelicVariety SET name=?,description=?,imageUrl=? WHERE id=? AND typeId=?",
-							)
-							.run(
 								command.name,
 								command.description || null,
 								command.imageUrl || null,
 								command.id,
 								command.typeId,
 							);
+						}
+
+						break;
 					}
+					case "allocate": {
+						if (command.end < command.start || command.end - command.start > 499) {
+							throw new Rejected({
+								message: "Allocate up to 500 relics, with the end at or after the start.",
+							});
+						}
 
-					break;
-				}
-				case "allocate": {
-					if (command.end < command.start || command.end - command.start > 499) {
-						throw new Rejected({
-							message: "Allocate up to 500 relics, with the end at or after the start.",
-						});
-					}
-
-					const variety = this.one(
-						Schema.Struct({ name: Schema.String, typeName: Schema.String }),
-						"SELECT v.name,t.name typeName FROM RelicVariety v JOIN RelicType t ON t.id=v.typeId WHERE v.id=? AND v.typeId=?",
-						command.varietyId,
-						command.typeId,
-					);
-
-					if (!variety) {
-						throw new Rejected({ message: "Choose a variety belonging to this type." });
-					}
-
-					const overlap = this.sql
-						.prepare(
-							"SELECT 1 FROM AllocationRange WHERE typeId=? AND varietyId=? AND (startIndex IS NULL OR startIndex<=?) AND (endIndex IS NULL OR endIndex>=?)",
-						)
-						.get(command.typeId, command.varietyId, command.end, command.start);
-
-					if (overlap) {
-						throw new Conflict({ message: "That range overlaps an existing allocation." });
-					}
-
-					this.sql
-						.prepare(
-							"INSERT INTO AllocationRange(typeId,varietyId,startIndex,endIndex,lore) VALUES (?,?,?,?,?)",
-						)
-						.run(
-							command.typeId,
+						const variety = this.one(
+							Schema.Struct({ name: Schema.String, typeName: Schema.String }),
+							"SELECT v.name,t.name typeName FROM RelicVariety v JOIN RelicType t ON t.id=v.typeId WHERE v.id=? AND v.typeId=?",
 							command.varietyId,
-							command.start,
-							command.end,
-							command.lore || null,
+							command.typeId,
 						);
 
-					for (let index = command.start; index <= command.end; index++) {
+						if (!variety) {
+							throw new Rejected({ message: "Choose a variety belonging to this type." });
+						}
+
+						const overlap = this.sql
+							.prepare(
+								"SELECT 1 FROM AllocationRange WHERE typeId=? AND varietyId=? AND (startIndex IS NULL OR startIndex<=?) AND (endIndex IS NULL OR endIndex>=?)",
+							)
+							.get(command.typeId, command.varietyId, command.end, command.start);
+
+						if (overlap) {
+							throw new Conflict({ message: "That range overlaps an existing allocation." });
+						}
+
 						this.sql
 							.prepare(
-								"INSERT INTO Relic(id,typeId,varietyId,indexNumber,name,lore) VALUES (?,?,?,?,?,?)",
+								"INSERT INTO AllocationRange(typeId,varietyId,startIndex,endIndex,lore) VALUES (?,?,?,?,?)",
 							)
 							.run(
-								encodeRelicId({ typeId: command.typeId, varietyId: command.varietyId, index }),
 								command.typeId,
 								command.varietyId,
-								index,
-								`${variety.typeName} - ${variety.name} #${String(index)}`,
+								command.start,
+								command.end,
 								command.lore || null,
 							);
+
+						for (let index = command.start; index <= command.end; index++) {
+							this.sql
+								.prepare(
+									"INSERT INTO Relic(id,typeId,varietyId,indexNumber,name) VALUES (?,?,?,?,?)",
+								)
+								.run(
+									encodeRelicId({ typeId: command.typeId, varietyId: command.varietyId, index }),
+									command.typeId,
+									command.varietyId,
+									index,
+									`${variety.typeName} - ${variety.name} #${String(index)}`,
+								);
+						}
+
+						break;
 					}
+					case "range":
+						this.update(
+							"UPDATE AllocationRange SET lore=? WHERE id=?",
+							command.lore || null,
+							command.id,
+						);
 
-					break;
-				}
-				case "range":
-					this.sql
-						.prepare("UPDATE AllocationRange SET lore=? WHERE id=?")
-						.run(command.lore || null, command.id);
-
-					break;
-				case "written": {
-					const range = this.one(
-						Schema.Struct({
-							startIndex: Schema.NullOr(Schema.Finite),
-							endIndex: Schema.NullOr(Schema.Finite),
-							writtenIndices: nullableText,
-						}),
-						"SELECT startIndex,endIndex,writtenIndices FROM AllocationRange WHERE id=?",
-						command.rangeId,
-					);
-
-					if (
-						!range ||
-						(range.startIndex !== null && command.index < range.startIndex) ||
-						(range.endIndex !== null && command.index > range.endIndex)
-					) {
-						throw new Rejected({ message: "Index is outside this allocation." });
-					}
-
-					const written = Schema.decodeUnknownSync(Schema.Array(Schema.Finite))(
-						JSON.parse(range.writtenIndices ?? "[]"),
-					);
-
-					this.sql
-						.prepare("UPDATE AllocationRange SET writtenIndices=? WHERE id=?")
-						.run(
-							JSON.stringify([...new Set([...written, command.index])].toSorted((a, b) => a - b)),
+						break;
+					case "written": {
+						const range = this.one(
+							Schema.Struct({
+								startIndex: Schema.NullOr(Schema.Finite),
+								endIndex: Schema.NullOr(Schema.Finite),
+								writtenIndices: nullableText,
+							}),
+							"SELECT startIndex,endIndex,writtenIndices FROM AllocationRange WHERE id=?",
 							command.rangeId,
 						);
 
-					break;
-				}
-				case "reassign": {
-					let collectorId: string | null = null;
-					let ownerId: string | null = null;
-
-					if (command.target.startsWith("collector:")) {
-						collectorId = command.target.slice(10);
-
-						if (!this.sql.prepare("SELECT 1 FROM Collector WHERE id=?").get(collectorId)) {
-							throw new Rejected({ message: "Collection does not exist." });
-						}
-					} else if (command.target.startsWith("legacy:")) {
-						ownerId = command.target.slice(7);
-
-						if (!this.sql.prepare("SELECT 1 FROM User WHERE id=?").get(ownerId)) {
-							throw new Rejected({ message: "Legacy owner does not exist." });
+						if (
+							!range ||
+							(range.startIndex !== null && command.index < range.startIndex) ||
+							(range.endIndex !== null && command.index > range.endIndex)
+						) {
+							throw new Rejected({ message: "Index is outside this allocation." });
 						}
 
-						const migrated = this.one(
-							Schema.Struct({ collectorId: Schema.String }),
-							"SELECT collectorId FROM LegacyMigration WHERE userId=?",
-							ownerId,
+						const written = Schema.decodeUnknownSync(Schema.Array(Schema.Finite))(
+							JSON.parse(range.writtenIndices ?? "[]"),
 						);
 
-						collectorId = migrated?.collectorId ?? null;
-					} else if (command.target !== "") {
-						throw new Rejected({ message: "Choose an existing collection or release the relic." });
-					}
-
-					if (
 						this.sql
-							.prepare(
-								"UPDATE Relic SET collectorId=?,ownerId=?,ownerEmail=NULL,ownerDeviceId=NULL WHERE id=?",
-							)
-							.run(collectorId, ownerId, command.relicId).changes !== 1
-					) {
-						throw new Missing({ message: "Relic not found." });
-					}
+							.prepare("UPDATE AllocationRange SET writtenIndices=? WHERE id=?")
+							.run(
+								JSON.stringify([...new Set([...written, command.index])].toSorted((a, b) => a - b)),
+								command.rangeId,
+							);
 
-					break;
-				}
-				case "relic":
-					this.sql
-						.prepare("UPDATE Relic SET name=?,description=?,lore=?,imageUrl=? WHERE id=?")
-						.run(
+						break;
+					}
+					case "reassign": {
+						let collectorId: string | null = null;
+						let ownerId: string | null = null;
+
+						if (command.target.startsWith("collector:")) {
+							collectorId = command.target.slice(10);
+
+							if (!this.sql.prepare("SELECT 1 FROM Collector WHERE id=?").get(collectorId)) {
+								throw new Rejected({ message: "Collection does not exist." });
+							}
+						} else if (command.target.startsWith("legacy:")) {
+							ownerId = command.target.slice(7);
+
+							if (!this.sql.prepare("SELECT 1 FROM User WHERE id=?").get(ownerId)) {
+								throw new Rejected({ message: "Legacy owner does not exist." });
+							}
+
+							const migrated = this.one(
+								Schema.Struct({ collectorId: Schema.String }),
+								"SELECT collectorId FROM LegacyMigration WHERE userId=?",
+								ownerId,
+							);
+
+							collectorId = migrated?.collectorId ?? null;
+						} else if (command.target !== "") {
+							throw new Rejected({
+								message: "Choose an existing collection or release the relic.",
+							});
+						}
+
+						if (
+							this.sql
+								.prepare(
+									"UPDATE Relic SET collectorId=?,ownerId=?,ownerEmail=NULL,ownerDeviceId=NULL WHERE id=?",
+								)
+								.run(collectorId, ownerId, command.relicId).changes !== 1
+						) {
+							throw new Missing({ message: "Relic not found." });
+						}
+
+						break;
+					}
+					case "relic":
+						this.update(
+							"UPDATE Relic SET name=?,description=?,lore=?,imageUrl=? WHERE id=?",
 							command.name,
 							command.description || null,
 							command.lore || null,
@@ -601,55 +625,75 @@ export class RelicsDatabase {
 							command.relicId,
 						);
 
-					break;
-				case "set": {
-					const id =
-						command.id ??
-						this.sql
-							.prepare("INSERT INTO RelicSet(name,description,imageUrl) VALUES (?,?,?)")
-							.run(command.name, command.description || null, command.imageUrl || null)
-							.lastInsertRowid;
-
-					if (command.id !== undefined) {
-						if (
+						break;
+					case "set": {
+						const id =
+							command.id ??
 							this.sql
-								.prepare("UPDATE RelicSet SET name=?,description=?,imageUrl=? WHERE id=?")
-								.run(command.name, command.description || null, command.imageUrl || null, id)
-								.changes !== 1
-						) {
-							throw new Missing({ message: "Set not found." });
+								.prepare("INSERT INTO RelicSet(name,description,imageUrl) VALUES (?,?,?)")
+								.run(command.name, command.description || null, command.imageUrl || null)
+								.lastInsertRowid;
+
+						if (command.id !== undefined) {
+							if (
+								this.sql
+									.prepare("UPDATE RelicSet SET name=?,description=?,imageUrl=? WHERE id=?")
+									.run(command.name, command.description || null, command.imageUrl || null, id)
+									.changes !== 1
+							) {
+								throw new Missing({ message: "Set not found." });
+							}
+
+							this.sql.prepare("DELETE FROM SetMember WHERE setId=?").run(id);
 						}
 
-						this.sql.prepare("DELETE FROM SetMember WHERE setId=?").run(id);
-					}
+						for (const varietyId of new Set(command.varietyIds)) {
+							const v = this.one(
+								Schema.Struct({ typeId: Schema.Finite }),
+								"SELECT typeId FROM RelicVariety WHERE id=?",
+								varietyId,
+							);
 
-					for (const varietyId of new Set(command.varietyIds)) {
-						const v = this.one(
-							Schema.Struct({ typeId: Schema.Finite }),
-							"SELECT typeId FROM RelicVariety WHERE id=?",
-							varietyId,
-						);
+							if (!v) {
+								throw new Rejected({ message: "Variety not found." });
+							}
 
-						if (!v) {
-							throw new Rejected({ message: "Variety not found." });
+							this.sql
+								.prepare("INSERT INTO SetMember(setId,typeId,varietyId) VALUES (?,?,?)")
+								.run(id, v.typeId, varietyId);
 						}
 
-						this.sql
-							.prepare("INSERT INTO SetMember(setId,typeId,varietyId) VALUES (?,?,?)")
-							.run(id, v.typeId, varietyId);
+						break;
 					}
+					case "deleteSet":
+						this.sql.prepare("DELETE FROM RelicSet WHERE id=?").run(command.id);
 
-					break;
+						break;
 				}
-				case "deleteSet":
-					this.sql.prepare("DELETE FROM RelicSet WHERE id=?").run(command.id);
 
-					break;
+				this.sql
+					.prepare("INSERT INTO AdminAudit(subject,action,createdAt) VALUES (?,?,?)")
+					.run(subject, JSON.stringify(command), Date.now());
+			});
+		} catch (cause) {
+			if (
+				cause instanceof Error &&
+				"errcode" in cause &&
+				typeof cause.errcode === "number" &&
+				(cause.errcode & 255) === 19
+			) {
+				if (cause.errcode === 2067 || cause.errcode === 1555) {
+					throw new Conflict({
+						message: "That catalog entry already exists. Choose a different name or range.",
+					});
+				}
+
+				throw new Rejected({
+					message: "The selected catalog references are invalid. Refresh and try again.",
+				});
 			}
 
-			this.sql
-				.prepare("INSERT INTO AdminAudit(subject,action,createdAt) VALUES (?,?,?)")
-				.run(subject, JSON.stringify(command), Date.now());
-		});
+			throw cause;
+		}
 	}
 }

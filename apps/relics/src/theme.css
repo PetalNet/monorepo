@@ -13,7 +13,7 @@
 	--color-base-content: #f2f0e7;
 	--color-primary: #c2d49b;
 	--color-primary-content: #1b2414;
-	--color-secondary: #bbc3b8;
+	--color-secondary: #cdd4c9;
 	--color-secondary-content: #171b19;
 	--color-neutral: #303831;
 	--color-neutral-content: #f2f0e7;
@@ -35,7 +35,7 @@
 	--color-base-content: #202820;
 	--color-primary: #3c552a;
 	--color-primary-content: #ffffff;
-	--color-secondary: #505b4e;
+	--color-secondary: #434d40;
 	--color-secondary-content: #ffffff;
 	--color-neutral: #d6d8ca;
 	--color-neutral-content: #202820;
@@ -52,13 +52,13 @@
 	font-family: "Geist", sans-serif;
 	font-synthesis: none;
 	font-size: 16px;
-	--muted: #bbc3b8;
+	--muted: #cdd4c9;
 	--rule: #465047;
 	--photo: #d9dbd4;
 	scrollbar-color: var(--color-secondary) var(--color-base-100);
 }
 :root[data-theme="relics-light"] {
-	--muted: #505b4e;
+	--muted: #434d40;
 	--rule: #b5baad;
 	--photo: #dedfd8;
 }
@@ -556,4 +556,16 @@ dialog p {
 		animation: none !important;
 		scroll-behavior: auto !important;
 	}
+}
+@media (max-width: 540px) {
+	.missing-card .caption .small {
+		flex-direction: column;
+		gap: 4px;
+	}
+}
+h1,
+h2,
+h3,
+.specimen-card .caption span {
+	overflow-wrap: anywhere;
 }

@@ -1,0 +1,3 @@
+DIRECTION CONCEPT SEED (key: fb9a05f1; mode: experience; source: api; approved pool: c3b204a1eed6; 306/564 human-approved; rerun with --scope direction --mode experience --from fb9a05f1 --candidate-count 7 to reproduce this roll against this catalog revision)
+ASSIGNED INDEX: 6
+A user- or brief-pinned decision beats the roll, always.

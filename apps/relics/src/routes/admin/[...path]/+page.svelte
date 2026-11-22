@@ -20,8 +20,8 @@
 	let busy = $state(false),
 		message = $state(""),
 		error = $state("");
-	let typeId = $state(1),
-		varietyId = $state(1),
+	let typeId = $state(0),
+		varietyId = $state(0),
 		start = $state(0),
 		end = $state(15),
 		lore = $state("");
@@ -33,8 +33,8 @@
 		varietyName = $state(""),
 		varietyDescription = $state(""),
 		varietyImage = $state(""),
-		varietyType = $state(1);
-	let rangeId = $state(1);
+		varietyType = $state(0);
+	let rangeId = $state(0);
 	let rangeLore = $derived(catalog.ranges.find((r) => r.id === rangeId)?.lore ?? "");
 	let target = $state(""),
 		selectedRelic = $state(""),
@@ -56,15 +56,36 @@
 		setImage = set?.imageUrl ?? "";
 		setVarieties = [...(set?.varietyIds ?? [])];
 	}
-	let writerVariety = $state(1),
+	let writerVariety = $state(0),
 		writerIndex = $state(0),
 		copyMessage = $state("");
+	$effect(() => {
+		if (!catalog.types.some((t) => t.id === typeId)) {typeId = catalog.types.at(0)?.id ?? 0;}
+
+		if (!catalog.types.some((t) => t.id === varietyType))
+			{varietyType = catalog.types.at(0)?.id ?? 0;}
+
+		if (!catalog.varieties.some((v) => v.typeId === typeId && v.id === varietyId))
+			{varietyId = catalog.varieties.find((v) => v.typeId === typeId)?.id ?? 0;}
+
+		if (!catalog.ranges.some((r) => r.id === rangeId)) {rangeId = catalog.ranges.at(0)?.id ?? 0;}
+
+		if (!catalog.varieties.some((v) => v.id === writerVariety))
+			{writerVariety = catalog.varieties.at(0)?.id ?? 0;}
+	});
 	let writerRelics = $derived(
 		catalog.relics
 			.filter((r) => r.varietyId === writerVariety)
 			.sort((a, b) => (a.indexNumber ?? 0) - (b.indexNumber ?? 0)),
 	);
 	let writer = $derived(writerRelics.at(writerIndex));
+	let alreadyWritten = $derived(
+		writer !== undefined &&
+			catalog.ranges.some(
+				(r) =>
+					r.varietyId === writer.varietyId && r.writtenIndices.includes(writer.indexNumber ?? 0),
+			),
+	);
 	let writerUrl = $derived(writer ? `${page.url.origin}/relics/${writer.id}` : "");
 	async function save(input: AdminCommand) {
 		busy = true;
@@ -100,25 +121,13 @@
 		varietyImage = value?.imageUrl ?? "";
 		varietyType = value?.typeId ?? catalog.types.at(0)?.id ?? 1;
 	}
-	async function chooseRelic() {
+	function chooseRelic() {
 		const selected = catalog.relics.find((r) => r.id === selectedRelic);
 
-		if (!selected) {
-			return;
-		}
-
-		relicName = selected.name;
-		const response = await fetch(`/api/v1/relics/${selected.id}`);
-
-		if (response.ok) {
-			const { Schema } = await import("effect");
-			const { RelicCard } = await import("#lib/schema.ts");
-			const record = Schema.decodeUnknownSync(RelicCard)(await response.json());
-
-			relicDescription = record.description ?? "";
-			relicLore = record.lore ?? "";
-			relicImage = record.imageUrl ?? "";
-		}
+		relicName = selected?.name ?? "";
+		relicDescription = selected?.description ?? "";
+		relicLore = selected?.lore ?? "";
+		relicImage = selected?.imageUrl ?? "";
 	}
 	async function copy() {
 		copyMessage = "";
@@ -393,7 +402,7 @@
 				class="select"
 				required
 				bind:value={selectedRelic}
-				onchange={() => void chooseRelic()}
+				onchange={chooseRelic}
 				><option value="">Choose a relic</option>{#each catalog.relics as relic (relic.id)}<option
 						value={relic.id}>{relic.name}</option
 					>{/each}</select
@@ -535,6 +544,9 @@
 				></label
 			>{#if writer}<div class="writer rule">
 					<h3>{writer.name}</h3>
+					<p class="inline-help" role="status">
+						{alreadyWritten ? "Written to a tag" : "Not marked written"}
+					</p>
 					<label class="field"
 						><span>Tag URL</span><input
 							class="input mono"

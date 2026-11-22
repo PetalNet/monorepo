@@ -30,7 +30,7 @@ function getOidcConfig() {
 	const issuer = process.env.OIDC_ISSUER?.replace(/\/+$/, "");
 	const clientId = process.env.OIDC_CLIENT_ID;
 	const clientSecret = process.env.OIDC_CLIENT_SECRET;
-	const origin = process.env.ORIGIN;
+	const origin = process.env.ORIGIN?.replace(/\/+$/, "");
 
 	if (!issuer || !clientId || !clientSecret || !origin) {
 		return null;
@@ -82,7 +82,7 @@ async function discover(issuer: string) {
 	const discovery = Schema.decodeUnknownSync(Discovery)(await response.json());
 
 	if (
-		discovery.issuer !== issuer ||
+		discovery.issuer.replace(/\/+$/, "") !== issuer ||
 		[discovery.authorization_endpoint, discovery.token_endpoint, discovery.jwks_uri].some(
 			(url) => new URL(url).protocol !== "https:",
 		)
@@ -154,27 +154,31 @@ export async function exchangeOidcCode(code: string, transaction: typeof Transac
 		return null;
 	}
 
-	const { id_token } = Schema.decodeUnknownSync(Schema.Struct({ id_token: Schema.String }))(
-		await response.json(),
-	);
-	const { payload } = await jwtVerify(id_token, keys, {
-		issuer: config.issuer,
-		audience: config.clientId,
-		algorithms: ["RS256", "ES256"],
-		requiredClaims: ["exp", "iat", "sub", "nonce"],
-		clockTolerance: 30,
-	});
+	try {
+		const { id_token } = Schema.decodeUnknownSync(Schema.Struct({ id_token: Schema.String }))(
+			await response.json(),
+		);
+		const { payload } = await jwtVerify(id_token, keys, {
+			issuer: discovery.issuer,
+			audience: config.clientId,
+			algorithms: ["RS256", "ES256"],
+			requiredClaims: ["exp", "iat", "sub", "nonce"],
+			clockTolerance: 30,
+		});
 
-	if (
-		typeof payload.nonce !== "string" ||
-		!sameOidcValue(payload.nonce, transaction.nonce) ||
-		!payload.sub ||
-		!Array.isArray(payload.groups) ||
-		!payload.groups.includes(config.requiredGroup) ||
-		(Array.isArray(payload.aud) && payload.aud.length > 1 && payload.azp !== config.clientId)
-	) {
+		if (
+			typeof payload.nonce !== "string" ||
+			!sameOidcValue(payload.nonce, transaction.nonce) ||
+			!payload.sub ||
+			!Array.isArray(payload.groups) ||
+			!payload.groups.includes(config.requiredGroup) ||
+			(Array.isArray(payload.aud) && payload.aud.length > 1 && payload.azp !== config.clientId)
+		) {
+			return null;
+		}
+
+		return { subject: payload.sub };
+	} catch {
 		return null;
 	}
-
-	return { subject: payload.sub };
 }

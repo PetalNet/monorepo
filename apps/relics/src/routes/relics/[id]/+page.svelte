@@ -6,6 +6,11 @@
 	import Mushroom from "#lib/components/Mushroom.svelte";
 	let { data }: import("./$types").PageProps = $props();
 	let relic = $derived(data.relic);
+	let displayName = $derived(
+		relic.name === `${relic.typeName} - ${relic.varietyName} #${String(relic.indexNumber)}`
+			? relic.typeName
+			: relic.name,
+	);
 	let claiming = $state(false),
 		busy = $state(false),
 		name = $state(""),
@@ -64,15 +69,15 @@
 			<span>No.</span><span>{String(relic.indexNumber ?? 0).padStart(3, "0")}</span>
 		</div>
 		<div class="identity">
-			<h1>{relic.typeName}</h1>
+			<h1>{displayName}</h1>
 			<p class="variety">{relic.varietyName} variety</p>
 		</div>
 		<dl>
-			<div class="label-row">
+			<div class="label-row metadata">
 				<dt>Type</dt>
 				<dd>{relic.typeName}</dd>
 			</div>
-			<div class="label-row">
+			<div class="label-row metadata">
 				<dt>Variety</dt>
 				<dd>{relic.varietyName}</dd>
 			</div>
@@ -287,6 +292,9 @@
 		}
 	}
 	@media (max-width: 700px) {
+		.metadata {
+			display: none;
+		}
 		.specimen {
 			grid-template-columns: 1fr;
 			gap: 32px;
