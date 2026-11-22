@@ -20,6 +20,7 @@ COPY --from=build /workspace/apps/relics/build ./build
 COPY --from=build /prod/node_modules ./node_modules
 COPY --from=build /workspace/apps/relics/package.json ./package.json
 COPY --from=build /workspace/apps/relics/LICENSE ./LICENSE
+COPY --from=build /workspace/apps/relics/scripts/creature-catalog.sql ./migrations/creature-catalog.sql
 RUN mkdir -p /app/data && chown node:node /app/data
 USER node
 EXPOSE 4173

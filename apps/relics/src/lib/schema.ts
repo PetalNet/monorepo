@@ -1,5 +1,10 @@
 import { Schema } from "effect";
 
+import { creatureModelIds } from "./creatures";
+
+export const CreatureModelId = Schema.Literals(creatureModelIds);
+export const CreatureColor = Schema.String.check(Schema.isPattern(/^#[0-9a-fA-F]{6}$/));
+
 const text = Schema.String.check(Schema.isMaxLength(4000));
 
 const Name = Schema.Trim.check(Schema.isMinLength(1), Schema.isMaxLength(80));
@@ -31,6 +36,8 @@ export const RelicCard = Schema.Struct({
 	description: Schema.NullOr(Schema.String),
 	lore: Schema.NullOr(Schema.String),
 	imageUrl: Schema.NullOr(Schema.String),
+	modelId: Schema.NullOr(CreatureModelId),
+	color: Schema.NullOr(CreatureColor),
 	friendName: Schema.NullOr(Schema.String),
 	firstName: Schema.NullOr(Schema.String),
 	birthday: Schema.NullOr(Schema.Finite),
@@ -43,6 +50,7 @@ export const Variety = Schema.Struct({
 	typeId: Schema.Finite,
 	name: Schema.String,
 	typeName: Schema.String,
+	color: Schema.NullOr(CreatureColor),
 	description: Schema.NullOr(Schema.String),
 	imageUrl: Schema.NullOr(Schema.String),
 });
@@ -72,6 +80,7 @@ export const Legacy = Schema.Struct({
 export const AdminCommand = Schema.Union([
 	Schema.Struct({
 		kind: Schema.Literal("type"),
+		modelId: Schema.optional(Schema.NullOr(CreatureModelId)),
 		id: Schema.optional(Integer),
 		name: Name,
 		description: text,
@@ -79,6 +88,7 @@ export const AdminCommand = Schema.Union([
 	}),
 	Schema.Struct({
 		kind: Schema.Literal("variety"),
+		color: Schema.optional(Schema.NullOr(CreatureColor)),
 		id: Schema.optional(Integer),
 		typeId: Integer,
 		name: Name,

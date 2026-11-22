@@ -4,9 +4,12 @@
 	import { tick } from "svelte";
 
 	import { command } from "#lib/client.ts";
+	import CreatureColorField from "#lib/components/CreatureColorField.svelte";
+	import CreatureModelField from "#lib/components/CreatureModelField.svelte";
 	import TagWriter from "#lib/components/TagWriter.svelte";
 	import UploadField from "#lib/components/UploadField.svelte";
 	import Workshop from "#lib/components/Workshop.svelte";
+	import type { CreatureModelId } from "#lib/creatures.ts";
 	import type { AdminCommand } from "#lib/schema.ts";
 	let { data }: import("./$types").PageProps = $props();
 	let catalog = $derived(data.catalog);
@@ -30,6 +33,8 @@
 		error = $state("");
 	let uploading = $state(false);
 	let errorNotice = $state<HTMLParagraphElement>();
+	let typeModel = $state<CreatureModelId | null>(null);
+	let varietyColor = $state("");
 	let editType = $state(0),
 		typeName = $state(""),
 		typeDescription = $state(""),
@@ -98,6 +103,7 @@
 	function chooseType() {
 		const value = catalog.types.find((t) => t.id === editType);
 
+		typeModel = value?.modelId ?? null;
 		typeName = value?.name ?? "";
 		typeDescription = value?.description ?? "";
 		typeImage = value?.imageUrl ?? "";
@@ -105,6 +111,7 @@
 	function chooseVariety() {
 		const value = catalog.varieties.find((v) => v.id === editVariety);
 
+		varietyColor = value?.color ?? "";
 		varietyName = value?.name ?? "";
 		varietyDescription = value?.description ?? "";
 		varietyImage = value?.imageUrl ?? "";
@@ -160,6 +167,7 @@
 					name: typeName,
 					description: typeDescription,
 					imageUrl: typeImage,
+					modelId: typeModel,
 				});
 			}}
 		>
@@ -185,9 +193,11 @@
 					class="textarea"
 					maxlength="4000"
 					bind:value={typeDescription}></textarea></label
-			><UploadField bind:busy={uploading} bind:url={typeImage} /><button
-				class="btn btn-primary"
-				disabled={busy || uploading}>{editType ? "Save type" : "Create type"}</button
+			><CreatureModelField bind:value={typeModel} /><UploadField
+				bind:busy={uploading}
+				bind:url={typeImage}
+			/><button class="btn btn-primary" disabled={busy || uploading}
+				>{editType ? "Save type" : "Create type"}</button
 			>
 		</form>
 		<form
@@ -199,6 +209,7 @@
 					name: varietyName,
 					description: varietyDescription,
 					imageUrl: varietyImage,
+					color: varietyColor || null,
 				});
 			}}
 		>
@@ -230,9 +241,11 @@
 					class="textarea"
 					maxlength="4000"
 					bind:value={varietyDescription}></textarea></label
-			><UploadField bind:busy={uploading} bind:url={varietyImage} /><button
-				class="btn btn-primary"
-				disabled={busy || uploading}>{editVariety ? "Save variety" : "Create variety"}</button
+			><CreatureColorField bind:value={varietyColor} /><UploadField
+				bind:busy={uploading}
+				bind:url={varietyImage}
+			/><button class="btn btn-primary" disabled={busy || uploading}
+				>{editVariety ? "Save variety" : "Create variety"}</button
 			>
 		</form>
 	</section>

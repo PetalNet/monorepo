@@ -3,9 +3,12 @@ import { tmpdir } from "node:os";
 import pathModule from "node:path";
 
 import { hash } from "bcryptjs";
+import { Schema } from "effect";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
+import creatureCatalog from "../../../scripts/creature-catalog.sql?raw";
 import { nextCatalogNumber } from "../allocation";
+import { AdminCommand } from "../schema";
 import { RelicsDatabase, Conflict, Unauthorized, Rejected, digest } from "./database";
 import { encodeRelicId } from "./relic-id";
 
@@ -32,6 +35,103 @@ const claim = (id = "tag-a") => {
 
 	return result.deviceToken;
 };
+
+describe("creature catalogue", () => {
+	it("seeds the imported catalogue once without restoring later cleared settings", () => {
+		db.sql.exec(creatureCatalog);
+		expect(db.card("tag-a")).toMatchObject({ modelId: "shroomling", color: "#bf493e" });
+
+		db.sql.exec(
+			"UPDATE RelicType SET modelId=NULL WHERE id=1; UPDATE RelicVariety SET color=NULL WHERE id=1;",
+		);
+
+		db.sql.exec(creatureCatalog);
+		expect(db.card("tag-a")).toMatchObject({ modelId: null, color: null });
+	});
+
+	it("keeps new types photo-only and maps models and colors independently of names", () => {
+		expect(db.card("tag-a")).toMatchObject({ modelId: null, color: null });
+
+		db.administer(
+			{
+				kind: "type",
+				id: 1,
+				name: "A different name",
+				description: "",
+				imageUrl: "",
+				modelId: "snail",
+			},
+			"maker",
+		);
+
+		db.administer(
+			{
+				kind: "variety",
+				id: 1,
+				typeId: 1,
+				name: "Any variety",
+				description: "",
+				imageUrl: "https://example.com/print.jpg",
+				color: "#1234ab",
+			},
+			"maker",
+		);
+
+		expect(db.card("tag-a")).toMatchObject({
+			modelId: "snail",
+			color: "#1234ab",
+			imageUrl: "https://example.com/print.jpg",
+			typeName: "A different name",
+			varietyName: "Any variety",
+		});
+
+		expect(db.adminData().types[0]?.modelId).toBe("snail");
+		expect(db.collection().varieties[0]?.color).toBe("#1234ab");
+	});
+
+	it("preserves settings on older commands and allows makers to clear them", () => {
+		const type = {
+			kind: "type",
+			id: 1,
+			name: "Shroomling",
+			description: "",
+			imageUrl: "",
+		} as const;
+		const variety = {
+			kind: "variety",
+			id: 1,
+			typeId: 1,
+			name: "Red",
+			description: "",
+			imageUrl: "",
+		} as const;
+
+		db.administer({ ...type, modelId: "shroomling" }, "maker");
+		db.administer({ ...variety, color: "#abcdef" }, "maker");
+		db.administer(type, "older-client");
+		db.administer(variety, "older-client");
+		expect(db.card("tag-a")).toMatchObject({ modelId: "shroomling", color: "#abcdef" });
+		db.administer({ ...type, modelId: null }, "maker");
+		db.administer({ ...variety, color: null }, "maker");
+		expect(db.card("tag-a")).toMatchObject({ modelId: null, color: null });
+	});
+
+	it("rejects unknown model paths and malformed color input at the API schema", () => {
+		const decode = Schema.decodeUnknownSync(AdminCommand);
+
+		for (const modelId of ["../../file", "https://example.com/model.glb", "Shroomling"]) {
+			expect(() =>
+				decode({ kind: "type", name: "Friend", description: "", imageUrl: "", modelId }),
+			).toThrow();
+		}
+
+		for (const color of ["red", "#fff", "#1234567", "url(example.com)"]) {
+			expect(() =>
+				decode({ kind: "variety", typeId: 1, name: "Color", description: "", imageUrl: "", color }),
+			).toThrow();
+		}
+	});
+});
 
 describe("private device ownership", () => {
 	it("claims, shows only the current collection, releases and lets a new device claim", () => {

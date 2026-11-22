@@ -4,6 +4,7 @@
 	import { tick } from "svelte";
 
 	import { command } from "#lib/client.ts";
+	import RelicCreature from "#lib/components/RelicCreature.svelte";
 	import RelicPhoto from "#lib/components/RelicPhoto.svelte";
 	import { birthdayLabel, traitFor } from "#lib/story.ts";
 	let { data }: import("./$types").PageProps = $props();
@@ -138,11 +139,17 @@
 					: `A little ${relic.typeName}.`}
 			</p>{:else}<p class="intro">Every good story starts with a name.</p>
 			<div class="flourish" aria-hidden="true"></div>{/if}
-		<figure class="art" class:celebrating={Boolean(celebration)}>
-			<RelicPhoto
+		<figure
+			class="art"
+			class:creature={relic.modelId !== null}
+			class:celebrating={Boolean(celebration)}
+		>
+			<RelicCreature
+				modelId={relic.modelId}
+				color={relic.color}
 				src={relic.imageUrl}
 				alt={`${relic.varietyName} ${relic.typeName}`}
-			/>{#if !relic.friendName}<span class="art-note">hello, you.</span>{/if}
+			/>{#if !relic.friendName && !relic.modelId}<span class="art-note">hello, you.</span>{/if}
 		</figure>
 		<div class="identity">
 			<span>#{relic.indexNumber}</span><span>{relic.typeName}</span><span>{relic.varietyName}</span>
@@ -219,6 +226,10 @@
 		margin: 24px auto 20px;
 		border-radius: 8px;
 	}
+	.art.creature {
+		height: 304px;
+		max-width: 100%;
+	}
 	.art-note {
 		position: absolute;
 		inset-inline-end: 0;
@@ -268,6 +279,9 @@
 		max-width: 290px;
 		height: 232px;
 		margin-block: 16px;
+	}
+	.named .art.creature {
+		height: 276px;
 	}
 	.details {
 		margin-block: 24px 0;
