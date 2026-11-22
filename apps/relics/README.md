@@ -39,3 +39,7 @@ Before deployment:
 5. Switch Traefik, check the public URL and health, then stop the legacy container. Keep the old image, data and proxy config for rollback.
 
 After collectors begin using the new service, its database is authoritative. A rollback must account for claims and releases since cutover; restoring the old backup would lose them. Back up the new database and uploads regularly. Do not run old and new services with independent writable copies after cutover.
+
+## License
+
+The Relics source is licensed under AGPL-3.0-only, following the license family used by Point in this monorepo. Production artwork, uploads, collector records and configuration are not distributed with the source.
