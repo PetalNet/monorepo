@@ -4,21 +4,36 @@ import { promisify } from "node:util";
 
 import * as SunCalc from "suncalc";
 
-import { DEFAULT_PLANS, type Provider, type WindowSpan } from "../plans.js";
+import { claudePlanName, codexPlanName } from "../plans.js";
 import type { ServiceCounts } from "../services.js";
 import { nextSolarEvent, type SolarEvent } from "../sky.js";
+import { parseQuotaFeed, type QuotaFeed, type QuotaService } from "./quota.js";
 
 const execFileAsync = promisify(execFile);
 const FIFTEEN_MINUTES_SECONDS = 15 * 60;
 const BACKUP_STALE_AFTER_MS = 26 * 60 * 60 * 1000;
 const SYNODIC_MONTH_DAYS = 29.53058867;
 
-/** A limit window as the provider reports it. */
+export type WindowSpan = "5-hour" | "7-day";
+
+/** The quota feed's `windowMinutes` for each span the dials draw. */
+const DIAL_SPANS: [minutes: number, span: WindowSpan][] = [
+	[5 * 60, "5-hour"],
+	[7 * 24 * 60, "7-day"],
+];
+
+/** A limit as the provider reports it. */
 export interface ReportedWindow {
-	span: WindowSpan;
-	/** The model a per-model weekly limit covers, such as "Fable". Null for the overall limit. */
-	model: string | null;
-	/** Percent of the limit used (Claude's `utilization`/`percent`, Codex's `used_percent`), not left. */
+	/** Tells the provider's limits apart: `7d-fable`, or a quota feed limit's `id`. */
+	key: string;
+	/** The limit's name on its provider's plate: "Fable 7-day", or a quota feed limit's `label`. */
+	name: string;
+	/** Null for a limit that is not a 5-hour or 7-day window, such as a daily or monthly allowance. */
+	span: WindowSpan | null;
+	/**
+	 * Percent of the limit used (Claude's `utilization`/`percent`, Codex's `used_percent`, the quota
+	 * feed's `usedPct`), not left. Only the quota feed goes past 100.
+	 */
 	usedPct: number | null;
 	/** Epoch seconds. */
 	resetsAt: number | null;
@@ -26,19 +41,22 @@ export interface ReportedWindow {
 	inactive: boolean;
 }
 
+/** One provider's usage: Claude, Codex, or a service in the quota feed. */
 export interface UsageReadout {
-	slug: "janet-primary" | "codex";
-	label: "Claude" | "Codex";
-	kind: Provider;
-	/** The configured plan, from `CLAUDE_PLAN`/`CODEX_PLAN` or `DEFAULT_PLANS`. */
-	plan: string;
-	/** The plan the provider says the account is on. Only Codex reports one. */
-	reportedPlan: string | null;
-	/** Every window the feed reports. Empty with `read` false when there is no feed to read. */
+	/** `claude`, `codex`, or a quota feed service such as `google-ai`. Unique within a dossier. */
+	kind: string;
+	label: string;
+	/**
+	 * The display name of the plan the feed says the account is on: Codex's `planType`, or Claude's
+	 * `subscription_type` and `rate_limit_tier`. The quota feed names none.
+	 */
+	plan: string | null;
+	/** What the quota feed says of reading the service. Claude and Codex are always `ok`. */
+	status: QuotaService["status"];
+	/** Every limit the feed reports. Empty when there is no feed, or a Claude snapshot has no `raw`. */
 	windows: ReportedWindow[];
 	/** Limit kinds in Claude's `limits` list that Astrolabe has no reading for. */
 	unreadKinds: string[];
-	read: boolean;
 	creditsBalance: number | null;
 	/** Codex's `credits.hasCredits`: credits are carrying requests past a full window. */
 	hasCredits: boolean | null;
@@ -70,7 +88,8 @@ export interface Dossier {
 		phase: SolarPhase;
 	};
 	moon: { phase: number; illumination: number; ageDays: number; phaseName: MoonPhaseName };
-	agents: [UsageReadout, UsageReadout];
+	/** Claude and Codex, then the quota feed's other services in the feed's order. */
+	providers: UsageReadout[];
 	backup: {
 		lastSuccessAt: number | null;
 		lastAttemptAt: number | null;
@@ -227,21 +246,39 @@ const pct = (value: unknown): number | null => {
 };
 
 /**
+ * A 5-hour or 7-day window, keyed and named by its span and the model it covers. Model names that
+ * differ only in case or punctuation share a key.
+ */
+const spanWindow = (
+	span: WindowSpan,
+	model: string | null,
+	figures: Pick<ReportedWindow, "usedPct" | "resetsAt" | "inactive">,
+): ReportedWindow => ({
+	key: [span === "5-hour" ? "5h" : "7d", model?.toLowerCase().replaceAll(/\W+/g, "-")]
+		.filter(Boolean)
+		.join("-"),
+	name: [model, span].filter(Boolean).join(" "),
+	span,
+	...figures,
+});
+
+/**
  * Claude's windows from the raw usage response the snapshot keeps. The top-level `five_hour_pct` is
  * 0 when the response has no 5-hour window at all, so only `raw` tells the two apart.
  */
 const claudeWindows = (raw: JsonRecord): { windows: ReportedWindow[]; unreadKinds: string[] } => {
 	const windows: ReportedWindow[] = [];
 	const unreadKinds: string[] = [];
+	const models = new Set<string>();
 	const overall = (value: unknown, span: WindowSpan) => {
 		if (isRecord(value)) {
-			windows.push({
-				span,
-				model: null,
-				usedPct: pct(value.utilization),
-				resetsAt: epochSecondsFromIso(value.resets_at),
-				inactive: false,
-			});
+			windows.push(
+				spanWindow(span, null, {
+					usedPct: pct(value.utilization),
+					resetsAt: epochSecondsFromIso(value.resets_at),
+					inactive: false,
+				}),
+			);
 		}
 	};
 
@@ -261,26 +298,28 @@ const claudeWindows = (raw: JsonRecord): { windows: ReportedWindow[]; unreadKind
 		if (kind === "weekly_all") {
 			// The same window as `seven_day`, read here only when that is missing.
 			if (!isRecord(raw.seven_day)) {
-				windows.push({
-					span: "7-day",
-					model: null,
-					usedPct: pct(limit.percent),
-					resetsAt: epochSecondsFromIso(limit.resets_at),
-					inactive: false,
-				});
+				windows.push(
+					spanWindow("7-day", null, {
+						usedPct: pct(limit.percent),
+						resetsAt: epochSecondsFromIso(limit.resets_at),
+						inactive: false,
+					}),
+				);
 			}
 
 			continue;
 		}
 
 		if (kind === "weekly_scoped" && model !== null) {
-			windows.push({
-				span: "7-day",
-				model,
-				usedPct: pct(limit.percent),
-				resetsAt: epochSecondsFromIso(limit.resets_at),
-				inactive: limit.is_active === false,
-			});
+			models.add(model.toLowerCase());
+
+			windows.push(
+				spanWindow("7-day", model, {
+					usedPct: pct(limit.percent),
+					resetsAt: epochSecondsFromIso(limit.resets_at),
+					inactive: limit.is_active === false,
+				}),
+			);
 
 			continue;
 		}
@@ -294,9 +333,7 @@ const claudeWindows = (raw: JsonRecord): { windows: ReportedWindow[]; unreadKind
 			/^(five_hour|seven_day)_/.test(key) &&
 			isRecord(value) &&
 			numberOrNull(value.utilization) !== null &&
-			!windows.some(
-				(window) => window.model?.toLowerCase() === key.replace(/^(five_hour|seven_day)_/, ""),
-			)
+			!models.has(key.replace(/^(five_hour|seven_day)_/, ""))
 		) {
 			unreadKinds.push(key);
 		}
@@ -316,26 +353,22 @@ const codexWindows = (data: JsonRecord): ReportedWindow[] =>
 		(used ?? null) === null && (resets ?? null) === null
 			? []
 			: [
-					{
-						span,
-						model: null,
+					spanWindow(span, null, {
 						usedPct: pct(used),
 						resetsAt: numberOrNull(resets),
 						inactive: false,
-					},
+					}),
 				],
 	);
 
 /** @internal Exported for its tests; buildDossier is the module's interface. */
 export const usageReadoutFrom = (input: {
-	slug: UsageReadout["slug"];
-	label: UsageReadout["label"];
-	kind: UsageReadout["kind"];
-	plan: string;
+	label: string;
+	kind: "claude" | "codex";
 	data: JsonRecord | null;
 	nowSeconds: number;
 }): UsageReadout => {
-	const { slug, label, kind, plan, data, nowSeconds } = input;
+	const { label, kind, data, nowSeconds } = input;
 	const awaiting = kind === "codex" && (data === null || data.awaiting === true);
 	const scrapedAt = data === null ? null : numberOrNull(data.scraped_at);
 	const raw = kind === "claude" && isRecord(data?.raw) ? data.raw : null;
@@ -348,15 +381,18 @@ export const usageReadoutFrom = (input: {
 				: (claude?.windows ?? []);
 
 	return {
-		slug,
 		label,
 		kind,
-		plan,
-		reportedPlan: kind === "codex" && data !== null ? stringOrNull(data.plan) : null,
+		status: "ok",
+		plan:
+			kind === "codex"
+				? codexPlanName(stringOrNull(data?.plan))
+				: claudePlanName(
+						stringOrNull(data?.subscription_type),
+						stringOrNull(data?.rate_limit_tier),
+					),
 		windows,
 		unreadKinds: claude?.unreadKinds ?? [],
-		// A Claude snapshot without `raw` cannot say which windows exist.
-		read: !awaiting && data !== null && (kind === "codex" || raw !== null),
 		creditsBalance: kind === "codex" && data !== null ? numberOrNull(data.credits_balance) : null,
 		hasCredits:
 			kind === "codex" && typeof data?.has_credits === "boolean" ? data.has_credits : null,
@@ -369,6 +405,54 @@ export const usageReadoutFrom = (input: {
 		stale: !awaiting && (scrapedAt === null || nowSeconds - scrapedAt > FIFTEEN_MINUTES_SECONDS),
 		awaiting,
 	};
+};
+
+/** A quota feed provider, which has none of what the Claude and Codex feeds add to their limits. */
+const serviceReadout = (
+	service: Pick<UsageReadout, "kind" | "label" | "status" | "windows" | "scrapedAt" | "stale">,
+): UsageReadout => ({
+	...service,
+	plan: null,
+	unreadKinds: [],
+	creditsBalance: null,
+	hasCredits: null,
+	limitReachedType: null,
+	observedAt: service.scrapedAt,
+	awaiting: false,
+});
+
+/**
+ * One readout per service in the quota feed. A feed dated after `now` is refused, since nothing
+ * says how old its figures are.
+ *
+ * @internal Exported for its tests; buildDossier is the module's interface.
+ */
+export const quotaReadouts = (feed: QuotaFeed, now: number): UsageReadout[] => {
+	if (feed.generatedAt > now) {
+		throw new Error("the quota feed is dated in the future");
+	}
+
+	return feed.services.map((service) =>
+		serviceReadout({
+			kind: service.service,
+			label: service.label ?? service.service,
+			status: service.status,
+			windows: service.limits.map((limit) => ({
+				key: limit.id,
+				name: limit.label,
+				// A dial places a window by its reset, so one without a reset is read as a plain limit.
+				span:
+					limit.resetAtMs === null
+						? null
+						: (DIAL_SPANS.find(([minutes]) => minutes === limit.windowMinutes)?.[1] ?? null),
+				usedPct: limit.usedPct,
+				resetsAt: limit.resetAtMs === null ? null : limit.resetAtMs / 1000,
+				inactive: false,
+			})),
+			scrapedAt: feed.generatedAt / 1000,
+			stale: now - feed.generatedAt > FIFTEEN_MINUTES_SECONDS * 1000,
+		}),
+	);
 };
 
 /** @internal Exported for its tests; buildDossier is the module's interface. */
@@ -441,10 +525,39 @@ const readUsage = async (
 	try {
 		data = await parseJsonFile(input.path);
 	} catch {
-		input.errors.push(`${input.slug} usage`);
+		input.errors.push(`${input.kind} usage`);
 	}
 
 	return usageReadoutFrom({ ...input, data });
+};
+
+/**
+ * The quota feed's services. No file means no quota feed is set up, which is nothing to show; a
+ * file that cannot be read is a plate saying so.
+ */
+const readQuota = async (path: string, now: number, errors: string[]): Promise<UsageReadout[]> => {
+	try {
+		const feed: unknown = JSON.parse(await readFile(path, "utf8"));
+
+		return quotaReadouts(parseQuotaFeed(feed), now);
+	} catch (error) {
+		if (error instanceof Error && "code" in error && error.code === "ENOENT") {
+			return [];
+		}
+
+		errors.push("quota usage");
+
+		return [
+			serviceReadout({
+				kind: "quota",
+				label: "Quota feed",
+				status: "error",
+				windows: [],
+				scrapedAt: null,
+				stale: true,
+			}),
+		];
+	}
 };
 
 const readServices = async (
@@ -568,29 +681,26 @@ export const buildDossier = async (): Promise<Dossier> => {
 		stale: true,
 	};
 
-	const [agents, backup, services, host, mood] = await Promise.all([
+	const [agents, quota, backup, services, host, mood] = await Promise.all([
 		Promise.all([
 			readUsage({
-				slug: "janet-primary",
 				label: "Claude",
 				kind: "claude",
-				plan: process.env.CLAUDE_PLAN ?? DEFAULT_PLANS.claude,
 				path: process.env.USAGE_PATH ?? "/shared/janet-usage.json",
 				nowSeconds,
 				errors,
 				data: null,
 			}),
 			readUsage({
-				slug: "codex",
 				label: "Codex",
 				kind: "codex",
-				plan: process.env.CODEX_PLAN ?? DEFAULT_PLANS.codex,
 				path: process.env.CODEX_USAGE_PATH ?? "/shared/codex-usage.json",
 				nowSeconds,
 				errors,
 				data: null,
 			}),
 		]),
+		readQuota(process.env.QUOTA_USAGE_PATH ?? "/shared/quotas/quota-usage.json", now, errors),
 		readFile(process.env.BACKUP_LOG ?? "/logs/backup-offsite.log", "utf8")
 			.then(parseBackupLog)
 			.catch(reportFailure(errors, "backup", { lastSuccessAt: null, lastAttemptAt: null })),
@@ -634,7 +744,11 @@ export const buildDossier = async (): Promise<Dossier> => {
 			ageDays: moonAgeDays(phase),
 			phaseName: moonPhaseName(phase),
 		},
-		agents: [agents[0], agents[1]],
+		// The Claude and Codex feeds say more of their own limits than the quota feed's copy does.
+		providers: [
+			...agents,
+			...quota.filter((service) => agents.every((agent) => agent.kind !== service.kind)),
+		],
 		backup: {
 			...backup,
 			nextScheduledAt: nextBackupAt(now),

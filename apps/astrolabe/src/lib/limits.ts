@@ -1,5 +1,4 @@
-import { planWindows, windowKey, type WindowSpan, type WindowSpec } from "#lib/plans.ts";
-import type { ReportedWindow, UsageReadout } from "#lib/server/dossier.ts";
+import type { ReportedWindow, UsageReadout, WindowSpan } from "#lib/server/dossier.ts";
 
 const HOUR_MS = 60 * 60 * 1000;
 
@@ -16,19 +15,14 @@ const WINDOW_MS: Record<WindowSpan, number> = {
  * left.
  */
 export interface LimitWindow {
-	/** Provider, span and model, such as `claude-7d-fable`. Also the window's colour class. */
+	/** Provider and limit, such as `claude-7d-fable`. The dials and rows colour a limit by it. */
 	id: string;
-	agent: "Claude" | "Codex";
-	span: WindowSpan;
-	model: string | null;
-	/** The configured plan the window was checked against. */
-	plan: string;
-	/**
-	 * `listed`: the plan lists it and the feed reports it (or there is no feed to check).
-	 * `unreported`: the plan lists it but the feed doesn't. `unlisted`: the feed reports it but the
-	 * plan doesn't.
-	 */
-	fit: "listed" | "unreported" | "unlisted";
+	/** The provider's display name, such as "Claude". */
+	provider: string;
+	/** The limit's name within its provider, such as "Fable 7-day". */
+	name: string;
+	/** The dial the limit is drawn on. A limit with none has no ring and no pace. */
+	span: WindowSpan | null;
 	/** The provider says this limit is not active. */
 	inactive: boolean;
 	usedPct: number | null;
@@ -45,14 +39,14 @@ export interface LimitWindow {
 }
 
 export type LimitState =
-	| "not-reported"
 	| "no-reading"
 	| "reset-since-reading"
 	| "limit-reached"
 	| "on-credits"
 	| "overshoot"
 	| "on-pace"
-	| "too-early";
+	| "too-early"
+	| "unpaced";
 
 export interface LimitReading {
 	window: LimitWindow;
@@ -90,40 +84,47 @@ export const readLimit = (window: LimitWindow, now: number): LimitReading => {
 		lockoutAt: null,
 	};
 
-	if (window.fit === "unreported") {
-		return { ...empty, state: "not-reported" };
-	}
-
-	if (window.usedPct === null || window.resetsAt === null || window.observedAt === null) {
+	if (
+		window.usedPct === null ||
+		window.observedAt === null ||
+		(window.span !== null && window.resetsAt === null)
+	) {
 		return { ...empty, state: "no-reading" };
 	}
 
-	const duration = WINDOW_MS[window.span];
-	const startsAt = window.resetsAt - duration;
-
-	if (window.resetsAt <= now) {
+	if (window.resetsAt !== null && window.resetsAt <= now) {
 		// The window rolled over after the figure was taken, so the figure describes a finished window.
 		return { ...empty, state: "reset-since-reading" };
 	}
 
-	const usedPct = clamp(window.usedPct, 0, 100);
-	const reading = {
-		window,
+	// Usage can run past the limit, such as mobile data after its priority allowance.
+	const usedPct = Math.max(0, window.usedPct);
+	const used = {
+		...empty,
 		usedPct,
-		leftPct: 100 - usedPct,
-		startsAt,
+		leftPct: Math.max(0, 100 - usedPct),
 		resetsAt: window.resetsAt,
-		elapsed: clamp((now - startsAt) / duration, 0, 1),
 	};
+	// Past the limit, credits keep requests going. Codex sets `rate_limit_reached_type` once the
+	// plan's own allowance is spent even while credits carry on, so its `hasCredits` decides; a feed
+	// without it falls back to a positive balance and no stop.
+	const onCredits =
+		window.hasCredits ??
+		(window.blockedBy === null && window.credits !== null && window.credits > 0);
+
+	if (window.span === null || window.resetsAt === null) {
+		// No window length to measure a burn rate against.
+		return {
+			...used,
+			state: usedPct < 100 ? "unpaced" : onCredits ? "on-credits" : "limit-reached",
+		};
+	}
+
+	const duration = WINDOW_MS[window.span];
+	const startsAt = window.resetsAt - duration;
+	const reading = { ...used, startsAt, elapsed: clamp((now - startsAt) / duration, 0, 1) };
 
 	if (usedPct >= 100) {
-		// Past the limit, credits keep requests going. Codex sets `rate_limit_reached_type` once the
-		// plan's own allowance is spent even while credits carry on, so its `hasCredits` decides; a feed
-		// without it falls back to a positive balance and no stop.
-		const onCredits =
-			window.hasCredits ??
-			(window.blockedBy === null && window.credits !== null && window.credits > 0);
-
 		return {
 			...reading,
 			state: onCredits ? "on-credits" : "limit-reached",
@@ -163,92 +164,54 @@ export const readLimit = (window: LimitWindow, now: number): LimitReading => {
 
 const ms = (seconds: number | null) => (seconds === null ? null : seconds * 1000);
 
-export interface PlanCheck {
-	/** Each agent's plan windows, then any the feed reports beyond them, in that order. */
+export interface ProviderLimits {
+	/** One window per identity, in the order the feed reports them. */
 	windows: LimitWindow[];
-	/** Plan disagreements that belong to no single window. */
-	notices: string[];
+	/** What the feed reports that no window shows. */
+	notes: string[];
 }
 
-/** Matches each agent's live windows against its configured plan. */
-export const limitWindowsFrom = (agents: readonly UsageReadout[]): PlanCheck => {
-	const windows: LimitWindow[] = [];
-	const notices: string[] = [];
+const STATUS_NOTES: Record<UsageReadout["status"], string | null> = {
+	ok: null,
+	"signed-out": "Signed out",
+	error: "Reading failed",
+};
 
-	for (const agent of agents) {
-		const listed = planWindows(agent.kind, agent.plan);
-		const window = (
-			spec: WindowSpec,
-			reported: ReportedWindow | undefined,
-			fit: LimitWindow["fit"],
-		): LimitWindow => ({
-			id: `${agent.kind}-${windowKey(spec)}`,
-			agent: agent.label,
-			span: spec.span,
-			model: spec.model ?? null,
-			plan: agent.plan,
-			fit,
-			inactive: reported?.inactive ?? false,
-			usedPct: reported?.usedPct ?? null,
-			resetsAt: ms(reported?.resetsAt ?? null),
-			observedAt: ms(agent.observedAt),
-			credits: agent.creditsBalance,
-			hasCredits: agent.hasCredits,
-			blockedBy: agent.limitReachedType,
-		});
-		const asSpec = (reported: ReportedWindow): WindowSpec =>
-			reported.model === null
-				? { span: reported.span }
-				: { span: reported.span, model: reported.model };
+/** A provider's limits, exactly the ones its feed reports. */
+export const limitsFrom = (provider: UsageReadout): ProviderLimits => {
+	const notes = [
+		STATUS_NOTES[provider.status],
+		...provider.unreadKinds.map((kind) => `Reports a ${kind} limit Astrolabe does not read`),
+	].filter((note) => note !== null);
+	// One window per key, so each ring and row has a unique one. Repeats keep the fullest.
+	const reportedByKey = new Map<string, ReportedWindow>();
 
-		if (listed === null) {
-			notices.push(`${agent.label} plan "${agent.plan}" is not in the plan table`);
+	for (const reported of provider.windows) {
+		const kept = reportedByKey.get(reported.key);
+
+		if (kept !== undefined) {
+			notes.push(`Reports more than one ${kept.name} limit; showing the fullest`);
 		}
 
-		if (agent.reportedPlan !== null && agent.reportedPlan !== agent.plan) {
-			notices.push(
-				`${agent.label} reports the ${agent.reportedPlan} plan, but Astrolabe is set to ${agent.plan}`,
-			);
-		}
-
-		for (const kind of agent.unreadKinds) {
-			notices.push(`${agent.label} reports a ${kind} limit Astrolabe does not read`);
-		}
-
-		// One window per identity, so each ring and plaque has a unique key. Repeats keep the fullest.
-		const reportedByKey = new Map<string, ReportedWindow>();
-
-		for (const reported of agent.windows) {
-			const key = windowKey(asSpec(reported));
-			const kept = reportedByKey.get(key);
-
-			if (kept !== undefined) {
-				notices.push(
-					`${agent.label} reports more than one ${[kept.model, kept.span].filter(Boolean).join(" ")} limit; showing the fullest`,
-				);
-			}
-
-			if (kept === undefined || (reported.usedPct ?? -1) > (kept.usedPct ?? -1)) {
-				reportedByKey.set(key, reported);
-			}
-		}
-
-		const listedKeys = new Set((listed ?? []).map(windowKey));
-
-		for (const spec of listed ?? []) {
-			const reported = reportedByKey.get(windowKey(spec));
-
-			windows.push(
-				window(spec, reported, agent.read && reported === undefined ? "unreported" : "listed"),
-			);
-		}
-
-		for (const [key, reported] of reportedByKey) {
-			if (!listedKeys.has(key)) {
-				windows.push(window(asSpec(reported), reported, "unlisted"));
-			}
+		if (kept === undefined || (reported.usedPct ?? -1) > (kept.usedPct ?? -1)) {
+			reportedByKey.set(reported.key, reported);
 		}
 	}
 
-	return { windows, notices: [...new Set(notices)] };
+	return {
+		windows: Array.from(reportedByKey, ([key, reported]) => ({
+			id: `${provider.kind}-${key}`,
+			provider: provider.label,
+			name: reported.name,
+			span: reported.span,
+			inactive: reported.inactive,
+			usedPct: reported.usedPct,
+			resetsAt: ms(reported.resetsAt),
+			observedAt: ms(provider.observedAt),
+			credits: provider.creditsBalance,
+			hasCredits: provider.hasCredits,
+			blockedBy: provider.limitReachedType,
+		})),
+		notes: [...new Set(notes)],
+	};
 };

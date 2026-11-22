@@ -9,13 +9,45 @@ pnpm install
 pnpm --filter @petalnet/astrolabe dev
 ```
 
-The server accepts the existing deployment paths through `USAGE_PATH`, `CODEX_USAGE_PATH`, `CLAUDE_PLAN`, `CODEX_PLAN`, `BACKUP_LOG`, `KUMA_DB`, `HOST_HEALTH_PATH`, `MOOD_PATH`, `LAB_LAT`, and `LAB_LON`. `KUMA_URL` is the Uptime Kuma base URL the services section links to; without it, down monitors are named but not linked. Every input is optional at runtime: an unavailable source is represented locally as stale or awaiting data.
+The server accepts the existing deployment paths through `USAGE_PATH`, `CODEX_USAGE_PATH`, `QUOTA_USAGE_PATH`, `BACKUP_LOG`, `KUMA_DB`, `HOST_HEALTH_PATH`, `MOOD_PATH`, `LAB_LAT`, and `LAB_LON`. `KUMA_URL` is the Uptime Kuma base URL the services section links to; without it, down monitors are named but not linked. Every input is optional at runtime: an unavailable source is represented locally as stale or awaiting data.
 
-## Plans
+## Usage limits
 
-`src/lib/plans.ts` lists the limit windows each plan has (`PLANS`), such as Claude Max 20x's weekly and Fable weekly limits or Codex Plus's 5-hour and weekly ones. `DEFAULT_PLANS` picks the plans in use; `CLAUDE_PLAN` and `CODEX_PLAN` override them. The dials and plaques draw the windows the active plans list and fill them from the live feeds. A window the plan lists that the feed doesn't report, one the feed reports that the plan doesn't list, a Codex plan other than the configured one, or a Claude limit kind Astrolabe doesn't read is shown flagged rather than hidden.
+Each provider gets one plate: its plan, then a row for every limit its feed reports, such as Claude's weekly and Fable weekly limits or Codex's 5-hour and weekly ones. Claude and Codex come first, then each other service in the quota feed. The dials draw the 5-hour and 7-day windows as rings in that order, two on the day dial and three on the week dial; a row whose limit has a ring carries a pip in the ring's colour. Nothing about a plan is configured: a window appears or disappears with the feed, and the plan comes from it too. Codex's is the `plan` its feed carries (`planType`). Claude's is `subscription_type` and `rate_limit_tier` in `USAGE_PATH`; a snapshot without them shows no plan. `src/lib/plans.ts` maps both to display names such as Pro 100 or Ultra. A Claude limit kind Astrolabe doesn't read is noted on Claude's plate rather than hidden.
 
 Claude's windows come from the `raw` usage response in `USAGE_PATH` (`five_hour`, `seven_day`, and the `weekly_scoped` entries of `limits`), since the top-level `five_hour_pct` reads 0 when there is no 5-hour window at all.
+
+## Quota feed
+
+`QUOTA_USAGE_PATH` (default `/shared/quotas/quota-usage.json`) is an optional feed that one host job writes for any number of services. Every service in it other than `claude` and `codex` gets a plate; those two have their own feeds, which say more about their limits.
+
+```json
+{
+	"generatedAt": 1795121040000,
+	"services": [
+		{
+			"service": "google-ai",
+			"label": "Google AI",
+			"status": "ok",
+			"limits": [
+				{
+					"id": "google-ai:gemini-models:5h",
+					"label": "Gemini models 5-hour",
+					"usedPct": 90,
+					"resetAtMs": 1795149291000,
+					"windowMinutes": 300
+				}
+			]
+		}
+	]
+}
+```
+
+`generatedAt` and `resetAtMs` are epoch milliseconds. `service` is an id of letters, digits, `.`, `_` and `-`, listed once; `label` is its display name, and a service without one shows its id. `status` is `ok`, `signed-out` or `error`, and the last two show on the plate as "Signed out" and "Reading failed". A limit's `label` names its row. `usedPct` may be fractional and may pass 100. `resetAtMs` and `windowMinutes` are optional: a limit with a reset and a `windowMinutes` of 300 or 10080 is a 5-hour or 7-day window, which can take a ring and gets a pace projection. Any other limit is a row with its usage and reset alone. The id's suffix decides nothing.
+
+Other fields are ignored, so a service's error text never reaches the page. A feed that is not this shape, or is dated in the future, shows one "Quota feed" plate reading "Reading failed" rather than figures that might be wrong. No file shows no plates. Figures more than 15 minutes old are marked with their age, and a figure whose limit has since reset is dropped.
+
+Compose mounts the directory `/home/docker/.claude/shared/astrolabe-quota` rather than the file, so the job can replace the file by renaming a new one over it. Create the directory as the job's user before starting the container; Docker otherwise creates it owned by root.
 
 ## Codex usage feed
 
