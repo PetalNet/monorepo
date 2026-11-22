@@ -35,6 +35,7 @@ export function hasCredentials(text: string): boolean {
 
 export function routeDepth(): number {
 	const value = process.env["ROUTE_DEPTH"] ?? "0";
+
 	return /^\d+$/u.test(value) ? Number(value) : 4;
 }
 
@@ -165,8 +166,13 @@ export function execute(
 export function launch(offer: Offer, brief: string, cwd: string): Promise<Execution> {
 	// A helper this agent routes for review can then avoid the exact model that wrote the work.
 	const depth = routeDepth();
-	if (depth >= 4) throw new Error("router nesting limit reached (maximum 4)");
+
+	if (depth >= 4) {
+		throw new Error("router nesting limit reached (maximum 4)");
+	}
+
 	const expected = poolIdOf({ id: offer.model, provider: offer.provider, score: offer.score });
+
 	if (
 		!offer.pool ||
 		offer.pool.id !== expected ||
@@ -175,8 +181,10 @@ export function launch(offer: Offer, brief: string, cwd: string): Promise<Execut
 			offer.provider === "gemini" ||
 			offer.provider.startsWith("agy-")
 		)
-	)
+	) {
 		throw new Error("provider and execution pool do not match");
+	}
+
 	const env = { ...process.env, ROUTE_PARENT_MODEL: offer.model, ROUTE_DEPTH: String(depth + 1) };
 
 	if (offer.provider === "codex") {

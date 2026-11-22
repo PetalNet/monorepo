@@ -332,7 +332,10 @@ function offerReasons(o: Offer, pools: Map<Pool, PoolState>, state: State): stri
 	const pool = o.pool;
 	const reasons = [...(pools.get(pool)?.reasons ?? [])];
 	const expected = poolIdOf({ id: o.model, provider: o.provider, score: o.score });
-	if (expected && pool.id !== expected) reasons.push("provider and execution pool do not match");
+
+	if (expected && pool.id !== expected) {
+		reasons.push("provider and execution pool do not match");
+	}
 
 	if (
 		state.runnableOnly &&
@@ -454,9 +457,17 @@ export interface Pick {
 export function vendorOf(model: string): string {
 	const m = model.toLowerCase();
 
-	if (/^(gpt|o\d|codex)/u.test(m)) return "openai";
-	if (/^(gemini|gemma)/u.test(m)) return "google";
-	if (/(claude|opus|sonnet|haiku|fable)/u.test(m)) return "anthropic";
+	if (/^(gpt|o\d|codex)/u.test(m)) {
+		return "openai";
+	}
+
+	if (/^(gemini|gemma)/u.test(m)) {
+		return "google";
+	}
+
+	if (/(claude|opus|sonnet|haiku|fable)/u.test(m)) {
+		return "anthropic";
+	}
 
 	return "other";
 }
