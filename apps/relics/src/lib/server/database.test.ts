@@ -5,6 +5,7 @@ import pathModule from "node:path";
 import { hash } from "bcryptjs";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
+import { nextCatalogNumber } from "../allocation";
 import { RelicsDatabase, Conflict, Unauthorized, Rejected, digest } from "./database";
 import { encodeRelicId } from "./relic-id";
 
@@ -204,6 +205,96 @@ describe("catalog and tag continuity", () => {
 				"admin",
 			);
 		}).toThrow(Rejected);
+	});
+
+	it("allocates suggested numbers after legacy wildcard lore without changing old tags", () => {
+		db.sql.exec("INSERT INTO AllocationRange(typeId,varietyId,lore) VALUES (1,1,'Legacy story')");
+		const before = db.adminData().relics;
+		const start = nextCatalogNumber({ ...db.adminData(), typeId: 1, varietyId: 1 });
+
+		db.administer(
+			{ kind: "allocate", typeId: 1, varietyId: 1, start, end: start + 4, lore: "" },
+			"admin",
+		);
+
+		expect(db.adminData().relics).toEqual(expect.arrayContaining(before));
+		expect(db.adminData().relics).toHaveLength(before.length + 5);
+
+		expect(
+			db.sql.prepare("SELECT startIndex,endIndex,lore FROM AllocationRange WHERE id=1").get(),
+		).toEqual({ startIndex: null, endIndex: null, lore: "Legacy story" });
+	});
+
+	it("uses explicit batch stories before legacy fallback without changing old tags", () => {
+		db.sql.exec("INSERT INTO AllocationRange(typeId,varietyId,lore) VALUES (1,1,'Legacy story')");
+		expect(db.card("tag-a").lore).toBe("Legacy story");
+
+		db.administer(
+			{ kind: "allocate", typeId: 1, varietyId: 1, start: 3, end: 3, lore: "New batch story" },
+			"admin",
+		);
+
+		expect(db.card(encodeRelicId({ typeId: 1, varietyId: 1, index: 3 })).lore).toBe(
+			"New batch story",
+		);
+
+		db.administer(
+			{ kind: "allocate", typeId: 1, varietyId: 1, start: 4, end: 4, lore: "" },
+			"admin",
+		);
+
+		expect(db.card(encodeRelicId({ typeId: 1, varietyId: 1, index: 4 })).lore).toBe("Legacy story");
+		expect(db.card("tag-a").lore).toBe("Legacy story");
+	});
+
+	it("allocates five suggested numbers for a new Snail type and variety", () => {
+		db.administer({ kind: "type", name: "Snail", description: "", imageUrl: "" }, "admin");
+		const typeId = db.adminData().types.find((t) => t.name === "Snail")?.id ?? 0;
+
+		db.administer(
+			{ kind: "variety", typeId, name: "Green", description: "", imageUrl: "" },
+			"admin",
+		);
+
+		const varietyId = db.adminData().varieties.find((v) => v.typeId === typeId)?.id ?? 0;
+
+		db.administer(
+			{
+				kind: "allocate",
+				typeId,
+				varietyId,
+				start: nextCatalogNumber({ ...db.adminData(), typeId, varietyId }),
+				end: 4,
+				lore: "",
+			},
+			"admin",
+		);
+
+		expect(
+			db
+				.adminData()
+				.relics.filter((r) => r.varietyId === varietyId)
+				.map((r) => r.indexNumber),
+		).toEqual([0, 1, 2, 3, 4]);
+	});
+
+	it("reports standalone and reserved catalog numbers and leaves a failed batch untouched", () => {
+		db.sql.exec(
+			"INSERT INTO AllocationRange(typeId,varietyId,startIndex,endIndex) VALUES (1,1,4,5)",
+		);
+
+		const before = db.adminData();
+
+		expect(nextCatalogNumber({ ...before, typeId: 1, varietyId: 1 })).toBe(6);
+
+		expect(() => {
+			db.administer(
+				{ kind: "allocate", typeId: 1, varietyId: 1, start: 1, end: 6, lore: "" },
+				"admin",
+			);
+		}).toThrow("Catalog numbers 2, 4, 5 are already in use");
+
+		expect(db.adminData()).toEqual(before);
 	});
 
 	it("reassigns and releases without changing the tag ID", () => {
