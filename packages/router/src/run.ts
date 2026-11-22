@@ -80,6 +80,15 @@ export async function run(
 			const selected = selection.ranked[0];
 
 			if (!selected?.offer.pool) {
+				const superseded = selection.excluded.find(
+					(r) => r.supersededBy && !r.reasons.includes("not the caller's choice"),
+				);
+
+				if (attempt === 0 && state.choice && superseded?.supersededBy) {
+					tail = `${superseded.offer.model}:${superseded.offer.effort} is superseded by ${superseded.supersededBy}. For reproducibility, rerun with --allow-superseded.`;
+					await writeFile(outputPath, `${tail}\n`, { mode: 0o600 });
+				}
+
 				break;
 			}
 
@@ -107,6 +116,7 @@ export async function run(
 					briefHash: createHash("sha256").update(brief).digest("hex"),
 					dataClass: options.dataClass ?? "unknown",
 					briefName: options.briefName ?? "",
+					...(selected.supersededBy ? { supersessionOverride: selected.supersededBy } : {}),
 				};
 
 				await appendEvent(dir, { ...metadata, event: "launch" });

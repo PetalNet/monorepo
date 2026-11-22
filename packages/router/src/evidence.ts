@@ -201,6 +201,7 @@ export const PROFILES: Record<string, Record<string, number>> = {
 const RELIABILITY = { measured: 1, vendor: 0.6, interpolated: 1, "family-prior": 0.3 };
 
 export const EFFORTS = ["none", "low", "medium", "high", "xhigh", "max"];
+export const TASK_COST_SIGNAL = "intelligenceIndexCostPerTask.cost.total";
 
 const lower = (signal: string) =>
 	signal === "omniscienceHallucinationRate" || signal === "personalityBench.scores.slop";
@@ -434,7 +435,7 @@ export function scoreEvidence(
 		median(evidence.rows.filter((r) => r.signal === tokenSignal).map((r) => r.value)) ?? 12000;
 	const tokens = metric(tokenSignal, baseline);
 	const scale = 12000 / baseline;
-	const cost = Math.max(0, metric("intelligenceIndexCostPerTask.cost.total", 1) * scale);
+	const cost = Math.max(0, metric(TASK_COST_SIGNAL, 1) * scale);
 	const speed = metric("headline.outputSpeed", 50);
 	const ttft = Math.max(0, metric("headline.timeToFirstToken", 2));
 	const seconds = ttft + (tokens * scale) / Math.max(1, speed);

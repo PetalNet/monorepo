@@ -3,7 +3,14 @@
 import type { ServiceName, ServiceReport } from "@petalnet/harness-hooks/quota-sources";
 
 import { supportedEfforts, type Effort } from "./effort.ts";
-import { evidenceKey, EFFORTS, scoreEvidence, type Evidence, type Score } from "./evidence.ts";
+import {
+	evidenceKey,
+	EFFORTS,
+	scoreEvidence,
+	TASK_COST_SIGNAL,
+	type Evidence,
+	type Score,
+} from "./evidence.ts";
 import type { Availability } from "./state.ts";
 
 export type DataClass = "public" | "sensitive" | "parcs";
@@ -240,7 +247,7 @@ export interface State {
 	/** Effort levels never picked. */
 	bannedEfforts?: readonly string[];
 	/** The caller's own pick; every other offer is excluded. */
-	choice?: { model: string; effort?: string | undefined } | undefined;
+	choice?: { model: string; effort?: string | undefined; allowSuperseded?: boolean } | undefined;
 	reports: Partial<Record<ServiceName, ServiceReport>>;
 	/** From exhausted.json: model id -> epoch seconds its limit resets. */
 	exhausted: Record<string, number>;
@@ -419,13 +426,6 @@ function offerReasons(
 		reasons.push(`model maker ${maker} excluded (--not-vendor)`);
 	}
 
-	if (
-		state.choice &&
-		(o.model !== state.choice.model || (state.choice.effort && o.effort !== state.choice.effort))
-	) {
-		reasons.push("not the caller's choice");
-	}
-
 	if (state.bannedEfforts?.includes(o.effort)) {
 		reasons.push(`effort ${o.effort} not allowed (Eli 2026-11-19)`);
 	}
@@ -464,6 +464,8 @@ export interface Ranked {
 	rank: number;
 	evidence?: Score;
 	source?: "evidence" | "table";
+	/** Runnable replacement's model and effort, also recorded when the caller overrides the block. */
+	supersededBy?: string;
 }
 
 export interface Pick {
@@ -492,13 +494,119 @@ export function vendorOf(model: string): string {
 	return "other";
 }
 
+function releaseOf(model: string): { line: string; version: number[] } | undefined {
+	const id = evidenceKey(model, "default").model;
+	const [, claudeLine, claudeVersion] = /^claude-([a-z]+)-(\d+(?:[.-]\d+)*)$/u.exec(id) ?? [];
+	const [, vendor, version, line] =
+		/^(gpt|gemini)-(\d+(?:[.-]\d+)*)(?:-([a-z][a-z0-9-]*))?$/u.exec(id) ?? [];
+
+	if (claudeLine && claudeVersion) {
+		return { line: `claude-${claudeLine}`, version: claudeVersion.split(/[.-]/u).map(Number) };
+	}
+
+	if (vendor && version) {
+		const variant = line?.replace(/-preview$/u, "") ?? "";
+
+		return { line: `${vendor}-${variant}`, version: version.split(/[.-]/u).map(Number) };
+	}
+
+	return undefined;
+}
+
+function compareVersions(a: number[], b: number[]): number {
+	for (let i = 0; i < Math.max(a.length, b.length); i++) {
+		const difference = (a[i] ?? 0) - (b[i] ?? 0);
+
+		if (difference !== 0) {
+			return difference;
+		}
+	}
+
+	return 0;
+}
+
+function replacementsFor(eligible: Ranked[]): Map<Offer, string> {
+	const candidates = eligible.flatMap(({ offer, evidence }) => {
+		const release = releaseOf(offer.model);
+
+		return release && evidence?.signals.some((row) => row.signal === TASK_COST_SIGNAL)
+			? [{ ...release, offer, q: evidence.q, cost: evidence.cost }]
+			: [];
+	});
+	const newestFirst = candidates.toSorted(
+		(a, b) => compareVersions(b.version, a.version) || a.offer.model.localeCompare(b.offer.model),
+	);
+	const replacements = new Map<Offer, string>();
+	const runnable: typeof candidates = [];
+
+	// The 10% cost tolerance is not transitive. A blocked offer cannot replace another.
+	for (const candidate of newestFirst) {
+		const newer = runnable.find(
+			(other) =>
+				other.line === candidate.line &&
+				other.offer.effort === candidate.offer.effort &&
+				compareVersions(other.version, candidate.version) > 0 &&
+				other.cost <= candidate.cost * 1.1 &&
+				other.q >= candidate.q,
+		);
+
+		if (newer) {
+			replacements.set(candidate.offer, `${newer.offer.model}:${newer.offer.effort}`);
+		} else {
+			runnable.push(candidate);
+		}
+	}
+
+	return replacements;
+}
+
 export function pick(catalog: Catalog, kind: string, tier: string, state: State): Pick {
 	const offers = offersFrom(catalog, kind, state.pools);
 	const pools = new Map(state.pools.map((p) => [p, poolState(p, offers, state)]));
-	const judged = offers.map((offer) => ({
-		offer,
-		reasons: offerReasons(offer, pools, state, offers),
-	}));
+	const judged = offers.map((offer) => {
+		const headroom = offer.pool ? (pools.get(offer.pool)?.headroom ?? 100) : 0;
+		const evidence = state.evidence
+			? scoreEvidence(state.evidence, offer.model, offer.effort, kind, state.nowMs, headroom)
+			: undefined;
+		const useEvidence = evidence !== undefined && evidence.coverage + 1e-12 >= 0.3;
+		const tableRank = offer.score + offer.bonus + headroom / 1000;
+		const rank = state.evidence
+			? useEvidence
+				? evidence.utility
+				: (kind === "sweep" ? 1 : 10) * (0.45 + 0.47 * Math.min(1, tableRank / 100))
+			: tableRank;
+		const assessed: Ranked = {
+			offer,
+			rank,
+			...(evidence ? { evidence } : {}),
+			source: useEvidence ? "evidence" : "table",
+		};
+
+		return { ...assessed, reasons: offerReasons(offer, pools, state, offers) };
+	});
+	const replacements = replacementsFor(judged.filter(({ reasons }) => reasons.length === 0));
+
+	for (const entry of judged) {
+		const { offer, reasons } = entry;
+		const outsideChoice =
+			state.choice &&
+			(offer.model !== state.choice.model ||
+				(state.choice.effort && offer.effort !== state.choice.effort));
+		const replacement = replacements.get(offer);
+
+		if (outsideChoice) {
+			reasons.push("not the caller's choice");
+		}
+
+		if (replacement) {
+			entry.supersededBy = replacement;
+
+			if (outsideChoice || !state.choice?.allowSuperseded) {
+				reasons.push(`superseded by ${replacement}`);
+			}
+		}
+	}
+
 	const order = Object.entries(catalog.tiers).toSorted((a, b) => b[1] - a[1]);
 	const at = order.findIndex(([t]) => t === tier);
 	const tries = [order[at], order[at - 1], order[at + 1]].filter((t) => t !== undefined);
@@ -528,38 +636,19 @@ export function pick(catalog: Catalog, kind: string, tier: string, state: State)
 	const ranked: Ranked[] = [];
 	const excluded: Pick["excluded"] = [];
 
-	for (const j of judged) {
-		const inBand = j.offer.score >= lo && j.offer.score < hi;
+	for (const { reasons, ...assessed } of judged) {
+		const { offer } = assessed;
+		const inBand = offer.score >= lo && offer.score < hi;
 
-		const headroom = j.offer.pool ? (pools.get(j.offer.pool)?.headroom ?? 100) : 0;
-
-		const evidence = state.evidence
-			? scoreEvidence(state.evidence, j.offer.model, j.offer.effort, kind, state.nowMs, headroom)
-			: undefined;
-		const useEvidence = evidence !== undefined && evidence.coverage + 1e-12 >= 0.3;
-		// Convert the historical index to the same 0..1 quality scale for mixed rankings.
-		const tableRank = j.offer.score + j.offer.bonus + headroom / 1000;
-		const rank = state.evidence
-			? useEvidence
-				? evidence.utility
-				: (kind === "sweep" ? 1 : 10) * (0.45 + 0.47 * Math.min(1, tableRank / 100))
-			: tableRank;
-
-		const assessed: Ranked = {
-			offer: j.offer,
-			rank,
-			...(evidence ? { evidence } : {}),
-			source: useEvidence ? "evidence" : "table",
-		};
-
-		if (j.reasons.length === 0 && inBand) {
+		if (reasons.length === 0 && inBand) {
 			ranked.push(assessed);
 		} else {
-			const reasons = inBand
-				? j.reasons
-				: [...j.reasons, `score ${String(j.offer.score)} outside tier ${chosen ?? tier}`];
-
-			excluded.push({ ...assessed, reasons });
+			excluded.push({
+				...assessed,
+				reasons: inBand
+					? reasons
+					: [...reasons, `score ${String(offer.score)} outside tier ${chosen ?? tier}`],
+			});
 		}
 	}
 

@@ -2,7 +2,9 @@
 
 `route ls --for code --class public` lists runnable model and effort choices, best first. `route why gpt-6.1-sol:low --for code` explains availability and policy checks.
 
-`route run gpt-6.1-sol:low --for sweep --class public 'Reply with exactly: ok'` launches the selected model in the current working directory. Tasks can be inline text, a file, or stdin with `-`. File contents are captured before classification and execution.
+`route run gpt-6.2-sol:low --for sweep --class public 'Reply with exactly: ok'` launches the selected model in the current working directory. Tasks can be inline text, a file, or stdin with `-`. File contents are captured before classification and execution.
+
+An older release is superseded when a runnable newer release in the same model line offers the same effort, at least as much expected quality for the task kind, and an estimated task cost no more than 10% higher. Estimates can use family priors. When cost has only a neutral default, both releases stay eligible. `route why` names the replacement. To reproduce a run with a superseded release, pass `--allow-superseded` to `route run`. The ledger records the replacement as `supersessionOverride`, and the usual quota, effort, and policy checks apply.
 
 Adapters use agy (effort encoded in the slug and passed with `--effort`) or Codex (brief on stdin, explicit effort in `model_reasoning_effort`). Both use the caller's existing credentials and permissions. `--allow-claude` permits Claude selection; it prints a handoff and exits 5 without invoking Claude. Other hard filters still apply.
 
