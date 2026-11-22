@@ -331,6 +331,8 @@ function offerReasons(o: Offer, pools: Map<Pool, PoolState>, state: State): stri
 
 	const pool = o.pool;
 	const reasons = [...(pools.get(pool)?.reasons ?? [])];
+	const expected = poolIdOf({ id: o.model, provider: o.provider, score: o.score });
+	if (expected && pool.id !== expected) reasons.push("provider and execution pool do not match");
 
 	if (
 		state.runnableOnly &&
@@ -394,7 +396,10 @@ function offerReasons(o: Offer, pools: Map<Pool, PoolState>, state: State): stri
 		reasons.push(`model maker ${maker} excluded (--not-vendor)`);
 	}
 
-	if (state.choice && (o.model !== state.choice.model || (state.choice.effort && o.effort !== state.choice.effort))) {
+	if (
+		state.choice &&
+		(o.model !== state.choice.model || (state.choice.effort && o.effort !== state.choice.effort))
+	) {
 		reasons.push("not the caller's choice");
 	}
 
@@ -471,11 +476,16 @@ export function pick(catalog: Catalog, kind: string, tier: string, state: State)
 		return [lo, order[i - 1]?.[1] ?? Infinity] as const;
 	};
 
-	const chosen = tier === "*" ? "*" : tries.find(([t]) => {
-		const [lo, hi] = band(t);
+	const chosen =
+		tier === "*"
+			? "*"
+			: tries.find(([t]) => {
+					const [lo, hi] = band(t);
 
-		return judged.some((j) => j.reasons.length === 0 && j.offer.score >= lo && j.offer.score < hi);
-	})?.[0];
+					return judged.some(
+						(j) => j.reasons.length === 0 && j.offer.score >= lo && j.offer.score < hi,
+					);
+				})?.[0];
 	const [lo, hi] = band(chosen ?? tier);
 	const ranked: Ranked[] = [];
 	const excluded: Pick["excluded"] = [];

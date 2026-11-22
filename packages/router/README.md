@@ -1,8 +1,8 @@
 # Router
 
-`route pick --dry --kind sweep --tier C --data-class public brief.txt` ranks offers without launching a builder. `pick` reads a brief file.
+`route ls --for code --class public` lists runnable model and effort choices, best first. `route why gpt-6.1-sol:low --for code` explains availability and policy checks.
 
-`route run --kind sweep --tier C --data-class public 'Reply with exactly: ok'` launches the highest eligible offer in the current working directory. `run` accepts brief text. An empty tier steps one tier up, then one down. Providers without an execution adapter are excluded before tier selection.
+`route run gpt-6.1-sol:low --for sweep --class public 'Reply with exactly: ok'` launches the selected model in the current working directory. Tasks can be inline text, a file, or stdin with `-`. File contents are captured before classification and execution.
 
 Adapters use agy (effort encoded in the slug and passed with `--effort`) or Codex (brief on stdin, explicit effort in `model_reasoning_effort`). Both use the caller's existing credentials and permissions. `--allow-claude` permits Claude selection; it prints a handoff and exits 5 without invoking Claude. Other hard filters still apply.
 
@@ -22,7 +22,7 @@ One `cc-link-inject --source route --key <runid>` runs at the end. The output is
 
 ## Evidence scoring (slices 3 through 3c)
 
-`route explain brief.txt --kind code` reads the same live state as `pick`; it never launches a model. Kind is required; tier defaults to S and data class to public. Kinds also include `cyber` and `architecture`. Excluded candidates retain their explanations, including during a pool cooldown. An evidence ranking is not permission to bypass those exclusions.
+`route why gpt-6.1-sol --for code` reads the same live state as `ls`; it never launches a model. Kind defaults to code and data class to public. Kinds also include `cyber` and `architecture`. Excluded candidates retain their explanations, including during a pool cooldown. An evidence ranking is not permission to bypass those exclusions.
 
 Artificial Analysis data is read from `~/.claude/shared/aa-models.json` at runtime, normalized in memory, and never copied into the package. Every numeric leaf of a mapped record becomes `{model, effort, signal, value, src, kind, asof, url}`. Fetch time is the available timestamp, not a claimed evaluation date. Missing files reduce coverage; malformed files fail visibly. Attribution: Artificial Analysis, https://artificialanalysis.ai.
 
@@ -40,7 +40,7 @@ Artificial Analysis data is read from `~/.claude/shared/aa-models.json` at runti
 
 Downloads without a stated data license remain internal; none are republished. DesignArena's API is the authorized path; missing credentials produce a gap, without scraping its pages. Python 3 supplies CSV, ZIP and HTTP support from its standard library, avoiding new dependencies. It is required for pulls and the package's tests; selection still runs in Node.js.
 
-An explicit release alias map handles decimal slug spelling and Claude shorthand. No fuzzy matching, preview substitution or generation substitution occurs. `explain` lists unknown source names. Open rows add `reporter` and `halfLifeDays`; effort not published by a source stays `unspecified`. Such rows contribute model-level coverage and are labeled accordingly, without claiming an effort match.
+An explicit release alias map handles decimal slug spelling and Claude shorthand. No fuzzy matching, preview substitution or generation substitution occurs. Unknown source names remain in the evidence artifact. Open rows add `reporter` and `halfLifeDays`; effort not published by a source stays `unspecified`. Such rows contribute model-level coverage and are labeled accordingly, without claiming an effort match.
 
 Each model is offered at every supported adapter effort. Catalog variants of the same model, provider and pool are grouped; the highest catalog score determines the model's tier for all its efforts. This lets a low-effort sweep compete with a high-effort code task within the same model tier. Legacy model and effort bans still apply, including Claude aliases. Exhaustion still cools the whole pool. A transient failure retries once, then skips that model's remaining efforts; an invalid agy variant disables only that variant.
 
@@ -60,22 +60,22 @@ Profiles live in `src/evidence.ts`. UI keeps the design weights, including the u
 
 Quality uses weighted percentiles over the fixed, explicitly mapped evidence cohort, confidence decay and the design's 0.15 family regularizer. Half-lives are 90 days for Arena, DesignArena and EQ-Bench, 180 for AA, Epoch and independent cyber measurements, and 365 for vendor reports. Quality does not change with quota. Each signal uses its own effort's record first, with measured values winning over vendors. Missing quality, task cost, tokens, speed and TTFT interpolate between that model's measured neighbours without imposing a monotone curve. Outside the measured range, the nearest endpoint is held constant; a single measurement therefore gives a flat estimate. Both cases print `interpolated` and their source levels. Estimates retain source measurement weight so shrinking an estimate toward a strong family prior cannot invent an advantage over its endpoints. Then come unspecified model-level evidence, the family median and dropping the signal. Family medians do not count toward coverage. Coverage includes model-level and interpolated inputs; it is not a count of measurements at the selected effort.
 
-At coverage >= 0.3, utility uses evidence. Lower coverage uses the historical score plus kind bonus, marked `(table)`. Eligible evidence-backed offers precede table-only fallback; quota and policy exclusions always win. Tied utility prefers observed inputs, then lower effort. `pick` and `explain` both show the chosen effort and adjacent-effort quality, task cost and time deltas, including their contributions to utility. `explain` also shows tokens, speed, TTFT and each input's provenance.
+At coverage >= 0.3, utility uses evidence. Lower coverage uses the historical score plus kind bonus, marked `(table)`. Eligible evidence-backed offers precede table-only fallback; quota and policy exclusions always win. Tied utility prefers observed inputs, then lower effort. `ls` shows quality, task cost and time. `why` shows each effort and its policy exclusions.
 
 To reproduce a live check from the repository root (using the source entry point if `route` is not installed):
 
 ```sh
 node packages/router/src/route.ts pull-evidence
-node packages/router/src/route.ts explain brief.txt --kind ui
-node packages/router/src/route.ts explain brief.txt --kind write
-node packages/router/src/route.ts explain brief.txt --kind cyber
+node packages/router/src/route.ts ls --for ui
+node packages/router/src/route.ts ls --for write
+node packages/router/src/route.ts ls --for cyber
 pnpm --filter @petalnet/router test
 pnpm --filter @petalnet/router typecheck
 ```
 
 Until ledger calibration, utility assumes a medium task, difficulty zero, ordinary stakes, `V=10`, `p=.45+.47Q`, and batch latency at `.05/minute`. Routine sweeps use `V=1` and `.20/minute` to favor turnaround over marginal quality gains. These are explicit policy assumptions, not fitted observations or brief difficulty inference. Output tokens scale AA tokens/task to 12,000 at the cohort median; task cost scales AA cost/task by the same factor. Latency is TTFT plus output tokens/speed. Pool fraction is explicitly an uncalibrated `.01 × task dollars` proxy. Shadow price is `.5+2(1-headroom)^2`; reset pace is unknown (`rho=1`). Utility is `V*p - lambda*.01*taskCost - latencyRate*seconds/60`; task dollars are a quota proxy, not a claimed subscription bill. Missing cost/speed inputs use disclosed neutral defaults after the evidence fallback chain. Table quality is divided by 100 and mapped to the same probability/value scale. No Beta updates or exploration occur; `n=0` means zero labels used by this scorer, not an empty ledger.
 
-OpenAI/Codex and Anthropic/Claude account training opt-outs are recorded as `Parker 2026-11-19`; Google AI Pro remains training. `--data-class parcs`, or a brief mentioning PARCS/Bridgeton, permits only the Claude plan (never Claude via agy). It prints a handoff and exits 5 without launch, even when live exclusions prevent choosing a specific Claude offer. Other blocks remain visible for the caller. Credential detection cannot downgrade `parcs`.
+OpenAI/Codex and Anthropic/Claude account training opt-outs are recorded as `Parker 2026-11-19`; Google AI Pro remains training. `--class parcs`, or a brief mentioning PARCS/Bridgeton, permits only the Claude plan (never Claude via agy). It prints a handoff and exits 5 without launch, even when live exclusions prevent choosing a specific Claude offer. Other blocks remain visible for the caller. Credential detection cannot downgrade `parcs`.
 
 ## Slice 4 prerequisites
 
