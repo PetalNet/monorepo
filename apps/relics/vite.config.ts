@@ -5,10 +5,20 @@ import { fontless } from "fontless";
 import { defineConfig } from "vitest/config";
 
 export default defineConfig({
+	ssr: { noExternal: ["fontless/runtime"] },
 	plugins: [
 		tailwindcss(),
 		fontless({
-			families: [{ name: "Geist", provider: "fontsource", weights: [400, 500, 600], global: true }],
+			defaults: { preload: true },
+			families: [
+				{
+					name: "Schibsted Grotesk",
+					provider: "fontsource",
+					weights: [400, 500, 600],
+					global: true,
+				},
+				{ name: "IBM Plex Mono", provider: "fontsource", weights: [400], global: true },
+			],
 		}),
 		sveltekit({ adapter: adapter() }),
 	],

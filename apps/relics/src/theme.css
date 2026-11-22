@@ -49,7 +49,9 @@
 	--noise: 0;
 }
 :root {
-	font-family: "Geist", sans-serif;
+	--font-sans: "Schibsted Grotesk", sans-serif;
+	--font-mono: "IBM Plex Mono", monospace;
+	font-family: var(--font-sans);
 	font-synthesis: none;
 	font-size: 16px;
 	--muted: #cdd4c9;
@@ -158,7 +160,9 @@ hr {
 .muted {
 	color: var(--muted);
 }
-.mono {
+.mono,
+code {
+	font-family: var(--font-mono);
 	font-variant-numeric: tabular-nums;
 }
 .small {

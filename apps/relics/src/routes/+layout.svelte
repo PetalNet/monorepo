@@ -1,6 +1,7 @@
 <script lang="ts">
 	import { page } from "$app/state";
 	import { Sun, Moon, Library, ShieldCheck } from "@lucide/svelte";
+	import { globalFontFaces, preloads } from "fontless/runtime";
 	import { onMount } from "svelte";
 
 	import Mushroom from "#lib/components/Mushroom.svelte";
@@ -22,6 +23,14 @@
 		}
 	}
 </script>
+
+<svelte:head>
+	{#each preloads as attrs (attrs.href)}
+		<link {...attrs} />
+	{/each}
+	<!-- eslint-disable-next-line svelte/no-at-html-tags -- Fontless emits trusted build-time CSS. -->
+	{@html `<style>${globalFontFaces}</style>`}
+</svelte:head>
 
 <a class="skip" href="#content">Skip to content</a>
 <header>

@@ -65,7 +65,7 @@
 		<div class="photo-label"><span>{relic.typeName}</span><span>Physical specimen</span></div>
 	</div>
 	<div class="specimen-label">
-		<div class="number">
+		<div class="number mono">
 			<span>No.</span><span>{String(relic.indexNumber ?? 0).padStart(3, "0")}</span>
 		</div>
 		<div class="identity">
@@ -318,7 +318,7 @@
 		}
 		.identity {
 			margin-block: 0 24px;
-			padding-inline-end: 112px;
+			padding-inline-end: 128px;
 		}
 		.identity h1 {
 			font-size: 2rem;
