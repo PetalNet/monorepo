@@ -47,18 +47,18 @@ Headings rotate counterclockwise from east. Unreal swaps east/north and multipli
 Unknown types, misspelled fields, nonfinite numbers, nonpositive dimensions, invalid polygons and
 props extending beyond the tile fail the build with the feature ID. Surface and line polygons clip at the tile edge.
 
-| Type          | Geometry and measurements                                              | Defaults where no measurement exists          |
-| ------------- | ---------------------------------------------------------------------- | --------------------------------------------- |
-| `surface`     | `ring`, `material`: asphalt, concrete, track, gravel, clay or turf     | No inferred boundary                          |
-| `line`        | `points`, `material`: paint_white, paint_yellow or concrete; `width_m` | Paint width 0.1 m; concrete requires width    |
-| `decal`       | `image`, `bounds_m`: registered north-up RGBA paint                    | No inferred dimensions or artwork             |
-| `curb`        | `points`, `width_m`, `height_m`                                        | Width/height 0.15 m, buried 0.05 m            |
-| `fence`       | `points`, `height_m`; optional `ground_anchor` per segment             | Height 2.4 m, posts at most 3 m apart         |
-| `light_pole`  | `point`, `height_m`; `heading_deg`, `arms`, `floodlight`               | Heading zero, two arms, horizontal luminaires |
-| `bench`       | `point`, `heading_deg`, `length_m`                                     | Length 1.8 m, seat height 0.48 m              |
-| `bleacher`    | Two `points` along its front edge, `rows`, `step_m`, `rise_m`          | Five rows, step 0.8 m, rise 0.35 m            |
-| `goalpost`    | `point`, `heading_deg`, `height_m`, `width_m`                          | Height 5.6 m, width 5.64 m                    |
-| `soccer_goal` | `point`, `heading_deg`, `width_m`, `height_m`, `depth_m`               | 7.32 by 2.44 m, depth 2 m                     |
+| Type          | Geometry and measurements                                                           | Defaults where no measurement exists          |
+| ------------- | ----------------------------------------------------------------------------------- | --------------------------------------------- |
+| `surface`     | `ring`, `material`: asphalt, concrete, track, gravel, clay or turf                  | No inferred boundary                          |
+| `line`        | `points`, `material`: paint_white, paint_yellow, paint_black or concrete; `width_m` | Paint width 0.1 m; concrete requires width    |
+| `decal`       | `image`, `bounds_m`: registered north-up RGBA paint                                 | No inferred dimensions or artwork             |
+| `curb`        | `points`, `width_m`, `height_m`                                                     | Width/height 0.15 m, buried 0.05 m            |
+| `fence`       | `points`, `height_m`; optional `ground_anchor` per segment                          | Height 2.4 m, posts at most 3 m apart         |
+| `light_pole`  | `point`, `height_m`; `heading_deg`, `arms`, `floodlight`                            | Heading zero, two arms, horizontal luminaires |
+| `bench`       | `point`, `heading_deg`, `length_m`                                                  | Length 1.8 m, seat height 0.48 m              |
+| `bleacher`    | Two `points` along its front edge, `rows`, `step_m`, `rise_m`                       | Five rows, step 0.8 m, rise 0.35 m            |
+| `goalpost`    | `point`, `heading_deg`, `height_m`, `width_m`                                       | Height 5.6 m, width 5.64 m                    |
+| `soccer_goal` | `point`, `heading_deg`, `width_m`, `height_m`, `depth_m`                            | 7.32 by 2.44 m, depth 2 m                     |
 
 Bleachers rise to the left of the line from their first endpoint to their second. A goal's local width
 follows east at heading zero; its depth follows north. Pole height must be supplied. A height estimated
@@ -120,7 +120,7 @@ contains material batches, vertices, triangle indices, collision flags and optio
 Paving and painted ribbons follow terrain at each vertex on the Landscape grid, with triangle edges no longer than 2 m.
 Props use a common terrain anchor so stands and goal frames remain rigid. Footings extend 0.3 m below
 that anchor, or 0.6 m for bleachers, to cover small ground variations without distorting their frames.
-The grass mask suppresses tufts on paving and clay without changing measured Landscape heights or weights. Turf surfaces keep the measured grass population and cover blurred photographic field markings beneath the vector inventory.
+The grass mask suppresses tufts on paving and clay without changing measured Landscape heights or weights. Legacy `turf` surfaces without field records keep the measured grass population and cover blurred photographic field markings beneath the vector inventory.
 
 Paving and paint share batches within 126 m cells. Batches split at 20,000 triangles. Solid props use
 Nanite, collision and shadows. Paving and vector paint use ordinary opaque meshes over the Landscape's collision. Registered paint uses masked meshes. Fences use ordinary masked, two-sided chainlink panels with solid posts and rails. Daytime luminaires
@@ -177,3 +177,68 @@ UE 5.8.4 comparison, editor `HighResScreenshot` captures fragmented continuous m
 Game captures at the same pose and output resolution restored continuous strokes. Extra editor warm-up frames
 did not remove the artifact. Keep the camera pose, field of view, render fractions and output resolution
 fixed when comparing captures.
+
+## Athletic turf and natural fields
+
+`athletic_turf` is a synthetic surface class. It excludes natural grass blades within its polygon.
+Markings intersecting that field become color regions in one opaque registered atlas on the field mesh,
+including local RGBA artwork. All colors share streamed 0.6–1.6 cm cut ribbons near the camera,
+filtered tuft rows, irregular black infill, fiber normals, roughness
+and grazing reflection. Alternating pile direction and narrow roll seams follow the configured heading.
+The pile uses the existing Landscape grass streaming system. It uses discrete LOD transitions to avoid a missing-fiber band observed with UE 5.8 HISM dithering. Each root retains eight strands at both geometry levels. Nearby ribbons have five curve segments and thin cut-end caps; distant ribbons use two segments and omit the unresolved caps. Their height fades from 3 to 10 m before culling at 11 m. A separate grass variety adds 10,000 irregular charcoal grains per 20 cm patch, with notched tops and beveled sides between the fibers. Both geometry levels retain every grain and its color seed. The near level retains all top and side triangles, and the far level retains the same rectangular footprint with two top triangles per grain. Both levels omit the lower closure faces but preserve their contribution to the retained vertex normals. Shared grain vertices use area-weighted normals, with a face-normal fallback at sharp corners. A world-space pixel normal blends the visible facet with the vertex normal. Both meshes use two UV channels; infill keeps full precision. Original mesh positions supply collapse displacement and infill contact height. Lower ribbon segments and the nearby backing darken at their contact with the bed. The particles shrink into their roots from 2 to 4 m and cull at 4.5 m. A seamless packed grain texture supplies the underlying bed's normal relief, reflectance and intergranular occlusion. Per-blade variation breaks up
+repeated patches while retaining manufactured rows.
+Its conservative footprint mask clips fibers at field boundaries to within a mask texel.
+Each strand samples its atlas color at its placed root, keeping dyed and inlaid colors fixed along the bent ribbon and its cut end. The field mask still clips the displaced geometry at the field boundary. Athletic mesh vertices must use the exporter’s 0.025 m terrain offset so pile roots meet
+the surface. Natural grass inputs remain connected to their original varieties.
+The authored density and streaming ranges are the same in per-platform and per-quality modes.
+These are appearance priors. There are no raised marking ribbons, dry patches, soil or grass clumps.
+Rows are 10 mm apart, with strand positions spread within and along each row. Sub-row scraps can show infill without a fiber root; markings use atlas colors
+inside a full field, rather than separate narrow field polygons.
+Registered surface meshes keep full-precision UVs so wide atlases do not quantize marking positions
+at mesh boundaries.
+
+Add `fields` beside `features` in the inventory to record and override classifications:
+
+```json
+{
+	"fields": [
+		{
+			"surface_id": "playing-field",
+			"classification": "athletic_turf",
+			"evidence": "Survey crop A: uniform engineered rows and inlaid logo; OSM surface=artificial_turf",
+			"confidence": 0.95,
+			"heading_deg": 90,
+			"stripe_width_m": 4.572
+		}
+	]
+}
+```
+
+Each record names one existing `turf`, `athletic_turf` or `natural_grass` surface. Classification is
+`athletic_turf` or `natural_grass`; optional `override` selects either while retaining the original decision
+and evidence. Non-overlapping field polygons, finite headings, positive stripe widths up to 100 m and
+confidence from zero to one are validated before generation. Heading is counterclockwise from east; bands repeat
+along that direction. Defaults are heading zero and 4.572 m stripes. Explicit `athletic_turf` and `natural_grass` surfaces
+also work without a record, using their feature evidence and those defaults. A track is supporting context,
+not proof of synthetic turf. Record imagery cues, available OSM surface tags and facility-owner evidence;
+record absent tags honestly. Both the original and effective decisions appear in the stage and output JSON.
+
+Natural fields retain the Landscape's grass material and blade population, without a flat field overlay.
+Lines split at field boundaries. Grass paint projects a faded color onto grass-like receivers while
+excluding horizontal ground. Sparse areas retain gaps between existing blades. Its footprint follows
+the marking triangles, preserving registered image alpha and color.
+Generated trees, buildings, goalposts and fences reject projected decals in scenes with grass paint.
+Paving and props added outside EnvGen keep their decal reception.
+The original mesh remains in the semantic depth pass only. Portions on clay or paving retain the
+existing paint finish. Natural-field image marks use the same projected paint. `turf` without a field record retains its legacy behavior.
+
+Synthetic color atlases target 2 cm texels, bounded by 8192 pixels per side and 32 million pixels total.
+They are opaque color textures with content-addressed filenames, included in the manifest artifact hashes.
+Input images are validated and hashed before cache lookup; atlases bake from those immutable bytes.
+Registration remains independent of mesh batching. Keep restricted artwork in local assets. Look for the
+official mark before segmenting an aerial. An older official vector mark was available in the university's
+visitor guide; its current identity uses a different design.
+
+Material references: [FieldTurf systems](https://fieldturf.com/en/products/detail/turf-systems/) and
+[FieldTurf infill](https://fieldturf.com/en/products/detail/infill-systems-2/).
+Artwork reference: [official athletics logos](https://brand.mst.edu/logos/miner-athletics-logos/).
