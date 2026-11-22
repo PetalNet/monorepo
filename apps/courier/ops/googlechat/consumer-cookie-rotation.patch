@@ -1,0 +1,173 @@
+--- a/maugclib/http_utils.py
++++ b/maugclib/http_utils.py
+@@ -13,6 +13,7 @@
+ import async_timeout
+ 
+ from . import exceptions
++from .event import Event
+ 
+ logger = logging.getLogger(__name__)
+ CONNECT_TIMEOUT = 30
+@@ -37,11 +38,40 @@
+ 
+ 
+ class Cookies(NamedTuple):
+-    compass: str
+-    ssid: str
+-    sid: str
+-    osid: str
+-    hsid: str
++    compass: str | None
++    ssid: str | None
++    sid: str | None
++    osid: str | None
++    hsid: str | None
++    secure_1psidts: str | None = None
++    sidcc: str | None = None
++    secure_1psidcc: str | None = None
++    secure_3psidcc: str | None = None
++    secure_3psidts: str | None = None
++    apisid: str | None = None
++    sapisid: str | None = None
++    secure_1psid: str | None = None
++    secure_3psid: str | None = None
++    secure_1papisid: str | None = None
++    secure_3papisid: str | None = None
++
++
++COOKIE_NAMES = {'compass': 'COMPASS',
++ 'ssid': 'SSID',
++ 'sid': 'SID',
++ 'osid': 'OSID',
++ 'hsid': 'HSID',
++ 'secure_1psidts': '__Secure-1PSIDTS',
++ 'sidcc': 'SIDCC',
++ 'secure_1psidcc': '__Secure-1PSIDCC',
++ 'secure_3psidcc': '__Secure-3PSIDCC',
++ 'secure_3psidts': '__Secure-3PSIDTS',
++ 'apisid': 'APISID',
++ 'sapisid': 'SAPISID',
++ 'secure_1psid': '__Secure-1PSID',
++ 'secure_3psid': '__Secure-3PSID',
++ 'secure_1papisid': '__Secure-1PAPISID',
++ 'secure_3papisid': '__Secure-3PAPISID'}
+ 
+ 
+ chat_google_com = URL("https://chat.google.com/")
+@@ -57,13 +87,20 @@
+ 
+     def __init__(self, cookies: Cookies, proxy: str = None, user_agent: str = None) -> None:
+         self._proxy = proxy
++        self.on_cookies_changed = Event("Session.on_cookies_changed")
++        self._cookie_save_lock = asyncio.Lock()
++        self._last_auth_cookies = cookies
+ 
+         # The server does not support quoting cookie values (see #498).
+         self._cookie_jar = aiohttp.CookieJar(quote_cookie=False)
+         cookie = SimpleCookie()
+         for key, value in cookies._asdict().items():
+-            cookie[key.upper()] = value
+-            cookie[key.upper()].update({"domain": "chat.google.com", "path": "/"})
++            if value is None:
++                continue
++            name = COOKIE_NAMES[key]
++            cookie[name] = value
++            domain = "chat.google.com" if key in {"compass", "osid"} else "google.com"
++            cookie[name].update({"domain": domain, "path": "/", "secure": True})
+         self._cookie_jar.update_cookies(cookie, chat_google_com)
+ 
+         if user_agent:
+@@ -76,20 +113,39 @@
+         else:
+             user_agent = DEFAULT_USER_AGENT
+ 
++        trace = aiohttp.TraceConfig()
++        trace.on_request_end.append(self._on_request_end)
++        trace.on_request_exception.append(self._on_request_end)
+         timeout = aiohttp.ClientTimeout(connect=CONNECT_TIMEOUT)
+         self._session = aiohttp.ClientSession(
+             cookie_jar=self._cookie_jar,
++            trace_configs=[trace],
+             timeout=timeout,
+             trust_env=True,
+             headers={"User-Agent": user_agent},
+         )
+ 
+     def get_auth_cookies(self) -> Cookies:
++        cookies = self._auth_cookie_snapshot()
++        if any(not getattr(cookies, field) for field in ("compass", "ssid", "sid", "osid", "hsid")):
++            raise exceptions.NotLoggedInError("Required auth cookie is missing")
++        return cookies
++
++    def _auth_cookie_snapshot(self) -> Cookies:
+         vals = {}
+         cookie = self._cookie_jar.filter_cookies(chat_google_com)
+         for field in Cookies._fields:
+-            vals[field] = cookie[field.upper()].value
++            value = cookie.get(COOKIE_NAMES[field])
++            vals[field] = value.value if value else None
+         return Cookies(**vals)
++
++    async def _on_request_end(self, session, context, params) -> None:
++        async with self._cookie_save_lock:
++            cookies = self._auth_cookie_snapshot()
++            if cookies != self._last_auth_cookies:
++                await self.on_cookies_changed.fire(cookies)
++                self._last_auth_cookies = cookies
++            self.get_auth_cookies()
+ 
+     def get_cookie(self, url: URL | str, name: str) -> Morsel[str]:
+         filtered = self._cookie_jar.filter_cookies(url)
+@@ -261,7 +317,7 @@
+             allow_redirects=allow_redirects,
+             data=data,
+             proxy=self._proxy,
+-            ssl=False,
++            ssl=True,
+         )
+ 
+     async def close(self) -> None:
+--- a/maugclib/client.py
++++ b/maugclib/client.py
+@@ -93,6 +93,7 @@
+         self._session = http_utils.Session(
+             cookies, user_agent=user_agent, proxy=os.environ.get("HTTP_PROXY")
+         )
++        self.on_cookies_changed = self._session.on_cookies_changed
+ 
+         # channel.Channel instance (populated by .connect()):
+         self._channel = None
+--- a/mautrix_googlechat/user.py
++++ b/mautrix_googlechat/user.py
+@@ -281,6 +281,13 @@
+             self.cookies = client_cookies
+             await self.save()
+             self.log.debug("Saved updated auth cookies")
++        async def save_rotated_cookies(updated: Cookies) -> None:
++            if self.client is not client:
++                return
++            self.cookies = updated
++            await self.save()
++
++        self.client.on_cookies_changed.add_observer(save_rotated_cookies)
+         self.conn_task = asyncio.create_task(self.start())
+         if not self.periodic_sync_task:
+             self.periodic_sync_task = asyncio.create_task(self._periodic_sync())
+--- a/mautrix_googlechat/commands/auth.py
++++ b/mautrix_googlechat/commands/auth.py
+@@ -94,7 +94,14 @@
+         return await evt.reply(f"Invalid JSON: {e}")
+ 
+     try:
+-        await evt.sender.connect(Cookies(**{k.lower(): v for k, v in data.items()}))
++        cookies = Cookies(**{k.lower(): v for k, v in data.items()})
++        if any(value is not None and not isinstance(value, str) for value in cookies):
++            return await evt.reply("Cookie values must be strings")
++    except (TypeError, AttributeError):
++        return await evt.reply("Invalid cookie fields")
++
++    try:
++        await evt.sender.connect(cookies)
+     except NotLoggedInError:
+         return await evt.reply("Those cookies don't seem to be valid")
+     await evt.sender.name_future
