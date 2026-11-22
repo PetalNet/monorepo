@@ -28,7 +28,7 @@
 use core::time::Duration;
 use std::sync::Arc;
 
-use matrix_sdk::{Client, config::SyncSettings, ruma::api::error::ErrorKind};
+use matrix_sdk::{Client, RoomState, config::SyncSettings, ruma::api::error::ErrorKind};
 use tracing::{error, info, warn};
 
 use crate::bridges::{self, PushDecision};
@@ -202,6 +202,35 @@ fn kuma_push_due(synced: &Heartbeat, max_age: Duration) -> bool {
     !is_stalled(synced.age(), max_age)
 }
 
+fn relay_push_decision(
+    sync_fresh: bool,
+    bridge_check: Option<Result<(), String>>,
+    health: &RelayHealth,
+    room_state: impl Fn(&str) -> Option<RoomState>,
+) -> PushDecision {
+    let decision = bridges::decide(sync_fresh, bridge_check);
+    if decision != PushDecision::Up {
+        return decision;
+    }
+    let mut problems = Vec::new();
+    for leg in health.report() {
+        if room_state(&leg.room) != Some(RoomState::Joined) {
+            problems.push(format!("{}: not joined", leg.room));
+        }
+        if leg.consecutive_failures > 0 {
+            problems.push(format!(
+                "{}: unresolved send failures ({})",
+                leg.room, leg.consecutive_failures
+            ));
+        }
+    }
+    if problems.is_empty() {
+        PushDecision::Up
+    } else {
+        PushDecision::Down(problems.join("; "))
+    }
+}
+
 /// The push URL with `status`/`msg` set (replacing any already in it).
 fn push_url(base: &str, down_msg: Option<&str>) -> Option<reqwest::Url> {
     let mut url = reqwest::Url::parse(base).ok()?;
@@ -254,13 +283,15 @@ async fn bridge_status(
 /// Skipping a push (rather than sending `down`) lets Kuma's own timeout flag
 /// the bot, which also covers a dead process. When `required_bridges` is
 /// non-empty, the push is `down` (with the reason) unless each of those
-/// Beeper bridges has a connected login.
+/// Beeper bridges has a connected login. Registered relay rooms must be
+/// joined, and every leg must be free of unresolved send failures.
 pub async fn kuma_pusher(
     url: String,
     synced: Heartbeat,
     max_age: Duration,
     client: Client,
     required_bridges: Vec<String>,
+    health: Arc<RelayHealth>,
 ) {
     let http = reqwest::Client::new();
     let mut ticker = tokio::time::interval(KUMA_PUSH_INTERVAL);
@@ -275,7 +306,11 @@ pub async fn kuma_pusher(
         } else {
             None
         };
-        let down_msg = match bridges::decide(fresh, bridge_check) {
+        let decision = relay_push_decision(fresh, bridge_check, &health, |room| {
+            let room_id = matrix_sdk::ruma::RoomId::parse(room).ok()?;
+            client.get_room(&room_id).map(|room| room.state())
+        });
+        let down_msg = match decision {
             PushDecision::Skip => {
                 warn!("Kuma push skipped: no successful sync recently");
                 continue;
@@ -373,5 +408,83 @@ mod tests {
         )
         .unwrap();
         assert_eq!(u.query(), Some("status=down&msg=a+b"));
+    }
+
+    #[test]
+    fn mapped_rooms_must_be_joined_even_without_traffic() {
+        let health = RelayHealth::new();
+        health.register("!mapped:hs");
+        for state in [
+            Some(RoomState::Left),
+            Some(RoomState::Invited),
+            Some(RoomState::Banned),
+            Some(RoomState::Knocked),
+            None,
+        ] {
+            let decision = relay_push_decision(true, Some(Ok(())), &health, |_| state);
+            assert_eq!(
+                decision,
+                PushDecision::Down("!mapped:hs: not joined".into())
+            );
+        }
+        assert_eq!(
+            relay_push_decision(true, None, &health, |_| Some(RoomState::Joined)),
+            PushDecision::Up
+        );
+    }
+
+    #[test]
+    fn send_failure_stays_down_until_that_leg_succeeds() {
+        let health = RelayHealth::new();
+        health.register("!a:hs");
+        health.register("!b:hs");
+        let joined = |_: &str| Some(RoomState::Joined);
+        health.record_failure("!a:hs", "send failed");
+        health.record_success("!b:hs");
+        for _ in 0..2 {
+            let decision = relay_push_decision(true, None, &health, joined);
+            assert_eq!(
+                decision,
+                PushDecision::Down("!a:hs: unresolved send failures (1)".into())
+            );
+            let PushDecision::Down(msg) = decision else {
+                unreachable!()
+            };
+            let url = push_url("https://k.example/api/push/test", Some(&msg)).unwrap();
+            assert!(
+                url.query_pairs()
+                    .any(|(key, value)| key == "status" && value == "down")
+            );
+        }
+        health.record_success("!a:hs");
+        assert_eq!(
+            relay_push_decision(true, None, &health, joined),
+            PushDecision::Up
+        );
+    }
+
+    #[test]
+    fn relay_health_preserves_sync_and_bridge_gates() {
+        let health = RelayHealth::new();
+        health.register("!a:hs");
+        health.record_failure("!a:hs", "send failed");
+        assert_eq!(
+            relay_push_decision(false, None, &health, |_| None),
+            PushDecision::Skip
+        );
+        health.record_success("!a:hs");
+        assert_eq!(
+            relay_push_decision(
+                true,
+                Some(Err("bridge state unknown".into())),
+                &health,
+                |_| Some(RoomState::Joined)
+            ),
+            PushDecision::Down("bridge state unknown".into())
+        );
+        assert_eq!(
+            relay_push_decision(true, None, &RelayHealth::new(), |_| None),
+            PushDecision::Up
+        );
     }
 }

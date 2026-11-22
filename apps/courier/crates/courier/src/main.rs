@@ -178,6 +178,7 @@ async fn main() -> Result<()> {
                 .map(|b| b.trim().to_owned())
                 .filter(|b| !b.is_empty())
                 .collect(),
+            Arc::clone(&health),
         ));
     }
     if args.sync_iteration_timeout_secs != 180 {
