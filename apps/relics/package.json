@@ -29,6 +29,7 @@
 		"@tailwindcss/vite": "catalog:dev",
 		"@types/node": "catalog:types",
 		"@types/qrcode": "catalog:types",
+		"@types/three": "catalog:types",
 		"daisyui": "catalog:prod",
 		"effect": "catalog:",
 		"fontless": "catalog:",
@@ -37,6 +38,7 @@
 		"svelte": "catalog:prod",
 		"svelte-check": "catalog:dev",
 		"tailwindcss": "catalog:prod",
+		"three": "catalog:prod",
 		"typescript": "catalog:dev",
 		"vite": "catalog:dev",
 		"vitest": "catalog:dev"

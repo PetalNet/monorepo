@@ -3,7 +3,10 @@
 	import { page } from "$app/state";
 
 	import type { PageData } from "../../routes/admin/[...path]/$types";
+	import type { CreatureModelId } from "../creatures";
 	import type { AdminCommand } from "../schema";
+	import CreatureColorField from "./CreatureColorField.svelte";
+	import CreatureModelField from "./CreatureModelField.svelte";
 	import RelicPhoto from "./RelicPhoto.svelte";
 	import UploadField from "./UploadField.svelte";
 
@@ -24,6 +27,8 @@
 	let name = $state(""),
 		description = $state(""),
 		image = $state("");
+	let modelId = $state<CreatureModelId | null>(null);
+	let color = $state("");
 	let uploading = $state(false);
 	let quantity = $state(16),
 		customStart = $state(0),
@@ -54,6 +59,8 @@
 		}
 	});
 	function begin(next: typeof step) {
+		modelId = null;
+		color = "";
 		step = next;
 		added = "";
 		name = "";
@@ -64,7 +71,7 @@
 		event.preventDefault();
 		const submittedName = name.trim();
 
-		if (await save({ kind: "type", name, description, imageUrl: image })) {
+		if (await save({ kind: "type", name, description, imageUrl: image, modelId })) {
 			typeId = catalog.types.find((t) => t.name === submittedName)?.id ?? typeId;
 			begin("variety");
 			added = "Type saved. Let’s add its first color or design.";
@@ -74,12 +81,22 @@
 		event.preventDefault();
 		const submittedName = name.trim();
 
-		if (await save({ kind: "variety", typeId, name, description, imageUrl: image })) {
+		if (
+			await save({
+				kind: "variety",
+				typeId,
+				name,
+				description,
+				imageUrl: image,
+				color: color || null,
+			})
+		) {
 			added = `${name} saved. Add another, or make its tags.`;
 
 			varietyId =
 				catalog.varieties.find((v) => v.typeId === typeId && v.name === submittedName)?.id ?? 0;
 
+			color = "";
 			name = "";
 			description = "";
 			image = "";
@@ -192,6 +209,7 @@
 							placeholder="For example, Snail"
 						/></label
 					>
+					<CreatureModelField bind:value={modelId} />
 					<details>
 						<summary>Description and type photo (optional)</summary><label class="field"
 							><span>Description</span><textarea
@@ -225,6 +243,7 @@
 							placeholder="For example, Moss green"
 						/></label
 					>
+					<CreatureColorField bind:value={color} />
 					<UploadField bind:url={image} bind:busy={uploading} />
 					<details>
 						<summary>Description (optional)</summary><label class="field"

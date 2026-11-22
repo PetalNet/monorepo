@@ -7,7 +7,7 @@ import { compare } from "bcryptjs";
 import { Data, Schema } from "effect";
 
 import type { Claim, Collection, RelicCard } from "../schema";
-import { Variety, type AdminCommand } from "../schema";
+import { Variety, CreatureColor, CreatureModelId, type AdminCommand } from "../schema";
 import legacySchema from "./legacy-schema.sql?raw";
 import { encodeRelicId } from "./relic-id";
 
@@ -37,6 +37,8 @@ const rawCard = Schema.Struct({
 	description: nullableText,
 	lore: nullableText,
 	imageUrl: nullableText,
+	modelId: Schema.NullOr(CreatureModelId),
+	color: Schema.NullOr(CreatureColor),
 	friendName: nullableText,
 	firstName: nullableText,
 	birthday: Schema.NullOr(Schema.Finite),
@@ -45,7 +47,7 @@ const rawCard = Schema.Struct({
 });
 const storyOwnerKey =
 	"COALESCE('legacy:'||r.ownerId,'collector:'||r.collectorId)||':'||COALESCE(r.acquisitionDate,'')";
-const cardSql = `SELECT r.id,r.name,r.typeId,r.varietyId,r.indexNumber,COALESCE(t.name,'Relic') typeName,COALESCE(v.name,'Original') varietyName,r.description,COALESCE(r.lore,(SELECT a.lore FROM AllocationRange a WHERE a.typeId=r.typeId AND a.varietyId=r.varietyId AND (a.startIndex IS NULL OR a.startIndex<=r.indexNumber) AND (a.endIndex IS NULL OR a.endIndex>=r.indexNumber) LIMIT 1)) lore,COALESCE(r.customImageUrl,r.imageUrl,v.imageUrl,t.imageUrl) imageUrl,s.name friendName,COALESCE(s.firstName,c.name,u.displayName) firstName,s.birthday,r.ownerId,r.collectorId FROM Relic r LEFT JOIN RelicType t ON t.id=r.typeId LEFT JOIN RelicVariety v ON v.id=r.varietyId LEFT JOIN RelicStory s ON s.relicId=r.id AND s.ownerKey=${storyOwnerKey} LEFT JOIN Collector c ON c.id=r.collectorId LEFT JOIN User u ON u.id=r.ownerId`;
+const cardSql = `SELECT r.id,r.name,r.typeId,r.varietyId,r.indexNumber,COALESCE(t.name,'Relic') typeName,COALESCE(v.name,'Original') varietyName,r.description,COALESCE(r.lore,(SELECT a.lore FROM AllocationRange a WHERE a.typeId=r.typeId AND a.varietyId=r.varietyId AND (a.startIndex IS NULL OR a.startIndex<=r.indexNumber) AND (a.endIndex IS NULL OR a.endIndex>=r.indexNumber) LIMIT 1)) lore,COALESCE(r.customImageUrl,r.imageUrl,v.imageUrl,t.imageUrl) imageUrl,t.modelId,v.color,s.name friendName,COALESCE(s.firstName,c.name,u.displayName) firstName,s.birthday,r.ownerId,r.collectorId FROM Relic r LEFT JOIN RelicType t ON t.id=r.typeId LEFT JOIN RelicVariety v ON v.id=r.varietyId LEFT JOIN RelicStory s ON s.relicId=r.id AND s.ownerKey=${storyOwnerKey} LEFT JOIN Collector c ON c.id=r.collectorId LEFT JOIN User u ON u.id=r.ownerId`;
 
 export class RelicsDatabase {
 	readonly sql: DatabaseSync;
@@ -59,6 +61,20 @@ export class RelicsDatabase {
 
 		this.transaction(() => {
 			this.sql.exec(legacySchema);
+
+			for (const [table, column, declaration] of [
+				["RelicType", "modelId", "TEXT CHECK(modelId IN ('shroomling','snail'))"],
+				["RelicVariety", "color", "TEXT"],
+			]) {
+				if (
+					!this.sql
+						.prepare(`PRAGMA table_info(${table})`)
+						.all()
+						.some((field) => field.name === column)
+				) {
+					this.sql.exec(`ALTER TABLE ${table} ADD COLUMN ${column} ${declaration}`);
+				}
+			}
 
 			this.sql.exec(
 				"CREATE TABLE IF NOT EXISTS Collector(id TEXT PRIMARY KEY,name TEXT NOT NULL,email TEXT UNIQUE)",
@@ -200,7 +216,7 @@ export class RelicsDatabase {
 			: [];
 		const varieties = this.many(
 			Variety,
-			`SELECT v.id,v.typeId,v.name,t.name typeName,v.description,COALESCE(v.imageUrl,t.imageUrl) imageUrl FROM RelicVariety v JOIN RelicType t ON t.id=v.typeId ORDER BY t.id,v.id`,
+			`SELECT v.id,v.typeId,v.name,t.name typeName,v.color,v.description,COALESCE(v.imageUrl,t.imageUrl) imageUrl FROM RelicVariety v JOIN RelicType t ON t.id=v.typeId ORDER BY t.id,v.id`,
 		);
 		const sets = this.many(
 			Schema.Struct({
@@ -424,12 +440,13 @@ export class RelicsDatabase {
 					name: Schema.String,
 					description: nullableText,
 					imageUrl: nullableText,
+					modelId: Schema.NullOr(CreatureModelId),
 				}),
-				"SELECT id,name,description,imageUrl FROM RelicType ORDER BY id",
+				"SELECT id,name,description,imageUrl,modelId FROM RelicType ORDER BY id",
 			),
 			varieties: this.many(
 				Variety,
-				"SELECT v.id,v.typeId,v.name,t.name typeName,v.description,v.imageUrl FROM RelicVariety v JOIN RelicType t ON t.id=v.typeId ORDER BY v.id",
+				"SELECT v.id,v.typeId,v.name,t.name typeName,v.color,v.description,v.imageUrl FROM RelicVariety v JOIN RelicType t ON t.id=v.typeId ORDER BY v.id",
 			),
 			ranges: this.many(
 				Schema.Struct({
@@ -482,14 +499,23 @@ export class RelicsDatabase {
 					case "type": {
 						if (command.id === undefined) {
 							this.sql
-								.prepare("INSERT INTO RelicType(name,description,imageUrl) VALUES (?,?,?)")
-								.run(command.name, command.description || null, command.imageUrl || null);
+								.prepare(
+									"INSERT INTO RelicType(name,description,imageUrl,modelId) VALUES (?,?,?,?)",
+								)
+								.run(
+									command.name,
+									command.description || null,
+									command.imageUrl || null,
+									command.modelId ?? null,
+								);
 						} else {
 							this.update(
-								"UPDATE RelicType SET name=?,description=?,imageUrl=? WHERE id=?",
+								"UPDATE RelicType SET name=?,description=?,imageUrl=?,modelId=CASE WHEN ? THEN modelId ELSE ? END WHERE id=?",
 								command.name,
 								command.description || null,
 								command.imageUrl || null,
+								command.modelId === undefined ? 1 : 0,
+								command.modelId ?? null,
 								command.id,
 							);
 						}
@@ -500,20 +526,23 @@ export class RelicsDatabase {
 						if (command.id === undefined) {
 							this.sql
 								.prepare(
-									"INSERT INTO RelicVariety(typeId,name,description,imageUrl) VALUES (?,?,?,?)",
+									"INSERT INTO RelicVariety(typeId,name,description,imageUrl,color) VALUES (?,?,?,?,?)",
 								)
 								.run(
 									command.typeId,
 									command.name,
 									command.description || null,
 									command.imageUrl || null,
+									command.color ?? null,
 								);
 						} else {
 							this.update(
-								"UPDATE RelicVariety SET name=?,description=?,imageUrl=? WHERE id=? AND typeId=?",
+								"UPDATE RelicVariety SET name=?,description=?,imageUrl=?,color=CASE WHEN ? THEN color ELSE ? END WHERE id=? AND typeId=?",
 								command.name,
 								command.description || null,
 								command.imageUrl || null,
+								command.color === undefined ? 1 : 0,
+								command.color ?? null,
 								command.id,
 								command.typeId,
 							);

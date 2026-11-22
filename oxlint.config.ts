@@ -233,6 +233,7 @@ export const lintConfig = {
 		"**/coverage/**",
 		"**/.turbo/**",
 		"apps/tasks/static/vendor/**",
+		"apps/relics/static/creatures/draco/**",
 	],
 } satisfies OxlintConfig;
 

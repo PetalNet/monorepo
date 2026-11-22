@@ -40,6 +40,18 @@ Before deployment:
 
 After collectors begin using the new service, its database is authoritative. A rollback must account for claims and releases since cutover; restoring the old backup would lose them. Back up the new database and uploads regularly. Do not run old and new services with independent writable copies after cutover.
 
+### Creature presentation
+
+Makers choose Photo only, Shroomling or Snail on each type, and an optional hex color on each variety, in both the workshop and Edit catalog. Models are a fixed asset registry; names never select a model or tint. New types default to Photo only. The photo renders first and remains the fallback; only relic pages load the viewer. The local decoder and its license ship under `/creatures/draco/`.
+
+For the imported production catalogue only, apply the initial settings after startup has migrated the **final authoritative database**, after any final data copy. Apply the same step to the separate staging copy before checking it. The runtime image includes the SQL at `/app/migrations/creature-catalog.sql`:
+
+```sh
+docker exec relics-monorepo node --input-type=module -e 'import { DatabaseSync } from "node:sqlite"; import { readFileSync } from "node:fs"; const db = new DatabaseSync(process.env.RELICS_DB); db.exec(readFileSync("/app/migrations/creature-catalog.sql", "utf8")); db.close();'
+```
+
+The transaction records `creatures-20261122` in `RelicPresentationMigration`, so a repeated deployment preserves later maker choices, including cleared settings. It configures the six imported variety IDs with approximate display colors, without changing names, photos, IDs or ownership. Do not apply this seed to an unrelated catalogue. Check the type/variety settings, `/health`, all original tag URLs and `scripts/continuity.ts` before completing cutover. Roll back to the previous image with the current data directory; the added columns and marker are ignored by the older image.
+
 ## License
 
 The Relics source is licensed under AGPL-3.0-only, following the license family used by Point in this monorepo. Production artwork, uploads, collector records and configuration are not distributed with the source.

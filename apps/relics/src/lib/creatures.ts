@@ -1,0 +1,30 @@
+export const creatureModelIds = ["shroomling", "snail"] as const;
+export type CreatureModelId = (typeof creatureModelIds)[number];
+export const creatureModels = {
+	shroomling: {
+		label: "Shroomling",
+		url: "/creatures/shroomling.glb",
+		material: "cap",
+		axis: "height",
+		size: 2.43,
+		rotation: -0.85,
+	},
+	snail: {
+		label: "Snail",
+		url: "/creatures/snail.glb",
+		material: "shell",
+		axis: "width",
+		size: 2.85,
+		rotation: -0.45,
+	},
+} satisfies Record<
+	CreatureModelId,
+	{
+		label: string;
+		url: string;
+		material: string;
+		axis: "height" | "width";
+		size: number;
+		rotation: number;
+	}
+>;

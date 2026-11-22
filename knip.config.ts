@@ -21,7 +21,7 @@ export default (({ strict }) => ({
 	treatConfigHintsAsErrors: true,
 	workspaces: {
 		"apps/relics": {
-			entry: ["scripts/*.ts!"],
+			entry: ["scripts/*.ts!", "static/creatures/draco/*.js!"],
 		},
 		"apps/turbo-cache": {
 			entry: ["src/main.ts!", "test/**/*.ts"],
