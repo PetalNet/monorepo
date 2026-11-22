@@ -269,7 +269,13 @@ const clock = (ms: number) =>
 		hour12: false,
 	});
 
-function matchesOfferId(offer: Offer, id: string): boolean {
+function matchesOfferId(offer: Offer, id: string, offers: readonly Offer[]): boolean {
+	const canonicalId = evidenceKey(id, "default").model;
+
+	if (offers.some((candidate) => evidenceKey(candidate.model, "default").model === canonicalId)) {
+		return evidenceKey(offer.model, "default").model === canonicalId;
+	}
+
 	if (evidenceKey(id, "default").model === evidenceKey(offer.model, "default").model) {
 		return true;
 	}
@@ -317,7 +323,8 @@ function poolState(pool: Pool, offers: Offer[], state: State): PoolState {
 	const hits = Object.entries(state.exhausted)
 		.filter(
 			([id, until]) =>
-				until * 1000 > state.nowMs && offers.some((o) => o.pool === pool && matchesOfferId(o, id)),
+				until * 1000 > state.nowMs &&
+				offers.some((o) => o.pool === pool && matchesOfferId(o, id, offers)),
 		)
 		.map(([id, until]) => ({ id, untilMs: until * 1000 }))
 		.toSorted((a, b) => b.untilMs - a.untilMs);
@@ -332,7 +339,12 @@ function poolState(pool: Pool, offers: Offer[], state: State): PoolState {
 	return { reasons, headroom };
 }
 
-function offerReasons(o: Offer, pools: Map<Pool, PoolState>, state: State): string[] {
+function offerReasons(
+	o: Offer,
+	pools: Map<Pool, PoolState>,
+	state: State,
+	offers: readonly Offer[],
+): string[] {
 	if (!o.pool) {
 		return ["no plan or pool serves this provider"];
 	}
@@ -366,7 +378,7 @@ function offerReasons(o: Offer, pools: Map<Pool, PoolState>, state: State): stri
 			([key, until]) =>
 				until > state.nowMs &&
 				key.startsWith(`${pool.plan}:`) &&
-				matchesOfferId(o, key.slice(pool.plan.length + 1)),
+				matchesOfferId(o, key.slice(pool.plan.length + 1), offers),
 		)
 	) {
 		reasons.push("offer invalid for 24h");
@@ -389,7 +401,7 @@ function offerReasons(o: Offer, pools: Map<Pool, PoolState>, state: State): stri
 	const id = o.id.toLowerCase();
 
 	if (
-		state.deny.some((denied) => matchesOfferId(o, denied)) ||
+		state.deny.some((denied) => matchesOfferId(o, denied, offers)) ||
 		// PARCS may only run on Claude, so the blanket Claude deny can't apply to it.
 		(state.deny.includes(o.provider) && !(state.dataClass === "parcs" && pool.plan === "claude")) ||
 		state.denyPatterns.some((p) => id.includes(p))
@@ -483,7 +495,10 @@ export function vendorOf(model: string): string {
 export function pick(catalog: Catalog, kind: string, tier: string, state: State): Pick {
 	const offers = offersFrom(catalog, kind, state.pools);
 	const pools = new Map(state.pools.map((p) => [p, poolState(p, offers, state)]));
-	const judged = offers.map((offer) => ({ offer, reasons: offerReasons(offer, pools, state) }));
+	const judged = offers.map((offer) => ({
+		offer,
+		reasons: offerReasons(offer, pools, state, offers),
+	}));
 	const order = Object.entries(catalog.tiers).toSorted((a, b) => b[1] - a[1]);
 	const at = order.findIndex(([t]) => t === tier);
 	const tries = [order[at], order[at - 1], order[at + 1]].filter((t) => t !== undefined);

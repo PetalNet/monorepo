@@ -55,6 +55,10 @@ export function parseModels(raw: unknown): Model[] {
 			throw new TypeError("invalid Codex model slug");
 		}
 
+		if (model["visibility"] !== "list" && model["visibility"] !== "hide") {
+			throw new TypeError("invalid Codex model visibility");
+		}
+
 		if (model["visibility"] !== "list" || HIDDEN.has(slug)) {
 			return [];
 		}
@@ -65,6 +69,10 @@ export function parseModels(raw: unknown): Model[] {
 
 		const efforts = model["supported_reasoning_levels"].flatMap((level: unknown): Effort[] => {
 			const effort = object(level)["effort"];
+
+			if (typeof effort !== "string") {
+				throw new TypeError("invalid Codex effort");
+			}
 
 			return effort === "none" || effort === "low" || effort === "medium" || effort === "high"
 				? [effort]
@@ -115,6 +123,18 @@ async function cached(file: string): Promise<Snapshot | undefined> {
 	}
 }
 
+export async function codexVersion(
+	command: DiscoveryDeps["command"] = defaults.command,
+): Promise<string> {
+	const version = (await command(["--version"])).trim().replace(/^codex-cli\s+/u, "");
+
+	if (!/^\d+\.\d+\.\d+$/u.test(version)) {
+		throw new TypeError("invalid Codex version");
+	}
+
+	return version;
+}
+
 export async function discoverCodex(
 	dir: string,
 	force = false,
@@ -124,11 +144,7 @@ export async function discoverCodex(
 	const previous = await cached(file);
 
 	try {
-		const version = (await deps.command(["--version"])).trim().replace(/^codex-cli\s+/u, "");
-
-		if (!/^\d+\.\d+\.\d+$/u.test(version)) {
-			throw new TypeError("invalid Codex version");
-		}
+		const version = await codexVersion(deps.command);
 
 		if (
 			!force &&
@@ -202,6 +218,7 @@ export interface Release {
 	publishedAt: number;
 }
 export interface AlertDeps {
+	clientVersion?: () => Promise<string> | string;
 	notify: (message: string, key: string) => Promise<void> | void;
 	release: () => Promise<Release> | Release;
 	now: () => number;
@@ -261,6 +278,11 @@ export async function checkCodexAlerts(
 	catalog: Catalog,
 	deps: AlertDeps = alertDefaults,
 ): Promise<void> {
+	const version =
+		snapshot?.client_version ??
+		(await Promise.resolve()
+			.then(deps.clientVersion ?? codexVersion)
+			.catch(() => undefined));
 	const release = await Promise.resolve()
 		.then(deps.release)
 		.catch(() => undefined);
@@ -274,13 +296,13 @@ export async function checkCodexAlerts(
 
 	if (
 		release &&
-		snapshot &&
-		compareVersions(snapshot.client_version, release.version) < 0 &&
+		version &&
+		compareVersions(version, release.version) < 0 &&
 		deps.now() - release.publishedAt > 3 * 86_400_000
 	) {
 		events.push({
 			key: `release:${release.version}`,
-			message: `Codex ${snapshot.client_version} lags ${release.version}, released ${new Date(release.publishedAt).toISOString().slice(0, 10)}. Check codex-update.service.`,
+			message: `Codex ${version} lags ${release.version}, released ${new Date(release.publishedAt).toISOString().slice(0, 10)}. Check codex-update.service.`,
 		});
 	}
 
@@ -324,9 +346,9 @@ export async function checkCodexAlerts(
 						(e) =>
 							!sent.includes(e.key) &&
 							!(
-								snapshot &&
+								version &&
 								e.key.startsWith("release:") &&
-								compareVersions(snapshot.client_version, e.key.slice(8)) >= 0
+								compareVersions(version, e.key.slice(8)) >= 0
 							),
 					)
 					.map((e) => [e.key, e]),
@@ -342,22 +364,33 @@ export async function checkCodexAlerts(
 
 		await persist();
 
-		while (pending.length > 0) {
-			const event = pending[0];
+		const failed: string[] = [];
 
-			if (!event) {
-				break;
+		for (const event of pending) {
+			try {
+				await deps.notify(event.message, event.key);
+			} catch {
+				failed.push(event.key);
+
+				continue;
 			}
 
-			await deps.notify(event.message, event.key);
 			sent.push(event.key);
-			pending.shift();
+			pending = pending.filter((item) => item.key !== event.key);
 			await persist();
+		}
+
+		if (failed.length > 0) {
+			throw new Error("Codex alert delivery failed");
 		}
 	});
 
 	if (!release) {
 		throw new Error("Codex release check failed");
+	}
+
+	if (!version) {
+		throw new Error("Codex client version check failed");
 	}
 }
 

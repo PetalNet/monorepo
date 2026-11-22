@@ -7,6 +7,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { launch } from "./adapters.ts";
 import {
 	checkCodexAlerts,
+	codexVersion,
 	alertDefaults,
 	discoverCodex,
 	parseModels,
@@ -237,12 +238,14 @@ describe("live Codex catalog", () => {
 
 		const discovered = {
 			...snapshot,
-			models: parseModels({ models: [model("gpt-5.1-codex-max"), model("gpt-5.1-codex")] }),
+			models: parseModels({
+				models: [model("gpt-5.1-codex-max"), model("gpt-5.1-codex"), model("gpt-5.1-codex-high")],
+			}),
 		};
 		const offers = offersFrom(withCodexCatalog(catalog, discovered), "code", POOLS);
 
 		expect(new Set(offers.filter((o) => o.provider === "codex").map((o) => o.model))).toEqual(
-			new Set(["gpt-5.1-codex-max", "gpt-5.1-codex"]),
+			new Set(["gpt-5.1-codex-max", "gpt-5.1-codex", "gpt-5.1-codex-high"]),
 		);
 
 		const offer = offers.find((o) => o.model === "gpt-5.1-codex-max" && o.effort === "low");
@@ -260,6 +263,15 @@ describe("live Codex catalog", () => {
 
 		expect(denied.ranked.some((r) => r.offer.model === "gpt-5.1-codex-max")).toBe(false);
 		expect(denied.ranked.some((r) => r.offer.model === "gpt-5.1-codex")).toBe(true);
+		const highDenied = pick(withCodexCatalog(catalog, discovered), "code", "*", {
+			...state,
+			deny: ["gpt-5.1-codex-high"],
+		});
+
+		expect(highDenied.ranked.some((r) => r.offer.model === "gpt-5.1-codex-high")).toBe(false);
+		expect(
+			highDenied.ranked.filter((r) => r.offer.model === "gpt-5.1-codex").map((r) => r.offer.effort),
+		).toEqual(["low", "medium", "high"]);
 	});
 
 	it("retains exact multi-part benchmark release names and preview identities", () => {
@@ -277,6 +289,28 @@ describe("live Codex catalog", () => {
 
 		expect(new Set(result.rows.map((row) => row.model))).toEqual(
 			new Set(["gpt-7.1-codex-mini", "gpt-7.1-codex-mini-preview"]),
+		);
+	});
+
+	it.each([
+		{ models: [{ slug: "gpt-7-sol" }] },
+		{ models: [{ ...model("gpt-7-sol"), supported_reasoning_levels: [{}] }] },
+	])("rejects malformed model metadata and preserves the prior cache", async (invalid) => {
+		const dir = await temp();
+
+		await discoverCodex(dir, false, {
+			now: () => 1000,
+			command: (args) => (args[0] === "--version" ? "codex-cli 0.171.0" : JSON.stringify(raw)),
+		});
+		await expect(
+			discoverCodex(dir, true, {
+				now: () => 2000,
+				command: (args) =>
+					args[0] === "--version" ? "codex-cli 0.171.0" : JSON.stringify(invalid),
+			}),
+		).rejects.toThrow("refresh failed");
+		expect(JSON.parse(await readFile(path.join(dir, "codex-models.json"), "utf8"))).toEqual(
+			snapshot,
 		);
 	});
 });
@@ -363,7 +397,7 @@ describe("Codex alerts", () => {
 			},
 		};
 
-		await expect(checkCodexAlerts(dir, snapshot, catalog, deps)).rejects.toThrow("offline");
+		await expect(checkCodexAlerts(dir, snapshot, catalog, deps)).rejects.toThrow("delivery failed");
 		const sent: string[] = [];
 
 		await checkCodexAlerts(dir, { ...snapshot, models: [] }, withCodexCatalog(catalog, snapshot), {
@@ -401,5 +435,53 @@ describe("Codex alerts", () => {
 			key: "model:quoted",
 			body: `[info] codex-current: ${message}`,
 		});
+	});
+
+	it("continues delivering independent keys when the first enqueue permanently fails", async () => {
+		const dir = await temp();
+		const delivered: string[] = [];
+		const deps = {
+			now: () => 1000,
+			release: () => ({ version: "0.171.0", publishedAt: 0 }),
+			notify: (_message: string, key: string) => {
+				if (key === "model:gpt-6.2-sol") {
+					throw new Error("failed queue");
+				}
+
+				delivered.push(key);
+			},
+		};
+
+		await expect(checkCodexAlerts(dir, snapshot, catalog, deps)).rejects.toThrow("delivery failed");
+		expect(delivered).toEqual(["model:gpt-6.2-astra"]);
+		await expect(checkCodexAlerts(dir, snapshot, catalog, deps)).rejects.toThrow("delivery failed");
+		expect(delivered).toEqual(["model:gpt-6.2-astra"]);
+	});
+
+	it("alerts on a stale installed client even when its model query fails", async () => {
+		const dir = await temp();
+		const command = (args: string[]) => {
+			if (args[0] === "--version") {
+				return "codex-cli 0.164.0";
+			}
+
+			throw new Error("models unavailable");
+		};
+
+		await expect(discoverCodex(dir, true, { now: () => 1000, command })).rejects.toThrow(
+			"refresh failed",
+		);
+		const sent: string[] = [];
+
+		await checkCodexAlerts(dir, undefined, catalog, {
+			now: () => 10 * 86_400_000,
+			clientVersion: () => codexVersion(command),
+			release: () => ({ version: "0.171.0", publishedAt: 0 }),
+			notify: (message) => {
+				sent.push(message);
+			},
+		});
+		expect(sent).toHaveLength(1);
+		expect(sent[0]).toContain("Codex 0.164.0 lags 0.171.0");
 	});
 });
