@@ -775,9 +775,11 @@ return lerp(canopy,bed,pileNear);
 					NormalSums.Add(FVector3f::ZeroVector);
 				}
 				TArray<TPair<FVertexInstanceID, int32>> InstancePoints;
-				const auto Triangle = [&](int32 A, int32 B, int32 C)
+				const auto Triangle = [&](int32 A, int32 B, int32 C, bool bEmit = true)
 				{
 					const FVector3f Face = FVector3f::CrossProduct(Points[C] - Points[A], Points[B] - Points[A]);
+					for (const int32 Point : {A, B, C}) NormalSums[Point] += Face;
+					if (!bEmit) return;
 					const FVector3f Normal = Face.GetSafeNormal(1.e-12f);
 					TArray<FVertexInstanceID> Instances;
 					for (const int32 Point : {A, B, C})
@@ -785,7 +787,6 @@ return lerp(canopy,bed,pileNear);
 						const FVector3f P = Points[Point];
 						const FVertexInstanceID VI = Description.CreateVertexInstance(Vertices[Point]);
 						Normals[VI] = Normal;
-						NormalSums[Point] += Face;
 						InstancePoints.Emplace(VI, Point);
 						UVs.Set(VI, 0, FVector2f(P.X, P.Y) - Root);
 						UVs.Set(VI, 1, Root);
@@ -810,7 +811,8 @@ return lerp(canopy,bed,pileNear);
 					for (int32 Corner = 0; Corner < 4; ++Corner)
 					{
 						Triangle(0, 2 + (Corner + 1) % 4, 2 + Corner);
-						Triangle(1, 2 + Corner, 2 + (Corner + 1) % 4);
+						// Keep the same rim normals without rendering the distant underside.
+						Triangle(1, 2 + Corner, 2 + (Corner + 1) % 4, false);
 					}
 				}
 				for (const auto& Instance : InstancePoints)

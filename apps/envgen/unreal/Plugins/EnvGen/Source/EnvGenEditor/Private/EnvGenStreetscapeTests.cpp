@@ -639,6 +639,7 @@ bool FEnvGenStreetscapeAthletic::RunTest(const FString& Parameters)
 				TestEqual(TEXT("built infill retains its authored facets"), int32(InfillLOD.IndexBuffer.GetNumIndices() / 3), InfillSource->Triangles().Num());
 				TSet<FIntPoint>& Granules = GranuleRoots[LOD];
 				TSet<FIntPoint> TopGranules;
+				TMap<FIntPoint, TSet<FIntVector>> TopTriangles;
 				TSet<uint8> Shades;
 				int32 SplitGranules = 0, BadFacets = 0, TopFacets = 0;
 				for (uint32 Vertex = 0; Vertex < InfillUVs.GetNumVertices(); ++Vertex)
@@ -678,6 +679,11 @@ bool FEnvGenStreetscapeAthletic::RunTest(const FString& Parameters)
 						if (Front.Z <= 0) ++BadFacets;
 						else TopGranules.Add(RootKey);
 						++TopFacets;
+						FIntVector Indices{int32(A), int32(B), int32(C)};
+						if (Indices.X > Indices.Y) Swap(Indices.X, Indices.Y);
+						if (Indices.Y > Indices.Z) Swap(Indices.Y, Indices.Z);
+						if (Indices.X > Indices.Y) Swap(Indices.X, Indices.Y);
+						TopTriangles.FindOrAdd(RootKey).Add(Indices);
 					}
 					else if (FVector3f::DotProduct(Front, FVector3f(Centre.X - Root.X, Centre.Y - Root.Y, 0)) <= 0) ++BadFacets;
 					// Allow packed-normal rounding around the authored 0.2 facing margin.
@@ -689,9 +695,17 @@ bool FEnvGenStreetscapeAthletic::RunTest(const FString& Parameters)
 				TestEqual(TEXT("granule faces retain one root and color seed"), SplitGranules, 0);
 				TestEqual(TEXT("infill dimensions, root data and rendered facet normals are valid"), BadFacets, 0);
 				TestEqual(TEXT("every rendered crumb retains an upward-facing top"), TopGranules.Num(), 10000);
+				if (LOD == 1)
+				{
+					int32 IncompleteFans = 0;
+					for (const auto& Fan : TopTriangles) if (Fan.Value.Num() != 4) ++IncompleteFans;
+					TestEqual(TEXT("far infill retains four distinct top triangles per grain"), IncompleteFans, 0);
+					TestEqual(TEXT("far infill retains all 40000 top facets"), TopFacets, 40000);
+					TestEqual(TEXT("far infill emits only the 40000 retained top facets"), int32(InfillLOD.IndexBuffer.GetNumIndices() / 3), 40000);
+				}
 				TestEqual(TEXT("each crumb has one color seed"), GranuleSeeds[LOD].Num(), 10000);
 				TestTrue(TEXT("rendered crumb colors retain variation"), Shades.Num() > 1);
-				TestTrue(TEXT("compact infill UVs preserve vertex sharing"), InfillUVs.GetNumVertices() <= (LOD == 0 ? 225599u : 100735u));
+				TestTrue(TEXT("compact infill UVs preserve vertex sharing"), InfillUVs.GetNumVertices() <= (LOD == 0 ? 225599u : 50000u));
 				AddInfo(FString::Printf(TEXT("infill LOD%d granules=%d renderTriangles=%d renderVertices=%u topFacets=%d badFacets=%d"),
 					LOD, Granules.Num(), InfillLOD.IndexBuffer.GetNumIndices() / 3, InfillUVs.GetNumVertices(), TopFacets, BadFacets));
 			}
