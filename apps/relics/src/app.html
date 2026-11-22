@@ -1,16 +1,13 @@
 <!doctype html>
-<html lang="en" data-theme="relics-dark">
+<html lang="en" data-theme="storybook">
 	<head>
 		<meta charset="utf-8" />
-		<meta name="viewport" content="width=device-width, initial-scale=1" />
-		<meta name="color-scheme" content="dark light" />
+		<meta
+			name="viewport"
+			content="width=device-width, initial-scale=1, interactive-widget=resizes-content"
+		/>
+		<meta name="color-scheme" content="light" />
 		<link rel="icon" href="/favicon.svg" />
-		<script>
-			try {
-				document.documentElement.dataset.theme =
-					localStorage.getItem("relics-theme") === "light" ? "relics-light" : "relics-dark";
-			} catch {}
-		</script>
 		%sveltekit.head%
 	</head>
 	<body data-sveltekit-preload-data="hover">

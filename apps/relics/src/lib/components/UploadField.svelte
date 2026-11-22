@@ -3,6 +3,7 @@
 	import { onDestroy } from "svelte";
 
 	import { command } from "../client";
+	import RelicPhoto from "./RelicPhoto.svelte";
 	let { url = $bindable(""), busy = $bindable(false) } = $props();
 	let error = $state("");
 	let active = true;
@@ -60,16 +61,14 @@
 </script>
 
 <label class="field"
-	><span>{busy ? "Uploading photo…" : "Upload a photo (PNG, JPEG or WebP; up to 8 MB)"}</span><input
+	><span>{busy ? "Uploading photo…" : "Photo"}</span><input
 		type="file"
 		accept="image/png,image/jpeg,image/webp"
 		onchange={upload}
 		disabled={busy}
 	/></label
 >
-<p class="upload-help">
-	Choose a photo from your phone or computer. Wait for the preview, then save the form.
-</p>
+<p class="upload-help">PNG, JPEG or WebP, up to 8 MB. Check the preview before saving.</p>
 <details>
 	<summary>Use a photo URL instead</summary><label class="field"
 		><span>Image URL</span><input
@@ -80,10 +79,9 @@
 		/></label
 	>
 </details>
-{#if url}<img class="upload-preview" src={url} alt="Artwork preview" />{/if}{#if error}<p
-		class="message error"
-		role="alert"
-	>
+{#if url}<div class="upload-preview">
+		<RelicPhoto src={url} alt="Photo preview" />
+	</div>{/if}{#if error}<p class="message error" role="alert">
 		{error}
 	</p>{/if}
 
@@ -95,11 +93,27 @@
 	.upload-preview {
 		width: 120px;
 		height: 120px;
-		object-fit: cover;
 		margin-block: 16px;
+		border-radius: 6px;
+		overflow: hidden;
+		background: var(--color-base-200);
 	}
 	input[type="file"] {
+		width: 100%;
 		max-width: 100%;
+		min-height: 48px;
 		font-size: 0.875rem;
+	}
+	input[type="file"]::file-selector-button {
+		min-height: 48px;
+		padding: 8px 16px;
+		margin-inline-end: 12px;
+		border: 0;
+		border-radius: 8px;
+		background: var(--color-base-300);
+		color: var(--color-base-content);
+		font: inherit;
+		font-weight: 700;
+		cursor: pointer;
 	}
 </style>

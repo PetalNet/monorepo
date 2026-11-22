@@ -10,7 +10,7 @@ export const load: LayoutServerLoad = (event) =>
 			const store = yield* RelicsStore;
 
 			return yield* attempt(() => ({
-				collection: store.collection(device(event)),
+				firstName: store.collector(device(event))?.name ?? null,
 				admin: Boolean(store.admin(event.cookies.get("relics_admin"))),
 			}));
 		}),

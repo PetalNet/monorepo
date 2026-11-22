@@ -1,12 +1,12 @@
 <script lang="ts">
-	import { refreshAll, afterNavigate } from "$app/navigation";
+	import { goto, refreshAll, afterNavigate } from "$app/navigation";
 	import { page } from "$app/state";
 	import { tick } from "svelte";
 
 	import { command } from "#lib/client.ts";
-	import AdminSetup from "#lib/components/AdminSetup.svelte";
-	import ImageUpload from "#lib/components/ImageUpload.svelte";
 	import TagWriter from "#lib/components/TagWriter.svelte";
+	import UploadField from "#lib/components/UploadField.svelte";
+	import Workshop from "#lib/components/Workshop.svelte";
 	import type { AdminCommand } from "#lib/schema.ts";
 	let { data }: import("./$types").PageProps = $props();
 	let catalog = $derived(data.catalog);
@@ -20,6 +20,7 @@
 		["nfc-writer", "Write tags"],
 	];
 	let tab = $derived(page.params.path ?? "");
+	let writing = $state(false);
 	afterNavigate(() => {
 		message = "";
 		error = "";
@@ -120,42 +121,35 @@
 </script>
 
 <svelte:head><title>Admin · Petal Relics</title></svelte:head>
-<div class="page-heading">
-	<div>
-		<h1>Relics workshop</h1>
-		<p>
-			{catalog.relics.length} relics · {catalog.types.length} types · {catalog.varieties.length} varieties
-		</p>
-	</div>
-	<form method="POST" action="/logout"><button class="btn btn-ghost">Sign out</button></form>
+<div class="page-heading" hidden={tab === "nfc-writer"}>
+	{#if tab !== "nfc-writer"}<h1>
+			{tab === ""
+				? "Relics workshop"
+				: (tabs.find(([path]) => path === tab)?.[1] ?? "Edit catalog")}
+		</h1>{/if}
 </div>
-<nav class="admin-tabs" aria-label="Admin tools">
-	{#each tabs.filter(([path]) => path === "" || path === "allocate" || path === "nfc-writer") as [path, label] (path)}<a
-			href="/admin{path ? `/${path}` : ''}"
-			class:chosen={tab === path}
-			aria-current={tab === path ? "page" : undefined}>{label}</a
-		>{/each}
-	<details class="more-tools" open={!["", "allocate", "nfc-writer"].includes(tab)}>
-		<summary>Edit catalog &amp; more</summary>
-		<div class="more-links">
-			{#each tabs.filter(([path]) => path !== "" && path !== "allocate" && path !== "nfc-writer") as [path, label] (path)}<a
-					href="/admin/{path}"
-					class:chosen={tab === path}
-					aria-current={tab === path ? "page" : undefined}>{label}</a
-				>{/each}
-		</div>
-	</details>
-</nav>
-{#if message && tab !== ""}<p class="message" role="status">{message}</p>{/if}{#if error}<p
-		class="message error"
-		role="alert"
-		bind:this={errorNotice}
-		tabindex="-1"
+<nav class="admin-tools" aria-label="Admin tools" hidden={writing}>
+	<label class="tool-picker"
+		><span class="visually-hidden">Workshop tool</span><select
+			class="select"
+			value={["types", "varieties"].includes(tab) ? "catalog" : tab}
+			onchange={(event) => {
+				const path = event.currentTarget.value;
+
+				void goto(`/admin${path ? `/${path}` : ""}`);
+			}}
+			>{#each tabs as [path, label] (path)}<option value={path}>{label}</option>{/each}</select
+		></label
 	>
+	<form method="POST" action="/logout"><button class="btn btn-ghost">Sign out</button></form>
+</nav>
+{#if message && tab !== "" && !writing}<p class="message" role="status">
+		{message}
+	</p>{/if}{#if error}<p class="message error" role="alert" bind:this={errorNotice} tabindex="-1">
 		{error}
 	</p>{/if}
 {#if tab === "" || tab === "allocate"}
-	{#key tab}<AdminSetup {catalog} {save} {busy} makeTags={tab === "allocate"} />{/key}
+	{#key tab}<Workshop {catalog} {save} {busy} makeTags={tab === "allocate"} />{/key}
 {:else if tab === "catalog" || tab === "types" || tab === "varieties"}
 	<section class="admin-columns">
 		<form
@@ -191,7 +185,7 @@
 					class="textarea"
 					maxlength="4000"
 					bind:value={typeDescription}></textarea></label
-			><ImageUpload bind:busy={uploading} bind:url={typeImage} /><button
+			><UploadField bind:busy={uploading} bind:url={typeImage} /><button
 				class="btn btn-primary"
 				disabled={busy || uploading}>{editType ? "Save type" : "Create type"}</button
 			>
@@ -236,7 +230,7 @@
 					class="textarea"
 					maxlength="4000"
 					bind:value={varietyDescription}></textarea></label
-			><ImageUpload bind:busy={uploading} bind:url={varietyImage} /><button
+			><UploadField bind:busy={uploading} bind:url={varietyImage} /><button
 				class="btn btn-primary"
 				disabled={busy || uploading}>{editVariety ? "Save variety" : "Create variety"}</button
 			>
@@ -299,9 +293,9 @@
 			});
 		}}
 	>
-		<h2>Specimen artwork & label</h2>
+		<h2>A photo and a little story</h2>
 		<p class="inline-help">
-			Set an individual specimen’s artwork. For a type or variety photo, use Edit catalog.
+			Edit one relic here. For a whole type or color, choose Edit catalog from the menu.
 		</p>
 		<label class="field"
 			><span>Relic</span><select
@@ -328,7 +322,7 @@
 			><label class="field"
 				><span>Lore</span><textarea class="textarea" maxlength="4000" bind:value={relicLore}
 				></textarea></label
-			><ImageUpload bind:busy={uploading} bind:url={relicImage} /><button
+			><UploadField bind:busy={uploading} bind:url={relicImage} /><button
 				class="btn btn-primary"
 				disabled={busy || uploading}>Save specimen</button
 			>{/if}
@@ -395,7 +389,7 @@
 					maxlength="4000"
 					bind:value={setDescription}></textarea></label
 			>
-			<ImageUpload bind:busy={uploading} bind:url={setImage} />
+			<UploadField bind:busy={uploading} bind:url={setImage} />
 			<fieldset>
 				<legend class="muted small">Varieties</legend
 				>{#each catalog.varieties as variety (variety.id)}<label class="check-row"
@@ -408,7 +402,7 @@
 					>{/each}
 			</fieldset>
 			<div class="actions">
-				<button class="btn btn-primary" disabled={busy || !setVarieties.length}
+				<button class="btn btn-primary" disabled={busy || uploading || !setVarieties.length}
 					>{setId ? "Save set" : "Create set"}</button
 				>{#if setId}<button
 						class="btn btn-ghost"
@@ -430,7 +424,14 @@
 		</section>
 	</div>
 {:else if tab === "nfc-writer"}
-	{#key page.url.search}<TagWriter {catalog} {save} {busy} />{/key}
+	{#key page.url.search}<TagWriter
+			{catalog}
+			{save}
+			{busy}
+			onactive={(active: boolean) => {
+				writing = active;
+			}}
+		/>{/key}
 {:else}<p class="message">Choose a tool from the navigation above.</p>{/if}
 
 <dialog bind:this={setDialog}>
@@ -456,42 +457,59 @@
 </dialog>
 
 <style>
-	.admin-tabs {
+	[hidden] {
+		display: none !important;
+	}
+	.admin-tools {
 		display: flex;
+		align-items: center;
 		gap: 8px;
-		flex-wrap: wrap;
-		margin-block-end: 40px;
-		border-block-end: 1px solid var(--rule);
-		padding-block-end: 8px;
+		margin-bottom: 32px;
 	}
-	.admin-tabs a {
-		min-height: 48px;
-		padding: 12px 20px;
-		text-decoration: none;
-		color: var(--muted);
+	.tool-picker {
+		flex: 1;
+		min-width: 0;
+		max-width: 400px;
 	}
-	.admin-tabs a.chosen {
-		background: var(--color-base-200);
-		color: var(--color-primary);
+	.tool-picker select {
+		min-width: 0;
+		font-weight: 700;
+	}
+	.admin-tools .btn {
+		padding-inline: 12px;
+		white-space: nowrap;
+	}
+	.page-heading {
+		margin-bottom: 24px;
+	}
+	.page-heading:empty {
+		display: none;
 	}
 	.page-heading h1 {
-		font-size: 2.5rem;
+		font: 500 2.3125rem/1.14 var(--font-display, Lora, serif);
 	}
-	.more-tools {
-		margin-inline-start: auto;
+	.btn {
+		border-radius: 8px;
+		min-height: 48px;
+		white-space: normal;
+		font-weight: 700;
 	}
-	.more-tools summary {
-		padding-inline: 16px;
-		color: var(--muted);
-	}
-	.more-links {
-		display: flex;
-		flex-wrap: wrap;
+	.select,
+	.input,
+	.textarea {
+		min-width: 0;
+		border-radius: 6px;
 	}
 	.admin-columns {
 		display: grid;
 		grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
-		gap: 64px;
+		gap: 48px;
+		margin-bottom: 40px;
+	}
+	.admin-columns > *,
+	.admin-form,
+	.field {
+		min-width: 0;
 	}
 	.admin-form {
 		max-width: 600px;
@@ -499,7 +517,7 @@
 	.admin-columns h2,
 	.admin-form h2 {
 		margin-block-end: 24px;
-		font-size: 1.5rem;
+		font: 500 1.625rem/1.2 var(--font-display, Lora, serif);
 	}
 	.record-row {
 		padding-block: 24px;
@@ -538,15 +556,41 @@
 		.reassign {
 			grid-template-columns: 1fr;
 		}
-		.admin-tabs {
-			margin-inline: -20px;
-			padding-inline: 20px;
-		}
-		.admin-tabs a {
-			padding-inline: 16px;
-		}
 		table {
 			font-size: 0.875rem;
+		}
+	}
+	@media (max-width: 540px) {
+		form > .btn-primary {
+			width: 100%;
+		}
+		.admin-columns {
+			gap: 40px;
+		}
+		.table-wrap {
+			overflow: visible;
+		}
+		thead {
+			display: none;
+		}
+		tr {
+			display: grid;
+			grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+			padding-block: 16px;
+			border-bottom: 1px solid var(--rule);
+		}
+		td {
+			border: 0;
+			padding: 4px 0;
+			min-width: 0;
+			overflow-wrap: anywhere;
+		}
+		td:first-child {
+			grid-column: 1 / -1;
+			font-weight: 700;
+		}
+		td:last-child {
+			text-align: end;
 		}
 	}
 </style>

@@ -68,7 +68,8 @@ const operations = [
 	}),
 	operation({
 		name: "relic",
-		description: "Read a physical tag specimen. Owner identities are private.",
+		description:
+			"Read a relic's public name, first name and story. Owner identifiers remain private.",
 		method: "GET",
 		path: "/relics/:id",
 		input: Schema.Struct({ id: Id }),
@@ -103,7 +104,28 @@ const operations = [
 						setDevice(event, result.deviceToken);
 					}
 
-					return ok("Added to your collection.");
+					return ok("And so, our little story begins.");
+				});
+			}),
+	}),
+	operation({
+		name: "name",
+		description: "Name or rename a relic belonging to this phone, keeping its birthday.",
+		method: "POST",
+		path: "/name",
+		input: Claim,
+		output: Receipt,
+		errors,
+		handler: (input) =>
+			Effect.gen(function* () {
+				const store = yield* RelicsStore;
+				const event = yield* SvelteKitRequestEvent;
+
+				return yield* attempt(() => {
+					store.limit(`name:${event.getClientAddress()}`, 60);
+					store.nameRelic(input, device(event));
+
+					return ok("A lovely name for a little friend.");
 				});
 			}),
 	}),

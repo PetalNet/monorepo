@@ -5,6 +5,7 @@
 	import { untrack } from "svelte";
 
 	import BrowserTagWriter from "#lib/components/BrowserTagWriter.svelte";
+	import RelicPhoto from "#lib/components/RelicPhoto.svelte";
 
 	import type { PageData } from "../../routes/admin/[...path]/$types";
 	import type { AdminCommand } from "../schema";
@@ -13,10 +14,12 @@
 		catalog,
 		save,
 		busy,
+		onactive,
 	}: {
 		catalog: PageData["catalog"];
 		save: (input: AdminCommand) => Promise<boolean>;
 		busy: boolean;
+		onactive?: (active: boolean) => void;
 	} = $props();
 	let varietyId = $state(
 		untrack(
@@ -162,18 +165,16 @@
 </script>
 
 <div class="writer-heading">
-	<h2>Write your tags</h2>
-	<p class="inline-help">
-		One link per physical tag. Your checklist is saved here, even when you close this page.
-	</p>
+	<h1>{writer ? `Write tag #${String(writer.indexNumber ?? 0)}` : "Write your tags"}</h1>
+	<p class="inline-help" hidden={nfcActive}>One tag at a time. We’ll save your place.</p>
 </div>
-<p class="writer-progress" role="status">
+<p class="writer-progress" role="status" hidden={nfcActive}>
 	{done} of {relics.length} written{#if done === relics.length}
 		· All tags in this list are done.{/if}
 </p>
-<div class="filters">
+<div class="filters" hidden={nfcActive}>
 	<label class="field"
-		><span>Variety</span><select
+		><span>Color or design</span><select
 			class="select"
 			disabled={busy || nfcActive}
 			bind:value={varietyId}
@@ -200,11 +201,26 @@
 	>
 </div>
 {#if writer}
-	<div class="writer-layout">
+	<div class="writer-layout" class:active={nfcActive}>
 		<section class="write-current">
-			<div class="current-heading">
-				<h3>{writer.name}</h3>
-				<span class="writing-status">{isWritten(writer) ? "Written" : "To write"}</span>
+			<div class="tag-summary">
+				<div class="tag-photo">
+					<RelicPhoto
+						src={writer.imageUrl ??
+							catalog.varieties.find((v) => v.id === writer.varietyId)?.imageUrl ??
+							catalog.types.find((t) => t.id === writer.typeId)?.imageUrl ??
+							null}
+						alt={writer.name}
+					/>
+				</div>
+				<p>
+					<strong>{catalog.types.find((t) => t.id === writer.typeId)?.name ?? writer.name}</strong
+					><span
+						>{catalog.varieties.find((v) => v.id === writer.varietyId)?.name} · Tag #{writer.indexNumber ??
+							0}</span
+					>
+				</p>
+				{#if isWritten(writer)}<span class="writing-status">Written</span>{/if}
 			</div>
 			<BrowserTagWriter
 				{url}
@@ -217,75 +233,81 @@
 				prepare={prepareWrite}
 				onactive={(active: boolean) => {
 					nfcActive = active;
+					onactive?.(active);
 				}}
 			/>
-			<label class="field"
-				><span>Tag URL</span><input
-					class="input mono"
-					readonly
-					value={url}
-					onclick={(e) => {
-						e.currentTarget.select();
-					}}
-				/></label
-			>
-			<div class="actions">
-				<button class="btn btn-ghost" onclick={copy}><Copy size={16} />Copy URL</button><a
-					class="btn btn-ghost"
-					href={url}
-					target="_blank"
-					rel="noreferrer">Open tag page</a
-				>
+			<div hidden={nfcActive}>
+				<details class="other-writer">
+					<summary>Use another tag writer</summary>
+					<label class="field"
+						><span>Tag URL</span><input
+							class="input mono"
+							readonly
+							value={url}
+							onclick={(e) => {
+								e.currentTarget.select();
+							}}
+						/></label
+					>
+					<div class="actions">
+						<button class="btn btn-ghost" onclick={copy}><Copy size={16} />Copy URL</button><a
+							class="btn btn-ghost"
+							href={url}
+							target="_blank"
+							rel="noreferrer">Open tag page</a
+						>
+					</div>
+					{#if copyMessage}<p class="message" role="status">{copyMessage}</p>{/if}
+					<div class="completion rule">
+						<button
+							class="btn btn-neutral"
+							disabled={busy || nfcActive || isWritten(writer)}
+							onclick={markWritten}
+							><Check size={16} />{isWritten(writer)
+								? "Marked written"
+								: busy
+									? "Saving…"
+									: "Mark written"}</button
+						>
+						<p class="muted small">
+							Using another writer? Mark this only after writing the exact URL and testing the
+							physical tag.
+						</p>
+					</div>
+				</details>
+				<div class="writer-navigation">
+					<button
+						class="btn btn-ghost"
+						disabled={index <= 0 || busy || nfcActive}
+						onclick={() => {
+							choose(relics[index - 1]?.id ?? selected);
+						}}>Previous</button
+					><span class="mono">{index + 1} / {relics.length}</span><button
+						class="btn btn-neutral"
+						disabled={index >= relics.length - 1 || busy || nfcActive}
+						onclick={() => {
+							choose(relics[index + 1]?.id ?? selected);
+						}}>Next tag</button
+					>
+				</div>
+				<details>
+					<summary>QR code and tag safety</summary>{#if qr}<img
+							class="qr"
+							src={qr}
+							alt="QR code for the selected tag URL"
+						/><a class="btn btn-ghost" href={qr} download={`relic-${writer.id}.png`}
+							>Download QR code</a
+						>{:else if qrError}<p role="alert">{qrError}</p>{:else}<p role="status">
+							Preparing QR code…
+						</p>{/if}
+					<p class="inline-help">
+						The QR code opens the same page. You can print it as a label. Keep existing tags as they
+						are. Test a tag before locking it; locking may be permanent.
+					</p>
+				</details>
 			</div>
-			{#if copyMessage}<p class="message" role="status">{copyMessage}</p>{/if}
-			<div class="completion rule">
-				<button
-					class="btn btn-neutral"
-					disabled={busy || nfcActive || isWritten(writer)}
-					onclick={markWritten}
-					><Check size={16} />{isWritten(writer)
-						? "Marked written"
-						: busy
-							? "Saving…"
-							: "Mark written"}</button
-				>
-				<p class="muted small">
-					Using another writer? Mark this only after writing the exact URL and testing the physical
-					tag.
-				</p>
-			</div>
-			<div class="writer-navigation">
-				<button
-					class="btn btn-ghost"
-					disabled={index <= 0 || busy || nfcActive}
-					onclick={() => {
-						choose(relics[index - 1]?.id ?? selected);
-					}}>Previous</button
-				><span class="mono">{index + 1} / {relics.length}</span><button
-					class="btn btn-neutral"
-					disabled={index >= relics.length - 1 || busy || nfcActive}
-					onclick={() => {
-						choose(relics[index + 1]?.id ?? selected);
-					}}>Next tag</button
-				>
-			</div>
-			<details>
-				<summary>QR code and tag safety</summary>{#if qr}<img
-						class="qr"
-						src={qr}
-						alt="QR code for the selected tag URL"
-					/><a class="btn btn-ghost" href={qr} download={`relic-${writer.id}.png`}
-						>Download QR code</a
-					>{:else if qrError}<p role="alert">{qrError}</p>{:else}<p role="status">
-						Preparing QR code…
-					</p>{/if}
-				<p class="inline-help">
-					The QR code opens the same page. You can print it as a label. Keep existing tags as they
-					are. Test a tag before locking it; locking may be permanent.
-				</p>
-			</details>
 		</section>
-		<section class="checklist">
+		<section class="checklist" hidden={nfcActive}>
 			<h3>Writing checklist</h3>
 
 			<button
@@ -318,13 +340,29 @@
 {/if}
 
 <style>
-	h2 {
-		font-size: 1.75rem;
+	[hidden] {
+		display: none !important;
+	}
+	h1 {
+		font: 500 2.3125rem/1.14 var(--font-display, Lora, serif);
+	}
+	.writer-heading .inline-help {
+		margin-block: 12px 24px;
+		font-size: 1rem;
+	}
+	.writer-layout.active {
+		grid-template-columns: minmax(0, 1fr);
+		max-width: 432px;
+		margin-inline: auto;
+	}
+	.writer-heading:has(+ .writer-progress[hidden]) {
+		max-width: 432px;
+		margin-inline: auto;
 	}
 	.filters {
 		display: grid;
 		grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
-		gap: 24px;
+		gap: 16px;
 		margin-block-end: 24px;
 	}
 	.writer-layout {
@@ -334,21 +372,46 @@
 		align-items: start;
 	}
 	.write-current {
-		background: var(--color-base-200);
-		padding: 32px;
+		min-width: 0;
 	}
 	.write-current .input {
 		background: var(--color-base-100);
 	}
-	.current-heading {
+	.tag-summary {
 		display: flex;
-		gap: 16px;
-		flex-wrap: wrap;
-		justify-content: space-between;
+		gap: 13px;
 		align-items: center;
+		background: var(--color-base-200);
+		border-radius: 6px;
+		padding: 15px;
+		margin-top: 24px;
+	}
+	.tag-photo {
+		width: 60px;
+		height: 60px;
+		flex: 0 0 60px;
+		border-radius: 6px;
+		overflow: hidden;
+	}
+	.tag-photo :global(.placeholder span) {
+		display: none;
+	}
+	.tag-summary p {
+		min-width: 0;
+		overflow-wrap: anywhere;
+	}
+	.tag-summary strong {
+		font-size: 1.0625rem;
+	}
+	.tag-summary p span {
+		display: block;
+		font-size: 0.875rem;
+		color: var(--muted);
 	}
 	.writing-status {
 		color: var(--color-primary);
+		font-size: 0.875rem;
+		margin-inline-start: auto;
 	}
 	.completion {
 		margin-block-start: 24px;
@@ -372,6 +435,19 @@
 
 	.writer-navigation .btn {
 		padding-inline: 16px;
+	}
+	.filters .field {
+		min-width: 0;
+	}
+	select {
+		min-width: 0;
+		text-overflow: ellipsis;
+	}
+	summary {
+		min-height: 48px;
+	}
+	.checklist h3 {
+		font-family: var(--font-display, Lora, serif);
 	}
 	details {
 		margin-block-start: 24px;
@@ -421,17 +497,11 @@
 			grid-template-columns: minmax(0, 1fr);
 			gap: 32px;
 		}
-		.write-current {
-			padding: 24px;
-		}
 	}
 	@media (max-width: 540px) {
 		.filters {
 			grid-template-columns: minmax(0, 1fr);
 			gap: 0;
-		}
-		.write-current {
-			padding: 16px;
 		}
 		.writer-navigation .btn {
 			padding-inline: 8px;

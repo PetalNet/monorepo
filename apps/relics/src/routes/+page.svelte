@@ -1,87 +1,60 @@
-<script lang="ts">
-	import SpecimenCard from "#lib/components/SpecimenCard.svelte";
-	let { data }: import("./$types").PageProps = $props();
-	let featured = $derived(data.collection.varieties.at(0));
-</script>
-
-<svelte:head
-	><title>Petal Relics · A place for your finds</title><meta
+<svelte:head>
+	<title>Petal Relics · A little friend, a new story</title>
+	<meta
 		name="description"
-		content="Tap a physical Petal Relic, claim it, and keep a collection of your own."
-	/></svelte:head
->
-{#if data.collection.relics.length}
-	<div class="page-heading">
-		<div>
-			<h1>Good to have you here,<br />{data.collection.name}.</h1>
-			<p>Your finds, kept together.</p>
-		</div>
-		<a class="btn btn-primary" href="/collection">Open my collection</a>
-	</div>
-	<div class="specimen-grid">
-		{#each data.collection.relics.slice(0, 3) as relic (relic.id)}<SpecimenCard {relic} />{/each}
-	</div>
-{:else}
-	<section class="empty-intro">
-		<div>
-			<h1>Small finds.<br />Yours to keep.</h1>
-			<p>A little creature. A tag. A collection that grows one find at a time.</p>
-			<p>Tap the NFC tag or scan the QR code on your relic to meet it and make it yours.</p>
-			<div class="actions">
-				<a class="btn btn-primary" href="/collection">My collection</a><a
-					class="btn btn-ghost"
-					href="/restore">Restore a collection</a
-				>
-			</div>
-		</div>
-		<div class="art">
-			{#if featured?.imageUrl}<img
-					src={featured.imageUrl}
-					alt={`A physical ${featured.name} ${featured.typeName} collectible`}
-				/>
-				<div class="art-caption">
-					<span>{featured.typeName}</span><span>{featured.name} variety</span>
-				</div>{:else}<div class="message">The next specimen is on its way.</div>{/if}
-		</div>
-	</section>
-	<div class="home-note rule">
-		<div>
-			<h2>A collection of your own.</h2>
-			<p class="muted">
-				Your collection stays on this device. Add a recovery email after your first claim to bring
-				it along when you change phones.
-			</p>
-		</div>
-		<a href="/legacy">Collected here before? Move your relics</a>
-	</div>
-{/if}
+		content="Found a little friend? Tap its tag and give it a name. No sign-up. Just a name."
+	/>
+</svelte:head>
+<section class="home-story">
+	<h1>Found a<br />little friend?</h1>
+	<p class="intro">Tap its tag!</p>
+	<div class="flourish" aria-hidden="true"></div>
+	<img
+		src="/storybook/snail-placeholder.svg"
+		alt="A little illustrated snail saying hello"
+		width="300"
+		height="240"
+	/>
+	<p>
+		Hold your phone near your friend's tag to open its page. Give it a name, add your first name,
+		and let your little story begin.
+	</p>
+	<p class="note">No sign-up. Just a name.</p>
+	<details>
+		<summary>Need a hand with the tag?</summary>
+		<p>
+			Unlock your phone and hold the top or back of it close to the tag. Tap the link that appears.
+			If you have a QR code instead, open your camera and scan it.
+		</p>
+	</details>
+</section>
 
 <style>
-	.home-note {
-		padding-block-start: 32px;
-		display: flex;
-		align-items: start;
-		justify-content: space-between;
-		gap: 40px;
+	.home-story {
+		max-width: 390px;
+		margin: 12px auto 0;
 	}
-	.home-note h2 {
+	.home-story h1 {
+		font-size: 2.5rem;
+	}
+	.intro {
+		margin-block-start: 16px;
 		font-size: 1.25rem;
-		margin-block-end: 12px;
 	}
-	.home-note p {
+	.home-story img {
+		width: 100%;
+		height: 260px;
+		margin-block: 16px;
+		object-fit: contain;
+	}
+	.note {
+		font-family: var(--font-note);
+		font-size: 1.5rem;
+		margin-block: 24px;
+	}
+	details {
+		margin-block-start: 32px;
 		font-size: 0.875rem;
-		max-width: 54ch;
-	}
-	.home-note > a {
-		font-size: 0.875rem;
-		min-height: 44px;
-		display: flex;
-		align-items: center;
-	}
-	@media (max-width: 700px) {
-		.home-note {
-			flex-direction: column;
-			gap: 16px;
-		}
+		color: var(--muted);
 	}
 </style>

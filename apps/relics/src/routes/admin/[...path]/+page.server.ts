@@ -12,7 +12,11 @@ export const load: PageServerLoad = (event) =>
 			return yield* attempt(() => {
 				const admin = requireAdmin(store, event);
 
-				return { catalog: store.adminData(), subject: admin.subject };
+				return {
+					catalog: store.adminData(),
+					collection: { sets: store.collection().sets },
+					subject: admin.subject,
+				};
 			});
 		}),
 		event,

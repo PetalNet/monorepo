@@ -3,6 +3,7 @@ import { Schema } from "effect";
 const text = Schema.String.check(Schema.isMaxLength(4000));
 
 const Name = Schema.Trim.check(Schema.isMinLength(1), Schema.isMaxLength(80));
+const FriendName = Schema.Trim.check(Schema.isMinLength(1), Schema.isMaxLength(32));
 
 export const Id = Schema.String.check(Schema.isPattern(/^[A-Za-z0-9_-]{1,100}$/));
 
@@ -30,6 +31,9 @@ export const RelicCard = Schema.Struct({
 	description: Schema.NullOr(Schema.String),
 	lore: Schema.NullOr(Schema.String),
 	imageUrl: Schema.NullOr(Schema.String),
+	friendName: Schema.NullOr(Schema.String),
+	firstName: Schema.NullOr(Schema.String),
+	birthday: Schema.NullOr(Schema.Finite),
 	claimed: Schema.Boolean,
 	owned: Schema.Boolean,
 });
@@ -60,7 +64,7 @@ export const Collection = Schema.Struct({
 	sets: Schema.Array(SetInfo),
 });
 export const Receipt = Schema.Struct({ message: Schema.String });
-export const Claim = Schema.Struct({ relicId: Id, name: Name });
+export const Claim = Schema.Struct({ relicId: Id, name: FriendName, relicName: FriendName });
 export const Legacy = Schema.Struct({
 	name: Name,
 	pin: Schema.String.check(Schema.isPattern(/^\d{4,6}$/)),

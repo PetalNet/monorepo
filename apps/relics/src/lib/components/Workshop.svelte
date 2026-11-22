@@ -4,7 +4,8 @@
 
 	import type { PageData } from "../../routes/admin/[...path]/$types";
 	import type { AdminCommand } from "../schema";
-	import ImageUpload from "./ImageUpload.svelte";
+	import RelicPhoto from "./RelicPhoto.svelte";
+	import UploadField from "./UploadField.svelte";
 
 	let {
 		catalog,
@@ -66,7 +67,7 @@
 		if (await save({ kind: "type", name, description, imageUrl: image })) {
 			typeId = catalog.types.find((t) => t.name === submittedName)?.id ?? typeId;
 			begin("variety");
-			added = "Type saved. Now add its first variety.";
+			added = "Type saved. Let’s add its first color or design.";
 		}
 	}
 	async function createVariety(event: SubmitEvent) {
@@ -74,7 +75,7 @@
 		const submittedName = name.trim();
 
 		if (await save({ kind: "variety", typeId, name, description, imageUrl: image })) {
-			added = `${name} saved. Add another variety, or continue to make tags.`;
+			added = `${name} saved. Add another, or make its tags.`;
 
 			varietyId =
 				catalog.varieties.find((v) => v.typeId === typeId && v.name === submittedName)?.id ?? 0;
@@ -111,10 +112,10 @@
 {#if step === "home"}
 	<section class="start-work">
 		<div>
-			<h2>From a new creature to a finished tag.</h2>
+			<h2>A little friend starts here.</h2>
 			<p>
-				Add its name, add the varieties and their photos, then make a batch of tag links. Write each
-				link to a physical NFC tag and check it off here.
+				Name the type, add its colors and photos, then make and write its tags. We’ll take it one
+				step at a time.
 			</p>
 			<button
 				class="btn btn-primary"
@@ -123,26 +124,16 @@
 				}}>Add a new relic type</button
 			>
 		</div>
-		<ol class="route-list">
-			<li><strong>Name the type</strong><span>A kind of creature, such as Snail.</span></li>
-			<li>
-				<strong>Add its varieties</strong><span>Each color or design gets a name and photo.</span>
-			</li>
-			<li>
-				<strong>Make and write tags</strong><span
-					>Choose how many, then follow the writing checklist.</span
-				>
-			</li>
-		</ol>
+		<a class="resume-link" href="/admin/nfc-writer">Pick up where you left off: write tags</a>
 	</section>
 	<section class="rule existing">
-		<h2>Continue with an existing type</h2>
+		<h2>Already have a type?</h2>
 		{#each catalog.types as type (type.id)}
 			<div class="type-row">
 				<div>
 					<h3>{type.name}</h3>
 					<p class="muted">
-						{catalog.varieties.filter((v) => v.typeId === type.id).length} varieties · {catalog.relics.filter(
+						{catalog.varieties.filter((v) => v.typeId === type.id).length} colors / designs · {catalog.relics.filter(
 							(r) => r.typeId === type.id,
 						).length} tags
 					</p>
@@ -153,7 +144,7 @@
 						onclick={() => {
 							typeId = type.id;
 							begin("variety");
-						}}>Add a variety</button
+						}}>Add a color or design</button
 					><button
 						class="btn btn-neutral"
 						onclick={() => {
@@ -164,7 +155,6 @@
 				</div>
 			</div>
 		{:else}<p class="inline-help">No types yet. Add your first relic type above.</p>{/each}
-		<a class="btn btn-ghost" href="/admin/nfc-writer">Resume writing tags</a>
 	</section>
 {:else}
 	<div class="setup-layout">
@@ -180,11 +170,17 @@
 				}}>Back to workshop</a
 			>
 			{#if added}<p class="message" role="status">{added}</p>{/if}
+			<p class="step-progress">
+				Step {step === "type" ? 1 : step === "variety" ? 2 : 3} of 4 · {step === "type"
+					? "Name the type"
+					: step === "variety"
+						? "Colors and photos"
+						: "Make tags"}
+			</p>
 			{#if step === "type"}
 				<h2>Add a new relic type</h2>
 				<p class="inline-help">
-					A type is a kind of creature, such as Snail. You will add its colors or designs as
-					varieties next.
+					What kind of little friend is it? Snail, mushroom, something else?
 				</p>
 				<form inert={busy} onsubmit={createType}>
 					<label class="field"
@@ -202,17 +198,16 @@
 								class="textarea"
 								maxlength="4000"
 								bind:value={description}></textarea></label
-						><ImageUpload bind:url={image} bind:busy={uploading} />
+						><UploadField bind:url={image} bind:busy={uploading} />
 					</details>
 					<button class="btn btn-primary" disabled={busy || uploading}
-						>{busy ? "Saving type…" : "Save type and add varieties"}</button
+						>{busy ? "Saving type…" : "Save and add colors"}</button
 					>
 				</form>
 			{:else if step === "variety"}
-				<h2>Add varieties and photos</h2>
+				<h2>Add a color or design</h2>
 				<p class="inline-help">
-					Each color or design is a variety. Its photo appears on every relic in that variety,
-					unless you give a relic its own photo.
+					Give each color or design a name and photo. That photo will appear on its tags.
 				</p>
 				<form inert={busy} onsubmit={createVariety}>
 					<label class="field"
@@ -222,7 +217,7 @@
 						></label
 					>
 					<label class="field"
-						><span>Variety name</span><input
+						><span>Color or design name</span><input
 							class="input"
 							required
 							maxlength="80"
@@ -230,7 +225,7 @@
 							placeholder="For example, Moss green"
 						/></label
 					>
-					<ImageUpload bind:url={image} bind:busy={uploading} />
+					<UploadField bind:url={image} bind:busy={uploading} />
 					<details>
 						<summary>Description (optional)</summary><label class="field"
 							><span>Description</span><textarea
@@ -240,13 +235,16 @@
 						>
 					</details>
 					<button class="btn btn-primary" disabled={busy || uploading || !typeId}
-						>{busy ? "Saving variety…" : "Save variety"}</button
+						>{busy ? "Saving…" : "Save color or design"}</button
 					>
 				</form>
 				{#if varieties.length}<div class="saved-varieties rule">
 						<h3>Saved for {catalog.types.find((t) => t.id === typeId)?.name}</h3>
 						{#each varieties as variety (variety.id)}<div class="variety-row">
-								{#if variety.imageUrl}<img src={variety.imageUrl} alt={variety.name} />{/if}<span
+								<div class="variety-photo">
+									<RelicPhoto src={variety.imageUrl} alt={variety.name} />
+								</div>
+								<span
 									>{variety.name}{#if !variety.imageUrl}<span class="muted">
 											· No photo yet</span
 										>{/if}</span
@@ -260,10 +258,9 @@
 						>
 					</div>{/if}
 			{:else}
-				<h2>Make tags: how many?</h2>
+				<h2>How many tags?</h2>
 				<p class="inline-help">
-					Create one unique link for each physical tag. Choose a variety and quantity. You will
-					write the links to your tags in the next step.
+					One link for each physical tag. Next, we’ll write them to your tags.
 				</p>
 				<form inert={busy} onsubmit={batch}>
 					<label class="field"
@@ -274,7 +271,7 @@
 					>
 					{#if varieties.length}
 						<label class="field"
-							><span>Variety</span><select class="select" bind:value={varietyId}
+							><span>Color or design</span><select class="select" bind:value={varietyId}
 								>{#each varieties as variety (variety.id)}<option value={variety.id}
 										>{variety.name}</option
 									>{/each}</select
@@ -318,90 +315,72 @@
 								This variety has room for {65536 - start} more tags. Choose a smaller quantity.
 							</p>{/if}
 						<button class="btn btn-primary" disabled={busy || end > 65535}
-							>{busy ? "Creating tags…" : "Make tags and open checklist"}</button
+							>{busy ? "Creating tags…" : "Make tags and start writing"}</button
 						>
-					{:else}<p class="message">Add a variety for this type before making tags.</p>
+					{:else}<p class="message">Add a color or design for this type first.</p>
 						<button
 							type="button"
 							class="btn btn-primary"
 							onclick={() => {
 								begin("variety");
-							}}>Add a variety</button
+							}}>Add a color or design</button
 						>{/if}
 				</form>
 			{/if}
 		</section>
-		<aside class="setup-notes">
-			<h3>Your next steps</h3>
-			<ol class="route-list">
-				<li aria-current={step === "type" ? "step" : undefined}>
-					<strong>Name the type</strong><span>You only do this once for each kind of creature.</span
-					>
-				</li>
-				<li aria-current={step === "variety" ? "step" : undefined}>
-					<strong>Add varieties</strong><span>Add as many colors or designs as you need.</span>
-				</li>
-				<li aria-current={step === "batch" ? "step" : undefined}>
-					<strong>Make tags</strong><span>A separate link for every physical tag.</span>
-				</li>
-				<li>
-					<strong>Write and check off</strong><span
-						>Progress is saved so you can come back later.</span
-					>
-				</li>
-			</ol>
-			<a href="/admin/catalog">Edit existing names and photos</a>
-		</aside>
 	</div>
 {/if}
 
 <style>
 	.start-work,
 	.setup-layout {
-		display: grid;
-		grid-template-columns: minmax(0, 3fr) minmax(0, 2fr);
-		gap: 64px;
+		max-width: 560px;
 	}
 	.start-work {
-		margin-block: 16px 48px;
+		margin-block: 8px 40px;
 	}
 	h2 {
-		font-size: 1.75rem;
+		font: 500 1.75rem/1.2 var(--font-display, Lora, serif);
 	}
 	.start-work p {
 		color: var(--muted);
-		margin-block: 24px;
+		margin-block: 16px 24px;
 	}
-	.route-list {
-		padding-inline-start: 24px;
-		margin: 0;
+	.resume-link {
+		display: inline-flex;
+		align-items: center;
+		min-height: 48px;
+		margin-top: 8px;
+		color: var(--muted);
+		font-size: 0.9375rem;
 	}
-	.route-list li {
-		padding-inline-start: 8px;
-		margin-block-end: 24px;
-	}
-	.route-list strong,
-	.route-list span {
-		display: block;
-	}
-	.route-list strong {
-		font-weight: 500;
-	}
-	.route-list span {
+	.step-progress {
 		color: var(--muted);
 		font-size: 0.875rem;
-		margin-block-start: 8px;
+		margin-bottom: 12px;
 	}
-	[aria-current="step"] {
-		color: var(--color-primary);
+	.back-link {
+		margin-bottom: 16px;
 	}
-	.setup-notes {
-		background: var(--color-base-200);
-		padding: 32px;
-		align-self: start;
+	.inline-help {
+		margin-block: 12px 24px;
+		font-size: 1rem;
 	}
-	.setup-notes h3 {
-		margin-block-end: 24px;
+	form {
+		min-width: 0;
+	}
+	select {
+		min-width: 0;
+	}
+	.btn {
+		border-radius: 8px;
+		min-height: 52px;
+		white-space: normal;
+		font-weight: 700;
+	}
+	form > .btn {
+		width: 100%;
+		margin-top: 8px;
 	}
 	.existing {
 		padding-block-start: 32px;
@@ -427,10 +406,15 @@
 		gap: 16px;
 		margin-block: 16px;
 	}
-	.variety-row img {
+	.variety-photo {
 		width: 64px;
 		height: 64px;
-		object-fit: cover;
+		flex: 0 0 64px;
+		border-radius: 6px;
+		overflow: hidden;
+	}
+	.variety-photo :global(.placeholder span) {
+		display: none;
 	}
 	details {
 		margin-block: 16px 24px;
@@ -442,17 +426,23 @@
 		min-height: 48px;
 	}
 	@media (max-width: 800px) {
-		.start-work,
-		.setup-layout {
-			grid-template-columns: minmax(0, 1fr);
-			gap: 32px;
-		}
-		.setup-notes {
-			padding: 24px;
-		}
 		.type-row {
 			align-items: start;
 			flex-direction: column;
+		}
+	}
+	@media (max-width: 540px) {
+		.start-work > div > .btn {
+			width: 100%;
+		}
+		.type-row .actions {
+			width: 100%;
+			display: grid;
+			grid-template-columns: minmax(0, 1fr);
+			gap: 8px;
+		}
+		.saved-varieties > .btn {
+			width: 100%;
 		}
 	}
 </style>
