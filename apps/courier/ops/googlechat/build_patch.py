@@ -86,14 +86,21 @@ path.write_text(s)
 
 path = TARGET / 'mautrix_googlechat/user.py'
 s = path.read_text()
-s = replace_once(s, '        self.conn_task = asyncio.create_task(self.start())', '''        async def save_rotated_cookies(updated: Cookies) -> None:
-            if self.client is not client:
+s = replace_once(s, '''        await client.refresh_tokens()
+        self.client = client''', '''        refreshing = True
+
+        async def save_rotated_cookies(updated: Cookies) -> None:
+            if not refreshing and self.client is not client:
                 return
             self.cookies = updated
             await self.save()
 
-        self.client.on_cookies_changed.add_observer(save_rotated_cookies)
-        self.conn_task = asyncio.create_task(self.start())''')
+        client.on_cookies_changed.add_observer(save_rotated_cookies)
+        try:
+            await client.refresh_tokens()
+        finally:
+            refreshing = False
+        self.client = client''')
 path.write_text(s)
 
 path = TARGET / 'mautrix_googlechat/commands/auth.py'

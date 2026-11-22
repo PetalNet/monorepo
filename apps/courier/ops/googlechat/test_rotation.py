@@ -303,6 +303,62 @@ class RotationTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(self.requests[-1].count('__Secure-1PSIDTS='), 1)
         self.assertIn('__Secure-1PSIDTS=FAKE-ROTATED-1', self.requests[-1])
 
+    async def test_refresh_failure_persists_rotations_before_client_is_installed(self):
+        for endpoint, error in [('/rotate', KeyError),
+                                ('/delete-required', modified.exceptions.NotLoggedInError)]:
+            with self.subTest(endpoint=endpoint):
+                outer = self
+                sessions = []
+
+                class LocalClient:
+                    def __init__(self, cookies, **kwargs):
+                        self._session = outer.new_session(fields=cookies._asdict())
+                        sessions.append(self._session)
+                        self.on_cookies_changed = self._session.on_cookies_changed
+
+                    async def refresh_tokens(self):
+                        await self._session.fetch('GET', outer.base_url+endpoint)
+                        raise KeyError('FAKE missing WIZ response')
+
+                db = sqlite3.connect(':memory:')
+                self.addCleanup(db.close)
+                db.execute('CREATE TABLE user (mxid TEXT PRIMARY KEY, gcid TEXT, cookies TEXT, user_agent TEXT, notice_room TEXT, revision INTEGER)')
+                db.execute('INSERT INTO user(mxid,cookies) VALUES (?,?)',
+                           ('@fake:test.invalid', json.dumps(self.fields)))
+
+                class DB:
+                    async def execute(self, query, *values):
+                        db.execute(query, {str(i): value for i, value in enumerate(values, 1)})
+                        db.commit()
+
+                user = make_bridge_harness(LocalClient)
+                user.mxid, user.gcid = '@fake:test.invalid', 'FAKE-ID'
+                user.cookies = modified.Cookies(**self.fields)
+                previous_client = object()
+                user.client = previous_client
+                user.user_agent = user.notice_room = user.revision = None
+                user.db = DB()
+                user.log = logging.getLogger('fake-refresh')
+                with self.assertRaises(error):
+                    await user.connect()
+                self.assertIs(user.client, previous_client)
+                stored = json.loads(db.execute('SELECT cookies FROM user').fetchone()[0])
+                expected = 'FAKE-ROTATED-AFTER-DELETE' if endpoint.endswith('required') else f'FAKE-ROTATED-{self.counter}'
+                self.assertEqual(stored['secure_1psidts'], expected)
+                restored = self.new_session(fields=stored)
+                jar = restored._cookie_jar.filter_cookies(URL(self.base_url))
+                self.assertEqual(jar['__Secure-1PSIDTS'].value, expected)
+                if endpoint.endswith('required'):
+                    self.assertNotIn('SID', jar)
+                else:
+                    from http.cookies import SimpleCookie
+                    late = SimpleCookie()
+                    late['__Secure-1PSIDTS'] = 'FAKE-LATE-FAILED-CLIENT'
+                    late['__Secure-1PSIDTS'].update({'domain': '.google.com', 'path': '/'})
+                    sessions[0]._cookie_jar.update_cookies(late, URL(self.base_url))
+                    await sessions[0]._on_request_end(None, None, None)
+                    self.assertEqual(json.loads(db.execute('SELECT cookies FROM user').fetchone()[0])['secure_1psidts'], expected)
+
 
 if __name__ == '__main__':
     unittest.main()
