@@ -33,6 +33,7 @@ export default (({ strict }) => ({
 			// Cron on the host runs the usage feed scripts directly; nothing imports them.
 			entry: [
 				"feed/claude-usage-snapshot.ts!",
+				"feed/usage-fetch.ts!",
 				"feed/codex-usage-snapshot.ts!",
 				"feed/codex-usage.ts!",
 			],
