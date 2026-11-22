@@ -111,3 +111,19 @@ it("returns an authorization rejection for expired or wrong-audience signed toke
 	fixtureValue = await fixture({ aud: "another-client" });
 	expect(await exchangeOidcCode("test-code", fixtureValue.transaction)).toBeNull();
 });
+
+it.each(["authentik Admins", "relics-admins"])("accepts the authorized group %s", async (group) => {
+	const { transaction } = await fixture({ groups: [group] });
+
+	vi.stubEnv("OIDC_REQUIRED_GROUP", "authentik Admins");
+	expect(await exchangeOidcCode("test-code", transaction)).toEqual({ subject: "admin-subject" });
+});
+
+it("honors a configured dedicated group without granting similarly named groups", async () => {
+	const { transaction } = await fixture({ groups: ["snail-staff"] });
+
+	vi.stubEnv("RELICS_ADMIN_GROUP", "snail-staff");
+	expect(await exchangeOidcCode("test-code", transaction)).toEqual({ subject: "admin-subject" });
+	vi.stubEnv("RELICS_ADMIN_GROUP", "snail");
+	expect(await exchangeOidcCode("test-code", transaction)).toBeNull();
+});

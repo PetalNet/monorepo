@@ -1,30 +1,34 @@
 <script lang="ts">
-	import { refreshAll } from "$app/navigation";
+	import { refreshAll, afterNavigate } from "$app/navigation";
 	import { page } from "$app/state";
-	import { Copy, Check } from "@lucide/svelte";
+	import { tick } from "svelte";
 
 	import { command } from "#lib/client.ts";
+	import AdminSetup from "#lib/components/AdminSetup.svelte";
 	import ImageUpload from "#lib/components/ImageUpload.svelte";
+	import TagWriter from "#lib/components/TagWriter.svelte";
 	import type { AdminCommand } from "#lib/schema.ts";
 	let { data }: import("./$types").PageProps = $props();
 	let catalog = $derived(data.catalog);
 	const tabs = [
-		["", "Catalog"],
-		["allocate", "Allocate"],
-		["images", "Artwork"],
-		["lore", "Lore"],
+		["", "Start here"],
+		["catalog", "Edit catalog"],
+		["allocate", "Make tags"],
+		["images", "Individual relics"],
+		["lore", "Batch stories"],
 		["sets", "Sets"],
 		["nfc-writer", "Write tags"],
 	];
 	let tab = $derived(page.params.path ?? "");
+	afterNavigate(() => {
+		message = "";
+		error = "";
+	});
 	let busy = $state(false),
 		message = $state(""),
 		error = $state("");
-	let typeId = $state(0),
-		varietyId = $state(0),
-		start = $state(0),
-		end = $state(15),
-		lore = $state("");
+	let uploading = $state(false);
+	let errorNotice = $state<HTMLParagraphElement>();
 	let editType = $state(0),
 		typeName = $state(""),
 		typeDescription = $state(""),
@@ -56,44 +60,15 @@
 		setImage = set?.imageUrl ?? "";
 		setVarieties = [...(set?.varietyIds ?? [])];
 	}
-	let writerVariety = $state(0),
-		writerIndex = $state(0),
-		copyMessage = $state("");
 	$effect(() => {
-		if (!catalog.types.some((t) => t.id === typeId)) {
-			typeId = catalog.types.at(0)?.id ?? 0;
-		}
-
 		if (!catalog.types.some((t) => t.id === varietyType)) {
 			varietyType = catalog.types.at(0)?.id ?? 0;
-		}
-
-		if (!catalog.varieties.some((v) => v.typeId === typeId && v.id === varietyId)) {
-			varietyId = catalog.varieties.find((v) => v.typeId === typeId)?.id ?? 0;
 		}
 
 		if (!catalog.ranges.some((r) => r.id === rangeId)) {
 			rangeId = catalog.ranges.at(0)?.id ?? 0;
 		}
-
-		if (!catalog.varieties.some((v) => v.id === writerVariety)) {
-			writerVariety = catalog.varieties.at(0)?.id ?? 0;
-		}
 	});
-	let writerRelics = $derived(
-		catalog.relics
-			.filter((r) => r.varietyId === writerVariety)
-			.sort((a, b) => (a.indexNumber ?? 0) - (b.indexNumber ?? 0)),
-	);
-	let writer = $derived(writerRelics.at(writerIndex));
-	let alreadyWritten = $derived(
-		writer !== undefined &&
-			catalog.ranges.some(
-				(r) =>
-					r.varietyId === writer.varietyId && r.writtenIndices.includes(writer.indexNumber ?? 0),
-			),
-	);
-	let writerUrl = $derived(writer ? `${page.url.origin}/relics/${writer.id}` : "");
 	async function save(input: AdminCommand) {
 		busy = true;
 		message = "";
@@ -103,8 +78,14 @@
 			await command("admin/command", input);
 			await refreshAll();
 			message = "Saved.";
+
+			return true;
 		} catch (e) {
-			error = e instanceof Error ? e.message : "Could not save.";
+			error = e instanceof Error ? e.message : "Could not save. Please try again.";
+			await tick();
+			errorNotice?.focus();
+
+			return false;
 		} finally {
 			busy = false;
 		}
@@ -136,42 +117,12 @@
 		relicLore = selected?.lore ?? "";
 		relicImage = selected?.imageUrl ?? "";
 	}
-	async function copy() {
-		copyMessage = "";
-
-		try {
-			await navigator.clipboard.writeText(writerUrl);
-			copyMessage = "URL copied.";
-		} catch {
-			copyMessage = "Select the URL below and copy it.";
-		}
-	}
-	function markWritten() {
-		if (!writer) {
-			return;
-		}
-
-		const range = catalog.ranges.find(
-			(r) =>
-				r.varietyId === writer.varietyId &&
-				(r.startIndex === null || r.startIndex <= (writer.indexNumber ?? 0)) &&
-				(r.endIndex === null || r.endIndex >= (writer.indexNumber ?? 0)),
-		);
-
-		if (!range) {
-			error = "No allocation range for this relic.";
-
-			return;
-		}
-
-		void save({ kind: "written", rangeId: range.id, index: writer.indexNumber ?? 0 });
-	}
 </script>
 
 <svelte:head><title>Admin · Petal Relics</title></svelte:head>
 <div class="page-heading">
 	<div>
-		<h1>The catalog.</h1>
+		<h1>Relics workshop</h1>
 		<p>
 			{catalog.relics.length} relics · {catalog.types.length} types · {catalog.varieties.length} varieties
 		</p>
@@ -179,18 +130,33 @@
 	<form method="POST" action="/logout"><button class="btn btn-ghost">Sign out</button></form>
 </div>
 <nav class="admin-tabs" aria-label="Admin tools">
-	{#each tabs as [path, label] (path)}<a
+	{#each tabs.filter(([path]) => path === "" || path === "allocate" || path === "nfc-writer") as [path, label] (path)}<a
 			href="/admin{path ? `/${path}` : ''}"
-			class:chosen={tab === path}>{label}</a
+			class:chosen={tab === path}
+			aria-current={tab === path ? "page" : undefined}>{label}</a
 		>{/each}
+	<details class="more-tools" open={!["", "allocate", "nfc-writer"].includes(tab)}>
+		<summary>Edit catalog &amp; more</summary>
+		<div class="more-links">
+			{#each tabs.filter(([path]) => path !== "" && path !== "allocate" && path !== "nfc-writer") as [path, label] (path)}<a
+					href="/admin/{path}"
+					class:chosen={tab === path}
+					aria-current={tab === path ? "page" : undefined}>{label}</a
+				>{/each}
+		</div>
+	</details>
 </nav>
-{#if message}<p class="message" role="status">{message}</p>{/if}{#if error}<p
+{#if message && tab !== ""}<p class="message" role="status">{message}</p>{/if}{#if error}<p
 		class="message error"
 		role="alert"
+		bind:this={errorNotice}
+		tabindex="-1"
 	>
 		{error}
 	</p>{/if}
-{#if tab === "" || tab === "types" || tab === "varieties"}
+{#if tab === "" || tab === "allocate"}
+	{#key tab}<AdminSetup {catalog} {save} {busy} makeTags={tab === "allocate"} />{/key}
+{:else if tab === "catalog" || tab === "types" || tab === "varieties"}
 	<section class="admin-columns">
 		<form
 			onsubmit={(e) => {
@@ -225,8 +191,9 @@
 					class="textarea"
 					maxlength="4000"
 					bind:value={typeDescription}></textarea></label
-			><ImageUpload bind:url={typeImage} /><button class="btn btn-primary" disabled={busy}
-				>{editType ? "Save type" : "Create type"}</button
+			><ImageUpload bind:busy={uploading} bind:url={typeImage} /><button
+				class="btn btn-primary"
+				disabled={busy || uploading}>{editType ? "Save type" : "Create type"}</button
 			>
 		</form>
 		<form
@@ -269,8 +236,9 @@
 					class="textarea"
 					maxlength="4000"
 					bind:value={varietyDescription}></textarea></label
-			><ImageUpload bind:url={varietyImage} /><button class="btn btn-primary" disabled={busy}
-				>{editVariety ? "Save variety" : "Create variety"}</button
+			><ImageUpload bind:busy={uploading} bind:url={varietyImage} /><button
+				class="btn btn-primary"
+				disabled={busy || uploading}>{editVariety ? "Save variety" : "Create variety"}</button
 			>
 		</form>
 	</section>
@@ -300,7 +268,7 @@
 							value={`legacy:${owner.id}`}>{owner.name} · legacy</option
 						>{/each}</select
 				></label
-			><button class="btn btn-primary" disabled={busy}>Update ownership</button>
+			><button class="btn btn-primary" disabled={busy || uploading}>Update ownership</button>
 		</form>
 		<div class="table-wrap">
 			<table>
@@ -317,74 +285,6 @@
 			</table>
 		</div>
 	</section>
-{:else if tab === "allocate"}
-	<div class="admin-columns">
-		<form
-			onsubmit={(e) => {
-				submit(e, { kind: "allocate", typeId, varietyId, start, end, lore });
-			}}
-		>
-			<h2>Allocate a range</h2>
-			<p class="inline-help">
-				Create up to 500 tag records at once. Existing ranges cannot overlap. The original tag ID
-				encoding is preserved.
-			</p>
-			<label class="field"
-				><span>Type</span><select
-					class="select"
-					bind:value={typeId}
-					onchange={() => (varietyId = catalog.varieties.find((v) => v.typeId === typeId)?.id ?? 0)}
-					>{#each catalog.types as type (type.id)}<option value={type.id}>{type.name}</option
-						>{/each}</select
-				></label
-			><label class="field"
-				><span>Variety</span><select class="select" bind:value={varietyId}
-					>{#each catalog.varieties.filter((v) => v.typeId === typeId) as variety (variety.id)}<option
-							value={variety.id}>{variety.name}</option
-						>{/each}</select
-				></label
-			>
-			<div class="admin-columns tight">
-				<label class="field"
-					><span>Start index</span><input
-						class="input"
-						type="number"
-						min="0"
-						max="65535"
-						required
-						bind:value={start}
-					/></label
-				><label class="field"
-					><span>End index</span><input
-						class="input"
-						type="number"
-						min={start}
-						max={Math.min(start + 499, 65535)}
-						required
-						bind:value={end}
-					/></label
-				>
-			</div>
-			<label class="field"
-				><span>Official lore (optional)</span><textarea
-					class="textarea"
-					maxlength="4000"
-					bind:value={lore}></textarea></label
-			>
-			<p class="inline-help">{end >= start ? end - start + 1 : 0} relics will be created.</p>
-			<button class="btn btn-primary" disabled={busy}>Allocate relics</button>
-		</form>
-		<section>
-			<h2>Existing allocations</h2>
-			{#each catalog.ranges as range (range.id)}<div class="range rule">
-					<h3>{catalog.varieties.find((v) => v.id === range.varietyId)?.name}</h3>
-					<p class="muted mono">
-						{range.startIndex ?? "Open start"} to {range.endIndex ?? "open end"}
-					</p>
-					<p class="small">{range.lore ?? "No lore added."}</p>
-				</div>{/each}
-		</section>
-	</div>
 {:else if tab === "images"}
 	<form
 		class="admin-form"
@@ -401,8 +301,7 @@
 	>
 		<h2>Specimen artwork & label</h2>
 		<p class="inline-help">
-			Set an individual specimen’s artwork. For a type or variety, use Catalog. Uploaded files
-			remain outside the repository.
+			Set an individual specimen’s artwork. For a type or variety photo, use Edit catalog.
 		</p>
 		<label class="field"
 			><span>Relic</span><select
@@ -429,8 +328,9 @@
 			><label class="field"
 				><span>Lore</span><textarea class="textarea" maxlength="4000" bind:value={relicLore}
 				></textarea></label
-			><ImageUpload bind:url={relicImage} /><button class="btn btn-primary" disabled={busy}
-				>Save specimen</button
+			><ImageUpload bind:busy={uploading} bind:url={relicImage} /><button
+				class="btn btn-primary"
+				disabled={busy || uploading}>Save specimen</button
 			>{/if}
 	</form>
 {:else if tab === "lore"}
@@ -440,9 +340,9 @@
 			submit(e, { kind: "range", id: rangeId, lore: rangeLore });
 		}}
 	>
-		<h2>Allocation lore</h2>
+		<h2>Batch stories</h2>
 		<label class="field"
-			><span>Allocation</span><select
+			><span>Tag batch</span><select
 				class="select"
 				bind:value={rangeId}
 				onchange={() => (rangeLore = catalog.ranges.find((r) => r.id === rangeId)?.lore ?? "")}
@@ -457,7 +357,7 @@
 				rows="6"
 				maxlength="4000"
 				bind:value={rangeLore}></textarea></label
-		><button class="btn btn-primary" disabled={busy}>Save lore</button>
+		><button class="btn btn-primary" disabled={busy || uploading}>Save lore</button>
 	</form>
 {:else if tab === "sets"}
 	<div class="admin-columns">
@@ -495,7 +395,7 @@
 					maxlength="4000"
 					bind:value={setDescription}></textarea></label
 			>
-			<ImageUpload bind:url={setImage} />
+			<ImageUpload bind:busy={uploading} bind:url={setImage} />
 			<fieldset>
 				<legend class="muted small">Varieties</legend
 				>{#each catalog.varieties as variety (variety.id)}<label class="check-row"
@@ -521,7 +421,7 @@
 		</form>
 		<section>
 			<h2>Sets</h2>
-			{#each data.collection.sets as set (set.id)}<div class="range rule">
+			{#each data.collection.sets as set (set.id)}<div class="record-row rule">
 					<h3>{set.name}</h3>
 					<p class="muted">{set.varietyIds.length} varieties</p>
 				</div>{:else}<p class="inline-help">
@@ -530,94 +430,7 @@
 		</section>
 	</div>
 {:else if tab === "nfc-writer"}
-	<div class="admin-columns">
-		<section>
-			<h2>Write a physical tag</h2>
-			<p class="inline-help">
-				In NFC Tools, choose Write → Add a record → URL / URI. Paste this exact URL, write it to the
-				tag, then tap it to check. The same URL can be printed as a QR code.
-			</p>
-			<label class="field"
-				><span>Variety</span><select
-					class="select"
-					bind:value={writerVariety}
-					onchange={() => {
-						writerIndex = 0;
-						copyMessage = "";
-					}}
-					>{#each catalog.varieties as variety (variety.id)}<option value={variety.id}
-							>{variety.typeName} / {variety.name}</option
-						>{/each}</select
-				></label
-			>{#if writer}<div class="writer rule">
-					<h3>{writer.name}</h3>
-					<p class="inline-help" role="status">
-						{alreadyWritten ? "Written to a tag" : "Not marked written"}
-					</p>
-					<label class="field"
-						><span>Tag URL</span><input
-							class="input mono"
-							readonly
-							value={writerUrl}
-							onclick={(e) => {
-								e.currentTarget.select();
-							}}
-						/></label
-					>
-					<div class="actions">
-						<button class="btn btn-primary" onclick={copy}><Copy size={16} />Copy URL</button><a
-							class="btn btn-ghost"
-							href={writerUrl}
-							target="_blank"
-							rel="noreferrer">Check specimen</a
-						>
-					</div>
-					{#if copyMessage}<p role="status" class="inline-help">{copyMessage}</p>{/if}
-					<div class="writer-navigation">
-						<button
-							class="btn btn-ghost"
-							disabled={writerIndex === 0}
-							onclick={() => {
-								writerIndex--;
-								copyMessage = "";
-							}}>Previous</button
-						><span class="muted mono">{writerIndex + 1} / {writerRelics.length}</span><button
-							class="btn btn-ghost"
-							disabled={writerIndex >= writerRelics.length - 1}
-							onclick={() => {
-								writerIndex++;
-								copyMessage = "";
-							}}>Next</button
-						>
-					</div>
-					<button class="btn btn-neutral" disabled={busy} onclick={markWritten}
-						><Check size={16} />Mark written</button
-					>
-				</div>{:else}<p class="message">Allocate this variety before writing tags.</p>{/if}
-		</section>
-		<section>
-			<h2>Writing notes</h2>
-			<div class="range rule">
-				<h3>Keep existing tags as they are.</h3>
-				<p class="muted">
-					The catalog ID and /relics/ URL never change. There is no need to rewrite an existing tag.
-				</p>
-			</div>
-			<div class="range rule">
-				<h3>Check before locking.</h3>
-				<p class="muted">
-					Hold the tag near the phone’s NFC reader, open the URL and confirm its variety and number.
-					Test first, then lock only if you intend it to be permanent.
-				</p>
-			</div>
-			<div class="range rule">
-				<h3>Physical test required.</h3>
-				<p class="muted">
-					The website copies URLs and records writing progress. The NFC Tools app writes the tag.
-				</p>
-			</div>
-		</section>
-	</div>
+	{#key page.url.search}<TagWriter {catalog} {save} {busy} />{/key}
 {:else}<p class="message">Choose a tool from the navigation above.</p>{/if}
 
 <dialog bind:this={setDialog}>
@@ -626,7 +439,7 @@
 	<div class="actions">
 		<button
 			class="btn btn-primary"
-			disabled={busy}
+			disabled={busy || uploading}
 			onclick={async () => {
 				await save({ kind: "deleteSet", id: setId });
 				setDialog.close();
@@ -646,7 +459,7 @@
 	.admin-tabs {
 		display: flex;
 		gap: 8px;
-		overflow-x: auto;
+		flex-wrap: wrap;
 		margin-block-end: 40px;
 		border-block-end: 1px solid var(--rule);
 		padding-block-end: 8px;
@@ -654,7 +467,6 @@
 	.admin-tabs a {
 		min-height: 48px;
 		padding: 12px 20px;
-		white-space: nowrap;
 		text-decoration: none;
 		color: var(--muted);
 	}
@@ -662,13 +474,24 @@
 		background: var(--color-base-200);
 		color: var(--color-primary);
 	}
+	.page-heading h1 {
+		font-size: 2.5rem;
+	}
+	.more-tools {
+		margin-inline-start: auto;
+	}
+	.more-tools summary {
+		padding-inline: 16px;
+		color: var(--muted);
+	}
+	.more-links {
+		display: flex;
+		flex-wrap: wrap;
+	}
 	.admin-columns {
 		display: grid;
-		grid-template-columns: 1fr 1fr;
+		grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
 		gap: 64px;
-	}
-	.admin-columns.tight {
-		gap: 16px;
 	}
 	.admin-form {
 		max-width: 600px;
@@ -678,10 +501,10 @@
 		margin-block-end: 24px;
 		font-size: 1.5rem;
 	}
-	.range {
+	.record-row {
 		padding-block: 24px;
 	}
-	.range p {
+	.record-row p {
 		margin-block-start: 8px;
 	}
 	.reassign {
@@ -693,15 +516,6 @@
 	}
 	.reassign .field {
 		margin: 0;
-	}
-	.writer {
-		padding-block: 24px;
-	}
-	.writer-navigation {
-		display: flex;
-		align-items: center;
-		justify-content: space-between;
-		margin-block: 32px;
 	}
 	fieldset {
 		padding: 16px 0;
@@ -720,9 +534,6 @@
 		.admin-columns {
 			grid-template-columns: 1fr;
 			gap: 48px;
-		}
-		.admin-columns.tight {
-			grid-template-columns: 1fr 1fr;
 		}
 		.reassign {
 			grid-template-columns: 1fr;

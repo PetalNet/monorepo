@@ -502,7 +502,10 @@ export class RelicsDatabase {
 							.get(command.typeId, command.varietyId, command.end, command.start);
 
 						if (overlap) {
-							throw new Conflict({ message: "That range overlaps an existing allocation." });
+							throw new Conflict({
+								message:
+									"These catalog numbers already have tags. Use the suggested next numbers, or choose different custom numbers.",
+							});
 						}
 
 						this.sql
