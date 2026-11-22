@@ -263,12 +263,14 @@ describe("live Codex catalog", () => {
 
 		expect(denied.ranked.some((r) => r.offer.model === "gpt-5.1-codex-max")).toBe(false);
 		expect(denied.ranked.some((r) => r.offer.model === "gpt-5.1-codex")).toBe(true);
+
 		const highDenied = pick(withCodexCatalog(catalog, discovered), "code", "*", {
 			...state,
 			deny: ["gpt-5.1-codex-high"],
 		});
 
 		expect(highDenied.ranked.some((r) => r.offer.model === "gpt-5.1-codex-high")).toBe(false);
+
 		expect(
 			highDenied.ranked.filter((r) => r.offer.model === "gpt-5.1-codex").map((r) => r.offer.effort),
 		).toEqual(["low", "medium", "high"]);
@@ -302,6 +304,7 @@ describe("live Codex catalog", () => {
 			now: () => 1000,
 			command: (args) => (args[0] === "--version" ? "codex-cli 0.171.0" : JSON.stringify(raw)),
 		});
+
 		await expect(
 			discoverCodex(dir, true, {
 				now: () => 2000,
@@ -309,6 +312,7 @@ describe("live Codex catalog", () => {
 					args[0] === "--version" ? "codex-cli 0.171.0" : JSON.stringify(invalid),
 			}),
 		).rejects.toThrow("refresh failed");
+
 		expect(JSON.parse(await readFile(path.join(dir, "codex-models.json"), "utf8"))).toEqual(
 			snapshot,
 		);
@@ -471,6 +475,7 @@ describe("Codex alerts", () => {
 		await expect(discoverCodex(dir, true, { now: () => 1000, command })).rejects.toThrow(
 			"refresh failed",
 		);
+
 		const sent: string[] = [];
 
 		await checkCodexAlerts(dir, undefined, catalog, {
@@ -481,6 +486,7 @@ describe("Codex alerts", () => {
 				sent.push(message);
 			},
 		});
+
 		expect(sent).toHaveLength(1);
 		expect(sent[0]).toContain("Codex 0.164.0 lags 0.171.0");
 	});
