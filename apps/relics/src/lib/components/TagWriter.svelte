@@ -208,6 +208,10 @@
 			</div>
 			<BrowserTagWriter
 				{url}
+				written={relics.filter(isWritten).map((relic) => ({
+					url: `${page.url.origin}/relics/${relic.id}`,
+					number: relic.indexNumber ?? 0,
+				}))}
 				number={writer.indexNumber ?? 0}
 				disabled={busy}
 				prepare={prepareWrite}
