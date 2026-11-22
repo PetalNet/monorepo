@@ -643,7 +643,7 @@ bool FEnvGenStreetscapeAthletic::RunTest(const FString& Parameters)
 				TMap<FIntPoint, TSet<FIntVector>> TopTriangles;
 				TSet<uint8> Shades;
 				struct FTopRecord { uint8 Data[204]; };
-				TArray<FTopRecord> TopRecords;
+				TArray<FTopRecord> TopRecords, RetainedRecords;
 				int32 SplitGranules = 0, BadFacets = 0, TopFacets = 0;
 				for (uint32 Vertex = 0; Vertex < InfillUVs.GetNumVertices(); ++Vertex)
 				{
@@ -682,6 +682,17 @@ bool FEnvGenStreetscapeAthletic::RunTest(const FString& Parameters)
 						if (Front.Z <= 0) ++BadFacets;
 						else TopGranules.Add(RootKey);
 						++TopFacets;
+						FIntVector Indices{int32(A), int32(B), int32(C)};
+						if (Indices.X > Indices.Y) Swap(Indices.X, Indices.Y);
+						if (Indices.Y > Indices.Z) Swap(Indices.Y, Indices.Z);
+						if (Indices.X > Indices.Y) Swap(Indices.X, Indices.Y);
+						TopTriangles.FindOrAdd(RootKey).Add(Indices);
+					}
+					else if (FVector3f::DotProduct(Front, FVector3f(Centre.X - Root.X, Centre.Y - Root.Y, 0)) <= 0) ++BadFacets;
+					const bool Bottom = InfillPositions.VertexPosition(A).Z < 0 || InfillPositions.VertexPosition(B).Z < 0 || InfillPositions.VertexPosition(C).Z < 0;
+					if (Top && Bottom) ++BadFacets;
+					if (!Bottom || Top)
+					{
 						FTopRecord RawTop{};
 						const uint32 TopIndices[3] = { A, B, C };
 						for (int32 Corner = 0; Corner < 3; ++Corner)
@@ -705,14 +716,9 @@ bool FEnvGenStreetscapeAthletic::RunTest(const FString& Parameters)
 								FMemory::Memcpy(RotatedTop.Data + Corner * 68, RawTop.Data + ((Corner + Rotation) % 3) * 68, 68);
 							if (FMemory::Memcmp(RotatedTop.Data, BestTop.Data, sizeof(BestTop.Data)) < 0) BestTop = RotatedTop;
 						}
-						TopRecords.Add(BestTop);
-						FIntVector Indices{int32(A), int32(B), int32(C)};
-						if (Indices.X > Indices.Y) Swap(Indices.X, Indices.Y);
-						if (Indices.Y > Indices.Z) Swap(Indices.Y, Indices.Z);
-						if (Indices.X > Indices.Y) Swap(Indices.X, Indices.Y);
-						TopTriangles.FindOrAdd(RootKey).Add(Indices);
+						if (!Bottom) RetainedRecords.Add(BestTop);
+						if (Top) TopRecords.Add(BestTop);
 					}
-					else if (FVector3f::DotProduct(Front, FVector3f(Centre.X - Root.X, Centre.Y - Root.Y, 0)) <= 0) ++BadFacets;
 					// Allow packed-normal rounding around the authored 0.2 facing margin.
 					if (Front.IsNearlyZero() || FVector3f::DotProduct(Front, FVector3f(InfillUVs.VertexTangentZ(A))) < .18f
 						|| FVector3f::DotProduct(Front, FVector3f(InfillUVs.VertexTangentZ(B))) < .18f
@@ -732,11 +738,27 @@ bool FEnvGenStreetscapeAthletic::RunTest(const FString& Parameters)
 				TopHash.Final(TopDigest);
 				AddInfo(FString::Printf(TEXT("infill LOD%d topAttributeBoundsMD5=%s topCount=%d"),
 					LOD, *BytesToHex(TopDigest, sizeof(TopDigest)), TopRecords.Num()));
+				RetainedRecords.Sort([](const FTopRecord& Left, const FTopRecord& Right)
+					{ return FMemory::Memcmp(Left.Data, Right.Data, sizeof(Left.Data)) < 0; });
+				FMD5 RetainedHash;
+				for (const FTopRecord& Record : RetainedRecords) RetainedHash.Update(Record.Data, sizeof(Record.Data));
+				uint8 RetainedDigest[16];
+				RetainedHash.Final(RetainedDigest);
+				AddInfo(FString::Printf(TEXT("infill LOD%d retainedSurfaceMD5=%s retainedCount=%d bounds=%.17g,%.17g,%.17g,%.17g,%.17g,%.17g,%.17g"),
+					LOD, *BytesToHex(RetainedDigest, sizeof(RetainedDigest)), RetainedRecords.Num(),
+					MeshBounds.Origin.X, MeshBounds.Origin.Y, MeshBounds.Origin.Z, MeshBounds.BoxExtent.X, MeshBounds.BoxExtent.Y, MeshBounds.BoxExtent.Z, MeshBounds.SphereRadius));
 				TestEqual(TEXT("all 10000 infill granules reach each render buffer"), Granules.Num(), 10000);
 				TestEqual(TEXT("granule faces retain one root and color seed"), SplitGranules, 0);
 				TestEqual(TEXT("infill dimensions, root data and rendered facet normals are valid"), BadFacets, 0);
 				TestEqual(TEXT("every rendered crumb retains an upward-facing top"), TopGranules.Num(), 10000);
-				if (LOD == 1)
+				if (LOD == 0)
+				{
+					TestEqual(TEXT("near infill retains one top and two side facets per corner"), int32(InfillLOD.IndexBuffer.GetNumIndices() / 3), 3 * TopFacets);
+					int32 IncompleteFans = 0;
+					for (const auto& Fan : TopTriangles) if (Fan.Value.Num() < 8 || Fan.Value.Num() > 11) ++IncompleteFans;
+					TestEqual(TEXT("near infill retains all authored eight-to-eleven-corner top fans"), IncompleteFans, 0);
+				}
+				else
 				{
 					int32 IncompleteFans = 0;
 					for (const auto& Fan : TopTriangles) if (Fan.Value.Num() != 4) ++IncompleteFans;

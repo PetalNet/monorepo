@@ -803,7 +803,7 @@ return lerp(canopy,bed,pileNear);
 						Triangle(0, 2 + Next, 2 + Corner);
 						Triangle(2 + Corners + Corner, 2 + Next, 2 + Corners + Next);
 						Triangle(2 + Corners + Corner, 2 + Corner, 2 + Next);
-						Triangle(1, 2 + Corners + Corner, 2 + Corners + Next);
+						Triangle(1, 2 + Corners + Corner, 2 + Corners + Next, false);
 					}
 				}
 				else
