@@ -539,16 +539,30 @@ export class RelicsDatabase {
 							throw new Rejected({ message: "Choose a variety belonging to this type." });
 						}
 
-						const overlap = this.sql
-							.prepare(
-								"SELECT 1 FROM AllocationRange WHERE typeId=? AND varietyId=? AND (startIndex IS NULL OR startIndex<=?) AND (endIndex IS NULL OR endIndex>=?)",
-							)
-							.get(command.typeId, command.varietyId, command.end, command.start);
+						const occupied = this.sql.prepare(
+							"SELECT 1 FROM Relic WHERE typeId=? AND varietyId=? AND indexNumber=? UNION ALL SELECT 1 FROM AllocationRange WHERE typeId=? AND varietyId=? AND startIndex IS NOT NULL AND endIndex IS NOT NULL AND startIndex<=? AND endIndex>=? LIMIT 1",
+						);
+						const collisions: number[] = [];
 
-						if (overlap) {
+						for (let index = command.start; index <= command.end; index++) {
+							if (
+								occupied.get(
+									command.typeId,
+									command.varietyId,
+									index,
+									command.typeId,
+									command.varietyId,
+									index,
+									index,
+								)
+							) {
+								collisions.push(index);
+							}
+						}
+
+						if (collisions.length) {
 							throw new Conflict({
-								message:
-									"These catalog numbers already have tags. Use the suggested next numbers, or choose different custom numbers.",
+								message: `Catalog numbers ${collisions.join(", ")} are already in use for ${variety.typeName} / ${variety.name}. Use next free numbers to try again.`,
 							});
 						}
 
