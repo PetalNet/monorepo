@@ -16,7 +16,7 @@ What you own on top of the defaults:
 - **Fallback metrics:** `size-adjust` + `ascent-override` on fallback fonts to kill layout shift.
 - **Preconnect** external services (e.g. the favicons service).
 
-Geist is the lab typeface.
+Lab typefaces: **Schibsted Grotesk** (fontsource, weights 400/500/600) for all text and display, and **IBM Plex Mono** (400) for code, IDs and tabular figures. Geist is retired; don't use it in new work. Reference setup: `apps/grove/vite.config.ts`.
 
 ## Markdown read/edit parity
 
