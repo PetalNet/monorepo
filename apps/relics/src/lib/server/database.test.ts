@@ -1,3 +1,7 @@
+import { mkdtempSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import pathModule from "node:path";
+
 import { hash } from "bcryptjs";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
@@ -19,7 +23,7 @@ afterEach(() => {
 });
 
 const claim = (id = "tag-a") => {
-	const result = db.claim({ relicId: id, name: "Test collector" });
+	const result = db.claim({ relicId: id, name: "Test collector", relicName: "Gerald" });
 
 	if (!result.deviceToken) {
 		throw new Error("Expected a new device");
@@ -41,7 +45,9 @@ describe("private device ownership", () => {
 			tokenHash: digest(token),
 		});
 
-		expect(() => db.claim({ relicId: "tag-a", name: "Other" })).toThrow(Conflict);
+		expect(() => db.claim({ relicId: "tag-a", name: "Other", relicName: "Other friend" })).toThrow(
+			Conflict,
+		);
 
 		expect(() => {
 			db.release("tag-a");
@@ -57,7 +63,10 @@ describe("private device ownership", () => {
 	it("keeps all claimed relics together on one device", () => {
 		const token = claim();
 
-		expect(db.claim({ relicId: "tag-b", name: "Ignored" }, token).deviceToken).toBeUndefined();
+		expect(
+			db.claim({ relicId: "tag-b", name: "Ignored", relicName: "Pip" }, token).deviceToken,
+		).toBeUndefined();
+
 		expect(db.collection(token).relics).toHaveLength(2);
 
 		expect(Object.keys(db.card("tag-a"))).not.toEqual(
@@ -80,7 +89,11 @@ describe("private device ownership", () => {
 			.run("legacy-test", "Old Name", pinHash);
 
 		db.sql.prepare("UPDATE Relic SET ownerId='legacy-test'").run();
-		expect(() => db.claim({ relicId: "tag-a", name: "Other" })).toThrow(Conflict);
+
+		expect(() => db.claim({ relicId: "tag-a", name: "Other", relicName: "Other friend" })).toThrow(
+			Conflict,
+		);
+
 		await expect(db.migrate({ name: "Old Name", pin: "0000" })).rejects.toThrow(Unauthorized);
 		const { deviceToken } = await db.migrate({ name: "old name", pin: "123456" });
 
@@ -273,4 +286,204 @@ it("retains the complete legacy substitution alphabet across catalog sizes", () 
 	expect(encodeRelicId({ typeId: 65535, varietyId: 65535, index: 65535 })).toBe(
 		"PPMPDCM555785U5L4",
 	);
+});
+
+describe("a relic's little story", () => {
+	it("migrates old nicknames once, retaining unnamed owners and later renames on restart", () => {
+		const dir = mkdtempSync(pathModule.join(tmpdir(), "relic-story-"));
+		const path = pathModule.join(dir, "legacy.db");
+		let old = new RelicsDatabase(path);
+
+		try {
+			old.sql
+				.exec(`INSERT INTO User(id,displayName,pinHash) VALUES ('legacy','Sam Example','unused');
+        INSERT INTO RelicType(id,name) VALUES (1,'Shroomling');
+        INSERT INTO RelicVariety(id,typeId,name) VALUES (1,1,'Red');
+        INSERT INTO Relic(id,name,ownerId,typeId,varietyId,indexNumber,acquisitionDate) VALUES ('named','Gerald','legacy',1,1,1,1700000000000),('unnamed','Shroomling - Red #2','legacy',1,1,2,1700000000000);
+        DROP TABLE RelicStory;`);
+
+			old.close();
+			old = new RelicsDatabase(path);
+
+			expect(old.card("named")).toMatchObject({
+				friendName: "Gerald",
+				firstName: "Sam",
+				birthday: 1700000000000,
+				claimed: true,
+			});
+
+			expect(old.card("unnamed")).toMatchObject({ friendName: null, claimed: true });
+			old.sql.exec("UPDATE RelicStory SET name='Pip' WHERE relicId='named'");
+			old.close();
+			old = new RelicsDatabase(path);
+			expect(old.card("named").friendName).toBe("Pip");
+			expect(old.sql.prepare("SELECT count(*) n FROM User").get()).toEqual({ n: 1 });
+		} finally {
+			old.close();
+			rmSync(dir, { recursive: true });
+		}
+	});
+
+	it("names atomically, makes only the first name public and keeps the birthday on rename", () => {
+		const token = claim();
+		const before = db.card("tag-a", token);
+
+		expect(before).toMatchObject({ friendName: "Gerald", firstName: "Test", owned: true });
+		expect(before.birthday).toBeTypeOf("number");
+
+		expect(() => {
+			db.nameRelic({ relicId: "tag-a", name: "Visitor", relicName: "Stolen" });
+		}).toThrow(Unauthorized);
+
+		db.nameRelic({ relicId: "tag-a", name: "Sam", relicName: "Moss" }, token);
+
+		expect(db.card("tag-a")).toMatchObject({
+			friendName: "Moss",
+			firstName: "Sam",
+			birthday: before.birthday,
+			owned: false,
+		});
+
+		db.release("tag-a", token);
+
+		expect(db.card("tag-a")).toMatchObject({
+			friendName: null,
+			firstName: null,
+			birthday: null,
+			claimed: false,
+		});
+
+		const next = claim();
+
+		expect(db.card("tag-a", next).friendName).toBe("Gerald");
+	});
+
+	it("lets a migrated owner name an unnamed relic without changing ownership", async () => {
+		db.sql
+			.prepare("INSERT INTO User(id,displayName,pinHash) VALUES (?,?,?)")
+			.run("old-unnamed", "Sam", await hash("1234", 4));
+
+		db.sql.exec("UPDATE Relic SET ownerId='old-unnamed' WHERE id='tag-b'");
+		const { deviceToken } = await db.migrate({ name: "Sam", pin: "1234" });
+
+		expect(db.card("tag-b", deviceToken)).toMatchObject({ owned: true, friendName: null });
+		db.nameRelic({ relicId: "tag-b", name: "Sam", relicName: "Pip" }, deviceToken);
+		expect(db.card("tag-b", deviceToken)).toMatchObject({ owned: true, friendName: "Pip" });
+
+		expect(db.sql.prepare("SELECT ownerId FROM Relic WHERE id='tag-b'").get()).toEqual({
+			ownerId: "old-unnamed",
+		});
+	});
+});
+
+describe("Storybook rollback and staff edits", () => {
+	it("ignores a story after an older release and replaces it on a new claim", () => {
+		const token = claim();
+
+		db.sql.exec(
+			"UPDATE Relic SET collectorId=NULL,ownerId=NULL,acquisitionDate=NULL WHERE id='tag-a'",
+		);
+
+		expect(db.card("tag-a")).toMatchObject({ claimed: false, friendName: null });
+		db.claim({ relicId: "tag-a", name: "Sam", relicName: "New friend" }, token);
+		expect(db.card("tag-a", token)).toMatchObject({ owned: true, friendName: "New friend" });
+		db.sql.exec("UPDATE Relic SET acquisitionDate=1 WHERE id='tag-a'");
+		expect(db.card("tag-a", token)).toMatchObject({ owned: true, friendName: null });
+		db.nameRelic({ relicId: "tag-a", name: "Sam", relicName: "A fresh story" }, token);
+		expect(db.card("tag-a", token).friendName).toBe("A fresh story");
+	});
+
+	it("lets staff replace and clear a legacy custom photo", () => {
+		db.sql.exec("UPDATE Relic SET customImageUrl='/uploads/old.jpg' WHERE id='tag-a'");
+		expect(db.card("tag-a").imageUrl).toBe("/uploads/old.jpg");
+
+		const edit = {
+			kind: "relic",
+			relicId: "tag-a",
+			name: "Label",
+			description: "",
+			lore: "",
+			imageUrl: "/uploads/new.jpg",
+		} satisfies Parameters<RelicsDatabase["administer"]>[0];
+
+		db.administer(edit, "staff");
+		expect(db.card("tag-a").imageUrl).toBe("/uploads/new.jpg");
+		db.administer({ ...edit, imageUrl: "" }, "staff");
+		expect(db.card("tag-a").imageUrl).toBeNull();
+	});
+
+	it("clears the story when staff release a relic", () => {
+		claim();
+		db.administer({ kind: "reassign", relicId: "tag-a", target: "" }, "staff");
+		expect(db.card("tag-a")).toMatchObject({ claimed: false, friendName: null });
+	});
+});
+
+describe("ownership epochs across restarts", () => {
+	it("retains a named legacy story through device migration, then clears a prior-version same-device reacquisition", async () => {
+		const dir = mkdtempSync(pathModule.join(tmpdir(), "relic-epoch-"));
+		const path = pathModule.join(dir, "test.db");
+		let store = new RelicsDatabase(path);
+
+		try {
+			store.sql
+				.prepare("INSERT INTO User(id,displayName,pinHash) VALUES ('old','Sam',?)")
+				.run(await hash("1234", 4));
+
+			store.sql.exec(
+				"INSERT INTO Relic(id,name,ownerId,acquisitionDate) VALUES ('friend','Gerald','old',1700000000000);DROP TABLE RelicStory;",
+			);
+
+			store.close();
+			store = new RelicsDatabase(path);
+			const result = await store.migrate({ name: "Sam", pin: "1234" });
+			const token = result.deviceToken;
+
+			expect(token).toBeTypeOf("string");
+
+			expect(store.card("friend", token)).toMatchObject({
+				owned: true,
+				friendName: "Gerald",
+				birthday: 1700000000000,
+			});
+
+			store.close();
+			store = new RelicsDatabase(path);
+
+			expect(store.card("friend", token)).toMatchObject({
+				owned: true,
+				friendName: "Gerald",
+				birthday: 1700000000000,
+			});
+
+			const collector = store.requireCollector(token);
+
+			// These are the release and reclaim writes from the pre-Storybook app.
+			store.sql.exec(
+				"UPDATE Relic SET collectorId=NULL,ownerId=NULL,ownerEmail=NULL,ownerDeviceId=NULL,acquisitionDate=NULL WHERE id='friend'",
+			);
+
+			store.sql
+				.prepare(
+					"UPDATE Relic SET collectorId=?,acquisitionDate=? WHERE id=? AND ownerId IS NULL AND collectorId IS NULL",
+				)
+				.run(collector.id, 1800000000000, "friend");
+
+			store.close();
+			store = new RelicsDatabase(path);
+
+			expect(store.card("friend", token)).toMatchObject({
+				owned: true,
+				friendName: null,
+				birthday: null,
+			});
+
+			expect(store.sql.prepare("SELECT count(*) n FROM RelicStory").get()).toEqual({ n: 0 });
+			store.nameRelic({ relicId: "friend", name: "Sam", relicName: "Pip" }, token);
+			expect(store.card("friend", token).birthday).not.toBe(1700000000000);
+		} finally {
+			store.close();
+			rmSync(dir, { recursive: true });
+		}
+	});
 });

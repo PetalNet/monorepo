@@ -12,12 +12,13 @@ export default defineConfig({
 			defaults: { preload: true },
 			families: [
 				{
-					name: "Schibsted Grotesk",
+					name: "Nunito",
 					provider: "fontsource",
-					weights: [400, 500, 600],
+					weights: [400, 700],
 					global: true,
 				},
-				{ name: "IBM Plex Mono", provider: "fontsource", weights: [400], global: true },
+				{ name: "Lora", provider: "fontsource", weights: [500], global: true },
+				{ name: "Patrick Hand", provider: "fontsource", weights: [400], global: true },
 			],
 		}),
 		sveltekit({ adapter: adapter() }),

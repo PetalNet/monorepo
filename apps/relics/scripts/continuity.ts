@@ -25,6 +25,39 @@ if (oldUsers !== JSON.stringify(after.prepare("SELECT * FROM User ORDER BY id").
 	throw new Error("Legacy owner records changed");
 }
 
+for (const table of ["Collector", "Device", "LegacyMigration"]) {
+	const exists = before
+		.prepare("SELECT 1 FROM sqlite_master WHERE type='table' AND name=?")
+		.get(table);
+
+	if (
+		exists &&
+		JSON.stringify(before.prepare(`SELECT * FROM ${table} ORDER BY 1`).all()) !==
+			JSON.stringify(after.prepare(`SELECT * FROM ${table} ORDER BY 1`).all())
+	) {
+		throw new Error(`${table} ownership or device records changed`);
+	}
+}
+
+if (
+	JSON.stringify(before.prepare("SELECT id,collectorId FROM Relic ORDER BY id").all()) !==
+	JSON.stringify(after.prepare("SELECT id,collectorId FROM Relic ORDER BY id").all())
+) {
+	throw new Error("Device ownership associations changed");
+}
+
+const nicknames = before
+	.prepare(
+		`SELECT r.id,r.name FROM Relic r LEFT JOIN RelicType t ON t.id=r.typeId LEFT JOIN RelicVariety v ON v.id=r.varietyId WHERE (r.ownerId IS NOT NULL OR r.collectorId IS NOT NULL) AND trim(r.name)<>'' AND r.name<>COALESCE(t.name,'Relic')||' - '||COALESCE(v.name,'Original')||' #'||COALESCE(r.indexNumber,0)`,
+	)
+	.all();
+
+for (const row of nicknames) {
+	if (after.prepare("SELECT name FROM RelicStory WHERE relicId=?").get(row.id)?.name !== row.name) {
+		throw new Error("An existing nickname was not retained");
+	}
+}
+
 const rows = before.prepare("SELECT id,typeId,varietyId,indexNumber FROM Relic ORDER BY id").all();
 
 await Promise.all(
@@ -64,6 +97,8 @@ process.stdout.write(
 		tagUrlsResolved: rows.length,
 		ownedRelicsPreserved: owned?.n,
 		ownerRecordsPreserved: before.prepare("SELECT count(*) n FROM User").get()?.n,
+		nicknamesPreserved: nicknames.length,
+		deviceRecordsPreserved: before.prepare("SELECT count(*) n FROM Device").get()?.n,
 		ownershipDigest: createHash("sha256").update(snapshot(after)).digest("hex"),
 	})}\n`,
 );

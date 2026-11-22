@@ -6,7 +6,7 @@ import { DatabaseSync, type SQLInputValue } from "node:sqlite";
 import { compare } from "bcryptjs";
 import { Data, Schema } from "effect";
 
-import type { Collection, RelicCard } from "../schema";
+import type { Claim, Collection, RelicCard } from "../schema";
 import { Variety, type AdminCommand } from "../schema";
 import legacySchema from "./legacy-schema.sql?raw";
 import { encodeRelicId } from "./relic-id";
@@ -37,10 +37,15 @@ const rawCard = Schema.Struct({
 	description: nullableText,
 	lore: nullableText,
 	imageUrl: nullableText,
+	friendName: nullableText,
+	firstName: nullableText,
+	birthday: Schema.NullOr(Schema.Finite),
 	ownerId: nullableText,
 	collectorId: nullableText,
 });
-const cardSql = `SELECT r.id,r.name,r.typeId,r.varietyId,r.indexNumber,COALESCE(t.name,'Relic') typeName,COALESCE(v.name,'Original') varietyName,r.description,COALESCE(r.lore,(SELECT a.lore FROM AllocationRange a WHERE a.typeId=r.typeId AND a.varietyId=r.varietyId AND (a.startIndex IS NULL OR a.startIndex<=r.indexNumber) AND (a.endIndex IS NULL OR a.endIndex>=r.indexNumber) LIMIT 1)) lore,COALESCE(r.imageUrl,v.imageUrl,t.imageUrl) imageUrl,r.ownerId,r.collectorId FROM Relic r LEFT JOIN RelicType t ON t.id=r.typeId LEFT JOIN RelicVariety v ON v.id=r.varietyId`;
+const storyOwnerKey =
+	"COALESCE('legacy:'||r.ownerId,'collector:'||r.collectorId)||':'||COALESCE(r.acquisitionDate,'')";
+const cardSql = `SELECT r.id,r.name,r.typeId,r.varietyId,r.indexNumber,COALESCE(t.name,'Relic') typeName,COALESCE(v.name,'Original') varietyName,r.description,COALESCE(r.lore,(SELECT a.lore FROM AllocationRange a WHERE a.typeId=r.typeId AND a.varietyId=r.varietyId AND (a.startIndex IS NULL OR a.startIndex<=r.indexNumber) AND (a.endIndex IS NULL OR a.endIndex>=r.indexNumber) LIMIT 1)) lore,COALESCE(r.customImageUrl,r.imageUrl,v.imageUrl,t.imageUrl) imageUrl,s.name friendName,COALESCE(s.firstName,c.name,u.displayName) firstName,s.birthday,r.ownerId,r.collectorId FROM Relic r LEFT JOIN RelicType t ON t.id=r.typeId LEFT JOIN RelicVariety v ON v.id=r.varietyId LEFT JOIN RelicStory s ON s.relicId=r.id AND s.ownerKey=${storyOwnerKey} LEFT JOIN Collector c ON c.id=r.collectorId LEFT JOIN User u ON u.id=r.ownerId`;
 
 export class RelicsDatabase {
 	readonly sql: DatabaseSync;
@@ -74,6 +79,18 @@ export class RelicsDatabase {
     CREATE TABLE IF NOT EXISTS RateLimit(key TEXT PRIMARY KEY,attempts INTEGER NOT NULL,expiresAt INTEGER NOT NULL);
     CREATE TABLE IF NOT EXISTS AdminAudit(id INTEGER PRIMARY KEY,subject TEXT NOT NULL,action TEXT NOT NULL,createdAt INTEGER NOT NULL);
     CREATE INDEX IF NOT EXISTS Relic_collectorId ON Relic(collectorId);`);
+
+			if (!this.sql.prepare("SELECT 1 FROM sqlite_master WHERE name='RelicStory'").get()) {
+				this.sql
+					.exec(`CREATE TABLE RelicStory(relicId TEXT PRIMARY KEY REFERENCES Relic(id),name TEXT NOT NULL,firstName TEXT NOT NULL,birthday INTEGER,ownerKey TEXT NOT NULL);
+        INSERT INTO RelicStory SELECT r.id,r.name,COALESCE(c.name,u.displayName,''),CASE WHEN typeof(r.acquisitionDate)='integer' THEN r.acquisitionDate ELSE CAST(strftime('%s',r.acquisitionDate) AS INTEGER)*1000 END,${storyOwnerKey}
+        FROM Relic r LEFT JOIN RelicType t ON t.id=r.typeId LEFT JOIN RelicVariety v ON v.id=r.varietyId LEFT JOIN Collector c ON c.id=r.collectorId LEFT JOIN User u ON u.id=r.ownerId
+        WHERE (r.ownerId IS NOT NULL OR r.collectorId IS NOT NULL) AND trim(r.name)<>'' AND r.name<>COALESCE(t.name,'Relic')||' - '||COALESCE(v.name,'Original')||' #'||COALESCE(r.indexNumber,0);`);
+			}
+
+			this.sql.exec(
+				`DELETE FROM RelicStory WHERE NOT EXISTS (SELECT 1 FROM Relic r WHERE r.id=RelicStory.relicId AND RelicStory.ownerKey=${storyOwnerKey})`,
+			);
 		});
 	}
 	close() {
@@ -163,9 +180,11 @@ export class RelicsDatabase {
 	}
 	private publicCard(row: typeof rawCard.Type, collectorId?: string): RelicCard {
 		const { ownerId, collectorId: owner, ...publicData } = row;
+		const firstName = publicData.firstName?.trim().split(/\s+/)[0];
 
 		return {
 			...publicData,
+			firstName: firstName === "" ? null : (firstName ?? null),
 			claimed: ownerId !== null || owner !== null,
 			owned: Boolean(collectorId) && owner === collectorId,
 		};
@@ -208,7 +227,7 @@ export class RelicsDatabase {
 			sets,
 		};
 	}
-	claim(input: { relicId: string; name: string }, token?: string) {
+	claim(input: typeof Claim.Type, token?: string) {
 		return this.transaction(() => {
 			const card = this.card(input.relicId, token);
 
@@ -241,20 +260,45 @@ export class RelicsDatabase {
 				throw new Conflict({ message: "Already claimed." });
 			}
 
+			this.sql
+				.prepare(
+					`INSERT INTO RelicStory SELECT r.id,?,?,?,${storyOwnerKey} FROM Relic r WHERE r.id=? ON CONFLICT(relicId) DO UPDATE SET name=excluded.name,firstName=excluded.firstName,birthday=excluded.birthday,ownerKey=excluded.ownerKey`,
+				)
+				.run(input.relicName, input.name, Date.now(), input.relicId);
+
 			return { deviceToken };
 		});
 	}
-	release(id: string, token?: string) {
-		const owner = this.requireCollector(token);
-		const result = this.sql
-			.prepare(
-				"UPDATE Relic SET collectorId=NULL,ownerId=NULL,ownerEmail=NULL,ownerDeviceId=NULL,acquisitionDate=NULL WHERE id=? AND collectorId=?",
-			)
-			.run(id, owner.id);
+	nameRelic(input: typeof Claim.Type, token?: string) {
+		this.transaction(() => {
+			if (!this.card(input.relicId, token).owned) {
+				throw new Unauthorized({
+					message: "Open this page on the phone that named it to rename it.",
+				});
+			}
 
-		if (result.changes !== 1) {
-			throw new Unauthorized({ message: "This relic is not in your collection." });
-		}
+			this.sql
+				.prepare(
+					`INSERT INTO RelicStory SELECT r.id,?,?,?,${storyOwnerKey} FROM Relic r WHERE r.id=? ON CONFLICT(relicId) DO UPDATE SET name=excluded.name,firstName=excluded.firstName,birthday=CASE WHEN RelicStory.ownerKey=excluded.ownerKey THEN RelicStory.birthday ELSE excluded.birthday END,ownerKey=excluded.ownerKey`,
+				)
+				.run(input.relicName, input.name, Date.now(), input.relicId);
+		});
+	}
+	release(id: string, token?: string) {
+		this.transaction(() => {
+			const owner = this.requireCollector(token);
+			const result = this.sql
+				.prepare(
+					"UPDATE Relic SET collectorId=NULL,ownerId=NULL,ownerEmail=NULL,ownerDeviceId=NULL,acquisitionDate=NULL WHERE id=? AND collectorId=?",
+				)
+				.run(id, owner.id);
+
+			if (result.changes !== 1) {
+				throw new Unauthorized({ message: "This relic is not in your collection." });
+			}
+
+			this.sql.prepare("DELETE FROM RelicStory WHERE relicId=?").run(id);
+		});
 	}
 	async migrate(input: { name: string; pin: string }, token?: string) {
 		const users = this.many(
@@ -417,7 +461,7 @@ export class RelicsDatabase {
 					lore: nullableText,
 					imageUrl: nullableText,
 				}),
-				"SELECT id,name,typeId,varietyId,indexNumber,ownerId,collectorId,description,lore,imageUrl FROM Relic ORDER BY typeId,varietyId,indexNumber",
+				"SELECT id,name,typeId,varietyId,indexNumber,ownerId,collectorId,description,lore,COALESCE(customImageUrl,imageUrl) imageUrl FROM Relic ORDER BY typeId,varietyId,indexNumber",
 			),
 			collectors: this.many(ownerSchema, "SELECT * FROM Collector ORDER BY name"),
 			legacyOwners: this.many(
@@ -616,11 +660,21 @@ export class RelicsDatabase {
 							throw new Missing({ message: "Relic not found." });
 						}
 
+						if (command.target === "") {
+							this.sql.prepare("DELETE FROM RelicStory WHERE relicId=?").run(command.relicId);
+						} else {
+							this.sql
+								.prepare(
+									`UPDATE RelicStory SET ownerKey=(SELECT ${storyOwnerKey} FROM Relic r WHERE r.id=RelicStory.relicId),firstName=COALESCE((SELECT name FROM Collector WHERE id=?),(SELECT displayName FROM User WHERE id=?),'') WHERE relicId=?`,
+								)
+								.run(collectorId, ownerId, command.relicId);
+						}
+
 						break;
 					}
 					case "relic":
 						this.update(
-							"UPDATE Relic SET name=?,description=?,lore=?,imageUrl=? WHERE id=?",
+							"UPDATE Relic SET name=?,description=?,lore=?,imageUrl=?,customImageUrl=NULL WHERE id=?",
 							command.name,
 							command.description || null,
 							command.lore || null,

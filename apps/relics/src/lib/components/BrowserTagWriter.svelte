@@ -230,17 +230,37 @@
 </script>
 
 {#if supported}
-	<div class="browser-writer">
-		<button class="btn btn-primary write-button" disabled={disabled || active} onclick={start}
-			>Write tag #{number}</button
-		>
+	<div class="browser-writer" class:active>
+		{#if active}
+			<img
+				class="holding-art"
+				src="/storybook/hold-tag.svg"
+				alt="Hold the NFC tag against the upper back of your phone"
+			/>
+			<div class="hold-copy">
+				{#if phase.kind === "verifying" || phase.kind === "confirming"}
+					<h2>Lift, then tap again.</h2>
+					<p>Move the tag away, then bring it<br />back to the same spot.</p>
+				{:else}
+					<h2>Hold the tag here.</h2>
+					<p>Hold the tag to the<br />back of your phone.</p>
+					{#if phase.kind === "waiting" || phase.kind === "writing"}<p class="keep-still">
+							Keep it still while we write.
+						</p>{/if}
+				{/if}
+			</div>
+		{:else}
+			<button class="btn btn-primary write-button" {disabled} onclick={start}
+				>Write tag #{number}</button
+			>
+		{/if}
 		<div aria-live="polite" aria-atomic="true">
 			{#if phase.kind === "idle"}<p>
 					Write here, then read back the exact URL. Your checklist saves automatically.
 				</p>
 			{:else if phase.kind === "read"}<p class="existing">{phase.message}</p>
 			{:else if phase.kind === "permission"}<p>Allow NFC when Chrome asks. Keep this page open.</p>
-			{:else if phase.kind === "waiting"}<p>Hold a blank tag to the back of your phone.</p>
+			{:else if phase.kind === "waiting"}<p class="waiting">Ready to write #{number}</p>
 			{:else if phase.kind === "overwrite"}
 				<p>
 					<strong
@@ -262,11 +282,27 @@
 					Checking the URL. Lift the tag away, then tap the same tag again to verify.
 				</p>
 			{:else if phase.kind === "saving"}<p>URL verified. Saving your checklist…</p>
-			{:else if phase.kind === "done"}<p>
-					Tag #{phase.number} verified and saved. Set it aside for labeling. Tap Write for the next tag.
+			{:else if phase.kind === "done"}<p class="success">
+					Tag written! #{phase.number} is checked and saved. Set it aside, then tap Write for the next
+					tag.
 				</p>
 			{:else if phase.kind === "error"}<p role="alert">{phase.message}</p>{/if}
 		</div>
+		{#if active}<button class="btn waiting-control" disabled
+				>{phase.kind === "permission"
+					? "Waiting for permission…"
+					: phase.kind === "waiting"
+						? "Waiting for tag…"
+						: phase.kind === "overwrite"
+							? "Waiting for your choice…"
+							: phase.kind === "confirming"
+								? "Waiting for the same tag…"
+								: phase.kind === "writing"
+									? "Writing tag…"
+									: phase.kind === "verifying"
+										? "Checking tag…"
+										: "Saving checklist…"}</button
+			>{/if}
 		{#if active && phase.kind !== "saving"}<div class="actions">
 				{#if phase.kind === "overwrite"}<button
 						class="btn btn-neutral"
@@ -291,13 +327,76 @@
 
 <style>
 	.browser-writer {
-		margin-block: 24px;
+		margin-block: 24px 16px;
+		text-align: center;
 	}
 	.write-button {
 		width: 100%;
 		min-height: 56px;
 		height: auto;
 		white-space: normal;
+		border-radius: 8px;
+		font-weight: 700;
+		font-size: 1.125rem;
+	}
+	.holding-art {
+		display: block;
+		width: 260px;
+		max-width: 100%;
+		height: 210px;
+		object-fit: contain;
+		margin: 22px auto 8px;
+		transform: rotate(-4deg);
+	}
+	.hold-copy h2 {
+		font: 500 1.5625rem/1.2 var(--font-display, Lora, serif);
+	}
+	.hold-copy p {
+		color: var(--muted);
+		margin: 12px auto 0;
+		font-size: 1.0625rem;
+	}
+	.hold-copy .keep-still {
+		font-size: 0.9375rem;
+		max-width: 290px;
+	}
+	.waiting {
+		font-size: 0.875rem;
+		font-weight: 700;
+	}
+	.waiting::before {
+		content: "";
+		display: inline-block;
+		width: 8px;
+		height: 8px;
+		background: currentColor;
+		border-radius: 50%;
+		margin-inline-end: 8px;
+	}
+	.waiting-control {
+		width: 100%;
+		min-height: 58px;
+		border: 1px dashed var(--muted);
+		border-radius: 8px;
+		background: transparent;
+		color: var(--muted);
+		opacity: 1;
+		cursor: default;
+		white-space: normal;
+	}
+	.active :global(.actions) {
+		justify-content: center;
+		flex-direction: column;
+		gap: 0;
+	}
+	.active :global(.btn-ghost) {
+		min-height: 48px;
+		text-decoration: underline;
+		text-underline-offset: 4px;
+	}
+	.success {
+		color: var(--color-primary);
+		font-weight: 700;
 	}
 	.existing {
 		overflow-wrap: anywhere;
