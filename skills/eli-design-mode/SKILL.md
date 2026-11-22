@@ -40,7 +40,7 @@ reviews terse and itemized — he zooms in and diffs padding/radius, so nothing 
 ## Type
 
 - Lighter weight, **default tracking — no custom kerning** (kerning is a human's call).
-- **Self-host fonts via `fontless`** (Geist typeface). Setup detail in [REFERENCE.md](REFERENCE.md).
+- **Self-host fonts via `fontless`** (Schibsted Grotesk for text, IBM Plex Mono for code and figures). Setup detail in [REFERENCE.md](REFERENCE.md).
 
 ## Icons & copy
 
