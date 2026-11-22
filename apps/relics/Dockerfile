@@ -13,11 +13,13 @@ FROM node:26.13.1-bookworm-slim@sha256:5df79989ed685e09f0a98019db4cebfb22fb9df1a
 ARG MONOREPO_SHA
 LABEL org.opencontainers.image.source=https://github.com/PetalNet/monorepo
 LABEL org.opencontainers.image.revision=$MONOREPO_SHA
+LABEL org.opencontainers.image.licenses=AGPL-3.0-only
 ENV NODE_ENV=production PORT=4173 HOST=0.0.0.0 RELICS_DB=/app/data/dev.db RELICS_UPLOADS=/app/data/uploads BODY_SIZE_LIMIT=16M
 WORKDIR /app
 COPY --from=build /workspace/apps/relics/build ./build
 COPY --from=build /prod/node_modules ./node_modules
 COPY --from=build /workspace/apps/relics/package.json ./package.json
+COPY --from=build /workspace/apps/relics/LICENSE ./LICENSE
 RUN mkdir -p /app/data && chown node:node /app/data
 USER node
 EXPOSE 4173

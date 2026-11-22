@@ -43,8 +43,14 @@
 </header>
 <main id="content">{@render children()}</main>
 <footer>
-	<span>Physical relics. Personal collections.</span><a
-		href={data.admin ? "/admin" : "/admin/login"}
+	<span>Physical relics. Personal collections.</span>
+	<a
+		href="https://github.com/PetalNet/monorepo"
+		target="_blank"
+		rel="noreferrer"
+		aria-label="Source code">Source</a
+	>
+	<a href={data.admin ? "/admin" : "/admin/login"}
 		><ShieldCheck size={14} />{data.admin ? "Admin tools" : "Admin"}</a
 	>
 </footer>
