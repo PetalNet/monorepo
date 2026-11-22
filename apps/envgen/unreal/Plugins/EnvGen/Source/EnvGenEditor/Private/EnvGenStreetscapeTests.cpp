@@ -632,7 +632,8 @@ bool FEnvGenStreetscapeAthletic::RunTest(const FString& Parameters)
 				const FStaticMeshLODResources& InfillLOD = InfillMesh->GetRenderData()->LODResources[LOD];
 				const FStaticMeshVertexBuffer& InfillUVs = InfillLOD.VertexBuffers.StaticMeshVertexBuffer;
 				const FPositionVertexBuffer& InfillPositions = InfillLOD.VertexBuffers.PositionVertexBuffer;
-				if (!TestTrue(TEXT("infill retains root and collapse channels"), InfillUVs.GetNumTexCoords() >= 4)) return false;
+				if (!TestEqual(TEXT("infill retains root and local-surface UVs only"), InfillUVs.GetNumTexCoords(), uint32(2))) return false;
+				TestTrue(TEXT("infill root coordinates retain full precision"), InfillUVs.GetUseFullPrecisionUVs());
 				const FColorVertexBuffer& InfillColours = InfillLOD.VertexBuffers.ColorVertexBuffer;
 				if (!TestEqual(TEXT("infill color seeds reach the render buffer"), InfillColours.GetNumVertices(), InfillUVs.GetNumVertices())) return false;
 				TestEqual(TEXT("built infill retains its authored facets"), int32(InfillLOD.IndexBuffer.GetNumIndices() / 3), InfillSource->Triangles().Num());
@@ -644,10 +645,13 @@ bool FEnvGenStreetscapeAthletic::RunTest(const FString& Parameters)
 				{
 					const FVector2f Root = InfillUVs.GetVertexUV(Vertex, 1);
 					const FVector3f P = InfillPositions.VertexPosition(Vertex);
-					const FVector2f Delta = InfillUVs.GetVertexUV(Vertex, 2);
-					const FVector3f Reconstructed(Root.X + Delta.X, Root.Y + Delta.Y, InfillUVs.GetVertexUV(Vertex, 3).X);
-					if (!((Reconstructed - P).SizeSquared() <= 1.e-10f)) ++BadFacets;
+					const FVector2f Delta = InfillUVs.GetVertexUV(Vertex, 0);
+					const FVector2f Reconstructed = Root + Delta;
+					if (!((Reconstructed - FVector2f(P.X, P.Y)).SizeSquared() <= 1.e-10f)) ++BadFacets;
 					if (P.ContainsNaN() || P.Z < -.041f || P.Z > .74f || FVector2f(P.X - Root.X, P.Y - Root.Y).Size() > .51f) ++BadFacets;
+					const FVector3f N(InfillUVs.VertexTangentZ(Vertex)), T(InfillUVs.VertexTangentX(Vertex));
+					if (N.ContainsNaN() || T.ContainsNaN() || FMath::Abs(N.SizeSquared() - 1) > .03f
+						|| FMath::Abs(T.SizeSquared() - 1) > .03f || FMath::Abs(FVector3f::DotProduct(N, T)) > .03f) ++BadFacets;
 				}
 				for (int32 Triangle = 0; Triangle < InfillLOD.IndexBuffer.GetNumIndices(); Triangle += 3)
 				{
@@ -676,16 +680,18 @@ bool FEnvGenStreetscapeAthletic::RunTest(const FString& Parameters)
 						++TopFacets;
 					}
 					else if (FVector3f::DotProduct(Front, FVector3f(Centre.X - Root.X, Centre.Y - Root.Y, 0)) <= 0) ++BadFacets;
-					if (Front.IsNearlyZero() || FVector3f::DotProduct(Front, FVector3f(InfillUVs.VertexTangentZ(A))) < .99f
-						|| FVector3f::DotProduct(Front, FVector3f(InfillUVs.VertexTangentZ(B))) < .99f
-						|| FVector3f::DotProduct(Front, FVector3f(InfillUVs.VertexTangentZ(C))) < .99f) ++BadFacets;
+					// Allow packed-normal rounding around the authored 0.2 facing margin.
+					if (Front.IsNearlyZero() || FVector3f::DotProduct(Front, FVector3f(InfillUVs.VertexTangentZ(A))) < .18f
+						|| FVector3f::DotProduct(Front, FVector3f(InfillUVs.VertexTangentZ(B))) < .18f
+						|| FVector3f::DotProduct(Front, FVector3f(InfillUVs.VertexTangentZ(C))) < .18f) ++BadFacets;
 				}
 				TestEqual(TEXT("all 10000 infill granules reach each render buffer"), Granules.Num(), 10000);
 				TestEqual(TEXT("granule faces retain one root and color seed"), SplitGranules, 0);
-				TestEqual(TEXT("infill dimensions, collapse data and rendered facet normals are valid"), BadFacets, 0);
+				TestEqual(TEXT("infill dimensions, root data and rendered facet normals are valid"), BadFacets, 0);
 				TestEqual(TEXT("every rendered crumb retains an upward-facing top"), TopGranules.Num(), 10000);
 				TestEqual(TEXT("each crumb has one color seed"), GranuleSeeds[LOD].Num(), 10000);
 				TestTrue(TEXT("rendered crumb colors retain variation"), Shades.Num() > 1);
+				TestTrue(TEXT("compact infill UVs preserve vertex sharing"), InfillUVs.GetNumVertices() <= (LOD == 0 ? 225599u : 100735u));
 				AddInfo(FString::Printf(TEXT("infill LOD%d granules=%d renderTriangles=%d renderVertices=%u topFacets=%d badFacets=%d"),
 					LOD, Granules.Num(), InfillLOD.IndexBuffer.GetNumIndices() / 3, InfillUVs.GetNumVertices(), TopFacets, BadFacets));
 			}

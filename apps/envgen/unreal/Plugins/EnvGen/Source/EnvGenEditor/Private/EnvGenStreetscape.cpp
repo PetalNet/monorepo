@@ -31,6 +31,8 @@
 #include "Materials/MaterialExpressionMaterialFunctionCall.h"
 #include "Materials/MaterialExpressionMultiply.h"
 #include "Materials/MaterialExpressionPerInstanceRandom.h"
+#include "Materials/MaterialExpressionPreSkinnedPosition.h"
+#include "Materials/MaterialExpressionSubtract.h"
 #include "Materials/MaterialExpressionWorldPosition.h"
 #include "Materials/MaterialExpressionTextureCoordinate.h"
 #include "Materials/MaterialExpressionTextureSample.h"
@@ -660,7 +662,7 @@ return lerp(canopy,bed,pileNear);
 		UMaterialExpression* Delta;
 	};
 
-	FPatchCoordinates PatchCoordinates(UMaterial* Material)
+	FPatchCoordinates PatchCoordinates(UMaterial* Material, UMaterialExpressionPreSkinnedPosition* LocalPosition)
 	{
 		auto* RootUV = CastChecked<UMaterialExpressionTextureCoordinate>(UMaterialEditingLibrary::CreateMaterialExpression(Material, UMaterialExpressionTextureCoordinate::StaticClass()));
 		RootUV->CoordinateIndex = 1;
@@ -672,14 +674,26 @@ return lerp(canopy,bed,pileNear);
 		Root->Input.Connect(0, LocalRoot);
 		Root->TransformSourceType = TRANSFORMPOSSOURCE_Local;
 		Root->TransformType = TRANSFORMPOSSOURCE_World;
-		auto* DeltaUV = CastChecked<UMaterialExpressionTextureCoordinate>(UMaterialEditingLibrary::CreateMaterialExpression(Material, UMaterialExpressionTextureCoordinate::StaticClass()));
-		DeltaUV->CoordinateIndex = 2;
-		auto* HeightUV = CastChecked<UMaterialExpressionTextureCoordinate>(UMaterialEditingLibrary::CreateMaterialExpression(Material, UMaterialExpressionTextureCoordinate::StaticClass()));
-		HeightUV->CoordinateIndex = 3;
-		auto* Z = CastChecked<UMaterialExpressionComponentMask>(UMaterialEditingLibrary::CreateMaterialExpression(Material, UMaterialExpressionComponentMask::StaticClass()));
-		Z->Input.Connect(0, HeightUV); Z->R = true; Z->G = Z->B = Z->A = false;
-		auto* LocalDelta = CastChecked<UMaterialExpressionAppendVector>(UMaterialEditingLibrary::CreateMaterialExpression(Material, UMaterialExpressionAppendVector::StaticClass()));
-		LocalDelta->A.Connect(0, DeltaUV); LocalDelta->B.Connect(0, Z);
+		UMaterialExpression* LocalDelta;
+		if (LocalPosition)
+		{
+			auto* Difference = CastChecked<UMaterialExpressionSubtract>(UMaterialEditingLibrary::CreateMaterialExpression(Material, UMaterialExpressionSubtract::StaticClass()));
+			Difference->A.Connect(0, LocalPosition); Difference->B.Connect(0, LocalRoot);
+			LocalDelta = Difference;
+		}
+		else
+		{
+			// Preserve the fiber's packed delta while infill uses the original mesh position.
+			auto* DeltaUV = CastChecked<UMaterialExpressionTextureCoordinate>(UMaterialEditingLibrary::CreateMaterialExpression(Material, UMaterialExpressionTextureCoordinate::StaticClass()));
+			DeltaUV->CoordinateIndex = 2;
+			auto* HeightUV = CastChecked<UMaterialExpressionTextureCoordinate>(UMaterialEditingLibrary::CreateMaterialExpression(Material, UMaterialExpressionTextureCoordinate::StaticClass()));
+			HeightUV->CoordinateIndex = 3;
+			auto* Z = CastChecked<UMaterialExpressionComponentMask>(UMaterialEditingLibrary::CreateMaterialExpression(Material, UMaterialExpressionComponentMask::StaticClass()));
+			Z->Input.Connect(0, HeightUV); Z->R = true; Z->G = Z->B = Z->A = false;
+			auto* EncodedDelta = CastChecked<UMaterialExpressionAppendVector>(UMaterialEditingLibrary::CreateMaterialExpression(Material, UMaterialExpressionAppendVector::StaticClass()));
+			EncodedDelta->A.Connect(0, DeltaUV); EncodedDelta->B.Connect(0, Z);
+			LocalDelta = EncodedDelta;
+		}
 		auto* Delta = CastChecked<UMaterialExpressionTransform>(UMaterialEditingLibrary::CreateMaterialExpression(Material, UMaterialExpressionTransform::StaticClass()));
 		Delta->Input.Connect(0, LocalDelta);
 		Delta->TransformSourceType = TRANSFORMSOURCE_Local;
@@ -696,9 +710,11 @@ return lerp(canopy,bed,pileNear);
 			Attributes.Register();
 			auto Positions = Attributes.GetVertexPositions();
 			auto Normals = Attributes.GetVertexInstanceNormals();
+			auto Tangents = Attributes.GetVertexInstanceTangents();
+			auto BinormalSigns = Attributes.GetVertexInstanceBinormalSigns();
 			auto UVs = Attributes.GetVertexInstanceUVs();
 			auto Colours = Attributes.GetVertexInstanceColors();
-			UVs.SetNumChannels(4);
+			UVs.SetNumChannels(2);
 			const FPolygonGroupID Group = Description.CreatePolygonGroup();
 			Attributes.GetPolygonGroupMaterialSlotNames()[Group] = TEXT("Infill");
 			FRandomStream Random(7219);
@@ -735,51 +751,78 @@ return lerp(canopy,bed,pileNear);
 					Belt.Add(FVector3f(Root.X + P.X, Root.Y + P.Y, Base + Height * Random.FRandRange(.35f, .55f)));
 					MeanHeight += Z / Corners;
 				}
-				const auto Triangle = [&](FVector3f A, FVector3f B, FVector3f C)
+				TArray<FVector3f> Points{FVector3f(Root.X, Root.Y, MeanHeight), FVector3f(Root.X, Root.Y, -.04f)};
+				if (Detailed)
 				{
-					const FVector3f Normal = FVector3f::CrossProduct(C - A, B - A).GetSafeNormal(1.e-12f);
-					TArray<FVertexInstanceID> Instances;
-					for (const FVector3f P : {A, B, C})
+					Points.Append(Top);
+					Points.Append(Belt);
+				}
+				else
+				{
+					for (const FVector2f Axis : {Minimum, FVector2f(Maximum.X, Minimum.Y), Maximum, FVector2f(Minimum.X, Maximum.Y)})
 					{
-						const FVertexID V = Description.CreateVertex();
-						Positions[V] = P;
-						const FVertexInstanceID VI = Description.CreateVertexInstance(V);
+						const FVector2f P = Rotate(Axis);
+						Points.Add(FVector3f(Root.X + P.X, Root.Y + P.Y, MeanHeight));
+					}
+				}
+				TArray<FVertexID> Vertices;
+				TArray<FVector3f> NormalSums;
+				for (const FVector3f P : Points)
+				{
+					const FVertexID V = Description.CreateVertex();
+					Positions[V] = P;
+					Vertices.Add(V);
+					NormalSums.Add(FVector3f::ZeroVector);
+				}
+				TArray<TPair<FVertexInstanceID, int32>> InstancePoints;
+				const auto Triangle = [&](int32 A, int32 B, int32 C)
+				{
+					const FVector3f Face = FVector3f::CrossProduct(Points[C] - Points[A], Points[B] - Points[A]);
+					const FVector3f Normal = Face.GetSafeNormal(1.e-12f);
+					TArray<FVertexInstanceID> Instances;
+					for (const int32 Point : {A, B, C})
+					{
+						const FVector3f P = Points[Point];
+						const FVertexInstanceID VI = Description.CreateVertexInstance(Vertices[Point]);
 						Normals[VI] = Normal;
+						NormalSums[Point] += Face;
+						InstancePoints.Emplace(VI, Point);
 						UVs.Set(VI, 0, FVector2f(P.X, P.Y) - Root);
 						UVs.Set(VI, 1, Root);
-						UVs.Set(VI, 2, FVector2f(P.X, P.Y) - Root);
-						UVs.Set(VI, 3, FVector2f(P.Z, 0));
 						Colours[VI] = FVector4f(Seed, 0, 0, 1);
 						Instances.Add(VI);
 					}
 					Description.CreatePolygon(Group, Instances);
 				};
-				const FVector3f Centre(Root.X, Root.Y, MeanHeight), Bottom(Root.X, Root.Y, -.04f);
 				if (Detailed)
 				{
 					for (int32 Corner = 0; Corner < Corners; ++Corner)
 					{
 						const int32 Next = (Corner + 1) % Corners;
-						Triangle(Centre, Top[Next], Top[Corner]);
-						Triangle(Belt[Corner], Top[Next], Belt[Next]);
-						Triangle(Belt[Corner], Top[Corner], Top[Next]);
-						Triangle(Bottom, Belt[Corner], Belt[Next]);
+						Triangle(0, 2 + Next, 2 + Corner);
+						Triangle(2 + Corners + Corner, 2 + Next, 2 + Corners + Next);
+						Triangle(2 + Corners + Corner, 2 + Corner, 2 + Next);
+						Triangle(1, 2 + Corners + Corner, 2 + Corners + Next);
 					}
 				}
 				else
 				{
-					// Retain every crumb and its footprint; simplify only the unresolved edge fractures.
-					TArray<FVector3f> Rim;
-					for (const FVector2f Axis : {Minimum, FVector2f(Maximum.X, Minimum.Y), Maximum, FVector2f(Minimum.X, Maximum.Y)})
-					{
-						const FVector2f P = Rotate(Axis);
-						Rim.Add(FVector3f(Root.X + P.X, Root.Y + P.Y, MeanHeight));
-					}
 					for (int32 Corner = 0; Corner < 4; ++Corner)
 					{
-						Triangle(Centre, Rim[(Corner + 1) % 4], Rim[Corner]);
-						Triangle(Bottom, Rim[Corner], Rim[(Corner + 1) % 4]);
+						Triangle(0, 2 + (Corner + 1) % 4, 2 + Corner);
+						Triangle(1, 2 + Corner, 2 + (Corner + 1) % 4);
 					}
+				}
+				for (const auto& Instance : InstancePoints)
+				{
+					const FVector3f Smooth = NormalSums[Instance.Value].GetSafeNormal(1.e-12f);
+					const FVector3f Face = Normals[Instance.Key];
+					const FVector3f N = FVector3f::DotProduct(Smooth, Face) > .2f ? Smooth : Face;
+					Normals[Instance.Key] = N;
+					// This material has no tangent-space normal map; share a frame across smooth corners.
+					const FVector3f Axis = FMath::Abs(N.Z) > .9f ? FVector3f(0, 1, 0) : FVector3f(0, 0, 1);
+					Tangents[Instance.Key] = FVector3f::CrossProduct(Axis, N).GetSafeNormal(1.e-12f);
+					BinormalSigns[Instance.Key] = 1;
 				}
 			}
 			return Description;
@@ -793,6 +836,7 @@ return lerp(canopy,bed,pileNear);
 		{
 			FStaticMeshSourceModel& Model = Mesh->GetSourceModel(LOD);
 			Model.BuildSettings.bRecomputeNormals = false;
+			Model.BuildSettings.bRecomputeTangents = false;
 			Model.BuildSettings.bGenerateLightmapUVs = false;
 			Model.BuildSettings.bUseFullPrecisionUVs = true;
 			Model.ReductionSettings.PercentTriangles = 1;
@@ -979,7 +1023,7 @@ return lerp(canopy,bed,pileNear);
 		auto* Instance = CastChecked<UMaterialExpressionPerInstanceRandom>(UMaterialEditingLibrary::CreateMaterialExpression(Material, UMaterialExpressionPerInstanceRandom::StaticClass()));
 		auto* BladeUV = CastChecked<UMaterialExpressionTextureCoordinate>(UMaterialEditingLibrary::CreateMaterialExpression(Material, UMaterialExpressionTextureCoordinate::StaticClass()));
 		BladeUV->CoordinateIndex = 0;
-		const FPatchCoordinates Coordinates = PatchCoordinates(Material);
+		const FPatchCoordinates Coordinates = PatchCoordinates(Material, nullptr);
 		UMaterialExpression* Root = Coordinates.Root;
 		// One placement value keeps dye, geometry and normal rotation on the same strand.
 		auto* Placement = CastChecked<UMaterialExpressionCustom>(UMaterialEditingLibrary::CreateMaterialExpression(Material, UMaterialExpressionCustom::StaticClass()));
@@ -1191,13 +1235,15 @@ return float3(shift,2.5-dot(shift,N.xy)/max(N.z,.1))+varied*fade-Delta;
 
 		UMaterial* Infill = Asset<UMaterial>(FString::Printf(TEXT("M_AthleticInfill_%04d"), Index), Packages);
 		Infill->SetShadingModel(MSM_DefaultLit);
+		Infill->bTangentSpaceNormal = false;
 		Infill->BlendMode = BLEND_Masked;
 		Infill->OpacityMaskClipValue = .5f;
 		Infill->bUsedWithInstancedStaticMeshes = true;
 		Infill->MaxWorldPositionOffsetDisplacement = 4;
 		Infill->DitheredLODTransition = false;
 		UMaterialEditingLibrary::ConnectMaterialProperty(CoverageAt(Infill, false), TEXT(""), MP_OpacityMask);
-		const FPatchCoordinates InfillCoordinates = PatchCoordinates(Infill);
+		auto* InfillPosition = CastChecked<UMaterialExpressionPreSkinnedPosition>(UMaterialEditingLibrary::CreateMaterialExpression(Infill, UMaterialExpressionPreSkinnedPosition::StaticClass()));
+		const FPatchCoordinates InfillCoordinates = PatchCoordinates(Infill, InfillPosition);
 		auto* InfillEye = CastChecked<UMaterialExpressionCameraPositionWS>(UMaterialEditingLibrary::CreateMaterialExpression(Infill, UMaterialExpressionCameraPositionWS::StaticClass()));
 		auto* InfillOffset = CastChecked<UMaterialExpressionCustom>(UMaterialEditingLibrary::CreateMaterialExpression(Infill, UMaterialExpressionCustom::StaticClass()));
 		InfillOffset->Inputs.Empty(); InfillOffset->OutputType = CMOT_Float3;
@@ -1212,8 +1258,10 @@ return float3(shift,2.5-dot(shift,N.xy)/max(N.z,.1))+varied*fade-Delta;
 		UMaterialEditingLibrary::ConnectMaterialProperty(InfillOffset, TEXT(""), MP_WorldPositionOffset);
 		auto* InfillSeed = CastChecked<UMaterialExpressionVertexColor>(UMaterialEditingLibrary::CreateMaterialExpression(Infill, UMaterialExpressionVertexColor::StaticClass()));
 		auto* InfillInstance = CastChecked<UMaterialExpressionPerInstanceRandom>(UMaterialEditingLibrary::CreateMaterialExpression(Infill, UMaterialExpressionPerInstanceRandom::StaticClass()));
-		auto* InfillHeight = CastChecked<UMaterialExpressionTextureCoordinate>(UMaterialEditingLibrary::CreateMaterialExpression(Infill, UMaterialExpressionTextureCoordinate::StaticClass()));
-		InfillHeight->CoordinateIndex = 3;
+		auto* InfillLocalZ = CastChecked<UMaterialExpressionComponentMask>(UMaterialEditingLibrary::CreateMaterialExpression(Infill, UMaterialExpressionComponentMask::StaticClass()));
+		InfillLocalZ->Input.Connect(0, InfillPosition); InfillLocalZ->B = true; InfillLocalZ->R = InfillLocalZ->G = InfillLocalZ->A = false;
+		auto* InfillHeight = CastChecked<UMaterialExpressionVertexInterpolator>(UMaterialEditingLibrary::CreateMaterialExpression(Infill, UMaterialExpressionVertexInterpolator::StaticClass()));
+		InfillHeight->Input.Connect(0, InfillLocalZ);
 		auto* InfillShade = CastChecked<UMaterialExpressionCustom>(UMaterialEditingLibrary::CreateMaterialExpression(Infill, UMaterialExpressionCustom::StaticClass()));
 		InfillShade->Inputs.Empty(); InfillShade->OutputType = CMOT_Float3;
 		for (const auto& Pair : {TPair<FName, UMaterialExpression*>(TEXT("Seed"), InfillSeed), TPair<FName, UMaterialExpression*>(TEXT("Instance"), InfillInstance),
@@ -1224,13 +1272,32 @@ return float3(shift,2.5-dot(shift,N.xy)/max(N.z,.1))+varied*fade-Delta;
 		}
 		FCustomOutput& InfillRoughness = InfillShade->AdditionalOutputs.AddDefaulted_GetRef();
 		InfillRoughness.OutputName = TEXT("Roughness"); InfillRoughness.OutputType = CMOT_Float1;
-		InfillShade->Code = TEXT("float v=frac(Seed+Instance*.75487766); float contact=lerp(.1,1.,smoothstep(.02,.03,Height.x)); Roughness=lerp(.45,.78,v); return float3(.008,.012,.018)*lerp(.55,2.2,v)*contact;");
+		InfillShade->Code = TEXT("float v=frac(Seed+Instance*.75487766); float contact=lerp(.1,1.,smoothstep(.02,.03,Height)); Roughness=lerp(.45,.78,v); return float3(.008,.012,.018)*lerp(.55,2.2,v)*contact;");
 		InfillShade->RebuildOutputs();
 		UMaterialEditingLibrary::ConnectMaterialProperty(InfillShade, TEXT(""), MP_BaseColor);
 		UMaterialEditingLibrary::ConnectMaterialProperty(InfillShade, TEXT("Roughness"), MP_Roughness);
 		auto* InfillSpecular = CastChecked<UMaterialExpressionConstant>(UMaterialEditingLibrary::CreateMaterialExpression(Infill, UMaterialExpressionConstant::StaticClass()));
 		InfillSpecular->R = .55f;
 		UMaterialEditingLibrary::ConnectMaterialProperty(InfillSpecular, TEXT(""), MP_Specular);
+		auto* GrainPosition = CastChecked<UMaterialExpressionWorldPosition>(UMaterialEditingLibrary::CreateMaterialExpression(Infill, UMaterialExpressionWorldPosition::StaticClass()));
+		GrainPosition->WorldPositionShaderOffset = WPT_CameraRelative;
+		auto* GrainNormal = CastChecked<UMaterialExpressionVertexNormalWS>(UMaterialEditingLibrary::CreateMaterialExpression(Infill, UMaterialExpressionVertexNormalWS::StaticClass()));
+		auto* GrainFacet = CastChecked<UMaterialExpressionCustom>(UMaterialEditingLibrary::CreateMaterialExpression(Infill, UMaterialExpressionCustom::StaticClass()));
+		GrainFacet->Inputs.Empty(); GrainFacet->OutputType = CMOT_Float3;
+		for (const auto& Pair : {TPair<FName, UMaterialExpression*>(TEXT("P"), GrainPosition), TPair<FName, UMaterialExpression*>(TEXT("N"), GrainNormal)})
+		{
+			FCustomInput& Input = GrainFacet->Inputs.AddDefaulted_GetRef();
+			Input.InputName = Pair.Key; Input.Input.Connect(0, Pair.Value);
+		}
+		GrainFacet->Code = TEXT(R"HLSL(
+float3 n=normalize(N);
+float3 f=cross(ddx_fine(P),ddy_fine(P));
+float d=dot(f,f);
+f=d>1.e-12 ? f*rsqrt(max(d,1.e-12)) : n;
+f*=dot(f,n)<0 ? -1 : 1;
+return normalize(f*.55+n*.45);
+)HLSL");
+		UMaterialEditingLibrary::ConnectMaterialProperty(GrainFacet, TEXT(""), MP_Normal);
 		UMaterialEditingLibrary::RecompileMaterial(Infill);
 
 		ULandscapeGrassType* Grass = Asset<ULandscapeGrassType>(FString::Printf(TEXT("LGT_AthleticPile_%04d"), Index), Packages);
