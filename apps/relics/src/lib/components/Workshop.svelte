@@ -1,8 +1,9 @@
 <script lang="ts">
-	import { goto } from "$app/navigation";
+	import { goto, refreshAll } from "$app/navigation";
 	import { page } from "$app/state";
 
 	import type { PageData } from "../../routes/admin/[...path]/$types";
+	import { nextCatalogNumber } from "../allocation";
 	import type { CreatureModelId } from "../creatures";
 	import type { AdminCommand } from "../schema";
 	import CreatureColorField from "./CreatureColorField.svelte";
@@ -36,11 +37,9 @@
 		lore = $state("");
 	let added = $state("");
 	let varieties = $derived(catalog.varieties.filter((v) => v.typeId === typeId));
+	let allocationFailed = $state(false);
 	let nextNumber = $derived(
-		Math.max(
-			-1,
-			...catalog.relics.filter((r) => r.varietyId === varietyId).map((r) => r.indexNumber ?? -1),
-		) + 1,
+		nextCatalogNumber({ typeId, varietyId, relics: catalog.relics, ranges: catalog.ranges }),
 	);
 	let start = $derived(manual ? customStart : nextNumber);
 	let end = $derived(start + quantity - 1);
@@ -102,8 +101,8 @@
 			image = "";
 		}
 	}
-	async function batch(event: SubmitEvent) {
-		event.preventDefault();
+	async function batch() {
+		allocationFailed = false;
 
 		const batchStart = start,
 			batchEnd = end,
@@ -122,7 +121,14 @@
 			await goto(
 				`/admin/nfc-writer?${new URLSearchParams({ variety: String(batchVariety), start: String(batchStart), end: String(batchEnd) })}`,
 			);
+		} else {
+			allocationFailed = true;
 		}
+	}
+	async function useNextNumbers() {
+		await refreshAll();
+		manual = false;
+		await batch();
 	}
 </script>
 
@@ -281,7 +287,13 @@
 				<p class="inline-help">
 					One link for each physical tag. Next, we’ll write them to your tags.
 				</p>
-				<form inert={busy} onsubmit={batch}>
+				<form
+					inert={busy}
+					onsubmit={(event) => {
+						event.preventDefault();
+						void batch();
+					}}
+				>
 					<label class="field"
 						><span>Relic type</span><select class="select" bind:value={typeId}
 							>{#each catalog.types as type (type.id)}<option value={type.id}>{type.name}</option
@@ -330,6 +342,12 @@
 							{quantity} new tags for {catalog.varieties.find((v) => v.id === varietyId)?.name}.
 							Catalog numbers {start} to {end}. Existing tags stay as they are.
 						</p>
+						{#if allocationFailed}<button
+								type="button"
+								class="btn btn-neutral"
+								disabled={busy}
+								onclick={useNextNumbers}>Use next free numbers</button
+							>{/if}
 						{#if end > 65535}<p class="message error" role="alert">
 								This variety has room for {65536 - start} more tags. Choose a smaller quantity.
 							</p>{/if}

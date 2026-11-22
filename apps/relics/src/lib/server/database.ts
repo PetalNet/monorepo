@@ -47,7 +47,7 @@ const rawCard = Schema.Struct({
 });
 const storyOwnerKey =
 	"COALESCE('legacy:'||r.ownerId,'collector:'||r.collectorId)||':'||COALESCE(r.acquisitionDate,'')";
-const cardSql = `SELECT r.id,r.name,r.typeId,r.varietyId,r.indexNumber,COALESCE(t.name,'Relic') typeName,COALESCE(v.name,'Original') varietyName,r.description,COALESCE(r.lore,(SELECT a.lore FROM AllocationRange a WHERE a.typeId=r.typeId AND a.varietyId=r.varietyId AND (a.startIndex IS NULL OR a.startIndex<=r.indexNumber) AND (a.endIndex IS NULL OR a.endIndex>=r.indexNumber) LIMIT 1)) lore,COALESCE(r.customImageUrl,r.imageUrl,v.imageUrl,t.imageUrl) imageUrl,t.modelId,v.color,s.name friendName,COALESCE(s.firstName,c.name,u.displayName) firstName,s.birthday,r.ownerId,r.collectorId FROM Relic r LEFT JOIN RelicType t ON t.id=r.typeId LEFT JOIN RelicVariety v ON v.id=r.varietyId LEFT JOIN RelicStory s ON s.relicId=r.id AND s.ownerKey=${storyOwnerKey} LEFT JOIN Collector c ON c.id=r.collectorId LEFT JOIN User u ON u.id=r.ownerId`;
+const cardSql = `SELECT r.id,r.name,r.typeId,r.varietyId,r.indexNumber,COALESCE(t.name,'Relic') typeName,COALESCE(v.name,'Original') varietyName,r.description,COALESCE(r.lore,(SELECT a.lore FROM AllocationRange a WHERE a.typeId=r.typeId AND a.varietyId=r.varietyId AND (a.startIndex IS NULL OR a.startIndex<=r.indexNumber) AND (a.endIndex IS NULL OR a.endIndex>=r.indexNumber) AND a.lore IS NOT NULL ORDER BY (a.startIndex IS NOT NULL AND a.endIndex IS NOT NULL) DESC,a.id DESC LIMIT 1)) lore,COALESCE(r.customImageUrl,r.imageUrl,v.imageUrl,t.imageUrl) imageUrl,t.modelId,v.color,s.name friendName,COALESCE(s.firstName,c.name,u.displayName) firstName,s.birthday,r.ownerId,r.collectorId FROM Relic r LEFT JOIN RelicType t ON t.id=r.typeId LEFT JOIN RelicVariety v ON v.id=r.varietyId LEFT JOIN RelicStory s ON s.relicId=r.id AND s.ownerKey=${storyOwnerKey} LEFT JOIN Collector c ON c.id=r.collectorId LEFT JOIN User u ON u.id=r.ownerId`;
 
 export class RelicsDatabase {
 	readonly sql: DatabaseSync;
@@ -568,16 +568,30 @@ export class RelicsDatabase {
 							throw new Rejected({ message: "Choose a variety belonging to this type." });
 						}
 
-						const overlap = this.sql
-							.prepare(
-								"SELECT 1 FROM AllocationRange WHERE typeId=? AND varietyId=? AND (startIndex IS NULL OR startIndex<=?) AND (endIndex IS NULL OR endIndex>=?)",
-							)
-							.get(command.typeId, command.varietyId, command.end, command.start);
+						const occupied = this.sql.prepare(
+							"SELECT 1 FROM Relic WHERE typeId=? AND varietyId=? AND indexNumber=? UNION ALL SELECT 1 FROM AllocationRange WHERE typeId=? AND varietyId=? AND startIndex IS NOT NULL AND endIndex IS NOT NULL AND startIndex<=? AND endIndex>=? LIMIT 1",
+						);
+						const collisions: number[] = [];
 
-						if (overlap) {
+						for (let index = command.start; index <= command.end; index++) {
+							if (
+								occupied.get(
+									command.typeId,
+									command.varietyId,
+									index,
+									command.typeId,
+									command.varietyId,
+									index,
+									index,
+								)
+							) {
+								collisions.push(index);
+							}
+						}
+
+						if (collisions.length > 0) {
 							throw new Conflict({
-								message:
-									"These catalog numbers already have tags. Use the suggested next numbers, or choose different custom numbers.",
+								message: `Catalog numbers ${collisions.join(", ")} are already in use for ${variety.typeName} / ${variety.name}. Use next free numbers to try again.`,
 							});
 						}
 
