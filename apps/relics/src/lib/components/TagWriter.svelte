@@ -14,6 +14,7 @@
 	import { readWriterLocation, rememberWriterLocation } from "../writer-location";
 	let nfcActive = $state(false);
 	let heading = $state<HTMLDivElement>();
+	let filtersOpen = $state(false);
 	let ready = $state(false);
 	let {
 		catalog,
@@ -31,17 +32,17 @@
 			() => Number(page.url.searchParams.get("variety")) || (catalog.varieties.at(0)?.id ?? 0),
 		),
 	);
-	let batchId = $state(
-			untrack(
-				() =>
-					catalog.ranges.find(
-						(r) =>
-							r.varietyId === varietyId &&
-							String(r.startIndex) === page.url.searchParams.get("start") &&
-							String(r.endIndex) === page.url.searchParams.get("end"),
-					)?.id ?? 0,
-			),
-		),
+	function batchFor(variety: number, params: Pick<URLSearchParams, "get">) {
+		return (
+			catalog.ranges.find(
+				(batch) =>
+					batch.varietyId === variety &&
+					String(batch.startIndex) === params.get("start") &&
+					String(batch.endIndex) === params.get("end"),
+			)?.id ?? 0
+		);
+	}
+	let batchId = $state(untrack(() => batchFor(varietyId, page.url.searchParams))),
 		selected = $state(""),
 		copyMessage = $state("");
 	let qr = $state(""),
@@ -77,19 +78,12 @@
 
 			if (catalog.varieties.some((variety) => variety.id === previousVariety)) {
 				varietyId = previousVariety;
-
-				batchId =
-					catalog.ranges.find(
-						(batch) =>
-							batch.varietyId === previousVariety &&
-							String(batch.startIndex) === previous.searchParams.get("start") &&
-							String(batch.endIndex) === previous.searchParams.get("end"),
-					)?.id ?? 0;
-
+				batchId = batchFor(previousVariety, previous.searchParams);
 				selected = "";
 			}
 		}
 
+		filtersOpen = relics.length === 0;
 		ready = true;
 	});
 	$effect(() => {
@@ -97,14 +91,16 @@
 			return;
 		}
 
-		const location = new SvelteURL(page.url.href);
+		// Shallow navigation changes page.shallow.url; page.url remains the loaded route.
+		const current = page.shallow?.url ?? page.url;
+		const location = new SvelteURL(current.href);
 
 		location.search = new URLSearchParams({
 			variety: String(varietyId),
 			...(range ? { start: String(range.startIndex), end: String(range.endIndex) } : {}),
 		}).toString();
 
-		if (location.href !== page.url.href) {
+		if (location.href !== current.href) {
 			void goto(location, { state: page.state, shallow: true, replace: true });
 		}
 
@@ -236,7 +232,7 @@
 		href={`/admin/allocate?type=${String(writer.typeId)}&variety=${String(varietyId)}`}
 		>Make more tags</a
 	>{/if}
-<details class="filter-options" hidden={nfcActive} open={!writer}>
+<details class="filter-options" hidden={nfcActive} bind:open={filtersOpen}>
 	<summary>Change color or tag batch</summary>
 	<div class="filters">
 		<label class="field"

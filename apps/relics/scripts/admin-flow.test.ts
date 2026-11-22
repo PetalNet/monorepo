@@ -158,6 +158,37 @@ async function readback(page: Page) {
 	});
 }
 
+async function followWriterLink(page: Page, destination: string) {
+	await page.evaluate((href) => {
+		const link = document.createElement("a");
+
+		link.href = href;
+		link.textContent = "Open test batch";
+		link.dataset.writerTest = "";
+		document.body.append(link);
+	}, destination);
+
+	await page.getByRole("link", { name: "Open test batch", exact: true }).tap();
+	await page.waitForURL(destination);
+
+	await page.evaluate(
+		() =>
+			new Promise<void>((resolve) => {
+				requestAnimationFrame(() => {
+					requestAnimationFrame(() => {
+						resolve();
+					});
+				});
+			}),
+	);
+
+	assert.ok(page.url() === destination);
+
+	await page.locator("[data-writer-test]").evaluate((element) => {
+		element.remove();
+	});
+}
+
 async function startWrite(page: Page, number: number) {
 	await page.getByRole("button", { name: `Write tag #${String(number)}`, exact: true }).tap();
 
@@ -236,6 +267,7 @@ function inOrder<T>(items: readonly T[], visit: (item: T) => Promise<void>) {
 			const page = await context.newPage();
 
 			page.setDefaultTimeout(10000);
+			page.setDefaultNavigationTimeout(10000);
 			const errors: string[] = [];
 
 			page.on("pageerror", (error) => errors.push(error.message));
@@ -358,6 +390,17 @@ function inOrder<T>(items: readonly T[], visit: (item: T) => Promise<void>) {
 						await page.getByRole("button", { name: "Write tag #2", exact: true }).waitFor();
 						await filters(page);
 						assert.ok((await combo(page, "Color or design").inputValue()) === variety);
+						const batch = combo(page, "Tag batch");
+						const originalBatch = await batch.inputValue();
+
+						await batch.focus();
+						await batch.selectOption("0");
+						await page.waitForURL((location) => !location.searchParams.has("start"));
+						assert.ok(await batch.isVisible());
+						assert.ok(await batch.evaluate((element) => document.activeElement === element));
+						await batch.selectOption(originalBatch);
+						await page.waitForURL((location) => location.searchParams.has("start"));
+						assert.ok(await batch.isVisible());
 						await page.reload();
 						await page.getByRole("button", { name: "Write tag #2", exact: true }).waitFor();
 					}
@@ -377,6 +420,31 @@ function inOrder<T>(items: readonly T[], visit: (item: T) => Promise<void>) {
 			await page.getByLabel("How many tags?", { exact: true }).fill("3");
 			await page.getByRole("button", { name: "Make tags and start writing", exact: true }).tap();
 			await page.waitForURL(/nfc-writer/);
+			const firstVariety = varieties.at(0);
+
+			assert.ok(firstVariety);
+
+			await followWriterLink(
+				page,
+				`${preview.origin}/admin/nfc-writer?variety=${lastVariety}&start=0&end=4`,
+			);
+
+			await page.getByRole("heading", { name: "All 5 tags are written", exact: true }).waitFor();
+
+			await followWriterLink(
+				page,
+				`${preview.origin}/admin/nfc-writer?variety=${firstVariety}&start=0&end=4`,
+			);
+
+			await filters(page);
+			assert.ok((await combo(page, "Color or design").inputValue()) === firstVariety);
+
+			await followWriterLink(
+				page,
+				`${preview.origin}/admin/nfc-writer?variety=${lastVariety}&start=5&end=7`,
+			);
+
+			await page.getByRole("button", { name: "Write tag #5", exact: true }).waitFor();
 			await startWrite(page, 5);
 			await present(page, "https://relics.petalcat.dev/relics/other", "foreign");
 			await page.getByText("This tag belongs to a different relic.", { exact: true }).waitFor();
