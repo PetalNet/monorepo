@@ -1,0 +1,25 @@
+{
+	"name": "@petalnet/router",
+	"version": "0.0.0",
+	"private": true,
+	"bin": {
+		"route": "./src/route.ts"
+	},
+	"type": "module",
+	"scripts": {
+		"typecheck": "effect-tsgo tsrs -b",
+		"test": "vitest run && python3 -W error -m unittest discover -s src -p 'test_*.py'"
+	},
+	"dependencies": {
+		"@petalnet/harness-hooks": "workspace:*"
+	},
+	"devDependencies": {
+		"@petalnet/tsconfig": "workspace:*",
+		"@types/node": "catalog:types",
+		"typescript": "catalog:dev",
+		"vitest": "catalog:dev"
+	},
+	"engines": {
+		"node": ">=22.18"
+	}
+}

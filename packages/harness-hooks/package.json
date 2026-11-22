@@ -3,6 +3,9 @@
 	"version": "0.0.0",
 	"private": true,
 	"type": "module",
+	"exports": {
+		"./quota-sources": "./src/quota-sources.ts"
+	},
 	"scripts": {
 		"typecheck": "effect-tsgo tsrs -b",
 		"test": "vitest run --testTimeout=30000"

@@ -1337,6 +1337,25 @@ importers:
         specifier: 5.1.1
         version: 5.1.1(@opentelemetry/api@1.9.1)(@types/node@26.6.6)(@vitest/coverage-v8@5.1.1)(happy-dom@21.0.4)(vite@8.3.3(@types/node@26.6.6)(esbuild@0.28.1)(jiti@2.7.0)(tsx@4.22.4)(yaml@2.9.0))
 
+  packages/router:
+    dependencies:
+      '@petalnet/harness-hooks':
+        specifier: workspace:*
+        version: link:../harness-hooks
+    devDependencies:
+      '@petalnet/tsconfig':
+        specifier: workspace:*
+        version: link:../tsconfig
+      '@types/node':
+        specifier: catalog:types
+        version: 26.6.6
+      typescript:
+        specifier: catalog:dev
+        version: '@typescript/typescript6@6.0.2'
+      vitest:
+        specifier: 5.1.1
+        version: 5.1.1(@opentelemetry/api@1.9.1)(@types/node@26.6.6)(@vitest/coverage-v8@5.1.1)(happy-dom@21.0.4)(vite@8.3.3(@types/node@26.6.6)(esbuild@0.28.1)(jiti@2.7.0)(tsx@4.22.4)(yaml@2.9.0))
+
   packages/tsconfig: {}
 
   packages/types:
