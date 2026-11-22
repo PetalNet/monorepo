@@ -775,11 +775,9 @@ return lerp(canopy,bed,pileNear);
 					NormalSums.Add(FVector3f::ZeroVector);
 				}
 				TArray<TPair<FVertexInstanceID, int32>> InstancePoints;
-				const auto Triangle = [&](int32 A, int32 B, int32 C, bool bEmit = true)
+				const auto EmitTriangle = [&](int32 A, int32 B, int32 C)
 				{
 					const FVector3f Face = FVector3f::CrossProduct(Points[C] - Points[A], Points[B] - Points[A]);
-					for (const int32 Point : {A, B, C}) NormalSums[Point] += Face;
-					if (!bEmit) return;
 					const FVector3f Normal = Face.GetSafeNormal(1.e-12f);
 					TArray<FVertexInstanceID> Instances;
 					for (const int32 Point : {A, B, C})
@@ -794,6 +792,12 @@ return lerp(canopy,bed,pileNear);
 						Instances.Add(VI);
 					}
 					Description.CreatePolygon(Group, Instances);
+				};
+				const auto Triangle = [&](int32 A, int32 B, int32 C, bool bEmit = true)
+				{
+					const FVector3f Face = FVector3f::CrossProduct(Points[C] - Points[A], Points[B] - Points[A]);
+					for (const int32 Point : {A, B, C}) NormalSums[Point] += Face;
+					if (bEmit) EmitTriangle(A, B, C);
 				};
 				if (Detailed)
 				{
@@ -810,10 +814,12 @@ return lerp(canopy,bed,pileNear);
 				{
 					for (int32 Corner = 0; Corner < 4; ++Corner)
 					{
-						Triangle(0, 2 + (Corner + 1) % 4, 2 + Corner);
-						// Keep the same rim normals without rendering the distant underside.
+						// Preserve the old fan and underside normal weights without emitting either.
+						Triangle(0, 2 + (Corner + 1) % 4, 2 + Corner, false);
 						Triangle(1, 2 + Corner, 2 + (Corner + 1) % 4, false);
 					}
+					EmitTriangle(2, 4, 3);
+					EmitTriangle(2, 5, 4);
 				}
 				for (const auto& Instance : InstancePoints)
 				{

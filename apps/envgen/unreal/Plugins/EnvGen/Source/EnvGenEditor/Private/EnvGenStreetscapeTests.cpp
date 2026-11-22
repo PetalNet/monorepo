@@ -641,9 +641,13 @@ bool FEnvGenStreetscapeAthletic::RunTest(const FString& Parameters)
 				TSet<FIntPoint>& Granules = GranuleRoots[LOD];
 				TSet<FIntPoint> TopGranules;
 				TMap<FIntPoint, TSet<FIntVector>> TopTriangles;
+				TMap<FIntPoint, TArray<FIntVector>> FarWindingTriangles;
 				TSet<uint8> Shades;
 				struct FTopRecord { uint8 Data[204]; };
 				TArray<FTopRecord> TopRecords, RetainedRecords;
+				struct FCornerRecord { uint8 Data[68]; };
+				TArray<FCornerRecord> FarCornerRecords;
+				TSet<uint32> FarCornerVertices;
 				int32 SplitGranules = 0, BadFacets = 0, TopFacets = 0;
 				for (uint32 Vertex = 0; Vertex < InfillUVs.GetNumVertices(); ++Vertex)
 				{
@@ -676,13 +680,15 @@ bool FEnvGenStreetscapeAthletic::RunTest(const FString& Parameters)
 						const FVector3f P = InfillPositions.VertexPosition(Vertex);
 						return P.Z > 0 && FVector2f(P.X - Root.X, P.Y - Root.Y).Size() < .00001f;
 					};
-					const bool Top = IsTopCentre(A) || IsTopCentre(B) || IsTopCentre(C);
+					// The authored far LOD contains only top faces; near tops still require their centre.
+					const bool Top = LOD == 1 || IsTopCentre(A) || IsTopCentre(B) || IsTopCentre(C);
 					if (Top)
 					{
 						if (Front.Z <= 0) ++BadFacets;
 						else TopGranules.Add(RootKey);
 						++TopFacets;
 						FIntVector Indices{int32(A), int32(B), int32(C)};
+						if (LOD == 1) FarWindingTriangles.FindOrAdd(RootKey).Add(Indices);
 						if (Indices.X > Indices.Y) Swap(Indices.X, Indices.Y);
 						if (Indices.Y > Indices.Z) Swap(Indices.Y, Indices.Z);
 						if (Indices.X > Indices.Y) Swap(Indices.X, Indices.Y);
@@ -707,6 +713,13 @@ bool FEnvGenStreetscapeAthletic::RunTest(const FString& Parameters)
 							FMemory::Memcpy(Record, Values, sizeof(Values));
 							const FColor Color = InfillColours.VertexColor(TopVertex);
 							Record[64] = Color.R; Record[65] = Color.G; Record[66] = Color.B; Record[67] = Color.A;
+							if (LOD == 1 && UV0.SizeSquared() > 1.e-10f && !FarCornerVertices.Contains(TopVertex))
+							{
+								FarCornerVertices.Add(TopVertex);
+								FCornerRecord CornerRecord{};
+								FMemory::Memcpy(CornerRecord.Data, Record, sizeof(CornerRecord.Data));
+								FarCornerRecords.Add(CornerRecord);
+							}
 						}
 						FTopRecord BestTop = RawTop;
 						for (int32 Rotation = 1; Rotation < 3; ++Rotation)
@@ -723,6 +736,19 @@ bool FEnvGenStreetscapeAthletic::RunTest(const FString& Parameters)
 					if (Front.IsNearlyZero() || FVector3f::DotProduct(Front, FVector3f(InfillUVs.VertexTangentZ(A))) < .18f
 						|| FVector3f::DotProduct(Front, FVector3f(InfillUVs.VertexTangentZ(B))) < .18f
 						|| FVector3f::DotProduct(Front, FVector3f(InfillUVs.VertexTangentZ(C))) < .18f) ++BadFacets;
+				}
+				if (LOD == 1)
+				{
+					TestEqual(TEXT("far infill retains 40000 built corner records"), FarCornerRecords.Num(), 40000);
+					FarCornerRecords.Sort([](const FCornerRecord& Left, const FCornerRecord& Right)
+						{ return FMemory::Memcmp(Left.Data, Right.Data, sizeof(Left.Data)) < 0; });
+					FMD5 FarCornerHash;
+					for (const FCornerRecord& CornerRecord : FarCornerRecords)
+						FarCornerHash.Update(CornerRecord.Data, sizeof(CornerRecord.Data));
+					uint8 FarCornerDigest[16];
+					FarCornerHash.Final(FarCornerDigest);
+					AddInfo(FString::Printf(TEXT("infill LOD%d farCornerAttributeMD5=%s cornerCount=%d"),
+						LOD, *BytesToHex(FarCornerDigest, sizeof(FarCornerDigest)), FarCornerRecords.Num()));
 				}
 				TopRecords.Sort([](const FTopRecord& Left, const FTopRecord& Right)
 					{ return FMemory::Memcmp(Left.Data, Right.Data, sizeof(Left.Data)) < 0; });
@@ -760,15 +786,60 @@ bool FEnvGenStreetscapeAthletic::RunTest(const FString& Parameters)
 				}
 				else
 				{
-					int32 IncompleteFans = 0;
-					for (const auto& Fan : TopTriangles) if (Fan.Value.Num() != 4) ++IncompleteFans;
-					TestEqual(TEXT("far infill retains four distinct top triangles per grain"), IncompleteFans, 0);
-					TestEqual(TEXT("far infill retains all 40000 top facets"), TopFacets, 40000);
-					TestEqual(TEXT("far infill emits only the 40000 retained top facets"), int32(InfillLOD.IndexBuffer.GetNumIndices() / 3), 40000);
+					int32 InvalidQuads = 0;
+					for (const auto& Grain : FarWindingTriangles)
+					{
+						if (Grain.Value.Num() != 2 || TopTriangles.FindChecked(Grain.Key).Num() != 2)
+						{
+							++InvalidQuads;
+							continue;
+						}
+						const FIntVector& First = Grain.Value[0];
+						const FIntVector& Second = Grain.Value[1];
+						const int32 FirstVertices[3] = {First.X, First.Y, First.Z};
+						const int32 SecondVertices[3] = {Second.X, Second.Y, Second.Z};
+						TSet<int32> QuadVertices;
+						for (const int32 VertexIndex : FirstVertices) QuadVertices.Add(VertexIndex);
+						for (const int32 VertexIndex : SecondVertices) QuadVertices.Add(VertexIndex);
+						int32 SharedEdges = 0, OppositeEdges = 0;
+						for (int32 FirstEdge = 0; FirstEdge < 3; ++FirstEdge)
+							for (int32 SecondEdge = 0; SecondEdge < 3; ++SecondEdge)
+							{
+								const int32 Start = FirstVertices[FirstEdge], End = FirstVertices[(FirstEdge + 1) % 3];
+								const int32 OtherStart = SecondVertices[SecondEdge], OtherEnd = SecondVertices[(SecondEdge + 1) % 3];
+								if (Start == OtherEnd && End == OtherStart) { ++SharedEdges; ++OppositeEdges; }
+								else if (Start == OtherStart && End == OtherEnd) ++SharedEdges;
+							}
+						const FVector2f GrainRootUV = InfillUVs.GetVertexUV(uint32(FirstVertices[0]), 1);
+						const auto ContainsGrainRoot = [&](const int32* TriangleCorners)
+						{
+							bool bPositive = false, bNegative = false;
+							for (int32 EdgeIndex = 0; EdgeIndex < 3; ++EdgeIndex)
+							{
+								const FVector3f EdgeStart = InfillPositions.VertexPosition(uint32(TriangleCorners[EdgeIndex]));
+								const FVector3f EdgeEnd = InfillPositions.VertexPosition(uint32(TriangleCorners[(EdgeIndex + 1) % 3]));
+								const float Cross = (EdgeEnd.X - EdgeStart.X) * (GrainRootUV.Y - EdgeStart.Y)
+									- (EdgeEnd.Y - EdgeStart.Y) * (GrainRootUV.X - EdgeStart.X);
+								bPositive |= Cross > 1.e-6f;
+								bNegative |= Cross < -1.e-6f;
+							}
+							return !(bPositive && bNegative);
+						};
+						bool bAllCorners = true;
+						for (const int32 VertexIndex : QuadVertices)
+							if (!FarCornerVertices.Contains(uint32(VertexIndex))) bAllCorners = false;
+						if (QuadVertices.Num() != 4 || !bAllCorners || SharedEdges != 1 || OppositeEdges != 1
+							|| (!ContainsGrainRoot(FirstVertices) && !ContainsGrainRoot(SecondVertices))) ++InvalidQuads;
+					}
+					TestEqual(TEXT("far infill retains 10000 two-triangle grains"), FarWindingTriangles.Num(), 10000);
+					TestEqual(TEXT("far grains cover their roots with four corners and one oppositely directed shared edge"), InvalidQuads, 0);
+					TestEqual(TEXT("far infill retains all 20000 top facets"), TopFacets, 20000);
+					TestEqual(TEXT("far infill emits only the 20000 retained top facets"), int32(InfillLOD.IndexBuffer.GetNumIndices() / 3), 20000);
+					TestEqual(TEXT("far infill shares exactly four render corners per grain"), InfillUVs.GetNumVertices(), uint32(40000));
 				}
 				TestEqual(TEXT("each crumb has one color seed"), GranuleSeeds[LOD].Num(), 10000);
 				TestTrue(TEXT("rendered crumb colors retain variation"), Shades.Num() > 1);
-				TestTrue(TEXT("compact infill UVs preserve vertex sharing"), InfillUVs.GetNumVertices() <= (LOD == 0 ? 225599u : 50000u));
+				TestTrue(TEXT("compact infill UVs preserve vertex sharing"), InfillUVs.GetNumVertices() <= (LOD == 0 ? 225599u : 40000u));
 				AddInfo(FString::Printf(TEXT("infill LOD%d granules=%d renderTriangles=%d renderVertices=%u topFacets=%d badFacets=%d"),
 					LOD, Granules.Num(), InfillLOD.IndexBuffer.GetNumIndices() / 3, InfillUVs.GetNumVertices(), TopFacets, BadFacets));
 			}
