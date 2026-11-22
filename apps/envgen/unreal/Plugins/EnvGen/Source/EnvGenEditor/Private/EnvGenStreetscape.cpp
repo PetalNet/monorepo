@@ -404,6 +404,33 @@ return float4(colour,saturate(%.5f+.08*(wear-.5)+.08*crack));
 		Texture->bDoScaleMipsForAlphaCoverage = false;
 		Texture->PostEditChange();
 
+		int32 FarStart = 0, FarEnd = 0;
+		for (TActorIterator<ALandscape> It(World); It; ++It)
+		{
+			if (It->GetActorLabel() != TEXT("EnvGenLandscape") || !It->LandscapeMaterial) continue;
+			for (UMaterialExpression* Expression : It->LandscapeMaterial->GetMaterial()->GetExpressions())
+			{
+				const auto* Output = Cast<UMaterialExpressionLandscapeGrassOutput>(Expression);
+				if (!Output) continue;
+				for (const FGrassInput& Input : Output->GrassTypes)
+				{
+					if (!Input.GrassType || Input.GrassType->GetName().StartsWith(TEXT("LGT_AthleticPile_"))) continue;
+					bool bChanged = false;
+					for (FGrassVariety& Variety : Input.GrassType->GrassVarieties)
+					{
+						if (!Variety.bReceivesDecals) { Variety.bReceivesDecals = true; bChanged = true; }
+						const int32 End = Variety.EndCullDistance.GetValue();
+						if (End > FarEnd)
+						{
+							FarEnd = End;
+							FarStart = FMath::Clamp(Variety.StartCullDistance.GetValue(), 0, End);
+						}
+					}
+					if (bChanged) { Input.GrassType->MarkPackageDirty(); Input.GrassType->PostEditChange(); }
+				}
+			}
+		}
+
 		UMaterial* Material = Asset<UMaterial>(FString::Printf(TEXT("M_ProjectedGrassPaint_%04d"), Index), Packages);
 		Material->MaterialDomain = MD_DeferredDecal;
 		Material->BlendMode = BLEND_Translucent;
@@ -426,6 +453,17 @@ return float4(colour,saturate(%.5f+.08*(wear-.5)+.08*crack));
 		MaskInput.InputName = TEXT("Mask"); MaskInput.Input.Connect(4, Sample);
 		FCustomInput& PlaceInput = Opacity->Inputs.AddDefaulted_GetRef();
 		PlaceInput.InputName = TEXT("P"); PlaceInput.Input.Connect(0, Position);
+		auto* Camera = CastChecked<UMaterialExpressionCameraPositionWS>(UMaterialEditingLibrary::CreateMaterialExpression(Material, UMaterialExpressionCameraPositionWS::StaticClass()));
+		FCustomInput& CameraInput = Opacity->Inputs.AddDefaulted_GetRef();
+		CameraInput.InputName = TEXT("Camera"); CameraInput.Input.Connect(0, Camera);
+		auto* Start = CastChecked<UMaterialExpressionConstant>(UMaterialEditingLibrary::CreateMaterialExpression(Material, UMaterialExpressionConstant::StaticClass()));
+		Start->R = FarStart;
+		FCustomInput& StartInput = Opacity->Inputs.AddDefaulted_GetRef();
+		StartInput.InputName = TEXT("FarStart"); StartInput.Input.Connect(0, Start);
+		auto* End = CastChecked<UMaterialExpressionConstant>(UMaterialEditingLibrary::CreateMaterialExpression(Material, UMaterialExpressionConstant::StaticClass()));
+		End->R = FarEnd;
+		FCustomInput& EndInput = Opacity->Inputs.AddDefaulted_GetRef();
+		EndInput.InputName = TEXT("FarEnd"); EndInput.Input.Connect(0, End);
 		Opacity->Code = TEXT(R"HLSL(
 float2 q=(P.xy+P.z*float2(.37,.61))*.9, i=floor(q), f=frac(q); f=f*f*(3-2*f);
 float a=frac(sin(dot(i,float2(127.1,311.7)))*43758.5453);
@@ -436,7 +474,8 @@ float visible=1-smoothstep(.25,1.,max(fwidth(q.x),fwidth(q.y)));
 float grain=lerp(.5,lerp(lerp(a,b,f.x),lerp(c,d,f.x),f.y),visible);
 float3 geometric=cross(ddx(P),ddy(P));
 float upright=1-smoothstep(.45,.8,abs(geometric.z)/max(length(geometric),.000001));
-return Mask*(.05+.70*grain)*upright;
+float farCoverage=FarEnd>0 ? smoothstep(FarStart,max(FarStart+1,FarEnd),distance(P,Camera)) : 0;
+return Mask*(.05+.70*grain)*max(upright,farCoverage);
 )HLSL");
 		UMaterialEditingLibrary::ConnectMaterialProperty(Opacity, TEXT(""), MP_Opacity);
 		UMaterialEditingLibrary::RecompileMaterial(Material);
@@ -450,23 +489,6 @@ return Mask*(.05+.70*grain)*upright;
 		Decal->SetFadeScreenSize(0);
 		Decal->SetDecalMaterial(Material);
 		Actors.Add(Actor);
-		for (TActorIterator<ALandscape> It(World); It; ++It)
-		{
-			if (It->GetActorLabel() != TEXT("EnvGenLandscape") || !It->LandscapeMaterial) continue;
-			for (UMaterialExpression* Expression : It->LandscapeMaterial->GetMaterial()->GetExpressions())
-			{
-				const auto* Output = Cast<UMaterialExpressionLandscapeGrassOutput>(Expression);
-				if (!Output) continue;
-				for (const FGrassInput& Input : Output->GrassTypes)
-				{
-					if (!Input.GrassType || Input.GrassType->GetName().StartsWith(TEXT("LGT_AthleticPile_"))) continue;
-					bool bChanged = false;
-					for (FGrassVariety& Variety : Input.GrassType->GrassVarieties)
-						if (!Variety.bReceivesDecals) { Variety.bReceivesDecals = true; bChanged = true; }
-					if (bChanged) { Input.GrassType->MarkPackageDirty(); Input.GrassType->PostEditChange(); }
-				}
-			}
-		}
 	}
 
 	UTexture2D* MakeAthleticInfillTexture(TArray<UPackage*>& Packages)

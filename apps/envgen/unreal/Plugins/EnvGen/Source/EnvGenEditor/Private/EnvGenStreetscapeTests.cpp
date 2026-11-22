@@ -18,6 +18,8 @@
 #include "LandscapeGrassType.h"
 #include "MaterialEditingLibrary.h"
 #include "Materials/Material.h"
+#include "Materials/MaterialExpressionCameraPositionWS.h"
+#include "Materials/MaterialExpressionConstant.h"
 #include "Materials/MaterialExpressionTextureObject.h"
 #include "Materials/MaterialExpressionTextureSample.h"
 #include "Materials/MaterialExpressionCustom.h"
@@ -145,8 +147,17 @@ bool FEnvGenStreetscapeDecal::RunTest(const FString& Parameters)
 	if (!TestTrue(TEXT("encode asymmetric synthetic RGBA"), Wrapper.IsValid()
 		&& Wrapper->SetRaw(Pixels, sizeof(Pixels), 2, 2, ERGBFormat::RGBA, 8)
 		&& FFileHelper::SaveArrayToFile(Wrapper->GetCompressed(), *ImagePath))) return false;
-	for (const bool bGrassPaint : {false, true})
+	struct FPaintCase
 	{
+		bool bGrassPaint;
+		int32 Start, End;
+		float ExpectedStart, ExpectedEnd;
+	};
+	for (const FPaintCase& PaintCase : TArray<FPaintCase>{
+		{false, 0, 0, 0, 0}, {true, 2500, 6500, 2500, 6500},
+		{true, -100, 6500, 0, 6500}, {true, 8000, 6500, 6500, 6500}, {true, 100, 0, 0, 0}})
+	{
+		const bool bGrassPaint = PaintCase.bGrassPaint;
 		const FString Row = bGrassPaint
 			? StandardRow.Replace(TEXT("paint_decal"), TEXT("grass_paint_decal")).Replace(TEXT("0.07"), TEXT("0.027"))
 			: StandardRow;
@@ -220,6 +231,7 @@ bool FEnvGenStreetscapeDecal::RunTest(const FString& Parameters)
 		auto* ExternalProp = World->SpawnActor<AStaticMeshActor>();
 		ExternalProp->GetStaticMeshComponent()->SetReceivesDecals(true);
 		ULandscapeGrassType* NaturalReceiver = nullptr;
+		ULandscapeGrassType* AthleticReceiver = nullptr;
 		if (bGrassPaint)
 		{
 			auto* Landscape = World->SpawnActor<ALandscape>();
@@ -229,9 +241,22 @@ bool FEnvGenStreetscapeDecal::RunTest(const FString& Parameters)
 			auto* Output = CastChecked<UMaterialExpressionLandscapeGrassOutput>(UMaterialEditingLibrary::CreateMaterialExpression(Ground, UMaterialExpressionLandscapeGrassOutput::StaticClass()));
 			Output->GrassTypes.Empty();
 			NaturalReceiver = NewObject<ULandscapeGrassType>();
-			NaturalReceiver->GrassVarieties.AddDefaulted_GetRef().bReceivesDecals = false;
+			for (const int32 VarietyIndex : {0, 1, 2})
+			{
+				auto& Variety = NaturalReceiver->GrassVarieties.AddDefaulted_GetRef();
+				Variety.bReceivesDecals = false;
+				Variety.StartCullDistance = FPerPlatformInt(VarietyIndex == 1 ? PaintCase.Start : (VarietyIndex == 0 ? 900 : 4000));
+				Variety.EndCullDistance = FPerPlatformInt(VarietyIndex == 1 ? PaintCase.End : (PaintCase.End == 0 ? -1 : (VarietyIndex == 0 ? 1500 : 5000)));
+			}
 			auto& Input = Output->GrassTypes.AddDefaulted_GetRef();
 			Input.Name = TEXT("NaturalControl"); Input.GrassType = NaturalReceiver;
+			AthleticReceiver = NewObject<ULandscapeGrassType>(GetTransientPackage(), MakeUniqueObjectName(GetTransientPackage(), ULandscapeGrassType::StaticClass(), FName(TEXT("LGT_AthleticPile_Control"))));
+			auto& AthleticVariety = AthleticReceiver->GrassVarieties.AddDefaulted_GetRef();
+			AthleticVariety.bReceivesDecals = false;
+			AthleticVariety.StartCullDistance = FPerPlatformInt(12000);
+			AthleticVariety.EndCullDistance = FPerPlatformInt(15000);
+			auto& AthleticInput = Output->GrassTypes.AddDefaulted_GetRef();
+			AthleticInput.Name = TEXT("AthleticControl"); AthleticInput.GrassType = AthleticReceiver;
 		}
 		TArray<UPackage*> Packages;
 		TArray<AActor*> Actors;
@@ -249,16 +274,39 @@ bool FEnvGenStreetscapeDecal::RunTest(const FString& Parameters)
 			TestTrue(TEXT("decal material is masked"), CastChecked<UMaterial>(Component->GetMaterial(0))->BlendMode == BLEND_Masked);
 			if (bGrassPaint)
 			{
-				TestTrue(TEXT("existing natural blades receive paint"), NaturalReceiver->GrassVarieties[0].bReceivesDecals);
+				for (const FGrassVariety& Variety : NaturalReceiver->GrassVarieties)
+					TestTrue(TEXT("existing natural blades receive paint"), Variety.bReceivesDecals);
+				TestFalse(TEXT("athletic receiver policy remains unchanged"), AthleticReceiver->GrassVarieties[0].bReceivesDecals);
 				TestFalse(TEXT("grass paint has no visible flat overlay"), Component->bRenderInMainPass);
 				TestFalse(TEXT("semantic paint cannot occlude the visible ground"), Component->bRenderInDepthPass);
 				const auto* Projector = Cast<ADecalActor>(Actors[1]);
 				if (TestNotNull(TEXT("grass paint projects onto existing blades"), Projector))
 				{
 					TestTrue(TEXT("paint projection points down after actor construction"), Projector->GetActorForwardVector().Equals(FVector(0, 0, -1), 1.e-4));
-					const auto* Projected = CastChecked<UMaterial>(Projector->GetDecal()->GetDecalMaterial());
+					auto* Projected = CastChecked<UMaterial>(Projector->GetDecal()->GetDecalMaterial());
 					TestTrue(TEXT("paint uses the deferred receiver surface"), Projected->MaterialDomain == MD_DeferredDecal);
 					TestTrue(TEXT("paint fades instead of cutting angular holes"), Projected->BlendMode == BLEND_Translucent);
+					const auto* Opacity = Cast<UMaterialExpressionCustom>(UMaterialEditingLibrary::GetMaterialPropertyInputNode(Projected, MP_Opacity));
+					if (TestNotNull(TEXT("projected opacity is connected"), Opacity))
+					{
+						const auto FindInput = [&](FName Name) {
+							return Opacity->Inputs.FindByPredicate([&](const FCustomInput& Input) { return Input.InputName == Name; });
+						};
+						const FCustomInput* Camera = FindInput(TEXT("Camera"));
+						TestTrue(TEXT("opacity consumes world camera position"), Camera
+							&& Camera->Input.OutputIndex == 0 && Cast<UMaterialExpressionCameraPositionWS>(Camera->Input.Expression));
+						for (const FName Name : {FName(TEXT("FarStart")), FName(TEXT("FarEnd"))})
+						{
+							const FCustomInput* Input = FindInput(Name);
+							const auto* Value = Input ? Cast<UMaterialExpressionConstant>(Input->Input.Expression) : nullptr;
+							if (TestNotNull(TEXT("fade input has a connected scalar constant"), Value))
+							{
+								TestEqual(TEXT("fade uses scalar output"), Input->Input.OutputIndex, 0);
+								TestEqual(TEXT("fade follows the last natural variety and clamps its start"), Value->R,
+									Name == TEXT("FarStart") ? PaintCase.ExpectedStart : PaintCase.ExpectedEnd);
+							}
+						}
+					}
 					for (UMaterialExpression* Expression : Projected->GetExpressions())
 					{
 						const auto* Sample = Cast<UMaterialExpressionTextureSample>(Expression);
