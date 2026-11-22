@@ -243,10 +243,7 @@ async function main(argv: string[]): Promise<number> {
 		);
 		return 0;
 	}
-	if (argv[0] === "run" && routeDepth() >= 4) {
-		process.stderr.write("route: nesting limit reached (maximum 4)\n");
-		return 4;
-	}
+
 	if (argv.length === 1 && argv[0] === "pull-evidence") {
 		await discoverCodex(`${homedir()}/.local/state/router`, true);
 		const pulled = spawnSync(
@@ -283,6 +280,10 @@ async function main(argv: string[]): Promise<number> {
 
 	const { values, positionals } = parsed;
 	const [command, ...rest] = positionals;
+	if (command === "run" && routeDepth() >= 4) {
+		process.stderr.write("route: nesting limit reached (maximum 4)\n");
+		return 4;
+	}
 	const kind = values.for ?? "code";
 	const flagClass = values.class ?? "public";
 	const [target, ...words] = command === "ls" ? [] : rest;

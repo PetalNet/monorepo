@@ -20,7 +20,7 @@ export function redact(text: string): string {
 			"[REDACTED PRIVATE KEY]",
 		)
 		.replace(
-			/\b(?:gh[pousr]_[\w]+|github_pat_[\w]+|sk-[\w-]+|AIza[\w-]+|AKIA[0-9A-Z]{16}|xox[baprs]-[\w-]+|eyJ[\w-]+\.[\w-]+\.[\w-]+)\b/gu,
+			/(?:gh[pousr]_[\w]+|github_pat_[\w]+|sk-[\w-]+|AIza[\w-]+|AKIA[0-9A-Z]{16}|xox[baprs]-[\w-]+|eyJ[\w-]+\.[\w-]+\.[\w-]+)\b/gu,
 			"[REDACTED]",
 		)
 		.replace(
