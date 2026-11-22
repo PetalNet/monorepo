@@ -89,7 +89,10 @@
 		} catch (e) {
 			error = e instanceof Error ? e.message : "Could not save. Please try again.";
 			await tick();
-			errorNotice?.focus();
+
+			if (!writing) {
+				errorNotice?.focus();
+			}
 
 			return false;
 		} finally {
@@ -443,6 +446,11 @@
 			{busy}
 			onactive={(active: boolean) => {
 				writing = active;
+
+				if (active) {
+					message = "";
+					error = "";
+				}
 			}}
 		/>{/key}
 {:else}<p class="message">Choose a tool from the navigation above.</p>{/if}

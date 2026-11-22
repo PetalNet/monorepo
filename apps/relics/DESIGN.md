@@ -91,4 +91,6 @@ A short, single upward settling motion marks successful naming. Reduced-motion p
 
 ## Verification scope
 
+The writing workshop keeps color and batch selectors in a labeled disclosure because the current tag already identifies both. This leaves room for the write action on small phones. Active NFC instructions use a smaller placement diagram and omit it when replacement consent needs attention. Completed batches lead with Make more tags; rewriting a completed tag is labeled explicitly. A failed checklist save keeps the verified tag and a direct retry together. These refinements preserve Storybook B, its type and palette, and ENERGY 2 / RHYTHM 2 / MOTION 1.
+
 Phone captures cover 360, 390 and 412 CSS pixels using Chromium touch emulation at DPR 2. Reduced 500px viewports check form access with keyboard space reserved. These do not establish physical OS keyboard, Safari or Android NFC hardware behavior. Review and deployment evidence is recorded in the external `relics-redo/STORYBOOK.md` handoff.

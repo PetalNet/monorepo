@@ -6,6 +6,8 @@ export async function command(path: string, input: unknown) {
 		method: "POST",
 		headers: { "Content-Type": "application/json" },
 		body: JSON.stringify(input),
+	}).catch(() => {
+		throw new Error("Could not connect. Check your internet connection, then try again.");
 	});
 	const body: unknown = await response.json();
 

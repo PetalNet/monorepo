@@ -1,15 +1,21 @@
 <script lang="ts">
+	import { goto } from "$app/navigation";
 	import { page } from "$app/state";
 	import { Copy, Check } from "@lucide/svelte";
 	import QRCode from "qrcode";
-	import { untrack } from "svelte";
+	import { onMount, tick, untrack } from "svelte";
+	import { SvelteURL } from "svelte/reactivity";
 
 	import BrowserTagWriter from "#lib/components/BrowserTagWriter.svelte";
 	import RelicPhoto from "#lib/components/RelicPhoto.svelte";
 
 	import type { PageData } from "../../routes/admin/[...path]/$types";
 	import type { AdminCommand } from "../schema";
+	import { readWriterLocation, rememberWriterLocation } from "../writer-location";
 	let nfcActive = $state(false);
+	let heading = $state<HTMLDivElement>();
+	let filtersOpen = $state(false);
+	let ready = $state(false);
 	let {
 		catalog,
 		save,
@@ -26,17 +32,17 @@
 			() => Number(page.url.searchParams.get("variety")) || (catalog.varieties.at(0)?.id ?? 0),
 		),
 	);
-	let batchId = $state(
-			untrack(
-				() =>
-					catalog.ranges.find(
-						(r) =>
-							r.varietyId === varietyId &&
-							String(r.startIndex) === page.url.searchParams.get("start") &&
-							String(r.endIndex) === page.url.searchParams.get("end"),
-					)?.id ?? 0,
-			),
-		),
+	function batchFor(variety: number, params: Pick<URLSearchParams, "get">) {
+		return (
+			catalog.ranges.find(
+				(batch) =>
+					batch.varietyId === variety &&
+					String(batch.startIndex) === params.get("start") &&
+					String(batch.endIndex) === params.get("end"),
+			)?.id ?? 0
+		);
+	}
+	let batchId = $state(untrack(() => batchFor(varietyId, page.url.searchParams))),
 		selected = $state(""),
 		copyMessage = $state("");
 	let qr = $state(""),
@@ -60,9 +66,46 @@
 		);
 	}
 	let done = $derived(relics.filter(isWritten).length);
+	let finished = $derived(relics.length > 0 && done === relics.length);
 	let writer = $derived(relics.find((r) => r.id === selected));
 	let url = $derived(writer ? `${page.url.origin}/relics/${writer.id}` : "");
 	let index = $derived(relics.findIndex((r) => r.id === selected));
+	onMount(() => {
+		const previous = !page.url.searchParams.has("variety") && readWriterLocation();
+
+		if (previous) {
+			const previousVariety = Number(previous.searchParams.get("variety"));
+
+			if (catalog.varieties.some((variety) => variety.id === previousVariety)) {
+				varietyId = previousVariety;
+				batchId = batchFor(previousVariety, previous.searchParams);
+				selected = "";
+			}
+		}
+
+		filtersOpen = relics.length === 0;
+		ready = true;
+	});
+	$effect(() => {
+		if (!ready || !varietyId) {
+			return;
+		}
+
+		// Shallow navigation changes page.shallow.url; page.url remains the loaded route.
+		const current = page.shallow?.url ?? page.url;
+		const location = new SvelteURL(current.href);
+
+		location.search = new URLSearchParams({
+			variety: String(varietyId),
+			...(range ? { start: String(range.startIndex), end: String(range.endIndex) } : {}),
+		}).toString();
+
+		if (location.href !== current.href) {
+			void goto(location, { state: page.state, shallow: true, replace: true });
+		}
+
+		rememberWriterLocation(location);
+	});
 	$effect(() => {
 		if (!catalog.varieties.some((v) => v.id === varietyId)) {
 			varietyId = catalog.varieties.at(0)?.id ?? 0;
@@ -164,42 +207,62 @@
 	}
 </script>
 
-<div class="writer-heading">
-	<h1>{writer ? `Write tag #${String(writer.indexNumber ?? 0)}` : "Write your tags"}</h1>
-	<p class="inline-help" hidden={nfcActive}>One tag at a time. We’ll save your place.</p>
+<div class="writer-heading" bind:this={heading}>
+	<h1>
+		{finished && !nfcActive
+			? relics.length === 1
+				? "Your tag is written"
+				: `All ${String(relics.length)} tags are written`
+			: writer
+				? `Write tag #${String(writer.indexNumber ?? 0)}`
+				: "Write your tags"}
+	</h1>
+	<p class="inline-help" hidden={nfcActive}>
+		{finished
+			? "Set this batch aside. You can make more tags or check a tag below."
+			: "One tag at a time. We’ll save your place."}
+	</p>
 </div>
 <p class="writer-progress" role="status" hidden={nfcActive}>
 	{done} of {relics.length} written{#if done === relics.length}
 		· All tags in this list are done.{/if}
 </p>
-<div class="filters" hidden={nfcActive}>
-	<label class="field"
-		><span>Color or design</span><select
-			class="select"
-			disabled={busy || nfcActive}
-			bind:value={varietyId}
-			onchange={() => {
-				batchId = 0;
-				selected = "";
-			}}
-			>{#each catalog.varieties as variety (variety.id)}<option value={variety.id}
-					>{variety.typeName} / {variety.name}</option
-				>{/each}</select
-		></label
-	>
-	<label class="field"
-		><span>Tag batch</span><select
-			class="select"
-			disabled={busy || nfcActive}
-			bind:value={batchId}
-			onchange={() => (selected = "")}
-			><option value={0}>All tags in this variety</option>{#each batches as batch (batch.id)}<option
-					value={batch.id}
-					>Numbers {batch.startIndex ?? "open"} to {batch.endIndex ?? "open"}</option
-				>{/each}</select
-		></label
-	>
-</div>
+{#if finished && !nfcActive && writer}<a
+		class="btn btn-primary more-tags"
+		href={`/admin/allocate?type=${String(writer.typeId)}&variety=${String(varietyId)}`}
+		>Make more tags</a
+	>{/if}
+<details class="filter-options" hidden={nfcActive} bind:open={filtersOpen}>
+	<summary>Change color or tag batch</summary>
+	<div class="filters">
+		<label class="field"
+			><span>Color or design</span><select
+				class="select"
+				disabled={busy || nfcActive}
+				bind:value={varietyId}
+				onchange={() => {
+					batchId = 0;
+					selected = "";
+				}}
+				>{#each catalog.varieties as variety (variety.id)}<option value={variety.id}
+						>{variety.typeName} / {variety.name}</option
+					>{/each}</select
+			></label
+		>
+		<label class="field"
+			><span>Tag batch</span><select
+				class="select"
+				disabled={busy || nfcActive}
+				bind:value={batchId}
+				onchange={() => (selected = "")}
+				><option value={0}>All tags in this variety</option
+				>{#each batches as batch (batch.id)}<option value={batch.id}
+						>Numbers {batch.startIndex ?? "open"} to {batch.endIndex ?? "open"}</option
+					>{/each}</select
+			></label
+		>
+	</div>
+</details>
 {#if writer}
 	<div class="writer-layout" class:active={nfcActive}>
 		<section class="write-current">
@@ -224,6 +287,8 @@
 			</div>
 			<BrowserTagWriter
 				{url}
+				alreadyWritten={isWritten(writer)}
+				{finished}
 				written={relics.filter(isWritten).map((relic) => ({
 					url: `${page.url.origin}/relics/${relic.id}`,
 					number: relic.indexNumber ?? 0,
@@ -234,6 +299,10 @@
 				onactive={(active: boolean) => {
 					nfcActive = active;
 					onactive?.(active);
+
+					if (active) {
+						void tick().then(() => heading?.scrollIntoView({ block: "start" }));
+					}
 				}}
 			/>
 			<div hidden={nfcActive}>
@@ -310,13 +379,15 @@
 		<section class="checklist" hidden={nfcActive}>
 			<h3>Writing checklist</h3>
 
-			<button
-				class="btn btn-ghost"
-				disabled={done === relics.length || busy || nfcActive}
-				onclick={() => {
-					choose(relics.find((r) => !isWritten(r))?.id ?? selected);
-				}}>Go to next unwritten tag</button
-			>
+			{#if !finished}
+				<button
+					class="btn btn-ghost"
+					disabled={done === relics.length || busy || nfcActive}
+					onclick={() => {
+						choose(relics.find((r) => !isWritten(r))?.id ?? selected);
+					}}>Go to next unwritten tag</button
+				>
+			{/if}
 			<ul>
 				{#each relics as relic (relic.id)}<li>
 						<button
@@ -340,6 +411,18 @@
 {/if}
 
 <style>
+	.filter-options {
+		margin-block: 16px 24px;
+	}
+	.filter-options summary {
+		min-height: 48px;
+		align-content: center;
+		text-decoration: underline;
+		text-underline-offset: 4px;
+	}
+	.more-tags {
+		margin-block: 8px;
+	}
 	[hidden] {
 		display: none !important;
 	}

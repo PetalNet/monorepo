@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { onMount } from "svelte";
+	import { onMount, untrack } from "svelte";
 	import { SvelteMap } from "svelte/reactivity";
 
 	import {
@@ -16,6 +16,8 @@
 		number,
 		disabled,
 		written,
+		alreadyWritten,
+		finished,
 		prepare,
 		onactive,
 	}: {
@@ -23,6 +25,8 @@
 		number: number;
 		disabled: boolean;
 		written: readonly { url: string; number: number }[];
+		alreadyWritten: boolean;
+		finished: boolean;
 		prepare: () => () => Promise<boolean>;
 		onactive: (active: boolean) => void;
 	} = $props();
@@ -32,6 +36,7 @@
 		| NfcState
 		| { kind: "saving" }
 		| { kind: "done"; number: number }
+		| { kind: "unsaved"; number: number; url: string; save: () => Promise<boolean> }
 		| { kind: "error"; message: string };
 	let supported = $state(false);
 	let phase = $state<State>({ kind: "idle" });
@@ -56,7 +61,7 @@
 
 		scanner = createTagScanner(
 			(event) => {
-				if (active) {
+				if (active || phase.kind === "unsaved") {
 					return;
 				}
 
@@ -69,7 +74,7 @@
 				};
 			},
 			() => {
-				if (!active) {
+				if (!active && phase.kind !== "unsaved") {
 					phase = {
 						kind: "error",
 						message: "This tag could not be read. Hold one NDEF tag still, or try another tag.",
@@ -84,7 +89,7 @@
 			}
 
 			void scanner?.start().catch((error: unknown) => {
-				if (mounted && !document.hidden && !active) {
+				if (mounted && !document.hidden && !active && phase.kind !== "unsaved") {
 					phase = { kind: "error", message: nfcError(error, false) };
 				}
 			});
@@ -120,6 +125,9 @@
 
 					if (granted) {
 						resume();
+					} else if (status.state === "denied") {
+						controller?.abort(new DOMException("NFC permission denied", "NotAllowedError"));
+						scanner?.stop();
 					} else {
 						stop();
 					}
@@ -147,11 +155,54 @@
 	});
 	$effect(() => {
 		if (url) {
+			const pending = untrack(() => phase);
+
+			if (pending.kind === "unsaved" && pending.url !== url) {
+				phase = { kind: "idle" };
+			}
+
 			return () => {
 				controller?.abort(new DOMException("Selection changed", "AbortError"));
 			};
 		}
 	});
+	async function saveVerified(
+		save: () => Promise<boolean>,
+		targetNumber: number,
+		targetUrl: string,
+	) {
+		phase = { kind: "saving" };
+		let saved: boolean;
+
+		try {
+			saved = await save();
+		} catch {
+			saved = false;
+		}
+
+		phase = saved
+			? { kind: "done", number: targetNumber }
+			: { kind: "unsaved", number: targetNumber, url: targetUrl, save };
+
+		if (saved && typeof navigator.vibrate === "function") {
+			navigator.vibrate(100);
+		}
+	}
+	async function retryChecklist() {
+		if (phase.kind !== "unsaved" || disabled) {
+			return;
+		}
+
+		const pending = phase;
+
+		onactive(true);
+
+		try {
+			await saveVerified(pending.save, pending.number, pending.url);
+		} finally {
+			onactive(false);
+		}
+	}
 	async function start() {
 		if (active || disabled) {
 			return;
@@ -198,25 +249,7 @@
 			// Finish the write session while the foreground scan keeps receiving tags.
 			session.abort();
 			verified.set(targetUrl, targetNumber);
-			phase = { kind: "saving" };
-			let saved = false;
-
-			try {
-				saved = await save();
-			} catch {
-				saved = false;
-			}
-
-			phase = saved
-				? { kind: "done", number: targetNumber }
-				: {
-						kind: "error",
-						message: `Tag #${String(targetNumber)} was verified, but its checklist could not be saved. Keep this tag aside and retry, or use Mark written after checking its page.`,
-					};
-
-			if (saved && typeof navigator.vibrate === "function") {
-				navigator.vibrate(100);
-			}
+			await saveVerified(save, targetNumber, targetUrl);
 		} catch (error) {
 			phase = { kind: "error", message: nfcError(error, writing) };
 		} finally {
@@ -231,7 +264,8 @@
 
 {#if supported}
 	<div class="browser-writer" class:active>
-		{#if active}
+		{#if phase.kind === "error"}<p role="alert">{phase.message}</p>{/if}
+		{#if active && phase.kind !== "overwrite" && phase.kind !== "saving"}
 			<img
 				class="holding-art"
 				src="/storybook/hold-tag.svg"
@@ -249,14 +283,20 @@
 						</p>{/if}
 				{/if}
 			</div>
-		{:else}
-			<button class="btn btn-primary write-button" {disabled} onclick={start}
-				>Write tag #{number}</button
+		{:else if !active && phase.kind !== "unsaved"}
+			<button
+				class="btn write-button"
+				class:btn-primary={!alreadyWritten}
+				class:btn-neutral={alreadyWritten}
+				{disabled}
+				onclick={start}>{alreadyWritten ? "Rewrite" : "Write"} tag #{number}</button
 			>
 		{/if}
 		<div aria-live="polite" aria-atomic="true">
 			{#if phase.kind === "idle"}<p>
-					Write here, then read back the exact URL. Your checklist saves automatically.
+					{alreadyWritten
+						? "This tag is already checked off. Rewrite only to replace a tag or fix a mistake."
+						: "Write here, then read back the exact URL. Your checklist saves automatically."}
 				</p>
 			{:else if phase.kind === "read"}<p class="existing">{phase.message}</p>
 			{:else if phase.kind === "permission"}<p>Allow NFC when Chrome asks. Keep this page open.</p>
@@ -283,25 +323,20 @@
 				</p>
 			{:else if phase.kind === "saving"}<p>URL verified. Saving your checklist…</p>
 			{:else if phase.kind === "done"}<p class="success">
-					Tag written! #{phase.number} is checked and saved. Set it aside, then tap Write for the next
-					tag.
+					Tag written! #{phase.number} is checked and saved. {finished
+						? "This batch is finished. Set it aside."
+						: "Set it aside, then tap Write for the next tag."}
 				</p>
-			{:else if phase.kind === "error"}<p role="alert">{phase.message}</p>{/if}
+			{:else if phase.kind === "unsaved"}<p role="alert">
+					Tag #{phase.number} is written and verified. Your checklist could not be saved. Check your internet
+					connection, then save again. You do not need to rewrite the tag.
+				</p>
+			{/if}
 		</div>
-		{#if active}<button class="btn waiting-control" disabled
-				>{phase.kind === "permission"
-					? "Waiting for permission…"
-					: phase.kind === "waiting"
-						? "Waiting for tag…"
-						: phase.kind === "overwrite"
-							? "Waiting for your choice…"
-							: phase.kind === "confirming"
-								? "Waiting for the same tag…"
-								: phase.kind === "writing"
-									? "Writing tag…"
-									: phase.kind === "verifying"
-										? "Checking tag…"
-										: "Saving checklist…"}</button
+		{#if phase.kind === "unsaved"}<button
+				class="btn btn-primary write-button"
+				{disabled}
+				onclick={retryChecklist}>Save checklist again</button
 			>{/if}
 		{#if active && phase.kind !== "saving"}<div class="actions">
 				{#if phase.kind === "overwrite"}<button
@@ -341,11 +376,11 @@
 	}
 	.holding-art {
 		display: block;
-		width: 260px;
+		width: 180px;
 		max-width: 100%;
-		height: 210px;
+		height: 140px;
 		object-fit: contain;
-		margin: 22px auto 8px;
+		margin: 8px auto;
 		transform: rotate(-4deg);
 	}
 	.hold-copy h2 {
@@ -372,17 +407,6 @@
 		background: currentColor;
 		border-radius: 50%;
 		margin-inline-end: 8px;
-	}
-	.waiting-control {
-		width: 100%;
-		min-height: 58px;
-		border: 1px dashed var(--muted);
-		border-radius: 8px;
-		background: transparent;
-		color: var(--muted);
-		opacity: 1;
-		cursor: default;
-		white-space: normal;
 	}
 	.active :global(.actions) {
 		justify-content: center;

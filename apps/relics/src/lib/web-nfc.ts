@@ -61,7 +61,7 @@ export function nfcError(error: unknown, writing: boolean): string {
 		case "SecurityError":
 			return writing
 				? "Writing was blocked. Check Chrome’s NFC permission. The tag may also be locked; try a blank tag."
-				: "NFC permission was blocked. Allow NFC in Chrome’s site settings, then try again over HTTPS.";
+				: "NFC permission was blocked. In Chrome’s site settings, allow NFC, then try again.";
 		case "NotSupportedError":
 			return writing
 				? "This tag may be locked or incompatible. Try a writable NDEF tag."

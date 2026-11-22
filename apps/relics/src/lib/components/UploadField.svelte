@@ -6,7 +6,13 @@
 	import RelicPhoto from "./RelicPhoto.svelte";
 	let { url = $bindable(""), busy = $bindable(false) } = $props();
 	let error = $state("");
+	let fileInput = $state<HTMLInputElement>();
 	let active = true;
+	$effect(() => {
+		if (!url && !busy && fileInput) {
+			fileInput.value = "";
+		}
+	});
 	onDestroy(() => {
 		active = false;
 		busy = false;
@@ -63,6 +69,7 @@
 <label class="field"
 	><span>{busy ? "Uploading photo…" : "Photo"}</span><input
 		type="file"
+		bind:this={fileInput}
 		accept="image/png,image/jpeg,image/webp"
 		onchange={upload}
 		disabled={busy}

@@ -126,6 +126,22 @@ jobs:
         run: pnpm test --affected --concurrency=2
       - if: needs.select.outputs.affected != 'true'
         run: pnpm test --concurrency=2
+      - id: relics
+        env:
+          AFFECTED: ${{ needs.select.outputs.affected }}
+          BASE: ${{ needs.select.outputs.base }}
+        run: |
+          if [ "$AFFECTED" != "true" ] || ! git diff --quiet "$BASE" HEAD -- apps/relics packages/effect-api packages/effect-sveltekit pnpm-lock.yaml pnpm-workspace.yaml .github/workflows/ci.yml; then
+            echo "run=true" >> "$GITHUB_OUTPUT"
+          fi
+      - name: Install Relics test browser
+        if: steps.relics.outputs.run == 'true' && steps.vault.outputs.run != 'true'
+        run: pnpm --filter @petalnet/relics exec playwright install --with-deps chromium
+      - name: Test the Relics phone registration and NFC flow
+        if: steps.relics.outputs.run == 'true'
+        run: |
+          pnpm --filter @petalnet/relics build
+          pnpm --filter @petalnet/relics test:e2e
 
   build:
     permissions:

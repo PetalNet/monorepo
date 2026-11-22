@@ -1,5 +1,13 @@
 # Petal Relics
 
+## Phone workflow tests
+
+Run `pnpm --filter @petalnet/relics exec playwright install chromium`, then `pnpm --filter @petalnet/relics build` and `pnpm --filter @petalnet/relics test:e2e`. CI installs Chromium and its system dependencies when Relics or its shared API packages change. `PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH` can select an existing Chromium installation.
+
+The Playwright tests start the built app on loopback with a fresh temporary SQLite database and upload directory, and delete them afterward. They cover both 360×780 and 412×915 touch profiles, setup/photos, 15 ordered writes, resume, completed batches, replacement consent, cancellation, permission denial, network recovery, later colors, photo edits, visitor naming and legacy allocation conflicts. Staff sessions are seeded only in that temporary database; the separate OIDC tests cover signed login, PKCE and group checks. NFC alone is replaced by a mock with serial numbers, URL records, permission changes, aborts and explicit tag removal/readback. Physical Android NFC behavior still needs a phone test.
+
+Each phone test includes a three-second tag arrival and five-second hold. Set `RELICS_QA_SLOW=1` to apply those delays to every tag.
+
 Private collections for physical NFC and QR collectibles. A tag opens `/relics/{id}`. Claim with a name, keep the collection on this device, and optionally verify a recovery email. Collectors have no account or PIN. Only admins sign in, through Authentik.
 
 ## Develop
