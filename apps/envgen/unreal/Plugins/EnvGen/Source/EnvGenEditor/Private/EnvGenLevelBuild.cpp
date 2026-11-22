@@ -683,13 +683,8 @@ namespace
 		return true;
 	}
 
-	bool DecodePng(const FString& Path, ERGBFormat Format, int32 BitDepth, TArray64<uint8>& Raw, int32& Width, int32& Height, EImageFormat Container = EImageFormat::PNG)
+	bool DecodeImageBytes(const TArray64<uint8>& Compressed, ERGBFormat Format, int32 BitDepth, TArray64<uint8>& Raw, int32& Width, int32& Height, EImageFormat Container)
 	{
-		TArray64<uint8> Compressed;
-		if (!FFileHelper::LoadFileToArray(Compressed, *Path))
-		{
-			return false;
-		}
 		IImageWrapperModule& Module = FModuleManager::LoadModuleChecked<IImageWrapperModule>(TEXT("ImageWrapper"));
 		const TSharedPtr<IImageWrapper> Wrapper = Module.CreateImageWrapper(Container);
 		if (!Wrapper || !Wrapper->SetCompressed(Compressed.GetData(), Compressed.Num()) || !Wrapper->GetRaw(Format, BitDepth, Raw))
@@ -699,6 +694,12 @@ namespace
 		Width = Wrapper->GetWidth();
 		Height = Wrapper->GetHeight();
 		return true;
+	}
+
+	bool DecodePng(const FString& Path, ERGBFormat Format, int32 BitDepth, TArray64<uint8>& Raw, int32& Width, int32& Height, EImageFormat Container = EImageFormat::PNG)
+	{
+		TArray64<uint8> Compressed;
+		return FFileHelper::LoadFileToArray(Compressed, *Path) && DecodeImageBytes(Compressed, Format, BitDepth, Raw, Width, Height, Container);
 	}
 
 	/**
@@ -3488,7 +3489,9 @@ bool FEnvGenLevelBuild::Start(const FString& ManifestPath, const FString& MapPat
 		Layer.Relief = MakeTexture(TEXT("T_") + Name + TEXT("_Relief"), Scan.Width, Scan.Height, TSF_G8, Scan.Relief.GetData(), false, State->Packages);
 	}
 	UTexture2D* ColourCondition = nullptr;
-	if (!Manifest.Turf.FieldGreen.IsEmpty())
+	const bool bCalibratedTurf = !Manifest.Turf.FieldGreen.IsEmpty();
+	TMap<FString, TArray64<uint8>> VerifiedControlPixels;
+	if (bCalibratedTurf)
 	{
 		for (const FString& Name : {Manifest.Turf.GrowthFile, Manifest.Turf.ConditionFile, Manifest.Turf.ColourConditionFile})
 		{
@@ -3497,7 +3500,7 @@ bool FEnvGenLevelBuild::Start(const FString& ManifestPath, const FString& MapPat
 			if (!FFileHelper::LoadFileToArray(Compressed, *(Manifest.Directory / Name)) ||
 				!FSHA1::HashBuffer(Compressed.GetData(), Compressed.Num()).ToString().Equals(Manifest.Turf.ControlSha1[Name], ESearchCase::IgnoreCase) ||
 				(Name == Manifest.Turf.ColourConditionFile && (Compressed.Num() < 26 || Compressed[24] != 8 || Compressed[25] != 2)) ||
-				!DecodePng(Manifest.Directory / Name, ERGBFormat::BGRA, 8, Pixels, Width, Height) ||
+				!DecodeImageBytes(Compressed, ERGBFormat::BGRA, 8, Pixels, Width, Height, EImageFormat::PNG) ||
 				Width != Manifest.Turf.ControlPixels || Height != Manifest.Turf.ControlPixels)
 			{
 				UE_LOG(LogEnvGen, Error, TEXT("invalid turf control %s; rebuild the pipeline"), *Name);
@@ -3513,6 +3516,10 @@ bool FEnvGenLevelBuild::Start(const FString& ManifestPath, const FString& MapPat
 					}
 				ColourCondition = MakeTexture(TEXT("T_TurfColourCondition"), Width, Height, TSF_BGRA8, Pixels.GetData(), false, State->Packages, TC_VectorDisplacementmap);
 			}
+			else
+			{
+				VerifiedControlPixels.Add(Name, MoveTemp(Pixels));
+			}
 		}
 	}
 	UTexture2D* Growth = nullptr;
@@ -3520,7 +3527,12 @@ bool FEnvGenLevelBuild::Start(const FString& ManifestPath, const FString& MapPat
 	{
 		TArray64<uint8> Bytes;
 		int32 Width = 0, Height = 0;
-		if (!DecodePng(Manifest.Directory / Manifest.Turf.GrowthFile, ERGBFormat::BGRA, 8, Bytes, Width, Height))
+		if (bCalibratedTurf)
+		{
+			Bytes = MoveTemp(VerifiedControlPixels.FindChecked(Manifest.Turf.GrowthFile));
+			Width = Height = Manifest.Turf.ControlPixels;
+		}
+		else if (!DecodePng(Manifest.Directory / Manifest.Turf.GrowthFile, ERGBFormat::BGRA, 8, Bytes, Width, Height))
 		{
 			UE_LOG(LogEnvGen, Error, TEXT("cannot decode %s"), *Manifest.Turf.GrowthFile);
 			return false;
@@ -3532,7 +3544,12 @@ bool FEnvGenLevelBuild::Start(const FString& ManifestPath, const FString& MapPat
 	{
 		TArray64<uint8> Bytes;
 		int32 Width = 0, Height = 0;
-		if (!DecodePng(Manifest.Directory / Manifest.Turf.ConditionFile, ERGBFormat::BGRA, 8, Bytes, Width, Height))
+		if (bCalibratedTurf)
+		{
+			Bytes = MoveTemp(VerifiedControlPixels.FindChecked(Manifest.Turf.ConditionFile));
+			Width = Height = Manifest.Turf.ControlPixels;
+		}
+		else if (!DecodePng(Manifest.Directory / Manifest.Turf.ConditionFile, ERGBFormat::BGRA, 8, Bytes, Width, Height))
 		{
 			UE_LOG(LogEnvGen, Error, TEXT("cannot decode %s"), *Manifest.Turf.ConditionFile);
 			return false;
