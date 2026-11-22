@@ -15,7 +15,7 @@ const snapshot = (credentials: Record<string, unknown> | null) => {
 		rmSync(home, { recursive: true });
 	});
 
-	// Stands in for `node usage-fetch.js`: a usage response with no 5-hour window.
+	// Stands in for `node usage-fetch.ts`: a usage response with no 5-hour window.
 	writeFileSync(
 		path.join(home, "node"),
 		`#!/bin/sh\necho '{"five_hour": null, "seven_day": {"utilization": 71, "resets_at": "2026-11-24T10:00:00+00:00"}}'\n`,

@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 // Writes Claude Code's usage to the shared feed the Astrolabe dashboard reads (`USAGE_PATH`).
 //
-// It runs usage-fetch.js, which asks claude.ai for an organization's usage with the session key in
+// It runs usage-fetch.ts, which asks claude.ai for an organization's usage with the session key in
 // ~/.config/claude-matrix-channel/usage.toml and prints the response, each window's exact
 // `resets_at` included, so nothing here is estimated.
 //
@@ -16,7 +16,7 @@ import path from "node:path";
 
 type JsonRecord = Record<string, unknown>;
 
-const FETCHER = "/home/docker/.claude/bin/usage-fetch.js";
+const FETCHER = path.join(import.meta.dirname, "usage-fetch.ts");
 const MOOD = "/tmp/janet-mood.json";
 const CREDENTIALS = path.join(homedir(), ".claude", ".credentials.json");
 const OUT = process.env.CLAUDE_USAGE_OUT ?? "/home/docker/.claude/shared/janet-usage.json";
