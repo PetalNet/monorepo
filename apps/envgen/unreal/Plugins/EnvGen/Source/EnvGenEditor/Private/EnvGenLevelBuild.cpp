@@ -3555,6 +3555,9 @@ bool FEnvGenLevelBuild::Start(const FString& ManifestPath, const FString& MapPat
 			return false;
 		}
 		Condition = MakeTexture(TEXT("T_TurfCondition"), Width, Height, TSF_BGRA8, Bytes.GetData(), false, State->Packages, TC_VectorDisplacementmap);
+		// Vertex mip-zero reads cannot rely on pixel-driven streaming demand.
+		Condition->NeverStream = true;
+		Condition->PostEditChange();
 	}
 	const FLawnTextures Lawn = MakeLawnTextures(Manifest.Turf, ColourCondition, State->Packages);
 	TArray<ULandscapeGrassType*> GrassTypes;
