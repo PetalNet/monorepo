@@ -140,6 +140,10 @@ export default (({ strict }) => ({
 				"src/quota.ts!",
 			],
 		},
+		"packages/router": {
+			// The tests import the bin's helpers, which production-mode Knip does not read.
+			ignoreIssues: { "src/**": ["exports"] },
+		},
 		"packages/vault-engine": {
 			entry: ["test/**/*.ts"],
 		},
