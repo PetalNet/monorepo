@@ -740,6 +740,7 @@ export function parseCodexRateLimits(raw: unknown, nowMs: number, timeZone: stri
 
 	const limits: QuotaLimit[] = [];
 	const parts: string[] = [];
+
 	for (const field of ["primary", "secondary"]) {
 		const window = raw[field];
 		const entry = isRecord(window) ? window : undefined;

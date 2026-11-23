@@ -62,12 +62,14 @@ const context = {
 describe("quota pacing", () => {
 	it("only recommends work that fits the short and weekly budgets", () => {
 		expect(recommend(context)).toEqual([gemini, gemini]);
+
 		expect(
 			recommend({
 				...context,
 				candidates: [{ ...gemini, windows: [window(weekly, 93, 72), window(short, 3, 4)] }],
 			}),
 		).toEqual([]);
+
 		expect(
 			recommend({
 				...context,
@@ -78,6 +80,7 @@ describe("quota pacing", () => {
 
 	it("reserves a full run for existing builders, including across a shared window", () => {
 		const oneLeft = { ...gemini, windows: [window(weekly, 80, 12), window(short, 94, 0.2)] };
+
 		expect(recommend({ ...context, candidates: [oneLeft] })).toEqual([oneLeft]);
 		expect(recommend({ ...context, candidates: [oneLeft], active: [other] })).toEqual([]);
 		expect(recommend({ ...context, active: [{ ...other, effort: "unknown" }] })).toEqual([]);
@@ -93,9 +96,55 @@ describe("quota pacing", () => {
 
 	it("holds when rates or the current reset are unavailable", () => {
 		expect(recommend({ ...context, burns: new Map() })).toEqual([]);
+
 		expect(
 			recommend({ ...context, candidates: [{ ...gemini, windows: [window(weekly, 16, -0.01)] }] }),
 		).toEqual([]);
+	});
+
+	it("paces through the weekly reset while short windows refill", () => {
+		const hour = HOUR_MS;
+		const tick = hour / 4;
+		const week = 168 * hour;
+		const everyFiveHours = 5 * hour;
+		const simulatedBurns = new Map([
+			[burnKey(model, weekly), { ...burn, perRun: 1 }],
+			[burnKey(model, short), { ...burn, perRun: 3 }],
+		]);
+		let weekUsed = 0;
+		let shortUsed = 0;
+
+		for (let elapsed = 0; elapsed < week; elapsed += tick) {
+			if (elapsed % everyFiveHours === 0) {
+				shortUsed = 0;
+			}
+
+			const nextShortReset = elapsed - (elapsed % everyFiveHours) + everyFiveHours;
+			const candidate = {
+				...gemini,
+				windows: [
+					{ id: weekly, usedPct: weekUsed, resetAt: now + week, duration: week },
+					{
+						id: short,
+						usedPct: shortUsed,
+						resetAt: now + nextShortReset,
+						duration: everyFiveHours,
+					},
+				],
+			};
+			const count = recommend({
+				...context,
+				now: now + elapsed,
+				candidates: [candidate],
+				burns: simulatedBurns,
+			}).length;
+
+			weekUsed += count;
+			shortUsed += 3 * count;
+			expect(Math.max(weekUsed, shortUsed)).toBeLessThan(100);
+		}
+
+		expect(weekUsed).toBeGreaterThanOrEqual(95);
 	});
 
 	it("calibrates percentage points from stable, single-model intervals", () => {
@@ -116,7 +165,8 @@ describe("quota pacing", () => {
 			start: now + (i * HOUR_MS) / 4 + 60_000,
 			end: now + (i * HOUR_MS) / 4 + 7 * 60_000,
 		}));
-		const mixed = { ...runs[0]!, model: "different" };
+		const mixed = { ...model, model: "different", start: now + 60_000, end: now + 7 * 60_000 };
+
 		expect(
 			estimateBurn(limits, [...runs, mixed], windowsByPool).get(burnKey(model, weekly)),
 		).toEqual({

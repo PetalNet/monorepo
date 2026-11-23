@@ -6,7 +6,7 @@ printf '%s\n' "$recommendations"
 launches=$(awk '/^launch /' <<< "$recommendations")
 if [[ -n "$launches" ]]; then
   {
-    printf '%s\n' 'Use quota-pace to recheck. Start only eligible queued work, at most the recommended counts, with FLOOR=2 route-unit. Skip work already running.'
+    printf '%s\n' 'Recheck with quota-pace before each launch. Use FLOOR=2 route-unit for eligible queued work up to the recommended counts. Skip work already running.'
     printf '%s\n' "$launches"
   } | "$HERMES_HOME/plugins/hermes-cc-link/bin/cc-link-inject" --source=quota-pacer
 fi

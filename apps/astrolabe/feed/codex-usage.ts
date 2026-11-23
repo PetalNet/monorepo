@@ -188,8 +188,6 @@ const liveRateLimits = async (): Promise<JsonRecord | null> => {
 		server.stdout.destroy();
 	}
 
-	console.error("codex-usage: live read failed; using rollouts");
-
 	return null;
 };
 
@@ -200,7 +198,13 @@ const currentRateLimits = async (liveOnly = false): Promise<Reading | null> => {
 		return { limits, observedAt: nowSeconds() };
 	}
 
-	return liveOnly ? null : rolloutRateLimits();
+	if (liveOnly) {
+		return null;
+	}
+
+	console.error("codex-usage: live read failed; using rollouts");
+
+	return rolloutRateLimits();
 };
 
 /**

@@ -44,8 +44,8 @@ function record(value: unknown): Record<string, unknown> {
 }
 
 async function jsonLines(file: string): Promise<unknown[]> {
-	const body = await readFile(file, "utf8").catch((error: NodeJS.ErrnoException) => {
-		if (error.code !== "ENOENT") {
+	const body = await readFile(file, "utf8").catch((error: unknown) => {
+		if (!(error instanceof Error && "code" in error && error.code === "ENOENT")) {
 			throw error;
 		}
 
@@ -55,6 +55,7 @@ async function jsonLines(file: string): Promise<unknown[]> {
 	return body.split("\n").flatMap((line) => {
 		try {
 			const row: unknown = JSON.parse(line);
+
 			return [row];
 		} catch {
 			// A historical corrupt row or a partial last line is never a quota observation.
@@ -109,6 +110,7 @@ function decodeReading(value: unknown): Reading[] {
 
 	const windows = limits.flatMap((limit: unknown) => {
 		const { id, usedPct, resetAtMs } = record(limit);
+
 		return typeof id === "string" &&
 			typeof usedPct === "number" &&
 			usedPct >= 0 &&
@@ -187,8 +189,7 @@ function buildCandidates(
 
 		if (
 			!pool ||
-			!report ||
-			report.status !== "ok" ||
+			report?.status !== "ok" ||
 			report.observedAtMs === undefined ||
 			report.observedAtMs > now ||
 			now - report.observedAtMs > FRESH_MS
@@ -221,6 +222,7 @@ export async function pace(
 		const at = report.observedAtMs;
 
 		const scope = report.service === "codex" ? report.summary : report.service;
+
 		return report.status === "ok" && at !== undefined && at <= now && now - at <= FRESH_MS
 			? [
 					{
@@ -245,9 +247,11 @@ export async function pace(
 
 			if (next.length > 0 || previous.length !== readings.length) {
 				const temporary = `${file}.tmp`;
+
 				await writeFile(temporary, `${updated.map((r) => JSON.stringify(r)).join("\n")}\n`, {
 					mode: 0o600,
 				});
+
 				await rename(temporary, file);
 			}
 
@@ -281,6 +285,7 @@ export async function pace(
 			burns.set(key, { perHour: perHour * 1.5, perRun: perRun * 1.5, hoursPerRun, samples });
 		}
 	}
+
 	const slots = hostSlots(
 		Number(/^MemAvailable:\s+(\d+)/mu.exec(memory)?.[1] ?? 0) / 1024,
 		(disk.bsize * disk.bavail) / 1024 ** 2,
@@ -299,6 +304,7 @@ export async function pace(
 
 	for (const builder of selected) {
 		const key = JSON.stringify([builder.pool, builder.model, builder.effort]);
+
 		counts.set(key, { builder, count: (counts.get(key)?.count ?? 0) + 1 });
 	}
 
@@ -313,6 +319,7 @@ export async function pace(
 			({ id, usedPct, resetAtMs }) =>
 				`${id} ${String(usedPct)}% used, reset ${resetAtMs ? new Date(resetAtMs).toISOString() : "unknown"}`,
 		);
+
 		return `${plan} ${windows?.length ? windows.join(" / ") : "quota unavailable"}`;
 	});
 

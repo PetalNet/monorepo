@@ -393,6 +393,7 @@ async function main(argv: string[]): Promise<number> {
 
 	if (command === "pace") {
 		process.stdout.write(`${await pace(`${home}/.local/state/router`, result, state.reports)}\n`);
+
 		return 0;
 	}
 

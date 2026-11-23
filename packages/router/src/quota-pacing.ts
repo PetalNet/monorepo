@@ -40,6 +40,7 @@ export function burnKey(builder: Builder, window: string): string {
 
 function quantile(values: number[], fraction: number): number {
 	const sorted = values.toSorted((a, b) => a - b);
+
 	return sorted[Math.max(0, Math.ceil(sorted.length * fraction) - 1)] ?? 0;
 }
 
@@ -54,6 +55,7 @@ export function estimateBurn(
 	for (const { at, limits } of readings.toSorted((a, b) => a.at - b.at)) {
 		for (const limit of limits) {
 			const before = previous.get(limit.id);
+
 			previous.set(limit.id, { limit, at });
 
 			if (
@@ -74,6 +76,7 @@ export function estimateBurn(
 				(run) =>
 					run.start < at && run.end > before.at && windowsByPool.get(run.pool)?.includes(limit.id),
 			);
+
 			if (overlapping.some((run) => run.running)) {
 				continue;
 			}
@@ -84,6 +87,7 @@ export function estimateBurn(
 				const key = burnKey(run, limit.id);
 				const duration = Math.min(at, run.end) - Math.max(before.at, run.start);
 				const reading = work.get(key) ?? { hours: 0, runs: 0 };
+
 				reading.hours += duration / HOUR_MS;
 				reading.runs += duration / (run.end - run.start);
 				work.set(key, reading);
@@ -94,6 +98,7 @@ export function estimateBurn(
 			for (const [key, exposure] of work) {
 				if (exposure.hours >= totalHours * 0.6) {
 					const observations = series.get(key) ?? [];
+
 					observations.push({ spend: limit.usedPct - before.limit.usedPct, ...exposure });
 					series.set(key, observations);
 				}
@@ -116,6 +121,7 @@ export function estimateBurn(
 			}),
 			{ spend: 0, hours: 0, runs: 0 },
 		);
+
 		burns.set(key, {
 			perHour: Math.max(
 				total.spend / total.hours,
@@ -204,6 +210,7 @@ export function recommend(input: PaceInput): Candidate[] {
 					.filter((run) => windowsByPool.get(run.pool)?.includes(window.id))
 					.reduce((sum, run) => {
 						const rate = burns.get(burnKey(run, window.id));
+
 						return rate ? sum + cost(rate) : Infinity;
 					}, 0);
 
@@ -218,6 +225,7 @@ export function recommend(input: PaceInput): Candidate[] {
 				}
 
 				priority += (target - projected) / Math.max(remaining / HOUR_MS, 0.25);
+
 				return true;
 			});
 
