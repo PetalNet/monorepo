@@ -7,7 +7,7 @@ import { fileURLToPath } from "node:url";
 import type { ServiceReport } from "@petalnet/harness-hooks/quota-sources";
 import { describe, expect, it } from "vitest";
 
-import type { EvidenceRow } from "./evidence.ts";
+import { normalizeAA, type EvidenceRow } from "./evidence.ts";
 import { BLOCKS, type Catalog, type Pool, POOLS, type State, pick } from "./pick.ts";
 import { effectiveDataClass, readBrief } from "./route.ts";
 
@@ -165,6 +165,32 @@ describe("supersession", () => {
 		).toEqual([]);
 	});
 
+	it("accepts exactly 10% higher cost after normalizing task size", () => {
+		const rows = [
+			cost(older, 0.03),
+			cost(newer, 0.033),
+			measured(older, "intelligenceIndexOutputTokensPerTask.output", 3500),
+		];
+		const result = pick(releases, "code", "*", withEvidence(rows));
+
+		expect(why(result, older)).toBe(`superseded by ${newer}:low`);
+	});
+
+	it("keeps an older release when the replacement is outside the selected tier", () => {
+		const modelsInSeparateTiers = solModels.map((model) =>
+			model.id === newer ? { ...model, score: 40 } : model,
+		);
+		const result = pick(
+			{ ...releases, models: modelsInSeparateTiers },
+			"code",
+			"S",
+			withEvidence([cost(older, 1), cost(newer, 1)]),
+		);
+
+		expect(result.tier).toBe("S");
+		expect(ids(result)).toContain(older);
+	});
+
 	it("finds replacements across execution pools and restores the older offer at the newer pool's quota floor", () => {
 		const oldSonnet = "claude-sonnet-5-4";
 		const newSonnet = "claude-sonnet-5-5";
@@ -204,7 +230,7 @@ describe("supersession", () => {
 		expect(ids(limited)).toEqual([`${oldSonnet}-low`]);
 	});
 
-	it("compares Gemini Pro releases without suppressing Flash", () => {
+	it("uses exact Gemini AA costs to compare Pro releases without suppressing Flash", () => {
 		const pro = "gemini-2.5-pro";
 		const preview = "gemini-3-pro-preview";
 		const flash = "gemini-2.5-flash";
@@ -217,15 +243,24 @@ describe("supersession", () => {
 			})),
 			tiers: TIERS,
 		};
-		const result = pick(
-			geminiReleases,
-			"code",
-			"*",
-			withEvidence([cost(pro, 1), cost(preview, 1), cost(flash, 1)]),
-		);
+		const aa = (previewCost: number) =>
+			normalizeAA({
+				fetchedAt: new Date(NOW).toISOString(),
+				models: ["gemini-2-5-pro", preview, flash].map((slug) => ({
+					slug,
+					release: { slug },
+					effort: { slug: "low" },
+					intelligenceIndexCostPerTask: { cost: { total: slug === preview ? previewCost : 1 } },
+				})),
+			});
+		const result = pick(geminiReleases, "code", "*", state({ evidence: aa(1) }));
 
 		expect(why(result, `${pro}-low`)).toBe(`superseded by ${preview}:low`);
 		expect(ids(result)).toEqual([`${preview}-low`, `${flash}-low`]);
+
+		const expensive = pick(geminiReleases, "code", "*", state({ evidence: aa(2) }));
+
+		expect(ids(expensive)).toContain(`${pro}-low`);
 	});
 
 	it("names a runnable replacement when the cost tolerance is not transitive", () => {

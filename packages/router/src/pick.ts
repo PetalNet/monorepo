@@ -6,6 +6,7 @@ import { supportedEfforts, type Effort } from "./effort.ts";
 import {
 	evidenceKey,
 	EFFORTS,
+	releaseOf,
 	scoreEvidence,
 	TASK_COST_SIGNAL,
 	type Evidence,
@@ -494,25 +495,6 @@ export function vendorOf(model: string): string {
 	return "other";
 }
 
-function releaseOf(model: string): { line: string; version: number[] } | undefined {
-	const id = evidenceKey(model, "default").model;
-	const [, claudeLine, claudeVersion] = /^claude-([a-z]+)-(\d+(?:[.-]\d+)*)$/u.exec(id) ?? [];
-	const [, vendor, version, line] =
-		/^(gpt|gemini)-(\d+(?:[.-]\d+)*)(?:-([a-z][a-z0-9-]*))?$/u.exec(id) ?? [];
-
-	if (claudeLine && claudeVersion) {
-		return { line: `claude-${claudeLine}`, version: claudeVersion.split(/[.-]/u).map(Number) };
-	}
-
-	if (vendor && version) {
-		const variant = line?.replace(/-preview$/u, "") ?? "";
-
-		return { line: `${vendor}-${variant}`, version: version.split(/[.-]/u).map(Number) };
-	}
-
-	return undefined;
-}
-
 function compareVersions(a: number[], b: number[]): number {
 	for (let i = 0; i < Math.max(a.length, b.length); i++) {
 		const difference = (a[i] ?? 0) - (b[i] ?? 0);
@@ -546,7 +528,7 @@ function replacementsFor(eligible: Ranked[]): Map<Offer, string> {
 				other.line === candidate.line &&
 				other.offer.effort === candidate.offer.effort &&
 				compareVersions(other.version, candidate.version) > 0 &&
-				other.cost <= candidate.cost * 1.1 &&
+				other.cost <= candidate.cost * (1.1 + 1e-12) &&
 				other.q >= candidate.q,
 		);
 
@@ -569,6 +551,7 @@ export function pick(catalog: Catalog, kind: string, tier: string, state: State)
 			? scoreEvidence(state.evidence, offer.model, offer.effort, kind, state.nowMs, headroom)
 			: undefined;
 		const useEvidence = evidence !== undefined && evidence.coverage + 1e-12 >= 0.3;
+		// Convert the historical index to the same 0..1 quality scale for mixed rankings.
 		const tableRank = offer.score + offer.bonus + headroom / 1000;
 		const rank = state.evidence
 			? useEvidence
@@ -582,31 +565,13 @@ export function pick(catalog: Catalog, kind: string, tier: string, state: State)
 			source: useEvidence ? "evidence" : "table",
 		};
 
-		return { ...assessed, reasons: offerReasons(offer, pools, state, offers) };
+		const matchesChoice =
+			!state.choice ||
+			(offer.model === state.choice.model &&
+				(!state.choice.effort || offer.effort === state.choice.effort));
+
+		return { ...assessed, matchesChoice, reasons: offerReasons(offer, pools, state, offers) };
 	});
-	const replacements = replacementsFor(judged.filter(({ reasons }) => reasons.length === 0));
-
-	for (const entry of judged) {
-		const { offer, reasons } = entry;
-		const outsideChoice =
-			state.choice &&
-			(offer.model !== state.choice.model ||
-				(state.choice.effort && offer.effort !== state.choice.effort));
-		const replacement = replacements.get(offer);
-
-		if (outsideChoice) {
-			reasons.push("not the caller's choice");
-		}
-
-		if (replacement) {
-			entry.supersededBy = replacement;
-
-			if (outsideChoice || !state.choice?.allowSuperseded) {
-				reasons.push(`superseded by ${replacement}`);
-			}
-		}
-	}
-
 	const order = Object.entries(catalog.tiers).toSorted((a, b) => b[1] - a[1]);
 	const at = order.findIndex(([t]) => t === tier);
 	const tries = [order[at], order[at - 1], order[at + 1]].filter((t) => t !== undefined);
@@ -629,26 +594,45 @@ export function pick(catalog: Catalog, kind: string, tier: string, state: State)
 					const [lo, hi] = band(t);
 
 					return judged.some(
-						(j) => j.reasons.length === 0 && j.offer.score >= lo && j.offer.score < hi,
+						(j) =>
+							j.matchesChoice &&
+							j.reasons.length === 0 &&
+							j.offer.score >= lo &&
+							j.offer.score < hi,
 					);
 				})?.[0];
 	const [lo, hi] = band(chosen ?? tier);
+	const inBand = (offer: Offer) => offer.score >= lo && offer.score < hi;
+	const replacements = replacementsFor(
+		judged.filter(({ offer, reasons }) => reasons.length === 0 && inBand(offer)),
+	);
 	const ranked: Ranked[] = [];
 	const excluded: Pick["excluded"] = [];
 
-	for (const { reasons, ...assessed } of judged) {
+	for (const { reasons, matchesChoice, ...assessed } of judged) {
 		const { offer } = assessed;
-		const inBand = offer.score >= lo && offer.score < hi;
+		const supersededBy = replacements.get(offer);
 
-		if (reasons.length === 0 && inBand) {
+		if (!matchesChoice) {
+			reasons.push("not the caller's choice");
+		}
+
+		if (supersededBy) {
+			assessed.supersededBy = supersededBy;
+
+			if (!matchesChoice || !state.choice?.allowSuperseded) {
+				reasons.push(`superseded by ${supersededBy}`);
+			}
+		}
+
+		if (!inBand(offer)) {
+			reasons.push(`score ${String(offer.score)} outside tier ${chosen ?? tier}`);
+		}
+
+		if (reasons.length === 0) {
 			ranked.push(assessed);
 		} else {
-			excluded.push({
-				...assessed,
-				reasons: inBand
-					? reasons
-					: [...reasons, `score ${String(offer.score)} outside tier ${chosen ?? tier}`],
-			});
+			excluded.push({ ...assessed, reasons });
 		}
 	}
 

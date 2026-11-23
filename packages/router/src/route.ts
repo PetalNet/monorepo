@@ -390,22 +390,24 @@ async function main(argv: string[]): Promise<number> {
 
 	// Parker 2026-11-19 ("I dont care. use the router"): when no other vendor can take the review,
 	// fall back to the router's best different model, never the one that wrote the work.
+	const parent = process.env["ROUTE_PARENT_MODEL"];
+
 	if (
+		parent &&
 		result.ranked.length === 0 &&
 		state.notVendor.length > 0 &&
 		pick(catalog, kind, tier, { ...state, choice: undefined }).ranked.length === 0
 	) {
-		const parent = process.env["ROUTE_PARENT_MODEL"];
-		const fallback = { ...state, notVendor: [], notModel: parent ? [parent] : [] };
-		const retry = parent ? pick(catalog, kind, tier, fallback) : result;
+		const fallback = { ...state, notVendor: [], notModel: [parent] };
+		const alternatives = pick(catalog, kind, tier, { ...fallback, choice: undefined });
 
-		if (retry.ranked.length > 0) {
+		if (alternatives.ranked.length > 0) {
 			process.stdout.write(
-				`no offer outside ${state.notVendor.join(",")}; falling back to the best different model${parent ? ` (excluding ${parent})` : ""}\n`,
+				`no offer outside ${state.notVendor.join(",")}; falling back to the best different model (excluding ${parent})\n`,
 			);
 
 			Object.assign(state, fallback);
-			result = retry;
+			result = state.choice ? pick(catalog, kind, tier, state) : alternatives;
 		}
 	}
 

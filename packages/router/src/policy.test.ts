@@ -251,6 +251,7 @@ it("refuses a superseded CLI run and logs a reproducibility override without byp
 				QUOTA_CLAUDE_USAGE_CMD: "true",
 				ROUTE_NO_INJECT: "1",
 				ROUTE_DEPTH: "0",
+				ROUTE_PARENT_MODEL: "gpt-6.2-astra",
 			},
 		});
 	const target = `${old}:low`;
@@ -261,6 +262,12 @@ it("refuses a superseded CLI run and logs a reproducibility override without byp
 	expect(blocked.status).toBe(3);
 	expect(blocked.stdout).toContain(`superseded by ${replacement}:low`);
 	expect(blocked.stdout).toContain("--allow-superseded");
+
+	const sameVendor = route("run", target, "--not-vendor", "openai", brief);
+
+	expect(sameVendor.status).toBe(3);
+	expect(sameVendor.stdout).toContain("falling back to the best different model");
+	expect(sameVendor.stdout).toContain(`superseded by ${replacement}:low`);
 	await expect(readFile(ledger, "utf8")).rejects.toMatchObject({ code: "ENOENT" });
 
 	const why = route("why", target);

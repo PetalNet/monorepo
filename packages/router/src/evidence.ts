@@ -18,33 +18,48 @@ export interface Evidence {
 	notes: string[];
 }
 
-const ALIASES: Record<string, string> = {
-	"gemini-4-neon": "gemini-4-neon",
-	"gemini-4-hydrogen": "gemini-4-hydrogen",
-	"gemini-4-argon": "gemini-4-argon",
-	"gemini-3-8-flash": "gemini-3.8-flash",
-	"gpt-6-astra": "gpt-6-astra",
-	"gpt-6-sol": "gpt-6-sol",
-	"gpt-6-luna": "gpt-6-luna",
-	"gpt-6-1-sol": "gpt-6.1-sol",
-	"gpt-6-1-terra": "gpt-6.1-terra",
-	"gpt-oss-120b": "gpt-oss-120b",
-	"claude-opus-5-5": "claude-opus-5-5",
-	"claude-sonnet-5-5": "claude-sonnet-5-5",
-	"claude-haiku-5-5": "claude-haiku-5-5",
-	"claude-fable-5-2": "claude-fable-5-2",
+const CLAUDE_ALIASES: Record<string, string> = {
+	opus: "claude-opus-5-5",
+	sonnet: "claude-sonnet-5-5",
+	haiku: "claude-haiku-5-5",
+	fable: "claude-fable-5-2",
 };
 
-export function evidenceKey(model: string, effort: string): { model: string; effort: string } {
-	const aliases: Record<string, string> = {
-		opus: "claude-opus-5-5",
-		sonnet: "claude-sonnet-5-5",
-		haiku: "claude-haiku-5-5",
-		fable: "claude-fable-5-2",
-	};
+/** Canonical evidence identity and the model line used for release comparisons. */
+export function releaseOf(
+	model: string,
+): { model: string; line: string; version: number[] } | undefined {
+	const id = CLAUDE_ALIASES[model] ?? model;
+	const [, claudeLine, claudeVersion] =
+		/^claude-(opus|sonnet|haiku|fable)-(\d+(?:[.-]\d+)*)$/u.exec(id) ?? [];
 
+	if (claudeLine && claudeVersion) {
+		const line = `claude-${claudeLine}`;
+		const parts = claudeVersion.split(/[.-]/u);
+
+		return { model: `${line}-${parts.join("-")}`, line, version: parts.map(Number) };
+	}
+
+	const [, vendor, version, variant] =
+		/^(gpt|gemini)-(\d+(?:[.-]\d+)*)(?:-([a-z][a-z0-9-]*))?$/u.exec(id) ?? [];
+
+	if (vendor && version) {
+		const parts = version.split(/[.-]/u);
+		const line = variant?.replace(/(?:^|-)preview(?:-\d{2}-\d{2})?$/u, "");
+
+		return {
+			model: `${vendor}-${parts.join(".")}${variant ? `-${variant}` : ""}`,
+			line: line ? `${vendor}-${line}` : vendor,
+			version: parts.map(Number),
+		};
+	}
+
+	return undefined;
+}
+
+export function evidenceKey(model: string, effort: string): { model: string; effort: string } {
 	return {
-		model: aliases[model] ?? model,
+		model: releaseOf(model)?.model ?? model,
 		effort: effort === "default" ? (model.startsWith("gpt-") ? "medium" : "max") : effort,
 	};
 }
@@ -102,10 +117,9 @@ export function normalizeAA(raw: unknown): Evidence {
 		const asof = field(record, "fetchedAt") ?? field(raw, "fetchedAt");
 		const model =
 			typeof release === "string"
-				? (ALIASES[release] ??
-					(/^gpt-\d+(?:[.-]\d+)?-[a-z][a-z0-9-]*$/u.test(release)
-						? release.replace(/^(gpt-\d+)-(\d+)-/u, "$1.$2-")
-						: undefined))
+				? release === "gpt-oss-120b"
+					? release
+					: releaseOf(release)?.model
 				: undefined;
 
 		if (
