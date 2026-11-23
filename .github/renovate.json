@@ -53,6 +53,12 @@
 			"allowedVersions": "<0.41"
 		},
 		{
+			"description": "`flutter: sdk: flutter` is the SDK, not a pub.dev package. Renovate skips flutter_test and the other SDK packages but still looks this one up, which fails and adds the lookup-failure warning to the dashboard.",
+			"matchManagers": ["pub"],
+			"matchPackageNames": ["flutter"],
+			"enabled": false
+		},
+		{
 			"description": "The Dart package, the Rust crate and the generated bindings (apps/point/app/rust/src/frb_generated.rs) must be one version, and Renovate does not regenerate the bindings. Bump together and run flutter_rust_bridge_codegen on the branch before merging.",
 			"matchPackageNames": ["flutter_rust_bridge"],
 			"groupName": "flutter_rust_bridge",
