@@ -7,10 +7,10 @@ import { fileURLToPath } from "node:url";
 
 import { afterEach, expect, it, vi } from "vitest";
 
+import { testAdapter } from "../test/adapter.ts";
 import { hasCredentials, launch, redact } from "./adapters.ts";
 import { offersFrom, pick, POOLS, type Catalog, type State } from "./pick.ts";
 import { effectiveDataClass } from "./route.ts";
-import { testAdapter } from "./test-adapter.ts";
 
 const dirs: string[] = [];
 

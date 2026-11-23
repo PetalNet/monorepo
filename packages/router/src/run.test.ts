@@ -4,6 +4,7 @@ import path from "node:path";
 
 import { afterEach, expect, it, vi } from "vitest";
 
+import { testAdapter } from "../test/adapter.ts";
 import { classify, execute, launch, redact, resetTime } from "./adapters.ts";
 import { POOLS, offersFrom, pick, type State, type Catalog } from "./pick.ts";
 import { run } from "./run.ts";
@@ -15,7 +16,6 @@ import {
 	validateLedger,
 } from "./state.ts";
 import { readCodexSession } from "./telemetry.ts";
-import { testAdapter } from "./test-adapter.ts";
 
 const dirs: string[] = [];
 

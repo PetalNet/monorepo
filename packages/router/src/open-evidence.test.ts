@@ -4,6 +4,7 @@ import path from "node:path";
 
 import { expect, it, vi } from "vitest";
 
+import { testAdapter } from "../test/adapter.ts";
 import { launch } from "./adapters.ts";
 import {
 	halfLifeDays,
@@ -14,7 +15,6 @@ import {
 } from "./evidence.ts";
 import { normalizeOpenEvidence, readOpenEvidence } from "./open-evidence.ts";
 import { pick, POOLS, type State } from "./pick.ts";
-import { testAdapter } from "./test-adapter.ts";
 
 const now = Date.parse("2026-11-19T00:00:00Z");
 const row = (signal: string, effort = "max", value = 1): EvidenceRow => ({

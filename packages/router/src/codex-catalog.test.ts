@@ -4,6 +4,7 @@ import path from "node:path";
 
 import { afterEach, describe, expect, it, vi } from "vitest";
 
+import { testAdapter } from "../test/adapter.ts";
 import { launch } from "./adapters.ts";
 import {
 	checkCodexAlerts,
@@ -17,7 +18,6 @@ import {
 import { normalizeAA } from "./evidence.ts";
 import { offersFrom, pick, POOLS, type Catalog, type State } from "./pick.ts";
 import { formatMenu } from "./route.ts";
-import { testAdapter } from "./test-adapter.ts";
 
 const dirs: string[] = [];
 

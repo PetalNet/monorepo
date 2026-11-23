@@ -4,10 +4,10 @@ import path from "node:path";
 
 import { afterEach, expect, it, vi } from "vitest";
 
+import { testAdapter } from "../test/adapter.ts";
 import { launch } from "./adapters.ts";
 import { CODEX_EFFORTS, supportedEfforts } from "./effort.ts";
 import { POOLS, type Offer } from "./pick.ts";
-import { testAdapter } from "./test-adapter.ts";
 
 const dirs: string[] = [];
 
