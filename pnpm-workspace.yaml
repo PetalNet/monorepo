@@ -209,10 +209,10 @@ catalog:
   effect-qb: 0.24.2
   mode-watcher: ^1.1.0
   "@effect/tsgo": 0.70.0
-  storybook: 10.6.7
-  "@storybook/svelte-vite": 10.6.7
-  "@storybook/addon-a11y": 10.6.7
-  "@storybook/addon-docs": 10.6.7
+  storybook: 10.6.8
+  "@storybook/svelte-vite": 10.6.8
+  "@storybook/addon-a11y": 10.6.8
+  "@storybook/addon-docs": 10.6.8
   jose: ^6.2.5
   "@modelcontextprotocol/client": 2.4.0
   "@better-auth/mcp": 1.7.25
