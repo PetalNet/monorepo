@@ -129,6 +129,11 @@
 			"allowedVersions": "<4.1"
 		},
 		{
+			"description": "@effect/tsgo 0.73 requires the newer tsrs version series. Lift this cap when tsrs and @effect/tsgo can move together.",
+			"matchPackageNames": ["@effect/tsgo"],
+			"allowedVersions": "<=0.70.0"
+		},
+		{
 			"description": "adapter-node 6 peers on SvelteKit 3 and 5.x peers on Kit 2, so neither can move alone (#561/#643 had to be one change).",
 			"matchPackageNames": ["@sveltejs/kit", "@sveltejs/adapter-node"],
 			"groupName": "sveltekit"
