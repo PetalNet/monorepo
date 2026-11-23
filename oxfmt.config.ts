@@ -12,6 +12,7 @@ export default {
 		"apps/point/docs/design/**",
 		// Tasks' vendored assets stay byte-faithful.
 		"apps/tasks/static/vendor/**",
+		"apps/clarity/static/numbat/pkg/**",
 		// Preserve upstream decoder bytes and license notices.
 		"apps/relics/static/creatures/draco/**",
 	],
