@@ -76,6 +76,10 @@ rec {
     substituteInPlace "$out/bin/unfold" \
       --replace-fail 'exec python3 ' 'exec ${pkgs.python3}/bin/python3 ' \
       --replace-fail '$(dirname ' '$(${pkgs.coreutils}/bin/dirname '
+    substituteInPlace "$out/bin/embed-setup" \
+      --replace-fail 'python3 -m venv' '${pkgs.python3}/bin/python3 -m venv' \
+      --replace-fail 'mkdir -p' '${pkgs.coreutils}/bin/mkdir -p'
+    printf '%s\n' '${builtins.toJSON [ "${vault-scan}/bin/vault-scan" ]}' > "$out/bin/scanner-argv.json"
   '';
 
   harness-guards = nodeScripts {
@@ -111,6 +115,7 @@ rec {
 
   promise-ledger = nodeScripts {
     name = "promise-ledger";
+    runtimeInputs = [ vault-client ];
     files = promiseFiles ++ [ (hooks + "/promise.ts") ];
     commands.promise = "packages/harness-hooks/src/promise.ts";
   };
@@ -156,6 +161,7 @@ rec {
 
   astrolabe-quota = nodeScripts {
     name = "astrolabe-quota";
+    runtimeInputs = [ pkgs.openssh ];
     files = [
       (hooks + "/quota.ts")
       (hooks + "/quota-sources.ts")

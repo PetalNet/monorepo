@@ -34,7 +34,13 @@
     in
     {
       packages = forAllSystems (pkgs: _: import ./nix/janet-packages.nix pkgs);
-      checks = self.packages;
+      checks = forAllSystems (
+        pkgs: _:
+        let
+          packages = self.packages.${pkgs.stdenv.hostPlatform.system};
+        in
+        packages // { fold-retrieval = import ./nix/fold-retrieval-check.nix pkgs packages.fold-cards; }
+      );
 
       devShells = forAllSystems (
         pkgs: pkgs-prisma5:
