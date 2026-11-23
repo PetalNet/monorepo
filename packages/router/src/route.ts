@@ -147,6 +147,7 @@ async function launch(argv: string[]): Promise<number> {
 
 		const dataClass = effectiveDataClass(flagClass, task);
 		const allowClaude = values["allow-claude"] === true;
+
 		if (dataClass !== flagClass) {
 			report(`class raised to ${dataClass} by the brief`);
 		}

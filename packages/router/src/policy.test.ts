@@ -304,6 +304,7 @@ it.each([
 	});
 
 	expect(result.status).toBe(code);
+
 	if (code === 5) {
 		expect(result.stdout).toContain("Claude handoff:");
 		expect(result.stdout).toContain("selected opus:high");
