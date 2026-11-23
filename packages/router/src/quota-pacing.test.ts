@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 
+import { readLedger } from "./quota-pacing-command.ts";
 import {
 	burnKey,
 	estimateBurn,
@@ -87,9 +88,10 @@ describe("quota pacing", () => {
 	});
 
 	it("obeys effective host and plan capacity across competing pools", () => {
-		expect(hostSlots(2_499, 20_000)).toBe(0);
-		expect(hostSlots(10_000, 7_999)).toBe(0);
-		expect(hostSlots(8_644, 8_000)).toBe(2);
+		expect(hostSlots(2_499, 20_000, 0)).toBe(0);
+		expect(hostSlots(10_000, 7_999, 0)).toBe(0);
+		expect(hostSlots(8_644, 8_000, 0)).toBe(2);
+		expect(hostSlots(13_600, 8_000, 4)).toBe(0);
 		expect(recommend({ ...context, slots: 4, candidates: [gemini, argonBuilder] })).toHaveLength(2);
 		expect(recommend({ ...context, slots: 0 })).toEqual([]);
 	});
@@ -100,6 +102,55 @@ describe("quota pacing", () => {
 		expect(
 			recommend({ ...context, candidates: [{ ...gemini, windows: [window(weekly, 16, -0.01)] }] }),
 		).toEqual([]);
+	});
+
+	it("starts an idle short clock with one affordable builder", () => {
+		const idle = { ...window(short, 0, 5), idle: true as const };
+		const first = { ...gemini, windows: [window(weekly, 75, 12), idle] };
+		const idleBurns = new Map(burns).set(burnKey(model, short), { ...burn, perRun: 19.5 });
+
+		expect(recommend({ ...context, candidates: [first], burns: idleBurns })).toEqual([first]);
+
+		expect(
+			recommend({ ...context, candidates: [first], burns: idleBurns, active: [other] }),
+		).toEqual([]);
+
+		const skewed = { ...first, windows: [window(weekly, 0, 168), window(short, 0, 5.001)] };
+
+		expect(recommend({ ...context, candidates: [skewed], burns: idleBurns })).toEqual([skewed]);
+	});
+
+	it("chooses the first affordable ranked model for a pool", () => {
+		const cheaper = { ...gemini, model: "cheaper" };
+		const bothRates = new Map(burns)
+			.set(burnKey(cheaper, weekly), { ...burn, perRun: 1 })
+			.set(burnKey(cheaper, short), { ...burn, perRun: 1 });
+
+		expect(
+			recommend({ ...context, slots: 1, candidates: [gemini, cheaper], burns: bothRates }),
+		).toEqual([gemini]);
+	});
+
+	it("reconciles zero-duration and killed attempts against live router processes", () => {
+		const startedAt = now - HOUR_MS;
+		const common = { ...model, attempt: 1, startedAt, event: "launch" };
+		const done = { ...common, runId: "done", routePid: 20 };
+		const legacy = { ...common, runId: "legacy", briefName: "queued-work" };
+		const killed = { ...common, runId: "killed", routePid: 30 };
+
+		expect(
+			readLedger(
+				[done, legacy, killed, { ...done, event: "outcome", endedAt: startedAt }],
+				now,
+				new Map([
+					[20, ["gemini-4-neon:medium"]],
+					[40, ["gemini-4-neon:medium", "/tmp/queued-work.md"]],
+				]),
+			),
+		).toEqual({
+			runs: [],
+			active: [{ ...model, start: startedAt, end: now + HOUR_MS, running: true }],
+		});
 	});
 
 	it("paces through the weekly reset while short windows refill", () => {

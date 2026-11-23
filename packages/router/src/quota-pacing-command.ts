@@ -1,4 +1,4 @@
-import { readFile, rename, statfs, writeFile } from "node:fs/promises";
+import { readFile, readdir, rename, statfs, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -43,6 +43,34 @@ function record(value: unknown): Record<string, unknown> {
 		: {};
 }
 
+function parseJson(text: string): unknown {
+	try {
+		return JSON.parse(text);
+	} catch {
+		return undefined;
+	}
+}
+
+async function liveRouterProcesses(): Promise<Map<number, string[]>> {
+	const directories = await readdir("/proc");
+	const processes = await Promise.all(
+		directories
+			.filter((entry) => /^\d+$/u.test(entry))
+			.map(async (pid) => {
+				const command = await readFile(`/proc/${pid}/cmdline`, "utf8").catch(() => "");
+				const args = command.split("\0").filter(Boolean);
+
+				const entry = args.findIndex((arg) => arg.endsWith("/route.ts"));
+
+				return entry > 0 && args[entry + 1] === "run"
+					? [[Number(pid), args.slice(entry + 2)] as const]
+					: [];
+			}),
+	);
+
+	return new Map(processes.flat());
+}
+
 async function jsonLines(file: string): Promise<unknown[]> {
 	const body = await readFile(file, "utf8").catch((error: unknown) => {
 		if (!(error instanceof Error && "code" in error && error.code === "ENOENT")) {
@@ -52,24 +80,20 @@ async function jsonLines(file: string): Promise<unknown[]> {
 		return "";
 	});
 
-	return body.split("\n").flatMap((line) => {
-		try {
-			const row: unknown = JSON.parse(line);
-
-			return [row];
-		} catch {
-			// A historical corrupt row or a partial last line is never a quota observation.
-			return [];
-		}
-	});
+	return body.split("\n").map(parseJson);
 }
 
-function readLedger(rows: unknown[], now: number): { runs: Run[]; active: Run[] } {
+export function readLedger(
+	rows: unknown[],
+	now: number,
+	processes: ReadonlyMap<number, string[]>,
+): { runs: Run[]; active: Run[] } {
 	const runs: Run[] = [];
 	const active = new Map<string, Run>();
 
 	for (const value of rows) {
-		const { pool, model, effort, startedAt, endedAt, event, runId, attempt } = record(value);
+		const { pool, model, effort, startedAt, endedAt, event, runId, attempt, routePid, briefName } =
+			record(value);
 
 		if (
 			typeof pool !== "string" ||
@@ -85,14 +109,33 @@ function readLedger(rows: unknown[], now: number): { runs: Run[]; active: Run[] 
 		const key = JSON.stringify([runId, attempt, startedAt]);
 		const run = { pool, model, effort, start: startedAt };
 
-		if (event === "launch" && startedAt <= now && now - startedAt < 6 * HOUR_MS) {
-			active.set(key, { ...run, end: now + HOUR_MS, running: true });
+		if (event === "launch" && startedAt <= now) {
+			const live =
+				typeof routePid === "number"
+					? processes.has(routePid)
+					: Array.from(processes.values()).some(
+							([offer, ...args]) =>
+								typeof briefName === "string" &&
+								briefName !== "" &&
+								(offer === model ||
+									offer === `${model}-${effort}` ||
+									offer?.startsWith(`${model}:`) === true) &&
+								(args.includes("-") ||
+									args.some(
+										(arg) =>
+											path.basename(arg, ".md") === briefName || arg.trim().startsWith(briefName),
+									)),
+						);
+
+			if (live || now - startedAt < 60_000) {
+				active.set(key, { ...run, end: now + HOUR_MS, running: true });
+			}
 		}
 
-		if (event === "outcome" && typeof endedAt === "number" && endedAt > startedAt) {
+		if (event === "outcome") {
 			active.delete(key);
 
-			if (endedAt >= now - KEEP_MS) {
+			if (typeof endedAt === "number" && endedAt > startedAt && endedAt >= now - KEEP_MS) {
 				runs.push({ ...run, end: endedAt });
 			}
 		}
@@ -131,7 +174,7 @@ export async function readPacingCodex(): Promise<ServiceReport> {
 		[script, "--json", "--live-only"],
 		25_000,
 	);
-	const raw: unknown = answer.code === 0 ? JSON.parse(answer.stdout) : {};
+	const raw = answer.code === 0 ? parseJson(answer.stdout) : undefined;
 	const reading = record(raw);
 	const {
 		scraped_at: scrapedAt,
@@ -158,7 +201,8 @@ export async function readPacingCodex(): Promise<ServiceReport> {
 				id: `codex:${window}`,
 				label: `Codex ${window}`,
 				usedPct,
-				resetAtMs: typeof reset === "number" ? reset * 1_000 : undefined,
+				resetAtMs: typeof reset === "number" && reset > 0 ? reset * 1_000 : undefined,
+				idle: usedPct === 0 && (reset === null || reset === 0) ? true : undefined,
 			});
 		}
 	}
@@ -201,8 +245,14 @@ function buildCandidates(
 		const windows = required.flatMap((id) => {
 			const limit = report.limits.find((entry) => entry.id === id);
 
+			const duration = windowDuration(id);
+
+			if (limit?.idle || report.idleLimits?.includes(id)) {
+				return [{ id, usedPct: 0, resetAt: now + duration, duration, idle: true as const }];
+			}
+
 			return limit?.resetAtMs
-				? [{ id, usedPct: limit.usedPct, resetAt: limit.resetAtMs, duration: windowDuration(id) }]
+				? [{ id, usedPct: limit.usedPct, resetAt: limit.resetAtMs, duration }]
 				: [];
 		});
 
@@ -228,14 +278,16 @@ export async function pace(
 					{
 						at,
 						scope,
-						limits: report.limits.filter((limit) => limit.resetAtMs && limit.resetAtMs > now),
+						limits: report.limits.filter(
+							(limit) => !limit.idle && limit.resetAtMs && limit.resetAtMs > now,
+						),
 					},
 				]
 			: [];
 	});
 	const file = path.join(dir, "pacing-readings.jsonl");
 	const candidates = buildCandidates(result, reports, now);
-	const [history, ledger, memory, disk] = await Promise.all([
+	const [history, ledger, memory, disk, processes] = await Promise.all([
 		locked(dir, async () => {
 			const previous = (await jsonLines(file)).flatMap(decodeReading);
 			const readings = previous.filter((r) => r.at >= now - KEEP_MS);
@@ -260,8 +312,9 @@ export async function pace(
 		jsonLines(path.join(dir, "ledger.jsonl")),
 		readFile("/proc/meminfo", "utf8"),
 		statfs("/"),
+		liveRouterProcesses(),
 	]);
-	const { active, runs } = readLedger(ledger, now);
+	const { active, runs } = readLedger(ledger, now, processes);
 	const scopes = new Set(current.map((reading) => reading.scope));
 	const burns = estimateBurn(
 		history.filter((reading) => reading.scope && scopes.has(reading.scope)),
@@ -286,10 +339,14 @@ export async function pace(
 		}
 	}
 
-	const slots = hostSlots(
-		Number(/^MemAvailable:\s+(\d+)/mu.exec(memory)?.[1] ?? 0) / 1024,
-		(disk.bsize * disk.bavail) / 1024 ** 2,
-	);
+	const slots =
+		processes.size > active.length
+			? 0
+			: hostSlots(
+					Number(/^MemAvailable:\s+(\d+)/mu.exec(memory)?.[1] ?? 0) / 1024,
+					(disk.bsize * disk.bavail) / 1024 ** 2,
+					Math.max(active.length, processes.size),
+				);
 	const selected = recommend({
 		now,
 		slots,
@@ -315,12 +372,14 @@ export async function pace(
 	);
 	const status = REPORT_PLANS.map((plan) => {
 		const report = reports[plan];
-		const windows = report?.limits.map(
-			({ id, usedPct, resetAtMs }) =>
-				`${id} ${String(usedPct)}% used, reset ${resetAtMs ? new Date(resetAtMs).toISOString() : "unknown"}`,
+		const windows = (report?.limits ?? []).map(
+			({ id, usedPct, resetAtMs, idle }) =>
+				`${id} ${String(usedPct)}% used, reset ${idle ? "starts with use" : resetAtMs ? new Date(resetAtMs).toISOString() : "unknown"}`,
 		);
 
-		return `${plan} ${windows?.length ? windows.join(" / ") : "quota unavailable"}`;
+		windows.push(...(report?.idleLimits ?? []).map((id) => `${id} idle, starts with use`));
+
+		return `${plan} ${windows.length > 0 ? windows.join(" / ") : "quota unavailable"}`;
 	});
 
 	return [

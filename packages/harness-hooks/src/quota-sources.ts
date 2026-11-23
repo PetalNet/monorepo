@@ -28,6 +28,8 @@ export interface QuotaLimit {
 	usedPct: number;
 	/** Identifier of the current reset window; absent when reset metadata is unavailable. */
 	windowId?: string | undefined;
+	/** An inactive clock that starts on the next work request. */
+	idle?: true | undefined;
 	/** Parsed reset time in epoch milliseconds when available. */
 	resetAtMs?: number | undefined;
 	/** Short human-readable reset time. */
@@ -43,6 +45,7 @@ export interface ServiceReport {
 	limits: QuotaLimit[];
 	observedAtMs?: number | undefined;
 	inactiveLimits?: string[] | undefined;
+	idleLimits?: string[] | undefined;
 	error?: string | undefined;
 }
 
@@ -470,7 +473,7 @@ export function parseClaudeUsageJson(text: string, nowMs: number, timeZone: stri
 		summary: parts.join(" · "),
 		limits,
 		observedAtMs: scrapedSec === undefined ? undefined : scrapedSec * 1_000,
-		inactiveLimits: fivePct === 0 && fiveResetMs === undefined ? ["claude:5h"] : [],
+		idleLimits: fivePct === 0 && fiveResetMs === undefined ? ["claude:5h"] : [],
 	};
 }
 
@@ -656,6 +659,13 @@ export function parseAgyQuota(
 			windowId,
 			resetAtMs,
 			resetLabel,
+			idle:
+				usedPct === 0 &&
+				windowTag === "5h" &&
+				resetAtMs !== undefined &&
+				Math.abs(resetAtMs - nowMs - 5 * 60 * 60_000) <= 30_000
+					? true
+					: undefined,
 			detail: `${fmtPct(remainingPct)}% remaining`,
 		});
 

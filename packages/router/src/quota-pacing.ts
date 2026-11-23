@@ -2,6 +2,10 @@ import type { QuotaLimit } from "@petalnet/harness-hooks/quota-sources";
 
 export const HOUR_MS = 3_600_000;
 export const CHECK_INTERVAL_MS = HOUR_MS / 4;
+const RESET_SKEW_MS = 30_000;
+const MIN_SAMPLE_MS = 5 * 60_000;
+const TARGET_PCT = 97;
+const EMPTY_WINDOW_LIMIT_PCT = 25;
 
 export interface Reading {
 	at: number;
@@ -56,16 +60,25 @@ export function estimateBurn(
 		for (const limit of limits) {
 			const before = previous.get(limit.id);
 
+			if (
+				before &&
+				at - before.at < MIN_SAMPLE_MS &&
+				limit.resetAtMs === before.limit.resetAtMs &&
+				limit.usedPct >= before.limit.usedPct
+			) {
+				continue;
+			}
+
 			previous.set(limit.id, { limit, at });
 
 			if (
 				!before ||
-				at <= before.at ||
+				at - before.at < MIN_SAMPLE_MS ||
 				at - before.at > HOUR_MS ||
 				!limit.resetAtMs ||
 				at >= limit.resetAtMs ||
 				!before.limit.resetAtMs ||
-				Math.abs(limit.resetAtMs - before.limit.resetAtMs) > 30_000 ||
+				Math.abs(limit.resetAtMs - before.limit.resetAtMs) > RESET_SKEW_MS ||
 				limit.usedPct < before.limit.usedPct ||
 				limit.usedPct >= 100
 			) {
@@ -96,7 +109,7 @@ export function estimateBurn(
 			const totalHours = Array.from(work.values()).reduce((sum, value) => sum + value.hours, 0);
 
 			for (const [key, exposure] of work) {
-				if (exposure.hours >= totalHours * 0.6) {
+				if (exposure.hours >= Math.max(1 / 60, totalHours * 0.6) && exposure.runs >= 0.5) {
 					const observations = series.get(key) ?? [];
 
 					observations.push({ spend: limit.usedPct - before.limit.usedPct, ...exposure });
@@ -152,6 +165,7 @@ export interface Window {
 	id: string;
 	usedPct: number;
 	resetAt: number;
+	idle?: true;
 	duration: number;
 }
 
@@ -176,8 +190,10 @@ function cost(burn: Burn): number {
 	return Math.max(1, burn.perRun, burn.perHour * burn.hoursPerRun);
 }
 
-export function hostSlots(availableMiB: number, diskMiB: number): number {
-	return diskMiB < 8_000 ? 0 : Math.max(0, Math.floor((availableMiB - 2_500) / 3_072));
+export function hostSlots(availableMiB: number, diskMiB: number, activeBuilders: number): number {
+	return diskMiB < 8_000
+		? 0
+		: Math.max(0, Math.floor((availableMiB - 2_500) / 3_072) - activeBuilders);
 }
 
 export function recommend(input: PaceInput): Candidate[] {
@@ -187,8 +203,13 @@ export function recommend(input: PaceInput): Candidate[] {
 
 	for (let slot = 0; slot < slots; slot++) {
 		let best: { candidate: Candidate; priority: number } | undefined;
+		const eligiblePools = new Set<string>();
 
 		for (const candidate of candidates) {
+			if (eligiblePools.has(candidate.pool)) {
+				continue;
+			}
+
 			const active = committed.filter((run) => poolProviders.get(run.pool) === candidate.provider);
 			const cap = providerCaps.get(candidate.provider) ?? 0;
 
@@ -199,9 +220,10 @@ export function recommend(input: PaceInput): Candidate[] {
 			let priority = 0;
 			const fits = candidate.windows.every((window) => {
 				const burn = burns.get(burnKey(candidate, window.id));
-				const remaining = window.resetAt - now;
+				const untilReset = window.idle ? window.duration : window.resetAt - now;
+				const remaining = Math.min(untilReset, window.duration);
 
-				if (!burn || remaining <= 0 || remaining > window.duration) {
+				if (!burn || remaining <= 0 || untilReset > window.duration + RESET_SKEW_MS) {
 					return false;
 				}
 
@@ -217,20 +239,26 @@ export function recommend(input: PaceInput): Candidate[] {
 				// The next decision controls another launch, while this run can outlast that decision.
 				const horizon = Math.max(CHECK_INTERVAL_MS, burn.hoursPerRun * HOUR_MS);
 				const elapsed = window.duration - remaining;
-				const target = 97 * Math.min(1, (elapsed + horizon) / window.duration);
-				const projected = window.usedPct + reserved + ownCost;
+				const target = TARGET_PCT * Math.min(1, (elapsed + horizon) / window.duration);
+				const startup = window.usedPct === 0 && reserved === 0 && ownCost <= EMPTY_WINDOW_LIMIT_PCT;
 
-				if (projected > Math.min(98, target)) {
+				if (!startup && (window.idle || window.usedPct + reserved + ownCost > target)) {
 					return false;
 				}
 
-				priority += (target - projected) / Math.max(remaining / HOUR_MS, 0.25);
+				if (window.duration > 5 * HOUR_MS) {
+					priority += Math.max(0, TARGET_PCT - window.usedPct - reserved) / (remaining / HOUR_MS);
+				}
 
 				return true;
 			});
 
-			if (fits && (!best || priority > best.priority)) {
-				best = { candidate, priority };
+			if (fits) {
+				eligiblePools.add(candidate.pool);
+
+				if (!best || priority > best.priority) {
+					best = { candidate, priority };
+				}
 			}
 		}
 

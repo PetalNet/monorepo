@@ -1,12 +1,12 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-recommendations=$("$(dirname "$(readlink -f "$0")")/quota-pace" --class public)
+recommendations=$("${QUOTA_PACE:-${BASH_SOURCE[0]%/*}/quota-pace}" --class public)
 printf '%s\n' "$recommendations"
 launches=$(awk '/^launch /' <<< "$recommendations")
 if [[ -n "$launches" ]]; then
   {
     printf '%s\n' 'Recheck with quota-pace before each launch. Use FLOOR=2 route-unit for eligible queued work up to the recommended counts. Skip work already running.'
     printf '%s\n' "$launches"
-  } | "$HERMES_HOME/plugins/hermes-cc-link/bin/cc-link-inject" --source=quota-pacer
+  } | "${HERMES_HOME:-$HOME/.hermes-janet}/plugins/hermes-cc-link/bin/cc-link-inject" --source=quota-pacer
 fi

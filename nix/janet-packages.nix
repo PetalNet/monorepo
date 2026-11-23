@@ -178,7 +178,7 @@ rec {
 
   quota-pacer = nodeScripts {
     name = "quota-pacer";
-    runtimeInputs = [ pkgs.util-linux ];
+    runtimeInputs = [ pkgs.bash pkgs.coreutils pkgs.util-linux ];
     files = [
       (router + "/src")
       (router + "/package.json")
@@ -192,8 +192,10 @@ rec {
     extraInstall = ''
       mkdir -p "$out/lib/node_modules/@petalnet"
       ln -s ../../packages/harness-hooks "$out/lib/node_modules/@petalnet/harness-hooks"
-      install -Dm755 "$out/lib/packages/router/bin/quota-pace-reminder" "$out/bin/quota-pace-reminder"
-      patchShebangs "$out/bin/quota-pace-reminder"
+      patchShebangs "$out/lib/packages/router/bin/quota-pace-reminder"
+      makeWrapper "$out/lib/packages/router/bin/quota-pace-reminder" "$out/bin/quota-pace-reminder" \
+        --set QUOTA_PACE "$out/bin/quota-pace" \
+        --prefix PATH : ${pkgs.lib.makeBinPath [ pkgs.coreutils pkgs.gawk ]}
     '';
   };
 
