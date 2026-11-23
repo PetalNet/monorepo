@@ -185,7 +185,7 @@ rec {
       (router + "/src")
       (router + "/package.json")
       (router + "/bin/quota-pace-reminder")
-      (hooks + "/quota-sources.ts")
+      hooks
       ../packages/harness-hooks/package.json
       (feed + "/codex-usage.ts")
       ../apps/astrolabe/src/lib/format.ts
@@ -198,6 +198,15 @@ rec {
       makeWrapper "$out/lib/packages/router/bin/quota-pace-reminder" "$out/bin/quota-pace-reminder" \
         --set QUOTA_PACE "$out/bin/quota-pace" \
         --prefix PATH : ${pkgs.lib.makeBinPath [ pkgs.coreutils pkgs.gawk ]}
+
+      # Load the packaged module graph without contacting a provider.
+      status=0
+      ${pkgs.nodejs_22}/bin/node "$out/lib/packages/router/src/route.ts" pace unexpected \
+        > "$TMPDIR/quota-pacer-smoke.log" 2>&1 || status=$?
+      if [ "$status" -ne 2 ]; then
+        cat "$TMPDIR/quota-pacer-smoke.log"
+        exit 1
+      fi
     '';
   };
 
