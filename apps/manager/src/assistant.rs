@@ -501,7 +501,7 @@ mod tests {
         std::fs::write(
             &claude,
             format!(
-                "#!/bin/sh\nprintf '%s\\n' \"$*\" >> '{}'\nprintf '%s' '{{\"result\":\"manager reply\",\"tool_results\":[]}}'\n",
+                "#!/bin/sh\ncat >/dev/null || exit 1\nprintf '%s\\n' \"$*\" >> '{}'\nprintf '%s' '{{\"result\":\"manager reply\",\"tool_results\":[]}}'\n",
                 calls.display()
             ),
         )
