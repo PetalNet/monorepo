@@ -3,7 +3,7 @@ name = "janet-dictate"
 version = "0.1.0"
 description = "Live Parakeet dictation over Kõnele's WebSocket protocol"
 requires-python = ">=3.12"
-dependencies = ["janet-turn", "websockets>=15,<17"]
+dependencies = ["janet-turn", "websockets>=17,<18"]
 
 [build-system]
 requires = ["setuptools>=68"]
