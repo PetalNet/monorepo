@@ -40,6 +40,8 @@
 		"!tools/.turbo/**",
 		"!tools/coverage/**",
 		"packages/**",
+		"!packages/janet-line/**",
+		"!packages/janet-turn/**",
 		"!packages/**/node_modules/**",
 		"!packages/**/dist/**",
 		"!packages/**/.turbo/**",
@@ -98,9 +100,11 @@
 			]
 		},
 		"courier-googlechat#test": {
+			"cache": false,
 			"command": ["uv", "run", "--locked", "bash", "test.sh"]
 		},
 		"janet-dictation-model#test": {
+			"cache": false,
 			"command": [
 				"uv",
 				"run",
