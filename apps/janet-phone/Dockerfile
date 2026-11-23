@@ -19,7 +19,8 @@ ENV UV_PROJECT_ENVIRONMENT=/opt/venv UV_PYTHON_DOWNLOADS=never UV_NO_CACHE=1 UV_
 RUN --mount=type=bind,target=/workspace,rw \
     uv sync --project /workspace --locked --package janet-phone --no-editable --no-dev
 WORKDIR /app
-# Keep the script paths used by the ring launcher and the Matrix notifier.
-COPY apps/janet-phone/janet_phone.py apps/janet-phone/matrix_notice.py ./
+# Device management and installed ring launchers still invoke this script path.
+COPY apps/janet-phone/container_launcher.py ./janet_phone.py
+COPY apps/janet-phone/matrix_notice.py ./
 USER 1000
 ENTRYPOINT ["/opt/venv/bin/janet-phone"]
