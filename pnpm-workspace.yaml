@@ -196,7 +196,7 @@ catalog:
   csv-parse: 7.0.3
   ipaddr.js: 2.5.0
   playwright: 1.65.1
-  robots-parser: 3.0.1
+  robots-parser: 3.1.0
   "@better-auth/core": 1.7.27
   "@better-auth/test-utils": 1.7.27
   "@sveltejs/adapter-node": ^6.0.1
