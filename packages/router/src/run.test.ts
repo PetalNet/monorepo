@@ -4,10 +4,18 @@ import path from "node:path";
 
 import { afterEach, expect, it, vi } from "vitest";
 
+import { testAdapter } from "../test/adapter.ts";
 import { classify, execute, launch, redact, resetTime } from "./adapters.ts";
 import { POOLS, offersFrom, pick, type State, type Catalog } from "./pick.ts";
 import { run } from "./run.ts";
-import { markUnavailable, readAvailability, seedLedger } from "./state.ts";
+import {
+	appendEvent,
+	markUnavailable,
+	readAvailability,
+	seedLedger,
+	validateLedger,
+} from "./state.ts";
+import { readCodexSession } from "./telemetry.ts";
 
 const dirs: string[] = [];
 
@@ -294,7 +302,7 @@ it("passes agy slug in argv and codex brief on stdin through fake executable ada
 
 	for (const name of ["agy", "codex"]) {
 		// oxlint-disable-next-line no-await-in-loop -- Create executables before changing PATH.
-		await writeFile(path.join(options.dir, name), '#!/bin/sh\nprintf "%s\\n" "$@"\ncat\n', {
+		await writeFile(path.join(options.dir, name), testAdapter, {
 			mode: 0o700,
 		});
 	}
@@ -320,10 +328,214 @@ it("passes agy slug in argv and codex brief on stdin through fake executable ada
 			if (offer.provider === "gemini") {
 				expect(result.out).toContain(offer.id);
 			}
+
+			expect(result.telemetry).toMatchObject({
+				nativeSessionId: offer.provider === "codex" ? "codex-id" : "agy-id",
+				usage: { inputTokens: 40, cachedInputTokens: 10, outputTokens: 20, reasoningTokens: 4 },
+				cost: { charge: null, apiEquivalent: null, planOpportunity: null },
+			});
 		}
 	} finally {
 		process.env["PATH"] = originalPath;
 	}
+});
+
+it("records distinct sessions, paired snapshots and provenance for reused briefs", async () => {
+	const options = await fixture();
+	let quotaReads = 0;
+	let launches = 0;
+	const metered: State = {
+		...state,
+		choice: { model: "gpt-test" },
+		pools: POOLS,
+		reports: { codex: { service: "codex", status: "ok", summary: "", limits: [] } },
+	};
+	const args = {
+		...options,
+		state: metered,
+		promiseId: 17,
+		sourceKind: "human" as const,
+		readQuota: () =>
+			Promise.resolve({
+				service: "codex" as const,
+				status: "ok" as const,
+				summary: "",
+				limits: [{ id: "codex:5h", label: "", usedPct: ++quotaReads }],
+			}),
+		launch: () => ({
+			code: 0,
+			out: "checked",
+			log: "",
+			telemetry: {
+				nativeSessionId: `session-${String(++launches)}`,
+				respondingModel: "gpt-observed",
+				usage: null,
+				cost: { charge: null, apiEquivalent: null, planOpportunity: null },
+			},
+		}),
+	};
+	const first = await run(args);
+	const second = await run(args);
+	const outcomes = (await events(options.dir)).filter((r) => r["event"] === "outcome");
+
+	expect(outcomes).toMatchObject([
+		{
+			runId: first.runId,
+			attempt: 1,
+			nativeSessionId: "session-1",
+			respondingModel: "gpt-observed",
+			sourceKind: "human",
+			acceptanceRef: "promise:17",
+			artifactRevision: null,
+			quotaBefore: { windows: [{ usedPct: 1 }] },
+			quotaAfter: { windows: [{ usedPct: 2 }] },
+		},
+		{
+			runId: second.runId,
+			attempt: 1,
+			nativeSessionId: "session-2",
+			quotaBefore: { windows: [{ usedPct: 3 }] },
+			quotaAfter: { windows: [{ usedPct: 4 }] },
+		},
+	]);
+
+	expect(await readFile(path.join(options.dir, "injections"), "utf8")).toContain(
+		"promise acceptance 17",
+	);
+});
+
+it("hands back an interrupted attempt and skips retry", async () => {
+	const options = await fixture();
+	const controller = new AbortController();
+	const result = await run({
+		...options,
+		promiseId: 99,
+		signal: controller.signal,
+		launch: (_, __, ___, signal) => {
+			expect(signal).toBe(controller.signal);
+			controller.abort();
+
+			return { code: 1, out: "", log: "ERROR: interrupted" };
+		},
+	});
+
+	expect(result.code).toBe(130);
+
+	expect((await events(options.dir)).filter((row) => row["event"] === "outcome")).toMatchObject([
+		{ status: "cancelled", failureClass: null, acceptanceRef: "promise:99" },
+	]);
+
+	const handback = await readFile(path.join(options.dir, "injections"), "utf8");
+
+	expect(handback).toContain("Verify any work or processes started outside the adapter");
+	expect(handback).toContain("promise acceptance 99");
+});
+
+it("can cancel a stalled handback and keeps the adapter result", async () => {
+	const options = await fixture();
+	const controller = new AbortController();
+
+	await writeFile(options.injectPath, '#!/bin/sh\nkill -TERM "$PPID"\nexec sleep 120\n', {
+		mode: 0o700,
+	});
+
+	const onTerm = () => {
+		controller.abort();
+	};
+
+	process.once("SIGTERM", onTerm);
+
+	try {
+		const result = await run({
+			...options,
+			signal: controller.signal,
+			launch: () => ({ code: 0, out: "saved result", log: "" }),
+		});
+
+		expect(result.code).toBe(130);
+		expect(await readFile(result.outputPath, "utf8")).toBe("saved result");
+
+		expect((await events(options.dir)).find((row) => row["event"] === "inject")?.["exitCode"]).toBe(
+			1,
+		);
+	} finally {
+		process.off("SIGTERM", onTerm);
+	}
+});
+
+it("uses the exact Codex rollout and records a weekly primary window", async () => {
+	const { dir } = await fixture();
+	const at = Date.parse("2026-11-23T18:30:00Z");
+	const day = path.join(dir, "2026/11/23");
+
+	await mkdir(day, { recursive: true });
+
+	const quota = {
+		limit_id: "codex",
+		primary: { window_minutes: 10080, used_percent: 10, resets_at: 1796000000 },
+	};
+
+	await writeFile(
+		path.join(day, "rollout-date-session-one.jsonl"),
+		[
+			{ type: "turn_context", payload: { model: "gpt-observed" } },
+			{
+				type: "event_msg",
+				timestamp: new Date(at).toISOString(),
+				payload: { type: "token_count", rate_limits: quota },
+			},
+		]
+			.map((event) => JSON.stringify(event))
+			.join("\n"),
+	);
+
+	await writeFile(
+		path.join(day, "rollout-date-session-two.jsonl"),
+		'{"type":"turn_context","payload":{"model":"another-model"}}\n',
+	);
+
+	expect(await readCodexSession(dir, "session-one", at)).toMatchObject({
+		respondingModel: "gpt-observed",
+		quota: { at, report: { limits: [{ id: "codex:7d", usedPct: 10 }] } },
+	});
+
+	expect(await readCodexSession(dir, "missing", at)).toEqual({
+		respondingModel: null,
+		quota: null,
+	});
+});
+
+it("redacts values before JSON encoding and isolates a damaged historical tail", async () => {
+	const { dir } = await fixture();
+	const file = path.join(dir, "ledger.jsonl");
+
+	await writeFile(file, '{"event":');
+
+	await appendEvent(dir, {
+		event: "outcome",
+		briefName: 'token="secret with \\ and\t space"\nbrief',
+		details: {
+			authorization: "private",
+			client_secret: "private-value",
+			inputTokens: 37,
+			reset: null,
+		},
+	});
+
+	const rows = (await readFile(file, "utf8")).split("\n");
+
+	expect(await validateLedger(file)).toEqual({ count: 2, invalid: [1] });
+
+	expect(JSON.parse(rows[1] ?? "")).toEqual({
+		event: "outcome",
+		briefName: 'token="[REDACTED]"\nbrief',
+		details: {
+			authorization: "[REDACTED]",
+			client_secret: "[REDACTED]",
+			inputTokens: 37,
+			reset: null,
+		},
+	});
 });
 
 it("does not classify successful prose about failures as failed execution", () => {

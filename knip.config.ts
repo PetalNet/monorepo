@@ -141,6 +141,7 @@ export default (({ strict }) => ({
 			],
 		},
 		"packages/router": {
+			entry: ["test/**/*.ts"],
 			ignoreBinaries: ["flock"],
 			// The tests import the bin's helpers, which production-mode Knip does not read.
 			ignoreIssues: { "src/**": ["exports"] },

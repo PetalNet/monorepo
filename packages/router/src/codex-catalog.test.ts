@@ -4,6 +4,7 @@ import path from "node:path";
 
 import { afterEach, describe, expect, it, vi } from "vitest";
 
+import { testAdapter } from "../test/adapter.ts";
 import { launch } from "./adapters.ts";
 import {
 	checkCodexAlerts,
@@ -230,7 +231,7 @@ describe("live Codex catalog", () => {
 	it("passes a discovered max-suffixed release verbatim to a real fake executable", async () => {
 		const dir = await temp();
 
-		await writeFile(path.join(dir, "codex"), '#!/bin/sh\nprintf "%s\n" "$@"\ncat\n', {
+		await writeFile(path.join(dir, "codex"), testAdapter, {
 			mode: 0o700,
 		});
 

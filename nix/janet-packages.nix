@@ -8,6 +8,8 @@ let
   vault = ../packages/vault-engine/scripts;
   watcher = ../apps/vuln-watch;
   promiseFiles = [
+    (hooks + "/message-source.ts")
+    (hooks + "/promise-acceptance.ts")
     (hooks + "/promise-ledger.ts")
     (hooks + "/promise-close.ts")
     (hooks + "/promise-detect.ts")

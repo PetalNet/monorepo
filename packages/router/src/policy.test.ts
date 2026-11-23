@@ -7,6 +7,7 @@ import { fileURLToPath } from "node:url";
 
 import { afterEach, expect, it, vi } from "vitest";
 
+import { testAdapter } from "../test/adapter.ts";
 import { hasCredentials, launch, redact } from "./adapters.ts";
 import { offersFrom, pick, POOLS, type Catalog, type State } from "./pick.ts";
 import { effectiveDataClass } from "./route.ts";
@@ -79,11 +80,7 @@ it("passes the next nesting depth to a real child and refuses a fifth launch", a
 	dirs.push(dir);
 	const marker = path.join(dir, "depth");
 
-	await writeFile(
-		path.join(dir, "codex"),
-		'#!/bin/sh\nprintf "%s" "$ROUTE_DEPTH" > "$MARKER"\ncat\n',
-		{ mode: 0o700 },
-	);
+	await writeFile(path.join(dir, "codex"), testAdapter, { mode: 0o700 });
 
 	vi.stubEnv("PATH", `${dir}:${process.env["PATH"] ?? ""}`);
 	vi.stubEnv("MARKER", marker);
@@ -124,11 +121,7 @@ it("sends and hashes captured task-file contents and rejects excessive depth bef
 
 	await writeFile(reader, "#!/bin/sh\nexit 0\n", { mode: 0o700 });
 
-	await writeFile(
-		path.join(dir, "codex"),
-		'#!/bin/sh\ncase "$1" in --version|debug) exit 1;; esac\ncat\n',
-		{ mode: 0o700 },
-	);
+	await writeFile(path.join(dir, "codex"), testAdapter, { mode: 0o700 });
 
 	const env = {
 		...process.env,
@@ -232,11 +225,7 @@ it("refuses a superseded CLI run and logs a reproducibility override without byp
 		}),
 	);
 
-	await writeFile(
-		path.join(dir, "codex"),
-		'#!/bin/sh\ncase "$1" in --version|debug) exit 1;; esac\ncat\n',
-		{ mode: 0o700 },
-	);
+	await writeFile(path.join(dir, "codex"), testAdapter, { mode: 0o700 });
 
 	const entry = fileURLToPath(new URL("route.ts", import.meta.url));
 	const route = (...args: string[]) =>

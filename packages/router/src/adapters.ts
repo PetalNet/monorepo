@@ -1,11 +1,13 @@
 import { spawn } from "node:child_process";
 
 import { poolIdOf, type Offer } from "./pick.ts";
+import { readProviderEvents, type ProviderTelemetry } from "./telemetry.ts";
 
 export interface Execution {
 	code: number;
 	out: string;
 	log: string;
+	telemetry?: ProviderTelemetry;
 }
 export type Failure = "quota" | "transient" | "bad-offer" | "auth" | "empty" | "unknown";
 
@@ -123,17 +125,35 @@ export function execute(
 	input: string,
 	cwd: string,
 	env: NodeJS.ProcessEnv = process.env,
+	signal?: AbortSignal,
 ): Promise<Execution> {
 	return new Promise((resolve) => {
 		const child = spawn(command, args, {
 			cwd,
 			env,
+			signal,
 			stdio: ["pipe", "pipe", "pipe"],
 			// Builders run for hours; a 30-minute cap killed them mid-PR (2026-11-19).
 			timeout: Number(process.env["ROUTE_TIMEOUT_MIN"] ?? 360) * 60 * 1000,
 		});
 		let out = "";
 		let log = "";
+		let cancelTimer: NodeJS.Timeout | undefined;
+		const escalate = () => {
+			cancelTimer = setTimeout(() => {
+				child.kill("SIGKILL");
+				child.stdout.destroy();
+				child.stderr.destroy();
+			}, 2000);
+
+			cancelTimer.unref();
+		};
+
+		if (signal?.aborted) {
+			escalate();
+		} else {
+			signal?.addEventListener("abort", escalate, { once: true });
+		}
 
 		child.stdout.setEncoding("utf8").on("data", (chunk: string) => {
 			out += chunk;
@@ -144,18 +164,23 @@ export function execute(
 		});
 
 		child.on("error", () => {
-			log += "\nERROR: adapter could not start";
+			if (!signal?.aborted) {
+				log += "\nERROR: adapter could not start";
+			}
 		});
 
 		child.stdin.on("error", () => {
 			/* Early adapter exit can close stdin before the brief is consumed. */
 		});
 
-		child.on("close", (code, signal) => {
+		child.on("close", (code, exitSignal) => {
+			clearTimeout(cancelTimer);
+			signal?.removeEventListener("abort", escalate);
+
 			resolve({
 				code: code ?? 1,
 				out,
-				log: signal ? `${log}\nERROR: interrupted (${signal})` : log,
+				log: exitSignal ? `${log}\nERROR: interrupted (${exitSignal})` : log,
 			});
 		});
 
@@ -163,7 +188,12 @@ export function execute(
 	});
 }
 
-export function launch(offer: Offer, brief: string, cwd: string): Promise<Execution> {
+export function launch(
+	offer: Offer,
+	brief: string,
+	cwd: string,
+	signal?: AbortSignal,
+): Promise<Execution> {
 	// A helper this agent routes for review can then avoid the exact model that wrote the work.
 	const depth = routeDepth();
 
@@ -187,39 +217,39 @@ export function launch(offer: Offer, brief: string, cwd: string): Promise<Execut
 
 	const env = { ...process.env, ROUTE_PARENT_MODEL: offer.model, ROUTE_DEPTH: String(depth + 1) };
 
-	if (offer.provider === "codex") {
-		return execute(
-			"codex",
-			[
-				"exec",
-				"--skip-git-repo-check",
-				"-m",
-				offer.model,
-				"-c",
-				`model_reasoning_effort=${offer.effort}`,
-				"--dangerously-bypass-approvals-and-sandbox",
-				"-",
-			],
-			brief,
-			cwd,
-			env,
-		);
-	}
+	const codex = offer.provider === "codex";
 
 	return execute(
-		"agy",
-		[
-			"-p",
-			brief,
-			"--model",
-			offer.effort === "default" ? offer.model : `${offer.model}-${offer.effort}`,
-			...(offer.effort === "default" ? [] : ["--effort", offer.effort]),
-			"--dangerously-skip-permissions",
-			"--output-format",
-			"text",
-		],
-		"",
+		codex ? "codex" : "agy",
+		codex
+			? [
+					"exec",
+					"--json",
+					"--skip-git-repo-check",
+					"-m",
+					offer.model,
+					"-c",
+					`model_reasoning_effort=${offer.effort}`,
+					"--dangerously-bypass-approvals-and-sandbox",
+					"-",
+				]
+			: [
+					"-p",
+					brief,
+					"--model",
+					offer.effort === "default" ? offer.model : `${offer.model}-${offer.effort}`,
+					...(offer.effort === "default" ? [] : ["--effort", offer.effort]),
+					"--dangerously-skip-permissions",
+					"--output-format",
+					"stream-json",
+				],
+		codex ? brief : "",
 		cwd,
 		env,
-	);
+		signal,
+	).then((result) => {
+		const { out, errors, telemetry } = readProviderEvents(codex ? "codex" : "agy", result.out);
+
+		return { ...result, out, log: errors ? `${result.log}\n${errors}` : result.log, telemetry };
+	});
 }

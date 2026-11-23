@@ -4,6 +4,7 @@ import path from "node:path";
 
 import { expect, it, vi } from "vitest";
 
+import { testAdapter } from "../test/adapter.ts";
 import { launch } from "./adapters.ts";
 import {
 	halfLifeDays,
@@ -148,7 +149,7 @@ it("selects an observed effort with sufficient coverage and sends it to Codex", 
 	const dir = mkdtempSync(path.join(tmpdir(), "router-codex-"));
 
 	try {
-		writeFileSync(path.join(dir, "codex"), "#!/bin/sh\nprintf '%s\\n' \"$@\"\n", { mode: 0o700 });
+		writeFileSync(path.join(dir, "codex"), testAdapter, { mode: 0o700 });
 		vi.stubEnv("PATH", `${dir}:${process.env["PATH"] ?? ""}`);
 		const executed = await launch(selected.offer, "Synthetic test brief", dir);
 
