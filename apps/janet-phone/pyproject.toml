@@ -31,3 +31,6 @@ py-modules = [
   "ringing",
   "speech_stream",
 ]
+
+[dependency-groups]
+dev = ["pytest>=8,<10"]

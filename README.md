@@ -48,7 +48,6 @@ Install dependencies with `pnpm install --frozen-lockfile`. Run the root workflo
 ```sh
 pnpm check
 pnpm test
-pnpm test:python
 pnpm build
 ```
 
@@ -60,7 +59,8 @@ are in [`pnpm-workspace.yaml`](./pnpm-workspace.yaml).
 
 Run a Python app from its directory with `uv run --locked <command>`, or
 select it from the root with `uv run --locked --package <name> <command>`.
-Run one suite with `pnpm --filter @petalnet-python/<name> test:python`.
+Run one suite with `pnpm exec turbo run test --filter=<name>`.
+Run all Python suites with `UV_ISOLATED=1 pnpm exec turbo run test --filter='petalnet-python^...'`.
 The desk and phone suites use PortAudio and Opus, respectively.
 The root sync installs only the root project. Select Envgen for its geospatial
 libraries and add `--extra lidar` for LAZ files. Dictation-model training uses

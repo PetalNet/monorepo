@@ -23,7 +23,6 @@
 		"manypkg": "manypkg check",
 		"prepare": "effect-tsgo patch --oxlint --tsrs",
 		"test": "turbo run test --filter=@petalnet/*",
-		"test:python": "turbo run test:python --filter=@petalnet-python/*",
 		"test:ci-manager": "pnpm --filter @petalnet/tools test",
 		"ts-references:check": "update-ts-references --check",
 		"ts-references:update": "update-ts-references",

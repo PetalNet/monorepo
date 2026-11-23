@@ -1,9 +1,0 @@
-{
-	"name": "@petalnet-python/courier-googlechat",
-	"version": "0.0.0",
-	"private": true,
-	"type": "module",
-	"scripts": {
-		"test:python": "bash ../../../../tools/test-python.sh --group test -- bash test.sh"
-	}
-}

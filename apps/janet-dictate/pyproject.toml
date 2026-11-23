@@ -17,3 +17,6 @@ janet-dictate = "janet_dictate:main"
 
 [tool.ruff]
 line-length = 120
+
+[dependency-groups]
+dev = ["pytest>=8,<10"]

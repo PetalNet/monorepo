@@ -533,8 +533,6 @@ importers:
         specifier: 5.1.1
         version: 5.1.1(@opentelemetry/api@1.9.1)(@types/node@26.6.6)(@vitest/coverage-v8@5.1.1)(happy-dom@21.0.4)(vite@8.3.3(@types/node@26.6.6)(esbuild@0.28.1)(jiti@2.7.0)(tsx@4.22.4)(yaml@2.9.0))
 
-  apps/chatterbox-wyoming: {}
-
   apps/clarity-mcp:
     dependencies:
       '@modelcontextprotocol/sdk':
@@ -623,10 +621,6 @@ importers:
       vitest:
         specifier: 5.1.1
         version: 5.1.1(@opentelemetry/api@1.9.1)(@types/node@26.6.6)(@vitest/coverage-v8@5.1.1)(happy-dom@21.0.4)(vite@8.3.3(@types/node@26.6.6)(esbuild@0.28.1)(jiti@2.7.0)(tsx@4.22.4)(yaml@2.9.0))
-
-  apps/courier/ops/googlechat: {}
-
-  apps/envgen: {}
 
   apps/fold-cards: {}
 
@@ -739,19 +733,7 @@ importers:
         specifier: 5.1.1
         version: 5.1.1(@opentelemetry/api@1.9.1)(@types/node@26.6.6)(@vitest/coverage-v8@5.1.1)(happy-dom@21.0.4)(vite@8.3.3(@types/node@26.6.6)(esbuild@0.28.1)(jiti@2.7.0)(tsx@4.22.4)(yaml@2.9.0))
 
-  apps/janet-desk: {}
-
-  apps/janet-dictate:
-    devDependencies:
-      '@petalnet-python/janet-turn':
-        specifier: workspace:*
-        version: link:../../packages/janet-turn
-
-  apps/janet-dictation-model:
-    devDependencies:
-      '@petalnet-python/janet-voice-note':
-        specifier: workspace:*
-        version: link:../janet-voice-note
+  apps/janet-dictation-model: {}
 
   apps/janet-matrix-comms:
     devDependencies:
@@ -767,15 +749,6 @@ importers:
       vitest:
         specifier: 5.1.1
         version: 5.1.1(@opentelemetry/api@1.9.1)(@types/node@26.6.6)(@vitest/coverage-v8@5.1.1)(happy-dom@21.0.4)(vite@8.3.3(@types/node@26.6.6)(esbuild@0.28.1)(jiti@2.7.0)(tsx@4.22.4)(yaml@2.9.0))
-
-  apps/janet-phone:
-    devDependencies:
-      '@petalnet-python/janet-line':
-        specifier: workspace:*
-        version: link:../../packages/janet-line
-      '@petalnet-python/janet-turn':
-        specifier: workspace:*
-        version: link:../../packages/janet-turn
 
   apps/janet-voice-gateway: {}
 
@@ -1363,10 +1336,6 @@ importers:
       vitest:
         specifier: 5.1.1
         version: 5.1.1(@opentelemetry/api@1.9.1)(@types/node@26.6.6)(@vitest/coverage-v8@5.1.1)(happy-dom@21.0.4)(vite@8.3.3(@types/node@26.6.6)(esbuild@0.28.1)(jiti@2.7.0)(tsx@4.22.4)(yaml@2.9.0))
-
-  packages/janet-line: {}
-
-  packages/janet-turn: {}
 
   packages/router:
     dependencies:

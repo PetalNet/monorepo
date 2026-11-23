@@ -1,9 +1,0 @@
-{
-	"name": "@petalnet-python/chatterbox-wyoming",
-	"version": "0.0.0",
-	"private": true,
-	"type": "module",
-	"scripts": {
-		"test:python": "bash ../../tools/test-python.sh -- python -B -m unittest test_chatterbox_wyoming"
-	}
-}

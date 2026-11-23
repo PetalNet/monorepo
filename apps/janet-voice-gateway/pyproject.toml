@@ -17,3 +17,6 @@ build-backend = "setuptools.build_meta"
 
 [tool.setuptools]
 py-modules = ["janet_voice_gateway"]
+
+[dependency-groups]
+dev = ["pytest>=8,<10"]

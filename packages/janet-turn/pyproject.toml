@@ -17,3 +17,6 @@ packages = ["janet_turn"]
 
 [tool.setuptools.package-data]
 janet_turn = ["turn_judge.json"]
+
+[dependency-groups]
+dev = ["pytest>=8,<10"]

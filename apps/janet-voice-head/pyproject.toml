@@ -17,3 +17,6 @@ build-backend = "setuptools.build_meta"
 
 [tool.setuptools]
 packages = ["janet_voice_head"]
+
+[dependency-groups]
+dev = ["pytest>=8,<10"]

@@ -12,7 +12,7 @@ Keep virtual environments and build caches over 200 MB on the lab NAS. From this
 mkdir -p sources
 git clone https://github.com/mautrix/googlechat.git sources/upstream
 git -C sources/upstream checkout a835bccd269eace6c28196a3f869eb1fb3c8acf7
-uv sync --locked --group test
+uv sync --locked
 uv run --no-sync python build_patch.py
 uv run --no-sync python -m unittest -v test_importer test_rotation test_submit
 uv run --locked python import_curl.py < fixtures/firefox-fake.curl

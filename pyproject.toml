@@ -27,3 +27,6 @@ members = [
 janet-line = { workspace = true }
 janet-turn = { workspace = true }
 janet-voice-note = { workspace = true }
+
+[tool.turbo]
+name = "petalnet-python"
