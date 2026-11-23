@@ -15,5 +15,6 @@ ENV UV_PROJECT_ENVIRONMENT=/opt/venv UV_PYTHON_DOWNLOADS=never UV_NO_CACHE=1 UV_
 RUN --mount=type=bind,target=/workspace,rw \
     uv sync --project /workspace --locked --package janet-dictate --no-editable --no-dev
 WORKDIR /app
+COPY apps/janet-dictate/janet_dictate.py ./
 USER 1000
 ENTRYPOINT ["/opt/venv/bin/janet-dictate"]

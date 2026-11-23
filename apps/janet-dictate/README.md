@@ -104,7 +104,7 @@ its worker-count indicator is not a health check for this endpoint.
 ## Verify
 
 ```sh
-pnpm test:python --filter=@petalnet-python/janet-dictate
+pnpm --filter @petalnet-python/janet-dictate test:python
 ```
 
 These tests use real WebSockets and a deterministic decoder to check the protocol, authentication,

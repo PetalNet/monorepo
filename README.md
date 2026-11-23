@@ -60,7 +60,7 @@ are in [`pnpm-workspace.yaml`](./pnpm-workspace.yaml).
 
 Run a Python app from its directory with `uv run --locked <command>`, or
 select it from the root with `uv run --locked --package <name> <command>`.
-Run one suite with `pnpm test:python --filter=@petalnet-python/<name>`.
+Run one suite with `pnpm --filter @petalnet-python/<name> test:python`.
 The desk and phone suites use PortAudio and Opus, respectively.
 The root sync installs only the root project. Select Envgen for its geospatial
 libraries and add `--extra lidar` for LAZ files. Dictation-model training uses

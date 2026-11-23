@@ -26,3 +26,4 @@ members = [
 [tool.uv.sources]
 janet-line = { workspace = true }
 janet-turn = { workspace = true }
+janet-voice-note = { workspace = true }

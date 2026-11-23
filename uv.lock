@@ -826,6 +826,7 @@ version = "0.1.0"
 source = { editable = "apps/janet-dictation-model" }
 dependencies = [
     { name = "huggingface-hub" },
+    { name = "janet-voice-note" },
     { name = "jiwer" },
     { name = "numpy" },
     { name = "safetensors" },
@@ -858,6 +859,7 @@ build = [
 [package.metadata]
 requires-dist = [
     { name = "huggingface-hub", specifier = ">=0.26,<1" },
+    { name = "janet-voice-note", editable = "apps/janet-voice-note" },
     { name = "jiwer", specifier = ">=4,<5" },
     { name = "numpy", specifier = ">=1.26,<3" },
     { name = "openai-whisper", marker = "extra == 'train'", specifier = ">=20250625" },
