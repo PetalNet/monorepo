@@ -128,7 +128,10 @@ class Handler(BaseHTTPRequestHandler):
             if self.head._live(conv_id).conv.lab_access and not self._lab_authorized():
                 raise ApiError(403, "Parker lab credential required")
             if action == "turns":
-                return self._turn(conv_id, _text(body, "text"))
+                allow_silence = body.get("allow_silence", False)
+                if not isinstance(allow_silence, bool):
+                    raise ApiError(400, "allow_silence must be a boolean")
+                return self._turn(conv_id, _text(body, "text"), allow_silence=allow_silence)
             if action == "interrupt":
                 self.head.interrupt(conv_id, _text(body, "heard_text", empty=True))
                 return self._json(200, {"ok": True})
@@ -136,7 +139,7 @@ class Handler(BaseHTTPRequestHandler):
         except ApiError as error:
             self._json(error.status, {"error": str(error)})
 
-    def _turn(self, conv_id: str, text: str) -> None:
+    def _turn(self, conv_id: str, text: str, *, allow_silence: bool) -> None:
         started = False
 
         def emit(event: str, data: dict) -> None:
@@ -151,7 +154,7 @@ class Handler(BaseHTTPRequestHandler):
             self.wfile.flush()
 
         try:
-            self.head.turn(conv_id, text, emit)
+            self.head.turn(conv_id, text, emit, allow_silence=allow_silence)
         except ApiError:
             if not started:
                 raise

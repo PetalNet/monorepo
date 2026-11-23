@@ -605,6 +605,14 @@ class SilenceTest(HeadCase):
         self.assertEqual(sentences, ["Could you say a little more?"])
         self.assertFalse(done["end_conversation"])
 
+    def test_an_observation_that_allows_silence_can_finish_without_speech(self):
+        conv = self.open("personal")
+        status, events = self.request("POST", f"/v1/conversations/{conv}/turns",
+                                      {"text": "silentcase", "allow_silence": True})
+        self.assertEqual(status, 200)
+        self.assertEqual([kind for kind, _ in events], ["done"])
+        self.assertFalse(events[-1][1]["end_conversation"])
+
     def test_model_speech_is_preserved(self):
         conv = self.open("personal")
         sentences, done = self.turn(conv, "fillercase and then")

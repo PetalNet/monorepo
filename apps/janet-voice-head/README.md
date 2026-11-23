@@ -92,7 +92,7 @@ Bearer token on every `POST` and on `GET /v1/calls`. Bodies and replies are JSON
 | `GET /health`                           |                                       | `{"ok": true, "version": "0.1.0"}` |
 | `GET /v1/calls`                         |                                       | `{"active_calls": 0}`              |
 | `POST /v1/conversations`                | `{"channel", "tier"?, "client_ref"?}` | `{"id"}`                           |
-| `POST /v1/conversations/{id}/turns`     | `{"text"}`                            | `text/event-stream`                |
+| `POST /v1/conversations/{id}/turns`     | `{"text", "allow_silence"?}`          | `text/event-stream`                |
 | `POST /v1/conversations/{id}/interrupt` | `{"heard_text"}`                      | `{"ok": true}`                     |
 | `POST /v1/conversations/{id}/end`       | `{"reason"}`                          | `{"merged": true, "delivery"}`     |
 
@@ -101,6 +101,8 @@ Bearer token on every `POST` and on `GET /v1/calls`. Bodies and replies are JSON
 - A turn streams one `sentence` event (`{"text"}`) per speakable sentence, then one
   `done` event: `{"end_conversation": bool, "latency_ms": {"first_token", "first_sentence",
   "total", "spawn_wait"}}`. A turn that arrives before the session is ready waits for it.
+- A successful caller turn with no speech or relay asks the caller to continue. Pass
+  `"allow_silence": true` for a call observation that can finish without speaking.
 - When the caller seems done, the model uses the call-control tools to ask whether anything
   else remains, then signs off after a later confirmation. The client drains the goodbye
   audio before calling `end`.
