@@ -21,15 +21,15 @@ build-backend = "setuptools.build_meta"
 
 [tool.setuptools]
 py-modules = [
-  "barge_in",
-  "janet_phone",
-  "janet_ring",
-  "matrix_notice",
-  "opus_transport",
-  "pairing",
-  "resumable",
-  "ringing",
-  "speech_stream",
+	"barge_in",
+	"janet_phone",
+	"janet_ring",
+	"matrix_notice",
+	"opus_transport",
+	"pairing",
+	"resumable",
+	"ringing",
+	"speech_stream",
 ]
 
 [dependency-groups]

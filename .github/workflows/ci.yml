@@ -170,7 +170,7 @@ jobs:
         run: |
           flags=()
           if [ "$AFFECTED" = "true" ]; then flags+=(--affected); fi
-          pnpm exec turbo run test --filter='petalnet-python^...' --concurrency=2 "${flags[@]}"
+          pnpm exec turbo run test --filter='petalnet-python^...' --concurrency=2 --continue=always "${flags[@]}"
 
   build:
     permissions:
