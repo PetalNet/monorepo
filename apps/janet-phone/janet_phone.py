@@ -814,7 +814,6 @@ class Call:
         if not any(record is turn for record in self.latency["turns"]):
             self.latency["turns"].append(turn)
         turn["outcome"] = "answering"
-        head_audio_sent = False
         if self.ring is not None:
             text = ("Outgoing phone call. If the two-way audio check has not been completed in this conversation, "
                     "greet briefly, ask whether the caller can hear you, then wait for their reply before giving "
@@ -857,12 +856,10 @@ class Call:
                     loop.call_soon_threadsafe(events.put_nowait, ("failed", {"error": str(error)}))
 
         async def play() -> None:
-            nonlocal head_audio_sent
             while (item := await spoken.get()) is not None:
                 sentence, audio, bridge = item
-                await self.say(sentence, audio, turn, ended)
-                result = audio.result()
-                head_audio_sent |= not bridge and (isinstance(result, SpeechStream) or bool(result[1]))
+                if await self.say(sentence, audio, turn, ended) and not bridge:
+                    self.heard.append(sentence)
 
         async def synthesize() -> None:
             while (item := await pending.get()) is not None:
@@ -915,7 +912,7 @@ class Call:
                 if self.ring is not None and self.ring.state != "audio_connected":
                     if kind != "done" or end_conversation:
                         self.ring.finish("head_failed")
-                    elif head_audio_sent:
+                    elif self.heard:
                         self.ring.finish("audio_connected")
                 return (self.ring is not None and kind == "failed") or end_conversation
         except asyncio.CancelledError:
@@ -959,16 +956,17 @@ class Call:
         return audio
 
     async def say(self, sentence: str, audio: asyncio.Future, turn: dict | None = None, ended: float = 0.0,
-                  connect_ring: bool = False) -> None:
+                  connect_ring: bool = False) -> bool:
         result = await audio
         if isinstance(result, SpeechStream):
             try:
-                await self.say_stream(sentence, result, turn, ended)
+                return await self.say_stream(sentence, result, turn, ended)
             finally:
                 result.close()
-            return
         rate, pcm = result
         pcm = trim_edges(pcm, rate)
+        if not pcm:
+            return False
         if rate != self.rate:
             line = await asyncio.to_thread(make_line, self.config, rate)
             await self.ws.send(json.dumps({"type": "audio", "rate": rate, **({"codec": "opus"} if self.opus else {})}))
@@ -1007,10 +1005,10 @@ class Call:
             raise
         finally:
             self.playing = False
-        if self.ring is not None and connect_ring and pcm:
+        if self.ring is not None and connect_ring:
             self.ring.finish("audio_connected")
         self.transcript.append(("Janet", sentence))
-        self.heard.append(sentence)
+        return True
 
     async def send_audio(self, pcm: bytes, rate: int) -> bool:
         if self.barge_in is not None:
@@ -1029,7 +1027,7 @@ class Call:
             await self.ws.send(packet)
         return bool(packets)
 
-    async def say_stream(self, sentence: str, audio: SpeechStream, turn: dict, ended: float) -> None:
+    async def say_stream(self, sentence: str, audio: SpeechStream, turn: dict, ended: float) -> bool:
         began, sent, started, rate = None, 0, False, None
         audio_sent = False
         try:
@@ -1043,7 +1041,7 @@ class Call:
                         self.audio_progress.clear()
                         await self.audio_progress.wait()
                     if turn.get("superseded"):
-                        return
+                        return False
                     if rate != self.rate:
                         self.line = await asyncio.to_thread(make_line, self.config, rate)
                         await self.tell(type="audio", rate=rate, codec="opus")
@@ -1077,7 +1075,7 @@ class Call:
                 raise OSError("the voice returned no audio")
             await asyncio.sleep(max(0, began + sent / (rate * 2) - time.monotonic()))
             self.transcript.append(("Janet", sentence))
-            self.heard.append(sentence)
+            return True
         except asyncio.CancelledError:
             if started:
                 self.transcript.append(("Janet", sentence + " [cut off]"))

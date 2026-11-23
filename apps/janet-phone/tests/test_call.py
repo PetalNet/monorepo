@@ -726,6 +726,61 @@ class NoticeRoutingTest(unittest.TestCase):
 
 
 class TurnTimingTest(unittest.IsolatedAsyncioTestCase):
+    async def test_barge_in_stays_protected_until_reply_audio_plays(self):
+        for bridge, pcm in [(True, tone(.1)), (False, b"")]:
+            with self.subTest(bridge=bridge):
+                await self._send_caller_audio_before_answer(bridge, pcm)
+
+    async def _send_caller_audio_before_answer(self, bridge, pcm):
+        release_answer = threading.Event()
+        progress_finished = asyncio.Event()
+        incoming = asyncio.Queue()
+        ws = mock.AsyncMock(ring=None, audio_codec="pcm")
+        ws.recv.side_effect = incoming.get
+        gateway = mock.Mock()
+
+        def reply_events():
+            yield "sentence", {"text": "One moment.", "bridge": bridge}
+            if release_answer.wait(5):
+                yield "sentence", {"text": "Here is the answer."}
+                yield "done", {}
+
+        gateway.turn.side_effect = lambda *_: reply_events()
+        gateway.speech.side_effect = [(16000, pcm), (16000, tone(.1))]
+        config = janet_phone.Config(listen="", gateway="", stt="", tier="guest", channel="test", disclosure="")
+        call = janet_phone.Call(ws, config, gateway, "000000000001")
+        say = call.say
+
+        async def signal_progress(sentence, *args):
+            sent = await say(sentence, *args)
+            if sentence == "One moment.":
+                progress_finished.set()
+            return sent
+
+        endpointer = mock.Mock()
+        endpointer.feed.return_value = []
+        endpointer._offset = 0
+        endpointer._pending = b""
+        with mock.patch.object(janet_phone, "new_endpointer", return_value=endpointer), mock.patch.object(
+            janet_phone, "make_barge_in", return_value=BargeIn(lambda _: .99)
+        ), mock.patch.object(call, "say", side_effect=signal_progress):
+            listener = asyncio.create_task(call.listen())
+            call.speaking = asyncio.create_task(call.reply("a turn", time.monotonic(), {"endpoint_ms": 200}))
+            try:
+                await asyncio.wait_for(progress_finished.wait(), 2)
+                foreground = b"".join(struct.pack("<h", int(8000 * math.sin(i / 4))) for i in range(512))
+                for _ in range(24):
+                    incoming.put_nowait(foreground)
+                    await asyncio.sleep(.032)
+                release_answer.set()
+                gateway.post.assert_not_called()
+                await asyncio.wait_for(call.speaking, 2)
+                self.assertIn("Here is the answer.", call.heard)
+            finally:
+                release_answer.set()
+                listener.cancel()
+                await asyncio.gather(listener, call.speaking, return_exceptions=True)
+
     async def test_batched_endpoint_keeps_time_spent_interrupting(self):
         ws = mock.AsyncMock()
         ws.ring = None
