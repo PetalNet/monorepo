@@ -13,14 +13,20 @@ Codex's plan enables paid overflow. Quota windows below the floor do not exclude
 Run state lives in `~/.local/state/router/`:
 
 - `availability.json`: pool cooldowns, bad offers with 24-hour expiry, and signed-out plans. Writes use `flock` and atomic rename. A quota failure also excludes that pool for the remainder of the run. Relative `Resets in` durations and ISO reset timestamps are parsed; absent a usable reset, the cooldown is one hour.
-- `ledger.jsonl`: launch and outcome events for every attempt, followed by one inject result. Events include model, effort, plan, pool, timestamps, output paths, and a brief hash. A completed process is not a quality label. Historical agy logs are imported once as metadata with null kind and tier.
+- `ledger.jsonl`: launch and outcome events join on `runId` and `attempt`. Outcomes record the native session ID and responding model when reported, the Git HEAD at exit, and the linked acceptance record. `status` describes the process. Historical agy logs are imported once as metadata with null kind and tier. `route validate-ledger [file]` reports malformed line numbers and exits 1 if any exist.
 - `runs/<runid>.out`: final attempt's redacted stdout. `runs/<runid>.log`: redacted stdout/stderr for all attempts. Output and ledger files are mode 0600.
 
 Transient failures retry once after 30 seconds, then fall through. Invalid model IDs disable that offer for 24 hours. Auth failures disable the plan. Empty or sentinel output stops the run. Unknown failures stop rather than guessing a retry policy. Signed-out markers persist until an operator removes the plan's entry under the same `.lock` after restoring login; automatic auth recovery is not implemented yet.
 
-Failure classification and reset dates read only stderr lines beginning `AGY_ERROR:` or `ERROR:`, after checking the exit status. Builder stdout and unprefixed transcript text cannot trigger quota cooldowns, sign-outs, invalid-offer marks or transient retries.
+Failure classification reads adapter errors after checking the exit status. Codex JSON error events and stderr lines beginning `AGY_ERROR:` or `ERROR:` supply failure and reset metadata. Builder replies and tool output cannot trigger cooldowns or retries.
 
-One `cc-link-inject --source route --key <runid>` runs at the end. The output is redacted before selecting its tail. Injection failure returns an error while preserving the result and ledger. Exit codes: 0 success, 1 failure, 2 invalid CLI input, 3 no eligible offer, 5 Claude handoff.
+Quota snapshots capture the selected pool's account windows before and after each attempt when available. Compare the window IDs and reset times before interpreting movement. Other sessions can consume the same quota. Token counters retain the provider's fields, including cached and reasoning tokens, without summing overlapping counts. The ledger keeps provider-reported charges, dated API-equivalent estimates, and plan opportunity costs in separate fields. Each is null when the corresponding data is unavailable.
+
+`--source-kind human` records a known human request. Other supported kinds include `task-brief`, `relay`, `quoted`, `voice-wrapper`, `reminder`, `automated-notification`, and `unknown`. Routed briefs default to `task-brief`. Known wrapper and timer envelopes retain their source.
+
+To carry a promise through a repair, run `promise acceptance <id> <file>` with a JSON record such as `{"requested":"Send the report","preserved":["Keep the attachments"],"checks":{"Links open":null}}`. Later updates merge by check name and retain omitted constraints and checks. Set a check to an evidence reference to resolve it or to null to reopen it. `promise acceptance <id>` shows the active record. Pass `--promise <id>` on each routed repair to include the record in the brief and link the attempt to it. Closing a promise with outstanding checks requires resolving them first.
+
+`cc-link-inject --source route --key <runid>` delivers one automated handback with the process result and any active promise reference. Injection failure returns an error while preserving the result and ledger. Exit codes are 0 for process completion, 1 for failure, 2 for invalid input, 3 for no eligible offer, 5 for a manual Claude handoff, and 130 for cancellation.
 
 ## Evidence scoring (slices 3 through 3c)
 

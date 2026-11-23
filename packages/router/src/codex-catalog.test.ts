@@ -17,6 +17,7 @@ import {
 import { normalizeAA } from "./evidence.ts";
 import { offersFrom, pick, POOLS, type Catalog, type State } from "./pick.ts";
 import { formatMenu } from "./route.ts";
+import { testAdapter } from "./test-adapter.ts";
 
 const dirs: string[] = [];
 
@@ -230,7 +231,7 @@ describe("live Codex catalog", () => {
 	it("passes a discovered max-suffixed release verbatim to a real fake executable", async () => {
 		const dir = await temp();
 
-		await writeFile(path.join(dir, "codex"), '#!/bin/sh\nprintf "%s\n" "$@"\ncat\n', {
+		await writeFile(path.join(dir, "codex"), testAdapter, {
 			mode: 0o700,
 		});
 

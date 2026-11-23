@@ -5,12 +5,14 @@
 //
 // Exit codes: 0 completed/picked, 1 failed, 2 bad input, 3 no eligible offer, 5 Claude handoff.
 import { spawnSync } from "node:child_process";
+import { createHash } from "node:crypto";
 import { existsSync, readFileSync, realpathSync } from "node:fs";
 import { userInfo, homedir } from "node:os";
 import path from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { parseArgs } from "node:util";
 
+import { messageSource, parseMessageSource } from "@petalnet/harness-hooks/message-source";
 import {
 	defaultSourceDeps,
 	readClaude,
@@ -25,18 +27,21 @@ import { EFFORTS, readEvidence } from "./evidence.ts";
 import { readOpenEvidence } from "./open-evidence.ts";
 import { BLOCKS, POOLS, PLANS, type Catalog, type DataClass, type Pick, pick } from "./pick.ts";
 import { run } from "./run.ts";
-import { appendEvent, readAvailability } from "./state.ts";
+import { appendEvent, readAvailability, validateLedger } from "./state.ts";
 
 const USAGE = `usage:
   route ls  [--for <kind>] [--class <public|sensitive|parcs>] [--not-vendor <maker>]
             what you can run right now: model:effort, plan, quota, quality for <kind>, cost, time
   route run <model>[:<effort>] [--for <kind>] [--class <class>] [--allow-superseded] <task | task-file | ->
             run your pick on a task given inline, as a file, or on stdin; route checks policy and quota, logs it and pings Janet when it ends
+            --promise <id> carries the active promise and its acceptance checks into the run
+            --source-kind <kind> supplies known provenance, for example human or relay
   route why <model>[:<effort>] [--for <kind>] [--class <class>]
             why a model is or isn't runnable, with its evidence
   route refresh-codex
             refresh installed-client models and post new-model or stale-client alerts once
   route pull-evidence
+  route validate-ledger [file]
 kinds: code ui research write sweep cyber architecture (default code). class defaults to public and rises
 automatically for briefs that carry credentials (sensitive) or PARCS/Bridgeton (parcs).`;
 const KINDS = new Set(["code", "ui", "research", "write", "sweep", "cyber", "architecture"]);
@@ -224,6 +229,14 @@ export function formatPick(result: Pick, kind: string, tier: string): string {
 }
 
 async function main(argv: string[]): Promise<number> {
+	if (argv[0] === "validate-ledger" && argv.length <= 2) {
+		const { count, invalid } = await validateLedger(
+			argv[1] ?? `${homedir()}/.local/state/router/ledger.jsonl`,
+		);
+		process.stdout.write(`${JSON.stringify({ count, invalid })}\n`);
+		return invalid.length === 0 ? 0 : 1;
+	}
+
 	if (argv.length === 1 && argv[0] === "refresh-codex") {
 		const dir = `${homedir()}/.local/state/router`;
 		const snapshot = await discoverCodex(dir, true).catch(() => undefined);
@@ -269,6 +282,8 @@ async function main(argv: string[]): Promise<number> {
 				"not-vendor": { type: "string", multiple: true },
 				"allow-claude": { type: "boolean" },
 				"allow-superseded": { type: "boolean" },
+				promise: { type: "string" },
+				"source-kind": { type: "string" },
 			},
 		});
 	} catch {
@@ -295,12 +310,18 @@ async function main(argv: string[]): Promise<number> {
 	const [model, effort] = (target ?? "").split(":");
 	// Eli and Parker 2026-11-19: the agent chooses with repo context; route shows the menu, enforces, runs.
 	const tier = "*";
+	const promiseId = values.promise === undefined ? undefined : Number(values.promise);
+	const declaredSource =
+		values["source-kind"] === undefined ? undefined : parseMessageSource(values["source-kind"]);
 
 	if (
 		!["ls", "run", "why"].includes(command ?? "") ||
 		(command !== "ls" && !model) ||
 		(command === "run" && !asked) ||
 		(command !== "run" && values["allow-superseded"]) ||
+		(command !== "run" && (values.promise !== undefined || values["source-kind"] !== undefined)) ||
+		(promiseId !== undefined && (!Number.isSafeInteger(promiseId) || promiseId <= 0)) ||
+		(values["source-kind"] !== undefined && declaredSource === undefined) ||
 		!KINDS.has(kind) ||
 		(flagClass !== "public" && flagClass !== "sensitive" && flagClass !== "parcs")
 	) {
@@ -332,13 +353,33 @@ async function main(argv: string[]): Promise<number> {
 		return 2;
 	}
 
+	const sourceKind = messageSource(brief.text, declaredSource ?? "task-brief");
+	let task = brief.text;
+	let acceptanceDigest: string | undefined;
+	if (promiseId !== undefined) {
+		const { Ledger, configFromEnv, depsFromEnv } =
+			await import("@petalnet/harness-hooks/promise-ledger");
+		const ledger = new Ledger(configFromEnv(), depsFromEnv());
+		try {
+			const acceptance = ledger.acceptance(promiseId);
+			if (!acceptance || ledger.item(promiseId)?.state !== "open") {
+				throw new Error(`promise ${String(promiseId)} needs an active acceptance record`);
+			}
+			const snapshot = JSON.stringify(acceptance, null, 2);
+			acceptanceDigest = createHash("sha256").update(snapshot).digest("hex");
+			task = `${brief.text}\n\nActive promise ${String(promiseId)}. Carry these requirements through the current task. Null evidence marks an unresolved check.\n${snapshot}`;
+		} finally {
+			ledger.close();
+		}
+	}
+
 	const home = homedir();
 	const catalog = withCodexCatalog(
 		readJson<Catalog>(`${home}/.claude/shared/model-tiers.json`),
 		await discoverCodex(`${home}/.local/state/router`),
 	);
 
-	const dataClass = effectiveDataClass(flagClass, brief.text);
+	const dataClass = effectiveDataClass(flagClass, task);
 	const legacy = readJson<{ deny?: string[]; deny_patterns?: string[] }>(
 		`${home}/.local/state/agy-build/pools.json`,
 		{},
@@ -421,7 +462,10 @@ async function main(argv: string[]): Promise<number> {
 		return result.ranked.length > 0 ? 0 : 3;
 	}
 
-	if (command === "why" || result.ranked.length === 0) {
+	if (
+		command === "why" ||
+		(result.ranked.length === 0 && (promiseId === undefined || dataClass === "parcs"))
+	) {
 		process.stdout.write(`${redact(formatWhy(result, model ?? ""))}\n`);
 
 		if (command === "why") {
@@ -466,42 +510,69 @@ async function main(argv: string[]): Promise<number> {
 				plan: "claude",
 				kind,
 				dataClass,
+				sourceKind,
+				acceptanceRef: promiseId === undefined ? null : `promise:${String(promiseId)}`,
+				acceptanceDigest: acceptanceDigest ?? null,
 				at: Date.now(),
 				...(selected.supersededBy ? { supersessionOverride: selected.supersededBy } : {}),
 			});
 		}
 
 		process.stdout.write(
-			`Claude handoff: ${handoff ? `model=${handoff.model} effort=${handoff.effort}; ` : "no eligible effort; "}caller must launch explicitly on the claude plan${runId ? ` and put "ROUTED ${runId}" in the subagent prompt` : ""}; listed availability and policy exclusions still apply.\n`,
+			`Claude handoff: ${handoff ? `model=${handoff.model} effort=${handoff.effort}; ` : "no eligible effort; "}caller must launch explicitly on the claude plan${runId ? ` and put "ROUTED ${runId}" in the subagent prompt` : ""}; listed availability and policy exclusions still apply.${promiseId === undefined ? "" : ` Read the active goal and checks with promise acceptance ${String(promiseId)}.`}\n`,
 		);
 
 		return 5;
 	}
 
 	if (command === "run") {
-		const executed = await run({
-			catalog,
-			state,
-			kind,
-			tier,
-			brief: brief.text,
-			dataClass,
-			briefName: briefFile ? path.basename(briefFile, ".md") : brief.text.trim().slice(0, 60),
-			cwd: process.cwd(),
-			dir: `${home}/.local/state/router`,
-			legacy: `${home}/.local/state/agy-build`,
-			// Only the real account notifies the session: tests that run under a temp HOME, or set
-			// ROUTE_NO_INJECT=1, must not ping Janet with their fake runs.
-			injectPath:
-				process.env["ROUTE_NO_INJECT"] === "1" || home !== userInfo().homedir
-					? "true"
-					: `${process.env["HERMES_HOME"] ?? `${home}/.hermes`}/plugins/hermes-cc-link/bin/cc-link-inject`,
-			report: (line) => process.stdout.write(`${redact(line)}\n`),
-		});
+		const controller = new AbortController();
+		const cancel = () => {
+			controller.abort();
+		};
+		process.on("SIGINT", cancel);
+		process.on("SIGTERM", cancel);
+		try {
+			const executed = await run({
+				catalog,
+				state,
+				kind,
+				tier,
+				brief: task,
+				dataClass,
+				sourceKind,
+				...(promiseId === undefined ? {} : { promiseId }),
+				...(acceptanceDigest === undefined ? {} : { acceptanceDigest }),
+				signal: controller.signal,
+				readQuota: (service) => {
+					if (service === "codex") {
+						return readCodex(config, deps);
+					}
+					if (service === "google-ai") {
+						return readGoogleAi(config, deps);
+					}
+					return Promise.resolve(undefined);
+				},
+				briefName: briefFile ? path.basename(briefFile, ".md") : brief.text.trim().slice(0, 60),
+				cwd: process.cwd(),
+				dir: `${home}/.local/state/router`,
+				legacy: `${home}/.local/state/agy-build`,
+				// Only the real account notifies the session: tests that run under a temp HOME, or set
+				// ROUTE_NO_INJECT=1, must not ping Janet with their fake runs.
+				injectPath:
+					process.env["ROUTE_NO_INJECT"] === "1" || home !== userInfo().homedir
+						? "true"
+						: `${process.env["HERMES_HOME"] ?? `${home}/.hermes`}/plugins/hermes-cc-link/bin/cc-link-inject`,
+				report: (line) => process.stdout.write(`${redact(line)}\n`),
+			});
 
-		process.stdout.write(readFileSync(executed.outputPath, "utf8"));
+			process.stdout.write(readFileSync(executed.outputPath, "utf8"));
 
-		return executed.code;
+			return executed.code;
+		} finally {
+			process.off("SIGINT", cancel);
+			process.off("SIGTERM", cancel);
+		}
 	}
 
 	return result.ranked.length > 0 ? 0 : 3;

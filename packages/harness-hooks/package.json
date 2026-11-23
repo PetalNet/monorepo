@@ -4,6 +4,8 @@
 	"private": true,
 	"type": "module",
 	"exports": {
+		"./message-source": "./src/message-source.ts",
+		"./promise-ledger": "./src/promise-ledger.ts",
 		"./quota-sources": "./src/quota-sources.ts"
 	},
 	"scripts": {

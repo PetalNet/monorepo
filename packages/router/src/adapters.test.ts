@@ -7,6 +7,7 @@ import { afterEach, expect, it, vi } from "vitest";
 import { launch } from "./adapters.ts";
 import { CODEX_EFFORTS, supportedEfforts } from "./effort.ts";
 import { POOLS, type Offer } from "./pick.ts";
+import { testAdapter } from "./test-adapter.ts";
 
 const dirs: string[] = [];
 
@@ -19,7 +20,7 @@ async function adapter(name: string): Promise<string> {
 	const dir = await mkdtemp(path.join(tmpdir(), "router-adapter-"));
 
 	dirs.push(dir);
-	await writeFile(path.join(dir, name), '#!/bin/sh\nprintf "%s\\n" "$@"\ncat\n', { mode: 0o700 });
+	await writeFile(path.join(dir, name), testAdapter, { mode: 0o700 });
 	vi.stubEnv("PATH", `${dir}:${process.env["PATH"] ?? ""}`);
 
 	return dir;

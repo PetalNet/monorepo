@@ -9,6 +9,7 @@ import { fileURLToPath } from "node:url";
 
 import { afterAll, afterEach, beforeEach, describe, expect, it } from "vitest";
 
+import { messageSource } from "./message-source.ts";
 import { delivers } from "./promise-close.ts";
 import { classify, detect } from "./promise-detect.ts";
 import { instant, parseDue } from "./promise-due.ts";
@@ -27,6 +28,19 @@ afterAll(() => {
 	for (const d of dirs) {
 		rmSync(d, { recursive: true, force: true });
 	}
+});
+
+it.each([
+	[
+		"[Voice head turn. Never claim to have done something.]\nThe speaker says: What day is it?",
+		"human",
+		"voice-wrapper",
+	],
+	["[handback NAG] Not done, not blocked, not handed back:", "human", "reminder"],
+	["you keep stopping", "human", "human"],
+	["Verify in the saved PNGs", "task-brief", "task-brief"],
+] as const)("keeps the provenance of %s", (text, fallback, expected) => {
+	expect(messageSource(text, fallback)).toBe(expected);
 });
 
 describe("detect", () => {
@@ -822,10 +836,47 @@ echo "$*" >> "${dir}/vault.log"; n=$(wc -l < "${dir}/vault.log"); printf '{"id":
 		expect(injected()).toHaveLength(1);
 
 		expect(injected()[0]).toMatch(
-			/^water-check\|promise-ledger:[0-9a-f]{12}:[0-9a-f]{12}\|Check the plant sensor/u,
+			/^water-check\|promise-ledger:[0-9a-f]{12}:[0-9a-f]{12}\|\[message-source: reminder\]\nCheck the plant sensor/u,
 		);
 
 		expect(using((l) => l.item(1))).toMatchObject({ state: "done", closed_by: "fired" });
+	});
+
+	it("preserves repair constraints and keeps a partial delivery open", () => {
+		say("Please send the report.", { direction: "in", ref: "$human" });
+		say("[handback NAG] Not done, not blocked, not handed back:", {
+			direction: "in",
+			ref: "$timer",
+		});
+		say("I'll send you the report tomorrow.");
+		sweep();
+		expect(using((ledger) => ledger.item(1))).toMatchObject({ pointer: "event:$human" });
+
+		using((ledger) =>
+			ledger.setAcceptance(1, {
+				requested: "Send the report and verify its links",
+				preserved: ["Keep the original attachments"],
+				checks: { "Report delivered": null, "Links verified": null },
+			}),
+		);
+		say("Here is the report: https://example.org/report.pdf");
+		sweep();
+		using((ledger) =>
+			ledger.setAcceptance(1, { checks: { "Report delivered": "event:$delivered" } }),
+		);
+		expect(cli("done", "1", "Sent the report").stderr).toContain("unresolved acceptance checks");
+		expect(JSON.parse(cli("acceptance", "1").stdout)).toEqual({
+			requested: "Send the report and verify its links",
+			preserved: ["Keep the original attachments"],
+			checks: { "Report delivered": "event:$delivered", "Links verified": null },
+		});
+		using((ledger) => ledger.setAcceptance(1, { checks: { "Links verified": "check:link-test" } }));
+		expect(cli("done", "1", "Sent and verified").status).toBe(0);
+		expect(cli("reopen", "1").status).toBe(0);
+		expect(JSON.parse(cli("acceptance", "1").stdout)).toMatchObject({
+			preserved: ["Keep the original attachments"],
+			checks: { "Report delivered": null, "Links verified": null },
+		});
 	});
 
 	it("sends nothing while paused and catches up after", () => {

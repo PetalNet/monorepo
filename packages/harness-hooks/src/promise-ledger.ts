@@ -16,6 +16,8 @@ import { existsSync, mkdirSync } from "node:fs";
 import path from "node:path";
 import { DatabaseSync } from "node:sqlite";
 
+import { messageSource, tagMessage } from "./message-source.ts";
+import { updateAcceptance } from "./promise-acceptance.ts";
 import { delivers } from "./promise-close.ts";
 import { detect } from "./promise-detect.ts";
 import { parseDue } from "./promise-due.ts";
@@ -108,6 +110,7 @@ CREATE TABLE IF NOT EXISTS item (
   closed REAL, closed_by TEXT, evidence TEXT,
   recorded INTEGER NOT NULL DEFAULT 0, claim TEXT, UNIQUE (entry_id, part));
 CREATE INDEX IF NOT EXISTS item_open ON item (state, due);
+CREATE TABLE IF NOT EXISTS acceptance (item INTEGER PRIMARY KEY, record TEXT NOT NULL);
 CREATE TABLE IF NOT EXISTS batch (
   id INTEGER PRIMARY KEY AUTOINCREMENT, key TEXT NOT NULL, source TEXT NOT NULL, items TEXT NOT NULL,
   created REAL NOT NULL, state TEXT NOT NULL DEFAULT 'pending' CHECK (state IN ('pending', 'sent', 'void')),
@@ -242,6 +245,30 @@ export class Ledger {
 		this.db.close();
 	}
 
+	acceptance(id: number) {
+		this.must(id);
+		const row = this.db.prepare("SELECT record FROM acceptance WHERE item = ?").get(id);
+		return typeof row?.["record"] === "string"
+			? updateAcceptance(null, JSON.parse(row["record"]))
+			: null;
+	}
+
+	setAcceptance(id: number, patch: unknown) {
+		return this.atomic(() => {
+			const item = this.must(id);
+			if (item.kind !== "promise" || item.state !== "open") {
+				throw new Error("acceptance belongs to an open promise");
+			}
+			const next = updateAcceptance(this.acceptance(id), patch);
+			this.db
+				.prepare(
+					"INSERT INTO acceptance (item, record) VALUES (?, ?) ON CONFLICT(item) DO UPDATE SET record = excluded.record",
+				)
+				.run(id, JSON.stringify(next));
+			return next;
+		});
+	}
+
 	meta(key: string): string | undefined {
 		const row = this.db.prepare("SELECT v FROM meta WHERE k = ?").get(key);
 
@@ -296,6 +323,14 @@ export class Ledger {
 		if (item.state !== "open") {
 			throw new Error(`item ${String(id)} is already ${item.state}`);
 		}
+		const acceptance = this.acceptance(id);
+		if (
+			state === "done" &&
+			acceptance &&
+			Object.values(acceptance.checks).some((check) => check === null)
+		) {
+			throw new Error(`item ${String(id)} still has unresolved acceptance checks`);
+		}
 
 		const now = this.deps.now();
 
@@ -332,6 +367,15 @@ export class Ledger {
 
 			if (item.state === "open") {
 				throw new Error(`item ${String(id)} is already open`);
+			}
+			const acceptance = this.acceptance(id);
+			if (acceptance) {
+				acceptance.checks = Object.fromEntries(
+					Object.keys(acceptance.checks).map((check) => [check, null]),
+				);
+				this.db
+					.prepare("UPDATE acceptance SET record = ? WHERE item = ?")
+					.run(JSON.stringify(acceptance), id);
 			}
 
 			const now = this.deps.now();
@@ -438,7 +482,7 @@ export class Ledger {
 				)
 				.all(Number(stored), limit);
 			const before = history.prepare(
-				"SELECT ref FROM entry WHERE id < ? AND direction = 'in' AND surface = ? AND channel = ? AND branch = ? AND ref != '' ORDER BY id DESC LIMIT 1",
+				"SELECT ref, text FROM entry WHERE id < ? AND direction = 'in' AND surface = ? AND channel = ? AND branch = ? AND ref != '' ORDER BY id DESC",
 			);
 
 			for (const row of rows) {
@@ -448,7 +492,10 @@ export class Ledger {
 				const room = String(row["channel"]);
 				const text = String(row["text"]);
 				const branch = String(row["branch"]);
-				const prompt = before.get(id, surface, room, branch);
+				const prompt = Iterator.from(before.iterate(id, surface, room, branch)).find((entry) => {
+					const source = messageSource(String(entry["text"]), "unknown");
+					return source !== "reminder" && source !== "automated-notification";
+				});
 				const pointer = prompt ? `event:${String(prompt["ref"])}` : "";
 
 				counts.read += 1;
@@ -525,7 +572,7 @@ export class Ledger {
 		const matches: { item: Item; evidence: string }[] = [];
 
 		for (const item of this.items(
-			"state = 'open' AND kind = 'promise' AND surface = ? AND room = ? AND branch = ? AND created <= ? AND changed <= ? AND entry_id < ?",
+			"state = 'open' AND kind = 'promise' AND surface = ? AND room = ? AND branch = ? AND created <= ? AND changed <= ? AND entry_id < ? AND id NOT IN (SELECT item FROM acceptance)",
 			surface,
 			room,
 			branch,
@@ -637,7 +684,7 @@ export class Ledger {
 		const [only] = items;
 
 		if (only?.kind === "reminder") {
-			return only.text;
+			return tagMessage("reminder", only.text);
 		}
 
 		const now = this.deps.now();
@@ -651,12 +698,15 @@ export class Ledger {
 			return `#${String(item.id)} [${span(now - item.due)} overdue, reconcile once] ${where}: "${clip(item.text, 160)}"${more ? ` (+${String(more)} more in that legacy message)` : ""}${pointer}`;
 		});
 
-		return [
-			`[promise-ledger] ${String(items.length)} promise(s) you made are past due and still open. This goes only to you: post nothing about it to a room unless a promise itself is owed there.`,
-			"For each: if it is already delivered, `promise done <id> <evidence>`; if it is owed, deliver it, then close it; if it needs longer, `promise snooze <id> <when>`; if it no longer applies, `promise drop <id> <reason>`. Ids may be comma-separated. `promise list` shows everything open.",
-			"These items stay open for reconciliation and will not prompt again unless explicitly snoozed or reopened. `promise list --review` shows the reconciliation queue. A reply or an active worker alone is not completion evidence.",
-			...lines,
-		].join("\n");
+		return tagMessage(
+			"reminder",
+			[
+				`[promise-ledger] ${String(items.length)} promise(s) you made are past due and still open. This goes only to you: post nothing about it to a room unless a promise itself is owed there.`,
+				"For each: if it is already delivered, `promise done <id> <evidence>`; if it is owed, deliver it, then close it; if it needs longer, `promise snooze <id> <when>`; if it no longer applies, `promise drop <id> <reason>`. Ids may be comma-separated. `promise list` shows everything open.",
+				"These items stay open for reconciliation and will not prompt again unless explicitly snoozed or reopened. `promise list --review` shows the reconciliation queue. A reply or an active worker alone is not completion evidence.",
+				...lines,
+			].join("\n"),
+		);
 	}
 
 	/**

@@ -14,6 +14,7 @@ import {
 } from "./evidence.ts";
 import { normalizeOpenEvidence, readOpenEvidence } from "./open-evidence.ts";
 import { pick, POOLS, type State } from "./pick.ts";
+import { testAdapter } from "./test-adapter.ts";
 
 const now = Date.parse("2026-11-19T00:00:00Z");
 const row = (signal: string, effort = "max", value = 1): EvidenceRow => ({
@@ -148,7 +149,7 @@ it("selects an observed effort with sufficient coverage and sends it to Codex", 
 	const dir = mkdtempSync(path.join(tmpdir(), "router-codex-"));
 
 	try {
-		writeFileSync(path.join(dir, "codex"), "#!/bin/sh\nprintf '%s\\n' \"$@\"\n", { mode: 0o700 });
+		writeFileSync(path.join(dir, "codex"), testAdapter, { mode: 0o700 });
 		vi.stubEnv("PATH", `${dir}:${process.env["PATH"] ?? ""}`);
 		const executed = await launch(selected.offer, "Synthetic test brief", dir);
 
