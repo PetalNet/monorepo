@@ -182,3 +182,136 @@ it("refuses a scanned brief and records the notification before any builder star
 		status: "launch refused",
 	});
 });
+
+it.each([
+	{ flags: ["--kind", "code"], dataClass: "public" },
+	{ flags: ["--tier", "S"], dataClass: "public" },
+	{ flags: ["--for", "research"], dataClass: "public" },
+	{ flags: ["--allow-superseded"], dataClass: "public" },
+	{ flags: ["--data-class", "sensitive"], dataClass: "sensitive" },
+	{ flags: [], dataClass: "public" },
+	{ flags: ["--not-vendor", "OpenAI"], dataClass: "public", model: "gemini-4-neon" },
+	{ flags: [], dataClass: "public", used: 100, model: "gemini-4-neon" },
+	{ flags: ["--data-class", "sensitive"], dataClass: "sensitive", used: 100, refused: true },
+	{
+		flags: ["--kind", "code", "--tier", "A", "--data-class", "public", "--allow-superseded"],
+		dataClass: "public",
+	},
+])("selects a default using current quota for $flags (used: $used)", async (scenario) => {
+	const dir = await mkdtemp(path.join(tmpdir(), "route-default-"));
+
+	dirs.push(dir);
+	const now = Date.UTC(2026, 10, 23, 18);
+	const reset = new Date(now + 2 * 60 * 60 * 1000).toISOString();
+	const weekReset = new Date(now + 4 * 24 * 60 * 60 * 1000).toISOString();
+	const clock = path.join(dir, "clock.mjs");
+	const codexQuota = path.join(dir, "codex-quota");
+	const agyQuota = path.join(dir, "agy-quota");
+
+	await Promise.all([
+		writeFile(clock, `Date.now = () => ${String(now)};\n`),
+		writeFile(path.join(dir, "codex"), testAdapter, { mode: 0o700 }),
+		writeFile(path.join(dir, "agy"), testAdapter, { mode: 0o700 }),
+		writeFile(
+			codexQuota,
+			`#!/bin/sh\necho '${JSON.stringify({
+				id: 2,
+				result: {
+					rateLimits: {
+						planType: "prolite",
+						primary: {
+							usedPercent: scenario.used ?? 0,
+							windowDurationMins: 10080,
+							resetsAt: Date.parse(weekReset) / 1000,
+						},
+					},
+				},
+			})}'\n`,
+			{ mode: 0o700 },
+		),
+		writeFile(
+			agyQuota,
+			`#!/bin/sh\nprintf '%s\\n' 'Gemini Models\t5h\t98%\t${reset}' 'Gemini Models\t7d\t98%\t${weekReset}'\n`,
+			{ mode: 0o700 },
+		),
+	]);
+
+	const brief = "Return a harmless marker.";
+	const entry = fileURLToPath(new URL("route.ts", import.meta.url));
+	const result = spawnSync(process.execPath, [entry, "run", ...scenario.flags, brief], {
+		encoding: "utf8",
+		timeout: 5000,
+		env: {
+			...process.env,
+			HOME: dir,
+			PATH: `${dir}:${process.env["PATH"] ?? ""}`,
+			NODE_OPTIONS: `--import ${clock}`,
+			CODEX_BIN: codexQuota,
+			QUOTA_CODEX_CMD: "false",
+			QUOTA_AGY_CMD: agyQuota,
+			ROUTE_NO_INJECT: "1",
+			ROUTE_DEPTH: "0",
+		},
+	});
+
+	if (scenario.refused) {
+		expect(result.stderr).toContain("no eligible default model");
+		expect(result.status).toBe(3);
+
+		return;
+	}
+
+	const model = scenario.model ?? "gpt-6.2-sol";
+
+	expect(result.stderr).toBe("");
+	expect(result.status).toBe(0);
+	expect(result.stdout).toContain(`selected ${model}:high`);
+	expect(result.stdout).toContain(brief);
+	const ledger = await readFile(path.join(dir, ".local/state/router/ledger.jsonl"), "utf8");
+
+	expect(
+		ledger
+			.split("\n")
+			.filter(Boolean)
+			.map((line): unknown => JSON.parse(line)),
+	).toContainEqual(
+		expect.objectContaining({
+			event: "launch",
+			model,
+			effort: "high",
+			dataClass: scenario.dataClass,
+		}),
+	);
+});
+
+it.each([
+	{ flags: ["--data-class", "parcs"], brief: "Read the draft.", code: 5 },
+	{ flags: ["--class", "confidential"], brief: "Read the draft.", code: 5 },
+	{ flags: ["--class", "public"], brief: "Review the Bridgeton draft.", code: 5 },
+	{
+		flags: ["--data-class", "parcs", "--not-vendor", "anthropic"],
+		brief: "Read the draft.",
+		code: 3,
+	},
+])("keeps confidential defaults on native Claude for $flags", async ({ flags, brief, code }) => {
+	const dir = await mkdtemp(path.join(tmpdir(), "route-handoff-"));
+
+	dirs.push(dir);
+	const entry = fileURLToPath(new URL("route.ts", import.meta.url));
+	const result = spawnSync(process.execPath, [entry, "run", ...flags, brief], {
+		encoding: "utf8",
+		env: { ...process.env, HOME: dir, ROUTE_NO_INJECT: "1", ROUTE_DEPTH: "0" },
+	});
+
+	expect(result.status).toBe(code);
+	if (code === 5) {
+		expect(result.stdout).toContain("Claude handoff:");
+		expect(result.stdout).toContain("selected opus:high");
+	} else {
+		expect(result.stderr).toContain("no eligible default model");
+	}
+
+	const ledger = await readFile(path.join(dir, ".local/state/router/ledger.jsonl"), "utf8");
+
+	expect(ledger).not.toContain('"event":"launch"');
+});

@@ -13,8 +13,8 @@ import {
 } from "@petalnet/harness-hooks/quota-sources";
 
 import { redact, routeDepth } from "./adapters.ts";
-import { classRefusal, effectiveDataClass, resolveTarget } from "./policy.ts";
-import { quotaMain } from "./quota-pacing-command.ts";
+import { classRefusal, effectiveDataClass, parseDataClass, resolveTarget } from "./policy.ts";
+import { defaultTarget, quotaMain } from "./quota-pacing-command.ts";
 import { launchOptions, routeCommand } from "./route-args.ts";
 import { notify, run } from "./run.ts";
 import { appendEvent, validateLedger } from "./state.ts";
@@ -70,9 +70,23 @@ async function launch(argv: string[]): Promise<number> {
 		}
 
 		const { positionals, values } = parsed;
-		const [command, model, ...words] = positionals;
+		const [command, first, ...rest] = positionals;
 
-		if (command !== "run" || !model || words.length === 0) {
+		if (command !== "run" || !first) {
+			return await reject(2, USAGE);
+		}
+
+		const legacy =
+			values.kind !== undefined ||
+			values.tier !== undefined ||
+			values["data-class"] !== undefined ||
+			values["not-vendor"] !== undefined ||
+			values["allow-superseded"] === true;
+		const startsWithModel = resolveTarget(first.split(":")[0] ?? "") !== undefined;
+		const model = rest.length > 0 && (!legacy || startsWithModel) ? first : undefined;
+		const words = model ? rest : [first, ...rest];
+
+		if (rest.length === 0 && startsWithModel && !legacy) {
 			return await reject(2, USAGE);
 		}
 
@@ -80,13 +94,15 @@ async function launch(argv: string[]): Promise<number> {
 			return await reject(4, "nesting limit reached (maximum 4)");
 		}
 
-		const flagClass = values.class ?? "public";
+		const legacyClass = values["data-class"];
+		const flagClass = parseDataClass(values.class ?? legacyClass ?? "public");
 		const promiseId = values.promise === undefined ? undefined : Number(values.promise);
 		const declaredSource =
 			values["source-kind"] === undefined ? undefined : parseMessageSource(values["source-kind"]);
 
 		if (
-			(flagClass !== "public" && flagClass !== "sensitive" && flagClass !== "parcs") ||
+			flagClass === undefined ||
+			(legacyClass !== undefined && parseDataClass(legacyClass) !== flagClass) ||
 			(promiseId !== undefined && (!Number.isSafeInteger(promiseId) || promiseId <= 0)) ||
 			(values["source-kind"] !== undefined && declaredSource === undefined)
 		) {
@@ -131,20 +147,26 @@ async function launch(argv: string[]): Promise<number> {
 
 		const dataClass = effectiveDataClass(flagClass, task);
 		const allowClaude = values["allow-claude"] === true;
-		const target = resolveTarget(model, allowClaude || dataClass === "parcs");
-
-		if (!target) {
-			return await reject(3, "unsupported model or effort");
-		}
-
-		const refusal = classRefusal(target, dataClass, allowClaude);
-
 		if (dataClass !== flagClass) {
 			report(`class raised to ${dataClass} by the brief`);
 		}
 
+		const target = model
+			? resolveTarget(model, allowClaude || dataClass === "parcs")
+			: await defaultTarget(dir, dataClass, values["not-vendor"]);
+
+		if (!target) {
+			return await reject(3, model ? "unsupported model or effort" : "no eligible default model");
+		}
+
+		const refusal = classRefusal(target, dataClass, allowClaude);
+
 		if (refusal) {
 			return await reject(3, refusal);
+		}
+
+		if (!model) {
+			report(`selected ${target.model}:${target.effort}`);
 		}
 
 		if (target.pool.plan === "claude") {

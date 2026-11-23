@@ -13,7 +13,7 @@ import {
 	type ServiceReport,
 } from "@petalnet/harness-hooks/quota-sources";
 
-import { classRefusal, POOLS, resolveTarget, type DataClass } from "./policy.ts";
+import { classRefusal, POOLS, resolveTarget, vendorOf, type DataClass } from "./policy.ts";
 import { BOOTSTRAP_BURN } from "./quota-pacing-history.ts";
 import {
 	burnKey,
@@ -280,7 +280,8 @@ async function pace(
 	dir: string,
 	reports: Record<string, ServiceReport>,
 	dataClass: DataClass,
-): Promise<string> {
+	request?: { excludedVendor: string | undefined },
+) {
 	const now = Date.now();
 	const current = Object.values(reports).flatMap((report) => {
 		const at = report.observedAtMs;
@@ -323,8 +324,8 @@ async function pace(
 			return updated;
 		}),
 		jsonLines(path.join(dir, "ledger.jsonl")),
-		readFile("/proc/meminfo", "utf8"),
-		statfs("/"),
+		request ? undefined : readFile("/proc/meminfo", "utf8"),
+		request ? undefined : statfs("/"),
 		liveRouterProcesses(),
 	]);
 	const { active, runs } = readLedger(ledger, now, processes);
@@ -352,8 +353,10 @@ async function pace(
 		}
 	}
 
-	const slots =
-		processes.size > active.length
+	// Host slots govern the scheduler's extra work. A requested run needs one quota decision.
+	const slots = request
+		? 1
+		: !memory || !disk || processes.size > active.length
 			? 0
 			: hostSlots(
 					Number(/^MemAvailable:\s+(\d+)/mu.exec(memory)?.[1] ?? 0) / 1024,
@@ -369,8 +372,10 @@ async function pace(
 		builders.set(JSON.stringify([pool, model, effort]), { pool, model, effort });
 	}
 
-	const candidates = buildCandidates([...builders.values()], reports, now, dataClass);
-	const selected = recommend({
+	const candidates = buildCandidates([...builders.values()], reports, now, dataClass).filter(
+		({ model }) => vendorOf(model) !== request?.excludedVendor,
+	);
+	const input = {
 		now,
 		slots,
 		candidates,
@@ -379,7 +384,53 @@ async function pace(
 		providerCaps,
 		poolProviders,
 		windowsByPool,
-	});
+	};
+	const preferred = request
+		? recommend({
+				...input,
+				candidates: candidates.filter(
+					({ pool, model, effort }) =>
+						pool === "codex" && model === "gpt-6.2-sol" && effort === "high",
+				),
+			})[0]
+		: undefined;
+
+	return {
+		selected: preferred ? [preferred] : recommend(input),
+		slots,
+		active: active.length,
+		burns: burns.size,
+	};
+}
+
+export async function defaultTarget(dir: string, dataClass: DataClass, notVendor?: string) {
+	const excludedVendor = notVendor?.toLowerCase();
+
+	if (dataClass === "parcs") {
+		return excludedVendor === vendorOf("opus") ? undefined : resolveTarget("opus:high");
+	}
+
+	const [codex, google] = await Promise.all([
+		readPacingCodex(),
+		dataClass === "public" ? readGoogleAi(sourceConfigFromEnv(), defaultSourceDeps()) : undefined,
+	]);
+	const { selected } = await pace(
+		dir,
+		google ? { codex, "google-ai": google } : { codex },
+		dataClass,
+		{
+			excludedVendor,
+		},
+	);
+	const first = selected[0];
+
+	return first ? resolveTarget(`${first.model}:${first.effort}`) : undefined;
+}
+
+function formatPace(
+	reports: Record<string, ServiceReport>,
+	{ selected, slots, active, burns }: Awaited<ReturnType<typeof pace>>,
+): string {
 	const counts = new Map<string, { builder: Builder; count: number }>();
 
 	for (const builder of selected) {
@@ -413,7 +464,7 @@ async function pace(
 		...(decisions.length > 0
 			? decisions
 			: [
-					`hold (host slots ${String(slots)}, active ${String(active.length)}, calibrated rates ${String(burns.size)})`,
+					`hold (host slots ${String(slots)}, active ${String(active)}, calibrated rates ${String(burns)})`,
 				]),
 		...status,
 	].join("\n");
@@ -456,9 +507,9 @@ export async function quotaMain(args: string[]): Promise<number> {
 	]);
 	const directory = path.join(homedir(), ".local/state/router");
 
-	process.stdout.write(
-		`${await pace(directory, { codex, "google-ai": google, claude }, dataClass)}\n`,
-	);
+	const reports = { codex, "google-ai": google, claude };
+
+	process.stdout.write(`${formatPace(reports, await pace(directory, reports, dataClass))}\n`);
 
 	return 0;
 }

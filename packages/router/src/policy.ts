@@ -4,6 +4,26 @@ import { hasCredentials } from "./adapters.ts";
 
 export type DataClass = "public" | "sensitive" | "parcs";
 
+export function parseDataClass(value: string): DataClass | undefined {
+	if (value === "confidential") {
+		return "parcs";
+	}
+
+	return value === "public" || value === "sensitive" || value === "parcs" ? value : undefined;
+}
+
+export function vendorOf(model: string): string {
+	if (/^(?:gpt|o\d|codex)/u.test(model)) {
+		return "openai";
+	}
+
+	if (/^(?:gemini|gemma)/u.test(model)) {
+		return "google";
+	}
+
+	return /(?:claude|opus|sonnet|haiku|fable)/u.test(model) ? "anthropic" : "other";
+}
+
 /**
  * "Parcs Labs" is Parker's own LLC, not the Bridgeton PARCS job, so it does not count. A brief
  * carrying a credential is sensitive whatever the flag says; the class only ever rises.
