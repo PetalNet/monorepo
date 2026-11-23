@@ -14,7 +14,7 @@ The compaction mod (`fold`) runs `build` before each compaction, and the recall 
 
 ## Outbound retrieval
 
-`query`, `unfold`, `memindex.py search`, `build --ledger-cards`, and the bundle/research commands release text only after the shared `vault-scan` command approves it. Set `FOLD_SECRET_SCANNER_ARGV` to a JSON argv array, for example `["node", "/checkout/packages/vault-engine/src/scan-cli.ts"]`. Configure the scanner's `VAULT_SECRET_PROVIDER_ARGV` and private skip policy on the agent host. The scanner combines the vault's rules with known exact secret values. Fold-cards has no fallback outbound regex.
+`query`, `unfold`, `memindex.py search`, `build --ledger-cards`, and the bundle/research commands release text only after the shared `vault-scan` command approves it. Set `FOLD_SECRET_SCANNER_ARGV` to a JSON argv array, for example `["node", "/checkout/packages/vault-engine/src/scan-cli.ts"]`. Configure the scanner's `VAULT_SECRET_PROVIDER_ARGV` and private skip policy on the agent host. The scanner combines the vault's rules with known exact secret values. Fold-cards has no fallback outbound regex. Deployments can also put that array in `bin/scanner-argv.json` beside the scripts. An explicit environment setting takes precedence.
 
 Candidate text travels to the scanner on stdin. Unconfigured scanners, hits, process errors, timeouts, nonzero exits, or unexpected stdout/stderr refuse the entire result. Nothing is streamed before approval. Raw source text and final output are checked together, before truncation and JSON escaping can hide an exact match. An empty retrieval also requires a configured scanner. Index construction stays local; writing an index does not authorize releasing its contents.
 
