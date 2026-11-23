@@ -1,0 +1,14 @@
+[project]
+name = "janet-wakeword"
+version = "0.1.0"
+description = "Retrain the 'hey Janet' openWakeWord model on the owner's real voice, with measured old-versus-new metrics"
+requires-python = ">=3.12"
+# torch, transformers and the Chatterbox runtime come from the GPU environment (see README).
+dependencies = ["numpy", "scipy", "soundfile", "onnxruntime", "openwakeword==0.6.0", "piper-tts"]
+
+[project.optional-dependencies]
+tflite = ["ai-edge-litert", "tflite"]
+test = ["pytest"]
+
+[tool.ruff]
+line-length = 120
