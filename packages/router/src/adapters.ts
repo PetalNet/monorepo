@@ -1,12 +1,13 @@
 import { spawn } from "node:child_process";
 
-import { poolIdOf, type Offer } from "./pick.ts";
+import type { Target } from "./policy.ts";
 import { readProviderEvents, type ProviderTelemetry } from "./telemetry.ts";
 
 export interface Execution {
 	code: number;
 	out: string;
 	log: string;
+	started?: boolean;
 	telemetry?: ProviderTelemetry;
 }
 export type Failure = "quota" | "transient" | "bad-offer" | "auth" | "empty" | "unknown";
@@ -87,38 +88,6 @@ export function classify(result: Execution): Failure | null {
 	return result.code === 0 ? null : "unknown";
 }
 
-export function resetTime(text: string, now: number): number {
-	const duration = /Resets in\s+([^\n]+)/iu.exec(text)?.[1];
-
-	if (duration) {
-		let ms = 0;
-
-		for (const match of duration.matchAll(
-			/(\d+(?:\.\d+)?)\s*(d(?:ays?)?|h(?:ours?)?|m(?:in(?:utes?)?)?|s(?:ec(?:onds?)?)?)/giu,
-		)) {
-			const unit = match[2]?.[0]?.toLowerCase();
-
-			ms +=
-				Number(match[1]) *
-				(unit === "d" ? 86400000 : unit === "h" ? 3600000 : unit === "m" ? 60000 : 1000);
-		}
-
-		if (ms > 0) {
-			return now + ms;
-		}
-	}
-
-	const iso = /(?:reset(?:s|_at)?)[^\n]*?(\d{4}-\d\d-\d\dT[\d:.]+(?:Z|[+-]\d\d:\d\d))/iu.exec(
-		text,
-	)?.[1];
-
-	if (iso && Date.parse(iso) > now) {
-		return Date.parse(iso);
-	}
-
-	return now + 3600000;
-}
-
 export function execute(
 	command: string,
 	args: string[],
@@ -133,9 +102,13 @@ export function execute(
 			env,
 			signal,
 			stdio: ["pipe", "pipe", "pipe"],
-			// Builders run for hours; a 30-minute cap killed them mid-PR (2026-11-19).
-			timeout: Number(process.env["ROUTE_TIMEOUT_MIN"] ?? 360) * 60 * 1000,
 		});
+		let started = false;
+
+		child.once("spawn", () => {
+			started = true;
+		});
+
 		let out = "";
 		let log = "";
 		let cancelTimer: NodeJS.Timeout | undefined;
@@ -179,6 +152,7 @@ export function execute(
 
 			resolve({
 				code: code ?? 1,
+				started,
 				out,
 				log: exitSignal ? `${log}\nERROR: interrupted (${exitSignal})` : log,
 			});
@@ -189,35 +163,23 @@ export function execute(
 }
 
 export function launch(
-	offer: Offer,
+	offer: Target,
 	brief: string,
 	cwd: string,
 	signal?: AbortSignal,
 ): Promise<Execution> {
-	// A helper this agent routes for review can then avoid the exact model that wrote the work.
 	const depth = routeDepth();
 
 	if (depth >= 4) {
 		throw new Error("router nesting limit reached (maximum 4)");
 	}
 
-	const expected = poolIdOf({ id: offer.model, provider: offer.provider, score: offer.score });
-
-	if (
-		!offer.pool ||
-		offer.pool.id !== expected ||
-		!(
-			offer.provider === "codex" ||
-			offer.provider === "gemini" ||
-			offer.provider.startsWith("agy-")
-		)
-	) {
-		throw new Error("provider and execution pool do not match");
+	if (offer.pool.plan !== "codex" && offer.pool.plan !== "google-ai") {
+		throw new Error("no execution adapter for this plan");
 	}
 
 	const env = { ...process.env, ROUTE_PARENT_MODEL: offer.model, ROUTE_DEPTH: String(depth + 1) };
-
-	const codex = offer.provider === "codex";
+	const codex = offer.pool.plan === "codex";
 
 	return execute(
 		codex ? "codex" : "agy",

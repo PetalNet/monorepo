@@ -6,7 +6,7 @@ import { createInterface } from "node:readline";
 
 import type { QuotaLimit, ServiceReport } from "@petalnet/harness-hooks/quota-sources";
 
-import type { Pool } from "./pick.ts";
+import type { Pool } from "./policy.ts";
 
 function record(value: unknown): Record<string, unknown> | undefined {
 	return value !== null && typeof value === "object" && !Array.isArray(value)

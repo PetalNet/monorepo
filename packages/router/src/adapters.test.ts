@@ -6,8 +6,7 @@ import { afterEach, expect, it, vi } from "vitest";
 
 import { testAdapter } from "../test/adapter.ts";
 import { launch } from "./adapters.ts";
-import { CODEX_EFFORTS, supportedEfforts } from "./effort.ts";
-import { POOLS, type Offer } from "./pick.ts";
+import { resolveTarget } from "./policy.ts";
 
 const dirs: string[] = [];
 
@@ -26,24 +25,22 @@ async function adapter(name: string): Promise<string> {
 	return dir;
 }
 
-const offer: Offer = {
-	id: "gpt-test",
-	model: "gpt-test",
-	provider: "codex",
-	effort: "low",
-	family: "gpt",
-	origin: "us",
-	score: 1,
-	bonus: 0,
-	pool: POOLS.find((pool) => pool.id === "codex"),
-};
+function target(id: string) {
+	const resolved = resolveTarget(id);
 
-it.each(CODEX_EFFORTS)(
+	if (!resolved) {
+		throw new Error("missing test target");
+	}
+
+	return resolved;
+}
+
+it.each(["none", "low", "medium", "high"])(
 	"passes Codex %s explicitly without executing brief text",
 	async (effort) => {
 		const cwd = await adapter("codex");
 		const brief = "literal $(exit 19) and 'quotes'";
-		const result = await launch({ ...offer, effort }, brief, cwd);
+		const result = await launch(target(`gpt-test:${effort}`), brief, cwd);
 
 		expect(result.code).toBe(0);
 		expect(result.out).toContain(`-c\nmodel_reasoning_effort=${effort}\n`);
@@ -52,30 +49,10 @@ it.each(CODEX_EFFORTS)(
 	},
 );
 
-it("keeps agy slug and effort consistent even when the catalog ID encoded another level", async () => {
+it("passes the same agy effort in the slug and flag", async () => {
 	const cwd = await adapter("agy");
-	const result = await launch(
-		{
-			...offer,
-			provider: "gemini",
-			pool: POOLS.find((pool) => pool.id === "google-ai:gemini"),
-			model: "gemini-4-neon",
-			id: "gemini-4-neon-xhigh",
-			effort: "low",
-		},
-		"brief",
-		cwd,
-	);
+	const result = await launch(target("gemini-4-neon:low"), "brief", cwd);
 
 	expect(result.code).toBe(0);
 	expect(result.out).toContain("--model\ngemini-4-neon-low\n--effort\nlow\n");
-	expect(result.out).not.toContain("xhigh");
-});
-
-it("offers only published agy variants and preserves fixed-budget models", () => {
-	expect(supportedEfforts("gemini", "gemini-4-neon")).toEqual(["low", "medium", "high", "xhigh"]);
-	expect(supportedEfforts("gemini", "gemini-4-argon")).toEqual(["low", "medium", "high"]);
-	expect(supportedEfforts("agy-gpt", "gpt-oss-120b")).toEqual(["medium"]);
-	expect(supportedEfforts("gemini", "gemini-pro-orchestrator-neon")).toEqual(["default"]);
-	expect(supportedEfforts("gemini", "unknown-model", "high")).toEqual(["high"]);
 });

@@ -2,60 +2,11 @@ import { spawn } from "node:child_process";
 import { createHash } from "node:crypto";
 import { once } from "node:events";
 import { createReadStream } from "node:fs";
-import { mkdir, open, readFile, readdir, rename, writeFile } from "node:fs/promises";
+import { mkdir, open, readFile, readdir } from "node:fs/promises";
 import path from "node:path";
 import { createInterface } from "node:readline";
 
 import { redact } from "./adapters.ts";
-
-export interface Availability {
-	cooldowns: Record<string, number>;
-	badOffers: Record<string, number>;
-	signedOut: Record<string, number>;
-}
-
-export async function readAvailability(dir: string): Promise<Availability> {
-	let raw: unknown;
-
-	try {
-		raw = JSON.parse(await readFile(path.join(dir, "availability.json"), "utf8"));
-	} catch (error) {
-		if (error instanceof Error && "code" in error && error.code === "ENOENT") {
-			return { cooldowns: {}, badOffers: {}, signedOut: {} };
-		}
-
-		throw error;
-	}
-
-	if (!raw || typeof raw !== "object") {
-		throw new Error("invalid router availability");
-	}
-
-	const result: Availability = { cooldowns: {}, badOffers: {}, signedOut: {} };
-
-	for (const key of ["cooldowns", "badOffers", "signedOut"] as const) {
-		const entries: unknown = key in raw ? Reflect.get(raw, key) : undefined;
-
-		if (!entries || typeof entries !== "object" || Array.isArray(entries)) {
-			throw new Error("invalid router availability");
-		}
-
-		for (const [id, until] of Object.entries(entries)) {
-			if (typeof until !== "number" || !Number.isFinite(until)) {
-				throw new TypeError("invalid router timestamp");
-			}
-
-			Object.defineProperty(result[key], id, {
-				value: until,
-				enumerable: true,
-				writable: true,
-				configurable: true,
-			});
-		}
-	}
-
-	return result;
-}
 
 export async function locked<T>(dir: string, action: () => Promise<T>): Promise<T> {
 	await mkdir(dir, { recursive: true, mode: 0o700 });
@@ -80,23 +31,6 @@ export async function locked<T>(dir: string, action: () => Promise<T>): Promise<
 		lock.stdin.end();
 		await closed;
 	}
-}
-
-export async function markUnavailable(
-	dir: string,
-	key: keyof Availability,
-	id: string,
-	until: number,
-): Promise<void> {
-	await locked(dir, async () => {
-		const state = await readAvailability(dir);
-
-		state[key][id] = Math.max(state[key][id] ?? 0, until);
-		const temp = path.join(dir, `.availability-${crypto.randomUUID()}`);
-
-		await writeFile(temp, JSON.stringify(state), { mode: 0o600 });
-		await rename(temp, path.join(dir, "availability.json"));
-	});
 }
 
 function parseEvent(line: string): { event: string; runId?: string } {
