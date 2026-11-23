@@ -258,6 +258,21 @@ class RingTest(unittest.IsolatedAsyncioTestCase):
                 self.assertFalse(any(path.endswith("/turns") and "no caller speech arrived" in body["text"]
                                      for path, body in FakeGateway.calls))
 
+    async def test_only_the_no_speech_observation_allows_a_silent_reply(self):
+        with mock.patch.object(janet_phone, "RING_SILENCE_S", 0.5):
+            task, payload = await self.start_ring()
+            async with connect(self.url, additional_headers={**self.phone, "X-Janet-Ring": payload["id"]}) as ws:
+                self.assertEqual((await task)[1]["status"], "audio_connected")
+                for _ in range(100):
+                    await ws.send(bytes(1280))
+                    await asyncio.sleep(.02)
+                    turns = [body for path, body in FakeGateway.calls if path.endswith("/turns")]
+                    if len(turns) == 2:
+                        break
+                self.assertEqual(len(turns), 2)
+                self.assertNotIn("allow_silence", turns[0])
+                self.assertIs(turns[1]["allow_silence"], True)
+
     async def test_wrong_device_guesses_replays_and_revoked_devices_open_no_gateway(self):
         other = self.devices.add("Other", "owner")
         task, payload = await self.start_ring(device=self.device[:12])

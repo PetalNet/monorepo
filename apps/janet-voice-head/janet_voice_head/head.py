@@ -19,6 +19,7 @@ from .speech import SpeechStream
 log = logging.getLogger("janet-voice-head")
 NO_ANSWER = "Sorry, I could not answer that."
 RELAYED = "Okay, I will pass that to main Janet."
+ASK_TO_CONTINUE = "Could you say a little more?"
 IDLE_TIMEOUT = "idle_timeout"
 Emit = Callable[[str, dict], None]
 
@@ -172,7 +173,7 @@ class Head:
             threading.Thread(target=self._warm_up, args=(live,), daemon=True).start()
         return conv_id
 
-    def turn(self, conv_id: str, text: str, emit: Emit) -> None:
+    def turn(self, conv_id: str, text: str, emit: Emit, *, allow_silence: bool = False) -> None:
         live = self._open_live(conv_id)
         arrived = time.monotonic()
         arrived_at = time.time()
@@ -201,7 +202,7 @@ class Head:
             turn_number = live.timing_turn
         timer = threading.Timer(self.config.bridge_after_s, bridge)
         timer.daemon = True
-        if cold:
+        if cold and not allow_silence:
             timer.start()
         try:
             live.warm.wait(self.config.ready_timeout_s + self.config.turn_timeout_s)
@@ -284,6 +285,7 @@ class Head:
                 except SessionError as error:
                     log.warning("conversation %s: %s", conv_id, error)
                     end = True
+                relay = stream.relay
                 with live.lock:
                     question, hangup = session.call_control.finish_turn(
                         not end and client_connected and live.cut_off is None and not live.ending.is_set())
@@ -294,14 +296,13 @@ class Head:
                         closing = call_tools.QUESTION if question else call_tools.GOODBYE
                         say(closing)
                         end = hangup and client_connected and live.cut_off is None
-                relay = stream.relay
-                if latency["first_sentence"] is None and live.cut_off is None:
-                    # A reply with nothing to say is silence, not an apology: Parker may have paused mid-thought. Only a failure apologises.
-                    if end:
-                        say(NO_ANSWER)
-                    elif relay:
-                        say(RELAYED)
-                with live.lock:
+                    if latency["first_sentence"] is None and live.cut_off is None and not live.ending.is_set():
+                        if end:
+                            say(NO_ANSWER)
+                        elif relay:
+                            say(RELAYED)
+                        elif not allow_silence:
+                            say(ASK_TO_CONTINUE)
                     live.record(kind="exchange", n=number, heard=text, said=" ".join(said), asks=relay.asks, commitments=relay.commitments)
                     if live.cut_off is not None:
                         live.record(kind="interrupted", n=number, heard_text=live.cut_off)
