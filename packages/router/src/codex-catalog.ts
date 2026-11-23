@@ -302,7 +302,7 @@ export async function checkCodexAlerts(
 	) {
 		events.push({
 			key: `release:${release.version}`,
-			message: `Codex ${version} lags ${release.version}, released ${new Date(release.publishedAt).toISOString().slice(0, 10)}. Check codex-update.service.`,
+			message: `Codex ${version} lags ${release.version}, released ${new Date(release.publishedAt).toISOString().slice(0, 10)}. Check the installed Codex package.`,
 		});
 	}
 
