@@ -38,7 +38,7 @@ it.each([
 	],
 	["[handback NAG] Not done, not blocked, not handed back:", "human", "reminder"],
 	["you keep stopping", "human", "human"],
-	["Verify in the saved PNGs", "task-brief", "task-brief"],
+	["Verify in the saved images", "task-brief", "task-brief"],
 ] as const)("keeps the provenance of %s", (text, fallback, expected) => {
 	expect(messageSource(text, fallback)).toBe(expected);
 });
@@ -844,10 +844,12 @@ echo "$*" >> "${dir}/vault.log"; n=$(wc -l < "${dir}/vault.log"); printf '{"id":
 
 	it("preserves repair constraints and keeps a partial delivery open", () => {
 		say("Please send the report.", { direction: "in", ref: "$human" });
+
 		say("[handback NAG] Not done, not blocked, not handed back:", {
 			direction: "in",
 			ref: "$timer",
 		});
+
 		say("I'll send you the report tomorrow.");
 		sweep();
 		expect(using((ledger) => ledger.item(1))).toMatchObject({ pointer: "event:$human" });
@@ -859,24 +861,45 @@ echo "$*" >> "${dir}/vault.log"; n=$(wc -l < "${dir}/vault.log"); printf '{"id":
 				checks: { "Report delivered": null, "Links verified": null },
 			}),
 		);
+
 		say("Here is the report: https://example.org/report.pdf");
 		sweep();
+
 		using((ledger) =>
 			ledger.setAcceptance(1, { checks: { "Report delivered": "event:$delivered" } }),
 		);
+
 		expect(cli("done", "1", "Sent the report").stderr).toContain("unresolved acceptance checks");
+
 		expect(JSON.parse(cli("acceptance", "1").stdout)).toEqual({
 			requested: "Send the report and verify its links",
 			preserved: ["Keep the original attachments"],
 			checks: { "Report delivered": "event:$delivered", "Links verified": null },
 		});
+
 		using((ledger) => ledger.setAcceptance(1, { checks: { "Links verified": "check:link-test" } }));
 		expect(cli("done", "1", "Sent and verified").status).toBe(0);
 		expect(cli("reopen", "1").status).toBe(0);
+
 		expect(JSON.parse(cli("acceptance", "1").stdout)).toMatchObject({
 			preserved: ["Keep the original attachments"],
 			checks: { "Report delivered": null, "Links verified": null },
 		});
+	});
+
+	it("does not close an untracked promise when the same delivery matches a tracked promise", () => {
+		say("Please send the report.", { direction: "in", ref: "$human" });
+		say("I'll send you the report tomorrow.");
+		say("I'll send you the report tomorrow.");
+		sweep();
+
+		using((ledger) =>
+			ledger.setAcceptance(1, { requested: "Send my report", checks: { Delivered: null } }),
+		);
+
+		say("Here is the report: https://example.org/report.pdf");
+		sweep();
+		expect(using((ledger) => ledger.items("state = 'open'")).map(({ id }) => id)).toEqual([1, 2]);
 	});
 
 	it("sends nothing while paused and catches up after", () => {

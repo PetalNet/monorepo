@@ -27,20 +27,30 @@ export function messageSource(text: string, fallback: MessageSource): MessageSou
 	if (tagged && tagged !== "human") {
 		return tagged;
 	}
+
 	if (
 		/^\[(?:handback NAG|promise-ledger)\]|^Not done, not blocked, not handed back:/u.test(start)
 	) {
 		return "reminder";
 	}
+
+	const [first, second, third] = start.split("\n", 3);
+
 	if (
-		/^\[Voice head(?: turn\.| warm-up\.|:)|^\[Local time: [^\n]+\]\n(?:\[[^\n]*cut you off[^\n]*\]\n)?The speaker says: /u.test(
-			start,
-		)
+		/^\[Voice head(?: turn\.| warm-up\.|:)/u.test(start) ||
+		(first?.startsWith("[Local time: ") &&
+			first.endsWith("]") &&
+			(second?.startsWith("The speaker says: ") ||
+				(second?.startsWith("[") &&
+					second.includes("cut you off") &&
+					third?.startsWith("The speaker says: "))))
 	) {
 		return "voice-wrapper";
 	}
+
 	if (start.startsWith("<task-notification>")) {
 		return "automated-notification";
 	}
+
 	return fallback;
 }

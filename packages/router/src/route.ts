@@ -28,6 +28,7 @@ import { readOpenEvidence } from "./open-evidence.ts";
 import { BLOCKS, POOLS, PLANS, type Catalog, type DataClass, type Pick, pick } from "./pick.ts";
 import { run } from "./run.ts";
 import { appendEvent, readAvailability, validateLedger } from "./state.ts";
+import { readCodexAccountQuota } from "./telemetry.ts";
 
 const USAGE = `usage:
   route ls  [--for <kind>] [--class <public|sensitive|parcs>] [--not-vendor <maker>]
@@ -233,7 +234,9 @@ async function main(argv: string[]): Promise<number> {
 		const { count, invalid } = await validateLedger(
 			argv[1] ?? `${homedir()}/.local/state/router/ledger.jsonl`,
 		);
+
 		process.stdout.write(`${JSON.stringify({ count, invalid })}\n`);
+
 		return invalid.length === 0 ? 0 : 1;
 	}
 
@@ -356,16 +359,21 @@ async function main(argv: string[]): Promise<number> {
 	const sourceKind = messageSource(brief.text, declaredSource ?? "task-brief");
 	let task = brief.text;
 	let acceptanceDigest: string | undefined;
+
 	if (promiseId !== undefined) {
 		const { Ledger, configFromEnv, depsFromEnv } =
 			await import("@petalnet/harness-hooks/promise-ledger");
 		const ledger = new Ledger(configFromEnv(), depsFromEnv());
+
 		try {
 			const acceptance = ledger.acceptance(promiseId);
+
 			if (!acceptance || ledger.item(promiseId)?.state !== "open") {
 				throw new Error(`promise ${String(promiseId)} needs an active acceptance record`);
 			}
+
 			const snapshot = JSON.stringify(acceptance, null, 2);
+
 			acceptanceDigest = createHash("sha256").update(snapshot).digest("hex");
 			task = `${brief.text}\n\nActive promise ${String(promiseId)}. Carry these requirements through the current task. Null evidence marks an unresolved check.\n${snapshot}`;
 		} finally {
@@ -530,8 +538,10 @@ async function main(argv: string[]): Promise<number> {
 		const cancel = () => {
 			controller.abort();
 		};
+
 		process.on("SIGINT", cancel);
 		process.on("SIGTERM", cancel);
+
 		try {
 			const executed = await run({
 				catalog,
@@ -544,13 +554,16 @@ async function main(argv: string[]): Promise<number> {
 				...(promiseId === undefined ? {} : { promiseId }),
 				...(acceptanceDigest === undefined ? {} : { acceptanceDigest }),
 				signal: controller.signal,
+				codexSessionsDir: config.codexSessionsDir,
 				readQuota: (service) => {
 					if (service === "codex") {
-						return readCodex(config, deps);
+						return readCodexAccountQuota(config.codexCmd);
 					}
+
 					if (service === "google-ai") {
 						return readGoogleAi(config, deps);
 					}
+
 					return Promise.resolve(undefined);
 				},
 				briefName: briefFile ? path.basename(briefFile, ".md") : brief.text.trim().slice(0, 60),

@@ -174,14 +174,18 @@ function main(argv: string[]) {
 			case "acceptance": {
 				const [rawId, file, ...extra] = rest;
 				const [id] = ids(rawId);
+
 				if (id === undefined || extra.length > 0 || rawId?.includes(",")) {
 					fail("usage: promise acceptance <id> [file|-]");
 				}
+
 				const record =
 					file === undefined
 						? ledger.acceptance(id)
 						: ledger.setAcceptance(id, JSON.parse(readFileSync(file === "-" ? 0 : file, "utf8")));
+
 				process.stdout.write(`${JSON.stringify(record, null, 2)}\n`);
+
 				break;
 			}
 

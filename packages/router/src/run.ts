@@ -19,7 +19,7 @@ import {
 } from "./adapters.ts";
 import { pick, type Catalog, type Offer, type State } from "./pick.ts";
 import { appendEvent, markUnavailable, readAvailability, seedLedger } from "./state.ts";
-import { quotaSnapshot } from "./telemetry.ts";
+import { quotaSnapshot, readCodexSession } from "./telemetry.ts";
 
 interface RunOptions {
 	catalog: Catalog;
@@ -39,6 +39,7 @@ interface RunOptions {
 	acceptanceDigest?: string;
 	signal?: AbortSignal;
 	readQuota?: (service: ServiceName) => Promise<ServiceReport | undefined>;
+	codexSessionsDir?: string;
 	launch?: (
 		offer: Offer,
 		brief: string,
@@ -74,13 +75,16 @@ export async function run(
 	let code = 3;
 	let tail = "No available offer";
 	let injectCode: number;
+	let hasOutput = false;
 	const acceptanceRef =
 		options.promiseId === undefined ? null : `promise:${String(options.promiseId)}`;
 	const sample = async (pool: NonNullable<Offer["pool"]>) => {
 		if (!pool.service || !options.readQuota || signal?.aborted) {
 			return null;
 		}
+
 		const report = await options.readQuota(pool.service).catch(() => undefined);
+
 		return quotaSnapshot(pool, report, Date.now());
 	};
 
@@ -89,6 +93,7 @@ export async function run(
 			if (signal?.aborted) {
 				break;
 			}
+
 			const current = {
 				...state,
 				nowMs: Date.now(),
@@ -128,9 +133,11 @@ export async function run(
 			for (let retry = 0; retry < 2; retry++) {
 				const handoff = offer.provider === "claude";
 				const quotaBefore = handoff ? null : await sample(pool);
+
 				if (signal?.aborted) {
 					break routing;
 				}
+
 				attempt++;
 				const startedAt = Date.now();
 				const metadata = {
@@ -178,7 +185,24 @@ export async function run(
 					timeout: 2000,
 				});
 				const artifactRevision = revision.status === 0 ? revision.stdout.trim() : null;
-				const quotaAfter = handoff ? null : await sample(pool);
+				const nativeSessionId = result.telemetry?.nativeSessionId ?? null;
+				const codexRollout = offer.provider === "codex" && options.codexSessionsDir !== undefined;
+				const session =
+					codexRollout && nativeSessionId && !signal?.aborted && options.codexSessionsDir
+						? await readCodexSession(
+								options.codexSessionsDir,
+								nativeSessionId,
+								startedAt,
+								signal,
+							).catch(() => undefined)
+						: undefined;
+				const quotaAfter = handoff
+					? null
+					: codexRollout
+						? session?.quota
+							? quotaSnapshot(pool, session.quota.report, session.quota.at)
+							: null
+						: await sample(pool);
 				const status = cancelled
 					? "cancelled"
 					: handoff
@@ -188,6 +212,7 @@ export async function run(
 							: "completed";
 
 				tail = redact(result.out);
+				hasOutput = tail.length > 0;
 				await writeFile(outputPath, tail, { mode: 0o600 });
 
 				await appendFile(
@@ -206,8 +231,8 @@ export async function run(
 					status,
 					artifactRevision,
 					quotaAfter,
-					nativeSessionId: result.telemetry?.nativeSessionId ?? null,
-					respondingModel: result.telemetry?.respondingModel ?? null,
+					nativeSessionId,
+					respondingModel: session?.respondingModel ?? result.telemetry?.respondingModel ?? null,
 					usage: result.telemetry?.usage ?? null,
 					cost: result.telemetry?.cost ?? {
 						charge: null,
@@ -273,15 +298,21 @@ export async function run(
 		if (!signal?.aborted) {
 			code = 1;
 			tail = "Router failed before producing an outcome. See the attempt ledger.";
+
 			throw error;
 		}
 	} finally {
 		if (signal?.aborted) {
 			code = 130;
+
 			tail =
 				"Cancellation requested. Verify any work or processes started outside the adapter before resuming.";
-			await writeFile(outputPath, `${tail}\n`, { mode: 0o600 });
+
+			if (!hasOutput) {
+				await writeFile(outputPath, `${tail}\n`, { mode: 0o600 });
+			}
 		}
+
 		const continuation =
 			options.promiseId === undefined
 				? ""
@@ -294,6 +325,8 @@ export async function run(
 					: code === 130
 						? "cancellation requested"
 						: "blocked";
+		const timeout = AbortSignal.timeout(20_000);
+		const injectSignal = signal && !signal.aborted ? AbortSignal.any([signal, timeout]) : timeout;
 		const injected = await execute(
 			options.injectPath,
 			["--source", "route", "--key", runId],
@@ -302,6 +335,8 @@ export async function run(
 				`route ${runId} exit=${String(code)}; ${status}; output=${outputPath}; log=${logPath}${continuation}\n${tail.slice(-4000)}`,
 			),
 			cwd,
+			process.env,
+			injectSignal,
 		);
 
 		await appendEvent(dir, {
@@ -319,9 +354,13 @@ export async function run(
 		);
 
 		injectCode = injected.code;
+
+		if (signal?.aborted) {
+			code = 130;
+		}
 	}
 
-	if (injectCode !== 0) {
+	if (injectCode !== 0 && code !== 130) {
 		throw new Error(`run ${runId}: cc-link-inject failed (result saved)`);
 	}
 

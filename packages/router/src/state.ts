@@ -101,6 +101,7 @@ export async function markUnavailable(
 
 function parseEvent(line: string): { event: string; runId?: string } {
 	const parsed: unknown = JSON.parse(line);
+
 	if (
 		!parsed ||
 		typeof parsed !== "object" ||
@@ -110,7 +111,9 @@ function parseEvent(line: string): { event: string; runId?: string } {
 	) {
 		throw new Error("expected a ledger event");
 	}
+
 	const runId = "runId" in parsed && typeof parsed.runId === "string" ? parsed.runId : undefined;
+
 	return runId === undefined ? { event: parsed.event } : { event: parsed.event, runId };
 }
 
@@ -118,27 +121,32 @@ async function appendRows(ledger: string, events: object[]) {
 	const rows = events.map((event) => {
 		const line = JSON.stringify(event, (key, value: unknown) => {
 			if (
-				/^(?:authorization|(?:access|refresh)[_-]?token|password|secret|api[_-]?key)$/iu.test(
-					key,
-				) &&
+				/^(?:authorization|[\w-]*(?:token|secret|password|api[_-]?key))$/iu.test(key) &&
 				value !== null
 			) {
 				return "[REDACTED]";
 			}
+
 			return typeof value === "string" ? redact(value) : value;
 		});
+
 		parseEvent(line);
+
 		return line;
 	});
 	const file = await open(ledger, "a+", 0o600);
+
 	try {
 		await file.chmod(0o600);
 		const { size } = await file.stat();
 		const last = Buffer.alloc(1);
+
 		if (size > 0) {
 			await file.read(last, 0, 1, size - 1);
 		}
+
 		const separator = size > 0 && last[0] !== 10 ? "\n" : "";
+
 		await file.appendFile(`${separator}${rows.join("\n")}\n`);
 	} finally {
 		await file.close();
@@ -156,14 +164,17 @@ export async function validateLedger(file: string) {
 	});
 	const invalid: number[] = [];
 	let count = 0;
+
 	for await (const line of lines) {
 		count++;
+
 		try {
 			parseEvent(line);
 		} catch {
 			invalid.push(count);
 		}
 	}
+
 	return { count, invalid };
 }
 
@@ -182,12 +193,15 @@ export async function seedLedger(dir: string, legacy: string): Promise<void> {
 		}
 
 		const imported = new Set<string>();
+
 		for (const line of previous.split("\n")) {
 			try {
 				const row = parseEvent(line);
+
 				if (row.event === "seed-complete") {
 					return;
 				}
+
 				if (row.event === "import" && row.runId) {
 					imported.add(row.runId);
 				}

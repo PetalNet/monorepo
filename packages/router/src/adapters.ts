@@ -138,6 +138,22 @@ export function execute(
 		});
 		let out = "";
 		let log = "";
+		let cancelTimer: NodeJS.Timeout | undefined;
+		const escalate = () => {
+			cancelTimer = setTimeout(() => {
+				child.kill("SIGKILL");
+				child.stdout.destroy();
+				child.stderr.destroy();
+			}, 2000);
+
+			cancelTimer.unref();
+		};
+
+		if (signal?.aborted) {
+			escalate();
+		} else {
+			signal?.addEventListener("abort", escalate, { once: true });
+		}
 
 		child.stdout.setEncoding("utf8").on("data", (chunk: string) => {
 			out += chunk;
@@ -148,7 +164,9 @@ export function execute(
 		});
 
 		child.on("error", () => {
-			log += "\nERROR: adapter could not start";
+			if (!signal?.aborted) {
+				log += "\nERROR: adapter could not start";
+			}
 		});
 
 		child.stdin.on("error", () => {
@@ -156,6 +174,9 @@ export function execute(
 		});
 
 		child.on("close", (code, exitSignal) => {
+			clearTimeout(cancelTimer);
+			signal?.removeEventListener("abort", escalate);
+
 			resolve({
 				code: code ?? 1,
 				out,
@@ -197,6 +218,7 @@ export function launch(
 	const env = { ...process.env, ROUTE_PARENT_MODEL: offer.model, ROUTE_DEPTH: String(depth + 1) };
 
 	const codex = offer.provider === "codex";
+
 	return execute(
 		codex ? "codex" : "agy",
 		codex
@@ -227,6 +249,7 @@ export function launch(
 		signal,
 	).then((result) => {
 		const { out, errors, telemetry } = readProviderEvents(codex ? "codex" : "agy", result.out);
+
 		return { ...result, out, log: errors ? `${result.log}\n${errors}` : result.log, telemetry };
 	});
 }

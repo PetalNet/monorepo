@@ -248,6 +248,7 @@ export class Ledger {
 	acceptance(id: number) {
 		this.must(id);
 		const row = this.db.prepare("SELECT record FROM acceptance WHERE item = ?").get(id);
+
 		return typeof row?.["record"] === "string"
 			? updateAcceptance(null, JSON.parse(row["record"]))
 			: null;
@@ -256,15 +257,19 @@ export class Ledger {
 	setAcceptance(id: number, patch: unknown) {
 		return this.atomic(() => {
 			const item = this.must(id);
+
 			if (item.kind !== "promise" || item.state !== "open") {
 				throw new Error("acceptance belongs to an open promise");
 			}
+
 			const next = updateAcceptance(this.acceptance(id), patch);
+
 			this.db
 				.prepare(
 					"INSERT INTO acceptance (item, record) VALUES (?, ?) ON CONFLICT(item) DO UPDATE SET record = excluded.record",
 				)
 				.run(id, JSON.stringify(next));
+
 			return next;
 		});
 	}
@@ -323,7 +328,9 @@ export class Ledger {
 		if (item.state !== "open") {
 			throw new Error(`item ${String(id)} is already ${item.state}`);
 		}
+
 		const acceptance = this.acceptance(id);
+
 		if (
 			state === "done" &&
 			acceptance &&
@@ -368,11 +375,14 @@ export class Ledger {
 			if (item.state === "open") {
 				throw new Error(`item ${String(id)} is already open`);
 			}
+
 			const acceptance = this.acceptance(id);
+
 			if (acceptance) {
 				acceptance.checks = Object.fromEntries(
 					Object.keys(acceptance.checks).map((check) => [check, null]),
 				);
+
 				this.db
 					.prepare("UPDATE acceptance SET record = ? WHERE item = ?")
 					.run(JSON.stringify(acceptance), id);
@@ -494,6 +504,7 @@ export class Ledger {
 				const branch = String(row["branch"]);
 				const prompt = Iterator.from(before.iterate(id, surface, room, branch)).find((entry) => {
 					const source = messageSource(String(entry["text"]), "unknown");
+
 					return source !== "reminder" && source !== "automated-notification";
 				});
 				const pointer = prompt ? `event:${String(prompt["ref"])}` : "";
@@ -572,7 +583,7 @@ export class Ledger {
 		const matches: { item: Item; evidence: string }[] = [];
 
 		for (const item of this.items(
-			"state = 'open' AND kind = 'promise' AND surface = ? AND room = ? AND branch = ? AND created <= ? AND changed <= ? AND entry_id < ? AND id NOT IN (SELECT item FROM acceptance)",
+			"state = 'open' AND kind = 'promise' AND surface = ? AND room = ? AND branch = ? AND created <= ? AND changed <= ? AND entry_id < ?",
 			surface,
 			room,
 			branch,
@@ -592,7 +603,10 @@ export class Ledger {
 
 		for (const { item, evidence } of matches) {
 			// One report cannot distinguish two outstanding obligations with the same subject.
-			if (matches.filter((match) => match.evidence === evidence).length === 1) {
+			if (
+				matches.filter((match) => match.evidence === evidence).length === 1 &&
+				!this.acceptance(item.id)
+			) {
 				this.closeItem(
 					item.id,
 					"done",

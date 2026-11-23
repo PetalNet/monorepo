@@ -20,7 +20,7 @@ Transient failures retry once after 30 seconds, then fall through. Invalid model
 
 Failure classification reads adapter errors after checking the exit status. Codex JSON error events and stderr lines beginning `AGY_ERROR:` or `ERROR:` supply failure and reset metadata. Builder replies and tool output cannot trigger cooldowns or retries.
 
-Quota snapshots capture the selected pool's account windows before and after each attempt when available. Compare the window IDs and reset times before interpreting movement. Other sessions can consume the same quota. Token counters retain the provider's fields, including cached and reasoning tokens, without summing overlapping counts. The ledger keeps provider-reported charges, dated API-equivalent estimates, and plan opportunity costs in separate fields. Each is null when the corresponding data is unavailable.
+Quota snapshots capture the selected pool's windows before and after each attempt when available. Codex reads the current account before launch and takes the last observation from that attempt's rollout after exit. Compare the window IDs and reset times before interpreting movement. Other sessions can consume the same quota. Token counters retain the provider's fields, including cached and reasoning tokens, without summing overlapping counts. The ledger keeps provider-reported charges, dated API-equivalent estimates, and plan opportunity costs in separate fields. Each is null when the corresponding data is unavailable.
 
 `--source-kind human` records a known human request. Other supported kinds include `task-brief`, `relay`, `quoted`, `voice-wrapper`, `reminder`, `automated-notification`, and `unknown`. Routed briefs default to `task-brief`. Known wrapper and timer envelopes retain their source.
 
