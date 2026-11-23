@@ -1,6 +1,12 @@
 {
-	"name": "@petalnet/janet-dictation-model",
+	"name": "@petalnet-python/janet-dictation-model",
 	"version": "0.0.0",
 	"private": true,
-	"type": "module"
+	"type": "module",
+	"scripts": {
+		"test:python": "bash ../../tools/test-python.sh --extra test --extra cpu -- python -B -m pytest"
+	},
+	"devDependencies": {
+		"@petalnet-python/janet-voice-note": "workspace:*"
+	}
 }

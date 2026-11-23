@@ -1,0 +1,28 @@
+[project]
+name = "petalnet-monorepo"
+version = "0.0.0"
+requires-python = ">=3.13"
+dependencies = []
+
+[tool.uv]
+package = false
+
+[tool.uv.workspace]
+members = [
+  "apps/chatterbox-wyoming",
+  "apps/courier/ops/googlechat",
+  "apps/envgen",
+  "apps/janet-desk",
+  "apps/janet-dictate",
+  "apps/janet-dictation-model",
+  "apps/janet-phone",
+  "apps/janet-voice-gateway",
+  "apps/janet-voice-head",
+  "apps/janet-voice-note",
+  "packages/janet-line",
+  "packages/janet-turn",
+]
+
+[tool.uv.sources]
+janet-line = { workspace = true }
+janet-turn = { workspace = true }

@@ -52,5 +52,7 @@
 /apps/slide/src/lib/server/generated/
 
 # Python bytecode
+.venv/
+*.egg-info/
 __pycache__/
 *.pyc

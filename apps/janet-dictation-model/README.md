@@ -6,18 +6,19 @@ Audio, transcripts, prompts, checkpoints, and exported weights stay outside Git.
 
 ## Environment
 
-Use an isolated Python 3.11+ environment. Install CPU or CUDA PyTorch appropriate to the machine before the training extra:
+From this directory, run the tests with CPU PyTorch:
 
 ```sh
-python3 -m venv .venv
-. .venv/bin/activate
-python -m pip install '.[train,test]'
-python -m pytest tests
+uv run --locked --extra cpu --extra test pytest
 ```
+
+For GPU training and export, prefix the Python commands below with
+`uv run --locked --extra train`. On Linux the training extra uses the
+PyTorch distribution from PyPI. Use it on the configured training host.
 
 `transformers==4.46.3` pins the encoder-layer interface used for partial audio context. FUTO checkpoints lack processor files, so training loads the matching OpenAI English processor. Model weights come from FUTO. FUTO’s GGML binaries use the HF output projection as their shared token embedding; the trainer, blender and exporter use that same mapping.
 
-On Ubuntu/WSL, `bash wsl_setup.sh` builds a pinned CPU whisper.cpp and downloads the three official English Q8_0 models. It needs Python venv support, Git, curl and a C++ compiler. It checks published-model downloads against the hashes recorded for this experiment; interrupted downloads never become accepted `.bin` files. Let setup finish without an external short timeout.
+On Ubuntu/WSL, `bash wsl_setup.sh` builds a pinned CPU whisper.cpp and downloads the three official English Q8_0 models. It needs uv, Git, curl and a C++ compiler. It checks published-model downloads against the hashes recorded for this experiment; interrupted downloads never become accepted `.bin` files. Let setup finish without an external short timeout.
 
 ```sh
 cmake -S . -B build -DWHISPER_CPP_DIR=/opt/janet-futo/whisper.cpp -DBUILD_SHARED_LIBS=OFF -DGGML_CUDA=OFF

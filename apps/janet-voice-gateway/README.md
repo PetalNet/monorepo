@@ -80,7 +80,7 @@ Each connection carries one request and is then closed. A request with a chunked
 ## Tests
 
 ```sh
-python -m unittest discover -s . -t .
+uv run --locked python -m unittest discover -s . -t .
 ```
 
 `POST /v1/tts` also accepts `"format": "pcm"` for incremental audio. The response is

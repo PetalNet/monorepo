@@ -68,12 +68,10 @@ Cloudflare Access service-token headers are incompatible with stock Kõnele. A d
 dedicated route that reaches this service's token check without an interactive Access login. Do
 not remove Access from existing Janet routes. This PR does not configure or deploy that route.
 
-For local development, install both Python projects in a virtual environment:
+For local development, run from the repository root:
 
 ```sh
-python3 -m venv .venv
-.venv/bin/pip install ./packages/janet-turn ./apps/janet-dictate
-.venv/bin/janet-dictate --config /path/to/config.toml
+uv run --locked --package janet-dictate janet-dictate --config /path/to/config.toml
 ```
 
 Use a host model directory containing `parakeet_realtime_eou_120m.int8.onnx` and
@@ -106,8 +104,7 @@ its worker-count indicator is not a health check for this endpoint.
 ## Verify
 
 ```sh
-PYTHONPATH=packages/janet-turn:apps/janet-dictate \
-  .venv/bin/python -m unittest discover -s apps/janet-dictate/tests -v
+pnpm test:python --filter=@petalnet-python/janet-dictate
 ```
 
 These tests use real WebSockets and a deterministic decoder to check the protocol, authentication,
@@ -117,7 +114,7 @@ They do not prove recognition quality or Android behavior.
 Replay a public PCM16 mono 16 kHz WAV at recording speed against a running real model:
 
 ```sh
-.venv/bin/python apps/janet-dictate/probe.py \
+uv run --locked --package janet-dictate python apps/janet-dictate/probe.py \
   --url ws://127.0.0.1:8795/client/ws/speech \
   --token-file "$HOME/.config/janet-dictate/token" /path/to/public-speech.wav
 ```

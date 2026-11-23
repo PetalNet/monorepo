@@ -14,3 +14,7 @@ py-modules = ["chatterbox_wyoming", "resident_voice"]
 
 [tool.ruff]
 line-length = 120
+
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"

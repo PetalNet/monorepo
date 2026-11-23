@@ -1,0 +1,9 @@
+{
+	"name": "@petalnet-python/envgen",
+	"version": "0.0.0",
+	"private": true,
+	"type": "module",
+	"scripts": {
+		"test:python": "bash ../../tools/test-python.sh --extra test -- python -B -m pytest"
+	}
+}

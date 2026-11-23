@@ -14,6 +14,7 @@ const disabled = {
 	point: "false",
 	rust: "false",
 	js: "false",
+	python: "false",
 	actions: "false",
 	"codeql-js": "false",
 	"codeql-python": "false",
@@ -75,6 +76,7 @@ const scenarios = [
 			point: "true",
 			rust: "true",
 			js: "true",
+			python: "true",
 			actions: "true",
 			"codeql-js": "true",
 			"codeql-python": "true",
@@ -113,8 +115,8 @@ const scenarios = [
 		},
 	},
 	{
-		name: "Python-only scan without JS build/test",
-		selection: { ...disabled, "codeql-python": "true" },
+		name: "Python-only changes run Python tests and scan",
+		selection: { ...disabled, python: "true", "codeql-python": "true" },
 		results: {
 			build: "skipped",
 			test: "skipped",
@@ -155,6 +157,7 @@ const gateCases = scenarios.map((scenario) => {
 		...required,
 		select: { result: "success", outputs: scenario.selection },
 		check: { result: scenario.selection.js === "true" ? "success" : "skipped" },
+		python: { result: scenario.selection.python === "true" ? "success" : "skipped" },
 		...Object.fromEntries(
 			Object.entries(scenario.results).map(([job, result]) => [job, { result }]),
 		),
@@ -167,7 +170,7 @@ it.effect.each(gateCases)("$name: exact expected conclusions pass", ({ jobs }) =
 	Effect.gen(function* () {
 		const conclusions = yield* evaluateGate(JSON.stringify(jobs));
 
-		assert.equal(conclusions.length, 18);
+		assert.equal(conclusions.length, 19);
 	}),
 );
 

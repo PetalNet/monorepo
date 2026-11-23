@@ -10,3 +10,10 @@ janet-voice-note = "janet_voice_note:main"
 
 [tool.ruff]
 line-length = 120
+
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools]
+py-modules = ["janet_voice_note"]

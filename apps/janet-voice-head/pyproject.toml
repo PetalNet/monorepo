@@ -10,3 +10,10 @@ janet-voice-head = "janet_voice_head.server:main"
 
 [tool.ruff]
 line-length = 140
+
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools]
+packages = ["janet_voice_head"]

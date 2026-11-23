@@ -69,6 +69,7 @@ const comparisonPlan = Effect.fn("comparisonPlan")(function* (base: string) {
 			items.map((item) => item.path),
 		),
 		js: items.some((item) => item.name.startsWith("@petalnet/")),
+		python: items.some((item) => item.name.startsWith("@petalnet-python/")),
 		affected: true,
 	};
 });

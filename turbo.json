@@ -88,6 +88,10 @@
 			"env": ["!CARGO_INCREMENTAL"],
 			"passThroughEnv": ["DOCKER_*", "TESTCONTAINERS_*", "XDG_RUNTIME_DIR"]
 		},
+		"test:python": {
+			"cache": false,
+			"passThroughEnv": ["UV_*", "LD_LIBRARY_PATH", "SSL_CERT_FILE", "SSL_CERT_DIR", "RUST_LOG"]
+		},
 		"@petalnet/collegemap#test": {
 			"cache": true,
 			"inputs": ["$TURBO_DEFAULT$", ".env*"],

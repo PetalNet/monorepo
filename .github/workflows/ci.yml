@@ -34,6 +34,7 @@ jobs:
       point: ${{ steps.select.outputs.point }}
       rust: ${{ steps.select.outputs.rust }}
       js: ${{ steps.select.outputs.js }}
+      python: ${{ steps.select.outputs.python }}
       base: ${{ steps.select.outputs.base }}
       actions: ${{ steps.select.outputs.actions }}
       codeql-js: ${{ steps.select.outputs.codeql-js }}
@@ -142,6 +143,29 @@ jobs:
         run: |
           pnpm --filter @petalnet/relics build
           pnpm --filter @petalnet/relics test:e2e
+
+  python:
+    needs: select
+    if: needs.select.outputs.python == 'true'
+    runs-on: ubuntu-latest
+    env:
+      TURBO_SCM_BASE: ${{ needs.select.outputs.base }}
+      TURBO_SCM_HEAD: HEAD
+    steps:
+      - uses: $/.github/actions/setup
+        with:
+          fetch-depth: 0
+      - uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2 # v10.3.3
+        with:
+          version: "0.13.5"
+          cache-dependency-glob: uv.lock
+          save-cache: ${{ github.ref == 'refs/heads/main' }}
+      - name: Install audio libraries for desk and phone tests
+        run: sudo apt-get update -q && sudo apt-get install -y -q libopus0 libportaudio2
+      - if: needs.select.outputs.affected == 'true'
+        run: pnpm test:python --affected --concurrency=2
+      - if: needs.select.outputs.affected != 'true'
+        run: pnpm test:python --concurrency=2
 
   build:
     permissions:
@@ -383,6 +407,7 @@ jobs:
       - root-check
       - check
       - test
+      - python
       - build
       - manager-rust
       - courier-rust

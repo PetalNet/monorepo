@@ -1,5 +1,6 @@
 packages:
   - apps/*
+  - apps/courier/ops/googlechat
   - packages/*
   - tools
 

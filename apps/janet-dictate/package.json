@@ -1,0 +1,12 @@
+{
+	"name": "@petalnet-python/janet-dictate",
+	"version": "0.0.0",
+	"private": true,
+	"type": "module",
+	"scripts": {
+		"test:python": "bash ../../tools/test-python.sh -- python -B -m unittest discover -s tests -v"
+	},
+	"devDependencies": {
+		"@petalnet-python/janet-turn": "workspace:*"
+	}
+}

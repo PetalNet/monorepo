@@ -1,0 +1,13 @@
+{
+	"name": "@petalnet-python/janet-phone",
+	"version": "0.0.0",
+	"private": true,
+	"type": "module",
+	"scripts": {
+		"test:python": "bash ../../tools/test-python.sh -- python -B -m unittest discover -s tests -t ."
+	},
+	"devDependencies": {
+		"@petalnet-python/janet-line": "workspace:*",
+		"@petalnet-python/janet-turn": "workspace:*"
+	}
+}

@@ -1,20 +1,17 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+here=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)
 work_dir=${FUTO_WORK_DIR:-/opt/janet-futo}
 whisper_revision=ca19af2449df7a7f4d482fae9d809b9d0817b636
 mkdir -p "$work_dir"
-if [ ! -d "$work_dir/venv" ]; then
-  python3 -m venv "$work_dir/venv"
-fi
-"$work_dir/venv/bin/python" -m pip install cmake jiwer 'transformers==4.46.3' soundfile scipy
 if [ ! -d "$work_dir/whisper.cpp/.git" ]; then
   git clone https://github.com/ggml-org/whisper.cpp.git "$work_dir/whisper.cpp"
 fi
 git -C "$work_dir/whisper.cpp" checkout "$whisper_revision"
-"$work_dir/venv/bin/cmake" -S "$work_dir/whisper.cpp" -B "$work_dir/whisper.cpp/build" \
+uv run --locked --project "$here" --group build cmake -S "$work_dir/whisper.cpp" -B "$work_dir/whisper.cpp/build" \
   -DCMAKE_BUILD_TYPE=Release -DWHISPER_BUILD_TESTS=OFF -DBUILD_SHARED_LIBS=OFF -DGGML_CUDA=OFF
-"$work_dir/venv/bin/cmake" --build "$work_dir/whisper.cpp/build" -j 4 --target whisper whisper-cli whisper-quantize
+uv run --locked --project "$here" --group build cmake --build "$work_dir/whisper.cpp/build" -j 4 --target whisper whisper-cli whisper-quantize
 
 mkdir -p "$work_dir/stock"
 cd "$work_dir/stock"
