@@ -1,14 +1,19 @@
 import { readFile, readdir, rename, statfs, writeFile } from "node:fs/promises";
+import { homedir } from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import { parseArgs } from "node:util";
 
 import {
 	defaultSourceDeps,
+	readClaude,
+	readGoogleAi,
+	sourceConfigFromEnv,
 	type QuotaLimit,
 	type ServiceReport,
 } from "@petalnet/harness-hooks/quota-sources";
 
-import { POOLS, type Pick } from "./pick.ts";
+import { classRefusal, POOLS, resolveTarget, type DataClass } from "./policy.ts";
 import { BOOTSTRAP_BURN } from "./quota-pacing-history.ts";
 import {
 	burnKey,
@@ -165,7 +170,7 @@ function decodeReading(value: unknown): Reading[] {
 	return [{ at, limits: windows, ...(typeof scope === "string" ? { scope } : {}) }];
 }
 
-export async function readPacingCodex(): Promise<ServiceReport> {
+async function readPacingCodex(): Promise<ServiceReport> {
 	const script = fileURLToPath(
 		new URL("../../../apps/astrolabe/feed/codex-usage.ts", import.meta.url),
 	);
@@ -223,16 +228,22 @@ export async function readPacingCodex(): Promise<ServiceReport> {
 }
 
 function buildCandidates(
-	result: Pick,
+	builders: Builder[],
 	reports: Record<string, ServiceReport>,
 	now: number,
+	dataClass: DataClass,
 ): Candidate[] {
-	return result.ranked.flatMap(({ offer }) => {
-		const pool = offer.pool;
+	return builders.flatMap(({ pool: poolId, model, effort }) => {
+		const target = resolveTarget(`${model}:${effort}`);
+		const pool = target?.pool;
 		const report = pool?.service && reports[pool.service];
 
 		if (
+			!target ||
 			!pool ||
+			pool.id !== poolId ||
+			!providerCaps.has(pool.plan) ||
+			classRefusal(target, dataClass, false) ||
 			report?.status !== "ok" ||
 			report.observedAtMs === undefined ||
 			report.observedAtMs > now ||
@@ -257,15 +268,15 @@ function buildCandidates(
 		});
 
 		return windows.length === required.length
-			? [{ pool: pool.id, provider: pool.plan, model: offer.model, effort: offer.effort, windows }]
+			? [{ pool: pool.id, provider: pool.plan, model, effort, windows }]
 			: [];
 	});
 }
 
-export async function pace(
+async function pace(
 	dir: string,
-	result: Pick,
 	reports: Record<string, ServiceReport>,
+	dataClass: DataClass,
 ): Promise<string> {
 	const now = Date.now();
 	const current = Object.values(reports).flatMap((report) => {
@@ -286,7 +297,6 @@ export async function pace(
 			: [];
 	});
 	const file = path.join(dir, "pacing-readings.jsonl");
-	const candidates = buildCandidates(result, reports, now);
 	const [history, ledger, memory, disk, processes] = await Promise.all([
 		locked(dir, async () => {
 			const previous = (await jsonLines(file)).flatMap(decodeReading);
@@ -347,6 +357,16 @@ export async function pace(
 					(disk.bsize * disk.bavail) / 1024 ** 2,
 					Math.max(active.length, processes.size),
 				);
+	const builders = new Map<string, Builder>();
+
+	for (const { pool, model, effort } of [
+		...BOOTSTRAP_BURN.map(({ builder }) => builder),
+		...runs,
+	]) {
+		builders.set(JSON.stringify([pool, model, effort]), { pool, model, effort });
+	}
+
+	const candidates = buildCandidates([...builders.values()], reports, now, dataClass);
 	const selected = recommend({
 		now,
 		slots,
@@ -372,14 +392,18 @@ export async function pace(
 	);
 	const status = REPORT_PLANS.map((plan) => {
 		const report = reports[plan];
-		const windows = (report?.limits ?? []).map(
-			({ id, usedPct, resetAtMs, idle }) =>
-				`${id} ${String(usedPct)}% used, reset ${idle ? "starts with use" : resetAtMs ? new Date(resetAtMs).toISOString() : "unknown"}`,
+		const windows =
+			report?.limits.map(
+				({ id, usedPct, resetAtMs, idle }) =>
+					`${id} ${String(usedPct)}% used, reset ${idle ? "starts with use" : resetAtMs ? new Date(resetAtMs).toISOString() : "unknown"}`,
+			) ?? [];
+
+		windows.push(
+			...(report?.idleLimits ?? []).map((id) => `${id} 0% used, reset starts with use`),
+			...(report?.inactiveLimits ?? []).map((id) => `${id} inactive`),
 		);
 
-		windows.push(...(report?.idleLimits ?? []).map((id) => `${id} idle, starts with use`));
-
-		return `${plan} ${windows.length > 0 ? windows.join(" / ") : "quota unavailable"}`;
+		return `${plan}${report?.status === "ok" ? "" : " (unavailable)"} ${windows.length > 0 ? windows.join(" / ") : "no limits reported"}`;
 	});
 
 	return [
@@ -390,4 +414,47 @@ export async function pace(
 				]),
 		...status,
 	].join("\n");
+}
+
+export async function quotaMain(args: string[]): Promise<number> {
+	let dataClass: DataClass;
+
+	try {
+		const { values, positionals } = parseArgs({
+			args,
+			allowPositionals: true,
+			options: {
+				class: { type: "string" },
+				for: { type: "string" },
+				"not-vendor": { type: "string", multiple: true },
+			},
+		});
+		const value = values.class ?? "public";
+
+		if (
+			positionals.length > 0 ||
+			(value !== "public" && value !== "sensitive" && value !== "parcs")
+		) {
+			throw new Error("invalid quota options");
+		}
+
+		dataClass = value;
+	} catch {
+		process.stderr.write("usage: quota [--class <public|sensitive|parcs>]\n");
+		return 2;
+	}
+
+	const config = sourceConfigFromEnv();
+	const deps = defaultSourceDeps();
+	const [codex, google, claude] = await Promise.all([
+		readPacingCodex(),
+		readGoogleAi(config, deps),
+		readClaude(config, deps),
+	]);
+	const directory = path.join(homedir(), ".local/state/router");
+
+	process.stdout.write(
+		`${await pace(directory, { codex, "google-ai": google, claude }, dataClass)}\n`,
+	);
+	return 0;
 }

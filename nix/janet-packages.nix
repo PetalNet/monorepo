@@ -190,7 +190,11 @@ rec {
       (feed + "/codex-usage.ts")
       ../apps/astrolabe/src/lib/format.ts
     ];
-    commands.quota-pace = "packages/router/src/route.ts pace";
+    commands = {
+      route = "packages/router/src/route.ts";
+      quota = "packages/router/src/quota.ts";
+      quota-pace = "packages/router/src/quota.ts";
+    };
     extraInstall = ''
       mkdir -p "$out/lib/node_modules/@petalnet"
       ln -s ../../packages/harness-hooks "$out/lib/node_modules/@petalnet/harness-hooks"
@@ -201,7 +205,7 @@ rec {
 
       # Load the packaged module graph without contacting a provider.
       status=0
-      ${pkgs.nodejs_22}/bin/node "$out/lib/packages/router/src/route.ts" pace unexpected \
+      ${pkgs.nodejs_22}/bin/node "$out/lib/packages/router/src/quota.ts" unexpected \
         > "$TMPDIR/quota-pacer-smoke.log" 2>&1 || status=$?
       if [ "$status" -ne 2 ]; then
         cat "$TMPDIR/quota-pacer-smoke.log"

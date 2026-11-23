@@ -3,12 +3,13 @@
 	"version": "0.0.0",
 	"private": true,
 	"bin": {
+		"quota": "./src/quota.ts",
 		"route": "./src/route.ts"
 	},
 	"type": "module",
 	"scripts": {
 		"typecheck": "effect-tsgo tsrs -b",
-		"test": "vitest run && python3 -W error -m unittest discover -s src -p 'test_*.py'"
+		"test": "vitest run"
 	},
 	"dependencies": {
 		"@petalnet/harness-hooks": "workspace:*"
