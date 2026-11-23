@@ -53,9 +53,9 @@
 			"allowedVersions": "<0.41"
 		},
 		{
-			"description": "`flutter: sdk: flutter` is the SDK, not a pub.dev package. Renovate skips flutter_test and the other SDK packages but still looks this one up, which fails and adds the lookup-failure warning to the dashboard.",
-			"matchManagers": ["pub"],
-			"matchPackageNames": ["flutter"],
+			"description": "dev.flutter.flutter-plugin-loader (apps/point/app/android/settings.gradle.kts) is served by the Flutter SDK's includeBuild, not by any Maven repository, so its lookup always fails and puts the package lookup failure warning on the Dependency Dashboard.",
+			"matchManagers": ["gradle"],
+			"matchPackageNames": ["/^dev\\.flutter\\./"],
 			"enabled": false
 		},
 		{
