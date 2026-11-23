@@ -123,7 +123,7 @@ export const ENGINE_COLORS: Record<string, string> = {
 	mwmbl: "#e6a817",
 };
 
-export const PRIVATE_ENGINES = "duckduckgo,brave,startpage,mojeek,wikipedia,qwant";
+const PRIVATE_ENGINES = "duckduckgo,brave,startpage,mojeek,wikipedia,qwant";
 
 /* ---- search-box syntax highlighting ---- */
 const DORK_OPS =

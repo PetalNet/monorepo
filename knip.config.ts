@@ -20,6 +20,10 @@ export default (({ strict }) => ({
 	ignoreExportsUsedInFile: { type: true, interface: true },
 	treatConfigHintsAsErrors: true,
 	workspaces: {
+		"apps/clarity": {
+			// Kit and the browser load these entry points by convention and URL.
+			entry: ["src/env.ts!", "static/numbat/pkg/numbat_wasm.js!"],
+		},
 		"apps/relics": {
 			entry: ["scripts/*.ts!", "static/creatures/draco/*.js!"],
 		},
