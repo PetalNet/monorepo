@@ -30,6 +30,7 @@ export default defineConfig([
 		ignores: [
 			".agents/skills/impeccable/**",
 			"apps/tasks/static/vendor/**",
+			"apps/clarity/static/numbat/pkg/**",
 			"apps/relics/static/creatures/draco/**",
 		],
 	},
@@ -108,7 +109,7 @@ export default defineConfig([
 	},
 	{
 		files: [
-			"apps/{astrolabe,chaos,collegemap,grove,label-studio,numbat-sheet,petalboard,relics,slide,storybook,tasks,whoami}/**/*.svelte",
+			"apps/{astrolabe,chaos,clarity,collegemap,grove,label-studio,numbat-sheet,petalboard,relics,slide,storybook,tasks,whoami}/**/*.svelte",
 		],
 		extends: svelte.configs.recommended,
 		languageOptions: {
@@ -205,8 +206,12 @@ export default defineConfig([
 		extends: [json.configs.recommended],
 	},
 	{
-		// Slide, PetalBoard and Tasks predate the monorepo and carry their type-safety debt in place.
-		files: ["apps/{petalboard,slide,tasks}/**"],
+		// Clarity, Slide, PetalBoard and Tasks predate the monorepo and carry their type-safety debt in place.
+		files: [
+			"apps/{petalboard,slide,tasks}/**",
+			"apps/clarity/src/lib/clarity/**",
+			"apps/clarity/src/routes/{+page,+layout}.svelte",
+		],
 		rules: {
 			"@typescript-eslint/no-base-to-string": "off",
 			"@typescript-eslint/no-confusing-void-expression": "off",

@@ -189,8 +189,8 @@ export const lintConfig = {
 			},
 		},
 		{
-			files: ["apps/{petalboard,slide,tasks}/**"],
-			// Slide, PetalBoard and Tasks predate the monorepo; their rewrites own the type-safety debt
+			files: ["apps/{petalboard,slide,tasks}/**", "apps/clarity/src/lib/clarity/**/*.ts"],
+			// Clarity, Slide, PetalBoard and Tasks predate the monorepo; their rewrites own the type-safety debt
 			// and deprecated framework configuration.
 			rules: {
 				"typescript/no-base-to-string": "off",
@@ -233,6 +233,7 @@ export const lintConfig = {
 		"**/coverage/**",
 		"**/.turbo/**",
 		"apps/tasks/static/vendor/**",
+		"apps/clarity/static/numbat/pkg/**",
 		"apps/relics/static/creatures/draco/**",
 	],
 } satisfies OxlintConfig;

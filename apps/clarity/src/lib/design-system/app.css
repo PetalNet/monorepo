@@ -1,0 +1,26 @@
+/*
+ * Clarity design-system entry — vendored paper/ink token + theme CSS (see
+ * README.md; canonical source is PetalNet/design-system, design.petalcat.dev).
+ * Tailwind's @tailwindcss/vite plugin compiles this at build time.
+ */
+@import "tailwindcss";
+
+/* daisyUI v5 plugin. The PetalNet paper/ink themes are registered by the
+   vendored tokens/daisyui.css via @plugin "daisyui/theme" blocks.
+   exclude: Clarity's own markup already uses .btn/.btn-primary/.btn-ghost
+   (home CTAs), .menu (suggestions), .kbd (menu footer hints) and .status
+   (topbar) as class names — the daisyUI components with those names must not
+   restyle them (the classname-collision gotcha; daisyUI only emits classes the
+   source actually uses, so this list = the measured intersection). */
+@plugin "daisyui" {
+	exclude: button, menu, kbd, status;
+}
+
+/* Design tokens: primitives + semantic light AND dark CSS custom properties
+   (--color-petal-*, --radius-*, --spacing-*, motion easings, etc). tokens.css
+   already carries both [data-theme="light"] and [data-theme="dark"] blocks, so
+   the standalone tokens.light/dark.css splits are not imported here. */
+@import "./tokens/tokens.css";
+
+/* daisyUI paper (default/light) + ink (dark) themes, keyed off data-theme. */
+@import "./tokens/daisyui.css";

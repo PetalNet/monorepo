@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<OpenSearchDescription xmlns="http://a9.com/-/spec/opensearch/1.1/" xmlns:moz="http://www.mozilla.org/2006/browser/search/">
+  <ShortName>Clarity</ShortName>
+  <Description>Search the web, privately</Description>
+  <InputEncoding>UTF-8</InputEncoding>
+  <Image width="16" height="16" type="image/svg+xml">https://clarity.petalcat.dev/icon.svg</Image>
+  <Url type="text/html" method="get" template="https://clarity.petalcat.dev/?q={searchTerms}"/>
+  <Url type="application/x-suggestions+json" method="get" template="https://clarity.petalcat.dev/autocompleter?q={searchTerms}"/>
+  <moz:SearchForm>https://clarity.petalcat.dev/</moz:SearchForm>
+</OpenSearchDescription>

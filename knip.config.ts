@@ -20,6 +20,16 @@ export default (({ strict }) => ({
 	ignoreExportsUsedInFile: { type: true, interface: true },
 	treatConfigHintsAsErrors: true,
 	workspaces: {
+		"apps/clarity": {
+			// Kit and the browser load these entry points by convention and URL.
+			entry: ["src/env.ts!", "static/numbat/pkg/numbat_wasm.js!"],
+			// The isolated store tests instantiate their own stores and reset the snapshot cache.
+			ignoreIssues: strict
+				? {
+						"src/lib/clarity/{claire-protocol,claire.svelte,search.svelte}.ts": ["exports"],
+					}
+				: {},
+		},
 		"apps/relics": {
 			entry: ["scripts/*.ts!", "static/creatures/draco/*.js!"],
 		},
