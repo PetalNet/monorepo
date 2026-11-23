@@ -3,6 +3,7 @@ import asyncio
 import http.client
 import json
 import threading
+import time
 import types
 import unittest
 import weakref
@@ -90,13 +91,15 @@ class UnloadTest(unittest.TestCase):
         self.assertEqual(self.unload(), (200, {"unloaded": True}))
 
     def test_idle_reaper_and_status_respect_request(self):
+        expired = time.monotonic() - self.voice.idle_unload - 1
+        self.voice.last_used = expired
         self.voice.model = object()
         with self.voice.request():
             self.assertTrue(self.voice.status()["busy"])
             self.voice.worker.submit(self.voice.unload_if_idle).result(timeout=3)
             self.assertIsNotNone(self.voice.model)
         self.assertFalse(self.voice.status()["busy"])
-        self.voice.last_used = 0
+        self.voice.last_used = expired
         self.voice.worker.submit(self.voice.unload_if_idle).result(timeout=3)
         self.assertIsNone(self.voice.model)
 

@@ -274,7 +274,7 @@ A hang-up from the phone or a dropped connection gets none. Each call's last log
 `ended by the far side (close code ..., the phone's microphone was last heard N s ago)`, and `no audio from the phone for 5 s` is
 logged when the microphone uplink stops while the socket is still open.
 
-Run it with `python janet_phone.py --config /path/to/phone.toml`, or build the `Dockerfile` from the repository root
+Run it from this directory with `uv run --locked janet-phone --config /path/to/phone.toml`, or build the `Dockerfile` from the repository root
 (`docker build -f apps/janet-phone/Dockerfile .`); the image carries the models.
 
 ## Limits
@@ -306,7 +306,7 @@ Run it with `python janet_phone.py --config /path/to/phone.toml`, or build the `
 The tests run the real bridge against a fake gateway and a fake speech-to-text server:
 
 ```sh
-python -m unittest discover -s tests -t .
+uv run --locked python -m unittest discover -s tests -t .
 ```
 
 `python tools/prove-ring.py` additionally uses the actual lab ntfy server and the command's HTTP

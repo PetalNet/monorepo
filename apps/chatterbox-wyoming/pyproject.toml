@@ -14,3 +14,14 @@ py-modules = ["chatterbox_wyoming", "resident_voice"]
 
 [tool.ruff]
 line-length = 120
+
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[dependency-groups]
+dev = ["pytest>=8,<10"]
+
+[tool.pytest.ini_options]
+# Captured tracebacks keep the failed model alive during the unload test.
+addopts = "-p no:logging"

@@ -237,7 +237,7 @@ hub, and drive it over HTTP. They need no model and no network. The crash tests 
 server between the hub's accept and the journal write. Run them from this directory:
 
 ```sh
-python -m unittest discover -s tests -t .
+uv run --locked python -m unittest discover -s tests -t .
 ```
 
 ## Read-only lab access on Parker's phone

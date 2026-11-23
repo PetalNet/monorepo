@@ -7,3 +7,16 @@ dependencies = ["numpy>=2", "onnxruntime>=1.19"]
 
 [tool.ruff]
 line-length = 140
+
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools]
+packages = ["janet_turn"]
+
+[tool.setuptools.package-data]
+janet_turn = ["turn_judge.json"]
+
+[dependency-groups]
+dev = ["pytest>=8,<10"]

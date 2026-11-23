@@ -3,6 +3,7 @@
 	"agentGuidance": false,
 	"futureFlags": {
 		"experimentalCargoWorkspaces": true,
+		"experimentalPythonWorkspaces": true,
 		"experimentalTaskCommand": true
 	},
 	"globalPassThroughEnv": [
@@ -39,6 +40,8 @@
 		"!tools/.turbo/**",
 		"!tools/coverage/**",
 		"packages/**",
+		"!packages/janet-line/**",
+		"!packages/janet-turn/**",
 		"!packages/**/node_modules/**",
 		"!packages/**/dist/**",
 		"!packages/**/.turbo/**",
@@ -86,7 +89,35 @@
 		"test": {
 			"cache": false,
 			"env": ["!CARGO_INCREMENTAL"],
-			"passThroughEnv": ["DOCKER_*", "TESTCONTAINERS_*", "XDG_RUNTIME_DIR"]
+			"passThroughEnv": [
+				"DOCKER_*",
+				"TESTCONTAINERS_*",
+				"XDG_RUNTIME_DIR",
+				"UV_*",
+				"LD_LIBRARY_PATH",
+				"SSL_CERT_FILE",
+				"SSL_CERT_DIR"
+			]
+		},
+		"courier-googlechat#test": {
+			"cache": false,
+			"command": ["uv", "run", "--locked", "bash", "test.sh"]
+		},
+		"janet-dictation-model#test": {
+			"cache": false,
+			"command": [
+				"uv",
+				"run",
+				"--locked",
+				"--isolated",
+				"--extra",
+				"cpu",
+				"--extra",
+				"test",
+				"python",
+				"-m",
+				"pytest"
+			]
 		},
 		"@petalnet/collegemap#test": {
 			"cache": true,

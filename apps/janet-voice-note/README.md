@@ -59,5 +59,5 @@ Wyoming has no authentication. Run this where the servers' own firewall rules al
 The tests use a stand-in Wyoming server and a stand-in ffmpeg, so they need neither.
 
 ```sh
-python -m unittest discover -s . -t .
+uv run --locked python -m unittest discover -s . -t .
 ```

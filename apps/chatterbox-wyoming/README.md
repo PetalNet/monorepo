@@ -90,8 +90,8 @@ Each group's stretch time is logged in milliseconds; `/status` reports the activ
 ## Tests
 
 The tests replace torch and the runtime with fakes, so they need no GPU. Run them from
-this directory in an environment with the package's dependencies:
+this directory:
 
 ```sh
-python -m unittest test_chatterbox_wyoming
+uv run --locked python -m unittest test_chatterbox_wyoming
 ```

@@ -21,8 +21,8 @@ arbitrary coordinates.
 ## Pipeline (Python)
 
 ```sh
-pip install -e ".[test]"
-envgen build site.json --out build/ --cache cache/
+uv run --locked --extra test pytest
+uv run --locked envgen build site.json --out build/ --cache cache/
 ```
 
 | Stage        | Reads                                        | Writes                                                         |

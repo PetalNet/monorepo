@@ -148,7 +148,7 @@
             lib.warnIf (lib.versions.major pkgs.nodejs_26.version != wantedNodeMajor)
               "The shell's bare node is ${pkgs.nodejs_26.version}, but devEngines.runtime pins Node.js ${wantedNodeMajor}. pnpm still provisions the pinned one; point packages at the matching nodejs_NN."
               pkgs.mkShell {
-            packages = [ pkgs.nodejs_26 pnpm ];
+            packages = [ pkgs.nodejs_26 pnpm pkgs.uv ];
             shellHook = ''
               export NODE_OPTIONS="--require ${selectEngines}''${NODE_OPTIONS:+ $NODE_OPTIONS}"
             '';

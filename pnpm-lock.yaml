@@ -733,8 +733,6 @@ importers:
         specifier: 5.1.1
         version: 5.1.1(@opentelemetry/api@1.9.1)(@types/node@26.6.6)(@vitest/coverage-v8@5.1.1)(happy-dom@21.0.4)(vite@8.3.3(@types/node@26.6.6)(esbuild@0.28.1)(jiti@2.7.0)(tsx@4.22.4)(yaml@2.9.0))
 
-  apps/janet-dictation-model: {}
-
   apps/janet-matrix-comms:
     devDependencies:
       '@petalnet/tsconfig':
@@ -749,12 +747,6 @@ importers:
       vitest:
         specifier: 5.1.1
         version: 5.1.1(@opentelemetry/api@1.9.1)(@types/node@26.6.6)(@vitest/coverage-v8@5.1.1)(happy-dom@21.0.4)(vite@8.3.3(@types/node@26.6.6)(esbuild@0.28.1)(jiti@2.7.0)(tsx@4.22.4)(yaml@2.9.0))
-
-  apps/janet-voice-gateway: {}
-
-  apps/janet-voice-head: {}
-
-  apps/janet-voice-note: {}
 
   apps/label-studio:
     devDependencies:

@@ -43,7 +43,9 @@ such as a phone line, replaces those two.
 
 ## Install
 
-Windows with Python 3.12. The device code uses WASAPI.
+The device code uses WASAPI. From a clone, run `uv run --locked janet-desk`
+in this directory to use the workspace's Python 3.13. A standalone installation
+supports Windows with Python 3.12 or newer.
 
 ```sh
 uv pip install "janet-desk @ git+https://github.com/PetalNet/monorepo#subdirectory=apps/janet-desk"
@@ -121,5 +123,5 @@ The tests drive the state machine with a scripted microphone and fakes for Home 
 head, the voice and the output device. They need `aiohttp` and no audio hardware.
 
 ```sh
-python -m unittest discover tests
+uv run --locked python -m unittest discover tests
 ```

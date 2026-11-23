@@ -26,6 +26,10 @@
 	],
 	"packageRules": [
 		{
+			"matchManagers": ["pep621"],
+			"lockFileMaintenance": { "enabled": true }
+		},
+		{
 			"description": "Non-major updates automerge when the required finish check passes.",
 			"matchUpdateTypes": ["minor", "patch", "pin", "pinDigest", "digest", "lockFileMaintenance"],
 			"automerge": true

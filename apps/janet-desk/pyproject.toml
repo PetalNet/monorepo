@@ -17,3 +17,6 @@ packages = ["janet_desk"]
 
 [tool.ruff]
 line-length = 120
+
+[dependency-groups]
+dev = ["pytest>=8,<10"]

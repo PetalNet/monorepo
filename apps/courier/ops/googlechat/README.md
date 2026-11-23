@@ -12,11 +12,10 @@ Keep virtual environments and build caches over 200 MB on the lab NAS. From this
 mkdir -p sources
 git clone https://github.com/mautrix/googlechat.git sources/upstream
 git -C sources/upstream checkout a835bccd269eace6c28196a3f869eb1fb3c8acf7
-python3 -m venv .venv
-.venv/bin/python -m pip install --no-cache-dir -r requirements-test.txt
-.venv/bin/python build_patch.py
-.venv/bin/python -m unittest -v test_importer test_rotation test_submit
-.venv/bin/python import_curl.py < fixtures/firefox-fake.curl
+uv sync --locked
+uv run --no-sync python build_patch.py
+uv run --no-sync python -m unittest -v test_importer test_rotation test_submit
+uv run --locked python import_curl.py < fixtures/firefox-fake.curl
 ```
 
 The generator checks the upstream commit and exact replacement anchors. It writes `patched/` and the reviewable patch. Use the generated packages as a bot-only `PYTHONPATH` overlay; preserve the existing venv and installed dependencies. The overlay needs `maugclib/` and `mautrix_googlechat/` from `patched/`. Use the existing bot config and database. Disable bbctl updates and config regeneration with `--no-update --no-override-config --custom-startup-command` pointing to the bot's existing venv Python executable. The Python command's `-m mautrix_googlechat -c config.yaml` arguments remain under bbctl's control.
