@@ -28,6 +28,8 @@ export interface QuotaLimit {
 	usedPct: number;
 	/** Identifier of the current reset window; absent when reset metadata is unavailable. */
 	windowId?: string | undefined;
+	/** An inactive clock that starts on the next work request. */
+	idle?: true | undefined;
 	/** Parsed reset time in epoch milliseconds when available. */
 	resetAtMs?: number | undefined;
 	/** Short human-readable reset time. */
@@ -41,6 +43,9 @@ export interface ServiceReport {
 	status: "ok" | "signed-out" | "error";
 	summary: string;
 	limits: QuotaLimit[];
+	observedAtMs?: number | undefined;
+	inactiveLimits?: string[] | undefined;
+	idleLimits?: string[] | undefined;
 	error?: string | undefined;
 }
 
@@ -467,6 +472,8 @@ export function parseClaudeUsageJson(text: string, nowMs: number, timeZone: stri
 		status: "ok",
 		summary: parts.join(" · "),
 		limits,
+		observedAtMs: scrapedSec === undefined ? undefined : scrapedSec * 1_000,
+		idleLimits: fivePct === 0 && fiveResetMs === undefined ? ["claude:5h"] : [],
 	};
 }
 
@@ -584,12 +591,13 @@ const ANSI_RE = new RegExp(`${String.fromCodePoint(0x1b)}\\[[0-9;]*[a-zA-Z]`, "g
 /** Parses `agy -p /quota` (both TSV non-TTY and aligned TTY tables) into % used limits. */
 export function parseAgyQuota(
 	text: string,
-	_nowMs: number,
+	nowMs: number,
 	timeZone = "America/Chicago",
 ): ServiceReport {
 	const cleaned = text.replace(ANSI_RE, "");
 	const lines = cleaned.split(/\r?\n/u);
 	const limits: QuotaLimit[] = [];
+	const inactiveLimits: string[] = [];
 	const poolSummary = new Map<string, string[]>();
 
 	for (const rawLine of lines) {
@@ -612,7 +620,22 @@ export function parseAgyQuota(
 		const pctMatch = /^(\d+(?:\.\d+)?)%$/u.exec(cols[2] ?? "");
 		const resetText = cols[3];
 
-		if (!pool || !pctMatch) {
+		if (!pool) {
+			continue;
+		}
+
+		const windowTag = /five\s*hour|5h/iu.test(windowDesc)
+			? "5h"
+			: /weekly|7d/iu.test(windowDesc)
+				? "7d"
+				: slug(windowDesc);
+		const id = `google-ai:${slug(pool)}:${windowTag}`;
+
+		if (cols[2]?.toLowerCase() === "disabled") {
+			inactiveLimits.push(id);
+		}
+
+		if (!pctMatch) {
 			continue;
 		}
 
@@ -623,11 +646,6 @@ export function parseAgyQuota(
 		}
 
 		const usedPct = Math.max(0, Math.min(100, Math.round((100 - remainingPct) * 10) / 10));
-		const windowTag = /five\s*hour|5h/iu.test(windowDesc)
-			? "5h"
-			: /weekly|7d/iu.test(windowDesc)
-				? "7d"
-				: slug(windowDesc);
 		const resetAtMs = parseResetTimestamp(resetText);
 		const windowId = resetAtMs === undefined ? undefined : bucketWindowId(resetAtMs);
 		const fallbackReset = resetText === "" ? undefined : resetText;
@@ -635,12 +653,19 @@ export function parseAgyQuota(
 			resetAtMs === undefined ? fallbackReset : formatResetShort(resetAtMs, timeZone);
 
 		limits.push({
-			id: `google-ai:${slug(pool)}:${windowTag}`,
+			id,
 			label: `Google AI ${pool} ${windowTag}`,
 			usedPct,
 			windowId,
 			resetAtMs,
 			resetLabel,
+			idle:
+				usedPct === 0 &&
+				windowTag === "5h" &&
+				resetAtMs !== undefined &&
+				Math.abs(resetAtMs - nowMs - 5 * 60 * 60_000) <= 30_000
+					? true
+					: undefined,
 			detail: `${fmtPct(remainingPct)}% remaining`,
 		});
 
@@ -671,6 +696,8 @@ export function parseAgyQuota(
 		status: "ok",
 		summary: `${summaryParts.join(" · ")} (used)`,
 		limits,
+		observedAtMs: nowMs,
+		inactiveLimits,
 	};
 }
 
@@ -710,7 +737,7 @@ export function parseCodexLoginStatus(
 	return { signedIn: true, detail: "signed in" };
 }
 
-/** Parses OpenAI Codex session `rate_limits` snapshot (`primary` 5h, `secondary` 7d). */
+/** Parses Codex rate limits by duration, using field names for older snapshots with no duration. */
 export function parseCodexRateLimits(raw: unknown, nowMs: number, timeZone: string): ServiceReport {
 	if (!isRecord(raw)) {
 		return {
@@ -723,14 +750,15 @@ export function parseCodexRateLimits(raw: unknown, nowMs: number, timeZone: stri
 
 	const limits: QuotaLimit[] = [];
 	const parts: string[] = [];
-	const windows: [string, string, string][] = [
-		["primary", "codex:5h", "5h"],
-		["secondary", "codex:7d", "7d"],
-	];
 
-	for (const [field, id, short] of windows) {
-		const entry = isRecord(raw[field]) ? raw[field] : undefined;
+	for (const field of ["primary", "secondary"]) {
+		const window = raw[field];
+		const entry = isRecord(window) ? window : undefined;
 		const pct = asNumber(entry?.["used_percent"]);
+		const minutes = asNumber(entry?.["window_minutes"]);
+		const short =
+			minutes === undefined ? (field === "primary" ? "5h" : "7d") : minutes >= 1_440 ? "7d" : "5h";
+		const id = `codex:${short}`;
 
 		if (pct === undefined) {
 			continue;

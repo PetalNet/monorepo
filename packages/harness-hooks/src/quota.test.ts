@@ -178,6 +178,27 @@ describe("quota source parsers", () => {
 		]);
 	});
 
+	it("uses the duration of a single Codex weekly window even in the primary slot", () => {
+		const report = parseCodexRateLimits(
+			{ primary: { used_percent: 83, window_minutes: 10_080, resets_at: NOW / 1_000 + 86_400 } },
+			NOW,
+			TZ,
+		);
+
+		expect(report.limits.map(({ id, usedPct }) => [id, usedPct])).toEqual([["codex:7d", 83]]);
+	});
+
+	it("distinguishes a disabled agy window from an unreported limit", () => {
+		const report = parseAgyQuota(
+			"Claude and GPT models\tWeekly Limit Remaining\t1%\t2026-11-26T07:01:27Z\n" +
+				"Claude and GPT models\tFive Hour Limit Remaining\tdisabled\t",
+			NOW,
+		);
+
+		expect(report.inactiveLimits).toEqual(["google-ai:claude-and-gpt-models:5h"]);
+		expect(report.limits).toHaveLength(1);
+	});
+
 	it("parses Cloudflare Workers AI neurons and 4006 cap hits", () => {
 		const raw = {
 			data: {

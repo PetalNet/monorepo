@@ -153,6 +153,7 @@ export async function run(
 					outputPath,
 					logPath,
 					startedAt,
+					routePid: process.pid,
 					briefHash: createHash("sha256").update(brief).digest("hex"),
 					dataClass: options.dataClass ?? "unknown",
 					briefName: options.briefName ?? "",

@@ -28,6 +28,8 @@ To carry a promise through a repair, run `promise acceptance <id> <file>` with a
 
 `cc-link-inject --source route --key <runid>` delivers one automated handback with the process result and any active promise reference. Injection failure returns an error while preserving the result and ledger. Exit codes are 0 for process completion, 1 for failure, 2 for invalid input, 3 for no eligible offer, 5 for a manual Claude handoff, and 130 for cancellation.
 
+`route pace --class public` recommends additional builders from live quota and the run ledger. See [Janet quota pacing](QUOTA-PACING.md) for the provider clocks, measurements and admission rule.
+
 ## Evidence scoring (slices 3 through 3c)
 
 `route why gpt-6.1-sol --for code` reads the same live state as `ls`; it never launches a model. Kind defaults to code and data class to public. Kinds also include `cyber` and `architecture`. Excluded candidates retain their explanations, including during a pool cooldown. An evidence ranking is not permission to bypass those exclusions.
