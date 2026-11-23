@@ -31,19 +31,26 @@ function target(id: string) {
 it("keeps the privacy policy tied to the execution provider", () => {
 	expect(classRefusal(target("gpt-6.2-sol:low"), "sensitive", false)).toBeUndefined();
 	expect(classRefusal(target("gpt-6.2-sol:low"), "parcs", false)).toContain("claude plan only");
+
 	expect(classRefusal(target("gemini-4-neon:low"), "sensitive", false)).toContain(
 		"training opt-out",
 	);
+
 	expect(classRefusal(target("claude-opus-5-5-high"), "parcs", false)).toContain(
 		"claude plan only",
 	);
+
 	expect(classRefusal(target("claude-opus-5-5-high"), "sensitive", false)).toContain(
 		"training opt-out",
 	);
+
 	expect(classRefusal(target("opus:high"), "parcs", false)).toBeUndefined();
 	expect(classRefusal(target("opus:high"), "public", false)).toContain("explicit-use");
 	expect(resolveTarget("gemini-4-neon-xhigh:low")).toBeUndefined();
 	expect(resolveTarget("gpt-6.2-sol:ultra")).toBeUndefined();
+	expect(target("claude-opus-5-5:high").pool.id).toBe("google-ai:claude-gpt");
+	expect(resolveTarget("claude-opus-5-5-high", true)?.pool.id).toBe("claude");
+	expect(() => launch(target("opus:high"), "brief", tmpdir())).toThrow("no execution adapter");
 });
 
 it.each([
@@ -168,6 +175,7 @@ it("refuses a scanned brief and records the notification before any builder star
 	const ledger = await readFile(path.join(dir, ".local/state/router/ledger.jsonl"), "utf8");
 
 	expect(ledger).not.toContain("example-secret");
+
 	expect(JSON.parse(ledger)).toMatchObject({
 		event: "inject",
 		exitCode: 0,

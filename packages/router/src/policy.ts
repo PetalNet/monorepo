@@ -21,7 +21,7 @@ export interface Pool {
 	plan: string;
 	/** Quota source that reports this pool's windows; absent when nothing meters it. */
 	service?: ServiceName;
-	/** Quota limit ids this pool draws on. Any one under the floor takes the pool out. */
+	/** Quota limit ids this pool draws on. The pacer reserves budget on each of them. */
 	windows: string[];
 	host: { name: string; country: "us" | "cn" | "unknown" };
 	trainsOnData: "yes" | "no" | "unknown";
@@ -85,7 +85,7 @@ export interface Target {
 
 const EFFORT_SUFFIX = /-(none|low|medium|high|xhigh|max|ultra)$/u;
 
-export function resolveTarget(input: string): Target | undefined {
+export function resolveTarget(input: string, preferNativeClaude = false): Target | undefined {
 	const [id, requested, extra] = input.split(":");
 
 	if (!id || extra !== undefined || !/^[a-z0-9][a-z0-9.-]*$/u.test(id)) {
@@ -99,11 +99,7 @@ export function resolveTarget(input: string): Target | undefined {
 
 	if (
 		model === "gpt-oss-120b" ||
-		(nativeClaude &&
-			suffix &&
-			!requested &&
-			model.startsWith("claude-") &&
-			!model.includes("fable"))
+		(!preferNativeClaude && (model === "claude-opus-5-5" || model === "claude-sonnet-5-5"))
 	) {
 		poolId = "google-ai:claude-gpt";
 	} else if (model.startsWith("gemini-")) {

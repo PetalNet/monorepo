@@ -102,13 +102,13 @@ export function execute(
 			env,
 			signal,
 			stdio: ["pipe", "pipe", "pipe"],
-			// Builders run for hours; a 30-minute cap killed them mid-PR (2026-11-19).
-			timeout: 12 * 60 * 60 * 1000,
 		});
 		let started = false;
+
 		child.once("spawn", () => {
 			started = true;
 		});
+
 		let out = "";
 		let log = "";
 		let cancelTimer: NodeJS.Timeout | undefined;
@@ -172,6 +172,10 @@ export function launch(
 
 	if (depth >= 4) {
 		throw new Error("router nesting limit reached (maximum 4)");
+	}
+
+	if (offer.pool.plan !== "codex" && offer.pool.plan !== "google-ai") {
+		throw new Error("no execution adapter for this plan");
 	}
 
 	const env = { ...process.env, ROUTE_PARENT_MODEL: offer.model, ROUTE_DEPTH: String(depth + 1) };

@@ -79,6 +79,10 @@ export async function run(options: RunOptions) {
 	const { target: offer, runId, brief, cwd, dir, signal } = options;
 	const { pool } = offer;
 
+	if (pool.plan === "claude") {
+		throw new Error("native Claude requires a handoff");
+	}
+
 	if (!brief.trim() || !(await stat(cwd)).isDirectory()) {
 		throw new Error("invalid brief or workdir");
 	}
@@ -91,6 +95,7 @@ export async function run(options: RunOptions) {
 
 	await writeFile(outputPath, "", { mode: 0o600 });
 	await writeFile(logPath, "", { mode: 0o600 });
+
 	const acceptanceRef =
 		options.promiseId === undefined ? null : `promise:${String(options.promiseId)}`;
 	const sample = async () => {
@@ -138,8 +143,9 @@ export async function run(options: RunOptions) {
 	);
 
 	const result: Execution = await (options.launch ?? launch)(offer, brief, cwd, signal);
-	const cancelled = signal?.aborted === true;
-	const failureClass = cancelled ? null : classify(result);
+	const timedOut = signal?.reason instanceof Error && signal.reason.name === "TimeoutError";
+	const cancelled = signal?.aborted === true && !timedOut;
+	const failureClass = cancelled ? null : timedOut ? "transient" : classify(result);
 	const endedAt = Date.now();
 	const revision = spawnSync("git", ["rev-parse", "--verify", "HEAD"], {
 		cwd,
@@ -162,6 +168,7 @@ export async function run(options: RunOptions) {
 		: await sample();
 	const status = cancelled ? "cancelled" : failureClass ? "failed" : "completed";
 	const tail = redact(result.out);
+
 	await writeFile(outputPath, tail, { mode: 0o600 });
 
 	await appendFile(
@@ -208,7 +215,7 @@ Active goal and acceptance checks: promise acceptance ${String(options.promiseId
 				: failureClass
 					? "blocked"
 					: "process completed",
-		details: `output=${outputPath}; log=${logPath}${continuation}
+		details: `output=${outputPath}; log=${logPath}${continuation}${timedOut ? "\n12-hour run limit reached." : ""}
 ${tail.slice(-4000) || (failureClass ? redact(result.log).slice(-4000) : "")}`,
 		acceptanceRef,
 	});

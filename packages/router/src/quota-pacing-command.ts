@@ -27,6 +27,7 @@ import {
 	type Reading,
 	type Run,
 } from "./quota-pacing.ts";
+import { routeCommand } from "./route-args.ts";
 import { locked } from "./state.ts";
 
 const KEEP_MS = 14 * 24 * HOUR_MS;
@@ -62,13 +63,16 @@ async function liveRouterProcesses(): Promise<Map<number, string[]>> {
 		directories
 			.filter((entry) => /^\d+$/u.test(entry))
 			.map(async (pid) => {
-				const command = await readFile(`/proc/${pid}/cmdline`, "utf8").catch(() => "");
-				const args = command.split("\0").filter(Boolean);
+				const cmdline = await readFile(`/proc/${pid}/cmdline`, "utf8").catch(() => "");
+				const args = cmdline.split("\0").filter(Boolean);
 
 				const entry = args.findIndex((arg) => arg.endsWith("/route.ts"));
 
-				return entry > 0 && args[entry + 1] === "run"
-					? [[Number(pid), args.slice(entry + 2)] as const]
+				const routeArgs = args.slice(entry + 1);
+				const command = entry > 0 ? routeCommand(routeArgs) : undefined;
+
+				return command?.value === "run"
+					? [[Number(pid), routeArgs.slice(command.index + 1)] as const]
 					: [];
 			}),
 	);
@@ -240,8 +244,7 @@ function buildCandidates(
 
 		if (
 			!target ||
-			!pool ||
-			pool.id !== poolId ||
+			pool?.id !== poolId ||
 			!providerCaps.has(pool.plan) ||
 			classRefusal(target, dataClass, false) ||
 			report?.status !== "ok" ||
@@ -426,7 +429,6 @@ export async function quotaMain(args: string[]): Promise<number> {
 			options: {
 				class: { type: "string" },
 				for: { type: "string" },
-				"not-vendor": { type: "string", multiple: true },
 			},
 		});
 		const value = values.class ?? "public";
@@ -441,6 +443,7 @@ export async function quotaMain(args: string[]): Promise<number> {
 		dataClass = value;
 	} catch {
 		process.stderr.write("usage: quota [--class <public|sensitive|parcs>]\n");
+
 		return 2;
 	}
 
@@ -456,5 +459,6 @@ export async function quotaMain(args: string[]): Promise<number> {
 	process.stdout.write(
 		`${await pace(directory, { codex, "google-ai": google, claude }, dataClass)}\n`,
 	);
+
 	return 0;
 }

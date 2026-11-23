@@ -180,7 +180,7 @@ rec {
 
   quota-pacer = nodeScripts {
     name = "quota-pacer";
-    runtimeInputs = [ pkgs.bash pkgs.coreutils pkgs.util-linux ];
+    runtimeInputs = [ pkgs.bash pkgs.coreutils pkgs.git pkgs.util-linux ];
     files = [
       (router + "/src")
       (router + "/package.json")
@@ -205,7 +205,7 @@ rec {
 
       # Load the packaged module graph without contacting a provider.
       status=0
-      ${pkgs.nodejs_22}/bin/node "$out/lib/packages/router/src/quota.ts" unexpected \
+      ${pkgs.nodejs_22}/bin/node "$out/lib/packages/router/src/route.ts" ls unexpected \
         > "$TMPDIR/quota-pacer-smoke.log" 2>&1 || status=$?
       if [ "$status" -ne 2 ]; then
         cat "$TMPDIR/quota-pacer-smoke.log"

@@ -15,6 +15,7 @@ import {
 import { redact, routeDepth } from "./adapters.ts";
 import { classRefusal, effectiveDataClass, resolveTarget } from "./policy.ts";
 import { quotaMain } from "./quota-pacing-command.ts";
+import { launchOptions, routeCommand } from "./route-args.ts";
 import { notify, run } from "./run.ts";
 import { appendEvent, validateLedger } from "./state.ts";
 import { readCodexAccountQuota } from "./telemetry.ts";
@@ -36,28 +37,39 @@ async function launch(argv: string[]): Promise<number> {
 					"plugins/hermes-cc-link/bin/cc-link-inject",
 				);
 	const notice = { runId, dir, cwd, injectPath };
+	let acceptanceRef: string | null = null;
 
 	const report = (line: string) => process.stdout.write(`${redact(line)}\n`);
 	const reject = async (code: number, reason: string) => {
 		process.stderr.write(`route: ${reason}\n`);
-		const status = code === 3 || code === 4 ? "launch refused" : "launch failed";
-		const injection = await notify({ ...notice, code, status, details: reason });
+
+		const status =
+			code === 130
+				? "cancellation requested"
+				: code === 3 || code === 4
+					? "launch refused"
+					: "launch failed";
+		const injection = await notify({ ...notice, code, status, details: reason, acceptanceRef });
+
 		report(`run ${runId}: ${status}; inject=${injection === 0 ? "queued" : "failed"}`);
+
 		return code;
 	};
 
 	try {
-		const { positionals, values } = parseArgs({
-			args: argv,
-			allowPositionals: true,
-			options: {
-				for: { type: "string" },
-				class: { type: "string" },
-				"allow-claude": { type: "boolean" },
-				promise: { type: "string" },
-				"source-kind": { type: "string" },
-			},
-		});
+		const parsed = (() => {
+			try {
+				return parseArgs({ args: argv, allowPositionals: true, options: launchOptions });
+			} catch {
+				return undefined;
+			}
+		})();
+
+		if (!parsed) {
+			return await reject(2, USAGE);
+		}
+
+		const { positionals, values } = parsed;
 		const [command, model, ...words] = positionals;
 
 		if (command !== "run" || !model || words.length === 0) {
@@ -81,11 +93,7 @@ async function launch(argv: string[]): Promise<number> {
 			return await reject(2, "invalid launch options");
 		}
 
-		const target = resolveTarget(model);
-
-		if (!target) {
-			return await reject(3, "unsupported model or effort");
-		}
+		acceptanceRef = promiseId === undefined ? null : `promise:${String(promiseId)}`;
 
 		const asked = words.join(" ");
 		const briefFile = words.length === 1 && existsSync(asked) ? asked : undefined;
@@ -122,7 +130,14 @@ async function launch(argv: string[]): Promise<number> {
 		}
 
 		const dataClass = effectiveDataClass(flagClass, task);
-		const refusal = classRefusal(target, dataClass, values["allow-claude"] === true);
+		const allowClaude = values["allow-claude"] === true;
+		const target = resolveTarget(model, allowClaude || dataClass === "parcs");
+
+		if (!target) {
+			return await reject(3, "unsupported model or effort");
+		}
+
+		const refusal = classRefusal(target, dataClass, allowClaude);
 
 		if (dataClass !== flagClass) {
 			report(`class raised to ${dataClass} by the brief`);
@@ -142,14 +157,29 @@ async function launch(argv: string[]): Promise<number> {
 				kind: "code",
 				dataClass,
 				sourceKind,
-				acceptanceRef: promiseId === undefined ? null : `promise:${String(promiseId)}`,
+				acceptanceRef,
 				acceptanceDigest: acceptanceDigest ?? null,
 				at: Date.now(),
 			});
-			const details = `Claude handoff: model=${target.model} effort=${target.effort}; caller must launch explicitly on the claude plan and put "ROUTED ${runId}" in the subagent prompt`;
+
+			const continuation = acceptanceRef
+				? `
+Read the active goal and checks with promise acceptance ${String(promiseId)}.`
+				: "";
+			const details = `Claude handoff: model=${target.model} effort=${target.effort}; caller must launch explicitly on the claude plan and put "ROUTED ${runId}" in the subagent prompt${continuation}`;
+
 			report(details);
-			const injection = await notify({ ...notice, code: 5, status: "manual handoff", details });
+
+			const injection = await notify({
+				...notice,
+				code: 5,
+				status: "manual handoff",
+				details,
+				acceptanceRef,
+			});
+
 			report(`run ${runId}: inject=${injection === 0 ? "queued" : "failed"}`);
+
 			return 5;
 		}
 
@@ -157,6 +187,7 @@ async function launch(argv: string[]): Promise<number> {
 		const cancel = () => {
 			controller.abort();
 		};
+
 		const signal = AbortSignal.any([controller.signal, AbortSignal.timeout(12 * 60 * 60 * 1000)]);
 
 		process.on("SIGINT", cancel);
@@ -193,36 +224,42 @@ async function launch(argv: string[]): Promise<number> {
 			});
 
 			process.stdout.write(readFileSync(result.outputPath, "utf8"));
+
 			return result.injectCode === 0 || result.code === 130 ? result.code : 1;
 		} finally {
 			process.off("SIGINT", cancel);
 			process.off("SIGTERM", cancel);
 		}
 	} catch (error) {
-		// The underlying error can include brief text or paths. Keep it out of the notification.
-		return reject(
-			1,
-			error instanceof Error && error.name === "AbortError"
-				? "cancelled before completion"
-				: "could not complete the launch",
-		);
+		if (error instanceof Error && error.name === "AbortError") {
+			return reject(130, "cancelled before the builder started");
+		}
+
+		if (error instanceof Error && error.name === "TimeoutError") {
+			return reject(1, "12-hour run limit reached");
+		}
+
+		// Errors from brief and promise reads can include private paths and content.
+		return reject(1, "could not complete the launch");
 	}
 }
 
-const [command, ...args] = process.argv.slice(2);
+const argv = process.argv.slice(2);
 
 try {
-	if (command === "ls" || command === "pace") {
-		process.exitCode = await quotaMain(args);
-	} else if (command === "validate-ledger" && args.length <= 1) {
+	const command = routeCommand(argv);
+
+	if (command?.value === "ls" || command?.value === "pace") {
+		process.exitCode = await quotaMain(argv.toSpliced(command.index, 1));
+	} else if (argv[0] === "validate-ledger" && argv.length <= 2) {
 		const result = await validateLedger(
-			args[0] ?? path.join(homedir(), ".local/state/router/ledger.jsonl"),
+			argv[1] ?? path.join(homedir(), ".local/state/router/ledger.jsonl"),
 		);
 
 		process.stdout.write(`${JSON.stringify(result)}\n`);
 		process.exitCode = result.invalid.length === 0 ? 0 : 1;
-	} else if (command === "run" || process.argv.slice(2).includes("run")) {
-		process.exitCode = await launch(process.argv.slice(2));
+	} else if (command?.value === "run" || argv[0] === "run") {
+		process.exitCode = await launch(argv);
 	} else {
 		process.stderr.write(`${USAGE}\n`);
 		process.exitCode = 2;
