@@ -26,14 +26,22 @@
 	],
 	"packageRules": [
 		{
-			"description": "Non-major updates merge themselves once the required check (finish) is green. Majors are excluded below: they open a PR that someone migrates and merges, instead of sitting red with automerge armed.",
+			"description": "Non-major updates automerge when the required finish check passes.",
 			"matchUpdateTypes": ["minor", "patch", "pin", "pinDigest", "digest", "lockFileMaintenance"],
 			"automerge": true
 		},
 		{
-			"description": "Majors can need code changes, so they never automerge. prConcurrentLimit stops them piling up.",
+			"description": "Major updates are manual by default because they can require code changes.",
 			"matchUpdateTypes": ["major"],
 			"automerge": false
+		},
+		{
+			"description": "Automerge npm devDependency majors when finish passes. Renovate identifies pnpm catalog entries by catalog name. The dev catalog's prisma and vite entries also affect production dependencies.",
+			"matchManagers": ["npm"],
+			"matchDepTypes": ["devDependencies", "pnpm.catalog.dev", "pnpm.catalog.types"],
+			"matchUpdateTypes": ["major"],
+			"matchJsonata": ["depType != 'pnpm.catalog.dev' or $not(packageName in ['prisma', 'vite'])"],
+			"automerge": true
 		},
 		{
 			"description": "matrix-sdk-sqlite requires a specific rusqlite and Cargo allows one libsqlite3-sys links version, so rusqlite moves only with matrix-sdk (#290 pinned 0.40; #512 wanted 0.42 and could not resolve). Lift when matrix-sdk-sqlite accepts a newer rusqlite.",
