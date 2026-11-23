@@ -1,6 +1,7 @@
 """Release retrieval text only after the shared vault scanner accepts every byte."""
 import json
 import os
+from pathlib import Path
 import subprocess
 import sys
 
@@ -14,7 +15,10 @@ class Refused(Exception):
 
 def check(text):
     try:
-        command = json.loads(os.environ.get('FOLD_SECRET_SCANNER_ARGV', 'null'))
+        argv = os.environ.get('FOLD_SECRET_SCANNER_ARGV')
+        if argv is None:
+            argv = Path(__file__).with_name('scanner-argv.json').read_text(encoding='utf-8')
+        command = json.loads(argv)
         if not isinstance(command, list) or not command or not all(isinstance(v, str) and v for v in command):
             raise Refused()
         data = text.encode('utf-8')

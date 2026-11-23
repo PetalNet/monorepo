@@ -14,6 +14,26 @@ let
     (hooks + "/promise-due.ts")
   ];
 
+  effectVersion =
+    let
+      lines = pkgs.lib.splitString "\n" (builtins.readFile ../pnpm-workspace.yaml);
+      catalog = pkgs.lib.findFirst (line: pkgs.lib.hasPrefix "  effect: " line)
+        (throw "The pnpm catalog has no Effect version")
+        lines;
+    in
+    pkgs.lib.removePrefix "  effect: " catalog;
+  effectTarball =
+    let
+      lock = builtins.readFile ../pnpm-lock.yaml;
+      entry = pkgs.lib.splitString "\n  effect@${effectVersion}:\n" lock;
+      resolution = builtins.head (pkgs.lib.splitString "\n" (builtins.elemAt entry 1));
+      integrity = builtins.match "    resolution: [{]integrity: (sha512-[^} ]+)[}]" resolution;
+    in
+    pkgs.fetchurl {
+      url = "https://registry.npmjs.org/effect/-/effect-${effectVersion}.tgz";
+      hash = builtins.head integrity;
+    };
+
   nodeScripts =
     {
       name,
@@ -46,8 +66,16 @@ let
       '';
 in
 rec {
-  fold-cards = pkgs.runCommand "fold-cards" { src = ../apps/fold-cards; } ''
+  fold-cards = pkgs.runCommand "fold-cards" {
+    src = ../apps/fold-cards;
+    buildInputs = [ pkgs.bash pkgs.python3 ];
+  } ''
     cp -R "$src" "$out"
+    chmod -R u+w "$out/bin"
+    patchShebangs --host "$out/bin"
+    substituteInPlace "$out/bin/unfold" \
+      --replace-fail 'exec python3 ' 'exec ${pkgs.python3}/bin/python3 ' \
+      --replace-fail '$(dirname ' '$(${pkgs.coreutils}/bin/dirname '
   '';
 
   harness-guards = nodeScripts {
@@ -111,6 +139,21 @@ rec {
       --prefix PATH : ${pkgs.lib.makeBinPath [ pkgs.openssh pkgs.coreutils pkgs.findutils ]}
   '';
 
+  vault-scan = nodeScripts {
+    name = "vault-scan";
+    files = [
+      ../packages/vault-engine/src/errors.ts
+      ../packages/vault-engine/src/outbound-scan.ts
+      ../packages/vault-engine/src/scan-cli.ts
+      ../packages/vault-engine/src/secrets.ts
+    ];
+    commands.vault-scan = "packages/vault-engine/src/scan-cli.ts";
+    extraInstall = ''
+      mkdir -p "$out/lib/node_modules/effect"
+      tar -xf ${effectTarball} --strip-components=1 -C "$out/lib/node_modules/effect"
+    '';
+  };
+
   astrolabe-quota = nodeScripts {
     name = "astrolabe-quota";
     files = [
@@ -123,6 +166,7 @@ rec {
 
   astrolabe-feed = nodeScripts {
     name = "astrolabe-feed";
+    runtimeInputs = [ pkgs.nodejs_22 pkgs.openssh ];
     files = [
       (feed + "/claude-usage-snapshot.ts")
       (feed + "/codex-usage-snapshot.ts")
