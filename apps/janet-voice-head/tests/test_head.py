@@ -600,12 +600,16 @@ class WebToolsTest(HeadCase):
 
 
 class SilenceTest(HeadCase):
-    def test_model_speech_is_preserved_and_empty_output_is_not_an_apology(self):
+    def test_a_successful_empty_turn_asks_for_more_and_keeps_the_call_open(self):
+        sentences, done = self.turn(self.open("personal"), "silentcase I was thinking")
+        self.assertEqual(sentences, ["Could you say a little more?"])
+        self.assertFalse(done["end_conversation"])
+
+    def test_model_speech_is_preserved(self):
         conv = self.open("personal")
-        for text, expected in (("silentcase so", []), ("fillercase and then", ["Go ahead, I'm listening."])):
-            sentences, done = self.turn(conv, text)
-            self.assertEqual(sentences, expected, text)
-            self.assertFalse(done["end_conversation"])
+        sentences, done = self.turn(conv, "fillercase and then")
+        self.assertEqual(sentences, ["Go ahead, I'm listening."])
+        self.assertFalse(done["end_conversation"])
 
     def test_a_failure_still_apologises(self):
         self.stop_head()
