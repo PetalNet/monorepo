@@ -4,10 +4,12 @@ Run `quota` to see each provider's used allowance and reset times. The first
 line is the pacer's recommendation for additional builders. `route ls` and
 `route pace` print the same report.
 
-Choose a model and effort, then pass the brief as text, an existing file, or
-stdin (`-`).
+Use the `choosing-subagents` skill to choose a model and the lowest effort
+that fits. The effort cap excludes `xhigh`, `max`, and `ultra`. Pass the brief
+as quoted text, an existing file, or stdin (`-`).
 
 ```sh
+route run <model>:<effort> --class <class> <brief>
 route run gpt-6.2-sol:medium --class public brief.md
 ```
 
@@ -17,9 +19,7 @@ route run gpt-6.2-sol:medium --class public brief.md
   credentials and PARCS terms and raises the class when needed.
 - Native Claude uses exit 5 and records a handoff. For public or sensitive use,
   an explicit `--allow-claude` is required.
-- `--for` is accepted for one release and has no effect. The launcher starts
-  only the supplied model, caps execution at 12 hours, and permits four nested
-  launches.
+- The launcher caps execution at 12 hours and permits four nested launches.
 - Run output and `ledger.jsonl` live under `~/.local/state/router`. The
   completion channel also reports refusals and failures to start.
 
