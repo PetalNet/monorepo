@@ -30,7 +30,7 @@ import { appendEvent, readAvailability } from "./state.ts";
 const USAGE = `usage:
   route ls  [--for <kind>] [--class <public|sensitive|parcs>] [--not-vendor <maker>]
             what you can run right now: model:effort, plan, quota, quality for <kind>, cost, time
-  route run <model>[:<effort>] [--for <kind>] [--class <class>] <task | task-file | ->
+  route run <model>[:<effort>] [--for <kind>] [--class <class>] [--allow-superseded] <task | task-file | ->
             run your pick on a task given inline, as a file, or on stdin; route checks policy and quota, logs it and pings Janet when it ends
   route why <model>[:<effort>] [--for <kind>] [--class <class>]
             why a model is or isn't runnable, with its evidence
@@ -268,6 +268,7 @@ async function main(argv: string[]): Promise<number> {
 				class: { type: "string" },
 				"not-vendor": { type: "string", multiple: true },
 				"allow-claude": { type: "boolean" },
+				"allow-superseded": { type: "boolean" },
 			},
 		});
 	} catch {
@@ -299,6 +300,7 @@ async function main(argv: string[]): Promise<number> {
 		!["ls", "run", "why"].includes(command ?? "") ||
 		(command !== "ls" && !model) ||
 		(command === "run" && !asked) ||
+		(command !== "run" && values["allow-superseded"]) ||
 		!KINDS.has(kind) ||
 		(flagClass !== "public" && flagClass !== "sensitive" && flagClass !== "parcs")
 	) {
@@ -364,7 +366,11 @@ async function main(argv: string[]): Promise<number> {
 		choice:
 			command === "ls"
 				? undefined
-				: { model: model ?? "", effort: effort === "" ? undefined : effort },
+				: {
+						model: model ?? "",
+						effort: effort === "" ? undefined : effort,
+						allowSuperseded: values["allow-superseded"] === true,
+					},
 		notVendor: (values["not-vendor"] ?? [])
 			.flatMap((v) => v.split(","))
 			.map((v) => v.trim().toLowerCase()),
@@ -384,22 +390,24 @@ async function main(argv: string[]): Promise<number> {
 
 	// Parker 2026-11-19 ("I dont care. use the router"): when no other vendor can take the review,
 	// fall back to the router's best different model, never the one that wrote the work.
+	const parent = process.env["ROUTE_PARENT_MODEL"];
+
 	if (
+		parent &&
 		result.ranked.length === 0 &&
 		state.notVendor.length > 0 &&
 		pick(catalog, kind, tier, { ...state, choice: undefined }).ranked.length === 0
 	) {
-		const parent = process.env["ROUTE_PARENT_MODEL"];
-		const fallback = { ...state, notVendor: [], notModel: parent ? [parent] : [] };
-		const retry = parent ? pick(catalog, kind, tier, fallback) : result;
+		const fallback = { ...state, notVendor: [], notModel: [parent] };
+		const alternatives = pick(catalog, kind, tier, { ...fallback, choice: undefined });
 
-		if (retry.ranked.length > 0) {
+		if (alternatives.ranked.length > 0) {
 			process.stdout.write(
-				`no offer outside ${state.notVendor.join(",")}; falling back to the best different model${parent ? ` (excluding ${parent})` : ""}\n`,
+				`no offer outside ${state.notVendor.join(",")}; falling back to the best different model (excluding ${parent})\n`,
 			);
 
 			Object.assign(state, fallback);
-			result = retry;
+			result = state.choice ? pick(catalog, kind, tier, state) : alternatives;
 		}
 	}
 
@@ -420,6 +428,14 @@ async function main(argv: string[]): Promise<number> {
 			return result.ranked.length > 0 ? 0 : 3;
 		}
 
+		if (
+			result.excluded.some((r) => r.supersededBy && !r.reasons.includes("not the caller's choice"))
+		) {
+			process.stdout.write("For reproducibility, rerun with --allow-superseded.\n");
+
+			return 3;
+		}
+
 		const alternatives = pick(catalog, kind, tier, { ...state, choice: undefined }).ranked.slice(
 			0,
 			3,
@@ -436,7 +452,8 @@ async function main(argv: string[]): Promise<number> {
 		dataClass === "parcs" ||
 		(command === "why" && result.ranked[0]?.offer.pool?.plan === "claude")
 	) {
-		const handoff = result.ranked[0]?.offer;
+		const selected = result.ranked[0];
+		const handoff = selected?.offer;
 		// The ledger row is what lets the route guard admit the native Claude subagent.
 		const runId = handoff && command === "run" ? crypto.randomUUID() : undefined;
 
@@ -450,6 +467,7 @@ async function main(argv: string[]): Promise<number> {
 				kind,
 				dataClass,
 				at: Date.now(),
+				...(selected.supersededBy ? { supersessionOverride: selected.supersededBy } : {}),
 			});
 		}
 

@@ -7,6 +7,7 @@ import { fileURLToPath } from "node:url";
 import type { ServiceReport } from "@petalnet/harness-hooks/quota-sources";
 import { describe, expect, it } from "vitest";
 
+import { normalizeAA, type EvidenceRow } from "./evidence.ts";
 import { BLOCKS, type Catalog, type Pool, POOLS, type State, pick } from "./pick.ts";
 import { effectiveDataClass, readBrief } from "./route.ts";
 
@@ -69,6 +70,220 @@ const models = (result: ReturnType<typeof pick>) => [
 ];
 const why = (result: ReturnType<typeof pick>, id: string) =>
 	result.excluded.find((e) => e.offer.id === id)?.reasons.join("; ") ?? "";
+
+describe("supersession", () => {
+	const older = "gpt-6.2-sol";
+	const newer = "gpt-6.10-sol";
+	const solModels: Catalog["models"] = [
+		{ id: newer, provider: "codex", score: 53, unproven: true, efforts: ["low", "high"] },
+		{ id: older, provider: "codex", score: 60, efforts: ["low", "medium", "high"] },
+		{ id: "gpt-6.1-astra", provider: "codex", score: 60, efforts: ["low"] },
+	];
+	const releases: Catalog = { models: solModels, tiers: TIERS };
+
+	function measured(model: string, signal: string, value: number): EvidenceRow {
+		return {
+			model,
+			effort: "low",
+			signal,
+			value,
+			src: "test",
+			kind: "measured",
+			asof: new Date(NOW).toISOString(),
+			url: "https://example.com",
+		};
+	}
+
+	function cost(model: string, value: number): EvidenceRow {
+		return measured(model, "intelligenceIndexCostPerTask.cost.total", value);
+	}
+
+	function withEvidence(rows: EvidenceRow[], over: Partial<State> = {}) {
+		return state({ evidence: { rows, unmapped: [], notes: [] }, ...over });
+	}
+
+	it("compares versions numerically at the same effort and uses a prior for an unproven release", () => {
+		const rows = [cost(older, 1), measured(older, "terminalBench40", 60)];
+
+		for (const ordered of [solModels, solModels.toReversed()]) {
+			const result = pick({ ...releases, models: ordered }, "code", "*", withEvidence(rows));
+
+			expect(result.excluded.map(({ offer, reasons }) => [offer.effort, reasons])).toEqual([
+				["low", [`superseded by ${newer}:low`]],
+				["high", [`superseded by ${newer}:high`]],
+			]);
+
+			expect(result.ranked.map(({ offer }) => `${offer.model}:${offer.effort}`)).toContain(
+				`${older}:medium`,
+			);
+
+			expect(ids(result)).toContain("gpt-6.1-astra");
+		}
+	});
+
+	it("retains older releases when the cost premium exceeds 10% or quality drops for the requested kind", () => {
+		const rows = [
+			cost(older, 1),
+			cost(newer, 1.1),
+			measured(older, "terminalBench40", 60),
+			measured(newer, "terminalBench40", 80),
+			measured(older, "arena_webdev", 80),
+			measured(newer, "arena_webdev", 60),
+		];
+		const choice = { model: older, effort: "low" };
+
+		expect(pick(releases, "code", "*", withEvidence(rows, { choice })).ranked).toEqual([]);
+		expect(ids(pick(releases, "ui", "*", withEvidence(rows, { choice })))).toEqual([older]);
+
+		expect(
+			ids(
+				pick(releases, "code", "*", withEvidence([cost(older, 1), cost(newer, 1.11)], { choice })),
+			),
+		).toEqual([older]);
+
+		expect(ids(pick(releases, "code", "*", withEvidence([], { choice })))).toEqual([older]);
+	});
+
+	it("restores an older eligible offer immediately when policy or live availability blocks its replacement", () => {
+		const rows = [cost(older, 1), cost(newer, 1)];
+		const choice = { model: older, effort: "low" };
+		const availability = {
+			cooldowns: {},
+			signedOut: {},
+			badOffers: { [`codex:${newer}`]: NOW + 1 },
+		};
+
+		for (const over of [{ denyPatterns: ["6.10"] }, { availability }]) {
+			expect(ids(pick(releases, "code", "*", withEvidence(rows, { ...over, choice })))).toEqual([
+				older,
+			]);
+		}
+
+		expect(
+			pick(releases, "code", "*", withEvidence(rows, { choice, availability, nowMs: NOW + 1 }))
+				.ranked,
+		).toEqual([]);
+	});
+
+	it("accepts exactly 10% higher cost after normalizing task size", () => {
+		const rows = [
+			cost(older, 0.03),
+			cost(newer, 0.033),
+			measured(older, "intelligenceIndexOutputTokensPerTask.output", 3500),
+		];
+		const result = pick(releases, "code", "*", withEvidence(rows));
+
+		expect(why(result, older)).toBe(`superseded by ${newer}:low`);
+	});
+
+	it("keeps an older release when the replacement is outside the selected tier", () => {
+		const modelsInSeparateTiers = solModels.map((model) =>
+			model.id === newer ? { ...model, score: 40 } : model,
+		);
+		const result = pick(
+			{ ...releases, models: modelsInSeparateTiers },
+			"code",
+			"S",
+			withEvidence([cost(older, 1), cost(newer, 1)]),
+		);
+
+		expect(result.tier).toBe("S");
+		expect(ids(result)).toContain(older);
+	});
+
+	it("finds replacements across execution pools and restores the older offer at the newer pool's quota floor", () => {
+		const oldSonnet = "claude-sonnet-5-4";
+		const newSonnet = "claude-sonnet-5-5";
+		const sonnetReleases: Catalog = {
+			models: [
+				{ id: oldSonnet, provider: "agy-claude", score: 55, efforts: ["low"] },
+				{ id: "sonnet", provider: "claude", score: 55, efforts: ["low"] },
+			],
+			tiers: TIERS,
+		};
+		const pools = POOLS.map(({ explicitOnly: _explicit, ...pool }) => pool);
+		const rows = [cost(oldSonnet, 1), cost(newSonnet, 1)];
+		const reports = {
+			"google-ai": google(10),
+			claude: {
+				service: "claude",
+				status: "ok",
+				summary: "",
+				limits: [{ id: "claude:7d", label: "", usedPct: 30 }],
+			},
+		} satisfies State["reports"];
+		const open = pick(sonnetReleases, "code", "*", withEvidence(rows, { pools, reports }));
+
+		expect(why(open, `${oldSonnet}-low`)).toBe("superseded by sonnet:low");
+
+		const quota = {
+			...reports.claude,
+			limits: reports.claude.limits.map((limit) => ({ ...limit, usedPct: 100 })),
+		};
+		const limited = pick(
+			sonnetReleases,
+			"code",
+			"*",
+			withEvidence(rows, { pools, reports: { ...reports, claude: quota } }),
+		);
+
+		expect(ids(limited)).toEqual([`${oldSonnet}-low`]);
+	});
+
+	it("uses exact Gemini AA costs to compare Pro releases without suppressing Flash", () => {
+		const pro = "gemini-2.5-pro";
+		const preview = "gemini-3-pro-preview";
+		const flash = "gemini-2.5-flash";
+		const geminiReleases: Catalog = {
+			models: [pro, preview, flash].map((id) => ({
+				id,
+				provider: "gemini",
+				score: 50,
+				efforts: ["low"],
+			})),
+			tiers: TIERS,
+		};
+		const aa = (previewCost: number) =>
+			normalizeAA({
+				fetchedAt: new Date(NOW).toISOString(),
+				models: ["gemini-2-5-pro", preview, flash].map((slug) => ({
+					slug,
+					release: { slug },
+					effort: { slug: "low" },
+					intelligenceIndexCostPerTask: { cost: { total: slug === preview ? previewCost : 1 } },
+				})),
+			});
+		const result = pick(geminiReleases, "code", "*", state({ evidence: aa(1) }));
+
+		expect(why(result, `${pro}-low`)).toBe(`superseded by ${preview}:low`);
+		expect(ids(result)).toEqual([`${preview}-low`, `${flash}-low`]);
+
+		const expensive = pick(geminiReleases, "code", "*", state({ evidence: aa(2) }));
+
+		expect(ids(expensive)).toContain(`${pro}-low`);
+	});
+
+	it("names a runnable replacement when the cost tolerance is not transitive", () => {
+		const oldest = "gpt-6-sol";
+		const result = pick(
+			{
+				...releases,
+				models: [...solModels, { id: oldest, provider: "codex", score: 57, efforts: ["low"] }],
+			},
+			"code",
+			"*",
+			withEvidence([cost(oldest, 1), cost(older, 1.09), cost(newer, 1.18)]),
+		);
+
+		expect(result.ranked.map(({ offer }) => `${offer.model}:${offer.effort}`)).toContain(
+			`${oldest}:low`,
+		);
+
+		expect(
+			result.excluded.find(({ offer }) => offer.model === older && offer.effort === "low")?.reasons,
+		).toEqual([`superseded by ${newer}:low`]);
+	});
+});
 
 describe("pick", () => {
 	it("runs only the caller's choice", () => {

@@ -2,7 +2,9 @@
 
 `route ls --for code --class public` lists runnable model and effort choices, best first. `route why gpt-6.1-sol:low --for code` explains availability and policy checks.
 
-`route run gpt-6.1-sol:low --for sweep --class public 'Reply with exactly: ok'` launches the selected model in the current working directory. Tasks can be inline text, a file, or stdin with `-`. File contents are captured before classification and execution.
+`route run gpt-6.2-sol:low --for sweep --class public 'Reply with exactly: ok'` launches the selected model in the current working directory. Tasks can be inline text, a file, or stdin with `-`. File contents are captured before classification and execution.
+
+An older release is superseded when a runnable newer release in the same model line offers the same effort, at least as much expected quality for the task kind, and an estimated task cost no more than 10% higher. Estimates can use family priors. When cost has only a neutral default, both releases stay eligible. `route why` names the replacement. To reproduce a run with a superseded release, pass `--allow-superseded` to `route run`. The ledger records the replacement as `supersessionOverride`, and the usual quota, effort, and policy checks apply.
 
 Adapters use agy (effort encoded in the slug and passed with `--effort`) or Codex (brief on stdin, explicit effort in `model_reasoning_effort`). Both use the caller's existing credentials and permissions. `--allow-claude` permits Claude selection; it prints a handoff and exits 5 without invoking Claude. Other hard filters still apply.
 
@@ -40,7 +42,7 @@ Artificial Analysis data is read from `~/.claude/shared/aa-models.json` at runti
 
 Downloads without a stated data license remain internal; none are republished. DesignArena's API is the authorized path; missing credentials produce a gap, without scraping its pages. Python 3 supplies CSV, ZIP and HTTP support from its standard library, avoiding new dependencies. It is required for pulls and the package's tests; selection still runs in Node.js.
 
-An explicit release alias map handles decimal slug spelling and Claude shorthand. No fuzzy matching, preview substitution or generation substitution occurs. Unknown source names remain in the evidence artifact. Open rows add `reporter` and `halfLifeDays`; effort not published by a source stays `unspecified`. Such rows contribute model-level coverage and are labeled accordingly, without claiming an effort match.
+The router normalizes numeric release spellings and maps Claude shorthand to explicit releases. Evidence for each preview and generation stays with that release. Unknown source names remain in the evidence artifact. Open rows add `reporter` and `halfLifeDays`; effort not published by a source stays `unspecified`. Such rows contribute model-level coverage and are labeled accordingly, without claiming an effort match.
 
 Each model is offered at every supported adapter effort. Catalog variants of the same model, provider and pool are grouped; the highest catalog score determines the model's tier for all its efforts. This lets a low-effort sweep compete with a high-effort code task within the same model tier. Legacy model and effort bans still apply, including Claude aliases. Exhaustion still cools the whole pool. A transient failure retries once, then skips that model's remaining efforts; an invalid agy variant disables only that variant.
 

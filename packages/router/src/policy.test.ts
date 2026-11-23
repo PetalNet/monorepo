@@ -200,3 +200,114 @@ it("excludes the parent's canonical model identity across provider aliases", () 
 		result.excluded.every((r) => r.reasons.some((reason) => reason.includes("wrote the work"))),
 	).toBe(true);
 });
+
+it("refuses a superseded CLI run and logs a reproducibility override without bypassing policy", async () => {
+	const dir = await mkdtemp(path.join(tmpdir(), "route-supersession-"));
+
+	dirs.push(dir);
+	const shared = path.join(dir, ".claude/shared");
+	const old = "gpt-6-sol";
+	const replacement = "gpt-6.2-sol";
+
+	await mkdir(shared, { recursive: true });
+
+	await writeFile(
+		path.join(shared, "model-tiers.json"),
+		JSON.stringify({
+			models: [old, replacement].map((id) => ({ id, provider: "codex", score: 50 })),
+			tiers: { C: 0 },
+		}),
+	);
+
+	await writeFile(
+		path.join(shared, "aa-models.json"),
+		JSON.stringify({
+			fetchedAt: new Date().toISOString(),
+			models: [old, replacement].map((slug) => ({
+				slug,
+				release: { slug },
+				effort: { slug: "low" },
+				intelligenceIndexCostPerTask: { cost: { total: 1 } },
+			})),
+		}),
+	);
+
+	await writeFile(
+		path.join(dir, "codex"),
+		'#!/bin/sh\ncase "$1" in --version|debug) exit 1;; esac\ncat\n',
+		{ mode: 0o700 },
+	);
+
+	const entry = fileURLToPath(new URL("route.ts", import.meta.url));
+	const route = (...args: string[]) =>
+		spawnSync(process.execPath, [entry, ...args], {
+			encoding: "utf8",
+			env: {
+				...process.env,
+				HOME: dir,
+				PATH: `${dir}:${process.env["PATH"] ?? ""}`,
+				QUOTA_CODEX_CMD: "true",
+				QUOTA_AGY_CMD: "true",
+				QUOTA_CLAUDE_USAGE_CMD: "true",
+				ROUTE_NO_INJECT: "1",
+				ROUTE_DEPTH: "0",
+				ROUTE_PARENT_MODEL: "gpt-6.2-astra",
+			},
+		});
+	const target = `${old}:low`;
+	const brief = "Reply with the captured brief.";
+	const ledger = path.join(dir, ".local/state/router/ledger.jsonl");
+	const blocked = route("run", target, brief);
+
+	expect(blocked.status).toBe(3);
+	expect(blocked.stdout).toContain(`superseded by ${replacement}:low`);
+	expect(blocked.stdout).toContain("--allow-superseded");
+
+	const sameVendor = route("run", target, "--not-vendor", "openai", brief);
+
+	expect(sameVendor.status).toBe(3);
+	expect(sameVendor.stdout).toContain("falling back to the best different model");
+	expect(sameVendor.stdout).toContain(`superseded by ${replacement}:low`);
+	await expect(readFile(ledger, "utf8")).rejects.toMatchObject({ code: "ENOENT" });
+
+	const why = route("why", target);
+
+	expect(why.status).toBe(3);
+	expect(why.stdout).toContain(`${target} [codex] blocked: superseded by ${replacement}:low`);
+	expect(route("ls", "--allow-superseded").status).toBe(2);
+
+	const override = route("run", target, "--allow-superseded", brief);
+
+	expect(override.status).toBe(0);
+	expect(override.stdout).toContain(brief);
+
+	const log = await readFile(ledger, "utf8");
+	const events = log
+		.trim()
+		.split("\n")
+		.map((line): unknown => JSON.parse(line));
+
+	expect(events).toContainEqual(
+		expect.objectContaining({
+			event: "launch",
+			model: old,
+			effort: "low",
+			supersessionOverride: `${replacement}:low`,
+		}),
+	);
+
+	const legacy = path.join(dir, ".local/state/agy-build");
+
+	await mkdir(legacy, { recursive: true });
+	await writeFile(path.join(legacy, "pools.json"), JSON.stringify({ deny_patterns: [old] }));
+	const denied = route("run", target, "--allow-superseded", brief);
+
+	expect(denied.status).toBe(3);
+	expect(denied.stdout).toContain("denied in pools.json");
+	await writeFile(path.join(legacy, "pools.json"), "{}");
+	const capped = route("run", `${old}:xhigh`, "--allow-superseded", brief);
+
+	expect(capped.status).toBe(3);
+	expect(capped.stdout).toContain("effort xhigh not allowed");
+	expect(await readFile(ledger, "utf8")).toBe(log);
+});
