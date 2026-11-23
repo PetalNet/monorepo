@@ -23,6 +23,8 @@ overrides:
   "@better-auth/core@1.7.14>kysely": "-"
   # Keep MCP's OAuth provider on the same Better Auth release as core.
   "@better-auth/mcp@1.7.14>@better-auth/oauth-provider": 1.7.25
+  # The upstream caret range can resolve to 4.1.x, whose Effect peer exceeds our pin.
+  "@effect/platform-node>@effect/platform-node-shared": "catalog:"
   vite: catalog:dev
   vitest: catalog:dev
   # @types/ssh2 pins @types/node 18 for a types-only dependency of testcontainers;
@@ -112,13 +114,13 @@ catalogs:
     drizzle-kit: ^0.31.8
     eslint: ^10.4.1
     # Keep the ESLint compatibility rules aligned with standalone Oxlint.
-    eslint-plugin-oxlint: 1.93.0
+    eslint-plugin-oxlint: 1.94.0
     eslint-plugin-package-json: ^1.2.0
     happy-dom: ^21.0.1
     impeccable: ^4.5.2
     knip: ^6.31.0
     oxfmt: 0.78.0
-    oxlint: 1.93.0
+    oxlint: 1.94.0
     oxlint-tsgolint: 7.0.2007
     prisma: ^7.0.0
     svelte-check: ^4.7.0
@@ -199,6 +201,7 @@ catalog:
   "@better-auth/test-utils": 1.7.25
   "@sveltejs/adapter-node": ^6.0.1
   "@effect/platform-node": 4.0.1
+  "@effect/platform-node-shared": 4.0.1
   "@effect/sql-pg": 4.0.0
   "@sveltejs/kit": 3.4.0
   "@testcontainers/postgresql": ^12.0.0
