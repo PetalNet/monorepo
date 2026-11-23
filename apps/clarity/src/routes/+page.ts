@@ -8,10 +8,8 @@
 
 import type { PageLoad } from "./$types";
 
-export const load: PageLoad = ({ url }) => {
-	return {
-		q: url.searchParams.get("q") ?? "",
-		categories: url.searchParams.get("categories") ?? "general",
-		priv: url.searchParams.get("private") === "1",
-	};
-};
+export const load: PageLoad = ({ url }) => ({
+	q: url.searchParams.get("q") ?? "",
+	categories: url.searchParams.get("categories") ?? "general",
+	priv: url.searchParams.get("private") === "1",
+});

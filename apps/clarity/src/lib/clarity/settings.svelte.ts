@@ -51,10 +51,14 @@ const SETTINGS_DEFAULTS: Settings = {
 const KEY = "clarity-settings";
 
 function read(): Settings {
-	if (!browser) return { ...SETTINGS_DEFAULTS };
+	if (!browser) {
+		return { ...SETTINGS_DEFAULTS };
+	}
 
 	try {
-		return { ...SETTINGS_DEFAULTS, ...JSON.parse(localStorage.getItem(KEY) || "{}") };
+		const saved: unknown = JSON.parse(localStorage.getItem(KEY) || "{}");
+
+		return { ...SETTINGS_DEFAULTS, ...(saved && typeof saved === "object" ? saved : {}) };
 	} catch {
 		return { ...SETTINGS_DEFAULTS };
 	}
@@ -65,7 +69,9 @@ class SettingsState {
 
 	/** Hydrate from localStorage + apply the visual overrides. Call once on mount. */
 	init() {
-		if (!browser) return;
+		if (!browser) {
+			return;
+		}
 
 		this.current = read();
 		this.applyVisual();
@@ -73,7 +79,9 @@ class SettingsState {
 
 	/** Persist + re-apply the live visual overrides. */
 	persist() {
-		if (!browser) return;
+		if (!browser) {
+			return;
+		}
 
 		try {
 			localStorage.setItem(KEY, JSON.stringify(this.current));
@@ -91,7 +99,9 @@ class SettingsState {
 
 	/** Mirror legacy applyVisual(): accent / radius / font / density / badges → <html>. */
 	applyVisual() {
-		if (!browser) return;
+		if (!browser) {
+			return;
+		}
 
 		const r = document.documentElement;
 		const cs = this.current;

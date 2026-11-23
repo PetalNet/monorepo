@@ -60,11 +60,15 @@ export const urlFor = (q: string, cat: string, priv: boolean) => {
 
 	p.set("q", q);
 
-	if (cat && cat !== "general") p.set("categories", cat);
+	if (cat && cat !== "general") {
+		p.set("categories", cat);
+	}
 
-	if (priv) p.set("private", "1");
+	if (priv) {
+		p.set("private", "1");
+	}
 
-	return "/?" + p.toString();
+	return `/?${p.toString()}`;
 };
 
 /** Build the /search query string for one page (same-origin; traefik routes it to SearXNG). */
@@ -78,19 +82,28 @@ export function searchQueryString(
 	const { q: cleanQ, tr } = parseRecency(q);
 	const p = new URLSearchParams({ q: cleanQ, format: "json", pageno: String(page) });
 
-	if (priv) p.set("engines", PRIVATE_ENGINES);
-	else p.set("categories", cat);
+	if (priv) {
+		p.set("engines", PRIVATE_ENGINES);
+	} else {
+		p.set("categories", cat);
+	}
 
-	if (tr) p.set("time_range", tr);
+	if (tr) {
+		p.set("time_range", tr);
+	}
 
 	p.set(
 		"safesearch",
 		({ off: "0", moderate: "1", strict: "2" } as Record<string, string>)[cs.safeSearch] ?? "1",
 	);
 
-	if (cs.language && cs.language !== "auto") p.set("language", cs.language);
+	if (cs.language && cs.language !== "auto") {
+		p.set("language", cs.language);
+	}
 
-	if (!priv && cs.disabledEngines?.length) p.set("disabled_engines", cs.disabledEngines.join(","));
+	if (!priv && cs.disabledEngines?.length) {
+		p.set("disabled_engines", cs.disabledEngines.join(","));
+	}
 
 	return p.toString();
 }
@@ -98,8 +111,7 @@ export function searchQueryString(
 export const esc = (s: unknown) =>
 	String(s).replace(
 		/[&<>"]/g,
-		(c) =>
-			({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" } as Record<string, string>)[c]!,
+		(c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" } as Record<string, string>)[c],
 	);
 
 export const host = (u: string) => {
@@ -132,7 +144,7 @@ const DORK_OPS =
 export function highlightQuery(t: string) {
 	let h = esc(t);
 
-	h = h.replace(new RegExp("\\b(" + DORK_OPS + ")\\b:", "gi"), '<span class="hl-op">$1:</span>');
+	h = h.replace(new RegExp(`\\b(${DORK_OPS})\\b:`, "gi"), '<span class="hl-op">$1:</span>');
 	h = h.replace(/(^|\s)(!{1,2}[a-z0-9_]+)/gi, '$1<span class="hl-bang">$2</span>');
 	h = h.replace(/(^|\s)(-[^\s"&]+)/g, '$1<span class="hl-neg">$2</span>');
 	h = h.replace(/(&quot;[^&]*?&quot;)/g, '<span class="hl-quote">$1</span>');
@@ -161,7 +173,7 @@ const RECENCY: Record<string, string> = {
 
 export function parseRecency(raw: string) {
 	let tr = "";
-	const q = String(raw || "")
+	const q = (raw || "")
 		.replace(/\bpast:([a-z0-9]+)\b/gi, (m: string, b: string) => {
 			const hit = RECENCY[b.toLowerCase()];
 
@@ -215,31 +227,38 @@ export function calcAnswer(q: string): number | null {
 		.replace(/\s*=\s*$/, "")
 		.trim();
 
-	if (!/\d/.test(q)) return null;
+	if (!/\d/.test(q)) {
+		return null;
+	}
 
 	const probe = q
-		.replace(new RegExp("\\b(" + CALC_FNS.join("|") + "|pi|tau|e)\\b", "gi"), "")
+		.replace(new RegExp(`\\b(${CALC_FNS.join("|")}|pi|tau|e)\\b`, "gi"), "")
 		.replace(/[\d+\-*/^%().,\s]/g, "");
 
-	if (probe !== "") return null;
-
-	if (!/[-+*/^%]|\b(sqrt|cbrt|sin|cos|tan|abs|round|floor|ceil|exp|min|max|log2|log10)\b/i.test(q))
+	if (probe !== "") {
 		return null;
+	}
+
+	if (
+		!/[-+*/^%]|\b(sqrt|cbrt|sin|cos|tan|abs|round|floor|ceil|exp|min|max|log2|log10)\b/i.test(q)
+	) {
+		return null;
+	}
 
 	const expr = q
 		.replace(/\^/g, "**")
 		.replace(/\bpi\b/gi, "(Math.PI)")
 		.replace(/\btau\b/gi, "(2*Math.PI)")
 		.replace(/\be\b/gi, "(Math.E)")
-		.replace(
-			new RegExp("\\b(" + CALC_FNS.join("|") + ")\\b", "gi"),
-			(m) => "Math." + m.toLowerCase(),
-		);
+		.replace(new RegExp(`\\b(${CALC_FNS.join("|")})\\b`, "gi"), (m) => `Math.${m.toLowerCase()}`);
 
 	try {
-		const v = Function('"use strict";return (' + expr + ")")();
+		// oxlint-disable-next-line eslint/no-new-func, typescript/no-implied-eval -- Only numeric syntax and the fixed Math names above are accepted.
+		const v: unknown = new Function(`"use strict";return (${expr})`)();
 
-		if (typeof v === "number" && isFinite(v)) return +(+v).toPrecision(12);
+		if (typeof v === "number" && Number.isFinite(v)) {
+			return Number(v.toPrecision(12));
+		}
 	} catch {
 		/* not a valid expression */
 	}
@@ -248,36 +267,45 @@ export function calcAnswer(q: string): number | null {
 }
 
 export function looksCalc(q: string) {
-	if (!/[0-9]/.test(q) && !/\b(pi|tau)\b/i.test(q)) return false;
+	if (!/[0-9]/.test(q) && !/\b(pi|tau)\b/i.test(q)) {
+		return false;
+	}
 
-	if (/[-+*/^=]/.test(q)) return true;
-
-	if (/\b(to|in|as)\b/i.test(q) && /\d\s*[a-zµ°$€£%]/i.test(q)) return true;
-
-	if (/\b(sqrt|cbrt|sin|cos|tan|log|ln|exp|abs|floor|ceil|round|mod|gcd|lcm)\b/i.test(q))
+	if (/[-+*/^=]/.test(q)) {
 		return true;
+	}
 
-	if (/\d\s*%/.test(q)) return true;
+	if (/\b(to|in|as)\b/i.test(q) && /\d\s*[a-zµ°$€£%]/i.test(q)) {
+		return true;
+	}
+
+	if (/\b(sqrt|cbrt|sin|cos|tan|log|ln|exp|abs|floor|ceil|round|mod|gcd|lcm)\b/i.test(q)) {
+		return true;
+	}
+
+	if (/\d\s*%/.test(q)) {
+		return true;
+	}
 
 	return false;
 }
 
 /* ---- Numbat WASM bridge (lazy dynamic import; same-origin /fx for rates) ---- */
 interface Numbat {
-	interpret(q: string): { is_error: boolean; output: string };
-	set_exchange_rates(xml: string): void;
+	interpret: (q: string) => { is_error: boolean; output: string };
+	set_exchange_rates: (xml: string) => void;
 }
 interface NumbatModule {
-	default(opts: { module_or_path: string }): Promise<unknown>;
+	default: (opts: { module_or_path: string }) => Promise<unknown>;
 	// wasm-bindgen exposes a STATIC factory literally named `new` (not a JS constructor)
-	Numbat: { ["new"](a: boolean, b: boolean, fmt: unknown): Numbat };
+	Numbat: { new: (a: boolean, b: boolean, fmt: unknown) => Numbat };
 	FormatType: { Html: unknown };
 }
-let _numbatP: Promise<Numbat> | null = null;
+let numbatPromise: Promise<Numbat> | null = null;
 
 export function loadNumbat() {
-	if (!_numbatP)
-		_numbatP = (async () => {
+	if (!numbatPromise) {
+		numbatPromise = (async () => {
 			// Runtime-only WASM module served as a static asset (static/numbat/pkg).
 			// The path is built from a variable so Vite's import-analysis leaves it
 			// alone (a literal string import would be eagerly resolved + fail dev).
@@ -290,19 +318,22 @@ export function loadNumbat() {
 			try {
 				const xml = await fetch("/fx").then((r) => (r.ok ? r.text() : null));
 
-				if (xml) nb.set_exchange_rates(xml);
+				if (xml) {
+					nb.set_exchange_rates(xml);
+				}
 			} catch {
 				/* rates optional */
 			}
 
 			return nb;
 		})().catch((err) => {
-			_numbatP = null;
+			numbatPromise = null;
 
 			throw err;
 		});
+	}
 
-	return _numbatP;
+	return numbatPromise;
 }
 
 const americanize = (s: string) => s.replace(/metre/g, "meter").replace(/litre/g, "liter");
@@ -312,7 +343,9 @@ export async function numbatAnswer(q: string): Promise<string | null> {
 		const nb = await loadNumbat();
 		const r = nb.interpret(q);
 
-		if (r.is_error) return null;
+		if (r.is_error) {
+			return null;
+		}
 
 		const out = r.output;
 
@@ -325,9 +358,9 @@ export async function numbatAnswer(q: string): Promise<string | null> {
 export function numbatCard(out: string) {
 	const EQ = '<span class="numbat-operator">=</span>';
 	const i = out.indexOf(EQ);
-	let exp = i >= 0 ? out.slice(0, i) : "";
-	let res = i >= 0 ? out.slice(i + EQ.length) : out;
-	const dim = res.match(/<span class="numbat-type-identifier">([^<]+)<\/span>/);
+	let exp = i === -1 ? "" : out.slice(0, i);
+	let res = i === -1 ? out : out.slice(i + EQ.length);
+	const dim = /<span class="numbat-type-identifier">([^<]+)<\/span>/.exec(res);
 	const tag = dim ? dim[1] : "";
 
 	res = res.replace(/<span class="numbat-dimmed">[\s\S]*$/, "");
@@ -345,7 +378,7 @@ export function numbatCard(out: string) {
 	if (exp.includes("➞")) {
 		const vals = (s: string) =>
 			[...s.matchAll(/<span class="numbat-value">([\d.eE+-]+)<\/span>/g)].map((m) =>
-				parseFloat(m[1]!),
+				parseFloat(m[1]),
 			);
 		const units = (s: string) =>
 			[...s.matchAll(/<span class="numbat-unit">([^<]+)<\/span>/g)].map((m) => m[1]);
@@ -354,8 +387,9 @@ export function numbatCard(out: string) {
 			fu = units(exp)[0],
 			tu = units(res)[0];
 
-		if (A && B && fu && tu && isFinite(B / A))
-			meta = `1 <span class="numbat-unit">${esc(fu)}</span> = ${+(B / A).toPrecision(6)} <span class="numbat-unit">${esc(tu)}</span> · powered by Numbat`;
+		if (A && B && fu && tu && isFinite(B / A)) {
+			meta = `1 <span class="numbat-unit">${esc(fu)}</span> = ${Number((B / A).toPrecision(6))} <span class="numbat-unit">${esc(tu)}</span> · powered by Numbat`;
+		}
 	}
 
 	return `<div class="r-answer calc numbat-card">${exp ? `<div class="nc-exp">${exp}</div>` : ""}<div class="nc-resrow"><span class="nc-res">${res}</span>${tag ? `<span class="nc-tag">${esc(tag)}</span>` : ""}</div><div class="nc-meta">${meta}</div></div>`;
@@ -374,8 +408,8 @@ export function liveSplit(html: string) {
 	const clean = liveLine(html);
 	const op = '<span class="numbat-operator">=</span>';
 	const i = clean.lastIndexOf(op);
-	const left = i < 0 ? "" : clean.slice(0, i).trim();
-	const right = i < 0 ? clean : clean.slice(i).trim();
+	const left = i === -1 ? "" : clean.slice(0, i).trim();
+	const right = i === -1 ? clean : clean.slice(i).trim();
 
 	return `<span class="numbat-out lc-row">${left ? `<span class="lc-in">${left}</span>` : ""}<span class="lc-out">${right}</span></span>`;
 }
@@ -412,10 +446,12 @@ export const aspectOf = (r: Result) => {
 	const m = r.resolution && /(\d+)\s*[x×]\s*(\d+)/.exec(r.resolution);
 
 	if (m) {
-		const w = +m[1]!,
-			h = +m[2]!;
+		const w = Number(m[1]);
+		const h = Number(m[2]);
 
-		if (w > 0 && h > 0) return Math.max(0.2, Math.min(5.0, w / h));
+		if (w > 0 && h > 0) {
+			return Math.max(0.2, Math.min(5, w / h));
+		}
 	}
 
 	return 1.5;

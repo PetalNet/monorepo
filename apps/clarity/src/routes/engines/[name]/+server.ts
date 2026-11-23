@@ -1,16 +1,6 @@
-// /engines/<name>.png — the "via" row engine mark.
-//
-// LOGO BUG FIX (task-142 follow-up): the mini engine logos were flaky because
-// every one was fetched live from favicons.petalcat.dev; when that service was
-// slow/down the icon fell back to a colored dot and flickered. Now every engine
-// serp-fetch actually uses ships a LOCAL, self-contained SVG monogram served
-// instantly with no network call — so their logos never flake. Unknown engines
-// still resolve via the favicon service (cached), and the colored-dot fallback
-// in EngineIcon.svelte remains the last resort.
-
 import type { RequestHandler } from "./$types";
 
-// Brand-ish colors for the local monograms (kept in sync with ENGINE_COLORS).
+// Colors for engines that ship a local monogram.
 const ENGINE_COLORS: Record<string, string> = {
 	google: "#4285f4",
 	bing: "#00897b",
@@ -37,12 +27,9 @@ const ENGINE_GLYPH: Record<string, string> = {
 	mwmbl: "w",
 };
 
-// Engines that get a guaranteed local icon (serp-fetch's set + a few common).
-const LOCAL_ICONS = new Set(Object.keys(ENGINE_GLYPH));
-
 function localMonogram(name: string): string {
-	const color = ENGINE_COLORS[name] || "#5a6b7b";
-	const glyph = ENGINE_GLYPH[name] || (name[0] || "?").toUpperCase();
+	const color = ENGINE_COLORS[name];
+	const glyph = ENGINE_GLYPH[name] ?? name.slice(0, 1).toUpperCase();
 
 	// Rounded square, brand color, centered white glyph. 64×64, crisp at any size.
 	return `<svg xmlns="http://www.w3.org/2000/svg" width="64" height="64" viewBox="0 0 64 64" role="img" aria-label="${name}">
@@ -81,64 +68,94 @@ const ENGINE_DOMAINS: Record<string, string> = {
 	wolframalpha: "wolframalpha.com",
 };
 
-type Cached = { buf: ArrayBuffer; type: string } | "miss";
-const ICACHE = new Map<string, Cached>();
+interface Icon {
+	buffer: ArrayBuffer;
+	type: string;
+}
 
-const engineDomain = (name: string) => {
-	const n = (name || "").toLowerCase().trim();
+const icons = new Map<string, Promise<Icon | undefined>>();
+const iconTypes = new Set([
+	"image/avif",
+	"image/gif",
+	"image/jpeg",
+	"image/png",
+	"image/svg+xml",
+	"image/vnd.microsoft.icon",
+	"image/webp",
+	"image/x-icon",
+]);
 
-	return ENGINE_DOMAINS[n] || ENGINE_DOMAINS[n.split(/[\s_]/)[0]] || null;
-};
+function iconResponse(body: BodyInit, type: string): Response {
+	return new Response(body, {
+		headers: {
+			"Content-Type": type,
+			"Cache-Control": "public, max-age=604800",
+			"Content-Security-Policy": "default-src 'none'; sandbox",
+			"X-Content-Type-Options": "nosniff",
+		},
+	});
+}
 
-async function loadEngineIcon(name: string): Promise<{ buf: ArrayBuffer; type: string } | null> {
-	const hit = ICACHE.get(name);
+async function fetchIcon(domain: string): Promise<Icon | undefined> {
+	const url = new URL("https://favicons.petalcat.dev/favicon");
 
-	if (hit) return hit === "miss" ? null : hit;
-
-	const d = engineDomain(name);
-
-	if (!d) {
-		ICACHE.set(name, "miss");
-
-		return null;
-	}
+	url.searchParams.set("url", `https://${domain}`);
+	url.searchParams.set("size", "64");
 
 	try {
-		const r = await fetch(`https://favicons.petalcat.dev/favicon?url=https://${d}&size=64`, {
-			signal: AbortSignal.timeout(8000),
-		});
+		const response = await fetch(url, { signal: AbortSignal.timeout(8000) });
+		const type = response.headers.get("content-type")?.split(";").at(0)?.trim().toLowerCase();
 
-		if (!r.ok) throw new Error("fav " + r.status);
+		if (!response.ok || !type || !iconTypes.has(type)) {
+			return;
+		}
 
-		const obj = { type: r.headers.get("content-type") || "image/png", buf: await r.arrayBuffer() };
+		const buffer = await response.arrayBuffer();
 
-		ICACHE.set(name, obj);
-
-		return obj;
+		if (buffer.byteLength <= 1_048_576) {
+			return { buffer, type };
+		}
 	} catch {
-		return null; // transient: don't cache as miss → retries
+		/* Leave transient failures uncached. */
 	}
 }
 
-export const GET: RequestHandler = async ({ params }) => {
-	const name = (params.name || "").replace(/\.png$/i, "").toLowerCase();
+async function loadIcon(domain: string): Promise<Icon | undefined> {
+	let icon = icons.get(domain);
 
-	// Local monogram first for known engines — instant, offline, never flaky.
-	if (LOCAL_ICONS.has(name) || ENGINE_COLORS[name]) {
-		return new Response(localMonogram(name), {
-			headers: {
-				"Content-Type": "image/svg+xml; charset=utf-8",
-				"Cache-Control": "public, max-age=604800, immutable",
-			},
+	if (!icon) {
+		icon = fetchIcon(domain).then((result) => {
+			if (!result) {
+				icons.delete(domain);
+			}
+
+			return result;
 		});
+
+		icons.set(domain, icon);
 	}
 
-	// Unknown engine → resolve its real favicon (cached); dot fallback on failure.
-	const ic = await loadEngineIcon(name);
+	return icon;
+}
 
-	if (!ic) return new Response("no icon", { status: ICACHE.get(name) === "miss" ? 404 : 502 });
+export const GET: RequestHandler = async ({ params }) => {
+	const name = params.name
+		.replace(/\.png$/i, "")
+		.toLowerCase()
+		.trim();
 
-	return new Response(ic.buf, {
-		headers: { "Content-Type": ic.type, "Cache-Control": "public, max-age=604800" },
-	});
+	if (Object.hasOwn(ENGINE_COLORS, name)) {
+		return iconResponse(localMonogram(name), "image/svg+xml; charset=utf-8");
+	}
+
+	const base = name.split(/[\s_]/, 1).at(0);
+	const engine = Object.hasOwn(ENGINE_DOMAINS, name) ? name : base;
+
+	if (!engine || !Object.hasOwn(ENGINE_DOMAINS, engine)) {
+		return new Response("no icon", { status: 404 });
+	}
+
+	const icon = await loadIcon(ENGINE_DOMAINS[engine]);
+
+	return icon ? iconResponse(icon.buffer, icon.type) : new Response("no icon", { status: 502 });
 };

@@ -6,12 +6,12 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { clearSnaps } from "./claire-protocol";
 import { ClaireState } from "./claire.svelte";
 
-type MockRes = {
+interface MockRes {
 	status?: number;
 	chunks?: string[];
 	json?: unknown;
 	hang?: boolean;
-};
+}
 
 /** Build a fetch mock that serves the queued responses in order. */
 function transport(queue: MockRes[]) {
@@ -25,9 +25,13 @@ function transport(queue: MockRes[]) {
 			next.chunks || next.hang
 				? new ReadableStream<Uint8Array>({
 						start(c) {
-							for (const chunk of next.chunks ?? []) c.enqueue(enc.encode(chunk));
+							for (const chunk of next.chunks ?? []) {
+								c.enqueue(enc.encode(chunk));
+							}
 
-							if (!next.hang) c.close();
+							if (!next.hang) {
+								c.close();
+							}
 						},
 					})
 				: undefined;
@@ -65,14 +69,19 @@ const FULL_STREAM = [
 	frame("done", {}),
 ].join("");
 
-const waitFor = (cond: () => boolean) => vi.waitFor(() => expect(cond()).toBe(true));
+const waitFor = (cond: () => boolean) =>
+	vi.waitFor(() => {
+		expect(cond()).toBe(true);
+	});
 
-beforeEach(() => clearSnaps());
+beforeEach(() => {
+	clearSnaps();
+});
 
 describe("ClaireState", () => {
 	it("sits out ineligible/private/non-general searches (hidden, no fetch)", () => {
 		const { fetchFn } = transport([]);
-		const c = new ClaireState(fetchFn as unknown as typeof fetch);
+		const c = new ClaireState(fetchFn);
 
 		c.show("2+2", "general", OPTS);
 		c.show("why is the sky blue", "images", OPTS);
@@ -84,7 +93,7 @@ describe("ClaireState", () => {
 
 	it("streams a full answer: sentences, sources, meta, terminal done", async () => {
 		const { fetchFn, calls } = transport([{ chunks: [FULL_STREAM] }]);
-		const c = new ClaireState(fetchFn as unknown as typeof fetch);
+		const c = new ClaireState(fetchFn);
 
 		c.show("why is the sky blue", "general", OPTS);
 		expect(c.mode).toBe("thinking");
@@ -92,7 +101,7 @@ describe("ClaireState", () => {
 		await waitFor(() => c.mode === "answer" && !c.streaming);
 		expect(calls[0]).toContain("/answer/stream?q=why%20is%20the%20sky%20blue");
 		expect(c.sentences).toEqual([{ text: "The sky is blue.", cites: [1], entail: 0.93 }]);
-		expect(c.sources[0]!.domain).toBe("wikipedia.org");
+		expect(c.sources[0].domain).toBe("wikipedia.org");
 		expect(c.dropped).toBe(2);
 		expect(c.metaShown).toBe(true);
 		expect(c.footShown).toBe(true);
@@ -101,7 +110,7 @@ describe("ClaireState", () => {
 
 	it("is idempotent per query — a re-render never re-fetches a terminal answer", async () => {
 		const { fetchFn } = transport([{ chunks: [FULL_STREAM] }]);
-		const c = new ClaireState(fetchFn as unknown as typeof fetch);
+		const c = new ClaireState(fetchFn);
 
 		c.show("why is the sky blue", "general", OPTS);
 		await waitFor(() => c.mode === "answer");
@@ -111,13 +120,13 @@ describe("ClaireState", () => {
 
 	it("restores a new instance from the snapshot without spending quota, fully repainted", async () => {
 		const t1 = transport([{ chunks: [FULL_STREAM] }]);
-		const c1 = new ClaireState(t1.fetchFn as unknown as typeof fetch);
+		const c1 = new ClaireState(t1.fetchFn);
 
 		c1.show("why is the sky blue", "general", OPTS);
 		await waitFor(() => c1.mode === "answer");
 
 		const t2 = transport([]);
-		const c2 = new ClaireState(t2.fetchFn as unknown as typeof fetch);
+		const c2 = new ClaireState(t2.fetchFn);
 
 		c2.show("why is the sky blue", "general", OPTS);
 		expect(t2.fetchFn).not.toHaveBeenCalled();
@@ -132,7 +141,7 @@ describe("ClaireState", () => {
 			{ hang: true, chunks: [frame("sentence", { text: "OLD.", cites: [], entail: 0 })] },
 			{ chunks: [FULL_STREAM] },
 		]);
-		const c = new ClaireState(fetchFn as unknown as typeof fetch);
+		const c = new ClaireState(fetchFn);
 
 		c.show("first question here", "general", OPTS);
 		await waitFor(() => c.sentences.length === 1);
@@ -140,7 +149,7 @@ describe("ClaireState", () => {
 		expect(c.mode).toBe("thinking"); // full repaint, OLD. gone
 		expect(c.sentences).toHaveLength(0);
 		await waitFor(() => c.mode === "answer");
-		expect(c.sentences[0]!.text).toBe("The sky is blue.");
+		expect(c.sentences[0].text).toBe("The sky is blue.");
 	});
 
 	it("429 with retryAfterMs backs off and retries to success", async () => {
@@ -148,7 +157,7 @@ describe("ClaireState", () => {
 			{ status: 429, json: { retryAfterMs: 0 } },
 			{ chunks: [FULL_STREAM] },
 		]);
-		const c = new ClaireState(fetchFn as unknown as typeof fetch);
+		const c = new ClaireState(fetchFn);
 
 		c.show("why is the sky blue", "general", OPTS);
 		await waitFor(() => c.mode === "answer");
@@ -162,7 +171,7 @@ describe("ClaireState", () => {
 			const { fetchFn } = transport(
 				Array.from({ length: 6 }, () => ({ status: 429, json: { retryAfterMs: 1 } })),
 			);
-			const c = new ClaireState(fetchFn as unknown as typeof fetch);
+			const c = new ClaireState(fetchFn);
 
 			c.show("why is the sky blue", "general", OPTS);
 			await vi.runAllTimersAsync();
@@ -175,7 +184,7 @@ describe("ClaireState", () => {
 
 	it("re-showing the same query after a terminal limited/error is idempotent", async () => {
 		const { fetchFn } = transport([{ status: 429, json: {} }]);
-		const c = new ClaireState(fetchFn as unknown as typeof fetch);
+		const c = new ClaireState(fetchFn);
 
 		c.show("why is the sky blue", "general", OPTS);
 		await waitFor(() => c.mode === "limited");
@@ -186,16 +195,16 @@ describe("ClaireState", () => {
 
 	it("429 without retryAfterMs goes quietly limited", async () => {
 		const { fetchFn } = transport([{ status: 429, json: {} }]);
-		const c = new ClaireState(fetchFn as unknown as typeof fetch);
+		const c = new ClaireState(fetchFn);
 
 		c.show("why is the sky blue", "general", OPTS);
 		await waitFor(() => c.mode === "limited");
 		expect(fetchFn).toHaveBeenCalledTimes(1);
 	});
 
-	it("503 hides the card entirely (answerd disabled)", async () => {
+	it("503 hides the card entirely (the answer service disabled)", async () => {
 		const { fetchFn } = transport([{ status: 503 }]);
-		const c = new ClaireState(fetchFn as unknown as typeof fetch);
+		const c = new ClaireState(fetchFn);
 
 		c.show("why is the sky blue", "general", OPTS);
 		await waitFor(() => c.mode === "hidden");
@@ -206,7 +215,7 @@ describe("ClaireState", () => {
 			{ chunks: [frame("error", { message: "The pipeline exploded." })] },
 			{ chunks: [FULL_STREAM] },
 		]);
-		const c = new ClaireState(fetchFn as unknown as typeof fetch);
+		const c = new ClaireState(fetchFn);
 
 		c.show("why is the sky blue", "general", OPTS);
 		await waitFor(() => c.mode === "error");
@@ -219,13 +228,13 @@ describe("ClaireState", () => {
 		const { fetchFn } = transport([
 			{ chunks: [frame("error", { message: "boom" }) + frame("done", {})] },
 		]);
-		const c = new ClaireState(fetchFn as unknown as typeof fetch);
+		const c = new ClaireState(fetchFn);
 
 		c.show("why is the sky blue", "general", OPTS);
 		// error then done: the defensive done-branch settles on abstain (vanilla semantics)
 		await waitFor(() => c.mode === "abstain");
 		const t2 = transport([{ chunks: [FULL_STREAM] }]);
-		const c2 = new ClaireState(t2.fetchFn as unknown as typeof fetch);
+		const c2 = new ClaireState(t2.fetchFn);
 
 		c2.show("why is the sky blue", "general", OPTS);
 		await waitFor(() => c2.mode === "answer"); // fetched fresh, not restored from an error snap
@@ -241,7 +250,7 @@ describe("ClaireState", () => {
 				],
 			},
 		]);
-		const c = new ClaireState(fetchFn as unknown as typeof fetch);
+		const c = new ClaireState(fetchFn);
 
 		c.show("why is the sky blue", "general", OPTS);
 		await waitFor(() => c.mode === "abstain");
@@ -251,7 +260,7 @@ describe("ClaireState", () => {
 
 	it("done without any sentence is a defensive abstain", async () => {
 		const { fetchFn } = transport([{ chunks: [frame("done", {})] }]);
-		const c = new ClaireState(fetchFn as unknown as typeof fetch);
+		const c = new ClaireState(fetchFn);
 
 		c.show("why is the sky blue", "general", OPTS);
 		await waitFor(() => c.mode === "abstain");
@@ -259,7 +268,7 @@ describe("ClaireState", () => {
 
 	it('a stream that ends without done is an "ended early" error', async () => {
 		const { fetchFn } = transport([{ chunks: [frame("status", { phase: "generating" })] }]);
-		const c = new ClaireState(fetchFn as unknown as typeof fetch);
+		const c = new ClaireState(fetchFn);
 
 		c.show("why is the sky blue", "general", OPTS);
 		await waitFor(() => c.mode === "error");
@@ -280,7 +289,7 @@ describe("ClaireState", () => {
 				],
 			},
 		]);
-		const c = new ClaireState(fetchFn as unknown as typeof fetch);
+		const c = new ClaireState(fetchFn);
 
 		c.show("personal health question", "general", OPTS);
 		await waitFor(() => c.mode === "consent");
@@ -295,7 +304,7 @@ describe("ClaireState", () => {
 		const { fetchFn } = transport([
 			{ hang: true, chunks: [frame("status", { phase: "retrieving" })] },
 		]);
-		const c = new ClaireState(fetchFn as unknown as typeof fetch);
+		const c = new ClaireState(fetchFn);
 
 		c.show("why is the sky blue", "general", OPTS);
 		await waitFor(() => c.status === "searching");
@@ -307,7 +316,7 @@ describe("ClaireState", () => {
 		const fetchFn = vi.fn(async () => {
 			throw new Error("ECONNREFUSED");
 		});
-		const c = new ClaireState(fetchFn as unknown as typeof fetch);
+		const c = new ClaireState(fetchFn);
 
 		c.show("why is the sky blue", "general", OPTS);
 		await waitFor(() => c.mode === "error");

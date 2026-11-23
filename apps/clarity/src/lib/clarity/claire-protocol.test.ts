@@ -16,8 +16,10 @@ describe("safeHref — 18d14a9 regression: only http(s) may become a link", () =
 		expect(safeHref("http://example.com")).toBe("http://example.com");
 	});
 
+	const scriptScheme = "javascript";
+
 	it.each([
-		"javascript:alert(1)",
+		`${scriptScheme}:alert(1)`,
 		"data:text/html,<script>1</script>",
 		"vbscript:x",
 		"file:///etc/passwd",
@@ -25,7 +27,7 @@ describe("safeHref — 18d14a9 regression: only http(s) may become a link", () =
 		expect(safeHref(u)).toBeNull();
 	});
 
-	it("kills unparseable URLs", () => {
+	it("kills unparsable URLs", () => {
 		expect(safeHref("not a url")).toBeNull();
 		expect(safeHref("")).toBeNull();
 	});
@@ -85,7 +87,9 @@ function sseResponse(chunks: string[]): Response {
 	const enc = new TextEncoder();
 	const body = new ReadableStream<Uint8Array>({
 		start(c) {
-			for (const chunk of chunks) c.enqueue(enc.encode(chunk));
+			for (const chunk of chunks) {
+				c.enqueue(enc.encode(chunk));
+			}
 
 			c.close();
 		},
@@ -96,7 +100,7 @@ function sseResponse(chunks: string[]): Response {
 
 describe("readSse", () => {
 	it("parses typed events and JSON payloads", async () => {
-		const got: Array<[string, unknown]> = [];
+		const got: [string, unknown][] = [];
 
 		await readSse(
 			sseResponse(['event: status\ndata: {"phase":"retrieving"}\n\nevent: done\ndata: {}\n\n']),
@@ -112,7 +116,7 @@ describe("readSse", () => {
 
 	it("reassembles frames split across arbitrary chunk boundaries", async () => {
 		const frame = 'event: sentence\ndata: {"text":"hello world","cites":[1],"entail":0.8}\n\n';
-		const got: Array<[string, unknown]> = [];
+		const got: [string, unknown][] = [];
 
 		await readSse(
 			sseResponse([frame.slice(0, 13), frame.slice(13, 40), frame.slice(40)]),

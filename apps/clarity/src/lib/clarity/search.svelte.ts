@@ -28,7 +28,9 @@ export type State = "home" | "searching" | "results";
 
 const SS = "clarity:";
 const saveEntry = (key: string, e: Entry) => {
-	if (!browser) return;
+	if (!browser) {
+		return;
+	}
 
 	try {
 		sessionStorage.setItem(
@@ -40,7 +42,7 @@ const saveEntry = (key: string, e: Entry) => {
 				results: e.results.slice(0, 260),
 				page: e.page,
 				n: e.n,
-				exhausted: !!e.exhausted,
+				exhausted: Boolean(e.exhausted),
 				scroll: e.scroll || 0,
 			}),
 		);
@@ -50,21 +52,26 @@ const saveEntry = (key: string, e: Entry) => {
 };
 
 const loadEntry = (key: string): Entry | null => {
-	if (!browser) return null;
+	if (!browser) {
+		return null;
+	}
 
 	try {
 		const s = sessionStorage.getItem(SS + key);
 
-		return s ? JSON.parse(s) : null;
+		return s ? (JSON.parse(s) as Entry) : null;
 	} catch {
 		return null;
 	}
 };
 
-let _saveT: ReturnType<typeof setTimeout> | undefined;
+let saveTimer: ReturnType<typeof setTimeout> | undefined;
 const saveEntrySoon = (key: string, e: Entry) => {
-	clearTimeout(_saveT);
-	_saveT = setTimeout(() => saveEntry(key, e), 200);
+	clearTimeout(saveTimer);
+
+	saveTimer = setTimeout(() => {
+		saveEntry(key, e);
+	}, 200);
 };
 
 export class SearchState {
@@ -91,10 +98,10 @@ export class SearchState {
 	 */
 	renderSeq = $state(0);
 
-	#cache = new Map<string, Entry>();
+	readonly #cache = new Map<string, Entry>();
 	#curKey = "";
 	/** Injected transport (defaults to global fetch) — the SearXNG seam, mockable in tests. */
-	#fetch: typeof fetch;
+	readonly #fetch: typeof fetch;
 
 	constructor(fetchFn?: typeof fetch) {
 		this.#fetch = fetchFn ?? ((...a: Parameters<typeof fetch>) => fetch(...a));
@@ -106,7 +113,7 @@ export class SearchState {
 
 	/** One /search page (same-origin relative URL; browser → traefik → SearXNG). */
 	#fetchPage(q: string, cat: string, priv: boolean, page: number): Promise<SearxResponse> {
-		return this.#fetch("/search?" + searchQueryString(q, cat, priv, page, settings.current)).then(
+		return this.#fetch(`/search?${searchQueryString(q, cat, priv, page, settings.current)}`).then(
 			(r) => r.json() as Promise<SearxResponse>,
 		);
 	}
@@ -114,31 +121,45 @@ export class SearchState {
 	setState(s: State) {
 		this.state = s;
 
-		if (s !== "results" && s !== "searching") this.scrolled = false;
+		if (s !== "results" && s !== "searching") {
+			this.scrolled = false;
+		}
 	}
 
 	async loadConfig() {
 		try {
 			const c = await this.#fetch("/config").then((r) => r.json() as Promise<SearxConfig>);
-			const n = (c.engines || []).filter((e) => !e.disabled).length || (c.engines || []).length;
+			const engines = c.engines ?? [];
+			const activeCount = engines.filter((e) => !e.disabled).length;
+			const n = activeCount > 0 ? activeCount : engines.length;
 
-			if (n) this.engineCount = String(n);
+			if (n) {
+				this.engineCount = String(n);
+			}
 		} catch {
 			this.engineCount = "—";
 		}
 	}
 
 	recent(): string[] {
-		if (!browser) return [];
+		if (!browser) {
+			return [];
+		}
 
 		try {
-			return JSON.parse(localStorage.getItem("clarity-recent") || "[]");
+			const values: unknown = JSON.parse(localStorage.getItem("clarity-recent") || "[]");
+
+			return Array.isArray(values)
+				? values.filter((value): value is string => typeof value === "string")
+				: [];
 		} catch {
 			return [];
 		}
 	}
 	pushRecent(q: string) {
-		if (!browser || !settings.current.saveQueries) return;
+		if (!browser || !settings.current.saveQueries) {
+			return;
+		}
 
 		const r = this.recent().filter((x) => x !== q);
 
@@ -152,10 +173,12 @@ export class SearchState {
 	}
 
 	async autocomplete(q: string): Promise<string[]> {
-		if (!settings.current.autocomplete) return [];
+		if (!settings.current.autocomplete) {
+			return [];
+		}
 
 		try {
-			const r = await this.#fetch("/autocompleter?q=" + encodeURIComponent(q));
+			const r = await this.#fetch(`/autocompleter?q=${encodeURIComponent(q)}`);
 			const data = await r.json();
 			const list = Array.isArray(data) ? (Array.isArray(data[1]) ? data[1] : data) : [];
 
@@ -168,24 +191,30 @@ export class SearchState {
 	// Numbat upgrade — async; fills the entry's numbat cache once it resolves and
 	// reassigns `entry` so the AnswerCard re-derives (the reserved shell becomes
 	// the real card, or falls back when the result is '').
-	#maybeNumbat(e: Entry) {
-		if (e.cat !== "general") return;
+	async #maybeNumbat(e: Entry) {
+		if (e.cat !== "general") {
+			return;
+		}
 
 		const q = parseRecency(e.q).q.trim();
 
-		if (!q || calcAnswer(q) !== null || !looksCalc(q)) return;
+		if (!q || calcAnswer(q) !== null || !looksCalc(q)) {
+			return;
+		}
 
-		if (e.numbat !== undefined) return;
+		if (e.numbat !== undefined) {
+			return;
+		}
 
 		const key = this.#curKey;
 
-		numbatAnswer(q).then((out) => {
-			e.numbat = out ? out.replace(/\n\s*\n/g, "\n").trim() : "";
+		const out = await numbatAnswer(q);
 
-			if (this.#curKey !== key) return;
+		e.numbat = out ? out.replace(/\n\s*\n/g, "\n").trim() : "";
 
+		if (this.#curKey === key) {
 			this.entry = { ...e };
-		});
+		}
 	}
 
 	#showEntry(e: Entry) {
@@ -193,7 +222,7 @@ export class SearchState {
 		this.timeRange = e.tr || "";
 		this.entry = e;
 		this.renderSeq++; // vanilla renderEntry → startClaire(e.q, e.cat, e.priv)
-		this.#maybeNumbat(e);
+		void this.#maybeNumbat(e);
 	}
 
 	/** The core search flow. Returns when page 1 is resolved (prefetch fires after). */
@@ -207,19 +236,28 @@ export class SearchState {
 	}): Promise<void> {
 		const q = opts.query.trim();
 
-		if (!q) return;
+		if (!q) {
+			return;
+		}
 
 		this.timeRange = parseRecency(q).tr;
 		this.pushRecent(q);
 		const cat = this.category;
-		const priv = !!opts.priv;
+		const priv = Boolean(opts.priv);
 		const key = urlFor(q, cat, priv);
 
 		opts.onPushState?.(key, { q, cat, priv });
 		this.#curKey = key;
 		this.activeQuery = q;
 		this.activePriv = priv;
-		const apply = (fn: () => void) => (opts.fromHome ? opts.morph(fn) : fn());
+
+		const apply = (fn: () => void) => {
+			if (opts.fromHome) {
+				opts.morph(fn);
+			} else {
+				fn();
+			}
+		};
 
 		let e = this.#cache.get(key) || loadEntry(key);
 
@@ -256,12 +294,15 @@ export class SearchState {
 		}
 
 		if (data.error) {
-			this.errorHtml = String(data.error);
+			this.errorHtml = data.error;
 			this.entry = null;
 			this.setState("results");
 
 			return;
 		}
+
+		const results = data.results ?? [];
+		const resultCount = results.length;
 
 		e = {
 			q,
@@ -269,14 +310,14 @@ export class SearchState {
 			priv,
 			tr: this.timeRange,
 			ms: Math.round(performance.now() - t0),
-			results: data.results || [],
+			results,
 			answers: (data.answers || [])
 				.map((a) => (typeof a === "string" ? a : a?.answer || ""))
 				.filter(Boolean)
 				.slice(0, 3),
 			page: 1,
-			exhausted: !(data.results || []).length,
-			n: data.number_of_results || (data.results || []).length,
+			exhausted: resultCount === 0,
+			n: data.number_of_results || resultCount,
 			loading: false,
 			scroll: 0,
 		};
@@ -287,7 +328,11 @@ export class SearchState {
 		this.setState("results");
 		opts.afterResults?.();
 
-		if (browser) requestAnimationFrame(() => this.loadMore());
+		if (browser) {
+			requestAnimationFrame(() => {
+				void this.loadMore();
+			});
+		}
 	}
 
 	/** Restore a cached entry for a key without re-fetching (back/forward). */
@@ -308,7 +353,9 @@ export class SearchState {
 	}
 
 	retry(rerun: () => void) {
-		if (this.#curKey) this.#cache.delete(this.#curKey);
+		if (this.#curKey) {
+			this.#cache.delete(this.#curKey);
+		}
 
 		rerun();
 	}
@@ -324,8 +371,9 @@ export class SearchState {
 			!settings.current.infiniteScroll ||
 			!["general", "videos"].includes(e.cat) ||
 			this.state !== "results"
-		)
+		) {
 			return null;
+		}
 
 		e.loading = true;
 		let data: SearxResponse;
@@ -341,7 +389,7 @@ export class SearchState {
 		const have = new Set(e.results.map((r) => r.url));
 		const fresh: Result[] = (data.results || []).filter((r: Result) => r.url && !have.has(r.url));
 
-		if (!fresh.length) {
+		if (fresh.length === 0) {
 			e.exhausted = true;
 			e.loading = false;
 
@@ -356,7 +404,9 @@ export class SearchState {
 		e.loading = false;
 		saveEntrySoon(this.#curKey, e);
 
-		if (e.page < 12 && nearBottom?.()) this.loadMore(nearBottom);
+		if (e.page < 12 && nearBottom?.()) {
+			void this.loadMore(nearBottom);
+		}
 
 		return fresh;
 	}

@@ -1,8 +1,8 @@
 /* Claire — the grounded, verified AI answer that streams in above the results.
-   Pure client for answerd's /answer/stream SSE pipeline (retrieve → ground → rerank
+   Pure client for the answer service’s /answer/stream SSE pipeline (retrieve → ground → rerank
    → generate → NLI verify-gate → abstain-by-default). This module changes NOTHING
    server-side: coalescing, the per-IP concurrency cap, rate limits and the answer
-   cache all live in answerd. fetch + manual SSE parse (not EventSource) so HTTP 429
+   cache all live in the answer service. fetch + manual SSE parse (not EventSource) so HTTP 429
    vs stream errors are distinguishable.
 
    Ported from the vanilla claire.ts: the imperative #claire DOM renders become this
@@ -60,7 +60,7 @@ export class ClaireState {
 	newTab = $state(false);
 
 	// ---- the state machine (module state in vanilla) ----
-	#fetch: typeof fetch;
+	readonly #fetch: typeof fetch;
 	#ctl: AbortController | null = null;
 	#epoch = 0; // bumped on every cancel; stale async callbacks check it and bail
 	#curQ = ""; // query the card currently belongs to
@@ -77,7 +77,9 @@ export class ClaireState {
 	#cancel(): void {
 		this.#epoch++;
 
-		if (this.#ctl) this.#ctl.abort();
+		if (this.#ctl) {
+			this.#ctl.abort();
+		}
 
 		this.#ctl = null;
 	}
@@ -101,7 +103,9 @@ export class ClaireState {
 
 		this.newTab = opts.newTab;
 
-		if (q === this.#curQ && (this.#ctl !== null || this.#renderedTerminal !== "")) return; // already streaming or terminally rendered
+		if (q === this.#curQ && (this.#ctl !== null || this.#renderedTerminal !== "")) {
+			return;
+		} // already streaming or terminally rendered
 
 		const snap = loadSnap(q);
 
@@ -217,7 +221,9 @@ export class ClaireState {
 		if (snap.state === "abstain" || snap.sentences.length === 0) {
 			this.#renderAbstain(snap.message, snap.reason);
 
-			if (snap.sources.length) this.#showSources(snap.sources, false);
+			if (snap.sources.length > 0) {
+				this.#showSources(snap.sources, false);
+			}
 
 			return;
 		}
@@ -226,7 +232,9 @@ export class ClaireState {
 		this.mode = "answer";
 		this.sentences = snap.sentences;
 
-		if (snap.sources.length) this.#showSources(snap.sources, false);
+		if (snap.sources.length > 0) {
+			this.#showSources(snap.sources, false);
+		}
 
 		this.dropped = snap.dropped;
 		this.cached = snap.cached;
@@ -244,12 +252,9 @@ export class ClaireState {
 		this.#ctl = new AbortController();
 		this.#renderThinking();
 		const t0 = performance.now();
-		const url =
-			"/answer/stream?q=" +
-			encodeURIComponent(q) +
-			"&session=" +
-			encodeURIComponent(sid()) +
-			(consent ? "&consent=1" : "");
+		const url = `/answer/stream?q=${encodeURIComponent(q)}&session=${encodeURIComponent(
+			sid(),
+		)}${consent ? "&consent=1" : ""}`;
 
 		let res: Response;
 
@@ -259,19 +264,25 @@ export class ClaireState {
 				headers: { Accept: "text/event-stream" },
 			});
 		} catch {
-			if (my !== this.#epoch) return;
+			if (my !== this.#epoch) {
+				return;
+			}
 
 			this.#renderError("The answer service is unreachable.");
 
 			return;
 		}
 
-		if (my !== this.#epoch) return;
+		if (my !== this.#epoch) {
+			return;
+		}
 
 		if (res.status === 429) {
 			const body = (await res.json().catch(() => ({}))) as { retryAfterMs?: number };
 
-			if (my !== this.#epoch) return;
+			if (my !== this.#epoch) {
+				return;
+			}
 
 			if (typeof body.retryAfterMs === "number" && attempt < 4) {
 				// the concurrency-cap 429: a slot frees when an in-flight pipeline (~10s) ends.
@@ -280,7 +291,9 @@ export class ClaireState {
 				const wait = body.retryAfterMs + attempt * 1500;
 
 				setTimeout(() => {
-					if (my === this.#epoch && this.#curQ === q) void this.#start(q, consent, attempt + 1);
+					if (my === this.#epoch && this.#curQ === q) {
+						void this.#start(q, consent, attempt + 1);
+					}
 				}, wait);
 
 				return;
@@ -292,14 +305,14 @@ export class ClaireState {
 		}
 
 		if (res.status === 503) {
-			// answerd disabled: no card at all (search itself is unaffected)
+			// the answer service disabled: no card at all (search itself is unaffected)
 			this.hide();
 
 			return;
 		}
 
 		if (!res.ok || !res.body) {
-			this.#renderError("The answer service returned " + String(res.status) + ".");
+			this.#renderError(`The answer service returned ${String(res.status)}.`);
 
 			return;
 		}
@@ -322,7 +335,7 @@ export class ClaireState {
 		const handle = (type: string, d: Record<string, unknown>): void => {
 			switch (type) {
 				case "meta": {
-					const route = d["route"] === "local" ? "local" : "cloud";
+					const route = d.route === "local" ? "local" : "cloud";
 
 					acc.route = route;
 					this.isPrivate = route === "local";
@@ -330,29 +343,35 @@ export class ClaireState {
 					break;
 				}
 				case "status": {
-					const phase = String(d["phase"] ?? "");
+					const phase = String(d.phase ?? "");
 
-					if (phase === "cache-hit") acc.cached = true;
+					if (phase === "cache-hit") {
+						acc.cached = true;
+					}
 
-					if (acc.sentences.length === 0) this.status = PHASE_LABELS[phase] ?? phase;
+					if (acc.sentences.length === 0) {
+						this.status = PHASE_LABELS[phase] ?? phase;
+					}
 
 					break;
 				}
 				case "sources": {
-					const list = Array.isArray(d["sources"]) ? (d["sources"] as ClaireSource[]) : [];
+					const list = Array.isArray(d.sources) ? (d.sources as ClaireSource[]) : [];
 					const first = acc.sources.length === 0 && list.length > 0;
 
 					acc.sources = list;
 
-					if (list.length) this.#showSources(list, first);
+					if (list.length > 0) {
+						this.#showSources(list, first);
+					}
 
 					break;
 				}
 				case "sentence": {
 					const s: ClaireSentence = {
-						text: String(d["text"] ?? ""),
-						cites: Array.isArray(d["cites"]) ? (d["cites"] as number[]) : [],
-						entail: typeof d["entail"] === "number" ? d["entail"] : 0,
+						text: String(d.text ?? ""),
+						cites: Array.isArray(d.cites) ? (d.cites as number[]) : [],
+						entail: typeof d.entail === "number" ? d.entail : 0,
 					};
 
 					acc.sentences.push(s);
@@ -363,28 +382,30 @@ export class ClaireState {
 					break;
 				}
 				case "dropped":
-					acc.dropped = typeof d["count"] === "number" ? d["count"] : 0;
+					acc.dropped = typeof d.count === "number" ? d.count : 0;
 
 					break;
 				case "consent_required":
 					acc.state = "consent";
-					acc.message = String(d["message"] ?? "");
+					acc.message = String(d.message ?? "");
 					this.#renderConsent(acc.message);
 
 					break;
 				case "abstain":
 					acc.state = "abstain";
-					acc.reason = String(d["reason"] ?? "");
-					acc.message = String(d["message"] ?? "");
+					acc.reason = String(d.reason ?? "");
+					acc.message = String(d.message ?? "");
 					this.#renderAbstain(acc.message, acc.reason);
 
-					if (acc.sources.length) this.#showSources(acc.sources, false);
+					if (acc.sources.length > 0) {
+						this.#showSources(acc.sources, false);
+					}
 
 					break;
 				case "error":
 					errored = true;
 					terminal = true;
-					this.#renderError(String(d["message"] ?? "The answer stream broke."));
+					this.#renderError(String(d.message ?? "The answer stream broke."));
 
 					break;
 				case "done": {
@@ -406,15 +427,20 @@ export class ClaireState {
 						acc.state = "abstain";
 						this.#renderAbstain("", "");
 
-						if (acc.sources.length) this.#showSources(acc.sources, false);
+						if (acc.sources.length > 0) {
+							this.#showSources(acc.sources, false);
+						}
 					}
 
 					this.#renderedTerminal = acc.state;
 
 					// consent answers are session-specific; snapshot them only in memory, not sessionStorage
 					if (!errored) {
-						if (consent || !hasDom()) saveSnapMemory(q, acc);
-						else saveSnap(q, acc);
+						if (consent || !hasDom()) {
+							saveSnapMemory(q, acc);
+						} else {
+							saveSnap(q, acc);
+						}
 					}
 
 					break;
@@ -427,24 +453,34 @@ export class ClaireState {
 				res,
 				() => my === this.#epoch,
 				(type, d) => {
-					if (my !== this.#epoch) return;
+					if (my !== this.#epoch) {
+						return;
+					}
 
 					handle(type, d);
 				},
 			);
 		} catch {
-			if (my !== this.#epoch) return;
+			if (my !== this.#epoch) {
+				return;
+			}
 
-			if (!terminal) this.#renderError("The answer stream broke.");
+			if (!terminal) {
+				this.#renderError("The answer stream broke.");
+			}
 
 			return;
 		}
 
-		if (my !== this.#epoch) return;
+		if (my !== this.#epoch) {
+			return;
+		}
 
 		this.#ctl = null;
 
-		if (!terminal) this.#renderError("The answer stream ended early.");
+		if (!terminal) {
+			this.#renderError("The answer stream ended early.");
+		}
 	}
 }
 

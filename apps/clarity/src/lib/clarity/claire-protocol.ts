@@ -46,9 +46,11 @@ export const safeHref = (u: string): string | null => {
 	}
 };
 
-/* stable anonymous session id — lets answerd's (benign-only) memory tiers work per device */
+/* stable anonymous session id — lets the answer service’s (benign-only) memory tiers work per device */
 export function sid(): string {
-	if (!hasDom()) return "anon";
+	if (!hasDom()) {
+		return "anon";
+	}
 
 	try {
 		let s = localStorage.getItem("clarity-claire-session");
@@ -76,13 +78,21 @@ export const PHASE_LABELS: Record<string, string> = {
 
 /* a query Claire should sit out: too short, a bang (redirects), or calculator territory */
 export function ineligible(q: string): boolean {
-	if (q.length < 3) return true;
+	if (q.length < 3) {
+		return true;
+	}
 
-	if (/(^|\s)!{1,2}[a-z0-9_]+/i.test(q)) return true; // !bang
+	if (/(^|\s)!{1,2}[a-z0-9_]+/i.test(q)) {
+		return true;
+	} // !bang
 
-	if (/[-+*/^=]\s*\d|\d\s*[-+*/^=]/.test(q)) return true; // arithmetic → the calc card owns it
+	if (/[-+*/^=]\s*\d|\d\s*[-+*/^=]/.test(q)) {
+		return true;
+	} // arithmetic → the calc card owns it
 
-	if (/\b(to|in|as)\b/i.test(q) && /\d\s*[a-zµ°$€£%]/i.test(q)) return true; // unit conversion → Numbat
+	if (/\b(to|in|as)\b/i.test(q) && /\d\s*[a-zµ°$€£%]/i.test(q)) {
+		return true;
+	} // unit conversion → Numbat
 
 	return false;
 }
@@ -110,9 +120,13 @@ export function saveSnap(q: string, s: Snap): void {
 export function loadSnap(q: string): Snap | null {
 	const m = snaps.get(q);
 
-	if (m) return m;
+	if (m) {
+		return m;
+	}
 
-	if (!hasDom()) return null;
+	if (!hasDom()) {
+		return null;
+	}
 
 	try {
 		const s = sessionStorage.getItem(SNAP_KEY + q);
@@ -140,11 +154,16 @@ export async function readSse(
 	let buf = "";
 
 	for (;;) {
+		// oxlint-disable-next-line eslint/no-await-in-loop -- Consume one ordered SSE stream.
 		const { done, value } = await reader.read();
 
-		if (!isCurrent()) return;
+		if (!isCurrent()) {
+			return;
+		}
 
-		if (done) break;
+		if (done) {
+			break;
+		}
 
 		buf += dec.decode(value, { stream: true });
 		let i;
@@ -154,15 +173,20 @@ export async function readSse(
 
 			buf = buf.slice(i + 2);
 
-			let ev = "message",
-				data = "";
+			let data = "",
+				ev = "message";
 
 			for (const line of chunk.split("\n")) {
-				if (line.startsWith("event:")) ev = line.slice(6).trim();
-				else if (line.startsWith("data:")) data += line.slice(5).trim();
+				if (line.startsWith("event:")) {
+					ev = line.slice(6).trim();
+				} else if (line.startsWith("data:")) {
+					data += line.slice(5).trim();
+				}
 			}
 
-			if (!data) continue; // ": keepalive" comments
+			if (!data) {
+				continue;
+			} // ": keepalive" comments
 
 			try {
 				onEvent(ev, JSON.parse(data) as Record<string, unknown>);

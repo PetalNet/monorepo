@@ -6,11 +6,11 @@ import { describe, expect, it, vi } from "vitest";
 import { SearchState } from "./search.svelte";
 import { settings } from "./settings.svelte";
 
-type Page = {
-	results?: Array<{ url: string; title?: string }>;
+interface Page {
+	results?: { url: string; title?: string }[];
 	answers?: unknown[];
 	number_of_results?: number;
-};
+}
 
 function transport(pages: Record<string, Page | (() => Page)>) {
 	const calls: string[] = [];
@@ -21,7 +21,9 @@ function transport(pages: Record<string, Page | (() => Page)>) {
 		const pageno = new URLSearchParams(url.split("?")[1]).get("pageno") ?? "1";
 		const hit = pages[pageno];
 
-		if (!hit) throw new Error("no page " + pageno);
+		if (!hit) {
+			throw new Error(`no page ${pageno}`);
+		}
 
 		const body = typeof hit === "function" ? hit() : hit;
 
@@ -31,8 +33,14 @@ function transport(pages: Record<string, Page | (() => Page)>) {
 	return { fetchFn, calls };
 }
 
-const noMorph = (fn: () => void) => fn();
-const R = (n: number, prefix = "https://r.example/") => ({ url: prefix + n, title: "R" + n });
+const noMorph = (fn: () => void) => {
+	fn();
+};
+
+const R = (n: number, prefix = "https://r.example/") => ({
+	url: `${prefix}${String(n)}`,
+	title: `R${n}`,
+});
 
 describe("SearchState.doSearch", () => {
 	it("builds the entry from page 1: results, n, trimmed answers, ms", async () => {
@@ -43,7 +51,7 @@ describe("SearchState.doSearch", () => {
 				answers: ["plain", { answer: "objform" }, "", { answer: "" }, "third", "fourth"],
 			},
 		});
-		const s = new SearchState(fetchFn as unknown as typeof fetch);
+		const s = new SearchState(fetchFn);
 
 		await s.doSearch({ query: "cats", fromHome: true, morph: noMorph });
 		expect(s.state).toBe("results");
@@ -58,7 +66,7 @@ describe("SearchState.doSearch", () => {
 
 	it("records recency + private in key and request", async () => {
 		const { fetchFn, calls } = transport({ "1": { results: [R(1)] } });
-		const s = new SearchState(fetchFn as unknown as typeof fetch);
+		const s = new SearchState(fetchFn);
 
 		await s.doSearch({ query: "x past:month", priv: true, fromHome: false, morph: noMorph });
 		expect(s.timeRange).toBe("month");
@@ -69,7 +77,7 @@ describe("SearchState.doSearch", () => {
 
 	it("serves a repeat search from the cache without a second fetch", async () => {
 		const { fetchFn } = transport({ "1": { results: [R(1)] } });
-		const s = new SearchState(fetchFn as unknown as typeof fetch);
+		const s = new SearchState(fetchFn);
 
 		await s.doSearch({ query: "cats", fromHome: true, morph: noMorph });
 		await s.doSearch({ query: "cats", fromHome: false, morph: noMorph });
@@ -81,12 +89,14 @@ describe("SearchState.doSearch", () => {
 		let fail = true;
 		const { fetchFn } = transport({
 			"1": () => {
-				if (fail) throw new Error("SearXNG down");
+				if (fail) {
+					throw new Error("SearXNG down");
+				}
 
 				return { results: [R(1)] };
 			},
 		});
-		const s = new SearchState(fetchFn as unknown as typeof fetch);
+		const s = new SearchState(fetchFn);
 
 		await s.doSearch({ query: "cats", fromHome: true, morph: noMorph });
 		expect(s.errorHtml).toContain("SearXNG down");
@@ -100,7 +110,7 @@ describe("SearchState.doSearch", () => {
 
 	it("restore() hits the cache and re-shows the exact entry", async () => {
 		const { fetchFn } = transport({ "1": { results: [R(1)], number_of_results: 9 } });
-		const s = new SearchState(fetchFn as unknown as typeof fetch);
+		const s = new SearchState(fetchFn);
 
 		await s.doSearch({ query: "cats", fromHome: true, morph: noMorph });
 		s.reset();
@@ -115,7 +125,7 @@ describe("SearchState.doSearch", () => {
 	});
 
 	it("restore() misses cleanly for unknown keys", () => {
-		const s = new SearchState(transport({}).fetchFn as unknown as typeof fetch);
+		const s = new SearchState(transport({}).fetchFn);
 
 		expect(s.restore("/?q=never-seen")).toBeNull();
 		expect(s.state).toBe("home");
@@ -125,7 +135,7 @@ describe("SearchState.doSearch", () => {
 describe("SearchState.loadMore", () => {
 	async function seeded(pages: Record<string, Page | (() => Page)>) {
 		const t = transport({ "1": { results: [R(1), R(2)], number_of_results: 50 }, ...pages });
-		const s = new SearchState(t.fetchFn as unknown as typeof fetch);
+		const s = new SearchState(t.fetchFn);
 
 		await s.doSearch({ query: "cats", fromHome: true, morph: noMorph });
 
@@ -153,13 +163,19 @@ describe("SearchState.loadMore", () => {
 	it("keeps refilling while nearBottom and page < 12", async () => {
 		const pages: Record<string, Page> = {};
 
-		for (let p = 2; p <= 13; p++) pages[String(p)] = { results: [R(p * 10), R(p * 10 + 1)] };
+		for (let p = 2; p <= 13; p++) {
+			pages[String(p)] = { results: [R(p * 10), R(p * 10 + 1)] };
+		}
 
 		const { s, fetchFn } = await seeded(pages);
 
 		await s.loadMore(() => true);
+
 		// recursion is fire-and-forget past the first await; drain it
-		await vi.waitFor(() => expect(s.entry!.page).toBe(12));
+		await vi.waitFor(() => {
+			expect(s.entry!.page).toBe(12);
+		});
+
 		expect(fetchFn).toHaveBeenCalledTimes(12); // page1 + pages 2..12; page 13 never fetched
 	});
 
@@ -178,7 +194,7 @@ describe("SearchState.loadMore", () => {
 
 	it("never paginates image searches", async () => {
 		const t = transport({ "1": { results: [R(1)] } });
-		const s = new SearchState(t.fetchFn as unknown as typeof fetch);
+		const s = new SearchState(t.fetchFn);
 
 		s.category = "images";
 		await s.doSearch({ query: "cats", fromHome: true, morph: noMorph });

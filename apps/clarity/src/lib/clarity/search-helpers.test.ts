@@ -125,7 +125,7 @@ describe("highlightQuery", () => {
 	});
 
 	it("escapes HTML before marking (no injection through the overlay)", () => {
-		expect(highlightQuery("<img onerror=x>")).not.toContain("<img");
+		expect(highlightQuery("<em onclick=x>")).not.toContain("<em");
 	});
 });
 
@@ -145,7 +145,7 @@ describe("fileBadge", () => {
 describe("aspectOf", () => {
 	it("parses WxH and clamps to 0.2–5.0", () => {
 		expect(aspectOf({ url: "", resolution: "300x200" })).toBe(1.5);
-		expect(aspectOf({ url: "", resolution: "10000x100" })).toBe(5.0);
+		expect(aspectOf({ url: "", resolution: "10000x100" })).toBe(5);
 		expect(aspectOf({ url: "", resolution: "100x10000" })).toBe(0.2);
 	});
 

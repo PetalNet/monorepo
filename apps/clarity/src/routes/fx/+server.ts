@@ -3,21 +3,25 @@
 // fed to Numbat's set_exchange_rates() for live currency conversion. Cached ~6h
 // (ECB publishes once per weekday).
 
-let _fx: { xml: string | null; at: number } = { xml: null, at: 0 };
+let fxCache: { xml: string | null; at: number } = { xml: null, at: 0 };
 const FX_TTL = 6 * 3600e3;
 
 async function getFX(): Promise<string> {
-	if (_fx.xml && Date.now() - _fx.at < FX_TTL) return _fx.xml;
+	if (fxCache.xml && Date.now() - fxCache.at < FX_TTL) {
+		return fxCache.xml;
+	}
 
 	const r = await fetch("https://www.ecb.europa.eu/stats/eurofxref/eurofxref-daily.xml", {
 		signal: AbortSignal.timeout(8000),
 	});
 
-	if (!r.ok) throw new Error("ecb " + r.status);
+	if (!r.ok) {
+		throw new Error(`ecb ${String(r.status)}`);
+	}
 
 	const xml = await r.text();
 
-	_fx = { xml, at: Date.now() };
+	fxCache = { xml, at: Date.now() };
 
 	return xml;
 }

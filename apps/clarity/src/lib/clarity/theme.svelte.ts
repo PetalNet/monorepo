@@ -25,7 +25,9 @@ class ThemeState {
 	resolved = $state<"light" | "dark">("light");
 
 	init() {
-		if (!browser) return;
+		if (!browser) {
+			return;
+		}
 
 		let saved: string | null = null;
 
@@ -39,18 +41,22 @@ class ThemeState {
 		this.apply(this.pref, false);
 
 		window.matchMedia("(prefers-color-scheme: dark)").addEventListener("change", () => {
-			if (this.pref === "auto") this.apply("auto", false);
+			if (this.pref === "auto") {
+				this.apply("auto", false);
+			}
 		});
 	}
 
 	apply(pref: ThemePref, persist = true) {
-		if (!browser) return;
+		if (!browser) {
+			return;
+		}
 
 		this.pref = pref;
 		const dark = resolve(pref);
 
 		this.resolved = dark;
-		document.documentElement.setAttribute("data-theme", dark);
+		document.documentElement.dataset.theme = dark;
 
 		if (persist) {
 			try {

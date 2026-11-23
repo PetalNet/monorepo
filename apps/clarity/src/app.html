@@ -9,12 +9,12 @@
 		<!-- Clarity mark. Without this the browser probes /favicon.ico, which traefik
 	     routes to SearXNG (the /favicon* rule) — so every tab would show SearXNG's
 	     icon instead of Clarity's (parity with app/web/index.html). -->
-		<link rel="icon" href="/icon.svg" />
+		<link rel="icon" href="%sveltekit.assets%/icon.svg" />
 		<link
 			rel="search"
 			type="application/opensearchdescription+xml"
 			title="Clarity"
-			href="/opensearch.xml"
+			href="%sveltekit.assets%/opensearch.xml"
 		/>
 
 		<!-- Anti-FOUC: resolve + apply the saved/OS theme synchronously before first

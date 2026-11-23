@@ -189,11 +189,7 @@ export const lintConfig = {
 			},
 		},
 		{
-			files: [
-				"apps/{petalboard,slide,tasks}/**",
-				"apps/clarity/src/lib/clarity/**",
-				"apps/clarity/src/routes/{+page,+layout}.svelte",
-			],
+			files: ["apps/{petalboard,slide,tasks}/**", "apps/clarity/src/lib/clarity/**/*.ts"],
 			// Clarity, Slide, PetalBoard and Tasks predate the monorepo; their rewrites own the type-safety debt
 			// and deprecated framework configuration.
 			rules: {
