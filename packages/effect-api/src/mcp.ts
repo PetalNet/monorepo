@@ -93,7 +93,7 @@ export const createMcpLayer = <R>(config: McpConfig<R>) =>
 							type: "object",
 							...Tool.getJsonSchemaFromSchema(operation.input),
 						}),
-						outputSchema: yield* Schema.decodeUnknownEffect(McpSchema.ToolOutputJson)(
+						outputSchema: yield* Schema.decodeUnknownEffect(Schema.JsonObject)(
 							Tool.getJsonSchemaFromSchema(operation.output),
 						),
 					}),

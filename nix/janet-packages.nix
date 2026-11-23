@@ -26,7 +26,12 @@ let
     let
       lock = builtins.readFile ../pnpm-lock.yaml;
       entry = pkgs.lib.splitString "\n  effect@${effectVersion}:\n" lock;
-      resolution = builtins.head (pkgs.lib.splitString "\n" (builtins.elemAt entry 1));
+      package =
+        if builtins.length entry < 2 then
+          throw "effect@${effectVersion} not in pnpm-lock.yaml; lock not updated"
+        else
+          builtins.elemAt entry 1;
+      resolution = builtins.head (pkgs.lib.splitString "\n" package);
       integrity = builtins.match "    resolution: [{]integrity: (sha512-[^} ]+)[}]" resolution;
     in
     pkgs.fetchurl {

@@ -102,7 +102,7 @@
 			"groupName": "eslint"
 		},
 		{
-			"matchPackageNames": ["vite", "oxfmt", "eslint-plugin-oxlint", "/^@oxc-/", "/^oxc-/"],
+			"matchPackageNames": ["vite", "oxfmt", "/^@oxc-/", "/^oxc-/"],
 			"groupName": "voidzero"
 		},
 		{
@@ -110,11 +110,12 @@
 			"groupName": "vitest"
 		},
 		{
-			"description": "oxlint, @effect/tsgo and tsrs must move together (effect-tsgo drives both); a split update breaks the type-aware lint.",
+			"description": "eslint-plugin-oxlint peers on the matching Oxlint release. Keep both with @effect/tsgo and tsrs for type-aware lint.",
 			"matchPackageNames": [
 				"effect",
 				"/^@effect\\//",
 				"oxlint",
+				"eslint-plugin-oxlint",
 				"oxlint-tsgolint",
 				"/^@oxlint-tsgolint\\//",
 				"tsrs",
@@ -126,6 +127,11 @@
 			"description": "effect-qb 0.24.2 (latest) peers on effect >=4.0.0 <4.1.0, so effect 4.1.x cannot install under strict peers (#579). Lift when effect-qb widens its peer range.",
 			"matchPackageNames": ["effect", "/^@effect\\//"],
 			"allowedVersions": "<4.1"
+		},
+		{
+			"description": "@effect/tsgo 0.73 requires the newer tsrs version series. Lift this cap when tsrs and @effect/tsgo can move together.",
+			"matchPackageNames": ["@effect/tsgo"],
+			"allowedVersions": "<=0.70.0"
 		},
 		{
 			"description": "adapter-node 6 peers on SvelteKit 3 and 5.x peers on Kit 2, so neither can move alone (#561/#643 had to be one change).",

@@ -15,7 +15,21 @@
 			{
 				"name": "@effect/language-service",
 				"diagnostics": false,
-				"allowedUnstableApis": ["effect/http", "effect/http-api", "effect/sql"]
+				"allowedUnstableApis": [
+					"@effect/platform-node-shared/NodeStream#fromReadable",
+					"@effect/platform-node/NodeHttpServer#make",
+					"@effect/platform-node/NodeHttpServerRequest#toIncomingMessage",
+					"@effect/platform-node/NodeRuntime#runMain",
+					"@effect/platform-node/NodeServices#layer",
+					"@effect/sql-pg/PgClient#PgClient",
+					"@effect/sql-pg/PgClient#layer",
+					"@effect/vitest#it",
+					"effect/FileSystem#FileSystem",
+					"effect/Path#Path",
+					"effect/http",
+					"effect/http-api",
+					"effect/sql"
+				]
 			}
 		]
 	},
