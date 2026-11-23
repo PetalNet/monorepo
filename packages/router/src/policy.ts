@@ -105,6 +105,12 @@ export interface Target {
 
 const EFFORT_SUFFIX = /-(none|low|medium|high|xhigh|max|ultra)$/u;
 
+export function isModelSpec(input: string): boolean {
+	const id = /^([a-z0-9][a-z0-9.-]*)(?::[^:\s]*)?$/u.exec(input)?.[1];
+
+	return id !== undefined && resolveTarget(id.replace(EFFORT_SUFFIX, "")) !== undefined;
+}
+
 export function resolveTarget(input: string, preferNativeClaude = false): Target | undefined {
 	const [id, requested, extra] = input.split(":");
 

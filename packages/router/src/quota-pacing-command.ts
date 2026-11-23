@@ -280,7 +280,7 @@ async function pace(
 	dir: string,
 	reports: Record<string, ServiceReport>,
 	dataClass: DataClass,
-	request?: { excludedVendor: string | undefined },
+	request?: { excludedVendors: ReadonlySet<string> },
 ) {
 	const now = Date.now();
 	const current = Object.values(reports).flatMap((report) => {
@@ -373,7 +373,7 @@ async function pace(
 	}
 
 	const candidates = buildCandidates([...builders.values()], reports, now, dataClass).filter(
-		({ model }) => vendorOf(model) !== request?.excludedVendor,
+		({ model }) => !request?.excludedVendors.has(vendorOf(model)),
 	);
 	const input = {
 		now,
@@ -403,11 +403,11 @@ async function pace(
 	};
 }
 
-export async function defaultTarget(dir: string, dataClass: DataClass, notVendor?: string) {
-	const excludedVendor = notVendor?.toLowerCase();
+export async function defaultTarget(dir: string, dataClass: DataClass, notVendors: string[] = []) {
+	const excludedVendors = new Set(notVendors.map((vendor) => vendor.toLowerCase()));
 
 	if (dataClass === "parcs") {
-		return excludedVendor === vendorOf("opus") ? undefined : resolveTarget("opus:high");
+		return excludedVendors.has(vendorOf("opus")) ? undefined : resolveTarget("opus:high");
 	}
 
 	const [codex, google] = await Promise.all([
@@ -419,7 +419,7 @@ export async function defaultTarget(dir: string, dataClass: DataClass, notVendor
 		google ? { codex, "google-ai": google } : { codex },
 		dataClass,
 		{
-			excludedVendor,
+			excludedVendors,
 		},
 	);
 	const first = selected[0];

@@ -13,7 +13,13 @@ import {
 } from "@petalnet/harness-hooks/quota-sources";
 
 import { redact, routeDepth } from "./adapters.ts";
-import { classRefusal, effectiveDataClass, parseDataClass, resolveTarget } from "./policy.ts";
+import {
+	classRefusal,
+	effectiveDataClass,
+	isModelSpec,
+	parseDataClass,
+	resolveTarget,
+} from "./policy.ts";
 import { defaultTarget, quotaMain } from "./quota-pacing-command.ts";
 import { launchOptions, routeCommand } from "./route-args.ts";
 import { notify, run } from "./run.ts";
@@ -59,7 +65,12 @@ async function launch(argv: string[]): Promise<number> {
 	try {
 		const parsed = (() => {
 			try {
-				return parseArgs({ args: argv, allowPositionals: true, options: launchOptions });
+				return parseArgs({
+					args: argv,
+					allowPositionals: true,
+					options: launchOptions,
+					tokens: true,
+				});
 			} catch {
 				return undefined;
 			}
@@ -69,10 +80,16 @@ async function launch(argv: string[]): Promise<number> {
 			return await reject(2, USAGE);
 		}
 
-		const { positionals, values } = parsed;
+		const { positionals, values, tokens } = parsed;
 		const [command, first, ...rest] = positionals;
 
 		if (command !== "run" || !first) {
+			return await reject(2, USAGE);
+		}
+
+		const modelSpec = isModelSpec(first);
+
+		if (rest.length === 0 && modelSpec && !existsSync(first)) {
 			return await reject(2, USAGE);
 		}
 
@@ -82,13 +99,20 @@ async function launch(argv: string[]): Promise<number> {
 			values["data-class"] !== undefined ||
 			values["not-vendor"] !== undefined ||
 			values["allow-superseded"] === true;
-		const startsWithModel = resolveTarget(first.split(":")[0] ?? "") !== undefined;
-		const model = rest.length > 0 && (!legacy || startsWithModel) ? first : undefined;
+		const firstIndex = tokens.filter(({ kind }) => kind === "positional")[1]?.index ?? 0;
+		// A legacy unquoted brief can begin with a bare alias, such as "codex fix the bug".
+		const legacyText =
+			legacy &&
+			(!modelSpec ||
+				(/^[a-z]+$/u.test(first) &&
+					tokens.some(
+						(token) =>
+							token.kind === "option" &&
+							token.index < firstIndex &&
+							(token.name === "kind" || token.name === "tier"),
+					)));
+		const model = rest.length > 0 && !legacyText ? first : undefined;
 		const words = model ? rest : [first, ...rest];
-
-		if (rest.length === 0 && startsWithModel && !legacy) {
-			return await reject(2, USAGE);
-		}
 
 		if (routeDepth() >= 4) {
 			return await reject(4, "nesting limit reached (maximum 4)");

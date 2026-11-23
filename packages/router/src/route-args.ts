@@ -7,7 +7,7 @@ export const launchOptions = {
 	kind: { type: "string" },
 	tier: { type: "string" },
 	"allow-superseded": { type: "boolean" },
-	"not-vendor": { type: "string" },
+	"not-vendor": { type: "string", multiple: true },
 	"allow-claude": { type: "boolean" },
 	promise: { type: "string" },
 	"source-kind": { type: "string" },

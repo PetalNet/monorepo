@@ -191,8 +191,21 @@ it.each([
 	{ flags: ["--data-class", "sensitive"], dataClass: "sensitive" },
 	{ flags: [], dataClass: "public" },
 	{ flags: ["--not-vendor", "OpenAI"], dataClass: "public", model: "gemini-4-neon" },
+	{
+		flags: ["--not-vendor", "google", "--not-vendor", "openai"],
+		dataClass: "public",
+		refused: true,
+	},
 	{ flags: [], dataClass: "public", used: 100, model: "gemini-4-neon" },
 	{ flags: ["--data-class", "sensitive"], dataClass: "sensitive", used: 100, refused: true },
+	{ flags: ["--class", "public"], dataClass: "public", brief: "codex: review this change." },
+	{ flags: [], dataClass: "public", file: "codex-brief.md" },
+	{
+		flags: ["--kind", "code", "--tier", "A", "--data-class", "public"],
+		dataClass: "public",
+		brief: "codex fix the bug",
+		unquoted: true,
+	},
 	{
 		flags: ["--kind", "code", "--tier", "A", "--data-class", "public", "--allow-superseded"],
 		dataClass: "public",
@@ -236,9 +249,16 @@ it.each([
 		),
 	]);
 
-	const brief = "Return a harmless marker.";
+	const brief = scenario.brief ?? "Return a harmless marker.";
+
+	if (scenario.file) {
+		await writeFile(path.join(dir, scenario.file), brief);
+	}
+
+	const words = scenario.unquoted ? brief.split(" ") : [scenario.file ?? brief];
 	const entry = fileURLToPath(new URL("route.ts", import.meta.url));
-	const result = spawnSync(process.execPath, [entry, "run", ...scenario.flags, brief], {
+	const result = spawnSync(process.execPath, [entry, "run", ...scenario.flags, ...words], {
+		cwd: dir,
 		encoding: "utf8",
 		timeout: 5000,
 		env: {
@@ -283,6 +303,35 @@ it.each([
 		}),
 	);
 });
+
+it.each([
+	{ words: ["gpt-6.2-sol:low"], code: 2, error: "usage:" },
+	{ words: ["gpt-6.2-sol-xhigh", "Fix the bug."], code: 3, error: "unsupported model or effort" },
+	{ words: ["gemini-4-neon:none", "Fix the bug."], code: 3, error: "unsupported model or effort" },
+])(
+	"keeps invalid explicit launches as errors with a legacy class flag",
+	async ({ words, code, error }) => {
+		const dir = await mkdtemp(path.join(tmpdir(), "route-usage-"));
+
+		dirs.push(dir);
+		const entry = fileURLToPath(new URL("route.ts", import.meta.url));
+		const result = spawnSync(process.execPath, [entry, "run", "--data-class", "public", ...words], {
+			encoding: "utf8",
+			timeout: 5000,
+			env: {
+				...process.env,
+				HOME: dir,
+				ROUTE_NO_INJECT: "1",
+				ROUTE_DEPTH: "0",
+				CODEX_BIN: "false",
+				QUOTA_AGY_CMD: "false",
+			},
+		});
+
+		expect(result.status).toBe(code);
+		expect(result.stderr).toContain(error);
+	},
+);
 
 it.each([
 	{ flags: ["--data-class", "parcs"], brief: "Read the draft.", code: 5 },
