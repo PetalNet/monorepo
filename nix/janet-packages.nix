@@ -4,6 +4,7 @@ let
   root = ../.;
   hooks = ../packages/harness-hooks/src;
   feed = ../apps/astrolabe/feed;
+  router = ../packages/router;
   tasks = ../apps/tasks/scripts;
   vault = ../packages/vault-engine/scripts;
   watcher = ../apps/vuln-watch;
@@ -173,6 +174,27 @@ rec {
       (hooks + "/quota-watch.ts")
     ];
     commands.quota = "packages/harness-hooks/src/quota.ts";
+  };
+
+  quota-pacer = nodeScripts {
+    name = "quota-pacer";
+    runtimeInputs = [ pkgs.util-linux ];
+    files = [
+      (router + "/src")
+      (router + "/package.json")
+      (router + "/bin/quota-pace-reminder")
+      (hooks + "/quota-sources.ts")
+      ../packages/harness-hooks/package.json
+      (feed + "/codex-usage.ts")
+      ../apps/astrolabe/src/lib/format.ts
+    ];
+    commands.quota-pace = "packages/router/src/route.ts pace";
+    extraInstall = ''
+      mkdir -p "$out/lib/node_modules/@petalnet"
+      ln -s ../../packages/harness-hooks "$out/lib/node_modules/@petalnet/harness-hooks"
+      install -Dm755 "$out/lib/packages/router/bin/quota-pace-reminder" "$out/bin/quota-pace-reminder"
+      patchShebangs "$out/bin/quota-pace-reminder"
+    '';
   };
 
   astrolabe-feed = nodeScripts {

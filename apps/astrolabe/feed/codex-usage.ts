@@ -193,10 +193,14 @@ const liveRateLimits = async (): Promise<JsonRecord | null> => {
 	return null;
 };
 
-const currentRateLimits = async (): Promise<Reading | null> => {
+const currentRateLimits = async (liveOnly = false): Promise<Reading | null> => {
 	const limits = await liveRateLimits();
 
-	return limits === null ? rolloutRateLimits() : { limits, observedAt: nowSeconds() };
+	if (limits !== null) {
+		return { limits, observedAt: nowSeconds() };
+	}
+
+	return liveOnly ? null : rolloutRateLimits();
 };
 
 /**
@@ -227,8 +231,8 @@ const resetOf = (window: JsonRecord): number | null => {
  * The snapshot `CODEX_USAGE_PATH` holds, which `src/lib/server/dossier.ts` reads. A window OpenAI
  * has not reported has a null `_pct` and `_resets_at`.
  */
-export const snapshot = async (): Promise<JsonRecord> => {
-	const reading = await currentRateLimits();
+export const snapshot = async (liveOnly = false): Promise<JsonRecord> => {
+	const reading = await currentRateLimits(liveOnly);
 	const scrapedAt = Math.trunc(nowSeconds());
 
 	if (reading === null) {
@@ -311,7 +315,7 @@ const report = async (): Promise<number> => {
 
 if (import.meta.main) {
 	if (process.argv.includes("--json")) {
-		console.log(JSON.stringify(await snapshot()));
+		console.log(JSON.stringify(await snapshot(process.argv.includes("--live-only"))));
 	} else {
 		process.exitCode = await report();
 	}

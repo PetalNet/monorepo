@@ -1,0 +1,12 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+recommendations=$("$(dirname "$(readlink -f "$0")")/quota-pace" --class public)
+printf '%s\n' "$recommendations"
+launches=$(awk '/^launch /' <<< "$recommendations")
+if [[ -n "$launches" ]]; then
+  {
+    printf '%s\n' 'Use quota-pace to recheck. Start only eligible queued work, at most the recommended counts, with FLOOR=2 route-unit. Skip work already running.'
+    printf '%s\n' "$launches"
+  } | "$HERMES_HOME/plugins/hermes-cc-link/bin/cc-link-inject" --source=quota-pacer
+fi

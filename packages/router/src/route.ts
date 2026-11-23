@@ -24,6 +24,7 @@ import { discoverCodex, withCodexCatalog, checkCodexAlerts } from "./codex-catal
 import { EFFORTS, readEvidence } from "./evidence.ts";
 import { readOpenEvidence } from "./open-evidence.ts";
 import { BLOCKS, POOLS, PLANS, type Catalog, type DataClass, type Pick, pick } from "./pick.ts";
+import { pace, readPacingCodex } from "./quota-pacing-command.ts";
 import { run } from "./run.ts";
 import { appendEvent, readAvailability } from "./state.ts";
 
@@ -34,6 +35,7 @@ const USAGE = `usage:
             run your pick on a task given inline, as a file, or on stdin; route checks policy and quota, logs it and pings Janet when it ends
   route why <model>[:<effort>] [--for <kind>] [--class <class>]
             why a model is or isn't runnable, with its evidence
+  route pace             recommend additional builders from live quota and recent runs
   route refresh-codex
             refresh installed-client models and post new-model or stale-client alerts once
   route pull-evidence
@@ -288,7 +290,8 @@ async function main(argv: string[]): Promise<number> {
 
 	const kind = values.for ?? "code";
 	const flagClass = values.class ?? "public";
-	const [target, ...words] = command === "ls" ? [] : rest;
+	const selectsOffer = command === "run" || command === "why";
+	const [target, ...words] = selectsOffer ? rest : [];
 	// The task is whatever follows the model: a prompt, a file holding one, or "-" for stdin.
 	const asked = words.join(" ");
 	const briefFile = words.length === 1 && existsSync(asked) ? asked : undefined;
@@ -297,8 +300,9 @@ async function main(argv: string[]): Promise<number> {
 	const tier = "*";
 
 	if (
-		!["ls", "run", "why"].includes(command ?? "") ||
-		(command !== "ls" && !model) ||
+		!["ls", "run", "why", "pace"].includes(command ?? "") ||
+		(selectsOffer && !model) ||
+		(command === "pace" && rest.length > 0) ||
 		(command === "run" && !asked) ||
 		(command !== "run" && values["allow-superseded"]) ||
 		!KINDS.has(kind) ||
@@ -347,7 +351,7 @@ async function main(argv: string[]): Promise<number> {
 	const deps = defaultSourceDeps();
 	const [google, codex, claude] = await Promise.all([
 		readGoogleAi(config, deps),
-		readCodex(config, deps),
+		command === "pace" ? readPacingCodex() : readCodex(config, deps),
 		readClaude(config, deps),
 	]);
 	const aa = readEvidence(`${home}/.claude/shared/aa-models.json`);
@@ -363,14 +367,13 @@ async function main(argv: string[]): Promise<number> {
 		// Eli 2026-11-19: "xhigh, max aren't allowed to be used by you".
 		bannedEfforts: ["xhigh", "max", "ultra"],
 		// Eli and Parker 2026-11-19: the caller picks from route's menu; route enforces and runs.
-		choice:
-			command === "ls"
-				? undefined
-				: {
-						model: model ?? "",
-						effort: effort === "" ? undefined : effort,
-						allowSuperseded: values["allow-superseded"] === true,
-					},
+		choice: selectsOffer
+			? {
+					model: model ?? "",
+					effort: effort === "" ? undefined : effort,
+					allowSuperseded: values["allow-superseded"] === true,
+				}
+			: undefined,
 		notVendor: (values["not-vendor"] ?? [])
 			.flatMap((v) => v.split(","))
 			.map((v) => v.trim().toLowerCase()),
@@ -382,11 +385,16 @@ async function main(argv: string[]): Promise<number> {
 			? POOLS.map(({ explicitOnly: _explicit, ...pool }) => pool)
 			: POOLS,
 		blocks: BLOCKS,
-		floorPct: Number(process.env["FLOOR"] ?? 15),
+		floorPct: Number(process.env["FLOOR"] ?? (command === "pace" ? 2 : 15)),
 		runnableOnly: true,
 		availability: await readAvailability(`${home}/.local/state/router`),
 	};
 	let result = pick(catalog, kind, tier, state);
+
+	if (command === "pace") {
+		process.stdout.write(`${await pace(`${home}/.local/state/router`, result, state.reports)}\n`);
+		return 0;
+	}
 
 	// Parker 2026-11-19 ("I dont care. use the router"): when no other vendor can take the review,
 	// fall back to the router's best different model, never the one that wrote the work.

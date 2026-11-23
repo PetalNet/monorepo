@@ -22,6 +22,8 @@ Failure classification and reset dates read only stderr lines beginning `AGY_ERR
 
 One `cc-link-inject --source route --key <runid>` runs at the end. The output is redacted before selecting its tail. Injection failure returns an error while preserving the result and ledger. Exit codes: 0 success, 1 failure, 2 invalid CLI input, 3 no eligible offer, 5 Claude handoff.
 
+`route pace --class public` recommends additional builders from live quota and the run ledger. See [Janet quota pacing](QUOTA-PACING.md) for the provider clocks, measurements and admission rule.
+
 ## Evidence scoring (slices 3 through 3c)
 
 `route why gpt-6.1-sol --for code` reads the same live state as `ls`; it never launches a model. Kind defaults to code and data class to public. Kinds also include `cyber` and `architecture`. Excluded candidates retain their explanations, including during a pool cooldown. An evidence ranking is not permission to bypass those exclusions.
