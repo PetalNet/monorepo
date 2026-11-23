@@ -36,11 +36,11 @@
 			"automerge": false
 		},
 		{
-			"description": "Automerge npm devDependency majors when finish passes. Renovate identifies pnpm catalog entries by catalog name. Petalboard also uses the dev catalog's prisma as a runtime dependency.",
+			"description": "Automerge npm devDependency majors when finish passes. Renovate identifies pnpm catalog entries by catalog name. The dev catalog's prisma and vite entries also affect production dependencies.",
 			"matchManagers": ["npm"],
 			"matchDepTypes": ["devDependencies", "pnpm.catalog.dev", "pnpm.catalog.types"],
 			"matchUpdateTypes": ["major"],
-			"matchJsonata": ["depType != 'pnpm.catalog.dev' or packageName != 'prisma'"],
+			"matchJsonata": ["depType != 'pnpm.catalog.dev' or $not(packageName in ['prisma', 'vite'])"],
 			"automerge": true
 		},
 		{
