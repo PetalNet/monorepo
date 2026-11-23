@@ -6,17 +6,6 @@
 		<meta name="theme-color" content="#ffffff" media="(prefers-color-scheme: light)" />
 		<meta name="theme-color" content="#0d0c0b" media="(prefers-color-scheme: dark)" />
 
-		<!-- Clarity mark. Without this the browser probes /favicon.ico, which traefik
-	     routes to SearXNG (the /favicon* rule) — so every tab would show SearXNG's
-	     icon instead of Clarity's (parity with app/web/index.html). -->
-		<link rel="icon" href="%sveltekit.assets%/icon.svg" />
-		<link
-			rel="search"
-			type="application/opensearchdescription+xml"
-			title="Clarity"
-			href="%sveltekit.assets%/opensearch.xml"
-		/>
-
 		<!-- Anti-FOUC: resolve + apply the saved/OS theme synchronously before first
 		     paint so a dark visitor never flashes light. Clarity theme keys are
 		     light / dark / auto stored in 'clarity-theme' (mirrors app.ts). -->
