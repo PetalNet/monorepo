@@ -1,5 +1,5 @@
 {
-  description = "PetalNet monorepo dev shell";
+  description = "PetalNet monorepo packages and dev shells";
 
   inputs = {
     nixpkgs.url = "https://channels.nixos.org/nixos-unstable/nixexprs.tar.zst";
@@ -23,7 +23,7 @@
   };
 
   outputs =
-    { nixpkgs, nixpkgs-prisma5, ... }@inputs:
+    { self, nixpkgs, nixpkgs-prisma5, ... }@inputs:
     let
       inherit (nixpkgs) lib;
       forAllSystems =
@@ -33,6 +33,9 @@
         );
     in
     {
+      packages = forAllSystems (pkgs: _: import ./nix/janet-packages.nix pkgs);
+      checks = self.packages;
+
       devShells = forAllSystems (
         pkgs: pkgs-prisma5:
         let
