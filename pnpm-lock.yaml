@@ -88,8 +88,8 @@ catalogs:
       specifier: 1.65.1
       version: 1.65.1
     robots-parser:
-      specifier: 3.1.0
-      version: 3.1.0
+      specifier: 3.1.1
+      version: 3.1.1
     storybook:
       specifier: 10.6.8
       version: 10.6.8
@@ -1433,7 +1433,7 @@ importers:
         version: 1.65.1
       robots-parser:
         specifier: 'catalog:'
-        version: 3.1.0
+        version: 3.1.1
       zod:
         specifier: catalog:prod
         version: 4.6.5
@@ -7627,8 +7627,8 @@ packages:
     resolution: {integrity: sha512-g6QUff04oZpHs0eG5p83rFLhHeV00ug/Yf9nZM6fLeUrPguBTkTQOdpAWWspMh55TZfVQDPaN3NQJfbVRAxdIw==}
     engines: {iojs: '>=1.0.0', node: '>=0.10.0'}
 
-  robots-parser@3.1.0:
-    resolution: {integrity: sha512-plDSjaini00x5DdwQOfHVYmiMbnRjjq+4f866KF3LSKab4/WvzHtaKpso1oQKoB3qDT70knCq37XglSo6sm7cQ==}
+  robots-parser@3.1.1:
+    resolution: {integrity: sha512-ltsI9/0CiaaZpnJeLT4vwK86cW1AfSXoBgnQHIaCtBrg4K8UckV7HakNzWfG8UvT2hqwrLZ1YWilWMEiynBg6g==}
     engines: {node: '>=10.0.0'}
 
   robust-predicates@3.0.3:
@@ -13998,7 +13998,7 @@ snapshots:
 
   reusify@1.1.0: {}
 
-  robots-parser@3.1.0: {}
+  robots-parser@3.1.1: {}
 
   robust-predicates@3.0.3: {}
 
