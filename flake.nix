@@ -13,11 +13,11 @@
     # fails to evaluate if they drift apart. pnpm itself downloads the Node.js that
     # devEngines.runtime pins, for every `pnpm run` and `pnpm exec`.
     pnpm-linux-x64 = {
-      url = "https://registry.npmjs.org/@pnpm/exe.linux-x64/-/exe.linux-x64-12.21.0.tgz";
+      url = "https://registry.npmjs.org/@pnpm/exe.linux-x64/-/exe.linux-x64-12.23.0.tgz";
       flake = false;
     };
     pnpm-linux-arm64 = {
-      url = "https://registry.npmjs.org/@pnpm/exe.linux-arm64/-/exe.linux-arm64-12.21.0.tgz";
+      url = "https://registry.npmjs.org/@pnpm/exe.linux-arm64/-/exe.linux-arm64-12.23.0.tgz";
       flake = false;
     };
   };
