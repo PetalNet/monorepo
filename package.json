@@ -63,7 +63,7 @@
 			"onFail": "download"
 		}
 	},
-	"packageManager": "pnpm@12.21.0",
+	"packageManager": "pnpm@12.23.0",
 	"typesync": {
 		"ignoreProjects": [
 			"apps/app-store",
