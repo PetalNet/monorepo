@@ -5,7 +5,7 @@ idiomatic_version_file_enable_tools = ["pnpm", "rust"]
 lockfile = true
 
 [tools]
-uv = "0.13.8"
+uv = "0.13.9"
 
 [monorepo]
 config_roots = ["apps/point/app"]
