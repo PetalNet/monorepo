@@ -1,5 +1,5 @@
 [tools]
-flutter = "3.50.0"
+flutter = "3.50.1"
 # webcrypto's native-assets hook builds BoringSSL with these during `flutter test`.
 cmake = "4.5.1"
 ninja = "1.13.2"
